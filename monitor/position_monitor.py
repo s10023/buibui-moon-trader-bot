@@ -8,8 +8,11 @@ import time
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys
+import pandas as pd
+import pandas_ta as ta
 from utils.config_validation import validate_coins_config
 from typing import Any, Dict, List, Optional, Tuple
+from utils.indicators import fetch_klines_df, calculate_indicators, get_alerts
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils.telegram import send_telegram_message
@@ -117,7 +120,7 @@ def get_stop_loss_for_symbol(symbol: str) -> Optional[float]:
 
 
 def fetch_open_positions(
-    sort_by: str = "default", descending: bool = True
+    sort_by: str = "default", descending: bool = True, show_indicators: bool = True
 ) -> Tuple[List[Any], float]:
 
     positions = client.futures_position_information()
@@ -216,6 +219,20 @@ def fetch_open_positions(
         )
         if sl_risk_usd:
             total_risk_usd += sl_risk_usd
+        # --- Indicator Alerts ---
+        alerts_str = ""
+        if show_indicators:
+            indicator_timeframes = [
+                ("15m", "15m", 100),
+                ("1h", "1h", 100),
+                ("4h", "4h", 100),
+            ]
+            alerts = []
+            for tf, tf_label, limit in indicator_timeframes:
+                df = fetch_klines_df(client, symbol, tf, limit=limit)
+                rsi, macd, macdsignal = calculate_indicators(df)
+                alerts.extend(get_alerts(rsi, macd, macdsignal, tf_label))
+            alerts_str = "; ".join(alerts)
         row = [
             symbol,  # 0
             side_colored,  # 1
@@ -231,6 +248,8 @@ def fetch_open_positions(
             sl_size_str,  # 11
             sl_usd_str,  # 12
         ]
+        if show_indicators:
+            row.append(alerts_str)
         # Append extra values at the end for sorting (not shown)
         row.append(pnl_pct)  # index 13
         row.append(sl_risk_usd)  # index 14
@@ -289,9 +308,14 @@ def display_progress_bar(current: float, target: float, bar_length: int = 30) ->
 
 
 def display_table(
-    sort_by: str = "default", descending: bool = True, telegram: bool = False
+    sort_by: str = "default",
+    descending: bool = True,
+    telegram: bool = False,
+    show_indicators: bool = True,
 ) -> str:
-    table, total_risk_usd = fetch_open_positions(sort_by, descending)
+    table, total_risk_usd = fetch_open_positions(
+        sort_by, descending, show_indicators=show_indicators
+    )
     wallet, unrealized = get_wallet_balance()
     total = wallet + unrealized
     unrealized_pct = (unrealized / wallet * 100) if wallet else 0
@@ -324,6 +348,10 @@ def display_table(
         "% to SL",
         "SL USD",
     ]
+
+    if show_indicators:
+        headers.append("Alerts")
+
     output.append(
         tabulate(
             table,
@@ -349,13 +377,22 @@ def display_table(
     return "\n".join(output)
 
 
-def main(sort: str = "default", telegram: bool = False) -> None:
+def main(
+    sort: str = "default", telegram: bool = False, show_indicators: bool = True
+) -> None:
 
     sort_key, _, sort_dir = sort.partition(":")
     sort_order = sort_dir.lower() != "asc"  # default to descending if not asc
 
     os.system("cls" if os.name == "nt" else "clear")
-    print(display_table(sort_by=sort_key, descending=sort_order, telegram=telegram))
+    print(
+        display_table(
+            sort_by=sort_key,
+            descending=sort_order,
+            telegram=telegram,
+            show_indicators=show_indicators,
+        )
+    )
 
 
 if __name__ == "__main__":
@@ -368,6 +405,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--telegram", action="store_true", help="Send output to Telegram"
     )
+    parser.add_argument(
+        "--hide-indicators",
+        action="store_true",
+        help="Hide indicator alerts column (RSI/MACD)",
+    )
     args = parser.parse_args()
 
-    main(sort=args.sort, telegram=args.telegram)
+    main(
+        sort=args.sort, telegram=args.telegram, show_indicators=not args.hide_indicators
+    )
