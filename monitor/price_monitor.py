@@ -244,7 +244,7 @@ def clear_screen() -> None:
     os.system("cls" if os.name == "nt" else "clear")
 
 
-def parse_sort_arg(sort_arg):
+def parse_sort_arg(sort_arg: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
     if not sort_arg:
         return None, None
     parts = sort_arg.split(":")
@@ -261,10 +261,10 @@ def parse_sort_arg(sort_arg):
     return col, order
 
 
-def sort_table(table, col, order):
+def sort_table(table: List[Any], col: str, order: str) -> List[Any]:
     idx = sort_key_map[col]
 
-    def parse_value(val):
+    def parse_value(val: Any) -> Any:
         # Remove color codes and % for percentage columns
         if isinstance(val, str):
             val = re.sub(r"\x1b\[[0-9;]*m", "", val)  # Remove ANSI codes
@@ -279,13 +279,18 @@ def sort_table(table, col, order):
     )
 
 
-def main(live: bool = False, telegram: bool = False, sort_col: bool = None, sort_order: bool = None) -> None:
+def main(
+    live: bool = False,
+    telegram: bool = False,
+    sort_col: Optional[str] = None,
+    sort_order: Optional[str] = None,
+) -> None:
     if not live:
         clear_screen()
         print("📈 Crypto Price Snapshot — Buibui Moon Bot\n")
         headers = ["Symbol", "Last Price", "15m %", "1h %", "Since Asia 8AM", "24h %"]
         price_table, invalid_symbols = get_price_changes(COINS)
-        if sort_col:
+        if sort_col is not None and sort_order is not None:
             print(f"[DEBUG] Sorting by: {sort_col} {sort_order}")
             price_table = sort_table(price_table, sort_col, sort_order)
         print(tabulate(price_table, headers=headers, tablefmt="fancy_grid"))
@@ -297,7 +302,7 @@ def main(live: bool = False, telegram: bool = False, sort_col: bool = None, sort
 
         if telegram:
             price_table, _ = get_price_changes(COINS, telegram=True)
-            if sort_col:
+            if sort_col is not None and sort_order is not None:
                 price_table = sort_table(price_table, sort_col, sort_order)
             plain_table = tabulate(price_table, headers=headers, tablefmt="plain")
             try:
@@ -321,7 +326,7 @@ def main(live: bool = False, telegram: bool = False, sort_col: bool = None, sort
                     "24h %",
                 ]
                 price_table, invalid_symbols = get_price_changes(COINS)
-                if sort_col:
+                if sort_col is not None and sort_order is not None:
                     price_table = sort_table(price_table, sort_col, sort_order)
                 print(tabulate(price_table, headers=headers, tablefmt="fancy_grid"))
                 if invalid_symbols:
