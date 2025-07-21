@@ -308,9 +308,14 @@ def display_progress_bar(current: float, target: float, bar_length: int = 30) ->
 
 
 def display_table(
-    sort_by: str = "default", descending: bool = True, telegram: bool = False, show_indicators: bool = True
+    sort_by: str = "default",
+    descending: bool = True,
+    telegram: bool = False,
+    show_indicators: bool = True,
 ) -> str:
-    table, total_risk_usd = fetch_open_positions(sort_by, descending, show_indicators=show_indicators)
+    table, total_risk_usd = fetch_open_positions(
+        sort_by, descending, show_indicators=show_indicators
+    )
     wallet, unrealized = get_wallet_balance()
     total = wallet + unrealized
     unrealized_pct = (unrealized / wallet * 100) if wallet else 0
@@ -346,7 +351,7 @@ def display_table(
 
     if show_indicators:
         headers.append("Alerts")
-    
+
     output.append(
         tabulate(
             table,
@@ -372,13 +377,22 @@ def display_table(
     return "\n".join(output)
 
 
-def main(sort: str = "default", telegram: bool = False, show_indicators: bool =True) -> None:
+def main(
+    sort: str = "default", telegram: bool = False, show_indicators: bool = True
+) -> None:
 
     sort_key, _, sort_dir = sort.partition(":")
     sort_order = sort_dir.lower() != "asc"  # default to descending if not asc
 
     os.system("cls" if os.name == "nt" else "clear")
-    print(display_table(sort_by=sort_key, descending=sort_order, telegram=telegram, show_indicators=show_indicators))
+    print(
+        display_table(
+            sort_by=sort_key,
+            descending=sort_order,
+            telegram=telegram,
+            show_indicators=show_indicators,
+        )
+    )
 
 
 if __name__ == "__main__":

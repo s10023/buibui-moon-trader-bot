@@ -212,7 +212,7 @@ def get_price_changes(
             )
 
             last_price_str = str(round(last_price, 4))
-            
+
             # --- New: Indicator alerts ---
             alerts = []
             for tf, tf_label, limit in indicator_timeframes:

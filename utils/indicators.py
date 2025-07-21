@@ -1,9 +1,12 @@
+from typing import Any, Optional, Tuple, List
 import pandas as pd
 import pandas_ta as ta
 import logging
 
 
-def fetch_klines_df(client, symbol, interval, limit=150):
+def fetch_klines_df(
+    client: Any, symbol: str, interval: str, limit: int = 150
+) -> Optional[pd.DataFrame]:
     try:
         klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
         if not klines:
@@ -34,7 +37,9 @@ def fetch_klines_df(client, symbol, interval, limit=150):
         return None
 
 
-def calculate_indicators(df):
+def calculate_indicators(
+    df: Optional[pd.DataFrame],
+) -> Tuple[Optional[float], Optional[float], Optional[float]]:
     if df is None or df.empty:
         return None, None, None
     df["rsi"] = ta.rsi(df["close"], length=14)
@@ -48,7 +53,12 @@ def calculate_indicators(df):
     return latest_rsi, latest_macd, latest_macdsignal
 
 
-def get_alerts(rsi, macd, macdsignal, tf_label):
+def get_alerts(
+    rsi: Optional[float],
+    macd: Optional[float],
+    macdsignal: Optional[float],
+    tf_label: str,
+) -> List[str]:
     alerts = []
     if rsi is not None:
         if rsi > 70:
