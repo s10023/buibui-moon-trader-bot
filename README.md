@@ -55,6 +55,55 @@ buibui-moon-trader-bot/
 └── README.md
 ```
 
+## 🛠️ Makefile Usage
+
+The Makefile provides easy commands for all major actions:
+
+**Lint, Format, Typecheck:**
+
+```bash
+make lint           # Lint Markdown and Python (excludes venv)
+make typecheck      # Type check with mypy
+```
+
+**Install/Update dependencies:**
+
+```bash
+make poetry-install
+make poetry-update
+```
+
+**Run monitors:**
+
+```bash
+# Price monitor
+make buibui-monitor-price
+make buibui-monitor-price-live
+make buibui-monitor-price-telegram
+
+# Position monitor (with flexible sorting)
+make buibui-monitor-position           # Default sort
+make buibui-monitor-position SORT=pnl_pct:desc   # Sort by PnL%
+make buibui-monitor-position SORT=sl_usd:asc     # Sort by SL risk
+make buibui-monitor-position-telegram
+```
+
+**Open trades:**
+
+```bash
+make buibui-open-trades
+```
+
+**Docker:**
+
+```bash
+make docker-build
+make docker-monitor-price
+make docker-monitor-position
+```
+
+All commands use your `.env` file for secrets and config.
+
 ---
 
 ## ⚙️ Setup
@@ -278,3 +327,22 @@ The `.github/workflows/monitor.yaml` file can be configured to:
 - Visual dashboard (web UI or terminal rich)
 
 - Funding rate monitor + reversal detector
+
+## 🧹 Linting & Type Checking
+
+This project uses:
+
+- **black** for code formatting
+- **mypy** for static type checking
+
+To check formatting and types locally:
+
+```bash
+poetry run black --check .
+poetry run mypy .
+```
+
+## 🛡️ Continuous Integration
+
+Every push and pull request runs automated checks (linting, formatting, and type checking) via GitHub Actions.  
+You can find the workflow in `.github/workflows/lint.yaml`.

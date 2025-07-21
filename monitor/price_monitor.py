@@ -11,6 +11,7 @@ from colorama import init, Fore, Style
 import logging
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Dict, List, Set, Tuple, Optional
 import re
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -28,7 +29,7 @@ API_SECRET = os.getenv("BINANCE_API_SECRET")
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s:%(message)s")
 
 
-def sync_binance_time(client):
+def sync_binance_time(client: Any) -> None:
     server_time = client.get_server_time()["serverTime"]
     local_time = int(time.time() * 1000)
     client.TIME_OFFSET = server_time - local_time
@@ -52,7 +53,7 @@ except Exception as e:
 
 
 # Format % change with color
-def format_pct(pct):
+def format_pct(pct: Any) -> Any:
     try:
         pct = float(pct)
         if pct > 0:
@@ -66,16 +67,16 @@ def format_pct(pct):
         return pct
 
 
-def format_pct_simple(pct):
+def format_pct_simple(pct: Any) -> str:
     try:
         return f"{float(pct):+.2f}%"
     except Exception as e:
         logging.error(f"Error in format_pct_simple: {e}")
-        return pct
+        return str(pct)
 
 
 # Convert datetime to Binance-compatible string
-def get_klines(symbol, interval, lookback_minutes):
+def get_klines(symbol: str, interval: str, lookback_minutes: int) -> Optional[Any]:
     now = dt.datetime.utcnow()
     start_time = int((now - dt.timedelta(minutes=lookback_minutes)).timestamp() * 1000)
     try:
@@ -88,7 +89,9 @@ def get_klines(symbol, interval, lookback_minutes):
         return None
 
 
-def batch_get_klines(symbols, intervals_lookbacks):
+def batch_get_klines(
+    symbols: List[str], intervals_lookbacks: List[Tuple[str, int]]
+) -> Dict[Tuple[str, str], Any]:
     """
     Batch fetch klines for all symbols and intervals in parallel.
     intervals_lookbacks: list of (interval, lookback_minutes)
@@ -96,7 +99,9 @@ def batch_get_klines(symbols, intervals_lookbacks):
     """
     results = {}
 
-    def fetch(symbol, interval, lookback):
+    def fetch(
+        symbol: str, interval: str, lookback: int
+    ) -> Tuple[Tuple[str, str], Optional[Any]]:
         now = dt.datetime.utcnow()
         start_time = int((now - dt.timedelta(minutes=lookback)).timestamp() * 1000)
         try:
@@ -105,10 +110,10 @@ def batch_get_klines(symbols, intervals_lookbacks):
             )
             return ((symbol, interval), klines[-1] if klines else None)
         except Exception as e:
-            # logging.error(f"Error in batch_get_klines for {symbol} [{interval}]: {e}")
             return ((symbol, interval), None)
 
-    max_workers = max(1, os.cpu_count() // 2)
+    cpu_count = os.cpu_count() or 1
+    max_workers = max(1, cpu_count // 2)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [
             executor.submit(fetch, symbol, interval, lookback)
@@ -121,7 +126,7 @@ def batch_get_klines(symbols, intervals_lookbacks):
     return results
 
 
-def get_open_price_asia(symbol):
+def get_open_price_asia(symbol: str) -> Optional[float]:
     now_utc = dt.datetime.utcnow().replace(tzinfo=pytz.utc)
     asia_tz = pytz.timezone("Asia/Shanghai")  # GMT+8
     asia_today_8am = now_utc.astimezone(asia_tz).replace(
@@ -141,7 +146,9 @@ def get_open_price_asia(symbol):
         return None
 
 
-def get_price_changes(symbols, telegram=False):
+def get_price_changes(
+    symbols: List[str], telegram: bool = False
+) -> Tuple[List[Any], Set[Any]]:
     table = []
     invalid_symbols = set()
     # Get all tickers once (much faster)
@@ -156,13 +163,14 @@ def get_price_changes(symbols, telegram=False):
     intervals_lookbacks = [("15m", 15), ("1h", 60)]
     kline_map = batch_get_klines(symbols, intervals_lookbacks)
 
-    def get_asia_open_parallel(symbols):
+    def get_asia_open_parallel(symbols: List[str]) -> Dict[str, Optional[float]]:
         results = {}
 
-        def fetch(symbol):
+        def fetch(symbol: str) -> Tuple[str, Optional[float]]:
             return (symbol, get_open_price_asia(symbol))
 
-        max_workers = max(1, os.cpu_count() // 2)
+        cpu_count = os.cpu_count() or 1
+        max_workers = max(1, cpu_count // 2)
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [executor.submit(fetch, symbol) for symbol in symbols]
             for future in as_completed(futures):
@@ -198,11 +206,12 @@ def get_price_changes(symbols, telegram=False):
                 ((last_price - asia_open) / asia_open) * 100 if asia_open else 0
             )
 
+            last_price_str = str(round(last_price, 4))
             if telegram:
                 table.append(
                     [
                         symbol,
-                        round(last_price, 4),
+                        last_price_str,
                         format_pct_simple(change_15m),
                         format_pct_simple(change_1h),
                         format_pct_simple(change_asia),
@@ -213,7 +222,7 @@ def get_price_changes(symbols, telegram=False):
                 table.append(
                     [
                         symbol,
-                        round(last_price, 4),
+                        last_price_str,
                         format_pct(change_15m),
                         format_pct(change_1h),
                         format_pct(change_asia),
@@ -231,7 +240,7 @@ def get_price_changes(symbols, telegram=False):
     return table, invalid_symbols
 
 
-def clear_screen():
+def clear_screen() -> None:
     os.system("cls" if os.name == "nt" else "clear")
 
 
@@ -270,7 +279,7 @@ def sort_table(table, col, order):
     )
 
 
-def main(live=False, telegram=False, sort_col=None, sort_order=None):
+def main(live: bool = False, telegram: bool = False, sort_col: bool = None, sort_order: bool = None) -> None:
     if not live:
         clear_screen()
         print("📈 Crypto Price Snapshot — Buibui Moon Bot\n")

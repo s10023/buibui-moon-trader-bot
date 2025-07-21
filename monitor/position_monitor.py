@@ -9,6 +9,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys
 from utils.config_validation import validate_coins_config
+from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils.telegram import send_telegram_message
@@ -16,7 +17,7 @@ from utils.telegram import send_telegram_message
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s:%(message)s")
 
 
-def sync_binance_time(client):
+def sync_binance_time(client: Any) -> None:
     server_time = client.get_server_time()["serverTime"]
     local_time = int(time.time() * 1000)
     client.TIME_OFFSET = server_time - local_time
@@ -45,7 +46,7 @@ except Exception as e:
     sys.exit(1)
 
 
-def colorize(value, threshold=0):
+def colorize(value: Any, threshold: float = 0) -> Any:
     try:
         value = float(value)
         if value > threshold:
@@ -59,7 +60,7 @@ def colorize(value, threshold=0):
         return value
 
 
-def colorize_dollar(value):
+def colorize_dollar(value: Any) -> str:
     try:
         value = float(value)
         if value > 0:
@@ -73,7 +74,7 @@ def colorize_dollar(value):
         return f"${value}"
 
 
-def color_sl_size(pct):
+def color_sl_size(pct: float) -> str:
     if pct < 2:
         return f"\033[91m{pct:.2f}%\033[0m"
     elif pct < 3.5:
@@ -82,7 +83,7 @@ def color_sl_size(pct):
         return f"\033[92m{pct:.2f}%\033[0m"
 
 
-def color_risk_usd(value, total_balance):
+def color_risk_usd(value: float, total_balance: float) -> str:
     pct = (value / total_balance * 100) if total_balance else 0
     formatted = f"${value:,.2f} ({pct:.2f}%)"
     if pct < -50:
@@ -93,7 +94,7 @@ def color_risk_usd(value, total_balance):
         return f"\033[92m{formatted}\033[0m"
 
 
-def get_wallet_balance():
+def get_wallet_balance() -> Tuple[float, float]:
     balances = client.futures_account_balance()
     for b in balances:
         if b["asset"] == "USDT":
@@ -103,7 +104,7 @@ def get_wallet_balance():
     return 0.0, 0.0
 
 
-def get_stop_loss_for_symbol(symbol):
+def get_stop_loss_for_symbol(symbol: str) -> Optional[float]:
     try:
         orders = client.futures_get_open_orders(symbol=symbol)
         for o in orders:
@@ -115,7 +116,9 @@ def get_stop_loss_for_symbol(symbol):
     return None
 
 
-def fetch_open_positions(sort_by="default", descending=True):
+def fetch_open_positions(
+    sort_by: str = "default", descending: bool = True
+) -> Tuple[List[Any], float]:
 
     positions = client.futures_position_information()
     filtered = []
@@ -141,7 +144,9 @@ def fetch_open_positions(sort_by="default", descending=True):
         )
 
     # Parallelize stop loss fetching
-    def fetch_sl(symbol, side_text, entry, notional):
+    def fetch_sl(
+        symbol: str, side_text: str, entry: float, notional: float
+    ) -> Tuple[str, Any, Any, Any, float, Optional[float]]:
         try:
             actual_sl = get_stop_loss_for_symbol(symbol)
             if actual_sl:
@@ -171,7 +176,8 @@ def fetch_open_positions(sort_by="default", descending=True):
             return (symbol, "-", "-", "-", 0.0, None)
 
     sl_results = {}
-    max_workers = max(1, os.cpu_count() // 2)
+    cpu_count = os.cpu_count() or 1
+    max_workers = max(1, cpu_count // 2)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [
             executor.submit(fetch_sl, symbol, side_text, entry, notional)
@@ -271,7 +277,7 @@ def fetch_open_positions(sort_by="default", descending=True):
     return filtered, total_risk_usd
 
 
-def display_progress_bar(current, target, bar_length=30):
+def display_progress_bar(current: float, target: float, bar_length: int = 30) -> str:
     if target <= 0:
         return ""
     pct = min(max(current / target, 0), 1)
@@ -282,27 +288,27 @@ def display_progress_bar(current, target, bar_length=30):
     return f"Wallet Target: ${current:,.2f} / ${target:,.2f} |{bar}| {pct*100:.1f}%"
 
 
-def display_table(sort_by="default", descending=True, telegram=False):
+def display_table(
+    sort_by: str = "default", descending: bool = True, telegram: bool = False
+) -> str:
     table, total_risk_usd = fetch_open_positions(sort_by, descending)
     wallet, unrealized = get_wallet_balance()
     total = wallet + unrealized
     unrealized_pct = (unrealized / wallet * 100) if wallet else 0
-
     used_margin = sum(
         float(row[5]) for row in table if isinstance(row[5], (int, float))
     )
     available_balance = total - used_margin
-
-    print(f"\n💰 Wallet Balance: ${wallet:,.2f}")
-    print(f"💼 Available Balance: ${available_balance:,.2f}")
-    print(
+    output = []
+    output.append(f"\n💰 Wallet Balance: ${wallet:,.2f}")
+    output.append(f"💼 Available Balance: ${available_balance:,.2f}")
+    output.append(
         f"📊 Total Unrealized PnL: {colorize_dollar(unrealized)} ({colorize(unrealized_pct)} of wallet)"
     )
-    print(f"🧾 Wallet w/ Unrealized: ${total:,.2f}")
-    print(f"⚠️ Total SL Risk: {color_risk_usd(total_risk_usd, wallet)}\n")
+    output.append(f"🧾 Wallet w/ Unrealized: ${total:,.2f}")
+    output.append(f"⚠️ Total SL Risk: {color_risk_usd(total_risk_usd, wallet)}\n")
     if WALLET_TARGET > 0:
-        print(display_progress_bar(total, WALLET_TARGET))
-
+        output.append(display_progress_bar(total, WALLET_TARGET))
     headers = [
         "Symbol",
         "Side",
@@ -318,8 +324,7 @@ def display_table(sort_by="default", descending=True, telegram=False):
         "% to SL",
         "SL USD",
     ]
-
-    print(
+    output.append(
         tabulate(
             table,
             headers=headers,
@@ -328,7 +333,6 @@ def display_table(sort_by="default", descending=True, telegram=False):
             stralign="left",
         )
     )
-
     if telegram:
         summary = (
             f"📌 Open Positions Snapshot\n\n"
@@ -342,15 +346,16 @@ def display_table(sort_by="default", descending=True, telegram=False):
             send_telegram_message(summary)
         except Exception as e:
             logging.error(f"❌ Telegram message failed: {e}")
+    return "\n".join(output)
 
 
-def main(sort="default", telegram=False):
+def main(sort: str = "default", telegram: bool = False) -> None:
 
     sort_key, _, sort_dir = sort.partition(":")
     sort_order = sort_dir.lower() != "asc"  # default to descending if not asc
 
     os.system("cls" if os.name == "nt" else "clear")
-    display_table(sort_by=sort_key, descending=sort_order, telegram=telegram)
+    print(display_table(sort_by=sort_key, descending=sort_order, telegram=telegram))
 
 
 if __name__ == "__main__":

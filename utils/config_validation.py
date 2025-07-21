@@ -1,4 +1,7 @@
-def validate_coins_config(config_dict):
+from typing import Dict, Any
+
+
+def validate_coins_config(config_dict: Dict[str, Any]) -> bool:
     """
     Validate the coins.json config dict.
     Raises ValueError if invalid.
@@ -26,3 +29,4 @@ def validate_coins_config(config_dict):
             raise ValueError(
                 f"Symbol '{symbol}' sl_percent {sl} out of range (0.1-100)."
             )
+    return True

@@ -2,15 +2,15 @@ import argparse
 from monitor import price_monitor, position_monitor
 
 
-def run_price_monitor(args):
+def run_price_monitor(args: argparse.Namespace) -> None:
     price_monitor.main(live=args.live, telegram=args.telegram)
 
 
-def run_position_monitor(args):
+def run_position_monitor(args: argparse.Namespace) -> None:
     position_monitor.main(sort=args.sort, telegram=args.telegram)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Buibui Moon Trader CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
