@@ -216,6 +216,23 @@ To run in live refresh mode:
 poetry run python buibui.py monitor price --live
 ```
 
+You can also control how the table is sorted using the `--sort` flag:
+
+```bash
+poetry run python buibui.py monitor price --sort change_15m:desc   # Sort by highest 15m % change
+poetry run python buibui.py monitor price --sort change_1h:asc     # Sort by lowest 1h % change
+```
+
+Supported sort keys:
+
+- default — Respect order from `config/coins.json`
+- `change_15m` — 15-minute % change
+- `change_1h` — 1-hour % change
+- `change_asia` — % change since Asia open (8AM GMT+8)
+- `change_24h` — 24-hour % change
+
+Append `:asc` or `:desc` to control the sort direction (defaults to `desc`).
+
 It shows:
 
 - Live price
