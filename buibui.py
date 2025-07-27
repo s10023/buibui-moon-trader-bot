@@ -3,7 +3,7 @@ from monitor import price_monitor, position_monitor
 
 
 def run_price_monitor(args: argparse.Namespace) -> None:
-    price_monitor.main(live=args.live, telegram=args.telegram)
+    price_monitor.main(live=args.live, telegram=args.telegram, sort=args.sort)
 
 
 def run_position_monitor(args: argparse.Namespace) -> None:
@@ -25,6 +25,11 @@ def main() -> None:
     # 'price' subcommand
     price_parser = monitor_subparsers.add_parser("price", help="Run price monitor")
     price_parser.add_argument("--live", action="store_true", help="Live refresh mode")
+    price_parser.add_argument(
+        "--sort",
+        default="default",
+        help="Sort table by column[:asc|desc]. Options: change_15m, change_1h, change_asia, change_24h. Example: --sort change_15m:desc",
+    )
     price_parser.add_argument(
         "--telegram", action="store_true", help="Send output to Telegram"
     )

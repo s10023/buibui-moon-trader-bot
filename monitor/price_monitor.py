@@ -85,7 +85,6 @@ def get_klines(symbol: str, interval: str, lookback_minutes: int) -> Optional[An
         )
         return klines[-1]  # most recent kline
     except Exception as e:
-        # logging.error(f"Error in get_klines for {symbol} [{interval}]: {e}")
         return None
 
 
@@ -142,7 +141,6 @@ def get_open_price_asia(symbol: str) -> Optional[float]:
         )
         return float(kline[0][1]) if kline else None  # open price
     except Exception as e:
-        # logging.error(f"Error in get_open_price_asia for {symbol}: {e}")
         return None
 
 
@@ -151,7 +149,7 @@ def get_price_changes(
 ) -> Tuple[List[Any], Set[Any]]:
     table = []
     invalid_symbols = set()
-    # Get all tickers once (much faster)
+    # Get all tickers once
     try:
         all_tickers = client.get_ticker()
         ticker_map = {t["symbol"]: t for t in all_tickers}
@@ -235,7 +233,6 @@ def get_price_changes(
                 invalid_symbols.add((symbol, "Invalid symbol"))
             else:
                 invalid_symbols.add((symbol, msg))
-            # logging.error(f"Error in get_price_changes for {symbol}: {e}")
             table.append([symbol, "Error", "", "", "", ""])
     return table, invalid_symbols
 
@@ -244,55 +241,46 @@ def clear_screen() -> None:
     os.system("cls" if os.name == "nt" else "clear")
 
 
-def parse_sort_arg(sort_arg: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
-    if not sort_arg:
-        return None, None
-    parts = sort_arg.split(":")
-    col = parts[0]
-    order = parts[1] if len(parts) > 1 else "desc"
-    if col not in sort_key_map:
-        print(
-            f"Invalid sort column: {col}. Valid options: {', '.join(sort_key_map.keys())}"
-        )
-        sys.exit(1)
-    if order not in ("asc", "desc"):
-        print("Sort order must be 'asc' or 'desc'.")
-        sys.exit(1)
-    return col, order
+def sort_table(
+    table: List[Any], headers: List[str], col: str, order: bool
+) -> List[Any]:
+    sort_key_map = {
+        "change_15m": headers.index("15m %"),
+        "change_1h": headers.index("1h %"),
+        "change_asia": headers.index("Since Asia 8AM"),
+        "change_24h": headers.index("24h %"),
+    }
 
-
-def sort_table(table: List[Any], col: str, order: str) -> List[Any]:
     idx = sort_key_map[col]
 
-    def parse_value(val: Any) -> Any:
-        # Remove color codes and % for percentage columns
+    def parse_value(val: Any) -> float:
         if isinstance(val, str):
-            val = re.sub(r"\x1b\[[0-9;]*m", "", val)  # Remove ANSI codes
-            val = val.replace("%", "")
+            val = re.sub(r"\x1b\[[0-9;]*m", "", val)  # Remove ANSI color
+            val = val.replace("%", "").strip()
         try:
             return float(val)
         except Exception:
-            return val
+            return float("-inf")  # Treat unparseable values as lowest
 
-    return sorted(
-        table, key=lambda row: parse_value(row[idx]), reverse=(order == "desc")
-    )
+    return sorted(table, key=lambda row: parse_value(row[idx]), reverse=order)
 
 
-def main(
-    live: bool = False,
-    telegram: bool = False,
-    sort_col: Optional[str] = None,
-    sort_order: Optional[str] = None,
-) -> None:
+def main(live: bool = False, telegram: bool = False, sort: str = "") -> None:
+    sort_col, _, sort_dir = sort.partition(":")
+    sort_order = sort_dir.lower() != "asc"
+
+    valid_sort_cols = {"change_15m", "change_1h", "change_asia", "change_24h"}
+
+    headers = ["Symbol", "Last Price", "15m %", "1h %", "Since Asia 8AM", "24h %"]
+
     if not live:
         clear_screen()
         print("📈 Crypto Price Snapshot — Buibui Moon Bot\n")
-        headers = ["Symbol", "Last Price", "15m %", "1h %", "Since Asia 8AM", "24h %"]
-        price_table, invalid_symbols = get_price_changes(COINS)
-        if sort_col is not None and sort_order is not None:
-            print(f"[DEBUG] Sorting by: {sort_col} {sort_order}")
-            price_table = sort_table(price_table, sort_col, sort_order)
+        price_table, invalid_symbols = get_price_changes(COINS, telegram=telegram)
+        if sort_col in valid_sort_cols:
+            print(f"[DEBUG] Sorting by: {sort_col} {'desc' if sort_order else 'asc'}")
+            price_table = sort_table(price_table, headers, sort_col, sort_order)
+
         print(tabulate(price_table, headers=headers, tablefmt="fancy_grid"))
 
         if invalid_symbols:
@@ -301,9 +289,6 @@ def main(
                 print(f"  - {symbol}: {reason}")
 
         if telegram:
-            price_table, _ = get_price_changes(COINS, telegram=True)
-            if sort_col is not None and sort_order is not None:
-                price_table = sort_table(price_table, sort_col, sort_order)
             plain_table = tabulate(price_table, headers=headers, tablefmt="plain")
             try:
                 send_telegram_message(
@@ -317,17 +302,9 @@ def main(
             while True:
                 clear_screen()
                 print("📈 Live Crypto Price Monitor — Buibui Moon Bot\n")
-                headers = [
-                    "Symbol",
-                    "Last Price",
-                    "15m %",
-                    "1h %",
-                    "Since Asia 8AM",
-                    "24h %",
-                ]
                 price_table, invalid_symbols = get_price_changes(COINS)
-                if sort_col is not None and sort_order is not None:
-                    price_table = sort_table(price_table, sort_col, sort_order)
+                if sort_col in valid_sort_cols:
+                    price_table = sort_table(price_table, headers, sort_col, sort_order)
                 print(tabulate(price_table, headers=headers, tablefmt="fancy_grid"))
                 if invalid_symbols:
                     print("\n⚠️  The following symbols had errors:")
@@ -347,21 +324,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--sort",
         type=str,
-        default=None,
+        default="",
         help="Sort table by column[:asc|desc]. Options: change_15m, change_1h, change_asia, change_24h. Example: --sort change_15m:desc",
     )
     args = parser.parse_args()
-
-    # Map sort keys to column indices
-    headers = ["Symbol", "Last Price", "15m %", "1h %", "Since Asia 8AM", "24h %"]
-    sort_key_map = {
-        "change_15m": headers.index("15m %"),
-        "change_1h": headers.index("1h %"),
-        "change_asia": headers.index("Since Asia 8AM"),
-        "change_24h": headers.index("24h %"),
-    }
-
-    sort_col, sort_order = parse_sort_arg(args.sort)
-    main(
-        live=args.live, telegram=args.telegram, sort_col=sort_col, sort_order=sort_order
-    )
+    main(live=args.live, telegram=args.telegram, sort=args.sort)

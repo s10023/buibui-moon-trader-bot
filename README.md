@@ -225,13 +225,13 @@ poetry run python buibui.py monitor price --sort change_1h:asc     # Sort by low
 
 Supported sort keys:
 
+- default — Respect order from `config/coins.json`
 - `change_15m` — 15-minute % change
 - `change_1h` — 1-hour % change
 - `change_asia` — % change since Asia open (8AM GMT+8)
 - `change_24h` — 24-hour % change
 
 Append `:asc` or `:desc` to control the sort direction (defaults to `desc`).
-If not specified, the table respects the order from `config/coins.json`.
 
 It shows:
 
