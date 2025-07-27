@@ -258,7 +258,7 @@ Example Output:
 ### 📊 Monitor Positions & PnL
 
 ```bash
-poetry run python buibui.py monitor position [--sort key[:asc|desc]]
+poetry run python buibui.py monitor position [--sort key[:asc|desc]] [--hide-empty]
 ```
 
 Shows:
@@ -270,6 +270,8 @@ Shows:
 - Colorized risk table with per-trade metrics
 
 - Only open positions are shown. Auto-sorted by your `coins.json` order.
+
+- Use `--hide-empty` to hide rows for symbols with no open positions.
 
 Example Output:
 

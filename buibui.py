@@ -7,7 +7,9 @@ def run_price_monitor(args: argparse.Namespace) -> None:
 
 
 def run_position_monitor(args: argparse.Namespace) -> None:
-    position_monitor.main(sort=args.sort, telegram=args.telegram)
+    position_monitor.main(
+        sort=args.sort, telegram=args.telegram, hide_empty=args.hide_empty
+    )
 
 
 def main() -> None:
@@ -35,6 +37,9 @@ def main() -> None:
     position_parser.add_argument("--sort", default="default", help="Sort order")
     position_parser.add_argument(
         "--telegram", action="store_true", help="Send output to Telegram"
+    )
+    position_parser.add_argument(
+        "--hide-empty", action="store_true", help="Hide symbols with no open positions"
     )
     position_parser.set_defaults(func=run_position_monitor)
 
