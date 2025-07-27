@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils.telegram import send_telegram_message
 
-logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s:%(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s:%(message)s")
 
 
 def sync_binance_time(client: Any) -> None:
@@ -117,7 +117,7 @@ def get_stop_loss_for_symbol(symbol: str) -> Optional[float]:
 
 
 def fetch_open_positions(
-    sort_by: str = "default", descending: bool = True
+    sort_by: str = "default", descending: bool = True, hide_empty: bool = False
 ) -> Tuple[List[Any], float]:
 
     positions = client.futures_position_information()
@@ -236,31 +236,33 @@ def fetch_open_positions(
         row.append(sl_risk_usd)  # index 14
         filtered.append(row)
 
-    # Get coins without open positions
-    open_symbols = set(row[0] for row in filtered)
-    missing_symbols = [s for s in COIN_ORDER if s not in open_symbols]
+    # Only add placeholder rows if NOT hiding empty
+    if not hide_empty:
+        # Get coins without open positions
+        open_symbols = set(row[0] for row in filtered)
+        missing_symbols = [s for s in COIN_ORDER if s not in open_symbols]
 
-    # Add placeholder rows for missing symbols
-    for symbol in missing_symbols:
-        leverage = COINS_CONFIG[symbol]["leverage"]
-        row = [
-            symbol,  # 0
-            "-",  # side
-            leverage,  # lev
-            "-",
-            "-",  # entry, mark
-            "-",
-            "-",  # margin, size
-            "-",
-            "-",  # pnl, pnl%
-            "-",
-            "-",
-            "-",  # risk%, sl price, % to sl
-            "-",  # sl usd
-            -999,  # hidden sort: pnl_pct
-            -9999,  # hidden sort: sl_usd
-        ]
-        filtered.append(row)
+        # Add placeholder rows for missing symbols
+        for symbol in missing_symbols:
+            leverage = COINS_CONFIG[symbol]["leverage"]
+            row = [
+                symbol,  # 0
+                "-",  # side
+                leverage,  # lev
+                "-",
+                "-",  # entry, mark
+                "-",
+                "-",  # margin, size
+                "-",
+                "-",  # pnl, pnl%
+                "-",
+                "-",
+                "-",  # risk%, sl price, % to sl
+                "-",  # sl usd
+                -999,  # hidden sort: pnl_pct
+                -9999,  # hidden sort: sl_usd
+            ]
+            filtered.append(row)
 
     if sort_by == "pnl_pct":
         filtered.sort(key=lambda r: r[13], reverse=descending)
@@ -294,9 +296,7 @@ def display_table(
     telegram: bool = False,
     hide_empty: bool = False,
 ) -> str:
-    table, total_risk_usd = fetch_open_positions(sort_by, descending)
-    if hide_empty:
-        table = [row for row in table if row[1].strip() != "-"]
+    table, total_risk_usd = fetch_open_positions(sort_by, descending, hide_empty)
     wallet, unrealized = get_wallet_balance()
     total = wallet + unrealized
     unrealized_pct = (unrealized / wallet * 100) if wallet else 0
