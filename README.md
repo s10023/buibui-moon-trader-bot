@@ -273,6 +273,8 @@ Shows:
 
 - Use `--hide-empty` to hide rows for symbols with no open positions.
 
+- Use `--compact` to not list out the list of open positions, and only show necessary information.
+
 Example Output:
 
 ```yaml
