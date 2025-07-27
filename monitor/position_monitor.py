@@ -295,6 +295,7 @@ def display_table(
     descending: bool = True,
     telegram: bool = False,
     hide_empty: bool = False,
+    compact: bool = False,
 ) -> str:
     table, total_risk_usd = fetch_open_positions(sort_by, descending, hide_empty)
     wallet, unrealized = get_wallet_balance()
@@ -314,6 +315,10 @@ def display_table(
     output.append(f"⚠️ Total SL Risk: {color_risk_usd(total_risk_usd, wallet)}\n")
     if WALLET_TARGET > 0:
         output.append(display_progress_bar(total, WALLET_TARGET))
+
+    if compact:
+        return "\n".join(output)
+
     headers = [
         "Symbol",
         "Side",
@@ -355,19 +360,24 @@ def display_table(
 
 
 def main(
-    sort: str = "default", telegram: bool = False, hide_empty: bool = False
+    sort: str = "default",
+    telegram: bool = False,
+    hide_empty: bool = False,
+    compact: bool = False,
 ) -> None:
 
     sort_key, _, sort_dir = sort.partition(":")
     sort_order = sort_dir.lower() != "asc"  # default to descending if not asc
 
     os.system("cls" if os.name == "nt" else "clear")
+    print("📈 Trades Position Snapshot — Buibui Moon Bot\n")
     print(
         display_table(
             sort_by=sort_key,
             descending=sort_order,
             telegram=telegram,
             hide_empty=hide_empty,
+            compact=compact,
         )
     )
 
@@ -385,6 +395,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--hide-empty", action="store_true", help="Hide symbols with no open positions"
     )
+    parser.add_argument(
+        "--compact", action="store_true", help="Show compact information"
+    )
     args = parser.parse_args()
 
-    main(sort=args.sort, telegram=args.telegram, hide_empty=args.hide_empty)
+    main(
+        sort=args.sort,
+        telegram=args.telegram,
+        hide_empty=args.hide_empty,
+        compact=args.compact,
+    )

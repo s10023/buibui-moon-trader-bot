@@ -8,7 +8,10 @@ def run_price_monitor(args: argparse.Namespace) -> None:
 
 def run_position_monitor(args: argparse.Namespace) -> None:
     position_monitor.main(
-        sort=args.sort, telegram=args.telegram, hide_empty=args.hide_empty
+        sort=args.sort,
+        telegram=args.telegram,
+        hide_empty=args.hide_empty,
+        compact=args.compact,
     )
 
 
@@ -45,6 +48,9 @@ def main() -> None:
     )
     position_parser.add_argument(
         "--hide-empty", action="store_true", help="Hide symbols with no open positions"
+    )
+    position_parser.add_argument(
+        "--compact", action="store_true", help="Show compact information"
     )
     position_parser.set_defaults(func=run_position_monitor)
 
