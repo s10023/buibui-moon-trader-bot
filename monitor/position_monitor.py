@@ -319,6 +319,11 @@ def display_table(
     if compact:
         return "\n".join(output)
 
+    if sort_by != "default":
+        output.append(
+            f"🔽 Sorted by: {sort_by} ({'descending' if descending else 'ascending'})\n"
+        )
+      
     headers = [
         "Symbol",
         "Side",
