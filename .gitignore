@@ -2,3 +2,9 @@ venv/
 __pycache__/
 *.pyc
 .env
+
+# Ignore only config/coins.json
+config/coins.json
+
+# But don't ignore other files in config/
+!config/

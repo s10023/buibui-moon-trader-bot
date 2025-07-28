@@ -55,6 +55,55 @@ buibui-moon-trader-bot/
 └── README.md
 ```
 
+## 🛠️ Makefile Usage
+
+The Makefile provides easy commands for all major actions:
+
+**Lint, Format, Typecheck:**
+
+```bash
+make lint           # Lint Markdown and Python (excludes venv)
+make typecheck      # Type check with mypy
+```
+
+**Install/Update dependencies:**
+
+```bash
+make poetry-install
+make poetry-update
+```
+
+**Run monitors:**
+
+```bash
+# Price monitor
+make buibui-monitor-price
+make buibui-monitor-price-live
+make buibui-monitor-price-telegram
+
+# Position monitor (with flexible sorting)
+make buibui-monitor-position           # Default sort
+make buibui-monitor-position SORT=pnl_pct:desc   # Sort by PnL%
+make buibui-monitor-position SORT=sl_usd:asc     # Sort by SL risk
+make buibui-monitor-position-telegram
+```
+
+**Open trades:**
+
+```bash
+make buibui-open-trades
+```
+
+**Docker:**
+
+```bash
+make docker-build
+make docker-monitor-price
+make docker-monitor-position
+```
+
+All commands use your `.env` file for secrets and config.
+
 ---
 
 ## ⚙️ Setup
@@ -167,6 +216,23 @@ To run in live refresh mode:
 poetry run python buibui.py monitor price --live
 ```
 
+You can also control how the table is sorted using the `--sort` flag:
+
+```bash
+poetry run python buibui.py monitor price --sort change_15m:desc   # Sort by highest 15m % change
+poetry run python buibui.py monitor price --sort change_1h:asc     # Sort by lowest 1h % change
+```
+
+Supported sort keys:
+
+- default — Respect order from `config/coins.json`
+- `change_15m` — 15-minute % change
+- `change_1h` — 1-hour % change
+- `change_asia` — % change since Asia open (8AM GMT+8)
+- `change_24h` — 24-hour % change
+
+Append `:asc` or `:desc` to control the sort direction (defaults to `desc`).
+
 It shows:
 
 - Live price
@@ -192,7 +258,7 @@ Example Output:
 ### 📊 Monitor Positions & PnL
 
 ```bash
-poetry run python buibui.py monitor position [--sort key[:asc|desc]]
+poetry run python buibui.py monitor position [--sort key[:asc|desc]] [--hide-empty]
 ```
 
 Shows:
@@ -205,6 +271,10 @@ Shows:
 
 - Only open positions are shown. Auto-sorted by your `coins.json` order.
 - - **Sort key and direction are now displayed below the table when sorting is active.**
+
+- Use `--hide-empty` to hide rows for symbols with no open positions.
+
+- Use `--compact` to not list out the list of open positions, and only show necessary information.
 
 Example Output:
 
@@ -263,3 +333,22 @@ The `.github/workflows/monitor.yaml` file can be configured to:
 - Visual dashboard (web UI or terminal rich)
 
 - Funding rate monitor + reversal detector
+
+## 🧹 Linting & Type Checking
+
+This project uses:
+
+- **black** for code formatting
+- **mypy** for static type checking
+
+To check formatting and types locally:
+
+```bash
+poetry run black --check .
+poetry run mypy .
+```
+
+## 🛡️ Continuous Integration
+
+Every push and pull request runs automated checks (linting, formatting, and type checking) via GitHub Actions.  
+You can find the workflow in `.github/workflows/lint.yaml`.

@@ -1,0 +1,5 @@
+{
+    "BTCUSDT": { "leverage": 25, "sl_percent": 2.0 },
+    "ETHUSDT": { "leverage": 20, "sl_percent": 2.5 },
+    "SOLUSDT": { "leverage": 20, "sl_percent": 3.5 }
+}

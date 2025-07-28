@@ -11,7 +11,7 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 
-def send_telegram_message(text):
+def send_telegram_message(text: str) -> None:
     if not BOT_TOKEN or not CHAT_ID:
         logging.error("Telegram not configured properly.")
         return

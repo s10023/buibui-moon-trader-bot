@@ -11,8 +11,11 @@ from colorama import init, Fore, Style
 import logging
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Dict, List, Set, Tuple, Optional
+import re
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from utils.config_validation import validate_coins_config
 from utils.telegram import send_telegram_message
 
 # Init colorama
@@ -26,7 +29,7 @@ API_SECRET = os.getenv("BINANCE_API_SECRET")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s:%(message)s")
 
 
-def sync_binance_time(client):
+def sync_binance_time(client: Any) -> None:
     server_time = client.get_server_time()["serverTime"]
     local_time = int(time.time() * 1000)
     client.TIME_OFFSET = server_time - local_time
@@ -36,12 +39,21 @@ client = Client(API_KEY, API_SECRET)
 sync_binance_time(client)
 
 # Load symbols from config
-with open("config/coins.json") as f:
-    COINS = list(json.load(f).keys())
+try:
+    with open("config/coins.json") as f:
+        coins_config = json.load(f)
+    validate_coins_config(coins_config)
+    COINS = list(coins_config.keys())
+except json.JSONDecodeError as e:
+    logging.error(f"JSON decode error in config/coins.json: {e}")
+    sys.exit(1)
+except Exception as e:
+    logging.error(f"Error loading config/coins.json: {e}")
+    sys.exit(1)
 
 
 # Format % change with color
-def format_pct(pct):
+def format_pct(pct: Any) -> Any:
     try:
         pct = float(pct)
         if pct > 0:
@@ -55,16 +67,16 @@ def format_pct(pct):
         return pct
 
 
-def format_pct_simple(pct):
+def format_pct_simple(pct: Any) -> str:
     try:
         return f"{float(pct):+.2f}%"
     except Exception as e:
         logging.error(f"Error in format_pct_simple: {e}")
-        return pct
+        return str(pct)
 
 
 # Convert datetime to Binance-compatible string
-def get_klines(symbol, interval, lookback_minutes):
+def get_klines(symbol: str, interval: str, lookback_minutes: int) -> Optional[Any]:
     now = dt.datetime.utcnow()
     start_time = int((now - dt.timedelta(minutes=lookback_minutes)).timestamp() * 1000)
     try:
@@ -73,11 +85,12 @@ def get_klines(symbol, interval, lookback_minutes):
         )
         return klines[-1]  # most recent kline
     except Exception as e:
-        # logging.error(f"Error in get_klines for {symbol} [{interval}]: {e}")
         return None
 
 
-def batch_get_klines(symbols, intervals_lookbacks):
+def batch_get_klines(
+    symbols: List[str], intervals_lookbacks: List[Tuple[str, int]]
+) -> Dict[Tuple[str, str], Any]:
     """
     Batch fetch klines for all symbols and intervals in parallel.
     intervals_lookbacks: list of (interval, lookback_minutes)
@@ -85,7 +98,9 @@ def batch_get_klines(symbols, intervals_lookbacks):
     """
     results = {}
 
-    def fetch(symbol, interval, lookback):
+    def fetch(
+        symbol: str, interval: str, lookback: int
+    ) -> Tuple[Tuple[str, str], Optional[Any]]:
         now = dt.datetime.utcnow()
         start_time = int((now - dt.timedelta(minutes=lookback)).timestamp() * 1000)
         try:
@@ -94,10 +109,10 @@ def batch_get_klines(symbols, intervals_lookbacks):
             )
             return ((symbol, interval), klines[-1] if klines else None)
         except Exception as e:
-            # logging.error(f"Error in batch_get_klines for {symbol} [{interval}]: {e}")
             return ((symbol, interval), None)
 
-    max_workers = max(1, os.cpu_count() // 2)
+    cpu_count = os.cpu_count() or 1
+    max_workers = max(1, cpu_count // 2)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [
             executor.submit(fetch, symbol, interval, lookback)
@@ -110,7 +125,7 @@ def batch_get_klines(symbols, intervals_lookbacks):
     return results
 
 
-def get_open_price_asia(symbol):
+def get_open_price_asia(symbol: str) -> Optional[float]:
     now_utc = dt.datetime.utcnow().replace(tzinfo=pytz.utc)
     asia_tz = pytz.timezone("Asia/Shanghai")  # GMT+8
     asia_today_8am = now_utc.astimezone(asia_tz).replace(
@@ -126,14 +141,15 @@ def get_open_price_asia(symbol):
         )
         return float(kline[0][1]) if kline else None  # open price
     except Exception as e:
-        # logging.error(f"Error in get_open_price_asia for {symbol}: {e}")
         return None
 
 
-def get_price_changes(symbols, telegram=False):
+def get_price_changes(
+    symbols: List[str], telegram: bool = False
+) -> Tuple[List[Any], Set[Any]]:
     table = []
     invalid_symbols = set()
-    # Get all tickers once (much faster)
+    # Get all tickers once
     try:
         all_tickers = client.get_ticker()
         ticker_map = {t["symbol"]: t for t in all_tickers}
@@ -145,13 +161,14 @@ def get_price_changes(symbols, telegram=False):
     intervals_lookbacks = [("15m", 15), ("1h", 60)]
     kline_map = batch_get_klines(symbols, intervals_lookbacks)
 
-    def get_asia_open_parallel(symbols):
+    def get_asia_open_parallel(symbols: List[str]) -> Dict[str, Optional[float]]:
         results = {}
 
-        def fetch(symbol):
+        def fetch(symbol: str) -> Tuple[str, Optional[float]]:
             return (symbol, get_open_price_asia(symbol))
 
-        max_workers = max(1, os.cpu_count() // 2)
+        cpu_count = os.cpu_count() or 1
+        max_workers = max(1, cpu_count // 2)
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [executor.submit(fetch, symbol) for symbol in symbols]
             for future in as_completed(futures):
@@ -187,11 +204,12 @@ def get_price_changes(symbols, telegram=False):
                 ((last_price - asia_open) / asia_open) * 100 if asia_open else 0
             )
 
+            last_price_str = str(round(last_price, 4))
             if telegram:
                 table.append(
                     [
                         symbol,
-                        round(last_price, 4),
+                        last_price_str,
                         format_pct_simple(change_15m),
                         format_pct_simple(change_1h),
                         format_pct_simple(change_asia),
@@ -202,7 +220,7 @@ def get_price_changes(symbols, telegram=False):
                 table.append(
                     [
                         symbol,
-                        round(last_price, 4),
+                        last_price_str,
                         format_pct(change_15m),
                         format_pct(change_1h),
                         format_pct(change_asia),
@@ -215,21 +233,54 @@ def get_price_changes(symbols, telegram=False):
                 invalid_symbols.add((symbol, "Invalid symbol"))
             else:
                 invalid_symbols.add((symbol, msg))
-            # logging.error(f"Error in get_price_changes for {symbol}: {e}")
             table.append([symbol, "Error", "", "", "", ""])
     return table, invalid_symbols
 
 
-def clear_screen():
+def clear_screen() -> None:
     os.system("cls" if os.name == "nt" else "clear")
 
 
-def main(live=False, telegram=False):
+def sort_table(
+    table: List[Any], headers: List[str], col: str, order: bool
+) -> List[Any]:
+    sort_key_map = {
+        "change_15m": headers.index("15m %"),
+        "change_1h": headers.index("1h %"),
+        "change_asia": headers.index("Since Asia 8AM"),
+        "change_24h": headers.index("24h %"),
+    }
+
+    idx = sort_key_map[col]
+
+    def parse_value(val: Any) -> float:
+        if isinstance(val, str):
+            val = re.sub(r"\x1b\[[0-9;]*m", "", val)  # Remove ANSI color
+            val = val.replace("%", "").strip()
+        try:
+            return float(val)
+        except Exception:
+            return float("-inf")  # Treat unparseable values as lowest
+
+    return sorted(table, key=lambda row: parse_value(row[idx]), reverse=order)
+
+
+def main(live: bool = False, telegram: bool = False, sort: str = "") -> None:
+    sort_col, _, sort_dir = sort.partition(":")
+    sort_order = sort_dir.lower() != "asc"
+
+    valid_sort_cols = {"change_15m", "change_1h", "change_asia", "change_24h"}
+
+    headers = ["Symbol", "Last Price", "15m %", "1h %", "Since Asia 8AM", "24h %"]
+
     if not live:
         clear_screen()
         print("📈 Crypto Price Snapshot — Buibui Moon Bot\n")
-        headers = ["Symbol", "Last Price", "15m %", "1h %", "Since Asia 8AM", "24h %"]
-        price_table, invalid_symbols = get_price_changes(COINS)
+        price_table, invalid_symbols = get_price_changes(COINS, telegram=telegram)
+        if sort_col in valid_sort_cols:
+            print(f"[DEBUG] Sorting by: {sort_col} {'desc' if sort_order else 'asc'}")
+            price_table = sort_table(price_table, headers, sort_col, sort_order)
+
         print(tabulate(price_table, headers=headers, tablefmt="fancy_grid"))
 
         if invalid_symbols:
@@ -238,7 +289,6 @@ def main(live=False, telegram=False):
                 print(f"  - {symbol}: {reason}")
 
         if telegram:
-            price_table, _ = get_price_changes(COINS, telegram=True)
             plain_table = tabulate(price_table, headers=headers, tablefmt="plain")
             try:
                 send_telegram_message(
@@ -252,15 +302,9 @@ def main(live=False, telegram=False):
             while True:
                 clear_screen()
                 print("📈 Live Crypto Price Monitor — Buibui Moon Bot\n")
-                headers = [
-                    "Symbol",
-                    "Last Price",
-                    "15m %",
-                    "1h %",
-                    "Since Asia 8AM",
-                    "24h %",
-                ]
                 price_table, invalid_symbols = get_price_changes(COINS)
+                if sort_col in valid_sort_cols:
+                    price_table = sort_table(price_table, headers, sort_col, sort_order)
                 print(tabulate(price_table, headers=headers, tablefmt="fancy_grid"))
                 if invalid_symbols:
                     print("\n⚠️  The following symbols had errors:")
@@ -277,6 +321,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--telegram", action="store_true", help="Send output to Telegram"
     )
+    parser.add_argument(
+        "--sort",
+        type=str,
+        default="",
+        help="Sort table by column[:asc|desc]. Options: change_15m, change_1h, change_asia, change_24h. Example: --sort change_15m:desc",
+    )
     args = parser.parse_args()
-
-    main(live=args.live, telegram=args.telegram)
+    main(live=args.live, telegram=args.telegram, sort=args.sort)
