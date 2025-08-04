@@ -17,6 +17,11 @@ import re
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils.config_validation import validate_coins_config
 from utils.telegram import send_telegram_message
+from utils.websocket_handler import (
+    start_price_websocket,
+    live_prices,
+)
+from utils.rich_display import live_render_loop
 
 # Init colorama
 init(autoreset=True)
@@ -298,6 +303,7 @@ def main(live: bool = False, telegram: bool = False, sort: str = "") -> None:
                 print("❌ Telegram message failed:", e)
 
     else:
+        start_price_websocket(COINS)
         try:
             while True:
                 clear_screen()
