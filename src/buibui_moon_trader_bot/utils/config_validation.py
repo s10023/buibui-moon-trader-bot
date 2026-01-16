@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Any, Dict
 
 
 def validate_coins_config(config_dict: Dict[str, Any]) -> bool:
@@ -26,7 +26,5 @@ def validate_coins_config(config_dict: Dict[str, Any]) -> bool:
         if not (isinstance(sl, int) or isinstance(sl, float)):
             raise ValueError(f"Symbol '{symbol}' sl_percent must be a number.")
         if not (0.1 <= sl <= 100):
-            raise ValueError(
-                f"Symbol '{symbol}' sl_percent {sl} out of range (0.1-100)."
-            )
+            raise ValueError(f"Symbol '{symbol}' sl_percent {sl} out of range (0.1-100).")
     return True
