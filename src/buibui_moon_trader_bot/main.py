@@ -1,5 +1,5 @@
 import argparse
-from monitor import price_monitor, position_monitor
+from .monitor import price_monitor, position_monitor
 
 
 def run_price_monitor(args: argparse.Namespace) -> None:
@@ -13,6 +13,12 @@ def run_position_monitor(args: argparse.Namespace) -> None:
         hide_empty=args.hide_empty,
         compact=args.compact,
     )
+
+
+def run_open_trades(args: argparse.Namespace) -> None:
+    print("Opening trades (not yet implemented).")
+    # Here, you would call the main function from your open_trades.py module
+    # For example: open_trades.main(args) if open_trades had a main function
 
 
 def main() -> None:
@@ -53,6 +59,17 @@ def main() -> None:
         "--compact", action="store_true", help="Show compact information"
     )
     position_parser.set_defaults(func=run_position_monitor)
+
+    # Top-level 'trade' command
+    trade_parser = subparsers.add_parser("trade", help="Trade execution tools")
+    trade_subparsers = trade_parser.add_subparsers(
+        dest="trade_command", required=True
+    )
+
+    # 'open-trades' subcommand
+    open_trades_parser = trade_subparsers.add_parser("open-trades", help="Open new trades")
+    # Add any arguments specific to open-trades here
+    open_trades_parser.set_defaults(func=run_open_trades)
 
     args = parser.parse_args()
     args.func(args)

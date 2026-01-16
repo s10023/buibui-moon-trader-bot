@@ -5,16 +5,18 @@ WORKDIR /app
 # Install Poetry
 RUN pip install poetry
 
-# Copy only dependency files first for better build caching
-COPY pyproject.toml poetry.lock* /app/
+# Copy pyproject.toml and poetry.lock and README.md (all needed for poetry install)
+COPY pyproject.toml poetry.lock* README.md /app/
 
-# Install dependencies (no dev dependencies for production)
+# Install dependencies
 RUN poetry install --no-root
 
-# Copy the rest of the code
-COPY . /app
+# Copy the rest of the application code
+COPY src /app/src
+COPY config /app/config
+# Add any other top-level files here, e.g., .env.example if needed
 
 # Set environment variables (optional)
 ENV PYTHONUNBUFFERED=1
 
-# No default CMD; user must specify the command when running the container 
+# No default CMD; user must specify the command when running the container

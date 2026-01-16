@@ -25,13 +25,26 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
+      - name: Install Poetry
+        run: curl -sSL https://install.python-poetry.org | python3 -
 
-      - name: Install markdownlint-cli
-        run: npm install -g markdownlint-cli
+      - name: Install dependencies
+        run: make poetry-install
+
+      - name: Lint (ruff check)
+        run: make lint-py-check
+
+  typecheck:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
       - name: Install Poetry
         run: curl -sSL https://install.python-poetry.org | python3 -
@@ -39,7 +52,5 @@ jobs:
       - name: Install dependencies
         run: make poetry-install
 
-      - name: Lint, Format, and Typecheck (Makefile)
-        run: |
-          make lint
-          make typecheck
+      - name: Typecheck (mypy)
+        run: make typecheck

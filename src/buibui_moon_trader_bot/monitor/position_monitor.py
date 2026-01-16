@@ -8,11 +8,10 @@ import time
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys
-from utils.config_validation import validate_coins_config
 from typing import Any, Dict, List, Optional, Tuple
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from utils.telegram import send_telegram_message
+from ..utils.config_validation import validate_coins_config
+from ..utils.telegram import send_telegram_message
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s:%(message)s")
 

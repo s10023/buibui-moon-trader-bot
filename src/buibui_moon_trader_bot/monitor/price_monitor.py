@@ -14,9 +14,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Set, Tuple, Optional
 import re
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from utils.config_validation import validate_coins_config
-from utils.telegram import send_telegram_message
+from ..utils.config_validation import validate_coins_config
+from ..utils.telegram import send_telegram_message
 
 # Init colorama
 init(autoreset=True)
