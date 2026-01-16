@@ -1,14 +1,15 @@
-import os
-import json
-from dotenv import load_dotenv
-from binance.client import Client
-from tabulate import tabulate
 import argparse
-import time
+import json
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import os
 import sys
-from typing import Any, Dict, List, Optional, Tuple
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, List, Optional, Tuple
+
+from binance.client import Client
+from dotenv import load_dotenv
+from tabulate import tabulate
 
 from ..utils.config_validation import validate_coins_config
 from ..utils.telegram import send_telegram_message
@@ -67,7 +68,7 @@ def colorize_dollar(value: Any) -> str:
         elif value < 0:
             return f"\033[91m-${abs(value):,.2f}\033[0m"
         else:
-            return f"\033[93m$0.00\033[0m"
+            return "\033[93m$0.00\033[0m"
     except Exception as e:
         logging.error(f"Error in colorize_dollar: {e}")
         return f"${value}"
@@ -118,7 +119,6 @@ def get_stop_loss_for_symbol(symbol: str) -> Optional[float]:
 def fetch_open_positions(
     sort_by: str = "default", descending: bool = True, hide_empty: bool = False
 ) -> Tuple[List[Any], float]:
-
     positions = client.futures_position_information()
     filtered = []
     wallet_balance, _ = get_wallet_balance()
@@ -138,9 +138,7 @@ def fetch_open_positions(
         notional = abs(float(pos["notional"]))
         margin = float(pos.get("positionInitialMargin", 0)) or 1e-6
         side_text = "LONG" if amt > 0 else "SHORT"
-        open_positions.append(
-            (symbol, side_text, entry, mark, margin, notional, amt, pos)
-        )
+        open_positions.append((symbol, side_text, entry, mark, margin, notional, amt, pos))
 
     # Parallelize stop loss fetching
     def fetch_sl(
@@ -204,14 +202,12 @@ def fetch_open_positions(
             )
 
     for symbol, side_text, entry, mark, margin, notional, amt, pos in open_positions:
-        side_colored = (
-            f"\033[92m{side_text}\033[0m" if amt > 0 else f"\033[91m{side_text}\033[0m"
-        )
+        side_colored = f"\033[92m{side_text}\033[0m" if amt > 0 else f"\033[91m{side_text}\033[0m"
         pnl = float(pos.get("unRealizedProfit", 0))
         pnl_pct = (pnl / margin) * 100
         leverage = round(notional / margin)
-        actual_sl_str, sl_size_str, sl_usd_str, sl_risk_usd, sl_percent = (
-            sl_results.get(symbol, ("-", "-", "-", 0.0, None))
+        actual_sl_str, sl_size_str, sl_usd_str, sl_risk_usd, sl_percent = sl_results.get(
+            symbol, ("-", "-", "-", 0.0, None)
         )
         if sl_risk_usd:
             total_risk_usd += sl_risk_usd
@@ -238,7 +234,7 @@ def fetch_open_positions(
     # Only add placeholder rows if NOT hiding empty
     if not hide_empty:
         # Get coins without open positions
-        open_symbols = set(row[0] for row in filtered)
+        open_symbols = {row[0] for row in filtered}
         missing_symbols = [s for s in COIN_ORDER if s not in open_symbols]
 
         # Add placeholder rows for missing symbols
@@ -268,9 +264,7 @@ def fetch_open_positions(
     elif sort_by == "sl_usd":
         filtered.sort(key=lambda r: r[14], reverse=descending)
     else:  # default sort by COIN_ORDER
-        filtered.sort(
-            key=lambda r: COIN_ORDER.index(r[0]) if r[0] in COIN_ORDER else 999
-        )
+        filtered.sort(key=lambda r: COIN_ORDER.index(r[0]) if r[0] in COIN_ORDER else 999)
 
     # Remove hidden sort columns
     filtered = [row[:13] for row in filtered]
@@ -286,7 +280,7 @@ def display_progress_bar(current: float, target: float, bar_length: int = 30) ->
     empty = bar_length - filled
     color = "\033[92m" if pct >= 1 else ("\033[93m" if pct >= 0.5 else "\033[91m")
     bar = color + "█" * filled + "-" * empty + "\033[0m"
-    return f"Wallet Target: ${current:,.2f} / ${target:,.2f} |{bar}| {pct*100:.1f}%"
+    return f"Wallet Target: ${current:,.2f} / ${target:,.2f} |{bar}| {pct * 100:.1f}%"
 
 
 def display_table(
@@ -300,15 +294,14 @@ def display_table(
     wallet, unrealized = get_wallet_balance()
     total = wallet + unrealized
     unrealized_pct = (unrealized / wallet * 100) if wallet else 0
-    used_margin = sum(
-        float(row[5]) for row in table if isinstance(row[5], (int, float))
-    )
+    used_margin = sum(float(row[5]) for row in table if isinstance(row[5], (int, float)))
     available_balance = total - used_margin
     output = []
     output.append(f"\n💰 Wallet Balance: ${wallet:,.2f}")
     output.append(f"💼 Available Balance: ${available_balance:,.2f}")
     output.append(
-        f"📊 Total Unrealized PnL: {colorize_dollar(unrealized)} ({colorize(unrealized_pct)} of wallet)"
+        f"📊 Total Unrealized PnL: {colorize_dollar(unrealized)} ("
+        f"{colorize(unrealized_pct)} of wallet)"
     )
     output.append(f"🧾 Wallet w/ Unrealized: ${total:,.2f}")
     output.append(f"⚠️ Total SL Risk: {color_risk_usd(total_risk_usd, wallet)}\n")
@@ -364,7 +357,6 @@ def main(
     hide_empty: bool = False,
     compact: bool = False,
 ) -> None:
-
     sort_key, _, sort_dir = sort.partition(":")
     sort_order = sort_dir.lower() != "asc"  # default to descending if not asc
 
@@ -388,15 +380,11 @@ if __name__ == "__main__":
         default="default",
         help="Sort order, e.g., 'pnl_pct:desc', 'sl_usd:asc', or 'default'",
     )
-    parser.add_argument(
-        "--telegram", action="store_true", help="Send output to Telegram"
-    )
+    parser.add_argument("--telegram", action="store_true", help="Send output to Telegram")
     parser.add_argument(
         "--hide-empty", action="store_true", help="Hide symbols with no open positions"
     )
-    parser.add_argument(
-        "--compact", action="store_true", help="Show compact information"
-    )
+    parser.add_argument("--compact", action="store_true", help="Show compact information")
     args = parser.parse_args()
 
     main(

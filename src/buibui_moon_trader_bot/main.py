@@ -1,5 +1,6 @@
 import argparse
-from .monitor import price_monitor, position_monitor
+
+from .monitor import position_monitor, price_monitor
 
 
 def run_price_monitor(args: argparse.Namespace) -> None:
@@ -27,9 +28,7 @@ def main() -> None:
 
     # Top-level 'monitor' command
     monitor_parser = subparsers.add_parser("monitor", help="Monitoring tools")
-    monitor_subparsers = monitor_parser.add_subparsers(
-        dest="monitor_command", required=True
-    )
+    monitor_subparsers = monitor_parser.add_subparsers(dest="monitor_command", required=True)
 
     # 'price' subcommand
     price_parser = monitor_subparsers.add_parser("price", help="Run price monitor")
@@ -37,34 +36,27 @@ def main() -> None:
     price_parser.add_argument(
         "--sort",
         default="default",
-        help="Sort table by column[:asc|desc]. Options: change_15m, change_1h, change_asia, change_24h. Example: --sort change_15m:desc",
+        help=(
+            "Sort table by column[:asc|desc]. Options: change_15m, change_1h, "
+            "change_asia, change_24h. Example: --sort change_15m:desc"
+        ),
     )
-    price_parser.add_argument(
-        "--telegram", action="store_true", help="Send output to Telegram"
-    )
+    price_parser.add_argument("--telegram", action="store_true", help="Send output to Telegram")
     price_parser.set_defaults(func=run_price_monitor)
 
     # 'position' subcommand
-    position_parser = monitor_subparsers.add_parser(
-        "position", help="Run position monitor"
-    )
+    position_parser = monitor_subparsers.add_parser("position", help="Run position monitor")
     position_parser.add_argument("--sort", default="default", help="Sort order")
-    position_parser.add_argument(
-        "--telegram", action="store_true", help="Send output to Telegram"
-    )
+    position_parser.add_argument("--telegram", action="store_true", help="Send output to Telegram")
     position_parser.add_argument(
         "--hide-empty", action="store_true", help="Hide symbols with no open positions"
     )
-    position_parser.add_argument(
-        "--compact", action="store_true", help="Show compact information"
-    )
+    position_parser.add_argument("--compact", action="store_true", help="Show compact information")
     position_parser.set_defaults(func=run_position_monitor)
 
     # Top-level 'trade' command
     trade_parser = subparsers.add_parser("trade", help="Trade execution tools")
-    trade_subparsers = trade_parser.add_subparsers(
-        dest="trade_command", required=True
-    )
+    trade_subparsers = trade_parser.add_subparsers(dest="trade_command", required=True)
 
     # 'open-trades' subcommand
     open_trades_parser = trade_subparsers.add_parser("open-trades", help="Open new trades")

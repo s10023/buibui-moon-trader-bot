@@ -1,18 +1,19 @@
 import argparse
-import time
-import os
-import json
 import datetime as dt
+import json
+import logging
+import os
+import re
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Dict, List, Optional, Set, Tuple
+
 import pytz
 from binance.client import Client
+from colorama import Fore, Style, init
 from dotenv import load_dotenv
 from tabulate import tabulate
-from colorama import init, Fore, Style
-import logging
-import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Set, Tuple, Optional
-import re
 
 from ..utils.config_validation import validate_coins_config
 from ..utils.telegram import send_telegram_message
@@ -79,11 +80,9 @@ def get_klines(symbol: str, interval: str, lookback_minutes: int) -> Optional[An
     now = dt.datetime.utcnow()
     start_time = int((now - dt.timedelta(minutes=lookback_minutes)).timestamp() * 1000)
     try:
-        klines = client.get_klines(
-            symbol=symbol, interval=interval, startTime=start_time
-        )
+        klines = client.get_klines(symbol=symbol, interval=interval, startTime=start_time)
         return klines[-1]  # most recent kline
-    except Exception as e:
+    except Exception:
         return None
 
 
@@ -97,17 +96,13 @@ def batch_get_klines(
     """
     results = {}
 
-    def fetch(
-        symbol: str, interval: str, lookback: int
-    ) -> Tuple[Tuple[str, str], Optional[Any]]:
+    def fetch(symbol: str, interval: str, lookback: int) -> Tuple[Tuple[str, str], Optional[Any]]:
         now = dt.datetime.utcnow()
         start_time = int((now - dt.timedelta(minutes=lookback)).timestamp() * 1000)
         try:
-            klines = client.get_klines(
-                symbol=symbol, interval=interval, startTime=start_time
-            )
+            klines = client.get_klines(symbol=symbol, interval=interval, startTime=start_time)
             return ((symbol, interval), klines[-1] if klines else None)
-        except Exception as e:
+        except Exception:
             return ((symbol, interval), None)
 
     cpu_count = os.cpu_count() or 1
@@ -127,25 +122,19 @@ def batch_get_klines(
 def get_open_price_asia(symbol: str) -> Optional[float]:
     now_utc = dt.datetime.utcnow().replace(tzinfo=pytz.utc)
     asia_tz = pytz.timezone("Asia/Shanghai")  # GMT+8
-    asia_today_8am = now_utc.astimezone(asia_tz).replace(
-        hour=8, minute=0, second=0, microsecond=0
-    )
+    asia_today_8am = now_utc.astimezone(asia_tz).replace(hour=8, minute=0, second=0, microsecond=0)
     if now_utc.astimezone(asia_tz) < asia_today_8am:
         asia_today_8am -= dt.timedelta(days=1)
 
     start_time = int(asia_today_8am.astimezone(pytz.utc).timestamp() * 1000)
     try:
-        kline = client.get_klines(
-            symbol=symbol, interval="1m", startTime=start_time, limit=1
-        )
+        kline = client.get_klines(symbol=symbol, interval="1m", startTime=start_time, limit=1)
         return float(kline[0][1]) if kline else None  # open price
-    except Exception as e:
+    except Exception:
         return None
 
 
-def get_price_changes(
-    symbols: List[str], telegram: bool = False
-) -> Tuple[List[Any], Set[Any]]:
+def get_price_changes(symbols: List[str], telegram: bool = False) -> Tuple[List[Any], Set[Any]]:
     table = []
     invalid_symbols = set()
     # Get all tickers once
@@ -199,9 +188,7 @@ def get_price_changes(
 
             # Asia session open (parallelized)
             asia_open = asia_open_map.get(symbol)
-            change_asia = (
-                ((last_price - asia_open) / asia_open) * 100 if asia_open else 0
-            )
+            change_asia = ((last_price - asia_open) / asia_open) * 100 if asia_open else 0
 
             last_price_str = str(round(last_price, 4))
             if telegram:
@@ -240,9 +227,7 @@ def clear_screen() -> None:
     os.system("cls" if os.name == "nt" else "clear")
 
 
-def sort_table(
-    table: List[Any], headers: List[str], col: str, order: bool
-) -> List[Any]:
+def sort_table(table: List[Any], headers: List[str], col: str, order: bool) -> List[Any]:
     sort_key_map = {
         "change_15m": headers.index("15m %"),
         "change_1h": headers.index("1h %"),
@@ -290,9 +275,7 @@ def main(live: bool = False, telegram: bool = False, sort: str = "") -> None:
         if telegram:
             plain_table = tabulate(price_table, headers=headers, tablefmt="plain")
             try:
-                send_telegram_message(
-                    f"📈 Snapshot Price Monitor\n```\n{plain_table}\n```"
-                )
+                send_telegram_message(f"📈 Snapshot Price Monitor\n```\n{plain_table}\n```")
             except Exception as e:
                 print("❌ Telegram message failed:", e)
 
@@ -317,14 +300,15 @@ def main(live: bool = False, telegram: bool = False, sort: str = "") -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Buibui Moon Crypto Monitor")
     parser.add_argument("--live", action="store_true", help="Run in live refresh mode")
-    parser.add_argument(
-        "--telegram", action="store_true", help="Send output to Telegram"
-    )
+    parser.add_argument("--telegram", action="store_true", help="Send output to Telegram")
     parser.add_argument(
         "--sort",
         type=str,
         default="",
-        help="Sort table by column[:asc|desc]. Options: change_15m, change_1h, change_asia, change_24h. Example: --sort change_15m:desc",
+        help=(
+            "Sort table by column[:asc|desc]. Options: change_15m, change_1h, "
+            "change_asia, change_24h. Example: --sort change_15m:desc"
+        ),
     )
     args = parser.parse_args()
     main(live=args.live, telegram=args.telegram, sort=args.sort)
