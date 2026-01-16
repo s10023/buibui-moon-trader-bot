@@ -32,7 +32,6 @@ typecheck:
 
 poetry-install:
 	@echo "📦 Installing dependencies with Poetry..."
-	poetry lock --no-update
 	poetry install
 
 poetry-update:
