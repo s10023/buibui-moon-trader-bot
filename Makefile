@@ -1,7 +1,6 @@
 SORT ?= default
 # Makefile — Lint Markdown and Python
 
-MARKDOWN_FILES = $(shell find . -name "*.md" -not -path "./venv/*")
 PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*")
 DOCKER_IMAGE = buibui-bot
 
@@ -11,7 +10,7 @@ lint: lint-md lint-py
 
 lint-md:
 	@echo "🔍 Running markdownlint on all Markdown files..."
-	markdownlint $(MARKDOWN_FILES)
+	npx markdownlint-cli2
 
 lint-py-check:
 	@echo "🧹 Checking Python formatting with black..."
