@@ -4,7 +4,7 @@ SORT ?= default
 PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*")
 DOCKER_IMAGE = buibui-bot
 
-.PHONY: lint lint-md lint-py format format-py docker-build docker-run-price docker-run-position
+.PHONY: lint lint-md lint-py format format-py test docker-build docker-run-price docker-run-position
 
 lint: lint-md lint-py
 
@@ -23,6 +23,10 @@ lint-py:
 typecheck:
 	@echo "🔎 Type checking with mypy..."
 	poetry run mypy .
+
+test:
+	@echo "🧪 Running tests..."
+	poetry run pytest tests/ -v
 
 poetry-install:
 	@echo "📦 Installing dependencies with Poetry..."
