@@ -65,7 +65,14 @@ class TestSortTable:
     """Tests for sort_table()."""
 
     def setup_method(self):
-        self.headers = ["Symbol", "Last Price", "15m %", "1h %", "Since Asia 8AM", "24h %"]
+        self.headers = [
+            "Symbol",
+            "Last Price",
+            "15m %",
+            "1h %",
+            "Since Asia 8AM",
+            "24h %",
+        ]
         self.table = [
             ["BTCUSDT", "62457.10", "+0.53%", "+1.42%", "+0.88%", "+2.31%"],
             ["ETHUSDT", "3408.50", "+0.22%", "+1.05%", "+0.71%", "+1.74%"],
@@ -171,7 +178,9 @@ class TestGetPriceChanges:
         with patch("monitor.price_monitor.client") as mock_client:
             mock_client.get_ticker.return_value = mock_ticker_data
             mock_client.get_klines.return_value = [mock_kline_data]
-            with patch("monitor.price_monitor.get_open_price_asia", return_value=62000.0):
+            with patch(
+                "monitor.price_monitor.get_open_price_asia", return_value=62000.0
+            ):
                 table, invalid = get_price_changes(["BTCUSDT"])
                 assert len(table) == 1
                 assert table[0][0] == "BTCUSDT"
@@ -181,7 +190,9 @@ class TestGetPriceChanges:
         with patch("monitor.price_monitor.client") as mock_client:
             mock_client.get_ticker.return_value = mock_ticker_data
             with patch("monitor.price_monitor.batch_get_klines", return_value={}):
-                with patch("monitor.price_monitor.get_open_price_asia", return_value=None):
+                with patch(
+                    "monitor.price_monitor.get_open_price_asia", return_value=None
+                ):
                     table, invalid = get_price_changes(["XYZUSDT"])
                     assert len(table) == 1
                     assert table[0][1] == "Error"
@@ -197,7 +208,9 @@ class TestGetPriceChanges:
         with patch("monitor.price_monitor.client") as mock_client:
             mock_client.get_ticker.return_value = mock_ticker_data
             mock_client.get_klines.return_value = [mock_kline_data]
-            with patch("monitor.price_monitor.get_open_price_asia", return_value=62000.0):
+            with patch(
+                "monitor.price_monitor.get_open_price_asia", return_value=62000.0
+            ):
                 table, _ = get_price_changes(["BTCUSDT"], telegram=True)
                 for cell in table[0][2:]:
                     assert "\033[" not in str(cell)

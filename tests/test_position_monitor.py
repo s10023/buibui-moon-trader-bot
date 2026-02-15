@@ -213,7 +213,9 @@ class TestFetchOpenPositions:
             assert "BTCUSDT" in symbols
             assert "ETHUSDT" in symbols
 
-    def test_hide_empty_excludes_placeholders(self, mock_positions_data, mock_futures_balance):
+    def test_hide_empty_excludes_placeholders(
+        self, mock_positions_data, mock_futures_balance
+    ):
         with patch("monitor.position_monitor.client") as mock_client:
             mock_client.futures_position_information.return_value = mock_positions_data
             mock_client.futures_account_balance.return_value = mock_futures_balance
@@ -234,7 +236,9 @@ class TestFetchOpenPositions:
             # ETHUSDT has higher PnL% than BTCUSDT
             assert positions[0][0] == "ETHUSDT"
 
-    def test_default_sort_follows_coin_order(self, mock_positions_data, mock_futures_balance):
+    def test_default_sort_follows_coin_order(
+        self, mock_positions_data, mock_futures_balance
+    ):
         with patch("monitor.position_monitor.client") as mock_client:
             mock_client.futures_position_information.return_value = mock_positions_data
             mock_client.futures_account_balance.return_value = mock_futures_balance
@@ -243,7 +247,9 @@ class TestFetchOpenPositions:
             positions, _ = fetch_open_positions(sort_by="default", hide_empty=True)
             assert positions[0][0] == "BTCUSDT"
 
-    def test_total_risk_with_stop_loss(self, mock_positions_data, mock_futures_balance, mock_stop_loss_orders):
+    def test_total_risk_with_stop_loss(
+        self, mock_positions_data, mock_futures_balance, mock_stop_loss_orders
+    ):
         with patch("monitor.position_monitor.client") as mock_client:
             mock_client.futures_position_information.return_value = mock_positions_data
             mock_client.futures_account_balance.return_value = mock_futures_balance

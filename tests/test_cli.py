@@ -31,9 +31,7 @@ class TestCLIParsing:
 
                 main()
 
-            mock_main.assert_called_once_with(
-                live=True, telegram=False, sort="default"
-            )
+            mock_main.assert_called_once_with(live=True, telegram=False, sort="default")
 
     def test_price_with_sort(self):
         """Price subcommand with --sort flag."""
