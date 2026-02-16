@@ -28,7 +28,7 @@ typecheck:
 
 test:
 	@echo "🧪 Running tests..."
-	poetry run pytest tests/ -v
+	poetry run pytest tests/ -v --cov --cov-report=term-missing
 
 poetry-install:
 	@echo "📦 Installing dependencies with Poetry..."
