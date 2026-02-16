@@ -3,14 +3,8 @@ name: Lint Markdown and Python
 on:
   push:
     branches:
-        - main
-    paths:
-      - '**/*.md'
-      - '**/*.py'
+      - main
   pull_request:
-    paths:
-      - '**/*.md'
-      - '**/*.py'
 
 jobs:
   markdownlint:
@@ -20,7 +14,18 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Check for Markdown changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            markdown:
+              - '**/*.md'
+              - '.markdownlint.json'
+              - '.markdownlint-cli2.jsonc'
+
       - name: markdownlint-cli2
+        if: steps.changes.outputs.markdown == 'true'
         uses: DavidAnson/markdownlint-cli2-action@v19
         with:
           config: .markdownlint.json
@@ -35,25 +40,43 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Check for Python changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            python:
+              - '**/*.py'
+              - 'pyproject.toml'
+              - 'poetry.lock'
+              - '.github/workflows/lint.yaml'
+
       - name: Set up Python
+        if: steps.changes.outputs.python == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install Poetry
+        if: steps.changes.outputs.python == 'true'
         run: curl -sSL https://install.python-poetry.org | python3 -
 
       - name: Install dependencies
+        if: steps.changes.outputs.python == 'true'
         run: make poetry-install
 
       - name: Lint Python
+        if: steps.changes.outputs.python == 'true'
         run: poetry run ruff check .
 
       - name: Check Python formatting
+        if: steps.changes.outputs.python == 'true'
         run: poetry run ruff format --check .
 
       - name: Type check
+        if: steps.changes.outputs.python == 'true'
         run: poetry run mypy .
 
       - name: Run tests
+        if: steps.changes.outputs.python == 'true'
         run: make test
