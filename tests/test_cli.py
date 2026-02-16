@@ -7,7 +7,7 @@ from unittest.mock import patch
 class TestCLIParsing:
     """Tests for CLI argument parsing in buibui.py."""
 
-    def test_price_subcommand_defaults(self):
+    def test_price_subcommand_defaults(self) -> None:
         """Price subcommand parses with correct defaults."""
         from monitor import price_monitor
 
@@ -21,7 +21,7 @@ class TestCLIParsing:
                 live=False, telegram=False, sort="default"
             )
 
-    def test_price_with_live_flag(self):
+    def test_price_with_live_flag(self) -> None:
         """Price subcommand with --live flag."""
         from monitor import price_monitor
 
@@ -33,7 +33,7 @@ class TestCLIParsing:
 
             mock_main.assert_called_once_with(live=True, telegram=False, sort="default")
 
-    def test_price_with_sort(self):
+    def test_price_with_sort(self) -> None:
         """Price subcommand with --sort flag."""
         from monitor import price_monitor
 
@@ -50,7 +50,7 @@ class TestCLIParsing:
                 live=False, telegram=False, sort="change_15m:desc"
             )
 
-    def test_position_subcommand_defaults(self):
+    def test_position_subcommand_defaults(self) -> None:
         """Position subcommand parses with correct defaults."""
         from monitor import position_monitor
 
@@ -64,7 +64,7 @@ class TestCLIParsing:
                 sort="default", telegram=False, hide_empty=False, compact=False
             )
 
-    def test_position_with_all_flags(self):
+    def test_position_with_all_flags(self) -> None:
         """Position subcommand with all flags."""
         from monitor import position_monitor
 
@@ -90,7 +90,7 @@ class TestCLIParsing:
                 sort="pnl_pct:desc", telegram=True, hide_empty=True, compact=True
             )
 
-    def test_missing_subcommand_exits(self):
+    def test_missing_subcommand_exits(self) -> None:
         """Missing subcommand causes SystemExit."""
         with patch("sys.argv", ["buibui.py"]):
             from buibui import main
@@ -98,7 +98,7 @@ class TestCLIParsing:
             with pytest.raises(SystemExit):
                 main()
 
-    def test_missing_monitor_subcommand_exits(self):
+    def test_missing_monitor_subcommand_exits(self) -> None:
         """'monitor' without price/position causes SystemExit."""
         with patch("sys.argv", ["buibui.py", "monitor"]):
             from buibui import main

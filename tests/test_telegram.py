@@ -1,3 +1,4 @@
+from typing import Any
 from unittest.mock import patch
 
 
@@ -7,7 +8,7 @@ class TestSendTelegramMessage:
     @patch("utils.telegram.requests.post")
     @patch("utils.telegram.BOT_TOKEN", "test_token")
     @patch("utils.telegram.CHAT_ID", "12345")
-    def test_successful_send(self, mock_post):
+    def test_successful_send(self, mock_post: Any) -> None:
         """Message is sent with correct payload."""
         from utils.telegram import send_telegram_message
 
@@ -26,7 +27,7 @@ class TestSendTelegramMessage:
     @patch("utils.telegram.requests.post")
     @patch("utils.telegram.BOT_TOKEN", None)
     @patch("utils.telegram.CHAT_ID", "12345")
-    def test_missing_bot_token(self, mock_post):
+    def test_missing_bot_token(self, mock_post: Any) -> None:
         """No HTTP call when BOT_TOKEN is missing."""
         from utils.telegram import send_telegram_message
 
@@ -36,7 +37,7 @@ class TestSendTelegramMessage:
     @patch("utils.telegram.requests.post")
     @patch("utils.telegram.BOT_TOKEN", "test_token")
     @patch("utils.telegram.CHAT_ID", None)
-    def test_missing_chat_id(self, mock_post):
+    def test_missing_chat_id(self, mock_post: Any) -> None:
         """No HTTP call when CHAT_ID is missing."""
         from utils.telegram import send_telegram_message
 
@@ -46,7 +47,7 @@ class TestSendTelegramMessage:
     @patch("utils.telegram.requests.post")
     @patch("utils.telegram.BOT_TOKEN", "")
     @patch("utils.telegram.CHAT_ID", "")
-    def test_empty_credentials(self, mock_post):
+    def test_empty_credentials(self, mock_post: Any) -> None:
         """No HTTP call when credentials are empty strings."""
         from utils.telegram import send_telegram_message
 
@@ -56,7 +57,7 @@ class TestSendTelegramMessage:
     @patch("utils.telegram.requests.post", side_effect=Exception("Network error"))
     @patch("utils.telegram.BOT_TOKEN", "test_token")
     @patch("utils.telegram.CHAT_ID", "12345")
-    def test_network_error_handled(self, mock_post):
+    def test_network_error_handled(self, mock_post: Any) -> None:
         """Network errors are caught and logged, not raised."""
         from utils.telegram import send_telegram_message
 
@@ -66,7 +67,7 @@ class TestSendTelegramMessage:
     @patch("utils.telegram.requests.post", side_effect=TimeoutError("Timeout"))
     @patch("utils.telegram.BOT_TOKEN", "test_token")
     @patch("utils.telegram.CHAT_ID", "12345")
-    def test_timeout_handled(self, mock_post):
+    def test_timeout_handled(self, mock_post: Any) -> None:
         """Timeout errors are caught and logged, not raised."""
         from utils.telegram import send_telegram_message
 
