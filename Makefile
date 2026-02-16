@@ -1,7 +1,7 @@
 SORT ?= default
 # Makefile — Lint Markdown and Python
 
-PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*")
+PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*" -not -path "./.venv/*")
 DOCKER_IMAGE = buibui-bot
 
 .PHONY: lint lint-md lint-py format format-py test docker-build docker-run-price docker-run-position

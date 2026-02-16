@@ -278,10 +278,14 @@ def main(live: bool = False, telegram: bool = False, sort: str = "") -> None:
         print("📈 Crypto Price Snapshot — Buibui Moon Bot\n")
         price_table, invalid_symbols = get_price_changes(COINS, telegram=telegram)
         if sort_col in valid_sort_cols:
-            print(f"[DEBUG] Sorting by: {sort_col} {'desc' if sort_order else 'asc'}")
             price_table = sort_table(price_table, headers, sort_col, sort_order)
 
         print(tabulate(price_table, headers=headers, tablefmt="fancy_grid"))
+
+        if sort_col in valid_sort_cols:
+            arrow = "🔽" if sort_order else "🔼"
+            direction = "descending" if sort_order else "ascending"
+            print(f"\n{arrow} Sorted by: {sort_col} ({direction})")
 
         if invalid_symbols:
             print("\n⚠️  The following symbols had errors:")
@@ -306,6 +310,10 @@ def main(live: bool = False, telegram: bool = False, sort: str = "") -> None:
                 if sort_col in valid_sort_cols:
                     price_table = sort_table(price_table, headers, sort_col, sort_order)
                 print(tabulate(price_table, headers=headers, tablefmt="fancy_grid"))
+                if sort_col in valid_sort_cols:
+                    arrow = "🔽" if sort_order else "🔼"
+                    direction = "descending" if sort_order else "ascending"
+                    print(f"\n{arrow} Sorted by: {sort_col} ({direction})")
                 if invalid_symbols:
                     print("\n⚠️  The following symbols had errors:")
                     for symbol, reason in sorted(invalid_symbols):

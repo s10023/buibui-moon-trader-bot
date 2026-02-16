@@ -343,6 +343,10 @@ def display_table(
             stralign="left",
         )
     )
+    if sort_by != "default":
+        arrow = "🔽" if descending else "🔼"
+        direction = "descending" if descending else "ascending"
+        output.append(f"\n{arrow} Sorted by: {sort_by} ({direction})")
     if telegram:
         summary = (
             f"📌 Open Positions Snapshot\n\n"
