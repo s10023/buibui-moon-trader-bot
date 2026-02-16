@@ -17,4 +17,4 @@ COPY . /app
 # Set environment variables (optional)
 ENV PYTHONUNBUFFERED=1
 
-# No default CMD; user must specify the command when running the container 
+# No default CMD; user must specify the command when running the container
