@@ -1,20 +1,20 @@
 """Tests for monitor/price_monitor.py."""
 
 from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
-from unittest.mock import patch, MagicMock
 
-from tests.conftest import strip_ansi
 from monitor.price_monitor import (
+    clear_screen,
     format_pct,
     format_pct_simple,
-    sort_table,
-    clear_screen,
-    sync_binance_time,
     get_klines,
     get_price_changes,
+    sort_table,
+    sync_binance_time,
 )
+from tests.conftest import strip_ansi
 
 
 class TestFormatPct:

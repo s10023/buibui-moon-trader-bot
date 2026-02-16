@@ -1,18 +1,19 @@
 import argparse
-import time
-import os
-import json
 import datetime as dt
+import json
+import logging
+import os
+import re
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any
+
 import pytz
 from binance.client import Client
+from colorama import Fore, Style, init
 from dotenv import load_dotenv
 from tabulate import tabulate
-from colorama import init, Fore, Style
-import logging
-import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Set, Tuple, Optional
-import re
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils.config_validation import validate_coins_config
@@ -76,7 +77,7 @@ def format_pct_simple(pct: Any) -> str:
 
 
 # Convert datetime to Binance-compatible string
-def get_klines(symbol: str, interval: str, lookback_minutes: int) -> Optional[Any]:
+def get_klines(symbol: str, interval: str, lookback_minutes: int) -> Any | None:
     now = dt.datetime.utcnow()
     start_time = int((now - dt.timedelta(minutes=lookback_minutes)).timestamp() * 1000)
     try:
@@ -84,13 +85,13 @@ def get_klines(symbol: str, interval: str, lookback_minutes: int) -> Optional[An
             symbol=symbol, interval=interval, startTime=start_time
         )
         return klines[-1]  # most recent kline
-    except Exception as e:
+    except Exception:
         return None
 
 
 def batch_get_klines(
-    symbols: List[str], intervals_lookbacks: List[Tuple[str, int]]
-) -> Dict[Tuple[str, str], Any]:
+    symbols: list[str], intervals_lookbacks: list[tuple[str, int]]
+) -> dict[tuple[str, str], Any]:
     """
     Batch fetch klines for all symbols and intervals in parallel.
     intervals_lookbacks: list of (interval, lookback_minutes)
@@ -100,7 +101,7 @@ def batch_get_klines(
 
     def fetch(
         symbol: str, interval: str, lookback: int
-    ) -> Tuple[Tuple[str, str], Optional[Any]]:
+    ) -> tuple[tuple[str, str], Any | None]:
         now = dt.datetime.utcnow()
         start_time = int((now - dt.timedelta(minutes=lookback)).timestamp() * 1000)
         try:
@@ -108,7 +109,7 @@ def batch_get_klines(
                 symbol=symbol, interval=interval, startTime=start_time
             )
             return ((symbol, interval), klines[-1] if klines else None)
-        except Exception as e:
+        except Exception:
             return ((symbol, interval), None)
 
     cpu_count = os.cpu_count() or 1
@@ -125,7 +126,7 @@ def batch_get_klines(
     return results
 
 
-def get_open_price_asia(symbol: str) -> Optional[float]:
+def get_open_price_asia(symbol: str) -> float | None:
     now_utc = dt.datetime.utcnow().replace(tzinfo=pytz.utc)
     asia_tz = pytz.timezone("Asia/Shanghai")  # GMT+8
     asia_today_8am = now_utc.astimezone(asia_tz).replace(
@@ -140,13 +141,13 @@ def get_open_price_asia(symbol: str) -> Optional[float]:
             symbol=symbol, interval="1m", startTime=start_time, limit=1
         )
         return float(kline[0][1]) if kline else None  # open price
-    except Exception as e:
+    except Exception:
         return None
 
 
 def get_price_changes(
-    symbols: List[str], telegram: bool = False
-) -> Tuple[List[Any], Set[Any]]:
+    symbols: list[str], telegram: bool = False
+) -> tuple[list[Any], set[Any]]:
     table = []
     invalid_symbols = set()
     # Get all tickers once
@@ -161,10 +162,10 @@ def get_price_changes(
     intervals_lookbacks = [("15m", 15), ("1h", 60)]
     kline_map = batch_get_klines(symbols, intervals_lookbacks)
 
-    def get_asia_open_parallel(symbols: List[str]) -> Dict[str, Optional[float]]:
+    def get_asia_open_parallel(symbols: list[str]) -> dict[str, float | None]:
         results = {}
 
-        def fetch(symbol: str) -> Tuple[str, Optional[float]]:
+        def fetch(symbol: str) -> tuple[str, float | None]:
             return (symbol, get_open_price_asia(symbol))
 
         cpu_count = os.cpu_count() or 1
@@ -242,8 +243,8 @@ def clear_screen() -> None:
 
 
 def sort_table(
-    table: List[Any], headers: List[str], col: str, order: bool
-) -> List[Any]:
+    table: list[Any], headers: list[str], col: str, order: bool
+) -> list[Any]:
     sort_key_map = {
         "change_15m": headers.index("15m %"),
         "change_1h": headers.index("1h %"),

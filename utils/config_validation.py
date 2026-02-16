@@ -1,7 +1,7 @@
-from typing import Dict, Any
+from typing import Any
 
 
-def validate_coins_config(config_dict: Dict[str, Any]) -> bool:
+def validate_coins_config(config_dict: dict[str, Any]) -> bool:
     """
     Validate the coins.json config dict.
     Raises ValueError if invalid.

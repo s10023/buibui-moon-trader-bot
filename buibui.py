@@ -1,5 +1,6 @@
 import argparse
-from monitor import price_monitor, position_monitor
+
+from monitor import position_monitor, price_monitor
 
 
 def run_price_monitor(args: argparse.Namespace) -> None:

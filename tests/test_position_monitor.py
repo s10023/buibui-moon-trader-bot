@@ -3,18 +3,18 @@
 from typing import Any
 from unittest.mock import patch
 
-from tests.conftest import strip_ansi
 from monitor.position_monitor import (
+    color_risk_usd,
+    color_sl_size,
     colorize,
     colorize_dollar,
-    color_sl_size,
-    color_risk_usd,
     display_progress_bar,
-    get_wallet_balance,
-    get_stop_loss_for_symbol,
-    fetch_open_positions,
     display_table,
+    fetch_open_positions,
+    get_stop_loss_for_symbol,
+    get_wallet_balance,
 )
+from tests.conftest import strip_ansi
 
 
 class TestColorize:

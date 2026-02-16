@@ -13,12 +13,14 @@ lint-md:
 	npx markdownlint-cli2
 
 lint-py-check:
-	@echo "🧹 Checking Python formatting with black..."
-	poetry run black --check $(PYTHON_FILES)
+	@echo "🧹 Checking Python formatting and linting with ruff..."
+	poetry run ruff check .
+	poetry run ruff format --check .
 
 lint-py:
-	@echo "🎨 Formatting Python code with black..."
-	poetry run black $(PYTHON_FILES)
+	@echo "🎨 Formatting and linting Python code with ruff..."
+	poetry run ruff check --fix .
+	poetry run ruff format .
 
 typecheck:
 	@echo "🔎 Type checking with mypy..."
