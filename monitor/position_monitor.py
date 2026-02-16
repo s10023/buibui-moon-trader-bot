@@ -1,15 +1,17 @@
-import os
-import json
-from dotenv import load_dotenv
-from binance.client import Client
-from tabulate import tabulate
 import argparse
-import time
+import json
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import os
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any
+
+from binance.client import Client
+from dotenv import load_dotenv
+from tabulate import tabulate
+
 from utils.config_validation import validate_coins_config
-from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils.telegram import send_telegram_message
@@ -68,7 +70,7 @@ def colorize_dollar(value: Any) -> str:
         elif value < 0:
             return f"\033[91m-${abs(value):,.2f}\033[0m"
         else:
-            return f"\033[93m$0.00\033[0m"
+            return "\033[93m$0.00\033[0m"
     except Exception as e:
         logging.error(f"Error in colorize_dollar: {e}")
         return f"${value}"
@@ -94,7 +96,7 @@ def color_risk_usd(value: float, total_balance: float) -> str:
         return f"\033[92m{formatted}\033[0m"
 
 
-def get_wallet_balance() -> Tuple[float, float]:
+def get_wallet_balance() -> tuple[float, float]:
     balances = client.futures_account_balance()
     for b in balances:
         if b["asset"] == "USDT":
@@ -104,7 +106,7 @@ def get_wallet_balance() -> Tuple[float, float]:
     return 0.0, 0.0
 
 
-def get_stop_loss_for_symbol(symbol: str) -> Optional[float]:
+def get_stop_loss_for_symbol(symbol: str) -> float | None:
     try:
         orders = client.futures_get_open_orders(symbol=symbol)
         for o in orders:
@@ -118,7 +120,7 @@ def get_stop_loss_for_symbol(symbol: str) -> Optional[float]:
 
 def fetch_open_positions(
     sort_by: str = "default", descending: bool = True, hide_empty: bool = False
-) -> Tuple[List[Any], float]:
+) -> tuple[list[Any], float]:
 
     positions = client.futures_position_information()
     filtered = []
@@ -146,7 +148,7 @@ def fetch_open_positions(
     # Parallelize stop loss fetching
     def fetch_sl(
         symbol: str, side_text: str, entry: float, notional: float
-    ) -> Tuple[str, Any, Any, Any, float, Optional[float]]:
+    ) -> tuple[str, Any, Any, Any, float, float | None]:
         try:
             actual_sl = get_stop_loss_for_symbol(symbol)
             if actual_sl:
@@ -287,7 +289,7 @@ def display_progress_bar(current: float, target: float, bar_length: int = 30) ->
     empty = bar_length - filled
     color = "\033[92m" if pct >= 1 else ("\033[93m" if pct >= 0.5 else "\033[91m")
     bar = color + "█" * filled + "-" * empty + "\033[0m"
-    return f"Wallet Target: ${current:,.2f} / ${target:,.2f} |{bar}| {pct*100:.1f}%"
+    return f"Wallet Target: ${current:,.2f} / ${target:,.2f} |{bar}| {pct * 100:.1f}%"
 
 
 def display_table(

@@ -37,10 +37,10 @@ make lint-md
 
 ## Code Style
 
-- **Formatter**: black
+- **Linter + Formatter**: ruff (replaces black; handles linting, import sorting, and formatting)
 - **Type checker**: mypy (strict — `disallow_untyped_defs = true`)
 - **All functions must have type annotations** including return types (`-> None` for test methods)
-- **Linter**: markdownlint-cli2 for Markdown files
+- **Markdown linter**: markdownlint-cli2
 - Use `from typing import Any` for mock parameters in tests
 
 ## Testing
@@ -52,7 +52,7 @@ make lint-md
 ## Dependencies
 
 - Managed via Poetry: `poetry install --no-root`
-- Dev deps: mypy, pytest, pytest-mock, type stubs
+- Dev deps: ruff, mypy, pytest, pytest-mock, pre-commit, type stubs
 - Never modify `poetry.lock` manually — use `poetry add` / `poetry remove`
 
 ## Documentation

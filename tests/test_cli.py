@@ -1,7 +1,8 @@
 """Tests for buibui.py CLI argument parsing and dispatch."""
 
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 
 class TestCLIParsing:

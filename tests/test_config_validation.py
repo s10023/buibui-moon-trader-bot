@@ -1,6 +1,7 @@
 from typing import Any
 
 import pytest
+
 from utils.config_validation import validate_coins_config
 
 

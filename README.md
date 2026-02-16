@@ -235,6 +235,7 @@ The Makefile provides easy commands for all major actions:
 
 ```bash
 make lint           # Lint Markdown and Python (excludes venv)
+make lint-py        # Lint + format Python with ruff
 make typecheck      # Type check with mypy
 ```
 
@@ -291,14 +292,16 @@ The `.github/workflows/monitor.yaml` file can be configured to:
 
 This project uses:
 
-- **markdownlint-cli2** for Markdown linting
-- **black** for code formatting
+- **ruff** for Python linting and formatting
 - **mypy** for static type checking
+- **markdownlint-cli2** for Markdown linting
+- **pre-commit** for automated checks on every commit
 
 To check formatting and types locally:
 
 ```bash
-poetry run black --check .
+poetry run ruff check .
+poetry run ruff format --check .
 poetry run mypy .
 ```
 
