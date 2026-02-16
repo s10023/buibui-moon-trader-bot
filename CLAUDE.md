@@ -30,9 +30,14 @@ make lint-md
 ## Project Structure
 
 - `buibui.py` — CLI entry point (argparse)
-- `monitor/` — price_monitor.py, position_monitor.py (both have module-level side effects: Binance client init, coins.json read)
-- `utils/` — config_validation.py, telegram.py
-- `tests/` — pytest suite with conftest.py that patches Binance client at import time
+- `monitor/` — monitor modules split into thin wrappers and pure logic libs:
+  - `price_monitor.py` / `position_monitor.py` — thin wrappers (create client, load config, call lib)
+  - `price_lib.py` / `position_lib.py` — pure business logic with dependency injection (no module-level side effects)
+- `utils/` — shared utilities:
+  - `binance_client.py` — Binance client creation, time sync, config loading
+  - `config_validation.py` — coins.json schema validation
+  - `telegram.py` — Telegram message sending
+- `tests/` — pytest suite; tests import from lib modules and pass mock dependencies directly
 - `config/coins.json` — per-symbol leverage and stop-loss config
 
 ## Code Style
@@ -46,7 +51,7 @@ make lint-md
 ## Testing
 
 - Framework: pytest + unittest.mock
-- Tests must not make real network calls — all Binance API access is mocked in `tests/conftest.py` at import time
+- Tests must not make real network calls — lib functions accept a `client` parameter; tests pass a `MagicMock` directly
 - Run: `make test` or `poetry run pytest tests/ -v`
 
 ## Dependencies

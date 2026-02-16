@@ -1,20 +1,20 @@
-"""Tests for monitor/price_monitor.py."""
+"""Tests for monitor/price_lib.py — pure price monitor logic."""
 
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from monitor.price_monitor import (
+from monitor.price_lib import (
     clear_screen,
     format_pct,
     format_pct_simple,
     get_klines,
     get_price_changes,
     sort_table,
-    sync_binance_time,
 )
 from tests.conftest import strip_ansi
+from utils.binance_client import sync_binance_time
 
 
 class TestFormatPct:
@@ -125,14 +125,14 @@ class TestSortTable:
 class TestClearScreen:
     """Tests for clear_screen()."""
 
-    @patch("monitor.price_monitor.os.system")
-    @patch("monitor.price_monitor.os.name", "posix")
+    @patch("monitor.price_lib.os.system")
+    @patch("monitor.price_lib.os.name", "posix")
     def test_unix_clear(self, mock_system: Any) -> None:
         clear_screen()
         mock_system.assert_called_once_with("clear")
 
-    @patch("monitor.price_monitor.os.system")
-    @patch("monitor.price_monitor.os.name", "nt")
+    @patch("monitor.price_lib.os.system")
+    @patch("monitor.price_lib.os.name", "nt")
     def test_windows_clear(self, mock_system: Any) -> None:
         clear_screen()
         mock_system.assert_called_once_with("cls")
@@ -141,14 +141,14 @@ class TestClearScreen:
 class TestSyncBinanceTime:
     """Tests for sync_binance_time()."""
 
-    @patch("monitor.price_monitor.time.time", return_value=1700000000.0)
+    @patch("utils.binance_client.time.time", return_value=1700000000.0)
     def test_sets_time_offset(self, _mock_time: Any) -> None:
         mock_client = MagicMock()
         mock_client.get_server_time.return_value = {"serverTime": 1700000001000}
         sync_binance_time(mock_client)
         assert mock_client.TIME_OFFSET == 1000
 
-    @patch("monitor.price_monitor.time.time", return_value=1700000001.0)
+    @patch("utils.binance_client.time.time", return_value=1700000001.0)
     def test_negative_offset(self, _mock_time: Any) -> None:
         mock_client = MagicMock()
         mock_client.get_server_time.return_value = {"serverTime": 1700000000000}
@@ -162,15 +162,15 @@ class TestGetKlines:
     def test_returns_last_kline(self) -> None:
         kline1 = ["first_kline"]
         kline2 = ["second_kline"]
-        with patch("monitor.price_monitor.client") as mock_client:
-            mock_client.get_klines.return_value = [kline1, kline2]
-            result = get_klines("BTCUSDT", "15m", 15)
-            assert result == kline2
+        mock_client = MagicMock()
+        mock_client.get_klines.return_value = [kline1, kline2]
+        result = get_klines(mock_client, "BTCUSDT", "15m", 15)
+        assert result == kline2
 
     def test_returns_none_on_error(self) -> None:
-        with patch("monitor.price_monitor.client") as mock_client:
-            mock_client.get_klines.side_effect = Exception("API error")
-            assert get_klines("BTCUSDT", "15m", 15) is None
+        mock_client = MagicMock()
+        mock_client.get_klines.side_effect = Exception("API error")
+        assert get_klines(mock_client, "BTCUSDT", "15m", 15) is None
 
 
 class TestGetPriceChanges:
@@ -179,46 +179,40 @@ class TestGetPriceChanges:
     def test_returns_table_for_valid_symbols(
         self, mock_ticker_data: list[dict[str, Any]], mock_kline_data: list[Any]
     ) -> None:
-        with patch("monitor.price_monitor.client") as mock_client:
-            mock_client.get_ticker.return_value = mock_ticker_data
-            mock_client.get_klines.return_value = [mock_kline_data]
-            with patch(
-                "monitor.price_monitor.get_open_price_asia", return_value=62000.0
-            ):
-                table, invalid = get_price_changes(["BTCUSDT"])
-                assert len(table) == 1
-                assert table[0][0] == "BTCUSDT"
-                assert len(invalid) == 0
+        mock_client = MagicMock()
+        mock_client.get_ticker.return_value = mock_ticker_data
+        mock_client.get_klines.return_value = [mock_kline_data]
+        with patch("monitor.price_lib.get_open_price_asia", return_value=62000.0):
+            table, invalid = get_price_changes(mock_client, ["BTCUSDT"])
+            assert len(table) == 1
+            assert table[0][0] == "BTCUSDT"
+            assert len(invalid) == 0
 
     def test_invalid_symbol_in_ticker(
         self, mock_ticker_data: list[dict[str, Any]]
     ) -> None:
-        with patch("monitor.price_monitor.client") as mock_client:
-            mock_client.get_ticker.return_value = mock_ticker_data
-            with patch("monitor.price_monitor.batch_get_klines", return_value={}):
-                with patch(
-                    "monitor.price_monitor.get_open_price_asia", return_value=None
-                ):
-                    table, invalid = get_price_changes(["XYZUSDT"])
-                    assert len(table) == 1
-                    assert table[0][1] == "Error"
-                    assert len(invalid) == 1
+        mock_client = MagicMock()
+        mock_client.get_ticker.return_value = mock_ticker_data
+        with patch("monitor.price_lib.batch_get_klines", return_value={}):
+            with patch("monitor.price_lib.get_open_price_asia", return_value=None):
+                table, invalid = get_price_changes(mock_client, ["XYZUSDT"])
+                assert len(table) == 1
+                assert table[0][1] == "Error"
+                assert len(invalid) == 1
 
     def test_ticker_api_failure(self) -> None:
-        with patch("monitor.price_monitor.client") as mock_client:
-            mock_client.get_ticker.side_effect = Exception("API down")
-            table, invalid = get_price_changes(["BTCUSDT"])
-            assert table[0][1] == "Error"
+        mock_client = MagicMock()
+        mock_client.get_ticker.side_effect = Exception("API down")
+        table, invalid = get_price_changes(mock_client, ["BTCUSDT"])
+        assert table[0][1] == "Error"
 
     def test_telegram_mode_uses_simple_format(
         self, mock_ticker_data: list[dict[str, Any]], mock_kline_data: list[Any]
     ) -> None:
-        with patch("monitor.price_monitor.client") as mock_client:
-            mock_client.get_ticker.return_value = mock_ticker_data
-            mock_client.get_klines.return_value = [mock_kline_data]
-            with patch(
-                "monitor.price_monitor.get_open_price_asia", return_value=62000.0
-            ):
-                table, _ = get_price_changes(["BTCUSDT"], telegram=True)
-                for cell in table[0][2:]:
-                    assert "\033[" not in str(cell)
+        mock_client = MagicMock()
+        mock_client.get_ticker.return_value = mock_ticker_data
+        mock_client.get_klines.return_value = [mock_kline_data]
+        with patch("monitor.price_lib.get_open_price_asia", return_value=62000.0):
+            table, _ = get_price_changes(mock_client, ["BTCUSDT"], telegram=True)
+            for cell in table[0][2:]:
+                assert "\033[" not in str(cell)

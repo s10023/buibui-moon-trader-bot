@@ -1,9 +1,9 @@
-"""Tests for monitor/position_monitor.py."""
+"""Tests for monitor/position_lib.py — pure position monitor logic."""
 
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from monitor.position_monitor import (
+from monitor.position_lib import (
     color_risk_usd,
     color_sl_size,
     colorize,
@@ -14,7 +14,7 @@ from monitor.position_monitor import (
     get_stop_loss_for_symbol,
     get_wallet_balance,
 )
-from tests.conftest import strip_ansi
+from tests.conftest import SAMPLE_COIN_ORDER, SAMPLE_COINS_CONFIG, strip_ansi
 
 
 class TestColorize:
@@ -134,7 +134,7 @@ class TestDisplayProgressBar:
 
     def test_custom_bar_length(self) -> None:
         stripped = strip_ansi(display_progress_bar(1000, 2000, bar_length=10))
-        assert "█████-----" in stripped
+        assert "\u2588" * 5 + "-----" in stripped
 
 
 class TestGetWalletBalance:
@@ -143,27 +143,27 @@ class TestGetWalletBalance:
     def test_returns_usdt_balance(
         self, mock_futures_balance: list[dict[str, Any]]
     ) -> None:
-        with patch("monitor.position_monitor.client") as mock_client:
-            mock_client.futures_account_balance.return_value = mock_futures_balance
-            balance, unrealized = get_wallet_balance()
-            assert balance == 1123.15
-            assert unrealized == 290.29
+        mock_client = MagicMock()
+        mock_client.futures_account_balance.return_value = mock_futures_balance
+        balance, unrealized = get_wallet_balance(mock_client)
+        assert balance == 1123.15
+        assert unrealized == 290.29
 
     def test_no_usdt_returns_zeros(self) -> None:
-        with patch("monitor.position_monitor.client") as mock_client:
-            mock_client.futures_account_balance.return_value = [
-                {"asset": "BNB", "balance": "10.0", "crossUnPnl": "0"}
-            ]
-            balance, unrealized = get_wallet_balance()
-            assert balance == 0.0
-            assert unrealized == 0.0
+        mock_client = MagicMock()
+        mock_client.futures_account_balance.return_value = [
+            {"asset": "BNB", "balance": "10.0", "crossUnPnl": "0"}
+        ]
+        balance, unrealized = get_wallet_balance(mock_client)
+        assert balance == 0.0
+        assert unrealized == 0.0
 
     def test_empty_balance_list(self) -> None:
-        with patch("monitor.position_monitor.client") as mock_client:
-            mock_client.futures_account_balance.return_value = []
-            balance, unrealized = get_wallet_balance()
-            assert balance == 0.0
-            assert unrealized == 0.0
+        mock_client = MagicMock()
+        mock_client.futures_account_balance.return_value = []
+        balance, unrealized = get_wallet_balance(mock_client)
+        assert balance == 0.0
+        assert unrealized == 0.0
 
 
 class TestGetStopLossForSymbol:
@@ -172,33 +172,33 @@ class TestGetStopLossForSymbol:
     def test_returns_sl_price(
         self, mock_stop_loss_orders: list[dict[str, Any]]
     ) -> None:
-        with patch("monitor.position_monitor.client") as mock_client:
-            mock_client.futures_get_open_orders.return_value = mock_stop_loss_orders
-            assert get_stop_loss_for_symbol("BTCUSDT") == 109970.0
+        mock_client = MagicMock()
+        mock_client.futures_get_open_orders.return_value = mock_stop_loss_orders
+        assert get_stop_loss_for_symbol(mock_client, "BTCUSDT") == 109970.0
 
     def test_no_sl_orders(self) -> None:
-        with patch("monitor.position_monitor.client") as mock_client:
-            mock_client.futures_get_open_orders.return_value = []
-            assert get_stop_loss_for_symbol("BTCUSDT") is None
+        mock_client = MagicMock()
+        mock_client.futures_get_open_orders.return_value = []
+        assert get_stop_loss_for_symbol(mock_client, "BTCUSDT") is None
 
     def test_non_sl_orders_ignored(self) -> None:
-        with patch("monitor.position_monitor.client") as mock_client:
-            mock_client.futures_get_open_orders.return_value = [
-                {"type": "LIMIT", "reduceOnly": True, "stopPrice": "50000.0"},
-            ]
-            assert get_stop_loss_for_symbol("BTCUSDT") is None
+        mock_client = MagicMock()
+        mock_client.futures_get_open_orders.return_value = [
+            {"type": "LIMIT", "reduceOnly": True, "stopPrice": "50000.0"},
+        ]
+        assert get_stop_loss_for_symbol(mock_client, "BTCUSDT") is None
 
     def test_api_error_returns_none(self) -> None:
-        with patch("monitor.position_monitor.client") as mock_client:
-            mock_client.futures_get_open_orders.side_effect = Exception("API error")
-            assert get_stop_loss_for_symbol("BTCUSDT") is None
+        mock_client = MagicMock()
+        mock_client.futures_get_open_orders.side_effect = Exception("API error")
+        assert get_stop_loss_for_symbol(mock_client, "BTCUSDT") is None
 
     def test_stop_type_without_reduce_only(self) -> None:
-        with patch("monitor.position_monitor.client") as mock_client:
-            mock_client.futures_get_open_orders.return_value = [
-                {"type": "STOP_MARKET", "reduceOnly": False, "stopPrice": "50000.0"},
-            ]
-            assert get_stop_loss_for_symbol("BTCUSDT") is None
+        mock_client = MagicMock()
+        mock_client.futures_get_open_orders.return_value = [
+            {"type": "STOP_MARKET", "reduceOnly": False, "stopPrice": "50000.0"},
+        ]
+        assert get_stop_loss_for_symbol(mock_client, "BTCUSDT") is None
 
 
 class TestFetchOpenPositions:
@@ -209,60 +209,75 @@ class TestFetchOpenPositions:
         mock_positions_data: list[dict[str, Any]],
         mock_futures_balance: list[dict[str, Any]],
     ) -> None:
-        with patch("monitor.position_monitor.client") as mock_client:
-            mock_client.futures_position_information.return_value = mock_positions_data
-            mock_client.futures_account_balance.return_value = mock_futures_balance
-            mock_client.futures_get_open_orders.return_value = []
+        mock_client = MagicMock()
+        mock_client.futures_position_information.return_value = mock_positions_data
+        mock_client.futures_account_balance.return_value = mock_futures_balance
+        mock_client.futures_get_open_orders.return_value = []
 
-            positions, total_risk = fetch_open_positions()
+        positions, total_risk = fetch_open_positions(
+            mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER
+        )
 
-            open_rows = [r for r in positions if r[1] != "-"]
-            assert len(open_rows) == 2
-            symbols = [r[0] for r in open_rows]
-            assert "BTCUSDT" in symbols
-            assert "ETHUSDT" in symbols
+        open_rows = [r for r in positions if r[1] != "-"]
+        assert len(open_rows) == 2
+        symbols = [r[0] for r in open_rows]
+        assert "BTCUSDT" in symbols
+        assert "ETHUSDT" in symbols
 
     def test_hide_empty_excludes_placeholders(
         self,
         mock_positions_data: list[dict[str, Any]],
         mock_futures_balance: list[dict[str, Any]],
     ) -> None:
-        with patch("monitor.position_monitor.client") as mock_client:
-            mock_client.futures_position_information.return_value = mock_positions_data
-            mock_client.futures_account_balance.return_value = mock_futures_balance
-            mock_client.futures_get_open_orders.return_value = []
+        mock_client = MagicMock()
+        mock_client.futures_position_information.return_value = mock_positions_data
+        mock_client.futures_account_balance.return_value = mock_futures_balance
+        mock_client.futures_get_open_orders.return_value = []
 
-            positions, _ = fetch_open_positions(hide_empty=True)
-            assert all(r[1] != "-" for r in positions)
+        positions, _ = fetch_open_positions(
+            mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER, hide_empty=True
+        )
+        assert all(r[1] != "-" for r in positions)
 
     def test_sort_by_pnl_pct(
         self,
         mock_positions_data: list[dict[str, Any]],
         mock_futures_balance: list[dict[str, Any]],
     ) -> None:
-        with patch("monitor.position_monitor.client") as mock_client:
-            mock_client.futures_position_information.return_value = mock_positions_data
-            mock_client.futures_account_balance.return_value = mock_futures_balance
-            mock_client.futures_get_open_orders.return_value = []
+        mock_client = MagicMock()
+        mock_client.futures_position_information.return_value = mock_positions_data
+        mock_client.futures_account_balance.return_value = mock_futures_balance
+        mock_client.futures_get_open_orders.return_value = []
 
-            positions, _ = fetch_open_positions(
-                sort_by="pnl_pct", descending=True, hide_empty=True
-            )
-            # ETHUSDT has higher PnL% than BTCUSDT
-            assert positions[0][0] == "ETHUSDT"
+        positions, _ = fetch_open_positions(
+            mock_client,
+            SAMPLE_COINS_CONFIG,
+            SAMPLE_COIN_ORDER,
+            sort_by="pnl_pct",
+            descending=True,
+            hide_empty=True,
+        )
+        # ETHUSDT has higher PnL% than BTCUSDT
+        assert positions[0][0] == "ETHUSDT"
 
     def test_default_sort_follows_coin_order(
         self,
         mock_positions_data: list[dict[str, Any]],
         mock_futures_balance: list[dict[str, Any]],
     ) -> None:
-        with patch("monitor.position_monitor.client") as mock_client:
-            mock_client.futures_position_information.return_value = mock_positions_data
-            mock_client.futures_account_balance.return_value = mock_futures_balance
-            mock_client.futures_get_open_orders.return_value = []
+        mock_client = MagicMock()
+        mock_client.futures_position_information.return_value = mock_positions_data
+        mock_client.futures_account_balance.return_value = mock_futures_balance
+        mock_client.futures_get_open_orders.return_value = []
 
-            positions, _ = fetch_open_positions(sort_by="default", hide_empty=True)
-            assert positions[0][0] == "BTCUSDT"
+        positions, _ = fetch_open_positions(
+            mock_client,
+            SAMPLE_COINS_CONFIG,
+            SAMPLE_COIN_ORDER,
+            sort_by="default",
+            hide_empty=True,
+        )
+        assert positions[0][0] == "BTCUSDT"
 
     def test_total_risk_with_stop_loss(
         self,
@@ -270,13 +285,18 @@ class TestFetchOpenPositions:
         mock_futures_balance: list[dict[str, Any]],
         mock_stop_loss_orders: list[dict[str, Any]],
     ) -> None:
-        with patch("monitor.position_monitor.client") as mock_client:
-            mock_client.futures_position_information.return_value = mock_positions_data
-            mock_client.futures_account_balance.return_value = mock_futures_balance
-            mock_client.futures_get_open_orders.return_value = mock_stop_loss_orders
+        mock_client = MagicMock()
+        mock_client.futures_position_information.return_value = mock_positions_data
+        mock_client.futures_account_balance.return_value = mock_futures_balance
+        mock_client.futures_get_open_orders.return_value = mock_stop_loss_orders
 
-            _, total_risk = fetch_open_positions(hide_empty=True)
-            assert isinstance(total_risk, float)
+        _, total_risk = fetch_open_positions(
+            mock_client,
+            SAMPLE_COINS_CONFIG,
+            SAMPLE_COIN_ORDER,
+            hide_empty=True,
+        )
+        assert isinstance(total_risk, float)
 
 
 class TestDisplayTable:
@@ -287,41 +307,51 @@ class TestDisplayTable:
         mock_positions_data: list[dict[str, Any]],
         mock_futures_balance: list[dict[str, Any]],
     ) -> None:
-        with patch("monitor.position_monitor.client") as mock_client:
-            mock_client.futures_position_information.return_value = mock_positions_data
-            mock_client.futures_account_balance.return_value = mock_futures_balance
-            mock_client.futures_get_open_orders.return_value = []
+        mock_client = MagicMock()
+        mock_client.futures_position_information.return_value = mock_positions_data
+        mock_client.futures_account_balance.return_value = mock_futures_balance
+        mock_client.futures_get_open_orders.return_value = []
 
-            result = display_table(compact=True)
-            assert "Wallet Balance" in result
-            assert "╒" not in result
+        result = display_table(
+            mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER, 2000.0, compact=True
+        )
+        assert "Wallet Balance" in result
+        assert "\u2552" not in result
 
     def test_full_mode_has_table(
         self,
         mock_positions_data: list[dict[str, Any]],
         mock_futures_balance: list[dict[str, Any]],
     ) -> None:
-        with patch("monitor.position_monitor.client") as mock_client:
-            mock_client.futures_position_information.return_value = mock_positions_data
-            mock_client.futures_account_balance.return_value = mock_futures_balance
-            mock_client.futures_get_open_orders.return_value = []
+        mock_client = MagicMock()
+        mock_client.futures_position_information.return_value = mock_positions_data
+        mock_client.futures_account_balance.return_value = mock_futures_balance
+        mock_client.futures_get_open_orders.return_value = []
 
-            result = display_table(compact=False)
-            assert "Wallet Balance" in result
-            assert "╒" in result
+        result = display_table(
+            mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER, 2000.0, compact=False
+        )
+        assert "Wallet Balance" in result
+        assert "\u2552" in result
 
     def test_telegram_sends_message(
         self,
         mock_positions_data: list[dict[str, Any]],
         mock_futures_balance: list[dict[str, Any]],
     ) -> None:
-        with patch("monitor.position_monitor.client") as mock_client:
-            mock_client.futures_position_information.return_value = mock_positions_data
-            mock_client.futures_account_balance.return_value = mock_futures_balance
-            mock_client.futures_get_open_orders.return_value = []
+        mock_client = MagicMock()
+        mock_client.futures_position_information.return_value = mock_positions_data
+        mock_client.futures_account_balance.return_value = mock_futures_balance
+        mock_client.futures_get_open_orders.return_value = []
 
-            with patch("monitor.position_monitor.send_telegram_message") as mock_tg:
-                display_table(telegram=True)
-                mock_tg.assert_called_once()
-                msg = mock_tg.call_args[0][0]
-                assert "Wallet Balance" in msg
+        with patch("monitor.position_lib.send_telegram_message") as mock_tg:
+            display_table(
+                mock_client,
+                SAMPLE_COINS_CONFIG,
+                SAMPLE_COIN_ORDER,
+                2000.0,
+                telegram=True,
+            )
+            mock_tg.assert_called_once()
+            msg = mock_tg.call_args[0][0]
+            assert "Wallet Balance" in msg
