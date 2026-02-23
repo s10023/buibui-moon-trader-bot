@@ -1376,13 +1376,14 @@ dev = ["pre-commit", "pytest-asyncio", "tox"]
 
 [[package]]
 name = "python-binance"
-version = "1.0.34"
+version = "1.0.35"
 description = "Binance REST API python implementation"
 optional = false
 python-versions = "*"
 groups = ["main"]
 files = [
-    {file = "python_binance-1.0.34-py2.py3-none-any.whl", hash = "sha256:62db9a8df1caf3f7f3d620cc9a113f41c802fcd6c359b7f04bdddc55e072ac30"},
+    {file = "python_binance-1.0.35-py2.py3-none-any.whl", hash = "sha256:6a6a291182788f88c11991537164db80335281cda0424b5e059528d69e8f10d8"},
+    {file = "python_binance-1.0.35.tar.gz", hash = "sha256:afa1a53c9bf9438cabcbef3fe2a1abf9f57237ec75d0efedecd2246ccdf21e51"},
 ]
 
 [package.dependencies]
