@@ -12,6 +12,10 @@ lint-md:
 	@echo "🔍 Running markdownlint on all Markdown files..."
 	npx markdownlint-cli2
 
+lint-md-fix:
+	@echo "🔍 Running markdownlint on all Markdown files..."
+	npx markdownlint-cli2 --fix
+
 lint-py-check:
 	@echo "🧹 Checking Python formatting and linting with ruff..."
 	poetry run ruff check .

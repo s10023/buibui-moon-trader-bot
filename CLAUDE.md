@@ -64,6 +64,15 @@ make lint-md
 
 When changes affect project structure, CLI commands, features, or behavior, update `README.md` to stay in sync.
 
+## Session Memory Protocol
+
+At the end of every session where anything changed (features, bug fixes, refactors, decisions), automatically update the **Current State** section in `~/.claude/projects/-home-kng-repo-buibui-moon-trader-bot/memory/MEMORY.md`. Do not wait to be asked.
+
+Fields to keep current:
+
+- Last session summary (one line: what changed)
+- Open questions / pending decisions (or "none")
+
 ## Git Conventions
 
 - Commit messages use conventional commits: `feat:`, `fix:`, `test:`, `docs:`, `build:`, `chore:`
