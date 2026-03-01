@@ -3,7 +3,7 @@
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from monitor.live_price import _handle_ws_msg, _refresh_klines
+from monitor.live_price import _build_table, _handle_ws_msg, _refresh_klines
 from utils.live_store import LiveDataStore
 
 
@@ -89,3 +89,45 @@ class TestRefreshKlines:
         assert klines.open_15m is None
         assert klines.open_1h is None
         assert klines.asia_open is None
+
+
+class TestBuildTable:
+    def test_no_ticker_shows_dots_in_price_column(self) -> None:
+        store = LiveDataStore()
+        table = _build_table(["BTCUSDT"], store)
+        assert table.row_count == 1
+
+    def test_ticker_no_klines_shows_row(self) -> None:
+        store = LiveDataStore()
+        store.update_ticker("BTCUSDT", last=67000.0, open_24h=65000.0)
+        table = _build_table(["BTCUSDT"], store)
+        assert table.row_count == 1
+
+    def test_title_shows_stale_when_disconnected(self) -> None:
+        store = LiveDataStore()
+        table = _build_table(["BTCUSDT"], store)
+        assert table.title is not None
+        assert "reconnecting" in str(table.title).lower()
+
+    def test_title_shows_last_update_when_connected(self) -> None:
+        store = LiveDataStore()
+        store.update_ticker("BTCUSDT", last=67000.0, open_24h=65000.0)
+        table = _build_table(["BTCUSDT"], store)
+        assert table.title is not None
+        assert "last update" in str(table.title).lower()
+
+    def test_sort_col_applied(self) -> None:
+        store = LiveDataStore()
+        store.update_ticker("BTCUSDT", last=100.0, open_24h=90.0)
+        store.update_ticker("ETHUSDT", last=100.0, open_24h=95.0)
+        store.update_klines("BTCUSDT", open_15m=98.0, open_1h=95.0, asia_open=90.0)
+        store.update_klines("ETHUSDT", open_15m=99.0, open_1h=97.0, asia_open=92.0)
+        table = _build_table(
+            ["BTCUSDT", "ETHUSDT"], store, sort_col="change_24h", sort_order=True
+        )
+        assert table.row_count == 2
+
+    def test_multiple_symbols(self) -> None:
+        store = LiveDataStore()
+        table = _build_table(["BTCUSDT", "ETHUSDT", "SOLUSDT"], store)
+        assert table.row_count == 3
