@@ -4,6 +4,10 @@ from typing import Any
 
 from rich.table import Table
 
+from monitor.price_lib import (
+    batch_get_asia_open,
+    batch_get_klines,
+)
 from utils.live_store import LiveDataStore
 
 HEADERS = ["Symbol", "Last Price", "15m %", "1h %", "Since Asia 8AM", "24h %"]
@@ -28,7 +32,18 @@ def _handle_ws_msg(msg: dict[str, Any], store: LiveDataStore) -> None:
 
 
 def _refresh_klines(client: Any, symbols: list[str], store: LiveDataStore) -> None:
-    pass  # implement in Task 6
+    """Fetch kline open prices for all symbols and write to store."""
+    kline_map = batch_get_klines(client, symbols, [("15m", 15), ("1h", 60)])
+    asia_map = batch_get_asia_open(client, symbols)
+    for sym in symbols:
+        k15 = kline_map.get((sym, "15m"))
+        k60 = kline_map.get((sym, "1h"))
+        store.update_klines(
+            sym,
+            float(k15[1]) if k15 else None,
+            float(k60[1]) if k60 else None,
+            asia_map.get(sym),
+        )
 
 
 def _build_table(

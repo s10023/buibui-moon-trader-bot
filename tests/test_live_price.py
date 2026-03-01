@@ -1,8 +1,9 @@
 """Tests for monitor/live_price.py."""
 
 from typing import Any
+from unittest.mock import MagicMock, patch
 
-from monitor.live_price import _handle_ws_msg
+from monitor.live_price import _handle_ws_msg, _refresh_klines
 from utils.live_store import LiveDataStore
 
 
@@ -47,3 +48,44 @@ class TestHandleWsMsg:
         store = LiveDataStore()
         _handle_ws_msg({"data": {"e": "trade", "s": "BTCUSDT"}}, store)
         assert store.snapshot(["BTCUSDT"]).data["BTCUSDT"].ticker is None
+
+
+class TestRefreshKlines:
+    def test_writes_klines_to_store(self) -> None:
+        store = LiveDataStore()
+        mock_client = MagicMock()
+        with (
+            patch("monitor.live_price.batch_get_klines") as mock_klines,
+            patch("monitor.live_price.batch_get_asia_open") as mock_asia,
+        ):
+            mock_klines.return_value = {
+                ("BTCUSDT", "15m"): [None, "66000.00"],
+                ("BTCUSDT", "1h"): [None, "64000.00"],
+            }
+            mock_asia.return_value = {"BTCUSDT": 63000.0}
+            _refresh_klines(mock_client, ["BTCUSDT"], store)
+
+        result = store.snapshot(["BTCUSDT"])
+        klines = result.data["BTCUSDT"].klines
+        assert klines is not None
+        assert klines.open_15m == 66000.0
+        assert klines.open_1h == 64000.0
+        assert klines.asia_open == 63000.0
+
+    def test_missing_kline_result_stores_none(self) -> None:
+        store = LiveDataStore()
+        mock_client = MagicMock()
+        with (
+            patch("monitor.live_price.batch_get_klines") as mock_klines,
+            patch("monitor.live_price.batch_get_asia_open") as mock_asia,
+        ):
+            mock_klines.return_value = {}
+            mock_asia.return_value = {}
+            _refresh_klines(mock_client, ["BTCUSDT"], store)
+
+        result = store.snapshot(["BTCUSDT"])
+        klines = result.data["BTCUSDT"].klines
+        assert klines is not None
+        assert klines.open_15m is None
+        assert klines.open_1h is None
+        assert klines.asia_open is None
