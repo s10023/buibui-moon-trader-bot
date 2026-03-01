@@ -1,7 +1,12 @@
 """Live price monitor: WebSocket + kline refresh + Rich terminal."""
 
+import threading
+import time
 from typing import Any
 
+from binance import ThreadedWebsocketManager
+from rich.console import Console
+from rich.live import Live
 from rich.table import Table
 from rich.text import Text
 
@@ -120,7 +125,10 @@ def _kline_refresh_loop(
     store: LiveDataStore,
     interval: int = KLINE_REFRESH_INTERVAL,
 ) -> None:
-    pass  # implement in Task 8
+    """Background daemon: refresh kline opens every `interval` seconds."""
+    while True:
+        time.sleep(interval)
+        _refresh_klines(client, symbols, store)
 
 
 def run(
@@ -129,4 +137,39 @@ def run(
     sort_col: str = "",
     sort_order: bool = True,
 ) -> None:
-    pass  # implement in Task 8
+    """Run the live price monitor: WebSocket + Rich terminal, blocking until Ctrl-C."""
+    store = LiveDataStore()
+
+    # 1. Pre-fill klines synchronously so first render has open prices
+    _refresh_klines(client, coins, store)
+
+    # 2. Start WebSocket (miniTicker is a public stream — no API keys needed)
+    twm = ThreadedWebsocketManager()
+    twm.start()
+    streams = [f"{sym.lower()}@miniTicker" for sym in coins]
+
+    def ws_callback(msg: dict[str, Any]) -> None:
+        _handle_ws_msg(msg, store)
+
+    twm.start_multiplex_socket(callback=ws_callback, streams=streams)
+
+    # 3. Kline refresh daemon
+    kline_thread = threading.Thread(
+        target=_kline_refresh_loop,
+        args=(client, coins, store),
+        daemon=True,
+    )
+    kline_thread.start()
+
+    # 4. Rich Live render loop
+    console = Console()
+    try:
+        with Live(console=console, refresh_per_second=2) as live:
+            while True:
+                live.update(_build_table(coins, store, sort_col, sort_order))
+                time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        twm.stop()
+        console.print("\nExiting gracefully. Goodbye!")

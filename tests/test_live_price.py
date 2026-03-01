@@ -112,9 +112,11 @@ class TestBuildTable:
     def test_title_shows_last_update_when_connected(self) -> None:
         store = LiveDataStore()
         store.update_ticker("BTCUSDT", last=67000.0, open_24h=65000.0)
+        store.set_ws_status(connected=True)
         table = _build_table(["BTCUSDT"], store)
         assert table.title is not None
         assert "last update" in str(table.title).lower()
+        assert "reconnecting" not in str(table.title).lower()
 
     def test_sort_col_applied(self) -> None:
         store = LiveDataStore()
