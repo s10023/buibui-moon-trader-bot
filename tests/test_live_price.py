@@ -3,7 +3,13 @@
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from monitor.live_price import _build_table, _handle_ws_msg, _refresh_klines
+from monitor.live_price import (
+    _build_table,
+    _handle_ws_msg,
+    _kline_refresh_loop,
+    _refresh_klines,
+    run,
+)
 from utils.live_store import LiveDataStore
 
 
@@ -133,3 +139,84 @@ class TestBuildTable:
         store = LiveDataStore()
         table = _build_table(["BTCUSDT", "ETHUSDT", "SOLUSDT"], store)
         assert table.row_count == 3
+
+
+class TestKlineRefreshLoop:
+    def test_exception_in_refresh_is_swallowed_and_loop_continues(self) -> None:
+        """Daemon thread must not die on a transient error."""
+        store = LiveDataStore()
+        client = MagicMock()
+        call_count = 0
+
+        def fake_refresh(
+            c: Any, syms: list[str], s: LiveDataStore, interval: int = 60
+        ) -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("network error")
+
+        with (
+            patch("monitor.live_price._refresh_klines", side_effect=fake_refresh),
+            patch("monitor.live_price.time.sleep") as mock_sleep,
+        ):
+            # Make sleep raise StopIteration on third call to exit the while-loop
+            mock_sleep.side_effect = [None, None, StopIteration]
+            try:
+                _kline_refresh_loop(client, ["BTCUSDT"], store, interval=60)
+            except StopIteration:
+                pass
+
+        assert call_count == 2  # ran twice despite first raising
+
+
+class TestRun:
+    def test_run_wires_components_and_exits_on_keyboard_interrupt(self) -> None:
+        """run() must start TWM, subscribe streams, start daemon thread, and stop TWM on exit."""
+        client = MagicMock()
+
+        mock_twm = MagicMock()
+        mock_live_ctx = MagicMock()
+        mock_live_ctx.__enter__ = MagicMock(return_value=mock_live_ctx)
+        mock_live_ctx.__exit__ = MagicMock(return_value=False)
+        mock_live_ctx.update.side_effect = KeyboardInterrupt
+
+        with (
+            patch("monitor.live_price.ThreadedWebsocketManager", return_value=mock_twm),
+            patch("monitor.live_price._refresh_klines"),
+            patch("monitor.live_price.threading.Thread") as mock_thread,
+            patch("monitor.live_price.Live", return_value=mock_live_ctx),
+            patch("monitor.live_price.Console"),
+        ):
+            mock_thread.return_value = MagicMock()
+            run(client, ["BTCUSDT", "ETHUSDT"], sort_col="change_24h", sort_order=True)
+
+        mock_twm.start.assert_called_once()
+        mock_twm.start_multiplex_socket.assert_called_once()
+        mock_twm.stop.assert_called_once()
+        mock_thread.return_value.start.assert_called_once()
+
+    def test_run_stops_twm_even_if_multiplex_raises(self) -> None:
+        """twm.stop() must be called even when setup fails."""
+        client = MagicMock()
+        mock_twm = MagicMock()
+        mock_twm.start_multiplex_socket.side_effect = RuntimeError("ws error")
+
+        with (
+            patch("monitor.live_price.ThreadedWebsocketManager", return_value=mock_twm),
+            patch("monitor.live_price._refresh_klines"),
+        ):
+            try:
+                run(client, ["BTCUSDT"])
+            except RuntimeError:
+                pass
+
+        mock_twm.stop.assert_called_once()
+
+    def test_handle_ws_msg_malformed_message_does_not_raise(self) -> None:
+        """KeyError/ValueError in WS callback must not propagate."""
+        store = LiveDataStore()
+        # Missing 'c' and 'o' keys
+        bad_msg = {"data": {"e": "24hrMiniTicker", "s": "BTCUSDT"}}
+        _handle_ws_msg(bad_msg, store)  # must not raise
+        assert store.snapshot(["BTCUSDT"]).data["BTCUSDT"].ticker is None

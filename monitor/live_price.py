@@ -1,5 +1,6 @@
 """Live price monitor: WebSocket + kline refresh + Rich terminal."""
 
+import logging
 import threading
 import time
 from typing import Any
@@ -35,8 +36,11 @@ def _handle_ws_msg(msg: dict[str, Any], store: LiveDataStore) -> None:
         return
     data: dict[str, Any] = msg.get("data", msg)
     if data.get("e") == "24hrMiniTicker":
-        store.update_ticker(data["s"], float(data["c"]), float(data["o"]))
-        store.set_ws_status(connected=True)
+        try:
+            store.update_ticker(data["s"], float(data["c"]), float(data["o"]))
+            store.set_ws_status(connected=True)
+        except (KeyError, ValueError):
+            logging.warning("Malformed miniTicker message: %s", msg)
 
 
 def _refresh_klines(client: Any, symbols: list[str], store: LiveDataStore) -> None:
@@ -128,7 +132,10 @@ def _kline_refresh_loop(
     """Background daemon: refresh kline opens every `interval` seconds."""
     while True:
         time.sleep(interval)
-        _refresh_klines(client, symbols, store)
+        try:
+            _refresh_klines(client, symbols, store)
+        except Exception:
+            logging.exception("Kline refresh failed; retrying in %ds", interval)
 
 
 def run(
@@ -146,30 +153,32 @@ def run(
     # 2. Start WebSocket (miniTicker is a public stream — no API keys needed)
     twm = ThreadedWebsocketManager()
     twm.start()
-    streams = [f"{sym.lower()}@miniTicker" for sym in coins]
-
-    def ws_callback(msg: dict[str, Any]) -> None:
-        _handle_ws_msg(msg, store)
-
-    twm.start_multiplex_socket(callback=ws_callback, streams=streams)
-
-    # 3. Kline refresh daemon
-    kline_thread = threading.Thread(
-        target=_kline_refresh_loop,
-        args=(client, coins, store),
-        daemon=True,
-    )
-    kline_thread.start()
-
-    # 4. Rich Live render loop
-    console = Console()
     try:
-        with Live(console=console, refresh_per_second=2) as live:
-            while True:
-                live.update(_build_table(coins, store, sort_col, sort_order))
-                time.sleep(1)
-    except KeyboardInterrupt:
-        pass
+        streams = [f"{sym.lower()}@miniTicker" for sym in coins]
+
+        def ws_callback(msg: dict[str, Any]) -> None:
+            _handle_ws_msg(msg, store)
+
+        twm.start_multiplex_socket(callback=ws_callback, streams=streams)
+
+        # 3. Kline refresh daemon
+        kline_thread = threading.Thread(
+            target=_kline_refresh_loop,
+            args=(client, coins, store),
+            daemon=True,
+        )
+        kline_thread.start()
+
+        # 4. Rich Live render loop
+        console = Console()
+        try:
+            with Live(console=console, refresh_per_second=2) as live:
+                while True:
+                    live.update(_build_table(coins, store, sort_col, sort_order))
+                    time.sleep(1)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            console.print("\nExiting gracefully. Goodbye!")
     finally:
         twm.stop()
-        console.print("\nExiting gracefully. Goodbye!")
