@@ -1,9 +1,10 @@
 version: 2
 updates:
+  # Poetry project: Dependabot uses "pip" ecosystem to track pyproject.toml / poetry.lock
   - package-ecosystem: "pip"
-    directory: "/"                # Location of your pyproject.toml
+    directory: "/"
     schedule:
-      interval: "weekly"          # Options: "daily", "weekly", "monthly"
+      interval: "weekly"
     allow:
-      - dependency-type: "direct" # Only update direct dependencies (optional)
+      - dependency-type: "direct" # Only update direct dependencies
     open-pull-requests-limit: 5
