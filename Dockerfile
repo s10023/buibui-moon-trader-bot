@@ -6,10 +6,10 @@ WORKDIR /app
 RUN pip install poetry
 
 # Copy only dependency files first for better build caching
-COPY pyproject.toml poetry.lock* /app/
+COPY pyproject.toml poetry.lock /app/
 
 # Install dependencies (no dev dependencies for production)
-RUN poetry install --no-root --only main
+RUN poetry install --no-root --without dev
 
 # Copy the rest of the code
 COPY . /app
