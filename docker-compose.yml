@@ -1,0 +1,16 @@
+services:
+  price-monitor:
+    build: .
+    command: python buibui.py monitor price --live
+    env_file: .env
+    volumes:
+      - ./config/coins.json:/app/config/coins.json:ro
+    restart: unless-stopped
+
+  position-monitor:
+    build: .
+    command: python buibui.py monitor position --telegram
+    env_file: .env
+    volumes:
+      - ./config/coins.json:/app/config/coins.json:ro
+    restart: unless-stopped
