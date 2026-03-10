@@ -42,7 +42,6 @@ Includes max USD-per-trade cap and wallet-level risk protection.
 buibui-moon-trader-bot/
 ├── buibui.py                        # CLI entry point (argparse)
 ├── monitor/
-│   ├── live_price.py                # WebSocket + Rich live terminal monitor
 │   ├── price_monitor.py             # Price monitor thin wrapper (creates client, calls lib)
 │   ├── price_lib.py                 # Pure price monitor business logic
 │   ├── position_monitor.py          # Position monitor thin wrapper
@@ -52,7 +51,6 @@ buibui-moon-trader-bot/
 ├── utils/
 │   ├── binance_client.py            # Binance client creation, time sync, config loading
 │   ├── config_validation.py         # Validates coins.json schema
-│   ├── live_store.py                # Thread-safe WebSocket price state store
 │   └── telegram.py                  # Telegram bot messaging
 ├── config/
 │   └── coins.json.example           # Coin list, SL%, leverage per symbol
