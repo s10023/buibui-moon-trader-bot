@@ -164,7 +164,9 @@ def fetch_open_positions(
             return (symbol, "-", "-", "-", 0.0, None)
 
     sl_results: dict[str, Any] = {}
-    with ThreadPoolExecutor(max_workers=min(len(open_positions), 16)) as executor:
+    with ThreadPoolExecutor(
+        max_workers=max(1, min(len(open_positions), 16))
+    ) as executor:
         futures = [
             executor.submit(fetch_sl, symbol, side_text, entry, notional)
             for (

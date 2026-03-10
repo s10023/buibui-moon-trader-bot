@@ -106,7 +106,7 @@ def batch_get_klines(
         except Exception:
             return ((symbol, interval), None)
 
-    with ThreadPoolExecutor(max_workers=min(len(symbols), 16)) as executor:
+    with ThreadPoolExecutor(max_workers=max(1, min(len(symbols), 16))) as executor:
         futures = [
             executor.submit(fetch, symbol, interval, lookback)
             for symbol in symbols
@@ -145,7 +145,7 @@ def batch_get_asia_open(client: Client, symbols: list[str]) -> dict[str, float |
     def fetch(sym: str) -> tuple[str, float | None]:
         return (sym, get_open_price_asia(client, sym))
 
-    with ThreadPoolExecutor(max_workers=min(len(symbols), 16)) as executor:
+    with ThreadPoolExecutor(max_workers=max(1, min(len(symbols), 16))) as executor:
         futures = [executor.submit(fetch, sym) for sym in symbols]
         for future in as_completed(futures):
             sym, asia_open = future.result()
