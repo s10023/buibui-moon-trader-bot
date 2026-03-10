@@ -144,7 +144,7 @@ def fetch_open_positions(
                 else:
                     sl_percent = (actual_sl - entry) / entry * 100
                 sl_risk_usd = notional * (sl_percent / 100)
-                sl_size_str = colorize(sl_percent)
+                sl_size_str = color_sl_size(sl_percent)
                 actual_sl_str = f"{actual_sl:.5f}"
                 sl_usd_str = colorize_dollar(sl_risk_usd)
             else:

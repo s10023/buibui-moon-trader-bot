@@ -47,6 +47,12 @@ class TestSendTelegramMessage:
         send_telegram_message("Hello", bot_token="", chat_id="")
         mock_post.assert_not_called()
 
+    @patch("utils.telegram.requests.post")
+    def test_raise_for_status_called(self, mock_post: Any) -> None:
+        """raise_for_status() is called so HTTP errors surface."""
+        send_telegram_message("Hello", bot_token=TOKEN, chat_id=CHAT)
+        mock_post.return_value.raise_for_status.assert_called_once()
+
     @patch("utils.telegram.requests.post", side_effect=Exception("Network error"))
     def test_network_error_handled(self, mock_post: Any) -> None:
         """Network errors are caught and logged, not raised."""
