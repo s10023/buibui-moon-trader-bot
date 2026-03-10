@@ -47,6 +47,7 @@ def colorize_dollar(value: Any) -> str:
 
 def color_sl_size(pct: float) -> str:
     """Colorize stop-loss size percentage."""
+    pct = abs(pct)
     if pct < 2:
         return f"\033[91m{pct:.2f}%\033[0m"
     elif pct < 3.5:
