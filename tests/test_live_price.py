@@ -55,6 +55,13 @@ class TestHandleWsMsg:
         _handle_ws_msg({"data": {"e": "trade", "s": "BTCUSDT"}}, store)
         assert store.snapshot(["BTCUSDT"]).data["BTCUSDT"].ticker is None
 
+    def test_malformed_message_does_not_raise(self) -> None:
+        store = LiveDataStore()
+        # Missing 'c' and 'o' keys
+        bad_msg = {"data": {"e": "24hrMiniTicker", "s": "BTCUSDT"}}
+        _handle_ws_msg(bad_msg, store)  # must not raise
+        assert store.snapshot(["BTCUSDT"]).data["BTCUSDT"].ticker is None
+
 
 class TestRefreshKlines:
     def test_writes_klines_to_store(self) -> None:
@@ -212,11 +219,3 @@ class TestRun:
                 pass
 
         mock_twm.stop.assert_called_once()
-
-    def test_handle_ws_msg_malformed_message_does_not_raise(self) -> None:
-        """KeyError/ValueError in WS callback must not propagate."""
-        store = LiveDataStore()
-        # Missing 'c' and 'o' keys
-        bad_msg = {"data": {"e": "24hrMiniTicker", "s": "BTCUSDT"}}
-        _handle_ws_msg(bad_msg, store)  # must not raise
-        assert store.snapshot(["BTCUSDT"]).data["BTCUSDT"].ticker is None

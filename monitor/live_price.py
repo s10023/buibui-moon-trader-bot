@@ -172,7 +172,7 @@ def run(
         # 4. Rich Live render loop
         console = Console()
         try:
-            with Live(console=console, refresh_per_second=2) as live:
+            with Live(console=console, refresh_per_second=1) as live:
                 while True:
                     live.update(_build_table(coins, store, sort_col, sort_order))
                     time.sleep(1)
