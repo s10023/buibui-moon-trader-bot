@@ -65,6 +65,7 @@ def sort_table(
         try:
             return float(val)
         except Exception:
+            # None sorts last in both directions: -inf for desc (highest first), +inf for asc (lowest first)
             return float("-inf")
 
     return sorted(table, key=lambda row: parse_value(row[idx]), reverse=order)

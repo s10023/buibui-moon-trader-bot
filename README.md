@@ -42,15 +42,21 @@ Includes max USD-per-trade cap and wallet-level risk protection.
 buibui-moon-trader-bot/
 ├── buibui.py                        # CLI entry point (argparse)
 ├── monitor/
-│   ├── price_monitor.py             # Live price + multi-timeframe % changes
-│   └── position_monitor.py          # Position PnL, risk, SL tracking
+│   ├── live_price.py                # WebSocket + Rich live terminal monitor
+│   ├── price_monitor.py             # Price monitor thin wrapper (creates client, calls lib)
+│   ├── price_lib.py                 # Pure price monitor business logic
+│   ├── position_monitor.py          # Position monitor thin wrapper
+│   └── position_lib.py              # Pure position monitor business logic
 ├── trade/
 │   └── open_trades.py               # Multi-trade entry (planned)
 ├── utils/
+│   ├── binance_client.py            # Binance client creation, time sync, config loading
 │   ├── config_validation.py         # Validates coins.json schema
+│   ├── live_store.py                # Thread-safe WebSocket price state store
 │   └── telegram.py                  # Telegram bot messaging
 ├── config/
 │   └── coins.json.example           # Coin list, SL%, leverage per symbol
+├── .env.example                     # Environment variable template
 ├── .github/
 │   └── workflows/
 │       ├── lint.yaml                # CI: lint, format, typecheck
@@ -88,18 +94,17 @@ poetry update
 
 ### 3. Add your API keys
 
-Create a `.env` file based on `config/coins.json.example`:
+Create a `.env` file with the following variables (see `.env.example` for a template):
 
 ```bash
-# .env
-BINANCE_API_KEY=your_key
-BINANCE_API_SECRET=your_secret
+BINANCE_API_KEY=your_binance_api_key_here
+BINANCE_API_SECRET=your_binance_api_secret_here
 
-TELEGRAM_BOT_TOKEN=bot_token
-TELEGRAM_CHAT_ID=your_chat_id
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
+TELEGRAM_CHAT_ID=your_telegram_chat_id_here
 
 # Short-term wallet target for progress bar
-WALLET_TARGET=2000
+WALLET_TARGET=1000
 ```
 
 ### 4. Configure your coins
@@ -281,10 +286,10 @@ All commands use your `.env` file for secrets and config.
 
 ## GitHub Actions (Optional)
 
-The `.github/workflows/monitor.yaml` file can be configured to:
-
-- Run position_monitor.py every 15 minutes
-- Send live updates to Telegram
+The `.github/workflows/monitor.yaml` file is a **placeholder** for scheduled monitoring.
+It is not currently functional — GitHub Actions uses rotating IPs which cannot be
+whitelisted in Binance. The intended deployment target is a fixed-IP server (e.g. Oracle
+Cloud Free Tier VM) where the bot runs persistently via a systemd service.
 
 ---
 
