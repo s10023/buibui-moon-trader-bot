@@ -106,7 +106,8 @@ def batch_get_klines(
         except Exception:
             return ((symbol, interval), None)
 
-    with ThreadPoolExecutor(max_workers=max(1, min(len(symbols), 16))) as executor:
+    task_count = len(symbols) * len(intervals_lookbacks)
+    with ThreadPoolExecutor(max_workers=min(task_count, 16)) as executor:
         futures = [
             executor.submit(fetch, symbol, interval, lookback)
             for symbol in symbols
