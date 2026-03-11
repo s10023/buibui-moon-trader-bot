@@ -4,8 +4,6 @@ import os
 import requests
 from dotenv import load_dotenv
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s:%(message)s")
-
 
 def _get_env_credentials() -> tuple[str | None, str | None]:
     """Load Telegram credentials from environment."""
@@ -36,6 +34,7 @@ def send_telegram_message(
     }
 
     try:
-        requests.post(url, data=payload, timeout=10)
+        response = requests.post(url, data=payload, timeout=10)
+        response.raise_for_status()
     except Exception as e:
         logging.error(f"\u274c Failed to send Telegram message: {e}")
