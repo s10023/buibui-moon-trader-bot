@@ -1,4 +1,5 @@
 import argparse
+import logging
 
 from monitor import position_monitor, price_monitor
 
@@ -17,6 +18,9 @@ def run_position_monitor(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
+    )
     parser = argparse.ArgumentParser(description="Buibui Moon Trader CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
