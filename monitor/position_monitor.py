@@ -8,8 +8,6 @@ from typing import Any
 from monitor.position_lib import display_table
 from utils.binance_client import create_client, get_wallet_target, load_coins_config
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s:%(message)s")
-
 
 def main(
     sort: str = "default",
