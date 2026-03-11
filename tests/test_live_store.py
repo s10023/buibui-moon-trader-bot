@@ -14,6 +14,7 @@ class TestUpdateTicker:
         assert result.data["BTCUSDT"].ticker is not None
         assert result.data["BTCUSDT"].ticker.last_price == 110.0
         assert abs(result.data["BTCUSDT"].ticker.change_24h - 10.0) < 0.001
+        assert result.ws_connected is True
 
     def test_zero_open_does_not_crash(self) -> None:
         store = LiveDataStore()

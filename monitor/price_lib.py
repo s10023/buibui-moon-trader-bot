@@ -16,6 +16,18 @@ from binance.client import Client
 from colorama import Fore, Style
 from rich.text import Text
 
+PRICE_HEADERS: list[str] = [
+    "Symbol",
+    "Last Price",
+    "15m %",
+    "1h %",
+    "Since Asia 8AM",
+    "24h %",
+]
+VALID_SORT_COLS: frozenset[str] = frozenset(
+    {"change_15m", "change_1h", "change_asia", "change_24h"}
+)
+
 
 def format_pct(pct: Any) -> Any:
     """Format % change with color."""

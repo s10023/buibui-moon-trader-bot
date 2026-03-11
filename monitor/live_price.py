@@ -12,6 +12,7 @@ from rich.table import Table
 from rich.text import Text
 
 from monitor.price_lib import (
+    PRICE_HEADERS,
     batch_get_asia_open,
     batch_get_klines,
     format_pct_rich,
@@ -19,13 +20,13 @@ from monitor.price_lib import (
 )
 from utils.live_store import KlineData, LiveDataStore, TickerData
 
-HEADERS = ["Symbol", "Last Price", "15m %", "1h %", "Since Asia 8AM", "24h %"]
+HEADERS = PRICE_HEADERS
 KLINE_REFRESH_INTERVAL = 60
-_SORT_COL_MAP = {
-    "change_15m": 2,
-    "change_1h": 3,
-    "change_asia": 4,
-    "change_24h": 5,
+_SORT_COL_MAP: dict[str, int] = {
+    "change_15m": HEADERS.index("15m %"),
+    "change_1h": HEADERS.index("1h %"),
+    "change_asia": HEADERS.index("Since Asia 8AM"),
+    "change_24h": HEADERS.index("24h %"),
 }
 
 
@@ -38,7 +39,6 @@ def _handle_ws_msg(msg: dict[str, Any], store: LiveDataStore) -> None:
     if data.get("e") == "24hrMiniTicker":
         try:
             store.update_ticker(data["s"], float(data["c"]), float(data["o"]))
-            store.set_ws_status(connected=True)
         except (KeyError, ValueError):
             logging.warning("Malformed miniTicker message: %s", msg)
 
@@ -177,7 +177,7 @@ def run(
         # 4. Rich Live render loop
         console = Console()
         try:
-            with Live(console=console, refresh_per_second=1) as live:
+            with Live(console=console, refresh_per_second=4) as live:
                 while True:
                     live.update(_build_table(coins, store, sort_col, sort_order))
                     time.sleep(1)

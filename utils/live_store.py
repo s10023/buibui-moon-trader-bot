@@ -44,6 +44,7 @@ class LiveDataStore:
         with self._lock:
             self._tickers[symbol] = TickerData(last_price=last, change_24h=change_24h)
             self._last_update = datetime.now()
+            self._ws_connected = True
 
     def update_klines(
         self,

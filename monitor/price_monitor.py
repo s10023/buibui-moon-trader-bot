@@ -9,6 +9,8 @@ from tabulate import tabulate
 
 from monitor import live_price
 from monitor.price_lib import (
+    PRICE_HEADERS,
+    VALID_SORT_COLS,
     clear_screen,
     format_pct,
     format_pct_simple,
@@ -53,9 +55,9 @@ def main(live: bool = False, telegram: bool = False, sort: str = "") -> None:
     sort_col, _, sort_dir = sort.partition(":")
     sort_order = sort_dir.lower() != "asc"
 
-    valid_sort_cols = {"change_15m", "change_1h", "change_asia", "change_24h"}
+    valid_sort_cols = VALID_SORT_COLS
 
-    headers = ["Symbol", "Last Price", "15m %", "1h %", "Since Asia 8AM", "24h %"]
+    headers = PRICE_HEADERS
 
     if not live:
         clear_screen()
