@@ -214,7 +214,7 @@ class TestFetchOpenPositions:
         mock_client.futures_account_balance.return_value = mock_futures_balance
         mock_client.futures_get_open_orders.return_value = []
 
-        positions, total_risk = fetch_open_positions(
+        positions, total_risk, wallet, unrealized = fetch_open_positions(
             mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER
         )
 
@@ -234,7 +234,7 @@ class TestFetchOpenPositions:
         mock_client.futures_account_balance.return_value = mock_futures_balance
         mock_client.futures_get_open_orders.return_value = []
 
-        positions, _ = fetch_open_positions(
+        positions, _, _wallet, _unrealized = fetch_open_positions(
             mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER, hide_empty=True
         )
         assert all(r[1] != "-" for r in positions)
@@ -249,7 +249,7 @@ class TestFetchOpenPositions:
         mock_client.futures_account_balance.return_value = mock_futures_balance
         mock_client.futures_get_open_orders.return_value = []
 
-        positions, _ = fetch_open_positions(
+        positions, _, _wallet, _unrealized = fetch_open_positions(
             mock_client,
             SAMPLE_COINS_CONFIG,
             SAMPLE_COIN_ORDER,
@@ -270,7 +270,7 @@ class TestFetchOpenPositions:
         mock_client.futures_account_balance.return_value = mock_futures_balance
         mock_client.futures_get_open_orders.return_value = []
 
-        positions, _ = fetch_open_positions(
+        positions, _, _wallet, _unrealized = fetch_open_positions(
             mock_client,
             SAMPLE_COINS_CONFIG,
             SAMPLE_COIN_ORDER,
@@ -290,7 +290,7 @@ class TestFetchOpenPositions:
         mock_client.futures_account_balance.return_value = mock_futures_balance
         mock_client.futures_get_open_orders.return_value = mock_stop_loss_orders
 
-        _, total_risk = fetch_open_positions(
+        _, total_risk, _wallet, _unrealized = fetch_open_positions(
             mock_client,
             SAMPLE_COINS_CONFIG,
             SAMPLE_COIN_ORDER,

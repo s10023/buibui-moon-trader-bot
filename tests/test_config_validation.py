@@ -123,3 +123,21 @@ class TestValidateCoinsConfig:
         }
         with pytest.raises(ValueError, match="ETHUSDT.*out of range"):
             validate_coins_config(config)
+
+    def test_leverage_bool_true_rejected(self) -> None:
+        """True (bool) must not pass as valid leverage."""
+        config = {"BTCUSDT": {"leverage": True, "sl_percent": 2.0}}
+        with pytest.raises(ValueError, match="leverage must be a number"):
+            validate_coins_config(config)
+
+    def test_leverage_bool_false_rejected(self) -> None:
+        """False (bool) must not pass as valid leverage."""
+        config = {"BTCUSDT": {"leverage": False, "sl_percent": 2.0}}
+        with pytest.raises(ValueError, match="leverage must be a number"):
+            validate_coins_config(config)
+
+    def test_sl_percent_bool_rejected(self) -> None:
+        """True (bool) must not pass as valid sl_percent."""
+        config = {"BTCUSDT": {"leverage": 25, "sl_percent": True}}
+        with pytest.raises(ValueError, match="sl_percent must be a number"):
+            validate_coins_config(config)
