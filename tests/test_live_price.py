@@ -155,9 +155,7 @@ class TestKlineRefreshLoop:
         client = MagicMock()
         call_count = 0
 
-        def fake_refresh(
-            c: Any, syms: list[str], s: LiveDataStore, interval: int = 60
-        ) -> None:
+        def fake_refresh(c: Any, syms: list[str], s: LiveDataStore) -> None:
             nonlocal call_count
             call_count += 1
             if call_count == 1:

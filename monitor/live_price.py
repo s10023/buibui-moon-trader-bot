@@ -148,7 +148,12 @@ def run(
     store = LiveDataStore()
 
     # 1. Pre-fill klines synchronously so first render has open prices
-    _refresh_klines(client, coins, store)
+    try:
+        _refresh_klines(client, coins, store)
+    except Exception:
+        logging.warning(
+            "Initial kline fetch failed; klines will fill on first daemon refresh"
+        )
 
     # 2. Start WebSocket (miniTicker is a public stream — no API keys needed)
     twm = ThreadedWebsocketManager()

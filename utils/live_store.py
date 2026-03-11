@@ -60,8 +60,6 @@ class LiveDataStore:
             )
 
     def set_ws_status(self, connected: bool) -> None:
-        if self._ws_connected == connected:
-            return
         with self._lock:
             self._ws_connected = connected
 
