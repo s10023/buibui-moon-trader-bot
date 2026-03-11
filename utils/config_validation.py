@@ -19,11 +19,11 @@ def validate_coins_config(config_dict: dict[str, Any]) -> bool:
             raise ValueError(f"Symbol '{symbol}' missing 'sl_percent'.")
         lev = params["leverage"]
         sl = params["sl_percent"]
-        if not (isinstance(lev, int) or isinstance(lev, float)):
+        if not (isinstance(lev, (int, float)) and not isinstance(lev, bool)):
             raise ValueError(f"Symbol '{symbol}' leverage must be a number.")
         if not (1 <= lev <= 150):
             raise ValueError(f"Symbol '{symbol}' leverage {lev} out of range (1-150).")
-        if not (isinstance(sl, int) or isinstance(sl, float)):
+        if not (isinstance(sl, (int, float)) and not isinstance(sl, bool)):
             raise ValueError(f"Symbol '{symbol}' sl_percent must be a number.")
         if not (0.1 <= sl <= 100):
             raise ValueError(

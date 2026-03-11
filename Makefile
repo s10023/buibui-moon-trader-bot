@@ -4,7 +4,7 @@ SORT ?= default
 PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*" -not -path "./.venv/*")
 DOCKER_IMAGE = buibui-bot
 
-.PHONY: lint lint-md lint-py format format-py test docker-build docker-run-price docker-run-position
+.PHONY: lint lint-md lint-md-fix lint-py-check lint-py typecheck test poetry-install poetry-update docker-build docker-monitor-price docker-monitor-position buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-telegram buibui-open-trades clean
 
 lint: lint-md lint-py
 
@@ -77,3 +77,8 @@ buibui-monitor-position-telegram:
 buibui-open-trades:
 	@echo "🚀 Opening multiple trades..."
 	poetry run python trade/open_trades.py
+
+clean:
+	@echo "🧹 Cleaning cache and build artifacts..."
+	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+	rm -rf .mypy_cache .ruff_cache .pytest_cache .coverage htmlcov/ dist/
