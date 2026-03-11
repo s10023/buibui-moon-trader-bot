@@ -33,7 +33,6 @@ Proprietary pivot system (not classical floor pivots):
 
 - **P1**: Primary pivot — derived from prior session's range midpoint; acts as the first area of
   interest where price is likely to stall, reverse, or accelerate
-
 - **P2**: Secondary pivot — extension of P1; targets beyond the first reaction zone
 - These are statistical levels, not mechanical buy/sell triggers
 
@@ -130,51 +129,42 @@ For each weekday (Mon–Sun):
 #### Day-of-Month Analysis
 
 ```text
-
 For each day 1–31:
   - Same metrics as above
   - Special attention to: day 1 (first of month flows), day 15 (mid-month),
     last 3 days (options expiry, derivatives settlement)
-
-```text
+```
 
 #### Hour-of-Day Analysis
 
 ```text
-
 For each hour 0–23 UTC:
   - % of hours that closed bullish
   - Mean hourly range size (high - low)
   - Mean return from open of that hour
   - Useful for: entry timing, setting alerts only during high-activity hours
-
-```text
+```
 
 #### Session-Level Analysis
 
 ```text
-
 Define sessions:
   Asia:    00:00–08:00 UTC
   London:  07:00–16:00 UTC (overlap 07–08 = high volatility)
   New York: 13:00–22:00 UTC (overlap 13–16 = highest volatility)
   Dead zone: 22:00–00:00 UTC
-
 For each session:
   - Average range as % of daily ATR
   - % sessions that set the day's high or low
   - Directional bias
-
-```text
+```
 
 #### Week-of-Month Analysis
 
 ```text
-
 Week 1 (days 1–7), Week 2 (8–14), Week 3 (15–21), Week 4 (22–28), Week 5 (28+)
   - Tracks monthly rhythms (e.g., options expiry in last week)
-
-```text
+```
 
 #### Regime Filtering
 
@@ -190,7 +180,6 @@ More advanced: segment stats by market regime:
 #### Summary Table (console/Telegram)
 
 ```text
-
 BTC Day-of-Week Stats (2022–2026, 1h candles)
 Day       | Bullish% | Mean Ret | Median | Max Win | Max Loss
 ----------|----------|----------|--------|---------|----------
@@ -201,8 +190,7 @@ Thursday  |   52.1%  |  +0.19%  | +0.11% | +9.1%  | -5.5%
 Friday    |   49.8%  |  -0.15%  | -0.10% | +5.9%  | -8.4%
 Saturday  |   50.1%  |  +0.05%  | +0.02% | +5.2%  | -4.8%
 Sunday    |   53.2%  |  +0.22%  | +0.14% | +6.3%  | -4.2%
-
-```text
+```
 
 **Heatmap**: Hour vs Day matrix showing average return — easy to spot high-probability windows.
 
@@ -213,15 +201,12 @@ Sunday    |   53.2%  |  +0.22%  | +0.14% | +6.3%  | -4.2%
 **Architecture**:
 
 ```text
-
 scripts/
   fetch_historical.py     — pull and cache OHLCV data to CSV/parquet
   time_analysis.py        — compute all stats, output tables
   regime_filter.py        — classify bars as bull/bear/volatile
-
 Output: JSON + CSV files in data/ directory
-
-```text
+```
 
 **Libraries**:
 
@@ -258,7 +243,6 @@ and market makers are doing. It targets serious futures traders who need more th
 - Displayed as a price/time heatmap overlaid on chart
 - Extremely useful: market makers and large traders often hunt these liquidation clusters
   ("stop hunts")
-
 - Allows you to anticipate: "If BTC pushes to $X, a cascade of shorts/longs get liquidated,
   creating fuel for an extended move"
 
@@ -273,7 +257,6 @@ and market makers are doing. It targets serious futures traders who need more th
 - Total OI across Binance, Bybit, OKX, Deribit
 - OI divergence from price: price up + OI up = trending; price up + OI down = short covering
   (weak rally)
-
 - OI heatmap: where was OI added/removed
 
 #### Funding Rate Dashboard
@@ -296,7 +279,7 @@ and market makers are doing. It targets serious futures traders who need more th
 ### Free vs Paid
 
 | Tier | Price | Access |
-|------|-------|--------|
+| ---- | ----- | ------ |
 | Free | $0 | Basic liquidation heatmap (delayed), limited history, single asset |
 | Pro | ~$49–79/mo | Real-time data, full history, multi-asset, OI, CVD, orderbook |
 | Institutional | Custom | API access, bulk data, white-label |
@@ -311,7 +294,6 @@ Your bot currently monitors prices and positions. MMT adds a **context layer**:
 
 - Before entering a position, check if a major liquidation cluster sits just beyond your
   target — it might accelerate the move (or trigger a reversal)
-
 - Funding rate alerts: if funding is extreme (>0.1% per 8h), flag it in Telegram messages
 - OI spike detection: sudden OI increase can precede large moves
 
@@ -324,20 +306,120 @@ equivalent of some of these:
 - Liquidation heatmaps are harder — require aggregating trade data over time (MMT's paid
   differentiator)
 
-### Actionable Next Steps
+### Actionable Next Steps — MMT
 
 1. Create a free MMT account, explore the liquidation heatmap on BTCUSDT during an active
    session
-
 2. Note the $-levels where large liquidation clusters sit — treat these as key levels for
    the week
-
 3. Add funding rate to your bot's Telegram summary (free, from Binance API)
 4. Add OI change (%) to your position monitor output
 
 ---
 
-## 4. Best Indicators for Crypto Futures Trading
+## 4. aggr.trade
+
+### Overview
+
+**aggr.trade** is an open-source, real-time **order flow aggregator** for crypto. It is not a charting
+platform — it shows you the raw live stream of market orders (the tape) across multiple exchanges
+simultaneously, filtered and grouped to remove noise. Built by Tucsky; runs fully in the browser
+with no API key required. Free and open-source (MIT).
+
+The core idea: standard charts tell you *where* price is. aggr.trade tells you *what is actually
+happening* — who is buying, who is selling, how large the trades are, and when forced liquidations
+are occurring.
+
+### Data Sources It Aggregates
+
+Connects directly via WebSocket to public exchange feeds — no account needed:
+
+- Binance (spot + futures)
+- Bybit, OKX, Bitget, Coinbase
+
+Also captures **liquidation events** from futures exchanges when available.
+
+### Core Features
+
+#### Trade Bubble Map
+
+Each bubble is a block of aggregated trades from the same timestamp + side. Green = market buys,
+red = market sells. Bubble size = trade value in USD. You set a filter threshold (e.g. only show
+trades >$50k) to watch only large orders and filter retail noise.
+
+#### Cumulative Volume Delta (CVD)
+
+Running net of buyer-initiated vs seller-initiated volume. Divergence between CVD and price is one
+of the most reliable reversal signals:
+
+- Price new high + CVD declining → buyers exhausted, possible reversal
+- Price falling + CVD rising → sellers absorbed by passive buyers, possible bounce
+
+#### Liquidation Feed
+
+Visual and audio alerts when large leveraged positions are force-closed. Liquidation clusters are
+watched as potential cascade triggers (if large = more stop-outs incoming) or absorption signals
+(if price doesn't move despite a cluster = strong passive buyer present).
+
+#### Multi-Exchange Unified Tape
+
+All exchanges shown simultaneously. Lets you see which venue is driving price and where large
+players are active.
+
+### What Makes It Uniquely Useful
+
+**Iceberg detection**: Large algorithmic orders are broken into many small fills. On a standard
+chart this is invisible. On aggr.trade you see the sequential fills hitting and can recognize the
+pattern.
+
+**Absorption signals**: A cluster of large sell liquidations hits but price barely moves — a large
+passive buyer is absorbing the flow. This is frequently a precursor to a local reversal upward.
+
+**Liquidation cascade anticipation**: If price approaches a zone with many known long positions
+(from MMT's liquidation heatmap) and you see the first liquidations starting on aggr.trade, you
+can anticipate a cascade and act before it fully plays out.
+
+### Technical Details
+
+- Vue.js SPA, runs in browser, each exchange handled by a dedicated Web Worker
+- For **historical data**: self-host `aggr-server` (separate repo) — connects same feeds, stores
+  to InfluxDB v1.8, serves data back to the client via HTTP
+- No public REST/WebSocket API exposed by aggr.trade itself
+- Full open-source fork/extend available
+
+### Integration with Your Bot
+
+aggr.trade data is read visually — it is not a data source you poll programmatically (unlike
+Binance REST endpoints). However, since aggr.trade connects to the same Binance WebSocket feeds
+you already use, you can replicate the core insight:
+
+- **From Binance `aggTrades` WebSocket**: stream of aggregated trades in real time
+- **From Binance `forceOrder` WebSocket**: liquidation events in real time
+- Build a lightweight CVD tracker using `aggTrades` (sum buy volume − sell volume per minute)
+- Log liquidation events per symbol and alert when a spike is detected
+
+This is the "free DIY" path if you want order flow signals without running a separate UI.
+
+### Actionable Next Steps — aggr.trade
+
+1. Open aggr.trade in browser, load BTCUSDT from Binance Futures
+2. Set bubble threshold to $100k — observe how large orders cluster around key levels
+3. Watch a session open (London or New York) — note how CVD and price interact in the first 30
+   minutes
+4. Compare what you see on aggr.trade to what your bot is currently monitoring — identify gaps
+5. Optionally: subscribe to `aggTrades` WebSocket in your bot and track a 5-minute CVD; add it
+   to 1h Telegram summary
+
+### Cost
+
+| Access | Cost |
+| ------ | ---- |
+| aggr.trade web app | Free |
+| Self-hosted aggr-server (historical data) | Free (infra cost only) |
+
+---
+
+## 5. Best Indicators for Crypto Futures Trading
 
 ### Priority Ranking (Impact vs Effort for Binance Futures)
 
@@ -357,27 +439,21 @@ Ranked by practical edge for a Binance Futures trader:
 
 - What: The cost of holding a futures position (paid every 8h); when funding is very positive,
   longs are paying shorts, indicating crowded long positioning
-
 - Why it matters: Extreme funding (>0.1%/8h) often precedes sharp corrections; near-zero or
   negative funding often precedes rallies
-
 - TradingView: Available as a free indicator (search "Funding Rate"); also on Coinglass
 - Pine Script: Can pull via `request.security()` if a feed exists; easier to use a pre-built
   public indicator
-
 - Availability: Directly from Binance API, free
 
 #### 3. Open Interest (OI) + OI Change
 
 - What: Total notional value of all open futures contracts; rising OI = new money entering,
   falling OI = positions being closed
-
 - Why it matters: Price + OI divergence is one of the most reliable trend-continuation or
   reversal signals
-
 - TradingView: Free indicators available (search "Open Interest"); Binance OI visible in the
   "Binance" data feed
-
 - Pine Script: Can be plotted if you use a source that provides OI as a security feed
 - Availability: Binance `/fapi/v1/openInterest` — free
 
@@ -386,11 +462,9 @@ Ranked by practical edge for a Binance Futures trader:
 - What: Running total of (buy volume − sell volume); measures aggressor pressure
 - Why it matters: Reveals whether moves are driven by real buying/selling pressure or passive
   order flow; divergence between price and CVD is a leading reversal signal
-
 - TradingView: Available (some free, some Pro-only scripts exist); search "CVD" or "Volume Delta"
 - Pine Script: Buildable if you have access to tick data; approximated with candle
   open/close direction heuristic on lower timeframes
-
 - Note: True CVD requires tick-level data; approximations work but have limitations
 
 #### Tier 2 — High Value, Worth Adding
@@ -400,7 +474,6 @@ Ranked by practical edge for a Binance Futures trader:
 - What: Average price weighted by volume; represents the fair value for the session
 - Why it matters: Institutions often execute around VWAP; price returning to VWAP after
   extension is a common mean-reversion setup; strong trending days stay above/below it
-
 - TradingView: Built-in free indicator (native)
 - Pine Script: Easy to build custom (anchored VWAP, VWAP bands, session VWAP)
 - Key variations:
@@ -412,13 +485,10 @@ Ranked by practical edge for a Binance Futures trader:
 
 - What: Displays how much time price spent at each level during a session, identifying
   the "Point of Control" (POC — most-traded price), Value Area High (VAH), Value Area Low (VAL)
-
 - Why it matters: Price tends to rotate between value areas; breakouts from value area are
   high-probability continuation moves; returns to POC are common in range markets
-
 - TradingView: Available on Pro+ and above (built-in); free alternatives exist as community
   scripts
-
 - Pine Script: Buildable (complex but doable); several good open-source implementations exist
 - Best use: Daily and weekly Market Profile for identifying key levels before the session
 
@@ -427,7 +497,6 @@ Ranked by practical edge for a Binance Futures trader:
 - What: Cumulative limit orders sitting at each price level on spot exchanges
 - Why it matters: Large bid walls attract price (support); large ask walls repel price
   (resistance); their removal signals a coming move
-
 - TradingView: Not available natively; use exchange's own orderbook or dedicated tools
 - Pine Script: Not buildable (requires live L2 data, not available in Pine)
 - Free option: Binance spot orderbook visible in the trading interface; Bookmap (paid) for
@@ -440,7 +509,6 @@ Ranked by practical edge for a Binance Futures trader:
 - What: Difference between spot price and futures contract price
 - Why it matters: High premium = bullish sentiment (futures traders willing to pay up);
   discount = bearish sentiment or high supply pressure on futures
-
 - TradingView: Can be computed manually with two securities; some indicators exist
 - Pine Script: Buildable (compute `close_futures - close_spot` as a separate pane)
 
@@ -449,7 +517,6 @@ Ranked by practical edge for a Binance Futures trader:
 - What: How an alt is performing relative to BTC on the same timeframe
 - Why it matters: Alts showing strength vs BTC during a BTC pullback are candidates for
   leading higher; alts weaker than BTC during rallies are candidates for shorting
-
 - TradingView: Easy to set up (set chart to "ALTUSDT/BTCUSDT" ratio)
 - Pine Script: Simple to build
 
@@ -458,7 +525,6 @@ Ranked by practical edge for a Binance Futures trader:
 - What: Volatility envelope around a moving average; ATR measures average daily range
 - Why it matters: Crypto mean-reverts to bands in range environments; band expansions signal
   trend starts; ATR sizing helps set rational stop-losses
-
 - TradingView: Built-in free
 - Pine Script: Built-in or easy custom
 
@@ -477,7 +543,7 @@ If building custom Pine Script indicators, prioritize in this order:
 ### TradingView Plan Requirements
 
 | Indicator | Free | Pro ($14.95/mo) | Pro+ ($29.95/mo) |
-|-----------|------|-----------------|------------------|
+| --------- | ---- | --------------- | ---------------- |
 | VWAP | Yes | Yes | Yes |
 | Bollinger, ATR | Yes | Yes | Yes |
 | Funding Rate (community) | Yes | Yes | Yes |
@@ -492,7 +558,7 @@ If building custom Pine Script indicators, prioritize in this order:
 
 ---
 
-## 5. Periodic Market Summary Feature (Bot Enhancement)
+## 6. Periodic Market Summary Feature (Bot Enhancement)
 
 ### Feature Overview
 
@@ -526,26 +592,23 @@ context.
 - OI trend: 4h OI change for BTC
 - Daily bias note (from pre-computed time_bias.json): "Today is Tuesday — historically
   52% bullish on BTC"
-
 - Weekly high/low for each symbol (key levels for the day)
 
 ### Architecture
 
 ```text
-
 scheduler/
   market_summary.py       — orchestrates data fetching and message formatting
   formatters/
     price_formatter.py    — formats price changes with emoji direction arrows
     funding_formatter.py  — formats funding rate data
     oi_formatter.py       — formats OI data
-
-```text
+```
 
 **Data Sources (all Binance REST, no new dependencies)**:
 
 | Data | Endpoint |
-|------|----------|
+| ---- | -------- |
 | Price + 24h change | `/fapi/v1/ticker/24hr` |
 | Funding rate | `/fapi/v1/fundingRate` |
 | Open Interest | `/fapi/v1/openInterest` |
@@ -565,25 +628,18 @@ enable/disable, and avoids complexity in the main bot loop.
 **Telegram Message Format** (1-hour example):
 
 ```text
-
 📊 1H Market Summary — 14:00 UTC | London Session
-
 BTC  $84,200 | 1H: +0.8% | 24H: +2.1%
 ETH  $3,820  | 1H: -0.2% | 24H: +1.4%
-SOL  $178    | 1H: +1.4% | 24H: +3.2%  ← TOP MOVER
-
+SOL  $178    | 1H: +1.4% | 24H: +3.2%  <- TOP MOVER
 Funding (8H):
-BTC: +0.012%  ETH: +0.008%  SOL: +0.031% ⚠️
-
-OI (1H): BTC +2.3% ↑ (new longs opening)
-
-Session: London Open ✅ (historically higher probability)
-Day bias: Tuesday | BTC 52% bullish (2022–2026)
-
+BTC: +0.012%  ETH: +0.008%  SOL: +0.031%
+OI (1H): BTC +2.3% (new longs opening)
+Session: London Open (historically higher probability)
+Day bias: Tuesday | BTC 52% bullish (2022-2026)
 Positions:
 BTCUSDT Long | Entry: $83,100 | PnL: +$340 (+1.3%)
-
-```text
+```
 
 **Implementation Steps**:
 
@@ -598,7 +654,7 @@ are minor additions once the base is built.
 
 ---
 
-## 6. Minimum Cost Setup for Trading Excellence
+## 7. Minimum Cost Setup for Trading Excellence
 
 ### Fixed Costs You Already Have
 
@@ -611,7 +667,7 @@ are minor additions once the base is built.
 #### TradingView
 
 | Plan | Monthly | Annual (÷12) | Key Unlock |
-|------|---------|--------------|------------|
+| ---- | ------- | ------------ | ---------- |
 | Free | $0 | — | 5 indicators, 1 chart, 20 alerts, no Market Profile |
 | Essential | $9.95/mo | ~$8.25 | 10 indicators, 2 charts |
 | Pro | $14.95/mo | ~$12.42 | 25 indicators, multiple charts, 400 alerts |
@@ -624,17 +680,18 @@ Market Profile (which you should if you're serious about institutional levels).
 #### Market Data / Analytics
 
 | Tool | Free Tier | Paid |
-|------|-----------|------|
+| ---- | --------- | ---- |
 | Coinglass | Yes (liquidation maps, OI, funding — delayed) | ~$29–49/mo for real-time |
 | MMT (mmt.gg) | Yes (limited) | ~$49–79/mo |
 | BrighterData | Yes (limited) | ~$29–49/mo |
+| aggr.trade | Yes (fully free, open-source) | $0 (self-host aggr-server for history) |
 | Hyblock Capital | Yes (limited liquidation heatmap) | ~$39–79/mo |
 | Velo Data | No | ~$99/mo (institutional grade) |
 
 #### Indicators / Scripts
 
 | Tool | Cost |
-|------|------|
+| ---- | ---- |
 | TradingView community Pine scripts | Free |
 | Premium Pine script authors (e.g., Luxalgo, Market Cipher) | $50–150 one-time or /mo |
 | Bookmap (orderbook visualization) | ~$49/mo |
@@ -642,7 +699,7 @@ Market Profile (which you should if you're serious about institutional levels).
 #### News / Sentiment
 
 | Tool | Cost |
-|------|------|
+| ---- | ---- |
 | CryptoPanic (news aggregator) | Free (basic), $15/mo (Pro with API) |
 | Santiment | Free (limited), $45–150/mo |
 | The Tie | Institutional, custom pricing |
@@ -658,6 +715,7 @@ Market Profile (which you should if you're serious about institutional levels).
 - Coinglass Free (check liquidation heatmap manually before each trade)
 - MMT Free (explore liquidation map, note key levels weekly)
 - BrighterData Free (session breakdown, check once per day)
+- aggr.trade (fully free — open in browser, watch order flow during sessions)
 - Your bot (this repo) — add funding rate and OI to your existing Telegram messages
 - Time-based analysis script — build it once, run weekly, costs $0
 
@@ -670,7 +728,7 @@ Market Profile (which you should if you're serious about institutional levels).
 **Goal**: Professional workflow without breaking the bank
 
 | Tool | Cost |
-|------|------|
+| ---- | ---- |
 | TradingView Pro | $14.95/mo |
 | Coinglass Pro | ~$29/mo |
 | Oracle VM | $0 |
@@ -692,7 +750,7 @@ Market Profile (which you should if you're serious about institutional levels).
 **Goal**: Near-institutional data access, maximum edge
 
 | Tool | Cost |
-|------|------|
+| ---- | ---- |
 | TradingView Pro+ | $29.95/mo |
 | MMT Pro | ~$49–79/mo |
 | BrighterData Pro | ~$29–49/mo |
@@ -722,7 +780,6 @@ $50/mo tooling, don't rush to Power tier.
 4. **Fourth**: Add market summary feature to bot (free, ~3 days of work)
 5. **Fifth**: Coinglass Pro ($29/mo) when you're trading with enough size that real-time
    liquidation data changes your decisions
-
 6. **Sixth**: MMT or BrighterData Pro when you've exhausted the free tier value
 
 ---
@@ -730,15 +787,17 @@ $50/mo tooling, don't rush to Power tier.
 ## Summary: Recommended Implementation Roadmap
 
 | Priority | Task | Cost | Effort | Impact |
-|----------|------|------|--------|--------|
+| -------- | ---- | ---- | ------ | ------ |
 | 1 | Add funding rate + OI to bot Telegram output | $0 | 0.5 day | High |
 | 2 | Build time-based analysis script (KillaXBT style) | $0 | 2–3 days | High |
 | 3 | Upgrade TradingView to Pro | $15/mo | 0 | High |
 | 4 | Use Coinglass free for liquidation heatmaps | $0 | 0 | High |
-| 5 | Add periodic market summary (1h Telegram) | $0 | 3–4 days | Medium-High |
-| 6 | Explore BrighterData free tier | $0 | 0.5 day | Medium |
-| 7 | Implement active-hours filter in bot | $0 | 1 day | Medium |
-| 8 | Upgrade Coinglass or MMT to Pro | ~$29–79/mo | 0 | Medium |
+| 5 | Use aggr.trade during active sessions (London/NY open) | $0 | 0 | High |
+| 6 | Add periodic market summary (1h Telegram) | $0 | 3–4 days | Medium-High |
+| 7 | Add CVD tracker to bot via Binance aggTrades WebSocket | $0 | 1–2 days | Medium-High |
+| 8 | Explore BrighterData free tier | $0 | 0.5 day | Medium |
+| 9 | Implement active-hours filter in bot | $0 | 1 day | Medium |
+| 10 | Upgrade Coinglass or MMT to Pro | ~$29–79/mo | 0 | Medium |
 
 **Total minimum spend to get to Recommended Tier**: ~$15/mo (TradingView Pro only)
 **Total bot development work**: ~7–10 days across all features
