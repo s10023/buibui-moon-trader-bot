@@ -9,3 +9,5 @@ config/coins.json
 
 # But don't ignore other files in config/
 !config/
+.claude/
+.idea/
