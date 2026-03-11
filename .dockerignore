@@ -6,3 +6,5 @@ tests/
 .dockerignore
 Dockerfile
 README.md
+.env
+config/coins.json
