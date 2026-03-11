@@ -5,7 +5,6 @@ accept them as parameters instead of relying on module-level globals.
 """
 
 import logging
-import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
@@ -47,6 +46,7 @@ def colorize_dollar(value: Any) -> str:
 
 def color_sl_size(pct: float) -> str:
     """Colorize stop-loss size percentage."""
+    pct = abs(pct)
     if pct < 2:
         return f"\033[91m{pct:.2f}%\033[0m"
     elif pct < 3.5:
@@ -109,11 +109,11 @@ def fetch_open_positions(
     sort_by: str = "default",
     descending: bool = True,
     hide_empty: bool = False,
-) -> tuple[list[Any], float]:
+) -> tuple[list[Any], float, float, float]:
     """Fetch and format open futures positions."""
     positions = client.futures_position_information()
     filtered: list[Any] = []
-    wallet_balance, _ = get_wallet_balance(client)
+    wallet_balance, unrealized_pnl = get_wallet_balance(client)
     total_risk_usd = 0.0
 
     open_positions = []
@@ -144,7 +144,7 @@ def fetch_open_positions(
                 else:
                     sl_percent = (actual_sl - entry) / entry * 100
                 sl_risk_usd = notional * (sl_percent / 100)
-                sl_size_str = colorize(sl_percent)
+                sl_size_str = color_sl_size(sl_percent)
                 actual_sl_str = f"{actual_sl:.5f}"
                 sl_usd_str = colorize_dollar(sl_risk_usd)
             else:
@@ -165,9 +165,9 @@ def fetch_open_positions(
             return (symbol, "-", "-", "-", 0.0, None)
 
     sl_results: dict[str, Any] = {}
-    cpu_count = os.cpu_count() or 1
-    max_workers = max(1, cpu_count // 2)
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    with ThreadPoolExecutor(
+        max_workers=max(1, min(len(open_positions), 16))
+    ) as executor:
         futures = [
             executor.submit(fetch_sl, symbol, side_text, entry, notional)
             for (
@@ -260,7 +260,7 @@ def fetch_open_positions(
 
     filtered = [row[:13] for row in filtered]
 
-    return filtered, total_risk_usd
+    return filtered, total_risk_usd, wallet_balance, unrealized_pnl
 
 
 def display_table(
@@ -275,10 +275,9 @@ def display_table(
     compact: bool = False,
 ) -> str:
     """Build the full position display output."""
-    table, total_risk_usd = fetch_open_positions(
+    table, total_risk_usd, wallet, unrealized = fetch_open_positions(
         client, coins_config, coin_order, sort_by, descending, hide_empty
     )
-    wallet, unrealized = get_wallet_balance(client)
     total = wallet + unrealized
     unrealized_pct = (unrealized / wallet * 100) if wallet else 0
     used_margin = sum(

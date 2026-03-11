@@ -1,6 +1,5 @@
 """Price monitor — thin wrapper that creates dependencies and delegates to price_lib."""
 
-import argparse
 import logging
 import sys
 from typing import Any
@@ -35,7 +34,6 @@ __all__ = [
 ]
 
 init(autoreset=True)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s:%(message)s")
 
 
 def main(live: bool = False, telegram: bool = False, sort: str = "") -> None:
@@ -91,19 +89,3 @@ def main(live: bool = False, telegram: bool = False, sort: str = "") -> None:
 
     else:
         live_price.run(client, coins, sort_col=sort_col, sort_order=sort_order)
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Buibui Moon Crypto Monitor")
-    parser.add_argument("--live", action="store_true", help="Run in live refresh mode")
-    parser.add_argument(
-        "--telegram", action="store_true", help="Send output to Telegram"
-    )
-    parser.add_argument(
-        "--sort",
-        type=str,
-        default="",
-        help="Sort table by column[:asc|desc]. Options: change_15m, change_1h, change_asia, change_24h. Example: --sort change_15m:desc",
-    )
-    args = parser.parse_args()
-    main(live=args.live, telegram=args.telegram, sort=args.sort)

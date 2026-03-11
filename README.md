@@ -42,15 +42,19 @@ Includes max USD-per-trade cap and wallet-level risk protection.
 buibui-moon-trader-bot/
 ├── buibui.py                        # CLI entry point (argparse)
 ├── monitor/
-│   ├── price_monitor.py             # Live price + multi-timeframe % changes
-│   └── position_monitor.py          # Position PnL, risk, SL tracking
+│   ├── price_monitor.py             # Price monitor thin wrapper (creates client, calls lib)
+│   ├── price_lib.py                 # Pure price monitor business logic
+│   ├── position_monitor.py          # Position monitor thin wrapper
+│   └── position_lib.py              # Pure position monitor business logic
 ├── trade/
 │   └── open_trades.py               # Multi-trade entry (planned)
 ├── utils/
+│   ├── binance_client.py            # Binance client creation, time sync, config loading
 │   ├── config_validation.py         # Validates coins.json schema
 │   └── telegram.py                  # Telegram bot messaging
 ├── config/
 │   └── coins.json.example           # Coin list, SL%, leverage per symbol
+├── .env.example                     # Environment variable template
 ├── .github/
 │   └── workflows/
 │       ├── lint.yaml                # CI: lint, format, typecheck
@@ -88,23 +92,26 @@ poetry update
 
 ### 3. Add your API keys
 
-Create a `.env` file based on `config/coins.json.example`:
+Create a `.env` file with the following variables (see `.env.example` for a template):
 
 ```bash
-# .env
-BINANCE_API_KEY=your_key
-BINANCE_API_SECRET=your_secret
+BINANCE_API_KEY=your_binance_api_key_here
+BINANCE_API_SECRET=your_binance_api_secret_here
 
-TELEGRAM_BOT_TOKEN=bot_token
-TELEGRAM_CHAT_ID=your_chat_id
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
+TELEGRAM_CHAT_ID=your_telegram_chat_id_here
 
 # Short-term wallet target for progress bar
-WALLET_TARGET=2000
+WALLET_TARGET=1000
 ```
 
 ### 4. Configure your coins
 
 Copy `config/coins.json.example` to `config/coins.json` and edit to define each symbol's leverage and stop-loss percent.
+
+```sh
+cp config/coins.json.example config/coins.json
+```
 
 ```json
 {
@@ -277,14 +284,27 @@ make docker-monitor-position   # Run position monitor
 
 All commands use your `.env` file for secrets and config.
 
+### Docker Compose
+
+A `docker-compose.yml` is provided for convenience. It bind-mounts `config/coins.json`
+and `.env` at runtime — neither file is baked into the image (both are excluded via
+`.dockerignore` for security).
+
+```bash
+docker-compose up buibui-position-monitor   # Run position monitor
+docker-compose up buibui-price-monitor      # Run price monitor
+```
+
+Make sure `config/coins.json` and `.env` exist in the project root before running.
+
 ---
 
 ## GitHub Actions (Optional)
 
-The `.github/workflows/monitor.yaml` file can be configured to:
-
-- Run position_monitor.py every 15 minutes
-- Send live updates to Telegram
+The `.github/workflows/monitor.yaml` file contains job steps for scheduled monitoring.
+Not recommended for production use — GitHub Actions uses rotating IPs that cannot be
+whitelisted in Binance. Deploy on a server with a static IP instead (see Oracle Cloud
+setup in project docs).
 
 ---
 
