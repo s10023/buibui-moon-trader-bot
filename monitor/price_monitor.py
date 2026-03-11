@@ -2,13 +2,15 @@
 
 import logging
 import sys
-import time
 from typing import Any
 
 from colorama import init
 from tabulate import tabulate
 
+from monitor import live_price
 from monitor.price_lib import (
+    PRICE_HEADERS,
+    VALID_SORT_COLS,
     clear_screen,
     format_pct,
     format_pct_simple,
@@ -53,9 +55,9 @@ def main(live: bool = False, telegram: bool = False, sort: str = "") -> None:
     sort_col, _, sort_dir = sort.partition(":")
     sort_order = sort_dir.lower() != "asc"
 
-    valid_sort_cols = {"change_15m", "change_1h", "change_asia", "change_24h"}
+    valid_sort_cols = VALID_SORT_COLS
 
-    headers = ["Symbol", "Last Price", "15m %", "1h %", "Since Asia 8AM", "24h %"]
+    headers = PRICE_HEADERS
 
     if not live:
         clear_screen()
@@ -88,22 +90,4 @@ def main(live: bool = False, telegram: bool = False, sort: str = "") -> None:
                 print("\u274c Telegram message failed:", e)
 
     else:
-        try:
-            while True:
-                clear_screen()
-                print("\U0001f4c8 Live Crypto Price Monitor \u2014 Buibui Moon Bot\n")
-                price_table, invalid_symbols = get_price_changes(client, coins)
-                if sort_col in valid_sort_cols:
-                    price_table = sort_table(price_table, headers, sort_col, sort_order)
-                print(tabulate(price_table, headers=headers, tablefmt="fancy_grid"))
-                if sort_col in valid_sort_cols:
-                    arrow = "\U0001f53d" if sort_order else "\U0001f53c"
-                    direction = "descending" if sort_order else "ascending"
-                    print(f"\n{arrow} Sorted by: {sort_col} ({direction})")
-                if invalid_symbols:
-                    print("\n\u26a0\ufe0f  The following symbols had errors:")
-                    for symbol, reason in sorted(invalid_symbols):
-                        print(f"  - {symbol}: {reason}")
-                time.sleep(5)
-        except KeyboardInterrupt:
-            print("\nExiting gracefully. Goodbye!")
+        live_price.run(client, coins, sort_col=sort_col, sort_order=sort_order)

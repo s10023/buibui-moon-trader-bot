@@ -4,14 +4,17 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from rich.text import Text
 
 from monitor.price_lib import (
     clear_screen,
     format_pct,
+    format_pct_rich,
     format_pct_simple,
     get_klines,
     get_price_changes,
     sort_table,
+    sort_table_raw,
 )
 from tests.conftest import strip_ansi
 from utils.binance_client import sync_binance_time
@@ -216,3 +219,57 @@ class TestGetPriceChanges:
             table, _ = get_price_changes(mock_client, ["BTCUSDT"], telegram=True)
             for cell in table[0][2:]:
                 assert "\033[" not in str(cell)
+
+
+class TestFormatPctRich:
+    def test_positive_returns_green_text(self) -> None:
+        result = format_pct_rich(2.5)
+        assert isinstance(result, Text)
+        assert "+2.50%" in result.plain
+
+    def test_negative_returns_red_text(self) -> None:
+        result = format_pct_rich(-1.5)
+        assert isinstance(result, Text)
+        assert "-1.50%" in result.plain
+
+    def test_zero_returns_yellow_text(self) -> None:
+        result = format_pct_rich(0.0)
+        assert isinstance(result, Text)
+        assert "+0.00%" in result.plain
+
+    def test_returns_text_instance_not_string(self) -> None:
+        assert not isinstance(format_pct_rich(1.0), str)
+
+
+class TestSortTableRaw:
+    ROWS: list[list[Any]] = [
+        ["C", "150", 2.0, None, None, None],
+        ["A", "100", 1.0, None, None, None],
+        ["B", "200", 3.0, None, None, None],
+    ]
+
+    def test_descending(self) -> None:
+        result = sort_table_raw(self.ROWS, col_idx=2, reverse=True)
+        assert [r[0] for r in result] == ["B", "C", "A"]
+
+    def test_ascending(self) -> None:
+        result = sort_table_raw(self.ROWS, col_idx=2, reverse=False)
+        assert [r[0] for r in result] == ["A", "C", "B"]
+
+    def test_none_sorts_last_in_descending(self) -> None:
+        rows: list[list[Any]] = [
+            ["A", "100", None, None, None, None],
+            ["B", "200", 1.0, None, None, None],
+        ]
+        result = sort_table_raw(rows, col_idx=2, reverse=True)
+        assert result[0][0] == "B"
+        assert result[1][0] == "A"
+
+    def test_none_sorts_last_in_ascending(self) -> None:
+        rows: list[list[Any]] = [
+            ["A", "100", None, None, None, None],
+            ["B", "200", 1.0, None, None, None],
+        ]
+        result = sort_table_raw(rows, col_idx=2, reverse=False)
+        assert result[0][0] == "B"
+        assert result[1][0] == "A"

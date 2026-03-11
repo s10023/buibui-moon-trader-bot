@@ -14,6 +14,19 @@ from typing import Any
 import pytz
 from binance.client import Client
 from colorama import Fore, Style
+from rich.text import Text
+
+PRICE_HEADERS: list[str] = [
+    "Symbol",
+    "Last Price",
+    "15m %",
+    "1h %",
+    "Since Asia 8AM",
+    "24h %",
+]
+VALID_SORT_COLS: frozenset[str] = frozenset(
+    {"change_15m", "change_1h", "change_asia", "change_24h"}
+)
 
 
 def format_pct(pct: Any) -> Any:
@@ -218,3 +231,28 @@ def get_price_changes(
                 invalid_symbols.add((symbol, msg))
             table.append([symbol, "Error", "", "", "", ""])
     return table, invalid_symbols
+
+
+def format_pct_rich(pct: float) -> Text:
+    """Format % change as a Rich Text object with color."""
+    formatted = f"{pct:+.2f}%"
+    if pct > 0:
+        return Text(formatted, style="green")
+    elif pct < 0:
+        return Text(formatted, style="red")
+    else:
+        return Text(formatted, style="yellow")
+
+
+def sort_table_raw(
+    rows: list[list[Any]], col_idx: int, reverse: bool
+) -> list[list[Any]]:
+    """Sort rows by a column of raw floats. None values always sort last."""
+
+    def key(row: list[Any]) -> float:
+        val = row[col_idx]
+        if val is None:
+            return float("-inf") if reverse else float("inf")
+        return float(val)
+
+    return sorted(rows, key=key, reverse=reverse)

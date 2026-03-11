@@ -5,6 +5,7 @@ from typing import Any
 
 from binance.client import Client
 from dotenv import load_dotenv
+from requests.adapters import HTTPAdapter
 
 from utils.config_validation import validate_coins_config
 
@@ -22,6 +23,8 @@ def create_client() -> Client:
     api_key = os.getenv("BINANCE_API_KEY")
     api_secret = os.getenv("BINANCE_API_SECRET")
     client = Client(api_key, api_secret)
+    # Raise connection pool size to match the batch thread pool cap (16 workers)
+    client.session.mount("https://", HTTPAdapter(pool_connections=20, pool_maxsize=20))
     sync_binance_time(client)
     return client
 
