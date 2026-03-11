@@ -109,6 +109,10 @@ WALLET_TARGET=1000
 
 Copy `config/coins.json.example` to `config/coins.json` and edit to define each symbol's leverage and stop-loss percent.
 
+```sh
+cp config/coins.json.example config/coins.json
+```
+
 ```json
 {
   "BTCUSDT": { "leverage": 25, "sl_percent": 2.0 },
@@ -284,10 +288,10 @@ All commands use your `.env` file for secrets and config.
 
 ## GitHub Actions (Optional)
 
-The `.github/workflows/monitor.yaml` file is a **placeholder** for scheduled monitoring.
-It is not currently functional — GitHub Actions uses rotating IPs which cannot be
-whitelisted in Binance. The intended deployment target is a fixed-IP server (e.g. Oracle
-Cloud Free Tier VM) where the bot runs persistently via a systemd service.
+The `.github/workflows/monitor.yaml` file contains job steps for scheduled monitoring.
+Not recommended for production use — GitHub Actions uses rotating IPs that cannot be
+whitelisted in Binance. Deploy on a server with a static IP instead (see Oracle Cloud
+setup in project docs).
 
 ---
 
