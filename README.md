@@ -277,6 +277,19 @@ make docker-monitor-position   # Run position monitor
 
 All commands use your `.env` file for secrets and config.
 
+### Docker Compose
+
+A `docker-compose.yml` is provided for convenience. It bind-mounts `config/coins.json`
+and `.env` at runtime — neither file is baked into the image (both are excluded via
+`.dockerignore` for security).
+
+```bash
+docker-compose up buibui-position-monitor   # Run position monitor
+docker-compose up buibui-price-monitor      # Run price monitor
+```
+
+Make sure `config/coins.json` and `.env` exist in the project root before running.
+
 ---
 
 ## GitHub Actions (Optional)
