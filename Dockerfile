@@ -8,8 +8,11 @@ RUN pip install poetry
 # Copy only dependency files first for better build caching
 COPY pyproject.toml poetry.lock* /app/
 
+# Disable virtualenv creation — in Docker we install directly into the system Python
+RUN poetry config virtualenvs.create false
+
 # Install dependencies (no dev dependencies for production)
-RUN poetry install --no-root
+RUN poetry install --no-root --without dev
 
 # Copy the rest of the code
 COPY . /app
