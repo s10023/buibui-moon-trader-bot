@@ -7,6 +7,8 @@ import pytest
 from rich.text import Text
 
 from monitor.price_lib import (
+    batch_get_asia_open,
+    batch_get_klines,
     clear_screen,
     format_pct,
     format_pct_rich,
@@ -174,6 +176,39 @@ class TestGetKlines:
         mock_client = MagicMock()
         mock_client.get_klines.side_effect = Exception("API error")
         assert get_klines(mock_client, "BTCUSDT", "15m", 15) is None
+
+    def test_returns_none_on_empty_klines(self) -> None:
+        mock_client = MagicMock()
+        mock_client.get_klines.return_value = []
+        assert get_klines(mock_client, "BTCUSDT", "15m", 15) is None
+
+
+class TestBatchGetKlines:
+    """Tests for batch_get_klines() error handling."""
+
+    def test_skips_failed_worker_futures(self) -> None:
+        mock_client = MagicMock()
+        # First call raises, second call succeeds
+        mock_client.get_klines.side_effect = [Exception("fail"), [["ok_kline"]]]
+        results = batch_get_klines(mock_client, ["BTCUSDT", "ETHUSDT"], [("15m", 15)])
+        # At least one result should be None (failed), one should have data
+        assert len(results) <= 2  # failed workers are skipped (continue), not added
+        # The successful one should have the kline data
+        successful = [v for v in results.values() if v is not None]
+        assert len(successful) == 1
+
+
+class TestBatchGetAsiaOpen:
+    """Tests for batch_get_asia_open() error handling."""
+
+    def test_skips_failed_worker_futures(self) -> None:
+        mock_client = MagicMock()
+        with patch(
+            "monitor.price_lib.get_open_price_asia", side_effect=Exception("fail")
+        ):
+            # Worker raises — should not propagate; result just omitted
+            results = batch_get_asia_open(mock_client, ["BTCUSDT"])
+            assert results == {}
 
 
 class TestGetPriceChanges:

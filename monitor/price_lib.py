@@ -16,6 +16,8 @@ from binance.client import Client
 from colorama import Fore, Style
 from rich.text import Text
 
+_ASIA_TZ = ZoneInfo("Asia/Shanghai")
+
 PRICE_HEADERS: list[str] = [
     "Symbol",
     "Last Price",
@@ -111,15 +113,7 @@ def batch_get_klines(
     def fetch(
         symbol: str, interval: str, lookback: int
     ) -> tuple[tuple[str, str], Any | None]:
-        now = dt.datetime.now(dt.UTC)
-        start_time = int((now - dt.timedelta(minutes=lookback)).timestamp() * 1000)
-        try:
-            klines = client.get_klines(
-                symbol=symbol, interval=interval, startTime=start_time
-            )
-            return ((symbol, interval), klines[-1] if klines else None)
-        except Exception:
-            return ((symbol, interval), None)
+        return ((symbol, interval), get_klines(client, symbol, interval, lookback))
 
     task_count = len(symbols) * len(intervals_lookbacks)
     with ThreadPoolExecutor(max_workers=min(task_count, 16)) as executor:
@@ -140,7 +134,7 @@ def batch_get_klines(
 
 def get_open_price_asia(client: Client, symbol: str) -> float | None:
     """Get the open price at Asia 8 AM for a symbol."""
-    today_asia = dt.datetime.now(ZoneInfo("Asia/Shanghai")).date()
+    today_asia = dt.datetime.now(_ASIA_TZ).date()
     asia_today_8am = dt.datetime(
         today_asia.year,
         today_asia.month,
@@ -148,7 +142,7 @@ def get_open_price_asia(client: Client, symbol: str) -> float | None:
         8,
         0,
         0,
-        tzinfo=ZoneInfo("Asia/Shanghai"),
+        tzinfo=_ASIA_TZ,
     )
     now_utc = dt.datetime.now(dt.UTC)
     if now_utc < asia_today_8am.astimezone(dt.UTC):
