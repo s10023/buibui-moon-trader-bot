@@ -97,8 +97,8 @@ def get_stop_loss_for_symbol(client: Client, symbol: str) -> float | None:
         for o in orders:
             if o["type"] in ("STOP_MARKET", "STOP") and o.get("reduceOnly"):
                 return float(o["stopPrice"])
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("SL fetch failed for %s: %s", symbol, e)
     return None
 
 
@@ -111,7 +111,11 @@ def fetch_open_positions(
     hide_empty: bool = False,
 ) -> tuple[list[Any], float, float, float]:
     """Fetch and format open futures positions."""
-    positions = client.futures_position_information()
+    try:
+        positions = client.futures_position_information()
+    except Exception as e:
+        logging.error("Failed to fetch position information: %s", e)
+        raise RuntimeError(f"Failed to fetch position information: {e}") from e
     filtered: list[Any] = []
     wallet_balance, unrealized_pnl = get_wallet_balance(client)
     total_risk_usd = 0.0
@@ -143,7 +147,7 @@ def fetch_open_positions(
                     sl_percent = (entry - actual_sl) / entry * 100
                 else:
                     sl_percent = (actual_sl - entry) / entry * 100
-                sl_risk_usd = notional * (sl_percent / 100)
+                sl_risk_usd = notional * abs(sl_percent) / 100
                 sl_size_str = color_sl_size(sl_percent)
                 actual_sl_str = f"{actual_sl:.5f}"
                 sl_usd_str = colorize_dollar(sl_risk_usd)
@@ -215,7 +219,7 @@ def fetch_open_positions(
             round(notional, 2),
             colorize_dollar(pnl),
             colorize(pnl_pct),
-            f"{(margin / wallet_balance) * 100:.2f}%",
+            f"{(margin / wallet_balance * 100) if wallet_balance else 0.0:.2f}%",
             actual_sl_str,
             sl_size_str,
             sl_usd_str,
@@ -260,6 +264,8 @@ def fetch_open_positions(
 
     filtered = [row[:13] for row in filtered]
 
+    open_count = sum(1 for row in filtered if row[1] != "-")
+    logging.info("Found %d open position(s)", open_count)
     return filtered, total_risk_usd, wallet_balance, unrealized_pnl
 
 
@@ -283,7 +289,7 @@ def display_table(
     used_margin = sum(
         float(row[5]) for row in table if isinstance(row[5], (int, float))
     )
-    available_balance = total - used_margin
+    available_balance = wallet - used_margin
     output = []
     output.append(f"\n\U0001f4b0 Wallet Balance: ${wallet:,.2f}")
     output.append(f"\U0001f4bc Available Balance: ${available_balance:,.2f}")

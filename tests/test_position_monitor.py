@@ -355,3 +355,92 @@ class TestDisplayTable:
             mock_tg.assert_called_once()
             msg = mock_tg.call_args[0][0]
             assert "Wallet Balance" in msg
+
+
+class TestPositionBugFixes:
+    """Regression tests for correctness bug fixes."""
+
+    def test_fetch_raises_runtime_error_on_api_failure(self) -> None:
+        mock_client = MagicMock()
+        mock_client.futures_position_information.side_effect = Exception("API error")
+
+        import pytest
+
+        with pytest.raises(RuntimeError, match="Failed to fetch position information"):
+            fetch_open_positions(mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER)
+
+    def test_short_sl_risk_usd_is_positive(
+        self, mock_futures_balance: list[dict[str, Any]]
+    ) -> None:
+        # SHORT position with SL above entry (correct real-world setup)
+        short_with_sl_above_entry = [
+            {
+                "symbol": "BTCUSDT",
+                "positionAmt": "-0.135",
+                "entryPrice": "110032.0",
+                "markPrice": "108757.0",
+                "notional": "-14899.70",
+                "positionInitialMargin": "595.99",
+                "unRealizedProfit": "174.73",
+            },
+        ]
+        mock_client = MagicMock()
+        mock_client.futures_position_information.return_value = (
+            short_with_sl_above_entry
+        )
+        mock_client.futures_account_balance.return_value = mock_futures_balance
+        mock_client.futures_get_open_orders.return_value = [
+            {
+                "type": "STOP_MARKET",
+                "reduceOnly": True,
+                "stopPrice": "111000.0",  # above entry — correct SHORT SL
+            }
+        ]
+
+        _, total_risk, _wallet, _unrealized = fetch_open_positions(
+            mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER, hide_empty=True
+        )
+        assert total_risk > 0, "SHORT sl_risk_usd must be positive (it is a loss)"
+
+    def test_wallet_balance_zero_no_division_error(
+        self, mock_positions_data: list[dict[str, Any]]
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client.futures_position_information.return_value = mock_positions_data
+        mock_client.futures_account_balance.return_value = [
+            {"asset": "USDT", "balance": "0.0", "crossUnPnl": "0.0"}
+        ]
+        mock_client.futures_get_open_orders.return_value = []
+
+        # Must not raise ZeroDivisionError
+        positions, _, wallet, _ = fetch_open_positions(
+            mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER, hide_empty=True
+        )
+        assert wallet == 0.0
+        for row in positions:
+            assert row[9] == "0.00%"  # Risk% column must default to 0.00%
+
+    def test_available_balance_uses_wallet_not_total(
+        self,
+        mock_positions_data: list[dict[str, Any]],
+        mock_futures_balance: list[dict[str, Any]],
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client.futures_position_information.return_value = mock_positions_data
+        mock_client.futures_account_balance.return_value = mock_futures_balance
+        mock_client.futures_get_open_orders.return_value = []
+
+        result = display_table(
+            mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER, 0.0, compact=True
+        )
+        # wallet=1123.15, used_margin=595.99+591.11=1187.10
+        # Correct: available = 1123.15 - 1187.10 = -63.95 (negative — over-margined)
+        # Wrong (old): available = (1123.15+290.29) - 1187.10 = 226.34 (overstated)
+        import re
+
+        match = re.search(r"Available Balance: \$(-?[\d,]+\.\d+)", result)
+        assert match is not None, "Available Balance not found in output"
+        available = float(match.group(1).replace(",", ""))
+        assert available < 0, (
+            f"Available balance should be wallet-based (~-63.95), got {available}"
+        )
