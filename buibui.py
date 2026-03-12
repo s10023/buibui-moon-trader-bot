@@ -1,6 +1,8 @@
 import argparse
 import logging
 
+from dotenv import load_dotenv
+
 from monitor import position_monitor, price_monitor
 
 
@@ -18,6 +20,7 @@ def run_position_monitor(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    load_dotenv()
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
     )

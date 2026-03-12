@@ -19,7 +19,7 @@ from monitor.price_lib import (
     sort_table_raw,
 )
 from tests.conftest import strip_ansi
-from utils.binance_client import sync_binance_time
+from utils.binance_client import create_client, get_wallet_target, sync_binance_time
 
 
 class TestFormatPct:
@@ -159,6 +159,49 @@ class TestSyncBinanceTime:
         mock_client.get_server_time.return_value = {"serverTime": 1700000000000}
         sync_binance_time(mock_client)
         assert mock_client.TIME_OFFSET == -1000
+
+    def test_raises_runtime_error_on_api_failure(self) -> None:
+        mock_client = MagicMock()
+        mock_client.get_server_time.side_effect = Exception("network error")
+        with pytest.raises(
+            RuntimeError, match="Failed to sync time with Binance server"
+        ):
+            sync_binance_time(mock_client)
+
+
+class TestCreateClient:
+    """Tests for create_client() startup validation."""
+
+    def test_raises_value_error_when_api_key_missing(self) -> None:
+        with patch("utils.binance_client.load_dotenv"):
+            with patch.dict("os.environ", {}, clear=True):
+                with pytest.raises(ValueError, match="BINANCE_API_KEY"):
+                    create_client()
+
+    def test_raises_value_error_when_api_secret_missing(self) -> None:
+        with patch("utils.binance_client.load_dotenv"):
+            with patch.dict("os.environ", {"BINANCE_API_KEY": "key"}, clear=True):
+                with pytest.raises(ValueError, match="BINANCE_API_SECRET"):
+                    create_client()
+
+
+class TestGetWalletTarget:
+    """Tests for get_wallet_target() env parsing."""
+
+    def test_returns_float_from_valid_env(self) -> None:
+        with patch.dict("os.environ", {"WALLET_TARGET": "2000"}):
+            assert get_wallet_target() == 2000.0
+
+    def test_returns_zero_when_env_not_set(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            assert get_wallet_target() == 0.0
+
+    def test_returns_zero_and_warns_on_invalid_value(self) -> None:
+        with patch.dict("os.environ", {"WALLET_TARGET": "$2,000"}):
+            with patch("utils.binance_client.logging") as mock_log:
+                result = get_wallet_target()
+                assert result == 0.0
+                mock_log.warning.assert_called_once()
 
 
 class TestGetKlines:

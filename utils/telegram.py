@@ -2,12 +2,10 @@ import logging
 import os
 
 import requests
-from dotenv import load_dotenv
 
 
 def _get_env_credentials() -> tuple[str | None, str | None]:
-    """Load Telegram credentials from environment."""
-    load_dotenv()
+    """Read Telegram credentials from environment."""
     return os.getenv("TELEGRAM_BOT_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
 
 
