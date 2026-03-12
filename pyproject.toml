@@ -30,7 +30,6 @@ dependencies = [
     "python-binance (>=1.0.29,<2.0.0)",
     "python-dateutil (>=2.9.0.post0,<3.0.0)",
     "python-dotenv (>=1.1.1,<2.0.0)",
-    "pytz (>=2025.2,<2026.0)",
     "regex (>=2024.11.6,<2025.0.0)",
     "requests (>=2.32.4,<3.0.0)",
     "schedule (>=1.2.2,<2.0.0)",
@@ -55,7 +54,6 @@ build-backend = "poetry.core.masonry.api"
 [tool.poetry.group.dev.dependencies]
 mypy = "^1.19.1"
 types-requests = "^2.32.4.20260107"
-types-pytz = "^2026.1.1.20260304"
 types-tabulate = "^0.10.0.20260308"
 types-colorama = "^0.4.15.20250801"
 pytest = "^9.0.2"
