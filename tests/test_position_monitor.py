@@ -1,7 +1,10 @@
 """Tests for monitor/position_lib.py — pure position monitor logic."""
 
+import re
 from typing import Any
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from monitor.position_lib import (
     color_risk_usd,
@@ -364,8 +367,6 @@ class TestPositionBugFixes:
         mock_client = MagicMock()
         mock_client.futures_position_information.side_effect = Exception("API error")
 
-        import pytest
-
         with pytest.raises(RuntimeError, match="Failed to fetch position information"):
             fetch_open_positions(mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER)
 
@@ -436,8 +437,6 @@ class TestPositionBugFixes:
         # wallet=1123.15, used_margin=595.99+591.11=1187.10
         # Correct: available = 1123.15 - 1187.10 = -63.95 (negative — over-margined)
         # Wrong (old): available = (1123.15+290.29) - 1187.10 = 226.34 (overstated)
-        import re
-
         match = re.search(r"Available Balance: \$(-?[\d,]+\.\d+)", result)
         assert match is not None, "Available Balance not found in output"
         available = float(match.group(1).replace(",", ""))
