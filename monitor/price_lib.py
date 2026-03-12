@@ -10,8 +10,8 @@ import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
+from zoneinfo import ZoneInfo
 
-import pytz
 from binance.client import Client
 from colorama import Fore, Style
 from rich.text import Text
@@ -94,8 +94,9 @@ def get_klines(
         klines = client.get_klines(
             symbol=symbol, interval=interval, startTime=start_time
         )
-        return klines[-1]
-    except Exception:
+        return klines[-1] if klines else None
+    except Exception as e:
+        logging.debug("get_klines failed for %s %s: %s", symbol, interval, e)
         return None
 
 
@@ -128,19 +129,29 @@ def batch_get_klines(
             for interval, lookback in intervals_lookbacks
         ]
         for future in as_completed(futures):
-            key, kline = future.result()
+            try:
+                key, kline = future.result()
+            except Exception as e:
+                logging.warning("batch_get_klines worker failed: %s", e)
+                continue
             results[key] = kline
     return results
 
 
 def get_open_price_asia(client: Client, symbol: str) -> float | None:
     """Get the open price at Asia 8 AM for a symbol."""
-    now_utc = dt.datetime.now(dt.UTC)
-    asia_tz = pytz.timezone("Asia/Shanghai")
-    asia_today_8am = now_utc.astimezone(asia_tz).replace(
-        hour=8, minute=0, second=0, microsecond=0
+    today_asia = dt.datetime.now(ZoneInfo("Asia/Shanghai")).date()
+    asia_today_8am = dt.datetime(
+        today_asia.year,
+        today_asia.month,
+        today_asia.day,
+        8,
+        0,
+        0,
+        tzinfo=ZoneInfo("Asia/Shanghai"),
     )
-    if now_utc.astimezone(asia_tz) < asia_today_8am:
+    now_utc = dt.datetime.now(dt.UTC)
+    if now_utc < asia_today_8am.astimezone(dt.UTC):
         asia_today_8am -= dt.timedelta(days=1)
 
     start_time = int(asia_today_8am.astimezone(dt.UTC).timestamp() * 1000)
@@ -163,7 +174,11 @@ def batch_get_asia_open(client: Client, symbols: list[str]) -> dict[str, float |
     with ThreadPoolExecutor(max_workers=max(1, min(len(symbols), 16))) as executor:
         futures = [executor.submit(fetch, sym) for sym in symbols]
         for future in as_completed(futures):
-            sym, asia_open = future.result()
+            try:
+                sym, asia_open = future.result()
+            except Exception as e:
+                logging.warning("batch_get_asia_open worker failed: %s", e)
+                continue
             results[sym] = asia_open
     return results
 
