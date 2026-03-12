@@ -262,10 +262,9 @@ def fetch_open_positions(
             key=lambda r: coin_order.index(r[0]) if r[0] in coin_order else 999
         )
 
+    logging.info("Found %d open position(s)", len(open_positions))
     filtered = [row[:13] for row in filtered]
 
-    open_count = sum(1 for row in filtered if row[1] != "-")
-    logging.info("Found %d open position(s)", open_count)
     return filtered, total_risk_usd, wallet_balance, unrealized_pnl
 
 
