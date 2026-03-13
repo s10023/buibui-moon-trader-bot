@@ -46,6 +46,11 @@ buibui-moon-trader-bot/
 │   ├── price_lib.py                 # Pure price monitor business logic
 │   ├── position_monitor.py          # Position monitor thin wrapper
 │   └── position_lib.py              # Pure position monitor business logic
+├── analytics/
+│   ├── analytics_runner.py          # Analytics thin wrapper (creates client, opens DB, calls libs)
+│   ├── data_fetcher.py              # Pure Binance Futures API → DataFrames (klines, funding, OI)
+│   ├── data_store.py                # Pure DuckDB read/write (schema, upsert, query helpers)
+│   └── data_sync.py                 # Backfill + incremental sync orchestration
 ├── trade/
 │   └── open_trades.py               # Multi-trade entry (planned)
 ├── utils/
@@ -232,6 +237,36 @@ Supported sort keys:
 
 Append `:asc` or `:desc` to control the sort direction (defaults to `desc`).
 
+### Analytics — Backfill Historical Data
+
+The analytics module stores OHLCV candles, funding rates, and open interest in a local
+DuckDB database for offline analysis and strategy backtesting.
+
+**First run — backfill historical data:**
+
+```bash
+poetry run python buibui.py analytics backfill --since 2023-01-01
+```
+
+Options:
+
+- `--since YYYY-MM-DD` — start date for backfill (default: `2023-01-01`)
+- `--symbols BTCUSDT ETHUSDT` — symbols to fetch (default: all coins in `config/coins.json`)
+- `--timeframes 1h 4h 1d` — timeframes to fetch (default: `1h 4h 1d`)
+
+**Incremental sync — fetch new candles since last stored:**
+
+```bash
+poetry run python buibui.py analytics sync
+```
+
+Options:
+
+- `--symbols` / `--timeframes` — same as backfill
+- Requires backfill to have been run first for each symbol/timeframe
+
+Data is stored in `data/ohlcv.duckdb` (auto-created).
+
 ---
 
 ## Makefile Usage
@@ -266,6 +301,14 @@ make buibui-monitor-position                       # Default sort
 make buibui-monitor-position SORT=pnl_pct:desc     # Sort by PnL%
 make buibui-monitor-position SORT=sl_usd:asc       # Sort by SL risk
 make buibui-monitor-position-telegram
+```
+
+**Analytics:**
+
+```bash
+make buibui-analytics-backfill              # Backfill from 2023-01-01 (default)
+make buibui-analytics-backfill SINCE=2024-01-01   # Backfill from custom date
+make buibui-analytics-sync                  # Incremental sync
 ```
 
 All commands use your `.env` file for secrets and config.
@@ -334,7 +377,8 @@ You can find the workflow in `.github/workflows/lint.yaml`.
 
 ## Coming Soon / Ideas
 
+- **Analytics indicators** — seasonality, wick fill, FVG, SMT divergence, funding mean reversion
+- **Backtesting framework** — replay historical data against strategy signals
 - Trade signal engine (support/resistance + volume traps)
 - Auto-close on global SL or high-risk warning
-- Visual dashboard (web UI or terminal rich)
-- Funding rate monitor + reversal detector
+- Funding rate + OI divergence alerts

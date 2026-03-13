@@ -33,6 +33,11 @@ make lint-md
 - `monitor/` — monitor modules split into thin wrappers and pure logic libs:
   - `price_monitor.py` / `position_monitor.py` — thin wrappers (create client, load config, call lib)
   - `price_lib.py` / `position_lib.py` — pure business logic with dependency injection (no module-level side effects)
+- `analytics/` — analytics data layer (DuckDB-backed):
+  - `data_store.py` — pure DB lib: schema init, upsert (ohlcv/funding/OI), range queries
+  - `data_fetcher.py` — pure fetch lib: Binance Futures API → DataFrames (no DB concerns)
+  - `data_sync.py` — pure orchestration: paginated backfill + incremental sync
+  - `analytics_runner.py` — thin wrapper: creates client, opens DB, calls sync lib
 - `utils/` — shared utilities:
   - `binance_client.py` — Binance client creation, time sync, config loading
   - `config_validation.py` — coins.json schema validation
@@ -52,12 +57,14 @@ make lint-md
 
 - Framework: pytest + unittest.mock
 - Tests must not make real network calls — lib functions accept a `client` parameter; tests pass a `MagicMock` directly
+- Analytics tests use `duckdb.connect(":memory:")` for full DB isolation — never touch the real `analytics.db`
 - Run: `make test` or `poetry run pytest tests/ -v`
 
 ## Dependencies
 
 - Managed via Poetry: `poetry install --no-root`
-- Dev deps: ruff, mypy, pytest, pytest-mock, pre-commit, type stubs
+- Runtime: `duckdb` (analytics DB), `pandas` (DataFrames)
+- Dev deps: ruff, mypy, pytest, pytest-mock, pre-commit, type stubs, pandas-stubs
 - Never modify `poetry.lock` manually — use `poetry add` / `poetry remove`
 
 ## Documentation

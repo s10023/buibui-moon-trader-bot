@@ -5,6 +5,7 @@
         "!venv",
         "!node_modules",
         "!.claude",
-        "!.github/pull_request_template.md"
+        "!.github/pull_request_template.md",
+        "!docs/plans"
     ]
 }
