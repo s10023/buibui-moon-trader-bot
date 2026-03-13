@@ -76,11 +76,15 @@ buibui-monitor-position-telegram:
 
 buibui-analytics-backfill:
 	@echo "📥 Running analytics backfill..."
-	poetry run python buibui.py analytics backfill --since $(or $(SINCE),2023-01-01)
+	poetry run python buibui.py analytics backfill --since $(or $(SINCE),2023-01-01) \
+		$(if $(SYMBOLS),--symbols $(SYMBOLS),) \
+		$(if $(TIMEFRAMES),--timeframes $(TIMEFRAMES),)
 
 buibui-analytics-sync:
 	@echo "🔄 Syncing analytics data..."
-	poetry run python buibui.py analytics sync
+	poetry run python buibui.py analytics sync \
+		$(if $(SYMBOLS),--symbols $(SYMBOLS),) \
+		$(if $(TIMEFRAMES),--timeframes $(TIMEFRAMES),)
 
 buibui-open-trades:
 	@echo "🚀 Opening multiple trades..."
