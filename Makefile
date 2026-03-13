@@ -1,10 +1,14 @@
 SORT ?= default
+SYMBOL ?= BTCUSDT
+STRATEGY ?= fvg
+INTERVAL ?= 4h
+DAYS ?= 90
 # Makefile — Lint Markdown and Python
 
 PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*" -not -path "./.venv/*")
 DOCKER_IMAGE = buibui-bot
 
-.PHONY: lint lint-md lint-md-fix lint-py-check lint-py typecheck test poetry-install poetry-update docker-build docker-monitor-price docker-monitor-position buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-telegram buibui-open-trades buibui-analytics-backfill buibui-analytics-sync clean
+.PHONY: lint lint-md lint-md-fix lint-py-check lint-py typecheck test poetry-install poetry-update docker-build docker-monitor-price docker-monitor-position buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-telegram buibui-open-trades buibui-analytics-backfill buibui-analytics-sync buibui-backtest clean-db clean
 
 lint: lint-md lint-py
 
@@ -86,9 +90,24 @@ buibui-analytics-sync:
 		$(if $(SYMBOLS),--symbols $(SYMBOLS),) \
 		$(if $(TIMEFRAMES),--timeframes $(TIMEFRAMES),)
 
+buibui-backtest:
+	@echo "📊 Running backtest: $(SYMBOL) $(STRATEGY) $(INTERVAL) $(DAYS)d..."
+	poetry run python buibui.py backtest \
+		--symbol $(SYMBOL) \
+		--strategy $(STRATEGY) \
+		--interval $(INTERVAL) \
+		--days $(DAYS) \
+		$(if $(SL_PCT),--sl-pct $(SL_PCT),) \
+		$(if $(TP_R),--tp-r $(TP_R),) \
+		$(if $(SECONDARY),--secondary-symbol $(SECONDARY),)
+
 buibui-open-trades:
 	@echo "🚀 Opening multiple trades..."
 	poetry run python trade/open_trades.py
+
+clean-db:
+	@echo "🗑️  Removing analytics DB and WAL files..."
+	rm -f analytics.db analytics.db.wal
 
 clean:
 	@echo "🧹 Cleaning cache and build artifacts..."

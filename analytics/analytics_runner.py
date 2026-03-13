@@ -9,11 +9,9 @@ from typing import Any
 
 import duckdb
 
-from analytics.data_store import init_schema
+from analytics.data_store import DEFAULT_DB_PATH, init_schema
 from analytics.data_sync import backfill, sync
 from utils.binance_client import create_client, load_coins_config
-
-_DEFAULT_DB_PATH: Path = Path("analytics.db")
 
 
 def _resolve_symbols(symbols: list[str] | None) -> list[str]:
@@ -47,7 +45,7 @@ def run_backfill(
     symbols: list[str] | None,
     timeframes: list[str],
     since_ms: int,
-    db_path: Path = _DEFAULT_DB_PATH,
+    db_path: Path = DEFAULT_DB_PATH,
 ) -> None:
     """Create client, open DB, run backfill for all symbol/timeframe pairs."""
     resolved = _resolve_symbols(symbols)
@@ -64,7 +62,7 @@ def run_backfill(
 def run_sync(
     symbols: list[str] | None,
     timeframes: list[str],
-    db_path: Path = _DEFAULT_DB_PATH,
+    db_path: Path = DEFAULT_DB_PATH,
 ) -> None:
     """Create client, open DB, run incremental sync for all symbol/timeframe pairs."""
     resolved = _resolve_symbols(symbols)

@@ -4,8 +4,12 @@ All functions accept an open DuckDB connection as a parameter.
 No module-level side effects.
 """
 
+from pathlib import Path
+
 import duckdb
 import pandas as pd
+
+DEFAULT_DB_PATH: Path = Path("analytics.db")
 
 
 def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
@@ -49,8 +53,14 @@ def _upsert(
 ) -> None:
     if df.empty:
         return
-    # DuckDB scans Python local variables by name — avoids register/unregister heap corruption
-    conn.execute(f"INSERT OR REPLACE INTO {table} SELECT {columns} FROM df")
+    # register/unregister in try/finally: DuckDB increments refcount on register and
+    # decrements on unregister, giving safe bulk-scan performance without the stale
+    # C-pointer heap corruption that the implicit replacement scan (FROM df) causes.
+    conn.register("_upsert_df", df)
+    try:
+        conn.execute(f"INSERT OR REPLACE INTO {table} SELECT {columns} FROM _upsert_df")
+    finally:
+        conn.unregister("_upsert_df")
 
 
 def upsert_ohlcv(conn: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> None:
@@ -99,6 +109,22 @@ def get_ohlcv(
         "WHERE symbol = ? AND timeframe = ? AND open_time >= ? AND open_time <= ? "
         "ORDER BY open_time",
         [symbol, timeframe, start, end],
+    ).df()
+
+
+def get_funding_rates(
+    conn: duckdb.DuckDBPyConnection,
+    symbol: str,
+    start: int,
+    end: int,
+) -> pd.DataFrame:
+    """Return funding rate rows for symbol between start and end (Unix ms, inclusive)."""
+    return conn.execute(
+        "SELECT symbol, funding_time, funding_rate "
+        "FROM funding_rates "
+        "WHERE symbol = ? AND funding_time >= ? AND funding_time <= ? "
+        "ORDER BY funding_time",
+        [symbol, start, end],
     ).df()
 
 

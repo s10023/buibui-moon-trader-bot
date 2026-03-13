@@ -48,9 +48,12 @@ buibui-moon-trader-bot/
 │   └── position_lib.py              # Pure position monitor business logic
 ├── analytics/
 │   ├── analytics_runner.py          # Analytics thin wrapper (creates client, opens DB, calls libs)
+│   ├── backtest_runner.py           # Backtest thin wrapper (opens DB, loads data, calls libs)
+│   ├── backtest_lib.py              # Pure backtest engine: Trade, BacktestResult, run_backtest
 │   ├── data_fetcher.py              # Pure Binance Futures API → DataFrames (klines, funding, OI)
 │   ├── data_store.py                # Pure DuckDB read/write (schema, upsert, query helpers)
-│   └── data_sync.py                 # Backfill + incremental sync orchestration
+│   ├── data_sync.py                 # Backfill + incremental sync orchestration
+│   └── indicators_lib.py            # Pure strategy signal detection (9 strategies)
 ├── trade/
 │   └── open_trades.py               # Multi-trade entry (planned)
 ├── utils/
@@ -265,7 +268,53 @@ Options:
 - `--symbols` / `--timeframes` — same as backfill
 - Requires backfill to have been run first for each symbol/timeframe
 
-Data is stored in `data/ohlcv.duckdb` (auto-created).
+Data is stored in `analytics.db` (auto-created in CWD).
+
+### Backtest Trading Strategies
+
+Run any of the 9 built-in strategies against historical data loaded from the local DB:
+
+```bash
+poetry run python buibui.py backtest --symbol BTCUSDT --strategy fvg --interval 4h --days 90
+```
+
+**Available strategies:**
+
+| Strategy | Description |
+| --- | --- |
+| `seasonality` | Average return by day-of-week, hour, and week-of-month |
+| `wick_fill` | Price revisits a significant wick zone |
+| `marubozu` | Retest of a wickless candle's open price (order block) |
+| `orb` | Opening Range Breakout at NY session open (13:00 UTC) |
+| `liquidity_sweep` | Wick through a swing high/low with close back inside |
+| `fvg` | Fair Value Gap — 3-candle imbalance zone fill |
+| `bos` | Break of Structure / Change of Character (BOS/CHoCH) |
+| `funding_reversion` | Extreme positive/negative funding rate → contrarian signal |
+| `smt_divergence` | Two correlated assets diverge at a swing high/low |
+
+**Options:**
+
+- `--symbol BTCUSDT` — primary symbol (required)
+- `--strategy fvg` — strategy name from table above (required)
+- `--interval 4h` — candle timeframe (default: `4h`)
+- `--days 90` — lookback period in days (default: `90`)
+- `--sl-pct 0.02` — stop loss as decimal fraction (default: `0.02` = 2%)
+- `--tp-r 2.0` — take profit in R multiples (default: `2.0`)
+- `--secondary-symbol ETHUSDT` — required for `smt_divergence`
+
+**Example output:**
+
+```text
+Backtest: BTCUSDT 4h — fvg
+────────────────────────────────────────────────────
+Signals:     42 total, 39 closed
+Win rate:    61.5%  (24W / 15L)
+Avg R:       +0.61R
+Total R:     +23.92R
+Max DD:      -4.00R
+```
+
+> **Note:** Requires backfill to be run first for the symbol/timeframe.
 
 ---
 
@@ -310,6 +359,18 @@ make buibui-analytics-backfill              # Backfill from 2023-01-01 (default)
 make buibui-analytics-backfill SINCE=2024-01-01   # Backfill from custom date
 make buibui-analytics-sync                  # Incremental sync
 ```
+
+**Backtest:**
+
+```bash
+make buibui-backtest                                          # BTCUSDT fvg 4h 90d (defaults)
+make buibui-backtest SYMBOL=ETHUSDT STRATEGY=bos             # Override symbol and strategy
+make buibui-backtest SYMBOL=BTCUSDT STRATEGY=smt_divergence SECONDARY=ETHUSDT
+make buibui-backtest SYMBOL=BTCUSDT STRATEGY=fvg INTERVAL=1h DAYS=30 SL_PCT=0.015 TP_R=3.0
+```
+
+Defaults: `SYMBOL=BTCUSDT`, `STRATEGY=fvg`, `INTERVAL=4h`, `DAYS=90`.
+Optional overrides: `SL_PCT`, `TP_R`, `SECONDARY` (required for `smt_divergence`).
 
 All commands use your `.env` file for secrets and config.
 
@@ -377,8 +438,7 @@ You can find the workflow in `.github/workflows/lint.yaml`.
 
 ## Coming Soon / Ideas
 
-- **Analytics indicators** — seasonality, wick fill, FVG, SMT divergence, funding mean reversion
-- **Backtesting framework** — replay historical data against strategy signals
 - Trade signal engine (support/resistance + volume traps)
 - Auto-close on global SL or high-risk warning
 - Funding rate + OI divergence alerts
+- Telegram command handler (`/price`, `/position`)
