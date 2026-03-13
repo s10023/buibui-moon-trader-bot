@@ -102,6 +102,22 @@ def get_ohlcv(
     ).df()
 
 
+def get_funding_rates(
+    conn: duckdb.DuckDBPyConnection,
+    symbol: str,
+    start: int,
+    end: int,
+) -> pd.DataFrame:
+    """Return funding rate rows for symbol between start and end (Unix ms, inclusive)."""
+    return conn.execute(
+        "SELECT symbol, funding_time, funding_rate "
+        "FROM funding_rates "
+        "WHERE symbol = ? AND funding_time >= ? AND funding_time <= ? "
+        "ORDER BY funding_time",
+        [symbol, start, end],
+    ).df()
+
+
 def get_latest_open_time(
     conn: duckdb.DuckDBPyConnection,
     symbol: str,

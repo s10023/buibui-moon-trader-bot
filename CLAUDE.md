@@ -38,6 +38,9 @@ make lint-md
   - `data_fetcher.py` — pure fetch lib: Binance Futures API → DataFrames (no DB concerns)
   - `data_sync.py` — pure orchestration: paginated backfill + incremental sync
   - `analytics_runner.py` — thin wrapper: creates client, opens DB, calls sync lib
+  - `indicators_lib.py` — pure strategy signal detection (9 strategies: seasonality, wick_fill, marubozu, orb, liquidity_sweep, fvg, bos, funding_reversion, smt_divergence)
+  - `backtest_lib.py` — pure backtest engine: Trade, BacktestResult, run_backtest, format helpers
+  - `backtest_runner.py` — thin wrapper: opens DB, loads OHLCV/funding, calls indicator + backtest libs
 - `utils/` — shared utilities:
   - `binance_client.py` — Binance client creation, time sync, config loading
   - `config_validation.py` — coins.json schema validation

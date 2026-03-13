@@ -4,7 +4,8 @@ import logging
 
 from dotenv import load_dotenv
 
-from analytics import analytics_runner
+from analytics import analytics_runner, backtest_runner
+from analytics.indicators_lib import KNOWN_STRATEGIES
 from monitor import position_monitor, price_monitor
 
 
@@ -30,6 +31,18 @@ def run_analytics_sync(args: argparse.Namespace) -> None:
     analytics_runner.run_sync(
         symbols=args.symbols,
         timeframes=args.timeframes,
+    )
+
+
+def run_backtest(args: argparse.Namespace) -> None:
+    backtest_runner.run_backtest_cmd(
+        symbol=args.symbol,
+        strategy=args.strategy,
+        timeframe=args.interval,
+        days=args.days,
+        sl_pct=args.sl_pct,
+        tp_r=args.tp_r,
+        secondary_symbol=args.secondary_symbol,
     )
 
 
@@ -131,6 +144,54 @@ def main() -> None:
         help="Timeframes to sync (default: 1h 4h)",
     )
     sync_parser.set_defaults(func=run_analytics_sync)
+
+    # Top-level 'backtest' command
+    backtest_parser = subparsers.add_parser(
+        "backtest", help="Backtest a trading strategy on historical data"
+    )
+    backtest_parser.add_argument(
+        "--symbol",
+        required=True,
+        help="Primary symbol to backtest (e.g., BTCUSDT)",
+    )
+    backtest_parser.add_argument(
+        "--strategy",
+        required=True,
+        choices=KNOWN_STRATEGIES,
+        help="Strategy to run: " + ", ".join(KNOWN_STRATEGIES),
+    )
+    backtest_parser.add_argument(
+        "--interval",
+        default="4h",
+        help="Candle timeframe (default: 4h)",
+    )
+    backtest_parser.add_argument(
+        "--days",
+        type=int,
+        default=90,
+        help="Lookback period in days (default: 90)",
+    )
+    backtest_parser.add_argument(
+        "--sl-pct",
+        type=float,
+        default=0.02,
+        dest="sl_pct",
+        help="Stop loss as a decimal fraction (default: 0.02 = 2%%)",
+    )
+    backtest_parser.add_argument(
+        "--tp-r",
+        type=float,
+        default=2.0,
+        dest="tp_r",
+        help="Take profit in R multiples (default: 2.0)",
+    )
+    backtest_parser.add_argument(
+        "--secondary-symbol",
+        default=None,
+        dest="secondary_symbol",
+        help="Secondary symbol for smt_divergence strategy (e.g., ETHUSDT)",
+    )
+    backtest_parser.set_defaults(func=run_backtest)
 
     args = parser.parse_args()
     args.func(args)
