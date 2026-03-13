@@ -14,3 +14,7 @@ config/coins.json
 
 # Local planning docs — personal notes, not for public repo
 docs/plans/
+
+# DuckDB data files
+*.db
+*.db.wal
