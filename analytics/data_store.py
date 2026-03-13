@@ -53,12 +53,14 @@ def _upsert(
 ) -> None:
     if df.empty:
         return
-    col_list = [c.strip() for c in columns.split(",")]
-    placeholders = ", ".join(["?" for _ in col_list])
-    conn.executemany(
-        f"INSERT OR REPLACE INTO {table} ({columns}) VALUES ({placeholders})",
-        df[col_list].values.tolist(),
-    )
+    # register/unregister in try/finally: DuckDB increments refcount on register and
+    # decrements on unregister, giving safe bulk-scan performance without the stale
+    # C-pointer heap corruption that the implicit replacement scan (FROM df) causes.
+    conn.register("_upsert_df", df)
+    try:
+        conn.execute(f"INSERT OR REPLACE INTO {table} SELECT {columns} FROM _upsert_df")
+    finally:
+        conn.unregister("_upsert_df")
 
 
 def upsert_ohlcv(conn: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> None:

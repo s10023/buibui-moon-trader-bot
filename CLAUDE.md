@@ -42,7 +42,7 @@ make lint-md
   - `backtest_lib.py` — pure backtest engine: Trade, BacktestResult, run_backtest, format helpers
   - `backtest_runner.py` — thin wrapper: opens DB, loads OHLCV/funding, calls indicator + backtest libs
   - `DEFAULT_DB_PATH` lives in `data_store.py` — import from there, do not redefine in runners
-  - `_upsert` uses `executemany` with explicit row data — do NOT switch to `conn.execute("... FROM df")` replacement scan; it causes C heap corruption (malloc double-linked list) at `conn.close()` after multiple batches
+  - `_upsert` uses explicit `conn.register` / `conn.unregister` in a try/finally — do NOT switch to the implicit `conn.execute("... FROM df")` replacement scan; it holds a raw C pointer without Py_INCREF and causes malloc heap corruption at `conn.close()` after multiple batches. Do NOT drop the try/finally; unregister must always run or the stale registration causes the same crash.
 - `utils/` — shared utilities:
   - `binance_client.py` — Binance client creation, time sync, config loading
   - `config_validation.py` — coins.json schema validation
