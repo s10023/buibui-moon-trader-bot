@@ -4,7 +4,7 @@ SORT ?= default
 PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*" -not -path "./.venv/*")
 DOCKER_IMAGE = buibui-bot
 
-.PHONY: lint lint-md lint-md-fix lint-py-check lint-py typecheck test poetry-install poetry-update docker-build docker-monitor-price docker-monitor-position buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-telegram buibui-open-trades clean
+.PHONY: lint lint-md lint-md-fix lint-py-check lint-py typecheck test poetry-install poetry-update docker-build docker-monitor-price docker-monitor-position buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-telegram buibui-open-trades buibui-analytics-backfill buibui-analytics-sync clean
 
 lint: lint-md lint-py
 
@@ -73,6 +73,14 @@ buibui-monitor-position:
 buibui-monitor-position-telegram:
 	@echo "📊 Running position monitor and sending to Telegram..."
 	poetry run python buibui.py monitor position --telegram
+
+buibui-analytics-backfill:
+	@echo "📥 Running analytics backfill..."
+	poetry run python buibui.py analytics backfill --since $(or $(SINCE),2023-01-01)
+
+buibui-analytics-sync:
+	@echo "🔄 Syncing analytics data..."
+	poetry run python buibui.py analytics sync
 
 buibui-open-trades:
 	@echo "🚀 Opening multiple trades..."
