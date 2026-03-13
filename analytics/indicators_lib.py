@@ -36,6 +36,16 @@ def _empty_signals() -> pd.DataFrame:
     return pd.DataFrame(columns=SIGNAL_COLUMNS)
 
 
+def _signals_to_df(signals: list[dict[str, object]]) -> pd.DataFrame:
+    if not signals:
+        return _empty_signals()
+    return (
+        pd.DataFrame(signals, columns=SIGNAL_COLUMNS)
+        .drop_duplicates(subset=["open_time"])
+        .reset_index(drop=True)
+    )
+
+
 # ---------------------------------------------------------------------------
 # 1. Seasonality / Day-of-Week stats
 # ---------------------------------------------------------------------------
@@ -164,11 +174,7 @@ def detect_wick_fills(
                     )
                     break
 
-    if not signals:
-        return _empty_signals()
-
-    result = pd.DataFrame(signals, columns=SIGNAL_COLUMNS)
-    return result.drop_duplicates(subset=["open_time"]).reset_index(drop=True)
+    return _signals_to_df(signals)
 
 
 # ---------------------------------------------------------------------------
@@ -247,11 +253,7 @@ def detect_marubozu_retest(
                     )
                     break
 
-    if not signals:
-        return _empty_signals()
-
-    result = pd.DataFrame(signals, columns=SIGNAL_COLUMNS)
-    return result.drop_duplicates(subset=["open_time"]).reset_index(drop=True)
+    return _signals_to_df(signals)
 
 
 # ---------------------------------------------------------------------------
@@ -306,11 +308,7 @@ def detect_orb_breakout(
                 }
             )
 
-    if not signals:
-        return _empty_signals()
-
-    result = pd.DataFrame(signals, columns=SIGNAL_COLUMNS)
-    return result.drop_duplicates(subset=["open_time"]).reset_index(drop=True)
+    return _signals_to_df(signals)
 
 
 # ---------------------------------------------------------------------------
@@ -334,6 +332,9 @@ def detect_liquidity_sweep(
     if n < lookback + 1:
         return _empty_signals()
 
+    rolling_high = df["high"].astype(float).rolling(lookback).max().shift(1)
+    rolling_low = df["low"].astype(float).rolling(lookback).min().shift(1)
+
     signals: list[dict[str, object]] = []
 
     for i in range(lookback, n):
@@ -341,10 +342,8 @@ def detect_liquidity_sweep(
         candle_high = float(row["high"])
         candle_low = float(row["low"])
         candle_close = float(row["close"])
-
-        window = df.iloc[i - lookback : i]
-        swing_high = float(window["high"].max())
-        swing_low = float(window["low"].min())
+        swing_high = float(rolling_high.iloc[i])
+        swing_low = float(rolling_low.iloc[i])
 
         if candle_high > swing_high and candle_close < swing_high:
             signals.append(
@@ -364,11 +363,7 @@ def detect_liquidity_sweep(
                 }
             )
 
-    if not signals:
-        return _empty_signals()
-
-    result = pd.DataFrame(signals, columns=SIGNAL_COLUMNS)
-    return result.drop_duplicates(subset=["open_time"]).reset_index(drop=True)
+    return _signals_to_df(signals)
 
 
 # ---------------------------------------------------------------------------
@@ -432,11 +427,7 @@ def detect_fvg(
                     )
                     break
 
-    if not signals:
-        return _empty_signals()
-
-    result = pd.DataFrame(signals, columns=SIGNAL_COLUMNS)
-    return result.drop_duplicates(subset=["open_time"]).reset_index(drop=True)
+    return _signals_to_df(signals)
 
 
 # ---------------------------------------------------------------------------
@@ -516,11 +507,7 @@ def detect_market_structure(
                     trend = "down"
             last_sl = price
 
-    if not signals:
-        return _empty_signals()
-
-    result = pd.DataFrame(signals, columns=SIGNAL_COLUMNS)
-    return result.drop_duplicates(subset=["open_time"]).reset_index(drop=True)
+    return _signals_to_df(signals)
 
 
 # ---------------------------------------------------------------------------
@@ -554,16 +541,13 @@ def detect_funding_extreme(
 
     merged = pd.merge_asof(left, right, on="ts", direction="backward")
     merged["open_time"] = ohlcv_sorted["open_time"].values
+    merged["rate"] = pd.to_numeric(merged["funding_rate"], errors="coerce")
+    valid = merged[merged["rate"].notna()]
 
     signals: list[dict[str, object]] = []
 
-    for i in range(len(merged)):
-        row = merged.iloc[i]
-        if not isinstance(row["funding_rate"], float) and not isinstance(
-            row["funding_rate"], int
-        ):
-            continue
-        rate = float(row["funding_rate"])
+    for _, row in valid.iterrows():
+        rate = float(row["rate"])
         open_time = int(row["open_time"])
 
         if rate > threshold:
@@ -583,11 +567,7 @@ def detect_funding_extreme(
                 }
             )
 
-    if not signals:
-        return _empty_signals()
-
-    result = pd.DataFrame(signals, columns=SIGNAL_COLUMNS)
-    return result.drop_duplicates(subset=["open_time"]).reset_index(drop=True)
+    return _signals_to_df(signals)
 
 
 # ---------------------------------------------------------------------------
@@ -624,24 +604,22 @@ def detect_smt_divergence(
     merged = merged.reset_index()
     n = len(merged)
 
+    roll_max_p_high = merged["high_p"].rolling(lookback).max().shift(1)
+    roll_max_s_high = merged["high_s"].rolling(lookback).max().shift(1)
+    roll_min_p_low = merged["low_p"].rolling(lookback).min().shift(1)
+    roll_min_s_low = merged["low_s"].rolling(lookback).min().shift(1)
+
     signals: list[dict[str, object]] = []
 
     for i in range(lookback, n):
-        win_p_high = merged["high_p"].iloc[i - lookback : i]
-        win_s_high = merged["high_s"].iloc[i - lookback : i]
-        win_p_low = merged["low_p"].iloc[i - lookback : i]
-        win_s_low = merged["low_s"].iloc[i - lookback : i]
-
         curr_p_high = float(merged["high_p"].iloc[i])
         curr_s_high = float(merged["high_s"].iloc[i])
         curr_p_low = float(merged["low_p"].iloc[i])
         curr_s_low = float(merged["low_s"].iloc[i])
-
-        max_p_high = float(win_p_high.max())
-        max_s_high = float(win_s_high.max())
-        min_p_low = float(win_p_low.min())
-        min_s_low = float(win_s_low.min())
-
+        max_p_high = float(roll_max_p_high.iloc[i])
+        max_s_high = float(roll_max_s_high.iloc[i])
+        min_p_low = float(roll_min_p_low.iloc[i])
+        min_s_low = float(roll_min_s_low.iloc[i])
         open_time = int(merged["open_time"].iloc[i])
 
         if curr_p_high > max_p_high and curr_s_high <= max_s_high:
@@ -662,8 +640,4 @@ def detect_smt_divergence(
                 }
             )
 
-    if not signals:
-        return _empty_signals()
-
-    result = pd.DataFrame(signals, columns=SIGNAL_COLUMNS)
-    return result.drop_duplicates(subset=["open_time"]).reset_index(drop=True)
+    return _signals_to_df(signals)

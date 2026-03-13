@@ -18,6 +18,7 @@ from analytics.indicators_lib import (
     detect_wick_fills,
     seasonality_stats,
 )
+from tests.conftest import _candle, _make_ohlcv
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -25,42 +26,6 @@ from analytics.indicators_lib import (
 
 _MS_PER_HOUR = 3_600_000
 _BASE_TIME = 1_700_000_000_000
-
-
-def _candle(
-    open_time: int,
-    open: float,
-    high: float,
-    low: float,
-    close: float,
-    volume: float = 100.0,
-    symbol: str = "BTCUSDT",
-    timeframe: str = "4h",
-) -> dict[str, object]:
-    return {
-        "symbol": symbol,
-        "timeframe": timeframe,
-        "open_time": open_time,
-        "open": open,
-        "high": high,
-        "low": low,
-        "close": close,
-        "volume": volume,
-    }
-
-
-def _make_ohlcv(rows: list[dict[str, object]]) -> pd.DataFrame:
-    cols = [
-        "symbol",
-        "timeframe",
-        "open_time",
-        "open",
-        "high",
-        "low",
-        "close",
-        "volume",
-    ]
-    return pd.DataFrame(rows, columns=cols)
 
 
 def _hourly_ts(hour_offset: int) -> int:

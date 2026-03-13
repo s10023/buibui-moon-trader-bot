@@ -4,8 +4,12 @@ All functions accept an open DuckDB connection as a parameter.
 No module-level side effects.
 """
 
+from pathlib import Path
+
 import duckdb
 import pandas as pd
+
+DEFAULT_DB_PATH: Path = Path("analytics.db")
 
 
 def init_schema(conn: duckdb.DuckDBPyConnection) -> None:

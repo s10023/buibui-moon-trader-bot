@@ -3,12 +3,19 @@
 import datetime
 import logging
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import duckdb
+import pandas as pd
 
 from analytics.backtest_lib import format_result, format_seasonality, run_backtest
-from analytics.data_store import get_funding_rates, get_ohlcv, init_schema
+from analytics.data_store import (
+    DEFAULT_DB_PATH,
+    get_funding_rates,
+    get_ohlcv,
+    init_schema,
+)
 from analytics.indicators_lib import (
     KNOWN_STRATEGIES,
     detect_funding_extreme,
@@ -22,7 +29,14 @@ from analytics.indicators_lib import (
     seasonality_stats,
 )
 
-_DEFAULT_DB_PATH: Path = Path("analytics.db")
+_SIMPLE_DETECTORS: dict[str, Callable[[pd.DataFrame], pd.DataFrame]] = {
+    "wick_fill": detect_wick_fills,
+    "marubozu": detect_marubozu_retest,
+    "orb": detect_orb_breakout,
+    "liquidity_sweep": detect_liquidity_sweep,
+    "fvg": detect_fvg,
+    "bos": detect_market_structure,
+}
 
 
 def run_backtest_cmd(
@@ -33,7 +47,7 @@ def run_backtest_cmd(
     sl_pct: float = 0.02,
     tp_r: float = 2.0,
     secondary_symbol: str | None = None,
-    db_path: Path = _DEFAULT_DB_PATH,
+    db_path: Path = DEFAULT_DB_PATH,
 ) -> None:
     """Open DB, load OHLCV, detect signals, run backtest, print results."""
     if strategy not in KNOWN_STRATEGIES:
@@ -91,23 +105,8 @@ def run_backtest_cmd(
                 sys.exit(1)
             signals = detect_smt_divergence(ohlcv, ohlcv_sec)
 
-        elif strategy == "wick_fill":
-            signals = detect_wick_fills(ohlcv)
-
-        elif strategy == "marubozu":
-            signals = detect_marubozu_retest(ohlcv)
-
-        elif strategy == "orb":
-            signals = detect_orb_breakout(ohlcv)
-
-        elif strategy == "liquidity_sweep":
-            signals = detect_liquidity_sweep(ohlcv)
-
-        elif strategy == "fvg":
-            signals = detect_fvg(ohlcv)
-
-        else:  # "bos"
-            signals = detect_market_structure(ohlcv)
+        else:
+            signals = _SIMPLE_DETECTORS[strategy](ohlcv)
 
         bt_result = run_backtest(
             ohlcv, signals, symbol, timeframe, strategy, sl_pct, tp_r

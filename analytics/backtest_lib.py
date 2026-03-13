@@ -6,6 +6,7 @@ a BacktestResult with statistics.
 No database access, no network calls. No module-level side effects.
 """
 
+import functools
 from dataclasses import dataclass, field
 
 import pandas as pd
@@ -47,7 +48,7 @@ class BacktestResult:
     strategy: str
     trades: list[Trade] = field(default_factory=list)
 
-    @property
+    @functools.cached_property
     def closed_trades(self) -> list[Trade]:
         return [t for t in self.trades if t.outcome != "open"]
 

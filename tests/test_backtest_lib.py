@@ -10,41 +10,9 @@ from analytics.backtest_lib import (
     format_seasonality,
     run_backtest,
 )
+from tests.conftest import _candle, _make_ohlcv
 
 _BASE_TIME = 1_700_000_000_000
-
-
-def _make_ohlcv(rows: list[dict[str, object]]) -> pd.DataFrame:
-    cols = [
-        "symbol",
-        "timeframe",
-        "open_time",
-        "open",
-        "high",
-        "low",
-        "close",
-        "volume",
-    ]
-    return pd.DataFrame(rows, columns=cols)
-
-
-def _candle(
-    open_time: int,
-    open: float,
-    high: float,
-    low: float,
-    close: float,
-) -> dict[str, object]:
-    return {
-        "symbol": "BTCUSDT",
-        "timeframe": "4h",
-        "open_time": open_time,
-        "open": open,
-        "high": high,
-        "low": low,
-        "close": close,
-        "volume": 100.0,
-    }
 
 
 def _make_signals(rows: list[dict[str, object]]) -> pd.DataFrame:

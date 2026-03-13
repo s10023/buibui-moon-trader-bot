@@ -11,6 +11,7 @@ import re
 from typing import Any
 from unittest.mock import MagicMock
 
+import pandas as pd
 import pytest
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -32,6 +33,44 @@ SAMPLE_COINS_CONFIG: dict[str, Any] = {
 SAMPLE_CONFIG_JSON = json.dumps(SAMPLE_COINS_CONFIG)
 
 SAMPLE_COIN_ORDER = list(SAMPLE_COINS_CONFIG.keys())
+
+
+_OHLCV_COLS = [
+    "symbol",
+    "timeframe",
+    "open_time",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+]
+
+
+def _candle(
+    open_time: int,
+    open: float,
+    high: float,
+    low: float,
+    close: float,
+    volume: float = 100.0,
+    symbol: str = "BTCUSDT",
+    timeframe: str = "4h",
+) -> dict[str, object]:
+    return {
+        "symbol": symbol,
+        "timeframe": timeframe,
+        "open_time": open_time,
+        "open": open,
+        "high": high,
+        "low": low,
+        "close": close,
+        "volume": volume,
+    }
+
+
+def _make_ohlcv(rows: list[dict[str, object]]) -> pd.DataFrame:
+    return pd.DataFrame(rows, columns=_OHLCV_COLS)
 
 
 def _create_mock_client() -> MagicMock:
