@@ -360,6 +360,18 @@ make buibui-analytics-backfill SINCE=2024-01-01   # Backfill from custom date
 make buibui-analytics-sync                  # Incremental sync
 ```
 
+**Backtest:**
+
+```bash
+make buibui-backtest                                          # BTCUSDT fvg 4h 90d (defaults)
+make buibui-backtest SYMBOL=ETHUSDT STRATEGY=bos             # Override symbol and strategy
+make buibui-backtest SYMBOL=BTCUSDT STRATEGY=smt_divergence SECONDARY=ETHUSDT
+make buibui-backtest SYMBOL=BTCUSDT STRATEGY=fvg INTERVAL=1h DAYS=30 SL_PCT=0.015 TP_R=3.0
+```
+
+Defaults: `SYMBOL=BTCUSDT`, `STRATEGY=fvg`, `INTERVAL=4h`, `DAYS=90`.
+Optional overrides: `SL_PCT`, `TP_R`, `SECONDARY` (required for `smt_divergence`).
+
 All commands use your `.env` file for secrets and config.
 
 ---

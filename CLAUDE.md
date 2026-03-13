@@ -41,6 +41,7 @@ make lint-md
   - `indicators_lib.py` — pure strategy signal detection (9 strategies: seasonality, wick_fill, marubozu, orb, liquidity_sweep, fvg, bos, funding_reversion, smt_divergence)
   - `backtest_lib.py` — pure backtest engine: Trade, BacktestResult, run_backtest, format helpers
   - `backtest_runner.py` — thin wrapper: opens DB, loads OHLCV/funding, calls indicator + backtest libs
+  - `DEFAULT_DB_PATH` lives in `data_store.py` — import from there, do not redefine in runners
 - `utils/` — shared utilities:
   - `binance_client.py` — Binance client creation, time sync, config loading
   - `config_validation.py` — coins.json schema validation
