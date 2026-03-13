@@ -53,8 +53,12 @@ def _upsert(
 ) -> None:
     if df.empty:
         return
-    # DuckDB scans Python local variables by name — avoids register/unregister heap corruption
-    conn.execute(f"INSERT OR REPLACE INTO {table} SELECT {columns} FROM df")
+    col_list = [c.strip() for c in columns.split(",")]
+    placeholders = ", ".join(["?" for _ in col_list])
+    conn.executemany(
+        f"INSERT OR REPLACE INTO {table} ({columns}) VALUES ({placeholders})",
+        df[col_list].values.tolist(),
+    )
 
 
 def upsert_ohlcv(conn: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> None:
