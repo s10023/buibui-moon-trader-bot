@@ -11,3 +11,10 @@ config/coins.json
 !config/
 .claude/
 .idea/
+
+# Local planning docs — personal notes, not for public repo
+docs/plans/
+
+# DuckDB data files
+*.db
+*.db.wal
