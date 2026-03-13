@@ -46,15 +46,11 @@ def _upsert(
     df: pd.DataFrame,
     table: str,
     columns: str,
-    staging: str,
 ) -> None:
     if df.empty:
         return
-    conn.register(staging, df)
-    try:
-        conn.execute(f"INSERT OR REPLACE INTO {table} SELECT {columns} FROM {staging}")
-    finally:
-        conn.unregister(staging)
+    # DuckDB scans Python local variables by name — avoids register/unregister heap corruption
+    conn.execute(f"INSERT OR REPLACE INTO {table} SELECT {columns} FROM df")
 
 
 def upsert_ohlcv(conn: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> None:
@@ -68,7 +64,6 @@ def upsert_ohlcv(conn: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> None:
         df,
         "ohlcv",
         "symbol, timeframe, open_time, open, high, low, close, volume",
-        "_ohlcv_staging",
     )
 
 
@@ -78,13 +73,7 @@ def upsert_funding_rates(conn: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> N
     df must have columns: symbol, funding_time, funding_rate.
     Conflicts on (symbol, funding_time) are replaced.
     """
-    _upsert(
-        conn,
-        df,
-        "funding_rates",
-        "symbol, funding_time, funding_rate",
-        "_funding_staging",
-    )
+    _upsert(conn, df, "funding_rates", "symbol, funding_time, funding_rate")
 
 
 def upsert_open_interest(conn: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> None:
@@ -93,7 +82,7 @@ def upsert_open_interest(conn: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> N
     df must have columns: symbol, timestamp, oi_usd.
     Conflicts on (symbol, timestamp) are replaced.
     """
-    _upsert(conn, df, "open_interest", "symbol, timestamp, oi_usd", "_oi_staging")
+    _upsert(conn, df, "open_interest", "symbol, timestamp, oi_usd")
 
 
 def get_ohlcv(
