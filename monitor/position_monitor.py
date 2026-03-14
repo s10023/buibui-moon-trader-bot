@@ -5,6 +5,7 @@ import os
 import sys
 from typing import Any
 
+from monitor import live_position
 from monitor.position_lib import display_table
 from utils.binance_client import create_client, get_wallet_target, load_coins_config
 
@@ -14,6 +15,7 @@ def main(
     telegram: bool = False,
     hide_empty: bool = False,
     compact: bool = False,
+    live: bool = False,
 ) -> None:
     try:
         client: Any = create_client()
@@ -32,6 +34,23 @@ def main(
 
     sort_key, _, sort_dir = sort.partition(":")
     sort_order = sort_dir.lower() != "asc"
+
+    if live:
+        if telegram:
+            logging.warning(
+                "--telegram is ignored in --live mode (would spam every poll cycle)"
+            )
+        live_position.run(
+            client,
+            coins_config,
+            coin_order,
+            wallet_target,
+            sort_by=sort_key,
+            descending=sort_order,
+            hide_empty=hide_empty,
+            compact=compact,
+        )
+        return
 
     os.system("cls" if os.name == "nt" else "clear")
     print("\U0001f4c8 Trades Position Snapshot \u2014 Buibui Moon Bot\n")

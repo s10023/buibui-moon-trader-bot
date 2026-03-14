@@ -6,8 +6,6 @@ import time
 from typing import Any
 
 from binance import ThreadedWebsocketManager
-from rich.console import Console
-from rich.live import Live
 from rich.table import Table
 from rich.text import Text
 
@@ -18,6 +16,7 @@ from monitor.price_lib import (
     format_pct_rich,
     sort_table_raw,
 )
+from utils.live_loop import run_live_loop
 from utils.live_store import KlineData, LiveDataStore, TickerData
 
 HEADERS = PRICE_HEADERS
@@ -175,15 +174,10 @@ def run(
         kline_thread.start()
 
         # 4. Rich Live render loop
-        console = Console()
-        try:
-            with Live(console=console, refresh_per_second=4) as live:
-                while True:
-                    live.update(_build_table(coins, store, sort_col, sort_order))
-                    time.sleep(1)
-        except KeyboardInterrupt:
-            pass
-        finally:
-            console.print("\nExiting gracefully. Goodbye!")
+        run_live_loop(
+            lambda: _build_table(coins, store, sort_col, sort_order),
+            interval=1.0,
+            refresh_per_second=4.0,
+        )
     finally:
         twm.stop()

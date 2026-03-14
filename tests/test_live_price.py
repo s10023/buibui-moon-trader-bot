@@ -190,8 +190,8 @@ class TestRun:
             patch("monitor.live_price.ThreadedWebsocketManager", return_value=mock_twm),
             patch("monitor.live_price._refresh_klines"),
             patch("monitor.live_price.threading.Thread") as mock_thread,
-            patch("monitor.live_price.Live", return_value=mock_live_ctx),
-            patch("monitor.live_price.Console"),
+            patch("utils.live_loop.Live", return_value=mock_live_ctx),
+            patch("utils.live_loop.Console"),
         ):
             mock_thread.return_value = MagicMock()
             run(client, ["BTCUSDT", "ETHUSDT"], sort_col="change_24h", sort_order=True)

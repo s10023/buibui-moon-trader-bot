@@ -193,12 +193,26 @@ def mock_positions_data() -> list[dict[str, Any]]:
 
 @pytest.fixture
 def mock_stop_loss_orders() -> list[dict[str, Any]]:
-    """Sample open orders with stop-loss."""
+    """Sample open orders with stop-loss (reduceOnly style)."""
     return [
         {
             "symbol": "BTCUSDT",
             "type": "STOP_MARKET",
             "reduceOnly": True,
+            "stopPrice": "109970.0",
+        },
+    ]
+
+
+@pytest.fixture
+def mock_close_position_sl_orders() -> list[dict[str, Any]]:
+    """Sample open orders with stop-loss set via Binance UI (closePosition style)."""
+    return [
+        {
+            "symbol": "BTCUSDT",
+            "type": "STOP_MARKET",
+            "reduceOnly": False,
+            "closePosition": True,
             "stopPrice": "109970.0",
         },
     ]

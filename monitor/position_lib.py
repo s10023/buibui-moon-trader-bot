@@ -5,7 +5,6 @@ accept them as parameters instead of relying on module-level globals.
 """
 
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from binance.client import Client
@@ -90,16 +89,54 @@ def get_wallet_balance(client: Client) -> tuple[float, float]:
     return 0.0, 0.0
 
 
+def _find_sl_in_orders(orders: list[dict[str, Any]]) -> float | None:
+    """Find the first SL price in a pre-fetched list of orders for one symbol.
+
+    Handles both reduceOnly=true (API-placed) and closePosition=true (UI-placed) orders.
+    """
+    for o in orders:
+        is_sl_type = o["type"] in ("STOP_MARKET", "STOP")
+        is_reducing = o.get("reduceOnly") or o.get("closePosition")
+        if is_sl_type and is_reducing:
+            price = float(o["stopPrice"])
+            if price > 0:
+                return price
+    return None
+
+
 def get_stop_loss_for_symbol(client: Client, symbol: str) -> float | None:
-    """Get the stop-loss price for a symbol from open orders."""
+    """Get the stop-loss price for a symbol from open orders.
+
+    Binance sets SL orders via UI with closePosition=true (not reduceOnly=true),
+    so both flags must be checked.
+    """
     try:
         orders = client.futures_get_open_orders(symbol=symbol)
-        for o in orders:
-            if o["type"] in ("STOP_MARKET", "STOP") and o.get("reduceOnly"):
-                return float(o["stopPrice"])
+        return _find_sl_in_orders(orders)
     except Exception as e:
         logging.warning("SL fetch failed for %s: %s", symbol, e)
     return None
+
+
+def _fetch_all_sl_prices(client: Client) -> dict[str, float]:
+    """Fetch all open orders in one call and return {symbol: sl_price} for SL orders."""
+    try:
+        all_orders: list[dict[str, Any]] = client.futures_get_open_orders()
+    except Exception as e:
+        logging.warning("Failed to fetch all open orders: %s", e)
+        return {}
+
+    orders_by_symbol: dict[str, list[dict[str, Any]]] = {}
+    for o in all_orders:
+        sym = o.get("symbol", "")
+        orders_by_symbol.setdefault(sym, []).append(o)
+
+    result: dict[str, float] = {}
+    for sym, orders in orders_by_symbol.items():
+        sl = _find_sl_in_orders(orders)
+        if sl is not None:
+            result[sym] = sl
+    return result
 
 
 def fetch_open_positions(
@@ -137,65 +174,8 @@ def fetch_open_positions(
             (symbol, side_text, entry, mark, margin, notional, amt, pos)
         )
 
-    def fetch_sl(
-        symbol: str, side_text: str, entry: float, notional: float
-    ) -> tuple[str, Any, Any, Any, float, float | None]:
-        try:
-            actual_sl = get_stop_loss_for_symbol(client, symbol)
-            if actual_sl:
-                if side_text == "SHORT":
-                    sl_percent = (entry - actual_sl) / entry * 100
-                else:
-                    sl_percent = (actual_sl - entry) / entry * 100
-                sl_risk_usd = notional * abs(sl_percent) / 100
-                sl_size_str = color_sl_size(sl_percent)
-                actual_sl_str = f"{actual_sl:.5f}"
-                sl_usd_str = colorize_dollar(sl_risk_usd)
-            else:
-                sl_percent = None
-                sl_risk_usd = 0.0
-                actual_sl_str = "-"
-                sl_size_str = "-"
-                sl_usd_str = "-"
-            return (
-                symbol,
-                actual_sl_str,
-                sl_size_str,
-                sl_usd_str,
-                sl_risk_usd,
-                sl_percent,
-            )
-        except Exception:
-            return (symbol, "-", "-", "-", 0.0, None)
-
-    sl_results: dict[str, Any] = {}
-    with ThreadPoolExecutor(
-        max_workers=max(1, min(len(open_positions), 16))
-    ) as executor:
-        futures = [
-            executor.submit(fetch_sl, symbol, side_text, entry, notional)
-            for (
-                symbol,
-                side_text,
-                entry,
-                mark,
-                margin,
-                notional,
-                amt,
-                pos,
-            ) in open_positions
-        ]
-        for future in as_completed(futures):
-            symbol, actual_sl_str, sl_size_str, sl_usd_str, sl_risk_usd, sl_percent = (
-                future.result()
-            )
-            sl_results[symbol] = (
-                actual_sl_str,
-                sl_size_str,
-                sl_usd_str,
-                sl_risk_usd,
-                sl_percent,
-            )
+    # One bulk fetch instead of one REST call per open position
+    sl_prices = _fetch_all_sl_prices(client) if open_positions else {}
 
     for symbol, side_text, entry, mark, margin, notional, amt, pos in open_positions:
         side_colored = (
@@ -204,11 +184,24 @@ def fetch_open_positions(
         pnl = float(pos.get("unRealizedProfit", 0))
         pnl_pct = (pnl / margin) * 100
         leverage = round(notional / margin)
-        actual_sl_str, sl_size_str, sl_usd_str, sl_risk_usd, sl_percent = (
-            sl_results.get(symbol, ("-", "-", "-", 0.0, None))
-        )
-        if sl_risk_usd:
+
+        actual_sl = sl_prices.get(symbol)
+        if actual_sl:
+            if side_text == "SHORT":
+                sl_percent = (entry - actual_sl) / entry * 100
+            else:
+                sl_percent = (actual_sl - entry) / entry * 100
+            sl_risk_usd = notional * abs(sl_percent) / 100
+            actual_sl_str = f"{actual_sl:.5f}"
+            sl_size_str = color_sl_size(sl_percent)
+            sl_usd_str = colorize_dollar(sl_risk_usd)
             total_risk_usd += sl_risk_usd
+        else:
+            sl_risk_usd = 0.0
+            actual_sl_str = "-"
+            sl_size_str = "-"
+            sl_usd_str = "-"
+
         row = [
             symbol,
             side_colored,
