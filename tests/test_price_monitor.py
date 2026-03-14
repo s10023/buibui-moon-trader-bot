@@ -77,13 +77,14 @@ class TestSortTable:
             "Last Price",
             "15m %",
             "1h %",
+            "4h %",
             "Since Asia 8AM",
             "24h %",
         ]
         self.table = [
-            ["BTCUSDT", "62457.10", "+0.53%", "+1.42%", "+0.88%", "+2.31%"],
-            ["ETHUSDT", "3408.50", "+0.22%", "+1.05%", "+0.71%", "+1.74%"],
-            ["SOLUSDT", "143.22", "-0.08%", "+0.34%", "+0.11%", "+0.89%"],
+            ["BTCUSDT", "62457.10", "+0.53%", "+1.42%", "+1.80%", "+0.88%", "+2.31%"],
+            ["ETHUSDT", "3408.50", "+0.22%", "+1.05%", "+1.30%", "+0.71%", "+1.74%"],
+            ["SOLUSDT", "143.22", "-0.08%", "+0.34%", "+0.50%", "+0.11%", "+0.89%"],
         ]
 
     def test_sort_by_15m_descending(self) -> None:
@@ -98,6 +99,10 @@ class TestSortTable:
 
     def test_sort_by_1h(self) -> None:
         result = sort_table(self.table, self.headers, "change_1h", True)
+        assert result[0][0] == "BTCUSDT"
+
+    def test_sort_by_4h(self) -> None:
+        result = sort_table(self.table, self.headers, "change_4h", True)
         assert result[0][0] == "BTCUSDT"
 
     def test_sort_by_24h(self) -> None:
@@ -116,8 +121,24 @@ class TestSortTable:
     def test_sort_with_ansi_codes(self) -> None:
         """Sort should strip ANSI codes before comparing."""
         table_with_ansi = [
-            ["BTCUSDT", "62457", "\033[32m+0.53%\033[0m", "+1.42%", "+0.88%", "+2.31%"],
-            ["ETHUSDT", "3408", "\033[32m+0.22%\033[0m", "+1.05%", "+0.71%", "+1.74%"],
+            [
+                "BTCUSDT",
+                "62457",
+                "\033[32m+0.53%\033[0m",
+                "+1.42%",
+                "+1.80%",
+                "+0.88%",
+                "+2.31%",
+            ],
+            [
+                "ETHUSDT",
+                "3408",
+                "\033[32m+0.22%\033[0m",
+                "+1.05%",
+                "+1.30%",
+                "+0.71%",
+                "+1.74%",
+            ],
         ]
         result = sort_table(table_with_ansi, self.headers, "change_15m", True)
         assert result[0][0] == "BTCUSDT"
@@ -321,9 +342,9 @@ class TestFormatPctRich:
 
 class TestSortTableRaw:
     ROWS: list[list[Any]] = [
-        ["C", "150", 2.0, None, None, None],
-        ["A", "100", 1.0, None, None, None],
-        ["B", "200", 3.0, None, None, None],
+        ["C", "150", 2.0, None, None, None, None],
+        ["A", "100", 1.0, None, None, None, None],
+        ["B", "200", 3.0, None, None, None, None],
     ]
 
     def test_descending(self) -> None:
@@ -336,8 +357,8 @@ class TestSortTableRaw:
 
     def test_none_sorts_last_in_descending(self) -> None:
         rows: list[list[Any]] = [
-            ["A", "100", None, None, None, None],
-            ["B", "200", 1.0, None, None, None],
+            ["A", "100", None, None, None, None, None],
+            ["B", "200", 1.0, None, None, None, None],
         ]
         result = sort_table_raw(rows, col_idx=2, reverse=True)
         assert result[0][0] == "B"
@@ -345,8 +366,8 @@ class TestSortTableRaw:
 
     def test_none_sorts_last_in_ascending(self) -> None:
         rows: list[list[Any]] = [
-            ["A", "100", None, None, None, None],
-            ["B", "200", 1.0, None, None, None],
+            ["A", "100", None, None, None, None, None],
+            ["B", "200", 1.0, None, None, None, None],
         ]
         result = sort_table_raw(rows, col_idx=2, reverse=False)
         assert result[0][0] == "B"

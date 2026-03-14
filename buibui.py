@@ -76,7 +76,7 @@ def main() -> None:
     price_parser.add_argument(
         "--sort",
         default="default",
-        help="Sort table by column[:asc|desc]. Options: change_15m, change_1h, change_asia, change_24h. Example: --sort change_15m:desc",
+        help="Sort table by column[:asc|desc]. Options: change_15m, change_1h, change_4h, change_asia, change_24h. Example: --sort change_15m:desc",
     )
     price_parser.add_argument(
         "--telegram", action="store_true", help="Send output to Telegram"

@@ -24,6 +24,7 @@ KLINE_REFRESH_INTERVAL = 60
 _SORT_COL_MAP: dict[str, int] = {
     "change_15m": HEADERS.index("15m %"),
     "change_1h": HEADERS.index("1h %"),
+    "change_4h": HEADERS.index("4h %"),
     "change_asia": HEADERS.index("Since Asia 8AM"),
     "change_24h": HEADERS.index("24h %"),
 }
@@ -44,15 +45,19 @@ def _handle_ws_msg(msg: dict[str, Any], store: LiveDataStore) -> None:
 
 def _refresh_klines(client: Any, symbols: list[str], store: LiveDataStore) -> None:
     """Fetch kline open prices for all symbols and write to store."""
-    kline_map = batch_get_klines(client, symbols, [("15m", 15), ("1h", 60)])
+    kline_map = batch_get_klines(
+        client, symbols, [("15m", 15), ("1h", 60), ("4h", 240)]
+    )
     asia_map = batch_get_asia_open(client, symbols)
     for sym in symbols:
         k15 = kline_map.get((sym, "15m"))
         k60 = kline_map.get((sym, "1h"))
+        k240 = kline_map.get((sym, "4h"))
         store.update_klines(
             sym,
             float(k15[1]) if k15 else None,
             float(k60[1]) if k60 else None,
+            float(k240[1]) if k240 else None,
             asia_map.get(sym),
         )
 
@@ -76,7 +81,7 @@ def _build_table(
         table.add_column(header, justify="right")
 
     # Build raw rows with float pct values for sorting
-    # Format: [symbol, price_str_or_none, pct_15m, pct_1h, pct_asia, pct_24h]
+    # Format: [symbol, price_str_or_none, pct_15m, pct_1h, pct_4h, pct_asia, pct_24h]
     raw_rows: list[list[Any]] = []
     for sym in symbols:
         snap = result.data[sym]
@@ -84,20 +89,30 @@ def _build_table(
         klines: KlineData | None = snap.klines
 
         if ticker is None:
-            raw_rows.append([sym, None, None, None, None, None])
+            raw_rows.append([sym, None, None, None, None, None, None])
             continue
 
         last = ticker.last_price
         open_15m = klines.open_15m if klines else None
         open_1h = klines.open_1h if klines else None
+        open_4h = klines.open_4h if klines else None
         asia_open = klines.asia_open if klines else None
 
         pct_15m = ((last - open_15m) / open_15m * 100) if open_15m else None
         pct_1h = ((last - open_1h) / open_1h * 100) if open_1h else None
+        pct_4h = ((last - open_4h) / open_4h * 100) if open_4h else None
         pct_asia = ((last - asia_open) / asia_open * 100) if asia_open else None
 
         raw_rows.append(
-            [sym, str(round(last, 4)), pct_15m, pct_1h, pct_asia, ticker.change_24h]
+            [
+                sym,
+                str(round(last, 4)),
+                pct_15m,
+                pct_1h,
+                pct_4h,
+                pct_asia,
+                ticker.change_24h,
+            ]
         )
 
     if sort_col in _SORT_COL_MAP:
@@ -108,7 +123,7 @@ def _build_table(
 
     for row in raw_rows:
         if row[1] is None:
-            table.add_row(row[0], "...", "", "", "", "")
+            table.add_row(row[0], "...", "", "", "", "", "")
         else:
             table.add_row(
                 row[0],
@@ -117,6 +132,7 @@ def _build_table(
                 _fmt(row[3]),
                 _fmt(row[4]),
                 _fmt(row[5]),
+                _fmt(row[6]),
             )
 
     return table
