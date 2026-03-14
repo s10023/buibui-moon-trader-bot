@@ -62,7 +62,11 @@ class TestCLIParsing:
                 main()
 
             mock_main.assert_called_once_with(
-                sort="default", telegram=False, hide_empty=False, compact=False
+                sort="default",
+                telegram=False,
+                hide_empty=False,
+                compact=False,
+                live=False,
             )
 
     def test_position_with_all_flags(self) -> None:
@@ -81,6 +85,7 @@ class TestCLIParsing:
                     "--telegram",
                     "--hide-empty",
                     "--compact",
+                    "--live",
                 ],
             ):
                 from buibui import main
@@ -88,7 +93,11 @@ class TestCLIParsing:
                 main()
 
             mock_main.assert_called_once_with(
-                sort="pnl_pct:desc", telegram=True, hide_empty=True, compact=True
+                sort="pnl_pct:desc",
+                telegram=True,
+                hide_empty=True,
+                compact=True,
+                live=True,
             )
 
     def test_missing_subcommand_exits(self) -> None:

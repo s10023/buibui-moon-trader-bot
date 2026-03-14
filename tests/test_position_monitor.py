@@ -203,6 +203,21 @@ class TestGetStopLossForSymbol:
         ]
         assert get_stop_loss_for_symbol(mock_client, "BTCUSDT") is None
 
+    def test_close_position_flag_detected_as_sl(
+        self, mock_close_position_sl_orders: list[dict[str, Any]]
+    ) -> None:
+        """Binance UI sets SL orders with closePosition=True, not reduceOnly=True."""
+        mock_client = MagicMock()
+        mock_client.futures_get_open_orders.return_value = mock_close_position_sl_orders
+        assert get_stop_loss_for_symbol(mock_client, "BTCUSDT") == 109970.0
+
+    def test_zero_stop_price_ignored(self) -> None:
+        mock_client = MagicMock()
+        mock_client.futures_get_open_orders.return_value = [
+            {"type": "STOP_MARKET", "closePosition": True, "stopPrice": "0"},
+        ]
+        assert get_stop_loss_for_symbol(mock_client, "BTCUSDT") is None
+
 
 class TestFetchOpenPositions:
     """Tests for fetch_open_positions()."""
@@ -392,6 +407,7 @@ class TestPositionBugFixes:
         mock_client.futures_account_balance.return_value = mock_futures_balance
         mock_client.futures_get_open_orders.return_value = [
             {
+                "symbol": "BTCUSDT",
                 "type": "STOP_MARKET",
                 "reduceOnly": True,
                 "stopPrice": "111000.0",  # above entry — correct SHORT SL
