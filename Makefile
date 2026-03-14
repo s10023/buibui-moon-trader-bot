@@ -8,7 +8,7 @@ DAYS ?= 90
 PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*" -not -path "./.venv/*")
 DOCKER_IMAGE = buibui-bot
 
-.PHONY: lint lint-md lint-md-fix lint-py-check lint-py typecheck test poetry-install poetry-update docker-build docker-monitor-price docker-monitor-position buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-telegram buibui-open-trades buibui-analytics-backfill buibui-analytics-sync buibui-backtest clean-db clean
+.PHONY: lint lint-md lint-md-fix lint-py-check lint-py typecheck test poetry-install poetry-update docker-build docker-monitor-price docker-monitor-position docker-analytics-backfill docker-analytics-sync docker-backtest buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-telegram buibui-open-trades buibui-analytics-backfill buibui-analytics-sync buibui-backtest clean-db clean
 
 lint: lint-md lint-py
 
@@ -56,7 +56,44 @@ docker-monitor-price:
 
 docker-monitor-position:
 	@echo "🐳 Running position monitor in Docker..."
-	docker run --env-file .env $(DOCKER_IMAGE) poetry run python buibui.py monitor position
+	docker run --env-file .env \
+		-v $(PWD)/config/coins.json:/app/config/coins.json:ro \
+		$(DOCKER_IMAGE) poetry run python buibui.py monitor position
+
+docker-analytics-backfill:
+	@echo "📥 Running analytics backfill in Docker..."
+	@touch analytics.db
+	docker run --rm --env-file .env \
+		-v $(PWD)/analytics.db:/app/analytics.db \
+		-v $(PWD)/config/coins.json:/app/config/coins.json:ro \
+		$(DOCKER_IMAGE) poetry run python buibui.py analytics backfill --since $(or $(SINCE),2023-01-01) \
+		$(if $(SYMBOLS),--symbols $(SYMBOLS),) \
+		$(if $(TIMEFRAMES),--timeframes $(TIMEFRAMES),)
+
+docker-analytics-sync:
+	@echo "🔄 Syncing analytics data in Docker..."
+	@touch analytics.db
+	docker run --rm --env-file .env \
+		-v $(PWD)/analytics.db:/app/analytics.db \
+		-v $(PWD)/config/coins.json:/app/config/coins.json:ro \
+		$(DOCKER_IMAGE) poetry run python buibui.py analytics sync \
+		$(if $(SYMBOLS),--symbols $(SYMBOLS),) \
+		$(if $(TIMEFRAMES),--timeframes $(TIMEFRAMES),)
+
+docker-backtest:
+	@echo "📊 Running backtest in Docker..."
+	@touch analytics.db
+	docker run --rm --env-file .env \
+		-v $(PWD)/analytics.db:/app/analytics.db \
+		-v $(PWD)/config/coins.json:/app/config/coins.json:ro \
+		$(DOCKER_IMAGE) poetry run python buibui.py backtest \
+		--symbol $(SYMBOL) \
+		--strategy $(STRATEGY) \
+		--interval $(INTERVAL) \
+		--days $(DAYS) \
+		$(if $(SL_PCT),--sl-pct $(SL_PCT),) \
+		$(if $(TP_R),--tp-r $(TP_R),) \
+		$(if $(SECONDARY),--secondary-symbol $(SECONDARY),)
 
 buibui-monitor-price:
 	@echo "📈 Running price monitor..."

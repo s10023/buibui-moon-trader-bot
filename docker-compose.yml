@@ -22,3 +22,25 @@ services:
       # Supply it at runtime via this bind mount. Without it the container will fail on startup.
       - ./config/coins.json:/app/config/coins.json:ro
     restart: unless-stopped
+
+  analytics-backfill:
+    build: .
+    # Override SINCE at runtime: SINCE=2024-01-01 docker-compose run --rm analytics-backfill
+    command: >
+      python buibui.py analytics backfill --since ${SINCE:-2023-01-01}
+    env_file: .env
+    volumes:
+      - ./config/coins.json:/app/config/coins.json:ro
+      # analytics.db is bind-mounted from the host so data survives container restarts.
+      # Create the file on the host before first run: touch analytics.db
+      - ./analytics.db:/app/analytics.db
+    profiles: [analytics]
+
+  analytics-sync:
+    build: .
+    command: python buibui.py analytics sync
+    env_file: .env
+    volumes:
+      - ./config/coins.json:/app/config/coins.json:ro
+      - ./analytics.db:/app/analytics.db
+    profiles: [analytics]

@@ -378,28 +378,55 @@ All commands use your `.env` file for secrets and config.
 
 ## Docker
 
-You can use Docker to run your bot in a consistent environment.
+You can use Docker to run the bot and analytics tools in a consistent environment.
+`config/coins.json` and `.env` are excluded from the image via `.dockerignore` and
+bind-mounted at runtime.
+
+### Makefile targets
 
 ```bash
-make docker-build              # Build the image
-make docker-monitor-price      # Run price monitor
-make docker-monitor-position   # Run position monitor
+make docker-build                  # Build the image
+
+# Monitors
+make docker-monitor-price          # Run price monitor
+make docker-monitor-position       # Run position monitor
+
+# Analytics — analytics.db is bind-mounted from the host
+make docker-analytics-backfill                       # Backfill from 2023-01-01
+make docker-analytics-backfill SINCE=2024-01-01      # Backfill from custom date
+make docker-analytics-sync                           # Incremental sync
+
+# Backtest
+make docker-backtest                                          # BTCUSDT fvg 4h 90d (defaults)
+make docker-backtest SYMBOL=ETHUSDT STRATEGY=bos
+make docker-backtest SYMBOL=BTCUSDT STRATEGY=smt_divergence SECONDARY=ETHUSDT
 ```
 
-All commands use your `.env` file for secrets and config.
+> **First run:** Before running any analytics or backtest Docker command, create `analytics.db`
+> on the host so Docker bind-mounts a file (not a directory):
+>
+> ```bash
+> touch analytics.db
+> ```
 
 ### Docker Compose
 
-A `docker-compose.yml` is provided for convenience. It bind-mounts `config/coins.json`
-and `.env` at runtime — neither file is baked into the image (both are excluded via
-`.dockerignore` for security).
+`docker-compose.yml` is provided for long-running services. Analytics services use the
+`analytics` profile and are run with `docker-compose run` (one-shot, not `up`).
 
 ```bash
-docker-compose up buibui-position-monitor   # Run position monitor
-docker-compose up buibui-price-monitor      # Run price monitor
+# Long-running monitors
+docker-compose up price-monitor
+docker-compose up position-monitor
+
+# One-shot analytics (requires touch analytics.db on first use)
+touch analytics.db
+docker-compose run --rm analytics-backfill
+SINCE=2024-01-01 docker-compose run --rm analytics-backfill
+docker-compose run --rm analytics-sync
 ```
 
-Make sure `config/coins.json` and `.env` exist in the project root before running.
+Make sure `config/coins.json`, `.env`, and `analytics.db` exist before running analytics.
 
 ---
 
