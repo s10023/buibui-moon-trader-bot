@@ -403,12 +403,29 @@ Make sure `config/coins.json` and `.env` exist in the project root before runnin
 
 ---
 
-## GitHub Actions (Optional)
+## GitHub Actions
 
-The `.github/workflows/monitor.yaml` file contains job steps for scheduled monitoring.
-Not recommended for production use — GitHub Actions uses rotating IPs that cannot be
-whitelisted in Binance. Deploy on a server with a static IP instead (see Oracle Cloud
-setup in project docs).
+Three workflows run automatically on every push and pull request:
+
+### `lint.yaml` — CI (always active)
+
+Runs on every push to `main` and every PR. Uses path filters so only relevant jobs run:
+
+| Job | Triggers on | Steps |
+| --- | --- | --- |
+| `markdownlint` | `*.md` changes | markdownlint-cli2 across all Markdown files |
+| `lint-typecheck-test` | `*.py` / `pyproject.toml` / `poetry.lock` changes | ruff check, ruff format, mypy, pytest (with coverage), uploads test XML + coverage XML as artifacts |
+
+### `docker-build.yaml` — Docker build check (always active)
+
+Builds the Docker image on every push and PR to catch any `Dockerfile` or dependency issues early.
+
+### `monitor.yaml` — Scheduled position monitor (disabled placeholder)
+
+Commented-out template for running the position monitor on a 15-minute cron schedule via a
+**self-hosted runner** on an Oracle Cloud VM. GitHub-hosted runners use rotating IPs that
+cannot be whitelisted in Binance — this workflow only makes sense with a static-IP self-hosted
+runner. Enable it once the Oracle Cloud VM is set up.
 
 ---
 
@@ -427,12 +444,8 @@ To check formatting and types locally:
 poetry run ruff check .
 poetry run ruff format --check .
 poetry run mypy .
+poetry run pytest tests/ -v
 ```
-
-## Continuous Integration
-
-Every push and pull request runs automated checks (Markdown linting, Python formatting, and type checking) via GitHub Actions.
-You can find the workflow in `.github/workflows/lint.yaml`.
 
 ---
 
