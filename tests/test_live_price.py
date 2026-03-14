@@ -74,6 +74,7 @@ class TestRefreshKlines:
             mock_klines.return_value = {
                 ("BTCUSDT", "15m"): [None, "66000.00"],
                 ("BTCUSDT", "1h"): [None, "64000.00"],
+                ("BTCUSDT", "4h"): [None, "62000.00"],
             }
             mock_asia.return_value = {"BTCUSDT": 63000.0}
             _refresh_klines(mock_client, ["BTCUSDT"], store)
@@ -83,6 +84,7 @@ class TestRefreshKlines:
         assert klines is not None
         assert klines.open_15m == 66000.0
         assert klines.open_1h == 64000.0
+        assert klines.open_4h == 62000.0
         assert klines.asia_open == 63000.0
 
     def test_missing_kline_result_stores_none(self) -> None:
@@ -101,6 +103,7 @@ class TestRefreshKlines:
         assert klines is not None
         assert klines.open_15m is None
         assert klines.open_1h is None
+        assert klines.open_4h is None
         assert klines.asia_open is None
 
 
@@ -135,8 +138,12 @@ class TestBuildTable:
         store = LiveDataStore()
         store.update_ticker("BTCUSDT", last=100.0, open_24h=90.0)
         store.update_ticker("ETHUSDT", last=100.0, open_24h=95.0)
-        store.update_klines("BTCUSDT", open_15m=98.0, open_1h=95.0, asia_open=90.0)
-        store.update_klines("ETHUSDT", open_15m=99.0, open_1h=97.0, asia_open=92.0)
+        store.update_klines(
+            "BTCUSDT", open_15m=98.0, open_1h=95.0, open_4h=93.0, asia_open=90.0
+        )
+        store.update_klines(
+            "ETHUSDT", open_15m=99.0, open_1h=97.0, open_4h=95.0, asia_open=92.0
+        )
         table = _build_table(
             ["BTCUSDT", "ETHUSDT"], store, sort_col="change_24h", sort_order=True
         )

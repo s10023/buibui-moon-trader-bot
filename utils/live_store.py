@@ -15,6 +15,7 @@ class TickerData:
 class KlineData:
     open_15m: float | None
     open_1h: float | None
+    open_4h: float | None
     asia_open: float | None
 
 
@@ -51,12 +52,14 @@ class LiveDataStore:
         symbol: str,
         open_15m: float | None,
         open_1h: float | None,
+        open_4h: float | None,
         asia_open: float | None,
     ) -> None:
         with self._lock:
             self._klines[symbol] = KlineData(
                 open_15m=open_15m,
                 open_1h=open_1h,
+                open_4h=open_4h,
                 asia_open=asia_open,
             )
 
