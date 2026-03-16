@@ -209,20 +209,35 @@ class TestCreateClient:
 class TestGetWalletTarget:
     """Tests for get_wallet_target() env parsing."""
 
-    def test_returns_float_from_valid_env(self) -> None:
+    def test_returns_single_float(self) -> None:
         with patch.dict("os.environ", {"WALLET_TARGET": "2000"}):
-            assert get_wallet_target() == 2000.0
+            targets, invalid = get_wallet_target()
+            assert targets == [2000.0]
+            assert invalid == []
 
-    def test_returns_zero_when_env_not_set(self) -> None:
+    def test_returns_multiple_floats(self) -> None:
+        with patch.dict("os.environ", {"WALLET_TARGET": "500,1000,5000"}):
+            targets, invalid = get_wallet_target()
+            assert targets == [500.0, 1000.0, 5000.0]
+            assert invalid == []
+
+    def test_returns_empty_when_env_not_set(self) -> None:
         with patch.dict("os.environ", {}, clear=True):
-            assert get_wallet_target() == 0.0
+            targets, invalid = get_wallet_target()
+            assert targets == []
+            assert invalid == []
 
-    def test_returns_zero_and_warns_on_invalid_value(self) -> None:
-        with patch.dict("os.environ", {"WALLET_TARGET": "$2,000"}):
-            with patch("utils.binance_client.logging") as mock_log:
-                result = get_wallet_target()
-                assert result == 0.0
-                mock_log.warning.assert_called_once()
+    def test_skips_invalid_entries(self) -> None:
+        with patch.dict("os.environ", {"WALLET_TARGET": "1000,bad,2000"}):
+            targets, invalid = get_wallet_target()
+            assert targets == [1000.0, 2000.0]
+            assert invalid == ["bad"]
+
+    def test_returns_all_invalid(self) -> None:
+        with patch.dict("os.environ", {"WALLET_TARGET": "bad,also_bad"}):
+            targets, invalid = get_wallet_target()
+            assert targets == []
+            assert invalid == ["bad", "also_bad"]
 
 
 class TestGetKlines:

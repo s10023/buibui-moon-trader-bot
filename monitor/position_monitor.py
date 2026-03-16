@@ -30,7 +30,7 @@ def main(
         logging.error(f"Error loading config/coins.json: {e}")
         sys.exit(1)
 
-    wallet_target = get_wallet_target()
+    wallet_target, wallet_target_invalid = get_wallet_target()
 
     sort_key, _, sort_dir = sort.partition(":")
     sort_order = sort_dir.lower() != "asc"
@@ -45,6 +45,7 @@ def main(
             coins_config,
             coin_order,
             wallet_target,
+            wallet_target_invalid,
             sort_by=sort_key,
             descending=sort_order,
             hide_empty=hide_empty,
@@ -60,6 +61,7 @@ def main(
             coins_config,
             coin_order,
             wallet_target,
+            wallet_target_invalid,
             sort_by=sort_key,
             descending=sort_order,
             telegram=telegram,

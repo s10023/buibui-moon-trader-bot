@@ -1,5 +1,4 @@
 import json
-import logging
 import os
 import time
 from pathlib import Path
@@ -48,13 +47,22 @@ def load_coins_config(path: Path | str = _DEFAULT_COINS_PATH) -> dict[str, Any]:
     return config
 
 
-def get_wallet_target() -> float:
-    """Load WALLET_TARGET from environment."""
-    raw = os.getenv("WALLET_TARGET", "0")
-    try:
-        return float(raw)
-    except ValueError:
-        logging.warning(
-            "WALLET_TARGET=%r is not a valid number; defaulting to 0.0", raw
-        )
-        return 0.0
+def get_wallet_target() -> tuple[list[float], list[str]]:
+    """Load WALLET_TARGET from environment.
+
+    Accepts a single value or comma-separated list (e.g. "500,1000,5000").
+    Returns (valid_targets, invalid_entries) so callers can surface bad values
+    in the display output rather than losing them to a log that gets cleared.
+    """
+    raw = os.getenv("WALLET_TARGET", "")
+    if not raw.strip():
+        return [], []
+    targets: list[float] = []
+    invalid: list[str] = []
+    for part in raw.split(","):
+        part = part.strip()
+        try:
+            targets.append(float(part))
+        except ValueError:
+            invalid.append(part)
+    return targets, invalid
