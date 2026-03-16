@@ -78,15 +78,21 @@ def display_progress_bar(current: float, target: float, bar_length: int = 30) ->
     return f"Wallet Target: ${current:,.2f} / ${target:,.2f} |{bar}| {pct * 100:.1f}%"
 
 
-def get_wallet_balance(client: Client) -> tuple[float, float]:
-    """Get USDT wallet balance and unrealized PnL."""
+def get_wallet_balance(client: Client) -> tuple[float, float, float]:
+    """Get USDT wallet balance, unrealized PnL, and available balance.
+
+    availableBalance is read directly from the API rather than computed manually;
+    Binance already accounts for position margin, open order margin, and unrealized
+    PnL as collateral in cross-margin mode.
+    """
     balances = client.futures_account_balance()
     for b in balances:
         if b["asset"] == "USDT":
             balance = float(b["balance"])
             unrealized = float(b.get("crossUnPnl", 0))
-            return balance, unrealized
-    return 0.0, 0.0
+            available = float(b.get("availableBalance", 0))
+            return balance, unrealized, available
+    return 0.0, 0.0, 0.0
 
 
 def _find_sl_in_orders(
@@ -162,7 +168,7 @@ def fetch_open_positions(
     sort_by: str = "default",
     descending: bool = True,
     hide_empty: bool = False,
-) -> tuple[list[Any], float, float, float]:
+) -> tuple[list[Any], float, float, float, float]:
     """Fetch and format open futures positions."""
     try:
         positions = client.futures_position_information()
@@ -170,7 +176,7 @@ def fetch_open_positions(
         logging.error("Failed to fetch position information: %s", e)
         raise RuntimeError(f"Failed to fetch position information: {e}") from e
     filtered: list[Any] = []
-    wallet_balance, unrealized_pnl = get_wallet_balance(client)
+    wallet_balance, unrealized_pnl, available_balance = get_wallet_balance(client)
     total_risk_usd = 0.0
 
     open_positions = []
@@ -294,7 +300,7 @@ def fetch_open_positions(
     logging.info("Found %d open position(s)", len(open_positions))
     filtered = [row[:13] for row in filtered]
 
-    return filtered, total_risk_usd, wallet_balance, unrealized_pnl
+    return filtered, total_risk_usd, wallet_balance, unrealized_pnl, available_balance
 
 
 def display_table(
@@ -310,15 +316,11 @@ def display_table(
     compact: bool = False,
 ) -> str:
     """Build the full position display output."""
-    table, total_risk_usd, wallet, unrealized = fetch_open_positions(
+    table, total_risk_usd, wallet, unrealized, available_balance = fetch_open_positions(
         client, coins_config, coin_order, sort_by, descending, hide_empty
     )
     total = wallet + unrealized
     unrealized_pct = (unrealized / wallet * 100) if wallet else 0
-    used_margin = sum(
-        float(row[5]) for row in table if isinstance(row[5], (int, float))
-    )
-    available_balance = wallet - used_margin
     output = []
     output.append(f"\n\U0001f4b0 Wallet Balance: ${wallet:,.2f}")
     output.append(f"\U0001f4bc Available Balance: ${available_balance:,.2f}")

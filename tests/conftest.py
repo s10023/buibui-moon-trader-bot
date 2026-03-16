@@ -148,6 +148,7 @@ def mock_futures_balance() -> list[dict[str, Any]]:
             "asset": "USDT",
             "balance": "1123.15",
             "crossUnPnl": "290.29",
+            "availableBalance": "450.30",
         },
         {
             "asset": "BNB",
