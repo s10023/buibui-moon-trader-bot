@@ -78,64 +78,86 @@ def display_progress_bar(current: float, target: float, bar_length: int = 30) ->
     return f"Wallet Target: ${current:,.2f} / ${target:,.2f} |{bar}| {pct * 100:.1f}%"
 
 
-def get_wallet_balance(client: Client) -> tuple[float, float]:
-    """Get USDT wallet balance and unrealized PnL."""
+def get_wallet_balance(client: Client) -> tuple[float, float, float]:
+    """Get USDT wallet balance, unrealized PnL, and available balance.
+
+    availableBalance is read directly from the API rather than computed manually;
+    Binance already accounts for position margin, open order margin, and unrealized
+    PnL as collateral in cross-margin mode.
+    """
     balances = client.futures_account_balance()
     for b in balances:
         if b["asset"] == "USDT":
             balance = float(b["balance"])
             unrealized = float(b.get("crossUnPnl", 0))
-            return balance, unrealized
-    return 0.0, 0.0
+            available = float(b.get("availableBalance", 0))
+            return balance, unrealized, available
+    return 0.0, 0.0, 0.0
 
 
-def _find_sl_in_orders(orders: list[dict[str, Any]]) -> float | None:
+def _find_sl_in_orders(
+    orders: list[dict[str, Any]], position_side: str = "BOTH"
+) -> float | None:
     """Find the first SL price in a pre-fetched list of orders for one symbol.
 
-    Handles both reduceOnly=true (API-placed) and closePosition=true (UI-placed) orders.
+    In hedge mode (position_side != "BOTH"), only matches orders whose
+    positionSide equals position_side. Orders with positionSide "BOTH" (one-way
+    mode orders) are always considered regardless of position_side.
     """
     for o in orders:
-        is_sl_type = o["type"] in ("STOP_MARKET", "STOP")
-        is_reducing = o.get("reduceOnly") or o.get("closePosition")
-        if is_sl_type and is_reducing:
-            price = float(o["stopPrice"])
-            if price > 0:
-                return price
+        if o["type"] not in ("STOP_MARKET", "STOP"):
+            continue
+        order_side = o.get("positionSide", "BOTH")
+        if (
+            position_side != "BOTH"
+            and order_side != "BOTH"
+            and order_side != position_side
+        ):
+            continue
+        price = float(o.get("stopPrice") or 0)
+        if price > 0:
+            return price
     return None
 
 
-def get_stop_loss_for_symbol(client: Client, symbol: str) -> float | None:
+def get_stop_loss_for_symbol(
+    client: Client, symbol: str, position_side: str = "BOTH"
+) -> float | None:
     """Get the stop-loss price for a symbol from open orders.
 
-    Binance sets SL orders via UI with closePosition=true (not reduceOnly=true),
-    so both flags must be checked.
+    Pass position_side in hedge mode to match only the correct side's SL order.
     """
     try:
         orders = client.futures_get_open_orders(symbol=symbol)
-        return _find_sl_in_orders(orders)
+        return _find_sl_in_orders(orders, position_side)
     except Exception as e:
         logging.warning("SL fetch failed for %s: %s", symbol, e)
     return None
 
 
-def _fetch_all_sl_prices(client: Client) -> dict[str, float]:
-    """Fetch all open orders in one call and return {symbol: sl_price} for SL orders."""
+def _fetch_all_sl_prices(client: Client) -> dict[tuple[str, str], float]:
+    """Fetch all open orders in one call and return {(symbol, positionSide): sl_price}.
+
+    Keying by (symbol, positionSide) supports hedge mode where LONG and SHORT
+    positions on the same symbol have independent SL orders.
+    """
     try:
         all_orders: list[dict[str, Any]] = client.futures_get_open_orders()
     except Exception as e:
         logging.warning("Failed to fetch all open orders: %s", e)
         return {}
 
-    orders_by_symbol: dict[str, list[dict[str, Any]]] = {}
+    orders_by_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for o in all_orders:
         sym = o.get("symbol", "")
-        orders_by_symbol.setdefault(sym, []).append(o)
+        side = o.get("positionSide", "BOTH")
+        orders_by_key.setdefault((sym, side), []).append(o)
 
-    result: dict[str, float] = {}
-    for sym, orders in orders_by_symbol.items():
-        sl = _find_sl_in_orders(orders)
+    result: dict[tuple[str, str], float] = {}
+    for (sym, side), orders in orders_by_key.items():
+        sl = _find_sl_in_orders(orders, side)
         if sl is not None:
-            result[sym] = sl
+            result[(sym, side)] = sl
     return result
 
 
@@ -146,7 +168,7 @@ def fetch_open_positions(
     sort_by: str = "default",
     descending: bool = True,
     hide_empty: bool = False,
-) -> tuple[list[Any], float, float, float]:
+) -> tuple[list[Any], float, float, float, float]:
     """Fetch and format open futures positions."""
     try:
         positions = client.futures_position_information()
@@ -154,7 +176,7 @@ def fetch_open_positions(
         logging.error("Failed to fetch position information: %s", e)
         raise RuntimeError(f"Failed to fetch position information: {e}") from e
     filtered: list[Any] = []
-    wallet_balance, unrealized_pnl = get_wallet_balance(client)
+    wallet_balance, unrealized_pnl, available_balance = get_wallet_balance(client)
     total_risk_usd = 0.0
 
     open_positions = []
@@ -170,14 +192,32 @@ def fetch_open_positions(
         notional = abs(float(pos["notional"]))
         margin = float(pos.get("positionInitialMargin", 0)) or 1e-6
         side_text = "LONG" if amt > 0 else "SHORT"
+        position_side = pos.get("positionSide", "BOTH")
         open_positions.append(
-            (symbol, side_text, entry, mark, margin, notional, amt, pos)
+            (symbol, side_text, position_side, entry, mark, margin, notional, amt, pos)
         )
 
-    # One bulk fetch instead of one REST call per open position
+    # One bulk fetch instead of one REST call per open position.
+    # Fall back to per-symbol if the bulk call returns nothing (e.g. API error
+    # swallowed silently, or exchange quirk) so SL is never silently dropped.
     sl_prices = _fetch_all_sl_prices(client) if open_positions else {}
+    for sym, _, pos_side, *_ in open_positions:
+        if (sym, pos_side) not in sl_prices and (sym, "BOTH") not in sl_prices:
+            sl = get_stop_loss_for_symbol(client, sym, pos_side)
+            if sl is not None:
+                sl_prices[(sym, pos_side)] = sl
 
-    for symbol, side_text, entry, mark, margin, notional, amt, pos in open_positions:
+    for (
+        symbol,
+        side_text,
+        position_side,
+        entry,
+        mark,
+        margin,
+        notional,
+        amt,
+        pos,
+    ) in open_positions:
         side_colored = (
             f"\033[92m{side_text}\033[0m" if amt > 0 else f"\033[91m{side_text}\033[0m"
         )
@@ -185,7 +225,9 @@ def fetch_open_positions(
         pnl_pct = (pnl / margin) * 100
         leverage = round(notional / margin)
 
-        actual_sl = sl_prices.get(symbol)
+        actual_sl = sl_prices.get((symbol, position_side)) or sl_prices.get(
+            (symbol, "BOTH")
+        )
         if actual_sl:
             if side_text == "SHORT":
                 sl_percent = (entry - actual_sl) / entry * 100
@@ -258,7 +300,7 @@ def fetch_open_positions(
     logging.info("Found %d open position(s)", len(open_positions))
     filtered = [row[:13] for row in filtered]
 
-    return filtered, total_risk_usd, wallet_balance, unrealized_pnl
+    return filtered, total_risk_usd, wallet_balance, unrealized_pnl, available_balance
 
 
 def display_table(
@@ -274,15 +316,11 @@ def display_table(
     compact: bool = False,
 ) -> str:
     """Build the full position display output."""
-    table, total_risk_usd, wallet, unrealized = fetch_open_positions(
+    table, total_risk_usd, wallet, unrealized, available_balance = fetch_open_positions(
         client, coins_config, coin_order, sort_by, descending, hide_empty
     )
     total = wallet + unrealized
     unrealized_pct = (unrealized / wallet * 100) if wallet else 0
-    used_margin = sum(
-        float(row[5]) for row in table if isinstance(row[5], (int, float))
-    )
-    available_balance = wallet - used_margin
     output = []
     output.append(f"\n\U0001f4b0 Wallet Balance: ${wallet:,.2f}")
     output.append(f"\U0001f4bc Available Balance: ${available_balance:,.2f}")

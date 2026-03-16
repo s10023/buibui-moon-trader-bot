@@ -240,6 +240,14 @@ Supported sort keys:
 
 Append `:asc` or `:desc` to control the sort direction (defaults to `desc`).
 
+> **Known limitation — SL columns require a placed Binance order.**
+> The `SL Price`, `% to SL`, and `SL USD` columns are populated by reading
+> open `STOP_MARKET` / `STOP` orders from the Binance API. If you manage your
+> stop loss mentally or through a third-party tool that does not place an actual
+> order on Binance, those columns will show `-` and `Total SL Risk` will show
+> `$0.00`. To see SL data, place a stop-loss order directly on Binance (via the
+> UI order form or API) before starting the monitor.
+
 ### Analytics — Backfill Historical Data
 
 The analytics module stores OHLCV candles, funding rates, and open interest in a local
