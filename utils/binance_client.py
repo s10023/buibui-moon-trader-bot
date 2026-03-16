@@ -48,13 +48,22 @@ def load_coins_config(path: Path | str = _DEFAULT_COINS_PATH) -> dict[str, Any]:
     return config
 
 
-def get_wallet_target() -> float:
-    """Load WALLET_TARGET from environment."""
-    raw = os.getenv("WALLET_TARGET", "0")
-    try:
-        return float(raw)
-    except ValueError:
-        logging.warning(
-            "WALLET_TARGET=%r is not a valid number; defaulting to 0.0", raw
-        )
-        return 0.0
+def get_wallet_target() -> list[float]:
+    """Load WALLET_TARGET from environment.
+
+    Accepts a single value or comma-separated list (e.g. "500,1000,5000").
+    Invalid entries are skipped with a warning.
+    """
+    raw = os.getenv("WALLET_TARGET", "")
+    if not raw.strip():
+        return []
+    targets = []
+    for part in raw.split(","):
+        part = part.strip()
+        try:
+            targets.append(float(part))
+        except ValueError:
+            logging.warning(
+                "WALLET_TARGET entry %r is not a valid number; skipping", part
+            )
+    return targets

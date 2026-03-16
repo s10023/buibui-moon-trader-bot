@@ -331,7 +331,7 @@ class TestDisplayTable:
         mock_client.futures_get_open_orders.return_value = []
 
         result = display_table(
-            mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER, 2000.0, compact=True
+            mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER, [2000.0], compact=True
         )
         assert "Wallet Balance" in result
         assert "\u2552" not in result
@@ -347,7 +347,7 @@ class TestDisplayTable:
         mock_client.futures_get_open_orders.return_value = []
 
         result = display_table(
-            mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER, 2000.0, compact=False
+            mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER, [2000.0], compact=False
         )
         assert "Wallet Balance" in result
         assert "\u2552" in result
@@ -367,7 +367,7 @@ class TestDisplayTable:
                 mock_client,
                 SAMPLE_COINS_CONFIG,
                 SAMPLE_COIN_ORDER,
-                2000.0,
+                [2000.0],
                 telegram=True,
             )
             mock_tg.assert_called_once()
@@ -448,7 +448,7 @@ class TestPositionBugFixes:
         mock_client.futures_get_open_orders.return_value = []
 
         result = display_table(
-            mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER, 0.0, compact=True
+            mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER, [], compact=True
         )
         # wallet=1123.15, used_margin=595.99+591.11=1187.10
         # Correct: available = 1123.15 - 1187.10 = -63.95 (negative — over-margined)
