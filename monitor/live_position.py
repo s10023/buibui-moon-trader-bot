@@ -69,5 +69,4 @@ def run(
             compact,
         ),
         interval=float(interval),
-        refresh_per_second=1.0,
     )

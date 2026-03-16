@@ -92,15 +92,17 @@ def get_wallet_balance(client: Client) -> tuple[float, float]:
 def _find_sl_in_orders(orders: list[dict[str, Any]]) -> float | None:
     """Find the first SL price in a pre-fetched list of orders for one symbol.
 
-    Handles both reduceOnly=true (API-placed) and closePosition=true (UI-placed) orders.
+    Matches any STOP_MARKET or STOP order with a positive stopPrice.
+    Binance UI-placed SL orders use closePosition=True; API-placed ones use
+    reduceOnly=True; manually placed orders may have neither flag set.
+    Requiring either flag is too strict and silently misses valid SL orders.
     """
     for o in orders:
-        is_sl_type = o["type"] in ("STOP_MARKET", "STOP")
-        is_reducing = o.get("reduceOnly") or o.get("closePosition")
-        if is_sl_type and is_reducing:
-            price = float(o["stopPrice"])
-            if price > 0:
-                return price
+        if o["type"] not in ("STOP_MARKET", "STOP"):
+            continue
+        price = float(o.get("stopPrice") or 0)
+        if price > 0:
+            return price
     return None
 
 
@@ -174,8 +176,15 @@ def fetch_open_positions(
             (symbol, side_text, entry, mark, margin, notional, amt, pos)
         )
 
-    # One bulk fetch instead of one REST call per open position
+    # One bulk fetch instead of one REST call per open position.
+    # Fall back to per-symbol if the bulk call returns nothing (e.g. API error
+    # swallowed silently, or exchange quirk) so SL is never silently dropped.
     sl_prices = _fetch_all_sl_prices(client) if open_positions else {}
+    for sym, *_ in open_positions:
+        if sym not in sl_prices:
+            sl = get_stop_loss_for_symbol(client, sym)
+            if sl is not None:
+                sl_prices[sym] = sl
 
     for symbol, side_text, entry, mark, margin, notional, amt, pos in open_positions:
         side_colored = (

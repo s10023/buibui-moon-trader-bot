@@ -193,7 +193,6 @@ def run(
         run_live_loop(
             lambda: _build_table(coins, store, sort_col, sort_order),
             interval=1.0,
-            refresh_per_second=4.0,
         )
     finally:
         twm.stop()

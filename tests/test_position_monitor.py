@@ -196,12 +196,14 @@ class TestGetStopLossForSymbol:
         mock_client.futures_get_open_orders.side_effect = Exception("API error")
         assert get_stop_loss_for_symbol(mock_client, "BTCUSDT") is None
 
-    def test_stop_type_without_reduce_only(self) -> None:
+    def test_stop_type_without_reduce_only_still_detected(self) -> None:
+        """Manually placed STOP_MARKET orders have neither reduceOnly nor closePosition
+        set, but are still a valid SL — we should not reject them."""
         mock_client = MagicMock()
         mock_client.futures_get_open_orders.return_value = [
             {"type": "STOP_MARKET", "reduceOnly": False, "stopPrice": "50000.0"},
         ]
-        assert get_stop_loss_for_symbol(mock_client, "BTCUSDT") is None
+        assert get_stop_loss_for_symbol(mock_client, "BTCUSDT") == 50000.0
 
     def test_close_position_flag_detected_as_sl(
         self, mock_close_position_sl_orders: list[dict[str, Any]]
