@@ -266,6 +266,7 @@ def display_table(
     coins_config: dict[str, Any],
     coin_order: list[str],
     wallet_target: list[float],
+    wallet_target_invalid: list[str] | None = None,
     sort_by: str = "default",
     descending: bool = True,
     telegram: bool = False,
@@ -293,8 +294,10 @@ def display_table(
         f"\u26a0\ufe0f Total SL Risk: {color_risk_usd(total_risk_usd, wallet)}\n"
     )
     for target in wallet_target:
-        if target > 0:
-            output.append(display_progress_bar(total, target))
+        output.append(display_progress_bar(total, target))
+    if wallet_target_invalid:
+        bad = ", ".join(repr(e) for e in wallet_target_invalid)
+        output.append(f"\033[93m⚠ WALLET_TARGET: invalid entries skipped: {bad}\033[0m")
 
     if compact:
         return "\n".join(output)

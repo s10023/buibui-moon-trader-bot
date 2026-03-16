@@ -211,29 +211,33 @@ class TestGetWalletTarget:
 
     def test_returns_single_float(self) -> None:
         with patch.dict("os.environ", {"WALLET_TARGET": "2000"}):
-            assert get_wallet_target() == [2000.0]
+            targets, invalid = get_wallet_target()
+            assert targets == [2000.0]
+            assert invalid == []
 
     def test_returns_multiple_floats(self) -> None:
         with patch.dict("os.environ", {"WALLET_TARGET": "500,1000,5000"}):
-            assert get_wallet_target() == [500.0, 1000.0, 5000.0]
+            targets, invalid = get_wallet_target()
+            assert targets == [500.0, 1000.0, 5000.0]
+            assert invalid == []
 
     def test_returns_empty_when_env_not_set(self) -> None:
         with patch.dict("os.environ", {}, clear=True):
-            assert get_wallet_target() == []
+            targets, invalid = get_wallet_target()
+            assert targets == []
+            assert invalid == []
 
-    def test_skips_invalid_entries_and_warns(self) -> None:
+    def test_skips_invalid_entries(self) -> None:
         with patch.dict("os.environ", {"WALLET_TARGET": "1000,bad,2000"}):
-            with patch("utils.binance_client.logging") as mock_log:
-                result = get_wallet_target()
-                assert result == [1000.0, 2000.0]
-                mock_log.warning.assert_called_once()
+            targets, invalid = get_wallet_target()
+            assert targets == [1000.0, 2000.0]
+            assert invalid == ["bad"]
 
-    def test_returns_empty_on_all_invalid(self) -> None:
+    def test_returns_all_invalid(self) -> None:
         with patch.dict("os.environ", {"WALLET_TARGET": "bad,also_bad"}):
-            with patch("utils.binance_client.logging") as mock_log:
-                result = get_wallet_target()
-                assert result == []
-                assert mock_log.warning.call_count == 2
+            targets, invalid = get_wallet_target()
+            assert targets == []
+            assert invalid == ["bad", "also_bad"]
 
 
 class TestGetKlines:
