@@ -89,16 +89,24 @@ def get_wallet_balance(client: Client) -> tuple[float, float]:
     return 0.0, 0.0
 
 
-def _find_sl_in_orders(orders: list[dict[str, Any]]) -> float | None:
+def _find_sl_in_orders(
+    orders: list[dict[str, Any]], position_side: str = "BOTH"
+) -> float | None:
     """Find the first SL price in a pre-fetched list of orders for one symbol.
 
-    Matches any STOP_MARKET or STOP order with a positive stopPrice.
-    Binance UI-placed SL orders use closePosition=True; API-placed ones use
-    reduceOnly=True; manually placed orders may have neither flag set.
-    Requiring either flag is too strict and silently misses valid SL orders.
+    In hedge mode (position_side != "BOTH"), only matches orders whose
+    positionSide equals position_side. Orders with positionSide "BOTH" (one-way
+    mode orders) are always considered regardless of position_side.
     """
     for o in orders:
         if o["type"] not in ("STOP_MARKET", "STOP"):
+            continue
+        order_side = o.get("positionSide", "BOTH")
+        if (
+            position_side != "BOTH"
+            and order_side != "BOTH"
+            and order_side != position_side
+        ):
             continue
         price = float(o.get("stopPrice") or 0)
         if price > 0:
@@ -106,38 +114,44 @@ def _find_sl_in_orders(orders: list[dict[str, Any]]) -> float | None:
     return None
 
 
-def get_stop_loss_for_symbol(client: Client, symbol: str) -> float | None:
+def get_stop_loss_for_symbol(
+    client: Client, symbol: str, position_side: str = "BOTH"
+) -> float | None:
     """Get the stop-loss price for a symbol from open orders.
 
-    Binance sets SL orders via UI with closePosition=true (not reduceOnly=true),
-    so both flags must be checked.
+    Pass position_side in hedge mode to match only the correct side's SL order.
     """
     try:
         orders = client.futures_get_open_orders(symbol=symbol)
-        return _find_sl_in_orders(orders)
+        return _find_sl_in_orders(orders, position_side)
     except Exception as e:
         logging.warning("SL fetch failed for %s: %s", symbol, e)
     return None
 
 
-def _fetch_all_sl_prices(client: Client) -> dict[str, float]:
-    """Fetch all open orders in one call and return {symbol: sl_price} for SL orders."""
+def _fetch_all_sl_prices(client: Client) -> dict[tuple[str, str], float]:
+    """Fetch all open orders in one call and return {(symbol, positionSide): sl_price}.
+
+    Keying by (symbol, positionSide) supports hedge mode where LONG and SHORT
+    positions on the same symbol have independent SL orders.
+    """
     try:
         all_orders: list[dict[str, Any]] = client.futures_get_open_orders()
     except Exception as e:
         logging.warning("Failed to fetch all open orders: %s", e)
         return {}
 
-    orders_by_symbol: dict[str, list[dict[str, Any]]] = {}
+    orders_by_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for o in all_orders:
         sym = o.get("symbol", "")
-        orders_by_symbol.setdefault(sym, []).append(o)
+        side = o.get("positionSide", "BOTH")
+        orders_by_key.setdefault((sym, side), []).append(o)
 
-    result: dict[str, float] = {}
-    for sym, orders in orders_by_symbol.items():
-        sl = _find_sl_in_orders(orders)
+    result: dict[tuple[str, str], float] = {}
+    for (sym, side), orders in orders_by_key.items():
+        sl = _find_sl_in_orders(orders, side)
         if sl is not None:
-            result[sym] = sl
+            result[(sym, side)] = sl
     return result
 
 
@@ -172,21 +186,32 @@ def fetch_open_positions(
         notional = abs(float(pos["notional"]))
         margin = float(pos.get("positionInitialMargin", 0)) or 1e-6
         side_text = "LONG" if amt > 0 else "SHORT"
+        position_side = pos.get("positionSide", "BOTH")
         open_positions.append(
-            (symbol, side_text, entry, mark, margin, notional, amt, pos)
+            (symbol, side_text, position_side, entry, mark, margin, notional, amt, pos)
         )
 
     # One bulk fetch instead of one REST call per open position.
     # Fall back to per-symbol if the bulk call returns nothing (e.g. API error
     # swallowed silently, or exchange quirk) so SL is never silently dropped.
     sl_prices = _fetch_all_sl_prices(client) if open_positions else {}
-    for sym, *_ in open_positions:
-        if sym not in sl_prices:
-            sl = get_stop_loss_for_symbol(client, sym)
+    for sym, _, pos_side, *_ in open_positions:
+        if (sym, pos_side) not in sl_prices and (sym, "BOTH") not in sl_prices:
+            sl = get_stop_loss_for_symbol(client, sym, pos_side)
             if sl is not None:
-                sl_prices[sym] = sl
+                sl_prices[(sym, pos_side)] = sl
 
-    for symbol, side_text, entry, mark, margin, notional, amt, pos in open_positions:
+    for (
+        symbol,
+        side_text,
+        position_side,
+        entry,
+        mark,
+        margin,
+        notional,
+        amt,
+        pos,
+    ) in open_positions:
         side_colored = (
             f"\033[92m{side_text}\033[0m" if amt > 0 else f"\033[91m{side_text}\033[0m"
         )
@@ -194,7 +219,9 @@ def fetch_open_positions(
         pnl_pct = (pnl / margin) * 100
         leverage = round(notional / margin)
 
-        actual_sl = sl_prices.get(symbol)
+        actual_sl = sl_prices.get((symbol, position_side)) or sl_prices.get(
+            (symbol, "BOTH")
+        )
         if actual_sl:
             if side_text == "SHORT":
                 sl_percent = (entry - actual_sl) / entry * 100

@@ -220,6 +220,37 @@ class TestGetStopLossForSymbol:
         ]
         assert get_stop_loss_for_symbol(mock_client, "BTCUSDT") is None
 
+    def test_hedge_mode_filters_by_position_side(self) -> None:
+        """In hedge mode, a SHORT SL order must not be returned for a LONG lookup."""
+        mock_client = MagicMock()
+        mock_client.futures_get_open_orders.return_value = [
+            {
+                "type": "STOP_MARKET",
+                "positionSide": "SHORT",
+                "stopPrice": "90000.0",
+            },
+            {
+                "type": "STOP_MARKET",
+                "positionSide": "LONG",
+                "stopPrice": "75000.0",
+            },
+        ]
+        assert get_stop_loss_for_symbol(mock_client, "BTCUSDT", "SHORT") == 90000.0
+        assert get_stop_loss_for_symbol(mock_client, "BTCUSDT", "LONG") == 75000.0
+
+    def test_one_way_mode_order_matches_any_position_side(self) -> None:
+        """A BOTH-side order (one-way mode) should be returned regardless of position_side."""
+        mock_client = MagicMock()
+        mock_client.futures_get_open_orders.return_value = [
+            {
+                "type": "STOP_MARKET",
+                "positionSide": "BOTH",
+                "stopPrice": "80000.0",
+            },
+        ]
+        assert get_stop_loss_for_symbol(mock_client, "BTCUSDT", "SHORT") == 80000.0
+        assert get_stop_loss_for_symbol(mock_client, "BTCUSDT", "LONG") == 80000.0
+
 
 class TestFetchOpenPositions:
     """Tests for fetch_open_positions()."""
