@@ -4,7 +4,7 @@ import logging
 
 from dotenv import load_dotenv
 
-from analytics import analytics_runner, backtest_runner
+from analytics import analytics_runner, backtest_runner, signal_runner
 from analytics.indicators_lib import KNOWN_STRATEGIES
 from monitor import position_monitor, price_monitor
 
@@ -42,6 +42,19 @@ def run_backtest(args: argparse.Namespace) -> None:
         days=args.days,
         sl_pct=args.sl_pct,
         tp_r=args.tp_r,
+        secondary_symbol=args.secondary_symbol,
+    )
+
+
+def run_signal_watch(args: argparse.Namespace) -> None:
+    signal_runner.run_signal_watch(
+        symbols=args.symbols,
+        timeframes=args.timeframes,
+        strategies=args.strategies,
+        poll_interval=args.poll_interval,
+        tp_r=args.tp_r,
+        send_telegram=args.telegram,
+        state_file=args.state_file,
         secondary_symbol=args.secondary_symbol,
     )
 
@@ -101,6 +114,67 @@ def main() -> None:
         "--compact", action="store_true", help="Show compact information"
     )
     position_parser.set_defaults(func=run_position_monitor)
+
+    # Top-level 'signal' command
+    signal_parser = subparsers.add_parser("signal", help="Signal detection tools")
+    signal_subparsers = signal_parser.add_subparsers(
+        dest="signal_command", required=True
+    )
+
+    # 'watch' subcommand
+    watch_parser = signal_subparsers.add_parser(
+        "watch", help="Run 24/7 signal detection daemon"
+    )
+    watch_parser.add_argument(
+        "--symbols",
+        nargs="+",
+        default=None,
+        help="Symbols to scan (default: all from coins.json)",
+    )
+    watch_parser.add_argument(
+        "--timeframes",
+        nargs="+",
+        default=["4h"],
+        help="Timeframes to scan (default: 4h)",
+    )
+    watch_parser.add_argument(
+        "--strategies",
+        nargs="+",
+        default=None,
+        help="Strategies to run (default: all except seasonality)",
+    )
+    watch_parser.add_argument(
+        "--poll-interval",
+        type=int,
+        default=300,
+        dest="poll_interval",
+        help="Seconds between scan cycles (default: 300)",
+    )
+    watch_parser.add_argument(
+        "--tp-r",
+        type=float,
+        default=2.0,
+        dest="tp_r",
+        help="Take-profit risk:reward ratio for alert formatting (default: 2.0)",
+    )
+    watch_parser.add_argument(
+        "--telegram",
+        action="store_true",
+        help="Send alerts via Telegram",
+    )
+    watch_parser.add_argument(
+        "--state-file",
+        default="signal_state.json",
+        dest="state_file",
+        help="Path to cooldown/watermark state file (default: signal_state.json)",
+    )
+    watch_parser.add_argument(
+        "--secondary-symbol",
+        default=None,
+        dest="secondary_symbol",
+        help="Secondary symbol for SMT divergence strategy (e.g. ETHUSDT)",
+    )
+    watch_parser.set_defaults(func=run_signal_watch)
 
     # Top-level 'analytics' command
     analytics_parser = subparsers.add_parser("analytics", help="Analytics data tools")
