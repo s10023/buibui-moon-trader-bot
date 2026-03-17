@@ -348,7 +348,6 @@ poetry run python buibui.py signal watch
 - `--symbols BTCUSDT ETHUSDT` — symbols to scan (default: all from `coins.json`)
 - `--timeframes 4h` — candle timeframes (default: `4h`)
 - `--strategies fvg bos` — strategies to run (default: all 8 except `seasonality`)
-- `--poll-interval 300` — seconds between scan cycles (default: `300`)
 - `--tp-r 2.0` — R multiplier for TP level in alert messages (default: `2.0`)
 - `--telegram` — send alerts via Telegram
 - `--state-file signal_state.json` — path to cooldown/watermark state file
@@ -436,12 +435,12 @@ Optional overrides: `SL_PCT`, `TP_R`, `SECONDARY` (required for `smt_divergence`
 make buibui-signal-watch                                         # All symbols, 4h, all strategies
 make buibui-signal-watch SYMBOLS="BTCUSDT ETHUSDT"              # Specific symbols
 make buibui-signal-watch STRATEGIES="fvg bos" TELEGRAM=1        # Specific strategies + Telegram
-make buibui-signal-watch POLL_INTERVAL=60                       # Faster polling
 make buibui-signal-watch STRATEGIES="smt_divergence" SECONDARY=ETHUSDT
 ```
 
-Defaults: `POLL_INTERVAL=300`. Optional overrides: `SYMBOLS`, `TIMEFRAMES`, `STRATEGIES`,
-`SECONDARY`, `TELEGRAM=1` (flag).
+The daemon wakes at clock-aligned candle boundaries (e.g. 04:00:10, 08:00:10 for `4h`),
+so alerts arrive within seconds of the candle close. Optional overrides: `SYMBOLS`,
+`TIMEFRAMES`, `STRATEGIES`, `SECONDARY`, `TELEGRAM=1` (flag).
 
 All commands use your `.env` file for secrets and config.
 
@@ -479,7 +478,7 @@ make docker-backtest SYMBOL=BTCUSDT STRATEGY=smt_divergence SECONDARY=ETHUSDT
 # Signal watch daemon (interactive, Ctrl+C to stop)
 make docker-signal-watch                                      # All symbols, 4h, no Telegram
 make docker-signal-watch TELEGRAM=1                           # With Telegram alerts
-make docker-signal-watch STRATEGIES="fvg bos" POLL_INTERVAL=60
+make docker-signal-watch STRATEGIES="fvg bos"
 ```
 
 > **First run:** Before running analytics, backtest, or signal-watch Docker commands,
