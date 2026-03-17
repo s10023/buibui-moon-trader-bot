@@ -148,25 +148,28 @@ class TestGetWalletBalance:
     ) -> None:
         mock_client = MagicMock()
         mock_client.futures_account_balance.return_value = mock_futures_balance
-        balance, unrealized = get_wallet_balance(mock_client)
+        balance, unrealized, available = get_wallet_balance(mock_client)
         assert balance == 1123.15
         assert unrealized == 290.29
+        assert available == 450.30
 
     def test_no_usdt_returns_zeros(self) -> None:
         mock_client = MagicMock()
         mock_client.futures_account_balance.return_value = [
             {"asset": "BNB", "balance": "10.0", "crossUnPnl": "0"}
         ]
-        balance, unrealized = get_wallet_balance(mock_client)
+        balance, unrealized, available = get_wallet_balance(mock_client)
         assert balance == 0.0
         assert unrealized == 0.0
+        assert available == 0.0
 
     def test_empty_balance_list(self) -> None:
         mock_client = MagicMock()
         mock_client.futures_account_balance.return_value = []
-        balance, unrealized = get_wallet_balance(mock_client)
+        balance, unrealized, available = get_wallet_balance(mock_client)
         assert balance == 0.0
         assert unrealized == 0.0
+        assert available == 0.0
 
 
 class TestGetStopLossForSymbol:
@@ -196,12 +199,60 @@ class TestGetStopLossForSymbol:
         mock_client.futures_get_open_orders.side_effect = Exception("API error")
         assert get_stop_loss_for_symbol(mock_client, "BTCUSDT") is None
 
-    def test_stop_type_without_reduce_only(self) -> None:
+    def test_stop_type_without_reduce_only_still_detected(self) -> None:
+        """Manually placed STOP_MARKET orders have neither reduceOnly nor closePosition
+        set, but are still a valid SL — we should not reject them."""
         mock_client = MagicMock()
         mock_client.futures_get_open_orders.return_value = [
             {"type": "STOP_MARKET", "reduceOnly": False, "stopPrice": "50000.0"},
         ]
+        assert get_stop_loss_for_symbol(mock_client, "BTCUSDT") == 50000.0
+
+    def test_close_position_flag_detected_as_sl(
+        self, mock_close_position_sl_orders: list[dict[str, Any]]
+    ) -> None:
+        """Binance UI sets SL orders with closePosition=True, not reduceOnly=True."""
+        mock_client = MagicMock()
+        mock_client.futures_get_open_orders.return_value = mock_close_position_sl_orders
+        assert get_stop_loss_for_symbol(mock_client, "BTCUSDT") == 109970.0
+
+    def test_zero_stop_price_ignored(self) -> None:
+        mock_client = MagicMock()
+        mock_client.futures_get_open_orders.return_value = [
+            {"type": "STOP_MARKET", "closePosition": True, "stopPrice": "0"},
+        ]
         assert get_stop_loss_for_symbol(mock_client, "BTCUSDT") is None
+
+    def test_hedge_mode_filters_by_position_side(self) -> None:
+        """In hedge mode, a SHORT SL order must not be returned for a LONG lookup."""
+        mock_client = MagicMock()
+        mock_client.futures_get_open_orders.return_value = [
+            {
+                "type": "STOP_MARKET",
+                "positionSide": "SHORT",
+                "stopPrice": "90000.0",
+            },
+            {
+                "type": "STOP_MARKET",
+                "positionSide": "LONG",
+                "stopPrice": "75000.0",
+            },
+        ]
+        assert get_stop_loss_for_symbol(mock_client, "BTCUSDT", "SHORT") == 90000.0
+        assert get_stop_loss_for_symbol(mock_client, "BTCUSDT", "LONG") == 75000.0
+
+    def test_one_way_mode_order_matches_any_position_side(self) -> None:
+        """A BOTH-side order (one-way mode) should be returned regardless of position_side."""
+        mock_client = MagicMock()
+        mock_client.futures_get_open_orders.return_value = [
+            {
+                "type": "STOP_MARKET",
+                "positionSide": "BOTH",
+                "stopPrice": "80000.0",
+            },
+        ]
+        assert get_stop_loss_for_symbol(mock_client, "BTCUSDT", "SHORT") == 80000.0
+        assert get_stop_loss_for_symbol(mock_client, "BTCUSDT", "LONG") == 80000.0
 
 
 class TestFetchOpenPositions:
@@ -217,7 +268,7 @@ class TestFetchOpenPositions:
         mock_client.futures_account_balance.return_value = mock_futures_balance
         mock_client.futures_get_open_orders.return_value = []
 
-        positions, total_risk, wallet, unrealized = fetch_open_positions(
+        positions, total_risk, wallet, unrealized, _ = fetch_open_positions(
             mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER
         )
 
@@ -237,7 +288,7 @@ class TestFetchOpenPositions:
         mock_client.futures_account_balance.return_value = mock_futures_balance
         mock_client.futures_get_open_orders.return_value = []
 
-        positions, _, _wallet, _unrealized = fetch_open_positions(
+        positions, _, _wallet, _unrealized, _ = fetch_open_positions(
             mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER, hide_empty=True
         )
         assert all(r[1] != "-" for r in positions)
@@ -252,7 +303,7 @@ class TestFetchOpenPositions:
         mock_client.futures_account_balance.return_value = mock_futures_balance
         mock_client.futures_get_open_orders.return_value = []
 
-        positions, _, _wallet, _unrealized = fetch_open_positions(
+        positions, _, _wallet, _unrealized, _ = fetch_open_positions(
             mock_client,
             SAMPLE_COINS_CONFIG,
             SAMPLE_COIN_ORDER,
@@ -273,7 +324,7 @@ class TestFetchOpenPositions:
         mock_client.futures_account_balance.return_value = mock_futures_balance
         mock_client.futures_get_open_orders.return_value = []
 
-        positions, _, _wallet, _unrealized = fetch_open_positions(
+        positions, _, _wallet, _unrealized, _ = fetch_open_positions(
             mock_client,
             SAMPLE_COINS_CONFIG,
             SAMPLE_COIN_ORDER,
@@ -293,7 +344,7 @@ class TestFetchOpenPositions:
         mock_client.futures_account_balance.return_value = mock_futures_balance
         mock_client.futures_get_open_orders.return_value = mock_stop_loss_orders
 
-        _, total_risk, _wallet, _unrealized = fetch_open_positions(
+        _, total_risk, _wallet, _unrealized, _ = fetch_open_positions(
             mock_client,
             SAMPLE_COINS_CONFIG,
             SAMPLE_COIN_ORDER,
@@ -316,7 +367,7 @@ class TestDisplayTable:
         mock_client.futures_get_open_orders.return_value = []
 
         result = display_table(
-            mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER, 2000.0, compact=True
+            mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER, [2000.0], compact=True
         )
         assert "Wallet Balance" in result
         assert "\u2552" not in result
@@ -332,7 +383,7 @@ class TestDisplayTable:
         mock_client.futures_get_open_orders.return_value = []
 
         result = display_table(
-            mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER, 2000.0, compact=False
+            mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER, [2000.0], compact=False
         )
         assert "Wallet Balance" in result
         assert "\u2552" in result
@@ -352,7 +403,7 @@ class TestDisplayTable:
                 mock_client,
                 SAMPLE_COINS_CONFIG,
                 SAMPLE_COIN_ORDER,
-                2000.0,
+                [2000.0],
                 telegram=True,
             )
             mock_tg.assert_called_once()
@@ -392,13 +443,14 @@ class TestPositionBugFixes:
         mock_client.futures_account_balance.return_value = mock_futures_balance
         mock_client.futures_get_open_orders.return_value = [
             {
+                "symbol": "BTCUSDT",
                 "type": "STOP_MARKET",
                 "reduceOnly": True,
                 "stopPrice": "111000.0",  # above entry — correct SHORT SL
             }
         ]
 
-        _, total_risk, _wallet, _unrealized = fetch_open_positions(
+        _, total_risk, _wallet, _unrealized, _ = fetch_open_positions(
             mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER, hide_empty=True
         )
         assert total_risk > 0, "SHORT sl_risk_usd must be positive (it is a loss)"
@@ -414,32 +466,33 @@ class TestPositionBugFixes:
         mock_client.futures_get_open_orders.return_value = []
 
         # Must not raise ZeroDivisionError
-        positions, _, wallet, _ = fetch_open_positions(
+        positions, _, wallet, _, _ = fetch_open_positions(
             mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER, hide_empty=True
         )
         assert wallet == 0.0
         for row in positions:
             assert row[9] == "0.00%"  # Risk% column must default to 0.00%
 
-    def test_available_balance_uses_wallet_not_total(
+    def test_available_balance_comes_from_api(
         self,
         mock_positions_data: list[dict[str, Any]],
         mock_futures_balance: list[dict[str, Any]],
     ) -> None:
+        """Available balance must use the API-provided availableBalance, not a manual
+        wallet - used_margin calculation (which misses open order margin and ignores
+        unrealized PnL as collateral in cross-margin mode)."""
         mock_client = MagicMock()
         mock_client.futures_position_information.return_value = mock_positions_data
         mock_client.futures_account_balance.return_value = mock_futures_balance
         mock_client.futures_get_open_orders.return_value = []
 
         result = display_table(
-            mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER, 0.0, compact=True
+            mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER, [], compact=True
         )
-        # wallet=1123.15, used_margin=595.99+591.11=1187.10
-        # Correct: available = 1123.15 - 1187.10 = -63.95 (negative — over-margined)
-        # Wrong (old): available = (1123.15+290.29) - 1187.10 = 226.34 (overstated)
+        # mock_futures_balance has availableBalance=450.30
         match = re.search(r"Available Balance: \$(-?[\d,]+\.\d+)", result)
         assert match is not None, "Available Balance not found in output"
         available = float(match.group(1).replace(",", ""))
-        assert available < 0, (
-            f"Available balance should be wallet-based (~-63.95), got {available}"
+        assert available == 450.30, (
+            f"Available balance should equal API availableBalance (450.30), got {available}"
         )

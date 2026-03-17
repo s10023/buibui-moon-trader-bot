@@ -52,6 +52,7 @@ def run_position_monitor(args: argparse.Namespace) -> None:
         telegram=args.telegram,
         hide_empty=args.hide_empty,
         compact=args.compact,
+        live=args.live,
     )
 
 
@@ -75,7 +76,7 @@ def main() -> None:
     price_parser.add_argument(
         "--sort",
         default="default",
-        help="Sort table by column[:asc|desc]. Options: change_15m, change_1h, change_asia, change_24h. Example: --sort change_15m:desc",
+        help="Sort table by column[:asc|desc]. Options: change_15m, change_1h, change_4h, change_asia, change_24h. Example: --sort change_15m:desc",
     )
     price_parser.add_argument(
         "--telegram", action="store_true", help="Send output to Telegram"
@@ -85,6 +86,9 @@ def main() -> None:
     # 'position' subcommand
     position_parser = monitor_subparsers.add_parser(
         "position", help="Run position monitor"
+    )
+    position_parser.add_argument(
+        "--live", action="store_true", help="Live refresh mode"
     )
     position_parser.add_argument("--sort", default="default", help="Sort order")
     position_parser.add_argument(

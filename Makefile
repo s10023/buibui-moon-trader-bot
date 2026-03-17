@@ -8,7 +8,7 @@ DAYS ?= 90
 PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*" -not -path "./.venv/*")
 DOCKER_IMAGE = buibui-bot
 
-.PHONY: lint lint-md lint-md-fix lint-py-check lint-py typecheck test poetry-install poetry-update docker-build docker-monitor-price docker-monitor-position docker-analytics-backfill docker-analytics-sync docker-backtest buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-telegram buibui-open-trades buibui-analytics-backfill buibui-analytics-sync buibui-backtest clean-db clean
+.PHONY: lint lint-md lint-md-fix lint-py-check lint-py typecheck test poetry-install poetry-update docker-build docker-monitor-price docker-monitor-position docker-analytics-backfill docker-analytics-sync docker-backtest buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-open-trades buibui-analytics-backfill buibui-analytics-sync buibui-backtest clean-db clean
 
 lint: lint-md lint-py
 
@@ -110,6 +110,10 @@ buibui-monitor-price-telegram:
 buibui-monitor-position:
 	@echo "📊 Running position monitor..."
 	poetry run python buibui.py monitor position --sort $(SORT)
+
+buibui-monitor-position-live:
+	@echo "📊 Running position monitor in live mode..."
+	poetry run python buibui.py monitor position --live --sort $(SORT)
 
 buibui-monitor-position-telegram:
 	@echo "📊 Running position monitor and sending to Telegram..."

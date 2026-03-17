@@ -148,6 +148,7 @@ def mock_futures_balance() -> list[dict[str, Any]]:
             "asset": "USDT",
             "balance": "1123.15",
             "crossUnPnl": "290.29",
+            "availableBalance": "450.30",
         },
         {
             "asset": "BNB",
@@ -159,10 +160,11 @@ def mock_futures_balance() -> list[dict[str, Any]]:
 
 @pytest.fixture
 def mock_positions_data() -> list[dict[str, Any]]:
-    """Sample futures position information response."""
+    """Sample futures position information response (hedge mode, SHORT positions)."""
     return [
         {
             "symbol": "BTCUSDT",
+            "positionSide": "SHORT",
             "positionAmt": "-0.135",
             "entryPrice": "110032.0",
             "markPrice": "108757.0",
@@ -172,6 +174,7 @@ def mock_positions_data() -> list[dict[str, Any]]:
         },
         {
             "symbol": "ETHUSDT",
+            "positionSide": "SHORT",
             "positionAmt": "-4.5",
             "entryPrice": "2616.17",
             "markPrice": "2550.10",
@@ -181,6 +184,7 @@ def mock_positions_data() -> list[dict[str, Any]]:
         },
         {
             "symbol": "SOLUSDT",
+            "positionSide": "BOTH",
             "positionAmt": "0",
             "entryPrice": "0.0",
             "markPrice": "143.22",
@@ -193,12 +197,28 @@ def mock_positions_data() -> list[dict[str, Any]]:
 
 @pytest.fixture
 def mock_stop_loss_orders() -> list[dict[str, Any]]:
-    """Sample open orders with stop-loss."""
+    """Sample open orders with stop-loss (reduceOnly style, hedge mode SHORT)."""
     return [
         {
             "symbol": "BTCUSDT",
             "type": "STOP_MARKET",
+            "positionSide": "SHORT",
             "reduceOnly": True,
+            "stopPrice": "109970.0",
+        },
+    ]
+
+
+@pytest.fixture
+def mock_close_position_sl_orders() -> list[dict[str, Any]]:
+    """Sample open orders with stop-loss set via Binance UI (closePosition style)."""
+    return [
+        {
+            "symbol": "BTCUSDT",
+            "type": "STOP_MARKET",
+            "positionSide": "SHORT",
+            "reduceOnly": False,
+            "closePosition": True,
             "stopPrice": "109970.0",
         },
     ]

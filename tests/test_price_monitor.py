@@ -77,13 +77,14 @@ class TestSortTable:
             "Last Price",
             "15m %",
             "1h %",
+            "4h %",
             "Since Asia 8AM",
             "24h %",
         ]
         self.table = [
-            ["BTCUSDT", "62457.10", "+0.53%", "+1.42%", "+0.88%", "+2.31%"],
-            ["ETHUSDT", "3408.50", "+0.22%", "+1.05%", "+0.71%", "+1.74%"],
-            ["SOLUSDT", "143.22", "-0.08%", "+0.34%", "+0.11%", "+0.89%"],
+            ["BTCUSDT", "62457.10", "+0.53%", "+1.42%", "+1.80%", "+0.88%", "+2.31%"],
+            ["ETHUSDT", "3408.50", "+0.22%", "+1.05%", "+1.30%", "+0.71%", "+1.74%"],
+            ["SOLUSDT", "143.22", "-0.08%", "+0.34%", "+0.50%", "+0.11%", "+0.89%"],
         ]
 
     def test_sort_by_15m_descending(self) -> None:
@@ -98,6 +99,10 @@ class TestSortTable:
 
     def test_sort_by_1h(self) -> None:
         result = sort_table(self.table, self.headers, "change_1h", True)
+        assert result[0][0] == "BTCUSDT"
+
+    def test_sort_by_4h(self) -> None:
+        result = sort_table(self.table, self.headers, "change_4h", True)
         assert result[0][0] == "BTCUSDT"
 
     def test_sort_by_24h(self) -> None:
@@ -116,8 +121,24 @@ class TestSortTable:
     def test_sort_with_ansi_codes(self) -> None:
         """Sort should strip ANSI codes before comparing."""
         table_with_ansi = [
-            ["BTCUSDT", "62457", "\033[32m+0.53%\033[0m", "+1.42%", "+0.88%", "+2.31%"],
-            ["ETHUSDT", "3408", "\033[32m+0.22%\033[0m", "+1.05%", "+0.71%", "+1.74%"],
+            [
+                "BTCUSDT",
+                "62457",
+                "\033[32m+0.53%\033[0m",
+                "+1.42%",
+                "+1.80%",
+                "+0.88%",
+                "+2.31%",
+            ],
+            [
+                "ETHUSDT",
+                "3408",
+                "\033[32m+0.22%\033[0m",
+                "+1.05%",
+                "+1.30%",
+                "+0.71%",
+                "+1.74%",
+            ],
         ]
         result = sort_table(table_with_ansi, self.headers, "change_15m", True)
         assert result[0][0] == "BTCUSDT"
@@ -188,20 +209,35 @@ class TestCreateClient:
 class TestGetWalletTarget:
     """Tests for get_wallet_target() env parsing."""
 
-    def test_returns_float_from_valid_env(self) -> None:
+    def test_returns_single_float(self) -> None:
         with patch.dict("os.environ", {"WALLET_TARGET": "2000"}):
-            assert get_wallet_target() == 2000.0
+            targets, invalid = get_wallet_target()
+            assert targets == [2000.0]
+            assert invalid == []
 
-    def test_returns_zero_when_env_not_set(self) -> None:
+    def test_returns_multiple_floats(self) -> None:
+        with patch.dict("os.environ", {"WALLET_TARGET": "500,1000,5000"}):
+            targets, invalid = get_wallet_target()
+            assert targets == [500.0, 1000.0, 5000.0]
+            assert invalid == []
+
+    def test_returns_empty_when_env_not_set(self) -> None:
         with patch.dict("os.environ", {}, clear=True):
-            assert get_wallet_target() == 0.0
+            targets, invalid = get_wallet_target()
+            assert targets == []
+            assert invalid == []
 
-    def test_returns_zero_and_warns_on_invalid_value(self) -> None:
-        with patch.dict("os.environ", {"WALLET_TARGET": "$2,000"}):
-            with patch("utils.binance_client.logging") as mock_log:
-                result = get_wallet_target()
-                assert result == 0.0
-                mock_log.warning.assert_called_once()
+    def test_skips_invalid_entries(self) -> None:
+        with patch.dict("os.environ", {"WALLET_TARGET": "1000,bad,2000"}):
+            targets, invalid = get_wallet_target()
+            assert targets == [1000.0, 2000.0]
+            assert invalid == ["bad"]
+
+    def test_returns_all_invalid(self) -> None:
+        with patch.dict("os.environ", {"WALLET_TARGET": "bad,also_bad"}):
+            targets, invalid = get_wallet_target()
+            assert targets == []
+            assert invalid == ["bad", "also_bad"]
 
 
 class TestGetKlines:
@@ -321,9 +357,9 @@ class TestFormatPctRich:
 
 class TestSortTableRaw:
     ROWS: list[list[Any]] = [
-        ["C", "150", 2.0, None, None, None],
-        ["A", "100", 1.0, None, None, None],
-        ["B", "200", 3.0, None, None, None],
+        ["C", "150", 2.0, None, None, None, None],
+        ["A", "100", 1.0, None, None, None, None],
+        ["B", "200", 3.0, None, None, None, None],
     ]
 
     def test_descending(self) -> None:
@@ -336,8 +372,8 @@ class TestSortTableRaw:
 
     def test_none_sorts_last_in_descending(self) -> None:
         rows: list[list[Any]] = [
-            ["A", "100", None, None, None, None],
-            ["B", "200", 1.0, None, None, None],
+            ["A", "100", None, None, None, None, None],
+            ["B", "200", 1.0, None, None, None, None],
         ]
         result = sort_table_raw(rows, col_idx=2, reverse=True)
         assert result[0][0] == "B"
@@ -345,8 +381,8 @@ class TestSortTableRaw:
 
     def test_none_sorts_last_in_ascending(self) -> None:
         rows: list[list[Any]] = [
-            ["A", "100", None, None, None, None],
-            ["B", "200", 1.0, None, None, None],
+            ["A", "100", None, None, None, None, None],
+            ["B", "200", 1.0, None, None, None, None],
         ]
         result = sort_table_raw(rows, col_idx=2, reverse=False)
         assert result[0][0] == "B"

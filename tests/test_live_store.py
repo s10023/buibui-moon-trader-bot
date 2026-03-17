@@ -33,17 +33,22 @@ class TestUpdateTicker:
 class TestUpdateKlines:
     def test_stores_and_retrieves(self) -> None:
         store = LiveDataStore()
-        store.update_klines("BTCUSDT", open_15m=99.0, open_1h=95.0, asia_open=90.0)
+        store.update_klines(
+            "BTCUSDT", open_15m=99.0, open_1h=95.0, open_4h=93.0, asia_open=90.0
+        )
         result = store.snapshot(["BTCUSDT"])
         klines = result.data["BTCUSDT"].klines
         assert klines is not None
         assert klines.open_15m == 99.0
         assert klines.open_1h == 95.0
+        assert klines.open_4h == 93.0
         assert klines.asia_open == 90.0
 
     def test_none_values_allowed(self) -> None:
         store = LiveDataStore()
-        store.update_klines("BTCUSDT", open_15m=None, open_1h=None, asia_open=None)
+        store.update_klines(
+            "BTCUSDT", open_15m=None, open_1h=None, open_4h=None, asia_open=None
+        )
         result = store.snapshot(["BTCUSDT"])
         assert result.data["BTCUSDT"].klines is not None
 

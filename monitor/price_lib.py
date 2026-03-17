@@ -23,11 +23,12 @@ PRICE_HEADERS: list[str] = [
     "Last Price",
     "15m %",
     "1h %",
+    "4h %",
     "Since Asia 8AM",
     "24h %",
 ]
 VALID_SORT_COLS: frozenset[str] = frozenset(
-    {"change_15m", "change_1h", "change_asia", "change_24h"}
+    {"change_15m", "change_1h", "change_4h", "change_asia", "change_24h"}
 )
 
 
@@ -67,6 +68,7 @@ def sort_table(
     sort_key_map = {
         "change_15m": headers.index("15m %"),
         "change_1h": headers.index("1h %"),
+        "change_4h": headers.index("4h %"),
         "change_asia": headers.index("Since Asia 8AM"),
         "change_24h": headers.index("24h %"),
     }
@@ -189,9 +191,9 @@ def get_price_changes(
         ticker_map = {t["symbol"]: t for t in all_tickers}
     except Exception as e:
         logging.error(f"Error fetching all tickers: {e}")
-        return [[symbol, "Error", "", "", "", ""] for symbol in symbols], set()
+        return [[symbol, "Error", "", "", "", "", ""] for symbol in symbols], set()
 
-    intervals_lookbacks = [("15m", 15), ("1h", 60)]
+    intervals_lookbacks = [("15m", 15), ("1h", 60), ("4h", 240)]
     kline_map = batch_get_klines(client, symbols, intervals_lookbacks)
     asia_open_map = batch_get_asia_open(client, symbols)
 
@@ -202,7 +204,7 @@ def get_price_changes(
             ticker = ticker_map.get(symbol)
             if not ticker:
                 invalid_symbols.add((symbol, "Ticker not found"))
-                table.append([symbol, "Error", "", "", "", ""])
+                table.append([symbol, "Error", "", "", "", "", ""])
                 continue
 
             last_price = float(ticker["lastPrice"])
@@ -210,11 +212,14 @@ def get_price_changes(
 
             k15 = kline_map.get((symbol, "15m"))
             k60 = kline_map.get((symbol, "1h"))
+            k240 = kline_map.get((symbol, "4h"))
             open_15 = float(k15[1]) if k15 else last_price
             open_60 = float(k60[1]) if k60 else last_price
+            open_240 = float(k240[1]) if k240 else last_price
 
             change_15m = ((last_price - open_15) / open_15) * 100 if open_15 else 0
             change_1h = ((last_price - open_60) / open_60) * 100 if open_60 else 0
+            change_4h = ((last_price - open_240) / open_240) * 100 if open_240 else 0
 
             asia_open = asia_open_map.get(symbol)
             change_asia = (
@@ -228,6 +233,7 @@ def get_price_changes(
                     last_price_str,
                     fmt(change_15m),
                     fmt(change_1h),
+                    fmt(change_4h),
                     fmt(change_asia),
                     fmt(change_24h),
                 ]
@@ -238,7 +244,7 @@ def get_price_changes(
                 invalid_symbols.add((symbol, "Invalid symbol"))
             else:
                 invalid_symbols.add((symbol, msg))
-            table.append([symbol, "Error", "", "", "", ""])
+            table.append([symbol, "Error", "", "", "", "", ""])
     return table, invalid_symbols
 
 
