@@ -1,11 +1,13 @@
 """Signal daemon runner — thin wrapper over signal_lib.
 
 Creates the Binance client, opens the DuckDB connection, syncs data,
-then polls on a fixed interval calling run_scan_cycle each time.
+then polls on clock-aligned candle boundaries calling run_scan_cycle each time.
 """
 
 import logging
+import math
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 import duckdb
@@ -19,13 +21,34 @@ from utils.binance_client import create_client, load_coins_config
 logger = logging.getLogger(__name__)
 
 _DEFAULT_BACKFILL_DAYS = 90
+_CANDLE_CLOSE_BUFFER_SECS = 10
+
+
+def _parse_timeframe_secs(tf: str) -> int:
+    """Convert a timeframe string to seconds (e.g. '4h' → 14400, '15m' → 900)."""
+    units = {"m": 60, "h": 3600, "d": 86400}
+    return int(tf[:-1]) * units[tf[-1]]
+
+
+def _secs_until_next_boundary(timeframes: list[str]) -> float:
+    """Return seconds to sleep until the next candle close across all timeframes.
+
+    Wakes at the earliest upcoming boundary + a small buffer so Binance has
+    time to finalise the candle (e.g. 04:00:10, not 04:00:00).
+    """
+    now = time.time()
+    next_wakeups = []
+    for tf in timeframes:
+        interval = _parse_timeframe_secs(tf)
+        next_close = math.ceil(now / interval) * interval
+        next_wakeups.append(next_close + _CANDLE_CLOSE_BUFFER_SECS)
+    return max(0.0, min(next_wakeups) - now)
 
 
 def run_signal_watch(
     symbols: list[str] | None = None,
     timeframes: list[str] | None = None,
     strategies: list[str] | None = None,
-    poll_interval: int = 300,
     tp_r: float = 2.0,
     send_telegram: bool = False,
     state_file: str = "signal_state.json",
@@ -35,7 +58,8 @@ def run_signal_watch(
     """Run the signal detection daemon loop.
 
     On each cycle: syncs new candles from Binance, scans for signals,
-    sends Telegram alerts if enabled, then sleeps until the next cycle.
+    sends Telegram alerts if enabled, then sleeps until the next candle
+    boundary across all watched timeframes.
     """
     from analytics.indicators_lib import KNOWN_STRATEGIES
 
@@ -51,11 +75,10 @@ def run_signal_watch(
     store = CooldownStore(state_file)
 
     logger.info(
-        "Signal daemon starting — symbols=%s timeframes=%s strategies=%s interval=%ds",
+        "Signal daemon starting — symbols=%s timeframes=%s strategies=%s",
         resolved_symbols,
         resolved_timeframes,
         resolved_strategies,
-        poll_interval,
     )
 
     conn = duckdb.connect(str(db_path))
@@ -99,7 +122,11 @@ def run_signal_watch(
             else:
                 logger.info("No new signals this cycle")
 
-            logger.info("--- sleeping %ds ---", poll_interval)
-            time.sleep(poll_interval)
+            sleep_secs = _secs_until_next_boundary(resolved_timeframes)
+            next_dt = datetime.fromtimestamp(time.time() + sleep_secs, tz=UTC).strftime(
+                "%H:%M:%S UTC"
+            )
+            logger.info("--- sleeping %.0fs until %s ---", sleep_secs, next_dt)
+            time.sleep(sleep_secs)
     finally:
         conn.close()

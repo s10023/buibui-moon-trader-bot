@@ -51,7 +51,6 @@ def run_signal_watch(args: argparse.Namespace) -> None:
         symbols=args.symbols,
         timeframes=args.timeframes,
         strategies=args.strategies,
-        poll_interval=args.poll_interval,
         tp_r=args.tp_r,
         send_telegram=args.telegram,
         state_file=args.state_file,
@@ -142,13 +141,6 @@ def main() -> None:
         nargs="+",
         default=None,
         help="Strategies to run (default: all except seasonality)",
-    )
-    watch_parser.add_argument(
-        "--poll-interval",
-        type=int,
-        default=300,
-        dest="poll_interval",
-        help="Seconds between scan cycles (default: 300)",
     )
     watch_parser.add_argument(
         "--tp-r",

@@ -3,7 +3,6 @@ SYMBOL ?= BTCUSDT
 STRATEGY ?= fvg
 INTERVAL ?= 4h
 DAYS ?= 90
-POLL_INTERVAL ?= 300
 # Makefile — Lint Markdown and Python
 
 PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*" -not -path "./.venv/*")
@@ -163,7 +162,6 @@ buibui-signal-watch:
 		$(if $(SYMBOLS),--symbols $(SYMBOLS),) \
 		$(if $(TIMEFRAMES),--timeframes $(TIMEFRAMES),) \
 		$(if $(STRATEGIES),--strategies $(STRATEGIES),) \
-		--poll-interval $(POLL_INTERVAL) \
 		$(if $(TELEGRAM),--telegram,) \
 		$(if $(SECONDARY),--secondary-symbol $(SECONDARY),)
 
@@ -178,7 +176,6 @@ docker-signal-watch:
 		$(if $(SYMBOLS),--symbols $(SYMBOLS),) \
 		$(if $(TIMEFRAMES),--timeframes $(TIMEFRAMES),) \
 		$(if $(STRATEGIES),--strategies $(STRATEGIES),) \
-		--poll-interval $(POLL_INTERVAL) \
 		$(if $(TELEGRAM),--telegram,) \
 		$(if $(SECONDARY),--secondary-symbol $(SECONDARY),)
 
