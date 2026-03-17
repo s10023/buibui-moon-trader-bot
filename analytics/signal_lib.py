@@ -1,9 +1,10 @@
 """Pure signal scanning library.
 
-scan_symbol(): runs requested strategies against a single symbol+timeframe,
+scan_symbol(): runs requested strategies against a pre-fetched OHLCV DataFrame,
                returning SignalEvents only for the latest candle.
-run_scan_cycle(): fans out across all symbols/timeframes, deduplicates via
-                  CooldownStore, formats alerts, and optionally sends Telegram.
+run_scan_cycle(): fans out across all symbols/timeframes, pre-fetches OHLCV once
+                  per (symbol, timeframe), deduplicates via CooldownStore,
+                  formats alerts, and optionally sends Telegram.
 No module-level side effects.
 """
 
@@ -14,6 +15,7 @@ import duckdb
 import pandas as pd
 
 from analytics.data_store import get_funding_rates, get_ohlcv
+from analytics.indicators_lib import STRATEGY_REGISTRY
 from signals.alert_formatter import SignalEvent, format_signal_alert
 from signals.cooldown_store import CooldownStore
 from signals.registry import SIGNAL_REGISTRY
@@ -22,24 +24,19 @@ logger = logging.getLogger(__name__)
 
 
 def scan_symbol(
-    conn: duckdb.DuckDBPyConnection,
+    ohlcv_df: pd.DataFrame,
     symbol: str,
     timeframe: str,
     strategies: list[str],
     secondary_df: pd.DataFrame | None = None,
     funding_df: pd.DataFrame | None = None,
-    days: int = 90,
 ) -> list[SignalEvent]:
-    """Run requested strategies against symbol+timeframe.
+    """Run requested strategies against a pre-fetched OHLCV DataFrame.
 
-    Returns SignalEvents whose open_time matches the latest candle in the DB.
+    Returns SignalEvents whose open_time matches the latest candle in the data.
     Only the latest candle is checked — signals on older candles are ignored
     to prevent re-alerting on historical data after a restart.
     """
-    now_ms = int(time.time() * 1000)
-    start_ms = now_ms - days * 24 * 3600 * 1000
-
-    ohlcv_df = get_ohlcv(conn, symbol, timeframe, start_ms, now_ms)
     if ohlcv_df.empty or len(ohlcv_df) < 3:
         return []
 
@@ -54,15 +51,19 @@ def scan_symbol(
             logger.warning("Unknown strategy %s — skipping", strategy_name)
             continue
 
+        spec = STRATEGY_REGISTRY.get(strategy_name)
+        requires_funding = spec.requires_funding if spec else False
+        requires_secondary = spec.requires_secondary if spec else False
+
         try:
-            if plugin["requires_funding"]:
+            if requires_funding:
                 if funding_df is None or funding_df.empty:
                     logger.debug(
                         "Skipping %s for %s — no funding data", strategy_name, symbol
                     )
                     continue
                 signals_df = plugin["detector"](ohlcv_df, funding_df)
-            elif plugin["requires_secondary"]:
+            elif requires_secondary:
                 if secondary_df is None or secondary_df.empty:
                     logger.debug(
                         "Skipping %s for %s — no secondary data", strategy_name, symbol
@@ -112,6 +113,8 @@ def run_scan_cycle(
 ) -> list[str]:
     """Scan all symbol+timeframe combinations and return formatted alert strings.
 
+    Pre-fetches OHLCV once per (symbol, timeframe) and passes the DataFrame into
+    scan_symbol, avoiding redundant DB reads across strategies.
     Uses CooldownStore to suppress duplicate alerts. Optionally sends via Telegram.
     Returns list of formatted alert strings for logging/testing regardless of
     whether Telegram is enabled.
@@ -122,14 +125,14 @@ def run_scan_cycle(
     start_ms = now_ms - days * 24 * 3600 * 1000
 
     needs_funding = any(
-        SIGNAL_REGISTRY[s]["requires_funding"]
+        STRATEGY_REGISTRY[s].requires_funding
         for s in strategies
-        if s in SIGNAL_REGISTRY
+        if s in SIGNAL_REGISTRY and s in STRATEGY_REGISTRY
     )
     needs_secondary = any(
-        SIGNAL_REGISTRY[s]["requires_secondary"]
+        STRATEGY_REGISTRY[s].requires_secondary
         for s in strategies
-        if s in SIGNAL_REGISTRY
+        if s in SIGNAL_REGISTRY and s in STRATEGY_REGISTRY
     )
 
     # Pre-fetch secondary OHLCV per timeframe (shared across all primary symbols)
@@ -146,16 +149,16 @@ def run_scan_cycle(
             funding_df = get_funding_rates(conn, symbol, start_ms, now_ms)
 
         for tf in timeframes:
+            ohlcv_df = get_ohlcv(conn, symbol, tf, start_ms, now_ms)
             sec_df = secondary_dfs.get(tf) if needs_secondary else None
 
             events = scan_symbol(
-                conn=conn,
+                ohlcv_df=ohlcv_df,
                 symbol=symbol,
                 timeframe=tf,
                 strategies=strategies,
                 secondary_df=sec_df,
                 funding_df=funding_df,
-                days=days,
             )
 
             for event in events:
@@ -164,9 +167,13 @@ def run_scan_cycle(
                 if not store.is_off_cooldown(symbol, event.strategy, event.direction):
                     continue
 
-                store.mark_candle(symbol, tf, event.strategy, event.open_time)
-                store.set_cooldown(
-                    symbol, event.strategy, event.direction, cooldown_seconds
+                store.record_alert(
+                    symbol,
+                    tf,
+                    event.strategy,
+                    event.direction,
+                    event.open_time,
+                    cooldown_seconds,
                 )
 
                 msg = format_signal_alert(event, sl_pct=sl_pct, tp_r=tp_r)

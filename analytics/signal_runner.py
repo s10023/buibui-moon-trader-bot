@@ -6,6 +6,7 @@ then polls on a fixed interval calling run_scan_cycle each time.
 
 import logging
 import time
+from pathlib import Path
 
 import duckdb
 
@@ -29,7 +30,7 @@ def run_signal_watch(
     send_telegram: bool = False,
     state_file: str = "signal_state.json",
     secondary_symbol: str | None = None,
-    db_path: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
 ) -> None:
     """Run the signal detection daemon loop.
 
@@ -57,7 +58,7 @@ def run_signal_watch(
         poll_interval,
     )
 
-    conn = duckdb.connect(str(db_path) if db_path is not None else str(DEFAULT_DB_PATH))
+    conn = duckdb.connect(str(db_path))
     init_schema(conn)
 
     try:

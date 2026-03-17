@@ -62,3 +62,19 @@ class CooldownStore:
         key = f"{symbol}:{strategy}:{direction}"
         self._cooldowns[key] = time.time() + seconds
         self._save()
+
+    def record_alert(
+        self,
+        symbol: str,
+        timeframe: str,
+        strategy: str,
+        direction: str,
+        open_time: int,
+        cooldown_seconds: float,
+    ) -> None:
+        """Mark candle watermark and set cooldown in one atomic save."""
+        self._watermarks[f"{symbol}:{timeframe}:{strategy}"] = open_time
+        self._cooldowns[f"{symbol}:{strategy}:{direction}"] = (
+            time.time() + cooldown_seconds
+        )
+        self._save()
