@@ -6,6 +6,7 @@
         "!node_modules",
         "!.claude",
         "!.github/pull_request_template.md",
-        "!docs/plans"
+        "!docs/plans",
+        "!pr-*.md"
     ]
 }

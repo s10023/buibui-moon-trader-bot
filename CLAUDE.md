@@ -38,7 +38,7 @@ make lint-md
   - `data_fetcher.py` — pure fetch lib: Binance Futures API → DataFrames (no DB concerns)
   - `data_sync.py` — pure orchestration: paginated backfill + incremental sync
   - `analytics_runner.py` — thin wrapper: creates client, opens DB, calls sync lib
-  - `indicators_lib.py` — pure strategy signal detection (9 strategies: seasonality, wick_fill, marubozu, orb, liquidity_sweep, fvg, bos, funding_reversion, smt_divergence)
+  - `indicators_lib.py` — pure strategy signal detection (9 strategies: seasonality, wick_fill, marubozu, orb, liquidity_sweep, fvg, bos, funding_reversion, smt_divergence); also exports `ParamSpec`, `StrategySpec`, `STRATEGY_REGISTRY` (param metadata for all strategies) and `KNOWN_STRATEGIES`
   - `backtest_lib.py` — pure backtest engine: Trade, BacktestResult, run_backtest, format helpers
   - `backtest_runner.py` — thin wrapper: opens DB, loads OHLCV/funding, calls indicator + backtest libs
   - `DEFAULT_DB_PATH` lives in `data_store.py` — import from there, do not redefine in runners
