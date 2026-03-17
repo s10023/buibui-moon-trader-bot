@@ -302,13 +302,13 @@ class TestDetectFvg:
         assert result.iloc[0]["open_time"] == _BASE_TIME + 3
 
     def test_detects_bearish_fvg_fill_short(self) -> None:
-        # Bearish FVG: candle[0].low=100, candle[2].high=95 → gap [95, 100]
-        # Fill candle: high=97 enters gap
+        # Bearish FVG: candle[0].low=100, candle[2].high=95 → gap [95, 100], CE=97.5
+        # Fill candle: high=98 ≥ CE=97.5 and close=92 < gap_top=100
         rows = [
             _candle(_BASE_TIME + 0, 105, 108, 100, 102),
             _candle(_BASE_TIME + 1, 98, 99, 92, 93),  # impulse candle
             _candle(_BASE_TIME + 2, 92, 95, 88, 90),  # nxt.high=95 < prev.low=100
-            _candle(_BASE_TIME + 3, 91, 97, 88, 92),  # high=97 ≥ gap_bot=95
+            _candle(_BASE_TIME + 3, 91, 98, 88, 92),  # high=98 ≥ CE=97.5
         ]
         df = _make_ohlcv(rows)
         result = detect_fvg(df)
@@ -569,6 +569,225 @@ class TestDetectSmtDivergence:
         df_p, df_s = self._make_aligned_ohlcv(highs_p, lows_p, highs_s, lows_s)
         result = detect_smt_divergence(df_p, df_s, lookback=10)
         _assert_signal_columns(result)
+
+
+# ---------------------------------------------------------------------------
+# Bug fix tests (TDD — written before fixes)
+# ---------------------------------------------------------------------------
+
+
+class TestFvgBugFixes:
+    def test_fvg_long_entry_at_ce_not_gap_top(self) -> None:
+        # Bullish FVG: gap_bot=100, gap_top=105, CE=102.5
+        # Fill candle: low=103 (enters gap_top but NOT CE) → no signal
+        rows = [
+            _candle(_BASE_TIME + 0, 95, 100, 93, 99),
+            _candle(_BASE_TIME + 1, 102, 108, 101, 107),
+            _candle(_BASE_TIME + 2, 107, 112, 105, 110),  # gap [100, 105]
+            _candle(
+                _BASE_TIME + 3, 109, 112, 103, 111
+            ),  # low=103 > CE=102.5 → no signal
+        ]
+        df = _make_ohlcv(rows)
+        result = detect_fvg(df)
+        assert result.empty
+
+    def test_fvg_long_fires_when_price_reaches_ce(self) -> None:
+        # Fill candle: low=102 ≤ CE=102.5 → signal fires
+        rows = [
+            _candle(_BASE_TIME + 0, 95, 100, 93, 99),
+            _candle(_BASE_TIME + 1, 102, 108, 101, 107),
+            _candle(_BASE_TIME + 2, 107, 112, 105, 110),  # gap [100, 105]
+            _candle(_BASE_TIME + 3, 109, 112, 102, 111),  # low=102 ≤ CE=102.5 → signal
+        ]
+        df = _make_ohlcv(rows)
+        result = detect_fvg(df)
+        assert len(result) == 1
+        assert result.iloc[0]["direction"] == "long"
+
+    def test_fvg_long_does_not_fire_when_price_blasts_through_gap(self) -> None:
+        # Fill candle closes BELOW gap_bot=100 → no signal (blasted through)
+        rows = [
+            _candle(_BASE_TIME + 0, 95, 100, 93, 99),
+            _candle(_BASE_TIME + 1, 102, 108, 101, 107),
+            _candle(_BASE_TIME + 2, 107, 112, 105, 110),  # gap [100, 105]
+            _candle(_BASE_TIME + 3, 109, 112, 98, 99),  # low=98, close=99 < gap_bot=100
+        ]
+        df = _make_ohlcv(rows)
+        result = detect_fvg(df)
+        assert result.empty
+
+    def test_fvg_short_entry_at_ce_not_gap_bot(self) -> None:
+        # Bearish FVG: gap_top=100, gap_bot=95, CE=97.5
+        # Fill candle: high=97 (above gap_bot but NOT CE) → no signal
+        rows = [
+            _candle(_BASE_TIME + 0, 105, 108, 100, 102),
+            _candle(_BASE_TIME + 1, 98, 99, 92, 93),
+            _candle(_BASE_TIME + 2, 92, 95, 88, 90),  # gap [95, 100]
+            _candle(_BASE_TIME + 3, 91, 97, 88, 92),  # high=97 < CE=97.5 → no signal
+        ]
+        df = _make_ohlcv(rows)
+        result = detect_fvg(df)
+        assert result.empty
+
+    def test_fvg_short_does_not_fire_when_price_blasts_through(self) -> None:
+        # Fill candle closes ABOVE gap_top=100 → no signal
+        rows = [
+            _candle(_BASE_TIME + 0, 105, 108, 100, 102),
+            _candle(_BASE_TIME + 1, 98, 99, 92, 93),
+            _candle(_BASE_TIME + 2, 92, 95, 88, 90),  # gap [95, 100]
+            _candle(
+                _BASE_TIME + 3, 91, 102, 88, 101
+            ),  # high=102, close=101 > gap_top=100
+        ]
+        df = _make_ohlcv(rows)
+        result = detect_fvg(df)
+        assert result.empty
+
+
+class TestWickFillBugFixes:
+    def test_wick_fill_long_does_not_fire_when_close_below_zone(self) -> None:
+        # Lower wick zone: zone_bot=90, zone_top=100
+        # Fill candle: low=91 enters zone but close=89 < zone_bot=90 → no signal
+        rows = [
+            _candle(_BASE_TIME + 0, 100, 103, 90, 102),  # lower wick=10 > 0.5×body=1
+            _candle(
+                _BASE_TIME + 1, 101, 103, 91, 89
+            ),  # low=91 ≤ zone_top, close=89 < zone_bot
+        ]
+        df = _make_ohlcv(rows)
+        result = detect_wick_fills(df, min_wick_body_ratio=0.5)
+        long_signals = result[result["direction"] == "long"]
+        assert long_signals.empty
+
+    def test_wick_fill_short_does_not_fire_when_close_above_zone(self) -> None:
+        # Upper wick zone: zone_bot=101, zone_top=115
+        # Fill candle: high=114 enters zone but close=116 > zone_top=115 → no signal
+        rows = [
+            _candle(_BASE_TIME + 0, 100, 115, 99, 101),  # upper wick=14 > 0.5×body=1
+            _candle(
+                _BASE_TIME + 1, 102, 114, 101, 116
+            ),  # high=114 ≥ zone_bot, close=116 > zone_top
+        ]
+        df = _make_ohlcv(rows)
+        result = detect_wick_fills(df, min_wick_body_ratio=0.5)
+        short_signals = result[result["direction"] == "short"]
+        assert short_signals.empty
+
+
+class TestFundingReversionBugFixes:
+    def _make_ohlcv_15m(self, n: int, base_time: int) -> pd.DataFrame:
+        """15-minute candles."""
+        rows = [
+            _candle(base_time + i * 15 * 60 * 1000, 100, 110, 90, 100) for i in range(n)
+        ]
+        return _make_ohlcv(rows)
+
+    def _make_funding_row(self, funding_time: int, rate: float) -> dict[str, object]:
+        return {"symbol": "BTCUSDT", "funding_time": funding_time, "funding_rate": rate}
+
+    def test_funding_reversion_fires_once_per_funding_period(self) -> None:
+        # 8h window = 32 × 15m candles; same extreme funding rate → only 1 signal
+        n = 32
+        ohlcv = self._make_ohlcv_15m(n, _BASE_TIME)
+        funding = pd.DataFrame(
+            [self._make_funding_row(_BASE_TIME, 0.002)],
+            columns=["symbol", "funding_time", "funding_rate"],
+        )
+        result = detect_funding_extreme(ohlcv, funding, threshold=0.001)
+        assert len(result) == 1
+
+    def test_funding_reversion_fires_again_on_new_funding_period(self) -> None:
+        # Two separate 8h periods with extreme funding → 2 signals
+        ms_per_8h = 8 * 60 * 60 * 1000
+        ms_per_15m = 15 * 60 * 1000
+        rows = [
+            _candle(_BASE_TIME + i * ms_per_15m, 100, 110, 90, 100)
+            for i in range(64)  # 2 full 8h periods
+        ]
+        ohlcv = _make_ohlcv(rows)
+        funding = pd.DataFrame(
+            [
+                self._make_funding_row(_BASE_TIME, 0.002),
+                self._make_funding_row(_BASE_TIME + ms_per_8h, 0.002),
+            ],
+            columns=["symbol", "funding_time", "funding_rate"],
+        )
+        result = detect_funding_extreme(ohlcv, funding, threshold=0.001)
+        assert len(result) == 2
+
+
+class TestOrbTimeframeBugFix:
+    def test_orb_does_not_fire_on_hourly_candles(self) -> None:
+        # 1h candles: detect_orb_breakout should reject timeframe_minutes >= 60
+        rows = [
+            _candle(_hourly_ts(13), 100, 110, 90, 105),
+            _candle(_hourly_ts(14), 111, 120, 108, 115),  # would be long signal
+        ]
+        df = _make_ohlcv(rows)
+        result = detect_orb_breakout(df, session_hour_utc=13, timeframe_minutes=60)
+        assert result.empty
+
+    def test_orb_fires_on_15m_candles(self) -> None:
+        rows = [
+            _candle(_hourly_ts(13), 100, 110, 90, 105),
+            _candle(_hourly_ts(14), 111, 120, 108, 115),
+        ]
+        df = _make_ohlcv(rows)
+        result = detect_orb_breakout(df, session_hour_utc=13, timeframe_minutes=15)
+        assert len(result) == 1
+        assert result.iloc[0]["direction"] == "long"
+
+
+class TestBosNoLookaheadBias:
+    def test_bos_does_not_use_future_candles(self) -> None:
+        # Build a series where a swing high at candle i=5 is ONLY the rolling max
+        # because of candles i=6..i+swing_lookback (future candles).
+        # With center=False, candle i=5 should NOT be detected as a swing high
+        # until we have enough trailing candles — and the signal should not fire
+        # on the SAME candle that creates the new swing high.
+        #
+        # Pattern: flat 100s, then spike to 120 at i=5, then drop back
+        # With center=True, i=5 is immediately a swing high (uses i=6..i+5)
+        # With center=False, i=5 is only swing high after i=10 confirms (trailing)
+        swing_lookback = 5
+        rows = []
+        for i in range(5):
+            rows.append(_candle(_BASE_TIME + i, 100, 105, 95, 100))
+        # spike at i=5
+        rows.append(_candle(_BASE_TIME + 5, 110, 120, 108, 115))
+        # drop back — these would "confirm" with center=True lookahead
+        for i in range(6, 16):
+            rows.append(_candle(_BASE_TIME + i, 100, 105, 95, 100))
+
+        df = _make_ohlcv(rows)
+        result = detect_market_structure(df, swing_lookback=swing_lookback)
+        # With center=False, the spike candle (open_time=_BASE_TIME+5) must NOT
+        # appear as a signal open_time — the signal can only fire AFTER trailing
+        # candles confirm the swing.
+        spike_time = _BASE_TIME + 5
+        if not result.empty:
+            assert spike_time not in result["open_time"].values
+
+
+class TestLiquiditySweepMinSize:
+    def test_liquidity_sweep_ignores_micro_poke(self) -> None:
+        # Rolling max high = 110; sweep candle high = 110.001 (0.0009% above) → no signal
+        rows = [_candle(_BASE_TIME + i, 100, 110, 90, 100) for i in range(20)]
+        rows.append(_candle(_BASE_TIME + 20, 108, 110.001, 100, 105))
+        df = _make_ohlcv(rows)
+        result = detect_liquidity_sweep(df, lookback=20, min_sweep_pct=0.001)
+        short_signals = result[result["direction"] == "short"]
+        assert short_signals.empty
+
+    def test_liquidity_sweep_fires_on_meaningful_sweep(self) -> None:
+        # Rolling max high = 110; sweep candle high = 110.25 (0.23% above) → signal
+        rows = [_candle(_BASE_TIME + i, 100, 110, 90, 100) for i in range(20)]
+        rows.append(_candle(_BASE_TIME + 20, 108, 110.25, 100, 105))
+        df = _make_ohlcv(rows)
+        result = detect_liquidity_sweep(df, lookback=20, min_sweep_pct=0.001)
+        short_signals = result[result["direction"] == "short"]
+        assert len(short_signals) == 1
 
 
 # ---------------------------------------------------------------------------

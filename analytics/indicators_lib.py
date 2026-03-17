@@ -307,7 +307,7 @@ def detect_wick_fills(
             wick_ctx = f"Wick: {_fmt_time(int(row['open_time']))}"
             for j in range(i + 1, end):
                 fut = df.iloc[j]
-                if float(fut["low"]) <= zone_top:
+                if float(fut["low"]) <= zone_top and float(fut["close"]) > zone_bot:
                     signals.append(
                         {
                             "open_time": int(fut["open_time"]),
@@ -325,7 +325,7 @@ def detect_wick_fills(
             wick_ctx = f"Wick: {_fmt_time(int(row['open_time']))}"
             for j in range(i + 1, end):
                 fut = df.iloc[j]
-                if float(fut["high"]) >= zone_bot:
+                if float(fut["high"]) >= zone_bot and float(fut["close"]) < zone_top:
                     signals.append(
                         {
                             "open_time": int(fut["open_time"]),
@@ -432,6 +432,7 @@ def detect_marubozu_retest(
 def detect_orb_breakout(
     df: pd.DataFrame,
     session_hour_utc: int = 13,
+    timeframe_minutes: int = 15,
 ) -> pd.DataFrame:
     """Detect Opening Range Breakout signals.
 
@@ -441,7 +442,10 @@ def detect_orb_breakout(
     If the NEXT candle closes below range_low → short signal.
 
     Default session_hour_utc=13 targets the NY session open (13:00 UTC).
+    Only runs on timeframes < 60 minutes; ORB is meaningless on hourly+ candles.
     """
+    if timeframe_minutes >= 60:
+        return _empty_signals()
     n = len(df)
     if n < 2:
         return _empty_signals()
@@ -492,14 +496,15 @@ def detect_orb_breakout(
 def detect_liquidity_sweep(
     df: pd.DataFrame,
     lookback: int = 20,
+    min_sweep_pct: float = 0.001,
 ) -> pd.DataFrame:
     """Detect liquidity sweep + reversal signals.
 
     A sweep occurs when a candle's wick exceeds the rolling high/low of the
-    lookback window but the candle CLOSES back inside the range.
+    lookback window by at least min_sweep_pct, but the candle CLOSES back inside.
 
-    Short signal: wick above lookback max high, close below it.
-    Long signal: wick below lookback min low, close above it.
+    Short signal: wick above lookback max high by min_sweep_pct, close below it.
+    Long signal: wick below lookback min low by min_sweep_pct, close above it.
     """
     n = len(df)
     if n < lookback + 1:
@@ -518,7 +523,7 @@ def detect_liquidity_sweep(
         swing_high = float(rolling_high.iloc[i])
         swing_low = float(rolling_low.iloc[i])
 
-        if candle_high > swing_high and candle_close < swing_high:
+        if candle_high > swing_high * (1 + min_sweep_pct) and candle_close < swing_high:
             signals.append(
                 {
                     "open_time": int(row["open_time"]),
@@ -529,7 +534,7 @@ def detect_liquidity_sweep(
                 }
             )
 
-        if candle_low < swing_low and candle_close > swing_low:
+        if candle_low < swing_low * (1 - min_sweep_pct) and candle_close > swing_low:
             signals.append(
                 {
                     "open_time": int(row["open_time"]),
@@ -583,9 +588,10 @@ def detect_fvg(
         if prev_high < nxt_low:
             gap_bot = prev_high
             gap_top = nxt_low
+            ce = (gap_bot + gap_top) / 2
             for j in range(i + 2, end):
                 fut = df.iloc[j]
-                if float(fut["low"]) <= gap_top:
+                if float(fut["low"]) <= ce and float(fut["close"]) > gap_bot:
                     signals.append(
                         {
                             "open_time": int(fut["open_time"]),
@@ -600,9 +606,10 @@ def detect_fvg(
         if prev_low > nxt_high:
             gap_top = prev_low
             gap_bot = nxt_high
+            ce = (gap_bot + gap_top) / 2
             for j in range(i + 2, end):
                 fut = df.iloc[j]
-                if float(fut["high"]) >= gap_bot:
+                if float(fut["high"]) >= ce and float(fut["close"]) < gap_top:
                     signals.append(
                         {
                             "open_time": int(fut["open_time"]),
@@ -644,8 +651,12 @@ def detect_market_structure(
     low_series = df["low"].astype(float)
 
     window = 2 * swing_lookback + 1
-    rolling_max = high_series.rolling(window=window, center=True, min_periods=1).max()
-    rolling_min = low_series.rolling(window=window, center=True, min_periods=1).min()
+    rolling_max = high_series.rolling(
+        window=window, center=False, min_periods=window
+    ).max()
+    rolling_min = low_series.rolling(
+        window=window, center=False, min_periods=window
+    ).min()
 
     is_swing_high = high_series == rolling_max
     is_swing_low = low_series == rolling_min
@@ -726,14 +737,21 @@ def detect_funding_extreme(
     funding_sorted = funding_df.sort_values("funding_time").reset_index(drop=True)
 
     left = ohlcv_sorted[["open_time"]].rename(columns={"open_time": "ts"})
-    right = funding_sorted[["funding_time", "funding_rate"]].rename(
-        columns={"funding_time": "ts"}
-    )
 
-    merged = pd.merge_asof(left, right, on="ts", direction="backward")
+    # Keep funding_time as a separate column so we can deduplicate by it.
+    right_with_ft = funding_sorted[["funding_time", "funding_rate"]].copy()
+    right_with_ft["ts"] = right_with_ft["funding_time"]
+
+    merged = pd.merge_asof(left, right_with_ft, on="ts", direction="backward")
     merged["open_time"] = ohlcv_sorted["open_time"].values
     merged["rate"] = pd.to_numeric(merged["funding_rate"], errors="coerce")
-    valid = merged[merged["rate"].notna()]
+
+    # Only emit on the FIRST candle after each unique funding_time (one signal per period).
+    valid = (
+        merged[merged["rate"].notna()]
+        .drop_duplicates(subset=["funding_time"])
+        .reset_index(drop=True)
+    )
 
     signals: list[dict[str, object]] = []
 
