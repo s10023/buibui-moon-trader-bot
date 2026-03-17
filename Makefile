@@ -3,12 +3,13 @@ SYMBOL ?= BTCUSDT
 STRATEGY ?= fvg
 INTERVAL ?= 4h
 DAYS ?= 90
+POLL_INTERVAL ?= 300
 # Makefile — Lint Markdown and Python
 
 PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*" -not -path "./.venv/*")
 DOCKER_IMAGE = buibui-bot
 
-.PHONY: lint lint-md lint-md-fix lint-py-check lint-py typecheck test poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-open-trades buibui-analytics-backfill buibui-analytics-sync buibui-backtest clean-db clean
+.PHONY: lint lint-md lint-md-fix lint-py-check lint-py typecheck test poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-open-trades buibui-analytics-backfill buibui-analytics-sync buibui-backtest buibui-signal-watch clean-db clean
 
 lint: lint-md lint-py
 
@@ -154,6 +155,31 @@ buibui-backtest:
 		--days $(DAYS) \
 		$(if $(SL_PCT),--sl-pct $(SL_PCT),) \
 		$(if $(TP_R),--tp-r $(TP_R),) \
+		$(if $(SECONDARY),--secondary-symbol $(SECONDARY),)
+
+buibui-signal-watch:
+	@echo "🔍 Running signal detection daemon..."
+	poetry run python buibui.py signal watch \
+		$(if $(SYMBOLS),--symbols $(SYMBOLS),) \
+		$(if $(TIMEFRAMES),--timeframes $(TIMEFRAMES),) \
+		$(if $(STRATEGIES),--strategies $(STRATEGIES),) \
+		--poll-interval $(POLL_INTERVAL) \
+		$(if $(TELEGRAM),--telegram,) \
+		$(if $(SECONDARY),--secondary-symbol $(SECONDARY),)
+
+docker-signal-watch:
+	@echo "🔍 Running signal detection daemon in Docker..."
+	@touch analytics.db signal_state.json
+	docker run -it --env-file .env \
+		-v $(PWD)/analytics.db:/app/analytics.db \
+		-v $(PWD)/config/coins.json:/app/config/coins.json:ro \
+		-v $(PWD)/signal_state.json:/app/signal_state.json \
+		$(DOCKER_IMAGE) poetry run python buibui.py signal watch \
+		$(if $(SYMBOLS),--symbols $(SYMBOLS),) \
+		$(if $(TIMEFRAMES),--timeframes $(TIMEFRAMES),) \
+		$(if $(STRATEGIES),--strategies $(STRATEGIES),) \
+		--poll-interval $(POLL_INTERVAL) \
+		$(if $(TELEGRAM),--telegram,) \
 		$(if $(SECONDARY),--secondary-symbol $(SECONDARY),)
 
 buibui-open-trades:

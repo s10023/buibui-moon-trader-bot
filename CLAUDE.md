@@ -41,6 +41,12 @@ make lint-md
   - `indicators_lib.py` — pure strategy signal detection (9 strategies: seasonality, wick_fill, marubozu, orb, liquidity_sweep, fvg, bos, funding_reversion, smt_divergence); also exports `ParamSpec`, `StrategySpec`, `STRATEGY_REGISTRY` (param metadata for all strategies) and `KNOWN_STRATEGIES`
   - `backtest_lib.py` — pure backtest engine: Trade, BacktestResult, run_backtest, format helpers
   - `backtest_runner.py` — thin wrapper: opens DB, loads OHLCV/funding, calls indicator + backtest libs
+  - `signal_lib.py` — pure scan lib: `scan_symbol()` (runs strategies on one symbol/tf), `run_scan_cycle()` (fans out, deduplicates, sends Telegram)
+  - `signal_runner.py` — thin wrapper: creates client, opens DB, syncs candles, polls `run_scan_cycle` in a loop
+- `signals/` — signal detection daemon package:
+  - `registry.py` — `SignalPlugin` TypedDict + `SIGNAL_REGISTRY` (8 actionable strategies; seasonality excluded)
+  - `cooldown_store.py` — two-layer dedup: candle watermark per `(symbol, tf, strategy)` + cooldown timer per `(symbol, strategy, direction)`; JSON-persisted to `signal_state.json`
+  - `alert_formatter.py` — `SignalEvent` dataclass + `format_signal_alert()` → Markdown Telegram message with SL/TP levels
   - `DEFAULT_DB_PATH` lives in `data_store.py` — import from there, do not redefine in runners
   - `_upsert` uses explicit `conn.register` / `conn.unregister` in a try/finally — do NOT switch to the implicit `conn.execute("... FROM df")` replacement scan; it holds a raw C pointer without Py_INCREF and causes malloc heap corruption at `conn.close()` after multiple batches. Do NOT drop the try/finally; unregister must always run or the stale registration causes the same crash.
 - `utils/` — shared utilities:
