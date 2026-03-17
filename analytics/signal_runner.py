@@ -6,7 +6,9 @@ then polls on clock-aligned candle boundaries calling run_scan_cycle each time.
 
 import logging
 import math
+import signal
 import time
+import types
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -82,50 +84,80 @@ def run_signal_watch(
         resolved_strategies,
     )
 
-    conn = duckdb.connect(str(db_path))
-    init_schema(conn)
+    # Graceful shutdown: first Ctrl+C sets the flag; second Ctrl+C forces exit.
+    # Using a flag instead of letting KeyboardInterrupt propagate prevents DuckDB's
+    # native heap from being corrupted when conn.close() is called mid-operation.
+    shutdown_requested = [False]
 
+    def _handle_sigint(signum: int, frame: types.FrameType | None) -> None:
+        if shutdown_requested[0]:
+            raise KeyboardInterrupt  # second Ctrl+C: force exit
+        shutdown_requested[0] = True
+        logger.info(
+            "Shutdown requested — finishing current operation and exiting cleanly"
+        )
+
+    prev_handler = signal.signal(signal.SIGINT, _handle_sigint)
     try:
-        while True:
-            logger.info("--- scan cycle start ---")
+        conn = duckdb.connect(str(db_path))
+        init_schema(conn)
+        try:
+            while not shutdown_requested[0]:
+                logger.info("--- scan cycle start ---")
 
-            # Sync each symbol+timeframe; fall back to backfill for new symbols
-            start_ms = (
-                int(time.time() * 1000) - _DEFAULT_BACKFILL_DAYS * 24 * 3600 * 1000
-            )
-            for symbol in resolved_symbols:
-                for tf in resolved_timeframes:
-                    try:
-                        sync(conn, client, symbol, tf)
-                    except ValueError:
-                        logger.info(
-                            "No data for %s/%s — running initial backfill", symbol, tf
-                        )
-                        backfill(conn, client, symbol, tf, start_ms)
-                    except duckdb.IOException as exc:
-                        logger.warning(
-                            "DB sync failed for %s/%s (will retry): %s", symbol, tf, exc
-                        )
+                # Sync each symbol+timeframe; fall back to backfill for new symbols
+                start_ms = (
+                    int(time.time() * 1000) - _DEFAULT_BACKFILL_DAYS * 24 * 3600 * 1000
+                )
+                for symbol in resolved_symbols:
+                    for tf in resolved_timeframes:
+                        try:
+                            sync(conn, client, symbol, tf)
+                        except ValueError:
+                            logger.info(
+                                "No data for %s/%s — running initial backfill",
+                                symbol,
+                                tf,
+                            )
+                            backfill(conn, client, symbol, tf, start_ms)
+                        except duckdb.IOException as exc:
+                            logger.warning(
+                                "DB sync failed for %s/%s (will retry): %s",
+                                symbol,
+                                tf,
+                                exc,
+                            )
 
-            alerts = run_scan_cycle(
-                conn=conn,
-                symbols=resolved_symbols,
-                timeframes=resolved_timeframes,
-                strategies=resolved_strategies,
-                store=store,
-                tp_r=tp_r,
-                send_telegram=send_telegram,
-                secondary_symbol=secondary_symbol,
-            )
+                alerts = run_scan_cycle(
+                    conn=conn,
+                    symbols=resolved_symbols,
+                    timeframes=resolved_timeframes,
+                    strategies=resolved_strategies,
+                    store=store,
+                    tp_r=tp_r,
+                    send_telegram=send_telegram,
+                    secondary_symbol=secondary_symbol,
+                )
 
-            if alerts:
-                logger.info("%d alert(s) sent this cycle", len(alerts))
-            else:
-                logger.info("No new signals this cycle")
+                if alerts:
+                    logger.info("%d alert(s) sent this cycle", len(alerts))
+                else:
+                    logger.info("No new signals this cycle")
 
-            sleep_secs, wake_ts = _secs_until_next_boundary(resolved_timeframes)
-            next_dt = datetime.fromtimestamp(wake_ts, tz=UTC).strftime("%H:%M:%S UTC")
-            logger.info("--- sleeping %.0fs until %s ---", sleep_secs, next_dt)
-            time.sleep(sleep_secs)
+                sleep_secs, wake_ts = _secs_until_next_boundary(resolved_timeframes)
+                next_dt = datetime.fromtimestamp(wake_ts, tz=UTC).strftime(
+                    "%H:%M:%S UTC"
+                )
+                logger.info("--- sleeping %.0fs until %s ---", sleep_secs, next_dt)
+
+                # Interruptible sleep: 1s chunks so Ctrl+C exits within ~1s
+                elapsed = 0.0
+                while elapsed < sleep_secs and not shutdown_requested[0]:
+                    chunk = min(1.0, sleep_secs - elapsed)
+                    time.sleep(chunk)
+                    elapsed += chunk
+        finally:
+            conn.close()
+            logger.info("DB connection closed cleanly")
     finally:
-        conn.close()
+        signal.signal(signal.SIGINT, prev_handler)
