@@ -19,6 +19,10 @@ A tactical crypto trading bot designed for fast, risk-managed, and confident ent
 - **15-Min Telegram Updates** *(optional)*
   Get regular position snapshots via Telegram bot.
 
+- **24/7 Signal Detection Daemon**
+  Polls closed candles every 5 minutes, runs 8 strategies (FVG, BOS, liquidity sweep, SMT divergence,
+  and more), and sends Telegram alerts with computed SL/TP levels. Two-layer dedup prevents spam.
+
 - **Manual Multi-Trade Entry Script** *(planned)*
   Open multiple trades (BTC, ETH, alts) in one go, using USD-based sizing with automatic SL & leverage.
 
@@ -53,7 +57,13 @@ buibui-moon-trader-bot/
 │   ├── data_fetcher.py              # Pure Binance Futures API → DataFrames (klines, funding, OI)
 │   ├── data_store.py                # Pure DuckDB read/write (schema, upsert, query helpers)
 │   ├── data_sync.py                 # Backfill + incremental sync orchestration
-│   └── indicators_lib.py            # Pure strategy signal detection (9 strategies)
+│   ├── indicators_lib.py            # Pure strategy signal detection (9 strategies + STRATEGY_REGISTRY)
+│   ├── signal_lib.py                # Pure scan lib: scan_symbol(), run_scan_cycle()
+│   └── signal_runner.py             # Signal daemon thin wrapper (creates client, opens DB, polls)
+├── signals/
+│   ├── registry.py                  # SignalPlugin TypedDict + SIGNAL_REGISTRY (8 strategies)
+│   ├── cooldown_store.py            # Two-layer dedup: candle watermark + cooldown timer
+│   └── alert_formatter.py           # SignalEvent dataclass + format_signal_alert()
 ├── trade/
 │   └── open_trades.py               # Multi-trade entry (planned)
 ├── utils/
@@ -324,6 +334,45 @@ Max DD:      -4.00R
 
 > **Note:** Requires backfill to be run first for the symbol/timeframe.
 
+### Signal Watch — 24/7 Strategy Alerts
+
+Runs a polling daemon that scans closed candles every N seconds and sends Telegram alerts
+when a strategy fires. Requires `analytics backfill` to have been run first.
+
+```bash
+poetry run python buibui.py signal watch
+```
+
+**Options:**
+
+- `--symbols BTCUSDT ETHUSDT` — symbols to scan (default: all from `coins.json`)
+- `--timeframes 4h` — candle timeframes (default: `4h`)
+- `--strategies fvg bos` — strategies to run (default: all 8 except `seasonality`)
+- `--tp-r 2.0` — R multiplier for TP level in alert messages (default: `2.0`)
+- `--telegram` — send alerts via Telegram
+- `--state-file signal_state.json` — path to cooldown/watermark state file
+- `--secondary-symbol ETHUSDT` — secondary symbol for `smt_divergence`
+
+**Example alert (Telegram):**
+
+```text
+SIGNAL — BTCUSDT 4h
+Direction: LONG 🟢  Strategy: `fvg`
+Reason: `fvg_long@43200.00-43350.00`
+Price: 43,260.00
+SL: 42,394.80 (2.0%)  TP: 44,985.60 (4.0% | 2.0x R)
+```
+
+Two-layer dedup prevents alert spam:
+
+- **Candle watermark** — won't re-alert the same candle after a restart
+- **Cooldown timer** — 1-hour cooldown per `(symbol, strategy, direction)`
+
+State is persisted to `signal_state.json` so dedup survives container restarts.
+
+> **Note:** Run `analytics backfill` + `analytics sync` first. The daemon auto-backfills
+> symbols with no data on first boot, but pre-loading data is faster.
+
 ---
 
 ## Makefile Usage
@@ -380,6 +429,19 @@ make buibui-backtest SYMBOL=BTCUSDT STRATEGY=fvg INTERVAL=1h DAYS=30 SL_PCT=0.01
 Defaults: `SYMBOL=BTCUSDT`, `STRATEGY=fvg`, `INTERVAL=4h`, `DAYS=90`.
 Optional overrides: `SL_PCT`, `TP_R`, `SECONDARY` (required for `smt_divergence`).
 
+**Signal watch:**
+
+```bash
+make buibui-signal-watch                                         # All symbols, 4h, all strategies
+make buibui-signal-watch SYMBOLS="BTCUSDT ETHUSDT"              # Specific symbols
+make buibui-signal-watch STRATEGIES="fvg bos" TELEGRAM=1        # Specific strategies + Telegram
+make buibui-signal-watch STRATEGIES="smt_divergence" SECONDARY=ETHUSDT
+```
+
+The daemon wakes at clock-aligned candle boundaries (e.g. 04:00:10, 08:00:10 for `4h`),
+so alerts arrive within seconds of the candle close. Optional overrides: `SYMBOLS`,
+`TIMEFRAMES`, `STRATEGIES`, `SECONDARY`, `TELEGRAM=1` (flag).
+
 All commands use your `.env` file for secrets and config.
 
 ---
@@ -412,13 +474,18 @@ make docker-analytics-sync                           # Incremental sync
 make docker-backtest                                          # BTCUSDT fvg 4h 90d (defaults)
 make docker-backtest SYMBOL=ETHUSDT STRATEGY=bos
 make docker-backtest SYMBOL=BTCUSDT STRATEGY=smt_divergence SECONDARY=ETHUSDT
+
+# Signal watch daemon (interactive, Ctrl+C to stop)
+make docker-signal-watch                                      # All symbols, 4h, no Telegram
+make docker-signal-watch TELEGRAM=1                           # With Telegram alerts
+make docker-signal-watch STRATEGIES="fvg bos"
 ```
 
-> **First run:** Before running any analytics or backtest Docker command, create `analytics.db`
-> on the host so Docker bind-mounts a file (not a directory):
+> **First run:** Before running analytics, backtest, or signal-watch Docker commands,
+> create the bind-mount files on the host so Docker mounts files (not directories):
 >
 > ```bash
-> touch analytics.db
+> touch analytics.db signal_state.json
 > ```
 
 ### Docker Compose
@@ -427,18 +494,20 @@ make docker-backtest SYMBOL=BTCUSDT STRATEGY=smt_divergence SECONDARY=ETHUSDT
 `analytics` profile and are run with `docker-compose run` (one-shot, not `up`).
 
 ```bash
-# Long-running monitors
+# Long-running services (restart: unless-stopped)
 docker-compose up price-monitor
 docker-compose up position-monitor
+docker-compose up signal-watch      # Signal daemon with --telegram enabled
 
 # One-shot analytics (requires touch analytics.db on first use)
-touch analytics.db
+touch analytics.db signal_state.json
 docker-compose run --rm analytics-backfill
 SINCE=2024-01-01 docker-compose run --rm analytics-backfill
 docker-compose run --rm analytics-sync
 ```
 
-Make sure `config/coins.json`, `.env`, and `analytics.db` exist before running analytics.
+Make sure `config/coins.json`, `.env`, `analytics.db`, and `signal_state.json` exist before
+running signal-watch or analytics services.
 
 ---
 
