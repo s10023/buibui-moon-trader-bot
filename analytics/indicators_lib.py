@@ -7,7 +7,166 @@ Seasonality returns a summary statistics DataFrame instead.
 No module-level side effects.
 """
 
+from dataclasses import dataclass, field
+
 import pandas as pd
+
+
+@dataclass
+class ParamSpec:
+    name: str
+    param_type: str  # "int" or "float"
+    default: int | float
+    min_val: int | float
+    max_val: int | float
+    description: str
+
+
+@dataclass
+class StrategySpec:
+    name: str
+    description: str
+    params: list[ParamSpec] = field(default_factory=list)
+    requires_funding: bool = False
+    requires_secondary: bool = False
+
+
+STRATEGY_REGISTRY: dict[str, StrategySpec] = {
+    "seasonality": StrategySpec(
+        name="seasonality",
+        description="Day-of-week, hour-of-day, and week-of-month return statistics.",
+    ),
+    "wick_fill": StrategySpec(
+        name="wick_fill",
+        description="Signals when price re-enters a prior candle's significant wick zone.",
+        params=[
+            ParamSpec(
+                "min_wick_body_ratio",
+                "float",
+                0.5,
+                0.1,
+                2.0,
+                "Minimum wick-to-body ratio to qualify as significant.",
+            ),
+            ParamSpec(
+                "lookback",
+                "int",
+                20,
+                1,
+                200,
+                "Candles to watch for wick zone fill after the signal candle.",
+            ),
+        ],
+    ),
+    "marubozu": StrategySpec(
+        name="marubozu",
+        description="Signals on retests of Marubozu (wickless) candle open prices.",
+        params=[
+            ParamSpec(
+                "max_wick_ratio",
+                "float",
+                0.1,
+                0.01,
+                0.5,
+                "Maximum wick-to-body ratio to qualify as wickless.",
+            ),
+            ParamSpec(
+                "lookback",
+                "int",
+                30,
+                1,
+                200,
+                "Candles to watch for marubozu open retest.",
+            ),
+        ],
+    ),
+    "orb": StrategySpec(
+        name="orb",
+        description="Opening Range Breakout: signals when price breaks the session open candle range.",
+        params=[
+            ParamSpec(
+                "session_hour_utc",
+                "int",
+                13,
+                0,
+                23,
+                "UTC hour of the session open candle (default 13 = NY open).",
+            ),
+        ],
+    ),
+    "liquidity_sweep": StrategySpec(
+        name="liquidity_sweep",
+        description="Signals when a wick sweeps the rolling high/low but the candle closes back inside.",
+        params=[
+            ParamSpec(
+                "lookback",
+                "int",
+                20,
+                2,
+                200,
+                "Rolling window size for swing high/low detection.",
+            ),
+        ],
+    ),
+    "fvg": StrategySpec(
+        name="fvg",
+        description="Fair Value Gap: signals when price fills a 3-candle imbalance zone.",
+        params=[
+            ParamSpec(
+                "lookback",
+                "int",
+                50,
+                1,
+                500,
+                "Candles to watch for FVG fill after the gap forms.",
+            ),
+        ],
+    ),
+    "bos": StrategySpec(
+        name="bos",
+        description="Break of Structure / Change of Character: market structure shift signals.",
+        params=[
+            ParamSpec(
+                "swing_lookback",
+                "int",
+                5,
+                1,
+                50,
+                "Half-window size for swing high/low identification (window = 2×n+1).",
+            ),
+        ],
+    ),
+    "funding_reversion": StrategySpec(
+        name="funding_reversion",
+        description="Contrarian signals on extreme funding rates (mean reversion setup).",
+        params=[
+            ParamSpec(
+                "threshold",
+                "float",
+                0.001,
+                0.0001,
+                0.01,
+                "Absolute funding rate threshold to trigger a signal.",
+            ),
+        ],
+        requires_funding=True,
+    ),
+    "smt_divergence": StrategySpec(
+        name="smt_divergence",
+        description="SMT divergence: primary makes new swing extreme but correlated asset does not.",
+        params=[
+            ParamSpec(
+                "lookback",
+                "int",
+                10,
+                2,
+                200,
+                "Rolling window for swing high/low comparison between assets.",
+            ),
+        ],
+        requires_secondary=True,
+    ),
+}
 
 SIGNAL_COLUMNS: list[str] = ["open_time", "direction", "reason"]
 
@@ -19,17 +178,7 @@ SEASONALITY_COLUMNS: list[str] = [
     "count",
 ]
 
-KNOWN_STRATEGIES: list[str] = [
-    "seasonality",
-    "wick_fill",
-    "marubozu",
-    "orb",
-    "liquidity_sweep",
-    "fvg",
-    "bos",
-    "funding_reversion",
-    "smt_divergence",
-]
+KNOWN_STRATEGIES: list[str] = list(STRATEGY_REGISTRY.keys())
 
 
 def _empty_signals() -> pd.DataFrame:
