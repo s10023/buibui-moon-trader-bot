@@ -135,19 +135,19 @@ buibui-monitor-position-telegram:
 
 buibui-analytics-backfill:
 	@echo "📥 Running analytics backfill..."
-	poetry run python buibui.py analytics backfill --since $(or $(SINCE),2023-01-01) \
+	@poetry run python buibui.py analytics backfill --since $(or $(SINCE),2023-01-01) \
 		$(if $(SYMBOLS),--symbols $(SYMBOLS),) \
 		$(if $(TIMEFRAMES),--timeframes $(TIMEFRAMES),)
 
 buibui-analytics-sync:
 	@echo "🔄 Syncing analytics data..."
-	poetry run python buibui.py analytics sync \
+	@poetry run python buibui.py analytics sync \
 		$(if $(SYMBOLS),--symbols $(SYMBOLS),) \
 		$(if $(TIMEFRAMES),--timeframes $(TIMEFRAMES),)
 
 buibui-backtest:
 	@echo "📊 Running backtest: $(SYMBOL) $(STRATEGY) $(INTERVAL) $(DAYS)d..."
-	poetry run python buibui.py backtest \
+	@poetry run python buibui.py backtest \
 		--symbol $(SYMBOL) \
 		--strategy $(STRATEGY) \
 		--interval $(INTERVAL) \
@@ -158,7 +158,7 @@ buibui-backtest:
 
 buibui-signal-watch:
 	@echo "🔍 Running signal detection daemon..."
-	poetry run python buibui.py signal watch \
+	@poetry run python buibui.py signal watch \
 		$(if $(SYMBOLS),--symbols $(SYMBOLS),) \
 		$(if $(TIMEFRAMES),--timeframes $(TIMEFRAMES),) \
 		$(if $(STRATEGIES),--strategies $(STRATEGIES),) \

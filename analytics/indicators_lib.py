@@ -1,13 +1,15 @@
 """Pure strategy signal detection functions for analytics.
 
 All functions accept pandas DataFrames of OHLCV data and return a DataFrame
-of detected signals with columns: open_time (int), direction (str), reason (str).
+of detected signals with columns: open_time (int), direction (str), reason (str),
+sl_price (float), context (str).
 
 Seasonality returns a summary statistics DataFrame instead.
 No module-level side effects.
 """
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 import pandas as pd
 
@@ -168,7 +170,13 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     ),
 }
 
-SIGNAL_COLUMNS: list[str] = ["open_time", "direction", "reason"]
+SIGNAL_COLUMNS: list[str] = ["open_time", "direction", "reason", "sl_price", "context"]
+
+
+def _fmt_time(ts_ms: int) -> str:
+    """Format a Unix ms timestamp as a short UTC string for alert context."""
+    return datetime.fromtimestamp(ts_ms / 1000, tz=UTC).strftime("%d-%b %H:%M")
+
 
 SEASONALITY_COLUMNS: list[str] = [
     "period_type",
@@ -296,6 +304,7 @@ def detect_wick_fills(
         if lower_wick >= min_wick_body_ratio * body:
             zone_top = min(candle_open, candle_close)
             zone_bot = candle_low
+            wick_ctx = f"Wick: {_fmt_time(int(row['open_time']))}"
             for j in range(i + 1, end):
                 fut = df.iloc[j]
                 if float(fut["low"]) <= zone_top:
@@ -304,6 +313,8 @@ def detect_wick_fills(
                             "open_time": int(fut["open_time"]),
                             "direction": "long",
                             "reason": f"wick_fill_long@{zone_bot:.2f}-{zone_top:.2f}",
+                            "sl_price": zone_bot,
+                            "context": wick_ctx,
                         }
                     )
                     break
@@ -311,6 +322,7 @@ def detect_wick_fills(
         if upper_wick >= min_wick_body_ratio * body:
             zone_bot = max(candle_open, candle_close)
             zone_top = candle_high
+            wick_ctx = f"Wick: {_fmt_time(int(row['open_time']))}"
             for j in range(i + 1, end):
                 fut = df.iloc[j]
                 if float(fut["high"]) >= zone_bot:
@@ -319,6 +331,8 @@ def detect_wick_fills(
                             "open_time": int(fut["open_time"]),
                             "direction": "short",
                             "reason": f"wick_fill_short@{zone_bot:.2f}-{zone_top:.2f}",
+                            "sl_price": zone_top,
+                            "context": wick_ctx,
                         }
                     )
                     break
@@ -372,6 +386,7 @@ def detect_marubozu_retest(
         is_bullish = row_close > row_open
         end = min(i + lookback + 1, n)
 
+        maru_ctx = f"Marubozu: {_fmt_time(int(row['open_time']))}"
         if is_bullish:
             support = row_open
             for j in range(i + 1, end):
@@ -382,6 +397,8 @@ def detect_marubozu_retest(
                             "open_time": int(fut["open_time"]),
                             "direction": "long",
                             "reason": f"marubozu_long@{support:.2f}",
+                            "sl_price": row_low,
+                            "context": maru_ctx,
                         }
                     )
                     break
@@ -398,6 +415,8 @@ def detect_marubozu_retest(
                             "open_time": int(fut["open_time"]),
                             "direction": "short",
                             "reason": f"marubozu_short@{resistance:.2f}",
+                            "sl_price": row_high,
+                            "context": maru_ctx,
                         }
                     )
                     break
@@ -440,12 +459,15 @@ def detect_orb_breakout(
         nxt = df.iloc[i + 1]
         nxt_close = float(nxt["close"])
 
+        range_ctx = f"Range: {_fmt_time(int(df.iloc[i]['open_time']))}"
         if nxt_close > range_high:
             signals.append(
                 {
                     "open_time": int(nxt["open_time"]),
                     "direction": "long",
                     "reason": f"orb_long@{range_high:.2f}",
+                    "sl_price": range_low,
+                    "context": range_ctx,
                 }
             )
         elif nxt_close < range_low:
@@ -454,6 +476,8 @@ def detect_orb_breakout(
                     "open_time": int(nxt["open_time"]),
                     "direction": "short",
                     "reason": f"orb_short@{range_low:.2f}",
+                    "sl_price": range_high,
+                    "context": range_ctx,
                 }
             )
 
@@ -500,6 +524,8 @@ def detect_liquidity_sweep(
                     "open_time": int(row["open_time"]),
                     "direction": "short",
                     "reason": f"sweep_high@{swing_high:.2f}",
+                    "sl_price": candle_high,
+                    "context": "",
                 }
             )
 
@@ -509,6 +535,8 @@ def detect_liquidity_sweep(
                     "open_time": int(row["open_time"]),
                     "direction": "long",
                     "reason": f"sweep_low@{swing_low:.2f}",
+                    "sl_price": candle_low,
+                    "context": "",
                 }
             )
 
@@ -546,6 +574,12 @@ def detect_fvg(
 
         end = min(i + 2 + lookback, n)
 
+        fvg_ctx = (
+            f"Gap: {_fmt_time(int(df.iloc[i - 1]['open_time']))} · "
+            f"{_fmt_time(int(df.iloc[i]['open_time']))} · "
+            f"{_fmt_time(int(df.iloc[i + 1]['open_time']))}"
+        )
+
         if prev_high < nxt_low:
             gap_bot = prev_high
             gap_top = nxt_low
@@ -557,6 +591,8 @@ def detect_fvg(
                             "open_time": int(fut["open_time"]),
                             "direction": "long",
                             "reason": f"fvg_long@{gap_bot:.2f}-{gap_top:.2f}",
+                            "sl_price": gap_bot,
+                            "context": fvg_ctx,
                         }
                     )
                     break
@@ -572,6 +608,8 @@ def detect_fvg(
                             "open_time": int(fut["open_time"]),
                             "direction": "short",
                             "reason": f"fvg_short@{gap_top:.2f}-{gap_bot:.2f}",
+                            "sl_price": gap_top,
+                            "context": fvg_ctx,
                         }
                     )
                     break
@@ -637,6 +675,8 @@ def detect_market_structure(
                             "open_time": open_time,
                             "direction": "long",
                             "reason": f"{label}@{price:.2f}",
+                            "sl_price": last_sl if last_sl is not None else 0.0,
+                            "context": "",
                         }
                     )
                     trend = "up"
@@ -651,6 +691,8 @@ def detect_market_structure(
                             "open_time": open_time,
                             "direction": "short",
                             "reason": f"{label}@{price:.2f}",
+                            "sl_price": last_sh if last_sh is not None else 0.0,
+                            "context": "",
                         }
                     )
                     trend = "down"
@@ -705,6 +747,8 @@ def detect_funding_extreme(
                     "open_time": open_time,
                     "direction": "short",
                     "reason": f"funding_long_extreme@{rate:.4f}",
+                    "sl_price": 0.0,
+                    "context": "",
                 }
             )
         elif rate < -threshold:
@@ -713,6 +757,8 @@ def detect_funding_extreme(
                     "open_time": open_time,
                     "direction": "long",
                     "reason": f"funding_short_extreme@{rate:.4f}",
+                    "sl_price": 0.0,
+                    "context": "",
                 }
             )
 
@@ -777,6 +823,8 @@ def detect_smt_divergence(
                     "open_time": open_time,
                     "direction": "short",
                     "reason": f"smt_bearish@{curr_p_high:.2f}",
+                    "sl_price": curr_p_high,
+                    "context": "",
                 }
             )
 
@@ -786,6 +834,8 @@ def detect_smt_divergence(
                     "open_time": open_time,
                     "direction": "long",
                     "reason": f"smt_bullish@{curr_p_low:.2f}",
+                    "sl_price": curr_p_low,
+                    "context": "",
                 }
             )
 

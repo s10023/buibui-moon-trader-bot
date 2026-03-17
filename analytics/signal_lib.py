@@ -16,7 +16,7 @@ import pandas as pd
 
 from analytics.data_store import get_funding_rates, get_ohlcv
 from analytics.indicators_lib import STRATEGY_REGISTRY
-from signals.alert_formatter import SignalEvent, format_signal_alert
+from signals.alert_formatter import SignalEvent, format_confluence_alert
 from signals.cooldown_store import CooldownStore
 from signals.registry import SIGNAL_REGISTRY
 
@@ -92,6 +92,8 @@ def scan_symbol(
                     reason=str(row["reason"]),
                     open_time=latest_open_time,
                     price=latest_close,
+                    sl_price=float(row["sl_price"]),
+                    context=str(row["context"]),
                 )
             )
 
@@ -161,12 +163,34 @@ def run_scan_cycle(
                 funding_df=funding_df,
             )
 
-            for event in events:
-                if not store.is_new_candle(symbol, tf, event.strategy, event.open_time):
-                    continue
-                if not store.is_off_cooldown(symbol, event.strategy, event.direction):
-                    continue
+            # Conflict suppression: opposite directions on same symbol/tf → suppress all
+            long_events = [e for e in events if e.direction == "long"]
+            short_events = [e for e in events if e.direction == "short"]
+            if long_events and short_events:
+                logger.info(
+                    "Conflict suppressed: %s %s has both LONG (%s) and SHORT (%s) signals",
+                    symbol,
+                    tf,
+                    [e.strategy for e in long_events],
+                    [e.strategy for e in short_events],
+                )
+                continue
 
+            direction_events = long_events or short_events
+            if not direction_events:
+                continue
+
+            # Filter each strategy independently by cooldown
+            passing_events = [
+                e
+                for e in direction_events
+                if store.is_new_candle(symbol, tf, e.strategy, e.open_time)
+                and store.is_off_cooldown(symbol, e.strategy, e.direction)
+            ]
+            if not passing_events:
+                continue
+
+            for event in passing_events:
                 store.record_alert(
                     symbol,
                     tf,
@@ -176,16 +200,22 @@ def run_scan_cycle(
                     cooldown_seconds,
                 )
 
-                msg = format_signal_alert(event, sl_pct=sl_pct, tp_r=tp_r)
-                alerts.append(msg)
-                logger.info(
-                    "Signal: %s %s %s %s", symbol, tf, event.strategy, event.direction
-                )
+            # Stack all passing strategies into one confluence alert
+            msg = format_confluence_alert(passing_events, sl_pct=sl_pct, tp_r=tp_r)
+            alerts.append(msg)
+            logger.info(
+                "Signal: %s %s %s %s (confluence: %d)",
+                symbol,
+                tf,
+                passing_events[0].direction,
+                [e.strategy for e in passing_events],
+                len(passing_events),
+            )
 
-                if send_telegram:
-                    try:
-                        send_telegram_message(msg)
-                    except Exception:
-                        logger.exception("Telegram send failed for %s", symbol)
+            if send_telegram:
+                try:
+                    send_telegram_message(msg)
+                except Exception:
+                    logger.exception("Telegram send failed for %s", symbol)
 
     return alerts
