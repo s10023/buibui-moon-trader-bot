@@ -395,9 +395,13 @@ bind-mounted at runtime.
 ```bash
 make docker-build                  # Build the image
 
-# Monitors
-make docker-monitor-price          # Run price monitor
-make docker-monitor-position       # Run position monitor
+# Monitors — snapshot (colour output via -t)
+make docker-monitor-price          # Run price monitor (snapshot)
+make docker-monitor-position       # Run position monitor (snapshot)
+
+# Monitors — live mode (interactive TTY via -it)
+make docker-monitor-price-live     # Run price monitor in live mode
+make docker-monitor-position-live  # Run position monitor in live mode
 
 # Analytics — analytics.db is bind-mounted from the host
 make docker-analytics-backfill                       # Backfill from 2023-01-01

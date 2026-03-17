@@ -8,7 +8,7 @@ DAYS ?= 90
 PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*" -not -path "./.venv/*")
 DOCKER_IMAGE = buibui-bot
 
-.PHONY: lint lint-md lint-md-fix lint-py-check lint-py typecheck test poetry-install poetry-update docker-build docker-monitor-price docker-monitor-position docker-analytics-backfill docker-analytics-sync docker-backtest buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-open-trades buibui-analytics-backfill buibui-analytics-sync buibui-backtest clean-db clean
+.PHONY: lint lint-md lint-md-fix lint-py-check lint-py typecheck test poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-open-trades buibui-analytics-backfill buibui-analytics-sync buibui-backtest clean-db clean
 
 lint: lint-md lint-py
 
@@ -52,15 +52,27 @@ docker-build:
 
 docker-monitor-price:
 	@echo "🐳 Running price monitor in Docker..."
-	docker run --env-file .env \
+	docker run -t --env-file .env \
 		-v $(PWD)/config/coins.json:/app/config/coins.json:ro \
 		$(DOCKER_IMAGE) poetry run python buibui.py monitor price
 
+docker-monitor-price-live:
+	@echo "🐳 Running price monitor (live) in Docker..."
+	docker run -it --env-file .env \
+		-v $(PWD)/config/coins.json:/app/config/coins.json:ro \
+		$(DOCKER_IMAGE) poetry run python buibui.py monitor price --live
+
 docker-monitor-position:
 	@echo "🐳 Running position monitor in Docker..."
-	docker run --env-file .env \
+	docker run -t --env-file .env \
 		-v $(PWD)/config/coins.json:/app/config/coins.json:ro \
 		$(DOCKER_IMAGE) poetry run python buibui.py monitor position
+
+docker-monitor-position-live:
+	@echo "🐳 Running position monitor (live) in Docker..."
+	docker run -it --env-file .env \
+		-v $(PWD)/config/coins.json:/app/config/coins.json:ro \
+		$(DOCKER_IMAGE) poetry run python buibui.py monitor position --live --sort $(SORT)
 
 docker-analytics-backfill:
 	@echo "📥 Running analytics backfill in Docker..."
