@@ -134,10 +134,13 @@ def get_latest_open_time(
     timeframe: str,
 ) -> int | None:
     """Return the maximum open_time stored for (symbol, timeframe), or None if no rows."""
+    # ORDER BY ... LIMIT 1 instead of MAX() to avoid a DuckDB statistics
+    # optimizer bug (InternalException on aggregate after multiple inserts).
     result = conn.execute(
-        "SELECT MAX(open_time) FROM ohlcv WHERE symbol = ? AND timeframe = ?",
+        "SELECT open_time FROM ohlcv WHERE symbol = ? AND timeframe = ?"
+        " ORDER BY open_time DESC LIMIT 1",
         [symbol, timeframe],
     ).fetchone()
-    if result is None or result[0] is None:
+    if result is None:
         return None
     return int(result[0])
