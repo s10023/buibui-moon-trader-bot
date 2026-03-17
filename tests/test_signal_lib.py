@@ -27,23 +27,25 @@ class TestSecsUntilNextBoundary:
         # now = 14:02:00 UTC → next 4h boundary = 16:00:00 + 10s buffer
         now = 14 * 3600 + 2 * 60  # 50520s since midnight
         with patch("analytics.signal_runner.time.time", return_value=float(now)):
-            secs = _secs_until_next_boundary(["4h"])
+            secs, wake_ts = _secs_until_next_boundary(["4h"])
         expected = (16 * 3600 + 10) - now  # 7090s
         assert secs == expected
+        assert wake_ts == 16 * 3600 + 10
 
     def test_picks_earliest_boundary_across_timeframes(self) -> None:
         # now = 14:02:00 → next 1h boundary = 15:00:10, next 4h = 16:00:10
         now = 14 * 3600 + 2 * 60
         with patch("analytics.signal_runner.time.time", return_value=float(now)):
-            secs = _secs_until_next_boundary(["4h", "1h"])
+            secs, wake_ts = _secs_until_next_boundary(["4h", "1h"])
         expected = (15 * 3600 + 10) - now  # 3490s — the 1h boundary wins
         assert secs == expected
+        assert wake_ts == 15 * 3600 + 10
 
     def test_never_returns_negative(self) -> None:
         # now is exactly on a boundary + buffer — result should be a full interval away
         now = 4 * 3600 + 10  # exactly at 04:00:10
         with patch("analytics.signal_runner.time.time", return_value=float(now)):
-            secs = _secs_until_next_boundary(["4h"])
+            secs, _ = _secs_until_next_boundary(["4h"])
         assert secs >= 0.0
 
 

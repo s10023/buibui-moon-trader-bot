@@ -30,8 +30,8 @@ def _parse_timeframe_secs(tf: str) -> int:
     return int(tf[:-1]) * units[tf[-1]]
 
 
-def _secs_until_next_boundary(timeframes: list[str]) -> float:
-    """Return seconds to sleep until the next candle close across all timeframes.
+def _secs_until_next_boundary(timeframes: list[str]) -> tuple[float, float]:
+    """Return (sleep_seconds, wakeup_unix_timestamp) for the next candle close.
 
     Wakes at the earliest upcoming boundary + a small buffer so Binance has
     time to finalise the candle (e.g. 04:00:10, not 04:00:00).
@@ -42,7 +42,8 @@ def _secs_until_next_boundary(timeframes: list[str]) -> float:
         interval = _parse_timeframe_secs(tf)
         next_close = math.ceil(now / interval) * interval
         next_wakeups.append(next_close + _CANDLE_CLOSE_BUFFER_SECS)
-    return max(0.0, min(next_wakeups) - now)
+    wake_ts = min(next_wakeups)
+    return max(0.0, wake_ts - now), wake_ts
 
 
 def run_signal_watch(
@@ -122,10 +123,8 @@ def run_signal_watch(
             else:
                 logger.info("No new signals this cycle")
 
-            sleep_secs = _secs_until_next_boundary(resolved_timeframes)
-            next_dt = datetime.fromtimestamp(time.time() + sleep_secs, tz=UTC).strftime(
-                "%H:%M:%S UTC"
-            )
+            sleep_secs, wake_ts = _secs_until_next_boundary(resolved_timeframes)
+            next_dt = datetime.fromtimestamp(wake_ts, tz=UTC).strftime("%H:%M:%S UTC")
             logger.info("--- sleeping %.0fs until %s ---", sleep_secs, next_dt)
             time.sleep(sleep_secs)
     finally:
