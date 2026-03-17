@@ -52,7 +52,9 @@ docker-build:
 
 docker-monitor-price:
 	@echo "🐳 Running price monitor in Docker..."
-	docker run --env-file .env $(DOCKER_IMAGE) poetry run python buibui.py monitor price
+	docker run --env-file .env \
+		-v $(PWD)/config/coins.json:/app/config/coins.json:ro \
+		$(DOCKER_IMAGE) poetry run python buibui.py monitor price
 
 docker-monitor-position:
 	@echo "🐳 Running position monitor in Docker..."
