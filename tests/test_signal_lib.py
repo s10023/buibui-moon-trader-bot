@@ -4,7 +4,11 @@ from typing import Any
 from unittest.mock import patch
 
 from analytics.signal_runner import _parse_timeframe_secs, _secs_until_next_boundary
-from signals.alert_formatter import SignalEvent, format_signal_alert
+from signals.alert_formatter import (
+    SignalEvent,
+    format_confluence_alert,
+    format_signal_alert,
+)
 from signals.cooldown_store import CooldownStore
 
 
@@ -174,3 +178,144 @@ class TestFormatSignalAlert:
         )
         msg = format_signal_alert(event, sl_pct=0.02, tp_r=3.0)
         assert "3.0x R" in msg
+
+    def test_structural_sl_used_when_valid_long(self) -> None:
+        event = SignalEvent(
+            symbol="BTCUSDT",
+            timeframe="5m",
+            strategy="fvg",
+            direction="long",
+            reason="fvg_long@90.00-95.00",
+            open_time=1700000000000,
+            price=100.0,
+            sl_price=90.0,  # structural: below gap_bot
+        )
+        msg = format_signal_alert(event, sl_pct=0.02)
+        # Structural SL = 90.0, not pct-based 98.0
+        assert "90.00" in msg
+        assert "980.00" not in msg
+
+    def test_structural_sl_used_when_valid_short(self) -> None:
+        event = SignalEvent(
+            symbol="BTCUSDT",
+            timeframe="5m",
+            strategy="fvg",
+            direction="short",
+            reason="fvg_short@110.00-105.00",
+            open_time=1700000000000,
+            price=100.0,
+            sl_price=110.0,  # structural: above gap_top
+        )
+        msg = format_signal_alert(event, sl_pct=0.02)
+        assert "110.00" in msg
+        assert "1,020.00" not in msg
+
+    def test_fallback_to_pct_when_sl_price_zero(self) -> None:
+        event = SignalEvent(
+            symbol="BTCUSDT",
+            timeframe="4h",
+            strategy="funding_reversion",
+            direction="long",
+            reason="funding_short_extreme@-0.0012",
+            open_time=1700000000000,
+            price=1000.0,
+            sl_price=0.0,
+        )
+        msg = format_signal_alert(event, sl_pct=0.02)
+        assert "980.00" in msg
+
+    def test_context_appears_in_single_event_alert(self) -> None:
+        event = SignalEvent(
+            symbol="SOLUSDT",
+            timeframe="5m",
+            strategy="fvg",
+            direction="long",
+            reason="fvg_long@94.59-94.73",
+            open_time=1700000000000,
+            price=94.67,
+            sl_price=94.59,
+            context="Gap: 17-Nov 10:00 · 17-Nov 10:05 · 17-Nov 10:10",
+        )
+        msg = format_signal_alert(event)
+        assert "Gap: 17-Nov 10:00" in msg
+
+    def test_signal_time_shown_in_alert(self) -> None:
+        event = SignalEvent(
+            symbol="BTCUSDT",
+            timeframe="4h",
+            strategy="fvg",
+            direction="long",
+            reason="fvg_long@100.00-110.00",
+            open_time=1700000000000,
+            price=1000.0,
+        )
+        msg = format_signal_alert(event)
+        assert "UTC" in msg
+
+
+class TestFormatConfluenceAlert:
+    def _make_event(
+        self,
+        strategy: str,
+        direction: str = "long",
+        price: float = 100.0,
+        sl_price: float = 0.0,
+        context: str = "",
+    ) -> SignalEvent:
+        return SignalEvent(
+            symbol="BTCUSDT",
+            timeframe="5m",
+            strategy=strategy,
+            direction=direction,
+            reason=f"{strategy}_{direction}@test",
+            open_time=1700000000000,
+            price=price,
+            sl_price=sl_price,
+            context=context,
+        )
+
+    def test_single_event_uses_strategy_label(self) -> None:
+        event = self._make_event("fvg", sl_price=90.0)
+        msg = format_confluence_alert([event])
+        assert "Strategy: `fvg`" in msg
+        assert "Confluence" not in msg
+
+    def test_two_events_shows_confluence_header(self) -> None:
+        events = [
+            self._make_event("fvg", sl_price=90.0),
+            self._make_event("liquidity_sweep", sl_price=88.0),
+        ]
+        msg = format_confluence_alert(events)
+        assert "Confluence: 2 strategies" in msg
+        assert "fvg" in msg
+        assert "liquidity_sweep" in msg
+
+    def test_confluence_uses_tightest_sl_long(self) -> None:
+        # Two longs: sl_price 90 and 85. Tightest = highest = 90.
+        events = [
+            self._make_event("fvg", sl_price=90.0),
+            self._make_event("liquidity_sweep", sl_price=85.0),
+        ]
+        msg = format_confluence_alert(events)
+        assert "90.00" in msg
+        assert "85.00" not in msg
+
+    def test_confluence_uses_tightest_sl_short(self) -> None:
+        # Two shorts: sl_price 110 and 115. Tightest = lowest = 110.
+        events = [
+            self._make_event("fvg", direction="short", price=100.0, sl_price=110.0),
+            self._make_event("bos", direction="short", price=100.0, sl_price=115.0),
+        ]
+        msg = format_confluence_alert(events)
+        assert "110.00" in msg
+        assert "115.00" not in msg
+
+    def test_context_shown_in_confluence_line(self) -> None:
+        events = [
+            self._make_event(
+                "fvg", sl_price=90.0, context="Gap: 17-Nov 10:00 · 10:05 · 10:10"
+            ),
+            self._make_event("liquidity_sweep", sl_price=88.0),
+        ]
+        msg = format_confluence_alert(events)
+        assert "Gap: 17-Nov 10:00" in msg
