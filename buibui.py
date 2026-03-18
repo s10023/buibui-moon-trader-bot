@@ -46,7 +46,27 @@ def run_backtest(args: argparse.Namespace) -> None:
     )
 
 
+def _parse_smt_pairs(value: str) -> dict[str, str]:
+    """Parse comma-separated PRIMARY:SECONDARY tokens into a dict.
+
+    Example: 'BTCUSDT:ETHUSDT,ETHUSDT:BTCUSDT' → {'BTCUSDT': 'ETHUSDT', 'ETHUSDT': 'BTCUSDT'}
+    """
+    result: dict[str, str] = {}
+    for token in value.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        parts = token.split(":", 1)
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise argparse.ArgumentTypeError(
+                f"Invalid smt-pairs token '{token}' — expected PRIMARY:SECONDARY"
+            )
+        result[parts[0].strip()] = parts[1].strip()
+    return result
+
+
 def run_signal_watch(args: argparse.Namespace) -> None:
+    smt_pairs: dict[str, str] | None = getattr(args, "smt_pairs", None)
     signal_runner.run_signal_watch(
         symbols=args.symbols,
         timeframes=args.timeframes,
@@ -56,6 +76,7 @@ def run_signal_watch(args: argparse.Namespace) -> None:
         send_telegram=args.telegram,
         state_file=args.state_file,
         secondary_symbol=args.secondary_symbol,
+        smt_pairs=smt_pairs,
     )
 
 
@@ -165,7 +186,17 @@ def main() -> None:
         "--secondary-symbol",
         default=None,
         dest="secondary_symbol",
-        help="Secondary symbol for SMT divergence strategy (e.g. ETHUSDT)",
+        help="Secondary symbol for SMT divergence strategy (e.g. ETHUSDT) (deprecated — use --smt-pairs)",
+    )
+    watch_parser.add_argument(
+        "--smt-pairs",
+        default=None,
+        dest="smt_pairs",
+        type=_parse_smt_pairs,
+        help=(
+            "Per-symbol SMT secondary mappings as comma-separated PRIMARY:SECONDARY tokens "
+            "(e.g. BTCUSDT:ETHUSDT,ETHUSDT:BTCUSDT). Overrides smt_secondary in coins.json."
+        ),
     )
     watch_parser.add_argument(
         "--min-sl-pct",

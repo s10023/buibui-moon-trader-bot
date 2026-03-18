@@ -29,4 +29,10 @@ def validate_coins_config(config_dict: dict[str, Any]) -> bool:
             raise ValueError(
                 f"Symbol '{symbol}' sl_percent {sl} out of range (0.1-100)."
             )
+        if "smt_secondary" in params:
+            sec = params["smt_secondary"]
+            if not isinstance(sec, str) or not sec:
+                raise ValueError(
+                    f"Symbol '{symbol}' smt_secondary must be a non-empty string."
+                )
     return True

@@ -57,6 +57,7 @@ def run_signal_watch(
     send_telegram: bool = False,
     state_file: str = "signal_state.json",
     secondary_symbol: str | None = None,
+    smt_pairs: dict[str, str] | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> None:
     """Run the signal detection daemon loop.
@@ -65,6 +66,7 @@ def run_signal_watch(
     sends Telegram alerts if enabled, then sleeps until the next candle
     boundary across all watched timeframes.
     """
+    from analytics.data_store import get_ohlcv
     from analytics.indicators_lib import KNOWN_STRATEGIES
 
     client = create_client()
@@ -75,6 +77,22 @@ def run_signal_watch(
     resolved_strategies = strategies or [
         s for s in KNOWN_STRATEGIES if s != "seasonality"
     ]
+
+    # Build secondary_map from coins.json, then overlay CLI --smt-pairs (CLI wins).
+    coins_secondary_map: dict[str, str] = {
+        sym: cfg["smt_secondary"]
+        for sym, cfg in coins_config.items()
+        if sym in resolved_symbols and "smt_secondary" in cfg
+    }
+    # Expand deprecated --secondary-symbol into a map if --smt-pairs not provided.
+    if secondary_symbol and not smt_pairs:
+        smt_pairs = {s: secondary_symbol for s in resolved_symbols}
+    # CLI smt_pairs takes precedence over coins.json entries.
+    secondary_map: dict[str, str] = {**coins_secondary_map, **(smt_pairs or {})}
+    if not secondary_map:
+        secondary_map_arg: dict[str, str] | None = None
+    else:
+        secondary_map_arg = secondary_map
 
     store = CooldownStore(state_file)
 
@@ -102,6 +120,26 @@ def run_signal_watch(
     try:
         conn = duckdb.connect(str(db_path))
         init_schema(conn)
+
+        # Startup probe: warn (don't abort) for secondaries with no OHLCV yet.
+        if secondary_map_arg:
+            now_probe_ms = int(time.time() * 1000)
+            start_probe_ms = now_probe_ms - _DEFAULT_BACKFILL_DAYS * 24 * 3600 * 1000
+            seen_secondaries: set[str] = set()
+            for sym in resolved_symbols:
+                sec = secondary_map_arg.get(sym)
+                if sec and sec not in seen_secondaries:
+                    seen_secondaries.add(sec)
+                    probe_df = get_ohlcv(
+                        conn, sec, resolved_timeframes[0], start_probe_ms, now_probe_ms
+                    )
+                    if probe_df.empty:
+                        logger.warning(
+                            "Secondary symbol %s has no OHLCV data yet — "
+                            "run 'analytics backfill --symbols %s' to populate it",
+                            sec,
+                            sec,
+                        )
         try:
             while not shutdown_requested[0]:
                 logger.info("--- scan cycle start ---")
@@ -138,7 +176,7 @@ def run_signal_watch(
                     tp_r=tp_r,
                     min_sl_pct=min_sl_pct,
                     send_telegram=send_telegram,
-                    secondary_symbol=secondary_symbol,
+                    secondary_map=secondary_map_arg,
                 )
 
                 if alerts:

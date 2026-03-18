@@ -112,7 +112,7 @@ def run_scan_cycle(
     sl_pct: float = 0.02,
     min_sl_pct: float = 0.0,
     send_telegram: bool = False,
-    secondary_symbol: str | None = None,
+    secondary_map: dict[str, str] | None = None,
     days: int = 90,
 ) -> list[str]:
     """Scan all symbol+timeframe combinations and return formatted alert strings.
@@ -122,6 +122,10 @@ def run_scan_cycle(
     Uses CooldownStore to suppress duplicate alerts. Optionally sends via Telegram.
     Returns list of formatted alert strings for logging/testing regardless of
     whether Telegram is enabled.
+
+    secondary_map: per-symbol mapping of primary → secondary symbol for smt_divergence.
+    Secondaries are fetched once per (secondary_symbol, timeframe) even if shared by
+    multiple primaries.
     """
     from utils.telegram import send_telegram_message
 
@@ -139,11 +143,17 @@ def run_scan_cycle(
         if s in SIGNAL_REGISTRY and s in STRATEGY_REGISTRY
     )
 
-    # Pre-fetch secondary OHLCV per timeframe (shared across all primary symbols)
-    secondary_dfs: dict[str, pd.DataFrame] = {}
-    if needs_secondary and secondary_symbol:
-        for tf in timeframes:
-            secondary_dfs[tf] = get_ohlcv(conn, secondary_symbol, tf, start_ms, now_ms)
+    # Pre-fetch secondary OHLCV keyed by (secondary_symbol, tf) to avoid duplicate
+    # DB queries when multiple primaries share the same secondary.
+    secondary_dfs: dict[tuple[str, str], pd.DataFrame] = {}
+    if needs_secondary and secondary_map:
+        for symbol in symbols:
+            sec = secondary_map.get(symbol)
+            if sec:
+                for tf in timeframes:
+                    key = (sec, tf)
+                    if key not in secondary_dfs:
+                        secondary_dfs[key] = get_ohlcv(conn, sec, tf, start_ms, now_ms)
 
     alerts: list[str] = []
 
@@ -154,7 +164,8 @@ def run_scan_cycle(
 
         for tf in timeframes:
             ohlcv_df = get_ohlcv(conn, symbol, tf, start_ms, now_ms)
-            sec_df = secondary_dfs.get(tf) if needs_secondary else None
+            sec_key = ((secondary_map or {}).get(symbol, ""), tf)
+            sec_df = secondary_dfs.get(sec_key) if needs_secondary else None
 
             events = scan_symbol(
                 ohlcv_df=ohlcv_df,
