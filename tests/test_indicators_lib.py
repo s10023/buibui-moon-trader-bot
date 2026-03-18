@@ -411,67 +411,37 @@ class TestDetectMarketStructure:
 
     def test_min_swing_pct_suppresses_small_swing_long(self) -> None:
         """Signals where (sh - sl) / sh < min_swing_pct must be suppressed (long)."""
-        # Build a minimal uptrend: peaks=110, 120 with valley=108.
-        # swing range = (120 - 108) / 120 = 0.10 (10%)
-        # Use min_swing_pct=0.15 → signal should be suppressed.
-        rows = [
-            _candle(_BASE_TIME + 0, 105, 108, 104, 107),  # valley
-            _candle(_BASE_TIME + 1, 108, 110, 107, 109),  # peak 1
-            _candle(_BASE_TIME + 2, 107, 109, 108, 108),  # valley (low=108)
-            _candle(_BASE_TIME + 3, 109, 120, 108, 119),  # peak 2 > peak 1 → BOS long
-            _candle(_BASE_TIME + 4, 115, 119, 107, 115),  # valley
-        ]
-        df = _make_ohlcv(rows)
-        # (120 - 108) / 120 = 0.10; threshold 0.15 should suppress
-        result = detect_market_structure(df, swing_lookback=1, min_swing_pct=0.15)
+        # zigzag_up: peak=130, sl=88 → swing_range = (130-88)/130 ≈ 0.323
+        # threshold 0.35 > 0.323 → suppress
+        df = self._make_zigzag_up()
+        result = detect_market_structure(df, swing_lookback=1, min_swing_pct=0.35)
         long_signals = result[result["direction"] == "long"]
         assert long_signals.empty
 
     def test_min_swing_pct_passes_large_swing_long(self) -> None:
         """Signals where (sh - sl) / sh >= min_swing_pct must be emitted (long)."""
-        rows = [
-            _candle(_BASE_TIME + 0, 105, 108, 104, 107),  # valley
-            _candle(_BASE_TIME + 1, 108, 110, 107, 109),  # peak 1
-            _candle(_BASE_TIME + 2, 107, 109, 108, 108),  # valley (low=108)
-            _candle(_BASE_TIME + 3, 109, 120, 108, 119),  # peak 2 > peak 1 → BOS long
-            _candle(_BASE_TIME + 4, 115, 119, 107, 115),  # valley
-        ]
-        df = _make_ohlcv(rows)
-        # (120 - 108) / 120 = 0.10; threshold 0.05 should pass
-        result = detect_market_structure(df, swing_lookback=1, min_swing_pct=0.05)
+        # zigzag_up: peak=130, sl=88 → swing_range = (130-88)/130 ≈ 0.323
+        # threshold 0.20 < 0.323 → pass
+        df = self._make_zigzag_up()
+        result = detect_market_structure(df, swing_lookback=1, min_swing_pct=0.20)
         long_signals = result[result["direction"] == "long"]
         assert len(long_signals) >= 1
 
     def test_min_swing_pct_suppresses_small_swing_short(self) -> None:
         """Signals where (sh - sl) / sl < min_swing_pct must be suppressed (short)."""
-        # Build a minimal downtrend: valleys=95, 85 with peak=97.
-        # swing range = (97 - 85) / 85 = 0.141...
-        # Use min_swing_pct=0.20 → signal should be suppressed.
-        rows = [
-            _candle(_BASE_TIME + 0, 96, 97, 95, 96),  # peak
-            _candle(_BASE_TIME + 1, 95, 96, 95, 95),  # valley 1 (low=95)
-            _candle(_BASE_TIME + 2, 95, 97, 95, 96),  # peak
-            _candle(_BASE_TIME + 3, 94, 96, 85, 86),  # valley 2 < valley 1 → BOS short
-            _candle(_BASE_TIME + 4, 87, 97, 86, 90),  # peak
-        ]
-        df = _make_ohlcv(rows)
-        # (97 - 85) / 85 = 0.141; threshold 0.20 should suppress
-        result = detect_market_structure(df, swing_lookback=1, min_swing_pct=0.20)
+        # zigzag_down: sh=108, valley=75 → swing_range = (108-75)/75 = 0.44
+        # threshold 0.50 > 0.44 → suppress
+        df = self._make_zigzag_down()
+        result = detect_market_structure(df, swing_lookback=1, min_swing_pct=0.50)
         short_signals = result[result["direction"] == "short"]
         assert short_signals.empty
 
     def test_min_swing_pct_passes_large_swing_short(self) -> None:
         """Signals where (sh - sl) / sl >= min_swing_pct must be emitted (short)."""
-        rows = [
-            _candle(_BASE_TIME + 0, 96, 97, 95, 96),  # peak
-            _candle(_BASE_TIME + 1, 95, 96, 95, 95),  # valley 1 (low=95)
-            _candle(_BASE_TIME + 2, 95, 97, 95, 96),  # peak
-            _candle(_BASE_TIME + 3, 94, 96, 85, 86),  # valley 2 < valley 1 → BOS short
-            _candle(_BASE_TIME + 4, 87, 97, 86, 90),  # peak
-        ]
-        df = _make_ohlcv(rows)
-        # (97 - 85) / 85 = 0.141; threshold 0.10 should pass
-        result = detect_market_structure(df, swing_lookback=1, min_swing_pct=0.10)
+        # zigzag_down: sh=108, valley=75 → swing_range = (108-75)/75 = 0.44
+        # threshold 0.20 < 0.44 → pass
+        df = self._make_zigzag_down()
+        result = detect_market_structure(df, swing_lookback=1, min_swing_pct=0.20)
         short_signals = result[result["direction"] == "short"]
         assert len(short_signals) >= 1
 
