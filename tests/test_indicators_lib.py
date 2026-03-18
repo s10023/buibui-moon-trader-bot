@@ -1053,6 +1053,7 @@ class TestLiquiditySweepMinSize:
 def test_empty_input_returns_signal_columns(fn: Callable[[], pd.DataFrame]) -> None:
     result = fn()
     assert isinstance(result, pd.DataFrame)
+    assert list(result.columns) == SIGNAL_COLUMNS
 
 
 # ---------------------------------------------------------------------------

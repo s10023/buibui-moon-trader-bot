@@ -1094,19 +1094,22 @@ def detect_order_block(
     if n < 3:
         return _empty_signals()
 
+    opens = df["open"].to_numpy(dtype=float)
+    highs = df["high"].to_numpy(dtype=float)
+    lows = df["low"].to_numpy(dtype=float)
+    closes = df["close"].to_numpy(dtype=float)
+    open_times = df["open_time"].to_numpy(dtype=int)
+
     signals: list[dict[str, object]] = []
     start_idx = max(0, n - lookback)
 
     for i in range(start_idx, n - 2):
-        ob = df.iloc[i]
-        ob_open = float(ob["open"])
-        ob_high = float(ob["high"])
-        ob_low = float(ob["low"])
-        ob_close = float(ob["close"])
-        ob_time = int(ob["open_time"])
-
-        disp = df.iloc[i + 1]
-        disp_close = float(disp["close"])
+        ob_open = opens[i]
+        ob_high = highs[i]
+        ob_low = lows[i]
+        ob_close = closes[i]
+        ob_time = open_times[i]
+        disp_close = closes[i + 1]
 
         # --- Bearish OB: bullish candle followed by bearish displacement ---
         if ob_close > ob_open and disp_close < ob_low * (1 - displacement_pct):
@@ -1114,19 +1117,15 @@ def detect_order_block(
             ob_zone_top = ob_close
             ctx = f"Bearish OB: {_fmt_time(ob_time)} [{ob_zone_bot:,.2f}–{ob_zone_top:,.2f}]"
             for j in range(i + 2, n):
-                fut = df.iloc[j]
-                fut_high = float(fut["high"])
-                fut_low = float(fut["low"])
-                fut_close = float(fut["close"])
                 # Retest: candle enters OB zone and closes below zone top
                 if (
-                    fut_high >= ob_zone_bot
-                    and fut_low <= ob_zone_top
-                    and fut_close < ob_zone_top
+                    highs[j] >= ob_zone_bot
+                    and lows[j] <= ob_zone_top
+                    and closes[j] < ob_zone_top
                 ):
                     signals.append(
                         {
-                            "open_time": int(fut["open_time"]),
+                            "open_time": open_times[j],
                             "direction": "short",
                             "reason": f"ob_short@{ob_zone_bot:.2f}-{ob_zone_top:.2f}",
                             "sl_price": ob_high,
@@ -1141,19 +1140,15 @@ def detect_order_block(
             ob_zone_top = ob_open
             ctx = f"Bullish OB: {_fmt_time(ob_time)} [{ob_zone_bot:,.2f}–{ob_zone_top:,.2f}]"
             for j in range(i + 2, n):
-                fut = df.iloc[j]
-                fut_high = float(fut["high"])
-                fut_low = float(fut["low"])
-                fut_close = float(fut["close"])
                 # Retest: candle enters OB zone and closes above zone bot
                 if (
-                    fut_low <= ob_zone_top
-                    and fut_high >= ob_zone_bot
-                    and fut_close > ob_zone_bot
+                    lows[j] <= ob_zone_top
+                    and highs[j] >= ob_zone_bot
+                    and closes[j] > ob_zone_bot
                 ):
                     signals.append(
                         {
-                            "open_time": int(fut["open_time"]),
+                            "open_time": open_times[j],
                             "direction": "long",
                             "reason": f"ob_long@{ob_zone_bot:.2f}-{ob_zone_top:.2f}",
                             "sl_price": ob_low,
