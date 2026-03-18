@@ -14,6 +14,7 @@ import pandas as pd
 
 from analytics.indicators_lib import (
     STRATEGY_REGISTRY,
+    detect_eqh_eql,
     detect_funding_extreme,
     detect_fvg,
     detect_liquidity_sweep,
@@ -64,5 +65,9 @@ SIGNAL_REGISTRY: dict[str, SignalPlugin] = {
     "smt_divergence": SignalPlugin(
         detector=detect_smt_divergence,
         confidence=STRATEGY_REGISTRY["smt_divergence"].confidence,
+    ),
+    "eqh_eql": SignalPlugin(
+        detector=detect_eqh_eql,
+        confidence=STRATEGY_REGISTRY["eqh_eql"].confidence,
     ),
 }

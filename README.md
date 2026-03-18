@@ -303,6 +303,7 @@ poetry run python buibui.py backtest --symbol BTCUSDT --strategy fvg --interval 
 | `smt_divergence` | Two correlated assets diverge at a swing high/low | ★★★★★ |
 | `fvg` | Fair Value Gap — 3-candle imbalance zone fill | ★★★★☆ |
 | `liquidity_sweep` | Wick through a swing high/low with close back inside | ★★★★☆ |
+| `eqh_eql` | Equal Highs/Lows: liquidity sweep of a double-top or double-bottom level | ★★★★☆ |
 | `funding_reversion` | Extreme positive/negative funding rate → contrarian signal | ★★★★☆ |
 | `orb` | Opening Range Breakout at NY session open (13:00 UTC) | ★★★☆☆ |
 | `bos` | Break of Structure / Change of Character (BOS/CHoCH) | ★★★☆☆ |
@@ -351,7 +352,8 @@ poetry run python buibui.py signal watch
 - `--tp-r 2.0` — R multiplier for TP level in alert messages (default: `2.0`)
 - `--telegram` — send alerts via Telegram
 - `--state-file signal_state.json` — path to cooldown/watermark state file
-- `--secondary-symbol ETHUSDT` — secondary symbol for `smt_divergence`
+- `--smt-pairs BTCUSDT:ETHUSDT,ETHUSDT:BTCUSDT` — per-symbol SMT secondary mappings (overrides `smt_secondary` in `coins.json`)
+- `--secondary-symbol ETHUSDT` — *(deprecated, use `--smt-pairs`)* applies one secondary to all scanned symbols
 
 **Example alert (Telegram):**
 
@@ -435,12 +437,15 @@ Optional overrides: `SL_PCT`, `TP_R`, `SECONDARY` (required for `smt_divergence`
 make buibui-signal-watch                                         # All symbols, 4h, all strategies
 make buibui-signal-watch SYMBOLS="BTCUSDT ETHUSDT"              # Specific symbols
 make buibui-signal-watch STRATEGIES="fvg bos" TELEGRAM=1        # Specific strategies + Telegram
-make buibui-signal-watch STRATEGIES="smt_divergence" SECONDARY=ETHUSDT
+make buibui-signal-watch STRATEGIES="smt_divergence" SECONDARY=ETHUSDT  # deprecated
 ```
 
 The daemon wakes at clock-aligned candle boundaries (e.g. 04:00:10, 08:00:10 for `4h`),
 so alerts arrive within seconds of the candle close. Optional overrides: `SYMBOLS`,
-`TIMEFRAMES`, `STRATEGIES`, `SECONDARY`, `TELEGRAM=1` (flag).
+`TIMEFRAMES`, `STRATEGIES`, `SECONDARY` (deprecated — set `smt_secondary` in `coins.json` instead), `TELEGRAM=1` (flag).
+
+`smt_divergence` secondaries are configured per-symbol in `coins.json` via the optional
+`smt_secondary` field. The `--smt-pairs` CLI flag overrides the config-file values.
 
 All commands use your `.env` file for secrets and config.
 
