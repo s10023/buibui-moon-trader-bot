@@ -399,6 +399,52 @@ class TestDetectMarketStructure:
         result = detect_market_structure(df, swing_lookback=1)
         _assert_signal_columns(result)
 
+    def test_min_swing_pct_default_applied(self) -> None:
+        """Default min_swing_pct=0.005 should match explicit 0.005."""
+        df = self._make_zigzag_up()
+        result_default = detect_market_structure(df, swing_lookback=1)
+        result_explicit = detect_market_structure(
+            df, swing_lookback=1, min_swing_pct=0.005
+        )
+        assert len(result_default) == len(result_explicit)
+        assert list(result_default["direction"]) == list(result_explicit["direction"])
+
+    def test_min_swing_pct_suppresses_small_swing_long(self) -> None:
+        """Signals where (sh - sl) / sh < min_swing_pct must be suppressed (long)."""
+        # zigzag_up: peak=130, sl=88 → swing_range = (130-88)/130 ≈ 0.323
+        # threshold 0.35 > 0.323 → suppress
+        df = self._make_zigzag_up()
+        result = detect_market_structure(df, swing_lookback=1, min_swing_pct=0.35)
+        long_signals = result[result["direction"] == "long"]
+        assert long_signals.empty
+
+    def test_min_swing_pct_passes_large_swing_long(self) -> None:
+        """Signals where (sh - sl) / sh >= min_swing_pct must be emitted (long)."""
+        # zigzag_up: peak=130, sl=88 → swing_range = (130-88)/130 ≈ 0.323
+        # threshold 0.20 < 0.323 → pass
+        df = self._make_zigzag_up()
+        result = detect_market_structure(df, swing_lookback=1, min_swing_pct=0.20)
+        long_signals = result[result["direction"] == "long"]
+        assert len(long_signals) >= 1
+
+    def test_min_swing_pct_suppresses_small_swing_short(self) -> None:
+        """Signals where (sh - sl) / sl < min_swing_pct must be suppressed (short)."""
+        # zigzag_down: sh=108, valley=75 → swing_range = (108-75)/75 = 0.44
+        # threshold 0.50 > 0.44 → suppress
+        df = self._make_zigzag_down()
+        result = detect_market_structure(df, swing_lookback=1, min_swing_pct=0.50)
+        short_signals = result[result["direction"] == "short"]
+        assert short_signals.empty
+
+    def test_min_swing_pct_passes_large_swing_short(self) -> None:
+        """Signals where (sh - sl) / sl >= min_swing_pct must be emitted (short)."""
+        # zigzag_down: sh=108, valley=75 → swing_range = (108-75)/75 = 0.44
+        # threshold 0.20 < 0.44 → pass
+        df = self._make_zigzag_down()
+        result = detect_market_structure(df, swing_lookback=1, min_swing_pct=0.20)
+        short_signals = result[result["direction"] == "short"]
+        assert len(short_signals) >= 1
+
 
 # ---------------------------------------------------------------------------
 # Funding Rate Mean Reversion
