@@ -981,7 +981,9 @@ def detect_eqh_eql(
         i1, h1, i2, h2 = best_eqh
         eqh_level = max(h1, h2)
         if sig_high > eqh_level and sig_close < eqh_level:
-            sl_price = eqh_level * (1 + 0.001)  # 0.1% buffer above level
+            sl_price = (
+                sig_high  # SL at the deviation candle's high (the actual sweep extreme)
+            )
             ts1 = _fmt_time(int(window_df.iloc[i1]["open_time"]))
             ts2 = _fmt_time(int(window_df.iloc[i2]["open_time"]))
             ctx = f"EQH: {ts1} @ {h1:,.2f} · {ts2} @ {h2:,.2f}"
@@ -1017,7 +1019,9 @@ def detect_eqh_eql(
         i1, l1, i2, l2 = best_eql
         eql_level = min(l1, l2)
         if sig_low < eql_level and sig_close > eql_level:
-            sl_price = eql_level * (1 - 0.001)  # 0.1% buffer below level
+            sl_price = (
+                sig_low  # SL at the deviation candle's low (the actual sweep extreme)
+            )
             ts1 = _fmt_time(int(window_df.iloc[i1]["open_time"]))
             ts2 = _fmt_time(int(window_df.iloc[i2]["open_time"]))
             ctx = f"EQL: {ts1} @ {l1:,.2f} · {ts2} @ {l2:,.2f}"

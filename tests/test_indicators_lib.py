@@ -858,7 +858,8 @@ class TestDetectEqhEql:
         result = detect_eqh_eql(df, lookback=self._LOOKBACK, tolerance_pct=0.01)
         assert result.iloc[0]["open_time"] == sig_ts
 
-    def test_short_sl_price_is_above_eqh_level(self) -> None:
+    def test_short_sl_price_is_deviation_candle_high(self) -> None:
+        # Signal candle high=121 sweeps EQH@120, closes at 118. SL = sig_high = 121.
         rows: list[dict[str, object]] = []
         rows.append(_candle(_BASE_TIME + 0 * self._MS, 100, 120, 95, 115))
         for i in range(1, 4):
@@ -870,7 +871,7 @@ class TestDetectEqhEql:
         df = _make_ohlcv(rows)
         result = detect_eqh_eql(df, lookback=self._LOOKBACK, tolerance_pct=0.01)
         sl = float(result.iloc[0]["sl_price"])
-        assert sl > 120.0  # above the EQH level
+        assert sl == 121.0  # SL = deviation candle's high
 
     def test_short_context_contains_two_timestamps(self) -> None:
         rows: list[dict[str, object]] = []
@@ -906,7 +907,8 @@ class TestDetectEqhEql:
         long_signals = result[result["direction"] == "long"]
         assert len(long_signals) == 1
 
-    def test_long_sl_price_is_below_eql_level(self) -> None:
+    def test_long_sl_price_is_deviation_candle_low(self) -> None:
+        # Signal candle low=79 sweeps EQL@80, closes at 82. SL = sig_low = 79.
         rows: list[dict[str, object]] = []
         rows.append(_candle(_BASE_TIME + 0 * self._MS, 100, 105, 80, 85))
         for i in range(1, 4):
@@ -918,7 +920,7 @@ class TestDetectEqhEql:
         df = _make_ohlcv(rows)
         result = detect_eqh_eql(df, lookback=self._LOOKBACK, tolerance_pct=0.01)
         sl = float(result.iloc[0]["sl_price"])
-        assert sl < 80.0  # below the EQL level
+        assert sl == 79.0  # SL = deviation candle's low
 
     def test_long_context_contains_two_timestamps(self) -> None:
         rows: list[dict[str, object]] = []
