@@ -8,6 +8,7 @@ import pytest
 
 from analytics.indicators_lib import (
     SIGNAL_COLUMNS,
+    detect_eqh_eql,
     detect_funding_extreme,
     detect_fvg,
     detect_liquidity_sweep,
@@ -770,6 +771,244 @@ class TestBosNoLookaheadBias:
             assert spike_time not in result["open_time"].values
 
 
+# ---------------------------------------------------------------------------
+# Equal Highs / Equal Lows (EQH / EQL)
+# ---------------------------------------------------------------------------
+
+
+class TestDetectEqhEql:
+    """Tests for detect_eqh_eql — EQH/EQL liquidity sweep detector."""
+
+    # Minimum lookback + 1 signal candle needed: lookback=7 + 1 = 8 rows minimum
+    _LOOKBACK = 10
+    _MS = _MS_PER_HOUR
+
+    def _base_df(self, n: int = 12, base: float = 100.0) -> pd.DataFrame:
+        """Build n flat candles at base price (open=high=low=close=base)."""
+        rows = [
+            _candle(_BASE_TIME + i * self._MS, base, base, base, base) for i in range(n)
+        ]
+        return _make_ohlcv(rows)
+
+    # ---- No-signal cases ----
+
+    def test_returns_empty_when_not_enough_candles(self) -> None:
+        df = _make_ohlcv([_candle(_BASE_TIME, 100, 105, 95, 100)])
+        result = detect_eqh_eql(df, lookback=self._LOOKBACK)
+        assert result.empty
+        _assert_signal_columns(result)
+
+    def test_no_signal_when_no_equal_highs(self) -> None:
+        # All candles have strictly different highs → no EQH pair
+        rows = [
+            _candle(_BASE_TIME + i * self._MS, 100, 100 + i * 5, 90, 100)
+            for i in range(self._LOOKBACK + 1)
+        ]
+        df = _make_ohlcv(rows)
+        result = detect_eqh_eql(df, lookback=self._LOOKBACK)
+        assert result.empty
+
+    def test_no_signal_when_candle_breaks_out_above_eqh(self) -> None:
+        # Signal candle wicks above EQH AND closes above it → breakout, not sweep
+        rows = [
+            _candle(_BASE_TIME + 0 * self._MS, 100, 120, 95, 118),
+            _candle(_BASE_TIME + 1 * self._MS, 100, 120, 95, 117),  # equal high pair
+        ]
+        for i in range(2, self._LOOKBACK - 1):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 100, 110, 90, 100))
+        # Signal candle: high > 120 and close > 120 → no sweep
+        rows.append(_candle(_BASE_TIME + self._LOOKBACK * self._MS, 118, 125, 115, 122))
+        df = _make_ohlcv(rows)
+        result = detect_eqh_eql(df, lookback=self._LOOKBACK, tolerance_pct=0.003)
+        short_signals = result[result["direction"] == "short"]
+        assert short_signals.empty
+
+    # ---- Short signal (EQH sweep) ----
+
+    def test_short_signal_fires_when_candle_sweeps_eqh(self) -> None:
+        # Two swing highs at ~120 in the lookback window.
+        # Signal candle: high=121 (> 120), close=118 (< 120) → short.
+        rows: list[dict[str, object]] = []
+        # Candle 0: swing high at 120
+        rows.append(_candle(_BASE_TIME + 0 * self._MS, 100, 120, 95, 115))
+        for i in range(1, 4):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 110, 115, 100, 112))
+        # Candle 4: second swing high at 120
+        rows.append(_candle(_BASE_TIME + 4 * self._MS, 110, 120, 100, 115))
+        for i in range(5, self._LOOKBACK):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 110, 115, 100, 112))
+        # Signal candle: wick above 120, closes below 120
+        rows.append(_candle(_BASE_TIME + self._LOOKBACK * self._MS, 115, 121, 110, 118))
+        df = _make_ohlcv(rows)
+        result = detect_eqh_eql(df, lookback=self._LOOKBACK, tolerance_pct=0.01)
+        short_signals = result[result["direction"] == "short"]
+        assert len(short_signals) == 1
+
+    def test_short_signal_open_time_is_signal_candle(self) -> None:
+        rows: list[dict[str, object]] = []
+        rows.append(_candle(_BASE_TIME + 0 * self._MS, 100, 120, 95, 115))
+        for i in range(1, 4):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 110, 115, 100, 112))
+        rows.append(_candle(_BASE_TIME + 4 * self._MS, 110, 120, 100, 115))
+        for i in range(5, self._LOOKBACK):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 110, 115, 100, 112))
+        sig_ts = _BASE_TIME + self._LOOKBACK * self._MS
+        rows.append(_candle(sig_ts, 115, 121, 110, 118))
+        df = _make_ohlcv(rows)
+        result = detect_eqh_eql(df, lookback=self._LOOKBACK, tolerance_pct=0.01)
+        assert result.iloc[0]["open_time"] == sig_ts
+
+    def test_short_sl_price_is_max_post_eqh_deviation(self) -> None:
+        # Use lookback=16 so there's room between EQH pair (indices 4+8) and a
+        # post-EQH deviation candle (index 12, high=130).
+        # Pre-EQH candle at index 0 (high=125) must be IGNORED — SL only scans
+        # from the later EQH candle onwards.
+        lookback = 16
+        rows: list[dict[str, object]] = []
+        rows.append(
+            _candle(_BASE_TIME + 0 * self._MS, 118, 125, 105, 120)
+        )  # pre-EQH, high=125 (must be ignored)
+        for i in range(1, 4):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 110, 112, 100, 111))
+        rows.append(
+            _candle(_BASE_TIME + 4 * self._MS, 110, 120, 100, 115)
+        )  # EQH swing high 1
+        for i in range(5, 8):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 110, 112, 100, 111))
+        rows.append(
+            _candle(_BASE_TIME + 8 * self._MS, 110, 120, 100, 115)
+        )  # EQH swing high 2
+        for i in range(9, 12):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 110, 112, 100, 111))
+        rows.append(
+            _candle(_BASE_TIME + 12 * self._MS, 118, 130, 115, 126)
+        )  # post-EQH deviation, high=130
+        for i in range(13, lookback):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 110, 112, 100, 111))
+        rows.append(
+            _candle(_BASE_TIME + lookback * self._MS, 115, 121, 110, 118)
+        )  # signal candle
+        df = _make_ohlcv(rows)
+        result = detect_eqh_eql(df, lookback=lookback, tolerance_pct=0.01)
+        sl = float(result.iloc[0]["sl_price"])
+        assert (
+            sl == 130.0
+        )  # post-EQH deviation, not pre-EQH (125) or signal candle (121)
+
+    def test_short_context_contains_two_timestamps(self) -> None:
+        rows: list[dict[str, object]] = []
+        rows.append(_candle(_BASE_TIME + 0 * self._MS, 100, 120, 95, 115))
+        for i in range(1, 4):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 110, 115, 100, 112))
+        rows.append(_candle(_BASE_TIME + 4 * self._MS, 110, 120, 100, 115))
+        for i in range(5, self._LOOKBACK):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 110, 115, 100, 112))
+        rows.append(_candle(_BASE_TIME + self._LOOKBACK * self._MS, 115, 121, 110, 118))
+        df = _make_ohlcv(rows)
+        result = detect_eqh_eql(df, lookback=self._LOOKBACK, tolerance_pct=0.01)
+        ctx = str(result.iloc[0]["context"])
+        assert ctx.startswith("EQH:")
+        # Two timestamps separated by ·
+        assert " · " in ctx
+
+    # ---- Long signal (EQL sweep) ----
+
+    def test_long_signal_fires_when_candle_sweeps_eql(self) -> None:
+        # Two swing lows at ~80. Signal candle: low=79 (< 80), close=82 (> 80) → long.
+        rows: list[dict[str, object]] = []
+        rows.append(_candle(_BASE_TIME + 0 * self._MS, 100, 105, 80, 85))
+        for i in range(1, 4):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 90, 95, 85, 92))
+        rows.append(_candle(_BASE_TIME + 4 * self._MS, 90, 95, 80, 85))
+        for i in range(5, self._LOOKBACK):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 90, 95, 85, 92))
+        # Signal candle: wick below 80, closes above 80
+        rows.append(_candle(_BASE_TIME + self._LOOKBACK * self._MS, 85, 90, 79, 82))
+        df = _make_ohlcv(rows)
+        result = detect_eqh_eql(df, lookback=self._LOOKBACK, tolerance_pct=0.01)
+        long_signals = result[result["direction"] == "long"]
+        assert len(long_signals) == 1
+
+    def test_long_sl_price_is_min_post_eql_deviation(self) -> None:
+        # Use lookback=16 so there's room between EQL pair (indices 4+8) and a
+        # post-EQL deviation candle (index 12, low=70).
+        # Pre-EQL candle at index 0 (low=75) must be IGNORED — SL only scans
+        # from the later EQL candle onwards.
+        lookback = 16
+        rows: list[dict[str, object]] = []
+        rows.append(
+            _candle(_BASE_TIME + 0 * self._MS, 75, 84, 75, 74)
+        )  # pre-EQL, low=75 (must be ignored)
+        for i in range(1, 4):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 88, 92, 85, 90))
+        rows.append(
+            _candle(_BASE_TIME + 4 * self._MS, 88, 92, 80, 85)
+        )  # EQL swing low 1
+        for i in range(5, 8):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 88, 92, 85, 90))
+        rows.append(
+            _candle(_BASE_TIME + 8 * self._MS, 88, 92, 80, 85)
+        )  # EQL swing low 2
+        for i in range(9, 12):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 88, 92, 85, 90))
+        rows.append(
+            _candle(_BASE_TIME + 12 * self._MS, 75, 84, 70, 74)
+        )  # post-EQL deviation, low=70
+        for i in range(13, lookback):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 88, 92, 85, 90))
+        rows.append(
+            _candle(_BASE_TIME + lookback * self._MS, 85, 90, 79, 82)
+        )  # signal candle
+        df = _make_ohlcv(rows)
+        result = detect_eqh_eql(df, lookback=lookback, tolerance_pct=0.01)
+        sl = float(result.iloc[0]["sl_price"])
+        assert sl == 70.0  # post-EQL deviation, not pre-EQL (75) or signal candle (79)
+
+    def test_long_context_contains_two_timestamps(self) -> None:
+        rows: list[dict[str, object]] = []
+        rows.append(_candle(_BASE_TIME + 0 * self._MS, 100, 105, 80, 85))
+        for i in range(1, 4):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 90, 95, 85, 92))
+        rows.append(_candle(_BASE_TIME + 4 * self._MS, 90, 95, 80, 85))
+        for i in range(5, self._LOOKBACK):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 90, 95, 85, 92))
+        rows.append(_candle(_BASE_TIME + self._LOOKBACK * self._MS, 85, 90, 79, 82))
+        df = _make_ohlcv(rows)
+        result = detect_eqh_eql(df, lookback=self._LOOKBACK, tolerance_pct=0.01)
+        ctx = str(result.iloc[0]["context"])
+        assert ctx.startswith("EQL:")
+        assert " · " in ctx
+
+    def test_no_long_signal_when_candle_closes_below_eql(self) -> None:
+        # Signal candle wicks below EQL AND closes below it → not a reversal
+        rows: list[dict[str, object]] = []
+        rows.append(_candle(_BASE_TIME + 0 * self._MS, 100, 105, 80, 85))
+        for i in range(1, 4):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 90, 95, 85, 92))
+        rows.append(_candle(_BASE_TIME + 4 * self._MS, 90, 95, 80, 85))
+        for i in range(5, self._LOOKBACK):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 90, 95, 85, 92))
+        # Close = 78 < eql_level = 80 → no signal
+        rows.append(_candle(_BASE_TIME + self._LOOKBACK * self._MS, 85, 90, 75, 78))
+        df = _make_ohlcv(rows)
+        result = detect_eqh_eql(df, lookback=self._LOOKBACK, tolerance_pct=0.01)
+        long_signals = result[result["direction"] == "long"]
+        assert long_signals.empty
+
+    def test_signal_columns_match(self) -> None:
+        rows: list[dict[str, object]] = []
+        rows.append(_candle(_BASE_TIME + 0 * self._MS, 100, 120, 95, 115))
+        for i in range(1, 4):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 110, 115, 100, 112))
+        rows.append(_candle(_BASE_TIME + 4 * self._MS, 110, 120, 100, 115))
+        for i in range(5, self._LOOKBACK):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 110, 115, 100, 112))
+        rows.append(_candle(_BASE_TIME + self._LOOKBACK * self._MS, 115, 121, 110, 118))
+        df = _make_ohlcv(rows)
+        result = detect_eqh_eql(df, lookback=self._LOOKBACK, tolerance_pct=0.01)
+        _assert_signal_columns(result)
+
+
 class TestLiquiditySweepMinSize:
     def test_liquidity_sweep_ignores_micro_poke(self) -> None:
         # Rolling max high = 110; sweep candle high = 110.001 (0.0009% above) → no signal
@@ -806,6 +1045,7 @@ class TestLiquiditySweepMinSize:
         lambda: detect_market_structure(pd.DataFrame()),
         lambda: detect_smt_divergence(pd.DataFrame(), pd.DataFrame()),
         lambda: detect_funding_extreme(pd.DataFrame(), pd.DataFrame()),
+        lambda: detect_eqh_eql(pd.DataFrame()),
     ],
 )
 def test_empty_input_returns_signal_columns(fn: Callable[[], pd.DataFrame]) -> None:

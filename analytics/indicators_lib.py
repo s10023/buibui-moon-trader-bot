@@ -180,6 +180,29 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
         requires_secondary=True,
         confidence=5,
     ),
+    "eqh_eql": StrategySpec(
+        name="eqh_eql",
+        description="Equal Highs/Lows: liquidity sweep of a double-top or double-bottom level.",
+        params=[
+            ParamSpec(
+                "lookback",
+                "int",
+                50,
+                5,
+                500,
+                "Candles to scan for equal high/low pairs.",
+            ),
+            ParamSpec(
+                "tolerance_pct",
+                "float",
+                0.003,
+                0.0001,
+                0.05,
+                "Max relative difference for two highs/lows to qualify as equal.",
+            ),
+        ],
+        confidence=4,
+    ),
 }
 
 SIGNAL_COLUMNS: list[str] = ["open_time", "direction", "reason", "sl_price", "context"]
@@ -869,6 +892,152 @@ def detect_smt_divergence(
                     "reason": f"smt_bullish@{curr_p_low:.2f}",
                     "sl_price": curr_p_low,
                     "context": "",
+                }
+            )
+
+    return _signals_to_df(signals)
+
+
+# ---------------------------------------------------------------------------
+# 10. Equal Highs / Equal Lows (EQH / EQL)
+# ---------------------------------------------------------------------------
+
+
+def detect_eqh_eql(
+    df: pd.DataFrame,
+    lookback: int = 50,
+    tolerance_pct: float = 0.003,
+) -> pd.DataFrame:
+    """Detect Equal Highs / Equal Lows liquidity sweep signals.
+
+    Equal Highs (EQH): two swing highs within tolerance_pct of each other form a
+    liquidity pool. When the latest candle wicks above that level (high > EQH)
+    but closes below it, a liquidity raid has occurred → short signal.
+
+    Equal Lows (EQL): two swing lows within tolerance_pct form a pool below price.
+    When the latest candle wicks below that level (low < EQL) but closes above
+    it → long signal.
+
+    Swing highs/lows are identified using a 3-candle-each-side local window
+    (a candle is a swing high if its high is the max of the 7-candle window
+    centred on it — using a non-centred rolling window to avoid lookahead bias).
+
+    Only signals on the last candle of df.
+    """
+    n = len(df)
+    if n < lookback + 1:
+        return _empty_signals()
+
+    # Identify swing highs/lows in the lookback window (excluding the signal candle).
+    # window_df excludes the signal candle itself, so there is no lookahead bias —
+    # we can use a centered comparison within this pre-determined window.
+    window_df = df.iloc[-(lookback + 1) : -1].reset_index(drop=True)
+    m = len(window_df)
+
+    swing_side = 2  # candles on each side of the pivot candidate
+    high_series = window_df["high"].astype(float)
+    low_series = window_df["low"].astype(float)
+
+    swing_highs: list[tuple[int, float]] = []  # (row_idx_in_window_df, price)
+    swing_lows: list[tuple[int, float]] = []
+
+    for i in range(m):
+        lo_bound = max(0, i - swing_side)
+        hi_bound = min(m, i + swing_side + 1)
+        h = float(high_series.iloc[i])
+        neighbourhood_h = high_series.iloc[lo_bound:hi_bound]
+        if h >= float(neighbourhood_h.max()):
+            swing_highs.append((i, h))
+        lo = float(low_series.iloc[i])
+        neighbourhood_l = low_series.iloc[lo_bound:hi_bound]
+        if lo <= float(neighbourhood_l.min()):
+            swing_lows.append((i, lo))
+
+    signal_row = df.iloc[-1]
+    sig_high = float(signal_row["high"])
+    sig_low = float(signal_row["low"])
+    sig_close = float(signal_row["close"])
+    sig_open_time = int(signal_row["open_time"])
+
+    signals: list[dict[str, object]] = []
+
+    # --- EQH: find the highest pair of swing highs within tolerance that the
+    #          signal candle sweeps (wick above, close below).
+    best_eqh: tuple[int, float, int, float] | None = None  # (i1, h1, i2, h2)
+    for a in range(len(swing_highs)):
+        for b in range(a + 1, len(swing_highs)):
+            i1, h1 = swing_highs[a]
+            i2, h2 = swing_highs[b]
+            level = max(h1, h2)
+            if abs(h1 - h2) / level <= tolerance_pct:
+                # Only consider pairs that the signal candle actually sweeps
+                if sig_high <= level or sig_close >= level:
+                    continue
+                # Among swept pairs, prefer the highest level (most significant)
+                if best_eqh is None or level > max(best_eqh[1], best_eqh[3]):
+                    best_eqh = (i1, h1, i2, h2)
+
+    if best_eqh is not None:
+        i1, h1, i2, h2 = best_eqh
+        eqh_level = max(h1, h2)
+        if sig_high > eqh_level and sig_close < eqh_level:
+            # SL = highest high above EQH from the later EQH candle onwards.
+            # Only candles after the EQH level was established are relevant —
+            # earlier highs (before the level formed) are a different structure.
+            later_idx_in_df = (len(df) - (lookback + 1)) + max(i1, i2)
+            post_eqh_highs = df.iloc[later_idx_in_df:]["high"].astype(float)
+            above = post_eqh_highs[post_eqh_highs > eqh_level]
+            sl_price = float(above.max()) if not above.empty else sig_high
+            ts1 = _fmt_time(int(window_df.iloc[i1]["open_time"]))
+            ts2 = _fmt_time(int(window_df.iloc[i2]["open_time"]))
+            ctx = f"EQH: {ts1} @ {h1:,.2f} · {ts2} @ {h2:,.2f}"
+            signals.append(
+                {
+                    "open_time": sig_open_time,
+                    "direction": "short",
+                    "reason": f"eqh_short@{h1:.2f}-{h2:.2f}",
+                    "sl_price": sl_price,
+                    "context": ctx,
+                }
+            )
+
+    # --- EQL: find the lowest pair of swing lows within tolerance that the
+    #          signal candle sweeps (wick below, close above).
+    best_eql: tuple[int, float, int, float] | None = None
+    for a in range(len(swing_lows)):
+        for b in range(a + 1, len(swing_lows)):
+            i1, l1 = swing_lows[a]
+            i2, l2 = swing_lows[b]
+            level = min(l1, l2)
+            if level == 0.0:
+                continue
+            if abs(l1 - l2) / level <= tolerance_pct:
+                # Only consider pairs that the signal candle actually sweeps
+                if sig_low >= level or sig_close <= level:
+                    continue
+                # Among swept pairs, prefer the lowest level (most significant)
+                if best_eql is None or level < min(best_eql[1], best_eql[3]):
+                    best_eql = (i1, l1, i2, l2)
+
+    if best_eql is not None:
+        i1, l1, i2, l2 = best_eql
+        eql_level = min(l1, l2)
+        if sig_low < eql_level and sig_close > eql_level:
+            # SL = lowest low below EQL from the later EQL candle onwards.
+            later_idx_in_df = (len(df) - (lookback + 1)) + max(i1, i2)
+            post_eql_lows = df.iloc[later_idx_in_df:]["low"].astype(float)
+            below = post_eql_lows[post_eql_lows < eql_level]
+            sl_price = float(below.min()) if not below.empty else sig_low
+            ts1 = _fmt_time(int(window_df.iloc[i1]["open_time"]))
+            ts2 = _fmt_time(int(window_df.iloc[i2]["open_time"]))
+            ctx = f"EQL: {ts1} @ {l1:,.2f} · {ts2} @ {l2:,.2f}"
+            signals.append(
+                {
+                    "open_time": sig_open_time,
+                    "direction": "long",
+                    "reason": f"eql_long@{l1:.2f}-{l2:.2f}",
+                    "sl_price": sl_price,
+                    "context": ctx,
                 }
             )
 
