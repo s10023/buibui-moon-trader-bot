@@ -57,7 +57,7 @@ buibui-moon-trader-bot/
 │   ├── data_fetcher.py              # Pure Binance Futures API → DataFrames (klines, funding, OI)
 │   ├── data_store.py                # Pure DuckDB read/write (schema, upsert, query helpers)
 │   ├── data_sync.py                 # Backfill + incremental sync orchestration
-│   ├── indicators_lib.py            # Pure strategy signal detection (9 strategies + STRATEGY_REGISTRY)
+│   ├── indicators_lib.py            # Pure strategy signal detection (10 strategies + STRATEGY_REGISTRY)
 │   ├── signal_lib.py                # Pure scan lib: scan_symbol(), run_scan_cycle()
 │   └── signal_runner.py             # Signal daemon thin wrapper (creates client, opens DB, polls)
 ├── signals/
@@ -133,11 +133,14 @@ cp config/coins.json.example config/coins.json
 
 ```json
 {
-  "BTCUSDT": { "leverage": 25, "sl_percent": 2.0 },
-  "ETHUSDT": { "leverage": 20, "sl_percent": 2.5 },
-  "SOLUSDT": { "leverage": 20, "sl_percent": 3.5 }
+  "BTCUSDT": { "leverage": 25, "sl_percent": 2.0, "smt_secondary": "ETHUSDT" },
+  "ETHUSDT": { "leverage": 20, "sl_percent": 2.5, "smt_secondary": "BTCUSDT" },
+  "SOLUSDT": { "leverage": 20, "sl_percent": 3.5, "smt_secondary": "ETHUSDT" }
 }
 ```
+
+`smt_secondary` is optional. When set, the signal daemon uses it as the correlated
+symbol for `smt_divergence` detection on that symbol.
 
 ---
 
@@ -352,6 +355,7 @@ poetry run python buibui.py signal watch
 - `--tp-r 2.0` — R multiplier for TP level in alert messages (default: `2.0`)
 - `--telegram` — send alerts via Telegram
 - `--state-file signal_state.json` — path to cooldown/watermark state file
+- `--min-sl-pct 0.003` — minimum SL distance as a fraction of price (e.g. `0.003` = 0.3%); overrides structural SL if too tight (default: disabled)
 - `--smt-pairs BTCUSDT:ETHUSDT,ETHUSDT:BTCUSDT` — per-symbol SMT secondary mappings (overrides `smt_secondary` in `coins.json`)
 - `--secondary-symbol ETHUSDT` — *(deprecated, use `--smt-pairs`)* applies one secondary to all scanned symbols
 
@@ -437,12 +441,13 @@ Optional overrides: `SL_PCT`, `TP_R`, `SECONDARY` (required for `smt_divergence`
 make buibui-signal-watch                                         # All symbols, 4h, all strategies
 make buibui-signal-watch SYMBOLS="BTCUSDT ETHUSDT"              # Specific symbols
 make buibui-signal-watch STRATEGIES="fvg bos" TELEGRAM=1        # Specific strategies + Telegram
+make buibui-signal-watch TIMEFRAMES="15m 1h 4h" MIN_SL_PCT=0.003 TELEGRAM=1  # SL floor
 make buibui-signal-watch STRATEGIES="smt_divergence" SECONDARY=ETHUSDT  # deprecated
 ```
 
 The daemon wakes at clock-aligned candle boundaries (e.g. 04:00:10, 08:00:10 for `4h`),
 so alerts arrive within seconds of the candle close. Optional overrides: `SYMBOLS`,
-`TIMEFRAMES`, `STRATEGIES`, `SECONDARY` (deprecated — set `smt_secondary` in `coins.json` instead), `TELEGRAM=1` (flag).
+`TIMEFRAMES`, `STRATEGIES`, `MIN_SL_PCT`, `SECONDARY` (deprecated — set `smt_secondary` in `coins.json` instead), `TELEGRAM=1` (flag).
 
 `smt_divergence` secondaries are configured per-symbol in `coins.json` via the optional
 `smt_secondary` field. The `--smt-pairs` CLI flag overrides the config-file values.
