@@ -16,6 +16,7 @@ import duckdb
 
 from analytics.data_store import DEFAULT_DB_PATH, init_schema
 from analytics.data_sync import backfill, sync
+from analytics.signal_config import BacktestFilterConfig
 from analytics.signal_lib import run_scan_cycle
 from signals.cooldown_store import CooldownStore
 from utils.binance_client import create_client, load_coins_config
@@ -59,6 +60,7 @@ def run_signal_watch(
     secondary_symbol: str | None = None,
     smt_pairs: dict[str, str] | None = None,
     db_path: Path = DEFAULT_DB_PATH,
+    backtest_cfg: BacktestFilterConfig | None = None,
 ) -> None:
     """Run the signal detection daemon loop.
 
@@ -177,6 +179,7 @@ def run_signal_watch(
                     min_sl_pct=min_sl_pct,
                     send_telegram=send_telegram,
                     secondary_map=secondary_map_arg,
+                    backtest_cfg=backtest_cfg,
                 )
 
                 if alerts:

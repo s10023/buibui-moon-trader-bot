@@ -12,6 +12,21 @@ from pathlib import Path
 
 
 @dataclass
+class BacktestFilterConfig:
+    """Configuration for the per-signal backtest filter."""
+
+    # "soft": always fire alert, append win rate line
+    # "hard": suppress alert if win_rate < filter_threshold (and enough trades)
+    # "off":  disable entirely
+    mode: str = "soft"
+    days: int = 90
+    # Below this trade count the filter is bypassed (win rate is noise)
+    min_trades: int = 20
+    # hard mode only: suppress if win_rate < this
+    filter_threshold: float = 0.45
+
+
+@dataclass
 class SignalWatchConfig:
     """All configurable options for the signal watch daemon."""
 
@@ -26,6 +41,7 @@ class SignalWatchConfig:
     state_file: str = "signal_state.json"
     # Per-symbol SMT secondary map: {"BTCUSDT": "ETHUSDT", ...}
     smt_pairs: dict[str, str] = field(default_factory=dict)
+    backtest: BacktestFilterConfig = field(default_factory=BacktestFilterConfig)
 
 
 def load_signal_config(path: str | Path) -> SignalWatchConfig:
@@ -45,6 +61,14 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         )
     smt_pairs: dict[str, str] = {str(k): str(v) for k, v in raw_smt.items()}
 
+    raw_bt = data.get("backtest", {})
+    backtest = BacktestFilterConfig(
+        mode=str(raw_bt.get("mode", "soft")),
+        days=int(raw_bt.get("days", 90)),
+        min_trades=int(raw_bt.get("min_trades", 20)),
+        filter_threshold=float(raw_bt.get("filter_threshold", 0.45)),
+    )
+
     return SignalWatchConfig(
         symbols=data.get("symbols"),
         timeframes=data.get("timeframes", ["4h"]),
@@ -56,4 +80,5 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         cooldown_seconds=float(data.get("cooldown_seconds", 3600.0)),
         state_file=str(data.get("state_file", "signal_state.json")),
         smt_pairs=smt_pairs,
+        backtest=backtest,
     )

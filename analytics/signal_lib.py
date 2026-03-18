@@ -10,17 +10,100 @@ No module-level side effects.
 
 import logging
 import time
+from collections.abc import Mapping
 
 import duckdb
 import pandas as pd
 
+from analytics.backtest_lib import BacktestResult, run_backtest
 from analytics.data_store import get_funding_rates, get_ohlcv
 from analytics.indicators_lib import STRATEGY_REGISTRY
+from analytics.signal_config import BacktestFilterConfig
 from signals.alert_formatter import SignalEvent, format_confluence_alert
 from signals.cooldown_store import CooldownStore
 from signals.registry import SIGNAL_REGISTRY
 
 logger = logging.getLogger(__name__)
+
+
+def _compute_backtest(
+    ohlcv_df: pd.DataFrame,
+    strategy: str,
+    secondary_df: pd.DataFrame | None,
+    funding_df: pd.DataFrame | None,
+    symbol: str,
+    timeframe: str,
+    sl_pct: float,
+    tp_r: float,
+) -> BacktestResult | None:
+    """Run strategy detector on ohlcv[:-1] and backtest the resulting signals.
+
+    Excludes the current (latest) candle to avoid lookahead bias.
+    Returns None if there is insufficient data or the detector raises.
+    """
+    hist_df = ohlcv_df.iloc[:-1]
+    if len(hist_df) < 3:
+        return None
+
+    plugin = SIGNAL_REGISTRY.get(strategy)
+    if plugin is None:
+        return None
+    spec = STRATEGY_REGISTRY.get(strategy)
+
+    try:
+        if spec and spec.requires_funding:
+            if funding_df is None or funding_df.empty:
+                return None
+            signals_df = plugin["detector"](hist_df, funding_df)
+        elif spec and spec.requires_secondary:
+            if secondary_df is None or secondary_df.empty:
+                return None
+            signals_df = plugin["detector"](hist_df, secondary_df)
+        else:
+            signals_df = plugin["detector"](hist_df)
+    except Exception:
+        logger.exception(
+            "Backtest detector %s raised for %s %s", strategy, symbol, timeframe
+        )
+        return None
+
+    return run_backtest(
+        hist_df, signals_df, symbol, timeframe, strategy, sl_pct=sl_pct, tp_r=tp_r
+    )
+
+
+def _backtest_summary(
+    results: Mapping[str, BacktestResult | None],
+    strategies: list[str],
+    cfg: BacktestFilterConfig,
+) -> str:
+    """Format a one-line backtest summary for appending to an alert message.
+
+    Single strategy: '📊 Backtest 90d: 62% win (28 trades)'
+    Multiple:        '📊 Backtest 90d: fvg 62% (28) · bos n/a (3)'
+    """
+    parts: list[str] = []
+    for s in strategies:
+        result = results.get(s)
+        if result is None:
+            parts.append(f"{s}: n/a" if len(strategies) > 1 else "n/a")
+        else:
+            n = len(result.closed_trades)
+            if n < cfg.min_trades:
+                label = (
+                    f"n/a ({n} trades)" if len(strategies) == 1 else f"{s}: n/a ({n})"
+                )
+            else:
+                pct = f"{result.win_rate:.0%}"
+                label = (
+                    f"{pct} win ({n} trades)"
+                    if len(strategies) == 1
+                    else f"{s}: {pct} ({n})"
+                )
+            parts.append(label)
+
+    body = " · ".join(parts)
+    return f"📊 Backtest {cfg.days}d: {body}"
 
 
 def scan_symbol(
@@ -114,6 +197,7 @@ def run_scan_cycle(
     send_telegram: bool = False,
     secondary_map: dict[str, str] | None = None,
     days: int = 90,
+    backtest_cfg: BacktestFilterConfig | None = None,
 ) -> list[str]:
     """Scan all symbol+timeframe combinations and return formatted alert strings.
 
@@ -131,6 +215,10 @@ def run_scan_cycle(
 
     now_ms = int(time.time() * 1000)
     start_ms = now_ms - days * 24 * 3600 * 1000
+
+    # Per-cycle backtest cache: (symbol, tf, strategy) → BacktestResult | None
+    # Avoids recomputing the same strategy twice if it fires on multiple symbols.
+    bt_cache: dict[tuple[str, str, str], BacktestResult | None] = {}
 
     needs_funding = any(
         STRATEGY_REGISTRY[s].requires_funding
@@ -203,6 +291,47 @@ def run_scan_cycle(
             if not passing_events:
                 continue
 
+            # Backtest filter — runs per strategy, caches results within the cycle
+            backtest_summary: str | None = None
+            if backtest_cfg and backtest_cfg.mode != "off":
+                bt_results: dict[str, BacktestResult | None] = {}
+                for event in passing_events:
+                    bt_key = (symbol, tf, event.strategy)
+                    if bt_key not in bt_cache:
+                        bt_cache[bt_key] = _compute_backtest(
+                            ohlcv_df=ohlcv_df,
+                            strategy=event.strategy,
+                            secondary_df=sec_df,
+                            funding_df=funding_df,
+                            symbol=symbol,
+                            timeframe=tf,
+                            sl_pct=sl_pct,
+                            tp_r=tp_r,
+                        )
+                    bt_results[event.strategy] = bt_cache[bt_key]
+
+                if backtest_cfg.mode == "hard":
+                    passing_events = [
+                        e
+                        for e in passing_events
+                        if (
+                            bt_results.get(e.strategy) is None
+                            or len(bt_results[e.strategy].closed_trades)  # type: ignore[union-attr]
+                            < backtest_cfg.min_trades
+                            or bt_results[e.strategy].win_rate  # type: ignore[union-attr]
+                            >= backtest_cfg.filter_threshold
+                        )
+                    ]
+                    if not passing_events:
+                        logger.info("Backtest hard filter suppressed %s %s", symbol, tf)
+                        continue
+
+                backtest_summary = _backtest_summary(
+                    bt_results,
+                    [e.strategy for e in passing_events],
+                    backtest_cfg,
+                )
+
             for event in passing_events:
                 store.record_alert(
                     symbol,
@@ -215,7 +344,11 @@ def run_scan_cycle(
 
             # Stack all passing strategies into one confluence alert
             msg = format_confluence_alert(
-                passing_events, sl_pct=sl_pct, tp_r=tp_r, min_sl_pct=min_sl_pct
+                passing_events,
+                sl_pct=sl_pct,
+                tp_r=tp_r,
+                min_sl_pct=min_sl_pct,
+                backtest_summary=backtest_summary,
             )
             alerts.append(msg)
             logger.info(

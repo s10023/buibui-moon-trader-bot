@@ -97,6 +97,7 @@ def run_signal_watch(args: argparse.Namespace) -> None:
         state_file=state_file,
         secondary_symbol=args.secondary_symbol,
         smt_pairs=smt_pairs,
+        backtest_cfg=cfg.backtest,
     )
 
 
