@@ -19,6 +19,11 @@ def _make_signals(rows: list[dict[str, object]]) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["open_time", "direction", "reason"])
 
 
+def _make_signals_with_sl(rows: list[dict[str, object]]) -> pd.DataFrame:
+    """Signals DataFrame that includes a per-row sl_price column."""
+    return pd.DataFrame(rows, columns=["open_time", "direction", "reason", "sl_price"])
+
+
 # ---------------------------------------------------------------------------
 # Trade.pnl_r property
 # ---------------------------------------------------------------------------
@@ -285,6 +290,142 @@ class TestRunBacktest:
         assert result.symbol == "BTCUSDT"
         assert result.timeframe == "4h"
         assert result.strategy == "fvg"
+
+
+# ---------------------------------------------------------------------------
+# run_backtest — per-signal structural sl_price
+# ---------------------------------------------------------------------------
+
+
+class TestRunBacktestStructuralSL:
+    """Tests for the per-signal sl_price path in run_backtest."""
+
+    def test_long_sl_price_used_directly(self) -> None:
+        """When signals have sl_price, long SL triggers at the structural level."""
+        # Entry at candle 1 open=100; structural SL at 95 (not 98 from 2% sl_pct)
+        # Candle 2: low=94 → hits structural SL at 95
+        ohlcv = _make_ohlcv(
+            [
+                _candle(_BASE_TIME + 0, 100, 105, 95, 102),  # signal candle
+                _candle(_BASE_TIME + 1, 100, 103, 97, 101),  # entry open=100
+                _candle(_BASE_TIME + 2, 98, 99, 94, 96),  # low=94 ≤ sl=95 → loss
+            ]
+        )
+        signals = _make_signals_with_sl(
+            [
+                {
+                    "open_time": _BASE_TIME + 0,
+                    "direction": "long",
+                    "reason": "test",
+                    "sl_price": 95.0,
+                }
+            ]
+        )
+        result = run_backtest(ohlcv, signals, "BTCUSDT", "4h", "fvg", sl_pct=0.02)
+        assert len(result.trades) == 1
+        assert result.trades[0].outcome == "loss"
+        assert result.trades[0].sl_price == pytest.approx(95.0)
+        assert result.trades[0].exit_price == pytest.approx(95.0)
+
+    def test_long_sl_price_tp_computed_from_risk_distance(self) -> None:
+        """For long with structural SL, TP = entry + tp_r * abs(entry - sl_price)."""
+        # Entry open=100, structural SL=95 → risk=5 → TP at 100 + 2*5 = 110
+        # Candle 2: high=111 → hits TP at 110
+        ohlcv = _make_ohlcv(
+            [
+                _candle(_BASE_TIME + 0, 100, 105, 95, 102),  # signal candle
+                _candle(_BASE_TIME + 1, 100, 103, 99, 101),  # entry open=100
+                _candle(_BASE_TIME + 2, 101, 111, 100, 110),  # high=111 ≥ tp=110 → win
+            ]
+        )
+        signals = _make_signals_with_sl(
+            [
+                {
+                    "open_time": _BASE_TIME + 0,
+                    "direction": "long",
+                    "reason": "test",
+                    "sl_price": 95.0,
+                }
+            ]
+        )
+        result = run_backtest(
+            ohlcv, signals, "BTCUSDT", "4h", "fvg", sl_pct=0.02, tp_r=2.0
+        )
+        assert result.trades[0].outcome == "win"
+        assert result.trades[0].tp_price == pytest.approx(110.0)
+        assert result.trades[0].exit_price == pytest.approx(110.0)
+
+    def test_short_sl_price_used_directly(self) -> None:
+        """When signals have sl_price, short SL triggers at the structural level."""
+        # Entry at candle 1 open=100; structural SL at 106 (not 102 from 2% sl_pct)
+        # Candle 2: high=107 → hits structural SL at 106
+        ohlcv = _make_ohlcv(
+            [
+                _candle(_BASE_TIME + 0, 100, 105, 95, 102),  # signal candle
+                _candle(_BASE_TIME + 1, 100, 101, 98, 99),  # entry open=100
+                _candle(_BASE_TIME + 2, 101, 107, 99, 106),  # high=107 ≥ sl=106 → loss
+            ]
+        )
+        signals = _make_signals_with_sl(
+            [
+                {
+                    "open_time": _BASE_TIME + 0,
+                    "direction": "short",
+                    "reason": "test",
+                    "sl_price": 106.0,
+                }
+            ]
+        )
+        result = run_backtest(ohlcv, signals, "BTCUSDT", "4h", "fvg", sl_pct=0.02)
+        assert result.trades[0].outcome == "loss"
+        assert result.trades[0].sl_price == pytest.approx(106.0)
+        assert result.trades[0].exit_price == pytest.approx(106.0)
+
+    def test_short_sl_price_tp_computed_from_risk_distance(self) -> None:
+        """For short with structural SL, TP = entry - tp_r * abs(entry - sl_price)."""
+        # Entry open=100, structural SL=106 → risk=6 → TP at 100 - 2*6 = 88
+        # Candle 2: low=87 → hits TP at 88
+        ohlcv = _make_ohlcv(
+            [
+                _candle(_BASE_TIME + 0, 100, 105, 95, 102),  # signal candle
+                _candle(_BASE_TIME + 1, 100, 101, 98, 99),  # entry open=100
+                _candle(_BASE_TIME + 2, 95, 96, 87, 88),  # low=87 ≤ tp=88 → win
+            ]
+        )
+        signals = _make_signals_with_sl(
+            [
+                {
+                    "open_time": _BASE_TIME + 0,
+                    "direction": "short",
+                    "reason": "test",
+                    "sl_price": 106.0,
+                }
+            ]
+        )
+        result = run_backtest(
+            ohlcv, signals, "BTCUSDT", "4h", "fvg", sl_pct=0.02, tp_r=2.0
+        )
+        assert result.trades[0].outcome == "win"
+        assert result.trades[0].tp_price == pytest.approx(88.0)
+        assert result.trades[0].exit_price == pytest.approx(88.0)
+
+    def test_no_sl_price_column_falls_back_to_sl_pct(self) -> None:
+        """Signals without sl_price column use sl_pct fallback (backward compat)."""
+        # Entry open=100, sl_pct=0.02 → SL at 98
+        # Candle 2: low=96 ≤ 98 → loss
+        ohlcv = _make_ohlcv(
+            [
+                _candle(_BASE_TIME + 0, 100, 105, 95, 102),
+                _candle(_BASE_TIME + 1, 100, 103, 97, 101),
+                _candle(_BASE_TIME + 2, 99, 100, 96, 97),
+            ]
+        )
+        signals = _make_signals(
+            [{"open_time": _BASE_TIME + 0, "direction": "long", "reason": "test"}]
+        )
+        result = run_backtest(ohlcv, signals, "BTCUSDT", "4h", "fvg", sl_pct=0.02)
+        assert result.trades[0].outcome == "loss"
+        assert result.trades[0].sl_price == pytest.approx(98.0)
 
 
 # ---------------------------------------------------------------------------

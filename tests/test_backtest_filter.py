@@ -4,6 +4,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+import pytest
 
 from analytics.backtest_lib import BacktestResult, Trade
 from analytics.signal_config import BacktestFilterConfig
@@ -193,6 +194,48 @@ class TestComputeBacktest:
                 )
 
         assert result is None
+
+    def test_structural_sl_price_propagates_to_backtest(self) -> None:
+        """Detector signals with sl_price are passed through to run_backtest.
+
+        The signal at index 5 carries sl_price=90.0 (far below entry ~100).
+        With sl_pct=0.02 the SL would be 98.0 (close), but the structural SL
+        is used instead: TP = 100 + 2*10 = 120, which the OHLCV never reaches,
+        so the trade stays open.  This confirms the structural SL path is active.
+        """
+        df = _make_ohlcv(n=20)  # all candles: open=100, high=105, low=95
+
+        # Signal that would lose quickly under sl_pct=0.02 (SL at 98, candle low=95)
+        # but with structural sl_price=90.0 the SL is not touched (low=95 > 90).
+        signals = pd.DataFrame(
+            {
+                "open_time": [df["open_time"].iloc[5]],
+                "direction": ["long"],
+                "sl_price": [90.0],  # structural SL far below candles
+                "reason": ["fvg_long"],
+            }
+        )
+
+        with patch.dict(
+            "analytics.signal_lib.SIGNAL_REGISTRY",
+            {"fvg": {"detector": lambda _: signals, "confidence": 4}},
+        ):
+            with patch.dict(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                {"fvg": MagicMock(requires_funding=False, requires_secondary=False)},
+            ):
+                result = _compute_backtest(
+                    df, "fvg", None, None, "BTCUSDT", "4h", 0.02, 2.0
+                )
+
+        assert result is not None
+        assert len(result.trades) == 1
+        trade = result.trades[0]
+        # With structural SL at 90 and entry ~100, risk=10, TP=120.
+        # All candles have high=105 < 120, low=95 > 90 → trade stays open.
+        assert trade.outcome == "open"
+        assert trade.sl_price == pytest.approx(90.0)
+        assert trade.tp_price == pytest.approx(120.0)
 
 
 # ---------------------------------------------------------------------------
