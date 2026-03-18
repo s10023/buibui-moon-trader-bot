@@ -298,17 +298,17 @@ poetry run python buibui.py backtest --symbol BTCUSDT --strategy fvg --interval 
 
 **Available strategies:**
 
-| Strategy | Description |
-| --- | --- |
-| `seasonality` | Average return by day-of-week, hour, and week-of-month |
-| `wick_fill` | Price revisits a significant wick zone |
-| `marubozu` | Retest of a wickless candle's open price (order block) |
-| `orb` | Opening Range Breakout at NY session open (13:00 UTC) |
-| `liquidity_sweep` | Wick through a swing high/low with close back inside |
-| `fvg` | Fair Value Gap — 3-candle imbalance zone fill |
-| `bos` | Break of Structure / Change of Character (BOS/CHoCH) |
-| `funding_reversion` | Extreme positive/negative funding rate → contrarian signal |
-| `smt_divergence` | Two correlated assets diverge at a swing high/low |
+| Strategy | Description | Confidence |
+| --- | --- | --- |
+| `smt_divergence` | Two correlated assets diverge at a swing high/low | ★★★★★ |
+| `fvg` | Fair Value Gap — 3-candle imbalance zone fill | ★★★★☆ |
+| `liquidity_sweep` | Wick through a swing high/low with close back inside | ★★★★☆ |
+| `funding_reversion` | Extreme positive/negative funding rate → contrarian signal | ★★★★☆ |
+| `orb` | Opening Range Breakout at NY session open (13:00 UTC) | ★★★☆☆ |
+| `bos` | Break of Structure / Change of Character (BOS/CHoCH) | ★★★☆☆ |
+| `wick_fill` | Price revisits a significant wick zone | ★★☆☆☆ |
+| `marubozu` | Retest of a wickless candle's open price (order block) | ★★☆☆☆ |
+| `seasonality` | Average return by day-of-week, hour, and week-of-month | ★★☆☆☆ |
 
 **Options:**
 
