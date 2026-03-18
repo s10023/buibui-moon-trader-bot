@@ -106,7 +106,8 @@ def run_backtest(
     """Simulate trades from signals on historical OHLCV.
 
     Entry:  next candle's open after the signal candle.
-    SL:     sl_pct from entry price.
+    SL:     per-signal sl_price from the signals DataFrame when present;
+            otherwise sl_pct fraction of entry price (backward-compatible fallback).
     TP:     tp_r × risk distance from entry price.
 
     A trade closes when a candle's high or low touches the SL or TP level.
@@ -116,6 +117,8 @@ def run_backtest(
 
     if signals.empty or ohlcv.empty:
         return result
+
+    has_per_signal_sl = "sl_price" in signals.columns
 
     ohlcv_times: list[int] = list(ohlcv["open_time"].astype("int64"))
     time_to_idx = {t: i for i, t in enumerate(ohlcv_times)}
@@ -135,7 +138,14 @@ def run_backtest(
         entry_time = ohlcv_times[entry_idx]
         entry_price = float(ohlcv.iloc[entry_idx]["open"])
 
-        if direction == "long":
+        # Use per-signal structural SL when available; fall back to sl_pct fraction.
+        if has_per_signal_sl:
+            sl_price = float(sig["sl_price"])
+            if direction == "long":
+                tp_price = entry_price + tp_r * abs(entry_price - sl_price)
+            else:
+                tp_price = entry_price - tp_r * abs(entry_price - sl_price)
+        elif direction == "long":
             sl_price = entry_price * (1.0 - sl_pct)
             tp_price = entry_price + tp_r * (entry_price - sl_price)
         else:
