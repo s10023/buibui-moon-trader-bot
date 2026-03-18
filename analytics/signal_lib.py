@@ -10,6 +10,7 @@ No module-level side effects.
 
 import logging
 import time
+from collections.abc import Mapping
 
 import duckdb
 import pandas as pd
@@ -72,7 +73,7 @@ def _compute_backtest(
 
 
 def _backtest_summary(
-    results: dict[str, BacktestResult | None],
+    results: Mapping[str, BacktestResult | None],
     strategies: list[str],
     cfg: BacktestFilterConfig,
 ) -> str:
