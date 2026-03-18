@@ -981,9 +981,10 @@ def detect_eqh_eql(
         i1, h1, i2, h2 = best_eqh
         eqh_level = max(h1, h2)
         if sig_high > eqh_level and sig_close < eqh_level:
-            # SL = highest high above EQH in the full lookback window (includes prior
-            # deviation candles that may have swept much higher than the signal candle).
-            all_highs = df.iloc[-(lookback + 1) :]["high"].astype(float)
+            # SL = highest high above EQH across the entire df — captures prior
+            # deviation candles outside the lookback window (e.g. a deeper swing high
+            # weeks ago that represents the true structural invalidation level).
+            all_highs = df["high"].astype(float)
             sl_price = float(all_highs[all_highs > eqh_level].max())
             ts1 = _fmt_time(int(window_df.iloc[i1]["open_time"]))
             ts2 = _fmt_time(int(window_df.iloc[i2]["open_time"]))
@@ -1020,9 +1021,9 @@ def detect_eqh_eql(
         i1, l1, i2, l2 = best_eql
         eql_level = min(l1, l2)
         if sig_low < eql_level and sig_close > eql_level:
-            # SL = lowest low below EQL in the full lookback window (includes prior
-            # deviation candles that may have swept much lower than the signal candle).
-            all_lows = df.iloc[-(lookback + 1) :]["low"].astype(float)
+            # SL = lowest low below EQL across the entire df — captures prior
+            # deviation candles outside the lookback window.
+            all_lows = df["low"].astype(float)
             sl_price = float(all_lows[all_lows < eql_level].min())
             ts1 = _fmt_time(int(window_df.iloc[i1]["open_time"]))
             ts2 = _fmt_time(int(window_df.iloc[i2]["open_time"]))
