@@ -144,6 +144,14 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 50,
                 "Half-window size for swing high/low identification (window = 2×n+1).",
             ),
+            ParamSpec(
+                "min_swing_pct",
+                "float",
+                0.0,
+                0.0,
+                0.1,
+                "Minimum price range (fraction) a swing level must span to qualify for BOS/CHoCH.",
+            ),
         ],
         confidence=3,
     ),
@@ -692,6 +700,7 @@ def detect_fvg(
 def detect_market_structure(
     df: pd.DataFrame,
     swing_lookback: int = 5,
+    min_swing_pct: float = 0.0,
 ) -> pd.DataFrame:
     """Detect Break of Structure (BOS) and Change of Character (CHoCH).
 
@@ -702,6 +711,10 @@ def detect_market_structure(
     BOS short:  lower swing low in established downtrend.
     CHoCH long: first higher swing high after a downtrend (trend reversal).
     CHoCH short: first lower swing low after an uptrend (trend reversal).
+
+    min_swing_pct: suppress signals where the structural level (swing_high -
+    swing_low) / swing_high is smaller than this fraction.  Default 0.0
+    keeps the original behaviour (no filter).
     """
     n = len(df)
     if n < swing_lookback * 3:
@@ -740,32 +753,38 @@ def detect_market_structure(
         if typ == "H":
             if last_sh is not None:
                 if price > last_sh:
-                    label = "choch_long" if trend == "down" else "bos_long"
-                    signals.append(
-                        {
-                            "open_time": open_time,
-                            "direction": "long",
-                            "reason": f"{label}@{price:.2f}",
-                            "sl_price": last_sl if last_sl is not None else 0.0,
-                            "context": "",
-                        }
-                    )
+                    sl_val = last_sl if last_sl is not None else 0.0
+                    swing_range = (price - sl_val) / price if price > 0 else 0.0
+                    if swing_range >= min_swing_pct:
+                        label = "choch_long" if trend == "down" else "bos_long"
+                        signals.append(
+                            {
+                                "open_time": open_time,
+                                "direction": "long",
+                                "reason": f"{label}@{price:.2f}",
+                                "sl_price": sl_val,
+                                "context": "",
+                            }
+                        )
                     trend = "up"
             last_sh = price
 
         else:  # "L"
             if last_sl is not None:
                 if price < last_sl:
-                    label = "choch_short" if trend == "up" else "bos_short"
-                    signals.append(
-                        {
-                            "open_time": open_time,
-                            "direction": "short",
-                            "reason": f"{label}@{price:.2f}",
-                            "sl_price": last_sh if last_sh is not None else 0.0,
-                            "context": "",
-                        }
-                    )
+                    sh_val = last_sh if last_sh is not None else 0.0
+                    swing_range = (sh_val - price) / price if price > 0 else 0.0
+                    if swing_range >= min_swing_pct:
+                        label = "choch_short" if trend == "up" else "bos_short"
+                        signals.append(
+                            {
+                                "open_time": open_time,
+                                "direction": "short",
+                                "reason": f"{label}@{price:.2f}",
+                                "sl_price": sh_val,
+                                "context": "",
+                            }
+                        )
                     trend = "down"
             last_sl = price
 
