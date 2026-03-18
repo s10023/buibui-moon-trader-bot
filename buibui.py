@@ -66,15 +66,35 @@ def _parse_smt_pairs(value: str) -> dict[str, str]:
 
 
 def run_signal_watch(args: argparse.Namespace) -> None:
-    smt_pairs: dict[str, str] | None = getattr(args, "smt_pairs", None)
+    from analytics.signal_config import SignalWatchConfig, load_signal_config
+
+    cfg = SignalWatchConfig()
+    if getattr(args, "config", None):
+        cfg = load_signal_config(args.config)
+
+    # CLI flags override config file values; None means "not provided by user"
+    symbols = args.symbols if args.symbols is not None else cfg.symbols
+    timeframes = args.timeframes if args.timeframes is not None else cfg.timeframes
+    strategies = args.strategies if args.strategies is not None else cfg.strategies
+    tp_r = args.tp_r if args.tp_r is not None else cfg.tp_r
+    min_sl_pct = args.min_sl_pct if args.min_sl_pct is not None else cfg.min_sl_pct
+    telegram = args.telegram or cfg.telegram  # either source can enable
+    state_file = (
+        args.state_file if args.state_file != "signal_state.json" else cfg.state_file
+    )
+
+    cli_smt_pairs: dict[str, str] | None = getattr(args, "smt_pairs", None)
+    # CLI --smt-pairs overrides config [smt_pairs] table entirely when provided
+    smt_pairs = cli_smt_pairs if cli_smt_pairs is not None else (cfg.smt_pairs or None)
+
     signal_runner.run_signal_watch(
-        symbols=args.symbols,
-        timeframes=args.timeframes,
-        strategies=args.strategies,
-        tp_r=args.tp_r,
-        min_sl_pct=args.min_sl_pct,
-        send_telegram=args.telegram,
-        state_file=args.state_file,
+        symbols=symbols,
+        timeframes=timeframes,
+        strategies=strategies,
+        tp_r=tp_r,
+        min_sl_pct=min_sl_pct,
+        send_telegram=telegram,
+        state_file=state_file,
         secondary_symbol=args.secondary_symbol,
         smt_pairs=smt_pairs,
     )
@@ -147,6 +167,12 @@ def main() -> None:
         "watch", help="Run 24/7 signal detection daemon"
     )
     watch_parser.add_argument(
+        "--config",
+        default=None,
+        metavar="FILE",
+        help="Path to TOML config file (e.g. config/signal_watch.toml). CLI flags override file values.",
+    )
+    watch_parser.add_argument(
         "--symbols",
         nargs="+",
         default=None,
@@ -155,8 +181,8 @@ def main() -> None:
     watch_parser.add_argument(
         "--timeframes",
         nargs="+",
-        default=["4h"],
-        help="Timeframes to scan (default: 4h)",
+        default=None,
+        help="Timeframes to scan (default: 4h, or from --config)",
     )
     watch_parser.add_argument(
         "--strategies",
@@ -167,9 +193,9 @@ def main() -> None:
     watch_parser.add_argument(
         "--tp-r",
         type=float,
-        default=2.0,
+        default=None,
         dest="tp_r",
-        help="Take-profit risk:reward ratio for alert formatting (default: 2.0)",
+        help="Take-profit risk:reward ratio for alert formatting (default: 2.0, or from --config)",
     )
     watch_parser.add_argument(
         "--telegram",
@@ -201,9 +227,9 @@ def main() -> None:
     watch_parser.add_argument(
         "--min-sl-pct",
         type=float,
-        default=0.0,
+        default=None,
         dest="min_sl_pct",
-        help="Minimum SL distance as a fraction of price (e.g. 0.005 = 0.5%%; default: 0 = disabled)",
+        help="Minimum SL distance as a fraction of price (e.g. 0.005 = 0.5%%; default: 0 = disabled, or from --config)",
     )
     watch_parser.set_defaults(func=run_signal_watch)
 

@@ -159,6 +159,7 @@ buibui-backtest:
 buibui-signal-watch:
 	@echo "🔍 Running signal detection daemon..."
 	@poetry run python buibui.py signal watch \
+		$(if $(CONFIG),--config $(CONFIG),) \
 		$(if $(SYMBOLS),--symbols $(SYMBOLS),) \
 		$(if $(TIMEFRAMES),--timeframes $(TIMEFRAMES),) \
 		$(if $(STRATEGIES),--strategies $(STRATEGIES),) \
@@ -174,6 +175,7 @@ docker-signal-watch:
 		-v $(PWD)/config/coins.json:/app/config/coins.json:ro \
 		-v $(PWD)/signal_state.json:/app/signal_state.json \
 		$(DOCKER_IMAGE) poetry run python buibui.py signal watch \
+		$(if $(CONFIG),--config $(CONFIG),) \
 		$(if $(SYMBOLS),--symbols $(SYMBOLS),) \
 		$(if $(TIMEFRAMES),--timeframes $(TIMEFRAMES),) \
 		$(if $(STRATEGIES),--strategies $(STRATEGIES),) \
