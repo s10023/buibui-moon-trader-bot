@@ -73,6 +73,7 @@ def format_confluence_alert(
     sl_pct: float = 0.02,
     tp_r: float = 2.0,
     min_sl_pct: float = 0.0,
+    backtest_summary: str | None = None,
 ) -> str:
     """Format one or more SignalEvents (same symbol/tf/direction) as a Telegram message.
 
@@ -126,9 +127,12 @@ def format_confluence_alert(
                 line += f"  ({ev.context})"
             header += line + "\n"
 
-    return (
+    msg = (
         header
         + f"Price: {price:,.2f}  |  {signal_time} SGT\n"
         + f"SL: {sl_price:,.2f} ({sl_pct_display:.1f}%)  "
         + f"TP: {tp_price:,.2f} ({tp_pct_display:.1f}% | {tp_r:.1f}x R)"
     )
+    if backtest_summary:
+        msg += f"\n{backtest_summary}"
+    return msg

@@ -362,7 +362,17 @@ poetry run python buibui.py signal watch
 - `--smt-pairs BTCUSDT:ETHUSDT,ETHUSDT:BTCUSDT` — per-symbol SMT secondary mappings (overrides `smt_secondary` in `coins.json`)
 - `--secondary-symbol ETHUSDT` — *(deprecated, use `--smt-pairs`)* applies one secondary to all scanned symbols
 
-**Example alert (Telegram):**
+The `[backtest]` table in `config/signal_watch.toml` controls a per-alert win rate filter:
+
+```toml
+[backtest]
+mode = "soft"           # "soft": append win rate | "hard": suppress low performers | "off"
+days = 90               # lookback window
+min_trades = 20         # bypass filter if fewer than this many historical trades
+filter_threshold = 0.45 # hard mode: suppress alert if win_rate < this
+```
+
+**Example alert (Telegram, soft mode):**
 
 ```text
 SIGNAL — BTCUSDT 4h
@@ -370,6 +380,7 @@ Direction: LONG 🟢  Strategy: `fvg`  ★★★★☆
 Reason: `fvg_long@43200.00-43350.00`
 Price: 43,260.00  |  01-Apr 21:00 SGT
 SL: 42,394.80 (2.0%)  TP: 44,985.60 (4.0% | 2.0x R)
+📊 Backtest 90d: 62% win (28 trades)
 ```
 
 Two-layer dedup prevents alert spam:
