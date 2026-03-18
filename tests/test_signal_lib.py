@@ -290,25 +290,47 @@ class TestFormatConfluenceAlert:
         assert "fvg" in msg
         assert "liquidity_sweep" in msg
 
-    def test_confluence_uses_tightest_sl_long(self) -> None:
-        # Two longs: sl_price 90 and 85. Tightest = highest = 90.
+    def test_confluence_uses_widest_sl_long(self) -> None:
+        # Two longs: sl_price 90 and 85. Widest = lowest = 85 (most conservative).
         events = [
             self._make_event("fvg", sl_price=90.0),
             self._make_event("liquidity_sweep", sl_price=85.0),
         ]
         msg = format_confluence_alert(events)
-        assert "90.00" in msg
-        assert "85.00" not in msg
+        assert "85.00" in msg
+        assert "90.00" not in msg
 
-    def test_confluence_uses_tightest_sl_short(self) -> None:
-        # Two shorts: sl_price 110 and 115. Tightest = lowest = 110.
+    def test_confluence_uses_widest_sl_short(self) -> None:
+        # Two shorts: sl_price 110 and 115. Widest = highest = 115 (most conservative).
         events = [
             self._make_event("fvg", direction="short", price=100.0, sl_price=110.0),
             self._make_event("bos", direction="short", price=100.0, sl_price=115.0),
         ]
         msg = format_confluence_alert(events)
-        assert "110.00" in msg
-        assert "115.00" not in msg
+        assert "115.00" in msg
+        assert "110.00" not in msg
+
+    def test_min_sl_pct_enforced_long(self) -> None:
+        # sl_price 99.9 is only 0.1% below price 100. min_sl_pct=0.01 → SL = 99.0.
+        event = self._make_event("wick_fill", sl_price=99.9)
+        msg = format_confluence_alert([event], min_sl_pct=0.01)
+        assert "99.00" in msg
+        assert "99.90" not in msg
+
+    def test_min_sl_pct_enforced_short(self) -> None:
+        # sl_price 100.1 is only 0.1% above price 100. min_sl_pct=0.01 → SL = 101.0.
+        event = self._make_event(
+            "wick_fill", direction="short", price=100.0, sl_price=100.1
+        )
+        msg = format_confluence_alert([event], min_sl_pct=0.01)
+        assert "101.00" in msg
+        assert "100.10" not in msg
+
+    def test_min_sl_pct_not_applied_when_sl_already_wide_enough(self) -> None:
+        # sl_price 90 is 10% below price 100. min_sl_pct=0.01 → no override.
+        event = self._make_event("fvg", sl_price=90.0)
+        msg = format_confluence_alert([event], min_sl_pct=0.01)
+        assert "90.00" in msg
 
     def test_context_shown_in_confluence_line(self) -> None:
         events = [

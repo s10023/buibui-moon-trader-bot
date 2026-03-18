@@ -53,6 +53,7 @@ def run_signal_watch(
     timeframes: list[str] | None = None,
     strategies: list[str] | None = None,
     tp_r: float = 2.0,
+    min_sl_pct: float = 0.0,
     send_telegram: bool = False,
     state_file: str = "signal_state.json",
     secondary_symbol: str | None = None,
@@ -135,6 +136,7 @@ def run_signal_watch(
                     strategies=resolved_strategies,
                     store=store,
                     tp_r=tp_r,
+                    min_sl_pct=min_sl_pct,
                     send_telegram=send_telegram,
                     secondary_symbol=secondary_symbol,
                 )

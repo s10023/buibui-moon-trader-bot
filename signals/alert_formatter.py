@@ -29,72 +29,71 @@ class SignalEvent:
     confidence: int = 0  # 1–5 editorial quality score (0 = unset); shown as stars
 
 
-def _resolve_sl(
-    direction: str,
-    price: float,
-    sl_price: float,
-    sl_pct: float,
-) -> float:
-    """Return structural SL if valid, otherwise fall back to percentage-based SL."""
-    if sl_price > 0:
-        if direction == "long" and sl_price < price:
-            return sl_price
-        if direction == "short" and sl_price > price:
-            return sl_price
-    if direction == "long":
-        return price * (1 - sl_pct)
-    return price * (1 + sl_pct)
-
-
-def _tightest_sl(
+def _widest_sl(
     events: list["SignalEvent"],
     direction: str,
     price: float,
     sl_pct: float,
 ) -> float:
-    """Return the tightest valid structural SL across a list of events.
+    """Return the widest (most conservative) structural SL across a list of events.
 
-    Tightest for long = highest sl_price below price (smallest risk distance).
-    Tightest for short = lowest sl_price above price.
+    Widest for long = lowest sl_price below price (largest risk distance).
+    Widest for short = highest sl_price above price.
     Falls back to pct-based SL if no valid structural level exists.
+
+    Using the widest level for confluence means the trade has room to breathe —
+    you need the furthest structural level to actually be invalidated.
     """
     if direction == "long":
         valid = [e.sl_price for e in events if 0 < e.sl_price < price]
-        return max(valid) if valid else price * (1 - sl_pct)
+        return min(valid) if valid else price * (1 - sl_pct)
     else:
         valid = [e.sl_price for e in events if e.sl_price > price]
-        return min(valid) if valid else price * (1 + sl_pct)
+        return max(valid) if valid else price * (1 + sl_pct)
 
 
 def format_signal_alert(
     event: "SignalEvent",
     sl_pct: float = 0.02,
     tp_r: float = 2.0,
+    min_sl_pct: float = 0.0,
 ) -> str:
     """Format a single SignalEvent as a Markdown Telegram message.
 
     Uses structural sl_price when valid; falls back to sl_pct otherwise.
+    min_sl_pct: if set, SL distance is floored at this fraction of price.
     """
-    return format_confluence_alert([event], sl_pct=sl_pct, tp_r=tp_r)
+    return format_confluence_alert(
+        [event], sl_pct=sl_pct, tp_r=tp_r, min_sl_pct=min_sl_pct
+    )
 
 
 def format_confluence_alert(
     events: list["SignalEvent"],
     sl_pct: float = 0.02,
     tp_r: float = 2.0,
+    min_sl_pct: float = 0.0,
 ) -> str:
     """Format one or more SignalEvents (same symbol/tf/direction) as a Telegram message.
 
     Single event: original single-strategy layout.
     Multiple events: stacked confluence layout showing all strategies.
-    SL is the tightest structural level across all events.
+    SL is the widest (most conservative) structural level across all events.
+    min_sl_pct: if set, SL distance is floored at this fraction of price (e.g. 0.005
+    ensures SL is at least 0.5% away from entry — useful to suppress noise signals).
     """
     first = events[0]
     direction_label = "LONG 🟢" if first.direction == "long" else "SHORT 🔴"
     price = first.price
     signal_time = _fmt_time(first.open_time)
 
-    sl_price = _tightest_sl(events, first.direction, price, sl_pct)
+    sl_price = _widest_sl(events, first.direction, price, sl_pct)
+    if min_sl_pct > 0:
+        min_dist = price * min_sl_pct
+        if first.direction == "long" and (price - sl_price) < min_dist:
+            sl_price = price - min_dist
+        elif first.direction == "short" and (sl_price - price) < min_dist:
+            sl_price = price + min_dist
     if first.direction == "long":
         sl_dist = price - sl_price
         tp_price = price + sl_dist * tp_r

@@ -110,6 +110,7 @@ def run_scan_cycle(
     cooldown_seconds: float = 3600.0,
     tp_r: float = 2.0,
     sl_pct: float = 0.02,
+    min_sl_pct: float = 0.0,
     send_telegram: bool = False,
     secondary_symbol: str | None = None,
     days: int = 90,
@@ -202,7 +203,9 @@ def run_scan_cycle(
                 )
 
             # Stack all passing strategies into one confluence alert
-            msg = format_confluence_alert(passing_events, sl_pct=sl_pct, tp_r=tp_r)
+            msg = format_confluence_alert(
+                passing_events, sl_pct=sl_pct, tp_r=tp_r, min_sl_pct=min_sl_pct
+            )
             alerts.append(msg)
             logger.info(
                 "Signal: %s %s %s %s (confluence: %d)",
