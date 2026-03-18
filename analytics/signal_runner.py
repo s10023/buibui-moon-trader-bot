@@ -98,12 +98,10 @@ def run_signal_watch(
 
     store = CooldownStore(state_file)
 
-    logger.info(
-        "Signal daemon starting — symbols=%s timeframes=%s strategies=%s",
-        resolved_symbols,
-        resolved_timeframes,
-        resolved_strategies,
-    )
+    logger.info("Signal daemon starting")
+    logger.info("  symbols    = %s", resolved_symbols)
+    logger.info("  timeframes = %s", resolved_timeframes)
+    logger.info("  strategies = %s", resolved_strategies)
 
     # Graceful shutdown: first Ctrl+C sets the flag; second Ctrl+C forces exit.
     # Using a flag instead of letting KeyboardInterrupt propagate prevents DuckDB's
