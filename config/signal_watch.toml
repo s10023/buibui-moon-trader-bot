@@ -1,0 +1,27 @@
+# Signal Watch — default configuration
+# Usage (once --config flag is implemented):
+#   make buibui-signal-watch CONFIG=config/signal_watch.toml
+#
+# CLI flags always take precedence over values here.
+# Equivalent to:
+#   make buibui-signal-watch TIMEFRAMES="15m 1h 4h 1d" TELEGRAM=1 MIN_SL_PCT=0.01
+
+# Symbols to watch — omit to use all symbols from config/coins.json
+# symbols = ["BTCUSDT", "ETHUSDT"]
+
+timeframes = ["15m", "1h", "4h", "1d"]
+telegram = true
+min_sl_pct = 0.01
+
+# Strategies to run — omit to run all strategies in SIGNAL_REGISTRY
+# strategies = ["fvg", "bos", "liquidity_sweep"]
+
+# SL/TP defaults
+# sl_pct = 0.02
+# tp_r = 2.0
+
+# Poll interval in seconds
+# poll_interval = 300
+
+# Cooldown between same (symbol, strategy, direction) alerts, in seconds
+# cooldown_seconds = 3600

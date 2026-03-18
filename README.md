@@ -58,6 +58,7 @@ buibui-moon-trader-bot/
 │   ├── data_store.py                # Pure DuckDB read/write (schema, upsert, query helpers)
 │   ├── data_sync.py                 # Backfill + incremental sync orchestration
 │   ├── indicators_lib.py            # Pure strategy signal detection (10 strategies + STRATEGY_REGISTRY)
+│   ├── signal_config.py             # Pure config loader: SignalWatchConfig + load_signal_config()
 │   ├── signal_lib.py                # Pure scan lib: scan_symbol(), run_scan_cycle()
 │   └── signal_runner.py             # Signal daemon thin wrapper (creates client, opens DB, polls)
 ├── signals/
@@ -71,7 +72,8 @@ buibui-moon-trader-bot/
 │   ├── config_validation.py         # Validates coins.json schema
 │   └── telegram.py                  # Telegram bot messaging
 ├── config/
-│   └── coins.json.example           # Coin list, SL%, leverage per symbol
+│   ├── coins.json.example           # Coin list, SL%, leverage per symbol
+│   └── signal_watch.toml            # Default signal watch config (timeframes, telegram, min_sl_pct)
 ├── .env.example                     # Environment variable template
 ├── .github/
 │   └── workflows/
@@ -349,6 +351,7 @@ poetry run python buibui.py signal watch
 
 **Options:**
 
+- `--config config/signal_watch.toml` — load all options from a TOML file; CLI flags override file values
 - `--symbols BTCUSDT ETHUSDT` — symbols to scan (default: all from `coins.json`)
 - `--timeframes 4h` — candle timeframes (default: `4h`)
 - `--strategies fvg bos` — strategies to run (default: all 8 except `seasonality`)
@@ -438,9 +441,11 @@ Optional overrides: `SL_PCT`, `TP_R`, `SECONDARY` (required for `smt_divergence`
 **Signal watch:**
 
 ```bash
-make buibui-signal-watch                                         # All symbols, 4h, all strategies
-make buibui-signal-watch SYMBOLS="BTCUSDT ETHUSDT"              # Specific symbols
-make buibui-signal-watch STRATEGIES="fvg bos" TELEGRAM=1        # Specific strategies + Telegram
+make buibui-signal-watch                                              # All symbols, 4h, all strategies
+make buibui-signal-watch CONFIG=config/signal_watch.toml             # Load from config file
+make buibui-signal-watch CONFIG=config/signal_watch.toml TELEGRAM=1  # Config file + override flag
+make buibui-signal-watch SYMBOLS="BTCUSDT ETHUSDT"                   # Specific symbols
+make buibui-signal-watch STRATEGIES="fvg bos" TELEGRAM=1             # Specific strategies + Telegram
 make buibui-signal-watch TIMEFRAMES="15m 1h 4h" MIN_SL_PCT=0.003 TELEGRAM=1  # SL floor
 make buibui-signal-watch STRATEGIES="smt_divergence" SECONDARY=ETHUSDT  # deprecated
 ```
