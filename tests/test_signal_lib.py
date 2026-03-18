@@ -3,6 +3,11 @@
 from typing import Any
 from unittest.mock import patch
 
+import duckdb
+import pandas as pd
+
+from analytics.data_store import init_schema
+from analytics.signal_lib import run_scan_cycle
 from analytics.signal_runner import _parse_timeframe_secs, _secs_until_next_boundary
 from signals.alert_formatter import (
     SignalEvent,
@@ -397,3 +402,73 @@ class TestFormatConfluenceAlert:
         ]
         msg = format_confluence_alert(events)
         assert msg.count("★★★★☆") == 2
+
+
+class TestRunScanCycleSecondaryMap:
+    """Tests for secondary_map logic in run_scan_cycle."""
+
+    def _make_empty_df(self) -> pd.DataFrame:
+        return pd.DataFrame()
+
+    def test_shared_secondary_fetched_once_for_two_primaries(
+        self, tmp_path: Any
+    ) -> None:
+        """Two primaries sharing the same secondary → get_ohlcv called once for secondary."""
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        store = CooldownStore(str(tmp_path / "state.json"))
+
+        with (
+            patch(
+                "analytics.signal_lib.get_ohlcv", return_value=self._make_empty_df()
+            ) as mock_get,
+            patch(
+                "analytics.signal_lib.get_funding_rates",
+                return_value=self._make_empty_df(),
+            ),
+        ):
+            run_scan_cycle(
+                conn=conn,
+                symbols=["BTCUSDT", "ETHUSDT"],
+                timeframes=["4h"],
+                strategies=["smt_divergence"],
+                store=store,
+                secondary_map={"BTCUSDT": "SOLUSDT", "ETHUSDT": "SOLUSDT"},
+            )
+
+        secondary_calls = [c for c in mock_get.call_args_list if c.args[1] == "SOLUSDT"]
+        assert len(secondary_calls) == 1, (
+            f"Expected 1 fetch for SOLUSDT/4h, got {len(secondary_calls)}"
+        )
+
+    def test_secondary_map_entry_for_absent_symbol_ignored(self, tmp_path: Any) -> None:
+        """secondary_map entry for a symbol not in the scan list is silently ignored."""
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        store = CooldownStore(str(tmp_path / "state.json"))
+
+        with (
+            patch(
+                "analytics.signal_lib.get_ohlcv", return_value=self._make_empty_df()
+            ) as mock_get,
+            patch(
+                "analytics.signal_lib.get_funding_rates",
+                return_value=self._make_empty_df(),
+            ),
+        ):
+            run_scan_cycle(
+                conn=conn,
+                symbols=["BTCUSDT"],
+                timeframes=["4h"],
+                strategies=["smt_divergence"],
+                store=store,
+                # ETHUSDT is in the map but NOT in symbols — its secondary should not be fetched
+                secondary_map={"BTCUSDT": "SOLUSDT", "ETHUSDT": "BNBUSDT"},
+            )
+
+        solusdt_calls = [c for c in mock_get.call_args_list if c.args[1] == "SOLUSDT"]
+        bnbusdt_calls = [c for c in mock_get.call_args_list if c.args[1] == "BNBUSDT"]
+        assert len(solusdt_calls) == 1
+        assert len(bnbusdt_calls) == 0, (
+            "BNBUSDT (secondary for ETHUSDT which is not scanned) should not be fetched"
+        )
