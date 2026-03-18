@@ -858,15 +858,16 @@ class TestDetectEqhEql:
         result = detect_eqh_eql(df, lookback=self._LOOKBACK, tolerance_pct=0.01)
         assert result.iloc[0]["open_time"] == sig_ts
 
-    def test_short_sl_price_is_max_deviation_high(self) -> None:
-        # Prior deviation at index 0 (high=130, above EQH@120) placed early so it
-        # doesn't disrupt swing-high detection of the EQH pair at indices 4 and 8.
-        # Signal candle barely sweeps EQH (high=121), closes below (118).
-        # SL = max(highs above EQH in lookback) = 130, not 121.
+    def test_short_sl_price_is_max_post_eqh_deviation(self) -> None:
+        # Use lookback=16 so there's room between EQH pair (indices 4+8) and a
+        # post-EQH deviation candle (index 12, high=130).
+        # Pre-EQH candle at index 0 (high=125) must be IGNORED — SL only scans
+        # from the later EQH candle onwards.
+        lookback = 16
         rows: list[dict[str, object]] = []
         rows.append(
-            _candle(_BASE_TIME + 0 * self._MS, 118, 130, 105, 126)
-        )  # prior deviation
+            _candle(_BASE_TIME + 0 * self._MS, 118, 125, 105, 120)
+        )  # pre-EQH, high=125 (must be ignored)
         for i in range(1, 4):
             rows.append(_candle(_BASE_TIME + i * self._MS, 110, 112, 100, 111))
         rows.append(
@@ -877,15 +878,22 @@ class TestDetectEqhEql:
         rows.append(
             _candle(_BASE_TIME + 8 * self._MS, 110, 120, 100, 115)
         )  # EQH swing high 2
-        for i in range(9, self._LOOKBACK):
-            rows.append(_candle(_BASE_TIME + i * self._MS, 110, 115, 100, 112))
-        rows.append(_candle(_BASE_TIME + self._LOOKBACK * self._MS, 115, 121, 110, 118))
+        for i in range(9, 12):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 110, 112, 100, 111))
+        rows.append(
+            _candle(_BASE_TIME + 12 * self._MS, 118, 130, 115, 126)
+        )  # post-EQH deviation, high=130
+        for i in range(13, lookback):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 110, 112, 100, 111))
+        rows.append(
+            _candle(_BASE_TIME + lookback * self._MS, 115, 121, 110, 118)
+        )  # signal candle
         df = _make_ohlcv(rows)
-        result = detect_eqh_eql(df, lookback=self._LOOKBACK, tolerance_pct=0.01)
+        result = detect_eqh_eql(df, lookback=lookback, tolerance_pct=0.01)
         sl = float(result.iloc[0]["sl_price"])
         assert (
             sl == 130.0
-        )  # SL = highest deviation in lookback, not just signal candle high
+        )  # post-EQH deviation, not pre-EQH (125) or signal candle (121)
 
     def test_short_context_contains_two_timestamps(self) -> None:
         rows: list[dict[str, object]] = []
@@ -921,15 +929,16 @@ class TestDetectEqhEql:
         long_signals = result[result["direction"] == "long"]
         assert len(long_signals) == 1
 
-    def test_long_sl_price_is_min_deviation_low(self) -> None:
-        # Prior deviation at index 0 (low=70, below EQL@80) placed early so it
-        # doesn't disrupt swing-low detection of the EQL pair at indices 4 and 8.
-        # Signal candle barely sweeps EQL (low=79), closes above (82).
-        # SL = min(lows below EQL in lookback) = 70, not 79.
+    def test_long_sl_price_is_min_post_eql_deviation(self) -> None:
+        # Use lookback=16 so there's room between EQL pair (indices 4+8) and a
+        # post-EQL deviation candle (index 12, low=70).
+        # Pre-EQL candle at index 0 (low=75) must be IGNORED — SL only scans
+        # from the later EQL candle onwards.
+        lookback = 16
         rows: list[dict[str, object]] = []
         rows.append(
-            _candle(_BASE_TIME + 0 * self._MS, 75, 84, 70, 74)
-        )  # prior deviation
+            _candle(_BASE_TIME + 0 * self._MS, 75, 84, 75, 74)
+        )  # pre-EQL, low=75 (must be ignored)
         for i in range(1, 4):
             rows.append(_candle(_BASE_TIME + i * self._MS, 88, 92, 85, 90))
         rows.append(
@@ -940,15 +949,20 @@ class TestDetectEqhEql:
         rows.append(
             _candle(_BASE_TIME + 8 * self._MS, 88, 92, 80, 85)
         )  # EQL swing low 2
-        for i in range(9, self._LOOKBACK):
+        for i in range(9, 12):
             rows.append(_candle(_BASE_TIME + i * self._MS, 88, 92, 85, 90))
-        rows.append(_candle(_BASE_TIME + self._LOOKBACK * self._MS, 85, 90, 79, 82))
+        rows.append(
+            _candle(_BASE_TIME + 12 * self._MS, 75, 84, 70, 74)
+        )  # post-EQL deviation, low=70
+        for i in range(13, lookback):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 88, 92, 85, 90))
+        rows.append(
+            _candle(_BASE_TIME + lookback * self._MS, 85, 90, 79, 82)
+        )  # signal candle
         df = _make_ohlcv(rows)
-        result = detect_eqh_eql(df, lookback=self._LOOKBACK, tolerance_pct=0.01)
+        result = detect_eqh_eql(df, lookback=lookback, tolerance_pct=0.01)
         sl = float(result.iloc[0]["sl_price"])
-        assert (
-            sl == 70.0
-        )  # SL = lowest deviation in lookback, not just signal candle low
+        assert sl == 70.0  # post-EQL deviation, not pre-EQL (75) or signal candle (79)
 
     def test_long_context_contains_two_timestamps(self) -> None:
         rows: list[dict[str, object]] = []

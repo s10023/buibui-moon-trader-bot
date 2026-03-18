@@ -981,11 +981,13 @@ def detect_eqh_eql(
         i1, h1, i2, h2 = best_eqh
         eqh_level = max(h1, h2)
         if sig_high > eqh_level and sig_close < eqh_level:
-            # SL = highest high above EQH across the entire df — captures prior
-            # deviation candles outside the lookback window (e.g. a deeper swing high
-            # weeks ago that represents the true structural invalidation level).
-            all_highs = df["high"].astype(float)
-            sl_price = float(all_highs[all_highs > eqh_level].max())
+            # SL = highest high above EQH from the later EQH candle onwards.
+            # Only candles after the EQH level was established are relevant —
+            # earlier highs (before the level formed) are a different structure.
+            later_idx_in_df = (len(df) - (lookback + 1)) + max(i1, i2)
+            post_eqh_highs = df.iloc[later_idx_in_df:]["high"].astype(float)
+            above = post_eqh_highs[post_eqh_highs > eqh_level]
+            sl_price = float(above.max()) if not above.empty else sig_high
             ts1 = _fmt_time(int(window_df.iloc[i1]["open_time"]))
             ts2 = _fmt_time(int(window_df.iloc[i2]["open_time"]))
             ctx = f"EQH: {ts1} @ {h1:,.2f} · {ts2} @ {h2:,.2f}"
@@ -1021,10 +1023,11 @@ def detect_eqh_eql(
         i1, l1, i2, l2 = best_eql
         eql_level = min(l1, l2)
         if sig_low < eql_level and sig_close > eql_level:
-            # SL = lowest low below EQL across the entire df — captures prior
-            # deviation candles outside the lookback window.
-            all_lows = df["low"].astype(float)
-            sl_price = float(all_lows[all_lows < eql_level].min())
+            # SL = lowest low below EQL from the later EQL candle onwards.
+            later_idx_in_df = (len(df) - (lookback + 1)) + max(i1, i2)
+            post_eql_lows = df.iloc[later_idx_in_df:]["low"].astype(float)
+            below = post_eql_lows[post_eql_lows < eql_level]
+            sl_price = float(below.min()) if not below.empty else sig_low
             ts1 = _fmt_time(int(window_df.iloc[i1]["open_time"]))
             ts2 = _fmt_time(int(window_df.iloc[i2]["open_time"]))
             ctx = f"EQL: {ts1} @ {l1:,.2f} · {ts2} @ {l2:,.2f}"
