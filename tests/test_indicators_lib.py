@@ -399,12 +399,12 @@ class TestDetectMarketStructure:
         result = detect_market_structure(df, swing_lookback=1)
         _assert_signal_columns(result)
 
-    def test_min_swing_pct_default_zero_is_backward_compatible(self) -> None:
-        """Default min_swing_pct=0.0 must produce the same signals as before."""
+    def test_min_swing_pct_default_applied(self) -> None:
+        """Default min_swing_pct=0.005 should match explicit 0.005."""
         df = self._make_zigzag_up()
         result_default = detect_market_structure(df, swing_lookback=1)
         result_explicit = detect_market_structure(
-            df, swing_lookback=1, min_swing_pct=0.0
+            df, swing_lookback=1, min_swing_pct=0.005
         )
         assert len(result_default) == len(result_explicit)
         assert list(result_default["direction"]) == list(result_explicit["direction"])

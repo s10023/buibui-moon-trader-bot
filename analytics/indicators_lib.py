@@ -147,7 +147,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
             ParamSpec(
                 "min_swing_pct",
                 "float",
-                0.0,
+                0.005,
                 0.0,
                 0.1,
                 "Minimum price range (fraction) a swing level must span to qualify for BOS/CHoCH.",
@@ -700,7 +700,7 @@ def detect_fvg(
 def detect_market_structure(
     df: pd.DataFrame,
     swing_lookback: int = 5,
-    min_swing_pct: float = 0.0,
+    min_swing_pct: float = 0.005,
 ) -> pd.DataFrame:
     """Detect Break of Structure (BOS) and Change of Character (CHoCH).
 
