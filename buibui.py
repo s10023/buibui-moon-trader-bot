@@ -52,6 +52,7 @@ def run_signal_watch(args: argparse.Namespace) -> None:
         timeframes=args.timeframes,
         strategies=args.strategies,
         tp_r=args.tp_r,
+        min_sl_pct=args.min_sl_pct,
         send_telegram=args.telegram,
         state_file=args.state_file,
         secondary_symbol=args.secondary_symbol,
@@ -165,6 +166,13 @@ def main() -> None:
         default=None,
         dest="secondary_symbol",
         help="Secondary symbol for SMT divergence strategy (e.g. ETHUSDT)",
+    )
+    watch_parser.add_argument(
+        "--min-sl-pct",
+        type=float,
+        default=0.0,
+        dest="min_sl_pct",
+        help="Minimum SL distance as a fraction of price (e.g. 0.005 = 0.5%%; default: 0 = disabled)",
     )
     watch_parser.set_defaults(func=run_signal_watch)
 
