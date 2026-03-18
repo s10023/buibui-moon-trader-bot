@@ -202,6 +202,29 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
         ],
         confidence=4,
     ),
+    "order_block": StrategySpec(
+        name="order_block",
+        description="ICT Order Block: last up/down-candle before displacement; entry on retest.",
+        params=[
+            ParamSpec(
+                "lookback",
+                "int",
+                50,
+                5,
+                500,
+                "Candles to scan back for order block formations.",
+            ),
+            ParamSpec(
+                "displacement_pct",
+                "float",
+                0.005,
+                0.001,
+                0.05,
+                "Minimum % move on displacement candle to qualify an order block.",
+            ),
+        ],
+        confidence=4,
+    ),
 }
 
 SIGNAL_COLUMNS: list[str] = ["open_time", "direction", "reason", "sl_price", "context"]
@@ -1037,5 +1060,106 @@ def detect_eqh_eql(
                 "context": ctx,
             }
         )
+
+    return _signals_to_df(signals)
+
+
+# ---------------------------------------------------------------------------
+# 11. Order Block (ICT)
+# ---------------------------------------------------------------------------
+
+
+def detect_order_block(
+    df: pd.DataFrame,
+    lookback: int = 50,
+    displacement_pct: float = 0.005,
+) -> pd.DataFrame:
+    """Detect ICT Order Block retest signals.
+
+    Bearish OB: the last bullish candle (close > open) immediately before a
+    significant bearish displacement candle (close < ob_low × (1 - displacement_pct)).
+    Short signal fires on the first candle that retests the OB zone from below
+    (candle enters [ob_open, ob_close]) after the displacement.
+    SL = ob candle high.
+
+    Bullish OB: the last bearish candle (open > close) immediately before a
+    significant bullish displacement candle (close > ob_high × (1 + displacement_pct)).
+    Long signal fires on the first candle that retests the OB zone from above
+    (candle enters [ob_close, ob_open]) after the displacement.
+    SL = ob candle low.
+
+    Only OBs formed within the last `lookback` candles are considered.
+    """
+    n = len(df)
+    if n < 3:
+        return _empty_signals()
+
+    signals: list[dict[str, object]] = []
+    start_idx = max(0, n - lookback)
+
+    for i in range(start_idx, n - 2):
+        ob = df.iloc[i]
+        ob_open = float(ob["open"])
+        ob_high = float(ob["high"])
+        ob_low = float(ob["low"])
+        ob_close = float(ob["close"])
+        ob_time = int(ob["open_time"])
+
+        disp = df.iloc[i + 1]
+        disp_close = float(disp["close"])
+
+        # --- Bearish OB: bullish candle followed by bearish displacement ---
+        if ob_close > ob_open and disp_close < ob_low * (1 - displacement_pct):
+            ob_zone_bot = ob_open
+            ob_zone_top = ob_close
+            ctx = f"Bearish OB: {_fmt_time(ob_time)} [{ob_zone_bot:,.2f}–{ob_zone_top:,.2f}]"
+            for j in range(i + 2, n):
+                fut = df.iloc[j]
+                fut_high = float(fut["high"])
+                fut_low = float(fut["low"])
+                fut_close = float(fut["close"])
+                # Retest: candle enters OB zone and closes below zone top
+                if (
+                    fut_high >= ob_zone_bot
+                    and fut_low <= ob_zone_top
+                    and fut_close < ob_zone_top
+                ):
+                    signals.append(
+                        {
+                            "open_time": int(fut["open_time"]),
+                            "direction": "short",
+                            "reason": f"ob_short@{ob_zone_bot:.2f}-{ob_zone_top:.2f}",
+                            "sl_price": ob_high,
+                            "context": ctx,
+                        }
+                    )
+                    break  # one signal per OB
+
+        # --- Bullish OB: bearish candle followed by bullish displacement ---
+        elif ob_open > ob_close and disp_close > ob_high * (1 + displacement_pct):
+            ob_zone_bot = ob_close
+            ob_zone_top = ob_open
+            ctx = f"Bullish OB: {_fmt_time(ob_time)} [{ob_zone_bot:,.2f}–{ob_zone_top:,.2f}]"
+            for j in range(i + 2, n):
+                fut = df.iloc[j]
+                fut_high = float(fut["high"])
+                fut_low = float(fut["low"])
+                fut_close = float(fut["close"])
+                # Retest: candle enters OB zone and closes above zone bot
+                if (
+                    fut_low <= ob_zone_top
+                    and fut_high >= ob_zone_bot
+                    and fut_close > ob_zone_bot
+                ):
+                    signals.append(
+                        {
+                            "open_time": int(fut["open_time"]),
+                            "direction": "long",
+                            "reason": f"ob_long@{ob_zone_bot:.2f}-{ob_zone_top:.2f}",
+                            "sl_price": ob_low,
+                            "context": ctx,
+                        }
+                    )
+                    break  # one signal per OB
 
     return _signals_to_df(signals)

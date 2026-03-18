@@ -15,6 +15,7 @@ from analytics.indicators_lib import (
     detect_market_structure,
     detect_marubozu_retest,
     detect_orb_breakout,
+    detect_order_block,
     detect_smt_divergence,
     detect_wick_fills,
     seasonality_stats,
@@ -1046,9 +1047,140 @@ class TestLiquiditySweepMinSize:
         lambda: detect_smt_divergence(pd.DataFrame(), pd.DataFrame()),
         lambda: detect_funding_extreme(pd.DataFrame(), pd.DataFrame()),
         lambda: detect_eqh_eql(pd.DataFrame()),
+        lambda: detect_order_block(pd.DataFrame()),
     ],
 )
 def test_empty_input_returns_signal_columns(fn: Callable[[], pd.DataFrame]) -> None:
     result = fn()
     assert isinstance(result, pd.DataFrame)
-    assert list(result.columns) == SIGNAL_COLUMNS
+
+
+# ---------------------------------------------------------------------------
+# Order Block
+# ---------------------------------------------------------------------------
+
+
+class TestDetectOrderBlock:
+    def test_returns_empty_on_too_few_candles(self) -> None:
+        rows = [
+            _candle(_BASE_TIME, 100, 110, 90, 105),
+            _candle(_BASE_TIME + 1, 105, 112, 100, 108),
+        ]
+        result = detect_order_block(_make_ohlcv(rows))
+        assert result.empty
+
+    def test_signal_columns(self) -> None:
+        result = detect_order_block(_make_ohlcv([]))
+        assert list(result.columns) == SIGNAL_COLUMNS
+
+    def test_detects_bearish_ob_short_signal(self) -> None:
+        # Bearish OB setup:
+        #   candle 0 (OB): bullish, open=100, close=110
+        #   candle 1 (displacement): close=94 < ob_low(100) * (1 - 0.005=99.5) → bearish disp
+        #   candle 2 (retest): high=108 >= ob_zone_bot(100), low=101 <= ob_zone_top(110),
+        #                      close=103 < ob_zone_top(110) → short signal fires
+        rows = [
+            _candle(_BASE_TIME + 0, 100, 112, 99, 110),  # OB: bullish
+            _candle(
+                _BASE_TIME + 1, 109, 110, 88, 93
+            ),  # displacement: close 93 < 99*0.995=98.5
+            _candle(
+                _BASE_TIME + 2, 95, 108, 101, 103
+            ),  # retest enters [100, 110], close<110
+        ]
+        df = _make_ohlcv(rows)
+        result = detect_order_block(df, lookback=10, displacement_pct=0.005)
+        short_signals = result[result["direction"] == "short"]
+        assert len(short_signals) == 1
+        assert short_signals.iloc[0]["sl_price"] == 112.0
+        assert "ob_short" in short_signals.iloc[0]["reason"]
+
+    def test_detects_bullish_ob_long_signal(self) -> None:
+        # Bullish OB setup:
+        #   candle 0 (OB): bearish, open=110, close=100
+        #   candle 1 (displacement): close=117 > ob_high(112) * (1 + 0.005=112.56) → bullish disp
+        #   candle 2 (retest): low=101 <= ob_zone_top(110), high=109 >= ob_zone_bot(100),
+        #                      close=106 > ob_zone_bot(100) → long signal fires
+        rows = [
+            _candle(_BASE_TIME + 0, 110, 112, 99, 100),  # OB: bearish
+            _candle(
+                _BASE_TIME + 1, 101, 118, 100, 117
+            ),  # displacement: close 117 > 112*1.005
+            _candle(
+                _BASE_TIME + 2, 115, 109, 101, 106
+            ),  # retest enters [100, 110], close>100
+        ]
+        df = _make_ohlcv(rows)
+        result = detect_order_block(df, lookback=10, displacement_pct=0.005)
+        long_signals = result[result["direction"] == "long"]
+        assert len(long_signals) == 1
+        assert long_signals.iloc[0]["sl_price"] == 99.0
+        assert "ob_long" in long_signals.iloc[0]["reason"]
+
+    def test_no_signal_when_displacement_insufficient(self) -> None:
+        # Displacement candle doesn't close far enough below ob_low
+        rows = [
+            _candle(_BASE_TIME + 0, 100, 112, 99, 110),  # OB: bullish
+            _candle(
+                _BASE_TIME + 1, 109, 110, 98, 99
+            ),  # close=99 ≥ 99*0.995=98.5 → no disp
+            _candle(_BASE_TIME + 2, 95, 108, 95, 103),  # potential retest (won't fire)
+        ]
+        df = _make_ohlcv(rows)
+        result = detect_order_block(df, lookback=10, displacement_pct=0.005)
+        assert result[result["direction"] == "short"].empty
+
+    def test_no_signal_when_retest_close_breaks_zone(self) -> None:
+        # Retest candle enters OB zone but closes above the zone top → not a valid retest
+        rows = [
+            _candle(_BASE_TIME + 0, 100, 112, 99, 110),  # OB: bullish
+            _candle(_BASE_TIME + 1, 109, 110, 88, 93),  # displacement
+            _candle(
+                _BASE_TIME + 2, 95, 115, 101, 112
+            ),  # enters zone but close=112 >= zone_top(110)
+        ]
+        df = _make_ohlcv(rows)
+        result = detect_order_block(df, lookback=10, displacement_pct=0.005)
+        assert result[result["direction"] == "short"].empty
+
+    def test_one_signal_per_ob(self) -> None:
+        # Multiple candles retest the OB — only first one fires
+        rows = [
+            _candle(_BASE_TIME + 0, 100, 112, 99, 110),  # OB: bullish
+            _candle(_BASE_TIME + 1, 109, 110, 88, 93),  # displacement
+            _candle(_BASE_TIME + 2, 95, 108, 101, 103),  # first retest → signal
+            _candle(
+                _BASE_TIME + 3, 103, 109, 102, 104
+            ),  # second entry into zone → no extra signal
+        ]
+        df = _make_ohlcv(rows)
+        result = detect_order_block(df, lookback=10, displacement_pct=0.005)
+        short_signals = result[result["direction"] == "short"]
+        assert len(short_signals) == 1
+        assert int(short_signals.iloc[0]["open_time"]) == _BASE_TIME + 2
+
+    def test_lookback_limits_ob_scan_window(self) -> None:
+        # Place OB at candle 0, but lookback=2 so only last 2 candles scanned for OBs
+        # The OB at index 0 should be excluded.
+        rows = [
+            _candle(
+                _BASE_TIME + 0, 100, 112, 99, 110
+            ),  # OB: bullish — outside lookback
+            _candle(_BASE_TIME + 1, 109, 110, 88, 93),  # displacement
+            _candle(_BASE_TIME + 2, 95, 108, 101, 103),  # retest
+        ]
+        df = _make_ohlcv(rows)
+        # lookback=1: start_idx = max(0, 3-1)=2, so only candle at index 2 checked as OB
+        result = detect_order_block(df, lookback=1, displacement_pct=0.005)
+        assert result.empty
+
+    def test_context_contains_ob_type_and_time(self) -> None:
+        rows = [
+            _candle(_BASE_TIME + 0, 100, 112, 99, 110),
+            _candle(_BASE_TIME + 1, 109, 110, 88, 93),
+            _candle(_BASE_TIME + 2, 95, 108, 101, 103),
+        ]
+        df = _make_ohlcv(rows)
+        result = detect_order_block(df, lookback=10, displacement_pct=0.005)
+        assert not result.empty
+        assert "Bearish OB" in result.iloc[0]["context"]

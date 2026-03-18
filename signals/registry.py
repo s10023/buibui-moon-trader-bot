@@ -21,6 +21,7 @@ from analytics.indicators_lib import (
     detect_market_structure,
     detect_marubozu_retest,
     detect_orb_breakout,
+    detect_order_block,
     detect_smt_divergence,
     detect_wick_fills,
 )
@@ -69,5 +70,9 @@ SIGNAL_REGISTRY: dict[str, SignalPlugin] = {
     "eqh_eql": SignalPlugin(
         detector=detect_eqh_eql,
         confidence=STRATEGY_REGISTRY["eqh_eql"].confidence,
+    ),
+    "order_block": SignalPlugin(
+        detector=detect_order_block,
+        confidence=STRATEGY_REGISTRY["order_block"].confidence,
     ),
 }
