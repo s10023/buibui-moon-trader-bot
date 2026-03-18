@@ -163,7 +163,8 @@ buibui-signal-watch:
 		$(if $(TIMEFRAMES),--timeframes $(TIMEFRAMES),) \
 		$(if $(STRATEGIES),--strategies $(STRATEGIES),) \
 		$(if $(TELEGRAM),--telegram,) \
-		$(if $(SECONDARY),--secondary-symbol $(SECONDARY),)
+		$(if $(SECONDARY),--secondary-symbol $(SECONDARY),) \
+		$(if $(MIN_SL_PCT),--min-sl-pct $(MIN_SL_PCT),)
 
 docker-signal-watch:
 	@echo "🔍 Running signal detection daemon in Docker..."
@@ -177,7 +178,8 @@ docker-signal-watch:
 		$(if $(TIMEFRAMES),--timeframes $(TIMEFRAMES),) \
 		$(if $(STRATEGIES),--strategies $(STRATEGIES),) \
 		$(if $(TELEGRAM),--telegram,) \
-		$(if $(SECONDARY),--secondary-symbol $(SECONDARY),)
+		$(if $(SECONDARY),--secondary-symbol $(SECONDARY),) \
+		$(if $(MIN_SL_PCT),--min-sl-pct $(MIN_SL_PCT),)
 
 buibui-open-trades:
 	@echo "🚀 Opening multiple trades..."
