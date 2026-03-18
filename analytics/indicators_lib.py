@@ -31,9 +31,8 @@ class StrategySpec:
     params: list[ParamSpec] = field(default_factory=list)
     requires_funding: bool = False
     requires_secondary: bool = False
-    confidence: int = (
-        3  # 1–5 editorial quality score; shown as stars in Telegram alerts
-    )
+    # 1–5 editorial quality score; shown as stars in Telegram alerts
+    confidence: int = 3
 
 
 STRATEGY_REGISTRY: dict[str, StrategySpec] = {
@@ -980,26 +979,25 @@ def detect_eqh_eql(
     if best_eqh is not None:
         i1, h1, i2, h2 = best_eqh
         eqh_level = max(h1, h2)
-        if sig_high > eqh_level and sig_close < eqh_level:
-            # SL = highest high above EQH from the later EQH candle onwards.
-            # Only candles after the EQH level was established are relevant —
-            # earlier highs (before the level formed) are a different structure.
-            later_idx_in_df = (len(df) - (lookback + 1)) + max(i1, i2)
-            post_eqh_highs = df.iloc[later_idx_in_df:]["high"].astype(float)
-            above = post_eqh_highs[post_eqh_highs > eqh_level]
-            sl_price = float(above.max()) if not above.empty else sig_high
-            ts1 = _fmt_time(int(window_df.iloc[i1]["open_time"]))
-            ts2 = _fmt_time(int(window_df.iloc[i2]["open_time"]))
-            ctx = f"EQH: {ts1} @ {h1:,.2f} · {ts2} @ {h2:,.2f}"
-            signals.append(
-                {
-                    "open_time": sig_open_time,
-                    "direction": "short",
-                    "reason": f"eqh_short@{h1:.2f}-{h2:.2f}",
-                    "sl_price": sl_price,
-                    "context": ctx,
-                }
-            )
+        # SL = highest high above EQH from the later EQH candle onwards.
+        # Only candles after the EQH level was established are relevant —
+        # earlier highs (before the level formed) are a different structure.
+        later_idx_in_df = (len(df) - (lookback + 1)) + max(i1, i2)
+        post_eqh_highs = df.iloc[later_idx_in_df:]["high"].astype(float)
+        above = post_eqh_highs[post_eqh_highs > eqh_level]
+        sl_price = float(above.max()) if not above.empty else sig_high
+        ts1 = _fmt_time(int(window_df.iloc[i1]["open_time"]))
+        ts2 = _fmt_time(int(window_df.iloc[i2]["open_time"]))
+        ctx = f"EQH: {ts1} @ {h1:,.2f} · {ts2} @ {h2:,.2f}"
+        signals.append(
+            {
+                "open_time": sig_open_time,
+                "direction": "short",
+                "reason": f"eqh_short@{h1:.2f}-{h2:.2f}",
+                "sl_price": sl_price,
+                "context": ctx,
+            }
+        )
 
     # --- EQL: find the lowest pair of swing lows within tolerance that the
     #          signal candle sweeps (wick below, close above).
@@ -1022,23 +1020,22 @@ def detect_eqh_eql(
     if best_eql is not None:
         i1, l1, i2, l2 = best_eql
         eql_level = min(l1, l2)
-        if sig_low < eql_level and sig_close > eql_level:
-            # SL = lowest low below EQL from the later EQL candle onwards.
-            later_idx_in_df = (len(df) - (lookback + 1)) + max(i1, i2)
-            post_eql_lows = df.iloc[later_idx_in_df:]["low"].astype(float)
-            below = post_eql_lows[post_eql_lows < eql_level]
-            sl_price = float(below.min()) if not below.empty else sig_low
-            ts1 = _fmt_time(int(window_df.iloc[i1]["open_time"]))
-            ts2 = _fmt_time(int(window_df.iloc[i2]["open_time"]))
-            ctx = f"EQL: {ts1} @ {l1:,.2f} · {ts2} @ {l2:,.2f}"
-            signals.append(
-                {
-                    "open_time": sig_open_time,
-                    "direction": "long",
-                    "reason": f"eql_long@{l1:.2f}-{l2:.2f}",
-                    "sl_price": sl_price,
-                    "context": ctx,
-                }
-            )
+        # SL = lowest low below EQL from the later EQL candle onwards.
+        later_idx_in_df = (len(df) - (lookback + 1)) + max(i1, i2)
+        post_eql_lows = df.iloc[later_idx_in_df:]["low"].astype(float)
+        below = post_eql_lows[post_eql_lows < eql_level]
+        sl_price = float(below.min()) if not below.empty else sig_low
+        ts1 = _fmt_time(int(window_df.iloc[i1]["open_time"]))
+        ts2 = _fmt_time(int(window_df.iloc[i2]["open_time"]))
+        ctx = f"EQL: {ts1} @ {l1:,.2f} · {ts2} @ {l2:,.2f}"
+        signals.append(
+            {
+                "open_time": sig_open_time,
+                "direction": "long",
+                "reason": f"eql_long@{l1:.2f}-{l2:.2f}",
+                "sl_price": sl_price,
+                "context": ctx,
+            }
+        )
 
     return _signals_to_df(signals)
