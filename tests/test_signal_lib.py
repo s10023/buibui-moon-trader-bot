@@ -250,7 +250,7 @@ class TestFormatSignalAlert:
             price=1000.0,
         )
         msg = format_signal_alert(event)
-        assert "UTC" in msg
+        assert "SGT" in msg
 
 
 class TestFormatConfluenceAlert:
@@ -319,3 +319,59 @@ class TestFormatConfluenceAlert:
         ]
         msg = format_confluence_alert(events)
         assert "Gap: 17-Nov 10:00" in msg
+
+    def test_confidence_stars_shown_for_single_signal(self) -> None:
+        event = SignalEvent(
+            symbol="BTCUSDT",
+            timeframe="15m",
+            strategy="fvg",
+            direction="long",
+            reason="fvg_long@100.00-110.00",
+            open_time=1700000000000,
+            price=1000.0,
+            confidence=4,
+        )
+        msg = format_signal_alert(event)
+        assert "★★★★☆" in msg
+
+    def test_no_stars_when_confidence_unset(self) -> None:
+        event = SignalEvent(
+            symbol="BTCUSDT",
+            timeframe="15m",
+            strategy="fvg",
+            direction="long",
+            reason="fvg_long@100.00-110.00",
+            open_time=1700000000000,
+            price=1000.0,
+            confidence=0,
+        )
+        msg = format_signal_alert(event)
+        assert "★" not in msg
+
+    def test_confidence_stars_shown_in_confluence_per_strategy(self) -> None:
+        events = [
+            SignalEvent(
+                symbol="BTCUSDT",
+                timeframe="15m",
+                strategy="fvg",
+                direction="long",
+                reason="fvg_long@test",
+                open_time=1700000000000,
+                price=100.0,
+                sl_price=90.0,
+                confidence=4,
+            ),
+            SignalEvent(
+                symbol="BTCUSDT",
+                timeframe="15m",
+                strategy="liquidity_sweep",
+                direction="long",
+                reason="liquidity_sweep_long@test",
+                open_time=1700000000000,
+                price=100.0,
+                sl_price=88.0,
+                confidence=4,
+            ),
+        ]
+        msg = format_confluence_alert(events)
+        assert msg.count("★★★★☆") == 2
