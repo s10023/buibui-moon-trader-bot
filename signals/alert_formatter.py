@@ -1,11 +1,18 @@
 """Signal event model and Telegram alert formatter."""
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timedelta, timezone
+
+_SGT = timezone(timedelta(hours=8))
 
 
 def _fmt_time(ts_ms: int) -> str:
-    return datetime.fromtimestamp(ts_ms / 1000, tz=UTC).strftime("%d-%b %H:%M")
+    return datetime.fromtimestamp(ts_ms / 1000, tz=_SGT).strftime("%d-%b %H:%M")
+
+
+def _stars(n: int) -> str:
+    """Return a 5-char star string, e.g. n=4 → '★★★★☆'."""
+    return "★" * n + "☆" * (5 - n)
 
 
 @dataclass
@@ -19,6 +26,7 @@ class SignalEvent:
     price: float  # close price of the signal candle
     sl_price: float = 0.0  # structural invalidation level (0 = use sl_pct fallback)
     context: str = ""  # human-readable pattern context (e.g. candle timestamps)
+    confidence: int = 0  # 1–5 editorial quality score (0 = unset); shown as stars
 
 
 def _resolve_sl(
@@ -99,9 +107,10 @@ def format_confluence_alert(
 
     if len(events) == 1:
         ev = events[0]
+        stars = f"  {_stars(ev.confidence)}" if ev.confidence else ""
         header = (
             f"*SIGNAL — {ev.symbol} {ev.timeframe}*\n"
-            f"Direction: {direction_label}  Strategy: `{ev.strategy}`\n"
+            f"Direction: {direction_label}  Strategy: `{ev.strategy}`{stars}\n"
             f"Reason: `{ev.reason}`\n"
         )
         if ev.context:
@@ -112,14 +121,15 @@ def format_confluence_alert(
             f"Direction: {direction_label}  Confluence: {len(events)} strategies\n"
         )
         for ev in events:
-            line = f"• `{ev.strategy}` — `{ev.reason}`"
+            stars = f" {_stars(ev.confidence)}" if ev.confidence else ""
+            line = f"• `{ev.strategy}`{stars} — `{ev.reason}`"
             if ev.context:
                 line += f"  ({ev.context})"
             header += line + "\n"
 
     return (
         header
-        + f"Price: {price:,.2f}  |  {signal_time} UTC\n"
+        + f"Price: {price:,.2f}  |  {signal_time} SGT\n"
         + f"SL: {sl_price:,.2f} ({sl_pct_display:.1f}%)  "
         + f"TP: {tp_price:,.2f} ({tp_pct_display:.1f}% | {tp_r:.1f}x R)"
     )

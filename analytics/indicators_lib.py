@@ -9,7 +9,7 @@ No module-level side effects.
 """
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -31,12 +31,16 @@ class StrategySpec:
     params: list[ParamSpec] = field(default_factory=list)
     requires_funding: bool = False
     requires_secondary: bool = False
+    confidence: int = (
+        3  # 1–5 editorial quality score; shown as stars in Telegram alerts
+    )
 
 
 STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     "seasonality": StrategySpec(
         name="seasonality",
         description="Day-of-week, hour-of-day, and week-of-month return statistics.",
+        confidence=2,
     ),
     "wick_fill": StrategySpec(
         name="wick_fill",
@@ -59,6 +63,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Candles to watch for wick zone fill after the signal candle.",
             ),
         ],
+        confidence=2,
     ),
     "marubozu": StrategySpec(
         name="marubozu",
@@ -81,6 +86,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Candles to watch for marubozu open retest.",
             ),
         ],
+        confidence=2,
     ),
     "orb": StrategySpec(
         name="orb",
@@ -95,6 +101,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "UTC hour of the session open candle (default 13 = NY open).",
             ),
         ],
+        confidence=3,
     ),
     "liquidity_sweep": StrategySpec(
         name="liquidity_sweep",
@@ -109,6 +116,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Rolling window size for swing high/low detection.",
             ),
         ],
+        confidence=4,
     ),
     "fvg": StrategySpec(
         name="fvg",
@@ -123,6 +131,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Candles to watch for FVG fill after the gap forms.",
             ),
         ],
+        confidence=4,
     ),
     "bos": StrategySpec(
         name="bos",
@@ -137,6 +146,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Half-window size for swing high/low identification (window = 2×n+1).",
             ),
         ],
+        confidence=3,
     ),
     "funding_reversion": StrategySpec(
         name="funding_reversion",
@@ -152,6 +162,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
             ),
         ],
         requires_funding=True,
+        confidence=4,
     ),
     "smt_divergence": StrategySpec(
         name="smt_divergence",
@@ -167,15 +178,19 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
             ),
         ],
         requires_secondary=True,
+        confidence=5,
     ),
 }
 
 SIGNAL_COLUMNS: list[str] = ["open_time", "direction", "reason", "sl_price", "context"]
 
 
+_SGT = timezone(timedelta(hours=8))
+
+
 def _fmt_time(ts_ms: int) -> str:
-    """Format a Unix ms timestamp as a short UTC string for alert context."""
-    return datetime.fromtimestamp(ts_ms / 1000, tz=UTC).strftime("%d-%b %H:%M")
+    """Format a Unix ms timestamp as a short SGT (UTC+8) string for alert context."""
+    return datetime.fromtimestamp(ts_ms / 1000, tz=_SGT).strftime("%d-%b %H:%M")
 
 
 SEASONALITY_COLUMNS: list[str] = [

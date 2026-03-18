@@ -94,6 +94,7 @@ def scan_symbol(
                     price=latest_close,
                     sl_price=float(row["sl_price"]),
                     context=str(row["context"]),
+                    confidence=SIGNAL_REGISTRY[strategy_name]["confidence"],
                 )
             )
 

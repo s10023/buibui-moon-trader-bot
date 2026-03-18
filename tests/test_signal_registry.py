@@ -43,3 +43,26 @@ def test_no_strategy_requires_both_funding_and_secondary() -> None:
         assert not (spec.requires_funding and spec.requires_secondary), (
             f"{name} claims both funding and secondary"
         )
+
+
+def test_all_plugins_have_valid_confidence() -> None:
+    for name, plugin in SIGNAL_REGISTRY.items():
+        c = plugin["confidence"]
+        assert isinstance(c, int) and 1 <= c <= 5, (
+            f"{name}: confidence must be 1–5, got {c}"
+        )
+
+
+def test_all_strategies_have_valid_confidence() -> None:
+    for name, spec in STRATEGY_REGISTRY.items():
+        assert isinstance(spec.confidence, int) and 1 <= spec.confidence <= 5, (
+            f"{name}: confidence must be 1–5, got {spec.confidence}"
+        )
+
+
+def test_plugin_confidence_matches_strategy_registry() -> None:
+    for name, plugin in SIGNAL_REGISTRY.items():
+        assert plugin["confidence"] == STRATEGY_REGISTRY[name].confidence, (
+            f"{name}: plugin confidence {plugin['confidence']} != "
+            f"strategy registry {STRATEGY_REGISTRY[name].confidence}"
+        )

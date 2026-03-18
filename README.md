@@ -61,9 +61,9 @@ buibui-moon-trader-bot/
 │   ├── signal_lib.py                # Pure scan lib: scan_symbol(), run_scan_cycle()
 │   └── signal_runner.py             # Signal daemon thin wrapper (creates client, opens DB, polls)
 ├── signals/
-│   ├── registry.py                  # SignalPlugin TypedDict + SIGNAL_REGISTRY (8 strategies)
+│   ├── registry.py                  # SignalPlugin TypedDict + SIGNAL_REGISTRY (8 strategies, with confidence)
 │   ├── cooldown_store.py            # Two-layer dedup: candle watermark + cooldown timer
-│   └── alert_formatter.py           # SignalEvent dataclass + format_signal_alert()
+│   └── alert_formatter.py           # SignalEvent dataclass + format_signal_alert() → Markdown with SL/TP/stars
 ├── trade/
 │   └── open_trades.py               # Multi-trade entry (planned)
 ├── utils/
@@ -357,9 +357,9 @@ poetry run python buibui.py signal watch
 
 ```text
 SIGNAL — BTCUSDT 4h
-Direction: LONG 🟢  Strategy: `fvg`
+Direction: LONG 🟢  Strategy: `fvg`  ★★★★☆
 Reason: `fvg_long@43200.00-43350.00`
-Price: 43,260.00
+Price: 43,260.00  |  01-Apr 21:00 SGT
 SL: 42,394.80 (2.0%)  TP: 44,985.60 (4.0% | 2.0x R)
 ```
 
