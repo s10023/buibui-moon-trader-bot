@@ -1,6 +1,7 @@
 """Live price monitor: WebSocket + kline refresh + Rich terminal."""
 
 import logging
+import sys
 import threading
 import time
 from typing import Any
@@ -21,6 +22,8 @@ from utils.live_store import KlineData, LiveDataStore, TickerData
 
 HEADERS = PRICE_HEADERS
 KLINE_REFRESH_INTERVAL = 60
+# Abort the process after this many seconds with no successful WS message.
+WS_SILENCE_TIMEOUT = 120
 _SORT_COL_MAP: dict[str, int] = {
     "change_15m": HEADERS.index("15m %"),
     "change_1h": HEADERS.index("1h %"),
@@ -138,6 +141,33 @@ def _build_table(
     return table
 
 
+def _ws_watchdog(
+    store: LiveDataStore,
+    timeout: int = WS_SILENCE_TIMEOUT,
+    poll: int = 10,
+) -> None:
+    """Daemon: abort the process if no WS message arrives within *timeout* seconds.
+
+    Polls every *poll* seconds. On first call the store has no ``last_update``,
+    so the clock starts from the moment this thread wakes for the first time.
+    """
+    baseline = time.monotonic()
+    while True:
+        time.sleep(poll)
+        result = store.snapshot([])
+        if result.last_update is not None:
+            # Reset baseline whenever a real message was received.
+            baseline = time.monotonic()
+        elapsed = time.monotonic() - baseline
+        if elapsed >= timeout:
+            logging.error(
+                "WebSocket silent for %.0fs (limit %ds) — aborting process",
+                elapsed,
+                timeout,
+            )
+            sys.exit(1)
+
+
 def _kline_refresh_loop(
     client: Any,
     symbols: list[str],
@@ -189,7 +219,15 @@ def run(
         )
         kline_thread.start()
 
-        # 4. Rich Live render loop
+        # 4. WS watchdog — abort after WS_SILENCE_TIMEOUT seconds of silence
+        watchdog_thread = threading.Thread(
+            target=_ws_watchdog,
+            args=(store,),
+            daemon=True,
+        )
+        watchdog_thread.start()
+
+        # 5. Rich Live render loop (blocks until Ctrl-C or watchdog aborts)
         run_live_loop(
             lambda: _build_table(coins, store, sort_col, sort_order),
             interval=1.0,
