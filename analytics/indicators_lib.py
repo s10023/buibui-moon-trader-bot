@@ -48,7 +48,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
             ParamSpec(
                 "min_wick_body_ratio",
                 "float",
-                0.5,
+                1.5,
                 0.1,
                 2.0,
                 "Minimum wick-to-body ratio to qualify as significant.",
@@ -83,6 +83,14 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 1,
                 200,
                 "Candles to watch for marubozu open retest.",
+            ),
+            ParamSpec(
+                "min_body_pct",
+                "float",
+                0.005,
+                0.0001,
+                0.05,
+                "Minimum body size as fraction of open price to qualify as a Marubozu.",
             ),
         ],
         confidence=2,
@@ -128,6 +136,14 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 1,
                 500,
                 "Candles to watch for FVG fill after the gap forms.",
+            ),
+            ParamSpec(
+                "min_gap_pct",
+                "float",
+                0.001,
+                0.0001,
+                0.05,
+                "Minimum gap size as fraction of midpoint price (0.001 = 0.1%); filters noise.",
             ),
         ],
         confidence=4,
@@ -359,7 +375,7 @@ def seasonality_stats(df: pd.DataFrame) -> pd.DataFrame:
 
 def detect_wick_fills(
     df: pd.DataFrame,
-    min_wick_body_ratio: float = 0.5,
+    min_wick_body_ratio: float = 1.5,
     lookback: int = 20,
 ) -> pd.DataFrame:
     """Detect candles where price fills a prior significant wick zone.
@@ -440,6 +456,7 @@ def detect_marubozu_retest(
     df: pd.DataFrame,
     max_wick_ratio: float = 0.1,
     lookback: int = 30,
+    min_body_pct: float = 0.005,
 ) -> pd.DataFrame:
     """Detect retests of Marubozu (wickless) candle open prices.
 
@@ -448,6 +465,11 @@ def detect_marubozu_retest(
     The open of a bearish Marubozu acts as resistance (supply zone).
 
     Signal fires when a later candle retests the open price zone.
+
+    min_body_pct: suppress Marubozus where body / open_price < min_body_pct.
+    Default 0.005 (0.5%) filters out small indecisive candles.
+    Note: SL is placed at the wick tip (very tight); this filter reduces
+    stop-outs from low-volatility candles where noise exceeds SL distance.
     """
     n = len(df)
     if n < 2:
@@ -464,6 +486,8 @@ def detect_marubozu_retest(
 
         body = abs(row_close - row_open)
         if body == 0.0:
+            continue
+        if body < min_body_pct * row_open:
             continue
 
         upper_wick = row_high - max(row_open, row_close)
@@ -647,6 +671,7 @@ def detect_liquidity_sweep(
 def detect_fvg(
     df: pd.DataFrame,
     lookback: int = 50,
+    min_gap_pct: float = 0.001,
 ) -> pd.DataFrame:
     """Detect Fair Value Gap (3-candle imbalance) fill signals.
 
@@ -655,6 +680,9 @@ def detect_fvg(
 
     Signal fires on the first candle within lookback that enters the FVG zone.
     Long = price fills bullish FVG. Short = price fills bearish FVG.
+
+    min_gap_pct: suppress FVGs whose size is < min_gap_pct * midpoint price.
+    Default 0.001 (0.1%) filters out tiny imbalances that are noise.
     """
     n = len(df)
     if n < 3:
@@ -679,6 +707,9 @@ def detect_fvg(
         if prev_high < nxt_low:
             gap_bot = prev_high
             gap_top = nxt_low
+            mid_price = (gap_bot + gap_top) / 2
+            if (gap_top - gap_bot) < min_gap_pct * mid_price:
+                continue
             ce = (gap_bot + gap_top) / 2
             for j in range(i + 2, end):
                 fut = df.iloc[j]
@@ -697,6 +728,9 @@ def detect_fvg(
         if prev_low > nxt_high:
             gap_top = prev_low
             gap_bot = nxt_high
+            mid_price = (gap_bot + gap_top) / 2
+            if (gap_top - gap_bot) < min_gap_pct * mid_price:
+                continue
             ce = (gap_bot + gap_top) / 2
             for j in range(i + 2, end):
                 fut = df.iloc[j]
