@@ -5,6 +5,7 @@ accept them as parameters instead of relying on module-level globals.
 """
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from binance.client import Client
@@ -314,6 +315,7 @@ def display_table(
     telegram: bool = False,
     hide_empty: bool = False,
     compact: bool = False,
+    send_fn: Callable[[str], None] = send_telegram_message,
 ) -> str:
     """Build the full position display output."""
     table, total_risk_usd, wallet, unrealized, available_balance = fetch_open_positions(
@@ -378,7 +380,7 @@ def display_table(
             f"\u26a0\ufe0f SL Risk: ${total_risk_usd:,.2f}"
         )
         try:
-            send_telegram_message(summary)
+            send_fn(summary)
         except Exception as e:
             logging.error(f"\u274c Telegram message failed: {e}")
     return "\n".join(output)

@@ -2,7 +2,7 @@
 
 import re
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -398,17 +398,18 @@ class TestDisplayTable:
         mock_client.futures_account_balance.return_value = mock_futures_balance
         mock_client.futures_get_open_orders.return_value = []
 
-        with patch("monitor.position_lib.send_telegram_message") as mock_tg:
-            display_table(
-                mock_client,
-                SAMPLE_COINS_CONFIG,
-                SAMPLE_COIN_ORDER,
-                [2000.0],
-                telegram=True,
-            )
-            mock_tg.assert_called_once()
-            msg = mock_tg.call_args[0][0]
-            assert "Wallet Balance" in msg
+        mock_tg = MagicMock()
+        display_table(
+            mock_client,
+            SAMPLE_COINS_CONFIG,
+            SAMPLE_COIN_ORDER,
+            [2000.0],
+            telegram=True,
+            send_fn=mock_tg,
+        )
+        mock_tg.assert_called_once()
+        msg = mock_tg.call_args[0][0]
+        assert "Wallet Balance" in msg
 
 
 class TestPositionBugFixes:
