@@ -407,10 +407,15 @@ The `[backtest]` table in `config/signal_watch.toml` controls a per-alert win ra
 
 ```toml
 [backtest]
-mode = "soft"           # "soft": append win rate | "hard": suppress low performers | "off"
-days = 90               # lookback window
+mode = "hard"           # "soft": append win rate | "hard": suppress low performers | "off"
+days = 160              # lookback window
 min_trades = 20         # bypass filter if fewer than this many historical trades
-filter_threshold = 0.45 # hard mode: suppress alert if win_rate < this
+filter_threshold = 0.3  # hard mode: suppress alert if win_rate < this
+
+[smt_pairs]
+BTCUSDT = "ETHUSDT"     # primary → secondary for smt_divergence strategy
+ETHUSDT = "BTCUSDT"
+SOLUSDT = "ETHUSDT"
 ```
 
 **Example alert (Telegram, soft mode):**
