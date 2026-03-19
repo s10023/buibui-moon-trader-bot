@@ -19,11 +19,9 @@ let cleanup: (() => void) | null = null;
 export function startPositionsSSE(): void {
   cleanup = createSSEStream<PositionsStreamFrame>(
     "/api/stream/positions",
-    (frame) => {
-      positionsStore.set(frame);
-      positionsConnected.set(true);
-    },
-    () => positionsConnected.set(false)
+    (frame) => { positionsStore.set(frame); },
+    () => positionsConnected.set(false),
+    () => positionsConnected.set(true)
   );
 }
 

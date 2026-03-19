@@ -228,10 +228,12 @@ export const getPositions = () => apiFetch<PositionsResponse>("/api/positions");
 export function createSSEStream<T>(
   path: string,
   onMessage: (data: T) => void,
-  onError: (err: Event) => void
+  onError: (err: Event) => void,
+  onOpen?: () => void
 ): () => void {
   const url = TOKEN ? `${path}?token=${encodeURIComponent(TOKEN)}` : path;
   const es = new EventSource(url);
+  es.onopen = () => onOpen?.();
   es.onmessage = (e: MessageEvent) => {
     try {
       onMessage(JSON.parse(e.data as string) as T);
