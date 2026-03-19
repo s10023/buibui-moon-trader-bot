@@ -233,6 +233,29 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
         ],
         confidence=4,
     ),
+    "cvd_divergence": StrategySpec(
+        name="cvd_divergence",
+        description="CVD Divergence: price makes a new swing extreme but cumulative volume delta disagrees.",
+        params=[
+            ParamSpec(
+                "lookback",
+                "int",
+                10,
+                2,
+                100,
+                "Half-window for swing high/low detection.",
+            ),
+            ParamSpec(
+                "cvd_lookback",
+                "int",
+                50,
+                10,
+                500,
+                "Candles of CVD history to compare swing extremes across.",
+            ),
+        ],
+        confidence=4,
+    ),
 }
 
 SIGNAL_COLUMNS: list[str] = ["open_time", "direction", "reason", "sl_price", "context"]
@@ -1175,5 +1198,109 @@ def detect_order_block(
                         }
                     )
                     break  # one signal per OB
+
+    return _signals_to_df(signals)
+
+
+# ---------------------------------------------------------------------------
+# 12. CVD Divergence
+# ---------------------------------------------------------------------------
+
+
+def detect_cvd_divergence(
+    df: pd.DataFrame,
+    lookback: int = 10,
+    cvd_lookback: int = 50,
+) -> pd.DataFrame:
+    """Detect CVD divergence signals.
+
+    Bearish: price higher swing high + CVD lower swing high → short.
+    Bullish: price lower swing low + CVD higher swing low → long.
+
+    CVD = cumsum(taker_buy_volume - taker_sell_volume)
+        = cumsum(2 * taker_buy_volume - volume)
+
+    taker_buy_volume NULLs are dropped gracefully.
+    SL = structural swing extreme (high for short, low for long).
+    """
+    if "taker_buy_volume" not in df.columns or df["taker_buy_volume"].isna().all():
+        return _empty_signals()
+    df = df.dropna(subset=["taker_buy_volume"]).reset_index(drop=True)
+    if len(df) < lookback * 2 + 1:
+        return _empty_signals()
+
+    window = df.tail(cvd_lookback).reset_index(drop=True)
+    n = len(window)
+
+    cvd = (
+        2.0 * window["taker_buy_volume"].astype(float) - window["volume"].astype(float)
+    ).cumsum()
+    price_high = window["high"].astype(float)
+    price_low = window["low"].astype(float)
+
+    # Swing highs/lows via neighbourhood comparison (all data in `window` is historical,
+    # so looking ±lookback is safe).  Consecutive indices at the same level (plateaus)
+    # are deduplicated by keeping the first of each run.
+    sh_indices: list[int] = []
+    sl_indices: list[int] = []
+    for i in range(lookback, n - lookback):
+        neighborhood_h = price_high.iloc[i - lookback : i + lookback + 1]
+        if float(price_high.iloc[i]) >= float(neighborhood_h.max()):
+            sh_indices.append(i)
+        neighborhood_l = price_low.iloc[i - lookback : i + lookback + 1]
+        if float(price_low.iloc[i]) <= float(neighborhood_l.min()):
+            sl_indices.append(i)
+
+    def _dedup_first(indices: list[int]) -> list[int]:
+        result: list[int] = []
+        prev: int | None = None
+        for idx in indices:
+            if prev is None or idx > prev + 1:
+                result.append(idx)
+            prev = idx
+        return result
+
+    sh_peaks = _dedup_first(sh_indices)
+    sl_peaks = _dedup_first(sl_indices)
+
+    signals: list[dict[str, object]] = []
+
+    if len(sh_peaks) >= 2:
+        i1, i2 = sh_peaks[-2], sh_peaks[-1]
+        ph1, ph2 = float(price_high.iloc[i1]), float(price_high.iloc[i2])
+        ch1, ch2 = float(cvd.iloc[i1]), float(cvd.iloc[i2])
+        if ph2 > ph1 and ch2 < ch1:
+            ts = int(window["open_time"].iloc[i2])
+            signals.append(
+                {
+                    "open_time": ts,
+                    "direction": "short",
+                    "reason": f"cvd_div_bear@{ph2:.2f}",
+                    "sl_price": ph2,
+                    "context": (
+                        f"CVD div: price H {ph1:.2f}→{ph2:.2f}, "
+                        f"CVD {ch1:.0f}→{ch2:.0f} at {_fmt_time(ts)}"
+                    ),
+                }
+            )
+
+    if len(sl_peaks) >= 2:
+        i1, i2 = sl_peaks[-2], sl_peaks[-1]
+        pl1, pl2 = float(price_low.iloc[i1]), float(price_low.iloc[i2])
+        cl1, cl2 = float(cvd.iloc[i1]), float(cvd.iloc[i2])
+        if pl2 < pl1 and cl2 > cl1:
+            ts = int(window["open_time"].iloc[i2])
+            signals.append(
+                {
+                    "open_time": ts,
+                    "direction": "long",
+                    "reason": f"cvd_div_bull@{pl2:.2f}",
+                    "sl_price": pl2,
+                    "context": (
+                        f"CVD div: price L {pl1:.2f}→{pl2:.2f}, "
+                        f"CVD {cl1:.0f}→{cl2:.0f} at {_fmt_time(ts)}"
+                    ),
+                }
+            )
 
     return _signals_to_df(signals)

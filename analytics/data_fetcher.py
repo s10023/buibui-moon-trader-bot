@@ -22,6 +22,7 @@ OHLCV_COLUMNS: list[str] = [
     "low",
     "close",
     "volume",
+    "taker_buy_volume",
 ]
 FUNDING_COLUMNS: list[str] = ["symbol", "funding_time", "funding_rate"]
 OI_COLUMNS: list[str] = ["symbol", "timestamp", "oi_usd"]
@@ -55,6 +56,7 @@ def fetch_klines(
             "low": float(k[3]),
             "close": float(k[4]),
             "volume": float(k[5]),
+            "taker_buy_volume": float(k[9]),
         }
         for k in raw
     ]

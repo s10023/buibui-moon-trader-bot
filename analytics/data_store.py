@@ -16,17 +16,27 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
     """Create all tables if they do not exist."""
     conn.execute("""
         CREATE TABLE IF NOT EXISTS ohlcv (
-            symbol    TEXT   NOT NULL,
-            timeframe TEXT   NOT NULL,
-            open_time BIGINT NOT NULL,
-            open      DOUBLE NOT NULL,
-            high      DOUBLE NOT NULL,
-            low       DOUBLE NOT NULL,
-            close     DOUBLE NOT NULL,
-            volume    DOUBLE NOT NULL,
+            symbol           TEXT   NOT NULL,
+            timeframe        TEXT   NOT NULL,
+            open_time        BIGINT NOT NULL,
+            open             DOUBLE NOT NULL,
+            high             DOUBLE NOT NULL,
+            low              DOUBLE NOT NULL,
+            close            DOUBLE NOT NULL,
+            volume           DOUBLE NOT NULL,
+            taker_buy_volume DOUBLE,
             PRIMARY KEY (symbol, timeframe, open_time)
         )
     """)
+    # Migration guard: add column to existing DBs that were created before this field.
+    existing = {
+        row[0]
+        for row in conn.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'ohlcv'"
+        ).fetchall()
+    }
+    if "taker_buy_volume" not in existing:
+        conn.execute("ALTER TABLE ohlcv ADD COLUMN taker_buy_volume DOUBLE")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS funding_rates (
             symbol       TEXT   NOT NULL,
@@ -66,14 +76,15 @@ def _upsert(
 def upsert_ohlcv(conn: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> None:
     """Insert or replace OHLCV rows.
 
-    df must have columns: symbol, timeframe, open_time, open, high, low, close, volume.
+    df must have columns: symbol, timeframe, open_time, open, high, low, close, volume,
+    taker_buy_volume.
     Conflicts on (symbol, timeframe, open_time) are replaced.
     """
     _upsert(
         conn,
         df,
         "ohlcv",
-        "symbol, timeframe, open_time, open, high, low, close, volume",
+        "symbol, timeframe, open_time, open, high, low, close, volume, taker_buy_volume",
     )
 
 
@@ -104,7 +115,7 @@ def get_ohlcv(
 ) -> pd.DataFrame:
     """Return OHLCV rows for (symbol, timeframe) between start and end (Unix ms, inclusive)."""
     return conn.execute(
-        "SELECT symbol, timeframe, open_time, open, high, low, close, volume "
+        "SELECT symbol, timeframe, open_time, open, high, low, close, volume, taker_buy_volume "
         "FROM ohlcv "
         "WHERE symbol = ? AND timeframe = ? AND open_time >= ? AND open_time <= ? "
         "ORDER BY open_time",

@@ -24,6 +24,7 @@ _OHLCV_ROW: dict[str, object] = {
     "low": 29500.0,
     "close": 30500.0,
     "volume": 100.0,
+    "taker_buy_volume": 55.0,
 }
 
 
@@ -126,6 +127,51 @@ class TestGetOhlcv:
     ) -> None:
         result = get_ohlcv(conn, "BTCUSDT", "1h", 0, 2_000_000_000_000)
         assert result.empty
+
+
+class TestTakerBuyVolume:
+    def test_persists_taker_buy_volume(self, conn: duckdb.DuckDBPyConnection) -> None:
+        upsert_ohlcv(conn, pd.DataFrame([_OHLCV_ROW]))
+        row = conn.execute("SELECT taker_buy_volume FROM ohlcv").fetchone()
+        assert row is not None
+        assert row[0] == 55.0
+
+    def test_null_taker_buy_volume_accepted(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        row = {**_OHLCV_ROW, "taker_buy_volume": None}
+        upsert_ohlcv(conn, pd.DataFrame([row]))
+        result = conn.execute("SELECT taker_buy_volume FROM ohlcv").fetchone()
+        assert result is not None
+        assert result[0] is None
+
+    def test_migration_adds_column_to_existing_db(self) -> None:
+        c = duckdb.connect(":memory:")
+        c.execute("""
+            CREATE TABLE ohlcv (
+                symbol TEXT NOT NULL, timeframe TEXT NOT NULL,
+                open_time BIGINT NOT NULL, open DOUBLE NOT NULL,
+                high DOUBLE NOT NULL, low DOUBLE NOT NULL,
+                close DOUBLE NOT NULL, volume DOUBLE NOT NULL,
+                PRIMARY KEY (symbol, timeframe, open_time)
+            )
+        """)
+        init_schema(c)
+        cols = {
+            r[0]
+            for r in c.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = 'ohlcv'"
+            ).fetchall()
+        }
+        assert "taker_buy_volume" in cols
+
+    def test_get_ohlcv_returns_taker_buy_volume_column(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        upsert_ohlcv(conn, pd.DataFrame([_OHLCV_ROW]))
+        result = get_ohlcv(conn, "BTCUSDT", "1h", 0, 2_000_000_000_000)
+        assert "taker_buy_volume" in result.columns
+        assert result.iloc[0]["taker_buy_volume"] == 55.0
 
 
 class TestGetLatestOpenTime:

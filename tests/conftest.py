@@ -44,6 +44,7 @@ _OHLCV_COLS = [
     "low",
     "close",
     "volume",
+    "taker_buy_volume",
 ]
 
 
@@ -54,6 +55,7 @@ def _candle(
     low: float,
     close: float,
     volume: float = 100.0,
+    taker_buy_volume: float = 50.0,
     symbol: str = "BTCUSDT",
     timeframe: str = "4h",
 ) -> dict[str, object]:
@@ -66,6 +68,7 @@ def _candle(
         "low": low,
         "close": close,
         "volume": volume,
+        "taker_buy_volume": taker_buy_volume,
     }
 
 

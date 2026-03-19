@@ -20,8 +20,8 @@ A tactical crypto trading bot designed for fast, risk-managed, and confident ent
   Get regular position snapshots via Telegram bot.
 
 - **24/7 Signal Detection Daemon**
-  Polls closed candles every 5 minutes, runs 8 strategies (FVG, BOS, liquidity sweep, SMT divergence,
-  and more), and sends Telegram alerts with computed SL/TP levels. Two-layer dedup prevents spam.
+  Polls closed candles every 5 minutes, runs 9 strategies (FVG, BOS, liquidity sweep, SMT divergence,
+  CVD divergence, and more), and sends Telegram alerts with computed SL/TP levels. Two-layer dedup prevents spam.
 
 - **Manual Multi-Trade Entry Script** *(planned)*
   Open multiple trades (BTC, ETH, alts) in one go, using USD-based sizing with automatic SL & leverage.
@@ -57,12 +57,12 @@ buibui-moon-trader-bot/
 │   ├── data_fetcher.py              # Pure Binance Futures API → DataFrames (klines, funding, OI)
 │   ├── data_store.py                # Pure DuckDB read/write (schema, upsert, query helpers)
 │   ├── data_sync.py                 # Backfill + incremental sync orchestration
-│   ├── indicators_lib.py            # Pure strategy signal detection (10 strategies + STRATEGY_REGISTRY)
+│   ├── indicators_lib.py            # Pure strategy signal detection (11 strategies + STRATEGY_REGISTRY)
 │   ├── signal_config.py             # Pure config loader: SignalWatchConfig + load_signal_config()
 │   ├── signal_lib.py                # Pure scan lib: scan_symbol(), run_scan_cycle()
 │   └── signal_runner.py             # Signal daemon thin wrapper (creates client, opens DB, polls)
 ├── signals/
-│   ├── registry.py                  # SignalPlugin TypedDict + SIGNAL_REGISTRY (8 strategies, with confidence)
+│   ├── registry.py                  # SignalPlugin TypedDict + SIGNAL_REGISTRY (9 strategies, with confidence)
 │   ├── cooldown_store.py            # Two-layer dedup: candle watermark + cooldown timer
 │   └── alert_formatter.py           # SignalEvent dataclass + format_signal_alert() → Markdown with SL/TP/stars
 ├── trade/
@@ -295,7 +295,7 @@ Data is stored in `analytics.db` (auto-created in CWD).
 
 ### Backtest Trading Strategies
 
-Run any of the 9 built-in strategies against historical data loaded from the local DB:
+Run any of the 10 built-in strategies against historical data loaded from the local DB:
 
 ```bash
 poetry run python buibui.py backtest --symbol BTCUSDT --strategy fvg --interval 4h --days 90
@@ -314,6 +314,7 @@ poetry run python buibui.py backtest --symbol BTCUSDT --strategy fvg --interval 
 | `bos` | Break of Structure / Change of Character (BOS/CHoCH) | ★★★☆☆ |
 | `wick_fill` | Price revisits a significant wick zone | ★★☆☆☆ |
 | `marubozu` | Retest of a wickless candle's open price (order block) | ★★☆☆☆ |
+| `cvd_divergence` | CVD Divergence — price and buying pressure disagree at a swing extreme | ★★★★☆ |
 | `seasonality` | Average return by day-of-week, hour, and week-of-month | ★★☆☆☆ |
 
 **Options:**
@@ -354,7 +355,7 @@ poetry run python buibui.py signal watch
 - `--config config/signal_watch.toml` — load all options from a TOML file; CLI flags override file values
 - `--symbols BTCUSDT ETHUSDT` — symbols to scan (default: all from `coins.json`)
 - `--timeframes 4h` — candle timeframes (default: `4h`)
-- `--strategies fvg bos` — strategies to run (default: all 8 except `seasonality`)
+- `--strategies fvg bos` — strategies to run (default: all 9 except `seasonality`)
 - `--tp-r 2.0` — R multiplier for TP level in alert messages (default: `2.0`)
 - `--telegram` — send alerts via Telegram
 - `--state-file signal_state.json` — path to cooldown/watermark state file
