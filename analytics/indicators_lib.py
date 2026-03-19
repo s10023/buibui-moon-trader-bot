@@ -238,12 +238,12 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
 SIGNAL_COLUMNS: list[str] = ["open_time", "direction", "reason", "sl_price", "context"]
 
 
-_SGT = timezone(timedelta(hours=8))
+_MYT = timezone(timedelta(hours=8))
 
 
 def _fmt_time(ts_ms: int) -> str:
-    """Format a Unix ms timestamp as a short SGT (UTC+8) string for alert context."""
-    return datetime.fromtimestamp(ts_ms / 1000, tz=_SGT).strftime("%d-%b %H:%M")
+    """Format a Unix ms timestamp as a short MYT (UTC+8) string for alert context."""
+    return datetime.fromtimestamp(ts_ms / 1000, tz=_MYT).strftime("%d-%b %H:%M")
 
 
 SEASONALITY_COLUMNS: list[str] = [
