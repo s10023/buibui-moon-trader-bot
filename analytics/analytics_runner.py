@@ -10,7 +10,7 @@ from typing import Any
 import duckdb
 
 from analytics.data_store import DEFAULT_DB_PATH, init_schema
-from analytics.data_sync import backfill, sync
+from analytics.data_sync import backfill, sync, sync_funding_rates
 from utils.binance_client import create_client, load_coins_config
 
 
@@ -57,6 +57,9 @@ def run_backfill(
                 logging.info(
                     "Backfill complete: %s %s — %d rows", symbol, timeframe, total
                 )
+            logging.info("Syncing funding rates for %s ...", symbol)
+            total_fr = sync_funding_rates(conn, client, symbol)
+            logging.info("Funding rates complete: %s — %d rows", symbol, total_fr)
 
 
 def run_sync(
@@ -77,3 +80,6 @@ def run_sync(
                     )
                 except ValueError as e:
                     logging.warning("%s — skipping (run backfill first)", e)
+            logging.info("Syncing funding rates for %s ...", symbol)
+            total_fr = sync_funding_rates(conn, client, symbol)
+            logging.info("Funding rates complete: %s — %d rows", symbol, total_fr)

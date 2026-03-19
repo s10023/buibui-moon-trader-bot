@@ -10,8 +10,15 @@ from collections.abc import Callable
 import duckdb
 from binance.client import Client
 
-from analytics.data_fetcher import KLINES_MAX_LIMIT, fetch_klines
-from analytics.data_store import get_latest_open_time, upsert_ohlcv
+from analytics.data_fetcher import KLINES_MAX_LIMIT, fetch_funding_rates, fetch_klines
+from analytics.data_store import (
+    get_latest_open_time,
+    upsert_funding_rates,
+    upsert_ohlcv,
+)
+
+# Binance funding rates are emitted every 8 hours.
+_FUNDING_RATE_INTERVAL_HOURS: int = 8
 
 _DEFAULT_SLEEP_SECONDS: float = 0.1
 
@@ -52,6 +59,26 @@ def backfill(
         current_start = int(df["open_time"].iloc[-1]) + 1
         _sleep(_DEFAULT_SLEEP_SECONDS)
     return total
+
+
+def sync_funding_rates(
+    conn: duckdb.DuckDBPyConnection,
+    client: Client,
+    symbol: str,
+    days: int = 90,
+) -> int:
+    """Fetch recent funding rates and store them.
+
+    Converts `days` to a record limit (funding rates are emitted every 8 hours).
+    Returns the number of rows upserted (0 if the API returned no data).
+    """
+    limit = days * 24 // _FUNDING_RATE_INTERVAL_HOURS
+    df = fetch_funding_rates(client, symbol, limit=limit)
+    if df.empty:
+        return 0
+    upsert_funding_rates(conn, df)
+    logging.info("sync_funding_rates %s: stored %d rows", symbol, len(df))
+    return len(df)
 
 
 def sync(
