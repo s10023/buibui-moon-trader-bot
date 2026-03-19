@@ -61,6 +61,20 @@ def clear_screen() -> None:
     os.system("cls" if os.name == "nt" else "clear")
 
 
+def _parse_sort_value(val: Any, reverse: bool) -> float:
+    """Parse a cell value to float for sorting. Strips ANSI codes and '%'.
+    None/unparseable values always sort last:
+    -inf when reverse=True (desc), +inf when reverse=False (asc).
+    """
+    if isinstance(val, str):
+        val = re.sub(r"\x1b\[[0-9;]*m", "", val)  # Remove ANSI color
+        val = val.replace("%", "").strip()
+    try:
+        return float(val)
+    except Exception:
+        return float("-inf") if reverse else float("inf")
+
+
 def sort_table(
     table: list[Any], headers: list[str], col: str, order: bool
 ) -> list[Any]:
@@ -74,18 +88,9 @@ def sort_table(
     }
 
     idx = sort_key_map[col]
-
-    def parse_value(val: Any) -> float:
-        if isinstance(val, str):
-            val = re.sub(r"\x1b\[[0-9;]*m", "", val)  # Remove ANSI color
-            val = val.replace("%", "").strip()
-        try:
-            return float(val)
-        except Exception:
-            # None sorts last in both directions: -inf for desc (highest first), +inf for asc (lowest first)
-            return float("-inf")
-
-    return sorted(table, key=lambda row: parse_value(row[idx]), reverse=order)
+    return sorted(
+        table, key=lambda row: _parse_sort_value(row[idx], order), reverse=order
+    )
 
 
 def get_klines(
@@ -263,11 +268,6 @@ def sort_table_raw(
     rows: list[list[Any]], col_idx: int, reverse: bool
 ) -> list[list[Any]]:
     """Sort rows by a column of raw floats. None values always sort last."""
-
-    def key(row: list[Any]) -> float:
-        val = row[col_idx]
-        if val is None:
-            return float("-inf") if reverse else float("inf")
-        return float(val)
-
-    return sorted(rows, key=key, reverse=reverse)
+    return sorted(
+        rows, key=lambda row: _parse_sort_value(row[col_idx], reverse), reverse=reverse
+    )
