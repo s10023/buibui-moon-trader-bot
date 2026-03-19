@@ -146,14 +146,19 @@ buibui-analytics-sync:
 		$(if $(TIMEFRAMES),--timeframes $(TIMEFRAMES),)
 
 buibui-backtest:
-	@echo "📊 Running backtest: $(SYMBOL) $(STRATEGY) $(INTERVAL) $(DAYS)d..."
+	@echo "📊 Running backtest..."
 	@poetry run python buibui.py backtest \
-		--symbol $(SYMBOL) \
-		--strategy $(STRATEGY) \
-		--interval $(INTERVAL) \
-		--days $(DAYS) \
+		$(if $(CONFIG),--config $(CONFIG),) \
+		$(if $(SYMBOL),--symbol $(SYMBOL),) \
+		$(if $(SYMBOLS),--symbols $(SYMBOLS),) \
+		$(if $(STRATEGY),--strategy $(STRATEGY),) \
+		$(if $(STRATEGIES),--strategies $(STRATEGIES),) \
+		$(if $(TIMEFRAMES),--timeframes $(TIMEFRAMES),) \
+		$(if $(INTERVAL),--interval $(INTERVAL),) \
+		$(if $(DAYS),--days $(DAYS),) \
 		$(if $(SL_PCT),--sl-pct $(SL_PCT),) \
 		$(if $(TP_R),--tp-r $(TP_R),) \
+		$(if $(MIN_TRADES),--min-trades $(MIN_TRADES),) \
 		$(if $(SECONDARY),--secondary-symbol $(SECONDARY),)
 
 buibui-signal-watch:

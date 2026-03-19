@@ -21,7 +21,6 @@ from analytics.data_store import (
     DEFAULT_DB_PATH,
     get_funding_rates,
     get_ohlcv,
-    init_schema,
 )
 from analytics.indicators_lib import (
     KNOWN_STRATEGIES,
@@ -161,10 +160,8 @@ def run_backtest_sweep(
     results: list[BacktestResult] = []
     skipped: list[str] = []
 
-    conn: duckdb.DuckDBPyConnection = duckdb.connect(str(db_path))
+    conn: duckdb.DuckDBPyConnection = duckdb.connect(str(db_path), read_only=True)
     try:
-        init_schema(conn)
-
         for symbol, timeframe, strategy in itertools.product(
             symbols, cfg.timeframes, strategies
         ):
@@ -232,10 +229,8 @@ def run_backtest_cmd(
     end_ms = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
     start_ms = end_ms - days * 24 * 3_600 * 1_000
 
-    conn: duckdb.DuckDBPyConnection = duckdb.connect(str(db_path))
+    conn: duckdb.DuckDBPyConnection = duckdb.connect(str(db_path), read_only=True)
     try:
-        init_schema(conn)
-
         ohlcv = get_ohlcv(conn, symbol, timeframe, start_ms, end_ms)
         if ohlcv.empty:
             logging.error(
