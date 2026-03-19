@@ -1,9 +1,35 @@
 """Signal event model and Telegram alert formatter."""
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 _SGT = timezone(timedelta(hours=8))
+_UTC = UTC
+
+
+def _get_session_label(dt: datetime) -> str:
+    """Return the ICT AMD session label for a UTC datetime, or empty string if outside.
+
+    Sessions (UTC):
+    - Asia  (Accumulation):  20:00–00:00
+    - London (Manipulation): 02:00–05:00
+    - NY    (Distribution):  09:30–12:00
+    """
+    dt_utc = dt.astimezone(_UTC)
+    hour = dt_utc.hour
+    minute = dt_utc.minute
+    # Asia: 20:00–23:59
+    if hour >= 20:
+        return "Asia"
+    # London: 02:00–04:59
+    if 2 <= hour < 5:
+        return "London"
+    # NY: 09:30–11:59
+    if hour == 9 and minute >= 30:
+        return "NY"
+    if hour == 10 or hour == 11:
+        return "NY"
+    return ""
 
 
 def _fmt_time(ts_ms: int) -> str:
@@ -87,6 +113,9 @@ def format_confluence_alert(
     direction_label = "LONG 🟢" if first.direction == "long" else "SHORT 🔴"
     price = first.price
     signal_time = _fmt_time(first.open_time)
+    signal_dt = datetime.fromtimestamp(first.open_time / 1000, tz=_UTC)
+    session = _get_session_label(signal_dt)
+    session_tag = f"  [{session}]" if session else ""
 
     sl_price = _widest_sl(events, first.direction, price, sl_pct)
     if min_sl_pct > 0:
@@ -129,7 +158,7 @@ def format_confluence_alert(
 
     msg = (
         header
-        + f"Price: {price:,.2f}  |  {signal_time} SGT\n"
+        + f"Price: {price:,.2f}  |  {signal_time} SGT{session_tag}\n"
         + f"SL: {sl_price:,.2f} ({sl_pct_display:.1f}%)  "
         + f"TP: {tp_price:,.2f} ({tp_pct_display:.1f}% | {tp_r:.1f}x R)"
     )
