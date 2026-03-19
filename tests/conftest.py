@@ -8,11 +8,14 @@ mock dependencies as parameters.
 
 import json
 import re
+from collections.abc import Generator
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+import duckdb
 import pandas as pd
 import pytest
+from fastapi.testclient import TestClient
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -82,6 +85,34 @@ def _create_mock_client() -> MagicMock:
     client.get_server_time.return_value = {"serverTime": 1700000000000}
     client.TIME_OFFSET = 0
     return client
+
+
+@pytest.fixture()
+def web_client() -> Generator[TestClient, None, None]:
+    """TestClient with lifespan patched to avoid touching the real DB or Binance.
+
+    Patches duckdb.connect and create_client in web.api.main so the lifespan
+    never opens analytics.db (which may be locked by signal watch) or calls
+    the Binance API. get_db and require_token are overridden so route handlers
+    receive a mock connection and skip auth.
+    """
+    from web.api.deps import get_db, require_token
+    from web.api.main import app
+
+    mock_conn = MagicMock(spec=duckdb.DuckDBPyConnection)
+
+    app.dependency_overrides[get_db] = lambda: mock_conn
+    app.dependency_overrides[require_token] = lambda: None
+
+    with (
+        patch("web.api.main.duckdb.connect", return_value=mock_conn),
+        patch("web.api.main.create_client", return_value=MagicMock()),
+        patch("web.api.main.init_schema"),
+        TestClient(app, raise_server_exceptions=True) as client,
+    ):
+        yield client
+
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture

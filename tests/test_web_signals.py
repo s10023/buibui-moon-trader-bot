@@ -1,26 +1,8 @@
 """Tests for the signals web endpoint."""
 
-from typing import Any
-from unittest.mock import MagicMock
-
-import duckdb
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
-
-from web.api.deps import get_db, require_token
-from web.api.main import app
-
-
-@pytest.fixture()
-def client_with_mock_db() -> Any:
-    """TestClient with get_db and require_token overridden."""
-    mock_conn = MagicMock(spec=duckdb.DuckDBPyConnection)
-    app.dependency_overrides[get_db] = lambda: mock_conn
-    app.dependency_overrides[require_token] = lambda: None
-    with TestClient(app, raise_server_exceptions=True) as c:
-        yield c
-    app.dependency_overrides.clear()
 
 
 def _make_ohlcv() -> pd.DataFrame:
@@ -50,7 +32,7 @@ def _make_signals_df() -> pd.DataFrame:
 
 
 def test_signals_returns_list(
-    client_with_mock_db: Any, monkeypatch: pytest.MonkeyPatch
+    web_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Signals endpoint returns detected signals."""
     monkeypatch.setattr(
@@ -62,7 +44,7 @@ def test_signals_returns_list(
     )
     monkeypatch.setattr("web.api.routers.signals.load_coins_config", lambda: {})
 
-    resp = client_with_mock_db.post(
+    resp = web_client.post(
         "/api/signals",
         json={
             "symbol": "BTCUSDT",
@@ -81,10 +63,10 @@ def test_signals_returns_list(
 
 
 def test_signals_unknown_strategy_returns_422(
-    client_with_mock_db: Any,
+    web_client: TestClient,
 ) -> None:
     """Unknown strategy in signals list returns 422."""
-    resp = client_with_mock_db.post(
+    resp = web_client.post(
         "/api/signals",
         json={
             "symbol": "BTCUSDT",
@@ -98,13 +80,13 @@ def test_signals_unknown_strategy_returns_422(
 
 
 def test_signals_no_ohlcv_returns_404(
-    client_with_mock_db: Any, monkeypatch: pytest.MonkeyPatch
+    web_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Empty OHLCV returns 404."""
     monkeypatch.setattr(
         "web.api.routers.signals.get_ohlcv", lambda *a, **kw: pd.DataFrame()
     )
-    resp = client_with_mock_db.post(
+    resp = web_client.post(
         "/api/signals",
         json={
             "symbol": "BTCUSDT",
@@ -118,7 +100,7 @@ def test_signals_no_ohlcv_returns_404(
 
 
 def test_signals_empty_result(
-    client_with_mock_db: Any, monkeypatch: pytest.MonkeyPatch
+    web_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """No signals detected returns empty list (not an error)."""
     monkeypatch.setattr(
@@ -130,7 +112,7 @@ def test_signals_empty_result(
     )
     monkeypatch.setattr("web.api.routers.signals.load_coins_config", lambda: {})
 
-    resp = client_with_mock_db.post(
+    resp = web_client.post(
         "/api/signals",
         json={
             "symbol": "BTCUSDT",
