@@ -14,6 +14,7 @@ import pandas as pd
 
 from analytics.indicators_lib import (
     STRATEGY_REGISTRY,
+    detect_cvd_divergence,
     detect_eqh_eql,
     detect_funding_extreme,
     detect_fvg,
@@ -74,5 +75,9 @@ SIGNAL_REGISTRY: dict[str, SignalPlugin] = {
     "order_block": SignalPlugin(
         detector=detect_order_block,
         confidence=STRATEGY_REGISTRY["order_block"].confidence,
+    ),
+    "cvd_divergence": SignalPlugin(
+        detector=detect_cvd_divergence,
+        confidence=STRATEGY_REGISTRY["cvd_divergence"].confidence,
     ),
 }

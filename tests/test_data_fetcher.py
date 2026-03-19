@@ -77,6 +77,19 @@ class TestFetchKlines:
         with pytest.raises(Exception, match="API error"):
             fetch_klines(client, "BTCUSDT", "1h", 0)
 
+    def test_includes_taker_buy_volume(self) -> None:
+        client = MagicMock()
+        client.futures_klines.return_value = [_KLINE_RAW]
+        df = fetch_klines(client, "BTCUSDT", "1h", 0)
+        assert "taker_buy_volume" in df.columns
+        assert df.iloc[0]["taker_buy_volume"] == 50.0
+
+    def test_empty_response_has_taker_buy_volume_column(self) -> None:
+        client = MagicMock()
+        client.futures_klines.return_value = []
+        df = fetch_klines(client, "BTCUSDT", "1h", 0)
+        assert "taker_buy_volume" in df.columns
+
     def test_max_limit_constant(self) -> None:
         assert KLINES_MAX_LIMIT == 1000
 
