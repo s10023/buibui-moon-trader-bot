@@ -7,9 +7,14 @@ import duckdb
 import pandas as pd
 import pytest
 
-from analytics.data_fetcher import KLINES_MAX_LIMIT, OHLCV_COLUMNS
-from analytics.data_store import get_latest_open_time, init_schema, upsert_ohlcv
-from analytics.data_sync import backfill, sync
+from analytics.data_fetcher import FUNDING_COLUMNS, KLINES_MAX_LIMIT, OHLCV_COLUMNS
+from analytics.data_store import (
+    get_funding_rates,
+    get_latest_open_time,
+    init_schema,
+    upsert_ohlcv,
+)
+from analytics.data_sync import backfill, sync, sync_funding_rates
 
 
 def _make_conn() -> duckdb.DuckDBPyConnection:
@@ -126,3 +131,60 @@ class TestSync:
         with patch("analytics.data_sync.fetch_klines", return_value=empty_df):
             total = sync(conn, object(), "BTCUSDT", "1h", sleep_fn=lambda _: None)
         assert total == 0
+
+
+def _make_funding_df(
+    funding_times: list[int],
+    symbol: str = "BTCUSDT",
+    rate: float = 0.0001,
+) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "symbol": symbol,
+                "funding_time": t,
+                "funding_rate": rate,
+            }
+            for t in funding_times
+        ],
+        columns=FUNDING_COLUMNS,
+    )
+
+
+class TestSyncFundingRates:
+    def test_returns_row_count_on_success(self) -> None:
+        conn = _make_conn()
+        df = _make_funding_df([1_000_000, 2_000_000, 3_000_000])
+        with patch("analytics.data_sync.fetch_funding_rates", return_value=df):
+            total = sync_funding_rates(conn, object(), "BTCUSDT")
+        assert total == 3
+
+    def test_returns_zero_on_empty_response(self) -> None:
+        conn = _make_conn()
+        empty_df = pd.DataFrame(columns=FUNDING_COLUMNS)
+        with patch("analytics.data_sync.fetch_funding_rates", return_value=empty_df):
+            total = sync_funding_rates(conn, object(), "BTCUSDT")
+        assert total == 0
+
+    def test_data_is_stored_in_db(self) -> None:
+        conn = _make_conn()
+        df = _make_funding_df([1_000_000, 2_000_000])
+        with patch("analytics.data_sync.fetch_funding_rates", return_value=df):
+            sync_funding_rates(conn, object(), "BTCUSDT")
+        stored = get_funding_rates(conn, "BTCUSDT", 0, 9_999_999)
+        assert len(stored) == 2
+        assert list(stored["funding_time"]) == [1_000_000, 2_000_000]
+
+    def test_limit_calculated_from_days(self) -> None:
+        conn = _make_conn()
+        empty_df = pd.DataFrame(columns=FUNDING_COLUMNS)
+        captured_kwargs: list[Any] = []
+
+        def capture(*args: Any, **kwargs: Any) -> pd.DataFrame:
+            captured_kwargs.append(kwargs)
+            return empty_df
+
+        with patch("analytics.data_sync.fetch_funding_rates", side_effect=capture):
+            sync_funding_rates(conn, object(), "BTCUSDT", days=30)
+        # 30 days * 24h / 8h per funding = 90
+        assert captured_kwargs[0]["limit"] == 90
