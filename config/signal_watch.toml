@@ -25,6 +25,7 @@ min_sl_pct = 0.01
 # Backtest sweep runner (make buibui-backtest) reads these top-level keys:
 days = 160              # lookback window
 min_trades = 20         # hide combos with fewer trades in sweep table
+fee_pct = 0.0005        # 0.05% taker fee per leg; set 0.0 to disable
 
 # SMT divergence pairs — primary → secondary (must be in coins.json)
 # Used by both signal watch and backtest sweep.
