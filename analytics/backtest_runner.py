@@ -192,7 +192,14 @@ def run_backtest_sweep(
                 continue
 
             bt = run_backtest(
-                ohlcv, signals, symbol, timeframe, strategy, cfg.sl_pct, cfg.tp_r
+                ohlcv,
+                signals,
+                symbol,
+                timeframe,
+                strategy,
+                cfg.sl_pct,
+                cfg.tp_r,
+                cfg.fee_pct,
             )
             results.append(bt)
 
@@ -214,6 +221,7 @@ def run_backtest_cmd(
     days: int,
     sl_pct: float = 0.02,
     tp_r: float = 2.0,
+    fee_pct: float = 0.0,
     secondary_symbol: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> None:
@@ -261,7 +269,7 @@ def run_backtest_cmd(
             sys.exit(1)
 
         bt_result = run_backtest(
-            ohlcv, signals, symbol, timeframe, strategy, sl_pct, tp_r
+            ohlcv, signals, symbol, timeframe, strategy, sl_pct, tp_r, fee_pct
         )
         print(format_result(bt_result))
 

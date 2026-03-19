@@ -429,6 +429,105 @@ class TestRunBacktestStructuralSL:
 
 
 # ---------------------------------------------------------------------------
+# fee_pct — Trade.pnl_r with fees
+# ---------------------------------------------------------------------------
+
+
+class TestTradePnlRWithFees:
+    def test_fee_pct_zero_unchanged(self) -> None:
+        """fee_pct=0.0 must reproduce original pnl_r behaviour (win = +2R)."""
+        t = Trade(
+            signal_time=0,
+            entry_time=1,
+            entry_price=100.0,
+            direction="long",
+            sl_price=98.0,  # risk = 2
+            tp_price=104.0,
+            exit_price=104.0,
+            exit_time=2,
+            outcome="win",
+            fee_pct=0.0,
+        )
+        assert t.pnl_r == pytest.approx(2.0)
+
+    def test_fee_pct_reduces_winning_trade_pnl(self) -> None:
+        """With fees, a winning trade's pnl_r is lower than the fee-free case."""
+        # entry=100, sl=98 → risk=2, exit=104 (raw +2R)
+        # fee_drag = 2 * 0.0005 * 100 / 2 = 0.05R
+        # net pnl_r = 2.0 - 0.05 = 1.95
+        t = Trade(
+            signal_time=0,
+            entry_time=1,
+            entry_price=100.0,
+            direction="long",
+            sl_price=98.0,
+            tp_price=104.0,
+            exit_price=104.0,
+            exit_time=2,
+            outcome="win",
+            fee_pct=0.0005,
+        )
+        assert t.pnl_r == pytest.approx(1.95)
+
+    def test_fee_pct_increases_losing_trade_loss(self) -> None:
+        """With fees, a losing trade loses more than -1R."""
+        # entry=100, sl=98 → risk=2, exit=98 (raw -1R)
+        # fee_drag = 2 * 0.0005 * 100 / 2 = 0.05R
+        # net pnl_r = -1.0 - 0.05 = -1.05
+        t = Trade(
+            signal_time=0,
+            entry_time=1,
+            entry_price=100.0,
+            direction="long",
+            sl_price=98.0,
+            tp_price=104.0,
+            exit_price=98.0,
+            exit_time=2,
+            outcome="loss",
+            fee_pct=0.0005,
+        )
+        assert t.pnl_r == pytest.approx(-1.05)
+
+    def test_run_backtest_fee_pct_stored_on_result(self) -> None:
+        """fee_pct passed to run_backtest is stored on BacktestResult."""
+        ohlcv = _make_ohlcv(
+            [_candle(_BASE_TIME + i, 100, 110, 90, 100) for i in range(5)]
+        )
+        signals = _make_signals([])
+        result = run_backtest(ohlcv, signals, "BTCUSDT", "4h", "fvg", fee_pct=0.0005)
+        assert result.fee_pct == pytest.approx(0.0005)
+
+    def test_run_backtest_with_fee_pct_lowers_avg_r(self) -> None:
+        """A winning trade's avg_r is lower when fee_pct > 0 vs fee_pct = 0."""
+        ohlcv = _make_ohlcv(
+            [
+                _candle(_BASE_TIME + 0, 100, 105, 95, 102),  # signal candle
+                _candle(_BASE_TIME + 1, 100, 103, 99, 101),  # entry open=100
+                _candle(_BASE_TIME + 2, 101, 106, 99, 105),  # high=106 ≥ tp=104 → win
+            ]
+        )
+        signals = _make_signals(
+            [{"open_time": _BASE_TIME + 0, "direction": "long", "reason": "test"}]
+        )
+        no_fee = run_backtest(
+            ohlcv, signals, "BTCUSDT", "4h", "fvg", sl_pct=0.02, tp_r=2.0, fee_pct=0.0
+        )
+        with_fee = run_backtest(
+            ohlcv,
+            signals,
+            "BTCUSDT",
+            "4h",
+            "fvg",
+            sl_pct=0.02,
+            tp_r=2.0,
+            fee_pct=0.0005,
+        )
+        assert no_fee.avg_r == pytest.approx(2.0)
+        assert with_fee.avg_r is not None
+        assert with_fee.avg_r < no_fee.avg_r
+
+
+# ---------------------------------------------------------------------------
 # format_result
 # ---------------------------------------------------------------------------
 

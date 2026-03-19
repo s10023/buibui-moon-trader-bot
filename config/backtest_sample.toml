@@ -7,6 +7,7 @@ strategies = ["fvg", "bos", "liquidity_sweep", "eqh_eql", "wick_fill", "cvd_dive
 days       = 90
 sl_pct     = 0.02
 tp_r       = 2.0
+fee_pct    = 0.0005   # 0.05% taker fee; set 0.0 to disable
 min_trades = 20
 
 [smt_pairs]
