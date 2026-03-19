@@ -21,9 +21,9 @@ def get_ohlcv_endpoint(
 ) -> OhlcvResponse:
     """Return OHLCV candles for a symbol/timeframe range."""
     df = get_ohlcv(db, symbol, timeframe, start_ms, end_ms)
-    candles = [CandleRow(**row) for row in df.to_dict("records")]
+    candles = [CandleRow.model_validate(row) for row in df.to_dict("records")]
     funding: list[FundingRow] | None = None
     if include_funding:
         fdf = get_funding_rates(db, symbol, start_ms, end_ms)
-        funding = [FundingRow(**row) for row in fdf.to_dict("records")]
+        funding = [FundingRow.model_validate(row) for row in fdf.to_dict("records")]
     return OhlcvResponse(candles=candles, funding=funding)

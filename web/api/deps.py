@@ -19,7 +19,8 @@ def get_db(request: Request) -> Generator[duckdb.DuckDBPyConnection, None, None]
 
 def get_client(request: Request) -> Client:
     """Return the Binance client from app state."""
-    return request.app.state.binance_client  # type: ignore[no-any-return]
+    client: Client = request.app.state.binance_client
+    return client
 
 
 def require_token(
