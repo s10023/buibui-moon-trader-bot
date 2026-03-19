@@ -6,7 +6,7 @@ import duckdb
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from analytics.backtest_lib import run_backtest
-from analytics.backtest_runner import _detect_signals_for_strategy
+from analytics.backtest_runner import detect_signals_for_strategy
 from analytics.data_store import get_ohlcv
 from analytics.indicators_lib import KNOWN_STRATEGIES
 from utils.binance_client import load_coins_config
@@ -53,7 +53,7 @@ def run_backtest_endpoint(
                 detail="smt_divergence requires secondary_symbol or smt_secondary in coins.json.",
             )
 
-    signals = _detect_signals_for_strategy(
+    signals = detect_signals_for_strategy(
         db,
         ohlcv,
         body.symbol,
@@ -77,6 +77,7 @@ def run_backtest_endpoint(
         body.strategy,
         body.sl_pct,
         body.tp_r,
+        body.fee_pct,
     )
 
     # Build BacktestResponse manually — BacktestResult has cached_property; cannot model_validate directly

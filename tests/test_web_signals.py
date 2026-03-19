@@ -39,7 +39,7 @@ def test_signals_returns_list(
         "web.api.routers.signals.get_ohlcv", lambda *a, **kw: _make_ohlcv()
     )
     monkeypatch.setattr(
-        "web.api.routers.signals._detect_signals_for_strategy",
+        "web.api.routers.signals.detect_signals_for_strategy",
         lambda *a, **kw: _make_signals_df(),
     )
     monkeypatch.setattr("web.api.routers.signals.load_coins_config", lambda: {})
@@ -107,7 +107,7 @@ def test_signals_empty_result(
         "web.api.routers.signals.get_ohlcv", lambda *a, **kw: _make_ohlcv()
     )
     monkeypatch.setattr(
-        "web.api.routers.signals._detect_signals_for_strategy",
+        "web.api.routers.signals.detect_signals_for_strategy",
         lambda *a, **kw: pd.DataFrame(),
     )
     monkeypatch.setattr("web.api.routers.signals.load_coins_config", lambda: {})

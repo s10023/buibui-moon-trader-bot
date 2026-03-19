@@ -1,5 +1,7 @@
 # Live Price Monitor: WebSocket + Rich Terminal Implementation Plan
 
+> **Status:** Completed — implemented in feat/ws-watchdog
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Replace the REST-polling live mode with Binance WebSocket push updates and a Rich

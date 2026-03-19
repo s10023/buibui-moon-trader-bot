@@ -1,7 +1,7 @@
 # Design: Live Price Monitor — WebSocket + Rich Terminal
 
 **Date:** 2026-03-01
-**Status:** Approved
+**Status:** Completed — implemented in feat/ws-watchdog
 
 ## Problem
 

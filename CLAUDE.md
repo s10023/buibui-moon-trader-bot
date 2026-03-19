@@ -33,6 +33,8 @@ make lint-md
 - `monitor/` — monitor modules split into thin wrappers and pure logic libs:
   - `price_monitor.py` / `position_monitor.py` — thin wrappers (create client, load config, call lib)
   - `price_lib.py` / `position_lib.py` — pure business logic with dependency injection (no module-level side effects)
+  - `live_price.py` — WebSocket + Rich live mode for price monitor
+  - `live_position.py` — WebSocket + Rich live mode for position monitor
 - `analytics/` — analytics data layer (DuckDB-backed):
   - `data_store.py` — pure DB lib: schema init, upsert (ohlcv/funding/OI), range queries
   - `data_fetcher.py` — pure fetch lib: Binance Futures API → DataFrames (no DB concerns)
@@ -43,6 +45,7 @@ make lint-md
   - `backtest_runner.py` — thin wrapper: opens DB, loads OHLCV/funding, calls indicator + backtest libs
   - `signal_lib.py` — pure scan lib: `scan_symbol()` (runs strategies on one symbol/tf), `run_scan_cycle()` (fans out, deduplicates, sends Telegram)
   - `signal_runner.py` — thin wrapper: creates client, opens DB, syncs candles, polls `run_scan_cycle` in a loop
+  - `backtest_config.py` — `BacktestSweepConfig` + `load_backtest_config()` — TOML config loading for sweep mode
 - `signals/` — signal detection daemon package:
   - `registry.py` — `SignalPlugin` TypedDict + `SIGNAL_REGISTRY` (9 actionable strategies; seasonality excluded)
   - `cooldown_store.py` — two-layer dedup: candle watermark per `(symbol, tf, strategy)` + cooldown timer per `(symbol, strategy, direction)`; JSON-persisted to `signal_state.json`
@@ -53,6 +56,8 @@ make lint-md
   - `binance_client.py` — Binance client creation, time sync, config loading
   - `config_validation.py` — coins.json schema validation
   - `telegram.py` — Telegram message sending
+  - `live_store.py` — shared in-memory store for live WebSocket data
+  - `live_loop.py` — shared Rich live display loop logic
 - `tests/` — pytest suite; tests import from lib modules and pass mock dependencies directly
 - `config/coins.json` — per-symbol leverage and stop-loss config
 
