@@ -295,10 +295,24 @@ Data is stored in `analytics.db` (auto-created in CWD).
 
 ### Backtest Trading Strategies
 
-Run any of the 10 built-in strategies against historical data loaded from the local DB:
+Backtest runs in two modes: **single-combo** (one symbol + strategy) or **sweep** (all combinations ranked by avg R).
+
+**Single-combo mode:**
 
 ```bash
 poetry run python buibui.py backtest --symbol BTCUSDT --strategy fvg --interval 4h --days 90
+```
+
+**Sweep mode — TOML config:**
+
+```bash
+poetry run python buibui.py backtest --config config/backtest_sample.toml
+```
+
+**Sweep mode — CLI flags:**
+
+```bash
+poetry run python buibui.py backtest --symbols BTCUSDT ETHUSDT --timeframes 1h 4h --strategies fvg bos --days 90
 ```
 
 **Available strategies:**
@@ -310,24 +324,36 @@ poetry run python buibui.py backtest --symbol BTCUSDT --strategy fvg --interval 
 | `liquidity_sweep` | Wick through a swing high/low with close back inside | ★★★★☆ |
 | `eqh_eql` | Equal Highs/Lows: liquidity sweep of a double-top or double-bottom level | ★★★★☆ |
 | `funding_reversion` | Extreme positive/negative funding rate → contrarian signal | ★★★★☆ |
+| `cvd_divergence` | CVD Divergence — price and buying pressure disagree at a swing extreme | ★★★★☆ |
+| `order_block` | ICT Order Block — last up/down candle before displacement; entry on retest | ★★★★☆ |
 | `orb` | Opening Range Breakout at NY session open (13:00 UTC) | ★★★☆☆ |
 | `bos` | Break of Structure / Change of Character (BOS/CHoCH) | ★★★☆☆ |
 | `wick_fill` | Price revisits a significant wick zone | ★★☆☆☆ |
 | `marubozu` | Retest of a wickless candle's open price (order block) | ★★☆☆☆ |
-| `cvd_divergence` | CVD Divergence — price and buying pressure disagree at a swing extreme | ★★★★☆ |
 | `seasonality` | Average return by day-of-week, hour, and week-of-month | ★★☆☆☆ |
 
-**Options:**
+**Single-combo options:**
 
-- `--symbol BTCUSDT` — primary symbol (required)
-- `--strategy fvg` — strategy name from table above (required)
+- `--symbol BTCUSDT` — primary symbol
+- `--strategy fvg` — strategy name from table above
 - `--interval 4h` — candle timeframe (default: `4h`)
+- `--secondary-symbol ETHUSDT` — required for `smt_divergence`
+
+**Sweep options (TOML or CLI):**
+
+- `--config FILE` — TOML preset file (see `config/backtest_sample.toml`)
+- `--symbols BTCUSDT ETHUSDT` — symbols to sweep
+- `--strategies fvg bos` — strategies to sweep
+- `--timeframes 1h 4h` — timeframes to sweep
+- `--min-trades 20` — hide combos below this trade count (default: `20`)
+
+**Shared options:**
+
 - `--days 90` — lookback period in days (default: `90`)
 - `--sl-pct 0.02` — stop loss as decimal fraction (default: `0.02` = 2%)
 - `--tp-r 2.0` — take profit in R multiples (default: `2.0`)
-- `--secondary-symbol ETHUSDT` — required for `smt_divergence`
 
-**Example output:**
+**Single-combo example output:**
 
 ```text
 Backtest: BTCUSDT 4h — fvg
@@ -339,7 +365,21 @@ Total R:     +23.92R
 Max DD:      -4.00R
 ```
 
-> **Note:** Requires backfill to be run first for the symbol/timeframe.
+**Sweep example output:**
+
+```text
+Backtest Sweep — 3 symbol(s) × 2 timeframe(s) × 4 strategy/ies (90d)
+══════════════════════════════════════════════════════════════════
+Symbol          TF    Strategy            Win%  Trades   Avg R
+──────────────────────────────────────────────────────────────────
+BTCUSDT       4h    fvg                  62.5%      48  +1.84R
+ETHUSDT       1d    liquidity_sweep      58.3%      24  +1.61R
+SOLUSDT       1h    bos                  54.1%      85  +1.42R
+──────────────────────────────────────────────────────────────────
+  Hidden: 3 combo(s) with < 20 trades
+```
+
+> **Note:** Requires backfill to be run first for each symbol/timeframe.
 
 ### Signal Watch — 24/7 Strategy Alerts
 
