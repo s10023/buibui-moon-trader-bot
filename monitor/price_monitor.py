@@ -12,28 +12,11 @@ from monitor.price_lib import (
     PRICE_HEADERS,
     VALID_SORT_COLS,
     clear_screen,
-    format_pct,
-    format_pct_simple,
-    get_klines,
-    get_open_price_asia,
     get_price_changes,
     sort_table,
 )
-from utils.binance_client import create_client, load_coins_config, sync_binance_time
+from utils.binance_client import create_client, load_coins_config
 from utils.telegram import send_telegram_message
-
-# Re-export lib functions so existing callers still work
-__all__ = [
-    "clear_screen",
-    "format_pct",
-    "format_pct_simple",
-    "get_klines",
-    "get_open_price_asia",
-    "get_price_changes",
-    "sort_table",
-    "sync_binance_time",
-    "main",
-]
 
 init(autoreset=True)
 

@@ -40,7 +40,7 @@ def test_backtest_returns_result(
 
     monkeypatch.setattr("web.api.routers.backtest.get_ohlcv", lambda *a, **kw: ohlcv_df)
     monkeypatch.setattr(
-        "web.api.routers.backtest._detect_signals_for_strategy",
+        "web.api.routers.backtest.detect_signals_for_strategy",
         lambda *a, **kw: signals_df,
     )
 

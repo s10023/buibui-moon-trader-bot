@@ -268,3 +268,53 @@ def format_seasonality(stats: pd.DataFrame) -> str:
             )
 
     return "\n".join(lines)
+
+
+def format_sweep_table(
+    results: list[BacktestResult],
+    min_trades: int = 20,
+) -> str:
+    """Format a ranked backtest sweep table as a string.
+
+    Rows with fewer than min_trades closed trades are excluded and counted in the footer.
+    Results are sorted by avg_r descending.
+    """
+    qualifying = [r for r in results if len(r.closed_trades) >= min_trades]
+    hidden = len(results) - len(qualifying)
+
+    qualifying.sort(key=lambda r: r.avg_r, reverse=True)
+
+    col_w = (14, 6, 18, 8, 8, 8)
+    header = (
+        f"{'Symbol':<{col_w[0]}}"
+        f"{'TF':<{col_w[1]}}"
+        f"{'Strategy':<{col_w[2]}}"
+        f"{'Win%':>{col_w[3]}}"
+        f"{'Trades':>{col_w[4]}}"
+        f"{'Avg R':>{col_w[5]}}"
+    )
+    sep = "─" * sum(col_w)
+    thick_sep = "═" * sum(col_w)
+
+    lines = [thick_sep, header, sep]
+
+    if not qualifying:
+        lines.append(f"  No results with ≥ {min_trades} trades.")
+    else:
+        for r in qualifying:
+            win_pct = f"{r.win_rate * 100:.1f}%"
+            avg_r = f"{r.avg_r:+.2f}R"
+            lines.append(
+                f"{r.symbol:<{col_w[0]}}"
+                f"{r.timeframe:<{col_w[1]}}"
+                f"{r.strategy:<{col_w[2]}}"
+                f"{win_pct:>{col_w[3]}}"
+                f"{len(r.closed_trades):>{col_w[4]}}"
+                f"{avg_r:>{col_w[5]}}"
+            )
+
+    lines.append(sep)
+    if hidden > 0:
+        lines.append(f"  Hidden: {hidden} combo(s) with < {min_trades} trades")
+
+    return "\n".join(lines)

@@ -49,7 +49,9 @@ buibui-moon-trader-bot/
 │   ├── price_monitor.py             # Price monitor thin wrapper (creates client, calls lib)
 │   ├── price_lib.py                 # Pure price monitor business logic
 │   ├── position_monitor.py          # Position monitor thin wrapper
-│   └── position_lib.py              # Pure position monitor business logic
+│   ├── position_lib.py              # Pure position monitor business logic
+│   ├── live_price.py                # WebSocket + Rich live mode for price monitor
+│   └── live_position.py             # WebSocket + Rich live mode for position monitor
 ├── analytics/
 │   ├── analytics_runner.py          # Analytics thin wrapper (creates client, opens DB, calls libs)
 │   ├── backtest_runner.py           # Backtest thin wrapper (opens DB, loads data, calls libs)
@@ -60,7 +62,8 @@ buibui-moon-trader-bot/
 │   ├── indicators_lib.py            # Pure strategy signal detection (11 strategies + STRATEGY_REGISTRY)
 │   ├── signal_config.py             # Pure config loader: SignalWatchConfig + load_signal_config()
 │   ├── signal_lib.py                # Pure scan lib: scan_symbol(), run_scan_cycle()
-│   └── signal_runner.py             # Signal daemon thin wrapper (creates client, opens DB, polls)
+│   ├── signal_runner.py             # Signal daemon thin wrapper (creates client, opens DB, polls)
+│   └── backtest_config.py           # BacktestSweepConfig + load_backtest_config() for TOML sweep mode
 ├── signals/
 │   ├── registry.py                  # SignalPlugin TypedDict + SIGNAL_REGISTRY (9 strategies, with confidence)
 │   ├── cooldown_store.py            # Two-layer dedup: candle watermark + cooldown timer
@@ -76,7 +79,9 @@ buibui-moon-trader-bot/
 ├── utils/
 │   ├── binance_client.py            # Binance client creation, time sync, config loading
 │   ├── config_validation.py         # Validates coins.json schema
-│   └── telegram.py                  # Telegram bot messaging
+│   ├── telegram.py                  # Telegram bot messaging
+│   ├── live_store.py                # Shared in-memory store for live WebSocket data
+│   └── live_loop.py                 # Shared Rich live display loop logic
 ├── config/
 │   ├── coins.json.example           # Coin list, SL%, leverage per symbol
 │   └── signal_watch.toml            # Default signal watch config (timeframes, telegram, min_sl_pct)
@@ -179,6 +184,7 @@ Supported sort keys:
 - `default` — Respect order from `config/coins.json`
 - `change_15m` — 15-minute % change
 - `change_1h` — 1-hour % change
+- `change_4h` — 4-hour % change
 - `change_asia` — % change since Asia open (8AM GMT+8)
 - `change_24h` — 24-hour % change
 
@@ -676,5 +682,4 @@ poetry run pytest tests/ -v
 
 - Trade signal engine (support/resistance + volume traps)
 - Auto-close on global SL or high-risk warning
-- Funding rate + OI divergence alerts
 - Telegram command handler (`/price`, `/position`)

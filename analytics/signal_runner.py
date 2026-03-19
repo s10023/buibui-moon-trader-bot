@@ -5,7 +5,6 @@ then polls on clock-aligned candle boundaries calling run_scan_cycle each time.
 """
 
 import logging
-import math
 import signal
 import time
 import types
@@ -17,36 +16,16 @@ import duckdb
 from analytics.data_store import DEFAULT_DB_PATH, init_schema
 from analytics.data_sync import backfill, sync
 from analytics.signal_config import BacktestFilterConfig
-from analytics.signal_lib import run_scan_cycle
+from analytics.signal_lib import (
+    run_scan_cycle,
+    secs_until_next_boundary,
+)
 from signals.cooldown_store import CooldownStore
 from utils.binance_client import create_client, load_coins_config
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_BACKFILL_DAYS = 90
-_CANDLE_CLOSE_BUFFER_SECS = 10
-
-
-def _parse_timeframe_secs(tf: str) -> int:
-    """Convert a timeframe string to seconds (e.g. '4h' → 14400, '15m' → 900)."""
-    units = {"m": 60, "h": 3600, "d": 86400}
-    return int(tf[:-1]) * units[tf[-1]]
-
-
-def _secs_until_next_boundary(timeframes: list[str]) -> tuple[float, float]:
-    """Return (sleep_seconds, wakeup_unix_timestamp) for the next candle close.
-
-    Wakes at the earliest upcoming boundary + a small buffer so Binance has
-    time to finalise the candle (e.g. 04:00:10, not 04:00:00).
-    """
-    now = time.time()
-    next_wakeups = []
-    for tf in timeframes:
-        interval = _parse_timeframe_secs(tf)
-        next_close = math.ceil(now / interval) * interval
-        next_wakeups.append(next_close + _CANDLE_CLOSE_BUFFER_SECS)
-    wake_ts = min(next_wakeups)
-    return max(0.0, wake_ts - now), wake_ts
 
 
 def run_signal_watch(
@@ -185,7 +164,7 @@ def run_signal_watch(
                 else:
                     logger.info("No new signals this cycle")
 
-                sleep_secs, wake_ts = _secs_until_next_boundary(resolved_timeframes)
+                sleep_secs, wake_ts = secs_until_next_boundary(resolved_timeframes)
                 next_dt = datetime.fromtimestamp(wake_ts, tz=UTC).strftime(
                     "%H:%M:%S UTC"
                 )

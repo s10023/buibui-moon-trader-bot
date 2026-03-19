@@ -6,7 +6,7 @@ import duckdb
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from analytics.backtest_runner import _detect_signals_for_strategy
+from analytics.backtest_runner import detect_signals_for_strategy
 from analytics.data_store import get_ohlcv
 from analytics.indicators_lib import KNOWN_STRATEGIES, STRATEGY_REGISTRY
 from utils.binance_client import load_coins_config
@@ -52,7 +52,7 @@ def run_signals(
             if secondary_symbol is None:
                 continue  # skip silently — no secondary configured
 
-        signals_df = _detect_signals_for_strategy(
+        signals_df = detect_signals_for_strategy(
             db,
             ohlcv,
             body.symbol,

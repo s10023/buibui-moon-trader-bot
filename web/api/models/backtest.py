@@ -10,6 +10,7 @@ class BacktestRequest(BaseModel):
     days: int = 90
     sl_pct: float = 0.02
     tp_r: float = 2.0
+    fee_pct: float = 0.0
     secondary_symbol: str | None = None
 
 

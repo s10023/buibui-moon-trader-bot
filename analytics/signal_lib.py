@@ -9,6 +9,7 @@ No module-level side effects.
 """
 
 import logging
+import math
 import time
 from collections.abc import Mapping
 
@@ -24,6 +25,30 @@ from signals.cooldown_store import CooldownStore
 from signals.registry import SIGNAL_REGISTRY
 
 logger = logging.getLogger(__name__)
+
+_CANDLE_CLOSE_BUFFER_SECS = 10
+
+
+def parse_timeframe_secs(tf: str) -> int:
+    """Convert a timeframe string to seconds (e.g. '4h' → 14400, '15m' → 900)."""
+    units = {"m": 60, "h": 3600, "d": 86400}
+    return int(tf[:-1]) * units[tf[-1]]
+
+
+def secs_until_next_boundary(timeframes: list[str]) -> tuple[float, float]:
+    """Return (sleep_seconds, wakeup_unix_timestamp) for the next candle close.
+
+    Wakes at the earliest upcoming boundary + a small buffer so Binance has
+    time to finalise the candle (e.g. 04:00:10, not 04:00:00).
+    """
+    now = time.time()
+    next_wakeups = []
+    for tf in timeframes:
+        interval = parse_timeframe_secs(tf)
+        next_close = math.ceil(now / interval) * interval
+        next_wakeups.append(next_close + _CANDLE_CLOSE_BUFFER_SECS)
+    wake_ts = min(next_wakeups)
+    return max(0.0, wake_ts - now), wake_ts
 
 
 def _compute_backtest(
