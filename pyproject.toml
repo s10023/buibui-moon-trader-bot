@@ -84,8 +84,12 @@ ignore_missing_imports = true
 module = "duckdb.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "uvicorn.*"
+ignore_missing_imports = true
+
 [tool.coverage.run]
-source = ["buibui", "monitor", "utils", "analytics"]
+source = ["buibui", "monitor", "utils", "analytics", "web"]
 
 [tool.coverage.report]
 show_missing = true

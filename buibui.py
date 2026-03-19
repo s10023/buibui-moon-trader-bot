@@ -140,6 +140,17 @@ def run_position_monitor(args: argparse.Namespace) -> None:
     )
 
 
+def run_web_server(args: argparse.Namespace) -> None:
+    import uvicorn
+
+    uvicorn.run(
+        "web.api.main:app",
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+    )
+
+
 def main() -> None:
     load_dotenv()
     logging.basicConfig(
@@ -391,6 +402,19 @@ def main() -> None:
         help="Hide combos below this trade count in sweep table (default: 20)",
     )
     backtest_parser.set_defaults(func=run_backtest)
+
+    # Top-level 'web' command
+    web_parser = subparsers.add_parser("web", help="Run FastAPI web backend")
+    web_parser.add_argument(
+        "--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)"
+    )
+    web_parser.add_argument(
+        "--port", type=int, default=8000, help="Bind port (default: 8000)"
+    )
+    web_parser.add_argument(
+        "--reload", action="store_true", help="Enable auto-reload (dev mode)"
+    )
+    web_parser.set_defaults(func=run_web_server)
 
     args = parser.parse_args()
     args.func(args)
