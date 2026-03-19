@@ -8,6 +8,7 @@ from monitor.live_price import (
     _handle_ws_msg,
     _kline_refresh_loop,
     _refresh_klines,
+    _ws_watchdog,
     run,
 )
 from utils.live_store import LiveDataStore
@@ -155,6 +156,90 @@ class TestBuildTable:
         assert table.row_count == 3
 
 
+class TestWsWatchdog:
+    def test_no_abort_while_messages_arrive(self) -> None:
+        """Watchdog must not abort when last_update advances before timeout."""
+        store = LiveDataStore()
+        store.update_ticker("BTCUSDT", last=100.0, open_24h=90.0)
+        call_count = 0
+
+        def fake_sleep(n: float) -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 3:
+                raise StopIteration
+
+        with (
+            patch("monitor.live_price.time.sleep", side_effect=fake_sleep),
+            patch("monitor.live_price.sys.exit") as mock_exit,
+            patch("monitor.live_price.time.monotonic", return_value=0.0),
+        ):
+            try:
+                _ws_watchdog(store, timeout=120, poll=10)
+            except StopIteration:
+                pass
+
+        mock_exit.assert_not_called()
+
+    def test_aborts_after_silence_exceeds_timeout(self) -> None:
+        """Watchdog must call sys.exit(1) when no message arrives within timeout."""
+        store = LiveDataStore()
+        # store has no last_update — simulates complete WS silence
+        monotonic_values = [0.0, 10.0, 200.0]  # baseline=0, elapsed=200 on 3rd poll
+        monotonic_iter = iter(monotonic_values)
+
+        def fake_monotonic() -> float:
+            return next(monotonic_iter)
+
+        sleep_calls = 0
+
+        def fake_sleep(n: float) -> None:
+            nonlocal sleep_calls
+            sleep_calls += 1
+
+        with (
+            patch("monitor.live_price.time.sleep", side_effect=fake_sleep),
+            patch("monitor.live_price.sys.exit") as mock_exit,
+            patch("monitor.live_price.time.monotonic", side_effect=fake_monotonic),
+        ):
+            # Run one iteration manually by stopping after exit is called
+            mock_exit.side_effect = SystemExit(1)
+            try:
+                _ws_watchdog(store, timeout=120, poll=10)
+            except SystemExit:
+                pass
+
+        mock_exit.assert_called_once_with(1)
+
+    def test_baseline_resets_when_message_arrives(self) -> None:
+        """Watchdog resets its baseline whenever last_update is present in store."""
+        store = LiveDataStore()
+        store.update_ticker("BTCUSDT", last=100.0, open_24h=90.0)
+        # Elapsed keeps returning a large number, but last_update resets baseline each loop
+        call_count = 0
+
+        def fake_monotonic() -> float:
+            return 0.0  # elapsed is always 0 after baseline reset
+
+        def fake_sleep(n: float) -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                raise StopIteration
+
+        with (
+            patch("monitor.live_price.time.sleep", side_effect=fake_sleep),
+            patch("monitor.live_price.sys.exit") as mock_exit,
+            patch("monitor.live_price.time.monotonic", side_effect=fake_monotonic),
+        ):
+            try:
+                _ws_watchdog(store, timeout=120, poll=10)
+            except StopIteration:
+                pass
+
+        mock_exit.assert_not_called()
+
+
 class TestKlineRefreshLoop:
     def test_exception_in_refresh_is_swallowed_and_loop_continues(self) -> None:
         """Daemon thread must not die on a transient error."""
@@ -206,7 +291,8 @@ class TestRun:
         mock_twm.start.assert_called_once()
         mock_twm.start_multiplex_socket.assert_called_once()
         mock_twm.stop.assert_called_once()
-        mock_thread.return_value.start.assert_called_once()
+        # Two daemon threads are started: kline refresh + WS watchdog
+        assert mock_thread.return_value.start.call_count == 2
 
     def test_run_stops_twm_even_if_multiplex_raises(self) -> None:
         """twm.stop() must be called even when setup fails."""
