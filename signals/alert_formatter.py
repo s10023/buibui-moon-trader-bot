@@ -1,39 +1,38 @@
 """Signal event model and Telegram alert formatter."""
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
-_SGT = timezone(timedelta(hours=8))
-_UTC = UTC
+_MYT = timezone(timedelta(hours=8))
 
 
 def _get_session_label(dt: datetime) -> str:
-    """Return the ICT AMD session label for a UTC datetime, or empty string if outside.
+    """Return the ICT AMD session label for a datetime, or empty string if outside.
 
-    Sessions (UTC):
-    - Asia  (Accumulation):  20:00–00:00
-    - London (Manipulation): 02:00–05:00
-    - NY    (Distribution):  09:30–12:00
+    Sessions (MYT / UTC+8):
+    - Asia   (Accumulation):  04:00–07:59
+    - London (Manipulation):  10:00–12:59
+    - NY     (Distribution):  17:30–19:59
     """
-    dt_utc = dt.astimezone(_UTC)
-    hour = dt_utc.hour
-    minute = dt_utc.minute
-    # Asia: 20:00–23:59
-    if hour >= 20:
+    dt_myt = dt.astimezone(_MYT)
+    hour = dt_myt.hour
+    minute = dt_myt.minute
+    # Asia: 04:00–07:59 MYT
+    if 4 <= hour < 8:
         return "Asia"
-    # London: 02:00–04:59
-    if 2 <= hour < 5:
+    # London: 10:00–12:59 MYT
+    if 10 <= hour < 13:
         return "London"
-    # NY: 09:30–11:59
-    if hour == 9 and minute >= 30:
+    # NY: 17:30–19:59 MYT
+    if hour == 17 and minute >= 30:
         return "NY"
-    if hour == 10 or hour == 11:
+    if hour == 18 or hour == 19:
         return "NY"
     return ""
 
 
 def _fmt_time(ts_ms: int) -> str:
-    return datetime.fromtimestamp(ts_ms / 1000, tz=_SGT).strftime("%d-%b %H:%M")
+    return datetime.fromtimestamp(ts_ms / 1000, tz=_MYT).strftime("%d-%b %H:%M")
 
 
 def _stars(n: int) -> str:
@@ -113,7 +112,7 @@ def format_confluence_alert(
     direction_label = "LONG 🟢" if first.direction == "long" else "SHORT 🔴"
     price = first.price
     signal_time = _fmt_time(first.open_time)
-    signal_dt = datetime.fromtimestamp(first.open_time / 1000, tz=_UTC)
+    signal_dt = datetime.fromtimestamp(first.open_time / 1000, tz=_MYT)
     session = _get_session_label(signal_dt)
     session_tag = f"  [{session}]" if session else ""
 
@@ -158,7 +157,7 @@ def format_confluence_alert(
 
     msg = (
         header
-        + f"Price: {price:,.2f}  |  {signal_time} SGT{session_tag}\n"
+        + f"Price: {price:,.2f}  |  {signal_time} MYT{session_tag}\n"
         + f"SL: {sl_price:,.2f} ({sl_pct_display:.1f}%)  "
         + f"TP: {tp_price:,.2f} ({tp_pct_display:.1f}% | {tp_r:.1f}x R)"
     )

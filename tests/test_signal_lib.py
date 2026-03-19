@@ -255,7 +255,7 @@ class TestFormatSignalAlert:
             price=1000.0,
         )
         msg = format_signal_alert(event)
-        assert "SGT" in msg
+        assert "MYT" in msg
 
 
 class TestFormatConfluenceAlert:
