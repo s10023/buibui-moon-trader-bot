@@ -76,8 +76,8 @@
   );
 
   const fmtTime = (ms: number) =>
-    new Date(ms).toLocaleString("en-SG", {
-      timeZone: "Asia/Singapore",
+    new Date(ms).toLocaleString("en-MY", {
+      timeZone: "Asia/Kuala_Lumpur",
       month: "2-digit",
       day: "2-digit",
       hour: "2-digit",
@@ -89,7 +89,7 @@
 
   const refreshTime = $derived(
     lastRefresh
-      ? lastRefresh.toLocaleTimeString("en-SG", { timeZone: "Asia/Singapore", hour12: false })
+      ? lastRefresh.toLocaleTimeString("en-MY", { timeZone: "Asia/Kuala_Lumpur", hour12: false })
       : null
   );
 </script>
@@ -98,7 +98,7 @@
   <div class="page-header">
     <h2>Signal Feed</h2>
     {#if refreshTime}
-      <span class="refresh-ts">updated {refreshTime} SGT</span>
+      <span class="refresh-ts">updated {refreshTime} MYT</span>
     {/if}
   </div>
 
@@ -136,7 +136,7 @@
     <table>
       <thead>
         <tr>
-          <th>Time (SGT)</th><th>Symbol</th><th>TF</th><th>Strategy</th>
+          <th>Time (MYT)</th><th>Symbol</th><th>TF</th><th>Strategy</th>
           <th>Dir</th><th>Conf</th><th>SL</th><th>Reason</th>
         </tr>
       </thead>

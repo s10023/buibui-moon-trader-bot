@@ -14,8 +14,8 @@
   let clock = $state("");
 
   function tick() {
-    clock = new Date().toLocaleTimeString("en-SG", {
-      timeZone: "Asia/Singapore",
+    clock = new Date().toLocaleTimeString("en-MY", {
+      timeZone: "Asia/Kuala_Lumpur",
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
@@ -47,7 +47,7 @@
   <div class="status-bar">
     <span class="live-dot"></span>
     <span class="clock">{clock}</span>
-    <span class="tz">SGT</span>
+    <span class="tz">MYT</span>
   </div>
 </header>
 
