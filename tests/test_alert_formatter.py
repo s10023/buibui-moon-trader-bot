@@ -73,24 +73,22 @@ class TestFormatSignalAlertSessionTag:
         )
 
     def test_session_tag_in_message_london(self) -> None:
-        # 2024-01-15 03:00 UTC — London session
+        # 2024-01-15 03:00 UTC — London session (11:00 MYT)
         dt = datetime(2024, 1, 15, 3, 0, tzinfo=_UTC)
         ts_ms = int(dt.timestamp() * 1000)
         msg = format_signal_alert(self._make_event(ts_ms))
-        assert "[London]" in msg
+        assert "🇬🇧 London Kill Zone" in msg
 
     def test_session_tag_in_message_ny(self) -> None:
-        # 2024-01-15 10:00 UTC — NY session
+        # 2024-01-15 10:00 UTC — NY session (18:00 MYT)
         dt = datetime(2024, 1, 15, 10, 0, tzinfo=_UTC)
         ts_ms = int(dt.timestamp() * 1000)
         msg = format_signal_alert(self._make_event(ts_ms))
-        assert "[NY]" in msg
+        assert "🗽 NY Kill Zone" in msg
 
     def test_no_session_tag_outside_windows(self) -> None:
-        # 2024-01-15 07:00 UTC — outside all sessions
+        # 2024-01-15 07:00 UTC — outside all sessions (15:00 MYT)
         dt = datetime(2024, 1, 15, 7, 0, tzinfo=_UTC)
         ts_ms = int(dt.timestamp() * 1000)
         msg = format_signal_alert(self._make_event(ts_ms))
-        assert "[Asia]" not in msg
-        assert "[London]" not in msg
-        assert "[NY]" not in msg
+        assert "Kill Zone" not in msg

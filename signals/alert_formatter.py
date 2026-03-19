@@ -6,6 +6,13 @@ from datetime import datetime, timedelta, timezone
 _MYT = timezone(timedelta(hours=8))
 
 
+_SESSION_EMOJI = {
+    "Asia": "🌏",
+    "London": "🇬🇧",
+    "NY": "🗽",
+}
+
+
 def _get_session_label(dt: datetime) -> str:
     """Return the ICT AMD session label for a datetime, or empty string if outside.
 
@@ -114,7 +121,7 @@ def format_confluence_alert(
     signal_time = _fmt_time(first.open_time)
     signal_dt = datetime.fromtimestamp(first.open_time / 1000, tz=_MYT)
     session = _get_session_label(signal_dt)
-    session_tag = f"  [{session}]" if session else ""
+    session_line = f"{_SESSION_EMOJI[session]} {session} Kill Zone\n" if session else ""
 
     sl_price = _widest_sl(events, first.direction, price, sl_pct)
     if min_sl_pct > 0:
@@ -157,7 +164,8 @@ def format_confluence_alert(
 
     msg = (
         header
-        + f"Price: {price:,.2f}  |  {signal_time} MYT{session_tag}\n"
+        + f"Price: {price:,.2f}  |  {signal_time} MYT\n"
+        + session_line
         + f"SL: {sl_price:,.2f} ({sl_pct_display:.1f}%)  "
         + f"TP: {tp_price:,.2f} ({tp_pct_display:.1f}% | {tp_r:.1f}x R)"
     )
