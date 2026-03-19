@@ -26,10 +26,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             init_schema(rw_conn)
     except duckdb.IOException:
         pass  # DB locked by signal daemon; schema already initialised
-    app.state.db_conn = duckdb.connect(str(DEFAULT_DB_PATH), read_only=True)
+    app.state.db_path = str(DEFAULT_DB_PATH)
     app.state.binance_client = create_client()
     yield
-    app.state.db_conn.close()
 
 
 app = FastAPI(title="Buibui Web API", version="1.0.0", lifespan=lifespan)

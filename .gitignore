@@ -25,6 +25,7 @@ signal_state.json
 # Frontend build artifacts
 web/ui/node_modules/
 web/ui/dist/
+web/ui/.env.local
 
 # Skills system
 skills-lock.json

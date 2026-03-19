@@ -13,8 +13,13 @@ _bearer = HTTPBearer()
 
 
 def get_db(request: Request) -> Generator[duckdb.DuckDBPyConnection, None, None]:
-    """Yield the shared read-only DuckDB connection from app state."""
-    yield request.app.state.db_conn
+    """Open a fresh read-only DuckDB connection per request (thread-safe)."""
+    db_path: str = request.app.state.db_path
+    conn = duckdb.connect(db_path, read_only=True)
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def get_client(request: Request) -> Client:

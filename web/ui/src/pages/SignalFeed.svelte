@@ -32,7 +32,7 @@
       const allStrategies = $strategyNames;
       if (allSymbols.length === 0 || allStrategies.length === 0) return;
 
-      const results = await Promise.all(
+      const settled = await Promise.allSettled(
         allSymbols.flatMap((sym) =>
           TIMEFRAMES.map(async (tf) => {
             const resp = await getSignals({
@@ -46,8 +46,9 @@
           })
         )
       );
-      signals = results
-        .flat()
+      // 404 = no OHLCV data for that symbol/tf — skip silently
+      signals = settled
+        .flatMap((r) => (r.status === "fulfilled" ? r.value : []))
         .sort((a, b) => b.open_time - a.open_time)
         .slice(0, 100);
       lastRefresh = new Date();

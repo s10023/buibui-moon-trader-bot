@@ -30,4 +30,5 @@ export function startPositionsSSE(): void {
 export function stopPositionsSSE(): void {
   cleanup?.();
   cleanup = null;
+  positionsConnected.set(false);
 }
