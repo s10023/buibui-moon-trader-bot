@@ -21,3 +21,11 @@ docs/plans/
 
 # Signal daemon runtime state
 signal_state.json
+
+# Frontend build artifacts
+web/ui/node_modules/
+web/ui/dist/
+
+# Skills system
+skills-lock.json
+.agents/

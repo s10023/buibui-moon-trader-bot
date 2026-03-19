@@ -8,10 +8,11 @@ import duckdb
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from analytics.data_store import DEFAULT_DB_PATH, init_schema
 from utils.binance_client import create_client
-from web.api.routers import backtest, ohlcv, positions, prices, signals, stream
+from web.api.routers import backtest, config, ohlcv, positions, prices, signals, stream
 
 
 @asynccontextmanager
@@ -38,6 +39,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(config.router, prefix="/api")
 app.include_router(ohlcv.router, prefix="/api")
 app.include_router(signals.router, prefix="/api")
 app.include_router(backtest.router, prefix="/api")
@@ -50,6 +52,11 @@ app.include_router(stream.router, prefix="/api")
 def health() -> dict[str, str]:
     """Health check — no auth required."""
     return {"status": "ok"}
+
+
+_UI_DIST = os.path.join(os.path.dirname(__file__), "../../ui/dist")
+if os.path.isdir(_UI_DIST):
+    app.mount("/", StaticFiles(directory=_UI_DIST, html=True), name="ui")
 
 
 def run(host: str = "127.0.0.1", port: int = 8000, reload: bool = False) -> None:

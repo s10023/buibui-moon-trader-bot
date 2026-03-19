@@ -1,0 +1,246 @@
+// Typed API client — interfaces match real FastAPI response models.
+
+// ── Config ────────────────────────────────────────────────────────────────────
+
+export interface SymbolConfig {
+  leverage: number;
+  sl_percent: number;
+  smt_secondary?: string;
+}
+
+export type ConfigResponse = Record<string, SymbolConfig>;
+
+// ── Strategies ────────────────────────────────────────────────────────────────
+
+export interface ParamSpec {
+  name: string;
+  param_type: "int" | "float";
+  default: number;
+  min_val: number;
+  max_val: number;
+  description: string;
+}
+
+export interface StrategySpec {
+  name: string;
+  description: string;
+  confidence: number;
+  params: ParamSpec[];
+  requires_funding: boolean;
+  requires_secondary: boolean;
+}
+
+export type StrategiesResponse = Record<string, StrategySpec>;
+
+// ── OHLCV ─────────────────────────────────────────────────────────────────────
+
+export interface CandleRow {
+  open_time: number; // Unix ms
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  taker_buy_volume: number | null;
+}
+
+export interface FundingRow {
+  funding_time: number; // Unix ms
+  funding_rate: number;
+}
+
+export interface OhlcvResponse {
+  candles: CandleRow[];
+  funding: FundingRow[] | null;
+}
+
+// ── Signals ───────────────────────────────────────────────────────────────────
+
+export interface SignalRow {
+  open_time: number;
+  direction: string;
+  strategy: string;
+  reason: string;
+  sl_price: number;
+  entry_price: number | null;
+  confidence: number;
+  context: string;
+}
+
+export interface SignalsResponse {
+  signals: SignalRow[];
+}
+
+// ── Backtest ──────────────────────────────────────────────────────────────────
+
+export interface TradeModel {
+  signal_time: number;
+  entry_time: number;
+  entry_price: number;
+  direction: string;
+  sl_price: number;
+  tp_price: number;
+  exit_time: number | null;
+  exit_price: number | null;
+  outcome: string;
+  pnl_r: number | null;
+}
+
+export interface BacktestResponse {
+  symbol: string;
+  timeframe: string;
+  strategy: string;
+  total_trades: number;
+  closed_trades: number;
+  win_count: number;
+  loss_count: number;
+  win_rate: number;
+  avg_r: number;
+  total_r: number;
+  max_drawdown_r: number;
+  trades: TradeModel[];
+}
+
+// ── Prices ────────────────────────────────────────────────────────────────────
+
+export interface PriceRow {
+  symbol: string;
+  last_price: string;
+  change_15m: string;
+  change_1h: string;
+  change_4h: string;
+  change_asia: string;
+  change_24h: string;
+}
+
+export interface PricesResponse {
+  prices: PriceRow[];
+}
+
+// ── Positions ─────────────────────────────────────────────────────────────────
+
+export interface PositionRow {
+  symbol: string;
+  side: string;
+  leverage: number | null;
+  entry_price: number | null;
+  mark_price: number | null;
+  margin: number | null;
+  notional: number | null;
+  pnl: number | null;
+  pnl_pct: number | null;
+  risk_pct: string | null;
+  sl_price: number | null;
+  sl_size: string | null;
+  sl_usd: string | null;
+}
+
+export interface PositionsResponse {
+  positions: PositionRow[];
+  wallet_balance: number;
+  unrealized_pnl: number;
+  available_balance: number;
+  total_risk_usd: number;
+}
+
+// ── SSE stream shapes ─────────────────────────────────────────────────────────
+
+// /api/stream/prices emits: PriceRow[] (same as REST PriceRow)
+export type PriceStreamFrame = PriceRow[];
+
+// /api/stream/positions emits: PositionsResponse (same shape)
+export type PositionsStreamFrame = PositionsResponse;
+
+// ── Core fetch helper ─────────────────────────────────────────────────────────
+
+const TOKEN = (import.meta.env.VITE_API_TOKEN as string | undefined) ?? "";
+
+export async function apiFetch<T>(
+  path: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
+    ...(options.headers as Record<string, string> | undefined),
+  };
+  const res = await fetch(path, { ...options, headers });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`API ${res.status}: ${text}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+// ── Named helpers ─────────────────────────────────────────────────────────────
+
+export const getConfig = () => apiFetch<ConfigResponse>("/api/config");
+export const getStrategies = () =>
+  apiFetch<StrategiesResponse>("/api/strategies");
+
+export const getOhlcv = (params: {
+  symbol: string;
+  timeframe: string;
+  start_ms: number;
+  end_ms: number;
+  include_funding?: boolean;
+}) => {
+  const q = new URLSearchParams({
+    symbol: params.symbol,
+    timeframe: params.timeframe,
+    start_ms: String(params.start_ms),
+    end_ms: String(params.end_ms),
+    ...(params.include_funding ? { include_funding: "true" } : {}),
+  });
+  return apiFetch<OhlcvResponse>(`/api/ohlcv?${q}`);
+};
+
+export const getSignals = (params: {
+  symbol: string;
+  timeframe: string;
+  start_ms: number;
+  end_ms: number;
+  strategies: string[];
+}) => apiFetch<SignalsResponse>("/api/signals", { method: "POST", body: JSON.stringify(params) });
+
+export const runBacktest = (params: {
+  symbol: string;
+  timeframe: string;
+  strategy: string;
+  days: number;
+  sl_pct: number;
+  tp_r: number;
+  fee_pct?: number;
+  secondary_symbol?: string;
+  [key: string]: unknown;
+}) =>
+  apiFetch<BacktestResponse>("/api/backtest", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+
+export const getPrices = () => apiFetch<PricesResponse>("/api/prices");
+export const getPositions = () => apiFetch<PositionsResponse>("/api/positions");
+
+// ── SSE helper ────────────────────────────────────────────────────────────────
+
+// EventSource cannot send Authorization headers — token passed as ?token= query param.
+export function createSSEStream<T>(
+  path: string,
+  onMessage: (data: T) => void,
+  onError: (err: Event) => void
+): () => void {
+  const url = TOKEN ? `${path}?token=${encodeURIComponent(TOKEN)}` : path;
+  const es = new EventSource(url);
+  es.onmessage = (e: MessageEvent) => {
+    try {
+      onMessage(JSON.parse(e.data as string) as T);
+    } catch {
+      /* ignore malformed frames */
+    }
+  };
+  es.onerror = (err) => {
+    onError(err);
+  };
+  return () => es.close();
+}
