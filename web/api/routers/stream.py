@@ -1,0 +1,123 @@
+"""SSE streaming router — GET /api/stream/prices, /api/stream/positions."""
+
+import asyncio
+import json
+from collections.abc import AsyncGenerator
+from typing import Any
+
+from binance.client import Client
+from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
+
+from monitor.position_lib import fetch_open_positions
+from monitor.price_lib import get_price_changes
+from utils.binance_client import load_coins_config
+from web.api.deps import get_client, require_token
+
+router = APIRouter(dependencies=[Depends(require_token)])
+
+
+def _safe_load_symbols() -> tuple[list[str], dict[str, Any]]:
+    """Load coins config, returning (symbols, coins_dict). Returns empty on error."""
+    try:
+        coins = load_coins_config()
+        return list(coins.keys()), coins
+    except Exception:
+        return [], {}
+
+
+async def _price_event_generator(client: Client) -> AsyncGenerator[str, None]:
+    """Yield SSE price events every 5 seconds."""
+    try:
+        while True:
+            symbols, _ = _safe_load_symbols()
+            if symbols:
+                table, _ = await asyncio.get_event_loop().run_in_executor(
+                    None, get_price_changes, client, symbols, True
+                )
+                data = [
+                    {
+                        "symbol": str(row[0]),
+                        "last_price": str(row[1]),
+                        "change_15m": str(row[2]),
+                        "change_1h": str(row[3]),
+                        "change_4h": str(row[4]),
+                        "change_asia": str(row[5]),
+                        "change_24h": str(row[6]),
+                    }
+                    for row in table
+                ]
+                yield f"data: {json.dumps(data)}\n\n"
+            await asyncio.sleep(5)
+    except asyncio.CancelledError:
+        return
+
+
+async def _positions_event_generator(client: Client) -> AsyncGenerator[str, None]:
+    """Yield SSE position events every 10 seconds."""
+    try:
+        while True:
+            symbols, coins = _safe_load_symbols()
+            if coins:
+                try:
+                    (
+                        rows,
+                        total_risk_usd,
+                        wallet,
+                        unrealized,
+                        available,
+                    ) = await asyncio.get_event_loop().run_in_executor(
+                        None,
+                        fetch_open_positions,
+                        client,
+                        coins,
+                        symbols,
+                    )
+                    data = {
+                        "positions": [
+                            {
+                                "symbol": str(row[0]),
+                                "side": str(row[1]),
+                                "leverage": str(row[2]),
+                                "entry": str(row[3]),
+                                "mark": str(row[4]),
+                                "margin": str(row[5]),
+                                "notional": str(row[6]),
+                                "pnl": str(row[7]),
+                                "pnl_pct": str(row[8]),
+                                "risk_pct": str(row[9]),
+                                "sl_price": str(row[10]),
+                                "sl_size": str(row[11]),
+                                "sl_usd": str(row[12]),
+                            }
+                            for row in rows
+                        ],
+                        "wallet_balance": wallet,
+                        "unrealized_pnl": unrealized,
+                        "available_balance": available,
+                        "total_risk_usd": total_risk_usd,
+                    }
+                    yield f"data: {json.dumps(data)}\n\n"
+                except Exception:
+                    pass
+            await asyncio.sleep(10)
+    except asyncio.CancelledError:
+        return
+
+
+@router.get("/stream/prices")
+def stream_prices(client: Client = Depends(get_client)) -> StreamingResponse:
+    """Stream live price changes as Server-Sent Events (every 5s)."""
+    return StreamingResponse(
+        _price_event_generator(client),
+        media_type="text/event-stream",
+    )
+
+
+@router.get("/stream/positions")
+def stream_positions(client: Client = Depends(get_client)) -> StreamingResponse:
+    """Stream live position data as Server-Sent Events (every 10s)."""
+    return StreamingResponse(
+        _positions_event_generator(client),
+        media_type="text/event-stream",
+    )

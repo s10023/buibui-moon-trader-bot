@@ -65,6 +65,12 @@ buibui-moon-trader-bot/
 │   ├── registry.py                  # SignalPlugin TypedDict + SIGNAL_REGISTRY (9 strategies, with confidence)
 │   ├── cooldown_store.py            # Two-layer dedup: candle watermark + cooldown timer
 │   └── alert_formatter.py           # SignalEvent dataclass + format_signal_alert() → Markdown with SL/TP/stars
+├── web/
+│   └── api/
+│       ├── main.py                  # FastAPI app: lifespan, CORS, health, router mounts
+│       ├── deps.py                  # Dependency factories: get_db, get_client, require_token
+│       ├── models/                  # Pydantic request/response models
+│       └── routers/                 # Route handlers: ohlcv, signals, backtest, positions, prices, stream
 ├── trade/
 │   └── open_trades.py               # Multi-trade entry (planned)
 ├── utils/
@@ -438,6 +444,43 @@ State is persisted to `signal_state.json` so dedup survives container restarts.
 
 > **Note:** Run `analytics backfill` + `analytics sync` first. The daemon auto-backfills
 > symbols with no data on first boot, but pre-loading data is faster.
+
+### Web API — FastAPI Backend
+
+A JSON REST API and SSE streaming backend for the Phase 5 Svelte frontend (or any HTTP client).
+
+```bash
+# Start the API server (default: http://127.0.0.1:8000)
+poetry run python buibui.py web
+
+# Custom host/port with auto-reload for development
+poetry run python buibui.py web --host 0.0.0.0 --port 8000 --reload
+
+# Or via Makefile
+make buibui-web
+```
+
+**Authentication:** All endpoints except `/api/health` require a Bearer token. Set `API_TOKEN` in `.env`.
+
+**Endpoints:**
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| `GET` | `/api/health` | Health check — no auth required |
+| `GET` | `/api/ohlcv` | OHLCV candles (`?symbol=&timeframe=&start_ms=&end_ms=`) |
+| `POST` | `/api/signals` | Detect strategy signals on historical data |
+| `POST` | `/api/backtest` | Run a backtest for a symbol/timeframe/strategy |
+| `GET` | `/api/positions` | Fetch open futures positions |
+| `GET` | `/api/prices` | Latest price changes for all configured symbols |
+| `GET` | `/api/stream/prices` | SSE — live prices every 5 s |
+| `GET` | `/api/stream/positions` | SSE — live positions every 10 s |
+
+**CORS:** Defaults to `http://localhost:5173` (Vite dev server). Override with `CORS_ORIGINS` env var (comma-separated).
+
+**Notes:**
+
+- The web server opens the DB in **read-only** mode. The signal daemon holds the write lock.
+- Requires `analytics backfill` to have been run first for OHLCV/signals/backtest endpoints.
 
 ---
 

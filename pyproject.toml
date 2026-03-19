@@ -44,7 +44,9 @@ dependencies = [
     "yarl (>=1.20.1,<2.0.0)",
     "rich (>=14.0.0,<15.0.0)",
     "duckdb (>=1.5.0,<2.0.0)",
-    "pandas (>=3.0.1,<4.0.0)"
+    "pandas (>=3.0.1,<4.0.0)",
+    "fastapi (>=0.115)",
+    "uvicorn[standard] (>=0.34)"
 ]
 package-mode = false
 
@@ -64,6 +66,7 @@ pre-commit = "^4.5.1"
 ruff = "^0.15.6"
 pytest-cov = "^7.0.0"
 pandas-stubs = "^3.0.0.260204"
+httpx = "^0.28.1"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -84,8 +87,12 @@ ignore_missing_imports = true
 module = "duckdb.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "uvicorn.*"
+ignore_missing_imports = true
+
 [tool.coverage.run]
-source = ["buibui", "monitor", "utils", "analytics"]
+source = ["buibui", "monitor", "utils", "analytics", "web"]
 
 [tool.coverage.report]
 show_missing = true
