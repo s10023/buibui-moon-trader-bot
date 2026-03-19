@@ -25,18 +25,32 @@ class Trade:
     exit_time: int | None = None
     exit_price: float | None = None
     outcome: str = "open"  # "win" | "loss" | "open"
+    fee_pct: float = 0.0
+    sl_pct: float = 0.02
 
     @property
     def pnl_r(self) -> float | None:
-        """P&L expressed in R multiples (1R = amount risked)."""
+        """P&L expressed in R multiples (1R = amount risked), after fees.
+
+        Fee drag: each leg (entry + exit) costs fee_pct of notional.
+        Position is sized to risk 1R at sl_pct distance from entry, so:
+          fee_drag_r = 2 * fee_pct / sl_pct  (constant per trade)
+
+        Using sl_pct (not the structural sl_price) keeps fee drag consistent
+        across strategies — structural SLs vary wildly in tightness and would
+        otherwise make fee drag blow up for tight-SL strategies.
+        """
         if self.exit_price is None:
             return None
         risk = abs(self.entry_price - self.sl_price)
         if risk == 0.0:
             return None
         if self.direction == "long":
-            return (self.exit_price - self.entry_price) / risk
-        return (self.entry_price - self.exit_price) / risk
+            raw_r = (self.exit_price - self.entry_price) / risk
+        else:
+            raw_r = (self.entry_price - self.exit_price) / risk
+        fee_drag_r = 2.0 * self.fee_pct / self.sl_pct if self.sl_pct > 0.0 else 0.0
+        return raw_r - fee_drag_r
 
 
 @dataclass
@@ -46,6 +60,7 @@ class BacktestResult:
     symbol: str
     timeframe: str
     strategy: str
+    fee_pct: float = 0.0
     trades: list[Trade] = field(default_factory=list)
 
     @functools.cached_property
@@ -102,6 +117,7 @@ def run_backtest(
     strategy: str,
     sl_pct: float = 0.02,
     tp_r: float = 2.0,
+    fee_pct: float = 0.0,
 ) -> BacktestResult:
     """Simulate trades from signals on historical OHLCV.
 
@@ -109,11 +125,15 @@ def run_backtest(
     SL:     per-signal sl_price from the signals DataFrame when present;
             otherwise sl_pct fraction of entry price (backward-compatible fallback).
     TP:     tp_r × risk distance from entry price.
+    fee_pct: taker fee fraction applied on both entry and exit legs
+             (e.g. 0.0005 for 0.05%). Fee drag is deducted from pnl_r.
 
     A trade closes when a candle's high or low touches the SL or TP level.
     Trades still open at end of data are marked as outcome="open".
     """
-    result = BacktestResult(symbol=symbol, timeframe=timeframe, strategy=strategy)
+    result = BacktestResult(
+        symbol=symbol, timeframe=timeframe, strategy=strategy, fee_pct=fee_pct
+    )
 
     if signals.empty or ohlcv.empty:
         return result
@@ -159,6 +179,8 @@ def run_backtest(
             direction=direction,
             sl_price=sl_price,
             tp_price=tp_price,
+            fee_pct=fee_pct,
+            sl_pct=sl_pct,
         )
 
         for i in range(entry_idx, len(ohlcv_times)):
@@ -197,6 +219,7 @@ def run_backtest(
 
 def format_result(result: BacktestResult) -> str:
     """Format a BacktestResult as a human-readable text summary."""
+    fee_label = f"{result.fee_pct * 100:.4f}% taker" if result.fee_pct > 0.0 else "none"
     lines = [
         f"Backtest: {result.symbol} {result.timeframe} — {result.strategy}",
         "─" * 52,
@@ -205,6 +228,7 @@ def format_result(result: BacktestResult) -> str:
         f"Avg R:       {result.avg_r:+.2f}R",
         f"Total R:     {result.total_r:+.2f}R",
         f"Max DD:      -{result.max_drawdown_r:.2f}R",
+        f"Fees:        {fee_label}",
     ]
     return "\n".join(lines)
 

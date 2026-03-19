@@ -54,6 +54,8 @@ def run_backtest(args: argparse.Namespace) -> None:
             cfg.sl_pct = args.sl_pct
         if args.tp_r != 2.0:
             cfg.tp_r = args.tp_r
+        if args.fee_pct != 0.0:
+            cfg.fee_pct = args.fee_pct
         if args.min_trades is not None:
             cfg.min_trades = args.min_trades
         backtest_runner.run_backtest_sweep(cfg)
@@ -71,6 +73,7 @@ def run_backtest(args: argparse.Namespace) -> None:
         days=args.days,
         sl_pct=args.sl_pct,
         tp_r=args.tp_r,
+        fee_pct=args.fee_pct,
         secondary_symbol=args.secondary_symbol,
     )
 
@@ -382,6 +385,13 @@ def main() -> None:
         default=2.0,
         dest="tp_r",
         help="Take profit in R multiples (default: 2.0)",
+    )
+    backtest_parser.add_argument(
+        "--fee-pct",
+        type=float,
+        default=0.0,
+        dest="fee_pct",
+        help="Taker fee as a decimal fraction applied on entry+exit (default: 0.0; e.g. 0.0005 for 0.05%%)",
     )
     backtest_parser.add_argument(
         "--min-trades",
