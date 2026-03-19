@@ -11,7 +11,7 @@
   let timeframe = $state("4h");
   let strategy = $state("fvg");
   let days = $state(90);
-  let sl_pct = $state(0.02);
+  let sl_pct = $state(2.0);
   let tp_r = $state(2.0);
   let fee_pct = $state(0.05);
   let extraParams = $state<Record<string, number>>({});
@@ -35,7 +35,7 @@
         timeframe,
         strategy,
         days,
-        sl_pct,
+        sl_pct: sl_pct / 100,
         tp_r,
         fee_pct: fee_pct / 100,
         ...extraParams,
@@ -76,9 +76,9 @@
 
     <div class="form-row">
       <label>Days <input type="number" bind:value={days} min="7" max="365" /></label>
-      <label>SL % <input type="number" bind:value={sl_pct} min="0.005" max="0.1" step="0.005" /></label>
-      <label>TP R <input type="number" bind:value={tp_r} min="0.5" max="10" step="0.5" /></label>
-      <label>Fee % <input type="number" bind:value={fee_pct} min="0" max="0.5" step="0.01" /></label>
+      <label title="Stop-loss distance from entry, e.g. 2 = 2%">SL % <input type="number" bind:value={sl_pct} min="0.5" max="10" step="0.5" /></label>
+      <label title="Take-profit as a multiple of the SL distance, e.g. 2 = 2R">TP (R) <input type="number" bind:value={tp_r} min="0.5" max="10" step="0.5" /></label>
+      <label title="Taker fee per side, e.g. 0.05 = 0.05% per trade">Fee % <input type="number" bind:value={fee_pct} min="0" max="0.5" step="0.01" /></label>
     </div>
 
     {#if currentSpec && currentSpec.params.length > 0}

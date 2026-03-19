@@ -38,7 +38,10 @@ def require_token(
 
 
 def require_token_sse(token: str = Query(default="")) -> None:
-    """Validate token from ?token= query param (EventSource cannot send headers)."""
+    """Validate token from ?token= query param (EventSource cannot send headers).
+
+    If API_TOKEN is not set, all connections are allowed (dev mode).
+    """
     api_token = os.environ.get("API_TOKEN", "")
-    if not api_token or not token or not secrets.compare_digest(token, api_token):
+    if api_token and (not token or not secrets.compare_digest(token, api_token)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)

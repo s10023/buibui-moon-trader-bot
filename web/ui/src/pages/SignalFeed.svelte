@@ -1,23 +1,22 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import { getSignals, type SignalRow } from "../api";
+  import { get } from "svelte/store";
+  import { getSignals } from "../api";
   import { symbols } from "../stores/config";
   import { strategyNames } from "../stores/strategies";
+  import {
+    signalsStore,
+    signalsLoading,
+    signalsError,
+    signalsLastRefresh,
+    type SignalWithMeta,
+  } from "../stores/signals";
   import ErrorBanner from "../components/ErrorBanner.svelte";
   import LoadingSpinner from "../components/LoadingSpinner.svelte";
 
   const TIMEFRAMES = ["15m", "1h", "4h", "1d"];
   const POLL_MS = 60_000;
 
-  interface SignalWithMeta extends SignalRow {
-    symbol: string;
-    timeframe: string;
-  }
-
-  let signals = $state<SignalWithMeta[]>([]);
-  let loading = $state(true);
-  let error = $state<string | null>(null);
-  let lastRefresh = $state<Date | null>(null);
   let filterSymbol = $state("");
   let filterStrategy = $state("");
   let filterDirection = $state<"" | "long" | "short">("");
@@ -26,10 +25,10 @@
   const start90d = () => nowMs() - 90 * 24 * 60 * 60 * 1000;
 
   async function fetchAll(): Promise<void> {
-    error = null;
+    signalsError.set(null);
     try {
-      const allSymbols = $symbols;
-      const allStrategies = $strategyNames;
+      const allSymbols = get(symbols);
+      const allStrategies = get(strategyNames);
       if (allSymbols.length === 0 || allStrategies.length === 0) return;
 
       const settled = await Promise.allSettled(
@@ -42,32 +41,35 @@
               end_ms: nowMs(),
               strategies: allStrategies,
             });
-            return resp.signals.map((s) => ({ ...s, symbol: sym, timeframe: tf }));
+            return resp.signals.map((s): SignalWithMeta => ({ ...s, symbol: sym, timeframe: tf }));
           })
         )
       );
       // 404 = no OHLCV data for that symbol/tf — skip silently
-      signals = settled
-        .flatMap((r) => (r.status === "fulfilled" ? r.value : []))
-        .sort((a, b) => b.open_time - a.open_time)
-        .slice(0, 100);
-      lastRefresh = new Date();
+      signalsStore.set(
+        settled
+          .flatMap((r) => (r.status === "fulfilled" ? r.value : []))
+          .sort((a, b) => b.open_time - a.open_time)
+          .slice(0, 100)
+      );
+      signalsLastRefresh.set(new Date());
     } catch (e) {
-      error = String(e);
+      signalsError.set(String(e));
     } finally {
-      loading = false;
+      signalsLoading.set(false);
     }
   }
 
   let interval: ReturnType<typeof setInterval>;
   onMount(() => {
-    void fetchAll();
+    // Only fetch on first load; subsequent tab visits reuse cached store data
+    if (get(signalsLoading)) void fetchAll();
     interval = setInterval(() => void fetchAll(), POLL_MS);
   });
   onDestroy(() => clearInterval(interval));
 
   const filtered = $derived(
-    signals.filter((s) => {
+    $signalsStore.filter((s) => {
       if (filterSymbol && s.symbol !== filterSymbol) return false;
       if (filterStrategy && s.strategy !== filterStrategy) return false;
       if (filterDirection && s.direction !== filterDirection) return false;
@@ -88,8 +90,8 @@
   const stars = (n: number) => "★".repeat(n) + "☆".repeat(5 - n);
 
   const refreshTime = $derived(
-    lastRefresh
-      ? lastRefresh.toLocaleTimeString("en-MY", { timeZone: "Asia/Kuala_Lumpur", hour12: false })
+    $signalsLastRefresh
+      ? $signalsLastRefresh.toLocaleTimeString("en-MY", { timeZone: "Asia/Kuala_Lumpur", hour12: false })
       : null
   );
 </script>
@@ -102,7 +104,7 @@
     {/if}
   </div>
 
-  {#if error}<ErrorBanner {error} />{/if}
+  {#if $signalsError}<ErrorBanner error={$signalsError} />{/if}
 
   <div class="filter-bar">
     <label>Symbol
@@ -130,7 +132,7 @@
     </span>
   </div>
 
-  {#if loading}
+  {#if $signalsLoading}
     <LoadingSpinner label="Scanning signals..." />
   {:else}
     <table>
