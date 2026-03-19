@@ -1,0 +1,14 @@
+# Backtest sweep — sample configuration
+# Run with: buibui backtest --config config/backtest_sample.toml
+
+symbols    = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+timeframes = ["1h", "4h", "1d"]
+strategies = ["fvg", "bos", "liquidity_sweep", "eqh_eql", "wick_fill", "cvd_divergence"]
+days       = 90
+sl_pct     = 0.02
+tp_r       = 2.0
+min_trades = 20
+
+[smt_pairs]
+BTCUSDT = "ETHUSDT"
+ETHUSDT = "BTCUSDT"

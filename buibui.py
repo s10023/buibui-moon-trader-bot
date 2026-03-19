@@ -5,6 +5,7 @@ import logging
 from dotenv import load_dotenv
 
 from analytics import analytics_runner, backtest_runner, signal_runner
+from analytics.backtest_config import BacktestSweepConfig, load_backtest_config
 from analytics.indicators_lib import KNOWN_STRATEGIES
 from monitor import position_monitor, price_monitor
 
@@ -35,6 +36,34 @@ def run_analytics_sync(args: argparse.Namespace) -> None:
 
 
 def run_backtest(args: argparse.Namespace) -> None:
+    # Sweep mode: --config or --symbols (or --timeframes / --strategies alone)
+    if args.config or args.symbols or args.timeframes or args.strategies:
+        cfg = (
+            load_backtest_config(args.config) if args.config else BacktestSweepConfig()
+        )
+        # CLI flags override TOML values
+        if args.symbols:
+            cfg.symbols = args.symbols
+        if args.timeframes:
+            cfg.timeframes = args.timeframes
+        if args.strategies:
+            cfg.strategies = args.strategies
+        if args.days != 90:
+            cfg.days = args.days
+        if args.sl_pct != 0.02:
+            cfg.sl_pct = args.sl_pct
+        if args.tp_r != 2.0:
+            cfg.tp_r = args.tp_r
+        if args.min_trades is not None:
+            cfg.min_trades = args.min_trades
+        backtest_runner.run_backtest_sweep(cfg)
+        return
+
+    # Single-combo mode: --symbol + --strategy (backward-compatible)
+    if not args.symbol or not args.strategy:
+        raise SystemExit(
+            "error: --symbol and --strategy are required in single-combo mode"
+        )
     backtest_runner.run_backtest_cmd(
         symbol=args.symbol,
         strategy=args.strategy,
@@ -285,21 +314,54 @@ def main() -> None:
     backtest_parser = subparsers.add_parser(
         "backtest", help="Backtest a trading strategy on historical data"
     )
+    # Single-combo flags
     backtest_parser.add_argument(
         "--symbol",
-        required=True,
-        help="Primary symbol to backtest (e.g., BTCUSDT)",
+        default=None,
+        help="Primary symbol for single-combo mode (e.g., BTCUSDT)",
     )
     backtest_parser.add_argument(
         "--strategy",
-        required=True,
+        default=None,
         choices=KNOWN_STRATEGIES,
-        help="Strategy to run: " + ", ".join(KNOWN_STRATEGIES),
+        help="Strategy for single-combo mode: " + ", ".join(KNOWN_STRATEGIES),
     )
     backtest_parser.add_argument(
         "--interval",
         default="4h",
-        help="Candle timeframe (default: 4h)",
+        help="Candle timeframe for single-combo mode (default: 4h)",
+    )
+    backtest_parser.add_argument(
+        "--secondary-symbol",
+        default=None,
+        dest="secondary_symbol",
+        help="Secondary symbol for smt_divergence strategy (e.g., ETHUSDT)",
+    )
+    # Shared / sweep flags
+    backtest_parser.add_argument(
+        "--config",
+        default=None,
+        metavar="FILE",
+        help="TOML config file for sweep mode",
+    )
+    backtest_parser.add_argument(
+        "--symbols",
+        nargs="+",
+        default=None,
+        help="Symbols to sweep (overrides --config)",
+    )
+    backtest_parser.add_argument(
+        "--strategies",
+        nargs="+",
+        default=None,
+        choices=KNOWN_STRATEGIES,
+        help="Strategies to sweep (overrides --config)",
+    )
+    backtest_parser.add_argument(
+        "--timeframes",
+        nargs="+",
+        default=None,
+        help="Timeframes to sweep (overrides --config)",
     )
     backtest_parser.add_argument(
         "--days",
@@ -322,10 +384,11 @@ def main() -> None:
         help="Take profit in R multiples (default: 2.0)",
     )
     backtest_parser.add_argument(
-        "--secondary-symbol",
+        "--min-trades",
+        type=int,
         default=None,
-        dest="secondary_symbol",
-        help="Secondary symbol for smt_divergence strategy (e.g., ETHUSDT)",
+        dest="min_trades",
+        help="Hide combos below this trade count in sweep table (default: 20)",
     )
     backtest_parser.set_defaults(func=run_backtest)
 
