@@ -41,6 +41,7 @@ def run_signal_watch(
     db_path: Path = DEFAULT_DB_PATH,
     backtest_cfg: BacktestFilterConfig | None = None,
     day_filter: bool = False,
+    smt_trend_filter: int = 1,
 ) -> None:
     """Run the signal detection daemon loop.
 
@@ -159,6 +160,7 @@ def run_signal_watch(
                     secondary_map=secondary_map_arg,
                     backtest_cfg=backtest_cfg,
                     day_filter=day_filter,
+                    smt_trend_filter=smt_trend_filter,
                 )
 
                 if alerts:

@@ -445,6 +445,8 @@ Backtest findings (160d, 3 symbols × 4 TFs × 11 strategies, −29% trade volum
 
 Notable: ETHUSDT 4h `bos` is the main cost (−5pp/−0.14R) — Mon/Fri 4h ETH BOS signals were genuinely profitable (likely London Monday expansion). All other `bos` and all `orb` combos improve.
 
+**`smt_trend_filter`** gates `smt_divergence` signals against EMA-50: LONG only above EMA, SHORT only below. On by default (`1`). Backtesting shows counter-trend SMT signals are reliably losing — only ETH/1H retains edge. Disable with `smt_trend_filter = 0` in TOML.
+
 The `[backtest]` table in `config/signal_watch.toml` controls a per-alert win rate filter:
 
 ```toml
