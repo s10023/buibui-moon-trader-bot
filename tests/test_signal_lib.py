@@ -1002,3 +1002,304 @@ class TestSMTTrendFilter:
             )
 
         assert "trend_filter" not in received_kwargs
+
+
+class TestConflictResolution:
+    """Tests for the redesigned conflict suppression in run_scan_cycle.
+
+    R10: When LONG + SHORT fire on same symbol/tf, pick the higher-confidence
+    side. On a tie, send both — each with "⚠️ conflict" in reason.
+    """
+
+    _OPEN_TIME_MS = 1704240000000  # Wednesday 2024-01-03 — passes day_filter
+
+    def _make_ohlcv(self) -> pd.DataFrame:
+        rows = [
+            {
+                "open_time": self._OPEN_TIME_MS - 2000,
+                "open": 100.0,
+                "high": 105.0,
+                "low": 98.0,
+                "close": 102.0,
+                "volume": 1.0,
+            },
+            {
+                "open_time": self._OPEN_TIME_MS - 1000,
+                "open": 102.0,
+                "high": 106.0,
+                "low": 100.0,
+                "close": 103.0,
+                "volume": 1.0,
+            },
+            {
+                "open_time": self._OPEN_TIME_MS,
+                "open": 103.0,
+                "high": 107.0,
+                "low": 101.0,
+                "close": 104.0,
+                "volume": 1.0,
+            },
+        ]
+        return pd.DataFrame(rows)
+
+    def _make_signals_df(self, direction: str, reason_prefix: str) -> pd.DataFrame:
+        return pd.DataFrame(
+            [
+                {
+                    "open_time": self._OPEN_TIME_MS,
+                    "direction": direction,
+                    "reason": f"{reason_prefix}@104.00",
+                    "sl_price": 98.0 if direction == "long" else 110.0,
+                    "context": "",
+                }
+            ]
+        )
+
+    def test_higher_confidence_long_wins_over_lower_confidence_short(
+        self, tmp_path: Any
+    ) -> None:
+        """LONG with confidence 4 wins over SHORT with confidence 2 — one alert, LONG."""
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        store = CooldownStore(str(tmp_path / "state.json"))
+        ohlcv = self._make_ohlcv()
+        long_signals = self._make_signals_df("long", "fvg_long")
+        short_signals = self._make_signals_df("short", "bos_short")
+
+        with (
+            patch("analytics.signal_lib.get_ohlcv", return_value=ohlcv),
+            patch(
+                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+            ),
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {
+                    "fvg": {"detector": lambda df: long_signals, "confidence": 4},
+                    "bos": {"detector": lambda df: short_signals, "confidence": 2},
+                },
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                {
+                    "fvg": type(
+                        "S",
+                        (),
+                        {"requires_funding": False, "requires_secondary": False},
+                    )(),
+                    "bos": type(
+                        "S",
+                        (),
+                        {"requires_funding": False, "requires_secondary": False},
+                    )(),
+                },
+            ),
+        ):
+            alerts = run_scan_cycle(
+                conn=conn,
+                symbols=["BTCUSDT"],
+                timeframes=["4h"],
+                strategies=["fvg", "bos"],
+                store=store,
+            )
+
+        assert len(alerts) == 1
+        assert "LONG" in alerts[0]
+        assert "SHORT" not in alerts[0]
+        assert "⚠️ conflict" in alerts[0]
+
+    def test_higher_confidence_short_wins_over_lower_confidence_long(
+        self, tmp_path: Any
+    ) -> None:
+        """SHORT with confidence 5 wins over LONG with confidence 3 — one alert, SHORT."""
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        store = CooldownStore(str(tmp_path / "state.json"))
+        ohlcv = self._make_ohlcv()
+        long_signals = self._make_signals_df("long", "fvg_long")
+        short_signals = self._make_signals_df("short", "smt_short")
+
+        with (
+            patch("analytics.signal_lib.get_ohlcv", return_value=ohlcv),
+            patch(
+                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+            ),
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {
+                    "fvg": {"detector": lambda df: long_signals, "confidence": 3},
+                    "smt_divergence": {
+                        "detector": lambda df: short_signals,
+                        "confidence": 5,
+                    },
+                },
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                {
+                    "fvg": type(
+                        "S",
+                        (),
+                        {"requires_funding": False, "requires_secondary": False},
+                    )(),
+                    "smt_divergence": type(
+                        "S",
+                        (),
+                        {"requires_funding": False, "requires_secondary": False},
+                    )(),
+                },
+            ),
+        ):
+            alerts = run_scan_cycle(
+                conn=conn,
+                symbols=["BTCUSDT"],
+                timeframes=["4h"],
+                strategies=["fvg", "smt_divergence"],
+                store=store,
+            )
+
+        assert len(alerts) == 1
+        assert "SHORT" in alerts[0]
+        assert "LONG" not in alerts[0]
+        assert "⚠️ conflict" in alerts[0]
+
+    def test_tied_confidence_sends_both_directions(self, tmp_path: Any) -> None:
+        """When confidence is equal, both LONG and SHORT alerts are sent."""
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        store = CooldownStore(str(tmp_path / "state.json"))
+        ohlcv = self._make_ohlcv()
+        long_signals = self._make_signals_df("long", "fvg_long")
+        short_signals = self._make_signals_df("short", "bos_short")
+
+        with (
+            patch("analytics.signal_lib.get_ohlcv", return_value=ohlcv),
+            patch(
+                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+            ),
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {
+                    "fvg": {"detector": lambda df: long_signals, "confidence": 4},
+                    "bos": {"detector": lambda df: short_signals, "confidence": 4},
+                },
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                {
+                    "fvg": type(
+                        "S",
+                        (),
+                        {"requires_funding": False, "requires_secondary": False},
+                    )(),
+                    "bos": type(
+                        "S",
+                        (),
+                        {"requires_funding": False, "requires_secondary": False},
+                    )(),
+                },
+            ),
+        ):
+            alerts = run_scan_cycle(
+                conn=conn,
+                symbols=["BTCUSDT"],
+                timeframes=["4h"],
+                strategies=["fvg", "bos"],
+                store=store,
+            )
+
+        assert len(alerts) == 2  # one per direction
+        directions = {a.split("Direction: ")[1].split()[0] for a in alerts}
+        assert "LONG" in directions
+        assert "SHORT" in directions
+        for alert in alerts:
+            assert "⚠️ conflict" in alert
+
+    def test_conflict_tag_appended_to_reason_string(self, tmp_path: Any) -> None:
+        """The conflict tag appears inside the reason field, not just anywhere in the alert."""
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        store = CooldownStore(str(tmp_path / "state.json"))
+        ohlcv = self._make_ohlcv()
+        long_signals = self._make_signals_df("long", "fvg_long")
+        short_signals = self._make_signals_df("short", "bos_short")
+
+        with (
+            patch("analytics.signal_lib.get_ohlcv", return_value=ohlcv),
+            patch(
+                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+            ),
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {
+                    "fvg": {"detector": lambda df: long_signals, "confidence": 5},
+                    "bos": {"detector": lambda df: short_signals, "confidence": 3},
+                },
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                {
+                    "fvg": type(
+                        "S",
+                        (),
+                        {"requires_funding": False, "requires_secondary": False},
+                    )(),
+                    "bos": type(
+                        "S",
+                        (),
+                        {"requires_funding": False, "requires_secondary": False},
+                    )(),
+                },
+            ),
+        ):
+            alerts = run_scan_cycle(
+                conn=conn,
+                symbols=["BTCUSDT"],
+                timeframes=["4h"],
+                strategies=["fvg", "bos"],
+                store=store,
+            )
+
+        assert len(alerts) == 1
+        # The alert contains a backtick-quoted reason field with the conflict tag
+        assert "fvg_long@104.00 ⚠️ conflict`" in alerts[0]
+
+    def test_no_conflict_no_tag(self, tmp_path: Any) -> None:
+        """Signals without a conflict must NOT have ⚠️ conflict in the alert."""
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        store = CooldownStore(str(tmp_path / "state.json"))
+        ohlcv = self._make_ohlcv()
+        long_signals = self._make_signals_df("long", "fvg_long")
+
+        with (
+            patch("analytics.signal_lib.get_ohlcv", return_value=ohlcv),
+            patch(
+                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+            ),
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {
+                    "fvg": {"detector": lambda df: long_signals, "confidence": 4},
+                },
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                {
+                    "fvg": type(
+                        "S",
+                        (),
+                        {"requires_funding": False, "requires_secondary": False},
+                    )(),
+                },
+            ),
+        ):
+            alerts = run_scan_cycle(
+                conn=conn,
+                symbols=["BTCUSDT"],
+                timeframes=["4h"],
+                strategies=["fvg"],
+                store=store,
+            )
+
+        assert len(alerts) == 1
+        assert "⚠️ conflict" not in alerts[0]
