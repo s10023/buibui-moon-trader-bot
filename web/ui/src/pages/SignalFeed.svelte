@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import { onMount } from "svelte";
   import { get } from "svelte/store";
   import { getSignals } from "../api";
   import { symbols } from "../stores/config";
@@ -62,11 +62,17 @@
 
   let interval: ReturnType<typeof setInterval>;
   onMount(() => {
-    // Only fetch on first load; subsequent tab visits reuse cached store data
-    if (get(signalsLoading)) void fetchAll();
+    // Delay initial fetch until config + strategies are loaded (they're async in App.svelte).
+    // Subscribe to symbols; fire fetchAll() as soon as symbols populate (if not already loaded).
+    const unsub = symbols.subscribe((syms) => {
+      if (syms.length > 0 && get(signalsLoading)) void fetchAll();
+    });
     interval = setInterval(() => void fetchAll(), POLL_MS);
+    return () => {
+      unsub();
+      clearInterval(interval);
+    };
   });
-  onDestroy(() => clearInterval(interval));
 
   const filtered = $derived(
     $signalsStore.filter((s) => {
@@ -128,7 +134,7 @@
     </label>
     <button onclick={() => void fetchAll()}>Refresh</button>
     <span class="result-count">
-      {#if !loading}{filtered.length} result{filtered.length !== 1 ? "s" : ""}{/if}
+      {#if !$signalsLoading}{filtered.length} result{filtered.length !== 1 ? "s" : ""}{/if}
     </span>
   </div>
 
