@@ -8,6 +8,7 @@ run_scan_cycle(): fans out across all symbols/timeframes, pre-fetches OHLCV once
 No module-level side effects.
 """
 
+import datetime
 import logging
 import math
 import time
@@ -138,12 +139,17 @@ def scan_symbol(
     strategies: list[str],
     secondary_df: pd.DataFrame | None = None,
     funding_df: pd.DataFrame | None = None,
+    day_filter: bool = False,
 ) -> list[SignalEvent]:
     """Run requested strategies against a pre-fetched OHLCV DataFrame.
 
     Returns SignalEvents whose open_time matches the latest candle in the data.
     Only the latest candle is checked — signals on older candles are ignored
     to prevent re-alerting on historical data after a restart.
+
+    When day_filter is True, signals whose open_time falls on Monday (weekday 0)
+    or Friday (weekday 4) in UTC are suppressed (ICT weekly cycle — lower-quality
+    manipulation/distribution days).
     """
     if ohlcv_df.empty or len(ohlcv_df) < 3:
         return []
@@ -206,6 +212,24 @@ def scan_symbol(
                 )
             )
 
+    if day_filter and events:
+        filtered: list[SignalEvent] = []
+        for event in events:
+            weekday = datetime.datetime.fromtimestamp(
+                event.open_time / 1000, tz=datetime.UTC
+            ).weekday()
+            if weekday in (0, 4):  # 0=Monday, 4=Friday
+                logger.debug(
+                    "Day filter suppressed %s %s %s (weekday %d)",
+                    event.symbol,
+                    event.timeframe,
+                    event.strategy,
+                    weekday,
+                )
+            else:
+                filtered.append(event)
+        return filtered
+
     return events
 
 
@@ -223,6 +247,7 @@ def run_scan_cycle(
     secondary_map: dict[str, str] | None = None,
     days: int = 90,
     backtest_cfg: BacktestFilterConfig | None = None,
+    day_filter: bool = False,
 ) -> list[str]:
     """Scan all symbol+timeframe combinations and return formatted alert strings.
 
@@ -235,6 +260,7 @@ def run_scan_cycle(
     secondary_map: per-symbol mapping of primary → secondary symbol for smt_divergence.
     Secondaries are fetched once per (secondary_symbol, timeframe) even if shared by
     multiple primaries.
+    day_filter: when True, Monday and Friday signals are suppressed (ICT weekly cycle).
     """
     from utils.telegram import send_telegram_message
 
@@ -287,6 +313,7 @@ def run_scan_cycle(
                 strategies=strategies,
                 secondary_df=sec_df,
                 funding_df=funding_df,
+                day_filter=day_filter,
             )
 
             # Conflict suppression: opposite directions on same symbol/tf → suppress all
