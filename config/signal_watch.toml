@@ -13,10 +13,10 @@ telegram = true
 min_sl_pct = 0.01
 
 # Suppress Monday and Friday signals (ICT weekly cycle — manipulation/distribution days)
-# day_filter = false
+ day_filter = true
 
 # EMA-50 trend gate for smt_divergence: LONG only above EMA, SHORT only below (1=on, 0=off)
-# smt_trend_filter = 1
+ smt_trend_filter = 1
 
 # Strategies to run — omit to run all strategies in SIGNAL_REGISTRY
 # strategies = ["fvg", "bos", "liquidity_sweep"]
