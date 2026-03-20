@@ -90,10 +90,10 @@
       <tr><th>#</th><th>Dir</th><th>Entry</th><th>Exit</th><th>Outcome</th><th>PnL R</th></tr>
     </thead>
     <tbody>
-      {#each result.trades as t, i}
+      {#each [...result.trades].reverse() as t, i}
         {@const cls = t.outcome === "win" ? "green" : t.outcome === "loss" ? "red" : "muted"}
         <tr>
-          <td class="muted">{i + 1}</td>
+          <td class="muted">{result.trades.length - i}</td>
           <td class={t.direction === "long" ? "green" : "red"}>{t.direction.toUpperCase()}</td>
           <td class="mono">{t.entry_price.toLocaleString()}</td>
           <td class="mono">{t.exit_price != null ? t.exit_price.toLocaleString() : "—"}</td>
