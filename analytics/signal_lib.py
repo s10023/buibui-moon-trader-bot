@@ -170,6 +170,14 @@ def scan_symbol(
         requires_funding = spec.requires_funding if spec else False
         requires_secondary = spec.requires_secondary if spec else False
 
+        # trend_day is a daily-session concept; firing on sub-4h candles produces
+        # noise (any strong 15m candle qualifies). Restrict to 4h and 1d only.
+        if strategy_name == "trend_day" and timeframe not in ("4h", "1d"):
+            logger.debug(
+                "Skipping trend_day for %s %s — only valid on 4h/1d", symbol, timeframe
+            )
+            continue
+
         try:
             if requires_funding:
                 if funding_df is None or funding_df.empty:
