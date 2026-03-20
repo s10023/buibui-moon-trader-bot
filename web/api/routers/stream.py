@@ -13,6 +13,12 @@ from monitor.position_lib import fetch_open_positions
 from monitor.price_lib import get_price_changes
 from utils.binance_client import load_coins_config
 from web.api.deps import get_client, require_token_sse
+from web.api.models.positions import PositionRow, PositionsResponse
+from web.api.routers.positions import (
+    _parse_float_or_none,
+    _parse_int_or_none,
+    _strip_ansi,
+)
 
 router = APIRouter()
 
@@ -73,30 +79,31 @@ async def _positions_event_generator(client: Client) -> AsyncGenerator[str, None
                         coins,
                         symbols,
                     )
-                    data = {
-                        "positions": [
-                            {
-                                "symbol": str(row[0]),
-                                "side": str(row[1]),
-                                "leverage": str(row[2]),
-                                "entry": str(row[3]),
-                                "mark": str(row[4]),
-                                "margin": str(row[5]),
-                                "notional": str(row[6]),
-                                "pnl": str(row[7]),
-                                "pnl_pct": str(row[8]),
-                                "risk_pct": str(row[9]),
-                                "sl_price": str(row[10]),
-                                "sl_size": str(row[11]),
-                                "sl_usd": str(row[12]),
-                            }
-                            for row in rows
-                        ],
-                        "wallet_balance": wallet,
-                        "unrealized_pnl": unrealized,
-                        "available_balance": available,
-                        "total_risk_usd": total_risk_usd,
-                    }
+                    positions = [
+                        PositionRow(
+                            symbol=str(row[0]),
+                            side=_strip_ansi(row[1]),
+                            leverage=_parse_int_or_none(row[2]),
+                            entry_price=_parse_float_or_none(row[3]),
+                            mark_price=_parse_float_or_none(row[4]),
+                            margin=_parse_float_or_none(row[5]),
+                            notional=_parse_float_or_none(row[6]),
+                            pnl=_parse_float_or_none(row[7]),
+                            pnl_pct=_parse_float_or_none(row[8]),
+                            risk_pct=_strip_ansi(row[9]) if row[9] != "-" else None,
+                            sl_price=_parse_float_or_none(row[10]),
+                            sl_size=_strip_ansi(row[11]) if row[11] != "-" else None,
+                            sl_usd=_strip_ansi(row[12]) if row[12] != "-" else None,
+                        )
+                        for row in rows
+                    ]
+                    data = PositionsResponse(
+                        positions=positions,
+                        wallet_balance=wallet,
+                        unrealized_pnl=unrealized,
+                        available_balance=available,
+                        total_risk_usd=total_risk_usd,
+                    ).model_dump()
                     yield f"data: {json.dumps(data)}\n\n"
                 except Exception:
                     pass
