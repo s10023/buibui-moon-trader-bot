@@ -8,6 +8,7 @@ Seasonality returns a summary statistics DataFrame instead.
 No module-level side effects.
 """
 
+import datetime as _dt
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
@@ -638,12 +639,18 @@ def detect_liquidity_sweep(
         swing_high = float(rolling_high.iloc[i])
         swing_low = float(rolling_low.iloc[i])
 
+        open_time_ms = int(row["open_time"])
+        is_monday = _dt.datetime.utcfromtimestamp(open_time_ms / 1000).weekday() == 0
+        monday_tag = (
+            " [Mon: manipulation zone — wait for Tue expansion]" if is_monday else ""
+        )
+
         if candle_high > swing_high * (1 + min_sweep_pct) and candle_close < swing_high:
             signals.append(
                 {
-                    "open_time": int(row["open_time"]),
+                    "open_time": open_time_ms,
                     "direction": "short",
-                    "reason": f"sweep_high@{swing_high:.2f}",
+                    "reason": f"sweep_high@{swing_high:.2f}{monday_tag}",
                     "sl_price": candle_high,
                     "context": "",
                 }
@@ -652,9 +659,9 @@ def detect_liquidity_sweep(
         if candle_low < swing_low * (1 - min_sweep_pct) and candle_close > swing_low:
             signals.append(
                 {
-                    "open_time": int(row["open_time"]),
+                    "open_time": open_time_ms,
                     "direction": "long",
-                    "reason": f"sweep_low@{swing_low:.2f}",
+                    "reason": f"sweep_low@{swing_low:.2f}{monday_tag}",
                     "sl_price": candle_low,
                     "context": "",
                 }
