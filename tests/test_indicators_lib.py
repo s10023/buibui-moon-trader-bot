@@ -18,6 +18,7 @@ from analytics.indicators_lib import (
     detect_orb_breakout,
     detect_order_block,
     detect_smt_divergence,
+    detect_trend_day,
     detect_wick_fills,
     seasonality_stats,
 )
@@ -1474,3 +1475,106 @@ class TestCvdDivergence:
         df = self._make_cvd_df(highs, lows, tbvs)
         result = detect_cvd_divergence(df, lookback=self._LOOKBACK, cvd_lookback=n)
         _assert_signal_columns(result)
+
+
+# ---------------------------------------------------------------------------
+# Trend Day
+# ---------------------------------------------------------------------------
+
+
+class TestDetectTrendDay:
+    """Tests for detect_trend_day()."""
+
+    def test_returns_empty_on_empty_dataframe(self) -> None:
+        result = detect_trend_day(pd.DataFrame())
+        assert result.empty
+        _assert_signal_columns(result)
+
+    def test_detects_bullish_trend_day(self) -> None:
+        # open=100, high=110, low=99, close=109
+        # range=11, body=9, body_pct=9/11≈0.818, lower_wick=(100-99)/11≈0.091
+        # With defaults body_pct_min=0.65, wick_max=0.15 → bullish signal
+        df = _make_ohlcv([_candle(_BASE_TIME, 100, 110, 99, 109)])
+        result = detect_trend_day(df)
+        assert len(result) == 1
+        assert result.iloc[0]["direction"] == "long"
+        assert result.iloc[0]["open_time"] == _BASE_TIME
+        assert float(result.iloc[0]["sl_price"]) == 99.0
+
+    def test_detects_bearish_trend_day(self) -> None:
+        # open=109, high=110, low=99, close=100
+        # range=11, body=9, body_pct=9/11≈0.818, upper_wick=(110-109)/11≈0.091
+        # → bearish signal
+        df = _make_ohlcv([_candle(_BASE_TIME, 109, 110, 99, 100)])
+        result = detect_trend_day(df)
+        assert len(result) == 1
+        assert result.iloc[0]["direction"] == "short"
+        assert result.iloc[0]["open_time"] == _BASE_TIME
+        assert float(result.iloc[0]["sl_price"]) == 110.0
+
+    def test_no_signal_for_doji(self) -> None:
+        # open == close → body_pct=0 < 0.65
+        df = _make_ohlcv([_candle(_BASE_TIME, 100, 110, 90, 100)])
+        result = detect_trend_day(df)
+        assert result.empty
+
+    def test_no_signal_when_body_too_small(self) -> None:
+        # range=20, body=5 → body_pct=0.25 < 0.65
+        df = _make_ohlcv([_candle(_BASE_TIME, 100, 110, 90, 105)])
+        result = detect_trend_day(df)
+        assert result.empty
+
+    def test_no_signal_when_leading_wick_too_large(self) -> None:
+        # Bullish but large lower wick: open=105, high=110, low=90, close=109
+        # range=20, body=4, body_pct=4/20=0.20 < 0.65 → filtered by body check already
+        # Use a case that passes body but fails wick:
+        # open=100, high=110, low=90, close=109
+        # range=20, body=9, body_pct=9/20=0.45 < 0.65 → filtered by body
+        # Design: open=100, high=108, low=90, close=107
+        # range=18, body=7, body_pct=7/18≈0.389 < 0.65 → still filtered
+        # Design explicit: body_pct=0.70 but lower_wick=0.20 > wick_max=0.15
+        # range=10, body=7, lower_wick=2, upper_wick=1
+        # open=102, high=109, low=100, close=109 → upper_wick=0, body=7, lower_wick=2
+        # body_pct=7/9≈0.778, lower_wick=2/9≈0.222 > 0.15 → no bullish signal
+        df = _make_ohlcv([_candle(_BASE_TIME, 102, 109, 100, 109)])
+        result = detect_trend_day(df, body_pct_min=0.65, wick_max=0.15)
+        assert result.empty
+
+    def test_no_signal_for_zero_range_candle(self) -> None:
+        # high == low — skip to avoid division by zero
+        df = _make_ohlcv([_candle(_BASE_TIME, 100, 100, 100, 100)])
+        result = detect_trend_day(df)
+        assert result.empty
+
+    def test_multiple_candles_detects_both_directions(self) -> None:
+        rows = [
+            _candle(_BASE_TIME + 0, 100, 110, 99, 109),  # bullish trend day
+            _candle(_BASE_TIME + 1, 100, 110, 90, 105),  # doji-ish, no signal
+            _candle(_BASE_TIME + 2, 109, 110, 99, 100),  # bearish trend day
+        ]
+        df = _make_ohlcv(rows)
+        result = detect_trend_day(df)
+        assert len(result) == 2
+        directions = set(result["direction"].tolist())
+        assert directions == {"long", "short"}
+
+    def test_signal_columns_correct(self) -> None:
+        df = _make_ohlcv([_candle(_BASE_TIME, 100, 110, 99, 109)])
+        result = detect_trend_day(df)
+        _assert_signal_columns(result)
+
+    def test_custom_params_stricter_body(self) -> None:
+        # body_pct≈0.818 passes default 0.65 but not strict 0.9
+        df = _make_ohlcv([_candle(_BASE_TIME, 100, 110, 99, 109)])
+        result = detect_trend_day(df, body_pct_min=0.9)
+        assert result.empty
+
+    def test_reason_string_format_bullish(self) -> None:
+        df = _make_ohlcv([_candle(_BASE_TIME, 100.0, 110.0, 99.0, 109.0)])
+        result = detect_trend_day(df)
+        assert result.iloc[0]["reason"] == "trend_day_bull@100.00-109.00"
+
+    def test_reason_string_format_bearish(self) -> None:
+        df = _make_ohlcv([_candle(_BASE_TIME, 109.0, 110.0, 99.0, 100.0)])
+        result = detect_trend_day(df)
+        assert result.iloc[0]["reason"] == "trend_day_bear@109.00-100.00"
