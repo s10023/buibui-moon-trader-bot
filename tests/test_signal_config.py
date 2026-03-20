@@ -27,6 +27,8 @@ class TestSignalWatchConfigDefaults:
         assert cfg.cooldown_seconds == 3600.0
         assert cfg.state_file == "signal_state.json"
         assert cfg.smt_pairs == {}
+        assert cfg.day_filter is False
+        assert cfg.smt_trend_filter == 1
 
 
 class TestLoadSignalConfig:
@@ -67,6 +69,13 @@ ETHUSDT = "BTCUSDT"
         assert cfg.cooldown_seconds == 7200.0
         assert cfg.state_file == "my_state.json"
         assert cfg.smt_pairs == {"BTCUSDT": "ETHUSDT", "ETHUSDT": "BTCUSDT"}
+
+    def test_full_config_day_filter_and_smt_trend_filter(self, tmp_path: Path) -> None:
+        content = "day_filter = true\nsmt_trend_filter = 0\n"
+        p = _write_toml(tmp_path, content)
+        cfg = load_signal_config(p)
+        assert cfg.day_filter is True
+        assert cfg.smt_trend_filter == 0
 
     def test_file_not_found(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):
