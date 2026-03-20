@@ -26,6 +26,7 @@ signal_state.json
 web/ui/node_modules/
 web/ui/dist/
 web/ui/.env.local
+web/ui/.vite/
 
 # Skills system
 skills-lock.json

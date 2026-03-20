@@ -42,6 +42,8 @@ class SignalWatchConfig:
     # Per-symbol SMT secondary map: {"BTCUSDT": "ETHUSDT", ...}
     smt_pairs: dict[str, str] = field(default_factory=dict)
     backtest: BacktestFilterConfig = field(default_factory=BacktestFilterConfig)
+    # Suppress Monday and Friday signals (ICT weekly cycle)
+    day_filter: bool = False
 
 
 def load_signal_config(path: str | Path) -> SignalWatchConfig:
@@ -81,4 +83,5 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         state_file=str(data.get("state_file", "signal_state.json")),
         smt_pairs=smt_pairs,
         backtest=backtest,
+        day_filter=bool(data.get("day_filter", False)),
     )

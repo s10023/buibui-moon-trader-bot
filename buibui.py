@@ -130,6 +130,7 @@ def run_signal_watch(args: argparse.Namespace) -> None:
         secondary_symbol=args.secondary_symbol,
         smt_pairs=smt_pairs,
         backtest_cfg=cfg.backtest,
+        day_filter=cfg.day_filter,
     )
 
 
