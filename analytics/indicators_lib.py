@@ -304,6 +304,223 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
         ],
         confidence=3,
     ),
+    "engulfing": StrategySpec(
+        name="engulfing",
+        description="Bullish/Bearish Engulfing: current candle body fully engulfs the prior candle body.",
+        params=[
+            ParamSpec(
+                "sl_pct",
+                "float",
+                0.02,
+                0.001,
+                0.1,
+                "Stop-loss distance as a fraction of entry price.",
+            ),
+            ParamSpec(
+                "tp_r",
+                "float",
+                2.0,
+                0.5,
+                10.0,
+                "Take-profit as a multiple of SL distance (risk-reward ratio).",
+            ),
+        ],
+        confidence=2,
+    ),
+    "pin_bar": StrategySpec(
+        name="pin_bar",
+        description="Pin Bar: small body with a long wick (≥2× body) indicating rejection.",
+        params=[
+            ParamSpec(
+                "wick_ratio",
+                "float",
+                2.0,
+                1.0,
+                10.0,
+                "Minimum ratio of rejection wick to body to qualify as a pin bar.",
+            ),
+            ParamSpec(
+                "sl_pct",
+                "float",
+                0.02,
+                0.001,
+                0.1,
+                "Stop-loss distance as a fraction of entry price.",
+            ),
+            ParamSpec(
+                "tp_r",
+                "float",
+                2.0,
+                0.5,
+                10.0,
+                "Take-profit as a multiple of SL distance.",
+            ),
+        ],
+        confidence=2,
+    ),
+    "inside_bar": StrategySpec(
+        name="inside_bar",
+        description="Inside Bar breakout: body of current candle is fully within prior candle body; signal fires on breakout close.",
+        params=[
+            ParamSpec(
+                "sl_pct",
+                "float",
+                0.02,
+                0.001,
+                0.1,
+                "Stop-loss distance as a fraction of entry price.",
+            ),
+            ParamSpec(
+                "tp_r",
+                "float",
+                2.0,
+                0.5,
+                10.0,
+                "Take-profit as a multiple of SL distance.",
+            ),
+        ],
+        confidence=2,
+    ),
+    "hammer_hanging_man": StrategySpec(
+        name="hammer_hanging_man",
+        description="Hammer (bullish reversal at recent low) / Hanging Man (bearish at recent high): pin-bar shape with context.",
+        params=[
+            ParamSpec(
+                "wick_ratio",
+                "float",
+                2.0,
+                1.0,
+                10.0,
+                "Minimum lower-wick-to-body ratio for hammer/hanging man shape.",
+            ),
+            ParamSpec(
+                "context_lookback",
+                "int",
+                10,
+                3,
+                50,
+                "Bars to check for prior trend context (down for hammer, up for hanging man).",
+            ),
+            ParamSpec(
+                "sl_pct",
+                "float",
+                0.02,
+                0.001,
+                0.1,
+                "Stop-loss distance as a fraction of entry price.",
+            ),
+            ParamSpec(
+                "tp_r",
+                "float",
+                2.0,
+                0.5,
+                10.0,
+                "Take-profit as a multiple of SL distance.",
+            ),
+        ],
+        confidence=2,
+    ),
+    "doji": StrategySpec(
+        name="doji",
+        description="Doji (open ≈ close) followed by a strongly directional candle.",
+        params=[
+            ParamSpec(
+                "body_threshold",
+                "float",
+                0.1,
+                0.01,
+                0.3,
+                "Maximum body-to-range ratio to qualify as a doji (open ≈ close).",
+            ),
+            ParamSpec(
+                "confirm_body_pct",
+                "float",
+                0.6,
+                0.3,
+                0.95,
+                "Minimum body-to-range ratio of the confirmation candle.",
+            ),
+            ParamSpec(
+                "sl_pct",
+                "float",
+                0.02,
+                0.001,
+                0.1,
+                "Stop-loss distance as a fraction of entry price.",
+            ),
+            ParamSpec(
+                "tp_r",
+                "float",
+                2.0,
+                0.5,
+                10.0,
+                "Take-profit as a multiple of SL distance.",
+            ),
+        ],
+        confidence=2,
+    ),
+    "morning_evening_star": StrategySpec(
+        name="morning_evening_star",
+        description="Morning Star (3-candle bullish reversal) / Evening Star (3-candle bearish reversal).",
+        params=[
+            ParamSpec(
+                "star_body_max",
+                "float",
+                0.3,
+                0.05,
+                0.5,
+                "Maximum body-to-range ratio for the star (middle) candle.",
+            ),
+            ParamSpec(
+                "sl_pct",
+                "float",
+                0.02,
+                0.001,
+                0.1,
+                "Stop-loss distance as a fraction of entry price.",
+            ),
+            ParamSpec(
+                "tp_r",
+                "float",
+                2.0,
+                0.5,
+                10.0,
+                "Take-profit as a multiple of SL distance.",
+            ),
+        ],
+        confidence=3,
+    ),
+    "fibonacci_retracement": StrategySpec(
+        name="fibonacci_retracement",
+        description="Fibonacci golden zone (0.5–0.618) retracement entry after a swing high/low.",
+        params=[
+            ParamSpec(
+                "swing_lookback",
+                "int",
+                20,
+                5,
+                100,
+                "Number of bars to scan for the most recent swing high and swing low.",
+            ),
+            ParamSpec(
+                "sl_pct",
+                "float",
+                0.02,
+                0.001,
+                0.1,
+                "Stop-loss distance as a fraction of entry price (used as fallback; actual SL is fib_0.786).",
+            ),
+            ParamSpec(
+                "tp_r",
+                "float",
+                2.0,
+                0.5,
+                10.0,
+                "Take-profit as a multiple of SL distance.",
+            ),
+        ],
+        confidence=3,
+    ),
 }
 
 SIGNAL_COLUMNS: list[str] = ["open_time", "direction", "reason", "sl_price", "context"]
@@ -1464,5 +1681,632 @@ def detect_trend_day(
                     "context": ctx,
                 }
             )
+
+    return _signals_to_df(signals)
+
+
+# ---------------------------------------------------------------------------
+# 14. Bullish / Bearish Engulfing
+# ---------------------------------------------------------------------------
+
+
+def detect_engulfing(
+    df: pd.DataFrame,
+    sl_pct: float = 0.02,
+    tp_r: float = 2.0,
+) -> pd.DataFrame:
+    """Detect Bullish and Bearish Engulfing 2-candle patterns.
+
+    Bullish Engulfing: current bullish candle body fully engulfs the prior
+    bearish candle body (current open < prior close AND current close > prior open).
+
+    Bearish Engulfing: current bearish candle body fully engulfs the prior
+    bullish candle body (current open > prior close AND current close < prior open).
+
+    SL: entry_price * (1 - sl_pct) for long, * (1 + sl_pct) for short.
+    TP: entry_price ± sl_distance * tp_r.
+    Signal open_time is the engulfing candle's open_time.
+    """
+    n = len(df)
+    if n < 2:
+        return _empty_signals()
+
+    signals: list[dict[str, object]] = []
+
+    opens = df["open"].to_numpy(dtype=float)
+    closes = df["close"].to_numpy(dtype=float)
+    open_times = df["open_time"].to_numpy(dtype=int)
+
+    for i in range(1, n):
+        prev_open = opens[i - 1]
+        prev_close = closes[i - 1]
+        curr_open = opens[i]
+        curr_close = closes[i]
+        open_time = open_times[i]
+
+        prev_body_top = max(prev_open, prev_close)
+        prev_body_bot = min(prev_open, prev_close)
+
+        # Bullish engulfing: prev bearish, curr bullish, curr body engulfs prev body
+        if (
+            prev_close < prev_open  # prev bearish
+            and curr_close > curr_open  # curr bullish
+            and curr_open < prev_body_bot
+            and curr_close > prev_body_top
+        ):
+            entry = curr_close
+            sl = entry * (1 - sl_pct)
+            sl_dist = entry - sl
+            tp = entry + sl_dist * tp_r
+            signals.append(
+                {
+                    "open_time": open_time,
+                    "direction": "long",
+                    "reason": f"bullish_engulfing@{entry:.2f}",
+                    "sl_price": sl,
+                    "context": f"TP={tp:.2f}",
+                }
+            )
+
+        # Bearish engulfing: prev bullish, curr bearish, curr body engulfs prev body
+        elif (
+            prev_close > prev_open  # prev bullish
+            and curr_close < curr_open  # curr bearish
+            and curr_open > prev_body_top
+            and curr_close < prev_body_bot
+        ):
+            entry = curr_close
+            sl = entry * (1 + sl_pct)
+            sl_dist = sl - entry
+            tp = entry - sl_dist * tp_r
+            signals.append(
+                {
+                    "open_time": open_time,
+                    "direction": "short",
+                    "reason": f"bearish_engulfing@{entry:.2f}",
+                    "sl_price": sl,
+                    "context": f"TP={tp:.2f}",
+                }
+            )
+
+    return _signals_to_df(signals)
+
+
+# ---------------------------------------------------------------------------
+# 15. Pin Bar
+# ---------------------------------------------------------------------------
+
+
+def detect_pin_bar(
+    df: pd.DataFrame,
+    wick_ratio: float = 2.0,
+    sl_pct: float = 0.02,
+    tp_r: float = 2.0,
+) -> pd.DataFrame:
+    """Detect Pin Bar patterns (hammer / shooting star shape).
+
+    Bullish Pin Bar (hammer shape): small body at the top of the range with
+    a long lower wick ≥ wick_ratio × body.
+    Bearish Pin Bar (shooting star shape): small body at the bottom of the
+    range with a long upper wick ≥ wick_ratio × body.
+
+    SL: entry_price * (1 ± sl_pct).
+    """
+    n = len(df)
+    if n < 1:
+        return _empty_signals()
+
+    signals: list[dict[str, object]] = []
+
+    for i in range(n):
+        row = df.iloc[i]
+        o = float(row["open"])
+        h = float(row["high"])
+        lo = float(row["low"])
+        c = float(row["close"])
+
+        body = abs(c - o)
+        if body == 0.0:
+            continue
+
+        upper_wick = h - max(o, c)
+        lower_wick = min(o, c) - lo
+        open_time = int(row["open_time"])
+
+        # Bullish pin bar: long lower wick, small upper wick (≤ body)
+        if lower_wick >= wick_ratio * body and upper_wick <= body:
+            entry = c
+            sl = entry * (1 - sl_pct)
+            sl_dist = entry - sl
+            tp = entry + sl_dist * tp_r
+            signals.append(
+                {
+                    "open_time": open_time,
+                    "direction": "long",
+                    "reason": f"pin_bar_bull@{entry:.2f}",
+                    "sl_price": sl,
+                    "context": f"TP={tp:.2f}",
+                }
+            )
+
+        # Bearish pin bar: long upper wick, small lower wick (≤ body)
+        elif upper_wick >= wick_ratio * body and lower_wick <= body:
+            entry = c
+            sl = entry * (1 + sl_pct)
+            sl_dist = sl - entry
+            tp = entry - sl_dist * tp_r
+            signals.append(
+                {
+                    "open_time": open_time,
+                    "direction": "short",
+                    "reason": f"pin_bar_bear@{entry:.2f}",
+                    "sl_price": sl,
+                    "context": f"TP={tp:.2f}",
+                }
+            )
+
+    return _signals_to_df(signals)
+
+
+# ---------------------------------------------------------------------------
+# 16. Inside Bar Breakout
+# ---------------------------------------------------------------------------
+
+
+def detect_inside_bar(
+    df: pd.DataFrame,
+    sl_pct: float = 0.02,
+    tp_r: float = 2.0,
+) -> pd.DataFrame:
+    """Detect Inside Bar breakout patterns.
+
+    An inside bar forms when the current candle's body is fully within the
+    prior candle's body (high of inside ≤ high of mother, low of inside ≥ low
+    of mother using body extremes, not wicks).
+
+    Signal fires on the breakout candle (the candle AFTER the inside bar) that
+    closes above/below the mother bar body:
+    - Long: close > mother bar body top.
+    - Short: close < mother bar body bottom.
+
+    SL: entry_price * (1 ± sl_pct).
+    """
+    n = len(df)
+    if n < 3:
+        return _empty_signals()
+
+    signals: list[dict[str, object]] = []
+
+    opens = df["open"].to_numpy(dtype=float)
+    closes = df["close"].to_numpy(dtype=float)
+    open_times = df["open_time"].to_numpy(dtype=int)
+
+    for i in range(1, n - 1):
+        mother_top = max(opens[i - 1], closes[i - 1])
+        mother_bot = min(opens[i - 1], closes[i - 1])
+        inside_top = max(opens[i], closes[i])
+        inside_bot = min(opens[i], closes[i])
+
+        # Check inside bar: body of candle i fully inside body of candle i-1
+        if inside_top <= mother_top and inside_bot >= mother_bot:
+            # Breakout candle is i+1
+            breakout_close = closes[i + 1]
+            open_time = open_times[i + 1]
+            if breakout_close > mother_top:
+                entry = breakout_close
+                sl = entry * (1 - sl_pct)
+                sl_dist = entry - sl
+                tp = entry + sl_dist * tp_r
+                signals.append(
+                    {
+                        "open_time": open_time,
+                        "direction": "long",
+                        "reason": f"inside_bar_long@{entry:.2f}",
+                        "sl_price": sl,
+                        "context": f"TP={tp:.2f}",
+                    }
+                )
+            elif breakout_close < mother_bot:
+                entry = breakout_close
+                sl = entry * (1 + sl_pct)
+                sl_dist = sl - entry
+                tp = entry - sl_dist * tp_r
+                signals.append(
+                    {
+                        "open_time": open_time,
+                        "direction": "short",
+                        "reason": f"inside_bar_short@{entry:.2f}",
+                        "sl_price": sl,
+                        "context": f"TP={tp:.2f}",
+                    }
+                )
+
+    return _signals_to_df(signals)
+
+
+# ---------------------------------------------------------------------------
+# 17. Hammer / Hanging Man (context-aware pin bar)
+# ---------------------------------------------------------------------------
+
+
+def detect_hammer_hanging_man(
+    df: pd.DataFrame,
+    wick_ratio: float = 2.0,
+    context_lookback: int = 10,
+    sl_pct: float = 0.02,
+    tp_r: float = 2.0,
+) -> pd.DataFrame:
+    """Detect Hammer (bullish reversal) and Hanging Man (bearish reversal).
+
+    Same shape as a bullish pin bar (small body, long lower wick ≥ wick_ratio × body),
+    but context-aware:
+    - Hammer: shape appears after a downtrend (close[i] < close[i - context_lookback]).
+    - Hanging Man: same shape appears after an uptrend (close[i] > close[i - context_lookback]).
+
+    SL: entry_price * (1 ± sl_pct).
+    """
+    n = len(df)
+    if n < context_lookback + 1:
+        return _empty_signals()
+
+    signals: list[dict[str, object]] = []
+
+    for i in range(context_lookback, n):
+        row = df.iloc[i]
+        o = float(row["open"])
+        h = float(row["high"])
+        lo = float(row["low"])
+        c = float(row["close"])
+
+        body = abs(c - o)
+        if body == 0.0:
+            continue
+
+        upper_wick = h - max(o, c)
+        lower_wick = min(o, c) - lo
+
+        # Must have long lower wick and short upper wick (upper wick ≤ body)
+        if lower_wick < wick_ratio * body or upper_wick > body:
+            continue
+
+        open_time = int(row["open_time"])
+        prior_close = float(df.iloc[i - context_lookback]["close"])
+
+        if c < prior_close:
+            # Downtrend context → Hammer (bullish)
+            entry = c
+            sl = entry * (1 - sl_pct)
+            sl_dist = entry - sl
+            tp = entry + sl_dist * tp_r
+            signals.append(
+                {
+                    "open_time": open_time,
+                    "direction": "long",
+                    "reason": f"hammer@{entry:.2f}",
+                    "sl_price": sl,
+                    "context": f"TP={tp:.2f}",
+                }
+            )
+        else:
+            # Uptrend context → Hanging Man (bearish)
+            entry = c
+            sl = entry * (1 + sl_pct)
+            sl_dist = sl - entry
+            tp = entry - sl_dist * tp_r
+            signals.append(
+                {
+                    "open_time": open_time,
+                    "direction": "short",
+                    "reason": f"hanging_man@{entry:.2f}",
+                    "sl_price": sl,
+                    "context": f"TP={tp:.2f}",
+                }
+            )
+
+    return _signals_to_df(signals)
+
+
+# ---------------------------------------------------------------------------
+# 18. Doji + Confirmation
+# ---------------------------------------------------------------------------
+
+
+def detect_doji(
+    df: pd.DataFrame,
+    body_threshold: float = 0.1,
+    confirm_body_pct: float = 0.6,
+    sl_pct: float = 0.02,
+    tp_r: float = 2.0,
+) -> pd.DataFrame:
+    """Detect Doji + directional confirmation signals.
+
+    A Doji is a candle where open ≈ close (body ≤ body_threshold × range).
+    Signal fires when the NEXT candle is strongly directional
+    (body ≥ confirm_body_pct × range).
+
+    Long: confirmation candle is bullish (close > open).
+    Short: confirmation candle is bearish (close < open).
+
+    SL: entry_price * (1 ± sl_pct).
+    """
+    n = len(df)
+    if n < 2:
+        return _empty_signals()
+
+    signals: list[dict[str, object]] = []
+
+    for i in range(n - 1):
+        row = df.iloc[i]
+        o = float(row["open"])
+        h = float(row["high"])
+        lo = float(row["low"])
+        c = float(row["close"])
+
+        candle_range = h - lo
+        if candle_range == 0.0:
+            continue
+
+        body = abs(c - o)
+        if body > body_threshold * candle_range:
+            continue
+
+        # Check confirmation candle
+        nxt = df.iloc[i + 1]
+        nxt_o = float(nxt["open"])
+        nxt_h = float(nxt["high"])
+        nxt_lo = float(nxt["low"])
+        nxt_c = float(nxt["close"])
+        nxt_range = nxt_h - nxt_lo
+        if nxt_range == 0.0:
+            continue
+
+        nxt_body = abs(nxt_c - nxt_o)
+        if nxt_body < confirm_body_pct * nxt_range:
+            continue
+
+        open_time = int(nxt["open_time"])
+
+        if nxt_c > nxt_o:
+            entry = nxt_c
+            sl = entry * (1 - sl_pct)
+            sl_dist = entry - sl
+            tp = entry + sl_dist * tp_r
+            signals.append(
+                {
+                    "open_time": open_time,
+                    "direction": "long",
+                    "reason": f"doji_bull@{entry:.2f}",
+                    "sl_price": sl,
+                    "context": f"TP={tp:.2f}",
+                }
+            )
+        else:
+            entry = nxt_c
+            sl = entry * (1 + sl_pct)
+            sl_dist = sl - entry
+            tp = entry - sl_dist * tp_r
+            signals.append(
+                {
+                    "open_time": open_time,
+                    "direction": "short",
+                    "reason": f"doji_bear@{entry:.2f}",
+                    "sl_price": sl,
+                    "context": f"TP={tp:.2f}",
+                }
+            )
+
+    return _signals_to_df(signals)
+
+
+# ---------------------------------------------------------------------------
+# 19. Morning Star / Evening Star (3-candle reversal)
+# ---------------------------------------------------------------------------
+
+
+def detect_morning_evening_star(
+    df: pd.DataFrame,
+    star_body_max: float = 0.3,
+    sl_pct: float = 0.02,
+    tp_r: float = 2.0,
+) -> pd.DataFrame:
+    """Detect Morning Star (3-candle bullish) and Evening Star (3-candle bearish) patterns.
+
+    Morning Star:
+    - Candle[i-2]: large bearish candle (close < open).
+    - Candle[i-1]: small-body star candle (body ≤ star_body_max × range), gaps lower.
+    - Candle[i]:   large bullish candle (close > open) closing above midpoint of candle[i-2] body.
+
+    Evening Star (mirror):
+    - Candle[i-2]: large bullish candle.
+    - Candle[i-1]: small-body star.
+    - Candle[i]:   large bearish candle closing below midpoint of candle[i-2] body.
+
+    SL: entry_price * (1 ± sl_pct).
+    """
+    n = len(df)
+    if n < 3:
+        return _empty_signals()
+
+    signals: list[dict[str, object]] = []
+
+    opens = df["open"].to_numpy(dtype=float)
+    highs = df["high"].to_numpy(dtype=float)
+    lows = df["low"].to_numpy(dtype=float)
+    closes = df["close"].to_numpy(dtype=float)
+    open_times = df["open_time"].to_numpy(dtype=int)
+
+    for i in range(2, n):
+        a_o, _, _, a_c = opens[i - 2], highs[i - 2], lows[i - 2], closes[i - 2]
+        s_o, s_h, s_l, s_c = opens[i - 1], highs[i - 1], lows[i - 1], closes[i - 1]
+        b_o, _, _, b_c = opens[i], highs[i], lows[i], closes[i]
+
+        star_range = s_h - s_l
+        if star_range == 0.0:
+            continue
+        star_body = abs(s_c - s_o)
+
+        # Star candle must have small body
+        if star_body > star_body_max * star_range:
+            continue
+
+        # Morning Star: A bearish, B bullish, B closes above midpoint of A
+        if a_c < a_o and b_c > b_o:
+            a_mid = (a_o + a_c) / 2
+            if b_c > a_mid:
+                open_time = open_times[i]
+                entry = b_c
+                sl = entry * (1 - sl_pct)
+                sl_dist = entry - sl
+                tp = entry + sl_dist * tp_r
+                signals.append(
+                    {
+                        "open_time": open_time,
+                        "direction": "long",
+                        "reason": f"morning_star@{entry:.2f}",
+                        "sl_price": sl,
+                        "context": f"TP={tp:.2f}",
+                    }
+                )
+
+        # Evening Star: A bullish, B bearish, B closes below midpoint of A
+        elif a_c > a_o and b_c < b_o:
+            a_mid = (a_o + a_c) / 2
+            if b_c < a_mid:
+                open_time = open_times[i]
+                entry = b_c
+                sl = entry * (1 + sl_pct)
+                sl_dist = sl - entry
+                tp = entry - sl_dist * tp_r
+                signals.append(
+                    {
+                        "open_time": open_time,
+                        "direction": "short",
+                        "reason": f"evening_star@{entry:.2f}",
+                        "sl_price": sl,
+                        "context": f"TP={tp:.2f}",
+                    }
+                )
+
+    return _signals_to_df(signals)
+
+
+# ---------------------------------------------------------------------------
+# 20. Fibonacci Retracement (Golden Zone)
+# ---------------------------------------------------------------------------
+
+
+def detect_fibonacci_retracement(
+    df: pd.DataFrame,
+    swing_lookback: int = 20,
+    sl_pct: float = 0.02,
+    tp_r: float = 2.0,
+) -> pd.DataFrame:
+    """Detect Fibonacci golden zone (0.5–0.618) retracement signals.
+
+    Swing detection: scan the last `swing_lookback` bars (excluding the signal
+    candle) for the most recent swing high and swing low using a 3-bar pivot
+    (bar[i] is a pivot if it is strictly greater/less than bar[i-1] and bar[i+1]).
+
+    LONG signal (bullish swing established — swing_low before swing_high):
+    - Price retraces into the golden zone: fib_0.618 ≤ close ≤ fib_0.5.
+    - SL: fib_0.786 price level.
+    - TP: swing_high.
+
+    SHORT signal (bearish swing — swing_high before swing_low):
+    - Price retraces up into the golden zone from below: fib_0.5 ≤ close ≤ fib_0.618.
+    - SL: fib_0.786 above swing_high.
+    - TP: swing_low.
+
+    reason: e.g. "fib_golden_zone@70000.00 (0.618=69500.00)"
+    """
+    n = len(df)
+    if n < swing_lookback + 2:
+        return _empty_signals()
+
+    signals: list[dict[str, object]] = []
+
+    highs = df["high"].to_numpy(dtype=float)
+    lows = df["low"].to_numpy(dtype=float)
+    closes = df["close"].to_numpy(dtype=float)
+    open_times = df["open_time"].to_numpy(dtype=int)
+
+    for sig_i in range(swing_lookback + 1, n):
+        # Scan window: indices [sig_i - swing_lookback, sig_i - 1] (no lookahead)
+        win_start = sig_i - swing_lookback
+        win_end = sig_i - 1  # inclusive
+
+        # Find swing highs and lows in the window using 3-bar pivots
+        # (need at least 1 bar on each side, so scan [win_start+1, win_end-1])
+        swing_highs: list[tuple[int, float]] = []  # (idx_in_df, price)
+        swing_lows: list[tuple[int, float]] = []
+        for k in range(win_start + 1, win_end):
+            if highs[k] > highs[k - 1] and highs[k] > highs[k + 1]:
+                swing_highs.append((k, highs[k]))
+            if lows[k] < lows[k - 1] and lows[k] < lows[k + 1]:
+                swing_lows.append((k, lows[k]))
+
+        if not swing_highs or not swing_lows:
+            continue
+
+        # Most recent swing high and low
+        sh_idx, sh_price = swing_highs[-1]
+        sl_idx, sl_price = swing_lows[-1]
+
+        swing_range = sh_price - sl_price
+        if swing_range <= 0.0:
+            continue
+
+        # Fibonacci levels: measured as retracement from swing_high down (standard convention).
+        # 0% = swing_high, 100% = swing_low.
+        # fib_0_5   = sh_price - 0.5 * swing_range   (50% retracement)
+        # fib_0_618 = sh_price - 0.618 * swing_range  (61.8% retracement — golden zone bottom)
+        # fib_0_786 = sh_price - 0.786 * swing_range  (78.6% retracement — SL invalidation)
+        fib_0_5 = sh_price - 0.5 * swing_range
+        fib_0_618 = sh_price - 0.618 * swing_range
+        fib_0_786 = sh_price - 0.786 * swing_range
+
+        curr_close = closes[sig_i]
+        open_time = open_times[sig_i]
+
+        # LONG: swing_low established before swing_high (upswing), price now retracing.
+        # Enter long when price retraces into the golden zone (50%–61.8% retracement).
+        # SL: fib_0.786 — if price retraces 78.6%+ the up-move is invalidated.
+        if sl_idx < sh_idx:
+            if fib_0_5 >= curr_close >= fib_0_618:
+                signals.append(
+                    {
+                        "open_time": open_time,
+                        "direction": "long",
+                        "reason": f"fib_golden_zone@{curr_close:.2f} (0.618={fib_0_618:.2f})",
+                        "sl_price": fib_0_786,
+                        "context": (
+                            f"Fib: swing_low={sl_price:.2f} swing_high={sh_price:.2f} "
+                            f"TP={sh_price:.2f}"
+                        ),
+                    }
+                )
+
+        # SHORT: swing_high established before swing_low (downswing), price bouncing up.
+        # Enter short when price retraces UP into the golden zone (50%–61.8% of the down-move).
+        # Fib levels here measured from swing_low upward.
+        # SL: fib_0.786 measured from swing_low upward (price recovers too much → invalidated).
+        elif sh_idx < sl_idx:
+            short_fib_0_5 = sl_price + 0.5 * swing_range
+            short_fib_0_618 = sl_price + 0.618 * swing_range
+            short_fib_0_786 = sl_price + 0.786 * swing_range
+
+            if short_fib_0_618 >= curr_close >= short_fib_0_5:
+                signals.append(
+                    {
+                        "open_time": open_time,
+                        "direction": "short",
+                        "reason": f"fib_golden_zone@{curr_close:.2f} (0.618={short_fib_0_618:.2f})",
+                        "sl_price": short_fib_0_786,
+                        "context": (
+                            f"Fib: swing_high={sh_price:.2f} swing_low={sl_price:.2f} "
+                            f"TP={sl_price:.2f}"
+                        ),
+                    }
+                )
 
     return _signals_to_df(signals)
