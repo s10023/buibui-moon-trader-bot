@@ -53,6 +53,21 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
             PRIMARY KEY (symbol, timestamp)
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS signals (
+            symbol        VARCHAR NOT NULL,
+            timeframe     VARCHAR NOT NULL,
+            strategy      VARCHAR NOT NULL,
+            open_time     BIGINT  NOT NULL,
+            direction     VARCHAR NOT NULL,
+            entry_price   DOUBLE,
+            sl_price      DOUBLE,
+            reason        VARCHAR,
+            confidence    INTEGER,
+            fired_at      BIGINT  NOT NULL,
+            PRIMARY KEY (symbol, timeframe, strategy, open_time, direction)
+        )
+    """)
 
 
 def _upsert(
@@ -136,6 +151,51 @@ def get_funding_rates(
         "WHERE symbol = ? AND funding_time >= ? AND funding_time <= ? "
         "ORDER BY funding_time",
         [symbol, start, end],
+    ).df()
+
+
+def upsert_signals(conn: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> None:
+    """Insert or ignore signal rows (conflicts on PK are silently skipped).
+
+    df must have columns: symbol, timeframe, strategy, open_time, direction,
+    entry_price, sl_price, reason, confidence, fired_at.
+    Conflicts on (symbol, timeframe, strategy, open_time, direction) are ignored
+    so that re-runs of the same scan cycle do not overwrite previously persisted
+    signals with potentially different metadata.
+    """
+    if df.empty:
+        return
+    # Explicit register/unregister in try/finally — see _upsert docstring for why.
+    conn.register("_signals_upsert_df", df)
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO signals "
+            "SELECT symbol, timeframe, strategy, open_time, direction, "
+            "entry_price, sl_price, reason, confidence, fired_at "
+            "FROM _signals_upsert_df"
+        )
+    finally:
+        conn.unregister("_signals_upsert_df")
+
+
+def get_signals_history(
+    conn: duckdb.DuckDBPyConnection,
+    symbol: str,
+    timeframe: str,
+    start_ms: int,
+    end_ms: int,
+) -> pd.DataFrame:
+    """Return persisted signal rows for (symbol, timeframe) in [start_ms, end_ms].
+
+    Results are ordered by open_time descending (most recent first).
+    """
+    return conn.execute(
+        "SELECT symbol, timeframe, strategy, open_time, direction, "
+        "entry_price, sl_price, reason, confidence, fired_at "
+        "FROM signals "
+        "WHERE symbol = ? AND timeframe = ? AND open_time >= ? AND open_time <= ? "
+        "ORDER BY open_time DESC",
+        [symbol, timeframe, start_ms, end_ms],
     ).df()
 
 

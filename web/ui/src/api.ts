@@ -203,6 +203,21 @@ export const getSignals = (params: {
   strategies: string[];
 }) => apiFetch<SignalsResponse>("/api/signals", { method: "POST", body: JSON.stringify(params) });
 
+export const getSignalsHistory = (params: {
+  symbol: string;
+  timeframe: string;
+  start_ms: number;
+  end_ms: number;
+}) => {
+  const q = new URLSearchParams({
+    symbol: params.symbol,
+    timeframe: params.timeframe,
+    start_ms: String(params.start_ms),
+    end_ms: String(params.end_ms),
+  });
+  return apiFetch<SignalsResponse>(`/api/signals/history?${q}`);
+};
+
 export const runBacktest = (params: {
   symbol: string;
   timeframe: string;

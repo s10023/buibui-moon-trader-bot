@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { get } from "svelte/store";
-  import { getSignals } from "../api";
+  import { getSignalsHistory } from "../api";
   import { symbols } from "../stores/config";
   import { strategyNames } from "../stores/strategies";
   import {
@@ -37,18 +37,16 @@
     signalsError.set(null);
     try {
       const allSymbols = get(symbols);
-      const allStrategies = get(strategyNames);
-      if (allSymbols.length === 0 || allStrategies.length === 0) return;
+      if (allSymbols.length === 0) return;
 
       const settled = await Promise.allSettled(
         allSymbols.flatMap((sym) =>
           TIMEFRAMES.map(async (tf) => {
-            const resp = await getSignals({
+            const resp = await getSignalsHistory({
               symbol: sym,
               timeframe: tf,
               start_ms: startMs(),
               end_ms: nowMs(),
-              strategies: allStrategies,
             });
             return resp.signals.map((s): SignalWithMeta => ({ ...s, symbol: sym, timeframe: tf }));
           })
@@ -157,7 +155,7 @@
   </div>
 
   {#if $signalsLoading}
-    <LoadingSpinner label="Scanning signals..." />
+    <LoadingSpinner label="Loading signals..." />
   {:else}
     <table>
       <thead>

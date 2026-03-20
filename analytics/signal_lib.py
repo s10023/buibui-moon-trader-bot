@@ -18,7 +18,7 @@ import duckdb
 import pandas as pd
 
 from analytics.backtest_lib import BacktestResult, run_backtest
-from analytics.data_store import get_funding_rates, get_ohlcv
+from analytics.data_store import get_funding_rates, get_ohlcv, upsert_signals
 from analytics.indicators_lib import STRATEGY_REGISTRY
 from analytics.signal_config import BacktestFilterConfig
 from signals.alert_formatter import SignalEvent, format_confluence_alert
@@ -458,6 +458,32 @@ def run_scan_cycle(
                     event.direction,
                     event.open_time,
                     cooldown_seconds,
+                )
+
+            # Persist passing signals to DB so the Signal Feed can read from DB
+            # instead of re-scanning on every page load.
+            now_fired_ms = int(time.time() * 1000)
+            signals_rows = [
+                {
+                    "symbol": e.symbol,
+                    "timeframe": e.timeframe,
+                    "strategy": e.strategy,
+                    "open_time": e.open_time,
+                    "direction": e.direction,
+                    "entry_price": e.price,
+                    "sl_price": e.sl_price,
+                    "reason": e.reason,
+                    "confidence": e.confidence,
+                    "fired_at": now_fired_ms,
+                }
+                for e in passing_events
+            ]
+            signals_df = pd.DataFrame(signals_rows)
+            try:
+                upsert_signals(conn, signals_df)
+            except Exception:
+                logger.exception(
+                    "Failed to persist signals to DB for %s %s", symbol, tf
                 )
 
             # In a tied conflict, passing_events may contain both directions —

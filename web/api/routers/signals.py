@@ -1,13 +1,13 @@
-"""Signals router — POST /api/signals."""
+"""Signals router — POST /api/signals and GET /api/signals/history."""
 
 import math
 
 import duckdb
 import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from analytics.backtest_runner import detect_signals_for_strategy
-from analytics.data_store import get_ohlcv
+from analytics.data_store import get_ohlcv, get_signals_history
 from analytics.indicators_lib import KNOWN_STRATEGIES, STRATEGY_REGISTRY
 from utils.binance_client import load_coins_config
 from web.api.deps import get_db, require_token
@@ -104,6 +104,50 @@ def run_signals(
                 ),
                 confidence=int(sig.get("confidence", 3)),
                 context=str(sig.get("context", "")),
+            )
+        )
+
+    return SignalsResponse(signals=rows)
+
+
+@router.get("/signals/history", response_model=SignalsResponse)
+def get_signals_history_endpoint(
+    symbol: str = Query(...),
+    timeframe: str = Query(...),
+    start_ms: int = Query(...),
+    end_ms: int = Query(...),
+    db: duckdb.DuckDBPyConnection = Depends(get_db),
+) -> SignalsResponse:
+    """Return persisted signals from DB for a given symbol/timeframe window.
+
+    Reads from the signals table populated by the signal-watch daemon.
+    No live scan is performed — returns instantly from DB.
+    """
+    df = get_signals_history(db, symbol, timeframe, start_ms, end_ms)
+    if df.empty:
+        return SignalsResponse(signals=[])
+
+    rows: list[SignalRow] = []
+    for _, sig in df.iterrows():
+        entry = sig.get("entry_price")
+        rows.append(
+            SignalRow(
+                open_time=int(sig["open_time"]),
+                direction=str(sig["direction"]),
+                strategy=str(sig["strategy"]),
+                reason=str(sig["reason"])
+                if sig["reason"] is not None
+                else str(sig["strategy"]),
+                sl_price=float(sig["sl_price"]) if sig["sl_price"] is not None else 0.0,
+                entry_price=(
+                    float(entry)
+                    if entry is not None and not math.isnan(float(entry))
+                    else None
+                ),
+                confidence=int(sig["confidence"])
+                if sig["confidence"] is not None
+                else 3,
+                context="",
             )
         )
 
