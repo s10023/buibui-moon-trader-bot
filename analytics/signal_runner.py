@@ -42,6 +42,7 @@ def run_signal_watch(
     backtest_cfg: BacktestFilterConfig | None = None,
     day_filter: bool = False,
     smt_trend_filter: int = 1,
+    strategy_timeframes: dict[str, list[str]] | None = None,
 ) -> None:
     """Run the signal detection daemon loop.
 
@@ -161,6 +162,7 @@ def run_signal_watch(
                     backtest_cfg=backtest_cfg,
                     day_filter=day_filter,
                     smt_trend_filter=smt_trend_filter,
+                    strategy_timeframes=strategy_timeframes,
                 )
 
                 if alerts:

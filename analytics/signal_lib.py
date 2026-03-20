@@ -141,6 +141,7 @@ def scan_symbol(
     funding_df: pd.DataFrame | None = None,
     day_filter: bool = False,
     smt_trend_filter: int = 1,
+    strategy_timeframes: dict[str, list[str]] | None = None,
 ) -> list[SignalEvent]:
     """Run requested strategies against a pre-fetched OHLCV DataFrame.
 
@@ -151,6 +152,11 @@ def scan_symbol(
     When day_filter is True, signals whose open_time falls on Monday (weekday 0)
     or Friday (weekday 4) in UTC are suppressed (ICT weekly cycle — lower-quality
     manipulation/distribution days).
+
+    strategy_timeframes: optional per-strategy TF allow-list loaded from
+    [strategy_timeframes] in signal_watch.toml.  If a strategy appears in this
+    mapping, it is only run when the current timeframe is in its allowed list.
+    Strategies not listed run on all timeframes (no restriction).
     """
     if ohlcv_df.empty or len(ohlcv_df) < 3:
         return []
@@ -177,13 +183,19 @@ def scan_symbol(
         requires_funding = spec.requires_funding if spec else False
         requires_secondary = spec.requires_secondary if spec else False
 
-        # trend_day is a daily-session concept; firing on sub-4h candles produces
-        # noise (any strong 15m candle qualifies). Restrict to 4h and 1d only.
-        if strategy_name == "trend_day" and timeframe not in ("4h", "1d"):
-            logger.debug(
-                "Skipping trend_day for %s %s — only valid on 4h/1d", symbol, timeframe
-            )
-            continue
+        # Per-strategy timeframe allow-list from TOML [strategy_timeframes].
+        # If the strategy is listed, skip it when the current TF is not allowed.
+        if strategy_timeframes:
+            allowed_tfs = strategy_timeframes.get(strategy_name)
+            if allowed_tfs is not None and timeframe not in allowed_tfs:
+                logger.debug(
+                    "Skipping %s for %s %s — not in allowed TFs %s",
+                    strategy_name,
+                    symbol,
+                    timeframe,
+                    allowed_tfs,
+                )
+                continue
 
         try:
             if requires_funding:
@@ -270,6 +282,7 @@ def run_scan_cycle(
     backtest_cfg: BacktestFilterConfig | None = None,
     day_filter: bool = False,
     smt_trend_filter: int = 1,
+    strategy_timeframes: dict[str, list[str]] | None = None,
 ) -> list[str]:
     """Scan all symbol+timeframe combinations and return formatted alert strings.
 
@@ -283,6 +296,7 @@ def run_scan_cycle(
     Secondaries are fetched once per (secondary_symbol, timeframe) even if shared by
     multiple primaries.
     day_filter: when True, Monday and Friday signals are suppressed (ICT weekly cycle).
+    strategy_timeframes: optional per-strategy TF allow-list from [strategy_timeframes] TOML.
     """
     from utils.telegram import send_telegram_message
 
@@ -337,6 +351,7 @@ def run_scan_cycle(
                 funding_df=funding_df,
                 day_filter=day_filter,
                 smt_trend_filter=smt_trend_filter,
+                strategy_timeframes=strategy_timeframes,
             )
 
             # Conflict resolution: opposite directions on same symbol/tf

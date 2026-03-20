@@ -132,6 +132,7 @@ def run_signal_watch(args: argparse.Namespace) -> None:
         backtest_cfg=cfg.backtest,
         day_filter=cfg.day_filter,
         smt_trend_filter=cfg.smt_trend_filter,
+        strategy_timeframes=cfg.strategy_timeframes or None,
     )
 
 

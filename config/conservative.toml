@@ -1,0 +1,53 @@
+# Conservative profile — high-confidence strategies only, 1d TF, strict filters.
+#
+# Purpose: low-noise, high-conviction signals for operators who prefer fewer but
+#          better-quality alerts. Fires rarely but with strong pattern confirmation.
+# Strategies: only high-confidence patterns with strong empirical backing
+#             (marubozu, engulfing, morning_evening_star, fibonacci_retracement).
+# Excluded: all sub-daily TFs; aggressive ICT strategies (FVG, BOS, liquidity_sweep)
+#           that fire frequently with lower precision on daily charts.
+#
+# Usage: make buibui-signal-watch CONFIG=config/conservative.toml
+
+timeframes = ["1d"]
+telegram = true
+min_sl_pct = 0.015
+
+# Wide SL for daily candles, conservative 2x R target
+sl_pct = 0.04
+tp_r = 2.0
+
+# Long cooldown — same setup should not re-fire within 3 days
+cooldown_seconds = 259200
+
+# High-confidence strategies only
+strategies = [
+    'marubozu',
+    'engulfing',
+    'morning_evening_star',
+    'fibonacci_retracement',
+]
+
+# Always suppress Monday and Friday signals
+day_filter = true
+
+# Backtest window — full 200-day window for daily signals
+days = 200
+min_trades = 10
+fee_pct = 0.0005
+
+[strategy_timeframes]
+fibonacci_retracement = ["1d"]
+marubozu = ["1d"]
+engulfing = ["1d"]
+morning_evening_star = ["1d"]
+
+[smt_pairs]
+BTCUSDT = "ETHUSDT"
+ETHUSDT = "BTCUSDT"
+
+[backtest]
+mode = "hard"
+days = 200
+min_trades = 10
+filter_threshold = 0.45

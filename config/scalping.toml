@@ -1,0 +1,50 @@
+# Scalping profile — short timeframes, tight SL/TP, fast cooldowns.
+#
+# Purpose: catch high-frequency intraday setups on 1m–15m candles.
+# Best suited for: orb, wick_fill, fvg, bos, liquidity_sweep, pin_bar, engulfing.
+# Not included: trend-following strategies that need daily context (trend_day,
+#               fibonacci_retracement, order_block, eqh_eql, marubozu).
+#
+# Usage: make buibui-signal-watch CONFIG=config/scalping.toml
+
+timeframes = ["1m", "5m", "15m"]
+telegram = true
+min_sl_pct = 0.002
+
+# Tighter SL and 1.5x R target for scalps
+sl_pct = 0.005
+tp_r = 1.5
+
+# Short cooldown — same setup can re-fire within 15 minutes
+cooldown_seconds = 900
+
+# Scalping-friendly strategies only
+strategies = [
+    'orb',
+    'wick_fill',
+    'fvg',
+    'bos',
+    'liquidity_sweep',
+    'pin_bar',
+    'engulfing',
+    'inside_bar',
+    'doji',
+]
+
+# Suppress Monday and Friday noise
+day_filter = false
+
+# Backtest window for signal quality check
+days = 30
+min_trades = 10
+fee_pct = 0.0005
+
+[smt_pairs]
+BTCUSDT = "ETHUSDT"
+ETHUSDT = "BTCUSDT"
+
+[backtest]
+mode = "soft"
+days = 30
+min_trades = 10
+filter_threshold = 0.4
