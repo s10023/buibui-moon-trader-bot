@@ -25,6 +25,8 @@ class BacktestSweepConfig:
     min_trades: int = 20
     # Per-symbol SMT secondary map: {"BTCUSDT": "ETHUSDT", ...}
     smt_pairs: dict[str, str] = field(default_factory=dict)
+    # Suppress Monday and Friday signals (ICT weekly cycle)
+    day_filter: bool = False
 
 
 def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
@@ -54,4 +56,5 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
         fee_pct=float(data.get("fee_pct", 0.0)),
         min_trades=int(data.get("min_trades", 20)),
         smt_pairs=smt_pairs,
+        day_filter=bool(data.get("day_filter", False)),
     )
