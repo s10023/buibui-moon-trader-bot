@@ -27,6 +27,8 @@ class BacktestSweepConfig:
     smt_pairs: dict[str, str] = field(default_factory=dict)
     # Suppress Monday and Friday signals (ICT weekly cycle)
     day_filter: bool = False
+    # EMA-50 trend gate for smt_divergence (1=on, 0=off)
+    smt_trend_filter: int = 1
 
 
 def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
@@ -57,4 +59,5 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
         min_trades=int(data.get("min_trades", 20)),
         smt_pairs=smt_pairs,
         day_filter=bool(data.get("day_filter", False)),
+        smt_trend_filter=int(data.get("smt_trend_filter", 1)),
     )

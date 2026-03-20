@@ -557,15 +557,18 @@ class TestDetectSmtDivergence:
         lows_p: list[float],
         highs_s: list[float],
         lows_s: list[float],
+        closes_p: list[float] | None = None,
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         n = len(highs_p)
+        if closes_p is None:
+            closes_p = [100.0] * n
         rows_p = [
             _candle(
                 _BASE_TIME + i,
                 100.0,
                 highs_p[i],
                 lows_p[i],
-                100.0,
+                closes_p[i],
                 symbol="BTCUSDT",
             )
             for i in range(n)
@@ -594,7 +597,8 @@ class TestDetectSmtDivergence:
         assert result.empty
 
     def test_detects_bearish_smt(self) -> None:
-        # Primary makes new high, secondary does not
+        # Primary makes new high, secondary does not. Use trend_filter=0 to test
+        # divergence detection logic independently of the trend filter.
         n = 15
         highs_p = [100.0 + i for i in range(n)]  # primary always rising
         lows_p = [90.0] * n
@@ -603,12 +607,13 @@ class TestDetectSmtDivergence:
         lows_s = [90.0] * n
 
         df_p, df_s = self._make_aligned_ohlcv(highs_p, lows_p, highs_s, lows_s)
-        result = detect_smt_divergence(df_p, df_s, lookback=10)
+        result = detect_smt_divergence(df_p, df_s, lookback=10, trend_filter=0)
         short_signals = result[result["direction"] == "short"]
         assert len(short_signals) >= 1
 
     def test_detects_bullish_smt(self) -> None:
-        # Primary makes new low, secondary does not
+        # Primary makes new low, secondary does not. Use trend_filter=0 to test
+        # divergence detection logic independently of the trend filter.
         n = 15
         highs_p = [110.0] * n
         lows_p = [100.0 - i for i in range(n)]  # primary always falling
@@ -617,7 +622,7 @@ class TestDetectSmtDivergence:
         lows_s[-1] = 101.0  # secondary's last is above window min
 
         df_p, df_s = self._make_aligned_ohlcv(highs_p, lows_p, highs_s, lows_s)
-        result = detect_smt_divergence(df_p, df_s, lookback=10)
+        result = detect_smt_divergence(df_p, df_s, lookback=10, trend_filter=0)
         long_signals = result[result["direction"] == "long"]
         assert len(long_signals) >= 1
 
@@ -640,8 +645,63 @@ class TestDetectSmtDivergence:
         highs_s[-1] = 99.0
         lows_s = [90.0] * n
         df_p, df_s = self._make_aligned_ohlcv(highs_p, lows_p, highs_s, lows_s)
-        result = detect_smt_divergence(df_p, df_s, lookback=10)
+        result = detect_smt_divergence(df_p, df_s, lookback=10, trend_filter=0)
         _assert_signal_columns(result)
+
+    def test_trend_filter_suppresses_bearish_smt_in_uptrend(self) -> None:
+        # Primary makes new high (bearish SMT) but close > EMA → filter should suppress short
+        n = 15
+        highs_p = [100.0 + i for i in range(n)]
+        lows_p = [90.0] * n
+        highs_s = [100.0] * n
+        highs_s[-1] = 99.0
+        lows_s = [90.0] * n
+        # Close well above 100 so EMA(50) stays below close → close > EMA → short suppressed
+        closes_p = [200.0] * n
+
+        df_p, df_s = self._make_aligned_ohlcv(
+            highs_p, lows_p, highs_s, lows_s, closes_p
+        )
+        result = detect_smt_divergence(df_p, df_s, lookback=10, trend_filter=1)
+        short_signals = result[result["direction"] == "short"]
+        assert short_signals.empty
+
+    def test_trend_filter_suppresses_bullish_smt_in_downtrend(self) -> None:
+        # Primary makes new low (bullish SMT) but close < EMA → filter should suppress long
+        n = 15
+        highs_p = [110.0] * n
+        lows_p = [100.0 - i for i in range(n)]
+        highs_s = [110.0] * n
+        lows_s = [100.0] * n
+        lows_s[-1] = 101.0
+        # Close well below 100 so EMA(50) stays above close → close < EMA → long suppressed
+        closes_p = [50.0] * n
+
+        df_p, df_s = self._make_aligned_ohlcv(
+            highs_p, lows_p, highs_s, lows_s, closes_p
+        )
+        result = detect_smt_divergence(df_p, df_s, lookback=10, trend_filter=1)
+        long_signals = result[result["direction"] == "long"]
+        assert long_signals.empty
+
+    def test_trend_filter_off_passes_counter_trend_signal(self) -> None:
+        # With trend_filter=0, signal passes even when close > EMA (bearish counter-trend)
+        n = 15
+        highs_p = [100.0 + i for i in range(n)]
+        lows_p = [90.0] * n
+        highs_s = [100.0] * n
+        highs_s[-1] = 99.0
+        lows_s = [90.0] * n
+        closes_p = [
+            200.0
+        ] * n  # close above EMA — would be filtered with trend_filter=1
+
+        df_p, df_s = self._make_aligned_ohlcv(
+            highs_p, lows_p, highs_s, lows_s, closes_p
+        )
+        result = detect_smt_divergence(df_p, df_s, lookback=10, trend_filter=0)
+        short_signals = result[result["direction"] == "short"]
+        assert len(short_signals) >= 1
 
 
 # ---------------------------------------------------------------------------

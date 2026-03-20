@@ -64,6 +64,7 @@ def detect_signals_for_strategy(
     start_ms: int,
     end_ms: int,
     secondary_symbol: str | None = None,
+    smt_trend_filter: int = 1,
 ) -> pd.DataFrame | None:
     """Return signals DataFrame, or None when required data is absent.
 
@@ -82,7 +83,7 @@ def detect_signals_for_strategy(
         ohlcv_sec = get_ohlcv(conn, secondary_symbol, timeframe, start_ms, end_ms)
         if ohlcv_sec.empty:
             return None
-        return detect_smt_divergence(ohlcv, ohlcv_sec)
+        return detect_smt_divergence(ohlcv, ohlcv_sec, trend_filter=smt_trend_filter)
 
     return _SIMPLE_DETECTORS[strategy](ohlcv)
 
@@ -140,7 +141,15 @@ def run_backtest_sweep(
                 continue
 
             signals = detect_signals_for_strategy(
-                conn, ohlcv, symbol, timeframe, strategy, start_ms, end_ms, secondary
+                conn,
+                ohlcv,
+                symbol,
+                timeframe,
+                strategy,
+                start_ms,
+                end_ms,
+                secondary,
+                smt_trend_filter=cfg.smt_trend_filter,
             )
             if signals is None:
                 skipped.append(
