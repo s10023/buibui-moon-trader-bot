@@ -63,7 +63,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Candles to watch for wick zone fill after the signal candle.",
             ),
         ],
-        confidence=2,
+        confidence=3,
     ),
     "marubozu": StrategySpec(
         name="marubozu",
@@ -94,7 +94,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Minimum body size as fraction of open price to qualify as a Marubozu.",
             ),
         ],
-        confidence=2,
+        confidence=3,
     ),
     "orb": StrategySpec(
         name="orb",
@@ -147,7 +147,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Minimum gap size as fraction of midpoint price (0.001 = 0.1%); filters noise.",
             ),
         ],
-        confidence=4,
+        confidence=3,
     ),
     "bos": StrategySpec(
         name="bos",
@@ -210,7 +210,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
             ),
         ],
         requires_secondary=True,
-        confidence=5,
+        confidence=2,
     ),
     "eqh_eql": StrategySpec(
         name="eqh_eql",
@@ -302,7 +302,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Maximum wick-to-range ratio for the wick in the trend direction (leading wick).",
             ),
         ],
-        confidence=3,
+        confidence=4,
     ),
     "engulfing": StrategySpec(
         name="engulfing",
@@ -325,7 +325,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance (risk-reward ratio).",
             ),
         ],
-        confidence=2,
+        confidence=3,
     ),
     "pin_bar": StrategySpec(
         name="pin_bar",
@@ -379,7 +379,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance.",
             ),
         ],
-        confidence=2,
+        confidence=3,
     ),
     "hammer_hanging_man": StrategySpec(
         name="hammer_hanging_man",
@@ -418,7 +418,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance.",
             ),
         ],
-        confidence=2,
+        confidence=3,
     ),
     "doji": StrategySpec(
         name="doji",
@@ -457,7 +457,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance.",
             ),
         ],
-        confidence=2,
+        confidence=1,
     ),
     "morning_evening_star": StrategySpec(
         name="morning_evening_star",
@@ -519,7 +519,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance.",
             ),
         ],
-        confidence=3,
+        confidence=4,
     ),
 }
 
