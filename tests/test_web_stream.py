@@ -115,26 +115,26 @@ def test_stream_positions_first_event_shape(
 
 
 def test_stream_prices_missing_token_returns_401(web_client: TestClient) -> None:
-    """Stream prices without Bearer token returns 401."""
-    from web.api.deps import require_token
+    """Stream prices without ?token= returns 401."""
+    from web.api.deps import require_token_sse
     from web.api.main import app
 
-    app.dependency_overrides.pop(require_token, None)
+    app.dependency_overrides.pop(require_token_sse, None)
     try:
         resp = web_client.get("/api/stream/prices")
         assert resp.status_code in (401, 403)
     finally:
-        app.dependency_overrides[require_token] = lambda: None
+        app.dependency_overrides[require_token_sse] = lambda: None
 
 
 def test_stream_positions_missing_token_returns_401(web_client: TestClient) -> None:
-    """Stream positions without Bearer token returns 401."""
-    from web.api.deps import require_token
+    """Stream positions without ?token= returns 401."""
+    from web.api.deps import require_token_sse
     from web.api.main import app
 
-    app.dependency_overrides.pop(require_token, None)
+    app.dependency_overrides.pop(require_token_sse, None)
     try:
         resp = web_client.get("/api/stream/positions")
         assert resp.status_code in (401, 403)
     finally:
-        app.dependency_overrides[require_token] = lambda: None
+        app.dependency_overrides[require_token_sse] = lambda: None

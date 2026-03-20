@@ -1,0 +1,217 @@
+/* ── Variables ───────────────────────────────────────────────────────────── */
+:root {
+  --bg:            #080d12;
+  --bg-panel:      #0d1520;
+  --bg-row:        #0b1219;
+  --bg-row-alt:    #0d1521;
+  --bg-row-hover:  #0f1d2e;
+  --bg-input:      #0d1520;
+  --border:        #1b2d3e;
+  --border-dim:    #111e2a;
+
+  --text:          #cdd9e5;
+  --text-dim:      #8faabe;
+  --muted:         #506070;
+
+  --green:         #26d472;
+  --green-dim:     #0a3020;
+  --red:           #f25252;
+  --red-dim:       #2d0f0f;
+  --yellow:        #f0c040;
+  --accent:        #00d4aa;
+  --accent-dim:    #003d30;
+  --accent-bright: #00ffcc;
+
+  --font-mono: "IBM Plex Mono", "JetBrains Mono", "Fira Code", Consolas, monospace;
+
+  --nav-h: 48px;
+}
+
+/* ── Reset & Base ────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { height: 100%; }
+
+body {
+  min-height: 100%;
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(circle, #1b2d3e 1px, transparent 1px);
+  background-size: 28px 28px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  font-feature-settings: "tnum" 1, "ss01" 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* ── Typography ──────────────────────────────────────────────────────────── */
+h2 {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 20px 0 14px;
+  border-bottom: 1px solid var(--border-dim);
+  margin-bottom: 16px;
+}
+
+h2::before { content: "//  "; color: var(--accent); }
+
+/* ── Page wrapper ────────────────────────────────────────────────────────── */
+.page {
+  padding: 0 20px 40px;
+  max-width: 1440px;
+  animation: page-in 120ms ease-out both;
+}
+
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Tables ──────────────────────────────────────────────────────────────── */
+table {
+  border-collapse: collapse;
+  width: 100%;
+  border: 1px solid var(--border-dim);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+thead { background: var(--bg-panel); }
+
+th {
+  padding: 8px 12px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+td {
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border-dim);
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+tbody tr:nth-child(even) { background: var(--bg-row-alt); }
+tbody tr:nth-child(odd)  { background: var(--bg-row); }
+
+tbody tr {
+  position: relative;
+  transition: background 80ms;
+}
+
+tbody tr:hover { background: var(--bg-row-hover); }
+
+tbody tr:hover td:first-child {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+tbody tr:last-child td { border-bottom: none; }
+
+/* ── Form controls ───────────────────────────────────────────────────────── */
+.form-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  margin-bottom: 14px;
+}
+
+.form-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+input, select {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--bg-input);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 5px 8px;
+  border-radius: 3px;
+  outline: none;
+  transition: border-color 120ms;
+  min-width: 0;
+}
+
+input:focus, select:focus { border-color: var(--accent); }
+
+input[type="number"] { width: 80px; }
+
+select { cursor: pointer; }
+select option { background: var(--bg-panel); }
+
+button {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 5px 14px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+  white-space: nowrap;
+}
+
+button:hover:not(:disabled) {
+  background: var(--accent-dim);
+  color: var(--accent-bright);
+}
+
+button:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ── Utility ─────────────────────────────────────────────────────────────── */
+.green { color: var(--green); }
+.red   { color: var(--red); }
+.muted { color: var(--muted); }
+.mono  { font-family: var(--font-mono); font-feature-settings: "tnum" 1; }
+
+.num {
+  font-feature-settings: "tnum" 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Live dot indicator ──────────────────────────────────────────────────── */
+.live-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: blink 1.8s ease-in-out infinite;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+.live-dot.offline { background: var(--red); animation: none; }
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.2; }
+}

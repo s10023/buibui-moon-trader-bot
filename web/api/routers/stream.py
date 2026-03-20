@@ -12,9 +12,9 @@ from fastapi.responses import StreamingResponse
 from monitor.position_lib import fetch_open_positions
 from monitor.price_lib import get_price_changes
 from utils.binance_client import load_coins_config
-from web.api.deps import get_client, require_token
+from web.api.deps import get_client, require_token_sse
 
-router = APIRouter(dependencies=[Depends(require_token)])
+router = APIRouter()
 
 
 def _safe_load_symbols() -> tuple[list[str], dict[str, Any]]:
@@ -105,7 +105,7 @@ async def _positions_event_generator(client: Client) -> AsyncGenerator[str, None
         return
 
 
-@router.get("/stream/prices")
+@router.get("/stream/prices", dependencies=[Depends(require_token_sse)])
 def stream_prices(client: Client = Depends(get_client)) -> StreamingResponse:
     """Stream live price changes as Server-Sent Events (every 5s)."""
     return StreamingResponse(
@@ -114,7 +114,7 @@ def stream_prices(client: Client = Depends(get_client)) -> StreamingResponse:
     )
 
 
-@router.get("/stream/positions")
+@router.get("/stream/positions", dependencies=[Depends(require_token_sse)])
 def stream_positions(client: Client = Depends(get_client)) -> StreamingResponse:
     """Stream live position data as Server-Sent Events (every 10s)."""
     return StreamingResponse(
