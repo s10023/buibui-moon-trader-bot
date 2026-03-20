@@ -4,6 +4,8 @@
         "!.venv",
         "!venv",
         "!node_modules",
+        "!web/ui/node_modules",
+        "!web/ui/dist",
         "!.claude",
         "!.github/pull_request_template.md",
         "!docs/plans",
