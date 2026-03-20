@@ -1021,6 +1021,217 @@ class TestSMTTrendFilter:
         assert "trend_filter" not in received_kwargs
 
 
+class TestStrategyTimeframes:
+    """Tests for the strategy_timeframes param in scan_symbol.
+
+    Verifies that strategies are skipped when the current TF is not in their
+    allow-list, and still run when the TF is allowed or no restriction exists.
+    """
+
+    _OPEN_TIME_MS = 1704240000000  # Wednesday 2024-01-03 — passes day_filter
+
+    def _make_ohlcv(self) -> pd.DataFrame:
+        rows = [
+            {
+                "open_time": self._OPEN_TIME_MS - 2000,
+                "open": 100.0,
+                "high": 105.0,
+                "low": 98.0,
+                "close": 102.0,
+                "volume": 1.0,
+            },
+            {
+                "open_time": self._OPEN_TIME_MS - 1000,
+                "open": 102.0,
+                "high": 106.0,
+                "low": 100.0,
+                "close": 103.0,
+                "volume": 1.0,
+            },
+            {
+                "open_time": self._OPEN_TIME_MS,
+                "open": 103.0,
+                "high": 107.0,
+                "low": 101.0,
+                "close": 104.0,
+                "volume": 1.0,
+            },
+            {
+                "open_time": self._OPEN_TIME_MS + 1000,
+                "open": 104.0,
+                "high": 104.5,
+                "low": 103.5,
+                "close": 104.2,
+                "volume": 0.1,
+            },
+        ]
+        return pd.DataFrame(rows)
+
+    def _make_signals_df(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            [
+                {
+                    "open_time": self._OPEN_TIME_MS,
+                    "direction": "long",
+                    "reason": "fvg_long@104.00",
+                    "sl_price": 98.0,
+                    "context": "",
+                }
+            ]
+        )
+
+    def _mock_registry(self, strategy: str) -> dict[str, Any]:
+        signals_df = self._make_signals_df()
+        return {
+            strategy: {
+                "detector": lambda df: signals_df,
+                "confidence": 4,
+            }
+        }
+
+    def _mock_spec_registry(self, strategy: str) -> dict[str, Any]:
+        return {
+            strategy: type(
+                "S", (), {"requires_funding": False, "requires_secondary": False}
+            )()
+        }
+
+    def test_strategy_allowed_on_matching_tf(self) -> None:
+        """strategy_timeframes allows the strategy when TF is in the list."""
+        ohlcv = self._make_ohlcv()
+        with (
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                self._mock_registry("fvg"),
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                self._mock_spec_registry("fvg"),
+            ),
+        ):
+            events = scan_symbol(
+                ohlcv_df=ohlcv,
+                symbol="BTCUSDT",
+                timeframe="4h",
+                strategies=["fvg"],
+                strategy_timeframes={"fvg": ["4h", "1d"]},
+            )
+        assert len(events) == 1
+
+    def test_strategy_skipped_on_disallowed_tf(self) -> None:
+        """strategy_timeframes skips the strategy when TF is not in the list."""
+        ohlcv = self._make_ohlcv()
+        with (
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                self._mock_registry("fvg"),
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                self._mock_spec_registry("fvg"),
+            ),
+        ):
+            events = scan_symbol(
+                ohlcv_df=ohlcv,
+                symbol="BTCUSDT",
+                timeframe="15m",
+                strategies=["fvg"],
+                strategy_timeframes={"fvg": ["4h", "1d"]},
+            )
+        assert len(events) == 0
+
+    def test_strategy_runs_on_all_tfs_when_not_listed(self) -> None:
+        """A strategy not in strategy_timeframes runs on all timeframes."""
+        ohlcv = self._make_ohlcv()
+        with (
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                self._mock_registry("fvg"),
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                self._mock_spec_registry("fvg"),
+            ),
+        ):
+            # fvg is not in strategy_timeframes → should run on any TF
+            events = scan_symbol(
+                ohlcv_df=ohlcv,
+                symbol="BTCUSDT",
+                timeframe="15m",
+                strategies=["fvg"],
+                strategy_timeframes={
+                    "trend_day": ["4h", "1d"]
+                },  # only trend_day restricted
+            )
+        assert len(events) == 1
+
+    def test_no_strategy_timeframes_runs_all(self) -> None:
+        """When strategy_timeframes is None, no TF restrictions apply."""
+        ohlcv = self._make_ohlcv()
+        with (
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                self._mock_registry("fvg"),
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                self._mock_spec_registry("fvg"),
+            ),
+        ):
+            events = scan_symbol(
+                ohlcv_df=ohlcv,
+                symbol="BTCUSDT",
+                timeframe="1m",
+                strategies=["fvg"],
+                strategy_timeframes=None,
+            )
+        assert len(events) == 1
+
+    def test_trend_day_skipped_on_15m_via_toml_config(self) -> None:
+        """trend_day restricted to 4h/1d via strategy_timeframes — 15m is skipped."""
+        ohlcv = self._make_ohlcv()
+        with (
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                self._mock_registry("trend_day"),
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                self._mock_spec_registry("trend_day"),
+            ),
+        ):
+            events = scan_symbol(
+                ohlcv_df=ohlcv,
+                symbol="BTCUSDT",
+                timeframe="15m",
+                strategies=["trend_day"],
+                strategy_timeframes={"trend_day": ["4h", "1d"]},
+            )
+        assert len(events) == 0
+
+    def test_trend_day_runs_on_4h_via_toml_config(self) -> None:
+        """trend_day restricted to 4h/1d via strategy_timeframes — 4h is allowed."""
+        ohlcv = self._make_ohlcv()
+        with (
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                self._mock_registry("trend_day"),
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                self._mock_spec_registry("trend_day"),
+            ),
+        ):
+            events = scan_symbol(
+                ohlcv_df=ohlcv,
+                symbol="BTCUSDT",
+                timeframe="4h",
+                strategies=["trend_day"],
+                strategy_timeframes={"trend_day": ["4h", "1d"]},
+            )
+        assert len(events) == 1
+
+
 class TestConflictResolution:
     """Tests for the redesigned conflict suppression in run_scan_cycle.
 

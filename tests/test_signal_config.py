@@ -109,3 +109,39 @@ ETHUSDT = "BTCUSDT"
         assert cfg.timeframes == ["15m", "1h", "4h", "1d"]
         assert cfg.telegram is True
         assert cfg.min_sl_pct == 0.005
+
+    def test_strategy_timeframes_parsed(self, tmp_path: Path) -> None:
+        content = '[strategy_timeframes]\ntrend_day = ["4h", "1d"]\nmarubozu = ["1d"]\n'
+        p = _write_toml(tmp_path, content)
+        cfg = load_signal_config(p)
+        assert cfg.strategy_timeframes == {
+            "trend_day": ["4h", "1d"],
+            "marubozu": ["1d"],
+        }
+
+    def test_strategy_timeframes_defaults_to_empty(self, tmp_path: Path) -> None:
+        p = _write_toml(tmp_path, "telegram = true\n")
+        cfg = load_signal_config(p)
+        assert cfg.strategy_timeframes == {}
+
+    def test_invalid_strategy_timeframes_not_table(self, tmp_path: Path) -> None:
+        p = _write_toml(tmp_path, 'strategy_timeframes = "not a table"\n')
+        with pytest.raises(
+            ValueError, match="strategy_timeframes must be a TOML table"
+        ):
+            load_signal_config(p)
+
+    def test_signal_watch_toml_has_trend_day_restriction(self) -> None:
+        """signal_watch.toml must declare trend_day restricted to 4h/1d via TOML."""
+        cfg_path = Path(__file__).parent.parent / "config" / "signal_watch.toml"
+        cfg = load_signal_config(cfg_path)
+        assert "trend_day" in cfg.strategy_timeframes
+        assert cfg.strategy_timeframes["trend_day"] == ["4h", "1d"]
+
+    def test_preset_configs_are_valid(self) -> None:
+        """All three named preset TOML files must parse without errors."""
+        config_dir = Path(__file__).parent.parent / "config"
+        for name in ("scalping.toml", "swing.toml", "conservative.toml"):
+            cfg = load_signal_config(config_dir / name)
+            assert cfg.timeframes, f"{name}: timeframes must not be empty"
+            assert cfg.strategies, f"{name}: strategies must not be empty"

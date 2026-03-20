@@ -46,6 +46,9 @@ class SignalWatchConfig:
     day_filter: bool = False
     # EMA-50 trend gate for smt_divergence (1=on, 0=off)
     smt_trend_filter: int = 1
+    # Per-strategy timeframe allow-list: {"trend_day": ["4h", "1d"], ...}
+    # Strategies not listed here run on all configured timeframes.
+    strategy_timeframes: dict[str, list[str]] = field(default_factory=dict)
 
 
 def load_signal_config(path: str | Path) -> SignalWatchConfig:
@@ -64,6 +67,15 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
             "smt_pairs must be a TOML table of PRIMARY = 'SECONDARY' entries"
         )
     smt_pairs: dict[str, str] = {str(k): str(v) for k, v in raw_smt.items()}
+
+    raw_stf = data.get("strategy_timeframes", {})
+    if not isinstance(raw_stf, dict):
+        raise ValueError(
+            "strategy_timeframes must be a TOML table of strategy = [timeframes] entries"
+        )
+    strategy_timeframes: dict[str, list[str]] = {
+        str(k): [str(tf) for tf in v] for k, v in raw_stf.items()
+    }
 
     raw_bt = data.get("backtest", {})
     backtest = BacktestFilterConfig(
@@ -87,4 +99,5 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         backtest=backtest,
         day_filter=bool(data.get("day_filter", False)),
         smt_trend_filter=int(data.get("smt_trend_filter", 1)),
+        strategy_timeframes=strategy_timeframes,
     )

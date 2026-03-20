@@ -55,6 +55,12 @@ days = 200              # lookback window
 min_trades = 20         # hide combos with fewer trades in sweep table
 fee_pct = 0.0005        # 0.05% taker fee per leg; set 0.0 to disable
 
+# Per-strategy timeframe allow-list (R17).
+# Strategies listed here are restricted to the specified TFs.
+# Strategies not listed run on all configured timeframes.
+[strategy_timeframes]
+trend_day = ["4h", "1d"]
+
 # SMT divergence pairs — primary → secondary (must be in coins.json)
 # Used by both signal watch and backtest sweep.
 [smt_pairs]
