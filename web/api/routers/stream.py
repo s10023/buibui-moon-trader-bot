@@ -38,7 +38,7 @@ async def _price_event_generator(client: Client) -> AsyncGenerator[str, None]:
         while True:
             symbols, _ = _safe_load_symbols()
             if symbols:
-                table, _ = await asyncio.get_event_loop().run_in_executor(
+                table, _ = await asyncio.get_running_loop().run_in_executor(
                     None, get_price_changes, client, symbols, True
                 )
                 data = [
@@ -72,7 +72,7 @@ async def _positions_event_generator(client: Client) -> AsyncGenerator[str, None
                         wallet,
                         unrealized,
                         available,
-                    ) = await asyncio.get_event_loop().run_in_executor(
+                    ) = await asyncio.get_running_loop().run_in_executor(
                         None,
                         fetch_open_positions,
                         client,

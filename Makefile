@@ -201,6 +201,9 @@ web-dev:
 web-build:
 	cd web/ui && npm run build
 
+web-check:
+	cd web/ui && npx svelte-check
+
 web-preview:
 	cd web/ui && npm run preview
 
