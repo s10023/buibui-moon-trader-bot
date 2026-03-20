@@ -35,6 +35,7 @@ from analytics.indicators_lib import (
     detect_orb_breakout,
     detect_order_block,
     detect_smt_divergence,
+    detect_trend_day,
     detect_wick_fills,
     seasonality_stats,
 )
@@ -50,6 +51,7 @@ _SIMPLE_DETECTORS: dict[str, Callable[[pd.DataFrame], pd.DataFrame]] = {
     "eqh_eql": detect_eqh_eql,
     "order_block": detect_order_block,
     "cvd_divergence": detect_cvd_divergence,
+    "trend_day": detect_trend_day,
 }
 
 _SWEEP_STRATEGIES: list[str] = [s for s in KNOWN_STRATEGIES if s != "seasonality"]
