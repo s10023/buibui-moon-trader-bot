@@ -425,6 +425,26 @@ poetry run python buibui.py signal watch
 - `--smt-pairs BTCUSDT:ETHUSDT,ETHUSDT:BTCUSDT` — per-symbol SMT secondary mappings (overrides `smt_secondary` in `coins.json`)
 - `--secondary-symbol ETHUSDT` — *(deprecated, use `--smt-pairs`)* applies one secondary to all scanned symbols
 
+**`day_filter`** suppresses signals on Monday and Friday (ICT weekly cycle — manipulation/distribution days). Off by default; enable in TOML:
+
+```toml
+day_filter = true
+```
+
+Backtest findings (160d, 3 symbols × 4 TFs × 11 strategies, −29% trade volume):
+
+| Strategy          | Avg ΔWin% | Avg ΔR  | Verdict      |
+|-------------------|-----------|---------|--------------|
+| `orb`             | +1.9pp    | +0.063R | ✅ benefits  |
+| `bos`             | +1.3pp    | +0.039R | ✅ benefits  |
+| `wick_fill`       | +0.8pp    | +0.027R | ✅ benefits  |
+| `fvg`             | +0.1pp    | +0.004R | ➖ neutral   |
+| `liquidity_sweep` | −0.1pp    | −0.002R | ➖ neutral   |
+| `smt_divergence`  | −0.3pp    | −0.003R | ➖ neutral   |
+| `marubozu`        | −1.2pp    | −0.037R | ❌ hurts     |
+
+Notable: ETHUSDT 4h `bos` is the main cost (−5pp/−0.14R) — Mon/Fri 4h ETH BOS signals were genuinely profitable (likely London Monday expansion). All other `bos` and all `orb` combos improve.
+
 The `[backtest]` table in `config/signal_watch.toml` controls a per-alert win rate filter:
 
 ```toml

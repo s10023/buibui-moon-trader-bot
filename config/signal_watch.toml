@@ -12,6 +12,9 @@ timeframes = ["15m", "1h", "4h", "1d"]
 telegram = true
 min_sl_pct = 0.01
 
+# Suppress Monday and Friday signals (ICT weekly cycle — manipulation/distribution days)
+# day_filter = false
+
 # Strategies to run — omit to run all strategies in SIGNAL_REGISTRY
 # strategies = ["fvg", "bos", "liquidity_sweep"]
 
