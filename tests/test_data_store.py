@@ -9,10 +9,12 @@ import pytest
 from analytics.data_store import (
     get_latest_open_time,
     get_ohlcv,
+    get_signals_history,
     init_schema,
     upsert_funding_rates,
     upsert_ohlcv,
     upsert_open_interest,
+    upsert_signals,
 )
 
 _OHLCV_ROW: dict[str, object] = {
@@ -42,10 +44,24 @@ def conn() -> duckdb.DuckDBPyConnection:
     return c
 
 
+_SIGNAL_ROW: dict[str, object] = {
+    "symbol": "BTCUSDT",
+    "timeframe": "1h",
+    "strategy": "fvg",
+    "open_time": 1_700_000_000_000,
+    "direction": "long",
+    "entry_price": 30500.0,
+    "sl_price": 29000.0,
+    "reason": "FVG filled",
+    "confidence": 4,
+    "fired_at": 1_700_000_001_000,
+}
+
+
 class TestInitSchema:
     def test_creates_tables(self, conn: duckdb.DuckDBPyConnection) -> None:
         tables = {r[0] for r in conn.execute("SHOW TABLES").fetchall()}
-        assert {"ohlcv", "funding_rates", "open_interest"} == tables
+        assert {"ohlcv", "funding_rates", "open_interest", "signals"} == tables
 
     def test_idempotent(self, conn: duckdb.DuckDBPyConnection) -> None:
         init_schema(conn)
@@ -172,6 +188,68 @@ class TestTakerBuyVolume:
         result = get_ohlcv(conn, "BTCUSDT", "1h", 0, 2_000_000_000_000)
         assert "taker_buy_volume" in result.columns
         assert result.iloc[0]["taker_buy_volume"] == 55.0
+
+
+class TestUpsertSignals:
+    def test_inserts_rows(self, conn: duckdb.DuckDBPyConnection) -> None:
+        upsert_signals(conn, pd.DataFrame([_SIGNAL_ROW]))
+        assert _one(conn, "SELECT COUNT(*) FROM signals")[0] == 1
+
+    def test_ignores_on_conflict(self, conn: duckdb.DuckDBPyConnection) -> None:
+        upsert_signals(conn, pd.DataFrame([_SIGNAL_ROW]))
+        # Same PK — second insert should be ignored, not raise or update.
+        upsert_signals(
+            conn, pd.DataFrame([{**_SIGNAL_ROW, "reason": "updated reason"}])
+        )
+        row = _one(conn, "SELECT reason FROM signals")
+        assert row[0] == "FVG filled"  # original preserved
+
+    def test_empty_dataframe_is_noop(self, conn: duckdb.DuckDBPyConnection) -> None:
+        upsert_signals(conn, pd.DataFrame(columns=list(_SIGNAL_ROW.keys())))
+        assert _one(conn, "SELECT COUNT(*) FROM signals")[0] == 0
+
+    def test_multiple_strategies_same_candle(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        row2 = {**_SIGNAL_ROW, "strategy": "bos"}
+        upsert_signals(conn, pd.DataFrame([_SIGNAL_ROW, row2]))
+        assert _one(conn, "SELECT COUNT(*) FROM signals")[0] == 2
+
+
+class TestGetSignalsHistory:
+    def test_returns_signals_in_range(self, conn: duckdb.DuckDBPyConnection) -> None:
+        upsert_signals(conn, pd.DataFrame([_SIGNAL_ROW]))
+        result = get_signals_history(conn, "BTCUSDT", "1h", 0, 2_000_000_000_000)
+        assert len(result) == 1
+        assert result.iloc[0]["strategy"] == "fvg"
+        assert result.iloc[0]["direction"] == "long"
+
+    def test_excludes_outside_range(self, conn: duckdb.DuckDBPyConnection) -> None:
+        upsert_signals(conn, pd.DataFrame([_SIGNAL_ROW]))
+        result = get_signals_history(conn, "BTCUSDT", "1h", 0, 1_000_000_000)
+        assert result.empty
+
+    def test_filters_by_symbol_and_timeframe(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        other = {**_SIGNAL_ROW, "symbol": "ETHUSDT"}
+        upsert_signals(conn, pd.DataFrame([_SIGNAL_ROW, other]))
+        result = get_signals_history(conn, "BTCUSDT", "1h", 0, 2_000_000_000_000)
+        assert len(result) == 1
+        assert result.iloc[0]["symbol"] == "BTCUSDT"
+
+    def test_returns_empty_when_no_data(self, conn: duckdb.DuckDBPyConnection) -> None:
+        result = get_signals_history(conn, "BTCUSDT", "1h", 0, 2_000_000_000_000)
+        assert result.empty
+
+    def test_ordered_descending_by_open_time(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        row1 = {**_SIGNAL_ROW, "open_time": 1_700_000_000_000}
+        row2 = {**_SIGNAL_ROW, "open_time": 1_700_003_600_000, "strategy": "bos"}
+        upsert_signals(conn, pd.DataFrame([row1, row2]))
+        result = get_signals_history(conn, "BTCUSDT", "1h", 0, 2_000_000_000_000)
+        assert result.iloc[0]["open_time"] > result.iloc[1]["open_time"]
 
 
 class TestGetLatestOpenTime:

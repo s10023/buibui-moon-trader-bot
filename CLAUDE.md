@@ -36,14 +36,14 @@ make lint-md
   - `live_price.py` — WebSocket + Rich live mode for price monitor
   - `live_position.py` — WebSocket + Rich live mode for position monitor
 - `analytics/` — analytics data layer (DuckDB-backed):
-  - `data_store.py` — pure DB lib: schema init, upsert (ohlcv/funding/OI), range queries
+  - `data_store.py` — pure DB lib: schema init, upsert (ohlcv/funding/OI/signals), range queries; `upsert_signals(conn, df)` persists fired signals; `get_signals_history(conn, symbol, tf, start_ms, end_ms)` reads them back
   - `data_fetcher.py` — pure fetch lib: Binance Futures API → DataFrames (no DB concerns)
   - `data_sync.py` — pure orchestration: paginated backfill + incremental sync
   - `analytics_runner.py` — thin wrapper: creates client, opens DB, calls sync lib
   - `indicators_lib.py` — pure strategy signal detection (20 strategies: seasonality, wick_fill, marubozu, orb, liquidity_sweep, fvg, bos, funding_reversion, smt_divergence, eqh_eql, order_block, cvd_divergence, trend_day, engulfing, pin_bar, inside_bar, hammer_hanging_man, doji, morning_evening_star, fibonacci_retracement); also exports `ParamSpec`, `StrategySpec`, `STRATEGY_REGISTRY` (param metadata for all strategies) and `KNOWN_STRATEGIES`
   - `backtest_lib.py` — pure backtest engine: Trade, BacktestResult, run_backtest, format helpers
   - `backtest_runner.py` — thin wrapper: opens DB, loads OHLCV/funding, calls indicator + backtest libs
-  - `signal_lib.py` — pure scan lib: `scan_symbol()` (runs strategies on one symbol/tf), `run_scan_cycle()` (fans out, deduplicates, sends Telegram)
+  - `signal_lib.py` — pure scan lib: `scan_symbol()` (runs strategies on one symbol/tf), `run_scan_cycle()` (fans out, deduplicates, sends Telegram, persists passing signals to DB via `upsert_signals`)
   - `signal_runner.py` — thin wrapper: creates client, opens DB, syncs candles, polls `run_scan_cycle` in a loop
   - `backtest_config.py` — `BacktestSweepConfig` + `load_backtest_config()` — TOML config loading for sweep mode
 - `signals/` — signal detection daemon package:
