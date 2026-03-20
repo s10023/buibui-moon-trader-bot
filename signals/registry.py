@@ -24,6 +24,7 @@ from analytics.indicators_lib import (
     detect_orb_breakout,
     detect_order_block,
     detect_smt_divergence,
+    detect_trend_day,
     detect_wick_fills,
 )
 
@@ -79,5 +80,9 @@ SIGNAL_REGISTRY: dict[str, SignalPlugin] = {
     "cvd_divergence": SignalPlugin(
         detector=detect_cvd_divergence,
         confidence=STRATEGY_REGISTRY["cvd_divergence"].confidence,
+    ),
+    "trend_day": SignalPlugin(
+        detector=detect_trend_day,
+        confidence=STRATEGY_REGISTRY["trend_day"].confidence,
     ),
 }
