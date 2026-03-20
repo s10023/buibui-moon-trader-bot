@@ -4,36 +4,163 @@
     ColorType,
     createChart,
     type CandlestickData,
+    type HistogramData,
     type IChartApi,
     type ISeriesApi,
+    type LineData,
     type SeriesMarker,
     type Time,
   } from "lightweight-charts";
   import type { CandleRow, SignalRow } from "../api";
+  import { pricesStore, startPricesSSE, stopPricesSSE } from "../stores/prices";
 
   let {
     candles,
     signals,
-  }: { candles: CandleRow[]; signals: SignalRow[] } = $props();
+    symbol,
+    showFib = false,
+  }: {
+    candles: CandleRow[];
+    signals: SignalRow[];
+    symbol: string;
+    showFib?: boolean;
+  } = $props();
 
   let container: HTMLDivElement;
   let chart: IChartApi;
   let candleSeries: ISeriesApi<"Candlestick">;
+  let volumeSeries: ISeriesApi<"Histogram">;
+  // Each Fib level gets its own LineSeries so lines only extend rightward from
+  // the swing point, not across the entire chart history.
+  let fibSeries: ISeriesApi<"Line">[] = [];
+
+  // Tracks the in-progress live candle so open/high/low accumulate correctly
+  // across SSE ticks instead of resetting each time.
+  interface LiveCandle { openTimeSec: number; open: number; high: number; low: number; }
+  let liveCandle: LiveCandle | null = null;
+
+  // ── Fib levels ───────────────────────────────────────────────────────────────
+
+  interface FibLevel {
+    ratio: number;
+    label: string;
+    color: string;
+    lineWidth: number;
+  }
+
+  const FIB_LEVELS: FibLevel[] = [
+    { ratio: 0,     label: "0",     color: "#c9d1d9", lineWidth: 1 },
+    { ratio: 0.236, label: "0.236", color: "#6e7681", lineWidth: 1 },
+    { ratio: 0.382, label: "0.382", color: "#79c0ff", lineWidth: 1 },
+    { ratio: 0.5,   label: "0.5",   color: "#F59E0B", lineWidth: 1 },
+    { ratio: 0.618, label: "0.618", color: "#F59E0B", lineWidth: 2 },
+    { ratio: 0.786, label: "0.786", color: "#79c0ff", lineWidth: 1 },
+    { ratio: 1,     label: "1",     color: "#c9d1d9", lineWidth: 1 },
+  ];
+
+  interface FibResult {
+    price: number;
+    level: FibLevel;
+    swingTimeSec: number;   // x-start: the earliest of swingHigh/swingLow time
+    endTimeSec: number;     // x-end: last candle time + 5 intervals (right edge)
+  }
+
+  function computeFibLevels(data: CandleRow[]): FibResult[] {
+    if (data.length < 4) return [];
+    const scan = data.slice(-22);
+    let swingHigh: number | null = null;
+    let swingHighTime = 0;
+    let swingLow: number | null = null;
+    let swingLowTime = 0;
+
+    for (let i = 1; i < scan.length - 1; i++) {
+      const prev = scan[i - 1];
+      const cur = scan[i];
+      const next = scan[i + 1];
+      if (cur.high > prev.high && cur.high > next.high) {
+        if (swingHigh === null || cur.high > swingHigh) {
+          swingHigh = cur.high;
+          swingHighTime = cur.open_time;
+        }
+      }
+      if (cur.low < prev.low && cur.low < next.low) {
+        if (swingLow === null || cur.low < swingLow) {
+          swingLow = cur.low;
+          swingLowTime = cur.open_time;
+        }
+      }
+    }
+
+    if (swingHigh === null || swingLow === null) return [];
+    const range = swingHigh - swingLow;
+    if (range <= 0) return [];
+
+    const last = data[data.length - 1];
+    const prev = data[data.length - 2];
+    const intervalMs = last.open_time - prev.open_time;
+    const swingTimeSec = Math.min(swingHighTime, swingLowTime) / 1000;
+    const endTimeSec = (last.open_time + 5 * intervalMs) / 1000;
+
+    return FIB_LEVELS.map((level) => ({
+      price: swingHigh! - level.ratio * range,
+      level,
+      swingTimeSec,
+      endTimeSec,
+    }));
+  }
+
+  function drawFibLines(): void {
+    clearFibLines();
+    if (!chart || candles.length < 4) return;
+    const levels = computeFibLevels(candles);
+    for (const { price, level, swingTimeSec, endTimeSec } of levels) {
+      const series = chart.addLineSeries({
+        color: level.color,
+        lineWidth: level.lineWidth as 1 | 2 | 3 | 4,
+        priceScaleId: "right",
+        lastValueVisible: true,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false,
+        title: level.label,
+      });
+      const lineData: LineData[] = [
+        { time: swingTimeSec as Time, value: price },
+        { time: endTimeSec as Time,   value: price },
+      ];
+      series.setData(lineData);
+      fibSeries.push(series);
+    }
+  }
+
+  function clearFibLines(): void {
+    for (const s of fibSeries) {
+      try { chart.removeSeries(s); } catch { /* already removed */ }
+    }
+    fibSeries = [];
+  }
+
+  // ── Chart init ───────────────────────────────────────────────────────────────
 
   onMount(() => {
     chart = createChart(container, {
       width: container.clientWidth,
-      height: 480,
+      height: 500,
       layout: {
         background: { type: ColorType.Solid, color: "#0d1117" },
         textColor: "#c9d1d9",
       },
       grid: {
-        vertLines: { color: "#30363d" },
-        horzLines: { color: "#30363d" },
+        vertLines: { color: "#21262d" },
+        horzLines: { color: "#21262d" },
       },
-      timeScale: { timeVisible: true, secondsVisible: false },
+      crosshair: {
+        vertLine: { color: "#58a6ff44", labelBackgroundColor: "#161b22" },
+        horzLine: { color: "#58a6ff44", labelBackgroundColor: "#161b22" },
+      },
+      timeScale: { timeVisible: true, secondsVisible: false, borderColor: "#30363d" },
+      rightPriceScale: { borderColor: "#30363d" },
     });
+
     candleSeries = chart.addCandlestickSeries({
       upColor: "#3fb950",
       downColor: "#f85149",
@@ -41,7 +168,20 @@
       borderDownColor: "#f85149",
       wickUpColor: "#3fb950",
       wickDownColor: "#f85149",
+      priceScaleId: "right",
     });
+
+    volumeSeries = chart.addHistogramSeries({
+      color: "#30363d",
+      priceFormat: { type: "volume" },
+      priceScaleId: "volume",
+    });
+    chart.priceScale("volume").applyOptions({
+      scaleMargins: { top: 0.8, bottom: 0 },
+    });
+
+    startPricesSSE();
+
     const ro = new ResizeObserver(() =>
       chart.applyOptions({ width: container.clientWidth })
     );
@@ -49,8 +189,11 @@
     return () => ro.disconnect();
   });
 
+  // ── Candle data effect ────────────────────────────────────────────────────────
+
   $effect(() => {
     if (!candleSeries) return;
+    liveCandle = null; // reset on data reload
     const data: CandlestickData[] = candles.map((c) => ({
       time: (c.open_time / 1000) as Time,
       open: c.open,
@@ -59,7 +202,16 @@
       close: c.close,
     }));
     candleSeries.setData(data);
+
+    const volData: HistogramData[] = candles.map((c) => ({
+      time: (c.open_time / 1000) as Time,
+      value: c.volume,
+      color: c.close >= c.open ? "#3fb95044" : "#f8514944",
+    }));
+    volumeSeries.setData(volData);
   });
+
+  // ── Signal markers effect ─────────────────────────────────────────────────────
 
   $effect(() => {
     if (!candleSeries) return;
@@ -82,7 +234,72 @@
     candleSeries.setMarkers(markers);
   });
 
-  onDestroy(() => chart?.remove());
+  // ── Fibonacci overlay effect ──────────────────────────────────────────────────
+
+  $effect(() => {
+    if (!candleSeries) return;
+    if (showFib) {
+      drawFibLines();
+    } else {
+      clearFibLines();
+    }
+  });
+
+  // ── Live price update via SSE ─────────────────────────────────────────────────
+  // Derive the current candle's open_time from the timeframe interval so that
+  // if a new candle period has opened since the data was fetched, the update
+  // targets the correct bar rather than patching the last closed candle.
+
+  $effect(() => {
+    const priceMap = $pricesStore;
+    if (!candleSeries || candles.length < 2) return;
+    const row = priceMap.get(symbol);
+    if (!row) return;
+    const lastPrice = parseFloat(row.last_price);
+    if (isNaN(lastPrice)) return;
+
+    const last = candles[candles.length - 1];
+    const prev = candles[candles.length - 2];
+    // Interval between candles in milliseconds
+    const intervalMs = last.open_time - prev.open_time;
+    // Snap current time to the candle boundary
+    const nowMs = Date.now();
+    const currentCandleOpenMs = Math.floor(nowMs / intervalMs) * intervalMs;
+    const currentCandleOpenSec = (currentCandleOpenMs / 1000) as Time;
+
+    if (currentCandleOpenMs <= last.open_time) {
+      // Still within the last fetched candle — update in place
+      liveCandle = null;
+      candleSeries.update({
+        time: (last.open_time / 1000) as Time,
+        open: last.open,
+        high: Math.max(last.high, lastPrice),
+        low: Math.min(last.low, lastPrice),
+        close: lastPrice,
+      });
+    } else {
+      // New candle period — accumulate open/high/low across ticks
+      if (!liveCandle || liveCandle.openTimeSec !== (currentCandleOpenMs / 1000)) {
+        // First tick of this period — initialise
+        liveCandle = { openTimeSec: currentCandleOpenMs / 1000, open: lastPrice, high: lastPrice, low: lastPrice };
+      } else {
+        liveCandle.high = Math.max(liveCandle.high, lastPrice);
+        liveCandle.low  = Math.min(liveCandle.low,  lastPrice);
+      }
+      candleSeries.update({
+        time: currentCandleOpenSec,
+        open:  liveCandle.open,
+        high:  liveCandle.high,
+        low:   liveCandle.low,
+        close: lastPrice,
+      });
+    }
+  });
+
+  onDestroy(() => {
+    stopPricesSSE();
+    chart?.remove();
+  });
 </script>
 
 <div bind:this={container} class="chart-container"></div>

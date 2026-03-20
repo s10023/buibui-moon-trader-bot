@@ -13,6 +13,7 @@
   let days = $state(90);
   let selectedStrategies = $state<string[]>([]);
   let showFunding = $state(false);
+  let showFib = $state(false);
 
   let candles = $state<CandleRow[]>([]);
   let signals = $state<SignalRow[]>([]);
@@ -73,6 +74,10 @@
         <input type="checkbox" bind:checked={showFunding} />
         <span>Funding</span>
       </label>
+      <label class="checkbox-label">
+        <input type="checkbox" bind:checked={showFib} />
+        <span>Fib</span>
+      </label>
       <button disabled={loading} onclick={() => void load()}>Load</button>
     </div>
 
@@ -93,7 +98,7 @@
     <LoadingSpinner label="Loading chart data..." />
   {:else if loaded}
     <div class="chart-frame">
-      <CandleChart {candles} {signals} />
+      <CandleChart {candles} {signals} {symbol} {showFib} />
     </div>
     <div class="chart-meta">
       <span>{candles.length} candles</span>
