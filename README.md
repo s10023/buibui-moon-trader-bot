@@ -59,7 +59,7 @@ buibui-moon-trader-bot/
 │   ├── data_fetcher.py              # Pure Binance Futures API → DataFrames (klines, funding, OI)
 │   ├── data_store.py                # Pure DuckDB read/write (schema, upsert, query helpers)
 │   ├── data_sync.py                 # Backfill + incremental sync orchestration
-│   ├── indicators_lib.py            # Pure strategy signal detection (11 strategies + STRATEGY_REGISTRY)
+│   ├── indicators_lib.py            # Pure strategy signal detection (12 strategies + STRATEGY_REGISTRY)
 │   ├── signal_config.py             # Pure config loader: SignalWatchConfig + load_signal_config()
 │   ├── signal_lib.py                # Pure scan lib: scan_symbol(), run_scan_cycle()
 │   ├── signal_runner.py             # Signal daemon thin wrapper (creates client, opens DB, polls)
@@ -352,6 +352,7 @@ poetry run python buibui.py backtest --symbols BTCUSDT ETHUSDT --timeframes 1h 4
 | `bos` | Break of Structure / Change of Character (BOS/CHoCH) | ★★★☆☆ |
 | `wick_fill` | Price revisits a significant wick zone | ★★☆☆☆ |
 | `marubozu` | Retest of a wickless candle's open price (order block) | ★★☆☆☆ |
+| `trend_day` | Trend Day: candle opens near one extreme, closes near the other (large body, tiny leading wick) | ★★★☆☆ |
 | `seasonality` | Average return by day-of-week, hour, and week-of-month | ★★☆☆☆ |
 
 **Single-combo options:**
@@ -446,6 +447,19 @@ Backtest findings (160d, 3 symbols × 4 TFs × 11 strategies, −29% trade volum
 Notable: ETHUSDT 4h `bos` is the main cost (−5pp/−0.14R) — Mon/Fri 4h ETH BOS signals were genuinely profitable (likely London Monday expansion). All other `bos` and all `orb` combos improve.
 
 **`smt_trend_filter`** gates `smt_divergence` signals against EMA-50: LONG only above EMA, SHORT only below. On by default (`1`). Backtesting shows counter-trend SMT signals are reliably losing — only ETH/1H retains edge. Disable with `smt_trend_filter = 0` in TOML.
+
+**`trend_day`** detects candles where price opens near one extreme and closes near the other — a large body (≥65% of range) with a tiny leading wick (≤15%). Configurable via `body_pct_min` and `wick_max` params in the Backtest UI. Backtest findings (160d, `day_filter = true`):
+
+| Combo | Win% | Trades | Avg R |
+| --- | --- | --- | --- |
+| BTCUSDT 4h | 41.5% | 106 | +0.20R |
+| SOLUSDT 4h | 37.4% | 123 | +0.07R |
+| ETHUSDT 4h | 35.5% | 110 | +0.03R |
+| ETHUSDT 1h | 35.1% | 439 | +0.01R |
+| BTCUSDT/SOLUSDT 1h | ~34% | 478–487 | −0.01 to −0.06R |
+| 15m (all) | 33–34% | 2000–2400 | −0.01 to −0.04R |
+
+4h is the best timeframe — BTCUSDT 4h is consistently the strongest combo (+0.20R). 15m signal volume is high but R is flat-to-negative. 1d combos show strong R (+0.15–0.23R) without `day_filter` but sample sizes fall below `min_trades` when Mon/Fri are excluded.
 
 The `[backtest]` table in `config/signal_watch.toml` controls a per-alert win rate filter:
 
