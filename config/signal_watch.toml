@@ -10,16 +10,38 @@
 
 timeframes = ["15m", "1h", "4h", "1d"]
 telegram = true
-min_sl_pct = 0.01
+min_sl_pct = 0.005
 
 # Suppress Monday and Friday signals (ICT weekly cycle — manipulation/distribution days)
-day_filter = true
+day_filter = false
 
 # EMA-50 trend gate for smt_divergence: LONG only above EMA, SHORT only below (1=on, 0=off)
 smt_trend_filter = 1
 
 # Strategies to run — omit to run all strategies in SIGNAL_REGISTRY
 # strategies = ["fvg", "bos", "liquidity_sweep"]
+
+strategies = [
+    'wick_fill',
+    'marubozu',
+    'orb',
+    'liquidity_sweep',
+    'fvg',
+    'bos',
+    'funding_reversion',
+    'smt_divergence',
+    'eqh_eql',
+    'order_block',
+    'cvd_divergence',
+    'trend_day',
+    'engulfing',
+    'pin_bar',
+    'inside_bar',
+    'hammer_hanging_man',
+    'doji',
+    'morning_evening_star',
+    'fibonacci_retracement'
+]
 
 # SL/TP defaults
 # sl_pct = 0.02
@@ -29,7 +51,7 @@ smt_trend_filter = 1
 # cooldown_seconds = 3600
 
 # Backtest sweep runner (make buibui-backtest) reads these top-level keys:
-days = 160              # lookback window
+days = 200              # lookback window
 min_trades = 20         # hide combos with fewer trades in sweep table
 fee_pct = 0.0005        # 0.05% taker fee per leg; set 0.0 to disable
 
@@ -46,6 +68,6 @@ SOLUSDT = "ETHUSDT"
 # "off":  disable entirely
 [backtest]
 mode = "hard"
-days = 160
+days = 200
 min_trades = 20
 filter_threshold = 0.3
