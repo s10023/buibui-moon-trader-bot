@@ -324,20 +324,48 @@ def run_scan_cycle(
                 smt_trend_filter=smt_trend_filter,
             )
 
-            # Conflict suppression: opposite directions on same symbol/tf → suppress all
+            # Conflict resolution: opposite directions on same symbol/tf
+            # Pick the side with higher max confidence; on a tie, send both sides
+            # (each signal's reason will have "⚠️ conflict" appended).
             long_events = [e for e in events if e.direction == "long"]
             short_events = [e for e in events if e.direction == "short"]
             if long_events and short_events:
-                logger.info(
-                    "Conflict suppressed: %s %s has both LONG (%s) and SHORT (%s) signals",
-                    symbol,
-                    tf,
-                    [e.strategy for e in long_events],
-                    [e.strategy for e in short_events],
-                )
-                continue
-
-            direction_events = long_events or short_events
+                long_conf = max(e.confidence for e in long_events)
+                short_conf = max(e.confidence for e in short_events)
+                if long_conf > short_conf:
+                    direction_events = long_events
+                    logger.info(
+                        "Conflict: %s %s — LONG wins (conf %d > %d), SHORT dropped (%s)",
+                        symbol,
+                        tf,
+                        long_conf,
+                        short_conf,
+                        [e.strategy for e in short_events],
+                    )
+                elif short_conf > long_conf:
+                    direction_events = short_events
+                    logger.info(
+                        "Conflict: %s %s — SHORT wins (conf %d > %d), LONG dropped (%s)",
+                        symbol,
+                        tf,
+                        short_conf,
+                        long_conf,
+                        [e.strategy for e in long_events],
+                    )
+                else:
+                    direction_events = long_events + short_events
+                    logger.info(
+                        "Conflict tie: %s %s conf %d — sending both LONG (%s) and SHORT (%s)",
+                        symbol,
+                        tf,
+                        long_conf,
+                        [e.strategy for e in long_events],
+                        [e.strategy for e in short_events],
+                    )
+                for e in direction_events:
+                    e.reason = f"{e.reason} ⚠️ conflict"
+            else:
+                direction_events = long_events or short_events
             if not direction_events:
                 continue
 
@@ -402,28 +430,35 @@ def run_scan_cycle(
                     cooldown_seconds,
                 )
 
-            # Stack all passing strategies into one confluence alert
-            msg = format_confluence_alert(
-                passing_events,
-                sl_pct=sl_pct,
-                tp_r=tp_r,
-                min_sl_pct=min_sl_pct,
-                backtest_summary=backtest_summary,
+            # In a tied conflict, passing_events may contain both directions —
+            # split by direction so each confluence alert is direction-homogeneous.
+            directions_present = list(
+                dict.fromkeys(e.direction for e in passing_events)
             )
-            alerts.append(msg)
-            logger.info(
-                "Signal: %s %s %s %s (confluence: %d)",
-                symbol,
-                tf,
-                passing_events[0].direction,
-                [e.strategy for e in passing_events],
-                len(passing_events),
-            )
+            for direction in directions_present:
+                dir_events = [e for e in passing_events if e.direction == direction]
+                # Stack all passing strategies into one confluence alert
+                msg = format_confluence_alert(
+                    dir_events,
+                    sl_pct=sl_pct,
+                    tp_r=tp_r,
+                    min_sl_pct=min_sl_pct,
+                    backtest_summary=backtest_summary,
+                )
+                alerts.append(msg)
+                logger.info(
+                    "Signal: %s %s %s %s (confluence: %d)",
+                    symbol,
+                    tf,
+                    direction,
+                    [e.strategy for e in dir_events],
+                    len(dir_events),
+                )
 
-            if send_telegram:
-                try:
-                    send_telegram_message(msg)
-                except Exception:
-                    logger.exception("Telegram send failed for %s", symbol)
+                if send_telegram:
+                    try:
+                        send_telegram_message(msg)
+                    except Exception:
+                        logger.exception("Telegram send failed for %s", symbol)
 
     return alerts
