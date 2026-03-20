@@ -88,7 +88,13 @@ def sync(
     timeframe: str,
     sleep_fn: Callable[[float], None] | None = None,
 ) -> int:
-    """Fetch only candles newer than the latest stored open_time.
+    """Fetch candles from the latest stored open_time onwards (inclusive).
+
+    Starting from `latest` (not `latest + 1`) ensures the last stored candle
+    is always re-fetched and overwritten with its final OHLCV values.  Without
+    this, a candle stored mid-formation (e.g. a few seconds after it opened)
+    keeps its stale close forever — later syncs skip it because they start
+    from latest+1.
 
     Raises ValueError if no data exists for (symbol, timeframe) — run backfill first.
     Returns total rows upserted.
@@ -96,4 +102,4 @@ def sync(
     latest = get_latest_open_time(conn, symbol, timeframe)
     if latest is None:
         raise ValueError(f"No data found for {symbol}/{timeframe}. Run backfill first.")
-    return backfill(conn, client, symbol, timeframe, latest + 1, sleep_fn=sleep_fn)
+    return backfill(conn, client, symbol, timeframe, latest, sleep_fn=sleep_fn)

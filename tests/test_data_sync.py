@@ -117,7 +117,7 @@ class TestSync:
 
         with patch("analytics.data_sync.backfill", side_effect=capture):
             sync(conn, object(), "BTCUSDT", "1h", sleep_fn=lambda _: None)
-        assert captured == [1_000_001]
+        assert captured == [1_000_000]
 
     def test_raises_when_no_existing_data(self) -> None:
         conn = _make_conn()

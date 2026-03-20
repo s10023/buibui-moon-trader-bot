@@ -493,7 +493,8 @@ class TestDayFilter:
     _FRIDAY_MS = 1704412800000
 
     def _make_ohlcv(self, open_time_ms: int) -> pd.DataFrame:
-        """Minimal OHLCV DataFrame with 3 rows; latest row has the given open_time."""
+        """Minimal OHLCV DataFrame with 4 rows; second-to-last row has the given
+        open_time (the latest *closed* candle); the final row is the forming candle."""
         rows = [
             {
                 "open_time": open_time_ms - 2000,
@@ -518,6 +519,14 @@ class TestDayFilter:
                 "low": 101.0,
                 "close": 104.0,
                 "volume": 1.0,
+            },
+            {
+                "open_time": open_time_ms + 1000,
+                "open": 104.0,
+                "high": 104.5,
+                "low": 103.5,
+                "close": 104.2,
+                "volume": 0.1,
             },
         ]
         return pd.DataFrame(rows)
@@ -808,6 +817,14 @@ class TestSMTTrendFilter:
                 "close": 104.0,
                 "volume": 1.0,
             },
+            {
+                "open_time": self._OPEN_TIME_MS + 1000,
+                "open": 104.0,
+                "high": 104.5,
+                "low": 103.5,
+                "close": 104.2,
+                "volume": 0.1,
+            },
         ]
         return pd.DataFrame(rows)
 
@@ -1038,6 +1055,14 @@ class TestConflictResolution:
                 "low": 101.0,
                 "close": 104.0,
                 "volume": 1.0,
+            },
+            {
+                "open_time": self._OPEN_TIME_MS + 1000,
+                "open": 104.0,
+                "high": 104.5,
+                "low": 103.5,
+                "close": 104.2,
+                "volume": 0.1,
             },
         ]
         return pd.DataFrame(rows)

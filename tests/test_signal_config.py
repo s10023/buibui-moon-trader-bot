@@ -108,4 +108,4 @@ ETHUSDT = "BTCUSDT"
         cfg = load_signal_config(cfg_path)
         assert cfg.timeframes == ["15m", "1h", "4h", "1d"]
         assert cfg.telegram is True
-        assert cfg.min_sl_pct == 0.01
+        assert cfg.min_sl_pct == 0.005

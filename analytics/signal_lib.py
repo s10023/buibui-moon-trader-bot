@@ -155,8 +155,15 @@ def scan_symbol(
     if ohlcv_df.empty or len(ohlcv_df) < 3:
         return []
 
-    latest_open_time = int(ohlcv_df["open_time"].iloc[-1])
-    latest_close = float(ohlcv_df["close"].iloc[-1])
+    # Exclude the currently-forming (not yet closed) candle so detectors only
+    # see completed candles.  The signal runner wakes up at candle-close
+    # boundaries, but Binance/the sync layer often includes the new open candle
+    # in the response.  Passing it to pattern detectors (trend_day, marubozu,
+    # engulfing, …) would fire on a candle with as little as a few seconds of
+    # data, producing spurious 100%-body readings.
+    closed_df = ohlcv_df.iloc[:-1]
+    latest_open_time = int(closed_df["open_time"].iloc[-1])
+    latest_close = float(closed_df["close"].iloc[-1])
 
     events: list[SignalEvent] = []
 
@@ -185,7 +192,7 @@ def scan_symbol(
                         "Skipping %s for %s — no funding data", strategy_name, symbol
                     )
                     continue
-                signals_df = plugin["detector"](ohlcv_df, funding_df)
+                signals_df = plugin["detector"](closed_df, funding_df)
             elif requires_secondary:
                 if secondary_df is None or secondary_df.empty:
                     logger.debug(
@@ -194,12 +201,12 @@ def scan_symbol(
                     continue
                 if strategy_name == "smt_divergence":
                     signals_df = plugin["detector"](
-                        ohlcv_df, secondary_df, trend_filter=smt_trend_filter
+                        closed_df, secondary_df, trend_filter=smt_trend_filter
                     )
                 else:
-                    signals_df = plugin["detector"](ohlcv_df, secondary_df)
+                    signals_df = plugin["detector"](closed_df, secondary_df)
             else:
-                signals_df = plugin["detector"](ohlcv_df)
+                signals_df = plugin["detector"](closed_df)
         except Exception:
             logger.exception(
                 "Detector %s raised for %s %s", strategy_name, symbol, timeframe
