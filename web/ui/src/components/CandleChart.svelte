@@ -43,14 +43,14 @@
 
   // ── Fib levels ───────────────────────────────────────────────────────────────
 
-  interface FibLevel {
+  interface LocalFibLevel {
     ratio: number;
     label: string;
     color: string;
     lineWidth: number;
   }
 
-  const FIB_LEVELS: FibLevel[] = [
+  const FIB_LEVELS: LocalFibLevel[] = [
     { ratio: 0,     label: "0",     color: "#c9d1d9", lineWidth: 1 },
     { ratio: 0.236, label: "0.236", color: "#6e7681", lineWidth: 1 },
     { ratio: 0.382, label: "0.382", color: "#79c0ff", lineWidth: 1 },
@@ -62,7 +62,7 @@
 
   interface FibResult {
     price: number;
-    level: FibLevel;
+    level: LocalFibLevel;
     swingTimeSec: number;   // x-start: the earliest of swingHigh/swingLow time
     endTimeSec: number;     // x-end: last candle time + 5 intervals (right edge)
   }
