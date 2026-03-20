@@ -140,6 +140,7 @@ def scan_symbol(
     secondary_df: pd.DataFrame | None = None,
     funding_df: pd.DataFrame | None = None,
     day_filter: bool = False,
+    smt_trend_filter: int = 1,
 ) -> list[SignalEvent]:
     """Run requested strategies against a pre-fetched OHLCV DataFrame.
 
@@ -183,7 +184,12 @@ def scan_symbol(
                         "Skipping %s for %s — no secondary data", strategy_name, symbol
                     )
                     continue
-                signals_df = plugin["detector"](ohlcv_df, secondary_df)
+                if strategy_name == "smt_divergence":
+                    signals_df = plugin["detector"](
+                        ohlcv_df, secondary_df, trend_filter=smt_trend_filter
+                    )
+                else:
+                    signals_df = plugin["detector"](ohlcv_df, secondary_df)
             else:
                 signals_df = plugin["detector"](ohlcv_df)
         except Exception:
@@ -248,6 +254,7 @@ def run_scan_cycle(
     days: int = 90,
     backtest_cfg: BacktestFilterConfig | None = None,
     day_filter: bool = False,
+    smt_trend_filter: int = 1,
 ) -> list[str]:
     """Scan all symbol+timeframe combinations and return formatted alert strings.
 
@@ -314,6 +321,7 @@ def run_scan_cycle(
                 secondary_df=sec_df,
                 funding_df=funding_df,
                 day_filter=day_filter,
+                smt_trend_filter=smt_trend_filter,
             )
 
             # Conflict suppression: opposite directions on same symbol/tf → suppress all

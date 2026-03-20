@@ -44,6 +44,8 @@ class SignalWatchConfig:
     backtest: BacktestFilterConfig = field(default_factory=BacktestFilterConfig)
     # Suppress Monday and Friday signals (ICT weekly cycle)
     day_filter: bool = False
+    # EMA-50 trend gate for smt_divergence (1=on, 0=off)
+    smt_trend_filter: int = 1
 
 
 def load_signal_config(path: str | Path) -> SignalWatchConfig:
@@ -84,4 +86,5 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         smt_pairs=smt_pairs,
         backtest=backtest,
         day_filter=bool(data.get("day_filter", False)),
+        smt_trend_filter=int(data.get("smt_trend_filter", 1)),
     )
