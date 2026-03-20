@@ -17,12 +17,21 @@
   const TIMEFRAMES = ["15m", "1h", "4h", "1d"];
   const POLL_MS = 60_000;
 
+  type WindowOption = { label: string; days: number };
+  const WINDOW_OPTIONS: WindowOption[] = [
+    { label: "24h", days: 1 },
+    { label: "7d", days: 7 },
+    { label: "30d", days: 30 },
+    { label: "90d", days: 90 },
+  ];
+  let selectedDays = $state(7);
+
   let filterSymbol = $state("");
   let filterStrategy = $state("");
   let filterDirection = $state<"" | "long" | "short">("");
 
   const nowMs = () => Date.now();
-  const start90d = () => nowMs() - 90 * 24 * 60 * 60 * 1000;
+  const startMs = () => nowMs() - selectedDays * 24 * 60 * 60 * 1000;
 
   async function fetchAll(): Promise<void> {
     signalsError.set(null);
@@ -37,7 +46,7 @@
             const resp = await getSignals({
               symbol: sym,
               timeframe: tf,
-              start_ms: start90d(),
+              start_ms: startMs(),
               end_ms: nowMs(),
               strategies: allStrategies,
             });
@@ -132,6 +141,15 @@
         <option value="short">Short</option>
       </select>
     </label>
+    <div class="window-group">
+      {#each WINDOW_OPTIONS as opt}
+        <button
+          class="window-btn"
+          class:active={selectedDays === opt.days}
+          onclick={() => { selectedDays = opt.days; void fetchAll(); }}
+        >{opt.label}</button>
+      {/each}
+    </div>
     <button onclick={() => void fetchAll()}>Refresh</button>
     <span class="result-count">
       {#if !$signalsLoading}{filtered.length} result{filtered.length !== 1 ? "s" : ""}{/if}
@@ -211,4 +229,34 @@
   .stars { color: var(--yellow); letter-spacing: -1px; }
   .reason { font-size: 11px; max-width: 200px; }
   .empty { padding: 20px 0; font-size: 12px; letter-spacing: 0.05em; }
+
+  .window-group {
+    display: flex;
+    gap: 2px;
+    align-items: flex-end;
+  }
+
+  .window-btn {
+    padding: 4px 10px;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-dim);
+    color: var(--muted);
+    border-radius: 3px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+
+  .window-btn:hover {
+    border-color: var(--accent);
+    color: var(--fg);
+  }
+
+  .window-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg);
+    font-weight: 600;
+  }
 </style>
