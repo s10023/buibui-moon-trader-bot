@@ -93,3 +93,39 @@ jobs:
           path: |
             test-results.xml
             coverage.xml
+
+  frontend-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Check for frontend changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            frontend:
+              - 'web/ui/**'
+              - '.github/workflows/lint.yaml'
+
+      - name: Set up Node
+        if: steps.changes.outputs.frontend == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/ui/package-lock.json
+
+      - name: Install frontend dependencies
+        if: steps.changes.outputs.frontend == 'true'
+        run: cd web/ui && npm ci
+
+      - name: Build frontend
+        if: steps.changes.outputs.frontend == 'true'
+        run: cd web/ui && npm run build
+
+      - name: Svelte type check
+        if: steps.changes.outputs.frontend == 'true'
+        run: cd web/ui && npx svelte-check

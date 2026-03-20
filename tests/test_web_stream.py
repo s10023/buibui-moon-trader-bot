@@ -29,15 +29,15 @@ async def _one_positions_event(client: Any) -> AsyncGenerator[str, None]:
             {
                 "symbol": "BTCUSDT",
                 "side": "SHORT",
-                "leverage": "25",
-                "entry": "110032.0",
-                "mark": "108757.0",
-                "margin": "595.99",
-                "notional": "14899.70",
-                "pnl": "174.73",
-                "pnl_pct": "1.58",
+                "leverage": 25,
+                "entry_price": 110032.0,
+                "mark_price": 108757.0,
+                "margin": 595.99,
+                "notional": 14899.70,
+                "pnl": 174.73,
+                "pnl_pct": 1.58,
                 "risk_pct": "2.3%",
-                "sl_price": "109970.0",
+                "sl_price": 109970.0,
                 "sl_size": "0.135",
                 "sl_usd": "148.60",
             }
@@ -61,6 +61,7 @@ def test_stream_prices_content_type(
     with web_client.stream("GET", "/api/stream/prices") as resp:
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers["content-type"]
+        resp.read()  # drain stream before close to avoid anyio hang on Python 3.12+
 
 
 def test_stream_prices_first_event_shape(
@@ -93,6 +94,7 @@ def test_stream_positions_content_type(
     with web_client.stream("GET", "/api/stream/positions") as resp:
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers["content-type"]
+        resp.read()  # drain stream before close to avoid anyio hang on Python 3.12+
 
 
 def test_stream_positions_first_event_shape(
@@ -114,11 +116,14 @@ def test_stream_positions_first_event_shape(
     assert "total_risk_usd" in payload
 
 
-def test_stream_prices_missing_token_returns_401(web_client: TestClient) -> None:
-    """Stream prices without ?token= returns 401."""
+def test_stream_prices_missing_token_returns_401(
+    web_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stream prices without ?token= returns 401 when API_TOKEN is set."""
     from web.api.deps import require_token_sse
     from web.api.main import app
 
+    monkeypatch.setenv("API_TOKEN", "test-secret")
     app.dependency_overrides.pop(require_token_sse, None)
     try:
         resp = web_client.get("/api/stream/prices")
@@ -127,11 +132,14 @@ def test_stream_prices_missing_token_returns_401(web_client: TestClient) -> None
         app.dependency_overrides[require_token_sse] = lambda: None
 
 
-def test_stream_positions_missing_token_returns_401(web_client: TestClient) -> None:
-    """Stream positions without ?token= returns 401."""
+def test_stream_positions_missing_token_returns_401(
+    web_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stream positions without ?token= returns 401 when API_TOKEN is set."""
     from web.api.deps import require_token_sse
     from web.api.main import app
 
+    monkeypatch.setenv("API_TOKEN", "test-secret")
     app.dependency_overrides.pop(require_token_sse, None)
     try:
         resp = web_client.get("/api/stream/positions")
