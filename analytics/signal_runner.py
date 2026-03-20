@@ -40,6 +40,7 @@ def run_signal_watch(
     smt_pairs: dict[str, str] | None = None,
     db_path: Path = DEFAULT_DB_PATH,
     backtest_cfg: BacktestFilterConfig | None = None,
+    day_filter: bool = False,
 ) -> None:
     """Run the signal detection daemon loop.
 
@@ -157,6 +158,7 @@ def run_signal_watch(
                     send_telegram=send_telegram,
                     secondary_map=secondary_map_arg,
                     backtest_cfg=backtest_cfg,
+                    day_filter=day_filter,
                 )
 
                 if alerts:
