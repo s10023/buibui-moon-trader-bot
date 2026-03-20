@@ -20,7 +20,7 @@ A tactical crypto trading bot designed for fast, risk-managed, and confident ent
   Get regular position snapshots via Telegram bot.
 
 - **24/7 Signal Detection Daemon**
-  Polls closed candles every 5 minutes, runs 9 strategies (FVG, BOS, liquidity sweep, SMT divergence,
+  Polls closed candles every 5 minutes, runs 19 strategies (FVG, BOS, liquidity sweep, SMT divergence,
   CVD divergence, and more), and sends Telegram alerts with computed SL/TP levels. Two-layer dedup prevents spam.
 
 - **Manual Multi-Trade Entry Script** *(planned)*
@@ -59,13 +59,13 @@ buibui-moon-trader-bot/
 │   ├── data_fetcher.py              # Pure Binance Futures API → DataFrames (klines, funding, OI)
 │   ├── data_store.py                # Pure DuckDB read/write (schema, upsert, query helpers)
 │   ├── data_sync.py                 # Backfill + incremental sync orchestration
-│   ├── indicators_lib.py            # Pure strategy signal detection (12 strategies + STRATEGY_REGISTRY)
+│   ├── indicators_lib.py            # Pure strategy signal detection (20 strategies + STRATEGY_REGISTRY)
 │   ├── signal_config.py             # Pure config loader: SignalWatchConfig + load_signal_config()
 │   ├── signal_lib.py                # Pure scan lib: scan_symbol(), run_scan_cycle()
 │   ├── signal_runner.py             # Signal daemon thin wrapper (creates client, opens DB, polls)
 │   └── backtest_config.py           # BacktestSweepConfig + load_backtest_config() for TOML sweep mode
 ├── signals/
-│   ├── registry.py                  # SignalPlugin TypedDict + SIGNAL_REGISTRY (9 strategies, with confidence)
+│   ├── registry.py                  # SignalPlugin TypedDict + SIGNAL_REGISTRY (19 strategies, with confidence)
 │   ├── cooldown_store.py            # Two-layer dedup: candle watermark + cooldown timer
 │   └── alert_formatter.py           # SignalEvent dataclass + format_signal_alert() → Markdown with SL/TP/stars
 ├── web/
@@ -352,7 +352,14 @@ poetry run python buibui.py backtest --symbols BTCUSDT ETHUSDT --timeframes 1h 4
 | `bos` | Break of Structure / Change of Character (BOS/CHoCH) | ★★★☆☆ |
 | `wick_fill` | Price revisits a significant wick zone | ★★☆☆☆ |
 | `marubozu` | Retest of a wickless candle's open price (order block) | ★★☆☆☆ |
-| `trend_day` | Trend Day: candle opens near one extreme, closes near the other (large body, tiny leading wick) | ★★★☆☆ |
+| `trend_day` | Trend Day: candle opens near one extreme, closes near the other (large body, tiny leading wick) — **4h/1d only** | ★★★☆☆ |
+| `engulfing` | Bullish/Bearish Engulfing: current candle body fully engulfs the prior candle body | ★★☆☆☆ |
+| `pin_bar` | Pin Bar: small body with a long rejection wick (≥2× body) | ★★☆☆☆ |
+| `inside_bar` | Inside Bar breakout: body contained within prior candle, signal on breakout close | ★★☆☆☆ |
+| `hammer_hanging_man` | Hammer (bullish reversal) / Hanging Man (bearish): pin-bar shape with trend context | ★★☆☆☆ |
+| `doji` | Doji (open ≈ close) followed by a strongly directional confirmation candle | ★★☆☆☆ |
+| `morning_evening_star` | Morning Star (3-candle bullish reversal) / Evening Star (3-candle bearish reversal) | ★★★☆☆ |
+| `fibonacci_retracement` | Fibonacci golden zone (0.5–0.618) retracement entry after a swing high/low | ★★★☆☆ |
 | `seasonality` | Average return by day-of-week, hour, and week-of-month | ★★☆☆☆ |
 
 **Single-combo options:**
@@ -418,7 +425,7 @@ poetry run python buibui.py signal watch
 - `--config config/signal_watch.toml` — load all options from a TOML file; CLI flags override file values
 - `--symbols BTCUSDT ETHUSDT` — symbols to scan (default: all from `coins.json`)
 - `--timeframes 4h` — candle timeframes (default: `4h`)
-- `--strategies fvg bos` — strategies to run (default: all 9 except `seasonality`)
+- `--strategies fvg bos` — strategies to run (default: all 19 except `seasonality`)
 - `--tp-r 2.0` — R multiplier for TP level in alert messages (default: `2.0`)
 - `--telegram` — send alerts via Telegram
 - `--state-file signal_state.json` — path to cooldown/watermark state file
