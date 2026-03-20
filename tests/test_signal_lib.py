@@ -771,3 +771,234 @@ class TestDayFilter:
             )
 
         assert len(alerts) == 1, "Monday signals should pass when day_filter=False"
+
+
+class TestSMTTrendFilter:
+    """Tests for the smt_trend_filter param in scan_symbol.
+
+    Verifies that scan_symbol forwards smt_trend_filter=1/0 to the smt_divergence
+    detector as the trend_filter kwarg, and does NOT forward it for other strategies.
+    """
+
+    _OPEN_TIME_MS = 1704240000000  # Wednesday 2024-01-03 — passes day_filter
+
+    def _make_ohlcv(self) -> pd.DataFrame:
+        rows = [
+            {
+                "open_time": self._OPEN_TIME_MS - 2000,
+                "open": 100.0,
+                "high": 105.0,
+                "low": 98.0,
+                "close": 102.0,
+                "volume": 1.0,
+            },
+            {
+                "open_time": self._OPEN_TIME_MS - 1000,
+                "open": 102.0,
+                "high": 106.0,
+                "low": 100.0,
+                "close": 103.0,
+                "volume": 1.0,
+            },
+            {
+                "open_time": self._OPEN_TIME_MS,
+                "open": 103.0,
+                "high": 107.0,
+                "low": 101.0,
+                "close": 104.0,
+                "volume": 1.0,
+            },
+        ]
+        return pd.DataFrame(rows)
+
+    def _make_signals_df(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            [
+                {
+                    "open_time": self._OPEN_TIME_MS,
+                    "direction": "short",
+                    "reason": "smt_bearish@107.00",
+                    "sl_price": 107.0,
+                    "context": "",
+                }
+            ]
+        )
+
+    def test_smt_trend_filter_1_forwarded_to_detector(self) -> None:
+        """scan_symbol passes trend_filter=1 to smt_divergence detector."""
+        ohlcv = self._make_ohlcv()
+        signals_df = self._make_signals_df()
+        secondary_df = self._make_ohlcv()
+
+        received_kwargs: dict[str, Any] = {}
+
+        def mock_detector(
+            primary: pd.DataFrame, secondary: pd.DataFrame, **kwargs: Any
+        ) -> pd.DataFrame:
+            received_kwargs.update(kwargs)
+            return signals_df
+
+        with (
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {
+                    "smt_divergence": {
+                        "detector": mock_detector,
+                        "confidence": 5,
+                    }
+                },
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                {
+                    "smt_divergence": type(
+                        "S",
+                        (),
+                        {"requires_funding": False, "requires_secondary": True},
+                    )(),
+                },
+            ),
+        ):
+            events = scan_symbol(
+                ohlcv_df=ohlcv,
+                symbol="BTCUSDT",
+                timeframe="4h",
+                strategies=["smt_divergence"],
+                secondary_df=secondary_df,
+                smt_trend_filter=1,
+            )
+
+        assert received_kwargs.get("trend_filter") == 1
+        assert len(events) == 1
+
+    def test_smt_trend_filter_0_forwarded_to_detector(self) -> None:
+        """scan_symbol passes trend_filter=0 when smt_trend_filter=0."""
+        ohlcv = self._make_ohlcv()
+        signals_df = self._make_signals_df()
+        secondary_df = self._make_ohlcv()
+
+        received_kwargs: dict[str, Any] = {}
+
+        def mock_detector(
+            primary: pd.DataFrame, secondary: pd.DataFrame, **kwargs: Any
+        ) -> pd.DataFrame:
+            received_kwargs.update(kwargs)
+            return signals_df
+
+        with (
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {
+                    "smt_divergence": {
+                        "detector": mock_detector,
+                        "confidence": 5,
+                    }
+                },
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                {
+                    "smt_divergence": type(
+                        "S",
+                        (),
+                        {"requires_funding": False, "requires_secondary": True},
+                    )(),
+                },
+            ),
+        ):
+            scan_symbol(
+                ohlcv_df=ohlcv,
+                symbol="BTCUSDT",
+                timeframe="4h",
+                strategies=["smt_divergence"],
+                secondary_df=secondary_df,
+                smt_trend_filter=0,
+            )
+
+        assert received_kwargs.get("trend_filter") == 0
+
+    def test_smt_trend_filter_default_is_1(self) -> None:
+        """smt_trend_filter defaults to 1 when not specified."""
+        ohlcv = self._make_ohlcv()
+        signals_df = self._make_signals_df()
+        secondary_df = self._make_ohlcv()
+
+        received_kwargs: dict[str, Any] = {}
+
+        def mock_detector(
+            primary: pd.DataFrame, secondary: pd.DataFrame, **kwargs: Any
+        ) -> pd.DataFrame:
+            received_kwargs.update(kwargs)
+            return signals_df
+
+        with (
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {
+                    "smt_divergence": {
+                        "detector": mock_detector,
+                        "confidence": 5,
+                    }
+                },
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                {
+                    "smt_divergence": type(
+                        "S",
+                        (),
+                        {"requires_funding": False, "requires_secondary": True},
+                    )(),
+                },
+            ),
+        ):
+            scan_symbol(
+                ohlcv_df=ohlcv,
+                symbol="BTCUSDT",
+                timeframe="4h",
+                strategies=["smt_divergence"],
+                secondary_df=secondary_df,
+                # smt_trend_filter not specified — should default to 1
+            )
+
+        assert received_kwargs.get("trend_filter") == 1
+
+    def test_non_smt_strategy_does_not_receive_trend_filter(self) -> None:
+        """trend_filter kwarg is NOT passed to non-smt_divergence detectors."""
+        ohlcv = self._make_ohlcv()
+        received_kwargs: dict[str, Any] = {}
+
+        def mock_detector(df: pd.DataFrame, **kwargs: Any) -> pd.DataFrame:
+            received_kwargs.update(kwargs)
+            return self._make_signals_df()
+
+        with (
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {
+                    "fvg": {
+                        "detector": mock_detector,
+                        "confidence": 4,
+                    }
+                },
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                {
+                    "fvg": type(
+                        "S",
+                        (),
+                        {"requires_funding": False, "requires_secondary": False},
+                    )(),
+                },
+            ),
+        ):
+            scan_symbol(
+                ohlcv_df=ohlcv,
+                symbol="BTCUSDT",
+                timeframe="4h",
+                strategies=["fvg"],
+                smt_trend_filter=1,
+            )
+
+        assert "trend_filter" not in received_kwargs

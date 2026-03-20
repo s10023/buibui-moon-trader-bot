@@ -41,6 +41,8 @@ class TestBacktestSweepConfigDefaults:
         assert cfg.tp_r == 2.0
         assert cfg.min_trades == 20
         assert cfg.smt_pairs == {}
+        assert cfg.day_filter is False
+        assert cfg.smt_trend_filter == 1
 
 
 class TestLoadBacktestConfig:
@@ -82,3 +84,12 @@ class TestLoadBacktestConfig:
         assert cfg.days == 90
         assert cfg.min_trades == 20
         assert cfg.smt_pairs == {}
+        assert cfg.day_filter is False
+        assert cfg.smt_trend_filter == 1
+
+    def test_load_day_filter_and_smt_trend_filter(self, tmp_path: Path) -> None:
+        p = tmp_path / "cfg.toml"
+        p.write_text("symbols = []\nday_filter = true\nsmt_trend_filter = 0\n")
+        cfg = load_backtest_config(p)
+        assert cfg.day_filter is True
+        assert cfg.smt_trend_filter == 0
