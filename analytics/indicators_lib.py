@@ -200,6 +200,14 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 200,
                 "Rolling window for swing high/low comparison between assets.",
             ),
+            ParamSpec(
+                "trend_filter",
+                "int",
+                1,
+                0,
+                1,
+                "Require close > EMA(50) for LONG and close < EMA(50) for SHORT (1=on, 0=off).",
+            ),
         ],
         requires_secondary=True,
         confidence=5,
@@ -935,6 +943,7 @@ def detect_smt_divergence(
     df_primary: pd.DataFrame,
     df_secondary: pd.DataFrame,
     lookback: int = 10,
+    trend_filter: int = 1,
 ) -> pd.DataFrame:
     """Detect Smart Money Technique (SMT) divergence between two correlated assets.
 
@@ -946,14 +955,20 @@ def detect_smt_divergence(
 
     Signals are tagged on the primary asset's open_time.
     Both DataFrames must share open_time values (inner join used).
+
+    When trend_filter=1 (default), signals are only taken with the trend:
+    - LONG signals require close > EMA(50) on the primary asset.
+    - SHORT signals require close < EMA(50) on the primary asset.
     """
     if df_primary.empty or df_secondary.empty:
         return _empty_signals()
 
-    primary = df_primary.set_index("open_time")[["high", "low"]].copy()
+    primary = df_primary.set_index("open_time")[["high", "low", "close"]].copy()
+    primary.columns = pd.Index(["high_p", "low_p", "close_p"])
     secondary = df_secondary.set_index("open_time")[["high", "low"]].copy()
+    secondary.columns = pd.Index(["high_s", "low_s"])
 
-    merged = primary.join(secondary, lsuffix="_p", rsuffix="_s", how="inner")
+    merged = primary.join(secondary, how="inner")
     if len(merged) < lookback + 1:
         return _empty_signals()
 
@@ -964,6 +979,10 @@ def detect_smt_divergence(
     roll_max_s_high = merged["high_s"].rolling(lookback).max().shift(1)
     roll_min_p_low = merged["low_p"].rolling(lookback).min().shift(1)
     roll_min_s_low = merged["low_s"].rolling(lookback).min().shift(1)
+
+    ema50: pd.Series[float] | None = None
+    if trend_filter:
+        ema50 = merged["close_p"].ewm(span=50, adjust=False).mean()
 
     signals: list[dict[str, object]] = []
 
@@ -978,27 +997,32 @@ def detect_smt_divergence(
         min_s_low = float(roll_min_s_low.iloc[i])
         open_time = int(merged["open_time"].iloc[i])
 
+        close_p = float(merged["close_p"].iloc[i])
+        ema_val = float(ema50.iloc[i]) if ema50 is not None else 0.0
+
         if curr_p_high > max_p_high and curr_s_high <= max_s_high:
-            signals.append(
-                {
-                    "open_time": open_time,
-                    "direction": "short",
-                    "reason": f"smt_bearish@{curr_p_high:.2f}",
-                    "sl_price": curr_p_high,
-                    "context": "",
-                }
-            )
+            if not trend_filter or close_p < ema_val:
+                signals.append(
+                    {
+                        "open_time": open_time,
+                        "direction": "short",
+                        "reason": f"smt_bearish@{curr_p_high:.2f}",
+                        "sl_price": curr_p_high,
+                        "context": "",
+                    }
+                )
 
         if curr_p_low < min_p_low and curr_s_low >= min_s_low:
-            signals.append(
-                {
-                    "open_time": open_time,
-                    "direction": "long",
-                    "reason": f"smt_bullish@{curr_p_low:.2f}",
-                    "sl_price": curr_p_low,
-                    "context": "",
-                }
-            )
+            if not trend_filter or close_p > ema_val:
+                signals.append(
+                    {
+                        "open_time": open_time,
+                        "direction": "long",
+                        "reason": f"smt_bullish@{curr_p_low:.2f}",
+                        "sl_price": curr_p_low,
+                        "context": "",
+                    }
+                )
 
     return _signals_to_df(signals)
 
