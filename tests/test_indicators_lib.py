@@ -277,6 +277,30 @@ class TestDetectLiquiditySweep:
         result = detect_liquidity_sweep(df, lookback=20)
         _assert_signal_columns(result)
 
+    def test_non_monday_sweep_no_monday_tag(self) -> None:
+        # _BASE_TIME is a Tuesday (weekday=1) — reason must NOT contain Mon tag
+        rows = [_candle(_BASE_TIME + i, 100, 110, 90, 100) for i in range(20)]
+        rows.append(_candle(_BASE_TIME + 20, 108, 115, 100, 105))
+        df = _make_ohlcv(rows)
+        result = detect_liquidity_sweep(df, lookback=20)
+        short_signals = result[result["direction"] == "short"]
+        assert len(short_signals) >= 1
+        for reason in short_signals["reason"]:
+            assert "Mon:" not in reason
+
+    def test_monday_sweep_has_monday_tag(self) -> None:
+        # 1699840800000 is 2023-11-13 10:00 UTC — a Monday (weekday=0)
+        _MONDAY_MS = 1_699_840_800_000
+        rows = [_candle(_MONDAY_MS + i, 100, 110, 90, 100) for i in range(20)]
+        rows.append(_candle(_MONDAY_MS + 20, 108, 115, 100, 105))
+        df = _make_ohlcv(rows)
+        result = detect_liquidity_sweep(df, lookback=20)
+        short_signals = result[result["direction"] == "short"]
+        assert len(short_signals) >= 1
+        for reason in short_signals["reason"]:
+            assert "Mon: manipulation zone" in reason
+            assert "Tue expansion" in reason
+
 
 # ---------------------------------------------------------------------------
 # Fair Value Gap (FVG)
