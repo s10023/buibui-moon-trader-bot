@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getOhlcv, getSignals, type CandleRow, type SignalRow } from "../api";
+  import { getOhlcv, getSignals, getFib, type CandleRow, type FibLevel, type SignalRow } from "../api";
   import { symbols } from "../stores/config";
   import { strategyNames } from "../stores/strategies";
   import CandleChart from "../components/CandleChart.svelte";
@@ -17,6 +17,7 @@
 
   let candles = $state<CandleRow[]>([]);
   let signals = $state<SignalRow[]>([]);
+  let fibLevels = $state<FibLevel[] | null>(null);
   let loading = $state(false);
   let error = $state<string | null>(null);
   let loaded = $state(false);
@@ -27,14 +28,18 @@
     const end_ms = Date.now();
     const start_ms = end_ms - days * 24 * 60 * 60 * 1000;
     try {
-      const [ohlcvResp, sigResp] = await Promise.all([
+      const [ohlcvResp, sigResp, fibResp] = await Promise.all([
         getOhlcv({ symbol, timeframe, start_ms, end_ms, include_funding: showFunding }),
         selectedStrategies.length > 0
           ? getSignals({ symbol, timeframe, start_ms, end_ms, strategies: selectedStrategies })
           : Promise.resolve({ signals: [] }),
+        showFib
+          ? getFib({ symbol, timeframe, start_ms, end_ms }).catch(() => null)
+          : Promise.resolve(null),
       ]);
       candles = ohlcvResp.candles;
       signals = sigResp.signals;
+      fibLevels = fibResp ? fibResp.levels : null;
       loaded = true;
     } catch (e) {
       error = String(e);
@@ -98,7 +103,7 @@
     <LoadingSpinner label="Loading chart data..." />
   {:else if loaded}
     <div class="chart-frame">
-      <CandleChart {candles} {signals} {symbol} {showFib} />
+      <CandleChart {candles} {signals} {symbol} {showFib} {fibLevels} />
     </div>
     <div class="chart-meta">
       <span>{candles.length} candles</span>

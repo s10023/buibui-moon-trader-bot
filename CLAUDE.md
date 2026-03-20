@@ -59,7 +59,7 @@ make lint-md
   - `live_store.py` — shared in-memory store for live WebSocket data
   - `live_loop.py` — shared Rich live display loop logic
 - `web/` — web layer (Phase 4 + 5):
-  - `api/` — FastAPI backend: `main.py` (app + StaticFiles mount), `deps.py` (`require_token`, `require_token_sse` for SSE query-param auth), `routers/` (config, ohlcv, signals, backtest, positions, prices, stream), `models/` (Pydantic models)
+  - `api/` — FastAPI backend: `main.py` (app + StaticFiles mount), `deps.py` (`require_token`, `require_token_sse` for SSE query-param auth), `routers/` (config, ohlcv, fib, signals, backtest, positions, prices, stream), `models/` (Pydantic models for each router)
   - `ui/` — Svelte 5 + Vite frontend: `src/api.ts` (typed client), `src/stores/` (config, strategies, prices SSE, positions SSE), `src/pages/` (Chart, Backtest, SignalFeed, Positions, Prices), `src/components/` (Nav, CandleChart, BacktestResult, …). Build: `make web-build` → `web/ui/dist/` served by FastAPI StaticFiles.
 - `tests/` — pytest suite; tests import from lib modules and pass mock dependencies directly
 - `config/coins.json` — per-symbol leverage and stop-loss config
