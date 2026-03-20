@@ -13,7 +13,16 @@ from fastapi.staticfiles import StaticFiles
 
 from analytics.data_store import DEFAULT_DB_PATH, init_schema
 from utils.binance_client import create_client
-from web.api.routers import backtest, config, ohlcv, positions, prices, signals, stream
+from web.api.routers import (
+    backtest,
+    config,
+    fib,
+    ohlcv,
+    positions,
+    prices,
+    signals,
+    stream,
+)
 
 
 @asynccontextmanager
@@ -45,6 +54,7 @@ app.add_middleware(
 
 app.include_router(config.router, prefix="/api")
 app.include_router(ohlcv.router, prefix="/api")
+app.include_router(fib.router, prefix="/api")
 app.include_router(signals.router, prefix="/api")
 app.include_router(backtest.router, prefix="/api")
 app.include_router(positions.router, prefix="/api")
