@@ -54,6 +54,20 @@ export interface OhlcvResponse {
   funding: FundingRow[] | null;
 }
 
+// ── Fibonacci ─────────────────────────────────────────────────────────────────
+
+export interface FibLevel {
+  label: string;
+  price: number;
+  golden: boolean;
+}
+
+export interface FibResponse {
+  swing_low: number;
+  swing_high: number;
+  levels: FibLevel[];
+}
+
 // ── Signals ───────────────────────────────────────────────────────────────────
 
 export interface SignalRow {
@@ -218,6 +232,21 @@ export const runBacktest = (params: {
     method: "POST",
     body: JSON.stringify(params),
   });
+
+export const getFib = (params: {
+  symbol: string;
+  timeframe: string;
+  start_ms: number;
+  end_ms: number;
+}) => {
+  const q = new URLSearchParams({
+    symbol: params.symbol,
+    timeframe: params.timeframe,
+    start_ms: String(params.start_ms),
+    end_ms: String(params.end_ms),
+  });
+  return apiFetch<FibResponse>(`/api/fib?${q}`);
+};
 
 export const getPrices = () => apiFetch<PricesResponse>("/api/prices");
 export const getPositions = () => apiFetch<PositionsResponse>("/api/positions");

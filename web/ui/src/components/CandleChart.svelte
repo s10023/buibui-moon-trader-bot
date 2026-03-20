@@ -11,7 +11,7 @@
     type SeriesMarker,
     type Time,
   } from "lightweight-charts";
-  import type { CandleRow, SignalRow } from "../api";
+  import type { CandleRow, FibLevel, SignalRow } from "../api";
   import { pricesStore, startPricesSSE, stopPricesSSE } from "../stores/prices";
 
   let {
@@ -19,11 +19,13 @@
     signals,
     symbol,
     showFib = false,
+    fibLevels = null,
   }: {
     candles: CandleRow[];
     signals: SignalRow[];
     symbol: string;
     showFib?: boolean;
+    fibLevels?: FibLevel[] | null;
   } = $props();
 
   let container: HTMLDivElement;
@@ -41,14 +43,14 @@
 
   // ── Fib levels ───────────────────────────────────────────────────────────────
 
-  interface FibLevel {
+  interface LocalFibLevel {
     ratio: number;
     label: string;
     color: string;
     lineWidth: number;
   }
 
-  const FIB_LEVELS: FibLevel[] = [
+  const FIB_LEVELS: LocalFibLevel[] = [
     { ratio: 0,     label: "0",     color: "#c9d1d9", lineWidth: 1 },
     { ratio: 0.236, label: "0.236", color: "#6e7681", lineWidth: 1 },
     { ratio: 0.382, label: "0.382", color: "#79c0ff", lineWidth: 1 },
@@ -60,7 +62,7 @@
 
   interface FibResult {
     price: number;
-    level: FibLevel;
+    level: LocalFibLevel;
     swingTimeSec: number;   // x-start: the earliest of swingHigh/swingLow time
     endTimeSec: number;     // x-end: last candle time + 5 intervals (right edge)
   }
@@ -112,16 +114,36 @@
   function drawFibLines(): void {
     clearFibLines();
     if (!chart || candles.length < 4) return;
-    const levels = computeFibLevels(candles);
-    for (const { price, level, swingTimeSec, endTimeSec } of levels) {
+
+    // Prefer backend-computed levels when available; fall back to client-side.
+    const backendLevels = fibLevels;
+    const computed = backendLevels
+      ? (() => {
+          if (candles.length < 2) return [];
+          const last = candles[candles.length - 1];
+          const prev = candles[candles.length - 2];
+          const intervalMs = last.open_time - prev.open_time;
+          const swingTimeSec = (candles[0].open_time) / 1000;
+          const endTimeSec = (last.open_time + 5 * intervalMs) / 1000;
+          return backendLevels.map((bl) => {
+            const color = bl.golden ? "#F59E0B" : (bl.label === "0.0" || bl.label === "1.0" ? "#c9d1d9" : "#79c0ff");
+            const lineWidth: 1 | 2 = bl.golden && bl.label === "0.618" ? 2 : 1;
+            return { price: bl.price, color, lineWidth, label: bl.label, swingTimeSec, endTimeSec };
+          });
+        })()
+      : computeFibLevels(candles).map(({ price, level, swingTimeSec, endTimeSec }) => ({
+          price, color: level.color, lineWidth: level.lineWidth as 1 | 2, label: level.label, swingTimeSec, endTimeSec,
+        }));
+
+    for (const { price, color, lineWidth, label, swingTimeSec, endTimeSec } of computed) {
       const series = chart.addLineSeries({
-        color: level.color,
-        lineWidth: level.lineWidth as 1 | 2 | 3 | 4,
+        color,
+        lineWidth,
         priceScaleId: "right",
         lastValueVisible: true,
         priceLineVisible: false,
         crosshairMarkerVisible: false,
-        title: level.label,
+        title: label,
       });
       const lineData: LineData[] = [
         { time: swingTimeSec as Time, value: price },
@@ -235,9 +257,13 @@
   });
 
   // ── Fibonacci overlay effect ──────────────────────────────────────────────────
+  // Re-runs whenever showFib, fibLevels (backend data), or candles change.
 
   $effect(() => {
     if (!candleSeries) return;
+    // Access fibLevels so the effect re-runs when backend data arrives.
+    void fibLevels;
+    void candles;
     if (showFib) {
       drawFibLines();
     } else {
