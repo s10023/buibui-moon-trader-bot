@@ -148,6 +148,12 @@ def run_backtest_sweep(
                 )
                 continue
 
+            if cfg.day_filter and not signals.empty:
+                weekdays = pd.to_datetime(
+                    signals["open_time"], unit="ms", utc=True
+                ).dt.weekday
+                signals = signals[~weekdays.isin([0, 4])].reset_index(drop=True)
+
             bt = run_backtest(
                 ohlcv,
                 signals,
