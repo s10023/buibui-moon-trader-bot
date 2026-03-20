@@ -116,11 +116,14 @@ def test_stream_positions_first_event_shape(
     assert "total_risk_usd" in payload
 
 
-def test_stream_prices_missing_token_returns_401(web_client: TestClient) -> None:
-    """Stream prices without ?token= returns 401."""
+def test_stream_prices_missing_token_returns_401(
+    web_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stream prices without ?token= returns 401 when API_TOKEN is set."""
     from web.api.deps import require_token_sse
     from web.api.main import app
 
+    monkeypatch.setenv("API_TOKEN", "test-secret")
     app.dependency_overrides.pop(require_token_sse, None)
     try:
         resp = web_client.get("/api/stream/prices")
@@ -129,11 +132,14 @@ def test_stream_prices_missing_token_returns_401(web_client: TestClient) -> None
         app.dependency_overrides[require_token_sse] = lambda: None
 
 
-def test_stream_positions_missing_token_returns_401(web_client: TestClient) -> None:
-    """Stream positions without ?token= returns 401."""
+def test_stream_positions_missing_token_returns_401(
+    web_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stream positions without ?token= returns 401 when API_TOKEN is set."""
     from web.api.deps import require_token_sse
     from web.api.main import app
 
+    monkeypatch.setenv("API_TOKEN", "test-secret")
     app.dependency_overrides.pop(require_token_sse, None)
     try:
         resp = web_client.get("/api/stream/positions")
