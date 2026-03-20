@@ -8,7 +8,7 @@ DAYS ?= 90
 PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*" -not -path "./.venv/*")
 DOCKER_IMAGE = buibui-bot
 
-.PHONY: lint lint-md lint-md-fix lint-py-check lint-py typecheck test poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-open-trades buibui-analytics-backfill buibui-analytics-sync buibui-backtest buibui-signal-watch buibui-web clean-db clean
+.PHONY: lint lint-md lint-md-fix lint-py-check lint-py typecheck test poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-open-trades buibui-analytics-backfill buibui-analytics-sync buibui-backtest buibui-signal-watch buibui-web web-install web-dev web-build web-preview web-full clean-db clean
 
 lint: lint-md lint-py
 
@@ -191,6 +191,23 @@ docker-signal-watch:
 buibui-web:
 	@echo "Starting web backend..."
 	poetry run python buibui.py web --host 0.0.0.0 --port 8000
+
+web-install:
+	cd web/ui && npm install
+
+web-dev:
+	cd web/ui && npm run dev
+
+web-build:
+	cd web/ui && npm run build
+
+web-check:
+	cd web/ui && npx svelte-check
+
+web-preview:
+	cd web/ui && npm run preview
+
+web-full: web-build buibui-web
 
 buibui-open-trades:
 	@echo "🚀 Opening multiple trades..."

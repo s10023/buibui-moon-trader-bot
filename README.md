@@ -69,11 +69,21 @@ buibui-moon-trader-bot/
 │   ├── cooldown_store.py            # Two-layer dedup: candle watermark + cooldown timer
 │   └── alert_formatter.py           # SignalEvent dataclass + format_signal_alert() → Markdown with SL/TP/stars
 ├── web/
-│   └── api/
-│       ├── main.py                  # FastAPI app: lifespan, CORS, health, router mounts
-│       ├── deps.py                  # Dependency factories: get_db, get_client, require_token
-│       ├── models/                  # Pydantic request/response models
-│       └── routers/                 # Route handlers: ohlcv, signals, backtest, positions, prices, stream
+│   ├── api/
+│   │   ├── main.py                  # FastAPI app: lifespan, CORS, health, router mounts, StaticFiles
+│   │   ├── deps.py                  # Dependency factories: get_db, get_client, require_token, require_token_sse
+│   │   ├── models/                  # Pydantic request/response models
+│   │   └── routers/                 # Route handlers: config, ohlcv, signals, backtest, positions, prices, stream
+│   └── ui/                          # Svelte 5 + Vite frontend (Phase 5)
+│       ├── package.json
+│       ├── vite.config.ts           # Vite config — proxies /api to :8000 in dev
+│       ├── tsconfig.json
+│       ├── index.html
+│       └── src/
+│           ├── api.ts               # Typed API client + SSE helper
+│           ├── stores/              # Svelte stores: config, strategies, prices, positions
+│           ├── pages/               # Chart, Backtest, SignalFeed, Positions, Prices
+│           └── components/          # Nav, CandleChart, BacktestResult, PriceRow, PositionRow, …
 ├── trade/
 │   └── open_trades.py               # Multi-trade entry (planned)
 ├── utils/
@@ -467,19 +477,22 @@ make buibui-web
 ```
 
 **Authentication:** All endpoints except `/api/health` require a Bearer token. Set `API_TOKEN` in `.env`.
+SSE stream endpoints accept `?token=<API_TOKEN>` query param instead (browser `EventSource` cannot send headers).
 
 **Endpoints:**
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
 | `GET` | `/api/health` | Health check — no auth required |
+| `GET` | `/api/config` | Per-symbol config from `coins.json` |
+| `GET` | `/api/strategies` | All strategy specs with params and confidence |
 | `GET` | `/api/ohlcv` | OHLCV candles (`?symbol=&timeframe=&start_ms=&end_ms=`) |
 | `POST` | `/api/signals` | Detect strategy signals on historical data |
 | `POST` | `/api/backtest` | Run a backtest for a symbol/timeframe/strategy |
 | `GET` | `/api/positions` | Fetch open futures positions |
 | `GET` | `/api/prices` | Latest price changes for all configured symbols |
-| `GET` | `/api/stream/prices` | SSE — live prices every 5 s |
-| `GET` | `/api/stream/positions` | SSE — live positions every 10 s |
+| `GET` | `/api/stream/prices` | SSE — live prices every 5 s (`?token=`) |
+| `GET` | `/api/stream/positions` | SSE — live positions every 10 s (`?token=`) |
 
 **CORS:** Defaults to `http://localhost:5173` (Vite dev server). Override with `CORS_ORIGINS` env var (comma-separated).
 
@@ -487,6 +500,30 @@ make buibui-web
 
 - The web server opens the DB in **read-only** mode. The signal daemon holds the write lock.
 - Requires `analytics backfill` to have been run first for OHLCV/signals/backtest endpoints.
+- In production, the API server serves the built Svelte UI from `web/ui/dist/` as static files.
+
+### Web Frontend — Svelte 5
+
+A single-page trading terminal UI. Dark theme, no component library, no SSR.
+Pages: Chart (candlesticks + signal markers), Backtest (form + equity curve), Signal Feed (poll + filters), Positions (SSE), Prices (SSE).
+
+```bash
+# Install frontend dependencies (first time)
+make web-install
+
+# Start dev server with API proxy (http://localhost:5173)
+# Set VITE_API_TOKEN in web/ui/.env.local
+make web-dev
+
+# Build for production (output to web/ui/dist/)
+make web-build
+
+# Build + start API server serving the built UI
+make web-full
+```
+
+**Dev environment:** Set `VITE_API_TOKEN=<your API_TOKEN>` in `web/ui/.env.local`.
+**Production:** `make web-build` then `make buibui-web` — FastAPI serves the UI from `/`.
 
 ---
 
@@ -543,6 +580,16 @@ make buibui-backtest SYMBOL=BTCUSDT STRATEGY=fvg INTERVAL=1h DAYS=30 SL_PCT=0.01
 
 Defaults: `SYMBOL=BTCUSDT`, `STRATEGY=fvg`, `INTERVAL=4h`, `DAYS=90`.
 Optional overrides: `SL_PCT`, `TP_R`, `SECONDARY` (required for `smt_divergence`).
+
+**Web frontend:**
+
+```bash
+make web-install       # npm install in web/ui/
+make web-dev           # Vite dev server (http://localhost:5173, proxies /api to :8000)
+make web-build         # Build Svelte app → web/ui/dist/
+make web-preview       # Preview production build locally
+make web-full          # Build + start FastAPI serving the UI
+```
 
 **Signal watch:**
 
