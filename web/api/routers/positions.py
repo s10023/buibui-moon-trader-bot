@@ -24,9 +24,13 @@ def _strip_ansi(s: Any) -> str:
 
 
 def _parse_float_or_none(val: Any) -> float | None:
-    """Parse a value as float, returning None for '-' or unparseable."""
-    s = _strip_ansi(val)
-    if s in ("-", "", "None"):
+    """Parse a value as float, returning None for '-' or unparseable.
+
+    Strips ANSI codes and formatting characters that colorize() adds:
+    thousand-separator commas, trailing '%', and '$' signs.
+    """
+    s = _strip_ansi(val).replace(",", "").replace("%", "").replace("$", "").strip()
+    if s in ("-", "+", "", "None"):
         return None
     try:
         return float(s)

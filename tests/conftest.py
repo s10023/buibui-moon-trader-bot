@@ -96,13 +96,14 @@ def web_client() -> Generator[TestClient, None, None]:
     the Binance API. get_db and require_token are overridden so route handlers
     receive a mock connection and skip auth.
     """
-    from web.api.deps import get_db, require_token
+    from web.api.deps import get_db, require_token, require_token_sse
     from web.api.main import app
 
     mock_conn = MagicMock(spec=duckdb.DuckDBPyConnection)
 
     app.dependency_overrides[get_db] = lambda: mock_conn
     app.dependency_overrides[require_token] = lambda: None
+    app.dependency_overrides[require_token_sse] = lambda: None
 
     with (
         patch("web.api.main.duckdb.connect", return_value=mock_conn),
