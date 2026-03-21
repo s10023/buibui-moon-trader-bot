@@ -49,9 +49,15 @@ export interface FundingRow {
   funding_rate: number;
 }
 
+export interface OiRow {
+  timestamp: number; // Unix ms
+  oi_usd: number;
+}
+
 export interface OhlcvResponse {
   candles: CandleRow[];
   funding: FundingRow[] | null;
+  oi: OiRow[] | null;
 }
 
 // ── Fibonacci ─────────────────────────────────────────────────────────────────
@@ -198,6 +204,7 @@ export const getOhlcv = (params: {
   start_ms: number;
   end_ms: number;
   include_funding?: boolean;
+  include_oi?: boolean;
 }) => {
   const q = new URLSearchParams({
     symbol: params.symbol,
@@ -205,6 +212,7 @@ export const getOhlcv = (params: {
     start_ms: String(params.start_ms),
     end_ms: String(params.end_ms),
     ...(params.include_funding ? { include_funding: "true" } : {}),
+    ...(params.include_oi ? { include_oi: "true" } : {}),
   });
   return apiFetch<OhlcvResponse>(`/api/ohlcv?${q}`);
 };

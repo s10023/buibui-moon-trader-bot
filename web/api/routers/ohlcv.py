@@ -3,9 +3,9 @@
 import duckdb
 from fastapi import APIRouter, Depends
 
-from analytics.data_store import get_funding_rates, get_ohlcv
+from analytics.data_store import get_funding_rates, get_ohlcv, get_open_interest
 from web.api.deps import get_db, require_token
-from web.api.models.ohlcv import CandleRow, FundingRow, OhlcvResponse
+from web.api.models.ohlcv import CandleRow, FundingRow, OhlcvResponse, OiRow
 
 router = APIRouter(dependencies=[Depends(require_token)])
 
@@ -17,6 +17,7 @@ def get_ohlcv_endpoint(
     start_ms: int,
     end_ms: int,
     include_funding: bool = False,
+    include_oi: bool = False,
     db: duckdb.DuckDBPyConnection = Depends(get_db),
 ) -> OhlcvResponse:
     """Return OHLCV candles for a symbol/timeframe range."""
@@ -26,4 +27,8 @@ def get_ohlcv_endpoint(
     if include_funding:
         fdf = get_funding_rates(db, symbol, start_ms, end_ms)
         funding = [FundingRow.model_validate(row) for row in fdf.to_dict("records")]
-    return OhlcvResponse(candles=candles, funding=funding)
+    oi: list[OiRow] | None = None
+    if include_oi:
+        oidf = get_open_interest(db, symbol, start_ms, end_ms)
+        oi = [OiRow.model_validate(row) for row in oidf.to_dict("records")]
+    return OhlcvResponse(candles=candles, funding=funding, oi=oi)
