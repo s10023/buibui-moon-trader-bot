@@ -10,15 +10,25 @@ from collections.abc import Callable
 import duckdb
 from binance.client import Client
 
-from analytics.data_fetcher import KLINES_MAX_LIMIT, fetch_funding_rates, fetch_klines
+from analytics.data_fetcher import (
+    KLINES_MAX_LIMIT,
+    OIPeriod,
+    fetch_funding_rates,
+    fetch_klines,
+    fetch_open_interest,
+)
 from analytics.data_store import (
     get_latest_open_time,
     upsert_funding_rates,
     upsert_ohlcv,
+    upsert_open_interest,
 )
 
 # Binance funding rates are emitted every 8 hours.
 _FUNDING_RATE_INTERVAL_HOURS: int = 8
+
+# Default OI period to sync — 1h granularity gives ~24 rows/day.
+_DEFAULT_OI_PERIOD: OIPeriod = "1h"
 
 _DEFAULT_SLEEP_SECONDS: float = 0.1
 
@@ -78,6 +88,26 @@ def sync_funding_rates(
         return 0
     upsert_funding_rates(conn, df)
     logging.info("sync_funding_rates %s: stored %d rows", symbol, len(df))
+    return len(df)
+
+
+def sync_open_interest(
+    conn: duckdb.DuckDBPyConnection,
+    client: Client,
+    symbol: str,
+    days: int = 90,
+) -> int:
+    """Fetch recent open interest history and store it.
+
+    Uses 1h granularity — each day produces ~24 rows.
+    Returns the number of rows upserted (0 if the API returned no data).
+    """
+    limit = days * 24
+    df = fetch_open_interest(client, symbol, period=_DEFAULT_OI_PERIOD, limit=limit)
+    if df.empty:
+        return 0
+    upsert_open_interest(conn, df)
+    logging.info("sync_open_interest %s: stored %d rows", symbol, len(df))
     return len(df)
 
 

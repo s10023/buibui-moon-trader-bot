@@ -263,9 +263,6 @@ export const getFib = (params: {
   return apiFetch<FibResponse>(`/api/fib?${q}`);
 };
 
-export const getPrices = () => apiFetch<PricesResponse>("/api/prices");
-export const getPositions = () => apiFetch<PositionsResponse>("/api/positions");
-
 // ── SSE helper ────────────────────────────────────────────────────────────────
 
 // EventSource cannot send Authorization headers — token passed as ?token= query param.
