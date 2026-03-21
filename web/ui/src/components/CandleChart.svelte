@@ -411,7 +411,7 @@
     pointer-events: none;
   }
   /* Hide the injected TradingView attribution */
-  .chart-container a {
+  :global(.chart-container a) {
     display: none !important;
   }
 </style>
