@@ -13,6 +13,7 @@ import pandas as pd
 from analytics.backtest_config import BacktestSweepConfig
 from analytics.backtest_lib import (
     BacktestResult,
+    filter_signals_by_day,
     format_result,
     format_seasonality,
     format_sweep_table,
@@ -173,11 +174,8 @@ def run_backtest_sweep(
                 )
                 continue
 
-            if cfg.day_filter and not signals.empty:
-                weekdays = pd.to_datetime(
-                    signals["open_time"], unit="ms", utc=True
-                ).dt.weekday
-                signals = signals[~weekdays.isin([0, 4])].reset_index(drop=True)
+            if cfg.day_filter:
+                signals = filter_signals_by_day(signals)
 
             bt = run_backtest(
                 ohlcv,

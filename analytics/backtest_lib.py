@@ -233,6 +233,18 @@ def format_result(result: BacktestResult) -> str:
     return "\n".join(lines)
 
 
+def filter_signals_by_day(signals: pd.DataFrame) -> pd.DataFrame:
+    """Remove signals whose open_time falls on Monday (0) or Friday (4) UTC.
+
+    Mirrors the day_filter logic in signal_lib.py — ICT weekly cycle suppression.
+    Callers should only invoke this when day_filter is enabled.
+    """
+    if signals.empty:
+        return signals
+    weekdays = pd.to_datetime(signals["open_time"], unit="ms", utc=True).dt.weekday
+    return signals[~weekdays.isin([0, 4])].reset_index(drop=True)
+
+
 def format_seasonality(stats: pd.DataFrame) -> str:
     """Format a seasonality stats DataFrame as a human-readable text table."""
     if stats.empty:

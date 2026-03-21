@@ -10,7 +10,7 @@ from typing import Any
 import duckdb
 
 from analytics.data_store import DEFAULT_DB_PATH, init_schema
-from analytics.data_sync import backfill, sync, sync_funding_rates
+from analytics.data_sync import backfill, sync, sync_funding_rates, sync_open_interest
 from utils.binance_client import create_client, load_coins_config
 
 
@@ -60,6 +60,9 @@ def run_backfill(
             logging.info("Syncing funding rates for %s ...", symbol)
             total_fr = sync_funding_rates(conn, client, symbol)
             logging.info("Funding rates complete: %s — %d rows", symbol, total_fr)
+            logging.info("Syncing open interest for %s ...", symbol)
+            total_oi = sync_open_interest(conn, client, symbol)
+            logging.info("Open interest complete: %s — %d rows", symbol, total_oi)
 
 
 def run_sync(
@@ -83,3 +86,6 @@ def run_sync(
             logging.info("Syncing funding rates for %s ...", symbol)
             total_fr = sync_funding_rates(conn, client, symbol)
             logging.info("Funding rates complete: %s — %d rows", symbol, total_fr)
+            logging.info("Syncing open interest for %s ...", symbol)
+            total_oi = sync_open_interest(conn, client, symbol)
+            logging.info("Open interest complete: %s — %d rows", symbol, total_oi)
