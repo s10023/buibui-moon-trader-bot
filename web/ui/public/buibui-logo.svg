@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 168 48" width="168" height="48">
+  <defs>
+    <!-- Bitcoin orange gradient -->
+    <linearGradient id="btcGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F9A825"/>
+      <stop offset="100%" stop-color="#E87E0D"/>
+    </linearGradient>
+    <!-- Warm glow for the icon badge -->
+    <filter id="iconGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feColorMatrix in="blur" type="matrix"
+        values="1 0.4 0 0 0.05
+                0.3 0.15 0 0 0
+                0 0 0 0 0
+                0 0 0 0.55 0"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <!-- Text glow -->
+    <filter id="textGlow" x="-10%" y="-40%" width="120%" height="180%">
+      <feGaussianBlur stdDeviation="1.8" result="blur"/>
+      <feColorMatrix in="blur" type="matrix"
+        values="1 0.4 0 0 0.05
+                0.3 0.15 0 0 0
+                0 0 0 0 0
+                0 0 0 0.45 0"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- ══ ICON: filled orange circle with white ₿ ══ -->
+  <g filter="url(#iconGlow)">
+    <circle cx="24" cy="24" r="21" fill="url(#btcGrad)"/>
+    <!-- Subtle top-left highlight -->
+    <circle cx="24" cy="24" r="21" fill="none" stroke="white" stroke-width="0.6" opacity="0.18"/>
+  </g>
+
+  <!-- White Bitcoin B inside circle -->
+  <!-- Stem -->
+  <rect x="18" y="13.5" width="3" height="21" rx="1.5" fill="white"/>
+  <!-- Top & bottom extended serifs (classic ₿ rotated-ish) -->
+  <rect x="16.5" y="13" width="6" height="2.2" rx="1.1" fill="white"/>
+  <rect x="16.5" y="32.8" width="6" height="2.2" rx="1.1" fill="white"/>
+  <!-- Upper arc of B -->
+  <path d="M20.5 15 L25.5 15 Q31 15 31 19.5 Q31 24 20.5 24" fill="none" stroke="white" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Lower arc of B (wider) -->
+  <path d="M20.5 24 L26.2 24 Q33 24 33 29 Q33 34.8 20.5 34.8" fill="none" stroke="white" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- ══ WORDMARK: "Buibui" ══ -->
+  <text
+    x="53"
+    y="34"
+    font-family="'Arial Black', 'Franklin Gothic Heavy', 'Impact', sans-serif"
+    font-size="27"
+    font-weight="900"
+    letter-spacing="-0.5"
+    fill="url(#btcGrad)"
+    filter="url(#textGlow)"
+  >Buibui</text>
+
+  <!-- Fine underline accent -->
+  <line x1="53" y1="38.5" x2="164" y2="38.5" stroke="#F7931A" stroke-width="1" stroke-linecap="round" opacity="0.3"/>
+</svg>
