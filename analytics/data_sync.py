@@ -29,6 +29,8 @@ _FUNDING_RATE_INTERVAL_HOURS: int = 8
 
 # Default OI period to sync — 1h granularity gives ~24 rows/day.
 _DEFAULT_OI_PERIOD: OIPeriod = "1h"
+# Binance openInterestHist endpoint caps at 500 records per request.
+_OI_MAX_LIMIT: int = 500
 
 _DEFAULT_SLEEP_SECONDS: float = 0.1
 
@@ -102,7 +104,7 @@ def sync_open_interest(
     Uses 1h granularity — each day produces ~24 rows.
     Returns the number of rows upserted (0 if the API returned no data).
     """
-    limit = days * 24
+    limit = min(days * 24, _OI_MAX_LIMIT)
     df = fetch_open_interest(client, symbol, period=_DEFAULT_OI_PERIOD, limit=limit)
     if df.empty:
         return 0
