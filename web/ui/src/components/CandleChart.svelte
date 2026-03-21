@@ -11,19 +11,27 @@
     type SeriesMarker,
     type Time,
   } from "lightweight-charts";
-  import type { CandleRow, FibLevel, SignalRow } from "../api";
+  import type { CandleRow, FibLevel, FundingRow, OiRow, SignalRow } from "../api";
   import { pricesStore, startPricesSSE, stopPricesSSE } from "../stores/prices";
 
   let {
     candles,
     signals,
     symbol,
+    funding = null,
+    showFunding = false,
+    oi = null,
+    showOI = false,
     showFib = false,
     fibLevels = null,
   }: {
     candles: CandleRow[];
     signals: SignalRow[];
     symbol: string;
+    funding?: FundingRow[] | null;
+    showFunding?: boolean;
+    oi?: OiRow[] | null;
+    showOI?: boolean;
     showFib?: boolean;
     fibLevels?: FibLevel[] | null;
   } = $props();
@@ -32,6 +40,8 @@
   let chart: IChartApi;
   let candleSeries: ISeriesApi<"Candlestick">;
   let volumeSeries: ISeriesApi<"Histogram">;
+  let fundingSeries: ISeriesApi<"Histogram"> | null = null;
+  let oiSeries: ISeriesApi<"Line"> | null = null;
   // Each Fib level gets its own LineSeries so lines only extend rightward from
   // the swing point, not across the entire chart history.
   let fibSeries: ISeriesApi<"Line">[] = [];
@@ -202,6 +212,29 @@
       scaleMargins: { top: 0.8, bottom: 0 },
     });
 
+    // Funding rate histogram — green/red bars below volume
+    fundingSeries = chart.addHistogramSeries({
+      color: "#3fb950",
+      priceFormat: { type: "price", precision: 4, minMove: 0.0001 },
+      priceScaleId: "funding",
+    });
+    chart.priceScale("funding").applyOptions({
+      scaleMargins: { top: 0.92, bottom: 0 },
+    });
+
+    // Open interest line — rightmost sub-panel
+    oiSeries = chart.addLineSeries({
+      color: "#79c0ff",
+      lineWidth: 1,
+      priceFormat: { type: "volume" },
+      priceScaleId: "oi",
+      lastValueVisible: false,
+      priceLineVisible: false,
+    });
+    chart.priceScale("oi").applyOptions({
+      scaleMargins: { top: 0.85, bottom: 0 },
+    });
+
     startPricesSSE();
 
     const ro = new ResizeObserver(() =>
@@ -254,6 +287,39 @@
       }))
       .sort((a, b) => (a.time as number) - (b.time as number));
     candleSeries.setMarkers(markers);
+  });
+
+  // ── Funding rate effect ───────────────────────────────────────────────────────
+
+  $effect(() => {
+    if (!fundingSeries) return;
+    if (!showFunding || !funding || funding.length === 0) {
+      fundingSeries.setData([]);
+      return;
+    }
+    fundingSeries.setData(
+      funding.map((f) => ({
+        time: (f.funding_time / 1000) as Time,
+        value: f.funding_rate,
+        color: f.funding_rate >= 0 ? "#3fb95088" : "#f8514988",
+      }))
+    );
+  });
+
+  // ── Open interest effect ──────────────────────────────────────────────────────
+
+  $effect(() => {
+    if (!oiSeries) return;
+    if (!showOI || !oi || oi.length === 0) {
+      oiSeries.setData([]);
+      return;
+    }
+    oiSeries.setData(
+      oi.map((o) => ({
+        time: (o.timestamp / 1000) as Time,
+        value: o.oi_usd,
+      }))
+    );
   });
 
   // ── Fibonacci overlay effect ──────────────────────────────────────────────────

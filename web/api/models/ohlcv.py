@@ -22,6 +22,14 @@ class FundingRow(BaseModel):
     funding_rate: float
 
 
+class OiRow(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    timestamp: int
+    oi_usd: float
+
+
 class OhlcvResponse(BaseModel):
     candles: list[CandleRow]
     funding: list[FundingRow] | None = None
+    oi: list[OiRow] | None = None

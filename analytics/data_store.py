@@ -154,6 +154,22 @@ def get_funding_rates(
     ).df()
 
 
+def get_open_interest(
+    conn: duckdb.DuckDBPyConnection,
+    symbol: str,
+    start: int,
+    end: int,
+) -> pd.DataFrame:
+    """Return open interest rows for symbol between start and end (Unix ms, inclusive)."""
+    return conn.execute(
+        "SELECT symbol, timestamp, oi_usd "
+        "FROM open_interest "
+        "WHERE symbol = ? AND timestamp >= ? AND timestamp <= ? "
+        "ORDER BY timestamp",
+        [symbol, start, end],
+    ).df()
+
+
 def upsert_signals(conn: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> None:
     """Insert or ignore signal rows (conflicts on PK are silently skipped).
 

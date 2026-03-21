@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getOhlcv, getSignals, getFib, type CandleRow, type FibLevel, type SignalRow } from "../api";
+  import { getOhlcv, getSignals, getFib, type CandleRow, type FibLevel, type FundingRow, type OiRow, type SignalRow } from "../api";
   import { symbols } from "../stores/config";
   import { strategyNames } from "../stores/strategies";
   import CandleChart from "../components/CandleChart.svelte";
@@ -13,10 +13,13 @@
   let days = $state(90);
   let selectedStrategies = $state<string[]>([]);
   let showFunding = $state(false);
+  let showOI = $state(false);
   let showFib = $state(false);
 
   let candles = $state<CandleRow[]>([]);
   let signals = $state<SignalRow[]>([]);
+  let funding = $state<FundingRow[] | null>(null);
+  let oi = $state<OiRow[] | null>(null);
   let fibLevels = $state<FibLevel[] | null>(null);
   let loading = $state(false);
   let error = $state<string | null>(null);
@@ -29,7 +32,7 @@
     const start_ms = end_ms - days * 24 * 60 * 60 * 1000;
     try {
       const [ohlcvResp, sigResp, fibResp] = await Promise.all([
-        getOhlcv({ symbol, timeframe, start_ms, end_ms, include_funding: showFunding }),
+        getOhlcv({ symbol, timeframe, start_ms, end_ms, include_funding: showFunding, include_oi: showOI }),
         selectedStrategies.length > 0
           ? getSignals({ symbol, timeframe, start_ms, end_ms, strategies: selectedStrategies })
           : Promise.resolve({ signals: [] }),
@@ -39,6 +42,8 @@
       ]);
       candles = ohlcvResp.candles;
       signals = sigResp.signals;
+      funding = ohlcvResp.funding;
+      oi = ohlcvResp.oi;
       fibLevels = fibResp ? fibResp.levels : null;
       loaded = true;
     } catch (e) {
@@ -80,6 +85,10 @@
         <span>Funding</span>
       </label>
       <label class="checkbox-label">
+        <input type="checkbox" bind:checked={showOI} />
+        <span>OI</span>
+      </label>
+      <label class="checkbox-label">
         <input type="checkbox" bind:checked={showFib} />
         <span>Fib</span>
       </label>
@@ -103,7 +112,7 @@
     <LoadingSpinner label="Loading chart data..." />
   {:else if loaded}
     <div class="chart-frame">
-      <CandleChart {candles} {signals} {symbol} {showFib} {fibLevels} />
+      <CandleChart {candles} {signals} {symbol} {funding} {showFunding} {oi} {showOI} {showFib} {fibLevels} />
     </div>
     <div class="chart-meta">
       <span>{candles.length} candles</span>
