@@ -409,6 +409,7 @@
     height: 34px;
     opacity: 0.75;
     pointer-events: none;
+    z-index: 10;
   }
   /* Hide the injected TradingView attribution */
   :global(.chart-container a) {
