@@ -83,6 +83,11 @@ if os.path.isdir(_UI_DIST):
         """Serve the Svelte SPA entry point."""
         return FileResponse(os.path.join(_UI_DIST, "index.html"))
 
+    @app.get("/buibui-logo.svg", include_in_schema=False)
+    def serve_logo() -> FileResponse:
+        """Serve the buibui logo from the dist root."""
+        return FileResponse(os.path.join(_UI_DIST, "buibui-logo.svg"))
+
 
 def run(host: str = "127.0.0.1", port: int = 8000, reload: bool = False) -> None:
     """Start the uvicorn server."""

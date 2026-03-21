@@ -394,8 +394,25 @@
   });
 </script>
 
-<div bind:this={container} class="chart-container"></div>
+<div class="chart-wrap">
+  <div bind:this={container} class="chart-container"></div>
+  <img src="/buibui-logo.svg" alt="buibui" class="chart-logo" />
+</div>
 
 <style>
+  .chart-wrap { position: relative; width: 100%; }
   .chart-container { width: 100%; }
+  .chart-logo {
+    position: absolute;
+    bottom: 10px;
+    left: 14px;
+    height: 34px;
+    opacity: 0.75;
+    pointer-events: none;
+    z-index: 10;
+  }
+  /* Hide the injected TradingView attribution */
+  :global(.chart-container a) {
+    display: none !important;
+  }
 </style>
