@@ -40,7 +40,7 @@ strategies = [
     'hammer_hanging_man',
     'doji',
     'morning_evening_star',
-    'fibonacci_retracement'
+    'fib_golden_zone'
 ]
 
 # SL/TP defaults
