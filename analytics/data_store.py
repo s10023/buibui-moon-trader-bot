@@ -5,6 +5,7 @@ No module-level side effects.
 """
 
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pandas as pd
@@ -66,6 +67,26 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
             confidence    INTEGER,
             fired_at      BIGINT  NOT NULL,
             PRIMARY KEY (symbol, timeframe, strategy, open_time, direction)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS signal_outcomes (
+            signal_id              TEXT   PRIMARY KEY,
+            symbol                 TEXT   NOT NULL,
+            tf                     TEXT   NOT NULL,
+            strategy               TEXT   NOT NULL,
+            direction              TEXT   NOT NULL,
+            fired_at_ms            BIGINT NOT NULL,
+            candle_ts_ms           BIGINT,
+            entry_price            DOUBLE,
+            sl_price               DOUBLE,
+            tp_price               DOUBLE,
+            rr_ratio               DOUBLE,
+            confidence_at_fire     INTEGER,
+            tags                   TEXT,
+            outcome                TEXT,
+            outcome_r              DOUBLE,
+            outcome_filled_at_ms   BIGINT
         )
     """)
 
@@ -213,6 +234,54 @@ def get_signals_history(
         "ORDER BY open_time DESC",
         [symbol, timeframe, start_ms, end_ms],
     ).df()
+
+
+def upsert_signal_outcome(conn: duckdb.DuckDBPyConnection, row: dict[str, Any]) -> None:
+    """Insert or replace a single signal outcome row.
+
+    The row dict must contain at minimum: signal_id, symbol, tf, strategy,
+    direction, fired_at_ms.  All other fields are optional and default to NULL
+    when omitted.
+
+    Conflicts on signal_id are replaced so that outcome / outcome_r /
+    outcome_filled_at_ms can be backfilled later without inserting duplicates.
+    """
+    df = pd.DataFrame([row])
+    # Ensure every column the table expects is present; fill missing with None.
+    _OUTCOME_COLUMNS = [
+        "signal_id",
+        "symbol",
+        "tf",
+        "strategy",
+        "direction",
+        "fired_at_ms",
+        "candle_ts_ms",
+        "entry_price",
+        "sl_price",
+        "tp_price",
+        "rr_ratio",
+        "confidence_at_fire",
+        "tags",
+        "outcome",
+        "outcome_r",
+        "outcome_filled_at_ms",
+    ]
+    for col in _OUTCOME_COLUMNS:
+        if col not in df.columns:
+            df[col] = None
+    df = df[_OUTCOME_COLUMNS]
+    # Explicit register/unregister in try/finally — see _upsert docstring for why.
+    conn.register("_outcome_upsert_df", df)
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO signal_outcomes "
+            "SELECT signal_id, symbol, tf, strategy, direction, fired_at_ms, "
+            "candle_ts_ms, entry_price, sl_price, tp_price, rr_ratio, "
+            "confidence_at_fire, tags, outcome, outcome_r, outcome_filled_at_ms "
+            "FROM _outcome_upsert_df"
+        )
+    finally:
+        conn.unregister("_outcome_upsert_df")
 
 
 def get_latest_open_time(
