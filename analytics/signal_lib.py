@@ -18,7 +18,12 @@ import duckdb
 import pandas as pd
 
 from analytics.backtest_lib import BacktestResult, run_backtest
-from analytics.data_store import get_funding_rates, get_ohlcv, upsert_signals
+from analytics.data_store import (
+    get_funding_rates,
+    get_ohlcv,
+    upsert_signal_outcome,
+    upsert_signals,
+)
 from analytics.indicators_lib import STRATEGY_REGISTRY
 from analytics.signal_config import BacktestFilterConfig
 from signals.alert_formatter import SignalEvent, format_confluence_alert
@@ -485,6 +490,33 @@ def run_scan_cycle(
                 logger.exception(
                     "Failed to persist signals to DB for %s %s", symbol, tf
                 )
+
+            # Persist outcome rows so win/loss can be backfilled later (A4 P1).
+            for e in passing_events:
+                signal_id = (
+                    f"{e.symbol}-{e.timeframe}-{e.strategy}-{e.open_time}-{e.direction}"
+                )
+                try:
+                    upsert_signal_outcome(
+                        conn,
+                        {
+                            "signal_id": signal_id,
+                            "symbol": e.symbol,
+                            "tf": e.timeframe,
+                            "strategy": e.strategy,
+                            "direction": e.direction,
+                            "fired_at_ms": now_fired_ms,
+                            "candle_ts_ms": e.open_time,
+                            "entry_price": e.price,
+                            "sl_price": e.sl_price or None,
+                            "confidence_at_fire": e.confidence,
+                            "tags": e.reason,
+                        },
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to persist signal outcome for %s", signal_id
+                    )
 
             # In a tied conflict, passing_events may contain both directions —
             # split by direction so each confluence alert is direction-homogeneous.
