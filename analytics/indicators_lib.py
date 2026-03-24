@@ -491,37 +491,20 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
         ],
         confidence=3,
     ),
-    "fibonacci_retracement": StrategySpec(
-        name="fibonacci_retracement",
-        description="Fibonacci golden zone (0.5–0.618) retracement entry after a swing high/low.",
-        params=[
-            ParamSpec(
-                "swing_lookback",
-                "int",
-                20,
-                5,
-                100,
-                "Number of bars to scan for the most recent swing high and swing low.",
-            ),
-            ParamSpec(
-                "sl_pct",
-                "float",
-                0.02,
-                0.001,
-                0.1,
-                "Stop-loss distance as a fraction of entry price (used as fallback; actual SL is fib_0.786).",
-            ),
-            ParamSpec(
-                "tp_r",
-                "float",
-                2.0,
-                0.5,
-                10.0,
-                "Take-profit as a multiple of SL distance.",
-            ),
-        ],
-        confidence=3,
-    ),
+    # Legacy — superseded by fib_golden_zone (adds BOS confirmation, better SL/TP structure).
+    # Uncomment to re-enable for backtest comparison.
+    # "fibonacci_retracement": StrategySpec(
+    #     name="fibonacci_retracement",
+    #     description="Fibonacci golden zone (0.5–0.618) retracement entry after a swing high/low.",
+    #     params=[
+    #         ParamSpec("swing_lookback", "int", 20, 5, 100,
+    #                   "Number of bars to scan for the most recent swing high and swing low."),
+    #         ParamSpec("sl_pct", "float", 0.02, 0.001, 0.1,
+    #                   "Stop-loss distance as a fraction of entry price (fallback; actual SL is fib_0.786)."),
+    #         ParamSpec("tp_r", "float", 2.0, 0.5, 10.0, "Take-profit as a multiple of SL distance."),
+    #     ],
+    #     confidence=3,
+    # ),
     "fib_golden_zone": StrategySpec(
         name="fib_golden_zone",
         description="Fibonacci golden zone (0.5–0.618) entry after a confirmed BOS; TP = 1.618 extension.",
@@ -2698,7 +2681,7 @@ DETECTOR_REGISTRY: dict[str, Callable[[pd.DataFrame], pd.DataFrame]] = {
     "hammer_hanging_man": detect_hammer_hanging_man,
     "doji": detect_doji,
     "morning_evening_star": detect_morning_evening_star,
-    "fibonacci_retracement": detect_fibonacci_retracement,
+    # "fibonacci_retracement": detect_fibonacci_retracement,  # Legacy — see STRATEGY_REGISTRY comment above
     "fib_golden_zone": detect_fib_golden_zone,
     "ote_entry": detect_ote_entry,
 }

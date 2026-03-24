@@ -40,14 +40,14 @@ make lint-md
   - `data_fetcher.py` — pure fetch lib: Binance Futures API → DataFrames (no DB concerns)
   - `data_sync.py` — pure orchestration: paginated backfill + incremental sync
   - `analytics_runner.py` — thin wrapper: creates client, opens DB, calls sync lib
-  - `indicators_lib.py` — pure strategy signal detection (22 strategies: seasonality, wick_fill, marubozu, orb, liquidity_sweep, fvg, bos, funding_reversion, smt_divergence, eqh_eql, order_block, cvd_divergence, trend_day, engulfing, pin_bar, inside_bar, hammer_hanging_man, doji, morning_evening_star, fibonacci_retracement, fib_golden_zone, ote_entry); also exports `ParamSpec`, `StrategySpec`, `STRATEGY_REGISTRY` (param metadata for all strategies) and `KNOWN_STRATEGIES`
+  - `indicators_lib.py` — pure strategy signal detection (21 active strategies: seasonality, wick_fill, marubozu, orb, liquidity_sweep, fvg, bos, funding_reversion, smt_divergence, eqh_eql, order_block, cvd_divergence, trend_day, engulfing, pin_bar, inside_bar, hammer_hanging_man, doji, morning_evening_star, fib_golden_zone, ote_entry); `fibonacci_retracement` is legacy/commented-out (superseded by `fib_golden_zone`); also exports `ParamSpec`, `StrategySpec`, `STRATEGY_REGISTRY`, `DETECTOR_REGISTRY`, `KNOWN_STRATEGIES`
   - `backtest_lib.py` — pure backtest engine: Trade, BacktestResult, run_backtest, format helpers
   - `backtest_runner.py` — thin wrapper: opens DB, loads OHLCV/funding, calls indicator + backtest libs
   - `signal_lib.py` — pure scan lib: `scan_symbol()` (runs strategies on one symbol/tf), `run_scan_cycle()` (fans out, deduplicates, sends Telegram, persists passing signals to DB via `upsert_signals`)
   - `signal_runner.py` — thin wrapper: creates client, opens DB, syncs candles, polls `run_scan_cycle` in a loop
   - `backtest_config.py` — `BacktestSweepConfig` + `load_backtest_config()` — TOML config loading for sweep mode
 - `signals/` — signal detection daemon package:
-  - `registry.py` — `SignalPlugin` TypedDict + `SIGNAL_REGISTRY` (21 actionable strategies; seasonality excluded)
+  - `registry.py` — `SignalPlugin` TypedDict + `SIGNAL_REGISTRY` (20 actionable strategies; seasonality + legacy fibonacci_retracement excluded)
   - `cooldown_store.py` — two-layer dedup: candle watermark per `(symbol, tf, strategy)` + cooldown timer per `(symbol, strategy, direction)`; JSON-persisted to `signal_state.json`
   - `alert_formatter.py` — `SignalEvent` dataclass + `format_signal_alert()` → Markdown Telegram message with SL/TP levels
   - `DEFAULT_DB_PATH` lives in `data_store.py` — import from there, do not redefine in runners

@@ -19,7 +19,7 @@ from analytics.indicators_lib import (
     detect_engulfing,
     detect_eqh_eql,
     detect_fib_golden_zone,
-    detect_fibonacci_retracement,
+    # detect_fibonacci_retracement,  # Legacy — superseded by fib_golden_zone
     detect_funding_extreme,
     detect_fvg,
     detect_hammer_hanging_man,
@@ -118,10 +118,11 @@ SIGNAL_REGISTRY: dict[str, SignalPlugin] = {
         detector=detect_morning_evening_star,
         confidence=STRATEGY_REGISTRY["morning_evening_star"].confidence,
     ),
-    "fibonacci_retracement": SignalPlugin(
-        detector=detect_fibonacci_retracement,
-        confidence=STRATEGY_REGISTRY["fibonacci_retracement"].confidence,
-    ),
+    # Legacy — superseded by fib_golden_zone. Uncomment to re-enable.
+    # "fibonacci_retracement": SignalPlugin(
+    #     detector=detect_fibonacci_retracement,
+    #     confidence=STRATEGY_REGISTRY["fibonacci_retracement"].confidence,
+    # ),
     "fib_golden_zone": SignalPlugin(
         detector=detect_fib_golden_zone,
         confidence=STRATEGY_REGISTRY["fib_golden_zone"].confidence,
