@@ -185,7 +185,7 @@
     const prev = data[data.length - 2];
     const intervalMs = last.open_time - prev.open_time;
     const swingTimeSec = Math.min(swingHighTime, swingLowTime) / 1000;
-    const endTimeSec = (last.open_time + 5 * intervalMs) / 1000;
+    const endTimeSec = (last.open_time + 200 * intervalMs) / 1000;
 
     return FIB_LEVELS.map((level) => ({
       price: swingHigh! - level.ratio * range,
@@ -208,7 +208,7 @@
           const prev = candles[candles.length - 2];
           const intervalMs = last.open_time - prev.open_time;
           const swingTimeSec = (candles[0].open_time) / 1000;
-          const endTimeSec = (last.open_time + 5 * intervalMs) / 1000;
+          const endTimeSec = (last.open_time + 200 * intervalMs) / 1000;
           return backendLevels.map((bl) => {
             const color = bl.golden ? "#F59E0B" : (bl.label === "0.0" || bl.label === "1.0" ? "#c9d1d9" : "#79c0ff");
             const lineWidth: 1 | 2 = bl.golden && bl.label === "0.618" ? 2 : 1;
