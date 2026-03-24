@@ -67,8 +67,19 @@
   };
 
   let conflictPrompt = $state<ConflictPrompt | null>(null);
+  let dismissedConflicts = $state(new Set<string>());
+
+  function conflictPairKey(a: SignalWithMeta, b: SignalWithMeta): string {
+    return [sigKey(a), sigKey(b)].sort().join("||");
+  }
 
   function dismissPrompt(): void {
+    if (conflictPrompt !== null) {
+      dismissedConflicts = new Set([
+        ...dismissedConflicts,
+        conflictPairKey(conflictPrompt.existing, conflictPrompt.incoming),
+      ]);
+    }
     conflictPrompt = null;
   }
 
@@ -218,7 +229,7 @@
           sigKey(s) !== sigKey(active) &&
           tradeState[sigKey(s)] !== "missed"
       );
-      if (conflict) {
+      if (conflict && !dismissedConflicts.has(conflictPairKey(active, conflict))) {
         conflictPrompt = { existing: active, incoming: conflict };
         break;
       }
@@ -256,13 +267,23 @@
         You have an active <span class={p.existing.direction === "long" ? "green" : "red"}>{p.existing.direction.toUpperCase()}</span>
         on <strong>{p.existing.symbol}</strong> ({p.existing.timeframe}) via <em>{p.existing.strategy}</em>.
         <br /><br />
-        A new <span class={p.incoming.direction === "long" ? "green" : "red"}>{p.incoming.direction.toUpperCase()}</span>
-        signal just fired for the same pair (<em>{p.incoming.strategy}</em>).
-        Does this mean your active trade should be closed?
+        {#if p.incoming.open_time > p.existing.open_time}
+          A newer <span class={p.incoming.direction === "long" ? "green" : "red"}>{p.incoming.direction.toUpperCase()}</span>
+          signal fired (<em>{p.incoming.strategy}</em>).
+          Does this mean your active trade should be closed?
+        {:else}
+          There is an older <span class={p.incoming.direction === "long" ? "green" : "red"}>{p.incoming.direction.toUpperCase()}</span>
+          signal on the same pair (<em>{p.incoming.strategy}</em>) that you chose to ignore.
+          Are you sure you want to take this trade?
+        {/if}
       </div>
       <div class="prompt-actions">
-        <button class="btn-close-trade" onclick={() => closeTradeAndMark(p)}>Yes — close trade</button>
-        <button class="btn-dismiss" onclick={dismissPrompt}>No — keep it open</button>
+        <button class="btn-close-trade" onclick={() => closeTradeAndMark(p)}>
+          {p.incoming.open_time > p.existing.open_time ? "Yes — close trade" : "Cancel — undo taken"}
+        </button>
+        <button class="btn-dismiss" onclick={dismissPrompt}>
+          {p.incoming.open_time > p.existing.open_time ? "No — keep it open" : "Yes — take it anyway"}
+        </button>
       </div>
     </div>
   </div>
