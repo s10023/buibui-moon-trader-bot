@@ -1450,8 +1450,8 @@ class TestConflictResolution:
         for alert in alerts:
             assert "⚠️ conflict" in alert
 
-    def test_conflict_tag_appended_to_reason_string(self, tmp_path: Any) -> None:
-        """The conflict tag appears inside the reason field, not just anywhere in the alert."""
+    def test_conflict_tag_appears_in_alert(self, tmp_path: Any) -> None:
+        """The conflict tag appears in the alert outside the reason backtick."""
         conn = duckdb.connect(":memory:")
         init_schema(conn)
         store = CooldownStore(str(tmp_path / "state.json"))
@@ -1496,8 +1496,9 @@ class TestConflictResolution:
             )
 
         assert len(alerts) == 1
-        # The alert contains a backtick-quoted reason field with the conflict tag
-        assert "fvg_long@104.00 ⚠️ conflict`" in alerts[0]
+        # Conflict tag appears outside the backtick-quoted reason field
+        assert "fvg_long@104.00`" in alerts[0]
+        assert "⚠️ conflict" in alerts[0]
 
     def test_no_conflict_no_tag(self, tmp_path: Any) -> None:
         """Signals without a conflict must NOT have ⚠️ conflict in the alert."""

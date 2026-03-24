@@ -59,6 +59,7 @@ class SignalEvent:
     sl_price: float = 0.0  # structural invalidation level (0 = use sl_pct fallback)
     context: str = ""  # human-readable pattern context (e.g. candle timestamps)
     confidence: int = 0  # 1–5 editorial quality score (0 = unset); shown as stars
+    conflict: bool = False  # True when opposing direction fired same cycle
 
 
 def _widest_sl(
@@ -143,10 +144,11 @@ def format_confluence_alert(
     if len(events) == 1:
         ev = events[0]
         stars = f"  {_stars(ev.confidence)}" if ev.confidence else ""
+        conflict_tag = " ⚠️ conflict" if ev.conflict else ""
         header = (
             f"*SIGNAL — {ev.symbol} {ev.timeframe}*\n"
             f"Direction: {direction_label}  Strategy: `{ev.strategy}`{stars}\n"
-            f"Reason: `{ev.reason}`\n"
+            f"Reason: `{ev.reason}`{conflict_tag}\n"
         )
         if ev.context:
             header += f"{ev.context}\n"
@@ -157,7 +159,8 @@ def format_confluence_alert(
         )
         for ev in events:
             stars = f" {_stars(ev.confidence)}" if ev.confidence else ""
-            line = f"• `{ev.strategy}`{stars} — `{ev.reason}`"
+            conflict_tag = " ⚠️ conflict" if ev.conflict else ""
+            line = f"• `{ev.strategy}`{stars} — `{ev.reason}`{conflict_tag}"
             if ev.context:
                 line += f"  ({ev.context})"
             header += line + "\n"

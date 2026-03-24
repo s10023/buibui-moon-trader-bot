@@ -398,7 +398,7 @@ def run_scan_cycle(
                         [e.strategy for e in short_events],
                     )
                 for e in direction_events:
-                    e.reason = f"{e.reason} ⚠️ conflict"
+                    e.conflict = True
             else:
                 direction_events = long_events or short_events
             if not direction_events:
