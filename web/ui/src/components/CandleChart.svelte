@@ -14,6 +14,33 @@
   import type { CandleRow, FibLevel, FundingRow, OiRow, SignalRow } from "../api";
   import { pricesStore, startPricesSSE, stopPricesSSE } from "../stores/prices";
 
+  const STRATEGY_LABELS: Record<string, string> = {
+    bos:                  "BOS",
+    fvg:                  "FVG",
+    orb:                  "ORB",
+    doji:                 "Doji",
+    engulfing:            "Engulfing",
+    pin_bar:              "Pin Bar",
+    inside_bar:           "Inside Bar",
+    marubozu:             "Marubozu",
+    wick_fill:            "Wick Fill",
+    trend_day:            "Trend Day",
+    eqh_eql:              "EQH/EQL",
+    ote_entry:            "OTE Entry",
+    fib_golden_zone:      "Fib Zone",
+    cvd_divergence:       "CVD Div",
+    smt_divergence:       "SMT Div",
+    order_block:          "Ord Block",
+    liquidity_sweep:      "Liq Sweep",
+    funding_reversion:    "Fund Rev",
+    hammer_hanging_man:   "Hammer/HM",
+    morning_evening_star: "M/E Star",
+  };
+
+  function stratLabel(name: string): string {
+    return STRATEGY_LABELS[name] ?? name;
+  }
+
   let {
     candles,
     signals,
@@ -400,7 +427,7 @@
           s.direction === "long"
             ? ("arrowUp" as const)
             : ("arrowDown" as const),
-        text: `${s.strategy} (${s.direction})`,
+        text: `${stratLabel(s.strategy)} (${s.direction})`,
         size: 1,
       }))
       .sort((a, b) => (a.time as number) - (b.time as number));
