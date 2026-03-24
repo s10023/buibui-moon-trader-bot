@@ -16,4 +16,5 @@ class FibResponse(BaseModel):
 
     swing_low: float
     swing_high: float
+    swing_start_ms: int
     levels: list[FibLevel]
