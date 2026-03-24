@@ -41,7 +41,7 @@
         ...extraParams,
       });
     } catch (e) {
-      error = String(e);
+      error = e instanceof Error ? e.message : String(e);
     } finally {
       loading = false;
     }

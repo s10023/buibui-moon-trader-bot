@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getOhlcv, getSignals, getFib, type CandleRow, type FibLevel, type FundingRow, type OiRow, type SignalRow } from "../api";
+  import { getOhlcv, getSignals, getFib, type CandleRow, type FibResponse, type FundingRow, type OiRow, type SignalRow } from "../api";
   import { symbols } from "../stores/config";
   import { strategyNames } from "../stores/strategies";
   import { selectedSymbol, selectSymbol } from "../stores/watchlist";
@@ -8,6 +8,42 @@
   import LoadingSpinner from "../components/LoadingSpinner.svelte";
 
   const TIMEFRAMES = ["15m", "1h", "4h", "1d"];
+
+  // B6: Short display labels for strategy pills
+  const STRATEGY_LABELS: Record<string, string> = {
+    bos:                  "BOS",
+    fvg:                  "FVG",
+    orb:                  "ORB",
+    doji:                 "Doji",
+    engulfing:            "Engulfing",
+    pin_bar:              "Pin Bar",
+    inside_bar:           "Inside Bar",
+    marubozu:             "Marubozu",
+    wick_fill:            "Wick Fill",
+    trend_day:            "Trend Day",
+    eqh_eql:              "EQH/EQL",
+    ote_entry:            "OTE Entry",
+    fib_golden_zone:      "Fib Zone",
+    cvd_divergence:       "CVD Div",
+    smt_divergence:       "SMT Div",
+    order_block:          "Ord Block",
+    liquidity_sweep:      "Liq Sweep",
+    funding_reversion:    "Fund Rev",
+    hammer_hanging_man:   "Hammer/HM",
+    morning_evening_star: "M/E Star",
+  };
+
+  // C7: Candlestick pattern group
+  const CANDLESTICK_STRATEGIES = new Set([
+    "doji", "engulfing", "hammer_hanging_man", "inside_bar",
+    "marubozu", "morning_evening_star", "pin_bar",
+  ]);
+
+  function stratLabel(name: string): string {
+    return STRATEGY_LABELS[name] ?? name;
+  }
+
+  let candlestickExpanded = $state(false);
 
   let symbol = $state($selectedSymbol);
   let timeframe = $state("4h");
@@ -27,7 +63,7 @@
   let signals = $state<SignalRow[]>([]);
   let funding = $state<FundingRow[] | null>(null);
   let oi = $state<OiRow[] | null>(null);
-  let fibLevels = $state<FibLevel[] | null>(null);
+  let fibLevels = $state<FibResponse | null>(null);
   let loading = $state(false);
   let error = $state<string | null>(null);
   let loaded = $state(false);
@@ -66,10 +102,10 @@
       signals = sigResp.signals;
       funding = ohlcvResp.funding;
       oi = ohlcvResp.oi;
-      fibLevels = fibResp ? fibResp.levels : null;
+      fibLevels = fibResp ?? null;
       loaded = true;
     } catch (e) {
-      error = String(e);
+      error = e instanceof Error ? e.message : String(e);
     } finally {
       loading = false;
     }
@@ -140,15 +176,36 @@
       </div>
 
       {#if $strategyNames.length > 0}
+        {@const nonCandlestick = $strategyNames.filter((n) => !CANDLESTICK_STRATEGIES.has(n))}
+        {@const candlestickNames = $strategyNames.filter((n) => CANDLESTICK_STRATEGIES.has(n))}
         <div class="pill-row">
-          {#each $strategyNames as name}
+          {#each nonCandlestick as name}
             <button
               class="pill"
               class:active={selectedStrategies.includes(name)}
               onclick={() => toggleStrategy(name)}
-            >{name}</button>
+            >{stratLabel(name)}</button>
           {/each}
+          {#if candlestickNames.length > 0}
+            <button
+              class="pill group-toggle"
+              class:active={candlestickExpanded}
+              onclick={() => { candlestickExpanded = !candlestickExpanded; }}
+              title="Candlestick patterns"
+            >Candles {candlestickExpanded ? "▾" : "▸"}</button>
+          {/if}
         </div>
+        {#if candlestickExpanded && candlestickNames.length > 0}
+          <div class="pill-row pill-group-inner">
+            {#each candlestickNames as name}
+              <button
+                class="pill"
+                class:active={selectedStrategies.includes(name)}
+                onclick={() => toggleStrategy(name)}
+              >{stratLabel(name)}</button>
+            {/each}
+          </div>
+        {/if}
       {/if}
     </div>
 
@@ -309,6 +366,19 @@
     background: var(--accent-dim);
     border-color: var(--accent);
     color: var(--accent);
+  }
+
+  .group-toggle {
+    opacity: 0.7;
+    letter-spacing: 0.04em;
+  }
+
+  .group-toggle.active { opacity: 1; }
+
+  .pill-group-inner {
+    margin-top: 4px;
+    padding-left: 10px;
+    border-left: 1px solid var(--border-dim);
   }
 
   .chart-frame {
