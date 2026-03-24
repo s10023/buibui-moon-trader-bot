@@ -161,7 +161,7 @@ class TestVolumeGateEngulfing:
         df = _make_ohlcv(rows)
         result = detect_engulfing(df)
         assert not result.empty
-        assert "[vol_low]" not in result.iloc[-1]["context"]
+        assert "(vol_low)" not in result.iloc[-1]["context"]
 
     def test_low_volume_adds_vol_low_tag(self) -> None:
         rows = [_candle(_t(i), 100, 101, 99, 100, volume=100.0) for i in range(20)]
@@ -171,7 +171,7 @@ class TestVolumeGateEngulfing:
         df = _make_ohlcv(rows)
         result = detect_engulfing(df)
         assert not result.empty
-        assert "[vol_low]" in result.iloc[-1]["context"]
+        assert "(vol_low)" in result.iloc[-1]["context"]
 
     def test_signal_still_emitted_on_low_volume(self) -> None:
         """Signal must still be emitted — volume gate only tags, not suppresses."""
@@ -199,7 +199,7 @@ class TestVolumeGatePinBar:
         # Find pin bar candle signal (if emitted)
         pin_signals = result[result["direction"] == "long"]
         if not pin_signals.empty:
-            assert "[vol_low]" in pin_signals.iloc[-1]["context"]
+            assert "(vol_low)" in pin_signals.iloc[-1]["context"]
 
     def test_high_volume_no_vol_low_tag(self) -> None:
         rows = [_candle(_t(i), 100, 101, 99, 100, volume=100.0) for i in range(20)]
@@ -208,7 +208,7 @@ class TestVolumeGatePinBar:
         result = detect_pin_bar(df, wick_ratio=2.0)
         pin_signals = result[result["direction"] == "long"]
         if not pin_signals.empty:
-            assert "[vol_low]" not in pin_signals.iloc[-1]["context"]
+            assert "(vol_low)" not in pin_signals.iloc[-1]["context"]
 
 
 # ---------------------------------------------------------------------------
@@ -230,7 +230,7 @@ class TestVolumeGateHammerHangingMan:
         result = detect_hammer_hanging_man(df, context_lookback=10)
         hammers = result[result["direction"] == "long"]
         if not hammers.empty:
-            assert "[vol_low]" in hammers.iloc[-1]["context"]
+            assert "(vol_low)" in hammers.iloc[-1]["context"]
 
 
 # ---------------------------------------------------------------------------
