@@ -30,6 +30,7 @@ from analytics.indicators_lib import (
     detect_doji,
     detect_engulfing,
     detect_eqh_eql,
+    detect_fib_golden_zone,
     detect_fibonacci_retracement,
     detect_funding_extreme,
     detect_fvg,
@@ -41,6 +42,7 @@ from analytics.indicators_lib import (
     detect_morning_evening_star,
     detect_orb_breakout,
     detect_order_block,
+    detect_ote_entry,
     detect_pin_bar,
     detect_smt_divergence,
     detect_trend_day,
@@ -67,6 +69,8 @@ _SIMPLE_DETECTORS: dict[str, Callable[[pd.DataFrame], pd.DataFrame]] = {
     "doji": detect_doji,
     "morning_evening_star": detect_morning_evening_star,
     "fibonacci_retracement": detect_fibonacci_retracement,
+    "fib_golden_zone": detect_fib_golden_zone,
+    "ote_entry": detect_ote_entry,
 }
 
 _SWEEP_STRATEGIES: list[str] = [s for s in KNOWN_STRATEGIES if s != "seasonality"]
