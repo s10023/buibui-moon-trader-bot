@@ -1,7 +1,11 @@
 """Signal daemon runner — thin wrapper over signal_lib.
 
-Creates the Binance client, opens the DuckDB connection, syncs data,
-then polls on clock-aligned candle boundaries calling run_scan_cycle each time.
+Creates the Binance client, opens a short-lived DuckDB connection per scan cycle,
+syncs data, scans for signals, then closes the connection before sleeping.
+
+Each cycle: open conn → sync → scan → upsert signals → close conn → sleep.
+This releases the write lock during the sleep window so the web API's read-only
+connections can access the DB between cycles.
 """
 
 import logging
@@ -100,32 +104,43 @@ def run_signal_watch(
 
     prev_handler = signal.signal(signal.SIGINT, _handle_sigint)
     try:
-        conn = duckdb.connect(str(db_path))
-        init_schema(conn)
+        # Init schema once at startup (short-lived connection).
+        with duckdb.connect(str(db_path)) as init_conn:
+            init_schema(init_conn)
 
         # Startup probe: warn (don't abort) for secondaries with no OHLCV yet.
+        # Uses a short-lived connection so the write lock is released immediately.
         if secondary_map_arg:
             now_probe_ms = int(time.time() * 1000)
             start_probe_ms = now_probe_ms - _DEFAULT_BACKFILL_DAYS * 24 * 3600 * 1000
             seen_secondaries: set[str] = set()
-            for sym in resolved_symbols:
-                sec = secondary_map_arg.get(sym)
-                if sec and sec not in seen_secondaries:
-                    seen_secondaries.add(sec)
-                    probe_df = get_ohlcv(
-                        conn, sec, resolved_timeframes[0], start_probe_ms, now_probe_ms
-                    )
-                    if probe_df.empty:
-                        logger.warning(
-                            "Secondary symbol %s has no OHLCV data yet — "
-                            "run 'analytics backfill --symbols %s' to populate it",
+            with duckdb.connect(str(db_path)) as probe_conn:
+                for sym in resolved_symbols:
+                    sec = secondary_map_arg.get(sym)
+                    if sec and sec not in seen_secondaries:
+                        seen_secondaries.add(sec)
+                        probe_df = get_ohlcv(
+                            probe_conn,
                             sec,
-                            sec,
+                            resolved_timeframes[0],
+                            start_probe_ms,
+                            now_probe_ms,
                         )
-        try:
-            while not shutdown_requested[0]:
-                logger.info("--- scan cycle start ---")
+                        if probe_df.empty:
+                            logger.warning(
+                                "Secondary symbol %s has no OHLCV data yet — "
+                                "run 'analytics backfill --symbols %s' to populate it",
+                                sec,
+                                sec,
+                            )
 
+        while not shutdown_requested[0]:
+            logger.info("--- scan cycle start ---")
+
+            # Open a short-lived connection for this cycle only.
+            # Closing before the sleep window releases the write lock so the
+            # web API's read-only connections can access the DB between cycles.
+            with duckdb.connect(str(db_path)) as conn:
                 # Sync each symbol+timeframe; fall back to backfill for new symbols
                 start_ms = (
                     int(time.time() * 1000) - _DEFAULT_BACKFILL_DAYS * 24 * 3600 * 1000
@@ -164,26 +179,22 @@ def run_signal_watch(
                     smt_trend_filter=smt_trend_filter,
                     strategy_timeframes=strategy_timeframes,
                 )
+            # Connection is now closed — web API can read the DB during the sleep.
 
-                if alerts:
-                    logger.info("%d alert(s) sent this cycle", len(alerts))
-                else:
-                    logger.info("No new signals this cycle")
+            if alerts:
+                logger.info("%d alert(s) sent this cycle", len(alerts))
+            else:
+                logger.info("No new signals this cycle")
 
-                sleep_secs, wake_ts = secs_until_next_boundary(resolved_timeframes)
-                next_dt = datetime.fromtimestamp(wake_ts, tz=UTC).strftime(
-                    "%H:%M:%S UTC"
-                )
-                logger.info("--- sleeping %.0fs until %s ---", sleep_secs, next_dt)
+            sleep_secs, wake_ts = secs_until_next_boundary(resolved_timeframes)
+            next_dt = datetime.fromtimestamp(wake_ts, tz=UTC).strftime("%H:%M:%S UTC")
+            logger.info("--- sleeping %.0fs until %s ---", sleep_secs, next_dt)
 
-                # Interruptible sleep: 1s chunks so Ctrl+C exits within ~1s
-                elapsed = 0.0
-                while elapsed < sleep_secs and not shutdown_requested[0]:
-                    chunk = min(1.0, sleep_secs - elapsed)
-                    time.sleep(chunk)
-                    elapsed += chunk
-        finally:
-            conn.close()
-            logger.info("DB connection closed cleanly")
+            # Interruptible sleep: 1s chunks so Ctrl+C exits within ~1s
+            elapsed = 0.0
+            while elapsed < sleep_secs and not shutdown_requested[0]:
+                chunk = min(1.0, sleep_secs - elapsed)
+                time.sleep(chunk)
+                elapsed += chunk
     finally:
         signal.signal(signal.SIGINT, prev_handler)
