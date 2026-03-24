@@ -3,7 +3,7 @@
 # Purpose: catch high-frequency intraday setups on 1m–15m candles.
 # Best suited for: orb, wick_fill, fvg, bos, liquidity_sweep, pin_bar, engulfing.
 # Not included: trend-following strategies that need daily context (trend_day,
-#               fibonacci_retracement, order_block, eqh_eql, marubozu).
+#               fib_golden_zone, order_block, eqh_eql, marubozu).
 #
 # Usage: make buibui-signal-watch CONFIG=config/scalping.toml
 
