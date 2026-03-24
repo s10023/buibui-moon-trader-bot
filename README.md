@@ -59,13 +59,13 @@ buibui-moon-trader-bot/
 │   ├── data_fetcher.py              # Pure Binance Futures API → DataFrames (klines, funding, OI)
 │   ├── data_store.py                # Pure DuckDB read/write (schema, upsert, query helpers)
 │   ├── data_sync.py                 # Backfill + incremental sync orchestration
-│   ├── indicators_lib.py            # Pure strategy signal detection (20 strategies + STRATEGY_REGISTRY)
+│   ├── indicators_lib.py            # Pure strategy signal detection (21 active strategies + STRATEGY_REGISTRY + DETECTOR_REGISTRY)
 │   ├── signal_config.py             # Pure config loader: SignalWatchConfig + load_signal_config()
 │   ├── signal_lib.py                # Pure scan lib: scan_symbol(), run_scan_cycle()
 │   ├── signal_runner.py             # Signal daemon thin wrapper (creates client, opens DB, polls)
 │   └── backtest_config.py           # BacktestSweepConfig + load_backtest_config() for TOML sweep mode
 ├── signals/
-│   ├── registry.py                  # SignalPlugin TypedDict + SIGNAL_REGISTRY (19 strategies, with confidence)
+│   ├── registry.py                  # SignalPlugin TypedDict + SIGNAL_REGISTRY (20 active strategies, with confidence)
 │   ├── cooldown_store.py            # Two-layer dedup: candle watermark + cooldown timer
 │   └── alert_formatter.py           # SignalEvent dataclass + format_signal_alert() → Markdown with SL/TP/stars
 ├── web/
@@ -359,7 +359,8 @@ poetry run python buibui.py backtest --symbols BTCUSDT ETHUSDT --timeframes 1h 4
 | `hammer_hanging_man` | Hammer (bullish reversal) / Hanging Man (bearish): pin-bar shape with trend context | ★★☆☆☆ |
 | `doji` | Doji (open ≈ close) followed by a strongly directional confirmation candle | ★★☆☆☆ |
 | `morning_evening_star` | Morning Star (3-candle bullish reversal) / Evening Star (3-candle bearish reversal) | ★★★☆☆ |
-| `fibonacci_retracement` | Fibonacci golden zone (0.5–0.618) retracement entry after a swing high/low | ★★★☆☆ |
+| `fib_golden_zone` | Fibonacci golden zone (0.5–0.618) entry after confirmed BOS; SL=swing low, TP=1.618 ext | ★★★★☆ |
+| `ote_entry` | Optimal Trade Entry (0.618–0.786) after confirmed BOS — deeper, more selective retracement | ★★★★☆ |
 | `seasonality` | Average return by day-of-week, hour, and week-of-month | ★★☆☆☆ |
 
 **Single-combo options:**
