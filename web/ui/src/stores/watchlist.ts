@@ -4,9 +4,9 @@ const LS_KEY = "buibui_watchlist_symbol";
 
 function getInitialSymbol(): string {
   try {
-    return localStorage.getItem(LS_KEY) ?? "BTCUSDT";
+    return localStorage.getItem(LS_KEY) ?? "";
   } catch {
-    return "BTCUSDT";
+    return "";
   }
 }
 

@@ -37,6 +37,16 @@
     selectSymbol(symbol);
   });
 
+  // Auto-select + auto-load on mount:
+  // - If no saved symbol, pick the first from the watchlist
+  // - If symbol is set but chart not yet loaded, trigger load
+  $effect(() => {
+    const syms = $symbols;
+    if (syms.length === 0) return;
+    if (!symbol) symbol = syms[0];
+    if (symbol && !loaded && !loading) void load();
+  });
+
   async function load(): Promise<void> {
     loading = true;
     error = null;
@@ -119,25 +129,13 @@
         </label>
       </div>
 
-      <!-- C2: Indicator toggles -->
+      <!-- C2: Indicator toggles — pill buttons matching strategy pill style -->
       <div class="form-row indicators-row">
         <span class="section-label">Indicators</span>
-        <label class="checkbox-label">
-          <input type="checkbox" bind:checked={showEMA20} />
-          <span>EMA 20</span>
-        </label>
-        <label class="checkbox-label">
-          <input type="checkbox" bind:checked={showEMA50} />
-          <span>EMA 50</span>
-        </label>
-        <label class="checkbox-label">
-          <input type="checkbox" bind:checked={showEMA200} />
-          <span>EMA 200</span>
-        </label>
-        <label class="checkbox-label">
-          <input type="checkbox" bind:checked={showRSI} />
-          <span>RSI 14</span>
-        </label>
+        <button class="pill" class:active={showEMA20} onclick={() => showEMA20 = !showEMA20}>EMA 20</button>
+        <button class="pill" class:active={showEMA50} onclick={() => showEMA50 = !showEMA50}>EMA 50</button>
+        <button class="pill" class:active={showEMA200} onclick={() => showEMA200 = !showEMA200}>EMA 200</button>
+        <button class="pill" class:active={showRSI} onclick={() => showRSI = !showRSI}>RSI 14</button>
       </div>
 
       {#if $strategyNames.length > 0}
@@ -236,9 +234,10 @@
   }
 
   .watchlist-item.active {
-    background: var(--accent-dim);
+    box-shadow: inset 2px 0 0 var(--accent);
     color: var(--accent);
     font-weight: 600;
+    background: rgba(0, 212, 170, 0.04);
   }
 
   /* ── Main area ── */
