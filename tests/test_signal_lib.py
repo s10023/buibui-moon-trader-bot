@@ -1539,3 +1539,147 @@ class TestConflictResolution:
 
         assert len(alerts) == 1
         assert "⚠️ conflict" not in alerts[0]
+
+
+class TestSignalOutcomePersistence:
+    """A4 P1 — verify run_scan_cycle writes a row to signal_outcomes for each fired signal."""
+
+    _OPEN_TIME_MS = 1704240000000  # Wednesday 2024-01-03 00:00:00 UTC
+
+    def _make_ohlcv(self) -> pd.DataFrame:
+        t = self._OPEN_TIME_MS
+        return pd.DataFrame(
+            [
+                {
+                    "open_time": t - 2000,
+                    "open": 100.0,
+                    "high": 105.0,
+                    "low": 98.0,
+                    "close": 102.0,
+                    "volume": 1.0,
+                },
+                {
+                    "open_time": t - 1000,
+                    "open": 102.0,
+                    "high": 106.0,
+                    "low": 100.0,
+                    "close": 103.0,
+                    "volume": 1.0,
+                },
+                {
+                    "open_time": t,
+                    "open": 103.0,
+                    "high": 107.0,
+                    "low": 101.0,
+                    "close": 104.0,
+                    "volume": 1.0,
+                },
+                {
+                    "open_time": t + 1000,
+                    "open": 104.0,
+                    "high": 104.5,
+                    "low": 103.5,
+                    "close": 104.0,
+                    "volume": 0.1,
+                },
+            ]
+        )
+
+    def _make_signals_df(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            [
+                {
+                    "open_time": self._OPEN_TIME_MS,
+                    "direction": "long",
+                    "reason": "fvg_long@100.00-102.00",
+                    "sl_price": 98.0,
+                    "context": "",
+                }
+            ]
+        )
+
+    def test_fired_signal_writes_outcome_row(self, tmp_path: Any) -> None:
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        store = CooldownStore(str(tmp_path / "state.json"))
+        signals_df = self._make_signals_df()
+
+        with (
+            patch("analytics.signal_lib.get_ohlcv", return_value=self._make_ohlcv()),
+            patch(
+                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+            ),
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {"fvg": {"detector": lambda df: signals_df, "confidence": 3}},
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                {
+                    "fvg": type(
+                        "S",
+                        (),
+                        {"requires_funding": False, "requires_secondary": False},
+                    )()
+                },
+            ),
+        ):
+            run_scan_cycle(
+                conn=conn,
+                symbols=["BTCUSDT"],
+                timeframes=["4h"],
+                strategies=["fvg"],
+                store=store,
+            )
+
+        rows = conn.execute("SELECT * FROM signal_outcomes").fetchall()
+        assert len(rows) == 1
+
+    def test_outcome_row_has_correct_fields(self, tmp_path: Any) -> None:
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        store = CooldownStore(str(tmp_path / "state.json"))
+        signals_df = self._make_signals_df()
+
+        with (
+            patch("analytics.signal_lib.get_ohlcv", return_value=self._make_ohlcv()),
+            patch(
+                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+            ),
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {"fvg": {"detector": lambda df: signals_df, "confidence": 3}},
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                {
+                    "fvg": type(
+                        "S",
+                        (),
+                        {"requires_funding": False, "requires_secondary": False},
+                    )()
+                },
+            ),
+        ):
+            run_scan_cycle(
+                conn=conn,
+                symbols=["BTCUSDT"],
+                timeframes=["4h"],
+                strategies=["fvg"],
+                store=store,
+            )
+
+        row = conn.execute(
+            "SELECT signal_id, symbol, tf, strategy, direction, candle_ts_ms, "
+            "sl_price, confidence_at_fire, outcome FROM signal_outcomes"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == f"BTCUSDT-4h-fvg-{self._OPEN_TIME_MS}-long"
+        assert row[1] == "BTCUSDT"
+        assert row[2] == "4h"
+        assert row[3] == "fvg"
+        assert row[4] == "long"
+        assert row[5] == self._OPEN_TIME_MS
+        assert row[6] == 98.0
+        assert row[7] == 3
+        assert row[8] is None  # outcome not yet resolved

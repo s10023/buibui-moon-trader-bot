@@ -14,6 +14,7 @@ from analytics.data_store import (
     upsert_funding_rates,
     upsert_ohlcv,
     upsert_open_interest,
+    upsert_signal_outcome,
     upsert_signals,
 )
 
@@ -250,6 +251,93 @@ class TestGetSignalsHistory:
         upsert_signals(conn, pd.DataFrame([row1, row2]))
         result = get_signals_history(conn, "BTCUSDT", "1h", 0, 2_000_000_000_000)
         assert result.iloc[0]["open_time"] > result.iloc[1]["open_time"]
+
+
+_OUTCOME_ROW: dict[str, object] = {
+    "signal_id": "btcusdt-1h-fvg-1700000000000-long",
+    "symbol": "BTCUSDT",
+    "tf": "1h",
+    "strategy": "fvg",
+    "direction": "long",
+    "fired_at_ms": 1_700_000_001_000,
+    "candle_ts_ms": 1_700_000_000_000,
+    "entry_price": 30500.0,
+    "sl_price": 29000.0,
+    "tp_price": 33500.0,
+    "rr_ratio": 2.0,
+    "confidence_at_fire": 4,
+    "tags": '["vol_high"]',
+    "outcome": None,
+    "outcome_r": None,
+    "outcome_filled_at_ms": None,
+}
+
+
+class TestSignalOutcomesSchema:
+    def test_init_creates_signal_outcomes_table(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        tables = {r[0] for r in conn.execute("SHOW TABLES").fetchall()}
+        assert "signal_outcomes" in tables
+
+    def test_signal_outcomes_table_idempotent(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        # Calling init_schema a second time should not raise.
+        init_schema(conn)
+        tables = {r[0] for r in conn.execute("SHOW TABLES").fetchall()}
+        assert "signal_outcomes" in tables
+
+
+class TestUpsertSignalOutcome:
+    def test_inserts_row(self, conn: duckdb.DuckDBPyConnection) -> None:
+        upsert_signal_outcome(conn, dict(_OUTCOME_ROW))
+        assert _one(conn, "SELECT COUNT(*) FROM signal_outcomes")[0] == 1
+
+    def test_upsert_replaces_on_conflict(self, conn: duckdb.DuckDBPyConnection) -> None:
+        upsert_signal_outcome(conn, dict(_OUTCOME_ROW))
+        updated = {**_OUTCOME_ROW, "outcome": "win", "outcome_r": 1.8}
+        upsert_signal_outcome(conn, updated)
+        # Still only one row (no duplicate inserted).
+        assert _one(conn, "SELECT COUNT(*) FROM signal_outcomes")[0] == 1
+        row = _one(conn, "SELECT outcome, outcome_r FROM signal_outcomes")
+        assert row[0] == "win"
+        assert abs(row[1] - 1.8) < 1e-9
+
+    def test_missing_optional_fields_default_to_null(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        minimal: dict[str, object] = {
+            "signal_id": "minimal-signal",
+            "symbol": "ETHUSDT",
+            "tf": "4h",
+            "strategy": "bos",
+            "direction": "short",
+            "fired_at_ms": 1_700_000_002_000,
+        }
+        upsert_signal_outcome(conn, minimal)
+        row = _one(conn, "SELECT outcome, outcome_r FROM signal_outcomes")
+        assert row[0] is None
+        assert row[1] is None
+
+    def test_stores_all_fields_correctly(self, conn: duckdb.DuckDBPyConnection) -> None:
+        upsert_signal_outcome(conn, dict(_OUTCOME_ROW))
+        row = _one(
+            conn,
+            "SELECT symbol, tf, strategy, direction, entry_price, sl_price, "
+            "tp_price, rr_ratio, confidence_at_fire, tags "
+            "FROM signal_outcomes",
+        )
+        assert row[0] == "BTCUSDT"
+        assert row[1] == "1h"
+        assert row[2] == "fvg"
+        assert row[3] == "long"
+        assert row[4] == 30500.0
+        assert row[5] == 29000.0
+        assert row[6] == 33500.0
+        assert abs(row[7] - 2.0) < 1e-9
+        assert row[8] == 4
+        assert row[9] == '["vol_high"]'
 
 
 class TestGetLatestOpenTime:
