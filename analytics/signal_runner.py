@@ -12,8 +12,9 @@ import logging
 import signal
 import time
 import types
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import duckdb
 
@@ -29,6 +30,7 @@ from utils.binance_client import create_client, load_coins_config
 
 logger = logging.getLogger(__name__)
 
+_MYT = ZoneInfo("Asia/Kuala_Lumpur")
 _DEFAULT_BACKFILL_DAYS = 90
 
 
@@ -187,7 +189,7 @@ def run_signal_watch(
                 logger.info("No new signals this cycle")
 
             sleep_secs, wake_ts = secs_until_next_boundary(resolved_timeframes)
-            next_dt = datetime.fromtimestamp(wake_ts, tz=UTC).strftime("%H:%M:%S UTC")
+            next_dt = datetime.fromtimestamp(wake_ts, tz=_MYT).strftime("%H:%M:%S MYT")
             logger.info("--- sleeping %.0fs until %s ---", sleep_secs, next_dt)
 
             # Interruptible sleep: 1s chunks so Ctrl+C exits within ~1s

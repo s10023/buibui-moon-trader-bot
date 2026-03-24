@@ -4,7 +4,6 @@ import datetime
 import itertools
 import logging
 import sys
-from collections.abc import Callable
 from pathlib import Path
 
 import duckdb
@@ -25,53 +24,15 @@ from analytics.data_store import (
     get_ohlcv,
 )
 from analytics.indicators_lib import (
+    DETECTOR_REGISTRY,
     KNOWN_STRATEGIES,
-    detect_cvd_divergence,
-    detect_doji,
-    detect_engulfing,
-    detect_eqh_eql,
-    detect_fib_golden_zone,
-    detect_fibonacci_retracement,
     detect_funding_extreme,
-    detect_fvg,
-    detect_hammer_hanging_man,
-    detect_inside_bar,
-    detect_liquidity_sweep,
-    detect_market_structure,
-    detect_marubozu_retest,
-    detect_morning_evening_star,
-    detect_orb_breakout,
-    detect_order_block,
-    detect_ote_entry,
-    detect_pin_bar,
     detect_smt_divergence,
-    detect_trend_day,
-    detect_wick_fills,
     seasonality_stats,
 )
 from utils.binance_client import load_coins_config
 
-_SIMPLE_DETECTORS: dict[str, Callable[[pd.DataFrame], pd.DataFrame]] = {
-    "wick_fill": detect_wick_fills,
-    "marubozu": detect_marubozu_retest,
-    "orb": detect_orb_breakout,
-    "liquidity_sweep": detect_liquidity_sweep,
-    "fvg": detect_fvg,
-    "bos": detect_market_structure,
-    "eqh_eql": detect_eqh_eql,
-    "order_block": detect_order_block,
-    "cvd_divergence": detect_cvd_divergence,
-    "trend_day": detect_trend_day,
-    "engulfing": detect_engulfing,
-    "pin_bar": detect_pin_bar,
-    "inside_bar": detect_inside_bar,
-    "hammer_hanging_man": detect_hammer_hanging_man,
-    "doji": detect_doji,
-    "morning_evening_star": detect_morning_evening_star,
-    "fibonacci_retracement": detect_fibonacci_retracement,
-    "fib_golden_zone": detect_fib_golden_zone,
-    "ote_entry": detect_ote_entry,
-}
+_SIMPLE_DETECTORS = DETECTOR_REGISTRY
 
 _SWEEP_STRATEGIES: list[str] = [s for s in KNOWN_STRATEGIES if s != "seasonality"]
 
