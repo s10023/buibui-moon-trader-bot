@@ -146,21 +146,21 @@ def format_confluence_alert(
         stars = f"  {_stars(ev.confidence)}" if ev.confidence else ""
         conflict_tag = " ⚠️ conflict" if ev.conflict else ""
         header = (
-            f"*SIGNAL — {ev.symbol} {ev.timeframe}*\n"
-            f"Direction: {direction_label}  Strategy: `{ev.strategy}`{stars}\n"
-            f"Reason: `{ev.reason}`{conflict_tag}\n"
+            f"<b>SIGNAL — {ev.symbol} {ev.timeframe}</b>\n"
+            f"Direction: {direction_label}  Strategy: <code>{ev.strategy}</code>{stars}\n"
+            f"Reason: <code>{ev.reason}</code>{conflict_tag}\n"
         )
         if ev.context:
             header += f"{ev.context}\n"
     else:
         header = (
-            f"*SIGNAL — {first.symbol} {first.timeframe}*\n"
+            f"<b>SIGNAL — {first.symbol} {first.timeframe}</b>\n"
             f"Direction: {direction_label}  Confluence: {len(events)} strategies\n"
         )
         for ev in events:
             stars = f" {_stars(ev.confidence)}" if ev.confidence else ""
             conflict_tag = " ⚠️ conflict" if ev.conflict else ""
-            line = f"• `{ev.strategy}`{stars} — `{ev.reason}`{conflict_tag}"
+            line = f"• <code>{ev.strategy}</code>{stars} — <code>{ev.reason}</code>{conflict_tag}"
             if ev.context:
                 line += f"  ({ev.context})"
             header += line + "\n"

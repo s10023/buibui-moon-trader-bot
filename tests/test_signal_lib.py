@@ -286,7 +286,7 @@ class TestFormatConfluenceAlert:
     def test_single_event_uses_strategy_label(self) -> None:
         event = self._make_event("fvg", sl_price=90.0)
         msg = format_confluence_alert([event])
-        assert "Strategy: `fvg`" in msg
+        assert "Strategy: <code>fvg</code>" in msg
         assert "Confluence" not in msg
 
     def test_two_events_shows_confluence_header(self) -> None:
@@ -1496,8 +1496,8 @@ class TestConflictResolution:
             )
 
         assert len(alerts) == 1
-        # Conflict tag appears outside the backtick-quoted reason field
-        assert "fvg_long@104.00`" in alerts[0]
+        # Conflict tag appears outside the code-tagged reason field
+        assert "fvg_long@104.00</code>" in alerts[0]
         assert "⚠️ conflict" in alerts[0]
 
     def test_no_conflict_no_tag(self, tmp_path: Any) -> None:
