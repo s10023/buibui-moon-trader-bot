@@ -187,7 +187,14 @@ export async function apiFetch<T>(
   const res = await fetch(path, { ...options, headers });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`API ${res.status}: ${text}`);
+    let detail = text;
+    try {
+      const json = JSON.parse(text) as { detail?: string };
+      if (json.detail) detail = json.detail;
+    } catch {
+      /* not JSON — use raw text */
+    }
+    throw new Error(`API ${res.status}: ${detail}`);
   }
   return res.json() as Promise<T>;
 }
