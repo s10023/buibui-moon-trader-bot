@@ -18,6 +18,7 @@ from analytics.indicators_lib import (
     detect_doji,
     detect_engulfing,
     detect_eqh_eql,
+    detect_fib_golden_zone,
     detect_fibonacci_retracement,
     detect_funding_extreme,
     detect_fvg,
@@ -29,6 +30,7 @@ from analytics.indicators_lib import (
     detect_morning_evening_star,
     detect_orb_breakout,
     detect_order_block,
+    detect_ote_entry,
     detect_pin_bar,
     detect_smt_divergence,
     detect_trend_day,
@@ -119,5 +121,13 @@ SIGNAL_REGISTRY: dict[str, SignalPlugin] = {
     "fibonacci_retracement": SignalPlugin(
         detector=detect_fibonacci_retracement,
         confidence=STRATEGY_REGISTRY["fibonacci_retracement"].confidence,
+    ),
+    "fib_golden_zone": SignalPlugin(
+        detector=detect_fib_golden_zone,
+        confidence=STRATEGY_REGISTRY["fib_golden_zone"].confidence,
+    ),
+    "ote_entry": SignalPlugin(
+        detector=detect_ote_entry,
+        confidence=STRATEGY_REGISTRY["ote_entry"].confidence,
     ),
 }

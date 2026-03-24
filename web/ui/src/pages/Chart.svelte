@@ -85,6 +85,7 @@
     selectedStrategies = selectedStrategies.includes(name)
       ? selectedStrategies.filter((s) => s !== name)
       : [...selectedStrategies, name];
+    void load();
   }
 </script>
 
