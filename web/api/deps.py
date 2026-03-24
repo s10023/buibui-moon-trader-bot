@@ -15,7 +15,13 @@ _bearer = HTTPBearer()
 def get_db(request: Request) -> Generator[duckdb.DuckDBPyConnection, None, None]:
     """Open a fresh read-only DuckDB connection per request (thread-safe)."""
     db_path: str = request.app.state.db_path
-    conn = duckdb.connect(db_path, read_only=True)
+    try:
+        conn = duckdb.connect(db_path, read_only=True)
+    except duckdb.IOException:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database is busy (signal-watch is writing). Try again in a few seconds.",
+        )
     try:
         yield conn
     finally:

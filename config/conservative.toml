@@ -3,7 +3,7 @@
 # Purpose: low-noise, high-conviction signals for operators who prefer fewer but
 #          better-quality alerts. Fires rarely but with strong pattern confirmation.
 # Strategies: only high-confidence patterns with strong empirical backing
-#             (marubozu, engulfing, morning_evening_star, fibonacci_retracement).
+#             (marubozu, engulfing, morning_evening_star, fib_golden_zone).
 # Excluded: all sub-daily TFs; aggressive ICT strategies (FVG, BOS, liquidity_sweep)
 #           that fire frequently with lower precision on daily charts.
 #
@@ -25,7 +25,7 @@ strategies = [
     'marubozu',
     'engulfing',
     'morning_evening_star',
-    'fibonacci_retracement',
+    'fib_golden_zone',
 ]
 
 # Always suppress Monday and Friday signals
@@ -37,7 +37,7 @@ min_trades = 10
 fee_pct = 0.0005
 
 [strategy_timeframes]
-fibonacci_retracement = ["1d"]
+fib_golden_zone = ["1d"]
 marubozu = ["1d"]
 engulfing = ["1d"]
 morning_evening_star = ["1d"]

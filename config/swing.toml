@@ -1,7 +1,7 @@
 # Swing trading profile — medium/higher timeframes, trend-following strategies.
 #
 # Purpose: catch multi-day moves on 4h and 1d candles.
-# Best suited for: trend_day, marubozu, fibonacci_retracement, order_block, eqh_eql,
+# Best suited for: trend_day, marubozu, fib_golden_zone, order_block, eqh_eql,
 #                  morning_evening_star, bos (as trend-continuation confirmation).
 # Not included: noise-heavy short-TF strategies (orb, doji, inside_bar).
 #
@@ -22,7 +22,7 @@ cooldown_seconds = 86400
 strategies = [
     'trend_day',
     'marubozu',
-    'fibonacci_retracement',
+    'fib_golden_zone',
     'order_block',
     'eqh_eql',
     'morning_evening_star',
