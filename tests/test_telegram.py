@@ -27,7 +27,7 @@ class TestSendTelegramMessage:
         payload = call_kwargs[1]["data"]
         assert payload["chat_id"] == CHAT
         assert payload["text"] == "Hello test"
-        assert payload["parse_mode"] == "Markdown"
+        assert payload["parse_mode"] == "HTML"
         assert payload["disable_web_page_preview"] is True
         assert call_kwargs[1]["timeout"] == 10
 

@@ -286,7 +286,7 @@ class TestFormatConfluenceAlert:
     def test_single_event_uses_strategy_label(self) -> None:
         event = self._make_event("fvg", sl_price=90.0)
         msg = format_confluence_alert([event])
-        assert "Strategy: `fvg`" in msg
+        assert "Strategy: <code>fvg</code>" in msg
         assert "Confluence" not in msg
 
     def test_two_events_shows_confluence_header(self) -> None:
@@ -1450,8 +1450,8 @@ class TestConflictResolution:
         for alert in alerts:
             assert "⚠️ conflict" in alert
 
-    def test_conflict_tag_appended_to_reason_string(self, tmp_path: Any) -> None:
-        """The conflict tag appears inside the reason field, not just anywhere in the alert."""
+    def test_conflict_tag_appears_in_alert(self, tmp_path: Any) -> None:
+        """The conflict tag appears in the alert outside the reason backtick."""
         conn = duckdb.connect(":memory:")
         init_schema(conn)
         store = CooldownStore(str(tmp_path / "state.json"))
@@ -1496,8 +1496,9 @@ class TestConflictResolution:
             )
 
         assert len(alerts) == 1
-        # The alert contains a backtick-quoted reason field with the conflict tag
-        assert "fvg_long@104.00 ⚠️ conflict`" in alerts[0]
+        # Conflict tag appears outside the code-tagged reason field
+        assert "fvg_long@104.00</code>" in alerts[0]
+        assert "⚠️ conflict" in alerts[0]
 
     def test_no_conflict_no_tag(self, tmp_path: Any) -> None:
         """Signals without a conflict must NOT have ⚠️ conflict in the alert."""

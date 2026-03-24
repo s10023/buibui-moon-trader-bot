@@ -1769,7 +1769,7 @@ def detect_engulfing(
             sl_dist = entry - sl
             tp = entry + sl_dist * tp_r
             vol_ok = volume_confirm(df, i)
-            ctx = f"TP={tp:.2f}" + ("" if vol_ok else " [vol_low]")
+            ctx = f"TP={tp:.2f}" + ("" if vol_ok else " (vol_low)")
             signals.append(
                 {
                     "open_time": open_time,
@@ -1792,7 +1792,7 @@ def detect_engulfing(
             sl_dist = sl - entry
             tp = entry - sl_dist * tp_r
             vol_ok = volume_confirm(df, i)
-            ctx = f"TP={tp:.2f}" + ("" if vol_ok else " [vol_low]")
+            ctx = f"TP={tp:.2f}" + ("" if vol_ok else " (vol_low)")
             signals.append(
                 {
                     "open_time": open_time,
@@ -1854,7 +1854,7 @@ def detect_pin_bar(
             sl_dist = entry - sl
             tp = entry + sl_dist * tp_r
             vol_ok = volume_confirm(df, i)
-            ctx = f"TP={tp:.2f}" + ("" if vol_ok else " [vol_low]")
+            ctx = f"TP={tp:.2f}" + ("" if vol_ok else " (vol_low)")
             signals.append(
                 {
                     "open_time": open_time,
@@ -1872,7 +1872,7 @@ def detect_pin_bar(
             sl_dist = sl - entry
             tp = entry - sl_dist * tp_r
             vol_ok = volume_confirm(df, i)
-            ctx = f"TP={tp:.2f}" + ("" if vol_ok else " [vol_low]")
+            ctx = f"TP={tp:.2f}" + ("" if vol_ok else " (vol_low)")
             signals.append(
                 {
                     "open_time": open_time,
@@ -2017,7 +2017,7 @@ def detect_hammer_hanging_man(
             sl = entry * (1 - sl_pct)
             sl_dist = entry - sl
             tp = entry + sl_dist * tp_r
-            ctx = f"TP={tp:.2f}" + ("" if vol_ok else " [vol_low]")
+            ctx = f"TP={tp:.2f}" + ("" if vol_ok else " (vol_low)")
             signals.append(
                 {
                     "open_time": open_time,
@@ -2033,7 +2033,7 @@ def detect_hammer_hanging_man(
             sl = entry * (1 + sl_pct)
             sl_dist = sl - entry
             tp = entry - sl_dist * tp_r
-            ctx = f"TP={tp:.2f}" + ("" if vol_ok else " [vol_low]")
+            ctx = f"TP={tp:.2f}" + ("" if vol_ok else " (vol_low)")
             signals.append(
                 {
                     "open_time": open_time,
