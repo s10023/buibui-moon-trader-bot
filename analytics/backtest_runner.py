@@ -4,6 +4,7 @@ import datetime
 import itertools
 import logging
 import sys
+import uuid
 from pathlib import Path
 
 import duckdb
@@ -22,6 +23,8 @@ from analytics.data_store import (
     DEFAULT_DB_PATH,
     get_funding_rates,
     get_ohlcv,
+    upsert_backtest_run,
+    upsert_backtest_trades,
 )
 from analytics.indicators_lib import (
     DETECTOR_REGISTRY,
@@ -99,8 +102,11 @@ def run_backtest_sweep(
 
     results: list[BacktestResult] = []
     skipped: list[str] = []
+    sweep_id = str(uuid.uuid4()) if cfg.save_results else None
 
-    conn: duckdb.DuckDBPyConnection = duckdb.connect(str(db_path), read_only=True)
+    conn: duckdb.DuckDBPyConnection = duckdb.connect(
+        str(db_path), read_only=not cfg.save_results
+    )
     try:
         for symbol, timeframe, strategy in itertools.product(
             symbols, cfg.timeframes, strategies
@@ -154,10 +160,29 @@ def run_backtest_sweep(
             )
             results.append(bt)
 
+            if cfg.save_results:
+                run_id = upsert_backtest_run(
+                    conn,
+                    bt,
+                    days=cfg.days,
+                    data_start_ms=start_ms,
+                    data_end_ms=end_ms,
+                    sl_pct=cfg.sl_pct,
+                    tp_r=cfg.tp_r,
+                    fee_pct=cfg.fee_pct,
+                    day_filter=cfg.day_filter,
+                    smt_trend_filter=cfg.smt_trend_filter,
+                    secondary_symbol=secondary,
+                    sweep_id=sweep_id,
+                )
+                upsert_backtest_trades(conn, bt, run_id)
+
     finally:
         conn.close()
 
     print(format_sweep_table(results, cfg.min_trades))
+    if cfg.save_results:
+        print(f"\n  Results saved to DB (sweep_id={sweep_id})")
 
     if skipped:
         print(f"\n  Skipped {len(skipped)} combo(s):")
@@ -175,6 +200,7 @@ def run_backtest_cmd(
     fee_pct: float = 0.0,
     secondary_symbol: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
+    save_results: bool = False,
 ) -> None:
     """Open DB, load OHLCV, detect signals, run backtest, print results."""
     if strategy not in KNOWN_STRATEGIES:
@@ -188,7 +214,9 @@ def run_backtest_cmd(
     end_ms = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
     start_ms = end_ms - days * 24 * 3_600 * 1_000
 
-    conn: duckdb.DuckDBPyConnection = duckdb.connect(str(db_path), read_only=True)
+    conn: duckdb.DuckDBPyConnection = duckdb.connect(
+        str(db_path), read_only=not save_results
+    )
     try:
         ohlcv = get_ohlcv(conn, symbol, timeframe, start_ms, end_ms)
         if ohlcv.empty:
@@ -223,6 +251,23 @@ def run_backtest_cmd(
             ohlcv, signals, symbol, timeframe, strategy, sl_pct, tp_r, fee_pct
         )
         print(format_result(bt_result))
+
+        if save_results:
+            run_id = upsert_backtest_run(
+                conn,
+                bt_result,
+                days=days,
+                data_start_ms=start_ms,
+                data_end_ms=end_ms,
+                sl_pct=sl_pct,
+                tp_r=tp_r,
+                fee_pct=fee_pct,
+                day_filter=False,
+                smt_trend_filter=1,
+                secondary_symbol=secondary_symbol,
+            )
+            upsert_backtest_trades(conn, bt_result, run_id)
+            print(f"\n  Results saved to DB (run_id={run_id})")
 
     finally:
         conn.close()

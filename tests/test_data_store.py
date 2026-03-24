@@ -10,7 +10,10 @@ from analytics.data_store import (
     get_latest_open_time,
     get_ohlcv,
     get_signals_history,
+    get_win_rate_by_strategy,
     init_schema,
+    upsert_backtest_run,
+    upsert_backtest_trades,
     upsert_funding_rates,
     upsert_ohlcv,
     upsert_open_interest,
@@ -62,7 +65,15 @@ _SIGNAL_ROW: dict[str, object] = {
 class TestInitSchema:
     def test_creates_tables(self, conn: duckdb.DuckDBPyConnection) -> None:
         tables = {r[0] for r in conn.execute("SHOW TABLES").fetchall()}
-        assert {"ohlcv", "funding_rates", "open_interest", "signals"} == tables
+        assert {
+            "ohlcv",
+            "funding_rates",
+            "open_interest",
+            "signals",
+            "signal_alert_outcomes",
+            "backtest_runs",
+            "backtest_trades",
+        } == tables
 
     def test_idempotent(self, conn: duckdb.DuckDBPyConnection) -> None:
         init_schema(conn)
@@ -273,34 +284,62 @@ _OUTCOME_ROW: dict[str, object] = {
 }
 
 
-class TestSignalOutcomesSchema:
-    def test_init_creates_signal_outcomes_table(
+class TestSignalAlertOutcomesSchema:
+    def test_init_creates_signal_alert_outcomes_table(
         self, conn: duckdb.DuckDBPyConnection
     ) -> None:
         tables = {r[0] for r in conn.execute("SHOW TABLES").fetchall()}
-        assert "signal_outcomes" in tables
+        assert "signal_alert_outcomes" in tables
 
-    def test_signal_outcomes_table_idempotent(
+    def test_signal_alert_outcomes_table_idempotent(
         self, conn: duckdb.DuckDBPyConnection
     ) -> None:
-        # Calling init_schema a second time should not raise.
         init_schema(conn)
         tables = {r[0] for r in conn.execute("SHOW TABLES").fetchall()}
-        assert "signal_outcomes" in tables
+        assert "signal_alert_outcomes" in tables
+
+    def test_migration_renames_signal_outcomes(self) -> None:
+        c = duckdb.connect(":memory:")
+        # Simulate a legacy DB with the old table name.
+        c.execute("""
+            CREATE TABLE signal_outcomes (
+                signal_id TEXT PRIMARY KEY,
+                symbol TEXT NOT NULL, tf TEXT NOT NULL,
+                strategy TEXT NOT NULL, direction TEXT NOT NULL,
+                fired_at_ms BIGINT NOT NULL,
+                candle_ts_ms BIGINT, entry_price DOUBLE,
+                sl_price DOUBLE, tp_price DOUBLE,
+                rr_ratio DOUBLE, confidence_at_fire INTEGER,
+                tags TEXT, outcome TEXT,
+                outcome_r DOUBLE, outcome_filled_at_ms BIGINT
+            )
+        """)
+        c.execute(
+            "INSERT INTO signal_outcomes(signal_id, symbol, tf, strategy, direction, fired_at_ms) "
+            "VALUES ('old-id', 'BTCUSDT', '1h', 'fvg', 'long', 1700000001000)"
+        )
+        init_schema(c)
+        tables = {r[0] for r in c.execute("SHOW TABLES").fetchall()}
+        assert "signal_alert_outcomes" in tables
+        assert "signal_outcomes" not in tables
+        # Data preserved after rename.
+        count = c.execute("SELECT COUNT(*) FROM signal_alert_outcomes").fetchone()
+        assert count is not None
+        assert count[0] == 1
 
 
 class TestUpsertSignalOutcome:
     def test_inserts_row(self, conn: duckdb.DuckDBPyConnection) -> None:
         upsert_signal_outcome(conn, dict(_OUTCOME_ROW))
-        assert _one(conn, "SELECT COUNT(*) FROM signal_outcomes")[0] == 1
+        assert _one(conn, "SELECT COUNT(*) FROM signal_alert_outcomes")[0] == 1
 
     def test_upsert_replaces_on_conflict(self, conn: duckdb.DuckDBPyConnection) -> None:
         upsert_signal_outcome(conn, dict(_OUTCOME_ROW))
         updated = {**_OUTCOME_ROW, "outcome": "win", "outcome_r": 1.8}
         upsert_signal_outcome(conn, updated)
         # Still only one row (no duplicate inserted).
-        assert _one(conn, "SELECT COUNT(*) FROM signal_outcomes")[0] == 1
-        row = _one(conn, "SELECT outcome, outcome_r FROM signal_outcomes")
+        assert _one(conn, "SELECT COUNT(*) FROM signal_alert_outcomes")[0] == 1
+        row = _one(conn, "SELECT outcome, outcome_r FROM signal_alert_outcomes")
         assert row[0] == "win"
         assert abs(row[1] - 1.8) < 1e-9
 
@@ -316,7 +355,7 @@ class TestUpsertSignalOutcome:
             "fired_at_ms": 1_700_000_002_000,
         }
         upsert_signal_outcome(conn, minimal)
-        row = _one(conn, "SELECT outcome, outcome_r FROM signal_outcomes")
+        row = _one(conn, "SELECT outcome, outcome_r FROM signal_alert_outcomes")
         assert row[0] is None
         assert row[1] is None
 
@@ -326,7 +365,7 @@ class TestUpsertSignalOutcome:
             conn,
             "SELECT symbol, tf, strategy, direction, entry_price, sl_price, "
             "tp_price, rr_ratio, confidence_at_fire, tags "
-            "FROM signal_outcomes",
+            "FROM signal_alert_outcomes",
         )
         assert row[0] == "BTCUSDT"
         assert row[1] == "1h"
@@ -338,6 +377,212 @@ class TestUpsertSignalOutcome:
         assert abs(row[7] - 2.0) < 1e-9
         assert row[8] == 4
         assert row[9] == '["vol_high"]'
+
+
+# ---------------------------------------------------------------------------
+# Helpers for backtest store tests
+# ---------------------------------------------------------------------------
+
+
+class _FakeTrade:
+    def __init__(
+        self,
+        signal_time: int,
+        entry_time: int,
+        entry_price: float,
+        direction: str,
+        sl_price: float,
+        tp_price: float,
+        outcome: str,
+        pnl_r: float | None,
+    ) -> None:
+        self.signal_time = signal_time
+        self.entry_time = entry_time
+        self.entry_price = entry_price
+        self.direction = direction
+        self.sl_price = sl_price
+        self.tp_price = tp_price
+        self.exit_time: int | None = entry_time + 3_600_000
+        self.exit_price: float | None = tp_price if outcome == "win" else sl_price
+        self.outcome = outcome
+        self.pnl_r = pnl_r
+
+
+class _FakeResult:
+    def __init__(self, symbol: str, timeframe: str, strategy: str) -> None:
+        self.symbol = symbol
+        self.timeframe = timeframe
+        self.strategy = strategy
+        self.fee_pct = 0.0
+        self.trades: list[Any] = [
+            _FakeTrade(
+                1_700_000_000_000,
+                1_700_003_600_000,
+                30000.0,
+                "long",
+                29400.0,
+                31200.0,
+                "win",
+                2.0,
+            ),
+            _FakeTrade(
+                1_700_007_200_000,
+                1_700_010_800_000,
+                30100.0,
+                "long",
+                29498.0,
+                31304.0,
+                "loss",
+                -1.0,
+            ),
+        ]
+
+    @property
+    def closed_trades(self) -> list[Any]:
+        return [t for t in self.trades if t.outcome != "open"]
+
+    @property
+    def win_count(self) -> int:
+        return sum(1 for t in self.closed_trades if t.outcome == "win")
+
+    @property
+    def loss_count(self) -> int:
+        return sum(1 for t in self.closed_trades if t.outcome == "loss")
+
+    @property
+    def win_rate(self) -> float:
+        closed = len(self.closed_trades)
+        return self.win_count / closed if closed else 0.0
+
+    @property
+    def avg_r(self) -> float:
+        vals = [t.pnl_r for t in self.closed_trades if t.pnl_r is not None]
+        return sum(vals) / len(vals) if vals else 0.0
+
+    @property
+    def total_r(self) -> float:
+        vals: list[float] = [t.pnl_r for t in self.closed_trades if t.pnl_r is not None]
+        return sum(vals)
+
+    @property
+    def max_drawdown_r(self) -> float:
+        return 1.0
+
+
+_BT_PARAMS: dict[str, Any] = {
+    "days": 90,
+    "data_start_ms": 1_690_000_000_000,
+    "data_end_ms": 1_700_000_000_000,
+    "sl_pct": 0.02,
+    "tp_r": 2.0,
+    "fee_pct": 0.0,
+    "day_filter": False,
+    "smt_trend_filter": 1,
+    "secondary_symbol": None,
+    "sweep_id": None,
+}
+
+
+class TestUpsertBacktestRun:
+    def test_inserts_row(self, conn: duckdb.DuckDBPyConnection) -> None:
+        result = _FakeResult("BTCUSDT", "4h", "bos")
+        upsert_backtest_run(conn, result, **_BT_PARAMS)
+        assert _one(conn, "SELECT COUNT(*) FROM backtest_runs")[0] == 1
+
+    def test_stores_aggregate_fields(self, conn: duckdb.DuckDBPyConnection) -> None:
+        result = _FakeResult("BTCUSDT", "4h", "bos")
+        upsert_backtest_run(conn, result, **_BT_PARAMS)
+        row = _one(
+            conn,
+            "SELECT symbol, timeframe, strategy, closed_trades, win_count, "
+            "loss_count, win_rate, avg_r FROM backtest_runs",
+        )
+        assert row[0] == "BTCUSDT"
+        assert row[1] == "4h"
+        assert row[2] == "bos"
+        assert row[3] == 2
+        assert row[4] == 1
+        assert row[5] == 1
+        assert abs(row[6] - 0.5) < 1e-9
+        assert abs(row[7] - 0.5) < 1e-9
+
+    def test_replaces_on_same_params(self, conn: duckdb.DuckDBPyConnection) -> None:
+        result = _FakeResult("BTCUSDT", "4h", "bos")
+        id1 = upsert_backtest_run(conn, result, **_BT_PARAMS)
+        id2 = upsert_backtest_run(conn, result, **_BT_PARAMS)
+        assert id1 == id2
+        assert _one(conn, "SELECT COUNT(*) FROM backtest_runs")[0] == 1
+
+    def test_different_params_produce_different_rows(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        result = _FakeResult("BTCUSDT", "4h", "bos")
+        params_b = {**_BT_PARAMS, "sl_pct": 0.03}
+        upsert_backtest_run(conn, result, **_BT_PARAMS)
+        upsert_backtest_run(conn, result, **params_b)
+        assert _one(conn, "SELECT COUNT(*) FROM backtest_runs")[0] == 2
+
+
+class TestUpsertBacktestTrades:
+    def test_inserts_trade_rows(self, conn: duckdb.DuckDBPyConnection) -> None:
+        result = _FakeResult("BTCUSDT", "4h", "bos")
+        run_id = upsert_backtest_run(conn, result, **_BT_PARAMS)
+        upsert_backtest_trades(conn, result, run_id)
+        assert _one(conn, "SELECT COUNT(*) FROM backtest_trades")[0] == 2
+
+    def test_trade_fields_correct(self, conn: duckdb.DuckDBPyConnection) -> None:
+        result = _FakeResult("BTCUSDT", "4h", "bos")
+        run_id = upsert_backtest_run(conn, result, **_BT_PARAMS)
+        upsert_backtest_trades(conn, result, run_id)
+        row = _one(
+            conn,
+            "SELECT outcome, pnl_r FROM backtest_trades ORDER BY signal_time LIMIT 1",
+        )
+        assert row[0] == "win"
+        assert abs(row[1] - 2.0) < 1e-9
+
+    def test_empty_trades_is_noop(self, conn: duckdb.DuckDBPyConnection) -> None:
+        result = _FakeResult("BTCUSDT", "4h", "bos")
+        result.trades = []
+        run_id = upsert_backtest_run(conn, result, **_BT_PARAMS)
+        upsert_backtest_trades(conn, result, run_id)
+        assert _one(conn, "SELECT COUNT(*) FROM backtest_trades")[0] == 0
+
+
+class TestGetWinRateByStrategy:
+    def test_returns_aggregated_win_rate(self, conn: duckdb.DuckDBPyConnection) -> None:
+        # Insert enough closed trades to pass the min_trades=20 gate.
+        # We fake it by inserting a row directly with closed_trades=25.
+        from analytics.data_store import _backtest_run_id
+
+        run_id = _backtest_run_id(
+            "BTCUSDT", "4h", "bos", 90, 0.02, 2.0, 0.0, False, 1, None
+        )
+        conn.execute(
+            "INSERT INTO backtest_runs VALUES (?, 'BTCUSDT', '4h', 'bos', "
+            "1690000000000, 1700000000000, 90, 0.02, 2.0, 0.0, false, 1, NULL, "
+            "25, 25, 15, 10, 0.6, 0.5, 12.5, 3.0, 1700000001000, NULL)",
+            [run_id],
+        )
+        df = get_win_rate_by_strategy(conn)
+        assert len(df) == 1
+        assert df.iloc[0]["strategy"] == "bos"
+        assert abs(df.iloc[0]["win_rate_pct"] - 60.0) < 0.01
+
+    def test_excludes_low_trade_count(self, conn: duckdb.DuckDBPyConnection) -> None:
+        from analytics.data_store import _backtest_run_id
+
+        run_id = _backtest_run_id(
+            "BTCUSDT", "4h", "fvg", 90, 0.02, 2.0, 0.0, False, 1, None
+        )
+        conn.execute(
+            "INSERT INTO backtest_runs VALUES (?, 'BTCUSDT', '4h', 'fvg', "
+            "1690000000000, 1700000000000, 90, 0.02, 2.0, 0.0, false, 1, NULL, "
+            "5, 5, 3, 2, 0.6, 0.4, 2.0, 1.0, 1700000001000, NULL)",
+            [run_id],
+        )
+        df = get_win_rate_by_strategy(conn)
+        assert df.empty
 
 
 class TestGetLatestOpenTime:

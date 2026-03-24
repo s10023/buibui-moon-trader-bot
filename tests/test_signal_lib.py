@@ -1543,7 +1543,7 @@ class TestConflictResolution:
 
 
 class TestSignalOutcomePersistence:
-    """A4 P1 — verify run_scan_cycle writes a row to signal_outcomes for each fired signal."""
+    """A4 P1 — verify run_scan_cycle writes a row to signal_alert_outcomes for each fired signal."""
 
     _OPEN_TIME_MS = 1704240000000  # Wednesday 2024-01-03 00:00:00 UTC
 
@@ -1633,7 +1633,7 @@ class TestSignalOutcomePersistence:
                 store=store,
             )
 
-        rows = conn.execute("SELECT * FROM signal_outcomes").fetchall()
+        rows = conn.execute("SELECT * FROM signal_alert_outcomes").fetchall()
         assert len(rows) == 1
 
     def test_outcome_row_has_correct_fields(self, tmp_path: Any) -> None:
@@ -1672,7 +1672,7 @@ class TestSignalOutcomePersistence:
 
         row = conn.execute(
             "SELECT signal_id, symbol, tf, strategy, direction, candle_ts_ms, "
-            "sl_price, confidence_at_fire, outcome FROM signal_outcomes"
+            "sl_price, confidence_at_fire, outcome FROM signal_alert_outcomes"
         ).fetchone()
         assert row is not None
         assert row[0] == f"BTCUSDT-4h-fvg-{self._OPEN_TIME_MS}-long"
