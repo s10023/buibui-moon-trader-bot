@@ -521,6 +521,52 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
         ],
         confidence=3,
     ),
+    "fib_golden_zone": StrategySpec(
+        name="fib_golden_zone",
+        description="Fibonacci golden zone (0.5–0.618) entry after a confirmed BOS; TP = 1.618 extension.",
+        params=[
+            ParamSpec(
+                "swing_lookback",
+                "int",
+                20,
+                5,
+                100,
+                "Number of bars to scan for the BOS swing high/low.",
+            ),
+            ParamSpec(
+                "bos_lookback",
+                "int",
+                5,
+                2,
+                30,
+                "Rolling window half-size for BOS swing detection.",
+            ),
+        ],
+        confidence=4,
+    ),
+    "ote_entry": StrategySpec(
+        name="ote_entry",
+        description="Optimal Trade Entry (OTE): 0.618–0.786 retracement after a confirmed BOS; TP = 1.618 extension.",
+        params=[
+            ParamSpec(
+                "swing_lookback",
+                "int",
+                20,
+                5,
+                100,
+                "Number of bars to scan for the BOS swing high/low.",
+            ),
+            ParamSpec(
+                "bos_lookback",
+                "int",
+                5,
+                2,
+                30,
+                "Rolling window half-size for BOS swing detection.",
+            ),
+        ],
+        confidence=4,
+    ),
 }
 
 SIGNAL_COLUMNS: list[str] = ["open_time", "direction", "reason", "sl_price", "context"]
@@ -1738,13 +1784,15 @@ def detect_engulfing(
             sl = entry * (1 - sl_pct)
             sl_dist = entry - sl
             tp = entry + sl_dist * tp_r
+            vol_ok = volume_confirm(df, i)
+            ctx = f"TP={tp:.2f}" + ("" if vol_ok else " [vol_low]")
             signals.append(
                 {
                     "open_time": open_time,
                     "direction": "long",
                     "reason": f"bullish_engulfing@{entry:.2f}",
                     "sl_price": sl,
-                    "context": f"TP={tp:.2f}",
+                    "context": ctx,
                 }
             )
 
@@ -1759,13 +1807,15 @@ def detect_engulfing(
             sl = entry * (1 + sl_pct)
             sl_dist = sl - entry
             tp = entry - sl_dist * tp_r
+            vol_ok = volume_confirm(df, i)
+            ctx = f"TP={tp:.2f}" + ("" if vol_ok else " [vol_low]")
             signals.append(
                 {
                     "open_time": open_time,
                     "direction": "short",
                     "reason": f"bearish_engulfing@{entry:.2f}",
                     "sl_price": sl,
-                    "context": f"TP={tp:.2f}",
+                    "context": ctx,
                 }
             )
 
@@ -1819,13 +1869,15 @@ def detect_pin_bar(
             sl = entry * (1 - sl_pct)
             sl_dist = entry - sl
             tp = entry + sl_dist * tp_r
+            vol_ok = volume_confirm(df, i)
+            ctx = f"TP={tp:.2f}" + ("" if vol_ok else " [vol_low]")
             signals.append(
                 {
                     "open_time": open_time,
                     "direction": "long",
                     "reason": f"pin_bar_bull@{entry:.2f}",
                     "sl_price": sl,
-                    "context": f"TP={tp:.2f}",
+                    "context": ctx,
                 }
             )
 
@@ -1835,13 +1887,15 @@ def detect_pin_bar(
             sl = entry * (1 + sl_pct)
             sl_dist = sl - entry
             tp = entry - sl_dist * tp_r
+            vol_ok = volume_confirm(df, i)
+            ctx = f"TP={tp:.2f}" + ("" if vol_ok else " [vol_low]")
             signals.append(
                 {
                     "open_time": open_time,
                     "direction": "short",
                     "reason": f"pin_bar_bear@{entry:.2f}",
                     "sl_price": sl,
-                    "context": f"TP={tp:.2f}",
+                    "context": ctx,
                 }
             )
 
@@ -1971,6 +2025,7 @@ def detect_hammer_hanging_man(
 
         open_time = int(row["open_time"])
         prior_close = float(df.iloc[i - context_lookback]["close"])
+        vol_ok = volume_confirm(df, i)
 
         if c < prior_close:
             # Downtrend context → Hammer (bullish)
@@ -1978,13 +2033,14 @@ def detect_hammer_hanging_man(
             sl = entry * (1 - sl_pct)
             sl_dist = entry - sl
             tp = entry + sl_dist * tp_r
+            ctx = f"TP={tp:.2f}" + ("" if vol_ok else " [vol_low]")
             signals.append(
                 {
                     "open_time": open_time,
                     "direction": "long",
                     "reason": f"hammer@{entry:.2f}",
                     "sl_price": sl,
-                    "context": f"TP={tp:.2f}",
+                    "context": ctx,
                 }
             )
         else:
@@ -1993,13 +2049,14 @@ def detect_hammer_hanging_man(
             sl = entry * (1 + sl_pct)
             sl_dist = sl - entry
             tp = entry - sl_dist * tp_r
+            ctx = f"TP={tp:.2f}" + ("" if vol_ok else " [vol_low]")
             signals.append(
                 {
                     "open_time": open_time,
                     "direction": "short",
                     "reason": f"hanging_man@{entry:.2f}",
                     "sl_price": sl,
-                    "context": f"TP={tp:.2f}",
+                    "context": ctx,
                 }
             )
 
@@ -2191,6 +2248,36 @@ def detect_morning_evening_star(
 
 
 # ---------------------------------------------------------------------------
+# Volume confirmation helper (D5)
+# ---------------------------------------------------------------------------
+
+
+def volume_confirm(
+    df: pd.DataFrame,
+    idx: int,
+    multiplier: float = 1.5,
+    lookback: int = 20,
+) -> bool:
+    """Return True if the candle at `idx` has volume >= multiplier × rolling mean.
+
+    Uses the `lookback` candles *before* idx (no lookahead) to compute the
+    rolling average.  Returns True when volume data is unavailable (safe default).
+    """
+    if "volume" not in df.columns:
+        return True
+    if idx < 1:
+        return True
+    start = max(0, idx - lookback)
+    prior_vols = df["volume"].iloc[start:idx].astype(float)
+    if prior_vols.empty:
+        return True
+    avg = float(prior_vols.mean())
+    if avg == 0.0:
+        return True
+    return float(df["volume"].iloc[idx]) >= multiplier * avg
+
+
+# ---------------------------------------------------------------------------
 # 20. Fibonacci Retracement (Golden Zone)
 # ---------------------------------------------------------------------------
 
@@ -2305,6 +2392,280 @@ def detect_fibonacci_retracement(
                         "context": (
                             f"Fib: swing_high={sh_price:.2f} swing_low={sl_price:.2f} "
                             f"TP={sl_price:.2f}"
+                        ),
+                    }
+                )
+
+    return _signals_to_df(signals)
+
+
+# ---------------------------------------------------------------------------
+# 21. Fibonacci Golden Zone Entry after BOS (D3)
+# ---------------------------------------------------------------------------
+
+
+def _find_bos_swing(
+    df: pd.DataFrame,
+    swing_lookback: int,
+    bos_lookback: int,
+) -> tuple[float, float, str] | None:
+    """Find the most recent BOS and return (swing_low, swing_high, direction).
+
+    Two-zone approach (no-lookahead):
+
+    - Structural zone: [win_start, bos_start) — find the anchor swing high/low.
+      Uses absolute max/min to identify the dominant structural level.
+    - BOS zone: [bos_start, n-1) — check whether price broke the structural level.
+      The signal candle (n-1) is never included.
+
+    Bullish BOS:
+    1. Structural zone: lowest low = swing_low, highest high after swing_low = swing_high.
+    2. BOS zone: any bar has close or high > swing_high → bullish BOS confirmed.
+
+    Bearish BOS (symmetric):
+    1. Structural zone: highest high = swing_high, lowest low after swing_high = swing_low.
+    2. BOS zone: any bar has close or low < swing_low → bearish BOS confirmed.
+
+    Returns None if no clear BOS is found.
+    direction: 'long' (bullish BOS) | 'short' (bearish BOS).
+    """
+    n = len(df)
+    # Need structural zone + BOS zone + signal candle
+    if n < swing_lookback + bos_lookback + 1:
+        return None
+
+    highs = df["high"].to_numpy(dtype=float)
+    lows = df["low"].to_numpy(dtype=float)
+    closes = df["close"].to_numpy(dtype=float)
+
+    # BOS zone: last bos_lookback bars before the signal candle
+    bos_start = n - bos_lookback - 1  # inclusive
+    # Structural zone: swing_lookback bars before BOS zone
+    struct_start = max(0, bos_start - swing_lookback)
+    struct_end = bos_start  # exclusive
+
+    if struct_end - struct_start < 2:
+        return None
+
+    # --- Bullish BOS ---
+    # Structural swing_low = min low in structural zone
+    sl_local = int(lows[struct_start:struct_end].argmin())
+    sl_idx = struct_start + sl_local
+    sl_price = float(lows[sl_idx])
+    # Structural swing_high = max high from sl_idx forward (within structural zone)
+    post_sl_end = struct_end
+    if sl_idx + 1 < post_sl_end:
+        sh_local = int(highs[sl_idx:post_sl_end].argmax())
+        sh_idx = sl_idx + sh_local
+        sh_price = float(highs[sh_idx])
+        if sh_price > sl_price and sh_idx > sl_idx:
+            # Check BOS zone for break above sh_price
+            for conf_i in range(bos_start, n - 1):
+                if closes[conf_i] > sh_price or highs[conf_i] > sh_price:
+                    return (sl_price, sh_price, "long")
+
+    # --- Bearish BOS ---
+    sh_local2 = int(highs[struct_start:struct_end].argmax())
+    sh_idx2 = struct_start + sh_local2
+    sh_price2 = float(highs[sh_idx2])
+    if sh_idx2 + 1 < struct_end:
+        sl_local2 = int(lows[sh_idx2:struct_end].argmin())
+        sl_idx2 = sh_idx2 + sl_local2
+        sl_price2 = float(lows[sl_idx2])
+        if sh_price2 > sl_price2 and sl_idx2 > sh_idx2:
+            for conf_i in range(bos_start, n - 1):
+                if closes[conf_i] < sl_price2 or lows[conf_i] < sl_price2:
+                    return (sl_price2, sh_price2, "short")
+
+    return None
+
+
+def detect_fib_golden_zone(
+    df: pd.DataFrame,
+    swing_lookback: int = 20,
+    bos_lookback: int = 5,
+) -> pd.DataFrame:
+    """Detect Fibonacci golden zone (0.5–0.618) entry after a confirmed BOS.
+
+    Algorithm:
+    1. Detect the most recent BOS within the last `swing_lookback` bars.
+    2. Compute Fibonacci retracement levels from the BOS swing.
+    3. Signal fires when the current candle close is inside the 0.5–0.618 band.
+
+    LONG (bullish BOS — swing_low → swing_high → BOS above swing_high):
+    - Entry zone: fib 0.618 ≤ close ≤ fib 0.5 (retracing down into golden zone).
+    - SL: below the swing_low that defined the BOS leg.
+    - TP: 1.618 extension above the swing_high.
+
+    SHORT (bearish BOS — swing_high → swing_low → BOS below swing_low):
+    - Entry zone: fib 0.5 ≤ close ≤ fib 0.618 (bouncing up into golden zone).
+    - SL: above the swing_high that defined the BOS leg.
+    - TP: 1.618 extension below the swing_low.
+    """
+    n = len(df)
+    if n < swing_lookback + 3:
+        return _empty_signals()
+
+    signals: list[dict[str, object]] = []
+    closes = df["close"].to_numpy(dtype=float)
+    open_times = df["open_time"].to_numpy(dtype=int)
+
+    # Only evaluate the last candle (real-time use case: does the new bar enter the zone?)
+    for sig_i in range(swing_lookback + 2, n):
+        bos = _find_bos_swing(df.iloc[: sig_i + 1], swing_lookback, bos_lookback)
+        if bos is None:
+            continue
+
+        sl_price_bos, sh_price_bos, direction = bos
+        swing_range = sh_price_bos - sl_price_bos
+        if swing_range <= 0.0:
+            continue
+
+        curr_close = closes[sig_i]
+        open_time = open_times[sig_i]
+
+        if direction == "long":
+            # Retracement from sh_price_bos downward
+            fib_0_5 = sh_price_bos - 0.5 * swing_range
+            fib_0_618 = sh_price_bos - 0.618 * swing_range
+            # SL: below the swing_low (the anchor of the bullish leg)
+            sl_out = sl_price_bos
+            # TP: 1.618 extension above swing_high
+            tp = sh_price_bos + 0.618 * swing_range
+            if fib_0_5 >= curr_close >= fib_0_618:
+                signals.append(
+                    {
+                        "open_time": open_time,
+                        "direction": "long",
+                        "reason": (
+                            f"fib_golden_zone_bos@{curr_close:.2f} "
+                            f"(0.618={fib_0_618:.2f})"
+                        ),
+                        "sl_price": sl_out,
+                        "context": (
+                            f"BOS: swing_low={sl_price_bos:.2f} "
+                            f"swing_high={sh_price_bos:.2f} "
+                            f"TP={tp:.2f} (1.618 ext)"
+                        ),
+                    }
+                )
+
+        else:  # short
+            # Retracement from sl_price_bos upward
+            fib_0_5 = sl_price_bos + 0.5 * swing_range
+            fib_0_618 = sl_price_bos + 0.618 * swing_range
+            # SL: above the swing_high
+            sl_out = sh_price_bos
+            # TP: 1.618 extension below swing_low
+            tp = sl_price_bos - 0.618 * swing_range
+            if fib_0_618 >= curr_close >= fib_0_5:
+                signals.append(
+                    {
+                        "open_time": open_time,
+                        "direction": "short",
+                        "reason": (
+                            f"fib_golden_zone_bos@{curr_close:.2f} "
+                            f"(0.618={fib_0_618:.2f})"
+                        ),
+                        "sl_price": sl_out,
+                        "context": (
+                            f"BOS: swing_high={sh_price_bos:.2f} "
+                            f"swing_low={sl_price_bos:.2f} "
+                            f"TP={tp:.2f} (1.618 ext)"
+                        ),
+                    }
+                )
+
+    return _signals_to_df(signals)
+
+
+# ---------------------------------------------------------------------------
+# 22. OTE Entry (0.618–0.786 retracement after BOS) (D4)
+# ---------------------------------------------------------------------------
+
+
+def detect_ote_entry(
+    df: pd.DataFrame,
+    swing_lookback: int = 20,
+    bos_lookback: int = 5,
+) -> pd.DataFrame:
+    """Detect OTE (Optimal Trade Entry) — 0.618–0.786 retracement after a confirmed BOS.
+
+    Same structure as detect_fib_golden_zone but uses the deeper OTE zone
+    (61.8%–78.6% retracement).  This is more selective and targets the
+    high-probability ICT OTE level.
+
+    LONG (bullish BOS):
+    - Entry zone: fib 0.786 ≤ close ≤ fib 0.618.
+    - SL: below the swing_low.
+    - TP: 1.618 extension above swing_high.
+
+    SHORT (bearish BOS):
+    - Entry zone: fib 0.618 ≤ close ≤ fib 0.786 (measured from swing_low upward).
+    - SL: above the swing_high.
+    - TP: 1.618 extension below swing_low.
+    """
+    n = len(df)
+    if n < swing_lookback + bos_lookback + 2:
+        return _empty_signals()
+
+    signals: list[dict[str, object]] = []
+    closes = df["close"].to_numpy(dtype=float)
+    open_times = df["open_time"].to_numpy(dtype=int)
+
+    for sig_i in range(swing_lookback + bos_lookback + 1, n):
+        bos = _find_bos_swing(df.iloc[: sig_i + 1], swing_lookback, bos_lookback)
+        if bos is None:
+            continue
+
+        sl_price_bos, sh_price_bos, direction = bos
+        swing_range = sh_price_bos - sl_price_bos
+        if swing_range <= 0.0:
+            continue
+
+        curr_close = closes[sig_i]
+        open_time = open_times[sig_i]
+
+        if direction == "long":
+            fib_0_618 = sh_price_bos - 0.618 * swing_range
+            fib_0_786 = sh_price_bos - 0.786 * swing_range
+            sl_out = sl_price_bos
+            tp = sh_price_bos + 0.618 * swing_range
+            if fib_0_618 >= curr_close >= fib_0_786:
+                signals.append(
+                    {
+                        "open_time": open_time,
+                        "direction": "long",
+                        "reason": (
+                            f"ote_long@{curr_close:.2f} (0.786={fib_0_786:.2f})"
+                        ),
+                        "sl_price": sl_out,
+                        "context": (
+                            f"OTE: swing_low={sl_price_bos:.2f} "
+                            f"swing_high={sh_price_bos:.2f} "
+                            f"TP={tp:.2f} (1.618 ext)"
+                        ),
+                    }
+                )
+
+        else:  # short
+            fib_0_618 = sl_price_bos + 0.618 * swing_range
+            fib_0_786 = sl_price_bos + 0.786 * swing_range
+            sl_out = sh_price_bos
+            tp = sl_price_bos - 0.618 * swing_range
+            if fib_0_786 >= curr_close >= fib_0_618:
+                signals.append(
+                    {
+                        "open_time": open_time,
+                        "direction": "short",
+                        "reason": (
+                            f"ote_short@{curr_close:.2f} (0.786={fib_0_786:.2f})"
+                        ),
+                        "sl_price": sl_out,
+                        "context": (
+                            f"OTE: swing_high={sh_price_bos:.2f} "
+                            f"swing_low={sl_price_bos:.2f} "
+                            f"TP={tp:.2f} (1.618 ext)"
                         ),
                     }
                 )

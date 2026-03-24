@@ -24,6 +24,10 @@
     showOI = false,
     showFib = false,
     fibLevels = null,
+    showEMA20 = false,
+    showEMA50 = false,
+    showEMA200 = false,
+    showRSI = false,
   }: {
     candles: CandleRow[];
     signals: SignalRow[];
@@ -34,6 +38,10 @@
     showOI?: boolean;
     showFib?: boolean;
     fibLevels?: FibLevel[] | null;
+    showEMA20?: boolean;
+    showEMA50?: boolean;
+    showEMA200?: boolean;
+    showRSI?: boolean;
   } = $props();
 
   let container: HTMLDivElement;
@@ -46,10 +54,76 @@
   // the swing point, not across the entire chart history.
   let fibSeries: ISeriesApi<"Line">[] = [];
 
+  // EMA series
+  let ema20Series: ISeriesApi<"Line"> | null = null;
+  let ema50Series: ISeriesApi<"Line"> | null = null;
+  let ema200Series: ISeriesApi<"Line"> | null = null;
+
+  // RSI series
+  let rsiSeries: ISeriesApi<"Line"> | null = null;
+
   // Tracks the in-progress live candle so open/high/low accumulate correctly
   // across SSE ticks instead of resetting each time.
   interface LiveCandle { openTimeSec: number; open: number; high: number; low: number; }
   let liveCandle: LiveCandle | null = null;
+
+  // ── Indicator computation ─────────────────────────────────────────────────────
+
+  function computeEMA(closes: number[], period: number): number[] {
+    const result: number[] = [];
+    if (closes.length === 0) return result;
+    const k = 2 / (period + 1);
+    let ema = closes[0];
+    for (let i = 0; i < closes.length; i++) {
+      if (i < period - 1) {
+        // Not enough data yet — fill with NaN so we can skip
+        result.push(NaN);
+        // Accumulate SMA for seed
+        if (i === 0) {
+          ema = closes[0];
+        } else {
+          ema = ema + closes[i]; // sum accumulator
+        }
+      } else if (i === period - 1) {
+        // Seed with SMA
+        ema = (ema + closes[i]) / period;
+        result.push(ema);
+      } else {
+        ema = closes[i] * k + ema * (1 - k);
+        result.push(ema);
+      }
+    }
+    return result;
+  }
+
+  function computeRSI(closes: number[], period: number): number[] {
+    const result: number[] = [];
+    if (closes.length < period + 1) return result;
+    for (let i = 0; i < period; i++) result.push(NaN);
+
+    let avgGain = 0;
+    let avgLoss = 0;
+    for (let i = 1; i <= period; i++) {
+      const diff = closes[i] - closes[i - 1];
+      if (diff >= 0) avgGain += diff;
+      else avgLoss -= diff;
+    }
+    avgGain /= period;
+    avgLoss /= period;
+
+    const rsi = (g: number, l: number) => (l === 0 ? 100 : l === 0 && g === 0 ? 50 : 100 - 100 / (1 + g / l));
+    result.push(rsi(avgGain, avgLoss));
+
+    for (let i = period + 1; i < closes.length; i++) {
+      const diff = closes[i] - closes[i - 1];
+      const gain = diff > 0 ? diff : 0;
+      const loss = diff < 0 ? -diff : 0;
+      avgGain = (avgGain * (period - 1) + gain) / period;
+      avgLoss = (avgLoss * (period - 1) + loss) / period;
+      result.push(rsi(avgGain, avgLoss));
+    }
+    return result;
+  }
 
   // ── Fib levels ───────────────────────────────────────────────────────────────
 
@@ -235,6 +309,50 @@
       scaleMargins: { top: 0.85, bottom: 0 },
     });
 
+    // EMA overlays — on main price scale
+    ema20Series = chart.addLineSeries({
+      color: "#f0883e",
+      lineWidth: 1,
+      priceScaleId: "right",
+      lastValueVisible: false,
+      priceLineVisible: false,
+      crosshairMarkerVisible: false,
+      title: "EMA20",
+    });
+
+    ema50Series = chart.addLineSeries({
+      color: "#58a6ff",
+      lineWidth: 1,
+      priceScaleId: "right",
+      lastValueVisible: false,
+      priceLineVisible: false,
+      crosshairMarkerVisible: false,
+      title: "EMA50",
+    });
+
+    ema200Series = chart.addLineSeries({
+      color: "#bc8cff",
+      lineWidth: 1,
+      priceScaleId: "right",
+      lastValueVisible: false,
+      priceLineVisible: false,
+      crosshairMarkerVisible: false,
+      title: "EMA200",
+    });
+
+    // RSI sub-panel
+    rsiSeries = chart.addLineSeries({
+      color: "#e3b341",
+      lineWidth: 1,
+      priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+      priceScaleId: "rsi",
+      lastValueVisible: false,
+      priceLineVisible: false,
+    });
+    chart.priceScale("rsi").applyOptions({
+      scaleMargins: { top: 0.8, bottom: 0 },
+    });
+
     startPricesSSE();
 
     const ro = new ResizeObserver(() =>
@@ -335,6 +453,70 @@
     } else {
       clearFibLines();
     }
+  });
+
+  // ── EMA effects ───────────────────────────────────────────────────────────────
+
+  $effect(() => {
+    if (!ema20Series) return;
+    if (!showEMA20 || candles.length === 0) {
+      ema20Series.setData([]);
+      return;
+    }
+    const closes = candles.map((c) => c.close);
+    const values = computeEMA(closes, 20);
+    const data: LineData[] = candles
+      .map((c, i) => ({ time: (c.open_time / 1000) as Time, value: values[i] }))
+      .filter((d) => !isNaN(d.value));
+    ema20Series.setData(data);
+  });
+
+  $effect(() => {
+    if (!ema50Series) return;
+    if (!showEMA50 || candles.length === 0) {
+      ema50Series.setData([]);
+      return;
+    }
+    const closes = candles.map((c) => c.close);
+    const values = computeEMA(closes, 50);
+    const data: LineData[] = candles
+      .map((c, i) => ({ time: (c.open_time / 1000) as Time, value: values[i] }))
+      .filter((d) => !isNaN(d.value));
+    ema50Series.setData(data);
+  });
+
+  $effect(() => {
+    if (!ema200Series) return;
+    if (!showEMA200 || candles.length === 0) {
+      ema200Series.setData([]);
+      return;
+    }
+    const closes = candles.map((c) => c.close);
+    const values = computeEMA(closes, 200);
+    const data: LineData[] = candles
+      .map((c, i) => ({ time: (c.open_time / 1000) as Time, value: values[i] }))
+      .filter((d) => !isNaN(d.value));
+    ema200Series.setData(data);
+  });
+
+  // ── RSI effect ────────────────────────────────────────────────────────────────
+
+  $effect(() => {
+    if (!rsiSeries) return;
+    if (!showRSI || candles.length === 0) {
+      rsiSeries.setData([]);
+      chart.priceScale("rsi").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+      return;
+    }
+    const closes = candles.map((c) => c.close);
+    const values = computeRSI(closes, 14);
+    // values array starts at index 0 of closes; first 14 entries are NaN (warm-up)
+    const data: LineData[] = candles
+      .map((c, i) => ({ time: (c.open_time / 1000) as Time, value: values[i] }))
+      .filter((d) => d.value !== undefined && !isNaN(d.value));
+    rsiSeries.setData(data);
+    // Give RSI panel a visible height
+    chart.priceScale("rsi").applyOptions({ scaleMargins: { top: 0.75, bottom: 0.02 } });
   });
 
   // ── Live price update via SSE ─────────────────────────────────────────────────
