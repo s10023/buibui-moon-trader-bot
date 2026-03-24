@@ -1,7 +1,9 @@
 """Tests for utils/telegram.py."""
 
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, call, patch
+
+import requests as req
 
 from utils.telegram import send_telegram_message
 
@@ -12,12 +14,14 @@ CHAT = "12345"
 class TestSendTelegramMessage:
     """Tests for send_telegram_message()."""
 
+    @patch("utils.telegram.time.sleep")
     @patch("utils.telegram.requests.post")
-    def test_successful_send(self, mock_post: Any) -> None:
-        """Message is sent with correct payload."""
+    def test_successful_send(self, mock_post: Any, mock_sleep: Any) -> None:
+        """Message is sent with correct payload on first attempt."""
         send_telegram_message("Hello test", bot_token=TOKEN, chat_id=CHAT)
 
         mock_post.assert_called_once()
+        mock_sleep.assert_not_called()
         call_kwargs = mock_post.call_args
         assert call_kwargs[0][0] == f"https://api.telegram.org/bot{TOKEN}/sendMessage"
         payload = call_kwargs[1]["data"]
@@ -47,38 +51,45 @@ class TestSendTelegramMessage:
         send_telegram_message("Hello", bot_token="", chat_id="")
         mock_post.assert_not_called()
 
+    @patch("utils.telegram.time.sleep")
     @patch("utils.telegram.requests.post")
-    def test_raise_for_status_called(self, mock_post: Any) -> None:
-        """raise_for_status() is called so HTTP errors surface."""
+    def test_raise_for_status_called(self, mock_post: Any, mock_sleep: Any) -> None:
+        """raise_for_status() is called on every attempt."""
         send_telegram_message("Hello", bot_token=TOKEN, chat_id=CHAT)
-        mock_post.return_value.raise_for_status.assert_called_once()
+        assert mock_post.return_value.raise_for_status.call_count == 1
 
+    @patch("utils.telegram.time.sleep")
     @patch("utils.telegram.requests.post")
-    def test_http_error_is_caught_not_raised(self, mock_post: Any) -> None:
+    def test_http_error_is_caught_not_raised(
+        self, mock_post: Any, mock_sleep: Any
+    ) -> None:
         """HTTPError from raise_for_status is caught — callers are not crashed."""
-        import requests as req
-
         mock_post.return_value.raise_for_status.side_effect = req.HTTPError(
             "403 Forbidden"
         )
-        # Must not raise — error is logged and swallowed
+        # Must not raise — error is logged and swallowed after all retries
         send_telegram_message("Hello", bot_token=TOKEN, chat_id=CHAT)
 
+    @patch("utils.telegram.time.sleep")
     @patch("utils.telegram.requests.post", side_effect=Exception("Network error"))
-    def test_network_error_handled(self, mock_post: Any) -> None:
+    def test_network_error_handled(self, mock_post: Any, mock_sleep: Any) -> None:
         """Network errors are caught and logged, not raised."""
         send_telegram_message("Hello", bot_token=TOKEN, chat_id=CHAT)
 
+    @patch("utils.telegram.time.sleep")
     @patch("utils.telegram.requests.post", side_effect=TimeoutError("Timeout"))
-    def test_timeout_handled(self, mock_post: Any) -> None:
+    def test_timeout_handled(self, mock_post: Any, mock_sleep: Any) -> None:
         """Timeout errors are caught and logged, not raised."""
         send_telegram_message("Hello", bot_token=TOKEN, chat_id=CHAT)
 
+    @patch("utils.telegram.time.sleep")
     @patch("utils.telegram.requests.post")
     @patch(
         "utils.telegram._get_env_credentials", return_value=("env_token", "env_chat")
     )
-    def test_falls_back_to_env(self, mock_creds: Any, mock_post: Any) -> None:
+    def test_falls_back_to_env(
+        self, mock_creds: Any, mock_post: Any, mock_sleep: Any
+    ) -> None:
         """Falls back to env vars when no explicit credentials passed."""
         send_telegram_message("Hello")
 
@@ -86,3 +97,68 @@ class TestSendTelegramMessage:
         mock_post.assert_called_once()
         assert "env_token" in mock_post.call_args[0][0]
         assert mock_post.call_args[1]["data"]["chat_id"] == "env_chat"
+
+    # --- Retry behaviour ---
+
+    @patch("utils.telegram.time.sleep")
+    @patch("utils.telegram.requests.post")
+    def test_success_on_first_attempt_no_retry(
+        self, mock_post: Any, mock_sleep: Any
+    ) -> None:
+        """No sleep when message sends successfully on first try."""
+        send_telegram_message("Hi", bot_token=TOKEN, chat_id=CHAT)
+        mock_post.assert_called_once()
+        mock_sleep.assert_not_called()
+
+    @patch("utils.telegram.time.sleep")
+    @patch("utils.telegram.requests.post")
+    def test_success_after_one_retry(self, mock_post: Any, mock_sleep: Any) -> None:
+        """Succeeds on 2nd attempt; sleeps once with 1s delay."""
+        # First call raises, second succeeds
+        first_response = MagicMock()
+        first_response.raise_for_status.side_effect = req.HTTPError("500 Server Error")
+        first_response.response = MagicMock()
+        first_response.response.status_code = 500
+        second_response = MagicMock()
+        second_response.raise_for_status.return_value = None
+
+        mock_post.side_effect = [first_response, second_response]
+
+        send_telegram_message("Hi", bot_token=TOKEN, chat_id=CHAT)
+
+        assert mock_post.call_count == 2
+        mock_sleep.assert_called_once_with(1)
+
+    @patch("utils.telegram.time.sleep")
+    @patch("utils.telegram.requests.post")
+    def test_raises_after_max_retries_exhausted(
+        self, mock_post: Any, mock_sleep: Any
+    ) -> None:
+        """After 3 failed attempts, error is logged and function returns without raising."""
+        mock_post.return_value.raise_for_status.side_effect = req.HTTPError("500")
+        # Must not raise to callers
+        send_telegram_message("Hi", bot_token=TOKEN, chat_id=CHAT)
+        assert mock_post.call_count == 3
+        assert mock_sleep.call_count == 2
+        mock_sleep.assert_has_calls([call(1), call(2)])
+
+    @patch("utils.telegram.time.sleep")
+    @patch("utils.telegram.requests.post")
+    def test_400_logs_message_preview(
+        self, mock_post: Any, mock_sleep: Any, caplog: Any
+    ) -> None:
+        """400 Bad Request logs a preview of the message text."""
+        import logging
+
+        bad_response = MagicMock()
+        bad_response.status_code = 400
+        http_err = req.HTTPError("400 Bad Request")
+        http_err.response = bad_response
+        mock_post.return_value.raise_for_status.side_effect = http_err
+
+        with caplog.at_level(logging.WARNING, logger="root"):
+            send_telegram_message("Special chars: *_[]", bot_token=TOKEN, chat_id=CHAT)
+
+        assert any(
+            "400" in r.message and "Special chars" in r.message for r in caplog.records
+        )
