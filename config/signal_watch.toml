@@ -54,6 +54,7 @@ strategies = [
 days = 200              # lookback window
 min_trades = 20         # hide combos with fewer trades in sweep table
 fee_pct = 0.0005        # 0.05% taker fee per leg; set 0.0 to disable
+# save_results = true   # persist results to backtest_runs / backtest_trades tables in analytics.db
 
 # Per-strategy timeframe allow-list (R17).
 # Strategies listed here are restricted to the specified TFs.
