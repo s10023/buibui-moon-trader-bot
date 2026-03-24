@@ -71,6 +71,7 @@ export interface FibLevel {
 export interface FibResponse {
   swing_low: number;
   swing_high: number;
+  swing_start_ms: number;
   levels: FibLevel[];
 }
 

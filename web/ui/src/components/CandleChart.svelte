@@ -11,7 +11,7 @@
     type SeriesMarker,
     type Time,
   } from "lightweight-charts";
-  import type { CandleRow, FibLevel, FundingRow, OiRow, SignalRow } from "../api";
+  import type { CandleRow, FibResponse, FundingRow, OiRow, SignalRow } from "../api";
   import { pricesStore, startPricesSSE, stopPricesSSE } from "../stores/prices";
 
   const STRATEGY_LABELS: Record<string, string> = {
@@ -64,7 +64,7 @@
     oi?: OiRow[] | null;
     showOI?: boolean;
     showFib?: boolean;
-    fibLevels?: FibLevel[] | null;
+    fibLevels?: FibResponse | null;
     showEMA20?: boolean;
     showEMA50?: boolean;
     showEMA200?: boolean;
@@ -72,14 +72,15 @@
   } = $props();
 
   let container: HTMLDivElement;
+  let fibLabelContainer: HTMLDivElement;
   let chart: IChartApi;
   let candleSeries: ISeriesApi<"Candlestick">;
   let volumeSeries: ISeriesApi<"Histogram">;
   let fundingSeries: ISeriesApi<"Histogram"> | null = null;
   let oiSeries: ISeriesApi<"Line"> | null = null;
-  // Each Fib level gets its own LineSeries so lines only extend rightward from
-  // the swing point, not across the entire chart history.
   let fibSeries: ISeriesApi<"Line">[] = [];
+  let fibLabelPrices: number[] = [];
+  let fibLabelEndTimes: number[] = []; // endTimeSec per level for X positioning
 
   // EMA series
   let ema20Series: ISeriesApi<"Line"> | null = null;
@@ -161,14 +162,14 @@
     lineWidth: number;
   }
 
+  // Fib colors: anchors dim, progression warms into golden zone (0.5–0.618)
   const FIB_LEVELS: LocalFibLevel[] = [
-    { ratio: 0,     label: "0",     color: "#c9d1d9", lineWidth: 1 },
-    { ratio: 0.236, label: "0.236", color: "#6e7681", lineWidth: 1 },
-    { ratio: 0.382, label: "0.382", color: "#79c0ff", lineWidth: 1 },
-    { ratio: 0.5,   label: "0.5",   color: "#F59E0B", lineWidth: 1 },
-    { ratio: 0.618, label: "0.618", color: "#F59E0B", lineWidth: 2 },
-    { ratio: 0.786, label: "0.786", color: "#79c0ff", lineWidth: 1 },
-    { ratio: 1,     label: "1",     color: "#c9d1d9", lineWidth: 1 },
+    { ratio: 0,     label: "0",     color: "#484f58", lineWidth: 1 },
+    { ratio: 0.382, label: "0.382", color: "#56d364", lineWidth: 1 },
+    { ratio: 0.5,   label: "0.5",   color: "#e3b341", lineWidth: 1 },
+    { ratio: 0.618, label: "0.618", color: "#f0883e", lineWidth: 2 },
+    { ratio: 0.786, label: "0.786", color: "#ff7b72", lineWidth: 1 },
+    { ratio: 1,     label: "1",     color: "#484f58", lineWidth: 1 },
   ];
 
   interface FibResult {
@@ -213,32 +214,60 @@
     const intervalMs = last.open_time - prev.open_time;
     const swingTimeSec = Math.min(swingHighTime, swingLowTime) / 1000;
     const endTimeSec = (last.open_time + 200 * intervalMs) / 1000;
+    // Orient from most recent swing: 0.0 at recent end, 1.0 at prior start
+    const upMove = swingHighTime > swingLowTime;
 
     return FIB_LEVELS.map((level) => ({
-      price: swingHigh! - level.ratio * range,
+      price: upMove
+        ? swingHigh! - level.ratio * range
+        : swingLow! + level.ratio * range,
       level,
       swingTimeSec,
       endTimeSec,
     }));
   }
 
+  function updateFibLabelPositions(): void {
+    if (!chart || !candleSeries || fibLabelPrices.length === 0) return;
+    const labels = fibLabelContainer?.querySelectorAll<HTMLSpanElement>(".fib-label");
+    if (!labels) return;
+    const overlayWidth = fibLabelContainer.clientWidth;
+    labels.forEach((el, i) => {
+      const y = candleSeries.priceToCoordinate(fibLabelPrices[i]);
+      if (y === null) { el.style.display = "none"; return; }
+      const rawX = chart.timeScale().timeToCoordinate(fibLabelEndTimes[i] as Time);
+      const x = rawX !== null ? Math.min(rawX, overlayWidth - 4) : overlayWidth - 4;
+      el.style.display = "block";
+      el.style.top = `${y - 8}px`;
+      el.style.left = `${x - el.offsetWidth - 4}px`;
+    });
+  }
+
   function drawFibLines(): void {
     clearFibLines();
     if (!chart || candles.length < 4) return;
 
-    // Prefer backend-computed levels when available; fall back to client-side.
+    const last = candles[candles.length - 1];
+    const prev = candles[candles.length - 2];
+    const intervalMs = last.open_time - prev.open_time;
+    const endTimeSec = (last.open_time + 200 * intervalMs) / 1000;
+
+    // Prefer backend-computed levels (includes swing_start_ms); fall back to client-side.
     const backendLevels = fibLevels;
     const computed = backendLevels
       ? (() => {
-          if (candles.length < 2) return [];
-          const last = candles[candles.length - 1];
-          const prev = candles[candles.length - 2];
-          const intervalMs = last.open_time - prev.open_time;
-          const swingTimeSec = (candles[0].open_time) / 1000;
-          const endTimeSec = (last.open_time + 200 * intervalMs) / 1000;
-          return backendLevels.map((bl) => {
-            const color = bl.golden ? "#F59E0B" : (bl.label === "0.0" || bl.label === "1.0" ? "#c9d1d9" : "#79c0ff");
-            const lineWidth: 1 | 2 = bl.golden && bl.label === "0.618" ? 2 : 1;
+          const swingTimeSec = backendLevels.swing_start_ms / 1000;
+          const FIB_COLOR: Record<string, string> = {
+            "0.0":   "#484f58",
+            "0.382": "#56d364",
+            "0.5":   "#e3b341",
+            "0.618": "#f0883e",
+            "0.786": "#ff7b72",
+            "1.0":   "#484f58",
+          };
+          return backendLevels.levels.map((bl) => {
+            const color = FIB_COLOR[bl.label] ?? "#6e7681";
+            const lineWidth: 1 | 2 = bl.label === "0.618" ? 2 : 1;
             return { price: bl.price, color, lineWidth, label: bl.label, swingTimeSec, endTimeSec };
           });
         })()
@@ -246,23 +275,36 @@
           price, color: level.color, lineWidth: level.lineWidth as 1 | 2, label: level.label, swingTimeSec, endTimeSec,
         }));
 
+    fibLabelPrices = [];
+    fibLabelEndTimes = [];
     for (const { price, color, lineWidth, label, swingTimeSec, endTimeSec } of computed) {
       const series = chart.addLineSeries({
         color,
         lineWidth,
         priceScaleId: "right",
-        lastValueVisible: true,
+        lastValueVisible: false,
         priceLineVisible: false,
         crosshairMarkerVisible: false,
-        title: label,
+        title: "",
       });
-      const lineData: LineData[] = [
+      series.setData([
         { time: swingTimeSec as Time, value: price },
         { time: endTimeSec as Time,   value: price },
-      ];
-      series.setData(lineData);
+      ]);
       fibSeries.push(series);
+      fibLabelPrices.push(price);
+      fibLabelEndTimes.push(endTimeSec);
+
+      // HTML label at right end of line
+      const el = document.createElement("span");
+      el.className = "fib-label";
+      el.textContent = label;
+      el.style.color = color;
+      fibLabelContainer.appendChild(el);
     }
+    // Defer so chart has finished layout before we call priceToCoordinate
+    requestAnimationFrame(updateFibLabelPositions);
+    chart.timeScale().subscribeVisibleLogicalRangeChange(updateFibLabelPositions);
   }
 
   function clearFibLines(): void {
@@ -270,6 +312,10 @@
       try { chart.removeSeries(s); } catch { /* already removed */ }
     }
     fibSeries = [];
+    fibLabelPrices = [];
+    fibLabelEndTimes = [];
+    fibLabelContainer?.replaceChildren();
+    chart?.timeScale().unsubscribeVisibleLogicalRangeChange(updateFibLabelPositions);
   }
 
   // ── Chart init ───────────────────────────────────────────────────────────────
@@ -605,12 +651,35 @@
 
 <div class="chart-wrap">
   <div bind:this={container} class="chart-container"></div>
+  <div bind:this={fibLabelContainer} class="fib-label-overlay"></div>
   <img src="/buibui-logo.svg" alt="buibui" class="chart-logo" />
 </div>
 
 <style>
   .chart-wrap { position: relative; width: 100%; }
   .chart-container { width: 100%; }
+
+  .fib-label-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: calc(100% - 70px); /* stop before price axis */
+    height: 100%;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 5;
+  }
+
+  :global(.fib-label) {
+    position: absolute;
+    font-size: 9px;
+    font-family: monospace;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    background: rgba(13, 17, 23, 0.72);
+    padding: 1px 4px;
+    border-radius: 2px;
+  }
   .chart-logo {
     position: absolute;
     bottom: 10px;

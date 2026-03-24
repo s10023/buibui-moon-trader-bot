@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getOhlcv, getSignals, getFib, type CandleRow, type FibLevel, type FundingRow, type OiRow, type SignalRow } from "../api";
+  import { getOhlcv, getSignals, getFib, type CandleRow, type FibResponse, type FundingRow, type OiRow, type SignalRow } from "../api";
   import { symbols } from "../stores/config";
   import { strategyNames } from "../stores/strategies";
   import { selectedSymbol, selectSymbol } from "../stores/watchlist";
@@ -63,7 +63,7 @@
   let signals = $state<SignalRow[]>([]);
   let funding = $state<FundingRow[] | null>(null);
   let oi = $state<OiRow[] | null>(null);
-  let fibLevels = $state<FibLevel[] | null>(null);
+  let fibLevels = $state<FibResponse | null>(null);
   let loading = $state(false);
   let error = $state<string | null>(null);
   let loaded = $state(false);
@@ -102,7 +102,7 @@
       signals = sigResp.signals;
       funding = ohlcvResp.funding;
       oi = ohlcvResp.oi;
-      fibLevels = fibResp ? fibResp.levels : null;
+      fibLevels = fibResp ?? null;
       loaded = true;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -192,7 +192,7 @@
               class:active={candlestickExpanded}
               onclick={() => { candlestickExpanded = !candlestickExpanded; }}
               title="Candlestick patterns"
-            >Candlestick {candlestickExpanded ? "▾" : "▸"}</button>
+            >Candles {candlestickExpanded ? "▾" : "▸"}</button>
           {/if}
         </div>
         {#if candlestickExpanded && candlestickNames.length > 0}
@@ -368,12 +368,17 @@
     color: var(--accent);
   }
 
-  .group-toggle { border-style: dashed; }
+  .group-toggle {
+    opacity: 0.7;
+    letter-spacing: 0.04em;
+  }
+
+  .group-toggle.active { opacity: 1; }
 
   .pill-group-inner {
     margin-top: 4px;
-    padding-left: 8px;
-    border-left: 2px solid var(--border-dim);
+    padding-left: 10px;
+    border-left: 1px solid var(--border-dim);
   }
 
   .chart-frame {
