@@ -21,6 +21,7 @@ from analytics.backtest_lib import BacktestResult, run_backtest
 from analytics.data_store import (
     get_funding_rates,
     get_ohlcv,
+    upsert_backtest_run,
     upsert_signal_outcome,
     upsert_signals,
 )
@@ -548,5 +549,35 @@ def run_scan_cycle(
                         send_telegram_message(msg)
                     except Exception:
                         logger.exception("Telegram send failed for %s", symbol)
+
+    # Persist bt_cache results to backtest_runs so win-rate data accumulates
+    # passively over time. Only runs if the backtest filter is active and
+    # save_results is enabled (default True). Covers only combos that fired a
+    # signal this cycle — for a full-sweep snapshot use `buibui backtest --save`.
+    if backtest_cfg and backtest_cfg.save_results and bt_cache:
+        for (sym, tf, strategy), bt_result in bt_cache.items():
+            if bt_result is None:
+                continue
+            secondary_symbol = (
+                (secondary_map or {}).get(sym) if strategy == "smt_divergence" else None
+            )
+            try:
+                upsert_backtest_run(
+                    conn,
+                    bt_result,
+                    days=backtest_cfg.days,
+                    data_start_ms=start_ms,
+                    data_end_ms=now_ms,
+                    sl_pct=sl_pct,
+                    tp_r=tp_r,
+                    fee_pct=0.0,
+                    day_filter=False,
+                    smt_trend_filter=smt_trend_filter,
+                    secondary_symbol=secondary_symbol,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to persist backtest run for %s %s %s", sym, tf, strategy
+                )
 
     return alerts

@@ -78,3 +78,4 @@ mode = "hard"
 days = 200
 min_trades = 20
 filter_threshold = 0.3
+# save_results = true   # persist computed backtest results to backtest_runs table (default: true)

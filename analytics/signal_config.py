@@ -24,6 +24,8 @@ class BacktestFilterConfig:
     min_trades: int = 20
     # hard mode only: suppress if win_rate < this
     filter_threshold: float = 0.45
+    # Persist computed backtest results to backtest_runs table (default on)
+    save_results: bool = True
 
 
 @dataclass
@@ -83,6 +85,7 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         days=int(raw_bt.get("days", 90)),
         min_trades=int(raw_bt.get("min_trades", 20)),
         filter_threshold=float(raw_bt.get("filter_threshold", 0.45)),
+        save_results=bool(raw_bt.get("save_results", True)),
     )
 
     return SignalWatchConfig(
