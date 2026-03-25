@@ -17,10 +17,11 @@ from collections.abc import Mapping
 import duckdb
 import pandas as pd
 
-from analytics.backtest_lib import BacktestResult, run_backtest
+from analytics.backtest_lib import BacktestResult, filter_signals_by_day, run_backtest
 from analytics.data_store import (
     get_funding_rates,
     get_ohlcv,
+    upsert_backtest_run,
     upsert_signal_outcome,
     upsert_signals,
 )
@@ -66,6 +67,8 @@ def _compute_backtest(
     timeframe: str,
     sl_pct: float,
     tp_r: float,
+    fee_pct: float = 0.0,
+    day_filter: bool = False,
 ) -> BacktestResult | None:
     """Run strategy detector on ohlcv[:-1] and backtest the resulting signals.
 
@@ -98,8 +101,18 @@ def _compute_backtest(
         )
         return None
 
+    if day_filter:
+        signals_df = filter_signals_by_day(signals_df)
+
     return run_backtest(
-        hist_df, signals_df, symbol, timeframe, strategy, sl_pct=sl_pct, tp_r=tp_r
+        hist_df,
+        signals_df,
+        symbol,
+        timeframe,
+        strategy,
+        sl_pct=sl_pct,
+        tp_r=tp_r,
+        fee_pct=fee_pct,
     )
 
 
@@ -415,9 +428,8 @@ def run_scan_cycle(
                 continue
 
             # Backtest filter — runs per strategy, caches results within the cycle
-            backtest_summary: str | None = None
+            bt_results: dict[str, BacktestResult | None] = {}
             if backtest_cfg and backtest_cfg.mode != "off":
-                bt_results: dict[str, BacktestResult | None] = {}
                 for event in passing_events:
                     bt_key = (symbol, tf, event.strategy)
                     if bt_key not in bt_cache:
@@ -430,6 +442,8 @@ def run_scan_cycle(
                             timeframe=tf,
                             sl_pct=sl_pct,
                             tp_r=tp_r,
+                            fee_pct=backtest_cfg.fee_pct,
+                            day_filter=day_filter,
                         )
                     bt_results[event.strategy] = bt_cache[bt_key]
 
@@ -448,12 +462,6 @@ def run_scan_cycle(
                     if not passing_events:
                         logger.info("Backtest hard filter suppressed %s %s", symbol, tf)
                         continue
-
-                backtest_summary = _backtest_summary(
-                    bt_results,
-                    [e.strategy for e in passing_events],
-                    backtest_cfg,
-                )
 
             for event in passing_events:
                 store.record_alert(
@@ -525,13 +533,23 @@ def run_scan_cycle(
             )
             for direction in directions_present:
                 dir_events = [e for e in passing_events if e.direction == direction]
+                # Scope backtest summary to this direction's strategies only.
+                # Avoids showing SHORT strategy stats on a LONG alert (and vice versa)
+                # in tied-conflict scenarios where both directions pass.
+                dir_summary: str | None = None
+                if backtest_cfg and backtest_cfg.mode != "off" and bt_results:
+                    dir_summary = _backtest_summary(
+                        bt_results,
+                        [e.strategy for e in dir_events],
+                        backtest_cfg,
+                    )
                 # Stack all passing strategies into one confluence alert
                 msg = format_confluence_alert(
                     dir_events,
                     sl_pct=sl_pct,
                     tp_r=tp_r,
                     min_sl_pct=min_sl_pct,
-                    backtest_summary=backtest_summary,
+                    backtest_summary=dir_summary,
                 )
                 alerts.append(msg)
                 logger.info(
@@ -548,5 +566,35 @@ def run_scan_cycle(
                         send_telegram_message(msg)
                     except Exception:
                         logger.exception("Telegram send failed for %s", symbol)
+
+    # Persist bt_cache results to backtest_runs so win-rate data accumulates
+    # passively over time. Only runs if the backtest filter is active and
+    # save_results is enabled (default True). Covers only combos that fired a
+    # signal this cycle — for a full-sweep snapshot use `buibui backtest --save`.
+    if backtest_cfg and backtest_cfg.save_results and bt_cache:
+        for (sym, tf, strategy), bt_result in bt_cache.items():
+            if bt_result is None:
+                continue
+            secondary_symbol = (
+                (secondary_map or {}).get(sym) if strategy == "smt_divergence" else None
+            )
+            try:
+                upsert_backtest_run(
+                    conn,
+                    bt_result,
+                    days=backtest_cfg.days,
+                    data_start_ms=start_ms,
+                    data_end_ms=now_ms,
+                    sl_pct=sl_pct,
+                    tp_r=tp_r,
+                    fee_pct=backtest_cfg.fee_pct,
+                    day_filter=day_filter,
+                    smt_trend_filter=smt_trend_filter,
+                    secondary_symbol=secondary_symbol,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to persist backtest run for %s %s %s", sym, tf, strategy
+                )
 
     return alerts

@@ -3,6 +3,7 @@ SYMBOL ?= BTCUSDT
 STRATEGY ?= fvg
 INTERVAL ?= 4h
 DAYS ?= 90
+SAVE ?=
 # Makefile — Lint Markdown and Python
 
 PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*" -not -path "./.venv/*")
@@ -107,7 +108,8 @@ docker-backtest:
 		--days $(DAYS) \
 		$(if $(SL_PCT),--sl-pct $(SL_PCT),) \
 		$(if $(TP_R),--tp-r $(TP_R),) \
-		$(if $(SECONDARY),--secondary-symbol $(SECONDARY),)
+		$(if $(SECONDARY),--secondary-symbol $(SECONDARY),) \
+		$(if $(SAVE),--save,)
 
 buibui-monitor-price:
 	@echo "📈 Running price monitor..."
@@ -159,7 +161,8 @@ buibui-backtest:
 		$(if $(SL_PCT),--sl-pct $(SL_PCT),) \
 		$(if $(TP_R),--tp-r $(TP_R),) \
 		$(if $(MIN_TRADES),--min-trades $(MIN_TRADES),) \
-		$(if $(SECONDARY),--secondary-symbol $(SECONDARY),)
+		$(if $(SECONDARY),--secondary-symbol $(SECONDARY),) \
+		$(if $(SAVE),--save,)
 
 buibui-signal-watch:
 	@echo "🔍 Running signal detection daemon..."

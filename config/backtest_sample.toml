@@ -9,6 +9,7 @@ sl_pct     = 0.02
 tp_r       = 2.0
 fee_pct    = 0.0005   # 0.05% taker fee; set 0.0 to disable
 min_trades = 20
+# save_results = true   # persist results to backtest_runs table in analytics.db
 
 [smt_pairs]
 BTCUSDT = "ETHUSDT"

@@ -57,7 +57,7 @@ buibui-moon-trader-bot/
 │   ├── backtest_runner.py           # Backtest thin wrapper (opens DB, loads data, calls libs)
 │   ├── backtest_lib.py              # Pure backtest engine: Trade, BacktestResult, run_backtest
 │   ├── data_fetcher.py              # Pure Binance Futures API → DataFrames (klines, funding, OI)
-│   ├── data_store.py                # Pure DuckDB read/write (schema, upsert, query helpers)
+│   ├── data_store.py                # Pure DuckDB read/write (schema, upsert, query helpers); tables: ohlcv, funding_rates, open_interest, signals, signal_alert_outcomes, backtest_runs, backtest_trades
 │   ├── data_sync.py                 # Backfill + incremental sync orchestration
 │   ├── indicators_lib.py            # Pure strategy signal detection (21 active strategies + STRATEGY_REGISTRY + DETECTOR_REGISTRY)
 │   ├── signal_config.py             # Pure config loader: SignalWatchConfig + load_signal_config()
@@ -383,6 +383,9 @@ poetry run python buibui.py backtest --symbols BTCUSDT ETHUSDT --timeframes 1h 4
 - `--days 90` — lookback period in days (default: `90`)
 - `--sl-pct 0.02` — stop loss as decimal fraction (default: `0.02` = 2%)
 - `--tp-r 2.0` — take profit in R multiples (default: `2.0`)
+- `--fee-pct 0.0005` — taker fee per leg (default: `0.0`; use `0.0005` for 0.05% Binance taker)
+- `--day-filter` — suppress Monday and Friday signals before backtesting (ICT weekly cycle)
+- `--save` — persist results to `backtest_runs` and `backtest_trades` tables in `analytics.db`
 
 **Single-combo example output:**
 
@@ -474,15 +477,20 @@ The `[backtest]` table in `config/signal_watch.toml` controls a per-alert win ra
 ```toml
 [backtest]
 mode = "hard"           # "soft": append win rate | "hard": suppress low performers | "off"
-days = 160              # lookback window
+days = 200              # lookback window
 min_trades = 20         # bypass filter if fewer than this many historical trades
 filter_threshold = 0.3  # hard mode: suppress alert if win_rate < this
+fee_pct = 0.0005        # taker fee applied to inline backtest (falls back to top-level fee_pct)
 
 [smt_pairs]
 BTCUSDT = "ETHUSDT"     # primary → secondary for smt_divergence strategy
 ETHUSDT = "BTCUSDT"
 SOLUSDT = "ETHUSDT"
 ```
+
+The inline backtest (computed each scan cycle per firing signal) respects all config values:
+`fee_pct`, `day_filter`, `sl_pct`, and `cooldown_seconds` are now all read from TOML and
+applied correctly — results stored in `backtest_runs` match what the live filter uses.
 
 **Example alert (Telegram, soft mode):**
 
@@ -620,10 +628,59 @@ make buibui-backtest                                          # BTCUSDT fvg 4h 9
 make buibui-backtest SYMBOL=ETHUSDT STRATEGY=bos             # Override symbol and strategy
 make buibui-backtest SYMBOL=BTCUSDT STRATEGY=smt_divergence SECONDARY=ETHUSDT
 make buibui-backtest SYMBOL=BTCUSDT STRATEGY=fvg INTERVAL=1h DAYS=30 SL_PCT=0.015 TP_R=3.0
+make buibui-backtest CONFIG=config/signal_watch.toml SAVE=1  # Full sweep + persist to DB
+make buibui-backtest SYMBOL=BTCUSDT STRATEGY=bos SAVE=1      # Single-combo + persist to DB
 ```
 
 Defaults: `SYMBOL=BTCUSDT`, `STRATEGY=fvg`, `INTERVAL=4h`, `DAYS=90`.
-Optional overrides: `SL_PCT`, `TP_R`, `SECONDARY` (required for `smt_divergence`).
+Optional overrides: `SL_PCT`, `TP_R`, `FEE_PCT`, `SECONDARY` (required for `smt_divergence`), `SAVE=1` (persist to DB).
+
+To populate both `day_filter` variants for complete coverage:
+
+```bash
+# day_filter = false
+poetry run python buibui.py backtest --config config/signal_watch.toml --save
+
+# day_filter = true
+poetry run python buibui.py backtest --config config/signal_watch.toml --day-filter --save
+```
+
+**Persisting results for confidence score recalibration:**
+
+Add `--save` (or `SAVE=1` via make) to store aggregate results in `analytics.db`:
+
+```text
+backtest_runs        — one row per (symbol, tf, strategy, param combo):
+                       win_rate, avg_r, total_r, max_drawdown_r, all params used
+backtest_trades      — one row per simulated trade, linked to backtest_runs
+signal_alert_outcomes — live forward-test outcomes (renamed from signal_outcomes)
+```
+
+Re-running with the same params replaces existing rows (deterministic `run_id` hash),
+so you can re-run sweeps freely without accumulating duplicates.
+
+**Query win rate per strategy** (foundation for confidence score recalibration):
+
+```python
+import duckdb
+from analytics.data_store import get_win_rate_by_strategy
+
+conn = duckdb.connect("analytics.db", read_only=True)
+print(get_win_rate_by_strategy(conn))
+# strategy  total_closed  total_wins  win_rate_pct  mean_avg_r  combos_run
+# fvg              312         198          63.5       +0.42         8
+# bos              287         168          58.5       +0.31         8
+# ...
+```
+
+Only includes combos with ≥ 20 closed trades. Use this to compare against the
+current editorial star ratings in `SIGNAL_REGISTRY` and adjust `confidence` values.
+
+**TOML opt-in** — add to `config/signal_watch.toml` or `config/backtest_sample.toml`:
+
+```toml
+save_results = true
+```
 
 **Web frontend:**
 

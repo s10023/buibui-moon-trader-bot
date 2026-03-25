@@ -58,6 +58,10 @@ def run_backtest(args: argparse.Namespace) -> None:
             cfg.fee_pct = args.fee_pct
         if args.min_trades is not None:
             cfg.min_trades = args.min_trades
+        if args.day_filter:
+            cfg.day_filter = True
+        if args.save:
+            cfg.save_results = True
         backtest_runner.run_backtest_sweep(cfg)
         return
 
@@ -75,6 +79,7 @@ def run_backtest(args: argparse.Namespace) -> None:
         tp_r=args.tp_r,
         fee_pct=args.fee_pct,
         secondary_symbol=args.secondary_symbol,
+        save_results=args.save,
     )
 
 
@@ -124,7 +129,9 @@ def run_signal_watch(args: argparse.Namespace) -> None:
         timeframes=timeframes,
         strategies=strategies,
         tp_r=tp_r,
+        sl_pct=cfg.sl_pct,
         min_sl_pct=min_sl_pct,
+        cooldown_seconds=cfg.cooldown_seconds,
         send_telegram=telegram,
         state_file=state_file,
         secondary_symbol=args.secondary_symbol,
@@ -406,6 +413,19 @@ def main() -> None:
         default=0.0,
         dest="fee_pct",
         help="Taker fee as a decimal fraction applied on entry+exit (default: 0.0; e.g. 0.0005 for 0.05%%)",
+    )
+    backtest_parser.add_argument(
+        "--day-filter",
+        action="store_true",
+        default=False,
+        dest="day_filter",
+        help="Suppress Monday and Friday signals (ICT weekly cycle) before backtesting",
+    )
+    backtest_parser.add_argument(
+        "--save",
+        action="store_true",
+        default=False,
+        help="Persist aggregate results to backtest_runs table in DB",
     )
     backtest_parser.add_argument(
         "--min-trades",

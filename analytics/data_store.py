@@ -4,6 +4,8 @@ All functions accept an open DuckDB connection as a parameter.
 No module-level side effects.
 """
 
+import hashlib
+import time
 from pathlib import Path
 from typing import Any
 
@@ -69,8 +71,15 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
             PRIMARY KEY (symbol, timeframe, strategy, open_time, direction)
         )
     """)
+    # Migration: rename legacy signal_outcomes → signal_alert_outcomes.
+    existing_tables = {r[0] for r in conn.execute("SHOW TABLES").fetchall()}
+    if (
+        "signal_outcomes" in existing_tables
+        and "signal_alert_outcomes" not in existing_tables
+    ):
+        conn.execute("ALTER TABLE signal_outcomes RENAME TO signal_alert_outcomes")
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS signal_outcomes (
+        CREATE TABLE IF NOT EXISTS signal_alert_outcomes (
             signal_id              TEXT   PRIMARY KEY,
             symbol                 TEXT   NOT NULL,
             tf                     TEXT   NOT NULL,
@@ -87,6 +96,52 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
             outcome                TEXT,
             outcome_r              DOUBLE,
             outcome_filled_at_ms   BIGINT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS backtest_runs (
+            run_id               TEXT    PRIMARY KEY,
+            symbol               TEXT    NOT NULL,
+            timeframe            TEXT    NOT NULL,
+            strategy             TEXT    NOT NULL,
+            data_start_ms        BIGINT  NOT NULL,
+            data_end_ms          BIGINT  NOT NULL,
+            days                 INTEGER NOT NULL,
+            sl_pct               DOUBLE  NOT NULL,
+            tp_r                 DOUBLE  NOT NULL,
+            fee_pct              DOUBLE  NOT NULL,
+            day_filter           BOOLEAN NOT NULL,
+            smt_trend_filter     INTEGER NOT NULL,
+            secondary_symbol     TEXT,
+            total_signals        INTEGER NOT NULL,
+            closed_trades        INTEGER NOT NULL,
+            win_count            INTEGER NOT NULL,
+            loss_count           INTEGER NOT NULL,
+            win_rate             DOUBLE  NOT NULL,
+            avg_r                DOUBLE  NOT NULL,
+            total_r              DOUBLE  NOT NULL,
+            max_drawdown_r       DOUBLE  NOT NULL,
+            run_at_ms            BIGINT  NOT NULL,
+            sweep_id             TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS backtest_trades (
+            trade_id        TEXT    PRIMARY KEY,
+            run_id          TEXT    NOT NULL,
+            symbol          TEXT    NOT NULL,
+            timeframe       TEXT    NOT NULL,
+            strategy        TEXT    NOT NULL,
+            direction       TEXT    NOT NULL,
+            signal_time     BIGINT  NOT NULL,
+            entry_time      BIGINT  NOT NULL,
+            entry_price     DOUBLE  NOT NULL,
+            sl_price        DOUBLE  NOT NULL,
+            tp_price        DOUBLE  NOT NULL,
+            exit_time       BIGINT,
+            exit_price      DOUBLE,
+            outcome         TEXT    NOT NULL,
+            pnl_r           DOUBLE
         )
     """)
 
@@ -274,7 +329,7 @@ def upsert_signal_outcome(conn: duckdb.DuckDBPyConnection, row: dict[str, Any]) 
     conn.register("_outcome_upsert_df", df)
     try:
         conn.execute(
-            "INSERT OR REPLACE INTO signal_outcomes "
+            "INSERT OR REPLACE INTO signal_alert_outcomes "
             "SELECT signal_id, symbol, tf, strategy, direction, fired_at_ms, "
             "candle_ts_ms, entry_price, sl_price, tp_price, rr_ratio, "
             "confidence_at_fire, tags, outcome, outcome_r, outcome_filled_at_ms "
@@ -282,6 +337,162 @@ def upsert_signal_outcome(conn: duckdb.DuckDBPyConnection, row: dict[str, Any]) 
         )
     finally:
         conn.unregister("_outcome_upsert_df")
+
+
+def _backtest_run_id(
+    symbol: str,
+    timeframe: str,
+    strategy: str,
+    days: int,
+    sl_pct: float,
+    tp_r: float,
+    fee_pct: float,
+    day_filter: bool,
+    smt_trend_filter: int,
+    secondary_symbol: str | None,
+) -> str:
+    """Return a deterministic 16-char hex ID for a backtest param combination."""
+    key = f"{symbol}|{timeframe}|{strategy}|{days}|{sl_pct}|{tp_r}|{fee_pct}|{day_filter}|{smt_trend_filter}|{secondary_symbol}"
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+
+def upsert_backtest_run(
+    conn: duckdb.DuckDBPyConnection,
+    result: Any,
+    days: int,
+    data_start_ms: int,
+    data_end_ms: int,
+    sl_pct: float,
+    tp_r: float,
+    fee_pct: float,
+    day_filter: bool,
+    smt_trend_filter: int,
+    secondary_symbol: str | None = None,
+    sweep_id: str | None = None,
+) -> str:
+    """Insert or replace a backtest aggregate result row.
+
+    result must be a BacktestResult instance.
+    Returns the run_id so the caller can link backtest_trades rows.
+    """
+    run_id = _backtest_run_id(
+        result.symbol,
+        result.timeframe,
+        result.strategy,
+        days,
+        sl_pct,
+        tp_r,
+        fee_pct,
+        day_filter,
+        smt_trend_filter,
+        secondary_symbol,
+    )
+    row: dict[str, Any] = {
+        "run_id": run_id,
+        "symbol": result.symbol,
+        "timeframe": result.timeframe,
+        "strategy": result.strategy,
+        "data_start_ms": data_start_ms,
+        "data_end_ms": data_end_ms,
+        "days": days,
+        "sl_pct": sl_pct,
+        "tp_r": tp_r,
+        "fee_pct": fee_pct,
+        "day_filter": day_filter,
+        "smt_trend_filter": smt_trend_filter,
+        "secondary_symbol": secondary_symbol,
+        "total_signals": len(result.trades),
+        "closed_trades": len(result.closed_trades),
+        "win_count": result.win_count,
+        "loss_count": result.loss_count,
+        "win_rate": result.win_rate,
+        "avg_r": result.avg_r,
+        "total_r": result.total_r,
+        "max_drawdown_r": result.max_drawdown_r,
+        "run_at_ms": int(time.time() * 1000),
+        "sweep_id": sweep_id,
+    }
+    df = pd.DataFrame([row])
+    conn.register("_bt_run_upsert_df", df)
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO backtest_runs SELECT "
+            "run_id, symbol, timeframe, strategy, data_start_ms, data_end_ms, "
+            "days, sl_pct, tp_r, fee_pct, day_filter, smt_trend_filter, "
+            "secondary_symbol, total_signals, closed_trades, win_count, loss_count, "
+            "win_rate, avg_r, total_r, max_drawdown_r, run_at_ms, sweep_id "
+            "FROM _bt_run_upsert_df"
+        )
+    finally:
+        conn.unregister("_bt_run_upsert_df")
+    return run_id
+
+
+def upsert_backtest_trades(
+    conn: duckdb.DuckDBPyConnection,
+    result: Any,
+    run_id: str,
+) -> None:
+    """Insert or replace per-trade rows for a backtest run.
+
+    result must be a BacktestResult instance.
+    Skips if result.trades is empty.
+    """
+    if not result.trades:
+        return
+    rows = [
+        {
+            "trade_id": f"{run_id}:{t.signal_time}",
+            "run_id": run_id,
+            "symbol": result.symbol,
+            "timeframe": result.timeframe,
+            "strategy": result.strategy,
+            "direction": t.direction,
+            "signal_time": t.signal_time,
+            "entry_time": t.entry_time,
+            "entry_price": t.entry_price,
+            "sl_price": t.sl_price,
+            "tp_price": t.tp_price,
+            "exit_time": t.exit_time,
+            "exit_price": t.exit_price,
+            "outcome": t.outcome,
+            "pnl_r": t.pnl_r,
+        }
+        for t in result.trades
+    ]
+    df = pd.DataFrame(rows)
+    conn.register("_bt_trades_upsert_df", df)
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO backtest_trades SELECT "
+            "trade_id, run_id, symbol, timeframe, strategy, direction, "
+            "signal_time, entry_time, entry_price, sl_price, tp_price, "
+            "exit_time, exit_price, outcome, pnl_r "
+            "FROM _bt_trades_upsert_df"
+        )
+    finally:
+        conn.unregister("_bt_trades_upsert_df")
+
+
+def get_win_rate_by_strategy(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
+    """Return win rate aggregated per strategy across all saved backtest runs.
+
+    Only includes combos with at least 20 closed trades (same gate as sweep table).
+    Ordered by win_rate_pct descending.
+    """
+    return conn.execute("""
+        SELECT
+            strategy,
+            SUM(closed_trades)                                                  AS total_closed,
+            SUM(win_count)                                                      AS total_wins,
+            ROUND(SUM(win_count) * 100.0 / NULLIF(SUM(closed_trades), 0), 1)   AS win_rate_pct,
+            ROUND(AVG(avg_r), 3)                                                AS mean_avg_r,
+            COUNT(*)                                                            AS combos_run
+        FROM backtest_runs
+        WHERE closed_trades >= 20
+        GROUP BY strategy
+        ORDER BY win_rate_pct DESC
+    """).df()
 
 
 def get_latest_open_time(

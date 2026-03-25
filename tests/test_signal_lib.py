@@ -1543,7 +1543,7 @@ class TestConflictResolution:
 
 
 class TestSignalOutcomePersistence:
-    """A4 P1 — verify run_scan_cycle writes a row to signal_outcomes for each fired signal."""
+    """A4 P1 — verify run_scan_cycle writes a row to signal_alert_outcomes for each fired signal."""
 
     _OPEN_TIME_MS = 1704240000000  # Wednesday 2024-01-03 00:00:00 UTC
 
@@ -1633,7 +1633,7 @@ class TestSignalOutcomePersistence:
                 store=store,
             )
 
-        rows = conn.execute("SELECT * FROM signal_outcomes").fetchall()
+        rows = conn.execute("SELECT * FROM signal_alert_outcomes").fetchall()
         assert len(rows) == 1
 
     def test_outcome_row_has_correct_fields(self, tmp_path: Any) -> None:
@@ -1672,7 +1672,7 @@ class TestSignalOutcomePersistence:
 
         row = conn.execute(
             "SELECT signal_id, symbol, tf, strategy, direction, candle_ts_ms, "
-            "sl_price, confidence_at_fire, outcome FROM signal_outcomes"
+            "sl_price, confidence_at_fire, outcome FROM signal_alert_outcomes"
         ).fetchone()
         assert row is not None
         assert row[0] == f"BTCUSDT-4h-fvg-{self._OPEN_TIME_MS}-long"
@@ -1684,3 +1684,163 @@ class TestSignalOutcomePersistence:
         assert row[6] == 98.0
         assert row[7] == 3
         assert row[8] is None  # outcome not yet resolved
+
+
+class TestBacktestRunPersistence:
+    """Verify run_scan_cycle writes to backtest_runs when backtest_cfg.save_results=True."""
+
+    _OPEN_TIME_MS = 1704240000000  # Wednesday 2024-01-03 00:00:00 UTC
+
+    def _make_ohlcv(self) -> pd.DataFrame:
+        t = self._OPEN_TIME_MS
+        # Signal fires on t (last closed candle); t+1000 is the open/forming candle.
+        return pd.DataFrame(
+            [
+                {
+                    "open_time": t - 2000,
+                    "open": 100.0,
+                    "high": 105.0,
+                    "low": 98.0,
+                    "close": 102.0,
+                    "volume": 1.0,
+                },
+                {
+                    "open_time": t - 1000,
+                    "open": 102.0,
+                    "high": 106.0,
+                    "low": 100.0,
+                    "close": 103.0,
+                    "volume": 1.0,
+                },
+                {
+                    "open_time": t,
+                    "open": 103.0,
+                    "high": 107.0,
+                    "low": 101.0,
+                    "close": 104.0,
+                    "volume": 1.0,
+                },
+                {
+                    "open_time": t + 1000,
+                    "open": 104.0,
+                    "high": 104.5,
+                    "low": 103.5,
+                    "close": 104.0,
+                    "volume": 0.1,
+                },
+            ]
+        )
+
+    def _make_signals_df(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            [
+                {
+                    "open_time": self._OPEN_TIME_MS,
+                    "direction": "long",
+                    "reason": "test",
+                    "sl_price": 98.0,
+                    "context": "",
+                }
+            ]
+        )
+
+    def _run(self, tmp_path: Any, save_results: bool) -> duckdb.DuckDBPyConnection:
+        from analytics.signal_config import BacktestFilterConfig
+
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        store = CooldownStore(str(tmp_path / "state.json"))
+        signals_df = self._make_signals_df()
+        bt_cfg = BacktestFilterConfig(mode="soft", days=90, save_results=save_results)
+
+        with (
+            patch("analytics.signal_lib.get_ohlcv", return_value=self._make_ohlcv()),
+            patch(
+                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+            ),
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {"fvg": {"detector": lambda df: signals_df, "confidence": 3}},
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                {
+                    "fvg": type(
+                        "S",
+                        (),
+                        {"requires_funding": False, "requires_secondary": False},
+                    )()
+                },
+            ),
+        ):
+            run_scan_cycle(
+                conn=conn,
+                symbols=["BTCUSDT"],
+                timeframes=["4h"],
+                strategies=["fvg"],
+                store=store,
+                backtest_cfg=bt_cfg,
+            )
+        return conn
+
+    def test_writes_backtest_run_row_when_save_results_true(
+        self, tmp_path: Any
+    ) -> None:
+        conn = self._run(tmp_path, save_results=True)
+        count = conn.execute("SELECT COUNT(*) FROM backtest_runs").fetchone()
+        assert count is not None
+        assert count[0] == 1
+
+    def test_backtest_run_row_has_correct_strategy(self, tmp_path: Any) -> None:
+        conn = self._run(tmp_path, save_results=True)
+        row = conn.execute(
+            "SELECT symbol, timeframe, strategy FROM backtest_runs"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "BTCUSDT"
+        assert row[1] == "4h"
+        assert row[2] == "fvg"
+
+    def test_no_row_written_when_save_results_false(self, tmp_path: Any) -> None:
+        conn = self._run(tmp_path, save_results=False)
+        count = conn.execute("SELECT COUNT(*) FROM backtest_runs").fetchone()
+        assert count is not None
+        assert count[0] == 0
+
+    def test_no_row_written_when_no_backtest_cfg(self, tmp_path: Any) -> None:
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        store = CooldownStore(str(tmp_path / "state.json"))
+        signals_df = self._make_signals_df()
+
+        with (
+            patch("analytics.signal_lib.get_ohlcv", return_value=self._make_ohlcv()),
+            patch(
+                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+            ),
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {"fvg": {"detector": lambda df: signals_df, "confidence": 3}},
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                {
+                    "fvg": type(
+                        "S",
+                        (),
+                        {"requires_funding": False, "requires_secondary": False},
+                    )()
+                },
+            ),
+        ):
+            run_scan_cycle(
+                conn=conn,
+                symbols=["BTCUSDT"],
+                timeframes=["4h"],
+                strategies=["fvg"],
+                store=store,
+                backtest_cfg=None,  # no backtest cfg → no persistence
+            )
+        count = conn.execute("SELECT COUNT(*) FROM backtest_runs").fetchone()
+        assert count is not None
+        assert count[0] == 0
