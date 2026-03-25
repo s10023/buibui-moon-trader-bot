@@ -423,9 +423,12 @@ evidence-based.
 
 ```bash
 poetry run python buibui.py recalibrate            # dry-run: show what would change
-poetry run python buibui.py recalibrate --apply    # patch STRATEGY_REGISTRY in-memory
+poetry run python buibui.py recalibrate --apply    # write ratings to indicators_lib.py
 poetry run python buibui.py recalibrate --min-trades 20 --apply
 ```
+
+`--apply` patches `confidence=N` values **directly in `analytics/indicators_lib.py`** so all
+consumers (signal watch, backtest, web API) pick up the new ratings on next startup.
 
 **Star rating thresholds (avg R across all saved runs for a strategy):**
 
@@ -439,7 +442,20 @@ poetry run python buibui.py recalibrate --min-trades 20 --apply
 
 Strategies with fewer than `--min-trades` (default: 10) closed trades are excluded and shown as `(no data)`.
 
-> **Workflow:** `backtest --save` → `recalibrate --apply` → `signal watch`
+**Full workflow:**
+
+```bash
+# One-time setup after merge
+make buibui-backtest CONFIG=config/signal_watch.toml SAVE=1  # populate backtest_runs
+make buibui-recalibrate                                       # preview changes (dry-run)
+make buibui-recalibrate APPLY=1                              # write to indicators_lib.py
+make buibui-signal-watch ...                                  # restart to load new ratings
+
+# After any strategy change or fix
+make buibui-backtest STRATEGY=<name> SAVE=1  # refresh that strategy's backtest_runs rows
+make buibui-recalibrate APPLY=1              # re-patch indicators_lib.py
+# restart signal watch
+```
 
 ### Signal Watch — 24/7 Strategy Alerts
 
