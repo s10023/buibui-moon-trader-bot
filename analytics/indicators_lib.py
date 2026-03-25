@@ -558,7 +558,14 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     ),
 }
 
-SIGNAL_COLUMNS: list[str] = ["open_time", "direction", "reason", "sl_price", "context"]
+SIGNAL_COLUMNS: list[str] = [
+    "open_time",
+    "direction",
+    "reason",
+    "sl_price",
+    "context",
+    "low_volume",
+]
 
 
 _MYT = timezone(timedelta(hours=8))
@@ -598,10 +605,14 @@ def _empty_signals() -> pd.DataFrame:
 def _signals_to_df(signals: list[dict[str, object]]) -> pd.DataFrame:
     if not signals:
         return _empty_signals()
+    df = pd.DataFrame(signals)
+    # Ensure all expected columns exist; fill low_volume with False for detectors
+    # that don't use a volume gate (keeps the column schema uniform).
+    for col in SIGNAL_COLUMNS:
+        if col not in df.columns:
+            df[col] = False if col == "low_volume" else None
     return (
-        pd.DataFrame(signals, columns=SIGNAL_COLUMNS)
-        .drop_duplicates(subset=["open_time"])
-        .reset_index(drop=True)
+        df[SIGNAL_COLUMNS].drop_duplicates(subset=["open_time"]).reset_index(drop=True)
     )
 
 
@@ -1877,7 +1888,7 @@ def detect_engulfing(
             sl_dist = entry - sl
             tp = entry + sl_dist * tp_r
             vol_ok = volume_confirm(df, i)
-            ctx = f"TP={tp:.2f}" + ("" if vol_ok else " (vol_low)")
+            ctx = f"TP={tp:.2f}"
             signals.append(
                 {
                     "open_time": open_time,
@@ -1885,6 +1896,7 @@ def detect_engulfing(
                     "reason": f"bullish_engulfing@{entry:.2f}",
                     "sl_price": sl,
                     "context": ctx,
+                    "low_volume": not vol_ok,
                 }
             )
 
@@ -1900,7 +1912,7 @@ def detect_engulfing(
             sl_dist = sl - entry
             tp = entry - sl_dist * tp_r
             vol_ok = volume_confirm(df, i)
-            ctx = f"TP={tp:.2f}" + ("" if vol_ok else " (vol_low)")
+            ctx = f"TP={tp:.2f}"
             signals.append(
                 {
                     "open_time": open_time,
@@ -1908,6 +1920,7 @@ def detect_engulfing(
                     "reason": f"bearish_engulfing@{entry:.2f}",
                     "sl_price": sl,
                     "context": ctx,
+                    "low_volume": not vol_ok,
                 }
             )
 
@@ -1962,7 +1975,7 @@ def detect_pin_bar(
             sl_dist = entry - sl
             tp = entry + sl_dist * tp_r
             vol_ok = volume_confirm(df, i)
-            ctx = f"TP={tp:.2f}" + ("" if vol_ok else " (vol_low)")
+            ctx = f"TP={tp:.2f}"
             signals.append(
                 {
                     "open_time": open_time,
@@ -1970,6 +1983,7 @@ def detect_pin_bar(
                     "reason": f"pin_bar_bull@{entry:.2f}",
                     "sl_price": sl,
                     "context": ctx,
+                    "low_volume": not vol_ok,
                 }
             )
 
@@ -1980,7 +1994,7 @@ def detect_pin_bar(
             sl_dist = sl - entry
             tp = entry - sl_dist * tp_r
             vol_ok = volume_confirm(df, i)
-            ctx = f"TP={tp:.2f}" + ("" if vol_ok else " (vol_low)")
+            ctx = f"TP={tp:.2f}"
             signals.append(
                 {
                     "open_time": open_time,
@@ -1988,6 +2002,7 @@ def detect_pin_bar(
                     "reason": f"pin_bar_bear@{entry:.2f}",
                     "sl_price": sl,
                     "context": ctx,
+                    "low_volume": not vol_ok,
                 }
             )
 
@@ -2125,7 +2140,7 @@ def detect_hammer_hanging_man(
             sl = entry * (1 - sl_pct)
             sl_dist = entry - sl
             tp = entry + sl_dist * tp_r
-            ctx = f"TP={tp:.2f}" + ("" if vol_ok else " (vol_low)")
+            ctx = f"TP={tp:.2f}"
             signals.append(
                 {
                     "open_time": open_time,
@@ -2133,6 +2148,7 @@ def detect_hammer_hanging_man(
                     "reason": f"hammer@{entry:.2f}",
                     "sl_price": sl,
                     "context": ctx,
+                    "low_volume": not vol_ok,
                 }
             )
         else:
@@ -2141,7 +2157,7 @@ def detect_hammer_hanging_man(
             sl = entry * (1 + sl_pct)
             sl_dist = sl - entry
             tp = entry - sl_dist * tp_r
-            ctx = f"TP={tp:.2f}" + ("" if vol_ok else " (vol_low)")
+            ctx = f"TP={tp:.2f}"
             signals.append(
                 {
                     "open_time": open_time,
@@ -2149,6 +2165,7 @@ def detect_hammer_hanging_man(
                     "reason": f"hanging_man@{entry:.2f}",
                     "sl_price": sl,
                     "context": ctx,
+                    "low_volume": not vol_ok,
                 }
             )
 

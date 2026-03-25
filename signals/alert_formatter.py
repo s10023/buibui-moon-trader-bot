@@ -60,6 +60,7 @@ class SignalEvent:
     context: str = ""  # human-readable pattern context (e.g. candle timestamps)
     confidence: int = 0  # 1–5 editorial quality score (0 = unset); shown as stars
     conflict: bool = False  # True when opposing direction fired same cycle
+    low_volume: bool = False  # True when volume was below confirmation threshold
 
 
 def _widest_sl(
@@ -152,6 +153,8 @@ def format_confluence_alert(
         )
         if ev.context:
             header += f"{ev.context}\n"
+        if ev.low_volume:
+            header += "⚠️ Low volume — weaker conviction\n"
     else:
         header = (
             f"<b>SIGNAL — {first.symbol} {first.timeframe}</b>\n"
@@ -164,6 +167,8 @@ def format_confluence_alert(
             if ev.context:
                 line += f"  ({ev.context})"
             header += line + "\n"
+        if any(e.low_volume for e in events):
+            header += "⚠️ Low volume — weaker conviction\n"
 
     msg = (
         header
