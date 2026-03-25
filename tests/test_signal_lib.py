@@ -485,12 +485,14 @@ class TestDayFilter:
       Monday    2024-01-01 00:00:00 UTC  → 1704067200000 ms  (weekday 0)
       Wednesday 2024-01-03 00:00:00 UTC  → 1704240000000 ms  (weekday 2)
       Friday    2024-01-05 00:00:00 UTC  → 1704412800000 ms  (weekday 4)
+      Saturday  2024-01-06 00:00:00 UTC  → 1704499200000 ms  (weekday 5)
     """
 
     # Pre-computed UTC timestamps (ms)
     _MONDAY_MS = 1704067200000
     _WEDNESDAY_MS = 1704240000000
     _FRIDAY_MS = 1704412800000
+    _SATURDAY_MS = 1704499200000
 
     def _make_ohlcv(self, open_time_ms: int) -> pd.DataFrame:
         """Minimal OHLCV DataFrame with 4 rows; second-to-last row has the given
@@ -546,7 +548,7 @@ class TestDayFilter:
         )
 
     def test_day_filter_false_passes_monday_signal(self) -> None:
-        """With day_filter=False (default), Monday signals are not suppressed."""
+        """With day_filter="off" (default), Monday signals are not suppressed."""
         ohlcv = self._make_ohlcv(self._MONDAY_MS)
         signals_df = self._make_signals_df(self._MONDAY_MS)
 
@@ -576,13 +578,13 @@ class TestDayFilter:
                 symbol="BTCUSDT",
                 timeframe="4h",
                 strategies=["fvg"],
-                day_filter=False,
+                day_filter="off",
             )
 
         assert len(events) == 1
 
     def test_day_filter_true_suppresses_monday_signal(self) -> None:
-        """With day_filter=True, a signal on Monday is filtered out."""
+        """With day_filter="tue_thu", a signal on Monday is filtered out."""
         ohlcv = self._make_ohlcv(self._MONDAY_MS)
         signals_df = self._make_signals_df(self._MONDAY_MS)
 
@@ -612,13 +614,13 @@ class TestDayFilter:
                 symbol="BTCUSDT",
                 timeframe="4h",
                 strategies=["fvg"],
-                day_filter=True,
+                day_filter="tue_thu",
             )
 
         assert len(events) == 0
 
     def test_day_filter_true_suppresses_friday_signal(self) -> None:
-        """With day_filter=True, a signal on Friday is filtered out."""
+        """With day_filter="tue_thu", a signal on Friday is filtered out."""
         ohlcv = self._make_ohlcv(self._FRIDAY_MS)
         signals_df = self._make_signals_df(self._FRIDAY_MS)
 
@@ -648,13 +650,13 @@ class TestDayFilter:
                 symbol="BTCUSDT",
                 timeframe="4h",
                 strategies=["fvg"],
-                day_filter=True,
+                day_filter="tue_thu",
             )
 
         assert len(events) == 0
 
     def test_day_filter_true_passes_wednesday_signal(self) -> None:
-        """With day_filter=True, a signal on Wednesday is NOT suppressed."""
+        """With day_filter="tue_thu", a signal on Wednesday is NOT suppressed."""
         ohlcv = self._make_ohlcv(self._WEDNESDAY_MS)
         signals_df = self._make_signals_df(self._WEDNESDAY_MS)
 
@@ -684,13 +686,85 @@ class TestDayFilter:
                 symbol="BTCUSDT",
                 timeframe="4h",
                 strategies=["fvg"],
-                day_filter=True,
+                day_filter="tue_thu",
             )
 
         assert len(events) == 1
 
+    def test_day_filter_weekdays_passes_friday_signal(self) -> None:
+        """With day_filter="weekdays", a signal on Friday is NOT suppressed."""
+        ohlcv = self._make_ohlcv(self._FRIDAY_MS)
+        signals_df = self._make_signals_df(self._FRIDAY_MS)
+
+        with (
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {
+                    "fvg": {
+                        "detector": lambda df: signals_df,
+                        "confidence": 4,
+                    }
+                },
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                {
+                    "fvg": type(
+                        "S",
+                        (),
+                        {"requires_funding": False, "requires_secondary": False},
+                    )(),
+                },
+            ),
+        ):
+            events = scan_symbol(
+                ohlcv_df=ohlcv,
+                symbol="BTCUSDT",
+                timeframe="4h",
+                strategies=["fvg"],
+                day_filter="weekdays",
+            )
+
+        assert len(events) == 1
+
+    def test_day_filter_weekdays_suppresses_saturday_signal(self) -> None:
+        """With day_filter="weekdays", a signal on Saturday is suppressed."""
+        ohlcv = self._make_ohlcv(self._SATURDAY_MS)
+        signals_df = self._make_signals_df(self._SATURDAY_MS)
+
+        with (
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {
+                    "fvg": {
+                        "detector": lambda df: signals_df,
+                        "confidence": 4,
+                    }
+                },
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                {
+                    "fvg": type(
+                        "S",
+                        (),
+                        {"requires_funding": False, "requires_secondary": False},
+                    )(),
+                },
+            ),
+        ):
+            events = scan_symbol(
+                ohlcv_df=ohlcv,
+                symbol="BTCUSDT",
+                timeframe="4h",
+                strategies=["fvg"],
+                day_filter="weekdays",
+            )
+
+        assert len(events) == 0
+
     def test_run_scan_cycle_day_filter_propagated(self, tmp_path: Any) -> None:
-        """day_filter=True passed to run_scan_cycle suppresses Monday signals."""
+        """day_filter="tue_thu" passed to run_scan_cycle suppresses Monday signals."""
         conn = duckdb.connect(":memory:")
         init_schema(conn)
         store = CooldownStore(str(tmp_path / "state.json"))
@@ -729,15 +803,17 @@ class TestDayFilter:
                 timeframes=["4h"],
                 strategies=["fvg"],
                 store=store,
-                day_filter=True,
+                day_filter="tue_thu",
             )
 
-        assert alerts == [], "Monday signals should be suppressed with day_filter=True"
+        assert alerts == [], (
+            "Monday signals should be suppressed with day_filter=tue_thu"
+        )
 
     def test_run_scan_cycle_day_filter_false_default_passes_monday(
         self, tmp_path: Any
     ) -> None:
-        """day_filter defaults to False — Monday signals reach the alert stage."""
+        """day_filter defaults to "off" — Monday signals reach the alert stage."""
         conn = duckdb.connect(":memory:")
         init_schema(conn)
         store = CooldownStore(str(tmp_path / "state.json"))
@@ -776,10 +852,10 @@ class TestDayFilter:
                 timeframes=["4h"],
                 strategies=["fvg"],
                 store=store,
-                day_filter=False,
+                day_filter="off",
             )
 
-        assert len(alerts) == 1, "Monday signals should pass when day_filter=False"
+        assert len(alerts) == 1, "Monday signals should pass when day_filter=off"
 
 
 class TestSMTTrendFilter:

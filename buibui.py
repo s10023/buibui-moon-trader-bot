@@ -64,7 +64,7 @@ def run_backtest(args: argparse.Namespace) -> None:
         if args.min_trades is not None:
             cfg.min_trades = args.min_trades
         if args.day_filter:
-            cfg.day_filter = True
+            cfg.day_filter = "tue_thu"
         if args.save:
             cfg.save_results = True
         backtest_runner.run_backtest_sweep(cfg)

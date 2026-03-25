@@ -1,0 +1,62 @@
+# Signal Watch — weekdays profile (Mon–Fri, no weekend signals)
+# Usage: make buibui-signal-watch CONFIG=config/signal_watch_weekdays.toml
+
+# Symbols to watch — omit to use all symbols from config/coins.json
+# symbols = ["BTCUSDT", "ETHUSDT"]
+
+timeframes = ["15m", "1h", "4h", "1d"]
+telegram = true
+min_sl_pct = 0.005
+
+# Suppress signals by day: "off" | "weekdays" (Mon–Fri) | "tue_thu" (Tue–Thu only)
+day_filter = "weekdays"
+
+smt_trend_filter = 1
+
+# Same TF suppression as signal_watch.toml — wick_fill and fvg excluded
+strategies = [
+    'marubozu',
+    'orb',
+    'liquidity_sweep',
+    'bos',
+    'funding_reversion',
+    'smt_divergence',
+    'eqh_eql',
+    'order_block',
+    'cvd_divergence',
+    'trend_day',
+    'engulfing',
+    'pin_bar',
+    'inside_bar',
+    'hammer_hanging_man',
+    'doji',
+    'morning_evening_star',
+    'fib_golden_zone'
+]
+
+days = 200
+min_trades = 20
+fee_pct = 0.0005
+
+[strategy_timeframes]
+trend_day        = ["4h", "1d"]
+fib_golden_zone  = ["4h", "1d"]
+eqh_eql          = ["4h", "1d"]
+smt_divergence   = ["1h"]
+orb              = ["1h", "4h", "1d"]
+bos              = ["15m", "1h", "1d"]
+pin_bar          = ["15m", "1h", "1d"]
+liquidity_sweep  = ["1h", "1d"]
+cvd_divergence   = ["15m", "4h", "1d"]
+marubozu         = ["4h", "1d"]
+
+[smt_pairs]
+BTCUSDT = "ETHUSDT"
+ETHUSDT = "BTCUSDT"
+SOLUSDT = "ETHUSDT"
+
+[backtest]
+mode = "hard"
+days = 200
+min_trades = 20
+filter_threshold = 0.3

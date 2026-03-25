@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from analytics.signal_config import SignalWatchConfig, load_signal_config
+from analytics.signal_config import (
+    SignalWatchConfig,
+    _day_filter_to_weekdays,
+    load_signal_config,
+)
 
 
 def _write_toml(tmp_path: Path, content: str) -> Path:
@@ -27,8 +31,22 @@ class TestSignalWatchConfigDefaults:
         assert cfg.cooldown_seconds == 3600.0
         assert cfg.state_file == "signal_state.json"
         assert cfg.smt_pairs == {}
-        assert cfg.day_filter is False
+        assert cfg.day_filter == "off"
         assert cfg.smt_trend_filter == 1
+
+
+class TestDayFilterToWeekdays:
+    def test_off_returns_none(self) -> None:
+        assert _day_filter_to_weekdays("off") is None
+
+    def test_weekdays_returns_mon_fri(self) -> None:
+        assert _day_filter_to_weekdays("weekdays") == [0, 1, 2, 3, 4]
+
+    def test_tue_thu_returns_tue_wed_thu(self) -> None:
+        assert _day_filter_to_weekdays("tue_thu") == [1, 2, 3]
+
+    def test_unknown_string_returns_none(self) -> None:
+        assert _day_filter_to_weekdays("unknown") is None
 
 
 class TestLoadSignalConfig:
@@ -70,11 +88,17 @@ ETHUSDT = "BTCUSDT"
         assert cfg.state_file == "my_state.json"
         assert cfg.smt_pairs == {"BTCUSDT": "ETHUSDT", "ETHUSDT": "BTCUSDT"}
 
-    def test_full_config_day_filter_and_smt_trend_filter(self, tmp_path: Path) -> None:
-        content = "day_filter = true\nsmt_trend_filter = 0\n"
+    def test_full_config_day_filter_string_modes(self, tmp_path: Path) -> None:
+        for mode in ("off", "weekdays", "tue_thu"):
+            content = f'day_filter = "{mode}"\n'
+            p = _write_toml(tmp_path, content)
+            cfg = load_signal_config(p)
+            assert cfg.day_filter == mode
+
+    def test_full_config_smt_trend_filter(self, tmp_path: Path) -> None:
+        content = "smt_trend_filter = 0\n"
         p = _write_toml(tmp_path, content)
         cfg = load_signal_config(p)
-        assert cfg.day_filter is True
         assert cfg.smt_trend_filter == 0
 
     def test_file_not_found(self, tmp_path: Path) -> None:

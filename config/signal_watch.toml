@@ -1,9 +1,7 @@
-# Signal Watch — default configuration
+# Signal Watch — default configuration (Tue–Thu only, noisy TF combos suppressed)
 # Usage: make buibui-signal-watch CONFIG=config/signal_watch.toml
 #
 # CLI flags always take precedence over values here.
-# Equivalent to:
-#   make buibui-signal-watch TIMEFRAMES="15m 1h 4h 1d" TELEGRAM=1 MIN_SL_PCT=0.01
 
 # Symbols to watch — omit to use all symbols from config/coins.json
 # symbols = ["BTCUSDT", "ETHUSDT"]
@@ -12,21 +10,19 @@ timeframes = ["15m", "1h", "4h", "1d"]
 telegram = true
 min_sl_pct = 0.005
 
-# Suppress Monday and Friday signals (ICT weekly cycle — manipulation/distribution days)
-day_filter = false
+# Suppress signals by day: "off" | "weekdays" (Mon–Fri) | "tue_thu" (Tue–Thu only)
+# "tue_thu" suppresses Mon and Fri (ICT weekly cycle — manipulation/distribution days)
+day_filter = "tue_thu"
 
 # EMA-50 trend gate for smt_divergence: LONG only above EMA, SHORT only below (1=on, 0=off)
 smt_trend_filter = 1
 
-# Strategies to run — omit to run all strategies in SIGNAL_REGISTRY
-# strategies = ["fvg", "bos", "liquidity_sweep"]
-
+# Strategies to run
+# wick_fill and fvg are excluded: all TFs below mean_r -0.05 threshold (pending parameter tuning)
 strategies = [
-    'wick_fill',
     'marubozu',
     'orb',
     'liquidity_sweep',
-    'fvg',
     'bos',
     'funding_reversion',
     'smt_divergence',
@@ -56,26 +52,33 @@ min_trades = 20         # hide combos with fewer trades in sweep table
 fee_pct = 0.0005        # 0.05% taker fee per leg; set 0.0 to disable
 # save_results = true   # persist results to backtest_runs / backtest_trades tables in analytics.db
 
-# Per-strategy timeframe allow-list (R17).
+# Per-strategy timeframe allow-list.
 # Strategies listed here are restricted to the specified TFs.
 # Strategies not listed run on all configured timeframes.
+# TF restrictions derived from backtest data: combos with mean_r < -0.05 suppressed.
+# Suppressed combos marked with mean_r in comments — candidates for parameter tuning.
 [strategy_timeframes]
-trend_day = ["4h", "1d"]
+trend_day        = ["4h", "1d"]       # 15m mean_r=-0.082 suppressed
+fib_golden_zone  = ["4h", "1d"]       # 15m mean_r=-0.254, 1h mean_r=-0.195 suppressed
+eqh_eql          = ["4h", "1d"]       # 15m mean_r=-0.137, 1h mean_r=-0.056 suppressed
+smt_divergence   = ["1h"]             # 4h mean_r=-0.808, 15m mean_r=-0.137 suppressed
+orb              = ["1h", "4h", "1d"] # 15m mean_r=-0.163 suppressed
+bos              = ["15m", "1h", "1d"]# 4h mean_r=-0.111 suppressed
+pin_bar          = ["15m", "1h", "1d"]# 4h mean_r=-0.137 suppressed
+liquidity_sweep  = ["1h", "1d"]       # 15m mean_r=-0.116, 4h mean_r=-0.160 suppressed
+cvd_divergence   = ["15m", "4h", "1d"]# 1h mean_r=-0.174 suppressed
+marubozu         = ["4h", "1d"]       # 15m mean_r=-0.120, 1h mean_r=-0.229 suppressed
 
 # SMT divergence pairs — primary → secondary (must be in coins.json)
-# Used by both signal watch and backtest sweep.
 [smt_pairs]
 BTCUSDT = "ETHUSDT"
 ETHUSDT = "BTCUSDT"
 SOLUSDT = "ETHUSDT"
 
 # Backtest filter for signal watch daemon (signal_config.py reads this sub-table)
-# "soft": always fire alert, append win rate
-# "hard": suppress alert if win_rate < filter_threshold (and >= min_trades)
-# "off":  disable entirely
 [backtest]
 mode = "hard"
 days = 200
 min_trades = 20
 filter_threshold = 0.3
-# save_results = true   # persist computed backtest results to backtest_runs table (default: true)
+# save_results = true

@@ -41,7 +41,7 @@ class TestBacktestSweepConfigDefaults:
         assert cfg.tp_r == 2.0
         assert cfg.min_trades == 20
         assert cfg.smt_pairs == {}
-        assert cfg.day_filter is False
+        assert cfg.day_filter == "off"
         assert cfg.smt_trend_filter == 1
 
 
@@ -84,12 +84,13 @@ class TestLoadBacktestConfig:
         assert cfg.days == 90
         assert cfg.min_trades == 20
         assert cfg.smt_pairs == {}
-        assert cfg.day_filter is False
+        assert cfg.day_filter == "off"
         assert cfg.smt_trend_filter == 1
 
-    def test_load_day_filter_and_smt_trend_filter(self, tmp_path: Path) -> None:
-        p = tmp_path / "cfg.toml"
-        p.write_text("symbols = []\nday_filter = true\nsmt_trend_filter = 0\n")
-        cfg = load_backtest_config(p)
-        assert cfg.day_filter is True
-        assert cfg.smt_trend_filter == 0
+    def test_load_day_filter_string_modes(self, tmp_path: Path) -> None:
+        for mode in ("off", "weekdays", "tue_thu"):
+            p = tmp_path / f"cfg_{mode}.toml"
+            p.write_text(f'symbols = []\nday_filter = "{mode}"\nsmt_trend_filter = 0\n')
+            cfg = load_backtest_config(p)
+            assert cfg.day_filter == mode
+            assert cfg.smt_trend_filter == 0
