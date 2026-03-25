@@ -35,7 +35,7 @@ def run(
     apply: bool = getattr(args, "apply", False)
     min_trades: int = getattr(args, "min_trades", 10)
 
-    conn: duckdb.DuckDBPyConnection = duckdb.connect(str(db_path), read_only=True)
+    conn: duckdb.DuckDBPyConnection = duckdb.connect(str(db_path))
     try:
         init_schema(conn)
         win_rates = get_backtest_win_rates(conn)
