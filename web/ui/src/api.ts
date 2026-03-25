@@ -164,6 +164,48 @@ export interface PositionsResponse {
   total_risk_usd: number;
 }
 
+export interface ActionResponse {
+  ok: boolean;
+  detail: string;
+}
+
+// ── Positions write actions ────────────────────────────────────────────────────
+
+export const closePosition = (params: {
+  symbol: string;
+  position_side: string;
+}) =>
+  apiFetch<ActionResponse>("/api/positions/close", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+
+export const modifySl = (params: {
+  symbol: string;
+  position_side: string;
+  stop_price: number;
+}) =>
+  apiFetch<ActionResponse>("/api/positions/sl", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+
+export const modifyTp = (params: {
+  symbol: string;
+  position_side: string;
+  stop_price: number;
+}) =>
+  apiFetch<ActionResponse>("/api/positions/tp", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+
+export const cancelOrder = (params: { orderId: number; symbol: string }) =>
+  apiFetch<ActionResponse>(
+    `/api/orders/${params.orderId}?symbol=${encodeURIComponent(params.symbol)}`,
+    { method: "DELETE" }
+  );
+
 // ── SSE stream shapes ─────────────────────────────────────────────────────────
 
 // /api/stream/prices emits: PriceRow[] (same as REST PriceRow)

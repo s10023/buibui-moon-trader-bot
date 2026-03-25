@@ -25,3 +25,28 @@ class PositionsResponse(BaseModel):
     unrealized_pnl: float
     available_balance: float
     total_risk_usd: float
+
+
+# ── Write action request/response models ──────────────────────────────────────
+
+
+class ClosePositionRequest(BaseModel):
+    symbol: str
+    position_side: str  # "LONG", "SHORT", or "BOTH"
+
+
+class ModifySlRequest(BaseModel):
+    symbol: str
+    position_side: str  # "LONG", "SHORT", or "BOTH"
+    stop_price: float
+
+
+class ModifyTpRequest(BaseModel):
+    symbol: str
+    position_side: str  # "LONG", "SHORT", or "BOTH"
+    stop_price: float
+
+
+class ActionResponse(BaseModel):
+    ok: bool
+    detail: str

@@ -14,6 +14,18 @@
 
   const fmt = (v: number) =>
     v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  // ── Toast ─────────────────────────────────────────────────────────────────
+  let toastMsg = $state("");
+  let toastOk = $state(true);
+  let toastTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function showToast(msg: string, ok: boolean) {
+    toastMsg = msg;
+    toastOk = ok;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toastMsg = ""; }, 4000);
+  }
 </script>
 
 <div class="page">
@@ -24,6 +36,12 @@
       {$positionsConnected ? "Live" : "Connecting"}
     </div>
   </div>
+
+  {#if toastMsg}
+    <div class="toast" class:toast-ok={toastOk} class:toast-err={!toastOk}>
+      {toastMsg}
+    </div>
+  {/if}
 
   {#if !$positionsConnected && $positionsStore.positions.length === 0}
     <LoadingSpinner label="Connecting to positions stream..." />
@@ -58,12 +76,12 @@
         <thead>
           <tr>
             <th>Symbol</th><th>Side</th><th>Lev</th><th>Entry</th><th>Mark</th>
-            <th>PnL ($)</th><th>PnL %</th><th>SL</th><th>Risk</th>
+            <th>PnL ($)</th><th>PnL %</th><th>SL</th><th>Risk</th><th>Actions</th>
           </tr>
         </thead>
         <tbody>
           {#each d.positions as pos (pos.symbol)}
-            <PositionRow {pos} />
+            <PositionRow {pos} onAction={showToast} />
           {/each}
         </tbody>
       </table>
@@ -129,5 +147,31 @@
     padding: 20px 0;
     font-size: 12px;
     letter-spacing: 0.05em;
+  }
+
+  /* ── Toast ──────────────────────────────────────────────────────────────── */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    padding: 10px 18px;
+    border-radius: 4px;
+    font-size: 12px;
+    letter-spacing: 0.03em;
+    z-index: 1000;
+    pointer-events: none;
+    max-width: 360px;
+  }
+
+  .toast-ok {
+    background: #1a2a1a;
+    border: 1px solid var(--green);
+    color: var(--green);
+  }
+
+  .toast-err {
+    background: #2a1a1a;
+    border: 1px solid var(--red);
+    color: var(--red);
   }
 </style>
