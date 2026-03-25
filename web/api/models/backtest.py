@@ -1,6 +1,9 @@
 """Pydantic models for backtest endpoint."""
 
-from pydantic import BaseModel, ConfigDict
+import math
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class BacktestRunSummary(BaseModel):
@@ -22,6 +25,14 @@ class BacktestRunSummary(BaseModel):
     max_drawdown_r: float
     sweep_id: str | None
     run_at_ms: int
+
+    @field_validator("sweep_id", mode="before")
+    @classmethod
+    def _nan_to_none(cls, v: Any) -> str | None:
+        """Pandas returns NaN for NULL TEXT columns; coerce to None."""
+        if isinstance(v, float) and math.isnan(v):
+            return None
+        return str(v) if v is not None else None
 
 
 class BacktestRequest(BaseModel):
