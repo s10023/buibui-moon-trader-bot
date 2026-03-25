@@ -191,7 +191,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
             ),
         ],
         requires_funding=True,
-        confidence=4,
+        confidence=1,  # no funding data in DB — never fired in production
     ),
     "smt_divergence": StrategySpec(
         name="smt_divergence",
@@ -238,7 +238,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Max relative difference for two highs/lows to qualify as equal.",
             ),
         ],
-        confidence=4,
+        confidence=1,  # 0 trades in backtest — fires too rarely to have data
     ),
     "order_block": StrategySpec(
         name="order_block",
@@ -261,7 +261,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Minimum % move on displacement candle to qualify an order block.",
             ),
         ],
-        confidence=4,
+        confidence=3,
     ),
     "cvd_divergence": StrategySpec(
         name="cvd_divergence",
@@ -284,7 +284,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Candles of CVD history to compare swing extremes across.",
             ),
         ],
-        confidence=4,
+        confidence=1,  # no CVD data in DB — never backtested
     ),
     "trend_day": StrategySpec(
         name="trend_day",
@@ -553,7 +553,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Rolling window half-size for BOS swing detection.",
             ),
         ],
-        confidence=4,
+        confidence=1,  # 0 trades in backtest — multi-signal dedup inflates count, needs investigation
     ),
 }
 

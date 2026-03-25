@@ -116,12 +116,15 @@ def run_backtest(
     sl_pct: float = 0.02,
     tp_r: float = 2.0,
     fee_pct: float = 0.0,
+    min_sl_pct: float = 0.0,
 ) -> BacktestResult:
     """Simulate trades from signals on historical OHLCV.
 
     Entry:  next candle's open after the signal candle.
     SL:     per-signal sl_price from the signals DataFrame when present;
             otherwise sl_pct fraction of entry price (backward-compatible fallback).
+            min_sl_pct enforces a minimum SL distance from entry (e.g. 0.005 = 0.5%),
+            widening structural SLs that land too close to entry.
     TP:     tp_r × risk distance from entry price.
     fee_pct: taker fee fraction applied on both entry and exit legs
              (e.g. 0.0005 for 0.05%). Fee drag is deducted from pnl_r.
@@ -159,6 +162,14 @@ def run_backtest(
         # Use per-signal structural SL when available; fall back to sl_pct fraction.
         if has_per_signal_sl:
             sl_price = float(sig["sl_price"])
+            # Enforce minimum SL distance — widening structural SLs that land
+            # too close to entry (prevents fee-drag explosion on tight SLs).
+            if min_sl_pct > 0.0:
+                min_dist = entry_price * min_sl_pct
+                if direction == "long":
+                    sl_price = min(sl_price, entry_price - min_dist)
+                else:
+                    sl_price = max(sl_price, entry_price + min_dist)
             if direction == "long":
                 tp_price = entry_price + tp_r * abs(entry_price - sl_price)
             else:

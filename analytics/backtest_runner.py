@@ -157,6 +157,7 @@ def run_backtest_sweep(
                 cfg.sl_pct,
                 cfg.tp_r,
                 cfg.fee_pct,
+                min_sl_pct=cfg.min_sl_pct,
             )
             results.append(bt)
 
@@ -198,6 +199,7 @@ def run_backtest_cmd(
     sl_pct: float = 0.02,
     tp_r: float = 2.0,
     fee_pct: float = 0.0,
+    min_sl_pct: float = 0.0,
     secondary_symbol: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
     save_results: bool = False,
@@ -248,7 +250,15 @@ def run_backtest_cmd(
             sys.exit(1)
 
         bt_result = run_backtest(
-            ohlcv, signals, symbol, timeframe, strategy, sl_pct, tp_r, fee_pct
+            ohlcv,
+            signals,
+            symbol,
+            timeframe,
+            strategy,
+            sl_pct,
+            tp_r,
+            fee_pct,
+            min_sl_pct=min_sl_pct,
         )
         print(format_result(bt_result))
 
