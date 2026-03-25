@@ -92,3 +92,28 @@ class TestFormatSignalAlertSessionTag:
         ts_ms = int(dt.timestamp() * 1000)
         msg = format_signal_alert(self._make_event(ts_ms))
         assert "Kill Zone" not in msg
+
+
+class TestLowVolumeWarning:
+    _TS_MS = int(datetime(2024, 1, 15, 7, 0, tzinfo=_UTC).timestamp() * 1000)
+
+    def _make_event(self, low_volume: bool) -> SignalEvent:
+        return SignalEvent(
+            symbol="BTCUSDT",
+            timeframe="1h",
+            strategy="engulfing",
+            direction="long",
+            reason="bullish_engulfing@43000.00",
+            open_time=self._TS_MS,
+            price=43000.0,
+            sl_price=42000.0,
+            low_volume=low_volume,
+        )
+
+    def test_low_volume_true_shows_warning(self) -> None:
+        msg = format_signal_alert(self._make_event(low_volume=True))
+        assert "⚠️ Low volume — weaker conviction" in msg
+
+    def test_low_volume_false_no_warning(self) -> None:
+        msg = format_signal_alert(self._make_event(low_volume=False))
+        assert "⚠️ Low volume — weaker conviction" not in msg

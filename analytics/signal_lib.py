@@ -262,6 +262,7 @@ def scan_symbol(
                     sl_price=float(row["sl_price"]),
                     context=str(row["context"]),
                     confidence=SIGNAL_REGISTRY[strategy_name]["confidence"],
+                    low_volume=bool(row.get("low_volume", False)),
                 )
             )
 
