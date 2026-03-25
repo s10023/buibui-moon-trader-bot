@@ -262,7 +262,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Minimum % move on displacement candle to qualify an order block.",
             ),
         ],
-        confidence=3,
+        confidence=2,
     ),
     "cvd_divergence": StrategySpec(
         name="cvd_divergence",
@@ -385,7 +385,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance.",
             ),
         ],
-        confidence=2,
+        confidence=1,
     ),
     "hammer_hanging_man": StrategySpec(
         name="hammer_hanging_man",
