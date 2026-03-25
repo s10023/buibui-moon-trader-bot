@@ -7,13 +7,32 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from analytics.backtest_lib import run_backtest
 from analytics.backtest_runner import detect_signals_for_strategy
-from analytics.data_store import get_ohlcv
+from analytics.data_store import (
+    get_ohlcv,
+    list_backtest_runs,
+    upsert_backtest_run,
+    upsert_backtest_trades,
+)
 from analytics.indicators_lib import KNOWN_STRATEGIES
 from utils.binance_client import load_coins_config
 from web.api.deps import get_db, require_token
-from web.api.models.backtest import BacktestRequest, BacktestResponse, TradeModel
+from web.api.models.backtest import (
+    BacktestRequest,
+    BacktestResponse,
+    BacktestRunSummary,
+    TradeModel,
+)
 
 router = APIRouter(dependencies=[Depends(require_token)])
+
+
+@router.get("/backtest/runs", response_model=list[BacktestRunSummary])
+def get_backtest_runs(
+    db: duckdb.DuckDBPyConnection = Depends(get_db),
+) -> list[BacktestRunSummary]:
+    """Return all saved backtest runs, newest first."""
+    df = list_backtest_runs(db)
+    return [BacktestRunSummary.model_validate(row) for row in df.to_dict("records")]
 
 
 @router.post("/backtest", response_model=BacktestResponse)
@@ -79,6 +98,22 @@ def run_backtest_endpoint(
         body.tp_r,
         body.fee_pct,
     )
+
+    # Persist to DB
+    run_id = upsert_backtest_run(
+        db,
+        result,
+        body.days,
+        start_ms,
+        end_ms,
+        body.sl_pct,
+        body.tp_r,
+        body.fee_pct,
+        "off",
+        0,
+        secondary_symbol,
+    )
+    upsert_backtest_trades(db, result, run_id)
 
     # Build BacktestResponse manually — BacktestResult has cached_property; cannot model_validate directly
     trades = [TradeModel.model_validate(t, from_attributes=True) for t in result.trades]

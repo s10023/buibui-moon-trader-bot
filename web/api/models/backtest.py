@@ -3,6 +3,27 @@
 from pydantic import BaseModel, ConfigDict
 
 
+class BacktestRunSummary(BaseModel):
+    run_id: str
+    symbol: str
+    timeframe: str
+    strategy: str
+    days: int
+    sl_pct: float
+    tp_r: float
+    fee_pct: float
+    day_filter: str
+    closed_trades: int
+    win_count: int
+    loss_count: int
+    win_rate: float
+    avg_r: float
+    total_r: float
+    max_drawdown_r: float
+    sweep_id: str | None
+    run_at_ms: int
+
+
 class BacktestRequest(BaseModel):
     symbol: str
     timeframe: str
