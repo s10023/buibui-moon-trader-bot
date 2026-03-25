@@ -7,7 +7,7 @@
 
 ## Critical Issues
 
-### 1. ORB — Single-candle range, only checks next candle, wrong session anchor (BROKEN)
+### 1. ORB — Single-candle range, only checks next candle, wrong session anchor (FIXED)
 
 `detect_orb_breakout` uses a single candle at `session_hour_utc=13` (NYSE open) as the opening
 range. Real ORB (Toby Crabel) marks the high/low across the first N minutes of the session.
@@ -16,7 +16,7 @@ the same day are ignored. `timeframe_minutes` is never passed by callers (`signa
 239, `backtest_runner.py`), so the guard `if timeframe_minutes >= 60` never fires; ORB runs
 on 1h/4h/1d data and produces meaningless signals.
 
-**Status:** Fixed in `worktree-agent-adc5e4fa` — see A10 worktree.
+**Status:** Fixed and merged to main (#188) — rewritten with 00:00 UTC anchor, 2-candle range, all-day scan, per-day dedup, TP.
 
 ### 2. `funding_reversion` — no funding data ever in DB (SILENT FAILURE)
 
@@ -42,7 +42,7 @@ signal count and distorting win-rate statistics. `_signals_to_df` dedup only rem
 | 1 | `seasonality` | Seasonality Statistics | 2★ | No | CORRECT |
 | 2 | `wick_fill` | Wick Fill | 2★ | Yes | CORRECT |
 | 3 | `marubozu` | Marubozu Open Retest | 2★ | Yes | CORRECT |
-| 4 | `orb` | Opening Range Breakout | 3★ | Yes | **BROKEN** |
+| 4 | `orb` | Opening Range Breakout | 3★ | Yes | FIXED |
 | 5 | `liquidity_sweep` | Liquidity Sweep + Reversal | 4★ | Yes | CORRECT |
 | 6 | `fvg` | Fair Value Gap | 4★ | Yes | CORRECT |
 | 7 | `bos` | Break of Structure / CHoCH | 3★ | Yes | CORRECT |
@@ -61,7 +61,7 @@ signal count and distorting win-rate statistics. `_signals_to_df` dedup only rem
 | 20 | `fib_golden_zone` | Fibonacci Golden Zone (BOS) | 4★ | Yes | NEEDS_REVIEW |
 | 21 | `ote_entry` | OTE Entry (0.618–0.786) | 4★ | Yes | NEEDS_REVIEW |
 
-Totals: 15 CORRECT · 4 NEEDS_REVIEW · 2 BROKEN
+Totals: 15 CORRECT · 4 NEEDS_REVIEW · 1 FIXED · 1 BROKEN
 
 ---
 
@@ -123,14 +123,14 @@ Totals: 15 CORRECT · 4 NEEDS_REVIEW · 2 BROKEN
 | ------- | ------- |
 | **Source** | Toby Crabel — *Day Trading with Short Term Price Patterns and Opening Range Breakout* (1990). |
 | **Definition** | Mark the high/low of the first 5–30 min of the session. Enter long on close above range high, short on close below range low. SL = opposite range extreme. |
-| **Implementation** | `detect_orb_breakout` (line ~826). Finds candle where `open_time` hour == `session_hour_utc` (default 13 = NY open). That single candle's H/L is the range. Only the **immediately next candle** is checked for breakout. Guard `if timeframe_minutes >= 60` exists but `timeframe_minutes` is never passed by callers (defaults to 15), so guard never fires. No per-day dedup. No TP calculation (only SL). |
-| **Entry** | The breakout candle |
+| **Implementation** | `detect_orb_breakout`. Rewritten (#188): uses 00:00 UTC as session anchor, marks range from first 2 candles of each day, scans all remaining candles that day for breakout, per-day dedup prevents multiple signals. TP now calculated as `tp_r × sl_dist`. |
+| **Entry** | First candle closing beyond range H/L on the same day |
 | **SL** | range_low (long) or range_high (short) |
-| **TP** | None (missing — falls back to `tp_r × sl_dist`) |
+| **TP** | `tp_r × sl_dist` |
 | **Confidence** | 3★ |
 | **In SIGNAL_REGISTRY** | Yes |
-| **Known Issues** | **BUG 1:** `timeframe_minutes` never wired by callers → ORB fires on 1h/4h/1d candles. **BUG 2:** Single-candle range vs multi-bar opening window. **BUG 3:** Only checks next candle. **BUG 4:** `session_hour_utc=13` wrong for EDT (14:30 UTC). **BUG 5:** No TP. **STATUS: Fixed in worktree-agent-adc5e4fa** — rewritten with 00:00 UTC anchor, 2-candle range, all-day scan, per-day dedup, TP. |
-| **Verdict** | **BROKEN** (fix in A10 worktree) |
+| **Known Issues** | DST: 00:00 UTC anchor is fixed; no adjustment for daylight saving transitions (tracked as A7). Re-run backtest to validate new logic. |
+| **Verdict** | FIXED (merged #188) |
 
 ---
 
