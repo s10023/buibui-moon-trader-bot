@@ -415,6 +415,48 @@ SOLUSDT       1h    bos                  54.1%      85  +1.42R
 
 > **Note:** Requires backfill to be run first for each symbol/timeframe.
 
+### Recalibrate — Update Confidence Star Ratings
+
+Reads `backtest_runs` from `analytics.db` and maps real avg R per strategy to 1–5 star
+confidence ratings. Run this after any backtest sweep with `--save` to keep ratings
+evidence-based.
+
+```bash
+poetry run python buibui.py recalibrate            # dry-run: show what would change
+poetry run python buibui.py recalibrate --apply    # write ratings to indicators_lib.py
+poetry run python buibui.py recalibrate --min-trades 20 --apply
+```
+
+`--apply` patches `confidence=N` values **directly in `analytics/indicators_lib.py`** so all
+consumers (signal watch, backtest, web API) pick up the new ratings on next startup.
+
+**Star rating thresholds (avg R across all saved runs for a strategy):**
+
+| avg R | Stars |
+| --- | --- |
+| < 0 | ★☆☆☆☆ |
+| 0 – 0.2 | ★★☆☆☆ |
+| 0.2 – 0.5 | ★★★☆☆ |
+| 0.5 – 0.9 | ★★★★☆ |
+| ≥ 0.9 | ★★★★★ |
+
+Strategies with fewer than `--min-trades` (default: 10) closed trades are excluded and shown as `(no data)`.
+
+**Full workflow:**
+
+```bash
+# One-time setup after merge
+make buibui-backtest CONFIG=config/signal_watch.toml SAVE=1  # populate backtest_runs
+make buibui-recalibrate                                       # preview changes (dry-run)
+make buibui-recalibrate APPLY=1                              # write to indicators_lib.py
+make buibui-signal-watch ...                                  # restart to load new ratings
+
+# After any strategy change or fix
+make buibui-backtest STRATEGY=<name> SAVE=1  # refresh that strategy's backtest_runs rows
+make buibui-recalibrate APPLY=1              # re-patch indicators_lib.py
+# restart signal watch
+```
+
 ### Signal Watch — 24/7 Strategy Alerts
 
 Runs a polling daemon that scans closed candles every N seconds and sends Telegram alerts
@@ -630,6 +672,11 @@ make buibui-backtest SYMBOL=BTCUSDT STRATEGY=smt_divergence SECONDARY=ETHUSDT
 make buibui-backtest SYMBOL=BTCUSDT STRATEGY=fvg INTERVAL=1h DAYS=30 SL_PCT=0.015 TP_R=3.0
 make buibui-backtest CONFIG=config/signal_watch.toml SAVE=1  # Full sweep + persist to DB
 make buibui-backtest SYMBOL=BTCUSDT STRATEGY=bos SAVE=1      # Single-combo + persist to DB
+
+# Recalibrate confidence star ratings from backtest DB
+make buibui-recalibrate                        # dry-run: show what would change
+make buibui-recalibrate APPLY=1                # apply ratings to STRATEGY_REGISTRY
+make buibui-recalibrate MIN_TRADES=20 APPLY=1  # custom min-trades gate
 ```
 
 Defaults: `SYMBOL=BTCUSDT`, `STRATEGY=fvg`, `INTERVAL=4h`, `DAYS=90`.
