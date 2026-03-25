@@ -383,6 +383,8 @@ poetry run python buibui.py backtest --symbols BTCUSDT ETHUSDT --timeframes 1h 4
 - `--days 90` — lookback period in days (default: `90`)
 - `--sl-pct 0.02` — stop loss as decimal fraction (default: `0.02` = 2%)
 - `--tp-r 2.0` — take profit in R multiples (default: `2.0`)
+- `--fee-pct 0.0005` — taker fee per leg (default: `0.0`; use `0.0005` for 0.05% Binance taker)
+- `--day-filter` — suppress Monday and Friday signals before backtesting (ICT weekly cycle)
 - `--save` — persist results to `backtest_runs` and `backtest_trades` tables in `analytics.db`
 
 **Single-combo example output:**
@@ -475,15 +477,20 @@ The `[backtest]` table in `config/signal_watch.toml` controls a per-alert win ra
 ```toml
 [backtest]
 mode = "hard"           # "soft": append win rate | "hard": suppress low performers | "off"
-days = 160              # lookback window
+days = 200              # lookback window
 min_trades = 20         # bypass filter if fewer than this many historical trades
 filter_threshold = 0.3  # hard mode: suppress alert if win_rate < this
+fee_pct = 0.0005        # taker fee applied to inline backtest (falls back to top-level fee_pct)
 
 [smt_pairs]
 BTCUSDT = "ETHUSDT"     # primary → secondary for smt_divergence strategy
 ETHUSDT = "BTCUSDT"
 SOLUSDT = "ETHUSDT"
 ```
+
+The inline backtest (computed each scan cycle per firing signal) respects all config values:
+`fee_pct`, `day_filter`, `sl_pct`, and `cooldown_seconds` are now all read from TOML and
+applied correctly — results stored in `backtest_runs` match what the live filter uses.
 
 **Example alert (Telegram, soft mode):**
 
@@ -626,7 +633,17 @@ make buibui-backtest SYMBOL=BTCUSDT STRATEGY=bos SAVE=1      # Single-combo + pe
 ```
 
 Defaults: `SYMBOL=BTCUSDT`, `STRATEGY=fvg`, `INTERVAL=4h`, `DAYS=90`.
-Optional overrides: `SL_PCT`, `TP_R`, `SECONDARY` (required for `smt_divergence`), `SAVE=1` (persist to DB).
+Optional overrides: `SL_PCT`, `TP_R`, `FEE_PCT`, `SECONDARY` (required for `smt_divergence`), `SAVE=1` (persist to DB).
+
+To populate both `day_filter` variants for complete coverage:
+
+```bash
+# day_filter = false
+poetry run python buibui.py backtest --config config/signal_watch.toml --save
+
+# day_filter = true
+poetry run python buibui.py backtest --config config/signal_watch.toml --day-filter --save
+```
 
 **Persisting results for confidence score recalibration:**
 
