@@ -36,7 +36,7 @@ make lint-md
   - `live_price.py` — WebSocket + Rich live mode for price monitor
   - `live_position.py` — WebSocket + Rich live mode for position monitor
 - `analytics/` — analytics data layer (DuckDB-backed):
-  - `data_store.py` — pure DB lib: schema init, upsert (ohlcv/funding/OI/signals), range queries; `upsert_signals(conn, df)` persists fired signals; `get_signals_history(conn, symbol, tf, start_ms, end_ms)` reads them back
+  - `data_store.py` — pure DB lib: schema init, upsert (ohlcv/funding/OI/signals/backtest), range queries; `upsert_signals(conn, df)` persists fired signals; `get_signals_history(conn, symbol, tf, start_ms, end_ms)` reads them back; `list_backtest_runs(conn)` returns all saved runs newest-first; `upsert_backtest_run` / `upsert_backtest_trades` persist backtest results
   - `data_fetcher.py` — pure fetch lib: Binance Futures API → DataFrames (no DB concerns)
   - `data_sync.py` — pure orchestration: paginated backfill + incremental sync
   - `analytics_runner.py` — thin wrapper: creates client, opens DB, calls sync lib
@@ -62,8 +62,8 @@ make lint-md
   - `live_store.py` — shared in-memory store for live WebSocket data
   - `live_loop.py` — shared Rich live display loop logic
 - `web/` — web layer (Phase 4 + 5):
-  - `api/` — FastAPI backend: `main.py` (app + StaticFiles mount), `deps.py` (`require_token`, `require_token_sse` for SSE query-param auth), `routers/` (config, ohlcv, fib, signals, backtest, positions, prices, stream), `models/` (Pydantic models for each router)
-  - `ui/` — Svelte 5 + Vite frontend: `src/api.ts` (typed client), `src/stores/` (config, strategies, prices SSE, positions SSE), `src/pages/` (Chart, Backtest, SignalFeed, Positions, Prices), `src/components/` (Nav, CandleChart, BacktestResult, …). Build: `make web-build` → `web/ui/dist/` served by FastAPI StaticFiles.
+  - `api/` — FastAPI backend: `main.py` (app + StaticFiles mount), `deps.py` (`require_token`, `require_token_sse` for SSE query-param auth), `routers/` (config, ohlcv, fib, signals, backtest, positions, prices, stream), `models/` (Pydantic models for each router); backtest router exposes `GET /api/backtest/runs` (all saved runs) and `POST /api/backtest` (run + auto-save); `BacktestRunSummary` has a `@field_validator` to coerce pandas NaN → None for nullable TEXT columns
+  - `ui/` — Svelte 5 + Vite frontend: `src/api.ts` (typed client), `src/stores/` (config, strategies, prices SSE, positions SSE), `src/pages/` (Chart, Backtest, SignalFeed, Positions, Prices), `src/components/` (Nav, CandleChart, BacktestResult, …). Build: `make web-build` → `web/ui/dist/` served by FastAPI StaticFiles. Backtest page: DB-backed sortable/filterable table loads on mount; collapsible run form; stars from `strategiesStore.confidence`.
 - `tests/` — pytest suite; tests import from lib modules and pass mock dependencies directly
 - `config/coins.json` — per-symbol leverage and stop-loss config
 
