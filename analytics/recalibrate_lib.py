@@ -3,6 +3,9 @@
 No module-level side effects. No DB writes. No network calls.
 """
 
+import re
+from pathlib import Path
+
 import duckdb
 import pandas as pd
 
@@ -162,3 +165,43 @@ def format_recalibration_report(
         lines.append(f"\n  Strategies that would change: {', '.join(changed)}")
 
     return "\n".join(lines)
+
+
+def write_confidence_to_source(
+    updates: dict[str, int],
+    source_path: Path,
+) -> list[str]:
+    """Patch confidence=N values in indicators_lib.py for each strategy in updates.
+
+    Finds each StrategySpec block by strategy key and replaces its confidence value.
+    Returns a list of strategy names that were successfully patched.
+
+    The pattern matched per strategy:
+        "strategy_name": StrategySpec(
+            ...
+            confidence=N,   ← this line is replaced
+    """
+    content = source_path.read_text()
+    patched: list[str] = []
+
+    for strategy, stars in updates.items():
+        # Match the StrategySpec block for this strategy key, then find confidence=N
+        # Uses a two-step approach: locate the block start, then replace within it
+        pattern = re.compile(
+            r'("' + re.escape(strategy) + r'":\s*StrategySpec\(.*?)'
+            r"(confidence=)\d+",
+            re.DOTALL,
+        )
+
+        def _replacer(m: re.Match[str], _stars: int = stars) -> str:
+            return m.group(1) + m.group(2) + str(_stars)
+
+        new_content, count = pattern.subn(_replacer, content)
+        if count:
+            content = new_content
+            patched.append(strategy)
+
+    if patched:
+        source_path.write_text(content)
+
+    return patched
