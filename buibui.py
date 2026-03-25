@@ -83,6 +83,9 @@ def run_backtest(args: argparse.Namespace) -> None:
         sl_pct=args.sl_pct,
         tp_r=args.tp_r,
         fee_pct=args.fee_pct,
+        min_sl_pct=args.min_sl_pct
+        if hasattr(args, "min_sl_pct") and args.min_sl_pct is not None
+        else 0.0,
         secondary_symbol=args.secondary_symbol,
         save_results=args.save,
     )

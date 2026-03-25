@@ -22,6 +22,7 @@ class BacktestSweepConfig:
     sl_pct: float = 0.02
     tp_r: float = 2.0
     fee_pct: float = 0.0
+    min_sl_pct: float = 0.0
     min_trades: int = 20
     # Per-symbol SMT secondary map: {"BTCUSDT": "ETHUSDT", ...}
     smt_pairs: dict[str, str] = field(default_factory=dict)
@@ -58,6 +59,7 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
         sl_pct=float(data.get("sl_pct", 0.02)),
         tp_r=float(data.get("tp_r", 2.0)),
         fee_pct=float(data.get("fee_pct", 0.0)),
+        min_sl_pct=float(data.get("min_sl_pct", 0.0)),
         min_trades=int(data.get("min_trades", 20)),
         smt_pairs=smt_pairs,
         day_filter=bool(data.get("day_filter", False)),

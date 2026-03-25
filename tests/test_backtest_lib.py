@@ -429,6 +429,87 @@ class TestRunBacktestStructuralSL:
 
 
 # ---------------------------------------------------------------------------
+# min_sl_pct — structural SL widening
+# ---------------------------------------------------------------------------
+
+
+class TestMinSlPct:
+    def test_tight_sl_widened_for_long(self) -> None:
+        """min_sl_pct widens a structural SL that lands too close to entry."""
+        # Entry open=100, structural sl=99.9 (0.1% away), min_sl_pct=0.01 → SL at 99
+        # Candle 2: low=98 → hits widened SL at 99 → loss
+        ohlcv = _make_ohlcv(
+            [
+                _candle(_BASE_TIME + 0, 100, 105, 99, 102),
+                _candle(_BASE_TIME + 1, 100, 101, 99, 100),
+                _candle(_BASE_TIME + 2, 99, 100, 97, 98),
+            ]
+        )
+        signals = _make_signals_with_sl(
+            [
+                {
+                    "open_time": _BASE_TIME + 0,
+                    "direction": "long",
+                    "reason": "test",
+                    "sl_price": 99.9,
+                }
+            ]
+        )
+        result = run_backtest(ohlcv, signals, "BTCUSDT", "4h", "fvg", min_sl_pct=0.01)
+        assert result.trades[0].sl_price == pytest.approx(99.0)
+        assert result.trades[0].outcome == "loss"
+
+    def test_tight_sl_widened_for_short(self) -> None:
+        """min_sl_pct widens a structural SL above entry for a short."""
+        # Entry open=100, structural sl=100.1 (0.1% above), min_sl_pct=0.01 → SL at 101
+        # Candle 2: high=102 → hits widened SL at 101 → loss
+        ohlcv = _make_ohlcv(
+            [
+                _candle(_BASE_TIME + 0, 100, 105, 99, 102),
+                _candle(_BASE_TIME + 1, 100, 101, 99, 100),
+                _candle(_BASE_TIME + 2, 99, 102, 97, 98),
+            ]
+        )
+        signals = _make_signals_with_sl(
+            [
+                {
+                    "open_time": _BASE_TIME + 0,
+                    "direction": "short",
+                    "reason": "test",
+                    "sl_price": 100.1,
+                }
+            ]
+        )
+        result = run_backtest(ohlcv, signals, "BTCUSDT", "4h", "fvg", min_sl_pct=0.01)
+        assert result.trades[0].sl_price == pytest.approx(101.0)
+        assert result.trades[0].outcome == "loss"
+
+    def test_wide_sl_not_affected(self) -> None:
+        """Structural SL already wider than min_sl_pct is left unchanged."""
+        # Entry=100, sl=95 (5% away), min_sl_pct=0.01 → sl stays at 95
+        ohlcv = _make_ohlcv(
+            [
+                _candle(_BASE_TIME + 0, 100, 105, 99, 102),
+                _candle(_BASE_TIME + 1, 100, 110, 90, 108),
+            ]
+        )
+        signals = _make_signals_with_sl(
+            [
+                {
+                    "open_time": _BASE_TIME + 0,
+                    "direction": "long",
+                    "reason": "test",
+                    "sl_price": 95.0,
+                }
+            ]
+        )
+        result = run_backtest(
+            ohlcv, signals, "BTCUSDT", "4h", "fvg", tp_r=2.0, min_sl_pct=0.01
+        )
+        assert result.trades[0].sl_price == pytest.approx(95.0)
+
+
+# ---------------------------------------------------------------------------
 # fee_pct — Trade.pnl_r with fees
 # ---------------------------------------------------------------------------
 

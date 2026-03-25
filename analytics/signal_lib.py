@@ -69,6 +69,7 @@ def _compute_backtest(
     tp_r: float,
     fee_pct: float = 0.0,
     day_filter: bool = False,
+    min_sl_pct: float = 0.0,
 ) -> BacktestResult | None:
     """Run strategy detector on ohlcv[:-1] and backtest the resulting signals.
 
@@ -113,6 +114,7 @@ def _compute_backtest(
         sl_pct=sl_pct,
         tp_r=tp_r,
         fee_pct=fee_pct,
+        min_sl_pct=min_sl_pct,
     )
 
 
@@ -444,6 +446,7 @@ def run_scan_cycle(
                             tp_r=tp_r,
                             fee_pct=backtest_cfg.fee_pct,
                             day_filter=day_filter,
+                            min_sl_pct=backtest_cfg.min_sl_pct,
                         )
                     bt_results[event.strategy] = bt_cache[bt_key]
 
