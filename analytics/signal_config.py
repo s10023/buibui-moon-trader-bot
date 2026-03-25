@@ -26,6 +26,8 @@ class BacktestFilterConfig:
     filter_threshold: float = 0.45
     # Persist computed backtest results to backtest_runs table (default on)
     save_results: bool = True
+    # Taker fee per leg (e.g. 0.0005 = 0.05%); applied to each backtest trade
+    fee_pct: float = 0.0
 
 
 @dataclass
@@ -86,6 +88,8 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         min_trades=int(raw_bt.get("min_trades", 20)),
         filter_threshold=float(raw_bt.get("filter_threshold", 0.45)),
         save_results=bool(raw_bt.get("save_results", True)),
+        # [backtest].fee_pct takes precedence; falls back to top-level fee_pct
+        fee_pct=float(raw_bt.get("fee_pct", data.get("fee_pct", 0.0))),
     )
 
     return SignalWatchConfig(
