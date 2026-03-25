@@ -341,26 +341,26 @@ poetry run python buibui.py backtest --symbols BTCUSDT ETHUSDT --timeframes 1h 4
 
 | Strategy | Description | Confidence |
 | --- | --- | --- |
-| `smt_divergence` | Two correlated assets diverge at a swing high/low | ★★★★★ |
-| `fvg` | Fair Value Gap — 3-candle imbalance zone fill | ★★★★☆ |
-| `liquidity_sweep` | Wick through a swing high/low with close back inside | ★★★★☆ |
-| `eqh_eql` | Equal Highs/Lows: liquidity sweep of a double-top or double-bottom level | ★★★★☆ |
-| `funding_reversion` | Extreme positive/negative funding rate → contrarian signal | ★★★★☆ |
-| `cvd_divergence` | CVD Divergence — price and buying pressure disagree at a swing extreme | ★★★★☆ |
-| `order_block` | ICT Order Block — last up/down candle before displacement; entry on retest | ★★★★☆ |
-| `orb` | Opening Range Breakout at NY session open (13:00 UTC) | ★★★☆☆ |
-| `bos` | Break of Structure / Change of Character (BOS/CHoCH) | ★★★☆☆ |
-| `wick_fill` | Price revisits a significant wick zone | ★★☆☆☆ |
-| `marubozu` | Retest of a wickless candle's open price (order block) | ★★☆☆☆ |
-| `trend_day` | Trend Day: candle opens near one extreme, closes near the other (large body, tiny leading wick) — **4h/1d only** | ★★★☆☆ |
+| `smt_divergence` | Two correlated assets diverge at a swing high/low | ★☆☆☆☆ |
+| `fvg` | Fair Value Gap — 3-candle imbalance zone fill | ★☆☆☆☆ |
+| `liquidity_sweep` | Wick through a swing high/low with close back inside | ★☆☆☆☆ |
+| `eqh_eql` | Equal Highs/Lows: liquidity sweep of a double-top or double-bottom level | ★☆☆☆☆ |
+| `funding_reversion` | Extreme positive/negative funding rate → contrarian signal | ★☆☆☆☆ |
+| `cvd_divergence` | CVD Divergence — price and buying pressure disagree at a swing extreme | ★☆☆☆☆ |
+| `order_block` | ICT Order Block — last up/down candle before displacement; entry on retest | ★★★☆☆ |
+| `orb` | Opening Range Breakout — first 2 candles of UTC day form the range; breakout enters | ★☆☆☆☆ |
+| `bos` | Break of Structure / Change of Character (BOS/CHoCH) | ★★☆☆☆ |
+| `wick_fill` | Price revisits a significant wick zone | ★☆☆☆☆ |
+| `marubozu` | Retest of a wickless candle's open price (order block) | ★☆☆☆☆ |
+| `trend_day` | Trend Day: candle opens near one extreme, closes near the other (large body, tiny leading wick) — **4h/1d only** | ★☆☆☆☆ |
 | `engulfing` | Bullish/Bearish Engulfing: current candle body fully engulfs the prior candle body | ★★☆☆☆ |
 | `pin_bar` | Pin Bar: small body with a long rejection wick (≥2× body) | ★★☆☆☆ |
 | `inside_bar` | Inside Bar breakout: body contained within prior candle, signal on breakout close | ★★☆☆☆ |
-| `hammer_hanging_man` | Hammer (bullish reversal) / Hanging Man (bearish): pin-bar shape with trend context | ★★☆☆☆ |
+| `hammer_hanging_man` | Hammer (bullish reversal) / Hanging Man (bearish): pin-bar shape with trend context | ★☆☆☆☆ |
 | `doji` | Doji (open ≈ close) followed by a strongly directional confirmation candle | ★★☆☆☆ |
-| `morning_evening_star` | Morning Star (3-candle bullish reversal) / Evening Star (3-candle bearish reversal) | ★★★☆☆ |
-| `fib_golden_zone` | Fibonacci golden zone (0.5–0.618) entry after confirmed BOS; SL=swing low, TP=1.618 ext | ★★★★☆ |
-| `ote_entry` | Optimal Trade Entry (0.618–0.786) after confirmed BOS — deeper, more selective retracement | ★★★★☆ |
+| `morning_evening_star` | Morning Star (3-candle bullish reversal) / Evening Star (3-candle bearish reversal) | ★★☆☆☆ |
+| `fib_golden_zone` | Fibonacci golden zone (0.5–0.618) entry after confirmed BOS; SL=swing low, TP=1.618 ext | ★☆☆☆☆ |
+| `ote_entry` | Optimal Trade Entry (0.618–0.786) after confirmed BOS — deeper, more selective retracement | ★☆☆☆☆ |
 | `seasonality` | Average return by day-of-week, hour, and week-of-month | ★★☆☆☆ |
 
 **Single-combo options:**

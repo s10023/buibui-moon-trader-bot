@@ -41,12 +41,12 @@ make lint-md
   - `data_sync.py` — pure orchestration: paginated backfill + incremental sync
   - `analytics_runner.py` — thin wrapper: creates client, opens DB, calls sync lib
   - `indicators_lib.py` — pure strategy signal detection (21 active strategies: seasonality, wick_fill, marubozu, orb, liquidity_sweep, fvg, bos, funding_reversion, smt_divergence, eqh_eql, order_block, cvd_divergence, trend_day, engulfing, pin_bar, inside_bar, hammer_hanging_man, doji, morning_evening_star, fib_golden_zone, ote_entry); `fibonacci_retracement` is legacy/commented-out (superseded by `fib_golden_zone`); also exports `ParamSpec`, `StrategySpec`, `STRATEGY_REGISTRY`, `DETECTOR_REGISTRY`, `KNOWN_STRATEGIES`
-  - `backtest_lib.py` — pure backtest engine: Trade, BacktestResult, run_backtest, format helpers
+  - `backtest_lib.py` — pure backtest engine: Trade, BacktestResult, run_backtest, format helpers; fee drag uses actual trade risk (`2 * fee_pct * entry / risk`); `min_sl_pct` widens structural SLs that land too close to entry (prevents fee-drag explosion)
   - `backtest_runner.py` — thin wrapper: opens DB, loads OHLCV/funding, calls indicator + backtest libs
-  - `signal_lib.py` — pure scan lib: `scan_symbol()` (runs strategies on one symbol/tf), `run_scan_cycle()` (fans out, deduplicates, sends Telegram, persists passing signals to DB via `upsert_signals`); `_compute_backtest()` respects `fee_pct` and `day_filter` from `BacktestFilterConfig`
+  - `signal_lib.py` — pure scan lib: `scan_symbol()` (runs strategies on one symbol/tf), `run_scan_cycle()` (fans out, deduplicates, sends Telegram, persists passing signals to DB via `upsert_signals`); `_compute_backtest()` respects `fee_pct`, `day_filter`, and `min_sl_pct` from `BacktestFilterConfig`
   - `signal_runner.py` — thin wrapper: creates client, opens DB, syncs candles, polls `run_scan_cycle` in a loop; all TOML params (`sl_pct`, `cooldown_seconds`, `fee_pct`, `day_filter`) are wired through
-  - `signal_config.py` — `BacktestFilterConfig` (includes `fee_pct`; loaded from `[backtest].fee_pct` falling back to top-level `fee_pct`) + `SignalWatchConfig` + `load_signal_config()`
-  - `backtest_config.py` — `BacktestSweepConfig` + `load_backtest_config()` — TOML config loading for sweep mode; supports `--day-filter` CLI flag
+  - `signal_config.py` — `BacktestFilterConfig` (includes `fee_pct` and `min_sl_pct`; each loaded from `[backtest].*` falling back to top-level) + `SignalWatchConfig` + `load_signal_config()`
+  - `backtest_config.py` — `BacktestSweepConfig` (includes `min_sl_pct`) + `load_backtest_config()` — TOML config loading for sweep mode; supports `--day-filter` CLI flag
   - `recalibrate_lib.py` — pure recalibration lib: `get_backtest_win_rates(conn)`, `win_rate_to_stars(avg_r, total_trades)`, `compute_recalibrated_ratings(conn, min_trades)`, `format_recalibration_report(old, new, win_rates)`; reads `backtest_runs` table, maps avg R → 1–5 stars
   - `recalibrate_runner.py` — thin wrapper: opens DB, calls lib, prints diff report; `--dry-run` (default) / `--apply` writes updated `confidence=N` values directly into `indicators_lib.py` source (persists across restarts — no in-memory-only patch); wired as `buibui.py recalibrate` subcommand and `make buibui-recalibrate`
 - `signals/` — signal detection daemon package:
