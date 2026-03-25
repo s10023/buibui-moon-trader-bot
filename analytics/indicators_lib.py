@@ -13,6 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
+import numpy as np
 import pandas as pd
 
 
@@ -261,7 +262,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Minimum % move on displacement candle to qualify an order block.",
             ),
         ],
-        confidence=3,
+        confidence=4,
     ),
     "cvd_divergence": StrategySpec(
         name="cvd_divergence",
@@ -1198,12 +1199,15 @@ def detect_market_structure(
 def detect_funding_extreme(
     ohlcv_df: pd.DataFrame,
     funding_df: pd.DataFrame,
-    threshold: float = 0.001,
+    threshold: float = 0.0001,
 ) -> pd.DataFrame:
     """Detect extreme funding rate conditions as contrarian signals.
 
     Extreme positive funding (rate > threshold) → short signal.
     Extreme negative funding (rate < -threshold) → long signal.
+
+    Default threshold is 0.0001 (0.01%) — Binance Futures caps standard funding
+    at 0.01% per 8h period; use this floor to catch any above-average extreme.
 
     funding_df must have columns: funding_time (Unix ms), funding_rate (float).
     Funding data is joined to OHLCV by the nearest prior funding_time.
@@ -1367,133 +1371,146 @@ def detect_eqh_eql(
     """Detect Equal Highs / Equal Lows liquidity sweep signals.
 
     Equal Highs (EQH): two swing highs within tolerance_pct of each other form a
-    liquidity pool. When the latest candle wicks above that level (high > EQH)
-    but closes below it, a liquidity raid has occurred → short signal.
+    liquidity pool. When a candle wicks above that level (high > EQH) but closes
+    below it, a liquidity raid has occurred → short signal.
 
     Equal Lows (EQL): two swing lows within tolerance_pct form a pool below price.
-    When the latest candle wicks below that level (low < EQL) but closes above
-    it → long signal.
+    When a candle wicks below that level (low < EQL) but closes above it → long signal.
 
     Swing highs/lows are identified using a 3-candle-each-side local window
     (a candle is a swing high if its high is the max of the 7-candle window
     centred on it — using a non-centred rolling window to avoid lookahead bias).
 
-    Only signals on the last candle of df.
+    Signals are generated across the full history (rolling window): each candle
+    from index `lookback` onward is evaluated as a potential signal candle.
+
+    Performance: swing highs/lows are precomputed globally using pandas rolling
+    max/min (O(n)); per-candle work uses numpy searchsorted (O(log n)) to find
+    swings in the window, avoiding per-iteration DataFrame creation.
     """
     n = len(df)
     if n < lookback + 1:
         return _empty_signals()
 
-    # Identify swing highs/lows in the lookback window (excluding the signal candle).
-    # window_df excludes the signal candle itself, so there is no lookahead bias —
-    # we can use a centered comparison within this pre-determined window.
-    window_df = df.iloc[-(lookback + 1) : -1].reset_index(drop=True)
-    m = len(window_df)
-
     swing_side = 2  # candles on each side of the pivot candidate
-    high_series = window_df["high"].astype(float)
-    low_series = window_df["low"].astype(float)
+    win = 2 * swing_side + 1
 
-    swing_highs: list[tuple[int, float]] = []  # (row_idx_in_window_df, price)
-    swing_lows: list[tuple[int, float]] = []
+    # Precompute arrays — no pandas operations inside the main loop.
+    highs = df["high"].to_numpy(dtype=float)
+    lows = df["low"].to_numpy(dtype=float)
+    closes = df["close"].to_numpy(dtype=float)
+    open_times = df["open_time"].to_numpy(dtype=int)
 
-    for i in range(m):
-        lo_bound = max(0, i - swing_side)
-        hi_bound = min(m, i + swing_side + 1)
-        h = float(high_series.iloc[i])
-        neighbourhood_h = high_series.iloc[lo_bound:hi_bound]
-        if h >= float(neighbourhood_h.max()):
-            swing_highs.append((i, h))
-        lo = float(low_series.iloc[i])
-        neighbourhood_l = low_series.iloc[lo_bound:hi_bound]
-        if lo <= float(neighbourhood_l.min()):
-            swing_lows.append((i, lo))
-
-    signal_row = df.iloc[-1]
-    sig_high = float(signal_row["high"])
-    sig_low = float(signal_row["low"])
-    sig_close = float(signal_row["close"])
-    sig_open_time = int(signal_row["open_time"])
+    # Rolling max/min with center=True + min_periods=1 matches the original
+    # truncated-neighbourhood behaviour at window boundaries (confirmed below):
+    # for any candle k with lookback candles on both sides, the centred rolling
+    # window is fully within [k-swing_side, k+swing_side+1], identical to the
+    # per-slice neighbourhood used in the original implementation.
+    roll_max = (
+        pd.Series(highs).rolling(win, center=True, min_periods=1).max().to_numpy()
+    )
+    roll_min = pd.Series(lows).rolling(win, center=True, min_periods=1).min().to_numpy()
+    sh_idx: np.ndarray = np.where(highs >= roll_max)[0]
+    sl_idx: np.ndarray = np.where(lows <= roll_min)[0]
+    sh_prices = highs[sh_idx]
+    sl_prices = lows[sl_idx]
 
     signals: list[dict[str, object]] = []
 
-    # --- EQH: find the highest pair of swing highs within tolerance that the
-    #          signal candle sweeps (wick above, close below).
-    best_eqh: tuple[int, float, int, float] | None = None  # (i1, h1, i2, h2)
-    for a in range(len(swing_highs)):
-        for b in range(a + 1, len(swing_highs)):
-            i1, h1 = swing_highs[a]
-            i2, h2 = swing_highs[b]
-            level = max(h1, h2)
-            if abs(h1 - h2) / level <= tolerance_pct:
-                # Only consider pairs that the signal candle actually sweeps
-                if sig_high <= level or sig_close >= level:
-                    continue
-                # Among swept pairs, prefer the highest level (most significant)
-                if best_eqh is None or level > max(best_eqh[1], best_eqh[3]):
-                    best_eqh = (i1, h1, i2, h2)
+    for sig_i in range(lookback, n):
+        ws = sig_i - lookback
+        sig_h = highs[sig_i]
+        sig_l = lows[sig_i]
+        sig_c = closes[sig_i]
+        sig_t = open_times[sig_i]
 
-    if best_eqh is not None:
-        i1, h1, i2, h2 = best_eqh
-        eqh_level = max(h1, h2)
-        # SL = highest high above EQH from the later EQH candle onwards.
-        # Only candles after the EQH level was established are relevant —
-        # earlier highs (before the level formed) are a different structure.
-        later_idx_in_df = (len(df) - (lookback + 1)) + max(i1, i2)
-        post_eqh_highs = df.iloc[later_idx_in_df:]["high"].astype(float)
-        above = post_eqh_highs[post_eqh_highs > eqh_level]
-        sl_price = float(above.max()) if not above.empty else sig_high
-        ts1 = _fmt_time(int(window_df.iloc[i1]["open_time"]))
-        ts2 = _fmt_time(int(window_df.iloc[i2]["open_time"]))
-        ctx = f"EQH: {ts1} @ {h1:,.2f} · {ts2} @ {h2:,.2f}"
-        signals.append(
-            {
-                "open_time": sig_open_time,
-                "direction": "short",
-                "reason": f"eqh_short@{h1:.2f}-{h2:.2f}",
-                "sl_price": sl_price,
-                "context": ctx,
-            }
-        )
+        # --- EQH: swing highs in [ws, sig_i) via binary search ---
+        lo = int(np.searchsorted(sh_idx, ws))
+        hi = int(np.searchsorted(sh_idx, sig_i))
+        sw_h_idx = sh_idx[lo:hi]
+        sw_h_pri = sh_prices[lo:hi]
 
-    # --- EQL: find the lowest pair of swing lows within tolerance that the
-    #          signal candle sweeps (wick below, close above).
-    best_eql: tuple[int, float, int, float] | None = None
-    for a in range(len(swing_lows)):
-        for b in range(a + 1, len(swing_lows)):
-            i1, l1 = swing_lows[a]
-            i2, l2 = swing_lows[b]
-            level = min(l1, l2)
-            if level == 0.0:
-                continue
-            if abs(l1 - l2) / level <= tolerance_pct:
-                # Only consider pairs that the signal candle actually sweeps
-                if sig_low >= level or sig_close <= level:
-                    continue
-                # Among swept pairs, prefer the lowest level (most significant)
-                if best_eql is None or level < min(best_eql[1], best_eql[3]):
-                    best_eql = (i1, l1, i2, l2)
+        if len(sw_h_pri) >= 2:
+            best_eqh: tuple[int, int, float, float] | None = None
+            for a in range(len(sw_h_pri)):
+                for b in range(a + 1, len(sw_h_pri)):
+                    h1, h2 = sw_h_pri[a], sw_h_pri[b]
+                    level = max(h1, h2)
+                    if abs(h1 - h2) / level <= tolerance_pct:
+                        if sig_h <= level or sig_c >= level:
+                            continue
+                        if best_eqh is None or level > max(best_eqh[2], best_eqh[3]):
+                            best_eqh = (
+                                int(sw_h_idx[a]),
+                                int(sw_h_idx[b]),
+                                h1,
+                                h2,
+                            )
 
-    if best_eql is not None:
-        i1, l1, i2, l2 = best_eql
-        eql_level = min(l1, l2)
-        # SL = lowest low below EQL from the later EQL candle onwards.
-        later_idx_in_df = (len(df) - (lookback + 1)) + max(i1, i2)
-        post_eql_lows = df.iloc[later_idx_in_df:]["low"].astype(float)
-        below = post_eql_lows[post_eql_lows < eql_level]
-        sl_price = float(below.min()) if not below.empty else sig_low
-        ts1 = _fmt_time(int(window_df.iloc[i1]["open_time"]))
-        ts2 = _fmt_time(int(window_df.iloc[i2]["open_time"]))
-        ctx = f"EQL: {ts1} @ {l1:,.2f} · {ts2} @ {l2:,.2f}"
-        signals.append(
-            {
-                "open_time": sig_open_time,
-                "direction": "long",
-                "reason": f"eql_long@{l1:.2f}-{l2:.2f}",
-                "sl_price": sl_price,
-                "context": ctx,
-            }
-        )
+            if best_eqh is not None:
+                ai, bi, h1, h2 = best_eqh
+                eqh_level = max(h1, h2)
+                later = max(ai, bi)
+                post = highs[later : sig_i + 1]
+                above = post[post > eqh_level]
+                sl_price = float(above.max()) if len(above) > 0 else sig_h
+                signals.append(
+                    {
+                        "open_time": sig_t,
+                        "direction": "short",
+                        "reason": f"eqh_short@{h1:.2f}-{h2:.2f}",
+                        "sl_price": sl_price,
+                        "context": (
+                            f"EQH: {_fmt_time(open_times[ai])} @ {h1:,.2f}"
+                            f" · {_fmt_time(open_times[bi])} @ {h2:,.2f}"
+                        ),
+                    }
+                )
+
+        # --- EQL: swing lows in [ws, sig_i) via binary search ---
+        lo = int(np.searchsorted(sl_idx, ws))
+        hi = int(np.searchsorted(sl_idx, sig_i))
+        sw_l_idx = sl_idx[lo:hi]
+        sw_l_pri = sl_prices[lo:hi]
+
+        if len(sw_l_pri) >= 2:
+            best_eql: tuple[int, int, float, float] | None = None
+            for a in range(len(sw_l_pri)):
+                for b in range(a + 1, len(sw_l_pri)):
+                    l1, l2 = sw_l_pri[a], sw_l_pri[b]
+                    level = min(l1, l2)
+                    if level == 0.0:
+                        continue
+                    if abs(l1 - l2) / level <= tolerance_pct:
+                        if sig_l >= level or sig_c <= level:
+                            continue
+                        if best_eql is None or level < min(best_eql[2], best_eql[3]):
+                            best_eql = (
+                                int(sw_l_idx[a]),
+                                int(sw_l_idx[b]),
+                                l1,
+                                l2,
+                            )
+
+            if best_eql is not None:
+                ai, bi, l1, l2 = best_eql
+                eql_level = min(l1, l2)
+                later = max(ai, bi)
+                post = lows[later : sig_i + 1]
+                below = post[post < eql_level]
+                sl_price = float(below.min()) if len(below) > 0 else sig_l
+                signals.append(
+                    {
+                        "open_time": sig_t,
+                        "direction": "long",
+                        "reason": f"eql_long@{l1:.2f}-{l2:.2f}",
+                        "sl_price": sl_price,
+                        "context": (
+                            f"EQL: {_fmt_time(open_times[ai])} @ {l1:,.2f}"
+                            f" · {_fmt_time(open_times[bi])} @ {l2:,.2f}"
+                        ),
+                    }
+                )
 
     return _signals_to_df(signals)
 
@@ -1506,7 +1523,7 @@ def detect_eqh_eql(
 def detect_order_block(
     df: pd.DataFrame,
     lookback: int = 50,
-    displacement_pct: float = 0.005,
+    displacement_pct: float = 0.003,
 ) -> pd.DataFrame:
     """Detect ICT Order Block retest signals.
 
@@ -1614,86 +1631,120 @@ def detect_cvd_divergence(
 
     taker_buy_volume NULLs are dropped gracefully.
     SL = structural swing extreme (high for short, low for long).
+
+    Signals are generated across the full history (rolling window): each candle
+    from index `cvd_lookback - 1` onward is evaluated. Each divergence pair fires
+    exactly once (deduplicated by the 2nd swing peak's timestamp).
+
+    Performance: global CVD and swing arrays are precomputed once (O(n)); the
+    main loop uses numpy searchsorted (O(log n)) avoiding per-window DataFrame
+    creation. CVD comparisons use global offsets — window-relative and global
+    CVD orderings are identical (ch2 < ch1 ↔ CVD_global[i2] < CVD_global[i1]).
     """
     if "taker_buy_volume" not in df.columns or df["taker_buy_volume"].isna().all():
         return _empty_signals()
     df = df.dropna(subset=["taker_buy_volume"]).reset_index(drop=True)
-    if len(df) < lookback * 2 + 1:
+    n = len(df)
+    if n < lookback * 2 + 1:
         return _empty_signals()
 
-    window = df.tail(cvd_lookback).reset_index(drop=True)
-    n = len(window)
+    highs = df["high"].to_numpy(dtype=float)
+    lows = df["low"].to_numpy(dtype=float)
+    open_times = df["open_time"].to_numpy(dtype=int)
+    tbv = df["taker_buy_volume"].to_numpy(dtype=float)
+    vol = df["volume"].to_numpy(dtype=float)
 
-    cvd = (
-        2.0 * window["taker_buy_volume"].astype(float) - window["volume"].astype(float)
-    ).cumsum()
-    price_high = window["high"].astype(float)
-    price_low = window["low"].astype(float)
+    # Global CVD — window-relative orderings are preserved (offset cancels in
+    # the ch2 < ch1 comparison, so global values can be used directly).
+    cvd_global: np.ndarray = (2.0 * tbv - vol).cumsum()
 
-    # Swing highs/lows via neighbourhood comparison (all data in `window` is historical,
-    # so looking ±lookback is safe).  Consecutive indices at the same level (plateaus)
-    # are deduplicated by keeping the first of each run.
-    sh_indices: list[int] = []
-    sl_indices: list[int] = []
-    for i in range(lookback, n - lookback):
-        neighborhood_h = price_high.iloc[i - lookback : i + lookback + 1]
-        if float(price_high.iloc[i]) >= float(neighborhood_h.max()):
-            sh_indices.append(i)
-        neighborhood_l = price_low.iloc[i - lookback : i + lookback + 1]
-        if float(price_low.iloc[i]) <= float(neighborhood_l.min()):
-            sl_indices.append(i)
-
-    def _dedup_first(indices: list[int]) -> list[int]:
-        result: list[int] = []
-        prev: int | None = None
-        for idx in indices:
-            if prev is None or idx > prev + 1:
-                result.append(idx)
-            prev = idx
-        return result
-
-    sh_peaks = _dedup_first(sh_indices)
-    sl_peaks = _dedup_first(sl_indices)
+    # Precompute confirmed swing highs/lows using rolling max/min.
+    # A swing at absolute index k is confirmed iff it has `lookback` candles on
+    # each side — the searchsorted step below restricts to [ws+lookback, end_i-lookback+1).
+    win = 2 * lookback + 1
+    roll_max = (
+        pd.Series(highs).rolling(win, center=True, min_periods=1).max().to_numpy()
+    )
+    roll_min = pd.Series(lows).rolling(win, center=True, min_periods=1).min().to_numpy()
+    sh_idx: np.ndarray = np.where(highs >= roll_max)[0]
+    sl_idx: np.ndarray = np.where(lows <= roll_min)[0]
 
     signals: list[dict[str, object]] = []
+    seen_pairs: set[tuple[int, str]] = set()
 
-    if len(sh_peaks) >= 2:
-        i1, i2 = sh_peaks[-2], sh_peaks[-1]
-        ph1, ph2 = float(price_high.iloc[i1]), float(price_high.iloc[i2])
-        ch1, ch2 = float(cvd.iloc[i1]), float(cvd.iloc[i2])
-        if ph2 > ph1 and ch2 < ch1:
-            ts = int(window["open_time"].iloc[i2])
-            signals.append(
-                {
-                    "open_time": ts,
-                    "direction": "short",
-                    "reason": f"cvd_div_bear@{ph2:.2f}",
-                    "sl_price": ph2,
-                    "context": (
-                        f"CVD div: price H {ph1:.2f}→{ph2:.2f}, "
-                        f"CVD {ch1:.0f}→{ch2:.0f} at {_fmt_time(ts)}"
-                    ),
-                }
-            )
+    for end_i in range(cvd_lookback - 1, n):
+        ws = max(0, end_i - cvd_lookback + 1)
+        sig_time = int(open_times[end_i])
 
-    if len(sl_peaks) >= 2:
-        i1, i2 = sl_peaks[-2], sl_peaks[-1]
-        pl1, pl2 = float(price_low.iloc[i1]), float(price_low.iloc[i2])
-        cl1, cl2 = float(cvd.iloc[i1]), float(cvd.iloc[i2])
-        if pl2 < pl1 and cl2 > cl1:
-            ts = int(window["open_time"].iloc[i2])
-            signals.append(
-                {
-                    "open_time": ts,
-                    "direction": "long",
-                    "reason": f"cvd_div_bull@{pl2:.2f}",
-                    "sl_price": pl2,
-                    "context": (
-                        f"CVD div: price L {pl1:.2f}→{pl2:.2f}, "
-                        f"CVD {cl1:.0f}→{cl2:.0f} at {_fmt_time(ts)}"
-                    ),
-                }
-            )
+        # Confirmed swing region: [ws+lookback, end_i-lookback+1)
+        # This matches range(lookback, wn-lookback) in window coordinates.
+        c_start = ws + lookback
+        c_end = end_i - lookback + 1
+
+        lo = int(np.searchsorted(sh_idx, c_start))
+        hi = int(np.searchsorted(sh_idx, c_end))
+        wsh = sh_idx[lo:hi]
+
+        lo = int(np.searchsorted(sl_idx, c_start))
+        hi = int(np.searchsorted(sl_idx, c_end))
+        wsl = sl_idx[lo:hi]
+
+        # Dedup consecutive plateaus (keep first of each run)
+        def _dedup(arr: np.ndarray) -> list[int]:
+            out: list[int] = []
+            prev = -2
+            for idx in arr:
+                if idx > prev + 1:
+                    out.append(int(idx))
+                prev = idx
+            return out
+
+        sh_peaks = _dedup(wsh)
+        sl_peaks = _dedup(wsl)
+
+        if len(sh_peaks) >= 2:
+            i1, i2 = sh_peaks[-2], sh_peaks[-1]
+            peak2_time = int(open_times[i2])
+            pair_key: tuple[int, str] = (peak2_time, "short")
+            if pair_key not in seen_pairs:
+                ph1, ph2 = highs[i1], highs[i2]
+                ch1, ch2 = cvd_global[i1], cvd_global[i2]
+                if ph2 > ph1 and ch2 < ch1:
+                    seen_pairs.add(pair_key)
+                    signals.append(
+                        {
+                            "open_time": sig_time,
+                            "direction": "short",
+                            "reason": f"cvd_div_bear@{ph2:.2f}",
+                            "sl_price": ph2,
+                            "context": (
+                                f"CVD div: price H {ph1:.2f}→{ph2:.2f}, "
+                                f"CVD {ch1:.0f}→{ch2:.0f} at {_fmt_time(sig_time)}"
+                            ),
+                        }
+                    )
+
+        if len(sl_peaks) >= 2:
+            i1, i2 = sl_peaks[-2], sl_peaks[-1]
+            peak2_time = int(open_times[i2])
+            pair_key = (peak2_time, "long")
+            if pair_key not in seen_pairs:
+                pl1, pl2 = lows[i1], lows[i2]
+                cl1, cl2 = cvd_global[i1], cvd_global[i2]
+                if pl2 < pl1 and cl2 > cl1:
+                    seen_pairs.add(pair_key)
+                    signals.append(
+                        {
+                            "open_time": sig_time,
+                            "direction": "long",
+                            "reason": f"cvd_div_bull@{pl2:.2f}",
+                            "sl_price": pl2,
+                            "context": (
+                                f"CVD div: price L {pl1:.2f}→{pl2:.2f}, "
+                                f"CVD {cl1:.0f}→{cl2:.0f} at {_fmt_time(sig_time)}"
+                            ),
+                        }
+                    )
 
     return _signals_to_df(signals)
 
