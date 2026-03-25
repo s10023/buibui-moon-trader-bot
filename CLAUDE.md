@@ -47,6 +47,8 @@ make lint-md
   - `signal_runner.py` — thin wrapper: creates client, opens DB, syncs candles, polls `run_scan_cycle` in a loop; all TOML params (`sl_pct`, `cooldown_seconds`, `fee_pct`, `day_filter`) are wired through
   - `signal_config.py` — `BacktestFilterConfig` (includes `fee_pct`; loaded from `[backtest].fee_pct` falling back to top-level `fee_pct`) + `SignalWatchConfig` + `load_signal_config()`
   - `backtest_config.py` — `BacktestSweepConfig` + `load_backtest_config()` — TOML config loading for sweep mode; supports `--day-filter` CLI flag
+  - `recalibrate_lib.py` — pure recalibration lib: `get_backtest_win_rates(conn)`, `win_rate_to_stars(avg_r, total_trades)`, `compute_recalibrated_ratings(conn, min_trades)`, `format_recalibration_report(old, new, win_rates)`; reads `backtest_runs` table, maps avg R → 1–5 stars
+  - `recalibrate_runner.py` — thin wrapper: opens DB, calls lib, prints diff report; `--dry-run` (default) / `--apply` patches `STRATEGY_REGISTRY` confidence values in-memory via `patch_confidence_scores()`; wired as `buibui.py recalibrate` subcommand and `make buibui-recalibrate`
 - `signals/` — signal detection daemon package:
   - `registry.py` — `SignalPlugin` TypedDict + `SIGNAL_REGISTRY` (20 actionable strategies; seasonality + legacy fibonacci_retracement excluded)
   - `cooldown_store.py` — two-layer dedup: candle watermark per `(symbol, tf, strategy)` + cooldown timer per `(symbol, strategy, direction)`; JSON-persisted to `signal_state.json`
