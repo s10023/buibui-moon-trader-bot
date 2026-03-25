@@ -64,7 +64,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Candles to watch for wick zone fill after the signal candle.",
             ),
         ],
-        confidence=2,
+        confidence=1,
     ),
     "marubozu": StrategySpec(
         name="marubozu",
@@ -95,7 +95,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Minimum body size as fraction of open price to qualify as a Marubozu.",
             ),
         ],
-        confidence=2,
+        confidence=1,
     ),
     "orb": StrategySpec(
         name="orb",
@@ -110,7 +110,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "UTC hour of the session open candle (default 13 = NY open).",
             ),
         ],
-        confidence=3,
+        confidence=1,
     ),
     "liquidity_sweep": StrategySpec(
         name="liquidity_sweep",
@@ -125,7 +125,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Rolling window size for swing high/low detection.",
             ),
         ],
-        confidence=4,
+        confidence=1,
     ),
     "fvg": StrategySpec(
         name="fvg",
@@ -148,7 +148,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Minimum gap size as fraction of midpoint price (0.001 = 0.1%); filters noise.",
             ),
         ],
-        confidence=4,
+        confidence=1,
     ),
     "bos": StrategySpec(
         name="bos",
@@ -171,7 +171,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Minimum price range (fraction) a swing level must span to qualify for BOS/CHoCH.",
             ),
         ],
-        confidence=3,
+        confidence=2,
     ),
     "funding_reversion": StrategySpec(
         name="funding_reversion",
@@ -211,7 +211,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
             ),
         ],
         requires_secondary=True,
-        confidence=5,
+        confidence=1,
     ),
     "eqh_eql": StrategySpec(
         name="eqh_eql",
@@ -303,7 +303,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Maximum wick-to-range ratio for the wick in the trend direction (leading wick).",
             ),
         ],
-        confidence=3,
+        confidence=1,
     ),
     "engulfing": StrategySpec(
         name="engulfing",
@@ -419,7 +419,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance.",
             ),
         ],
-        confidence=2,
+        confidence=1,
     ),
     "doji": StrategySpec(
         name="doji",
@@ -489,7 +489,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance.",
             ),
         ],
-        confidence=3,
+        confidence=2,
     ),
     # Legacy — superseded by fib_golden_zone (adds BOS confirmation, better SL/TP structure).
     # Uncomment to re-enable for backtest comparison.
@@ -526,7 +526,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Rolling window half-size for BOS swing detection.",
             ),
         ],
-        confidence=4,
+        confidence=1,
     ),
     "ote_entry": StrategySpec(
         name="ote_entry",
