@@ -18,6 +18,7 @@ docs/plans/
 # DuckDB data files
 *.db
 *.db.wal
+*.db.bak
 
 # Signal daemon runtime state
 signal_state.json
