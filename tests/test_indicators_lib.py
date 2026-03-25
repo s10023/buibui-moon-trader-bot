@@ -195,50 +195,131 @@ class TestDetectMarubozuRetest:
 
 
 class TestDetectOrbBreakout:
-    def test_returns_empty_on_single_candle(self) -> None:
-        df = _make_ohlcv([_candle(_hourly_ts(13), 100, 110, 90, 105)])
+    """Tests for the 00:00 UTC daily-anchor ORB implementation.
+
+    _hourly_ts(N) returns 2024-01-01 00:00 UTC + N hours, so all offsets
+    0–23 fall on the same calendar day (2024-01-01).  Offsets 24+ land on
+    2024-01-02 and are used for multi-day / dedup tests.
+    """
+
+    def test_returns_empty_when_too_few_candles(self) -> None:
+        # Only 2 candles total — range_candles=2 consumes both, leaving none to check.
+        rows = [
+            _candle(_hourly_ts(0), 100, 110, 90, 105),
+            _candle(_hourly_ts(1), 102, 112, 95, 108),
+        ]
+        df = _make_ohlcv(rows)
         assert detect_orb_breakout(df).empty
 
-    def test_detects_long_breakout(self) -> None:
+    def test_range_built_from_first_two_candles(self) -> None:
+        # Candles at 00:00 and 01:00 define the range [88, 115].
+        # Candle at 02:00 closes at 116 → long breakout above 115.
         rows = [
-            _candle(
-                _hourly_ts(13), 100, 110, 90, 105
-            ),  # session candle: range [90, 110]
-            _candle(_hourly_ts(14), 111, 120, 108, 115),  # close=115 > 110 → long
+            _candle(_hourly_ts(0), 100, 110, 90, 105),  # high=110
+            _candle(_hourly_ts(1), 105, 115, 88, 108),  # high=115, low=88
+            _candle(_hourly_ts(2), 116, 120, 113, 116),  # close=116 > 115 → long
         ]
         df = _make_ohlcv(rows)
-        result = detect_orb_breakout(df, session_hour_utc=13)
+        result = detect_orb_breakout(df, range_candles=2)
         assert len(result) == 1
         assert result.iloc[0]["direction"] == "long"
-        assert result.iloc[0]["open_time"] == _hourly_ts(14)
+        assert result.iloc[0]["open_time"] == _hourly_ts(2)
+        # SL should be range_low = 88
+        assert float(result.iloc[0]["sl_price"]) == pytest.approx(88.0)
+
+    def test_detects_long_breakout(self) -> None:
+        # Range from candles 0–1: high=110, low=88.
+        # Candle at hour 2 closes above range high.
+        rows = [
+            _candle(_hourly_ts(0), 100, 110, 90, 105),
+            _candle(_hourly_ts(1), 104, 108, 88, 106),
+            _candle(_hourly_ts(2), 111, 120, 108, 115),  # close=115 > 110 → long
+        ]
+        df = _make_ohlcv(rows)
+        result = detect_orb_breakout(df, range_candles=2)
+        assert len(result) == 1
+        assert result.iloc[0]["direction"] == "long"
+        assert result.iloc[0]["open_time"] == _hourly_ts(2)
 
     def test_detects_short_breakout(self) -> None:
+        # Range: high=110, low=88.  Candle 2 closes below range low.
         rows = [
-            _candle(_hourly_ts(13), 100, 110, 90, 105),  # range [90, 110]
-            _candle(_hourly_ts(14), 89, 92, 80, 85),  # close=85 < 90 → short
+            _candle(_hourly_ts(0), 100, 110, 90, 105),
+            _candle(_hourly_ts(1), 104, 108, 88, 100),
+            _candle(_hourly_ts(2), 89, 92, 80, 85),  # close=85 < 88 → short
         ]
         df = _make_ohlcv(rows)
-        result = detect_orb_breakout(df, session_hour_utc=13)
+        result = detect_orb_breakout(df, range_candles=2)
         assert len(result) == 1
         assert result.iloc[0]["direction"] == "short"
+        # SL should be range_high = 110
+        assert float(result.iloc[0]["sl_price"]) == pytest.approx(110.0)
 
     def test_no_signal_when_close_inside_range(self) -> None:
+        # Range: [88, 110].  All subsequent candles stay inside.
         rows = [
-            _candle(_hourly_ts(13), 100, 110, 90, 105),
-            _candle(_hourly_ts(14), 103, 108, 95, 103),  # close=103 inside [90,110]
+            _candle(_hourly_ts(0), 100, 110, 90, 105),
+            _candle(_hourly_ts(1), 104, 108, 88, 100),
+            _candle(_hourly_ts(2), 103, 109, 89, 103),  # inside [88, 110]
+            _candle(_hourly_ts(3), 100, 107, 91, 101),  # inside [88, 110]
         ]
         df = _make_ohlcv(rows)
-        result = detect_orb_breakout(df, session_hour_utc=13)
+        result = detect_orb_breakout(df, range_candles=2)
         assert result.empty
 
-    def test_no_signal_when_no_session_candle(self) -> None:
+    def test_no_duplicate_signal_same_day_same_direction(self) -> None:
+        # Two candles both break above range_high on the same day.
+        # Only the first should produce a signal.
         rows = [
-            _candle(_hourly_ts(10), 100, 110, 90, 105),
-            _candle(_hourly_ts(11), 105, 115, 95, 112),
+            _candle(_hourly_ts(0), 100, 110, 90, 105),
+            _candle(_hourly_ts(1), 104, 108, 88, 100),
+            _candle(_hourly_ts(2), 111, 115, 109, 112),  # 1st breakout → signal
+            _candle(_hourly_ts(3), 113, 118, 110, 116),  # 2nd breakout → no dup
         ]
         df = _make_ohlcv(rows)
-        result = detect_orb_breakout(df, session_hour_utc=13)
-        assert result.empty
+        result = detect_orb_breakout(df, range_candles=2)
+        long_signals = result[result["direction"] == "long"]
+        assert len(long_signals) == 1
+        assert long_signals.iloc[0]["open_time"] == _hourly_ts(2)
+
+    def test_signals_reset_each_day(self) -> None:
+        # Day 1 (hours 0–2): long breakout on hour 2.
+        # Day 2 (hours 24–26): independent long breakout on hour 26.
+        # Both should fire — different calendar days.
+        rows = [
+            # Day 1
+            _candle(_hourly_ts(0), 100, 110, 90, 105),
+            _candle(_hourly_ts(1), 104, 108, 88, 100),
+            _candle(_hourly_ts(2), 111, 120, 109, 115),  # long breakout day 1
+            # Day 2
+            _candle(_hourly_ts(24), 200, 210, 190, 205),
+            _candle(_hourly_ts(25), 204, 208, 188, 200),
+            _candle(_hourly_ts(26), 211, 220, 209, 215),  # long breakout day 2
+        ]
+        df = _make_ohlcv(rows)
+        result = detect_orb_breakout(df, range_candles=2)
+        long_signals = result[result["direction"] == "long"]
+        assert len(long_signals) == 2
+
+    def test_context_includes_tp(self) -> None:
+        # Verify TP is embedded in the context string.
+        rows = [
+            _candle(_hourly_ts(0), 100, 110, 90, 105),  # high=110
+            _candle(_hourly_ts(1), 104, 108, 88, 100),  # low=88  → range [88,110]
+            _candle(_hourly_ts(2), 111, 120, 109, 115),  # close=115 → long
+        ]
+        df = _make_ohlcv(rows)
+        result = detect_orb_breakout(df, range_candles=2)
+        assert len(result) == 1
+        assert "TP:" in str(result.iloc[0]["context"])
+
+    def test_returns_empty_when_only_range_candles_present(self) -> None:
+        # Exactly range_candles rows on one day — no breakout candle available.
+        rows = [
+            _candle(_hourly_ts(0), 100, 110, 90, 105),
+        ]
+        df = _make_ohlcv(rows)
+        assert detect_orb_breakout(df, range_candles=1).empty
 
 
 # ---------------------------------------------------------------------------
@@ -851,24 +932,31 @@ class TestFundingReversionBugFixes:
         assert len(result) == 2
 
 
-class TestOrbTimeframeBugFix:
-    def test_orb_does_not_fire_on_hourly_candles(self) -> None:
-        # 1h candles: detect_orb_breakout should reject timeframe_minutes >= 60
-        rows = [
-            _candle(_hourly_ts(13), 100, 110, 90, 105),
-            _candle(_hourly_ts(14), 111, 120, 108, 115),  # would be long signal
-        ]
-        df = _make_ohlcv(rows)
-        result = detect_orb_breakout(df, session_hour_utc=13, timeframe_minutes=60)
-        assert result.empty
+class TestOrbBackwardsCompatibility:
+    """Verify that legacy keyword args (session_hour_utc, timeframe_minutes) are
+    accepted without raising even though they are now ignored."""
 
-    def test_orb_fires_on_15m_candles(self) -> None:
+    def test_legacy_kwargs_accepted_without_error(self) -> None:
         rows = [
-            _candle(_hourly_ts(13), 100, 110, 90, 105),
-            _candle(_hourly_ts(14), 111, 120, 108, 115),
+            _candle(_hourly_ts(0), 100, 110, 90, 105),
+            _candle(_hourly_ts(1), 104, 108, 88, 100),
+            _candle(_hourly_ts(2), 111, 120, 108, 115),
         ]
         df = _make_ohlcv(rows)
+        # These kwargs are silently ignored; the call must not raise.
         result = detect_orb_breakout(df, session_hour_utc=13, timeframe_minutes=15)
+        assert len(result) == 1
+        assert result.iloc[0]["direction"] == "long"
+
+    def test_orb_works_on_any_timeframe(self) -> None:
+        # New impl has no TF guard — hourly candles are valid.
+        rows = [
+            _candle(_hourly_ts(0), 100, 110, 90, 105),
+            _candle(_hourly_ts(1), 104, 108, 88, 100),
+            _candle(_hourly_ts(2), 111, 120, 108, 115),
+        ]
+        df = _make_ohlcv(rows)
+        result = detect_orb_breakout(df, timeframe_minutes=60)
         assert len(result) == 1
         assert result.iloc[0]["direction"] == "long"
 

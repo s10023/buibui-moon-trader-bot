@@ -99,15 +99,19 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     ),
     "orb": StrategySpec(
         name="orb",
-        description="Opening Range Breakout: signals when price breaks the session open candle range.",
+        description=(
+            "Opening Range Breakout: high/low of the first 2 candles of each UTC day"
+            " defines the range; a breakout signal fires on any later candle that closes"
+            " outside the range (one signal per day per direction)."
+        ),
         params=[
             ParamSpec(
-                "session_hour_utc",
+                "range_candles",
                 "int",
-                13,
-                0,
-                23,
-                "UTC hour of the session open candle (default 13 = NY open).",
+                2,
+                1,
+                4,
+                "Number of candles from 00:00 UTC that form the opening range.",
             ),
         ],
         confidence=3,
@@ -825,59 +829,101 @@ def detect_marubozu_retest(
 
 def detect_orb_breakout(
     df: pd.DataFrame,
-    session_hour_utc: int = 13,
-    timeframe_minutes: int = 15,
+    range_candles: int = 2,
+    # Legacy param kept so existing callers that pass session_hour_utc= don't crash.
+    # It is intentionally ignored — the new implementation anchors on 00:00 UTC.
+    session_hour_utc: int = 0,
+    timeframe_minutes: int = 0,
 ) -> pd.DataFrame:
-    """Detect Opening Range Breakout signals.
+    """Detect Opening Range Breakout (ORB) signals.
 
-    Identifies candles whose open_time falls on session_hour_utc (UTC).
-    That candle's high/low defines the session range.
-    If the NEXT candle closes above range_high → long signal.
-    If the NEXT candle closes below range_low → short signal.
+    For 24/7 crypto futures the session anchor is 00:00 UTC (daily open).
+    The opening range is defined by the first ``range_candles`` candles of each
+    UTC calendar day (default 2).  A breakout signal fires on any subsequent
+    candle within the same day that *closes* outside the range:
 
-    Default session_hour_utc=13 targets the NY session open (13:00 UTC).
-    Only runs on timeframes < 60 minutes; ORB is meaningless on hourly+ candles.
+    * close > range_high  →  LONG  (SL = range_low)
+    * close < range_low   →  SHORT (SL = range_high)
+
+    TP is placed at entry ± 1.5 × range_width (stored in ``context``).
+    Only one signal per day per direction is emitted (per-day dedup).
+
+    Parameters
+    ----------
+    df:
+        OHLCV DataFrame with at least ``open_time``, ``high``, ``low``,
+        ``close`` columns.  ``open_time`` must be Unix milliseconds UTC.
+    range_candles:
+        Number of candles from 00:00 UTC that form the opening range (1–4).
+    session_hour_utc:
+        Ignored (kept for backwards-compatibility with old callers).
+    timeframe_minutes:
+        Ignored (kept for backwards-compatibility with old callers).
     """
-    if timeframe_minutes >= 60:
-        return _empty_signals()
     n = len(df)
-    if n < 2:
+    if n < range_candles + 1:
         return _empty_signals()
 
-    hours = pd.to_datetime(df["open_time"].astype("int64"), unit="ms", utc=True).dt.hour
+    dt_utc = pd.to_datetime(df["open_time"].astype("int64"), unit="ms", utc=True)
+    dates = dt_utc.dt.date  # calendar date in UTC
 
     signals: list[dict[str, object]] = []
+    # Track which (date, direction) pairs have already fired to avoid duplicates.
+    fired: set[tuple[object, str]] = set()
 
-    for i in range(n - 1):
-        if int(hours.iloc[i]) != session_hour_utc:
+    unique_dates = dates.unique()
+    for day in unique_dates:
+        day_mask = dates == day
+        day_idx = df.index[day_mask].tolist()
+
+        # Need at least range_candles + 1 candles on this day.
+        if len(day_idx) < range_candles + 1:
             continue
 
-        range_high = float(df.iloc[i]["high"])
-        range_low = float(df.iloc[i]["low"])
-        nxt = df.iloc[i + 1]
-        nxt_close = float(nxt["close"])
+        # Opening range = first range_candles candles of the day.
+        range_rows = df.loc[day_idx[:range_candles]]
+        range_high = float(range_rows["high"].max())
+        range_low = float(range_rows["low"].min())
+        range_width = range_high - range_low
+        if range_width <= 0:
+            continue
 
-        range_ctx = f"Range: {_fmt_time(int(df.iloc[i]['open_time']))}"
-        if nxt_close > range_high:
-            signals.append(
-                {
-                    "open_time": int(nxt["open_time"]),
-                    "direction": "long",
-                    "reason": f"orb_long@{range_high:.2f}",
-                    "sl_price": range_low,
-                    "context": range_ctx,
-                }
-            )
-        elif nxt_close < range_low:
-            signals.append(
-                {
-                    "open_time": int(nxt["open_time"]),
-                    "direction": "short",
-                    "reason": f"orb_short@{range_low:.2f}",
-                    "sl_price": range_high,
-                    "context": range_ctx,
-                }
-            )
+        range_open_ts = int(df.loc[day_idx[0]]["open_time"])
+        range_ctx = (
+            f"ORB range {_fmt_time(range_open_ts)} H:{range_high:.2f} L:{range_low:.2f}"
+        )
+
+        # Check every candle after the opening range window.
+        for idx in day_idx[range_candles:]:
+            row = df.loc[idx]
+            close = float(row["close"])
+            open_time_ms = int(row["open_time"])
+
+            if close > range_high and (day, "long") not in fired:
+                tp_price = close + range_width * 1.5
+                signals.append(
+                    {
+                        "open_time": open_time_ms,
+                        "direction": "long",
+                        "reason": f"orb_long@{range_high:.2f}",
+                        "sl_price": range_low,
+                        "context": f"{range_ctx} TP:{tp_price:.2f}",
+                    }
+                )
+                fired.add((day, "long"))
+
+            elif close < range_low and (day, "short") not in fired:
+                tp_price = close - range_width * 1.5
+                signals.append(
+                    {
+                        "open_time": open_time_ms,
+                        "direction": "short",
+                        "reason": f"orb_short@{range_low:.2f}",
+                        "sl_price": range_high,
+                        "context": f"{range_ctx} TP:{tp_price:.2f}",
+                    }
+                )
+                fired.add((day, "short"))
 
     return _signals_to_df(signals)
 
