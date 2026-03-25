@@ -48,7 +48,7 @@ def run_signal_watch(
     smt_pairs: dict[str, str] | None = None,
     db_path: Path = DEFAULT_DB_PATH,
     backtest_cfg: BacktestFilterConfig | None = None,
-    day_filter: bool = False,
+    day_filter: str = "off",
     smt_trend_filter: int = 1,
     strategy_timeframes: dict[str, list[str]] | None = None,
 ) -> None:

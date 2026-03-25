@@ -26,7 +26,7 @@ from analytics.data_store import (
     upsert_signals,
 )
 from analytics.indicators_lib import STRATEGY_REGISTRY
-from analytics.signal_config import BacktestFilterConfig
+from analytics.signal_config import BacktestFilterConfig, _day_filter_to_weekdays
 from signals.alert_formatter import SignalEvent, format_confluence_alert
 from signals.cooldown_store import CooldownStore
 from signals.registry import SIGNAL_REGISTRY
@@ -68,7 +68,7 @@ def _compute_backtest(
     sl_pct: float,
     tp_r: float,
     fee_pct: float = 0.0,
-    day_filter: bool = False,
+    day_filter: str = "off",
     min_sl_pct: float = 0.0,
 ) -> BacktestResult | None:
     """Run strategy detector on ohlcv[:-1] and backtest the resulting signals.
@@ -102,8 +102,9 @@ def _compute_backtest(
         )
         return None
 
-    if day_filter:
-        signals_df = filter_signals_by_day(signals_df)
+    allowed_days = _day_filter_to_weekdays(day_filter)
+    if allowed_days is not None:
+        signals_df = filter_signals_by_day(signals_df, allowed_days)
 
     return run_backtest(
         hist_df,
@@ -159,7 +160,7 @@ def scan_symbol(
     strategies: list[str],
     secondary_df: pd.DataFrame | None = None,
     funding_df: pd.DataFrame | None = None,
-    day_filter: bool = False,
+    day_filter: str = "off",
     smt_trend_filter: int = 1,
     strategy_timeframes: dict[str, list[str]] | None = None,
 ) -> list[SignalEvent]:
@@ -169,9 +170,9 @@ def scan_symbol(
     Only the latest candle is checked — signals on older candles are ignored
     to prevent re-alerting on historical data after a restart.
 
-    When day_filter is True, signals whose open_time falls on Monday (weekday 0)
+    When day_filter is "tue_thu", signals whose open_time falls on Monday (weekday 0)
     or Friday (weekday 4) in UTC are suppressed (ICT weekly cycle — lower-quality
-    manipulation/distribution days).
+    manipulation/distribution days). "weekdays" suppresses weekends only. "off" disables.
 
     strategy_timeframes: optional per-strategy TF allow-list loaded from
     [strategy_timeframes] in signal_watch.toml.  If a strategy appears in this
@@ -266,13 +267,14 @@ def scan_symbol(
                 )
             )
 
-    if day_filter and events:
+    allowed_weekdays = _day_filter_to_weekdays(day_filter)
+    if allowed_weekdays is not None and events:
         filtered: list[SignalEvent] = []
         for event in events:
             weekday = datetime.datetime.fromtimestamp(
                 event.open_time / 1000, tz=datetime.UTC
             ).weekday()
-            if weekday in (0, 4):  # 0=Monday, 4=Friday
+            if weekday not in allowed_weekdays:
                 logger.debug(
                     "Day filter suppressed %s %s %s (weekday %d)",
                     event.symbol,
@@ -301,7 +303,7 @@ def run_scan_cycle(
     secondary_map: dict[str, str] | None = None,
     days: int = 90,
     backtest_cfg: BacktestFilterConfig | None = None,
-    day_filter: bool = False,
+    day_filter: str = "off",
     smt_trend_filter: int = 1,
     strategy_timeframes: dict[str, list[str]] | None = None,
 ) -> list[str]:
@@ -316,7 +318,7 @@ def run_scan_cycle(
     secondary_map: per-symbol mapping of primary → secondary symbol for smt_divergence.
     Secondaries are fetched once per (secondary_symbol, timeframe) even if shared by
     multiple primaries.
-    day_filter: when True, Monday and Friday signals are suppressed (ICT weekly cycle).
+    day_filter: "off" | "weekdays" | "tue_thu" — suppress signals by weekday.
     strategy_timeframes: optional per-strategy TF allow-list from [strategy_timeframes] TOML.
     """
     from utils.telegram import send_telegram_message
@@ -592,7 +594,7 @@ def run_scan_cycle(
                     sl_pct=sl_pct,
                     tp_r=tp_r,
                     fee_pct=backtest_cfg.fee_pct,
-                    day_filter=day_filter,
+                    day_filter=day_filter != "off",
                     smt_trend_filter=smt_trend_filter,
                     secondary_symbol=secondary_symbol,
                 )

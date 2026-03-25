@@ -26,8 +26,8 @@ class BacktestSweepConfig:
     min_trades: int = 20
     # Per-symbol SMT secondary map: {"BTCUSDT": "ETHUSDT", ...}
     smt_pairs: dict[str, str] = field(default_factory=dict)
-    # Suppress Monday and Friday signals (ICT weekly cycle)
-    day_filter: bool = False
+    # Suppress signals by day: "off" | "weekdays" (Mon–Fri) | "tue_thu" (Tue–Thu only)
+    day_filter: str = "off"
     # EMA-50 trend gate for smt_divergence (1=on, 0=off)
     smt_trend_filter: int = 1
     # Persist aggregate results to backtest_runs table in DB
@@ -62,7 +62,7 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
         min_sl_pct=float(data.get("min_sl_pct", 0.0)),
         min_trades=int(data.get("min_trades", 20)),
         smt_pairs=smt_pairs,
-        day_filter=bool(data.get("day_filter", False)),
+        day_filter=str(data.get("day_filter", "off")),
         smt_trend_filter=int(data.get("smt_trend_filter", 1)),
         save_results=bool(data.get("save_results", False)),
     )

@@ -145,8 +145,11 @@ def run_backtest_sweep(
                 )
                 continue
 
-            if cfg.day_filter:
-                signals = filter_signals_by_day(signals)
+            from analytics.signal_config import _day_filter_to_weekdays
+
+            allowed_days = _day_filter_to_weekdays(cfg.day_filter)
+            if allowed_days is not None:
+                signals = filter_signals_by_day(signals, allowed_days)
 
             bt = run_backtest(
                 ohlcv,
@@ -171,7 +174,7 @@ def run_backtest_sweep(
                     sl_pct=cfg.sl_pct,
                     tp_r=cfg.tp_r,
                     fee_pct=cfg.fee_pct,
-                    day_filter=cfg.day_filter,
+                    day_filter=cfg.day_filter != "off",
                     smt_trend_filter=cfg.smt_trend_filter,
                     secondary_symbol=secondary,
                     sweep_id=sweep_id,

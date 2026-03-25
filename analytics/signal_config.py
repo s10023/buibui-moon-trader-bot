@@ -11,6 +11,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
+def _day_filter_to_weekdays(day_filter: str) -> list[int] | None:
+    """Convert day_filter mode string to allowed weekday list (Mon=0…Sun=6)."""
+    if day_filter == "weekdays":
+        return [0, 1, 2, 3, 4]  # Mon–Fri
+    if day_filter == "tue_thu":
+        return [1, 2, 3]  # Tue–Thu
+    return None  # "off" — no filter
+
+
 @dataclass
 class BacktestFilterConfig:
     """Configuration for the per-signal backtest filter."""
@@ -49,8 +58,8 @@ class SignalWatchConfig:
     # Per-symbol SMT secondary map: {"BTCUSDT": "ETHUSDT", ...}
     smt_pairs: dict[str, str] = field(default_factory=dict)
     backtest: BacktestFilterConfig = field(default_factory=BacktestFilterConfig)
-    # Suppress Monday and Friday signals (ICT weekly cycle)
-    day_filter: bool = False
+    # Suppress signals by day: "off" | "weekdays" (Mon–Fri) | "tue_thu" (Tue–Thu only)
+    day_filter: str = "off"
     # EMA-50 trend gate for smt_divergence (1=on, 0=off)
     smt_trend_filter: int = 1
     # Per-strategy timeframe allow-list: {"trend_day": ["4h", "1d"], ...}
@@ -109,7 +118,7 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         state_file=str(data.get("state_file", "signal_state.json")),
         smt_pairs=smt_pairs,
         backtest=backtest,
-        day_filter=bool(data.get("day_filter", False)),
+        day_filter=str(data.get("day_filter", "off")),
         smt_trend_filter=int(data.get("smt_trend_filter", 1)),
         strategy_timeframes=strategy_timeframes,
     )
