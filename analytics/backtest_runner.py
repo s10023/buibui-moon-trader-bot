@@ -174,7 +174,7 @@ def run_backtest_sweep(
                     sl_pct=cfg.sl_pct,
                     tp_r=cfg.tp_r,
                     fee_pct=cfg.fee_pct,
-                    day_filter=cfg.day_filter != "off",
+                    day_filter=cfg.day_filter,
                     smt_trend_filter=cfg.smt_trend_filter,
                     secondary_symbol=secondary,
                     sweep_id=sweep_id,
@@ -275,7 +275,7 @@ def run_backtest_cmd(
                 sl_pct=sl_pct,
                 tp_r=tp_r,
                 fee_pct=fee_pct,
-                day_filter=False,
+                day_filter="off",
                 smt_trend_filter=1,
                 secondary_symbol=secondary_symbol,
             )

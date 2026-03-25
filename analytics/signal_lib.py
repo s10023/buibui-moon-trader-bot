@@ -594,7 +594,7 @@ def run_scan_cycle(
                     sl_pct=sl_pct,
                     tp_r=tp_r,
                     fee_pct=backtest_cfg.fee_pct,
-                    day_filter=day_filter != "off",
+                    day_filter=day_filter,
                     smt_trend_filter=smt_trend_filter,
                     secondary_symbol=secondary_symbol,
                 )
