@@ -575,6 +575,17 @@ SEASONALITY_COLUMNS: list[str] = [
 KNOWN_STRATEGIES: list[str] = list(STRATEGY_REGISTRY.keys())
 
 
+def patch_confidence_scores(updates: dict[str, int]) -> None:
+    """Mutate STRATEGY_REGISTRY confidence values in-place.
+
+    Only updates strategies that exist in the registry; unknown keys are silently skipped.
+    Intended for use by the recalibration runner after computing new star ratings.
+    """
+    for name, stars in updates.items():
+        if name in STRATEGY_REGISTRY:
+            STRATEGY_REGISTRY[name].confidence = stars
+
+
 def _empty_signals() -> pd.DataFrame:
     return pd.DataFrame(columns=SIGNAL_COLUMNS)
 

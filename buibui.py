@@ -4,7 +4,12 @@ import logging
 
 from dotenv import load_dotenv
 
-from analytics import analytics_runner, backtest_runner, signal_runner
+from analytics import (
+    analytics_runner,
+    backtest_runner,
+    recalibrate_runner,
+    signal_runner,
+)
 from analytics.backtest_config import BacktestSweepConfig, load_backtest_config
 from analytics.indicators_lib import KNOWN_STRATEGIES
 from monitor import position_monitor, price_monitor
@@ -151,6 +156,10 @@ def run_position_monitor(args: argparse.Namespace) -> None:
         compact=args.compact,
         live=args.live,
     )
+
+
+def run_recalibrate(args: argparse.Namespace) -> None:
+    recalibrate_runner.run(args)
 
 
 def run_web_server(args: argparse.Namespace) -> None:
@@ -435,6 +444,26 @@ def main() -> None:
         help="Hide combos below this trade count in sweep table (default: 20)",
     )
     backtest_parser.set_defaults(func=run_backtest)
+
+    # Top-level 'recalibrate' command
+    recalibrate_parser = subparsers.add_parser(
+        "recalibrate",
+        help="Recalibrate strategy confidence star ratings from backtest_runs data",
+    )
+    recalibrate_parser.add_argument(
+        "--apply",
+        action="store_true",
+        default=False,
+        help="Apply the new ratings to STRATEGY_REGISTRY (default: dry-run only)",
+    )
+    recalibrate_parser.add_argument(
+        "--min-trades",
+        type=int,
+        default=10,
+        dest="min_trades",
+        help="Minimum total closed trades required to recalibrate a strategy (default: 10)",
+    )
+    recalibrate_parser.set_defaults(func=run_recalibrate)
 
     # Top-level 'web' command
     web_parser = subparsers.add_parser("web", help="Run FastAPI web backend")
