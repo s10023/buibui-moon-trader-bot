@@ -262,7 +262,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Minimum % move on displacement candle to qualify an order block.",
             ),
         ],
-        confidence=4,
+        confidence=3,
     ),
     "cvd_divergence": StrategySpec(
         name="cvd_divergence",
@@ -494,7 +494,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance.",
             ),
         ],
-        confidence=2,
+        confidence=1,
     ),
     # Legacy — superseded by fib_golden_zone (adds BOS confirmation, better SL/TP structure).
     # Uncomment to re-enable for backtest comparison.
