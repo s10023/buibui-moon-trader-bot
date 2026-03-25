@@ -26,19 +26,17 @@ class Trade:
     exit_price: float | None = None
     outcome: str = "open"  # "win" | "loss" | "open"
     fee_pct: float = 0.0
-    sl_pct: float = 0.02
 
     @property
     def pnl_r(self) -> float | None:
         """P&L expressed in R multiples (1R = amount risked), after fees.
 
         Fee drag: each leg (entry + exit) costs fee_pct of notional.
-        Position is sized to risk 1R at sl_pct distance from entry, so:
-          fee_drag_r = 2 * fee_pct / sl_pct  (constant per trade)
+        Position is sized to risk 1R at the actual SL distance, so:
+          fee_drag_r = 2 * fee_pct * entry_price / risk
 
-        Using sl_pct (not the structural sl_price) keeps fee drag consistent
-        across strategies — structural SLs vary wildly in tightness and would
-        otherwise make fee drag blow up for tight-SL strategies.
+        This correctly penalises tight-SL strategies (e.g. wick_fill on 15m)
+        where fees consume a large fraction of the actual risk taken.
         """
         if self.exit_price is None:
             return None
@@ -49,7 +47,7 @@ class Trade:
             raw_r = (self.exit_price - self.entry_price) / risk
         else:
             raw_r = (self.entry_price - self.exit_price) / risk
-        fee_drag_r = 2.0 * self.fee_pct / self.sl_pct if self.sl_pct > 0.0 else 0.0
+        fee_drag_r = 2.0 * self.fee_pct * self.entry_price / risk
         return raw_r - fee_drag_r
 
 
@@ -180,7 +178,6 @@ def run_backtest(
             sl_price=sl_price,
             tp_price=tp_price,
             fee_pct=fee_pct,
-            sl_pct=sl_pct,
         )
 
         for i in range(entry_idx, len(ohlcv_times)):
