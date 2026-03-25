@@ -12,11 +12,20 @@ from pathlib import Path
 
 
 def _day_filter_to_weekdays(day_filter: str) -> list[int] | None:
-    """Convert day_filter mode string to allowed weekday list (Mon=0…Sun=6)."""
+    """Convert day_filter mode string to allowed weekday list (Mon=0…Sun=6).
+
+    Modes:
+      "off"      — no filter (all days)
+      "weekdays" — Mon–Fri (removes Sat, Sun)
+      "no_monfi" — remove Mon + Fri only; weekends still pass (legacy behaviour)
+      "tue_thu"  — Tue–Thu only (removes Mon, Fri, Sat, Sun)
+    """
     if day_filter == "weekdays":
         return [0, 1, 2, 3, 4]  # Mon–Fri
+    if day_filter == "no_monfi":
+        return [1, 2, 3, 5, 6]  # Tue, Wed, Thu, Sat, Sun
     if day_filter == "tue_thu":
-        return [1, 2, 3]  # Tue–Thu
+        return [1, 2, 3]  # Tue–Thu only
     return None  # "off" — no filter
 
 

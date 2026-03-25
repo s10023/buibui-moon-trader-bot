@@ -80,7 +80,7 @@ def migrate(db_path: str) -> None:
                 smt,
                 sec,
             ) = row
-            new_df = "tue_thu" if df_bool else "off"
+            new_df = "no_monfi" if df_bool else "off"
             new_id = _run_id(
                 symbol, tf, strategy, days, sl_pct, tp_r, fee_pct, new_df, smt, sec
             )
@@ -130,7 +130,7 @@ def migrate(db_path: str) -> None:
                 br.symbol, br.timeframe, br.strategy,
                 br.data_start_ms, br.data_end_ms, br.days,
                 br.sl_pct, br.tp_r, br.fee_pct,
-                CASE WHEN br.day_filter THEN 'tue_thu' ELSE 'off' END AS day_filter,
+                CASE WHEN br.day_filter THEN 'no_monfi' ELSE 'off' END AS day_filter,
                 br.smt_trend_filter, br.secondary_symbol,
                 br.total_signals, br.closed_trades, br.win_count, br.loss_count,
                 br.win_rate, br.avg_r, br.total_r, br.max_drawdown_r,
