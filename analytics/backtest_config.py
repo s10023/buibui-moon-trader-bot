@@ -24,9 +24,11 @@ class BacktestSweepConfig:
     fee_pct: float = 0.0
     min_sl_pct: float = 0.0
     # Global fallback — use effective_min_trades(tf) to get per-TF value.
+    # Sweep mode applies this to total closed trades (not directional) for table filtering.
     min_trades: int = 20
     # Per-TF override: check this first, fall back to min_trades.
-    # Calibrated from backtest_runs DB (200d window): 15m→30, 1h→20, 4h→10, 1d→5
+    # Calibrated from backtest_runs DB (total closed trades, 200d window): 15m→30, 1h→20, 4h→10, 1d→5
+    # Note: signal_config.py uses directional trade counts (lower values) for Telegram alerts.
     # Signal rate is NOT uniform — higher TFs fire less frequently per candle.
     # To scale for a different lookback: new_value = base × (your_days / 200)
     min_trades_per_tf: dict[str, int] = field(default_factory=dict)
