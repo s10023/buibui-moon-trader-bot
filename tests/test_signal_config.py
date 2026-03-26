@@ -28,7 +28,6 @@ class TestSignalWatchConfigDefaults:
         assert cfg.min_sl_pct == 0.0
         assert cfg.tp_r == 2.0
         assert cfg.sl_pct == 0.02
-        assert cfg.cooldown_seconds == 3600.0
         assert cfg.state_file == "signal_state.json"
         assert cfg.smt_pairs == {}
         assert cfg.day_filter == "off"
@@ -68,7 +67,6 @@ telegram = true
 min_sl_pct = 0.01
 tp_r = 3.0
 sl_pct = 0.015
-cooldown_seconds = 7200.0
 state_file = "my_state.json"
 
 [smt_pairs]
@@ -84,7 +82,6 @@ ETHUSDT = "BTCUSDT"
         assert cfg.min_sl_pct == 0.01
         assert cfg.tp_r == 3.0
         assert cfg.sl_pct == 0.015
-        assert cfg.cooldown_seconds == 7200.0
         assert cfg.state_file == "my_state.json"
         assert cfg.smt_pairs == {"BTCUSDT": "ETHUSDT", "ETHUSDT": "BTCUSDT"}
 

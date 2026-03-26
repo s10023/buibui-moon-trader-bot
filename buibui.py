@@ -139,7 +139,6 @@ def run_signal_watch(args: argparse.Namespace) -> None:
         tp_r=tp_r,
         sl_pct=cfg.sl_pct,
         min_sl_pct=min_sl_pct,
-        cooldown_seconds=cfg.cooldown_seconds,
         send_telegram=telegram,
         state_file=state_file,
         secondary_symbol=args.secondary_symbol,
@@ -272,7 +271,7 @@ def main() -> None:
         "--state-file",
         default="signal_state.json",
         dest="state_file",
-        help="Path to cooldown/watermark state file (default: signal_state.json)",
+        help="Path to candle watermark state file (default: signal_state.json)",
     )
     watch_parser.add_argument(
         "--secondary-symbol",

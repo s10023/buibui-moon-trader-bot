@@ -295,7 +295,6 @@ def run_scan_cycle(
     timeframes: list[str],
     strategies: list[str],
     store: CooldownStore,
-    cooldown_seconds: float = 3600.0,
     tp_r: float = 2.0,
     sl_pct: float = 0.02,
     min_sl_pct: float = 0.0,
@@ -422,12 +421,11 @@ def run_scan_cycle(
             if not direction_events:
                 continue
 
-            # Filter each strategy independently by cooldown
+            # Filter each strategy independently by candle watermark
             passing_events = [
                 e
                 for e in direction_events
                 if store.is_new_candle(symbol, tf, e.strategy, e.open_time)
-                and store.is_off_cooldown(symbol, e.strategy, e.direction)
             ]
             if not passing_events:
                 continue
@@ -470,14 +468,7 @@ def run_scan_cycle(
                         continue
 
             for event in passing_events:
-                store.record_alert(
-                    symbol,
-                    tf,
-                    event.strategy,
-                    event.direction,
-                    event.open_time,
-                    cooldown_seconds,
-                )
+                store.mark_candle(symbol, tf, event.strategy, event.open_time)
 
             # Persist passing signals to DB so the Signal Feed can read from DB
             # instead of re-scanning on every page load.
