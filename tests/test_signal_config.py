@@ -166,3 +166,51 @@ ETHUSDT = "BTCUSDT"
             cfg = load_signal_config(config_dir / name)
             assert cfg.timeframes, f"{name}: timeframes must not be empty"
             assert cfg.strategies, f"{name}: strategies must not be empty"
+
+
+class TestBacktestFilterConfigPerTf:
+    def test_effective_min_trades_uses_per_tf_override(self) -> None:
+        from analytics.signal_config import BacktestFilterConfig
+
+        cfg = BacktestFilterConfig(min_trades=20, min_trades_per_tf={"4h": 10, "1d": 5})
+        assert cfg.effective_min_trades("4h") == 10
+        assert cfg.effective_min_trades("1d") == 5
+
+    def test_effective_min_trades_falls_back_to_global(self) -> None:
+        from analytics.signal_config import BacktestFilterConfig
+
+        cfg = BacktestFilterConfig(min_trades=20, min_trades_per_tf={"4h": 10})
+        assert cfg.effective_min_trades("1h") == 20
+
+    def test_effective_min_trades_empty_per_tf(self) -> None:
+        from analytics.signal_config import BacktestFilterConfig
+
+        cfg = BacktestFilterConfig(min_trades=15)
+        assert cfg.effective_min_trades("15m") == 15
+        assert cfg.effective_min_trades("1d") == 15
+
+    def test_load_signal_config_parses_per_tf_keys(self, tmp_path: Path) -> None:
+        content = """
+[backtest]
+mode = "soft"
+min_trades = 20
+min_trades_15m = 30
+min_trades_4h = 10
+min_trades_1d = 5
+"""
+        p = tmp_path / "w.toml"
+        p.write_text(content)
+        cfg = load_signal_config(p)
+        assert cfg.backtest.min_trades_per_tf == {"15m": 30, "4h": 10, "1d": 5}
+        assert cfg.backtest.effective_min_trades("15m") == 30
+        assert cfg.backtest.effective_min_trades("4h") == 10
+        assert cfg.backtest.effective_min_trades("1d") == 5
+        assert cfg.backtest.effective_min_trades("1h") == 20  # falls back to global
+
+    def test_signal_watch_toml_has_per_tf_min_trades(self) -> None:
+        """The committed signal_watch.toml must define per-TF min_trades overrides."""
+        cfg_path = Path(__file__).parent.parent / "config" / "signal_watch.toml"
+        cfg = load_signal_config(cfg_path)
+        assert cfg.backtest.effective_min_trades("15m") == 30
+        assert cfg.backtest.effective_min_trades("4h") == 10
+        assert cfg.backtest.effective_min_trades("1d") == 5

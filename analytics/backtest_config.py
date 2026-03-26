@@ -23,7 +23,15 @@ class BacktestSweepConfig:
     tp_r: float = 2.0
     fee_pct: float = 0.0
     min_sl_pct: float = 0.0
+    # Global fallback — use effective_min_trades(tf) to get per-TF value.
     min_trades: int = 20
+    # Per-TF override: check this first, fall back to min_trades.
+    # Rule of thumb (anchored to 200d):  15m→30, 1h→20, 4h→10, 1d→5
+    # Formula: days × candles_per_day × signal_rate
+    #   Candles per day: 15m=96, 1h=24, 4h=6, 1d=1
+    #   e.g. 200d/4h: 200×6×0.008≈10;  200d/1d: 200×1×0.025≈5
+    #   Scale linearly when days differs from 200.
+    min_trades_per_tf: dict[str, int] = field(default_factory=dict)
     # Per-symbol SMT secondary map: {"BTCUSDT": "ETHUSDT", ...}
     smt_pairs: dict[str, str] = field(default_factory=dict)
     # Suppress signals by day: "off" | "weekdays" (Mon–Fri) | "tue_thu" (Tue–Thu only)
@@ -32,6 +40,10 @@ class BacktestSweepConfig:
     smt_trend_filter: int = 1
     # Persist aggregate results to backtest_runs table in DB
     save_results: bool = False
+
+    def effective_min_trades(self, tf: str) -> int:
+        """Return per-TF override if configured, else the global min_trades."""
+        return self.min_trades_per_tf.get(tf, self.min_trades)
 
 
 def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
@@ -51,6 +63,11 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
         )
     smt_pairs: dict[str, str] = {str(k): str(v) for k, v in raw_smt.items()}
 
+    per_tf = {
+        k[len("min_trades_") :]: int(v)
+        for k, v in data.items()
+        if k.startswith("min_trades_") and k != "min_trades"
+    }
     return BacktestSweepConfig(
         symbols=data.get("symbols"),
         timeframes=data.get("timeframes", ["4h"]),
@@ -61,6 +78,7 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
         fee_pct=float(data.get("fee_pct", 0.0)),
         min_sl_pct=float(data.get("min_sl_pct", 0.0)),
         min_trades=int(data.get("min_trades", 20)),
+        min_trades_per_tf=per_tf,
         smt_pairs=smt_pairs,
         day_filter=str(data.get("day_filter", "off")),
         smt_trend_filter=int(data.get("smt_trend_filter", 1)),

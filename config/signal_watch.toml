@@ -48,7 +48,16 @@ strategies = [
 
 # Backtest sweep runner (make buibui-backtest) reads these top-level keys:
 days = 200              # lookback window
-min_trades = 20         # hide combos with fewer trades in sweep table
+min_trades = 20         # hide combos with fewer trades in sweep table (global fallback)
+# Per-TF overrides — takes precedence over min_trades above.
+# Rule of thumb: days × candles_per_day × signal_rate
+#   Candles per day: 15m=96, 1h=24, 4h=6, 1d=1
+#   e.g. 200d/4h: 200×6×0.008≈10;  200d/1d: 200×1×0.025≈5
+#   Scale linearly for different lookback windows.
+min_trades_15m = 30
+min_trades_1h  = 20
+min_trades_4h  = 10
+min_trades_1d  = 5
 fee_pct = 0.0005        # 0.05% taker fee per leg; set 0.0 to disable
 # save_results = true   # persist results to backtest_runs / backtest_trades tables in analytics.db
 
@@ -79,6 +88,10 @@ SOLUSDT = "ETHUSDT"
 [backtest]
 mode = "hard"
 days = 200
-min_trades = 20
+min_trades = 20         # global fallback
+min_trades_15m = 30
+min_trades_1h  = 20
+min_trades_4h  = 10
+min_trades_1d  = 5
 filter_threshold = 0.3
 # save_results = true

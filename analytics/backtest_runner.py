@@ -184,7 +184,7 @@ def run_backtest_sweep(
     finally:
         conn.close()
 
-    print(format_sweep_table(results, cfg.min_trades))
+    print(format_sweep_table(results, cfg.min_trades, cfg.min_trades_per_tf or None))
     if cfg.save_results:
         print(f"\n  Results saved to DB (sweep_id={sweep_id})")
 

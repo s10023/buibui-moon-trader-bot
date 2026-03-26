@@ -38,8 +38,16 @@ class BacktestFilterConfig:
     # "off":  disable entirely
     mode: str = "soft"
     days: int = 90
-    # Below this trade count the filter is bypassed (win rate is noise)
+    # Below this trade count the filter is bypassed (win rate is noise).
+    # Global fallback — use effective_min_trades(tf) to get per-TF value.
     min_trades: int = 20
+    # Per-TF override: check this first, fall back to min_trades.
+    # Rule of thumb (anchored to 200d):  15m→30, 1h→20, 4h→10, 1d→5
+    # Formula: days × candles_per_day × signal_rate
+    #   Candles per day: 15m=96, 1h=24, 4h=6, 1d=1
+    #   e.g. 200d/4h: 200×6×0.008≈10;  200d/1d: 200×1×0.025≈5
+    #   Scale linearly when days differs from 200.
+    min_trades_per_tf: dict[str, int] = field(default_factory=dict)
     # hard mode only: suppress if win_rate < this
     filter_threshold: float = 0.45
     # Persist computed backtest results to backtest_runs table (default on)
@@ -49,6 +57,10 @@ class BacktestFilterConfig:
     # Minimum SL distance from entry as a fraction (e.g. 0.005 = 0.5%).
     # Widens structural SLs that land too close to entry (prevents fee-drag explosion).
     min_sl_pct: float = 0.0
+
+    def effective_min_trades(self, tf: str) -> int:
+        """Return per-TF override if configured, else the global min_trades."""
+        return self.min_trades_per_tf.get(tf, self.min_trades)
 
 
 @dataclass
@@ -102,10 +114,16 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
     }
 
     raw_bt = data.get("backtest", {})
+    bt_per_tf = {
+        k[len("min_trades_") :]: int(v)
+        for k, v in raw_bt.items()
+        if k.startswith("min_trades_") and k != "min_trades"
+    }
     backtest = BacktestFilterConfig(
         mode=str(raw_bt.get("mode", "soft")),
         days=int(raw_bt.get("days", 90)),
         min_trades=int(raw_bt.get("min_trades", 20)),
+        min_trades_per_tf=bt_per_tf,
         filter_threshold=float(raw_bt.get("filter_threshold", 0.45)),
         save_results=bool(raw_bt.get("save_results", True)),
         # [backtest].fee_pct takes precedence; falls back to top-level fee_pct

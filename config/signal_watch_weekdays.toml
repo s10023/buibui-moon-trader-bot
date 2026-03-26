@@ -35,7 +35,13 @@ strategies = [
 ]
 
 days = 200
-min_trades = 20
+min_trades = 20         # global fallback
+# Per-TF overrides — calibrated for 200d window.
+# Formula: days × candles_per_day × signal_rate (15m=96/d, 1h=24, 4h=6, 1d=1)
+min_trades_15m = 30
+min_trades_1h  = 20
+min_trades_4h  = 10
+min_trades_1d  = 5
 fee_pct = 0.0005
 
 [strategy_timeframes]
@@ -58,5 +64,9 @@ SOLUSDT = "ETHUSDT"
 [backtest]
 mode = "hard"
 days = 200
-min_trades = 20
+min_trades = 20         # global fallback
+min_trades_15m = 30
+min_trades_1h  = 20
+min_trades_4h  = 10
+min_trades_1d  = 5
 filter_threshold = 0.3

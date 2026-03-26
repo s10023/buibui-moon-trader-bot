@@ -33,7 +33,10 @@ day_filter = true
 
 # Backtest window — full 200-day window for daily signals
 days = 200
-min_trades = 10
+min_trades = 10         # global fallback
+# Per-TF override — 1d fires rarely; global 10 would hide most results.
+# Formula: 200d × 1 candle/d × 0.025 signal_rate ≈ 5
+min_trades_1d = 5
 fee_pct = 0.0005
 
 [strategy_timeframes]
@@ -49,5 +52,6 @@ ETHUSDT = "BTCUSDT"
 [backtest]
 mode = "hard"
 days = 200
-min_trades = 10
+min_trades = 10         # global fallback
+min_trades_1d = 5
 filter_threshold = 0.45
