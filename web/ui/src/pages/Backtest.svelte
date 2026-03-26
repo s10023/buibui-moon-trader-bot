@@ -91,16 +91,19 @@
     return filtered;
   });
 
-  function toggle(set: Set<string>, val: string): void {
-    if (set.has(val)) set.delete(val);
-    else set.add(val);
+  // Svelte 5: must reassign $state variable — in-place Set mutation is not tracked
+  function tog(current: Set<string>, val: string): Set<string> {
+    const next = new Set(current);
+    if (next.has(val)) next.delete(val);
+    else next.add(val);
+    return next;
   }
 
   function resetFilters(): void {
-    selSymbols.clear();
-    selTfs.clear();
-    selStrategies.clear();
-    selDayFilters.clear();
+    selSymbols = new Set();
+    selTfs = new Set();
+    selStrategies = new Set();
+    selDayFilters = new Set();
     minStarsFilter = 0;
     minTrades = 0;
     minAvgRText = "";
@@ -216,7 +219,7 @@
       <div class="chips">
         {#each $symbols as s}
           <button class="chip" class:on={selSymbols.has(s)}
-            onclick={() => toggle(selSymbols, s)}>{s.replace("USDT", "")}</button>
+            onclick={() => { selSymbols = tog(selSymbols, s); }}>{s.replace("USDT", "")}</button>
         {/each}
       </div>
 
@@ -226,7 +229,7 @@
       <div class="chips">
         {#each TIMEFRAMES as tf}
           <button class="chip" class:on={selTfs.has(tf)}
-            onclick={() => toggle(selTfs, tf)}>{tf}</button>
+            onclick={() => { selTfs = tog(selTfs, tf); }}>{tf}</button>
         {/each}
       </div>
 
@@ -236,7 +239,7 @@
       <div class="chips">
         {#each availableDayFilters as df}
           <button class="chip" class:on={selDayFilters.has(df)}
-            onclick={() => toggle(selDayFilters, df)}>{df}</button>
+            onclick={() => { selDayFilters = tog(selDayFilters, df); }}>{df}</button>
         {/each}
       </div>
 
@@ -263,7 +266,7 @@
         <div class="strat-grid">
           {#each $strategyNames as s}
             <button class="chip" class:on={selStrategies.has(s)}
-              onclick={() => toggle(selStrategies, s)}>{s}</button>
+              onclick={() => { selStrategies = tog(selStrategies, s); }}>{s}</button>
           {/each}
         </div>
       </details>
