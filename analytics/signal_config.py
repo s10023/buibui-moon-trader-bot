@@ -40,9 +40,12 @@ class BacktestFilterConfig:
     days: int = 90
     # Below this trade count the filter is bypassed (win rate is noise).
     # Global fallback — use effective_min_trades(tf) to get per-TF value.
-    min_trades: int = 20
+    min_trades: int = 12
     # Per-TF override: check this first, fall back to min_trades.
-    # Calibrated from backtest_runs DB (200d window): 15m→30, 1h→20, 4h→10, 1d→5
+    # Calibrated from backtest_runs DB (directional trade counts, not total):
+    #   15m→20, 1h→12, 4h→5, 1d→2
+    # Thresholds apply to the directional bucket (long or short), not total closed trades.
+    # DB p25 directional: 15m=58, 1h=17, 4h=4-5, 1d=0-1 — values set to cover ~75%+ of runs.
     # Signal rate is NOT uniform — higher TFs fire less frequently per candle.
     # To scale for a different lookback: new_value = base × (your_days / 200)
     min_trades_per_tf: dict[str, int] = field(default_factory=dict)

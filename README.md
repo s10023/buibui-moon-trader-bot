@@ -520,7 +520,11 @@ The `[backtest]` table in `config/signal_watch.toml` controls a per-alert win ra
 [backtest]
 mode = "hard"           # "soft": append win rate | "hard": suppress low performers | "off"
 days = 200              # lookback window
-min_trades = 20         # bypass filter if fewer than this many historical trades
+min_trades = 12         # global fallback — applied to directional trade count (longs for LONG alerts, shorts for SHORT)
+min_trades_15m = 20     # per-TF overrides; calibrated from DB p25 directional counts
+min_trades_1h  = 12
+min_trades_4h  = 5
+min_trades_1d  = 2
 filter_threshold = 0.3  # hard mode: suppress alert if win_rate < this
 fee_pct = 0.0005        # taker fee applied to inline backtest (falls back to top-level fee_pct)
 
@@ -542,7 +546,7 @@ Direction: LONG 🟢  Strategy: `fvg`  ★★★★☆
 Reason: `fvg_long@43200.00-43350.00`
 Price: 43,260.00  |  01-Apr 21:00 SGT
 SL: 42,394.80 (2.0%)  TP: 44,985.60 (4.0% | 2.0x R)
-📊 Backtest 90d: 62% win (28 trades)
+📊 Backtest 90d [↑]: 62% win · avg +1.4R (18 longs)
 ```
 
 Two-layer dedup prevents alert spam:

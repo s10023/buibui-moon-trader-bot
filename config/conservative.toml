@@ -52,6 +52,8 @@ ETHUSDT = "BTCUSDT"
 [backtest]
 mode = "hard"
 days = 200
-min_trades = 10         # global fallback
-min_trades_1d = 5
+# Thresholds apply to directional trade count (longs for LONG alerts, shorts for SHORT).
+# 1d directional median=2, p25=0 — 2 is the practical floor given thin 1d sample size.
+min_trades = 12         # global fallback (directional)
+min_trades_1d = 2
 filter_threshold = 0.45

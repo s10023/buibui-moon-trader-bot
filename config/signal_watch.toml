@@ -91,10 +91,13 @@ SOLUSDT = "ETHUSDT"
 [backtest]
 mode = "hard"
 days = 200
-min_trades = 20         # global fallback
-min_trades_15m = 30
-min_trades_1h  = 20
-min_trades_4h  = 10
-min_trades_1d  = 5
+# Thresholds apply to directional trade count (longs for LONG alerts, shorts for SHORT).
+# Recalibrated from backtest_runs DB p25 directional counts (90d window):
+#   15m p25_long=58 → 20, 1h p25_long=17 → 12, 4h p25_long=4 → 5, 1d p25_long=0 → 2
+min_trades = 12         # global fallback (directional)
+min_trades_15m = 20
+min_trades_1h  = 12
+min_trades_4h  = 5
+min_trades_1d  = 2
 filter_threshold = 0.3
 # save_results = true

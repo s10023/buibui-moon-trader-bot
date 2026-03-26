@@ -124,34 +124,64 @@ def _backtest_summary(
     strategies: list[str],
     cfg: BacktestFilterConfig,
     tf: str = "",
+    direction: str = "",
 ) -> str:
     """Format a one-line backtest summary for appending to an alert message.
 
-    Single strategy: '📊 Backtest 90d: 62% win (28 trades)'
-    Multiple:        '📊 Backtest 90d: fvg 62% (28) · bos n/a (3)'
+    Shows direction-specific win rate and avg R when direction is provided.
+    Falls back to overall stats when directional bucket has fewer than min_trades.
+
+    Single strategy (long): '📊 Backtest 90d [↑]: 62% win · avg +1.4R (18 longs)'
+    Multiple (short):       '📊 Backtest 90d [↓]: fvg 55%·+1.1R (12) · bos n/a (3)'
+    No direction:           '📊 Backtest 90d: 62% win (28 trades)'
     """
+    arrow = " [↑]" if direction == "long" else " [↓]" if direction == "short" else ""
+    single = len(strategies) == 1
+    min_trades = cfg.effective_min_trades(tf)
     parts: list[str] = []
+
     for s in strategies:
         result = results.get(s)
         if result is None:
-            parts.append(f"{s}: n/a" if len(strategies) > 1 else "n/a")
+            parts.append("n/a" if single else f"{s}: n/a")
+            continue
+
+        if direction == "long":
+            dir_trades = result.long_closed_trades
+            dir_win_rate = result.long_win_rate
+            dir_avg_r = result.long_avg_r
+            trade_noun = "long"
+        elif direction == "short":
+            dir_trades = result.short_closed_trades
+            dir_win_rate = result.short_win_rate
+            dir_avg_r = result.short_avg_r
+            trade_noun = "short"
         else:
-            n = len(result.closed_trades)
-            if n < cfg.effective_min_trades(tf):
+            dir_trades = result.closed_trades
+            dir_win_rate = result.win_rate if result.closed_trades else None
+            dir_avg_r = result.avg_r if result.closed_trades else None
+            trade_noun = "trade"
+
+        n = len(dir_trades)
+        if n < min_trades or dir_win_rate is None:
+            label = f"n/a ({n} {trade_noun}s)" if single else f"{s}: n/a ({n})"
+        else:
+            pct = f"{dir_win_rate:.0%}"
+            if dir_avg_r is not None:
+                avg_r_str = f"{dir_avg_r:+.1f}R"
                 label = (
-                    f"n/a ({n} trades)" if len(strategies) == 1 else f"{s}: n/a ({n})"
+                    f"{pct} win · avg {avg_r_str} ({n} {trade_noun}s)"
+                    if single
+                    else f"{s}: {pct}·{avg_r_str} ({n})"
                 )
             else:
-                pct = f"{result.win_rate:.0%}"
                 label = (
-                    f"{pct} win ({n} trades)"
-                    if len(strategies) == 1
-                    else f"{s}: {pct} ({n})"
+                    f"{pct} win ({n} {trade_noun}s)" if single else f"{s}: {pct} ({n})"
                 )
-            parts.append(label)
+        parts.append(label)
 
     body = " · ".join(parts)
-    return f"📊 Backtest {cfg.days}d: {body}"
+    return f"📊 Backtest {cfg.days}d{arrow}: {body}"
 
 
 def scan_symbol(
@@ -541,6 +571,7 @@ def run_scan_cycle(
                         [e.strategy for e in dir_events],
                         backtest_cfg,
                         tf=tf,
+                        direction=direction,
                     )
                 # Stack all passing strategies into one confluence alert
                 msg = format_confluence_alert(

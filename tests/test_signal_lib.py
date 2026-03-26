@@ -8,6 +8,7 @@ import pandas as pd
 
 from analytics.data_store import init_schema
 from analytics.signal_lib import (
+    _backtest_summary,
     parse_timeframe_secs,
     run_scan_cycle,
     scan_symbol,
@@ -1906,3 +1907,171 @@ class TestBacktestRunPersistence:
         count = conn.execute("SELECT COUNT(*) FROM backtest_runs").fetchone()
         assert count is not None
         assert count[0] == 0
+
+
+class TestBacktestSummary:
+    """Unit tests for _backtest_summary — direction-aware win rate and avg R."""
+
+    def _make_result(
+        self,
+        strategy: str = "fvg",
+        long_wins: int = 0,
+        long_losses: int = 0,
+        short_wins: int = 0,
+        short_losses: int = 0,
+    ) -> Any:
+        from analytics.backtest_lib import BacktestResult, Trade
+
+        trades: list[Trade] = []
+        # Long win: entry=100 sl=98 exit=104 → risk=2 pnl_r=+2.0R
+        for _ in range(long_wins):
+            trades.append(
+                Trade(
+                    signal_time=0,
+                    entry_time=1,
+                    entry_price=100.0,
+                    direction="long",
+                    sl_price=98.0,
+                    tp_price=104.0,
+                    exit_time=2,
+                    exit_price=104.0,
+                    outcome="win",
+                )
+            )
+        # Long loss: entry=100 sl=98 exit=98 → pnl_r=-1.0R
+        for _ in range(long_losses):
+            trades.append(
+                Trade(
+                    signal_time=0,
+                    entry_time=1,
+                    entry_price=100.0,
+                    direction="long",
+                    sl_price=98.0,
+                    tp_price=104.0,
+                    exit_time=2,
+                    exit_price=98.0,
+                    outcome="loss",
+                )
+            )
+        # Short win: entry=100 sl=102 exit=96 → risk=2 pnl_r=+2.0R
+        for _ in range(short_wins):
+            trades.append(
+                Trade(
+                    signal_time=0,
+                    entry_time=1,
+                    entry_price=100.0,
+                    direction="short",
+                    sl_price=102.0,
+                    tp_price=96.0,
+                    exit_time=2,
+                    exit_price=96.0,
+                    outcome="win",
+                )
+            )
+        # Short loss: entry=100 sl=102 exit=102 → pnl_r=-1.0R
+        for _ in range(short_losses):
+            trades.append(
+                Trade(
+                    signal_time=0,
+                    entry_time=1,
+                    entry_price=100.0,
+                    direction="short",
+                    sl_price=102.0,
+                    tp_price=96.0,
+                    exit_time=2,
+                    exit_price=102.0,
+                    outcome="loss",
+                )
+            )
+        return BacktestResult(
+            symbol="BTCUSDT", timeframe="1h", strategy=strategy, trades=trades
+        )
+
+    def _cfg(self, min_trades: int = 3) -> Any:
+        from analytics.signal_config import BacktestFilterConfig
+
+        return BacktestFilterConfig(mode="soft", days=90, min_trades=min_trades)
+
+    def test_long_direction_shows_long_win_rate_and_avg_r(self) -> None:
+        """Single strategy LONG alert: shows long win rate + avg R, not overall."""
+        # 4 long wins (+2R each), 1 long loss (-1R) → long_win_rate=80%, long_avg_r=+1.4R
+        # 2 short losses to confirm shorts are excluded from the stat
+        result = self._make_result(long_wins=4, long_losses=1, short_losses=2)
+        summary = _backtest_summary(
+            {"fvg": result}, ["fvg"], self._cfg(), direction="long"
+        )
+        assert "[↑]" in summary
+        assert "80%" in summary
+        assert "+1.4R" in summary
+        assert "5 longs" in summary
+        assert "[↓]" not in summary
+
+    def test_short_direction_shows_short_win_rate_and_avg_r(self) -> None:
+        """Single strategy SHORT alert: shows short win rate + avg R, not overall."""
+        # 3 short wins (+2R each), 1 short loss (-1R) → short_win_rate=75%, short_avg_r=+1.25R
+        # 3 long losses to confirm longs are excluded
+        result = self._make_result(short_wins=3, short_losses=1, long_losses=3)
+        summary = _backtest_summary(
+            {"fvg": result}, ["fvg"], self._cfg(), direction="short"
+        )
+        assert "[↓]" in summary
+        assert "75%" in summary
+        assert "+1.2R" in summary
+        assert "4 shorts" in summary
+        assert "[↑]" not in summary
+
+    def test_directional_n_a_when_below_min_trades(self) -> None:
+        """Shows n/a when directional trade count is below min_trades threshold."""
+        # Only 1 long trade but min_trades=3 → n/a
+        result = self._make_result(long_wins=1, short_wins=5)
+        summary = _backtest_summary(
+            {"fvg": result}, ["fvg"], self._cfg(min_trades=3), direction="long"
+        )
+        assert "n/a" in summary
+        assert "1 long" in summary
+
+    def test_no_direction_shows_overall_win_rate(self) -> None:
+        """Backward compat: no direction arg → overall win rate, no arrow."""
+        result = self._make_result(long_wins=3, long_losses=1)
+        summary = _backtest_summary({"fvg": result}, ["fvg"], self._cfg())
+        assert "[↑]" not in summary
+        assert "[↓]" not in summary
+        assert "75%" in summary
+        assert "4 trades" in summary
+
+    def test_long_arrow_in_header(self) -> None:
+        """Arrow is [↑] for long, [↓] for short, absent when no direction."""
+        result = self._make_result(long_wins=5)
+        long_s = _backtest_summary(
+            {"fvg": result}, ["fvg"], self._cfg(), direction="long"
+        )
+        short_s = _backtest_summary(
+            {"fvg": result}, ["fvg"], self._cfg(), direction="short"
+        )
+        none_s = _backtest_summary({"fvg": result}, ["fvg"], self._cfg())
+        assert "Backtest 90d [↑]:" in long_s
+        assert "Backtest 90d [↓]:" in short_s
+        assert "Backtest 90d:" in none_s
+
+    def test_multi_strategy_confluence_shows_per_strategy_directional_stats(
+        self,
+    ) -> None:
+        """Confluence alert: each strategy prefixed, direction-specific stats."""
+        fvg = self._make_result("fvg", long_wins=4, long_losses=1)
+        bos = self._make_result("bos", long_wins=3, long_losses=1)
+        summary = _backtest_summary(
+            {"fvg": fvg, "bos": bos}, ["fvg", "bos"], self._cfg(), direction="long"
+        )
+        assert "[↑]" in summary
+        assert "fvg:" in summary
+        assert "bos:" in summary
+        assert "80%" in summary
+        assert "75%" in summary
+
+    def test_none_result_shows_n_a(self) -> None:
+        """Strategy with no backtest result shows n/a."""
+        summary = _backtest_summary(
+            {"fvg": None}, ["fvg"], self._cfg(), direction="long"
+        )
+        assert "n/a" in summary
+        assert "[↑]" in summary
