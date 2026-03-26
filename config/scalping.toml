@@ -46,5 +46,7 @@ ETHUSDT = "BTCUSDT"
 [backtest]
 mode = "soft"
 days = 30
-min_trades = 10         # global fallback
+# Thresholds apply to directional trade count (longs for LONG alerts, shorts for SHORT).
+# 30d/15m directional estimate: p25_long(90d)=58 × (30/90) ≈ 19 — so 10 is conservative.
+min_trades = 10         # global fallback (directional)
 filter_threshold = 0.4
