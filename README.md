@@ -582,7 +582,8 @@ SSE stream endpoints accept `?token=<API_TOKEN>` query param instead (browser `E
 | `GET` | `/api/strategies` | All strategy specs with params and confidence |
 | `GET` | `/api/ohlcv` | OHLCV candles (`?symbol=&timeframe=&start_ms=&end_ms=`) |
 | `POST` | `/api/signals` | Detect strategy signals on historical data |
-| `POST` | `/api/backtest` | Run a backtest for a symbol/timeframe/strategy |
+| `GET` | `/api/backtest/runs` | All saved backtest runs from DB, newest first |
+| `POST` | `/api/backtest` | Run a backtest (auto-saved to DB) for a symbol/timeframe/strategy |
 | `GET` | `/api/positions` | Fetch open futures positions |
 | `GET` | `/api/prices` | Latest price changes for all configured symbols |
 | `GET` | `/api/stream/prices` | SSE — live prices every 5 s (`?token=`) |
@@ -599,7 +600,7 @@ SSE stream endpoints accept `?token=<API_TOKEN>` query param instead (browser `E
 ### Web Frontend — Svelte 5
 
 A single-page trading terminal UI. Dark theme, no component library, no SSR.
-Pages: Chart (candlesticks + signal markers), Backtest (form + equity curve), Signal Feed (poll + filters), Positions (SSE), Prices (SSE).
+Pages: Chart (candlesticks + signal markers), Backtest (DB-backed sortable/filterable results table + collapsible run form), Signal Feed (poll + filters), Positions (SSE), Prices (SSE).
 
 ```bash
 # Install frontend dependencies (first time)

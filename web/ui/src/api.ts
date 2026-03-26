@@ -94,6 +94,27 @@ export interface SignalsResponse {
 
 // ── Backtest ──────────────────────────────────────────────────────────────────
 
+export interface BacktestRunSummary {
+  run_id: string;
+  symbol: string;
+  timeframe: string;
+  strategy: string;
+  days: number;
+  sl_pct: number;
+  tp_r: number;
+  fee_pct: number;
+  day_filter: string;
+  closed_trades: number;
+  win_count: number;
+  loss_count: number;
+  win_rate: number;
+  avg_r: number;
+  total_r: number;
+  max_drawdown_r: number;
+  sweep_id: string | null;
+  run_at_ms: number;
+}
+
 export interface TradeModel {
   signal_time: number;
   entry_time: number;
@@ -247,6 +268,9 @@ export const getSignalsHistory = (params: {
   });
   return apiFetch<SignalsResponse>(`/api/signals/history?${q}`);
 };
+
+export const getBacktestRuns = () =>
+  apiFetch<BacktestRunSummary[]>("/api/backtest/runs");
 
 export const runBacktest = (params: {
   symbol: string;

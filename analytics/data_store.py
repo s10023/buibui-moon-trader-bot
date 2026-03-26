@@ -474,6 +474,17 @@ def upsert_backtest_trades(
         conn.unregister("_bt_trades_upsert_df")
 
 
+def list_backtest_runs(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
+    """Return all backtest_runs rows, newest first."""
+    return conn.execute(
+        "SELECT run_id, symbol, timeframe, strategy, days, sl_pct, tp_r, fee_pct, "
+        "day_filter, closed_trades, win_count, loss_count, win_rate, avg_r, total_r, "
+        "max_drawdown_r, sweep_id, run_at_ms "
+        "FROM backtest_runs "
+        "ORDER BY run_at_ms DESC"
+    ).df()
+
+
 def get_win_rate_by_strategy(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     """Return win rate aggregated per strategy across all saved backtest runs.
 
