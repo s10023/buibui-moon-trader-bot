@@ -40,7 +40,10 @@ smt_trend_filter = 1
 
 # Backtest window — use a longer window for swing trade validation
 days = 200
-min_trades = 20
+min_trades = 20         # global fallback
+# Per-TF overrides — calibrated from DB (200d). To scale: base × (your_days / 200)
+min_trades_4h = 10
+min_trades_1d = 5
 fee_pct = 0.0005
 
 # trend_day restricted to its valid TFs (also the only TFs in this profile)
@@ -55,5 +58,7 @@ SOLUSDT = "ETHUSDT"
 [backtest]
 mode = "hard"
 days = 200
-min_trades = 20
+min_trades = 20         # global fallback
+min_trades_4h = 10
+min_trades_1d = 5
 filter_threshold = 0.4

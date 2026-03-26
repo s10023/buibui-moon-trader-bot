@@ -94,3 +94,19 @@ class TestLoadBacktestConfig:
             cfg = load_backtest_config(p)
             assert cfg.day_filter == mode
             assert cfg.smt_trend_filter == 0
+
+    def test_load_per_tf_min_trades(self, tmp_path: Path) -> None:
+        content = "min_trades = 20\nmin_trades_15m = 30\nmin_trades_4h = 10\nmin_trades_1d = 5\n"
+        p = tmp_path / "cfg.toml"
+        p.write_text(content)
+        cfg = load_backtest_config(p)
+        assert cfg.min_trades_per_tf == {"15m": 30, "4h": 10, "1d": 5}
+        assert cfg.effective_min_trades("15m") == 30
+        assert cfg.effective_min_trades("4h") == 10
+        assert cfg.effective_min_trades("1d") == 5
+        assert cfg.effective_min_trades("1h") == 20  # falls back to global
+
+    def test_effective_min_trades_no_overrides(self) -> None:
+        cfg = BacktestSweepConfig(min_trades=15)
+        assert cfg.effective_min_trades("15m") == 15
+        assert cfg.effective_min_trades("4h") == 15

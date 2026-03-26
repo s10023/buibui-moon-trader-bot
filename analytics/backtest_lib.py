@@ -295,13 +295,21 @@ def format_seasonality(stats: pd.DataFrame) -> str:
 def format_sweep_table(
     results: list[BacktestResult],
     min_trades: int = 20,
+    min_trades_per_tf: dict[str, int] | None = None,
 ) -> str:
     """Format a ranked backtest sweep table as a string.
 
-    Rows with fewer than min_trades closed trades are excluded and counted in the footer.
-    Results are sorted by avg_r descending.
+    Rows with fewer than the effective min_trades for their TF are excluded and counted
+    in the footer. Per-TF thresholds in min_trades_per_tf take precedence over the
+    global min_trades fallback. Results are sorted by avg_r descending.
     """
-    qualifying = [r for r in results if len(r.closed_trades) >= min_trades]
+
+    def _eff_min(tf: str) -> int:
+        return (
+            min_trades_per_tf.get(tf, min_trades) if min_trades_per_tf else min_trades
+        )
+
+    qualifying = [r for r in results if len(r.closed_trades) >= _eff_min(r.timeframe)]
     hidden = len(results) - len(qualifying)
 
     qualifying.sort(key=lambda r: r.avg_r, reverse=True)
@@ -321,7 +329,7 @@ def format_sweep_table(
     lines = [thick_sep, header, sep]
 
     if not qualifying:
-        lines.append(f"  No results with ≥ {min_trades} trades.")
+        lines.append("  No results meet the minimum trade threshold.")
     else:
         for r in qualifying:
             win_pct = f"{r.win_rate * 100:.1f}%"

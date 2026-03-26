@@ -8,7 +8,12 @@ days       = 90
 sl_pct     = 0.02
 tp_r       = 2.0
 fee_pct    = 0.0005   # 0.05% taker fee; set 0.0 to disable
-min_trades = 20
+min_trades = 20         # global fallback
+# Per-TF overrides — calibrated for 90d window (scale ×200/90 from the 200d baselines).
+# Formula: days × candles_per_day × signal_rate (1h=24/d, 4h=6, 1d=1)
+min_trades_1h = 15
+min_trades_4h = 5
+min_trades_1d = 3
 # save_results = true   # persist results to backtest_runs table in analytics.db
 
 [smt_pairs]

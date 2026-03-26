@@ -123,6 +123,7 @@ def _backtest_summary(
     results: Mapping[str, BacktestResult | None],
     strategies: list[str],
     cfg: BacktestFilterConfig,
+    tf: str = "",
 ) -> str:
     """Format a one-line backtest summary for appending to an alert message.
 
@@ -136,7 +137,7 @@ def _backtest_summary(
             parts.append(f"{s}: n/a" if len(strategies) > 1 else "n/a")
         else:
             n = len(result.closed_trades)
-            if n < cfg.min_trades:
+            if n < cfg.effective_min_trades(tf):
                 label = (
                     f"n/a ({n} trades)" if len(strategies) == 1 else f"{s}: n/a ({n})"
                 )
@@ -458,7 +459,7 @@ def run_scan_cycle(
                         if (
                             bt_results.get(e.strategy) is None
                             or len(bt_results[e.strategy].closed_trades)  # type: ignore[union-attr]
-                            < backtest_cfg.min_trades
+                            < backtest_cfg.effective_min_trades(tf)
                             or bt_results[e.strategy].win_rate  # type: ignore[union-attr]
                             >= backtest_cfg.filter_threshold
                         )
@@ -539,6 +540,7 @@ def run_scan_cycle(
                         bt_results,
                         [e.strategy for e in dir_events],
                         backtest_cfg,
+                        tf=tf,
                     )
                 # Stack all passing strategies into one confluence alert
                 msg = format_confluence_alert(
