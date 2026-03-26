@@ -699,7 +699,8 @@ Add `--save` (or `SAVE=1` via make) to store aggregate results in `analytics.db`
 
 ```text
 backtest_runs        — one row per (symbol, tf, strategy, param combo):
-                       win_rate, avg_r, total_r, max_drawdown_r, all params used
+                       win_rate, avg_r, total_r, max_drawdown_r, all params used;
+                       long_win_rate, long_avg_r, short_win_rate, short_avg_r (direction split)
 backtest_trades      — one row per simulated trade, linked to backtest_runs
 signal_alert_outcomes — live forward-test outcomes (renamed from signal_outcomes)
 ```
