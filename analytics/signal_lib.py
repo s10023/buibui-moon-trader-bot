@@ -498,6 +498,16 @@ def run_scan_cycle(
                         logger.info("Backtest hard filter suppressed %s %s", symbol, tf)
                         continue
 
+            # Volume suppression gate — drop low-volume signals when enabled.
+            # Enable [backtest].volume_suppress after confirming via sweep that
+            # low-vol trades underperform (run `make buibui-backtest` and read the
+            # Volume Impact table).
+            if backtest_cfg and backtest_cfg.volume_suppress:
+                passing_events = [e for e in passing_events if not e.low_volume]
+                if not passing_events:
+                    logger.info("Volume filter suppressed %s %s", symbol, tf)
+                    continue
+
             for event in passing_events:
                 store.mark_candle(symbol, tf, event.strategy, event.open_time)
 

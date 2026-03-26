@@ -17,6 +17,7 @@ from analytics.backtest_lib import (
     format_result,
     format_seasonality,
     format_sweep_table,
+    format_volume_split,
     run_backtest,
 )
 from analytics.data_store import (
@@ -185,6 +186,7 @@ def run_backtest_sweep(
         conn.close()
 
     print(format_sweep_table(results, cfg.min_trades, cfg.min_trades_per_tf or None))
+    print(format_volume_split(results))
     if cfg.save_results:
         print(f"\n  Results saved to DB (sweep_id={sweep_id})")
 

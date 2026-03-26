@@ -762,3 +762,157 @@ class TestFormatSeasonality:
         output = format_seasonality(stats)
         assert "Day Of Week" in output
         assert "Mon" in output
+
+
+class TestIsLowVolume:
+    """Tests for the _is_low_volume helper."""
+
+    def test_low_volume_returns_true(self) -> None:
+        from analytics.backtest_lib import _is_low_volume
+
+        rows = [
+            _candle(_BASE_TIME + i * 1000, 100, 110, 90, 105, volume=100.0)
+            for i in range(20)
+        ]
+        # Signal candle at idx=20 with volume well below 1.5× mean (100)
+        rows.append(_candle(_BASE_TIME + 20 * 1000, 100, 110, 90, 105, volume=10.0))
+        ohlcv = _make_ohlcv(rows)
+        assert _is_low_volume(ohlcv, 20) is True
+
+    def test_high_volume_returns_false(self) -> None:
+        from analytics.backtest_lib import _is_low_volume
+
+        rows = [
+            _candle(_BASE_TIME + i * 1000, 100, 110, 90, 105, volume=100.0)
+            for i in range(20)
+        ]
+        rows.append(_candle(_BASE_TIME + 20 * 1000, 100, 110, 90, 105, volume=300.0))
+        ohlcv = _make_ohlcv(rows)
+        assert _is_low_volume(ohlcv, 20) is False
+
+    def test_no_volume_column_returns_false(self) -> None:
+        from analytics.backtest_lib import _is_low_volume
+
+        rows = [_candle(_BASE_TIME + i * 1000, 100, 110, 90, 105) for i in range(5)]
+        ohlcv = _make_ohlcv(rows).drop(columns=["volume"])
+        assert _is_low_volume(ohlcv, 4) is False
+
+    def test_idx_zero_returns_false(self) -> None:
+        from analytics.backtest_lib import _is_low_volume
+
+        rows = [_candle(_BASE_TIME, 100, 110, 90, 105, volume=1.0)]
+        ohlcv = _make_ohlcv(rows)
+        assert _is_low_volume(ohlcv, 0) is False
+
+
+class TestLowVolumeTradeTracking:
+    """run_backtest sets low_volume on each Trade from OHLCV volume."""
+
+    def _make_signals(self, open_time: int, direction: str = "long") -> pd.DataFrame:
+        return pd.DataFrame(
+            [{"open_time": open_time, "direction": direction, "reason": "test"}]
+        )
+
+    def test_trade_marked_low_volume_when_signal_candle_is_quiet(self) -> None:
+        # 21 candles: first 20 at volume=100, signal candle at volume=10 (low)
+        rows = [
+            _candle(_BASE_TIME + i * 1000, 100, 110, 90, 105, volume=100.0)
+            for i in range(20)
+        ]
+        rows.append(_candle(_BASE_TIME + 20 * 1000, 100, 110, 90, 105, volume=10.0))
+        # Entry candle (candle after signal)
+        rows.append(_candle(_BASE_TIME + 21 * 1000, 100, 200, 90, 150, volume=100.0))
+        ohlcv = _make_ohlcv(rows)
+        signals = self._make_signals(_BASE_TIME + 20 * 1000)
+        result = run_backtest(ohlcv, signals, "BTCUSDT", "4h", "test")
+        assert len(result.trades) == 1
+        assert result.trades[0].low_volume is True
+
+    def test_trade_marked_normal_volume(self) -> None:
+        rows = [
+            _candle(_BASE_TIME + i * 1000, 100, 110, 90, 105, volume=100.0)
+            for i in range(20)
+        ]
+        rows.append(_candle(_BASE_TIME + 20 * 1000, 100, 110, 90, 105, volume=300.0))
+        rows.append(_candle(_BASE_TIME + 21 * 1000, 100, 200, 90, 150, volume=100.0))
+        ohlcv = _make_ohlcv(rows)
+        signals = self._make_signals(_BASE_TIME + 20 * 1000)
+        result = run_backtest(ohlcv, signals, "BTCUSDT", "4h", "test")
+        assert len(result.trades) == 1
+        assert result.trades[0].low_volume is False
+
+
+class TestVolumeSplitProperties:
+    """BacktestResult splits closed trades by low_volume flag."""
+
+    def _make_trade(self, pnl_r: float, low_volume: bool) -> Trade:
+        risk = 1.0
+        entry = 100.0
+        if pnl_r >= 0:
+            exit_price = entry + pnl_r * risk
+            outcome = "win"
+        else:
+            exit_price = entry + pnl_r * risk
+            outcome = "loss"
+        t = Trade(
+            signal_time=_BASE_TIME,
+            entry_time=_BASE_TIME + 1000,
+            entry_price=entry,
+            direction="long",
+            sl_price=entry - risk,
+            tp_price=entry + 2 * risk,
+            exit_time=_BASE_TIME + 2000,
+            exit_price=exit_price,
+            outcome=outcome,
+            low_volume=low_volume,
+        )
+        return t
+
+    def test_low_vol_and_normal_split(self) -> None:
+        result = BacktestResult(symbol="BTC", timeframe="4h", strategy="test")
+        result.trades = [
+            self._make_trade(0.5, low_volume=True),
+            self._make_trade(-0.3, low_volume=True),
+            self._make_trade(1.0, low_volume=False),
+        ]
+        assert len(result.low_vol_closed_trades) == 2
+        assert len(result.normal_vol_closed_trades) == 1
+
+    def test_low_vol_avg_r(self) -> None:
+        result = BacktestResult(symbol="BTC", timeframe="4h", strategy="test")
+        result.trades = [
+            self._make_trade(0.5, low_volume=True),
+            self._make_trade(-0.5, low_volume=True),
+        ]
+        avg = result.low_vol_avg_r
+        assert avg is not None
+        assert abs(avg) < 0.01  # ~0.0
+
+    def test_normal_vol_avg_r_none_when_no_normal_trades(self) -> None:
+        result = BacktestResult(symbol="BTC", timeframe="4h", strategy="test")
+        result.trades = [self._make_trade(0.5, low_volume=True)]
+        assert result.normal_vol_avg_r is None
+
+
+class TestFormatVolumeSplit:
+    """format_volume_split produces a readable table."""
+
+    def test_contains_header(self) -> None:
+        from analytics.backtest_lib import format_volume_split
+
+        result = BacktestResult(symbol="BTC", timeframe="4h", strategy="engulfing")
+        output = format_volume_split([result])
+        assert "Volume Impact" in output
+
+    def test_shows_strategy_name(self) -> None:
+        from analytics.backtest_lib import format_volume_split
+
+        result = BacktestResult(symbol="BTC", timeframe="4h", strategy="pin_bar")
+        output = format_volume_split([result])
+        assert "pin_bar" in output
+
+    def test_shows_delta_explanation(self) -> None:
+        from analytics.backtest_lib import format_volume_split
+
+        output = format_volume_split([])
+        assert "Delta" in output
