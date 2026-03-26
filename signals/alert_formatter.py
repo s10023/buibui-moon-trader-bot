@@ -2,8 +2,10 @@
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 _MYT = timezone(timedelta(hours=8))
+_ET = ZoneInfo("America/New_York")
 
 
 _SESSION_EMOJI = {
@@ -14,26 +16,26 @@ _SESSION_EMOJI = {
 
 
 def _get_session_label(dt: datetime) -> str:
-    """Return the ICT AMD session label for a datetime, or empty string if outside.
+    """Return the ICT kill zone label for a datetime, or empty string if outside.
 
-    Sessions (MYT / UTC+8):
-    - Asia   (Accumulation):  04:00–07:59
-    - London (Manipulation):  10:00–12:59
-    - NY     (Distribution):  17:30–19:59
+    ICT kill zones (ET, DST-aware via America/New_York):
+    - Asia    (Accumulation):  20:00–22:59 ET — around Tokyo open
+    - London  (Manipulation):  02:00–04:59 ET — before/around London open (~03:00 ET)
+    - NY      (Distribution):  07:00–09:59 ET — before/around NY open (09:30 ET)
+
+    Using ET (America/New_York) handles EST/EDT transitions automatically so the
+    windows stay anchored to the correct real-world session opens year-round.
     """
-    dt_myt = dt.astimezone(_MYT)
-    hour = dt_myt.hour
-    minute = dt_myt.minute
-    # Asia: 04:00–07:59 MYT
-    if 4 <= hour < 8:
+    dt_et = dt.astimezone(_ET)
+    hour = dt_et.hour
+    # Asia KZ: 8 PM – 11 PM ET
+    if 20 <= hour < 23:
         return "Asia"
-    # London: 10:00–12:59 MYT
-    if 10 <= hour < 13:
+    # London KZ: 2 AM – 5 AM ET
+    if 2 <= hour < 5:
         return "London"
-    # NY: 17:30–19:59 MYT
-    if hour == 17 and minute >= 30:
-        return "NY"
-    if hour == 18 or hour == 19:
+    # NY KZ: 7 AM – 10 AM ET
+    if 7 <= hour < 10:
         return "NY"
     return ""
 
