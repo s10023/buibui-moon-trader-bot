@@ -113,6 +113,14 @@ export interface BacktestRunSummary {
   max_drawdown_r: number;
   sweep_id: string | null;
   run_at_ms: number;
+  long_closed_trades: number | null;
+  long_win_count: number | null;
+  long_win_rate: number | null;
+  long_avg_r: number | null;
+  short_closed_trades: number | null;
+  short_win_count: number | null;
+  short_win_rate: number | null;
+  short_avg_r: number | null;
 }
 
 export interface TradeModel {
@@ -140,6 +148,14 @@ export interface BacktestResponse {
   avg_r: number;
   total_r: number;
   max_drawdown_r: number;
+  long_closed_trades: number;
+  long_win_count: number;
+  long_win_rate: number | null;
+  long_avg_r: number | null;
+  short_closed_trades: number;
+  short_win_count: number;
+  short_win_rate: number | null;
+  short_avg_r: number | null;
   trades: TradeModel[];
 }
 

@@ -65,6 +65,14 @@ class BacktestResult:
     def closed_trades(self) -> list[Trade]:
         return [t for t in self.trades if t.outcome != "open"]
 
+    @functools.cached_property
+    def long_closed_trades(self) -> list[Trade]:
+        return [t for t in self.closed_trades if t.direction == "long"]
+
+    @functools.cached_property
+    def short_closed_trades(self) -> list[Trade]:
+        return [t for t in self.closed_trades if t.direction == "short"]
+
     @property
     def win_count(self) -> int:
         return sum(1 for t in self.closed_trades if t.outcome == "win")
@@ -77,6 +85,34 @@ class BacktestResult:
     def win_rate(self) -> float:
         closed = len(self.closed_trades)
         return self.win_count / closed if closed > 0 else 0.0
+
+    @property
+    def long_win_count(self) -> int:
+        return sum(1 for t in self.long_closed_trades if t.outcome == "win")
+
+    @property
+    def long_win_rate(self) -> float | None:
+        n = len(self.long_closed_trades)
+        return self.long_win_count / n if n > 0 else None
+
+    @property
+    def long_avg_r(self) -> float | None:
+        r_values = [t.pnl_r for t in self.long_closed_trades if t.pnl_r is not None]
+        return sum(r_values) / len(r_values) if r_values else None
+
+    @property
+    def short_win_count(self) -> int:
+        return sum(1 for t in self.short_closed_trades if t.outcome == "win")
+
+    @property
+    def short_win_rate(self) -> float | None:
+        n = len(self.short_closed_trades)
+        return self.short_win_count / n if n > 0 else None
+
+    @property
+    def short_avg_r(self) -> float | None:
+        r_values = [t.pnl_r for t in self.short_closed_trades if t.pnl_r is not None]
+        return sum(r_values) / len(r_values) if r_values else None
 
     @property
     def avg_r(self) -> float:

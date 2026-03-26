@@ -122,9 +122,37 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
             total_r              DOUBLE  NOT NULL,
             max_drawdown_r       DOUBLE  NOT NULL,
             run_at_ms            BIGINT  NOT NULL,
-            sweep_id             TEXT
+            sweep_id             TEXT,
+            long_closed_trades   INTEGER,
+            long_win_count       INTEGER,
+            long_win_rate        DOUBLE,
+            long_avg_r           DOUBLE,
+            short_closed_trades  INTEGER,
+            short_win_count      INTEGER,
+            short_win_rate       DOUBLE,
+            short_avg_r          DOUBLE
         )
     """)
+    # Migration: add long/short split columns to existing DBs.
+    existing_bt_cols = {
+        row[0]
+        for row in conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'backtest_runs'"
+        ).fetchall()
+    }
+    for col, dtype in [
+        ("long_closed_trades", "INTEGER"),
+        ("long_win_count", "INTEGER"),
+        ("long_win_rate", "DOUBLE"),
+        ("long_avg_r", "DOUBLE"),
+        ("short_closed_trades", "INTEGER"),
+        ("short_win_count", "INTEGER"),
+        ("short_win_rate", "DOUBLE"),
+        ("short_avg_r", "DOUBLE"),
+    ]:
+        if col not in existing_bt_cols:
+            conn.execute(f"ALTER TABLE backtest_runs ADD COLUMN {col} {dtype}")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS backtest_trades (
             trade_id        TEXT    PRIMARY KEY,
@@ -143,6 +171,34 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
             outcome         TEXT    NOT NULL,
             pnl_r           DOUBLE
         )
+    """)
+    # Backfill existing runs from trades table where split columns are still NULL.
+    # Runs after backtest_trades is created so the table always exists.
+    conn.execute("""
+        UPDATE backtest_runs r
+        SET
+            long_closed_trades  = t.lct,
+            long_win_count      = t.lwc,
+            long_win_rate       = CASE WHEN t.lct > 0 THEN t.lwc * 1.0 / t.lct ELSE NULL END,
+            long_avg_r          = t.lar,
+            short_closed_trades = t.sct,
+            short_win_count     = t.swc,
+            short_win_rate      = CASE WHEN t.sct > 0 THEN t.swc * 1.0 / t.sct ELSE NULL END,
+            short_avg_r         = t.sar
+        FROM (
+            SELECT
+                run_id,
+                COUNT(*)   FILTER (WHERE direction = 'long'  AND outcome != 'open') AS lct,
+                COUNT(*)   FILTER (WHERE direction = 'long'  AND outcome = 'win')   AS lwc,
+                AVG(pnl_r) FILTER (WHERE direction = 'long'  AND outcome != 'open') AS lar,
+                COUNT(*)   FILTER (WHERE direction = 'short' AND outcome != 'open') AS sct,
+                COUNT(*)   FILTER (WHERE direction = 'short' AND outcome = 'win')   AS swc,
+                AVG(pnl_r) FILTER (WHERE direction = 'short' AND outcome != 'open') AS sar
+            FROM backtest_trades
+            GROUP BY run_id
+        ) t
+        WHERE r.run_id = t.run_id
+          AND r.long_closed_trades IS NULL
     """)
 
 
@@ -411,6 +467,14 @@ def upsert_backtest_run(
         "max_drawdown_r": result.max_drawdown_r,
         "run_at_ms": int(time.time() * 1000),
         "sweep_id": sweep_id,
+        "long_closed_trades": len(result.long_closed_trades),
+        "long_win_count": result.long_win_count,
+        "long_win_rate": result.long_win_rate,
+        "long_avg_r": result.long_avg_r,
+        "short_closed_trades": len(result.short_closed_trades),
+        "short_win_count": result.short_win_count,
+        "short_win_rate": result.short_win_rate,
+        "short_avg_r": result.short_avg_r,
     }
     df = pd.DataFrame([row])
     conn.register("_bt_run_upsert_df", df)
@@ -420,7 +484,9 @@ def upsert_backtest_run(
             "run_id, symbol, timeframe, strategy, data_start_ms, data_end_ms, "
             "days, sl_pct, tp_r, fee_pct, day_filter, smt_trend_filter, "
             "secondary_symbol, total_signals, closed_trades, win_count, loss_count, "
-            "win_rate, avg_r, total_r, max_drawdown_r, run_at_ms, sweep_id "
+            "win_rate, avg_r, total_r, max_drawdown_r, run_at_ms, sweep_id, "
+            "long_closed_trades, long_win_count, long_win_rate, long_avg_r, "
+            "short_closed_trades, short_win_count, short_win_rate, short_avg_r "
             "FROM _bt_run_upsert_df"
         )
     finally:
@@ -479,7 +545,9 @@ def list_backtest_runs(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     return conn.execute(
         "SELECT run_id, symbol, timeframe, strategy, days, sl_pct, tp_r, fee_pct, "
         "day_filter, closed_trades, win_count, loss_count, win_rate, avg_r, total_r, "
-        "max_drawdown_r, sweep_id, run_at_ms "
+        "max_drawdown_r, sweep_id, run_at_ms, "
+        "long_closed_trades, long_win_count, long_win_rate, long_avg_r, "
+        "short_closed_trades, short_win_count, short_win_rate, short_avg_r "
         "FROM backtest_runs "
         "ORDER BY run_at_ms DESC"
     ).df()
