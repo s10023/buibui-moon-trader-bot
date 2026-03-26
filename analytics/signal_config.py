@@ -62,7 +62,6 @@ class SignalWatchConfig:
     min_sl_pct: float = 0.0
     tp_r: float = 2.0
     sl_pct: float = 0.02
-    cooldown_seconds: float = 3600.0
     state_file: str = "signal_state.json"
     # Per-symbol SMT secondary map: {"BTCUSDT": "ETHUSDT", ...}
     smt_pairs: dict[str, str] = field(default_factory=dict)
@@ -123,7 +122,6 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         min_sl_pct=float(data.get("min_sl_pct", 0.0)),
         tp_r=float(data.get("tp_r", 2.0)),
         sl_pct=float(data.get("sl_pct", 0.02)),
-        cooldown_seconds=float(data.get("cooldown_seconds", 3600.0)),
         state_file=str(data.get("state_file", "signal_state.json")),
         smt_pairs=smt_pairs,
         backtest=backtest,

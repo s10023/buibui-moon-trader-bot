@@ -77,20 +77,6 @@ class TestCooldownStore:
         store.mark_candle("BTCUSDT", "4h", "fvg", 1000)
         assert store.is_new_candle("BTCUSDT", "4h", "fvg", 2000) is True
 
-    def test_cooldown_blocks_when_active(self, tmp_path: Any) -> None:
-        store = CooldownStore(str(tmp_path / "state.json"))
-        store.set_cooldown("BTCUSDT", "fvg", "long", 9999.0)
-        assert store.is_off_cooldown("BTCUSDT", "fvg", "long") is False
-
-    def test_cooldown_allows_by_default(self, tmp_path: Any) -> None:
-        store = CooldownStore(str(tmp_path / "state.json"))
-        assert store.is_off_cooldown("BTCUSDT", "fvg", "long") is True
-
-    def test_expired_cooldown_allows(self, tmp_path: Any) -> None:
-        store = CooldownStore(str(tmp_path / "state.json"))
-        store.set_cooldown("BTCUSDT", "fvg", "long", -1.0)  # already expired
-        assert store.is_off_cooldown("BTCUSDT", "fvg", "long") is True
-
     def test_state_persists_across_instances(self, tmp_path: Any) -> None:
         path = str(tmp_path / "state.json")
         store1 = CooldownStore(path)
