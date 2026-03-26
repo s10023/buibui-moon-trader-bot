@@ -13,15 +13,22 @@
 
   const TIMEFRAMES = ["15m", "1h", "4h", "1d"];
 
-  // ── DB runs view ────────────────────────────────────────────────────────────
+  // ── DB runs view ─────────────────────────────────────────────────────────────
   let runs = $state<BacktestRunSummary[]>([]);
   let runsLoading = $state(true);
   let runsError = $state<string | null>(null);
 
-  let filterSymbol = $state("");
-  let filterTf = $state("");
-  let filterStrategy = $state("");
-  let sortCol = $state<keyof BacktestRunSummary>("avg_r");
+  // Multi-select filters — empty Set = no filter (all pass)
+  let selSymbols = $state(new Set<string>());
+  let selTfs = $state(new Set<string>());
+  let selStrategies = $state(new Set<string>());
+  let selDayFilters = $state(new Set<string>());
+  let minStarsFilter = $state(0);   // 0 = any
+  let minTrades = $state(0);        // 0 = no minimum
+  let minAvgRText = $state("");     // "" = no minimum
+
+  type SortCol = keyof BacktestRunSummary | "stars";
+  let sortCol = $state<SortCol>("avg_r");
   let sortDir = $state<"asc" | "desc">("desc");
 
   async function loadRuns(): Promise<void> {
@@ -37,28 +44,69 @@
 
   onMount(() => { void loadRuns(); });
 
+  const availableDayFilters = $derived(
+    [...new Set(runs.map((r) => r.day_filter))].sort(),
+  );
+
+  const hasActiveFilters = $derived(
+    selSymbols.size > 0 ||
+    selTfs.size > 0 ||
+    selStrategies.size > 0 ||
+    selDayFilters.size > 0 ||
+    minStarsFilter > 0 ||
+    minTrades > 0 ||
+    minAvgRText !== "",
+  );
+
   const filteredRuns = $derived.by(() => {
-    const fs = filterSymbol;
-    const ft = filterTf;
-    const fst = filterStrategy;
     const col = sortCol;
     const dir = sortDir;
+    const mss = minStarsFilter;
+    const mt = minTrades;
+    const mar = minAvgRText === "" ? -Infinity : (parseFloat(minAvgRText) || -Infinity);
+
     const filtered = runs.filter(
       (r) =>
-        (!fs || r.symbol === fs) &&
-        (!ft || r.timeframe === ft) &&
-        (!fst || r.strategy === fst),
+        (selSymbols.size === 0 || selSymbols.has(r.symbol)) &&
+        (selTfs.size === 0 || selTfs.has(r.timeframe)) &&
+        (selStrategies.size === 0 || selStrategies.has(r.strategy)) &&
+        (selDayFilters.size === 0 || selDayFilters.has(r.day_filter)) &&
+        (mss === 0 || starsFor(r.strategy) >= mss) &&
+        r.closed_trades >= mt &&
+        r.avg_r >= mar,
     );
+
     filtered.sort((a, b) => {
-      const av = a[col];
-      const bv = b[col];
+      const av: number | string =
+        col === "stars"
+          ? starsFor(a.strategy)
+          : (a[col as keyof BacktestRunSummary] as number | string | null) ?? "";
+      const bv: number | string =
+        col === "stars"
+          ? starsFor(b.strategy)
+          : (b[col as keyof BacktestRunSummary] as number | string | null) ?? "";
       const cmp = av < bv ? -1 : av > bv ? 1 : 0;
       return dir === "desc" ? -cmp : cmp;
     });
     return filtered;
   });
 
-  function setSort(col: keyof BacktestRunSummary): void {
+  function toggle(set: Set<string>, val: string): void {
+    if (set.has(val)) set.delete(val);
+    else set.add(val);
+  }
+
+  function resetFilters(): void {
+    selSymbols.clear();
+    selTfs.clear();
+    selStrategies.clear();
+    selDayFilters.clear();
+    minStarsFilter = 0;
+    minTrades = 0;
+    minAvgRText = "";
+  }
+
+  function setSort(col: SortCol): void {
     if (sortCol === col) {
       sortDir = sortDir === "desc" ? "asc" : "desc";
     } else {
@@ -99,7 +147,7 @@
     return (w * 100).toFixed(1) + "%";
   }
 
-  // ── Run form ─────────────────────────────────────────────────────────────────
+  // ── Run form ──────────────────────────────────────────────────────────────────
   let showForm = $state(false);
   let symbol = $state("BTCUSDT");
   let timeframe = $state("4h");
@@ -119,9 +167,10 @@
     extraParams = Object.fromEntries(spec.params.map((p) => [p.name, p.default]));
   });
 
-  // Check if this exact symbol+tf+strategy already has a saved run
   const existingRun = $derived(
-    runs.find((r) => r.symbol === symbol && r.timeframe === timeframe && r.strategy === strategy) ?? null,
+    runs.find(
+      (r) => r.symbol === symbol && r.timeframe === timeframe && r.strategy === strategy,
+    ) ?? null,
   );
 
   async function submit(): Promise<void> {
@@ -159,67 +208,145 @@
     </button>
   </div>
 
-  <!-- ── DB Results ──────────────────────────────────────────────────────── -->
-  <div class="filter-bar">
-    <select bind:value={filterSymbol}>
-      <option value="">All Symbols</option>
-      {#each $symbols as s}<option value={s}>{s}</option>{/each}
-    </select>
-    <select bind:value={filterTf}>
-      <option value="">All TFs</option>
-      {#each TIMEFRAMES as tf}<option value={tf}>{tf}</option>{/each}
-    </select>
-    <select bind:value={filterStrategy}>
-      <option value="">All Strategies</option>
-      {#each $strategyNames as s}<option value={s}>{s}</option>{/each}
-    </select>
-    <span class="count">
-      {#if runsLoading}
-        loading…
-      {:else}
-        {filteredRuns.length} / {runs.length}
-      {/if}
-    </span>
+  <!-- ── Filters ──────────────────────────────────────────────────────────── -->
+  <div class="filters">
+
+    <div class="filter-row">
+      <span class="flabel">Symbol</span>
+      <div class="chips">
+        {#each $symbols as s}
+          <button class="chip" class:on={selSymbols.has(s)}
+            onclick={() => toggle(selSymbols, s)}>{s.replace("USDT", "")}</button>
+        {/each}
+      </div>
+
+      <span class="fsep"></span>
+
+      <span class="flabel">TF</span>
+      <div class="chips">
+        {#each TIMEFRAMES as tf}
+          <button class="chip" class:on={selTfs.has(tf)}
+            onclick={() => toggle(selTfs, tf)}>{tf}</button>
+        {/each}
+      </div>
+
+      <span class="fsep"></span>
+
+      <span class="flabel">Day Filter</span>
+      <div class="chips">
+        {#each availableDayFilters as df}
+          <button class="chip" class:on={selDayFilters.has(df)}
+            onclick={() => toggle(selDayFilters, df)}>{df}</button>
+        {/each}
+      </div>
+
+      <span class="fsep"></span>
+
+      <span class="flabel">Stars ≥</span>
+      <div class="chips">
+        <button class="chip" class:on={minStarsFilter === 0}
+          onclick={() => { minStarsFilter = 0; }}>any</button>
+        {#each [1, 2, 3, 4, 5] as n}
+          <button class="chip star-chip" class:on={minStarsFilter === n}
+            onclick={() => { minStarsFilter = n; }}>{"★".repeat(n)}</button>
+        {/each}
+      </div>
+    </div>
+
+    <div class="filter-row">
+      <span class="flabel">Strategy</span>
+      <details class="strat-picker">
+        <summary class="strat-summary">
+          {selStrategies.size === 0 ? "all" : `${selStrategies.size} selected`}
+          <span class="summary-arrow">▾</span>
+        </summary>
+        <div class="strat-grid">
+          {#each $strategyNames as s}
+            <button class="chip" class:on={selStrategies.has(s)}
+              onclick={() => toggle(selStrategies, s)}>{s}</button>
+          {/each}
+        </div>
+      </details>
+
+      <span class="fsep"></span>
+
+      <span class="flabel">Trades ≥</span>
+      <input
+        type="number"
+        class="filter-num"
+        bind:value={minTrades}
+        min="0"
+        step="1"
+        title="Minimum closed trades (0 = no minimum)"
+      />
+
+      <span class="fsep"></span>
+
+      <span class="flabel">Avg R ≥</span>
+      <input
+        type="number"
+        class="filter-num"
+        bind:value={minAvgRText}
+        step="0.01"
+        placeholder="any"
+        title="Minimum avg R (empty = no minimum)"
+      />
+
+      <div class="filter-tail">
+        {#if hasActiveFilters}
+          <button class="reset-btn" onclick={resetFilters}>✕ Reset</button>
+        {/if}
+        <span class="count">
+          {#if runsLoading}loading…{:else}{filteredRuns.length} / {runs.length}{/if}
+        </span>
+      </div>
+    </div>
+
   </div>
 
   {#if runsError}
     <ErrorBanner error={runsError} />
   {/if}
 
+  <!-- ── Results Table ─────────────────────────────────────────────────── -->
   <div class="table-wrap">
     <table>
       <thead>
         <tr>
-          <th class="sortable" onclick={() => setSort("symbol")}>Symbol <span class="sort-icon">{sortIcon("symbol")}</span></th>
-          <th class="sortable" onclick={() => setSort("timeframe")}>TF <span class="sort-icon">{sortIcon("timeframe")}</span></th>
-          <th class="sortable" onclick={() => setSort("strategy")}>Strategy <span class="sort-icon">{sortIcon("strategy")}</span></th>
-          <th>★</th>
-          <th class="sortable num-col" onclick={() => setSort("win_rate")}>Win% <span class="sort-icon">{sortIcon("win_rate")}</span></th>
-          <th class="sortable num-col" onclick={() => setSort("closed_trades")}>Trades <span class="sort-icon">{sortIcon("closed_trades")}</span></th>
-          <th class="sortable num-col" onclick={() => setSort("avg_r")}>Avg R <span class="sort-icon">{sortIcon("avg_r")}</span></th>
-          <th class="sortable num-col" onclick={() => setSort("total_r")}>Total R <span class="sort-icon">{sortIcon("total_r")}</span></th>
-          <th>Day Filter</th>
-          <th class="sortable" onclick={() => setSort("run_at_ms")}>Date <span class="sort-icon">{sortIcon("run_at_ms")}</span></th>
+          <th class="sortable" onclick={() => setSort("symbol")}>Symbol <span class="si">{sortIcon("symbol")}</span></th>
+          <th class="sortable" onclick={() => setSort("timeframe")}>TF <span class="si">{sortIcon("timeframe")}</span></th>
+          <th class="sortable" onclick={() => setSort("strategy")}>Strategy <span class="si">{sortIcon("strategy")}</span></th>
+          <th class="sortable" onclick={() => setSort("stars")}>★ <span class="si">{sortIcon("stars")}</span></th>
+          <th class="sortable num-col" onclick={() => setSort("win_rate")}>Win% <span class="si">{sortIcon("win_rate")}</span></th>
+          <th class="sortable num-col" onclick={() => setSort("closed_trades")}>Trades <span class="si">{sortIcon("closed_trades")}</span></th>
+          <th class="sortable num-col" onclick={() => setSort("avg_r")}>Avg R <span class="si">{sortIcon("avg_r")}</span></th>
+          <th class="sortable num-col" onclick={() => setSort("total_r")}>Total R <span class="si">{sortIcon("total_r")}</span></th>
+          <th class="sortable" onclick={() => setSort("day_filter")}>Day Filter <span class="si">{sortIcon("day_filter")}</span></th>
+          <th class="sortable" onclick={() => setSort("run_at_ms")}>Date <span class="si">{sortIcon("run_at_ms")}</span></th>
         </tr>
       </thead>
       <tbody>
         {#if runsLoading}
-          <tr><td colspan="10" class="loading-cell">Loading…</td></tr>
+          <tr><td colspan="10" class="msg-cell">Loading…</td></tr>
         {:else if filteredRuns.length === 0}
-          <tr><td colspan="10" class="empty-cell">No results — run a backtest first or adjust filters.</td></tr>
+          <tr>
+            <td colspan="10" class="msg-cell">
+              {hasActiveFilters ? "No results match current filters." : "No runs saved — run a backtest first."}
+            </td>
+          </tr>
         {:else}
           {#each filteredRuns as run (run.run_id)}
             <tr>
               <td class="sym">{run.symbol.replace("USDT", "")}</td>
               <td class="muted">{run.timeframe}</td>
-              <td class="strategy-name">{run.strategy}</td>
+              <td class="strat-name">{run.strategy}</td>
               <td class="stars">{renderStars(starsFor(run.strategy))}</td>
               <td class="num">{fmtWinPct(run.win_rate)}</td>
               <td class="num muted">{run.closed_trades}</td>
               <td class="num" class:pos={run.avg_r > 0} class:neg={run.avg_r < 0}>{fmtR(run.avg_r)}</td>
               <td class="num" class:pos={run.total_r > 0} class:neg={run.total_r < 0}>{fmtR(run.total_r)}</td>
-              <td class="muted day-filter">{run.day_filter}</td>
-              <td class="muted date">{fmtDate(run.run_at_ms)}</td>
+              <td class="muted small">{run.day_filter}</td>
+              <td class="muted small nowrap">{fmtDate(run.run_at_ms)}</td>
             </tr>
           {/each}
         {/if}
@@ -227,7 +354,7 @@
     </table>
   </div>
 
-  <!-- ── Run Form ────────────────────────────────────────────────────────── -->
+  <!-- ── Run Form ──────────────────────────────────────────────────────── -->
   {#if showForm}
     <div class="run-section">
       <div class="run-header">Run New Backtest</div>
@@ -256,8 +383,8 @@
         <div class="form-row">
           <label>Days <input type="number" bind:value={days} min="7" max="365" /></label>
           <label title="Stop-loss distance from entry, e.g. 2 = 2%">SL % <input type="number" bind:value={sl_pct} min="0.5" max="10" step="0.5" /></label>
-          <label title="Take-profit as a multiple of the SL distance, e.g. 2 = 2R">TP (R) <input type="number" bind:value={tp_r} min="0.5" max="10" step="0.5" /></label>
-          <label title="Taker fee per side, e.g. 0.05 = 0.05% per trade">Fee % <input type="number" bind:value={fee_pct} min="0" max="0.5" step="0.01" /></label>
+          <label title="Take-profit as a multiple of the SL distance">TP (R) <input type="number" bind:value={tp_r} min="0.5" max="10" step="0.5" /></label>
+          <label title="Taker fee per side, e.g. 0.05 = 0.05%">Fee % <input type="number" bind:value={fee_pct} min="0" max="0.5" step="0.01" /></label>
         </div>
 
         {#if currentSpec && currentSpec.params.length > 0}
@@ -298,12 +425,13 @@
 </div>
 
 <style>
+  /* ── Page header ─────────────────────────────────────────────────────── */
   .page-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     border-bottom: 1px solid var(--border-dim);
-    margin-bottom: 16px;
+    margin-bottom: 14px;
   }
 
   .page-header h2 {
@@ -321,28 +449,164 @@
     color: var(--accent-bright);
   }
 
-  /* ── Filters ──────────────────────────────────────────────────────────── */
-  .filter-bar {
+  /* ── Filters ─────────────────────────────────────────────────────────── */
+  .filters {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+
+  .filter-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .flabel {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .fsep {
+    width: 1px;
+    height: 14px;
+    background: var(--border);
+    flex-shrink: 0;
+    margin: 0 2px;
+  }
+
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .chip {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    padding: 2px 7px;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: background 80ms, color 80ms, border-color 80ms;
+  }
+
+  .chip:hover:not(.on) {
+    border-color: var(--border-dim);
+    color: var(--text);
+    background: var(--bg-panel);
+  }
+
+  .chip.on {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: var(--accent-bright);
+  }
+
+  .star-chip.on {
+    color: var(--yellow);
+    border-color: var(--yellow);
+    background: rgba(240, 192, 64, 0.1);
+  }
+
+  /* ── Strategy picker ─────────────────────────────────────────────────── */
+  .strat-picker {
+    position: relative;
+  }
+
+  .strat-summary {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    padding: 2px 7px;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    transition: background 80ms, border-color 80ms;
+    user-select: none;
+  }
+
+  .strat-summary::-webkit-details-marker { display: none; }
+
+  .strat-picker[open] .strat-summary {
+    border-color: var(--accent);
+    color: var(--accent-bright);
+    background: var(--accent-dim);
+  }
+
+  .summary-arrow {
+    font-size: 8px;
+    color: var(--muted);
+  }
+
+  .strat-grid {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 10;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px;
+    display: grid;
+    grid-template-columns: repeat(4, auto);
+    gap: 4px;
+    min-width: 360px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  }
+
+  /* ── Numeric filters ─────────────────────────────────────────────────── */
+  .filter-num {
+    width: 70px;
+    font-size: 11px;
+    padding: 3px 6px;
+  }
+
+  .filter-tail {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 10px;
-    flex-wrap: wrap;
+    margin-left: auto;
   }
 
-  .filter-bar select {
-    font-size: 11px;
-    padding: 4px 7px;
+  .reset-btn {
+    font-size: 9px;
+    padding: 2px 8px;
+    color: var(--red);
+    border-color: var(--red);
+  }
+
+  .reset-btn:hover:not(:disabled) {
+    background: var(--red-dim);
+    color: var(--red);
   }
 
   .count {
-    margin-left: auto;
     font-size: 10px;
     color: var(--muted);
     letter-spacing: 0.06em;
+    white-space: nowrap;
   }
 
-  /* ── Table ────────────────────────────────────────────────────────────── */
+  /* ── Table ───────────────────────────────────────────────────────────── */
   .table-wrap {
     overflow-x: auto;
     margin-bottom: 4px;
@@ -353,26 +617,19 @@
     user-select: none;
   }
 
-  th.sortable:hover {
-    color: var(--text-dim);
-  }
+  th.sortable:hover { color: var(--text-dim); }
 
-  th.num-col {
-    text-align: right;
-  }
+  th.num-col { text-align: right; }
 
-  .sort-icon {
+  .si {
     font-size: 9px;
     color: var(--muted);
     margin-left: 2px;
   }
 
-  .sym {
-    font-weight: 600;
-    color: var(--text);
-  }
+  .sym { font-weight: 600; }
 
-  .strategy-name {
+  .strat-name {
     color: var(--text-dim);
     font-size: 11.5px;
   }
@@ -392,24 +649,17 @@
   td.pos { color: var(--green); }
   td.neg { color: var(--red); }
 
-  td.day-filter {
-    font-size: 11px;
-  }
+  td.small { font-size: 11px; }
+  td.nowrap { white-space: nowrap; }
 
-  td.date {
-    font-size: 11px;
-    white-space: nowrap;
-  }
-
-  .loading-cell,
-  .empty-cell {
+  .msg-cell {
     text-align: center;
     color: var(--muted);
     padding: 24px;
     font-size: 11px;
   }
 
-  /* ── Run section ──────────────────────────────────────────────────────── */
+  /* ── Run section ─────────────────────────────────────────────────────── */
   .run-section {
     margin-top: 20px;
     border-top: 1px solid var(--border-dim);
