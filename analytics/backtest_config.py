@@ -26,11 +26,9 @@ class BacktestSweepConfig:
     # Global fallback — use effective_min_trades(tf) to get per-TF value.
     min_trades: int = 20
     # Per-TF override: check this first, fall back to min_trades.
-    # Rule of thumb (anchored to 200d):  15m→30, 1h→20, 4h→10, 1d→5
-    # Formula: days × candles_per_day × signal_rate
-    #   Candles per day: 15m=96, 1h=24, 4h=6, 1d=1
-    #   e.g. 200d/4h: 200×6×0.008≈10;  200d/1d: 200×1×0.025≈5
-    #   Scale linearly when days differs from 200.
+    # Calibrated from backtest_runs DB (200d window): 15m→30, 1h→20, 4h→10, 1d→5
+    # Signal rate is NOT uniform — higher TFs fire less frequently per candle.
+    # To scale for a different lookback: new_value = base × (your_days / 200)
     min_trades_per_tf: dict[str, int] = field(default_factory=dict)
     # Per-symbol SMT secondary map: {"BTCUSDT": "ETHUSDT", ...}
     smt_pairs: dict[str, str] = field(default_factory=dict)

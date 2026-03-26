@@ -49,11 +49,14 @@ strategies = [
 # Backtest sweep runner (make buibui-backtest) reads these top-level keys:
 days = 200              # lookback window
 min_trades = 20         # hide combos with fewer trades in sweep table (global fallback)
-# Per-TF overrides — takes precedence over min_trades above.
-# Rule of thumb: days × candles_per_day × signal_rate
-#   Candles per day: 15m=96, 1h=24, 4h=6, 1d=1
-#   e.g. 200d/4h: 200×6×0.008≈10;  200d/1d: 200×1×0.025≈5
-#   Scale linearly for different lookback windows.
+# Per-TF overrides — calibrated from backtest_runs DB (200d window).
+# Signal rate is NOT uniform across TFs; higher TFs fire less per candle:
+#   15m: ~0.0016/candle → 200×96×0.0016≈30
+#   1h:  ~0.0042/candle → 200×24×0.0042≈20
+#   4h:  ~0.0083/candle → 200×6×0.0083≈10
+#   1d:  ~0.025/candle  → 200×1×0.025 ≈5
+# To scale for a different window: new_value = base × (your_days / 200)
+#   e.g. 100d → 15m=15, 1h=10, 4h=5, 1d=3
 min_trades_15m = 30
 min_trades_1h  = 20
 min_trades_4h  = 10

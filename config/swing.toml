@@ -41,8 +41,7 @@ smt_trend_filter = 1
 # Backtest window — use a longer window for swing trade validation
 days = 200
 min_trades = 20         # global fallback
-# Per-TF overrides — calibrated for 200d window.
-# Formula: days × candles_per_day × signal_rate (4h=6/d, 1d=1)
+# Per-TF overrides — calibrated from DB (200d). To scale: base × (your_days / 200)
 min_trades_4h = 10
 min_trades_1d = 5
 fee_pct = 0.0005
