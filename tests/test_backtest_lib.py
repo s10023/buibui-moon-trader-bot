@@ -166,6 +166,117 @@ class TestBacktestResult:
 
 
 # ---------------------------------------------------------------------------
+# BacktestResult — long/short split properties
+# ---------------------------------------------------------------------------
+
+
+class TestBacktestResultDirectionSplit:
+    def _make_mixed_result(self) -> BacktestResult:
+        """3 longs (2W 1L) + 2 shorts (1W 1L) + 1 open long."""
+
+        def _trade(i: int, direction: str, outcome: str) -> Trade:
+            ep = 100.0
+            if direction == "long":
+                sl, tp = 98.0, 104.0  # risk=2, TP=+2R
+                exit_p = tp if outcome == "win" else sl if outcome == "loss" else None
+            else:
+                sl, tp = 102.0, 96.0  # short: sl above entry, tp below; risk=2, TP=+2R
+                exit_p = tp if outcome == "win" else sl if outcome == "loss" else None
+            return Trade(
+                signal_time=i,
+                entry_time=i + 1,
+                entry_price=ep,
+                direction=direction,
+                sl_price=sl,
+                tp_price=tp,
+                exit_time=i + 2 if outcome != "open" else None,
+                exit_price=exit_p,
+                outcome=outcome,
+            )
+
+        result = BacktestResult(symbol="BTCUSDT", timeframe="4h", strategy="fvg")
+        result.trades = [
+            _trade(0, "long", "win"),
+            _trade(1, "long", "win"),
+            _trade(2, "long", "loss"),
+            _trade(3, "long", "open"),  # excluded from closed
+            _trade(4, "short", "win"),
+            _trade(5, "short", "loss"),
+        ]
+        return result
+
+    def test_long_closed_trades_count(self) -> None:
+        result = self._make_mixed_result()
+        assert len(result.long_closed_trades) == 3
+
+    def test_short_closed_trades_count(self) -> None:
+        result = self._make_mixed_result()
+        assert len(result.short_closed_trades) == 2
+
+    def test_long_win_count(self) -> None:
+        result = self._make_mixed_result()
+        assert result.long_win_count == 2
+
+    def test_long_win_rate(self) -> None:
+        result = self._make_mixed_result()
+        assert result.long_win_rate == pytest.approx(2 / 3)
+
+    def test_short_win_count(self) -> None:
+        result = self._make_mixed_result()
+        assert result.short_win_count == 1
+
+    def test_short_win_rate(self) -> None:
+        result = self._make_mixed_result()
+        assert result.short_win_rate == pytest.approx(0.5)
+
+    def test_long_avg_r(self) -> None:
+        result = self._make_mixed_result()
+        # 2 wins (+2R each) + 1 loss (−1R) = avg 1R
+        assert result.long_avg_r == pytest.approx(1.0)
+
+    def test_short_avg_r(self) -> None:
+        result = self._make_mixed_result()
+        # 1 win (+2R) + 1 loss (−1R) = avg 0.5R
+        assert result.short_avg_r == pytest.approx(0.5)
+
+    def test_long_win_rate_none_when_no_longs(self) -> None:
+        result = BacktestResult(symbol="BTCUSDT", timeframe="4h", strategy="fvg")
+        result.trades = [
+            Trade(
+                signal_time=0,
+                entry_time=1,
+                entry_price=100.0,
+                direction="short",
+                sl_price=102.0,
+                tp_price=96.0,
+                exit_time=2,
+                exit_price=96.0,
+                outcome="win",
+            )
+        ]
+        assert result.long_win_rate is None
+        assert result.long_avg_r is None
+
+    def test_short_win_rate_none_when_no_shorts(self) -> None:
+        result = BacktestResult(symbol="BTCUSDT", timeframe="4h", strategy="fvg")
+        result.trades = [
+            Trade(
+                signal_time=0,
+                entry_time=1,
+                entry_price=100.0,
+                direction="long",
+                sl_price=98.0,
+                tp_price=104.0,
+                exit_time=2,
+                exit_price=104.0,
+                outcome="win",
+            )
+        ]
+        assert result.short_win_rate is None
+        assert result.short_avg_r is None
+
+
+# ---------------------------------------------------------------------------
 # run_backtest
 # ---------------------------------------------------------------------------
 

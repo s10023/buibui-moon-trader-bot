@@ -3,7 +3,7 @@
 import math
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 
 class BacktestRunSummary(BaseModel):
@@ -25,14 +25,39 @@ class BacktestRunSummary(BaseModel):
     max_drawdown_r: float
     sweep_id: str | None
     run_at_ms: int
+    long_closed_trades: int | None = None
+    long_win_count: int | None = None
+    long_win_rate: float | None = None
+    long_avg_r: float | None = None
+    short_closed_trades: int | None = None
+    short_win_count: int | None = None
+    short_win_rate: float | None = None
+    short_avg_r: float | None = None
 
     @field_validator("sweep_id", mode="before")
     @classmethod
-    def _nan_to_none(cls, v: Any) -> str | None:
+    def _sweep_nan_to_none(cls, v: Any) -> str | None:
         """Pandas returns NaN for NULL TEXT columns; coerce to None."""
         if isinstance(v, float) and math.isnan(v):
             return None
         return str(v) if v is not None else None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _float_nan_to_none(cls, data: Any) -> Any:
+        """Coerce pandas NaN to None for nullable float columns."""
+        if isinstance(data, dict):
+            nullable_floats = (
+                "long_win_rate",
+                "long_avg_r",
+                "short_win_rate",
+                "short_avg_r",
+            )
+            for key in nullable_floats:
+                v = data.get(key)
+                if isinstance(v, float) and math.isnan(v):
+                    data[key] = None
+        return data
 
 
 class BacktestRequest(BaseModel):
@@ -73,4 +98,12 @@ class BacktestResponse(BaseModel):
     avg_r: float
     total_r: float
     max_drawdown_r: float
+    long_closed_trades: int
+    long_win_count: int
+    long_win_rate: float | None
+    long_avg_r: float | None
+    short_closed_trades: int
+    short_win_count: int
+    short_win_rate: float | None
+    short_avg_r: float | None
     trades: list[TradeModel]

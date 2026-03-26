@@ -80,6 +80,12 @@ def test_backtest_returns_result(
     assert data["total_trades"] == 1
     assert len(data["trades"]) == 1
     assert data["trades"][0]["outcome"] == "win"
+    # Long/short split fields are present (trade is long → short fields are 0/None)
+    assert data["long_closed_trades"] == 1
+    assert data["long_win_count"] == 1
+    assert data["long_win_rate"] == pytest.approx(1.0)
+    assert data["short_closed_trades"] == 0
+    assert data["short_win_rate"] is None
 
 
 def test_backtest_unknown_strategy_returns_422(

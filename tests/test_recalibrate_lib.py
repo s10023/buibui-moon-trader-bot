@@ -156,7 +156,8 @@ def _seed_backtest_runs(conn: duckdb.DuckDBPyConnection) -> None:
             "run_id, symbol, timeframe, strategy, data_start_ms, data_end_ms, "
             "days, sl_pct, tp_r, fee_pct, day_filter, smt_trend_filter, "
             "secondary_symbol, total_signals, closed_trades, win_count, loss_count, "
-            "win_rate, avg_r, total_r, max_drawdown_r, run_at_ms, sweep_id "
+            "win_rate, avg_r, total_r, max_drawdown_r, run_at_ms, sweep_id, "
+            "NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL "
             "FROM _seed_df"
         )
     finally:
