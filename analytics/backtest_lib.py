@@ -12,6 +12,29 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 
+def _is_low_volume(
+    ohlcv: pd.DataFrame,
+    idx: int,
+    multiplier: float = 1.5,
+    lookback: int = 20,
+) -> bool:
+    """Return True if the candle at idx has volume below multiplier × rolling mean.
+
+    Uses the lookback candles *before* idx (no lookahead). Returns False when
+    volume data is unavailable (safe default — no false suppression).
+    """
+    if "volume" not in ohlcv.columns or idx < 1:
+        return False
+    start = max(0, idx - lookback)
+    prior_vols = ohlcv["volume"].iloc[start:idx].astype(float)
+    if prior_vols.empty:
+        return False
+    avg = float(prior_vols.mean())
+    if avg == 0.0:
+        return False
+    return float(ohlcv["volume"].iloc[idx]) < multiplier * avg
+
+
 @dataclass
 class Trade:
     """A single simulated trade."""
@@ -26,6 +49,7 @@ class Trade:
     exit_price: float | None = None
     outcome: str = "open"  # "win" | "loss" | "open"
     fee_pct: float = 0.0
+    low_volume: bool = False  # True when signal candle volume < 1.5× rolling mean
 
     @property
     def pnl_r(self) -> float | None:
@@ -123,6 +147,24 @@ class BacktestResult:
     def total_r(self) -> float:
         r_values = [t.pnl_r for t in self.closed_trades if t.pnl_r is not None]
         return sum(r_values)
+
+    @functools.cached_property
+    def low_vol_closed_trades(self) -> list[Trade]:
+        return [t for t in self.closed_trades if t.low_volume]
+
+    @functools.cached_property
+    def normal_vol_closed_trades(self) -> list[Trade]:
+        return [t for t in self.closed_trades if not t.low_volume]
+
+    @property
+    def low_vol_avg_r(self) -> float | None:
+        r_vals = [t.pnl_r for t in self.low_vol_closed_trades if t.pnl_r is not None]
+        return sum(r_vals) / len(r_vals) if r_vals else None
+
+    @property
+    def normal_vol_avg_r(self) -> float | None:
+        r_vals = [t.pnl_r for t in self.normal_vol_closed_trades if t.pnl_r is not None]
+        return sum(r_vals) / len(r_vals) if r_vals else None
 
     @property
     def max_drawdown_r(self) -> float:
@@ -225,6 +267,7 @@ def run_backtest(
             sl_price=sl_price,
             tp_price=tp_price,
             fee_pct=fee_pct,
+            low_volume=_is_low_volume(ohlcv, sig_idx),
         )
 
         for i in range(entry_idx, len(ohlcv_times)):
@@ -289,6 +332,71 @@ def filter_signals_by_day(
         return signals
     weekdays = pd.to_datetime(signals["open_time"], unit="ms", utc=True).dt.weekday
     return signals[weekdays.isin(allowed_weekdays)].reset_index(drop=True)
+
+
+def format_volume_split(results: list[BacktestResult]) -> str:
+    """Show avg R split by low-volume vs normal-volume trades, aggregated by strategy.
+
+    Delta = normal_avg_r − low_vol_avg_r.
+    Positive delta means normal-volume trades outperform → volume filter would help.
+    """
+    from collections import defaultdict
+
+    low_by_strat: dict[str, list[Trade]] = defaultdict(list)
+    norm_by_strat: dict[str, list[Trade]] = defaultdict(list)
+    for r in results:
+        low_by_strat[r.strategy].extend(r.low_vol_closed_trades)
+        norm_by_strat[r.strategy].extend(r.normal_vol_closed_trades)
+
+    strategies = sorted(set(low_by_strat) | set(norm_by_strat))
+
+    def _avg(trades: list[Trade]) -> float | None:
+        vals = [t.pnl_r for t in trades if t.pnl_r is not None]
+        return sum(vals) / len(vals) if vals else None
+
+    col = (22, 8, 7, 8, 7, 7)
+    header = (
+        f"  {'Strategy':<{col[0]}}"
+        f"{'Low-vol':>{col[1]}}"
+        f"{'Avg R':>{col[2]}}"
+        f"  {'Normal':>{col[3]}}"
+        f"{'Avg R':>{col[4]}}"
+        f"  {'Delta':>{col[5]}}"
+    )
+    sep = "  " + "─" * (sum(col) + 4)
+    thick = "═" * (sum(col) + 6)
+
+    lines = [
+        "\nVolume Impact (aggregated across all symbols × TFs)",
+        thick,
+        header,
+        sep,
+    ]
+
+    for s in strategies:
+        low = low_by_strat[s]
+        norm = norm_by_strat[s]
+        low_r = _avg(low)
+        norm_r = _avg(norm)
+        delta = (norm_r - low_r) if (low_r is not None and norm_r is not None) else None
+        low_r_s = f"{low_r:+.2f}R" if low_r is not None else "  n/a"
+        norm_r_s = f"{norm_r:+.2f}R" if norm_r is not None else "  n/a"
+        delta_s = f"{delta:+.2f}R" if delta is not None else "  n/a"
+        lines.append(
+            f"  {s:<{col[0]}}"
+            f"{len(low):>{col[1]}}"
+            f"{low_r_s:>{col[2]}}"
+            f"  {len(norm):>{col[3]}}"
+            f"{norm_r_s:>{col[4]}}"
+            f"  {delta_s:>{col[5]}}"
+        )
+
+    lines.append(sep)
+    lines.append(
+        "  Delta = normal_avg_r − low_vol_avg_r  "
+        "(positive = volume filter would help, negative = hurts)"
+    )
+    return "\n".join(lines)
 
 
 def format_seasonality(stats: pd.DataFrame) -> str:

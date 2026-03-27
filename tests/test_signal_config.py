@@ -211,6 +211,8 @@ min_trades_1d = 5
         """The committed signal_watch.toml must define per-TF min_trades overrides."""
         cfg_path = Path(__file__).parent.parent / "config" / "signal_watch.toml"
         cfg = load_signal_config(cfg_path)
-        assert cfg.backtest.effective_min_trades("15m") == 30
-        assert cfg.backtest.effective_min_trades("4h") == 10
-        assert cfg.backtest.effective_min_trades("1d") == 5
+        # [backtest] section uses directional counts (longs or shorts only)
+        # recalibrated from backtest_runs DB p25 directional counts (200d window)
+        assert cfg.backtest.effective_min_trades("15m") == 20
+        assert cfg.backtest.effective_min_trades("4h") == 5
+        assert cfg.backtest.effective_min_trades("1d") == 2

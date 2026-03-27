@@ -17,7 +17,12 @@ from collections.abc import Mapping
 import duckdb
 import pandas as pd
 
-from analytics.backtest_lib import BacktestResult, filter_signals_by_day, run_backtest
+from analytics.backtest_lib import (
+    BacktestResult,
+    _is_low_volume,
+    filter_signals_by_day,
+    run_backtest,
+)
 from analytics.data_store import (
     get_funding_rates,
     get_ohlcv,
@@ -497,6 +502,26 @@ def run_scan_cycle(
                     if not passing_events:
                         logger.info("Backtest hard filter suppressed %s %s", symbol, tf)
                         continue
+
+            # Volume suppression gate — drop low-volume signals when enabled.
+            # Enable [backtest].volume_suppress after confirming via sweep that
+            # low-vol trades underperform (run `make buibui-backtest` and read the
+            # Volume Impact table).
+            if backtest_cfg and backtest_cfg.volume_suppress:
+                time_to_idx = {
+                    int(t): i
+                    for i, t in enumerate(ohlcv_df["open_time"].astype("int64"))
+                }
+                passing_events = [
+                    e
+                    for e in passing_events
+                    if not _is_low_volume(
+                        ohlcv_df, time_to_idx.get(int(e.open_time), 0)
+                    )
+                ]
+                if not passing_events:
+                    logger.info("Volume filter suppressed %s %s", symbol, tf)
+                    continue
 
             for event in passing_events:
                 store.mark_candle(symbol, tf, event.strategy, event.open_time)

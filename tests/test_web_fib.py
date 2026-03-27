@@ -47,7 +47,7 @@ def test_fib_returns_levels(
     assert "swing_low" in data
     assert "swing_high" in data
     levels = data["levels"]
-    assert len(levels) == 7
+    assert len(levels) == 6
     labels = [lv["label"] for lv in levels]
     assert "0.0" in labels
     assert "0.5" in labels

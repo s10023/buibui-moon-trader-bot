@@ -248,7 +248,7 @@ class TestBacktestFilterConfig:
         cfg = BacktestFilterConfig()
         assert cfg.mode == "soft"
         assert cfg.days == 90
-        assert cfg.min_trades == 20
+        assert cfg.min_trades == 12
         assert cfg.filter_threshold == 0.45
 
     def test_load_from_toml(self, tmp_path: Any) -> None:

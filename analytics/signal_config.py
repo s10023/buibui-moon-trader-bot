@@ -58,6 +58,10 @@ class BacktestFilterConfig:
     # Minimum SL distance from entry as a fraction (e.g. 0.005 = 0.5%).
     # Widens structural SLs that land too close to entry (prevents fee-drag explosion).
     min_sl_pct: float = 0.0
+    # Suppress alerts when the signal candle has volume < 1.5× its 20-candle rolling mean.
+    # Enable after confirming via `make buibui-backtest` volume split that low-vol trades
+    # underperform. Default off — investigate first.
+    volume_suppress: bool = False
 
     def effective_min_trades(self, tf: str) -> int:
         """Return per-TF override if configured, else the global min_trades."""
@@ -131,6 +135,7 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         fee_pct=float(raw_bt.get("fee_pct", data.get("fee_pct", 0.0))),
         # [backtest].min_sl_pct takes precedence; falls back to top-level min_sl_pct
         min_sl_pct=float(raw_bt.get("min_sl_pct", data.get("min_sl_pct", 0.0))),
+        volume_suppress=bool(raw_bt.get("volume_suppress", False)),
     )
 
     return SignalWatchConfig(
