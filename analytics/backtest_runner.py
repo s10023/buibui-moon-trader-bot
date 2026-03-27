@@ -33,6 +33,7 @@ from analytics.indicators_lib import (
     DETECTOR_REGISTRY,
     KNOWN_STRATEGIES,
     detect_funding_extreme,
+    detect_liquidity_sweep,
     detect_smt_divergence,
     seasonality_stats,
 )
@@ -53,6 +54,7 @@ def detect_signals_for_strategy(
     end_ms: int,
     secondary_symbol: str | None = None,
     smt_trend_filter: int = 1,
+    liq_sweep_use_fib: bool = True,
 ) -> pd.DataFrame | None:
     """Return signals DataFrame, or None when required data is absent.
 
@@ -72,6 +74,9 @@ def detect_signals_for_strategy(
         if ohlcv_sec.empty:
             return None
         return detect_smt_divergence(ohlcv, ohlcv_sec, trend_filter=smt_trend_filter)
+
+    if strategy == "liquidity_sweep":
+        return detect_liquidity_sweep(ohlcv, use_fib_extension=liq_sweep_use_fib)
 
     return _SIMPLE_DETECTORS[strategy](ohlcv)
 
@@ -134,6 +139,7 @@ def _collect_signals_map(
             end_ms,
             secondary,
             smt_trend_filter=cfg.smt_trend_filter,
+            liq_sweep_use_fib=cfg.liq_sweep_use_fib,
         )
         if signals is None:
             skipped.append(
@@ -192,6 +198,7 @@ def _collect_sweep_results(
             end_ms,
             secondary,
             smt_trend_filter=cfg.smt_trend_filter,
+            liq_sweep_use_fib=cfg.liq_sweep_use_fib,
         )
         if signals is None:
             skipped.append(

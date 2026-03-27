@@ -66,6 +66,11 @@ class BacktestSweepConfig:
     # Per-strategy parameter overrides (tp_r, sl_pct, TF-specific variants).
     # Lookup order: TF-specific → strategy-wide → global tp_r / sl_pct.
     strategy_params: dict[str, StrategyOverride] = field(default_factory=dict)
+    # liquidity_sweep entry mode:
+    #   True  (default) — fib-extension mode: entry at 1.13/1.27 fib extension of range
+    #   False           — pivot-sweep mode: entry on wick above pivot high + close inside
+    # Set to false in TOML to compare win rates between the two approaches.
+    liq_sweep_use_fib: bool = True
 
     def effective_min_trades(self, tf: str) -> int:
         """Return per-TF override if configured, else the global min_trades."""
@@ -160,4 +165,5 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
         save_results=bool(data.get("save_results", False)),
         tp_r_values=[float(v) for v in data.get("tp_r_values", [])],
         strategy_params=strategy_params,
+        liq_sweep_use_fib=bool(data.get("liq_sweep_use_fib", True)),
     )

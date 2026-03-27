@@ -143,3 +143,4 @@ min_trades_1d  = 2
 filter_threshold = 0.3
 # save_results = true
 # volume_suppress = false   # enable after confirming via `make buibui-backtest` that low-vol trades underperform
+# liq_sweep_use_fib = true  # set false to compare pivot-sweep mode (wick above pivot + close inside) vs fib-extension mode

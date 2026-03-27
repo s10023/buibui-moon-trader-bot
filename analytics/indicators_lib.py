@@ -959,32 +959,38 @@ def detect_liquidity_sweep(
     df: pd.DataFrame,
     lookback: int = 50,
     swing_n: int = 5,
+    use_fib_extension: bool = True,
     require_close_rejection: bool = True,
 ) -> pd.DataFrame:
-    """Detect liquidity sweep fakeout + fib-extension reversal signals.
+    """Detect liquidity sweep fakeout reversal signals.
 
-    Strategy: price breaks above a genuine pivot swing high (fakeout), extends
-    to the 1.13 or 1.27 Fibonacci extension of the prior swing range, then
-    reverses — that reversal candle is the entry.
+    Two entry modes controlled by use_fib_extension:
 
-    Fib levels (measured from the swing high, outward from the range):
-        fib_1.13 = swing_high + 0.13 × (swing_high − swing_low)
-        fib_1.27 = swing_high + 0.27 × (swing_high − swing_low)
+    use_fib_extension=True (default — fib-extension mode):
+        Price breaks above a genuine pivot swing high (fakeout), extends to the
+        1.13 or 1.27 Fibonacci extension of the prior swing range, then closes
+        back below that level — that is the reversal entry.
 
-    The 1.27 level is checked first; if price wicked to/above it and closed
-    below it, the signal fires at 1.27. Otherwise 1.13 is tried. Symmetric
-    logic applies for long signals below pivot swing lows.
+        Fib levels (measured from swing_high, outward from range):
+            fib_1.13 = swing_high + 0.13 × (swing_high − swing_low)
+            fib_1.27 = swing_high + 0.27 × (swing_high − swing_low)
+        1.27 is checked first; 1.13 is the fallback.
 
-    Entry condition (require_close_rejection=True, default):
-        Candle must CLOSE below the fib level — confirming a rejection candle.
-        Set require_close_rejection=False to fire on a wick touch alone (faster
-        entry, more false positives). This choice is a named param so it can be
-        switched without touching the detection logic.
+    use_fib_extension=False (pivot-sweep mode):
+        Entry fires when price wicks above the pivot swing high and closes back
+        below it — no fib extension required. Useful as a baseline to compare
+        against fib-mode via backtest.
+
+    require_close_rejection (default True, applies to both modes):
+        If True, candle must CLOSE below the trigger level (fib level in fib
+        mode; swing high in pivot mode) — confirming a rejection candle.
+        If False, a wick touch alone suffices. This choice is a named param so
+        it can be toggled without touching the detection logic.
 
     Pivot detection: a candle is a swing high/low if its high/low is the
     extreme of the [k−swing_n, k+swing_n] centred window (default swing_n=5,
     i.e. 11-candle window). Anchors signals to structurally significant levels
-    rather than arbitrary rolling extremes.
+    rather than arbitrary rolling extremes. Both modes use proper pivots.
 
     sl_price = the candle's wick high (for shorts) / wick low (for longs).
     """
@@ -1032,35 +1038,50 @@ def detect_liquidity_sweep(
                 rng = swing_high - swing_low
 
                 if rng > 0:
-                    fib_127 = swing_high + 0.27 * rng
-                    fib_113 = swing_high + 0.13 * rng
+                    fired = False
+                    reason_s = ""
+                    context_s = ""
 
-                    fib_hit: float | None = None
-                    fib_label: str | None = None
+                    if use_fib_extension:
+                        fib_127 = swing_high + 0.27 * rng
+                        fib_113 = swing_high + 0.13 * rng
+                        fib_hit: float | None = None
+                        fib_label: str | None = None
+                        if sig_h >= fib_127 and (
+                            not require_close_rejection or sig_c < fib_127
+                        ):
+                            fib_hit, fib_label = fib_127, "1.27"
+                        elif sig_h >= fib_113 and (
+                            not require_close_rejection or sig_c < fib_113
+                        ):
+                            fib_hit, fib_label = fib_113, "1.13"
+                        if fib_hit is not None and fib_label is not None:
+                            fired = True
+                            reason_s = (
+                                f"sweep_high@{swing_high:.2f}"
+                                f"_fib{fib_label}@{fib_hit:.2f}"
+                            )
+                            context_s = (
+                                f"range [{swing_low:.2f}–{swing_high:.2f}]"
+                                f" · fib{fib_label}={fib_hit:.2f}"
+                            )
+                    else:
+                        # Pivot-sweep mode: wick above swing_high, close inside
+                        if sig_h > swing_high and (
+                            not require_close_rejection or sig_c < swing_high
+                        ):
+                            fired = True
+                            reason_s = f"sweep_high@{swing_high:.2f}"
+                            context_s = f"range [{swing_low:.2f}–{swing_high:.2f}]"
 
-                    if sig_h >= fib_127 and (
-                        not require_close_rejection or sig_c < fib_127
-                    ):
-                        fib_hit, fib_label = fib_127, "1.27"
-                    elif sig_h >= fib_113 and (
-                        not require_close_rejection or sig_c < fib_113
-                    ):
-                        fib_hit, fib_label = fib_113, "1.13"
-
-                    if fib_hit is not None and fib_label is not None:
+                    if fired:
                         signals.append(
                             {
                                 "open_time": sig_t,
                                 "direction": "short",
-                                "reason": (
-                                    f"sweep_high@{swing_high:.2f}"
-                                    f"_fib{fib_label}@{fib_hit:.2f}"
-                                ),
+                                "reason": reason_s,
                                 "sl_price": sig_h,
-                                "context": (
-                                    f"range [{swing_low:.2f}–{swing_high:.2f}]"
-                                    f" · fib{fib_label}={fib_hit:.2f}"
-                                ),
+                                "context": context_s,
                             }
                         )
 
@@ -1079,35 +1100,50 @@ def detect_liquidity_sweep(
                 rng2 = swing_high2 - swing_low2
 
                 if rng2 > 0:
-                    fib_127_l = swing_low2 - 0.27 * rng2
-                    fib_113_l = swing_low2 - 0.13 * rng2
+                    fired_l = False
+                    reason_l = ""
+                    context_l = ""
 
-                    fib_hit_l: float | None = None
-                    fib_label_l: str | None = None
+                    if use_fib_extension:
+                        fib_127_l = swing_low2 - 0.27 * rng2
+                        fib_113_l = swing_low2 - 0.13 * rng2
+                        fib_hit_l: float | None = None
+                        fib_label_l: str | None = None
+                        if sig_l <= fib_127_l and (
+                            not require_close_rejection or sig_c > fib_127_l
+                        ):
+                            fib_hit_l, fib_label_l = fib_127_l, "1.27"
+                        elif sig_l <= fib_113_l and (
+                            not require_close_rejection or sig_c > fib_113_l
+                        ):
+                            fib_hit_l, fib_label_l = fib_113_l, "1.13"
+                        if fib_hit_l is not None and fib_label_l is not None:
+                            fired_l = True
+                            reason_l = (
+                                f"sweep_low@{swing_low2:.2f}"
+                                f"_fib{fib_label_l}@{fib_hit_l:.2f}"
+                            )
+                            context_l = (
+                                f"range [{swing_low2:.2f}–{swing_high2:.2f}]"
+                                f" · fib{fib_label_l}={fib_hit_l:.2f}"
+                            )
+                    else:
+                        # Pivot-sweep mode: wick below swing_low, close inside
+                        if sig_l < swing_low2 and (
+                            not require_close_rejection or sig_c > swing_low2
+                        ):
+                            fired_l = True
+                            reason_l = f"sweep_low@{swing_low2:.2f}"
+                            context_l = f"range [{swing_low2:.2f}–{swing_high2:.2f}]"
 
-                    if sig_l <= fib_127_l and (
-                        not require_close_rejection or sig_c > fib_127_l
-                    ):
-                        fib_hit_l, fib_label_l = fib_127_l, "1.27"
-                    elif sig_l <= fib_113_l and (
-                        not require_close_rejection or sig_c > fib_113_l
-                    ):
-                        fib_hit_l, fib_label_l = fib_113_l, "1.13"
-
-                    if fib_hit_l is not None and fib_label_l is not None:
+                    if fired_l:
                         signals.append(
                             {
                                 "open_time": sig_t,
                                 "direction": "long",
-                                "reason": (
-                                    f"sweep_low@{swing_low2:.2f}"
-                                    f"_fib{fib_label_l}@{fib_hit_l:.2f}"
-                                ),
+                                "reason": reason_l,
                                 "sl_price": sig_l,
-                                "context": (
-                                    f"range [{swing_low2:.2f}–{swing_high2:.2f}]"
-                                    f" · fib{fib_label_l}={fib_hit_l:.2f}"
-                                ),
+                                "context": context_l,
                             }
                         )
 

@@ -1377,6 +1377,37 @@ class TestLiquiditySweep:
         assert "range [" in ctx
         assert "fib1.13" in ctx
 
+    # --- use_fib_extension=False (pivot-sweep mode) ---
+
+    def test_pivot_sweep_short_fires_without_fib(self) -> None:
+        # Wick reaches 121 (above pivot_high=120), close=119 < 120 — too small
+        # for fib (fib_1.13=125.2) but fires in pivot-sweep mode
+        rows = self._short_rows()
+        rows.append(_candle(_BASE_TIME + 12, 120.5, 121.0, 119, 119.5))
+        result = detect_liquidity_sweep(
+            _make_ohlcv(rows),
+            lookback=self._LB,
+            swing_n=self._SN,
+            use_fib_extension=False,
+        )
+        short = result[result["direction"] == "short"]
+        sig12 = short[short["open_time"] == _BASE_TIME + 12]
+        assert len(sig12) == 1
+        assert "sweep_high@120.00" in str(sig12.iloc[0]["reason"])
+        assert "fib" not in str(sig12.iloc[0]["reason"])
+
+    def test_pivot_sweep_short_suppressed_in_fib_mode(self) -> None:
+        # Same candle: wick=121 does NOT reach fib_1.13=125.2 → no signal in fib mode
+        rows = self._short_rows()
+        rows.append(_candle(_BASE_TIME + 12, 120.5, 121.0, 119, 119.5))
+        result = detect_liquidity_sweep(
+            _make_ohlcv(rows),
+            lookback=self._LB,
+            swing_n=self._SN,
+            use_fib_extension=True,
+        )
+        assert result[result["open_time"] == _BASE_TIME + 12].empty
+
 
 # ---------------------------------------------------------------------------
 # Shared: empty DataFrame always returns correct columns
