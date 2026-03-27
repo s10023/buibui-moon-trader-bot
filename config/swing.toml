@@ -45,6 +45,7 @@ min_trades = 20         # global fallback
 min_trades_4h = 10
 min_trades_1d = 5
 fee_pct = 0.0005
+# tp_r_values = [1.0, 1.5, 2.0, 2.5, 3.0]  # TP ratio sweep — prints comparison table instead of ranked sweep
 
 # trend_day restricted to its valid TFs (also the only TFs in this profile)
 [strategy_timeframes]
@@ -65,3 +66,4 @@ min_trades = 12         # global fallback (directional)
 min_trades_4h = 5
 min_trades_1d = 2
 filter_threshold = 0.4
+# volume_suppress = false   # enable after confirming via `make buibui-backtest` that low-vol trades underperform
