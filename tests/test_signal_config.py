@@ -310,8 +310,17 @@ tp_r_4h = 2.5
         # strategy not in params falls back to global
         assert cfg.effective_tp_r("fvg", "1h") == cfg.tp_r
 
-    def test_signal_watch_toml_strategy_params_empty(self) -> None:
-        """signal_watch.toml has no strategy_params yet (pending its own sweep run)."""
+    def test_signal_watch_toml_strategy_params_parsed(self) -> None:
+        """signal_watch.toml (tue_thu) strategy_params (F6 findings) must be applied."""
         cfg_path = Path(__file__).parent.parent / "config" / "signal_watch.toml"
         cfg = load_signal_config(cfg_path)
-        assert cfg.strategy_params == {}
+        # engulfing: strategy-wide 3.0R (all active TFs)
+        assert cfg.effective_tp_r("engulfing", "1h") == 3.0
+        assert cfg.effective_tp_r("engulfing", "4h") == 3.0
+        # pin_bar: strategy-wide 3.0R (4h now unlocked on tue_thu)
+        assert cfg.effective_tp_r("pin_bar", "4h") == 3.0
+        # trend_day and orb: new vs weekdays, clear edge on tue_thu
+        assert cfg.effective_tp_r("trend_day", "1d") == 3.0
+        assert cfg.effective_tp_r("orb", "1h") == 3.0
+        # strategy not in params falls back to global
+        assert cfg.effective_tp_r("fvg", "1h") == cfg.tp_r

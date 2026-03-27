@@ -77,19 +77,50 @@ eqh_eql          = ["4h", "1d"]       # 15m mean_r=-0.137, 1h mean_r=-0.056 supp
 smt_divergence   = ["1h"]             # 4h mean_r=-0.808, 15m mean_r=-0.137 suppressed
 orb              = ["1h", "4h", "1d"] # 15m mean_r=-0.163 suppressed
 bos              = ["15m", "1h", "1d"]# 4h mean_r=-0.111 suppressed
-pin_bar          = ["15m", "1h", "1d"]# 4h mean_r=-0.137 suppressed
+pin_bar          = ["15m", "1h", "4h", "1d"] # 4h mean_r=-0.137 on weekdays; +0.40R on tue_thu (unlocked)
 liquidity_sweep  = ["1h", "1d"]       # 15m mean_r=-0.116, 4h mean_r=-0.160 suppressed
 cvd_divergence   = ["15m", "4h", "1d"]# 1h mean_r=-0.174 suppressed
 marubozu         = ["4h", "1d"]       # 15m mean_r=-0.120, 1h mean_r=-0.229 suppressed
 
-# Per-strategy TP/SL overrides — NOT YET calibrated for this profile (tue_thu day filter).
-# F6 sweep was run on signal_watch_weekdays.toml (Mon–Fri). Run a dedicated sweep here
-# then copy the [strategy_params.*] blocks from signal_watch_weekdays.toml as a starting point:
-#   make buibui-backtest CONFIG=config/signal_watch.toml SAVE=1
-# [strategy_params.engulfing]
-# tp_r = 3.0
-# [strategy_params.bos]
-# tp_r_4h = 2.5
+# Per-strategy parameter overrides — tp_r and sl_pct.
+# Lookup order: TF-specific key (e.g. tp_r_4h) → strategy-wide tp_r → global tp_r.
+# Derived from F6 TP sweep (200d, tue_thu day filter, 3 symbols — BTCUSDT/ETHUSDT/SOLUSDT).
+# Re-run after major data changes: make buibui-backtest CONFIG=config/signal_watch.toml SAVE=1
+#
+# Key differences vs signal_watch_weekdays.toml:
+#   - hammer/morning_evening_star 4h are NOW POSITIVE (Mon/Fri were polluting weekdays)
+#   - pin_bar 4h also positive (+0.40R) — unlocked from strategy_timeframes below
+#   - trend_day and orb now have clear edge — added overrides
+#   - bos 4h excluded anyway; all active TFs (15m/1h) improve at 3.0R
+[strategy_params.engulfing]
+tp_r = 3.0                    # 15m+0.23R, 1h+0.42R, 4h+0.58R — strong across all TFs
+
+[strategy_params.pin_bar]
+tp_r = 3.0                    # 1h+0.51R, 4h+0.40R, 1d+1.75R — 4h now positive (unlocked below)
+
+[strategy_params.hammer_hanging_man]
+tp_r = 3.0                    # 1h+0.32R, 4h+0.19R — 4h now positive on tue_thu
+
+[strategy_params.doji]
+tp_r = 3.0                    # 15m+0.27R, 1h+0.24R, 4h+0.28R
+
+[strategy_params.inside_bar]
+tp_r = 3.0                    # 1h+0.25R, 4h+0.38R
+
+[strategy_params.morning_evening_star]
+tp_r = 3.0                    # 1h+0.24R, 4h+0.39R — 4h strong on tue_thu
+
+[strategy_params.fib_golden_zone]
+tp_r_4h = 3.0                 # 4h+0.62R monotonically increasing (12 trades)
+
+[strategy_params.bos]
+tp_r = 3.0                    # 15m+0.18R, 1h+0.22R (4h excluded via strategy_timeframes)
+
+[strategy_params.trend_day]
+tp_r = 3.0                    # 4h+0.18R, 1d+0.88R — clear edge on tue_thu (flat in weekdays)
+
+[strategy_params.orb]
+tp_r = 3.0                    # 1h+0.14R (183 trades), 4h+0.17R (119 trades)
 
 # SMT divergence pairs — primary → secondary (must be in coins.json)
 [smt_pairs]
