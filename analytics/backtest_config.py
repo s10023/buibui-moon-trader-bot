@@ -66,6 +66,16 @@ class BacktestSweepConfig:
     # Per-strategy parameter overrides (tp_r, sl_pct, TF-specific variants).
     # Lookup order: TF-specific → strategy-wide → global tp_r / sl_pct.
     strategy_params: dict[str, StrategyOverride] = field(default_factory=dict)
+    # liquidity_sweep entry mode:
+    #   True  (default) — fib-extension mode: entry at 1.13/1.27 fib extension of range
+    #   False           — pivot-sweep mode: entry on wick above pivot high + close inside
+    # Set to false in TOML to compare win rates between the two approaches.
+    liq_sweep_use_fib: bool = True
+    # fib-mode close variant (only applies when liq_sweep_use_fib=True):
+    #   False (default) — close must come back below the fib extension level (1.13/1.27)
+    #   True            — close must come back below the original swing_high (inside range)
+    # Stricter confirmation: wick reaches fib zone but body closes fully inside the range.
+    liq_sweep_fib_range_close: bool = False
 
     def effective_min_trades(self, tf: str) -> int:
         """Return per-TF override if configured, else the global min_trades."""
@@ -143,6 +153,10 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
             sl_pct_per_tf=sl_pct_per_tf,
         )
 
+    # Some signal_watch configs place liq_sweep_use_fib inside a [backtest]
+    # sub-table; fall back to that if not present at the top level.
+    _bt_section: dict[str, object] = data.get("backtest", {})
+
     return BacktestSweepConfig(
         symbols=data.get("symbols"),
         timeframes=data.get("timeframes", ["4h"]),
@@ -160,4 +174,13 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
         save_results=bool(data.get("save_results", False)),
         tp_r_values=[float(v) for v in data.get("tp_r_values", [])],
         strategy_params=strategy_params,
+        liq_sweep_use_fib=bool(
+            data.get("liq_sweep_use_fib", _bt_section.get("liq_sweep_use_fib", True))
+        ),
+        liq_sweep_fib_range_close=bool(
+            data.get(
+                "liq_sweep_fib_range_close",
+                _bt_section.get("liq_sweep_fib_range_close", False),
+            )
+        ),
     )

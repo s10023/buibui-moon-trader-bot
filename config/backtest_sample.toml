@@ -16,6 +16,8 @@ min_trades_4h = 5
 min_trades_1d = 3
 # save_results = true   # persist results to backtest_runs table in analytics.db
 # tp_r_values = [1.0, 1.5, 2.0, 2.5, 3.0]  # TP ratio sweep — prints comparison table instead of ranked sweep
+# liq_sweep_use_fib = true  # set false to compare pivot-sweep mode vs fib-extension mode
+# liq_sweep_fib_range_close = false  # (fib mode only) true = close must be < swing_high (inside range), not just < fib level
 
 [smt_pairs]
 BTCUSDT = "ETHUSDT"
