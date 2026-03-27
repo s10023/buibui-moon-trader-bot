@@ -20,7 +20,7 @@ import duckdb
 
 from analytics.data_store import DEFAULT_DB_PATH, init_schema
 from analytics.data_sync import backfill, sync
-from analytics.signal_config import BacktestFilterConfig
+from analytics.signal_config import BacktestFilterConfig, StrategyOverride
 from analytics.signal_lib import (
     run_scan_cycle,
     secs_until_next_boundary,
@@ -50,6 +50,7 @@ def run_signal_watch(
     day_filter: str = "off",
     smt_trend_filter: int = 1,
     strategy_timeframes: dict[str, list[str]] | None = None,
+    strategy_params: dict[str, StrategyOverride] | None = None,
 ) -> None:
     """Run the signal detection daemon loop.
 
@@ -182,6 +183,7 @@ def run_signal_watch(
                     day_filter=day_filter,
                     smt_trend_filter=smt_trend_filter,
                     strategy_timeframes=strategy_timeframes,
+                    strategy_params=strategy_params,
                 )
             # Connection is now closed — web API can read the DB during the sleep.
 

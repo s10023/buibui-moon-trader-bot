@@ -99,6 +99,9 @@ def _collect_signals_map(
         tuple[str, str, str], tuple[pd.DataFrame, pd.DataFrame, str | None]
     ] = {}
     skipped: list[str] = []
+    # OHLCV cache: all strategies share the same candle data for a given symbol+TF.
+    # Avoids N_strategies redundant DB reads per (symbol, timeframe) pair.
+    ohlcv_cache: dict[tuple[str, str], pd.DataFrame] = {}
 
     for symbol, timeframe, strategy in itertools.product(
         symbols, cfg.timeframes, strategies
@@ -111,7 +114,12 @@ def _collect_signals_map(
             skipped.append(f"{symbol}/{timeframe}/{strategy} (no smt_pair configured)")
             continue
 
-        ohlcv = get_ohlcv(conn, symbol, timeframe, start_ms, end_ms)
+        ohlcv_key = (symbol, timeframe)
+        if ohlcv_key not in ohlcv_cache:
+            ohlcv_cache[ohlcv_key] = get_ohlcv(
+                conn, symbol, timeframe, start_ms, end_ms
+            )
+        ohlcv = ohlcv_cache[ohlcv_key]
         if ohlcv.empty:
             skipped.append(f"{symbol}/{timeframe}/{strategy} (no data)")
             continue
@@ -194,14 +202,16 @@ def _collect_sweep_results(
         if allowed_days is not None:
             signals = filter_signals_by_day(signals, allowed_days)
 
+        eff_tp_r = cfg.effective_tp_r(strategy, timeframe)
+        eff_sl_pct = cfg.effective_sl_pct(strategy, timeframe)
         bt = run_backtest(
             ohlcv,
             signals,
             symbol,
             timeframe,
             strategy,
-            cfg.sl_pct,
-            tp_r,
+            eff_sl_pct,
+            eff_tp_r,
             cfg.fee_pct,
             min_sl_pct=cfg.min_sl_pct,
         )
@@ -214,8 +224,8 @@ def _collect_sweep_results(
                 days=cfg.days,
                 data_start_ms=start_ms,
                 data_end_ms=end_ms,
-                sl_pct=cfg.sl_pct,
-                tp_r=tp_r,
+                sl_pct=eff_sl_pct,
+                tp_r=eff_tp_r,
                 fee_pct=cfg.fee_pct,
                 day_filter=cfg.day_filter,
                 smt_trend_filter=cfg.smt_trend_filter,
@@ -280,13 +290,14 @@ def run_backtest_sweep(
             for tp_r in cfg.tp_r_values:
                 tp_results: list[BacktestResult] = []
                 for (sym, tf, strat), (ohlcv, sigs, _sec) in signals_map.items():
+                    # tp_r is swept globally; per-strategy sl_pct overrides still apply.
                     bt = run_backtest(
                         ohlcv,
                         sigs,
                         sym,
                         tf,
                         strat,
-                        cfg.sl_pct,
+                        cfg.effective_sl_pct(strat, tf),
                         tp_r,
                         cfg.fee_pct,
                         min_sl_pct=cfg.min_sl_pct,

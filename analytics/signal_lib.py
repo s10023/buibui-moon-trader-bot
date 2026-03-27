@@ -31,7 +31,11 @@ from analytics.data_store import (
     upsert_signals,
 )
 from analytics.indicators_lib import STRATEGY_REGISTRY
-from analytics.signal_config import BacktestFilterConfig, _day_filter_to_weekdays
+from analytics.signal_config import (
+    BacktestFilterConfig,
+    StrategyOverride,
+    _day_filter_to_weekdays,
+)
 from signals.alert_formatter import SignalEvent, format_confluence_alert
 from signals.cooldown_store import CooldownStore
 from signals.registry import SIGNAL_REGISTRY
@@ -325,6 +329,44 @@ def scan_symbol(
     return events
 
 
+def _resolve_tp_r(
+    strategy_params: dict[str, StrategyOverride] | None,
+    strategy: str,
+    tf: str,
+    global_tp_r: float,
+) -> float:
+    """Resolve effective tp_r: TF-specific → strategy-wide → global fallback."""
+    if not strategy_params:
+        return global_tp_r
+    override = strategy_params.get(strategy)
+    if override is None:
+        return global_tp_r
+    if tf in override.tp_r_per_tf:
+        return override.tp_r_per_tf[tf]
+    if override.tp_r is not None:
+        return override.tp_r
+    return global_tp_r
+
+
+def _resolve_sl_pct(
+    strategy_params: dict[str, StrategyOverride] | None,
+    strategy: str,
+    tf: str,
+    global_sl_pct: float,
+) -> float:
+    """Resolve effective sl_pct: TF-specific → strategy-wide → global fallback."""
+    if not strategy_params:
+        return global_sl_pct
+    override = strategy_params.get(strategy)
+    if override is None:
+        return global_sl_pct
+    if tf in override.sl_pct_per_tf:
+        return override.sl_pct_per_tf[tf]
+    if override.sl_pct is not None:
+        return override.sl_pct
+    return global_sl_pct
+
+
 def run_scan_cycle(
     conn: duckdb.DuckDBPyConnection,
     symbols: list[str],
@@ -341,6 +383,7 @@ def run_scan_cycle(
     day_filter: str = "off",
     smt_trend_filter: int = 1,
     strategy_timeframes: dict[str, list[str]] | None = None,
+    strategy_params: dict[str, StrategyOverride] | None = None,
 ) -> list[str]:
     """Scan all symbol+timeframe combinations and return formatted alert strings.
 
@@ -466,12 +509,20 @@ def run_scan_cycle(
             if not passing_events:
                 continue
 
-            # Backtest filter — runs per strategy, caches results within the cycle
+            # Backtest filter — runs per strategy, caches results within the cycle.
+            # Per-strategy tp_r/sl_pct overrides are applied here so the filter
+            # uses the same parameters the strategy was calibrated against.
             bt_results: dict[str, BacktestResult | None] = {}
             if backtest_cfg and backtest_cfg.mode != "off":
                 for event in passing_events:
                     bt_key = (symbol, tf, event.strategy)
                     if bt_key not in bt_cache:
+                        eff_tp_r = _resolve_tp_r(
+                            strategy_params, event.strategy, tf, tp_r
+                        )
+                        eff_sl_pct = _resolve_sl_pct(
+                            strategy_params, event.strategy, tf, sl_pct
+                        )
                         bt_cache[bt_key] = _compute_backtest(
                             ohlcv_df=ohlcv_df,
                             strategy=event.strategy,
@@ -479,8 +530,8 @@ def run_scan_cycle(
                             funding_df=funding_df,
                             symbol=symbol,
                             timeframe=tf,
-                            sl_pct=sl_pct,
-                            tp_r=tp_r,
+                            sl_pct=eff_sl_pct,
+                            tp_r=eff_tp_r,
                             fee_pct=backtest_cfg.fee_pct,
                             day_filter=day_filter,
                             min_sl_pct=backtest_cfg.min_sl_pct,
@@ -640,8 +691,8 @@ def run_scan_cycle(
                     days=backtest_cfg.days,
                     data_start_ms=start_ms,
                     data_end_ms=now_ms,
-                    sl_pct=sl_pct,
-                    tp_r=tp_r,
+                    sl_pct=_resolve_sl_pct(strategy_params, strategy, tf, sl_pct),
+                    tp_r=_resolve_tp_r(strategy_params, strategy, tf, tp_r),
                     fee_pct=backtest_cfg.fee_pct,
                     day_filter=day_filter,
                     smt_trend_filter=smt_trend_filter,

@@ -82,6 +82,15 @@ liquidity_sweep  = ["1h", "1d"]       # 15m mean_r=-0.116, 4h mean_r=-0.160 supp
 cvd_divergence   = ["15m", "4h", "1d"]# 1h mean_r=-0.174 suppressed
 marubozu         = ["4h", "1d"]       # 15m mean_r=-0.120, 1h mean_r=-0.229 suppressed
 
+# Per-strategy TP/SL overrides — NOT YET calibrated for this profile (tue_thu day filter).
+# F6 sweep was run on signal_watch_weekdays.toml (Mon–Fri). Run a dedicated sweep here
+# then copy the [strategy_params.*] blocks from signal_watch_weekdays.toml as a starting point:
+#   make buibui-backtest CONFIG=config/signal_watch.toml SAVE=1
+# [strategy_params.engulfing]
+# tp_r = 3.0
+# [strategy_params.bos]
+# tp_r_4h = 2.5
+
 # SMT divergence pairs — primary → secondary (must be in coins.json)
 [smt_pairs]
 BTCUSDT = "ETHUSDT"
