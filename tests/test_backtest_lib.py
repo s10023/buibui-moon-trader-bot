@@ -916,3 +916,153 @@ class TestFormatVolumeSplit:
 
         output = format_volume_split([])
         assert "Delta" in output
+
+
+class TestDurationProperties:
+    """BacktestResult duration stats from entry/exit times."""
+
+    def _make_trade_with_duration(self, duration_h: float) -> Trade:
+        entry_time = _BASE_TIME
+        exit_time = int(entry_time + duration_h * 3_600_000)
+        return Trade(
+            signal_time=entry_time,
+            entry_time=entry_time,
+            entry_price=100.0,
+            direction="long",
+            sl_price=98.0,
+            tp_price=104.0,
+            exit_time=exit_time,
+            exit_price=104.0,
+            outcome="win",
+        )
+
+    def test_durations_h_computed_correctly(self) -> None:
+        result = BacktestResult(symbol="BTC", timeframe="4h", strategy="bos")
+        result.trades = [self._make_trade_with_duration(4.0)]
+        assert abs(result.durations_h[0] - 4.0) < 0.01
+
+    def test_avg_duration_h(self) -> None:
+        result = BacktestResult(symbol="BTC", timeframe="4h", strategy="bos")
+        result.trades = [
+            self._make_trade_with_duration(2.0),
+            self._make_trade_with_duration(6.0),
+        ]
+        assert abs(result.avg_duration_h - 4.0) < 0.01  # type: ignore[operator]
+
+    def test_median_duration_h_odd(self) -> None:
+        result = BacktestResult(symbol="BTC", timeframe="4h", strategy="bos")
+        result.trades = [
+            self._make_trade_with_duration(1.0),
+            self._make_trade_with_duration(3.0),
+            self._make_trade_with_duration(8.0),
+        ]
+        assert abs(result.median_duration_h - 3.0) < 0.01  # type: ignore[operator]
+
+    def test_median_duration_h_even(self) -> None:
+        result = BacktestResult(symbol="BTC", timeframe="4h", strategy="bos")
+        result.trades = [
+            self._make_trade_with_duration(2.0),
+            self._make_trade_with_duration(4.0),
+        ]
+        assert abs(result.median_duration_h - 3.0) < 0.01  # type: ignore[operator]
+
+    def test_no_closed_trades_returns_none(self) -> None:
+        result = BacktestResult(symbol="BTC", timeframe="4h", strategy="bos")
+        assert result.avg_duration_h is None
+        assert result.median_duration_h is None
+
+
+class TestFormatDurationTable:
+    """format_duration_table produces a readable table."""
+
+    def _make_result(self, strategy: str, duration_h: float) -> BacktestResult:
+        entry_time = _BASE_TIME
+        exit_time = int(entry_time + duration_h * 3_600_000)
+        t = Trade(
+            signal_time=entry_time,
+            entry_time=entry_time,
+            entry_price=100.0,
+            direction="long",
+            sl_price=98.0,
+            tp_price=104.0,
+            exit_time=exit_time,
+            exit_price=104.0,
+            outcome="win",
+        )
+        r = BacktestResult(symbol="BTC", timeframe="4h", strategy=strategy)
+        r.trades = [t]
+        return r
+
+    def test_contains_header(self) -> None:
+        from analytics.backtest_lib import format_duration_table
+
+        output = format_duration_table([self._make_result("bos", 4.0)])
+        assert "Trade Duration" in output
+
+    def test_shows_strategy(self) -> None:
+        from analytics.backtest_lib import format_duration_table
+
+        output = format_duration_table([self._make_result("engulfing", 2.0)])
+        assert "engulfing" in output
+
+    def test_hours_format_under_24h(self) -> None:
+        from analytics.backtest_lib import format_duration_table
+
+        output = format_duration_table([self._make_result("bos", 6.0)])
+        assert "6.0h" in output
+
+    def test_days_format_over_24h(self) -> None:
+        from analytics.backtest_lib import format_duration_table
+
+        output = format_duration_table([self._make_result("trend_day", 48.0)])
+        assert "2.0d" in output
+
+
+class TestFormatTpSweepTable:
+    """format_tp_sweep_table produces a comparison table."""
+
+    def _make_result(self, strategy: str, tp_r: float) -> BacktestResult:
+        risk = 1.0
+        entry = 100.0
+        t = Trade(
+            signal_time=_BASE_TIME,
+            entry_time=_BASE_TIME + 1000,
+            entry_price=entry,
+            direction="long",
+            sl_price=entry - risk,
+            tp_price=entry + tp_r * risk,
+            exit_time=_BASE_TIME + 2000,
+            exit_price=entry + tp_r * risk,
+            outcome="win",
+        )
+        r = BacktestResult(symbol="BTC", timeframe="4h", strategy=strategy)
+        r.trades = [t]
+        return r
+
+    def test_contains_header(self) -> None:
+        from analytics.backtest_lib import format_tp_sweep_table
+
+        results_by_tp = {
+            1.0: [self._make_result("bos", 1.0)],
+            2.0: [self._make_result("bos", 2.0)],
+        }
+        output = format_tp_sweep_table(results_by_tp)
+        assert "TP Ratio" in output
+
+    def test_shows_tp_columns(self) -> None:
+        from analytics.backtest_lib import format_tp_sweep_table
+
+        results_by_tp = {
+            1.0: [self._make_result("bos", 1.0)],
+            2.0: [self._make_result("bos", 2.0)],
+        }
+        output = format_tp_sweep_table(results_by_tp)
+        assert "1.0R" in output
+        assert "2.0R" in output
+
+    def test_shows_strategy(self) -> None:
+        from analytics.backtest_lib import format_tp_sweep_table
+
+        results_by_tp = {2.0: [self._make_result("pin_bar", 2.0)]}
+        output = format_tp_sweep_table(results_by_tp)
+        assert "pin_bar" in output

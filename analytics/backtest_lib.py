@@ -167,6 +167,29 @@ class BacktestResult:
         return sum(r_vals) / len(r_vals) if r_vals else None
 
     @property
+    def durations_h(self) -> list[float]:
+        """Hold time in hours for each closed trade."""
+        return [
+            (t.exit_time - t.entry_time) / 3_600_000
+            for t in self.closed_trades
+            if t.exit_time is not None
+        ]
+
+    @property
+    def avg_duration_h(self) -> float | None:
+        d = self.durations_h
+        return sum(d) / len(d) if d else None
+
+    @property
+    def median_duration_h(self) -> float | None:
+        d = sorted(self.durations_h)
+        n = len(d)
+        if not n:
+            return None
+        mid = n // 2
+        return (d[mid - 1] + d[mid]) / 2 if n % 2 == 0 else d[mid]
+
+    @property
     def max_drawdown_r(self) -> float:
         """Largest peak-to-trough drawdown in cumulative R."""
         r_values = [t.pnl_r for t in self.closed_trades if t.pnl_r is not None]
@@ -396,6 +419,137 @@ def format_volume_split(results: list[BacktestResult]) -> str:
         "  Delta = normal_avg_r − low_vol_avg_r  "
         "(positive = volume filter would help, negative = hurts)"
     )
+    return "\n".join(lines)
+
+
+_TF_ORDER = {
+    "1m": 0,
+    "3m": 1,
+    "5m": 2,
+    "15m": 3,
+    "30m": 4,
+    "1h": 5,
+    "2h": 6,
+    "4h": 7,
+    "1d": 8,
+    "1w": 9,
+}
+
+
+def _tf_sort_key(tf: str) -> int:
+    return _TF_ORDER.get(tf, 99)
+
+
+def format_duration_table(results: list[BacktestResult]) -> str:
+    """Show avg and median hold time per strategy × TF, aggregated across symbols."""
+    from collections import defaultdict
+
+    durations: dict[tuple[str, str], list[float]] = defaultdict(list)
+    for r in results:
+        durations[(r.strategy, r.timeframe)].extend(r.durations_h)
+
+    keys = sorted(durations, key=lambda k: (k[0], _tf_sort_key(k[1])))
+
+    def _median(vals: list[float]) -> float | None:
+        s = sorted(vals)
+        n = len(s)
+        if not n:
+            return None
+        mid = n // 2
+        return (s[mid - 1] + s[mid]) / 2 if n % 2 == 0 else s[mid]
+
+    def _fmt(h: float | None) -> str:
+        if h is None:
+            return "  n/a"
+        if h < 24:
+            return f"{h:.1f}h"
+        return f"{h / 24:.1f}d"
+
+    col = (22, 6, 8, 8, 8, 8)
+    header = (
+        f"  {'Strategy':<{col[0]}}"
+        f"{'TF':<{col[1]}}"
+        f"{'Trades':>{col[2]}}"
+        f"{'Avg':>{col[3]}}"
+        f"{'Median':>{col[4]}}"
+        f"{'Max':>{col[5]}}"
+    )
+    sep = "  " + "─" * (sum(col) + 2)
+    thick = "═" * (sum(col) + 4)
+
+    lines = ["\nTrade Duration (aggregated across symbols)", thick, header, sep]
+
+    prev_strat = ""
+    for strat, tf in keys:
+        d = durations[(strat, tf)]
+        if not d:
+            continue
+        avg = sum(d) / len(d)
+        med = _median(d)
+        label = strat if strat != prev_strat else ""
+        prev_strat = strat
+        lines.append(
+            f"  {label:<{col[0]}}"
+            f"{tf:<{col[1]}}"
+            f"{len(d):>{col[2]}}"
+            f"{_fmt(avg):>{col[3]}}"
+            f"{_fmt(med):>{col[4]}}"
+            f"{_fmt(max(d)):>{col[5]}}"
+        )
+
+    lines.append(sep)
+    return "\n".join(lines)
+
+
+def format_tp_sweep_table(
+    results_by_tp: dict[float, list[BacktestResult]],
+) -> str:
+    """Show avg R per strategy × TF for each tp_r value, aggregated across symbols.
+
+    results_by_tp: {tp_r_value: list[BacktestResult]}
+    """
+    tp_values = sorted(results_by_tp)
+
+    keys: set[tuple[str, str]] = set()
+    for results in results_by_tp.values():
+        for r in results:
+            keys.add((r.strategy, r.timeframe))
+    sorted_keys = sorted(keys, key=lambda k: (k[0], _tf_sort_key(k[1])))
+
+    def _avg_r(results: list[BacktestResult], strategy: str, tf: str) -> float | None:
+        r_vals: list[float] = []
+        for r in results:
+            if r.strategy == strategy and r.timeframe == tf:
+                r_vals.extend(
+                    v for v in (t.pnl_r for t in r.closed_trades) if v is not None
+                )
+        return sum(r_vals) / len(r_vals) if r_vals else None
+
+    tp_col_w = 8
+    name_col_w = 22
+    tf_col_w = 6
+    header = f"  {'Strategy':<{name_col_w}}{'TF':<{tf_col_w}}" + "".join(
+        f"{tp_r:.1f}R".rjust(tp_col_w) for tp_r in tp_values
+    )
+    total_w = name_col_w + tf_col_w + tp_col_w * len(tp_values) + 2
+    sep = "  " + "─" * total_w
+    thick = "═" * (total_w + 2)
+
+    lines = ["\nTP Ratio Comparison (aggregated across symbols)", thick, header, sep]
+
+    prev_strat = ""
+    for strat, tf in sorted_keys:
+        label = strat if strat != prev_strat else ""
+        prev_strat = strat
+        row = f"  {label:<{name_col_w}}{tf:<{tf_col_w}}"
+        for tp in tp_values:
+            avg = _avg_r(results_by_tp[tp], strat, tf)
+            cell = f"{avg:+.2f}R" if avg is not None else "  n/a"
+            row += f"{cell:>{tp_col_w}}"
+        lines.append(row)
+
+    lines.append(sep)
+    lines.append("  Pick the tp_r column where avg R peaks per strategy × TF row.")
     return "\n".join(lines)
 
 
