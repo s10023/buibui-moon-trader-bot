@@ -110,3 +110,68 @@ class TestLoadBacktestConfig:
         cfg = BacktestSweepConfig(min_trades=15)
         assert cfg.effective_min_trades("15m") == 15
         assert cfg.effective_min_trades("4h") == 15
+
+
+class TestStrategyOverrideBacktestConfig:
+    def test_effective_tp_r_tf_specific(self) -> None:
+        from analytics.backtest_config import StrategyOverride
+
+        cfg = BacktestSweepConfig(
+            tp_r=2.0,
+            strategy_params={"bos": StrategyOverride(tp_r_per_tf={"4h": 2.5})},
+        )
+        assert cfg.effective_tp_r("bos", "4h") == 2.5
+        assert cfg.effective_tp_r("bos", "1h") == 2.0  # global fallback
+
+    def test_effective_tp_r_strategy_wide(self) -> None:
+        from analytics.backtest_config import StrategyOverride
+
+        cfg = BacktestSweepConfig(
+            tp_r=2.0,
+            strategy_params={"engulfing": StrategyOverride(tp_r=3.0)},
+        )
+        assert cfg.effective_tp_r("engulfing", "1h") == 3.0
+        assert cfg.effective_tp_r("engulfing", "4h") == 3.0
+        assert cfg.effective_tp_r("fvg", "1h") == 2.0  # not in params
+
+    def test_effective_tp_r_tf_beats_strategy_wide(self) -> None:
+        from analytics.backtest_config import StrategyOverride
+
+        cfg = BacktestSweepConfig(
+            tp_r=2.0,
+            strategy_params={
+                "pin_bar": StrategyOverride(tp_r=3.0, tp_r_per_tf={"4h": 2.5})
+            },
+        )
+        assert cfg.effective_tp_r("pin_bar", "4h") == 2.5
+        assert cfg.effective_tp_r("pin_bar", "1h") == 3.0
+
+    def test_effective_sl_pct_override(self) -> None:
+        from analytics.backtest_config import StrategyOverride
+
+        cfg = BacktestSweepConfig(
+            sl_pct=0.02,
+            strategy_params={"orb": StrategyOverride(sl_pct=0.015)},
+        )
+        assert cfg.effective_sl_pct("orb", "1h") == 0.015
+        assert cfg.effective_sl_pct("fvg", "1h") == 0.02
+
+    def test_load_strategy_params_sub_table(self, tmp_path: Path) -> None:
+        content = """\
+[strategy_params.engulfing]
+tp_r = 3.0
+
+[strategy_params.bos]
+tp_r_4h = 2.5
+"""
+        p = tmp_path / "cfg.toml"
+        p.write_text(content)
+        cfg = load_backtest_config(p)
+        assert cfg.strategy_params["engulfing"].tp_r == 3.0
+        assert cfg.strategy_params["bos"].tp_r_per_tf == {"4h": 2.5}
+
+    def test_load_strategy_params_defaults_to_empty(self, tmp_path: Path) -> None:
+        p = tmp_path / "cfg.toml"
+        p.write_text("symbols = ['BTCUSDT']\n")
+        cfg = load_backtest_config(p)
+        assert cfg.strategy_params == {}

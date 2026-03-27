@@ -7,6 +7,7 @@ import pytest
 
 from analytics.signal_config import (
     SignalWatchConfig,
+    StrategyOverride,
     _day_filter_to_weekdays,
     load_signal_config,
 )
@@ -216,3 +217,110 @@ min_trades_1d = 5
         assert cfg.backtest.effective_min_trades("15m") == 20
         assert cfg.backtest.effective_min_trades("4h") == 5
         assert cfg.backtest.effective_min_trades("1d") == 2
+
+
+class TestStrategyOverride:
+    def test_effective_tp_r_tf_specific(self) -> None:
+        cfg = SignalWatchConfig(
+            tp_r=2.0,
+            strategy_params={
+                "bos": StrategyOverride(tp_r=2.5, tp_r_per_tf={"4h": 2.5, "1h": 2.0}),
+            },
+        )
+        assert cfg.effective_tp_r("bos", "4h") == 2.5
+        assert cfg.effective_tp_r("bos", "1h") == 2.0
+
+    def test_effective_tp_r_strategy_wide(self) -> None:
+        cfg = SignalWatchConfig(
+            tp_r=2.0,
+            strategy_params={"engulfing": StrategyOverride(tp_r=3.0)},
+        )
+        assert cfg.effective_tp_r("engulfing", "1h") == 3.0
+        assert cfg.effective_tp_r("engulfing", "4h") == 3.0
+
+    def test_effective_tp_r_falls_back_to_global(self) -> None:
+        cfg = SignalWatchConfig(tp_r=2.0, strategy_params={})
+        assert cfg.effective_tp_r("pin_bar", "1h") == 2.0
+
+    def test_effective_tp_r_tf_specific_overrides_strategy_wide(self) -> None:
+        cfg = SignalWatchConfig(
+            tp_r=2.0,
+            strategy_params={
+                "pin_bar": StrategyOverride(tp_r=3.0, tp_r_per_tf={"4h": 2.5})
+            },
+        )
+        assert cfg.effective_tp_r("pin_bar", "4h") == 2.5  # TF-specific wins
+        assert cfg.effective_tp_r("pin_bar", "1h") == 3.0  # strategy-wide fallback
+        assert cfg.effective_tp_r("pin_bar", "1d") == 3.0
+
+    def test_effective_sl_pct_tf_specific(self) -> None:
+        cfg = SignalWatchConfig(
+            sl_pct=0.02,
+            strategy_params={
+                "orb": StrategyOverride(sl_pct_per_tf={"1h": 0.015}),
+            },
+        )
+        assert cfg.effective_sl_pct("orb", "1h") == 0.015
+        assert cfg.effective_sl_pct("orb", "4h") == 0.02  # global fallback
+
+    def test_effective_sl_pct_no_override(self) -> None:
+        cfg = SignalWatchConfig(sl_pct=0.025)
+        assert cfg.effective_sl_pct("fvg", "1h") == 0.025
+
+    def test_load_strategy_params_sub_table(self, tmp_path: Path) -> None:
+        content = """\
+[strategy_params.engulfing]
+tp_r = 3.0
+
+[strategy_params.bos]
+tp_r_4h = 2.5
+"""
+        p = _write_toml(tmp_path, content)
+        cfg = load_signal_config(p)
+        assert "engulfing" in cfg.strategy_params
+        assert cfg.strategy_params["engulfing"].tp_r == 3.0
+        assert cfg.strategy_params["engulfing"].tp_r_per_tf == {}
+        assert "bos" in cfg.strategy_params
+        assert cfg.strategy_params["bos"].tp_r is None
+        assert cfg.strategy_params["bos"].tp_r_per_tf == {"4h": 2.5}
+
+    def test_load_strategy_params_inline_table(self, tmp_path: Path) -> None:
+        content = "[strategy_params]\nengulfing = {tp_r = 3.0}\n"
+        p = _write_toml(tmp_path, content)
+        cfg = load_signal_config(p)
+        assert cfg.strategy_params["engulfing"].tp_r == 3.0
+
+    def test_load_strategy_params_defaults_to_empty(self, tmp_path: Path) -> None:
+        p = _write_toml(tmp_path, "telegram = true\n")
+        cfg = load_signal_config(p)
+        assert cfg.strategy_params == {}
+
+    def test_signal_watch_weekdays_toml_strategy_params_parsed(self) -> None:
+        """signal_watch_weekdays.toml strategy_params (F6 findings) must be applied."""
+        cfg_path = (
+            Path(__file__).parent.parent / "config" / "signal_watch_weekdays.toml"
+        )
+        cfg = load_signal_config(cfg_path)
+        # engulfing: strategy-wide 3.0R
+        assert cfg.effective_tp_r("engulfing", "1h") == 3.0
+        assert cfg.effective_tp_r("engulfing", "4h") == 3.0
+        # bos: 4h-specific 2.5R, other TFs fall back to global
+        assert cfg.effective_tp_r("bos", "4h") == 2.5
+        assert cfg.effective_tp_r("bos", "1h") == cfg.tp_r
+        # strategy not in params falls back to global
+        assert cfg.effective_tp_r("fvg", "1h") == cfg.tp_r
+
+    def test_signal_watch_toml_strategy_params_parsed(self) -> None:
+        """signal_watch.toml (tue_thu) strategy_params (F6 findings) must be applied."""
+        cfg_path = Path(__file__).parent.parent / "config" / "signal_watch.toml"
+        cfg = load_signal_config(cfg_path)
+        # engulfing: strategy-wide 3.0R (all active TFs)
+        assert cfg.effective_tp_r("engulfing", "1h") == 3.0
+        assert cfg.effective_tp_r("engulfing", "4h") == 3.0
+        # pin_bar: strategy-wide 3.0R (4h now unlocked on tue_thu)
+        assert cfg.effective_tp_r("pin_bar", "4h") == 3.0
+        # trend_day and orb: new vs weekdays, clear edge on tue_thu
+        assert cfg.effective_tp_r("trend_day", "1d") == 3.0
+        assert cfg.effective_tp_r("orb", "1h") == 3.0
+        # strategy not in params falls back to global
+        assert cfg.effective_tp_r("fvg", "1h") == cfg.tp_r

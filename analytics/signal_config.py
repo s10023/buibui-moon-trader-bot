@@ -11,6 +11,25 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
+@dataclass
+class StrategyOverride:
+    """Per-strategy parameter overrides.
+
+    Lookup order for each param: TF-specific → strategy-wide → global config value.
+
+    TOML example (sub-table form):
+        [strategy_params.engulfing]
+        tp_r = 3.0        # all TFs unless overridden below
+        tp_r_4h = 3.0     # 4h-specific override
+        tp_r_1h = 2.5
+    """
+
+    tp_r: float | None = None
+    sl_pct: float | None = None
+    tp_r_per_tf: dict[str, float] = field(default_factory=dict)
+    sl_pct_per_tf: dict[str, float] = field(default_factory=dict)
+
+
 def _day_filter_to_weekdays(day_filter: str) -> list[int] | None:
     """Convert day_filter mode string to allowed weekday list (Mon=0…Sun=6).
 
@@ -90,6 +109,29 @@ class SignalWatchConfig:
     # Per-strategy timeframe allow-list: {"trend_day": ["4h", "1d"], ...}
     # Strategies not listed here run on all configured timeframes.
     strategy_timeframes: dict[str, list[str]] = field(default_factory=dict)
+    # Per-strategy parameter overrides (tp_r, sl_pct, TF-specific variants).
+    # Lookup order: TF-specific → strategy-wide → global tp_r / sl_pct.
+    strategy_params: dict[str, StrategyOverride] = field(default_factory=dict)
+
+    def effective_tp_r(self, strategy: str, tf: str) -> float:
+        """Resolve tp_r for strategy+TF: TF-specific → strategy-wide → global."""
+        override = self.strategy_params.get(strategy)
+        if override is not None:
+            if tf in override.tp_r_per_tf:
+                return override.tp_r_per_tf[tf]
+            if override.tp_r is not None:
+                return override.tp_r
+        return self.tp_r
+
+    def effective_sl_pct(self, strategy: str, tf: str) -> float:
+        """Resolve sl_pct for strategy+TF: TF-specific → strategy-wide → global."""
+        override = self.strategy_params.get(strategy)
+        if override is not None:
+            if tf in override.sl_pct_per_tf:
+                return override.sl_pct_per_tf[tf]
+            if override.sl_pct is not None:
+                return override.sl_pct
+        return self.sl_pct
 
 
 def load_signal_config(path: str | Path) -> SignalWatchConfig:
@@ -138,6 +180,35 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         volume_suppress=bool(raw_bt.get("volume_suppress", False)),
     )
 
+    raw_strategy_params = data.get("strategy_params", {})
+    if not isinstance(raw_strategy_params, dict):
+        raise ValueError("strategy_params must be a TOML table of strategy sub-tables")
+    strategy_params: dict[str, StrategyOverride] = {}
+    for strat_name, vals in raw_strategy_params.items():
+        if not isinstance(vals, dict):
+            raise ValueError(
+                f"strategy_params.{strat_name} must be a TOML table "
+                "(e.g. [strategy_params.engulfing] or inline {{tp_r = 3.0}})"
+            )
+        tp_r_per_tf = {
+            k[len("tp_r_") :]: float(v)
+            for k, v in vals.items()
+            if k.startswith("tp_r_") and k != "tp_r"
+        }
+        sl_pct_per_tf = {
+            k[len("sl_pct_") :]: float(v)
+            for k, v in vals.items()
+            if k.startswith("sl_pct_") and k != "sl_pct"
+        }
+        tp_r_val = vals.get("tp_r")
+        sl_pct_val = vals.get("sl_pct")
+        strategy_params[str(strat_name)] = StrategyOverride(
+            tp_r=float(tp_r_val) if tp_r_val is not None else None,
+            sl_pct=float(sl_pct_val) if sl_pct_val is not None else None,
+            tp_r_per_tf=tp_r_per_tf,
+            sl_pct_per_tf=sl_pct_per_tf,
+        )
+
     return SignalWatchConfig(
         symbols=data.get("symbols"),
         timeframes=data.get("timeframes", ["4h"]),
@@ -152,4 +223,5 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         day_filter=str(data.get("day_filter", "off")),
         smt_trend_filter=int(data.get("smt_trend_filter", 1)),
         strategy_timeframes=strategy_timeframes,
+        strategy_params=strategy_params,
     )

@@ -51,6 +51,14 @@ fee_pct = 0.0005
 [strategy_timeframes]
 trend_day = ["4h", "1d"]
 
+# Per-strategy TP/SL overrides. F6 findings (4h/1d only in this profile):
+# [strategy_params.engulfing]
+# tp_r = 3.0
+# [strategy_params.bos]
+# tp_r_4h = 2.5
+# [strategy_params.fib_golden_zone]
+# tp_r_4h = 3.0
+
 [smt_pairs]
 BTCUSDT = "ETHUSDT"
 ETHUSDT = "BTCUSDT"

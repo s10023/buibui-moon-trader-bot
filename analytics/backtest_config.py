@@ -12,6 +12,23 @@ from pathlib import Path
 
 
 @dataclass
+class StrategyOverride:
+    """Per-strategy parameter overrides.
+
+    Lookup order for each param: TF-specific → strategy-wide → global config value.
+
+    TOML example (sub-table form):
+        [strategy_params.bos]
+        tp_r_4h = 2.5     # 4h-specific override; other TFs use global tp_r
+    """
+
+    tp_r: float | None = None
+    sl_pct: float | None = None
+    tp_r_per_tf: dict[str, float] = field(default_factory=dict)
+    sl_pct_per_tf: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass
 class BacktestSweepConfig:
     """All configurable options for a backtest sweep."""
 
@@ -43,11 +60,36 @@ class BacktestSweepConfig:
     # When non-empty, run the full sweep once per value and print a TP ratio comparison
     # table showing avg R per strategy at each tp_r. e.g. [1.0, 1.5, 2.0, 2.5, 3.0]
     # Overrides the single tp_r value for the purpose of comparison only.
+    # Note: per-strategy tp_r overrides in strategy_params are ignored in TP sweep mode
+    # (you are exploring tp_r space globally). Per-strategy sl_pct overrides still apply.
     tp_r_values: list[float] = field(default_factory=list)
+    # Per-strategy parameter overrides (tp_r, sl_pct, TF-specific variants).
+    # Lookup order: TF-specific → strategy-wide → global tp_r / sl_pct.
+    strategy_params: dict[str, StrategyOverride] = field(default_factory=dict)
 
     def effective_min_trades(self, tf: str) -> int:
         """Return per-TF override if configured, else the global min_trades."""
         return self.min_trades_per_tf.get(tf, self.min_trades)
+
+    def effective_tp_r(self, strategy: str, tf: str) -> float:
+        """Resolve tp_r for strategy+TF: TF-specific → strategy-wide → global."""
+        override = self.strategy_params.get(strategy)
+        if override is not None:
+            if tf in override.tp_r_per_tf:
+                return override.tp_r_per_tf[tf]
+            if override.tp_r is not None:
+                return override.tp_r
+        return self.tp_r
+
+    def effective_sl_pct(self, strategy: str, tf: str) -> float:
+        """Resolve sl_pct for strategy+TF: TF-specific → strategy-wide → global."""
+        override = self.strategy_params.get(strategy)
+        if override is not None:
+            if tf in override.sl_pct_per_tf:
+                return override.sl_pct_per_tf[tf]
+            if override.sl_pct is not None:
+                return override.sl_pct
+        return self.sl_pct
 
 
 def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
@@ -72,6 +114,35 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
         for k, v in data.items()
         if k.startswith("min_trades_") and k != "min_trades"
     }
+    raw_strategy_params = data.get("strategy_params", {})
+    if not isinstance(raw_strategy_params, dict):
+        raise ValueError("strategy_params must be a TOML table of strategy sub-tables")
+    strategy_params: dict[str, StrategyOverride] = {}
+    for strat_name, vals in raw_strategy_params.items():
+        if not isinstance(vals, dict):
+            raise ValueError(
+                f"strategy_params.{strat_name} must be a TOML table "
+                "(e.g. [strategy_params.engulfing] or inline {{tp_r = 3.0}})"
+            )
+        tp_r_per_tf = {
+            k[len("tp_r_") :]: float(v)
+            for k, v in vals.items()
+            if k.startswith("tp_r_") and k != "tp_r"
+        }
+        sl_pct_per_tf = {
+            k[len("sl_pct_") :]: float(v)
+            for k, v in vals.items()
+            if k.startswith("sl_pct_") and k != "sl_pct"
+        }
+        tp_r_val = vals.get("tp_r")
+        sl_pct_val = vals.get("sl_pct")
+        strategy_params[str(strat_name)] = StrategyOverride(
+            tp_r=float(tp_r_val) if tp_r_val is not None else None,
+            sl_pct=float(sl_pct_val) if sl_pct_val is not None else None,
+            tp_r_per_tf=tp_r_per_tf,
+            sl_pct_per_tf=sl_pct_per_tf,
+        )
+
     return BacktestSweepConfig(
         symbols=data.get("symbols"),
         timeframes=data.get("timeframes", ["4h"]),
@@ -88,4 +159,5 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
         smt_trend_filter=int(data.get("smt_trend_filter", 1)),
         save_results=bool(data.get("save_results", False)),
         tp_r_values=[float(v) for v in data.get("tp_r_values", [])],
+        strategy_params=strategy_params,
     )

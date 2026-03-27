@@ -62,6 +62,43 @@ BTCUSDT = "ETHUSDT"
 ETHUSDT = "BTCUSDT"
 SOLUSDT = "ETHUSDT"
 
+# Per-strategy parameter overrides — tp_r and sl_pct.
+# Lookup order: TF-specific key (e.g. tp_r_4h) → strategy-wide tp_r → global tp_r.
+# Derived from F6 TP sweep (200d, weekdays, 3 symbols — BTCUSDT/ETHUSDT/SOLUSDT).
+# Re-run after major data changes: make buibui-backtest CONFIG=config/signal_watch_weekdays.toml SAVE=1
+#
+# Candlestick patterns — peak at 3.0R on 1h/4h (monotonically increasing in data).
+# 15m candlestick is noise — excluded via [strategy_timeframes] above.
+[strategy_params.engulfing]
+tp_r = 3.0                    # 1h+0.19R, 4h+0.25R, 1d+0.28R — all TFs benefit
+
+[strategy_params.pin_bar]
+tp_r_1h = 3.0                 # 1h+0.26R (best)
+tp_r_1d = 3.0                 # 1d+0.60R
+# 4h negative across all tp_r — excluded via [strategy_timeframes]
+
+[strategy_params.hammer_hanging_man]
+tp_r_1h = 3.0                 # 1h+0.25R (best)
+# 4h negative across all tp_r
+
+[strategy_params.doji]
+tp_r = 3.0                    # 1h+0.16R, 4h+0.16R non-monotonic but peaks here
+
+[strategy_params.inside_bar]
+tp_r = 3.0                    # 1h+0.13R, 4h+0.24R
+
+[strategy_params.morning_evening_star]
+tp_r_1h = 3.0                 # 1h+0.13R (best); other TFs marginal
+
+[strategy_params.eqh_eql]
+tp_r_1h = 3.0                 # 1h+0.14R — invisible in earlier aggregated view
+
+[strategy_params.fib_golden_zone]
+tp_r_4h = 3.0                 # 4h+1.42R monotonically increasing (34 trades)
+
+[strategy_params.bos]
+tp_r_4h = 2.5                 # 4h peaks at 2.5R (+0.08R), drops at 3.0R (-0.03R)
+
 [backtest]
 mode = "hard"
 days = 200

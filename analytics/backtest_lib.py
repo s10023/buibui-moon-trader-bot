@@ -9,6 +9,7 @@ No database access, no network calls. No module-level side effects.
 import functools
 from dataclasses import dataclass, field
 
+import numpy as np
 import pandas as pd
 
 
@@ -242,27 +243,37 @@ def run_backtest(
 
     has_per_signal_sl = "sl_price" in signals.columns
 
-    ohlcv_times: list[int] = list(ohlcv["open_time"].astype("int64"))
-    time_to_idx = {t: i for i, t in enumerate(ohlcv_times)}
+    # Pre-extract OHLCV arrays once — avoids per-row pandas overhead in inner loops.
+    ohlcv_times_np = ohlcv["open_time"].to_numpy(dtype=np.int64)
+    opens_np = ohlcv["open"].to_numpy(dtype=float)
+    highs_np = ohlcv["high"].to_numpy(dtype=float)
+    lows_np = ohlcv["low"].to_numpy(dtype=float)
+    time_to_idx: dict[int, int] = {int(t): i for i, t in enumerate(ohlcv_times_np)}
+    n_candles = len(ohlcv_times_np)
 
-    for _, sig in signals.iterrows():
-        signal_time = int(sig["open_time"])
-        direction = str(sig["direction"])
+    # Pre-extract signal arrays once — avoids creating a pandas Series per row.
+    sig_times_np = signals["open_time"].to_numpy(dtype=np.int64)
+    sig_dirs_np = signals["direction"].to_numpy(dtype=object)
+    sig_sl_np = signals["sl_price"].to_numpy(dtype=float) if has_per_signal_sl else None
+
+    for si in range(len(sig_times_np)):
+        signal_time = int(sig_times_np[si])
+        direction = str(sig_dirs_np[si])
 
         if signal_time not in time_to_idx:
             continue
         sig_idx = time_to_idx[signal_time]
         entry_idx = sig_idx + 1
 
-        if entry_idx >= len(ohlcv_times):
+        if entry_idx >= n_candles:
             continue
 
-        entry_time = ohlcv_times[entry_idx]
-        entry_price = float(ohlcv.iloc[entry_idx]["open"])
+        entry_time = int(ohlcv_times_np[entry_idx])
+        entry_price = opens_np[entry_idx]
 
         # Use per-signal structural SL when available; fall back to sl_pct fraction.
-        if has_per_signal_sl:
-            sl_price = float(sig["sl_price"])
+        if sig_sl_np is not None:
+            sl_price = sig_sl_np[si]
             # Enforce minimum SL distance — widening structural SLs that land
             # too close to entry (prevents fee-drag explosion on tight SLs).
             if min_sl_pct > 0.0:
@@ -293,34 +304,32 @@ def run_backtest(
             low_volume=_is_low_volume(ohlcv, sig_idx),
         )
 
-        for i in range(entry_idx, len(ohlcv_times)):
-            candle = ohlcv.iloc[i]
-            candle_high = float(candle["high"])
-            candle_low = float(candle["low"])
-            candle_time = int(candle["open_time"])
+        # Vectorized candle scan: find first SL-hit and first TP-hit index using
+        # numpy nonzero (C loop) instead of a Python for-loop over ohlcv.iloc[i].
+        h = highs_np[entry_idx:]
+        lo = lows_np[entry_idx:]
+        t = ohlcv_times_np[entry_idx:]
 
-            if direction == "long":
-                if candle_low <= sl_price:
-                    trade.exit_time = candle_time
-                    trade.exit_price = sl_price
-                    trade.outcome = "loss"
-                    break
-                if candle_high >= tp_price:
-                    trade.exit_time = candle_time
-                    trade.exit_price = tp_price
-                    trade.outcome = "win"
-                    break
-            else:
-                if candle_high >= sl_price:
-                    trade.exit_time = candle_time
-                    trade.exit_price = sl_price
-                    trade.outcome = "loss"
-                    break
-                if candle_low <= tp_price:
-                    trade.exit_time = candle_time
-                    trade.exit_price = tp_price
-                    trade.outcome = "win"
-                    break
+        if direction == "long":
+            sl_idxs = np.nonzero(lo <= sl_price)[0]
+            tp_idxs = np.nonzero(h >= tp_price)[0]
+        else:
+            sl_idxs = np.nonzero(h >= sl_price)[0]
+            tp_idxs = np.nonzero(lo <= tp_price)[0]
+
+        sl_first = int(sl_idxs[0]) if len(sl_idxs) else len(t)
+        tp_first = int(tp_idxs[0]) if len(tp_idxs) else len(t)
+
+        # SL takes priority on a same-candle tie (mirrors the original sequential check).
+        if sl_first <= tp_first and sl_first < len(t):
+            trade.exit_time = int(t[sl_first])
+            trade.exit_price = sl_price
+            trade.outcome = "loss"
+        elif tp_first < len(t):
+            trade.exit_time = int(t[tp_first])
+            trade.exit_price = tp_price
+            trade.outcome = "win"
+        # else: neither hit → trade remains open
 
         result.trades.append(trade)
 
