@@ -40,6 +40,10 @@ class BacktestSweepConfig:
     smt_trend_filter: int = 1
     # Persist aggregate results to backtest_runs table in DB
     save_results: bool = False
+    # When non-empty, run the full sweep once per value and print a TP ratio comparison
+    # table showing avg R per strategy at each tp_r. e.g. [1.0, 1.5, 2.0, 2.5, 3.0]
+    # Overrides the single tp_r value for the purpose of comparison only.
+    tp_r_values: list[float] = field(default_factory=list)
 
     def effective_min_trades(self, tf: str) -> int:
         """Return per-TF override if configured, else the global min_trades."""
@@ -83,4 +87,5 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
         day_filter=str(data.get("day_filter", "off")),
         smt_trend_filter=int(data.get("smt_trend_filter", 1)),
         save_results=bool(data.get("save_results", False)),
+        tp_r_values=[float(v) for v in data.get("tp_r_values", [])],
     )

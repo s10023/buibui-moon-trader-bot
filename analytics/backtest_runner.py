@@ -14,9 +14,11 @@ from analytics.backtest_config import BacktestSweepConfig
 from analytics.backtest_lib import (
     BacktestResult,
     filter_signals_by_day,
+    format_duration_table,
     format_result,
     format_seasonality,
     format_sweep_table,
+    format_tp_sweep_table,
     format_volume_split,
     run_backtest,
 )
@@ -74,6 +76,92 @@ def detect_signals_for_strategy(
     return _SIMPLE_DETECTORS[strategy](ohlcv)
 
 
+def _collect_sweep_results(
+    conn: duckdb.DuckDBPyConnection,
+    cfg: BacktestSweepConfig,
+    tp_r: float,
+    symbols: list[str],
+    strategies: list[str],
+    start_ms: int,
+    end_ms: int,
+    sweep_id: str | None = None,
+) -> tuple[list[BacktestResult], list[str]]:
+    """Run one full symbol × TF × strategy grid for a given tp_r value."""
+    from analytics.signal_config import _day_filter_to_weekdays
+
+    allowed_days = _day_filter_to_weekdays(cfg.day_filter)
+    results: list[BacktestResult] = []
+    skipped: list[str] = []
+
+    for symbol, timeframe, strategy in itertools.product(
+        symbols, cfg.timeframes, strategies
+    ):
+        if strategy == "seasonality":
+            continue
+
+        secondary = cfg.smt_pairs.get(symbol) if strategy == "smt_divergence" else None
+        if strategy == "smt_divergence" and secondary is None:
+            skipped.append(f"{symbol}/{timeframe}/{strategy} (no smt_pair configured)")
+            continue
+
+        ohlcv = get_ohlcv(conn, symbol, timeframe, start_ms, end_ms)
+        if ohlcv.empty:
+            skipped.append(f"{symbol}/{timeframe}/{strategy} (no data)")
+            continue
+
+        signals = detect_signals_for_strategy(
+            conn,
+            ohlcv,
+            symbol,
+            timeframe,
+            strategy,
+            start_ms,
+            end_ms,
+            secondary,
+            smt_trend_filter=cfg.smt_trend_filter,
+        )
+        if signals is None:
+            skipped.append(
+                f"{symbol}/{timeframe}/{strategy} (missing funding/secondary data)"
+            )
+            continue
+
+        if allowed_days is not None:
+            signals = filter_signals_by_day(signals, allowed_days)
+
+        bt = run_backtest(
+            ohlcv,
+            signals,
+            symbol,
+            timeframe,
+            strategy,
+            cfg.sl_pct,
+            tp_r,
+            cfg.fee_pct,
+            min_sl_pct=cfg.min_sl_pct,
+        )
+        results.append(bt)
+
+        if cfg.save_results and sweep_id is not None:
+            run_id = upsert_backtest_run(
+                conn,
+                bt,
+                days=cfg.days,
+                data_start_ms=start_ms,
+                data_end_ms=end_ms,
+                sl_pct=cfg.sl_pct,
+                tp_r=tp_r,
+                fee_pct=cfg.fee_pct,
+                day_filter=cfg.day_filter,
+                smt_trend_filter=cfg.smt_trend_filter,
+                secondary_symbol=secondary,
+                sweep_id=sweep_id,
+            )
+            upsert_backtest_trades(conn, bt, run_id)
+
+    return results, skipped
+
+
 def run_backtest_sweep(
     cfg: BacktestSweepConfig,
     db_path: Path = DEFAULT_DB_PATH,
@@ -95,100 +183,61 @@ def run_backtest_sweep(
     tf_word = "timeframe" if n_tfs == 1 else "timeframes"
     n_syms = len(symbols)
     sym_word = "symbol" if n_syms == 1 else "symbols"
-    print(
-        f"Backtest Sweep — {n_syms} {sym_word} × "
-        f"{n_tfs} {tf_word} × "
-        f"{n_strats} {strat_word} ({cfg.days}d)"
-    )
 
-    results: list[BacktestResult] = []
-    skipped: list[str] = []
-    sweep_id = str(uuid.uuid4()) if cfg.save_results else None
+    tp_sweep_mode = bool(cfg.tp_r_values)
 
+    if tp_sweep_mode:
+        print(
+            f"Backtest TP Sweep — {n_syms} {sym_word} × "
+            f"{n_tfs} {tf_word} × "
+            f"{n_strats} {strat_word} ({cfg.days}d) "
+            f"× tp_r {cfg.tp_r_values}"
+        )
+    else:
+        print(
+            f"Backtest Sweep — {n_syms} {sym_word} × "
+            f"{n_tfs} {tf_word} × "
+            f"{n_strats} {strat_word} ({cfg.days}d)"
+        )
+
+    sweep_id = str(uuid.uuid4()) if cfg.save_results and not tp_sweep_mode else None
     conn: duckdb.DuckDBPyConnection = duckdb.connect(
-        str(db_path), read_only=not cfg.save_results
+        str(db_path), read_only=not (cfg.save_results and not tp_sweep_mode)
     )
+
     try:
-        for symbol, timeframe, strategy in itertools.product(
-            symbols, cfg.timeframes, strategies
-        ):
-            if strategy == "seasonality":
-                continue
-
-            secondary = (
-                cfg.smt_pairs.get(symbol) if strategy == "smt_divergence" else None
-            )
-            if strategy == "smt_divergence" and secondary is None:
-                skipped.append(
-                    f"{symbol}/{timeframe}/{strategy} (no smt_pair configured)"
+        if tp_sweep_mode:
+            results_by_tp: dict[float, list[BacktestResult]] = {}
+            all_skipped: list[str] = []
+            for tp_r in cfg.tp_r_values:
+                tp_results, tp_skipped = _collect_sweep_results(
+                    conn, cfg, tp_r, symbols, strategies, start_ms, end_ms
                 )
-                continue
-
-            ohlcv = get_ohlcv(conn, symbol, timeframe, start_ms, end_ms)
-            if ohlcv.empty:
-                skipped.append(f"{symbol}/{timeframe}/{strategy} (no data)")
-                continue
-
-            signals = detect_signals_for_strategy(
-                conn,
-                ohlcv,
-                symbol,
-                timeframe,
-                strategy,
-                start_ms,
-                end_ms,
-                secondary,
-                smt_trend_filter=cfg.smt_trend_filter,
+                results_by_tp[tp_r] = tp_results
+                all_skipped.extend(tp_skipped)
+            # Duration uses results from default tp_r (or first value)
+            duration_results = results_by_tp.get(
+                cfg.tp_r, next(iter(results_by_tp.values()))
             )
-            if signals is None:
-                skipped.append(
-                    f"{symbol}/{timeframe}/{strategy} (missing funding/secondary data)"
+            print(format_tp_sweep_table(results_by_tp))
+            print(format_duration_table(duration_results))
+            skipped = list(dict.fromkeys(all_skipped))  # deduplicate
+        else:
+            results, skipped = _collect_sweep_results(
+                conn, cfg, cfg.tp_r, symbols, strategies, start_ms, end_ms, sweep_id
+            )
+            print(
+                format_sweep_table(
+                    results, cfg.min_trades, cfg.min_trades_per_tf or None
                 )
-                continue
-
-            from analytics.signal_config import _day_filter_to_weekdays
-
-            allowed_days = _day_filter_to_weekdays(cfg.day_filter)
-            if allowed_days is not None:
-                signals = filter_signals_by_day(signals, allowed_days)
-
-            bt = run_backtest(
-                ohlcv,
-                signals,
-                symbol,
-                timeframe,
-                strategy,
-                cfg.sl_pct,
-                cfg.tp_r,
-                cfg.fee_pct,
-                min_sl_pct=cfg.min_sl_pct,
             )
-            results.append(bt)
-
+            print(format_volume_split(results))
+            print(format_duration_table(results))
             if cfg.save_results:
-                run_id = upsert_backtest_run(
-                    conn,
-                    bt,
-                    days=cfg.days,
-                    data_start_ms=start_ms,
-                    data_end_ms=end_ms,
-                    sl_pct=cfg.sl_pct,
-                    tp_r=cfg.tp_r,
-                    fee_pct=cfg.fee_pct,
-                    day_filter=cfg.day_filter,
-                    smt_trend_filter=cfg.smt_trend_filter,
-                    secondary_symbol=secondary,
-                    sweep_id=sweep_id,
-                )
-                upsert_backtest_trades(conn, bt, run_id)
+                print(f"\n  Results saved to DB (sweep_id={sweep_id})")
 
     finally:
         conn.close()
-
-    print(format_sweep_table(results, cfg.min_trades, cfg.min_trades_per_tf or None))
-    print(format_volume_split(results))
-    if cfg.save_results:
-        print(f"\n  Results saved to DB (sweep_id={sweep_id})")
 
     if skipped:
         print(f"\n  Skipped {len(skipped)} combo(s):")

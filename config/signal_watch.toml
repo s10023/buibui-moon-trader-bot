@@ -63,6 +63,7 @@ min_trades_4h  = 10
 min_trades_1d  = 5
 fee_pct = 0.0005        # 0.05% taker fee per leg; set 0.0 to disable
 # save_results = true   # persist results to backtest_runs / backtest_trades tables in analytics.db
+# tp_r_values = [1.0, 1.5, 2.0, 2.5, 3.0]  # TP ratio sweep — prints comparison table instead of ranked sweep
 
 # Per-strategy timeframe allow-list.
 # Strategies listed here are restricted to the specified TFs.

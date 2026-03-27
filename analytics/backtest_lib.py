@@ -167,6 +167,29 @@ class BacktestResult:
         return sum(r_vals) / len(r_vals) if r_vals else None
 
     @property
+    def durations_h(self) -> list[float]:
+        """Hold time in hours for each closed trade."""
+        return [
+            (t.exit_time - t.entry_time) / 3_600_000
+            for t in self.closed_trades
+            if t.exit_time is not None
+        ]
+
+    @property
+    def avg_duration_h(self) -> float | None:
+        d = self.durations_h
+        return sum(d) / len(d) if d else None
+
+    @property
+    def median_duration_h(self) -> float | None:
+        d = sorted(self.durations_h)
+        n = len(d)
+        if not n:
+            return None
+        mid = n // 2
+        return (d[mid - 1] + d[mid]) / 2 if n % 2 == 0 else d[mid]
+
+    @property
     def max_drawdown_r(self) -> float:
         """Largest peak-to-trough drawdown in cumulative R."""
         r_values = [t.pnl_r for t in self.closed_trades if t.pnl_r is not None]
@@ -395,6 +418,126 @@ def format_volume_split(results: list[BacktestResult]) -> str:
     lines.append(
         "  Delta = normal_avg_r − low_vol_avg_r  "
         "(positive = volume filter would help, negative = hurts)"
+    )
+    return "\n".join(lines)
+
+
+def format_duration_table(results: list[BacktestResult]) -> str:
+    """Show avg and median hold time per strategy, aggregated across all symbols × TFs."""
+    from collections import defaultdict
+
+    durations_by_strat: dict[str, list[float]] = defaultdict(list)
+    for r in results:
+        durations_by_strat[r.strategy].extend(r.durations_h)
+
+    strategies = sorted(durations_by_strat)
+
+    def _median(vals: list[float]) -> float | None:
+        s = sorted(vals)
+        n = len(s)
+        if not n:
+            return None
+        mid = n // 2
+        return (s[mid - 1] + s[mid]) / 2 if n % 2 == 0 else s[mid]
+
+    def _fmt(h: float | None) -> str:
+        if h is None:
+            return "  n/a"
+        if h < 24:
+            return f"{h:.1f}h"
+        return f"{h / 24:.1f}d"
+
+    col = (22, 8, 8, 8, 8, 8)
+    header = (
+        f"  {'Strategy':<{col[0]}}"
+        f"{'Trades':>{col[1]}}"
+        f"{'Avg':>{col[2]}}"
+        f"{'Median':>{col[3]}}"
+        f"{'Min':>{col[4]}}"
+        f"{'Max':>{col[5]}}"
+    )
+    sep = "  " + "─" * (sum(col) + 2)
+    thick = "═" * (sum(col) + 4)
+
+    lines = [
+        "\nTrade Duration (aggregated across all symbols × TFs)",
+        thick,
+        header,
+        sep,
+    ]
+
+    for s in strategies:
+        d = durations_by_strat[s]
+        if not d:
+            continue
+        avg = sum(d) / len(d)
+        med = _median(d)
+        lines.append(
+            f"  {s:<{col[0]}}"
+            f"{len(d):>{col[1]}}"
+            f"{_fmt(avg):>{col[2]}}"
+            f"{_fmt(med):>{col[3]}}"
+            f"{_fmt(min(d)):>{col[4]}}"
+            f"{_fmt(max(d)):>{col[5]}}"
+        )
+
+    lines.append(sep)
+    return "\n".join(lines)
+
+
+def format_tp_sweep_table(
+    results_by_tp: dict[float, list[BacktestResult]],
+) -> str:
+    """Show avg R per strategy for each tp_r value, aggregated across all symbols × TFs.
+
+    results_by_tp: {tp_r_value: list[BacktestResult]}
+    """
+
+    tp_values = sorted(results_by_tp)
+    strategies: set[str] = set()
+    for results in results_by_tp.values():
+        for r in results:
+            strategies.add(r.strategy)
+    sorted_strats = sorted(strategies)
+
+    # Aggregate avg_r per (strategy, tp_r) across all symbols × TFs
+    def _avg_r(results: list[BacktestResult], strategy: str) -> float | None:
+        r_vals: list[float] = []
+        for r in results:
+            if r.strategy == strategy:
+                r_vals.extend(
+                    v for v in (t.pnl_r for t in r.closed_trades) if v is not None
+                )
+        return sum(r_vals) / len(r_vals) if r_vals else None
+
+    tp_col_w = 8
+    name_col_w = 22
+    header = f"  {'Strategy':<{name_col_w}}" + "".join(
+        f"{tp_r:.1f}R".rjust(tp_col_w) for tp_r in tp_values
+    )
+    total_w = name_col_w + tp_col_w * len(tp_values) + 2
+    sep = "  " + "─" * total_w
+    thick = "═" * (total_w + 2)
+
+    lines = [
+        "\nTP Ratio Comparison (aggregated across all symbols × TFs)",
+        thick,
+        header,
+        sep,
+    ]
+
+    for s in sorted_strats:
+        row = f"  {s:<{name_col_w}}"
+        for tp in tp_values:
+            avg = _avg_r(results_by_tp[tp], s)
+            cell = f"{avg:+.2f}R" if avg is not None else "  n/a"
+            row += f"{cell:>{tp_col_w}}"
+        lines.append(row)
+
+    lines.append(sep)
+    lines.append(
+        "  Best value per row highlighted by inspection — "
+        "pick the tp_r where avg R peaks per strategy."
     )
     return "\n".join(lines)
 
