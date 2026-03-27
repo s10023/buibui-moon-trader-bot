@@ -13,6 +13,7 @@ min_sl_pct = 0.01
 
 # Wider SL for swing setups, 3x R target
 sl_pct = 0.03
+# atr_sl_multiplier = 2.5  # ATR-based SL: SL distance = N × ATR14; overrides sl_pct when set
 tp_r = 3.0
 
 # Longer cooldown — same setup shouldn't re-fire within 24 hours

@@ -46,6 +46,7 @@ min_trades_1h  = 20
 min_trades_4h  = 10
 min_trades_1d  = 5
 fee_pct = 0.0005
+# atr_sl_multiplier = 2.0  # ATR-based SL: SL distance = N × ATR14; overrides sl_pct when set
 # tp_r_values = [1.0, 1.5, 2.0, 2.5, 3.0]  # TP ratio sweep — prints comparison table instead of ranked sweep
 
 [strategy_timeframes]

@@ -359,6 +359,7 @@ def run_backtest_cmd(
     tp_r: float = 2.0,
     fee_pct: float = 0.0,
     min_sl_pct: float = 0.0,
+    atr_sl_multiplier: float | None = None,
     secondary_symbol: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
     save_results: bool = False,
@@ -418,6 +419,7 @@ def run_backtest_cmd(
             tp_r,
             fee_pct,
             min_sl_pct=min_sl_pct,
+            atr_sl_multiplier=atr_sl_multiplier,
         )
         print(format_result(bt_result))
 
