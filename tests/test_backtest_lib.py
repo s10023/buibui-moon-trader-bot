@@ -1,5 +1,6 @@
 """Tests for analytics/backtest_lib.py."""
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -1105,3 +1106,214 @@ class TestFormatTpSweepTable:
         results_by_tp = {2.0: [self._make_result("pin_bar", 2.0)]}
         output = format_tp_sweep_table(results_by_tp)
         assert "pin_bar" in output
+
+
+# ---------------------------------------------------------------------------
+# _compute_atr14 helper
+# ---------------------------------------------------------------------------
+
+
+class TestComputeAtr14:
+    def test_returns_none_when_idx_is_zero(self) -> None:
+        from analytics.backtest_lib import _compute_atr14
+
+        h = np.array([110.0, 105.0])
+        lo = np.array([90.0, 95.0])
+        c = np.array([100.0, 100.0])
+        assert _compute_atr14(h, lo, c, 0) is None
+
+    def test_simple_two_candle_case(self) -> None:
+        from analytics.backtest_lib import _compute_atr14
+
+        # candle 0: high=110, low=90, close=100
+        # candle 1: high=108, low=92, close=100
+        # TR at candle 1: max(108-92, |108-100|, |92-100|) = max(16, 8, 8) = 16
+        h = np.array([110.0, 108.0])
+        lo = np.array([90.0, 92.0])
+        c = np.array([100.0, 100.0])
+        result = _compute_atr14(h, lo, c, 1)
+        assert result == pytest.approx(16.0)
+
+    def test_uses_up_to_14_candles(self) -> None:
+        from analytics.backtest_lib import _compute_atr14
+
+        # Build 20 candles with constant range of 10 (high-low=10, no gap)
+        n = 20
+        h = np.array([105.0] * n)
+        lo = np.array([95.0] * n)
+        c = np.array([100.0] * n)
+        # ATR14 should be 10.0 (constant range)
+        result = _compute_atr14(h, lo, c, n - 1)
+        assert result == pytest.approx(10.0)
+
+    def test_returns_none_when_atr_is_zero(self) -> None:
+        from analytics.backtest_lib import _compute_atr14
+
+        # All candles identical → TR = 0
+        h = np.array([100.0, 100.0, 100.0])
+        lo = np.array([100.0, 100.0, 100.0])
+        c = np.array([100.0, 100.0, 100.0])
+        assert _compute_atr14(h, lo, c, 2) is None
+
+
+# ---------------------------------------------------------------------------
+# ATR-based SL in run_backtest
+# ---------------------------------------------------------------------------
+
+
+class TestATRBasedSL:
+    """Tests for the atr_sl_multiplier path in run_backtest."""
+
+    def _make_ohlcv_flat(self, n: int = 20, base: float = 100.0) -> pd.DataFrame:
+        """n candles with constant range of 10 (ATR14 = 10)."""
+        interval = 3_600_000
+        rows = [
+            _candle(
+                _BASE_TIME + i * interval,
+                base,
+                base + 5.0,
+                base - 5.0,
+                base,
+            )
+            for i in range(n)
+        ]
+        return _make_ohlcv(rows)
+
+    def test_atr_sl_used_instead_of_sl_pct(self) -> None:
+        """ATR-based SL distance should equal atr_sl_multiplier × ATR14."""
+        ohlcv = self._make_ohlcv_flat(n=20, base=1000.0)
+        # Signal at candle 10 (well after ATR has enough data)
+        sig_time = int(ohlcv["open_time"].iloc[10])
+        sigs = _make_signals(
+            [{"open_time": sig_time, "direction": "long", "reason": "x"}]
+        )
+        # ATR14 = 10 (constant high-low range). Multiplier = 1.5 → SL dist = 15
+        # Entry at next candle open = 1000. Expected sl = 1000 - 15 = 985.
+        result = run_backtest(
+            ohlcv,
+            sigs,
+            "BTCUSDT",
+            "1h",
+            "test",
+            sl_pct=0.001,  # would give sl_dist = 1 if used — very different
+            tp_r=2.0,
+            atr_sl_multiplier=1.5,
+        )
+        assert len(result.trades) == 1
+        trade = result.trades[0]
+        assert trade.sl_price == pytest.approx(1000.0 - 1.5 * 10.0, rel=1e-6)
+
+    def test_atr_sl_short_direction(self) -> None:
+        """ATR SL for short should be above entry."""
+        ohlcv = self._make_ohlcv_flat(n=20, base=1000.0)
+        sig_time = int(ohlcv["open_time"].iloc[10])
+        sigs = _make_signals(
+            [{"open_time": sig_time, "direction": "short", "reason": "x"}]
+        )
+        result = run_backtest(
+            ohlcv,
+            sigs,
+            "BTCUSDT",
+            "1h",
+            "test",
+            sl_pct=0.001,
+            tp_r=2.0,
+            atr_sl_multiplier=1.5,
+        )
+        assert len(result.trades) == 1
+        trade = result.trades[0]
+        assert trade.sl_price == pytest.approx(1000.0 + 1.5 * 10.0, rel=1e-6)
+
+    def test_fallback_to_sl_pct_when_atr_unavailable(self) -> None:
+        """Signal at candle 0 has no prior close — must fall back to sl_pct."""
+        ohlcv = self._make_ohlcv_flat(n=5, base=1000.0)
+        sig_time = int(ohlcv["open_time"].iloc[0])
+        sigs = _make_signals(
+            [{"open_time": sig_time, "direction": "long", "reason": "x"}]
+        )
+        result = run_backtest(
+            ohlcv,
+            sigs,
+            "BTCUSDT",
+            "1h",
+            "test",
+            sl_pct=0.02,  # 2% → sl = 1000 * (1 - 0.02) = 980
+            tp_r=2.0,
+            atr_sl_multiplier=1.5,
+        )
+        assert len(result.trades) == 1
+        trade = result.trades[0]
+        # Entry is at candle 1 open (1000). SL via sl_pct = 980.
+        assert trade.sl_price == pytest.approx(1000.0 * (1.0 - 0.02), rel=1e-6)
+
+    def test_none_multiplier_uses_sl_pct(self) -> None:
+        """When atr_sl_multiplier is None, sl_pct path is taken unchanged."""
+        ohlcv = self._make_ohlcv_flat(n=20, base=1000.0)
+        sig_time = int(ohlcv["open_time"].iloc[10])
+        sigs = _make_signals(
+            [{"open_time": sig_time, "direction": "long", "reason": "x"}]
+        )
+        result = run_backtest(
+            ohlcv,
+            sigs,
+            "BTCUSDT",
+            "1h",
+            "test",
+            sl_pct=0.02,
+            tp_r=2.0,
+            atr_sl_multiplier=None,
+        )
+        assert len(result.trades) == 1
+        trade = result.trades[0]
+        assert trade.sl_price == pytest.approx(1000.0 * (1.0 - 0.02), rel=1e-6)
+
+    def test_atr_sl_respects_min_sl_pct(self) -> None:
+        """ATR SL distance is floored by min_sl_pct when ATR would be tighter."""
+        ohlcv = self._make_ohlcv_flat(n=20, base=1000.0)
+        sig_time = int(ohlcv["open_time"].iloc[10])
+        sigs = _make_signals(
+            [{"open_time": sig_time, "direction": "long", "reason": "x"}]
+        )
+        # ATR=10, multiplier=0.5 → sl_dist=5, but min_sl_pct=0.02 → min_dist=20
+        result = run_backtest(
+            ohlcv,
+            sigs,
+            "BTCUSDT",
+            "1h",
+            "test",
+            sl_pct=0.001,
+            tp_r=2.0,
+            atr_sl_multiplier=0.5,
+            min_sl_pct=0.02,
+        )
+        assert len(result.trades) == 1
+        trade = result.trades[0]
+        # Floor kicks in: sl = 1000 - 20 = 980
+        assert trade.sl_price == pytest.approx(1000.0 - 1000.0 * 0.02, rel=1e-6)
+
+    def test_structural_sl_takes_priority_over_atr(self) -> None:
+        """Per-signal sl_price (structural) overrides ATR SL mode."""
+        ohlcv = self._make_ohlcv_flat(n=20, base=1000.0)
+        sig_time = int(ohlcv["open_time"].iloc[10])
+        sigs = _make_signals_with_sl(
+            [
+                {
+                    "open_time": sig_time,
+                    "direction": "long",
+                    "reason": "x",
+                    "sl_price": 950.0,
+                }
+            ]
+        )
+        result = run_backtest(
+            ohlcv,
+            sigs,
+            "BTCUSDT",
+            "1h",
+            "test",
+            sl_pct=0.001,
+            tp_r=2.0,
+            atr_sl_multiplier=1.5,
+        )
+        assert len(result.trades) == 1
+        assert result.trades[0].sl_price == pytest.approx(950.0)

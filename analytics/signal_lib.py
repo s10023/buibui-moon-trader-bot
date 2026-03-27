@@ -86,6 +86,7 @@ def _compute_backtest(
     fee_pct: float = 0.0,
     day_filter: str = "off",
     min_sl_pct: float = 0.0,
+    atr_sl_multiplier: float | None = None,
 ) -> BacktestResult | None:
     """Run strategy detector on ohlcv[:-1] and backtest the resulting signals.
 
@@ -132,6 +133,7 @@ def _compute_backtest(
         tp_r=tp_r,
         fee_pct=fee_pct,
         min_sl_pct=min_sl_pct,
+        atr_sl_multiplier=atr_sl_multiplier,
     )
 
 
@@ -384,6 +386,25 @@ def _resolve_sl_pct(
     return global_sl_pct
 
 
+def _resolve_atr_sl_multiplier(
+    strategy_params: dict[str, StrategyOverride] | None,
+    strategy: str,
+    tf: str,
+    global_atr_sl: float | None,
+) -> float | None:
+    """Resolve effective atr_sl_multiplier: TF-specific → strategy-wide → global fallback."""
+    if not strategy_params:
+        return global_atr_sl
+    override = strategy_params.get(strategy)
+    if override is None:
+        return global_atr_sl
+    if tf in override.atr_sl_multiplier_per_tf:
+        return override.atr_sl_multiplier_per_tf[tf]
+    if override.atr_sl_multiplier is not None:
+        return override.atr_sl_multiplier
+    return global_atr_sl
+
+
 def run_scan_cycle(
     conn: duckdb.DuckDBPyConnection,
     symbols: list[str],
@@ -401,6 +422,7 @@ def run_scan_cycle(
     smt_trend_filter: int = 1,
     strategy_timeframes: dict[str, list[str]] | None = None,
     strategy_params: dict[str, StrategyOverride] | None = None,
+    atr_sl_multiplier: float | None = None,
 ) -> list[str]:
     """Scan all symbol+timeframe combinations and return formatted alert strings.
 
@@ -540,6 +562,9 @@ def run_scan_cycle(
                         eff_sl_pct = _resolve_sl_pct(
                             strategy_params, event.strategy, tf, sl_pct
                         )
+                        eff_atr_sl = _resolve_atr_sl_multiplier(
+                            strategy_params, event.strategy, tf, atr_sl_multiplier
+                        )
                         bt_cache[bt_key] = _compute_backtest(
                             ohlcv_df=ohlcv_df,
                             strategy=event.strategy,
@@ -552,6 +577,7 @@ def run_scan_cycle(
                             fee_pct=backtest_cfg.fee_pct,
                             day_filter=day_filter,
                             min_sl_pct=backtest_cfg.min_sl_pct,
+                            atr_sl_multiplier=eff_atr_sl,
                         )
                     bt_results[event.strategy] = bt_cache[bt_key]
 

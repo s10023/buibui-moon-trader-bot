@@ -148,6 +148,7 @@ def run_signal_watch(args: argparse.Namespace) -> None:
         smt_trend_filter=cfg.smt_trend_filter,
         strategy_timeframes=cfg.strategy_timeframes or None,
         strategy_params=cfg.strategy_params or None,
+        atr_sl_multiplier=cfg.atr_sl_multiplier,
     )
 
 

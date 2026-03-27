@@ -218,6 +218,7 @@ def _collect_sweep_results(
 
         eff_tp_r = cfg.effective_tp_r(strategy, timeframe)
         eff_sl_pct = cfg.effective_sl_pct(strategy, timeframe)
+        eff_atr_sl = cfg.effective_atr_sl_multiplier(strategy, timeframe)
         bt = run_backtest(
             ohlcv,
             signals,
@@ -228,6 +229,7 @@ def _collect_sweep_results(
             eff_tp_r,
             cfg.fee_pct,
             min_sl_pct=cfg.min_sl_pct,
+            atr_sl_multiplier=eff_atr_sl,
         )
         results.append(bt)
 
@@ -304,7 +306,7 @@ def run_backtest_sweep(
             for tp_r in cfg.tp_r_values:
                 tp_results: list[BacktestResult] = []
                 for (sym, tf, strat), (ohlcv, sigs, _sec) in signals_map.items():
-                    # tp_r is swept globally; per-strategy sl_pct overrides still apply.
+                    # tp_r is swept globally; per-strategy sl_pct/atr_sl overrides still apply.
                     bt = run_backtest(
                         ohlcv,
                         sigs,
@@ -315,6 +317,7 @@ def run_backtest_sweep(
                         tp_r,
                         cfg.fee_pct,
                         min_sl_pct=cfg.min_sl_pct,
+                        atr_sl_multiplier=cfg.effective_atr_sl_multiplier(strat, tf),
                     )
                     tp_results.append(bt)
                 results_by_tp[tp_r] = tp_results

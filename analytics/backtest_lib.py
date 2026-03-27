@@ -8,9 +8,36 @@ No database access, no network calls. No module-level side effects.
 
 import functools
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 import pandas as pd
+
+
+def _compute_atr14(
+    highs: "np.ndarray[Any, np.dtype[np.float64]]",
+    lows: "np.ndarray[Any, np.dtype[np.float64]]",
+    closes: "np.ndarray[Any, np.dtype[np.float64]]",
+    idx: int,
+) -> float | None:
+    """Return ATR14 at candle idx (mean true range over up to 14 candles ending at idx).
+
+    True Range at candle i: max(high-low, |high-prev_close|, |low-prev_close|).
+    Returns None when idx < 1 (no prior close for TR) or when ATR is zero.
+    """
+    if idx < 1:
+        return None
+    start = max(1, idx - 13)  # need prev_close, so minimum start is 1
+    tr_vals: list[float] = []
+    for i in range(start, idx + 1):
+        hl = float(highs[i]) - float(lows[i])
+        hc = abs(float(highs[i]) - float(closes[i - 1]))
+        lc = abs(float(lows[i]) - float(closes[i - 1]))
+        tr_vals.append(max(hl, hc, lc))
+    if not tr_vals:
+        return None
+    atr = sum(tr_vals) / len(tr_vals)
+    return atr if atr > 0.0 else None
 
 
 def _is_low_volume(
@@ -245,14 +272,16 @@ def run_backtest(
     tp_r: float = 2.0,
     fee_pct: float = 0.0,
     min_sl_pct: float = 0.0,
+    atr_sl_multiplier: float | None = None,
 ) -> BacktestResult:
     """Simulate trades from signals on historical OHLCV.
 
     Entry:  next candle's open after the signal candle.
-    SL:     per-signal sl_price from the signals DataFrame when present;
-            otherwise sl_pct fraction of entry price (backward-compatible fallback).
+    SL:     per-signal sl_price from the signals DataFrame when present (structural);
+            otherwise atr_sl_multiplier × ATR14 when set (volatility-adaptive);
+            otherwise sl_pct fraction of entry price (fixed fallback).
             min_sl_pct enforces a minimum SL distance from entry (e.g. 0.005 = 0.5%),
-            widening structural SLs that land too close to entry.
+            widening SLs that land too close to entry.
     TP:     tp_r × risk distance from entry price.
     fee_pct: taker fee fraction applied on both entry and exit legs
              (e.g. 0.0005 for 0.05%). Fee drag is deducted from pnl_r.
@@ -274,6 +303,7 @@ def run_backtest(
     opens_np = ohlcv["open"].to_numpy(dtype=float)
     highs_np = ohlcv["high"].to_numpy(dtype=float)
     lows_np = ohlcv["low"].to_numpy(dtype=float)
+    closes_np = ohlcv["close"].to_numpy(dtype=float)
     time_to_idx: dict[int, int] = {int(t): i for i, t in enumerate(ohlcv_times_np)}
     n_candles = len(ohlcv_times_np)
 
@@ -297,7 +327,7 @@ def run_backtest(
         entry_time = int(ohlcv_times_np[entry_idx])
         entry_price = opens_np[entry_idx]
 
-        # Use per-signal structural SL when available; fall back to sl_pct fraction.
+        # SL priority: structural (per-signal) → ATR-based → fixed sl_pct fraction.
         if sig_sl_np is not None:
             sl_price = sig_sl_np[si]
             # Enforce minimum SL distance — widening structural SLs that land
@@ -312,6 +342,26 @@ def run_backtest(
                 tp_price = entry_price + tp_r * abs(entry_price - sl_price)
             else:
                 tp_price = entry_price - tp_r * abs(entry_price - sl_price)
+        elif atr_sl_multiplier is not None:
+            atr = _compute_atr14(highs_np, lows_np, closes_np, sig_idx)
+            if atr is not None:
+                sl_dist = atr_sl_multiplier * atr
+                if min_sl_pct > 0.0:
+                    sl_dist = max(sl_dist, entry_price * min_sl_pct)
+                if direction == "long":
+                    sl_price = entry_price - sl_dist
+                    tp_price = entry_price + tp_r * sl_dist
+                else:
+                    sl_price = entry_price + sl_dist
+                    tp_price = entry_price - tp_r * sl_dist
+            else:
+                # Fallback to sl_pct when ATR unavailable (e.g. signal at candle 0)
+                if direction == "long":
+                    sl_price = entry_price * (1.0 - sl_pct)
+                    tp_price = entry_price + tp_r * (entry_price - sl_price)
+                else:
+                    sl_price = entry_price * (1.0 + sl_pct)
+                    tp_price = entry_price - tp_r * (sl_price - entry_price)
         elif direction == "long":
             sl_price = entry_price * (1.0 - sl_pct)
             tp_price = entry_price + tp_r * (entry_price - sl_price)

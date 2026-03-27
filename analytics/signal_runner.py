@@ -51,6 +51,7 @@ def run_signal_watch(
     smt_trend_filter: int = 1,
     strategy_timeframes: dict[str, list[str]] | None = None,
     strategy_params: dict[str, StrategyOverride] | None = None,
+    atr_sl_multiplier: float | None = None,
 ) -> None:
     """Run the signal detection daemon loop.
 
@@ -184,6 +185,7 @@ def run_signal_watch(
                     smt_trend_filter=smt_trend_filter,
                     strategy_timeframes=strategy_timeframes,
                     strategy_params=strategy_params,
+                    atr_sl_multiplier=atr_sl_multiplier,
                 )
             # Connection is now closed — web API can read the DB during the sleep.
 
