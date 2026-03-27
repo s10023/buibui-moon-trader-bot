@@ -76,6 +76,71 @@ def detect_signals_for_strategy(
     return _SIMPLE_DETECTORS[strategy](ohlcv)
 
 
+def _collect_signals_map(
+    conn: duckdb.DuckDBPyConnection,
+    cfg: BacktestSweepConfig,
+    symbols: list[str],
+    strategies: list[str],
+    start_ms: int,
+    end_ms: int,
+) -> tuple[
+    dict[tuple[str, str, str], tuple[pd.DataFrame, pd.DataFrame, str | None]], list[str]
+]:
+    """Detect signals once for all symbol × TF × strategy combos.
+
+    Returns a map keyed by (symbol, timeframe, strategy) →
+    (ohlcv, filtered_signals, secondary_symbol) plus a skipped list.
+    Used by tp_r sweep mode to avoid re-running detection for each tp_r value.
+    """
+    from analytics.signal_config import _day_filter_to_weekdays
+
+    allowed_days = _day_filter_to_weekdays(cfg.day_filter)
+    signals_map: dict[
+        tuple[str, str, str], tuple[pd.DataFrame, pd.DataFrame, str | None]
+    ] = {}
+    skipped: list[str] = []
+
+    for symbol, timeframe, strategy in itertools.product(
+        symbols, cfg.timeframes, strategies
+    ):
+        if strategy == "seasonality":
+            continue
+
+        secondary = cfg.smt_pairs.get(symbol) if strategy == "smt_divergence" else None
+        if strategy == "smt_divergence" and secondary is None:
+            skipped.append(f"{symbol}/{timeframe}/{strategy} (no smt_pair configured)")
+            continue
+
+        ohlcv = get_ohlcv(conn, symbol, timeframe, start_ms, end_ms)
+        if ohlcv.empty:
+            skipped.append(f"{symbol}/{timeframe}/{strategy} (no data)")
+            continue
+
+        signals = detect_signals_for_strategy(
+            conn,
+            ohlcv,
+            symbol,
+            timeframe,
+            strategy,
+            start_ms,
+            end_ms,
+            secondary,
+            smt_trend_filter=cfg.smt_trend_filter,
+        )
+        if signals is None:
+            skipped.append(
+                f"{symbol}/{timeframe}/{strategy} (missing funding/secondary data)"
+            )
+            continue
+
+        if allowed_days is not None:
+            signals = filter_signals_by_day(signals, allowed_days)
+
+        signals_map[(symbol, timeframe, strategy)] = (ohlcv, signals, secondary)
+
+    return signals_map, skipped
+
+
 def _collect_sweep_results(
     conn: duckdb.DuckDBPyConnection,
     cfg: BacktestSweepConfig,
@@ -207,21 +272,33 @@ def run_backtest_sweep(
 
     try:
         if tp_sweep_mode:
+            # Detect signals once — tp_r does not affect signal detection
+            signals_map, skipped = _collect_signals_map(
+                conn, cfg, symbols, strategies, start_ms, end_ms
+            )
             results_by_tp: dict[float, list[BacktestResult]] = {}
-            all_skipped: list[str] = []
             for tp_r in cfg.tp_r_values:
-                tp_results, tp_skipped = _collect_sweep_results(
-                    conn, cfg, tp_r, symbols, strategies, start_ms, end_ms
-                )
+                tp_results: list[BacktestResult] = []
+                for (sym, tf, strat), (ohlcv, sigs, _sec) in signals_map.items():
+                    bt = run_backtest(
+                        ohlcv,
+                        sigs,
+                        sym,
+                        tf,
+                        strat,
+                        cfg.sl_pct,
+                        tp_r,
+                        cfg.fee_pct,
+                        min_sl_pct=cfg.min_sl_pct,
+                    )
+                    tp_results.append(bt)
                 results_by_tp[tp_r] = tp_results
-                all_skipped.extend(tp_skipped)
             # Duration uses results from default tp_r (or first value)
             duration_results = results_by_tp.get(
                 cfg.tp_r, next(iter(results_by_tp.values()))
             )
             print(format_tp_sweep_table(results_by_tp))
             print(format_duration_table(duration_results))
-            skipped = list(dict.fromkeys(all_skipped))  # deduplicate
         else:
             results, skipped = _collect_sweep_results(
                 conn, cfg, cfg.tp_r, symbols, strategies, start_ms, end_ms, sweep_id

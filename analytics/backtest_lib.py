@@ -422,15 +422,33 @@ def format_volume_split(results: list[BacktestResult]) -> str:
     return "\n".join(lines)
 
 
+_TF_ORDER = {
+    "1m": 0,
+    "3m": 1,
+    "5m": 2,
+    "15m": 3,
+    "30m": 4,
+    "1h": 5,
+    "2h": 6,
+    "4h": 7,
+    "1d": 8,
+    "1w": 9,
+}
+
+
+def _tf_sort_key(tf: str) -> int:
+    return _TF_ORDER.get(tf, 99)
+
+
 def format_duration_table(results: list[BacktestResult]) -> str:
-    """Show avg and median hold time per strategy, aggregated across all symbols × TFs."""
+    """Show avg and median hold time per strategy × TF, aggregated across symbols."""
     from collections import defaultdict
 
-    durations_by_strat: dict[str, list[float]] = defaultdict(list)
+    durations: dict[tuple[str, str], list[float]] = defaultdict(list)
     for r in results:
-        durations_by_strat[r.strategy].extend(r.durations_h)
+        durations[(r.strategy, r.timeframe)].extend(r.durations_h)
 
-    strategies = sorted(durations_by_strat)
+    keys = sorted(durations, key=lambda k: (k[0], _tf_sort_key(k[1])))
 
     def _median(vals: list[float]) -> float | None:
         s = sorted(vals)
@@ -447,37 +465,35 @@ def format_duration_table(results: list[BacktestResult]) -> str:
             return f"{h:.1f}h"
         return f"{h / 24:.1f}d"
 
-    col = (22, 8, 8, 8, 8, 8)
+    col = (22, 6, 8, 8, 8, 8)
     header = (
         f"  {'Strategy':<{col[0]}}"
-        f"{'Trades':>{col[1]}}"
-        f"{'Avg':>{col[2]}}"
-        f"{'Median':>{col[3]}}"
-        f"{'Min':>{col[4]}}"
+        f"{'TF':<{col[1]}}"
+        f"{'Trades':>{col[2]}}"
+        f"{'Avg':>{col[3]}}"
+        f"{'Median':>{col[4]}}"
         f"{'Max':>{col[5]}}"
     )
     sep = "  " + "─" * (sum(col) + 2)
     thick = "═" * (sum(col) + 4)
 
-    lines = [
-        "\nTrade Duration (aggregated across all symbols × TFs)",
-        thick,
-        header,
-        sep,
-    ]
+    lines = ["\nTrade Duration (aggregated across symbols)", thick, header, sep]
 
-    for s in strategies:
-        d = durations_by_strat[s]
+    prev_strat = ""
+    for strat, tf in keys:
+        d = durations[(strat, tf)]
         if not d:
             continue
         avg = sum(d) / len(d)
         med = _median(d)
+        label = strat if strat != prev_strat else ""
+        prev_strat = strat
         lines.append(
-            f"  {s:<{col[0]}}"
-            f"{len(d):>{col[1]}}"
-            f"{_fmt(avg):>{col[2]}}"
-            f"{_fmt(med):>{col[3]}}"
-            f"{_fmt(min(d)):>{col[4]}}"
+            f"  {label:<{col[0]}}"
+            f"{tf:<{col[1]}}"
+            f"{len(d):>{col[2]}}"
+            f"{_fmt(avg):>{col[3]}}"
+            f"{_fmt(med):>{col[4]}}"
             f"{_fmt(max(d)):>{col[5]}}"
         )
 
@@ -488,23 +504,22 @@ def format_duration_table(results: list[BacktestResult]) -> str:
 def format_tp_sweep_table(
     results_by_tp: dict[float, list[BacktestResult]],
 ) -> str:
-    """Show avg R per strategy for each tp_r value, aggregated across all symbols × TFs.
+    """Show avg R per strategy × TF for each tp_r value, aggregated across symbols.
 
     results_by_tp: {tp_r_value: list[BacktestResult]}
     """
-
     tp_values = sorted(results_by_tp)
-    strategies: set[str] = set()
+
+    keys: set[tuple[str, str]] = set()
     for results in results_by_tp.values():
         for r in results:
-            strategies.add(r.strategy)
-    sorted_strats = sorted(strategies)
+            keys.add((r.strategy, r.timeframe))
+    sorted_keys = sorted(keys, key=lambda k: (k[0], _tf_sort_key(k[1])))
 
-    # Aggregate avg_r per (strategy, tp_r) across all symbols × TFs
-    def _avg_r(results: list[BacktestResult], strategy: str) -> float | None:
+    def _avg_r(results: list[BacktestResult], strategy: str, tf: str) -> float | None:
         r_vals: list[float] = []
         for r in results:
-            if r.strategy == strategy:
+            if r.strategy == strategy and r.timeframe == tf:
                 r_vals.extend(
                     v for v in (t.pnl_r for t in r.closed_trades) if v is not None
                 )
@@ -512,33 +527,29 @@ def format_tp_sweep_table(
 
     tp_col_w = 8
     name_col_w = 22
-    header = f"  {'Strategy':<{name_col_w}}" + "".join(
+    tf_col_w = 6
+    header = f"  {'Strategy':<{name_col_w}}{'TF':<{tf_col_w}}" + "".join(
         f"{tp_r:.1f}R".rjust(tp_col_w) for tp_r in tp_values
     )
-    total_w = name_col_w + tp_col_w * len(tp_values) + 2
+    total_w = name_col_w + tf_col_w + tp_col_w * len(tp_values) + 2
     sep = "  " + "─" * total_w
     thick = "═" * (total_w + 2)
 
-    lines = [
-        "\nTP Ratio Comparison (aggregated across all symbols × TFs)",
-        thick,
-        header,
-        sep,
-    ]
+    lines = ["\nTP Ratio Comparison (aggregated across symbols)", thick, header, sep]
 
-    for s in sorted_strats:
-        row = f"  {s:<{name_col_w}}"
+    prev_strat = ""
+    for strat, tf in sorted_keys:
+        label = strat if strat != prev_strat else ""
+        prev_strat = strat
+        row = f"  {label:<{name_col_w}}{tf:<{tf_col_w}}"
         for tp in tp_values:
-            avg = _avg_r(results_by_tp[tp], s)
+            avg = _avg_r(results_by_tp[tp], strat, tf)
             cell = f"{avg:+.2f}R" if avg is not None else "  n/a"
             row += f"{cell:>{tp_col_w}}"
         lines.append(row)
 
     lines.append(sep)
-    lines.append(
-        "  Best value per row highlighted by inspection — "
-        "pick the tp_r where avg R peaks per strategy."
-    )
+    lines.append("  Pick the tp_r column where avg R peaks per strategy × TF row.")
     return "\n".join(lines)
 
 
