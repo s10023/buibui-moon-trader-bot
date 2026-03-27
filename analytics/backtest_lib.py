@@ -191,6 +191,32 @@ class BacktestResult:
         return (d[mid - 1] + d[mid]) / 2 if n % 2 == 0 else d[mid]
 
     @property
+    def long_median_duration_h(self) -> float | None:
+        d = sorted(
+            (t.exit_time - t.entry_time) / 3_600_000
+            for t in self.long_closed_trades
+            if t.exit_time is not None
+        )
+        n = len(d)
+        if not n:
+            return None
+        mid = n // 2
+        return (d[mid - 1] + d[mid]) / 2 if n % 2 == 0 else d[mid]
+
+    @property
+    def short_median_duration_h(self) -> float | None:
+        d = sorted(
+            (t.exit_time - t.entry_time) / 3_600_000
+            for t in self.short_closed_trades
+            if t.exit_time is not None
+        )
+        n = len(d)
+        if not n:
+            return None
+        mid = n // 2
+        return (d[mid - 1] + d[mid]) / 2 if n % 2 == 0 else d[mid]
+
+    @property
     def max_drawdown_r(self) -> float:
         """Largest peak-to-trough drawdown in cumulative R."""
         r_values = [t.pnl_r for t in self.closed_trades if t.pnl_r is not None]
