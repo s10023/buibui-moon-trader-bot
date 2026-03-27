@@ -1084,6 +1084,108 @@ class TestSMTTrendFilter:
         assert "trend_filter" not in received_kwargs
 
 
+class TestStrategyParamsAlertTpR:
+    """Per-strategy tp_r must reach the Telegram alert TP price, not just the backtest filter."""
+
+    _OPEN_TIME_MS = 1704240000000  # Wednesday 2024-01-03
+
+    def _make_ohlcv(self) -> pd.DataFrame:
+        # Signal fires on second-to-last candle; last row is the forming candle.
+        rows = [
+            {
+                "open_time": self._OPEN_TIME_MS - 2000,
+                "open": 100.0,
+                "high": 105.0,
+                "low": 95.0,
+                "close": 100.0,
+                "volume": 1.0,
+            },
+            {
+                "open_time": self._OPEN_TIME_MS,
+                "open": 100.0,
+                "high": 105.0,
+                "low": 95.0,
+                "close": 100.0,
+                "volume": 1.0,
+            },
+            {
+                "open_time": self._OPEN_TIME_MS + 1000,
+                "open": 100.0,
+                "high": 101.0,
+                "low": 99.0,
+                "close": 100.5,
+                "volume": 0.5,
+            },
+        ]
+        return pd.DataFrame(rows)
+
+    def _make_signals_df(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            [
+                {
+                    "open_time": self._OPEN_TIME_MS,
+                    "direction": "long",
+                    "reason": "engulfing_long@100.00",
+                    "sl_price": 95.0,  # SL dist=5 → 2.0R TP=110, 3.0R TP=115
+                    "context": "",
+                }
+            ]
+        )
+
+    def test_strategy_params_tp_r_used_in_alert(self, tmp_path: Any) -> None:
+        """strategy_params tp_r=3.0 must produce 3.0R TP in the alert, not the 2.0R global."""
+        from analytics.signal_config import StrategyOverride
+
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        store = CooldownStore(str(tmp_path / "state.json"))
+        ohlcv = self._make_ohlcv()
+        signals = self._make_signals_df()
+
+        with (
+            patch("analytics.signal_lib.get_ohlcv", return_value=ohlcv),
+            patch(
+                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+            ),
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {
+                    "engulfing": {
+                        "detector": lambda df: signals,
+                        "confidence": 3,
+                    }
+                },
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                {
+                    "engulfing": type(
+                        "S",
+                        (),
+                        {"requires_funding": False, "requires_secondary": False},
+                    )(),
+                },
+            ),
+        ):
+            alerts = run_scan_cycle(
+                conn=conn,
+                symbols=["BTCUSDT"],
+                timeframes=["1h"],
+                strategies=["engulfing"],
+                store=store,
+                tp_r=2.0,
+                sl_pct=0.02,
+                strategy_params={"engulfing": StrategyOverride(tp_r=3.0)},
+            )
+
+        assert len(alerts) == 1
+        # SL dist = 100 - 95 = 5; TP at 3.0R = 100 + 5*3 = 115; at 2.0R = 110
+        assert "115" in alerts[0], (
+            f"Expected 3.0R TP (115.0) in alert, got 2.0R. Alert: {alerts[0]}"
+        )
+        assert "3.0x R" in alerts[0], f"Expected '3.0x R' in alert, got: {alerts[0]}"
+
+
 class TestStrategyTimeframes:
     """Tests for the strategy_timeframes param in scan_symbol.
 

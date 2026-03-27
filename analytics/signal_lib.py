@@ -649,11 +649,18 @@ def run_scan_cycle(
                         tf=tf,
                         direction=direction,
                     )
+                # Resolve effective tp_r for this alert — use the max across all
+                # strategies in the confluence group (most optimistic target wins;
+                # individual strategies already filtered to have edge at that level).
+                eff_alert_tp_r = max(
+                    _resolve_tp_r(strategy_params, e.strategy, tf, tp_r)
+                    for e in dir_events
+                )
                 # Stack all passing strategies into one confluence alert
                 msg = format_confluence_alert(
                     dir_events,
                     sl_pct=sl_pct,
-                    tp_r=tp_r,
+                    tp_r=eff_alert_tp_r,
                     min_sl_pct=min_sl_pct,
                     backtest_summary=dir_summary,
                 )
