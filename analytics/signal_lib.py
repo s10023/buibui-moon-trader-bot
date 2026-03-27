@@ -45,6 +45,13 @@ logger = logging.getLogger(__name__)
 _CANDLE_CLOSE_BUFFER_SECS = 10
 
 
+def _fmt_hold(hours: float) -> str:
+    """Format median hold time: '~4h', '~3d'."""
+    if hours >= 48:
+        return f"~{hours / 24:.0f}d"
+    return f"~{hours:.0f}h"
+
+
 def parse_timeframe_secs(tf: str) -> int:
     """Convert a timeframe string to seconds (e.g. '4h' → 14400, '15m' → 900)."""
     units = {"m": 60, "h": 3600, "d": 86400}
@@ -140,9 +147,9 @@ def _backtest_summary(
     Shows direction-specific win rate and avg R when direction is provided.
     Falls back to overall stats when directional bucket has fewer than min_trades.
 
-    Single strategy (long): '📊 Backtest 90d [↑]: 62% win · avg +1.4R (18 longs)'
+    Single strategy (long): '📊 Backtest 90d [↑]: 62% win · avg +1.4R (18 longs) · hold ~16h'
     Multiple (short):       '📊 Backtest 90d [↓]: fvg 55%·+1.1R (12) · bos n/a (3)'
-    No direction:           '📊 Backtest 90d: 62% win (28 trades)'
+    No direction:           '📊 Backtest 90d: 62% win (28 trades) · hold ~4h'
     """
     arrow = " [↑]" if direction == "long" else " [↓]" if direction == "short" else ""
     single = len(strategies) == 1
@@ -159,19 +166,27 @@ def _backtest_summary(
             dir_trades = result.long_closed_trades
             dir_win_rate = result.long_win_rate
             dir_avg_r = result.long_avg_r
+            dir_median_h = result.long_median_duration_h
             trade_noun = "long"
         elif direction == "short":
             dir_trades = result.short_closed_trades
             dir_win_rate = result.short_win_rate
             dir_avg_r = result.short_avg_r
+            dir_median_h = result.short_median_duration_h
             trade_noun = "short"
         else:
             dir_trades = result.closed_trades
             dir_win_rate = result.win_rate if result.closed_trades else None
             dir_avg_r = result.avg_r if result.closed_trades else None
+            dir_median_h = result.median_duration_h
             trade_noun = "trade"
 
         n = len(dir_trades)
+        hold_suffix = (
+            f" · hold {_fmt_hold(dir_median_h)}"
+            if (single and dir_median_h is not None)
+            else ""
+        )
         if n < min_trades or dir_win_rate is None:
             label = f"n/a ({n} {trade_noun}s)" if single else f"{s}: n/a ({n})"
         else:
@@ -179,13 +194,15 @@ def _backtest_summary(
             if dir_avg_r is not None:
                 avg_r_str = f"{dir_avg_r:+.1f}R"
                 label = (
-                    f"{pct} win · avg {avg_r_str} ({n} {trade_noun}s)"
+                    f"{pct} win · avg {avg_r_str} ({n} {trade_noun}s){hold_suffix}"
                     if single
                     else f"{s}: {pct}·{avg_r_str} ({n})"
                 )
             else:
                 label = (
-                    f"{pct} win ({n} {trade_noun}s)" if single else f"{s}: {pct} ({n})"
+                    f"{pct} win ({n} {trade_noun}s){hold_suffix}"
+                    if single
+                    else f"{s}: {pct} ({n})"
                 )
         parts.append(label)
 

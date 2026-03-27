@@ -149,9 +149,9 @@ def format_confluence_alert(
         stars = f"  {_stars(ev.confidence)}" if ev.confidence else ""
         conflict_tag = " ⚠️ conflict" if ev.conflict else ""
         header = (
-            f"<b>SIGNAL — {ev.symbol} {ev.timeframe}</b>\n"
-            f"Direction: {direction_label}  Strategy: <code>{ev.strategy}</code>{stars}\n"
-            f"Reason: <code>{ev.reason}</code>{conflict_tag}\n"
+            f"<b>SIGNAL — {ev.symbol} {ev.timeframe}  ·  {direction_label}</b>\n"
+            f"<code>{ev.strategy}</code>{stars}{conflict_tag}\n"
+            f"<code>{ev.reason}</code>\n"
         )
         if ev.context:
             header += f"{ev.context}\n"
@@ -159,8 +159,8 @@ def format_confluence_alert(
             header += "⚠️ Low volume — weaker conviction\n"
     else:
         header = (
-            f"<b>SIGNAL — {first.symbol} {first.timeframe}</b>\n"
-            f"Direction: {direction_label}  Confluence: {len(events)} strategies\n"
+            f"<b>SIGNAL — {first.symbol} {first.timeframe}  ·  {direction_label}</b>\n"
+            f"Confluence: {len(events)} strategies\n"
         )
         for ev in events:
             stars = f" {_stars(ev.confidence)}" if ev.confidence else ""
@@ -172,13 +172,13 @@ def format_confluence_alert(
         if any(e.low_volume for e in events):
             header += "⚠️ Low volume — weaker conviction\n"
 
+    sl_tp = (
+        f"SL: {sl_price:,.2f}  ({sl_pct_display:.1f}%)\n"
+        f"TP: {tp_price:,.2f}  ({tp_pct_display:.1f}%  ·  {tp_r:.1f}R)"
+    )
     msg = (
-        header
-        + f"Price: {price:,.2f}  |  {signal_time} MYT\n"
-        + session_line
-        + f"SL: {sl_price:,.2f} ({sl_pct_display:.1f}%)  "
-        + f"TP: {tp_price:,.2f} ({tp_pct_display:.1f}% | {tp_r:.1f}x R)"
+        header + f"\n{price:,.2f}  ·  {signal_time} MYT\n" + session_line + f"\n{sl_tp}"
     )
     if backtest_summary:
-        msg += f"\n{backtest_summary}"
+        msg += f"\n\n{backtest_summary}"
     return msg

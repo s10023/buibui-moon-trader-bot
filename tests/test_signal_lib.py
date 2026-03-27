@@ -9,6 +9,7 @@ import pandas as pd
 from analytics.data_store import init_schema
 from analytics.signal_lib import (
     _backtest_summary,
+    _fmt_hold,
     parse_timeframe_secs,
     run_scan_cycle,
     scan_symbol,
@@ -173,7 +174,7 @@ class TestFormatSignalAlert:
             price=1000.0,
         )
         msg = format_signal_alert(event, sl_pct=0.02, tp_r=3.0)
-        assert "3.0x R" in msg
+        assert "3.0R" in msg
 
     def test_structural_sl_used_when_valid_long(self) -> None:
         event = SignalEvent(
@@ -270,10 +271,10 @@ class TestFormatConfluenceAlert:
             context=context,
         )
 
-    def test_single_event_uses_strategy_label(self) -> None:
+    def test_single_event_shows_strategy_in_code_tags(self) -> None:
         event = self._make_event("fvg", sl_price=90.0)
         msg = format_confluence_alert([event])
-        assert "Strategy: <code>fvg</code>" in msg
+        assert "<code>fvg</code>" in msg
         assert "Confluence" not in msg
 
     def test_two_events_shows_confluence_header(self) -> None:
@@ -1183,7 +1184,7 @@ class TestStrategyParamsAlertTpR:
         assert "115" in alerts[0], (
             f"Expected 3.0R TP (115.0) in alert, got 2.0R. Alert: {alerts[0]}"
         )
-        assert "3.0x R" in alerts[0], f"Expected '3.0x R' in alert, got: {alerts[0]}"
+        assert "3.0R" in alerts[0], f"Expected '3.0R' in alert, got: {alerts[0]}"
 
 
 class TestStrategyTimeframes:
@@ -1609,9 +1610,8 @@ class TestConflictResolution:
             )
 
         assert len(alerts) == 2  # one per direction
-        directions = {a.split("Direction: ")[1].split()[0] for a in alerts}
-        assert "LONG" in directions
-        assert "SHORT" in directions
+        assert any("LONG 🟢" in a for a in alerts)
+        assert any("SHORT 🔴" in a for a in alerts)
         for alert in alerts:
             assert "⚠️ conflict" in alert
 
@@ -2177,3 +2177,111 @@ class TestBacktestSummary:
         )
         assert "n/a" in summary
         assert "[↑]" in summary
+
+    def test_hold_time_appended_single_strategy_long(self) -> None:
+        """Single strategy: median long hold time appended as '· hold ~Xh'."""
+        from analytics.backtest_lib import BacktestResult, Trade
+
+        base = 1_700_000_000_000
+        trades = [
+            Trade(
+                signal_time=base,
+                entry_time=base,
+                entry_price=100.0,
+                direction="long",
+                sl_price=98.0,
+                tp_price=104.0,
+                exit_time=base + 16 * 3_600_000,
+                exit_price=104.0,
+                outcome="win",
+            )
+            for _ in range(4)
+        ]
+        result = BacktestResult(
+            symbol="BTCUSDT", timeframe="1h", strategy="fvg", trades=trades
+        )
+        summary = _backtest_summary(
+            {"fvg": result}, ["fvg"], self._cfg(), direction="long"
+        )
+        assert "hold ~16h" in summary
+
+    def test_hold_time_days_format_when_gte_48h(self) -> None:
+        """Hold time ≥ 48h shown as '~Xd'."""
+        from analytics.backtest_lib import BacktestResult, Trade
+
+        base = 1_700_000_000_000
+        trades = [
+            Trade(
+                signal_time=base,
+                entry_time=base,
+                entry_price=100.0,
+                direction="long",
+                sl_price=98.0,
+                tp_price=104.0,
+                exit_time=base + 72 * 3_600_000,
+                exit_price=104.0,
+                outcome="win",
+            )
+            for _ in range(4)
+        ]
+        result = BacktestResult(
+            symbol="BTCUSDT", timeframe="1d", strategy="fvg", trades=trades
+        )
+        summary = _backtest_summary(
+            {"fvg": result}, ["fvg"], self._cfg(), direction="long"
+        )
+        assert "hold ~3d" in summary
+
+    def test_hold_time_not_shown_for_multi_strategy(self) -> None:
+        """Multi-strategy confluence: hold time is omitted to keep line short."""
+        fvg = self._make_result("fvg", long_wins=4, long_losses=1)
+        bos = self._make_result("bos", long_wins=3, long_losses=1)
+        summary = _backtest_summary(
+            {"fvg": fvg, "bos": bos}, ["fvg", "bos"], self._cfg(), direction="long"
+        )
+        assert "hold" not in summary
+
+    def test_hold_time_not_shown_when_below_min_trades(self) -> None:
+        """No hold time when trade count < min_trades (n/a path)."""
+        from analytics.backtest_lib import BacktestResult, Trade
+
+        base = 1_700_000_000_000
+        trades = [
+            Trade(
+                signal_time=base,
+                entry_time=base,
+                entry_price=100.0,
+                direction="long",
+                sl_price=98.0,
+                tp_price=104.0,
+                exit_time=base + 8 * 3_600_000,
+                exit_price=104.0,
+                outcome="win",
+            )
+        ]
+        result = BacktestResult(
+            symbol="BTCUSDT", timeframe="1h", strategy="fvg", trades=trades
+        )
+        # min_trades=3 but only 1 long → n/a path
+        summary = _backtest_summary(
+            {"fvg": result}, ["fvg"], self._cfg(min_trades=3), direction="long"
+        )
+        assert "n/a" in summary
+        assert "hold" not in summary
+
+
+class TestFmtHold:
+    def test_hours_below_48(self) -> None:
+        assert _fmt_hold(16.0) == "~16h"
+
+    def test_hours_rounds_to_nearest(self) -> None:
+        assert _fmt_hold(15.6) == "~16h"
+
+    def test_zero_hours(self) -> None:
+        assert _fmt_hold(0.0) == "~0h"
+
+    def test_exactly_48h_shows_days(self) -> None:
+        assert _fmt_hold(48.0) == "~2d"
+
+    def test_72h_shows_3d(self) -> None:
+        assert _fmt_hold(72.0) == "~3d"

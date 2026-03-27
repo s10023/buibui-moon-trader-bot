@@ -971,6 +971,45 @@ class TestDurationProperties:
         assert result.avg_duration_h is None
         assert result.median_duration_h is None
 
+    def test_long_median_duration_h(self) -> None:
+        long_trade = self._make_trade_with_duration(8.0)
+        short_trade = Trade(
+            signal_time=_BASE_TIME,
+            entry_time=_BASE_TIME,
+            entry_price=100.0,
+            direction="short",
+            sl_price=102.0,
+            tp_price=96.0,
+            exit_time=int(_BASE_TIME + 2.0 * 3_600_000),
+            exit_price=96.0,
+            outcome="win",
+        )
+        result = BacktestResult(symbol="BTC", timeframe="4h", strategy="bos")
+        result.trades = [long_trade, short_trade]
+        assert abs(result.long_median_duration_h - 8.0) < 0.01  # type: ignore[operator]
+
+    def test_short_median_duration_h(self) -> None:
+        long_trade = self._make_trade_with_duration(8.0)
+        short_trade = Trade(
+            signal_time=_BASE_TIME,
+            entry_time=_BASE_TIME,
+            entry_price=100.0,
+            direction="short",
+            sl_price=102.0,
+            tp_price=96.0,
+            exit_time=int(_BASE_TIME + 2.0 * 3_600_000),
+            exit_price=96.0,
+            outcome="win",
+        )
+        result = BacktestResult(symbol="BTC", timeframe="4h", strategy="bos")
+        result.trades = [long_trade, short_trade]
+        assert abs(result.short_median_duration_h - 2.0) < 0.01  # type: ignore[operator]
+
+    def test_directional_median_duration_none_when_no_trades(self) -> None:
+        result = BacktestResult(symbol="BTC", timeframe="4h", strategy="bos")
+        assert result.long_median_duration_h is None
+        assert result.short_median_duration_h is None
+
 
 class TestFormatDurationTable:
     """format_duration_table produces a readable table."""
