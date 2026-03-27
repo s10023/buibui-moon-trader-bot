@@ -8,7 +8,6 @@ Seasonality returns a summary statistics DataFrame instead.
 No module-level side effects.
 """
 
-import datetime as _dt
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -958,61 +957,159 @@ def detect_orb_breakout(
 
 def detect_liquidity_sweep(
     df: pd.DataFrame,
-    lookback: int = 20,
-    min_sweep_pct: float = 0.001,
+    lookback: int = 50,
+    swing_n: int = 5,
+    require_close_rejection: bool = True,
 ) -> pd.DataFrame:
-    """Detect liquidity sweep + reversal signals.
+    """Detect liquidity sweep fakeout + fib-extension reversal signals.
 
-    A sweep occurs when a candle's wick exceeds the rolling high/low of the
-    lookback window by at least min_sweep_pct, but the candle CLOSES back inside.
+    Strategy: price breaks above a genuine pivot swing high (fakeout), extends
+    to the 1.13 or 1.27 Fibonacci extension of the prior swing range, then
+    reverses — that reversal candle is the entry.
 
-    Short signal: wick above lookback max high by min_sweep_pct, close below it.
-    Long signal: wick below lookback min low by min_sweep_pct, close above it.
+    Fib levels (measured from the swing high, outward from the range):
+        fib_1.13 = swing_high + 0.13 × (swing_high − swing_low)
+        fib_1.27 = swing_high + 0.27 × (swing_high − swing_low)
+
+    The 1.27 level is checked first; if price wicked to/above it and closed
+    below it, the signal fires at 1.27. Otherwise 1.13 is tried. Symmetric
+    logic applies for long signals below pivot swing lows.
+
+    Entry condition (require_close_rejection=True, default):
+        Candle must CLOSE below the fib level — confirming a rejection candle.
+        Set require_close_rejection=False to fire on a wick touch alone (faster
+        entry, more false positives). This choice is a named param so it can be
+        switched without touching the detection logic.
+
+    Pivot detection: a candle is a swing high/low if its high/low is the
+    extreme of the [k−swing_n, k+swing_n] centred window (default swing_n=5,
+    i.e. 11-candle window). Anchors signals to structurally significant levels
+    rather than arbitrary rolling extremes.
+
+    sl_price = the candle's wick high (for shorts) / wick low (for longs).
     """
     n = len(df)
-    if n < lookback + 1:
+    win = 2 * swing_n + 1
+    if n < win + lookback:
         return _empty_signals()
 
-    rolling_high = df["high"].astype(float).rolling(lookback).max().shift(1)
-    rolling_low = df["low"].astype(float).rolling(lookback).min().shift(1)
+    highs = df["high"].to_numpy(dtype=float)
+    lows = df["low"].to_numpy(dtype=float)
+    closes = df["close"].to_numpy(dtype=float)
+    open_times = df["open_time"].to_numpy(dtype=int)
+
+    # Precompute pivot highs/lows with a centred window (uses swing_n candles
+    # on each side to confirm the pivot — acceptable lookahead for structural
+    # levels; consistent with detect_eqh_eql).
+    roll_max = (
+        pd.Series(highs).rolling(win, center=True, min_periods=1).max().to_numpy()
+    )
+    roll_min = pd.Series(lows).rolling(win, center=True, min_periods=1).min().to_numpy()
+    sh_idx: np.ndarray = np.where(highs >= roll_max)[0]
+    sl_idx: np.ndarray = np.where(lows <= roll_min)[0]
 
     signals: list[dict[str, object]] = []
 
-    for i in range(lookback, n):
-        row = df.iloc[i]
-        candle_high = float(row["high"])
-        candle_low = float(row["low"])
-        candle_close = float(row["close"])
-        swing_high = float(rolling_high.iloc[i])
-        swing_low = float(rolling_low.iloc[i])
+    for sig_i in range(lookback, n):
+        ws = sig_i - lookback
+        sig_h = highs[sig_i]
+        sig_l = lows[sig_i]
+        sig_c = closes[sig_i]
+        sig_t = open_times[sig_i]
 
-        open_time_ms = int(row["open_time"])
-        is_monday = _dt.datetime.utcfromtimestamp(open_time_ms / 1000).weekday() == 0
-        monday_tag = (
-            " [Mon: manipulation zone — wait for Tue expansion]" if is_monday else ""
-        )
+        # --- Short: fakeout above pivot swing high ---
+        hi_sh = int(np.searchsorted(sh_idx, sig_i))
+        lo_sh = int(np.searchsorted(sh_idx, ws))
+        if hi_sh > lo_sh:
+            pivot_sh_i = int(sh_idx[hi_sh - 1])
+            swing_high = highs[pivot_sh_i]
 
-        if candle_high > swing_high * (1 + min_sweep_pct) and candle_close < swing_high:
-            signals.append(
-                {
-                    "open_time": open_time_ms,
-                    "direction": "short",
-                    "reason": f"sweep_high@{swing_high:.2f}{monday_tag}",
-                    "sl_price": candle_high,
-                    "context": "",
-                }
-            )
+            # Anchor: most recent pivot swing low before the swing high
+            hi_sl = int(np.searchsorted(sl_idx, pivot_sh_i))
+            lo_sl = int(np.searchsorted(sl_idx, ws))
+            if hi_sl > lo_sl:
+                swing_low = lows[int(sl_idx[hi_sl - 1])]
+                rng = swing_high - swing_low
 
-        if candle_low < swing_low * (1 - min_sweep_pct) and candle_close > swing_low:
-            signals.append(
-                {
-                    "open_time": open_time_ms,
-                    "direction": "long",
-                    "reason": f"sweep_low@{swing_low:.2f}{monday_tag}",
-                    "sl_price": candle_low,
-                    "context": "",
-                }
-            )
+                if rng > 0:
+                    fib_127 = swing_high + 0.27 * rng
+                    fib_113 = swing_high + 0.13 * rng
+
+                    fib_hit: float | None = None
+                    fib_label: str | None = None
+
+                    if sig_h >= fib_127 and (
+                        not require_close_rejection or sig_c < fib_127
+                    ):
+                        fib_hit, fib_label = fib_127, "1.27"
+                    elif sig_h >= fib_113 and (
+                        not require_close_rejection or sig_c < fib_113
+                    ):
+                        fib_hit, fib_label = fib_113, "1.13"
+
+                    if fib_hit is not None and fib_label is not None:
+                        signals.append(
+                            {
+                                "open_time": sig_t,
+                                "direction": "short",
+                                "reason": (
+                                    f"sweep_high@{swing_high:.2f}"
+                                    f"_fib{fib_label}@{fib_hit:.2f}"
+                                ),
+                                "sl_price": sig_h,
+                                "context": (
+                                    f"range [{swing_low:.2f}–{swing_high:.2f}]"
+                                    f" · fib{fib_label}={fib_hit:.2f}"
+                                ),
+                            }
+                        )
+
+        # --- Long: fakeout below pivot swing low ---
+        hi_sl2 = int(np.searchsorted(sl_idx, sig_i))
+        lo_sl2 = int(np.searchsorted(sl_idx, ws))
+        if hi_sl2 > lo_sl2:
+            pivot_sl_i = int(sl_idx[hi_sl2 - 1])
+            swing_low2 = lows[pivot_sl_i]
+
+            # Anchor: most recent pivot swing high before the swing low
+            hi_sh2 = int(np.searchsorted(sh_idx, pivot_sl_i))
+            lo_sh2 = int(np.searchsorted(sh_idx, ws))
+            if hi_sh2 > lo_sh2:
+                swing_high2 = highs[int(sh_idx[hi_sh2 - 1])]
+                rng2 = swing_high2 - swing_low2
+
+                if rng2 > 0:
+                    fib_127_l = swing_low2 - 0.27 * rng2
+                    fib_113_l = swing_low2 - 0.13 * rng2
+
+                    fib_hit_l: float | None = None
+                    fib_label_l: str | None = None
+
+                    if sig_l <= fib_127_l and (
+                        not require_close_rejection or sig_c > fib_127_l
+                    ):
+                        fib_hit_l, fib_label_l = fib_127_l, "1.27"
+                    elif sig_l <= fib_113_l and (
+                        not require_close_rejection or sig_c > fib_113_l
+                    ):
+                        fib_hit_l, fib_label_l = fib_113_l, "1.13"
+
+                    if fib_hit_l is not None and fib_label_l is not None:
+                        signals.append(
+                            {
+                                "open_time": sig_t,
+                                "direction": "long",
+                                "reason": (
+                                    f"sweep_low@{swing_low2:.2f}"
+                                    f"_fib{fib_label_l}@{fib_hit_l:.2f}"
+                                ),
+                                "sl_price": sig_l,
+                                "context": (
+                                    f"range [{swing_low2:.2f}–{swing_high2:.2f}]"
+                                    f" · fib{fib_label_l}={fib_hit_l:.2f}"
+                                ),
+                            }
+                        )
 
     return _signals_to_df(signals)
 
@@ -1378,6 +1475,7 @@ def detect_eqh_eql(
     df: pd.DataFrame,
     lookback: int = 50,
     tolerance_pct: float = 0.003,
+    swing_n: int = 5,
 ) -> pd.DataFrame:
     """Detect Equal Highs / Equal Lows liquidity sweep signals.
 
@@ -1388,9 +1486,10 @@ def detect_eqh_eql(
     Equal Lows (EQL): two swing lows within tolerance_pct form a pool below price.
     When a candle wicks below that level (low < EQL) but closes above it → long signal.
 
-    Swing highs/lows are identified using a 3-candle-each-side local window
-    (a candle is a swing high if its high is the max of the 7-candle window
-    centred on it — using a non-centred rolling window to avoid lookahead bias).
+    Swing highs/lows are identified using a centred window of 2×swing_n+1 candles
+    (default swing_n=5 → 11-candle window, i.e. 5 candles each side). A candle is a
+    swing high if its high is the max of that window. Wider swing_n = fewer, more
+    structurally significant pivot levels.
 
     Signals are generated across the full history (rolling window): each candle
     from index `lookback` onward is evaluated as a potential signal candle.
@@ -1403,7 +1502,7 @@ def detect_eqh_eql(
     if n < lookback + 1:
         return _empty_signals()
 
-    swing_side = 2  # candles on each side of the pivot candidate
+    swing_side = swing_n  # candles on each side of the pivot candidate
     win = 2 * swing_side + 1
 
     # Precompute arrays — no pandas operations inside the main loop.

@@ -343,8 +343,8 @@ poetry run python buibui.py backtest --symbols BTCUSDT ETHUSDT --timeframes 1h 4
 | --- | --- | --- |
 | `smt_divergence` | Two correlated assets diverge at a swing high/low | ★☆☆☆☆ |
 | `fvg` | Fair Value Gap — 3-candle imbalance zone fill | ★☆☆☆☆ |
-| `liquidity_sweep` | Wick through a swing high/low with close back inside | ★☆☆☆☆ |
-| `eqh_eql` | Equal Highs/Lows: liquidity sweep of a double-top or double-bottom level | ★☆☆☆☆ |
+| `liquidity_sweep` | Fakeout above/below a pivot swing high/low that extends to the 1.13 or 1.27 fib extension of the prior range; entry on close rejection at that level | ★☆☆☆☆ |
+| `eqh_eql` | Equal Highs/Lows: liquidity sweep of a double-top or double-bottom formed by genuine pivot swing highs/lows (11-candle window) | ★☆☆☆☆ |
 | `funding_reversion` | Extreme positive/negative funding rate → contrarian signal | ★☆☆☆☆ |
 | `cvd_divergence` | CVD Divergence — price and buying pressure disagree at a swing extreme | ★☆☆☆☆ |
 | `order_block` | ICT Order Block — last up/down candle before displacement; entry on retest | ★★★☆☆ |

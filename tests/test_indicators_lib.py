@@ -329,59 +329,17 @@ class TestDetectOrbBreakout:
 
 class TestDetectLiquiditySweep:
     def test_returns_empty_when_too_few_candles(self) -> None:
+        # With swing_n=5 and lookback=20, need win+lookback = 11+20 = 31 candles minimum
         rows = [_candle(_BASE_TIME + i, 100, 110, 90, 100) for i in range(5)]
         df = _make_ohlcv(rows)
-        result = detect_liquidity_sweep(df, lookback=20)
+        result = detect_liquidity_sweep(df, lookback=20, swing_n=5)
         assert result.empty
 
-    def test_detects_sweep_high_short(self) -> None:
-        # Build lookback window with max high=110, then a sweep candle
-        rows = [_candle(_BASE_TIME + i, 100, 110, 90, 100) for i in range(20)]
-        # Sweep: high=115 (exceeds 110), close=105 (below 110)
-        rows.append(_candle(_BASE_TIME + 20, 108, 115, 100, 105))
-        df = _make_ohlcv(rows)
-        result = detect_liquidity_sweep(df, lookback=20)
-        short_signals = result[result["direction"] == "short"]
-        assert len(short_signals) >= 1
-
-    def test_detects_sweep_low_long(self) -> None:
-        rows = [_candle(_BASE_TIME + i, 100, 110, 90, 100) for i in range(20)]
-        # Sweep: low=85 (below 90), close=95 (above 90)
-        rows.append(_candle(_BASE_TIME + 20, 92, 100, 85, 95))
-        df = _make_ohlcv(rows)
-        result = detect_liquidity_sweep(df, lookback=20)
-        long_signals = result[result["direction"] == "long"]
-        assert len(long_signals) >= 1
-
     def test_signal_columns(self) -> None:
-        rows = [_candle(_BASE_TIME + i, 100, 110, 90, 100) for i in range(25)]
+        rows = [_candle(_BASE_TIME + i, 100, 110, 90, 100) for i in range(40)]
         df = _make_ohlcv(rows)
-        result = detect_liquidity_sweep(df, lookback=20)
+        result = detect_liquidity_sweep(df, lookback=20, swing_n=5)
         _assert_signal_columns(result)
-
-    def test_non_monday_sweep_no_monday_tag(self) -> None:
-        # _BASE_TIME is a Tuesday (weekday=1) — reason must NOT contain Mon tag
-        rows = [_candle(_BASE_TIME + i, 100, 110, 90, 100) for i in range(20)]
-        rows.append(_candle(_BASE_TIME + 20, 108, 115, 100, 105))
-        df = _make_ohlcv(rows)
-        result = detect_liquidity_sweep(df, lookback=20)
-        short_signals = result[result["direction"] == "short"]
-        assert len(short_signals) >= 1
-        for reason in short_signals["reason"]:
-            assert "Mon:" not in reason
-
-    def test_monday_sweep_has_monday_tag(self) -> None:
-        # 1699840800000 is 2023-11-13 10:00 UTC — a Monday (weekday=0)
-        _MONDAY_MS = 1_699_840_800_000
-        rows = [_candle(_MONDAY_MS + i, 100, 110, 90, 100) for i in range(20)]
-        rows.append(_candle(_MONDAY_MS + 20, 108, 115, 100, 105))
-        df = _make_ohlcv(rows)
-        result = detect_liquidity_sweep(df, lookback=20)
-        short_signals = result[result["direction"] == "short"]
-        assert len(short_signals) >= 1
-        for reason in short_signals["reason"]:
-            assert "Mon: manipulation zone" in reason
-            assert "Tue expansion" in reason
 
 
 # ---------------------------------------------------------------------------
@@ -1110,7 +1068,7 @@ class TestDetectEqhEql:
             _candle(_BASE_TIME + lookback * self._MS, 115, 121, 110, 118)
         )  # signal candle
         df = _make_ohlcv(rows)
-        result = detect_eqh_eql(df, lookback=lookback, tolerance_pct=0.01)
+        result = detect_eqh_eql(df, lookback=lookback, tolerance_pct=0.01, swing_n=2)
         sl = float(result.iloc[0]["sl_price"])
         assert (
             sl == 130.0
@@ -1181,7 +1139,7 @@ class TestDetectEqhEql:
             _candle(_BASE_TIME + lookback * self._MS, 85, 90, 79, 82)
         )  # signal candle
         df = _make_ohlcv(rows)
-        result = detect_eqh_eql(df, lookback=lookback, tolerance_pct=0.01)
+        result = detect_eqh_eql(df, lookback=lookback, tolerance_pct=0.01, swing_n=2)
         sl = float(result.iloc[0]["sl_price"])
         assert sl == 70.0  # post-EQL deviation, not pre-EQL (75) or signal candle (79)
 
@@ -1230,24 +1188,194 @@ class TestDetectEqhEql:
         _assert_signal_columns(result)
 
 
-class TestLiquiditySweepMinSize:
-    def test_liquidity_sweep_ignores_micro_poke(self) -> None:
-        # Rolling max high = 110; sweep candle high = 110.001 (0.0009% above) → no signal
-        rows = [_candle(_BASE_TIME + i, 100, 110, 90, 100) for i in range(20)]
-        rows.append(_candle(_BASE_TIME + 20, 108, 110.001, 100, 105))
-        df = _make_ohlcv(rows)
-        result = detect_liquidity_sweep(df, lookback=20, min_sweep_pct=0.001)
-        short_signals = result[result["direction"] == "short"]
-        assert short_signals.empty
+class TestLiquiditySweep:
+    """Tests for detect_liquidity_sweep with pivot+fib-extension logic.
 
-    def test_liquidity_sweep_fires_on_meaningful_sweep(self) -> None:
-        # Rolling max high = 110; sweep candle high = 110.25 (0.23% above) → signal
-        rows = [_candle(_BASE_TIME + i, 100, 110, 90, 100) for i in range(20)]
-        rows.append(_candle(_BASE_TIME + 20, 108, 110.25, 100, 105))
-        df = _make_ohlcv(rows)
-        result = detect_liquidity_sweep(df, lookback=20, min_sweep_pct=0.001)
-        short_signals = result[result["direction"] == "short"]
-        assert len(short_signals) == 1
+    Data layout (swing_n=2, lookback=8, total=13 rows, signal at index 12):
+      win = 2×2+1 = 5; guard: n >= win+lookback = 13 ✓
+
+    SHORT setup — pivot_low @ index 4, pivot_high @ index 8:
+      Neighbours of pivots shaped to prevent flat background candles from
+      becoming spurious pivot highs/lows within the lookback window.
+
+        idx  high  low   role
+          0   102   92   background
+          1   102   92   background
+          2   102   92   background
+          3   102   84   slope toward pivot_low
+          4   102   80   PIVOT LOW  (min in window [2..6])
+          5   102   83   slope away from pivot_low
+          6   102   87   slope away
+          7    98   90   slope toward pivot_high (lower high prevents it being a pivot)
+          8   120   90   PIVOT HIGH (max in window [6..10])
+          9    98   90   slope away from pivot_high
+         10   102   90   background
+         11   102   90   background
+         12   (signal, appended per test)
+
+      range = 120−80 = 40 → fib_1.13 = 125.2  fib_1.27 = 130.8
+
+    LONG setup — pivot_high @ index 4, pivot_low @ index 8:
+        idx  high  low   role
+          0   102   92   background
+          1   102   92   background
+          2   102   92   background
+          3   100   92   slope toward pivot_high
+          4   120   90   PIVOT HIGH (max in window [2..6])
+          5   100   87   slope away from pivot_high
+          6    97   84   slope away
+          7    99   82   slope toward pivot_low
+          8    99   80   PIVOT LOW  (min in window [6..10])
+          9    99   82   slope away from pivot_low
+         10   102   88   background
+         11   102   88   background
+         12   (signal, appended per test)
+
+      range = 120−80 = 40 → fib_1.13_l = 74.8  fib_1.27_l = 69.2
+    """
+
+    _SN = 2  # swing_n — keeps tests small (5-candle pivot window)
+    _LB = 8  # lookback — ws = 12−8 = 4, so pivots at indices 4 and 8 are within ws ✓
+
+    def _short_rows(self) -> list[dict[str, object]]:
+        return [
+            _candle(_BASE_TIME + 0, 100, 102, 92, 101),  # background
+            _candle(_BASE_TIME + 1, 100, 102, 92, 101),  # background
+            _candle(_BASE_TIME + 2, 100, 102, 92, 101),  # background
+            _candle(_BASE_TIME + 3, 100, 102, 84, 100),  # slope → pivot_low
+            _candle(_BASE_TIME + 4, 100, 102, 80, 90),  # PIVOT LOW  low=80
+            _candle(_BASE_TIME + 5, 100, 102, 83, 95),  # slope ↑
+            _candle(_BASE_TIME + 6, 100, 102, 87, 98),  # slope ↑
+            _candle(_BASE_TIME + 7, 100, 98, 90, 97),  # slope → pivot_high
+            _candle(_BASE_TIME + 8, 100, 120, 90, 110),  # PIVOT HIGH high=120
+            _candle(_BASE_TIME + 9, 100, 98, 90, 97),  # slope ↓
+            _candle(_BASE_TIME + 10, 100, 102, 90, 101),  # background
+            _candle(_BASE_TIME + 11, 100, 102, 90, 101),  # background
+        ]
+
+    def _long_rows(self) -> list[dict[str, object]]:
+        return [
+            _candle(_BASE_TIME + 0, 100, 102, 92, 101),  # background
+            _candle(_BASE_TIME + 1, 100, 102, 92, 101),  # background
+            _candle(_BASE_TIME + 2, 100, 102, 92, 101),  # background
+            _candle(_BASE_TIME + 3, 100, 100, 92, 99),  # slope → pivot_high
+            _candle(_BASE_TIME + 4, 100, 120, 90, 110),  # PIVOT HIGH high=120
+            _candle(_BASE_TIME + 5, 100, 100, 87, 95),  # slope ↓
+            _candle(_BASE_TIME + 6, 100, 97, 84, 90),  # slope ↓
+            _candle(_BASE_TIME + 7, 100, 99, 82, 88),  # slope → pivot_low
+            _candle(_BASE_TIME + 8, 100, 99, 80, 87),  # PIVOT LOW  low=80
+            _candle(_BASE_TIME + 9, 100, 99, 82, 88),  # slope ↑
+            _candle(_BASE_TIME + 10, 100, 102, 88, 101),  # background
+            _candle(_BASE_TIME + 11, 100, 102, 88, 101),  # background
+        ]
+
+    def test_short_signal_at_fib_113(self) -> None:
+        # Wick reaches 126 > fib_1.13=125.2, close=124 < 125.2 → short at 1.13
+        rows = self._short_rows()
+        rows.append(_candle(_BASE_TIME + 12, 121, 126.0, 119, 124.0))
+        result = detect_liquidity_sweep(
+            _make_ohlcv(rows), lookback=self._LB, swing_n=self._SN
+        )
+        short = result[result["direction"] == "short"]
+        assert len(short) == 1
+        assert "fib1.13" in str(short.iloc[0]["reason"])
+
+    def test_short_signal_at_fib_127(self) -> None:
+        # Wick reaches 132 > fib_1.27=130.8, close=129 < 130.8 → short at 1.27
+        rows = self._short_rows()
+        rows.append(_candle(_BASE_TIME + 12, 121, 132.0, 119, 129.0))
+        result = detect_liquidity_sweep(
+            _make_ohlcv(rows), lookback=self._LB, swing_n=self._SN
+        )
+        short = result[result["direction"] == "short"]
+        assert len(short) == 1
+        assert "fib1.27" in str(short.iloc[0]["reason"])
+
+    def test_no_short_when_close_above_fib_113(self) -> None:
+        # Wick above 1.13 but close=125.5 > fib_1.13=125.2 → no rejection
+        rows = self._short_rows()
+        rows.append(_candle(_BASE_TIME + 12, 121, 126.0, 119, 125.5))
+        result = detect_liquidity_sweep(
+            _make_ohlcv(rows), lookback=self._LB, swing_n=self._SN
+        )
+        assert result[result["direction"] == "short"].empty
+
+    def test_short_fires_on_wick_when_close_rejection_disabled(self) -> None:
+        # require_close_rejection=False: wick touch alone is sufficient.
+        # The target signal candle (index 12) must fire; other earlier candles
+        # may also fire (the same wick-touch rule applies to them).
+        rows = self._short_rows()
+        rows.append(_candle(_BASE_TIME + 12, 121, 126.0, 119, 125.5))
+        result = detect_liquidity_sweep(
+            _make_ohlcv(rows),
+            lookback=self._LB,
+            swing_n=self._SN,
+            require_close_rejection=False,
+        )
+        short = result[result["direction"] == "short"]
+        sig12 = short[short["open_time"] == _BASE_TIME + 12]
+        assert len(sig12) == 1  # signal candle fires
+        assert "fib1.13" in str(sig12.iloc[0]["reason"])
+
+    def test_short_sl_is_candle_wick_high(self) -> None:
+        rows = self._short_rows()
+        rows.append(_candle(_BASE_TIME + 12, 121, 127.5, 119, 124.0))
+        result = detect_liquidity_sweep(
+            _make_ohlcv(rows), lookback=self._LB, swing_n=self._SN
+        )
+        short = result[result["direction"] == "short"]
+        assert len(short) == 1
+        assert float(short.iloc[0]["sl_price"]) == 127.5
+
+    def test_long_signal_at_fib_113(self) -> None:
+        # Wick dips to 74.0 < fib_1.13=74.8, close=75.5 > 74.8 → long at 1.13
+        rows = self._long_rows()
+        rows.append(_candle(_BASE_TIME + 12, 79, 83, 74.0, 75.5))
+        result = detect_liquidity_sweep(
+            _make_ohlcv(rows), lookback=self._LB, swing_n=self._SN
+        )
+        long = result[result["direction"] == "long"]
+        assert len(long) == 1
+        assert "fib1.13" in str(long.iloc[0]["reason"])
+
+    def test_long_sl_is_candle_wick_low(self) -> None:
+        rows = self._long_rows()
+        rows.append(_candle(_BASE_TIME + 12, 79, 83, 73.0, 75.5))
+        result = detect_liquidity_sweep(
+            _make_ohlcv(rows), lookback=self._LB, swing_n=self._SN
+        )
+        long = result[result["direction"] == "long"]
+        assert len(long) == 1
+        assert float(long.iloc[0]["sl_price"]) == 73.0
+
+    def test_no_signal_when_price_does_not_reach_fib(self) -> None:
+        # High only reaches 122 < fib_1.13=125.2 → no signal
+        rows = self._short_rows()
+        rows.append(_candle(_BASE_TIME + 12, 119, 122.0, 118, 120.5))
+        result = detect_liquidity_sweep(
+            _make_ohlcv(rows), lookback=self._LB, swing_n=self._SN
+        )
+        assert result[result["direction"] == "short"].empty
+
+    def test_reason_contains_swing_high_and_fib_level(self) -> None:
+        rows = self._short_rows()
+        rows.append(_candle(_BASE_TIME + 12, 121, 126.0, 119, 124.0))
+        result = detect_liquidity_sweep(
+            _make_ohlcv(rows), lookback=self._LB, swing_n=self._SN
+        )
+        reason = str(result.iloc[0]["reason"])
+        assert "sweep_high@120.00" in reason
+        assert "fib1.13" in reason
+
+    def test_context_contains_range_and_fib(self) -> None:
+        rows = self._short_rows()
+        rows.append(_candle(_BASE_TIME + 12, 121, 126.0, 119, 124.0))
+        result = detect_liquidity_sweep(
+            _make_ohlcv(rows), lookback=self._LB, swing_n=self._SN
+        )
+        ctx = str(result.iloc[0]["context"])
+        assert "range [" in ctx
+        assert "fib1.13" in ctx
 
 
 # ---------------------------------------------------------------------------
