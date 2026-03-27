@@ -148,6 +148,10 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
             sl_pct_per_tf=sl_pct_per_tf,
         )
 
+    # Some signal_watch configs place liq_sweep_use_fib inside a [backtest]
+    # sub-table; fall back to that if not present at the top level.
+    _bt_section: dict[str, object] = data.get("backtest", {})
+
     return BacktestSweepConfig(
         symbols=data.get("symbols"),
         timeframes=data.get("timeframes", ["4h"]),
@@ -165,5 +169,7 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
         save_results=bool(data.get("save_results", False)),
         tp_r_values=[float(v) for v in data.get("tp_r_values", [])],
         strategy_params=strategy_params,
-        liq_sweep_use_fib=bool(data.get("liq_sweep_use_fib", True)),
+        liq_sweep_use_fib=bool(
+            data.get("liq_sweep_use_fib", _bt_section.get("liq_sweep_use_fib", True))
+        ),
     )
