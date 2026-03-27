@@ -55,6 +55,7 @@ def detect_signals_for_strategy(
     secondary_symbol: str | None = None,
     smt_trend_filter: int = 1,
     liq_sweep_use_fib: bool = True,
+    liq_sweep_fib_range_close: bool = False,
 ) -> pd.DataFrame | None:
     """Return signals DataFrame, or None when required data is absent.
 
@@ -76,7 +77,11 @@ def detect_signals_for_strategy(
         return detect_smt_divergence(ohlcv, ohlcv_sec, trend_filter=smt_trend_filter)
 
     if strategy == "liquidity_sweep":
-        return detect_liquidity_sweep(ohlcv, use_fib_extension=liq_sweep_use_fib)
+        return detect_liquidity_sweep(
+            ohlcv,
+            use_fib_extension=liq_sweep_use_fib,
+            fib_require_range_close=liq_sweep_fib_range_close,
+        )
 
     return _SIMPLE_DETECTORS[strategy](ohlcv)
 
@@ -140,6 +145,7 @@ def _collect_signals_map(
             secondary,
             smt_trend_filter=cfg.smt_trend_filter,
             liq_sweep_use_fib=cfg.liq_sweep_use_fib,
+            liq_sweep_fib_range_close=cfg.liq_sweep_fib_range_close,
         )
         if signals is None:
             skipped.append(
@@ -199,6 +205,7 @@ def _collect_sweep_results(
             secondary,
             smt_trend_filter=cfg.smt_trend_filter,
             liq_sweep_use_fib=cfg.liq_sweep_use_fib,
+            liq_sweep_fib_range_close=cfg.liq_sweep_fib_range_close,
         )
         if signals is None:
             skipped.append(

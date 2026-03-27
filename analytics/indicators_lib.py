@@ -961,6 +961,7 @@ def detect_liquidity_sweep(
     swing_n: int = 5,
     use_fib_extension: bool = True,
     require_close_rejection: bool = True,
+    fib_require_range_close: bool = False,
 ) -> pd.DataFrame:
     """Detect liquidity sweep fakeout reversal signals.
 
@@ -986,6 +987,12 @@ def detect_liquidity_sweep(
         mode; swing high in pivot mode) — confirming a rejection candle.
         If False, a wick touch alone suffices. This choice is a named param so
         it can be toggled without touching the detection logic.
+
+    fib_require_range_close (default False, applies to fib mode only):
+        If True, the close must come back BELOW the original swing_high (fully
+        inside the prior range), not just below the fib extension level. This
+        is a stricter confirmation — the candle wicks into the fib zone but the
+        body closes back inside the range. Ignored when use_fib_extension=False.
 
     Pivot detection: a candle is a swing high/low if its high/low is the
     extreme of the [k−swing_n, k+swing_n] centred window (default swing_n=5,
@@ -1047,12 +1054,15 @@ def detect_liquidity_sweep(
                         fib_113 = swing_high + 0.13 * rng
                         fib_hit: float | None = None
                         fib_label: str | None = None
+                        # close threshold: range boundary (stricter) or fib level
+                        close_127 = swing_high if fib_require_range_close else fib_127
+                        close_113 = swing_high if fib_require_range_close else fib_113
                         if sig_h >= fib_127 and (
-                            not require_close_rejection or sig_c < fib_127
+                            not require_close_rejection or sig_c < close_127
                         ):
                             fib_hit, fib_label = fib_127, "1.27"
                         elif sig_h >= fib_113 and (
-                            not require_close_rejection or sig_c < fib_113
+                            not require_close_rejection or sig_c < close_113
                         ):
                             fib_hit, fib_label = fib_113, "1.13"
                         if fib_hit is not None and fib_label is not None:
@@ -1109,12 +1119,18 @@ def detect_liquidity_sweep(
                         fib_113_l = swing_low2 - 0.13 * rng2
                         fib_hit_l: float | None = None
                         fib_label_l: str | None = None
+                        close_127_l = (
+                            swing_low2 if fib_require_range_close else fib_127_l
+                        )
+                        close_113_l = (
+                            swing_low2 if fib_require_range_close else fib_113_l
+                        )
                         if sig_l <= fib_127_l and (
-                            not require_close_rejection or sig_c > fib_127_l
+                            not require_close_rejection or sig_c > close_127_l
                         ):
                             fib_hit_l, fib_label_l = fib_127_l, "1.27"
                         elif sig_l <= fib_113_l and (
-                            not require_close_rejection or sig_c > fib_113_l
+                            not require_close_rejection or sig_c > close_113_l
                         ):
                             fib_hit_l, fib_label_l = fib_113_l, "1.13"
                         if fib_hit_l is not None and fib_label_l is not None:

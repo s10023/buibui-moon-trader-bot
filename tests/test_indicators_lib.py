@@ -1377,6 +1377,64 @@ class TestLiquiditySweep:
         assert "range [" in ctx
         assert "fib1.13" in ctx
 
+    # --- fib_require_range_close=True (strict: close must be back inside range) ---
+
+    def test_fib_range_close_short_fires_when_close_inside_range(self) -> None:
+        # Wick=126 reaches fib_1.13=125.2; close=119 < swing_high=120 → fires
+        rows = self._short_rows()
+        rows.append(_candle(_BASE_TIME + 12, 121, 126.0, 118, 119.0))
+        result = detect_liquidity_sweep(
+            _make_ohlcv(rows),
+            lookback=self._LB,
+            swing_n=self._SN,
+            fib_require_range_close=True,
+        )
+        short = result[result["direction"] == "short"]
+        assert len(short) == 1
+        assert "fib1.13" in str(short.iloc[0]["reason"])
+
+    def test_fib_range_close_short_suppressed_when_close_above_swing_high(self) -> None:
+        # Wick=126 reaches fib_1.13=125.2; close=120.5 > swing_high=120
+        # Without range_close: would fire (120.5 < fib_1.13=125.2).
+        # With range_close=True: no fire (close must be < 120).
+        rows = self._short_rows()
+        rows.append(_candle(_BASE_TIME + 12, 121, 126.0, 119, 120.5))
+        result = detect_liquidity_sweep(
+            _make_ohlcv(rows),
+            lookback=self._LB,
+            swing_n=self._SN,
+            fib_require_range_close=True,
+        )
+        assert result[result["direction"] == "short"].empty
+
+    def test_fib_range_close_long_fires_when_close_inside_range(self) -> None:
+        # Wick=74.0 reaches fib_1.13_l=74.8; close=81 > swing_low=80 → fires
+        rows = self._long_rows()
+        rows.append(_candle(_BASE_TIME + 12, 79, 83, 74.0, 81.0))
+        result = detect_liquidity_sweep(
+            _make_ohlcv(rows),
+            lookback=self._LB,
+            swing_n=self._SN,
+            fib_require_range_close=True,
+        )
+        long = result[result["direction"] == "long"]
+        assert len(long) == 1
+        assert "fib1.13" in str(long.iloc[0]["reason"])
+
+    def test_fib_range_close_long_suppressed_when_close_below_swing_low(self) -> None:
+        # Wick=74.0 reaches fib_1.13_l=74.8; close=79.5 < swing_low=80
+        # Without range_close: would fire (79.5 > fib_1.13_l=74.8).
+        # With range_close=True: no fire (close must be > 80).
+        rows = self._long_rows()
+        rows.append(_candle(_BASE_TIME + 12, 78, 82, 74.0, 79.5))
+        result = detect_liquidity_sweep(
+            _make_ohlcv(rows),
+            lookback=self._LB,
+            swing_n=self._SN,
+            fib_require_range_close=True,
+        )
+        assert result[result["direction"] == "long"].empty
+
     # --- use_fib_extension=False (pivot-sweep mode) ---
 
     def test_pivot_sweep_short_fires_without_fib(self) -> None:
