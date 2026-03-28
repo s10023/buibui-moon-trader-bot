@@ -72,6 +72,10 @@ class BacktestSweepConfig:
     # When set, SL distance = atr_sl_multiplier × ATR14 at signal candle.
     # Per-strategy overrides in strategy_params take precedence.
     atr_sl_multiplier: float | None = None
+    # When non-empty, sweep ATR multiplier values and print a comparison table.
+    # e.g. [0.5, 1.0, 1.5, 2.0, 2.5] — shows avg R per strategy × TF at each multiplier.
+    # Overrides atr_sl_multiplier for comparison only; tp_r and per-strategy overrides apply.
+    atr_sl_multiplier_values: list[float] = field(default_factory=list)
     # liquidity_sweep entry mode:
     #   True  (default) — fib-extension mode: entry at 1.13/1.27 fib extension of range
     #   False           — pivot-sweep mode: entry on wick above pivot high + close inside
@@ -198,6 +202,9 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
         save_results=bool(data.get("save_results", False)),
         tp_r_values=[float(v) for v in data.get("tp_r_values", [])],
         strategy_params=strategy_params,
+        atr_sl_multiplier_values=[
+            float(v) for v in data.get("atr_sl_multiplier_values", [])
+        ],
         atr_sl_multiplier=(
             float(data["atr_sl_multiplier"])
             if data.get("atr_sl_multiplier") is not None

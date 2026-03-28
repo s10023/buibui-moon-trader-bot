@@ -69,6 +69,8 @@ def run_backtest(args: argparse.Namespace) -> None:
             cfg.save_results = True
         if args.atr_sl_multiplier is not None:
             cfg.atr_sl_multiplier = args.atr_sl_multiplier
+        if args.atr_sl_multiplier_values:
+            cfg.atr_sl_multiplier_values = args.atr_sl_multiplier_values
         backtest_runner.run_backtest_sweep(cfg)
         return
 
@@ -449,6 +451,14 @@ def main() -> None:
         default=None,
         dest="atr_sl_multiplier",
         help="ATR-based SL multiplier: SL = N × ATR14 (overrides --sl-pct when set)",
+    )
+    backtest_parser.add_argument(
+        "--atr-sl-values",
+        nargs="+",
+        type=float,
+        default=None,
+        dest="atr_sl_multiplier_values",
+        help="ATR SL multiplier sweep: comparison table across values (e.g. 0.5 1.0 1.5 2.0 2.5)",
     )
     backtest_parser.add_argument(
         "--min-trades",

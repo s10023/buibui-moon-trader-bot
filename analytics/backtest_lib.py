@@ -638,6 +638,65 @@ def format_tp_sweep_table(
     return "\n".join(lines)
 
 
+def format_atr_sl_sweep_table(
+    results_by_atr: dict[float, list[BacktestResult]],
+) -> str:
+    """Show avg R per strategy × TF for each atr_sl_multiplier value, aggregated across symbols.
+
+    results_by_atr: {atr_sl_multiplier_value: list[BacktestResult]}
+    """
+    atr_values = sorted(results_by_atr)
+
+    keys: set[tuple[str, str]] = set()
+    for results in results_by_atr.values():
+        for r in results:
+            keys.add((r.strategy, r.timeframe))
+    sorted_keys = sorted(keys, key=lambda k: (k[0], _tf_sort_key(k[1])))
+
+    def _avg_r(results: list[BacktestResult], strategy: str, tf: str) -> float | None:
+        r_vals: list[float] = []
+        for r in results:
+            if r.strategy == strategy and r.timeframe == tf:
+                r_vals.extend(
+                    v for v in (t.pnl_r for t in r.closed_trades) if v is not None
+                )
+        return sum(r_vals) / len(r_vals) if r_vals else None
+
+    atr_col_w = 8
+    name_col_w = 22
+    tf_col_w = 6
+    header = f"  {'Strategy':<{name_col_w}}{'TF':<{tf_col_w}}" + "".join(
+        f"{v:.1f}×".rjust(atr_col_w) for v in atr_values
+    )
+    total_w = name_col_w + tf_col_w + atr_col_w * len(atr_values) + 2
+    sep = "  " + "─" * total_w
+    thick = "═" * (total_w + 2)
+
+    lines = [
+        "\nATR SL Multiplier Comparison (aggregated across symbols)",
+        thick,
+        header,
+        sep,
+    ]
+
+    prev_strat = ""
+    for strat, tf in sorted_keys:
+        label = strat if strat != prev_strat else ""
+        prev_strat = strat
+        row = f"  {label:<{name_col_w}}{tf:<{tf_col_w}}"
+        for atr in atr_values:
+            avg = _avg_r(results_by_atr[atr], strat, tf)
+            cell = f"{avg:+.2f}R" if avg is not None else "  n/a"
+            row += f"{cell:>{atr_col_w}}"
+        lines.append(row)
+
+    lines.append(sep)
+    lines.append(
+        "  Pick the multiplier column where avg R peaks per strategy × TF row."
+    )
+    return "\n".join(lines)
+
+
 def format_seasonality(stats: pd.DataFrame) -> str:
     """Format a seasonality stats DataFrame as a human-readable text table."""
     if stats.empty:
