@@ -172,6 +172,15 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
             pnl_r           DOUBLE
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS stats_cache (
+            symbol        TEXT    NOT NULL,
+            days          INTEGER NOT NULL,
+            computed_date TEXT    NOT NULL,
+            payload_json  TEXT    NOT NULL,
+            PRIMARY KEY (symbol, days, computed_date)
+        )
+    """)
     # Backfill existing runs from trades table where split columns are still NULL.
     # Runs after backtest_trades is created so the table always exists.
     conn.execute("""
@@ -590,3 +599,34 @@ def get_latest_open_time(
     if result is None:
         return None
     return int(result[0])
+
+
+def get_stats_cache(
+    conn: duckdb.DuckDBPyConnection,
+    symbol: str,
+    days: int,
+    date_str: str,
+) -> str | None:
+    """Return cached stats payload JSON for (symbol, days, date_str), or None on miss."""
+    result = conn.execute(
+        "SELECT payload_json FROM stats_cache WHERE symbol = ? AND days = ? AND computed_date = ?",
+        [symbol, days, date_str],
+    ).fetchone()
+    if result is None:
+        return None
+    return str(result[0])
+
+
+def upsert_stats_cache(
+    conn: duckdb.DuckDBPyConnection,
+    symbol: str,
+    days: int,
+    date_str: str,
+    payload_json: str,
+) -> None:
+    """Insert or replace a stats cache entry for (symbol, days, date_str)."""
+    conn.execute(
+        "INSERT OR REPLACE INTO stats_cache (symbol, days, computed_date, payload_json) "
+        "VALUES (?, ?, ?, ?)",
+        [symbol, days, date_str, payload_json],
+    )

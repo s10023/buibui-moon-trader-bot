@@ -8,6 +8,7 @@
   import SignalFeed from "./pages/SignalFeed.svelte";
   import Positions from "./pages/Positions.svelte";
   import Prices from "./pages/Prices.svelte";
+  import Stats from "./pages/Stats.svelte";
 
   let route = $state(window.location.hash || "#/chart");
 
@@ -34,6 +35,8 @@
   <Positions />
 {:else if route === "#/prices"}
   <Prices />
+{:else if route === "#/stats"}
+  <Stats />
 {:else}
   <Chart />
 {/if}

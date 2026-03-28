@@ -319,6 +319,68 @@ export const getFib = (params: {
   return apiFetch<FibResponse>(`/api/fib?${q}`);
 };
 
+// ── Stats ─────────────────────────────────────────────────────────────────────
+
+export interface P1P2DOWRow {
+  dow: string;
+  p1_low_pct: number;
+  sample_days: number;
+}
+
+export interface P1P2Response {
+  overall_p1_low_pct: number;
+  by_dow: P1P2DOWRow[];
+  sample_days: number;
+}
+
+export interface HourlyExtremeRow {
+  hour_myt: number;
+  high_pct: number;
+  low_pct: number;
+}
+
+export interface ADRResponse {
+  adr_14: number;
+  adr_30: number;
+  today_range_pct: number | null;
+  today_consumed_pct: number | null;
+}
+
+export interface DOWPatternRow {
+  dow: string;
+  avg_range_pct: number;
+  bull_pct: number;
+  sample_days: number;
+}
+
+export interface SessionRow {
+  session: string;
+  high_pct: number;
+  low_pct: number;
+}
+
+export interface WeeklyP1P2Response {
+  overall_p1_low_pct: number;
+  low_day: string;
+  high_day: string;
+  sample_weeks: number;
+}
+
+export interface StatsResponse {
+  symbol: string;
+  days: number;
+  computed_at_ms: number;
+  p1p2: P1P2Response;
+  hourly_extremes: HourlyExtremeRow[];
+  adr: ADRResponse;
+  dow_patterns: DOWPatternRow[];
+  sessions: SessionRow[];
+  weekly_p1p2: WeeklyP1P2Response;
+}
+
+export const getStats = (symbol: string, days: number = 180) =>
+  apiFetch<StatsResponse>(`/api/stats/${symbol}?days=${days}`);
+
 // ── SSE helper ────────────────────────────────────────────────────────────────
 
 // EventSource cannot send Authorization headers — token passed as ?token= query param.
