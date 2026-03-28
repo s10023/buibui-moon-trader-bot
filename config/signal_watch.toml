@@ -43,6 +43,8 @@ strategies = [
 # sl_pct = 0.02
 # atr_sl_multiplier = 2.0  # ATR-based SL: SL distance = N × ATR14; overrides sl_pct when set
 # atr_sl_multiplier_values = [0.5, 1.0, 1.5, 2.0, 2.5]  # sweep: comparison table across multipliers (like tp_r_values)
+# NOTE (2026-03-28): ATR sweep showed zero impact — all strategies set sl_price (structural SL),
+# so ATR is never reached. Fix needed: use max(structural_sl_dist, atr_sl_dist) as floor first.
 # tp_r = 2.0
 
 # Cooldown between same (symbol, strategy, direction) alerts, in seconds
