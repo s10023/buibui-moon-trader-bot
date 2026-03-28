@@ -22,6 +22,13 @@ A tactical crypto trading bot designed for fast, risk-managed, and confident ent
 - **24/7 Signal Detection Daemon**
   Polls closed candles every 5 minutes, runs 19 strategies (FVG, BOS, liquidity sweep, SMT divergence,
   CVD divergence, and more), and sends Telegram alerts with computed SL/TP levels. Two-layer dedup prevents spam.
+  Alerts include a statistical context line: P1/P2 day bias, ADR consumed %, and empirical high/low peak hour.
+
+- **Statistical Context Engine** *(new)*
+  BrighterData-style probability dashboard computed from historical OHLCV. Per-symbol stats:
+  P1/P2 daily (was low made before high? by day-of-week), hourly extreme distribution (empirical kill zones),
+  average daily range + today's consumed %, day-of-week patterns, session (Asia/London/NY) breakdown, and
+  weekly P1/P2. Cached in DB, served via `GET /api/stats/{symbol}`, shown on the Stats web page.
 
 - **Manual Multi-Trade Entry Script** *(planned)*
   Open multiple trades (BTC, ETH, alts) in one go, using USD-based sizing with automatic SL & leverage.
@@ -57,23 +64,24 @@ buibui-moon-trader-bot/
 │   ├── backtest_runner.py           # Backtest thin wrapper (opens DB, loads data, calls libs)
 │   ├── backtest_lib.py              # Pure backtest engine: Trade, BacktestResult, run_backtest
 │   ├── data_fetcher.py              # Pure Binance Futures API → DataFrames (klines, funding, OI)
-│   ├── data_store.py                # Pure DuckDB read/write (schema, upsert, query helpers); tables: ohlcv, funding_rates, open_interest, signals, signal_alert_outcomes, backtest_runs, backtest_trades
+│   ├── data_store.py                # Pure DuckDB read/write (schema, upsert, query helpers); tables: ohlcv, funding_rates, open_interest, signals, signal_alert_outcomes, backtest_runs, backtest_trades, stats_cache
 │   ├── data_sync.py                 # Backfill + incremental sync orchestration
 │   ├── indicators_lib.py            # Pure strategy signal detection (21 active strategies + STRATEGY_REGISTRY + DETECTOR_REGISTRY)
 │   ├── signal_config.py             # Pure config loader: SignalWatchConfig + load_signal_config()
-│   ├── signal_lib.py                # Pure scan lib: scan_symbol(), run_scan_cycle()
+│   ├── signal_lib.py                # Pure scan lib: scan_symbol(), run_scan_cycle(); injects StatsContext into alerts
+│   ├── stats_lib.py                 # Pure stats lib: compute_p1p2_daily, compute_hourly_extremes, compute_adr, compute_dow_patterns, compute_session_breakdown, compute_weekly_p1p2, compute_all → StatsBundle
 │   ├── signal_runner.py             # Signal daemon thin wrapper (creates client, opens DB, polls)
 │   └── backtest_config.py           # BacktestSweepConfig + load_backtest_config() for TOML sweep mode
 ├── signals/
 │   ├── registry.py                  # SignalPlugin TypedDict + SIGNAL_REGISTRY (20 active strategies, with confidence)
 │   ├── cooldown_store.py            # Two-layer dedup: candle watermark + cooldown timer
-│   └── alert_formatter.py           # SignalEvent dataclass + format_signal_alert() → Markdown with SL/TP/stars
+│   └── alert_formatter.py           # SignalEvent + StatsContext dataclasses + format_signal_alert() → Markdown with SL/TP/stars/stats context
 ├── web/
 │   ├── api/
 │   │   ├── main.py                  # FastAPI app: lifespan, CORS, health, router mounts, StaticFiles
 │   │   ├── deps.py                  # Dependency factories: get_db, get_client, require_token, require_token_sse
 │   │   ├── models/                  # Pydantic request/response models
-│   │   └── routers/                 # Route handlers: config, ohlcv, signals, backtest, positions, prices, stream
+│   │   └── routers/                 # Route handlers: config, ohlcv, signals, backtest, positions, prices, stream, stats
 │   └── ui/                          # Svelte 5 + Vite frontend (Phase 5)
 │       ├── package.json
 │       ├── vite.config.ts           # Vite config — proxies /api to :8000 in dev
@@ -82,7 +90,7 @@ buibui-moon-trader-bot/
 │       └── src/
 │           ├── api.ts               # Typed API client + SSE helper
 │           ├── stores/              # Svelte stores: config, strategies, prices, positions
-│           ├── pages/               # Chart, Backtest, SignalFeed, Positions, Prices
+│           ├── pages/               # Chart, Backtest, SignalFeed, Positions, Prices, Stats
 │           └── components/          # Nav, CandleChart, BacktestResult, PriceRow, PositionRow, …
 ├── trade/
 │   └── open_trades.py               # Multi-trade entry (planned)
