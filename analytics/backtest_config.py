@@ -24,8 +24,10 @@ class StrategyOverride:
 
     tp_r: float | None = None
     sl_pct: float | None = None
+    atr_sl_multiplier: float | None = None
     tp_r_per_tf: dict[str, float] = field(default_factory=dict)
     sl_pct_per_tf: dict[str, float] = field(default_factory=dict)
+    atr_sl_multiplier_per_tf: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -66,6 +68,14 @@ class BacktestSweepConfig:
     # Per-strategy parameter overrides (tp_r, sl_pct, TF-specific variants).
     # Lookup order: TF-specific → strategy-wide → global tp_r / sl_pct.
     strategy_params: dict[str, StrategyOverride] = field(default_factory=dict)
+    # Global ATR-based SL multiplier (None = use sl_pct instead).
+    # When set, SL distance = atr_sl_multiplier × ATR14 at signal candle.
+    # Per-strategy overrides in strategy_params take precedence.
+    atr_sl_multiplier: float | None = None
+    # When non-empty, sweep ATR multiplier values and print a comparison table.
+    # e.g. [0.5, 1.0, 1.5, 2.0, 2.5] — shows avg R per strategy × TF at each multiplier.
+    # Overrides atr_sl_multiplier for comparison only; tp_r and per-strategy overrides apply.
+    atr_sl_multiplier_values: list[float] = field(default_factory=list)
     # liquidity_sweep entry mode:
     #   True  (default) — fib-extension mode: entry at 1.13/1.27 fib extension of range
     #   False           — pivot-sweep mode: entry on wick above pivot high + close inside
@@ -100,6 +110,16 @@ class BacktestSweepConfig:
             if override.sl_pct is not None:
                 return override.sl_pct
         return self.sl_pct
+
+    def effective_atr_sl_multiplier(self, strategy: str, tf: str) -> float | None:
+        """Resolve atr_sl_multiplier for strategy+TF: TF-specific → strategy-wide → global."""
+        override = self.strategy_params.get(strategy)
+        if override is not None:
+            if tf in override.atr_sl_multiplier_per_tf:
+                return override.atr_sl_multiplier_per_tf[tf]
+            if override.atr_sl_multiplier is not None:
+                return override.atr_sl_multiplier
+        return self.atr_sl_multiplier
 
 
 def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
@@ -144,13 +164,21 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
             for k, v in vals.items()
             if k.startswith("sl_pct_") and k != "sl_pct"
         }
+        atr_sl_per_tf = {
+            k[len("atr_sl_multiplier_") :]: float(v)
+            for k, v in vals.items()
+            if k.startswith("atr_sl_multiplier_") and k != "atr_sl_multiplier"
+        }
         tp_r_val = vals.get("tp_r")
         sl_pct_val = vals.get("sl_pct")
+        atr_sl_val = vals.get("atr_sl_multiplier")
         strategy_params[str(strat_name)] = StrategyOverride(
             tp_r=float(tp_r_val) if tp_r_val is not None else None,
             sl_pct=float(sl_pct_val) if sl_pct_val is not None else None,
+            atr_sl_multiplier=float(atr_sl_val) if atr_sl_val is not None else None,
             tp_r_per_tf=tp_r_per_tf,
             sl_pct_per_tf=sl_pct_per_tf,
+            atr_sl_multiplier_per_tf=atr_sl_per_tf,
         )
 
     # Some signal_watch configs place liq_sweep_use_fib inside a [backtest]
@@ -174,6 +202,14 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
         save_results=bool(data.get("save_results", False)),
         tp_r_values=[float(v) for v in data.get("tp_r_values", [])],
         strategy_params=strategy_params,
+        atr_sl_multiplier_values=[
+            float(v) for v in data.get("atr_sl_multiplier_values", [])
+        ],
+        atr_sl_multiplier=(
+            float(data["atr_sl_multiplier"])
+            if data.get("atr_sl_multiplier") is not None
+            else None
+        ),
         liq_sweep_use_fib=bool(
             data.get("liq_sweep_use_fib", _bt_section.get("liq_sweep_use_fib", True))
         ),

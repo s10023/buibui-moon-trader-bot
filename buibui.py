@@ -67,6 +67,10 @@ def run_backtest(args: argparse.Namespace) -> None:
             cfg.day_filter = "tue_thu"
         if args.save:
             cfg.save_results = True
+        if args.atr_sl_multiplier is not None:
+            cfg.atr_sl_multiplier = args.atr_sl_multiplier
+        if args.atr_sl_multiplier_values:
+            cfg.atr_sl_multiplier_values = args.atr_sl_multiplier_values
         backtest_runner.run_backtest_sweep(cfg)
         return
 
@@ -86,6 +90,7 @@ def run_backtest(args: argparse.Namespace) -> None:
         min_sl_pct=args.min_sl_pct
         if hasattr(args, "min_sl_pct") and args.min_sl_pct is not None
         else 0.0,
+        atr_sl_multiplier=args.atr_sl_multiplier,
         secondary_symbol=args.secondary_symbol,
         save_results=args.save,
     )
@@ -148,6 +153,7 @@ def run_signal_watch(args: argparse.Namespace) -> None:
         smt_trend_filter=cfg.smt_trend_filter,
         strategy_timeframes=cfg.strategy_timeframes or None,
         strategy_params=cfg.strategy_params or None,
+        atr_sl_multiplier=cfg.atr_sl_multiplier,
     )
 
 
@@ -438,6 +444,21 @@ def main() -> None:
         action="store_true",
         default=False,
         help="Persist aggregate results to backtest_runs table in DB",
+    )
+    backtest_parser.add_argument(
+        "--atr-sl-multiplier",
+        type=float,
+        default=None,
+        dest="atr_sl_multiplier",
+        help="ATR-based SL multiplier: SL = N × ATR14 (overrides --sl-pct when set)",
+    )
+    backtest_parser.add_argument(
+        "--atr-sl-values",
+        nargs="+",
+        type=float,
+        default=None,
+        dest="atr_sl_multiplier_values",
+        help="ATR SL multiplier sweep: comparison table across values (e.g. 0.5 1.0 1.5 2.0 2.5)",
     )
     backtest_parser.add_argument(
         "--min-trades",

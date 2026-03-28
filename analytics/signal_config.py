@@ -26,8 +26,10 @@ class StrategyOverride:
 
     tp_r: float | None = None
     sl_pct: float | None = None
+    atr_sl_multiplier: float | None = None
     tp_r_per_tf: dict[str, float] = field(default_factory=dict)
     sl_pct_per_tf: dict[str, float] = field(default_factory=dict)
+    atr_sl_multiplier_per_tf: dict[str, float] = field(default_factory=dict)
 
 
 def _day_filter_to_weekdays(day_filter: str) -> list[int] | None:
@@ -112,6 +114,10 @@ class SignalWatchConfig:
     # Per-strategy parameter overrides (tp_r, sl_pct, TF-specific variants).
     # Lookup order: TF-specific → strategy-wide → global tp_r / sl_pct.
     strategy_params: dict[str, StrategyOverride] = field(default_factory=dict)
+    # Global ATR-based SL multiplier (None = use sl_pct instead).
+    # When set, SL distance = atr_sl_multiplier × ATR14 at signal candle.
+    # Per-strategy overrides in strategy_params take precedence.
+    atr_sl_multiplier: float | None = None
 
     def effective_tp_r(self, strategy: str, tf: str) -> float:
         """Resolve tp_r for strategy+TF: TF-specific → strategy-wide → global."""
@@ -132,6 +138,16 @@ class SignalWatchConfig:
             if override.sl_pct is not None:
                 return override.sl_pct
         return self.sl_pct
+
+    def effective_atr_sl_multiplier(self, strategy: str, tf: str) -> float | None:
+        """Resolve atr_sl_multiplier for strategy+TF: TF-specific → strategy-wide → global."""
+        override = self.strategy_params.get(strategy)
+        if override is not None:
+            if tf in override.atr_sl_multiplier_per_tf:
+                return override.atr_sl_multiplier_per_tf[tf]
+            if override.atr_sl_multiplier is not None:
+                return override.atr_sl_multiplier
+        return self.atr_sl_multiplier
 
 
 def load_signal_config(path: str | Path) -> SignalWatchConfig:
@@ -200,13 +216,21 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
             for k, v in vals.items()
             if k.startswith("sl_pct_") and k != "sl_pct"
         }
+        atr_sl_per_tf = {
+            k[len("atr_sl_multiplier_") :]: float(v)
+            for k, v in vals.items()
+            if k.startswith("atr_sl_multiplier_") and k != "atr_sl_multiplier"
+        }
         tp_r_val = vals.get("tp_r")
         sl_pct_val = vals.get("sl_pct")
+        atr_sl_val = vals.get("atr_sl_multiplier")
         strategy_params[str(strat_name)] = StrategyOverride(
             tp_r=float(tp_r_val) if tp_r_val is not None else None,
             sl_pct=float(sl_pct_val) if sl_pct_val is not None else None,
+            atr_sl_multiplier=float(atr_sl_val) if atr_sl_val is not None else None,
             tp_r_per_tf=tp_r_per_tf,
             sl_pct_per_tf=sl_pct_per_tf,
+            atr_sl_multiplier_per_tf=atr_sl_per_tf,
         )
 
     return SignalWatchConfig(
@@ -224,4 +248,9 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         smt_trend_filter=int(data.get("smt_trend_filter", 1)),
         strategy_timeframes=strategy_timeframes,
         strategy_params=strategy_params,
+        atr_sl_multiplier=(
+            float(data["atr_sl_multiplier"])
+            if data.get("atr_sl_multiplier") is not None
+            else None
+        ),
     )

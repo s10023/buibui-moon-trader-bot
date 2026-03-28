@@ -14,6 +14,7 @@ from analytics.backtest_config import BacktestSweepConfig
 from analytics.backtest_lib import (
     BacktestResult,
     filter_signals_by_day,
+    format_atr_sl_sweep_table,
     format_duration_table,
     format_result,
     format_seasonality,
@@ -218,6 +219,7 @@ def _collect_sweep_results(
 
         eff_tp_r = cfg.effective_tp_r(strategy, timeframe)
         eff_sl_pct = cfg.effective_sl_pct(strategy, timeframe)
+        eff_atr_sl = cfg.effective_atr_sl_multiplier(strategy, timeframe)
         bt = run_backtest(
             ohlcv,
             signals,
@@ -228,6 +230,7 @@ def _collect_sweep_results(
             eff_tp_r,
             cfg.fee_pct,
             min_sl_pct=cfg.min_sl_pct,
+            atr_sl_multiplier=eff_atr_sl,
         )
         results.append(bt)
 
@@ -274,6 +277,7 @@ def run_backtest_sweep(
     sym_word = "symbol" if n_syms == 1 else "symbols"
 
     tp_sweep_mode = bool(cfg.tp_r_values)
+    atr_sweep_mode = bool(cfg.atr_sl_multiplier_values)
 
     if tp_sweep_mode:
         print(
@@ -282,6 +286,13 @@ def run_backtest_sweep(
             f"{n_strats} {strat_word} ({cfg.days}d) "
             f"× tp_r {cfg.tp_r_values}"
         )
+    elif atr_sweep_mode:
+        print(
+            f"Backtest ATR SL Sweep — {n_syms} {sym_word} × "
+            f"{n_tfs} {tf_word} × "
+            f"{n_strats} {strat_word} ({cfg.days}d) "
+            f"× atr_sl_multiplier {cfg.atr_sl_multiplier_values}"
+        )
     else:
         print(
             f"Backtest Sweep — {n_syms} {sym_word} × "
@@ -289,9 +300,10 @@ def run_backtest_sweep(
             f"{n_strats} {strat_word} ({cfg.days}d)"
         )
 
-    sweep_id = str(uuid.uuid4()) if cfg.save_results and not tp_sweep_mode else None
+    single_run_mode = not tp_sweep_mode and not atr_sweep_mode
+    sweep_id = str(uuid.uuid4()) if cfg.save_results and single_run_mode else None
     conn: duckdb.DuckDBPyConnection = duckdb.connect(
-        str(db_path), read_only=not (cfg.save_results and not tp_sweep_mode)
+        str(db_path), read_only=not (cfg.save_results and single_run_mode)
     )
 
     try:
@@ -304,7 +316,7 @@ def run_backtest_sweep(
             for tp_r in cfg.tp_r_values:
                 tp_results: list[BacktestResult] = []
                 for (sym, tf, strat), (ohlcv, sigs, _sec) in signals_map.items():
-                    # tp_r is swept globally; per-strategy sl_pct overrides still apply.
+                    # tp_r is swept globally; per-strategy sl_pct/atr_sl overrides still apply.
                     bt = run_backtest(
                         ohlcv,
                         sigs,
@@ -315,6 +327,7 @@ def run_backtest_sweep(
                         tp_r,
                         cfg.fee_pct,
                         min_sl_pct=cfg.min_sl_pct,
+                        atr_sl_multiplier=cfg.effective_atr_sl_multiplier(strat, tf),
                     )
                     tp_results.append(bt)
                 results_by_tp[tp_r] = tp_results
@@ -324,6 +337,36 @@ def run_backtest_sweep(
             )
             print(format_tp_sweep_table(results_by_tp))
             print(format_duration_table(duration_results))
+        elif atr_sweep_mode:
+            # Detect signals once — ATR multiplier affects only SL placement, not detection
+            signals_map, skipped = _collect_signals_map(
+                conn, cfg, symbols, strategies, start_ms, end_ms
+            )
+            results_by_atr: dict[float, list[BacktestResult]] = {}
+            for atr_mult in cfg.atr_sl_multiplier_values:
+                atr_results: list[BacktestResult] = []
+                for (sym, tf, strat), (ohlcv, sigs, _sec) in signals_map.items():
+                    # atr_sl_multiplier is swept globally; per-strategy tp_r overrides apply.
+                    bt = run_backtest(
+                        ohlcv,
+                        sigs,
+                        sym,
+                        tf,
+                        strat,
+                        cfg.effective_sl_pct(strat, tf),
+                        cfg.effective_tp_r(strat, tf),
+                        cfg.fee_pct,
+                        min_sl_pct=cfg.min_sl_pct,
+                        atr_sl_multiplier=atr_mult,
+                    )
+                    atr_results.append(bt)
+                results_by_atr[atr_mult] = atr_results
+            duration_results_atr = results_by_atr.get(
+                cfg.atr_sl_multiplier_values[0],
+                next(iter(results_by_atr.values())),
+            )
+            print(format_atr_sl_sweep_table(results_by_atr))
+            print(format_duration_table(duration_results_atr))
         else:
             results, skipped = _collect_sweep_results(
                 conn, cfg, cfg.tp_r, symbols, strategies, start_ms, end_ms, sweep_id
@@ -356,6 +399,7 @@ def run_backtest_cmd(
     tp_r: float = 2.0,
     fee_pct: float = 0.0,
     min_sl_pct: float = 0.0,
+    atr_sl_multiplier: float | None = None,
     secondary_symbol: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
     save_results: bool = False,
@@ -415,6 +459,7 @@ def run_backtest_cmd(
             tp_r,
             fee_pct,
             min_sl_pct=min_sl_pct,
+            atr_sl_multiplier=atr_sl_multiplier,
         )
         print(format_result(bt_result))
 
