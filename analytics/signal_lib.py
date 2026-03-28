@@ -418,7 +418,8 @@ def _compute_stats_context(
         from analytics.stats_lib import compute_all
 
         bundle = compute_all(conn, symbol, days=90)
-        dow_full = now_myt.strftime("%A")  # e.g. "Thursday"
+        # DOW must match the UTC-date grouping used in stats_lib (Binance daily = UTC day)
+        dow_full = datetime.datetime.now(tz=datetime.UTC).strftime("%A")
         dow_short = dow_full[:3]  # e.g. "Thu"
 
         # P1=Low % for today's DOW

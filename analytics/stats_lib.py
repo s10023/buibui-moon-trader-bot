@@ -1,7 +1,12 @@
 """Pure statistical context library — BrighterData-style market statistics.
 
 Computes P1/P2, hourly extremes, ADR, DOW patterns, session breakdown, and
-weekly P1/P2 from the ohlcv table. All computations use MYT (UTC+8).
+weekly P1/P2 from the ohlcv table.
+
+Day/week boundaries: grouped by UTC date so each "day" matches exactly one
+Binance daily candle (00:00 UTC – 23:59 UTC = 08:00 MYT – 07:59 MYT).
+Hour display in the kill-zone chart uses MYT (+8h) to show local time-of-day.
+Session labels (Asia/London/NY) are defined in MYT hours.
 
 No database writes, no network calls. No module-level side effects.
 """
@@ -154,8 +159,8 @@ def compute_p1p2_daily(
                 open_time,
                 high,
                 low,
-                ((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP)::DATE   AS trade_date,
-                dayname((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP) AS dow
+                (epoch_ms(open_time)::TIMESTAMP)::DATE   AS trade_date,
+                dayname((epoch_ms(open_time)::TIMESTAMP)::DATE) AS dow
             FROM ohlcv
             WHERE symbol = $symbol AND timeframe = '1h'
               AND open_time >= $start_ms
@@ -220,8 +225,8 @@ def compute_hourly_extremes(
         WITH hourly AS (
             SELECT
                 open_time, high, low,
-                HOUR((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP)     AS hour_myt,
-                ((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP)::DATE   AS trade_date
+                HOUR((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP) AS hour_myt,
+                (epoch_ms(open_time)::TIMESTAMP)::DATE                   AS trade_date
             FROM ohlcv WHERE symbol = $symbol AND timeframe = '1h' AND open_time >= $start_ms
         ),
         daily_ext AS (
@@ -289,7 +294,7 @@ def compute_adr(
         """
         WITH daily AS (
             SELECT
-                ((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP)::DATE AS trade_date,
+                (epoch_ms(open_time)::TIMESTAMP)::DATE AS trade_date,
                 MAX(high) AS day_high, MIN(low) AS day_low,
                 FIRST(open ORDER BY open_time) AS day_open
             FROM ohlcv
@@ -355,8 +360,8 @@ def compute_dow_patterns(
         """
         WITH daily AS (
             SELECT
-                ((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP)::DATE   AS trade_date,
-                dayname((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP) AS dow,
+                (epoch_ms(open_time)::TIMESTAMP)::DATE                   AS trade_date,
+                dayname((epoch_ms(open_time)::TIMESTAMP)::DATE)          AS dow,
                 MAX(high) AS day_high, MIN(low) AS day_low,
                 FIRST(open ORDER BY open_time)  AS day_open,
                 LAST(close ORDER BY open_time)  AS day_close
@@ -421,8 +426,8 @@ def compute_session_breakdown(
         """
         WITH hourly AS (
             SELECT open_time, high, low,
-                ((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP)::DATE AS trade_date,
-                dayname((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP) AS dow,
+                (epoch_ms(open_time)::TIMESTAMP)::DATE                   AS trade_date,
+                dayname((epoch_ms(open_time)::TIMESTAMP)::DATE)          AS dow,
                 CASE
                     WHEN HOUR((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP) BETWEEN 0  AND 7  THEN 'Asia'
                     WHEN HOUR((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP) BETWEEN 14 AND 21 THEN 'London'
@@ -463,8 +468,8 @@ def compute_session_breakdown(
         """
         WITH hourly AS (
             SELECT open_time, high, low,
-                ((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP)::DATE AS trade_date,
-                dayname((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP) AS dow,
+                (epoch_ms(open_time)::TIMESTAMP)::DATE                   AS trade_date,
+                dayname((epoch_ms(open_time)::TIMESTAMP)::DATE)          AS dow,
                 CASE
                     WHEN HOUR((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP) BETWEEN 0  AND 7  THEN 'Asia'
                     WHEN HOUR((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP) BETWEEN 14 AND 21 THEN 'London'
@@ -540,7 +545,7 @@ def compute_weekly_p1p2(
         """
         WITH weekly AS (
             SELECT
-                date_trunc('week', (epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP) AS week_start,
+                date_trunc('week', epoch_ms(open_time)::TIMESTAMP) AS week_start,
                 MAX(high) AS wk_high, MIN(low) AS wk_low
             FROM ohlcv
             WHERE symbol = $symbol AND timeframe = '1h' AND open_time >= $start_ms
@@ -551,15 +556,15 @@ def compute_weekly_p1p2(
                 w.week_start,
                 MIN(CASE WHEN h.high = w.wk_high THEN h.open_time END) AS high_ts,
                 MIN(CASE WHEN h.low  = w.wk_low  THEN h.open_time END) AS low_ts,
-                FIRST(dayname((epoch_ms(h.open_time) + INTERVAL 8 HOUR)::TIMESTAMP)
+                FIRST(dayname((epoch_ms(h.open_time)::TIMESTAMP)::DATE)
                       ORDER BY h.open_time)
                       FILTER (WHERE h.high = w.wk_high) AS high_day,
-                FIRST(dayname((epoch_ms(h.open_time) + INTERVAL 8 HOUR)::TIMESTAMP)
+                FIRST(dayname((epoch_ms(h.open_time)::TIMESTAMP)::DATE)
                       ORDER BY h.open_time)
                       FILTER (WHERE h.low  = w.wk_low)  AS low_day
             FROM ohlcv h
             JOIN weekly w
-              ON date_trunc('week', (epoch_ms(h.open_time) + INTERVAL 8 HOUR)::TIMESTAMP) = w.week_start
+              ON date_trunc('week', epoch_ms(h.open_time)::TIMESTAMP) = w.week_start
             WHERE h.symbol = $symbol AND h.timeframe = '1h' AND h.open_time >= $start_ms
             GROUP BY w.week_start
         )
@@ -584,7 +589,7 @@ def compute_weekly_p1p2(
         """
         WITH weekly AS (
             SELECT
-                date_trunc('week', (epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP) AS week_start,
+                date_trunc('week', epoch_ms(open_time)::TIMESTAMP) AS week_start,
                 MAX(high) AS wk_high, MIN(low) AS wk_low
             FROM ohlcv
             WHERE symbol = $symbol AND timeframe = '1h' AND open_time >= $start_ms
@@ -593,15 +598,15 @@ def compute_weekly_p1p2(
         wk_first_hit AS (
             SELECT
                 w.week_start,
-                FIRST(dayname((epoch_ms(h.open_time) + INTERVAL 8 HOUR)::TIMESTAMP)
+                FIRST(dayname((epoch_ms(h.open_time)::TIMESTAMP)::DATE)
                       ORDER BY h.open_time)
                       FILTER (WHERE h.high = w.wk_high) AS high_day,
-                FIRST(dayname((epoch_ms(h.open_time) + INTERVAL 8 HOUR)::TIMESTAMP)
+                FIRST(dayname((epoch_ms(h.open_time)::TIMESTAMP)::DATE)
                       ORDER BY h.open_time)
                       FILTER (WHERE h.low  = w.wk_low)  AS low_day
             FROM ohlcv h
             JOIN weekly w
-              ON date_trunc('week', (epoch_ms(h.open_time) + INTERVAL 8 HOUR)::TIMESTAMP) = w.week_start
+              ON date_trunc('week', epoch_ms(h.open_time)::TIMESTAMP) = w.week_start
             WHERE h.symbol = $symbol AND h.timeframe = '1h' AND h.open_time >= $start_ms
             GROUP BY w.week_start
         ),

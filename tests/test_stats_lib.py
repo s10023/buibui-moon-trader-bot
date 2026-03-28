@@ -20,19 +20,21 @@ from analytics.stats_lib import (
 _SYMBOL = "TESTUSDT"
 _TIMEFRAME = "1h"
 
-# MYT is UTC+8.  We want:
-# - daily high at hour 14 MYT = 06:00 UTC
-# - daily low  at hour  2 MYT = 18:00 UTC (previous day)
-# Low always comes before high in MYT (hour 2 < hour 14).
+# Days are grouped by UTC date (Binance daily = 00:00 UTC – 23:59 UTC = 08:00–07:59 MYT).
+# To guarantee P1=Low (low before high) within the same UTC day we place:
+#   - daily low  at UTC 00:00 = MYT 08:00  (first candle of UTC day)
+#   - daily high at UTC 06:00 = MYT 14:00  (six hours later in the same UTC day)
+# UTC 00 < UTC 06  → low always comes before high → p1_low_pct ≈ 1.0
+# peak_low_hour_myt  = 8  (UTC 00 + 8)
+# peak_high_hour_myt = 14 (UTC 06 + 8)
 #
-# Use a base date 20 days ago so the data falls within the 30-day window
-# used by the _start_ms() calls in the lib functions.
+# Use a base date 20 days ago so candles fall within the 30-day lookback window.
 _DAYS = 14
 _OPEN_PRICE = 40000.0
 _NORMAL_HIGH = 40500.0  # normal candle high
 _NORMAL_LOW = 39500.0  # normal candle low
-_PEAK_HIGH = 41000.0  # only candle at hour 14 MYT gets this high
-_PEAK_LOW = 39000.0  # only candle at hour 2  MYT gets this low
+_PEAK_HIGH = 41000.0  # only candle at UTC 06 (MYT 14) gets this high
+_PEAK_LOW = 39000.0  # only candle at UTC 00 (MYT 08) gets this low
 
 
 def _myt_hour(utc_ts: int) -> int:
@@ -54,10 +56,10 @@ def _make_candles() -> list[dict]:
             utc_dt = base_utc + timedelta(days=day, hours=hour)
             open_time_ms = int(utc_dt.timestamp() * 1000)
             myt_h = _myt_hour(open_time_ms)
-            if myt_h == 14:
+            if myt_h == 14:  # UTC 06:00 — peak high
                 high = _PEAK_HIGH
                 low = _NORMAL_LOW
-            elif myt_h == 2:
+            elif myt_h == 8:  # UTC 00:00 — peak low (before high in same UTC day)
                 high = _NORMAL_HIGH
                 low = _PEAK_LOW
             else:
@@ -106,10 +108,10 @@ def conn() -> duckdb.DuckDBPyConnection:
 
 
 def test_compute_p1p2_daily_low_first(conn: duckdb.DuckDBPyConnection) -> None:
-    """P1=Low should be ~1.0 since low (hour 2) always comes before high (hour 14) in MYT."""
+    """P1=Low should be ~1.0: low at UTC 00:00 always precedes high at UTC 06:00."""
     result = compute_p1p2_daily(conn, _SYMBOL, days=30)
     assert result.sample_days > 0
-    # Low at hour 2 always precedes high at hour 14 → p1_low should be very high
+    # Low (UTC 00) always precedes high (UTC 06) within the same UTC trading day
     assert result.overall_p1_low_pct > 0.8, (
         f"Expected p1_low_pct > 0.8, got {result.overall_p1_low_pct}"
     )
@@ -124,14 +126,14 @@ def test_compute_p1p2_daily_no_data(conn: duckdb.DuckDBPyConnection) -> None:
 
 
 def test_compute_hourly_extremes_peaks(conn: duckdb.DuckDBPyConnection) -> None:
-    """Peak high should be at hour 14 MYT; peak low should be at hour 2 MYT."""
+    """Peak high should be at MYT 14 (UTC 06); peak low at MYT 08 (UTC 00)."""
     result = compute_hourly_extremes(conn, _SYMBOL, days=30)
     assert len(result.rows) == 24, f"Expected 24 hourly rows, got {len(result.rows)}"
     assert result.peak_high_hour == 14, (
         f"Expected peak_high_hour=14, got {result.peak_high_hour}"
     )
-    assert result.peak_low_hour == 2, (
-        f"Expected peak_low_hour=2, got {result.peak_low_hour}"
+    assert result.peak_low_hour == 8, (
+        f"Expected peak_low_hour=8, got {result.peak_low_hour}"
     )
 
 
