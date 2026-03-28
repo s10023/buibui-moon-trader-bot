@@ -15,6 +15,44 @@
   let stats = $state<StatsResponse | null>(null);
   let loading = $state(false);
   let error = $state<string | null>(null);
+  let openHelp = $state<string | null>(null);
+
+  const CARD_HELP: Record<string, { what: string; value: string; example: string }> = {
+    p1p2: {
+      what: "For each historical day, was the daily LOW or HIGH made first? P1 = whichever came first, P2 = second. Shows overall % and a per-day-of-week breakdown.",
+      value: "Before entering a long on a dip, check if today's DOW historically makes the low first. If P1=Low is 62% on Thursdays, the day structure is behind you. If you're shorting a Thursday rally, you're going against historical bias — worth knowing.",
+      example: "Thursday: P1=Low 62% → the low typically forms first, then price reverses higher.",
+    },
+    adr: {
+      what: "14-day and 30-day rolling average of (daily high − daily low) / open. Plus today's current range as a % of that average.",
+      value: "If today's range is already 95% consumed, the move is likely done — don't chase entries. If it's only 20% consumed, there's plenty of room to run. One of the most actionable stats for deciding whether to enter or sit on hands.",
+      example: "ADR(14) = 2.8%, today range = 1.2% → 43% used. Room left to trade.",
+    },
+    hourly: {
+      what: "A 24-column chart showing what fraction of days each MYT hour produced the daily high (green) vs daily low (red). Peaks are labelled.",
+      value: "This is your empirically-derived kill zone — not fixed ICT windows, but what this specific asset actually does historically. If it's 08:00 MYT and the high peak is at 14:00, the daily high likely hasn't formed yet. If it's 22:00 and the high peak was 14:00, the high is probably already in.",
+      example: "High peak at 14:00 MYT, low peak at 02:00 MYT → concentrate longs in the 02:00 window.",
+    },
+    dow: {
+      what: "Per weekday: average daily range %, bull% (fraction of days that closed above open), and sample count.",
+      value: "Tells you whether to size up or down and whether to lean long or short based purely on the calendar. Low-range, near-coin-flip days (Friday) may not be worth forcing setups. Wide-range, directional days (Wednesday) are when edge compounds.",
+      example: "Wednesday: 3.1% avg range, 58% bull → lean into longs, size normally. Friday: 1.8% range, 49% bull → reduce size or skip marginal setups.",
+    },
+    session: {
+      what: "For Asia (00–07 MYT), London (14–21 MYT), and NY (20–03 MYT): what fraction of days each session made the daily high vs daily low. Sessions are non-exclusive — London/NY overlap counts in both.",
+      value: "If Asia makes the low 41% of the time and price is falling during the Asia session, there's a meaningful probability you're watching the daily low form. If London makes the high 44% of the time and it's 18:00 MYT, the high may already be in — be cautious adding longs.",
+      example: "Asia Lo: 41% → Asia session lows are often the daily low. London Hi: 44% → London is the most common session to make the daily high.",
+    },
+    weekly: {
+      what: "Same P1/P2 logic but on weekly candles — was the weekly low made before the weekly high? Shows overall % plus which day of the week most commonly produces the weekly high vs weekly low.",
+      value: "ICT theory says Monday often sets a weekly extreme that later gets swept. This card quantifies whether that holds for this symbol. If Tuesday makes the weekly high 34% of the time, and it's Wednesday, the weekly high is likely already in — bias bearish for the rest of the week.",
+      example: "Weekly High: Tuesday 34% → if it's Thursday and price is near Monday's high, the weekly high is likely already set.",
+    },
+  };
+
+  function toggleHelp(card: string): void {
+    openHelp = openHelp === card ? null : card;
+  }
 
   const formatPct = (v: number) => (v * 100).toFixed(1) + "%";
   const fmtHour = (h: number) => String(h).padStart(2, "0") + ":00";
@@ -33,7 +71,6 @@
 
   onMount(() => { void loadStats(); });
 
-  // Derived: sorted hourly rows for rendering
   const hourlyRows = $derived(stats ? stats.hourly_extremes : []);
   const maxHighPct = $derived(
     hourlyRows.length ? Math.max(...hourlyRows.map((r) => r.high_pct)) : 1
@@ -42,7 +79,6 @@
     hourlyRows.length ? Math.max(...hourlyRows.map((r) => r.low_pct)) : 1
   );
 
-  // P1/P2 DOW rows in Mon–Sun order
   const DOW_ORDER = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   const p1p2Rows = $derived(
     stats
@@ -85,7 +121,17 @@
 
       <!-- P1/P2 Daily -->
       <div class="card">
-        <div class="card-title">P1/P2 Daily</div>
+        <div class="card-header">
+          <span class="card-title">P1/P2 Daily</span>
+          <button class="help-btn" class:active={openHelp === "p1p2"} onclick={() => toggleHelp("p1p2")} aria-label="Help">?</button>
+        </div>
+        {#if openHelp === "p1p2"}
+          <div class="help-panel">
+            <div class="help-section"><span class="help-label">What</span>{CARD_HELP.p1p2.what}</div>
+            <div class="help-section"><span class="help-label">Value</span>{CARD_HELP.p1p2.value}</div>
+            <div class="help-section help-example"><span class="help-label">e.g.</span>{CARD_HELP.p1p2.example}</div>
+          </div>
+        {/if}
         <div class="card-subtitle">
           Low made before High: <span class="val-accent">{formatPct(stats.p1p2.overall_p1_low_pct)}</span>
           <span class="muted"> ({stats.p1p2.sample_days}d)</span>
@@ -107,7 +153,17 @@
 
       <!-- ADR -->
       <div class="card">
-        <div class="card-title">Average Daily Range</div>
+        <div class="card-header">
+          <span class="card-title">Average Daily Range</span>
+          <button class="help-btn" class:active={openHelp === "adr"} onclick={() => toggleHelp("adr")} aria-label="Help">?</button>
+        </div>
+        {#if openHelp === "adr"}
+          <div class="help-panel">
+            <div class="help-section"><span class="help-label">What</span>{CARD_HELP.adr.what}</div>
+            <div class="help-section"><span class="help-label">Value</span>{CARD_HELP.adr.value}</div>
+            <div class="help-section help-example"><span class="help-label">e.g.</span>{CARD_HELP.adr.example}</div>
+          </div>
+        {/if}
         <div class="adr-rows">
           <div class="adr-row">
             <span class="adr-label">ADR(14)</span>
@@ -141,7 +197,17 @@
 
       <!-- Hourly Extreme Distribution -->
       <div class="card card-wide">
-        <div class="card-title">Hourly Extreme Distribution (MYT)</div>
+        <div class="card-header">
+          <span class="card-title">Hourly Extreme Distribution (MYT)</span>
+          <button class="help-btn" class:active={openHelp === "hourly"} onclick={() => toggleHelp("hourly")} aria-label="Help">?</button>
+        </div>
+        {#if openHelp === "hourly"}
+          <div class="help-panel">
+            <div class="help-section"><span class="help-label">What</span>{CARD_HELP.hourly.what}</div>
+            <div class="help-section"><span class="help-label">Value</span>{CARD_HELP.hourly.value}</div>
+            <div class="help-section help-example"><span class="help-label">e.g.</span>{CARD_HELP.hourly.example}</div>
+          </div>
+        {/if}
         <div class="card-subtitle muted">
           High peak: <span class="val-green">{fmtHour(stats.hourly_extremes.reduce((a, b) => a.high_pct > b.high_pct ? a : b).hour_myt)} MYT</span>
           &nbsp;·&nbsp;
@@ -174,7 +240,17 @@
 
       <!-- DOW Patterns -->
       <div class="card">
-        <div class="card-title">Day-of-Week Patterns</div>
+        <div class="card-header">
+          <span class="card-title">Day-of-Week Patterns</span>
+          <button class="help-btn" class:active={openHelp === "dow"} onclick={() => toggleHelp("dow")} aria-label="Help">?</button>
+        </div>
+        {#if openHelp === "dow"}
+          <div class="help-panel">
+            <div class="help-section"><span class="help-label">What</span>{CARD_HELP.dow.what}</div>
+            <div class="help-section"><span class="help-label">Value</span>{CARD_HELP.dow.value}</div>
+            <div class="help-section help-example"><span class="help-label">e.g.</span>{CARD_HELP.dow.example}</div>
+          </div>
+        {/if}
         <table class="stat-table">
           <thead>
             <tr>
@@ -201,7 +277,17 @@
 
       <!-- Session Breakdown -->
       <div class="card">
-        <div class="card-title">Session Breakdown</div>
+        <div class="card-header">
+          <span class="card-title">Session Breakdown</span>
+          <button class="help-btn" class:active={openHelp === "session"} onclick={() => toggleHelp("session")} aria-label="Help">?</button>
+        </div>
+        {#if openHelp === "session"}
+          <div class="help-panel">
+            <div class="help-section"><span class="help-label">What</span>{CARD_HELP.session.what}</div>
+            <div class="help-section"><span class="help-label">Value</span>{CARD_HELP.session.value}</div>
+            <div class="help-section help-example"><span class="help-label">e.g.</span>{CARD_HELP.session.example}</div>
+          </div>
+        {/if}
         <table class="stat-table">
           <thead>
             <tr>
@@ -225,7 +311,17 @@
 
       <!-- Weekly P1/P2 -->
       <div class="card">
-        <div class="card-title">Weekly P1/P2</div>
+        <div class="card-header">
+          <span class="card-title">Weekly P1/P2</span>
+          <button class="help-btn" class:active={openHelp === "weekly"} onclick={() => toggleHelp("weekly")} aria-label="Help">?</button>
+        </div>
+        {#if openHelp === "weekly"}
+          <div class="help-panel">
+            <div class="help-section"><span class="help-label">What</span>{CARD_HELP.weekly.what}</div>
+            <div class="help-section"><span class="help-label">Value</span>{CARD_HELP.weekly.value}</div>
+            <div class="help-section help-example"><span class="help-label">e.g.</span>{CARD_HELP.weekly.example}</div>
+          </div>
+        {/if}
         <div class="weekly-rows">
           <div class="weekly-row">
             <span class="weekly-label">Low first</span>
@@ -326,13 +422,91 @@
     padding: 16px;
   }
 
+  /* Card header with help button */
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
   .card-title {
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--accent);
-    margin-bottom: 10px;
+  }
+
+  .help-btn {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: border-color 120ms, color 120ms, background 120ms;
+    flex-shrink: 0;
+  }
+
+  .help-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .help-btn.active {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  /* Help panel */
+  .help-panel {
+    background: color-mix(in srgb, var(--accent) 5%, var(--bg, #111));
+    border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+    border-radius: 4px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    animation: help-in 150ms ease;
+  }
+
+  @keyframes help-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .help-section {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.5;
+    display: grid;
+    grid-template-columns: 38px 1fr;
+    gap: 6px;
+  }
+
+  .help-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding-top: 1px;
+  }
+
+  .help-example {
+    color: color-mix(in srgb, var(--accent) 70%, var(--text-dim));
+    font-style: italic;
   }
 
   .card-subtitle {
