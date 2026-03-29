@@ -50,6 +50,39 @@ def _stars(n: int) -> str:
 
 
 @dataclass
+class StatsContext:
+    """Statistical context for a signal alert — appended as a single summary line."""
+
+    today_dow: str  # e.g. "Thursday"
+    p1_low_pct_today: float  # P1=Low % for today's DOW, e.g. 0.58
+    adr_14: float  # 14-day ADR as fraction, e.g. 0.028
+    adr_consumed_pct: float | None  # today_range / adr_14, or None if unknown
+    peak_high_hour_myt: int  # hour most likely to produce daily high
+    peak_low_hour_myt: int  # hour most likely to produce daily low
+
+
+def _format_stats_line(ctx: "StatsContext") -> str:
+    """Format the stats context as a single summary line for Telegram."""
+    dow_short = ctx.today_dow[:3]
+    consumed = (
+        f" ({ctx.adr_consumed_pct:.0%} used)"
+        if ctx.adr_consumed_pct is not None
+        else ""
+    )
+    hi_h = ctx.peak_high_hour_myt
+    lo_h = ctx.peak_low_hour_myt
+    if hi_h == lo_h:
+        peak_str = f"Peak ~{hi_h:02d}:00 MYT (Hi+Lo)"
+    else:
+        peak_str = f"Hi ~{hi_h:02d}:00 · Lo ~{lo_h:02d}:00 MYT"
+    return (
+        f"📐 {dow_short}: P1=Low {ctx.p1_low_pct_today:.0%}"
+        f" · ADR {ctx.adr_14:.1%}{consumed}"
+        f" · {peak_str}"
+    )
+
+
+@dataclass
 class SignalEvent:
     symbol: str
     timeframe: str
@@ -110,6 +143,7 @@ def format_confluence_alert(
     tp_r: float = 2.0,
     min_sl_pct: float = 0.0,
     backtest_summary: str | None = None,
+    stats_context: "StatsContext | None" = None,
 ) -> str:
     """Format one or more SignalEvents (same symbol/tf/direction) as a Telegram message.
 
@@ -181,4 +215,6 @@ def format_confluence_alert(
     )
     if backtest_summary:
         msg += f"\n\n{backtest_summary}"
+    if stats_context is not None:
+        msg += f"\n{_format_stats_line(stats_context)}"
     return msg

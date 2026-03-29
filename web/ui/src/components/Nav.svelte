@@ -7,6 +7,7 @@
     { href: "#/signals",   label: "Signals" },
     { href: "#/positions", label: "Positions" },
     { href: "#/prices",    label: "Prices" },
+    { href: "#/stats",     label: "Stats" },
   ];
 
   let { route }: { route: string } = $props();

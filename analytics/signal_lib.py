@@ -36,7 +36,7 @@ from analytics.signal_config import (
     StrategyOverride,
     _day_filter_to_weekdays,
 )
-from signals.alert_formatter import SignalEvent, format_confluence_alert
+from signals.alert_formatter import SignalEvent, StatsContext, format_confluence_alert
 from signals.cooldown_store import CooldownStore
 from signals.registry import SIGNAL_REGISTRY
 
@@ -405,6 +405,42 @@ def _resolve_atr_sl_multiplier(
     return global_atr_sl
 
 
+def _compute_stats_context(
+    conn: duckdb.DuckDBPyConnection,
+    symbol: str,
+    now_myt: datetime.datetime,
+) -> StatsContext | None:
+    """Return a StatsContext for the current symbol/DOW, or None on any error.
+
+    Never raises — stats failure must never block signal dispatch.
+    """
+    try:
+        from analytics.stats_lib import compute_all
+
+        bundle = compute_all(conn, symbol, days=90)
+        # DOW must match the UTC-date grouping used in stats_lib (Binance daily = UTC day)
+        dow_full = datetime.datetime.now(tz=datetime.UTC).strftime("%A")
+        dow_short = dow_full[:3]  # e.g. "Thu"
+
+        # P1=Low % for today's DOW
+        p1_low_today = bundle.p1p2.by_dow.get(dow_short, bundle.p1p2.overall_p1_low_pct)
+
+        # Today's ADR consumed
+        adr_consumed = bundle.adr.today_consumed_pct
+
+        return StatsContext(
+            today_dow=dow_full,
+            p1_low_pct_today=p1_low_today,
+            adr_14=bundle.adr.adr_14,
+            adr_consumed_pct=adr_consumed,
+            peak_high_hour_myt=bundle.hourly.peak_high_hour,
+            peak_low_hour_myt=bundle.hourly.peak_low_hour,
+        )
+    except Exception:
+        logger.debug("_compute_stats_context failed for %s — skipping", symbol)
+        return None
+
+
 def run_scan_cycle(
     conn: duckdb.DuckDBPyConnection,
     symbols: list[str],
@@ -447,6 +483,11 @@ def run_scan_cycle(
     # Avoids recomputing the same strategy twice if it fires on multiple symbols.
     bt_cache: dict[tuple[str, str, str], BacktestResult | None] = {}
 
+    # Per-cycle stats context cache: symbol → StatsContext | None
+    # Computed once per symbol (not per TF) to avoid redundant DB queries.
+    stats_ctx_cache: dict[str, StatsContext | None] = {}
+    now_myt = datetime.datetime.now(tz=datetime.timezone(datetime.timedelta(hours=8)))
+
     needs_funding = any(
         STRATEGY_REGISTRY[s].requires_funding
         for s in strategies
@@ -476,6 +517,10 @@ def run_scan_cycle(
         funding_df: pd.DataFrame | None = None
         if needs_funding:
             funding_df = get_funding_rates(conn, symbol, start_ms, now_ms)
+
+        # Compute stats context once per symbol (cached within the cycle)
+        if symbol not in stats_ctx_cache:
+            stats_ctx_cache[symbol] = _compute_stats_context(conn, symbol, now_myt)
 
         for tf in timeframes:
             ohlcv_df = get_ohlcv(conn, symbol, tf, start_ms, now_ms)
@@ -706,6 +751,7 @@ def run_scan_cycle(
                     tp_r=eff_alert_tp_r,
                     min_sl_pct=min_sl_pct,
                     backtest_summary=dir_summary,
+                    stats_context=stats_ctx_cache.get(symbol),
                 )
                 alerts.append(msg)
                 logger.info(
