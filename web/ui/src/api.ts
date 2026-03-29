@@ -364,6 +364,8 @@ export interface WeeklyP1P2Response {
   low_day: string;
   high_day: string;
   sample_weeks: number;
+  low_by_dow: Record<string, number>;
+  high_by_dow: Record<string, number>;
 }
 
 export interface StatsResponse {

@@ -81,6 +81,8 @@ def _bundle_to_response(bundle: StatsBundle) -> StatsResponse:
         low_day=bundle.weekly_p1p2.low_day,
         high_day=bundle.weekly_p1p2.high_day,
         sample_weeks=bundle.weekly_p1p2.sample_weeks,
+        low_by_dow=bundle.weekly_p1p2.low_by_dow,
+        high_by_dow=bundle.weekly_p1p2.high_by_dow,
     )
 
     return StatsResponse(

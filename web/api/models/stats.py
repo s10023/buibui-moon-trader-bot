@@ -46,6 +46,8 @@ class WeeklyP1P2Response(BaseModel):
     low_day: str
     high_day: str
     sample_weeks: int
+    low_by_dow: dict[str, float]
+    high_by_dow: dict[str, float]
 
 
 class StatsResponse(BaseModel):

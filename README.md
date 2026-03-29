@@ -120,14 +120,14 @@ buibui-moon-trader-bot/
 
 The Stats page (`#/stats`) shows BrighterData-style probability tables computed from historical 1h OHLCV data. Each card has a **?** button that explains what it shows and how to use it in trading decisions.
 
-| Card | What it answers |
-| ---- | --------------- |
-| **P1/P2 Daily** | Was the daily low or high made first? Shows overall % and per-day-of-week breakdown. High P1=Low on Thursday → the day structure historically favours making the low first, then reversing. |
-| **Average Daily Range (ADR)** | 14d and 30d average of (high−low)/open. Shows today's range consumed as a progress bar. If 95% consumed, the move is likely done — don't chase. |
-| **Hourly Extreme Distribution** | Which MYT hour (0–23) most often produces the daily high vs low. Empirically-derived kill zones from your actual symbol's history, not fixed ICT windows. |
-| **Day-of-Week Patterns** | Average range and bull% per weekday. Low-range, coin-flip days (often Friday) may not be worth forcing setups. |
-| **Session Breakdown** | Which session (Asia 00–07 / London 14–21 / NY 20–03 MYT) most often makes the daily high vs low. If London makes the high 44% of the time and it's 18:00 MYT, the high may already be in. |
-| **Weekly P1/P2** | Was the weekly low or high made first, and which day of the week dominates. If Tuesday makes the weekly high most often and it's Thursday, the weekly high is likely set — lean bearish for the week. |
+| Card | What it answers | Interactions |
+| ---- | --------------- | ------------ |
+| **P1/P2 Daily** | Was the daily low or high made first? Per-day-of-week breakdown. High P1=Low on Thursday → day structure favours making the low first, then reversing. | Toggle **Low First / High First** for bullish/bearish context. Today's DOW highlighted. |
+| **Average Daily Range (ADR)** | ADR(14) = 2-week average (short-term vol). ADR(30) = monthly baseline. Today's range consumed as a progress bar; turns red + warning if ≥80%. | — |
+| **Hourly Extreme Distribution** | Which MYT hour (0–23) most often produces the daily high (green) vs low (red). Empirically-derived kill zones. | Current MYT hour highlighted with accent border. |
+| **Day-of-Week Patterns** | Average range (relative bar), bull/bear split bar + %, and sample count (N = number of that weekday in the lookback window). | Today's DOW row highlighted. |
+| **Session Breakdown** | Which session (Asia 00–07 / London 14–21 / NY 20–03 MYT) most often makes the daily high vs low. Columns don't sum to 100% — London/NY overlap (20–21 MYT) is counted in both. | Active sessions shown with a pulsing ● indicator. |
+| **Weekly P1/P2** | Which day of the week most commonly forms the weekly high vs low, shown as a per-DOW bar chart. | Toggle **Bear** (when does weekly HIGH form?) or **Bull** (when does weekly LOW form?). Defaults to Bear. Today's DOW highlighted. |
 
 A one-line summary of the most actionable stats is also injected into every Telegram signal alert:
 
