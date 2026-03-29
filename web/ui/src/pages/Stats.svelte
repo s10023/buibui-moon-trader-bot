@@ -418,6 +418,11 @@
           {/if}
           <span class="muted"> ({stats.weekly_p1p2.sample_weeks} wks)</span>
         </div>
+        {#if stats.weekly_p1p2.sample_weeks < 26}
+          <div class="low-sample-warn">
+            ⚠ Only {stats.weekly_p1p2.sample_weeks} weeks of data — days with 0% may simply not have occurred yet. Sync more history (180d+ recommended) for reliable distribution.
+          </div>
+        {/if}
         <div class="dow-bars">
           {#each weeklyBars as row}
             <div class="dow-bar-row" class:today-row={row.dow === todayDOW}>
@@ -918,5 +923,16 @@
   .session-note {
     font-size: 10px;
     margin-top: 8px;
+  }
+
+  .low-sample-warn {
+    font-size: 10px;
+    color: #e0a030;
+    background: color-mix(in srgb, #e0a030 8%, transparent);
+    border: 1px solid color-mix(in srgb, #e0a030 25%, transparent);
+    border-radius: 3px;
+    padding: 5px 8px;
+    margin-bottom: 10px;
+    line-height: 1.4;
   }
 </style>
