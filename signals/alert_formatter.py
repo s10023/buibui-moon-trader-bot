@@ -69,10 +69,16 @@ def _format_stats_line(ctx: "StatsContext") -> str:
         if ctx.adr_consumed_pct is not None
         else ""
     )
+    hi_h = ctx.peak_high_hour_myt
+    lo_h = ctx.peak_low_hour_myt
+    if hi_h == lo_h:
+        peak_str = f"Peak ~{hi_h:02d}:00 MYT (Hi+Lo)"
+    else:
+        peak_str = f"Hi ~{hi_h:02d}:00 · Lo ~{lo_h:02d}:00 MYT"
     return (
         f"📐 {dow_short}: P1=Low {ctx.p1_low_pct_today:.0%}"
         f" · ADR {ctx.adr_14:.1%}{consumed}"
-        f" · High peak ~{ctx.peak_high_hour_myt:02d}:00 MYT"
+        f" · {peak_str}"
     )
 
 
