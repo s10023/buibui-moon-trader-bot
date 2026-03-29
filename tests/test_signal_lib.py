@@ -2232,14 +2232,18 @@ class TestBacktestSummary:
         )
         assert "hold ~3d" in summary
 
-    def test_hold_time_not_shown_for_multi_strategy(self) -> None:
-        """Multi-strategy confluence: hold time is omitted to keep line short."""
+    def test_hold_time_shown_per_strategy_for_multi_strategy(self) -> None:
+        """Multi-strategy confluence: hold time appended inline per strategy."""
         fvg = self._make_result("fvg", long_wins=4, long_losses=1)
         bos = self._make_result("bos", long_wins=3, long_losses=1)
         summary = _backtest_summary(
             {"fvg": fvg, "bos": bos}, ["fvg", "bos"], self._cfg(), direction="long"
         )
-        assert "hold" not in summary
+        # Each strategy entry should have an inline hold time (~0h because _make_result
+        # uses entry_time=1, exit_time=2 → duration ≈ 0ms)
+        assert "fvg:" in summary
+        assert "bos:" in summary
+        assert summary.count("~0h") == 2
 
     def test_hold_time_not_shown_when_below_min_trades(self) -> None:
         """No hold time when trade count < min_trades (n/a path)."""
