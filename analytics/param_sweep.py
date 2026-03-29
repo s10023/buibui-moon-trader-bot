@@ -1,0 +1,553 @@
+"""Parameter sweep with Walk-Forward Optimization (WFO).
+
+Usage:
+    poetry run python -m analytics.param_sweep \\
+        --strategy liq_sweep --symbol BTCUSDT --tf 1h \\
+        [--param tp_r=1.0:5.0:0.5] [--param sl_pct=0.005:0.03:0.005] \\
+        [--wfo-split 0.7] [--min-trades 5] [--top-n 10] [--days 180] \\
+        [--fee-pct 0.0005] [--db PATH]
+
+Default param ranges (when --param not specified) come from STRATEGY_REGISTRY.ParamSpec
+plus the two universal sweep axes: tp_r (1.0–5.0 step 0.5) and sl_pct (0.5%–3% step 0.25%).
+
+Output: ranked table showing IS score, OOS score, OOS/IS decay ratio, and proposed TOML diff.
+Configs with OOS avg_r < 0 or decay < 0.4 are flagged as overfit.
+"""
+
+from __future__ import annotations
+
+import argparse
+import itertools
+import sys
+from dataclasses import dataclass
+from math import sqrt
+from pathlib import Path
+from typing import Any
+
+import duckdb
+import pandas as pd
+
+from analytics.backtest_lib import BacktestResult, run_backtest
+from analytics.backtest_runner import detect_signals_for_strategy
+from analytics.data_store import DEFAULT_DB_PATH, get_ohlcv
+from analytics.indicators_lib import KNOWN_STRATEGIES, STRATEGY_REGISTRY
+
+# ---------------------------------------------------------------------------
+# Scoring
+# ---------------------------------------------------------------------------
+
+
+def _score(result: BacktestResult, min_trades: int) -> float:
+    """Composite score: avg_r × win_rate × sqrt(closed_trades).
+
+    Returns 0.0 when trade count is below min_trades (statistically unreliable).
+    """
+    closed = len(result.closed_trades)
+    if closed < min_trades:
+        return 0.0
+    avg_r = result.avg_r
+    if avg_r is None or avg_r <= 0:
+        return 0.0
+    return avg_r * result.win_rate * sqrt(closed)
+
+
+# ---------------------------------------------------------------------------
+# Param grid
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ParamRange:
+    name: str
+    values: list[float | int]
+
+
+def _float_range(start: float, stop: float, step: float) -> list[float]:
+    """Inclusive float range with rounding to avoid float drift."""
+    result = []
+    v = start
+    while v <= stop + 1e-9:
+        result.append(round(v, 8))
+        v = round(v + step, 8)
+    return result
+
+
+def _parse_param_spec(spec: str) -> ParamRange:
+    """Parse 'name=min:max:step' into a ParamRange."""
+    if "=" not in spec:
+        raise ValueError(f"Expected 'name=min:max:step', got: {spec!r}")
+    name, rest = spec.split("=", 1)
+    parts = rest.split(":")
+    if len(parts) != 3:
+        raise ValueError(f"Expected 'min:max:step' after '=', got: {rest!r}")
+    mn, mx, st = float(parts[0]), float(parts[1]), float(parts[2])
+    values = _float_range(mn, mx, st)
+    if not values:
+        raise ValueError(f"Empty range for param {name!r}: {spec!r}")
+    return ParamRange(name=name, values=values)
+
+
+def _default_param_ranges(strategy: str) -> list[ParamRange]:
+    """Build default param ranges: tp_r × sl_pct only (the two highest-impact axes).
+
+    Strategy-specific params (swing_n, lookback, etc.) explode the grid size and should
+    be added explicitly via --param when you want to sweep them. Default keeps it fast:
+    9 × 11 = 99 combos, typically finishes in seconds.
+    """
+    _ = strategy  # reserved for future strategy-specific defaults
+    return [
+        ParamRange("tp_r", _float_range(1.0, 5.0, 0.5)),
+        ParamRange("sl_pct", _float_range(0.005, 0.03, 0.0025)),
+    ]
+
+
+def _strategy_param_ranges(strategy: str) -> list[ParamRange]:
+    """Build ranges for strategy-specific params only (excludes tp_r/sl_pct).
+
+    Use with --param-mode=full or append to default ranges manually.
+    """
+    ranges: list[ParamRange] = []
+    spec = STRATEGY_REGISTRY.get(strategy)
+    if spec is None:
+        return ranges
+    for ps in spec.params:
+        if ps.name in ("tp_r", "sl_pct"):
+            continue
+        mn, mx = float(ps.min_val), float(ps.max_val)
+        if ps.param_type == "int":
+            int_step = max(1, int((mx - mn) / 8))
+            values: list[float | int] = list(range(int(mn), int(mx) + 1, int_step))
+        else:
+            float_step = (mx - mn) / 8
+            values = _float_range(mn, mx, float_step)
+        if len(values) > 1:
+            ranges.append(ParamRange(name=ps.name, values=values))
+    return ranges
+
+
+def _build_grid(ranges: list[ParamRange]) -> list[dict[str, Any]]:
+    """Cartesian product of all param ranges → list of param dicts."""
+    keys = [r.name for r in ranges]
+    value_lists = [r.values for r in ranges]
+    return [dict(zip(keys, combo)) for combo in itertools.product(*value_lists)]
+
+
+# ---------------------------------------------------------------------------
+# WFO split
+# ---------------------------------------------------------------------------
+
+
+def _split_ohlcv(
+    ohlcv: pd.DataFrame, split: float
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Split OHLCV into in-sample and out-of-sample by row index."""
+    n = len(ohlcv)
+    split_idx = int(n * split)
+    return ohlcv.iloc[:split_idx].copy(), ohlcv.iloc[split_idx:].copy()
+
+
+# ---------------------------------------------------------------------------
+# Result dataclass
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class SweepRow:
+    params: dict[str, Any]
+    is_result: BacktestResult
+    oos_result: BacktestResult
+    is_score: float
+    oos_score: float
+    decay: float  # oos_score / is_score; NaN when is_score == 0
+    overfit: bool  # True when decay < 0.4 or OOS avg_r < 0
+
+    @property
+    def is_avg_r(self) -> float | None:
+        return self.is_result.avg_r
+
+    @property
+    def oos_avg_r(self) -> float | None:
+        return self.oos_result.avg_r
+
+    @property
+    def is_trades(self) -> int:
+        return len(self.is_result.closed_trades)
+
+    @property
+    def oos_trades(self) -> int:
+        return len(self.oos_result.closed_trades)
+
+    @property
+    def is_win_rate(self) -> float:
+        return self.is_result.win_rate
+
+    @property
+    def oos_win_rate(self) -> float:
+        return self.oos_result.win_rate
+
+
+# ---------------------------------------------------------------------------
+# Core sweep logic
+# ---------------------------------------------------------------------------
+
+
+def run_param_sweep(
+    conn: duckdb.DuckDBPyConnection,
+    strategy: str,
+    symbol: str,
+    timeframe: str,
+    days: int,
+    param_ranges: list[ParamRange],
+    wfo_split: float,
+    min_trades: int,
+    fee_pct: float,
+    top_n: int,
+) -> list[SweepRow]:
+    """Run WFO grid sweep. Returns rows sorted by IS score (descending)."""
+    import datetime
+
+    end_ms = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
+    start_ms = end_ms - days * 24 * 3_600 * 1_000
+
+    ohlcv_full = get_ohlcv(conn, symbol, timeframe, start_ms, end_ms)
+    if ohlcv_full.empty:
+        print(
+            f"  ERROR: No OHLCV data for {symbol}/{timeframe}. "
+            "Run 'buibui analytics backfill' first.",
+            file=sys.stderr,
+        )
+        return []
+
+    ohlcv_is, ohlcv_oos = _split_ohlcv(ohlcv_full, wfo_split)
+
+    # Detect signals once on full history, then split by candle timestamp.
+    # This avoids running detection on a truncated window (which would miss
+    # pivot points that need future candles for confirmation).
+    signals_full = detect_signals_for_strategy(
+        conn,
+        ohlcv_full,
+        symbol,
+        timeframe,
+        strategy,
+        start_ms,
+        end_ms,
+    )
+    if signals_full is None:
+        print(
+            f"  ERROR: Could not detect signals for {strategy} "
+            f"(missing funding or secondary data).",
+            file=sys.stderr,
+        )
+        return []
+
+    # Split signals at the same timestamp boundary as OHLCV.
+    if not ohlcv_is.empty and not ohlcv_oos.empty:
+        split_ts = int(ohlcv_oos.iloc[0]["open_time"])
+        signals_is = signals_full[signals_full["open_time"] < split_ts].copy()
+        signals_oos = signals_full[signals_full["open_time"] >= split_ts].copy()
+    else:
+        signals_is = signals_full.copy()
+        signals_oos = pd.DataFrame()
+
+    # Drop sl_pct from param_ranges if the strategy uses structural SL prices.
+    # When sl_price is non-zero in signals, run_backtest ignores sl_pct entirely —
+    # sweeping it wastes grid space and produces duplicate rows.
+    uses_structural_sl = (
+        "sl_price" in signals_full.columns and signals_full["sl_price"].ne(0).any()
+    )
+    if uses_structural_sl:
+        param_ranges = [r for r in param_ranges if r.name != "sl_pct"]
+
+    grid = _build_grid(param_ranges)
+    n = len(grid)
+    is_min = max(1, min_trades // 2)  # relax min_trades for IS scoring (more history)
+
+    sl_note = (
+        " (sl_pct dropped — strategy uses structural SLs)" if uses_structural_sl else ""
+    )
+    print(f"\n  Sweep: {strategy} / {symbol} / {timeframe}{sl_note}")
+    print(
+        f"  Grid size: {n} combos | IS candles: {len(ohlcv_is)} | OOS candles: {len(ohlcv_oos)}"
+    )
+    print("  Running...", end="", flush=True)
+
+    rows: list[SweepRow] = []
+
+    for i, params in enumerate(grid):
+        if i % max(1, n // 20) == 0:
+            print(".", end="", flush=True)
+
+        tp_r = float(params.get("tp_r", 2.0))
+        sl_pct = float(params.get("sl_pct", 0.02))
+
+        bt_is = run_backtest(
+            ohlcv_is,
+            signals_is,
+            symbol,
+            timeframe,
+            strategy,
+            sl_pct=sl_pct,
+            tp_r=tp_r,
+            fee_pct=fee_pct,
+        )
+        bt_oos = run_backtest(
+            ohlcv_oos,
+            signals_oos,
+            symbol,
+            timeframe,
+            strategy,
+            sl_pct=sl_pct,
+            tp_r=tp_r,
+            fee_pct=fee_pct,
+        )
+
+        is_s = _score(bt_is, is_min)
+        oos_s = _score(bt_oos, 1)  # OOS: just need ≥1 trade to evaluate
+
+        decay = (oos_s / is_s) if is_s > 0 else float("nan")
+        oos_avg_r = bt_oos.avg_r
+        overfit = (
+            (oos_avg_r is None or oos_avg_r <= 0)
+            or (not (decay != decay) and decay < 0.4)  # NaN-safe: decay < 0.4
+        )
+
+        rows.append(
+            SweepRow(
+                params=params,
+                is_result=bt_is,
+                oos_result=bt_oos,
+                is_score=is_s,
+                oos_score=oos_s,
+                decay=decay,
+                overfit=overfit,
+            )
+        )
+
+    print(" done")
+
+    # Primary sort: IS score (composite). Fallback: when all scores are 0 (every config
+    # has negative avg_r), sort by IS avg_r directly so the "least bad" configs surface
+    # rather than arbitrary grid-order entries.
+    all_zero = all(r.is_score == 0.0 for r in rows)
+    if all_zero:
+        rows.sort(key=lambda r: r.is_avg_r or float("-inf"), reverse=True)
+    else:
+        rows.sort(key=lambda r: r.is_score, reverse=True)
+
+    return rows[:top_n]
+
+
+# ---------------------------------------------------------------------------
+# Formatting
+# ---------------------------------------------------------------------------
+
+_SEP = "─"
+
+
+def _fmt_r(v: float | None) -> str:
+    if v is None:
+        return "  —  "
+    return f"{v:+.3f}R"
+
+
+def _fmt_pct(v: float) -> str:
+    return f"{v * 100:.1f}%"
+
+
+def _fmt_decay(v: float) -> str:
+    if v != v:  # NaN
+        return "  —  "
+    return f"{v:.2f}"
+
+
+def format_sweep_results(
+    rows: list[SweepRow],
+    strategy: str,
+    symbol: str,
+    timeframe: str,
+    current_toml: dict[str, Any] | None = None,
+) -> str:
+    if not rows:
+        return "  No results."
+
+    lines: list[str] = []
+    lines.append(f"\n{'WFO Param Sweep':^80}")
+    lines.append(f"{'Strategy':>12}: {strategy}   Symbol: {symbol}   TF: {timeframe}")
+    lines.append(_SEP * 80)
+
+    # Header
+    param_names = list(rows[0].params.keys())
+    param_cols = "  ".join(f"{p[:8]:>8}" for p in param_names)
+    lines.append(
+        f"  {'#':>3}  {param_cols}  "
+        f"{'IS avg_r':>8}  {'IS wr%':>6}  {'IS n':>4}  "
+        f"{'OOS avg_r':>9}  {'OOS wr%':>7}  {'OOS n':>5}  "
+        f"{'decay':>6}  {'flag':>6}"
+    )
+    lines.append(_SEP * 80)
+
+    for i, row in enumerate(rows, 1):
+        param_vals = "  ".join(f"{row.params[p]:>8.4g}" for p in param_names)
+        flag = "⚠ OVERFIT" if row.overfit else "  ok"
+        lines.append(
+            f"  {i:>3}  {param_vals}  "
+            f"{_fmt_r(row.is_avg_r):>8}  {_fmt_pct(row.is_win_rate):>6}  {row.is_trades:>4}  "
+            f"{_fmt_r(row.oos_avg_r):>9}  {_fmt_pct(row.oos_win_rate):>7}  {row.oos_trades:>5}  "
+            f"{_fmt_decay(row.decay):>6}  {flag}"
+        )
+
+    lines.append(_SEP * 80)
+
+    # Recommend top non-overfit config
+    clean = [r for r in rows if not r.overfit]
+    if clean:
+        best = clean[0]
+        lines.append("\n  Recommended config (best non-overfit):")
+        for k, v in best.params.items():
+            old = (current_toml or {}).get(k)
+            arrow = f"  ← was {old}" if old is not None and old != v else ""
+            lines.append(f"    {k} = {v}{arrow}")
+        lines.append(
+            f"\n  OOS: avg_r={_fmt_r(best.oos_avg_r)}  "
+            f"win_rate={_fmt_pct(best.oos_win_rate)}  "
+            f"trades={best.oos_trades}  "
+            f"decay={_fmt_decay(best.decay)}"
+        )
+    else:
+        all_negative = all((r.is_avg_r or 0.0) < 0 for r in rows)
+        if all_negative:
+            best_r = rows[0].is_avg_r
+            lines.append(
+                f"\n  ✗  Strategy has no positive edge on this symbol/TF "
+                f"(best IS avg_r: {_fmt_r(best_r)}). "
+                "Param tuning cannot fix a broken signal — fix the detector logic first."
+            )
+        else:
+            lines.append(
+                "\n  ⚠  All top configs failed OOS validation (decay < 0.4 or OOS avg_r < 0). "
+                "Consider more history (--days) or narrower param ranges."
+            )
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+
+def _build_arg_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        description="WFO parameter sweep for a single strategy × symbol × TF.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument("--strategy", required=True, help="Strategy name (e.g. liq_sweep)")
+    p.add_argument("--symbol", required=True, help="Symbol (e.g. BTCUSDT)")
+    p.add_argument("--tf", required=True, dest="timeframe", help="Timeframe (e.g. 1h)")
+    p.add_argument(
+        "--param",
+        action="append",
+        dest="params",
+        metavar="NAME=MIN:MAX:STEP",
+        help="Param range override. Repeatable. E.g. --param tp_r=1.0:5.0:0.5",
+    )
+    p.add_argument(
+        "--wfo-split",
+        type=float,
+        default=0.7,
+        help="Fraction of candles used as in-sample (default: 0.7)",
+    )
+    p.add_argument(
+        "--min-trades",
+        type=int,
+        default=0,
+        help="Min closed trades in IS window to score a config (default: auto)",
+    )
+    p.add_argument(
+        "--top-n",
+        type=int,
+        default=10,
+        help="Number of top configs to display (default: 10)",
+    )
+    p.add_argument(
+        "--days", type=int, default=180, help="Days of history to load (default: 180)"
+    )
+    p.add_argument(
+        "--fee-pct",
+        type=float,
+        default=0.0005,
+        help="Taker fee fraction (default: 0.0005 = 0.05%%)",
+    )
+    p.add_argument(
+        "--db",
+        type=Path,
+        default=DEFAULT_DB_PATH,
+        help="Path to DuckDB database (default: analytics.db)",
+    )
+    return p
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = _build_arg_parser()
+    args = parser.parse_args(argv)
+
+    if args.strategy not in KNOWN_STRATEGIES:
+        print(
+            f"Unknown strategy {args.strategy!r}. "
+            f"Choose from: {', '.join(KNOWN_STRATEGIES)}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Build param ranges
+    if args.params:
+        try:
+            param_ranges = [_parse_param_spec(s) for s in args.params]
+        except ValueError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        param_ranges = _default_param_ranges(args.strategy)
+
+    grid_size = 1
+    for r in param_ranges:
+        grid_size *= len(r.values)
+
+    # Auto min_trades based on TF if not specified
+    min_trades = args.min_trades
+    if min_trades == 0:
+        _tf_defaults = {"15m": 20, "1h": 12, "4h": 5, "1d": 2}
+        min_trades = _tf_defaults.get(args.timeframe, 8)
+
+    print(f"\nParam sweep  {args.strategy} / {args.symbol} / {args.timeframe}")
+    print(
+        f"Days: {args.days}  WFO split: {args.wfo_split:.0%} IS / {1 - args.wfo_split:.0%} OOS"
+    )
+    print(f"Grid: {grid_size} combos  Min trades: {min_trades}  Top-N: {args.top_n}")
+    print(f"Params: {', '.join(r.name for r in param_ranges)}")
+
+    if grid_size > 5000:
+        print(f"\n  WARNING: Grid has {grid_size} combos — this may take a while.")
+
+    conn: duckdb.DuckDBPyConnection = duckdb.connect(str(args.db), read_only=True)
+    try:
+        rows = run_param_sweep(
+            conn=conn,
+            strategy=args.strategy,
+            symbol=args.symbol,
+            timeframe=args.timeframe,
+            days=args.days,
+            param_ranges=param_ranges,
+            wfo_split=args.wfo_split,
+            min_trades=min_trades,
+            fee_pct=args.fee_pct,
+            top_n=args.top_n,
+        )
+    finally:
+        conn.close()
+
+    print(format_sweep_results(rows, args.strategy, args.symbol, args.timeframe))
+
+
+if __name__ == "__main__":
+    main()
