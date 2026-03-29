@@ -119,6 +119,7 @@ Skills live in `~/.claude/skills/` and are invoked with `/skill-name`. Each enca
 | `backtest-run.md` | `/backtest-run` | Quick reference for all `buibui backtest` invocations and flags | Any time you need a backtest command and can't remember the flags |
 | `signal-watch.md` | `/signal-watch` | Signal daemon workflow, TOML config reference, signal flow diagram | When configuring or debugging the live signal scanner |
 | `pr-summary.md` | `/pr-summary` | Write PR title + summary + test plan to `/tmp/pr-<branch>.md` | After finishing any feature branch |
+| `stats-dashboard.md` | `/stats-dashboard` | Stats page architecture, card inventory, adding new cards, timezone constraints | When working on Stats page or `stats_lib.py` |
 
 **Always load `/frontend-design` before any Svelte/CSS/UI changes.**
 
