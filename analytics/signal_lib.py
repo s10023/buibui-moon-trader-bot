@@ -184,11 +184,8 @@ def _backtest_summary(
             trade_noun = "trade"
 
         n = len(dir_trades)
-        hold_suffix = (
-            f" · hold {_fmt_hold(dir_median_h)}"
-            if (single and dir_median_h is not None)
-            else ""
-        )
+        hold_str = f" {_fmt_hold(dir_median_h)}" if dir_median_h is not None else ""
+        hold_suffix = f" · hold{hold_str}" if single and hold_str else ""
         if n < min_trades or dir_win_rate is None:
             label = f"n/a ({n} {trade_noun}s)" if single else f"{s}: n/a ({n})"
         else:
@@ -198,13 +195,13 @@ def _backtest_summary(
                 label = (
                     f"{pct} win · avg {avg_r_str} ({n} {trade_noun}s){hold_suffix}"
                     if single
-                    else f"{s}: {pct}·{avg_r_str} ({n})"
+                    else f"{s}: {pct}·{avg_r_str} ({n}){hold_str}"
                 )
             else:
                 label = (
                     f"{pct} win ({n} {trade_noun}s){hold_suffix}"
                     if single
-                    else f"{s}: {pct} ({n})"
+                    else f"{s}: {pct} ({n}){hold_str}"
                 )
         parts.append(label)
 
