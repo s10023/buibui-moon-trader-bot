@@ -4,6 +4,8 @@ STRATEGY ?= fvg
 INTERVAL ?= 4h
 DAYS ?= 90
 SAVE ?=
+PORT ?= 8000
+DEV_PORT ?= 5173
 # Makefile — Lint Markdown and Python
 
 PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*" -not -path "./.venv/*")
@@ -199,13 +201,13 @@ docker-signal-watch:
 
 buibui-web:
 	@echo "Starting web backend..."
-	poetry run python buibui.py web --host 0.0.0.0 --port 8000
+	poetry run python buibui.py web --host 0.0.0.0 --port $(PORT)
 
 web-install:
 	cd web/ui && npm install
 
 web-dev:
-	cd web/ui && npm run dev
+	cd web/ui && npm run dev -- --port $(DEV_PORT)
 
 web-build:
 	cd web/ui && npm run build
@@ -214,7 +216,7 @@ web-check:
 	cd web/ui && npx svelte-check
 
 web-preview:
-	cd web/ui && npm run preview
+	cd web/ui && npm run preview -- --port $(DEV_PORT)
 
 web-full: web-build buibui-web
 
