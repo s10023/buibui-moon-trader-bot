@@ -311,15 +311,28 @@ tp_r_4h = 2.5
         assert cfg.effective_tp_r("fvg", "1h") == cfg.tp_r
 
     def test_signal_watch_toml_strategy_params_parsed(self) -> None:
-        """signal_watch.toml (tue_thu) strategy_params (F6 findings) must be applied."""
+        """signal_watch.toml (tue_thu) strategy_params (F5 WFO findings) must be applied."""
         cfg_path = Path(__file__).parent.parent / "config" / "signal_watch.toml"
         cfg = load_signal_config(cfg_path)
-        # engulfing: strategy-wide 3.0R (all active TFs)
+        # engulfing: 4h override 3.5R (WFO cross-symbol), 1h falls back to global 3.0R
         assert cfg.effective_tp_r("engulfing", "1h") == 3.0
-        assert cfg.effective_tp_r("engulfing", "4h") == 3.0
-        # pin_bar: strategy-wide 3.0R (4h now unlocked on tue_thu)
+        assert cfg.effective_tp_r("engulfing", "4h") == 3.5
+        # pin_bar: TF-specific (15m=4.5, 1h=3.5), 4h falls back to global 3.0
+        assert cfg.effective_tp_r("pin_bar", "15m") == 4.5
+        assert cfg.effective_tp_r("pin_bar", "1h") == 3.5
         assert cfg.effective_tp_r("pin_bar", "4h") == 3.0
-        # trend_day and orb: new vs weekdays, clear edge on tue_thu
+        # hammer_hanging_man: global 4.0 (cross-symbol WFO)
+        assert cfg.effective_tp_r("hammer_hanging_man", "15m") == 4.0
+        assert cfg.effective_tp_r("hammer_hanging_man", "1h") == 4.0
+        # doji: 15m override 4.0, others fall back to global 3.0
+        assert cfg.effective_tp_r("doji", "15m") == 4.0
+        assert cfg.effective_tp_r("doji", "1h") == 3.0
+        # morning_evening_star: TF-specific (15m=3.5, 1h=3.5, 4h=2.5), 1d falls back
+        assert cfg.effective_tp_r("morning_evening_star", "15m") == 3.5
+        assert cfg.effective_tp_r("morning_evening_star", "1h") == 3.5
+        assert cfg.effective_tp_r("morning_evening_star", "4h") == 2.5
+        # trend_day: 4h override 5.0, 1d falls back to global 3.0
+        assert cfg.effective_tp_r("trend_day", "4h") == 5.0
         assert cfg.effective_tp_r("trend_day", "1d") == 3.0
         assert cfg.effective_tp_r("orb", "1h") == 3.0
         # strategy not in params falls back to global

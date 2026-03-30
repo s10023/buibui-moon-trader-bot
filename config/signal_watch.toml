@@ -97,22 +97,29 @@ marubozu         = ["4h", "1d"]       # 15m mean_r=-0.120, 1h mean_r=-0.229 supp
 #   - trend_day and orb now have clear edge — added overrides
 #   - bos 4h excluded anyway; all active TFs (15m/1h) improve at 3.0R
 [strategy_params.engulfing]
-tp_r = 3.0                    # 15m+0.23R, 1h+0.42R, 4h+0.58R — strong across all TFs
+tp_r = 3.0                    # fallback for 15m/1h
+tp_r_4h = 3.5                 # WFO cross-symbol: BTC 4h +0.390R, SOL 4h +0.450R (25/15 trades)
 
 [strategy_params.pin_bar]
-tp_r = 3.0                    # 1h+0.51R, 4h+0.40R, 1d+1.75R — 4h now positive (unlocked below)
+tp_r = 3.0                    # fallback for 4h/1d
+tp_r_15m = 4.5                # WFO ETH 15m +0.211R (519 trades); BTC 15m fully overfit
+tp_r_1h = 3.5                 # WFO BTC 1h +0.337R (120 trades)
 
 [strategy_params.hammer_hanging_man]
-tp_r = 3.0                    # 1h+0.32R, 4h+0.19R — 4h now positive on tue_thu
+tp_r = 4.0                    # WFO cross-symbol: BTC/ETH/SOL all positive at 4.0 (15m+1h)
 
 [strategy_params.doji]
-tp_r = 3.0                    # 15m+0.27R, 1h+0.24R, 4h+0.28R
+tp_r = 3.0                    # 1h/4h confirmed
+tp_r_15m = 4.0                # WFO cross-symbol: BTC 15m +0.339R@3.5, ETH 15m +0.384R@4.0
 
 [strategy_params.inside_bar]
 tp_r = 3.0                    # 1h+0.25R, 4h+0.38R
 
 [strategy_params.morning_evening_star]
-tp_r = 3.0                    # 1h+0.24R, 4h+0.39R — 4h strong on tue_thu
+tp_r = 3.0                    # fallback for 1d
+tp_r_15m = 3.5                # WFO BTC 15m OOS +0.339R (162 trades)
+tp_r_1h  = 3.5                # WFO BTC 1h  OOS +0.240R (143 trades)
+tp_r_4h  = 2.5                # WFO BTC 4h  OOS +0.274R (37 trades)
 
 [strategy_params.fib_golden_zone]
 tp_r_4h = 3.0                 # 4h+0.62R monotonically increasing (12 trades)
@@ -121,7 +128,8 @@ tp_r_4h = 3.0                 # 4h+0.62R monotonically increasing (12 trades)
 tp_r = 3.0                    # 15m+0.18R, 1h+0.22R (4h excluded via strategy_timeframes)
 
 [strategy_params.trend_day]
-tp_r = 3.0                    # 4h+0.18R, 1d+0.88R — clear edge on tue_thu (flat in weekdays)
+tp_r = 3.0                    # fallback for 1d
+tp_r_4h = 5.0                 # WFO BTC 4h OOS +0.519R (53 trades)
 
 [strategy_params.orb]
 tp_r = 3.0                    # 1h+0.14R (183 trades), 4h+0.17R (119 trades)
