@@ -20,6 +20,7 @@ from web.api.models.stats import (
     SessionRow,
     StatsResponse,
     WeeklyP1P2Response,
+    WeeklyP2TimingResponse,
 )
 
 router = APIRouter(dependencies=[Depends(require_token)])
@@ -65,6 +66,7 @@ def _bundle_to_response(bundle: StatsBundle) -> StatsResponse:
             avg_range_pct=row.avg_range_pct,
             bull_pct=row.bull_pct,
             sample_days=row.sample_days,
+            avg_return_pct=row.avg_return_pct,
         )
         for row in bundle.dow.rows
     ]
@@ -85,6 +87,14 @@ def _bundle_to_response(bundle: StatsBundle) -> StatsResponse:
         high_by_dow=bundle.weekly_p1p2.high_by_dow,
     )
 
+    # Weekly P2 timing
+    p2_timing_resp = WeeklyP2TimingResponse(
+        low_still_ahead_by_dow=bundle.weekly_p2_timing.low_still_ahead_by_dow,
+        high_still_ahead_by_dow=bundle.weekly_p2_timing.high_still_ahead_by_dow,
+        low_flip_risk_by_dow=bundle.weekly_p2_timing.low_flip_risk_by_dow,
+        high_flip_risk_by_dow=bundle.weekly_p2_timing.high_flip_risk_by_dow,
+    )
+
     return StatsResponse(
         symbol=bundle.symbol,
         days=bundle.days,
@@ -95,6 +105,7 @@ def _bundle_to_response(bundle: StatsBundle) -> StatsResponse:
         dow_patterns=dow_list,
         sessions=session_list,
         weekly_p1p2=weekly_resp,
+        weekly_p2_timing=p2_timing_resp,
     )
 
 

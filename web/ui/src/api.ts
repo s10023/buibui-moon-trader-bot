@@ -351,6 +351,7 @@ export interface DOWPatternRow {
   avg_range_pct: number;
   bull_pct: number;
   sample_days: number;
+  avg_return_pct: number;
 }
 
 export interface SessionRow {
@@ -368,6 +369,13 @@ export interface WeeklyP1P2Response {
   high_by_dow: Record<string, number>;
 }
 
+export interface WeeklyP2TimingResponse {
+  low_still_ahead_by_dow: Record<string, number>;
+  high_still_ahead_by_dow: Record<string, number>;
+  low_flip_risk_by_dow: Record<string, number>;
+  high_flip_risk_by_dow: Record<string, number>;
+}
+
 export interface StatsResponse {
   symbol: string;
   days: number;
@@ -378,6 +386,7 @@ export interface StatsResponse {
   dow_patterns: DOWPatternRow[];
   sessions: SessionRow[];
   weekly_p1p2: WeeklyP1P2Response;
+  weekly_p2_timing: WeeklyP2TimingResponse;
 }
 
 export const getStats = (symbol: string, days: number = 180) =>
