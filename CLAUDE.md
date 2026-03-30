@@ -105,7 +105,7 @@ Fields to keep current:
 
 ## Agent Skills
 
-Skills live in `~/.claude/skills/` and are invoked with `/skill-name`. Each encapsulates a recurring workflow so you don't need to re-explain it. Use them proactively.
+Skills live in `.claude/skills/` (project-specific, committed to repo) and are invoked with `/skill-name`. Each encapsulates a recurring workflow so you don't need to re-explain it. Use them proactively.
 
 | Skill | Invoke | When to use | Cadence |
 | ----- | ------ | ----------- | ------- |
@@ -113,6 +113,7 @@ Skills live in `~/.claude/skills/` and are invoked with `/skill-name`. Each enca
 | `atr-sweep.md` | `/atr-sweep` | Find optimal ATR SL multiplier per strategy × TF; translates to `atr_sl_multiplier` TOML overrides | After any SL-related change or when backtests show high fee drag |
 | `tp-sweep.md` | `/tp-sweep` | Find optimal TP ratio per strategy × TF; translates to `tp_r` TOML overrides | After adding a new strategy or TF; re-run after any entry logic change |
 | `backtest-findings.md` | `/backtest-findings` | Interpret any sweep table (ATR/TP/volume/duration) and commit winners to TOML | After every sweep run |
+| `param-sweep-apply.md` | `/param-sweep-apply` | Auto-apply WFO param-sweep/param-audit results: parse pasted tables, pick best tp_r per strategy × TF, edit TOML, run backtest + recalibrate | Paste results and invoke — replaces the manual `/backtest-findings` loop |
 | `recalibrate.md` | `/recalibrate` | Update strategy star ratings in `indicators_lib.py` from DB backtest runs | After any `make buibui-backtest SAVE=1` adds new runs |
 | `volume-sweep.md` | `/volume-sweep` | Test `volume_suppress` per strategy; compare High Vol vs Low Vol avg R | When adding a new strategy; after entry logic changes that affect signal frequency |
 | `new-strategy.md` | `/new-strategy` | Guided 4-file checklist for adding a new strategy (indicators_lib, DETECTOR_REGISTRY, signals/registry, tests) | Every time a new strategy is added |

@@ -90,7 +90,7 @@ tp_r = 3.0                    # 1h+0.16R, 4h+0.16R non-monotonic but peaks here
 tp_r = 3.0                    # 1h+0.13R, 4h+0.24R
 
 [strategy_params.morning_evening_star]
-tp_r_1h = 3.0                 # 1h+0.13R (best); other TFs marginal
+tp_r_1h = 3.5                 # WFO BTC 1h OOS +0.240R (143 trades); other TFs marginal on weekdays
 
 [strategy_params.eqh_eql]
 tp_r_1h = 3.0                 # 1h+0.14R — invisible in earlier aggregated view
