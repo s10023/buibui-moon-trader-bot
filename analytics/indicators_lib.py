@@ -261,7 +261,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Minimum % move on displacement candle to qualify an order block.",
             ),
         ],
-        confidence=2,
+        confidence=1,
     ),
     "cvd_divergence": StrategySpec(
         name="cvd_divergence",
@@ -284,7 +284,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Candles of CVD history to compare swing extremes across.",
             ),
         ],
-        confidence=1,  # no CVD data in DB — never backtested
+        confidence=2,  # no CVD data in DB — never backtested
     ),
     "trend_day": StrategySpec(
         name="trend_day",
@@ -384,7 +384,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance.",
             ),
         ],
-        confidence=1,
+        confidence=2,
     ),
     "hammer_hanging_man": StrategySpec(
         name="hammer_hanging_man",
@@ -493,7 +493,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance.",
             ),
         ],
-        confidence=1,
+        confidence=2,
     ),
     # Legacy — superseded by fib_golden_zone (adds BOS confirmation, better SL/TP structure).
     # Uncomment to re-enable for backtest comparison.
