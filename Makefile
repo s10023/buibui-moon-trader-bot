@@ -9,7 +9,7 @@ SAVE ?=
 PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*" -not -path "./.venv/*")
 DOCKER_IMAGE = buibui-bot
 
-.PHONY: lint lint-md lint-md-fix lint-py-check lint-py typecheck test poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-open-trades buibui-analytics-backfill buibui-analytics-sync buibui-backtest buibui-signal-watch buibui-param-sweep buibui-recalibrate buibui-web web-install web-dev web-build web-preview web-full clean-db clean
+.PHONY: lint lint-md lint-md-fix lint-py-check lint-py typecheck test poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-open-trades buibui-analytics-backfill buibui-analytics-sync buibui-backtest buibui-signal-watch buibui-param-audit buibui-param-sweep buibui-recalibrate buibui-web web-install web-dev web-build web-preview web-full clean-db clean
 
 lint: lint-md lint-py
 
@@ -163,6 +163,16 @@ buibui-backtest:
 		$(if $(MIN_TRADES),--min-trades $(MIN_TRADES),) \
 		$(if $(SECONDARY),--secondary-symbol $(SECONDARY),) \
 		$(if $(SAVE),--save,)
+
+buibui-param-audit:
+	@echo "🔬 Running strategy audit..."
+	@poetry run python buibui.py param-audit \
+		$(if $(SYMBOL),--symbol $(SYMBOL),$(error SYMBOL is required)) \
+		$(if $(TIMEFRAME),--timeframe $(TIMEFRAME),$(error TIMEFRAME is required)) \
+		$(if $(STRATEGIES),--strategies $(STRATEGIES),) \
+		$(if $(DAYS),--days $(DAYS),) \
+		$(if $(WFO_SPLIT),--wfo-split $(WFO_SPLIT),) \
+		$(if $(FEE_PCT),--fee-pct $(FEE_PCT),)
 
 buibui-param-sweep:
 	@echo "🔬 Running WFO parameter sweep..."

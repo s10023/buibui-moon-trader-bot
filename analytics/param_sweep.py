@@ -432,6 +432,223 @@ def format_sweep_results(
 
 
 # ---------------------------------------------------------------------------
+# Batch strategy audit
+# ---------------------------------------------------------------------------
+
+_AUDIT_TP_RANGE = ParamRange("tp_r", _float_range(1.0, 5.0, 0.5))  # 9 combos, fast
+
+
+@dataclass
+class AuditRow:
+    strategy: str
+    best_is_avg_r: float | None
+    best_oos_avg_r: float | None
+    best_tp_r: float
+    oos_trades: int
+    is_trades: int
+    verdict: str  # "good" | "marginal" | "no_data" | "no_edge" | "skipped"
+    skip_reason: str = ""
+
+
+def run_strategy_audit(
+    conn: duckdb.DuckDBPyConnection,
+    symbol: str,
+    timeframe: str,
+    days: int,
+    strategies: list[str],
+    wfo_split: float,
+    min_trades: int,
+    fee_pct: float,
+) -> list[AuditRow]:
+    """Quick tp_r sweep across all strategies — produces one verdict row per strategy."""
+    import datetime
+
+    end_ms = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
+    start_ms = end_ms - days * 24 * 3_600 * 1_000
+
+    ohlcv_full = get_ohlcv(conn, symbol, timeframe, start_ms, end_ms)
+    if ohlcv_full.empty:
+        print(
+            f"  ERROR: No OHLCV data for {symbol}/{timeframe}. "
+            "Run 'buibui analytics backfill' first.",
+            file=sys.stderr,
+        )
+        return []
+
+    ohlcv_is, ohlcv_oos = _split_ohlcv(ohlcv_full, wfo_split)
+    split_ts = int(ohlcv_oos.iloc[0]["open_time"]) if not ohlcv_oos.empty else 0
+
+    rows: list[AuditRow] = []
+    is_min = max(1, min_trades // 2)
+    tp_values = _AUDIT_TP_RANGE.values
+
+    for strategy in strategies:
+        if strategy == "seasonality":
+            continue
+
+        print(f"  {strategy}...", end="", flush=True)
+
+        signals_full = detect_signals_for_strategy(
+            conn, ohlcv_full, symbol, timeframe, strategy, start_ms, end_ms
+        )
+        if signals_full is None:
+            print(" skipped (missing data)")
+            rows.append(
+                AuditRow(
+                    strategy=strategy,
+                    best_is_avg_r=None,
+                    best_oos_avg_r=None,
+                    best_tp_r=0.0,
+                    oos_trades=0,
+                    is_trades=0,
+                    verdict="skipped",
+                    skip_reason="missing funding or secondary data",
+                )
+            )
+            continue
+
+        signals_is = signals_full[signals_full["open_time"] < split_ts].copy()
+        signals_oos = signals_full[signals_full["open_time"] >= split_ts].copy()
+
+        best_is: float | None = None
+        best_oos: float | None = None
+        best_tp = float(tp_values[0])
+        best_oos_trades = 0
+        best_is_trades = 0
+
+        for tp_r in tp_values:
+            tp = float(tp_r)
+            bt_is = run_backtest(
+                ohlcv_is,
+                signals_is,
+                symbol,
+                timeframe,
+                strategy,
+                sl_pct=0.02,
+                tp_r=tp,
+                fee_pct=fee_pct,
+            )
+            bt_oos = run_backtest(
+                ohlcv_oos,
+                signals_oos,
+                symbol,
+                timeframe,
+                strategy,
+                sl_pct=0.02,
+                tp_r=tp,
+                fee_pct=fee_pct,
+            )
+
+            is_n = len(bt_is.closed_trades)
+            oos_n = len(bt_oos.closed_trades)
+            is_r = bt_is.avg_r
+            oos_r = bt_oos.avg_r
+
+            # Track best IS config (by IS avg_r, min trades threshold)
+            if is_n >= is_min and is_r is not None:
+                if best_is is None or is_r > best_is:
+                    best_is = is_r
+                    best_tp = tp
+                    best_is_trades = is_n
+                    # Capture OOS for this tp_r
+                    best_oos = oos_r
+                    best_oos_trades = oos_n
+
+        # Verdict
+        if best_is is None:
+            verdict = "no_data"
+        elif best_is < 0:
+            verdict = "no_edge"
+        elif best_oos is None or best_oos_trades < 3:
+            verdict = "no_data"
+        elif best_oos > 0.2:
+            verdict = "good"
+        elif best_oos > 0:
+            verdict = "marginal"
+        else:
+            verdict = "no_edge"
+
+        rows.append(
+            AuditRow(
+                strategy=strategy,
+                best_is_avg_r=best_is,
+                best_oos_avg_r=best_oos,
+                best_tp_r=best_tp,
+                oos_trades=best_oos_trades,
+                is_trades=best_is_trades,
+                verdict=verdict,
+            )
+        )
+        print(" done")
+
+    # Sort: good → marginal → no_data → no_edge → skipped; within tier by OOS avg_r
+    _order = {"good": 0, "marginal": 1, "no_data": 2, "no_edge": 3, "skipped": 4}
+    rows.sort(
+        key=lambda r: (_order.get(r.verdict, 5), -(r.best_oos_avg_r or float("-inf")))
+    )
+    return rows
+
+
+def format_audit_results(
+    rows: list[AuditRow],
+    symbol: str,
+    timeframe: str,
+    days: int,
+) -> str:
+    if not rows:
+        return "  No results."
+
+    _VERDICT_LABEL = {
+        "good": "✅ good",
+        "marginal": "⚠  marginal",
+        "no_data": "⚡ no data",
+        "no_edge": "✗  no edge",
+        "skipped": "—  skipped",
+    }
+
+    lines: list[str] = []
+    lines.append(f"\n{'Strategy Audit':^72}")
+    lines.append(f"  Symbol: {symbol}   TF: {timeframe}   Days: {days}")
+    lines.append(_SEP * 72)
+    lines.append(
+        f"  {'Strategy':<24}  {'Best IS':>8}  {'IS n':>4}  "
+        f"{'Best OOS':>9}  {'OOS n':>5}  {'tp_r':>5}  Verdict"
+    )
+    lines.append(_SEP * 72)
+
+    for row in rows:
+        label = _VERDICT_LABEL.get(row.verdict, row.verdict)
+        skip = f"  ({row.skip_reason})" if row.skip_reason else ""
+        lines.append(
+            f"  {row.strategy:<24}  {_fmt_r(row.best_is_avg_r):>8}  {row.is_trades:>4}  "
+            f"{_fmt_r(row.best_oos_avg_r):>9}  {row.oos_trades:>5}  {row.best_tp_r:>5.1f}  "
+            f"{label}{skip}"
+        )
+
+    lines.append(_SEP * 72)
+
+    good = [r for r in rows if r.verdict == "good"]
+    marginal = [r for r in rows if r.verdict == "marginal"]
+    no_edge = [r for r in rows if r.verdict == "no_edge"]
+
+    lines.append(
+        f"\n  Summary: {len(good)} good  {len(marginal)} marginal  "
+        f"{len(no_edge)} no-edge  "
+        f"{sum(1 for r in rows if r.verdict in ('no_data', 'skipped'))} insufficient-data"
+    )
+    if good or marginal:
+        lines.append(
+            "  Next step: deep-sweep winners with "
+            "`buibui param-sweep --strategy <name> --days 365`"
+        )
+    if no_edge:
+        names = ", ".join(r.strategy for r in no_edge)
+        lines.append(f"  Fix detector logic before re-sweeping: {names}")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 

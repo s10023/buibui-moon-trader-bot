@@ -230,6 +230,48 @@ def run_param_sweep(args: argparse.Namespace) -> None:
     print(format_sweep_results(rows, args.strategy, args.symbol, args.timeframe))
 
 
+def run_param_audit(args: argparse.Namespace) -> None:
+    import duckdb
+
+    from analytics.data_store import DEFAULT_DB_PATH
+    from analytics.indicators_lib import KNOWN_STRATEGIES
+    from analytics.param_sweep import (
+        format_audit_results,
+        run_strategy_audit,
+    )
+
+    strategies = (
+        args.strategies
+        if args.strategies
+        else [s for s in KNOWN_STRATEGIES if s != "seasonality"]
+    )
+    _tf_defaults = {"15m": 20, "1h": 12, "4h": 5, "1d": 2}
+    min_trades = (
+        args.min_trades if args.min_trades else _tf_defaults.get(args.timeframe, 8)
+    )
+
+    print(f"\nStrategy audit  {args.symbol} / {args.timeframe} / {args.days}d")
+    print(f"Strategies: {len(strategies)}  WFO split: {args.wfo_split:.0%} IS")
+
+    db_path = args.db or DEFAULT_DB_PATH
+    conn: duckdb.DuckDBPyConnection = duckdb.connect(str(db_path), read_only=True)
+    try:
+        rows = run_strategy_audit(
+            conn=conn,
+            symbol=args.symbol,
+            timeframe=args.timeframe,
+            days=args.days,
+            strategies=strategies,
+            wfo_split=args.wfo_split,
+            min_trades=min_trades,
+            fee_pct=args.fee_pct,
+        )
+    finally:
+        conn.close()
+
+    print(format_audit_results(rows, args.symbol, args.timeframe, args.days))
+
+
 def run_recalibrate(args: argparse.Namespace) -> None:
     recalibrate_runner.run(args)
 
@@ -601,6 +643,53 @@ def main() -> None:
         help="Path to DuckDB database (default: analytics.db)",
     )
     param_sweep_parser.set_defaults(func=run_param_sweep)
+
+    # Top-level 'param-audit' command
+    param_audit_parser = subparsers.add_parser(
+        "param-audit",
+        help="Quick tp_r sweep across all strategies — verdict table showing which have edge",
+    )
+    param_audit_parser.add_argument(
+        "--symbol", required=True, help="Symbol (e.g. BTCUSDT)"
+    )
+    param_audit_parser.add_argument(
+        "--timeframe", required=True, help="Timeframe (e.g. 1h)"
+    )
+    param_audit_parser.add_argument(
+        "--strategies",
+        nargs="+",
+        default=None,
+        choices=KNOWN_STRATEGIES,
+        help="Strategies to audit (default: all except seasonality)",
+    )
+    param_audit_parser.add_argument(
+        "--days", type=int, default=180, help="Days of history (default: 180)"
+    )
+    param_audit_parser.add_argument(
+        "--wfo-split",
+        type=float,
+        default=0.7,
+        dest="wfo_split",
+        help="In-sample fraction (default: 0.7)",
+    )
+    param_audit_parser.add_argument(
+        "--min-trades",
+        type=int,
+        default=0,
+        dest="min_trades",
+        help="Min IS trades to score (default: auto by TF)",
+    )
+    param_audit_parser.add_argument(
+        "--fee-pct",
+        type=float,
+        default=0.0005,
+        dest="fee_pct",
+        help="Taker fee fraction (default: 0.0005)",
+    )
+    param_audit_parser.add_argument(
+        "--db", type=str, default=None, help="DuckDB path (default: analytics.db)"
+    )
+    param_audit_parser.set_defaults(func=run_param_audit)
 
     # Top-level 'recalibrate' command
     recalibrate_parser = subparsers.add_parser(
