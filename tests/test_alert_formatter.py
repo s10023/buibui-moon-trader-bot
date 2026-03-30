@@ -4,6 +4,8 @@ from datetime import UTC, datetime
 
 from signals.alert_formatter import (
     SignalEvent,
+    StatsContext,
+    _format_stats_line,
     _get_session_label,
     format_signal_alert,
 )
@@ -142,6 +144,76 @@ class TestFormatSignalAlertSessionTag:
         ts_ms = int(dt.timestamp() * 1000)
         msg = format_signal_alert(self._make_event(ts_ms))
         assert "Kill Zone" not in msg
+
+
+class TestStatsContextFormat:
+    """Tests for _format_stats_line with new plain-English 2-line format."""
+
+    def _ctx(
+        self,
+        dow: str = "Monday",
+        p1_low: float = 0.69,
+        bull: float = 0.67,
+        adr: float = 0.043,
+        consumed: float | None = 0.82,
+        peak_hi_dow: int | None = 23,
+        peak_lo_dow: int | None = 8,
+        wk_low: float | None = 0.78,
+        wk_high: float | None = 0.65,
+    ) -> StatsContext:
+        return StatsContext(
+            today_dow=dow,
+            p1_low_pct_today=p1_low,
+            adr_14=adr,
+            adr_consumed_pct=consumed,
+            peak_high_hour_myt=14,
+            peak_low_hour_myt=8,
+            bull_pct_today=bull,
+            avg_return_today=0.01,
+            peak_high_hour_dow=peak_hi_dow,
+            peak_low_hour_dow=peak_lo_dow,
+            wk_low_still_ahead_pct=wk_low,
+            wk_high_still_ahead_pct=wk_high,
+        )
+
+    def test_long_line1_contains_bull_p1_adr(self) -> None:
+        line = _format_stats_line(self._ctx(), "long")
+        assert "Mon closes bullish 67%" in line
+        assert "Daily low set first 69% of Mondays" in line
+        assert "ADR 4.3%" in line
+        assert "82% used" in line
+
+    def test_long_line2_peak_and_weekly(self) -> None:
+        line = _format_stats_line(self._ctx(), "long")
+        assert "Daily high typically peaks ~23:00 MYT on Mondays" in line
+        assert "Weekly low: 78% of weeks still ahead" in line
+
+    def test_short_line1_high_first(self) -> None:
+        line = _format_stats_line(self._ctx(), "short")
+        # P1=High% for short = 1 - 0.69 = 0.31
+        assert "Daily high set first 31% of Mondays" in line
+
+    def test_short_line2_low_peak_and_weekly_high(self) -> None:
+        line = _format_stats_line(self._ctx(), "short")
+        assert "Daily low typically troughs ~08:00 MYT on Mondays" in line
+        assert "Weekly high: 65% of weeks still ahead" in line
+
+    def test_no_line2_when_optional_fields_none(self) -> None:
+        ctx = self._ctx(peak_hi_dow=None, peak_lo_dow=None, wk_low=None, wk_high=None)
+        line = _format_stats_line(ctx, "long")
+        assert "⏰" not in line
+
+    def test_adr_consumed_none(self) -> None:
+        ctx = self._ctx(consumed=None)
+        line = _format_stats_line(ctx, "long")
+        assert "used" not in line
+
+    def test_two_lines_separated_by_newline(self) -> None:
+        line = _format_stats_line(self._ctx(), "long")
+        lines = line.split("\n")
+        assert len(lines) == 2
+        assert lines[0].startswith("📐")
+        assert lines[1].startswith("⏰")
 
 
 class TestLowVolumeWarning:

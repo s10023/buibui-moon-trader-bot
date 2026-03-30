@@ -8,6 +8,7 @@ import pytest
 from analytics.data_store import init_schema
 from analytics.stats_lib import (
     StatsBundle,
+    WeeklyP2Timing,
     compute_adr,
     compute_all,
     compute_dow_patterns,
@@ -15,6 +16,7 @@ from analytics.stats_lib import (
     compute_p1p2_daily,
     compute_session_breakdown,
     compute_weekly_p1p2,
+    compute_weekly_p2_timing,
 )
 
 _SYMBOL = "TESTUSDT"
@@ -135,6 +137,13 @@ def test_compute_hourly_extremes_peaks(conn: duckdb.DuckDBPyConnection) -> None:
     assert result.peak_low_hour == 8, (
         f"Expected peak_low_hour=8, got {result.peak_low_hour}"
     )
+    # Per-DOW peaks should be present and match overall peaks (same pattern every day)
+    assert len(result.peak_high_hour_by_dow) > 0
+    assert len(result.peak_low_hour_by_dow) > 0
+    for h in result.peak_high_hour_by_dow.values():
+        assert h == 14, f"Per-DOW peak high should be 14, got {h}"
+    for h in result.peak_low_hour_by_dow.values():
+        assert h == 8, f"Per-DOW peak low should be 8, got {h}"
 
 
 def test_compute_adr_positive(conn: duckdb.DuckDBPyConnection) -> None:
@@ -152,6 +161,10 @@ def test_compute_dow_patterns_has_rows(conn: duckdb.DuckDBPyConnection) -> None:
         assert 0.0 <= row.bull_pct <= 1.0
         assert row.avg_range_pct > 0
         assert row.sample_days > 0
+        # close == open in test data → avg_return_pct should be 0
+        assert abs(row.avg_return_pct) < 1e-9, (
+            f"Expected avg_return_pct≈0 (close==open in fixture), got {row.avg_return_pct}"
+        )
 
 
 def test_compute_session_breakdown_has_sessions(
@@ -179,6 +192,18 @@ def test_compute_weekly_p1p2_positive(conn: duckdb.DuckDBPyConnection) -> None:
     assert result.low_day != ""
 
 
+def test_compute_weekly_p2_timing_structure(conn: duckdb.DuckDBPyConnection) -> None:
+    """WeeklyP2Timing should return dicts with values in [0, 1] for all present DOWs."""
+    result = compute_weekly_p2_timing(conn, _SYMBOL, days=30)
+    assert isinstance(result, WeeklyP2Timing)
+    assert len(result.low_still_ahead_by_dow) > 0
+    assert len(result.high_still_ahead_by_dow) > 0
+    for v in result.low_still_ahead_by_dow.values():
+        assert 0.0 <= v <= 1.0, f"low_still_ahead out of range: {v}"
+    for v in result.high_still_ahead_by_dow.values():
+        assert 0.0 <= v <= 1.0, f"high_still_ahead out of range: {v}"
+
+
 def test_compute_all_returns_bundle(conn: duckdb.DuckDBPyConnection) -> None:
     """compute_all should return a complete StatsBundle with no exceptions."""
     bundle = compute_all(conn, _SYMBOL, days=30)
@@ -193,3 +218,4 @@ def test_compute_all_returns_bundle(conn: duckdb.DuckDBPyConnection) -> None:
     assert len(bundle.dow.rows) > 0
     assert len(bundle.sessions.rows) > 0
     assert bundle.weekly_p1p2.sample_weeks > 0
+    assert len(bundle.weekly_p2_timing.low_still_ahead_by_dow) > 0

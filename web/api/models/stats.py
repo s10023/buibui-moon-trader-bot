@@ -33,6 +33,7 @@ class DOWPatternRow(BaseModel):
     avg_range_pct: float
     bull_pct: float
     sample_days: int
+    avg_return_pct: float
 
 
 class SessionRow(BaseModel):
@@ -50,6 +51,11 @@ class WeeklyP1P2Response(BaseModel):
     high_by_dow: dict[str, float]
 
 
+class WeeklyP2TimingResponse(BaseModel):
+    low_still_ahead_by_dow: dict[str, float]
+    high_still_ahead_by_dow: dict[str, float]
+
+
 class StatsResponse(BaseModel):
     symbol: str
     days: int
@@ -60,3 +66,4 @@ class StatsResponse(BaseModel):
     dow_patterns: list[DOWPatternRow]
     sessions: list[SessionRow]
     weekly_p1p2: WeeklyP1P2Response
+    weekly_p2_timing: WeeklyP2TimingResponse

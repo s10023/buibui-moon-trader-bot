@@ -75,6 +75,16 @@
       value: "ICT: Monday often sets a weekly extreme that gets swept later. This card quantifies it per symbol. If Tue makes the weekly high 34% of the time and it's Wednesday, the weekly high is likely already set.",
       example: "Weekly High: Tue 34% — if it's Thu, weekly high likely in. Bias: avoid adding longs.",
     },
+    avgReturn: {
+      what: "Average directional return per day of week — (day close − day open) / open, averaged across all occurrences of that weekday in the lookback window. Green = historically bullish day, red = historically bearish day.",
+      value: "Use as a bias filter: if Wednesday averages +1.8% historically, a long setup on Wednesday has tailwind. Combine with P1/P2 for a fuller picture.",
+      example: "Wed +1.8%, Fri −0.6% → lean longs on Wednesday, reduce exposure on Fridays.",
+    },
+    weeklyTiming: {
+      what: "Given today is a specific day of the week, what fraction of historical weeks still had their weekly LOW (or HIGH) form after that day? If today is Monday and 78% of weeks saw the weekly low form after Monday, the low is likely still ahead.",
+      value: "Context for signal direction: taking a long on Tuesday is riskier if only 35% of weeks still form the weekly low after Tuesday — the likely low is already in. Use for long entries (weekly low still ahead) or short entries (weekly high still ahead).",
+      example: "Today Mon → Weekly low still ahead 78% → good environment for longs; low likely still to come.",
+    },
   };
 
   function toggleHelp(card: string): void {
@@ -108,6 +118,12 @@
 
   const maxDOWRange = $derived(
     stats ? Math.max(...stats.dow_patterns.map((r) => r.avg_range_pct)) : 1
+  );
+
+  const maxAbsReturn = $derived(
+    stats
+      ? Math.max(...stats.dow_patterns.map((r) => Math.abs(r.avg_return_pct)), 0.001)
+      : 0.001
   );
 
   const weeklyBars = $derived(
@@ -437,6 +453,95 @@
               <span class="bar-pct">{formatPct(row.pct)}</span>
             </div>
           {/each}
+        </div>
+      </div>
+
+      <!-- Avg Return by Day -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Avg Return by Day</span>
+          <button class="help-btn" class:active={openHelp === "avgReturn"} onclick={() => toggleHelp("avgReturn")} aria-label="Help">?</button>
+        </div>
+        {#if openHelp === "avgReturn"}
+          <div class="help-panel">
+            <div class="help-section"><span class="help-label">What</span>{CARD_HELP.avgReturn.what}</div>
+            <div class="help-section"><span class="help-label">Value</span>{CARD_HELP.avgReturn.value}</div>
+            <div class="help-section help-example"><span class="help-label">e.g.</span>{CARD_HELP.avgReturn.example}</div>
+          </div>
+        {/if}
+        <div class="return-chart">
+          {#each stats.dow_patterns as row}
+            {@const ret = row.avg_return_pct}
+            {@const isPos = ret >= 0}
+            {@const barPct = (Math.abs(ret) / maxAbsReturn * 45).toFixed(1)}
+            <div class="return-col" class:today-col={row.dow === todayDOW}>
+              <div class="return-bar-wrap">
+                {#if isPos}
+                  <div class="return-spacer-bottom"></div>
+                  <div class="return-bar-pos" style="height: {barPct}px" title="{row.dow}: +{(ret * 100).toFixed(2)}%"></div>
+                {:else}
+                  <div class="return-bar-neg" style="height: {barPct}px" title="{row.dow}: {(ret * 100).toFixed(2)}%"></div>
+                  <div class="return-spacer-top"></div>
+                {/if}
+              </div>
+              <div class="return-axis-line"></div>
+              <span class="return-dow">{row.dow}</span>
+              <span class="return-val" class:val-green={isPos} class:val-red={!isPos}>
+                {isPos ? "+" : ""}{(ret * 100).toFixed(1)}%
+              </span>
+            </div>
+          {/each}
+        </div>
+      </div>
+
+      <!-- Weekly P2 Timing -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Weekly P2 Timing</span>
+          <button class="help-btn" class:active={openHelp === "weeklyTiming"} onclick={() => toggleHelp("weeklyTiming")} aria-label="Help">?</button>
+        </div>
+        {#if openHelp === "weeklyTiming"}
+          <div class="help-panel">
+            <div class="help-section"><span class="help-label">What</span>{CARD_HELP.weeklyTiming.what}</div>
+            <div class="help-section"><span class="help-label">Value</span>{CARD_HELP.weeklyTiming.value}</div>
+            <div class="help-section help-example"><span class="help-label">e.g.</span>{CARD_HELP.weeklyTiming.example}</div>
+          </div>
+        {/if}
+        <div class="p2-timing-grid">
+          <div class="p2-timing-header"></div>
+          <div class="p2-timing-header val-green">Weekly Low</div>
+          <div class="p2-timing-header val-red">Weekly High</div>
+          {#each DOW_ORDER as dow}
+            {@const lowAhead = stats.weekly_p2_timing.low_still_ahead_by_dow[dow] ?? null}
+            {@const highAhead = stats.weekly_p2_timing.high_still_ahead_by_dow[dow] ?? null}
+            <div class="p2-timing-dow" class:today-cell={dow === todayDOW}>{dow}</div>
+            <div class="p2-timing-val" class:today-cell={dow === todayDOW}>
+              {#if lowAhead !== null}
+                <div class="p2-bar-track">
+                  <div class="p2-bar-fill p2-bar-bull" style="width: {(lowAhead * 100).toFixed(0)}%"></div>
+                </div>
+                <span class:val-green={lowAhead >= 0.5} class:val-muted={lowAhead < 0.5}>{formatPct(lowAhead)}</span>
+              {:else}
+                <span class="val-muted">—</span>
+              {/if}
+            </div>
+            <div class="p2-timing-val" class:today-cell={dow === todayDOW}>
+              {#if highAhead !== null}
+                <div class="p2-bar-track">
+                  <div class="p2-bar-fill p2-bar-bear" style="width: {(highAhead * 100).toFixed(0)}%"></div>
+                </div>
+                <span class:val-red={highAhead >= 0.5} class:val-muted={highAhead < 0.5}>{formatPct(highAhead)}</span>
+              {:else}
+                <span class="val-muted">—</span>
+              {/if}
+            </div>
+          {/each}
+        </div>
+        <div class="p2-timing-note muted">
+          Typical weekly low: <span class="val-green">{stats.weekly_p1p2.low_day}</span>
+          &nbsp;·&nbsp;
+          Typical weekly high: <span class="val-red">{stats.weekly_p1p2.high_day}</span>
+          <span class="muted"> ({stats.weekly_p1p2.sample_weeks} wks)</span>
         </div>
       </div>
 
@@ -934,5 +1039,148 @@
     padding: 5px 8px;
     margin-bottom: 10px;
     line-height: 1.4;
+  }
+
+  /* Avg Return by Day chart */
+  .return-chart {
+    display: flex;
+    align-items: stretch;
+    gap: 4px;
+    padding: 8px 0 0;
+  }
+
+  .return-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+    gap: 2px;
+    border-radius: 3px;
+    padding: 2px 2px 4px;
+    transition: background 150ms;
+  }
+
+  .return-col.today-col {
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
+  }
+
+  .return-bar-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 90px;
+    justify-content: flex-end;
+    width: 100%;
+  }
+
+  /* Positive bar: grows upward — use flex column-reverse so bar sits at bottom of wrap */
+  .return-bar-pos {
+    width: 10px;
+    background: var(--green, #4caf81);
+    border-radius: 1px 1px 0 0;
+    transition: height 300ms ease;
+    align-self: center;
+  }
+
+  .return-bar-neg {
+    width: 10px;
+    background: var(--red, #e05c5c);
+    border-radius: 0 0 1px 1px;
+    transition: height 300ms ease;
+    align-self: center;
+  }
+
+  /* Spacers push bars to center axis */
+  .return-spacer-bottom { flex: 1; }
+  .return-spacer-top { flex: 1; }
+
+  .return-axis-line {
+    width: 100%;
+    height: 1px;
+    background: color-mix(in srgb, var(--border) 80%, transparent);
+  }
+
+  .return-dow {
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+
+  .return-col.today-col .return-dow {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .return-val {
+    font-size: 10px;
+    font-feature-settings: "tnum" 1;
+  }
+
+  /* Weekly P2 Timing grid */
+  .p2-timing-grid {
+    display: grid;
+    grid-template-columns: 32px 1fr 1fr;
+    gap: 3px 8px;
+    font-size: 11px;
+    margin-top: 4px;
+  }
+
+  .p2-timing-header {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 2px;
+  }
+
+  .p2-timing-dow {
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    padding: 2px 0;
+  }
+
+  .p2-timing-dow.today-cell {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .p2-timing-val {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0;
+  }
+
+  .p2-timing-val.today-cell {
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+    border-radius: 2px;
+    padding: 2px 4px;
+    margin: 0 -4px;
+  }
+
+  .p2-bar-track {
+    width: 36px;
+    height: 4px;
+    background: var(--bg, #1a1a1a);
+    border-radius: 2px;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  .p2-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 300ms ease;
+  }
+
+  .p2-bar-bull { background: color-mix(in srgb, var(--green, #4caf81) 70%, transparent); }
+  .p2-bar-bear { background: color-mix(in srgb, var(--red, #e05c5c) 70%, transparent); }
+
+  .p2-timing-note {
+    font-size: 10px;
+    margin-top: 10px;
   }
 </style>
