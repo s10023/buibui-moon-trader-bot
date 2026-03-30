@@ -602,8 +602,9 @@ poetry run python buibui.py web
 # Custom host/port with auto-reload for development
 poetry run python buibui.py web --host 0.0.0.0 --port 8000 --reload
 
-# Or via Makefile
+# Or via Makefile (override PORT if 8000 is in use)
 make buibui-web
+make buibui-web PORT=8080
 ```
 
 **Authentication:** All endpoints except `/api/health` require a Bearer token. Set `API_TOKEN` in `.env`.
@@ -625,7 +626,7 @@ SSE stream endpoints accept `?token=<API_TOKEN>` query param instead (browser `E
 | `GET` | `/api/stream/prices` | SSE — live prices every 5 s (`?token=`) |
 | `GET` | `/api/stream/positions` | SSE — live positions every 10 s (`?token=`) |
 
-**CORS:** Defaults to `http://localhost:5173` (Vite dev server). Override with `CORS_ORIGINS` env var (comma-separated).
+**CORS:** Defaults to `http://localhost:5173` (Vite dev server). Override with `CORS_ORIGINS` env var (comma-separated). If you change `DEV_PORT`, update `CORS_ORIGINS` accordingly (e.g. `CORS_ORIGINS=http://localhost:3000`).
 
 **Notes:**
 
@@ -770,11 +771,13 @@ save_results = true
 **Web frontend:**
 
 ```bash
-make web-install       # npm install in web/ui/
-make web-dev           # Vite dev server (http://localhost:5173, proxies /api to :8000)
-make web-build         # Build Svelte app → web/ui/dist/
-make web-preview       # Preview production build locally
-make web-full          # Build + start FastAPI serving the UI
+make web-install                    # npm install in web/ui/
+make web-dev                        # Vite dev server (http://localhost:5173, proxies /api to :8000)
+make web-dev DEV_PORT=3000          # Override Vite port
+make web-build                      # Build Svelte app → web/ui/dist/
+make web-preview                    # Preview production build locally
+make web-full                       # Build + start FastAPI serving the UI
+make buibui-web PORT=8080           # FastAPI on a custom port
 ```
 
 **Signal watch:**
