@@ -510,11 +510,15 @@
         {/if}
         <div class="p2-timing-grid">
           <div class="p2-timing-header"></div>
-          <div class="p2-timing-header val-green">Weekly Low</div>
-          <div class="p2-timing-header val-red">Weekly High</div>
+          <div class="p2-timing-header val-green">Low still ahead</div>
+          <div class="p2-timing-header flip-col">Low flip risk</div>
+          <div class="p2-timing-header flip-col">High flip risk</div>
+          <div class="p2-timing-header val-red">High still ahead</div>
           {#each DOW_ORDER as dow}
             {@const lowAhead = stats.weekly_p2_timing.low_still_ahead_by_dow[dow] ?? null}
             {@const highAhead = stats.weekly_p2_timing.high_still_ahead_by_dow[dow] ?? null}
+            {@const lowFlip = stats.weekly_p2_timing.low_flip_risk_by_dow[dow] ?? null}
+            {@const highFlip = stats.weekly_p2_timing.high_flip_risk_by_dow[dow] ?? null}
             <div class="p2-timing-dow" class:today-cell={dow === todayDOW}>{dow}</div>
             <div class="p2-timing-val" class:today-cell={dow === todayDOW}>
               {#if lowAhead !== null}
@@ -522,6 +526,20 @@
                   <div class="p2-bar-fill p2-bar-bull" style="width: {(lowAhead * 100).toFixed(0)}%"></div>
                 </div>
                 <span class:val-green={lowAhead >= 0.5} class:val-muted={lowAhead < 0.5}>{formatPct(lowAhead)}</span>
+              {:else}
+                <span class="val-muted">—</span>
+              {/if}
+            </div>
+            <div class="p2-timing-val flip-col" class:today-cell={dow === todayDOW}>
+              {#if lowFlip !== null}
+                <span class:val-amber={lowFlip >= 0.3} class:val-muted={lowFlip < 0.3}>{formatPct(lowFlip)}</span>
+              {:else}
+                <span class="val-muted">—</span>
+              {/if}
+            </div>
+            <div class="p2-timing-val flip-col" class:today-cell={dow === todayDOW}>
+              {#if highFlip !== null}
+                <span class:val-amber={highFlip >= 0.3} class:val-muted={highFlip < 0.3}>{formatPct(highFlip)}</span>
               {:else}
                 <span class="val-muted">—</span>
               {/if}
@@ -774,6 +792,7 @@
   .val-accent { color: var(--accent); }
   .val-green { color: var(--green, #4caf81); }
   .val-red { color: var(--red, #e05c5c); }
+  .val-amber { color: #d4a843; }
   .val-muted { color: var(--text-dim); }
 
   /* P1/P2 + Weekly DOW bars */
@@ -1110,10 +1129,15 @@
   /* Weekly P2 Timing grid */
   .p2-timing-grid {
     display: grid;
-    grid-template-columns: 32px 1fr 1fr;
+    grid-template-columns: 32px 1fr 52px 52px 1fr;
     gap: 3px 8px;
     font-size: 11px;
     margin-top: 4px;
+  }
+
+  .flip-col {
+    justify-content: center;
+    text-align: center;
   }
 
   .p2-timing-header {

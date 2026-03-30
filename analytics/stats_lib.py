@@ -137,6 +137,8 @@ class WeeklyP2Timing:
 
     low_still_ahead_by_dow: dict[str, float]  # "Mon" → 0.78
     high_still_ahead_by_dow: dict[str, float]  # "Mon" → 0.65
+    low_flip_risk_by_dow: dict[str, float]  # "Mon" → 0.42 (prob low forms AFTER Mon)
+    high_flip_risk_by_dow: dict[str, float]  # "Mon" → 0.38
 
 
 @dataclass
@@ -794,9 +796,73 @@ def compute_weekly_p2_timing(
         low_still_ahead[short] = float(low_pct) if low_pct is not None else 0.0
         high_still_ahead[short] = float(high_pct) if high_pct is not None else 0.0
 
+    # Flip risk: given today is DOW X and the running P1 is already set,
+    # what % of historical weeks saw a LOWER low (or HIGHER high) form after day X?
+    flip_rows = conn.execute(
+        """
+        WITH hourly_base AS (
+            SELECT
+                date_trunc('week', (epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP)
+                    AS week_start,
+                ISODOW(((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP)::DATE)
+                    AS candle_isodow,
+                high, low
+            FROM ohlcv
+            WHERE symbol = $symbol AND timeframe = '1h' AND open_time >= $start_ms
+        ),
+        daily_by_dow AS (
+            SELECT week_start, candle_isodow,
+                   MAX(high) AS dow_high, MIN(low) AS dow_low
+            FROM hourly_base
+            GROUP BY week_start, candle_isodow
+        ),
+        weekly_extremes AS (
+            SELECT week_start,
+                   MAX(dow_high) AS wk_high,
+                   MIN(dow_low)  AS wk_low
+            FROM daily_by_dow GROUP BY week_start
+        ),
+        cumulative AS (
+            SELECT d.week_start, d.candle_isodow,
+                   MIN(d.dow_low)  OVER (PARTITION BY d.week_start
+                                        ORDER BY d.candle_isodow
+                                        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+                       AS cum_low,
+                   MAX(d.dow_high) OVER (PARTITION BY d.week_start
+                                        ORDER BY d.candle_isodow
+                                        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+                       AS cum_high
+            FROM daily_by_dow d
+        ),
+        with_flips AS (
+            SELECT c.candle_isodow,
+                   (we.wk_low  < c.cum_low)::INT  AS low_flip,
+                   (we.wk_high > c.cum_high)::INT AS high_flip
+            FROM cumulative c
+            JOIN weekly_extremes we ON c.week_start = we.week_start
+        )
+        SELECT candle_isodow,
+               SUM(low_flip)::DOUBLE  / NULLIF(COUNT(*), 0) AS low_flip_risk,
+               SUM(high_flip)::DOUBLE / NULLIF(COUNT(*), 0) AS high_flip_risk
+        FROM with_flips
+        GROUP BY candle_isodow
+        ORDER BY candle_isodow
+        """,
+        {"symbol": symbol, "start_ms": start},
+    ).fetchall()
+
+    low_flip_risk: dict[str, float] = {}
+    high_flip_risk: dict[str, float] = {}
+    for isodow, low_fr, high_fr in flip_rows:
+        short = _ISODOW_TO_SHORT[int(isodow)]
+        low_flip_risk[short] = float(low_fr) if low_fr is not None else 0.0
+        high_flip_risk[short] = float(high_fr) if high_fr is not None else 0.0
+
     return WeeklyP2Timing(
         low_still_ahead_by_dow=low_still_ahead,
         high_still_ahead_by_dow=high_still_ahead,
+        low_flip_risk_by_dow=low_flip_risk,
+        high_flip_risk_by_dow=high_flip_risk,
     )
 
 

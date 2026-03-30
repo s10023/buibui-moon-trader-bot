@@ -91,6 +91,8 @@ def _bundle_to_response(bundle: StatsBundle) -> StatsResponse:
     p2_timing_resp = WeeklyP2TimingResponse(
         low_still_ahead_by_dow=bundle.weekly_p2_timing.low_still_ahead_by_dow,
         high_still_ahead_by_dow=bundle.weekly_p2_timing.high_still_ahead_by_dow,
+        low_flip_risk_by_dow=bundle.weekly_p2_timing.low_flip_risk_by_dow,
+        high_flip_risk_by_dow=bundle.weekly_p2_timing.high_flip_risk_by_dow,
     )
 
     return StatsResponse(

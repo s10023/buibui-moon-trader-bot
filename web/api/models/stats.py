@@ -54,6 +54,8 @@ class WeeklyP1P2Response(BaseModel):
 class WeeklyP2TimingResponse(BaseModel):
     low_still_ahead_by_dow: dict[str, float]
     high_still_ahead_by_dow: dict[str, float]
+    low_flip_risk_by_dow: dict[str, float]
+    high_flip_risk_by_dow: dict[str, float]
 
 
 class StatsResponse(BaseModel):

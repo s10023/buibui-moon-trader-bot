@@ -372,6 +372,8 @@ export interface WeeklyP1P2Response {
 export interface WeeklyP2TimingResponse {
   low_still_ahead_by_dow: Record<string, number>;
   high_still_ahead_by_dow: Record<string, number>;
+  low_flip_risk_by_dow: Record<string, number>;
+  high_flip_risk_by_dow: Record<string, number>;
 }
 
 export interface StatsResponse {

@@ -198,10 +198,16 @@ def test_compute_weekly_p2_timing_structure(conn: duckdb.DuckDBPyConnection) -> 
     assert isinstance(result, WeeklyP2Timing)
     assert len(result.low_still_ahead_by_dow) > 0
     assert len(result.high_still_ahead_by_dow) > 0
+    assert len(result.low_flip_risk_by_dow) > 0
+    assert len(result.high_flip_risk_by_dow) > 0
     for v in result.low_still_ahead_by_dow.values():
         assert 0.0 <= v <= 1.0, f"low_still_ahead out of range: {v}"
     for v in result.high_still_ahead_by_dow.values():
         assert 0.0 <= v <= 1.0, f"high_still_ahead out of range: {v}"
+    for v in result.low_flip_risk_by_dow.values():
+        assert 0.0 <= v <= 1.0, f"low_flip_risk out of range: {v}"
+    for v in result.high_flip_risk_by_dow.values():
+        assert 0.0 <= v <= 1.0, f"high_flip_risk out of range: {v}"
 
 
 def test_compute_all_returns_bundle(conn: duckdb.DuckDBPyConnection) -> None:
