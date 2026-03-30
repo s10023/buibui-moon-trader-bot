@@ -9,7 +9,7 @@
   const DOW_ORDER = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
   let symbol = $state("BTCUSDT");
-  let days = $state(180);
+  let days = $state(365);
   let stats = $state<StatsResponse | null>(null);
   let loading = $state(false);
   let error = $state<string | null>(null);
@@ -476,13 +476,14 @@
             {@const barPct = (Math.abs(ret) / maxAbsReturn * 45).toFixed(1)}
             <div class="return-col" class:today-col={row.dow === todayDOW}>
               <div class="return-bar-wrap">
-                {#if isPos}
-                  <div class="return-spacer-bottom"></div>
-                  <div class="return-bar-pos" style="height: {barPct}px" title="{row.dow}: +{(ret * 100).toFixed(2)}%"></div>
-                {:else}
-                  <div class="return-bar-neg" style="height: {barPct}px" title="{row.dow}: {(ret * 100).toFixed(2)}%"></div>
-                  <div class="return-spacer-top"></div>
-                {/if}
+                <div class="return-bar-spacer"></div>
+                <div
+                  class="return-bar"
+                  class:return-bar-pos={isPos}
+                  class:return-bar-neg={!isPos}
+                  style="height: {barPct}px"
+                  title="{row.dow}: {isPos ? '+' : ''}{(ret * 100).toFixed(2)}%"
+                ></div>
               </div>
               <div class="return-axis-line"></div>
               <span class="return-dow">{row.dow}</span>
@@ -1069,30 +1070,20 @@
     flex-direction: column;
     align-items: center;
     height: 90px;
-    justify-content: flex-end;
     width: 100%;
   }
 
-  /* Positive bar: grows upward — use flex column-reverse so bar sits at bottom of wrap */
-  .return-bar-pos {
+  .return-bar-spacer { flex: 1; }
+
+  .return-bar {
     width: 10px;
-    background: var(--green, #4caf81);
     border-radius: 1px 1px 0 0;
     transition: height 300ms ease;
-    align-self: center;
+    min-height: 2px;
   }
 
-  .return-bar-neg {
-    width: 10px;
-    background: var(--red, #e05c5c);
-    border-radius: 0 0 1px 1px;
-    transition: height 300ms ease;
-    align-self: center;
-  }
-
-  /* Spacers push bars to center axis */
-  .return-spacer-bottom { flex: 1; }
-  .return-spacer-top { flex: 1; }
+  .return-bar-pos { background: var(--green, #4caf81); }
+  .return-bar-neg { background: var(--red, #e05c5c); }
 
   .return-axis-line {
     width: 100%;
