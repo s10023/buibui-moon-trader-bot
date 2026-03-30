@@ -425,6 +425,23 @@ def _compute_stats_context(
         # Today's ADR consumed
         adr_consumed = bundle.adr.today_consumed_pct
 
+        # DOW row for bull% and avg return
+        dow_row = next((r for r in bundle.dow.rows if r.dow == dow_short), None)
+        bull_pct_today = dow_row.bull_pct if dow_row else 0.5
+        avg_return_today = dow_row.avg_return_pct if dow_row else 0.0
+
+        # Per-DOW peak hours
+        peak_high_hour_dow = bundle.hourly.peak_high_hour_by_dow.get(dow_short)
+        peak_low_hour_dow = bundle.hourly.peak_low_hour_by_dow.get(dow_short)
+
+        # Weekly timing
+        wk_low_still_ahead = bundle.weekly_p2_timing.low_still_ahead_by_dow.get(
+            dow_short
+        )
+        wk_high_still_ahead = bundle.weekly_p2_timing.high_still_ahead_by_dow.get(
+            dow_short
+        )
+
         return StatsContext(
             today_dow=dow_full,
             p1_low_pct_today=p1_low_today,
@@ -432,6 +449,12 @@ def _compute_stats_context(
             adr_consumed_pct=adr_consumed,
             peak_high_hour_myt=bundle.hourly.peak_high_hour,
             peak_low_hour_myt=bundle.hourly.peak_low_hour,
+            bull_pct_today=bull_pct_today,
+            avg_return_today=avg_return_today,
+            peak_high_hour_dow=peak_high_hour_dow,
+            peak_low_hour_dow=peak_low_hour_dow,
+            wk_low_still_ahead_pct=wk_low_still_ahead,
+            wk_high_still_ahead_pct=wk_high_still_ahead,
         )
     except Exception:
         logger.debug("_compute_stats_context failed for %s — skipping", symbol)

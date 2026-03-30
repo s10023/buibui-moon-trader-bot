@@ -51,35 +51,71 @@ def _stars(n: int) -> str:
 
 @dataclass
 class StatsContext:
-    """Statistical context for a signal alert — appended as a single summary line."""
+    """Statistical context for a signal alert — appended as two plain-English lines."""
 
     today_dow: str  # e.g. "Thursday"
     p1_low_pct_today: float  # P1=Low % for today's DOW, e.g. 0.58
     adr_14: float  # 14-day ADR as fraction, e.g. 0.028
     adr_consumed_pct: float | None  # today_range / adr_14, or None if unknown
-    peak_high_hour_myt: int  # hour most likely to produce daily high
-    peak_low_hour_myt: int  # hour most likely to produce daily low
+    peak_high_hour_myt: int  # overall peak high hour (MYT) — kept for backwards compat
+    peak_low_hour_myt: int  # overall peak low hour (MYT) — kept for backwards compat
+    bull_pct_today: float = 0.5  # % of this DOW that closed bullish, e.g. 0.67
+    avg_return_today: float = 0.0  # avg directional return this DOW, e.g. +0.021
+    peak_high_hour_dow: int | None = None  # per-DOW peak high hour (MODE per DOW)
+    peak_low_hour_dow: int | None = None  # per-DOW peak low hour
+    wk_low_still_ahead_pct: float | None = (
+        None  # % weeks where weekly low still to come
+    )
+    wk_high_still_ahead_pct: float | None = (
+        None  # % weeks where weekly high still to come
+    )
 
 
-def _format_stats_line(ctx: "StatsContext") -> str:
-    """Format the stats context as a single summary line for Telegram."""
+def _format_stats_line(ctx: "StatsContext", direction: str) -> str:
+    """Format the stats context as two plain-English lines for Telegram.
+
+    Line 1: bull%, P1 context (direction-aware), ADR
+    Line 2: per-DOW peak hour + weekly timing (direction-aware)
+    """
     dow_short = ctx.today_dow[:3]
+    dow_plural = ctx.today_dow + "s"  # e.g. "Mondays"
     consumed = (
         f" ({ctx.adr_consumed_pct:.0%} used)"
         if ctx.adr_consumed_pct is not None
         else ""
     )
-    hi_h = ctx.peak_high_hour_myt
-    lo_h = ctx.peak_low_hour_myt
-    if hi_h == lo_h:
-        peak_str = f"Peak ~{hi_h:02d}:00 MYT (Hi+Lo)"
+    bull_str = f"{dow_short} closes bullish {ctx.bull_pct_today:.0%}"
+
+    is_long = direction != "short"
+    if is_long:
+        p1_str = f"Daily low set first {ctx.p1_low_pct_today:.0%} of {dow_plural}"
     else:
-        peak_str = f"Hi ~{hi_h:02d}:00 · Lo ~{lo_h:02d}:00 MYT"
-    return (
-        f"📐 {dow_short}: P1=Low {ctx.p1_low_pct_today:.0%}"
-        f" · ADR {ctx.adr_14:.1%}{consumed}"
-        f" · {peak_str}"
-    )
+        p1_str = f"Daily high set first {1 - ctx.p1_low_pct_today:.0%} of {dow_plural}"
+
+    line1 = f"📐 {bull_str} · {p1_str} · ADR {ctx.adr_14:.1%}{consumed}"
+
+    parts2 = []
+    if is_long and ctx.peak_high_hour_dow is not None:
+        parts2.append(
+            f"Daily high typically peaks ~{ctx.peak_high_hour_dow:02d}:00 MYT on {dow_plural}"
+        )
+    elif not is_long and ctx.peak_low_hour_dow is not None:
+        parts2.append(
+            f"Daily low typically troughs ~{ctx.peak_low_hour_dow:02d}:00 MYT on {dow_plural}"
+        )
+
+    if is_long and ctx.wk_low_still_ahead_pct is not None:
+        parts2.append(
+            f"Weekly low: {ctx.wk_low_still_ahead_pct:.0%} of weeks still ahead"
+        )
+    elif not is_long and ctx.wk_high_still_ahead_pct is not None:
+        parts2.append(
+            f"Weekly high: {ctx.wk_high_still_ahead_pct:.0%} of weeks still ahead"
+        )
+
+    if parts2:
+        return line1 + "\n⏰ " + " · ".join(parts2)
+    return line1
 
 
 @dataclass
@@ -216,5 +252,5 @@ def format_confluence_alert(
     if backtest_summary:
         msg += f"\n\n{backtest_summary}"
     if stats_context is not None:
-        msg += f"\n{_format_stats_line(stats_context)}"
+        msg += f"\n{_format_stats_line(stats_context, first.direction)}"
     return msg

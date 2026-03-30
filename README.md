@@ -22,13 +22,13 @@ A tactical crypto trading bot designed for fast, risk-managed, and confident ent
 - **24/7 Signal Detection Daemon**
   Polls closed candles every 5 minutes, runs 19 strategies (FVG, BOS, liquidity sweep, SMT divergence,
   CVD divergence, and more), and sends Telegram alerts with computed SL/TP levels. Two-layer dedup prevents spam.
-  Alerts include a statistical context line: P1/P2 day bias, ADR consumed %, and empirical high/low peak hour.
+  Alerts include a 2-line statistical context: direction-aware P1/P2 day bias, ADR consumed %, per-DOW empirical peak hour, and weekly P2 timing probability.
 
 - **Statistical Context Engine** *(new)*
   BrighterData-style probability dashboard computed from historical OHLCV. Per-symbol stats:
   P1/P2 daily (was low made before high? by day-of-week), hourly extreme distribution (empirical kill zones),
   average daily range + today's consumed %, day-of-week patterns, session (Asia/London/NY) breakdown, and
-  weekly P1/P2. Cached in DB, served via `GET /api/stats/{symbol}`, shown on the Stats web page.
+  weekly P1/P2, avg return by day-of-week, and weekly P2 timing with P1 flip risk. Cached in DB, served via `GET /api/stats/{symbol}`, shown on the Stats web page.
 
 - **Manual Multi-Trade Entry Script** *(planned)*
   Open multiple trades (BTC, ETH, alts) in one go, using USD-based sizing with automatic SL & leverage.
@@ -128,11 +128,14 @@ The Stats page (`#/stats`) shows BrighterData-style probability tables computed 
 | **Day-of-Week Patterns** | Average range (relative bar), bull/bear split bar + %, and sample count (N = number of that weekday in the lookback window). | Today's DOW row highlighted. |
 | **Session Breakdown** | Which session (Asia 00–07 / London 14–21 / NY 20–03 MYT) most often makes the daily high vs low. Columns don't sum to 100% — London/NY overlap (20–21 MYT) is counted in both. | Active sessions shown with a pulsing ● indicator. |
 | **Weekly P1/P2** | Which day of the week most commonly forms the weekly high vs low, shown as a per-DOW bar chart. | Toggle **Bear** (when does weekly HIGH form?) or **Bull** (when does weekly LOW form?). Defaults to Bear. Today's DOW highlighted. |
+| **Avg Return by Day** | Average `(close−open)/open` per weekday — shows which days are historically bullish or bearish. Bars grow from bottom; green = positive, red = negative. | Today's DOW highlighted. |
+| **Weekly P2 Timing** | 5-column per-DOW table: how often the weekly low/high is still ahead after each DOW (still-ahead %) and how often the running P1 gets undercut later in the week (flip risk %). | Today's DOW highlighted; flip risk ≥ 30% shown in amber. |
 
-A one-line summary of the most actionable stats is also injected into every Telegram signal alert:
+A 2-line summary of the most actionable stats is injected into every Telegram signal alert:
 
 ```text
-📐 Thu: P1=Low 62% · ADR 2.8% (43% used) · High peak ~14:00 MYT
+📐 Mon closes bullish 67% · Daily low set first 69% of Mondays · ADR 4.3% (82% used)
+⏰ Daily high typically peaks ~23:00 MYT on Mondays · Weekly low: 78% of weeks still ahead
 ```
 
 ---
