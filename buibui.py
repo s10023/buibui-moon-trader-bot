@@ -709,6 +709,13 @@ def main() -> None:
         dest="min_trades",
         help="Minimum total closed trades required to recalibrate a strategy (default: 10)",
     )
+    recalibrate_parser.add_argument(
+        "--day-filter",
+        type=str,
+        default=None,
+        dest="day_filter",
+        help="Only use backtest runs saved with this day_filter value (e.g. tue_thu)",
+    )
     recalibrate_parser.set_defaults(func=run_recalibrate)
 
     # Top-level 'web' command
