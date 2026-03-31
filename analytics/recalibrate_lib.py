@@ -11,17 +11,24 @@ import duckdb
 import pandas as pd
 
 
-def get_backtest_win_rates(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
+def get_backtest_win_rates(
+    conn: duckdb.DuckDBPyConnection,
+    day_filter: str | None = None,
+) -> pd.DataFrame:
     """Query backtest_runs grouped by (strategy, tf), return win_rate, avg_r, total_trades.
 
     Groups across all symbols for each (strategy, timeframe) combination.
     Only the latest run per (strategy, timeframe, symbol) is used — older runs
     from previous param sweeps are excluded to avoid polluting the ratings.
     Only includes rows where closed_trades > 0.
+    If day_filter is provided, only runs saved with that day_filter value are used.
     Returns a DataFrame with columns:
         strategy, timeframe, total_trades, win_rate, avg_r
     """
-    return conn.execute("""
+    day_filter_clause = "AND day_filter = ?" if day_filter is not None else ""
+    params = [day_filter] if day_filter is not None else []
+    return conn.execute(
+        f"""
         WITH latest AS (
             SELECT *,
                    ROW_NUMBER() OVER (
@@ -29,6 +36,7 @@ def get_backtest_win_rates(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
                        ORDER BY run_at_ms DESC
                    ) AS rn
             FROM backtest_runs
+            WHERE 1=1 {day_filter_clause}
         )
         SELECT
             strategy,
@@ -41,7 +49,9 @@ def get_backtest_win_rates(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
           AND closed_trades > 0
         GROUP BY strategy, timeframe
         ORDER BY strategy, timeframe
-    """).df()
+        """,
+        params,
+    ).df()
 
 
 def win_rate_to_stars(
@@ -72,13 +82,15 @@ def win_rate_to_stars(
 def compute_recalibrated_ratings(
     conn: duckdb.DuckDBPyConnection,
     min_trades: int = 10,
+    day_filter: str | None = None,
 ) -> dict[str, dict[str, int]]:
     """Return {strategy: {tf: stars}} for strategies with sufficient data.
 
     Each (strategy, timeframe) is rated independently from the backtest DB.
     Strategies with fewer total trades than min_trades for a given TF are excluded.
+    If day_filter is provided, only runs saved with that day_filter value are used.
     """
-    df = get_backtest_win_rates(conn)
+    df = get_backtest_win_rates(conn, day_filter=day_filter)
     if df.empty:
         return {}
 

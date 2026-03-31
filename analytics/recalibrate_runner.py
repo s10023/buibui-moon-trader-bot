@@ -34,12 +34,15 @@ def run(
     """
     apply: bool = getattr(args, "apply", False)
     min_trades: int = getattr(args, "min_trades", 10)
+    day_filter: str | None = getattr(args, "day_filter", None)
 
     conn: duckdb.DuckDBPyConnection = duckdb.connect(str(db_path))
     try:
         init_schema(conn)
-        win_rates = get_backtest_win_rates(conn)
-        new_ratings = compute_recalibrated_ratings(conn, min_trades=min_trades)
+        win_rates = get_backtest_win_rates(conn, day_filter=day_filter)
+        new_ratings = compute_recalibrated_ratings(
+            conn, min_trades=min_trades, day_filter=day_filter
+        )
     finally:
         conn.close()
 

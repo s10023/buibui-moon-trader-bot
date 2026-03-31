@@ -193,6 +193,7 @@ buibui-recalibrate:
 	@echo "⭐ Recalibrating confidence star ratings from backtest DB..."
 	@poetry run python buibui.py recalibrate \
 		$(if $(MIN_TRADES),--min-trades $(MIN_TRADES),) \
+		$(if $(DAY_FILTER),--day-filter $(DAY_FILTER),) \
 		$(if $(APPLY),--apply,)
 
 buibui-signal-watch:
