@@ -591,6 +591,19 @@ class TestDetectFundingExtreme:
 
 
 class TestDetectSmtDivergence:
+    """Tests for pivot-based SMT divergence detection.
+
+    The detector uses a centred swing_n=5 pivot window (11 candles wide).
+    A pivot at candle k is confirmed once k + swing_n candles have formed.
+    The signal fires at the first candle i >= k + swing_n.
+
+    To build clear synthetic pivot highs we use a V-shape or peak pattern:
+    ramp up to a peak then ramp down so the peak candle has lower neighbours
+    on both sides (satisfies centred-window max condition).
+    """
+
+    # ---- helpers -----------------------------------------------------------
+
     def _make_aligned_ohlcv(
         self,
         highs_p: list[float],
@@ -626,6 +639,24 @@ class TestDetectSmtDivergence:
         ]
         return _make_ohlcv(rows_p), _make_ohlcv(rows_s)
 
+    def _pivot_high_series(
+        self, n: int, pivot_idx: int, peak_val: float, base_val: float = 100.0
+    ) -> list[float]:
+        """Return a flat-then-spike-then-flat series with one clear pivot high."""
+        out = [base_val] * n
+        out[pivot_idx] = peak_val
+        return out
+
+    def _pivot_low_series(
+        self, n: int, pivot_idx: int, trough_val: float, base_val: float = 100.0
+    ) -> list[float]:
+        """Return a flat-then-dip-then-flat series with one clear pivot low."""
+        out = [base_val] * n
+        out[pivot_idx] = trough_val
+        return out
+
+    # ---- basic guard tests -------------------------------------------------
+
     def test_returns_empty_on_empty_primary(self) -> None:
         secondary = _make_ohlcv([_candle(_BASE_TIME, 100, 110, 90, 100)])
         result = detect_smt_divergence(pd.DataFrame(), secondary)
@@ -636,110 +667,227 @@ class TestDetectSmtDivergence:
         result = detect_smt_divergence(primary, pd.DataFrame())
         assert result.empty
 
-    def test_detects_bearish_smt(self) -> None:
-        # Primary makes new high, secondary does not. Use trend_filter=0 to test
-        # divergence detection logic independently of the trend filter.
-        n = 15
-        highs_p = [100.0 + i for i in range(n)]  # primary always rising
+    def test_returns_empty_on_too_few_candles(self) -> None:
+        n = 10  # fewer than lookback + swing_n + 1 = 50 + 5 + 1 = 56
+        highs = [100.0] * n
+        lows = [90.0] * n
+        df_p, df_s = self._make_aligned_ohlcv(highs, lows, highs, lows)
+        result = detect_smt_divergence(df_p, df_s)
+        assert result.empty
+
+    # ---- pivot-based bearish SMT -------------------------------------------
+
+    def test_detects_bearish_smt_pivot(self) -> None:
+        """Primary makes two confirmed swing highs (second > first); secondary does NOT.
+
+        Layout (swing_n=3 for compact test, lookback=20):
+          n = 40 candles total
+          pivot1_idx = 8  → confirmed at 8+3 = 11
+          pivot2_idx = 20 → confirmed at 20+3 = 23
+          signal candle i = 24 (within lookback=20 of pivot2)
+        """
+        swing_n = 3
+        lookback = 20
+        n = 40
+
+        # Primary: two swing highs — second is higher (bearish SMT setup)
+        highs_p = [100.0] * n
+        highs_p[8] = 105.0  # pivot1
+        highs_p[20] = 110.0  # pivot2 > pivot1 → new structural high
+
+        # Secondary: one swing high that is NOT exceeded — no new structural high
+        highs_s = [100.0] * n
+        highs_s[8] = 104.0  # secondary pivot1
+
         lows_p = [90.0] * n
-        highs_s = [100.0] * n  # secondary flat (never makes new high after window)
-        highs_s[-1] = 99.0  # secondary's last is below window max
         lows_s = [90.0] * n
 
         df_p, df_s = self._make_aligned_ohlcv(highs_p, lows_p, highs_s, lows_s)
-        result = detect_smt_divergence(df_p, df_s, lookback=10, trend_filter=0)
+        result = detect_smt_divergence(
+            df_p, df_s, lookback=lookback, trend_filter=0, swing_n=swing_n
+        )
         short_signals = result[result["direction"] == "short"]
         assert len(short_signals) >= 1
 
-    def test_detects_bullish_smt(self) -> None:
-        # Primary makes new low, secondary does not. Use trend_filter=0 to test
-        # divergence detection logic independently of the trend filter.
-        n = 15
+    # ---- pivot-based bullish SMT -------------------------------------------
+
+    def test_detects_bullish_smt_pivot(self) -> None:
+        """Primary makes two confirmed swing lows (second < first); secondary does NOT."""
+        swing_n = 3
+        lookback = 20
+        n = 40
+
+        # Primary: two swing lows — second is lower (bullish SMT setup)
+        lows_p = [90.0] * n
+        lows_p[8] = 85.0  # pivot1
+        lows_p[20] = 80.0  # pivot2 < pivot1 → new structural low
+
+        # Secondary: one swing low that is NOT exceeded
+        lows_s = [90.0] * n
+        lows_s[8] = 86.0  # secondary pivot1
+
         highs_p = [110.0] * n
-        lows_p = [100.0 - i for i in range(n)]  # primary always falling
         highs_s = [110.0] * n
-        lows_s = [100.0] * n  # secondary flat
-        lows_s[-1] = 101.0  # secondary's last is above window min
 
         df_p, df_s = self._make_aligned_ohlcv(highs_p, lows_p, highs_s, lows_s)
-        result = detect_smt_divergence(df_p, df_s, lookback=10, trend_filter=0)
+        result = detect_smt_divergence(
+            df_p, df_s, lookback=lookback, trend_filter=0, swing_n=swing_n
+        )
         long_signals = result[result["direction"] == "long"]
         assert len(long_signals) >= 1
 
-    def test_no_divergence_when_both_correlated(self) -> None:
-        # Both symbols move identically
-        n = 15
-        highs = [100.0 + i for i in range(n)]
-        lows = [90.0] * n
-        df_p, df_s = self._make_aligned_ohlcv(highs, lows, highs, lows)
-        result = detect_smt_divergence(df_p, df_s, lookback=10)
-        # No short signals (both make new highs together)
+    # ---- no-divergence case ------------------------------------------------
+
+    def test_no_signal_when_both_confirm_new_swing_high(self) -> None:
+        """Both primary and secondary make a new structural swing high → no divergence."""
+        swing_n = 3
+        lookback = 20
+        n = 40
+
+        highs_p = [100.0] * n
+        highs_p[8] = 105.0
+        highs_p[20] = 110.0  # primary new high
+
+        highs_s = [100.0] * n
+        highs_s[8] = 104.0
+        highs_s[20] = 109.0  # secondary also makes new high → no divergence
+
+        lows_p = [90.0] * n
+        lows_s = [90.0] * n
+
+        df_p, df_s = self._make_aligned_ohlcv(highs_p, lows_p, highs_s, lows_s)
+        result = detect_smt_divergence(
+            df_p, df_s, lookback=lookback, trend_filter=0, swing_n=swing_n
+        )
         short_signals = result[result["direction"] == "short"]
         assert short_signals.empty
 
-    def test_signal_columns(self) -> None:
-        n = 15
-        highs_p = [100.0 + i for i in range(n)]
+    def test_no_signal_when_both_confirm_new_swing_low(self) -> None:
+        """Both primary and secondary make a new structural swing low → no divergence."""
+        swing_n = 3
+        lookback = 20
+        n = 40
+
         lows_p = [90.0] * n
-        highs_s = [100.0] * n
-        highs_s[-1] = 99.0
+        lows_p[8] = 85.0
+        lows_p[20] = 80.0  # primary new low
+
         lows_s = [90.0] * n
+        lows_s[8] = 86.0
+        lows_s[20] = 81.0  # secondary also makes new low → no divergence
+
+        highs_p = [110.0] * n
+        highs_s = [110.0] * n
+
         df_p, df_s = self._make_aligned_ohlcv(highs_p, lows_p, highs_s, lows_s)
-        result = detect_smt_divergence(df_p, df_s, lookback=10, trend_filter=0)
+        result = detect_smt_divergence(
+            df_p, df_s, lookback=lookback, trend_filter=0, swing_n=swing_n
+        )
+        long_signals = result[result["direction"] == "long"]
+        assert long_signals.empty
+
+    # ---- signal structure --------------------------------------------------
+
+    def test_signal_columns(self) -> None:
+        swing_n = 3
+        lookback = 20
+        n = 40
+
+        highs_p = [100.0] * n
+        highs_p[8] = 105.0
+        highs_p[20] = 110.0
+
+        highs_s = [100.0] * n
+        highs_s[8] = 104.0
+
+        lows_p = [90.0] * n
+        lows_s = [90.0] * n
+
+        df_p, df_s = self._make_aligned_ohlcv(highs_p, lows_p, highs_s, lows_s)
+        result = detect_smt_divergence(
+            df_p, df_s, lookback=lookback, trend_filter=0, swing_n=swing_n
+        )
         _assert_signal_columns(result)
 
+    # ---- trend filter ------------------------------------------------------
+
     def test_trend_filter_suppresses_bearish_smt_in_uptrend(self) -> None:
-        # Primary makes new high (bearish SMT) but close > EMA → filter should suppress short
-        n = 15
-        highs_p = [100.0 + i for i in range(n)]
-        lows_p = [90.0] * n
+        """Bearish SMT pivot fires but close > EMA → trend_filter=1 suppresses it."""
+        swing_n = 3
+        lookback = 20
+        n = 40
+
+        highs_p = [100.0] * n
+        highs_p[8] = 105.0
+        highs_p[20] = 110.0
+
         highs_s = [100.0] * n
-        highs_s[-1] = 99.0
+        highs_s[8] = 104.0
+
+        lows_p = [90.0] * n
         lows_s = [90.0] * n
-        # Close well above 100 so EMA(50) stays below close → close > EMA → short suppressed
-        closes_p = [200.0] * n
+        # Close well above high — EMA will be below close → short suppressed
+        closes_p = [300.0] * n
 
         df_p, df_s = self._make_aligned_ohlcv(
             highs_p, lows_p, highs_s, lows_s, closes_p
         )
-        result = detect_smt_divergence(df_p, df_s, lookback=10, trend_filter=1)
+        result = detect_smt_divergence(
+            df_p, df_s, lookback=lookback, trend_filter=1, swing_n=swing_n
+        )
         short_signals = result[result["direction"] == "short"]
         assert short_signals.empty
 
     def test_trend_filter_suppresses_bullish_smt_in_downtrend(self) -> None:
-        # Primary makes new low (bullish SMT) but close < EMA → filter should suppress long
-        n = 15
+        """Bullish SMT pivot fires but close < EMA → trend_filter=1 suppresses it."""
+        swing_n = 3
+        lookback = 20
+        n = 40
+
+        lows_p = [90.0] * n
+        lows_p[8] = 85.0
+        lows_p[20] = 80.0
+
+        lows_s = [90.0] * n
+        lows_s[8] = 86.0
+
         highs_p = [110.0] * n
-        lows_p = [100.0 - i for i in range(n)]
         highs_s = [110.0] * n
-        lows_s = [100.0] * n
-        lows_s[-1] = 101.0
-        # Close well below 100 so EMA(50) stays above close → close < EMA → long suppressed
-        closes_p = [50.0] * n
+        # Close well below lows — EMA will be above close → long suppressed
+        closes_p = [10.0] * n
 
         df_p, df_s = self._make_aligned_ohlcv(
             highs_p, lows_p, highs_s, lows_s, closes_p
         )
-        result = detect_smt_divergence(df_p, df_s, lookback=10, trend_filter=1)
+        result = detect_smt_divergence(
+            df_p, df_s, lookback=lookback, trend_filter=1, swing_n=swing_n
+        )
         long_signals = result[result["direction"] == "long"]
         assert long_signals.empty
 
     def test_trend_filter_off_passes_counter_trend_signal(self) -> None:
-        # With trend_filter=0, signal passes even when close > EMA (bearish counter-trend)
-        n = 15
-        highs_p = [100.0 + i for i in range(n)]
-        lows_p = [90.0] * n
+        """With trend_filter=0, bearish SMT signal fires even when close > EMA."""
+        swing_n = 3
+        lookback = 20
+        n = 40
+
+        highs_p = [100.0] * n
+        highs_p[8] = 105.0
+        highs_p[20] = 110.0
+
         highs_s = [100.0] * n
-        highs_s[-1] = 99.0
+        highs_s[8] = 104.0
+
+        lows_p = [90.0] * n
         lows_s = [90.0] * n
-        closes_p = [
-            200.0
-        ] * n  # close above EMA — would be filtered with trend_filter=1
+        closes_p = [300.0] * n  # would suppress with trend_filter=1
 
         df_p, df_s = self._make_aligned_ohlcv(
             highs_p, lows_p, highs_s, lows_s, closes_p
         )
-        result = detect_smt_divergence(df_p, df_s, lookback=10, trend_filter=0)
+        result = detect_smt_divergence(
+            df_p, df_s, lookback=lookback, trend_filter=0, swing_n=swing_n
+        )
         short_signals = result[result["direction"] == "short"]
         assert len(short_signals) >= 1
 
