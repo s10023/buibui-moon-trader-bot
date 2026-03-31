@@ -228,7 +228,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
             ),
         ],
         requires_secondary=True,
-        confidence={"15m": 1, "1h": 1, "4h": 1},
+        confidence={"15m": 2, "1d": 4, "1h": 3, "4h": 2},
     ),
     "eqh_eql": StrategySpec(
         name="eqh_eql",
