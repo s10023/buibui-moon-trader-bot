@@ -404,16 +404,17 @@
           <th class="sortable num-col" onclick={() => setSort("closed_trades")}>Trades <span class="si">{sortIcon("closed_trades")}</span></th>
           <th class="sortable num-col" onclick={() => setSort("avg_r")}>Avg R <span class="si">{sortIcon("avg_r")}</span></th>
           <th class="sortable num-col" onclick={() => setSort("total_r")}>Total R <span class="si">{sortIcon("total_r")}</span></th>
+          <th class="sortable num-col dd-col" onclick={() => setSort("max_drawdown_r")}>Max DD <span class="si">{sortIcon("max_drawdown_r")}</span></th>
           <th class="sortable" onclick={() => setSort("day_filter")}>Day Filter <span class="si">{sortIcon("day_filter")}</span></th>
           <th class="sortable" onclick={() => setSort("run_at_ms")}>Date <span class="si">{sortIcon("run_at_ms")}</span></th>
         </tr>
       </thead>
       <tbody>
         {#if runsLoading}
-          <tr><td colspan="14" class="msg-cell">Loading…</td></tr>
+          <tr><td colspan="15" class="msg-cell">Loading…</td></tr>
         {:else if filteredRuns.length === 0}
           <tr>
-            <td colspan="14" class="msg-cell">
+            <td colspan="15" class="msg-cell">
               {hasActiveFilters ? "No results match current filters." : "No runs saved — run a backtest first."}
             </td>
           </tr>
@@ -432,6 +433,7 @@
               <td class="num muted">{run.closed_trades}</td>
               <td class="num" class:pos={run.avg_r > 0} class:neg={run.avg_r < 0}>{fmtR(run.avg_r)}</td>
               <td class="num" class:pos={run.total_r > 0} class:neg={run.total_r < 0}>{fmtR(run.total_r)}</td>
+              <td class="num dd-val" class:dd-bad={run.max_drawdown_r > 10}>-{run.max_drawdown_r.toFixed(1)}R</td>
               <td class="muted small">{run.day_filter}</td>
               <td class="muted small nowrap">{fmtDate(run.run_at_ms)}</td>
             </tr>
@@ -804,4 +806,9 @@
   td.dir-long.dir-pos  { color: var(--green); }
   td.dir-short.dir-pos { color: var(--green); }
   td.dir-nil           { color: var(--border); letter-spacing: 0.05em; }
+
+  /* ── Max DD column ─────────────────────────────────────────────────────── */
+  th.dd-col  { color: var(--red); opacity: 0.65; }
+  td.dd-val  { color: var(--muted); font-feature-settings: "tnum" 1; }
+  td.dd-bad  { color: var(--red); }
 </style>
