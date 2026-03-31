@@ -217,6 +217,7 @@
           {candles}
           {signals}
           {symbol}
+          {timeframe}
           {funding}
           {showFunding}
           {oi}
