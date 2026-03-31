@@ -78,7 +78,7 @@ fee_pct = 0.0005        # 0.05% taker fee per leg; set 0.0 to disable
 trend_day        = ["4h", "1d"]       # 15m mean_r=-0.082 suppressed
 fib_golden_zone  = ["4h", "1d"]       # 15m mean_r=-0.254, 1h mean_r=-0.195 suppressed
 eqh_eql          = ["4h", "1d"]       # 15m mean_r=-0.137, 1h mean_r=-0.056 suppressed
-smt_divergence   = ["1h"]             # 4h mean_r=-0.808, 15m mean_r=-0.137 suppressed
+smt_divergence   = ["15m", "1h", "4h", "1d"]             # post-A18 pivot fix: all combos positive except BTCUSDT 4h (-0.58R); suppressed at runtime by hard-mode filter_threshold=0.3
 orb              = ["1h", "4h", "1d"] # 15m mean_r=-0.163 suppressed
 bos              = ["15m", "1h", "4h"] # 1d mean_r=-0.785 suppressed; 4h mean_r=+0.223 re-enabled
 pin_bar          = ["15m", "1h", "4h", "1d"] # 4h mean_r=-0.137 on weekdays; +0.40R on tue_thu (unlocked)
@@ -162,6 +162,13 @@ tp_r_4h = 5.0                 # WFO BTC 4h OOS +0.519R (53 trades)
 
 [strategy_params.orb]
 tp_r = 3.0                    # 1h+0.14R (183 trades), 4h+0.17R (119 trades)
+
+# BTCUSDT 4h: -0.58R (15.1% win rate, 53 trades) — only bad SMT combo post-A18 fix.
+# Hard-mode filter_threshold=0.3 suppresses at runtime. True per-symbol TF exclusion
+# not yet supported in SymbolOverride (only tp_r/sl_pct/atr_sl). Track as code gap if needed.
+[strategy_params.smt_divergence.BTCUSDT]
+# No param override — BTC 4h relies on hard-mode backtest gate to suppress.
+# If per-symbol TF exclusion is added to SymbolOverride, exclude_tfs = ["4h"] here.
 
 # SMT divergence pairs — primary → secondary (must be in coins.json)
 [smt_pairs]
