@@ -80,10 +80,11 @@ fib_golden_zone  = ["4h", "1d"]       # 15m mean_r=-0.254, 1h mean_r=-0.195 supp
 eqh_eql          = ["4h", "1d"]       # 15m mean_r=-0.137, 1h mean_r=-0.056 suppressed
 smt_divergence   = ["1h"]             # 4h mean_r=-0.808, 15m mean_r=-0.137 suppressed
 orb              = ["1h", "4h", "1d"] # 15m mean_r=-0.163 suppressed
-bos              = ["15m", "1h", "1d"]# 4h mean_r=-0.111 suppressed
+bos              = ["15m", "1h", "4h"] # 1d mean_r=-0.785 suppressed; 4h mean_r=+0.223 re-enabled
 pin_bar          = ["15m", "1h", "4h", "1d"] # 4h mean_r=-0.137 on weekdays; +0.40R on tue_thu (unlocked)
 liquidity_sweep  = ["1h", "1d"]       # 15m mean_r=-0.116, 4h mean_r=-0.160 suppressed
-cvd_divergence   = ["15m", "4h", "1d"]# 1h mean_r=-0.174 suppressed
+cvd_divergence   = ["15m", "1h", "4h", "1d"] # 1h mean_r=+0.535 re-enabled
+morning_evening_star = ["15m", "1h", "4h"] # 1d mean_r=-0.105 suppressed
 marubozu         = ["4h", "1d"]       # 15m mean_r=-0.120, 1h mean_r=-0.229 suppressed
 
 # Per-strategy parameter overrides — tp_r and sl_pct.
