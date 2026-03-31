@@ -2004,14 +2004,14 @@ pytest = ">=7.0.0"
 
 [[package]]
 name = "python-binance"
-version = "1.0.35"
+version = "1.0.36"
 description = "Binance REST API python implementation"
 optional = false
 python-versions = "*"
 groups = ["main"]
 files = [
-    {file = "python_binance-1.0.35-py2.py3-none-any.whl", hash = "sha256:6a6a291182788f88c11991537164db80335281cda0424b5e059528d69e8f10d8"},
-    {file = "python_binance-1.0.35.tar.gz", hash = "sha256:afa1a53c9bf9438cabcbef3fe2a1abf9f57237ec75d0efedecd2246ccdf21e51"},
+    {file = "python_binance-1.0.36-py2.py3-none-any.whl", hash = "sha256:4a7ffdf9c0e43cdc8136a5169993f6f6520bb8b3334e2fbc9ed127ab4fb3c8b6"},
+    {file = "python_binance-1.0.36.tar.gz", hash = "sha256:d7b0668ff1b620b30d95b52f9f61b557748eac2d6c4d5f17fe21c356e5e0c541"},
 ]
 
 [package.dependencies]
