@@ -52,14 +52,9 @@ def run(
             print("\n  Nothing to apply — no strategies had sufficient backtest data.")
             return
         patched = write_confidence_to_source(new_ratings, source_path)
-        changed = [n for n in patched if new_ratings[n] != old_ratings.get(n, 0)]
-        print(
-            f"\n  Patched {len(patched)} strategy/ies in {source_path.name}"
-            f" ({len(changed)} changed)."
-        )
-        for name in sorted(changed):
-            old = old_ratings.get(name, 0)
-            print(f"    {name}: {old}★ → {new_ratings[name]}★")
+        print(f"\n  Patched {len(patched)} strategy/ies in {source_path.name}.")
+        for name in sorted(patched):
+            print(f"    {name}: {new_ratings[name]}")
         if patched:
             print("\n  Restart signal watch to pick up the new ratings.")
     else:

@@ -517,9 +517,9 @@ class TestStrategyRegistration:
         ]
         for name in new_strategies:
             spec = STRATEGY_REGISTRY[name]
-            assert 1 <= spec.confidence <= 5, (
-                f"{name} confidence {spec.confidence} out of range"
-            )
+            for tf in ("15m", "1h", "4h", "1d"):
+                c = spec.get_confidence(tf)
+                assert 1 <= c <= 5, f"{name}/{tf} confidence {c} out of range"
 
     def test_new_strategies_not_require_funding_or_secondary(self) -> None:
         new_strategies = [
@@ -550,8 +550,3 @@ class TestStrategyRegistration:
         ]
         for name in new_strategies:
             assert name in SIGNAL_REGISTRY, f"{name!r} missing from SIGNAL_REGISTRY"
-            # Confidence must match
-            assert (
-                SIGNAL_REGISTRY[name]["confidence"]
-                == STRATEGY_REGISTRY[name].confidence
-            )

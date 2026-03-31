@@ -307,7 +307,7 @@ class TestDetectFibGoldenZone:
     def test_strategy_registry_entry(self) -> None:
         assert "fib_golden_zone" in STRATEGY_REGISTRY
         spec = STRATEGY_REGISTRY["fib_golden_zone"]
-        assert spec.confidence >= 1
+        assert spec.get_confidence("4h") >= 1
         param_names = [p.name for p in spec.params]
         assert "swing_lookback" in param_names
         assert "bos_lookback" in param_names
@@ -316,7 +316,6 @@ class TestDetectFibGoldenZone:
         from signals.registry import SIGNAL_REGISTRY
 
         assert "fib_golden_zone" in SIGNAL_REGISTRY
-        assert SIGNAL_REGISTRY["fib_golden_zone"]["confidence"] >= 1
 
 
 # ---------------------------------------------------------------------------
@@ -387,7 +386,7 @@ class TestDetectOteEntry:
     def test_strategy_registry_entry(self) -> None:
         assert "ote_entry" in STRATEGY_REGISTRY
         spec = STRATEGY_REGISTRY["ote_entry"]
-        assert spec.confidence >= 1
+        assert spec.get_confidence("4h") >= 1
         param_names = [p.name for p in spec.params]
         assert "swing_lookback" in param_names
         assert "bos_lookback" in param_names
@@ -396,7 +395,6 @@ class TestDetectOteEntry:
         from signals.registry import SIGNAL_REGISTRY
 
         assert "ote_entry" in SIGNAL_REGISTRY
-        assert SIGNAL_REGISTRY["ote_entry"]["confidence"] >= 1
 
     def test_ote_more_selective_than_golden_zone(self) -> None:
         """OTE zone and golden zone are non-overlapping; both produce valid DataFrames."""

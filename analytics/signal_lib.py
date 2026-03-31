@@ -318,7 +318,9 @@ def scan_symbol(
                     price=latest_close,
                     sl_price=float(row["sl_price"]),
                     context=str(row["context"]),
-                    confidence=SIGNAL_REGISTRY[strategy_name]["confidence"],
+                    confidence=STRATEGY_REGISTRY[strategy_name].get_confidence(
+                        timeframe
+                    ),
                     low_volume=bool(row.get("low_volume", False)),
                 )
             )

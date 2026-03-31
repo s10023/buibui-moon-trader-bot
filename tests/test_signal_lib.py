@@ -556,7 +556,11 @@ class TestDayFilter:
                     "fvg": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": False},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 3,
+                        },
                     )(),
                 },
             ),
@@ -592,7 +596,11 @@ class TestDayFilter:
                     "fvg": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": False},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 3,
+                        },
                     )(),
                 },
             ),
@@ -628,7 +636,11 @@ class TestDayFilter:
                     "fvg": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": False},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 3,
+                        },
                     )(),
                 },
             ),
@@ -664,7 +676,11 @@ class TestDayFilter:
                     "fvg": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": False},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 3,
+                        },
                     )(),
                 },
             ),
@@ -700,7 +716,11 @@ class TestDayFilter:
                     "fvg": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": False},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 3,
+                        },
                     )(),
                 },
             ),
@@ -736,7 +756,11 @@ class TestDayFilter:
                     "fvg": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": False},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 3,
+                        },
                     )(),
                 },
             ),
@@ -780,7 +804,11 @@ class TestDayFilter:
                     "fvg": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": False},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 3,
+                        },
                     )(),
                 },
             ),
@@ -829,7 +857,11 @@ class TestDayFilter:
                     "fvg": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": False},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 3,
+                        },
                     )(),
                 },
             ),
@@ -935,7 +967,11 @@ class TestSMTTrendFilter:
                     "smt_divergence": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": True},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": True,
+                            "get_confidence": lambda self, tf: 3,
+                        },
                     )(),
                 },
             ),
@@ -982,7 +1018,11 @@ class TestSMTTrendFilter:
                     "smt_divergence": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": True},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": True,
+                            "get_confidence": lambda self, tf: 3,
+                        },
                     )(),
                 },
             ),
@@ -1028,7 +1068,11 @@ class TestSMTTrendFilter:
                     "smt_divergence": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": True},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": True,
+                            "get_confidence": lambda self, tf: 3,
+                        },
                     )(),
                 },
             ),
@@ -1069,7 +1113,11 @@ class TestSMTTrendFilter:
                     "fvg": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": False},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 3,
+                        },
                     )(),
                 },
             ),
@@ -1163,7 +1211,11 @@ class TestStrategyParamsAlertTpR:
                     "engulfing": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": False},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 3,
+                        },
                     )(),
                 },
             ),
@@ -1258,7 +1310,13 @@ class TestStrategyTimeframes:
     def _mock_spec_registry(self, strategy: str) -> dict[str, Any]:
         return {
             strategy: type(
-                "S", (), {"requires_funding": False, "requires_secondary": False}
+                "S",
+                (),
+                {
+                    "requires_funding": False,
+                    "requires_secondary": False,
+                    "get_confidence": lambda self, tf: 3,
+                },
             )()
         }
 
@@ -1486,12 +1544,20 @@ class TestConflictResolution:
                     "fvg": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": False},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 4,
+                        },
                     )(),
                     "bos": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": False},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 2,
+                        },
                     )(),
                 },
             ),
@@ -1541,12 +1607,20 @@ class TestConflictResolution:
                     "fvg": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": False},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 3,
+                        },
                     )(),
                     "smt_divergence": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": False},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 5,
+                        },
                     )(),
                 },
             ),
@@ -1591,12 +1665,20 @@ class TestConflictResolution:
                     "fvg": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": False},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 3,
+                        },
                     )(),
                     "bos": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": False},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 3,
+                        },
                     )(),
                 },
             ),
@@ -1642,12 +1724,20 @@ class TestConflictResolution:
                     "fvg": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": False},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 5,
+                        },
                     )(),
                     "bos": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": False},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 3,
+                        },
                     )(),
                 },
             ),
@@ -1690,7 +1780,11 @@ class TestConflictResolution:
                     "fvg": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": False},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 3,
+                        },
                     )(),
                 },
             ),
@@ -1785,7 +1879,11 @@ class TestSignalOutcomePersistence:
                     "fvg": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": False},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 3,
+                        },
                     )()
                 },
             ),
@@ -1822,7 +1920,11 @@ class TestSignalOutcomePersistence:
                     "fvg": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": False},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 3,
+                        },
                     )()
                 },
             ),
@@ -1933,7 +2035,11 @@ class TestBacktestRunPersistence:
                     "fvg": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": False},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 3,
+                        },
                     )()
                 },
             ),
@@ -1993,7 +2099,11 @@ class TestBacktestRunPersistence:
                     "fvg": type(
                         "S",
                         (),
-                        {"requires_funding": False, "requires_secondary": False},
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 3,
+                        },
                     )()
                 },
             ),
