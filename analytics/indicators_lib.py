@@ -165,7 +165,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Minimum gap size as fraction of midpoint price (0.001 = 0.1%); filters noise.",
             ),
         ],
-        confidence={"15m": 1, "1d": 1, "1h": 1, "4h": 1},
+        confidence={"15m": 1, "1d": 3, "1h": 1, "4h": 1},
     ),
     "bos": StrategySpec(
         name="bos",
@@ -188,7 +188,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Minimum price range (fraction) a swing level must span to qualify for BOS/CHoCH.",
             ),
         ],
-        confidence={"15m": 2, "1d": 1, "1h": 2, "4h": 3},
+        confidence={"15m": 3, "1d": 1, "1h": 2, "4h": 3},
     ),
     "funding_reversion": StrategySpec(
         name="funding_reversion",
@@ -278,7 +278,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Minimum % move on displacement candle to qualify an order block.",
             ),
         ],
-        confidence={"1d": 4, "4h": 1},
+        confidence={"15m": 1, "1d": 4, "1h": 1, "4h": 1},
     ),
     "cvd_divergence": StrategySpec(
         name="cvd_divergence",

@@ -36,7 +36,8 @@ strategies = [
     'hammer_hanging_man',
     'doji',
     'morning_evening_star',
-    'fib_golden_zone'
+    'fib_golden_zone',
+    'fvg'
 ]
 
 # SL/TP defaults
@@ -86,6 +87,7 @@ liquidity_sweep  = ["1h", "1d"]       # 15m mean_r=-0.116, 4h mean_r=-0.160 supp
 cvd_divergence   = ["15m", "1h", "4h", "1d"] # 1h mean_r=+0.535 re-enabled
 morning_evening_star = ["15m", "1h", "4h"] # 1d mean_r=-0.105 suppressed
 marubozu         = ["4h", "1d"]       # 15m mean_r=-0.120, 1h mean_r=-0.229 suppressed
+order_block      = ["4h", "1d"]       # 15m mean_r=-0.22, 1h mean_r=-0.33 suppressed; 4h+0.03R/1d+0.09R marginally positive but below filter_threshold=0.3 — runtime gate handles suppression
 
 # Per-strategy parameter overrides — tp_r and sl_pct.
 # Lookup order: TF-specific key (e.g. tp_r_4h) → strategy-wide tp_r → global tp_r.
