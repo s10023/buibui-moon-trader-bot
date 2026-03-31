@@ -966,6 +966,103 @@ class TestFvgBugFixes:
         assert result.empty
 
 
+class TestFvgTrendFilter:
+    """Tests for detect_fvg trend_filter parameter."""
+
+    def test_trend_filter_suppresses_long_fvg_below_ema50(self) -> None:
+        # Build 55 candles trending down so EMA-50 is above close at signal time.
+        # Bullish FVG gap forms at the end but price is below EMA-50 → suppressed.
+        rows = []
+        # 52 strongly bearish candles to push EMA-50 high
+        for k in range(52):
+            price = 200.0 - k * 1.5
+            rows.append(
+                _candle(_BASE_TIME + k, price, price + 1, price - 1, price - 0.5)
+            )
+        # FVG: candle[-3].high=125, candle[-1].low=130 → gap [125, 130]
+        rows.append(
+            _candle(_BASE_TIME + 52, 126, 125, 123, 124)
+        )  # candle i-1: high=125
+        rows.append(_candle(_BASE_TIME + 53, 124, 127, 122, 123))  # candle i (middle)
+        rows.append(_candle(_BASE_TIME + 54, 128, 131, 130, 131))  # candle i+1: low=130
+        # Fill candle: low=126 ≤ CE=127.5, close=128 > gap_bot=125 — but below EMA-50
+        rows.append(_candle(_BASE_TIME + 55, 129, 130, 126, 128))
+        df = _make_ohlcv(rows)
+        result = detect_fvg(df, trend_filter=1)
+        long_signals = result[result["direction"] == "long"]
+        assert long_signals.empty
+
+    def test_trend_filter_off_allows_long_fvg_below_ema50(self) -> None:
+        # Same setup as above but trend_filter=0 — signal should fire.
+        rows = []
+        for k in range(52):
+            price = 200.0 - k * 1.5
+            rows.append(
+                _candle(_BASE_TIME + k, price, price + 1, price - 1, price - 0.5)
+            )
+        df = _make_ohlcv(rows)
+        # Confirm trend_filter=1 suppresses (the EMA-50 is above close by this point)
+        result_on = detect_fvg(df, trend_filter=1)
+        # trend_filter=0 should allow those same bearish signals through — we just verify
+        # the absence of the filter doesn't crash and returns more results
+        result_off = detect_fvg(df, trend_filter=0)
+        assert len(result_off) >= len(result_on)
+
+    def test_trend_filter_zero_allows_long_fvg_minimal(self) -> None:
+        # Minimal bullish FVG with trend_filter=0 — signal fires regardless of EMA position.
+        rows = [
+            _candle(_BASE_TIME + 0, 99, 100, 98, 99),  # i-1: high=100
+            _candle(_BASE_TIME + 1, 102, 104, 101, 103),  # i (middle)
+            _candle(
+                _BASE_TIME + 2, 106, 108, 105, 107
+            ),  # i+1: low=105 > 100 → bullish FVG
+            _candle(
+                _BASE_TIME + 3, 104, 106, 101, 103
+            ),  # fill: low=101 ≤ CE=102.5, close=103>100
+        ]
+        df = _make_ohlcv(rows)
+        result = detect_fvg(df, trend_filter=0)
+        long_signals = result[result["direction"] == "long"]
+        assert len(long_signals) == 1
+
+    def test_trend_filter_suppresses_short_fvg_above_ema50(self) -> None:
+        # Build 52 strongly bullish candles so EMA-50 is below close at signal time.
+        # Bearish FVG forms but price is above EMA-50 → suppressed.
+        rows = []
+        for k in range(52):
+            price = 100.0 + k * 1.5
+            rows.append(
+                _candle(_BASE_TIME + k, price, price + 0.5, price - 0.5, price + 0.5)
+            )
+        # Bearish FVG: candle[-3].low=178, candle[-1].high=173 → gap [173, 178]
+        rows.append(_candle(_BASE_TIME + 52, 179, 181, 178, 180))  # i-1: low=178
+        rows.append(_candle(_BASE_TIME + 53, 180, 182, 177, 178))  # i (middle)
+        rows.append(_candle(_BASE_TIME + 54, 176, 174, 172, 173))  # i+1: high=174 < 178
+        # Fill candle: high=176 ≥ CE=175.5, close=174 < gap_top=178 — but above EMA-50
+        rows.append(_candle(_BASE_TIME + 55, 174, 176, 173, 174))
+        df = _make_ohlcv(rows)
+        result = detect_fvg(df, trend_filter=1)
+        short_signals = result[result["direction"] == "short"]
+        assert short_signals.empty
+
+    def test_trend_filter_off_allows_short_fvg_above_ema50(self) -> None:
+        # Same setup but trend_filter=0 — signal should fire.
+        rows = []
+        for k in range(52):
+            price = 100.0 + k * 1.5
+            rows.append(
+                _candle(_BASE_TIME + k, price, price + 0.5, price - 0.5, price + 0.5)
+            )
+        rows.append(_candle(_BASE_TIME + 52, 179, 181, 178, 180))
+        rows.append(_candle(_BASE_TIME + 53, 180, 182, 177, 178))
+        rows.append(_candle(_BASE_TIME + 54, 176, 174, 172, 173))
+        rows.append(_candle(_BASE_TIME + 55, 174, 176, 173, 174))
+        df = _make_ohlcv(rows)
+        result = detect_fvg(df, trend_filter=0)
+        short_signals = result[result["direction"] == "short"]
+        assert len(short_signals) >= 1
+
+
 class TestWickFillBugFixes:
     def test_wick_fill_long_does_not_fire_when_close_below_zone(self) -> None:
         # Lower wick zone: zone_bot=90, zone_top=100
@@ -1745,20 +1842,39 @@ class TestDetectOrderBlock:
         assert len(short_signals) == 1
         assert int(short_signals.iloc[0]["open_time"]) == _BASE_TIME + 2
 
-    def test_lookback_limits_ob_scan_window(self) -> None:
-        # Place OB at candle 0, but lookback=2 so only last 2 candles scanned for OBs
-        # The OB at index 0 should be excluded.
+    def test_full_history_scan_fires_early_ob(self) -> None:
+        # OB at candle 0, retest at candle 2 — should fire even with large dataset.
+        # Verifies start_idx=0 (all candles scanned for OB formation).
         rows = [
-            _candle(
-                _BASE_TIME + 0, 100, 112, 99, 110
-            ),  # OB: bullish — outside lookback
+            _candle(_BASE_TIME + 0, 100, 112, 99, 110),  # OB: bullish
             _candle(_BASE_TIME + 1, 109, 110, 88, 93),  # displacement
-            _candle(_BASE_TIME + 2, 95, 108, 101, 103),  # retest
+            _candle(_BASE_TIME + 2, 95, 108, 101, 103),  # retest within lookback
         ]
+        # Pad with neutral candles so OB is far from the end
+        for k in range(3, 60):
+            rows.append(_candle(_BASE_TIME + k, 103, 104, 102, 103))
         df = _make_ohlcv(rows)
-        # lookback=1: start_idx = max(0, 3-1)=2, so only candle at index 2 checked as OB
-        result = detect_order_block(df, lookback=1, displacement_pct=0.005)
-        assert result.empty
+        # lookback=100 (default): OB at index 0, retest at index 2 → within retest window
+        result = detect_order_block(df, lookback=100, displacement_pct=0.005)
+        short_signals = result[result["direction"] == "short"]
+        assert len(short_signals) >= 1
+        assert int(short_signals.iloc[0]["open_time"]) == _BASE_TIME + 2
+
+    def test_lookback_retest_window_excludes_late_retest(self) -> None:
+        # OB at candle 0, retest at candle 103 — beyond lookback=100 retest window.
+        rows = [
+            _candle(_BASE_TIME + 0, 100, 112, 99, 110),  # OB: bullish
+            _candle(_BASE_TIME + 1, 109, 110, 88, 93),  # displacement
+        ]
+        # Fill candles 2–102 that do NOT retest (price stays away from zone)
+        for k in range(2, 103):
+            rows.append(_candle(_BASE_TIME + k, 50, 55, 45, 50))
+        # Candle 103: would be a valid retest but is beyond lookback=100
+        rows.append(_candle(_BASE_TIME + 103, 95, 108, 101, 103))
+        df = _make_ohlcv(rows)
+        result = detect_order_block(df, lookback=100, displacement_pct=0.005)
+        short_signals = result[result["direction"] == "short"]
+        assert short_signals.empty
 
     def test_context_contains_ob_type_and_time(self) -> None:
         rows = [

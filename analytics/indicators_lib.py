@@ -165,7 +165,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Minimum gap size as fraction of midpoint price (0.001 = 0.1%); filters noise.",
             ),
         ],
-        confidence={"15m": 1, "1d": 1, "1h": 1, "4h": 1},
+        confidence={"15m": 1, "1d": 3, "1h": 1, "4h": 1},
     ),
     "bos": StrategySpec(
         name="bos",
@@ -188,7 +188,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Minimum price range (fraction) a swing level must span to qualify for BOS/CHoCH.",
             ),
         ],
-        confidence={"15m": 2, "1d": 1, "1h": 2, "4h": 3},
+        confidence={"15m": 3, "1d": 1, "1h": 2, "4h": 3},
     ),
     "funding_reversion": StrategySpec(
         name="funding_reversion",
@@ -278,7 +278,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Minimum % move on displacement candle to qualify an order block.",
             ),
         ],
-        confidence={"1d": 4, "4h": 1},
+        confidence={"15m": 1, "1d": 4, "1h": 1, "4h": 1},
     ),
     "cvd_divergence": StrategySpec(
         name="cvd_divergence",
@@ -1192,6 +1192,7 @@ def detect_fvg(
     df: pd.DataFrame,
     lookback: int = 50,
     min_gap_pct: float = 0.001,
+    trend_filter: int = 1,
 ) -> pd.DataFrame:
     """Detect Fair Value Gap (3-candle imbalance) fill signals.
 
@@ -1203,12 +1204,18 @@ def detect_fvg(
 
     min_gap_pct: suppress FVGs whose size is < min_gap_pct * midpoint price.
     Default 0.001 (0.1%) filters out tiny imbalances that are noise.
+
+    trend_filter: 1 (default) enables EMA-50 trend gate — long FVGs only fire
+    when close > EMA-50; short FVGs only fire when close < EMA-50. Set to 0 to
+    disable and allow signals regardless of trend direction.
     """
     n = len(df)
     if n < 3:
         return _empty_signals()
 
     signals: list[dict[str, object]] = []
+
+    ema50 = df["close"].ewm(span=50, adjust=False).mean()
 
     for i in range(1, n - 1):
         prev_high = float(df.iloc[i - 1]["high"])
@@ -1234,15 +1241,16 @@ def detect_fvg(
             for j in range(i + 2, end):
                 fut = df.iloc[j]
                 if float(fut["low"]) <= ce and float(fut["close"]) > gap_bot:
-                    signals.append(
-                        {
-                            "open_time": int(fut["open_time"]),
-                            "direction": "long",
-                            "reason": f"fvg_long@{gap_bot:.2f}-{gap_top:.2f}",
-                            "sl_price": gap_bot,
-                            "context": fvg_ctx,
-                        }
-                    )
+                    if trend_filter == 0 or float(fut["close"]) > float(ema50.iloc[j]):
+                        signals.append(
+                            {
+                                "open_time": int(fut["open_time"]),
+                                "direction": "long",
+                                "reason": f"fvg_long@{gap_bot:.2f}-{gap_top:.2f}",
+                                "sl_price": gap_bot,
+                                "context": fvg_ctx,
+                            }
+                        )
                     break
 
         if prev_low > nxt_high:
@@ -1255,15 +1263,16 @@ def detect_fvg(
             for j in range(i + 2, end):
                 fut = df.iloc[j]
                 if float(fut["high"]) >= ce and float(fut["close"]) < gap_top:
-                    signals.append(
-                        {
-                            "open_time": int(fut["open_time"]),
-                            "direction": "short",
-                            "reason": f"fvg_short@{gap_top:.2f}-{gap_bot:.2f}",
-                            "sl_price": gap_top,
-                            "context": fvg_ctx,
-                        }
-                    )
+                    if trend_filter == 0 or float(fut["close"]) < float(ema50.iloc[j]):
+                        signals.append(
+                            {
+                                "open_time": int(fut["open_time"]),
+                                "direction": "short",
+                                "reason": f"fvg_short@{gap_top:.2f}-{gap_bot:.2f}",
+                                "sl_price": gap_top,
+                                "context": fvg_ctx,
+                            }
+                        )
                     break
 
     return _signals_to_df(signals)
@@ -1782,7 +1791,7 @@ def detect_eqh_eql(
 
 def detect_order_block(
     df: pd.DataFrame,
-    lookback: int = 50,
+    lookback: int = 100,
     displacement_pct: float = 0.003,
 ) -> pd.DataFrame:
     """Detect ICT Order Block retest signals.
@@ -1799,7 +1808,9 @@ def detect_order_block(
     (candle enters [ob_close, ob_open]) after the displacement.
     SL = ob candle low.
 
-    Only OBs formed within the last `lookback` candles are considered.
+    All candles are scanned for OB formation (full history).
+    `lookback` — max candles forward to search for a retest after the OB forms.
+    This prevents stale OBs from generating signals months after formation.
     """
     n = len(df)
     if n < 3:
@@ -1812,9 +1823,8 @@ def detect_order_block(
     open_times = df["open_time"].to_numpy(dtype=int)
 
     signals: list[dict[str, object]] = []
-    start_idx = max(0, n - lookback)
 
-    for i in range(start_idx, n - 2):
+    for i in range(0, n - 2):
         ob_open = opens[i]
         ob_high = highs[i]
         ob_low = lows[i]
@@ -1827,7 +1837,8 @@ def detect_order_block(
             ob_zone_bot = ob_open
             ob_zone_top = ob_close
             ctx = f"Bearish OB: {_fmt_time(ob_time)} [{ob_zone_bot:,.2f}–{ob_zone_top:,.2f}]"
-            for j in range(i + 2, n):
+            retest_end = min(i + 2 + lookback, n)
+            for j in range(i + 2, retest_end):
                 # Retest: candle enters OB zone and closes below zone top
                 if (
                     highs[j] >= ob_zone_bot
@@ -1850,7 +1861,8 @@ def detect_order_block(
             ob_zone_bot = ob_close
             ob_zone_top = ob_open
             ctx = f"Bullish OB: {_fmt_time(ob_time)} [{ob_zone_bot:,.2f}–{ob_zone_top:,.2f}]"
-            for j in range(i + 2, n):
+            retest_end = min(i + 2 + lookback, n)
+            for j in range(i + 2, retest_end):
                 # Retest: candle enters OB zone and closes above zone bot
                 if (
                     lows[j] <= ob_zone_top
