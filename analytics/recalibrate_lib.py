@@ -14,19 +14,30 @@ def get_backtest_win_rates(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     """Query backtest_runs grouped by (strategy, tf), return win_rate, avg_r, total_trades.
 
     Groups across all symbols for each (strategy, timeframe) combination.
+    Only the latest run per (strategy, timeframe, symbol) is used — older runs
+    from previous param sweeps are excluded to avoid polluting the ratings.
     Only includes rows where closed_trades > 0.
     Returns a DataFrame with columns:
         strategy, timeframe, total_trades, win_rate, avg_r
     """
     return conn.execute("""
+        WITH latest AS (
+            SELECT *,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY strategy, timeframe, symbol
+                       ORDER BY run_at_ms DESC
+                   ) AS rn
+            FROM backtest_runs
+        )
         SELECT
             strategy,
             timeframe,
             SUM(closed_trades)                                                AS total_trades,
             ROUND(SUM(win_count) * 1.0 / NULLIF(SUM(closed_trades), 0), 4)  AS win_rate,
             ROUND(AVG(avg_r), 4)                                             AS avg_r
-        FROM backtest_runs
-        WHERE closed_trades > 0
+        FROM latest
+        WHERE rn = 1
+          AND closed_trades > 0
         GROUP BY strategy, timeframe
         ORDER BY strategy, timeframe
     """).df()
