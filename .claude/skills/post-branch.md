@@ -42,12 +42,20 @@ automatically as part of wrapping up a branch.
 7. Report what was updated (or confirmed unchanged) for each file. Be explicit — "README: no
    changes needed (internal refactor only)" is useful; silence is not.
 
+## PR Summary
+
+The PR summary must follow the template in `.claude/skills/pr-summary.md` exactly —
+read that file before writing. Do not compose from scratch or skip sections.
+The template requires: PR Title, Background, Summary, How it works, Params/Config,
+Test plan (CI items pre-ticked), Stats, and the Claude Code footer.
+
 ## Output format
 
 ```
 CLAUDE.md    — updated: <what changed> | no change needed: <reason>
 README.md    — updated: <what changed> | no change needed: <reason>
-MEMORY.md    — updated: current state + A20 marked done
+MEMORY.md    — updated: current state + A19 marked done
 Makefile     — no change needed: no new CLI commands
 docker-compose.yml — no change needed: no new processes
+PR summary   — written to /tmp/pr-<branch>.md (following pr-summary.md template)
 ```
