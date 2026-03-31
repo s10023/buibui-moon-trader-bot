@@ -278,7 +278,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Minimum % move on displacement candle to qualify an order block.",
             ),
         ],
-        confidence=1,
+        confidence={"1d": 4, "4h": 1},
     ),
     "cvd_divergence": StrategySpec(
         name="cvd_divergence",
