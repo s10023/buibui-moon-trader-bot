@@ -550,14 +550,19 @@ def upsert_backtest_trades(
 
 
 def list_backtest_runs(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
-    """Return all backtest_runs rows, newest first."""
+    """Return the latest backtest_run per (symbol, timeframe, strategy), newest first."""
     return conn.execute(
         "SELECT run_id, symbol, timeframe, strategy, days, sl_pct, tp_r, fee_pct, "
         "day_filter, closed_trades, win_count, loss_count, win_rate, avg_r, total_r, "
         "max_drawdown_r, sweep_id, run_at_ms, "
         "long_closed_trades, long_win_count, long_win_rate, long_avg_r, "
         "short_closed_trades, short_win_count, short_win_rate, short_avg_r "
-        "FROM backtest_runs "
+        "FROM ("
+        "  SELECT *, ROW_NUMBER() OVER ("
+        "    PARTITION BY symbol, timeframe, strategy, day_filter "
+        "    ORDER BY run_at_ms DESC"
+        "  ) AS rn FROM backtest_runs"
+        ") WHERE rn = 1 "
         "ORDER BY run_at_ms DESC"
     ).df()
 
