@@ -373,7 +373,7 @@ poetry run python buibui.py backtest --symbols BTCUSDT ETHUSDT --timeframes 1h 4
 
 | Strategy | Description | Confidence |
 | --- | --- | --- |
-| `smt_divergence` | Two correlated assets diverge at a swing high/low | ★☆☆☆☆ |
+| `smt_divergence` | Two correlated assets diverge at a confirmed pivot swing high/low (centred 11-candle window) | ★★★☆☆ |
 | `fvg` | Fair Value Gap — 3-candle imbalance zone fill | ★☆☆☆☆ |
 | `liquidity_sweep` | Fakeout above/below a pivot swing high/low that extends to the 1.13 or 1.27 fib extension of the prior range; entry on close rejection at that level | ★☆☆☆☆ |
 | `eqh_eql` | Equal Highs/Lows: liquidity sweep of a double-top or double-bottom formed by genuine pivot swing highs/lows (11-candle window) | ★☆☆☆☆ |
@@ -531,7 +531,7 @@ Backtest findings (160d, 3 symbols × 4 TFs × 11 strategies, −29% trade volum
 
 Notable: ETHUSDT 4h `bos` is the main cost (−5pp/−0.14R) — Mon/Fri 4h ETH BOS signals were genuinely profitable (likely London Monday expansion). All other `bos` and all `orb` combos improve.
 
-**`smt_trend_filter`** gates `smt_divergence` signals against EMA-50: LONG only above EMA, SHORT only below. On by default (`1`). Backtesting shows counter-trend SMT signals are reliably losing — only ETH/1H retains edge. Disable with `smt_trend_filter = 0` in TOML.
+**`smt_trend_filter`** gates `smt_divergence` signals against EMA-50: LONG only above EMA, SHORT only below. On by default (`1`). Backtesting shows counter-trend SMT signals underperform. Post-A18 pivot fix, all TF combos are positive except BTCUSDT 4h (suppressed by hard-mode backtest filter at runtime). Disable with `smt_trend_filter = 0` in TOML.
 
 **`trend_day`** detects candles where price opens near one extreme and closes near the other — a large body (≥65% of range) with a tiny leading wick (≤15%). Configurable via `body_pct_min` and `wick_max` params in the Backtest UI. Backtest findings (160d, `day_filter = true`):
 
