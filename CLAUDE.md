@@ -48,7 +48,7 @@ make lint-md
   - `signal_runner.py` — thin wrapper: creates client, opens DB, syncs candles, polls `run_scan_cycle` in a loop; all TOML params (`sl_pct`, `cooldown_seconds`, `fee_pct`, `day_filter`) are wired through
   - `signal_config.py` — `BacktestFilterConfig` (includes `fee_pct` and `min_sl_pct`; each loaded from `[backtest].*` falling back to top-level) + `SignalWatchConfig` + `load_signal_config()`
   - `backtest_config.py` — `BacktestSweepConfig` (includes `min_sl_pct`, `liq_sweep_use_fib`) + `load_backtest_config()` — TOML config loading for sweep mode; supports `--day-filter` CLI flag; `liq_sweep_use_fib` toggles `liquidity_sweep` between fib-extension mode (default) and pivot-sweep mode for backtest comparison
-  - `recalibrate_lib.py` — pure recalibration lib: `get_backtest_win_rates(conn)`, `win_rate_to_stars(avg_r, total_trades)`, `compute_recalibrated_ratings(conn, min_trades)`, `format_recalibration_report(old, new, win_rates)`; reads `backtest_runs` table, maps avg R → 1–5 stars
+  - `recalibrate_lib.py` — pure recalibration lib: `get_backtest_win_rates(conn)`, `win_rate_to_stars(avg_r, total_trades)`, `compute_recalibrated_ratings(conn, min_trades)`, `format_recalibration_report(old, new, win_rates)`; reads `backtest_runs` table, maps avg R → 1–5 stars; `get_backtest_win_rates` uses only the latest run per `(strategy, tf, symbol)` — older param-sweep variants are excluded so stale runs don't pollute star ratings
   - `recalibrate_runner.py` — thin wrapper: opens DB, calls lib, prints diff report; `--dry-run` (default) / `--apply` writes updated `confidence=N` values directly into `indicators_lib.py` source (persists across restarts — no in-memory-only patch); wired as `buibui.py recalibrate` subcommand and `make buibui-recalibrate`
 - `signals/` — signal detection daemon package:
   - `registry.py` — `SignalPlugin` TypedDict + `SIGNAL_REGISTRY` (20 actionable strategies; seasonality + legacy fibonacci_retracement excluded)
@@ -120,6 +120,7 @@ Skills live in `.claude/skills/` (project-specific, committed to repo) and are i
 | `backtest-run.md` | `/backtest-run` | Quick reference for all `buibui backtest` invocations and flags | Any time you need a backtest command and can't remember the flags |
 | `signal-watch.md` | `/signal-watch` | Signal daemon workflow, TOML config reference, signal flow diagram | When configuring or debugging the live signal scanner |
 | `pr-summary.md` | `/pr-summary` | Write PR title + summary + test plan to `/tmp/pr-<branch>.md` | After finishing any feature branch |
+| `post-branch.md` | `/post-branch` | Check CLAUDE.md, README.md, MEMORY.md, Makefile, docker-compose.yml for needed updates | After every branch — run automatically without being asked |
 | `stats-dashboard.md` | `/stats-dashboard` | Stats page architecture, card inventory, adding new cards, timezone constraints | When working on Stats page or `stats_lib.py` |
 
 **Always load `/frontend-design` before any Svelte/CSS/UI changes.**
