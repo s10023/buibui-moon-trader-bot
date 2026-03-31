@@ -12,6 +12,7 @@
     type Time,
   } from "lightweight-charts";
   import type { CandleRow, FibResponse, FundingRow, OiRow, SignalRow } from "../api";
+  import { getLiveCandle } from "../api";
   import { pricesStore, startPricesSSE, stopPricesSSE } from "../stores/prices";
 
   const STRATEGY_LABELS: Record<string, string> = {
@@ -45,6 +46,7 @@
     candles,
     signals,
     symbol,
+    timeframe,
     funding = null,
     showFunding = false,
     oi = null,
@@ -59,6 +61,7 @@
     candles: CandleRow[];
     signals: SignalRow[];
     symbol: string;
+    timeframe: string;
     funding?: FundingRow[] | null;
     showFunding?: boolean;
     oi?: OiRow[] | null;
@@ -94,6 +97,7 @@
   // across SSE ticks instead of resetting each time.
   interface LiveCandle { openTimeSec: number; open: number; high: number; low: number; }
   let liveCandle: LiveCandle | null = null;
+  let seedCandle: CandleRow | null = $state(null);
 
   // ── Indicator computation ─────────────────────────────────────────────────────
 
@@ -440,6 +444,7 @@
   $effect(() => {
     if (!candleSeries) return;
     liveCandle = null; // reset on data reload
+    seedCandle = null;
     const data: CandlestickData[] = candles.map((c) => ({
       time: (c.open_time / 1000) as Time,
       open: c.open,
@@ -455,6 +460,42 @@
       color: c.close >= c.open ? "#3fb95044" : "#f8514944",
     }));
     volumeSeries.setData(volData);
+  });
+
+  // ── Live candle seed effect ───────────────────────────────────────────────────
+  // Fetches the current in-progress candle from Binance on load and every 30s.
+  // This gives us the true O/H/L/C/V rather than reconstructing from sparse SSE ticks.
+
+  $effect(() => {
+    const sym = symbol;
+    const tf = timeframe;
+    // Track last candle so this re-runs on new data loads
+    const _lastOpen = candles[candles.length - 1]?.open_time;
+    if (!candles.length || !tf) return;
+
+    let cancelled = false;
+    const refresh = () => {
+      getLiveCandle({ symbol: sym, timeframe: tf })
+        .then((c) => { if (!cancelled) seedCandle = c; })
+        .catch(() => {});
+    };
+    refresh();
+    const id = setInterval(refresh, 30_000);
+    return () => { cancelled = true; clearInterval(id); };
+  });
+
+  // ── Live volume update effect ─────────────────────────────────────────────────
+  // Whenever seedCandle refreshes, push the latest volume bar.
+
+  $effect(() => {
+    if (!volumeSeries || !seedCandle || !candles.length) return;
+    const last = candles[candles.length - 1];
+    if (seedCandle.open_time < last.open_time) return;
+    volumeSeries.update({
+      time: (seedCandle.open_time / 1000) as Time,
+      value: seedCandle.volume,
+      color: seedCandle.close >= seedCandle.open ? "#3fb95044" : "#f8514944",
+    });
   });
 
   // ── Signal markers effect ─────────────────────────────────────────────────────
@@ -615,20 +656,33 @@
     const currentCandleOpenSec = (currentCandleOpenMs / 1000) as Time;
 
     if (currentCandleOpenMs <= last.open_time) {
-      // Still within the last fetched candle — update in place
+      // Still within the last fetched candle — update in place.
+      // Use seedCandle H/L if available (fresher than the DB snapshot).
+      const seedH = seedCandle?.open_time === last.open_time ? seedCandle.high : last.high;
+      const seedL = seedCandle?.open_time === last.open_time ? seedCandle.low  : last.low;
       liveCandle = null;
       candleSeries.update({
         time: (last.open_time / 1000) as Time,
         open: last.open,
-        high: Math.max(last.high, lastPrice),
-        low: Math.min(last.low, lastPrice),
+        high: Math.max(seedH, lastPrice),
+        low: Math.min(seedL, lastPrice),
         close: lastPrice,
       });
+      volumeSeries.update({
+        time: (last.open_time / 1000) as Time,
+        value: seedCandle?.open_time === last.open_time ? seedCandle.volume : last.volume,
+        color: lastPrice >= last.open ? "#3fb95044" : "#f8514944",
+      });
     } else {
-      // New candle period — accumulate open/high/low across ticks
+      // New candle period — seed from live candle if available, else accumulate from ticks.
       if (!liveCandle || liveCandle.openTimeSec !== (currentCandleOpenMs / 1000)) {
-        // First tick of this period — initialise
-        liveCandle = { openTimeSec: currentCandleOpenMs / 1000, open: lastPrice, high: lastPrice, low: lastPrice };
+        const seed = seedCandle?.open_time === currentCandleOpenMs ? seedCandle : null;
+        liveCandle = {
+          openTimeSec: currentCandleOpenMs / 1000,
+          open: seed?.open ?? lastPrice,
+          high: seed ? Math.max(seed.high, lastPrice) : lastPrice,
+          low:  seed ? Math.min(seed.low,  lastPrice) : lastPrice,
+        };
       } else {
         liveCandle.high = Math.max(liveCandle.high, lastPrice);
         liveCandle.low  = Math.min(liveCandle.low,  lastPrice);
@@ -639,6 +693,11 @@
         high:  liveCandle.high,
         low:   liveCandle.low,
         close: lastPrice,
+      });
+      volumeSeries.update({
+        time: currentCandleOpenSec,
+        value: seedCandle?.open_time === currentCandleOpenMs ? seedCandle.volume : 0,
+        color: lastPrice >= liveCandle.open ? "#3fb95044" : "#f8514944",
       });
     }
   });

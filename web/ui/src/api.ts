@@ -262,6 +262,11 @@ export const getOhlcv = (params: {
   return apiFetch<OhlcvResponse>(`/api/ohlcv?${q}`);
 };
 
+export const getLiveCandle = (params: { symbol: string; timeframe: string }) => {
+  const q = new URLSearchParams({ symbol: params.symbol, timeframe: params.timeframe });
+  return apiFetch<CandleRow>(`/api/ohlcv/live?${q}`);
+};
+
 export const getSignals = (params: {
   symbol: string;
   timeframe: string;
