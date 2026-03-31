@@ -350,15 +350,22 @@ def scan_symbol(
 def _resolve_tp_r(
     strategy_params: dict[str, StrategyOverride] | None,
     strategy: str,
+    symbol: str,
     tf: str,
     global_tp_r: float,
 ) -> float:
-    """Resolve effective tp_r: TF-specific → strategy-wide → global fallback."""
+    """Resolve effective tp_r: symbol+TF → symbol → TF-specific → strategy-wide → global."""
     if not strategy_params:
         return global_tp_r
     override = strategy_params.get(strategy)
     if override is None:
         return global_tp_r
+    sym = override.per_symbol.get(symbol)
+    if sym is not None:
+        if tf in sym.tp_r_per_tf:
+            return sym.tp_r_per_tf[tf]
+        if sym.tp_r is not None:
+            return sym.tp_r
     if tf in override.tp_r_per_tf:
         return override.tp_r_per_tf[tf]
     if override.tp_r is not None:
@@ -369,15 +376,22 @@ def _resolve_tp_r(
 def _resolve_sl_pct(
     strategy_params: dict[str, StrategyOverride] | None,
     strategy: str,
+    symbol: str,
     tf: str,
     global_sl_pct: float,
 ) -> float:
-    """Resolve effective sl_pct: TF-specific → strategy-wide → global fallback."""
+    """Resolve effective sl_pct: symbol+TF → symbol → TF-specific → strategy-wide → global."""
     if not strategy_params:
         return global_sl_pct
     override = strategy_params.get(strategy)
     if override is None:
         return global_sl_pct
+    sym = override.per_symbol.get(symbol)
+    if sym is not None:
+        if tf in sym.sl_pct_per_tf:
+            return sym.sl_pct_per_tf[tf]
+        if sym.sl_pct is not None:
+            return sym.sl_pct
     if tf in override.sl_pct_per_tf:
         return override.sl_pct_per_tf[tf]
     if override.sl_pct is not None:
@@ -388,15 +402,22 @@ def _resolve_sl_pct(
 def _resolve_atr_sl_multiplier(
     strategy_params: dict[str, StrategyOverride] | None,
     strategy: str,
+    symbol: str,
     tf: str,
     global_atr_sl: float | None,
 ) -> float | None:
-    """Resolve effective atr_sl_multiplier: TF-specific → strategy-wide → global fallback."""
+    """Resolve effective atr_sl_multiplier: symbol+TF → symbol → TF-specific → strategy-wide → global."""
     if not strategy_params:
         return global_atr_sl
     override = strategy_params.get(strategy)
     if override is None:
         return global_atr_sl
+    sym = override.per_symbol.get(symbol)
+    if sym is not None:
+        if tf in sym.atr_sl_multiplier_per_tf:
+            return sym.atr_sl_multiplier_per_tf[tf]
+        if sym.atr_sl_multiplier is not None:
+            return sym.atr_sl_multiplier
     if tf in override.atr_sl_multiplier_per_tf:
         return override.atr_sl_multiplier_per_tf[tf]
     if override.atr_sl_multiplier is not None:
@@ -624,13 +645,17 @@ def run_scan_cycle(
                     bt_key = (symbol, tf, event.strategy)
                     if bt_key not in bt_cache:
                         eff_tp_r = _resolve_tp_r(
-                            strategy_params, event.strategy, tf, tp_r
+                            strategy_params, event.strategy, symbol, tf, tp_r
                         )
                         eff_sl_pct = _resolve_sl_pct(
-                            strategy_params, event.strategy, tf, sl_pct
+                            strategy_params, event.strategy, symbol, tf, sl_pct
                         )
                         eff_atr_sl = _resolve_atr_sl_multiplier(
-                            strategy_params, event.strategy, tf, atr_sl_multiplier
+                            strategy_params,
+                            event.strategy,
+                            symbol,
+                            tf,
+                            atr_sl_multiplier,
                         )
                         bt_cache[bt_key] = _compute_backtest(
                             ohlcv_df=ohlcv_df,
@@ -763,7 +788,7 @@ def run_scan_cycle(
                 # strategies in the confluence group (most optimistic target wins;
                 # individual strategies already filtered to have edge at that level).
                 eff_alert_tp_r = max(
-                    _resolve_tp_r(strategy_params, e.strategy, tf, tp_r)
+                    _resolve_tp_r(strategy_params, e.strategy, symbol, tf, tp_r)
                     for e in dir_events
                 )
                 # Stack all passing strategies into one confluence alert
@@ -809,8 +834,8 @@ def run_scan_cycle(
                     days=backtest_cfg.days,
                     data_start_ms=start_ms,
                     data_end_ms=now_ms,
-                    sl_pct=_resolve_sl_pct(strategy_params, strategy, tf, sl_pct),
-                    tp_r=_resolve_tp_r(strategy_params, strategy, tf, tp_r),
+                    sl_pct=_resolve_sl_pct(strategy_params, strategy, sym, tf, sl_pct),
+                    tp_r=_resolve_tp_r(strategy_params, strategy, sym, tf, tp_r),
                     fee_pct=backtest_cfg.fee_pct,
                     day_filter=day_filter,
                     smt_trend_filter=smt_trend_filter,
