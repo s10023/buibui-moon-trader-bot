@@ -347,7 +347,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance (risk-reward ratio).",
             ),
         ],
-        confidence={"15m": 2, "1d": 5, "1h": 3, "4h": 4},
+        confidence={"15m": 3, "1d": 5, "1h": 3, "4h": 4},
     ),
     "pin_bar": StrategySpec(
         name="pin_bar",
@@ -401,7 +401,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance.",
             ),
         ],
-        confidence={"15m": 2, "1d": 4, "1h": 2, "4h": 2},
+        confidence={"15m": 2, "1d": 4, "1h": 2, "4h": 3},
     ),
     "hammer_hanging_man": StrategySpec(
         name="hammer_hanging_man",
@@ -479,7 +479,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance.",
             ),
         ],
-        confidence={"15m": 3, "1h": 3, "4h": 2},
+        confidence={"15m": 3, "1h": 3, "4h": 3},
     ),
     "morning_evening_star": StrategySpec(
         name="morning_evening_star",
@@ -510,7 +510,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance.",
             ),
         ],
-        confidence={"15m": 2, "1d": 1, "1h": 2, "4h": 3},
+        confidence={"15m": 2, "1d": 1, "1h": 2, "4h": 4},
     ),
     # Legacy — superseded by fib_golden_zone (adds BOS confirmation, better SL/TP structure).
     # Uncomment to re-enable for backtest comparison.
@@ -547,7 +547,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Rolling window half-size for BOS swing detection.",
             ),
         ],
-        confidence={"15m": 1, "1h": 1, "4h": 4},
+        confidence={"15m": 1, "1h": 1, "4h": 5},
     ),
     "ote_entry": StrategySpec(
         name="ote_entry",
