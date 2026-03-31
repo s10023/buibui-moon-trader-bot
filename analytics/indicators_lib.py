@@ -175,7 +175,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Minimum price range (fraction) a swing level must span to qualify for BOS/CHoCH.",
             ),
         ],
-        confidence=2,
+        confidence=3,
     ),
     "funding_reversion": StrategySpec(
         name="funding_reversion",
@@ -423,7 +423,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance.",
             ),
         ],
-        confidence=1,
+        confidence=2,
     ),
     "doji": StrategySpec(
         name="doji",
@@ -462,7 +462,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance.",
             ),
         ],
-        confidence=2,
+        confidence=3,
     ),
     "morning_evening_star": StrategySpec(
         name="morning_evening_star",
