@@ -69,7 +69,7 @@ class TestWinRateToStars:
 def _seed_backtest_runs(conn: duckdb.DuckDBPyConnection) -> None:
     """Insert sample backtest_runs rows for testing."""
     rows = [
-        # bos: avg_r=0.6 over 30 closed trades → 4★
+        # bos: avg_r=0.6 over 30 closed trades on 4h → 4★
         {
             "run_id": "aaa",
             "symbol": "BTCUSDT",
@@ -95,7 +95,7 @@ def _seed_backtest_runs(conn: duckdb.DuckDBPyConnection) -> None:
             "run_at_ms": 1000,
             "sweep_id": None,
         },
-        # fvg: avg_r=-0.1 over 20 closed trades → 1★
+        # fvg: avg_r=-0.1 over 20 closed trades on 1h → 1★
         {
             "run_id": "bbb",
             "symbol": "BTCUSDT",
@@ -121,7 +121,7 @@ def _seed_backtest_runs(conn: duckdb.DuckDBPyConnection) -> None:
             "run_at_ms": 1000,
             "sweep_id": None,
         },
-        # pin_bar: only 5 trades — below default min_trades=10 → excluded
+        # pin_bar: only 5 trades on 4h — below default min_trades=10 → excluded
         {
             "run_id": "ccc",
             "symbol": "ETHUSDT",
@@ -144,6 +144,57 @@ def _seed_backtest_runs(conn: duckdb.DuckDBPyConnection) -> None:
             "avg_r": 1.2,
             "total_r": 6.0,
             "max_drawdown_r": 0.0,
+            "run_at_ms": 1000,
+            "sweep_id": None,
+        },
+        # fib_golden_zone: 4h=0.7 (4★), 1h=-0.2 (1★) — different ratings per TF
+        {
+            "run_id": "ddd",
+            "symbol": "BTCUSDT",
+            "timeframe": "4h",
+            "strategy": "fib_golden_zone",
+            "data_start_ms": 0,
+            "data_end_ms": 1,
+            "days": 90,
+            "sl_pct": 0.02,
+            "tp_r": 2.0,
+            "fee_pct": 0.0005,
+            "day_filter": "off",
+            "smt_trend_filter": 1,
+            "secondary_symbol": None,
+            "total_signals": 15,
+            "closed_trades": 15,
+            "win_count": 10,
+            "loss_count": 5,
+            "win_rate": 0.667,
+            "avg_r": 0.7,
+            "total_r": 10.5,
+            "max_drawdown_r": 2.0,
+            "run_at_ms": 1000,
+            "sweep_id": None,
+        },
+        {
+            "run_id": "eee",
+            "symbol": "BTCUSDT",
+            "timeframe": "1h",
+            "strategy": "fib_golden_zone",
+            "data_start_ms": 0,
+            "data_end_ms": 1,
+            "days": 90,
+            "sl_pct": 0.02,
+            "tp_r": 2.0,
+            "fee_pct": 0.0005,
+            "day_filter": "off",
+            "smt_trend_filter": 1,
+            "secondary_symbol": None,
+            "total_signals": 12,
+            "closed_trades": 12,
+            "win_count": 4,
+            "loss_count": 8,
+            "win_rate": 0.333,
+            "avg_r": -0.2,
+            "total_r": -2.4,
+            "max_drawdown_r": 3.0,
             "run_at_ms": 1000,
             "sweep_id": None,
         },
@@ -176,28 +227,28 @@ class TestComputeRecalibratedRatings:
         conn.close()
         assert result == {}
 
-    def test_bos_gets_correct_stars(self) -> None:
+    def test_bos_gets_correct_stars_per_tf(self) -> None:
         conn = self._make_conn()
         _seed_backtest_runs(conn)
         result = compute_recalibrated_ratings(conn, min_trades=10)
         conn.close()
-        # bos avg_r=0.6 → 4★
-        assert result["bos"] == 4
+        # bos avg_r=0.6 on 4h → 4★
+        assert result["bos"] == {"4h": 4}
 
-    def test_fvg_gets_correct_stars(self) -> None:
+    def test_fvg_gets_correct_stars_per_tf(self) -> None:
         conn = self._make_conn()
         _seed_backtest_runs(conn)
         result = compute_recalibrated_ratings(conn, min_trades=10)
         conn.close()
-        # fvg avg_r=-0.1 → 1★
-        assert result["fvg"] == 1
+        # fvg avg_r=-0.1 on 1h → 1★
+        assert result["fvg"] == {"1h": 1}
 
     def test_insufficient_trades_excluded(self) -> None:
         conn = self._make_conn()
         _seed_backtest_runs(conn)
         result = compute_recalibrated_ratings(conn, min_trades=10)
         conn.close()
-        # pin_bar has only 5 trades — should not appear in results
+        # pin_bar has only 5 trades — should not appear
         assert "pin_bar" not in result
 
     def test_custom_min_trades_includes_pin_bar(self) -> None:
@@ -205,15 +256,24 @@ class TestComputeRecalibratedRatings:
         _seed_backtest_runs(conn)
         result = compute_recalibrated_ratings(conn, min_trades=5)
         conn.close()
-        # pin_bar avg_r=1.2 → 5★ when min_trades=5
-        assert result["pin_bar"] == 5
+        # pin_bar avg_r=1.2 on 4h → 5★ when min_trades=5
+        assert result["pin_bar"] == {"4h": 5}
+
+    def test_per_tf_divergence(self) -> None:
+        conn = self._make_conn()
+        _seed_backtest_runs(conn)
+        result = compute_recalibrated_ratings(conn, min_trades=10)
+        conn.close()
+        # fib_golden_zone: 4h=4★, 1h=1★ — different per TF
+        assert result["fib_golden_zone"]["4h"] == 4
+        assert result["fib_golden_zone"]["1h"] == 1
 
     def test_returns_only_strategies_with_data(self) -> None:
         conn = self._make_conn()
         _seed_backtest_runs(conn)
         result = compute_recalibrated_ratings(conn, min_trades=10)
         conn.close()
-        assert set(result.keys()) == {"bos", "fvg"}
+        assert set(result.keys()) == {"bos", "fvg", "fib_golden_zone"}
 
 
 # ---------------------------------------------------------------------------
@@ -223,8 +283,8 @@ class TestComputeRecalibratedRatings:
 
 class TestFormatRecalibrationReport:
     def test_returns_non_empty_string(self) -> None:
-        old = {"bos": 3, "fvg": 4}
-        new = {"bos": 4, "fvg": 1}
+        old: dict[str, dict[str, int] | int] = {"bos": 3, "fvg": 4}
+        new: dict[str, dict[str, int]] = {"bos": {"4h": 4}, "fvg": {"1h": 1}}
         win_rates = pd.DataFrame(
             [
                 {
@@ -246,9 +306,9 @@ class TestFormatRecalibrationReport:
         report = format_recalibration_report(old, new, win_rates)
         assert len(report) > 0
 
-    def test_contains_old_and_new_strategy_names(self) -> None:
-        old = {"bos": 3, "fvg": 4}
-        new = {"bos": 4, "fvg": 1}
+    def test_contains_strategy_names(self) -> None:
+        old: dict[str, dict[str, int] | int] = {"bos": 3, "fvg": 4}
+        new: dict[str, dict[str, int]] = {"bos": {"4h": 4}, "fvg": {"1h": 1}}
         win_rates = pd.DataFrame(
             columns=["strategy", "timeframe", "total_trades", "win_rate", "avg_r"]
         )
@@ -257,8 +317,8 @@ class TestFormatRecalibrationReport:
         assert "fvg" in report
 
     def test_shows_change_marker_for_changed_strategy(self) -> None:
-        old = {"bos": 3}
-        new = {"bos": 4}
+        old: dict[str, dict[str, int] | int] = {"bos": 3}
+        new: dict[str, dict[str, int]] = {"bos": {"4h": 4}}
         win_rates = pd.DataFrame(
             columns=["strategy", "timeframe", "total_trades", "win_rate", "avg_r"]
         )
@@ -266,8 +326,8 @@ class TestFormatRecalibrationReport:
         assert "3→4" in report
 
     def test_shows_no_data_for_missing_new_rating(self) -> None:
-        old = {"pin_bar": 2}
-        new: dict[str, int] = {}
+        old: dict[str, dict[str, int] | int] = {"pin_bar": 2}
+        new: dict[str, dict[str, int]] = {}
         win_rates = pd.DataFrame(
             columns=["strategy", "timeframe", "total_trades", "win_rate", "avg_r"]
         )
@@ -275,8 +335,8 @@ class TestFormatRecalibrationReport:
         assert "no data" in report
 
     def test_unchanged_strategy_shows_equals_marker(self) -> None:
-        old = {"bos": 3}
-        new = {"bos": 3}
+        old: dict[str, dict[str, int] | int] = {"bos": 3}
+        new: dict[str, dict[str, int]] = {"bos": {"4h": 3}}
         win_rates = pd.DataFrame(
             columns=["strategy", "timeframe", "total_trades", "win_rate", "avg_r"]
         )
@@ -284,13 +344,25 @@ class TestFormatRecalibrationReport:
         assert "=" in report
 
     def test_empty_new_ratings_all_no_data(self) -> None:
-        old = {"bos": 3, "fvg": 4}
-        new: dict[str, int] = {}
+        old: dict[str, dict[str, int] | int] = {"bos": 3, "fvg": 4}
+        new: dict[str, dict[str, int]] = {}
         win_rates = pd.DataFrame(
             columns=["strategy", "timeframe", "total_trades", "win_rate", "avg_r"]
         )
         report = format_recalibration_report(old, new, win_rates)
         assert "No data" in report or "no data" in report
+
+    def test_per_tf_dict_old_ratings_resolved_correctly(self) -> None:
+        # old has per-TF dict; new has different rating for 4h
+        old: dict[str, dict[str, int] | int] = {
+            "fib_golden_zone": {"default": 1, "4h": 3}
+        }
+        new: dict[str, dict[str, int]] = {"fib_golden_zone": {"4h": 4}}
+        win_rates = pd.DataFrame(
+            columns=["strategy", "timeframe", "total_trades", "win_rate", "avg_r"]
+        )
+        report = format_recalibration_report(old, new, win_rates)
+        assert "3→4" in report
 
 
 # ---------------------------------------------------------------------------
@@ -319,7 +391,7 @@ _FAKE_SOURCE = textwrap.dedent("""\
 
 
 class TestWriteConfidenceToSource:
-    def test_patches_single_strategy(self, tmp_path: Path) -> None:
+    def test_patches_single_strategy_int(self, tmp_path: Path) -> None:
         src = tmp_path / "indicators_lib.py"
         src.write_text(_FAKE_SOURCE)
         patched = write_confidence_to_source({"fvg": 5}, src)
@@ -334,6 +406,31 @@ class TestWriteConfidenceToSource:
         content = src.read_text()
         assert "confidence=5" in content
         assert "confidence=1" in content
+
+    def test_patches_per_tf_dict(self, tmp_path: Path) -> None:
+        src = tmp_path / "indicators_lib.py"
+        src.write_text(_FAKE_SOURCE)
+        patched = write_confidence_to_source({"fvg": {"default": 1, "4h": 4}}, src)
+        assert patched == ["fvg"]
+        content = src.read_text()
+        assert '"default": 1' in content
+        assert '"4h": 4' in content
+
+    def test_patches_dict_over_existing_dict(self, tmp_path: Path) -> None:
+        # source already has a dict confidence; patch replaces it
+        source = textwrap.dedent("""\
+            "fvg": StrategySpec(
+                name="fvg",
+                confidence={"default": 1, "4h": 3},
+            ),
+        """)
+        src = tmp_path / "indicators_lib.py"
+        src.write_text(source)
+        patched = write_confidence_to_source({"fvg": {"default": 2, "4h": 5}}, src)
+        assert patched == ["fvg"]
+        content = src.read_text()
+        assert '"default": 2' in content
+        assert '"4h": 5' in content
 
     def test_unknown_strategy_not_in_patched(self, tmp_path: Path) -> None:
         src = tmp_path / "indicators_lib.py"
@@ -356,3 +453,35 @@ class TestWriteConfidenceToSource:
         # bos and pin_bar untouched
         assert '"bos": StrategySpec' in content
         assert '"pin_bar": StrategySpec' in content
+
+
+# ---------------------------------------------------------------------------
+# StrategySpec.get_confidence — TF resolution
+# ---------------------------------------------------------------------------
+
+from analytics.indicators_lib import StrategySpec  # noqa: E402
+
+
+class TestStrategySpecGetConfidence:
+    def test_int_confidence_returns_same_for_any_tf(self) -> None:
+        spec = StrategySpec(name="x", description="", confidence=3)
+        assert spec.get_confidence("15m") == 3
+        assert spec.get_confidence("1h") == 3
+        assert spec.get_confidence("4h") == 3
+
+    def test_dict_confidence_returns_tf_value(self) -> None:
+        spec = StrategySpec(
+            name="x", description="", confidence={"default": 1, "4h": 4}
+        )
+        assert spec.get_confidence("4h") == 4
+
+    def test_dict_confidence_falls_back_to_default(self) -> None:
+        spec = StrategySpec(
+            name="x", description="", confidence={"default": 2, "4h": 4}
+        )
+        assert spec.get_confidence("1h") == 2
+        assert spec.get_confidence("15m") == 2
+
+    def test_dict_confidence_falls_back_to_3_when_no_default(self) -> None:
+        spec = StrategySpec(name="x", description="", confidence={"4h": 4})
+        assert spec.get_confidence("1h") == 3
