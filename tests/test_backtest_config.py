@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from analytics.backtest_config import BacktestSweepConfig, load_backtest_config
+from analytics.backtest_config import (
+    BacktestSweepConfig,
+    StrategyOverride,
+    SymbolOverride,
+    load_backtest_config,
+)
 
 _MINIMAL_TOML = """\
 symbols    = ["BTCUSDT", "ETHUSDT"]
@@ -114,47 +119,39 @@ class TestLoadBacktestConfig:
 
 class TestStrategyOverrideBacktestConfig:
     def test_effective_tp_r_tf_specific(self) -> None:
-        from analytics.backtest_config import StrategyOverride
-
         cfg = BacktestSweepConfig(
             tp_r=2.0,
             strategy_params={"bos": StrategyOverride(tp_r_per_tf={"4h": 2.5})},
         )
-        assert cfg.effective_tp_r("bos", "4h") == 2.5
-        assert cfg.effective_tp_r("bos", "1h") == 2.0  # global fallback
+        assert cfg.effective_tp_r("bos", "BTCUSDT", "4h") == 2.5
+        assert cfg.effective_tp_r("bos", "BTCUSDT", "1h") == 2.0  # global fallback
 
     def test_effective_tp_r_strategy_wide(self) -> None:
-        from analytics.backtest_config import StrategyOverride
-
         cfg = BacktestSweepConfig(
             tp_r=2.0,
             strategy_params={"engulfing": StrategyOverride(tp_r=3.0)},
         )
-        assert cfg.effective_tp_r("engulfing", "1h") == 3.0
-        assert cfg.effective_tp_r("engulfing", "4h") == 3.0
-        assert cfg.effective_tp_r("fvg", "1h") == 2.0  # not in params
+        assert cfg.effective_tp_r("engulfing", "BTCUSDT", "1h") == 3.0
+        assert cfg.effective_tp_r("engulfing", "BTCUSDT", "4h") == 3.0
+        assert cfg.effective_tp_r("fvg", "BTCUSDT", "1h") == 2.0  # not in params
 
     def test_effective_tp_r_tf_beats_strategy_wide(self) -> None:
-        from analytics.backtest_config import StrategyOverride
-
         cfg = BacktestSweepConfig(
             tp_r=2.0,
             strategy_params={
                 "pin_bar": StrategyOverride(tp_r=3.0, tp_r_per_tf={"4h": 2.5})
             },
         )
-        assert cfg.effective_tp_r("pin_bar", "4h") == 2.5
-        assert cfg.effective_tp_r("pin_bar", "1h") == 3.0
+        assert cfg.effective_tp_r("pin_bar", "BTCUSDT", "4h") == 2.5
+        assert cfg.effective_tp_r("pin_bar", "BTCUSDT", "1h") == 3.0
 
     def test_effective_sl_pct_override(self) -> None:
-        from analytics.backtest_config import StrategyOverride
-
         cfg = BacktestSweepConfig(
             sl_pct=0.02,
             strategy_params={"orb": StrategyOverride(sl_pct=0.015)},
         )
-        assert cfg.effective_sl_pct("orb", "1h") == 0.015
-        assert cfg.effective_sl_pct("fvg", "1h") == 0.02
+        assert cfg.effective_sl_pct("orb", "BTCUSDT", "1h") == 0.015
+        assert cfg.effective_sl_pct("fvg", "BTCUSDT", "1h") == 0.02
 
     def test_load_strategy_params_sub_table(self, tmp_path: Path) -> None:
         content = """\
@@ -175,3 +172,85 @@ tp_r_4h = 2.5
         p.write_text("symbols = ['BTCUSDT']\n")
         cfg = load_backtest_config(p)
         assert cfg.strategy_params == {}
+
+
+class TestEffectiveTpRPerSymbolBacktestConfig:
+    def test_symbol_tf_override_wins_over_strategy_tf(self) -> None:
+        cfg = BacktestSweepConfig(
+            tp_r=2.0,
+            strategy_params={
+                "doji": StrategyOverride(
+                    tp_r_per_tf={"15m": 4.0},
+                    per_symbol={
+                        "ETHUSDT": SymbolOverride(tp_r_per_tf={"15m": 4.5}),
+                    },
+                )
+            },
+        )
+        assert cfg.effective_tp_r("doji", "ETHUSDT", "15m") == 4.5
+        assert cfg.effective_tp_r("doji", "BTCUSDT", "15m") == 4.0
+
+    def test_symbol_wide_override_wins_over_strategy_wide(self) -> None:
+        cfg = BacktestSweepConfig(
+            tp_r=2.0,
+            strategy_params={
+                "hammer_hanging_man": StrategyOverride(
+                    tp_r=4.0,
+                    per_symbol={
+                        "ETHUSDT": SymbolOverride(tp_r=5.0),
+                    },
+                )
+            },
+        )
+        assert cfg.effective_tp_r("hammer_hanging_man", "ETHUSDT", "1h") == 5.0
+        assert cfg.effective_tp_r("hammer_hanging_man", "BTCUSDT", "1h") == 4.0
+
+    def test_symbol_tf_wins_over_symbol_wide(self) -> None:
+        cfg = BacktestSweepConfig(
+            tp_r=2.0,
+            strategy_params={
+                "doji": StrategyOverride(
+                    per_symbol={
+                        "ETHUSDT": SymbolOverride(tp_r=4.0, tp_r_per_tf={"15m": 4.5}),
+                    },
+                )
+            },
+        )
+        assert cfg.effective_tp_r("doji", "ETHUSDT", "15m") == 4.5
+        assert cfg.effective_tp_r("doji", "ETHUSDT", "1h") == 4.0
+
+    def test_unknown_symbol_falls_through(self) -> None:
+        cfg = BacktestSweepConfig(
+            tp_r=2.0,
+            strategy_params={
+                "doji": StrategyOverride(
+                    tp_r=3.0,
+                    tp_r_per_tf={"15m": 4.0},
+                    per_symbol={
+                        "ETHUSDT": SymbolOverride(tp_r_per_tf={"15m": 4.5}),
+                    },
+                )
+            },
+        )
+        assert cfg.effective_tp_r("doji", "SOLUSDT", "15m") == 4.0
+        assert cfg.effective_tp_r("doji", "SOLUSDT", "1h") == 3.0
+
+    def test_toml_round_trip_per_symbol(self, tmp_path: Path) -> None:
+        content = """\
+[strategy_params.doji]
+tp_r = 3.0
+tp_r_15m = 4.0
+
+[strategy_params.doji.ETHUSDT]
+tp_r_15m = 4.5
+
+[strategy_params.doji.BTCUSDT]
+tp_r_15m = 3.5
+"""
+        p = tmp_path / "cfg.toml"
+        p.write_text(content)
+        cfg = load_backtest_config(p)
+        assert cfg.effective_tp_r("doji", "ETHUSDT", "15m") == 4.5
+        assert cfg.effective_tp_r("doji", "BTCUSDT", "15m") == 3.5
+        assert cfg.effective_tp_r("doji", "SOLUSDT", "15m") == 4.0
+        assert cfg.effective_tp_r("doji", "ETHUSDT", "1h") == 3.0

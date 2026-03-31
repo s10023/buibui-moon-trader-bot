@@ -601,14 +601,21 @@ def format_tp_sweep_table(
             keys.add((r.strategy, r.timeframe))
     sorted_keys = sorted(keys, key=lambda k: (k[0], _tf_sort_key(k[1])))
 
-    def _avg_r(results: list[BacktestResult], strategy: str, tf: str) -> float | None:
-        r_vals: list[float] = []
+    def _collect(
+        results: list[BacktestResult], strategy: str, tf: str
+    ) -> tuple[float | None, float | None]:
+        """Return (avg_r, win_rate) aggregated across all symbols for this strategy×TF."""
+        trades: list[Trade] = []
         for r in results:
             if r.strategy == strategy and r.timeframe == tf:
-                r_vals.extend(
-                    v for v in (t.pnl_r for t in r.closed_trades) if v is not None
-                )
-        return sum(r_vals) / len(r_vals) if r_vals else None
+                trades.extend(r.closed_trades)
+        if not trades:
+            return None, None
+        r_vals = [t.pnl_r for t in trades if t.pnl_r is not None]
+        avg = sum(r_vals) / len(r_vals) if r_vals else None
+        wins = sum(1 for t in trades if t.outcome == "win")
+        wr = wins / len(trades) if trades else None
+        return avg, wr
 
     tp_col_w = 8
     name_col_w = 22
@@ -626,15 +633,22 @@ def format_tp_sweep_table(
     for strat, tf in sorted_keys:
         label = strat if strat != prev_strat else ""
         prev_strat = strat
-        row = f"  {label:<{name_col_w}}{tf:<{tf_col_w}}"
+        row_r = f"  {label:<{name_col_w}}{tf:<{tf_col_w}}"
+        row_w = f"  {'':>{name_col_w}}{'':>{tf_col_w}}"
         for tp in tp_values:
-            avg = _avg_r(results_by_tp[tp], strat, tf)
-            cell = f"{avg:+.2f}R" if avg is not None else "  n/a"
-            row += f"{cell:>{tp_col_w}}"
-        lines.append(row)
+            avg, wr = _collect(results_by_tp[tp], strat, tf)
+            cell_r = f"{avg:+.2f}R" if avg is not None else "  n/a"
+            cell_w = f"{wr:.0%}" if wr is not None else ""
+            row_r += f"{cell_r:>{tp_col_w}}"
+            row_w += f"{cell_w:>{tp_col_w}}"
+        lines.append(row_r)
+        lines.append(row_w)
 
     lines.append(sep)
     lines.append("  Pick the tp_r column where avg R peaks per strategy × TF row.")
+    lines.append(
+        "  Watch win% — declining win% at high TP = lottery-ticket bias (discard)."
+    )
     return "\n".join(lines)
 
 
@@ -653,14 +667,20 @@ def format_atr_sl_sweep_table(
             keys.add((r.strategy, r.timeframe))
     sorted_keys = sorted(keys, key=lambda k: (k[0], _tf_sort_key(k[1])))
 
-    def _avg_r(results: list[BacktestResult], strategy: str, tf: str) -> float | None:
-        r_vals: list[float] = []
+    def _collect(
+        results: list[BacktestResult], strategy: str, tf: str
+    ) -> tuple[float | None, float | None]:
+        trades: list[Trade] = []
         for r in results:
             if r.strategy == strategy and r.timeframe == tf:
-                r_vals.extend(
-                    v for v in (t.pnl_r for t in r.closed_trades) if v is not None
-                )
-        return sum(r_vals) / len(r_vals) if r_vals else None
+                trades.extend(r.closed_trades)
+        if not trades:
+            return None, None
+        r_vals = [t.pnl_r for t in trades if t.pnl_r is not None]
+        avg = sum(r_vals) / len(r_vals) if r_vals else None
+        wins = sum(1 for t in trades if t.outcome == "win")
+        wr = wins / len(trades) if trades else None
+        return avg, wr
 
     atr_col_w = 8
     name_col_w = 22
@@ -683,12 +703,16 @@ def format_atr_sl_sweep_table(
     for strat, tf in sorted_keys:
         label = strat if strat != prev_strat else ""
         prev_strat = strat
-        row = f"  {label:<{name_col_w}}{tf:<{tf_col_w}}"
+        row_r = f"  {label:<{name_col_w}}{tf:<{tf_col_w}}"
+        row_w = f"  {'':>{name_col_w}}{'':>{tf_col_w}}"
         for atr in atr_values:
-            avg = _avg_r(results_by_atr[atr], strat, tf)
-            cell = f"{avg:+.2f}R" if avg is not None else "  n/a"
-            row += f"{cell:>{atr_col_w}}"
-        lines.append(row)
+            avg, wr = _collect(results_by_atr[atr], strat, tf)
+            cell_r = f"{avg:+.2f}R" if avg is not None else "  n/a"
+            cell_w = f"{wr:.0%}" if wr is not None else ""
+            row_r += f"{cell_r:>{atr_col_w}}"
+            row_w += f"{cell_w:>{atr_col_w}}"
+        lines.append(row_r)
+        lines.append(row_w)
 
     lines.append(sep)
     lines.append(

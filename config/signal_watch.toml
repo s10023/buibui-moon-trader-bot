@@ -67,7 +67,7 @@ min_trades_4h  = 10
 min_trades_1d  = 5
 fee_pct = 0.0005        # 0.05% taker fee per leg; set 0.0 to disable
 # save_results = true   # persist results to backtest_runs / backtest_trades tables in analytics.db
-# tp_r_values = [1.0, 1.5, 2.0, 2.5, 3.0]  # TP ratio sweep — prints comparison table instead of ranked sweep
+# tp_r_values = [1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]  # TP ratio sweep — prints comparison table instead of ranked sweep
 
 # Per-strategy timeframe allow-list.
 # Strategies listed here are restricted to the specified TFs.
@@ -98,32 +98,60 @@ marubozu         = ["4h", "1d"]       # 15m mean_r=-0.120, 1h mean_r=-0.229 supp
 #   - trend_day and orb now have clear edge — added overrides
 #   - bos 4h excluded anyway; all active TFs (15m/1h) improve at 3.0R
 [strategy_params.engulfing]
-tp_r = 3.0                    # fallback for 15m/1h
+tp_r = 3.0                    # fallback
+tp_r_15m = 4.0                # sweep peak: cross-symbol +0.24R (1466 trades)
+tp_r_1h  = 4.0                # sweep peak: cross-symbol +0.41R (384 trades)
 tp_r_4h = 3.5                 # WFO cross-symbol: BTC 4h +0.390R, SOL 4h +0.450R (25/15 trades)
 
+[strategy_params.engulfing.SOLUSDT]
+tp_r_4h = 4.0                 # F5 WFO: SOL 4h optimal at 4.0R
+
 [strategy_params.pin_bar]
-tp_r = 3.0                    # fallback for 4h/1d
+tp_r = 3.0                    # fallback
 tp_r_15m = 4.5                # WFO ETH 15m +0.211R (519 trades); BTC 15m fully overfit
 tp_r_1h = 3.5                 # WFO BTC 1h +0.337R (120 trades)
+tp_r_4h = 4.5                 # sweep peak: cross-symbol +0.46R (126 trades)
 
 [strategy_params.hammer_hanging_man]
 tp_r = 4.0                    # WFO cross-symbol: BTC/ETH/SOL all positive at 4.0 (15m+1h)
+tp_r_1h = 5.0                 # sweep peak: cross-symbol +0.18R (298 trades); monotonic but per-symbol verified
+
+[strategy_params.hammer_hanging_man.ETHUSDT]
+tp_r_1h = 5.0                 # F5 WFO: ETH 1h optimal at 5.0R (confirmed by sweep)
 
 [strategy_params.doji]
-tp_r = 3.0                    # 1h/4h confirmed
+tp_r = 3.0                    # fallback
 tp_r_15m = 4.0                # WFO cross-symbol: BTC 15m +0.339R@3.5, ETH 15m +0.384R@4.0
+tp_r_1h  = 3.5                # sweep peak: cross-symbol +0.43R (185 trades)
+tp_r_4h  = 4.5                # sweep peak: cross-symbol +0.43R (41 trades)
+
+[strategy_params.doji.BTCUSDT]
+tp_r_15m = 3.5                # F5 WFO: BTC 15m optimal at 3.5R (tighter than cross-symbol 4.0)
+
+[strategy_params.doji.ETHUSDT]
+tp_r_15m = 4.5                # F5 WFO: ETH 15m optimal at 4.5R
 
 [strategy_params.inside_bar]
-tp_r = 3.0                    # 1h+0.25R, 4h+0.38R
+tp_r = 3.0                    # fallback
+tp_r_4h = 3.5                 # sweep peak: cross-symbol +0.23R (172 trades)
 
 [strategy_params.morning_evening_star]
 tp_r = 3.0                    # fallback for 1d
 tp_r_15m = 3.5                # WFO BTC 15m OOS +0.339R (162 trades)
-tp_r_1h  = 3.5                # WFO BTC 1h  OOS +0.240R (143 trades)
-tp_r_4h  = 2.5                # WFO BTC 4h  OOS +0.274R (37 trades)
+tp_r_1h  = 4.0                # sweep peak: cross-symbol +0.19R (713 trades); was 3.5
+tp_r_4h  = 5.0                # sweep peak: cross-symbol +0.60R (175 trades), per-symbol consistent; was 2.5
+
+[strategy_params.morning_evening_star.BTCUSDT]
+tp_r_15m = 3.5                # F5 WFO: BTC 15m confirmed at 3.5R
+
+[strategy_params.morning_evening_star.ETHUSDT]
+tp_r_15m = 4.0                # F5 WFO: ETH 15m optimal at 4.0R
 
 [strategy_params.fib_golden_zone]
-tp_r_4h = 3.0                 # 4h+0.62R monotonically increasing (12 trades)
+tp_r_4h = 3.5                 # sweep peak: cross-symbol +0.85R (31 trades); was 3.0
+
+[strategy_params.fib_golden_zone.ETHUSDT]
+tp_r_1h = 4.5                 # F5 WFO: ETH 1h optimal at 4.5R
 
 [strategy_params.bos]
 tp_r = 3.0                    # 15m+0.18R, 1h+0.22R (4h excluded via strategy_timeframes)

@@ -566,6 +566,30 @@ ETHUSDT = "BTCUSDT"
 SOLUSDT = "ETHUSDT"
 ```
 
+**`[strategy_params]`** overrides `tp_r` and `sl_pct` per strategy, per TF, and per symbol.
+Resolution order: **symbol+TF → symbol → TF → strategy → global**.
+
+```toml
+[strategy_params.engulfing]
+tp_r = 3.0          # all symbols, all TFs
+
+[strategy_params.engulfing.SOLUSDT]
+tp_r_4h = 4.0       # SOL 4h only; other SOL TFs fall back to strategy-wide 3.0
+
+[strategy_params.doji]
+tp_r = 3.0          # all symbols fallback
+
+[strategy_params.doji.BTCUSDT]
+tp_r_15m = 3.5      # BTC 15m only
+
+[strategy_params.doji.ETHUSDT]
+tp_r_15m = 4.5      # ETH 15m only — diverges from BTC
+```
+
+Per-symbol blocks use `[strategy_params.STRATEGY.SYMBOL]` sub-table syntax, placed after their
+parent `[strategy_params.STRATEGY]` block. Any symbol not listed falls through to TF-level or
+strategy-wide.
+
 The inline backtest (computed each scan cycle per firing signal) respects all config values:
 `fee_pct`, `day_filter`, `sl_pct`, and `cooldown_seconds` are now all read from TOML and
 applied correctly — results stored in `backtest_runs` match what the live filter uses.

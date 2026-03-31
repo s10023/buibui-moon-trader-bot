@@ -217,9 +217,9 @@ def _collect_sweep_results(
         if allowed_days is not None:
             signals = filter_signals_by_day(signals, allowed_days)
 
-        eff_tp_r = cfg.effective_tp_r(strategy, timeframe)
-        eff_sl_pct = cfg.effective_sl_pct(strategy, timeframe)
-        eff_atr_sl = cfg.effective_atr_sl_multiplier(strategy, timeframe)
+        eff_tp_r = cfg.effective_tp_r(strategy, symbol, timeframe)
+        eff_sl_pct = cfg.effective_sl_pct(strategy, symbol, timeframe)
+        eff_atr_sl = cfg.effective_atr_sl_multiplier(strategy, symbol, timeframe)
         bt = run_backtest(
             ohlcv,
             signals,
@@ -323,11 +323,13 @@ def run_backtest_sweep(
                         sym,
                         tf,
                         strat,
-                        cfg.effective_sl_pct(strat, tf),
+                        cfg.effective_sl_pct(strat, sym, tf),
                         tp_r,
                         cfg.fee_pct,
                         min_sl_pct=cfg.min_sl_pct,
-                        atr_sl_multiplier=cfg.effective_atr_sl_multiplier(strat, tf),
+                        atr_sl_multiplier=cfg.effective_atr_sl_multiplier(
+                            strat, sym, tf
+                        ),
                     )
                     tp_results.append(bt)
                 results_by_tp[tp_r] = tp_results
@@ -353,8 +355,8 @@ def run_backtest_sweep(
                         sym,
                         tf,
                         strat,
-                        cfg.effective_sl_pct(strat, tf),
-                        cfg.effective_tp_r(strat, tf),
+                        cfg.effective_sl_pct(strat, sym, tf),
+                        cfg.effective_tp_r(strat, sym, tf),
                         cfg.fee_pct,
                         min_sl_pct=cfg.min_sl_pct,
                         atr_sl_multiplier=atr_mult,
