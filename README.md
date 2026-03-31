@@ -374,12 +374,12 @@ poetry run python buibui.py backtest --symbols BTCUSDT ETHUSDT --timeframes 1h 4
 | Strategy | Description | Confidence |
 | --- | --- | --- |
 | `smt_divergence` | Two correlated assets diverge at a confirmed pivot swing high/low (centred 11-candle window) | ★★★☆☆ |
-| `fvg` | Fair Value Gap — 3-candle imbalance zone fill | ★☆☆☆☆ |
+| `fvg` | Fair Value Gap — 3-candle imbalance zone fill with EMA-50 trend filter | ★☆☆☆☆ |
 | `liquidity_sweep` | Fakeout above/below a pivot swing high/low that extends to the 1.13 or 1.27 fib extension of the prior range; entry on close rejection at that level | ★☆☆☆☆ |
 | `eqh_eql` | Equal Highs/Lows: liquidity sweep of a double-top or double-bottom formed by genuine pivot swing highs/lows (11-candle window) | ★☆☆☆☆ |
 | `funding_reversion` | Extreme positive/negative funding rate → contrarian signal | ★☆☆☆☆ |
 | `cvd_divergence` | CVD Divergence — price and buying pressure disagree at a swing extreme | ★☆☆☆☆ |
-| `order_block` | ICT Order Block — last up/down candle before displacement; entry on retest | ★★★☆☆ |
+| `order_block` | ICT Order Block — last up/down candle before displacement; entry on retest | ★☆☆☆☆ |
 | `orb` | Opening Range Breakout — first 2 candles of UTC day form the range; breakout enters | ★☆☆☆☆ |
 | `bos` | Break of Structure / Change of Character (BOS/CHoCH) | ★★☆☆☆ |
 | `wick_fill` | Price revisits a significant wick zone | ★☆☆☆☆ |

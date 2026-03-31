@@ -18,7 +18,7 @@ day_filter = "tue_thu"
 smt_trend_filter = 1
 
 # Strategies to run
-# wick_fill and fvg are excluded: all TFs below mean_r -0.05 threshold (pending parameter tuning)
+# wick_fill excluded: all TFs negative (pending BOS confluence fix). fvg added with trend_filter=1 (EMA-50 gate); still broadly negative but included for live monitoring — hard-mode filter suppresses at runtime
 strategies = [
     'marubozu',
     'orb',
@@ -88,6 +88,7 @@ cvd_divergence   = ["15m", "1h", "4h", "1d"] # 1h mean_r=+0.535 re-enabled
 morning_evening_star = ["15m", "1h", "4h"] # 1d mean_r=-0.105 suppressed
 marubozu         = ["4h", "1d"]       # 15m mean_r=-0.120, 1h mean_r=-0.229 suppressed
 order_block      = ["4h", "1d"]       # 15m mean_r=-0.22, 1h mean_r=-0.33 suppressed; 4h+0.03R/1d+0.09R marginally positive but below filter_threshold=0.3 — runtime gate handles suppression
+fvg              = ["15m", "1h", "4h"] # 1d catastrophic: ETH -1.07R, BTC -0.63R suppressed; 15m/1h/4h monitored via hard-mode gate
 
 # Per-strategy parameter overrides — tp_r and sl_pct.
 # Lookup order: TF-specific key (e.g. tp_r_4h) → strategy-wide tp_r → global tp_r.
