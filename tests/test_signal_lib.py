@@ -2638,6 +2638,7 @@ class TestBiasLayer:
         self,
         adr_consumed_pct: float | None = 0.50,
         avg_return_today: float = 0.01,
+        adr_move_up: bool | None = None,
     ) -> Any:
         from signals.alert_formatter import StatsContext
 
@@ -2650,6 +2651,7 @@ class TestBiasLayer:
             peak_low_hour_myt=8,
             bull_pct_today=0.60,
             avg_return_today=avg_return_today,
+            adr_move_up=adr_move_up,
         )
 
     def _run_with_bias(
@@ -2773,6 +2775,69 @@ class TestBiasLayer:
 
         alerts = self._run_with_bias(tmp_path, signals_df, ctx, None)
         assert len(alerts) == 1, "No bias_cfg → signal must pass unaffected"
+
+    # --- ADR directional suppress ---
+
+    def test_adr_gate_suppresses_long_when_move_up(self, tmp_path: Any) -> None:
+        """LONG suppressed when ADR consumed and today's move was upward."""
+        from analytics.signal_config import BiasConfig
+
+        signals_df = self._make_signals_df("long")
+        ctx = self._make_stats_context(adr_consumed_pct=0.85, adr_move_up=True)
+        bias_cfg = BiasConfig(adr_suppress_threshold=0.80)
+
+        alerts = self._run_with_bias(tmp_path, signals_df, ctx, bias_cfg)
+        assert alerts == [], (
+            "LONG should be suppressed when move was up and ADR consumed"
+        )
+
+    def test_adr_gate_keeps_short_when_move_up(self, tmp_path: Any) -> None:
+        """SHORT (reversal) passes when ADR consumed but today's move was upward."""
+        from analytics.signal_config import BiasConfig
+
+        signals_df = self._make_signals_df("short")
+        ctx = self._make_stats_context(adr_consumed_pct=0.85, adr_move_up=True)
+        bias_cfg = BiasConfig(adr_suppress_threshold=0.80)
+
+        alerts = self._run_with_bias(tmp_path, signals_df, ctx, bias_cfg)
+        assert len(alerts) == 1, "SHORT should pass — it's a reversal at the day high"
+
+    def test_adr_gate_suppresses_short_when_move_down(self, tmp_path: Any) -> None:
+        """SHORT suppressed when ADR consumed and today's move was downward."""
+        from analytics.signal_config import BiasConfig
+
+        signals_df = self._make_signals_df("short")
+        ctx = self._make_stats_context(adr_consumed_pct=0.85, adr_move_up=False)
+        bias_cfg = BiasConfig(adr_suppress_threshold=0.80)
+
+        alerts = self._run_with_bias(tmp_path, signals_df, ctx, bias_cfg)
+        assert alerts == [], (
+            "SHORT should be suppressed when move was down and ADR consumed"
+        )
+
+    def test_adr_gate_keeps_long_when_move_down(self, tmp_path: Any) -> None:
+        """LONG (reversal) passes when ADR consumed but today's move was downward."""
+        from analytics.signal_config import BiasConfig
+
+        signals_df = self._make_signals_df("long")
+        ctx = self._make_stats_context(adr_consumed_pct=0.85, adr_move_up=False)
+        bias_cfg = BiasConfig(adr_suppress_threshold=0.80)
+
+        alerts = self._run_with_bias(tmp_path, signals_df, ctx, bias_cfg)
+        assert len(alerts) == 1, "LONG should pass — it's a reversal at the day low"
+
+    def test_adr_gate_blanket_when_direction_unknown(self, tmp_path: Any) -> None:
+        """When adr_move_up=None, gate falls back to blanket suppress."""
+        from analytics.signal_config import BiasConfig
+
+        signals_df = self._make_signals_df("short")
+        ctx = self._make_stats_context(adr_consumed_pct=0.85, adr_move_up=None)
+        bias_cfg = BiasConfig(adr_suppress_threshold=0.80)
+
+        alerts = self._run_with_bias(tmp_path, signals_df, ctx, bias_cfg)
+        assert alerts == [], (
+            "All signals suppressed when direction unknown (safe fallback)"
+        )
 
     # --- DOW soft suppress ---
 

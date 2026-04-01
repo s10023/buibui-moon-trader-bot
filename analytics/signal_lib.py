@@ -123,13 +123,26 @@ def _filter_signals_by_adr(
     # Consumed ratio at each candle; NaN when adr_14 is zero or unknown
     df["_consumed"] = df["_today_range"] / df["_adr14"].where(df["_adr14"] > 0)
 
+    # Direction: close in upper half of today's range → move was upward
+    df["_mid"] = (df["_cum_high"] + df["_cum_low"]) / 2
+    df["_move_up"] = (df["close"] > df["_mid"]).astype(float)
+
     consumed_map: dict[int, float] = dict(
         zip(df["open_time"].astype(int), df["_consumed"].astype(float))
     )
+    move_up_map: dict[int, float] = dict(
+        zip(df["open_time"].astype(int), df["_move_up"])
+    )
 
     signal_ratios = signals_df["open_time"].astype(int).map(consumed_map)
-    # Keep signals where ratio is unknown (safe pass-through) or below threshold
-    keep = signal_ratios.isna() | (signal_ratios < threshold)
+    signal_move_up = signals_df["open_time"].astype(int).map(move_up_map)
+
+    # Suppress only the chasing direction: LONGs when move was up, SHORTs when down.
+    # NaN move_up (candle not found) → neither condition fires → safe pass-through.
+    chasing = ((signal_move_up == 1.0) & (signals_df["direction"] == "long")) | (
+        (signal_move_up == 0.0) & (signals_df["direction"] == "short")
+    )
+    keep = signal_ratios.isna() | (signal_ratios < threshold) | ~chasing
     return signals_df[keep].reset_index(drop=True)
 
 
@@ -547,6 +560,7 @@ def _compute_stats_context(
             peak_low_hour_dow=peak_low_hour_dow,
             wk_low_still_ahead_pct=wk_low_still_ahead,
             wk_high_still_ahead_pct=wk_high_still_ahead,
+            adr_move_up=bundle.adr.today_move_up,
         )
     except Exception:
         logger.debug("_compute_stats_context failed for %s — skipping", symbol)
@@ -798,22 +812,44 @@ def run_scan_cycle(
             if bias_cfg is not None:
                 bias_ctx = stats_ctx_cache.get(symbol)
                 if bias_ctx is not None:
-                    # Step 1: ADR hard suppress — drop all signals for this
-                    # symbol/tf when today's range already consumed >= threshold.
+                    # Step 1: ADR directional suppress — remove signals chasing the
+                    # already-consumed direction. LONGs suppressed when move was up
+                    # (price near day high); SHORTs when move was down. Reversal signals
+                    # in the opposing direction are kept — fading an extreme is valid
+                    # even when ADR is consumed. Falls back to blanket suppress when
+                    # move direction is unknown.
                     if (
                         bias_cfg.adr_suppress_threshold is not None
                         and bias_ctx.adr_consumed_pct is not None
                         and bias_ctx.adr_consumed_pct >= bias_cfg.adr_suppress_threshold
                     ):
-                        logger.info(
-                            "ADR bias gate suppressed %s %s — %.0f%% range consumed "
-                            "(threshold %.0f%%)",
-                            symbol,
-                            tf,
-                            bias_ctx.adr_consumed_pct * 100,
-                            bias_cfg.adr_suppress_threshold * 100,
-                        )
-                        continue
+                        if bias_ctx.adr_move_up is None:
+                            logger.info(
+                                "ADR bias gate suppressed %s %s — %.0f%% consumed "
+                                "(direction unknown)",
+                                symbol,
+                                tf,
+                                bias_ctx.adr_consumed_pct * 100,
+                            )
+                            continue
+                        suppress_dir = "long" if bias_ctx.adr_move_up else "short"
+                        n_before = len(passing_events)
+                        passing_events = [
+                            e for e in passing_events if e.direction != suppress_dir
+                        ]
+                        if len(passing_events) < n_before:
+                            logger.info(
+                                "ADR bias gate removed %d %s signal(s) for %s %s "
+                                "— %.0f%% consumed, chasing %s",
+                                n_before - len(passing_events),
+                                suppress_dir,
+                                symbol,
+                                tf,
+                                bias_ctx.adr_consumed_pct * 100,
+                                suppress_dir,
+                            )
+                        if not passing_events:
+                            continue
 
                     # Step 2: DOW soft suppress — reduce confidence by 1 star
                     # when signal direction opposes today's historical avg return.
