@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from analytics.data_store import (
+    get_confidence_ratings,
     get_latest_open_time,
     get_ohlcv,
     get_signals_history,
@@ -14,6 +15,7 @@ from analytics.data_store import (
     init_schema,
     upsert_backtest_run,
     upsert_backtest_trades,
+    upsert_confidence_ratings,
     upsert_funding_rates,
     upsert_ohlcv,
     upsert_open_interest,
@@ -74,6 +76,7 @@ class TestInitSchema:
             "backtest_runs",
             "backtest_trades",
             "stats_cache",
+            "confidence_ratings",
         } == tables
 
     def test_idempotent(self, conn: duckdb.DuckDBPyConnection) -> None:
@@ -622,6 +625,59 @@ class TestGetWinRateByStrategy:
         )
         df = get_win_rate_by_strategy(conn)
         assert df.empty
+
+
+class TestConfidenceRatings:
+    def test_upsert_and_get_roundtrip(self, conn: duckdb.DuckDBPyConnection) -> None:
+        ratings = {"fvg": {"1h": 3, "4h": 4}, "bos": {"15m": 1}}
+        win_rates = pd.DataFrame(
+            [
+                {"strategy": "fvg", "timeframe": "1h", "avg_r": 0.35, "win_rate": 0.55},
+                {"strategy": "fvg", "timeframe": "4h", "avg_r": 0.72, "win_rate": 0.60},
+                {
+                    "strategy": "bos",
+                    "timeframe": "15m",
+                    "avg_r": -0.28,
+                    "win_rate": 0.13,
+                },
+            ]
+        )
+        upsert_confidence_ratings(conn, "signal_watch", ratings, win_rates)
+        result = get_confidence_ratings(conn, "signal_watch")
+        assert result == {"fvg": {"1h": 3, "4h": 4}, "bos": {"15m": 1}}
+
+    def test_returns_empty_dict_for_unknown_config(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        result = get_confidence_ratings(conn, "nonexistent_config")
+        assert result == {}
+
+    def test_configs_are_isolated(self, conn: duckdb.DuckDBPyConnection) -> None:
+        ratings_a = {"fvg": {"1h": 3}}
+        ratings_b = {"fvg": {"1h": 5}}
+        empty_wr: pd.DataFrame = pd.DataFrame(
+            columns=["strategy", "timeframe", "avg_r", "win_rate"]
+        )
+        upsert_confidence_ratings(conn, "config_a", ratings_a, empty_wr)
+        upsert_confidence_ratings(conn, "config_b", ratings_b, empty_wr)
+        assert get_confidence_ratings(conn, "config_a") == {"fvg": {"1h": 3}}
+        assert get_confidence_ratings(conn, "config_b") == {"fvg": {"1h": 5}}
+
+    def test_upsert_replaces_existing(self, conn: duckdb.DuckDBPyConnection) -> None:
+        empty_wr: pd.DataFrame = pd.DataFrame(
+            columns=["strategy", "timeframe", "avg_r", "win_rate"]
+        )
+        upsert_confidence_ratings(conn, "signal_watch", {"fvg": {"1h": 2}}, empty_wr)
+        upsert_confidence_ratings(conn, "signal_watch", {"fvg": {"1h": 4}}, empty_wr)
+        result = get_confidence_ratings(conn, "signal_watch")
+        assert result["fvg"]["1h"] == 4
+
+    def test_empty_ratings_is_noop(self, conn: duckdb.DuckDBPyConnection) -> None:
+        empty_wr: pd.DataFrame = pd.DataFrame(
+            columns=["strategy", "timeframe", "avg_r", "win_rate"]
+        )
+        upsert_confidence_ratings(conn, "signal_watch", {}, empty_wr)
+        assert get_confidence_ratings(conn, "signal_watch") == {}
 
 
 class TestGetLatestOpenTime:

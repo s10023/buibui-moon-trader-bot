@@ -11,6 +11,7 @@ from analytics.recalibrate_lib import (
     compute_recalibrated_ratings,
     format_recalibration_report,
     win_rate_to_stars,
+    write_confidence_to_db,
     write_confidence_to_source,
 )
 
@@ -504,3 +505,44 @@ class TestStrategySpecGetConfidence:
     def test_dict_confidence_falls_back_to_3_when_no_default(self) -> None:
         spec = StrategySpec(name="x", description="", confidence={"4h": 4})
         assert spec.get_confidence("1h") == 3
+
+
+# ---------------------------------------------------------------------------
+# write_confidence_to_db
+# ---------------------------------------------------------------------------
+
+
+class TestWriteConfidenceToDb:
+    def _conn(self) -> duckdb.DuckDBPyConnection:
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        return conn
+
+    def test_writes_ratings_to_db(self) -> None:
+        conn = self._conn()
+        ratings = {"fvg": {"1h": 3, "4h": 4}, "bos": {"15m": 1}}
+        win_rates = pd.DataFrame(
+            [
+                {"strategy": "fvg", "timeframe": "1h", "avg_r": 0.35, "win_rate": 0.55},
+                {"strategy": "fvg", "timeframe": "4h", "avg_r": 0.72, "win_rate": 0.60},
+            ]
+        )
+        write_confidence_to_db(conn, "signal_watch", ratings, win_rates)
+        from analytics.data_store import get_confidence_ratings
+
+        result = get_confidence_ratings(conn, "signal_watch")
+        assert result == {"fvg": {"1h": 3, "4h": 4}, "bos": {"15m": 1}}
+
+    def test_different_configs_do_not_interfere(self) -> None:
+        conn = self._conn()
+        empty_wr: pd.DataFrame = pd.DataFrame(
+            columns=["strategy", "timeframe", "avg_r", "win_rate"]
+        )
+        write_confidence_to_db(conn, "signal_watch", {"fvg": {"1h": 2}}, empty_wr)
+        write_confidence_to_db(
+            conn, "signal_watch_weekdays", {"fvg": {"1h": 4}}, empty_wr
+        )
+        from analytics.data_store import get_confidence_ratings
+
+        assert get_confidence_ratings(conn, "signal_watch")["fvg"]["1h"] == 2
+        assert get_confidence_ratings(conn, "signal_watch_weekdays")["fvg"]["1h"] == 4

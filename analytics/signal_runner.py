@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 
 import duckdb
 
-from analytics.data_store import DEFAULT_DB_PATH, init_schema
+from analytics.data_store import DEFAULT_DB_PATH, get_confidence_ratings, init_schema
 from analytics.data_sync import backfill, sync
 from analytics.signal_config import BacktestFilterConfig, StrategyOverride
 from analytics.signal_lib import (
@@ -52,6 +52,7 @@ def run_signal_watch(
     strategy_timeframes: dict[str, list[str]] | None = None,
     strategy_params: dict[str, StrategyOverride] | None = None,
     atr_sl_multiplier: float | None = None,
+    config_name: str | None = None,
 ) -> None:
     """Run the signal detection daemon loop.
 
@@ -112,6 +113,24 @@ def run_signal_watch(
         # Init schema once at startup (short-lived connection).
         with duckdb.connect(str(db_path)) as init_conn:
             init_schema(init_conn)
+
+        # Load per-config confidence ratings from DB once at startup.
+        # Falls back to indicators_lib.py defaults when empty (no recalibrate run yet).
+        confidence_override: dict[str, dict[str, int]] = {}
+        if config_name:
+            with duckdb.connect(str(db_path)) as cr_conn:
+                confidence_override = get_confidence_ratings(cr_conn, config_name)
+            if confidence_override:
+                logger.info(
+                    "Loaded confidence ratings for config '%s' (%d strategies)",
+                    config_name,
+                    len(confidence_override),
+                )
+            else:
+                logger.info(
+                    "No confidence ratings found for config '%s' — using indicators_lib defaults",
+                    config_name,
+                )
 
         # Startup probe: warn (don't abort) for secondaries with no OHLCV yet.
         # Uses a short-lived connection so the write lock is released immediately.
@@ -186,6 +205,7 @@ def run_signal_watch(
                     strategy_timeframes=strategy_timeframes,
                     strategy_params=strategy_params,
                     atr_sl_multiplier=atr_sl_multiplier,
+                    confidence_override=confidence_override or None,
                 )
             # Connection is now closed — web API can read the DB during the sleep.
 

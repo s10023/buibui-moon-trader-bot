@@ -2399,3 +2399,176 @@ class TestFmtHold:
 
     def test_72h_shows_3d(self) -> None:
         assert _fmt_hold(72.0) == "~3d"
+
+
+# ---------------------------------------------------------------------------
+# confidence_override in scan_symbol
+# ---------------------------------------------------------------------------
+
+_WEDNESDAY_MS = 1704240000000  # 2024-01-03 00:00:00 UTC
+
+
+def _make_ohlcv_4rows(open_time_ms: int) -> pd.DataFrame:
+    rows = [
+        {
+            "open_time": open_time_ms - 2000,
+            "open": 100.0,
+            "high": 105.0,
+            "low": 98.0,
+            "close": 102.0,
+            "volume": 1.0,
+        },
+        {
+            "open_time": open_time_ms - 1000,
+            "open": 102.0,
+            "high": 106.0,
+            "low": 100.0,
+            "close": 103.0,
+            "volume": 1.0,
+        },
+        {
+            "open_time": open_time_ms,
+            "open": 103.0,
+            "high": 107.0,
+            "low": 101.0,
+            "close": 104.0,
+            "volume": 1.0,
+        },
+        {
+            "open_time": open_time_ms + 1000,
+            "open": 104.0,
+            "high": 104.5,
+            "low": 103.5,
+            "close": 104.2,
+            "volume": 0.1,
+        },
+    ]
+    return pd.DataFrame(rows)
+
+
+def _make_signals_df_simple(open_time_ms: int) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "open_time": open_time_ms,
+                "direction": "long",
+                "reason": "fvg_long@100.00-102.00",
+                "sl_price": 98.0,
+                "context": "",
+            }
+        ]
+    )
+
+
+def _fake_registry_entry(get_confidence_val: int = 3) -> Any:
+    return type(
+        "S",
+        (),
+        {
+            "requires_funding": False,
+            "requires_secondary": False,
+            "get_confidence": lambda self, tf: get_confidence_val,
+        },
+    )()
+
+
+class TestConfidenceOverrideInScanSymbol:
+    def test_override_replaces_registry_confidence(self) -> None:
+        ohlcv = _make_ohlcv_4rows(_WEDNESDAY_MS)
+        signals_df = _make_signals_df_simple(_WEDNESDAY_MS)
+
+        with (
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {"fvg": {"detector": lambda df: signals_df}},
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                {"fvg": _fake_registry_entry(get_confidence_val=2)},
+            ),
+        ):
+            events = scan_symbol(
+                ohlcv_df=ohlcv,
+                symbol="BTCUSDT",
+                timeframe="4h",
+                strategies=["fvg"],
+                confidence_override={"fvg": {"4h": 5}},
+            )
+
+        assert len(events) == 1
+        assert events[0].confidence == 5  # override wins over registry value of 2
+
+    def test_falls_back_to_registry_when_override_missing_strategy(self) -> None:
+        ohlcv = _make_ohlcv_4rows(_WEDNESDAY_MS)
+        signals_df = _make_signals_df_simple(_WEDNESDAY_MS)
+
+        with (
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {"fvg": {"detector": lambda df: signals_df}},
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                {"fvg": _fake_registry_entry(get_confidence_val=3)},
+            ),
+        ):
+            events = scan_symbol(
+                ohlcv_df=ohlcv,
+                symbol="BTCUSDT",
+                timeframe="4h",
+                strategies=["fvg"],
+                confidence_override={"bos": {"4h": 5}},  # fvg not in override
+            )
+
+        assert len(events) == 1
+        assert events[0].confidence == 3  # falls back to registry
+
+    def test_falls_back_to_registry_when_override_missing_tf(self) -> None:
+        ohlcv = _make_ohlcv_4rows(_WEDNESDAY_MS)
+        signals_df = _make_signals_df_simple(_WEDNESDAY_MS)
+
+        with (
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {"fvg": {"detector": lambda df: signals_df}},
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                {"fvg": _fake_registry_entry(get_confidence_val=3)},
+            ),
+        ):
+            events = scan_symbol(
+                ohlcv_df=ohlcv,
+                symbol="BTCUSDT",
+                timeframe="4h",
+                strategies=["fvg"],
+                confidence_override={"fvg": {"1h": 5}},  # 4h not in override
+            )
+
+        assert len(events) == 1
+        assert events[0].confidence == 3  # falls back to registry
+
+    def test_none_override_uses_registry(self) -> None:
+        ohlcv = _make_ohlcv_4rows(_WEDNESDAY_MS)
+        signals_df = _make_signals_df_simple(_WEDNESDAY_MS)
+
+        with (
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {"fvg": {"detector": lambda df: signals_df}},
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                {"fvg": _fake_registry_entry(get_confidence_val=4)},
+            ),
+        ):
+            events = scan_symbol(
+                ohlcv_df=ohlcv,
+                symbol="BTCUSDT",
+                timeframe="4h",
+                strategies=["fvg"],
+                confidence_override=None,
+            )
+
+        assert len(events) == 1
+        assert events[0].confidence == 4

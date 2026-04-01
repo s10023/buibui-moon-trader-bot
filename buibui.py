@@ -116,6 +116,8 @@ def _parse_smt_pairs(value: str) -> dict[str, str]:
 
 
 def run_signal_watch(args: argparse.Namespace) -> None:
+    import pathlib
+
     from analytics.signal_config import SignalWatchConfig, load_signal_config
 
     cfg = SignalWatchConfig()
@@ -137,6 +139,9 @@ def run_signal_watch(args: argparse.Namespace) -> None:
     # CLI --smt-pairs overrides config [smt_pairs] table entirely when provided
     smt_pairs = cli_smt_pairs if cli_smt_pairs is not None else (cfg.smt_pairs or None)
 
+    config_name = (
+        pathlib.Path(args.config).stem if getattr(args, "config", None) else None
+    )
     signal_runner.run_signal_watch(
         symbols=symbols,
         timeframes=timeframes,
@@ -154,6 +159,7 @@ def run_signal_watch(args: argparse.Namespace) -> None:
         strategy_timeframes=cfg.strategy_timeframes or None,
         strategy_params=cfg.strategy_params or None,
         atr_sl_multiplier=cfg.atr_sl_multiplier,
+        config_name=config_name,
     )
 
 
@@ -710,11 +716,20 @@ def main() -> None:
         help="Minimum total closed trades required to recalibrate a strategy (default: 10)",
     )
     recalibrate_parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        dest="config",
+        help="TOML config path to calibrate for (derives day_filter + config_name from file; "
+        "--apply writes to confidence_ratings DB table instead of indicators_lib.py)",
+    )
+    recalibrate_parser.add_argument(
         "--day-filter",
         type=str,
         default=None,
         dest="day_filter",
-        help="Only use backtest runs saved with this day_filter value (e.g. tue_thu)",
+        help="Only use backtest runs saved with this day_filter value (e.g. tue_thu); "
+        "overridden by --config when both are provided",
     )
     recalibrate_parser.set_defaults(func=run_recalibrate)
 
