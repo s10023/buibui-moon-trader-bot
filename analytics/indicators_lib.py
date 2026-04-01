@@ -188,7 +188,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Minimum price range (fraction) a swing level must span to qualify for BOS/CHoCH.",
             ),
         ],
-        confidence={"15m": 2, "1d": 1, "1h": 2, "4h": 3},
+        confidence={"15m": 1, "1d": 1, "1h": 1, "4h": 1},
     ),
     "funding_reversion": StrategySpec(
         name="funding_reversion",
@@ -228,7 +228,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
             ),
         ],
         requires_secondary=True,
-        confidence={"15m": 2, "1d": 4, "1h": 3, "4h": 2},
+        confidence={"15m": 4, "1h": 4},
     ),
     "eqh_eql": StrategySpec(
         name="eqh_eql",
