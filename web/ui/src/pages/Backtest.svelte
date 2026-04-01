@@ -3,8 +3,11 @@
   import {
     runBacktest,
     getBacktestRuns,
+    getStrategies,
+    getConfidenceConfigs,
     type BacktestResponse,
     type BacktestRunSummary,
+    type StrategiesResponse,
   } from "../api";
   import { symbols } from "../stores/config";
   import { strategiesStore, strategyNames } from "../stores/strategies";
@@ -12,6 +15,32 @@
   import ErrorBanner from "../components/ErrorBanner.svelte";
 
   const TIMEFRAMES = ["15m", "1h", "4h", "1d"];
+
+  // ── Per-config star ratings ───────────────────────────────────────────────────
+  let confidenceConfigs = $state<string[]>([]);
+  let selectedConfig = $state<string | null>(null);
+  let configStars = $state<StrategiesResponse>({});
+
+  async function loadConfidenceConfigs(): Promise<void> {
+    try {
+      confidenceConfigs = await getConfidenceConfigs();
+    } catch {
+      confidenceConfigs = [];
+    }
+  }
+
+  async function selectConfig(name: string | null): Promise<void> {
+    selectedConfig = name;
+    if (!name) {
+      configStars = {};
+      return;
+    }
+    try {
+      configStars = await getStrategies(name);
+    } catch {
+      configStars = {};
+    }
+  }
 
   // ── DB runs view ─────────────────────────────────────────────────────────────
   let runs = $state<BacktestRunSummary[]>([]);
@@ -49,7 +78,7 @@
     }
   }
 
-  onMount(() => { void loadRuns(); });
+  onMount(() => { void loadRuns(); void loadConfidenceConfigs(); });
 
   const availableDayFilters = $derived(
     [...new Set(runs.map((r) => r.day_filter))].sort(),
@@ -160,7 +189,9 @@
   }
 
   function starsFor(strategy: string, tf?: string): number {
-    const conf = $strategiesStore[strategy]?.confidence;
+    // Use per-config DB stars if a config is selected, fall back to global registry
+    const source = selectedConfig ? configStars : $strategiesStore;
+    const conf = source[strategy]?.confidence;
     if (conf === undefined || conf === null) return 0;
     if (typeof conf === "number") return conf;
     // dict[str, int] — resolve per-TF with "default" fallback (mirrors Python get_confidence)
@@ -170,6 +201,10 @@
 
   function renderStars(n: number): string {
     return "★".repeat(n) + "☆".repeat(5 - n);
+  }
+
+  function configLabel(name: string): string {
+    return name.replace(/^signal_watch_?/, "") || "default";
   }
 
   function fmtDate(ms: number): string {
@@ -303,6 +338,20 @@
             onclick={() => { minStarsFilter = n; }}>{"★".repeat(n)}</button>
         {/each}
       </div>
+
+      {#if confidenceConfigs.length > 0}
+        <span class="fsep"></span>
+
+        <span class="flabel">Stars from</span>
+        <div class="chips">
+          <button class="chip" class:on={selectedConfig === null}
+            onclick={() => { void selectConfig(null); }}>default</button>
+          {#each confidenceConfigs as cfg}
+            <button class="chip" class:on={selectedConfig === cfg}
+              onclick={() => { void selectConfig(cfg); }}>{configLabel(cfg)}</button>
+          {/each}
+        </div>
+      {/if}
     </div>
 
     <div class="filter-row">

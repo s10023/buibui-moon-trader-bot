@@ -240,8 +240,12 @@ export async function apiFetch<T>(
 // ── Named helpers ─────────────────────────────────────────────────────────────
 
 export const getConfig = () => apiFetch<ConfigResponse>("/api/config");
-export const getStrategies = () =>
-  apiFetch<StrategiesResponse>("/api/strategies");
+export const getStrategies = (config?: string) =>
+  apiFetch<StrategiesResponse>(
+    config ? `/api/strategies?config=${encodeURIComponent(config)}` : "/api/strategies",
+  );
+export const getConfidenceConfigs = () =>
+  apiFetch<string[]>("/api/confidence-configs");
 
 export const getOhlcv = (params: {
   symbol: string;

@@ -13,6 +13,7 @@ from analytics.data_store import (
     get_signals_history,
     get_win_rate_by_strategy,
     init_schema,
+    list_confidence_configs,
     upsert_backtest_run,
     upsert_backtest_trades,
     upsert_confidence_ratings,
@@ -678,6 +679,20 @@ class TestConfidenceRatings:
         )
         upsert_confidence_ratings(conn, "signal_watch", {}, empty_wr)
         assert get_confidence_ratings(conn, "signal_watch") == {}
+
+    def test_list_confidence_configs(self, conn: duckdb.DuckDBPyConnection) -> None:
+        empty_wr: pd.DataFrame = pd.DataFrame(
+            columns=["strategy", "timeframe", "avg_r", "win_rate"]
+        )
+        assert list_confidence_configs(conn) == []
+        upsert_confidence_ratings(
+            conn, "signal_watch_all", {"fvg": {"1h": 3}}, empty_wr
+        )
+        upsert_confidence_ratings(
+            conn, "signal_watch_weekdays", {"fvg": {"1h": 4}}, empty_wr
+        )
+        result = list_confidence_configs(conn)
+        assert result == ["signal_watch_all", "signal_watch_weekdays"]
 
 
 class TestGetLatestOpenTime:

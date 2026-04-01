@@ -700,6 +700,14 @@ def get_confidence_ratings(
     return result
 
 
+def list_confidence_configs(conn: duckdb.DuckDBPyConnection) -> list[str]:
+    """Return all distinct config names that have confidence ratings in the DB."""
+    rows = conn.execute(
+        "SELECT DISTINCT config_name FROM confidence_ratings ORDER BY config_name"
+    ).fetchall()
+    return [str(r[0]) for r in rows]
+
+
 def upsert_stats_cache(
     conn: duckdb.DuckDBPyConnection,
     symbol: str,
