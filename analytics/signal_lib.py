@@ -75,6 +75,64 @@ def secs_until_next_boundary(timeframes: list[str]) -> tuple[float, float]:
     return max(0.0, wake_ts - now), wake_ts
 
 
+def _filter_signals_by_adr(
+    ohlcv_df: pd.DataFrame,
+    signals_df: pd.DataFrame,
+    threshold: float,
+) -> pd.DataFrame:
+    """Return signals where the ADR consumed at signal time is below threshold.
+
+    For each signal candle, computes:
+      consumed_ratio = (cumulative intraday range up to that candle) / (14-day ADR)
+
+    Signals where consumed_ratio >= threshold are dropped — the daily move was
+    already mostly done when the signal fired.  Signals whose candle is not found
+    in ohlcv_df pass through untouched (safe-default: don't suppress unknown data).
+    """
+    if signals_df.empty or ohlcv_df.empty:
+        return signals_df
+
+    df = ohlcv_df.copy()
+    df["_date"] = pd.to_datetime(df["open_time"], unit="ms", utc=True).dt.date
+    df = df.sort_values("open_time")
+
+    # Day open = first candle's open price within each calendar day
+    day_opens: pd.Series = df.groupby("_date")["open"].first()
+
+    # Cumulative intraday high/low up to each candle (inclusive)
+    df["_cum_high"] = df.groupby("_date")["high"].cummax()
+    df["_cum_low"] = df.groupby("_date")["low"].cummin()
+    df["_day_open"] = df["_date"].map(day_opens)
+
+    # Today's range as a fraction of day_open (avoid div/0)
+    df["_today_range"] = (df["_cum_high"] - df["_cum_low"]) / df["_day_open"].where(
+        df["_day_open"] > 0
+    )
+
+    # 14-day rolling ADR from daily extremes
+    daily = (
+        df.groupby("_date")
+        .agg(_dh=("high", "max"), _dl=("low", "min"), _do=("open", "first"))
+        .sort_index()
+    )
+    daily["_dr"] = (daily["_dh"] - daily["_dl"]) / daily["_do"].where(daily["_do"] > 0)
+    daily["_adr14"] = daily["_dr"].rolling(14, min_periods=1).mean()
+
+    df["_adr14"] = df["_date"].map(daily["_adr14"])
+
+    # Consumed ratio at each candle; NaN when adr_14 is zero or unknown
+    df["_consumed"] = df["_today_range"] / df["_adr14"].where(df["_adr14"] > 0)
+
+    consumed_map: dict[int, float] = dict(
+        zip(df["open_time"].astype(int), df["_consumed"].astype(float))
+    )
+
+    signal_ratios = signals_df["open_time"].astype(int).map(consumed_map)
+    # Keep signals where ratio is unknown (safe pass-through) or below threshold
+    keep = signal_ratios.isna() | (signal_ratios < threshold)
+    return signals_df[keep].reset_index(drop=True)
+
+
 def _compute_backtest(
     ohlcv_df: pd.DataFrame,
     strategy: str,
@@ -88,11 +146,16 @@ def _compute_backtest(
     day_filter: str = "off",
     min_sl_pct: float = 0.0,
     atr_sl_multiplier: float | None = None,
+    adr_suppress_threshold: float | None = None,
 ) -> BacktestResult | None:
     """Run strategy detector on ohlcv[:-1] and backtest the resulting signals.
 
     Excludes the current (latest) candle to avoid lookahead bias.
     Returns None if there is insufficient data or the detector raises.
+
+    adr_suppress_threshold: when set, filters historical signals where the ADR
+    consumed at signal time exceeded the threshold — mirrors the live bias gate so
+    backtested avg_r reflects only trades that would have passed the gate.
     """
     hist_df = ohlcv_df.iloc[:-1]
     if len(hist_df) < 3:
@@ -123,6 +186,9 @@ def _compute_backtest(
     allowed_days = _day_filter_to_weekdays(day_filter)
     if allowed_days is not None:
         signals_df = filter_signals_by_day(signals_df, allowed_days)
+
+    if adr_suppress_threshold is not None and not signals_df.empty:
+        signals_df = _filter_signals_by_adr(hist_df, signals_df, adr_suppress_threshold)
 
     return run_backtest(
         hist_df,
@@ -676,6 +742,9 @@ def run_scan_cycle(
                             day_filter=day_filter,
                             min_sl_pct=backtest_cfg.min_sl_pct,
                             atr_sl_multiplier=eff_atr_sl,
+                            adr_suppress_threshold=bias_cfg.adr_suppress_threshold
+                            if bias_cfg
+                            else None,
                         )
                     bt_results[event.strategy] = bt_cache[bt_key]
 
@@ -897,6 +966,9 @@ def run_scan_cycle(
                     day_filter=day_filter,
                     smt_trend_filter=smt_trend_filter,
                     secondary_symbol=secondary_symbol,
+                    adr_suppress_threshold=bias_cfg.adr_suppress_threshold
+                    if bias_cfg
+                    else None,
                 )
             except Exception:
                 logger.exception(

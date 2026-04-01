@@ -150,6 +150,7 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
         ("short_win_count", "INTEGER"),
         ("short_win_rate", "DOUBLE"),
         ("short_avg_r", "DOUBLE"),
+        ("adr_suppress_threshold", "REAL"),
     ]:
         if col not in existing_bt_cols:
             conn.execute(f"ALTER TABLE backtest_runs ADD COLUMN {col} {dtype}")
@@ -438,9 +439,16 @@ def _backtest_run_id(
     day_filter: str,
     smt_trend_filter: int,
     secondary_symbol: str | None,
+    adr_suppress_threshold: float | None = None,
 ) -> str:
-    """Return a deterministic 16-char hex ID for a backtest param combination."""
+    """Return a deterministic 16-char hex ID for a backtest param combination.
+
+    adr_suppress_threshold is appended only when set so existing run_ids are
+    unchanged (None = no ADR filter applied, same hash as before this column).
+    """
     key = f"{symbol}|{timeframe}|{strategy}|{days}|{sl_pct}|{tp_r}|{fee_pct}|{day_filter}|{smt_trend_filter}|{secondary_symbol}"
+    if adr_suppress_threshold is not None:
+        key += f"|adr:{adr_suppress_threshold}"
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
@@ -457,6 +465,7 @@ def upsert_backtest_run(
     smt_trend_filter: int,
     secondary_symbol: str | None = None,
     sweep_id: str | None = None,
+    adr_suppress_threshold: float | None = None,
 ) -> str:
     """Insert or replace a backtest aggregate result row.
 
@@ -474,6 +483,7 @@ def upsert_backtest_run(
         day_filter,
         smt_trend_filter,
         secondary_symbol,
+        adr_suppress_threshold,
     )
     row: dict[str, Any] = {
         "run_id": run_id,
@@ -499,6 +509,7 @@ def upsert_backtest_run(
         "max_drawdown_r": result.max_drawdown_r,
         "run_at_ms": int(time.time() * 1000),
         "sweep_id": sweep_id,
+        "adr_suppress_threshold": adr_suppress_threshold,
         "long_closed_trades": len(result.long_closed_trades),
         "long_win_count": result.long_win_count,
         "long_win_rate": result.long_win_rate,
@@ -518,7 +529,8 @@ def upsert_backtest_run(
             "secondary_symbol, total_signals, closed_trades, win_count, loss_count, "
             "win_rate, avg_r, total_r, max_drawdown_r, run_at_ms, sweep_id, "
             "long_closed_trades, long_win_count, long_win_rate, long_avg_r, "
-            "short_closed_trades, short_win_count, short_win_rate, short_avg_r "
+            "short_closed_trades, short_win_count, short_win_rate, short_avg_r, "
+            "adr_suppress_threshold "
             "FROM _bt_run_upsert_df"
         )
     finally:
@@ -584,10 +596,10 @@ def list_backtest_runs(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
         "b.avg_r, b.total_r, b.max_drawdown_r, b.sweep_id, b.run_at_ms, "
         "b.long_closed_trades, b.long_win_count, b.long_win_rate, b.long_avg_r, "
         "b.short_closed_trades, b.short_win_count, b.short_win_rate, b.short_avg_r, "
-        "cr.stars "
+        "b.adr_suppress_threshold, cr.stars "
         "FROM ("
         "  SELECT *, ROW_NUMBER() OVER ("
-        "    PARTITION BY symbol, timeframe, strategy, day_filter "
+        "    PARTITION BY symbol, timeframe, strategy, day_filter, adr_suppress_threshold "
         "    ORDER BY run_at_ms DESC"
         "  ) AS rn FROM backtest_runs"
         ") b "

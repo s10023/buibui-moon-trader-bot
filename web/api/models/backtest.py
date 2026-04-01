@@ -33,6 +33,7 @@ class BacktestRunSummary(BaseModel):
     short_win_count: int | None = None
     short_win_rate: float | None = None
     short_avg_r: float | None = None
+    adr_suppress_threshold: float | None = None
     stars: int | None = None
 
     @field_validator("sweep_id", mode="before")
@@ -53,6 +54,7 @@ class BacktestRunSummary(BaseModel):
                 "long_avg_r",
                 "short_win_rate",
                 "short_avg_r",
+                "adr_suppress_threshold",
                 "stars",
             )
             for key in nullable_cols:
