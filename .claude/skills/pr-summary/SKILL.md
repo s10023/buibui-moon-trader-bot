@@ -1,3 +1,9 @@
+---
+name: pr-summary
+description: "Write PR title, summary, and test plan to /tmp/pr-<branch>.md after finishing a branch."
+disable-model-invocation: true
+---
+
 # PR Summary
 
 Write a PR title + summary + test plan after finishing a branch. Always write to `/tmp/pr-<branch>.md` — never return as inline text.

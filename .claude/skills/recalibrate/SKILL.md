@@ -1,3 +1,9 @@
+---
+name: recalibrate
+description: "Update strategy star ratings in DB from backtest runs. Run after any make buibui-backtest SAVE=1."
+disable-model-invocation: true
+---
+
 # Recalibrate Strategy Star Ratings
 
 Update strategy confidence (star) ratings in `indicators_lib.py` based on accumulated backtest results in `analytics.db`.

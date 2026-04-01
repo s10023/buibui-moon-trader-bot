@@ -1,3 +1,9 @@
+---
+name: new-strategy
+description: "Guided 4-file checklist for adding a new trading strategy (indicators_lib, signals/registry, backtest_runner, tests)."
+disable-model-invocation: true
+---
+
 # New Strategy Wiring Checklist
 
 Guided workflow for adding a new trading strategy to buibui. All 4 locations must be updated together or the web UI will 500 on the strategy.

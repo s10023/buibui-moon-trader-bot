@@ -1,3 +1,9 @@
+---
+name: param-sweep-apply
+description: "Auto-apply WFO param-sweep results — parse pasted tables, pick best tp_r per strategy × TF, edit TOML, run backtest + recalibrate."
+disable-model-invocation: true
+---
+
 # Param Sweep Apply — Auto-apply WFO findings to TOML
 
 Given one or more pasted WFO sweep tables (from `buibui param-sweep` or `buibui param-audit`),

@@ -1,3 +1,8 @@
+---
+name: backtest-run
+description: "Quick reference for all buibui backtest CLI flags and invocations. Load when running or planning a backtest."
+---
+
 # Backtest Run — Quick Reference
 
 Common `buibui backtest` invocations and `make buibui-backtest` targets.

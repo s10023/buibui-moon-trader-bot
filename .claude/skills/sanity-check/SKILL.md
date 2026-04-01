@@ -1,3 +1,9 @@
+---
+name: sanity-check
+description: "Full project health check — CI, wiring audit, docs sync, skills freshness, architecture review. Use weekly or after large refactors."
+disable-model-invocation: true
+---
+
 # Sanity Check Skill
 
 Run a full periodic health check of the buibui-moon-trader-bot codebase. **Run weekly, or after any large refactor/merge.**
