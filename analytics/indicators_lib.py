@@ -228,7 +228,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
             ),
         ],
         requires_secondary=True,
-        confidence={"15m": 4, "1h": 4},
+        confidence={"15m": 3, "1h": 4},
     ),
     "eqh_eql": StrategySpec(
         name="eqh_eql",
@@ -347,7 +347,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance (risk-reward ratio).",
             ),
         ],
-        confidence={"15m": 3, "1d": 5, "1h": 3, "4h": 4},
+        confidence={"15m": 3, "1d": 5, "1h": 4, "4h": 4},
     ),
     "pin_bar": StrategySpec(
         name="pin_bar",
@@ -378,7 +378,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance.",
             ),
         ],
-        confidence={"15m": 2, "1d": 5, "1h": 3, "4h": 3},
+        confidence={"15m": 2, "1d": 5, "1h": 3, "4h": 4},
     ),
     "inside_bar": StrategySpec(
         name="inside_bar",
@@ -440,7 +440,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance.",
             ),
         ],
-        confidence={"15m": 2, "1h": 2, "4h": 3},
+        confidence={"15m": 2, "1h": 2, "4h": 2},
     ),
     "doji": StrategySpec(
         name="doji",
@@ -510,7 +510,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance.",
             ),
         ],
-        confidence={"15m": 2, "1d": 1, "1h": 2, "4h": 4},
+        confidence={"15m": 2, "1d": 1, "1h": 3, "4h": 4},
     ),
     # Legacy — superseded by fib_golden_zone (adds BOS confirmation, better SL/TP structure).
     # Uncomment to re-enable for backtest comparison.
