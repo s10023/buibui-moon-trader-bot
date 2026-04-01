@@ -23,6 +23,7 @@
   let selTfs = $state(new Set<string>());
   let selStrategies = $state(new Set<string>());
   let selDayFilters = $state(new Set<string>());
+  let selAdrFilters = $state(new Set<string>());  // "none" | "0.80" etc.
   let minStarsFilter = $state(0);         // 0 = any
   let minTrades = $state(0);              // 0 = no minimum
   let minAvgRText = $state("");           // "" = no minimum
@@ -55,11 +56,17 @@
     [...new Set(runs.map((r) => r.day_filter))].sort(),
   );
 
+  // "none" for NULL rows, stringified threshold for non-null rows
+  const availableAdrFilters = $derived(
+    [...new Set(runs.map((r) => r.adr_suppress_threshold === null ? "none" : String(r.adr_suppress_threshold)))].sort(),
+  );
+
   const hasActiveFilters = $derived(
     selSymbols.size > 0 ||
     selTfs.size > 0 ||
     selStrategies.size > 0 ||
     selDayFilters.size > 0 ||
+    selAdrFilters.size > 0 ||
     minStarsFilter > 0 ||
     minTrades > 0 ||
     minAvgRText !== "" ||
@@ -88,11 +95,13 @@
     const mxdd  = maxDrawdownRText    === "" ? Infinity  : (-parseFloat(maxDrawdownRText)    || Infinity);
 
     const filtered = runs.filter(
-      (r) =>
-        (selSymbols.size === 0 || selSymbols.has(r.symbol)) &&
+      (r) => {
+        const adrKey = r.adr_suppress_threshold === null ? "none" : String(r.adr_suppress_threshold);
+        return (selSymbols.size === 0 || selSymbols.has(r.symbol)) &&
         (selTfs.size === 0 || selTfs.has(r.timeframe)) &&
         (selStrategies.size === 0 || selStrategies.has(r.strategy)) &&
         (selDayFilters.size === 0 || selDayFilters.has(r.day_filter)) &&
+        (selAdrFilters.size === 0 || selAdrFilters.has(adrKey)) &&
         (mss === 0 || starsFor(r) >= mss) &&
         r.closed_trades >= mt &&
         r.avg_r >= mar &&
@@ -102,7 +111,8 @@
         (mlwr === -Infinity || (r.long_win_rate !== null && r.long_win_rate >= mlwr)) &&
         (mswr === -Infinity || (r.short_win_rate !== null && r.short_win_rate >= mswr)) &&
         (mlar === -Infinity || (r.long_avg_r !== null && r.long_avg_r >= mlar)) &&
-        (msar === -Infinity || (r.short_avg_r !== null && r.short_avg_r >= msar)),
+        (msar === -Infinity || (r.short_avg_r !== null && r.short_avg_r >= msar));
+      },
     );
 
     filtered.sort((a, b) => {
@@ -133,6 +143,7 @@
     selTfs = new Set();
     selStrategies = new Set();
     selDayFilters = new Set();
+    selAdrFilters = new Set();
     minStarsFilter = 0;
     minTrades = 0;
     minAvgRText = "";
@@ -291,6 +302,16 @@
         {#each availableDayFilters as df}
           <button class="chip" class:on={selDayFilters.has(df)}
             onclick={() => { selDayFilters = tog(selDayFilters, df); }}>{df}</button>
+        {/each}
+      </div>
+
+      <span class="fsep"></span>
+
+      <span class="flabel">ADR Gate</span>
+      <div class="chips">
+        {#each availableAdrFilters as af}
+          <button class="chip" class:on={selAdrFilters.has(af)}
+            onclick={() => { selAdrFilters = tog(selAdrFilters, af); }}>{af === "none" ? "off" : af}</button>
         {/each}
       </div>
 
@@ -468,15 +489,16 @@
           <th class="sortable num-col" onclick={() => setSort("total_r")}>Total R <span class="si">{sortIcon("total_r")}</span></th>
           <th class="sortable num-col dd-col" onclick={() => setSort("max_drawdown_r")}>Max DD <span class="si">{sortIcon("max_drawdown_r")}</span></th>
           <th class="sortable" onclick={() => setSort("day_filter")}>Day Filter <span class="si">{sortIcon("day_filter")}</span></th>
+          <th class="sortable" onclick={() => setSort("adr_suppress_threshold")}>ADR Gate <span class="si">{sortIcon("adr_suppress_threshold")}</span></th>
           <th class="sortable" onclick={() => setSort("run_at_ms")}>Date <span class="si">{sortIcon("run_at_ms")}</span></th>
         </tr>
       </thead>
       <tbody>
         {#if runsLoading}
-          <tr><td colspan="15" class="msg-cell">Loading…</td></tr>
+          <tr><td colspan="16" class="msg-cell">Loading…</td></tr>
         {:else if filteredRuns.length === 0}
           <tr>
-            <td colspan="15" class="msg-cell">
+            <td colspan="16" class="msg-cell">
               {hasActiveFilters ? "No results match current filters." : "No runs saved — run a backtest first."}
             </td>
           </tr>
@@ -497,6 +519,7 @@
               <td class="num" class:pos={run.total_r > 0} class:neg={run.total_r < 0}>{fmtR(run.total_r)}</td>
               <td class="num dd-val" class:dd-bad={run.max_drawdown_r > 10}>-{run.max_drawdown_r.toFixed(1)}R</td>
               <td class="muted small">{run.day_filter}</td>
+              <td class="muted small">{run.adr_suppress_threshold === null ? "—" : run.adr_suppress_threshold}</td>
               <td class="muted small nowrap">{fmtDate(run.run_at_ms)}</td>
             </tr>
           {/each}

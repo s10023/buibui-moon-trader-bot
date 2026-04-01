@@ -104,6 +104,7 @@ export interface BacktestRunSummary {
   tp_r: number;
   fee_pct: number;
   day_filter: string;
+  adr_suppress_threshold: number | null;
   closed_trades: number;
   win_count: number;
   loss_count: number;
