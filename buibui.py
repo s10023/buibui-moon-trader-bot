@@ -160,6 +160,7 @@ def run_signal_watch(args: argparse.Namespace) -> None:
         strategy_params=cfg.strategy_params or None,
         atr_sl_multiplier=cfg.atr_sl_multiplier,
         config_name=config_name,
+        bias_cfg=cfg.bias,
     )
 
 

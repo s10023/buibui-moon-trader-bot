@@ -2572,3 +2572,339 @@ class TestConfidenceOverrideInScanSymbol:
 
         assert len(events) == 1
         assert events[0].confidence == 4
+
+
+class TestBiasLayer:
+    """Tests for the F8 bias layer in run_scan_cycle.
+
+    Uses _compute_stats_context patched to return a controlled StatsContext,
+    so we can verify ADR suppress and DOW soft suppress without real DB stats.
+    """
+
+    # Wednesday 2024-01-03 — passes day_filter=off
+    _OPEN_TIME_MS = 1704240000000
+
+    def _make_ohlcv(self) -> pd.DataFrame:
+        rows = [
+            {
+                "open_time": self._OPEN_TIME_MS - 2000,
+                "open": 100.0,
+                "high": 105.0,
+                "low": 98.0,
+                "close": 102.0,
+                "volume": 1.0,
+            },
+            {
+                "open_time": self._OPEN_TIME_MS - 1000,
+                "open": 102.0,
+                "high": 106.0,
+                "low": 100.0,
+                "close": 103.0,
+                "volume": 1.0,
+            },
+            {
+                "open_time": self._OPEN_TIME_MS,
+                "open": 103.0,
+                "high": 107.0,
+                "low": 101.0,
+                "close": 104.0,
+                "volume": 1.0,
+            },
+            {
+                "open_time": self._OPEN_TIME_MS + 1000,
+                "open": 104.0,
+                "high": 104.5,
+                "low": 103.5,
+                "close": 104.2,
+                "volume": 0.1,
+            },
+        ]
+        return pd.DataFrame(rows)
+
+    def _make_signals_df(self, direction: str = "long") -> pd.DataFrame:
+        return pd.DataFrame(
+            [
+                {
+                    "open_time": self._OPEN_TIME_MS,
+                    "direction": direction,
+                    "reason": f"fvg_{direction}@100.00-102.00",
+                    "sl_price": 98.0 if direction == "long" else 106.0,
+                    "context": "",
+                }
+            ]
+        )
+
+    def _make_stats_context(
+        self,
+        adr_consumed_pct: float | None = 0.50,
+        avg_return_today: float = 0.01,
+    ) -> Any:
+        from signals.alert_formatter import StatsContext
+
+        return StatsContext(
+            today_dow="Wednesday",
+            p1_low_pct_today=0.55,
+            adr_14=0.025,
+            adr_consumed_pct=adr_consumed_pct,
+            peak_high_hour_myt=14,
+            peak_low_hour_myt=8,
+            bull_pct_today=0.60,
+            avg_return_today=avg_return_today,
+        )
+
+    def _run_with_bias(
+        self,
+        tmp_path: Any,
+        signals_df: Any,
+        stats_ctx: Any,
+        bias_cfg: Any,
+    ) -> list[str]:
+        from analytics.signal_lib import run_scan_cycle
+
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        store = CooldownStore(str(tmp_path / "state.json"))
+        ohlcv = self._make_ohlcv()
+
+        with (
+            patch("analytics.signal_lib.get_ohlcv", return_value=ohlcv),
+            patch(
+                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+            ),
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {
+                    "fvg": {
+                        "detector": lambda df: signals_df,
+                        "confidence": 3,
+                    }
+                },
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                {
+                    "fvg": type(
+                        "S",
+                        (),
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 3,
+                        },
+                    )(),
+                },
+            ),
+            patch(
+                "analytics.signal_lib._compute_stats_context",
+                return_value=stats_ctx,
+            ),
+        ):
+            return run_scan_cycle(
+                conn=conn,
+                symbols=["BTCUSDT"],
+                timeframes=["4h"],
+                strategies=["fvg"],
+                store=store,
+                bias_cfg=bias_cfg,
+            )
+
+    # --- ADR hard suppress ---
+
+    def test_adr_gate_suppresses_when_consumed_above_threshold(
+        self, tmp_path: Any
+    ) -> None:
+        """ADR gate drops signal when adr_consumed_pct >= threshold."""
+        from analytics.signal_config import BiasConfig
+
+        signals_df = self._make_signals_df("long")
+        ctx = self._make_stats_context(adr_consumed_pct=0.85)
+        bias_cfg = BiasConfig(adr_suppress_threshold=0.80)
+
+        alerts = self._run_with_bias(tmp_path, signals_df, ctx, bias_cfg)
+        assert alerts == [], "Signal should be suppressed when ADR >= threshold"
+
+    def test_adr_gate_passes_when_consumed_below_threshold(self, tmp_path: Any) -> None:
+        """ADR gate allows signal when adr_consumed_pct < threshold."""
+        from analytics.signal_config import BiasConfig
+
+        signals_df = self._make_signals_df("long")
+        ctx = self._make_stats_context(adr_consumed_pct=0.60)
+        bias_cfg = BiasConfig(adr_suppress_threshold=0.80)
+
+        alerts = self._run_with_bias(tmp_path, signals_df, ctx, bias_cfg)
+        assert len(alerts) == 1, "Signal should pass when ADR < threshold"
+
+    def test_adr_gate_disabled_when_threshold_is_none(self, tmp_path: Any) -> None:
+        """ADR gate is skipped when adr_suppress_threshold=None (default)."""
+        from analytics.signal_config import BiasConfig
+
+        signals_df = self._make_signals_df("long")
+        ctx = self._make_stats_context(adr_consumed_pct=0.99)
+        bias_cfg = BiasConfig(adr_suppress_threshold=None)
+
+        alerts = self._run_with_bias(tmp_path, signals_df, ctx, bias_cfg)
+        assert len(alerts) == 1, "ADR gate off when threshold is None"
+
+    def test_adr_gate_passes_when_adr_consumed_is_none(self, tmp_path: Any) -> None:
+        """ADR gate skips suppression when adr_consumed_pct is unknown."""
+        from analytics.signal_config import BiasConfig
+
+        signals_df = self._make_signals_df("long")
+        ctx = self._make_stats_context(adr_consumed_pct=None)
+        bias_cfg = BiasConfig(adr_suppress_threshold=0.80)
+
+        alerts = self._run_with_bias(tmp_path, signals_df, ctx, bias_cfg)
+        assert len(alerts) == 1, "ADR gate must not suppress when consumed pct unknown"
+
+    def test_adr_gate_passes_when_stats_ctx_is_none(self, tmp_path: Any) -> None:
+        """ADR gate skips suppression when stats context is unavailable."""
+        from analytics.signal_config import BiasConfig
+
+        signals_df = self._make_signals_df("long")
+        bias_cfg = BiasConfig(adr_suppress_threshold=0.80)
+
+        alerts = self._run_with_bias(tmp_path, signals_df, None, bias_cfg)
+        assert len(alerts) == 1, "ADR gate must not suppress when stats ctx is None"
+
+    def test_bias_cfg_none_is_a_noop(self, tmp_path: Any) -> None:
+        """bias_cfg=None means the entire bias layer is skipped."""
+        signals_df = self._make_signals_df("long")
+        ctx = self._make_stats_context(adr_consumed_pct=0.99)
+
+        alerts = self._run_with_bias(tmp_path, signals_df, ctx, None)
+        assert len(alerts) == 1, "No bias_cfg → signal must pass unaffected"
+
+    # --- DOW soft suppress ---
+
+    def test_dow_suppress_reduces_confidence_for_opposing_long(
+        self, tmp_path: Any
+    ) -> None:
+        """LONG on a bearish DOW day → confidence reduced by 1."""
+        from analytics.signal_config import BiasConfig
+
+        signals_df = self._make_signals_df("long")
+        # avg_return_today < 0 → bearish DOW → LONG is opposing → reduce confidence
+        ctx = self._make_stats_context(avg_return_today=-0.02)
+        bias_cfg = BiasConfig(dow_soft_suppress=True, dow_suppress_min_abs_return=0.005)
+
+        alerts = self._run_with_bias(tmp_path, signals_df, ctx, bias_cfg)
+        assert len(alerts) == 1, "Signal must still fire (soft suppress, not hard gate)"
+        assert "★★☆☆☆" in alerts[0], "Confidence reduced from 3★ to 2★"
+
+    def test_dow_suppress_reduces_confidence_for_opposing_short(
+        self, tmp_path: Any
+    ) -> None:
+        """SHORT on a bullish DOW day → confidence reduced by 1."""
+        from analytics.signal_config import BiasConfig
+
+        signals_df = self._make_signals_df("short")
+        # avg_return_today > 0 → bullish DOW → SHORT is opposing → reduce confidence
+        ctx = self._make_stats_context(avg_return_today=0.02)
+        bias_cfg = BiasConfig(dow_soft_suppress=True, dow_suppress_min_abs_return=0.005)
+
+        alerts = self._run_with_bias(tmp_path, signals_df, ctx, bias_cfg)
+        assert len(alerts) == 1
+        assert "★★☆☆☆" in alerts[0], "Confidence reduced from 3★ to 2★"
+
+    def test_dow_suppress_does_not_affect_aligned_direction(
+        self, tmp_path: Any
+    ) -> None:
+        """LONG on a bullish DOW day → confidence unchanged."""
+        from analytics.signal_config import BiasConfig
+
+        signals_df = self._make_signals_df("long")
+        # avg_return_today > 0 → bullish DOW → LONG is aligned → no change
+        ctx = self._make_stats_context(avg_return_today=0.02)
+        bias_cfg = BiasConfig(dow_soft_suppress=True, dow_suppress_min_abs_return=0.005)
+
+        alerts = self._run_with_bias(tmp_path, signals_df, ctx, bias_cfg)
+        assert len(alerts) == 1
+        assert "★★★☆☆" in alerts[0], (
+            "Confidence should remain 3★ when direction aligned"
+        )
+
+    def test_dow_suppress_respects_dead_band(self, tmp_path: Any) -> None:
+        """No confidence change when abs(avg_return) < min_abs_return dead-band."""
+        from analytics.signal_config import BiasConfig
+
+        signals_df = self._make_signals_df("long")
+        # avg_return near zero → within dead-band → no confidence adjustment
+        ctx = self._make_stats_context(avg_return_today=-0.002)
+        bias_cfg = BiasConfig(dow_soft_suppress=True, dow_suppress_min_abs_return=0.005)
+
+        alerts = self._run_with_bias(tmp_path, signals_df, ctx, bias_cfg)
+        assert len(alerts) == 1
+        assert "★★★☆☆" in alerts[0], "Confidence unchanged within dead-band"
+
+    def test_dow_suppress_clamps_confidence_to_one(self, tmp_path: Any) -> None:
+        """Confidence never drops below 1 even when already at 1."""
+        from analytics.signal_config import BiasConfig
+
+        signals_df = self._make_signals_df("long")
+        ctx = self._make_stats_context(avg_return_today=-0.05)
+        bias_cfg = BiasConfig(dow_soft_suppress=True, dow_suppress_min_abs_return=0.005)
+
+        # Patch get_confidence to return 1 (already minimum)
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        store = CooldownStore(str(tmp_path / "state.json"))
+        ohlcv = self._make_ohlcv()
+
+        with (
+            patch("analytics.signal_lib.get_ohlcv", return_value=ohlcv),
+            patch(
+                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+            ),
+            patch(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {
+                    "fvg": {
+                        "detector": lambda df: signals_df,
+                        "confidence": 1,
+                    }
+                },
+            ),
+            patch(
+                "analytics.signal_lib.STRATEGY_REGISTRY",
+                {
+                    "fvg": type(
+                        "S",
+                        (),
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 1,
+                        },
+                    )(),
+                },
+            ),
+            patch(
+                "analytics.signal_lib._compute_stats_context",
+                return_value=ctx,
+            ),
+        ):
+            from analytics.signal_lib import run_scan_cycle
+
+            alerts = run_scan_cycle(
+                conn=conn,
+                symbols=["BTCUSDT"],
+                timeframes=["4h"],
+                strategies=["fvg"],
+                store=store,
+                bias_cfg=bias_cfg,
+            )
+
+        assert len(alerts) == 1
+        assert "★☆☆☆☆" in alerts[0], "Confidence clamped at 1★ minimum"
+
+    def test_dow_suppress_disabled_by_default(self, tmp_path: Any) -> None:
+        """dow_soft_suppress=False (default) → no confidence change."""
+        from analytics.signal_config import BiasConfig
+
+        signals_df = self._make_signals_df("long")
+        ctx = self._make_stats_context(avg_return_today=-0.05)
+        bias_cfg = BiasConfig(dow_soft_suppress=False)
+
+        alerts = self._run_with_bias(tmp_path, signals_df, ctx, bias_cfg)
+        assert len(alerts) == 1
+        assert "★★★☆☆" in alerts[0], "Confidence unchanged when dow_soft_suppress=False"

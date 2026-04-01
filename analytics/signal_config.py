@@ -123,6 +123,26 @@ class BacktestFilterConfig:
 
 
 @dataclass
+class BiasConfig:
+    """Configuration for the statistics-driven bias layer (F8).
+
+    Controls two gates applied after the backtest/volume filters:
+
+    1. ADR hard suppress: drop signals when today's range has already consumed
+       >= adr_suppress_threshold of the 14-day ADR (e.g. 0.80 = 80%).
+       None = disabled (default).
+
+    2. DOW soft suppress: reduce confidence by 1 star when the signal direction
+       opposes today's historical DOW avg return.  Only fires when abs(avg_return)
+       >= dow_suppress_min_abs_return (dead-band, default 0.5%).
+    """
+
+    adr_suppress_threshold: float | None = None
+    dow_soft_suppress: bool = False
+    dow_suppress_min_abs_return: float = 0.005
+
+
+@dataclass
 class SignalWatchConfig:
     """All configurable options for the signal watch daemon."""
 
@@ -151,6 +171,8 @@ class SignalWatchConfig:
     # When set, SL distance = atr_sl_multiplier × ATR14 at signal candle.
     # Per-strategy overrides in strategy_params take precedence.
     atr_sl_multiplier: float | None = None
+    # Statistics-driven bias layer (F8): ADR progress gate + DOW soft suppress.
+    bias: BiasConfig = field(default_factory=BiasConfig)
 
     def effective_tp_r(self, strategy: str, symbol: str, tf: str) -> float:
         """Resolve tp_r: symbol+TF → symbol → TF-specific → strategy-wide → global."""
@@ -323,6 +345,16 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
             per_symbol=per_symbol,
         )
 
+    raw_bias = data.get("bias", {})
+    raw_adr = raw_bias.get("adr_suppress_threshold")
+    bias = BiasConfig(
+        adr_suppress_threshold=float(raw_adr) if raw_adr is not None else None,
+        dow_soft_suppress=bool(raw_bias.get("dow_soft_suppress", False)),
+        dow_suppress_min_abs_return=float(
+            raw_bias.get("dow_suppress_min_abs_return", 0.005)
+        ),
+    )
+
     return SignalWatchConfig(
         symbols=data.get("symbols"),
         timeframes=data.get("timeframes", ["4h"]),
@@ -343,4 +375,5 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
             if data.get("atr_sl_multiplier") is not None
             else None
         ),
+        bias=bias,
     )

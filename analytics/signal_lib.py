@@ -33,6 +33,7 @@ from analytics.data_store import (
 from analytics.indicators_lib import STRATEGY_REGISTRY
 from analytics.signal_config import (
     BacktestFilterConfig,
+    BiasConfig,
     StrategyOverride,
     _day_filter_to_weekdays,
 )
@@ -505,6 +506,7 @@ def run_scan_cycle(
     strategy_params: dict[str, StrategyOverride] | None = None,
     atr_sl_multiplier: float | None = None,
     confidence_override: dict[str, dict[str, int]] | None = None,
+    bias_cfg: BiasConfig | None = None,
 ) -> list[str]:
     """Scan all symbol+timeframe combinations and return formatted alert strings.
 
@@ -721,6 +723,48 @@ def run_scan_cycle(
                 if not passing_events:
                     logger.info("Volume filter suppressed %s %s", symbol, tf)
                     continue
+
+            # Bias gate — ADR progress and DOW context filters (F8).
+            # Never raises — stats failures must not block signal dispatch.
+            if bias_cfg is not None:
+                bias_ctx = stats_ctx_cache.get(symbol)
+                if bias_ctx is not None:
+                    # Step 1: ADR hard suppress — drop all signals for this
+                    # symbol/tf when today's range already consumed >= threshold.
+                    if (
+                        bias_cfg.adr_suppress_threshold is not None
+                        and bias_ctx.adr_consumed_pct is not None
+                        and bias_ctx.adr_consumed_pct >= bias_cfg.adr_suppress_threshold
+                    ):
+                        logger.info(
+                            "ADR bias gate suppressed %s %s — %.0f%% range consumed "
+                            "(threshold %.0f%%)",
+                            symbol,
+                            tf,
+                            bias_ctx.adr_consumed_pct * 100,
+                            bias_cfg.adr_suppress_threshold * 100,
+                        )
+                        continue
+
+                    # Step 2: DOW soft suppress — reduce confidence by 1 star
+                    # when signal direction opposes today's historical avg return.
+                    if bias_cfg.dow_soft_suppress:
+                        avg_ret = bias_ctx.avg_return_today
+                        if abs(avg_ret) >= bias_cfg.dow_suppress_min_abs_return:
+                            for event in passing_events:
+                                if (event.direction == "long" and avg_ret < 0) or (
+                                    event.direction == "short" and avg_ret > 0
+                                ):
+                                    event.confidence = max(1, event.confidence - 1)
+                                    logger.debug(
+                                        "DOW bias: %s %s %s confidence → %d "
+                                        "(avg_ret %.3f)",
+                                        symbol,
+                                        tf,
+                                        event.strategy,
+                                        event.confidence,
+                                        avg_ret,
+                                    )
 
             for event in passing_events:
                 store.mark_candle(symbol, tf, event.strategy, event.open_time)
