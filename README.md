@@ -600,9 +600,11 @@ applied correctly — results stored in `backtest_runs` match what the live filt
 
 ```toml
 [bias]
-# ADR hard gate: drop signals when today's range has consumed >= this fraction of ADR-14.
-# Prevents entries when most of the day's move is already done.
-adr_suppress_threshold = 0.80   # e.g. 0.80 = suppress when 80%+ of ADR consumed
+# ADR directional gate: when today's range has consumed >= this fraction of ADR-14,
+# suppresses only the chasing direction (LONGs when move was up, SHORTs when move was
+# down). Reversal signals at the extreme still fire. Falls back to blanket suppress when
+# move direction is unknown.
+adr_suppress_threshold = 0.80   # e.g. 0.80 = suppress chasing direction when 80%+ consumed
 
 # DOW soft suppress: reduce confidence by 1 star when signal direction opposes today's
 # historical DOW avg return (from stats_lib). Signal still fires but shows lower conviction.
