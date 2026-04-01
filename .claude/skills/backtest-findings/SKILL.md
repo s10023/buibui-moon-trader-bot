@@ -1,3 +1,9 @@
+---
+name: backtest-findings
+description: "Interpret sweep tables (ATR/TP/volume/duration) and commit winning params to TOML. Use after any sweep run."
+disable-model-invocation: true
+---
+
 # Backtest Findings — Interpreting Sweep Output
 
 Workflow for reading a sweep table and translating results into committed TOML config.

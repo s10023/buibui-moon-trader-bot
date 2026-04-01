@@ -1,3 +1,9 @@
+---
+name: volume-sweep
+description: "Test volume_suppress flag per strategy — compare High Vol vs Low Vol avg R. Use when adding a strategy or after entry logic changes."
+disable-model-invocation: true
+---
+
 # Volume Suppression Testing
 
 Test whether filtering low-volume candles improves strategy performance. Uses the `volume_suppress` flag in TOML.

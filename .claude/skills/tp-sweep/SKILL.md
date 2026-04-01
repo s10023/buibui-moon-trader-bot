@@ -1,3 +1,9 @@
+---
+name: tp-sweep
+description: "Find optimal TP ratio per strategy × TF. Use after adding a new strategy or TF, or after entry logic changes."
+disable-model-invocation: true
+---
+
 # TP Ratio Sweep
 
 Run a `tp_r_values` sweep to find the optimal take-profit ratio per strategy × TF.

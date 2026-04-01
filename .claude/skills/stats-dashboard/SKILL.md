@@ -1,3 +1,8 @@
+---
+name: stats-dashboard
+description: "Stats page architecture, card inventory, adding new stat cards, timezone and caching constraints. Load when working on Stats page or stats_lib.py."
+---
+
 # Stats Dashboard Skill
 
 Use when working on the Stats page or its backend — adding new stat cards, fixing data, changing layout, or debugging the API.

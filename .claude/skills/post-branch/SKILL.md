@@ -1,3 +1,8 @@
+---
+name: post-branch
+description: "Post-branch docs check — update CLAUDE.md, README.md, MEMORY.md, Makefile after finishing any branch. Run automatically after every branch."
+---
+
 # Post-Branch Docs Check
 
 Run after every branch is finished (lint/typecheck/tests pass, commit done, PR summary written).

@@ -1,3 +1,8 @@
+---
+name: signal-watch
+description: "Signal daemon workflow, TOML config reference, and signal flow. Load when configuring or debugging the live signal scanner."
+---
+
 # Signal Watch Daemon
 
 24/7 signal detection daemon — scans symbols × strategies × TFs on each new candle close, deduplicates, and sends Telegram alerts.
