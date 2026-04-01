@@ -127,7 +127,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Number of candles from 00:00 UTC that form the opening range.",
             ),
         ],
-        confidence={"15m": 1, "1h": 1, "4h": 2},
+        confidence={"15m": 1, "1h": 2, "4h": 2},
     ),
     "liquidity_sweep": StrategySpec(
         name="liquidity_sweep",
@@ -142,7 +142,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Rolling window size for swing high/low detection.",
             ),
         ],
-        confidence={"15m": 1, "1d": 3, "1h": 1, "4h": 1},
+        confidence={"15m": 1, "1d": 4, "1h": 1, "4h": 1},
     ),
     "fvg": StrategySpec(
         name="fvg",
@@ -165,7 +165,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Minimum gap size as fraction of midpoint price (0.001 = 0.1%); filters noise.",
             ),
         ],
-        confidence={"15m": 1, "1d": 3, "1h": 1, "4h": 1},
+        confidence={"15m": 1, "1d": 1, "1h": 1, "4h": 1},
     ),
     "bos": StrategySpec(
         name="bos",
@@ -228,7 +228,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
             ),
         ],
         requires_secondary=True,
-        confidence={"15m": 5, "1h": 4},
+        confidence={"15m": 4, "1h": 3, "4h": 1},
     ),
     "eqh_eql": StrategySpec(
         name="eqh_eql",
@@ -254,7 +254,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
         confidence={
             "15m": 1,
             "1h": 2,
-            "4h": 4,
+            "4h": 3,
         },  # 0 trades in backtest — fires too rarely to have data
     ),
     "order_block": StrategySpec(
@@ -278,7 +278,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Minimum % move on displacement candle to qualify an order block.",
             ),
         ],
-        confidence={"15m": 1, "1d": 4, "1h": 1, "4h": 1},
+        confidence={"15m": 1, "1d": 3, "1h": 1, "4h": 1},
     ),
     "cvd_divergence": StrategySpec(
         name="cvd_divergence",
@@ -301,7 +301,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Candles of CVD history to compare swing extremes across.",
             ),
         ],
-        confidence={"15m": 1, "1h": 4},  # no CVD data in DB — never backtested
+        confidence={"15m": 2, "1h": 4},  # no CVD data in DB — never backtested
     ),
     "trend_day": StrategySpec(
         name="trend_day",
@@ -347,7 +347,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance (risk-reward ratio).",
             ),
         ],
-        confidence={"15m": 3, "1d": 5, "1h": 3, "4h": 4},
+        confidence={"15m": 2, "1d": 4, "1h": 3, "4h": 3},
     ),
     "pin_bar": StrategySpec(
         name="pin_bar",
@@ -378,7 +378,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance.",
             ),
         ],
-        confidence={"15m": 2, "1d": 5, "1h": 3, "4h": 3},
+        confidence={"15m": 2, "1d": 4, "1h": 2, "4h": 2},
     ),
     "inside_bar": StrategySpec(
         name="inside_bar",
@@ -401,7 +401,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance.",
             ),
         ],
-        confidence={"15m": 2, "1d": 4, "1h": 2, "4h": 3},
+        confidence={"15m": 2, "1d": 3, "1h": 2, "4h": 2},
     ),
     "hammer_hanging_man": StrategySpec(
         name="hammer_hanging_man",
@@ -440,7 +440,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance.",
             ),
         ],
-        confidence={"15m": 2, "1h": 2, "4h": 3},
+        confidence={"15m": 2, "1d": 4, "1h": 2, "4h": 2},
     ),
     "doji": StrategySpec(
         name="doji",
@@ -479,7 +479,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance.",
             ),
         ],
-        confidence={"15m": 3, "1h": 3, "4h": 3},
+        confidence={"15m": 2, "1d": 5, "1h": 3, "4h": 2},
     ),
     "morning_evening_star": StrategySpec(
         name="morning_evening_star",
@@ -510,7 +510,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Take-profit as a multiple of SL distance.",
             ),
         ],
-        confidence={"15m": 2, "1d": 1, "1h": 2, "4h": 4},
+        confidence={"15m": 2, "1d": 4, "1h": 2, "4h": 3},
     ),
     # Legacy — superseded by fib_golden_zone (adds BOS confirmation, better SL/TP structure).
     # Uncomment to re-enable for backtest comparison.
@@ -547,7 +547,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Rolling window half-size for BOS swing detection.",
             ),
         ],
-        confidence={"15m": 1, "1h": 1, "4h": 5},
+        confidence={"15m": 1, "1h": 4, "4h": 4},
     ),
     "ote_entry": StrategySpec(
         name="ote_entry",

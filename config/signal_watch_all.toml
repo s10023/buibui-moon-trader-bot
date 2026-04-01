@@ -48,15 +48,121 @@ min_trades_1d  = 5
 fee_pct = 0.0005
 # atr_sl_multiplier = 2.0  # ATR-based SL: SL distance = N × ATR14; overrides sl_pct when set
 # atr_sl_multiplier_values = [0.5, 1.0, 1.5, 2.0, 2.5]  # sweep: comparison table across multipliers
-# tp_r_values = [1.0, 1.5, 2.0, 2.5, 3.0]  # TP ratio sweep — prints comparison table instead of ranked sweep
+# tp_r_values = [1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]  # TP ratio sweep — prints comparison table instead of ranked sweep
 
 [strategy_timeframes]
-trend_day = ["4h", "1d"]
+trend_day        = ["4h", "1d"]          # 15m=-0.03R, 1h≈0.00R excluded
+fib_golden_zone  = ["1h", "4h", "1d"]   # 15m all negative excluded
+eqh_eql          = ["1h", "4h", "1d"]   # 15m=-0.08 to -0.16R excluded
+smt_divergence   = ["15m", "1h", "4h"]  # 1d=4 trades 25% WR excluded
+orb              = ["1h", "4h"]          # 15m all negative; 1d=n/a
+bos              = ["15m", "1h", "4h"]   # 1d=-0.30R to -1.01R excluded
+liquidity_sweep  = ["1h", "1d"]          # 15m/4h all negative
+marubozu         = ["4h", "1d"]          # 15m/1h all negative
 
 [smt_pairs]
 BTCUSDT = "ETHUSDT"
 ETHUSDT = "BTCUSDT"
 SOLUSDT = "ETHUSDT"
+
+# Per-strategy parameter overrides — tp_r and sl_pct.
+# Derived from TP sweep (200d, all days, 3 symbols — BTCUSDT/ETHUSDT/SOLUSDT).
+# Re-run after major data changes: make buibui-backtest CONFIG=config/signal_watch_all.toml SAVE=1
+
+[strategy_params.engulfing]
+tp_r_15m = 4.0                # +0.10R
+tp_r_1h  = 4.0                # +0.20R
+tp_r_4h  = 3.5                # +0.26R
+tp_r_1d  = 3.0                # +0.73R (27 trades)
+
+[strategy_params.pin_bar]
+tp_r_15m = 3.0                # +0.09R
+tp_r_1h  = 4.0                # +0.09R
+tp_r_4h  = 3.5                # +0.13R
+tp_r_1d  = 3.5                # +0.73R (48 trades)
+
+[strategy_params.hammer_hanging_man]
+tp_r_15m = 3.0                # +0.06R
+tp_r_1h  = 5.0                # +0.18R (monotonically increasing)
+tp_r_4h  = 4.0                # +0.18R
+tp_r_1d  = 3.0                # +0.52R (23 trades)
+
+[strategy_params.doji]
+tp_r_15m = 4.0                # +0.15R
+tp_r_1h  = 3.0                # +0.26R
+tp_r_4h  = 3.0                # +0.16R
+tp_r_1d  = 4.5                # +1.05R (21 trades)
+
+[strategy_params.inside_bar]
+tp_r_15m = 3.5                # +0.06R
+tp_r_1h  = 2.5                # +0.09R
+tp_r_4h  = 3.5                # +0.15R
+tp_r_1d  = 5.0                # +0.31R (67 trades, monotonically increasing)
+
+[strategy_params.morning_evening_star]
+tp_r_15m = 3.5                # +0.08R
+tp_r_1h  = 3.5                # +0.10R
+tp_r_4h  = 5.0                # +0.21R (monotonically increasing)
+tp_r_1d  = 3.5                # +0.66R (63 trades)
+
+[strategy_params.eqh_eql]
+tp_r_1h  = 5.0                # +0.12R
+tp_r_4h  = 2.0                # -0.26R (all negative; hard mode will suppress)
+tp_r_1d  = 2.0                # +1.21R (4 trades — noisy; hard mode will gate)
+
+[strategy_params.fib_golden_zone]
+tp_r_1h  = 4.5                # +0.50R
+tp_r_4h  = 3.5                # +0.73R
+tp_r_1d  = 2.0                # +0.49R (8 trades; 3.5R+ drops sharply)
+
+[strategy_params.bos]
+tp_r_15m = 5.0                # -0.28R (all negative; hard mode will suppress)
+tp_r_1h  = 1.5                # -0.28R (all negative; hard mode will suppress)
+tp_r_4h  = 2.0                # -0.36R (all negative; hard mode will suppress)
+
+[strategy_params.smt_divergence]
+tp_r_15m = 5.0                # +0.75R (monotonically increasing; 181 trades)
+tp_r_1h  = 4.5                # +0.38R (42 trades)
+tp_r_4h  = 5.0                # +0.18R (10 trades)
+
+[strategy_params.cvd_divergence]
+tp_r_15m = 5.0                # +0.12R (monotonically increasing)
+tp_r_1h  = 5.0                # +0.63R (monotonically increasing)
+tp_r_4h  = 2.5                # +0.97R (peaks here; 7 trades — small sample)
+
+[strategy_params.trend_day]
+tp_r_4h  = 5.0                # +0.21R (monotonically increasing)
+tp_r_1d  = 4.0                # +0.20R
+
+[strategy_params.orb]
+tp_r_1h  = 4.5                # +0.00R (barely positive)
+tp_r_4h  = 3.5                # +0.10R
+
+[strategy_params.liquidity_sweep]
+tp_r_1h  = 5.0                # -0.23R (all negative; hard mode will suppress)
+tp_r_1d  = 3.5                # +0.63R (24 trades)
+
+[strategy_params.marubozu]
+tp_r_4h  = 4.5                # -0.30R (all negative; hard mode will suppress)
+tp_r_1d  = 2.0                # +0.21R (7 trades)
+
+[strategy_params.fvg]
+tp_r_15m = 3.0                # -0.17R (all negative; hard mode will suppress)
+tp_r_1h  = 1.5                # -0.15R (all negative; hard mode will suppress)
+tp_r_4h  = 2.5                # -0.22R (all negative; hard mode will suppress)
+tp_r_1d  = 4.5                # -0.15R (all negative; hard mode will suppress)
+
+[strategy_params.order_block]
+tp_r_15m = 1.5                # -0.20R (all negative; hard mode will suppress)
+tp_r_1h  = 5.0                # -0.07R (all negative; hard mode will suppress)
+tp_r_4h  = 2.5                # -0.05R (all negative; hard mode will suppress)
+tp_r_1d  = 1.5                # +0.44R (46 trades)
+
+[strategy_params.wick_fill]
+tp_r_15m = 5.0                # -0.16R (all negative; hard mode will suppress)
+tp_r_1h  = 5.0                # -0.18R (all negative; hard mode will suppress)
+tp_r_4h  = 5.0                # -0.04R (all negative; hard mode will suppress)
+tp_r_1d  = 2.0                # +0.02R (barely positive; 210 trades)
 
 [backtest]
 mode = "hard"
