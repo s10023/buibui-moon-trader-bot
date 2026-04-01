@@ -38,20 +38,28 @@ def run(
     day_filter: str | None = getattr(args, "day_filter", None)
     config_name: str | None = None
 
-    # Derive day_filter and config_name from the TOML when --config is provided.
+    adr_suppress_threshold: float | None = None
+
+    # Derive day_filter, config_name, and adr_suppress_threshold from the TOML when --config is provided.
     if config_path:
         from analytics.signal_config import load_signal_config
 
         watch_cfg = load_signal_config(config_path)
         day_filter = watch_cfg.day_filter
         config_name = Path(config_path).stem
+        adr_suppress_threshold = watch_cfg.bias.adr_suppress_threshold
 
     conn: duckdb.DuckDBPyConnection = duckdb.connect(str(db_path))
     try:
         init_schema(conn)
-        win_rates = get_backtest_win_rates(conn, day_filter=day_filter)
+        win_rates = get_backtest_win_rates(
+            conn, day_filter=day_filter, adr_suppress_threshold=adr_suppress_threshold
+        )
         new_ratings = compute_recalibrated_ratings(
-            conn, min_trades=min_trades, day_filter=day_filter
+            conn,
+            min_trades=min_trades,
+            day_filter=day_filter,
+            adr_suppress_threshold=adr_suppress_threshold,
         )
 
         old_ratings = {

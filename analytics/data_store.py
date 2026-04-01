@@ -630,6 +630,7 @@ def get_win_rate_by_strategy(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
             COUNT(*)                                                            AS combos_run
         FROM backtest_runs
         WHERE closed_trades >= 20
+          AND adr_suppress_threshold IS NULL
         GROUP BY strategy
         ORDER BY win_rate_pct DESC
     """).df()
