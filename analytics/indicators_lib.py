@@ -1311,10 +1311,10 @@ def detect_market_structure(
 
     window = 2 * swing_lookback + 1
     rolling_max = high_series.rolling(
-        window=window, center=False, min_periods=window
+        window=window, center=True, min_periods=window
     ).max()
     rolling_min = low_series.rolling(
-        window=window, center=False, min_periods=window
+        window=window, center=True, min_periods=window
     ).min()
 
     is_swing_high = high_series == rolling_max
@@ -1538,7 +1538,6 @@ def detect_smt_divergence(
     signals: list[dict[str, object]] = []
 
     for i in range(lookback, n):
-        open_time = int(open_times[i])
         close_p = float(closes_p[i])
         ema_val = float(ema50[i]) if ema50 is not None else 0.0
 
@@ -1576,11 +1575,11 @@ def detect_smt_divergence(
                     prior_s_sh_val = float(highs_s[sh_s_window[:-1]].max())
                     secondary_also_new_high = latest_s_sh_val > prior_s_sh_val
 
-                if not secondary_also_new_high:
+                if i == latest_p_sh_idx + swing_n and not secondary_also_new_high:
                     if not trend_filter or close_p < ema_val:
                         signals.append(
                             {
-                                "open_time": open_time,
+                                "open_time": int(open_times[i]),
                                 "direction": "short",
                                 "reason": f"smt_bearish@{latest_p_sh_val:.2f}",
                                 "sl_price": latest_p_sh_val,
@@ -1610,11 +1609,11 @@ def detect_smt_divergence(
                     prior_s_sl_val = float(lows_s[sl_s_window[:-1]].min())
                     secondary_also_new_low = latest_s_sl_val < prior_s_sl_val
 
-                if not secondary_also_new_low:
+                if i == latest_p_sl_idx + swing_n and not secondary_also_new_low:
                     if not trend_filter or close_p > ema_val:
                         signals.append(
                             {
-                                "open_time": open_time,
+                                "open_time": int(open_times[i]),
                                 "direction": "long",
                                 "reason": f"smt_bullish@{latest_p_sl_val:.2f}",
                                 "sl_price": latest_p_sl_val,
