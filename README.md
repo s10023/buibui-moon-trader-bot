@@ -450,19 +450,26 @@ SOLUSDT       1h    bos                  54.1%      85  +1.42R
 ### Recalibrate — Update Confidence Star Ratings
 
 Reads `backtest_runs` from `analytics.db` and maps real avg R per strategy to 1–5 star
-confidence ratings. Run this after any backtest sweep with `--save` to keep ratings
-evidence-based.
+confidence ratings. Each signal-watch TOML config gets its own set of ratings stored in the
+`confidence_ratings` DB table — stars are no longer shared globals baked into source code.
 
 ```bash
-poetry run python buibui.py recalibrate            # dry-run: show what would change
-poetry run python buibui.py recalibrate --apply    # write ratings to indicators_lib.py
+# Per-config workflow (preferred — no source patching)
+poetry run python buibui.py recalibrate --config config/signal_watch.toml            # dry-run
+poetry run python buibui.py recalibrate --config config/signal_watch.toml --apply    # write to DB
+poetry run python buibui.py recalibrate --config config/signal_watch_weekdays.toml --apply
+
+# Legacy: write global ratings directly to indicators_lib.py (still works, no --config needed)
+poetry run python buibui.py recalibrate --apply
 poetry run python buibui.py recalibrate --min-trades 20 --apply
 ```
 
-`--apply` patches `confidence=N` values **directly in `analytics/indicators_lib.py`** so all
-consumers (signal watch, backtest, web API) pick up the new ratings on next startup.
+`--config` derives `day_filter` and `config_name` from the TOML file, then filters
+`backtest_runs` to only runs matching that `day_filter` before computing stars.
+`--apply` with `--config` writes to the `confidence_ratings` table keyed by config name —
+signal watch loads these at startup so each TOML config uses its own calibrated stars.
 
-**Star rating thresholds (avg R across all saved runs for a strategy):**
+**Star rating thresholds (avg R):**
 
 | avg R | Stars |
 | --- | --- |
@@ -477,16 +484,11 @@ Strategies with fewer than `--min-trades` (default: 10) closed trades are exclud
 **Full workflow:**
 
 ```bash
-# One-time setup after merge
-make buibui-backtest CONFIG=config/signal_watch.toml SAVE=1  # populate backtest_runs
-make buibui-recalibrate                                       # preview changes (dry-run)
-make buibui-recalibrate APPLY=1                              # write to indicators_lib.py
-make buibui-signal-watch ...                                  # restart to load new ratings
-
-# After any strategy change or fix
-make buibui-backtest STRATEGY=<name> SAVE=1  # refresh that strategy's backtest_runs rows
-make buibui-recalibrate APPLY=1              # re-patch indicators_lib.py
-# restart signal watch
+# After any backtest sweep with SAVE=1 — recalibrate each config independently
+make buibui-backtest CONFIG=config/signal_watch.toml SAVE=1
+make buibui-recalibrate CONFIG=config/signal_watch.toml             # preview
+make buibui-recalibrate CONFIG=config/signal_watch.toml APPLY=1    # write to DB
+make buibui-signal-watch CONFIG=config/signal_watch.toml            # restart; loads DB stars
 ```
 
 ### Signal Watch — 24/7 Strategy Alerts
@@ -735,10 +737,10 @@ make buibui-backtest SYMBOL=BTCUSDT STRATEGY=fvg INTERVAL=1h DAYS=30 SL_PCT=0.01
 make buibui-backtest CONFIG=config/signal_watch.toml SAVE=1  # Full sweep + persist to DB
 make buibui-backtest SYMBOL=BTCUSDT STRATEGY=bos SAVE=1      # Single-combo + persist to DB
 
-# Recalibrate confidence star ratings from backtest DB
-make buibui-recalibrate                        # dry-run: show what would change
-make buibui-recalibrate APPLY=1                # apply ratings to STRATEGY_REGISTRY
-make buibui-recalibrate MIN_TRADES=20 APPLY=1  # custom min-trades gate
+# Recalibrate confidence star ratings (per-config)
+make buibui-recalibrate CONFIG=config/signal_watch.toml          # dry-run
+make buibui-recalibrate CONFIG=config/signal_watch.toml APPLY=1  # write to DB
+make buibui-recalibrate MIN_TRADES=20 CONFIG=config/signal_watch.toml APPLY=1
 ```
 
 Defaults: `SYMBOL=BTCUSDT`, `STRATEGY=fvg`, `INTERVAL=4h`, `DAYS=90`.
