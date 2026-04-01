@@ -84,7 +84,8 @@
     const msar  = minShortAvgRText    === "" ? -Infinity : (parseFloat(minShortAvgRText)     || -Infinity);
     const mwr   = minWinRateText      === "" ? -Infinity : (parseFloat(minWinRateText)  / 100 || -Infinity);
     const mtr   = minTotalRText       === "" ? -Infinity : (parseFloat(minTotalRText)        || -Infinity);
-    const mxdd  = maxDrawdownRText    === "" ? Infinity  : (parseFloat(maxDrawdownRText)     || Infinity);
+    // user types negative (e.g. -10); stored value is positive — negate to compare
+    const mxdd  = maxDrawdownRText    === "" ? Infinity  : (-parseFloat(maxDrawdownRText)    || Infinity);
 
     const filtered = runs.filter(
       (r) =>
@@ -376,10 +377,10 @@
         type="number"
         class="filter-num"
         bind:value={maxDrawdownRText}
-        min="0"
+        max="0"
         step="0.5"
         placeholder="any"
-        title="Maximum drawdown in R (empty = no limit)"
+        title="Maximum drawdown, e.g. -10 = no worse than -10R (empty = no limit)"
       />
 
       <span class="fsep"></span>
