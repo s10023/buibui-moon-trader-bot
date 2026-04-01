@@ -102,7 +102,12 @@ def run_signals(
                     and not math.isnan(float(sig["entry_price"]))
                     else None
                 ),
-                confidence=int(sig.get("confidence", 3)),
+                confidence=(
+                    int(sig["confidence"])
+                    if sig.get("confidence") is not None
+                    and not math.isnan(float(sig["confidence"]))
+                    else 3
+                ),
                 context=str(sig.get("context", "")),
             )
         )
