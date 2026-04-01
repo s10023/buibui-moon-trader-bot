@@ -199,20 +199,39 @@ def _seed_backtest_runs(conn: duckdb.DuckDBPyConnection) -> None:
             "sweep_id": None,
         },
     ]
-    df = pd.DataFrame(rows)
-    conn.register("_seed_df", df)
-    try:
-        conn.execute(
-            "INSERT INTO backtest_runs SELECT "
-            "run_id, symbol, timeframe, strategy, data_start_ms, data_end_ms, "
-            "days, sl_pct, tp_r, fee_pct, day_filter, smt_trend_filter, "
-            "secondary_symbol, total_signals, closed_trades, win_count, loss_count, "
-            "win_rate, avg_r, total_r, max_drawdown_r, run_at_ms, sweep_id, "
-            "NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL "
-            "FROM _seed_df"
-        )
-    finally:
-        conn.unregister("_seed_df")
+    conn.executemany(
+        "INSERT INTO backtest_runs VALUES "
+        "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+        [
+            [
+                r["run_id"],
+                r["symbol"],
+                r["timeframe"],
+                r["strategy"],
+                r["data_start_ms"],
+                r["data_end_ms"],
+                r["days"],
+                r["sl_pct"],
+                r["tp_r"],
+                r["fee_pct"],
+                r["day_filter"],
+                r["smt_trend_filter"],
+                r["secondary_symbol"],
+                r["total_signals"],
+                r["closed_trades"],
+                r["win_count"],
+                r["loss_count"],
+                r["win_rate"],
+                r["avg_r"],
+                r["total_r"],
+                r["max_drawdown_r"],
+                r["run_at_ms"],
+                r["sweep_id"],
+            ]
+            for r in rows
+        ],
+    )
 
 
 class TestComputeRecalibratedRatings:
