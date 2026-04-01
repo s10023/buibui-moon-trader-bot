@@ -3,11 +3,8 @@
   import {
     runBacktest,
     getBacktestRuns,
-    getStrategies,
-    getConfidenceConfigs,
     type BacktestResponse,
     type BacktestRunSummary,
-    type StrategiesResponse,
   } from "../api";
   import { symbols } from "../stores/config";
   import { strategiesStore, strategyNames } from "../stores/strategies";
@@ -15,32 +12,6 @@
   import ErrorBanner from "../components/ErrorBanner.svelte";
 
   const TIMEFRAMES = ["15m", "1h", "4h", "1d"];
-
-  // ── Per-config star ratings ───────────────────────────────────────────────────
-  let confidenceConfigs = $state<string[]>([]);
-  let selectedConfig = $state<string | null>(null);
-  let configStars = $state<StrategiesResponse>({});
-
-  async function loadConfidenceConfigs(): Promise<void> {
-    try {
-      confidenceConfigs = await getConfidenceConfigs();
-    } catch {
-      confidenceConfigs = [];
-    }
-  }
-
-  async function selectConfig(name: string | null): Promise<void> {
-    selectedConfig = name;
-    if (!name) {
-      configStars = {};
-      return;
-    }
-    try {
-      configStars = await getStrategies(name);
-    } catch {
-      configStars = {};
-    }
-  }
 
   // ── DB runs view ─────────────────────────────────────────────────────────────
   let runs = $state<BacktestRunSummary[]>([]);
@@ -78,7 +49,7 @@
     }
   }
 
-  onMount(() => { void loadRuns(); void loadConfidenceConfigs(); });
+  onMount(() => { void loadRuns(); });
 
   const availableDayFilters = $derived(
     [...new Set(runs.map((r) => r.day_filter))].sort(),
@@ -122,7 +93,7 @@
         (selTfs.size === 0 || selTfs.has(r.timeframe)) &&
         (selStrategies.size === 0 || selStrategies.has(r.strategy)) &&
         (selDayFilters.size === 0 || selDayFilters.has(r.day_filter)) &&
-        (mss === 0 || starsFor(r.strategy, r.timeframe) >= mss) &&
+        (mss === 0 || starsFor(r) >= mss) &&
         r.closed_trades >= mt &&
         r.avg_r >= mar &&
         r.win_rate >= mwr &&
@@ -137,11 +108,11 @@
     filtered.sort((a, b) => {
       const av: number | string =
         col === "stars"
-          ? starsFor(a.strategy)
+          ? starsFor(a)
           : (a[col as keyof BacktestRunSummary] as number | string | null) ?? "";
       const bv: number | string =
         col === "stars"
-          ? starsFor(b.strategy)
+          ? starsFor(b)
           : (b[col as keyof BacktestRunSummary] as number | string | null) ?? "";
       const cmp = av < bv ? -1 : av > bv ? 1 : 0;
       return dir === "desc" ? -cmp : cmp;
@@ -188,23 +159,19 @@
     return sortDir === "desc" ? "↓" : "↑";
   }
 
-  function starsFor(strategy: string, tf?: string): number {
-    // Use per-config DB stars if a config is selected, fall back to global registry
-    const source = selectedConfig ? configStars : $strategiesStore;
-    const conf = source[strategy]?.confidence;
+  function starsFor(run: BacktestRunSummary): number {
+    // Prefer per-config calibrated stars joined from confidence_ratings at query time
+    if (run.stars !== null && run.stars !== undefined) return run.stars;
+    // Fallback: resolve from global registry for rows without calibrated stars yet
+    const conf = $strategiesStore[run.strategy]?.confidence;
     if (conf === undefined || conf === null) return 0;
     if (typeof conf === "number") return conf;
-    // dict[str, int] — resolve per-TF with "default" fallback (mirrors Python get_confidence)
-    if (tf && tf in conf) return conf[tf];
+    if (run.timeframe in conf) return conf[run.timeframe];
     return conf["default"] ?? 3;
   }
 
   function renderStars(n: number): string {
     return "★".repeat(n) + "☆".repeat(5 - n);
-  }
-
-  function configLabel(name: string): string {
-    return name.replace(/^signal_watch_/, "") || name;
   }
 
   function fmtDate(ms: number): string {
@@ -338,20 +305,6 @@
             onclick={() => { minStarsFilter = n; }}>{"★".repeat(n)}</button>
         {/each}
       </div>
-
-      {#if confidenceConfigs.length > 0}
-        <span class="fsep"></span>
-
-        <span class="flabel">Stars from</span>
-        <div class="chips">
-          <button class="chip" class:on={selectedConfig === null}
-            onclick={() => { void selectConfig(null); }}>default</button>
-          {#each confidenceConfigs as cfg}
-            <button class="chip" class:on={selectedConfig === cfg}
-              onclick={() => { void selectConfig(cfg); }}>{configLabel(cfg)}</button>
-          {/each}
-        </div>
-      {/if}
     </div>
 
     <div class="filter-row">
@@ -533,7 +486,7 @@
               <td class="sym">{run.symbol.replace("USDT", "")}</td>
               <td class="muted">{run.timeframe}</td>
               <td class="strat-name">{run.strategy}</td>
-              <td class="stars">{renderStars(starsFor(run.strategy, run.timeframe))}</td>
+              <td class="stars">{renderStars(starsFor(run))}</td>
               <td class="num">{fmtWinPct(run.win_rate)}</td>
               <td class="num dir-long" class:dir-pos={run.long_win_rate !== null && run.long_win_rate > 0.5} class:dir-nil={run.long_win_rate === null}>{fmtDirWinPct(run.long_win_rate)}</td>
               <td class="num dir-long" class:pos={run.long_avg_r !== null && run.long_avg_r > 0} class:neg={run.long_avg_r !== null && run.long_avg_r < 0} class:dir-nil={run.long_avg_r === null}>{fmtDirR(run.long_avg_r)}</td>

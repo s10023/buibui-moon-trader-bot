@@ -236,15 +236,19 @@ def write_confidence_to_db(
     config_name: str,
     ratings: dict[str, dict[str, int]],
     win_rates: pd.DataFrame,
+    day_filter: str | None = None,
 ) -> None:
     """Upsert confidence star ratings to the DB for a specific config.
 
     Replaces write_confidence_to_source for per-config star storage.
     config_name: TOML stem, e.g. 'signal_watch', 'signal_watch_weekdays'.
+    day_filter: stored alongside stars so backtest rows can JOIN without a UI selector.
     """
     from analytics.data_store import upsert_confidence_ratings
 
-    upsert_confidence_ratings(conn, config_name, ratings, win_rates)
+    upsert_confidence_ratings(
+        conn, config_name, ratings, win_rates, day_filter=day_filter
+    )
 
 
 def write_confidence_to_source(

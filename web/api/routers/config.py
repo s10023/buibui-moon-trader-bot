@@ -1,4 +1,4 @@
-"""Config router — GET /api/config, GET /api/strategies, GET /api/confidence-configs."""
+"""Config router — GET /api/config, GET /api/strategies."""
 
 from dataclasses import asdict
 from typing import Any
@@ -6,7 +6,7 @@ from typing import Any
 import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from analytics.data_store import get_confidence_ratings, list_confidence_configs
+from analytics.data_store import get_confidence_ratings
 from analytics.indicators_lib import STRATEGY_REGISTRY
 from utils.binance_client import load_coins_config
 from web.api.deps import get_db, require_token
@@ -27,14 +27,6 @@ def get_config() -> dict[str, Any]:
     return {symbol: dict(cfg) for symbol, cfg in coins.items()}
 
 
-@router.get("/confidence-configs")
-def get_confidence_configs(
-    db: duckdb.DuckDBPyConnection = Depends(get_db),
-) -> list[str]:
-    """Return config names that have per-config confidence ratings in the DB."""
-    return list_confidence_configs(db)
-
-
 @router.get("/strategies")
 def get_strategies(
     config: str | None = Query(default=None),
@@ -50,6 +42,5 @@ def get_strategies(
         overrides = get_confidence_ratings(db, config)
         for strategy, tf_stars in overrides.items():
             if strategy in specs:
-                # Replace confidence with the per-config dict (matches StrategySpec type)
                 specs[strategy]["confidence"] = tf_stars
     return specs

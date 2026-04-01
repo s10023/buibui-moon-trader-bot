@@ -121,6 +121,7 @@ export interface BacktestRunSummary {
   short_win_count: number | null;
   short_win_rate: number | null;
   short_avg_r: number | null;
+  stars: number | null;
 }
 
 export interface TradeModel {
@@ -240,12 +241,8 @@ export async function apiFetch<T>(
 // ── Named helpers ─────────────────────────────────────────────────────────────
 
 export const getConfig = () => apiFetch<ConfigResponse>("/api/config");
-export const getStrategies = (config?: string) =>
-  apiFetch<StrategiesResponse>(
-    config ? `/api/strategies?config=${encodeURIComponent(config)}` : "/api/strategies",
-  );
-export const getConfidenceConfigs = () =>
-  apiFetch<string[]>("/api/confidence-configs");
+export const getStrategies = () =>
+  apiFetch<StrategiesResponse>("/api/strategies");
 
 export const getOhlcv = (params: {
   symbol: string;

@@ -33,6 +33,7 @@ class BacktestRunSummary(BaseModel):
     short_win_count: int | None = None
     short_win_rate: float | None = None
     short_avg_r: float | None = None
+    stars: int | None = None
 
     @field_validator("sweep_id", mode="before")
     @classmethod
@@ -45,15 +46,16 @@ class BacktestRunSummary(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _float_nan_to_none(cls, data: Any) -> Any:
-        """Coerce pandas NaN to None for nullable float columns."""
+        """Coerce pandas NaN to None for nullable float/int columns."""
         if isinstance(data, dict):
-            nullable_floats = (
+            nullable_cols = (
                 "long_win_rate",
                 "long_avg_r",
                 "short_win_rate",
                 "short_avg_r",
+                "stars",
             )
-            for key in nullable_floats:
+            for key in nullable_cols:
                 v = data.get(key)
                 if isinstance(v, float) and math.isnan(v):
                     data[key] = None
