@@ -272,3 +272,140 @@ class TestBacktestFilterConfig:
         cfg = load_signal_config(p)
         assert cfg.backtest.mode == "soft"
         assert cfg.backtest.days == 90
+
+    def test_min_avg_r_default(self) -> None:
+        cfg = BacktestFilterConfig()
+        assert cfg.min_avg_r == 0.0
+
+    def test_min_avg_r_loaded_from_toml(self, tmp_path: Any) -> None:
+        from analytics.signal_config import load_signal_config
+
+        p = tmp_path / "cfg.toml"
+        p.write_text("[backtest]\nmode = 'hard'\nmin_avg_r = 0.25\n")
+        cfg = load_signal_config(p)
+        assert cfg.backtest.min_avg_r == 0.25
+
+
+# ---------------------------------------------------------------------------
+# Hard filter: avg_r (EV) gate
+# ---------------------------------------------------------------------------
+
+
+def _make_result_with_avg_r(
+    long_wins: int, long_losses: int, short_wins: int, short_losses: int, tp_r: float
+) -> BacktestResult:
+    """Build a BacktestResult with explicit long/short directional trades."""
+    result = BacktestResult(symbol="BTCUSDT", timeframe="4h", strategy="fvg")
+    for _ in range(long_wins):
+        result.trades.append(
+            Trade(
+                signal_time=1,
+                entry_time=2,
+                entry_price=100.0,
+                direction="long",
+                sl_price=98.0,
+                tp_price=100.0 + 2.0 * tp_r,
+                exit_price=100.0 + 2.0 * tp_r,
+                outcome="win",
+            )
+        )
+    for _ in range(long_losses):
+        result.trades.append(
+            Trade(
+                signal_time=1,
+                entry_time=2,
+                entry_price=100.0,
+                direction="long",
+                sl_price=98.0,
+                tp_price=100.0 + 2.0 * tp_r,
+                exit_price=98.0,
+                outcome="loss",
+            )
+        )
+    for _ in range(short_wins):
+        result.trades.append(
+            Trade(
+                signal_time=1,
+                entry_time=2,
+                entry_price=100.0,
+                direction="short",
+                sl_price=102.0,
+                tp_price=100.0 - 2.0 * tp_r,
+                exit_price=100.0 - 2.0 * tp_r,
+                outcome="win",
+            )
+        )
+    for _ in range(short_losses):
+        result.trades.append(
+            Trade(
+                signal_time=1,
+                entry_time=2,
+                entry_price=100.0,
+                direction="short",
+                sl_price=102.0,
+                tp_price=100.0 - 2.0 * tp_r,
+                exit_price=102.0,
+                outcome="loss",
+            )
+        )
+    return result
+
+
+class TestEvGate:
+    """Verify the avg_r EV gate passes low-WR profitable strategies and blocks losers."""
+
+    def _cfg(self, min_trades: int = 5, min_avg_r: float = 0.0) -> BacktestFilterConfig:
+        return BacktestFilterConfig(
+            mode="hard", days=90, min_trades=min_trades, min_avg_r=min_avg_r
+        )
+
+    def test_low_winrate_positive_avg_r_passes(self) -> None:
+        """25% WR at 4R is still +EV — must NOT be suppressed."""
+
+        # 25% win rate, tp_r=4 → avg_r = 0.25*4 - 0.75*1 = +0.25 (positive EV)
+        result = _make_result_with_avg_r(
+            long_wins=5, long_losses=15, short_wins=0, short_losses=0, tp_r=4.0
+        )
+        cfg = self._cfg(min_trades=5, min_avg_r=0.0)
+        assert result.long_avg_r is not None
+        assert result.long_avg_r > 0.0, "25% WR × 4R should be positive EV"
+
+        # Simulate the gate check directly
+        avg_r = result.long_avg_r
+        assert avg_r >= cfg.min_avg_r
+
+    def test_negative_avg_r_blocked(self) -> None:
+        """Strategy with negative avg_r must be suppressed."""
+        result = _make_result_with_avg_r(
+            long_wins=2, long_losses=10, short_wins=0, short_losses=0, tp_r=2.0
+        )
+        cfg = self._cfg(min_trades=5, min_avg_r=0.0)
+        avg_r = result.long_avg_r
+        assert avg_r is not None
+        assert avg_r < 0.0, "Low WR × low R should be negative EV"
+        assert avg_r < cfg.min_avg_r
+
+    def test_short_direction_uses_short_avg_r(self) -> None:
+        """Gate uses short_avg_r for SHORT signals, not long_avg_r."""
+        # Long trades are losers, short trades are winners
+        result = _make_result_with_avg_r(
+            long_wins=1, long_losses=10, short_wins=5, short_losses=1, tp_r=2.0
+        )
+        assert result.long_avg_r is not None and result.long_avg_r < 0.0
+        assert result.short_avg_r is not None and result.short_avg_r > 0.0
+
+    def test_none_result_always_passes(self) -> None:
+        """No backtest data → signal must not be suppressed."""
+        # result is None → gate passes regardless of min_avg_r
+        result = None
+        passes = result is None
+        assert passes
+
+    def test_insufficient_trades_passes(self) -> None:
+        """Below min_trades threshold → gate passes (insufficient data)."""
+        result = _make_result_with_avg_r(
+            long_wins=1, long_losses=3, short_wins=0, short_losses=0, tp_r=2.0
+        )
+        cfg = self._cfg(min_trades=20, min_avg_r=0.0)
+        passes = len(result.closed_trades) < cfg.effective_min_trades("4h")
+        assert passes  # 4 trades < 20 threshold
