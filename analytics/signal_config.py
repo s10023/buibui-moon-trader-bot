@@ -100,8 +100,11 @@ class BacktestFilterConfig:
     # Signal rate is NOT uniform — higher TFs fire less frequently per candle.
     # To scale for a different lookback: new_value = base × (your_days / 200)
     min_trades_per_tf: dict[str, int] = field(default_factory=dict)
-    # hard mode only: suppress if win_rate < this
+    # hard mode only: suppress if win_rate < this (legacy — kept for TOML back-compat)
     filter_threshold: float = 0.45
+    # hard mode only: suppress if directional avg_r < this (replaces win-rate gate)
+    # 0.0 = must have positive EV; set lower to allow marginally negative strategies
+    min_avg_r: float = 0.0
     # Persist computed backtest results to backtest_runs table (default on)
     save_results: bool = True
     # Taker fee per leg (e.g. 0.0005 = 0.05%); applied to each backtest trade
@@ -238,6 +241,7 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         min_trades=int(raw_bt.get("min_trades", 20)),
         min_trades_per_tf=bt_per_tf,
         filter_threshold=float(raw_bt.get("filter_threshold", 0.45)),
+        min_avg_r=float(raw_bt.get("min_avg_r", 0.0)),
         save_results=bool(raw_bt.get("save_results", True)),
         # [backtest].fee_pct takes precedence; falls back to top-level fee_pct
         fee_pct=float(raw_bt.get("fee_pct", data.get("fee_pct", 0.0))),

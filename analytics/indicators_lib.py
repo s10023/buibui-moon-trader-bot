@@ -188,7 +188,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Minimum price range (fraction) a swing level must span to qualify for BOS/CHoCH.",
             ),
         ],
-        confidence={"15m": 3, "1d": 1, "1h": 2, "4h": 3},
+        confidence={"15m": 2, "1d": 1, "1h": 2, "4h": 3},
     ),
     "funding_reversion": StrategySpec(
         name="funding_reversion",
@@ -324,7 +324,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Maximum wick-to-range ratio for the wick in the trend direction (leading wick).",
             ),
         ],
-        confidence={"15m": 1, "1d": 2, "1h": 2, "4h": 3},
+        confidence={"15m": 1, "1d": 2, "1h": 1, "4h": 3},
     ),
     "engulfing": StrategySpec(
         name="engulfing",

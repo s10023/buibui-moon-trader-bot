@@ -79,7 +79,7 @@ fee_pct = 0.0005        # 0.05% taker fee per leg; set 0.0 to disable
 trend_day        = ["4h", "1d"]       # 15m mean_r=-0.082 suppressed
 fib_golden_zone  = ["4h", "1d"]       # 15m mean_r=-0.254, 1h mean_r=-0.195 suppressed
 eqh_eql          = ["4h", "1d"]       # 15m mean_r=-0.137, 1h mean_r=-0.056 suppressed
-smt_divergence   = ["15m", "1h", "4h", "1d"]             # post-A18 pivot fix: all combos positive except BTCUSDT 4h (-0.58R); suppressed at runtime by hard-mode filter_threshold=0.3
+smt_divergence   = ["15m", "1h", "4h", "1d"]             # post-A18 pivot fix: all combos positive except BTCUSDT 4h (-0.58R); suppressed at runtime by hard-mode min_avg_r gate
 orb              = ["1h", "4h", "1d"] # 15m mean_r=-0.163 suppressed
 bos              = ["15m", "1h", "4h"] # 1d mean_r=-0.785 suppressed; 4h mean_r=+0.223 re-enabled
 pin_bar          = ["15m", "1h", "4h", "1d"] # 4h mean_r=-0.137 on weekdays; +0.40R on tue_thu (unlocked)
@@ -87,7 +87,7 @@ liquidity_sweep  = ["1h", "1d"]       # 15m mean_r=-0.116, 4h mean_r=-0.160 supp
 cvd_divergence   = ["15m", "1h", "4h", "1d"] # 1h mean_r=+0.535 re-enabled
 morning_evening_star = ["15m", "1h", "4h"] # 1d mean_r=-0.105 suppressed
 marubozu         = ["4h", "1d"]       # 15m mean_r=-0.120, 1h mean_r=-0.229 suppressed
-order_block      = ["4h", "1d"]       # 15m mean_r=-0.22, 1h mean_r=-0.33 suppressed; 4h+0.03R/1d+0.09R marginally positive but below filter_threshold=0.3 — runtime gate handles suppression
+order_block      = ["4h", "1d"]       # 15m mean_r=-0.22, 1h mean_r=-0.33 suppressed; 4h+0.03R/1d+0.09R marginally positive — runtime min_avg_r gate handles suppression
 fvg              = ["15m", "1h", "4h"] # 1d catastrophic: ETH -1.07R, BTC -0.63R suppressed; 15m/1h/4h monitored via hard-mode gate
 
 # Per-strategy parameter overrides — tp_r and sl_pct.
@@ -167,7 +167,7 @@ tp_r_4h = 5.0                 # WFO BTC 4h OOS +0.519R (53 trades)
 tp_r = 3.0                    # 1h+0.14R (183 trades), 4h+0.17R (119 trades)
 
 # BTCUSDT 4h: -0.58R (15.1% win rate, 53 trades) — only bad SMT combo post-A18 fix.
-# Hard-mode filter_threshold=0.3 suppresses at runtime. True per-symbol TF exclusion
+# Hard-mode min_avg_r gate suppresses at runtime (avg_r=-0.58R < 0.0). True per-symbol TF exclusion
 # not yet supported in SymbolOverride (only tp_r/sl_pct/atr_sl). Track as code gap if needed.
 [strategy_params.smt_divergence.BTCUSDT]
 # No param override — BTC 4h relies on hard-mode backtest gate to suppress.
@@ -191,7 +191,8 @@ min_trades_15m = 20
 min_trades_1h  = 12
 min_trades_4h  = 5
 min_trades_1d  = 2
-filter_threshold = 0.3
+# filter_threshold = 0.3   # legacy win-rate gate (replaced by min_avg_r below)
+min_avg_r = 0.0             # hard mode: suppress if directional avg_r < this (positive EV gate)
 # save_results = true
 # volume_suppress = false   # enable after confirming via `make buibui-backtest` that low-vol trades underperform
 # liq_sweep_use_fib = true  # set false to compare pivot-sweep mode (wick above pivot + close inside) vs fib-extension mode

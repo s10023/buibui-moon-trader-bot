@@ -546,7 +546,7 @@ Notable: ETHUSDT 4h `bos` is the main cost (−5pp/−0.14R) — Mon/Fri 4h ETH 
 
 4h is the best timeframe — BTCUSDT 4h is consistently the strongest combo (+0.20R). 15m signal volume is high but R is flat-to-negative. 1d combos show strong R (+0.15–0.23R) without `day_filter` but sample sizes fall below `min_trades` when Mon/Fri are excluded.
 
-The `[backtest]` table in `config/signal_watch.toml` controls a per-alert win rate filter:
+The `[backtest]` table in `config/signal_watch.toml` controls a per-alert expected-value filter:
 
 ```toml
 [backtest]
@@ -557,7 +557,7 @@ min_trades_15m = 20     # per-TF overrides; calibrated from DB p25 directional c
 min_trades_1h  = 12
 min_trades_4h  = 5
 min_trades_1d  = 2
-filter_threshold = 0.3  # hard mode: suppress alert if win_rate < this
+min_avg_r = 0.0         # hard mode: suppress alert if directional avg_r < this (positive EV gate)
 fee_pct = 0.0005        # taker fee applied to inline backtest (falls back to top-level fee_pct)
 
 [smt_pairs]

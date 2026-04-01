@@ -25,33 +25,52 @@ def get_backtest_win_rates(
     Returns a DataFrame with columns:
         strategy, timeframe, total_trades, win_rate, avg_r
     """
+    # Fetch raw rows and deduplicate in Python to avoid ROW_NUMBER() window
+    # functions, which segfault in DuckDB 1.5.x on Python 3.11.
     day_filter_clause = "AND day_filter = ?" if day_filter is not None else ""
     params = [day_filter] if day_filter is not None else []
-    return conn.execute(
-        f"""
-        WITH latest AS (
-            SELECT *,
-                   ROW_NUMBER() OVER (
-                       PARTITION BY strategy, timeframe, symbol
-                       ORDER BY run_at_ms DESC
-                   ) AS rn
-            FROM backtest_runs
-            WHERE 1=1 {day_filter_clause}
-        )
-        SELECT
-            strategy,
-            timeframe,
-            SUM(closed_trades)                                                AS total_trades,
-            ROUND(SUM(win_count) * 1.0 / NULLIF(SUM(closed_trades), 0), 4)  AS win_rate,
-            ROUND(AVG(avg_r), 4)                                             AS avg_r
-        FROM latest
-        WHERE rn = 1
-          AND closed_trades > 0
-        GROUP BY strategy, timeframe
-        ORDER BY strategy, timeframe
-        """,
+    cursor = conn.execute(
+        f"SELECT strategy, timeframe, symbol, run_at_ms, closed_trades, win_count, avg_r "
+        f"FROM backtest_runs "
+        f"WHERE closed_trades > 0 {day_filter_clause}",
         params,
-    ).df()
+    )
+    rows = cursor.fetchall()
+    if not rows:
+        return pd.DataFrame(
+            columns=["strategy", "timeframe", "total_trades", "win_rate", "avg_r"]
+        )
+
+    raw = pd.DataFrame(
+        rows,
+        columns=[
+            "strategy",
+            "timeframe",
+            "symbol",
+            "run_at_ms",
+            "closed_trades",
+            "win_count",
+            "avg_r",
+        ],
+    )
+    # Keep only the latest run per (strategy, timeframe, symbol)
+    raw = raw.sort_values("run_at_ms", ascending=False).drop_duplicates(
+        subset=["strategy", "timeframe", "symbol"]
+    )
+    # Aggregate across symbols
+    agg = (
+        raw.groupby(["strategy", "timeframe"], sort=True)
+        .agg(
+            total_trades=("closed_trades", "sum"),
+            win_count_sum=("win_count", "sum"),
+            avg_r=("avg_r", "mean"),
+        )
+        .reset_index()
+    )
+    agg["win_rate"] = (agg["win_count_sum"] / agg["total_trades"]).round(4)
+    agg["avg_r"] = agg["avg_r"].round(4)
+    agg["total_trades"] = agg["total_trades"].astype(int)
+    return agg[["strategy", "timeframe", "total_trades", "win_rate", "avg_r"]]
 
 
 def win_rate_to_stars(

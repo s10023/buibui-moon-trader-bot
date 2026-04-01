@@ -674,17 +674,26 @@ def run_scan_cycle(
                     bt_results[event.strategy] = bt_cache[bt_key]
 
                 if backtest_cfg.mode == "hard":
-                    passing_events = [
-                        e
-                        for e in passing_events
-                        if (
-                            bt_results.get(e.strategy) is None
-                            or len(bt_results[e.strategy].closed_trades)  # type: ignore[union-attr]
-                            < backtest_cfg.effective_min_trades(tf)
-                            or bt_results[e.strategy].win_rate  # type: ignore[union-attr]
-                            >= backtest_cfg.filter_threshold
-                        )
-                    ]
+
+                    def _passes_ev_gate(e: SignalEvent) -> bool:
+                        result = bt_results.get(e.strategy)
+                        if result is None:
+                            return True  # no data — don't suppress
+                        if len(
+                            result.closed_trades
+                        ) < backtest_cfg.effective_min_trades(tf):
+                            return True  # not enough trades — noise
+                        if e.direction == "long":
+                            avg_r = result.long_avg_r
+                        elif e.direction == "short":
+                            avg_r = result.short_avg_r
+                        else:
+                            avg_r = result.avg_r
+                        if avg_r is None:
+                            return True  # no directional data — don't suppress
+                        return avg_r >= backtest_cfg.min_avg_r
+
+                    passing_events = [e for e in passing_events if _passes_ev_gate(e)]
                     if not passing_events:
                         logger.info("Backtest hard filter suppressed %s %s", symbol, tf)
                         continue
