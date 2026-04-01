@@ -204,7 +204,7 @@
   }
 
   function configLabel(name: string): string {
-    return name.replace(/^signal_watch_?/, "") || "default";
+    return name.replace(/^signal_watch_/, "") || name;
   }
 
   function fmtDate(ms: number): string {
