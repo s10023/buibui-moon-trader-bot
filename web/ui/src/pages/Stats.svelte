@@ -112,7 +112,7 @@
 
   const p1p2Rows = $derived(
     stats
-      ? DOW_ORDER.map((d) => stats.p1p2.by_dow.find((r) => r.dow === d)).filter(Boolean)
+      ? DOW_ORDER.map((d) => stats!.p1p2.by_dow.find((r) => r.dow === d)).filter(Boolean)
       : []
   );
 
@@ -131,8 +131,8 @@
       ? DOW_ORDER.map((d) => ({
           dow: d,
           pct: weeklyMode === "high_first"
-            ? (stats.weekly_p1p2.high_by_dow?.[d] ?? 0)
-            : (stats.weekly_p1p2.low_by_dow?.[d] ?? 0),
+            ? (stats!.weekly_p1p2.high_by_dow?.[d] ?? 0)
+            : (stats!.weekly_p1p2.low_by_dow?.[d] ?? 0),
         }))
       : []
   );
@@ -169,7 +169,7 @@
   </div>
 
   {#if error}
-    <ErrorBanner message={error} />
+    <ErrorBanner error={error} />
   {/if}
 
   {#if loading}

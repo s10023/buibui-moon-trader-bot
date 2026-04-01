@@ -30,6 +30,9 @@
   let minShortWinRateText = $state("");   // "" = no minimum
   let minLongAvgRText = $state("");       // "" = no minimum
   let minShortAvgRText = $state("");      // "" = no minimum
+  let minWinRateText = $state("");        // "" = no minimum
+  let minTotalRText = $state("");         // "" = no minimum
+  let maxDrawdownRText = $state("");      // "" = no maximum
 
   type SortCol = keyof BacktestRunSummary | "stars";
   let sortCol = $state<SortCol>("avg_r");
@@ -63,7 +66,10 @@
     minLongWinRateText !== "" ||
     minShortWinRateText !== "" ||
     minLongAvgRText !== "" ||
-    minShortAvgRText !== "",
+    minShortAvgRText !== "" ||
+    minWinRateText !== "" ||
+    minTotalRText !== "" ||
+    maxDrawdownRText !== "",
   );
 
   const filteredRuns = $derived.by(() => {
@@ -76,6 +82,10 @@
     const mswr  = minShortWinRateText === "" ? -Infinity : (parseFloat(minShortWinRateText) / 100 || -Infinity);
     const mlar  = minLongAvgRText     === "" ? -Infinity : (parseFloat(minLongAvgRText)      || -Infinity);
     const msar  = minShortAvgRText    === "" ? -Infinity : (parseFloat(minShortAvgRText)     || -Infinity);
+    const mwr   = minWinRateText      === "" ? -Infinity : (parseFloat(minWinRateText)  / 100 || -Infinity);
+    const mtr   = minTotalRText       === "" ? -Infinity : (parseFloat(minTotalRText)        || -Infinity);
+    // user types negative (e.g. -10); stored value is positive — negate to compare
+    const mxdd  = maxDrawdownRText    === "" ? Infinity  : (-parseFloat(maxDrawdownRText)    || Infinity);
 
     const filtered = runs.filter(
       (r) =>
@@ -83,9 +93,12 @@
         (selTfs.size === 0 || selTfs.has(r.timeframe)) &&
         (selStrategies.size === 0 || selStrategies.has(r.strategy)) &&
         (selDayFilters.size === 0 || selDayFilters.has(r.day_filter)) &&
-        (mss === 0 || starsFor(r.strategy) >= mss) &&
+        (mss === 0 || starsFor(r.strategy, r.timeframe) >= mss) &&
         r.closed_trades >= mt &&
         r.avg_r >= mar &&
+        r.win_rate >= mwr &&
+        r.total_r >= mtr &&
+        r.max_drawdown_r <= mxdd &&
         (mlwr === -Infinity || (r.long_win_rate !== null && r.long_win_rate >= mlwr)) &&
         (mswr === -Infinity || (r.short_win_rate !== null && r.short_win_rate >= mswr)) &&
         (mlar === -Infinity || (r.long_avg_r !== null && r.long_avg_r >= mlar)) &&
@@ -127,6 +140,9 @@
     minShortWinRateText = "";
     minLongAvgRText = "";
     minShortAvgRText = "";
+    minWinRateText = "";
+    minTotalRText = "";
+    maxDrawdownRText = "";
   }
 
   function setSort(col: SortCol): void {
@@ -143,8 +159,13 @@
     return sortDir === "desc" ? "↓" : "↑";
   }
 
-  function starsFor(strategy: string): number {
-    return $strategiesStore[strategy]?.confidence ?? 0;
+  function starsFor(strategy: string, tf?: string): number {
+    const conf = $strategiesStore[strategy]?.confidence;
+    if (conf === undefined || conf === null) return 0;
+    if (typeof conf === "number") return conf;
+    // dict[str, int] — resolve per-TF with "default" fallback (mirrors Python get_confidence)
+    if (tf && tf in conf) return conf[tf];
+    return conf["default"] ?? 3;
   }
 
   function renderStars(n: number): string {
@@ -301,6 +322,20 @@
 
       <span class="fsep"></span>
 
+      <span class="flabel">Win% ≥</span>
+      <input
+        type="number"
+        class="filter-num"
+        bind:value={minWinRateText}
+        min="0"
+        max="100"
+        step="1"
+        placeholder="any"
+        title="Minimum win rate % (empty = no minimum)"
+      />
+
+      <span class="fsep"></span>
+
       <span class="flabel">Trades ≥</span>
       <input
         type="number"
@@ -321,6 +356,31 @@
         step="0.01"
         placeholder="any"
         title="Minimum avg R (empty = no minimum)"
+      />
+
+      <span class="fsep"></span>
+
+      <span class="flabel">Total R ≥</span>
+      <input
+        type="number"
+        class="filter-num"
+        bind:value={minTotalRText}
+        step="0.1"
+        placeholder="any"
+        title="Minimum total R (empty = no minimum)"
+      />
+
+      <span class="fsep"></span>
+
+      <span class="flabel">Max DD ≤</span>
+      <input
+        type="number"
+        class="filter-num"
+        bind:value={maxDrawdownRText}
+        max="0"
+        step="0.5"
+        placeholder="any"
+        title="Maximum drawdown, e.g. -10 = no worse than -10R (empty = no limit)"
       />
 
       <span class="fsep"></span>
@@ -424,7 +484,7 @@
               <td class="sym">{run.symbol.replace("USDT", "")}</td>
               <td class="muted">{run.timeframe}</td>
               <td class="strat-name">{run.strategy}</td>
-              <td class="stars">{renderStars(starsFor(run.strategy))}</td>
+              <td class="stars">{renderStars(starsFor(run.strategy, run.timeframe))}</td>
               <td class="num">{fmtWinPct(run.win_rate)}</td>
               <td class="num dir-long" class:dir-pos={run.long_win_rate !== null && run.long_win_rate > 0.5} class:dir-nil={run.long_win_rate === null}>{fmtDirWinPct(run.long_win_rate)}</td>
               <td class="num dir-long" class:pos={run.long_avg_r !== null && run.long_avg_r > 0} class:neg={run.long_avg_r !== null && run.long_avg_r < 0} class:dir-nil={run.long_avg_r === null}>{fmtDirR(run.long_avg_r)}</td>

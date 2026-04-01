@@ -24,7 +24,7 @@ export interface ParamSpec {
 export interface StrategySpec {
   name: string;
   description: string;
-  confidence: number;
+  confidence: number | Record<string, number>;
   params: ParamSpec[];
   requires_funding: boolean;
   requires_secondary: boolean;
