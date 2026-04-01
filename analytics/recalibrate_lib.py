@@ -231,6 +231,22 @@ def format_recalibration_report(
     return "\n".join(lines)
 
 
+def write_confidence_to_db(
+    conn: duckdb.DuckDBPyConnection,
+    config_name: str,
+    ratings: dict[str, dict[str, int]],
+    win_rates: pd.DataFrame,
+) -> None:
+    """Upsert confidence star ratings to the DB for a specific config.
+
+    Replaces write_confidence_to_source for per-config star storage.
+    config_name: TOML stem, e.g. 'signal_watch', 'signal_watch_weekdays'.
+    """
+    from analytics.data_store import upsert_confidence_ratings
+
+    upsert_confidence_ratings(conn, config_name, ratings, win_rates)
+
+
 def write_confidence_to_source(
     updates: Mapping[str, dict[str, int] | int],
     source_path: Path,

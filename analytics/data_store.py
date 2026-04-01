@@ -181,6 +181,18 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
             PRIMARY KEY (symbol, days, computed_date)
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS confidence_ratings (
+            config_name   TEXT    NOT NULL,
+            strategy      TEXT    NOT NULL,
+            tf            TEXT    NOT NULL,
+            stars         INTEGER NOT NULL,
+            avg_r         REAL,
+            win_rate      REAL,
+            updated_at_ms BIGINT,
+            PRIMARY KEY (config_name, strategy, tf)
+        )
+    """)
     # Backfill existing runs from trades table where split columns are still NULL.
     # Runs after backtest_trades is created so the table always exists.
     conn.execute("""
@@ -620,6 +632,72 @@ def get_stats_cache(
     if result is None:
         return None
     return str(result[0])
+
+
+def upsert_confidence_ratings(
+    conn: duckdb.DuckDBPyConnection,
+    config_name: str,
+    ratings: dict[str, dict[str, int]],
+    win_rates: pd.DataFrame,
+) -> None:
+    """Upsert per-config confidence star ratings keyed by (config_name, strategy, tf).
+
+    ratings: {strategy: {tf: stars}}
+    win_rates: DataFrame from get_backtest_win_rates() — used to store avg_r/win_rate alongside stars.
+    """
+    if not ratings:
+        return
+    now_ms = int(time.time() * 1000)
+    stats: dict[tuple[str, str], tuple[float | None, float | None]] = {}
+    if not win_rates.empty:
+        for _, row in win_rates.iterrows():
+            key = (str(row["strategy"]), str(row["timeframe"]))
+            stats[key] = (float(row["avg_r"]), float(row["win_rate"]))
+    rows = []
+    for strategy, tf_map in ratings.items():
+        for tf, stars in tf_map.items():
+            avg_r_val, win_rate_val = stats.get((strategy, tf), (None, None))
+            rows.append(
+                {
+                    "config_name": config_name,
+                    "strategy": strategy,
+                    "tf": tf,
+                    "stars": stars,
+                    "avg_r": avg_r_val,
+                    "win_rate": win_rate_val,
+                    "updated_at_ms": now_ms,
+                }
+            )
+    df = pd.DataFrame(rows)
+    conn.register("_cr_upsert_df", df)
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO confidence_ratings "
+            "SELECT config_name, strategy, tf, stars, avg_r, win_rate, updated_at_ms "
+            "FROM _cr_upsert_df"
+        )
+    finally:
+        conn.unregister("_cr_upsert_df")
+
+
+def get_confidence_ratings(
+    conn: duckdb.DuckDBPyConnection,
+    config_name: str,
+) -> dict[str, dict[str, int]]:
+    """Load confidence star ratings for a given config from the DB.
+
+    Returns {strategy: {tf: stars}}, or empty dict if no ratings have been written yet.
+    """
+    rows = conn.execute(
+        "SELECT strategy, tf, stars FROM confidence_ratings WHERE config_name = ?",
+        [config_name],
+    ).fetchall()
+    result: dict[str, dict[str, int]] = {}
+    for strategy, tf, stars in rows:
+        if strategy not in result:
+            result[str(strategy)] = {}
+        result[str(strategy)][str(tf)] = int(stars)
+    return result
 
 
 def upsert_stats_cache(

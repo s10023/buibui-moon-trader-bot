@@ -68,7 +68,7 @@ def run_signals(
         signals_df = signals_df.copy()
         signals_df["strategy"] = strat
         spec = STRATEGY_REGISTRY.get(strat)
-        signals_df["confidence"] = spec.confidence if spec else 3
+        signals_df["confidence"] = spec.get_confidence(body.timeframe) if spec else 3
         # Ensure required columns exist with defaults
         if "reason" not in signals_df.columns:
             signals_df["reason"] = strat

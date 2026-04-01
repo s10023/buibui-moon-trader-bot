@@ -299,19 +299,17 @@ tp_r_4h = 2.5
         assert cfg.strategy_params == {}
 
     def test_signal_watch_weekdays_toml_strategy_params_parsed(self) -> None:
-        """signal_watch_weekdays.toml strategy_params (F6 findings) must be applied."""
+        """signal_watch_weekdays.toml strategy_params must be applied."""
         cfg_path = (
             Path(__file__).parent.parent / "config" / "signal_watch_weekdays.toml"
         )
         cfg = load_signal_config(cfg_path)
-        # engulfing: strategy-wide 3.0R
-        assert cfg.effective_tp_r("engulfing", "BTCUSDT", "1h") == 3.0
-        assert cfg.effective_tp_r("engulfing", "BTCUSDT", "4h") == 3.0
-        # bos: 4h-specific 2.5R, other TFs fall back to global
-        assert cfg.effective_tp_r("bos", "BTCUSDT", "4h") == 2.5
-        assert cfg.effective_tp_r("bos", "BTCUSDT", "1h") == cfg.tp_r
+        # engulfing: per-TF overrides (updated during TP sweep)
+        assert cfg.effective_tp_r("engulfing", "BTCUSDT", "1h") == 4.0
+        assert cfg.effective_tp_r("engulfing", "BTCUSDT", "4h") == 3.5
+        assert cfg.effective_tp_r("engulfing", "BTCUSDT", "1d") == 3.0
         # strategy not in params falls back to global
-        assert cfg.effective_tp_r("fvg", "BTCUSDT", "1h") == cfg.tp_r
+        assert cfg.effective_tp_r("funding_reversion", "BTCUSDT", "1h") == cfg.tp_r
 
     def test_signal_watch_toml_strategy_params_parsed(self) -> None:
         """signal_watch.toml (tue_thu) strategy_params (F5 WFO findings) must be applied."""
