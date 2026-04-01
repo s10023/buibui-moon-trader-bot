@@ -93,7 +93,7 @@
         (selTfs.size === 0 || selTfs.has(r.timeframe)) &&
         (selStrategies.size === 0 || selStrategies.has(r.strategy)) &&
         (selDayFilters.size === 0 || selDayFilters.has(r.day_filter)) &&
-        (mss === 0 || starsFor(r.strategy, r.timeframe) >= mss) &&
+        (mss === 0 || starsFor(r) >= mss) &&
         r.closed_trades >= mt &&
         r.avg_r >= mar &&
         r.win_rate >= mwr &&
@@ -108,11 +108,11 @@
     filtered.sort((a, b) => {
       const av: number | string =
         col === "stars"
-          ? starsFor(a.strategy)
+          ? starsFor(a)
           : (a[col as keyof BacktestRunSummary] as number | string | null) ?? "";
       const bv: number | string =
         col === "stars"
-          ? starsFor(b.strategy)
+          ? starsFor(b)
           : (b[col as keyof BacktestRunSummary] as number | string | null) ?? "";
       const cmp = av < bv ? -1 : av > bv ? 1 : 0;
       return dir === "desc" ? -cmp : cmp;
@@ -159,12 +159,14 @@
     return sortDir === "desc" ? "↓" : "↑";
   }
 
-  function starsFor(strategy: string, tf?: string): number {
-    const conf = $strategiesStore[strategy]?.confidence;
+  function starsFor(run: BacktestRunSummary): number {
+    // Prefer per-config calibrated stars joined from confidence_ratings at query time
+    if (run.stars !== null && run.stars !== undefined) return run.stars;
+    // Fallback: resolve from global registry for rows without calibrated stars yet
+    const conf = $strategiesStore[run.strategy]?.confidence;
     if (conf === undefined || conf === null) return 0;
     if (typeof conf === "number") return conf;
-    // dict[str, int] — resolve per-TF with "default" fallback (mirrors Python get_confidence)
-    if (tf && tf in conf) return conf[tf];
+    if (run.timeframe in conf) return conf[run.timeframe];
     return conf["default"] ?? 3;
   }
 
@@ -484,7 +486,7 @@
               <td class="sym">{run.symbol.replace("USDT", "")}</td>
               <td class="muted">{run.timeframe}</td>
               <td class="strat-name">{run.strategy}</td>
-              <td class="stars">{renderStars(starsFor(run.strategy, run.timeframe))}</td>
+              <td class="stars">{renderStars(starsFor(run))}</td>
               <td class="num">{fmtWinPct(run.win_rate)}</td>
               <td class="num dir-long" class:dir-pos={run.long_win_rate !== null && run.long_win_rate > 0.5} class:dir-nil={run.long_win_rate === null}>{fmtDirWinPct(run.long_win_rate)}</td>
               <td class="num dir-long" class:pos={run.long_avg_r !== null && run.long_avg_r > 0} class:neg={run.long_avg_r !== null && run.long_avg_r < 0} class:dir-nil={run.long_avg_r === null}>{fmtDirR(run.long_avg_r)}</td>

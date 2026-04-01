@@ -121,6 +121,7 @@ export interface BacktestRunSummary {
   short_win_count: number | null;
   short_win_rate: number | null;
   short_avg_r: number | null;
+  stars: number | null;
 }
 
 export interface TradeModel {

@@ -190,9 +190,20 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
             avg_r         REAL,
             win_rate      REAL,
             updated_at_ms BIGINT,
+            day_filter    TEXT,
             PRIMARY KEY (config_name, strategy, tf)
         )
     """)
+    # Migration: add day_filter to existing confidence_ratings tables.
+    existing_cr_cols = {
+        row[0]
+        for row in conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'confidence_ratings'"
+        ).fetchall()
+    }
+    if "day_filter" not in existing_cr_cols:
+        conn.execute("ALTER TABLE confidence_ratings ADD COLUMN day_filter TEXT")
     # Backfill existing runs from trades table where split columns are still NULL.
     # Runs after backtest_trades is created so the table always exists.
     conn.execute("""
@@ -562,20 +573,32 @@ def upsert_backtest_trades(
 
 
 def list_backtest_runs(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
-    """Return the latest backtest_run per (symbol, timeframe, strategy), newest first."""
+    """Return the latest backtest_run per (symbol, timeframe, strategy, day_filter), newest first.
+
+    Attaches calibrated star ratings from confidence_ratings by matching on
+    (strategy, timeframe, day_filter) so each row shows the correct per-config stars.
+    """
     return conn.execute(
-        "SELECT run_id, symbol, timeframe, strategy, days, sl_pct, tp_r, fee_pct, "
-        "day_filter, closed_trades, win_count, loss_count, win_rate, avg_r, total_r, "
-        "max_drawdown_r, sweep_id, run_at_ms, "
-        "long_closed_trades, long_win_count, long_win_rate, long_avg_r, "
-        "short_closed_trades, short_win_count, short_win_rate, short_avg_r "
+        "SELECT b.run_id, b.symbol, b.timeframe, b.strategy, b.days, b.sl_pct, b.tp_r, "
+        "b.fee_pct, b.day_filter, b.closed_trades, b.win_count, b.loss_count, b.win_rate, "
+        "b.avg_r, b.total_r, b.max_drawdown_r, b.sweep_id, b.run_at_ms, "
+        "b.long_closed_trades, b.long_win_count, b.long_win_rate, b.long_avg_r, "
+        "b.short_closed_trades, b.short_win_count, b.short_win_rate, b.short_avg_r, "
+        "cr.stars "
         "FROM ("
         "  SELECT *, ROW_NUMBER() OVER ("
         "    PARTITION BY symbol, timeframe, strategy, day_filter "
         "    ORDER BY run_at_ms DESC"
         "  ) AS rn FROM backtest_runs"
-        ") WHERE rn = 1 "
-        "ORDER BY run_at_ms DESC"
+        ") b "
+        "LEFT JOIN ("
+        "  SELECT strategy, tf, day_filter, MAX(stars) AS stars "
+        "  FROM confidence_ratings "
+        "  WHERE day_filter IS NOT NULL "
+        "  GROUP BY strategy, tf, day_filter"
+        ") cr ON cr.strategy = b.strategy AND cr.tf = b.timeframe AND cr.day_filter = b.day_filter "
+        "WHERE b.rn = 1 "
+        "ORDER BY b.run_at_ms DESC"
     ).df()
 
 
@@ -639,11 +662,14 @@ def upsert_confidence_ratings(
     config_name: str,
     ratings: dict[str, dict[str, int]],
     win_rates: pd.DataFrame,
+    day_filter: str | None = None,
 ) -> None:
     """Upsert per-config confidence star ratings keyed by (config_name, strategy, tf).
 
     ratings: {strategy: {tf: stars}}
     win_rates: DataFrame from get_backtest_win_rates() — used to store avg_r/win_rate alongside stars.
+    day_filter: the config's day_filter value (e.g. "tue_thu", "off") — stored so backtest
+        rows can JOIN to get the correct stars without a manual config selector.
     """
     if not ratings:
         return
@@ -666,6 +692,7 @@ def upsert_confidence_ratings(
                     "avg_r": avg_r_val,
                     "win_rate": win_rate_val,
                     "updated_at_ms": now_ms,
+                    "day_filter": day_filter,
                 }
             )
     df = pd.DataFrame(rows)
@@ -673,7 +700,7 @@ def upsert_confidence_ratings(
     try:
         conn.execute(
             "INSERT OR REPLACE INTO confidence_ratings "
-            "SELECT config_name, strategy, tf, stars, avg_r, win_rate, updated_at_ms "
+            "SELECT config_name, strategy, tf, stars, avg_r, win_rate, updated_at_ms, day_filter "
             "FROM _cr_upsert_df"
         )
     finally:

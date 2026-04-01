@@ -67,7 +67,9 @@ def run(
                 )
                 return
             if config_name:
-                write_confidence_to_db(conn, config_name, new_ratings, win_rates)
+                write_confidence_to_db(
+                    conn, config_name, new_ratings, win_rates, day_filter=day_filter
+                )
                 print(
                     f"\n  Written to confidence_ratings table for config '{config_name}'."
                 )

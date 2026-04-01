@@ -13,6 +13,7 @@ from analytics.data_store import (
     get_signals_history,
     get_win_rate_by_strategy,
     init_schema,
+    list_backtest_runs,
     upsert_backtest_run,
     upsert_backtest_trades,
     upsert_confidence_ratings,
@@ -678,6 +679,33 @@ class TestConfidenceRatings:
         )
         upsert_confidence_ratings(conn, "signal_watch", {}, empty_wr)
         assert get_confidence_ratings(conn, "signal_watch") == {}
+
+    def test_day_filter_stored_and_joined_in_backtest_runs(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        """stars should be resolved per backtest row via day_filter JOIN."""
+        empty_wr: pd.DataFrame = pd.DataFrame(
+            columns=["strategy", "timeframe", "avg_r", "win_rate"]
+        )
+        upsert_confidence_ratings(
+            conn,
+            "signal_watch_weekdays",
+            {"bos": {"4h": 4}},
+            empty_wr,
+            day_filter="tue_thu",
+        )
+        result = _FakeResult("BTCUSDT", "4h", "bos")
+        upsert_backtest_run(conn, result, **{**_BT_PARAMS, "day_filter": "tue_thu"})
+        df = list_backtest_runs(conn)
+        assert df.iloc[0]["stars"] == 4
+
+    def test_stars_null_when_no_matching_confidence(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        result = _FakeResult("BTCUSDT", "4h", "bos")
+        upsert_backtest_run(conn, result, **_BT_PARAMS)
+        df = list_backtest_runs(conn)
+        assert pd.isna(df.iloc[0]["stars"])
 
 
 class TestGetLatestOpenTime:
