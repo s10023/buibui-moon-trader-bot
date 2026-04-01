@@ -27,7 +27,7 @@ def get_backtest_win_rates(
     """
     day_filter_clause = "AND day_filter = ?" if day_filter is not None else ""
     params = [day_filter] if day_filter is not None else []
-    return conn.execute(
+    cursor = conn.execute(
         f"""
         WITH latest AS (
             SELECT *,
@@ -51,7 +51,11 @@ def get_backtest_win_rates(
         ORDER BY strategy, timeframe
         """,
         params,
-    ).df()
+    )
+    rows = cursor.fetchall()
+    return pd.DataFrame(
+        rows, columns=["strategy", "timeframe", "total_trades", "win_rate", "avg_r"]
+    )
 
 
 def win_rate_to_stars(
