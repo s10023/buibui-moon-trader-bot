@@ -8,6 +8,7 @@ import pytest
 from analytics.data_store import init_schema
 from analytics.stats_lib import (
     StatsBundle,
+    WeeklyCurrentState,
     WeeklyP2Timing,
     compute_adr,
     compute_all,
@@ -15,6 +16,7 @@ from analytics.stats_lib import (
     compute_hourly_extremes,
     compute_p1p2_daily,
     compute_session_breakdown,
+    compute_weekly_current_state,
     compute_weekly_p1p2,
     compute_weekly_p2_timing,
 )
@@ -225,3 +227,126 @@ def test_compute_all_returns_bundle(conn: duckdb.DuckDBPyConnection) -> None:
     assert len(bundle.sessions.rows) > 0
     assert bundle.weekly_p1p2.sample_weeks > 0
     assert len(bundle.weekly_p2_timing.low_still_ahead_by_dow) > 0
+
+
+# ── compute_weekly_current_state tests ────────────────────────────────────────
+
+MYT_OFFSET_HOURS = 8
+_ADR_14 = 0.025  # 2.5% — representative ADR for tests
+
+
+def _insert_candle(
+    conn: duckdb.DuckDBPyConnection,
+    open_time_ms: int,
+    open_: float = 40000.0,
+    high: float = 40500.0,
+    low: float = 39500.0,
+    close: float = 40000.0,
+) -> None:
+    conn.execute(
+        "INSERT OR REPLACE INTO ohlcv "
+        "(symbol, timeframe, open_time, open, high, low, close, volume, taker_buy_volume) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [_SYMBOL, "1h", open_time_ms, open_, high, low, close, 100.0, 50.0],
+    )
+
+
+def test_weekly_current_state_no_data(conn: duckdb.DuckDBPyConnection) -> None:
+    """Returns None when no candles exist in the current ISO week."""
+    # The shared fixture has data from 20 days ago — current week has no candles.
+    result = compute_weekly_current_state(conn, _SYMBOL, _ADR_14, days=30)
+    assert result is None
+
+
+def test_weekly_current_state_with_current_week(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """Returns WeeklyCurrentState with correct fields when current-week data exists."""
+    now_utc = datetime.now(tz=UTC)
+    now_myt = now_utc + timedelta(hours=MYT_OFFSET_HOURS)
+    days_since_monday = now_myt.weekday()
+    week_start_myt = (now_myt - timedelta(days=days_since_monday)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    week_start_utc_ms = int(
+        (week_start_myt - timedelta(hours=MYT_OFFSET_HOURS)).timestamp() * 1000
+    )
+
+    weekly_open = 50000.0
+    current_close = 51500.0  # +3% from open
+
+    # Weekly open candle
+    _insert_candle(conn, week_start_utc_ms, open_=weekly_open, close=weekly_open)
+    # Current candle (1h later)
+    _insert_candle(
+        conn, week_start_utc_ms + 3600_000, open_=weekly_open, close=current_close
+    )
+
+    result = compute_weekly_current_state(conn, _SYMBOL, _ADR_14, days=30)
+
+    assert result is not None
+    assert isinstance(result, WeeklyCurrentState)
+    assert result.current_isodow == now_myt.isoweekday()
+    assert result.weekly_open == weekly_open
+    assert result.current_price == current_close
+    expected_move = (current_close - weekly_open) / weekly_open
+    assert abs(result.move_pct - expected_move) < 1e-9
+    assert result.move_bucket in ("small", "medium", "large")
+
+
+def test_weekly_current_state_move_buckets(conn: duckdb.DuckDBPyConnection) -> None:
+    """move_bucket assigned correctly relative to ADR14 thresholds."""
+    now_utc = datetime.now(tz=UTC)
+    now_myt = now_utc + timedelta(hours=MYT_OFFSET_HOURS)
+    days_since_monday = now_myt.weekday()
+    week_start_myt = (now_myt - timedelta(days=days_since_monday)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    week_start_utc_ms = int(
+        (week_start_myt - timedelta(hours=MYT_OFFSET_HOURS)).timestamp() * 1000
+    )
+
+    base = 40000.0
+
+    # small: move = 0.5% (< 2.5% ADR14)
+    _insert_candle(conn, week_start_utc_ms, open_=base, close=base)
+    _insert_candle(conn, week_start_utc_ms + 3600_000, open_=base, close=base * 1.005)
+    r = compute_weekly_current_state(conn, _SYMBOL, _ADR_14, days=30)
+    assert r is not None and r.move_bucket == "small"
+
+    # medium: move = 3% (between 1× and 2× ADR14=2.5%)
+    _insert_candle(conn, week_start_utc_ms + 7200_000, open_=base, close=base * 1.03)
+    r2 = compute_weekly_current_state(conn, _SYMBOL, _ADR_14, days=30)
+    assert r2 is not None and r2.move_bucket == "medium"
+
+    # large: move = 6% (> 2× ADR14=5%)
+    _insert_candle(conn, week_start_utc_ms + 10_800_000, open_=base, close=base * 1.06)
+    r3 = compute_weekly_current_state(conn, _SYMBOL, _ADR_14, days=30)
+    assert r3 is not None and r3.move_bucket == "large"
+
+
+def test_weekly_current_state_conditioned_prob_in_range(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """Conditioned probabilities are in [0, 1] when historical data exists."""
+    now_utc = datetime.now(tz=UTC)
+    now_myt = now_utc + timedelta(hours=MYT_OFFSET_HOURS)
+    days_since_monday = now_myt.weekday()
+    week_start_myt = (now_myt - timedelta(days=days_since_monday)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    week_start_utc_ms = int(
+        (week_start_myt - timedelta(hours=MYT_OFFSET_HOURS)).timestamp() * 1000
+    )
+
+    base = 40000.0
+    _insert_candle(conn, week_start_utc_ms, open_=base, close=base)
+    _insert_candle(conn, week_start_utc_ms + 3600_000, open_=base, close=base * 1.005)
+
+    result = compute_weekly_current_state(conn, _SYMBOL, _ADR_14, days=30)
+    assert result is not None
+
+    if result.low_still_ahead_conditioned is not None:
+        assert 0.0 <= result.low_still_ahead_conditioned <= 1.0
+    if result.high_still_ahead_conditioned is not None:
+        assert 0.0 <= result.high_still_ahead_conditioned <= 1.0

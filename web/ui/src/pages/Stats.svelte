@@ -556,6 +556,26 @@
             </div>
           {/each}
         </div>
+        {#if stats.weekly_current_state}
+          {@const wcs = stats.weekly_current_state}
+          <div class="wcs-row">
+            <span class="wcs-label">This week</span>
+            <span class="wcs-dow">{wcs.current_dow}</span>
+            <span class:val-green={wcs.move_pct >= 0} class:val-red={wcs.move_pct < 0}>
+              {wcs.move_pct >= 0 ? "+" : ""}{(wcs.move_pct * 100).toFixed(1)}% from wk open
+            </span>
+            <span class="wcs-bucket">({wcs.move_bucket})</span>
+            {#if wcs.low_still_ahead_conditioned !== null && wcs.high_still_ahead_conditioned !== null}
+              <span class="wcs-sep">·</span>
+              <span class="wcs-conditioned">
+                Low: <span class:val-green={wcs.low_still_ahead_conditioned >= 0.5} class:val-muted={wcs.low_still_ahead_conditioned < 0.5}>{formatPct(wcs.low_still_ahead_conditioned)}</span>
+                &nbsp;·&nbsp;
+                High: <span class:val-red={wcs.high_still_ahead_conditioned >= 0.5} class:val-muted={wcs.high_still_ahead_conditioned < 0.5}>{formatPct(wcs.high_still_ahead_conditioned)}</span>
+                <span class="wcs-conditioned-label">conditioned</span>
+              </span>
+            {/if}
+          </div>
+        {/if}
         <div class="p2-timing-note muted">
           Typical weekly low: <span class="val-green">{stats.weekly_p1p2.low_day}</span>
           &nbsp;·&nbsp;
@@ -1197,5 +1217,52 @@
   .p2-timing-note {
     font-size: 10px;
     margin-top: 10px;
+  }
+
+  .wcs-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+    padding: 6px 8px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 11px;
+  }
+
+  .wcs-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin-right: 2px;
+  }
+
+  .wcs-dow {
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .wcs-bucket {
+    color: var(--muted);
+    font-size: 10px;
+  }
+
+  .wcs-sep {
+    color: var(--muted);
+  }
+
+  .wcs-conditioned {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .wcs-conditioned-label {
+    font-size: 9px;
+    color: var(--muted);
+    margin-left: 4px;
   }
 </style>

@@ -58,6 +58,17 @@ class WeeklyP2TimingResponse(BaseModel):
     high_flip_risk_by_dow: dict[str, float]
 
 
+class WeeklyCurrentStateResponse(BaseModel):
+    current_isodow: int
+    current_dow: str
+    weekly_open: float
+    current_price: float
+    move_pct: float
+    move_bucket: str
+    low_still_ahead_conditioned: float | None
+    high_still_ahead_conditioned: float | None
+
+
 class StatsResponse(BaseModel):
     symbol: str
     days: int
@@ -69,3 +80,4 @@ class StatsResponse(BaseModel):
     sessions: list[SessionRow]
     weekly_p1p2: WeeklyP1P2Response
     weekly_p2_timing: WeeklyP2TimingResponse
+    weekly_current_state: WeeklyCurrentStateResponse | None = None

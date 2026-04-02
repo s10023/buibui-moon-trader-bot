@@ -383,6 +383,17 @@ export interface WeeklyP2TimingResponse {
   high_flip_risk_by_dow: Record<string, number>;
 }
 
+export interface WeeklyCurrentStateResponse {
+  current_isodow: number;
+  current_dow: string;
+  weekly_open: number;
+  current_price: number;
+  move_pct: number;
+  move_bucket: "small" | "medium" | "large";
+  low_still_ahead_conditioned: number | null;
+  high_still_ahead_conditioned: number | null;
+}
+
 export interface StatsResponse {
   symbol: string;
   days: number;
@@ -394,6 +405,7 @@ export interface StatsResponse {
   sessions: SessionRow[];
   weekly_p1p2: WeeklyP1P2Response;
   weekly_p2_timing: WeeklyP2TimingResponse;
+  weekly_current_state: WeeklyCurrentStateResponse | null;
 }
 
 export const getStats = (symbol: string, days: number = 180) =>
