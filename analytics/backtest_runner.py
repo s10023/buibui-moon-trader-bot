@@ -218,7 +218,11 @@ def _collect_sweep_results(
         if allowed_days is not None:
             signals = filter_signals_by_day(signals, allowed_days)
 
-        if cfg.adr_suppress_threshold is not None and not signals.empty:
+        if (
+            cfg.adr_suppress_threshold is not None
+            and not cfg.is_adr_exempt(strategy)
+            and not signals.empty
+        ):
             signals = _filter_signals_by_adr(ohlcv, signals, cfg.adr_suppress_threshold)
 
         eff_tp_r = cfg.effective_tp_r(strategy, symbol, timeframe)
@@ -252,7 +256,9 @@ def _collect_sweep_results(
                 smt_trend_filter=cfg.smt_trend_filter,
                 secondary_symbol=secondary,
                 sweep_id=sweep_id,
-                adr_suppress_threshold=cfg.adr_suppress_threshold,
+                adr_suppress_threshold=None
+                if cfg.is_adr_exempt(strategy)
+                else cfg.adr_suppress_threshold,
             )
             upsert_backtest_trades(conn, bt, run_id)
 

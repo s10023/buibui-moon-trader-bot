@@ -152,12 +152,14 @@ tp_r_15m = 4.0                # F5 WFO: ETH 15m optimal at 4.0R
 
 [strategy_params.fib_golden_zone]
 tp_r_4h = 3.5                 # sweep peak: cross-symbol +0.85R (31 trades); was 3.0
+adr_exempt = true             # BOS + retracement pullback entry — continuation strategy, same case as bos/smt
 
 [strategy_params.fib_golden_zone.ETHUSDT]
 tp_r_1h = 4.5                 # F5 WFO: ETH 1h optimal at 4.5R
 
 [strategy_params.bos]
 tp_r = 3.0                    # 15m+0.18R, 1h+0.22R (4h excluded via strategy_timeframes)
+adr_exempt = true             # breakout — fires in continuation direction; ADR gate degrades it
 
 [strategy_params.trend_day]
 tp_r = 3.0                    # fallback for 1d
@@ -166,10 +168,17 @@ tp_r_4h = 5.0                 # WFO BTC 4h OOS +0.519R (53 trades)
 [strategy_params.orb]
 tp_r = 3.0                    # 1h+0.14R (183 trades), 4h+0.17R (119 trades)
 
+[strategy_params.eqh_eql]
+adr_exempt = true             # liquidity sweep — fires at structure extremes in continuation direction
+
+[strategy_params.cvd_divergence]
+adr_exempt = true             # divergence between price/delta in trending conditions; ADR gate hurts it
+
 [strategy_params.smt_divergence]
 tp_r_15m = 4.0                # sweep peak: cross-symbol +0.90R (70 trades, 40% WR) post-spam-fix
 tp_r_1h  = 2.5                # sweep peak: cross-symbol +0.70R (16 trades, 50% WR) post-spam-fix
 # 4h: only 5 trades (below min_trades_4h=10) — discard; hard-mode gate handles suppression
+adr_exempt = true             # trend_filter=1 makes this a pullback-in-trend entry; ADR gate conflicts
 
 # BTCUSDT 4h: -0.58R (15.1% win rate, 53 trades) — only bad SMT combo post-A18 fix.
 # Hard-mode min_avg_r gate suppresses at runtime. True per-symbol TF exclusion not yet supported.
@@ -201,8 +210,8 @@ min_avg_r = 0.0             # hard mode: suppress if directional avg_r < this (p
 # liq_sweep_use_fib = true  # set false to compare pivot-sweep mode (wick above pivot + close inside) vs fib-extension mode
 # liq_sweep_fib_range_close = false  # (fib mode only) true = close must be < swing_high (inside range), not just < fib level
 
-# F8 bias layer — statistics-driven signal gates (both disabled by default)
-# [bias]
-# adr_suppress_threshold = 0.80   # drop signals when today's range >= 80% of ADR-14
+# F8 bias layer — statistics-driven signal gates
+[bias]
+adr_suppress_threshold = 0.80   # drop signals when today's range >= 80% of ADR-14
 # dow_soft_suppress = false        # reduce confidence by 1★ when direction opposes DOW avg return
 # dow_suppress_min_abs_return = 0.005  # dead-band: avg return must exceed ±0.5% to trigger

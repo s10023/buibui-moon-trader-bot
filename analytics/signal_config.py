@@ -60,6 +60,7 @@ class StrategyOverride:
     sl_pct_per_tf: dict[str, float] = field(default_factory=dict)
     atr_sl_multiplier_per_tf: dict[str, float] = field(default_factory=dict)
     per_symbol: dict[str, SymbolOverride] = field(default_factory=dict)
+    adr_exempt: bool = False
 
 
 def _day_filter_to_weekdays(day_filter: str) -> list[int] | None:
@@ -343,6 +344,7 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
             sl_pct_per_tf=sl_pct_per_tf,
             atr_sl_multiplier_per_tf=atr_sl_per_tf,
             per_symbol=per_symbol,
+            adr_exempt=bool(vals.get("adr_exempt", False)),
         )
 
     raw_bias = data.get("bias", {})

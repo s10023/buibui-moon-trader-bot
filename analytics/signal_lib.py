@@ -160,6 +160,7 @@ def _compute_backtest(
     min_sl_pct: float = 0.0,
     atr_sl_multiplier: float | None = None,
     adr_suppress_threshold: float | None = None,
+    adr_exempt: bool = False,
 ) -> BacktestResult | None:
     """Run strategy detector on ohlcv[:-1] and backtest the resulting signals.
 
@@ -169,6 +170,8 @@ def _compute_backtest(
     adr_suppress_threshold: when set, filters historical signals where the ADR
     consumed at signal time exceeded the threshold — mirrors the live bias gate so
     backtested avg_r reflects only trades that would have passed the gate.
+    adr_exempt: when True, skips the ADR filter regardless of threshold (for
+    breakout/continuation strategies that should not be ADR-gated).
     """
     hist_df = ohlcv_df.iloc[:-1]
     if len(hist_df) < 3:
@@ -200,7 +203,7 @@ def _compute_backtest(
     if allowed_days is not None:
         signals_df = filter_signals_by_day(signals_df, allowed_days)
 
-    if adr_suppress_threshold is not None and not signals_df.empty:
+    if adr_suppress_threshold is not None and not adr_exempt and not signals_df.empty:
         signals_df = _filter_signals_by_adr(hist_df, signals_df, adr_suppress_threshold)
 
     return run_backtest(
@@ -398,6 +401,7 @@ def scan_symbol(
                     open_time=latest_open_time,
                     price=latest_close,
                     sl_price=float(row["sl_price"]),
+                    tp_price=float(row["tp_price"]) if row.get("tp_price") else 0.0,
                     context=str(row["context"]),
                     confidence=(confidence_override or {})
                     .get(strategy_name, {})
@@ -505,6 +509,17 @@ def _resolve_atr_sl_multiplier(
     if override.atr_sl_multiplier is not None:
         return override.atr_sl_multiplier
     return global_atr_sl
+
+
+def _is_adr_exempt(
+    strategy_params: dict[str, StrategyOverride] | None,
+    strategy: str,
+) -> bool:
+    """Return True if this strategy should bypass the ADR bias gate."""
+    if not strategy_params:
+        return False
+    override = strategy_params.get(strategy)
+    return override.adr_exempt if override is not None else False
 
 
 def _compute_stats_context(
@@ -759,6 +774,7 @@ def run_scan_cycle(
                             adr_suppress_threshold=bias_cfg.adr_suppress_threshold
                             if bias_cfg
                             else None,
+                            adr_exempt=_is_adr_exempt(strategy_params, event.strategy),
                         )
                     bt_results[event.strategy] = bt_cache[bt_key]
 
@@ -835,7 +851,10 @@ def run_scan_cycle(
                         suppress_dir = "long" if bias_ctx.adr_move_up else "short"
                         n_before = len(passing_events)
                         passing_events = [
-                            e for e in passing_events if e.direction != suppress_dir
+                            e
+                            for e in passing_events
+                            if e.direction != suppress_dir
+                            or _is_adr_exempt(strategy_params, e.strategy)
                         ]
                         if len(passing_events) < n_before:
                             logger.info(
@@ -1002,9 +1021,9 @@ def run_scan_cycle(
                     day_filter=day_filter,
                     smt_trend_filter=smt_trend_filter,
                     secondary_symbol=secondary_symbol,
-                    adr_suppress_threshold=bias_cfg.adr_suppress_threshold
-                    if bias_cfg
-                    else None,
+                    adr_suppress_threshold=None
+                    if _is_adr_exempt(strategy_params, strategy)
+                    else (bias_cfg.adr_suppress_threshold if bias_cfg else None),
                 )
             except Exception:
                 logger.exception(

@@ -58,6 +58,7 @@ class StrategyOverride:
     sl_pct_per_tf: dict[str, float] = field(default_factory=dict)
     atr_sl_multiplier_per_tf: dict[str, float] = field(default_factory=dict)
     per_symbol: dict[str, SymbolOverride] = field(default_factory=dict)
+    adr_exempt: bool = False
 
 
 @dataclass
@@ -175,6 +176,11 @@ class BacktestSweepConfig:
                 return override.atr_sl_multiplier
         return self.atr_sl_multiplier
 
+    def is_adr_exempt(self, strategy: str) -> bool:
+        """Return True if this strategy should bypass the ADR bias gate."""
+        override = self.strategy_params.get(strategy)
+        return override.adr_exempt if override is not None else False
+
 
 def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
     """Load BacktestSweepConfig from a TOML file.
@@ -269,6 +275,7 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
             sl_pct_per_tf=sl_pct_per_tf,
             atr_sl_multiplier_per_tf=atr_sl_per_tf,
             per_symbol=per_symbol,
+            adr_exempt=bool(vals.get("adr_exempt", False)),
         )
 
     # Some signal_watch configs place liq_sweep_use_fib inside a [backtest]

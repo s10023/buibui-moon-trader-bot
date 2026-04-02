@@ -179,29 +179,32 @@ class TestStatsContextFormat:
     def test_long_line1_contains_bull_p1_adr(self) -> None:
         line = _format_stats_line(self._ctx(), "long")
         assert "Mon closes bullish 67%" in line
-        assert "Daily low set first 69% of Mondays" in line
-        assert "ADR 4.3%" in line
-        assert "82% used" in line
+        # p1_low=0.69 → still_ahead for long = 1-0.69 = 31%
+        assert "Low still ahead 31% of Mondays" in line
+        assert (
+            "4.3%" in line
+        )  # ADR value present (bar separates "ADR" prefix from value)
+        assert "82%" in line
 
     def test_long_line2_peak_and_weekly(self) -> None:
         line = _format_stats_line(self._ctx(), "long")
-        assert "Daily high typically peaks ~23:00 MYT on Mondays" in line
-        assert "Weekly low: 78% of weeks still ahead" in line
+        assert "TP window: high ~23:00 MYT on Mondays" in line
+        assert "Weekly low: 78% still ahead" in line
 
     def test_short_line1_high_first(self) -> None:
         line = _format_stats_line(self._ctx(), "short")
-        # P1=High% for short = 1 - 0.69 = 0.31
-        assert "Daily high set first 31% of Mondays" in line
+        # p1_low=0.69 → still_ahead for short = p1_low = 69%
+        assert "High still ahead 69% of Mondays" in line
 
     def test_short_line2_low_peak_and_weekly_high(self) -> None:
         line = _format_stats_line(self._ctx(), "short")
-        assert "Daily low typically troughs ~08:00 MYT on Mondays" in line
-        assert "Weekly high: 65% of weeks still ahead" in line
+        assert "TP window: low ~08:00 MYT on Mondays" in line
+        assert "Weekly high: 65% still ahead" in line
 
     def test_no_line2_when_optional_fields_none(self) -> None:
         ctx = self._ctx(peak_hi_dow=None, peak_lo_dow=None, wk_low=None, wk_high=None)
         line = _format_stats_line(ctx, "long")
-        assert "⏰" not in line
+        assert "🎯" not in line
 
     def test_adr_consumed_none(self) -> None:
         ctx = self._ctx(consumed=None)
@@ -213,7 +216,7 @@ class TestStatsContextFormat:
         lines = line.split("\n")
         assert len(lines) == 2
         assert lines[0].startswith("📐")
-        assert lines[1].startswith("⏰")
+        assert lines[1].startswith("🎯")
 
 
 class TestLowVolumeWarning:
