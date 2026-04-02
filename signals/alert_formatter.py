@@ -69,6 +69,9 @@ class StatsContext:
     wk_high_still_ahead_pct: float | None = (
         None  # % weeks where weekly high still to come
     )
+    adr_move_up: bool | None = (
+        None  # True if today's move was upward (close > range midpoint)
+    )
 
 
 def _format_stats_line(ctx: "StatsContext", direction: str) -> str:

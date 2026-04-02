@@ -14,6 +14,7 @@ import pandas as pd
 def get_backtest_win_rates(
     conn: duckdb.DuckDBPyConnection,
     day_filter: str | None = None,
+    adr_suppress_threshold: float | None = None,
 ) -> pd.DataFrame:
     """Query backtest_runs grouped by (strategy, tf), return win_rate, avg_r, total_trades.
 
@@ -22,17 +23,26 @@ def get_backtest_win_rates(
     from previous param sweeps are excluded to avoid polluting the ratings.
     Only includes rows where closed_trades > 0.
     If day_filter is provided, only runs saved with that day_filter value are used.
+    adr_suppress_threshold: when None (default) uses only runs with no ADR gate
+    (adr_suppress_threshold IS NULL); when a float, uses only runs saved with that
+    exact threshold. This mirrors the day_filter pattern so recalibration always
+    uses runs from the same execution context as the live config.
     Returns a DataFrame with columns:
         strategy, timeframe, total_trades, win_rate, avg_r
     """
     # Fetch raw rows and deduplicate in Python to avoid ROW_NUMBER() window
     # functions, which segfault in DuckDB 1.5.x on Python 3.11.
     day_filter_clause = "AND day_filter = ?" if day_filter is not None else ""
-    params = [day_filter] if day_filter is not None else []
+    params: list[str | float] = [day_filter] if day_filter is not None else []
+    if adr_suppress_threshold is not None:
+        adr_clause = "AND adr_suppress_threshold = ?"
+        params.append(adr_suppress_threshold)
+    else:
+        adr_clause = "AND adr_suppress_threshold IS NULL"
     cursor = conn.execute(
         f"SELECT strategy, timeframe, symbol, run_at_ms, closed_trades, win_count, avg_r "
         f"FROM backtest_runs "
-        f"WHERE closed_trades > 0 {day_filter_clause}",
+        f"WHERE closed_trades > 0 {day_filter_clause} {adr_clause}",
         params,
     )
     rows = cursor.fetchall()
@@ -102,14 +112,19 @@ def compute_recalibrated_ratings(
     conn: duckdb.DuckDBPyConnection,
     min_trades: int = 10,
     day_filter: str | None = None,
+    adr_suppress_threshold: float | None = None,
 ) -> dict[str, dict[str, int]]:
     """Return {strategy: {tf: stars}} for strategies with sufficient data.
 
     Each (strategy, timeframe) is rated independently from the backtest DB.
     Strategies with fewer total trades than min_trades for a given TF are excluded.
     If day_filter is provided, only runs saved with that day_filter value are used.
+    adr_suppress_threshold: mirrors the day_filter pattern — only runs saved with that
+    exact threshold are used (default None uses runs with adr_suppress_threshold IS NULL).
     """
-    df = get_backtest_win_rates(conn, day_filter=day_filter)
+    df = get_backtest_win_rates(
+        conn, day_filter=day_filter, adr_suppress_threshold=adr_suppress_threshold
+    )
     if df.empty:
         return {}
 

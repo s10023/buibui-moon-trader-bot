@@ -38,6 +38,7 @@ from analytics.indicators_lib import (
     detect_smt_divergence,
     seasonality_stats,
 )
+from analytics.signal_lib import _filter_signals_by_adr
 from utils.binance_client import load_coins_config
 
 _SIMPLE_DETECTORS = DETECTOR_REGISTRY
@@ -217,6 +218,9 @@ def _collect_sweep_results(
         if allowed_days is not None:
             signals = filter_signals_by_day(signals, allowed_days)
 
+        if cfg.adr_suppress_threshold is not None and not signals.empty:
+            signals = _filter_signals_by_adr(ohlcv, signals, cfg.adr_suppress_threshold)
+
         eff_tp_r = cfg.effective_tp_r(strategy, symbol, timeframe)
         eff_sl_pct = cfg.effective_sl_pct(strategy, symbol, timeframe)
         eff_atr_sl = cfg.effective_atr_sl_multiplier(strategy, symbol, timeframe)
@@ -248,6 +252,7 @@ def _collect_sweep_results(
                 smt_trend_filter=cfg.smt_trend_filter,
                 secondary_symbol=secondary,
                 sweep_id=sweep_id,
+                adr_suppress_threshold=cfg.adr_suppress_threshold,
             )
             upsert_backtest_trades(conn, bt, run_id)
 

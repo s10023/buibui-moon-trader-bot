@@ -200,3 +200,9 @@ min_avg_r = 0.0             # hard mode: suppress if directional avg_r < this (p
 # volume_suppress = false   # enable after confirming via `make buibui-backtest` that low-vol trades underperform
 # liq_sweep_use_fib = true  # set false to compare pivot-sweep mode (wick above pivot + close inside) vs fib-extension mode
 # liq_sweep_fib_range_close = false  # (fib mode only) true = close must be < swing_high (inside range), not just < fib level
+
+# F8 bias layer — statistics-driven signal gates (both disabled by default)
+# [bias]
+# adr_suppress_threshold = 0.80   # drop signals when today's range >= 80% of ADR-14
+# dow_soft_suppress = false        # reduce confidence by 1★ when direction opposes DOW avg return
+# dow_suppress_min_abs_return = 0.005  # dead-band: avg return must exceed ±0.5% to trigger

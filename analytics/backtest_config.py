@@ -116,6 +116,10 @@ class BacktestSweepConfig:
     #   True            — close must come back below the original swing_high (inside range)
     # Stricter confirmation: wick reaches fib zone but body closes fully inside the range.
     liq_sweep_fib_range_close: bool = False
+    # ADR bias gate: when set, suppress signals where today's range >= this fraction of ADR-14
+    # in the chasing direction (same logic as live BiasConfig.adr_suppress_threshold).
+    # Mirrors the [bias] TOML section used by the signal watcher.
+    adr_suppress_threshold: float | None = None
 
     def effective_min_trades(self, tf: str) -> int:
         """Return per-TF override if configured, else the global min_trades."""
@@ -304,5 +308,11 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
                 "liq_sweep_fib_range_close",
                 _bt_section.get("liq_sweep_fib_range_close", False),
             )
+        ),
+        adr_suppress_threshold=(
+            float(data["bias"]["adr_suppress_threshold"])
+            if isinstance(data.get("bias"), dict)
+            and data["bias"].get("adr_suppress_threshold") is not None
+            else None
         ),
     )

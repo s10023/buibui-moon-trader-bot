@@ -78,6 +78,9 @@ class ADRResult:
     adr_30: float  # 30-day avg (high-low)/open
     today_range_pct: float | None  # today's (high-low)/open so far
     today_consumed_pct: float | None  # today_range / adr_14
+    today_move_up: bool | None = (
+        None  # True if latest close is in upper half of today's range
+    )
 
 
 @dataclass
@@ -360,14 +363,15 @@ def compute_adr(
             SELECT
                 (epoch_ms(open_time)::TIMESTAMP)::DATE AS trade_date,
                 MAX(high) AS day_high, MIN(low) AS day_low,
-                FIRST(open ORDER BY open_time) AS day_open
+                FIRST(open ORDER BY open_time) AS day_open,
+                LAST(close ORDER BY open_time) AS day_close
             FROM ohlcv
             WHERE symbol = $symbol AND timeframe = '1h'
               AND open_time >= $start_ms
             GROUP BY trade_date
             ORDER BY trade_date DESC
         )
-        SELECT trade_date, day_high, day_low, day_open
+        SELECT trade_date, day_high, day_low, day_open, day_close
         FROM daily
         """,
         {"symbol": symbol, "start_ms": start},
@@ -379,7 +383,7 @@ def compute_adr(
     # rows are ordered newest first
     ranges = [
         (float(day_high) - float(day_low)) / float(day_open)
-        for (_, day_high, day_low, day_open) in rows
+        for (_, day_high, day_low, day_open, _close) in rows
         if float(day_open) > 0
     ]
 
@@ -393,20 +397,26 @@ def compute_adr(
     # rows[0] may be today (partial) or yesterday (if before today's candles sync)
     today_range_pct: float | None = None
     today_consumed_pct: float | None = None
+    today_move_up: bool | None = None
     if rows:
         newest_day_high = float(rows[0][1])
         newest_day_low = float(rows[0][2])
         newest_day_open = float(rows[0][3])
+        newest_day_close = float(rows[0][4])
         if newest_day_open > 0:
             today_range_pct = (newest_day_high - newest_day_low) / newest_day_open
             if adr_14 > 0:
                 today_consumed_pct = today_range_pct / adr_14
+        if newest_day_high != newest_day_low:
+            mid = (newest_day_high + newest_day_low) / 2
+            today_move_up = newest_day_close > mid
 
     return ADRResult(
         adr_14=adr_14,
         adr_30=adr_30,
         today_range_pct=today_range_pct,
         today_consumed_pct=today_consumed_pct,
+        today_move_up=today_move_up,
     )
 
 

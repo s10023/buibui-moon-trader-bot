@@ -596,6 +596,25 @@ The inline backtest (computed each scan cycle per firing signal) respects all co
 `fee_pct`, `day_filter`, `sl_pct`, and `cooldown_seconds` are now all read from TOML and
 applied correctly — results stored in `backtest_runs` match what the live filter uses.
 
+**`[bias]`** — statistics-driven bias layer (F8). Both gates are disabled by default.
+
+```toml
+[bias]
+# ADR directional gate: when today's range has consumed >= this fraction of ADR-14,
+# suppresses only the chasing direction (LONGs when move was up, SHORTs when move was
+# down). Reversal signals at the extreme still fire. Falls back to blanket suppress when
+# move direction is unknown.
+adr_suppress_threshold = 0.80   # e.g. 0.80 = suppress chasing direction when 80%+ consumed
+
+# DOW soft suppress: reduce confidence by 1 star when signal direction opposes today's
+# historical DOW avg return (from stats_lib). Signal still fires but shows lower conviction.
+dow_soft_suppress = false
+dow_suppress_min_abs_return = 0.005  # dead-band: ±0.5% to avoid noise from near-zero days
+```
+
+Both gates read from the per-symbol `StatsContext` computed each cycle (same data shown in the
+Telegram stats footer). If stats are unavailable for a symbol, both gates are silently skipped.
+
 **Example alert (Telegram, soft mode):**
 
 ```text

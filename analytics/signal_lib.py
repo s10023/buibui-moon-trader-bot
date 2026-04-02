@@ -33,6 +33,7 @@ from analytics.data_store import (
 from analytics.indicators_lib import STRATEGY_REGISTRY
 from analytics.signal_config import (
     BacktestFilterConfig,
+    BiasConfig,
     StrategyOverride,
     _day_filter_to_weekdays,
 )
@@ -74,6 +75,77 @@ def secs_until_next_boundary(timeframes: list[str]) -> tuple[float, float]:
     return max(0.0, wake_ts - now), wake_ts
 
 
+def _filter_signals_by_adr(
+    ohlcv_df: pd.DataFrame,
+    signals_df: pd.DataFrame,
+    threshold: float,
+) -> pd.DataFrame:
+    """Return signals where the ADR consumed at signal time is below threshold.
+
+    For each signal candle, computes:
+      consumed_ratio = (cumulative intraday range up to that candle) / (14-day ADR)
+
+    Signals where consumed_ratio >= threshold are dropped — the daily move was
+    already mostly done when the signal fired.  Signals whose candle is not found
+    in ohlcv_df pass through untouched (safe-default: don't suppress unknown data).
+    """
+    if signals_df.empty or ohlcv_df.empty:
+        return signals_df
+
+    df = ohlcv_df.copy()
+    df["_date"] = pd.to_datetime(df["open_time"], unit="ms", utc=True).dt.date
+    df = df.sort_values("open_time")
+
+    # Day open = first candle's open price within each calendar day
+    day_opens: pd.Series = df.groupby("_date")["open"].first()
+
+    # Cumulative intraday high/low up to each candle (inclusive)
+    df["_cum_high"] = df.groupby("_date")["high"].cummax()
+    df["_cum_low"] = df.groupby("_date")["low"].cummin()
+    df["_day_open"] = df["_date"].map(day_opens)
+
+    # Today's range as a fraction of day_open (avoid div/0)
+    df["_today_range"] = (df["_cum_high"] - df["_cum_low"]) / df["_day_open"].where(
+        df["_day_open"] > 0
+    )
+
+    # 14-day rolling ADR from daily extremes
+    daily = (
+        df.groupby("_date")
+        .agg(_dh=("high", "max"), _dl=("low", "min"), _do=("open", "first"))
+        .sort_index()
+    )
+    daily["_dr"] = (daily["_dh"] - daily["_dl"]) / daily["_do"].where(daily["_do"] > 0)
+    daily["_adr14"] = daily["_dr"].rolling(14, min_periods=1).mean()
+
+    df["_adr14"] = df["_date"].map(daily["_adr14"])
+
+    # Consumed ratio at each candle; NaN when adr_14 is zero or unknown
+    df["_consumed"] = df["_today_range"] / df["_adr14"].where(df["_adr14"] > 0)
+
+    # Direction: close in upper half of today's range → move was upward
+    df["_mid"] = (df["_cum_high"] + df["_cum_low"]) / 2
+    df["_move_up"] = (df["close"] > df["_mid"]).astype(float)
+
+    consumed_map: dict[int, float] = dict(
+        zip(df["open_time"].astype(int), df["_consumed"].astype(float))
+    )
+    move_up_map: dict[int, float] = dict(
+        zip(df["open_time"].astype(int), df["_move_up"])
+    )
+
+    signal_ratios = signals_df["open_time"].astype(int).map(consumed_map)
+    signal_move_up = signals_df["open_time"].astype(int).map(move_up_map)
+
+    # Suppress only the chasing direction: LONGs when move was up, SHORTs when down.
+    # NaN move_up (candle not found) → neither condition fires → safe pass-through.
+    chasing = ((signal_move_up == 1.0) & (signals_df["direction"] == "long")) | (
+        (signal_move_up == 0.0) & (signals_df["direction"] == "short")
+    )
+    keep = signal_ratios.isna() | (signal_ratios < threshold) | ~chasing
+    return signals_df[keep].reset_index(drop=True)
+
+
 def _compute_backtest(
     ohlcv_df: pd.DataFrame,
     strategy: str,
@@ -87,11 +159,16 @@ def _compute_backtest(
     day_filter: str = "off",
     min_sl_pct: float = 0.0,
     atr_sl_multiplier: float | None = None,
+    adr_suppress_threshold: float | None = None,
 ) -> BacktestResult | None:
     """Run strategy detector on ohlcv[:-1] and backtest the resulting signals.
 
     Excludes the current (latest) candle to avoid lookahead bias.
     Returns None if there is insufficient data or the detector raises.
+
+    adr_suppress_threshold: when set, filters historical signals where the ADR
+    consumed at signal time exceeded the threshold — mirrors the live bias gate so
+    backtested avg_r reflects only trades that would have passed the gate.
     """
     hist_df = ohlcv_df.iloc[:-1]
     if len(hist_df) < 3:
@@ -122,6 +199,9 @@ def _compute_backtest(
     allowed_days = _day_filter_to_weekdays(day_filter)
     if allowed_days is not None:
         signals_df = filter_signals_by_day(signals_df, allowed_days)
+
+    if adr_suppress_threshold is not None and not signals_df.empty:
+        signals_df = _filter_signals_by_adr(hist_df, signals_df, adr_suppress_threshold)
 
     return run_backtest(
         hist_df,
@@ -480,6 +560,7 @@ def _compute_stats_context(
             peak_low_hour_dow=peak_low_hour_dow,
             wk_low_still_ahead_pct=wk_low_still_ahead,
             wk_high_still_ahead_pct=wk_high_still_ahead,
+            adr_move_up=bundle.adr.today_move_up,
         )
     except Exception:
         logger.debug("_compute_stats_context failed for %s — skipping", symbol)
@@ -505,6 +586,7 @@ def run_scan_cycle(
     strategy_params: dict[str, StrategyOverride] | None = None,
     atr_sl_multiplier: float | None = None,
     confidence_override: dict[str, dict[str, int]] | None = None,
+    bias_cfg: BiasConfig | None = None,
 ) -> list[str]:
     """Scan all symbol+timeframe combinations and return formatted alert strings.
 
@@ -674,6 +756,9 @@ def run_scan_cycle(
                             day_filter=day_filter,
                             min_sl_pct=backtest_cfg.min_sl_pct,
                             atr_sl_multiplier=eff_atr_sl,
+                            adr_suppress_threshold=bias_cfg.adr_suppress_threshold
+                            if bias_cfg
+                            else None,
                         )
                     bt_results[event.strategy] = bt_cache[bt_key]
 
@@ -721,6 +806,70 @@ def run_scan_cycle(
                 if not passing_events:
                     logger.info("Volume filter suppressed %s %s", symbol, tf)
                     continue
+
+            # Bias gate — ADR progress and DOW context filters (F8).
+            # Never raises — stats failures must not block signal dispatch.
+            if bias_cfg is not None:
+                bias_ctx = stats_ctx_cache.get(symbol)
+                if bias_ctx is not None:
+                    # Step 1: ADR directional suppress — remove signals chasing the
+                    # already-consumed direction. LONGs suppressed when move was up
+                    # (price near day high); SHORTs when move was down. Reversal signals
+                    # in the opposing direction are kept — fading an extreme is valid
+                    # even when ADR is consumed. Falls back to blanket suppress when
+                    # move direction is unknown.
+                    if (
+                        bias_cfg.adr_suppress_threshold is not None
+                        and bias_ctx.adr_consumed_pct is not None
+                        and bias_ctx.adr_consumed_pct >= bias_cfg.adr_suppress_threshold
+                    ):
+                        if bias_ctx.adr_move_up is None:
+                            logger.info(
+                                "ADR bias gate suppressed %s %s — %.0f%% consumed "
+                                "(direction unknown)",
+                                symbol,
+                                tf,
+                                bias_ctx.adr_consumed_pct * 100,
+                            )
+                            continue
+                        suppress_dir = "long" if bias_ctx.adr_move_up else "short"
+                        n_before = len(passing_events)
+                        passing_events = [
+                            e for e in passing_events if e.direction != suppress_dir
+                        ]
+                        if len(passing_events) < n_before:
+                            logger.info(
+                                "ADR bias gate removed %d %s signal(s) for %s %s "
+                                "— %.0f%% consumed, chasing %s",
+                                n_before - len(passing_events),
+                                suppress_dir,
+                                symbol,
+                                tf,
+                                bias_ctx.adr_consumed_pct * 100,
+                                suppress_dir,
+                            )
+                        if not passing_events:
+                            continue
+
+                    # Step 2: DOW soft suppress — reduce confidence by 1 star
+                    # when signal direction opposes today's historical avg return.
+                    if bias_cfg.dow_soft_suppress:
+                        avg_ret = bias_ctx.avg_return_today
+                        if abs(avg_ret) >= bias_cfg.dow_suppress_min_abs_return:
+                            for event in passing_events:
+                                if (event.direction == "long" and avg_ret < 0) or (
+                                    event.direction == "short" and avg_ret > 0
+                                ):
+                                    event.confidence = max(1, event.confidence - 1)
+                                    logger.debug(
+                                        "DOW bias: %s %s %s confidence → %d "
+                                        "(avg_ret %.3f)",
+                                        symbol,
+                                        tf,
+                                        event.strategy,
+                                        event.confidence,
+                                        avg_ret,
+                                    )
 
             for event in passing_events:
                 store.mark_candle(symbol, tf, event.strategy, event.open_time)
@@ -853,6 +1002,9 @@ def run_scan_cycle(
                     day_filter=day_filter,
                     smt_trend_filter=smt_trend_filter,
                     secondary_symbol=secondary_symbol,
+                    adr_suppress_threshold=bias_cfg.adr_suppress_threshold
+                    if bias_cfg
+                    else None,
                 )
             except Exception:
                 logger.exception(
