@@ -401,6 +401,7 @@ def scan_symbol(
                     open_time=latest_open_time,
                     price=latest_close,
                     sl_price=float(row["sl_price"]),
+                    tp_price=float(row["tp_price"]) if row.get("tp_price") else 0.0,
                     context=str(row["context"]),
                     confidence=(confidence_override or {})
                     .get(strategy_name, {})

@@ -581,6 +581,7 @@ SIGNAL_COLUMNS: list[str] = [
     "sl_price",
     "context",
     "low_volume",
+    "tp_price",
 ]
 
 
@@ -2911,6 +2912,7 @@ def detect_fib_golden_zone(
                             f"(0.618={fib_0_618:.2f})"
                         ),
                         "sl_price": sl_out,
+                        "tp_price": tp,
                         "context": (
                             f"BOS: swing_low={sl_price_bos:.2f} "
                             f"swing_high={sh_price_bos:.2f} "
@@ -2937,6 +2939,7 @@ def detect_fib_golden_zone(
                             f"(0.618={fib_0_618:.2f})"
                         ),
                         "sl_price": sl_out,
+                        "tp_price": tp,
                         "context": (
                             f"BOS: swing_high={sh_price_bos:.2f} "
                             f"swing_low={sl_price_bos:.2f} "
@@ -3009,6 +3012,7 @@ def detect_ote_entry(
                             f"ote_long@{curr_close:.2f} (0.786={fib_0_786:.2f})"
                         ),
                         "sl_price": sl_out,
+                        "tp_price": tp,
                         "context": (
                             f"OTE: swing_low={sl_price_bos:.2f} "
                             f"swing_high={sh_price_bos:.2f} "
@@ -3031,6 +3035,7 @@ def detect_ote_entry(
                             f"ote_short@{curr_close:.2f} (0.786={fib_0_786:.2f})"
                         ),
                         "sl_price": sl_out,
+                        "tp_price": tp,
                         "context": (
                             f"OTE: swing_high={sh_price_bos:.2f} "
                             f"swing_low={sl_price_bos:.2f} "

@@ -74,50 +74,66 @@ class StatsContext:
     )
 
 
+def _adr_bar(consumed_pct: float) -> str:
+    """Return a 10-char ASCII progress bar for ADR consumption.
+
+    0–100%: filled █ + empty ░, e.g. 88% → [████████░░]
+    >100%:  full bar + overflow indicator ▓, e.g. 112% → [██████████▓]
+    """
+    BAR_LEN = 10
+    filled = min(round(consumed_pct * BAR_LEN), BAR_LEN)
+    bar = "█" * filled + "░" * (BAR_LEN - filled)
+    suffix = "▓" if consumed_pct > 1.0 else ""
+    return f"[{bar}{suffix}]"
+
+
 def _format_stats_line(ctx: "StatsContext", direction: str) -> str:
     """Format the stats context as two plain-English lines for Telegram.
 
-    Line 1: bull%, P1 context (direction-aware), ADR
-    Line 2: per-DOW peak hour + weekly timing (direction-aware)
+    Line 1: bull%, P1 context (direction-aware), ADR bar
+    Line 2: TP window (peak hour for target direction) + weekly timing
     """
     dow_short = ctx.today_dow[:3]
     dow_plural = ctx.today_dow + "s"  # e.g. "Mondays"
-    consumed = (
-        f" ({ctx.adr_consumed_pct:.0%} used)"
-        if ctx.adr_consumed_pct is not None
-        else ""
-    )
+
     bull_str = f"{dow_short} closes bullish {ctx.bull_pct_today:.0%}"
 
     is_long = direction != "short"
+    # "still ahead" = probability the directional extreme has NOT been set yet.
+    # High number = caution (likely more adverse move coming).
+    # Low number = favourable (extreme likely already behind you).
     if is_long:
-        p1_str = f"Daily low set first {ctx.p1_low_pct_today:.0%} of {dow_plural}"
+        still_ahead = 1 - ctx.p1_low_pct_today
+        p1_str = f"Low still ahead {still_ahead:.0%} of {dow_plural}"
     else:
-        p1_str = f"Daily high set first {1 - ctx.p1_low_pct_today:.0%} of {dow_plural}"
+        still_ahead = ctx.p1_low_pct_today
+        p1_str = f"High still ahead {still_ahead:.0%} of {dow_plural}"
 
-    line1 = f"📐 {bull_str} · {p1_str} · ADR {ctx.adr_14:.1%}{consumed}"
+    if ctx.adr_consumed_pct is not None:
+        bar = _adr_bar(ctx.adr_consumed_pct)
+        adr_str = f"ADR {bar} {ctx.adr_consumed_pct:.0%} · {ctx.adr_14:.1%}"
+    else:
+        adr_str = f"ADR {ctx.adr_14:.1%}"
+
+    line1 = f"📐 {bull_str} · {p1_str} · {adr_str}"
 
     parts2 = []
     if is_long and ctx.peak_high_hour_dow is not None:
         parts2.append(
-            f"Daily high typically peaks ~{ctx.peak_high_hour_dow:02d}:00 MYT on {dow_plural}"
+            f"TP window: high ~{ctx.peak_high_hour_dow:02d}:00 MYT on {dow_plural}"
         )
     elif not is_long and ctx.peak_low_hour_dow is not None:
         parts2.append(
-            f"Daily low typically troughs ~{ctx.peak_low_hour_dow:02d}:00 MYT on {dow_plural}"
+            f"TP window: low ~{ctx.peak_low_hour_dow:02d}:00 MYT on {dow_plural}"
         )
 
     if is_long and ctx.wk_low_still_ahead_pct is not None:
-        parts2.append(
-            f"Weekly low: {ctx.wk_low_still_ahead_pct:.0%} of weeks still ahead"
-        )
+        parts2.append(f"Weekly low: {ctx.wk_low_still_ahead_pct:.0%} still ahead")
     elif not is_long and ctx.wk_high_still_ahead_pct is not None:
-        parts2.append(
-            f"Weekly high: {ctx.wk_high_still_ahead_pct:.0%} of weeks still ahead"
-        )
+        parts2.append(f"Weekly high: {ctx.wk_high_still_ahead_pct:.0%} still ahead")
 
     if parts2:
-        return line1 + "\n⏰ " + " · ".join(parts2)
+        return line1 + "\n🎯 " + " · ".join(parts2)
     return line1
 
 
@@ -135,6 +151,9 @@ class SignalEvent:
     confidence: int = 0  # 1–5 editorial quality score (0 = unset); shown as stars
     conflict: bool = False  # True when opposing direction fired same cycle
     low_volume: bool = False  # True when volume was below confirmation threshold
+    tp_price: float = (
+        0.0  # structural TP from detector (e.g. 1.618 fib ext); 0 = use tp_r fallback
+    )
 
 
 def _widest_sl(
@@ -209,13 +228,16 @@ def format_confluence_alert(
             sl_price = price + min_dist
     if first.direction == "long":
         sl_dist = price - sl_price
-        tp_price = price + sl_dist * tp_r
+        structural_tp = first.tp_price if first.tp_price > price else 0.0
+        tp_price = structural_tp if structural_tp > 0 else price + sl_dist * tp_r
     else:
         sl_dist = sl_price - price
-        tp_price = price - sl_dist * tp_r
+        structural_tp = first.tp_price if 0 < first.tp_price < price else 0.0
+        tp_price = structural_tp if structural_tp > 0 else price - sl_dist * tp_r
 
     sl_pct_display = abs(sl_dist / price) * 100
-    tp_pct_display = abs(sl_dist / price) * tp_r * 100
+    actual_r = abs(tp_price - price) / sl_dist if sl_dist > 0 else tp_r
+    tp_pct_display = abs(tp_price - price) / price * 100
 
     if len(events) == 1:
         ev = events[0]
@@ -247,7 +269,7 @@ def format_confluence_alert(
 
     sl_tp = (
         f"SL: {sl_price:,.2f}  ({sl_pct_display:.1f}%)\n"
-        f"TP: {tp_price:,.2f}  ({tp_pct_display:.1f}%  ·  {tp_r:.1f}R)"
+        f"TP: {tp_price:,.2f}  ({tp_pct_display:.1f}%  ·  {actual_r:.1f}R)"
     )
     msg = (
         header + f"\n{price:,.2f}  ·  {signal_time} MYT\n" + session_line + f"\n{sl_tp}"
