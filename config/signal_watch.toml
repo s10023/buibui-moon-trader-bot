@@ -152,6 +152,7 @@ tp_r_15m = 4.0                # F5 WFO: ETH 15m optimal at 4.0R
 
 [strategy_params.fib_golden_zone]
 tp_r_4h = 3.5                 # sweep peak: cross-symbol +0.85R (31 trades); was 3.0
+adr_exempt = true             # BOS + retracement pullback entry — continuation strategy, same case as bos/smt
 
 [strategy_params.fib_golden_zone.ETHUSDT]
 tp_r_1h = 4.5                 # F5 WFO: ETH 1h optimal at 4.5R
