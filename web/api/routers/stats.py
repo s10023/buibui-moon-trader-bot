@@ -8,7 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from analytics.data_store import DEFAULT_DB_PATH, get_stats_cache, upsert_stats_cache
 from analytics.stats_lib import (
     StatsBundle,
+    WeeklyCurrentState,
     compute_all,
+    compute_weekly_current_state,
 )
 from web.api.deps import get_db, require_token
 from web.api.models.stats import (
@@ -19,11 +21,26 @@ from web.api.models.stats import (
     P1P2Response,
     SessionRow,
     StatsResponse,
+    WeeklyCurrentStateResponse,
     WeeklyP1P2Response,
     WeeklyP2TimingResponse,
 )
 
 router = APIRouter(dependencies=[Depends(require_token)])
+
+
+def _wcs_to_response(wcs: WeeklyCurrentState) -> WeeklyCurrentStateResponse:
+    return WeeklyCurrentStateResponse(
+        current_isodow=wcs.current_isodow,
+        current_dow=wcs.current_dow,
+        weekly_open=wcs.weekly_open,
+        current_price=wcs.current_price,
+        move_pct=wcs.move_pct,
+        move_bucket=wcs.move_bucket,
+        low_still_ahead_conditioned=wcs.low_still_ahead_conditioned,
+        high_still_ahead_conditioned=wcs.high_still_ahead_conditioned,
+    )
+
 
 _MYT = timezone(timedelta(hours=8))
 
@@ -149,5 +166,15 @@ def get_stats(
             )
     except Exception:
         pass  # never fail the response due to cache write failure
+
+    # Inject live current-week state — always fresh, never cached
+    try:
+        wcs = compute_weekly_current_state(db, symbol, response.adr.adr_14, days)
+        if wcs is not None:
+            response = response.model_copy(
+                update={"weekly_current_state": _wcs_to_response(wcs)}
+            )
+    except Exception:
+        pass  # non-fatal — degrade gracefully
 
     return response
