@@ -35,7 +35,11 @@ def get_backtest_win_rates(
     day_filter_clause = "AND day_filter = ?" if day_filter is not None else ""
     params: list[str | float] = [day_filter] if day_filter is not None else []
     if adr_suppress_threshold is not None:
-        adr_clause = "AND adr_suppress_threshold = ?"
+        # Match runs saved with this threshold AND exempt-strategy runs (NULL) from
+        # the same sweep. CAST(? AS REAL) forces same-precision comparison — the column
+        # is REAL (32-bit); comparing a Python float (64-bit) directly fails due to
+        # float32→float64 promotion: REAL(0.8) = 0.800000012... ≠ DOUBLE(0.8).
+        adr_clause = "AND (adr_suppress_threshold = CAST(? AS REAL) OR adr_suppress_threshold IS NULL)"
         params.append(adr_suppress_threshold)
     else:
         adr_clause = "AND adr_suppress_threshold IS NULL"
