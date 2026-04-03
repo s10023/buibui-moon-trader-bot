@@ -9,7 +9,10 @@ from analytics.data_store import init_schema
 from analytics.stats_lib import (
     StatsBundle,
     WeeklyCurrentState,
+    WeeklyFlipRiskConditioned,
+    WeeklyP1Overshoot,
     WeeklyP2Timing,
+    WeeklyWickWarning,
     compute_adr,
     compute_all,
     compute_dow_patterns,
@@ -17,8 +20,11 @@ from analytics.stats_lib import (
     compute_p1p2_daily,
     compute_session_breakdown,
     compute_weekly_current_state,
+    compute_weekly_flip_risk_conditioned,
+    compute_weekly_p1_overshoot,
     compute_weekly_p1p2,
     compute_weekly_p2_timing,
+    compute_weekly_wick_warning,
 )
 
 _SYMBOL = "TESTUSDT"
@@ -350,3 +356,126 @@ def test_weekly_current_state_conditioned_prob_in_range(
         assert 0.0 <= result.low_still_ahead_conditioned <= 1.0
     if result.high_still_ahead_conditioned is not None:
         assert 0.0 <= result.high_still_ahead_conditioned <= 1.0
+
+
+# ── M3: compute_weekly_flip_risk_conditioned tests ────────────────────────────
+
+
+def test_compute_weekly_flip_risk_conditioned_basic(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """Conditioned flip risk rows cover both p1_directions and all DOWs present in data."""
+    result = compute_weekly_flip_risk_conditioned(conn, _SYMBOL, days=30)
+    assert isinstance(result, WeeklyFlipRiskConditioned)
+    assert len(result.rows) > 0
+
+    p1_dirs = {r.p1_direction for r in result.rows}
+    # Both directions should appear (fixture has 14 days = 2 full weeks)
+    assert p1_dirs.issubset({"low", "high"})
+
+    for row in result.rows:
+        assert row.p1_direction in ("low", "high")
+        assert 1 <= row.isodow <= 7
+        assert row.dow_label in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+        assert 0.0 <= row.flip_pct <= 1.0
+        assert row.sample_count > 0
+
+
+# ── F3a: compute_weekly_wick_warning tests ────────────────────────────────────
+
+
+def test_compute_weekly_wick_warning_basic(conn: duckdb.DuckDBPyConnection) -> None:
+    """Wick warning returns a valid percentage and positive sample count."""
+    result = compute_weekly_wick_warning(conn, _SYMBOL, days=30)
+    assert isinstance(result, WeeklyWickWarning)
+    assert 0.0 <= result.wick_gt_body_pct <= 1.0
+    assert result.sample_count > 0
+
+
+def test_compute_weekly_wick_warning_known_ratio(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """With a half-wick-gt-body fixture, wick_gt_body_pct should be ~0.5."""
+    # Insert 2 additional weeks with controlled candles (one wick>body, one not)
+    # Week A: P1=low candle with big lower wick (wick > body)
+    # Week B: P1=low candle with tiny lower wick (wick < body)
+    # Use timestamps far in the past (> 30d) to avoid mixing with test fixture
+    base_far = int(
+        (datetime.now(tz=UTC) - timedelta(days=100))
+        .replace(hour=0, minute=0, second=0, microsecond=0)
+        .timestamp()
+        * 1000
+    )
+
+    # Week A (Mon = first candle of week): P1=low with big wick
+    # body = |close - open| = 0; lower wick = open - low = 200
+    # P1=low candle: low=39800, open=close=40000 → wick=200 > body=0  ✓
+    # Next candle (Tue): high=41000 → P2=high set after Mon
+    conn.execute(
+        "INSERT OR REPLACE INTO ohlcv (symbol, timeframe, open_time, open, high, low, close, volume, taker_buy_volume) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [_SYMBOL, "1h", base_far, 40000.0, 40200.0, 39800.0, 40000.0, 100.0, 50.0],
+    )
+    conn.execute(
+        "INSERT OR REPLACE INTO ohlcv (symbol, timeframe, open_time, open, high, low, close, volume, taker_buy_volume) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            _SYMBOL,
+            "1h",
+            base_far + 86400_000,
+            40000.0,
+            41000.0,
+            40000.0,
+            40000.0,
+            100.0,
+            50.0,
+        ],
+    )
+
+    # Week B (7 days after week A): P1=low with tiny wick (wick < body)
+    # body = |close - open| = 500; lower wick = open - low = 10 < 500 ✗
+    week_b = base_far + 7 * 86400_000
+    conn.execute(
+        "INSERT OR REPLACE INTO ohlcv (symbol, timeframe, open_time, open, high, low, close, volume, taker_buy_volume) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [_SYMBOL, "1h", week_b, 40000.0, 40200.0, 39990.0, 40500.0, 100.0, 50.0],
+    )
+    conn.execute(
+        "INSERT OR REPLACE INTO ohlcv (symbol, timeframe, open_time, open, high, low, close, volume, taker_buy_volume) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            _SYMBOL,
+            "1h",
+            week_b + 86400_000,
+            40500.0,
+            41000.0,
+            40500.0,
+            40500.0,
+            100.0,
+            50.0,
+        ],
+    )
+
+    # Query with days=120 to pick up both new weeks
+    result = compute_weekly_wick_warning(conn, _SYMBOL, days=120)
+    assert isinstance(result, WeeklyWickWarning)
+    assert result.sample_count >= 2
+    # At least one wick_gt_body should be present
+    assert result.wick_gt_body_pct > 0.0
+
+
+# ── F3b: compute_weekly_p1_overshoot tests ────────────────────────────────────
+
+
+def test_compute_weekly_p1_overshoot_basic(conn: duckdb.DuckDBPyConnection) -> None:
+    """P1 overshoot returns non-negative values and positive sample count."""
+    adr = compute_adr(conn, _SYMBOL)
+    result = compute_weekly_p1_overshoot(conn, _SYMBOL, days=30, adr_14=adr.adr_14)
+    assert isinstance(result, WeeklyP1Overshoot)
+    assert result.sample_count > 0
+    assert result.median_of_adr >= 0.0
+    assert result.p25_of_adr >= 0.0
+    assert result.p75_of_adr >= 0.0
+    # p25 ≤ median ≤ p75 (within float tolerance)
+    assert result.p25_of_adr <= result.median_of_adr + 1e-9
+    assert result.median_of_adr <= result.p75_of_adr + 1e-9

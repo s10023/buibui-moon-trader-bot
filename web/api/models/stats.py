@@ -69,6 +69,30 @@ class WeeklyCurrentStateResponse(BaseModel):
     high_still_ahead_conditioned: float | None
 
 
+class FlipRiskConditionedRow(BaseModel):
+    p1_direction: str
+    isodow: int
+    dow_label: str
+    flip_pct: float
+    sample_count: int
+
+
+class WeeklyFlipRiskConditionedResponse(BaseModel):
+    rows: list[FlipRiskConditionedRow]
+
+
+class WeeklyWickWarningResponse(BaseModel):
+    wick_gt_body_pct: float
+    sample_count: int
+
+
+class WeeklyP1OvershootResponse(BaseModel):
+    median_of_adr: float
+    p25_of_adr: float
+    p75_of_adr: float
+    sample_count: int
+
+
 class StatsResponse(BaseModel):
     symbol: str
     days: int
@@ -81,3 +105,6 @@ class StatsResponse(BaseModel):
     weekly_p1p2: WeeklyP1P2Response
     weekly_p2_timing: WeeklyP2TimingResponse
     weekly_current_state: WeeklyCurrentStateResponse | None = None
+    weekly_flip_risk_conditioned: WeeklyFlipRiskConditionedResponse | None = None
+    weekly_wick_warning: WeeklyWickWarningResponse | None = None
+    weekly_p1_overshoot: WeeklyP1OvershootResponse | None = None
