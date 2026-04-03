@@ -68,24 +68,24 @@
       example: "Wed 3.1% range, 58% bull, +1.8% avg → lean longs, size normally. Fri 1.8%, 49%, −0.6% → reduce exposure.",
     },
     session: {
-      what: "Asia (08–13 MYT), London (14–21 MYT), NY (20–03 MYT): fraction of days each session made the daily high or low. Sessions are non-exclusive — the London/NY overlap window (20–21 MYT) counts in both, so columns don't sum to 100%. Active sessions shown with ●.",
+      what: "Asia (08–13 MYT), London (14–21 MYT), NY (20–03 MYT): fraction of days each session made the daily high or low. Hours 04–07 MYT are a dead zone — not assigned to any session. Sessions are non-exclusive: the London/NY overlap (20–21 MYT) counts in both, so column totals don't sum to 100%. Active sessions shown with ●.",
       value: "If Asia makes the daily low 41% of the time and price is falling during Asia session, there's meaningful probability you're watching the daily low form.",
       example: "Asia Lo 41% + price dropping in Asia → probable daily low forming. Watch for reversal.",
     },
     weekly: {
       what: "Which day of the week most commonly forms the weekly extreme. Bear context shows when the weekly HIGH forms (useful for shorts). Bull context shows when the weekly LOW forms (useful for longs). Bars show % of weeks each DOW made that extreme, normalized to the dominant day.",
-      value: "ICT: Monday often sets a weekly extreme that gets swept later. This card quantifies it per symbol. If Tue makes the weekly high 34% of the time and it's Wednesday, the weekly high is likely already set.",
-      example: "Weekly High: Tue 34% — if it's Thu, weekly high likely in. Bias: avoid adding longs.",
+      value: "Shows the raw distribution — which day is most common — but not cumulative probability. To ask 'is the high/low likely already set by today?', use the Weekly P2 Timing card, which gives cumulative still-ahead probabilities per DOW.",
+      example: "Weekly High: Tue 34% — Tuesday is the single most common high day. Check P2 Timing to see cumulative P(high still ahead) from today.",
     },
     weeklyTiming: {
-      what: "Given today is a specific day of the week, what fraction of historical weeks still had their weekly LOW (or HIGH) form after that day? Toggle 'All' for unconditional probabilities, or filter by P1 direction: 'Bullish P1' (weekly low set first) shows P(weekly high still ahead), 'Bearish P1' (weekly high set first) shows P(weekly low still ahead).",
-      value: "Context for signal direction: taking a long on Tuesday is riskier if only 35% of weeks still form the weekly low after Tuesday — the likely low is already in. Bullish P1 filter sharpens the estimate: you already know the low was set first, so you only care if the high is still ahead.",
-      example: "Today Mon, Bullish P1 filter → 71% of bullish weeks still set the high after Mon → good environment for longs targeting the weekly high.",
+      what: "For each day of week, P(weekly LOW or HIGH still forms after that day). 'All' shows unconditional still-ahead % for both extremes, plus flip risk (P the running extreme gets undercut later in the week, even if one already exists). 'Bullish P1' = only bullish weeks (low set first) — shows P(weekly high still ahead | DOW). 'Bearish P1' = bearish weeks — shows P(weekly low still ahead | DOW).",
+      value: "High % = that extreme likely hasn't formed yet. Low % = it's likely already in. Riskier for a long when 'Low still ahead' is HIGH (e.g. 70%) — the weekly low is probably still below, so entering long now risks catching the drop. Flip risk shows the chance the running extreme gets beaten later in the week. Use the Bullish P1 filter once a weekly low is confirmed forming: it shows whether the high (P2) is still statistically expected.",
+      example: "Today Mon, Bullish P1 filter → 71% of bullish weeks still set the high after Mon → weekly high very likely still ahead → good timing window for longs targeting the weekly high.",
     },
     weeklyWick: {
-      what: "For the 1h candle that first hits the weekly extreme (P1), what % had a wick in the P1 direction larger than the candle body? A large wick at the weekly extreme = sharp rejection, indicating a sweep-and-reverse pattern.",
-      value: "If 68% of P1 candles have wick > body, expect a brief overshoot beyond the weekly extreme before the reversal starts — don't enter immediately at the extreme.",
-      example: "P1 Wick > Body 68% → at the weekly low, expect price to briefly spike lower before reversing. Wait for body confirmation before entering long.",
+      what: "For the 1h candle that first hits the weekly extreme (P1), what % had a wick in the P1 direction larger than the candle body? Wick = distance from candle body edge to the extreme tip. Body = |close − open|. High % = that extreme is typically formed by a spike-and-close-away (sweep-and-reverse).",
+      value: "If 68% of P1 candles have wick > body, the candle body closes well away from the wick tip — the extreme was briefly touched then rejected hard. Don't enter at the tick of the extreme; wait for the candle to close to confirm the reversal. The Overshoot section below shows how far the wick typically extends.",
+      example: "P1 Wick > Body 68% → the weekly low candle typically closes significantly above its spike low. Wait for 1h candle close before entering long, or use the overshoot size to calibrate a limit entry.",
     },
     weeklyOvershoot: {
       what: "How far the P1 candle's wick extends beyond its open/close (in the P1 direction), expressed as a multiple of ADR14. Median = typical overshoot; IQR = the middle 50% range.",
