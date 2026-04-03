@@ -16,14 +16,18 @@ from web.api.deps import get_db, require_token
 from web.api.models.stats import (
     ADRResponse,
     DOWPatternRow,
+    FlipRiskConditionedRow,
     HourlyExtremeRow,
     P1P2DOWRow,
     P1P2Response,
     SessionRow,
     StatsResponse,
     WeeklyCurrentStateResponse,
+    WeeklyFlipRiskConditionedResponse,
+    WeeklyP1OvershootResponse,
     WeeklyP1P2Response,
     WeeklyP2TimingResponse,
+    WeeklyWickWarningResponse,
 )
 
 router = APIRouter(dependencies=[Depends(require_token)])
@@ -112,6 +116,34 @@ def _bundle_to_response(bundle: StatsBundle) -> StatsResponse:
         high_flip_risk_by_dow=bundle.weekly_p2_timing.high_flip_risk_by_dow,
     )
 
+    # Weekly flip risk conditioned
+    flip_risk_resp = WeeklyFlipRiskConditionedResponse(
+        rows=[
+            FlipRiskConditionedRow(
+                p1_direction=r.p1_direction,
+                isodow=r.isodow,
+                dow_label=r.dow_label,
+                flip_pct=r.flip_pct,
+                sample_count=r.sample_count,
+            )
+            for r in bundle.weekly_flip_risk_conditioned.rows
+        ]
+    )
+
+    # Weekly wick warning
+    wick_resp = WeeklyWickWarningResponse(
+        wick_gt_body_pct=bundle.weekly_wick_warning.wick_gt_body_pct,
+        sample_count=bundle.weekly_wick_warning.sample_count,
+    )
+
+    # Weekly P1 overshoot
+    overshoot_resp = WeeklyP1OvershootResponse(
+        median_of_adr=bundle.weekly_p1_overshoot.median_of_adr,
+        p25_of_adr=bundle.weekly_p1_overshoot.p25_of_adr,
+        p75_of_adr=bundle.weekly_p1_overshoot.p75_of_adr,
+        sample_count=bundle.weekly_p1_overshoot.sample_count,
+    )
+
     return StatsResponse(
         symbol=bundle.symbol,
         days=bundle.days,
@@ -123,6 +155,9 @@ def _bundle_to_response(bundle: StatsBundle) -> StatsResponse:
         sessions=session_list,
         weekly_p1p2=weekly_resp,
         weekly_p2_timing=p2_timing_resp,
+        weekly_flip_risk_conditioned=flip_risk_resp,
+        weekly_wick_warning=wick_resp,
+        weekly_p1_overshoot=overshoot_resp,
     )
 
 

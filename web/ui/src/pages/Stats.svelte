@@ -19,6 +19,8 @@
   let p1p2Mode = $state<"low_first" | "high_first">("low_first");
   // Weekly card: default "high_first" (bearish — when does weekly high form?)
   let weeklyMode = $state<"low_first" | "high_first">("high_first");
+  // Weekly P2 Timing toggle: "all" = unconditional, "low" = bullish P1, "high" = bearish P1
+  let p1FilterMode = $state<"all" | "low" | "high">("all");
 
   // Live MYT clock — ticks every minute
   let now = $state(Date.now());
@@ -81,9 +83,19 @@
       example: "Wed +1.8%, Fri −0.6% → lean longs on Wednesday, reduce exposure on Fridays.",
     },
     weeklyTiming: {
-      what: "Given today is a specific day of the week, what fraction of historical weeks still had their weekly LOW (or HIGH) form after that day? If today is Monday and 78% of weeks saw the weekly low form after Monday, the low is likely still ahead.",
-      value: "Context for signal direction: taking a long on Tuesday is riskier if only 35% of weeks still form the weekly low after Tuesday — the likely low is already in. Use for long entries (weekly low still ahead) or short entries (weekly high still ahead).",
-      example: "Today Mon → Weekly low still ahead 78% → good environment for longs; low likely still to come.",
+      what: "Given today is a specific day of the week, what fraction of historical weeks still had their weekly LOW (or HIGH) form after that day? Toggle 'All' for unconditional probabilities, or filter by P1 direction: 'Bullish P1' (weekly low set first) shows P(weekly high still ahead), 'Bearish P1' (weekly high set first) shows P(weekly low still ahead).",
+      value: "Context for signal direction: taking a long on Tuesday is riskier if only 35% of weeks still form the weekly low after Tuesday — the likely low is already in. Bullish P1 filter sharpens the estimate: you already know the low was set first, so you only care if the high is still ahead.",
+      example: "Today Mon, Bullish P1 filter → 71% of bullish weeks still set the high after Mon → good environment for longs targeting the weekly high.",
+    },
+    weeklyWick: {
+      what: "For the 1h candle that first hits the weekly extreme (P1), what % had a wick in the P1 direction larger than the candle body? A large wick at the weekly extreme = sharp rejection, indicating a sweep-and-reverse pattern.",
+      value: "If 68% of P1 candles have wick > body, expect a brief overshoot beyond the weekly extreme before the reversal starts — don't enter immediately at the extreme.",
+      example: "P1 Wick > Body 68% → at the weekly low, expect price to briefly spike lower before reversing. Wait for body confirmation before entering long.",
+    },
+    weeklyOvershoot: {
+      what: "How far the P1 candle's wick extends beyond its open/close (in the P1 direction), expressed as a multiple of ADR14. Median = typical overshoot; IQR = the middle 50% range.",
+      value: "Calibrate your entry buffer: if the median overshoot is 0.4× ADR, set your limit entry slightly beyond the expected P1 level by 0.4× ADR to avoid being missed by the wick.",
+      example: "ADR14 = 2.5%. Median overshoot 0.4× → wick ~1.0% below P1 low. Set limit buy 1% below the expected weekly low.",
     },
   };
 
@@ -140,6 +152,17 @@
   const weeklyMaxPct = $derived(
     weeklyBars.length ? (Math.max(...weeklyBars.map((r) => r.pct)) || 1) : 1
   );
+
+  // Conditioned flip risk lookup: { [dow_label]: flip_pct } filtered by p1FilterMode
+  const conditionedFlipByDow = $derived((): Record<string, { pct: number; n: number }> => {
+    if (!stats?.weekly_flip_risk_conditioned || p1FilterMode === "all") return {};
+    const dir = p1FilterMode; // "low" | "high"
+    return Object.fromEntries(
+      stats.weekly_flip_risk_conditioned.rows
+        .filter((r) => r.p1_direction === dir)
+        .map((r) => [r.dow_label, { pct: r.flip_pct, n: r.sample_count }])
+    );
+  });
 </script>
 
 <div class="page">
@@ -499,7 +522,14 @@
       <div class="card">
         <div class="card-header">
           <span class="card-title">Weekly P2 Timing</span>
-          <button class="help-btn" class:active={openHelp === "weeklyTiming"} onclick={() => toggleHelp("weeklyTiming")} aria-label="Help">?</button>
+          <div class="header-actions">
+            <div class="pill-toggle">
+              <button class:active={p1FilterMode === "all"} onclick={() => { p1FilterMode = "all"; }}>All</button>
+              <button class:active={p1FilterMode === "low"} onclick={() => { p1FilterMode = "low"; }}>Bullish P1</button>
+              <button class:active={p1FilterMode === "high"} onclick={() => { p1FilterMode = "high"; }}>Bearish P1</button>
+            </div>
+            <button class="help-btn" class:active={openHelp === "weeklyTiming"} onclick={() => toggleHelp("weeklyTiming")} aria-label="Help">?</button>
+          </div>
         </div>
         {#if openHelp === "weeklyTiming"}
           <div class="help-panel">
@@ -508,54 +538,92 @@
             <div class="help-section help-example"><span class="help-label">e.g.</span>{CARD_HELP.weeklyTiming.example}</div>
           </div>
         {/if}
-        <div class="p2-timing-grid">
-          <div class="p2-timing-header"></div>
-          <div class="p2-timing-header val-green">Low still ahead</div>
-          <div class="p2-timing-header flip-col">Low flip risk</div>
-          <div class="p2-timing-header flip-col">High flip risk</div>
-          <div class="p2-timing-header val-red">High still ahead</div>
-          {#each DOW_ORDER as dow}
-            {@const lowAhead = stats.weekly_p2_timing.low_still_ahead_by_dow[dow] ?? null}
-            {@const highAhead = stats.weekly_p2_timing.high_still_ahead_by_dow[dow] ?? null}
-            {@const lowFlip = stats.weekly_p2_timing.low_flip_risk_by_dow[dow] ?? null}
-            {@const highFlip = stats.weekly_p2_timing.high_flip_risk_by_dow[dow] ?? null}
-            <div class="p2-timing-dow" class:today-cell={dow === todayDOW}>{dow}</div>
-            <div class="p2-timing-val" class:today-cell={dow === todayDOW}>
-              {#if lowAhead !== null}
-                <div class="p2-bar-track">
-                  <div class="p2-bar-fill p2-bar-bull" style="width: {(lowAhead * 100).toFixed(0)}%"></div>
-                </div>
-                <span class:val-green={lowAhead >= 0.5} class:val-muted={lowAhead < 0.5}>{formatPct(lowAhead)}</span>
-              {:else}
-                <span class="val-muted">—</span>
-              {/if}
-            </div>
-            <div class="p2-timing-val flip-col" class:today-cell={dow === todayDOW}>
-              {#if lowFlip !== null}
-                <span class:val-amber={lowFlip >= 0.3} class:val-muted={lowFlip < 0.3}>{formatPct(lowFlip)}</span>
-              {:else}
-                <span class="val-muted">—</span>
-              {/if}
-            </div>
-            <div class="p2-timing-val flip-col" class:today-cell={dow === todayDOW}>
-              {#if highFlip !== null}
-                <span class:val-amber={highFlip >= 0.3} class:val-muted={highFlip < 0.3}>{formatPct(highFlip)}</span>
-              {:else}
-                <span class="val-muted">—</span>
-              {/if}
-            </div>
-            <div class="p2-timing-val" class:today-cell={dow === todayDOW}>
-              {#if highAhead !== null}
-                <div class="p2-bar-track">
-                  <div class="p2-bar-fill p2-bar-bear" style="width: {(highAhead * 100).toFixed(0)}%"></div>
-                </div>
-                <span class:val-red={highAhead >= 0.5} class:val-muted={highAhead < 0.5}>{formatPct(highAhead)}</span>
-              {:else}
-                <span class="val-muted">—</span>
-              {/if}
-            </div>
-          {/each}
-        </div>
+
+        {#if p1FilterMode === "all"}
+          <div class="p2-timing-grid">
+            <div class="p2-timing-header"></div>
+            <div class="p2-timing-header val-green">Low still ahead</div>
+            <div class="p2-timing-header flip-col">Low flip risk</div>
+            <div class="p2-timing-header flip-col">High flip risk</div>
+            <div class="p2-timing-header val-red">High still ahead</div>
+            {#each DOW_ORDER as dow}
+              {@const lowAhead = stats.weekly_p2_timing.low_still_ahead_by_dow[dow] ?? null}
+              {@const highAhead = stats.weekly_p2_timing.high_still_ahead_by_dow[dow] ?? null}
+              {@const lowFlip = stats.weekly_p2_timing.low_flip_risk_by_dow[dow] ?? null}
+              {@const highFlip = stats.weekly_p2_timing.high_flip_risk_by_dow[dow] ?? null}
+              <div class="p2-timing-dow" class:today-cell={dow === todayDOW}>{dow}</div>
+              <div class="p2-timing-val" class:today-cell={dow === todayDOW}>
+                {#if lowAhead !== null}
+                  <div class="p2-bar-track">
+                    <div class="p2-bar-fill p2-bar-bull" style="width: {(lowAhead * 100).toFixed(0)}%"></div>
+                  </div>
+                  <span class:val-green={lowAhead >= 0.5} class:val-muted={lowAhead < 0.5}>{formatPct(lowAhead)}</span>
+                {:else}
+                  <span class="val-muted">—</span>
+                {/if}
+              </div>
+              <div class="p2-timing-val flip-col" class:today-cell={dow === todayDOW}>
+                {#if lowFlip !== null}
+                  <span class:val-amber={lowFlip >= 0.3} class:val-muted={lowFlip < 0.3}>{formatPct(lowFlip)}</span>
+                {:else}
+                  <span class="val-muted">—</span>
+                {/if}
+              </div>
+              <div class="p2-timing-val flip-col" class:today-cell={dow === todayDOW}>
+                {#if highFlip !== null}
+                  <span class:val-amber={highFlip >= 0.3} class:val-muted={highFlip < 0.3}>{formatPct(highFlip)}</span>
+                {:else}
+                  <span class="val-muted">—</span>
+                {/if}
+              </div>
+              <div class="p2-timing-val" class:today-cell={dow === todayDOW}>
+                {#if highAhead !== null}
+                  <div class="p2-bar-track">
+                    <div class="p2-bar-fill p2-bar-bear" style="width: {(highAhead * 100).toFixed(0)}%"></div>
+                  </div>
+                  <span class:val-red={highAhead >= 0.5} class:val-muted={highAhead < 0.5}>{formatPct(highAhead)}</span>
+                {:else}
+                  <span class="val-muted">—</span>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        {:else}
+          {@const condLabel = p1FilterMode === "low" ? "P2 (High) still ahead" : "P2 (Low) still ahead"}
+          {@const condColor = p1FilterMode === "low" ? "val-red" : "val-green"}
+          {@const condFill = p1FilterMode === "low" ? "p2-bar-bear" : "p2-bar-bull"}
+          <div class="p2-conditioned-note muted">
+            {p1FilterMode === "low" ? "Bullish P1 weeks (low set first)" : "Bearish P1 weeks (high set first)"}
+            — {condLabel} per day-of-week
+          </div>
+          <div class="p2-cond-grid">
+            <div class="p2-timing-header"></div>
+            <div class="p2-timing-header {condColor}">{condLabel}</div>
+            <div class="p2-timing-header muted">n</div>
+            {#each DOW_ORDER as dow}
+              {@const entry = conditionedFlipByDow()[dow] ?? null}
+              <div class="p2-timing-dow" class:today-cell={dow === todayDOW}>{dow}</div>
+              <div class="p2-timing-val" class:today-cell={dow === todayDOW}>
+                {#if entry !== null}
+                  <div class="p2-bar-track">
+                    <div class="p2-bar-fill {condFill}" style="width: {(entry.pct * 100).toFixed(0)}%"></div>
+                  </div>
+                  <span class="{condColor}" class:val-muted={entry.pct < 0.5}>{formatPct(entry.pct)}</span>
+                {:else}
+                  <span class="val-muted">—</span>
+                {/if}
+              </div>
+              <div class="p2-timing-val flip-col" class:today-cell={dow === todayDOW}>
+                {#if entry !== null}
+                  <span class="val-muted">{entry.n}</span>
+                {:else}
+                  <span class="val-muted">—</span>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        {/if}
+
         {#if stats.weekly_current_state}
           {@const wcs = stats.weekly_current_state}
           <div class="wcs-row">
@@ -583,6 +651,69 @@
           <span class="muted"> ({stats.weekly_p1p2.sample_weeks} wks)</span>
         </div>
       </div>
+
+      <!-- Weekly Wick Warning -->
+      {#if stats.weekly_wick_warning}
+        {@const ww = stats.weekly_wick_warning}
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Weekly P1 Wick</span>
+            <button class="help-btn" class:active={openHelp === "weeklyWick"} onclick={() => toggleHelp("weeklyWick")} aria-label="Help">?</button>
+          </div>
+          {#if openHelp === "weeklyWick"}
+            <div class="help-panel">
+              <div class="help-section"><span class="help-label">What</span>{CARD_HELP.weeklyWick.what}</div>
+              <div class="help-section"><span class="help-label">Value</span>{CARD_HELP.weeklyWick.value}</div>
+              <div class="help-section help-example"><span class="help-label">e.g.</span>{CARD_HELP.weeklyWick.example}</div>
+            </div>
+          {/if}
+          <div class="wick-stat-row">
+            <div class="wick-big-pct" class:val-amber={ww.wick_gt_body_pct >= 0.5} class:val-muted={ww.wick_gt_body_pct < 0.5}>
+              {formatPct(ww.wick_gt_body_pct)}
+            </div>
+            <div class="wick-label muted">of P1 candles had wick &gt; body</div>
+          </div>
+          <div class="wick-bar-wrap">
+            <div class="wick-bar-track">
+              <div class="wick-bar-fill" style="width: {(ww.wick_gt_body_pct * 100).toFixed(0)}%"></div>
+            </div>
+          </div>
+          <div class="wick-note muted">{ww.sample_count} weeks · sweep-and-reverse likely at P1</div>
+        </div>
+      {/if}
+
+      <!-- Weekly P1 Overshoot -->
+      {#if stats.weekly_p1_overshoot}
+        {@const ov = stats.weekly_p1_overshoot}
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">P1 Overshoot</span>
+            <button class="help-btn" class:active={openHelp === "weeklyOvershoot"} onclick={() => toggleHelp("weeklyOvershoot")} aria-label="Help">?</button>
+          </div>
+          {#if openHelp === "weeklyOvershoot"}
+            <div class="help-panel">
+              <div class="help-section"><span class="help-label">What</span>{CARD_HELP.weeklyOvershoot.what}</div>
+              <div class="help-section"><span class="help-label">Value</span>{CARD_HELP.weeklyOvershoot.value}</div>
+              <div class="help-section help-example"><span class="help-label">e.g.</span>{CARD_HELP.weeklyOvershoot.example}</div>
+            </div>
+          {/if}
+          <div class="overshoot-rows">
+            <div class="overshoot-row">
+              <span class="overshoot-label muted">Median</span>
+              <div class="overshoot-bar-wrap">
+                <div class="overshoot-bar-track">
+                  <div class="overshoot-bar-fill" style="width: {Math.min(ov.median_of_adr * 100, 100).toFixed(0)}%"></div>
+                </div>
+              </div>
+              <span class="overshoot-val val-accent">{ov.median_of_adr.toFixed(2)}× ADR</span>
+            </div>
+            <div class="overshoot-iqr muted">
+              IQR: {ov.p25_of_adr.toFixed(2)}× – {ov.p75_of_adr.toFixed(2)}× ADR
+            </div>
+          </div>
+          <div class="wick-note muted">{ov.sample_count} weeks · wick at P1 candle / ADR14</div>
+        </div>
+      {/if}
 
     </div>
   {/if}
@@ -1264,5 +1395,114 @@
     font-size: 9px;
     color: var(--muted);
     margin-left: 4px;
+  }
+
+  /* Conditioned P2 timing grid (2-column) */
+  .p2-conditioned-note {
+    font-size: 10px;
+    margin-bottom: 8px;
+  }
+
+  .p2-cond-grid {
+    display: grid;
+    grid-template-columns: 32px 1fr 40px;
+    gap: 2px 8px;
+    align-items: center;
+  }
+
+  /* Weekly Wick Warning card */
+  .wick-stat-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin: 8px 0 4px;
+  }
+
+  .wick-big-pct {
+    font-size: 28px;
+    font-weight: 700;
+    font-feature-settings: "tnum" 1;
+    letter-spacing: -0.02em;
+  }
+
+  .wick-label {
+    font-size: 11px;
+  }
+
+  .wick-bar-wrap {
+    margin-bottom: 8px;
+  }
+
+  .wick-bar-track {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .wick-bar-fill {
+    height: 100%;
+    background: var(--amber, #f59e0b);
+    border-radius: 2px;
+    transition: width 0.4s ease;
+  }
+
+  .wick-note {
+    font-size: 10px;
+  }
+
+  /* P1 Overshoot card */
+  .overshoot-rows {
+    margin: 8px 0;
+  }
+
+  .overshoot-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .overshoot-label {
+    font-size: 10px;
+    min-width: 40px;
+  }
+
+  .overshoot-bar-wrap {
+    flex: 1;
+  }
+
+  .overshoot-bar-track {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .overshoot-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 0.4s ease;
+  }
+
+  .overshoot-val {
+    font-size: 12px;
+    font-weight: 600;
+    font-feature-settings: "tnum" 1;
+    min-width: 70px;
+    text-align: right;
+  }
+
+  .overshoot-iqr {
+    font-size: 10px;
+    margin-top: 4px;
+  }
+
+  .val-accent {
+    color: var(--accent);
+  }
+
+  .val-amber {
+    color: var(--amber, #f59e0b);
   }
 </style>

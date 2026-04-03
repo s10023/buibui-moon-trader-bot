@@ -162,6 +162,56 @@ class WeeklyCurrentState:
 
 
 @dataclass
+class WeeklyFlipRiskConditionedRow:
+    """Single row of conditioned flip risk data."""
+
+    p1_direction: str  # "low" | "high"
+    isodow: int  # 1=Mon … 7=Sun
+    dow_label: str  # "Mon" … "Sun"
+    flip_pct: float  # P(P2 still ahead | p1_direction, DOW)
+    sample_count: int
+
+
+@dataclass
+class WeeklyFlipRiskConditioned:
+    """Weekly flip risk conditioned on P1 direction (which extreme was set first).
+
+    For each (p1_direction, DOW) pair: probability that the opposite extreme (P2)
+    is still ahead at that point in the week.
+    - p1_direction="low": bullish weeks (low formed first), flip_pct = P(high still ahead)
+    - p1_direction="high": bearish weeks (high formed first), flip_pct = P(low still ahead)
+    """
+
+    rows: list[WeeklyFlipRiskConditionedRow]
+
+
+@dataclass
+class WeeklyWickWarning:
+    """Weekly P1 candle wick analysis.
+
+    For the 1h candle where the weekly extreme (P1) was first hit:
+    checks if the wick in the P1 direction exceeds the candle body.
+    """
+
+    wick_gt_body_pct: float  # % of P1 candles where wick > body
+    sample_count: int
+
+
+@dataclass
+class WeeklyP1Overshoot:
+    """How far (as fraction of ADR14) price overshot on the P1 candle's wick.
+
+    Measures the wick extension in the P1 direction (lower wick for P1=low,
+    upper wick for P1=high), normalised by ADR14.
+    """
+
+    median_of_adr: float  # median(wick / adr_14)
+    p25_of_adr: float  # 25th percentile
+    p75_of_adr: float  # 75th percentile
+    sample_count: int
+
+
+@dataclass
 class StatsBundle:
     """Complete statistics bundle for one symbol."""
 
@@ -175,6 +225,9 @@ class StatsBundle:
     sessions: SessionResult
     weekly_p1p2: WeeklyP1P2Result
     weekly_p2_timing: WeeklyP2Timing
+    weekly_flip_risk_conditioned: WeeklyFlipRiskConditioned
+    weekly_wick_warning: WeeklyWickWarning
+    weekly_p1_overshoot: WeeklyP1Overshoot
 
 
 def _start_ms(days: int) -> int:
@@ -1086,6 +1139,228 @@ def compute_weekly_current_state(
     )
 
 
+def compute_weekly_flip_risk_conditioned(
+    conn: duckdb.DuckDBPyConnection,
+    symbol: str,
+    days: int = 180,
+) -> WeeklyFlipRiskConditioned:
+    """Compute conditioned flip risk by P1 direction and day-of-week.
+
+    For each historical week, identifies which extreme was set first (P1 direction).
+    Returns P(P2 still ahead | p1_direction, query_dow) for every (direction, DOW) pair.
+
+    p1_direction="low": bullish weeks (weekly low formed first).
+    p1_direction="high": bearish weeks (weekly high formed first).
+
+    Raises ValueError if no OHLCV data exists for the symbol.
+    """
+    start = _start_ms(days)
+    rows = conn.execute(
+        """
+        WITH weekly AS (
+            SELECT
+                date_trunc('week', epoch_ms(open_time)::TIMESTAMP) AS week_start,
+                MAX(high) AS wk_high, MIN(low) AS wk_low
+            FROM ohlcv
+            WHERE symbol = $symbol AND timeframe = '1h' AND open_time >= $start_ms
+            GROUP BY week_start
+        ),
+        wk_first_ts AS (
+            SELECT
+                w.week_start,
+                MIN(CASE WHEN h.high = w.wk_high THEN h.open_time END) AS high_ts,
+                MIN(CASE WHEN h.low  = w.wk_low  THEN h.open_time END) AS low_ts
+            FROM ohlcv h
+            JOIN weekly w ON date_trunc('week', epoch_ms(h.open_time)::TIMESTAMP) = w.week_start
+            WHERE h.symbol = $symbol AND h.timeframe = '1h' AND h.open_time >= $start_ms
+            GROUP BY w.week_start
+        ),
+        valid_weeks AS (
+            SELECT
+                CASE WHEN low_ts < high_ts THEN 'low' ELSE 'high' END AS p1_dir,
+                ISODOW(
+                    (epoch_ms(
+                        CASE WHEN low_ts < high_ts THEN high_ts ELSE low_ts END
+                    )::TIMESTAMP)::DATE
+                ) AS p2_isodow
+            FROM wk_first_ts
+            WHERE low_ts IS NOT NULL AND high_ts IS NOT NULL
+              AND low_ts != high_ts
+        )
+        SELECT
+            vw.p1_dir,
+            g.isodow AS query_dow,
+            SUM(CASE WHEN vw.p2_isodow > g.isodow THEN 1 ELSE 0 END)::DOUBLE
+                / NULLIF(COUNT(*), 0) AS flip_pct,
+            COUNT(*) AS sample_count
+        FROM valid_weeks vw
+        CROSS JOIN generate_series(1, 7) g(isodow)
+        GROUP BY vw.p1_dir, g.isodow
+        ORDER BY vw.p1_dir, g.isodow
+        """,
+        {"symbol": symbol, "start_ms": start},
+    ).fetchall()
+
+    if not rows:
+        raise ValueError(f"No OHLCV data for {symbol}")
+
+    result_rows: list[WeeklyFlipRiskConditionedRow] = []
+    for p1_dir, isodow, flip_pct, sample_count in rows:
+        result_rows.append(
+            WeeklyFlipRiskConditionedRow(
+                p1_direction=str(p1_dir),
+                isodow=int(isodow),
+                dow_label=_ISODOW_TO_SHORT[int(isodow)],
+                flip_pct=float(flip_pct) if flip_pct is not None else 0.0,
+                sample_count=int(sample_count),
+            )
+        )
+    return WeeklyFlipRiskConditioned(rows=result_rows)
+
+
+def _fetch_p1_candle_data(
+    conn: duckdb.DuckDBPyConnection,
+    symbol: str,
+    start_ms: int,
+) -> list[tuple[str, float, float, float, float]]:
+    """Fetch (p1_dir, high, low, open, close) for the first-extreme candle of each week.
+
+    Returns rows only for weeks where both extremes are identified and they differ.
+    """
+    raw = conn.execute(
+        """
+        WITH weekly AS (
+            SELECT
+                date_trunc('week', epoch_ms(open_time)::TIMESTAMP) AS week_start,
+                MAX(high) AS wk_high, MIN(low) AS wk_low
+            FROM ohlcv
+            WHERE symbol = $symbol AND timeframe = '1h' AND open_time >= $start_ms
+            GROUP BY week_start
+        ),
+        p1_ts AS (
+            SELECT
+                w.week_start,
+                MIN(CASE WHEN h.high = w.wk_high THEN h.open_time END) AS high_ts,
+                MIN(CASE WHEN h.low  = w.wk_low  THEN h.open_time END) AS low_ts
+            FROM ohlcv h
+            JOIN weekly w ON date_trunc('week', epoch_ms(h.open_time)::TIMESTAMP) = w.week_start
+            WHERE h.symbol = $symbol AND h.timeframe = '1h' AND h.open_time >= $start_ms
+            GROUP BY w.week_start
+        ),
+        p1_info AS (
+            SELECT
+                CASE WHEN low_ts < high_ts THEN 'low' ELSE 'high' END AS p1_dir,
+                CASE WHEN low_ts < high_ts THEN low_ts ELSE high_ts END AS p1_candle_ts
+            FROM p1_ts
+            WHERE low_ts IS NOT NULL AND high_ts IS NOT NULL AND low_ts != high_ts
+        )
+        SELECT pi.p1_dir, h.high, h.low, h.open, h.close
+        FROM p1_info pi
+        JOIN ohlcv h ON h.open_time = pi.p1_candle_ts
+        WHERE h.symbol = $symbol AND h.timeframe = '1h'
+        """,
+        {"symbol": symbol, "start_ms": start_ms},
+    ).fetchall()
+    return raw
+
+
+def compute_weekly_wick_warning(
+    conn: duckdb.DuckDBPyConnection,
+    symbol: str,
+    days: int = 180,
+) -> WeeklyWickWarning:
+    """Compute % of weekly P1 candles where the wick in the P1 direction exceeds the body.
+
+    For the 1h candle that first hits the weekly extreme:
+    - P1=low: checks if lower_wick (min(open,close) - low) > body (|close - open|)
+    - P1=high: checks if upper_wick (high - max(open,close)) > body
+
+    A large wick > body indicates a sharp reversal from the weekly extreme — useful
+    as a signal that a sweep-and-reverse is likely at P1 levels.
+
+    Raises ValueError if no OHLCV data exists for the symbol.
+    """
+    start = _start_ms(days)
+    candle_rows = _fetch_p1_candle_data(conn, symbol, start)
+
+    if not candle_rows:
+        raise ValueError(f"No OHLCV data for {symbol}")
+
+    wick_gt_body = 0
+    total = 0
+    for p1_dir, high, low, open_, close in candle_rows:
+        high, low, open_, close = float(high), float(low), float(open_), float(close)
+        body = abs(close - open_)
+        if p1_dir == "low":
+            wick = min(open_, close) - low
+        else:
+            wick = high - max(open_, close)
+        if wick > body:
+            wick_gt_body += 1
+        total += 1
+
+    return WeeklyWickWarning(
+        wick_gt_body_pct=wick_gt_body / total if total > 0 else 0.0,
+        sample_count=total,
+    )
+
+
+def compute_weekly_p1_overshoot(
+    conn: duckdb.DuckDBPyConnection,
+    symbol: str,
+    days: int = 180,
+    adr_14: float = 0.0,
+) -> WeeklyP1Overshoot:
+    """Compute the wick extension (overshoot) on the weekly P1 candle, normalised by ADR14.
+
+    For each week's P1 candle, measures the wick in the P1 direction as a fraction
+    of the candle's open price, then divides by adr_14 to express as × ADR.
+
+    Raises ValueError if no OHLCV data exists for the symbol.
+    """
+    start = _start_ms(days)
+    candle_rows = _fetch_p1_candle_data(conn, symbol, start)
+
+    if not candle_rows:
+        raise ValueError(f"No OHLCV data for {symbol}")
+
+    overshoot_raw: list[float] = []
+    for p1_dir, high, low, open_, close in candle_rows:
+        high, low, open_, close = float(high), float(low), float(open_), float(close)
+        if open_ <= 0:
+            continue
+        if p1_dir == "low":
+            wick = min(open_, close) - low
+        else:
+            wick = high - max(open_, close)
+        overshoot_raw.append(wick / open_)
+
+    if not overshoot_raw:
+        raise ValueError(f"No OHLCV data for {symbol}")
+
+    sorted_raw = sorted(overshoot_raw)
+    n = len(sorted_raw)
+
+    def _percentile(p: float) -> float:
+        idx = (n - 1) * p
+        lo, hi = int(idx), min(int(idx) + 1, n - 1)
+        frac = idx - lo
+        return sorted_raw[lo] + frac * (sorted_raw[hi] - sorted_raw[lo])
+
+    median_raw = _percentile(0.5)
+    p25_raw = _percentile(0.25)
+    p75_raw = _percentile(0.75)
+
+    divisor = adr_14 if adr_14 > 0 else 1.0
+
+    return WeeklyP1Overshoot(
+        median_of_adr=median_raw / divisor,
+        p25_of_adr=p25_raw / divisor,
+        p75_of_adr=p75_raw / divisor,
+        sample_count=n,
+    )
+
+
 def compute_all(
     conn: duckdb.DuckDBPyConnection,
     symbol: str,
@@ -1102,6 +1377,11 @@ def compute_all(
     sessions = compute_session_breakdown(conn, symbol, days)
     weekly_p1p2 = compute_weekly_p1p2(conn, symbol, days)
     weekly_p2_timing = compute_weekly_p2_timing(conn, symbol, days)
+    weekly_flip_risk_conditioned = compute_weekly_flip_risk_conditioned(
+        conn, symbol, days
+    )
+    weekly_wick_warning = compute_weekly_wick_warning(conn, symbol, days)
+    weekly_p1_overshoot = compute_weekly_p1_overshoot(conn, symbol, days, adr.adr_14)
 
     return StatsBundle(
         symbol=symbol,
@@ -1114,4 +1394,7 @@ def compute_all(
         sessions=sessions,
         weekly_p1p2=weekly_p1p2,
         weekly_p2_timing=weekly_p2_timing,
+        weekly_flip_risk_conditioned=weekly_flip_risk_conditioned,
+        weekly_wick_warning=weekly_wick_warning,
+        weekly_p1_overshoot=weekly_p1_overshoot,
     )

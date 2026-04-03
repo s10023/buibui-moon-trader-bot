@@ -394,6 +394,30 @@ export interface WeeklyCurrentStateResponse {
   high_still_ahead_conditioned: number | null;
 }
 
+export interface FlipRiskConditionedRow {
+  p1_direction: string;
+  isodow: number;
+  dow_label: string;
+  flip_pct: number;
+  sample_count: number;
+}
+
+export interface WeeklyFlipRiskConditionedResponse {
+  rows: FlipRiskConditionedRow[];
+}
+
+export interface WeeklyWickWarningResponse {
+  wick_gt_body_pct: number;
+  sample_count: number;
+}
+
+export interface WeeklyP1OvershootResponse {
+  median_of_adr: number;
+  p25_of_adr: number;
+  p75_of_adr: number;
+  sample_count: number;
+}
+
 export interface StatsResponse {
   symbol: string;
   days: number;
@@ -406,6 +430,9 @@ export interface StatsResponse {
   weekly_p1p2: WeeklyP1P2Response;
   weekly_p2_timing: WeeklyP2TimingResponse;
   weekly_current_state: WeeklyCurrentStateResponse | null;
+  weekly_flip_risk_conditioned: WeeklyFlipRiskConditionedResponse | null;
+  weekly_wick_warning: WeeklyWickWarningResponse | null;
+  weekly_p1_overshoot: WeeklyP1OvershootResponse | null;
 }
 
 export const getStats = (symbol: string, days: number = 180) =>
