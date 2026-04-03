@@ -15,22 +15,27 @@ Use when working on the Stats page or its backend — adding new stat cards, fix
 analytics/stats_lib.py          ← pure computation (DuckDB queries, returns StatsBundle)
 web/api/routers/stats.py        ← GET /api/stats/{symbol}?days=180 (cached in stats_cache table)
 web/api/models/                 ← Pydantic response models (if any)
-web/ui/src/pages/Stats.svelte   ← 6-card grid UI
+web/ui/src/pages/Stats.svelte   ← 10-card grid UI
 web/ui/src/api.ts               ← getStats(symbol, days) typed client
 ```
 
-## The 6 Cards
+## The 10 Cards
 
 | Card | stats_lib fn | Data key | Notes |
 |------|-------------|----------|-------|
 | P1/P2 Daily | `compute_p1p2_daily` | `p1p2` | overall + per-DOW bars |
 | Average Daily Range | `compute_adr` | `adr` | ADR(14), ADR(30), today_range_pct, today_consumed_pct |
 | Hourly Extreme Distribution | `compute_hourly_extremes` | `hourly_extremes` | 24 bars, MYT, green=high, red=low |
-| Day-of-Week Patterns | `compute_dow_patterns` | `dow_patterns` | avg_range_pct, bull_pct, sample_days |
+| Day-of-Week Patterns | `compute_dow_patterns` | `dow_patterns` | table: avg_range_pct + bull_pct per DOW |
 | Session Breakdown | `compute_session_breakdown` | `sessions` | Asia/London/NY high_pct + low_pct; MYT windows |
 | Weekly P1/P2 | `compute_weekly_p1p2` | `weekly_p1p2` | overall + high_day + low_day |
+| Avg Return by Day | `compute_dow_patterns` | `dow_patterns.avg_return_pct` | separate bar chart card — directional return only (same data, different visual) |
+| Weekly P2 Timing | `compute_weekly_p2_timing` + `compute_weekly_flip_risk_conditioned` | `weekly_p2_timing` + `weekly_flip_risk_conditioned` | All/Bullish P1/Bearish P1 toggle; conditioned view shows P(P2 still ahead \| p1_direction, DOW) |
+| Weekly P1 Wick | `compute_weekly_wick_warning` | `weekly_wick_warning` | % of P1 candles with wick > body |
+| P1 Overshoot | `compute_weekly_p1_overshoot` | `weekly_p1_overshoot` | P1 wick / ADR14; median + IQR |
 
 All wrapped by `compute_all(conn, symbol, days)` → `StatsBundle`.
+`compute_weekly_current_state` is NOT in StatsBundle — always called fresh outside the cache path.
 
 ## Key constraints
 
