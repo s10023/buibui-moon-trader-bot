@@ -111,6 +111,7 @@ Skills live in `.claude/skills/<name>/SKILL.md` (project-specific, committed to 
 | ----- | ------ | ----------- | ------- |
 | `sanity-check` | `/sanity-check` | Full project health check: git hygiene, docs sync, wiring audit, architecture review, skills freshness | Weekly or after any large refactor |
 | `atr-sweep` | `/atr-sweep` | Find optimal ATR SL multiplier per strategy × TF; translates to `atr_sl_multiplier` TOML overrides | After any SL-related change or when backtests show high fee drag |
+| `config-refresh` | `/config-refresh` | Full TOML refresh: fix strategy_timeframes gaps, run TP sweep, update tp_r per strategy × TF, commit | When a signal_watch config feels stale, after detector rewrites, or when weekdays config drifts behind signal_watch.toml |
 | `tp-sweep` | `/tp-sweep` | Find optimal TP ratio per strategy × TF; translates to `tp_r` TOML overrides | After adding a new strategy or TF; re-run after any entry logic change |
 | `backtest-findings` | `/backtest-findings` | Interpret any sweep table (ATR/TP/volume/duration) and commit winners to TOML | After every sweep run |
 | `param-sweep-apply` | `/param-sweep-apply` | Auto-apply WFO param-sweep/param-audit results: parse pasted tables, pick best tp_r per strategy × TF, edit TOML, run backtest + recalibrate | Paste results and invoke — replaces the manual `/backtest-findings` loop |
