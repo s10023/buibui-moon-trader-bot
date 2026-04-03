@@ -532,9 +532,10 @@ def _compute_stats_context(
     Never raises — stats failure must never block signal dispatch.
     """
     try:
-        from analytics.stats_lib import compute_all
+        from analytics.stats_lib import compute_all, compute_weekly_current_state
 
         bundle = compute_all(conn, symbol, days=90)
+        wcs = compute_weekly_current_state(conn, symbol, bundle.adr.adr_14, days=90)
         # DOW must match the UTC-date grouping used in stats_lib (Binance daily = UTC day)
         dow_full = datetime.datetime.now(tz=datetime.UTC).strftime("%A")
         dow_short = dow_full[:3]  # e.g. "Thu"
@@ -576,6 +577,13 @@ def _compute_stats_context(
             wk_low_still_ahead_pct=wk_low_still_ahead,
             wk_high_still_ahead_pct=wk_high_still_ahead,
             adr_move_up=bundle.adr.today_move_up,
+            wk_low_still_ahead_conditioned_pct=wcs.low_still_ahead_conditioned
+            if wcs
+            else None,
+            wk_high_still_ahead_conditioned_pct=wcs.high_still_ahead_conditioned
+            if wcs
+            else None,
+            wk_move_bucket=wcs.move_bucket if wcs else None,
         )
     except Exception:
         logger.debug("_compute_stats_context failed for %s — skipping", symbol)

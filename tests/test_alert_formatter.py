@@ -160,6 +160,9 @@ class TestStatsContextFormat:
         peak_lo_dow: int | None = 8,
         wk_low: float | None = 0.78,
         wk_high: float | None = 0.65,
+        wk_low_cond: float | None = None,
+        wk_high_cond: float | None = None,
+        wk_bucket: str | None = None,
     ) -> StatsContext:
         return StatsContext(
             today_dow=dow,
@@ -174,6 +177,9 @@ class TestStatsContextFormat:
             peak_low_hour_dow=peak_lo_dow,
             wk_low_still_ahead_pct=wk_low,
             wk_high_still_ahead_pct=wk_high,
+            wk_low_still_ahead_conditioned_pct=wk_low_cond,
+            wk_high_still_ahead_conditioned_pct=wk_high_cond,
+            wk_move_bucket=wk_bucket,
         )
 
     def test_long_line1_contains_bull_p1_adr(self) -> None:
@@ -217,6 +223,32 @@ class TestStatsContextFormat:
         assert len(lines) == 2
         assert lines[0].startswith("📐")
         assert lines[1].startswith("🎯")
+
+    def test_long_uses_conditioned_pct_over_unconditional(self) -> None:
+        ctx = self._ctx(wk_low=0.78, wk_low_cond=0.62, wk_bucket="medium")
+        line = _format_stats_line(ctx, "long")
+        assert "Weekly low: 62% still ahead (medium move)" in line
+        assert "78%" not in line
+
+    def test_short_uses_conditioned_pct_over_unconditional(self) -> None:
+        ctx = self._ctx(wk_high=0.65, wk_high_cond=0.44, wk_bucket="large")
+        line = _format_stats_line(ctx, "short")
+        assert "Weekly high: 44% still ahead (large move)" in line
+        assert "65%" not in line
+
+    def test_falls_back_to_unconditional_when_conditioned_none(self) -> None:
+        # conditioned fields absent — should fall back to plain unconditional
+        ctx = self._ctx(wk_low=0.78, wk_low_cond=None, wk_bucket=None)
+        line = _format_stats_line(ctx, "long")
+        assert "Weekly low: 78% still ahead" in line
+        assert "move)" not in line
+
+    def test_conditioned_pct_requires_bucket_to_activate(self) -> None:
+        # conditioned pct present but bucket missing → fall back to unconditional
+        ctx = self._ctx(wk_low=0.78, wk_low_cond=0.62, wk_bucket=None)
+        line = _format_stats_line(ctx, "long")
+        assert "Weekly low: 78% still ahead" in line
+        assert "62%" not in line
 
 
 class TestLowVolumeWarning:
