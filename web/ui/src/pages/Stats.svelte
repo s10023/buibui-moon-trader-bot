@@ -40,7 +40,7 @@
   // Active sessions based on current MYT hour (sessions non-exclusive — London/NY overlap 20–21)
   const activeSessions = $derived(
     [
-      currentMYTHour >= 0 && currentMYTHour <= 7 ? "Asia" : null,
+      currentMYTHour >= 8 && currentMYTHour <= 13 ? "Asia" : null,
       currentMYTHour >= 14 && currentMYTHour <= 21 ? "London" : null,
       (currentMYTHour >= 20 || currentMYTHour <= 3) ? "NY" : null,
     ].filter(Boolean) as string[]
@@ -63,12 +63,12 @@
       example: "High peak 14:00, low peak 02:00 MYT → buy the 02:00 dip, target 14:00 expansion.",
     },
     dow: {
-      what: "Per weekday: avg daily range with a relative bar, bull/bear split shown as a coloured bar + bull%, and N (sample count = how many of that weekday appear in the lookback window, e.g. ~26 Mondays in 180d). Today's row is highlighted.",
-      value: "Size up on wide-range directional days. Reduce size or skip on low-range coin-flip days. N tells you how many data points back each bar.",
-      example: "Wed 3.1% range, 58% bull → lean longs, size normally. Fri 1.8%, 49% → skip marginal setups.",
+      what: "Per weekday: avg daily range, bull/bear split, avg directional return (green=bullish, red=bearish), and N (sample count). Today's row is highlighted.",
+      value: "Size up on wide-range directional days. Combine Avg Return with Direction split for a fuller bias picture.",
+      example: "Wed 3.1% range, 58% bull, +1.8% avg → lean longs, size normally. Fri 1.8%, 49%, −0.6% → reduce exposure.",
     },
     session: {
-      what: "Asia (00–07 MYT), London (14–21 MYT), NY (20–03 MYT): fraction of days each session made the daily high or low. Sessions are non-exclusive — the London/NY overlap window (20–21 MYT) counts in both, so columns don't sum to 100%. Active sessions shown with ●.",
+      what: "Asia (08–13 MYT), London (14–21 MYT), NY (20–03 MYT): fraction of days each session made the daily high or low. Sessions are non-exclusive — the London/NY overlap window (20–21 MYT) counts in both, so columns don't sum to 100%. Active sessions shown with ●.",
       value: "If Asia makes the daily low 41% of the time and price is falling during Asia session, there's meaningful probability you're watching the daily low form.",
       example: "Asia Lo 41% + price dropping in Asia → probable daily low forming. Watch for reversal.",
     },
@@ -76,11 +76,6 @@
       what: "Which day of the week most commonly forms the weekly extreme. Bear context shows when the weekly HIGH forms (useful for shorts). Bull context shows when the weekly LOW forms (useful for longs). Bars show % of weeks each DOW made that extreme, normalized to the dominant day.",
       value: "ICT: Monday often sets a weekly extreme that gets swept later. This card quantifies it per symbol. If Tue makes the weekly high 34% of the time and it's Wednesday, the weekly high is likely already set.",
       example: "Weekly High: Tue 34% — if it's Thu, weekly high likely in. Bias: avoid adding longs.",
-    },
-    avgReturn: {
-      what: "Average directional return per day of week — (day close − day open) / open, averaged across all occurrences of that weekday in the lookback window. Green = historically bullish day, red = historically bearish day.",
-      value: "Use as a bias filter: if Wednesday averages +1.8% historically, a long setup on Wednesday has tailwind. Combine with P1/P2 for a fuller picture.",
-      example: "Wed +1.8%, Fri −0.6% → lean longs on Wednesday, reduce exposure on Fridays.",
     },
     weeklyTiming: {
       what: "Given today is a specific day of the week, what fraction of historical weeks still had their weekly LOW (or HIGH) form after that day? Toggle 'All' for unconditional probabilities, or filter by P1 direction: 'Bullish P1' (weekly low set first) shows P(weekly high still ahead), 'Bearish P1' (weekly high set first) shows P(weekly low still ahead).",
@@ -130,12 +125,6 @@
 
   const maxDOWRange = $derived(
     stats ? Math.max(...stats.dow_patterns.map((r) => r.avg_range_pct)) : 1
-  );
-
-  const maxAbsReturn = $derived(
-    stats
-      ? Math.max(...stats.dow_patterns.map((r) => Math.abs(r.avg_return_pct)), 0.001)
-      : 0.001
   );
 
   const weeklyBars = $derived(
@@ -234,7 +223,7 @@
               <div class="dow-bar-row" class:today-row={row.dow === todayDOW}>
                 <span class="dow-label">{row.dow}</span>
                 <div class="bar-track">
-                  <div class="bar-fill" style="width: {(pct * 100).toFixed(1)}%"></div>
+                  <div class="bar-fill" class:bar-fill-bear={p1p2Mode === "high_first"} style="width: {(pct * 100).toFixed(1)}%"></div>
                 </div>
                 <span class="bar-pct">{formatPct(pct)}</span>
               </div>
@@ -357,11 +346,14 @@
               <th>Day</th>
               <th>Avg Range</th>
               <th>Direction</th>
+              <th>Avg Return</th>
               <th title="Number of that weekday in the lookback window">N</th>
             </tr>
           </thead>
           <tbody>
             {#each stats.dow_patterns as row}
+              {@const ret = row.avg_return_pct}
+              {@const isPos = ret >= 0}
               <tr class:today-row={row.dow === todayDOW}>
                 <td class="dow-name">{row.dow}</td>
                 <td>
@@ -382,6 +374,9 @@
                       {formatPct(row.bull_pct)}
                     </span>
                   </div>
+                </td>
+                <td class:val-green={isPos} class:val-red={!isPos}>
+                  {isPos ? "+" : ""}{(ret * 100).toFixed(1)}%
                 </td>
                 <td class="val-muted">{row.sample_days}</td>
               </tr>
@@ -419,13 +414,27 @@
                   {row.session}
                   {#if isActive}<span class="live-dot" title="Active now">●</span>{/if}
                 </td>
-                <td class="val-green">{formatPct(row.high_pct)}</td>
-                <td class="val-red">{formatPct(row.low_pct)}</td>
+                <td>
+                  <div class="session-bar-cell">
+                    <div class="session-bar-track">
+                      <div class="session-bar-fill session-bar-high" style="width: {(row.high_pct * 100).toFixed(0)}%"></div>
+                    </div>
+                    <span class="val-green">{formatPct(row.high_pct)}</span>
+                  </div>
+                </td>
+                <td>
+                  <div class="session-bar-cell">
+                    <div class="session-bar-track">
+                      <div class="session-bar-fill session-bar-low" style="width: {(row.low_pct * 100).toFixed(0)}%"></div>
+                    </div>
+                    <span class="val-red">{formatPct(row.low_pct)}</span>
+                  </div>
+                </td>
               </tr>
             {/each}
           </tbody>
         </table>
-        <div class="session-note muted">London/NY overlap (20–21 MYT) counted in both — columns don't sum to 100%</div>
+        <div class="session-note muted">Asia 08–13 MYT · London/NY overlap (20–21 MYT) counted in both — columns don't sum to 100%</div>
       </div>
 
       <!-- Weekly P1/P2 -->
@@ -474,45 +483,6 @@
                 ></div>
               </div>
               <span class="bar-pct">{formatPct(row.pct)}</span>
-            </div>
-          {/each}
-        </div>
-      </div>
-
-      <!-- Avg Return by Day -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">Avg Return by Day</span>
-          <button class="help-btn" class:active={openHelp === "avgReturn"} onclick={() => toggleHelp("avgReturn")} aria-label="Help">?</button>
-        </div>
-        {#if openHelp === "avgReturn"}
-          <div class="help-panel">
-            <div class="help-section"><span class="help-label">What</span>{CARD_HELP.avgReturn.what}</div>
-            <div class="help-section"><span class="help-label">Value</span>{CARD_HELP.avgReturn.value}</div>
-            <div class="help-section help-example"><span class="help-label">e.g.</span>{CARD_HELP.avgReturn.example}</div>
-          </div>
-        {/if}
-        <div class="return-chart">
-          {#each stats.dow_patterns as row}
-            {@const ret = row.avg_return_pct}
-            {@const isPos = ret >= 0}
-            {@const barPct = (Math.abs(ret) / maxAbsReturn * 45).toFixed(1)}
-            <div class="return-col" class:today-col={row.dow === todayDOW}>
-              <div class="return-bar-wrap">
-                <div class="return-bar-spacer"></div>
-                <div
-                  class="return-bar"
-                  class:return-bar-pos={isPos}
-                  class:return-bar-neg={!isPos}
-                  style="height: {barPct}px"
-                  title="{row.dow}: {isPos ? '+' : ''}{(ret * 100).toFixed(2)}%"
-                ></div>
-              </div>
-              <div class="return-axis-line"></div>
-              <span class="return-dow">{row.dow}</span>
-              <span class="return-val" class:val-green={isPos} class:val-red={!isPos}>
-                {isPos ? "+" : ""}{(ret * 100).toFixed(1)}%
-              </span>
             </div>
           {/each}
         </div>
@@ -652,66 +622,57 @@
         </div>
       </div>
 
-      <!-- Weekly Wick Warning -->
-      {#if stats.weekly_wick_warning}
-        {@const ww = stats.weekly_wick_warning}
+      <!-- Weekly P1 Wick & Overshoot (combined) -->
+      {#if stats.weekly_wick_warning || stats.weekly_p1_overshoot}
         <div class="card">
           <div class="card-header">
-            <span class="card-title">Weekly P1 Wick</span>
+            <span class="card-title">P1 Wick & Overshoot</span>
             <button class="help-btn" class:active={openHelp === "weeklyWick"} onclick={() => toggleHelp("weeklyWick")} aria-label="Help">?</button>
           </div>
           {#if openHelp === "weeklyWick"}
             <div class="help-panel">
-              <div class="help-section"><span class="help-label">What</span>{CARD_HELP.weeklyWick.what}</div>
-              <div class="help-section"><span class="help-label">Value</span>{CARD_HELP.weeklyWick.value}</div>
-              <div class="help-section help-example"><span class="help-label">e.g.</span>{CARD_HELP.weeklyWick.example}</div>
-            </div>
-          {/if}
-          <div class="wick-stat-row">
-            <div class="wick-big-pct" class:val-amber={ww.wick_gt_body_pct >= 0.5} class:val-muted={ww.wick_gt_body_pct < 0.5}>
-              {formatPct(ww.wick_gt_body_pct)}
-            </div>
-            <div class="wick-label muted">of P1 candles had wick &gt; body</div>
-          </div>
-          <div class="wick-bar-wrap">
-            <div class="wick-bar-track">
-              <div class="wick-bar-fill" style="width: {(ww.wick_gt_body_pct * 100).toFixed(0)}%"></div>
-            </div>
-          </div>
-          <div class="wick-note muted">{ww.sample_count} weeks · sweep-and-reverse likely at P1</div>
-        </div>
-      {/if}
-
-      <!-- Weekly P1 Overshoot -->
-      {#if stats.weekly_p1_overshoot}
-        {@const ov = stats.weekly_p1_overshoot}
-        <div class="card">
-          <div class="card-header">
-            <span class="card-title">P1 Overshoot</span>
-            <button class="help-btn" class:active={openHelp === "weeklyOvershoot"} onclick={() => toggleHelp("weeklyOvershoot")} aria-label="Help">?</button>
-          </div>
-          {#if openHelp === "weeklyOvershoot"}
-            <div class="help-panel">
-              <div class="help-section"><span class="help-label">What</span>{CARD_HELP.weeklyOvershoot.what}</div>
-              <div class="help-section"><span class="help-label">Value</span>{CARD_HELP.weeklyOvershoot.value}</div>
+              <div class="help-section"><span class="help-label">Wick</span>{CARD_HELP.weeklyWick.what}</div>
+              <div class="help-section"><span class="help-label">Overshoot</span>{CARD_HELP.weeklyOvershoot.what}</div>
               <div class="help-section help-example"><span class="help-label">e.g.</span>{CARD_HELP.weeklyOvershoot.example}</div>
             </div>
           {/if}
-          <div class="overshoot-rows">
-            <div class="overshoot-row">
-              <span class="overshoot-label muted">Median</span>
-              <div class="overshoot-bar-wrap">
-                <div class="overshoot-bar-track">
-                  <div class="overshoot-bar-fill" style="width: {Math.min(ov.median_of_adr * 100, 100).toFixed(0)}%"></div>
+
+          {#if stats.weekly_wick_warning}
+            {@const ww = stats.weekly_wick_warning}
+            <div class="wick-stat-row">
+              <div class="wick-big-pct" class:val-amber={ww.wick_gt_body_pct >= 0.5} class:val-muted={ww.wick_gt_body_pct < 0.5}>
+                {formatPct(ww.wick_gt_body_pct)}
+              </div>
+              <div class="wick-label muted">of P1 candles had wick &gt; body</div>
+            </div>
+            <div class="wick-bar-wrap">
+              <div class="wick-bar-track">
+                <div class="wick-bar-fill" style="width: {(ww.wick_gt_body_pct * 100).toFixed(0)}%"></div>
+              </div>
+            </div>
+            <div class="wick-note muted">{ww.sample_count} weeks · sweep-and-reverse likely at P1</div>
+          {/if}
+
+          {#if stats.weekly_p1_overshoot}
+            {@const ov = stats.weekly_p1_overshoot}
+            <div class="overshoot-section">
+              <div class="overshoot-rows">
+                <div class="overshoot-row">
+                  <span class="overshoot-label muted">Overshoot median</span>
+                  <div class="overshoot-bar-wrap">
+                    <div class="overshoot-bar-track">
+                      <div class="overshoot-bar-fill" style="width: {Math.min(ov.median_of_adr * 100, 100).toFixed(0)}%"></div>
+                    </div>
+                  </div>
+                  <span class="overshoot-val val-accent">{ov.median_of_adr.toFixed(2)}× ADR</span>
+                </div>
+                <div class="overshoot-iqr muted">
+                  IQR: {ov.p25_of_adr.toFixed(2)}× – {ov.p75_of_adr.toFixed(2)}× ADR
                 </div>
               </div>
-              <span class="overshoot-val val-accent">{ov.median_of_adr.toFixed(2)}× ADR</span>
+              <div class="wick-note muted">{ov.sample_count} weeks · wick at P1 candle / ADR14</div>
             </div>
-            <div class="overshoot-iqr muted">
-              IQR: {ov.p25_of_adr.toFixed(2)}× – {ov.p75_of_adr.toFixed(2)}× ADR
-            </div>
-          </div>
-          <div class="wick-note muted">{ov.sample_count} weeks · wick at P1 candle / ADR14</div>
+          {/if}
         </div>
       {/if}
 
@@ -1201,6 +1162,30 @@
     margin-top: 8px;
   }
 
+  .session-bar-cell {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+  }
+
+  .session-bar-track {
+    width: 50px;
+    height: 5px;
+    background: var(--bg, #1a1a1a);
+    border-radius: 2px;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  .session-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+  }
+
+  .session-bar-high { background: var(--green, #4caf81); }
+  .session-bar-low  { background: var(--red, #e05c5c); }
+
   .low-sample-warn {
     font-size: 10px;
     color: #e0a030;
@@ -1210,71 +1195,6 @@
     padding: 5px 8px;
     margin-bottom: 10px;
     line-height: 1.4;
-  }
-
-  /* Avg Return by Day chart */
-  .return-chart {
-    display: flex;
-    align-items: stretch;
-    gap: 4px;
-    padding: 8px 0 0;
-  }
-
-  .return-col {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    flex: 1;
-    gap: 2px;
-    border-radius: 3px;
-    padding: 2px 2px 4px;
-    transition: background 150ms;
-  }
-
-  .return-col.today-col {
-    background: color-mix(in srgb, var(--accent) 7%, transparent);
-  }
-
-  .return-bar-wrap {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    height: 90px;
-    width: 100%;
-  }
-
-  .return-bar-spacer { flex: 1; }
-
-  .return-bar {
-    width: 10px;
-    border-radius: 1px 1px 0 0;
-    transition: height 300ms ease;
-    min-height: 2px;
-  }
-
-  .return-bar-pos { background: var(--green, #4caf81); }
-  .return-bar-neg { background: var(--red, #e05c5c); }
-
-  .return-axis-line {
-    width: 100%;
-    height: 1px;
-    background: color-mix(in srgb, var(--border) 80%, transparent);
-  }
-
-  .return-dow {
-    font-size: 10px;
-    color: var(--text-dim);
-    margin-top: 2px;
-  }
-
-  .return-col.today-col .return-dow {
-    color: var(--accent);
-    font-weight: 700;
-  }
-
-  .return-val {
-    font-size: 10px;
-    font-feature-settings: "tnum" 1;
   }
 
   /* Weekly P2 Timing grid */
@@ -1451,7 +1371,13 @@
     font-size: 10px;
   }
 
-  /* P1 Overshoot card */
+  /* P1 Overshoot section (within combined card) */
+  .overshoot-section {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+
   .overshoot-rows {
     margin: 8px 0;
   }
