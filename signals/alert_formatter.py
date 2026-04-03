@@ -99,7 +99,10 @@ def _format_stats_line(ctx: "StatsContext", direction: str) -> str:
     dow_short = ctx.today_dow[:3]
     dow_plural = ctx.today_dow + "s"  # e.g. "Mondays"
 
-    bull_str = f"{dow_short} closes bullish {ctx.bull_pct_today:.0%}"
+    avg_ret_str = f"{ctx.avg_return_today:+.1%}"
+    bull_str = (
+        f"{dow_short} closes bullish {ctx.bull_pct_today:.0%} ({avg_ret_str} avg)"
+    )
 
     is_long = direction != "short"
     # "still ahead" = probability the directional extreme has NOT been set yet.
@@ -298,5 +301,5 @@ def format_confluence_alert(
     if backtest_summary:
         msg += f"\n\n{backtest_summary}"
     if stats_context is not None:
-        msg += f"\n{_format_stats_line(stats_context, first.direction)}"
+        msg += f"\n\n{_format_stats_line(stats_context, first.direction)}"
     return msg

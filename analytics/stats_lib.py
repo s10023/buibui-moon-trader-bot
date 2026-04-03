@@ -559,7 +559,7 @@ def compute_session_breakdown(
     """Compute session breakdown: which session (Asia/London/NY) most often makes daily H/L.
 
     Sessions are in MYT hours (UTC+8):
-    - Asia:   00-07
+    - Asia:   08-13  (Tokyo open 08:00 MYT, before London 14:00)
     - London: 14-21
     - NY:     >= 20 OR <= 3  (crosses midnight; overlaps with London 20-21)
 
@@ -575,7 +575,7 @@ def compute_session_breakdown(
                 (epoch_ms(open_time)::TIMESTAMP)::DATE                   AS trade_date,
                 dayname((epoch_ms(open_time)::TIMESTAMP)::DATE)          AS dow,
                 CASE
-                    WHEN HOUR((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP) BETWEEN 0  AND 7  THEN 'Asia'
+                    WHEN HOUR((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP) BETWEEN 8  AND 13 THEN 'Asia'
                     WHEN HOUR((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP) BETWEEN 14 AND 21 THEN 'London'
                     WHEN HOUR((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP) >= 20
                       OR HOUR((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP) <= 3             THEN 'NY'
@@ -617,7 +617,7 @@ def compute_session_breakdown(
                 (epoch_ms(open_time)::TIMESTAMP)::DATE                   AS trade_date,
                 dayname((epoch_ms(open_time)::TIMESTAMP)::DATE)          AS dow,
                 CASE
-                    WHEN HOUR((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP) BETWEEN 0  AND 7  THEN 'Asia'
+                    WHEN HOUR((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP) BETWEEN 8  AND 13 THEN 'Asia'
                     WHEN HOUR((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP) BETWEEN 14 AND 21 THEN 'London'
                     WHEN HOUR((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP) >= 20
                       OR HOUR((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP) <= 3             THEN 'NY'
