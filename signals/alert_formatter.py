@@ -72,6 +72,9 @@ class StatsContext:
     adr_move_up: bool | None = (
         None  # True if today's move was upward (close > range midpoint)
     )
+    wk_low_still_ahead_conditioned_pct: float | None = None
+    wk_high_still_ahead_conditioned_pct: float | None = None
+    wk_move_bucket: str | None = None  # "small" | "medium" | "large"
 
 
 def _adr_bar(consumed_pct: float) -> str:
@@ -127,10 +130,28 @@ def _format_stats_line(ctx: "StatsContext", direction: str) -> str:
             f"TP window: low ~{ctx.peak_low_hour_dow:02d}:00 MYT on {dow_plural}"
         )
 
-    if is_long and ctx.wk_low_still_ahead_pct is not None:
-        parts2.append(f"Weekly low: {ctx.wk_low_still_ahead_pct:.0%} still ahead")
-    elif not is_long and ctx.wk_high_still_ahead_pct is not None:
-        parts2.append(f"Weekly high: {ctx.wk_high_still_ahead_pct:.0%} still ahead")
+    if is_long:
+        if (
+            ctx.wk_low_still_ahead_conditioned_pct is not None
+            and ctx.wk_move_bucket is not None
+        ):
+            parts2.append(
+                f"Weekly low: {ctx.wk_low_still_ahead_conditioned_pct:.0%} still ahead"
+                f" ({ctx.wk_move_bucket} move)"
+            )
+        elif ctx.wk_low_still_ahead_pct is not None:
+            parts2.append(f"Weekly low: {ctx.wk_low_still_ahead_pct:.0%} still ahead")
+    elif not is_long:
+        if (
+            ctx.wk_high_still_ahead_conditioned_pct is not None
+            and ctx.wk_move_bucket is not None
+        ):
+            parts2.append(
+                f"Weekly high: {ctx.wk_high_still_ahead_conditioned_pct:.0%} still ahead"
+                f" ({ctx.wk_move_bucket} move)"
+            )
+        elif ctx.wk_high_still_ahead_pct is not None:
+            parts2.append(f"Weekly high: {ctx.wk_high_still_ahead_pct:.0%} still ahead")
 
     if parts2:
         return line1 + "\n🎯 " + " · ".join(parts2)
