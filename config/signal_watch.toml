@@ -118,6 +118,7 @@ tp_r_4h = 4.5                 # sweep peak: cross-symbol +0.46R (126 trades)
 [strategy_params.hammer_hanging_man]
 tp_r = 4.0                    # WFO cross-symbol: BTC/ETH/SOL all positive at 4.0 (15m+1h)
 tp_r_1h = 5.0                 # sweep peak: cross-symbol +0.18R (298 trades); monotonic but per-symbol verified
+tp_r_1d = 3.0                 # WFO OOS: BTC+0.550R n=5 (global 4.0 was overfit; ETH/SOL too thin)
 
 [strategy_params.hammer_hanging_man.ETHUSDT]
 tp_r_1h = 5.0                 # F5 WFO: ETH 1h optimal at 5.0R (confirmed by sweep)
@@ -163,7 +164,7 @@ adr_exempt = true             # breakout — fires in continuation direction; AD
 
 [strategy_params.trend_day]
 tp_r = 3.0                    # fallback for 1d
-tp_r_4h = 5.0                 # WFO BTC 4h OOS +0.519R (53 trades)
+tp_r_4h = 3.5                 # WFO OOS: BTC+0.217R ETH+0.041R SOL+0.120R n=52-65 (was 5.0 overfit)
 
 [strategy_params.orb]
 tp_r = 3.0                    # 1h+0.14R (183 trades), 4h+0.17R (119 trades)
