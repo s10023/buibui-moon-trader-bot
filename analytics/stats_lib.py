@@ -546,12 +546,12 @@ def compute_dow_patterns(
             AVG((day_close - day_open) / day_open) AS avg_return_pct,
             AVG(CASE
                 WHEN (day_high - day_low) > 0 AND
-                     (day_high - GREATEST(day_open, day_close)) / (day_high - day_low) < 0.20
+                     (day_high - day_close) / (day_high - day_low) < 0.20
                 THEN 1.0 ELSE 0.0
             END) AS strong_high_pct,
             AVG(CASE
                 WHEN (day_high - day_low) > 0 AND
-                     (LEAST(day_open, day_close) - day_low) / (day_high - day_low) < 0.20
+                     (day_close - day_low) / (day_high - day_low) < 0.20
                 THEN 1.0 ELSE 0.0
             END) AS strong_low_pct
         FROM daily
@@ -1027,14 +1027,14 @@ def compute_weekly_current_state(
         return None
     weekly_open = float(open_row[0])
 
-    # Current price = latest 1h close
+    # Current price = latest 1h close within the current week
     price_row = conn.execute(
         """
         SELECT close FROM ohlcv
-        WHERE symbol = $symbol AND timeframe = '1h'
+        WHERE symbol = $symbol AND timeframe = '1h' AND open_time >= $week_start
         ORDER BY open_time DESC LIMIT 1
         """,
-        {"symbol": symbol},
+        {"symbol": symbol, "week_start": week_start_ms},
     ).fetchone()
     if price_row is None:
         return None

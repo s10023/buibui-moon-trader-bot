@@ -55,9 +55,10 @@ def _myt_hour(utc_ts: int) -> int:
 def _make_candles() -> list[dict]:
     """Generate 14 days × 24 hourly candles with deterministic highs/lows.
 
-    Base date is 20 days ago so candles fall within the 30-day lookback window.
+    Base date is 21 days ago so candles end ~8 days ago — safely before the current ISO
+    week on any day of the week (current week starts at most 7 days ago).
     """
-    base_utc = datetime.now(tz=UTC) - timedelta(days=20)
+    base_utc = datetime.now(tz=UTC) - timedelta(days=21)
     # Align to midnight UTC
     base_utc = base_utc.replace(hour=0, minute=0, second=0, microsecond=0)
     rows = []

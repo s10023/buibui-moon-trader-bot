@@ -349,8 +349,8 @@
               <th>Avg Range</th>
               <th>Direction</th>
               <th>Avg Return</th>
-              <th title="Strong high: upper wick < 20% of range (closed near the high)">Str H</th>
-              <th title="Strong low: lower wick < 20% of range (closed near the low)">Str L</th>
+              <th title="Strong high: close in top 20% of day's range">Str H</th>
+              <th title="Strong low: close in bottom 20% of day's range">Str L</th>
               <th title="Number of that weekday in the lookback window">N</th>
             </tr>
           </thead>
