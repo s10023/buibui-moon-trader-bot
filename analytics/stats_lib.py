@@ -186,28 +186,37 @@ class WeeklyFlipRiskConditioned:
 
 
 @dataclass
-class WeeklyWickWarning:
-    """Weekly P1 candle wick analysis.
+class DailyDistanceResult:
+    """Empirical CDF for today's daily move size vs ADR14 historical distribution.
 
-    For the 1h candle where the weekly extreme (P1) was first hit:
-    checks if the wick in the P1 direction exceeds the candle body.
+    Given today's current move (as × ADR14), how extreme is it historically?
+    Not cached — computed fresh on every API request.
     """
 
-    wick_gt_body_pct: float  # % of P1 candles where wick > body
+    exceedance_pct: (
+        float  # P(historical > current); 0.20 = "only 20% of days went further"
+    )
+    p80_of_adr: float  # 80th-percentile daily move in the lookback window, as × ADR14
+    gap_to_p80: (
+        float | None
+    )  # additional × ADR needed to reach p80; None if already past p80
     sample_count: int
 
 
 @dataclass
-class WeeklyP1Overshoot:
-    """How far (as fraction of ADR14) price overshot on the P1 candle's wick.
+class WeeklyWickPercentile:
+    """Live exceedance probability for current week's P1 wick vs historical P1 wicks.
 
-    Measures the wick extension in the P1 direction (lower wick for P1=low,
-    upper wick for P1=high), normalised by ADR14.
+    Not cached — computed fresh on every API request.
     """
 
-    median_of_adr: float  # median(wick / adr_14)
-    p25_of_adr: float  # 25th percentile
-    p75_of_adr: float  # 75th percentile
+    current_wick_of_adr: (
+        float | None
+    )  # current week's P1 wick normalised by open × ADR14
+    exceedance_pct: (
+        float | None
+    )  # P(historical_wick > current_wick); None if P1 not set
+    p1_direction: str | None  # "low" | "high"; None if P1 not set this week
     sample_count: int
 
 
@@ -226,8 +235,6 @@ class StatsBundle:
     weekly_p1p2: WeeklyP1P2Result
     weekly_p2_timing: WeeklyP2Timing
     weekly_flip_risk_conditioned: WeeklyFlipRiskConditioned
-    weekly_wick_warning: WeeklyWickWarning
-    weekly_p1_overshoot: WeeklyP1Overshoot
 
 
 def _start_ms(days: int) -> int:
@@ -1264,67 +1271,119 @@ def _fetch_p1_candle_data(
     return raw
 
 
-def compute_weekly_wick_warning(
+def compute_daily_distance(
     conn: duckdb.DuckDBPyConnection,
     symbol: str,
+    adr_14: float,
     days: int = 180,
-) -> WeeklyWickWarning:
-    """Compute % of weekly P1 candles where the wick in the P1 direction exceeds the body.
+) -> "DailyDistanceResult | None":
+    """Compute exceedance probability for today's move vs historical daily moves.
 
-    For the 1h candle that first hits the weekly extreme:
-    - P1=low: checks if lower_wick (min(open,close) - low) > body (|close - open|)
-    - P1=high: checks if upper_wick (high - max(open,close)) > body
+    Queries the last `days` days, normalises each completed day's range by adr_14,
+    then returns where today's partial move sits in that empirical CDF.
 
-    A large wick > body indicates a sharp reversal from the weekly extreme — useful
-    as a signal that a sweep-and-reverse is likely at P1 levels.
-
-    Raises ValueError if no OHLCV data exists for the symbol.
+    Returns None if adr_14 == 0 or insufficient data.
+    Not intended for caching — call fresh on every API request.
     """
+    if adr_14 <= 0:
+        return None
+
     start = _start_ms(days)
-    candle_rows = _fetch_p1_candle_data(conn, symbol, start)
+    rows = conn.execute(
+        """
+        WITH daily AS (
+            SELECT
+                (epoch_ms(open_time)::TIMESTAMP)::DATE AS trade_date,
+                MAX(high) AS day_high, MIN(low) AS day_low,
+                FIRST(open ORDER BY open_time) AS day_open
+            FROM ohlcv
+            WHERE symbol = $symbol AND timeframe = '1h'
+              AND open_time >= $start_ms
+            GROUP BY trade_date
+            ORDER BY trade_date DESC
+        )
+        SELECT trade_date, day_high, day_low, day_open
+        FROM daily
+        """,
+        {"symbol": symbol, "start_ms": start},
+    ).fetchall()
 
-    if not candle_rows:
-        raise ValueError(f"No OHLCV data for {symbol}")
+    if len(rows) < 2:
+        return None
 
-    wick_gt_body = 0
-    total = 0
-    for p1_dir, high, low, open_, close in candle_rows:
-        high, low, open_, close = float(high), float(low), float(open_), float(close)
-        body = abs(close - open_)
-        if p1_dir == "low":
-            wick = min(open_, close) - low
-        else:
-            wick = high - max(open_, close)
-        if wick > body:
-            wick_gt_body += 1
-        total += 1
+    # rows[0] = today (newest, possibly partial); rows[1:] = completed historical days
+    historical: list[float] = []
+    for _date, day_high, day_low, day_open in rows[1:]:
+        open_f = float(day_open)
+        if open_f <= 0:
+            continue
+        range_pct = (float(day_high) - float(day_low)) / open_f
+        historical.append(range_pct / adr_14)
 
-    return WeeklyWickWarning(
-        wick_gt_body_pct=wick_gt_body / total if total > 0 else 0.0,
-        sample_count=total,
+    if not historical:
+        return None
+
+    today_open = float(rows[0][3])
+    if today_open <= 0:
+        return None
+    today_range_pct = (float(rows[0][1]) - float(rows[0][2])) / today_open
+    current_of_adr = today_range_pct / adr_14
+
+    exceedance = sum(1 for h in historical if h > current_of_adr) / len(historical)
+
+    sorted_hist = sorted(historical)
+    n = len(sorted_hist)
+    idx = (n - 1) * 0.8
+    lo, hi = int(idx), min(int(idx) + 1, n - 1)
+    frac = idx - lo
+    p80 = sorted_hist[lo] + frac * (sorted_hist[hi] - sorted_hist[lo])
+
+    gap_to_p80: float | None = p80 - current_of_adr if p80 > current_of_adr else None
+
+    return DailyDistanceResult(
+        exceedance_pct=exceedance,
+        p80_of_adr=p80,
+        gap_to_p80=gap_to_p80,
+        sample_count=len(historical),
     )
 
 
-def compute_weekly_p1_overshoot(
+def compute_weekly_wick_percentile(
     conn: duckdb.DuckDBPyConnection,
     symbol: str,
+    adr_14: float,
     days: int = 180,
-    adr_14: float = 0.0,
-) -> WeeklyP1Overshoot:
-    """Compute the wick extension (overshoot) on the weekly P1 candle, normalised by ADR14.
+) -> WeeklyWickPercentile:
+    """Compute exceedance probability for current week's P1 wick vs historical P1 wicks.
 
-    For each week's P1 candle, measures the wick in the P1 direction as a fraction
-    of the candle's open price, then divides by adr_14 to express as × ADR.
+    Historical: wick / open / adr_14 for each historical week where P1 is identified.
+    Current: same metric for the current (possibly incomplete) week.
 
-    Raises ValueError if no OHLCV data exists for the symbol.
+    Returns WeeklyWickPercentile with None fields if:
+    - adr_14 == 0
+    - no historical data
+    - current week's P1 has not been set yet (only one extreme formed so far)
+    Not intended for caching — call fresh on every API request.
     """
+    if adr_14 <= 0:
+        return WeeklyWickPercentile(
+            current_wick_of_adr=None,
+            exceedance_pct=None,
+            p1_direction=None,
+            sample_count=0,
+        )
+
     start = _start_ms(days)
     candle_rows = _fetch_p1_candle_data(conn, symbol, start)
-
     if not candle_rows:
-        raise ValueError(f"No OHLCV data for {symbol}")
+        return WeeklyWickPercentile(
+            current_wick_of_adr=None,
+            exceedance_pct=None,
+            p1_direction=None,
+            sample_count=0,
+        )
 
-    overshoot_raw: list[float] = []
+    historical: list[float] = []
     for p1_dir, high, low, open_, close in candle_rows:
         high, low, open_, close = float(high), float(low), float(open_), float(close)
         if open_ <= 0:
@@ -1333,31 +1392,79 @@ def compute_weekly_p1_overshoot(
             wick = min(open_, close) - low
         else:
             wick = high - max(open_, close)
-        overshoot_raw.append(wick / open_)
+        historical.append(wick / open_ / adr_14)
 
-    if not overshoot_raw:
-        raise ValueError(f"No OHLCV data for {symbol}")
+    # Current week: MYT-based Monday 00:00 boundary (same as compute_weekly_current_state)
+    now_utc = datetime.now(tz=UTC)
+    now_myt = now_utc + timedelta(hours=MYT_OFFSET_HOURS)
+    days_since_monday = now_myt.weekday()  # 0 = Monday
+    week_start_myt = (now_myt - timedelta(days=days_since_monday)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    week_start_ms = int(
+        (week_start_myt - timedelta(hours=MYT_OFFSET_HOURS)).timestamp() * 1000
+    )
 
-    sorted_raw = sorted(overshoot_raw)
-    n = len(sorted_raw)
+    current_rows = conn.execute(
+        """
+        WITH weekly AS (
+            SELECT MAX(high) AS wk_high, MIN(low) AS wk_low
+            FROM ohlcv
+            WHERE symbol = $symbol AND timeframe = '1h' AND open_time >= $week_start_ms
+        ),
+        p1_ts AS (
+            SELECT
+                MIN(CASE WHEN h.high = w.wk_high THEN h.open_time END) AS high_ts,
+                MIN(CASE WHEN h.low  = w.wk_low  THEN h.open_time END) AS low_ts
+            FROM ohlcv h CROSS JOIN weekly w
+            WHERE h.symbol = $symbol AND h.timeframe = '1h' AND h.open_time >= $week_start_ms
+        ),
+        p1_info AS (
+            SELECT
+                CASE WHEN low_ts < high_ts THEN 'low' ELSE 'high' END AS p1_dir,
+                CASE WHEN low_ts < high_ts THEN low_ts ELSE high_ts END AS p1_candle_ts
+            FROM p1_ts
+            WHERE low_ts IS NOT NULL AND high_ts IS NOT NULL AND low_ts != high_ts
+        )
+        SELECT pi.p1_dir, h.high, h.low, h.open, h.close
+        FROM p1_info pi
+        JOIN ohlcv h ON h.open_time = pi.p1_candle_ts
+        WHERE h.symbol = $symbol AND h.timeframe = '1h'
+        """,
+        {"symbol": symbol, "week_start_ms": week_start_ms},
+    ).fetchall()
 
-    def _percentile(p: float) -> float:
-        idx = (n - 1) * p
-        lo, hi = int(idx), min(int(idx) + 1, n - 1)
-        frac = idx - lo
-        return sorted_raw[lo] + frac * (sorted_raw[hi] - sorted_raw[lo])
+    if not current_rows or not historical:
+        return WeeklyWickPercentile(
+            current_wick_of_adr=None,
+            exceedance_pct=None,
+            p1_direction=None,
+            sample_count=len(historical),
+        )
 
-    median_raw = _percentile(0.5)
-    p25_raw = _percentile(0.25)
-    p75_raw = _percentile(0.75)
+    p1_dir_curr, high, low, open_, close = current_rows[0]
+    high, low, open_, close = float(high), float(low), float(open_), float(close)
+    if open_ <= 0:
+        return WeeklyWickPercentile(
+            current_wick_of_adr=None,
+            exceedance_pct=None,
+            p1_direction=None,
+            sample_count=len(historical),
+        )
 
-    divisor = adr_14 if adr_14 > 0 else 1.0
+    if p1_dir_curr == "low":
+        current_wick = min(open_, close) - low
+    else:
+        current_wick = high - max(open_, close)
 
-    return WeeklyP1Overshoot(
-        median_of_adr=median_raw / divisor,
-        p25_of_adr=p25_raw / divisor,
-        p75_of_adr=p75_raw / divisor,
-        sample_count=n,
+    current_of_adr = current_wick / open_ / adr_14
+    exceedance = sum(1 for h in historical if h > current_of_adr) / len(historical)
+
+    return WeeklyWickPercentile(
+        current_wick_of_adr=current_of_adr,
+        exceedance_pct=exceedance,
+        p1_direction=str(p1_dir_curr),
+        sample_count=len(historical),
     )
 
 
@@ -1380,8 +1487,6 @@ def compute_all(
     weekly_flip_risk_conditioned = compute_weekly_flip_risk_conditioned(
         conn, symbol, days
     )
-    weekly_wick_warning = compute_weekly_wick_warning(conn, symbol, days)
-    weekly_p1_overshoot = compute_weekly_p1_overshoot(conn, symbol, days, adr.adr_14)
 
     return StatsBundle(
         symbol=symbol,
@@ -1395,6 +1500,4 @@ def compute_all(
         weekly_p1p2=weekly_p1p2,
         weekly_p2_timing=weekly_p2_timing,
         weekly_flip_risk_conditioned=weekly_flip_risk_conditioned,
-        weekly_wick_warning=weekly_wick_warning,
-        weekly_p1_overshoot=weekly_p1_overshoot,
     )

@@ -9,12 +9,16 @@ from analytics.data_store import DEFAULT_DB_PATH, get_stats_cache, upsert_stats_
 from analytics.stats_lib import (
     StatsBundle,
     WeeklyCurrentState,
+    WeeklyWickPercentile,
     compute_all,
+    compute_daily_distance,
     compute_weekly_current_state,
+    compute_weekly_wick_percentile,
 )
 from web.api.deps import get_db, require_token
 from web.api.models.stats import (
     ADRResponse,
+    DailyDistanceResponse,
     DOWPatternRow,
     FlipRiskConditionedRow,
     HourlyExtremeRow,
@@ -24,10 +28,9 @@ from web.api.models.stats import (
     StatsResponse,
     WeeklyCurrentStateResponse,
     WeeklyFlipRiskConditionedResponse,
-    WeeklyP1OvershootResponse,
     WeeklyP1P2Response,
     WeeklyP2TimingResponse,
-    WeeklyWickWarningResponse,
+    WeeklyWickPercentileResponse,
 )
 
 router = APIRouter(dependencies=[Depends(require_token)])
@@ -43,6 +46,15 @@ def _wcs_to_response(wcs: WeeklyCurrentState) -> WeeklyCurrentStateResponse:
         move_bucket=wcs.move_bucket,
         low_still_ahead_conditioned=wcs.low_still_ahead_conditioned,
         high_still_ahead_conditioned=wcs.high_still_ahead_conditioned,
+    )
+
+
+def _wwp_to_response(wwp: WeeklyWickPercentile) -> WeeklyWickPercentileResponse:
+    return WeeklyWickPercentileResponse(
+        current_wick_of_adr=wwp.current_wick_of_adr,
+        exceedance_pct=wwp.exceedance_pct,
+        p1_direction=wwp.p1_direction,
+        sample_count=wwp.sample_count,
     )
 
 
@@ -130,20 +142,6 @@ def _bundle_to_response(bundle: StatsBundle) -> StatsResponse:
         ]
     )
 
-    # Weekly wick warning
-    wick_resp = WeeklyWickWarningResponse(
-        wick_gt_body_pct=bundle.weekly_wick_warning.wick_gt_body_pct,
-        sample_count=bundle.weekly_wick_warning.sample_count,
-    )
-
-    # Weekly P1 overshoot
-    overshoot_resp = WeeklyP1OvershootResponse(
-        median_of_adr=bundle.weekly_p1_overshoot.median_of_adr,
-        p25_of_adr=bundle.weekly_p1_overshoot.p25_of_adr,
-        p75_of_adr=bundle.weekly_p1_overshoot.p75_of_adr,
-        sample_count=bundle.weekly_p1_overshoot.sample_count,
-    )
-
     return StatsResponse(
         symbol=bundle.symbol,
         days=bundle.days,
@@ -156,8 +154,6 @@ def _bundle_to_response(bundle: StatsBundle) -> StatsResponse:
         weekly_p1p2=weekly_resp,
         weekly_p2_timing=p2_timing_resp,
         weekly_flip_risk_conditioned=flip_risk_resp,
-        weekly_wick_warning=wick_resp,
-        weekly_p1_overshoot=overshoot_resp,
     )
 
 
@@ -178,7 +174,10 @@ def get_stats(
     cached = get_stats_cache(db, symbol, days, date_str)
     if cached is not None:
         try:
-            return StatsResponse.model_validate_json(cached)
+            response = StatsResponse.model_validate_json(cached)
+            # Still inject live fields even on cache hit
+            _inject_live_fields(db, symbol, days, response)
+            return response
         except Exception:
             pass  # corrupted cache — fall through to recompute
 
@@ -202,14 +201,43 @@ def get_stats(
     except Exception:
         pass  # never fail the response due to cache write failure
 
-    # Inject live current-week state — always fresh, never cached
+    _inject_live_fields(db, symbol, days, response)
+    return response
+
+
+def _inject_live_fields(
+    db: duckdb.DuckDBPyConnection,
+    symbol: str,
+    days: int,
+    response: StatsResponse,
+) -> None:
+    """Inject live (never-cached) fields into a StatsResponse in-place."""
+    adr_14 = response.adr.adr_14
+
+    # Weekly current state
     try:
-        wcs = compute_weekly_current_state(db, symbol, response.adr.adr_14, days)
+        wcs = compute_weekly_current_state(db, symbol, adr_14, days)
         if wcs is not None:
-            response = response.model_copy(
-                update={"weekly_current_state": _wcs_to_response(wcs)}
+            response.weekly_current_state = _wcs_to_response(wcs)
+    except Exception:
+        pass
+
+    # Daily distance — empirical CDF for today's move vs history
+    try:
+        dd = compute_daily_distance(db, symbol, adr_14, days)
+        if dd is not None:
+            response.daily_distance = DailyDistanceResponse(
+                exceedance_pct=dd.exceedance_pct,
+                p80_of_adr=dd.p80_of_adr,
+                gap_to_p80=dd.gap_to_p80,
+                sample_count=dd.sample_count,
             )
     except Exception:
-        pass  # non-fatal — degrade gracefully
+        pass
 
-    return response
+    # Weekly P1 wick percentile — current week's wick rank vs history
+    try:
+        wwp = compute_weekly_wick_percentile(db, symbol, adr_14, days)
+        response.weekly_wick_percentile = _wwp_to_response(wwp)
+    except Exception:
+        pass

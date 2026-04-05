@@ -406,15 +406,17 @@ export interface WeeklyFlipRiskConditionedResponse {
   rows: FlipRiskConditionedRow[];
 }
 
-export interface WeeklyWickWarningResponse {
-  wick_gt_body_pct: number;
+export interface DailyDistanceResponse {
+  exceedance_pct: number;
+  p80_of_adr: number;
+  gap_to_p80: number | null;
   sample_count: number;
 }
 
-export interface WeeklyP1OvershootResponse {
-  median_of_adr: number;
-  p25_of_adr: number;
-  p75_of_adr: number;
+export interface WeeklyWickPercentileResponse {
+  current_wick_of_adr: number | null;
+  exceedance_pct: number | null;
+  p1_direction: string | null;
   sample_count: number;
 }
 
@@ -431,8 +433,8 @@ export interface StatsResponse {
   weekly_p2_timing: WeeklyP2TimingResponse;
   weekly_current_state: WeeklyCurrentStateResponse | null;
   weekly_flip_risk_conditioned: WeeklyFlipRiskConditionedResponse | null;
-  weekly_wick_warning: WeeklyWickWarningResponse | null;
-  weekly_p1_overshoot: WeeklyP1OvershootResponse | null;
+  daily_distance: DailyDistanceResponse | null;
+  weekly_wick_percentile: WeeklyWickPercentileResponse | null;
 }
 
 export const getStats = (symbol: string, days: number = 180) =>
