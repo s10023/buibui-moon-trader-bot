@@ -111,7 +111,7 @@ tp_r_4h  = 2.0                # -0.26R (all negative; hard mode will suppress)
 tp_r_1d  = 2.0                # +1.21R (4 trades — noisy; hard mode will gate)
 
 [strategy_params.fib_golden_zone]
-tp_r_1h  = 4.5                # +0.50R
+tp_r_1h  = 3.5                # WFO OOS: BTC+0.486R n=28 (was 4.5 overfit; ETH/SOL no 1h edge)
 tp_r_4h  = 3.5                # +0.73R
 tp_r_1d  = 2.0                # +0.49R (8 trades; 3.5R+ drops sharply)
 
@@ -131,7 +131,7 @@ tp_r_1h  = 5.0                # +0.63R (monotonically increasing)
 tp_r_4h  = 2.5                # +0.97R (peaks here; 7 trades — small sample)
 
 [strategy_params.trend_day]
-tp_r_4h  = 5.0                # +0.21R (monotonically increasing)
+tp_r_4h  = 3.5                # WFO OOS: BTC+0.217R ETH+0.041R SOL+0.120R n=52-65 (was 5.0 overfit)
 tp_r_1d  = 4.0                # +0.20R
 
 [strategy_params.orb]
@@ -181,8 +181,8 @@ min_avg_r = 0.0         # hard mode: suppress if directional avg_r < this (posit
 # liq_sweep_use_fib = true  # set false to compare pivot-sweep mode vs fib-extension mode
 # liq_sweep_fib_range_close = false  # (fib mode only) true = close must be < swing_high (inside range), not just < fib level
 
-# F8 bias layer — statistics-driven signal gates (both disabled by default)
-# [bias]
-# adr_suppress_threshold = 0.80   # drop signals when today's range >= 80% of ADR-14
+# F8 bias layer — statistics-driven signal gates
+[bias]
+adr_suppress_threshold = 0.80   # drop signals when today's range >= 80% of ADR-14
 # dow_soft_suppress = false        # reduce confidence by 1★ when direction opposes DOW avg return
 # dow_suppress_min_abs_return = 0.005  # dead-band: avg return must exceed ±0.5% to trigger
