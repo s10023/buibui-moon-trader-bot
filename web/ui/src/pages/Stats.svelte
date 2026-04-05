@@ -656,19 +656,21 @@
           </div>
 
           <!-- Range bar: current position vs p80 marker -->
-          {@const currentPct = stats.adr.today_consumed_pct ?? 0}
-          {@const p80Pct = dd.p80_of_adr}
-          {@const maxVal = Math.max(currentPct, p80Pct) * 1.1}
-          <div class="dist-bar-wrap">
-            <div class="dist-bar-track">
-              <div class="dist-bar-fill" style="width: {Math.min((currentPct / maxVal) * 100, 100).toFixed(1)}%"></div>
-              <div class="dist-bar-p80" style="left: {Math.min((p80Pct / maxVal) * 100, 99).toFixed(1)}%"></div>
+          {#if stats.adr.today_consumed_pct !== null}
+            {@const currentPct = stats.adr.today_consumed_pct}
+            {@const p80Pct = dd.p80_of_adr}
+            {@const maxVal = Math.max(currentPct, p80Pct) * 1.1 || 1}
+            <div class="dist-bar-wrap">
+              <div class="dist-bar-track">
+                <div class="dist-bar-fill" style="width: {Math.min((currentPct / maxVal) * 100, 100).toFixed(1)}%"></div>
+                <div class="dist-bar-p80" style="left: {Math.min((p80Pct / maxVal) * 100, 99).toFixed(1)}%"></div>
+              </div>
+              <div class="dist-bar-labels">
+                <span class="dist-bar-label-now muted">now {currentPct.toFixed(2)}× ADR</span>
+                <span class="dist-bar-label-p80 muted">p80 {p80Pct.toFixed(2)}× ADR</span>
+              </div>
             </div>
-            <div class="dist-bar-labels">
-              <span class="dist-bar-label-now muted">now {currentPct.toFixed(2)}× ADR</span>
-              <span class="dist-bar-label-p80 muted">p80 {p80Pct.toFixed(2)}× ADR</span>
-            </div>
-          </div>
+          {/if}
 
           {#if dd.gap_to_p80 !== null}
             <div class="dist-gap muted">+{dd.gap_to_p80.toFixed(2)}× ADR to reach p80</div>
