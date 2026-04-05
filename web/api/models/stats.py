@@ -13,6 +13,7 @@ class P1P2Response(BaseModel):
     overall_p1_low_pct: float
     by_dow: list[P1P2DOWRow]
     sample_days: int
+    p1_strong_pct: float = 0.0
 
 
 class HourlyExtremeRow(BaseModel):
@@ -34,6 +35,8 @@ class DOWPatternRow(BaseModel):
     bull_pct: float
     sample_days: int
     avg_return_pct: float
+    strong_high_pct: float = 0.0
+    strong_low_pct: float = 0.0
 
 
 class SessionRow(BaseModel):
@@ -81,15 +84,17 @@ class WeeklyFlipRiskConditionedResponse(BaseModel):
     rows: list[FlipRiskConditionedRow]
 
 
-class WeeklyWickWarningResponse(BaseModel):
-    wick_gt_body_pct: float
+class DailyDistanceResponse(BaseModel):
+    exceedance_pct: float
+    p80_of_adr: float
+    gap_to_p80: float | None
     sample_count: int
 
 
-class WeeklyP1OvershootResponse(BaseModel):
-    median_of_adr: float
-    p25_of_adr: float
-    p75_of_adr: float
+class WeeklyWickPercentileResponse(BaseModel):
+    current_wick_of_adr: float | None
+    exceedance_pct: float | None
+    p1_direction: str | None
     sample_count: int
 
 
@@ -106,5 +111,5 @@ class StatsResponse(BaseModel):
     weekly_p2_timing: WeeklyP2TimingResponse
     weekly_current_state: WeeklyCurrentStateResponse | None = None
     weekly_flip_risk_conditioned: WeeklyFlipRiskConditionedResponse | None = None
-    weekly_wick_warning: WeeklyWickWarningResponse | None = None
-    weekly_p1_overshoot: WeeklyP1OvershootResponse | None = None
+    daily_distance: DailyDistanceResponse | None = None
+    weekly_wick_percentile: WeeklyWickPercentileResponse | None = None

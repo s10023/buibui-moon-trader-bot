@@ -82,15 +82,15 @@
       value: "High % = that extreme likely hasn't formed yet. Low % = it's likely already in. Riskier for a long when 'Low still ahead' is HIGH (e.g. 70%) — the weekly low is probably still below, so entering long now risks catching the drop. Flip risk shows the chance the running extreme gets beaten later in the week. Use the Bullish P1 filter once a weekly low is confirmed forming: it shows whether the high (P2) is still statistically expected.",
       example: "Today Mon, Bullish P1 filter → 71% of bullish weeks still set the high after Mon → weekly high very likely still ahead → good timing window for longs targeting the weekly high.",
     },
-    weeklyWick: {
-      what: "For the 1h candle that first hits the weekly extreme (P1), what % had a wick in the P1 direction larger than the candle body? Wick = distance from candle body edge to the extreme tip. Body = |close − open|. High % = that extreme is typically formed by a spike-and-close-away (sweep-and-reverse).",
-      value: "If 68% of P1 candles have wick > body, the candle body closes well away from the wick tip — the extreme was briefly touched then rejected hard. Don't enter at the tick of the extreme; wait for the candle to close to confirm the reversal. The Overshoot section below shows how far the wick typically extends.",
-      example: "P1 Wick > Body 68% → the weekly low candle typically closes significantly above its spike low. Wait for 1h candle close before entering long, or use the overshoot size to calibrate a limit entry.",
+    dailyDistance: {
+      what: "Given today's current high-low range (as a fraction of ADR14), how does it rank against all historical days? Exceedance % = fraction of past days that moved MORE than today's current range. p80 = the 80th-percentile daily move; gap shows how much further price needs to move to reach that level.",
+      value: "High exceedance (e.g. 80%) means today's move is already in the top 20% of historical days — expect mean reversion, don't chase. Low exceedance (e.g. 20%) means 80% of days moved further than this — room to run. Gap to p80 tells you roughly how much additional range is typical before the day 'fills out'.",
+      example: "ADR14 2.5%, today consumed 1.8% → 72% of days had a bigger move. Gap to p80: 0.3× ADR → ~0.75% more move to reach the 80th percentile of daily range.",
     },
-    weeklyOvershoot: {
-      what: "How far the P1 candle's wick extends beyond its open/close (in the P1 direction), expressed as a multiple of ADR14. Median = typical overshoot; IQR = the middle 50% range.",
-      value: "Calibrate your entry buffer: if the median overshoot is 0.4× ADR, set your limit entry slightly beyond the expected P1 level by 0.4× ADR to avoid being missed by the wick.",
-      example: "ADR14 = 2.5%. Median overshoot 0.4× → wick ~1.0% below P1 low. Set limit buy 1% below the expected weekly low.",
+    wickPercentile: {
+      what: "For this week's P1 candle (the 1h candle that first set the weekly extreme), how does its wick size compare to all historical P1 candles? Wick is measured in the P1 direction (lower wick for P1=low, upper wick for P1=high), normalised by the candle's open price and ADR14. Exceedance % = fraction of historical P1 weeks with a BIGGER wick than this week's.",
+      value: "Low exceedance (e.g. 15%) means this week's P1 wick is unusually large — only 15% of historical weeks had a bigger wick. A large wick indicates a sharp sweep-and-reverse. High exceedance means the wick is small relative to history — the extreme may not hold.",
+      example: "Exceedance 20% → this week's P1 wick is larger than 80% of historical weeks. Strong sweep-and-reverse signal — wait for 1h close to confirm before entering.",
     },
   };
 
@@ -215,6 +215,8 @@
             High made before Low: <span class="val-accent">{formatPct(1 - stats.p1p2.overall_p1_low_pct)}</span>
           {/if}
           <span class="muted"> ({stats.p1p2.sample_days}d sampled)</span>
+          · P1 strong: <span class="val-accent">{formatPct(stats.p1p2.p1_strong_pct)}</span>
+          <span class="p1-strong-hint muted">(closed near P2 extreme)</span>
         </div>
         <div class="dow-bars">
           {#each p1p2Rows as row}
@@ -347,6 +349,8 @@
               <th>Avg Range</th>
               <th>Direction</th>
               <th>Avg Return</th>
+              <th title="Strong high: close in bottom 20% of range — high strongly rejected, likely to hold">Str H</th>
+              <th title="Strong low: close in top 20% of range — low strongly rejected, likely to hold">Str L</th>
               <th title="Number of that weekday in the lookback window">N</th>
             </tr>
           </thead>
@@ -377,6 +381,12 @@
                 </td>
                 <td class:val-green={isPos} class:val-red={!isPos}>
                   {isPos ? "+" : ""}{(ret * 100).toFixed(1)}%
+                </td>
+                <td class="strong-cell" class:strong-hi={row.strong_high_pct >= 0.6} class:strong-lo-dim={row.strong_high_pct < 0.4}>
+                  {(row.strong_high_pct * 100).toFixed(0)}%
+                </td>
+                <td class="strong-cell" class:strong-lo={row.strong_low_pct >= 0.6} class:strong-lo-dim={row.strong_low_pct < 0.4}>
+                  {(row.strong_low_pct * 100).toFixed(0)}%
                 </td>
                 <td class="val-muted">{row.sample_days}</td>
               </tr>
@@ -622,56 +632,93 @@
         </div>
       </div>
 
-      <!-- Weekly P1 Wick & Overshoot (combined) -->
-      {#if stats.weekly_wick_warning || stats.weekly_p1_overshoot}
+      <!-- Daily Distance — empirical CDF for today's move vs history -->
+      {#if stats.daily_distance}
+        {@const dd = stats.daily_distance}
         <div class="card">
           <div class="card-header">
-            <span class="card-title">P1 Wick & Overshoot</span>
-            <button class="help-btn" class:active={openHelp === "weeklyWick"} onclick={() => toggleHelp("weeklyWick")} aria-label="Help">?</button>
+            <span class="card-title">Daily Distance</span>
+            <button class="help-btn" class:active={openHelp === "dailyDistance"} onclick={() => toggleHelp("dailyDistance")} aria-label="Help">?</button>
           </div>
-          {#if openHelp === "weeklyWick"}
+          {#if openHelp === "dailyDistance"}
             <div class="help-panel">
-              <div class="help-section"><span class="help-label">Wick</span>{CARD_HELP.weeklyWick.what}</div>
-              <div class="help-section"><span class="help-label">Overshoot</span>{CARD_HELP.weeklyOvershoot.what}</div>
-              <div class="help-section help-example"><span class="help-label">e.g.</span>{CARD_HELP.weeklyOvershoot.example}</div>
+              <div class="help-section"><span class="help-label">What</span>{CARD_HELP.dailyDistance.what}</div>
+              <div class="help-section"><span class="help-label">Use</span>{CARD_HELP.dailyDistance.value}</div>
+              <div class="help-section help-example"><span class="help-label">e.g.</span>{CARD_HELP.dailyDistance.example}</div>
             </div>
           {/if}
 
-          {#if stats.weekly_wick_warning}
-            {@const ww = stats.weekly_wick_warning}
-            <div class="wick-stat-row">
-              <div class="wick-big-pct" class:val-amber={ww.wick_gt_body_pct >= 0.5} class:val-muted={ww.wick_gt_body_pct < 0.5}>
-                {formatPct(ww.wick_gt_body_pct)}
-              </div>
-              <div class="wick-label muted">of P1 candles had wick &gt; body</div>
+          <div class="dist-main-row">
+            <div class="dist-exceedance" class:val-green={dd.exceedance_pct >= 0.6} class:val-amber={dd.exceedance_pct >= 0.3 && dd.exceedance_pct < 0.6} class:val-red={dd.exceedance_pct < 0.3}>
+              {formatPct(dd.exceedance_pct)}
             </div>
-            <div class="wick-bar-wrap">
-              <div class="wick-bar-track">
-                <div class="wick-bar-fill" style="width: {(ww.wick_gt_body_pct * 100).toFixed(0)}%"></div>
+            <div class="dist-exceedance-label muted">of historical days moved further</div>
+          </div>
+
+          <!-- Range bar: current position vs p80 marker -->
+          {#if stats.adr.today_consumed_pct !== null}
+            {@const currentPct = stats.adr.today_consumed_pct}
+            {@const p80Pct = dd.p80_of_adr}
+            {@const maxVal = Math.max(currentPct, p80Pct) * 1.1 || 1}
+            <div class="dist-bar-wrap">
+              <div class="dist-bar-track">
+                <div class="dist-bar-fill" style="width: {Math.min((currentPct / maxVal) * 100, 100).toFixed(1)}%"></div>
+                <div class="dist-bar-p80" style="left: {Math.min((p80Pct / maxVal) * 100, 99).toFixed(1)}%"></div>
+              </div>
+              <div class="dist-bar-labels">
+                <span class="dist-bar-label-now muted">now {currentPct.toFixed(2)}× ADR</span>
+                <span class="dist-bar-label-p80 muted">p80 {p80Pct.toFixed(2)}× ADR</span>
               </div>
             </div>
-            <div class="wick-note muted">{ww.sample_count} weeks · sweep-and-reverse likely at P1</div>
           {/if}
 
-          {#if stats.weekly_p1_overshoot}
-            {@const ov = stats.weekly_p1_overshoot}
-            <div class="overshoot-section">
-              <div class="overshoot-rows">
-                <div class="overshoot-row">
-                  <span class="overshoot-label muted">Overshoot median</span>
-                  <div class="overshoot-bar-wrap">
-                    <div class="overshoot-bar-track">
-                      <div class="overshoot-bar-fill" style="width: {Math.min(ov.median_of_adr * 100, 100).toFixed(0)}%"></div>
-                    </div>
-                  </div>
-                  <span class="overshoot-val val-accent">{ov.median_of_adr.toFixed(2)}× ADR</span>
-                </div>
-                <div class="overshoot-iqr muted">
-                  IQR: {ov.p25_of_adr.toFixed(2)}× – {ov.p75_of_adr.toFixed(2)}× ADR
-                </div>
-              </div>
-              <div class="wick-note muted">{ov.sample_count} weeks · wick at P1 candle / ADR14</div>
+          {#if dd.gap_to_p80 !== null}
+            <div class="dist-gap muted">+{dd.gap_to_p80.toFixed(2)}× ADR to reach p80</div>
+          {:else}
+            <div class="dist-gap val-green">p80 reached — extended day</div>
+          {/if}
+          <div class="dist-note muted">{dd.sample_count} days sampled</div>
+        </div>
+      {/if}
+
+      <!-- Weekly P1 Wick Rank — current week vs historical distribution -->
+      {#if stats.weekly_wick_percentile}
+        {@const wwp = stats.weekly_wick_percentile}
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">P1 Wick Rank</span>
+            <button class="help-btn" class:active={openHelp === "wickPercentile"} onclick={() => toggleHelp("wickPercentile")} aria-label="Help">?</button>
+          </div>
+          {#if openHelp === "wickPercentile"}
+            <div class="help-panel">
+              <div class="help-section"><span class="help-label">What</span>{CARD_HELP.wickPercentile.what}</div>
+              <div class="help-section"><span class="help-label">Use</span>{CARD_HELP.wickPercentile.value}</div>
+              <div class="help-section help-example"><span class="help-label">e.g.</span>{CARD_HELP.wickPercentile.example}</div>
             </div>
+          {/if}
+
+          {#if wwp.exceedance_pct !== null && wwp.current_wick_of_adr !== null}
+            <div class="dist-main-row">
+              <div class="dist-exceedance" class:val-green={wwp.exceedance_pct <= 0.25} class:val-amber={wwp.exceedance_pct <= 0.5 && wwp.exceedance_pct > 0.25} class:val-muted={wwp.exceedance_pct > 0.5}>
+                {formatPct(1 - wwp.exceedance_pct)}
+              </div>
+              <div class="dist-exceedance-label muted">of historical P1 wicks were smaller</div>
+            </div>
+            <div class="wwp-detail-row">
+              <span class="wwp-direction" class:val-green={wwp.p1_direction === "low"} class:val-red={wwp.p1_direction === "high"}>
+                {wwp.p1_direction === "low" ? "▼ Bullish P1" : "▲ Bearish P1"}
+              </span>
+              <span class="wwp-wick muted">wick {wwp.current_wick_of_adr.toFixed(3)}× ADR</span>
+            </div>
+            <div class="dist-bar-wrap" style="margin-top:8px">
+              <div class="dist-bar-track">
+                <!-- exceedance_pct = P(hist > current), so rank from bottom = 1 - exceedance_pct -->
+                <div class="dist-bar-fill" style="width: {((1 - wwp.exceedance_pct) * 100).toFixed(1)}%"></div>
+              </div>
+            </div>
+            <div class="dist-note muted" style="margin-top:6px">{wwp.sample_count} historical P1 weeks</div>
+          {:else}
+            <div class="wwp-pending muted">P1 not yet set this week — waiting for both extremes</div>
           {/if}
         </div>
       {/if}
@@ -1330,98 +1377,102 @@
     align-items: center;
   }
 
-  /* Weekly Wick Warning card */
-  .wick-stat-row {
+  /* Daily Distance + P1 Wick Rank cards */
+  .dist-main-row {
     display: flex;
     align-items: baseline;
     gap: 8px;
     margin: 8px 0 4px;
   }
 
-  .wick-big-pct {
+  .dist-exceedance {
     font-size: 28px;
     font-weight: 700;
     font-feature-settings: "tnum" 1;
     letter-spacing: -0.02em;
   }
 
-  .wick-label {
+  .dist-exceedance-label {
     font-size: 11px;
   }
 
-  .wick-bar-wrap {
-    margin-bottom: 8px;
+  .dist-bar-wrap {
+    margin-bottom: 4px;
   }
 
-  .wick-bar-track {
+  .dist-bar-track {
+    position: relative;
     height: 4px;
     background: var(--border);
     border-radius: 2px;
-    overflow: hidden;
+    overflow: visible;
   }
 
-  .wick-bar-fill {
-    height: 100%;
-    background: var(--amber, #f59e0b);
-    border-radius: 2px;
-    transition: width 0.4s ease;
-  }
-
-  .wick-note {
-    font-size: 10px;
-  }
-
-  /* P1 Overshoot section (within combined card) */
-  .overshoot-section {
-    margin-top: 12px;
-    padding-top: 10px;
-    border-top: 1px solid var(--border);
-  }
-
-  .overshoot-rows {
-    margin: 8px 0;
-  }
-
-  .overshoot-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .overshoot-label {
-    font-size: 10px;
-    min-width: 40px;
-  }
-
-  .overshoot-bar-wrap {
-    flex: 1;
-  }
-
-  .overshoot-bar-track {
-    height: 4px;
-    background: var(--border);
-    border-radius: 2px;
-    overflow: hidden;
-  }
-
-  .overshoot-bar-fill {
+  .dist-bar-fill {
     height: 100%;
     background: var(--accent);
     border-radius: 2px;
     transition: width 0.4s ease;
   }
 
-  .overshoot-val {
-    font-size: 12px;
-    font-weight: 600;
-    font-feature-settings: "tnum" 1;
-    min-width: 70px;
-    text-align: right;
+  /* p80 marker: vertical tick above/below the track */
+  .dist-bar-p80 {
+    position: absolute;
+    top: -3px;
+    width: 2px;
+    height: 10px;
+    background: var(--muted-text, #888);
+    border-radius: 1px;
+    transform: translateX(-50%);
   }
 
-  .overshoot-iqr {
-    font-size: 10px;
+  .dist-bar-labels {
+    display: flex;
+    justify-content: space-between;
     margin-top: 4px;
+    font-size: 10px;
+  }
+
+  .dist-bar-label-now {
+    font-feature-settings: "tnum" 1;
+  }
+
+  .dist-bar-label-p80 {
+    font-feature-settings: "tnum" 1;
+  }
+
+  .dist-gap {
+    font-size: 11px;
+    margin: 4px 0 2px;
+    font-feature-settings: "tnum" 1;
+  }
+
+  .dist-note {
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  /* P1 Wick Rank specifics */
+  .wwp-detail-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 4px 0 6px;
+    font-size: 11px;
+  }
+
+  .wwp-direction {
+    font-weight: 600;
+  }
+
+  .wwp-wick {
+    font-feature-settings: "tnum" 1;
+  }
+
+  .wwp-pending {
+    font-size: 11px;
+    margin-top: 8px;
+    font-style: italic;
   }
 
   .val-accent {
@@ -1430,5 +1481,31 @@
 
   .val-amber {
     color: var(--amber, #f59e0b);
+  }
+
+  /* Strong H/L table cells */
+  .strong-cell {
+    font-size: 11px;
+    font-feature-settings: "tnum" 1;
+    text-align: right;
+    color: var(--muted);
+  }
+
+  .strong-hi {
+    color: var(--accent);
+  }
+
+  .strong-lo {
+    color: var(--green, #22c55e);
+  }
+
+  .strong-lo-dim {
+    opacity: 0.5;
+  }
+
+  /* P1 strong hint in P1/P2 card subtitle */
+  .p1-strong-hint {
+    font-size: 10px;
+    margin-left: 2px;
   }
 </style>

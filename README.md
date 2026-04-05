@@ -122,16 +122,16 @@ The Stats page (`#/stats`) shows BrighterData-style probability tables computed 
 
 | Card | What it answers | Interactions |
 | ---- | --------------- | ------------ |
-| **P1/P2 Daily** | Was the daily low or high made first? Per-day-of-week breakdown. High P1=Low on Thursday → day structure favours making the low first, then reversing. | Toggle **Low First / High First** for bullish/bearish context. Today's DOW highlighted. |
+| **P1/P2 Daily** | Was the daily low or high made first? Per-day-of-week breakdown. Also shows "P1 strong %" — fraction of P1 candles where the P1-direction wick was < 20% of range (closed near the extreme). | Toggle **Low First / High First** for bullish/bearish context. Today's DOW highlighted. |
 | **Average Daily Range (ADR)** | ADR(14) = 2-week average (short-term vol). ADR(30) = monthly baseline. Today's range consumed as a progress bar; turns red + warning if ≥80%. | — |
 | **Hourly Extreme Distribution** | Which MYT hour (0–23) most often produces the daily high (green) vs low (red). Empirically-derived kill zones. | Current MYT hour highlighted with accent border. |
-| **Day-of-Week Patterns** | Average range (relative bar), bull/bear split bar + %, and sample count (N = number of that weekday in the lookback window). | Today's DOW row highlighted. |
+| **Day-of-Week Patterns** | Average range (relative bar), bull/bear split bar + %, avg return, and **Str H / Str L** columns — fraction of days each day-of-week formed a strong high (upper wick < 20% of range) or strong low (lower wick < 20% of range). | Today's DOW row highlighted. |
 | **Session Breakdown** | Which session (Asia 00–07 / London 14–21 / NY 20–03 MYT) most often makes the daily high vs low. Columns don't sum to 100% — London/NY overlap (20–21 MYT) is counted in both. | Active sessions shown with a pulsing ● indicator. |
 | **Weekly P1/P2** | Which day of the week most commonly forms the weekly high vs low, shown as a per-DOW bar chart. | Toggle **Bear** (when does weekly HIGH form?) or **Bull** (when does weekly LOW form?). Defaults to Bear. Today's DOW highlighted. |
 | **Avg Return by Day** | Average `(close−open)/open` per weekday — shows which days are historically bullish or bearish. Bars grow from bottom; green = positive, red = negative. | Today's DOW highlighted. |
 | **Weekly P2 Timing** | 5-column per-DOW table: how often the weekly low/high is still ahead after each DOW (still-ahead %) and how often the running P1 gets undercut later in the week (flip risk %). Conditioned view shows P(P2 still ahead \| P1 direction, DOW). | Today's DOW highlighted; flip risk ≥ 30% shown in amber. Toggle **All / Bullish P1 / Bearish P1** to condition on which extreme was set first. |
-| **Weekly P1 Wick** | % of weekly P1 candles (first-extreme candle) where the wick in the P1 direction is larger than the candle body — a sweep-and-reverse signal. | — |
-| **P1 Overshoot** | How far the P1 candle's wick extends beyond its body in the P1 direction, expressed as × ADR14. Median + IQR. Calibrates entry buffers at weekly extreme levels. | — |
+| **Daily Distance** | Given today's current high-low range (as × ADR14), P(historical daily move > today's). Gap to 80th-percentile daily move. High exceedance = today is already an extreme day, don't chase. Live — recomputed on every page load. | — |
+| **P1 Wick Rank** | Current week's P1 wick (normalised by open × ADR14) ranked against all historical P1 wicks. Shows exceedance %, direction (Bullish/Bearish P1), and a rank bar. "P1 not yet set" shown if both weekly extremes haven't formed yet. Live — recomputed on every page load. | — |
 
 A 2-line summary of the most actionable stats is injected into every Telegram signal alert:
 

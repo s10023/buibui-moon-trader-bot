@@ -332,8 +332,8 @@ tp_r_4h = 2.5
         assert cfg.effective_tp_r("morning_evening_star", "BTCUSDT", "15m") == 3.5
         assert cfg.effective_tp_r("morning_evening_star", "BTCUSDT", "1h") == 4.0
         assert cfg.effective_tp_r("morning_evening_star", "BTCUSDT", "4h") == 5.0
-        # trend_day: 4h override 5.0, 1d falls back to global 3.0
-        assert cfg.effective_tp_r("trend_day", "BTCUSDT", "4h") == 5.0
+        # trend_day: 4h override 3.5 (WFO OOS result), 1d falls back to global 3.0
+        assert cfg.effective_tp_r("trend_day", "BTCUSDT", "4h") == 3.5
         assert cfg.effective_tp_r("trend_day", "BTCUSDT", "1d") == 3.0
         assert cfg.effective_tp_r("orb", "BTCUSDT", "1h") == 3.0
         # strategy not in params falls back to global

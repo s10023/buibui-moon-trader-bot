@@ -7,24 +7,24 @@ import pytest
 
 from analytics.data_store import init_schema
 from analytics.stats_lib import (
+    DailyDistanceResult,
     StatsBundle,
     WeeklyCurrentState,
     WeeklyFlipRiskConditioned,
-    WeeklyP1Overshoot,
     WeeklyP2Timing,
-    WeeklyWickWarning,
+    WeeklyWickPercentile,
     compute_adr,
     compute_all,
+    compute_daily_distance,
     compute_dow_patterns,
     compute_hourly_extremes,
     compute_p1p2_daily,
     compute_session_breakdown,
     compute_weekly_current_state,
     compute_weekly_flip_risk_conditioned,
-    compute_weekly_p1_overshoot,
     compute_weekly_p1p2,
     compute_weekly_p2_timing,
-    compute_weekly_wick_warning,
+    compute_weekly_wick_percentile,
 )
 
 _SYMBOL = "TESTUSDT"
@@ -55,9 +55,10 @@ def _myt_hour(utc_ts: int) -> int:
 def _make_candles() -> list[dict]:
     """Generate 14 days × 24 hourly candles with deterministic highs/lows.
 
-    Base date is 20 days ago so candles fall within the 30-day lookback window.
+    Base date is 21 days ago so candles end ~8 days ago — safely before the current ISO
+    week on any day of the week (current week starts at most 7 days ago).
     """
-    base_utc = datetime.now(tz=UTC) - timedelta(days=20)
+    base_utc = datetime.now(tz=UTC) - timedelta(days=21)
     # Align to midnight UTC
     base_utc = base_utc.replace(hour=0, minute=0, second=0, microsecond=0)
     rows = []
@@ -384,98 +385,64 @@ def test_compute_weekly_flip_risk_conditioned_basic(
 # ── F3a: compute_weekly_wick_warning tests ────────────────────────────────────
 
 
-def test_compute_weekly_wick_warning_basic(conn: duckdb.DuckDBPyConnection) -> None:
-    """Wick warning returns a valid percentage and positive sample count."""
-    result = compute_weekly_wick_warning(conn, _SYMBOL, days=30)
-    assert isinstance(result, WeeklyWickWarning)
-    assert 0.0 <= result.wick_gt_body_pct <= 1.0
+# ── F3b: compute_daily_distance tests ────────────────────────────────────────
+
+
+def test_compute_daily_distance_basic(conn: duckdb.DuckDBPyConnection) -> None:
+    """daily_distance returns valid exceedance and p80 values."""
+    adr = compute_adr(conn, _SYMBOL)
+    result = compute_daily_distance(conn, _SYMBOL, adr.adr_14, days=30)
+    assert isinstance(result, DailyDistanceResult)
+    assert 0.0 <= result.exceedance_pct <= 1.0
+    assert result.p80_of_adr > 0.0
     assert result.sample_count > 0
+    # gap_to_p80 is non-negative when present
+    if result.gap_to_p80 is not None:
+        assert result.gap_to_p80 > 0.0
 
 
-def test_compute_weekly_wick_warning_known_ratio(
+def test_compute_daily_distance_zero_adr(conn: duckdb.DuckDBPyConnection) -> None:
+    """Returns None when adr_14 is zero (avoids division by zero)."""
+    result = compute_daily_distance(conn, _SYMBOL, adr_14=0.0, days=30)
+    assert result is None
+
+
+def test_compute_daily_distance_exceedance_vs_p80(
     conn: duckdb.DuckDBPyConnection,
 ) -> None:
-    """With a half-wick-gt-body fixture, wick_gt_body_pct should be ~0.5."""
-    # Insert 2 additional weeks with controlled candles (one wick>body, one not)
-    # Week A: P1=low candle with big lower wick (wick > body)
-    # Week B: P1=low candle with tiny lower wick (wick < body)
-    # Use timestamps far in the past (> 30d) to avoid mixing with test fixture
-    base_far = int(
-        (datetime.now(tz=UTC) - timedelta(days=100))
-        .replace(hour=0, minute=0, second=0, microsecond=0)
-        .timestamp()
-        * 1000
-    )
-
-    # Week A (Mon = first candle of week): P1=low with big wick
-    # body = |close - open| = 0; lower wick = open - low = 200
-    # P1=low candle: low=39800, open=close=40000 → wick=200 > body=0  ✓
-    # Next candle (Tue): high=41000 → P2=high set after Mon
-    conn.execute(
-        "INSERT OR REPLACE INTO ohlcv (symbol, timeframe, open_time, open, high, low, close, volume, taker_buy_volume) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [_SYMBOL, "1h", base_far, 40000.0, 40200.0, 39800.0, 40000.0, 100.0, 50.0],
-    )
-    conn.execute(
-        "INSERT OR REPLACE INTO ohlcv (symbol, timeframe, open_time, open, high, low, close, volume, taker_buy_volume) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [
-            _SYMBOL,
-            "1h",
-            base_far + 86400_000,
-            40000.0,
-            41000.0,
-            40000.0,
-            40000.0,
-            100.0,
-            50.0,
-        ],
-    )
-
-    # Week B (7 days after week A): P1=low with tiny wick (wick < body)
-    # body = |close - open| = 500; lower wick = open - low = 10 < 500 ✗
-    week_b = base_far + 7 * 86400_000
-    conn.execute(
-        "INSERT OR REPLACE INTO ohlcv (symbol, timeframe, open_time, open, high, low, close, volume, taker_buy_volume) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [_SYMBOL, "1h", week_b, 40000.0, 40200.0, 39990.0, 40500.0, 100.0, 50.0],
-    )
-    conn.execute(
-        "INSERT OR REPLACE INTO ohlcv (symbol, timeframe, open_time, open, high, low, close, volume, taker_buy_volume) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [
-            _SYMBOL,
-            "1h",
-            week_b + 86400_000,
-            40500.0,
-            41000.0,
-            40500.0,
-            40500.0,
-            100.0,
-            50.0,
-        ],
-    )
-
-    # Query with days=120 to pick up both new weeks
-    result = compute_weekly_wick_warning(conn, _SYMBOL, days=120)
-    assert isinstance(result, WeeklyWickWarning)
-    assert result.sample_count >= 2
-    # At least one wick_gt_body should be present
-    assert result.wick_gt_body_pct > 0.0
-
-
-# ── F3b: compute_weekly_p1_overshoot tests ────────────────────────────────────
-
-
-def test_compute_weekly_p1_overshoot_basic(conn: duckdb.DuckDBPyConnection) -> None:
-    """P1 overshoot returns non-negative values and positive sample count."""
+    """When today's range exceeds p80, gap_to_p80 is None and exceedance_pct is low."""
     adr = compute_adr(conn, _SYMBOL)
-    result = compute_weekly_p1_overshoot(conn, _SYMBOL, days=30, adr_14=adr.adr_14)
-    assert isinstance(result, WeeklyP1Overshoot)
-    assert result.sample_count > 0
-    assert result.median_of_adr >= 0.0
-    assert result.p25_of_adr >= 0.0
-    assert result.p75_of_adr >= 0.0
-    # p25 ≤ median ≤ p75 (within float tolerance)
-    assert result.p25_of_adr <= result.median_of_adr + 1e-9
-    assert result.median_of_adr <= result.p75_of_adr + 1e-9
+    result = compute_daily_distance(conn, _SYMBOL, adr.adr_14, days=30)
+    assert result is not None
+    if result.gap_to_p80 is None:
+        # Already past p80 → exceedance should be ≤ 0.20 (top 20%)
+        assert result.exceedance_pct <= 0.20 + 1e-6
+
+
+# ── F3c: compute_weekly_wick_percentile tests ─────────────────────────────────
+
+
+def test_compute_weekly_wick_percentile_basic(conn: duckdb.DuckDBPyConnection) -> None:
+    """Weekly wick percentile returns a valid result with positive sample count."""
+    adr = compute_adr(conn, _SYMBOL)
+    result = compute_weekly_wick_percentile(conn, _SYMBOL, adr.adr_14, days=30)
+    assert isinstance(result, WeeklyWickPercentile)
+    assert result.sample_count >= 0
+    # If current week P1 is set, values must be valid
+    if result.exceedance_pct is not None:
+        assert 0.0 <= result.exceedance_pct <= 1.0
+        assert result.current_wick_of_adr is not None
+        assert result.current_wick_of_adr >= 0.0
+        assert result.p1_direction in ("low", "high")
+
+
+def test_compute_weekly_wick_percentile_zero_adr(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """Returns all-None result when adr_14 is zero."""
+    result = compute_weekly_wick_percentile(conn, _SYMBOL, adr_14=0.0, days=30)
+    assert isinstance(result, WeeklyWickPercentile)
+    assert result.exceedance_pct is None
+    assert result.current_wick_of_adr is None
+    assert result.p1_direction is None
+    assert result.sample_count == 0
