@@ -72,6 +72,7 @@ def _bundle_to_response(bundle: StatsBundle) -> StatsResponse:
         overall_p1_low_pct=bundle.p1p2.overall_p1_low_pct,
         by_dow=by_dow_list,
         sample_days=bundle.p1p2.sample_days,
+        p1_strong_pct=bundle.p1p2.p1_strong_pct,
     )
 
     # Hourly
@@ -100,6 +101,8 @@ def _bundle_to_response(bundle: StatsBundle) -> StatsResponse:
             bull_pct=row.bull_pct,
             sample_days=row.sample_days,
             avg_return_pct=row.avg_return_pct,
+            strong_high_pct=row.strong_high_pct,
+            strong_low_pct=row.strong_low_pct,
         )
         for row in bundle.dow.rows
     ]

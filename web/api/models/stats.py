@@ -13,6 +13,7 @@ class P1P2Response(BaseModel):
     overall_p1_low_pct: float
     by_dow: list[P1P2DOWRow]
     sample_days: int
+    p1_strong_pct: float = 0.0
 
 
 class HourlyExtremeRow(BaseModel):
@@ -34,6 +35,8 @@ class DOWPatternRow(BaseModel):
     bull_pct: float
     sample_days: int
     avg_return_pct: float
+    strong_high_pct: float = 0.0
+    strong_low_pct: float = 0.0
 
 
 class SessionRow(BaseModel):

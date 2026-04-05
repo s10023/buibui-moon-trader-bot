@@ -46,6 +46,9 @@ class P1P2Result:
     overall_p1_low_pct: float  # % of days where low came before high
     by_dow: dict[str, float]  # "Mon" → 0.58, "Tue" → 0.44, ...
     sample_days: int
+    p1_strong_pct: float = (
+        0.0  # fraction of P1 candles where P1 extreme wick < 20% of range
+    )
 
 
 @dataclass
@@ -92,6 +95,8 @@ class DOWRow:
     bull_pct: float  # % days close > open
     sample_days: int
     avg_return_pct: float = 0.0  # avg (close-open)/open — directional return
+    strong_high_pct: float = 0.0  # fraction of days where upper wick < 20% of range
+    strong_low_pct: float = 0.0  # fraction of days where lower wick < 20% of range
 
 
 @dataclass
@@ -256,9 +261,7 @@ def compute_p1p2_daily(
         """
         WITH hourly AS (
             SELECT
-                open_time,
-                high,
-                low,
+                open_time, high, low, open, close,
                 (epoch_ms(open_time)::TIMESTAMP)::DATE   AS trade_date,
                 dayname((epoch_ms(open_time)::TIMESTAMP)::DATE) AS dow
             FROM ohlcv
@@ -266,22 +269,32 @@ def compute_p1p2_daily(
               AND open_time >= $start_ms
         ),
         daily_extremes AS (
-            SELECT trade_date, dow, MAX(high) AS day_high, MIN(low) AS day_low
+            SELECT trade_date, dow,
+                MAX(high) AS day_high, MIN(low) AS day_low,
+                FIRST(open ORDER BY open_time) AS day_open,
+                LAST(close ORDER BY open_time) AS day_close
             FROM hourly GROUP BY trade_date, dow
         ),
         first_hit AS (
             SELECT
-                h.trade_date,
-                de.dow,
+                h.trade_date, de.dow,
+                de.day_high, de.day_low, de.day_open, de.day_close,
                 MIN(CASE WHEN h.high = de.day_high THEN h.open_time END) AS high_ts,
                 MIN(CASE WHEN h.low  = de.day_low  THEN h.open_time END) AS low_ts
             FROM hourly h JOIN daily_extremes de ON h.trade_date = de.trade_date
-            GROUP BY h.trade_date, de.dow
+            GROUP BY h.trade_date, de.dow, de.day_high, de.day_low, de.day_open, de.day_close
         )
         SELECT
             dow,
             SUM(CASE WHEN low_ts < high_ts THEN 1 ELSE 0 END)::DOUBLE / COUNT(*) AS p1_low_pct,
-            COUNT(*) AS n
+            COUNT(*) AS n,
+            AVG(CASE
+                WHEN (day_high - day_low) > 0 AND low_ts < high_ts AND
+                     (LEAST(day_open, day_close) - day_low) / (day_high - day_low) < 0.20 THEN 1.0
+                WHEN (day_high - day_low) > 0 AND low_ts >= high_ts AND
+                     (day_high - GREATEST(day_open, day_close)) / (day_high - day_low) < 0.20 THEN 1.0
+                ELSE 0.0
+            END) AS p1_strong_pct
         FROM first_hit
         WHERE high_ts IS NOT NULL AND low_ts IS NOT NULL
         GROUP BY dow
@@ -294,19 +307,23 @@ def compute_p1p2_daily(
 
     by_dow: dict[str, float] = {}
     total_p1_sum = 0.0
+    total_strong_sum = 0.0
     total_n = 0
 
-    for dow_full, p1_pct, n in rows:
+    for dow_full, p1_pct, n, p1_strong in rows:
         short = _DOW_SHORT.get(str(dow_full), str(dow_full)[:3])
         by_dow[short] = float(p1_pct)
         total_p1_sum += float(p1_pct) * int(n)
+        total_strong_sum += float(p1_strong) * int(n)
         total_n += int(n)
 
     overall = total_p1_sum / total_n if total_n > 0 else 0.0
+    p1_strong_overall = total_strong_sum / total_n if total_n > 0 else 0.0
     return P1P2Result(
         overall_p1_low_pct=overall,
         by_dow=by_dow,
         sample_days=total_n,
+        p1_strong_pct=p1_strong_overall,
     )
 
 
@@ -526,7 +543,17 @@ def compute_dow_patterns(
             AVG((day_high - day_low) / day_open) AS avg_range_pct,
             SUM(CASE WHEN day_close > day_open THEN 1 ELSE 0 END)::DOUBLE / COUNT(*) AS bull_pct,
             COUNT(*) AS sample_days,
-            AVG((day_close - day_open) / day_open) AS avg_return_pct
+            AVG((day_close - day_open) / day_open) AS avg_return_pct,
+            AVG(CASE
+                WHEN (day_high - day_low) > 0 AND
+                     (day_high - GREATEST(day_open, day_close)) / (day_high - day_low) < 0.20
+                THEN 1.0 ELSE 0.0
+            END) AS strong_high_pct,
+            AVG(CASE
+                WHEN (day_high - day_low) > 0 AND
+                     (LEAST(day_open, day_close) - day_low) / (day_high - day_low) < 0.20
+                THEN 1.0 ELSE 0.0
+            END) AS strong_low_pct
         FROM daily
         WHERE day_open > 0
         GROUP BY dow
@@ -539,7 +566,7 @@ def compute_dow_patterns(
         raise ValueError(f"No OHLCV data for {symbol}")
 
     dow_map: dict[str, DOWRow] = {}
-    for dow_full, avg_range, bull_pct, n, avg_return in rows:
+    for dow_full, avg_range, bull_pct, n, avg_return, strong_high, strong_low in rows:
         short = _DOW_SHORT.get(str(dow_full), str(dow_full)[:3])
         dow_map[short] = DOWRow(
             dow=short,
@@ -547,6 +574,8 @@ def compute_dow_patterns(
             bull_pct=float(bull_pct),
             sample_days=int(n),
             avg_return_pct=float(avg_return),
+            strong_high_pct=float(strong_high),
+            strong_low_pct=float(strong_low),
         )
 
     # Return in Mon–Sun order

@@ -338,6 +338,7 @@ export interface P1P2Response {
   overall_p1_low_pct: number;
   by_dow: P1P2DOWRow[];
   sample_days: number;
+  p1_strong_pct: number;
 }
 
 export interface HourlyExtremeRow {
@@ -359,6 +360,8 @@ export interface DOWPatternRow {
   bull_pct: number;
   sample_days: number;
   avg_return_pct: number;
+  strong_high_pct: number;
+  strong_low_pct: number;
 }
 
 export interface SessionRow {

@@ -215,6 +215,8 @@
             High made before Low: <span class="val-accent">{formatPct(1 - stats.p1p2.overall_p1_low_pct)}</span>
           {/if}
           <span class="muted"> ({stats.p1p2.sample_days}d sampled)</span>
+          · P1 strong: <span class="val-accent">{formatPct(stats.p1p2.p1_strong_pct)}</span>
+          <span class="p1-strong-hint muted">(wick &lt; 20% of range)</span>
         </div>
         <div class="dow-bars">
           {#each p1p2Rows as row}
@@ -347,6 +349,8 @@
               <th>Avg Range</th>
               <th>Direction</th>
               <th>Avg Return</th>
+              <th title="Strong high: upper wick < 20% of range (closed near the high)">Str H</th>
+              <th title="Strong low: lower wick < 20% of range (closed near the low)">Str L</th>
               <th title="Number of that weekday in the lookback window">N</th>
             </tr>
           </thead>
@@ -377,6 +381,12 @@
                 </td>
                 <td class:val-green={isPos} class:val-red={!isPos}>
                   {isPos ? "+" : ""}{(ret * 100).toFixed(1)}%
+                </td>
+                <td class="strong-cell" class:strong-hi={row.strong_high_pct >= 0.6} class:strong-lo-dim={row.strong_high_pct < 0.4}>
+                  {(row.strong_high_pct * 100).toFixed(0)}%
+                </td>
+                <td class="strong-cell" class:strong-lo={row.strong_low_pct >= 0.6} class:strong-lo-dim={row.strong_low_pct < 0.4}>
+                  {(row.strong_low_pct * 100).toFixed(0)}%
                 </td>
                 <td class="val-muted">{row.sample_days}</td>
               </tr>
@@ -1469,5 +1479,31 @@
 
   .val-amber {
     color: var(--amber, #f59e0b);
+  }
+
+  /* Strong H/L table cells */
+  .strong-cell {
+    font-size: 11px;
+    font-feature-settings: "tnum" 1;
+    text-align: right;
+    color: var(--muted);
+  }
+
+  .strong-hi {
+    color: var(--accent);
+  }
+
+  .strong-lo {
+    color: var(--green, #22c55e);
+  }
+
+  .strong-lo-dim {
+    opacity: 0.5;
+  }
+
+  /* P1 strong hint in P1/P2 card subtitle */
+  .p1-strong-hint {
+    font-size: 10px;
+    margin-left: 2px;
   }
 </style>
