@@ -290,9 +290,9 @@ def compute_p1p2_daily(
             COUNT(*) AS n,
             AVG(CASE
                 WHEN (day_high - day_low) > 0 AND low_ts < high_ts AND
-                     (LEAST(day_open, day_close) - day_low) / (day_high - day_low) < 0.20 THEN 1.0
+                     (day_high - day_close) / (day_high - day_low) < 0.20 THEN 1.0
                 WHEN (day_high - day_low) > 0 AND low_ts >= high_ts AND
-                     (day_high - GREATEST(day_open, day_close)) / (day_high - day_low) < 0.20 THEN 1.0
+                     (day_close - day_low) / (day_high - day_low) < 0.20 THEN 1.0
                 ELSE 0.0
             END) AS p1_strong_pct
         FROM first_hit
@@ -546,12 +546,12 @@ def compute_dow_patterns(
             AVG((day_close - day_open) / day_open) AS avg_return_pct,
             AVG(CASE
                 WHEN (day_high - day_low) > 0 AND
-                     (day_high - day_close) / (day_high - day_low) < 0.20
+                     (day_close - day_low) / (day_high - day_low) < 0.20
                 THEN 1.0 ELSE 0.0
             END) AS strong_high_pct,
             AVG(CASE
                 WHEN (day_high - day_low) > 0 AND
-                     (day_close - day_low) / (day_high - day_low) < 0.20
+                     (day_high - day_close) / (day_high - day_low) < 0.20
                 THEN 1.0 ELSE 0.0
             END) AS strong_low_pct
         FROM daily

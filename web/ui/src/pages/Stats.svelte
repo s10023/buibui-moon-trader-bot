@@ -216,7 +216,7 @@
           {/if}
           <span class="muted"> ({stats.p1p2.sample_days}d sampled)</span>
           · P1 strong: <span class="val-accent">{formatPct(stats.p1p2.p1_strong_pct)}</span>
-          <span class="p1-strong-hint muted">(wick &lt; 20% of range)</span>
+          <span class="p1-strong-hint muted">(closed near P2 extreme)</span>
         </div>
         <div class="dow-bars">
           {#each p1p2Rows as row}
@@ -349,8 +349,8 @@
               <th>Avg Range</th>
               <th>Direction</th>
               <th>Avg Return</th>
-              <th title="Strong high: close in top 20% of day's range">Str H</th>
-              <th title="Strong low: close in bottom 20% of day's range">Str L</th>
+              <th title="Strong high: close in bottom 20% of range — high strongly rejected, likely to hold">Str H</th>
+              <th title="Strong low: close in top 20% of range — low strongly rejected, likely to hold">Str L</th>
               <th title="Number of that weekday in the lookback window">N</th>
             </tr>
           </thead>
