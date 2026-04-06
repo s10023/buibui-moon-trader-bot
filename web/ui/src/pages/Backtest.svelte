@@ -31,6 +31,8 @@
   let minShortWinRateText = $state("");   // "" = no minimum
   let minLongAvgRText = $state("");       // "" = no minimum
   let minShortAvgRText = $state("");      // "" = no minimum
+  let minLongTotalRText = $state("");     // "" = no minimum
+  let minShortTotalRText = $state("");    // "" = no minimum
   let minWinRateText = $state("");        // "" = no minimum
   let minTotalRText = $state("");         // "" = no minimum
   let maxDrawdownRText = $state("");      // "" = no maximum
@@ -75,6 +77,8 @@
     minShortWinRateText !== "" ||
     minLongAvgRText !== "" ||
     minShortAvgRText !== "" ||
+    minLongTotalRText !== "" ||
+    minShortTotalRText !== "" ||
     minWinRateText !== "" ||
     minTotalRText !== "" ||
     maxDrawdownRText !== "" ||
@@ -91,6 +95,8 @@
     const mswr  = minShortWinRateText === "" ? -Infinity : (parseFloat(minShortWinRateText) / 100 || -Infinity);
     const mlar  = minLongAvgRText     === "" ? -Infinity : (parseFloat(minLongAvgRText)      || -Infinity);
     const msar  = minShortAvgRText    === "" ? -Infinity : (parseFloat(minShortAvgRText)     || -Infinity);
+    const mltr  = minLongTotalRText   === "" ? -Infinity : (parseFloat(minLongTotalRText)    || -Infinity);
+    const mstr  = minShortTotalRText  === "" ? -Infinity : (parseFloat(minShortTotalRText)   || -Infinity);
     const mwr   = minWinRateText      === "" ? -Infinity : (parseFloat(minWinRateText)  / 100 || -Infinity);
     const mtr   = minTotalRText       === "" ? -Infinity : (parseFloat(minTotalRText)        || -Infinity);
     // user types negative (e.g. -10); stored value is positive — negate to compare
@@ -159,6 +165,8 @@
     minShortWinRateText = "";
     minLongAvgRText = "";
     minShortAvgRText = "";
+    minLongTotalRText = "";
+    minShortTotalRText = "";
     minWinRateText = "";
     minTotalRText = "";
     maxDrawdownRText = "";
