@@ -226,7 +226,8 @@ docker-signal-watch:
 
 buibui-web:
 	@echo "Starting web backend..."
-	poetry run python buibui.py web --host 0.0.0.0 --port $(PORT)
+	poetry run python buibui.py web --host 0.0.0.0 --port $(PORT) \
+		$(if $(CONFIG),--config $(CONFIG),)
 
 web-install:
 	cd web/ui && npm install

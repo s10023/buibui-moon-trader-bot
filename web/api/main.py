@@ -1,8 +1,10 @@
 """FastAPI application — lifespan, CORS, health endpoint, router mounts."""
 
+import logging
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import duckdb
 import uvicorn
@@ -26,6 +28,47 @@ from web.api.routers import (
 )
 
 
+def _load_active_config(config_path: str) -> None:
+    """Parse TOML config and populate app.state with config name and structured data.
+
+    Called once at startup. Logs a warning and leaves state empty on any failure.
+    """
+    from analytics.signal_config import load_signal_config
+    from web.api.models.active_config import ActiveConfigResponse, StrategyParamsModel
+
+    try:
+        sw_cfg = load_signal_config(config_path)
+        config_name = Path(config_path).stem
+        app.state.config_name = config_name
+        app.state.active_config = ActiveConfigResponse(
+            config_name=config_name,
+            symbols=sw_cfg.symbols,
+            timeframes=sw_cfg.timeframes,
+            strategies=sw_cfg.strategies,
+            day_filter=sw_cfg.day_filter,
+            tp_r=sw_cfg.tp_r,
+            sl_pct=sw_cfg.sl_pct,
+            fee_pct=sw_cfg.backtest.fee_pct,
+            min_sl_pct=sw_cfg.backtest.min_sl_pct,
+            adr_suppress_threshold=sw_cfg.bias.adr_suppress_threshold,
+            strategy_params={
+                name: StrategyParamsModel(
+                    tp_r=override.tp_r,
+                    sl_pct=override.sl_pct,
+                    tp_r_per_tf=override.tp_r_per_tf,
+                )
+                for name, override in sw_cfg.strategy_params.items()
+            },
+        )
+        logging.info("Active config loaded: %s", config_name)
+    except Exception:
+        logging.warning(
+            "Failed to load active config from %s", config_path, exc_info=True
+        )
+        app.state.config_name = None
+        app.state.active_config = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Open DB (brief RW for schema, then read-only) and Binance client on startup."""
@@ -38,6 +81,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         pass  # DB locked by signal daemon; schema already initialised
     app.state.db_path = str(DEFAULT_DB_PATH)
     app.state.binance_client = create_client()
+    config_path = os.environ.get("BUIBUI_CONFIG")
+    if config_path:
+        _load_active_config(config_path)
+    else:
+        app.state.config_name = None
+        app.state.active_config = None
     yield
 
 

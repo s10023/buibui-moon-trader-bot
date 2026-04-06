@@ -4,9 +4,9 @@ import { getStrategies, type StrategiesResponse } from "../api";
 export const strategiesStore = writable<StrategiesResponse>({});
 export const strategiesError = writable<string | null>(null);
 
-export async function loadStrategies(): Promise<void> {
+export async function loadStrategies(configName?: string | null): Promise<void> {
   try {
-    strategiesStore.set(await getStrategies());
+    strategiesStore.set(await getStrategies(configName));
   } catch (e) {
     strategiesError.set(String(e));
   }
