@@ -202,7 +202,7 @@
     const todayCandles = data.filter(c => between(c, todayStart, todayStart + DAY));
     if (todayCandles.length > 0) {
       const c = todayCandles[0];
-      levels.push({ label: "DO", price: c.open, originTimeSec: c.open_time / 1000, color: "#6e7681" });
+      levels.push({ label: "DO", price: c.open, originTimeSec: c.open_time / 1000, color: "#bc8cff" });
     }
 
     // PDH / PDL — previous day
