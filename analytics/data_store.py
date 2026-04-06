@@ -155,6 +155,7 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
         ("adr_suppress_threshold", "REAL"),
         ("long_total_r", "DOUBLE"),
         ("short_total_r", "DOUBLE"),
+        ("recovery_factor", "DOUBLE"),
     ]:
         if col not in existing_bt_cols:
             conn.execute(f"ALTER TABLE backtest_runs ADD COLUMN {col} {dtype}")
@@ -549,6 +550,7 @@ def upsert_backtest_run(
         "short_avg_r": result.short_avg_r,
         "long_total_r": result.long_total_r,
         "short_total_r": result.short_total_r,
+        "recovery_factor": result.recovery_factor,
     }
     df = pd.DataFrame([row])
     conn.register("_bt_run_upsert_df", df)
@@ -561,7 +563,7 @@ def upsert_backtest_run(
             "win_rate, avg_r, total_r, max_drawdown_r, run_at_ms, sweep_id, "
             "long_closed_trades, long_win_count, long_win_rate, long_avg_r, "
             "short_closed_trades, short_win_count, short_win_rate, short_avg_r, "
-            "adr_suppress_threshold, long_total_r, short_total_r "
+            "adr_suppress_threshold, long_total_r, short_total_r, recovery_factor "
             "FROM _bt_run_upsert_df"
         )
     finally:
@@ -624,9 +626,9 @@ def list_backtest_runs(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     return conn.execute(
         "SELECT b.run_id, b.symbol, b.timeframe, b.strategy, b.days, b.sl_pct, b.tp_r, "
         "b.fee_pct, b.day_filter, b.closed_trades, b.win_count, b.loss_count, b.win_rate, "
-        "b.avg_r, b.total_r, b.max_drawdown_r, b.sweep_id, b.run_at_ms, "
-        "b.long_closed_trades, b.long_win_count, b.long_win_rate, b.long_avg_r, "
-        "b.short_closed_trades, b.short_win_count, b.short_win_rate, b.short_avg_r, "
+        "b.avg_r, b.total_r, b.max_drawdown_r, b.recovery_factor, b.sweep_id, b.run_at_ms, "
+        "b.long_closed_trades, b.long_win_count, b.long_win_rate, b.long_avg_r, b.long_total_r, "
+        "b.short_closed_trades, b.short_win_count, b.short_win_rate, b.short_avg_r, b.short_total_r, "
         "b.adr_suppress_threshold, cr.stars, cr_long.long_stars, cr_short.short_stars "
         "FROM ("
         "  SELECT *, ROW_NUMBER() OVER ("
