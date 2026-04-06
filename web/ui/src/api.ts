@@ -190,14 +190,18 @@ export interface PricesResponse {
 export interface PositionRow {
   symbol: string;
   side: string;
+  position_side: string;
   leverage: number | null;
+  margin_type: string | null;
   entry_price: number | null;
   mark_price: number | null;
+  liq_price: number | null;
   margin: number | null;
   notional: number | null;
   pnl: number | null;
   pnl_pct: number | null;
   risk_pct: string | null;
+  tp_price: number | null;
   sl_price: number | null;
   sl_size: string | null;
   sl_usd: string | null;
