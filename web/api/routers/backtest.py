@@ -134,9 +134,11 @@ def run_backtest_endpoint(
         long_win_count=result.long_win_count,
         long_win_rate=result.long_win_rate,
         long_avg_r=result.long_avg_r,
+        long_total_r=result.long_total_r,
         short_closed_trades=len(result.short_closed_trades),
         short_win_count=result.short_win_count,
         short_win_rate=result.short_win_rate,
         short_avg_r=result.short_avg_r,
+        short_total_r=result.short_total_r,
         trades=trades,
     )

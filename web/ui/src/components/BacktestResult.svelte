@@ -40,6 +40,8 @@
   const curveColor = $derived(finalR >= 0 ? "var(--green)" : "var(--red)");
   const wr = $derived(`${(result.win_rate * 100).toFixed(1)}%`);
   const totalRClass = $derived(result.total_r >= 0 ? "green" : "red");
+  const longTotalRClass = $derived((result.long_total_r ?? 0) >= 0 ? "green" : "red");
+  const shortTotalRClass = $derived((result.short_total_r ?? 0) >= 0 ? "green" : "red");
 </script>
 
 <div class="result">
@@ -67,6 +69,14 @@
     <div class="stat">
       <span class="sl">Max Drawdown</span>
       <span class="sv red">{result.max_drawdown_r.toFixed(2)}</span>
+    </div>
+    <div class="stat">
+      <span class="sl">↑ Total R</span>
+      <span class="sv {longTotalRClass}">{result.long_total_r != null ? (result.long_total_r >= 0 ? "+" : "") + result.long_total_r.toFixed(2) : "—"}</span>
+    </div>
+    <div class="stat">
+      <span class="sl">↓ Total R</span>
+      <span class="sv {shortTotalRClass}">{result.short_total_r != null ? (result.short_total_r >= 0 ? "+" : "") + result.short_total_r.toFixed(2) : "—"}</span>
     </div>
   </div>
 

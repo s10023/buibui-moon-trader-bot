@@ -117,8 +117,10 @@ class BacktestResponse(BaseModel):
     long_win_count: int
     long_win_rate: float | None
     long_avg_r: float | None
+    long_total_r: float | None
     short_closed_trades: int
     short_win_count: int
     short_win_rate: float | None
     short_avg_r: float | None
+    short_total_r: float | None
     trades: list[TradeModel]
