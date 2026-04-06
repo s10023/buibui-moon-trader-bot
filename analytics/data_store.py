@@ -130,7 +130,9 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
             short_closed_trades  INTEGER,
             short_win_count      INTEGER,
             short_win_rate       DOUBLE,
-            short_avg_r          DOUBLE
+            short_avg_r          DOUBLE,
+            long_total_r         DOUBLE,
+            short_total_r        DOUBLE
         )
     """)
     # Migration: add long/short split columns to existing DBs.
@@ -151,6 +153,8 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
         ("short_win_rate", "DOUBLE"),
         ("short_avg_r", "DOUBLE"),
         ("adr_suppress_threshold", "REAL"),
+        ("long_total_r", "DOUBLE"),
+        ("short_total_r", "DOUBLE"),
     ]:
         if col not in existing_bt_cols:
             conn.execute(f"ALTER TABLE backtest_runs ADD COLUMN {col} {dtype}")
@@ -543,6 +547,8 @@ def upsert_backtest_run(
         "short_win_count": result.short_win_count,
         "short_win_rate": result.short_win_rate,
         "short_avg_r": result.short_avg_r,
+        "long_total_r": result.long_total_r,
+        "short_total_r": result.short_total_r,
     }
     df = pd.DataFrame([row])
     conn.register("_bt_run_upsert_df", df)
@@ -555,7 +561,7 @@ def upsert_backtest_run(
             "win_rate, avg_r, total_r, max_drawdown_r, run_at_ms, sweep_id, "
             "long_closed_trades, long_win_count, long_win_rate, long_avg_r, "
             "short_closed_trades, short_win_count, short_win_rate, short_avg_r, "
-            "adr_suppress_threshold "
+            "adr_suppress_threshold, long_total_r, short_total_r "
             "FROM _bt_run_upsert_df"
         )
     finally:

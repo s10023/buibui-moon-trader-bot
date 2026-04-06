@@ -176,6 +176,16 @@ class BacktestResult:
         r_values = [t.pnl_r for t in self.closed_trades if t.pnl_r is not None]
         return sum(r_values)
 
+    @property
+    def long_total_r(self) -> float:
+        r_values = [t.pnl_r for t in self.long_closed_trades if t.pnl_r is not None]
+        return sum(r_values)
+
+    @property
+    def short_total_r(self) -> float:
+        r_values = [t.pnl_r for t in self.short_closed_trades if t.pnl_r is not None]
+        return sum(r_values)
+
     @functools.cached_property
     def low_vol_closed_trades(self) -> list[Trade]:
         return [t for t in self.closed_trades if t.low_volume]
