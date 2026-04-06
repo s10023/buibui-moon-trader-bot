@@ -44,7 +44,9 @@ def get_backtest_win_rates(
     else:
         adr_clause = "AND adr_suppress_threshold IS NULL"
     cursor = conn.execute(
-        f"SELECT strategy, timeframe, symbol, run_at_ms, closed_trades, win_count, avg_r "
+        f"SELECT strategy, timeframe, symbol, run_at_ms, closed_trades, win_count, avg_r, "
+        f"long_closed_trades, long_win_count, long_avg_r, "
+        f"short_closed_trades, short_win_count, short_avg_r "
         f"FROM backtest_runs "
         f"WHERE closed_trades > 0 {day_filter_clause} {adr_clause}",
         params,
@@ -52,7 +54,19 @@ def get_backtest_win_rates(
     rows = cursor.fetchall()
     if not rows:
         return pd.DataFrame(
-            columns=["strategy", "timeframe", "total_trades", "win_rate", "avg_r"]
+            columns=[
+                "strategy",
+                "timeframe",
+                "total_trades",
+                "win_rate",
+                "avg_r",
+                "long_total_trades",
+                "long_win_rate",
+                "long_avg_r",
+                "short_total_trades",
+                "short_win_rate",
+                "short_avg_r",
+            ]
         )
 
     raw = pd.DataFrame(
@@ -65,6 +79,12 @@ def get_backtest_win_rates(
             "closed_trades",
             "win_count",
             "avg_r",
+            "long_closed_trades",
+            "long_win_count",
+            "long_avg_r",
+            "short_closed_trades",
+            "short_win_count",
+            "short_avg_r",
         ],
     )
     # Keep only the latest run per (strategy, timeframe, symbol)
@@ -78,13 +98,42 @@ def get_backtest_win_rates(
             total_trades=("closed_trades", "sum"),
             win_count_sum=("win_count", "sum"),
             avg_r=("avg_r", "mean"),
+            long_total_trades=("long_closed_trades", "sum"),
+            long_win_count_sum=("long_win_count", "sum"),
+            long_avg_r=("long_avg_r", "mean"),
+            short_total_trades=("short_closed_trades", "sum"),
+            short_win_count_sum=("short_win_count", "sum"),
+            short_avg_r=("short_avg_r", "mean"),
         )
         .reset_index()
     )
     agg["win_rate"] = (agg["win_count_sum"] / agg["total_trades"]).round(4)
     agg["avg_r"] = agg["avg_r"].round(4)
     agg["total_trades"] = agg["total_trades"].astype(int)
-    return agg[["strategy", "timeframe", "total_trades", "win_rate", "avg_r"]]
+    # Directional win rates — guard against zero-trade denominator
+    long_n = agg["long_total_trades"].replace(0, float("nan"))
+    short_n = agg["short_total_trades"].replace(0, float("nan"))
+    agg["long_win_rate"] = (agg["long_win_count_sum"] / long_n).round(4)
+    agg["short_win_rate"] = (agg["short_win_count_sum"] / short_n).round(4)
+    agg["long_avg_r"] = agg["long_avg_r"].round(4)
+    agg["short_avg_r"] = agg["short_avg_r"].round(4)
+    agg["long_total_trades"] = agg["long_total_trades"].fillna(0).astype(int)
+    agg["short_total_trades"] = agg["short_total_trades"].fillna(0).astype(int)
+    return agg[
+        [
+            "strategy",
+            "timeframe",
+            "total_trades",
+            "win_rate",
+            "avg_r",
+            "long_total_trades",
+            "long_win_rate",
+            "long_avg_r",
+            "short_total_trades",
+            "short_win_rate",
+            "short_avg_r",
+        ]
+    ]
 
 
 def win_rate_to_stars(
@@ -147,6 +196,48 @@ def compute_recalibrated_ratings(
     return result
 
 
+def compute_directional_ratings(
+    conn: duckdb.DuckDBPyConnection,
+    min_trades: int = 5,
+    day_filter: str | None = None,
+    adr_suppress_threshold: float | None = None,
+) -> dict[str, dict[str, dict[str, int]]]:
+    """Return {strategy: {tf: {"long": stars, "short": stars}}} from backtest DB.
+
+    Uses a lower default min_trades than compute_recalibrated_ratings (5 vs 10)
+    because directional splits have fewer trades than the combined total.
+    Directions with fewer than min_trades are omitted (not rated).
+    """
+    df = get_backtest_win_rates(
+        conn, day_filter=day_filter, adr_suppress_threshold=adr_suppress_threshold
+    )
+    if df.empty:
+        return {}
+
+    result: dict[str, dict[str, dict[str, int]]] = {}
+    for _, row in df.iterrows():
+        strategy = str(row["strategy"])
+        tf = str(row["timeframe"])
+        dir_map: dict[str, int] = {}
+        for direction, total_col, avg_r_col in [
+            ("long", "long_total_trades", "long_avg_r"),
+            ("short", "short_total_trades", "short_avg_r"),
+        ]:
+            total = int(row[total_col]) if row[total_col] == row[total_col] else 0
+            avg_r_raw = row[avg_r_col]
+            if total < min_trades or avg_r_raw != avg_r_raw:
+                continue
+            stars = win_rate_to_stars(float(avg_r_raw), total, min_trades)
+            if stars is not None:
+                dir_map[direction] = stars
+        if dir_map:
+            if strategy not in result:
+                result[strategy] = {}
+            result[strategy][tf] = dir_map
+
+    return result
+
+
 def _fmt_confidence_value(value: dict[str, int] | int) -> str:
     """Format a confidence value as a Python literal for source patching."""
     if isinstance(value, int):
@@ -166,11 +257,13 @@ def format_recalibration_report(
     old_ratings: dict[str, dict[str, int] | int],
     new_ratings: dict[str, dict[str, int]],
     win_rates: pd.DataFrame,
+    directional_ratings: dict[str, dict[str, dict[str, int]]] | None = None,
 ) -> str:
     """Human-readable diff table showing old vs new star ratings per TF.
 
     win_rates must be the DataFrame returned by get_backtest_win_rates().
     Strategies not present in new_ratings (insufficient data) are listed separately.
+    When directional_ratings is provided, appends a directional breakdown section.
     """
     star = lambda n: "★" * n + "☆" * (5 - n)  # noqa: E731
 
@@ -185,16 +278,29 @@ def format_recalibration_report(
                 float(row["win_rate"]),
             )
 
+    # Build directional lookup: (strategy, tf) → (long_avg_r, short_avg_r)
+    dir_stats: dict[tuple[str, str], tuple[float | None, float | None]] = {}
+    if not win_rates.empty and "long_avg_r" in win_rates.columns:
+        for _, row in win_rates.iterrows():
+            key = (str(row["strategy"]), str(row["timeframe"]))
+            lar = row.get("long_avg_r")
+            sar = row.get("short_avg_r")
+            dir_stats[key] = (
+                float(lar) if lar is not None and lar == lar else None,  # noqa: PLR0124
+                float(sar) if sar is not None and sar == sar else None,
+            )
+
     all_strategies = sorted(set(old_ratings) | set(new_ratings))
 
     lines: list[str] = []
-    lines.append("═" * 80)
+    lines.append("═" * 92)
     lines.append("Confidence Star Recalibration Report (Per TF)")
-    lines.append("═" * 80)
+    lines.append("═" * 92)
     lines.append(
-        f"  {'Strategy':<22} {'TF':<5} {'Old':>6} {'New':>6} {'Trades':>8} {'WinRate':>8} {'AvgR':>7}  Change"
+        f"  {'Strategy':<22} {'TF':<5} {'Old':>6} {'New':>6} {'Trades':>8} {'WinRate':>8} {'AvgR':>7}"
+        f"  {'L★':>6} {'S★':>6}  Change"
     )
-    lines.append("─" * 80)
+    lines.append("─" * 92)
 
     changed: list[str] = []
     unchanged: list[str] = []
@@ -224,22 +330,31 @@ def format_recalibration_report(
                 win_rate_str = "—"
                 avg_r_str = "—"
 
+            # Directional stars for this row
+            dir_entry = (directional_ratings or {}).get(strat, {}).get(tf, {})
+            long_s = dir_entry.get("long")
+            short_s = dir_entry.get("short")
+            long_star_str = star(long_s) if long_s is not None else "  — "
+            short_star_str = star(short_s) if short_s is not None else "  — "
+
             if new_stars != old_stars:
-                direction = "▲" if new_stars > old_stars else "▼"
+                arrow = "▲" if new_stars > old_stars else "▼"
                 changed.append(f"{strat}/{tf}")
                 lines.append(
                     f"  {strat:<22} {tf:<5} {star(old_stars):>6} {star(new_stars):>6}"
                     f" {trades_str:>8} {win_rate_str:>8} {avg_r_str:>7}"
-                    f"  {direction} {old_stars}→{new_stars}"
+                    f"  {long_star_str:>6} {short_star_str:>6}"
+                    f"  {arrow} {old_stars}→{new_stars}"
                 )
             else:
                 unchanged.append(f"{strat}/{tf}")
                 lines.append(
                     f"  {strat:<22} {tf:<5} {star(old_stars):>6} {star(new_stars):>6}"
-                    f" {trades_str:>8} {win_rate_str:>8} {avg_r_str:>7}  ="
+                    f" {trades_str:>8} {win_rate_str:>8} {avg_r_str:>7}"
+                    f"  {long_star_str:>6} {short_star_str:>6}  ="
                 )
 
-    lines.append("─" * 80)
+    lines.append("─" * 92)
     lines.append(
         f"  Changed: {len(changed)}  Unchanged: {len(unchanged)}  No data: {len(no_data)}"
     )
@@ -256,18 +371,49 @@ def write_confidence_to_db(
     ratings: dict[str, dict[str, int]],
     win_rates: pd.DataFrame,
     day_filter: str | None = None,
+    directional_ratings: dict[str, dict[str, dict[str, int]]] | None = None,
 ) -> None:
     """Upsert confidence star ratings to the DB for a specific config.
 
-    Replaces write_confidence_to_source for per-config star storage.
+    Writes combined stars (direction='combined') and, when directional_ratings is
+    provided, also long/short directional stars.
     config_name: TOML stem, e.g. 'signal_watch', 'signal_watch_weekdays'.
     day_filter: stored alongside stars so backtest rows can JOIN without a UI selector.
     """
     from analytics.data_store import upsert_confidence_ratings
 
     upsert_confidence_ratings(
-        conn, config_name, ratings, win_rates, day_filter=day_filter
+        conn,
+        config_name,
+        ratings,
+        win_rates,
+        day_filter=day_filter,
+        direction="combined",
     )
+    if not directional_ratings:
+        return
+    for direction, total_col, avg_r_col, wr_col in [
+        ("long", "long_total_trades", "long_avg_r", "long_win_rate"),
+        ("short", "short_total_trades", "short_avg_r", "short_win_rate"),
+    ]:
+        dir_map: dict[str, dict[str, int]] = {}
+        for strategy, tf_map in directional_ratings.items():
+            for tf, stars_map in tf_map.items():
+                if direction in stars_map:
+                    if strategy not in dir_map:
+                        dir_map[strategy] = {}
+                    dir_map[strategy][tf] = stars_map[direction]
+        if dir_map:
+            upsert_confidence_ratings(
+                conn,
+                config_name,
+                dir_map,
+                win_rates,
+                day_filter=day_filter,
+                direction=direction,
+                avg_r_col=avg_r_col,
+                win_rate_col=wr_col,
+            )
 
 
 def write_confidence_to_source(

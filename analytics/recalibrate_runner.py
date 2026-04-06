@@ -11,6 +11,7 @@ import duckdb
 from analytics.data_store import DEFAULT_DB_PATH, init_schema
 from analytics.indicators_lib import STRATEGY_REGISTRY
 from analytics.recalibrate_lib import (
+    compute_directional_ratings,
     compute_recalibrated_ratings,
     format_recalibration_report,
     get_backtest_win_rates,
@@ -61,11 +62,19 @@ def run(
             day_filter=day_filter,
             adr_suppress_threshold=adr_suppress_threshold,
         )
+        dir_ratings = compute_directional_ratings(
+            conn,
+            min_trades=max(min_trades // 2, 2),
+            day_filter=day_filter,
+            adr_suppress_threshold=adr_suppress_threshold,
+        )
 
         old_ratings = {
             name: spec.confidence for name, spec in STRATEGY_REGISTRY.items()
         }
-        report = format_recalibration_report(old_ratings, new_ratings, win_rates)
+        report = format_recalibration_report(
+            old_ratings, new_ratings, win_rates, directional_ratings=dir_ratings
+        )
         print(report)
 
         if apply:
@@ -76,7 +85,12 @@ def run(
                 return
             if config_name:
                 write_confidence_to_db(
-                    conn, config_name, new_ratings, win_rates, day_filter=day_filter
+                    conn,
+                    config_name,
+                    new_ratings,
+                    win_rates,
+                    day_filter=day_filter,
+                    directional_ratings=dir_ratings,
                 )
                 print(
                     f"\n  Written to confidence_ratings table for config '{config_name}'."

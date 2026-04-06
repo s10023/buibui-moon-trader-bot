@@ -35,7 +35,7 @@
   let minTotalRText = $state("");         // "" = no minimum
   let maxDrawdownRText = $state("");      // "" = no maximum
 
-  type SortCol = keyof BacktestRunSummary | "stars";
+  type SortCol = keyof BacktestRunSummary | "stars" | "long_stars" | "short_stars";
   let sortCol = $state<SortCol>("avg_r");
   let sortDir = $state<"asc" | "desc">("desc");
 
@@ -117,13 +117,15 @@
 
     filtered.sort((a, b) => {
       const av: number | string =
-        col === "stars"
-          ? starsFor(a)
-          : (a[col as keyof BacktestRunSummary] as number | string | null) ?? "";
+        col === "stars" ? starsFor(a)
+        : col === "long_stars" ? (a.long_stars ?? -1)
+        : col === "short_stars" ? (a.short_stars ?? -1)
+        : (a[col as keyof BacktestRunSummary] as number | string | null) ?? "";
       const bv: number | string =
-        col === "stars"
-          ? starsFor(b)
-          : (b[col as keyof BacktestRunSummary] as number | string | null) ?? "";
+        col === "stars" ? starsFor(b)
+        : col === "long_stars" ? (b.long_stars ?? -1)
+        : col === "short_stars" ? (b.short_stars ?? -1)
+        : (b[col as keyof BacktestRunSummary] as number | string | null) ?? "";
       const cmp = av < bv ? -1 : av > bv ? 1 : 0;
       return dir === "desc" ? -cmp : cmp;
     });
@@ -479,6 +481,8 @@
           <th class="sortable" onclick={() => setSort("timeframe")}>TF <span class="si">{sortIcon("timeframe")}</span></th>
           <th class="sortable" onclick={() => setSort("strategy")}>Strategy <span class="si">{sortIcon("strategy")}</span></th>
           <th class="sortable" onclick={() => setSort("stars")}>★ <span class="si">{sortIcon("stars")}</span></th>
+          <th class="sortable long-col" onclick={() => setSort("long_stars")}>↑★ <span class="si">{sortIcon("long_stars")}</span></th>
+          <th class="sortable short-col" onclick={() => setSort("short_stars")}>↓★ <span class="si">{sortIcon("short_stars")}</span></th>
           <th class="sortable num-col" onclick={() => setSort("win_rate")}>Win% <span class="si">{sortIcon("win_rate")}</span></th>
           <th class="sortable num-col long-col" onclick={() => setSort("long_win_rate")}>↑ Long% <span class="si">{sortIcon("long_win_rate")}</span></th>
           <th class="sortable num-col long-col" onclick={() => setSort("long_avg_r")}>↑ L Avg R <span class="si">{sortIcon("long_avg_r")}</span></th>
@@ -495,10 +499,10 @@
       </thead>
       <tbody>
         {#if runsLoading}
-          <tr><td colspan="16" class="msg-cell">Loading…</td></tr>
+          <tr><td colspan="18" class="msg-cell">Loading…</td></tr>
         {:else if filteredRuns.length === 0}
           <tr>
-            <td colspan="16" class="msg-cell">
+            <td colspan="18" class="msg-cell">
               {hasActiveFilters ? "No results match current filters." : "No runs saved — run a backtest first."}
             </td>
           </tr>
@@ -509,6 +513,8 @@
               <td class="muted">{run.timeframe}</td>
               <td class="strat-name">{run.strategy}</td>
               <td class="stars">{renderStars(starsFor(run))}</td>
+              <td class="stars dir-long" class:dir-nil={run.long_stars === null}>{run.long_stars !== null ? renderStars(run.long_stars) : "—"}</td>
+              <td class="stars dir-short" class:dir-nil={run.short_stars === null}>{run.short_stars !== null ? renderStars(run.short_stars) : "—"}</td>
               <td class="num">{fmtWinPct(run.win_rate)}</td>
               <td class="num dir-long" class:dir-pos={run.long_win_rate !== null && run.long_win_rate > 0.5} class:dir-nil={run.long_win_rate === null}>{fmtDirWinPct(run.long_win_rate)}</td>
               <td class="num dir-long" class:pos={run.long_avg_r !== null && run.long_avg_r > 0} class:neg={run.long_avg_r !== null && run.long_avg_r < 0} class:dir-nil={run.long_avg_r === null}>{fmtDirR(run.long_avg_r)}</td>

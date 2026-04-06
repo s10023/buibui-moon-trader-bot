@@ -303,6 +303,7 @@ def scan_symbol(
     smt_trend_filter: int = 1,
     strategy_timeframes: dict[str, list[str]] | None = None,
     confidence_override: dict[str, dict[str, int]] | None = None,
+    directional_confidence_override: dict[str, dict[str, dict[str, int]]] | None = None,
 ) -> list[SignalEvent]:
     """Run requested strategies against a pre-fetched OHLCV DataFrame.
 
@@ -403,10 +404,16 @@ def scan_symbol(
                     sl_price=float(row["sl_price"]),
                     tp_price=float(row["tp_price"]) if row.get("tp_price") else 0.0,
                     context=str(row["context"]),
-                    confidence=(confidence_override or {})
-                    .get(strategy_name, {})
-                    .get(timeframe)
-                    or STRATEGY_REGISTRY[strategy_name].get_confidence(timeframe),
+                    confidence=(
+                        (directional_confidence_override or {})
+                        .get(strategy_name, {})
+                        .get(timeframe, {})
+                        .get(str(row["direction"]))
+                        or (confidence_override or {})
+                        .get(strategy_name, {})
+                        .get(timeframe)
+                        or STRATEGY_REGISTRY[strategy_name].get_confidence(timeframe)
+                    ),
                     low_volume=bool(row.get("low_volume", False)),
                 )
             )
@@ -609,6 +616,7 @@ def run_scan_cycle(
     strategy_params: dict[str, StrategyOverride] | None = None,
     atr_sl_multiplier: float | None = None,
     confidence_override: dict[str, dict[str, int]] | None = None,
+    directional_confidence_override: dict[str, dict[str, dict[str, int]]] | None = None,
     bias_cfg: BiasConfig | None = None,
 ) -> list[str]:
     """Scan all symbol+timeframe combinations and return formatted alert strings.
@@ -689,6 +697,7 @@ def run_scan_cycle(
                 smt_trend_filter=smt_trend_filter,
                 strategy_timeframes=strategy_timeframes,
                 confidence_override=confidence_override,
+                directional_confidence_override=directional_confidence_override,
             )
 
             # Conflict resolution: opposite directions on same symbol/tf

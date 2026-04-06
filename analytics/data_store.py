@@ -187,15 +187,16 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
             config_name   TEXT    NOT NULL,
             strategy      TEXT    NOT NULL,
             tf            TEXT    NOT NULL,
+            direction     TEXT    NOT NULL,
             stars         INTEGER NOT NULL,
             avg_r         REAL,
             win_rate      REAL,
             updated_at_ms BIGINT,
             day_filter    TEXT,
-            PRIMARY KEY (config_name, strategy, tf)
+            PRIMARY KEY (config_name, strategy, tf, direction)
         )
     """)
-    # Migration: add day_filter to existing confidence_ratings tables.
+    # Migration: add direction column (new PK member) to existing tables.
     existing_cr_cols = {
         row[0]
         for row in conn.execute(
@@ -203,7 +204,31 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
             "WHERE table_name = 'confidence_ratings'"
         ).fetchall()
     }
-    if "day_filter" not in existing_cr_cols:
+    if "direction" not in existing_cr_cols:
+        # Recreate table with direction in PK; backfill existing rows as 'combined'.
+        conn.execute("""
+            CREATE TABLE confidence_ratings_v2 (
+                config_name   TEXT    NOT NULL,
+                strategy      TEXT    NOT NULL,
+                tf            TEXT    NOT NULL,
+                direction     TEXT    NOT NULL,
+                stars         INTEGER NOT NULL,
+                avg_r         REAL,
+                win_rate      REAL,
+                updated_at_ms BIGINT,
+                day_filter    TEXT,
+                PRIMARY KEY (config_name, strategy, tf, direction)
+            )
+        """)
+        conn.execute("""
+            INSERT INTO confidence_ratings_v2
+            SELECT config_name, strategy, tf, 'combined', stars, avg_r, win_rate,
+                   updated_at_ms, day_filter
+            FROM confidence_ratings
+        """)
+        conn.execute("DROP TABLE confidence_ratings")
+        conn.execute("ALTER TABLE confidence_ratings_v2 RENAME TO confidence_ratings")
+    elif "day_filter" not in existing_cr_cols:
         conn.execute("ALTER TABLE confidence_ratings ADD COLUMN day_filter TEXT")
     # Backfill existing runs from trades table where split columns are still NULL.
     # Runs after backtest_trades is created so the table always exists.
@@ -596,7 +621,7 @@ def list_backtest_runs(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
         "b.avg_r, b.total_r, b.max_drawdown_r, b.sweep_id, b.run_at_ms, "
         "b.long_closed_trades, b.long_win_count, b.long_win_rate, b.long_avg_r, "
         "b.short_closed_trades, b.short_win_count, b.short_win_rate, b.short_avg_r, "
-        "b.adr_suppress_threshold, cr.stars "
+        "b.adr_suppress_threshold, cr.stars, cr_long.long_stars, cr_short.short_stars "
         "FROM ("
         "  SELECT *, ROW_NUMBER() OVER ("
         "    PARTITION BY symbol, timeframe, strategy, day_filter, adr_suppress_threshold "
@@ -606,9 +631,23 @@ def list_backtest_runs(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
         "LEFT JOIN ("
         "  SELECT strategy, tf, day_filter, MAX(stars) AS stars "
         "  FROM confidence_ratings "
-        "  WHERE day_filter IS NOT NULL "
+        "  WHERE direction = 'combined' AND day_filter IS NOT NULL "
         "  GROUP BY strategy, tf, day_filter"
         ") cr ON cr.strategy = b.strategy AND cr.tf = b.timeframe AND cr.day_filter = b.day_filter "
+        "LEFT JOIN ("
+        "  SELECT strategy, tf, day_filter, MAX(stars) AS long_stars "
+        "  FROM confidence_ratings "
+        "  WHERE direction = 'long' AND day_filter IS NOT NULL "
+        "  GROUP BY strategy, tf, day_filter"
+        ") cr_long ON cr_long.strategy = b.strategy AND cr_long.tf = b.timeframe "
+        "  AND cr_long.day_filter = b.day_filter "
+        "LEFT JOIN ("
+        "  SELECT strategy, tf, day_filter, MAX(stars) AS short_stars "
+        "  FROM confidence_ratings "
+        "  WHERE direction = 'short' AND day_filter IS NOT NULL "
+        "  GROUP BY strategy, tf, day_filter"
+        ") cr_short ON cr_short.strategy = b.strategy AND cr_short.tf = b.timeframe "
+        "  AND cr_short.day_filter = b.day_filter "
         "WHERE b.rn = 1 "
         "ORDER BY b.run_at_ms DESC"
     ).df()
@@ -676,22 +715,31 @@ def upsert_confidence_ratings(
     ratings: dict[str, dict[str, int]],
     win_rates: pd.DataFrame,
     day_filter: str | None = None,
+    direction: str = "combined",
+    avg_r_col: str = "avg_r",
+    win_rate_col: str = "win_rate",
 ) -> None:
-    """Upsert per-config confidence star ratings keyed by (config_name, strategy, tf).
+    """Upsert per-config confidence star ratings keyed by (config_name, strategy, tf, direction).
 
     ratings: {strategy: {tf: stars}}
     win_rates: DataFrame from get_backtest_win_rates() — used to store avg_r/win_rate alongside stars.
-    day_filter: the config's day_filter value (e.g. "tue_thu", "off") — stored so backtest
-        rows can JOIN to get the correct stars without a manual config selector.
+    day_filter: the config's day_filter value — stored so backtest rows can JOIN correctly.
+    direction: 'combined' (default), 'long', or 'short'.
+    avg_r_col / win_rate_col: column names to read from win_rates (allows directional lookups).
     """
     if not ratings:
         return
     now_ms = int(time.time() * 1000)
     stats: dict[tuple[str, str], tuple[float | None, float | None]] = {}
-    if not win_rates.empty:
+    if not win_rates.empty and avg_r_col in win_rates.columns:
         for _, row in win_rates.iterrows():
             key = (str(row["strategy"]), str(row["timeframe"]))
-            stats[key] = (float(row["avg_r"]), float(row["win_rate"]))
+            ar = row.get(avg_r_col)
+            wr = row.get(win_rate_col)
+            stats[key] = (
+                float(ar) if ar is not None and ar == ar else None,  # noqa: PLR0124
+                float(wr) if wr is not None and wr == wr else None,
+            )
     rows = []
     for strategy, tf_map in ratings.items():
         for tf, stars in tf_map.items():
@@ -701,6 +749,7 @@ def upsert_confidence_ratings(
                     "config_name": config_name,
                     "strategy": strategy,
                     "tf": tf,
+                    "direction": direction,
                     "stars": stars,
                     "avg_r": avg_r_val,
                     "win_rate": win_rate_val,
@@ -713,7 +762,8 @@ def upsert_confidence_ratings(
     try:
         conn.execute(
             "INSERT OR REPLACE INTO confidence_ratings "
-            "SELECT config_name, strategy, tf, stars, avg_r, win_rate, updated_at_ms, day_filter "
+            "SELECT config_name, strategy, tf, direction, stars, avg_r, win_rate, "
+            "updated_at_ms, day_filter "
             "FROM _cr_upsert_df"
         )
     finally:
@@ -723,20 +773,48 @@ def upsert_confidence_ratings(
 def get_confidence_ratings(
     conn: duckdb.DuckDBPyConnection,
     config_name: str,
+    direction: str = "combined",
 ) -> dict[str, dict[str, int]]:
-    """Load confidence star ratings for a given config from the DB.
+    """Load confidence star ratings for a given config and direction from the DB.
 
+    direction: 'combined' (default), 'long', or 'short'.
     Returns {strategy: {tf: stars}}, or empty dict if no ratings have been written yet.
     """
     rows = conn.execute(
-        "SELECT strategy, tf, stars FROM confidence_ratings WHERE config_name = ?",
-        [config_name],
+        "SELECT strategy, tf, stars FROM confidence_ratings "
+        "WHERE config_name = ? AND direction = ?",
+        [config_name, direction],
     ).fetchall()
     result: dict[str, dict[str, int]] = {}
     for strategy, tf, stars in rows:
         if strategy not in result:
             result[str(strategy)] = {}
         result[str(strategy)][str(tf)] = int(stars)
+    return result
+
+
+def get_directional_confidence_ratings(
+    conn: duckdb.DuckDBPyConnection,
+    config_name: str,
+) -> dict[str, dict[str, dict[str, int]]]:
+    """Load directional confidence star ratings for a given config.
+
+    Returns {strategy: {tf: {"long": stars, "short": stars}}}.
+    Only includes entries where both long and short ratings exist.
+    """
+    rows = conn.execute(
+        "SELECT strategy, tf, direction, stars FROM confidence_ratings "
+        "WHERE config_name = ? AND direction IN ('long', 'short')",
+        [config_name],
+    ).fetchall()
+    result: dict[str, dict[str, dict[str, int]]] = {}
+    for strategy, tf, direction, stars in rows:
+        s, t, d = str(strategy), str(tf), str(direction)
+        if s not in result:
+            result[s] = {}
+        if t not in result[s]:
+            result[s][t] = {}
+        result[s][t][d] = int(stars)
     return result
 
 

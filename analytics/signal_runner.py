@@ -18,7 +18,12 @@ from zoneinfo import ZoneInfo
 
 import duckdb
 
-from analytics.data_store import DEFAULT_DB_PATH, get_confidence_ratings, init_schema
+from analytics.data_store import (
+    DEFAULT_DB_PATH,
+    get_confidence_ratings,
+    get_directional_confidence_ratings,
+    init_schema,
+)
 from analytics.data_sync import backfill, sync
 from analytics.signal_config import BacktestFilterConfig, BiasConfig, StrategyOverride
 from analytics.signal_lib import (
@@ -118,14 +123,19 @@ def run_signal_watch(
         # Load per-config confidence ratings from DB once at startup.
         # Falls back to indicators_lib.py defaults when empty (no recalibrate run yet).
         confidence_override: dict[str, dict[str, int]] = {}
+        directional_confidence_override: dict[str, dict[str, dict[str, int]]] = {}
         if config_name:
             with duckdb.connect(str(db_path)) as cr_conn:
                 confidence_override = get_confidence_ratings(cr_conn, config_name)
+                directional_confidence_override = get_directional_confidence_ratings(
+                    cr_conn, config_name
+                )
             if confidence_override:
                 logger.info(
-                    "Loaded confidence ratings for config '%s' (%d strategies)",
+                    "Loaded confidence ratings for config '%s' (%d strategies, %d directional)",
                     config_name,
                     len(confidence_override),
+                    len(directional_confidence_override),
                 )
             else:
                 logger.info(
@@ -207,6 +217,8 @@ def run_signal_watch(
                     strategy_params=strategy_params,
                     atr_sl_multiplier=atr_sl_multiplier,
                     confidence_override=confidence_override or None,
+                    directional_confidence_override=directional_confidence_override
+                    or None,
                     bias_cfg=bias_cfg,
                 )
             # Connection is now closed — web API can read the DB during the sleep.
