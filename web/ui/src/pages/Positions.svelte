@@ -57,12 +57,12 @@
       <table>
         <thead>
           <tr>
-            <th>Symbol</th><th>Side</th><th>Lev</th><th>Entry</th><th>Mark</th>
-            <th>PnL ($)</th><th>PnL %</th><th>SL</th><th>Risk</th>
+            <th>Symbol</th><th>Side</th><th>Lev</th><th>Entry</th><th>Mark</th><th>Liq</th>
+            <th>PnL ($)</th><th>PnL %</th><th>TP</th><th>SL</th><th>% to SL</th><th>SL $</th><th>Risk</th>
           </tr>
         </thead>
         <tbody>
-          {#each d.positions as pos (pos.symbol)}
+          {#each d.positions as pos (pos.symbol + pos.position_side)}
             <PositionRow {pos} />
           {/each}
         </tbody>

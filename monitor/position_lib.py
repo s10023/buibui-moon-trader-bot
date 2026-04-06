@@ -136,11 +136,33 @@ def get_stop_loss_for_symbol(
     return None
 
 
-def _fetch_all_sl_prices(client: Client) -> dict[tuple[str, str], float]:
-    """Fetch all open orders in one call and return {(symbol, positionSide): sl_price}.
+def _find_tp_in_orders(
+    orders: list[dict[str, Any]], position_side: str = "BOTH"
+) -> float | None:
+    """Find the first TP price in a pre-fetched list of orders for one symbol."""
+    for o in orders:
+        if o["type"] not in ("TAKE_PROFIT_MARKET", "TAKE_PROFIT"):
+            continue
+        order_side = o.get("positionSide", "BOTH")
+        if (
+            position_side != "BOTH"
+            and order_side != "BOTH"
+            and order_side != position_side
+        ):
+            continue
+        price = float(o.get("stopPrice") or 0)
+        if price > 0:
+            return price
+    return None
+
+
+def _fetch_all_tpsl_prices(
+    client: Client,
+) -> dict[tuple[str, str], dict[str, float | None]]:
+    """Fetch all open orders and return {(symbol, positionSide): {"sl": price, "tp": price}}.
 
     Keying by (symbol, positionSide) supports hedge mode where LONG and SHORT
-    positions on the same symbol have independent SL orders.
+    positions on the same symbol have independent SL/TP orders.
     """
     try:
         all_orders: list[dict[str, Any]] = client.futures_get_open_orders()
@@ -154,12 +176,20 @@ def _fetch_all_sl_prices(client: Client) -> dict[tuple[str, str], float]:
         side = o.get("positionSide", "BOTH")
         orders_by_key.setdefault((sym, side), []).append(o)
 
-    result: dict[tuple[str, str], float] = {}
+    result: dict[tuple[str, str], dict[str, float | None]] = {}
     for (sym, side), orders in orders_by_key.items():
         sl = _find_sl_in_orders(orders, side)
-        if sl is not None:
-            result[(sym, side)] = sl
+        tp = _find_tp_in_orders(orders, side)
+        if sl is not None or tp is not None:
+            result[(sym, side)] = {"sl": sl, "tp": tp}
     return result
+
+
+# Keep old name as alias so existing callers (tests via get_stop_loss_for_symbol) still work.
+def _fetch_all_sl_prices(client: Client) -> dict[tuple[str, str], float]:
+    """Legacy alias — returns only SL prices."""
+    tpsl = _fetch_all_tpsl_prices(client)
+    return {k: v["sl"] for k, v in tpsl.items() if v["sl"] is not None}
 
 
 def fetch_open_positions(
@@ -177,10 +207,13 @@ def fetch_open_positions(
         logging.error("Failed to fetch position information: %s", e)
         raise RuntimeError(f"Failed to fetch position information: {e}") from e
     filtered: list[Any] = []
-    wallet_balance, unrealized_pnl, available_balance = get_wallet_balance(client)
+    wallet_balance, _cross_unrealized_pnl, available_balance = get_wallet_balance(
+        client
+    )
     total_risk_usd = 0.0
 
     open_positions = []
+    open_positions_raw: list[dict[str, Any]] = []
     for pos in positions:
         symbol = pos["symbol"]
         if symbol not in coins_config:
@@ -197,16 +230,22 @@ def fetch_open_positions(
         open_positions.append(
             (symbol, side_text, position_side, entry, mark, margin, notional, amt, pos)
         )
+        open_positions_raw.append(pos)
 
     # One bulk fetch instead of one REST call per open position.
     # Fall back to per-symbol if the bulk call returns nothing (e.g. API error
-    # swallowed silently, or exchange quirk) so SL is never silently dropped.
-    sl_prices = _fetch_all_sl_prices(client) if open_positions else {}
+    # swallowed silently, or exchange quirk) so SL/TP is never silently dropped.
+    tpsl_prices = _fetch_all_tpsl_prices(client) if open_positions else {}
     for sym, _, pos_side, *_ in open_positions:
-        if (sym, pos_side) not in sl_prices and (sym, "BOTH") not in sl_prices:
+        if (sym, pos_side) not in tpsl_prices and (sym, "BOTH") not in tpsl_prices:
             sl = get_stop_loss_for_symbol(client, sym, pos_side)
             if sl is not None:
-                sl_prices[(sym, pos_side)] = sl
+                tpsl_prices[(sym, pos_side)] = {"sl": sl, "tp": None}
+
+    # Sum unrealized PnL from positions — crossUnPnl is 0 for isolated margin.
+    unrealized_pnl = sum(
+        float(p.get("unRealizedProfit", 0)) for p in open_positions_raw
+    )
 
     for (
         symbol,
@@ -226,9 +265,12 @@ def fetch_open_positions(
         pnl_pct = (pnl / margin) * 100
         leverage = round(notional / margin)
 
-        actual_sl = sl_prices.get((symbol, position_side)) or sl_prices.get(
+        tpsl = tpsl_prices.get((symbol, position_side)) or tpsl_prices.get(
             (symbol, "BOTH")
         )
+        actual_sl = tpsl["sl"] if tpsl else None
+        actual_tp = tpsl["tp"] if tpsl else None
+
         if actual_sl:
             if side_text == "SHORT":
                 sl_percent = (entry - actual_sl) / entry * 100
@@ -245,23 +287,33 @@ def fetch_open_positions(
             sl_size_str = "-"
             sl_usd_str = "-"
 
-        row = [
-            symbol,
-            side_colored,
-            leverage,
-            round(entry, 5),
-            round(mark, 5),
-            round(margin, 2),
-            round(notional, 2),
-            colorize_dollar(pnl),
-            colorize(pnl_pct),
-            f"{(margin / wallet_balance * 100) if wallet_balance else 0.0:.2f}%",
-            actual_sl_str,
-            sl_size_str,
-            sl_usd_str,
+        liq_price_raw = float(pos.get("liquidationPrice") or 0)
+        liq_price: float | None = liq_price_raw if liq_price_raw > 0 else None
+
+        isolated_wallet = float(pos.get("isolatedWallet") or 0)
+        margin_type = "isolated" if isolated_wallet > 0 else "cross"
+
+        row: list[Any] = [
+            symbol,  # 0
+            side_colored,  # 1
+            leverage,  # 2
+            round(entry, 5),  # 3
+            round(mark, 5),  # 4
+            round(margin, 2),  # 5
+            round(notional, 2),  # 6
+            colorize_dollar(pnl),  # 7
+            colorize(pnl_pct),  # 8
+            f"{(margin / wallet_balance * 100) if wallet_balance else 0.0:.2f}%",  # 9
+            actual_sl_str,  # 10
+            sl_size_str,  # 11
+            sl_usd_str,  # 12
+            pnl_pct,  # 13 sort key
+            sl_risk_usd,  # 14 sort key
+            actual_tp,  # 15 tp_price
+            liq_price,  # 16 liq_price
+            position_side,  # 17
+            margin_type,  # 18
         ]
-        row.append(pnl_pct)  # index 13 — hidden sort key
-        row.append(sl_risk_usd)  # index 14 — hidden sort key
         filtered.append(row)
 
     if not hide_empty:
@@ -270,12 +322,10 @@ def fetch_open_positions(
 
         for symbol in missing_symbols:
             leverage = coins_config[symbol]["leverage"]
-            row = [
-                symbol,
-                "-",
-                leverage,
-                "-",
-                "-",
+            placeholder: list[Any] = [
+                symbol,  # 0
+                "-",  # 1
+                leverage,  # 2
                 "-",
                 "-",
                 "-",
@@ -284,10 +334,16 @@ def fetch_open_positions(
                 "-",
                 "-",
                 "-",
-                -999,
-                -9999,
+                "-",
+                "-",  # 3-12
+                -999,  # 13 sort key
+                -9999,  # 14 sort key
+                None,  # 15 tp_price
+                None,  # 16 liq_price
+                "BOTH",  # 17 position_side
+                "cross",  # 18 margin_type
             ]
-            filtered.append(row)
+            filtered.append(placeholder)
 
     if sort_by == "pnl_pct":
         filtered.sort(key=lambda r: r[13], reverse=descending)
@@ -299,8 +355,8 @@ def fetch_open_positions(
         )
 
     logging.info("Found %d open position(s)", len(open_positions))
-    filtered = [row[:13] for row in filtered]
-
+    # NOTE: do NOT slice to [:13] here — callers that need only display columns
+    # (e.g. display_table → tabulate) slice themselves. The web router uses [15:18].
     return filtered, total_risk_usd, wallet_balance, unrealized_pnl, available_balance
 
 
@@ -359,7 +415,7 @@ def display_table(
     ]
     output.append(
         tabulate(
-            table,
+            [row[:13] for row in table],
             headers=headers,
             tablefmt="fancy_grid",
             numalign="right",

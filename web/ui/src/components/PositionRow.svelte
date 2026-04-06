@@ -19,8 +19,12 @@
   <td>{pos.leverage != null ? `${pos.leverage}x` : "–"}</td>
   <td class="mono">{fmt(pos.entry_price)}</td>
   <td class="mono">{fmt(pos.mark_price)}</td>
+  <td class="mono muted">{pos.liq_price != null ? fmt(pos.liq_price) : "–"}</td>
   <td class={pnlClass}>{fmt(pos.pnl)}</td>
   <td class={pnlClass}>{fmtPct(pos.pnl_pct)}</td>
-  <td class="mono">{pos.sl_price != null ? fmt(pos.sl_price) : "–"}</td>
+  <td class="mono green">{pos.tp_price != null ? fmt(pos.tp_price) : "–"}</td>
+  <td class="mono red">{pos.sl_price != null ? fmt(pos.sl_price) : "–"}</td>
+  <td class="muted">{pos.sl_size ?? "–"}</td>
+  <td class="muted">{pos.sl_usd ?? "–"}</td>
   <td class="muted">{pos.risk_pct ?? "–"}</td>
 </tr>

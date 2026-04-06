@@ -74,10 +74,10 @@ def get_positions(client: Client = Depends(get_client)) -> PositionsResponse:
 
     positions: list[PositionRow] = []
     for row in rows:
-        # Row layout (13 elements, ANSI-colored strings):
-        # 0: symbol, 1: side, 2: leverage, 3: entry, 4: mark, 5: margin,
-        # 6: notional, 7: pnl ($), 8: pnl_pct (%), 9: risk_pct, 10: sl_price,
-        # 11: sl_size, 12: sl_usd
+        # Row layout — indices 0-12: display columns (ANSI-colored strings)
+        # 13: pnl_pct float (sort key), 14: sl_risk_usd float (sort key)
+        # 15: tp_price (float|None), 16: liq_price (float|None)
+        # 17: position_side (str), 18: margin_type (str)
         sl_price_raw = _strip_ansi(row[10])
         sl_price: float | None = None
         if sl_price_raw not in ("-", "", "None"):
@@ -85,6 +85,11 @@ def get_positions(client: Client = Depends(get_client)) -> PositionsResponse:
                 sl_price = float(sl_price_raw)
             except (ValueError, TypeError):
                 sl_price = None
+
+        tp_price: float | None = row[15] if len(row) > 15 else None
+        liq_price: float | None = row[16] if len(row) > 16 else None
+        position_side: str = str(row[17]) if len(row) > 17 else "BOTH"
+        margin_type: str | None = str(row[18]) if len(row) > 18 else None
 
         positions.append(
             PositionRow(
@@ -101,6 +106,10 @@ def get_positions(client: Client = Depends(get_client)) -> PositionsResponse:
                 sl_price=sl_price,
                 sl_size=_strip_ansi(row[11]) if row[11] != "-" else None,
                 sl_usd=_strip_ansi(row[12]) if row[12] != "-" else None,
+                tp_price=tp_price,
+                liq_price=liq_price,
+                position_side=position_side,
+                margin_type=margin_type,
             )
         )
 
