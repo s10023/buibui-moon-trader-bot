@@ -34,6 +34,7 @@
   let minWinRateText = $state("");        // "" = no minimum
   let minTotalRText = $state("");         // "" = no minimum
   let maxDrawdownRText = $state("");      // "" = no maximum
+  let minRecoveryFactorText = $state(""); // "" = no minimum
 
   type SortCol = keyof BacktestRunSummary | "stars" | "long_stars" | "short_stars";
   let sortCol = $state<SortCol>("avg_r");
@@ -56,9 +57,9 @@
     [...new Set(runs.map((r) => r.day_filter))].sort(),
   );
 
-  // "none" for NULL rows, stringified threshold for non-null rows
+  // "none" for NULL rows, 2dp threshold for non-null rows
   const availableAdrFilters = $derived(
-    [...new Set(runs.map((r) => r.adr_suppress_threshold === null ? "none" : String(r.adr_suppress_threshold)))].sort(),
+    [...new Set(runs.map((r) => r.adr_suppress_threshold === null ? "none" : r.adr_suppress_threshold.toFixed(2)))].sort(),
   );
 
   const hasActiveFilters = $derived(
@@ -76,7 +77,8 @@
     minShortAvgRText !== "" ||
     minWinRateText !== "" ||
     minTotalRText !== "" ||
-    maxDrawdownRText !== "",
+    maxDrawdownRText !== "" ||
+    minRecoveryFactorText !== "",
   );
 
   const filteredRuns = $derived.by(() => {
@@ -92,11 +94,12 @@
     const mwr   = minWinRateText      === "" ? -Infinity : (parseFloat(minWinRateText)  / 100 || -Infinity);
     const mtr   = minTotalRText       === "" ? -Infinity : (parseFloat(minTotalRText)        || -Infinity);
     // user types negative (e.g. -10); stored value is positive — negate to compare
-    const mxdd  = maxDrawdownRText    === "" ? Infinity  : (-parseFloat(maxDrawdownRText)    || Infinity);
+    const mxdd  = maxDrawdownRText       === "" ? Infinity  : (-parseFloat(maxDrawdownRText)       || Infinity);
+    const mrf   = minRecoveryFactorText  === "" ? -Infinity : (parseFloat(minRecoveryFactorText)   || -Infinity);
 
     const filtered = runs.filter(
       (r) => {
-        const adrKey = r.adr_suppress_threshold === null ? "none" : String(r.adr_suppress_threshold);
+        const adrKey = r.adr_suppress_threshold === null ? "none" : r.adr_suppress_threshold.toFixed(2);
         return (selSymbols.size === 0 || selSymbols.has(r.symbol)) &&
         (selTfs.size === 0 || selTfs.has(r.timeframe)) &&
         (selStrategies.size === 0 || selStrategies.has(r.strategy)) &&
@@ -111,7 +114,10 @@
         (mlwr === -Infinity || (r.long_win_rate !== null && r.long_win_rate >= mlwr)) &&
         (mswr === -Infinity || (r.short_win_rate !== null && r.short_win_rate >= mswr)) &&
         (mlar === -Infinity || (r.long_avg_r !== null && r.long_avg_r >= mlar)) &&
-        (msar === -Infinity || (r.short_avg_r !== null && r.short_avg_r >= msar));
+        (msar === -Infinity || (r.short_avg_r !== null && r.short_avg_r >= msar)) &&
+        (mltr === -Infinity || (r.long_total_r !== null && r.long_total_r >= mltr)) &&
+        (mstr === -Infinity || (r.short_total_r !== null && r.short_total_r >= mstr)) &&
+        (mrf  === -Infinity || (r.recovery_factor !== null && r.recovery_factor >= mrf));
       },
     );
 
@@ -156,6 +162,7 @@
     minWinRateText = "";
     minTotalRText = "";
     maxDrawdownRText = "";
+    minRecoveryFactorText = "";
   }
 
   function setSort(col: SortCol): void {
@@ -278,7 +285,10 @@
   <!-- ── Filters ──────────────────────────────────────────────────────────── -->
   <div class="filters">
 
+    <!-- Section 1: Categorical -->
     <div class="filter-row">
+      <span class="section-tag">CATEGORY</span>
+
       <span class="flabel">Symbol</span>
       <div class="chips">
         {#each $symbols as s}
@@ -296,6 +306,22 @@
             onclick={() => { selTfs = tog(selTfs, tf); }}>{tf}</button>
         {/each}
       </div>
+
+      <span class="fsep"></span>
+
+      <span class="flabel">Strategy</span>
+      <details class="strat-picker">
+        <summary class="strat-summary">
+          {selStrategies.size === 0 ? "all" : `${selStrategies.size} selected`}
+          <span class="summary-arrow">▾</span>
+        </summary>
+        <div class="strat-grid">
+          {#each $strategyNames as s}
+            <button class="chip" class:on={selStrategies.has(s)}
+              onclick={() => { selStrategies = tog(selStrategies, s); }}>{s}</button>
+          {/each}
+        </div>
+      </details>
 
       <span class="fsep"></span>
 
@@ -330,131 +356,90 @@
       </div>
     </div>
 
+    <!-- Section 2: Combined performance -->
     <div class="filter-row">
-      <span class="flabel">Strategy</span>
-      <details class="strat-picker">
-        <summary class="strat-summary">
-          {selStrategies.size === 0 ? "all" : `${selStrategies.size} selected`}
-          <span class="summary-arrow">▾</span>
-        </summary>
-        <div class="strat-grid">
-          {#each $strategyNames as s}
-            <button class="chip" class:on={selStrategies.has(s)}
-              onclick={() => { selStrategies = tog(selStrategies, s); }}>{s}</button>
-          {/each}
-        </div>
-      </details>
-
-      <span class="fsep"></span>
+      <span class="section-tag">PERF</span>
 
       <span class="flabel">Win% ≥</span>
-      <input
-        type="number"
-        class="filter-num"
-        bind:value={minWinRateText}
-        min="0"
-        max="100"
-        step="1"
-        placeholder="any"
-        title="Minimum win rate % (empty = no minimum)"
-      />
+      <input type="number" class="filter-num" bind:value={minWinRateText}
+        min="0" max="100" step="1" placeholder="any"
+        title="Minimum win rate % (empty = no minimum)" />
 
       <span class="fsep"></span>
 
       <span class="flabel">Trades ≥</span>
-      <input
-        type="number"
-        class="filter-num"
-        bind:value={minTrades}
-        min="0"
-        step="1"
-        title="Minimum closed trades (0 = no minimum)"
-      />
+      <input type="number" class="filter-num" bind:value={minTrades}
+        min="0" step="1"
+        title="Minimum closed trades (0 = no minimum)" />
 
       <span class="fsep"></span>
 
       <span class="flabel">Avg R ≥</span>
-      <input
-        type="number"
-        class="filter-num"
-        bind:value={minAvgRText}
-        step="0.01"
-        placeholder="any"
-        title="Minimum avg R (empty = no minimum)"
-      />
+      <input type="number" class="filter-num" bind:value={minAvgRText}
+        step="0.01" placeholder="any"
+        title="Minimum avg R (empty = no minimum)" />
 
       <span class="fsep"></span>
 
       <span class="flabel">Total R ≥</span>
-      <input
-        type="number"
-        class="filter-num"
-        bind:value={minTotalRText}
-        step="0.1"
-        placeholder="any"
-        title="Minimum total R (empty = no minimum)"
-      />
+      <input type="number" class="filter-num" bind:value={minTotalRText}
+        step="0.1" placeholder="any"
+        title="Minimum total R (empty = no minimum)" />
 
       <span class="fsep"></span>
 
       <span class="flabel">Max DD ≤</span>
-      <input
-        type="number"
-        class="filter-num"
-        bind:value={maxDrawdownRText}
-        max="0"
-        step="0.5"
-        placeholder="any"
-        title="Maximum drawdown, e.g. -10 = no worse than -10R (empty = no limit)"
-      />
+      <input type="number" class="filter-num" bind:value={maxDrawdownRText}
+        max="0" step="0.5" placeholder="any"
+        title="Maximum drawdown e.g. -10 = no worse than -10R (empty = no limit)" />
 
       <span class="fsep"></span>
 
-      <span class="flabel long-label">↑ Long ≥</span>
-      <input
-        type="number"
-        class="filter-num"
-        bind:value={minLongWinRateText}
-        min="0"
-        max="100"
-        step="1"
-        placeholder="any"
-        title="Minimum long win rate % (empty = no minimum)"
-      />
+      <span class="flabel">RF ≥</span>
+      <input type="number" class="filter-num" bind:value={minRecoveryFactorText}
+        step="0.5" placeholder="any"
+        title="Minimum recovery factor (total R / max DD). ≥3 good, 2–3 acceptable" />
+    </div>
 
-      <span class="flabel short-label">↓ Short ≥</span>
-      <input
-        type="number"
-        class="filter-num"
-        bind:value={minShortWinRateText}
-        min="0"
-        max="100"
-        step="1"
-        placeholder="any"
-        title="Minimum short win rate % (empty = no minimum)"
-      />
+    <!-- Section 3: Directional (long / short splits) -->
+    <div class="filter-row">
+      <span class="section-tag">DIR</span>
+
+      <span class="flabel long-label">↑ Long% ≥</span>
+      <input type="number" class="filter-num" bind:value={minLongWinRateText}
+        min="0" max="100" step="1" placeholder="any"
+        title="Minimum long win rate % (empty = no minimum)" />
+
+      <span class="flabel short-label">↓ Short% ≥</span>
+      <input type="number" class="filter-num" bind:value={minShortWinRateText}
+        min="0" max="100" step="1" placeholder="any"
+        title="Minimum short win rate % (empty = no minimum)" />
 
       <span class="fsep"></span>
 
       <span class="flabel long-label">↑ L Avg R ≥</span>
-      <input
-        type="number"
-        class="filter-num"
-        bind:value={minLongAvgRText}
-        step="0.01"
-        placeholder="any"
-        title="Minimum long avg R (empty = no minimum)"
-      />
+      <input type="number" class="filter-num" bind:value={minLongAvgRText}
+        step="0.01" placeholder="any"
+        title="Minimum long avg R (empty = no minimum)" />
 
       <span class="flabel short-label">↓ S Avg R ≥</span>
-      <input
-        type="number"
-        class="filter-num"
-        bind:value={minShortAvgRText}
-        step="0.01"
-        placeholder="any"
-        title="Minimum short avg R (empty = no minimum)"
-      />
+      <input type="number" class="filter-num" bind:value={minShortAvgRText}
+        step="0.01" placeholder="any"
+        title="Minimum short avg R (empty = no minimum)" />
+
+
+      <span class="fsep"></span>
+
+      <span class="flabel long-label">↑ L Total R ≥</span>
+      <input type="number" class="filter-num" bind:value={minLongTotalRText}
+        step="0.1" placeholder="any"
+        title="Minimum long total R (empty = no minimum)" />
+
+      <span class="flabel short-label">↓ S Total R ≥</span>
+      <input type="number" class="filter-num" bind:value={minShortTotalRText}
+        step="0.1" placeholder="any"
+        title="Minimum short total R (empty = no minimum)" />
+
 
       <div class="filter-tail">
         {#if hasActiveFilters}
@@ -492,6 +477,7 @@
           <th class="sortable num-col" onclick={() => setSort("avg_r")}>Avg R <span class="si">{sortIcon("avg_r")}</span></th>
           <th class="sortable num-col" onclick={() => setSort("total_r")}>Total R <span class="si">{sortIcon("total_r")}</span></th>
           <th class="sortable num-col dd-col" onclick={() => setSort("max_drawdown_r")}>Max DD <span class="si">{sortIcon("max_drawdown_r")}</span></th>
+          <th class="sortable num-col rf-col" onclick={() => setSort("recovery_factor")}>RF <span class="si">{sortIcon("recovery_factor")}</span></th>
           <th class="sortable" onclick={() => setSort("day_filter")}>Day Filter <span class="si">{sortIcon("day_filter")}</span></th>
           <th class="sortable" onclick={() => setSort("adr_suppress_threshold")}>ADR Gate <span class="si">{sortIcon("adr_suppress_threshold")}</span></th>
           <th class="sortable" onclick={() => setSort("run_at_ms")}>Date <span class="si">{sortIcon("run_at_ms")}</span></th>
@@ -499,10 +485,10 @@
       </thead>
       <tbody>
         {#if runsLoading}
-          <tr><td colspan="18" class="msg-cell">Loading…</td></tr>
+          <tr><td colspan="21" class="msg-cell">Loading…</td></tr>
         {:else if filteredRuns.length === 0}
           <tr>
-            <td colspan="18" class="msg-cell">
+            <td colspan="21" class="msg-cell">
               {hasActiveFilters ? "No results match current filters." : "No runs saved — run a backtest first."}
             </td>
           </tr>
@@ -524,8 +510,13 @@
               <td class="num" class:pos={run.avg_r > 0} class:neg={run.avg_r < 0}>{fmtR(run.avg_r)}</td>
               <td class="num" class:pos={run.total_r > 0} class:neg={run.total_r < 0}>{fmtR(run.total_r)}</td>
               <td class="num dd-val" class:dd-bad={run.max_drawdown_r > 10}>-{run.max_drawdown_r.toFixed(1)}R</td>
+              <td class="num rf-val"
+                class:rf-good={run.recovery_factor !== null && run.recovery_factor >= 3}
+                class:rf-ok={run.recovery_factor !== null && run.recovery_factor >= 2 && run.recovery_factor < 3}
+                class:rf-bad={run.recovery_factor !== null && run.recovery_factor < 2}
+              >{run.recovery_factor !== null ? run.recovery_factor.toFixed(2) : "—"}</td>
               <td class="muted small">{run.day_filter}</td>
-              <td class="muted small">{run.adr_suppress_threshold === null ? "—" : run.adr_suppress_threshold}</td>
+              <td class="muted small">{run.adr_suppress_threshold === null ? "—" : run.adr_suppress_threshold.toFixed(2)}</td>
               <td class="muted small nowrap">{fmtDate(run.run_at_ms)}</td>
             </tr>
           {/each}
@@ -630,6 +621,21 @@
   }
 
   /* ── Filters ─────────────────────────────────────────────────────────── */
+  .section-tag {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    opacity: 0.45;
+    padding: 2px 5px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    flex-shrink: 0;
+    align-self: center;
+    min-width: 46px;
+    text-align: center;
+  }
+
   .filters {
     display: flex;
     flex-direction: column;
@@ -902,4 +908,11 @@
   th.dd-col  { color: var(--red); opacity: 0.65; }
   td.dd-val  { color: var(--muted); font-feature-settings: "tnum" 1; }
   td.dd-bad  { color: var(--red); }
+
+  /* ── Recovery Factor column ─────────────────────────────────────────────── */
+  th.rf-col   { opacity: 0.75; }
+  td.rf-val   { font-feature-settings: "tnum" 1; }
+  td.rf-good  { color: var(--green); }
+  td.rf-ok    { color: var(--yellow, #f0b429); }
+  td.rf-bad   { color: var(--red); }
 </style>

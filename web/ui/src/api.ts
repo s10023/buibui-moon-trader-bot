@@ -112,16 +112,19 @@ export interface BacktestRunSummary {
   avg_r: number;
   total_r: number;
   max_drawdown_r: number;
+  recovery_factor: number | null;
   sweep_id: string | null;
   run_at_ms: number;
   long_closed_trades: number | null;
   long_win_count: number | null;
   long_win_rate: number | null;
   long_avg_r: number | null;
+  long_total_r: number | null;
   short_closed_trades: number | null;
   short_win_count: number | null;
   short_win_rate: number | null;
   short_avg_r: number | null;
+  short_total_r: number | null;
   stars: number | null;
   long_stars: number | null;
   short_stars: number | null;
@@ -152,6 +155,7 @@ export interface BacktestResponse {
   avg_r: number;
   total_r: number;
   max_drawdown_r: number;
+  recovery_factor: number;
   long_closed_trades: number;
   long_win_count: number;
   long_win_rate: number | null;

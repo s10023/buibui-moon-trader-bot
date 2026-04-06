@@ -23,16 +23,19 @@ class BacktestRunSummary(BaseModel):
     avg_r: float
     total_r: float
     max_drawdown_r: float
+    recovery_factor: float | None = None
     sweep_id: str | None
     run_at_ms: int
     long_closed_trades: int | None = None
     long_win_count: int | None = None
     long_win_rate: float | None = None
     long_avg_r: float | None = None
+    long_total_r: float | None = None
     short_closed_trades: int | None = None
     short_win_count: int | None = None
     short_win_rate: float | None = None
     short_avg_r: float | None = None
+    short_total_r: float | None = None
     adr_suppress_threshold: float | None = None
     stars: int | None = None
     long_stars: int | None = None
@@ -54,9 +57,12 @@ class BacktestRunSummary(BaseModel):
             nullable_cols = (
                 "long_win_rate",
                 "long_avg_r",
+                "long_total_r",
                 "short_win_rate",
                 "short_avg_r",
+                "short_total_r",
                 "adr_suppress_threshold",
+                "recovery_factor",
                 "stars",
                 "long_stars",
                 "short_stars",
@@ -106,6 +112,7 @@ class BacktestResponse(BaseModel):
     avg_r: float
     total_r: float
     max_drawdown_r: float
+    recovery_factor: float
     long_closed_trades: int
     long_win_count: int
     long_win_rate: float | None

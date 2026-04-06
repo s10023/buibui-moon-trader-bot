@@ -271,6 +271,12 @@ class BacktestResult:
                 max_dd = dd
         return max_dd
 
+    @property
+    def recovery_factor(self) -> float:
+        """Total R divided by max drawdown. 0.0 when max drawdown is zero."""
+        dd = self.max_drawdown_r
+        return self.total_r / dd if dd > 0 else 0.0
+
 
 def run_backtest(
     ohlcv: pd.DataFrame,
