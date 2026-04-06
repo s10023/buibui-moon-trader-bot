@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { loadConfig } from "./stores/config";
   import { loadStrategies } from "./stores/strategies";
+  import { loadActiveConfig } from "./stores/activeConfig";
   import Nav from "./components/Nav.svelte";
   import Chart from "./pages/Chart.svelte";
   import Backtest from "./pages/Backtest.svelte";
@@ -14,7 +15,8 @@
 
   onMount(() => {
     void loadConfig();
-    void loadStrategies();
+    // Load active config first so strategies get per-config star ratings
+    void loadActiveConfig().then((cfg) => loadStrategies(cfg?.config_name));
     const onHash = () => {
       route = window.location.hash;
     };

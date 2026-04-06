@@ -8,6 +8,7 @@
   } from "../api";
   import { symbols } from "../stores/config";
   import { strategiesStore, strategyNames } from "../stores/strategies";
+  import { activeConfigStore } from "../stores/activeConfig";
   import BacktestResultCmp from "../components/BacktestResult.svelte";
   import ErrorBanner from "../components/ErrorBanner.svelte";
 
@@ -316,11 +317,55 @@
   }
 
   const currentSpec = $derived($strategiesStore[strategy]);
+
+  // Whether an active config is loaded (controls chip visibility)
+  const hasActiveConfig = $derived($activeConfigStore?.config_name != null);
+
+  function applyConfigDefaults(): void {
+    const cfg = $activeConfigStore;
+    if (!cfg) return;
+
+    // Table filters: scope to config symbols, TFs, strategies
+    if (cfg.symbols && cfg.symbols.length > 0) {
+      selSymbols = new Set(cfg.symbols);
+    }
+    if (cfg.timeframes.length > 0) {
+      selTfs = new Set(cfg.timeframes);
+    }
+    if (cfg.strategies && cfg.strategies.length > 0) {
+      selStrategies = new Set(cfg.strategies);
+    }
+
+    // Day filter
+    if (cfg.day_filter && cfg.day_filter !== "off") {
+      selDayFilters = new Set([cfg.day_filter]);
+    } else {
+      selDayFilters = new Set();
+    }
+
+    // ADR gate
+    if (cfg.adr_suppress_threshold !== null) {
+      selAdrFilters = new Set([cfg.adr_suppress_threshold.toFixed(2)]);
+    } else {
+      selAdrFilters = new Set(["none"]);
+    }
+
+    // Run form defaults from config
+    fee_pct = cfg.fee_pct * 100;
+    tp_r = cfg.tp_r;
+    sl_pct = cfg.sl_pct * 100;
+  }
 </script>
 
 <div class="page">
   <div class="page-header">
     <h2>Backtest</h2>
+    {#if hasActiveConfig}
+      <button class="config-btn" onclick={applyConfigDefaults}
+        title="Pre-fill filters and run form from the active TOML config">
+        ◈ {$activeConfigStore?.config_name}
+      </button>
+    {/if}
     <button class="toggle-btn" class:active={showForm} onclick={() => { showForm = !showForm; }}>
       {showForm ? "✕ Close" : "▶ Run Backtest"}
     </button>
@@ -695,6 +740,25 @@
   .toggle-btn.active {
     background: var(--accent-dim);
     color: var(--accent-bright);
+  }
+
+  .config-btn {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+    border-radius: 3px;
+    cursor: pointer;
+    transition: background 120ms;
+    margin-right: 6px;
+  }
+
+  .config-btn:hover {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
   }
 
   /* ── Filters ─────────────────────────────────────────────────────────── */

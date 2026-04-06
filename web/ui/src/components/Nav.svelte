@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
+  import { configName } from "../stores/activeConfig";
 
   const links = [
     { href: "#/chart",     label: "Chart" },
@@ -46,6 +47,9 @@
   </nav>
 
   <div class="status-bar">
+    {#if $configName}
+      <span class="config-chip">{$configName}</span>
+    {/if}
     <span class="live-dot"></span>
     <span class="clock">{clock}</span>
     <span class="tz">MYT</span>
@@ -162,5 +166,18 @@
     letter-spacing: 0.1em;
     color: var(--muted);
     padding-top: 1px;
+  }
+
+  .config-chip {
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin-right: 8px;
+    font-weight: 600;
   }
 </style>

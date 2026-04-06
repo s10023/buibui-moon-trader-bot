@@ -3,6 +3,7 @@
   import { symbols } from "../stores/config";
   import { strategyNames } from "../stores/strategies";
   import { selectedSymbol, selectSymbol } from "../stores/watchlist";
+  import { configDefaultSymbol } from "../stores/activeConfig";
   import CandleChart from "../components/CandleChart.svelte";
   import ErrorBanner from "../components/ErrorBanner.svelte";
   import LoadingSpinner from "../components/LoadingSpinner.svelte";
@@ -74,12 +75,12 @@
   });
 
   // Auto-select + auto-load on mount:
-  // - If no saved symbol, pick the first from the watchlist
+  // - If no saved symbol, prefer first config symbol, then first from coins.json
   // - If symbol is set but chart not yet loaded, trigger load
   $effect(() => {
     const syms = $symbols;
     if (syms.length === 0) return;
-    if (!symbol) symbol = syms[0];
+    if (!symbol) symbol = $configDefaultSymbol ?? syms[0];
     if (symbol && !loaded && !loading) void load();
   });
 

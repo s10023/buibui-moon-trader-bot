@@ -253,9 +253,35 @@ export async function apiFetch<T>(
 
 // ── Named helpers ─────────────────────────────────────────────────────────────
 
+// ── Active Config ─────────────────────────────────────────────────────────────
+
+export interface StrategyParamsModel {
+  tp_r: number | null;
+  sl_pct: number | null;
+  tp_r_per_tf: Record<string, number>;
+}
+
+export interface ActiveConfigResponse {
+  config_name: string | null;
+  symbols: string[] | null;
+  timeframes: string[];
+  strategies: string[] | null;
+  day_filter: string;
+  tp_r: number;
+  sl_pct: number;
+  fee_pct: number;
+  min_sl_pct: number;
+  adr_suppress_threshold: number | null;
+  strategy_params: Record<string, StrategyParamsModel>;
+}
+
 export const getConfig = () => apiFetch<ConfigResponse>("/api/config");
-export const getStrategies = () =>
-  apiFetch<StrategiesResponse>("/api/strategies");
+export const getStrategies = (configName?: string | null) => {
+  const path = configName ? `/api/strategies?config=${encodeURIComponent(configName)}` : "/api/strategies";
+  return apiFetch<StrategiesResponse>(path);
+};
+export const getActiveConfig = () =>
+  apiFetch<ActiveConfigResponse>("/api/active-config");
 
 export const getOhlcv = (params: {
   symbol: string;

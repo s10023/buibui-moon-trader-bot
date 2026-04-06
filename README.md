@@ -653,12 +653,17 @@ A JSON REST API and SSE streaming backend for the Phase 5 Svelte frontend (or an
 # Start the API server (default: http://127.0.0.1:8000)
 poetry run python buibui.py web
 
+# Pass a signal-watch TOML so the UI auto-populates defaults from it
+poetry run python buibui.py web --config config/signal_watch.toml
+
 # Custom host/port with auto-reload for development
 poetry run python buibui.py web --host 0.0.0.0 --port 8000 --reload
 
-# Or via Makefile (override PORT if 8000 is in use)
+# Or via Makefile (override PORT and/or CONFIG)
 make buibui-web
 make buibui-web PORT=8080
+make buibui-web CONFIG=config/signal_watch.toml
+make web-full CONFIG=config/signal_watch.toml   # build UI then start server
 ```
 
 **Authentication:** All endpoints except `/api/health` require a Bearer token. Set `API_TOKEN` in `.env`.
@@ -670,7 +675,8 @@ SSE stream endpoints accept `?token=<API_TOKEN>` query param instead (browser `E
 | ------ | ---- | ----------- |
 | `GET` | `/api/health` | Health check — no auth required |
 | `GET` | `/api/config` | Per-symbol config from `coins.json` |
-| `GET` | `/api/strategies` | All strategy specs with params and confidence |
+| `GET` | `/api/active-config` | Active TOML config the server was started with (empty defaults when no `--config` passed) |
+| `GET` | `/api/strategies` | All strategy specs with params and confidence (auto-uses active config's star ratings) |
 | `GET` | `/api/ohlcv` | OHLCV candles (`?symbol=&timeframe=&start_ms=&end_ms=`) |
 | `POST` | `/api/signals` | Detect strategy signals on historical data |
 | `GET` | `/api/backtest/runs` | All saved backtest runs from DB, newest first |

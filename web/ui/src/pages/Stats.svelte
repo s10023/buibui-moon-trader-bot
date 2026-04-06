@@ -2,13 +2,14 @@
   import { onMount } from "svelte";
   import { getStats, type StatsResponse } from "../api";
   import { symbols } from "../stores/config";
+  import { configDefaultSymbol } from "../stores/activeConfig";
   import LoadingSpinner from "../components/LoadingSpinner.svelte";
   import ErrorBanner from "../components/ErrorBanner.svelte";
 
   const TIMEFRAMES_DAYS = [30, 90, 180, 365];
   const DOW_ORDER = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-  let symbol = $state("BTCUSDT");
+  let symbol = $state($configDefaultSymbol ?? "BTCUSDT");
   let days = $state(365);
   let stats = $state<StatsResponse | null>(null);
   let loading = $state(false);
