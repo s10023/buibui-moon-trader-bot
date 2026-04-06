@@ -6,8 +6,12 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-from analytics.data_store import init_schema
+from analytics.data_store import (
+    get_directional_confidence_ratings,
+    init_schema,
+)
 from analytics.recalibrate_lib import (
+    compute_directional_ratings,
     compute_recalibrated_ratings,
     format_recalibration_report,
     win_rate_to_stars,
@@ -546,3 +550,114 @@ class TestWriteConfidenceToDb:
 
         assert get_confidence_ratings(conn, "signal_watch")["fvg"]["1h"] == 2
         assert get_confidence_ratings(conn, "signal_watch_weekdays")["fvg"]["1h"] == 4
+
+    def test_writes_directional_stars_to_db(self) -> None:
+        conn = self._conn()
+        ratings = {"fvg": {"1h": 3}}
+        dir_ratings = {"fvg": {"1h": {"long": 5, "short": 1}}}
+        empty_wr: pd.DataFrame = pd.DataFrame(
+            columns=["strategy", "timeframe", "avg_r", "win_rate"]
+        )
+        write_confidence_to_db(
+            conn, "signal_watch", ratings, empty_wr, directional_ratings=dir_ratings
+        )
+        result = get_directional_confidence_ratings(conn, "signal_watch")
+        assert result["fvg"]["1h"]["long"] == 5
+        assert result["fvg"]["1h"]["short"] == 1
+
+    def test_combined_stars_unaffected_by_directional(self) -> None:
+        conn = self._conn()
+        ratings = {"fvg": {"1h": 3}}
+        dir_ratings = {"fvg": {"1h": {"long": 5, "short": 1}}}
+        empty_wr: pd.DataFrame = pd.DataFrame(
+            columns=["strategy", "timeframe", "avg_r", "win_rate"]
+        )
+        write_confidence_to_db(
+            conn, "signal_watch", ratings, empty_wr, directional_ratings=dir_ratings
+        )
+        from analytics.data_store import get_confidence_ratings
+
+        combined = get_confidence_ratings(conn, "signal_watch")
+        assert combined["fvg"]["1h"] == 3
+
+
+# ---------------------------------------------------------------------------
+# compute_directional_ratings
+# ---------------------------------------------------------------------------
+
+
+def _seed_directional_runs(conn: duckdb.DuckDBPyConnection) -> None:
+    """Seed backtest_runs with directional long/short split data."""
+    conn.execute(
+        "INSERT INTO backtest_runs VALUES "
+        "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            "dir_bos",
+            "BTCUSDT",
+            "4h",
+            "bos",
+            0,
+            1,
+            90,
+            0.02,
+            2.0,
+            0.0,
+            "off",
+            1,
+            None,
+            20,
+            20,
+            12,
+            8,
+            0.6,
+            0.4,
+            8.0,
+            4.0,
+            1000,
+            None,
+            # long: 10 trades, avg_r=0.9 → 5★ at min_trades=5
+            10,
+            8,
+            0.8,
+            0.9,
+            # short: 10 trades, avg_r=-0.1 → 1★
+            10,
+            4,
+            0.4,
+            -0.1,
+            None,  # adr_suppress_threshold
+        ],
+    )
+
+
+class TestComputeDirectionalRatings:
+    def _make_conn(self) -> duckdb.DuckDBPyConnection:
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        return conn
+
+    def test_empty_db_returns_empty(self) -> None:
+        conn = self._make_conn()
+        result = compute_directional_ratings(conn)
+        conn.close()
+        assert result == {}
+
+    def test_directional_stars_computed_per_direction(self) -> None:
+        conn = self._make_conn()
+        _seed_directional_runs(conn)
+        result = compute_directional_ratings(conn, min_trades=5)
+        conn.close()
+        assert "bos" in result
+        assert "4h" in result["bos"]
+        # long avg_r=0.9 → 5★; short avg_r=-0.1 → 1★
+        assert result["bos"]["4h"]["long"] == 5
+        assert result["bos"]["4h"]["short"] == 1
+
+    def test_direction_excluded_when_below_min_trades(self) -> None:
+        conn = self._make_conn()
+        _seed_directional_runs(conn)
+        result = compute_directional_ratings(conn, min_trades=15)
+        conn.close()
+        # 10 trades per direction < min_trades=15 → neither direction rated
+        assert result == {}

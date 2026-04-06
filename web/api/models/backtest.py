@@ -35,6 +35,8 @@ class BacktestRunSummary(BaseModel):
     short_avg_r: float | None = None
     adr_suppress_threshold: float | None = None
     stars: int | None = None
+    long_stars: int | None = None
+    short_stars: int | None = None
 
     @field_validator("sweep_id", mode="before")
     @classmethod
@@ -56,6 +58,8 @@ class BacktestRunSummary(BaseModel):
                 "short_avg_r",
                 "adr_suppress_threshold",
                 "stars",
+                "long_stars",
+                "short_stars",
             )
             for key in nullable_cols:
                 v = data.get(key)
