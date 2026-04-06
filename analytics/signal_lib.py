@@ -855,11 +855,17 @@ def run_scan_cycle(
                         if _is_low_volume(
                             ohlcv_df, vol_time_to_idx.get(int(_e.open_time), 0)
                         ):
+                            logger.info(
+                                "Volume filter suppressed %s %s — %s %s",
+                                symbol,
+                                tf,
+                                _e.direction.upper(),
+                                _e.strategy,
+                            )
                             continue
                     vol_filtered.append(_e)
                 passing_events = vol_filtered
                 if not passing_events:
-                    logger.info("Volume filter suppressed %s %s", symbol, tf)
                     continue
 
             # Bias gate — ADR progress and DOW context filters (F8).
