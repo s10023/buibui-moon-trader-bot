@@ -94,6 +94,10 @@ async def _positions_event_generator(client: Client) -> AsyncGenerator[str, None
                             sl_price=_parse_float_or_none(row[10]),
                             sl_size=_strip_ansi(row[11]) if row[11] != "-" else None,
                             sl_usd=_strip_ansi(row[12]) if row[12] != "-" else None,
+                            tp_price=row[15] if len(row) > 15 else None,
+                            liq_price=row[16] if len(row) > 16 else None,
+                            position_side=str(row[17]) if len(row) > 17 else "BOTH",
+                            margin_type=str(row[18]) if len(row) > 18 else None,
                         )
                         for row in rows
                     ]
