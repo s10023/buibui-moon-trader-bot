@@ -221,15 +221,13 @@
       levels.push({ label: "WO", price: c.open, originTimeSec: c.open_time / 1000, color: "#58a6ff" });
     }
 
-    // Monday H / Monday L — only if we're past Monday
-    if (daysSinceMon > 0) {
-      const monCandles = data.filter(c => between(c, thisMonStart, thisMonStart + DAY));
-      if (monCandles.length > 0) {
-        const mhC = monCandles.reduce((a, b) => b.high > a.high ? b : a);
-        const mlC = monCandles.reduce((a, b) => b.low  < a.low  ? b : a);
-        levels.push({ label: "Mon H", price: mhC.high, originTimeSec: mhC.open_time / 1000, color: "#e3b341" });
-        levels.push({ label: "Mon L", price: mlC.low,  originTimeSec: mlC.open_time / 1000, color: "#e3b341" });
-      }
+    // Monday H / Monday L — show all week including Monday itself
+    const monCandles = data.filter(c => between(c, thisMonStart, thisMonStart + DAY));
+    if (monCandles.length > 0) {
+      const mhC = monCandles.reduce((a, b) => b.high > a.high ? b : a);
+      const mlC = monCandles.reduce((a, b) => b.low  < a.low  ? b : a);
+      levels.push({ label: "Mon H", price: mhC.high, originTimeSec: mhC.open_time / 1000, color: "#e3b341" });
+      levels.push({ label: "Mon L", price: mlC.low,  originTimeSec: mlC.open_time / 1000, color: "#e3b341" });
     }
 
     // PWH / PWL — previous week
