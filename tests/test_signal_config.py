@@ -452,3 +452,98 @@ tp_r_15m = 3.5
         # engulfing: SOLUSDT 4h → 4.0, BTCUSDT 4h → strategy-TF 3.5
         assert cfg.effective_tp_r("engulfing", "SOLUSDT", "4h") == 4.0
         assert cfg.effective_tp_r("engulfing", "BTCUSDT", "4h") == 3.5
+
+
+class TestEffectiveVolumeSuppress:
+    def test_per_strategy_true_overrides_global_false(self) -> None:
+        from analytics.signal_config import BacktestFilterConfig
+
+        cfg = SignalWatchConfig(
+            backtest=BacktestFilterConfig(volume_suppress=False),
+            strategy_params={"bos": StrategyOverride(volume_suppress=True)},
+        )
+        assert cfg.effective_volume_suppress("bos") is True
+
+    def test_per_strategy_false_overrides_global_true(self) -> None:
+        from analytics.signal_config import BacktestFilterConfig
+
+        cfg = SignalWatchConfig(
+            backtest=BacktestFilterConfig(volume_suppress=True),
+            strategy_params={"pin_bar": StrategyOverride(volume_suppress=False)},
+        )
+        assert cfg.effective_volume_suppress("pin_bar") is False
+
+    def test_none_falls_back_to_global_true(self) -> None:
+        from analytics.signal_config import BacktestFilterConfig
+
+        cfg = SignalWatchConfig(
+            backtest=BacktestFilterConfig(volume_suppress=True),
+            strategy_params={"engulfing": StrategyOverride(volume_suppress=None)},
+        )
+        assert cfg.effective_volume_suppress("engulfing") is True
+
+    def test_missing_strategy_falls_back_to_global(self) -> None:
+        from analytics.signal_config import BacktestFilterConfig
+
+        cfg = SignalWatchConfig(
+            backtest=BacktestFilterConfig(volume_suppress=True),
+            strategy_params={},
+        )
+        assert cfg.effective_volume_suppress("orb") is True
+
+    def test_global_false_no_override_returns_false(self) -> None:
+        from analytics.signal_config import BacktestFilterConfig
+
+        cfg = SignalWatchConfig(
+            backtest=BacktestFilterConfig(volume_suppress=False),
+            strategy_params={},
+        )
+        assert cfg.effective_volume_suppress("marubozu") is False
+
+    def test_toml_round_trip_volume_suppress(self, tmp_path: Path) -> None:
+        content = """\
+[backtest]
+volume_suppress = false
+
+[strategy_params.bos]
+tp_r = 3.0
+volume_suppress = true
+
+[strategy_params.pin_bar]
+tp_r = 3.0
+volume_suppress = false
+
+[strategy_params.doji]
+tp_r = 3.0
+"""
+        p = _write_toml(tmp_path, content)
+        cfg = load_signal_config(p)
+        # per-strategy true overrides global false
+        assert cfg.effective_volume_suppress("bos") is True
+        # per-strategy false (explicit)
+        assert cfg.effective_volume_suppress("pin_bar") is False
+        # no volume_suppress in block → falls back to global false
+        assert cfg.effective_volume_suppress("doji") is False
+        # strategy not in params → falls back to global false
+        assert cfg.effective_volume_suppress("orb") is False
+
+    def test_signal_watch_toml_volume_suppress_flags(self) -> None:
+        """signal_watch.toml A14b volume_suppress flags must be parsed correctly."""
+        cfg_path = Path(__file__).parent.parent / "config" / "signal_watch.toml"
+        cfg = load_signal_config(cfg_path)
+        # suppress = true: strategies where normal-vol signals outperform
+        assert cfg.effective_volume_suppress("bos") is True
+        assert cfg.effective_volume_suppress("orb") is True
+        assert cfg.effective_volume_suppress("smt_divergence") is True
+        assert cfg.effective_volume_suppress("doji") is True
+        assert cfg.effective_volume_suppress("liquidity_sweep") is True
+        assert cfg.effective_volume_suppress("fib_golden_zone") is True
+        # suppress = false: strategies where low-vol signals have edge
+        assert cfg.effective_volume_suppress("pin_bar") is False
+        assert cfg.effective_volume_suppress("hammer_hanging_man") is False
+        assert cfg.effective_volume_suppress("marubozu") is False
+        assert cfg.effective_volume_suppress("cvd_divergence") is False
+        assert cfg.effective_volume_suppress("morning_evening_star") is False
+        # neutral strategies (no flag) → fall back to global default (false)
+        assert cfg.effective_volume_suppress("engulfing") is False
+        assert cfg.effective_volume_suppress("eqh_eql") is False

@@ -239,6 +239,7 @@ def _collect_sweep_results(
             cfg.fee_pct,
             min_sl_pct=cfg.min_sl_pct,
             atr_sl_multiplier=eff_atr_sl,
+            volume_suppress=cfg.effective_volume_suppress(strategy),
         )
         results.append(bt)
 
@@ -341,6 +342,7 @@ def run_backtest_sweep(
                         atr_sl_multiplier=cfg.effective_atr_sl_multiplier(
                             strat, sym, tf
                         ),
+                        volume_suppress=cfg.effective_volume_suppress(strat),
                     )
                     tp_results.append(bt)
                 results_by_tp[tp_r] = tp_results
@@ -371,6 +373,7 @@ def run_backtest_sweep(
                         cfg.fee_pct,
                         min_sl_pct=cfg.min_sl_pct,
                         atr_sl_multiplier=atr_mult,
+                        volume_suppress=cfg.effective_volume_suppress(strat),
                     )
                     atr_results.append(bt)
                 results_by_atr[atr_mult] = atr_results

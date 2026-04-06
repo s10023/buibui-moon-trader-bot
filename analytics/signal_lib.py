@@ -529,6 +529,19 @@ def _is_adr_exempt(
     return override.adr_exempt if override is not None else False
 
 
+def _resolve_volume_suppress(
+    strategy_params: dict[str, StrategyOverride] | None,
+    strategy: str,
+    global_suppress: bool,
+) -> bool:
+    """Return per-strategy volume_suppress if set, else the global fallback."""
+    if strategy_params:
+        override = strategy_params.get(strategy)
+        if override is not None and override.volume_suppress is not None:
+            return override.volume_suppress
+    return global_suppress
+
+
 def _compute_stats_context(
     conn: duckdb.DuckDBPyConnection,
     symbol: str,
@@ -820,22 +833,31 @@ def run_scan_cycle(
                         logger.info("Backtest hard filter suppressed %s %s", symbol, tf)
                         continue
 
-            # Volume suppression gate — drop low-volume signals when enabled.
-            # Enable [backtest].volume_suppress after confirming via sweep that
-            # low-vol trades underperform (run `make buibui-backtest` and read the
-            # Volume Impact table).
-            if backtest_cfg and backtest_cfg.volume_suppress:
-                time_to_idx = {
-                    int(t): i
-                    for i, t in enumerate(ohlcv_df["open_time"].astype("int64"))
-                }
-                passing_events = [
-                    e
-                    for e in passing_events
-                    if not _is_low_volume(
-                        ohlcv_df, time_to_idx.get(int(e.open_time), 0)
-                    )
-                ]
+            # Volume suppression gate — per-strategy, drops low-volume signal candles
+            # when the strategy (or global fallback) has volume_suppress enabled.
+            # Decision is based on Phase 1 sweep: suppress when normal-vol avg_r
+            # clearly exceeds low-vol avg_r (delta > 0.05R); never suppress when
+            # low-vol signals show edge.
+            if backtest_cfg:
+                vol_time_to_idx: dict[int, int] | None = None
+                vol_filtered: list[SignalEvent] = []
+                for _e in passing_events:
+                    if _resolve_volume_suppress(
+                        strategy_params, _e.strategy, backtest_cfg.volume_suppress
+                    ):
+                        if vol_time_to_idx is None:
+                            vol_time_to_idx = {
+                                int(t): i
+                                for i, t in enumerate(
+                                    ohlcv_df["open_time"].astype("int64")
+                                )
+                            }
+                        if _is_low_volume(
+                            ohlcv_df, vol_time_to_idx.get(int(_e.open_time), 0)
+                        ):
+                            continue
+                    vol_filtered.append(_e)
+                passing_events = vol_filtered
                 if not passing_events:
                     logger.info("Volume filter suppressed %s %s", symbol, tf)
                     continue

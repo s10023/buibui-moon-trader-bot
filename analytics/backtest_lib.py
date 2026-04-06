@@ -273,6 +273,7 @@ def run_backtest(
     fee_pct: float = 0.0,
     min_sl_pct: float = 0.0,
     atr_sl_multiplier: float | None = None,
+    volume_suppress: bool = False,
 ) -> BacktestResult:
     """Simulate trades from signals on historical OHLCV.
 
@@ -322,6 +323,10 @@ def run_backtest(
         entry_idx = sig_idx + 1
 
         if entry_idx >= n_candles:
+            continue
+
+        # Volume suppression: skip low-volume signal candles when enabled.
+        if volume_suppress and _is_low_volume(ohlcv, sig_idx):
             continue
 
         entry_time = int(ohlcv_times_np[entry_idx])
