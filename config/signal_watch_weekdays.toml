@@ -78,24 +78,28 @@ tp_r_15m = 4.0                # +0.11R
 tp_r_1h  = 4.0                # +0.23R
 tp_r_4h  = 3.5                # +0.44R
 tp_r_1d  = 3.0                # +0.95R (21 trades, 50% WR)
+volume_suppress = false       # A14b: low-vol edge Δ=-0.07R (low +0.19R vs normal +0.12R)
 
 [strategy_params.pin_bar]
 tp_r_15m = 4.0                # +0.08R
 tp_r_1h  = 4.0                # +0.16R
 tp_r_4h  = 3.5                # +0.11R (was missing)
 tp_r_1d  = 3.5                # +1.00R (33 trades)
+volume_suppress = false       # A14b: low-vol edge Δ=-0.21R (low +0.16R vs normal -0.05R)
 
 [strategy_params.hammer_hanging_man]
 tp_r_15m = 3.0                # +0.02R (borderline)
 tp_r_1h  = 5.0                # +0.25R (monotonically increasing; was 4.0=+0.22R)
 tp_r_4h  = 4.0                # WFO OOS: BTC+1.450R n=10 (confirmed optimal)
 tp_r_1d  = 3.0                # WFO OOS: BTC+0.550R n=5 (was 3.5 overfit OOS -0.150R)
+volume_suppress = false       # A14b: low-vol edge Δ=-0.25R (low +0.13R vs normal -0.12R)
 
 [strategy_params.doji]
 tp_r_15m = 3.5                # +0.09R
 tp_r_1h  = 3.0                # +0.26R
 tp_r_4h  = 1.5                # +0.14R (48% WR — best for this TF)
 tp_r_1d  = 3.5                # +0.82R (12 trades; 42% WR — avoiding lottery bias at 5.0R)
+volume_suppress = true        # A14b: normal-vol wins Δ=+0.11R (low +0.14R vs normal +0.25R)
 
 [strategy_params.inside_bar]
 tp_r_15m = 4.0                # +0.06R
@@ -113,6 +117,7 @@ tp_r_1d  = 3.5                # +0.48R (3 trades; 4.0+ drops to -1.02R — 0 win
 
 [strategy_params.bos]
 tp_r = 3.0                    # all TFs negative; hard mode suppresses at runtime
+volume_suppress = true        # A14b: normal-vol wins Δ=+0.14R (low -0.38R vs normal -0.24R)
 
 [strategy_params.smt_divergence]
 tp_r_15m = 4.0                # +0.73R (37% WR; post-spam-fix recalibrated from 5.0)
@@ -123,6 +128,7 @@ tp_r_4h  = 5.0                # +0.18R (10 trades; barely positive, hard mode ma
 tp_r_15m = 3.0                # +0.04R (borderline; hard mode gates)
 tp_r_1h  = 5.0                # +0.97R (monotonically increasing; 62 trades, 34% WR)
 tp_r_4h  = 5.0                # +1.38R (monotonically increasing; 5 trades — small sample)
+volume_suppress = true        # A14b: normal-vol wins Δ=+0.13R (low +0.15R vs normal +0.28R)
 
 [strategy_params.trend_day]
 tp_r_4h  = 3.5                # WFO OOS: BTC+0.217R ETH+0.041R SOL+0.120R n=52-65 (was 5.0 overfit)
@@ -131,25 +137,30 @@ tp_r_1d  = 4.0                # +0.23R
 [strategy_params.orb]
 tp_r_1h  = 4.5                # +0.02R (barely positive)
 tp_r_4h  = 3.5                # +0.05R
+volume_suppress = true        # A14b: normal-vol wins Δ=+0.33R (low -0.14R vs normal +0.19R)
 
 [strategy_params.liquidity_sweep]
 tp_r_1h  = 5.0                # -0.25R (all negative; hard mode will suppress)
 tp_r_1d  = 3.5                # +0.87R (21 trades, 43% WR)
+volume_suppress = true        # A14b: normal-vol wins Δ=+0.21R (low -0.45R vs normal -0.24R)
 
 [strategy_params.marubozu]
 tp_r_4h  = 4.5                # -0.27R (all negative; hard mode will suppress)
 tp_r_1d  = 2.0                # +0.12R (5 trades — small sample)
+volume_suppress = false       # A14b: low-vol edge Δ=-0.37R (low -0.12R vs normal -0.49R)
 
 [strategy_params.fvg]
 tp_r_15m = 3.0                # -0.18R (all negative; hard mode will suppress)
 tp_r_1h  = 1.5                # -0.15R (all negative; hard mode will suppress)
 tp_r_4h  = 2.5                # -0.23R (all negative; hard mode will suppress)
 tp_r_1d  = 4.5                # -0.14R (all negative; hard mode will suppress)
+volume_suppress = true        # A14b: normal-vol wins Δ=+0.08R (low -0.20R vs normal -0.12R)
 
 [strategy_params.morning_evening_star]
 tp_r_15m = 3.5                # +0.06R
 tp_r_1h  = 4.0                # +0.09R (peak; was 3.5=+0.08R)
 tp_r_4h  = 5.0                # +0.33R (monotonically increasing)
+volume_suppress = false       # A14b: low-vol edge Δ=-0.06R (low +0.15R vs normal +0.08R)
 
 [strategy_params.order_block]
 # 15m/1h excluded via strategy_timeframes

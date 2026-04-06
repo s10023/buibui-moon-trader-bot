@@ -6,86 +6,85 @@ disable-model-invocation: true
 
 # Volume Suppression Testing
 
-Test whether filtering low-volume candles improves strategy performance. Uses the `volume_suppress` flag in TOML.
+Test whether filtering low-volume candles improves strategy performance. Uses the per-strategy `volume_suppress` flag in `[strategy_params.X]` TOML blocks (A14b — implemented).
 
 ## What volume_suppress does
 
-Suppresses signals where the signal candle's volume is below 1.5× the 20-candle rolling mean. Low-volume candles are considered noise — signal fires during illiquid conditions where follow-through is less reliable.
+Suppresses signals where the signal candle's volume is below 1.5× the 20-candle rolling mean. Low-volume candles are considered noise — signals during illiquid conditions have less reliable follow-through.
 
-The "High Vol" vs "Low Vol" split table is **always printed** in backtest output regardless of whether `volume_suppress` is enabled. This lets you assess impact before committing to the filter.
+The "Volume Impact" split table is **always printed** in backtest output regardless of whether `volume_suppress` is enabled. This lets you assess impact before committing to the filter.
 
 ## How to test
 
-### Method 1: Read the volume split table (no config change needed)
-
-Run any backtest and look for the "Volume Split" section in the output:
+Run any backtest and look for the "Volume Impact" section in the output:
 
 ```bash
 make buibui-backtest CONFIG=config/signal_watch.toml
 ```
 
-The split table shows:
+The split table shows aggregated results across all symbols × TFs:
 ```
-  Strategy              TF    High Vol   Low Vol   Δ (High - Low)
-  bos                   1h    +0.31R     +0.10R    +0.21R   ← suppress
-  pin_bar               1h    +0.18R     +0.37R    -0.19R   ← do NOT suppress
-  engulfing             1h    +0.19R     +0.17R    +0.02R   ← neutral
-```
-
-Decision threshold: |Δ| > 0.10R is meaningful; < 0.05R is noise.
-
-### Method 2: Enable globally and compare
-
-```toml
-# config/signal_watch.toml — temporary test, revert after
-[backtest]
-volume_suppress = true
+  Strategy               Low-vol  Avg R    Normal  Avg R    Delta
+  bos                        736 -0.32R      1104 -0.20R   +0.11R   ← suppress
+  pin_bar                   1950 +0.22R       512 -0.00R   -0.22R   ← do NOT suppress
+  engulfing                 1336 +0.33R       292 +0.30R   -0.03R   ← neutral
 ```
 
-Then re-run and compare avg R vs without suppression.
+Decision threshold:
+- Delta > +0.05R → `volume_suppress = true` (normal-vol signals win)
+- Delta < -0.05R → `volume_suppress = false` (explicitly keep low-vol signals)
+- |Delta| ≤ 0.05R → neutral (omit the flag entirely — inherits global default)
 
 ## Where to set volume_suppress
 
-### Global sweep (backtest only)
+### Per-strategy (A14b — implemented)
 ```toml
-# Top-level in backtest TOML (affects all strategies in the sweep)
-volume_suppress = true
+[strategy_params.bos]
+tp_r = 3.0
+volume_suppress = true        # A14b: normal-vol wins Δ=+0.11R
+
+[strategy_params.pin_bar]
+tp_r = 3.0
+volume_suppress = false       # A14b: low-vol edge Δ=-0.22R — never suppress
 ```
 
-### Live daemon (signal watch)
+Resolution order: per-strategy → global `[backtest].volume_suppress` (default false).
+
+### Global fallback
 ```toml
-# Under [backtest] sub-table in signal_watch TOML
 [backtest]
-volume_suppress = true   # suppresses low-vol signals before sending alerts
+volume_suppress = true   # applies to all strategies with no per-strategy override
 ```
 
-### Per-strategy (NOT YET IMPLEMENTED — A14b pending)
+## A14b findings (2026-04-06 — at current per-strategy tp_r)
 
-Per-strategy `volume_suppress` in `[strategy_params.X]` is not yet implemented as of 2026-03-28. Currently only global suppression is available. A14b will add `volume_suppress: bool | None` to `StrategyOverride`.
+### signal_watch.toml (tue_thu day filter)
 
-## Key A13 findings
+| Strategy | Low-vol | Normal | Delta | Decision |
+|---|---|---|---|---|
+| smt_divergence | +0.63R | +1.41R | +0.78R | **true** |
+| orb | -0.16R | +0.18R | +0.33R | **true** |
+| doji | +0.26R | +0.50R | +0.24R | **true** |
+| liquidity_sweep | -0.47R | -0.30R | +0.17R | **true** (reversal from A13) |
+| bos | -0.32R | -0.20R | +0.11R | **true** |
+| fib_golden_zone | -0.22R | -0.11R | +0.11R | **true** |
+| marubozu | -0.07R | -0.50R | -0.43R | **false** |
+| hammer_hanging_man | +0.17R | -0.18R | -0.35R | **false** |
+| cvd_divergence | +0.09R | -0.15R | -0.24R | **false** |
+| pin_bar | +0.22R | -0.00R | -0.22R | **false** |
+| morning_evening_star | +0.26R | +0.12R | -0.14R | **false** (reversal from A13) |
+| engulfing | +0.33R | +0.30R | -0.03R | neutral |
+| eqh_eql | -0.12R | -0.11R | +0.01R | neutral |
+| fvg | -0.22R | -0.18R | +0.03R | neutral |
+| inside_bar | +0.11R | +0.15R | +0.03R | neutral |
+| order_block | -0.20R | -0.22R | -0.03R | neutral |
+| trend_day | -0.07R | -0.02R | +0.05R | neutral (borderline) |
 
-Tested at global `tp_r=2.0`, weekdays + tue_thu configs, 200d, 3 symbols:
+Key reversals vs A13 (old tp_r=2.0):
+- **liquidity_sweep**: A13 said don't suppress (-0.11R delta); at current tp_r now +0.17R → **suppress**
+- **morning_evening_star**: A13 said suppress (+0.10R delta); at current tp_r now -0.14R → **don't suppress**
 
-**Suppress — clear benefit (Δ > +0.10R):**
-| Strategy | Benefit |
-|----------|---------|
-| bos | +0.21R / +0.18R |
-| orb | +0.18R / +0.18R |
-| fib_golden_zone | +0.04R / +0.19R |
-| morning_evening_star | +0.10R / +0.05R |
-| trend_day | +0.08R / +0.03R |
-
-**Do NOT suppress (low-vol signals outperform):**
-| Strategy | Penalty |
-|----------|---------|
-| pin_bar | -0.19R / -0.02R |
-| hammer_hanging_man | -0.17R / -0.16R |
-| liquidity_sweep | -0.11R / -0.01R |
-
-**Neutral:** engulfing, doji, inside_bar, eqh_eql, smt_divergence
-
-**Note:** These findings used global `tp_r=2.0`. The A14 per-strategy tp_r changes may shift the deltas — re-run before enabling. See `project_a13_volume_findings.md`.
+Configs use config-specific sweeps — weekdays/all configs have slightly different decisions. See inline comments in each TOML.
 
 ## Workflow
 
@@ -93,31 +92,27 @@ Tested at global `tp_r=2.0`, weekdays + tue_thu configs, 200d, 3 symbols:
 # 1. Run sweep to see volume split table
 make buibui-backtest CONFIG=config/signal_watch.toml
 
-# 2. Review High Vol vs Low Vol Δ per strategy × TF
+# 2. For each strategy compute Delta = normal_avg_r - low_vol_avg_r
+#    > +0.05R → volume_suppress = true
+#    < -0.05R → volume_suppress = false
+#    |Δ| ≤ 0.05R → omit (neutral)
 
-# 3a. If testing global suppression, temporarily add to TOML and re-run
-# 3b. For production: wait for A14b per-strategy suppression (not yet implemented)
+# 3. Add volume_suppress to [strategy_params.X] in TOML
+# 4. Repeat for weekdays and all configs separately (day filter changes trade population)
 
-# 4. Once decided, commit TOML change
-# For now, only global suppression under [backtest] is available
+# 5. Run quality gates
+make lint-py && make typecheck && make test
 ```
 
 ## Implementation files
 
 | File | Role |
 |------|------|
-| `analytics/backtest_lib.py` | `format_volume_split()` — volume split table; `run_backtest()` — `volume_suppress` flag filters signals |
-| `analytics/backtest_config.py` | `volume_suppress: bool` on `BacktestSweepConfig` |
-| `analytics/signal_config.py` | `volume_suppress: bool` on `BacktestFilterConfig` (daemon) |
-| `config/signal_watch.toml` | `[backtest].volume_suppress` — set here for live daemon |
-
-## Task: run volume suppression analysis
-
-When the user asks whether to enable volume suppression:
-
-1. Run: `make buibui-backtest CONFIG=config/signal_watch.toml`
-2. Read the "Volume Split" section — note strategies where |Δ| > 0.10R
-3. Cross-reference with A13 findings in `project_a13_volume_findings.md`
-4. Note: findings at old tp_r=2.0 may differ from current per-strategy tp_r — validate
-5. For now, only global `volume_suppress = true` under `[backtest]` is available
-6. Per-strategy suppression requires A14b implementation first
+| `analytics/backtest_lib.py` | `format_volume_split()` — volume split table; `run_backtest(volume_suppress=bool)` — skips low-vol signals when True |
+| `analytics/backtest_config.py` | `StrategyOverride.volume_suppress: bool \| None`; `BacktestSweepConfig.volume_suppress: bool`; `effective_volume_suppress(strategy)` |
+| `analytics/signal_config.py` | `StrategyOverride.volume_suppress: bool \| None`; `BacktestFilterConfig.volume_suppress: bool`; `SignalWatchConfig.effective_volume_suppress(strategy)` |
+| `analytics/signal_lib.py` | `_resolve_volume_suppress()` — per-event lookup in live daemon loop |
+| `analytics/backtest_runner.py` | Passes `cfg.effective_volume_suppress(strategy)` to every `run_backtest()` call |
+| `config/signal_watch.toml` | Per-strategy `volume_suppress` in each `[strategy_params.X]` block |
+| `config/signal_watch_weekdays.toml` | Same — weekdays-specific decisions |
+| `config/signal_watch_all.toml` | Same — all-days decisions (includes wick_fill=true) |

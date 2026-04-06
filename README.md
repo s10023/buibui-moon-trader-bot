@@ -570,7 +570,7 @@ ETHUSDT = "BTCUSDT"
 SOLUSDT = "ETHUSDT"
 ```
 
-**`[strategy_params]`** overrides `tp_r` and `sl_pct` per strategy, per TF, and per symbol.
+**`[strategy_params]`** overrides `tp_r`, `sl_pct`, and volume/ADR gates per strategy, per TF, and per symbol.
 Resolution order: **symbol+TF → symbol → TF → strategy → global**.
 
 ```toml
@@ -593,6 +593,11 @@ tp_r_15m = 4.5      # ETH 15m only — diverges from BTC
 Per-symbol blocks use `[strategy_params.STRATEGY.SYMBOL]` sub-table syntax, placed after their
 parent `[strategy_params.STRATEGY]` block. Any symbol not listed falls through to TF-level or
 strategy-wide.
+
+Two boolean flags are also supported per strategy block:
+
+- **`adr_exempt = true`** — skip the ADR bias gate for this strategy (use for breakout/continuation strategies that need range momentum)
+- **`volume_suppress = true/false`** — override the global `[backtest].volume_suppress` for this strategy. `true` drops signals on candles with volume < 1.5× the 20-candle rolling mean; `false` explicitly keeps them even when the global flag is on. Omit to inherit the global default (off). Decision is data-driven: run `make buibui-backtest` and check the "Volume Impact" table for each strategy — suppress when normal-vol avg R clearly exceeds low-vol avg R (Δ > 0.05R).
 
 The inline backtest (computed each scan cycle per firing signal) respects all config values:
 `fee_pct`, `day_filter`, `sl_pct`, and `cooldown_seconds` are now all read from TOML and

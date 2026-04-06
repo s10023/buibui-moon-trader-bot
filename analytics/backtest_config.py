@@ -59,6 +59,8 @@ class StrategyOverride:
     atr_sl_multiplier_per_tf: dict[str, float] = field(default_factory=dict)
     per_symbol: dict[str, SymbolOverride] = field(default_factory=dict)
     adr_exempt: bool = False
+    # None = inherit global volume_suppress; True/False = per-strategy override.
+    volume_suppress: bool | None = None
 
 
 @dataclass
@@ -121,6 +123,8 @@ class BacktestSweepConfig:
     # in the chasing direction (same logic as live BiasConfig.adr_suppress_threshold).
     # Mirrors the [bias] TOML section used by the signal watcher.
     adr_suppress_threshold: float | None = None
+    # Global volume suppress fallback. Per-strategy override takes precedence.
+    volume_suppress: bool = False
 
     def effective_min_trades(self, tf: str) -> int:
         """Return per-TF override if configured, else the global min_trades."""
@@ -180,6 +184,13 @@ class BacktestSweepConfig:
         """Return True if this strategy should bypass the ADR bias gate."""
         override = self.strategy_params.get(strategy)
         return override.adr_exempt if override is not None else False
+
+    def effective_volume_suppress(self, strategy: str) -> bool:
+        """Return per-strategy volume_suppress if set, else the global flag."""
+        override = self.strategy_params.get(strategy)
+        if override is not None and override.volume_suppress is not None:
+            return override.volume_suppress
+        return self.volume_suppress
 
 
 def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
@@ -267,6 +278,7 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
                     sl_pct_per_tf=sym_sl_pct_per_tf,
                     atr_sl_multiplier_per_tf=sym_atr_sl_per_tf,
                 )
+        raw_vs = vals.get("volume_suppress")
         strategy_params[str(strat_name)] = StrategyOverride(
             tp_r=float(tp_r_val) if tp_r_val is not None else None,
             sl_pct=float(sl_pct_val) if sl_pct_val is not None else None,
@@ -276,11 +288,15 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
             atr_sl_multiplier_per_tf=atr_sl_per_tf,
             per_symbol=per_symbol,
             adr_exempt=bool(vals.get("adr_exempt", False)),
+            volume_suppress=bool(raw_vs) if raw_vs is not None else None,
         )
 
     # Some signal_watch configs place liq_sweep_use_fib inside a [backtest]
     # sub-table; fall back to that if not present at the top level.
     _bt_section: dict[str, object] = data.get("backtest", {})
+
+    # volume_suppress: [backtest] sub-table takes precedence over top-level
+    _raw_vs = _bt_section.get("volume_suppress", data.get("volume_suppress", False))
 
     return BacktestSweepConfig(
         symbols=data.get("symbols"),
@@ -322,4 +338,5 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
             and data["bias"].get("adr_suppress_threshold") is not None
             else None
         ),
+        volume_suppress=bool(_raw_vs),
     )

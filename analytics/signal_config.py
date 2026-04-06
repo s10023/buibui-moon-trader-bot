@@ -61,6 +61,8 @@ class StrategyOverride:
     atr_sl_multiplier_per_tf: dict[str, float] = field(default_factory=dict)
     per_symbol: dict[str, SymbolOverride] = field(default_factory=dict)
     adr_exempt: bool = False
+    # None = inherit global [backtest].volume_suppress; True/False = per-strategy override.
+    volume_suppress: bool | None = None
 
 
 def _day_filter_to_weekdays(day_filter: str) -> list[int] | None:
@@ -207,6 +209,13 @@ class SignalWatchConfig:
                 return override.sl_pct
         return self.sl_pct
 
+    def effective_volume_suppress(self, strategy: str) -> bool:
+        """Return per-strategy volume_suppress if set, else the global [backtest] flag."""
+        override = self.strategy_params.get(strategy)
+        if override is not None and override.volume_suppress is not None:
+            return override.volume_suppress
+        return self.backtest.volume_suppress
+
     def effective_atr_sl_multiplier(
         self, strategy: str, symbol: str, tf: str
     ) -> float | None:
@@ -336,6 +345,7 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
                     sl_pct_per_tf=sym_sl_pct_per_tf,
                     atr_sl_multiplier_per_tf=sym_atr_sl_per_tf,
                 )
+        raw_vs = vals.get("volume_suppress")
         strategy_params[str(strat_name)] = StrategyOverride(
             tp_r=float(tp_r_val) if tp_r_val is not None else None,
             sl_pct=float(sl_pct_val) if sl_pct_val is not None else None,
@@ -345,6 +355,7 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
             atr_sl_multiplier_per_tf=atr_sl_per_tf,
             per_symbol=per_symbol,
             adr_exempt=bool(vals.get("adr_exempt", False)),
+            volume_suppress=bool(raw_vs) if raw_vs is not None else None,
         )
 
     raw_bias = data.get("bias", {})

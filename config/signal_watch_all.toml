@@ -74,18 +74,21 @@ tp_r_15m = 4.0                # +0.10R
 tp_r_1h  = 4.0                # +0.20R
 tp_r_4h  = 3.5                # +0.26R
 tp_r_1d  = 3.0                # +0.73R (27 trades)
+volume_suppress = false       # A14b: low-vol edge Δ=-0.11R (low +0.16R vs normal +0.05R)
 
 [strategy_params.pin_bar]
 tp_r_15m = 3.0                # +0.09R
 tp_r_1h  = 4.0                # +0.09R
 tp_r_4h  = 3.5                # +0.13R
 tp_r_1d  = 3.5                # +0.73R (48 trades)
+volume_suppress = false       # A14b: low-vol edge Δ=-0.15R (low +0.12R vs normal -0.03R)
 
 [strategy_params.hammer_hanging_man]
 tp_r_15m = 3.0                # +0.06R
 tp_r_1h  = 5.0                # +0.18R (monotonically increasing)
 tp_r_4h  = 4.0                # +0.18R
 tp_r_1d  = 3.0                # +0.52R (23 trades)
+volume_suppress = false       # A14b: low-vol edge Δ=-0.19R (low +0.12R vs normal -0.07R)
 
 [strategy_params.doji]
 tp_r_15m = 4.0                # +0.15R
@@ -119,11 +122,13 @@ tp_r_1d  = 2.0                # +0.49R (8 trades; 3.5R+ drops sharply)
 tp_r_15m = 5.0                # -0.28R (all negative; hard mode will suppress)
 tp_r_1h  = 1.5                # -0.28R (all negative; hard mode will suppress)
 tp_r_4h  = 2.0                # -0.36R (all negative; hard mode will suppress)
+volume_suppress = true        # A14b: normal-vol wins Δ=+0.15R (low -0.42R vs normal -0.26R)
 
 [strategy_params.smt_divergence]
 tp_r_15m = 5.0                # +0.75R (monotonically increasing; 181 trades)
 tp_r_1h  = 4.5                # +0.38R (42 trades)
 tp_r_4h  = 5.0                # +0.18R (10 trades)
+volume_suppress = true        # A14b: normal-vol wins Δ=+0.28R (low +0.54R vs normal +0.82R)
 
 [strategy_params.cvd_divergence]
 tp_r_15m = 5.0                # +0.12R (monotonically increasing)
@@ -137,14 +142,17 @@ tp_r_1d  = 4.0                # +0.20R
 [strategy_params.orb]
 tp_r_1h  = 4.5                # +0.00R (barely positive)
 tp_r_4h  = 3.5                # +0.10R
+volume_suppress = true        # A14b: normal-vol wins Δ=+0.27R (low -0.15R vs normal +0.13R)
 
 [strategy_params.liquidity_sweep]
 tp_r_1h  = 5.0                # -0.23R (all negative; hard mode will suppress)
 tp_r_1d  = 3.5                # +0.63R (24 trades)
+volume_suppress = true        # A14b: normal-vol wins Δ=+0.21R (low -0.41R vs normal -0.20R)
 
 [strategy_params.marubozu]
 tp_r_4h  = 4.5                # -0.30R (all negative; hard mode will suppress)
 tp_r_1d  = 2.0                # +0.21R (7 trades)
+volume_suppress = false       # A14b: low-vol edge Δ=-0.38R (low -0.09R vs normal -0.47R)
 
 [strategy_params.fvg]
 tp_r_15m = 3.0                # -0.17R (all negative; hard mode will suppress)
@@ -163,6 +171,7 @@ tp_r_15m = 5.0                # -0.16R (all negative; hard mode will suppress)
 tp_r_1h  = 5.0                # -0.18R (all negative; hard mode will suppress)
 tp_r_4h  = 5.0                # -0.04R (all negative; hard mode will suppress)
 tp_r_1d  = 2.0                # +0.02R (barely positive; 210 trades)
+volume_suppress = true        # A14b: normal-vol wins Δ=+0.12R (low -0.15R vs normal -0.03R)
 
 [backtest]
 mode = "hard"

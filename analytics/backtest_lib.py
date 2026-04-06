@@ -176,6 +176,16 @@ class BacktestResult:
         r_values = [t.pnl_r for t in self.closed_trades if t.pnl_r is not None]
         return sum(r_values)
 
+    @property
+    def long_total_r(self) -> float:
+        r_values = [t.pnl_r for t in self.long_closed_trades if t.pnl_r is not None]
+        return sum(r_values)
+
+    @property
+    def short_total_r(self) -> float:
+        r_values = [t.pnl_r for t in self.short_closed_trades if t.pnl_r is not None]
+        return sum(r_values)
+
     @functools.cached_property
     def low_vol_closed_trades(self) -> list[Trade]:
         return [t for t in self.closed_trades if t.low_volume]
@@ -273,6 +283,7 @@ def run_backtest(
     fee_pct: float = 0.0,
     min_sl_pct: float = 0.0,
     atr_sl_multiplier: float | None = None,
+    volume_suppress: bool = False,
 ) -> BacktestResult:
     """Simulate trades from signals on historical OHLCV.
 
@@ -322,6 +333,10 @@ def run_backtest(
         entry_idx = sig_idx + 1
 
         if entry_idx >= n_candles:
+            continue
+
+        # Volume suppression: skip low-volume signal candles when enabled.
+        if volume_suppress and _is_low_volume(ohlcv, sig_idx):
             continue
 
         entry_time = int(ohlcv_times_np[entry_idx])

@@ -509,6 +509,20 @@ class _FakeResult:
         vals = [t.pnl_r for t in self.short_closed_trades if t.pnl_r is not None]
         return sum(vals) / len(vals) if vals else None
 
+    @property
+    def long_total_r(self) -> float:
+        vals: list[float] = [
+            t.pnl_r for t in self.long_closed_trades if t.pnl_r is not None
+        ]
+        return sum(vals)
+
+    @property
+    def short_total_r(self) -> float:
+        vals: list[float] = [
+            t.pnl_r for t in self.short_closed_trades if t.pnl_r is not None
+        ]
+        return sum(vals)
+
 
 _BT_PARAMS: dict[str, Any] = {
     "days": 90,
@@ -603,7 +617,7 @@ class TestGetWinRateByStrategy:
             "INSERT INTO backtest_runs VALUES (?, 'BTCUSDT', '4h', 'bos', "
             "1690000000000, 1700000000000, 90, 0.02, 2.0, 0.0, 'off', 1, NULL, "
             "25, 25, 15, 10, 0.6, 0.5, 12.5, 3.0, 1700000001000, NULL, "
-            "NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+            "NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
             [run_id],
         )
         df = get_win_rate_by_strategy(conn)
@@ -621,7 +635,7 @@ class TestGetWinRateByStrategy:
             "INSERT INTO backtest_runs VALUES (?, 'BTCUSDT', '4h', 'fvg', "
             "1690000000000, 1700000000000, 90, 0.02, 2.0, 0.0, 'off', 1, NULL, "
             "5, 5, 3, 2, 0.6, 0.4, 2.0, 1.0, 1700000001000, NULL, "
-            "NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+            "NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
             [run_id],
         )
         df = get_win_rate_by_strategy(conn)
