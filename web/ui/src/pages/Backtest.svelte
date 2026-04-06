@@ -544,8 +544,10 @@
           <th class="sortable num-col" onclick={() => setSort("win_rate")}>Win% <span class="si">{sortIcon("win_rate")}</span></th>
           <th class="sortable num-col long-col" onclick={() => setSort("long_win_rate")}>↑ Long% <span class="si">{sortIcon("long_win_rate")}</span></th>
           <th class="sortable num-col long-col" onclick={() => setSort("long_avg_r")}>↑ L Avg R <span class="si">{sortIcon("long_avg_r")}</span></th>
+          <th class="sortable num-col long-col" onclick={() => setSort("long_total_r")}>↑ L Total R <span class="si">{sortIcon("long_total_r")}</span></th>
           <th class="sortable num-col short-col" onclick={() => setSort("short_win_rate")}>↓ Short% <span class="si">{sortIcon("short_win_rate")}</span></th>
           <th class="sortable num-col short-col" onclick={() => setSort("short_avg_r")}>↓ S Avg R <span class="si">{sortIcon("short_avg_r")}</span></th>
+          <th class="sortable num-col short-col" onclick={() => setSort("short_total_r")}>↓ S Total R <span class="si">{sortIcon("short_total_r")}</span></th>
           <th class="sortable num-col" onclick={() => setSort("closed_trades")}>Trades <span class="si">{sortIcon("closed_trades")}</span></th>
           <th class="sortable num-col" onclick={() => setSort("avg_r")}>Avg R <span class="si">{sortIcon("avg_r")}</span></th>
           <th class="sortable num-col" onclick={() => setSort("total_r")}>Total R <span class="si">{sortIcon("total_r")}</span></th>
@@ -558,10 +560,10 @@
       </thead>
       <tbody>
         {#if runsLoading}
-          <tr><td colspan="21" class="msg-cell">Loading…</td></tr>
+          <tr><td colspan="23" class="msg-cell">Loading…</td></tr>
         {:else if filteredRuns.length === 0}
           <tr>
-            <td colspan="21" class="msg-cell">
+            <td colspan="23" class="msg-cell">
               {hasActiveFilters ? "No results match current filters." : "No runs saved — run a backtest first."}
             </td>
           </tr>
@@ -577,8 +579,10 @@
               <td class="num">{fmtWinPct(run.win_rate)}</td>
               <td class="num dir-long" class:dir-pos={run.long_win_rate !== null && run.long_win_rate > 0.5} class:dir-nil={run.long_win_rate === null}>{fmtDirWinPct(run.long_win_rate)}</td>
               <td class="num dir-long" class:pos={run.long_avg_r !== null && run.long_avg_r > 0} class:neg={run.long_avg_r !== null && run.long_avg_r < 0} class:dir-nil={run.long_avg_r === null}>{fmtDirR(run.long_avg_r)}</td>
+              <td class="num dir-long" class:pos={run.long_total_r !== null && run.long_total_r > 0} class:neg={run.long_total_r !== null && run.long_total_r < 0} class:dir-nil={run.long_total_r === null}>{fmtDirR(run.long_total_r)}</td>
               <td class="num dir-short" class:dir-pos={run.short_win_rate !== null && run.short_win_rate > 0.5} class:dir-nil={run.short_win_rate === null}>{fmtDirWinPct(run.short_win_rate)}</td>
               <td class="num dir-short" class:pos={run.short_avg_r !== null && run.short_avg_r > 0} class:neg={run.short_avg_r !== null && run.short_avg_r < 0} class:dir-nil={run.short_avg_r === null}>{fmtDirR(run.short_avg_r)}</td>
+              <td class="num dir-short" class:pos={run.short_total_r !== null && run.short_total_r > 0} class:neg={run.short_total_r !== null && run.short_total_r < 0} class:dir-nil={run.short_total_r === null}>{fmtDirR(run.short_total_r)}</td>
               <td class="num muted">{run.closed_trades}</td>
               <td class="num" class:pos={run.avg_r > 0} class:neg={run.avg_r < 0}>{fmtR(run.avg_r)}</td>
               <td class="num" class:pos={run.total_r > 0} class:neg={run.total_r < 0}>{fmtR(run.total_r)}</td>
