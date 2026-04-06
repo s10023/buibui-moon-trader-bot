@@ -311,13 +311,15 @@ Supported sort keys:
 
 Append `:asc` or `:desc` to control the sort direction (defaults to `desc`).
 
-> **Known limitation — SL/TP columns require placed Binance orders.**
+> **Known limitation — SL/TP columns require standalone Binance orders.**
 > `SL Price`, `% to SL`, `SL USD`, and `TP Price` are populated by reading open
 > `STOP_MARKET` / `STOP` and `TAKE_PROFIT_MARKET` / `TAKE_PROFIT` orders from the
-> Binance API. If you manage SL/TP mentally or via a third-party tool that does not
-> place actual orders on Binance, those columns will show `–` and `Total SL Risk`
-> will show `$0.00`. To see SL/TP data, place orders directly on Binance before
-> starting the monitor.
+> Binance API. Binance's **Position TP/SL** feature (set at order opening or via the
+> TP/SL tab on a position) is stored internally by Binance and is **not exposed
+> through any public REST API** — no endpoint returns this data. Those columns will
+> show `–` and `Total SL Risk` will show `$0.00` when Position TP/SL is used.
+> To see SL/TP data in the monitor, place them as standalone orders from the Binance
+> order form instead of using the TP/SL tab.
 
 ### Analytics — Backfill Historical Data
 
