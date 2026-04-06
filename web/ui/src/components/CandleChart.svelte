@@ -214,6 +214,15 @@
       levels.push({ label: "PDL", price: pdlC.low,  originTimeSec: pdlC.open_time / 1000, color: "#f85149" });
     }
 
+    // Monthly Open — first candle of this month (1st, 00:00 MYT)
+    const mytNow = new Date((nowSec + MYT) * 1000);
+    const monthStartMYT = Date.UTC(mytNow.getUTCFullYear(), mytNow.getUTCMonth(), 1) / 1000 - MYT;
+    const monthCandles = data.filter(c => c.open_time / 1000 >= monthStartMYT);
+    if (monthCandles.length > 0) {
+      const c = monthCandles[0];
+      levels.push({ label: "MO", price: c.open, originTimeSec: c.open_time / 1000, color: "#f0883e" });
+    }
+
     // Weekly Open — first candle on or after Monday 00:00 MYT
     const thisWeekCandles = data.filter(c => between(c, thisMonStart, thisMonStart + 7 * DAY));
     if (thisWeekCandles.length > 0) {
