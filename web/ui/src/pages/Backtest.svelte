@@ -25,6 +25,8 @@
   let selDayFilters = $state(new Set<string>());
   let selAdrFilters = $state(new Set<string>());  // "none" | "0.80" etc.
   let minStarsFilter = $state(0);         // 0 = any
+  let minLongStarsFilter = $state(0);    // 0 = any
+  let minShortStarsFilter = $state(0);   // 0 = any
   let minTrades = $state(0);              // 0 = no minimum
   let minAvgRText = $state("");           // "" = no minimum
   let minLongWinRateText = $state("");    // "" = no minimum
@@ -71,6 +73,8 @@
     selDayFilters.size > 0 ||
     selAdrFilters.size > 0 ||
     minStarsFilter > 0 ||
+    minLongStarsFilter > 0 ||
+    minShortStarsFilter > 0 ||
     minTrades > 0 ||
     minAvgRText !== "" ||
     minLongWinRateText !== "" ||
@@ -85,10 +89,38 @@
     minRecoveryFactorText !== "",
   );
 
+  type FilterToken = { label: string; clear: () => void };
+  const activeFilterTokens = $derived.by((): FilterToken[] => {
+    const tokens: FilterToken[] = [];
+    selSymbols.forEach(s => tokens.push({ label: s.replace("USDT", ""), clear: () => { selSymbols = tog(selSymbols, s); } }));
+    selTfs.forEach(tf => tokens.push({ label: tf, clear: () => { selTfs = tog(selTfs, tf); } }));
+    selStrategies.forEach(s => tokens.push({ label: s, clear: () => { selStrategies = tog(selStrategies, s); } }));
+    selDayFilters.forEach(df => tokens.push({ label: `day:${df}`, clear: () => { selDayFilters = tog(selDayFilters, df); } }));
+    selAdrFilters.forEach(af => tokens.push({ label: `adr:${af === "none" ? "off" : af}`, clear: () => { selAdrFilters = tog(selAdrFilters, af); } }));
+    if (minStarsFilter > 0) tokens.push({ label: `★≥${"★".repeat(minStarsFilter)}`, clear: () => { minStarsFilter = 0; } });
+    if (minLongStarsFilter > 0) tokens.push({ label: `↑★≥${"★".repeat(minLongStarsFilter)}`, clear: () => { minLongStarsFilter = 0; } });
+    if (minShortStarsFilter > 0) tokens.push({ label: `↓★≥${"★".repeat(minShortStarsFilter)}`, clear: () => { minShortStarsFilter = 0; } });
+    if (minTrades > 0) tokens.push({ label: `trades≥${minTrades}`, clear: () => { minTrades = 0; } });
+    if (minWinRateText !== "") tokens.push({ label: `win%≥${minWinRateText}`, clear: () => { minWinRateText = ""; } });
+    if (minAvgRText !== "") tokens.push({ label: `avgR≥${minAvgRText}`, clear: () => { minAvgRText = ""; } });
+    if (minTotalRText !== "") tokens.push({ label: `totalR≥${minTotalRText}`, clear: () => { minTotalRText = ""; } });
+    if (maxDrawdownRText !== "") tokens.push({ label: `maxDD≤${maxDrawdownRText}`, clear: () => { maxDrawdownRText = ""; } });
+    if (minRecoveryFactorText !== "") tokens.push({ label: `RF≥${minRecoveryFactorText}`, clear: () => { minRecoveryFactorText = ""; } });
+    if (minLongWinRateText !== "") tokens.push({ label: `↑win%≥${minLongWinRateText}`, clear: () => { minLongWinRateText = ""; } });
+    if (minShortWinRateText !== "") tokens.push({ label: `↓win%≥${minShortWinRateText}`, clear: () => { minShortWinRateText = ""; } });
+    if (minLongAvgRText !== "") tokens.push({ label: `↑avgR≥${minLongAvgRText}`, clear: () => { minLongAvgRText = ""; } });
+    if (minShortAvgRText !== "") tokens.push({ label: `↓avgR≥${minShortAvgRText}`, clear: () => { minShortAvgRText = ""; } });
+    if (minLongTotalRText !== "") tokens.push({ label: `↑totalR≥${minLongTotalRText}`, clear: () => { minLongTotalRText = ""; } });
+    if (minShortTotalRText !== "") tokens.push({ label: `↓totalR≥${minShortTotalRText}`, clear: () => { minShortTotalRText = ""; } });
+    return tokens;
+  });
+
   const filteredRuns = $derived.by(() => {
     const col = sortCol;
     const dir = sortDir;
-    const mss = minStarsFilter;
+    const mss  = minStarsFilter;
+    const mlss = minLongStarsFilter;
+    const msss = minShortStarsFilter;
     const mt = minTrades;
     const mar   = minAvgRText        === "" ? -Infinity : (parseFloat(minAvgRText)        || -Infinity);
     const mlwr  = minLongWinRateText  === "" ? -Infinity : (parseFloat(minLongWinRateText)  / 100 || -Infinity);
@@ -111,7 +143,9 @@
         (selStrategies.size === 0 || selStrategies.has(r.strategy)) &&
         (selDayFilters.size === 0 || selDayFilters.has(r.day_filter)) &&
         (selAdrFilters.size === 0 || selAdrFilters.has(adrKey)) &&
-        (mss === 0 || starsFor(r) >= mss) &&
+        (mss  === 0 || starsFor(r) >= mss) &&
+        (mlss === 0 || (r.long_stars !== null && r.long_stars >= mlss)) &&
+        (msss === 0 || (r.short_stars !== null && r.short_stars >= msss)) &&
         r.closed_trades >= mt &&
         r.avg_r >= mar &&
         r.win_rate >= mwr &&
@@ -159,6 +193,8 @@
     selDayFilters = new Set();
     selAdrFilters = new Set();
     minStarsFilter = 0;
+    minLongStarsFilter = 0;
+    minShortStarsFilter = 0;
     minTrades = 0;
     minAvgRText = "";
     minLongWinRateText = "";
@@ -353,13 +389,35 @@
 
       <span class="fsep"></span>
 
-      <span class="flabel">Stars ≥</span>
+      <span class="flabel">★ ≥</span>
       <div class="chips">
         <button class="chip" class:on={minStarsFilter === 0}
           onclick={() => { minStarsFilter = 0; }}>any</button>
         {#each [1, 2, 3, 4, 5] as n}
           <button class="chip star-chip" class:on={minStarsFilter === n}
             onclick={() => { minStarsFilter = n; }}>{"★".repeat(n)}</button>
+        {/each}
+      </div>
+
+      <span class="fsep"></span>
+
+      <span class="flabel long-label">↑★ ≥</span>
+      <div class="chips">
+        <button class="chip" class:on={minLongStarsFilter === 0}
+          onclick={() => { minLongStarsFilter = 0; }}>any</button>
+        {#each [1, 2, 3, 4, 5] as n}
+          <button class="chip star-chip" class:on={minLongStarsFilter === n}
+            onclick={() => { minLongStarsFilter = n; }}>{"★".repeat(n)}</button>
+        {/each}
+      </div>
+
+      <span class="flabel short-label">↓★ ≥</span>
+      <div class="chips">
+        <button class="chip" class:on={minShortStarsFilter === 0}
+          onclick={() => { minShortStarsFilter = 0; }}>any</button>
+        {#each [1, 2, 3, 4, 5] as n}
+          <button class="chip star-chip" class:on={minShortStarsFilter === n}
+            onclick={() => { minShortStarsFilter = n; }}>{"★".repeat(n)}</button>
         {/each}
       </div>
     </div>
@@ -449,14 +507,21 @@
         title="Minimum short total R (empty = no minimum)" />
 
 
-      <div class="filter-tail">
-        {#if hasActiveFilters}
-          <button class="reset-btn" onclick={resetFilters}>✕ Reset</button>
-        {/if}
-        <span class="count">
-          {#if runsLoading}loading…{:else}{filteredRuns.length} / {runs.length}{/if}
-        </span>
-      </div>
+    </div>
+
+    <!-- Active filter tokens bar -->
+    <div class="filter-tokens">
+      {#if activeFilterTokens.length > 0}
+        {#each activeFilterTokens as tok (tok.label)}
+          <button class="filter-token" onclick={tok.clear}>
+            {tok.label} <span class="tok-x">✕</span>
+          </button>
+        {/each}
+        <button class="reset-btn" onclick={resetFilters}>clear all</button>
+      {/if}
+      <span class="count">
+        {#if runsLoading}loading…{:else}{filteredRuns.length} / {runs.length}{/if}
+      </span>
     </div>
 
   </div>
@@ -779,6 +844,41 @@
     align-items: center;
     gap: 8px;
     margin-left: auto;
+  }
+
+  /* ── Active filter token bar ─────────────────────────────────────────── */
+  .filter-tokens {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 5px;
+    min-height: 22px;
+    padding: 2px 0;
+  }
+
+  .filter-token {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    padding: 2px 7px;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    border-radius: 3px;
+    background: transparent;
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+
+  .filter-token:hover {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+
+  .tok-x {
+    font-size: 8px;
+    opacity: 0.7;
   }
 
   .reset-btn {
