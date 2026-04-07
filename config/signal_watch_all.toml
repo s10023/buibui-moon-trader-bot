@@ -75,6 +75,7 @@ tp_r_1h  = 4.0                # +0.20R
 tp_r_4h  = 3.5                # +0.26R
 tp_r_1d  = 3.0                # +0.73R (27 trades)
 volume_suppress = false       # A14b: low-vol edge Δ=-0.11R (low +0.16R vs normal +0.05R)
+volume_spike_boost = true     # A15 spike sweep: spike +0.59R vs normal +0.23R (73 spikes)
 
 [strategy_params.pin_bar]
 tp_r_15m = 3.0                # +0.09R

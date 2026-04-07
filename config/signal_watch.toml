@@ -105,6 +105,7 @@ tp_r = 3.0                    # fallback
 tp_r_15m = 4.0                # sweep peak: cross-symbol +0.24R (1466 trades)
 tp_r_1h  = 4.0                # sweep peak: cross-symbol +0.41R (384 trades)
 tp_r_4h = 3.5                 # WFO cross-symbol: BTC 4h +0.390R, SOL 4h +0.450R (25/15 trades)
+volume_spike_boost = true     # A15 spike sweep: spike +0.59R vs normal +0.23R (73 spikes)
 
 [strategy_params.engulfing.SOLUSDT]
 tp_r_4h = 4.0                 # F5 WFO: SOL 4h optimal at 4.0R
