@@ -63,6 +63,9 @@
   // Range levels toggle (C11)
   let showRangeLevels = $state(false);
 
+  // CME gap toggle
+  let showCMEGaps = $state(false);
+
   let candles = $state<CandleRow[]>([]);
   let signals = $state<SignalRow[]>([]);
   let funding = $state<FundingRow[] | null>(null);
@@ -178,6 +181,7 @@
         <button class="pill" class:active={showEMA200} onclick={() => showEMA200 = !showEMA200}>EMA 200</button>
         <button class="pill" class:active={showRSI} onclick={() => showRSI = !showRSI}>RSI 14</button>
         <button class="pill" class:active={showRangeLevels} onclick={() => showRangeLevels = !showRangeLevels}>Range Levels</button>
+        <button class="pill" class:active={showCMEGaps} onclick={() => showCMEGaps = !showCMEGaps}>CME Gap</button>
       </div>
 
       {#if $strategyNames.length > 0}
@@ -234,6 +238,7 @@
           {showEMA200}
           {showRSI}
           {showRangeLevels}
+          {showCMEGaps}
         />
       </div>
       <div class="chart-meta">
