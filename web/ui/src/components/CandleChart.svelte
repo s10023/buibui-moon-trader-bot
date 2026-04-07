@@ -177,19 +177,23 @@
   function computeRangeLevels(data: CandleRow[]): RangeLevel[] {
     if (data.length < 2) return [];
 
-    const MYT = 8 * 3600; // UTC+8 in seconds
     const DAY = 86400;
-
     const nowSec = Date.now() / 1000;
-    // Today's midnight in MYT, expressed as UTC seconds
-    const todayStart = Math.floor((nowSec + MYT) / DAY) * DAY - MYT;
-    const ydayStart  = todayStart - DAY;
 
-    // Monday 00:00 MYT of this week
-    const dow = new Date((todayStart + MYT) * 1000).getUTCDay(); // 0=Sun
-    const daysSinceMon = (dow + 6) % 7;
-    const thisMonStart = todayStart - daysSinceMon * DAY;
-    const lastMonStart = thisMonStart - 7 * DAY;
+    // All boundaries align to UTC midnight — Binance candles open on UTC boundaries.
+    // (Monday 00:00 UTC = Monday 08:00 MYT, daily candle opens 08:00 MYT, etc.)
+    const todayUTC = Math.floor(nowSec / DAY) * DAY;
+    const ydayUTC  = todayUTC - DAY;
+
+    // Monday 00:00 UTC of this week
+    const utcDow = new Date(nowSec * 1000).getUTCDay(); // 0=Sun, 1=Mon
+    const daysSinceMon = (utcDow + 6) % 7;
+    const thisMonUTC = todayUTC - daysSinceMon * DAY;
+    const lastMonUTC = thisMonUTC - 7 * DAY;
+
+    // 1st of month 00:00 UTC
+    const utcNow = new Date(nowSec * 1000);
+    const monthUTC = Date.UTC(utcNow.getUTCFullYear(), utcNow.getUTCMonth(), 1) / 1000;
 
     const between = (c: CandleRow, s: number, e: number) => {
       const t = c.open_time / 1000;
@@ -198,15 +202,22 @@
 
     const levels: RangeLevel[] = [];
 
-    // Daily Open — first candle of today
-    const todayCandles = data.filter(c => between(c, todayStart, todayStart + DAY));
+    // Monthly Open — first candle of this month (1st 00:00 UTC = 08:00 MYT)
+    const monthCandles = data.filter(c => c.open_time / 1000 >= monthUTC);
+    if (monthCandles.length > 0) {
+      const c = monthCandles[0];
+      levels.push({ label: "MO", price: c.open, originTimeSec: c.open_time / 1000, color: "#f0883e" });
+    }
+
+    // Daily Open — first candle of today (00:00 UTC = 08:00 MYT)
+    const todayCandles = data.filter(c => between(c, todayUTC, todayUTC + DAY));
     if (todayCandles.length > 0) {
       const c = todayCandles[0];
       levels.push({ label: "DO", price: c.open, originTimeSec: c.open_time / 1000, color: "#bc8cff" });
     }
 
     // PDH / PDL — previous day
-    const ydayCandles = data.filter(c => between(c, ydayStart, todayStart));
+    const ydayCandles = data.filter(c => between(c, ydayUTC, todayUTC));
     if (ydayCandles.length > 0) {
       const pdhC = ydayCandles.reduce((a, b) => b.high > a.high ? b : a);
       const pdlC = ydayCandles.reduce((a, b) => b.low  < a.low  ? b : a);
@@ -214,24 +225,15 @@
       levels.push({ label: "PDL", price: pdlC.low,  originTimeSec: pdlC.open_time / 1000, color: "#f85149" });
     }
 
-    // Monthly Open — first candle of this month (1st, 00:00 MYT)
-    const mytNow = new Date((nowSec + MYT) * 1000);
-    const monthStartMYT = Date.UTC(mytNow.getUTCFullYear(), mytNow.getUTCMonth(), 1) / 1000 - MYT;
-    const monthCandles = data.filter(c => c.open_time / 1000 >= monthStartMYT);
-    if (monthCandles.length > 0) {
-      const c = monthCandles[0];
-      levels.push({ label: "MO", price: c.open, originTimeSec: c.open_time / 1000, color: "#f0883e" });
-    }
-
-    // Weekly Open — first candle on or after Monday 00:00 MYT
-    const thisWeekCandles = data.filter(c => between(c, thisMonStart, thisMonStart + 7 * DAY));
+    // Weekly Open — first candle on or after Monday 00:00 UTC (= Mon 08:00 MYT)
+    const thisWeekCandles = data.filter(c => between(c, thisMonUTC, thisMonUTC + 7 * DAY));
     if (thisWeekCandles.length > 0) {
       const c = thisWeekCandles[0];
       levels.push({ label: "WO", price: c.open, originTimeSec: c.open_time / 1000, color: "#58a6ff" });
     }
 
-    // Monday H / Monday L — show all week including Monday itself
-    const monCandles = data.filter(c => between(c, thisMonStart, thisMonStart + DAY));
+    // Monday H / Monday L — all candles on Monday UTC (show all week including Monday)
+    const monCandles = data.filter(c => between(c, thisMonUTC, thisMonUTC + DAY));
     if (monCandles.length > 0) {
       const mhC = monCandles.reduce((a, b) => b.high > a.high ? b : a);
       const mlC = monCandles.reduce((a, b) => b.low  < a.low  ? b : a);
@@ -240,7 +242,7 @@
     }
 
     // PWH / PWL — previous week
-    const lastWeekCandles = data.filter(c => between(c, lastMonStart, thisMonStart));
+    const lastWeekCandles = data.filter(c => between(c, lastMonUTC, thisMonUTC));
     if (lastWeekCandles.length > 0) {
       const pwhC = lastWeekCandles.reduce((a, b) => b.high > a.high ? b : a);
       const pwlC = lastWeekCandles.reduce((a, b) => b.low  < a.low  ? b : a);
