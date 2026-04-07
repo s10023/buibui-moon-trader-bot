@@ -398,9 +398,11 @@
 
     const containerWidth = cmeGapContainer.clientWidth;
     const rawX1 = chart.timeScale().timeToCoordinate(gap.startSec as Time);
+    // Start off-screen left → don't render; box must begin at origin candle
+    if (rawX1 === null) { cmeGapDiv.style.display = "none"; return; }
     const rawX2 = chart.timeScale().timeToCoordinate(gap.displayEndSec as Time);
-    // null = off-screen: clamp start to left edge, end to right edge
-    const clampedX1 = Math.max(0, rawX1 ?? 0);
+    // End off-screen right → clamp to container edge
+    const clampedX1 = rawX1;
     const clampedX2 = Math.min(containerWidth, rawX2 ?? containerWidth);
     if (clampedX2 <= clampedX1) {
       cmeGapDiv.style.display = "none";
