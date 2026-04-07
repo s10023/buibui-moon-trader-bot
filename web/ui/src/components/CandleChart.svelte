@@ -331,8 +331,8 @@
   // ── CME gap overlay ──────────────────────────────────────────────────────────
 
   interface CMEGap {
-    startSec: number;        // Fri 21:00 UTC
-    endSec: number;          // Sun 22:00 UTC (or now if partial)
+    startSec: number;        // fridayCandle.open_time/1000 — aligns to actual candle for reliable timeToCoordinate
+    endSec: number;          // mondayCandle.open_time/1000 (or nowSec if partial)
     displayEndSec: number;   // extended right edge for chart visualisation
     top: number;             // max(fridayClose, mondayOpen)
     bottom: number;          // min(fridayClose, mondayOpen)
@@ -369,7 +369,7 @@
     if (!mondayCandle) {
       // Currently inside CME closure window — show band up to now
       return {
-        startSec: cmeCloseSec,
+        startSec: fridayCandle.open_time / 1000,
         endSec: Math.min(nowSec, cmeOpenSec),
         displayEndSec: 0,
         top: fridayClose,
@@ -381,8 +381,8 @@
 
     const mondayOpen = mondayCandle.open;
     return {
-      startSec: cmeCloseSec,
-      endSec: cmeOpenSec,
+      startSec: fridayCandle.open_time / 1000,
+      endSec: mondayCandle.open_time / 1000,
       displayEndSec: 0,
       top: Math.max(fridayClose, mondayOpen),
       bottom: Math.min(fridayClose, mondayOpen),
