@@ -57,7 +57,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.group.dev.dependencies]
 mypy = "^1.19.1"
-types-requests = "^2.32.4.20260324"
+types-requests = "^2.33.0.20260402"
 types-tabulate = "^0.10.0.20260308"
 types-colorama = "^0.4.15.20250801"
 pytest = "^9.0.2"
