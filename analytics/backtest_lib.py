@@ -63,6 +63,29 @@ def _is_low_volume(
     return float(ohlcv["volume"].iloc[idx]) < multiplier * avg
 
 
+def _is_volume_spike(
+    ohlcv: pd.DataFrame,
+    idx: int,
+    multiplier: float = 3.0,
+    lookback: int = 20,
+) -> bool:
+    """Return True if the candle at idx has volume above multiplier × rolling mean.
+
+    Uses the lookback candles *before* idx (no lookahead). Returns False when
+    volume data is unavailable (safe default — no false boost).
+    """
+    if "volume" not in ohlcv.columns or idx < 1:
+        return False
+    start = max(0, idx - lookback)
+    prior_vols = ohlcv["volume"].iloc[start:idx].astype(float)
+    if prior_vols.empty:
+        return False
+    avg = float(prior_vols.mean())
+    if avg == 0.0:
+        return False
+    return float(ohlcv["volume"].iloc[idx]) > multiplier * avg
+
+
 @dataclass
 class Trade:
     """A single simulated trade."""
@@ -78,6 +101,7 @@ class Trade:
     outcome: str = "open"  # "win" | "loss" | "open"
     fee_pct: float = 0.0
     low_volume: bool = False  # True when signal candle volume < 1.5× rolling mean
+    volume_spike: bool = False  # True when signal candle volume > 3× rolling mean
 
     @property
     def pnl_r(self) -> float | None:
@@ -192,7 +216,13 @@ class BacktestResult:
 
     @functools.cached_property
     def normal_vol_closed_trades(self) -> list[Trade]:
-        return [t for t in self.closed_trades if not t.low_volume]
+        return [
+            t for t in self.closed_trades if not t.low_volume and not t.volume_spike
+        ]
+
+    @functools.cached_property
+    def spike_vol_closed_trades(self) -> list[Trade]:
+        return [t for t in self.closed_trades if t.volume_spike]
 
     @property
     def low_vol_avg_r(self) -> float | None:
@@ -202,6 +232,11 @@ class BacktestResult:
     @property
     def normal_vol_avg_r(self) -> float | None:
         r_vals = [t.pnl_r for t in self.normal_vol_closed_trades if t.pnl_r is not None]
+        return sum(r_vals) / len(r_vals) if r_vals else None
+
+    @property
+    def spike_vol_avg_r(self) -> float | None:
+        r_vals = [t.pnl_r for t in self.spike_vol_closed_trades if t.pnl_r is not None]
         return sum(r_vals) / len(r_vals) if r_vals else None
 
     @property
@@ -290,6 +325,7 @@ def run_backtest(
     min_sl_pct: float = 0.0,
     atr_sl_multiplier: float | None = None,
     volume_suppress: bool = False,
+    volume_spike_boost: bool = False,
 ) -> BacktestResult:
     """Simulate trades from signals on historical OHLCV.
 
@@ -341,9 +377,17 @@ def run_backtest(
         if entry_idx >= n_candles:
             continue
 
+        # Volume classification — computed once, used for both the suppress gate
+        # and the Trade tag so they are always consistent.
+        is_spike = _is_volume_spike(ohlcv, sig_idx)
+        is_low_vol = _is_low_volume(ohlcv, sig_idx)
+
         # Volume suppression: skip low-volume signal candles when enabled.
-        if volume_suppress and _is_low_volume(ohlcv, sig_idx):
-            continue
+        # Exception: when volume_spike_boost is on and the candle is a spike,
+        # exempt it from suppression regardless of volume_suppress setting.
+        if volume_suppress and is_low_vol:
+            if not (volume_spike_boost and is_spike):
+                continue
 
         entry_time = int(ohlcv_times_np[entry_idx])
         entry_price = opens_np[entry_idx]
@@ -398,7 +442,8 @@ def run_backtest(
             sl_price=sl_price,
             tp_price=tp_price,
             fee_pct=fee_pct,
-            low_volume=_is_low_volume(ohlcv, sig_idx),
+            low_volume=is_low_vol,
+            volume_spike=is_spike,
         )
 
         # Vectorized candle scan: find first SL-hit and first TP-hit index using
@@ -464,36 +509,41 @@ def filter_signals_by_day(
 
 
 def format_volume_split(results: list[BacktestResult]) -> str:
-    """Show avg R split by low-volume vs normal-volume trades, aggregated by strategy.
+    """Show avg R split by low-volume / normal / spike trades, aggregated by strategy.
 
     Delta = normal_avg_r − low_vol_avg_r.
     Positive delta means normal-volume trades outperform → volume filter would help.
+    Spike avg R shows whether high-conviction candles have additional edge.
     """
     from collections import defaultdict
 
     low_by_strat: dict[str, list[Trade]] = defaultdict(list)
     norm_by_strat: dict[str, list[Trade]] = defaultdict(list)
+    spike_by_strat: dict[str, list[Trade]] = defaultdict(list)
     for r in results:
         low_by_strat[r.strategy].extend(r.low_vol_closed_trades)
         norm_by_strat[r.strategy].extend(r.normal_vol_closed_trades)
+        spike_by_strat[r.strategy].extend(r.spike_vol_closed_trades)
 
-    strategies = sorted(set(low_by_strat) | set(norm_by_strat))
+    strategies = sorted(set(low_by_strat) | set(norm_by_strat) | set(spike_by_strat))
 
     def _avg(trades: list[Trade]) -> float | None:
         vals = [t.pnl_r for t in trades if t.pnl_r is not None]
         return sum(vals) / len(vals) if vals else None
 
-    col = (22, 8, 7, 8, 7, 7)
+    col = (22, 8, 7, 8, 7, 8, 7, 7)
     header = (
         f"  {'Strategy':<{col[0]}}"
         f"{'Low-vol':>{col[1]}}"
         f"{'Avg R':>{col[2]}}"
         f"  {'Normal':>{col[3]}}"
         f"{'Avg R':>{col[4]}}"
-        f"  {'Delta':>{col[5]}}"
+        f"  {'Spike':>{col[5]}}"
+        f"{'Avg R':>{col[6]}}"
+        f"  {'Delta':>{col[7]}}"
     )
-    sep = "  " + "─" * (sum(col) + 4)
-    thick = "═" * (sum(col) + 6)
+    sep = "  " + "─" * (sum(col) + 6)
+    thick = "═" * (sum(col) + 8)
 
     lines = [
         "\nVolume Impact (aggregated across all symbols × TFs)",
@@ -505,11 +555,14 @@ def format_volume_split(results: list[BacktestResult]) -> str:
     for s in strategies:
         low = low_by_strat[s]
         norm = norm_by_strat[s]
+        spike = spike_by_strat[s]
         low_r = _avg(low)
         norm_r = _avg(norm)
+        spike_r = _avg(spike)
         delta = (norm_r - low_r) if (low_r is not None and norm_r is not None) else None
         low_r_s = f"{low_r:+.2f}R" if low_r is not None else "  n/a"
         norm_r_s = f"{norm_r:+.2f}R" if norm_r is not None else "  n/a"
+        spike_r_s = f"{spike_r:+.2f}R" if spike_r is not None else "  n/a"
         delta_s = f"{delta:+.2f}R" if delta is not None else "  n/a"
         lines.append(
             f"  {s:<{col[0]}}"
@@ -517,7 +570,9 @@ def format_volume_split(results: list[BacktestResult]) -> str:
             f"{low_r_s:>{col[2]}}"
             f"  {len(norm):>{col[3]}}"
             f"{norm_r_s:>{col[4]}}"
-            f"  {delta_s:>{col[5]}}"
+            f"  {len(spike):>{col[5]}}"
+            f"{spike_r_s:>{col[6]}}"
+            f"  {delta_s:>{col[7]}}"
         )
 
     lines.append(sep)

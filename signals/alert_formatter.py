@@ -175,6 +175,9 @@ class SignalEvent:
     confidence: int = 0  # 1–5 editorial quality score (0 = unset); shown as stars
     conflict: bool = False  # True when opposing direction fired same cycle
     low_volume: bool = False  # True when volume was below confirmation threshold
+    volume_spike: bool = (
+        False  # True when volume was above 3× rolling mean (high conviction)
+    )
     tp_price: float = (
         0.0  # structural TP from detector (e.g. 1.618 fib ext); 0 = use tp_r fallback
     )
@@ -274,7 +277,9 @@ def format_confluence_alert(
         )
         if ev.context:
             header += f"{ev.context}\n"
-        if ev.low_volume:
+        if ev.volume_spike:
+            header += "⚡ Volume spike — high conviction\n"
+        elif ev.low_volume:
             header += "⚠️ Low volume — weaker conviction\n"
     else:
         header = (
@@ -288,7 +293,9 @@ def format_confluence_alert(
             if ev.context:
                 line += f"  ({ev.context})"
             header += line + "\n"
-        if any(e.low_volume for e in events):
+        if any(e.volume_spike for e in events):
+            header += "⚡ Volume spike — high conviction\n"
+        elif any(e.low_volume for e in events):
             header += "⚠️ Low volume — weaker conviction\n"
 
     sl_tp = (
