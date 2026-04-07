@@ -346,6 +346,14 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 10.0,
                 "Take-profit as a multiple of SL distance (risk-reward ratio).",
             ),
+            ParamSpec(
+                "min_range_pct",
+                "float",
+                0.003,
+                0.0,
+                0.05,
+                "Minimum engulfing candle range as fraction of close. Filters trivial micro-patterns.",
+            ),
         ],
         confidence={"15m": 2, "1d": 4, "1h": 3, "4h": 3},
     ),
@@ -377,6 +385,14 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 10.0,
                 "Take-profit as a multiple of SL distance.",
             ),
+            ParamSpec(
+                "min_range_pct",
+                "float",
+                0.003,
+                0.0,
+                0.05,
+                "Minimum candle range as fraction of close. Filters trivial micro-patterns.",
+            ),
         ],
         confidence={"15m": 2, "1d": 4, "1h": 2, "4h": 2},
     ),
@@ -399,6 +415,14 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 0.5,
                 10.0,
                 "Take-profit as a multiple of SL distance.",
+            ),
+            ParamSpec(
+                "min_range_pct",
+                "float",
+                0.003,
+                0.0,
+                0.05,
+                "Minimum mother bar range as fraction of close. Filters trivial micro-patterns.",
             ),
         ],
         confidence={"15m": 2, "1d": 3, "1h": 2, "4h": 2},
@@ -439,6 +463,14 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 10.0,
                 "Take-profit as a multiple of SL distance.",
             ),
+            ParamSpec(
+                "min_range_pct",
+                "float",
+                0.003,
+                0.0,
+                0.05,
+                "Minimum candle range as fraction of close. Filters trivial micro-patterns.",
+            ),
         ],
         confidence={"15m": 2, "1d": 4, "1h": 2, "4h": 2},
     ),
@@ -478,6 +510,14 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 10.0,
                 "Take-profit as a multiple of SL distance.",
             ),
+            ParamSpec(
+                "min_range_pct",
+                "float",
+                0.003,
+                0.0,
+                0.05,
+                "Minimum confirmation candle range as fraction of close. Filters trivial micro-patterns.",
+            ),
         ],
         confidence={"15m": 2, "1d": 5, "1h": 3, "4h": 2},
     ),
@@ -508,6 +548,14 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 0.5,
                 10.0,
                 "Take-profit as a multiple of SL distance.",
+            ),
+            ParamSpec(
+                "min_range_pct",
+                "float",
+                0.003,
+                0.0,
+                0.05,
+                "Minimum initial candle (A) range as fraction of close. Filters trivial micro-patterns.",
             ),
         ],
         confidence={"15m": 2, "1d": 4, "1h": 2, "4h": 3},
@@ -2104,6 +2152,7 @@ def detect_engulfing(
     df: pd.DataFrame,
     sl_pct: float = 0.02,
     tp_r: float = 2.0,
+    min_range_pct: float = 0.003,
 ) -> pd.DataFrame:
     """Detect Bullish and Bearish Engulfing 2-candle patterns.
 
@@ -2116,6 +2165,7 @@ def detect_engulfing(
     SL: entry_price * (1 - sl_pct) for long, * (1 + sl_pct) for short.
     TP: entry_price ± sl_distance * tp_r.
     Signal open_time is the engulfing candle's open_time.
+    min_range_pct: skip engulfing candles whose range < min_range_pct × close.
     """
     n = len(df)
     if n < 2:
@@ -2124,6 +2174,8 @@ def detect_engulfing(
     signals: list[dict[str, object]] = []
 
     opens = df["open"].to_numpy(dtype=float)
+    highs = df["high"].to_numpy(dtype=float)
+    lows = df["low"].to_numpy(dtype=float)
     closes = df["close"].to_numpy(dtype=float)
     open_times = df["open_time"].to_numpy(dtype=int)
 
@@ -2133,6 +2185,9 @@ def detect_engulfing(
         curr_open = opens[i]
         curr_close = closes[i]
         open_time = open_times[i]
+
+        if _candle_too_small(highs[i], lows[i], curr_close, min_range_pct):
+            continue
 
         prev_body_top = max(prev_open, prev_close)
         prev_body_bot = min(prev_open, prev_close)
@@ -2198,6 +2253,7 @@ def detect_pin_bar(
     wick_ratio: float = 2.0,
     sl_pct: float = 0.02,
     tp_r: float = 2.0,
+    min_range_pct: float = 0.003,
 ) -> pd.DataFrame:
     """Detect Pin Bar patterns (hammer / shooting star shape).
 
@@ -2207,6 +2263,7 @@ def detect_pin_bar(
     range with a long upper wick ≥ wick_ratio × body.
 
     SL: entry_price * (1 ± sl_pct).
+    min_range_pct: skip candles whose range < min_range_pct × close.
     """
     n = len(df)
     if n < 1:
@@ -2223,6 +2280,8 @@ def detect_pin_bar(
 
         body = abs(c - o)
         if body == 0.0:
+            continue
+        if _candle_too_small(h, lo, c, min_range_pct):
             continue
 
         upper_wick = h - max(o, c)
@@ -2279,6 +2338,7 @@ def detect_inside_bar(
     df: pd.DataFrame,
     sl_pct: float = 0.02,
     tp_r: float = 2.0,
+    min_range_pct: float = 0.003,
 ) -> pd.DataFrame:
     """Detect Inside Bar breakout patterns.
 
@@ -2292,6 +2352,7 @@ def detect_inside_bar(
     - Short: close < mother bar body bottom.
 
     SL: entry_price * (1 ± sl_pct).
+    min_range_pct: skip patterns where the mother bar full range < min_range_pct × close.
     """
     n = len(df)
     if n < 3:
@@ -2300,10 +2361,15 @@ def detect_inside_bar(
     signals: list[dict[str, object]] = []
 
     opens = df["open"].to_numpy(dtype=float)
+    highs = df["high"].to_numpy(dtype=float)
+    lows = df["low"].to_numpy(dtype=float)
     closes = df["close"].to_numpy(dtype=float)
     open_times = df["open_time"].to_numpy(dtype=int)
 
     for i in range(1, n - 1):
+        if _candle_too_small(highs[i - 1], lows[i - 1], closes[i - 1], min_range_pct):
+            continue
+
         mother_top = max(opens[i - 1], closes[i - 1])
         mother_bot = min(opens[i - 1], closes[i - 1])
         inside_top = max(opens[i], closes[i])
@@ -2357,6 +2423,7 @@ def detect_hammer_hanging_man(
     context_lookback: int = 10,
     sl_pct: float = 0.02,
     tp_r: float = 2.0,
+    min_range_pct: float = 0.003,
 ) -> pd.DataFrame:
     """Detect Hammer (bullish reversal) and Hanging Man (bearish reversal).
 
@@ -2366,6 +2433,7 @@ def detect_hammer_hanging_man(
     - Hanging Man: same shape appears after an uptrend (close[i] > close[i - context_lookback]).
 
     SL: entry_price * (1 ± sl_pct).
+    min_range_pct: skip candles whose range < min_range_pct × close.
     """
     n = len(df)
     if n < context_lookback + 1:
@@ -2382,6 +2450,8 @@ def detect_hammer_hanging_man(
 
         body = abs(c - o)
         if body == 0.0:
+            continue
+        if _candle_too_small(h, lo, c, min_range_pct):
             continue
 
         upper_wick = h - max(o, c)
@@ -2444,6 +2514,7 @@ def detect_doji(
     confirm_body_pct: float = 0.6,
     sl_pct: float = 0.02,
     tp_r: float = 2.0,
+    min_range_pct: float = 0.003,
 ) -> pd.DataFrame:
     """Detect Doji + directional confirmation signals.
 
@@ -2455,6 +2526,7 @@ def detect_doji(
     Short: confirmation candle is bearish (close < open).
 
     SL: entry_price * (1 ± sl_pct).
+    min_range_pct: skip patterns where confirmation candle range < min_range_pct × close.
     """
     n = len(df)
     if n < 2:
@@ -2485,6 +2557,9 @@ def detect_doji(
         nxt_c = float(nxt["close"])
         nxt_range = nxt_h - nxt_lo
         if nxt_range == 0.0:
+            continue
+
+        if _candle_too_small(nxt_h, nxt_lo, nxt_c, min_range_pct):
             continue
 
         nxt_body = abs(nxt_c - nxt_o)
@@ -2535,6 +2610,7 @@ def detect_morning_evening_star(
     star_body_max: float = 0.3,
     sl_pct: float = 0.02,
     tp_r: float = 2.0,
+    min_range_pct: float = 0.003,
 ) -> pd.DataFrame:
     """Detect Morning Star (3-candle bullish) and Evening Star (3-candle bearish) patterns.
 
@@ -2549,6 +2625,7 @@ def detect_morning_evening_star(
     - Candle[i]:   large bearish candle closing below midpoint of candle[i-2] body.
 
     SL: entry_price * (1 ± sl_pct).
+    min_range_pct: skip patterns where the initial candle (A) range < min_range_pct × close.
     """
     n = len(df)
     if n < 3:
@@ -2563,9 +2640,12 @@ def detect_morning_evening_star(
     open_times = df["open_time"].to_numpy(dtype=int)
 
     for i in range(2, n):
-        a_o, _, _, a_c = opens[i - 2], highs[i - 2], lows[i - 2], closes[i - 2]
+        a_o, a_h, a_l, a_c = opens[i - 2], highs[i - 2], lows[i - 2], closes[i - 2]
         s_o, s_h, s_l, s_c = opens[i - 1], highs[i - 1], lows[i - 1], closes[i - 1]
         b_o, _, _, b_c = opens[i], highs[i], lows[i], closes[i]
+
+        if _candle_too_small(a_h, a_l, a_c, min_range_pct):
+            continue
 
         star_range = s_h - s_l
         if star_range == 0.0:
@@ -2615,6 +2695,25 @@ def detect_morning_evening_star(
                 )
 
     return _signals_to_df(signals)
+
+
+# ---------------------------------------------------------------------------
+# Candle size filter helper (A16)
+# ---------------------------------------------------------------------------
+
+
+def _candle_too_small(
+    high: float, low: float, close: float, min_range_pct: float
+) -> bool:
+    """Return True if candle range is below min_range_pct × close price.
+
+    Filters trivial micro-patterns where the absolute candle move is too small
+    to represent meaningful price action regardless of shape.
+    Safe-default False when close is zero or min_range_pct is zero.
+    """
+    if close == 0.0 or min_range_pct == 0.0:
+        return False
+    return (high - low) / close < min_range_pct
 
 
 # ---------------------------------------------------------------------------
