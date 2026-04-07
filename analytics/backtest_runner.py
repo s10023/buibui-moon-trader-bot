@@ -240,6 +240,7 @@ def _collect_sweep_results(
             min_sl_pct=cfg.min_sl_pct,
             atr_sl_multiplier=eff_atr_sl,
             volume_suppress=cfg.effective_volume_suppress(strategy),
+            volume_spike_boost=cfg.effective_volume_spike_boost(strategy),
         )
         results.append(bt)
 
@@ -343,6 +344,7 @@ def run_backtest_sweep(
                             strat, sym, tf
                         ),
                         volume_suppress=cfg.effective_volume_suppress(strat),
+                        volume_spike_boost=cfg.effective_volume_spike_boost(strat),
                     )
                     tp_results.append(bt)
                 results_by_tp[tp_r] = tp_results
@@ -374,6 +376,7 @@ def run_backtest_sweep(
                         min_sl_pct=cfg.min_sl_pct,
                         atr_sl_multiplier=atr_mult,
                         volume_suppress=cfg.effective_volume_suppress(strat),
+                        volume_spike_boost=cfg.effective_volume_spike_boost(strat),
                     )
                     atr_results.append(bt)
                 results_by_atr[atr_mult] = atr_results

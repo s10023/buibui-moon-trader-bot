@@ -20,6 +20,7 @@ import pandas as pd
 from analytics.backtest_lib import (
     BacktestResult,
     _is_low_volume,
+    _is_volume_spike,
     filter_signals_by_day,
     run_backtest,
 )
@@ -161,6 +162,8 @@ def _compute_backtest(
     atr_sl_multiplier: float | None = None,
     adr_suppress_threshold: float | None = None,
     adr_exempt: bool = False,
+    volume_suppress: bool = False,
+    volume_spike_boost: bool = False,
 ) -> BacktestResult | None:
     """Run strategy detector on ohlcv[:-1] and backtest the resulting signals.
 
@@ -172,6 +175,8 @@ def _compute_backtest(
     backtested avg_r reflects only trades that would have passed the gate.
     adr_exempt: when True, skips the ADR filter regardless of threshold (for
     breakout/continuation strategies that should not be ADR-gated).
+    volume_suppress: skip signal candles with volume < 1.5× rolling mean.
+    volume_spike_boost: exempt spike candles (> 3× rolling mean) from suppression.
     """
     hist_df = ohlcv_df.iloc[:-1]
     if len(hist_df) < 3:
@@ -217,6 +222,8 @@ def _compute_backtest(
         fee_pct=fee_pct,
         min_sl_pct=min_sl_pct,
         atr_sl_multiplier=atr_sl_multiplier,
+        volume_suppress=volume_suppress,
+        volume_spike_boost=volume_spike_boost,
     )
 
 
@@ -542,6 +549,19 @@ def _resolve_volume_suppress(
     return global_suppress
 
 
+def _resolve_volume_spike_boost(
+    strategy_params: dict[str, StrategyOverride] | None,
+    strategy: str,
+    global_boost: bool,
+) -> bool:
+    """Return per-strategy volume_spike_boost if set, else the global fallback."""
+    if strategy_params:
+        override = strategy_params.get(strategy)
+        if override is not None and override.volume_spike_boost is not None:
+            return override.volume_spike_boost
+    return global_boost
+
+
 def _compute_stats_context(
     conn: duckdb.DuckDBPyConnection,
     symbol: str,
@@ -805,6 +825,16 @@ def run_scan_cycle(
                             if bias_cfg
                             else None,
                             adr_exempt=_is_adr_exempt(strategy_params, event.strategy),
+                            volume_suppress=_resolve_volume_suppress(
+                                strategy_params,
+                                event.strategy,
+                                backtest_cfg.volume_suppress,
+                            ),
+                            volume_spike_boost=_resolve_volume_spike_boost(
+                                strategy_params,
+                                event.strategy,
+                                backtest_cfg.volume_spike_boost,
+                            ),
                         )
                     bt_results[event.strategy] = bt_cache[bt_key]
 
@@ -833,36 +863,51 @@ def run_scan_cycle(
                         logger.info("Backtest hard filter suppressed %s %s", symbol, tf)
                         continue
 
-            # Volume suppression gate — per-strategy, drops low-volume signal candles
-            # when the strategy (or global fallback) has volume_suppress enabled.
-            # Decision is based on Phase 1 sweep: suppress when normal-vol avg_r
-            # clearly exceeds low-vol avg_r (delta > 0.05R); never suppress when
-            # low-vol signals show edge.
+            # Volume gate — per-strategy, handles both suppression and spike tagging.
+            # Suppression: drop low-volume signal candles when the strategy has
+            #   volume_suppress enabled. Exception: spike candles bypass suppression
+            #   when volume_spike_boost is on (spike > 3× rolling mean = conviction).
+            # Spike tagging: always tag SignalEvent.volume_spike regardless of suppress
+            #   so alert_formatter can show ⚡ even when suppression is off.
             if backtest_cfg:
                 vol_time_to_idx: dict[int, int] | None = None
                 vol_filtered: list[SignalEvent] = []
                 for _e in passing_events:
+                    if vol_time_to_idx is None:
+                        vol_time_to_idx = {
+                            int(t): i
+                            for i, t in enumerate(ohlcv_df["open_time"].astype("int64"))
+                        }
+                    _idx = vol_time_to_idx.get(int(_e.open_time), 0)
+                    _is_spike = _is_volume_spike(ohlcv_df, _idx)
+                    if _is_spike:
+                        _e.volume_spike = True
                     if _resolve_volume_suppress(
                         strategy_params, _e.strategy, backtest_cfg.volume_suppress
                     ):
-                        if vol_time_to_idx is None:
-                            vol_time_to_idx = {
-                                int(t): i
-                                for i, t in enumerate(
-                                    ohlcv_df["open_time"].astype("int64")
-                                )
-                            }
-                        if _is_low_volume(
-                            ohlcv_df, vol_time_to_idx.get(int(_e.open_time), 0)
-                        ):
-                            logger.info(
-                                "Volume filter suppressed %s %s — %s %s",
-                                symbol,
-                                tf,
-                                _e.direction.upper(),
+                        if _is_low_volume(ohlcv_df, _idx):
+                            # Spike boost: exempt high-conviction candles from suppress.
+                            if _is_spike and _resolve_volume_spike_boost(
+                                strategy_params,
                                 _e.strategy,
-                            )
-                            continue
+                                backtest_cfg.volume_spike_boost,
+                            ):
+                                logger.info(
+                                    "Volume spike exempted %s %s — %s %s",
+                                    symbol,
+                                    tf,
+                                    _e.direction.upper(),
+                                    _e.strategy,
+                                )
+                            else:
+                                logger.info(
+                                    "Volume filter suppressed %s %s — %s %s",
+                                    symbol,
+                                    tf,
+                                    _e.direction.upper(),
+                                    _e.strategy,
+                                )
+                                continue
                     vol_filtered.append(_e)
                 passing_events = vol_filtered
                 if not passing_events:
