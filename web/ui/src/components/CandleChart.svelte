@@ -396,16 +396,12 @@
     const gap = cmeGapData;
     if (!gap) return;
 
-    const x1 = chart.timeScale().timeToCoordinate(gap.startSec as Time);
-    const x2 = chart.timeScale().timeToCoordinate(gap.displayEndSec as Time);
-    if (x1 === null || x2 === null) {
-      cmeGapDiv.style.display = "none";
-      return;
-    }
-
     const containerWidth = cmeGapContainer.clientWidth;
-    const clampedX1 = Math.max(0, x1);
-    const clampedX2 = Math.min(containerWidth, x2);
+    const rawX1 = chart.timeScale().timeToCoordinate(gap.startSec as Time);
+    const rawX2 = chart.timeScale().timeToCoordinate(gap.displayEndSec as Time);
+    // null = off-screen: clamp start to left edge, end to right edge
+    const clampedX1 = Math.max(0, rawX1 ?? 0);
+    const clampedX2 = Math.min(containerWidth, rawX2 ?? containerWidth);
     if (clampedX2 <= clampedX1) {
       cmeGapDiv.style.display = "none";
       return;
