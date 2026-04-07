@@ -57,6 +57,7 @@
     showEMA50 = false,
     showEMA200 = false,
     showRSI = false,
+    showRangeLevels = false,
   }: {
     candles: CandleRow[];
     signals: SignalRow[];
@@ -72,6 +73,7 @@
     showEMA50?: boolean;
     showEMA200?: boolean;
     showRSI?: boolean;
+    showRangeLevels?: boolean;
   } = $props();
 
   let container: HTMLDivElement;
@@ -92,6 +94,12 @@
 
   // RSI series
   let rsiSeries: ISeriesApi<"Line"> | null = null;
+
+  // Range level series (C11)
+  let rangeSeries: ISeriesApi<"Line">[] = [];
+  let rangeLabelContainer: HTMLDivElement;
+  let rangeLabelPrices: number[] = [];
+  let rangeLabelEndTimes: number[] = [];
 
   // Tracks the in-progress live candle so open/high/low accumulate correctly
   // across SSE ticks instead of resetting each time.
@@ -155,6 +163,162 @@
       result.push(rsi(avgGain, avgLoss));
     }
     return result;
+  }
+
+  // ── Range levels (C11) ───────────────────────────────────────────────────────
+
+  interface RangeLevel {
+    label: string;
+    price: number;
+    originTimeSec: number;
+    color: string;
+  }
+
+  function computeRangeLevels(data: CandleRow[]): RangeLevel[] {
+    if (data.length < 2) return [];
+
+    const DAY = 86400;
+    const nowSec = Date.now() / 1000;
+
+    // All boundaries align to UTC midnight — Binance candles open on UTC boundaries.
+    // (Monday 00:00 UTC = Monday 08:00 MYT, daily candle opens 08:00 MYT, etc.)
+    const todayUTC = Math.floor(nowSec / DAY) * DAY;
+    const ydayUTC  = todayUTC - DAY;
+
+    // Monday 00:00 UTC of this week
+    const utcDow = new Date(nowSec * 1000).getUTCDay(); // 0=Sun, 1=Mon
+    const daysSinceMon = (utcDow + 6) % 7;
+    const thisMonUTC = todayUTC - daysSinceMon * DAY;
+    const lastMonUTC = thisMonUTC - 7 * DAY;
+
+    // 1st of month 00:00 UTC
+    const utcNow = new Date(nowSec * 1000);
+    const monthUTC = Date.UTC(utcNow.getUTCFullYear(), utcNow.getUTCMonth(), 1) / 1000;
+
+    const between = (c: CandleRow, s: number, e: number) => {
+      const t = c.open_time / 1000;
+      return t >= s && t < e;
+    };
+
+    const levels: RangeLevel[] = [];
+
+    // Monthly Open — first candle of this month (1st 00:00 UTC = 08:00 MYT)
+    const monthCandles = data.filter(c => c.open_time / 1000 >= monthUTC);
+    if (monthCandles.length > 0) {
+      const c = monthCandles[0];
+      levels.push({ label: "MO", price: c.open, originTimeSec: c.open_time / 1000, color: "#f0883e" });
+    }
+
+    // Daily Open — first candle of today (00:00 UTC = 08:00 MYT)
+    const todayCandles = data.filter(c => between(c, todayUTC, todayUTC + DAY));
+    if (todayCandles.length > 0) {
+      const c = todayCandles[0];
+      levels.push({ label: "DO", price: c.open, originTimeSec: c.open_time / 1000, color: "#bc8cff" });
+    }
+
+    // PDH / PDL — previous day
+    const ydayCandles = data.filter(c => between(c, ydayUTC, todayUTC));
+    if (ydayCandles.length > 0) {
+      const pdhC = ydayCandles.reduce((a, b) => b.high > a.high ? b : a);
+      const pdlC = ydayCandles.reduce((a, b) => b.low  < a.low  ? b : a);
+      levels.push({ label: "PDH", price: pdhC.high, originTimeSec: pdhC.open_time / 1000, color: "#56d364" });
+      levels.push({ label: "PDL", price: pdlC.low,  originTimeSec: pdlC.open_time / 1000, color: "#f85149" });
+    }
+
+    // Weekly Open — first candle on or after Monday 00:00 UTC (= Mon 08:00 MYT)
+    const thisWeekCandles = data.filter(c => between(c, thisMonUTC, thisMonUTC + 7 * DAY));
+    if (thisWeekCandles.length > 0) {
+      const c = thisWeekCandles[0];
+      levels.push({ label: "WO", price: c.open, originTimeSec: c.open_time / 1000, color: "#58a6ff" });
+    }
+
+    // Monday H / Monday L — all candles on Monday UTC (show all week including Monday)
+    const monCandles = data.filter(c => between(c, thisMonUTC, thisMonUTC + DAY));
+    if (monCandles.length > 0) {
+      const mhC = monCandles.reduce((a, b) => b.high > a.high ? b : a);
+      const mlC = monCandles.reduce((a, b) => b.low  < a.low  ? b : a);
+      levels.push({ label: "Mon H", price: mhC.high, originTimeSec: mhC.open_time / 1000, color: "#e3b341" });
+      levels.push({ label: "Mon L", price: mlC.low,  originTimeSec: mlC.open_time / 1000, color: "#e3b341" });
+    }
+
+    // PWH / PWL — previous week
+    const lastWeekCandles = data.filter(c => between(c, lastMonUTC, thisMonUTC));
+    if (lastWeekCandles.length > 0) {
+      const pwhC = lastWeekCandles.reduce((a, b) => b.high > a.high ? b : a);
+      const pwlC = lastWeekCandles.reduce((a, b) => b.low  < a.low  ? b : a);
+      levels.push({ label: "PWH", price: pwhC.high, originTimeSec: pwhC.open_time / 1000, color: "rgba(86, 211, 100, 0.55)" });
+      levels.push({ label: "PWL", price: pwlC.low,  originTimeSec: pwlC.open_time / 1000, color: "rgba(248, 81, 73, 0.55)" });
+    }
+
+    return levels;
+  }
+
+  function updateRangeLabelPositions(): void {
+    if (!chart || !candleSeries || rangeLabelPrices.length === 0) return;
+    const labels = rangeLabelContainer?.querySelectorAll<HTMLSpanElement>(".range-label");
+    if (!labels) return;
+    const overlayWidth = rangeLabelContainer.clientWidth;
+    labels.forEach((el, i) => {
+      const y = candleSeries.priceToCoordinate(rangeLabelPrices[i]);
+      if (y === null) { el.style.display = "none"; return; }
+      const rawX = chart.timeScale().timeToCoordinate(rangeLabelEndTimes[i] as Time);
+      const x = rawX !== null ? Math.min(rawX, overlayWidth - 4) : overlayWidth - 4;
+      el.style.display = "block";
+      el.style.top    = `${y - 8}px`;
+      el.style.left   = `${x - el.offsetWidth - 4}px`;
+    });
+  }
+
+  function drawRangeLines(): void {
+    clearRangeLines();
+    if (!chart || candles.length < 2) return;
+
+    const last = candles[candles.length - 1];
+    const prev = candles[candles.length - 2];
+    const intervalMs = last.open_time - prev.open_time;
+    const endTimeSec = (last.open_time + 200 * intervalMs) / 1000;
+
+    rangeLabelPrices = [];
+    rangeLabelEndTimes = [];
+
+    for (const { label, price, originTimeSec, color } of computeRangeLevels(candles)) {
+      const series = chart.addLineSeries({
+        color,
+        lineWidth: 1,
+        priceScaleId: "right",
+        lastValueVisible: false,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false,
+        title: "",
+      });
+      series.setData([
+        { time: originTimeSec as Time, value: price },
+        { time: endTimeSec    as Time, value: price },
+      ]);
+      rangeSeries.push(series);
+      rangeLabelPrices.push(price);
+      rangeLabelEndTimes.push(endTimeSec);
+
+      const el = document.createElement("span");
+      el.className = "range-label";
+      el.textContent = label;
+      el.style.color = color;
+      rangeLabelContainer.appendChild(el);
+    }
+
+    requestAnimationFrame(updateRangeLabelPositions);
+    chart.timeScale().subscribeVisibleLogicalRangeChange(updateRangeLabelPositions);
+  }
+
+  function clearRangeLines(): void {
+    for (const s of rangeSeries) {
+      try { chart.removeSeries(s); } catch { /* already removed */ }
+    }
+    rangeSeries = [];
+    rangeLabelPrices = [];
+    rangeLabelEndTimes = [];
+    rangeLabelContainer?.replaceChildren();
+    chart?.timeScale().unsubscribeVisibleLogicalRangeChange(updateRangeLabelPositions);
   }
 
   // ── Fib levels ───────────────────────────────────────────────────────────────
@@ -341,6 +505,17 @@
         horzLine: { color: "#58a6ff44", labelBackgroundColor: "#161b22" },
       },
       timeScale: { timeVisible: true, secondsVisible: false, borderColor: "#30363d" },
+      localization: {
+        timeFormatter: (t: number) => {
+          // t is UTC seconds from lightweight-charts; shift to MYT (UTC+8)
+          const d = new Date((t + 28800) * 1000);
+          const day = d.getUTCDate().toString().padStart(2, "0");
+          const mon = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getUTCMonth()];
+          const h   = d.getUTCHours().toString().padStart(2, "0");
+          const m   = d.getUTCMinutes().toString().padStart(2, "0");
+          return `${day} ${mon} ${h}:${m}`;
+        },
+      },
       rightPriceScale: { borderColor: "#30363d" },
     });
 
@@ -633,6 +808,18 @@
     chart.priceScale("rsi").applyOptions({ scaleMargins: { top: 0.75, bottom: 0.02 } });
   });
 
+  // ── Range levels effect (C11) ────────────────────────────────────────────────
+
+  $effect(() => {
+    if (!candleSeries) return;
+    void candles;
+    if (showRangeLevels) {
+      drawRangeLines();
+    } else {
+      clearRangeLines();
+    }
+  });
+
   // ── Live price update via SSE ─────────────────────────────────────────────────
   // Derive the current candle's open_time from the timeframe interval so that
   // if a new candle period has opened since the data was fetched, the update
@@ -711,6 +898,7 @@
 <div class="chart-wrap">
   <div bind:this={container} class="chart-container"></div>
   <div bind:this={fibLabelContainer} class="fib-label-overlay"></div>
+  <div bind:this={rangeLabelContainer} class="range-label-overlay"></div>
   <img src="/buibui-logo.svg" alt="buibui" class="chart-logo" />
 </div>
 
@@ -727,6 +915,28 @@
     pointer-events: none;
     overflow: hidden;
     z-index: 5;
+  }
+
+  .range-label-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: calc(100% - 70px);
+    height: 100%;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 5;
+  }
+
+  :global(.range-label) {
+    position: absolute;
+    font-size: 9px;
+    font-family: monospace;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    background: rgba(13, 17, 23, 0.72);
+    padding: 1px 4px;
+    border-radius: 2px;
   }
 
   :global(.fib-label) {
