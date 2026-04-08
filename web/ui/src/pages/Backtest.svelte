@@ -11,8 +11,12 @@
   import { activeConfigStore } from "../stores/activeConfig";
   import BacktestResultCmp from "../components/BacktestResult.svelte";
   import ErrorBanner from "../components/ErrorBanner.svelte";
+  import AnalysisCard from "../components/AnalysisCard.svelte";
 
   const TIMEFRAMES = ["15m", "1h", "4h", "1d"];
+
+  let activeTab: "runs" | "analysis" = "runs";
+  let analysisMinTrades = 5;
 
   // ── DB runs view ─────────────────────────────────────────────────────────────
   let runs = $state<BacktestRunSummary[]>([]);
@@ -371,6 +375,14 @@
     </button>
   </div>
 
+  <!-- ── Sub-tab bar ──────────────────────────────────────────────────────── -->
+  <div class="sub-tabs">
+    <button class="sub-tab" class:active={activeTab === "runs"} onclick={() => { activeTab = "runs"; }}>Runs</button>
+    <button class="sub-tab" class:active={activeTab === "analysis"} onclick={() => { activeTab = "analysis"; }}>Analysis</button>
+  </div>
+
+  {#if activeTab === "runs"}
+
   <!-- ── Filters ──────────────────────────────────────────────────────────── -->
   <div class="filters">
 
@@ -715,9 +727,119 @@
       {/if}
     </div>
   {/if}
+
+  {:else}
+
+  <!-- ── Analysis Tab ──────────────────────────────────────────────────── -->
+  <div class="analysis-controls">
+    <label class="min-trades-label">
+      Min trades
+      <input type="number" class="min-trades-input" bind:value={analysisMinTrades} min="1" max="100" />
+    </label>
+  </div>
+  <div class="analysis-grid">
+    <AnalysisCard query="strategy" title="Strategy Leaderboard"
+      description="Trade-weighted avg R per strategy across all symbols & TFs"
+      minTrades={analysisMinTrades} />
+    <AnalysisCard query="consistency" title="Edge Breadth"
+      description="% of symbol×TF combos with positive avg R — broad vs niche strategies"
+      minTrades={analysisMinTrades} />
+    <AnalysisCard query="direction_bias" title="Direction Bias"
+      description="Long vs short avg R per strategy — reveals directional asymmetry"
+      minTrades={analysisMinTrades} />
+    <AnalysisCard query="recovery_factor" title="Recovery Factor Ranking"
+      description="Avg recovery factor (total R ÷ max drawdown) — risk-adjusted view"
+      minTrades={analysisMinTrades} />
+    <AnalysisCard query="adr_ab" title="ADR Gate A/B"
+      description="Δavg R with vs without the ADR bias gate per strategy × TF"
+      minTrades={analysisMinTrades} />
+    <AnalysisCard query="volume_ab" title="Volume Suppress A/B"
+      description="Δavg R with vs without low-volume candle suppression"
+      minTrades={analysisMinTrades} />
+    <AnalysisCard query="day_filter_ab" title="Day Filter A/B"
+      description="Δavg R with day filter ON vs OFF — shows weekday filtering impact"
+      minTrades={analysisMinTrades} />
+    <AnalysisCard query="symbol" title="Symbol Leaderboard"
+      description="Total R and avg R per symbol — which market has the most edge"
+      minTrades={analysisMinTrades} />
+    <AnalysisCard query="tf" title="Timeframe Ranking"
+      description="Trade-weighted avg R per timeframe across all strategies"
+      minTrades={analysisMinTrades} />
+    <AnalysisCard query="combos" title="Best Combos"
+      description="Top symbol × strategy × TF combinations ranked by avg R"
+      minTrades={analysisMinTrades} topN={20} />
+  </div>
+
+  {/if}
+
 </div>
 
 <style>
+  /* ── Sub-tabs ────────────────────────────────────────────────────────── */
+  .sub-tabs {
+    display: flex;
+    gap: 2px;
+    margin: 8px 0 12px;
+    border-bottom: 1px solid var(--border-dim);
+  }
+
+  .sub-tab {
+    padding: 5px 16px;
+    font-size: 0.78rem;
+    background: transparent;
+    color: var(--fg-dim);
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: -1px;
+  }
+
+  .sub-tab:hover { color: var(--fg); }
+
+  .sub-tab.active {
+    color: var(--fg);
+    border-bottom-color: var(--accent, #6060cc);
+  }
+
+  /* ── Analysis grid ───────────────────────────────────────────────────── */
+  .analysis-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 12px;
+    font-size: 0.78rem;
+    color: var(--fg-dim);
+  }
+
+  .min-trades-label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .min-trades-input {
+    width: 60px;
+    padding: 2px 6px;
+    background: var(--bg-input, #1a1a2a);
+    border: 1px solid var(--border, #2a2a2a);
+    border-radius: 3px;
+    color: var(--fg);
+    font-size: 0.78rem;
+  }
+
+  .analysis-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    padding-bottom: 2rem;
+  }
+
+  @media (max-width: 900px) {
+    .analysis-grid { grid-template-columns: 1fr; }
+  }
+
   /* ── Page header ─────────────────────────────────────────────────────── */
   .page-header {
     display: flex;

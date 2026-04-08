@@ -333,6 +333,24 @@ export const getSignalsHistory = (params: {
 export const getBacktestRuns = () =>
   apiFetch<BacktestRunSummary[]>("/api/backtest/runs");
 
+export interface DigestResult {
+  columns: string[];
+  rows: (string | number | null)[][];
+}
+
+export const getBacktestAnalysis = (
+  query: string,
+  minTrades: number = 5,
+  topN: number = 20,
+) => {
+  const q = new URLSearchParams({
+    query,
+    min_trades: String(minTrades),
+    top_n: String(topN),
+  });
+  return apiFetch<DigestResult>(`/api/backtest/analysis?${q}`);
+};
+
 export const runBacktest = (params: {
   symbol: string;
   timeframe: string;

@@ -1,0 +1,428 @@
+"""Digest lib — aggregation queries over backtest_runs for the Analysis sub-tab.
+
+Each function returns {"columns": [...], "rows": [[...], ...]} so the API and
+CLI can share the same data without a Pydantic layer.
+
+All queries respect a min_trades guard to exclude noise from sparse runs.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Any
+
+import duckdb
+import pandas as pd
+
+DigestResult = dict[str, Any]
+
+QUERY_NAMES = [
+    "symbol",
+    "strategy",
+    "tf",
+    "combos",
+    "adr_ab",
+    "volume_ab",
+    "day_filter_ab",
+    "direction_bias",
+    "consistency",
+    "recovery_factor",
+]
+
+
+def _df_to_result(df: pd.DataFrame) -> DigestResult:
+    """Convert a DataFrame to the generic {columns, rows} wire format."""
+    return {
+        "columns": list(df.columns),
+        "rows": [list(row) for row in df.itertuples(index=False)],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Card 1 — Symbol leaderboard
+# ---------------------------------------------------------------------------
+
+
+def query_symbol(conn: duckdb.DuckDBPyConnection, min_trades: int = 5) -> DigestResult:
+    """Rank symbols by total_r.  Shows which market is generating the most edge."""
+    df = conn.execute(
+        """
+        SELECT
+            symbol,
+            ROUND(SUM(total_r), 2)                      AS total_r,
+            ROUND(AVG(avg_r), 3)                        AS avg_avg_r,
+            SUM(closed_trades)                          AS total_trades,
+            COUNT(*)                                    AS run_count,
+            MAX(CASE WHEN avg_r = max_avg_r THEN strategy END) AS best_strategy
+        FROM (
+            SELECT *,
+                MAX(avg_r) OVER (PARTITION BY symbol) AS max_avg_r
+            FROM backtest_runs
+            WHERE closed_trades >= ?
+        ) sub
+        GROUP BY symbol
+        ORDER BY total_r DESC
+        """,
+        [min_trades],
+    ).df()
+    return _df_to_result(df)
+
+
+# ---------------------------------------------------------------------------
+# Card 2 — Strategy leaderboard
+# ---------------------------------------------------------------------------
+
+
+def query_strategy(
+    conn: duckdb.DuckDBPyConnection, min_trades: int = 5
+) -> DigestResult:
+    """Rank strategies by trade-weighted avg_r across all symbols × TFs."""
+    df = conn.execute(
+        """
+        SELECT
+            strategy,
+            ROUND(
+                SUM(avg_r * closed_trades) / NULLIF(SUM(closed_trades), 0),
+                3
+            )                                           AS weighted_avg_r,
+            ROUND(SUM(total_r), 2)                      AS total_r,
+            SUM(closed_trades)                          AS total_trades,
+            COUNT(*)                                    AS run_count,
+            ROUND(AVG(win_rate) * 100, 1)               AS avg_win_pct
+        FROM backtest_runs
+        WHERE closed_trades >= ?
+        GROUP BY strategy
+        ORDER BY weighted_avg_r DESC
+        """,
+        [min_trades],
+    ).df()
+    return _df_to_result(df)
+
+
+# ---------------------------------------------------------------------------
+# Card 3 — TF ranking
+# ---------------------------------------------------------------------------
+
+
+def query_tf(conn: duckdb.DuckDBPyConnection, min_trades: int = 5) -> DigestResult:
+    """Rank timeframes by trade-weighted avg_r."""
+    df = conn.execute(
+        """
+        SELECT
+            timeframe,
+            ROUND(
+                SUM(avg_r * closed_trades) / NULLIF(SUM(closed_trades), 0),
+                3
+            )                                           AS weighted_avg_r,
+            ROUND(SUM(total_r), 2)                      AS total_r,
+            SUM(closed_trades)                          AS total_trades,
+            COUNT(*)                                    AS run_count
+        FROM backtest_runs
+        WHERE closed_trades >= ?
+        GROUP BY timeframe
+        ORDER BY weighted_avg_r DESC
+        """,
+        [min_trades],
+    ).df()
+    return _df_to_result(df)
+
+
+# ---------------------------------------------------------------------------
+# Card 4 — Best combos (top-N)
+# ---------------------------------------------------------------------------
+
+
+def query_combos(
+    conn: duckdb.DuckDBPyConnection, min_trades: int = 5, top_n: int = 20
+) -> DigestResult:
+    """Top symbol × strategy × TF combos by avg_r (min_trades filter applied)."""
+    df = conn.execute(
+        """
+        SELECT
+            symbol,
+            strategy,
+            timeframe,
+            day_filter,
+            ROUND(avg_r, 3)                             AS avg_r,
+            ROUND(total_r, 2)                           AS total_r,
+            closed_trades                               AS trades,
+            ROUND(win_rate * 100, 1)                    AS win_pct,
+            ROUND(recovery_factor, 2)                   AS rf
+        FROM backtest_runs
+        WHERE closed_trades >= ?
+        ORDER BY avg_r DESC
+        LIMIT ?
+        """,
+        [min_trades, top_n],
+    ).df()
+    return _df_to_result(df)
+
+
+# ---------------------------------------------------------------------------
+# Card 5 — ADR gate A/B
+# ---------------------------------------------------------------------------
+
+
+def query_adr_ab(conn: duckdb.DuckDBPyConnection, min_trades: int = 5) -> DigestResult:
+    """Compare avg_r with vs without the ADR bias gate per strategy × TF.
+
+    Self-joins on matching (symbol, strategy, tf, day_filter, sl_pct, tp_r,
+    fee_pct) so only pairs with both runs appear.  Shows Δavg_r = gated − ungated.
+    """
+    df = conn.execute(
+        """
+        SELECT
+            on_r.strategy,
+            on_r.timeframe,
+            on_r.symbol,
+            ROUND(on_r.avg_r, 3)                        AS gated_avg_r,
+            ROUND(off_r.avg_r, 3)                       AS ungated_avg_r,
+            ROUND(on_r.avg_r - off_r.avg_r, 3)          AS delta_avg_r,
+            on_r.closed_trades                          AS gated_trades,
+            off_r.closed_trades                         AS ungated_trades
+        FROM backtest_runs on_r
+        JOIN backtest_runs off_r
+          ON  on_r.symbol      = off_r.symbol
+          AND on_r.strategy    = off_r.strategy
+          AND on_r.timeframe   = off_r.timeframe
+          AND on_r.day_filter  = off_r.day_filter
+          AND on_r.sl_pct      = off_r.sl_pct
+          AND on_r.tp_r        = off_r.tp_r
+          AND on_r.fee_pct     = off_r.fee_pct
+        WHERE on_r.adr_suppress_threshold IS NOT NULL
+          AND off_r.adr_suppress_threshold IS NULL
+          AND on_r.closed_trades  >= ?
+          AND off_r.closed_trades >= ?
+        ORDER BY delta_avg_r DESC
+        """,
+        [min_trades, min_trades],
+    ).df()
+    return _df_to_result(df)
+
+
+# ---------------------------------------------------------------------------
+# Card 6 — Volume suppress A/B
+# ---------------------------------------------------------------------------
+
+
+def query_volume_ab(
+    conn: duckdb.DuckDBPyConnection, min_trades: int = 5
+) -> DigestResult:
+    """Compare avg_r with vs without volume suppression per strategy × TF.
+
+    Requires both suppressed and unsuppressed runs to exist in the DB.
+    volume_suppress column is populated by backtest sweep runs.
+    """
+    df = conn.execute(
+        """
+        SELECT
+            on_r.strategy,
+            on_r.timeframe,
+            on_r.symbol,
+            ROUND(on_r.avg_r, 3)                        AS suppressed_avg_r,
+            ROUND(off_r.avg_r, 3)                       AS all_vol_avg_r,
+            ROUND(on_r.avg_r - off_r.avg_r, 3)          AS delta_avg_r,
+            on_r.closed_trades                          AS suppressed_trades,
+            off_r.closed_trades                         AS all_vol_trades
+        FROM backtest_runs on_r
+        JOIN backtest_runs off_r
+          ON  on_r.symbol      = off_r.symbol
+          AND on_r.strategy    = off_r.strategy
+          AND on_r.timeframe   = off_r.timeframe
+          AND on_r.day_filter  = off_r.day_filter
+          AND on_r.sl_pct      = off_r.sl_pct
+          AND on_r.tp_r        = off_r.tp_r
+          AND on_r.fee_pct     = off_r.fee_pct
+        WHERE on_r.volume_suppress  = TRUE
+          AND (off_r.volume_suppress = FALSE OR off_r.volume_suppress IS NULL)
+          AND on_r.closed_trades  >= ?
+          AND off_r.closed_trades >= ?
+        ORDER BY delta_avg_r DESC
+        """,
+        [min_trades, min_trades],
+    ).df()
+    return _df_to_result(df)
+
+
+# ---------------------------------------------------------------------------
+# Card 7 — Day filter A/B
+# ---------------------------------------------------------------------------
+
+
+def query_day_filter_ab(
+    conn: duckdb.DuckDBPyConnection, min_trades: int = 5
+) -> DigestResult:
+    """Compare avg_r with day filter ON vs OFF per strategy × symbol × TF.
+
+    Δavg_r = filtered − unfiltered.  Positive means filtering helped.
+    """
+    df = conn.execute(
+        """
+        SELECT
+            on_r.strategy,
+            on_r.timeframe,
+            on_r.symbol,
+            on_r.day_filter                             AS filter_mode,
+            ROUND(on_r.avg_r, 3)                        AS filtered_avg_r,
+            ROUND(off_r.avg_r, 3)                       AS unfiltered_avg_r,
+            ROUND(on_r.avg_r - off_r.avg_r, 3)          AS delta_avg_r,
+            on_r.closed_trades                          AS filtered_trades,
+            off_r.closed_trades                         AS unfiltered_trades
+        FROM backtest_runs on_r
+        JOIN backtest_runs off_r
+          ON  on_r.symbol      = off_r.symbol
+          AND on_r.strategy    = off_r.strategy
+          AND on_r.timeframe   = off_r.timeframe
+          AND on_r.sl_pct      = off_r.sl_pct
+          AND on_r.tp_r        = off_r.tp_r
+          AND on_r.fee_pct     = off_r.fee_pct
+        WHERE on_r.day_filter  != 'off'
+          AND off_r.day_filter  = 'off'
+          AND on_r.closed_trades  >= ?
+          AND off_r.closed_trades >= ?
+        ORDER BY delta_avg_r DESC
+        """,
+        [min_trades, min_trades],
+    ).df()
+    return _df_to_result(df)
+
+
+# ---------------------------------------------------------------------------
+# Card 8 — Direction bias
+# ---------------------------------------------------------------------------
+
+
+def query_direction_bias(
+    conn: duckdb.DuckDBPyConnection, min_trades: int = 5
+) -> DigestResult:
+    """Long vs short avg_r per strategy — shows directional edge asymmetry.
+
+    Large positive delta = strategy favours longs.
+    Large negative delta = strategy favours shorts.
+    """
+    df = conn.execute(
+        """
+        SELECT
+            strategy,
+            ROUND(AVG(long_avg_r), 3)                   AS long_avg_r,
+            ROUND(AVG(short_avg_r), 3)                  AS short_avg_r,
+            ROUND(AVG(long_avg_r) - AVG(short_avg_r), 3) AS long_minus_short,
+            SUM(long_closed_trades)                     AS long_trades,
+            SUM(short_closed_trades)                    AS short_trades,
+            ROUND(AVG(long_win_rate) * 100, 1)          AS long_win_pct,
+            ROUND(AVG(short_win_rate) * 100, 1)         AS short_win_pct
+        FROM backtest_runs
+        WHERE long_closed_trades  >= ?
+          AND short_closed_trades >= ?
+        GROUP BY strategy
+        ORDER BY ABS(AVG(long_avg_r) - AVG(short_avg_r)) DESC
+        """,
+        [min_trades, min_trades],
+    ).df()
+    return _df_to_result(df)
+
+
+# ---------------------------------------------------------------------------
+# Card 9 — Consistency (edge breadth)
+# ---------------------------------------------------------------------------
+
+
+def query_consistency(
+    conn: duckdb.DuckDBPyConnection, min_trades: int = 5
+) -> DigestResult:
+    """For each strategy, how many symbol × TF combos show positive avg_r?
+
+    High pct_profitable = edge is broad and robust.
+    Low pct_profitable  = edge is symbol- or TF-specific (fragile).
+    """
+    df = conn.execute(
+        """
+        SELECT
+            strategy,
+            COUNT(*)                                    AS total_combos,
+            SUM(CASE WHEN avg_r > 0 THEN 1 ELSE 0 END) AS profitable_combos,
+            ROUND(
+                100.0 * SUM(CASE WHEN avg_r > 0 THEN 1 ELSE 0 END)
+                / NULLIF(COUNT(*), 0),
+                1
+            )                                          AS pct_profitable,
+            ROUND(AVG(avg_r), 3)                        AS overall_avg_r,
+            SUM(closed_trades)                          AS total_trades
+        FROM backtest_runs
+        WHERE closed_trades >= ?
+        GROUP BY strategy
+        ORDER BY pct_profitable DESC, profitable_combos DESC
+        """,
+        [min_trades],
+    ).df()
+    return _df_to_result(df)
+
+
+# ---------------------------------------------------------------------------
+# Card 10 — Recovery factor ranking
+# ---------------------------------------------------------------------------
+
+
+def query_recovery_factor(
+    conn: duckdb.DuckDBPyConnection, min_trades: int = 5
+) -> DigestResult:
+    """Rank strategies by average recovery factor (total_r / max_drawdown_r).
+
+    Higher RF = better risk-adjusted returns.  Complements avg_r ranking
+    by penalising strategies with deep drawdown periods.
+    """
+    df = conn.execute(
+        """
+        SELECT
+            strategy,
+            ROUND(AVG(recovery_factor), 2)              AS avg_rf,
+            ROUND(MAX(recovery_factor), 2)              AS best_rf,
+            ROUND(AVG(max_drawdown_r), 3)               AS avg_max_dd_r,
+            ROUND(AVG(avg_r), 3)                        AS avg_r,
+            SUM(closed_trades)                          AS total_trades,
+            COUNT(*)                                    AS run_count
+        FROM backtest_runs
+        WHERE closed_trades >= ?
+          AND recovery_factor IS NOT NULL
+          AND recovery_factor > 0
+        GROUP BY strategy
+        ORDER BY avg_rf DESC
+        """,
+        [min_trades],
+    ).df()
+    return _df_to_result(df)
+
+
+# ---------------------------------------------------------------------------
+# Dispatcher
+# ---------------------------------------------------------------------------
+
+_QUERY_FN: dict[str, Callable[..., DigestResult]] = {
+    "symbol": query_symbol,
+    "strategy": query_strategy,
+    "tf": query_tf,
+    "combos": query_combos,
+    "adr_ab": query_adr_ab,
+    "volume_ab": query_volume_ab,
+    "day_filter_ab": query_day_filter_ab,
+    "direction_bias": query_direction_bias,
+    "consistency": query_consistency,
+    "recovery_factor": query_recovery_factor,
+}
+
+
+def run_digest(
+    conn: duckdb.DuckDBPyConnection,
+    query: str,
+    min_trades: int = 5,
+    top_n: int = 20,
+) -> DigestResult:
+    """Dispatch to the named query function and return generic {columns, rows}."""
+    fn = _QUERY_FN.get(query)
+    if fn is None:
+        raise ValueError(
+            f"Unknown digest query '{query}'. Valid: {', '.join(QUERY_NAMES)}"
+        )
+    if query == "combos":
+        return fn(conn, min_trades=min_trades, top_n=top_n)
+    return fn(conn, min_trades=min_trades)

@@ -1,9 +1,10 @@
 """Backtest router — POST /api/backtest."""
 
 import datetime
+from typing import Any
 
 import duckdb
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from analytics.backtest_lib import run_backtest
 from analytics.backtest_runner import detect_signals_for_strategy
@@ -13,6 +14,7 @@ from analytics.data_store import (
     upsert_backtest_run,
     upsert_backtest_trades,
 )
+from analytics.digest_lib import QUERY_NAMES, run_digest
 from analytics.indicators_lib import KNOWN_STRATEGIES
 from utils.binance_client import load_coins_config
 from web.api.deps import get_db, require_token
@@ -33,6 +35,24 @@ def get_backtest_runs(
     """Return all saved backtest runs, newest first."""
     df = list_backtest_runs(db)
     return [BacktestRunSummary.model_validate(row) for row in df.to_dict("records")]
+
+
+@router.get("/backtest/analysis")
+def get_backtest_analysis(
+    query: str = Query(..., description=f"One of: {', '.join(QUERY_NAMES)}"),
+    min_trades: int = Query(
+        5, ge=1, description="Minimum closed trades to include a run"
+    ),
+    top_n: int = Query(20, ge=1, le=100, description="Max rows for combos query"),
+    db: duckdb.DuckDBPyConnection = Depends(get_db),
+) -> dict[str, Any]:
+    """Run a pre-canned aggregation query over backtest_runs and return {columns, rows}."""
+    if query not in QUERY_NAMES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown query '{query}'. Valid: {', '.join(QUERY_NAMES)}",
+        )
+    return run_digest(db, query, min_trades=min_trades, top_n=top_n)
 
 
 @router.post("/backtest", response_model=BacktestResponse)
@@ -112,6 +132,7 @@ def run_backtest_endpoint(
         "off",
         0,
         secondary_symbol,
+        volume_suppress=None,
     )
     upsert_backtest_trades(db, result, run_id)
 

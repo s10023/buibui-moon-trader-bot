@@ -132,7 +132,8 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
             short_win_rate       DOUBLE,
             short_avg_r          DOUBLE,
             long_total_r         DOUBLE,
-            short_total_r        DOUBLE
+            short_total_r        DOUBLE,
+            volume_suppress      BOOLEAN
         )
     """)
     # Migration: add long/short split columns to existing DBs.
@@ -156,6 +157,7 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
         ("long_total_r", "DOUBLE"),
         ("short_total_r", "DOUBLE"),
         ("recovery_factor", "DOUBLE"),
+        ("volume_suppress", "BOOLEAN"),
     ]:
         if col not in existing_bt_cols:
             conn.execute(f"ALTER TABLE backtest_runs ADD COLUMN {col} {dtype}")
@@ -470,15 +472,18 @@ def _backtest_run_id(
     smt_trend_filter: int,
     secondary_symbol: str | None,
     adr_suppress_threshold: float | None = None,
+    volume_suppress: bool | None = None,
 ) -> str:
     """Return a deterministic 16-char hex ID for a backtest param combination.
 
-    adr_suppress_threshold is appended only when set so existing run_ids are
-    unchanged (None = no ADR filter applied, same hash as before this column).
+    Optional suffixes are appended only when set so existing run_ids are
+    unchanged (None = flag not applied, same hash as before these columns).
     """
     key = f"{symbol}|{timeframe}|{strategy}|{days}|{sl_pct}|{tp_r}|{fee_pct}|{day_filter}|{smt_trend_filter}|{secondary_symbol}"
     if adr_suppress_threshold is not None:
         key += f"|adr:{adr_suppress_threshold}"
+    if volume_suppress:
+        key += "|vol_suppress"
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
@@ -496,6 +501,7 @@ def upsert_backtest_run(
     secondary_symbol: str | None = None,
     sweep_id: str | None = None,
     adr_suppress_threshold: float | None = None,
+    volume_suppress: bool | None = None,
 ) -> str:
     """Insert or replace a backtest aggregate result row.
 
@@ -514,6 +520,7 @@ def upsert_backtest_run(
         smt_trend_filter,
         secondary_symbol,
         adr_suppress_threshold,
+        volume_suppress,
     )
     row: dict[str, Any] = {
         "run_id": run_id,
@@ -551,6 +558,7 @@ def upsert_backtest_run(
         "long_total_r": result.long_total_r,
         "short_total_r": result.short_total_r,
         "recovery_factor": result.recovery_factor,
+        "volume_suppress": volume_suppress,
     }
     df = pd.DataFrame([row])
     conn.register("_bt_run_upsert_df", df)
@@ -563,7 +571,8 @@ def upsert_backtest_run(
             "win_rate, avg_r, total_r, max_drawdown_r, run_at_ms, sweep_id, "
             "long_closed_trades, long_win_count, long_win_rate, long_avg_r, "
             "short_closed_trades, short_win_count, short_win_rate, short_avg_r, "
-            "adr_suppress_threshold, long_total_r, short_total_r, recovery_factor "
+            "adr_suppress_threshold, long_total_r, short_total_r, recovery_factor, "
+            "volume_suppress "
             "FROM _bt_run_upsert_df"
         )
     finally:
