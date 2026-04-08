@@ -9,12 +9,80 @@ All queries respect a min_trades guard to exclude noise from sparse runs.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any
 
 import duckdb
 import pandas as pd
 
 DigestResult = dict[str, Any]
+
+
+@dataclass
+class DigestScope:
+    """Optional config-scoped filters applied to all digest queries.
+
+    All fields are None / empty by default (no filtering).
+    Populated from app.state.active_config when use_config=true is requested.
+    """
+
+    day_filter: str | None = None
+    fee_pct: float | None = None
+    symbols: list[str] = field(default_factory=list)
+    min_trades: int = 5
+    min_trades_per_tf: dict[str, int] = field(default_factory=dict)
+
+    def effective_min_trades(self, tf: str) -> int:
+        return self.min_trades_per_tf.get(tf, self.min_trades)
+
+
+def _scope_clauses(scope: DigestScope | None, alias: str = "") -> tuple[str, list[Any]]:
+    """Return (extra_where_sql, params) for config-scoped filters.
+
+    alias: table alias prefix, e.g. "br." — leave empty for no prefix.
+    """
+    if scope is None:
+        return "", []
+    pfx = f"{alias}." if alias else ""
+    clauses: list[str] = []
+    params: list[Any] = []
+    if scope.day_filter is not None:
+        clauses.append(f"{pfx}day_filter = ?")
+        params.append(scope.day_filter)
+    if scope.fee_pct is not None:
+        clauses.append(f"{pfx}fee_pct = ?")
+        params.append(scope.fee_pct)
+    if scope.symbols:
+        placeholders = ", ".join("?" * len(scope.symbols))
+        clauses.append(f"{pfx}symbol IN ({placeholders})")
+        params.extend(scope.symbols)
+    return (" AND " + " AND ".join(clauses)) if clauses else "", params
+
+
+def _min_trades_expr(
+    scope: DigestScope | None,
+    global_min: int,
+    col: str = "closed_trades",
+    tf_col: str = "timeframe",
+) -> tuple[str, list[Any]]:
+    """Return a SQL expression (and params) for per-TF min_trades filtering.
+
+    When scope has per-TF overrides, builds a CASE expression.
+    Falls back to a simple >= comparison otherwise.
+    """
+    per_tf = scope.min_trades_per_tf if scope else {}
+    base = scope.min_trades if scope else global_min
+
+    if not per_tf:
+        return f"{col} >= ?", [base]
+
+    # CASE WHEN timeframe = '15m' THEN closed_trades >= 30 ...
+    when_parts = " ".join(
+        f"WHEN {tf_col} = '{tf}' THEN {col} >= {n}" for tf, n in per_tf.items()
+    )
+    expr = f"(CASE {when_parts} ELSE {col} >= {base} END)"
+    return expr, []
+
 
 QUERY_NAMES = [
     "symbol",
@@ -43,10 +111,16 @@ def _df_to_result(df: pd.DataFrame) -> DigestResult:
 # ---------------------------------------------------------------------------
 
 
-def query_symbol(conn: duckdb.DuckDBPyConnection, min_trades: int = 5) -> DigestResult:
+def query_symbol(
+    conn: duckdb.DuckDBPyConnection,
+    min_trades: int = 5,
+    scope: DigestScope | None = None,
+) -> DigestResult:
     """Rank symbols by total_r.  Shows which market is generating the most edge."""
+    mt_expr, mt_params = _min_trades_expr(scope, min_trades)
+    sc_sql, sc_params = _scope_clauses(scope)
     df = conn.execute(
-        """
+        f"""
         SELECT
             symbol,
             ROUND(SUM(total_r), 2)                      AS total_r,
@@ -58,12 +132,12 @@ def query_symbol(conn: duckdb.DuckDBPyConnection, min_trades: int = 5) -> Digest
             SELECT *,
                 MAX(avg_r) OVER (PARTITION BY symbol) AS max_avg_r
             FROM backtest_runs
-            WHERE closed_trades >= ?
+            WHERE {mt_expr}{sc_sql}
         ) sub
         GROUP BY symbol
         ORDER BY total_r DESC
         """,
-        [min_trades],
+        mt_params + sc_params,
     ).df()
     return _df_to_result(df)
 
@@ -74,11 +148,15 @@ def query_symbol(conn: duckdb.DuckDBPyConnection, min_trades: int = 5) -> Digest
 
 
 def query_strategy(
-    conn: duckdb.DuckDBPyConnection, min_trades: int = 5
+    conn: duckdb.DuckDBPyConnection,
+    min_trades: int = 5,
+    scope: DigestScope | None = None,
 ) -> DigestResult:
     """Rank strategies by trade-weighted avg_r across all symbols × TFs."""
+    mt_expr, mt_params = _min_trades_expr(scope, min_trades)
+    sc_sql, sc_params = _scope_clauses(scope)
     df = conn.execute(
-        """
+        f"""
         SELECT
             strategy,
             ROUND(
@@ -90,11 +168,11 @@ def query_strategy(
             COUNT(*)                                    AS run_count,
             ROUND(AVG(win_rate) * 100, 1)               AS avg_win_pct
         FROM backtest_runs
-        WHERE closed_trades >= ?
+        WHERE {mt_expr}{sc_sql}
         GROUP BY strategy
         ORDER BY weighted_avg_r DESC
         """,
-        [min_trades],
+        mt_params + sc_params,
     ).df()
     return _df_to_result(df)
 
@@ -104,10 +182,16 @@ def query_strategy(
 # ---------------------------------------------------------------------------
 
 
-def query_tf(conn: duckdb.DuckDBPyConnection, min_trades: int = 5) -> DigestResult:
+def query_tf(
+    conn: duckdb.DuckDBPyConnection,
+    min_trades: int = 5,
+    scope: DigestScope | None = None,
+) -> DigestResult:
     """Rank timeframes by trade-weighted avg_r."""
+    mt_expr, mt_params = _min_trades_expr(scope, min_trades)
+    sc_sql, sc_params = _scope_clauses(scope)
     df = conn.execute(
-        """
+        f"""
         SELECT
             timeframe,
             ROUND(
@@ -118,11 +202,11 @@ def query_tf(conn: duckdb.DuckDBPyConnection, min_trades: int = 5) -> DigestResu
             SUM(closed_trades)                          AS total_trades,
             COUNT(*)                                    AS run_count
         FROM backtest_runs
-        WHERE closed_trades >= ?
+        WHERE {mt_expr}{sc_sql}
         GROUP BY timeframe
         ORDER BY weighted_avg_r DESC
         """,
-        [min_trades],
+        mt_params + sc_params,
     ).df()
     return _df_to_result(df)
 
@@ -133,11 +217,16 @@ def query_tf(conn: duckdb.DuckDBPyConnection, min_trades: int = 5) -> DigestResu
 
 
 def query_combos(
-    conn: duckdb.DuckDBPyConnection, min_trades: int = 5, top_n: int = 20
+    conn: duckdb.DuckDBPyConnection,
+    min_trades: int = 5,
+    top_n: int = 20,
+    scope: DigestScope | None = None,
 ) -> DigestResult:
     """Top symbol × strategy × TF combos by avg_r (min_trades filter applied)."""
+    mt_expr, mt_params = _min_trades_expr(scope, min_trades)
+    sc_sql, sc_params = _scope_clauses(scope)
     df = conn.execute(
-        """
+        f"""
         SELECT
             symbol,
             strategy,
@@ -149,11 +238,11 @@ def query_combos(
             ROUND(win_rate * 100, 1)                    AS win_pct,
             ROUND(recovery_factor, 2)                   AS rf
         FROM backtest_runs
-        WHERE closed_trades >= ?
+        WHERE {mt_expr}{sc_sql}
         ORDER BY avg_r DESC
-        LIMIT ?
+        LIMIT {top_n}
         """,
-        [min_trades, top_n],
+        mt_params + sc_params,
     ).df()
     return _df_to_result(df)
 
@@ -163,14 +252,38 @@ def query_combos(
 # ---------------------------------------------------------------------------
 
 
-def query_adr_ab(conn: duckdb.DuckDBPyConnection, min_trades: int = 5) -> DigestResult:
+def query_adr_ab(
+    conn: duckdb.DuckDBPyConnection,
+    min_trades: int = 5,
+    scope: DigestScope | None = None,
+) -> DigestResult:
     """Compare avg_r with vs without the ADR bias gate per strategy × TF.
 
     Self-joins on matching (symbol, strategy, tf, day_filter, sl_pct, tp_r,
     fee_pct) so only pairs with both runs appear.  Shows Δavg_r = gated − ungated.
+    day_filter scoping applied to on_r side only (off_r must have day_filter='off').
     """
+    # For A/B queries: scope without day_filter (the join already constrains it)
+    sc_sql, sc_params = _scope_clauses(
+        DigestScope(
+            fee_pct=scope.fee_pct if scope else None,
+            symbols=scope.symbols if scope else [],
+        )
+        if scope
+        else None
+    )
+    mt_expr, mt_params = _min_trades_expr(
+        scope, min_trades, col="on_r.closed_trades", tf_col="on_r.timeframe"
+    )
+    mt_expr2, mt_params2 = _min_trades_expr(
+        scope, min_trades, col="off_r.closed_trades", tf_col="off_r.timeframe"
+    )
+    on_sc = sc_sql.replace("symbol", "on_r.symbol").replace("fee_pct", "on_r.fee_pct")
+    off_sc = sc_sql.replace("symbol", "off_r.symbol").replace(
+        "fee_pct", "off_r.fee_pct"
+    )
     df = conn.execute(
-        """
+        f"""
         SELECT
             on_r.strategy,
             on_r.timeframe,
@@ -191,11 +304,11 @@ def query_adr_ab(conn: duckdb.DuckDBPyConnection, min_trades: int = 5) -> Digest
           AND on_r.fee_pct     = off_r.fee_pct
         WHERE on_r.adr_suppress_threshold IS NOT NULL
           AND off_r.adr_suppress_threshold IS NULL
-          AND on_r.closed_trades  >= ?
-          AND off_r.closed_trades >= ?
+          AND {mt_expr}{on_sc}
+          AND {mt_expr2}{off_sc}
         ORDER BY delta_avg_r DESC
         """,
-        [min_trades, min_trades],
+        mt_params + sc_params + mt_params2 + sc_params,
     ).df()
     return _df_to_result(df)
 
@@ -206,15 +319,38 @@ def query_adr_ab(conn: duckdb.DuckDBPyConnection, min_trades: int = 5) -> Digest
 
 
 def query_volume_ab(
-    conn: duckdb.DuckDBPyConnection, min_trades: int = 5
+    conn: duckdb.DuckDBPyConnection,
+    min_trades: int = 5,
+    scope: DigestScope | None = None,
 ) -> DigestResult:
-    """Compare avg_r with vs without volume suppression per strategy × TF.
-
-    Requires both suppressed and unsuppressed runs to exist in the DB.
-    volume_suppress column is populated by backtest sweep runs.
-    """
+    """Compare avg_r with vs without volume suppression per strategy × TF."""
+    sc_sql, sc_params = _scope_clauses(
+        DigestScope(
+            day_filter=scope.day_filter if scope else None,
+            fee_pct=scope.fee_pct if scope else None,
+            symbols=scope.symbols if scope else [],
+        )
+        if scope
+        else None
+    )
+    mt_expr, mt_params = _min_trades_expr(
+        scope, min_trades, col="on_r.closed_trades", tf_col="on_r.timeframe"
+    )
+    mt_expr2, mt_params2 = _min_trades_expr(
+        scope, min_trades, col="off_r.closed_trades", tf_col="off_r.timeframe"
+    )
+    on_sc = (
+        sc_sql.replace("symbol", "on_r.symbol")
+        .replace("fee_pct", "on_r.fee_pct")
+        .replace("day_filter", "on_r.day_filter")
+    )
+    off_sc = (
+        sc_sql.replace("symbol", "off_r.symbol")
+        .replace("fee_pct", "off_r.fee_pct")
+        .replace("day_filter", "off_r.day_filter")
+    )
     df = conn.execute(
-        """
+        f"""
         SELECT
             on_r.strategy,
             on_r.timeframe,
@@ -235,11 +371,11 @@ def query_volume_ab(
           AND on_r.fee_pct     = off_r.fee_pct
         WHERE on_r.volume_suppress  = TRUE
           AND (off_r.volume_suppress = FALSE OR off_r.volume_suppress IS NULL)
-          AND on_r.closed_trades  >= ?
-          AND off_r.closed_trades >= ?
+          AND {mt_expr}{on_sc}
+          AND {mt_expr2}{off_sc}
         ORDER BY delta_avg_r DESC
         """,
-        [min_trades, min_trades],
+        mt_params + sc_params + mt_params2 + sc_params,
     ).df()
     return _df_to_result(df)
 
@@ -250,14 +386,41 @@ def query_volume_ab(
 
 
 def query_day_filter_ab(
-    conn: duckdb.DuckDBPyConnection, min_trades: int = 5
+    conn: duckdb.DuckDBPyConnection,
+    min_trades: int = 5,
+    scope: DigestScope | None = None,
 ) -> DigestResult:
     """Compare avg_r with day filter ON vs OFF per strategy × symbol × TF.
 
     Δavg_r = filtered − unfiltered.  Positive means filtering helped.
+    When scope has day_filter set, shows only that filter mode vs 'off'.
     """
+    # For day_filter A/B: scope by symbol + fee_pct only; day_filter handled by join
+    sc_sql, sc_params = _scope_clauses(
+        DigestScope(
+            fee_pct=scope.fee_pct if scope else None,
+            symbols=scope.symbols if scope else [],
+        )
+        if scope
+        else None
+    )
+    on_day_filter_clause = (
+        f"on_r.day_filter = '{scope.day_filter}'"
+        if scope and scope.day_filter and scope.day_filter != "off"
+        else "on_r.day_filter != 'off'"
+    )
+    mt_expr, mt_params = _min_trades_expr(
+        scope, min_trades, col="on_r.closed_trades", tf_col="on_r.timeframe"
+    )
+    mt_expr2, mt_params2 = _min_trades_expr(
+        scope, min_trades, col="off_r.closed_trades", tf_col="off_r.timeframe"
+    )
+    on_sc = sc_sql.replace("symbol", "on_r.symbol").replace("fee_pct", "on_r.fee_pct")
+    off_sc = sc_sql.replace("symbol", "off_r.symbol").replace(
+        "fee_pct", "off_r.fee_pct"
+    )
     df = conn.execute(
-        """
+        f"""
         SELECT
             on_r.strategy,
             on_r.timeframe,
@@ -276,13 +439,13 @@ def query_day_filter_ab(
           AND on_r.sl_pct      = off_r.sl_pct
           AND on_r.tp_r        = off_r.tp_r
           AND on_r.fee_pct     = off_r.fee_pct
-        WHERE on_r.day_filter  != 'off'
-          AND off_r.day_filter  = 'off'
-          AND on_r.closed_trades  >= ?
-          AND off_r.closed_trades >= ?
+        WHERE {on_day_filter_clause}
+          AND off_r.day_filter = 'off'
+          AND {mt_expr}{on_sc}
+          AND {mt_expr2}{off_sc}
         ORDER BY delta_avg_r DESC
         """,
-        [min_trades, min_trades],
+        mt_params + sc_params + mt_params2 + sc_params,
     ).df()
     return _df_to_result(df)
 
@@ -293,15 +456,18 @@ def query_day_filter_ab(
 
 
 def query_direction_bias(
-    conn: duckdb.DuckDBPyConnection, min_trades: int = 5
+    conn: duckdb.DuckDBPyConnection,
+    min_trades: int = 5,
+    scope: DigestScope | None = None,
 ) -> DigestResult:
-    """Long vs short avg_r per strategy — shows directional edge asymmetry.
-
-    Large positive delta = strategy favours longs.
-    Large negative delta = strategy favours shorts.
-    """
+    """Long vs short avg_r per strategy — shows directional edge asymmetry."""
+    mt_expr, mt_params = _min_trades_expr(scope, min_trades, col="long_closed_trades")
+    mt_expr2, mt_params2 = _min_trades_expr(
+        scope, min_trades, col="short_closed_trades"
+    )
+    sc_sql, sc_params = _scope_clauses(scope)
     df = conn.execute(
-        """
+        f"""
         SELECT
             strategy,
             ROUND(AVG(long_avg_r), 3)                   AS long_avg_r,
@@ -312,12 +478,12 @@ def query_direction_bias(
             ROUND(AVG(long_win_rate) * 100, 1)          AS long_win_pct,
             ROUND(AVG(short_win_rate) * 100, 1)         AS short_win_pct
         FROM backtest_runs
-        WHERE long_closed_trades  >= ?
-          AND short_closed_trades >= ?
+        WHERE {mt_expr}
+          AND {mt_expr2}{sc_sql}
         GROUP BY strategy
         ORDER BY ABS(AVG(long_avg_r) - AVG(short_avg_r)) DESC
         """,
-        [min_trades, min_trades],
+        mt_params + mt_params2 + sc_params,
     ).df()
     return _df_to_result(df)
 
@@ -328,15 +494,15 @@ def query_direction_bias(
 
 
 def query_consistency(
-    conn: duckdb.DuckDBPyConnection, min_trades: int = 5
+    conn: duckdb.DuckDBPyConnection,
+    min_trades: int = 5,
+    scope: DigestScope | None = None,
 ) -> DigestResult:
-    """For each strategy, how many symbol × TF combos show positive avg_r?
-
-    High pct_profitable = edge is broad and robust.
-    Low pct_profitable  = edge is symbol- or TF-specific (fragile).
-    """
+    """For each strategy, how many symbol × TF combos show positive avg_r?"""
+    mt_expr, mt_params = _min_trades_expr(scope, min_trades)
+    sc_sql, sc_params = _scope_clauses(scope)
     df = conn.execute(
-        """
+        f"""
         SELECT
             strategy,
             COUNT(*)                                    AS total_combos,
@@ -349,11 +515,11 @@ def query_consistency(
             ROUND(AVG(avg_r), 3)                        AS overall_avg_r,
             SUM(closed_trades)                          AS total_trades
         FROM backtest_runs
-        WHERE closed_trades >= ?
+        WHERE {mt_expr}{sc_sql}
         GROUP BY strategy
         ORDER BY pct_profitable DESC, profitable_combos DESC
         """,
-        [min_trades],
+        mt_params + sc_params,
     ).df()
     return _df_to_result(df)
 
@@ -364,15 +530,15 @@ def query_consistency(
 
 
 def query_recovery_factor(
-    conn: duckdb.DuckDBPyConnection, min_trades: int = 5
+    conn: duckdb.DuckDBPyConnection,
+    min_trades: int = 5,
+    scope: DigestScope | None = None,
 ) -> DigestResult:
-    """Rank strategies by average recovery factor (total_r / max_drawdown_r).
-
-    Higher RF = better risk-adjusted returns.  Complements avg_r ranking
-    by penalising strategies with deep drawdown periods.
-    """
+    """Rank strategies by average recovery factor (total_r / max_drawdown_r)."""
+    mt_expr, mt_params = _min_trades_expr(scope, min_trades)
+    sc_sql, sc_params = _scope_clauses(scope)
     df = conn.execute(
-        """
+        f"""
         SELECT
             strategy,
             ROUND(AVG(recovery_factor), 2)              AS avg_rf,
@@ -382,13 +548,13 @@ def query_recovery_factor(
             SUM(closed_trades)                          AS total_trades,
             COUNT(*)                                    AS run_count
         FROM backtest_runs
-        WHERE closed_trades >= ?
+        WHERE {mt_expr}
           AND recovery_factor IS NOT NULL
-          AND recovery_factor > 0
+          AND recovery_factor > 0{sc_sql}
         GROUP BY strategy
         ORDER BY avg_rf DESC
         """,
-        [min_trades],
+        mt_params + sc_params,
     ).df()
     return _df_to_result(df)
 
@@ -416,6 +582,7 @@ def run_digest(
     query: str,
     min_trades: int = 5,
     top_n: int = 20,
+    scope: DigestScope | None = None,
 ) -> DigestResult:
     """Dispatch to the named query function and return generic {columns, rows}."""
     fn = _QUERY_FN.get(query)
@@ -424,5 +591,5 @@ def run_digest(
             f"Unknown digest query '{query}'. Valid: {', '.join(QUERY_NAMES)}"
         )
     if query == "combos":
-        return fn(conn, min_trades=min_trades, top_n=top_n)
-    return fn(conn, min_trades=min_trades)
+        return fn(conn, min_trades=min_trades, top_n=top_n, scope=scope)
+    return fn(conn, min_trades=min_trades, scope=scope)

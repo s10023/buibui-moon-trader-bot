@@ -17,6 +17,7 @@
 
   let activeTab = $state<"runs" | "analysis">("runs");
   let analysisMinTrades = $state(5);
+  let analysisUseConfig = $state(false);
 
   // ── DB runs view ─────────────────────────────────────────────────────────────
   let runs = $state<BacktestRunSummary[]>([]);
@@ -734,40 +735,51 @@
   <div class="analysis-controls">
     <label class="min-trades-label">
       Min trades
-      <input type="number" class="min-trades-input" bind:value={analysisMinTrades} min="1" max="100" />
+      <input type="number" class="min-trades-input" bind:value={analysisMinTrades} min="1" max="100"
+        disabled={analysisUseConfig} />
     </label>
+    {#if hasActiveConfig}
+      <button
+        class="scope-btn"
+        class:active={analysisUseConfig}
+        onclick={() => { analysisUseConfig = !analysisUseConfig; }}
+        title="Scope to active config: applies day_filter, fee_pct, symbols, and per-TF min_trades from {$activeConfigStore?.config_name}"
+      >
+        ◈ {analysisUseConfig ? $activeConfigStore?.config_name : "Scope to config"}
+      </button>
+    {/if}
   </div>
   <div class="analysis-grid">
     <AnalysisCard query="strategy" title="Strategy Leaderboard"
       description="Trade-weighted avg R per strategy across all symbols & TFs"
-      minTrades={analysisMinTrades} />
+      minTrades={analysisMinTrades} useConfig={analysisUseConfig} />
     <AnalysisCard query="consistency" title="Edge Breadth"
       description="% of symbol×TF combos with positive avg R — broad vs niche strategies"
-      minTrades={analysisMinTrades} />
+      minTrades={analysisMinTrades} useConfig={analysisUseConfig} />
     <AnalysisCard query="direction_bias" title="Direction Bias"
       description="Long vs short avg R per strategy — reveals directional asymmetry"
-      minTrades={analysisMinTrades} />
+      minTrades={analysisMinTrades} useConfig={analysisUseConfig} />
     <AnalysisCard query="recovery_factor" title="Recovery Factor Ranking"
       description="Avg recovery factor (total R ÷ max drawdown) — risk-adjusted view"
-      minTrades={analysisMinTrades} />
+      minTrades={analysisMinTrades} useConfig={analysisUseConfig} />
     <AnalysisCard query="adr_ab" title="ADR Gate A/B"
       description="Δavg R with vs without the ADR bias gate per strategy × TF"
-      minTrades={analysisMinTrades} />
+      minTrades={analysisMinTrades} useConfig={analysisUseConfig} />
     <AnalysisCard query="volume_ab" title="Volume Suppress A/B"
       description="Δavg R with vs without low-volume candle suppression"
-      minTrades={analysisMinTrades} />
+      minTrades={analysisMinTrades} useConfig={analysisUseConfig} />
     <AnalysisCard query="day_filter_ab" title="Day Filter A/B"
       description="Δavg R with day filter ON vs OFF — shows weekday filtering impact"
-      minTrades={analysisMinTrades} />
+      minTrades={analysisMinTrades} useConfig={analysisUseConfig} />
     <AnalysisCard query="symbol" title="Symbol Leaderboard"
       description="Total R and avg R per symbol — which market has the most edge"
-      minTrades={analysisMinTrades} />
+      minTrades={analysisMinTrades} useConfig={analysisUseConfig} />
     <AnalysisCard query="tf" title="Timeframe Ranking"
       description="Trade-weighted avg R per timeframe across all strategies"
-      minTrades={analysisMinTrades} />
+      minTrades={analysisMinTrades} useConfig={analysisUseConfig} />
     <AnalysisCard query="combos" title="Best Combos"
       description="Top symbol × strategy × TF combinations ranked by avg R"
-      minTrades={analysisMinTrades} topN={20} />
+      minTrades={analysisMinTrades} topN={20} useConfig={analysisUseConfig} />
   </div>
 
   {/if}
@@ -827,6 +839,28 @@
     border-radius: 3px;
     color: var(--fg);
     font-size: 0.78rem;
+  }
+
+  .min-trades-input:disabled {
+    opacity: 0.4;
+  }
+
+  .scope-btn {
+    padding: 3px 10px;
+    font-size: 0.75rem;
+    background: transparent;
+    color: var(--fg-dim);
+    border: 1px solid var(--border, #2a2a2a);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .scope-btn:hover { color: var(--fg); border-color: var(--accent, #6060cc); }
+
+  .scope-btn.active {
+    background: var(--accent-dim, #2a2a4a);
+    color: var(--fg);
+    border-color: var(--accent, #6060cc);
   }
 
   .analysis-grid {

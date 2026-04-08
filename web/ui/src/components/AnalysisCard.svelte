@@ -1,12 +1,13 @@
 <script lang="ts">
   import { getBacktestAnalysis, type DigestResult } from "../api";
 
-  let { query, title, description, minTrades = 5, topN = 20 } = $props<{
+  let { query, title, description, minTrades = 5, topN = 20, useConfig = false } = $props<{
     query: string;
     title: string;
     description: string;
     minTrades?: number;
     topN?: number;
+    useConfig?: boolean;
   }>();
 
   type CardState = "idle" | "loading" | "loaded" | "error";
@@ -20,7 +21,7 @@
     cardState = "loading";
     errorMsg = "";
     try {
-      result = await getBacktestAnalysis(query, minTrades, topN);
+      result = await getBacktestAnalysis(query, minTrades, topN, useConfig);
       sortCol = 0;
       sortAsc = false;
       cardState = "loaded";

@@ -342,11 +342,13 @@ export const getBacktestAnalysis = (
   query: string,
   minTrades: number = 5,
   topN: number = 20,
+  useConfig: boolean = false,
 ) => {
   const q = new URLSearchParams({
     query,
     min_trades: String(minTrades),
     top_n: String(topN),
+    use_config: String(useConfig),
   });
   return apiFetch<DigestResult>(`/api/backtest/analysis?${q}`);
 };

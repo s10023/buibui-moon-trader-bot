@@ -4,7 +4,7 @@ import datetime
 from typing import Any
 
 import duckdb
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from analytics.backtest_lib import run_backtest
 from analytics.backtest_runner import detect_signals_for_strategy
@@ -14,7 +14,7 @@ from analytics.data_store import (
     upsert_backtest_run,
     upsert_backtest_trades,
 )
-from analytics.digest_lib import QUERY_NAMES, run_digest
+from analytics.digest_lib import QUERY_NAMES, DigestScope, run_digest
 from analytics.indicators_lib import KNOWN_STRATEGIES
 from utils.binance_client import load_coins_config
 from web.api.deps import get_db, require_token
@@ -39,11 +39,16 @@ def get_backtest_runs(
 
 @router.get("/backtest/analysis")
 def get_backtest_analysis(
+    request: Request,
     query: str = Query(..., description=f"One of: {', '.join(QUERY_NAMES)}"),
     min_trades: int = Query(
         5, ge=1, description="Minimum closed trades to include a run"
     ),
     top_n: int = Query(20, ge=1, le=100, description="Max rows for combos query"),
+    use_config: bool = Query(
+        False,
+        description="Scope results to the active server config (day_filter, fee_pct, symbols, per-TF min_trades)",
+    ),
     db: duckdb.DuckDBPyConnection = Depends(get_db),
 ) -> dict[str, Any]:
     """Run a pre-canned aggregation query over backtest_runs and return {columns, rows}."""
@@ -52,7 +57,18 @@ def get_backtest_analysis(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Unknown query '{query}'. Valid: {', '.join(QUERY_NAMES)}",
         )
-    return run_digest(db, query, min_trades=min_trades, top_n=top_n)
+    scope: DigestScope | None = None
+    if use_config:
+        cfg = getattr(request.app.state, "active_config", None)
+        if cfg is not None:
+            scope = DigestScope(
+                day_filter=cfg.day_filter if cfg.day_filter != "off" else None,
+                fee_pct=cfg.fee_pct if cfg.fee_pct > 0 else None,
+                symbols=cfg.symbols or [],
+                min_trades=cfg.min_trades,
+                min_trades_per_tf=cfg.min_trades_per_tf,
+            )
+    return run_digest(db, query, min_trades=min_trades, top_n=top_n, scope=scope)
 
 
 @router.post("/backtest", response_model=BacktestResponse)

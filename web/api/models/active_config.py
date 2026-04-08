@@ -21,3 +21,5 @@ class ActiveConfigResponse(BaseModel):
     min_sl_pct: float
     adr_suppress_threshold: float | None
     strategy_params: dict[str, StrategyParamsModel]
+    min_trades: int = 20
+    min_trades_per_tf: dict[str, int] = {}
