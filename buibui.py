@@ -118,6 +118,7 @@ def _parse_smt_pairs(value: str) -> dict[str, str]:
 def run_signal_test(args: argparse.Namespace) -> None:
     import pathlib
 
+    from analytics.indicators_lib import KNOWN_STRATEGIES
     from analytics.signal_config import SignalWatchConfig, load_signal_config
     from analytics.signal_test_runner import run_signal_test as _run
 
@@ -125,15 +126,18 @@ def run_signal_test(args: argparse.Namespace) -> None:
     if getattr(args, "config", None):
         cfg = load_signal_config(args.config)
 
-    symbol = args.symbol or (cfg.symbols[0] if cfg.symbols else None)
-    timeframe = args.timeframe or (cfg.timeframes[0] if cfg.timeframes else None)
-    if not symbol:
+    # CLI flags narrow down; config provides defaults; fall back to sensible globals.
+    symbols = [args.symbol] if args.symbol else (cfg.symbols or None)
+    timeframes = [args.timeframe] if args.timeframe else (cfg.timeframes or ["4h"])
+    strategies = (
+        [args.strategy]
+        if args.strategy
+        else (cfg.strategies or [s for s in KNOWN_STRATEGIES if s != "seasonality"])
+    )
+
+    if not symbols:
         raise SystemExit(
             "error: --symbol is required (or provide --config with symbols)"
-        )
-    if not timeframe:
-        raise SystemExit(
-            "error: --timeframe is required (or provide --config with timeframes)"
         )
 
     tp_r = args.tp_r if args.tp_r is not None else cfg.tp_r
@@ -142,13 +146,11 @@ def run_signal_test(args: argparse.Namespace) -> None:
     at_ms: int | None = None
     if args.at:
         try:
-            # Try ISO format first; treat naive datetimes as UTC.
             dt = datetime.datetime.fromisoformat(args.at)
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=datetime.UTC)
             at_ms = int(dt.timestamp() * 1000)
         except ValueError:
-            # Fall back to raw integer milliseconds.
             try:
                 at_ms = int(args.at)
             except ValueError:
@@ -157,9 +159,9 @@ def run_signal_test(args: argparse.Namespace) -> None:
                 )
 
     kwargs: dict[str, object] = dict(
-        symbol=symbol,
-        timeframe=timeframe,
-        strategy=args.strategy,
+        symbols=symbols,
+        timeframes=timeframes,
+        strategies=strategies,
         at_ms=at_ms,
         lookback=args.lookback,
         tp_r=tp_r,
@@ -495,8 +497,8 @@ def main() -> None:
     test_parser.add_argument("--timeframe", default=None, help="Timeframe, e.g. 1h")
     test_parser.add_argument(
         "--strategy",
-        required=True,
-        help="Strategy to test, e.g. bos",
+        default=None,
+        help="Strategy to test, e.g. bos (default: all strategies from --config or all known)",
     )
     test_parser.add_argument(
         "--at",

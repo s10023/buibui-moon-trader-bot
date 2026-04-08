@@ -230,7 +230,7 @@ buibui-signal-test:
 		$(if $(CONFIG),--config $(CONFIG),) \
 		$(if $(SYMBOL),--symbol $(SYMBOL),) \
 		$(if $(TIMEFRAME),--timeframe $(TIMEFRAME),) \
-		--strategy $(STRATEGY) \
+		$(if $(STRATEGY),--strategy $(STRATEGY),) \
 		$(if $(AT),--at $(AT),) \
 		$(if $(LOOKBACK),--lookback $(LOOKBACK),) \
 		$(if $(DIRECTION),--direction $(DIRECTION),) \
