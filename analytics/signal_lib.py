@@ -165,6 +165,7 @@ def _compute_backtest(
     adr_exempt: bool = False,
     volume_suppress: bool = False,
     volume_spike_boost: bool = False,
+    min_range_pct: float | None = None,
 ) -> BacktestResult | None:
     """Run strategy detector on ohlcv[:-1] and backtest the resulting signals.
 
@@ -178,6 +179,7 @@ def _compute_backtest(
     breakout/continuation strategies that should not be ADR-gated).
     volume_suppress: skip signal candles with volume < 1.5× rolling mean.
     volume_spike_boost: exempt spike candles (> 3× rolling mean) from suppression.
+    min_range_pct: when set, skip pattern candles whose range < min_range_pct × close.
     """
     hist_df = ohlcv_df.iloc[:-1]
     if len(hist_df) < 3:
@@ -197,6 +199,11 @@ def _compute_backtest(
             if secondary_df is None or secondary_df.empty:
                 return None
             signals_df = plugin["detector"](hist_df, secondary_df)
+        elif min_range_pct is not None:
+            try:
+                signals_df = plugin["detector"](hist_df, min_range_pct=min_range_pct)
+            except TypeError:
+                signals_df = plugin["detector"](hist_df)
         else:
             signals_df = plugin["detector"](hist_df)
     except Exception:
@@ -312,6 +319,7 @@ def scan_symbol(
     strategy_timeframes: dict[str, list[str]] | None = None,
     confidence_override: dict[str, dict[str, int]] | None = None,
     directional_confidence_override: dict[str, dict[str, dict[str, int]]] | None = None,
+    strategy_params: dict[str, StrategyOverride] | None = None,
 ) -> list[SignalEvent]:
     """Run requested strategies against a pre-fetched OHLCV DataFrame.
 
@@ -367,6 +375,7 @@ def scan_symbol(
                 )
                 continue
 
+        min_range_pct = _resolve_min_range_pct(strategy_params, strategy_name)
         try:
             if requires_funding:
                 if funding_df is None or funding_df.empty:
@@ -387,6 +396,13 @@ def scan_symbol(
                     )
                 else:
                     signals_df = plugin["detector"](closed_df, secondary_df)
+            elif min_range_pct is not None:
+                try:
+                    signals_df = plugin["detector"](
+                        closed_df, min_range_pct=min_range_pct
+                    )
+                except TypeError:
+                    signals_df = plugin["detector"](closed_df)
             else:
                 signals_df = plugin["detector"](closed_df)
         except Exception:
@@ -563,6 +579,18 @@ def _resolve_volume_spike_boost(
     return global_boost
 
 
+def _resolve_min_range_pct(
+    strategy_params: dict[str, StrategyOverride] | None,
+    strategy: str,
+) -> float | None:
+    """Return per-strategy min_range_pct override, or None to use detector default."""
+    if strategy_params:
+        override = strategy_params.get(strategy)
+        if override is not None and override.min_range_pct is not None:
+            return override.min_range_pct
+    return None
+
+
 def _compute_stats_context(
     conn: duckdb.DuckDBPyConnection,
     symbol: str,
@@ -734,6 +762,7 @@ def run_scan_cycle(
                 strategy_timeframes=strategy_timeframes,
                 confidence_override=confidence_override,
                 directional_confidence_override=directional_confidence_override,
+                strategy_params=strategy_params,
             )
 
             # Conflict resolution: opposite directions on same symbol/tf
@@ -837,6 +866,9 @@ def run_scan_cycle(
                                 strategy_params,
                                 event.strategy,
                                 backtest_cfg.volume_spike_boost,
+                            ),
+                            min_range_pct=_resolve_min_range_pct(
+                                strategy_params, event.strategy
                             ),
                         )
                     bt_results[event.strategy] = bt_cache[bt_key]
