@@ -9,6 +9,7 @@ Unlike the live daemon, this:
 Intended for testing alert formatting changes without waiting for a live signal.
 """
 
+import datetime
 import logging
 import time
 from pathlib import Path
@@ -16,14 +17,23 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
+from analytics.cme_gap_lib import cme_gap_alert_warning, get_recent_cme_gap
 from analytics.data_store import DEFAULT_DB_PATH, get_funding_rates, get_ohlcv
 from analytics.indicators_lib import STRATEGY_REGISTRY
-from analytics.signal_lib import parse_timeframe_secs
+from analytics.signal_config import BacktestFilterConfig
+from analytics.signal_lib import (
+    _backtest_summary,
+    _compute_backtest,
+    _compute_stats_context,
+    parse_timeframe_secs,
+)
 from signals.alert_formatter import SignalEvent, format_confluence_alert
 from signals.registry import SIGNAL_REGISTRY
 from utils.telegram import send_telegram_message
 
 logger = logging.getLogger(__name__)
+
+_MYT = datetime.timezone(datetime.timedelta(hours=8))
 
 
 def _build_event(
@@ -70,12 +80,15 @@ def run_signal_test(
     direction_filter: str | None = None,
     send_telegram: bool = False,
     db_path: Path = DEFAULT_DB_PATH,
+    backtest_cfg: BacktestFilterConfig | None = None,
+    day_filter: str = "off",
 ) -> None:
     """Run detectors against historical candles and print formatted alerts.
 
-    Iterates all symbol × timeframe × strategy combos. For each combo, finds
-    the most recent signal in the loaded window and prints the formatted alert.
-    With ``--telegram``, sends only the single most recent signal overall.
+    Iterates all symbol × timeframe × strategy combos. For each combo that
+    produces a signal, prints a fully-formatted alert (with backtest summary
+    and stats context where available). With ``--telegram``, sends the most
+    recent signal found overall.
 
     Parameters
     ----------
@@ -103,62 +116,86 @@ def run_signal_test(
         When True, sends the most recent signal found via Telegram. Default False.
     db_path:
         Path to the DuckDB analytics database.
+    backtest_cfg:
+        Backtest filter config — enables backtest summary in alerts when provided.
+    day_filter:
+        Day filter passed to backtest engine. Default ``"off"``.
     """
+    # Validate strategies up front.
+    unknown = [s for s in strategies if s not in SIGNAL_REGISTRY]
+    if unknown:
+        raise ValueError(
+            f"Unknown strategy/strategies: {unknown}. "
+            f"Available: {sorted(SIGNAL_REGISTRY.keys())}"
+        )
+
     now_ms = int(time.time() * 1000)
     end_ms = at_ms if at_ms is not None else now_ms
+    now_myt = datetime.datetime.now(tz=_MYT)
 
-    # Validate strategies up front.
-    for strat in strategies:
-        if strat not in SIGNAL_REGISTRY:
-            raise ValueError(
-                f"Unknown strategy '{strat}'. "
-                f"Available: {sorted(SIGNAL_REGISTRY.keys())}"
-            )
+    n_combos = len(symbols) * len(timeframes) * len(strategies)
+    print(
+        f"Running {n_combos} combo(s): "
+        f"{len(symbols)} symbol(s) × {len(timeframes)} TF(s) × {len(strategies)} strategy/strategies"
+    )
+    print(f"  symbols    : {symbols}")
+    print(f"  timeframes : {timeframes}")
+    print(f"  strategies : {strategies}")
+    if at_ms:
+        at_dt = datetime.datetime.fromtimestamp(at_ms / 1000, tz=_MYT)
+        print(f"  pinned at  : {at_dt.strftime('%Y-%m-%d %H:%M MYT')}")
+    print(f"  lookback   : {lookback} candles per TF")
+    print()
 
-    # Collect (open_time, alert_text) for all signals found — used to pick the
-    # most recent one for Telegram.
+    # Collect (open_time, alert_text) for all signals found.
     all_found: list[tuple[int, str]] = []
-    total_combos = 0
     found_combos = 0
 
     with duckdb.connect(str(db_path), read_only=True) as conn:
+        # Stats context: computed once per symbol (expensive — 90d aggregate).
+        stats_ctx_cache: dict[str, object] = {}
+
         for symbol in symbols:
+            # Stats context — never raises, returns None on failure.
+            if symbol not in stats_ctx_cache:
+                stats_ctx_cache[symbol] = _compute_stats_context(conn, symbol, now_myt)
+
             for timeframe in timeframes:
                 tf_secs = parse_timeframe_secs(timeframe)
                 start_ms = end_ms - lookback * tf_secs * 1000
 
-                df = get_ohlcv(conn, symbol, timeframe, start_ms, end_ms)
-                if df.empty:
+                ohlcv_df = get_ohlcv(conn, symbol, timeframe, start_ms, end_ms)
+                if ohlcv_df.empty:
                     print(
-                        f"[{symbol}/{timeframe}] No OHLCV data — "
+                        f"  [{symbol}/{timeframe}] No OHLCV data — "
                         f"run 'buibui analytics backfill --symbols {symbol}' first."
                     )
                     continue
 
                 if at_ms is not None:
-                    df = df[df["open_time"] <= at_ms].copy()
-                    if df.empty:
+                    ohlcv_df = ohlcv_df[ohlcv_df["open_time"] <= at_ms].copy()
+                    if ohlcv_df.empty:
                         print(
-                            f"[{symbol}/{timeframe}] No candles at or before the pinned timestamp."
+                            f"  [{symbol}/{timeframe}] No candles at or before the pinned timestamp."
                         )
                         continue
 
-                closed_df = df.iloc[:-1].copy()
+                closed_df = ohlcv_df.iloc[:-1].copy()
                 if closed_df.empty:
-                    print(f"[{symbol}/{timeframe}] Not enough closed candles.")
+                    print(f"  [{symbol}/{timeframe}] Not enough closed candles.")
                     continue
 
                 fallback_close = float(closed_df["close"].iloc[-1])
+                cme_gap = get_recent_cme_gap(ohlcv_df)
 
                 for strategy in strategies:
                     plugin = SIGNAL_REGISTRY[strategy]
                     spec = STRATEGY_REGISTRY.get(strategy)
-                    total_combos += 1
 
                     if spec and spec.requires_secondary:
                         print(
-                            f"[{symbol}/{timeframe}/{strategy}] Skipped — "
-                            "requires secondary symbol (SMT not supported in signal test)."
+                            f"  [{symbol}/{timeframe}/{strategy}] Skipped — "
+                            "SMT requires secondary symbol (not supported in signal test)."
                         )
                         continue
 
@@ -169,12 +206,13 @@ def run_signal_test(
                             )
                             if funding_df.empty:
                                 print(
-                                    f"[{symbol}/{timeframe}/{strategy}] Skipped — "
-                                    "no funding data available."
+                                    f"  [{symbol}/{timeframe}/{strategy}] Skipped — "
+                                    "no funding data."
                                 )
                                 continue
                             signals_df = plugin["detector"](closed_df, funding_df)
                         else:
+                            funding_df = None
                             signals_df = plugin["detector"](closed_df)
                     except Exception:
                         logger.exception(
@@ -196,8 +234,63 @@ def run_signal_test(
                     event = _build_event(
                         row, symbol, timeframe, strategy, closed_df, fallback_close
                     )
+
+                    # Backtest summary — mirrors live daemon's per-strategy computation.
+                    bt_summary: str | None = None
+                    if backtest_cfg and backtest_cfg.mode != "off":
+                        bt_result = _compute_backtest(
+                            ohlcv_df=ohlcv_df,
+                            strategy=strategy,
+                            secondary_df=None,
+                            funding_df=funding_df,
+                            symbol=symbol,
+                            timeframe=timeframe,
+                            sl_pct=sl_pct,
+                            tp_r=tp_r,
+                            fee_pct=backtest_cfg.fee_pct,
+                            day_filter=day_filter,
+                            min_sl_pct=backtest_cfg.min_sl_pct,
+                        )
+                        if bt_result is not None:
+                            bt_summary = _backtest_summary(
+                                {strategy: bt_result},
+                                [strategy],
+                                backtest_cfg,
+                                tf=timeframe,
+                                direction=event.direction,
+                            )
+
+                    # CME gap warning.
+                    _entry = event.price
+                    _sl_dist = (
+                        abs(_entry - event.sl_price)
+                        if event.sl_price
+                        else _entry * sl_pct
+                    )
+                    if event.direction == "long":
+                        _rough_tp = (
+                            event.tp_price
+                            if event.tp_price > _entry
+                            else _entry + _sl_dist * tp_r
+                        )
+                    else:
+                        _rough_tp = (
+                            event.tp_price
+                            if 0 < event.tp_price < _entry
+                            else _entry - _sl_dist * tp_r
+                        )
+                    gap_warning = cme_gap_alert_warning(
+                        cme_gap, event.direction, _entry, _rough_tp
+                    )
+
                     alert_text = format_confluence_alert(
-                        [event], tp_r=tp_r, sl_pct=sl_pct, min_sl_pct=min_sl_pct
+                        [event],
+                        tp_r=tp_r,
+                        sl_pct=sl_pct,
+                        min_sl_pct=min_sl_pct,
+                        backtest_summary=bt_summary,
+                        stats_context=stats_ctx_cache.get(symbol),  # type: ignore[arg-type]
+                        cme_gap_warning=gap_warning,
                     )
 
                     print(f"\n{'─' * 60}")
@@ -206,13 +299,12 @@ def run_signal_test(
                     found_combos += 1
 
     print(f"\n{'─' * 60}")
-    print(f"Found {found_combos} signal(s) across {total_combos} combo(s) checked.")
+    print(f"Found {found_combos} signal(s).")
 
     if not all_found:
         return
 
     if send_telegram:
-        # Send only the most recent signal to avoid flooding the chat.
         _, most_recent_text = max(all_found, key=lambda x: x[0])
         send_telegram_message(most_recent_text)
         print("[Telegram] Most recent signal sent.")

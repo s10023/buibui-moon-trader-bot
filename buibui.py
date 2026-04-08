@@ -169,6 +169,8 @@ def run_signal_test(args: argparse.Namespace) -> None:
         min_sl_pct=min_sl_pct,
         direction_filter=args.direction,
         send_telegram=args.telegram,
+        backtest_cfg=cfg.backtest,
+        day_filter=cfg.day_filter,
     )
     if getattr(args, "db_path", None):
         kwargs["db_path"] = pathlib.Path(args.db_path)
