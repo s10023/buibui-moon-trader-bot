@@ -224,6 +224,18 @@ docker-signal-watch:
 		$(if $(SECONDARY),--secondary-symbol $(SECONDARY),) \
 		$(if $(MIN_SL_PCT),--min-sl-pct $(MIN_SL_PCT),)
 
+buibui-signal-test:
+	@echo "🧪 Firing test alert from historical data..."
+	@poetry run python buibui.py signal test \
+		$(if $(CONFIG),--config $(CONFIG),) \
+		$(if $(SYMBOL),--symbol $(SYMBOL),) \
+		$(if $(TIMEFRAME),--timeframe $(TIMEFRAME),) \
+		$(if $(STRATEGY),--strategy $(STRATEGY),) \
+		$(if $(AT),--at $(AT),) \
+		$(if $(LOOKBACK),--lookback $(LOOKBACK),) \
+		$(if $(DIRECTION),--direction $(DIRECTION),) \
+		$(if $(TELEGRAM),--telegram,)
+
 buibui-web:
 	@echo "Starting web backend..."
 	poetry run python buibui.py web --host 0.0.0.0 --port $(PORT) \

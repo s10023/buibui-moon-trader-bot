@@ -645,6 +645,56 @@ State is persisted to `signal_state.json` so dedup survives container restarts.
 > **Note:** Run `analytics backfill` + `analytics sync` first. The daemon auto-backfills
 > symbols with no data on first boot, but pre-loading data is faster.
 
+### Signal Test — Fire a Test Alert From Historical Data
+
+Runs a detector against real historical OHLCV data and prints (or sends) the formatted alert.
+Useful for testing alert formatting changes without waiting for a live signal.
+No DB writes, no cooldown state, no latest-candle-only restriction.
+
+```bash
+# Most recent BOS signal for BTCUSDT 1h — print only
+poetry run python buibui.py signal test --strategy bos --symbol BTCUSDT --timeframe 1h
+
+# Pin to a specific candle (UTC)
+poetry run python buibui.py signal test --strategy bos --symbol BTCUSDT --timeframe 1h \
+  --at 2026-04-07T02:00:00
+
+# Use MYT offset (+08:00)
+poetry run python buibui.py signal test --strategy bos --symbol BTCUSDT --timeframe 1h \
+  --at 2026-04-07T10:00:00+08:00
+
+# Inherit symbol/TF/tp_r from TOML and send to Telegram
+poetry run python buibui.py signal test --config config/signal_watch.toml \
+  --strategy marubozu --timeframe 15m --telegram
+
+# Filter to shorts only, wider lookback
+poetry run python buibui.py signal test --strategy fvg --symbol ETHUSDT --timeframe 4h \
+  --direction short --lookback 500
+```
+
+Or via Makefile:
+
+```bash
+make buibui-signal-test STRATEGY=bos SYMBOL=BTCUSDT TIMEFRAME=1h
+make buibui-signal-test STRATEGY=bos SYMBOL=BTCUSDT TIMEFRAME=1h AT=2026-04-07T02:00:00
+make buibui-signal-test CONFIG=config/signal_watch.toml STRATEGY=marubozu TIMEFRAME=15m TELEGRAM=1
+```
+
+**Options:**
+
+- `--strategy` *(required)* — strategy to test (e.g. `bos`, `fvg`, `marubozu`)
+- `--symbol` — trading pair (required unless `--config` provides one)
+- `--timeframe` — candle timeframe (required unless `--config` provides one)
+- `--at` — pin to a specific candle; ISO datetime (naive = UTC, or with `+08:00` for MYT) or Unix ms integer; defaults to latest available candle
+- `--lookback` — number of candles to load ending at `--at` (default: `200`)
+- `--direction` — filter to `long` or `short` signals only
+- `--tp-r` — TP risk:reward for formatting (default: `2.0` or from `--config`)
+- `--min-sl-pct` — minimum SL distance as fraction of price (default: `0` or from `--config`)
+- `--config` — TOML file to inherit symbol/TF/tp_r/sl_pct defaults
+- `--telegram` — send the alert via Telegram (in addition to printing)
+
+> **Note:** SMT divergence (`smt_divergence`) requires a secondary symbol and is not supported by `signal test`.
+
 ### Web API — FastAPI Backend
 
 A JSON REST API and SSE streaming backend for the Phase 5 Svelte frontend (or any HTTP client).
@@ -850,6 +900,9 @@ make buibui-signal-watch SYMBOLS="BTCUSDT ETHUSDT"                   # Specific 
 make buibui-signal-watch STRATEGIES="fvg bos" TELEGRAM=1             # Specific strategies + Telegram
 make buibui-signal-watch TIMEFRAMES="15m 1h 4h" MIN_SL_PCT=0.003 TELEGRAM=1  # SL floor
 make buibui-signal-watch STRATEGIES="smt_divergence" SECONDARY=ETHUSDT  # deprecated
+make buibui-signal-test STRATEGY=bos SYMBOL=BTCUSDT TIMEFRAME=1h       # test alert, print only
+make buibui-signal-test STRATEGY=bos SYMBOL=BTCUSDT TIMEFRAME=1h AT=2026-04-07T02:00:00  # pin candle
+make buibui-signal-test CONFIG=config/signal_watch.toml STRATEGY=marubozu TIMEFRAME=15m TELEGRAM=1
 ```
 
 The daemon wakes at clock-aligned candle boundaries (e.g. 04:00:10, 08:00:10 for `4h`),
