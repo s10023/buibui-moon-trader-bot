@@ -132,14 +132,12 @@ def run_signal_test(args: argparse.Namespace) -> None:
 
     # CLI flags narrow down; config provides defaults; daemon-matching fallbacks.
     # Symbols: CLI → config → coins.json (mirrors signal_runner.py behaviour).
-    symbols = (
-        [args.symbol] if args.symbol else (cfg.symbols or list(coins_config.keys()))
-    )
-    timeframes = [args.timeframe] if args.timeframe else (cfg.timeframes or ["4h"])
+    symbols = args.symbol or cfg.symbols or list(coins_config.keys())
+    timeframes = args.timeframe or cfg.timeframes or ["4h"]
     strategies = (
-        [args.strategy]
-        if args.strategy
-        else (cfg.strategies or [s for s in KNOWN_STRATEGIES if s != "seasonality"])
+        args.strategy
+        or cfg.strategies
+        or [s for s in KNOWN_STRATEGIES if s != "seasonality"]
     )
 
     if not symbols:
@@ -502,12 +500,17 @@ def main() -> None:
         metavar="FILE",
         help="TOML config to inherit symbol/TF/tp_r/sl_pct defaults from.",
     )
-    test_parser.add_argument("--symbol", default=None, help="Symbol, e.g. BTCUSDT")
-    test_parser.add_argument("--timeframe", default=None, help="Timeframe, e.g. 1h")
+    test_parser.add_argument(
+        "--symbol", nargs="+", default=None, help="Symbol(s), e.g. BTCUSDT ETHUSDT"
+    )
+    test_parser.add_argument(
+        "--timeframe", nargs="+", default=None, help="Timeframe(s), e.g. 1h 4h"
+    )
     test_parser.add_argument(
         "--strategy",
+        nargs="+",
         default=None,
-        help="Strategy to test, e.g. bos (default: all strategies from --config or all known)",
+        help="Strategy/strategies to test, e.g. bos fvg (default: all from --config or all known)",
     )
     test_parser.add_argument(
         "--at",
