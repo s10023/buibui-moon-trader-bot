@@ -126,8 +126,15 @@ def run_signal_test(args: argparse.Namespace) -> None:
     if getattr(args, "config", None):
         cfg = load_signal_config(args.config)
 
-    # CLI flags narrow down; config provides defaults; fall back to sensible globals.
-    symbols = [args.symbol] if args.symbol else (cfg.symbols or None)
+    from utils.binance_client import load_coins_config
+
+    coins_config = load_coins_config()
+
+    # CLI flags narrow down; config provides defaults; daemon-matching fallbacks.
+    # Symbols: CLI → config → coins.json (mirrors signal_runner.py behaviour).
+    symbols = (
+        [args.symbol] if args.symbol else (cfg.symbols or list(coins_config.keys()))
+    )
     timeframes = [args.timeframe] if args.timeframe else (cfg.timeframes or ["4h"])
     strategies = (
         [args.strategy]
@@ -137,7 +144,7 @@ def run_signal_test(args: argparse.Namespace) -> None:
 
     if not symbols:
         raise SystemExit(
-            "error: --symbol is required (or provide --config with symbols)"
+            "error: no symbols found — pass --symbol or add symbols to your config/coins.json"
         )
 
     tp_r = args.tp_r if args.tp_r is not None else cfg.tp_r

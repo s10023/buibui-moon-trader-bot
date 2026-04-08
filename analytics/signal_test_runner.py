@@ -305,6 +305,7 @@ def run_signal_test(
         return
 
     if send_telegram:
-        _, most_recent_text = max(all_found, key=lambda x: x[0])
-        send_telegram_message(most_recent_text)
-        print("[Telegram] Most recent signal sent.")
+        print(f"\nSending {len(all_found)} alert(s) to Telegram...")
+        for _, alert_text in sorted(all_found, key=lambda x: x[0]):
+            send_telegram_message(alert_text)
+        print("[Telegram] Done.")
