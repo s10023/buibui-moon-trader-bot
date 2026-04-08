@@ -24,6 +24,7 @@ from analytics.backtest_lib import (
     filter_signals_by_day,
     run_backtest,
 )
+from analytics.cme_gap_lib import cme_gap_alert_warning, get_recent_cme_gap
 from analytics.data_store import (
     get_funding_rates,
     get_ohlcv,
@@ -719,6 +720,8 @@ def run_scan_cycle(
             sec_key = ((secondary_map or {}).get(symbol, ""), tf)
             sec_df = secondary_dfs.get(sec_key) if needs_secondary else None
 
+            cme_gap = get_recent_cme_gap(ohlcv_df)
+
             events = scan_symbol(
                 ohlcv_df=ohlcv_df,
                 symbol=symbol,
@@ -1062,6 +1065,39 @@ def run_scan_cycle(
                     _resolve_tp_r(strategy_params, e.strategy, symbol, tf, tp_r)
                     for e in dir_events
                 )
+                # Compute CME gap warning for this direction.
+                # Rough TP mirrors the formatter's own SL/TP math so the gap
+                # overlap check uses the same target price shown in the alert.
+                _first = dir_events[0]
+                _entry = _first.price
+                if direction == "long":
+                    _valid_sls = [
+                        e.sl_price for e in dir_events if 0 < e.sl_price < _entry
+                    ]
+                    _sl_dist = _entry - (
+                        min(_valid_sls) if _valid_sls else _entry * (1 - sl_pct)
+                    )
+                    _sl_dist = max(_sl_dist, _entry * min_sl_pct)
+                    _rough_tp = (
+                        _first.tp_price
+                        if _first.tp_price > _entry
+                        else _entry + _sl_dist * eff_alert_tp_r
+                    )
+                else:
+                    _valid_sls = [e.sl_price for e in dir_events if e.sl_price > _entry]
+                    _sl_dist = (
+                        max(_valid_sls) if _valid_sls else _entry * (1 + sl_pct)
+                    ) - _entry
+                    _sl_dist = max(_sl_dist, _entry * min_sl_pct)
+                    _rough_tp = (
+                        _first.tp_price
+                        if 0 < _first.tp_price < _entry
+                        else _entry - _sl_dist * eff_alert_tp_r
+                    )
+                _gap_warning = cme_gap_alert_warning(
+                    cme_gap, direction, _entry, _rough_tp
+                )
+
                 # Stack all passing strategies into one confluence alert
                 msg = format_confluence_alert(
                     dir_events,
@@ -1070,6 +1106,7 @@ def run_scan_cycle(
                     min_sl_pct=min_sl_pct,
                     backtest_summary=dir_summary,
                     stats_context=stats_ctx_cache.get(symbol),
+                    cme_gap_warning=_gap_warning,
                 )
                 alerts.append(msg)
                 logger.info(

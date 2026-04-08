@@ -211,6 +211,7 @@ def format_signal_alert(
     sl_pct: float = 0.02,
     tp_r: float = 2.0,
     min_sl_pct: float = 0.0,
+    cme_gap_warning: str | None = None,
 ) -> str:
     """Format a single SignalEvent as a Markdown Telegram message.
 
@@ -218,7 +219,11 @@ def format_signal_alert(
     min_sl_pct: if set, SL distance is floored at this fraction of price.
     """
     return format_confluence_alert(
-        [event], sl_pct=sl_pct, tp_r=tp_r, min_sl_pct=min_sl_pct
+        [event],
+        sl_pct=sl_pct,
+        tp_r=tp_r,
+        min_sl_pct=min_sl_pct,
+        cme_gap_warning=cme_gap_warning,
     )
 
 
@@ -229,6 +234,7 @@ def format_confluence_alert(
     min_sl_pct: float = 0.0,
     backtest_summary: str | None = None,
     stats_context: "StatsContext | None" = None,
+    cme_gap_warning: str | None = None,
 ) -> str:
     """Format one or more SignalEvents (same symbol/tf/direction) as a Telegram message.
 
@@ -305,6 +311,8 @@ def format_confluence_alert(
     msg = (
         header + f"\n{price:,.2f}  ·  {signal_time} MYT\n" + session_line + f"\n{sl_tp}"
     )
+    if cme_gap_warning:
+        msg += f"\n{cme_gap_warning}"
     if backtest_summary:
         msg += f"\n\n{backtest_summary}"
     if stats_context is not None:
