@@ -273,6 +273,8 @@ export interface ActiveConfigResponse {
   min_sl_pct: number;
   adr_suppress_threshold: number | null;
   strategy_params: Record<string, StrategyParamsModel>;
+  min_trades: number;
+  min_trades_per_tf: Record<string, number>;
 }
 
 export const getConfig = () => apiFetch<ConfigResponse>("/api/config");

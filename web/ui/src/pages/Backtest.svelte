@@ -749,6 +749,22 @@
       </button>
     {/if}
   </div>
+  {#if analysisUseConfig && $activeConfigStore}
+    {@const cfg = $activeConfigStore}
+    {@const perTf = Object.entries(cfg.min_trades_per_tf ?? {}).map(([tf, n]) => `${tf}: ${n}`).join(", ")}
+    <div class="scope-summary">
+      <span class="scope-pill">Min trades: {cfg.min_trades}{perTf ? ` · ${perTf}` : ""}</span>
+      {#if cfg.day_filter && cfg.day_filter !== "off"}
+        <span class="scope-pill">Day filter: {cfg.day_filter}</span>
+      {/if}
+      {#if cfg.fee_pct > 0}
+        <span class="scope-pill">Fee: {(cfg.fee_pct * 100).toFixed(3)}%</span>
+      {/if}
+      {#if cfg.symbols?.length}
+        <span class="scope-pill">Symbols: {cfg.symbols.join(", ")}</span>
+      {/if}
+    </div>
+  {/if}
   <div class="analysis-grid">
     <AnalysisCard query="strategy" title="Strategy Leaderboard"
       description="Trade-weighted avg R per strategy across all symbols & TFs"
@@ -861,6 +877,23 @@
     background: var(--accent-dim, #2a2a4a);
     color: var(--fg);
     border-color: var(--accent, #6060cc);
+  }
+
+  .scope-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    padding: 0.4rem 0 0.6rem;
+  }
+
+  .scope-pill {
+    font-size: 0.7rem;
+    color: var(--fg-dim, #888);
+    background: var(--bg-card, #1a1a1a);
+    border: 1px solid var(--border, #2a2a2a);
+    border-radius: 3px;
+    padding: 0.15rem 0.45rem;
+    white-space: nowrap;
   }
 
   .analysis-grid {
