@@ -15,8 +15,8 @@
 
   const TIMEFRAMES = ["15m", "1h", "4h", "1d"];
 
-  let activeTab: "runs" | "analysis" = "runs";
-  let analysisMinTrades = 5;
+  let activeTab = $state<"runs" | "analysis">("runs");
+  let analysisMinTrades = $state(5);
 
   // ── DB runs view ─────────────────────────────────────────────────────────────
   let runs = $state<BacktestRunSummary[]>([]);

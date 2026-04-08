@@ -1,30 +1,32 @@
 <script lang="ts">
   import { getBacktestAnalysis, type DigestResult } from "../api";
 
-  export let query: string;
-  export let title: string;
-  export let description: string;
-  export let minTrades: number = 5;
-  export let topN: number = 20;
+  let { query, title, description, minTrades = 5, topN = 20 } = $props<{
+    query: string;
+    title: string;
+    description: string;
+    minTrades?: number;
+    topN?: number;
+  }>();
 
-  type State = "idle" | "loading" | "loaded" | "error";
-  let state: State = "idle";
-  let result: DigestResult | null = null;
-  let errorMsg = "";
-  let sortCol = 0;
-  let sortAsc = false;
+  type CardState = "idle" | "loading" | "loaded" | "error";
+  let cardState = $state<CardState>("idle");
+  let result = $state<DigestResult | null>(null);
+  let errorMsg = $state("");
+  let sortCol = $state(0);
+  let sortAsc = $state(false);
 
   async function run() {
-    state = "loading";
+    cardState = "loading";
     errorMsg = "";
     try {
       result = await getBacktestAnalysis(query, minTrades, topN);
       sortCol = 0;
       sortAsc = false;
-      state = "loaded";
+      cardState = "loaded";
     } catch (e) {
       errorMsg = e instanceof Error ? e.message : String(e);
-      state = "error";
+      cardState = "error";
     }
   }
 
@@ -37,7 +39,7 @@
     }
   }
 
-  $: sortedRows = (() => {
+  const sortedRows = $derived((() => {
     if (!result) return [];
     return [...result.rows].sort((a, b) => {
       const av = a[sortCol];
@@ -48,7 +50,7 @@
       const cmp = av < bv ? -1 : av > bv ? 1 : 0;
       return sortAsc ? cmp : -cmp;
     });
-  })();
+  })());
 
   function fmt(v: string | number | null): string {
     if (v === null || v === undefined) return "—";
@@ -73,16 +75,16 @@
       <span class="card-title">{title}</span>
       <span class="card-desc">{description}</span>
     </div>
-    <button class="run-btn" on:click={run} disabled={state === "loading"}>
-      {state === "loading" ? "Running…" : state === "loaded" ? "↺ Refresh" : "▶ Run"}
+    <button class="run-btn" onclick={run} disabled={cardState === "loading"}>
+      {cardState === "loading" ? "Running…" : cardState === "loaded" ? "↺ Refresh" : "▶ Run"}
     </button>
   </div>
 
-  {#if state === "idle"}
+  {#if cardState === "idle"}
     <div class="placeholder">Click Run to load</div>
-  {:else if state === "loading"}
+  {:else if cardState === "loading"}
     <div class="placeholder">Loading…</div>
-  {:else if state === "error"}
+  {:else if cardState === "error"}
     <div class="placeholder error">{errorMsg}</div>
   {:else if result && sortedRows.length === 0}
     <div class="placeholder">No data — run backtests with <code>--save</code> first</div>
@@ -95,7 +97,7 @@
               <th
                 class:active={sortCol === i}
                 class:asc={sortCol === i && sortAsc}
-                on:click={() => setSort(i)}
+                onclick={() => setSort(i)}
               >
                 {col}
                 {#if sortCol === i}<span class="sort-arrow">{sortAsc ? "▲" : "▼"}</span>{/if}
