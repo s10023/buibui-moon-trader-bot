@@ -115,6 +115,73 @@ def _parse_smt_pairs(value: str) -> dict[str, str]:
     return result
 
 
+def run_signal_test(args: argparse.Namespace) -> None:
+    import pathlib
+
+    from analytics.indicators_lib import KNOWN_STRATEGIES
+    from analytics.signal_config import SignalWatchConfig, load_signal_config
+    from analytics.signal_test_runner import run_signal_test as _run
+
+    cfg = SignalWatchConfig()
+    if getattr(args, "config", None):
+        cfg = load_signal_config(args.config)
+
+    from utils.binance_client import load_coins_config
+
+    coins_config = load_coins_config()
+
+    # CLI flags narrow down; config provides defaults; daemon-matching fallbacks.
+    # Symbols: CLI → config → coins.json (mirrors signal_runner.py behaviour).
+    symbols = args.symbol or cfg.symbols or list(coins_config.keys())
+    timeframes = args.timeframe or cfg.timeframes or ["4h"]
+    strategies = (
+        args.strategy
+        or cfg.strategies
+        or [s for s in KNOWN_STRATEGIES if s != "seasonality"]
+    )
+
+    if not symbols:
+        raise SystemExit(
+            "error: no symbols found — pass --symbol or add symbols to your config/coins.json"
+        )
+
+    tp_r = args.tp_r if args.tp_r is not None else cfg.tp_r
+    min_sl_pct = args.min_sl_pct if args.min_sl_pct is not None else cfg.min_sl_pct
+
+    at_ms: int | None = None
+    if args.at:
+        try:
+            dt = datetime.datetime.fromisoformat(args.at)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=datetime.UTC)
+            at_ms = int(dt.timestamp() * 1000)
+        except ValueError:
+            try:
+                at_ms = int(args.at)
+            except ValueError:
+                raise SystemExit(
+                    f"error: --at '{args.at}' is not a valid ISO datetime or Unix ms timestamp"
+                )
+
+    kwargs: dict[str, object] = dict(
+        symbols=symbols,
+        timeframes=timeframes,
+        strategies=strategies,
+        at_ms=at_ms,
+        lookback=args.lookback,
+        tp_r=tp_r,
+        sl_pct=cfg.sl_pct,
+        min_sl_pct=min_sl_pct,
+        direction_filter=args.direction,
+        send_telegram=args.telegram,
+        backtest_cfg=cfg.backtest,
+        day_filter=cfg.day_filter,
+    )
+    if getattr(args, "db_path", None):
+        kwargs["db_path"] = pathlib.Path(args.db_path)
+    _run(**kwargs)  # type: ignore[arg-type]
+
+
 def run_signal_watch(args: argparse.Namespace) -> None:
     import pathlib
 
@@ -421,6 +488,78 @@ def main() -> None:
         help="Minimum SL distance as a fraction of price (e.g. 0.005 = 0.5%%; default: 0 = disabled, or from --config)",
     )
     watch_parser.set_defaults(func=run_signal_watch)
+
+    # 'test' subcommand
+    test_parser = signal_subparsers.add_parser(
+        "test",
+        help="Fire a detector against historical data and print/send the formatted alert",
+    )
+    test_parser.add_argument(
+        "--config",
+        default=None,
+        metavar="FILE",
+        help="TOML config to inherit symbol/TF/tp_r/sl_pct defaults from.",
+    )
+    test_parser.add_argument(
+        "--symbol", nargs="+", default=None, help="Symbol(s), e.g. BTCUSDT ETHUSDT"
+    )
+    test_parser.add_argument(
+        "--timeframe", nargs="+", default=None, help="Timeframe(s), e.g. 1h 4h"
+    )
+    test_parser.add_argument(
+        "--strategy",
+        nargs="+",
+        default=None,
+        help="Strategy/strategies to test, e.g. bos fvg (default: all from --config or all known)",
+    )
+    test_parser.add_argument(
+        "--at",
+        default=None,
+        metavar="TIMESTAMP",
+        help=(
+            "Pin to a specific candle. Accepts ISO datetime (e.g. 2026-04-07T02:00:00, "
+            "treated as UTC unless offset given) or Unix ms integer. "
+            "Defaults to latest available candle."
+        ),
+    )
+    test_parser.add_argument(
+        "--lookback",
+        type=int,
+        default=200,
+        help="Number of candles to load (default: 200).",
+    )
+    test_parser.add_argument(
+        "--direction",
+        default=None,
+        choices=["long", "short"],
+        help="Only show signals in this direction.",
+    )
+    test_parser.add_argument(
+        "--tp-r",
+        type=float,
+        default=None,
+        dest="tp_r",
+        help="TP risk:reward for alert formatting (default: 2.0 or from --config).",
+    )
+    test_parser.add_argument(
+        "--min-sl-pct",
+        type=float,
+        default=None,
+        dest="min_sl_pct",
+        help="Minimum SL distance as fraction of price (default: 0 or from --config).",
+    )
+    test_parser.add_argument(
+        "--telegram",
+        action="store_true",
+        help="Send the alert via Telegram in addition to printing it.",
+    )
+    test_parser.add_argument(
+        "--db-path",
+        default=None,
+        dest="db_path",
+        help="Path to analytics.db (default: project default).",
+    )
+    test_parser.set_defaults(func=run_signal_test)
 
     # Top-level 'analytics' command
     analytics_parser = subparsers.add_parser("analytics", help="Analytics data tools")
