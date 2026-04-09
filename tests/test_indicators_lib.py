@@ -1335,6 +1335,54 @@ class TestDetectEqhEql:
         # Two timestamps separated by ·
         assert " · " in ctx
 
+    def test_no_eqh_signal_when_first_pivot_already_taken_out(self) -> None:
+        # EQH pair at 120. Between pivot 1 (index 0) and pivot 2 (index 4), a candle
+        # wicks above 120 (index 2, high=122) — the pool was already raided.
+        # No short signal should fire even though the signal candle sweeps 120.
+        rows: list[dict[str, object]] = []
+        rows.append(_candle(_BASE_TIME + 0 * self._MS, 100, 120, 95, 115))  # pivot 1
+        rows.append(_candle(_BASE_TIME + 1 * self._MS, 110, 115, 100, 112))
+        rows.append(
+            _candle(_BASE_TIME + 2 * self._MS, 115, 122, 110, 116)  # breaks above 120!
+        )
+        rows.append(_candle(_BASE_TIME + 3 * self._MS, 110, 115, 100, 112))
+        rows.append(_candle(_BASE_TIME + 4 * self._MS, 110, 120, 100, 115))  # pivot 2
+        for i in range(5, self._LOOKBACK):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 110, 115, 100, 112))
+        rows.append(
+            _candle(_BASE_TIME + self._LOOKBACK * self._MS, 115, 121, 110, 118)
+        )  # signal candle sweeps 120
+        df = _make_ohlcv(rows)
+        result = detect_eqh_eql(df, lookback=self._LOOKBACK, tolerance_pct=0.01)
+        short_signals = result[result["direction"] == "short"]
+        assert short_signals.empty, (
+            "first pivot was already raided — EQH pair is invalid"
+        )
+
+    def test_no_eql_signal_when_first_pivot_already_taken_out(self) -> None:
+        # EQL pair at 80. Between pivot 1 (index 0) and pivot 2 (index 4), a candle
+        # wicks below 80 (index 2, low=78) — the pool was already raided.
+        # No long signal should fire even though the signal candle sweeps 80.
+        rows: list[dict[str, object]] = []
+        rows.append(_candle(_BASE_TIME + 0 * self._MS, 100, 105, 80, 85))  # pivot 1
+        rows.append(_candle(_BASE_TIME + 1 * self._MS, 90, 95, 85, 92))
+        rows.append(
+            _candle(_BASE_TIME + 2 * self._MS, 85, 90, 78, 86)  # breaks below 80!
+        )
+        rows.append(_candle(_BASE_TIME + 3 * self._MS, 90, 95, 85, 92))
+        rows.append(_candle(_BASE_TIME + 4 * self._MS, 90, 95, 80, 85))  # pivot 2
+        for i in range(5, self._LOOKBACK):
+            rows.append(_candle(_BASE_TIME + i * self._MS, 90, 95, 85, 92))
+        rows.append(
+            _candle(_BASE_TIME + self._LOOKBACK * self._MS, 85, 90, 79, 82)
+        )  # signal candle sweeps 80
+        df = _make_ohlcv(rows)
+        result = detect_eqh_eql(df, lookback=self._LOOKBACK, tolerance_pct=0.01)
+        long_signals = result[result["direction"] == "long"]
+        assert long_signals.empty, (
+            "first pivot was already raided — EQL pair is invalid"
+        )
+
     # ---- Long signal (EQL sweep) ----
 
     def test_long_signal_fires_when_candle_sweeps_eql(self) -> None:
