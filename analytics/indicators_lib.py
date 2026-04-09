@@ -1706,6 +1706,11 @@ def detect_eqh_eql(
                     h1, h2 = sw_h_pri[a], sw_h_pri[b]
                     level = max(h1, h2)
                     if abs(h1 - h2) / level <= tolerance_pct:
+                        # Reject if price already broke above the EQH level
+                        # between the two pivots — the pool was already raided.
+                        between = highs[sw_h_idx[a] + 1 : sw_h_idx[b]]
+                        if len(between) > 0 and np.any(between > level):
+                            continue
                         if sig_h <= level or sig_c >= level:
                             continue
                         if best_eqh is None or level > max(best_eqh[2], best_eqh[3]):
@@ -1751,6 +1756,11 @@ def detect_eqh_eql(
                     if level == 0.0:
                         continue
                     if abs(l1 - l2) / level <= tolerance_pct:
+                        # Reject if price already broke below the EQL level
+                        # between the two pivots — the pool was already raided.
+                        between = lows[sw_l_idx[a] + 1 : sw_l_idx[b]]
+                        if len(between) > 0 and np.any(between < level):
+                            continue
                         if sig_l >= level or sig_c <= level:
                             continue
                         if best_eql is None or level < min(best_eql[2], best_eql[3]):
