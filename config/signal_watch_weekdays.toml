@@ -51,7 +51,7 @@ fee_pct = 0.0005
 [strategy_timeframes]
 trend_day            = ["4h", "1d"]
 fib_golden_zone      = ["4h", "1d"]       # 15m/1h suppressed (negative)
-eqh_eql              = ["4h", "1d"]       # 15m/1h suppressed (negative)
+eqh_eql              = ["1h", "4h", "1d"] # 15m suppressed; 1h re-enabled post between-pivot-break fix
 smt_divergence       = ["15m", "1h", "4h"]  # 1d excluded: 0% wins across all TP ratios
 orb                  = ["1h", "4h"]        # 15m/1d suppressed (n/a — zero trades on weekdays)
 bos                  = ["15m", "1h", "4h"] # 1d all negative excluded
@@ -109,8 +109,12 @@ tp_r_4h  = 3.5                # +0.14R
 tp_r_1d  = 2.5                # +0.17R
 
 [strategy_params.eqh_eql]
+tp_r_1h  = 5.0                # WFO OOS: ETH+0.336R SOL+0.934R n=21/35 (ADR-gated); BTC see per-symbol
 tp_r_4h  = 2.0                # -0.27R (all negative; hard mode will suppress)
 tp_r_1d  = 2.0                # +0.96R (3 trades — noisy; hard mode will gate)
+
+[strategy_params.eqh_eql.BTCUSDT]
+tp_r_1h  = 3.5                # WFO OOS: BTC 1h peaks at 3.5R (+0.574R ADR-gated, n=40)
 
 [strategy_params.fib_golden_zone]
 tp_r_4h  = 3.5                # +1.03R (was 3.0; clear peak)

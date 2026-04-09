@@ -202,6 +202,7 @@ def run_param_sweep(
     min_trades: int,
     fee_pct: float,
     top_n: int,
+    adr_suppress_threshold: float | None = None,
 ) -> list[SweepRow]:
     """Run WFO grid sweep. Returns rows sorted by IS score (descending)."""
     import datetime
@@ -239,6 +240,13 @@ def run_param_sweep(
             file=sys.stderr,
         )
         return []
+
+    if adr_suppress_threshold is not None and not signals_full.empty:
+        from analytics.signal_lib import _filter_signals_by_adr
+
+        signals_full = _filter_signals_by_adr(
+            ohlcv_full, signals_full, adr_suppress_threshold
+        )
 
     # Split signals at the same timestamp boundary as OHLCV.
     if not ohlcv_is.empty and not ohlcv_oos.empty:
@@ -459,6 +467,7 @@ def run_strategy_audit(
     wfo_split: float,
     min_trades: int,
     fee_pct: float,
+    adr_suppress_threshold: float | None = None,
 ) -> list[AuditRow]:
     """Quick tp_r sweep across all strategies — produces one verdict row per strategy."""
     import datetime
@@ -506,6 +515,13 @@ def run_strategy_audit(
                 )
             )
             continue
+
+        if adr_suppress_threshold is not None and not signals_full.empty:
+            from analytics.signal_lib import _filter_signals_by_adr
+
+            signals_full = _filter_signals_by_adr(
+                ohlcv_full, signals_full, adr_suppress_threshold
+            )
 
         signals_is = signals_full[signals_full["open_time"] < split_ts].copy()
         signals_oos = signals_full[signals_full["open_time"] >= split_ts].copy()
