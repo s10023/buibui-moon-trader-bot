@@ -11,6 +11,7 @@ from analytics import (
     signal_runner,
 )
 from analytics.backtest_config import BacktestSweepConfig, load_backtest_config
+from analytics.digest_lib import QUERY_NAMES
 from analytics.indicators_lib import KNOWN_STRATEGIES
 from monitor import position_monitor, price_monitor
 
@@ -38,6 +39,10 @@ def run_analytics_sync(args: argparse.Namespace) -> None:
         symbols=args.symbols,
         timeframes=args.timeframes,
     )
+
+
+def run_digest_cmd(args: argparse.Namespace) -> None:
+    backtest_runner.run_digest_cmd(args.query, args.min_trades, args.top_n)
 
 
 def run_backtest(args: argparse.Namespace) -> None:
@@ -724,6 +729,36 @@ def main() -> None:
         help="Hide combos below this trade count in sweep table (default: 20)",
     )
     backtest_parser.set_defaults(func=run_backtest)
+
+    # Top-level 'backtest digest' command
+    digest_parser = subparsers.add_parser(
+        "digest",
+        help="Aggregated backtest analysis: leaderboards, A/B comparisons, breadth stats",
+    )
+    digest_parser.add_argument(
+        "--query",
+        default="strategy",
+        choices=QUERY_NAMES,
+        help=(
+            "Which analysis to run (default: strategy). "
+            "Options: " + ", ".join(QUERY_NAMES)
+        ),
+    )
+    digest_parser.add_argument(
+        "--min-trades",
+        type=int,
+        default=5,
+        dest="min_trades",
+        help="Minimum closed trades to include a run (default: 5)",
+    )
+    digest_parser.add_argument(
+        "--top-n",
+        type=int,
+        default=20,
+        dest="top_n",
+        help="Max rows returned for combos query (default: 20)",
+    )
+    digest_parser.set_defaults(func=run_digest_cmd)
 
     # Top-level 'param-sweep' command
     param_sweep_parser = subparsers.add_parser(

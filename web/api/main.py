@@ -51,6 +51,8 @@ def _load_active_config(config_path: str) -> None:
             fee_pct=sw_cfg.backtest.fee_pct,
             min_sl_pct=sw_cfg.backtest.min_sl_pct,
             adr_suppress_threshold=sw_cfg.bias.adr_suppress_threshold,
+            min_trades=sw_cfg.backtest.min_trades,
+            min_trades_per_tf=sw_cfg.backtest.min_trades_per_tf,
             strategy_params={
                 name: StrategyParamsModel(
                     tp_r=override.tp_r,

@@ -825,6 +825,19 @@ make buibui-backtest SYMBOL=BTCUSDT STRATEGY=bos SAVE=1      # Single-combo + pe
 make buibui-recalibrate CONFIG=config/signal_watch.toml          # dry-run
 make buibui-recalibrate CONFIG=config/signal_watch.toml APPLY=1  # write to DB
 make buibui-recalibrate MIN_TRADES=20 CONFIG=config/signal_watch.toml APPLY=1
+
+# Digest: aggregated analysis over saved backtest runs
+make buibui-digest QUERY=strategy           # strategy leaderboard (default)
+make buibui-digest QUERY=symbol             # symbol leaderboard
+make buibui-digest QUERY=direction_bias     # long vs short avg R per strategy
+make buibui-digest QUERY=adr_ab             # ADR gate A/B delta
+make buibui-digest QUERY=volume_ab          # volume suppress A/B delta
+make buibui-digest QUERY=day_filter_ab      # day filter A/B delta
+make buibui-digest QUERY=consistency        # edge breadth across symbol×TF combos
+make buibui-digest QUERY=recovery_factor    # risk-adjusted ranking
+make buibui-digest QUERY=tf                 # timeframe ranking
+make buibui-digest QUERY=combos TOP_N=20    # best combos top-N
+make buibui-digest MIN_TRADES=10            # raise min-trades threshold
 ```
 
 Defaults: `SYMBOL=BTCUSDT`, `STRATEGY=fvg`, `INTERVAL=4h`, `DAYS=90`.
