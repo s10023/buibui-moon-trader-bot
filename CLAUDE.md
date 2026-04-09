@@ -122,6 +122,7 @@ Skills live in `.claude/skills/<name>/SKILL.md` (project-specific, committed to 
 | `volume-sweep` | `/volume-sweep` | Test `volume_suppress` per strategy; compare High Vol vs Low Vol avg R | When adding a new strategy; after entry logic changes that affect signal frequency |
 | `new-strategy` | `/new-strategy` | Guided 4-file checklist for adding a new strategy (indicators_lib, DETECTOR_REGISTRY, signals/registry, tests) | Every time a new strategy is added |
 | `backtest-run` | `/backtest-run` | Quick reference for all `buibui backtest` invocations and flags | Any time you need a backtest command and can't remember the flags |
+| `investigate-strategy` | `/investigate-strategy` | Debug why a strategy did/didn't fire on a specific candle using `buibui signal test` | When asked to investigate, diagnose, or replay a signal |
 | `signal-watch` | `/signal-watch` | Signal daemon workflow, TOML config reference, signal flow diagram | When configuring or debugging the live signal scanner |
 | `pr-summary` | `/pr-summary` | Write PR title + summary + test plan to `/tmp/pr-<branch>.md` | After finishing any feature branch |
 | `post-branch` | `/post-branch` | Check CLAUDE.md, README.md, MEMORY.md, Makefile, docker-compose.yml for needed updates | After every branch — run automatically without being asked |
