@@ -310,6 +310,7 @@ def run_param_sweep(args: argparse.Namespace) -> None:
             min_trades=min_trades,
             fee_pct=args.fee_pct,
             top_n=args.top_n,
+            adr_suppress_threshold=args.adr_suppress_threshold,
         )
     finally:
         conn.close()
@@ -352,6 +353,7 @@ def run_param_audit(args: argparse.Namespace) -> None:
             wfo_split=args.wfo_split,
             min_trades=min_trades,
             fee_pct=args.fee_pct,
+            adr_suppress_threshold=args.adr_suppress_threshold,
         )
     finally:
         conn.close()
@@ -831,6 +833,13 @@ def main() -> None:
         help="Taker fee fraction (default: 0.0005 = 0.05%%)",
     )
     param_sweep_parser.add_argument(
+        "--adr-suppress-threshold",
+        type=float,
+        default=None,
+        dest="adr_suppress_threshold",
+        help="ADR suppress threshold (e.g. 0.80) — filter signals when today's range >= N × ADR-14",
+    )
+    param_sweep_parser.add_argument(
         "--db",
         type=str,
         default=None,
@@ -879,6 +888,13 @@ def main() -> None:
         default=0.0005,
         dest="fee_pct",
         help="Taker fee fraction (default: 0.0005)",
+    )
+    param_audit_parser.add_argument(
+        "--adr-suppress-threshold",
+        type=float,
+        default=None,
+        dest="adr_suppress_threshold",
+        help="ADR suppress threshold (e.g. 0.80) — filter signals when today's range >= N × ADR-14",
     )
     param_audit_parser.add_argument(
         "--db", type=str, default=None, help="DuckDB path (default: analytics.db)"
