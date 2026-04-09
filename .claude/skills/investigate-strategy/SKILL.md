@@ -104,11 +104,14 @@ morning_evening_star  fib_golden_zone  ote_entry
 
 ## SMT divergence note
 
-`smt_divergence` is **not supported** in `signal test` — the runner skips it with:
+`smt_divergence` is supported. The secondary is resolved automatically from `coins.json smt_secondary`.
+
+Because SMT fires rarely (~2 signals per 200 days on 1h), the default `LOOKBACK=200` (~8 days) will often return 0. Use `LOOKBACK=400` or pin with `--at`:
+
+```bash
+make buibui-signal-test SYMBOL=BTCUSDT TIMEFRAME=1h STRATEGY=smt_divergence LOOKBACK=400
+make buibui-signal-test SYMBOL=BTCUSDT TIMEFRAME=1h STRATEGY=smt_divergence AT="2026-03-29 20:00:00"
 ```
-[BTCUSDT/1h/smt_divergence] Skipped — SMT requires secondary symbol (not supported in signal test).
-```
-To investigate SMT, inspect the DB directly or run `make buibui-backtest --symbol BTCUSDT --strategy smt_divergence --interval 1h`.
 
 ## Investigation workflow
 
