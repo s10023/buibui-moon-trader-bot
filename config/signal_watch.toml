@@ -78,7 +78,7 @@ fee_pct = 0.0005        # 0.05% taker fee per leg; set 0.0 to disable
 [strategy_timeframes]
 trend_day        = ["4h", "1d"]       # 15m mean_r=-0.082 suppressed
 fib_golden_zone  = ["4h", "1d"]       # 15m mean_r=-0.254, 1h mean_r=-0.195 suppressed
-eqh_eql          = ["4h", "1d"]       # 15m mean_r=-0.137, 1h mean_r=-0.056 suppressed
+eqh_eql          = ["1h", "4h", "1d"] # 15m mean_r=-0.137 suppressed; 1h re-enabled post between-pivot-break fix (+0.722R OOS BTC)
 smt_divergence   = ["15m", "1h", "4h", "1d"]             # post-A18 pivot fix: all combos positive except BTCUSDT 4h (-0.58R); suppressed at runtime by hard-mode min_avg_r gate
 orb              = ["1h", "4h", "1d"] # 15m mean_r=-0.163 suppressed
 bos              = ["15m", "1h", "4h"] # 1d mean_r=-0.785 suppressed; 4h mean_r=+0.223 re-enabled
@@ -178,7 +178,11 @@ tp_r = 3.0                    # 1h+0.14R (183 trades), 4h+0.17R (119 trades)
 volume_suppress = true        # A14b: normal-vol wins Δ=+0.33R (low -0.16R vs normal +0.18R)
 
 [strategy_params.eqh_eql]
+tp_r_1h = 5.0                 # WFO OOS: ETH+0.336R SOL+0.879R n=21/36; BTC diverges (see per-symbol)
 adr_exempt = true             # liquidity sweep — fires at structure extremes in continuation direction
+
+[strategy_params.eqh_eql.BTCUSDT]
+tp_r_1h = 3.5                 # WFO OOS: BTC 1h peaks at 3.5R (+0.812R, n=47) vs global 5.0R (+0.722R)
 
 [strategy_params.cvd_divergence]
 adr_exempt = true             # divergence between price/delta in trending conditions; ADR gate hurts it
