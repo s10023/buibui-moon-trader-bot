@@ -34,17 +34,24 @@
     morning_evening_star: "M/E Star",
   };
 
-  // C7: Candlestick pattern group
-  const CANDLESTICK_STRATEGIES = new Set([
-    "doji", "engulfing", "hammer_hanging_man", "inside_bar",
-    "marubozu", "morning_evening_star", "pin_bar",
-  ]);
+  // Strategy taxonomy — reviewed against detector logic in indicators_lib.py
+  const STRATEGY_GROUPS: Record<string, string[]> = {
+    Structure:    ["bos", "liquidity_sweep", "eqh_eql", "order_block", "fvg"],
+    Fibonacci:    ["fib_golden_zone", "ote_entry"],
+    "Price Action": ["wick_fill", "marubozu", "inside_bar", "trend_day"],
+    Candlestick:  ["engulfing", "pin_bar", "hammer_hanging_man", "doji", "morning_evening_star"],
+    Flow:         ["smt_divergence", "cvd_divergence", "funding_reversion"],
+    Session:      ["orb", "seasonality"],
+  };
 
   function stratLabel(name: string): string {
     return STRATEGY_LABELS[name] ?? name;
   }
 
-  let candlestickExpanded = $state(false);
+  let expandedGroups = $state<Record<string, boolean>>({
+    Structure: false, Fibonacci: false, "Price Action": false,
+    Candlestick: false, Flow: false, Session: false,
+  });
 
   let symbol = $state($selectedSymbol);
   let timeframe = $state("4h");
@@ -187,36 +194,36 @@
       </div>
 
       {#if $strategyNames.length > 0}
-        {@const nonCandlestick = $strategyNames.filter((n) => !CANDLESTICK_STRATEGIES.has(n))}
-        {@const candlestickNames = $strategyNames.filter((n) => CANDLESTICK_STRATEGIES.has(n))}
-        <div class="pill-row">
-          {#each nonCandlestick as name}
-            <button
-              class="pill"
-              class:active={selectedStrategies.includes(name)}
-              onclick={() => toggleStrategy(name)}
-            >{stratLabel(name)}</button>
-          {/each}
-          {#if candlestickNames.length > 0}
-            <button
-              class="pill group-toggle"
-              class:active={candlestickExpanded}
-              onclick={() => { candlestickExpanded = !candlestickExpanded; }}
-              title="Candlestick patterns"
-            >Candles {candlestickExpanded ? "▾" : "▸"}</button>
-          {/if}
-        </div>
-        {#if candlestickExpanded && candlestickNames.length > 0}
-          <div class="pill-row pill-group-inner">
-            {#each candlestickNames as name}
+        <div class="form-row strategies-row">
+          <span class="section-label">Strategies</span>
+          {#each Object.entries(STRATEGY_GROUPS) as [group, members]}
+            {@const available = members.filter((n) => $strategyNames.includes(n))}
+            {@const activeCount = available.filter((n) => selectedStrategies.includes(n)).length}
+            {#if available.length > 0}
               <button
-                class="pill"
-                class:active={selectedStrategies.includes(name)}
-                onclick={() => toggleStrategy(name)}
-              >{stratLabel(name)}</button>
-            {/each}
-          </div>
-        {/if}
+                class="pill group-toggle"
+                class:active={expandedGroups[group]}
+                class:has-active={activeCount > 0 && !expandedGroups[group]}
+                onclick={() => { expandedGroups[group] = !expandedGroups[group]; }}
+              >{group}{activeCount > 0 ? ` · ${activeCount}` : ""} {expandedGroups[group] ? "▾" : "▸"}</button>
+            {/if}
+          {/each}
+        </div>
+        {#each Object.entries(STRATEGY_GROUPS) as [group, members]}
+          {@const available = members.filter((n) => $strategyNames.includes(n))}
+          {#if expandedGroups[group] && available.length > 0}
+            <div class="pill-row pill-group-inner">
+              <span class="group-inner-label">{group}</span>
+              {#each available as name}
+                <button
+                  class="pill"
+                  class:active={selectedStrategies.includes(name)}
+                  onclick={() => toggleStrategy(name)}
+                >{stratLabel(name)}</button>
+              {/each}
+            </div>
+          {/if}
+        {/each}
       {/if}
     </div>
 
@@ -382,6 +389,13 @@
     color: var(--accent);
   }
 
+  .strategies-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
   .group-toggle {
     opacity: 0.7;
     letter-spacing: 0.04em;
@@ -389,10 +403,33 @@
 
   .group-toggle.active { opacity: 1; }
 
+  .group-toggle.has-active {
+    opacity: 1;
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
   .pill-group-inner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
     margin-top: 4px;
-    padding-left: 10px;
-    border-left: 1px solid var(--border-dim);
+    padding: 6px 10px;
+    border-left: 2px solid var(--border-dim);
+    background: rgba(255,255,255,0.015);
+    border-radius: 0 2px 2px 0;
+  }
+
+  .group-inner-label {
+    font-size: 8px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    opacity: 0.6;
+    margin-right: 4px;
+    align-self: center;
+    white-space: nowrap;
   }
 
   .chart-frame {
