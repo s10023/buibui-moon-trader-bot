@@ -693,7 +693,7 @@ make buibui-signal-test CONFIG=config/signal_watch.toml STRATEGY=marubozu TIMEFR
 - `--config` — TOML file to inherit symbol/TF/tp_r/sl_pct defaults
 - `--telegram` — send the alert via Telegram (in addition to printing)
 
-> **Note:** SMT divergence (`smt_divergence`) requires a secondary symbol and is not supported by `signal test`.
+> **Note:** `smt_divergence` is supported — the secondary symbol is resolved automatically from `coins.json` (`smt_secondary` field). No extra flag needed.
 
 ### Web API — FastAPI Backend
 
