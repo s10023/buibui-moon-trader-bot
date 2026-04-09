@@ -168,6 +168,13 @@ def run_signal_test(args: argparse.Namespace) -> None:
                     f"error: --at '{args.at}' is not a valid ISO datetime or Unix ms timestamp"
                 )
 
+    # Build secondary_map from coins.json (same as signal_runner.py).
+    secondary_map: dict[str, str] = {
+        sym: coins_config[sym]["smt_secondary"]
+        for sym in symbols
+        if sym in coins_config and "smt_secondary" in coins_config[sym]
+    }
+
     kwargs: dict[str, object] = dict(
         symbols=symbols,
         timeframes=timeframes,
@@ -181,6 +188,7 @@ def run_signal_test(args: argparse.Namespace) -> None:
         send_telegram=args.telegram,
         backtest_cfg=cfg.backtest,
         day_filter=cfg.day_filter,
+        secondary_map=secondary_map or None,
     )
     if getattr(args, "db_path", None):
         kwargs["db_path"] = pathlib.Path(args.db_path)

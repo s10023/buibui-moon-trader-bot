@@ -82,6 +82,7 @@ def run_signal_test(
     db_path: Path = DEFAULT_DB_PATH,
     backtest_cfg: BacktestFilterConfig | None = None,
     day_filter: str = "off",
+    secondary_map: dict[str, str] | None = None,
 ) -> None:
     """Run detectors against historical candles and print formatted alerts.
 
@@ -192,15 +193,30 @@ def run_signal_test(
                     plugin = SIGNAL_REGISTRY[strategy]
                     spec = STRATEGY_REGISTRY.get(strategy)
 
-                    if spec and spec.requires_secondary:
-                        print(
-                            f"  [{symbol}/{timeframe}/{strategy}] Skipped — "
-                            "SMT requires secondary symbol (not supported in signal test)."
-                        )
-                        continue
-
                     try:
-                        if spec and spec.requires_funding:
+                        if spec and spec.requires_secondary:
+                            sec_symbol = (secondary_map or {}).get(symbol)
+                            if not sec_symbol:
+                                print(
+                                    f"  [{symbol}/{timeframe}/{strategy}] Skipped — "
+                                    "SMT requires secondary symbol; add smt_secondary to "
+                                    "coins.json or pass --config with smt_pairs."
+                                )
+                                continue
+                            sec_df = get_ohlcv(
+                                conn, sec_symbol, timeframe, start_ms, end_ms
+                            )
+                            if sec_df.empty:
+                                print(
+                                    f"  [{symbol}/{timeframe}/{strategy}] Skipped — "
+                                    f"no OHLCV data for secondary {sec_symbol}."
+                                )
+                                continue
+                            if at_ms is not None:
+                                sec_df = sec_df[sec_df["open_time"] <= at_ms].copy()
+                            funding_df = None
+                            signals_df = plugin["detector"](closed_df, sec_df)
+                        elif spec and spec.requires_funding:
                             funding_df = get_funding_rates(
                                 conn, symbol, start_ms, end_ms
                             )
