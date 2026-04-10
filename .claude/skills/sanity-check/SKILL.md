@@ -1,6 +1,6 @@
 ---
 name: sanity-check
-description: "Full project health check — CI, wiring audit, docs sync, skills freshness, architecture review. Use weekly or after large refactors."
+description: "Full project health check — CI, wiring audit, docs sync, skills freshness, architecture review. Run this weekly, after any large refactor or merge, or whenever something feels off about the codebase."
 disable-model-invocation: true
 ---
 
@@ -78,13 +78,13 @@ Check these in parallel:
 
 ### CLAUDE.md
 - Does `## Project Structure` match actual files on disk?
-- Does `## Agent Skills` table list all skills currently in `~/.claude/skills/`?
+- Does `## Agent Skills` table list all skills currently in `.claude/skills/`?
 
 Check with:
 ```bash
-ls ~/.claude/skills/*.md
+ls .claude/skills/*/SKILL.md
 ```
-Compare against the table in `CLAUDE.md` — flag any skill file with no entry in the table, or any table entry with no file.
+Compare against the table in `CLAUDE.md` — flag any skill directory with no entry in the table, or any table entry with no corresponding `SKILL.md`.
 
 ### MEMORY.md
 Path: `~/.claude/projects/-home-kng-repo-buibui-moon-trader-bot/memory/MEMORY.md`
@@ -98,19 +98,20 @@ Path: `~/.claude/projects/-home-kng-repo-buibui-moon-trader-bot/memory/MEMORY.md
 
 Each skill in `~/.claude/skills/` documents a workflow. Skills can go stale when the codebase evolves. Check:
 
-For each skill file, verify the **key claims** are still true:
+For each skill, verify the **key claims** are still true:
 
 | Skill | What to verify |
 |-------|---------------|
-| `atr-sweep.md` | `--atr-sl-values` CLI flag exists in `buibui.py`; `format_atr_sl_sweep_table` exists in `backtest_lib.py` |
-| `tp-sweep.md` | `tp_r_values` field exists in `BacktestSweepConfig`; `format_tp_sweep_table` in `backtest_lib.py` |
-| `volume-sweep.md` | `volume_suppress` field in `BacktestSweepConfig`; A14b pending note still accurate |
-| `backtest-findings.md` | Min-trades thresholds still match `recalibrate_lib.py` defaults |
-| `recalibrate.md` | `buibui recalibrate` subcommand wired in `buibui.py`; `--apply` flag present |
-| `new-strategy.md` | 4-file checklist still accurate; `DETECTOR_REGISTRY` is still the single source of truth |
-| `signal-watch.md` | `buibui signal-watch` subcommand exists; TOML field names match `signal_config.py` |
-| `pr-summary.md` | Template format still matches `feedback_pr_summary_template.md` in memory |
-| `backtest-run.md` | All CLI flags listed match what `buibui backtest --help` outputs |
+| `atr-sweep` | `--atr-sl-values` CLI flag exists in `buibui.py`; `format_atr_sl_sweep_table` exists in `backtest_lib.py` |
+| `volume-sweep` | `volume_suppress` field in `BacktestSweepConfig`; `effective_volume_suppress(strategy)` on `BacktestSweepConfig` |
+| `backtest-findings` | Min-trades thresholds still match `recalibrate_lib.py` defaults |
+| `recalibrate` | `buibui recalibrate` subcommand wired in `buibui.py`; `--config` + `--apply` flags present; `confidence_ratings` DB table exists |
+| `new-strategy` | 4-file checklist still accurate; `DETECTOR_REGISTRY` is still the single source of truth |
+| `signal-watch` | `buibui signal watch` subcommand exists; TOML field names match `signal_config.py`; `min_avg_r` (not `filter_threshold`) in `[backtest]` section |
+| `pr-summary` | Template sections match what's in the skill body |
+| `backtest-run` | All CLI flags listed match what `buibui backtest --help` outputs |
+| `stats-dashboard` | Card count matches actual Stats.svelte; live vs cached split still accurate |
+| `investigate-strategy` | `make buibui-signal-test` Makefile target exists; `--at` UTC interpretation still correct |
 
 Flag any stale claims and update the skill file.
 

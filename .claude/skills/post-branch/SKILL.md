@@ -1,6 +1,6 @@
 ---
 name: post-branch
-description: "Post-branch docs check — update CLAUDE.md, README.md, MEMORY.md, Makefile after finishing any branch. Run automatically after every branch."
+description: "Post-branch docs check — update CLAUDE.md, README.md, MEMORY.md, Makefile, docker-compose.yml after finishing any branch. Run this automatically after every branch without being asked. Also includes writing the PR summary to /tmp/pr-<branch>.md."
 ---
 
 # Post-Branch Docs Check
@@ -49,8 +49,8 @@ automatically as part of wrapping up a branch.
 
 ## PR Summary
 
-The PR summary must follow the template in `.claude/skills/pr-summary.md` exactly —
-read that file before writing. Do not compose from scratch or skip sections.
+The PR summary must follow the template in `.claude/skills/pr-summary/SKILL.md` exactly —
+read that skill before writing. Do not compose from scratch or skip sections.
 The template requires: PR Title, Background, Summary, How it works, Params/Config,
 Test plan (CI items pre-ticked), Stats, and the Claude Code footer.
 

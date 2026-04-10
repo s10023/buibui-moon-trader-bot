@@ -1,6 +1,6 @@
 ---
 name: backtest-run
-description: "Quick reference for all buibui backtest CLI flags and invocations. Load when running or planning a backtest."
+description: "Quick reference for all buibui backtest CLI flags and invocations. Load whenever the user wants to run, plan, or discuss a backtest — including one-off runs, sweeps, saving results, or questions about flags."
 ---
 
 # Backtest Run — Quick Reference

@@ -1,6 +1,6 @@
 ---
 name: new-strategy
-description: "Guided 4-file checklist for adding a new trading strategy (indicators_lib, signals/registry, backtest_runner, tests)."
+description: "Guided checklist for adding a new trading strategy. Always use this when implementing a new strategy — it covers all 4 required files (indicators_lib, DETECTOR_REGISTRY, signals/registry, tests). Missing any one of these causes silent failures or 500s in the UI."
 disable-model-invocation: true
 ---
 

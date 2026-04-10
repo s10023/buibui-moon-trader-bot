@@ -1,6 +1,6 @@
 ---
 name: signal-watch
-description: "Signal daemon workflow, TOML config reference, and signal flow. Load when configuring or debugging the live signal scanner."
+description: "Signal daemon workflow, TOML config reference, and signal flow. Always load this when configuring, debugging, starting, or modifying the live signal scanner — even for minor TOML changes or strategy additions."
 ---
 
 # Signal Watch Daemon
@@ -37,7 +37,7 @@ candle close
 # With config file (recommended)
 buibui signal watch --config config/signal_watch.toml
 
-# With Telegram alerts
+# With Telegram alerts (or set telegram = true in TOML)
 buibui signal watch --config config/signal_watch.toml --telegram
 
 # Make alias
@@ -46,6 +46,8 @@ make buibui-signal-watch CONFIG=config/signal_watch.toml
 # Override specific params via CLI (CLI takes precedence over TOML)
 buibui signal watch --config config/signal_watch.toml --timeframes 1h 4h --strategies bos engulfing
 ```
+
+Note: the subcommand is `signal watch` (two words), not `signal-watch`.
 
 ## TOML config structure
 
@@ -82,16 +84,15 @@ strategies = ['bos', 'engulfing', 'pin_bar', ...]
 trend_day = ["4h", "1d"]
 fib_golden_zone = ["4h", "1d"]
 
-# Per-strategy tp_r / sl_pct overrides
+# Per-strategy tp_r / sl_pct / volume overrides
 [strategy_params.engulfing]
 tp_r = 3.0
+# volume_suppress = true     # per-strategy override (None = inherit global)
+# volume_spike_boost = true  # spike candles (>3× mean) bypass suppress gate
 
-# SMT divergence pairs
-[smt_pairs]
-BTCUSDT = "ETHUSDT"
-ETHUSDT = "BTCUSDT"
+# SMT pairs resolved automatically from coins.json smt_secondary — no need for [smt_pairs]
 
-# Backtest filter config (hard mode = suppress if avg_r below threshold)
+# Backtest filter config (hard mode = suppress signal if directional avg_r below min_avg_r)
 [backtest]
 mode = "hard"
 days = 200
@@ -100,9 +101,12 @@ min_trades_15m = 20
 min_trades_1h = 12
 min_trades_4h = 5
 min_trades_1d = 2
-filter_threshold = 0.3
-# volume_suppress = false
+min_avg_r = 0.0          # suppress signals with directional avg_r below this threshold
+# volume_suppress = false  # global fallback; per-strategy override takes precedence
+# volume_spike_boost = false
 ```
+
+**Note**: `filter_threshold` was renamed to `min_avg_r`. Update any old TOML that still has the old key.
 
 ## Stopping the daemon
 

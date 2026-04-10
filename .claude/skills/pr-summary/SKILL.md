@@ -1,6 +1,6 @@
 ---
 name: pr-summary
-description: "Write PR title, summary, and test plan to /tmp/pr-<branch>.md after finishing a branch."
+description: "Write PR title, summary, and test plan to /tmp/pr-<branch>.md after finishing a branch. Always run this automatically when a branch is complete — do not wait to be asked. Also load when the user says 'PR summary', 'write a PR', or 'finish up the branch'."
 disable-model-invocation: true
 ---
 
