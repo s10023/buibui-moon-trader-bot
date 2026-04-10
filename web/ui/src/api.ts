@@ -273,6 +273,8 @@ export interface ActiveConfigResponse {
   min_sl_pct: number;
   adr_suppress_threshold: number | null;
   strategy_params: Record<string, StrategyParamsModel>;
+  min_trades: number;
+  min_trades_per_tf: Record<string, number>;
 }
 
 export const getConfig = () => apiFetch<ConfigResponse>("/api/config");
@@ -332,6 +334,26 @@ export const getSignalsHistory = (params: {
 
 export const getBacktestRuns = () =>
   apiFetch<BacktestRunSummary[]>("/api/backtest/runs");
+
+export interface DigestResult {
+  columns: string[];
+  rows: (string | number | null)[][];
+}
+
+export const getBacktestAnalysis = (
+  query: string,
+  minTrades: number = 5,
+  topN: number = 20,
+  useConfig: boolean = false,
+) => {
+  const q = new URLSearchParams({
+    query,
+    min_trades: String(minTrades),
+    top_n: String(topN),
+    use_config: String(useConfig),
+  });
+  return apiFetch<DigestResult>(`/api/backtest/analysis?${q}`);
+};
 
 export const runBacktest = (params: {
   symbol: string;

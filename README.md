@@ -380,7 +380,7 @@ poetry run python buibui.py backtest --symbols BTCUSDT ETHUSDT --timeframes 1h 4
 | `smt_divergence` | Two correlated assets diverge at a confirmed pivot swing high/low (centred 11-candle window) | ★★★★☆ |
 | `fvg` | Fair Value Gap — 3-candle imbalance zone fill with EMA-50 trend filter | ★☆☆☆☆ |
 | `liquidity_sweep` | Fakeout above/below a pivot swing high/low that extends to the 1.13 or 1.27 fib extension of the prior range; entry on close rejection at that level | ★☆☆☆☆ |
-| `eqh_eql` | Equal Highs/Lows: liquidity sweep of a double-top or double-bottom formed by genuine pivot swing highs/lows (11-candle window) | ★☆☆☆☆ |
+| `eqh_eql` | Equal Highs/Lows: liquidity sweep of a double-top or double-bottom; both pivots must be intact (price must not have breached the level between their formations) | ★☆☆☆☆ |
 | `funding_reversion` | Extreme positive/negative funding rate → contrarian signal | ★☆☆☆☆ |
 | `cvd_divergence` | CVD Divergence — price and buying pressure disagree at a swing extreme | ★☆☆☆☆ |
 | `order_block` | ICT Order Block — last up/down candle before displacement; entry on retest | ★☆☆☆☆ |
@@ -693,7 +693,7 @@ make buibui-signal-test CONFIG=config/signal_watch.toml STRATEGY=marubozu TIMEFR
 - `--config` — TOML file to inherit symbol/TF/tp_r/sl_pct defaults
 - `--telegram` — send the alert via Telegram (in addition to printing)
 
-> **Note:** SMT divergence (`smt_divergence`) requires a secondary symbol and is not supported by `signal test`.
+> **Note:** `smt_divergence` is supported — the secondary symbol is resolved automatically from `coins.json` (`smt_secondary` field). No extra flag needed.
 
 ### Web API — FastAPI Backend
 
@@ -825,6 +825,19 @@ make buibui-backtest SYMBOL=BTCUSDT STRATEGY=bos SAVE=1      # Single-combo + pe
 make buibui-recalibrate CONFIG=config/signal_watch.toml          # dry-run
 make buibui-recalibrate CONFIG=config/signal_watch.toml APPLY=1  # write to DB
 make buibui-recalibrate MIN_TRADES=20 CONFIG=config/signal_watch.toml APPLY=1
+
+# Digest: aggregated analysis over saved backtest runs
+make buibui-digest QUERY=strategy           # strategy leaderboard (default)
+make buibui-digest QUERY=symbol             # symbol leaderboard
+make buibui-digest QUERY=direction_bias     # long vs short avg R per strategy
+make buibui-digest QUERY=adr_ab             # ADR gate A/B delta
+make buibui-digest QUERY=volume_ab          # volume suppress A/B delta
+make buibui-digest QUERY=day_filter_ab      # day filter A/B delta
+make buibui-digest QUERY=consistency        # edge breadth across symbol×TF combos
+make buibui-digest QUERY=recovery_factor    # risk-adjusted ranking
+make buibui-digest QUERY=tf                 # timeframe ranking
+make buibui-digest QUERY=combos TOP_N=20    # best combos top-N
+make buibui-digest MIN_TRADES=10            # raise min-trades threshold
 ```
 
 Defaults: `SYMBOL=BTCUSDT`, `STRATEGY=fvg`, `INTERVAL=4h`, `DAYS=90`.

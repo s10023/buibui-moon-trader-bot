@@ -30,6 +30,7 @@ from analytics.data_store import (
     upsert_backtest_run,
     upsert_backtest_trades,
 )
+from analytics.digest_lib import run_digest
 from analytics.indicators_lib import (
     DETECTOR_REGISTRY,
     KNOWN_STRATEGIES,
@@ -272,6 +273,7 @@ def _collect_sweep_results(
                 adr_suppress_threshold=None
                 if cfg.is_adr_exempt(strategy)
                 else cfg.adr_suppress_threshold,
+                volume_suppress=cfg.effective_volume_suppress(strategy) or None,
             )
             upsert_backtest_trades(conn, bt, run_id)
 
@@ -512,3 +514,47 @@ def run_backtest_cmd(
 
     finally:
         conn.close()
+
+
+def run_digest_cmd(
+    query: str = "strategy",
+    min_trades: int = 5,
+    top_n: int = 20,
+    db_path: Path | None = None,
+) -> None:
+    """Open DB, run a digest query, and print a tabular result to stdout."""
+    try:
+        from tabulate import tabulate as _tab
+
+        _tabulate = _tab
+    except ImportError:
+        _tabulate = None
+
+    path = db_path or DEFAULT_DB_PATH
+    conn = duckdb.connect(str(path), read_only=True)
+    try:
+        result = run_digest(conn, query, min_trades=min_trades, top_n=top_n)
+    finally:
+        conn.close()
+
+    columns = result["columns"]
+    rows = result["rows"]
+
+    print(f"\n=== Backtest digest: {query} (min_trades={min_trades}) ===\n")
+    if not rows:
+        print("  No data — run `buibui backtest --save` first.")
+        return
+
+    if _tabulate is not None:
+        print(_tabulate(rows, headers=columns, tablefmt="simple", floatfmt=".3f"))
+    else:
+        widths = [
+            max(len(str(c)), max((len(str(r[i])) for r in rows), default=0))
+            for i, c in enumerate(columns)
+        ]
+        fmt = "  ".join(f"{{:<{w}}}" for w in widths)
+        print(fmt.format(*columns))
+        print("  ".join("-" * w for w in widths))
+        for row in rows:
+            print(fmt.format(*[str(v) if v is not None else "\u2014" for v in row]))
+    print()

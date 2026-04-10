@@ -1183,6 +1183,10 @@ def run_scan_cycle(
                     adr_suppress_threshold=None
                     if _is_adr_exempt(strategy_params, strategy)
                     else (bias_cfg.adr_suppress_threshold if bias_cfg else None),
+                    volume_suppress=_resolve_volume_suppress(
+                        strategy_params, strategy, backtest_cfg.volume_suppress
+                    )
+                    or None,
                 )
             except Exception:
                 logger.exception(

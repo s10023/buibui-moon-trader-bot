@@ -11,6 +11,7 @@ from analytics import (
     signal_runner,
 )
 from analytics.backtest_config import BacktestSweepConfig, load_backtest_config
+from analytics.digest_lib import QUERY_NAMES
 from analytics.indicators_lib import KNOWN_STRATEGIES
 from monitor import position_monitor, price_monitor
 
@@ -38,6 +39,10 @@ def run_analytics_sync(args: argparse.Namespace) -> None:
         symbols=args.symbols,
         timeframes=args.timeframes,
     )
+
+
+def run_digest_cmd(args: argparse.Namespace) -> None:
+    backtest_runner.run_digest_cmd(args.query, args.min_trades, args.top_n)
 
 
 def run_backtest(args: argparse.Namespace) -> None:
@@ -163,6 +168,13 @@ def run_signal_test(args: argparse.Namespace) -> None:
                     f"error: --at '{args.at}' is not a valid ISO datetime or Unix ms timestamp"
                 )
 
+    # Build secondary_map from coins.json (same as signal_runner.py).
+    secondary_map: dict[str, str] = {
+        sym: coins_config[sym]["smt_secondary"]
+        for sym in symbols
+        if sym in coins_config and "smt_secondary" in coins_config[sym]
+    }
+
     kwargs: dict[str, object] = dict(
         symbols=symbols,
         timeframes=timeframes,
@@ -176,6 +188,7 @@ def run_signal_test(args: argparse.Namespace) -> None:
         send_telegram=args.telegram,
         backtest_cfg=cfg.backtest,
         day_filter=cfg.day_filter,
+        secondary_map=secondary_map or None,
     )
     if getattr(args, "db_path", None):
         kwargs["db_path"] = pathlib.Path(args.db_path)
@@ -297,6 +310,7 @@ def run_param_sweep(args: argparse.Namespace) -> None:
             min_trades=min_trades,
             fee_pct=args.fee_pct,
             top_n=args.top_n,
+            adr_suppress_threshold=args.adr_suppress_threshold,
         )
     finally:
         conn.close()
@@ -339,6 +353,7 @@ def run_param_audit(args: argparse.Namespace) -> None:
             wfo_split=args.wfo_split,
             min_trades=min_trades,
             fee_pct=args.fee_pct,
+            adr_suppress_threshold=args.adr_suppress_threshold,
         )
     finally:
         conn.close()
@@ -725,6 +740,36 @@ def main() -> None:
     )
     backtest_parser.set_defaults(func=run_backtest)
 
+    # Top-level 'backtest digest' command
+    digest_parser = subparsers.add_parser(
+        "digest",
+        help="Aggregated backtest analysis: leaderboards, A/B comparisons, breadth stats",
+    )
+    digest_parser.add_argument(
+        "--query",
+        default="strategy",
+        choices=QUERY_NAMES,
+        help=(
+            "Which analysis to run (default: strategy). "
+            "Options: " + ", ".join(QUERY_NAMES)
+        ),
+    )
+    digest_parser.add_argument(
+        "--min-trades",
+        type=int,
+        default=5,
+        dest="min_trades",
+        help="Minimum closed trades to include a run (default: 5)",
+    )
+    digest_parser.add_argument(
+        "--top-n",
+        type=int,
+        default=20,
+        dest="top_n",
+        help="Max rows returned for combos query (default: 20)",
+    )
+    digest_parser.set_defaults(func=run_digest_cmd)
+
     # Top-level 'param-sweep' command
     param_sweep_parser = subparsers.add_parser(
         "param-sweep",
@@ -788,6 +833,13 @@ def main() -> None:
         help="Taker fee fraction (default: 0.0005 = 0.05%%)",
     )
     param_sweep_parser.add_argument(
+        "--adr-suppress-threshold",
+        type=float,
+        default=None,
+        dest="adr_suppress_threshold",
+        help="ADR suppress threshold (e.g. 0.80) — filter signals when today's range >= N × ADR-14",
+    )
+    param_sweep_parser.add_argument(
         "--db",
         type=str,
         default=None,
@@ -836,6 +888,13 @@ def main() -> None:
         default=0.0005,
         dest="fee_pct",
         help="Taker fee fraction (default: 0.0005)",
+    )
+    param_audit_parser.add_argument(
+        "--adr-suppress-threshold",
+        type=float,
+        default=None,
+        dest="adr_suppress_threshold",
+        help="ADR suppress threshold (e.g. 0.80) — filter signals when today's range >= N × ADR-14",
     )
     param_audit_parser.add_argument(
         "--db", type=str, default=None, help="DuckDB path (default: analytics.db)"
