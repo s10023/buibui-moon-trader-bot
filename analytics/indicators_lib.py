@@ -349,7 +349,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
             ParamSpec(
                 "min_range_pct",
                 "float",
-                0.003,
+                0.0,
                 0.0,
                 0.05,
                 "Minimum engulfing candle range as fraction of close. Filters trivial micro-patterns.",
@@ -388,7 +388,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
             ParamSpec(
                 "min_range_pct",
                 "float",
-                0.003,
+                0.0,
                 0.0,
                 0.05,
                 "Minimum candle range as fraction of close. Filters trivial micro-patterns.",
@@ -419,7 +419,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
             ParamSpec(
                 "min_range_pct",
                 "float",
-                0.003,
+                0.0,
                 0.0,
                 0.05,
                 "Minimum mother bar range as fraction of close. Filters trivial micro-patterns.",
@@ -466,7 +466,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
             ParamSpec(
                 "min_range_pct",
                 "float",
-                0.003,
+                0.0,
                 0.0,
                 0.05,
                 "Minimum candle range as fraction of close. Filters trivial micro-patterns.",
@@ -513,7 +513,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
             ParamSpec(
                 "min_range_pct",
                 "float",
-                0.003,
+                0.0,
                 0.0,
                 0.05,
                 "Minimum confirmation candle range as fraction of close. Filters trivial micro-patterns.",
@@ -552,7 +552,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
             ParamSpec(
                 "min_range_pct",
                 "float",
-                0.003,
+                0.0,
                 0.0,
                 0.05,
                 "Minimum initial candle (A) range as fraction of close. Filters trivial micro-patterns.",
@@ -2162,7 +2162,7 @@ def detect_engulfing(
     df: pd.DataFrame,
     sl_pct: float = 0.02,
     tp_r: float = 2.0,
-    min_range_pct: float = 0.003,
+    min_range_pct: float = 0.0,
 ) -> pd.DataFrame:
     """Detect Bullish and Bearish Engulfing 2-candle patterns.
 
@@ -2263,7 +2263,7 @@ def detect_pin_bar(
     wick_ratio: float = 2.0,
     sl_pct: float = 0.02,
     tp_r: float = 2.0,
-    min_range_pct: float = 0.003,
+    min_range_pct: float = 0.0,
 ) -> pd.DataFrame:
     """Detect Pin Bar patterns (hammer / shooting star shape).
 
@@ -2348,7 +2348,7 @@ def detect_inside_bar(
     df: pd.DataFrame,
     sl_pct: float = 0.02,
     tp_r: float = 2.0,
-    min_range_pct: float = 0.003,
+    min_range_pct: float = 0.0,
 ) -> pd.DataFrame:
     """Detect Inside Bar breakout patterns.
 
@@ -2433,7 +2433,7 @@ def detect_hammer_hanging_man(
     context_lookback: int = 10,
     sl_pct: float = 0.02,
     tp_r: float = 2.0,
-    min_range_pct: float = 0.003,
+    min_range_pct: float = 0.0,
 ) -> pd.DataFrame:
     """Detect Hammer (bullish reversal) and Hanging Man (bearish reversal).
 
@@ -2524,7 +2524,7 @@ def detect_doji(
     confirm_body_pct: float = 0.6,
     sl_pct: float = 0.02,
     tp_r: float = 2.0,
-    min_range_pct: float = 0.003,
+    min_range_pct: float = 0.0,
 ) -> pd.DataFrame:
     """Detect Doji + directional confirmation signals.
 
@@ -2620,7 +2620,7 @@ def detect_morning_evening_star(
     star_body_max: float = 0.3,
     sl_pct: float = 0.02,
     tp_r: float = 2.0,
-    min_range_pct: float = 0.003,
+    min_range_pct: float = 0.0,
 ) -> pd.DataFrame:
     """Detect Morning Star (3-candle bullish) and Evening Star (3-candle bearish) patterns.
 
