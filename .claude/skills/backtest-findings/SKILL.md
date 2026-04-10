@@ -1,6 +1,6 @@
 ---
 name: backtest-findings
-description: "Interpret sweep tables (ATR/TP/volume/duration) and commit winning params to TOML. Use after any sweep run."
+description: "Interpret backtest sweep tables (ATR/TP/volume/duration) and commit winning params to TOML. Always use this after any sweep run — even when you're just reading a table and not sure what to do with it."
 disable-model-invocation: true
 ---
 
@@ -60,10 +60,12 @@ Always printed alongside main results (regardless of `volume_suppress` setting):
 - **Negative Δ** (Low Vol >> High Vol): do NOT suppress — low-vol signals have edge here
 - Decision threshold: |Δ| > 0.10R is meaningful; < 0.05R is noise
 
-Key A13 findings (global `tp_r=2.0`; verify after changing tp_r per A14b):
-- Suppress: `bos`, `orb`, `fib_golden_zone`, `morning_evening_star`, `trend_day`
-- Do NOT suppress: `pin_bar`, `hammer_hanging_man`, `liquidity_sweep`
-- Neutral: `engulfing`, `doji`, `inside_bar`, `eqh_eql`, `smt_divergence`
+**A14b findings (current per-strategy tp_r — see `volume-sweep` skill for full table):**
+- Suppress: `bos`, `orb`, `fib_golden_zone`, `doji`, `smt_divergence`, `liquidity_sweep`
+- Do NOT suppress: `pin_bar`, `hammer_hanging_man`, `marubozu`, `cvd_divergence`, `morning_evening_star`
+- Neutral: `engulfing`, `eqh_eql`, `fvg`, `inside_bar`, `order_block`, `trend_day`
+
+Note: A13 findings (at tp_r=2.0) are superseded by A14b. `liquidity_sweep` and `morning_evening_star` reversed direction after per-strategy tp_r was applied. Always re-run the volume split after any tp_r change.
 
 ## Reading the duration table
 

@@ -1,6 +1,6 @@
 ---
 name: investigate-strategy
-description: "Investigate why a strategy did or didn't fire on a specific candle. Uses buibui signal test against historical DB data. Load when asked to investigate, debug, or diagnose a strategy signal."
+description: "Debug why a strategy did or didn't fire on a specific candle. Uses buibui signal test to replay detectors against historical DB data. Load whenever the user asks why a signal fired/missed, wants to test a strategy on a past candle, or mentions 'signal test', 'replay', 'investigate', 'diagnose', or 'debug strategy'."
 ---
 
 # Investigate Strategy — Signal Test Reference

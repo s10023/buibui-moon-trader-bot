@@ -1,6 +1,6 @@
 ---
 name: stats-dashboard
-description: "Stats page architecture, card inventory, adding new stat cards, timezone and caching constraints. Load when working on Stats page or stats_lib.py."
+description: "Stats page architecture, card inventory, adding new stat cards, timezone and caching constraints. Always load this skill when working on the Stats page, stats_lib.py, or any P1/P2, ADR, DOW, session, or weekly timing data — even for small fixes."
 ---
 
 # Stats Dashboard Skill
@@ -19,37 +19,55 @@ web/ui/src/pages/Stats.svelte   ← 10-card grid UI
 web/ui/src/api.ts               ← getStats(symbol, days) typed client
 ```
 
-## The 8 Cards
+## The 10 Cards
+
+### Cached in StatsBundle (`compute_all` → `stats_cache` table)
 
 | Card | stats_lib fn | Data key | Notes |
 |------|-------------|----------|-------|
-| P1/P2 Daily | `compute_p1p2_daily` | `p1p2` | overall + per-DOW bars; Low First = green, High First = red |
-| Average Daily Range | `compute_adr` | `adr` | ADR(14), ADR(30), today_range_pct, today_consumed_pct (÷ ADR14) |
-| Hourly Extreme Distribution | `compute_hourly_extremes` | `hourly_extremes` | 24 bars, MYT, green=high, red=low |
-| Day-of-Week Patterns | `compute_dow_patterns` | `dow_patterns` | table: avg_range_pct + bull_pct + avg_return_pct per DOW |
-| Session Breakdown | `compute_session_breakdown` | `sessions` | Asia (08–13 MYT)/London (14–21)/NY (20–03); 04–07 is dead zone; London/NY overlap double-counted |
+| P1/P2 Daily | `compute_p1p2_daily` | `p1p2` | overall + per-DOW bars; `p1_strong_pct` = fraction where P1-direction wick < 20% range; Low First = green, High First = red |
+| Average Daily Range | `compute_adr` | `adr` | ADR(14), ADR(30), today_range_pct, today_consumed_pct (÷ ADR14), today_move_up |
+| Hourly Extreme Distribution | `compute_hourly_extremes` | `hourly_extremes` | 24 bars, MYT; `peak_high/low_hour_by_dow` per-DOW MODE |
+| Day-of-Week Patterns | `compute_dow_patterns` | `dow_patterns` | avg_range_pct, bull_pct, avg_return_pct, `strong_high_pct`/`strong_low_pct` (Str H/L = rejection wick < 20% range) per DOW |
+| Session Breakdown | `compute_session_breakdown` | `sessions` | Asia (08–13 MYT)/London (14–21)/NY (20–03); 04–07 dead zone; London/NY overlap double-counted |
 | Weekly P1/P2 | `compute_weekly_p1p2` | `weekly_p1p2` | raw DOW distribution (not cumulative); use P2 Timing for "is extreme in yet?" |
-| Weekly P2 Timing | `compute_weekly_p2_timing` + `compute_weekly_flip_risk_conditioned` | `weekly_p2_timing` + `weekly_flip_risk_conditioned` | All: unconditional still-ahead % + flip risk (P running extreme gets undercut); Bullish/Bearish P1: conditioned P(P2 still ahead \| p1_direction, DOW) |
-| P1 Wick & Overshoot | `compute_weekly_wick_warning` + `compute_weekly_p1_overshoot` | `weekly_wick_warning` + `weekly_p1_overshoot` | combined card: wick>body % + wick/ADR14 median+IQR |
+| Weekly P2 Timing | `compute_weekly_p2_timing` + `compute_weekly_flip_risk_conditioned` | `weekly_p2_timing` + `weekly_flip_risk_conditioned` | All: unconditional still-ahead % + flip risk; Bullish/Bearish P1 toggle: P(P2 still ahead \| p1_direction, DOW); live "This week" banner |
 
-All wrapped by `compute_all(conn, symbol, days)` → `StatsBundle`.
-`compute_weekly_current_state` is NOT in StatsBundle — always called fresh outside the cache path.
+### Live — never cached (injected after cache hit via `_inject_live_fields()`)
+
+| Card | stats_lib fn | Notes |
+|------|-------------|-------|
+| Daily Distance | `compute_daily_distance(conn, symbol, adr_14, days)` | P(historical daily move > today's) + gap to p80; fresh every request |
+| P1 Wick Rank | `compute_weekly_wick_percentile(conn, symbol, adr_14, days)` | Current week's P1 wick exceedance vs historical P1 wicks; "P1 not yet set" when only one weekly extreme has formed; fresh every request |
+| Weekly Current State | `compute_weekly_current_state(conn, symbol, adr_14, days)` | Live banner: current DOW, move% from weekly open, distance bucket, conditioned low/high-still-ahead probabilities |
+
+**Why split?** The cached bundle is safe to serve stale for a day. The live cards must reflect the current candle's position, so they bypass the cache entirely.
 
 ## Key constraints
 
 - **Timezone**: DuckDB on this host requires `(epoch_ms + INTERVAL 8 HOUR)::TIMESTAMP` for MYT — NOT `AT TIME ZONE`.
 - **Empty data**: `stats_lib.py` raises `ValueError` on empty data; API must return 422/404 not 500.
-- **Caching**: results cached in `stats_cache` table keyed by `(symbol, days, date)`.
+- **Caching**: cached in `stats_cache` table keyed by `(symbol, days, date)`. Live fields never enter the cache.
 - **Sessions**: London (14–21 MYT) and NY (20–03 MYT) overlap — one candle can count in both.
 - **DOW order**: `["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]` — enforce this in Svelte, not API.
+- **Str H/L definition**: Str H = large upper wick (rejection), Str L = large lower wick (rejection). NOT continuation (closed near extreme). `strong_high_pct` = fraction of days where upper wick < 20% of range.
 
 ## Adding a new stat card
 
-1. **Backend**: Add a `compute_<name>(conn, df)` function in `analytics/stats_lib.py`. Return a typed dataclass. Add to `StatsBundle` and call from `compute_all`.
-2. **API**: Add the new field to `StatsResponse` (or create a sub-model). Router picks it up automatically via `compute_all`.
-3. **Types**: Add the TypeScript type in `web/ui/src/api.ts` under `StatsResponse`.
-4. **UI**: Add a `<div class="card">` (or `card-wide`) block in `Stats.svelte`. Follow the existing help-panel pattern (`CARD_HELP` dict + `toggleHelp`).
-5. **Tests**: Add a test in `tests/` using `duckdb.connect(":memory:")`.
+Decide: is the card **cacheable** (uses only historical OHLCV, same answer all day) or **live** (depends on today's candle position)?
+
+**Cacheable card:**
+1. Add `compute_<name>(conn, df)` to `stats_lib.py` → return typed dataclass
+2. Add to `StatsBundle` + call from `compute_all`
+3. Add field to `StatsResponse` in the API model
+4. Add TypeScript type to `StatsResponse` in `web/ui/src/api.ts`
+5. Add `<div class="card">` block in `Stats.svelte`
+6. Add test in `tests/` using `duckdb.connect(":memory:")`
+
+**Live card:**
+1. Add `compute_<name>(conn, symbol, adr_14, days)` to `stats_lib.py` (takes conn directly, not df)
+2. Add to `_inject_live_fields()` in `web/api/routers/stats.py` — called after cache hit/miss
+3. Everything else same as above (step 3–6)
 
 ## Checks after any change
 
@@ -62,8 +80,9 @@ make test
 
 ## UI style rules
 
-- Dark, minimal — no clutter. Load `/frontend-design` skill before any CSS/layout changes.
-- Card title: `font-size: 11px; text-transform: uppercase; color: var(--accent)`.
-- Accent values: `color: var(--accent)`. Green/red: `var(--green)` / `var(--red)`.
-- Help button: small `?` circle, toggles inline `help-panel` below card title.
-- Wide cards (full row): add class `card-wide` (`grid-column: 1 / -1`).
+Load `/frontend-design` before any CSS/layout changes.
+
+- Card title: `font-size: 11px; text-transform: uppercase; color: var(--accent)`
+- Accent values: `color: var(--accent)`. Green/red: `var(--green)` / `var(--red)`
+- Help button: small `?` circle, toggles inline `help-panel` below card title
+- Wide cards (full row): add class `card-wide` (`grid-column: 1 / -1`)

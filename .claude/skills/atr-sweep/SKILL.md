@@ -1,6 +1,6 @@
 ---
 name: atr-sweep
-description: "Find optimal ATR SL multiplier per strategy × TF. Use after SL-related changes or when backtests show high fee drag."
+description: "Find optimal ATR SL multiplier per strategy × TF. Use after SL-related changes, when backtests show high fee drag, or whenever the user wants to tune stop-loss sizing. Also load this when the user asks about atr_sl_multiplier or ATR-based stops."
 disable-model-invocation: true
 ---
 

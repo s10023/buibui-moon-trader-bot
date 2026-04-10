@@ -1,6 +1,6 @@
 ---
 name: wfo-sweep
-description: "Full automated WFO sweep: param-audit → param-sweep → apply → backtest → recalibrate → commit. One command to refresh all strategy params for a config."
+description: "Full automated Walk-Forward Optimization chain: param-audit → param-sweep → apply tp_r to TOML → backtest → recalibrate → commit. Use when a config feels stale, after adding strategies, or whenever the user wants to refresh tp_r values. One command does the whole chain."
 disable-model-invocation: true
 ---
 
