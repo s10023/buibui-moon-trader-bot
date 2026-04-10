@@ -106,6 +106,7 @@ tp_r_15m = 4.0                # sweep peak: cross-symbol +0.24R (1466 trades)
 tp_r_1h  = 4.0                # sweep peak: cross-symbol +0.41R (384 trades)
 tp_r_4h = 3.5                 # WFO cross-symbol: BTC 4h +0.390R, SOL 4h +0.450R (25/15 trades)
 volume_spike_boost = true     # A15 spike sweep: spike +0.59R vs normal +0.23R (73 spikes)
+# min_range_pct = 0.003
 
 [strategy_params.engulfing.SOLUSDT]
 tp_r_4h = 4.0                 # F5 WFO: SOL 4h optimal at 4.0R
@@ -116,12 +117,14 @@ tp_r_15m = 4.5                # WFO ETH 15m +0.211R (519 trades); BTC 15m fully 
 tp_r_1h = 3.5                 # WFO BTC 1h +0.337R (120 trades)
 tp_r_4h = 4.5                 # sweep peak: cross-symbol +0.46R (126 trades)
 volume_suppress = false       # A14b: low-vol edge Δ=-0.22R (low +0.22R vs normal -0.00R)
+# min_range_pct = 0.003
 
 [strategy_params.hammer_hanging_man]
 tp_r = 4.0                    # WFO cross-symbol: BTC/ETH/SOL all positive at 4.0 (15m+1h)
 tp_r_1h = 5.0                 # sweep peak: cross-symbol +0.18R (298 trades); monotonic but per-symbol verified
 tp_r_1d = 3.0                 # WFO OOS: BTC+0.550R n=5 (global 4.0 was overfit; ETH/SOL too thin)
 volume_suppress = false       # A14b: low-vol edge Δ=-0.35R (low +0.17R vs normal -0.18R)
+# min_range_pct = 0.003
 
 [strategy_params.hammer_hanging_man.ETHUSDT]
 tp_r_1h = 5.0                 # F5 WFO: ETH 1h optimal at 5.0R (confirmed by sweep)
@@ -132,6 +135,7 @@ tp_r_15m = 4.0                # WFO cross-symbol: BTC 15m +0.339R@3.5, ETH 15m +
 tp_r_1h  = 3.5                # sweep peak: cross-symbol +0.43R (185 trades)
 tp_r_4h  = 4.5                # sweep peak: cross-symbol +0.43R (41 trades)
 volume_suppress = true        # A14b: normal-vol wins Δ=+0.24R (low +0.26R vs normal +0.50R)
+# min_range_pct = 0.003
 
 [strategy_params.doji.BTCUSDT]
 tp_r_15m = 3.5                # F5 WFO: BTC 15m optimal at 3.5R (tighter than cross-symbol 4.0)
@@ -142,6 +146,7 @@ tp_r_15m = 4.5                # F5 WFO: ETH 15m optimal at 4.5R
 [strategy_params.inside_bar]
 tp_r = 3.0                    # fallback
 tp_r_4h = 3.5                 # sweep peak: cross-symbol +0.23R (172 trades)
+# min_range_pct = 0.003
 
 [strategy_params.morning_evening_star]
 tp_r = 3.0                    # fallback for 1d
@@ -149,6 +154,7 @@ tp_r_15m = 3.5                # WFO BTC 15m OOS +0.339R (162 trades)
 tp_r_1h  = 4.0                # sweep peak: cross-symbol +0.19R (713 trades); was 3.5
 tp_r_4h  = 5.0                # sweep peak: cross-symbol +0.60R (175 trades), per-symbol consistent; was 2.5
 volume_suppress = false       # A14b: low-vol edge Δ=-0.14R (low +0.26R vs normal +0.12R); reversal from A13 at tp_r=2.0
+# min_range_pct = 0.003
 
 [strategy_params.morning_evening_star.BTCUSDT]
 tp_r_15m = 3.5                # F5 WFO: BTC 15m confirmed at 3.5R

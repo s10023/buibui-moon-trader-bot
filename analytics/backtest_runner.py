@@ -59,11 +59,14 @@ def detect_signals_for_strategy(
     smt_trend_filter: int = 1,
     liq_sweep_use_fib: bool = True,
     liq_sweep_fib_range_close: bool = False,
+    min_range_pct: float | None = None,
 ) -> pd.DataFrame | None:
     """Return signals DataFrame, or None when required data is absent.
 
     ohlcv must already be fetched and non-empty by the caller.
     Returns None only when funding or secondary OHLCV data is missing.
+    min_range_pct: when set, passed to pattern detectors that support it to skip
+    micro-candles whose range < min_range_pct × close.
     """
     if strategy == "funding_reversion":
         funding = get_funding_rates(conn, symbol, start_ms, end_ms)
@@ -86,7 +89,13 @@ def detect_signals_for_strategy(
             fib_require_range_close=liq_sweep_fib_range_close,
         )
 
-    return _SIMPLE_DETECTORS[strategy](ohlcv)
+    detector = _SIMPLE_DETECTORS[strategy]
+    if min_range_pct is not None:
+        try:
+            return detector(ohlcv, min_range_pct=min_range_pct)  # type: ignore[call-arg]
+        except TypeError:
+            pass  # detector doesn't support min_range_pct — call without it
+    return detector(ohlcv)
 
 
 def _collect_signals_map(
@@ -149,6 +158,7 @@ def _collect_signals_map(
             smt_trend_filter=cfg.smt_trend_filter,
             liq_sweep_use_fib=cfg.liq_sweep_use_fib,
             liq_sweep_fib_range_close=cfg.liq_sweep_fib_range_close,
+            min_range_pct=cfg.effective_min_range_pct(strategy),
         )
         if signals is None:
             skipped.append(
@@ -209,6 +219,7 @@ def _collect_sweep_results(
             smt_trend_filter=cfg.smt_trend_filter,
             liq_sweep_use_fib=cfg.liq_sweep_use_fib,
             liq_sweep_fib_range_close=cfg.liq_sweep_fib_range_close,
+            min_range_pct=cfg.effective_min_range_pct(strategy),
         )
         if signals is None:
             skipped.append(

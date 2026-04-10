@@ -63,6 +63,8 @@ class StrategyOverride:
     volume_suppress: bool | None = None
     # None = inherit global volume_spike_boost; True/False = per-strategy override.
     volume_spike_boost: bool | None = None
+    # None = use detector default (0.003). Set to e.g. 0.01 to skip micro-candle patterns.
+    min_range_pct: float | None = None
 
 
 @dataclass
@@ -204,6 +206,13 @@ class BacktestSweepConfig:
             return override.volume_spike_boost
         return self.volume_spike_boost
 
+    def effective_min_range_pct(self, strategy: str) -> float | None:
+        """Return per-strategy min_range_pct if set, else None (use detector default)."""
+        override = self.strategy_params.get(strategy)
+        if override is not None and override.min_range_pct is not None:
+            return override.min_range_pct
+        return None
+
 
 def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
     """Load BacktestSweepConfig from a TOML file.
@@ -292,6 +301,7 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
                 )
         raw_vs = vals.get("volume_suppress")
         raw_vsb = vals.get("volume_spike_boost")
+        raw_mrp = vals.get("min_range_pct")
         strategy_params[str(strat_name)] = StrategyOverride(
             tp_r=float(tp_r_val) if tp_r_val is not None else None,
             sl_pct=float(sl_pct_val) if sl_pct_val is not None else None,
@@ -303,6 +313,7 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
             adr_exempt=bool(vals.get("adr_exempt", False)),
             volume_suppress=bool(raw_vs) if raw_vs is not None else None,
             volume_spike_boost=bool(raw_vsb) if raw_vsb is not None else None,
+            min_range_pct=float(raw_mrp) if raw_mrp is not None else None,
         )
 
     # Some signal_watch configs place liq_sweep_use_fib inside a [backtest]

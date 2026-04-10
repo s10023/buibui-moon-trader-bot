@@ -9,14 +9,20 @@ import pytest
 from analytics.indicators_lib import (
     SIGNAL_COLUMNS,
     detect_cvd_divergence,
+    detect_doji,
+    detect_engulfing,
     detect_eqh_eql,
     detect_funding_extreme,
     detect_fvg,
+    detect_hammer_hanging_man,
+    detect_inside_bar,
     detect_liquidity_sweep,
     detect_market_structure,
     detect_marubozu_retest,
+    detect_morning_evening_star,
     detect_orb_breakout,
     detect_order_block,
+    detect_pin_bar,
     detect_smt_divergence,
     detect_trend_day,
     detect_wick_fills,
@@ -2195,3 +2201,199 @@ class TestDetectTrendDay:
         df = _make_ohlcv([_candle(_BASE_TIME, 109.0, 110.0, 99.0, 100.0)])
         result = detect_trend_day(df)
         assert result.iloc[0]["reason"] == "trend_day_bear@109.00-100.00"
+
+
+# ---------------------------------------------------------------------------
+# A16: Candle size filter (min_range_pct)
+# ---------------------------------------------------------------------------
+
+
+class TestCandleSizeFilter:
+    """Each strategy has two cases: micro-candle filtered, normal candle fires."""
+
+    # --- engulfing ---
+
+    def test_engulfing_micro_filtered(self) -> None:
+        # Tiny bearish prev + tiny bullish engulf — range 0.06% of close
+        df = _make_ohlcv(
+            [
+                _candle(_BASE_TIME, 100.0, 100.02, 99.97, 99.98),  # bearish
+                _candle(
+                    _BASE_TIME + 1, 99.96, 100.03, 99.95, 100.01
+                ),  # bullish engulf, range=0.08
+            ]
+        )
+        assert detect_engulfing(df, min_range_pct=0.003).empty
+
+    def test_engulfing_normal_fires(self) -> None:
+        # Bearish prev + bullish engulf with 1% range
+        df = _make_ohlcv(
+            [
+                _candle(_BASE_TIME, 100.0, 100.3, 99.4, 99.5),  # bearish
+                _candle(
+                    _BASE_TIME + 1, 99.3, 100.8, 99.2, 100.6
+                ),  # bullish engulf, range=1.6
+            ]
+        )
+        result = detect_engulfing(df, min_range_pct=0.003)
+        assert len(result) == 1
+        assert result.iloc[0]["direction"] == "long"
+
+    def test_engulfing_disabled_allows_micro(self) -> None:
+        # With min_range_pct=0.0 the micro-candle should fire
+        df = _make_ohlcv(
+            [
+                _candle(_BASE_TIME, 100.0, 100.02, 99.97, 99.98),
+                _candle(_BASE_TIME + 1, 99.96, 100.03, 99.95, 100.01),
+            ]
+        )
+        assert len(detect_engulfing(df, min_range_pct=0.0)) == 1
+
+    # --- pin_bar ---
+
+    def test_pin_bar_micro_filtered(self) -> None:
+        # Perfect pin bar shape but range=0.065 on a 100 price → 0.065% < 0.3%
+        # body=0.01, lower_wick=0.045 (≥2×0.01 ✓), upper_wick=0.005 (≤0.01 ✓)
+        df = _make_ohlcv([_candle(_BASE_TIME, 100.0, 100.015, 99.955, 100.01)])
+        assert detect_pin_bar(df, min_range_pct=0.003).empty
+
+    def test_pin_bar_normal_fires(self) -> None:
+        # body=0.3, lower_wick=1.1 (≥2×0.3 ✓), upper_wick=0.1 (≤0.3 ✓), range=1.5/100.4≈1.5%
+        df = _make_ohlcv([_candle(_BASE_TIME, 100.1, 100.5, 99.0, 100.4)])
+        result = detect_pin_bar(df, min_range_pct=0.003)
+        assert len(result) == 1
+        assert result.iloc[0]["direction"] == "long"
+
+    # --- inside_bar ---
+
+    def test_inside_bar_micro_mother_filtered(self) -> None:
+        # Mother bar range=0.12 on price≈100 → 0.12% < 0.3%
+        # Mother: open=100.0, close=99.9 → body [99.9, 100.0]
+        # Inside: open=99.95, close=99.93 → inside body ✓
+        # Breakout: close=100.05 > 100.0 → would fire
+        df = _make_ohlcv(
+            [
+                _candle(_BASE_TIME, 100.0, 100.06, 99.94, 99.9),  # mother, range=0.12
+                _candle(_BASE_TIME + 1, 99.95, 99.98, 99.91, 99.93),  # inside
+                _candle(_BASE_TIME + 2, 99.95, 100.1, 99.9, 100.05),  # breakout
+            ]
+        )
+        assert detect_inside_bar(df, min_range_pct=0.003).empty
+
+    def test_inside_bar_normal_fires(self) -> None:
+        # Mother bar range=1.2 on price≈100 → 1.2% > 0.3%
+        # Mother: open=100.0, close=99.5 → body [99.5, 100.0]
+        # Inside: open=99.7, close=99.65 → inside body ✓
+        # Breakout: close=100.1 > 100.0 → fires long
+        df = _make_ohlcv(
+            [
+                _candle(_BASE_TIME, 100.0, 100.4, 99.2, 99.5),  # mother, range=1.2
+                _candle(_BASE_TIME + 1, 99.7, 99.9, 99.55, 99.65),  # inside
+                _candle(_BASE_TIME + 2, 99.8, 100.2, 99.75, 100.1),  # breakout
+            ]
+        )
+        result = detect_inside_bar(df, min_range_pct=0.003)
+        assert len(result) == 1
+        assert result.iloc[0]["direction"] == "long"
+
+    # --- hammer_hanging_man ---
+
+    def test_hammer_micro_filtered(self) -> None:
+        # 11 candles: first 10 are a downtrend, candle 11 is a micro hammer shape
+        # Micro: body=0.01, lower_wick=0.045, upper_wick=0.005 → range=0.065% < 0.3%
+        context = [
+            _candle(
+                _BASE_TIME + i,
+                100.0 - i * 0.5,
+                100.1 - i * 0.5,
+                99.4 - i * 0.5,
+                99.5 - i * 0.5,
+            )
+            for i in range(10)
+        ]
+        micro_hammer = _candle(
+            _BASE_TIME + 10, 95.5, 95.515, 95.455, 95.51
+        )  # range=0.06
+        df = _make_ohlcv(context + [micro_hammer])
+        assert detect_hammer_hanging_man(df, min_range_pct=0.003).empty
+
+    def test_hammer_normal_fires(self) -> None:
+        # 11 candles: downtrend context + normal hammer (range≈1.5%)
+        context = [
+            _candle(
+                _BASE_TIME + i,
+                100.0 - i * 0.5,
+                100.1 - i * 0.5,
+                99.4 - i * 0.5,
+                99.5 - i * 0.5,
+            )
+            for i in range(10)
+        ]
+        # After downtrend: close(95.0) < prior_close(100.0 - 9×0.5 = 95.5) → hammer
+        hammer = _candle(
+            _BASE_TIME + 10, 95.1, 95.5, 94.0, 95.4
+        )  # range=1.5, lower_wick=1.1≥2×0.3✓
+        df = _make_ohlcv(context + [hammer])
+        result = detect_hammer_hanging_man(df, min_range_pct=0.003)
+        assert len(result) == 1
+        assert result.iloc[0]["direction"] == "long"
+
+    # --- doji ---
+
+    def test_doji_micro_confirmation_filtered(self) -> None:
+        # Doji: range=0.4, body=0 ✓
+        # Confirmation: range=0.24, body=0.16 ≥ 0.6×0.24=0.144 ✓ but range/close=0.0024 < 0.003
+        df = _make_ohlcv(
+            [
+                _candle(_BASE_TIME, 100.0, 100.2, 99.8, 100.0),  # doji
+                _candle(_BASE_TIME + 1, 100.0, 100.12, 99.88, 100.16),  # micro confirm
+            ]
+        )
+        assert detect_doji(df, min_range_pct=0.003).empty
+
+    def test_doji_normal_fires(self) -> None:
+        # Doji + strong bullish confirmation with 1% range
+        df = _make_ohlcv(
+            [
+                _candle(_BASE_TIME, 100.0, 100.2, 99.8, 100.0),  # doji
+                _candle(
+                    _BASE_TIME + 1, 100.0, 101.0, 99.9, 100.7
+                ),  # confirm: range=1.1, body=0.7≥0.66✓
+            ]
+        )
+        result = detect_doji(df, min_range_pct=0.003)
+        assert len(result) == 1
+        assert result.iloc[0]["direction"] == "long"
+
+    # --- morning_evening_star ---
+
+    def test_morning_star_micro_candle_a_filtered(self) -> None:
+        # Candle A is micro bearish (range=0.08 < 0.3%)
+        df = _make_ohlcv(
+            [
+                _candle(_BASE_TIME, 100.0, 100.02, 99.96, 99.98),  # A: micro bearish
+                _candle(_BASE_TIME + 1, 99.97, 99.99, 99.95, 99.96),  # star: tiny
+                _candle(_BASE_TIME + 2, 99.97, 100.1, 99.95, 100.0),  # B: bullish
+            ]
+        )
+        assert detect_morning_evening_star(df, min_range_pct=0.003).empty
+
+    def test_morning_star_normal_fires(self) -> None:
+        # Candle A: large bearish (range=1.0, >0.3% ✓)
+        # Star: small body ✓
+        # Candle B: bullish, closes above midpoint of A
+        # A: open=100.0, close=99.0 → midpoint=99.5; B close must be > 99.5
+        df = _make_ohlcv(
+            [
+                _candle(_BASE_TIME, 100.0, 100.2, 99.0, 99.1),  # A: bearish, range=1.2
+                _candle(
+                    _BASE_TIME + 1, 99.0, 99.2, 98.8, 99.05
+                ),  # star: body=0.05/0.4=12.5% ≤ 30% ✓
+                _candle(
+                    _BASE_TIME + 2, 99.1, 100.3, 99.0, 100.0
+                ),  # B: bullish, close=100>99.55 ✓
+            ]
+        )
+        result = detect_morning_evening_star(df, min_range_pct=0.003)
+        assert len(result) == 1
+        assert result.iloc[0]["direction"] == "long"
