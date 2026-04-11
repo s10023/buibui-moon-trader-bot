@@ -9,6 +9,41 @@ No module-level side effects.
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge override into base.
+
+    Scalars and arrays: override wins.
+    Dicts/tables: merged key-by-key (override wins per key, base keys not in override are kept).
+    """
+    result: dict[str, Any] = dict(base)
+    for key, val in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(val, dict):
+            result[key] = _deep_merge(result[key], val)
+        else:
+            result[key] = val
+    return result
+
+
+def _load_toml_with_extends(path: str | Path) -> dict[str, Any]:
+    """Load a TOML file, merging a base file first if an 'extends' key is present.
+
+    The 'extends' value must be a filename relative to the config file's directory.
+    The base file is loaded first; the child file's keys are deep-merged on top
+    (child wins on conflicts). The 'extends' key is consumed and not passed to callers.
+    """
+    resolved = Path(path)
+    with open(resolved, "rb") as f:
+        data: dict[str, Any] = tomllib.load(f)
+    base_name = data.pop("extends", None)
+    if base_name is not None:
+        base_path = resolved.parent / str(base_name)
+        with open(base_path, "rb") as f:
+            base: dict[str, Any] = tomllib.load(f)
+        data = _deep_merge(base, data)
+    return data
 
 
 @dataclass
@@ -212,8 +247,7 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
     Raises tomllib.TOMLDecodeError if the file is not valid TOML.
     Raises ValueError if smt_pairs values are not strings.
     """
-    with open(path, "rb") as f:
-        data = tomllib.load(f)
+    data = _load_toml_with_extends(path)
 
     raw_smt = data.get("smt_pairs", {})
     if not isinstance(raw_smt, dict):

@@ -341,8 +341,8 @@
       selStrategies = new Set(cfg.strategies);
     }
 
-    // Day filter
-    if (cfg.day_filter && cfg.day_filter !== "off") {
+    // Day filter — include "off" so all.toml scopes to runs with no day filter
+    if (cfg.day_filter) {
       selDayFilters = new Set([cfg.day_filter]);
     } else {
       selDayFilters = new Set();
@@ -754,7 +754,7 @@
     {@const perTf = Object.entries(cfg.min_trades_per_tf ?? {}).map(([tf, n]) => `${tf}: ${n}`).join(", ")}
     <div class="scope-summary">
       <span class="scope-pill">Min trades: {cfg.min_trades}{perTf ? ` · ${perTf}` : ""}</span>
-      {#if cfg.day_filter && cfg.day_filter !== "off"}
+      {#if cfg.day_filter}
         <span class="scope-pill">Day filter: {cfg.day_filter}</span>
       {/if}
       {#if cfg.fee_pct > 0}

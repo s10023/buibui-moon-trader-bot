@@ -2,20 +2,19 @@
 # Usage: make buibui-signal-watch CONFIG=config/signal_watch.toml
 #
 # CLI flags always take precedence over values here.
+# Inherits: smt_pairs, bias, backtest defaults, and consistent per-strategy flags
+# from strategy_params.toml. Only tue_thu-specific values are defined here.
+
+extends = "strategy_params.toml"
 
 # Symbols to watch — omit to use all symbols from config/coins.json
 # symbols = ["BTCUSDT", "ETHUSDT"]
 
 timeframes = ["15m", "1h", "4h", "1d"]
-telegram = true
-min_sl_pct = 0.005
 
 # Suppress signals by day: "off" | "weekdays" (Mon–Fri) | "tue_thu" (Tue–Thu only)
 # "tue_thu" suppresses Mon and Fri (ICT weekly cycle — manipulation/distribution days)
 day_filter = "tue_thu"
-
-# EMA-50 trend gate for smt_divergence: LONG only above EMA, SHORT only below (1=on, 0=off)
-smt_trend_filter = 1
 
 # Strategies to run
 # wick_fill excluded: all TFs negative (pending BOS confluence fix). fvg added with trend_filter=1 (EMA-50 gate); still broadly negative but included for live monitoring — hard-mode filter suppresses at runtime
@@ -50,25 +49,6 @@ strategies = [
 
 # Cooldown between same (symbol, strategy, direction) alerts, in seconds
 # cooldown_seconds = 3600
-
-# Backtest sweep runner (make buibui-backtest) reads these top-level keys:
-days = 200              # lookback window
-min_trades = 20         # hide combos with fewer trades in sweep table (global fallback)
-# Per-TF overrides — calibrated from backtest_runs DB (200d window).
-# Signal rate is NOT uniform across TFs; higher TFs fire less per candle:
-#   15m: ~0.0016/candle → 200×96×0.0016≈30
-#   1h:  ~0.0042/candle → 200×24×0.0042≈20
-#   4h:  ~0.0083/candle → 200×6×0.0083≈10
-#   1d:  ~0.025/candle  → 200×1×0.025 ≈5
-# To scale for a different window: new_value = base × (your_days / 200)
-#   e.g. 100d → 15m=15, 1h=10, 4h=5, 1d=3
-min_trades_15m = 30
-min_trades_1h  = 20
-min_trades_4h  = 10
-min_trades_1d  = 5
-fee_pct = 0.0005        # 0.05% taker fee per leg; set 0.0 to disable
-# save_results = true   # persist results to backtest_runs / backtest_trades tables in analytics.db
-# tp_r_values = [1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]  # TP ratio sweep — prints comparison table instead of ranked sweep
 
 # Per-strategy timeframe allow-list.
 # Strategies listed here are restricted to the specified TFs.
@@ -105,7 +85,6 @@ tp_r = 3.0                    # fallback
 tp_r_15m = 4.0                # sweep peak: cross-symbol +0.24R (1466 trades)
 tp_r_1h  = 4.0                # sweep peak: cross-symbol +0.41R (384 trades)
 tp_r_4h = 3.5                 # WFO cross-symbol: BTC 4h +0.390R, SOL 4h +0.450R (25/15 trades)
-volume_spike_boost = true     # A15 spike sweep: spike +0.59R vs normal +0.23R (73 spikes)
 
 [strategy_params.engulfing.SOLUSDT]
 tp_r_4h = 4.0                 # F5 WFO: SOL 4h optimal at 4.0R
@@ -115,13 +94,11 @@ tp_r = 3.0                    # fallback
 tp_r_15m = 4.5                # WFO ETH 15m +0.211R (519 trades); BTC 15m fully overfit
 tp_r_1h = 3.5                 # WFO BTC 1h +0.337R (120 trades)
 tp_r_4h = 4.5                 # sweep peak: cross-symbol +0.46R (126 trades)
-volume_suppress = false       # A14b: low-vol edge Δ=-0.22R (low +0.22R vs normal -0.00R)
 
 [strategy_params.hammer_hanging_man]
 tp_r = 4.0                    # WFO cross-symbol: BTC/ETH/SOL all positive at 4.0 (15m+1h)
 tp_r_1h = 5.0                 # sweep peak: cross-symbol +0.18R (298 trades); monotonic but per-symbol verified
 tp_r_1d = 3.0                 # WFO OOS: BTC+0.550R n=5 (global 4.0 was overfit; ETH/SOL too thin)
-volume_suppress = false       # A14b: low-vol edge Δ=-0.35R (low +0.17R vs normal -0.18R)
 
 [strategy_params.hammer_hanging_man.ETHUSDT]
 tp_r_1h = 5.0                 # F5 WFO: ETH 1h optimal at 5.0R (confirmed by sweep)
@@ -148,7 +125,6 @@ tp_r = 3.0                    # fallback for 1d
 tp_r_15m = 3.5                # WFO BTC 15m OOS +0.339R (162 trades)
 tp_r_1h  = 4.0                # sweep peak: cross-symbol +0.19R (713 trades); was 3.5
 tp_r_4h  = 5.0                # sweep peak: cross-symbol +0.60R (175 trades), per-symbol consistent; was 2.5
-volume_suppress = false       # A14b: low-vol edge Δ=-0.14R (low +0.26R vs normal +0.12R); reversal from A13 at tp_r=2.0
 
 [strategy_params.morning_evening_star.BTCUSDT]
 tp_r_15m = 3.5                # F5 WFO: BTC 15m confirmed at 3.5R
@@ -167,7 +143,6 @@ tp_r_1h = 4.5                 # F5 WFO: ETH 1h optimal at 4.5R
 [strategy_params.bos]
 tp_r = 3.0                    # 15m+0.18R, 1h+0.22R (4h excluded via strategy_timeframes)
 adr_exempt = true             # breakout — fires in continuation direction; ADR gate degrades it
-volume_suppress = true        # A14b: normal-vol wins Δ=+0.11R (low -0.32R vs normal -0.20R)
 
 [strategy_params.trend_day]
 tp_r = 3.0                    # fallback for 1d
@@ -175,7 +150,6 @@ tp_r_4h = 3.5                 # WFO OOS: BTC+0.217R ETH+0.041R SOL+0.120R n=52-6
 
 [strategy_params.orb]
 tp_r = 3.0                    # 1h+0.14R (183 trades), 4h+0.17R (119 trades)
-volume_suppress = true        # A14b: normal-vol wins Δ=+0.33R (low -0.16R vs normal +0.18R)
 
 [strategy_params.eqh_eql]
 tp_r_1h = 5.0                 # WFO OOS: ETH+0.336R SOL+0.879R n=21/36; BTC diverges (see per-symbol)
@@ -200,39 +174,11 @@ volume_suppress = true        # A14b: normal-vol wins Δ=+0.78R (low +0.63R vs n
 [strategy_params.smt_divergence.BTCUSDT]
 # No param override — BTC 4h relies on hard-mode backtest gate to suppress.
 
-[strategy_params.liquidity_sweep]
-volume_suppress = true        # A14b: normal-vol wins Δ=+0.17R (low -0.47R vs normal -0.30R); reversal from A13 at tp_r=2.0
-
-[strategy_params.marubozu]
-volume_suppress = false       # A14b: low-vol edge Δ=-0.43R (low -0.07R vs normal -0.50R)
-
-# SMT divergence pairs — primary → secondary (must be in coins.json)
-[smt_pairs]
-BTCUSDT = "ETHUSDT"
-ETHUSDT = "BTCUSDT"
-SOLUSDT = "ETHUSDT"
-
-# Backtest filter for signal watch daemon (signal_config.py reads this sub-table)
-[backtest]
-mode = "hard"
-days = 200
-# Thresholds apply to directional trade count (longs for LONG alerts, shorts for SHORT).
-# Recalibrated from backtest_runs DB p25 directional counts (90d window):
-#   15m p25_long=58 → 20, 1h p25_long=17 → 12, 4h p25_long=4 → 5, 1d p25_long=0 → 2
-min_trades = 12         # global fallback (directional)
-min_trades_15m = 20
-min_trades_1h  = 12
-min_trades_4h  = 5
-min_trades_1d  = 2
-# filter_threshold = 0.3   # legacy win-rate gate (replaced by min_avg_r below)
-min_avg_r = 0.0             # hard mode: suppress if directional avg_r < this (positive EV gate)
+# liquidity_sweep and marubozu volume_suppress flags live in strategy_params.toml (base).
+# backtest, smt_pairs, and bias sections also live in strategy_params.toml (base).
+# Uncomment below to override specific backtest options for this config:
+# [backtest]
 # save_results = true
-# volume_suppress = false   # enable after confirming via `make buibui-backtest` that low-vol trades underperform
-# liq_sweep_use_fib = true  # set false to compare pivot-sweep mode (wick above pivot + close inside) vs fib-extension mode
-# liq_sweep_fib_range_close = false  # (fib mode only) true = close must be < swing_high (inside range), not just < fib level
-
-# F8 bias layer — statistics-driven signal gates
-[bias]
-adr_suppress_threshold = 0.80   # drop signals when today's range >= 80% of ADR-14
-# dow_soft_suppress = false        # reduce confidence by 1★ when direction opposes DOW avg return
-# dow_suppress_min_abs_return = 0.005  # dead-band: avg return must exceed ±0.5% to trigger
+# volume_suppress = false
+# liq_sweep_use_fib = true
+# liq_sweep_fib_range_close = false

@@ -10,6 +10,7 @@ from analytics.signal_config import (
     StrategyOverride,
     SymbolOverride,
     _day_filter_to_weekdays,
+    _deep_merge,
     load_signal_config,
 )
 
@@ -452,6 +453,112 @@ tp_r_15m = 3.5
         # engulfing: SOLUSDT 4h → 4.0, BTCUSDT 4h → strategy-TF 3.5
         assert cfg.effective_tp_r("engulfing", "SOLUSDT", "4h") == 4.0
         assert cfg.effective_tp_r("engulfing", "BTCUSDT", "4h") == 3.5
+
+
+class TestDeepMerge:
+    def test_scalar_override_wins(self) -> None:
+        assert _deep_merge({"a": 1}, {"a": 2}) == {"a": 2}
+
+    def test_base_key_preserved_when_not_overridden(self) -> None:
+        assert _deep_merge({"a": 1, "b": 2}, {"a": 9}) == {"a": 9, "b": 2}
+
+    def test_new_key_added_by_override(self) -> None:
+        assert _deep_merge({"a": 1}, {"b": 2}) == {"a": 1, "b": 2}
+
+    def test_list_override_replaces_entirely(self) -> None:
+        assert _deep_merge({"x": [1, 2]}, {"x": [3]}) == {"x": [3]}
+
+    def test_nested_dict_merged_key_by_key(self) -> None:
+        base = {"s": {"tp_r": 2.0, "adr_exempt": True}}
+        override = {"s": {"tp_r": 3.0}}
+        result = _deep_merge(base, override)
+        assert result == {"s": {"tp_r": 3.0, "adr_exempt": True}}
+
+    def test_deeply_nested_merge(self) -> None:
+        base = {"strategy_params": {"bos": {"volume_suppress": True, "tp_r": 3.0}}}
+        override = {"strategy_params": {"bos": {"tp_r": 4.0}}}
+        result = _deep_merge(base, override)
+        assert result["strategy_params"]["bos"] == {
+            "volume_suppress": True,
+            "tp_r": 4.0,
+        }
+
+    def test_empty_override_returns_base(self) -> None:
+        base = {"a": 1, "b": 2}
+        assert _deep_merge(base, {}) == base
+
+    def test_empty_base_returns_override(self) -> None:
+        assert _deep_merge({}, {"a": 1}) == {"a": 1}
+
+
+class TestLoadWithExtends:
+    def test_child_inherits_base_scalar(self, tmp_path: Path) -> None:
+        base = tmp_path / "base.toml"
+        base.write_text("telegram = true\nfee_pct = 0.0005\n")
+        child = tmp_path / "child.toml"
+        child.write_text('extends = "base.toml"\ntimeframes = ["1h"]\n')
+        cfg = load_signal_config(child)
+        assert cfg.telegram is True
+        assert cfg.timeframes == ["1h"]
+
+    def test_child_overrides_base_scalar(self, tmp_path: Path) -> None:
+        base = tmp_path / "base.toml"
+        base.write_text('telegram = false\ntimeframes = ["4h"]\n')
+        child = tmp_path / "child.toml"
+        child.write_text('extends = "base.toml"\ntelegram = true\n')
+        cfg = load_signal_config(child)
+        assert cfg.telegram is True
+        assert cfg.timeframes == ["4h"]  # inherited from base
+
+    def test_child_strategy_params_merged_with_base(self, tmp_path: Path) -> None:
+        base = tmp_path / "base.toml"
+        base.write_text("[strategy_params.bos]\nvolume_suppress = true\n")
+        child = tmp_path / "child.toml"
+        child.write_text('extends = "base.toml"\n[strategy_params.bos]\ntp_r = 3.0\n')
+        cfg = load_signal_config(child)
+        assert cfg.effective_volume_suppress("bos") is True  # from base
+        assert cfg.effective_tp_r("bos", "BTCUSDT", "1h") == 3.0  # from child
+
+    def test_child_list_replaces_base_list(self, tmp_path: Path) -> None:
+        base = tmp_path / "base.toml"
+        base.write_text('strategies = ["fvg", "bos"]\n')
+        child = tmp_path / "child.toml"
+        child.write_text('extends = "base.toml"\nstrategies = ["engulfing"]\n')
+        cfg = load_signal_config(child)
+        assert cfg.strategies == ["engulfing"]
+
+    def test_extends_key_not_in_parsed_result(self, tmp_path: Path) -> None:
+        base = tmp_path / "base.toml"
+        base.write_text("telegram = true\n")
+        child = tmp_path / "child.toml"
+        child.write_text('extends = "base.toml"\n')
+        # should not raise — 'extends' key must be consumed before parsing
+        cfg = load_signal_config(child)
+        assert cfg.telegram is True
+
+    def test_no_extends_loads_normally(self, tmp_path: Path) -> None:
+        child = tmp_path / "child.toml"
+        child.write_text('telegram = true\ntimeframes = ["15m"]\n')
+        cfg = load_signal_config(child)
+        assert cfg.telegram is True
+        assert cfg.timeframes == ["15m"]
+
+    def test_signal_watch_toml_extends_base(self) -> None:
+        """signal_watch.toml must load correctly via the extends mechanism."""
+        cfg_path = Path(__file__).parent.parent / "config" / "signal_watch.toml"
+        cfg = load_signal_config(cfg_path)
+        # inherited from base
+        assert cfg.smt_pairs == {
+            "BTCUSDT": "ETHUSDT",
+            "ETHUSDT": "BTCUSDT",
+            "SOLUSDT": "ETHUSDT",
+        }
+        assert cfg.bias.adr_suppress_threshold == 0.80
+        assert cfg.backtest.effective_min_trades("15m") == 20
+        assert cfg.backtest.effective_min_trades("4h") == 5
+        # merged: base volume_suppress + child tp_r
+        assert cfg.effective_volume_suppress("bos") is True
+        assert cfg.effective_tp_r("bos", "BTCUSDT", "1h") == 3.0
 
 
 class TestEffectiveVolumeSuppress:
