@@ -1,0 +1,71 @@
+# strategy_params.toml — shared base for main signal_watch configs.
+#
+# Configs that extend this file:
+#   signal_watch.toml          (tue_thu day filter)
+#   signal_watch_weekdays.toml (weekdays day filter)
+#   signal_watch_all.toml      (no day filter)
+#
+# Usage: add  extends = "strategy_params.toml"  as the first line of a config.
+# Keys in the extending config override the base (scalars/arrays replaced, dicts merged).
+# The 'extends' key is consumed by the loader — it is not a real TOML field.
+
+telegram = true
+min_sl_pct = 0.005
+smt_trend_filter = 1
+days = 200
+min_trades = 20
+min_trades_15m = 30
+min_trades_1h  = 20
+min_trades_4h  = 10
+min_trades_1d  = 5
+fee_pct = 0.0005
+
+# SMT divergence pairs — identical across all three main configs.
+[smt_pairs]
+BTCUSDT = "ETHUSDT"
+ETHUSDT = "BTCUSDT"
+SOLUSDT = "ETHUSDT"
+
+# F8 bias layer — identical across all three main configs.
+[bias]
+adr_suppress_threshold = 0.80
+
+# Backtest filter defaults — identical across all three main configs.
+# signal_config.py reads these from [backtest]; backtest_config.py reads min_trades_*tf
+# from the top level (above). Both sets are needed.
+[backtest]
+mode = "hard"
+days = 200
+min_trades = 12
+min_trades_15m = 20
+min_trades_1h  = 12
+min_trades_4h  = 5
+min_trades_1d  = 2
+min_avg_r = 0.0
+
+# Per-strategy flags consistent across all three main configs.
+# Only non-tp_r fields are here — tp_r values are calibrated per day_filter in each config.
+# Strategies not listed here have no per-strategy flag override (loader default applies).
+[strategy_params.bos]
+volume_suppress = true        # A14b: normal-vol wins Δ=+0.11R
+
+[strategy_params.engulfing]
+volume_spike_boost = true     # A15 spike sweep: spike +0.59R vs normal +0.23R (73 spikes)
+
+[strategy_params.pin_bar]
+volume_suppress = false       # A14b: low-vol edge Δ=-0.22R
+
+[strategy_params.hammer_hanging_man]
+volume_suppress = false       # A14b: low-vol edge Δ=-0.35R
+
+[strategy_params.morning_evening_star]
+volume_suppress = false       # A14b: low-vol edge (reversal confirmed)
+
+[strategy_params.orb]
+volume_suppress = true        # A14b: normal-vol wins Δ=+0.33R
+
+[strategy_params.liquidity_sweep]
+volume_suppress = true        # A14b: normal-vol wins Δ=+0.17R
+
+[strategy_params.marubozu]
+volume_suppress = false       # A14b: low-vol edge Δ=-0.43R
