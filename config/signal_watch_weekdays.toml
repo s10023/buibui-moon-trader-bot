@@ -69,7 +69,7 @@ volume_suppress = false       # A14b: low-vol edge Δ=-0.07R (low +0.19R vs norm
 
 [strategy_params.pin_bar]
 tp_r_15m = 4.0                # +0.08R
-tp_r_1h  = 4.0                # +0.16R
+tp_r_1h  = 5.0                # WFO 200d: ETH 1h ↑+0.715R, SOL 1h ↑+0.325R — longs dominate (was 4.0)
 tp_r_4h  = 3.5                # +0.11R (was missing)
 tp_r_1d  = 3.5                # +1.00R (33 trades)
 

@@ -92,7 +92,7 @@ tp_r_4h = 4.0                 # F5 WFO: SOL 4h optimal at 4.0R
 [strategy_params.pin_bar]
 tp_r = 3.0                    # fallback
 tp_r_15m = 4.5                # WFO ETH 15m +0.211R (519 trades); BTC 15m fully overfit
-tp_r_1h = 3.5                 # WFO BTC 1h +0.337R (120 trades)
+tp_r_1h = 5.0                 # WFO 200d: ETH 1h ↑+0.715R, SOL 1h ↑+0.325R — longs dominate (was 3.5)
 tp_r_4h = 4.5                 # sweep peak: cross-symbol +0.46R (126 trades)
 
 [strategy_params.hammer_hanging_man]

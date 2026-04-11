@@ -319,9 +319,9 @@ tp_r_4h = 2.5
         # engulfing: TF-specific (15m=4.0, 1h=4.0, 4h=3.5); no per-symbol for BTC
         assert cfg.effective_tp_r("engulfing", "BTCUSDT", "1h") == 4.0
         assert cfg.effective_tp_r("engulfing", "BTCUSDT", "4h") == 3.5
-        # pin_bar: TF-specific (15m=4.5, 1h=3.5, 4h=4.5)
+        # pin_bar: TF-specific (15m=4.5, 1h=5.0, 4h=4.5); 1h updated WFO 200d ETH+SOL longs
         assert cfg.effective_tp_r("pin_bar", "BTCUSDT", "15m") == 4.5
-        assert cfg.effective_tp_r("pin_bar", "BTCUSDT", "1h") == 3.5
+        assert cfg.effective_tp_r("pin_bar", "BTCUSDT", "1h") == 5.0
         assert cfg.effective_tp_r("pin_bar", "BTCUSDT", "4h") == 4.5
         # hammer_hanging_man: strategy-wide 4.0, 1h override 5.0
         assert cfg.effective_tp_r("hammer_hanging_man", "BTCUSDT", "15m") == 4.0
