@@ -165,6 +165,8 @@ def _compute_backtest(
     adr_exempt: bool = False,
     volume_suppress: bool = False,
     volume_spike_boost: bool = False,
+    tp_r_long: float | None = None,
+    tp_r_short: float | None = None,
 ) -> BacktestResult | None:
     """Run strategy detector on ohlcv[:-1] and backtest the resulting signals.
 
@@ -225,6 +227,8 @@ def _compute_backtest(
         atr_sl_multiplier=atr_sl_multiplier,
         volume_suppress=volume_suppress,
         volume_spike_boost=volume_spike_boost,
+        tp_r_long=tp_r_long,
+        tp_r_short=tp_r_short,
     )
 
 
@@ -454,8 +458,9 @@ def _resolve_tp_r(
     symbol: str,
     tf: str,
     global_tp_r: float,
+    direction: str = "",
 ) -> float:
-    """Resolve effective tp_r: symbol+TF → symbol → TF-specific → strategy-wide → global."""
+    """Resolve effective tp_r: symbol+TF → symbol → TF-specific → directional → strategy-wide → global."""
     if not strategy_params:
         return global_tp_r
     override = strategy_params.get(strategy)
@@ -469,6 +474,10 @@ def _resolve_tp_r(
             return sym.tp_r
     if tf in override.tp_r_per_tf:
         return override.tp_r_per_tf[tf]
+    if direction == "long" and override.tp_r_long is not None:
+        return override.tp_r_long
+    if direction == "short" and override.tp_r_short is not None:
+        return override.tp_r_short
     if override.tp_r is not None:
         return override.tp_r
     return global_tp_r
@@ -811,34 +820,42 @@ def run_scan_cycle(
                             tf,
                             atr_sl_multiplier,
                         )
-                        bt_cache[bt_key] = _compute_backtest(
-                            ohlcv_df=ohlcv_df,
-                            strategy=event.strategy,
-                            secondary_df=sec_df,
-                            funding_df=funding_df,
-                            symbol=symbol,
-                            timeframe=tf,
-                            sl_pct=eff_sl_pct,
-                            tp_r=eff_tp_r,
-                            fee_pct=backtest_cfg.fee_pct,
-                            day_filter=day_filter,
-                            min_sl_pct=backtest_cfg.min_sl_pct,
-                            atr_sl_multiplier=eff_atr_sl,
-                            adr_suppress_threshold=bias_cfg.adr_suppress_threshold
-                            if bias_cfg
-                            else None,
-                            adr_exempt=_is_adr_exempt(strategy_params, event.strategy),
-                            volume_suppress=_resolve_volume_suppress(
-                                strategy_params,
-                                event.strategy,
-                                backtest_cfg.volume_suppress,
-                            ),
-                            volume_spike_boost=_resolve_volume_spike_boost(
-                                strategy_params,
-                                event.strategy,
-                                backtest_cfg.volume_spike_boost,
-                            ),
+                        _tp_r_long = _resolve_tp_r(
+                            strategy_params, event.strategy, symbol, tf, tp_r, "long"
                         )
+                    _tp_r_short = _resolve_tp_r(
+                        strategy_params, event.strategy, symbol, tf, tp_r, "short"
+                    )
+                    bt_cache[bt_key] = _compute_backtest(
+                        ohlcv_df=ohlcv_df,
+                        strategy=event.strategy,
+                        secondary_df=sec_df,
+                        funding_df=funding_df,
+                        symbol=symbol,
+                        timeframe=tf,
+                        sl_pct=eff_sl_pct,
+                        tp_r=eff_tp_r,
+                        fee_pct=backtest_cfg.fee_pct,
+                        day_filter=day_filter,
+                        min_sl_pct=backtest_cfg.min_sl_pct,
+                        atr_sl_multiplier=eff_atr_sl,
+                        adr_suppress_threshold=bias_cfg.adr_suppress_threshold
+                        if bias_cfg
+                        else None,
+                        adr_exempt=_is_adr_exempt(strategy_params, event.strategy),
+                        volume_suppress=_resolve_volume_suppress(
+                            strategy_params,
+                            event.strategy,
+                            backtest_cfg.volume_suppress,
+                        ),
+                        volume_spike_boost=_resolve_volume_spike_boost(
+                            strategy_params,
+                            event.strategy,
+                            backtest_cfg.volume_spike_boost,
+                        ),
+                        tp_r_long=_tp_r_long if _tp_r_long != eff_tp_r else None,
+                        tp_r_short=_tp_r_short if _tp_r_short != eff_tp_r else None,
+                    )
                     bt_results[event.strategy] = bt_cache[bt_key]
 
                 if backtest_cfg.mode == "hard":
@@ -853,13 +870,24 @@ def run_scan_cycle(
                             return True  # not enough trades — noise
                         if e.direction == "long":
                             avg_r = result.long_avg_r
+                            threshold = (
+                                backtest_cfg.min_avg_r_long
+                                if backtest_cfg.min_avg_r_long is not None
+                                else backtest_cfg.min_avg_r
+                            )
                         elif e.direction == "short":
                             avg_r = result.short_avg_r
+                            threshold = (
+                                backtest_cfg.min_avg_r_short
+                                if backtest_cfg.min_avg_r_short is not None
+                                else backtest_cfg.min_avg_r
+                            )
                         else:
                             avg_r = result.avg_r
+                            threshold = backtest_cfg.min_avg_r
                         if avg_r is None:
                             return True  # no directional data — don't suppress
-                        return avg_r >= backtest_cfg.min_avg_r
+                        return avg_r >= threshold
 
                     passing_events = [e for e in passing_events if _passes_ev_gate(e)]
                     if not passing_events:
@@ -1061,8 +1089,11 @@ def run_scan_cycle(
                 # Resolve effective tp_r for this alert — use the max across all
                 # strategies in the confluence group (most optimistic target wins;
                 # individual strategies already filtered to have edge at that level).
+                # Direction-aware: long uses tp_r_long, short uses tp_r_short when set.
                 eff_alert_tp_r = max(
-                    _resolve_tp_r(strategy_params, e.strategy, symbol, tf, tp_r)
+                    _resolve_tp_r(
+                        strategy_params, e.strategy, symbol, tf, tp_r, direction
+                    )
                     for e in dir_events
                 )
                 # Compute CME gap warning for this direction.

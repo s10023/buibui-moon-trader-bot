@@ -98,6 +98,9 @@ class StrategyOverride:
     volume_suppress: bool | None = None
     # None = inherit global volume_spike_boost; True/False = per-strategy override.
     volume_spike_boost: bool | None = None
+    # Optional direction-split TP multiples. Falls back to tp_r when None.
+    tp_r_long: float | None = None
+    tp_r_short: float | None = None
 
 
 @dataclass
@@ -170,8 +173,10 @@ class BacktestSweepConfig:
         """Return per-TF override if configured, else the global min_trades."""
         return self.min_trades_per_tf.get(tf, self.min_trades)
 
-    def effective_tp_r(self, strategy: str, symbol: str, tf: str) -> float:
-        """Resolve tp_r: symbol+TF → symbol → TF-specific → strategy-wide → global."""
+    def effective_tp_r(
+        self, strategy: str, symbol: str, tf: str, direction: str = ""
+    ) -> float:
+        """Resolve tp_r: symbol+TF → symbol → TF-specific → directional → strategy-wide → global."""
         override = self.strategy_params.get(strategy)
         if override is not None:
             sym = override.per_symbol.get(symbol)
@@ -182,6 +187,10 @@ class BacktestSweepConfig:
                     return sym.tp_r
             if tf in override.tp_r_per_tf:
                 return override.tp_r_per_tf[tf]
+            if direction == "long" and override.tp_r_long is not None:
+                return override.tp_r_long
+            if direction == "short" and override.tp_r_short is not None:
+                return override.tp_r_short
             if override.tp_r is not None:
                 return override.tp_r
         return self.tp_r
@@ -274,7 +283,9 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
         tp_r_per_tf = {
             k[len("tp_r_") :]: float(v)
             for k, v in vals.items()
-            if k.startswith("tp_r_") and k != "tp_r" and not isinstance(v, dict)
+            if k.startswith("tp_r_")
+            and k not in ("tp_r", "tp_r_long", "tp_r_short")
+            and not isinstance(v, dict)
         }
         sl_pct_per_tf = {
             k[len("sl_pct_") :]: float(v)
@@ -326,6 +337,8 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
                 )
         raw_vs = vals.get("volume_suppress")
         raw_vsb = vals.get("volume_spike_boost")
+        raw_tp_r_long = vals.get("tp_r_long")
+        raw_tp_r_short = vals.get("tp_r_short")
         strategy_params[str(strat_name)] = StrategyOverride(
             tp_r=float(tp_r_val) if tp_r_val is not None else None,
             sl_pct=float(sl_pct_val) if sl_pct_val is not None else None,
@@ -337,6 +350,8 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
             adr_exempt=bool(vals.get("adr_exempt", False)),
             volume_suppress=bool(raw_vs) if raw_vs is not None else None,
             volume_spike_boost=bool(raw_vsb) if raw_vsb is not None else None,
+            tp_r_long=float(raw_tp_r_long) if raw_tp_r_long is not None else None,
+            tp_r_short=float(raw_tp_r_short) if raw_tp_r_short is not None else None,
         )
 
     # Some signal_watch configs place liq_sweep_use_fib inside a [backtest]

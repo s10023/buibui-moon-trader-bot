@@ -38,6 +38,21 @@ class StrategySpec:
     #   {"default": 2, "4h": 4}  → 4★ on 4h, 2★ on all other TFs
     # A plain int applies to all TFs.
     confidence: dict[str, int] | int = 3
+    # Optional direction-split TP multiples. When set, the directional value is used
+    # instead of tp_r for that direction. Falls back to tp_r when None.
+    tp_r_long: float | None = None
+    tp_r_short: float | None = None
+
+    def get_tp_r(self, direction: str) -> float:
+        """Resolve effective tp_r for a given direction.
+
+        Falls back to the combined tp_r (2.0) when no directional value is set.
+        """
+        if direction == "long" and self.tp_r_long is not None:
+            return self.tp_r_long
+        if direction == "short" and self.tp_r_short is not None:
+            return self.tp_r_short
+        return 2.0
 
     def get_confidence(self, tf: str) -> int:
         """Resolve confidence for a given timeframe.
