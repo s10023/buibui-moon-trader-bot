@@ -65,12 +65,16 @@ volume_suppress = true        # A14b: normal-vol wins Δ=+0.11R
 volume_spike_boost = true     # A15 spike sweep: spike +0.59R vs normal +0.23R (73 spikes)
 
 [strategy_params.pin_bar]
+tp_r_long = 5.0               # WFO 200d: ETH 1h+15m ↑+0.715R, SOL 1h ↑+0.325R — longs dominate
+tp_r_short = 3.0              # WFO 200d: ETH 1h ↓+0.093R; shorts suppressed by hard mode where negative
 volume_suppress = false       # A14b: low-vol edge Δ=-0.22R
 
 [strategy_params.hammer_hanging_man]
 volume_suppress = false       # A14b: low-vol edge Δ=-0.35R
 
 [strategy_params.morning_evening_star]
+tp_r_long = 4.0               # WFO 200d: BTC 15m ↑+0.364R, ETH 15m ↑+0.467R — longs dominate
+tp_r_short = 3.0              # WFO 200d: shorts negative on 15m across BTC+ETH; 3.0 = hard-mode fallback
 volume_suppress = false       # A14b: low-vol edge (reversal confirmed)
 
 [strategy_params.orb]
@@ -78,6 +82,10 @@ volume_suppress = true        # A14b: normal-vol wins Δ=+0.33R
 
 [strategy_params.liquidity_sweep]
 volume_suppress = true        # A14b: normal-vol wins Δ=+0.17R
+
+[strategy_params.inside_bar]
+tp_r_long = 4.0               # WFO 200d: BTC 1h ↑+0.237R@3.0, SOL 1h ↑+0.286R@4.5 — cross-sym 4.0
+tp_r_short = 2.0              # WFO 200d: BTC 1h ↓+0.229R@2.0, SOL 1h ↓+0.303R@1.5 — shorts want fast exit
 
 [strategy_params.marubozu]
 volume_suppress = false       # A14b: low-vol edge Δ=-0.43R
