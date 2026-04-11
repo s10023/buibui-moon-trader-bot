@@ -326,6 +326,8 @@ def run_backtest(
     atr_sl_multiplier: float | None = None,
     volume_suppress: bool = False,
     volume_spike_boost: bool = False,
+    tp_r_long: float | None = None,
+    tp_r_short: float | None = None,
 ) -> BacktestResult:
     """Simulate trades from signals on historical OHLCV.
 
@@ -335,7 +337,8 @@ def run_backtest(
             otherwise sl_pct fraction of entry price (fixed fallback).
             min_sl_pct enforces a minimum SL distance from entry (e.g. 0.005 = 0.5%),
             widening SLs that land too close to entry.
-    TP:     tp_r × risk distance from entry price.
+    TP:     tp_r × risk distance from entry price. When tp_r_long / tp_r_short are set,
+            the directional value is used instead of tp_r for that trade direction.
     fee_pct: taker fee fraction applied on both entry and exit legs
              (e.g. 0.0005 for 0.05%). Fee drag is deducted from pnl_r.
 
@@ -392,6 +395,14 @@ def run_backtest(
         entry_time = int(ohlcv_times_np[entry_idx])
         entry_price = opens_np[entry_idx]
 
+        # Resolve direction-split TP multiple for this trade.
+        if direction == "long" and tp_r_long is not None:
+            eff_tp_r = tp_r_long
+        elif direction == "short" and tp_r_short is not None:
+            eff_tp_r = tp_r_short
+        else:
+            eff_tp_r = tp_r
+
         # SL priority: structural (per-signal) → ATR-based → fixed sl_pct fraction.
         if sig_sl_np is not None:
             sl_price = sig_sl_np[si]
@@ -404,9 +415,9 @@ def run_backtest(
                 else:
                     sl_price = max(sl_price, entry_price + min_dist)
             if direction == "long":
-                tp_price = entry_price + tp_r * abs(entry_price - sl_price)
+                tp_price = entry_price + eff_tp_r * abs(entry_price - sl_price)
             else:
-                tp_price = entry_price - tp_r * abs(entry_price - sl_price)
+                tp_price = entry_price - eff_tp_r * abs(entry_price - sl_price)
         elif atr_sl_multiplier is not None:
             atr = _compute_atr14(highs_np, lows_np, closes_np, sig_idx)
             if atr is not None:
@@ -415,24 +426,24 @@ def run_backtest(
                     sl_dist = max(sl_dist, entry_price * min_sl_pct)
                 if direction == "long":
                     sl_price = entry_price - sl_dist
-                    tp_price = entry_price + tp_r * sl_dist
+                    tp_price = entry_price + eff_tp_r * sl_dist
                 else:
                     sl_price = entry_price + sl_dist
-                    tp_price = entry_price - tp_r * sl_dist
+                    tp_price = entry_price - eff_tp_r * sl_dist
             else:
                 # Fallback to sl_pct when ATR unavailable (e.g. signal at candle 0)
                 if direction == "long":
                     sl_price = entry_price * (1.0 - sl_pct)
-                    tp_price = entry_price + tp_r * (entry_price - sl_price)
+                    tp_price = entry_price + eff_tp_r * (entry_price - sl_price)
                 else:
                     sl_price = entry_price * (1.0 + sl_pct)
-                    tp_price = entry_price - tp_r * (sl_price - entry_price)
+                    tp_price = entry_price - eff_tp_r * (sl_price - entry_price)
         elif direction == "long":
             sl_price = entry_price * (1.0 - sl_pct)
-            tp_price = entry_price + tp_r * (entry_price - sl_price)
+            tp_price = entry_price + eff_tp_r * (entry_price - sl_price)
         else:
             sl_price = entry_price * (1.0 + sl_pct)
-            tp_price = entry_price - tp_r * (sl_price - entry_price)
+            tp_price = entry_price - eff_tp_r * (sl_price - entry_price)
 
         trade = Trade(
             signal_time=signal_time,

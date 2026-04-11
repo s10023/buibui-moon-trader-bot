@@ -100,6 +100,9 @@ class StrategyOverride:
     volume_suppress: bool | None = None
     # None = inherit global [backtest].volume_spike_boost; True/False = per-strategy override.
     volume_spike_boost: bool | None = None
+    # Optional direction-split TP multiples. Falls back to tp_r when None.
+    tp_r_long: float | None = None
+    tp_r_short: float | None = None
 
 
 def _day_filter_to_weekdays(day_filter: str) -> list[int] | None:
@@ -145,6 +148,10 @@ class BacktestFilterConfig:
     # hard mode only: suppress if directional avg_r < this (replaces win-rate gate)
     # 0.0 = must have positive EV; set lower to allow marginally negative strategies
     min_avg_r: float = 0.0
+    # Optional direction-split thresholds. When set, these override min_avg_r for that
+    # direction only. Falls back to min_avg_r when None.
+    min_avg_r_long: float | None = None
+    min_avg_r_short: float | None = None
     # Persist computed backtest results to backtest_runs table (default on)
     save_results: bool = True
     # Taker fee per leg (e.g. 0.0005 = 0.05%); applied to each backtest trade
@@ -218,8 +225,10 @@ class SignalWatchConfig:
     # Statistics-driven bias layer (F8): ADR progress gate + DOW soft suppress.
     bias: BiasConfig = field(default_factory=BiasConfig)
 
-    def effective_tp_r(self, strategy: str, symbol: str, tf: str) -> float:
-        """Resolve tp_r: symbol+TF → symbol → TF-specific → strategy-wide → global."""
+    def effective_tp_r(
+        self, strategy: str, symbol: str, tf: str, direction: str = ""
+    ) -> float:
+        """Resolve tp_r: symbol+TF → symbol → TF-specific → directional → strategy-wide → global."""
         override = self.strategy_params.get(strategy)
         if override is not None:
             sym = override.per_symbol.get(symbol)
@@ -230,6 +239,10 @@ class SignalWatchConfig:
                     return sym.tp_r
             if tf in override.tp_r_per_tf:
                 return override.tp_r_per_tf[tf]
+            if direction == "long" and override.tp_r_long is not None:
+                return override.tp_r_long
+            if direction == "short" and override.tp_r_short is not None:
+                return override.tp_r_short
             if override.tp_r is not None:
                 return override.tp_r
         return self.tp_r
@@ -321,6 +334,16 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         min_trades_per_tf=bt_per_tf,
         filter_threshold=float(raw_bt.get("filter_threshold", 0.45)),
         min_avg_r=float(raw_bt.get("min_avg_r", 0.0)),
+        min_avg_r_long=(
+            float(raw_bt["min_avg_r_long"])
+            if raw_bt.get("min_avg_r_long") is not None
+            else None
+        ),
+        min_avg_r_short=(
+            float(raw_bt["min_avg_r_short"])
+            if raw_bt.get("min_avg_r_short") is not None
+            else None
+        ),
         save_results=bool(raw_bt.get("save_results", True)),
         # [backtest].fee_pct takes precedence; falls back to top-level fee_pct
         fee_pct=float(raw_bt.get("fee_pct", data.get("fee_pct", 0.0))),
@@ -343,7 +366,9 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         tp_r_per_tf = {
             k[len("tp_r_") :]: float(v)
             for k, v in vals.items()
-            if k.startswith("tp_r_") and k != "tp_r" and not isinstance(v, dict)
+            if k.startswith("tp_r_")
+            and k not in ("tp_r", "tp_r_long", "tp_r_short")
+            and not isinstance(v, dict)
         }
         sl_pct_per_tf = {
             k[len("sl_pct_") :]: float(v)
@@ -395,6 +420,8 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
                 )
         raw_vs = vals.get("volume_suppress")
         raw_vsb = vals.get("volume_spike_boost")
+        raw_tp_r_long = vals.get("tp_r_long")
+        raw_tp_r_short = vals.get("tp_r_short")
         strategy_params[str(strat_name)] = StrategyOverride(
             tp_r=float(tp_r_val) if tp_r_val is not None else None,
             sl_pct=float(sl_pct_val) if sl_pct_val is not None else None,
@@ -406,6 +433,8 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
             adr_exempt=bool(vals.get("adr_exempt", False)),
             volume_suppress=bool(raw_vs) if raw_vs is not None else None,
             volume_spike_boost=bool(raw_vsb) if raw_vsb is not None else None,
+            tp_r_long=float(raw_tp_r_long) if raw_tp_r_long is not None else None,
+            tp_r_short=float(raw_tp_r_short) if raw_tp_r_short is not None else None,
         )
 
     raw_bias = data.get("bias", {})

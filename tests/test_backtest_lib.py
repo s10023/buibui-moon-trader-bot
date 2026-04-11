@@ -1317,3 +1317,139 @@ class TestATRBasedSL:
         )
         assert len(result.trades) == 1
         assert result.trades[0].sl_price == pytest.approx(950.0)
+
+
+# ---------------------------------------------------------------------------
+# Directional tp_r (Gate 3)
+# ---------------------------------------------------------------------------
+
+
+class TestDirectionalTpR:
+    """run_backtest honours tp_r_long / tp_r_short per trade direction."""
+
+    def _make_ohlcv_flat(self, n: int = 5, base: float = 100.0) -> pd.DataFrame:
+        return _make_ohlcv(
+            [_candle(_BASE_TIME + i, base, base + 10, base - 5, base) for i in range(n)]
+        )
+
+    def test_long_uses_tp_r_long(self) -> None:
+        """Long trade TP uses tp_r_long when set."""
+        # Entry 100, sl=95 (sl_pct=0.05), tp_r=2.0, tp_r_long=1.0
+        # Combined tp = 100 + 2.0 * 5 = 110
+        # Long tp with tp_r_long = 100 + 1.0 * 5 = 105
+        ohlcv = _make_ohlcv(
+            [
+                _candle(_BASE_TIME + 0, 100, 104, 96, 102),  # signal candle
+                _candle(
+                    _BASE_TIME + 1, 100, 106, 96, 103
+                ),  # entry; high=106 > 105=tp_long → win
+                _candle(_BASE_TIME + 2, 100, 103, 96, 102),
+            ]
+        )
+        signals = _make_signals(
+            [{"open_time": _BASE_TIME + 0, "direction": "long", "reason": "x"}]
+        )
+        result = run_backtest(
+            ohlcv,
+            signals,
+            "BTCUSDT",
+            "4h",
+            "fvg",
+            sl_pct=0.05,
+            tp_r=2.0,
+            tp_r_long=1.0,
+        )
+        assert len(result.closed_trades) == 1
+        assert result.closed_trades[0].outcome == "win"
+        # TP distance should reflect tp_r_long=1.0, not tp_r=2.0
+        trade = result.closed_trades[0]
+        expected_tp = trade.entry_price + 1.0 * (trade.entry_price - trade.sl_price)
+        assert trade.tp_price == pytest.approx(expected_tp)
+
+    def test_short_uses_tp_r_short(self) -> None:
+        """Short trade TP uses tp_r_short when set."""
+        # Entry 100, sl=105 (sl_pct=0.05), tp_r_short=1.0 → tp = 100 - 5 = 95
+        ohlcv = _make_ohlcv(
+            [
+                _candle(_BASE_TIME + 0, 100, 104, 96, 102),  # signal candle
+                _candle(
+                    _BASE_TIME + 1, 100, 103, 94, 97
+                ),  # entry; low=94 < 95=tp_short → win
+                _candle(_BASE_TIME + 2, 100, 103, 96, 102),
+            ]
+        )
+        signals = _make_signals(
+            [{"open_time": _BASE_TIME + 0, "direction": "short", "reason": "x"}]
+        )
+        result = run_backtest(
+            ohlcv,
+            signals,
+            "BTCUSDT",
+            "4h",
+            "fvg",
+            sl_pct=0.05,
+            tp_r=2.0,
+            tp_r_short=1.0,
+        )
+        assert len(result.closed_trades) == 1
+        assert result.closed_trades[0].outcome == "win"
+        trade = result.closed_trades[0]
+        expected_tp = trade.entry_price - 1.0 * (trade.sl_price - trade.entry_price)
+        assert trade.tp_price == pytest.approx(expected_tp)
+
+    def test_no_directional_override_uses_tp_r(self) -> None:
+        """When tp_r_long/short are None, tp_r is used unchanged."""
+        ohlcv = _make_ohlcv(
+            [
+                _candle(_BASE_TIME + 0, 100, 104, 96, 102),
+                _candle(_BASE_TIME + 1, 100, 120, 96, 110),  # high far above any TP
+            ]
+        )
+        signals = _make_signals(
+            [{"open_time": _BASE_TIME + 0, "direction": "long", "reason": "x"}]
+        )
+        result_base = run_backtest(
+            ohlcv, signals, "BTCUSDT", "4h", "fvg", sl_pct=0.05, tp_r=2.0
+        )
+        result_dir = run_backtest(
+            ohlcv,
+            signals,
+            "BTCUSDT",
+            "4h",
+            "fvg",
+            sl_pct=0.05,
+            tp_r=2.0,
+            tp_r_long=None,
+            tp_r_short=None,
+        )
+        assert result_base.closed_trades[0].tp_price == pytest.approx(
+            result_dir.closed_trades[0].tp_price
+        )
+
+    def test_long_tp_r_long_does_not_affect_short(self) -> None:
+        """tp_r_long only applies to long trades; shorts use tp_r."""
+        ohlcv = _make_ohlcv(
+            [
+                _candle(_BASE_TIME + 0, 100, 104, 96, 102),
+                _candle(
+                    _BASE_TIME + 1, 100, 103, 85, 90
+                ),  # low=85 reaches both tp_r_short candidates
+            ]
+        )
+        signals = _make_signals(
+            [{"open_time": _BASE_TIME + 0, "direction": "short", "reason": "x"}]
+        )
+        result = run_backtest(
+            ohlcv,
+            signals,
+            "BTCUSDT",
+            "4h",
+            "fvg",
+            sl_pct=0.05,
+            tp_r=2.0,
+            tp_r_long=0.5,  # should not affect short
+        )
+        trade = result.closed_trades[0]
+        # TP for short = entry - tp_r * sl_dist (tp_r=2.0, not tp_r_long=0.5)
+        expected_tp = trade.entry_price - 2.0 * (trade.sl_price - trade.entry_price)
+        assert trade.tp_price == pytest.approx(expected_tp)

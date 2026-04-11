@@ -654,3 +654,104 @@ tp_r = 3.0
         # neutral strategies (no flag) → fall back to global default (false)
         assert cfg.effective_volume_suppress("engulfing") is False
         assert cfg.effective_volume_suppress("eqh_eql") is False
+
+
+class TestDirectionalTpR:
+    """Gate 3: direction-split tp_r and min_avg_r."""
+
+    def test_effective_tp_r_directional_long(self) -> None:
+        cfg = SignalWatchConfig(
+            tp_r=2.5,
+            strategy_params={
+                "bos": StrategyOverride(tp_r=2.5, tp_r_long=1.8, tp_r_short=2.5)
+            },
+        )
+        assert cfg.effective_tp_r("bos", "BTCUSDT", "1h", direction="long") == 1.8
+        assert cfg.effective_tp_r("bos", "BTCUSDT", "1h", direction="short") == 2.5
+        # no direction → strategy-wide tp_r
+        assert cfg.effective_tp_r("bos", "BTCUSDT", "1h") == 2.5
+
+    def test_effective_tp_r_directional_only_long_set(self) -> None:
+        cfg = SignalWatchConfig(
+            tp_r=2.0,
+            strategy_params={"engulfing": StrategyOverride(tp_r=3.0, tp_r_long=2.0)},
+        )
+        assert cfg.effective_tp_r("engulfing", "BTCUSDT", "1h", direction="long") == 2.0
+        # short not set → falls back to strategy-wide tp_r
+        assert (
+            cfg.effective_tp_r("engulfing", "BTCUSDT", "1h", direction="short") == 3.0
+        )
+
+    def test_effective_tp_r_tf_specific_beats_directional(self) -> None:
+        """TF-specific override takes priority over directional."""
+        cfg = SignalWatchConfig(
+            tp_r=2.0,
+            strategy_params={
+                "bos": StrategyOverride(
+                    tp_r=2.5, tp_r_long=1.8, tp_r_per_tf={"1h": 3.0}
+                )
+            },
+        )
+        # TF-specific wins even when direction="long"
+        assert cfg.effective_tp_r("bos", "BTCUSDT", "1h", direction="long") == 3.0
+        # No TF override on 4h → directional applies
+        assert cfg.effective_tp_r("bos", "BTCUSDT", "4h", direction="long") == 1.8
+
+    def test_effective_tp_r_no_override_direction_falls_back_to_global(self) -> None:
+        cfg = SignalWatchConfig(tp_r=2.0, strategy_params={})
+        assert cfg.effective_tp_r("pin_bar", "BTCUSDT", "1h", direction="long") == 2.0
+        assert cfg.effective_tp_r("pin_bar", "BTCUSDT", "1h", direction="short") == 2.0
+
+    def test_load_tp_r_long_short_from_toml(self, tmp_path: Path) -> None:
+        content = """\
+[strategy_params.bos]
+tp_r = 2.5
+tp_r_long = 1.8
+tp_r_short = 2.5
+"""
+        p = _write_toml(tmp_path, content)
+        cfg = load_signal_config(p)
+        override = cfg.strategy_params["bos"]
+        assert override.tp_r == 2.5
+        assert override.tp_r_long == 1.8
+        assert override.tp_r_short == 2.5
+        # tp_r_long/short must NOT appear in tp_r_per_tf
+        assert "long" not in override.tp_r_per_tf
+        assert "short" not in override.tp_r_per_tf
+
+    def test_load_tp_r_long_short_not_in_tp_r_per_tf(self, tmp_path: Path) -> None:
+        """tp_r_long and tp_r_short must be excluded from tp_r_per_tf dict."""
+        content = """\
+[strategy_params.engulfing]
+tp_r = 3.0
+tp_r_long = 2.5
+tp_r_short = 3.5
+tp_r_4h = 4.0
+"""
+        p = _write_toml(tmp_path, content)
+        cfg = load_signal_config(p)
+        override = cfg.strategy_params["engulfing"]
+        assert override.tp_r_per_tf == {"4h": 4.0}
+        assert override.tp_r_long == 2.5
+        assert override.tp_r_short == 3.5
+
+    def test_min_avg_r_directional_parsed_from_toml(self, tmp_path: Path) -> None:
+        content = """\
+[backtest]
+mode = "hard"
+min_avg_r = 0.0
+min_avg_r_long = -0.1
+min_avg_r_short = 0.2
+"""
+        p = _write_toml(tmp_path, content)
+        cfg = load_signal_config(p)
+        assert cfg.backtest.min_avg_r == 0.0
+        assert cfg.backtest.min_avg_r_long == -0.1
+        assert cfg.backtest.min_avg_r_short == 0.2
+
+    def test_min_avg_r_directional_defaults_to_none(self) -> None:
+        from analytics.signal_config import BacktestFilterConfig
+
+        cfg = BacktestFilterConfig()
+        assert cfg.min_avg_r_long is None
+        assert cfg.min_avg_r_short is None

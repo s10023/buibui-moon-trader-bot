@@ -2973,3 +2973,59 @@ class TestBiasLayer:
         alerts = self._run_with_bias(tmp_path, signals_df, ctx, bias_cfg)
         assert len(alerts) == 1
         assert "★★★☆☆" in alerts[0], "Confidence unchanged when dow_soft_suppress=False"
+
+
+# ---------------------------------------------------------------------------
+# Gate 3: _resolve_tp_r with direction
+# ---------------------------------------------------------------------------
+
+
+class TestResolveTpRDirectional:
+    """Unit tests for _resolve_tp_r direction parameter."""
+
+    def test_returns_global_when_no_strategy_params(self) -> None:
+        from analytics.signal_lib import _resolve_tp_r
+
+        assert _resolve_tp_r(None, "bos", "BTCUSDT", "1h", 2.0, "long") == 2.0
+
+    def test_returns_tp_r_long_when_set(self) -> None:
+        from analytics.signal_config import StrategyOverride
+        from analytics.signal_lib import _resolve_tp_r
+
+        params = {"bos": StrategyOverride(tp_r=2.5, tp_r_long=1.8)}
+        assert _resolve_tp_r(params, "bos", "BTCUSDT", "1h", 2.0, "long") == 1.8
+
+    def test_returns_tp_r_short_when_set(self) -> None:
+        from analytics.signal_config import StrategyOverride
+        from analytics.signal_lib import _resolve_tp_r
+
+        params = {"bos": StrategyOverride(tp_r=2.5, tp_r_short=3.0)}
+        assert _resolve_tp_r(params, "bos", "BTCUSDT", "1h", 2.0, "short") == 3.0
+
+    def test_tf_specific_beats_directional(self) -> None:
+        from analytics.signal_config import StrategyOverride
+        from analytics.signal_lib import _resolve_tp_r
+
+        params = {
+            "bos": StrategyOverride(tp_r=2.5, tp_r_long=1.8, tp_r_per_tf={"1h": 4.0})
+        }
+        # TF-specific wins over directional
+        assert _resolve_tp_r(params, "bos", "BTCUSDT", "1h", 2.0, "long") == 4.0
+        # No TF override → directional applies
+        assert _resolve_tp_r(params, "bos", "BTCUSDT", "4h", 2.0, "long") == 1.8
+
+    def test_no_direction_falls_back_to_strategy_wide(self) -> None:
+        from analytics.signal_config import StrategyOverride
+        from analytics.signal_lib import _resolve_tp_r
+
+        params = {"bos": StrategyOverride(tp_r=2.5, tp_r_long=1.8, tp_r_short=3.0)}
+        # direction="" → skip directional, return strategy-wide tp_r
+        assert _resolve_tp_r(params, "bos", "BTCUSDT", "1h", 2.0, "") == 2.5
+
+    def test_direction_not_set_returns_strategy_wide_tp_r(self) -> None:
+        from analytics.signal_config import StrategyOverride
+        from analytics.signal_lib import _resolve_tp_r
+
+        # tp_r_long not set, direction=long → fall through to strategy-wide
+        params = {"bos": StrategyOverride(tp_r=2.5)}
+        assert _resolve_tp_r(params, "bos", "BTCUSDT", "1h", 2.0, "long") == 2.5
