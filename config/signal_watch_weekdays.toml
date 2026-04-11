@@ -124,7 +124,7 @@ tp_r_1d  = 4.0                # +0.23R
 
 [strategy_params.orb]
 tp_r_1h  = 4.5                # +0.02R (barely positive)
-tp_r_4h  = 3.5                # +0.05R
+tp_r_4h  = 5.0                # TP sweep peak: cross-symbol +0.18R (105 trades); was 3.5=+0.05R
 
 [strategy_params.liquidity_sweep]
 tp_r_1h  = 5.0                # -0.25R (all negative; hard mode will suppress)

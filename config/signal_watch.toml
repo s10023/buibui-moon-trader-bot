@@ -45,6 +45,7 @@ strategies = [
 # atr_sl_multiplier_values = [0.5, 1.0, 1.5, 2.0, 2.5]  # sweep: comparison table across multipliers (like tp_r_values)
 # NOTE (2026-03-28): ATR sweep showed zero impact — all strategies set sl_price (structural SL),
 # so ATR is never reached. Fix needed: use max(structural_sl_dist, atr_sl_dist) as floor first.
+# tp_r_values = [1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]  # TP ratio sweep
 # tp_r = 2.0
 
 # Cooldown between same (symbol, strategy, direction) alerts, in seconds
@@ -92,7 +93,7 @@ tp_r_4h = 4.0                 # F5 WFO: SOL 4h optimal at 4.0R
 [strategy_params.pin_bar]
 tp_r = 3.0                    # fallback
 tp_r_15m = 4.5                # WFO ETH 15m +0.211R (519 trades); BTC 15m fully overfit
-tp_r_1h = 5.0                 # WFO 200d: ETH 1h ↑+0.715R, SOL 1h ↑+0.325R — longs dominate (was 3.5)
+tp_r_1h = 3.5                 # TP sweep peak: cross-symbol +0.26R (454 trades); longs use tp_r_long=5.0 from base
 tp_r_4h = 4.5                 # sweep peak: cross-symbol +0.46R (126 trades)
 
 [strategy_params.hammer_hanging_man]
@@ -106,7 +107,7 @@ tp_r_1h = 5.0                 # F5 WFO: ETH 1h optimal at 5.0R (confirmed by swe
 [strategy_params.doji]
 tp_r = 3.0                    # fallback
 tp_r_15m = 4.0                # WFO cross-symbol: BTC 15m +0.339R@3.5, ETH 15m +0.384R@4.0
-tp_r_1h  = 3.5                # sweep peak: cross-symbol +0.43R (185 trades)
+tp_r_1h  = 3.0                # TP sweep peak: cross-symbol +0.12R@3.0 (185 trades); was 3.5=+0.00R
 tp_r_4h  = 4.5                # sweep peak: cross-symbol +0.43R (41 trades)
 volume_suppress = true        # A14b: normal-vol wins Δ=+0.24R (low +0.26R vs normal +0.50R)
 
@@ -149,7 +150,9 @@ tp_r = 3.0                    # fallback for 1d
 tp_r_4h = 3.5                 # WFO OOS: BTC+0.217R ETH+0.041R SOL+0.120R n=52-65 (was 5.0 overfit)
 
 [strategy_params.orb]
-tp_r = 3.0                    # 1h+0.14R (183 trades), 4h+0.17R (119 trades)
+tp_r = 3.0                    # fallback for 1d
+tp_r_1h = 4.5                 # TP sweep peak: cross-symbol +0.17R (183 trades); was 3.0=+0.14R
+tp_r_4h = 5.0                 # TP sweep peak: cross-symbol +0.26R (119 trades); was 3.0=+0.17R
 
 [strategy_params.eqh_eql]
 tp_r_1h = 5.0                 # WFO OOS: ETH+0.336R SOL+0.879R n=21/36; BTC diverges (see per-symbol)

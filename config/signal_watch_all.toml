@@ -65,7 +65,7 @@ volume_suppress = false       # A14b: low-vol edge Δ=-0.11R (low +0.16R vs norm
 
 [strategy_params.pin_bar]
 tp_r_15m = 3.0                # +0.09R
-tp_r_1h  = 5.0                # WFO 200d: ETH 1h ↑+0.715R, SOL 1h ↑+0.325R — longs dominate (was 4.0)
+tp_r_1h  = 4.0                # TP sweep peak: cross-symbol +0.10R (was 5.0=+0.03R); longs use tp_r_long=5.0 from base
 tp_r_4h  = 3.5                # +0.13R
 tp_r_1d  = 3.5                # +0.73R (48 trades)
 
@@ -128,7 +128,7 @@ tp_r_1d  = 4.0                # +0.20R
 
 [strategy_params.orb]
 tp_r_1h  = 4.5                # +0.00R (barely positive)
-tp_r_4h  = 3.5                # +0.10R
+tp_r_4h  = 5.0                # TP sweep peak: cross-symbol +0.23R (119 trades); was 3.5=+0.10R
 
 [strategy_params.liquidity_sweep]
 tp_r_1h  = 5.0                # -0.23R (all negative; hard mode will suppress)
