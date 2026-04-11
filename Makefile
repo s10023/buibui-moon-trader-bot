@@ -269,6 +269,10 @@ buibui-open-trades:
 	@echo "🚀 Opening multiple trades..."
 	poetry run python trade/open_trades.py
 
+db-prune-backtests:
+	@echo "🧹 Pruning old backtest runs (keep last 7d OR last 10 per strategy×symbol×tf×day_filter, whichever is more recent)..."
+	@poetry run python scripts/db_prune_backtests.py
+
 clean-db:
 	@echo "🗑️  Removing analytics DB and WAL files..."
 	rm -f analytics.db analytics.db.wal
