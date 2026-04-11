@@ -185,6 +185,23 @@ class SweepRow:
     def oos_win_rate(self) -> float:
         return self.oos_result.win_rate
 
+    # Gate 3 — directional OOS metrics (derived from oos_result, no extra compute)
+    @property
+    def long_oos_avg_r(self) -> float | None:
+        return self.oos_result.long_avg_r
+
+    @property
+    def short_oos_avg_r(self) -> float | None:
+        return self.oos_result.short_avg_r
+
+    @property
+    def long_oos_n(self) -> int:
+        return len(self.oos_result.long_closed_trades)
+
+    @property
+    def short_oos_n(self) -> int:
+        return len(self.oos_result.short_closed_trades)
+
 
 # ---------------------------------------------------------------------------
 # Core sweep logic
@@ -368,6 +385,30 @@ def _fmt_decay(v: float) -> str:
     return f"{v:.2f}"
 
 
+def _directional_split_hint(row: SweepRow) -> str:
+    """Return a recommendation line if long/short OOS avg_r diverge enough to warrant a split.
+
+    Threshold: both directions have ≥ 3 OOS trades AND |long - short| ≥ 0.1R.
+    A difference ≥ 0.5R between optimal tp_r per direction suggests using
+    tp_r_long / tp_r_short in TOML instead of a single combined tp_r.
+    """
+    l_r = row.long_oos_avg_r
+    s_r = row.short_oos_avg_r
+    if l_r is None or s_r is None:
+        return ""
+    if row.long_oos_n < 3 or row.short_oos_n < 3:
+        return ""
+    delta = abs(l_r - s_r)
+    if delta < 0.1:
+        return ""
+    worse = "long" if l_r < s_r else "short"
+    return (
+        f"  ↕ Directional gap: ↑{_fmt_r(l_r)} (n={row.long_oos_n})  "
+        f"↓{_fmt_r(s_r)} (n={row.short_oos_n})  Δ={delta:.3f}R"
+        f"  — consider tp_r_{worse} override"
+    )
+
+
 def format_sweep_results(
     rows: list[SweepRow],
     strategy: str,
@@ -379,20 +420,20 @@ def format_sweep_results(
         return "  No results."
 
     lines: list[str] = []
-    lines.append(f"\n{'WFO Param Sweep':^80}")
+    lines.append(f"\n{'WFO Param Sweep':^100}")
     lines.append(f"{'Strategy':>12}: {strategy}   Symbol: {symbol}   TF: {timeframe}")
-    lines.append(_SEP * 80)
+    lines.append(_SEP * 100)
 
-    # Header
+    # Header — extended with directional OOS columns
     param_names = list(rows[0].params.keys())
     param_cols = "  ".join(f"{p[:8]:>8}" for p in param_names)
     lines.append(
         f"  {'#':>3}  {param_cols}  "
         f"{'IS avg_r':>8}  {'IS wr%':>6}  {'IS n':>4}  "
-        f"{'OOS avg_r':>9}  {'OOS wr%':>7}  {'OOS n':>5}  "
+        f"{'OOS avg_r':>9}  {'↑OOS':>7}  {'↓OOS':>7}  {'OOS n':>5}  "
         f"{'decay':>6}  {'flag':>6}"
     )
-    lines.append(_SEP * 80)
+    lines.append(_SEP * 100)
 
     for i, row in enumerate(rows, 1):
         param_vals = "  ".join(f"{row.params[p]:>8.4g}" for p in param_names)
@@ -400,11 +441,12 @@ def format_sweep_results(
         lines.append(
             f"  {i:>3}  {param_vals}  "
             f"{_fmt_r(row.is_avg_r):>8}  {_fmt_pct(row.is_win_rate):>6}  {row.is_trades:>4}  "
-            f"{_fmt_r(row.oos_avg_r):>9}  {_fmt_pct(row.oos_win_rate):>7}  {row.oos_trades:>5}  "
+            f"{_fmt_r(row.oos_avg_r):>9}  {_fmt_r(row.long_oos_avg_r):>7}  "
+            f"{_fmt_r(row.short_oos_avg_r):>7}  {row.oos_trades:>5}  "
             f"{_fmt_decay(row.decay):>6}  {flag}"
         )
 
-    lines.append(_SEP * 80)
+    lines.append(_SEP * 100)
 
     # Recommend top non-overfit config
     clean = [r for r in rows if not r.overfit]
@@ -421,6 +463,9 @@ def format_sweep_results(
             f"trades={best.oos_trades}  "
             f"decay={_fmt_decay(best.decay)}"
         )
+        hint = _directional_split_hint(best)
+        if hint:
+            lines.append(hint)
     else:
         all_negative = all((r.is_avg_r or 0.0) < 0 for r in rows)
         if all_negative:
@@ -456,6 +501,11 @@ class AuditRow:
     is_trades: int
     verdict: str  # "good" | "marginal" | "no_data" | "no_edge" | "skipped"
     skip_reason: str = ""
+    # Gate 3 — directional OOS metrics at the best combined tp_r
+    best_long_oos_avg_r: float | None = None
+    best_short_oos_avg_r: float | None = None
+    long_oos_n: int = 0
+    short_oos_n: int = 0
 
 
 def run_strategy_audit(
@@ -531,6 +581,10 @@ def run_strategy_audit(
         best_tp = float(tp_values[0])
         best_oos_trades = 0
         best_is_trades = 0
+        best_long_oos: float | None = None
+        best_short_oos: float | None = None
+        best_long_oos_n = 0
+        best_short_oos_n = 0
 
         for tp_r in tp_values:
             tp = float(tp_r)
@@ -566,9 +620,13 @@ def run_strategy_audit(
                     best_is = is_r
                     best_tp = tp
                     best_is_trades = is_n
-                    # Capture OOS for this tp_r
+                    # Capture OOS combined + directional metrics for this tp_r
                     best_oos = oos_r
                     best_oos_trades = oos_n
+                    best_long_oos = bt_oos.long_avg_r
+                    best_short_oos = bt_oos.short_avg_r
+                    best_long_oos_n = len(bt_oos.long_closed_trades)
+                    best_short_oos_n = len(bt_oos.short_closed_trades)
 
         # Verdict
         if best_is is None:
@@ -593,6 +651,10 @@ def run_strategy_audit(
                 oos_trades=best_oos_trades,
                 is_trades=best_is_trades,
                 verdict=verdict,
+                best_long_oos_avg_r=best_long_oos,
+                best_short_oos_avg_r=best_short_oos,
+                long_oos_n=best_long_oos_n,
+                short_oos_n=best_short_oos_n,
             )
         )
         print(" done")
@@ -623,25 +685,26 @@ def format_audit_results(
     }
 
     lines: list[str] = []
-    lines.append(f"\n{'Strategy Audit':^72}")
+    lines.append(f"\n{'Strategy Audit':^92}")
     lines.append(f"  Symbol: {symbol}   TF: {timeframe}   Days: {days}")
-    lines.append(_SEP * 72)
+    lines.append(_SEP * 92)
     lines.append(
         f"  {'Strategy':<24}  {'Best IS':>8}  {'IS n':>4}  "
-        f"{'Best OOS':>9}  {'OOS n':>5}  {'tp_r':>5}  Verdict"
+        f"{'Best OOS':>9}  {'↑OOS':>7}  {'↓OOS':>7}  {'OOS n':>5}  {'tp_r':>5}  Verdict"
     )
-    lines.append(_SEP * 72)
+    lines.append(_SEP * 92)
 
     for row in rows:
         label = _VERDICT_LABEL.get(row.verdict, row.verdict)
         skip = f"  ({row.skip_reason})" if row.skip_reason else ""
         lines.append(
             f"  {row.strategy:<24}  {_fmt_r(row.best_is_avg_r):>8}  {row.is_trades:>4}  "
-            f"{_fmt_r(row.best_oos_avg_r):>9}  {row.oos_trades:>5}  {row.best_tp_r:>5.1f}  "
-            f"{label}{skip}"
+            f"{_fmt_r(row.best_oos_avg_r):>9}  {_fmt_r(row.best_long_oos_avg_r):>7}  "
+            f"{_fmt_r(row.best_short_oos_avg_r):>7}  {row.oos_trades:>5}  "
+            f"{row.best_tp_r:>5.1f}  {label}{skip}"
         )
 
-    lines.append(_SEP * 72)
+    lines.append(_SEP * 92)
 
     good = [r for r in rows if r.verdict == "good"]
     marginal = [r for r in rows if r.verdict == "marginal"]
@@ -652,9 +715,33 @@ def format_audit_results(
         f"{len(no_edge)} no-edge  "
         f"{sum(1 for r in rows if r.verdict in ('no_data', 'skipped'))} insufficient-data"
     )
+
+    # Directional split candidates — strategies where long/short diverge enough
+    split_candidates = [
+        r
+        for r in rows
+        if r.best_long_oos_avg_r is not None
+        and r.best_short_oos_avg_r is not None
+        and r.long_oos_n >= 3
+        and r.short_oos_n >= 3
+        and abs(r.best_long_oos_avg_r - r.best_short_oos_avg_r) >= 0.1
+        and r.verdict in ("good", "marginal")
+    ]
+    if split_candidates:
+        lines.append(
+            "\n  ↕ Directional split candidates (|↑OOS − ↓OOS| ≥ 0.1R, n ≥ 3 each):"
+        )
+        for r in split_candidates:
+            delta = abs((r.best_long_oos_avg_r or 0) - (r.best_short_oos_avg_r or 0))
+            lines.append(
+                f"    {r.strategy:<24}  ↑{_fmt_r(r.best_long_oos_avg_r)} (n={r.long_oos_n})"
+                f"  ↓{_fmt_r(r.best_short_oos_avg_r)} (n={r.short_oos_n})"
+                f"  Δ={delta:.3f}R → deep-sweep for tp_r_long / tp_r_short"
+            )
+
     if good or marginal:
         lines.append(
-            "  Next step: deep-sweep winners with "
+            "\n  Next step: deep-sweep winners with "
             "`buibui param-sweep --strategy <name> --days 365`"
         )
     if no_edge:
