@@ -111,6 +111,10 @@ class BacktestSweepConfig:
     timeframes: list[str] = field(default_factory=lambda: ["4h"])
     strategies: list[str] | None = None  # None = all non-seasonality strategies
     days: int = 90
+    # When set, anchors the backtest window to a fixed start date (YYYY-MM-DD) instead of
+    # floating `now - days`. Use `--since 2025-09-12` (data backfill date) for stable,
+    # comparable runs that don't drift day-to-day. Overrides `days` when both are set.
+    since: str | None = None
     sl_pct: float = 0.02
     tp_r: float = 2.0
     fee_pct: float = 0.0

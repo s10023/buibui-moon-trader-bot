@@ -79,6 +79,7 @@ class BacktestRequest(BaseModel):
     timeframe: str
     strategy: str
     days: int = 90
+    since: str | None = None
     sl_pct: float = 0.02
     tp_r: float = 2.0
     fee_pct: float = 0.0

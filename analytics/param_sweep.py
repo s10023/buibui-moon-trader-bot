@@ -220,12 +220,13 @@ def run_param_sweep(
     fee_pct: float,
     top_n: int,
     adr_suppress_threshold: float | None = None,
+    since_ms: int | None = None,
 ) -> list[SweepRow]:
     """Run WFO grid sweep. Returns rows sorted by IS score (descending)."""
     import datetime
 
     end_ms = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
-    start_ms = end_ms - days * 24 * 3_600 * 1_000
+    start_ms = since_ms if since_ms is not None else end_ms - days * 24 * 3_600 * 1_000
 
     ohlcv_full = get_ohlcv(conn, symbol, timeframe, start_ms, end_ms)
     if ohlcv_full.empty:
@@ -518,12 +519,13 @@ def run_strategy_audit(
     min_trades: int,
     fee_pct: float,
     adr_suppress_threshold: float | None = None,
+    since_ms: int | None = None,
 ) -> list[AuditRow]:
     """Quick tp_r sweep across all strategies — produces one verdict row per strategy."""
     import datetime
 
     end_ms = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
-    start_ms = end_ms - days * 24 * 3_600 * 1_000
+    start_ms = since_ms if since_ms is not None else end_ms - days * 24 * 3_600 * 1_000
 
     ohlcv_full = get_ohlcv(conn, symbol, timeframe, start_ms, end_ms)
     if ohlcv_full.empty:

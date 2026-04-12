@@ -60,6 +60,8 @@ def run_backtest(args: argparse.Namespace) -> None:
             cfg.strategies = args.strategies
         if args.days != 90:
             cfg.days = args.days
+        if args.since:
+            cfg.since = args.since
         if args.sl_pct != 0.02:
             cfg.sl_pct = args.sl_pct
         if args.tp_r != 2.0:
@@ -98,6 +100,7 @@ def run_backtest(args: argparse.Namespace) -> None:
         atr_sl_multiplier=args.atr_sl_multiplier,
         secondary_symbol=args.secondary_symbol,
         save_results=args.save,
+        since_ms=_parse_since_to_ms(args.since) if args.since else None,
     )
 
 
@@ -311,6 +314,7 @@ def run_param_sweep(args: argparse.Namespace) -> None:
             fee_pct=args.fee_pct,
             top_n=args.top_n,
             adr_suppress_threshold=args.adr_suppress_threshold,
+            since_ms=_parse_since_to_ms(args.since) if args.since else None,
         )
     finally:
         conn.close()
@@ -354,6 +358,7 @@ def run_param_audit(args: argparse.Namespace) -> None:
             min_trades=min_trades,
             fee_pct=args.fee_pct,
             adr_suppress_threshold=args.adr_suppress_threshold,
+            since_ms=_parse_since_to_ms(args.since) if args.since else None,
         )
     finally:
         conn.close()
@@ -683,6 +688,13 @@ def main() -> None:
         help="Lookback period in days (default: 90)",
     )
     backtest_parser.add_argument(
+        "--since",
+        type=str,
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="Anchor start date for stable runs (e.g. 2025-09-12). Overrides --days when set.",
+    )
+    backtest_parser.add_argument(
         "--sl-pct",
         type=float,
         default=0.02,
@@ -826,6 +838,13 @@ def main() -> None:
         help="Days of history to load (default: 180)",
     )
     param_sweep_parser.add_argument(
+        "--since",
+        type=str,
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="Anchor start date for stable runs (e.g. 2025-09-12). Overrides --days when set.",
+    )
+    param_sweep_parser.add_argument(
         "--fee-pct",
         type=float,
         default=0.0005,
@@ -867,6 +886,13 @@ def main() -> None:
     )
     param_audit_parser.add_argument(
         "--days", type=int, default=180, help="Days of history (default: 180)"
+    )
+    param_audit_parser.add_argument(
+        "--since",
+        type=str,
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="Anchor start date for stable runs (e.g. 2025-09-12). Overrides --days when set.",
     )
     param_audit_parser.add_argument(
         "--wfo-split",

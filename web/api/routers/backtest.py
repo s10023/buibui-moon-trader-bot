@@ -84,7 +84,13 @@ def run_backtest_endpoint(
         )
 
     end_ms = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
-    start_ms = end_ms - body.days * 24 * 3_600 * 1_000
+    if body.since is not None:
+        _since_dt = datetime.datetime.strptime(body.since, "%Y-%m-%d").replace(
+            tzinfo=datetime.UTC
+        )
+        start_ms = int(_since_dt.timestamp() * 1000)
+    else:
+        start_ms = end_ms - body.days * 24 * 3_600 * 1_000
 
     ohlcv = get_ohlcv(db, body.symbol, body.timeframe, start_ms, end_ms)
     if ohlcv.empty:
