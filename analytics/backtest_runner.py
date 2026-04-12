@@ -299,26 +299,27 @@ def run_backtest_sweep(
 
     tp_sweep_mode = bool(cfg.tp_r_values)
     atr_sweep_mode = bool(cfg.atr_sl_multiplier_values)
+    window_label = f"since {cfg.since}" if cfg.since is not None else f"{cfg.days}d"
 
     if tp_sweep_mode:
         print(
             f"Backtest TP Sweep — {n_syms} {sym_word} × "
             f"{n_tfs} {tf_word} × "
-            f"{n_strats} {strat_word} ({cfg.days}d) "
+            f"{n_strats} {strat_word} ({window_label}) "
             f"× tp_r {cfg.tp_r_values}"
         )
     elif atr_sweep_mode:
         print(
             f"Backtest ATR SL Sweep — {n_syms} {sym_word} × "
             f"{n_tfs} {tf_word} × "
-            f"{n_strats} {strat_word} ({cfg.days}d) "
+            f"{n_strats} {strat_word} ({window_label}) "
             f"× atr_sl_multiplier {cfg.atr_sl_multiplier_values}"
         )
     else:
         print(
             f"Backtest Sweep — {n_syms} {sym_word} × "
             f"{n_tfs} {tf_word} × "
-            f"{n_strats} {strat_word} ({cfg.days}d)"
+            f"{n_strats} {strat_word} ({window_label})"
         )
 
     single_run_mode = not tp_sweep_mode and not atr_sweep_mode
