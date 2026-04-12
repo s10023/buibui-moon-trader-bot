@@ -46,7 +46,7 @@ For each TF in config's `timeframes`:
 poetry run python buibui.py param-audit \
   --symbol BTCUSDT \
   --timeframe <TF> \
-  --days 200 \
+  --since 2025-09-12 \
   --fee-pct <fee_pct>
 ```
 
@@ -71,7 +71,7 @@ poetry run python buibui.py param-sweep \
   --strategy <strategy> \
   --symbol <symbol> \
   --timeframe <TF> \
-  --days 200 \
+  --since 2025-09-12 \
   --fee-pct <fee_pct> \
   --top-n 10
 ```

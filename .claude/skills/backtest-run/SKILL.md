@@ -63,9 +63,16 @@ make buibui-backtest CONFIG=config/signal_watch.toml
 buibui backtest --config config/signal_watch.toml --atr-sl-values 0.5 1.0 1.5 2.0 2.5
 ```
 
+### Stable anchored window (recommended for saved runs)
+```bash
+buibui backtest --config config/signal_watch.toml --since 2025-09-12 --save
+```
+
 ### Custom lookback window
 ```bash
 buibui backtest --symbol BTCUSDT --strategy fib_golden_zone --interval 4h --days 365
+# Or anchored:
+buibui backtest --symbol BTCUSDT --strategy fib_golden_zone --interval 4h --since 2025-09-12
 ```
 
 ## All CLI flags
@@ -76,7 +83,8 @@ buibui backtest
   --symbol SYMBOL          Single symbol (e.g. BTCUSDT)
   --strategy STRATEGY      Single strategy name
   --interval TF            Timeframe: 15m | 1h | 4h | 1d
-  --days N                 Lookback in days (default: 200)
+  --days N                 Lookback in days (default: 200; floating window)
+  --since YYYY-MM-DD       Anchor start date — use for saved/comparable runs (e.g. 2025-09-12)
   --tp-r FLOAT             Take-profit ratio (e.g. 2.0)
   --sl-pct FLOAT           Stop-loss % (e.g. 0.02)
   --min-sl-pct FLOAT       Minimum SL % to prevent fee-drag explosion

@@ -60,6 +60,8 @@ def run_backtest(args: argparse.Namespace) -> None:
             cfg.strategies = args.strategies
         if args.days != 90:
             cfg.days = args.days
+        if args.since:
+            cfg.since = args.since
         if args.sl_pct != 0.02:
             cfg.sl_pct = args.sl_pct
         if args.tp_r != 2.0:
@@ -98,6 +100,7 @@ def run_backtest(args: argparse.Namespace) -> None:
         atr_sl_multiplier=args.atr_sl_multiplier,
         secondary_symbol=args.secondary_symbol,
         save_results=args.save,
+        since_ms=_parse_since_to_ms(args.since) if args.since else None,
     )
 
 
@@ -286,9 +289,10 @@ def run_param_sweep(args: argparse.Namespace) -> None:
     for r in param_ranges:
         grid_size *= len(r.values)
 
+    _window = f"since {args.since}" if args.since else f"{args.days}d"
     print(f"\nParam sweep  {args.strategy} / {args.symbol} / {args.timeframe}")
     print(
-        f"Days: {args.days}  WFO split: {args.wfo_split:.0%} IS / {1 - args.wfo_split:.0%} OOS"
+        f"Window: {_window}  WFO split: {args.wfo_split:.0%} IS / {1 - args.wfo_split:.0%} OOS"
     )
     print(f"Grid: {grid_size} combos  Min trades: {min_trades}  Top-N: {args.top_n}")
     print(f"Params: {', '.join(r.name for r in param_ranges)}")
@@ -311,6 +315,7 @@ def run_param_sweep(args: argparse.Namespace) -> None:
             fee_pct=args.fee_pct,
             top_n=args.top_n,
             adr_suppress_threshold=args.adr_suppress_threshold,
+            since_ms=_parse_since_to_ms(args.since) if args.since else None,
         )
     finally:
         conn.close()
@@ -338,7 +343,8 @@ def run_param_audit(args: argparse.Namespace) -> None:
         args.min_trades if args.min_trades else _tf_defaults.get(args.timeframe, 8)
     )
 
-    print(f"\nStrategy audit  {args.symbol} / {args.timeframe} / {args.days}d")
+    _window = f"since {args.since}" if args.since else f"{args.days}d"
+    print(f"\nStrategy audit  {args.symbol} / {args.timeframe} / {_window}")
     print(f"Strategies: {len(strategies)}  WFO split: {args.wfo_split:.0%} IS")
 
     db_path = args.db or DEFAULT_DB_PATH
@@ -354,11 +360,16 @@ def run_param_audit(args: argparse.Namespace) -> None:
             min_trades=min_trades,
             fee_pct=args.fee_pct,
             adr_suppress_threshold=args.adr_suppress_threshold,
+            since_ms=_parse_since_to_ms(args.since) if args.since else None,
         )
     finally:
         conn.close()
 
-    print(format_audit_results(rows, args.symbol, args.timeframe, args.days))
+    print(
+        format_audit_results(
+            rows, args.symbol, args.timeframe, args.days, window=_window
+        )
+    )
 
 
 def run_recalibrate(args: argparse.Namespace) -> None:
@@ -683,6 +694,13 @@ def main() -> None:
         help="Lookback period in days (default: 90)",
     )
     backtest_parser.add_argument(
+        "--since",
+        type=str,
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="Anchor start date for stable runs (e.g. 2025-09-12). Overrides --days when set.",
+    )
+    backtest_parser.add_argument(
         "--sl-pct",
         type=float,
         default=0.02,
@@ -826,6 +844,13 @@ def main() -> None:
         help="Days of history to load (default: 180)",
     )
     param_sweep_parser.add_argument(
+        "--since",
+        type=str,
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="Anchor start date for stable runs (e.g. 2025-09-12). Overrides --days when set.",
+    )
+    param_sweep_parser.add_argument(
         "--fee-pct",
         type=float,
         default=0.0005,
@@ -867,6 +892,13 @@ def main() -> None:
     )
     param_audit_parser.add_argument(
         "--days", type=int, default=180, help="Days of history (default: 180)"
+    )
+    param_audit_parser.add_argument(
+        "--since",
+        type=str,
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="Anchor start date for stable runs (e.g. 2025-09-12). Overrides --days when set.",
     )
     param_audit_parser.add_argument(
         "--wfo-split",

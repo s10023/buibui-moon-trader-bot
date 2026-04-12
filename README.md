@@ -417,6 +417,7 @@ poetry run python buibui.py backtest --symbols BTCUSDT ETHUSDT --timeframes 1h 4
 **Shared options:**
 
 - `--days 90` — lookback period in days (default: `90`)
+- `--since YYYY-MM-DD` — anchor start date for stable, comparable runs (e.g. `--since 2025-09-12`). Overrides `--days` when set — use this for saved runs so results don't drift day-to-day.
 - `--sl-pct 0.02` — stop loss as decimal fraction (default: `0.02` = 2%)
 - `--tp-r 2.0` — take profit in R multiples (default: `2.0`)
 - `--fee-pct 0.0005` — taker fee per leg (default: `0.0`; use `0.0005` for 0.05% Binance taker)

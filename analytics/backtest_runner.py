@@ -275,7 +275,13 @@ def run_backtest_sweep(
 ) -> None:
     """Run all symbol × timeframe × strategy combos and print a ranked table."""
     end_ms = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
-    start_ms = end_ms - cfg.days * 24 * 3_600 * 1_000
+    if cfg.since is not None:
+        _since_dt = datetime.datetime.strptime(cfg.since, "%Y-%m-%d").replace(
+            tzinfo=datetime.UTC
+        )
+        start_ms = int(_since_dt.timestamp() * 1000)
+    else:
+        start_ms = end_ms - cfg.days * 24 * 3_600 * 1_000
 
     symbols = cfg.symbols
     if symbols is None:
@@ -293,26 +299,27 @@ def run_backtest_sweep(
 
     tp_sweep_mode = bool(cfg.tp_r_values)
     atr_sweep_mode = bool(cfg.atr_sl_multiplier_values)
+    window_label = f"since {cfg.since}" if cfg.since is not None else f"{cfg.days}d"
 
     if tp_sweep_mode:
         print(
             f"Backtest TP Sweep — {n_syms} {sym_word} × "
             f"{n_tfs} {tf_word} × "
-            f"{n_strats} {strat_word} ({cfg.days}d) "
+            f"{n_strats} {strat_word} ({window_label}) "
             f"× tp_r {cfg.tp_r_values}"
         )
     elif atr_sweep_mode:
         print(
             f"Backtest ATR SL Sweep — {n_syms} {sym_word} × "
             f"{n_tfs} {tf_word} × "
-            f"{n_strats} {strat_word} ({cfg.days}d) "
+            f"{n_strats} {strat_word} ({window_label}) "
             f"× atr_sl_multiplier {cfg.atr_sl_multiplier_values}"
         )
     else:
         print(
             f"Backtest Sweep — {n_syms} {sym_word} × "
             f"{n_tfs} {tf_word} × "
-            f"{n_strats} {strat_word} ({cfg.days}d)"
+            f"{n_strats} {strat_word} ({window_label})"
         )
 
     single_run_mode = not tp_sweep_mode and not atr_sweep_mode
@@ -424,6 +431,7 @@ def run_backtest_cmd(
     secondary_symbol: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
     save_results: bool = False,
+    since_ms: int | None = None,
 ) -> None:
     """Open DB, load OHLCV, detect signals, run backtest, print results."""
     if strategy not in KNOWN_STRATEGIES:
@@ -435,7 +443,7 @@ def run_backtest_cmd(
         sys.exit(1)
 
     end_ms = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
-    start_ms = end_ms - days * 24 * 3_600 * 1_000
+    start_ms = since_ms if since_ms is not None else end_ms - days * 24 * 3_600 * 1_000
 
     conn: duckdb.DuckDBPyConnection = duckdb.connect(
         str(db_path), read_only=not save_results
