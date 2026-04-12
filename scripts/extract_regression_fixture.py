@@ -54,6 +54,12 @@ def main() -> None:
             if df.empty:
                 print(f"WARNING: no data for {SYMBOL} {tf} — skipping", file=sys.stderr)
                 continue
+            # Save string columns as object so pyarrow doesn't re-encode them
+            # as large_string on reload (which creates extra ExtensionBlocks
+            # that make iloc row-access very slow inside detector loops).
+            for col in ("symbol", "timeframe"):
+                if col in df.columns:
+                    df[col] = df[col].astype(object)
             out = OUTPUT_DIR / f"btc_{tf}_200d.parquet"
             df.to_parquet(out, index=False)
             print(f"  wrote {out.name}  ({len(df)} rows)")

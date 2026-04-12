@@ -64,14 +64,16 @@ def _load_fixtures(tfs: list[str]) -> dict[str, pd.DataFrame]:
                 "Run: poetry run python scripts/extract_regression_fixture.py"
             )
         df = pd.read_parquet(path)
-        # Coerce string columns to plain object dtype so that pandas fast_xs
-        # works on all supported pandas/pyarrow versions.  Arrow-backed string
-        # columns (ExtensionBlock) cause crash in pandas < 2.2 inside iloc when
-        # the DataFrame has mixed block types.
+        # Coerce string columns to plain object dtype.  pyarrow stores strings
+        # as large_string, which pandas loads as a separate ExtensionBlock.
+        # Multiple blocks make fast_xs iterate item-by-item over every iloc[]
+        # call — catastrophically slow for the 20k-row 15m fixture.
+        # df.copy() after coercion consolidates the two object blocks into one,
+        # leaving two total blocks (object + float64) instead of three.
         for col in ("symbol", "timeframe"):
             if col in df.columns and df[col].dtype != object:
                 df[col] = df[col].astype(object)
-        df = df.reset_index(drop=True)
+        df = df.reset_index(drop=True).copy()
         result[tf] = df
     return result
 

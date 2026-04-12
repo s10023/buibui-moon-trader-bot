@@ -43,12 +43,12 @@ test:
 
 test-regression:
 	@echo "🔍 Running regression tests..."
-	poetry run pytest tests/test_regression.py -v
+	poetry run pytest tests/test_regression.py -v --timeout=300
 
 regression-update:
 	@echo "🔄 Regenerating golden files..."
 	poetry run python scripts/extract_regression_fixture.py
-	poetry run pytest tests/test_regression.py --update-golden -v
+	poetry run pytest tests/test_regression.py --update-golden -v --timeout=300
 	@echo ""
 	@echo "Review: git diff tests/fixtures/golden_*.json"
 	@echo "Commit golden updates alongside your TOML/code changes."
