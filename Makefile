@@ -160,6 +160,7 @@ buibui-backtest:
 		$(if $(TIMEFRAMES),--timeframes $(TIMEFRAMES),) \
 		$(if $(INTERVAL),--interval $(INTERVAL),) \
 		$(if $(DAYS),--days $(DAYS),) \
+		$(if $(SINCE),--since $(SINCE),) \
 		$(if $(SL_PCT),--sl-pct $(SL_PCT),) \
 		$(if $(TP_R),--tp-r $(TP_R),) \
 		$(if $(MIN_TRADES),--min-trades $(MIN_TRADES),) \
@@ -173,6 +174,7 @@ buibui-param-audit:
 		$(if $(TIMEFRAME),--timeframe $(TIMEFRAME),$(error TIMEFRAME is required)) \
 		$(if $(STRATEGIES),--strategies $(STRATEGIES),) \
 		$(if $(DAYS),--days $(DAYS),) \
+		$(if $(SINCE),--since $(SINCE),) \
 		$(if $(WFO_SPLIT),--wfo-split $(WFO_SPLIT),) \
 		$(if $(FEE_PCT),--fee-pct $(FEE_PCT),)
 
@@ -187,6 +189,7 @@ buibui-param-sweep:
 		$(if $(MIN_TRADES),--min-trades $(MIN_TRADES),) \
 		$(if $(TOP_N),--top-n $(TOP_N),) \
 		$(if $(DAYS),--days $(DAYS),) \
+		$(if $(SINCE),--since $(SINCE),) \
 		$(if $(FEE_PCT),--fee-pct $(FEE_PCT),)
 
 buibui-recalibrate:
