@@ -75,7 +75,7 @@ testpaths = ["tests"]
 timeout = 30
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.13"
 ignore_missing_imports = false
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
