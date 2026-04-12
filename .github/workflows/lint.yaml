@@ -59,7 +59,7 @@ jobs:
         if: steps.changes.outputs.python == 'true'
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.13'
 
       - name: Install Poetry
         if: steps.changes.outputs.python == 'true'
@@ -83,7 +83,7 @@ jobs:
 
       - name: Run tests
         if: steps.changes.outputs.python == 'true'
-        run: poetry run pytest tests/ -v --cov --cov-report=term-missing --cov-report=xml --junitxml=test-results.xml
+        run: poetry run pytest tests/ -v --cov --cov-report=term-missing --cov-report=xml --junitxml=test-results.xml --ignore=tests/test_regression.py
 
       - name: Upload test results
         if: steps.changes.outputs.python == 'true' && !cancelled()
@@ -93,6 +93,47 @@ jobs:
           path: |
             test-results.xml
             coverage.xml
+
+  regression:
+    name: Regression tests
+    runs-on: ubuntu-latest
+    needs: lint-typecheck-test
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Check for Python changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            python:
+              - '**/*.py'
+              - 'pyproject.toml'
+              - 'poetry.lock'
+              - 'config/*.toml'
+              - 'tests/fixtures/**.parquet'
+              - 'tests/fixtures/golden_*.json'
+              - '.github/workflows/lint.yaml'
+
+      - name: Set up Python
+        if: steps.changes.outputs.python == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install Poetry
+        if: steps.changes.outputs.python == 'true'
+        run: curl -sSL https://install.python-poetry.org | python3 -
+
+      - name: Install dependencies
+        if: steps.changes.outputs.python == 'true'
+        run: make poetry-install
+
+      - name: Run regression tests
+        if: steps.changes.outputs.python == 'true'
+        run: make test-regression
 
   frontend-check:
     runs-on: ubuntu-latest

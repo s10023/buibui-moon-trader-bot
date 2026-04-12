@@ -70,7 +70,13 @@ buibui recalibrate --config config/signal_watch.toml
 # 3. Apply if the diff looks correct
 buibui recalibrate --config config/signal_watch.toml --apply
 
-# 4. Restart signal watch daemon to pick up new ratings
+# 4. Update regression golden files to capture new metrics
+make regression-update
+
+# 5. Review golden file diffs before committing
+git diff tests/fixtures/golden_*.json
+
+# 6. Restart signal watch daemon to pick up new ratings
 ```
 
 ## What the output looks like

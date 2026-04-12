@@ -11,7 +11,7 @@ DEV_PORT ?= 5173
 PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*" -not -path "./.venv/*")
 DOCKER_IMAGE = buibui-bot
 
-.PHONY: lint lint-md lint-md-fix lint-py-check lint-py typecheck test poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-open-trades buibui-analytics-backfill buibui-analytics-sync buibui-backtest buibui-signal-watch buibui-param-audit buibui-param-sweep buibui-recalibrate buibui-digest buibui-web web-install web-dev web-build web-preview web-full clean-db clean
+.PHONY: lint lint-md lint-md-fix lint-py-check lint-py typecheck test test-regression regression-update poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-open-trades buibui-analytics-backfill buibui-analytics-sync buibui-backtest buibui-signal-watch buibui-param-audit buibui-param-sweep buibui-recalibrate buibui-digest buibui-web web-install web-dev web-build web-preview web-full clean-db clean
 
 lint: lint-md lint-py
 
@@ -39,7 +39,19 @@ typecheck:
 
 test:
 	@echo "🧪 Running tests..."
-	poetry run pytest tests/ -v --cov --cov-report=term-missing
+	poetry run pytest tests/ -v --cov --cov-report=term-missing --ignore=tests/test_regression.py
+
+test-regression:
+	@echo "🔍 Running regression tests..."
+	poetry run pytest tests/test_regression.py -v --timeout=300
+
+regression-update:
+	@echo "🔄 Regenerating golden files..."
+	poetry run python scripts/extract_regression_fixture.py
+	poetry run pytest tests/test_regression.py --update-golden -v --timeout=300
+	@echo ""
+	@echo "Review: git diff tests/fixtures/golden_*.json"
+	@echo "Commit golden updates alongside your TOML/code changes."
 
 poetry-install:
 	@echo "📦 Installing dependencies with Poetry..."
