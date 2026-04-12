@@ -39,7 +39,7 @@ typecheck:
 
 test:
 	@echo "🧪 Running tests..."
-	poetry run pytest tests/ -v --cov --cov-report=term-missing
+	poetry run pytest tests/ -v --cov --cov-report=term-missing --ignore=tests/test_regression.py
 
 test-regression:
 	@echo "🔍 Running regression tests..."

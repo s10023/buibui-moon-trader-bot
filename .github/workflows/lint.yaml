@@ -83,7 +83,7 @@ jobs:
 
       - name: Run tests
         if: steps.changes.outputs.python == 'true'
-        run: poetry run pytest tests/ -v --cov --cov-report=term-missing --cov-report=xml --junitxml=test-results.xml
+        run: poetry run pytest tests/ -v --cov --cov-report=term-missing --cov-report=xml --junitxml=test-results.xml --ignore=tests/test_regression.py
 
       - name: Upload test results
         if: steps.changes.outputs.python == 'true' && !cancelled()
