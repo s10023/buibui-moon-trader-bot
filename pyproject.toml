@@ -46,7 +46,8 @@ dependencies = [
     "duckdb (>=1.5.0,<2.0.0)",
     "pandas (>=3.0.1,<4.0.0)",
     "fastapi (>=0.115)",
-    "uvicorn[standard] (>=0.34)"
+    "uvicorn[standard] (>=0.34)",
+    "pyarrow (>=23.0.1,<24.0.0)"
 ]
 package-mode = false
 

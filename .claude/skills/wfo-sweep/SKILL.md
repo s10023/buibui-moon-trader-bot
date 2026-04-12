@@ -146,11 +146,23 @@ If yes:
 poetry run python buibui.py recalibrate --config config/signal_watch.toml --apply
 ```
 
-### Step 7: Commit
+### Step 7: Update golden files
+
+After recalibration, regenerate the regression golden files to capture the new metrics:
+```bash
+make regression-update
+```
+
+Review what changed:
+```bash
+git diff tests/fixtures/golden_*.json
+```
+
+### Step 8: Commit
 
 Stage and commit:
 ```bash
-git add config/signal_watch.toml config/signal_watch_weekdays.toml
+git add config/signal_watch.toml config/signal_watch_weekdays.toml tests/fixtures/golden_*.json
 git commit -m "chore(config): WFO sweep — update tp_r per strategy × TF (2026-04-XX)"
 ```
 
