@@ -674,6 +674,7 @@ def format_audit_results(
     symbol: str,
     timeframe: str,
     days: int,
+    window: str | None = None,
 ) -> str:
     if not rows:
         return "  No results."
@@ -688,7 +689,8 @@ def format_audit_results(
 
     lines: list[str] = []
     lines.append(f"\n{'Strategy Audit':^92}")
-    lines.append(f"  Symbol: {symbol}   TF: {timeframe}   Days: {days}")
+    _win = window if window is not None else f"{days}d"
+    lines.append(f"  Symbol: {symbol}   TF: {timeframe}   Window: {_win}")
     lines.append(_SEP * 92)
     lines.append(
         f"  {'Strategy':<24}  {'Best IS':>8}  {'IS n':>4}  "

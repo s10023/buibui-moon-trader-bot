@@ -289,9 +289,10 @@ def run_param_sweep(args: argparse.Namespace) -> None:
     for r in param_ranges:
         grid_size *= len(r.values)
 
+    _window = f"since {args.since}" if args.since else f"{args.days}d"
     print(f"\nParam sweep  {args.strategy} / {args.symbol} / {args.timeframe}")
     print(
-        f"Days: {args.days}  WFO split: {args.wfo_split:.0%} IS / {1 - args.wfo_split:.0%} OOS"
+        f"Window: {_window}  WFO split: {args.wfo_split:.0%} IS / {1 - args.wfo_split:.0%} OOS"
     )
     print(f"Grid: {grid_size} combos  Min trades: {min_trades}  Top-N: {args.top_n}")
     print(f"Params: {', '.join(r.name for r in param_ranges)}")
@@ -342,7 +343,8 @@ def run_param_audit(args: argparse.Namespace) -> None:
         args.min_trades if args.min_trades else _tf_defaults.get(args.timeframe, 8)
     )
 
-    print(f"\nStrategy audit  {args.symbol} / {args.timeframe} / {args.days}d")
+    _window = f"since {args.since}" if args.since else f"{args.days}d"
+    print(f"\nStrategy audit  {args.symbol} / {args.timeframe} / {_window}")
     print(f"Strategies: {len(strategies)}  WFO split: {args.wfo_split:.0%} IS")
 
     db_path = args.db or DEFAULT_DB_PATH
@@ -363,7 +365,11 @@ def run_param_audit(args: argparse.Namespace) -> None:
     finally:
         conn.close()
 
-    print(format_audit_results(rows, args.symbol, args.timeframe, args.days))
+    print(
+        format_audit_results(
+            rows, args.symbol, args.timeframe, args.days, window=_window
+        )
+    )
 
 
 def run_recalibrate(args: argparse.Namespace) -> None:
