@@ -87,11 +87,12 @@ make lint-md
 - Tests must not make real network calls — lib functions accept a `client` parameter; tests pass a `MagicMock` directly
 - Analytics tests use `duckdb.connect(":memory:")` for full DB isolation — never touch the real `analytics.db`
 - Run: `make test` or `poetry run pytest tests/ -v`
+- **Regression tests**: `make test-regression` — compares backtest pipeline output to golden JSON files in `tests/fixtures/`; skips if fixture parquets are absent; run `make regression-update` to regenerate golden files after intentional changes
 
 ## Dependencies
 
 - Managed via Poetry: `poetry install --no-root`
-- Runtime: `duckdb` (analytics DB), `pandas` (DataFrames)
+- Runtime: `duckdb` (analytics DB), `pandas` (DataFrames), `pyarrow` (parquet fixture I/O)
 - Dev deps: ruff, mypy, pytest, pytest-mock, pre-commit, type stubs, pandas-stubs
 - Never modify `poetry.lock` manually — use `poetry add` / `poetry remove`
 

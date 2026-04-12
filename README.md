@@ -1007,6 +1007,7 @@ Runs on every push to `main` and every PR. Uses path filters so only relevant jo
 | --- | --- | --- |
 | `markdownlint` | `*.md` changes | markdownlint-cli2 across all Markdown files |
 | `lint-typecheck-test` | `*.py` / `pyproject.toml` / `poetry.lock` changes | ruff check, ruff format, mypy, pytest (with coverage), uploads test XML + coverage XML as artifacts |
+| `regression` | `*.py` / TOML / fixture / golden JSON changes | runs `make test-regression` against committed golden files; fails with a diff report if metrics drift |
 
 ### `docker-build.yaml` — Docker build check (always active)
 
