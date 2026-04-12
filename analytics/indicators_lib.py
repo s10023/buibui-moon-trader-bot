@@ -33,6 +33,9 @@ class StrategySpec:
     params: list[ParamSpec] = field(default_factory=list)
     requires_funding: bool = False
     requires_secondary: bool = False
+    # Taxonomy group for confluence logic. One of: structural, fib, price_action,
+    # candlestick, flow, session. Empty string means unclassified.
+    strategy_type: str = ""
     # 1–5 quality score per TF or a single value for all TFs.
     # Use a dict with a "default" key for TF-specific ratings:
     #   {"default": 2, "4h": 4}  → 4★ on 4h, 2★ on all other TFs
@@ -69,11 +72,13 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     "seasonality": StrategySpec(
         name="seasonality",
         description="Day-of-week, hour-of-day, and week-of-month return statistics.",
+        strategy_type="session",
         confidence=2,
     ),
     "wick_fill": StrategySpec(
         name="wick_fill",
         description="Signals when price re-enters a prior candle's significant wick zone.",
+        strategy_type="price_action",
         params=[
             ParamSpec(
                 "min_wick_body_ratio",
@@ -97,6 +102,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     "marubozu": StrategySpec(
         name="marubozu",
         description="Signals on retests of Marubozu (wickless) candle open prices.",
+        strategy_type="price_action",
         params=[
             ParamSpec(
                 "max_wick_ratio",
@@ -126,6 +132,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
         confidence={"15m": 1, "1h": 1, "4h": 1},
     ),
     "orb": StrategySpec(
+        strategy_type="session",
         name="orb",
         description=(
             "Opening Range Breakout: high/low of the first 2 candles of each UTC day"
@@ -147,6 +154,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     "liquidity_sweep": StrategySpec(
         name="liquidity_sweep",
         description="Signals when a wick sweeps the rolling high/low but the candle closes back inside.",
+        strategy_type="structural",
         params=[
             ParamSpec(
                 "lookback",
@@ -162,6 +170,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     "fvg": StrategySpec(
         name="fvg",
         description="Fair Value Gap: signals when price fills a 3-candle imbalance zone.",
+        strategy_type="structural",
         params=[
             ParamSpec(
                 "lookback",
@@ -185,6 +194,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     "bos": StrategySpec(
         name="bos",
         description="Break of Structure / Change of Character: market structure shift signals.",
+        strategy_type="structural",
         params=[
             ParamSpec(
                 "swing_lookback",
@@ -208,6 +218,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     "funding_reversion": StrategySpec(
         name="funding_reversion",
         description="Contrarian signals on extreme funding rates (mean reversion setup).",
+        strategy_type="flow",
         params=[
             ParamSpec(
                 "threshold",
@@ -224,6 +235,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     "smt_divergence": StrategySpec(
         name="smt_divergence",
         description="SMT divergence: primary makes new swing extreme but correlated asset does not.",
+        strategy_type="flow",
         params=[
             ParamSpec(
                 "lookback",
@@ -248,6 +260,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     "eqh_eql": StrategySpec(
         name="eqh_eql",
         description="Equal Highs/Lows: liquidity sweep of a double-top or double-bottom level.",
+        strategy_type="structural",
         params=[
             ParamSpec(
                 "lookback",
@@ -275,6 +288,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     "order_block": StrategySpec(
         name="order_block",
         description="ICT Order Block: last up/down-candle before displacement; entry on retest.",
+        strategy_type="structural",
         params=[
             ParamSpec(
                 "lookback",
@@ -298,6 +312,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     "cvd_divergence": StrategySpec(
         name="cvd_divergence",
         description="CVD Divergence: price makes a new swing extreme but cumulative volume delta disagrees.",
+        strategy_type="flow",
         params=[
             ParamSpec(
                 "lookback",
@@ -321,6 +336,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     "trend_day": StrategySpec(
         name="trend_day",
         description="Trend Day: candle opens near one extreme and closes near the other with a large body and tiny wicks.",
+        strategy_type="price_action",
         params=[
             ParamSpec(
                 "body_pct_min",
@@ -344,6 +360,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     "engulfing": StrategySpec(
         name="engulfing",
         description="Bullish/Bearish Engulfing: current candle body fully engulfs the prior candle body.",
+        strategy_type="candlestick",
         params=[
             ParamSpec(
                 "sl_pct",
@@ -367,6 +384,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     "pin_bar": StrategySpec(
         name="pin_bar",
         description="Pin Bar: small body with a long wick (≥2× body) indicating rejection.",
+        strategy_type="candlestick",
         params=[
             ParamSpec(
                 "wick_ratio",
@@ -398,6 +416,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     "inside_bar": StrategySpec(
         name="inside_bar",
         description="Inside Bar breakout: body of current candle is fully within prior candle body; signal fires on breakout close.",
+        strategy_type="price_action",
         params=[
             ParamSpec(
                 "sl_pct",
@@ -421,6 +440,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     "hammer_hanging_man": StrategySpec(
         name="hammer_hanging_man",
         description="Hammer (bullish reversal at recent low) / Hanging Man (bearish at recent high): pin-bar shape with context.",
+        strategy_type="candlestick",
         params=[
             ParamSpec(
                 "wick_ratio",
@@ -460,6 +480,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     "doji": StrategySpec(
         name="doji",
         description="Doji (open ≈ close) followed by a strongly directional candle.",
+        strategy_type="candlestick",
         params=[
             ParamSpec(
                 "body_threshold",
@@ -499,6 +520,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     "morning_evening_star": StrategySpec(
         name="morning_evening_star",
         description="Morning Star (3-candle bullish reversal) / Evening Star (3-candle bearish reversal).",
+        strategy_type="candlestick",
         params=[
             ParamSpec(
                 "star_body_max",
@@ -544,6 +566,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     "fib_golden_zone": StrategySpec(
         name="fib_golden_zone",
         description="Fibonacci golden zone (0.5–0.618) entry after a confirmed BOS; TP = 1.618 extension.",
+        strategy_type="fib",
         params=[
             ParamSpec(
                 "swing_lookback",
@@ -567,6 +590,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     "ote_entry": StrategySpec(
         name="ote_entry",
         description="Optimal Trade Entry (OTE): 0.618–0.786 retracement after a confirmed BOS; TP = 1.618 extension.",
+        strategy_type="fib",
         params=[
             ParamSpec(
                 "swing_lookback",
@@ -617,6 +641,22 @@ SEASONALITY_COLUMNS: list[str] = [
 ]
 
 KNOWN_STRATEGIES: list[str] = list(STRATEGY_REGISTRY.keys())
+
+# All valid strategy type labels — used for D10 confluence filtering and UI grouping.
+KNOWN_STRATEGY_TYPES: list[str] = [
+    "structural",
+    "fib",
+    "price_action",
+    "candlestick",
+    "flow",
+    "session",
+]
+
+# Inverse index: type → list of strategy names (derived from STRATEGY_REGISTRY).
+STRATEGY_TYPE_GROUPS: dict[str, list[str]] = {t: [] for t in KNOWN_STRATEGY_TYPES}
+for _name, _spec in STRATEGY_REGISTRY.items():
+    if _spec.strategy_type in STRATEGY_TYPE_GROUPS:
+        STRATEGY_TYPE_GROUPS[_spec.strategy_type].append(_name)
 
 
 def patch_confidence_scores(updates: dict[str, dict[str, int] | int]) -> None:
