@@ -48,6 +48,12 @@ def _load_fixtures(tfs: list[str]) -> dict[str, pd.DataFrame]:
     """Load parquet fixture files for the requested timeframes.
 
     Raises pytest.skip if any fixture is missing (run extraction script first).
+
+    Normalises dtypes after loading so pandas version differences between the
+    machine that generated the parquets and the machine running the tests don't
+    cause fast_xs / ExtensionBlock incompatibilities.  Arrow-backed string
+    columns (ExtensionBlock dtype) crash older pandas inside iloc; coercing to
+    plain object avoids that.
     """
     result: dict[str, pd.DataFrame] = {}
     for tf in tfs:
@@ -57,7 +63,16 @@ def _load_fixtures(tfs: list[str]) -> dict[str, pd.DataFrame]:
                 f"Fixture missing: {path}. "
                 "Run: poetry run python scripts/extract_regression_fixture.py"
             )
-        result[tf] = pd.read_parquet(path)
+        df = pd.read_parquet(path)
+        # Coerce string columns to plain object dtype so that pandas fast_xs
+        # works on all supported pandas/pyarrow versions.  Arrow-backed string
+        # columns (ExtensionBlock) cause crash in pandas < 2.2 inside iloc when
+        # the DataFrame has mixed block types.
+        for col in ("symbol", "timeframe"):
+            if col in df.columns and df[col].dtype != object:
+                df[col] = df[col].astype(object)
+        df = df.reset_index(drop=True)
+        result[tf] = df
     return result
 
 
