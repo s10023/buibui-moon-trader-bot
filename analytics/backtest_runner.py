@@ -548,6 +548,9 @@ def run_combo_backtest_cmd(
 
         cfg = load_backtest_config(config_path)
         symbols = symbols or cfg.symbols or []
+        if not symbols:
+            coins = load_coins_config()
+            symbols = list(coins.keys())
         timeframes = timeframes or cfg.timeframes or []
         if day_filter == "off":
             day_filter = cfg.day_filter
