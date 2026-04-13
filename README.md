@@ -423,6 +423,8 @@ poetry run python buibui.py backtest --symbols BTCUSDT ETHUSDT --timeframes 1h 4
 - `--fee-pct 0.0005` — taker fee per leg (default: `0.0`; use `0.0005` for 0.05% Binance taker)
 - `--day-filter` — suppress Monday and Friday signals before backtesting (ICT weekly cycle)
 - `--save` — persist results to `backtest_runs` and `backtest_trades` tables in `analytics.db`
+- `--combo` — run co-firing confluence backtests across all strategy pairs; detects pairs within `--window` candles
+- `--window N` — co-firing window: ±N candles for strategy pair detection (default: `5`)
 
 **Single-combo example output:**
 
@@ -822,6 +824,10 @@ make buibui-backtest SYMBOL=BTCUSDT STRATEGY=fvg INTERVAL=1h DAYS=30 SL_PCT=0.01
 make buibui-backtest CONFIG=config/signal_watch.toml SAVE=1  # Full sweep + persist to DB
 make buibui-backtest SYMBOL=BTCUSDT STRATEGY=bos SAVE=1      # Single-combo + persist to DB
 
+# Co-firing confluence backtest (D10)
+make buibui-combo-backtest CONFIG=config/signal_watch.toml SINCE=2025-09-12 SAVE=1
+make buibui-combo-backtest CONFIG=config/signal_watch.toml WINDOW=3 MIN_TRADES=5
+
 # Recalibrate confidence star ratings (per-config)
 make buibui-recalibrate CONFIG=config/signal_watch.toml          # dry-run
 make buibui-recalibrate CONFIG=config/signal_watch.toml APPLY=1  # write to DB
@@ -838,6 +844,7 @@ make buibui-digest QUERY=consistency        # edge breadth across symbol×TF com
 make buibui-digest QUERY=recovery_factor    # risk-adjusted ranking
 make buibui-digest QUERY=tf                 # timeframe ranking
 make buibui-digest QUERY=combos TOP_N=20    # best combos top-N
+make buibui-digest QUERY=co_firing         # co-firing confluence pair leaderboard
 make buibui-digest MIN_TRADES=10            # raise min-trades threshold
 ```
 
