@@ -425,6 +425,7 @@ poetry run python buibui.py backtest --symbols BTCUSDT ETHUSDT --timeframes 1h 4
 - `--save` — persist results to `backtest_runs` and `backtest_trades` tables in `analytics.db`
 - `--combo` — run co-firing confluence backtests across all strategy pairs; detects pairs within `--window` candles
 - `--window N` — co-firing window: ±N candles for strategy pair detection (default: `5`)
+- `--workers N` — parallel workers for combo backtest, one per symbol×TF chunk (default: `min(4, cpu_count-1)`); pass `1` for serial mode
 
 **Single-combo example output:**
 
@@ -827,6 +828,7 @@ make buibui-backtest SYMBOL=BTCUSDT STRATEGY=bos SAVE=1      # Single-combo + pe
 # Co-firing confluence backtest (D10)
 make buibui-combo-backtest CONFIG=config/signal_watch.toml SINCE=2025-09-12 SAVE=1
 make buibui-combo-backtest CONFIG=config/signal_watch.toml WINDOW=3 MIN_TRADES=5
+make buibui-combo-backtest CONFIG=config/signal_watch.toml WORKERS=2  # light mode when other processes running
 
 # Recalibrate confidence star ratings (per-config)
 make buibui-recalibrate CONFIG=config/signal_watch.toml          # dry-run
