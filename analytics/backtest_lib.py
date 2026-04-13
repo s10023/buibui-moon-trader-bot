@@ -632,7 +632,6 @@ def format_combo_table(
             f"{c.strategy_a}+{c.strategy_b}",
             c.result.symbol,
             c.result.timeframe,
-            c.window,
             len(c.result.closed_trades),
             c.result.win_rate,
             c.result.avg_r,
@@ -642,15 +641,15 @@ def format_combo_table(
         for c in combo_results
         if len(c.result.closed_trades) >= min_trades
     ]
-    rows.sort(key=lambda r: r[6], reverse=True)  # sort by avg_r
+    rows.sort(key=lambda r: r[5], reverse=True)  # sort by avg_r
 
-    col = (32, 10, 5, 7, 7, 8, 8, 9, 8)
+    col = (32, 10, 5, 8, 8, 8, 9, 8)
     header = (
         f"  {'Combo':<{col[0]}}"
         f"{'Symbol':<{col[1]}}"
         f"{'TF':<{col[2]}}"
-        f"{'Win':<{col[3]}}"
-        f"{'Win':>{col[4]}}"
+        f"{'Trades':>{col[3]}}"
+        f"{'Win%':>{col[4]}}"
         f"{'AvgR':>{col[5]}}"
         f"{'TotalR':>{col[6]}}"
         f"{'MaxDD':>{col[7]}}"
@@ -658,17 +657,17 @@ def format_combo_table(
     sep = "  " + "─" * (sum(col) + 2)
     thick = "═" * (sum(col) + 4)
     lines = [
-        f"\nStrategy Co-firing Results (±window candles, min_trades={min_trades})",
+        f"\nStrategy Co-firing Results (±{combo_results[0].window if combo_results else 5} candles, min_trades={min_trades})",
         thick,
         header,
         sep,
     ]
-    for combo, sym, tf, win, n, wr, avg_r, tot_r, dd in rows:
+    for combo, sym, tf, n, wr, avg_r, tot_r, dd in rows:
         lines.append(
             f"  {combo:<{col[0]}}"
             f"{sym:<{col[1]}}"
             f"{tf:<{col[2]}}"
-            f"{win:>{col[3]}}"
+            f"{n:>{col[3]}}"
             f"{wr:>{col[4] - 1}.1%} "
             f"{avg_r:>+{col[5]}.2f}R"
             f"{tot_r:>+{col[6]}.2f}R"
