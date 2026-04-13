@@ -41,8 +41,8 @@ def get_backtest_runs(
 def get_backtest_analysis(
     request: Request,
     query: str = Query(..., description=f"One of: {', '.join(QUERY_NAMES)}"),
-    min_trades: int = Query(
-        5, ge=1, description="Minimum closed trades to include a run"
+    min_trades: int | None = Query(
+        None, ge=1, description="Minimum closed trades (default: 5, or 3 for co_firing)"
     ),
     top_n: int = Query(20, ge=1, le=100, description="Max rows for combos query"),
     use_config: bool = Query(

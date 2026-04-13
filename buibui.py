@@ -818,9 +818,9 @@ def main() -> None:
     digest_parser.add_argument(
         "--min-trades",
         type=int,
-        default=5,
+        default=None,
         dest="min_trades",
-        help="Minimum closed trades to include a run (default: 5)",
+        help="Minimum closed trades to include (default: 5, or 3 for co_firing)",
     )
     digest_parser.add_argument(
         "--top-n",

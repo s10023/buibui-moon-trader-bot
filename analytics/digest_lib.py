@@ -631,19 +631,35 @@ _QUERY_FN: dict[str, Callable[..., DigestResult]] = {
 }
 
 
+_QUERY_MIN_TRADES: dict[str, int] = {
+    "co_firing": 3,  # co-firing pairs are rare; lower floor than single-strategy queries
+}
+_DEFAULT_MIN_TRADES = 5
+
+
 def run_digest(
     conn: duckdb.DuckDBPyConnection,
     query: str,
-    min_trades: int = 5,
+    min_trades: int | None = None,
     top_n: int = 20,
     scope: DigestScope | None = None,
 ) -> DigestResult:
-    """Dispatch to the named query function and return generic {columns, rows}."""
+    """Dispatch to the named query function and return generic {columns, rows}.
+
+    min_trades defaults to None, which lets each query use its own floor
+    (_QUERY_MIN_TRADES for co_firing=3, _DEFAULT_MIN_TRADES=5 for everything else).
+    Pass an explicit value to override.
+    """
     fn = _QUERY_FN.get(query)
     if fn is None:
         raise ValueError(
             f"Unknown digest query '{query}'. Valid: {', '.join(QUERY_NAMES)}"
         )
+    effective_min = (
+        min_trades
+        if min_trades is not None
+        else _QUERY_MIN_TRADES.get(query, _DEFAULT_MIN_TRADES)
+    )
     if query in ("combos", "co_firing"):
-        return fn(conn, min_trades=min_trades, top_n=top_n, scope=scope)
-    return fn(conn, min_trades=min_trades, scope=scope)
+        return fn(conn, min_trades=effective_min, top_n=top_n, scope=scope)
+    return fn(conn, min_trades=effective_min, scope=scope)

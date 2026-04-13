@@ -730,11 +730,13 @@ def run_combo_backtest_cmd(
 
 def run_digest_cmd(
     query: str = "strategy",
-    min_trades: int = 5,
+    min_trades: int | None = None,
     top_n: int = 20,
     db_path: Path | None = None,
 ) -> None:
     """Open DB, run a digest query, and print a tabular result to stdout."""
+    from analytics.digest_lib import _DEFAULT_MIN_TRADES, _QUERY_MIN_TRADES
+
     try:
         from tabulate import tabulate as _tab
 
@@ -752,7 +754,12 @@ def run_digest_cmd(
     columns = result["columns"]
     rows = result["rows"]
 
-    print(f"\n=== Backtest digest: {query} (min_trades={min_trades}) ===\n")
+    effective_min = (
+        min_trades
+        if min_trades is not None
+        else _QUERY_MIN_TRADES.get(query, _DEFAULT_MIN_TRADES)
+    )
+    print(f"\n=== Backtest digest: {query} (min_trades={effective_min}) ===\n")
     if not rows:
         print("  No data — run `buibui backtest --save` first.")
         return
