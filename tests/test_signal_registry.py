@@ -1,15 +1,25 @@
 """Tests for signal registry completeness and correctness."""
 
-from analytics.indicators_lib import KNOWN_STRATEGIES, STRATEGY_REGISTRY
+from analytics.indicators_lib import (
+    KNOWN_STRATEGIES,
+    KNOWN_STRATEGY_TYPES,
+    STRATEGY_REGISTRY,
+    STRATEGY_TYPE_GROUPS,
+)
 from signals.registry import SIGNAL_REGISTRY
 
-
-def test_registry_excludes_seasonality() -> None:
-    assert "seasonality" not in SIGNAL_REGISTRY
+_REGISTRY_EXCLUDED = {"seasonality", "funding_reversion"}
 
 
-def test_registry_covers_all_non_seasonality_strategies() -> None:
-    expected = {s for s in KNOWN_STRATEGIES if s != "seasonality"}
+def test_registry_excludes_inactive_strategies() -> None:
+    for name in _REGISTRY_EXCLUDED:
+        assert name not in SIGNAL_REGISTRY, (
+            f"{name} should be excluded from SIGNAL_REGISTRY"
+        )
+
+
+def test_registry_covers_all_active_strategies() -> None:
+    expected = {s for s in KNOWN_STRATEGIES if s not in _REGISTRY_EXCLUDED}
     assert set(SIGNAL_REGISTRY.keys()) == expected
 
 
@@ -43,6 +53,21 @@ def test_no_strategy_requires_both_funding_and_secondary() -> None:
         assert not (spec.requires_funding and spec.requires_secondary), (
             f"{name} claims both funding and secondary"
         )
+
+
+def test_all_strategies_have_strategy_type() -> None:
+    """Every strategy in the registry must have a non-empty, known strategy_type."""
+    for name, spec in STRATEGY_REGISTRY.items():
+        assert spec.strategy_type, f"{name}: strategy_type is empty"
+        assert spec.strategy_type in KNOWN_STRATEGY_TYPES, (
+            f"{name}: unknown strategy_type {spec.strategy_type!r}"
+        )
+
+
+def test_strategy_type_groups_cover_all_strategies() -> None:
+    """STRATEGY_TYPE_GROUPS must account for every strategy in the registry."""
+    grouped = {s for strategies in STRATEGY_TYPE_GROUPS.values() for s in strategies}
+    assert grouped == set(KNOWN_STRATEGIES)
 
 
 def test_all_strategies_have_valid_confidence() -> None:

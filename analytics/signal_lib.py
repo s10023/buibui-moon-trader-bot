@@ -301,7 +301,8 @@ def _backtest_summary(
         parts.append(label)
 
     body = " · ".join(parts)
-    return f"📊 Backtest {cfg.days}d{arrow}: {body}"
+    window_label = f"since {cfg.since}" if cfg.since else f"{cfg.days}d"
+    return f"📊 Backtest {window_label}{arrow}: {body}"
 
 
 def scan_symbol(
@@ -347,10 +348,13 @@ def scan_symbol(
 
     events: list[SignalEvent] = []
 
+    _excluded_from_registry = {"seasonality", "funding_reversion"}
+
     for strategy_name in strategies:
         plugin = SIGNAL_REGISTRY.get(strategy_name)
         if plugin is None:
-            logger.warning("Unknown strategy %s — skipping", strategy_name)
+            if strategy_name not in _excluded_from_registry:
+                logger.warning("Unknown strategy %s — skipping", strategy_name)
             continue
 
         spec = STRATEGY_REGISTRY.get(strategy_name)
@@ -679,7 +683,17 @@ def run_scan_cycle(
     from utils.telegram import send_telegram_message
 
     now_ms = int(time.time() * 1000)
-    start_ms = now_ms - days * 24 * 3600 * 1000
+    if backtest_cfg and backtest_cfg.since:
+        import datetime as _dt
+
+        start_ms = int(
+            _dt.datetime.strptime(backtest_cfg.since, "%Y-%m-%d")
+            .replace(tzinfo=_dt.UTC)
+            .timestamp()
+            * 1000
+        )
+    else:
+        start_ms = now_ms - days * 24 * 3600 * 1000
 
     # Per-cycle backtest cache: (symbol, tf, strategy) → BacktestResult | None
     # Avoids recomputing the same strategy twice if it fires on multiple symbols.

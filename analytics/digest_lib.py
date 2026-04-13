@@ -95,6 +95,7 @@ QUERY_NAMES = [
     "direction_bias",
     "consistency",
     "recovery_factor",
+    "co_firing",
 ]
 
 
@@ -560,6 +561,63 @@ def query_recovery_factor(
 
 
 # ---------------------------------------------------------------------------
+# Card 11 — Co-firing confluence leaderboard
+# ---------------------------------------------------------------------------
+
+
+def query_co_firing(
+    conn: duckdb.DuckDBPyConnection,
+    min_trades: int = 3,
+    top_n: int = 30,
+    scope: DigestScope | None = None,
+) -> DigestResult:
+    """Rank strategy-pair combos by avg_r from backtest_combos table."""
+    sc_sql = ""
+    sc_params: list[Any] = []
+    if scope:
+        clauses: list[str] = []
+        if scope.day_filter is not None:
+            clauses.append("day_filter = ?")
+            sc_params.append(scope.day_filter)
+        if scope.fee_pct is not None:
+            clauses.append("fee_pct = ?")
+            sc_params.append(scope.fee_pct)
+        if scope.symbols:
+            placeholders = ", ".join("?" * len(scope.symbols))
+            clauses.append(f"symbol IN ({placeholders})")
+            sc_params.extend(scope.symbols)
+        if clauses:
+            sc_sql = " AND " + " AND ".join(clauses)
+
+    df = conn.execute(
+        f"""
+        -- One row per (symbol, tf, pair, window, day_filter) — latest run_at_ms wins.
+        SELECT
+            strategy_a || '+' || strategy_b       AS combo,
+            symbol,
+            timeframe,
+            window_candles                         AS window,
+            closed_trades                          AS trades,
+            ROUND(win_rate * 100, 1)               AS win_pct,
+            ROUND(avg_r, 3)                        AS avg_r,
+            ROUND(total_r, 2)                      AS total_r,
+            ROUND(max_drawdown_r, 2)               AS max_dd,
+            ROUND(recovery_factor, 2)              AS rf
+        FROM backtest_combos
+        WHERE closed_trades >= ?{sc_sql}
+        QUALIFY ROW_NUMBER() OVER (
+            PARTITION BY symbol, timeframe, strategy_a, strategy_b, window_candles, day_filter
+            ORDER BY run_at_ms DESC
+        ) = 1
+        ORDER BY avg_r DESC
+        LIMIT {top_n}
+        """,
+        [min_trades] + sc_params,
+    ).df()
+    return _df_to_result(df)
+
+
+# ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
 
@@ -574,22 +632,39 @@ _QUERY_FN: dict[str, Callable[..., DigestResult]] = {
     "direction_bias": query_direction_bias,
     "consistency": query_consistency,
     "recovery_factor": query_recovery_factor,
+    "co_firing": query_co_firing,
 }
+
+
+_QUERY_MIN_TRADES: dict[str, int] = {
+    "co_firing": 3,  # co-firing pairs are rare; lower floor than single-strategy queries
+}
+_DEFAULT_MIN_TRADES = 5
 
 
 def run_digest(
     conn: duckdb.DuckDBPyConnection,
     query: str,
-    min_trades: int = 5,
+    min_trades: int | None = None,
     top_n: int = 20,
     scope: DigestScope | None = None,
 ) -> DigestResult:
-    """Dispatch to the named query function and return generic {columns, rows}."""
+    """Dispatch to the named query function and return generic {columns, rows}.
+
+    min_trades defaults to None, which lets each query use its own floor
+    (_QUERY_MIN_TRADES for co_firing=3, _DEFAULT_MIN_TRADES=5 for everything else).
+    Pass an explicit value to override.
+    """
     fn = _QUERY_FN.get(query)
     if fn is None:
         raise ValueError(
             f"Unknown digest query '{query}'. Valid: {', '.join(QUERY_NAMES)}"
         )
-    if query == "combos":
-        return fn(conn, min_trades=min_trades, top_n=top_n, scope=scope)
-    return fn(conn, min_trades=min_trades, scope=scope)
+    effective_min = (
+        min_trades
+        if min_trades is not None
+        else _QUERY_MIN_TRADES.get(query, _DEFAULT_MIN_TRADES)
+    )
+    if query in ("combos", "co_firing"):
+        return fn(conn, min_trades=effective_min, top_n=top_n, scope=scope)
+    return fn(conn, min_trades=effective_min, scope=scope)

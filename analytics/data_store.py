@@ -237,6 +237,38 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
         conn.execute("ALTER TABLE confidence_ratings_v2 RENAME TO confidence_ratings")
     elif "day_filter" not in existing_cr_cols:
         conn.execute("ALTER TABLE confidence_ratings ADD COLUMN day_filter TEXT")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS backtest_combos (
+            combo_id         TEXT    PRIMARY KEY,
+            symbol           TEXT    NOT NULL,
+            timeframe        TEXT    NOT NULL,
+            strategy_a       TEXT    NOT NULL,
+            strategy_b       TEXT    NOT NULL,
+            window_candles   INTEGER NOT NULL,
+            data_start_ms    BIGINT  NOT NULL,
+            data_end_ms      BIGINT  NOT NULL,
+            days             INTEGER NOT NULL,
+            sl_pct           DOUBLE  NOT NULL,
+            tp_r             DOUBLE  NOT NULL,
+            fee_pct          DOUBLE  NOT NULL,
+            day_filter       TEXT    NOT NULL,
+            total_signals    INTEGER NOT NULL,
+            closed_trades    INTEGER NOT NULL,
+            win_count        INTEGER NOT NULL,
+            win_rate         DOUBLE  NOT NULL,
+            avg_r            DOUBLE  NOT NULL,
+            total_r          DOUBLE  NOT NULL,
+            max_drawdown_r   DOUBLE  NOT NULL,
+            recovery_factor  DOUBLE,
+            long_closed_trades  INTEGER,
+            long_win_rate    DOUBLE,
+            long_avg_r       DOUBLE,
+            short_closed_trades INTEGER,
+            short_win_rate   DOUBLE,
+            short_avg_r      DOUBLE,
+            run_at_ms        BIGINT  NOT NULL
+        )
+    """)
     # Backfill existing runs from trades table where split columns are still NULL.
     # Runs after backtest_trades is created so the table always exists.
     conn.execute("""
@@ -848,3 +880,94 @@ def upsert_stats_cache(
         "VALUES (?, ?, ?, ?)",
         [symbol, days, date_str, payload_json],
     )
+
+
+def upsert_combo_run(
+    conn: duckdb.DuckDBPyConnection,
+    combo: "Any",  # ComboBacktestResult — avoid circular import
+    days: int,
+    data_start_ms: int,
+    data_end_ms: int,
+    sl_pct: float,
+    tp_r: float,
+    fee_pct: float,
+    day_filter: str,
+) -> str:
+    """Persist a ComboBacktestResult aggregate row and return the combo_id."""
+    import datetime
+
+    from analytics.backtest_lib import ComboBacktestResult
+
+    assert isinstance(combo, ComboBacktestResult)
+    r = combo.result
+
+    run_at_ms = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
+    # combo_id excludes run_at_ms so re-running overwrites the previous result
+    # for the same (symbol, tf, pair, window, day_filter) instead of duplicating.
+    combo_id = (
+        f"{r.symbol}|{r.timeframe}|{combo.strategy_a}+{combo.strategy_b}"
+        f"|w{combo.window}|{day_filter}"
+    )
+
+    rf = r.recovery_factor if r.max_drawdown_r > 0 else None
+
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO backtest_combos (
+            combo_id, symbol, timeframe, strategy_a, strategy_b, window_candles,
+            data_start_ms, data_end_ms, days, sl_pct, tp_r, fee_pct, day_filter,
+            total_signals, closed_trades, win_count, win_rate, avg_r, total_r,
+            max_drawdown_r, recovery_factor,
+            long_closed_trades, long_win_rate, long_avg_r,
+            short_closed_trades, short_win_rate, short_avg_r,
+            run_at_ms
+        ) VALUES (
+            ?, ?, ?, ?, ?, ?,
+            ?, ?, ?, ?, ?, ?, ?,
+            ?, ?, ?, ?, ?, ?,
+            ?, ?,
+            ?, ?, ?,
+            ?, ?, ?,
+            ?
+        )
+        """,
+        [
+            combo_id,
+            r.symbol,
+            r.timeframe,
+            combo.strategy_a,
+            combo.strategy_b,
+            combo.window,
+            data_start_ms,
+            data_end_ms,
+            days,
+            sl_pct,
+            tp_r,
+            fee_pct,
+            day_filter,
+            len(r.trades),
+            len(r.closed_trades),
+            r.win_count,
+            r.win_rate,
+            r.avg_r,
+            r.total_r,
+            r.max_drawdown_r,
+            rf,
+            len(r.long_closed_trades),
+            r.long_win_rate,
+            r.long_avg_r,
+            len(r.short_closed_trades),
+            r.short_win_rate,
+            r.short_avg_r,
+            run_at_ms,
+        ],
+    )
+    return combo_id
+
+
+def list_combo_runs(
+    conn: duckdb.DuckDBPyConnection,
+) -> "pd.DataFrame":
+    """Return all backtest_combos rows sorted newest-first."""
+
+    return conn.execute("SELECT * FROM backtest_combos ORDER BY run_at_ms DESC").df()

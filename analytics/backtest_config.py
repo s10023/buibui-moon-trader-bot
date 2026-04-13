@@ -370,6 +370,7 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
         timeframes=data.get("timeframes", ["4h"]),
         strategies=data.get("strategies"),
         days=int(data.get("days", 90)),
+        since=str(data["since"]) if data.get("since") else None,
         sl_pct=float(data.get("sl_pct", 0.02)),
         tp_r=float(data.get("tp_r", 2.0)),
         fee_pct=float(data.get("fee_pct", 0.0)),

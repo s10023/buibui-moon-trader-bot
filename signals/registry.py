@@ -1,7 +1,9 @@
 """Signal plugin registry for the signal daemon.
 
-Maps strategy name to plugin metadata. Seasonality is excluded —
-it produces stats, not actionable entry signals.
+Maps strategy name to plugin metadata. Excluded strategies:
+- seasonality: produces stats, not actionable entry signals
+- funding_reversion: requires live funding rate feed; fetch_funding_rates() is not
+  wired into data_sync.py so no funding data flows into the DB reliably.
 
 `requires_funding`, `requires_secondary`, and `confidence` flags live on
 `analytics.indicators_lib.STRATEGY_REGISTRY`; they are not duplicated here.
@@ -20,7 +22,7 @@ from analytics.indicators_lib import (
     detect_eqh_eql,
     detect_fib_golden_zone,
     # detect_fibonacci_retracement,  # Legacy — superseded by fib_golden_zone
-    detect_funding_extreme,
+    # detect_funding_extreme,  # Excluded — no live funding feed; see registry docstring
     detect_fvg,
     detect_hammer_hanging_man,
     detect_inside_bar,
@@ -64,9 +66,8 @@ SIGNAL_REGISTRY: dict[str, SignalPlugin] = {
     "bos": SignalPlugin(
         detector=detect_market_structure,
     ),
-    "funding_reversion": SignalPlugin(
-        detector=detect_funding_extreme,
-    ),
+    # funding_reversion excluded — requires live funding rate feed;
+    # fetch_funding_rates() not wired into data_sync so DB data is stale/partial.
     "smt_divergence": SignalPlugin(
         detector=detect_smt_divergence,
     ),

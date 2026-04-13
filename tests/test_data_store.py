@@ -76,6 +76,7 @@ class TestInitSchema:
             "signal_alert_outcomes",
             "backtest_runs",
             "backtest_trades",
+            "backtest_combos",
             "stats_cache",
             "confidence_ratings",
         } == tables

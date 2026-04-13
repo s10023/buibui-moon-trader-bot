@@ -11,7 +11,7 @@ DEV_PORT ?= 5173
 PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*" -not -path "./.venv/*")
 DOCKER_IMAGE = buibui-bot
 
-.PHONY: lint lint-md lint-md-fix lint-py-check lint-py typecheck test test-regression regression-update poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-open-trades buibui-analytics-backfill buibui-analytics-sync buibui-backtest buibui-signal-watch buibui-param-audit buibui-param-sweep buibui-recalibrate buibui-digest buibui-web web-install web-dev web-build web-preview web-full clean-db clean
+.PHONY: lint lint-md lint-md-fix lint-py-check lint-py typecheck test test-regression regression-update poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-open-trades buibui-analytics-backfill buibui-analytics-sync buibui-backtest buibui-combo-backtest buibui-signal-watch buibui-param-audit buibui-param-sweep buibui-recalibrate buibui-digest buibui-web web-install web-dev web-build web-preview web-full clean-db clean
 
 lint: lint-md lint-py
 
@@ -177,7 +177,25 @@ buibui-backtest:
 		$(if $(TP_R),--tp-r $(TP_R),) \
 		$(if $(MIN_TRADES),--min-trades $(MIN_TRADES),) \
 		$(if $(SECONDARY),--secondary-symbol $(SECONDARY),) \
+		$(if $(COMBO),--combo,) \
+		$(if $(WINDOW),--window $(WINDOW),) \
 		$(if $(SAVE),--save,)
+
+buibui-combo-backtest:
+	@echo "📊 Running co-firing confluence backtest..."
+	@poetry run python buibui.py backtest \
+		--combo \
+		$(if $(CONFIG),--config $(CONFIG),) \
+		$(if $(SYMBOLS),--symbols $(SYMBOLS),) \
+		$(if $(TIMEFRAMES),--timeframes $(TIMEFRAMES),) \
+		$(if $(WINDOW),--window $(WINDOW),) \
+		$(if $(DAYS),--days $(DAYS),) \
+		$(if $(SINCE),--since $(SINCE),) \
+		$(if $(MIN_TRADES),--min-trades $(MIN_TRADES),) \
+		$(if $(FEE_PCT),--fee-pct $(FEE_PCT),) \
+		$(if $(DAY_FILTER),--day-filter,) \
+		$(if $(SAVE),--save,) \
+		$(if $(WORKERS),--workers $(WORKERS),)
 
 buibui-param-audit:
 	@echo "🔬 Running strategy audit..."
