@@ -197,6 +197,19 @@ class BiasConfig:
 
 
 @dataclass
+class ComboConfig:
+    """Configuration for live co-firing confluence detection (D10 step 3).
+
+    Controls when a co-firing blockquote is appended to Telegram alerts.
+    window: look back this many candles in the signals DB for a co-firing partner.
+    min_avg_r: only tag pairs whose backtest combo avg_r meets this threshold.
+    """
+
+    window: int = 5
+    min_avg_r: float = 1.0
+
+
+@dataclass
 class SignalWatchConfig:
     """All configurable options for the signal watch daemon."""
 
@@ -227,6 +240,8 @@ class SignalWatchConfig:
     atr_sl_multiplier: float | None = None
     # Statistics-driven bias layer (F8): ADR progress gate + DOW soft suppress.
     bias: BiasConfig = field(default_factory=BiasConfig)
+    # Live co-firing confluence detection (D10 step 3).
+    combo: ComboConfig = field(default_factory=ComboConfig)
 
     def effective_tp_r(
         self, strategy: str, symbol: str, tf: str, direction: str = ""
@@ -451,6 +466,12 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         ),
     )
 
+    raw_combo = data.get("combo", {})
+    combo = ComboConfig(
+        window=int(raw_combo.get("window", 5)),
+        min_avg_r=float(raw_combo.get("min_avg_r", 1.0)),
+    )
+
     return SignalWatchConfig(
         symbols=data.get("symbols"),
         timeframes=data.get("timeframes", ["4h"]),
@@ -472,4 +493,5 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
             else None
         ),
         bias=bias,
+        combo=combo,
     )

@@ -1,6 +1,6 @@
 """Signal event model and Telegram alert formatter."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -162,6 +162,27 @@ def _format_stats_line(ctx: "StatsContext", direction: str) -> str:
 
 
 @dataclass
+class ConfluenceData:
+    """Co-firing confluence metadata attached to a SignalEvent.
+
+    Populated by _find_live_cofire in signal_lib.py when a known-good strategy
+    pair from backtest_combos fired within ±window candles of the current signal.
+
+    orderflow_signals is a step-5 extension point for CoinGlass/NPOC data —
+    each entry is a pre-formatted string appended to the blockquote.
+    """
+
+    co_strategy: str  # the strategy that co-fired (not the primary alert strategy)
+    candles_ago: int  # 0 = same candle, N = N candles before current signal
+    avg_r: float  # backtest combo avg R
+    trades: int  # backtest combo closed trades
+    win_rate: float  # 0.0–1.0
+    type_a: str  # strategy_type of co_strategy (e.g. "fib")
+    type_b: str  # strategy_type of primary strategy (e.g. "structural")
+    orderflow_signals: list[str] = field(default_factory=list)  # step 5: OI/CVD/NPOC
+
+
+@dataclass
 class SignalEvent:
     symbol: str
     timeframe: str
@@ -180,6 +201,9 @@ class SignalEvent:
     )
     tp_price: float = (
         0.0  # structural TP from detector (e.g. 1.618 fib ext); 0 = use tp_r fallback
+    )
+    confluence_combo: "ConfluenceData | None" = (
+        None  # set by _find_live_cofire when a known-good pair co-fired recently
     )
 
 
@@ -315,6 +339,29 @@ def format_confluence_alert(
         msg += f"\n{cme_gap_warning}"
     if backtest_summary:
         msg += f"\n\n{backtest_summary}"
+    best_cofire: ConfluenceData | None = max(
+        (e.confluence_combo for e in events if e.confluence_combo is not None),
+        key=lambda c: c.avg_r,
+        default=None,
+    )
+    if best_cofire is not None:
+        if best_cofire.candles_ago == 0:
+            ago_str = "this candle"
+        elif best_cofire.candles_ago == 1:
+            ago_str = "1 candle ago"
+        else:
+            ago_str = f"{best_cofire.candles_ago} candles ago"
+        cofire_block = (
+            f"\n> ⚡⚡ CONFLUENCE"
+            f"\n> {best_cofire.co_strategy} co-fired {ago_str}"
+            f"\n> Combo avg R: +{best_cofire.avg_r:.2f}R"
+            f" · {best_cofire.trades} trades"
+            f" · {best_cofire.win_rate:.1%} win"
+            f"\n> Types: {best_cofire.type_a} + {best_cofire.type_b}"
+        )
+        for sig in best_cofire.orderflow_signals:
+            cofire_block += f"\n> {sig}"
+        msg += f"\n{cofire_block}"
     if stats_context is not None:
         msg += f"\n\n{_format_stats_line(stats_context, first.direction)}"
     return msg

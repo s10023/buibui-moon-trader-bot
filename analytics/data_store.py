@@ -971,3 +971,36 @@ def list_combo_runs(
     """Return all backtest_combos rows sorted newest-first."""
 
     return conn.execute("SELECT * FROM backtest_combos ORDER BY run_at_ms DESC").df()
+
+
+def get_combo_lookup(
+    conn: duckdb.DuckDBPyConnection,
+) -> "dict[tuple[str, str, frozenset[str]], dict[str, Any]]":
+    """Build a lookup dict for live co-fire detection from backtest_combos.
+
+    Keyed by (symbol, timeframe, frozenset({strategy_a, strategy_b})) → the row
+    with the highest avg_r for that pair (across all day_filter values).
+
+    Uses list_combo_runs which already deduplicates to the latest run per combo_id.
+    Returns an empty dict when no combo runs have been saved yet.
+    """
+    df = list_combo_runs(conn)
+    if df.empty:
+        return {}
+    lookup: dict[tuple[str, str, frozenset[str]], dict[str, Any]] = {}
+    for _, row in df.iterrows():
+        key: tuple[str, str, frozenset[str]] = (
+            str(row["symbol"]),
+            str(row["timeframe"]),
+            frozenset({str(row["strategy_a"]), str(row["strategy_b"])}),
+        )
+        avg_r = float(row["avg_r"])
+        if key not in lookup or avg_r > lookup[key]["avg_r"]:
+            lookup[key] = {
+                "avg_r": avg_r,
+                "win_rate": float(row["win_rate"]),
+                "closed_trades": int(row["closed_trades"]),
+                "strategy_a": str(row["strategy_a"]),
+                "strategy_b": str(row["strategy_b"]),
+            }
+    return lookup
