@@ -679,7 +679,17 @@ def run_scan_cycle(
     from utils.telegram import send_telegram_message
 
     now_ms = int(time.time() * 1000)
-    start_ms = now_ms - days * 24 * 3600 * 1000
+    if backtest_cfg and backtest_cfg.since:
+        import datetime as _dt
+
+        start_ms = int(
+            _dt.datetime.strptime(backtest_cfg.since, "%Y-%m-%d")
+            .replace(tzinfo=_dt.UTC)
+            .timestamp()
+            * 1000
+        )
+    else:
+        start_ms = now_ms - days * 24 * 3600 * 1000
 
     # Per-cycle backtest cache: (symbol, tf, strategy) → BacktestResult | None
     # Avoids recomputing the same strategy twice if it fires on multiple symbols.

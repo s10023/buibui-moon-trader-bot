@@ -132,6 +132,9 @@ class BacktestFilterConfig:
     # "off":  disable entirely
     mode: str = "soft"
     days: int = 90
+    # Anchor start date for stable backtest windows (e.g. "2025-09-12"). Overrides days
+    # when set — use this so alert backtest stats match saved sweep runs exactly.
+    since: str | None = None
     # Below this trade count the filter is bypassed (win rate is noise).
     # Global fallback — use effective_min_trades(tf) to get per-TF value.
     min_trades: int = 12
@@ -330,6 +333,7 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
     backtest = BacktestFilterConfig(
         mode=str(raw_bt.get("mode", "soft")),
         days=int(raw_bt.get("days", 90)),
+        since=str(raw_bt["since"]) if raw_bt.get("since") else None,
         min_trades=int(raw_bt.get("min_trades", 20)),
         min_trades_per_tf=bt_per_tf,
         filter_threshold=float(raw_bt.get("filter_threshold", 0.45)),
