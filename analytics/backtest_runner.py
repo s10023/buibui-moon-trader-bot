@@ -580,13 +580,15 @@ def run_combo_backtest_cmd(
     try:
         for symbol in symbols:
             for timeframe in timeframes:
-                # Detect all strategies once and cache; skip dead ones.
+                # Fetch OHLCV once per symbol×TF — shared across all strategy detections.
+                ohlcv = get_ohlcv(conn, symbol, timeframe, start_ms, end_ms)
+                if ohlcv.empty:
+                    skipped.append(f"{symbol}/{timeframe} (no data)")
+                    continue
+
+                # Detect all strategies and cache those with enough signals.
                 signals_cache: dict[str, pd.DataFrame] = {}
                 for strategy in _non_seasonal:
-                    ohlcv = get_ohlcv(conn, symbol, timeframe, start_ms, end_ms)
-                    if ohlcv.empty:
-                        skipped.append(f"{symbol}/{timeframe} (no data)")
-                        break
                     sigs = detect_signals_for_strategy(
                         conn, ohlcv, symbol, timeframe, strategy, start_ms, end_ms
                     )
@@ -599,8 +601,6 @@ def run_combo_backtest_cmd(
 
                 if not signals_cache:
                     continue
-
-                ohlcv = get_ohlcv(conn, symbol, timeframe, start_ms, end_ms)
                 strategies_with_signals = list(signals_cache.keys())
 
                 for i, strat_a in enumerate(strategies_with_signals):
