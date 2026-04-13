@@ -591,6 +591,7 @@ def query_co_firing(
 
     df = conn.execute(
         f"""
+        -- One row per (symbol, tf, pair, window, day_filter) — latest run_at_ms wins.
         SELECT
             strategy_a || '+' || strategy_b       AS combo,
             symbol,
@@ -604,6 +605,10 @@ def query_co_firing(
             ROUND(recovery_factor, 2)              AS rf
         FROM backtest_combos
         WHERE closed_trades >= ?{sc_sql}
+        QUALIFY ROW_NUMBER() OVER (
+            PARTITION BY symbol, timeframe, strategy_a, strategy_b, window_candles, day_filter
+            ORDER BY run_at_ms DESC
+        ) = 1
         ORDER BY avg_r DESC
         LIMIT {top_n}
         """,
