@@ -902,9 +902,11 @@ def upsert_combo_run(
     r = combo.result
 
     run_at_ms = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
+    # combo_id excludes run_at_ms so re-running overwrites the previous result
+    # for the same (symbol, tf, pair, window, day_filter) instead of duplicating.
     combo_id = (
         f"{r.symbol}|{r.timeframe}|{combo.strategy_a}+{combo.strategy_b}"
-        f"|w{combo.window}|{day_filter}|{run_at_ms}"
+        f"|w{combo.window}|{day_filter}"
     )
 
     rf = r.recovery_factor if r.max_drawdown_r > 0 else None

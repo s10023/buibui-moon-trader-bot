@@ -348,10 +348,13 @@ def scan_symbol(
 
     events: list[SignalEvent] = []
 
+    _excluded_from_registry = {"seasonality", "funding_reversion"}
+
     for strategy_name in strategies:
         plugin = SIGNAL_REGISTRY.get(strategy_name)
         if plugin is None:
-            logger.warning("Unknown strategy %s — skipping", strategy_name)
+            if strategy_name not in _excluded_from_registry:
+                logger.warning("Unknown strategy %s — skipping", strategy_name)
             continue
 
         spec = STRATEGY_REGISTRY.get(strategy_name)
