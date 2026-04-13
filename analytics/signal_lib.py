@@ -172,6 +172,10 @@ def _compute_backtest(
     adr_exempt: bool = False,
     volume_suppress: bool = False,
     volume_spike_boost: bool = False,
+    volume_suppress_long: bool | None = None,
+    volume_suppress_short: bool | None = None,
+    volume_spike_boost_long: bool | None = None,
+    volume_spike_boost_short: bool | None = None,
     tp_r_long: float | None = None,
     tp_r_short: float | None = None,
 ) -> BacktestResult | None:
@@ -187,6 +191,8 @@ def _compute_backtest(
     breakout/continuation strategies that should not be ADR-gated).
     volume_suppress: skip signal candles with volume < 1.5× rolling mean.
     volume_spike_boost: exempt spike candles (> 3× rolling mean) from suppression.
+    volume_suppress_long/short: directional overrides — take precedence over volume_suppress.
+    volume_spike_boost_long/short: directional overrides — take precedence over volume_spike_boost.
     """
     hist_df = ohlcv_df.iloc[:-1]
     if len(hist_df) < 3:
@@ -234,6 +240,10 @@ def _compute_backtest(
         atr_sl_multiplier=atr_sl_multiplier,
         volume_suppress=volume_suppress,
         volume_spike_boost=volume_spike_boost,
+        volume_suppress_long=volume_suppress_long,
+        volume_suppress_short=volume_suppress_short,
+        volume_spike_boost_long=volume_spike_boost_long,
+        volume_spike_boost_short=volume_spike_boost_short,
         tp_r_long=tp_r_long,
         tp_r_short=tp_r_short,
     )
@@ -581,6 +591,54 @@ def _resolve_volume_spike_boost(
         if override is not None and override.volume_spike_boost is not None:
             return override.volume_spike_boost
     return global_boost
+
+
+def _resolve_volume_suppress_long(
+    strategy_params: dict[str, StrategyOverride] | None,
+    strategy: str,
+) -> bool | None:
+    """Return per-strategy volume_suppress_long, or None (fall back to symmetric)."""
+    if strategy_params:
+        override = strategy_params.get(strategy)
+        if override is not None:
+            return override.volume_suppress_long
+    return None
+
+
+def _resolve_volume_suppress_short(
+    strategy_params: dict[str, StrategyOverride] | None,
+    strategy: str,
+) -> bool | None:
+    """Return per-strategy volume_suppress_short, or None (fall back to symmetric)."""
+    if strategy_params:
+        override = strategy_params.get(strategy)
+        if override is not None:
+            return override.volume_suppress_short
+    return None
+
+
+def _resolve_volume_spike_boost_long(
+    strategy_params: dict[str, StrategyOverride] | None,
+    strategy: str,
+) -> bool | None:
+    """Return per-strategy volume_spike_boost_long, or None (fall back to symmetric)."""
+    if strategy_params:
+        override = strategy_params.get(strategy)
+        if override is not None:
+            return override.volume_spike_boost_long
+    return None
+
+
+def _resolve_volume_spike_boost_short(
+    strategy_params: dict[str, StrategyOverride] | None,
+    strategy: str,
+) -> bool | None:
+    """Return per-strategy volume_spike_boost_short, or None (fall back to symmetric)."""
+    if strategy_params:
+        override = strategy_params.get(strategy)
+        if override is not None:
+            return override.volume_spike_boost_short
+    return None
 
 
 def _compute_stats_context(
@@ -973,6 +1031,18 @@ def run_scan_cycle(
                             event.strategy,
                             backtest_cfg.volume_spike_boost,
                         ),
+                        volume_suppress_long=_resolve_volume_suppress_long(
+                            strategy_params, event.strategy
+                        ),
+                        volume_suppress_short=_resolve_volume_suppress_short(
+                            strategy_params, event.strategy
+                        ),
+                        volume_spike_boost_long=_resolve_volume_spike_boost_long(
+                            strategy_params, event.strategy
+                        ),
+                        volume_spike_boost_short=_resolve_volume_spike_boost_short(
+                            strategy_params, event.strategy
+                        ),
                         tp_r_long=_tp_r_long if _tp_r_long != eff_tp_r else None,
                         tp_r_short=_tp_r_short if _tp_r_short != eff_tp_r else None,
                     )
@@ -1033,16 +1103,44 @@ def run_scan_cycle(
                     _is_spike = _is_volume_spike(ohlcv_df, _idx)
                     if _is_spike:
                         _e.volume_spike = True
-                    if _resolve_volume_suppress(
-                        strategy_params, _e.strategy, backtest_cfg.volume_suppress
-                    ):
+                    # Direction-aware suppress: directional fields take precedence over symmetric.
+                    _dir = _e.direction
+                    _suppress_long = _resolve_volume_suppress_long(
+                        strategy_params, _e.strategy
+                    )
+                    _suppress_short = _resolve_volume_suppress_short(
+                        strategy_params, _e.strategy
+                    )
+                    _suppress = (
+                        _suppress_long
+                        if _dir == "long" and _suppress_long is not None
+                        else _suppress_short
+                        if _dir == "short" and _suppress_short is not None
+                        else _resolve_volume_suppress(
+                            strategy_params, _e.strategy, backtest_cfg.volume_suppress
+                        )
+                    )
+                    _boost_long = _resolve_volume_spike_boost_long(
+                        strategy_params, _e.strategy
+                    )
+                    _boost_short = _resolve_volume_spike_boost_short(
+                        strategy_params, _e.strategy
+                    )
+                    _boost = (
+                        _boost_long
+                        if _dir == "long" and _boost_long is not None
+                        else _boost_short
+                        if _dir == "short" and _boost_short is not None
+                        else _resolve_volume_spike_boost(
+                            strategy_params,
+                            _e.strategy,
+                            backtest_cfg.volume_spike_boost,
+                        )
+                    )
+                    if _suppress:
                         if _is_low_volume(ohlcv_df, _idx):
                             # Spike boost: exempt high-conviction candles from suppress.
-                            if _is_spike and _resolve_volume_spike_boost(
-                                strategy_params,
-                                _e.strategy,
-                                backtest_cfg.volume_spike_boost,
-                            ):
+                            if _is_spike and _boost:
                                 logger.info(
                                     "Volume spike exempted %s %s — %s %s",
                                     symbol,

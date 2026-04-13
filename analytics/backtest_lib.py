@@ -239,6 +239,82 @@ class BacktestResult:
         r_vals = [t.pnl_r for t in self.spike_vol_closed_trades if t.pnl_r is not None]
         return sum(r_vals) / len(r_vals) if r_vals else None
 
+    # --- Directional × volume cross-tab ---
+
+    @functools.cached_property
+    def long_low_vol_closed_trades(self) -> list[Trade]:
+        return [t for t in self.long_closed_trades if t.low_volume]
+
+    @functools.cached_property
+    def long_normal_vol_closed_trades(self) -> list[Trade]:
+        return [
+            t
+            for t in self.long_closed_trades
+            if not t.low_volume and not t.volume_spike
+        ]
+
+    @functools.cached_property
+    def long_spike_vol_closed_trades(self) -> list[Trade]:
+        return [t for t in self.long_closed_trades if t.volume_spike]
+
+    @functools.cached_property
+    def short_low_vol_closed_trades(self) -> list[Trade]:
+        return [t for t in self.short_closed_trades if t.low_volume]
+
+    @functools.cached_property
+    def short_normal_vol_closed_trades(self) -> list[Trade]:
+        return [
+            t
+            for t in self.short_closed_trades
+            if not t.low_volume and not t.volume_spike
+        ]
+
+    @functools.cached_property
+    def short_spike_vol_closed_trades(self) -> list[Trade]:
+        return [t for t in self.short_closed_trades if t.volume_spike]
+
+    @property
+    def long_low_vol_avg_r(self) -> float | None:
+        r_vals = [
+            t.pnl_r for t in self.long_low_vol_closed_trades if t.pnl_r is not None
+        ]
+        return sum(r_vals) / len(r_vals) if r_vals else None
+
+    @property
+    def long_normal_vol_avg_r(self) -> float | None:
+        r_vals = [
+            t.pnl_r for t in self.long_normal_vol_closed_trades if t.pnl_r is not None
+        ]
+        return sum(r_vals) / len(r_vals) if r_vals else None
+
+    @property
+    def long_spike_vol_avg_r(self) -> float | None:
+        r_vals = [
+            t.pnl_r for t in self.long_spike_vol_closed_trades if t.pnl_r is not None
+        ]
+        return sum(r_vals) / len(r_vals) if r_vals else None
+
+    @property
+    def short_low_vol_avg_r(self) -> float | None:
+        r_vals = [
+            t.pnl_r for t in self.short_low_vol_closed_trades if t.pnl_r is not None
+        ]
+        return sum(r_vals) / len(r_vals) if r_vals else None
+
+    @property
+    def short_normal_vol_avg_r(self) -> float | None:
+        r_vals = [
+            t.pnl_r for t in self.short_normal_vol_closed_trades if t.pnl_r is not None
+        ]
+        return sum(r_vals) / len(r_vals) if r_vals else None
+
+    @property
+    def short_spike_vol_avg_r(self) -> float | None:
+        r_vals = [
+            t.pnl_r for t in self.short_spike_vol_closed_trades if t.pnl_r is not None
+        ]
+        return sum(r_vals) / len(r_vals) if r_vals else None
+
     @property
     def durations_h(self) -> list[float]:
         """Hold time in hours for each closed trade."""
@@ -326,6 +402,10 @@ def run_backtest(
     atr_sl_multiplier: float | None = None,
     volume_suppress: bool = False,
     volume_spike_boost: bool = False,
+    volume_suppress_long: bool | None = None,
+    volume_suppress_short: bool | None = None,
+    volume_spike_boost_long: bool | None = None,
+    volume_spike_boost_short: bool | None = None,
     tp_r_long: float | None = None,
     tp_r_short: float | None = None,
 ) -> BacktestResult:
@@ -386,10 +466,26 @@ def run_backtest(
         is_low_vol = _is_low_volume(ohlcv, sig_idx)
 
         # Volume suppression: skip low-volume signal candles when enabled.
-        # Exception: when volume_spike_boost is on and the candle is a spike,
-        # exempt it from suppression regardless of volume_suppress setting.
-        if volume_suppress and is_low_vol:
-            if not (volume_spike_boost and is_spike):
+        # Directional params (volume_suppress_long / volume_suppress_short) take
+        # precedence over the symmetric volume_suppress for their respective direction.
+        # Spike boost: exempt high-conviction candles (> 3× mean) from suppression.
+        # Directional spike boost params override the symmetric volume_spike_boost.
+        _suppress = (
+            volume_suppress_long
+            if direction == "long" and volume_suppress_long is not None
+            else volume_suppress_short
+            if direction == "short" and volume_suppress_short is not None
+            else volume_suppress
+        )
+        _boost = (
+            volume_spike_boost_long
+            if direction == "long" and volume_spike_boost_long is not None
+            else volume_spike_boost_short
+            if direction == "short" and volume_spike_boost_short is not None
+            else volume_spike_boost
+        )
+        if _suppress and is_low_vol:
+            if not (_boost and is_spike):
                 continue
 
         entry_time = int(ohlcv_times_np[entry_idx])
@@ -780,6 +876,80 @@ def format_volume_split(results: list[BacktestResult]) -> str:
     lines.append(
         "  Delta = normal_avg_r − low_vol_avg_r  "
         "(positive = volume filter would help, negative = hurts)"
+    )
+    return "\n".join(lines)
+
+
+def format_directional_volume_split(results: list[BacktestResult]) -> str:
+    """Show avg R split by volume tier × direction (LONG / SHORT), aggregated by strategy.
+
+    Use this to decide whether volume_suppress_long / volume_suppress_short
+    or volume_spike_boost_long / volume_spike_boost_short are warranted.
+    A large per-direction delta signals a directional suppress/boost opportunity.
+    """
+    from collections import defaultdict
+
+    long_low: dict[str, list[Trade]] = defaultdict(list)
+    long_norm: dict[str, list[Trade]] = defaultdict(list)
+    long_spike: dict[str, list[Trade]] = defaultdict(list)
+    short_low: dict[str, list[Trade]] = defaultdict(list)
+    short_norm: dict[str, list[Trade]] = defaultdict(list)
+    short_spike: dict[str, list[Trade]] = defaultdict(list)
+
+    for r in results:
+        long_low[r.strategy].extend(r.long_low_vol_closed_trades)
+        long_norm[r.strategy].extend(r.long_normal_vol_closed_trades)
+        long_spike[r.strategy].extend(r.long_spike_vol_closed_trades)
+        short_low[r.strategy].extend(r.short_low_vol_closed_trades)
+        short_norm[r.strategy].extend(r.short_normal_vol_closed_trades)
+        short_spike[r.strategy].extend(r.short_spike_vol_closed_trades)
+
+    strategies = sorted(
+        set(long_low)
+        | set(long_norm)
+        | set(long_spike)
+        | set(short_low)
+        | set(short_norm)
+        | set(short_spike)
+    )
+
+    def _avg(trades: list[Trade]) -> float | None:
+        vals = [t.pnl_r for t in trades if t.pnl_r is not None]
+        return sum(vals) / len(vals) if vals else None
+
+    def _r(v: float | None) -> str:
+        return f"{v:+.2f}R" if v is not None else "  n/a"
+
+    thick = "═" * 90
+    lines = [
+        "\nDirectional Volume Split (LONG / SHORT × Low / Normal / Spike avg R)",
+        thick,
+        f"  {'Strategy':<22}  {'Dir':>4}  {'Low-vol':>7}  {'n':>4}  "
+        f"{'Normal':>7}  {'n':>4}  {'Spike':>7}  {'n':>4}  {'Δ(norm-low)':>11}",
+        "  " + "─" * 87,
+    ]
+
+    for s in strategies:
+        for label, low, norm, spike in [
+            ("↑", long_low[s], long_norm[s], long_spike[s]),
+            ("↓", short_low[s], short_norm[s], short_spike[s]),
+        ]:
+            low_r = _avg(low)
+            norm_r = _avg(norm)
+            spike_r = _avg(spike)
+            delta = (
+                (norm_r - low_r) if (low_r is not None and norm_r is not None) else None
+            )
+            lines.append(
+                f"  {s:<22}  {label:>4}  {_r(low_r):>7}  {len(low):>4}  "
+                f"{_r(norm_r):>7}  {len(norm):>4}  {_r(spike_r):>7}  {len(spike):>4}  "
+                f"{_r(delta):>11}"
+            )
+
+    lines.append("  " + "─" * 87)
+    lines.append(
+        "  Δ(norm-low) > 0 → suppressing lows for that direction would help. "
+        "Spike > norm → boost that direction."
     )
     return "\n".join(lines)
 

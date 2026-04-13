@@ -919,6 +919,100 @@ class TestFormatVolumeSplit:
         assert "Delta" in output
 
 
+class TestDirectionalVolumeCrosstab:
+    """BacktestResult directional × volume cross-tab properties."""
+
+    def _make_trade(
+        self,
+        direction: str,
+        low_volume: bool = False,
+        volume_spike: bool = False,
+        pnl_r: float = 0.5,
+    ) -> Trade:
+        entry = 100.0
+        risk = 1.0
+        exit_price = (
+            entry + pnl_r * risk if direction == "long" else entry - pnl_r * risk
+        )
+        outcome = "win" if pnl_r >= 0 else "loss"
+        return Trade(
+            signal_time=_BASE_TIME,
+            entry_time=_BASE_TIME + 1000,
+            entry_price=entry,
+            direction=direction,
+            sl_price=entry - risk if direction == "long" else entry + risk,
+            tp_price=entry + 2 * risk if direction == "long" else entry - 2 * risk,
+            exit_time=_BASE_TIME + 2000,
+            exit_price=exit_price,
+            outcome=outcome,
+            low_volume=low_volume,
+            volume_spike=volume_spike,
+        )
+
+    def test_long_low_vol_trades(self) -> None:
+        result = BacktestResult(symbol="BTC", timeframe="4h", strategy="test")
+        result.trades = [
+            self._make_trade("long", low_volume=True),
+            self._make_trade("short", low_volume=True),
+            self._make_trade("long", low_volume=False),
+        ]
+        assert len(result.long_low_vol_closed_trades) == 1
+        assert len(result.short_low_vol_closed_trades) == 1
+
+    def test_long_normal_vol_trades(self) -> None:
+        result = BacktestResult(symbol="BTC", timeframe="4h", strategy="test")
+        result.trades = [
+            self._make_trade("long"),
+            self._make_trade("long", volume_spike=True),
+            self._make_trade("short"),
+        ]
+        assert len(result.long_normal_vol_closed_trades) == 1
+        assert len(result.long_spike_vol_closed_trades) == 1
+        assert len(result.short_normal_vol_closed_trades) == 1
+
+    def test_long_spike_avg_r(self) -> None:
+        result = BacktestResult(symbol="BTC", timeframe="4h", strategy="test")
+        result.trades = [
+            self._make_trade("long", volume_spike=True, pnl_r=1.0),
+            self._make_trade("short", volume_spike=True, pnl_r=0.5),
+        ]
+        assert result.long_spike_vol_avg_r is not None
+        assert abs(result.long_spike_vol_avg_r - 1.0) < 0.01
+        assert result.short_spike_vol_avg_r is not None
+        assert abs(result.short_spike_vol_avg_r - 0.5) < 0.01
+
+    def test_short_low_vol_avg_r_none_when_empty(self) -> None:
+        result = BacktestResult(symbol="BTC", timeframe="4h", strategy="test")
+        result.trades = [self._make_trade("long", low_volume=True)]
+        assert result.short_low_vol_avg_r is None
+
+
+class TestFormatDirectionalVolumeSplit:
+    """format_directional_volume_split produces a readable directional table."""
+
+    def test_contains_header(self) -> None:
+        from analytics.backtest_lib import format_directional_volume_split
+
+        result = BacktestResult(symbol="BTC", timeframe="4h", strategy="engulfing")
+        output = format_directional_volume_split([result])
+        assert "Directional Volume Split" in output
+
+    def test_shows_strategy_and_arrows(self) -> None:
+        from analytics.backtest_lib import format_directional_volume_split
+
+        result = BacktestResult(symbol="BTC", timeframe="4h", strategy="pin_bar")
+        output = format_directional_volume_split([result])
+        assert "pin_bar" in output
+        assert "↑" in output
+        assert "↓" in output
+
+    def test_empty_results(self) -> None:
+        from analytics.backtest_lib import format_directional_volume_split
+
+        output = format_directional_volume_split([])
+        assert "Directional Volume Split" in output
+
+
 class TestDurationProperties:
     """BacktestResult duration stats from entry/exit times."""
 

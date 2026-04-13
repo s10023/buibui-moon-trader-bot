@@ -19,6 +19,7 @@ from analytics.backtest_lib import (
     filter_signals_by_day,
     format_atr_sl_sweep_table,
     format_combo_table,
+    format_directional_volume_split,
     format_duration_table,
     format_result,
     format_seasonality,
@@ -250,6 +251,10 @@ def _collect_sweep_results(
             atr_sl_multiplier=eff_atr_sl,
             volume_suppress=cfg.effective_volume_suppress(strategy),
             volume_spike_boost=cfg.effective_volume_spike_boost(strategy),
+            volume_suppress_long=cfg.effective_volume_suppress_long(strategy),
+            volume_suppress_short=cfg.effective_volume_suppress_short(strategy),
+            volume_spike_boost_long=cfg.effective_volume_spike_boost_long(strategy),
+            volume_spike_boost_short=cfg.effective_volume_spike_boost_short(strategy),
         )
         results.append(bt)
 
@@ -362,6 +367,16 @@ def run_backtest_sweep(
                         ),
                         volume_suppress=cfg.effective_volume_suppress(strat),
                         volume_spike_boost=cfg.effective_volume_spike_boost(strat),
+                        volume_suppress_long=cfg.effective_volume_suppress_long(strat),
+                        volume_suppress_short=cfg.effective_volume_suppress_short(
+                            strat
+                        ),
+                        volume_spike_boost_long=cfg.effective_volume_spike_boost_long(
+                            strat
+                        ),
+                        volume_spike_boost_short=cfg.effective_volume_spike_boost_short(
+                            strat
+                        ),
                     )
                     tp_results.append(bt)
                 results_by_tp[tp_r] = tp_results
@@ -394,6 +409,16 @@ def run_backtest_sweep(
                         atr_sl_multiplier=atr_mult,
                         volume_suppress=cfg.effective_volume_suppress(strat),
                         volume_spike_boost=cfg.effective_volume_spike_boost(strat),
+                        volume_suppress_long=cfg.effective_volume_suppress_long(strat),
+                        volume_suppress_short=cfg.effective_volume_suppress_short(
+                            strat
+                        ),
+                        volume_spike_boost_long=cfg.effective_volume_spike_boost_long(
+                            strat
+                        ),
+                        volume_spike_boost_short=cfg.effective_volume_spike_boost_short(
+                            strat
+                        ),
                     )
                     atr_results.append(bt)
                 results_by_atr[atr_mult] = atr_results
@@ -413,6 +438,7 @@ def run_backtest_sweep(
                 )
             )
             print(format_volume_split(results))
+            print(format_directional_volume_split(results))
             print(format_duration_table(results))
             if cfg.save_results:
                 print(f"\n  Results saved to DB (sweep_id={sweep_id})")
