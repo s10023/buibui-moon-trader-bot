@@ -13,6 +13,7 @@ import logging
 import math
 import time
 from collections.abc import Mapping
+from typing import Any
 
 import duckdb
 import pandas as pd
@@ -28,6 +29,7 @@ from analytics.cme_gap_lib import cme_gap_alert_warning, get_recent_cme_gap
 from analytics.data_store import (
     get_funding_rates,
     get_ohlcv,
+    get_signals_history,
     upsert_backtest_run,
     upsert_signal_outcome,
     upsert_signals,
@@ -39,7 +41,12 @@ from analytics.signal_config import (
     StrategyOverride,
     _day_filter_to_weekdays,
 )
-from signals.alert_formatter import SignalEvent, StatsContext, format_confluence_alert
+from signals.alert_formatter import (
+    ConfluenceData,
+    SignalEvent,
+    StatsContext,
+    format_confluence_alert,
+)
 from signals.cooldown_store import CooldownStore
 from signals.registry import SIGNAL_REGISTRY
 
@@ -644,6 +651,102 @@ def _compute_stats_context(
         return None
 
 
+def _find_live_cofire(
+    events: list[SignalEvent],
+    ohlcv: pd.DataFrame,
+    conn: duckdb.DuckDBPyConnection,
+    combo_lookup: "dict[tuple[str, str, frozenset[str]], Any]",
+    symbol: str,
+    tf: str,
+    window: int,
+    min_avg_r: float,
+) -> "ConfluenceData | None":
+    """Return ConfluenceData for the best co-firing pair, or None.
+
+    Checks two signal sources in order:
+    1. Same-cycle events (candles_ago=0): two strategies fired this candle.
+    2. Cross-cycle: recent signals stored in the DB for the past `window` candles.
+
+    Returns the pair with the highest backtest avg_r that meets min_avg_r.
+    Design note: keyed by (symbol, tf, frozenset) so cross-TF extension (step 4)
+    can query a different tf key without restructuring this function.
+    """
+    if not events or not combo_lookup:
+        return None
+
+    # Build candle-index map for O(1) candles_ago computation.
+    times: list[int] = ohlcv["open_time"].astype("int64").tolist()
+    time_to_idx: dict[int, int] = {t: i for i, t in enumerate(times)}
+
+    current_open_time = int(events[0].open_time)
+    current_idx = time_to_idx.get(current_open_time, len(times) - 1)
+    current_direction = events[0].direction
+    current_strats = {e.strategy for e in events}
+
+    best_r: float = -1.0
+    best: ConfluenceData | None = None
+
+    def _consider(primary_strat: str, co_strat: str, co_open_time: int) -> None:
+        nonlocal best_r, best
+        key: tuple[str, str, frozenset[str]] = (
+            symbol,
+            tf,
+            frozenset({primary_strat, co_strat}),
+        )
+        row = combo_lookup.get(key)
+        if row is None or row["avg_r"] < min_avg_r:
+            return
+        co_idx = time_to_idx.get(co_open_time, -1)
+        if co_idx < 0:
+            return
+        candles_ago = current_idx - co_idx
+        if candles_ago < 0 or candles_ago > window:
+            return
+        if row["avg_r"] <= best_r:
+            return
+        co_spec = STRATEGY_REGISTRY.get(co_strat)
+        primary_spec = STRATEGY_REGISTRY.get(primary_strat)
+        best_r = row["avg_r"]
+        best = ConfluenceData(
+            co_strategy=co_strat,
+            candles_ago=candles_ago,
+            avg_r=row["avg_r"],
+            trades=int(row["closed_trades"]),
+            win_rate=float(row["win_rate"]),
+            type_a=co_spec.strategy_type if co_spec else "",
+            type_b=primary_spec.strategy_type if primary_spec else "",
+        )
+
+    # 1. Same-cycle: pairs within dir_events (all at current_open_time).
+    strat_list = list(current_strats)
+    for i, sa in enumerate(strat_list):
+        for sb in strat_list[i + 1 :]:
+            _consider(sa, sb, current_open_time)
+
+    # 2. Cross-cycle: query DB signals within the window.
+    candle_ms = parse_timeframe_secs(tf) * 1000
+    window_start_ms = current_open_time - window * candle_ms
+    # Exclude the current candle (already covered by same-cycle check above).
+    window_end_ms = current_open_time - candle_ms
+    if window_end_ms >= window_start_ms:
+        try:
+            hist = get_signals_history(conn, symbol, tf, window_start_ms, window_end_ms)
+        except Exception:
+            hist = pd.DataFrame()
+        if not hist.empty:
+            for _, db_row in hist.iterrows():
+                hist_strategy = str(db_row["strategy"])
+                if str(db_row["direction"]) != current_direction:
+                    continue
+                hist_open_time = int(db_row["open_time"])
+                for current_strat in current_strats:
+                    if hist_strategy == current_strat:
+                        continue
+                    _consider(current_strat, hist_strategy, hist_open_time)
+
+    return best
+
+
 def run_scan_cycle(
     conn: duckdb.DuckDBPyConnection,
     symbols: list[str],
@@ -665,6 +768,9 @@ def run_scan_cycle(
     confidence_override: dict[str, dict[str, int]] | None = None,
     directional_confidence_override: dict[str, dict[str, dict[str, int]]] | None = None,
     bias_cfg: BiasConfig | None = None,
+    combo_lookup: "dict[tuple[str, str, frozenset[str]], Any] | None" = None,
+    combo_window: int = 5,
+    combo_min_avg_r: float = 1.0,
 ) -> list[str]:
     """Scan all symbol+timeframe combinations and return formatted alert strings.
 
@@ -1142,6 +1248,34 @@ def run_scan_cycle(
                 _gap_warning = cme_gap_alert_warning(
                     cme_gap, direction, _entry, _rough_tp
                 )
+
+                # Co-fire confluence tagging (D10 step 3): check if a known-good
+                # strategy pair from backtest_combos co-fired within combo_window
+                # candles. Attaches ConfluenceData to each event so the formatter
+                # can append the blockquote section.
+                if combo_lookup:
+                    _cofire = _find_live_cofire(
+                        dir_events,
+                        ohlcv_df,
+                        conn,
+                        combo_lookup,
+                        symbol,
+                        tf,
+                        combo_window,
+                        combo_min_avg_r,
+                    )
+                    if _cofire is not None:
+                        for _e in dir_events:
+                            _e.confluence_combo = _cofire
+                        logger.info(
+                            "Co-fire: %s %s %s+%s (avg_r %.2f, %d candles ago)",
+                            symbol,
+                            tf,
+                            dir_events[0].strategy,
+                            _cofire.co_strategy,
+                            _cofire.avg_r,
+                            _cofire.candles_ago,
+                        )
 
                 # Stack all passing strategies into one confluence alert
                 msg = format_confluence_alert(

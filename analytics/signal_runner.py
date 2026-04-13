@@ -20,12 +20,18 @@ import duckdb
 
 from analytics.data_store import (
     DEFAULT_DB_PATH,
+    get_combo_lookup,
     get_confidence_ratings,
     get_directional_confidence_ratings,
     init_schema,
 )
 from analytics.data_sync import backfill, sync
-from analytics.signal_config import BacktestFilterConfig, BiasConfig, StrategyOverride
+from analytics.signal_config import (
+    BacktestFilterConfig,
+    BiasConfig,
+    ComboConfig,
+    StrategyOverride,
+)
 from analytics.signal_lib import (
     run_scan_cycle,
     secs_until_next_boundary,
@@ -59,6 +65,7 @@ def run_signal_watch(
     atr_sl_multiplier: float | None = None,
     config_name: str | None = None,
     bias_cfg: BiasConfig | None = None,
+    combo_cfg: ComboConfig | None = None,
 ) -> None:
     """Run the signal detection daemon loop.
 
@@ -119,6 +126,16 @@ def run_signal_watch(
         # Init schema once at startup (short-lived connection).
         with duckdb.connect(str(db_path)) as init_conn:
             init_schema(init_conn)
+
+        # Load co-firing combo lookup from DB once at startup (D10 step 3).
+        # combo_lookup is keyed by (symbol, tf, frozenset({a, b})) → best avg_r row.
+        # Empty dict disables the co-fire check (no combo runs saved yet).
+        with duckdb.connect(str(db_path)) as cl_conn:
+            combo_lookup = get_combo_lookup(cl_conn)
+        if combo_lookup:
+            logger.info("Loaded combo lookup: %d pairs", len(combo_lookup))
+        else:
+            logger.info("No combo runs found — co-fire tagging disabled")
 
         # Load per-config confidence ratings from DB once at startup.
         # Falls back to indicators_lib.py defaults when empty (no recalibrate run yet).
@@ -220,6 +237,9 @@ def run_signal_watch(
                     directional_confidence_override=directional_confidence_override
                     or None,
                     bias_cfg=bias_cfg,
+                    combo_lookup=combo_lookup or None,
+                    combo_window=combo_cfg.window if combo_cfg else 5,
+                    combo_min_avg_r=combo_cfg.min_avg_r if combo_cfg else 1.0,
                 )
             # Connection is now closed — web API can read the DB during the sleep.
 
