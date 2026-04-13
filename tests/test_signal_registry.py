@@ -8,13 +8,18 @@ from analytics.indicators_lib import (
 )
 from signals.registry import SIGNAL_REGISTRY
 
-
-def test_registry_excludes_seasonality() -> None:
-    assert "seasonality" not in SIGNAL_REGISTRY
+_REGISTRY_EXCLUDED = {"seasonality", "funding_reversion"}
 
 
-def test_registry_covers_all_non_seasonality_strategies() -> None:
-    expected = {s for s in KNOWN_STRATEGIES if s != "seasonality"}
+def test_registry_excludes_inactive_strategies() -> None:
+    for name in _REGISTRY_EXCLUDED:
+        assert name not in SIGNAL_REGISTRY, (
+            f"{name} should be excluded from SIGNAL_REGISTRY"
+        )
+
+
+def test_registry_covers_all_active_strategies() -> None:
+    expected = {s for s in KNOWN_STRATEGIES if s not in _REGISTRY_EXCLUDED}
     assert set(SIGNAL_REGISTRY.keys()) == expected
 
 

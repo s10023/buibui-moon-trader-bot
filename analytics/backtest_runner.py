@@ -50,7 +50,9 @@ from utils.binance_client import load_coins_config
 
 _SIMPLE_DETECTORS = DETECTOR_REGISTRY
 
-_SWEEP_STRATEGIES: list[str] = [s for s in KNOWN_STRATEGIES if s != "seasonality"]
+_SWEEP_STRATEGIES: list[str] = [
+    s for s in KNOWN_STRATEGIES if s not in ("seasonality", "funding_reversion")
+]
 
 
 def detect_signals_for_strategy(
@@ -540,7 +542,9 @@ def _combo_worker(
     """
     from analytics.indicators_lib import INCOMPATIBLE_PAIRS, KNOWN_STRATEGIES
 
-    _non_seasonal = [s for s in KNOWN_STRATEGIES if s != "seasonality"]
+    _non_seasonal = [
+        s for s in KNOWN_STRATEGIES if s not in ("seasonality", "funding_reversion")
+    ]
     combo_results: list[ComboBacktestResult] = []
     skipped: list[str] = []
 

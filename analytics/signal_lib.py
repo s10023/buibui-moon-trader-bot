@@ -301,7 +301,8 @@ def _backtest_summary(
         parts.append(label)
 
     body = " · ".join(parts)
-    return f"📊 Backtest {cfg.days}d{arrow}: {body}"
+    window_label = f"since {cfg.since}" if cfg.since else f"{cfg.days}d"
+    return f"📊 Backtest {window_label}{arrow}: {body}"
 
 
 def scan_symbol(
