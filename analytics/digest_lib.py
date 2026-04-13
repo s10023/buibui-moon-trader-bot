@@ -95,6 +95,7 @@ QUERY_NAMES = [
     "direction_bias",
     "consistency",
     "recovery_factor",
+    "co_firing",
 ]
 
 
@@ -560,6 +561,58 @@ def query_recovery_factor(
 
 
 # ---------------------------------------------------------------------------
+# Card 11 — Co-firing confluence leaderboard
+# ---------------------------------------------------------------------------
+
+
+def query_co_firing(
+    conn: duckdb.DuckDBPyConnection,
+    min_trades: int = 3,
+    top_n: int = 30,
+    scope: DigestScope | None = None,
+) -> DigestResult:
+    """Rank strategy-pair combos by avg_r from backtest_combos table."""
+    sc_sql = ""
+    sc_params: list[Any] = []
+    if scope:
+        clauses: list[str] = []
+        if scope.day_filter is not None:
+            clauses.append("day_filter = ?")
+            sc_params.append(scope.day_filter)
+        if scope.fee_pct is not None:
+            clauses.append("fee_pct = ?")
+            sc_params.append(scope.fee_pct)
+        if scope.symbols:
+            placeholders = ", ".join("?" * len(scope.symbols))
+            clauses.append(f"symbol IN ({placeholders})")
+            sc_params.extend(scope.symbols)
+        if clauses:
+            sc_sql = " AND " + " AND ".join(clauses)
+
+    df = conn.execute(
+        f"""
+        SELECT
+            strategy_a || '+' || strategy_b       AS combo,
+            symbol,
+            timeframe,
+            window_candles                         AS window,
+            closed_trades                          AS trades,
+            ROUND(win_rate * 100, 1)               AS win_pct,
+            ROUND(avg_r, 3)                        AS avg_r,
+            ROUND(total_r, 2)                      AS total_r,
+            ROUND(max_drawdown_r, 2)               AS max_dd,
+            ROUND(recovery_factor, 2)              AS rf
+        FROM backtest_combos
+        WHERE closed_trades >= ?{sc_sql}
+        ORDER BY avg_r DESC
+        LIMIT {top_n}
+        """,
+        [min_trades] + sc_params,
+    ).df()
+    return _df_to_result(df)
+
+
+# ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
 
@@ -574,6 +627,7 @@ _QUERY_FN: dict[str, Callable[..., DigestResult]] = {
     "direction_bias": query_direction_bias,
     "consistency": query_consistency,
     "recovery_factor": query_recovery_factor,
+    "co_firing": query_co_firing,
 }
 
 
@@ -590,6 +644,6 @@ def run_digest(
         raise ValueError(
             f"Unknown digest query '{query}'. Valid: {', '.join(QUERY_NAMES)}"
         )
-    if query == "combos":
+    if query in ("combos", "co_firing"):
         return fn(conn, min_trades=min_trades, top_n=top_n, scope=scope)
     return fn(conn, min_trades=min_trades, scope=scope)

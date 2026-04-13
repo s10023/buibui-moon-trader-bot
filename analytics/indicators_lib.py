@@ -658,6 +658,16 @@ for _name, _spec in STRATEGY_REGISTRY.items():
     if _spec.strategy_type in STRATEGY_TYPE_GROUPS:
         STRATEGY_TYPE_GROUPS[_spec.strategy_type].append(_name)
 
+# Strategy pairs that must not be combined in co-firing backtests because one
+# embeds the other's detection logic — pairing them would double-count the same edge.
+# fib_golden_zone and ote_entry both call _find_bos_swing() internally.
+INCOMPATIBLE_PAIRS: frozenset[frozenset[str]] = frozenset(
+    {
+        frozenset({"fib_golden_zone", "bos"}),
+        frozenset({"ote_entry", "bos"}),
+    }
+)
+
 
 def patch_confidence_scores(updates: dict[str, dict[str, int] | int]) -> None:
     """Mutate STRATEGY_REGISTRY confidence values in-place.

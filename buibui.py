@@ -46,6 +46,25 @@ def run_digest_cmd(args: argparse.Namespace) -> None:
 
 
 def run_backtest(args: argparse.Namespace) -> None:
+    # Co-firing confluence mode: --combo
+    if getattr(args, "combo", False):
+        since_ms = _parse_since_to_ms(args.since) if args.since else None
+        backtest_runner.run_combo_backtest_cmd(
+            symbols=args.symbols or [],
+            timeframes=args.timeframes or [],
+            days=args.days,
+            window=args.window,
+            sl_pct=args.sl_pct,
+            tp_r=args.tp_r,
+            fee_pct=args.fee_pct,
+            min_trades=args.min_trades if args.min_trades is not None else 3,
+            day_filter="tue_thu" if args.day_filter else "off",
+            save_results=args.save,
+            since_ms=since_ms,
+            config_path=args.config,
+        )
+        return
+
     # Sweep mode: --config or --symbols (or --timeframes / --strategies alone)
     if args.config or args.symbols or args.timeframes or args.strategies:
         cfg = (
@@ -755,6 +774,19 @@ def main() -> None:
         default=None,
         dest="min_trades",
         help="Hide combos below this trade count in sweep table (default: 20)",
+    )
+    backtest_parser.add_argument(
+        "--combo",
+        action="store_true",
+        default=False,
+        help="Run co-firing confluence backtests across all strategy pairs",
+    )
+    backtest_parser.add_argument(
+        "--window",
+        type=int,
+        default=5,
+        dest="window",
+        help="Co-firing window: ±N candles for strategy pair detection (default: 5)",
     )
     backtest_parser.set_defaults(func=run_backtest)
 
