@@ -62,6 +62,7 @@ def run_backtest(args: argparse.Namespace) -> None:
             save_results=args.save,
             since_ms=since_ms,
             config_path=args.config,
+            workers=getattr(args, "workers", None),
         )
         return
 
@@ -787,6 +788,16 @@ def main() -> None:
         default=5,
         dest="window",
         help="Co-firing window: ±N candles for strategy pair detection (default: 5)",
+    )
+    backtest_parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        dest="workers",
+        help=(
+            "Parallel workers for combo backtest (default: min(4, cpu_count-1)). "
+            "Pass 1 to run serially."
+        ),
     )
     backtest_parser.set_defaults(func=run_backtest)
 

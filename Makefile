@@ -194,7 +194,8 @@ buibui-combo-backtest:
 		$(if $(MIN_TRADES),--min-trades $(MIN_TRADES),) \
 		$(if $(FEE_PCT),--fee-pct $(FEE_PCT),) \
 		$(if $(DAY_FILTER),--day-filter,) \
-		$(if $(SAVE),--save,)
+		$(if $(SAVE),--save,) \
+		$(if $(WORKERS),--workers $(WORKERS),)
 
 buibui-param-audit:
 	@echo "🔬 Running strategy audit..."

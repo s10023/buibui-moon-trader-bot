@@ -3,8 +3,10 @@
 import datetime
 import itertools
 import logging
+import os
 import sys
 import uuid
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 import duckdb
@@ -517,6 +519,84 @@ def run_backtest_cmd(
         conn.close()
 
 
+def _combo_worker(
+    symbol: str,
+    timeframe: str,
+    start_ms: int,
+    end_ms: int,
+    allowed_days: list[int] | None,
+    window: int,
+    sl_pct: float,
+    tp_r: float,
+    fee_pct: float,
+    min_sl_pct: float,
+    min_signals: int,
+    db_path: Path,
+) -> tuple[list[ComboBacktestResult], list[str]]:
+    """Per-(symbol, TF) worker: opens its own DB connection, detects all strategies,
+    runs all valid pair combos, and returns results + skipped messages.
+
+    Must be a top-level function so ProcessPoolExecutor can pickle it.
+    """
+    from analytics.indicators_lib import INCOMPATIBLE_PAIRS, KNOWN_STRATEGIES
+
+    _non_seasonal = [s for s in KNOWN_STRATEGIES if s != "seasonality"]
+    combo_results: list[ComboBacktestResult] = []
+    skipped: list[str] = []
+
+    conn: duckdb.DuckDBPyConnection = duckdb.connect(str(db_path), read_only=True)
+    try:
+        ohlcv = get_ohlcv(conn, symbol, timeframe, start_ms, end_ms)
+        if ohlcv.empty:
+            skipped.append(f"{symbol}/{timeframe} (no data)")
+            return combo_results, skipped
+
+        signals_cache: dict[str, pd.DataFrame] = {}
+        for strategy in _non_seasonal:
+            sigs = detect_signals_for_strategy(
+                conn, ohlcv, symbol, timeframe, strategy, start_ms, end_ms
+            )
+            if sigs is None:
+                continue
+            if allowed_days is not None:
+                sigs = filter_signals_by_day(sigs, allowed_days)
+            if len(sigs) >= min_signals:
+                signals_cache[strategy] = sigs
+
+        if not signals_cache:
+            return combo_results, skipped
+
+        strategies_with_signals = list(signals_cache.keys())
+        for i, strat_a in enumerate(strategies_with_signals):
+            for strat_b in strategies_with_signals[i + 1 :]:
+                pair = frozenset({strat_a, strat_b})
+                if pair in INCOMPATIBLE_PAIRS:
+                    skipped.append(
+                        f"{symbol}/{timeframe}: {strat_a}+{strat_b} (incompatible)"
+                    )
+                    continue
+                c = run_combo_backtest(
+                    ohlcv,
+                    signals_cache[strat_a],
+                    signals_cache[strat_b],
+                    symbol,
+                    timeframe,
+                    strat_a,
+                    strat_b,
+                    window=window,
+                    sl_pct=sl_pct,
+                    tp_r=tp_r,
+                    fee_pct=fee_pct,
+                    min_sl_pct=min_sl_pct,
+                    min_signals=min_signals,
+                )
+                combo_results.append(c)
+    finally:
+        conn.close()
+
+    return combo_results, skipped
+
+
 def run_combo_backtest_cmd(
     symbols: list[str],
     timeframes: list[str],
@@ -533,14 +613,18 @@ def run_combo_backtest_cmd(
     db_path: Path = DEFAULT_DB_PATH,
     since_ms: int | None = None,
     config_path: Path | None = None,
+    workers: int | None = None,
 ) -> None:
     """Run all valid strategy-pair co-firing backtests and print a ranked table.
 
     Loads a TOML config when config_path is set; otherwise uses the provided
     symbols/timeframes directly.  Incompatible pairs (e.g. bos + fib_golden_zone)
     are skipped automatically.
+
+    workers controls parallelism over symbol×TF chunks.  Defaults to
+    min(4, cpu_count - 1).  Pass workers=1 to run serially (no subprocess
+    overhead — useful when other heavy processes are running).
     """
-    from analytics.indicators_lib import INCOMPATIBLE_PAIRS, KNOWN_STRATEGIES
     from analytics.signal_config import _day_filter_to_weekdays
 
     if config_path is not None:
@@ -572,78 +656,63 @@ def run_combo_backtest_cmd(
     start_ms = since_ms if since_ms is not None else end_ms - days * 24 * 3_600 * 1_000
     allowed_days = _day_filter_to_weekdays(day_filter)
 
-    _non_seasonal = [s for s in KNOWN_STRATEGIES if s != "seasonality"]
-
-    conn: duckdb.DuckDBPyConnection = duckdb.connect(
-        str(db_path), read_only=not save_results
+    _max_workers = (
+        workers if workers is not None else min(4, max(1, (os.cpu_count() or 1) - 1))
     )
+
+    chunks = [(sym, tf) for sym in symbols for tf in timeframes]
     combo_results: list[ComboBacktestResult] = []
     skipped: list[str] = []
 
-    try:
-        for symbol in symbols:
-            for timeframe in timeframes:
-                # Fetch OHLCV once per symbol×TF — shared across all strategy detections.
-                ohlcv = get_ohlcv(conn, symbol, timeframe, start_ms, end_ms)
-                if ohlcv.empty:
-                    skipped.append(f"{symbol}/{timeframe} (no data)")
-                    continue
+    worker_kwargs = dict(
+        start_ms=start_ms,
+        end_ms=end_ms,
+        allowed_days=allowed_days,
+        window=window,
+        sl_pct=sl_pct,
+        tp_r=tp_r,
+        fee_pct=fee_pct,
+        min_sl_pct=min_sl_pct,
+        min_signals=min_signals,
+        db_path=db_path,
+    )
 
-                # Detect all strategies and cache those with enough signals.
-                signals_cache: dict[str, pd.DataFrame] = {}
-                for strategy in _non_seasonal:
-                    sigs = detect_signals_for_strategy(
-                        conn, ohlcv, symbol, timeframe, strategy, start_ms, end_ms
+    if _max_workers == 1:
+        # Serial path — no subprocess overhead, easier to debug.
+        for sym, tf in chunks:
+            results, skips = _combo_worker(sym, tf, **worker_kwargs)  # type: ignore[arg-type]
+            combo_results.extend(results)
+            skipped.extend(skips)
+    else:
+        with ProcessPoolExecutor(max_workers=_max_workers) as pool:
+            futures = {
+                pool.submit(_combo_worker, sym, tf, **worker_kwargs): (sym, tf)  # type: ignore[arg-type]
+                for sym, tf in chunks
+            }
+            for fut in as_completed(futures):
+                results, skips = fut.result()
+                combo_results.extend(results)
+                skipped.extend(skips)
+
+    # DB writes happen in the main process — avoids concurrent write contention.
+    if save_results and combo_results:
+        conn: duckdb.DuckDBPyConnection = duckdb.connect(str(db_path), read_only=False)
+        try:
+            for c in combo_results:
+                if len(c.result.closed_trades) >= min_trades:
+                    upsert_combo_run(
+                        conn,
+                        c,
+                        days=days,
+                        data_start_ms=start_ms,
+                        data_end_ms=end_ms,
+                        sl_pct=sl_pct,
+                        tp_r=tp_r,
+                        fee_pct=fee_pct,
+                        day_filter=day_filter,
                     )
-                    if sigs is None:
-                        continue
-                    if allowed_days is not None:
-                        sigs = filter_signals_by_day(sigs, allowed_days)
-                    if len(sigs) >= min_signals:
-                        signals_cache[strategy] = sigs
-
-                if not signals_cache:
-                    continue
-                strategies_with_signals = list(signals_cache.keys())
-
-                for i, strat_a in enumerate(strategies_with_signals):
-                    for strat_b in strategies_with_signals[i + 1 :]:
-                        pair = frozenset({strat_a, strat_b})
-                        if pair in INCOMPATIBLE_PAIRS:
-                            skipped.append(
-                                f"{symbol}/{timeframe}: {strat_a}+{strat_b} (incompatible)"
-                            )
-                            continue
-                        c = run_combo_backtest(
-                            ohlcv,
-                            signals_cache[strat_a],
-                            signals_cache[strat_b],
-                            symbol,
-                            timeframe,
-                            strat_a,
-                            strat_b,
-                            window=window,
-                            sl_pct=sl_pct,
-                            tp_r=tp_r,
-                            fee_pct=fee_pct,
-                            min_sl_pct=min_sl_pct,
-                            min_signals=min_signals,
-                        )
-                        combo_results.append(c)
-                        if save_results and len(c.result.closed_trades) >= min_trades:
-                            upsert_combo_run(
-                                conn,
-                                c,
-                                days=days,
-                                data_start_ms=start_ms,
-                                data_end_ms=end_ms,
-                                sl_pct=sl_pct,
-                                tp_r=tp_r,
-                                fee_pct=fee_pct,
-                                day_filter=day_filter,
-                            )
-    finally:
-        conn.close()
+        finally:
+            conn.close()
 
     print(format_combo_table(combo_results, min_trades=min_trades))
     if save_results:
