@@ -17,12 +17,14 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import duckdb
+import pandas as pd
 
 from analytics.data_store import (
     DEFAULT_DB_PATH,
     get_combo_lookup,
     get_confidence_ratings,
     get_directional_confidence_ratings,
+    get_ohlcv,
     init_schema,
 )
 from analytics.data_sync import backfill, sync
@@ -43,6 +45,45 @@ logger = logging.getLogger(__name__)
 
 _MYT = ZoneInfo("Asia/Kuala_Lumpur")
 _DEFAULT_BACKFILL_DAYS = 90
+
+# Maximum new candles per cycle before the cache is considered stale and invalidated.
+# Normal: 1 candle closes per cycle. >2 = gap fill or backfill happened.
+_CACHE_INVALIDATE_THRESHOLD = 2
+
+
+def _update_ohlcv_cache(
+    conn: duckdb.DuckDBPyConnection,
+    cache: dict[tuple[str, str], pd.DataFrame],
+    symbol: str,
+    tf: str,
+    start_ms: int,
+    now_ms: int,
+) -> None:
+    """Incrementally refresh the in-memory OHLCV cache for one (symbol, tf) pair.
+
+    Hot path (normal cycle): queries only rows newer than the cached tail and appends
+    them — typically 0–1 rows instead of the full 4000–7000 row history.
+
+    Invalidation: if >2 new rows arrive (gap fill, backfill, or first run) the cache
+    is discarded and rebuilt from a full DB read so no candles are missed.
+    """
+    key = (symbol, tf)
+    if key in cache and not cache[key].empty:
+        cached_max_ts = int(cache[key]["open_time"].max())
+        new_rows = get_ohlcv(conn, symbol, tf, cached_max_ts + 1, now_ms)
+        if len(new_rows) > _CACHE_INVALIDATE_THRESHOLD:
+            logger.info(
+                "OHLCV cache invalidated for %s/%s — %d new rows (backfill/gap)",
+                symbol,
+                tf,
+                len(new_rows),
+            )
+            cache[key] = get_ohlcv(conn, symbol, tf, start_ms, now_ms)
+        elif not new_rows.empty:
+            cache[key] = pd.concat([cache[key], new_rows], ignore_index=True)
+        # else: no new rows yet (candle not yet closed) — keep existing cache
+    else:
+        cache[key] = get_ohlcv(conn, symbol, tf, start_ms, now_ms)
 
 
 def run_signal_watch(
@@ -186,8 +227,29 @@ def run_signal_watch(
                                 sec,
                             )
 
+        _cycle_count = 0
+        _COMBO_REFRESH_CYCLES = 10  # reload combo_lookup every N cycles
+        # In-memory OHLCV cache: (symbol, tf) → DataFrame.
+        # Warm after first cycle; subsequent cycles append 0–1 new rows instead of
+        # re-reading the full 4000–7000 row history from DuckDB. (P6 fix)
+        ohlcv_cache: dict[tuple[str, str], pd.DataFrame] = {}
+
         while not shutdown_requested[0]:
+            _cycle_count += 1
             logger.info("--- scan cycle start ---")
+
+            # Reload combo_lookup periodically so newly saved combo backtest runs are
+            # picked up without requiring a daemon restart (P8 fix).
+            if _cycle_count > 1 and _cycle_count % _COMBO_REFRESH_CYCLES == 0:
+                with duckdb.connect(str(db_path)) as _cl_conn:
+                    fresh = get_combo_lookup(_cl_conn)
+                if len(fresh) != len(combo_lookup):
+                    logger.info(
+                        "Combo lookup refreshed: %d → %d pairs",
+                        len(combo_lookup),
+                        len(fresh),
+                    )
+                    combo_lookup = fresh
 
             # Open a short-lived connection for this cycle only.
             # Closing before the sleep window releases the write lock so the
@@ -197,6 +259,7 @@ def run_signal_watch(
                 start_ms = (
                     int(time.time() * 1000) - _DEFAULT_BACKFILL_DAYS * 24 * 3600 * 1000
                 )
+                now_ms = int(time.time() * 1000)
                 for symbol in resolved_symbols:
                     for tf in resolved_timeframes:
                         try:
@@ -208,6 +271,7 @@ def run_signal_watch(
                                 tf,
                             )
                             backfill(conn, client, symbol, tf, start_ms)
+                            ohlcv_cache.pop((symbol, tf), None)  # force cold read
                         except duckdb.IOException as exc:
                             logger.warning(
                                 "DB sync failed for %s/%s (will retry): %s",
@@ -215,6 +279,17 @@ def run_signal_watch(
                                 tf,
                                 exc,
                             )
+
+                # Incrementally refresh OHLCV cache for all primary + secondary symbols.
+                # Secondary symbols (SMT) share the same cache keyed by (symbol, tf).
+                all_symbols_to_cache: set[str] = set(resolved_symbols)
+                if secondary_map_arg:
+                    all_symbols_to_cache.update(secondary_map_arg.values())
+                for symbol in all_symbols_to_cache:
+                    for tf in resolved_timeframes:
+                        _update_ohlcv_cache(
+                            conn, ohlcv_cache, symbol, tf, start_ms, now_ms
+                        )
 
                 alerts = run_scan_cycle(
                     conn=conn,
@@ -240,6 +315,7 @@ def run_signal_watch(
                     combo_lookup=combo_lookup or None,
                     combo_window=combo_cfg.window if combo_cfg else 5,
                     combo_min_avg_r=combo_cfg.min_avg_r if combo_cfg else 1.0,
+                    ohlcv_cache=ohlcv_cache,
                 )
             # Connection is now closed — web API can read the DB during the sleep.
 

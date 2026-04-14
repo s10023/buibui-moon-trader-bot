@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import argparse
 import itertools
+import os
 import sys
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from math import sqrt
 from pathlib import Path
@@ -31,6 +33,7 @@ from analytics.backtest_lib import BacktestResult, run_backtest
 from analytics.backtest_runner import detect_signals_for_strategy
 from analytics.data_store import DEFAULT_DB_PATH, get_ohlcv
 from analytics.indicators_lib import KNOWN_STRATEGIES, STRATEGY_REGISTRY
+from analytics.perf_timer import timed
 
 # ---------------------------------------------------------------------------
 # Scoring
@@ -208,6 +211,59 @@ class SweepRow:
 # ---------------------------------------------------------------------------
 
 
+def _sweep_grid_worker(
+    params: dict[str, Any],
+    ohlcv_is: pd.DataFrame,
+    signals_is: pd.DataFrame,
+    ohlcv_oos: pd.DataFrame,
+    signals_oos: pd.DataFrame,
+    symbol: str,
+    timeframe: str,
+    strategy: str,
+    fee_pct: float,
+    is_min: int,
+) -> SweepRow:
+    """Single grid-combo backtest worker — module-level so ProcessPoolExecutor can pickle it."""
+    tp_r = float(params.get("tp_r", 2.0))
+    sl_pct = float(params.get("sl_pct", 0.02))
+    bt_is = run_backtest(
+        ohlcv_is,
+        signals_is,
+        symbol,
+        timeframe,
+        strategy,
+        sl_pct=sl_pct,
+        tp_r=tp_r,
+        fee_pct=fee_pct,
+    )
+    bt_oos = run_backtest(
+        ohlcv_oos,
+        signals_oos,
+        symbol,
+        timeframe,
+        strategy,
+        sl_pct=sl_pct,
+        tp_r=tp_r,
+        fee_pct=fee_pct,
+    )
+    is_s = _score(bt_is, is_min)
+    oos_s = _score(bt_oos, 1)
+    decay = (oos_s / is_s) if is_s > 0 else float("nan")
+    oos_avg_r = bt_oos.avg_r
+    overfit = (oos_avg_r is None or oos_avg_r <= 0) or (
+        not (decay != decay) and decay < 0.4
+    )
+    return SweepRow(
+        params=params,
+        is_result=bt_is,
+        oos_result=bt_oos,
+        is_score=is_s,
+        oos_score=oos_s,
+        decay=decay,
+        overfit=overfit,
+    )
+
+
 def run_param_sweep(
     conn: duckdb.DuckDBPyConnection,
     strategy: str,
@@ -300,65 +356,40 @@ def run_param_sweep(
     sl_note = (
         " (sl_pct dropped — strategy uses structural SLs)" if uses_structural_sl else ""
     )
+    workers = max(1, min((os.cpu_count() or 2) - 1, n))
     print(f"\n  Sweep: {strategy} / {symbol} / {timeframe}{sl_note}")
     print(
         f"  Grid size: {n} combos | IS candles: {len(ohlcv_is)} | OOS candles: {len(ohlcv_oos)}"
+        f" | workers: {workers}"
     )
-    print("  Running...", end="", flush=True)
 
     rows: list[SweepRow] = []
-
-    for i, params in enumerate(grid):
-        if i % max(1, n // 20) == 0:
-            print(".", end="", flush=True)
-
-        tp_r = float(params.get("tp_r", 2.0))
-        sl_pct = float(params.get("sl_pct", 0.02))
-
-        bt_is = run_backtest(
-            ohlcv_is,
-            signals_is,
-            symbol,
-            timeframe,
-            strategy,
-            sl_pct=sl_pct,
-            tp_r=tp_r,
-            fee_pct=fee_pct,
-        )
-        bt_oos = run_backtest(
-            ohlcv_oos,
-            signals_oos,
-            symbol,
-            timeframe,
-            strategy,
-            sl_pct=sl_pct,
-            tp_r=tp_r,
-            fee_pct=fee_pct,
-        )
-
-        is_s = _score(bt_is, is_min)
-        oos_s = _score(bt_oos, 1)  # OOS: just need ≥1 trade to evaluate
-
-        decay = (oos_s / is_s) if is_s > 0 else float("nan")
-        oos_avg_r = bt_oos.avg_r
-        overfit = (
-            (oos_avg_r is None or oos_avg_r <= 0)
-            or (not (decay != decay) and decay < 0.4)  # NaN-safe: decay < 0.4
-        )
-
-        rows.append(
-            SweepRow(
-                params=params,
-                is_result=bt_is,
-                oos_result=bt_oos,
-                is_score=is_s,
-                oos_score=oos_s,
-                decay=decay,
-                overfit=overfit,
-            )
-        )
-
-    print(" done")
+    with timed(f"grid ({n} combos)"):
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(
+                    _sweep_grid_worker,
+                    p,
+                    ohlcv_is,
+                    signals_is,
+                    ohlcv_oos,
+                    signals_oos,
+                    symbol,
+                    timeframe,
+                    strategy,
+                    fee_pct,
+                    is_min,
+                ): p
+                for p in grid
+            }
+            done = 0
+            print("  Running...", end="", flush=True)
+            for fut in as_completed(futures):
+                rows.append(fut.result())
+                done += 1
+                if done % max(1, n // 20) == 0:
+                    print(".", end="", flush=True)
+        print(" done")
 
     # Primary sort: IS score (composite). Fallback: when all scores are 0 (every config
     # has negative avg_r), sort by IS avg_r directly so the "least bad" configs surface
@@ -518,6 +549,97 @@ class AuditRow:
     short_oos_n: int = 0
 
 
+def _audit_strategy_worker(
+    strat: str,
+    signals_is: pd.DataFrame,
+    signals_oos: pd.DataFrame,
+    ohlcv_is: pd.DataFrame,
+    ohlcv_oos: pd.DataFrame,
+    symbol: str,
+    timeframe: str,
+    tp_values: list[float | int],
+    is_min: int,
+    fee_pct: float,
+) -> AuditRow:
+    """Per-strategy backtest grid worker — module-level so ProcessPoolExecutor can pickle it.
+
+    Runs the 9-tp_r × IS+OOS grid for one strategy. All data passed explicitly
+    (no closures) since child processes get a fresh interpreter with no shared state.
+    """
+    best_is: float | None = None
+    best_oos: float | None = None
+    best_tp = float(tp_values[0])
+    best_oos_trades = 0
+    best_is_trades = 0
+    best_long_oos: float | None = None
+    best_short_oos: float | None = None
+    best_long_oos_n = 0
+    best_short_oos_n = 0
+
+    for tp_r in tp_values:
+        tp = float(tp_r)
+        bt_is = run_backtest(
+            ohlcv_is,
+            signals_is,
+            symbol,
+            timeframe,
+            strat,
+            sl_pct=0.02,
+            tp_r=tp,
+            fee_pct=fee_pct,
+        )
+        bt_oos = run_backtest(
+            ohlcv_oos,
+            signals_oos,
+            symbol,
+            timeframe,
+            strat,
+            sl_pct=0.02,
+            tp_r=tp,
+            fee_pct=fee_pct,
+        )
+        is_n = len(bt_is.closed_trades)
+        is_r = bt_is.avg_r
+        if is_n >= is_min and is_r is not None:
+            if best_is is None or is_r > best_is:
+                best_is = is_r
+                best_tp = tp
+                best_is_trades = is_n
+                best_oos = bt_oos.avg_r
+                best_oos_trades = len(bt_oos.closed_trades)
+                best_long_oos = bt_oos.long_avg_r
+                best_short_oos = bt_oos.short_avg_r
+                best_long_oos_n = len(bt_oos.long_closed_trades)
+                best_short_oos_n = len(bt_oos.short_closed_trades)
+
+    if best_is is None:
+        verdict = "no_data"
+    elif best_is < 0:
+        verdict = "no_edge"
+    elif best_oos is None or best_oos_trades < 3:
+        verdict = "no_data"
+    elif best_oos > 0.2:
+        verdict = "good"
+    elif best_oos > 0:
+        verdict = "marginal"
+    else:
+        verdict = "no_edge"
+
+    return AuditRow(
+        strategy=strat,
+        best_is_avg_r=best_is,
+        best_oos_avg_r=best_oos,
+        best_tp_r=best_tp,
+        oos_trades=best_oos_trades,
+        is_trades=best_is_trades,
+        verdict=verdict,
+        best_long_oos_avg_r=best_long_oos,
+        best_short_oos_avg_r=best_short_oos,
+        long_oos_n=best_long_oos_n,
+        short_oos_n=best_short_oos_n,
+    )
+
+
 def run_strategy_audit(
     conn: duckdb.DuckDBPyConnection,
     symbol: str,
@@ -549,24 +671,59 @@ def run_strategy_audit(
     ohlcv_is, ohlcv_oos = _split_ohlcv(ohlcv_full, wfo_split)
     split_ts = int(ohlcv_oos.iloc[0]["open_time"]) if not ohlcv_oos.empty else 0
 
-    rows: list[AuditRow] = []
     is_min = max(1, min_trades // 2)
     tp_values = _AUDIT_TP_RANGE.values
 
-    for strategy in strategies:
-        if strategy == "seasonality":
-            continue
+    # Phase 1 — detect signals for every strategy sequentially (needs shared DB conn;
+    # detection is fast for most strategies — pure pandas, no DB access).
+    active_strategies = [s for s in strategies if s != "seasonality"]
+    detected: list[tuple[str, pd.DataFrame | None]] = []
+    print(f"  Phase 1: detecting signals for {len(active_strategies)} strategies...")
 
-        print(f"  {strategy}...", end="", flush=True)
+    if adr_suppress_threshold is not None:
+        from analytics.signal_lib import _filter_signals_by_adr
+    if day_filter != "off":
+        from analytics.backtest_lib import filter_signals_by_day
+        from analytics.signal_config import _day_filter_to_weekdays
 
-        signals_full = detect_signals_for_strategy(
-            conn, ohlcv_full, symbol, timeframe, strategy, start_ms, end_ms
-        )
-        if signals_full is None:
-            print(" skipped (missing data)")
+        allowed_days = _day_filter_to_weekdays(day_filter)
+    else:
+        allowed_days = None
+
+    with timed("signal detection"):
+        for strategy in active_strategies:
+            sigs = detect_signals_for_strategy(
+                conn, ohlcv_full, symbol, timeframe, strategy, start_ms, end_ms
+            )
+            if (
+                sigs is not None
+                and adr_suppress_threshold is not None
+                and not sigs.empty
+            ):
+                sigs = _filter_signals_by_adr(ohlcv_full, sigs, adr_suppress_threshold)
+            if sigs is not None and allowed_days is not None and not sigs.empty:
+                sigs = filter_signals_by_day(sigs, allowed_days)
+            detected.append((strategy, sigs))
+
+    # Phase 2 — run tp_r grid per strategy in parallel processes.
+    # run_backtest is pure Python loops (Trade iteration) — GIL is never released,
+    # so ThreadPoolExecutor gives no speedup. ProcessPoolExecutor spawns real OS
+    # processes, each with its own GIL, giving true parallelism.
+    # DataFrames (ohlcv_is/oos, signals_is/oos) are pickled once per strategy
+    # submission — acceptable overhead given the backtest work saved.
+    workers = max(1, min((os.cpu_count() or 2) - 1, len(active_strategies)))
+    print(
+        f"  Phase 2: backtesting {len(active_strategies)} strategies × {len(tp_values)} tp_r values | workers: {workers}"
+    )
+
+    # Build skipped rows immediately (no subprocess needed); queue real work for pool.
+    rows: list[AuditRow] = []
+    to_submit: list[tuple[str, pd.DataFrame, pd.DataFrame]] = []
+    for strat, sigs in detected:
+        if sigs is None:
             rows.append(
                 AuditRow(
-                    strategy=strategy,
+                    strategy=strat,
                     best_is_avg_r=None,
                     best_oos_avg_r=None,
                     best_tp_r=0.0,
@@ -576,108 +733,40 @@ def run_strategy_audit(
                     skip_reason="missing funding or secondary data",
                 )
             )
-            continue
-
-        if adr_suppress_threshold is not None and not signals_full.empty:
-            from analytics.signal_lib import _filter_signals_by_adr
-
-            signals_full = _filter_signals_by_adr(
-                ohlcv_full, signals_full, adr_suppress_threshold
-            )
-
-        if day_filter != "off" and not signals_full.empty:
-            from analytics.backtest_lib import filter_signals_by_day
-            from analytics.signal_config import _day_filter_to_weekdays
-
-            allowed_days = _day_filter_to_weekdays(day_filter)
-            if allowed_days is not None:
-                signals_full = filter_signals_by_day(signals_full, allowed_days)
-
-        signals_is = signals_full[signals_full["open_time"] < split_ts].copy()
-        signals_oos = signals_full[signals_full["open_time"] >= split_ts].copy()
-
-        best_is: float | None = None
-        best_oos: float | None = None
-        best_tp = float(tp_values[0])
-        best_oos_trades = 0
-        best_is_trades = 0
-        best_long_oos: float | None = None
-        best_short_oos: float | None = None
-        best_long_oos_n = 0
-        best_short_oos_n = 0
-
-        for tp_r in tp_values:
-            tp = float(tp_r)
-            bt_is = run_backtest(
-                ohlcv_is,
-                signals_is,
-                symbol,
-                timeframe,
-                strategy,
-                sl_pct=0.02,
-                tp_r=tp,
-                fee_pct=fee_pct,
-            )
-            bt_oos = run_backtest(
-                ohlcv_oos,
-                signals_oos,
-                symbol,
-                timeframe,
-                strategy,
-                sl_pct=0.02,
-                tp_r=tp,
-                fee_pct=fee_pct,
-            )
-
-            is_n = len(bt_is.closed_trades)
-            oos_n = len(bt_oos.closed_trades)
-            is_r = bt_is.avg_r
-            oos_r = bt_oos.avg_r
-
-            # Track best IS config (by IS avg_r, min trades threshold)
-            if is_n >= is_min and is_r is not None:
-                if best_is is None or is_r > best_is:
-                    best_is = is_r
-                    best_tp = tp
-                    best_is_trades = is_n
-                    # Capture OOS combined + directional metrics for this tp_r
-                    best_oos = oos_r
-                    best_oos_trades = oos_n
-                    best_long_oos = bt_oos.long_avg_r
-                    best_short_oos = bt_oos.short_avg_r
-                    best_long_oos_n = len(bt_oos.long_closed_trades)
-                    best_short_oos_n = len(bt_oos.short_closed_trades)
-
-        # Verdict
-        if best_is is None:
-            verdict = "no_data"
-        elif best_is < 0:
-            verdict = "no_edge"
-        elif best_oos is None or best_oos_trades < 3:
-            verdict = "no_data"
-        elif best_oos > 0.2:
-            verdict = "good"
-        elif best_oos > 0:
-            verdict = "marginal"
         else:
-            verdict = "no_edge"
+            sigs_is = sigs[sigs["open_time"] < split_ts].copy()
+            sigs_oos = sigs[sigs["open_time"] >= split_ts].copy()
+            to_submit.append((strat, sigs_is, sigs_oos))
 
-        rows.append(
-            AuditRow(
-                strategy=strategy,
-                best_is_avg_r=best_is,
-                best_oos_avg_r=best_oos,
-                best_tp_r=best_tp,
-                oos_trades=best_oos_trades,
-                is_trades=best_is_trades,
-                verdict=verdict,
-                best_long_oos_avg_r=best_long_oos,
-                best_short_oos_avg_r=best_short_oos,
-                long_oos_n=best_long_oos_n,
-                short_oos_n=best_short_oos_n,
-            )
-        )
-        print(" done")
+    tp_values_list = [float(v) for v in tp_values]
+    with timed("backtest grid"):
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(
+                    _audit_strategy_worker,
+                    strat,
+                    sigs_is,
+                    sigs_oos,
+                    ohlcv_is,
+                    ohlcv_oos,
+                    symbol,
+                    timeframe,
+                    tp_values_list,
+                    is_min,
+                    fee_pct,
+                ): strat
+                for strat, sigs_is, sigs_oos in to_submit
+            }
+            for fut in as_completed(futures):
+                strat = futures[fut]
+                row = fut.result()
+                rows.append(row)
+                verdict_label = (
+                    row.verdict
+                    if row.verdict != "skipped"
+                    else f"skipped ({row.skip_reason})"
+                )
+                print(f"  {strat}: {verdict_label}")
 
     # Sort: good → marginal → no_data → no_edge → skipped; within tier by OOS avg_r
     _order = {"good": 0, "marginal": 1, "no_data": 2, "no_edge": 3, "skipped": 4}

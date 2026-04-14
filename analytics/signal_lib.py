@@ -11,8 +11,10 @@ No module-level side effects.
 import datetime
 import logging
 import math
+import os
 import time
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 import duckdb
@@ -829,6 +831,7 @@ def run_scan_cycle(
     combo_lookup: "dict[tuple[str, str, frozenset[str]], Any] | None" = None,
     combo_window: int = 5,
     combo_min_avg_r: float = 1.0,
+    ohlcv_cache: "dict[tuple[str, str], pd.DataFrame] | None" = None,
 ) -> list[str]:
     """Scan all symbol+timeframe combinations and return formatted alert strings.
 
@@ -881,6 +884,7 @@ def run_scan_cycle(
 
     # Pre-fetch secondary OHLCV keyed by (secondary_symbol, tf) to avoid duplicate
     # DB queries when multiple primaries share the same secondary.
+    # Uses ohlcv_cache when available (daemon hot path) to avoid full DB reads.
     secondary_dfs: dict[tuple[str, str], pd.DataFrame] = {}
     if needs_secondary and secondary_map:
         for symbol in symbols:
@@ -889,518 +893,549 @@ def run_scan_cycle(
                 for tf in timeframes:
                     key = (sec, tf)
                     if key not in secondary_dfs:
-                        secondary_dfs[key] = get_ohlcv(conn, sec, tf, start_ms, now_ms)
+                        if ohlcv_cache and key in ohlcv_cache:
+                            secondary_dfs[key] = ohlcv_cache[key]
+                        else:
+                            secondary_dfs[key] = get_ohlcv(
+                                conn, sec, tf, start_ms, now_ms
+                            )
 
     alerts: list[str] = []
 
+    # --- Phase 1: Pre-fetch all DB data sequentially ---
+    # Funding and stats are per-symbol; OHLCV is per (symbol, tf).
+    # Isolating all DB reads before the parallel scan phase ensures no DuckDB
+    # connection is accessed from multiple threads simultaneously.
+    funding_map: dict[str, pd.DataFrame | None] = {}
+    ohlcv_map: dict[tuple[str, str], pd.DataFrame] = {}
     for symbol in symbols:
-        funding_df: pd.DataFrame | None = None
-        if needs_funding:
-            funding_df = get_funding_rates(conn, symbol, start_ms, now_ms)
-
-        # Compute stats context once per symbol (cached within the cycle)
+        funding_map[symbol] = (
+            get_funding_rates(conn, symbol, start_ms, now_ms) if needs_funding else None
+        )
         if symbol not in stats_ctx_cache:
             stats_ctx_cache[symbol] = _compute_stats_context(conn, symbol, now_myt)
-
         for tf in timeframes:
-            ohlcv_df = get_ohlcv(conn, symbol, tf, start_ms, now_ms)
-            sec_key = ((secondary_map or {}).get(symbol, ""), tf)
-            sec_df = secondary_dfs.get(sec_key) if needs_secondary else None
-
-            cme_gap = get_recent_cme_gap(ohlcv_df)
-
-            events = scan_symbol(
-                ohlcv_df=ohlcv_df,
-                symbol=symbol,
-                timeframe=tf,
-                strategies=strategies,
-                secondary_df=sec_df,
-                funding_df=funding_df,
-                day_filter=day_filter,
-                smt_trend_filter=smt_trend_filter,
-                strategy_timeframes=strategy_timeframes,
-                confidence_override=confidence_override,
-                directional_confidence_override=directional_confidence_override,
+            _key = (symbol, tf)
+            ohlcv_map[_key] = (
+                ohlcv_cache[_key]
+                if ohlcv_cache and _key in ohlcv_cache
+                else get_ohlcv(conn, symbol, tf, start_ms, now_ms)
             )
 
-            # Conflict resolution: opposite directions on same symbol/tf
-            # Pick the side with higher max confidence; on a tie, send both sides
-            # (each signal's reason will have "⚠️ conflict" appended).
-            long_events = [e for e in events if e.direction == "long"]
-            short_events = [e for e in events if e.direction == "short"]
-            if long_events and short_events:
-                long_conf = max(e.confidence for e in long_events)
-                short_conf = max(e.confidence for e in short_events)
-                if long_conf > short_conf:
-                    direction_events = long_events
-                    logger.info(
-                        "Conflict: %s %s — LONG wins (conf %d > %d), SHORT dropped (%s)",
-                        symbol,
-                        tf,
-                        long_conf,
-                        short_conf,
-                        [e.strategy for e in short_events],
-                    )
-                elif short_conf > long_conf:
-                    direction_events = short_events
-                    logger.info(
-                        "Conflict: %s %s — SHORT wins (conf %d > %d), LONG dropped (%s)",
-                        symbol,
-                        tf,
-                        short_conf,
-                        long_conf,
-                        [e.strategy for e in long_events],
-                    )
-                else:
-                    direction_events = long_events + short_events
-                    logger.info(
-                        "Conflict tie: %s %s conf %d — sending both LONG (%s) and SHORT (%s)",
-                        symbol,
-                        tf,
-                        long_conf,
-                        [e.strategy for e in long_events],
-                        [e.strategy for e in short_events],
-                    )
-                for e in direction_events:
-                    e.conflict = True
-            else:
-                direction_events = long_events or short_events
-            if not direction_events:
-                continue
+    # --- Phase 2: Fan-out scan_symbol via ThreadPoolExecutor ---
+    # scan_symbol is pure Python/pandas — no DB access, no shared mutable state.
+    # pandas rolling/shift/boolean masks release the GIL → real concurrency.
+    # Closures are safe here: ThreadPoolExecutor shares memory, no pickling needed.
+    def _scan_task(_sym: str, _tf: str) -> "tuple[str, str, list[SignalEvent], Any]":
+        _ohlcv = ohlcv_map[(_sym, _tf)]
+        _sec_key = ((secondary_map or {}).get(_sym, ""), _tf)
+        _sec = secondary_dfs.get(_sec_key) if needs_secondary else None
+        _funding = funding_map.get(_sym)
+        _gap = get_recent_cme_gap(_ohlcv)
+        _events = scan_symbol(
+            ohlcv_df=_ohlcv,
+            symbol=_sym,
+            timeframe=_tf,
+            strategies=strategies,
+            secondary_df=_sec,
+            funding_df=_funding,
+            day_filter=day_filter,
+            smt_trend_filter=smt_trend_filter,
+            strategy_timeframes=strategy_timeframes,
+            confidence_override=confidence_override,
+            directional_confidence_override=directional_confidence_override,
+        )
+        return _sym, _tf, _events, _gap
 
-            # Filter each strategy independently by candle watermark
-            passing_events = [
-                e
-                for e in direction_events
-                if store.is_new_candle(symbol, tf, e.strategy, e.open_time)
-            ]
+    _pairs = [(sym, tf) for sym in symbols for tf in timeframes]
+    _n_workers = max(1, min((os.cpu_count() or 2) - 1, len(_pairs)))
+    scan_results: list[Any] = []
+    if _n_workers > 1 and len(_pairs) > 1:
+        with ThreadPoolExecutor(max_workers=_n_workers) as _pool:
+            _futs = {_pool.submit(_scan_task, sym, tf): (sym, tf) for sym, tf in _pairs}
+            for _fut in as_completed(_futs):
+                scan_results.append(_fut.result())
+        # Restore deterministic (symbol, tf) ordering for consistent alert output
+        _sym_idx = {s: i for i, s in enumerate(symbols)}
+        _tf_idx = {t: i for i, t in enumerate(timeframes)}
+        scan_results.sort(key=lambda r: (_sym_idx[r[0]], _tf_idx[r[1]]))
+    else:
+        for sym, tf in _pairs:
+            scan_results.append(_scan_task(sym, tf))
+
+    # --- Phase 3: Fan-in — sequential processing of scan results ---
+    # All shared-state operations happen here: CooldownStore reads/writes,
+    # bt_cache updates, DB writes (upsert_signals, upsert_backtest_run).
+    for symbol, tf, events, cme_gap in scan_results:
+        ohlcv_df = ohlcv_map[(symbol, tf)]
+        sec_key = ((secondary_map or {}).get(symbol, ""), tf)
+        sec_df = secondary_dfs.get(sec_key) if needs_secondary else None
+        funding_df = funding_map.get(symbol)
+
+        # Conflict resolution: opposite directions on same symbol/tf
+        # Pick the side with higher max confidence; on a tie, send both sides
+        # (each signal's reason will have "⚠️ conflict" appended).
+        long_events = [e for e in events if e.direction == "long"]
+        short_events = [e for e in events if e.direction == "short"]
+        if long_events and short_events:
+            long_conf = max(e.confidence for e in long_events)
+            short_conf = max(e.confidence for e in short_events)
+            if long_conf > short_conf:
+                direction_events = long_events
+                logger.info(
+                    "Conflict: %s %s — LONG wins (conf %d > %d), SHORT dropped (%s)",
+                    symbol,
+                    tf,
+                    long_conf,
+                    short_conf,
+                    [e.strategy for e in short_events],
+                )
+            elif short_conf > long_conf:
+                direction_events = short_events
+                logger.info(
+                    "Conflict: %s %s — SHORT wins (conf %d > %d), LONG dropped (%s)",
+                    symbol,
+                    tf,
+                    short_conf,
+                    long_conf,
+                    [e.strategy for e in long_events],
+                )
+            else:
+                direction_events = long_events + short_events
+                logger.info(
+                    "Conflict tie: %s %s conf %d — sending both LONG (%s) and SHORT (%s)",
+                    symbol,
+                    tf,
+                    long_conf,
+                    [e.strategy for e in long_events],
+                    [e.strategy for e in short_events],
+                )
+            for e in direction_events:
+                e.conflict = True
+        else:
+            direction_events = long_events or short_events
+        if not direction_events:
+            continue
+
+        # Filter each strategy independently by candle watermark
+        passing_events = [
+            e
+            for e in direction_events
+            if store.is_new_candle(symbol, tf, e.strategy, e.open_time)
+        ]
+        if not passing_events:
+            continue
+
+        # Backtest filter — runs per strategy, caches results within the cycle.
+        # Per-strategy tp_r/sl_pct overrides are applied here so the filter
+        # uses the same parameters the strategy was calibrated against.
+        bt_results: dict[str, BacktestResult | None] = {}
+        if backtest_cfg and backtest_cfg.mode != "off":
+            for event in passing_events:
+                bt_key = (symbol, tf, event.strategy)
+                if bt_key not in bt_cache:
+                    eff_tp_r = _resolve_tp_r(
+                        strategy_params, event.strategy, symbol, tf, tp_r
+                    )
+                    eff_sl_pct = _resolve_sl_pct(
+                        strategy_params, event.strategy, symbol, tf, sl_pct
+                    )
+                    eff_atr_sl = _resolve_atr_sl_multiplier(
+                        strategy_params,
+                        event.strategy,
+                        symbol,
+                        tf,
+                        atr_sl_multiplier,
+                    )
+                    _tp_r_long = _resolve_tp_r(
+                        strategy_params, event.strategy, symbol, tf, tp_r, "long"
+                    )
+                _tp_r_short = _resolve_tp_r(
+                    strategy_params, event.strategy, symbol, tf, tp_r, "short"
+                )
+                bt_cache[bt_key] = _compute_backtest(
+                    ohlcv_df=ohlcv_df,
+                    strategy=event.strategy,
+                    secondary_df=sec_df,
+                    funding_df=funding_df,
+                    symbol=symbol,
+                    timeframe=tf,
+                    sl_pct=eff_sl_pct,
+                    tp_r=eff_tp_r,
+                    fee_pct=backtest_cfg.fee_pct,
+                    day_filter=day_filter,
+                    min_sl_pct=backtest_cfg.min_sl_pct,
+                    atr_sl_multiplier=eff_atr_sl,
+                    adr_suppress_threshold=bias_cfg.adr_suppress_threshold
+                    if bias_cfg
+                    else None,
+                    adr_exempt=_is_adr_exempt(strategy_params, event.strategy),
+                    volume_suppress=_resolve_volume_suppress(
+                        strategy_params,
+                        event.strategy,
+                        backtest_cfg.volume_suppress,
+                    ),
+                    volume_spike_boost=_resolve_volume_spike_boost(
+                        strategy_params,
+                        event.strategy,
+                        backtest_cfg.volume_spike_boost,
+                    ),
+                    volume_suppress_long=_resolve_volume_suppress_long(
+                        strategy_params, event.strategy
+                    ),
+                    volume_suppress_short=_resolve_volume_suppress_short(
+                        strategy_params, event.strategy
+                    ),
+                    volume_spike_boost_long=_resolve_volume_spike_boost_long(
+                        strategy_params, event.strategy
+                    ),
+                    volume_spike_boost_short=_resolve_volume_spike_boost_short(
+                        strategy_params, event.strategy
+                    ),
+                    tp_r_long=_tp_r_long if _tp_r_long != eff_tp_r else None,
+                    tp_r_short=_tp_r_short if _tp_r_short != eff_tp_r else None,
+                )
+                bt_results[event.strategy] = bt_cache[bt_key]
+
+            if backtest_cfg.mode == "hard":
+
+                def _passes_ev_gate(e: SignalEvent) -> bool:
+                    result = bt_results.get(e.strategy)
+                    if result is None:
+                        return True  # no data — don't suppress
+                    if len(result.closed_trades) < backtest_cfg.effective_min_trades(
+                        tf
+                    ):
+                        return True  # not enough trades — noise
+                    if e.direction == "long":
+                        avg_r = result.long_avg_r
+                        threshold = (
+                            backtest_cfg.min_avg_r_long
+                            if backtest_cfg.min_avg_r_long is not None
+                            else backtest_cfg.min_avg_r
+                        )
+                    elif e.direction == "short":
+                        avg_r = result.short_avg_r
+                        threshold = (
+                            backtest_cfg.min_avg_r_short
+                            if backtest_cfg.min_avg_r_short is not None
+                            else backtest_cfg.min_avg_r
+                        )
+                    else:
+                        avg_r = result.avg_r
+                        threshold = backtest_cfg.min_avg_r
+                    if avg_r is None:
+                        return True  # no directional data — don't suppress
+                    return avg_r >= threshold
+
+                passing_events = [e for e in passing_events if _passes_ev_gate(e)]
+                if not passing_events:
+                    logger.info("Backtest hard filter suppressed %s %s", symbol, tf)
+                    continue
+
+        # Volume gate — per-strategy, handles both suppression and spike tagging.
+        # Suppression: drop low-volume signal candles when the strategy has
+        #   volume_suppress enabled. Exception: spike candles bypass suppression
+        #   when volume_spike_boost is on (spike > 3× rolling mean = conviction).
+        # Spike tagging: always tag SignalEvent.volume_spike regardless of suppress
+        #   so alert_formatter can show ⚡ even when suppression is off.
+        if backtest_cfg:
+            vol_time_to_idx: dict[int, int] | None = None
+            vol_filtered: list[SignalEvent] = []
+            for _e in passing_events:
+                if vol_time_to_idx is None:
+                    vol_time_to_idx = {
+                        int(t): i
+                        for i, t in enumerate(ohlcv_df["open_time"].astype("int64"))
+                    }
+                _idx = vol_time_to_idx.get(int(_e.open_time), 0)
+                _is_spike = _is_volume_spike(ohlcv_df, _idx)
+                if _is_spike:
+                    _e.volume_spike = True
+                # Direction-aware suppress: directional fields take precedence over symmetric.
+                _dir = _e.direction
+                _suppress_long = _resolve_volume_suppress_long(
+                    strategy_params, _e.strategy
+                )
+                _suppress_short = _resolve_volume_suppress_short(
+                    strategy_params, _e.strategy
+                )
+                _suppress = (
+                    _suppress_long
+                    if _dir == "long" and _suppress_long is not None
+                    else _suppress_short
+                    if _dir == "short" and _suppress_short is not None
+                    else _resolve_volume_suppress(
+                        strategy_params, _e.strategy, backtest_cfg.volume_suppress
+                    )
+                )
+                _boost_long = _resolve_volume_spike_boost_long(
+                    strategy_params, _e.strategy
+                )
+                _boost_short = _resolve_volume_spike_boost_short(
+                    strategy_params, _e.strategy
+                )
+                _boost = (
+                    _boost_long
+                    if _dir == "long" and _boost_long is not None
+                    else _boost_short
+                    if _dir == "short" and _boost_short is not None
+                    else _resolve_volume_spike_boost(
+                        strategy_params,
+                        _e.strategy,
+                        backtest_cfg.volume_spike_boost,
+                    )
+                )
+                if _suppress:
+                    if _is_low_volume(ohlcv_df, _idx):
+                        # Spike boost: exempt high-conviction candles from suppress.
+                        if _is_spike and _boost:
+                            logger.info(
+                                "Volume spike exempted %s %s — %s %s",
+                                symbol,
+                                tf,
+                                _e.direction.upper(),
+                                _e.strategy,
+                            )
+                        else:
+                            logger.info(
+                                "Volume filter suppressed %s %s — %s %s",
+                                symbol,
+                                tf,
+                                _e.direction.upper(),
+                                _e.strategy,
+                            )
+                            continue
+                vol_filtered.append(_e)
+            passing_events = vol_filtered
             if not passing_events:
                 continue
 
-            # Backtest filter — runs per strategy, caches results within the cycle.
-            # Per-strategy tp_r/sl_pct overrides are applied here so the filter
-            # uses the same parameters the strategy was calibrated against.
-            bt_results: dict[str, BacktestResult | None] = {}
-            if backtest_cfg and backtest_cfg.mode != "off":
-                for event in passing_events:
-                    bt_key = (symbol, tf, event.strategy)
-                    if bt_key not in bt_cache:
-                        eff_tp_r = _resolve_tp_r(
-                            strategy_params, event.strategy, symbol, tf, tp_r
-                        )
-                        eff_sl_pct = _resolve_sl_pct(
-                            strategy_params, event.strategy, symbol, tf, sl_pct
-                        )
-                        eff_atr_sl = _resolve_atr_sl_multiplier(
-                            strategy_params,
-                            event.strategy,
+        # Bias gate — ADR progress and DOW context filters (F8).
+        # Never raises — stats failures must not block signal dispatch.
+        if bias_cfg is not None:
+            bias_ctx = stats_ctx_cache.get(symbol)
+            if bias_ctx is not None:
+                # Step 1: ADR directional suppress — remove signals chasing the
+                # already-consumed direction. LONGs suppressed when move was up
+                # (price near day high); SHORTs when move was down. Reversal signals
+                # in the opposing direction are kept — fading an extreme is valid
+                # even when ADR is consumed. Falls back to blanket suppress when
+                # move direction is unknown.
+                if (
+                    bias_cfg.adr_suppress_threshold is not None
+                    and bias_ctx.adr_consumed_pct is not None
+                    and bias_ctx.adr_consumed_pct >= bias_cfg.adr_suppress_threshold
+                ):
+                    if bias_ctx.adr_move_up is None:
+                        logger.info(
+                            "ADR bias gate suppressed %s %s — %.0f%% consumed "
+                            "(direction unknown)",
                             symbol,
                             tf,
-                            atr_sl_multiplier,
+                            bias_ctx.adr_consumed_pct * 100,
                         )
-                        _tp_r_long = _resolve_tp_r(
-                            strategy_params, event.strategy, symbol, tf, tp_r, "long"
+                        continue
+                    suppress_dir = "long" if bias_ctx.adr_move_up else "short"
+                    n_before = len(passing_events)
+                    passing_events = [
+                        e
+                        for e in passing_events
+                        if e.direction != suppress_dir
+                        or _is_adr_exempt(strategy_params, e.strategy)
+                    ]
+                    if len(passing_events) < n_before:
+                        logger.info(
+                            "ADR bias gate removed %d %s signal(s) for %s %s "
+                            "— %.0f%% consumed, chasing %s",
+                            n_before - len(passing_events),
+                            suppress_dir,
+                            symbol,
+                            tf,
+                            bias_ctx.adr_consumed_pct * 100,
+                            suppress_dir,
                         )
-                    _tp_r_short = _resolve_tp_r(
-                        strategy_params, event.strategy, symbol, tf, tp_r, "short"
-                    )
-                    bt_cache[bt_key] = _compute_backtest(
-                        ohlcv_df=ohlcv_df,
-                        strategy=event.strategy,
-                        secondary_df=sec_df,
-                        funding_df=funding_df,
-                        symbol=symbol,
-                        timeframe=tf,
-                        sl_pct=eff_sl_pct,
-                        tp_r=eff_tp_r,
-                        fee_pct=backtest_cfg.fee_pct,
-                        day_filter=day_filter,
-                        min_sl_pct=backtest_cfg.min_sl_pct,
-                        atr_sl_multiplier=eff_atr_sl,
-                        adr_suppress_threshold=bias_cfg.adr_suppress_threshold
-                        if bias_cfg
-                        else None,
-                        adr_exempt=_is_adr_exempt(strategy_params, event.strategy),
-                        volume_suppress=_resolve_volume_suppress(
-                            strategy_params,
-                            event.strategy,
-                            backtest_cfg.volume_suppress,
-                        ),
-                        volume_spike_boost=_resolve_volume_spike_boost(
-                            strategy_params,
-                            event.strategy,
-                            backtest_cfg.volume_spike_boost,
-                        ),
-                        volume_suppress_long=_resolve_volume_suppress_long(
-                            strategy_params, event.strategy
-                        ),
-                        volume_suppress_short=_resolve_volume_suppress_short(
-                            strategy_params, event.strategy
-                        ),
-                        volume_spike_boost_long=_resolve_volume_spike_boost_long(
-                            strategy_params, event.strategy
-                        ),
-                        volume_spike_boost_short=_resolve_volume_spike_boost_short(
-                            strategy_params, event.strategy
-                        ),
-                        tp_r_long=_tp_r_long if _tp_r_long != eff_tp_r else None,
-                        tp_r_short=_tp_r_short if _tp_r_short != eff_tp_r else None,
-                    )
-                    bt_results[event.strategy] = bt_cache[bt_key]
-
-                if backtest_cfg.mode == "hard":
-
-                    def _passes_ev_gate(e: SignalEvent) -> bool:
-                        result = bt_results.get(e.strategy)
-                        if result is None:
-                            return True  # no data — don't suppress
-                        if len(
-                            result.closed_trades
-                        ) < backtest_cfg.effective_min_trades(tf):
-                            return True  # not enough trades — noise
-                        if e.direction == "long":
-                            avg_r = result.long_avg_r
-                            threshold = (
-                                backtest_cfg.min_avg_r_long
-                                if backtest_cfg.min_avg_r_long is not None
-                                else backtest_cfg.min_avg_r
-                            )
-                        elif e.direction == "short":
-                            avg_r = result.short_avg_r
-                            threshold = (
-                                backtest_cfg.min_avg_r_short
-                                if backtest_cfg.min_avg_r_short is not None
-                                else backtest_cfg.min_avg_r
-                            )
-                        else:
-                            avg_r = result.avg_r
-                            threshold = backtest_cfg.min_avg_r
-                        if avg_r is None:
-                            return True  # no directional data — don't suppress
-                        return avg_r >= threshold
-
-                    passing_events = [e for e in passing_events if _passes_ev_gate(e)]
                     if not passing_events:
-                        logger.info("Backtest hard filter suppressed %s %s", symbol, tf)
                         continue
 
-            # Volume gate — per-strategy, handles both suppression and spike tagging.
-            # Suppression: drop low-volume signal candles when the strategy has
-            #   volume_suppress enabled. Exception: spike candles bypass suppression
-            #   when volume_spike_boost is on (spike > 3× rolling mean = conviction).
-            # Spike tagging: always tag SignalEvent.volume_spike regardless of suppress
-            #   so alert_formatter can show ⚡ even when suppression is off.
-            if backtest_cfg:
-                vol_time_to_idx: dict[int, int] | None = None
-                vol_filtered: list[SignalEvent] = []
-                for _e in passing_events:
-                    if vol_time_to_idx is None:
-                        vol_time_to_idx = {
-                            int(t): i
-                            for i, t in enumerate(ohlcv_df["open_time"].astype("int64"))
-                        }
-                    _idx = vol_time_to_idx.get(int(_e.open_time), 0)
-                    _is_spike = _is_volume_spike(ohlcv_df, _idx)
-                    if _is_spike:
-                        _e.volume_spike = True
-                    # Direction-aware suppress: directional fields take precedence over symmetric.
-                    _dir = _e.direction
-                    _suppress_long = _resolve_volume_suppress_long(
-                        strategy_params, _e.strategy
-                    )
-                    _suppress_short = _resolve_volume_suppress_short(
-                        strategy_params, _e.strategy
-                    )
-                    _suppress = (
-                        _suppress_long
-                        if _dir == "long" and _suppress_long is not None
-                        else _suppress_short
-                        if _dir == "short" and _suppress_short is not None
-                        else _resolve_volume_suppress(
-                            strategy_params, _e.strategy, backtest_cfg.volume_suppress
-                        )
-                    )
-                    _boost_long = _resolve_volume_spike_boost_long(
-                        strategy_params, _e.strategy
-                    )
-                    _boost_short = _resolve_volume_spike_boost_short(
-                        strategy_params, _e.strategy
-                    )
-                    _boost = (
-                        _boost_long
-                        if _dir == "long" and _boost_long is not None
-                        else _boost_short
-                        if _dir == "short" and _boost_short is not None
-                        else _resolve_volume_spike_boost(
-                            strategy_params,
-                            _e.strategy,
-                            backtest_cfg.volume_spike_boost,
-                        )
-                    )
-                    if _suppress:
-                        if _is_low_volume(ohlcv_df, _idx):
-                            # Spike boost: exempt high-conviction candles from suppress.
-                            if _is_spike and _boost:
-                                logger.info(
-                                    "Volume spike exempted %s %s — %s %s",
+                # Step 2: DOW soft suppress — reduce confidence by 1 star
+                # when signal direction opposes today's historical avg return.
+                if bias_cfg.dow_soft_suppress:
+                    avg_ret = bias_ctx.avg_return_today
+                    if abs(avg_ret) >= bias_cfg.dow_suppress_min_abs_return:
+                        for event in passing_events:
+                            if (event.direction == "long" and avg_ret < 0) or (
+                                event.direction == "short" and avg_ret > 0
+                            ):
+                                event.confidence = max(1, event.confidence - 1)
+                                logger.debug(
+                                    "DOW bias: %s %s %s confidence → %d (avg_ret %.3f)",
                                     symbol,
                                     tf,
-                                    _e.direction.upper(),
-                                    _e.strategy,
+                                    event.strategy,
+                                    event.confidence,
+                                    avg_ret,
                                 )
-                            else:
-                                logger.info(
-                                    "Volume filter suppressed %s %s — %s %s",
-                                    symbol,
-                                    tf,
-                                    _e.direction.upper(),
-                                    _e.strategy,
-                                )
-                                continue
-                    vol_filtered.append(_e)
-                passing_events = vol_filtered
-                if not passing_events:
-                    continue
 
-            # Bias gate — ADR progress and DOW context filters (F8).
-            # Never raises — stats failures must not block signal dispatch.
-            if bias_cfg is not None:
-                bias_ctx = stats_ctx_cache.get(symbol)
-                if bias_ctx is not None:
-                    # Step 1: ADR directional suppress — remove signals chasing the
-                    # already-consumed direction. LONGs suppressed when move was up
-                    # (price near day high); SHORTs when move was down. Reversal signals
-                    # in the opposing direction are kept — fading an extreme is valid
-                    # even when ADR is consumed. Falls back to blanket suppress when
-                    # move direction is unknown.
-                    if (
-                        bias_cfg.adr_suppress_threshold is not None
-                        and bias_ctx.adr_consumed_pct is not None
-                        and bias_ctx.adr_consumed_pct >= bias_cfg.adr_suppress_threshold
-                    ):
-                        if bias_ctx.adr_move_up is None:
-                            logger.info(
-                                "ADR bias gate suppressed %s %s — %.0f%% consumed "
-                                "(direction unknown)",
-                                symbol,
-                                tf,
-                                bias_ctx.adr_consumed_pct * 100,
-                            )
-                            continue
-                        suppress_dir = "long" if bias_ctx.adr_move_up else "short"
-                        n_before = len(passing_events)
-                        passing_events = [
-                            e
-                            for e in passing_events
-                            if e.direction != suppress_dir
-                            or _is_adr_exempt(strategy_params, e.strategy)
-                        ]
-                        if len(passing_events) < n_before:
-                            logger.info(
-                                "ADR bias gate removed %d %s signal(s) for %s %s "
-                                "— %.0f%% consumed, chasing %s",
-                                n_before - len(passing_events),
-                                suppress_dir,
-                                symbol,
-                                tf,
-                                bias_ctx.adr_consumed_pct * 100,
-                                suppress_dir,
-                            )
-                        if not passing_events:
-                            continue
+        for event in passing_events:
+            store.mark_candle(symbol, tf, event.strategy, event.open_time)
 
-                    # Step 2: DOW soft suppress — reduce confidence by 1 star
-                    # when signal direction opposes today's historical avg return.
-                    if bias_cfg.dow_soft_suppress:
-                        avg_ret = bias_ctx.avg_return_today
-                        if abs(avg_ret) >= bias_cfg.dow_suppress_min_abs_return:
-                            for event in passing_events:
-                                if (event.direction == "long" and avg_ret < 0) or (
-                                    event.direction == "short" and avg_ret > 0
-                                ):
-                                    event.confidence = max(1, event.confidence - 1)
-                                    logger.debug(
-                                        "DOW bias: %s %s %s confidence → %d "
-                                        "(avg_ret %.3f)",
-                                        symbol,
-                                        tf,
-                                        event.strategy,
-                                        event.confidence,
-                                        avg_ret,
-                                    )
+        # Persist passing signals to DB so the Signal Feed can read from DB
+        # instead of re-scanning on every page load.
+        now_fired_ms = int(time.time() * 1000)
+        signals_rows = [
+            {
+                "symbol": e.symbol,
+                "timeframe": e.timeframe,
+                "strategy": e.strategy,
+                "open_time": e.open_time,
+                "direction": e.direction,
+                "entry_price": e.price,
+                "sl_price": e.sl_price,
+                "reason": e.reason,
+                "confidence": e.confidence,
+                "fired_at": now_fired_ms,
+            }
+            for e in passing_events
+        ]
+        signals_df = pd.DataFrame(signals_rows)
+        try:
+            upsert_signals(conn, signals_df)
+        except Exception:
+            logger.exception("Failed to persist signals to DB for %s %s", symbol, tf)
 
-            for event in passing_events:
-                store.mark_candle(symbol, tf, event.strategy, event.open_time)
-
-            # Persist passing signals to DB so the Signal Feed can read from DB
-            # instead of re-scanning on every page load.
-            now_fired_ms = int(time.time() * 1000)
-            signals_rows = [
-                {
-                    "symbol": e.symbol,
-                    "timeframe": e.timeframe,
-                    "strategy": e.strategy,
-                    "open_time": e.open_time,
-                    "direction": e.direction,
-                    "entry_price": e.price,
-                    "sl_price": e.sl_price,
-                    "reason": e.reason,
-                    "confidence": e.confidence,
-                    "fired_at": now_fired_ms,
-                }
-                for e in passing_events
-            ]
-            signals_df = pd.DataFrame(signals_rows)
-            try:
-                upsert_signals(conn, signals_df)
-            except Exception:
-                logger.exception(
-                    "Failed to persist signals to DB for %s %s", symbol, tf
-                )
-
-            # Persist outcome rows so win/loss can be backfilled later (A4 P1).
-            for e in passing_events:
-                signal_id = (
-                    f"{e.symbol}-{e.timeframe}-{e.strategy}-{e.open_time}-{e.direction}"
-                )
-                try:
-                    upsert_signal_outcome(
-                        conn,
-                        {
-                            "signal_id": signal_id,
-                            "symbol": e.symbol,
-                            "tf": e.timeframe,
-                            "strategy": e.strategy,
-                            "direction": e.direction,
-                            "fired_at_ms": now_fired_ms,
-                            "candle_ts_ms": e.open_time,
-                            "entry_price": e.price,
-                            "sl_price": e.sl_price or None,
-                            "confidence_at_fire": e.confidence,
-                            "tags": e.reason,
-                        },
-                    )
-                except Exception:
-                    logger.exception(
-                        "Failed to persist signal outcome for %s", signal_id
-                    )
-
-            # In a tied conflict, passing_events may contain both directions —
-            # split by direction so each confluence alert is direction-homogeneous.
-            directions_present = list(
-                dict.fromkeys(e.direction for e in passing_events)
+        # Persist outcome rows so win/loss can be backfilled later (A4 P1).
+        for e in passing_events:
+            signal_id = (
+                f"{e.symbol}-{e.timeframe}-{e.strategy}-{e.open_time}-{e.direction}"
             )
-            for direction in directions_present:
-                dir_events = [e for e in passing_events if e.direction == direction]
-                # Scope backtest summary to this direction's strategies only.
-                # Avoids showing SHORT strategy stats on a LONG alert (and vice versa)
-                # in tied-conflict scenarios where both directions pass.
-                dir_summary: str | None = None
-                if backtest_cfg and backtest_cfg.mode != "off" and bt_results:
-                    dir_summary = _backtest_summary(
-                        bt_results,
-                        [e.strategy for e in dir_events],
-                        backtest_cfg,
-                        tf=tf,
-                        direction=direction,
-                    )
-                # Resolve effective tp_r for this alert — use the max across all
-                # strategies in the confluence group (most optimistic target wins;
-                # individual strategies already filtered to have edge at that level).
-                # Direction-aware: long uses tp_r_long, short uses tp_r_short when set.
-                eff_alert_tp_r = max(
-                    _resolve_tp_r(
-                        strategy_params, e.strategy, symbol, tf, tp_r, direction
-                    )
-                    for e in dir_events
+            try:
+                upsert_signal_outcome(
+                    conn,
+                    {
+                        "signal_id": signal_id,
+                        "symbol": e.symbol,
+                        "tf": e.timeframe,
+                        "strategy": e.strategy,
+                        "direction": e.direction,
+                        "fired_at_ms": now_fired_ms,
+                        "candle_ts_ms": e.open_time,
+                        "entry_price": e.price,
+                        "sl_price": e.sl_price or None,
+                        "confidence_at_fire": e.confidence,
+                        "tags": e.reason,
+                    },
                 )
-                # Compute CME gap warning for this direction.
-                # Rough TP mirrors the formatter's own SL/TP math so the gap
-                # overlap check uses the same target price shown in the alert.
-                _first = dir_events[0]
-                _entry = _first.price
-                if direction == "long":
-                    _valid_sls = [
-                        e.sl_price for e in dir_events if 0 < e.sl_price < _entry
-                    ]
-                    _sl_dist = _entry - (
-                        min(_valid_sls) if _valid_sls else _entry * (1 - sl_pct)
-                    )
-                    _sl_dist = max(_sl_dist, _entry * min_sl_pct)
-                    _rough_tp = (
-                        _first.tp_price
-                        if _first.tp_price > _entry
-                        else _entry + _sl_dist * eff_alert_tp_r
-                    )
-                else:
-                    _valid_sls = [e.sl_price for e in dir_events if e.sl_price > _entry]
-                    _sl_dist = (
-                        max(_valid_sls) if _valid_sls else _entry * (1 + sl_pct)
-                    ) - _entry
-                    _sl_dist = max(_sl_dist, _entry * min_sl_pct)
-                    _rough_tp = (
-                        _first.tp_price
-                        if 0 < _first.tp_price < _entry
-                        else _entry - _sl_dist * eff_alert_tp_r
-                    )
-                _gap_warning = cme_gap_alert_warning(
-                    cme_gap, direction, _entry, _rough_tp
+            except Exception:
+                logger.exception("Failed to persist signal outcome for %s", signal_id)
+
+        # In a tied conflict, passing_events may contain both directions —
+        # split by direction so each confluence alert is direction-homogeneous.
+        directions_present = list(dict.fromkeys(e.direction for e in passing_events))
+        for direction in directions_present:
+            dir_events = [e for e in passing_events if e.direction == direction]
+            # Scope backtest summary to this direction's strategies only.
+            # Avoids showing SHORT strategy stats on a LONG alert (and vice versa)
+            # in tied-conflict scenarios where both directions pass.
+            dir_summary: str | None = None
+            if backtest_cfg and backtest_cfg.mode != "off" and bt_results:
+                dir_summary = _backtest_summary(
+                    bt_results,
+                    [e.strategy for e in dir_events],
+                    backtest_cfg,
+                    tf=tf,
+                    direction=direction,
                 )
+            # Resolve effective tp_r for this alert — use the max across all
+            # strategies in the confluence group (most optimistic target wins;
+            # individual strategies already filtered to have edge at that level).
+            # Direction-aware: long uses tp_r_long, short uses tp_r_short when set.
+            eff_alert_tp_r = max(
+                _resolve_tp_r(strategy_params, e.strategy, symbol, tf, tp_r, direction)
+                for e in dir_events
+            )
+            # Compute CME gap warning for this direction.
+            # Rough TP mirrors the formatter's own SL/TP math so the gap
+            # overlap check uses the same target price shown in the alert.
+            _first = dir_events[0]
+            _entry = _first.price
+            if direction == "long":
+                _valid_sls = [e.sl_price for e in dir_events if 0 < e.sl_price < _entry]
+                _sl_dist = _entry - (
+                    min(_valid_sls) if _valid_sls else _entry * (1 - sl_pct)
+                )
+                _sl_dist = max(_sl_dist, _entry * min_sl_pct)
+                _rough_tp = (
+                    _first.tp_price
+                    if _first.tp_price > _entry
+                    else _entry + _sl_dist * eff_alert_tp_r
+                )
+            else:
+                _valid_sls = [e.sl_price for e in dir_events if e.sl_price > _entry]
+                _sl_dist = (
+                    max(_valid_sls) if _valid_sls else _entry * (1 + sl_pct)
+                ) - _entry
+                _sl_dist = max(_sl_dist, _entry * min_sl_pct)
+                _rough_tp = (
+                    _first.tp_price
+                    if 0 < _first.tp_price < _entry
+                    else _entry - _sl_dist * eff_alert_tp_r
+                )
+            _gap_warning = cme_gap_alert_warning(cme_gap, direction, _entry, _rough_tp)
 
-                # Co-fire confluence tagging (D10 step 3): check if a known-good
-                # strategy pair from backtest_combos co-fired within combo_window
-                # candles. Attaches ConfluenceData to each event so the formatter
-                # can append the blockquote section.
-                if combo_lookup:
-                    _cofire = _find_live_cofire(
-                        dir_events,
-                        ohlcv_df,
-                        conn,
-                        combo_lookup,
-                        symbol,
-                        tf,
-                        combo_window,
-                        combo_min_avg_r,
-                    )
-                    if _cofire is not None:
-                        for _e in dir_events:
-                            _e.confluence_combo = _cofire
-                        logger.info(
-                            "Co-fire: %s %s %s+%s (avg_r %.2f, %d candles ago)",
-                            symbol,
-                            tf,
-                            dir_events[0].strategy,
-                            _cofire.co_strategy,
-                            _cofire.avg_r,
-                            _cofire.candles_ago,
-                        )
-
-                # Stack all passing strategies into one confluence alert
-                msg = format_confluence_alert(
+            # Co-fire confluence tagging (D10 step 3): check if a known-good
+            # strategy pair from backtest_combos co-fired within combo_window
+            # candles. Attaches ConfluenceData to each event so the formatter
+            # can append the blockquote section.
+            if combo_lookup:
+                _cofire = _find_live_cofire(
                     dir_events,
-                    sl_pct=sl_pct,
-                    tp_r=eff_alert_tp_r,
-                    min_sl_pct=min_sl_pct,
-                    backtest_summary=dir_summary,
-                    stats_context=stats_ctx_cache.get(symbol),
-                    cme_gap_warning=_gap_warning,
-                )
-                alerts.append(msg)
-                logger.info(
-                    "Signal: %s %s %s %s (confluence: %d)",
+                    ohlcv_df,
+                    conn,
+                    combo_lookup,
                     symbol,
                     tf,
-                    direction,
-                    [e.strategy for e in dir_events],
-                    len(dir_events),
+                    combo_window,
+                    combo_min_avg_r,
                 )
+                if _cofire is not None:
+                    for _e in dir_events:
+                        _e.confluence_combo = _cofire
+                    logger.info(
+                        "Co-fire: %s %s %s+%s (avg_r %.2f, %d candles ago)",
+                        symbol,
+                        tf,
+                        dir_events[0].strategy,
+                        _cofire.co_strategy,
+                        _cofire.avg_r,
+                        _cofire.candles_ago,
+                    )
 
-                if send_telegram:
-                    try:
-                        send_telegram_message(msg)
-                    except Exception:
-                        logger.exception("Telegram send failed for %s", symbol)
+            # Stack all passing strategies into one confluence alert
+            msg = format_confluence_alert(
+                dir_events,
+                sl_pct=sl_pct,
+                tp_r=eff_alert_tp_r,
+                min_sl_pct=min_sl_pct,
+                backtest_summary=dir_summary,
+                stats_context=stats_ctx_cache.get(symbol),
+                cme_gap_warning=_gap_warning,
+            )
+            alerts.append(msg)
+            logger.info(
+                "Signal: %s %s %s %s (confluence: %d)",
+                symbol,
+                tf,
+                direction,
+                [e.strategy for e in dir_events],
+                len(dir_events),
+            )
 
+            if send_telegram:
+                try:
+                    send_telegram_message(msg)
+                except Exception:
+                    logger.exception("Telegram send failed for %s", symbol)
     # Persist bt_cache results to backtest_runs so win-rate data accumulates
     # passively over time. Only runs if the backtest filter is active and
     # save_results is enabled (default True). Covers only combos that fired a
