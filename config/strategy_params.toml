@@ -71,6 +71,7 @@ min_avg_r = 0.0
 volume_suppress = true        # A14b: normal-vol wins Δ=+0.11R
 
 [strategy_params.engulfing]
+volume_suppress_long = true   # directional: LONG low-vol -0.13R→+0.22R (tue_thu Δ=+0.36R); SHORT low-vol +0.72R — keep
 volume_spike_boost = true     # A15 spike sweep: spike +0.59R vs normal +0.23R (73 spikes)
 
 [strategy_params.pin_bar]

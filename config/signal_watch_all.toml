@@ -57,11 +57,11 @@ marubozu         = ["4h", "1d"]          # 15m/1h all negative
 # Re-run after major data changes: make buibui-backtest CONFIG=config/signal_watch_all.toml SAVE=1
 
 [strategy_params.engulfing]
-tp_r_15m = 4.0                # +0.10R
-tp_r_1h  = 4.0                # +0.20R
-tp_r_4h  = 3.5                # +0.26R
-tp_r_1d  = 3.0                # +0.73R (27 trades)
-volume_suppress = false       # A14b: low-vol edge Δ=-0.11R (low +0.16R vs normal +0.05R)
+tp_r_15m = 4.0                # sweep confirmed: +0.24R (after volume_suppress_long)
+tp_r_1h  = 4.0                # sweep confirmed: +0.26R
+tp_r_4h  = 3.5                # sweep confirmed: +0.32R (tied at 4.0R; higher WR at 3.5R)
+tp_r_1d  = 2.5                # sweep peak: +0.47R (clear peak); was 3.0=+0.34R
+volume_suppress = false       # A14b: low-vol edge for SHORT; volume_suppress_long=true from base handles LONG
 
 [strategy_params.pin_bar]
 tp_r_15m = 3.0                # +0.09R
@@ -76,10 +76,10 @@ tp_r_4h  = 4.0                # +0.18R
 tp_r_1d  = 3.0                # +0.52R (23 trades)
 
 [strategy_params.doji]
-tp_r_15m = 4.0                # +0.15R
-tp_r_1h  = 3.0                # +0.26R
-tp_r_4h  = 3.0                # +0.16R
-tp_r_1d  = 4.5                # +1.05R (21 trades)
+tp_r_15m = 4.0                # sweep confirmed: +0.15R
+tp_r_1h  = 3.0                # sweep confirmed: +0.23R
+tp_r_4h  = 1.5                # sweep peak: +0.13R (79 trades); was 3.0=+0.11R (degraded)
+tp_r_1d  = 4.5                # sweep confirmed: +0.58R (21 trades); was +1.05R (canonical window change)
 
 [strategy_params.inside_bar]
 tp_r_15m = 3.5                # +0.06R
@@ -102,9 +102,9 @@ tp_r_1d  = 2.0                # +1.21R (4 trades — noisy; hard mode will gate)
 tp_r_1h  = 3.5                # WFO OOS: BTC 1h peaks at 3.5R (+0.574R ADR-gated, n=40)
 
 [strategy_params.fib_golden_zone]
-tp_r_1h  = 3.5                # WFO OOS: BTC+0.486R n=28 (was 4.5 overfit; ETH/SOL no 1h edge)
-tp_r_4h  = 3.5                # +0.73R
-tp_r_1d  = 2.0                # +0.49R (8 trades; 3.5R+ drops sharply)
+tp_r_1h  = 5.0                # sweep peak: +0.55R monotonically increasing (stable 27%WR); was 3.5=+0.38R
+tp_r_4h  = 3.5                # sweep confirmed: +0.77R
+tp_r_1d  = 2.0                # sweep confirmed: +0.32R (8 trades; 2.0R is peak before crash)
 
 [strategy_params.bos]
 tp_r_15m = 5.0                # -0.28R (all negative; hard mode will suppress)
@@ -112,9 +112,9 @@ tp_r_1h  = 1.5                # -0.28R (all negative; hard mode will suppress)
 tp_r_4h  = 2.0                # -0.36R (all negative; hard mode will suppress)
 
 [strategy_params.smt_divergence]
-tp_r_15m = 5.0                # +0.75R (monotonically increasing; 181 trades)
-tp_r_1h  = 4.5                # +0.38R (42 trades)
-tp_r_4h  = 5.0                # +0.18R (10 trades)
+tp_r_15m = 4.5                # sweep peak: +0.80R (was 5.0=+0.72R; clear peak at 4.5)
+tp_r_1h  = 2.5                # sweep peak: +0.54R (noisy pattern; crashes at 3.0R+); was 4.5=-0.05R
+tp_r_4h  = 2.0                # sweep peak: +0.48R (crashes to -1.02R at 2.5R+); was 5.0=-1.02R
 volume_suppress = true        # A14b: normal-vol wins Δ=+0.28R (low +0.54R vs normal +0.82R)
 
 [strategy_params.cvd_divergence]
