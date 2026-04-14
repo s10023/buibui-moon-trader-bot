@@ -1,8 +1,9 @@
 """Prune old backtest runs from analytics.db.
 
-Keeps whichever is more recent:
-  - runs from the last DAYS days (default 7)
-  - the most recent MAX_ROWS runs (default 200)
+A run is deleted if it meets ANY of these conditions:
+  - older than HARD_MAX_AGE_DAYS (30d) — unconditional hard cutoff
+  - older than DAYS (7d) AND beyond the top MAX_RUNS_PER_COMBO for its
+    (strategy, symbol, timeframe, day_filter, adr_suppress_threshold) combo
 
 Cascade-deletes matching rows from backtest_trades (no FK enforcement in DuckDB).
 """
@@ -14,7 +15,10 @@ import duckdb
 
 DB_PATH = "analytics.db"
 DAYS = 7
-MAX_RUNS_PER_COMBO = 10  # per (strategy, symbol, timeframe, day_filter)
+HARD_MAX_AGE_DAYS = 30  # unconditional hard cutoff regardless of combo rank
+MAX_RUNS_PER_COMBO = (
+    10  # per (strategy, symbol, timeframe, day_filter, adr_suppress_threshold)
+)
 
 
 def main() -> None:
@@ -22,10 +26,19 @@ def main() -> None:
 
     now_ms = int(time.time() * 1000)
     cutoff_date_ms = now_ms - DAYS * 86_400 * 1_000
+    hard_cutoff_ms = now_ms - HARD_MAX_AGE_DAYS * 86_400 * 1_000
 
     total_runs: int = conn.execute("SELECT COUNT(*) FROM backtest_runs").fetchone()[0]  # type: ignore[index]
 
-    # Rows older than DAYS days
+    # Hard cutoff: any run older than HARD_MAX_AGE_DAYS, unconditionally
+    hard_delete_ids: list[str] = [
+        r[0]
+        for r in conn.execute(
+            "SELECT run_id FROM backtest_runs WHERE run_at_ms < ?", [hard_cutoff_ms]
+        ).fetchall()
+    ]
+
+    # Soft cutoff: rows older than DAYS days
     date_delete_ids: list[str] = [
         r[0]
         for r in conn.execute(
@@ -33,14 +46,17 @@ def main() -> None:
         ).fetchall()
     ]
 
-    # Rows beyond the MAX_RUNS_PER_COMBO most recent per (strategy, symbol, timeframe, day_filter)
+    # Rows beyond the MAX_RUNS_PER_COMBO most recent per combo.
+    # Partition includes adr_suppress_threshold so runs with/without the ADR
+    # gate don't compete against each other (mirrors the UI's finer partition).
     combo_delete_ids: list[str] = [
         r[0]
         for r in conn.execute(
             f"""
             SELECT run_id FROM (
                 SELECT run_id, ROW_NUMBER() OVER (
-                    PARTITION BY strategy, symbol, timeframe, day_filter
+                    PARTITION BY strategy, symbol, timeframe, day_filter,
+                                 adr_suppress_threshold
                     ORDER BY run_at_ms DESC
                 ) AS rn
                 FROM backtest_runs
@@ -49,13 +65,15 @@ def main() -> None:
         ).fetchall()
     ]
 
-    # Delete only rows that fail BOTH safeguards:
-    # a run is kept if it's within 7 days OR within the top-10 for its combo
-    to_delete = set(date_delete_ids) & set(combo_delete_ids)
+    # Soft deletions: fail BOTH safeguards (older than 7d AND beyond top-10)
+    soft_delete = set(date_delete_ids) & set(combo_delete_ids)
+    # Hard deletions: older than 30d, regardless of combo rank
+    to_delete = soft_delete | set(hard_delete_ids)
 
     if not to_delete:
         print(
-            f"Nothing to prune — {total_runs} runs in DB, all within last {DAYS}d or top {MAX_RUNS_PER_COMBO} per combo."
+            f"Nothing to prune — {total_runs} runs in DB, all within last {HARD_MAX_AGE_DAYS}d"
+            f" and within top {MAX_RUNS_PER_COMBO} per combo."
         )
         conn.close()
         return
