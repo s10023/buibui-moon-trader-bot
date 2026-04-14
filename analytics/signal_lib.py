@@ -807,6 +807,110 @@ def _find_live_cofire(
     return best
 
 
+def _parse_htf_ltf_pairs(
+    cross_tf_pairs: list[str],
+) -> list[tuple[str, str]]:
+    """Parse ["4h:15m", "4h:1h"] → [("4h", "15m"), ("4h", "1h")]."""
+    result: list[tuple[str, str]] = []
+    for entry in cross_tf_pairs:
+        parts = entry.split(":")
+        if len(parts) == 2:
+            result.append((parts[0].strip(), parts[1].strip()))
+    return result
+
+
+def _find_cross_tf_cofire(
+    events: list["SignalEvent"],
+    conn: duckdb.DuckDBPyConnection,
+    symbol: str,
+    tf_ltf: str,
+    cross_tf_lookup: "dict[tuple[str, str, str, str, str], Any]",
+    cross_tf_pairs: list[tuple[str, str]],
+    window_hours: float,
+    min_avg_r: float,
+) -> "ConfluenceData | None":
+    """Return ConfluenceData for the best cross-TF co-firing pair, or None.
+
+    For each (tf_htf, tf_ltf) pair where tf_ltf matches the current TF:
+    1. Query the signals DB for recent HTF signals in the same direction.
+    2. Look up (symbol, tf_htf, tf_ltf, strategy_htf, strategy_ltf) in the lookup.
+    3. Return the best match (highest avg_r ≥ min_avg_r).
+
+    candles_ago is expressed in LTF candles for display consistency with same-TF.
+    """
+    from analytics.indicators_lib import STRATEGY_REGISTRY
+
+    if not events or not cross_tf_lookup:
+        return None
+
+    current_open_time = int(events[0].open_time)
+    current_direction = events[0].direction
+    current_strats = {e.strategy for e in events}
+
+    window_ms = int(window_hours * 3600 * 1000)
+    ltf_candle_ms = parse_timeframe_secs(tf_ltf) * 1000
+
+    best_r: float = -1.0
+    best: ConfluenceData | None = None
+
+    # Only check pairs where LTF matches current TF.
+    relevant_htfs = [htf for htf, ltf in cross_tf_pairs if ltf == tf_ltf]
+    if not relevant_htfs:
+        return None
+
+    for tf_htf in relevant_htfs:
+        window_start_ms = current_open_time - window_ms
+        try:
+            hist = get_signals_history(
+                conn, symbol, tf_htf, window_start_ms, current_open_time
+            )
+        except Exception:
+            continue
+        if hist.empty:
+            continue
+
+        for _, db_row in hist.iterrows():
+            htf_strat = str(db_row["strategy"])
+            if str(db_row["direction"]) != current_direction:
+                continue
+            htf_open_time = int(db_row["open_time"])
+
+            for ltf_strat in current_strats:
+                key: tuple[str, str, str, str, str] = (
+                    symbol,
+                    tf_htf,
+                    tf_ltf,
+                    htf_strat,
+                    ltf_strat,
+                )
+                row = cross_tf_lookup.get(key)
+                if row is None or row["avg_r"] < min_avg_r:
+                    continue
+                if row["avg_r"] <= best_r:
+                    continue
+
+                # Express candles_ago in LTF candles.
+                elapsed_ms = current_open_time - htf_open_time
+                candles_ago = max(0, int(elapsed_ms / ltf_candle_ms))
+
+                htf_spec = STRATEGY_REGISTRY.get(htf_strat)
+                ltf_spec = STRATEGY_REGISTRY.get(ltf_strat)
+                best_r = row["avg_r"]
+                best = ConfluenceData(
+                    co_strategy=htf_strat,
+                    candles_ago=candles_ago,
+                    avg_r=row["avg_r"],
+                    trades=int(row["closed_trades"]),
+                    win_rate=float(row["win_rate"]),
+                    type_a=htf_spec.strategy_type if htf_spec else "",
+                    type_b=ltf_spec.strategy_type if ltf_spec else "",
+                    htf_tf=tf_htf,
+                    ltf_tf=tf_ltf,
+                )
+
+    return best
+
+
 def run_scan_cycle(
     conn: duckdb.DuckDBPyConnection,
     symbols: list[str],
@@ -831,6 +935,10 @@ def run_scan_cycle(
     combo_lookup: "dict[tuple[str, str, frozenset[str]], Any] | None" = None,
     combo_window: int = 5,
     combo_min_avg_r: float = 1.0,
+    cross_tf_lookup: "dict[tuple[str, str, str, str, str], Any] | None" = None,
+    cross_tf_pairs: list[tuple[str, str]] | None = None,
+    cross_tf_window_hours: float = 4.0,
+    cross_tf_min_avg_r: float = 1.0,
     ohlcv_cache: "dict[tuple[str, str], pd.DataFrame] | None" = None,
 ) -> list[str]:
     """Scan all symbol+timeframe combinations and return formatted alert strings.
@@ -1387,8 +1495,10 @@ def run_scan_cycle(
             # strategy pair from backtest_combos co-fired within combo_window
             # candles. Attaches ConfluenceData to each event so the formatter
             # can append the blockquote section.
+            # Same-TF confluence (step 3): check known-good same-TF pairs.
+            _best_cofire: ConfluenceData | None = None
             if combo_lookup:
-                _cofire = _find_live_cofire(
+                _same_tf = _find_live_cofire(
                     dir_events,
                     ohlcv_df,
                     conn,
@@ -1398,18 +1508,45 @@ def run_scan_cycle(
                     combo_window,
                     combo_min_avg_r,
                 )
-                if _cofire is not None:
-                    for _e in dir_events:
-                        _e.confluence_combo = _cofire
-                    logger.info(
-                        "Co-fire: %s %s %s+%s (avg_r %.2f, %d candles ago)",
-                        symbol,
-                        tf,
-                        dir_events[0].strategy,
-                        _cofire.co_strategy,
-                        _cofire.avg_r,
-                        _cofire.candles_ago,
-                    )
+                if _same_tf is not None:
+                    _best_cofire = _same_tf
+
+            # Cross-TF confluence (step 4): HTF context + LTF entry.
+            if cross_tf_lookup and cross_tf_pairs:
+                _cross = _find_cross_tf_cofire(
+                    dir_events,
+                    conn,
+                    symbol,
+                    tf,
+                    cross_tf_lookup,
+                    cross_tf_pairs,
+                    cross_tf_window_hours,
+                    cross_tf_min_avg_r,
+                )
+                # Tag whichever has the higher avg_r.
+                if _cross is not None and (
+                    _best_cofire is None or _cross.avg_r > _best_cofire.avg_r
+                ):
+                    _best_cofire = _cross
+
+            if _best_cofire is not None:
+                for _e in dir_events:
+                    _e.confluence_combo = _best_cofire
+                _tf_label = (
+                    f"{_best_cofire.htf_tf}→{_best_cofire.ltf_tf}"
+                    if _best_cofire.htf_tf
+                    else tf
+                )
+                logger.info(
+                    "Co-fire: %s %s %s+%s [%s] (avg_r %.2f, %d candles ago)",
+                    symbol,
+                    tf,
+                    dir_events[0].strategy,
+                    _best_cofire.co_strategy,
+                    _tf_label,
+                    _best_cofire.avg_r,
+                    _best_cofire.candles_ago,
+                )
 
             # Stack all passing strategies into one confluence alert
             msg = format_confluence_alert(

@@ -204,15 +204,26 @@ class BiasConfig:
 
 @dataclass
 class ComboConfig:
-    """Configuration for live co-firing confluence detection (D10 step 3).
+    """Configuration for live co-firing confluence detection (D10 steps 3+4).
 
-    Controls when a co-firing blockquote is appended to Telegram alerts.
-    window: look back this many candles in the signals DB for a co-firing partner.
-    min_avg_r: only tag pairs whose backtest combo avg_r meets this threshold.
+    Same-TF (step 3):
+      window: look back this many candles in the signals DB for a co-firing partner.
+      min_avg_r: only tag pairs whose backtest combo avg_r meets this threshold.
+
+    Cross-TF (step 4):
+      cross_tf_pairs: HTF:LTF pairs to check, e.g. ["4h:15m", "4h:1h"].
+                      Empty list disables cross-TF detection entirely.
+      cross_tf_window_hours: how far back (hours) to look for an HTF signal.
+      cross_tf_min_avg_r: min backtest avg_r for a cross-TF pair to fire.
     """
 
     window: int = 5
     min_avg_r: float = 1.0
+    cross_tf_pairs: list[str] = field(
+        default_factory=lambda: ["4h:15m", "4h:1h", "1h:15m", "1d:4h", "1d:1h"]
+    )
+    cross_tf_window_hours: float = 4.0
+    cross_tf_min_avg_r: float = 1.0
 
 
 @dataclass
@@ -509,9 +520,13 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
     )
 
     raw_combo = data.get("combo", {})
+    _default_cross_tf_pairs = ["4h:15m", "4h:1h", "1h:15m", "1d:4h", "1d:1h"]
     combo = ComboConfig(
         window=int(raw_combo.get("window", 5)),
         min_avg_r=float(raw_combo.get("min_avg_r", 1.0)),
+        cross_tf_pairs=list(raw_combo.get("cross_tf_pairs", _default_cross_tf_pairs)),
+        cross_tf_window_hours=float(raw_combo.get("cross_tf_window_hours", 4.0)),
+        cross_tf_min_avg_r=float(raw_combo.get("cross_tf_min_avg_r", 1.0)),
     )
 
     return SignalWatchConfig(

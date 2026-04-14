@@ -77,6 +77,7 @@ class TestInitSchema:
             "backtest_runs",
             "backtest_trades",
             "backtest_combos",
+            "backtest_cross_tf_combos",
             "stats_cache",
             "confidence_ratings",
         } == tables
