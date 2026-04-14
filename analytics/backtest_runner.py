@@ -46,6 +46,7 @@ from analytics.indicators_lib import (
     detect_smt_divergence,
     seasonality_stats,
 )
+from analytics.perf_timer import timed
 from analytics.signal_lib import _filter_signals_by_adr
 from utils.binance_client import load_coins_config
 
@@ -189,6 +190,9 @@ def _collect_sweep_results(
     allowed_days = _day_filter_to_weekdays(cfg.day_filter)
     results: list[BacktestResult] = []
     skipped: list[str] = []
+    # OHLCV cache: all strategies share the same candle data for a given symbol+TF.
+    # Avoids N_strategies redundant DB reads per (symbol, timeframe) pair.
+    ohlcv_cache: dict[tuple[str, str], pd.DataFrame] = {}
 
     for symbol, timeframe, strategy in itertools.product(
         symbols, cfg.timeframes, strategies
@@ -201,7 +205,12 @@ def _collect_sweep_results(
             skipped.append(f"{symbol}/{timeframe}/{strategy} (no smt_pair configured)")
             continue
 
-        ohlcv = get_ohlcv(conn, symbol, timeframe, start_ms, end_ms)
+        ohlcv_key = (symbol, timeframe)
+        if ohlcv_key not in ohlcv_cache:
+            ohlcv_cache[ohlcv_key] = get_ohlcv(
+                conn, symbol, timeframe, start_ms, end_ms
+            )
+        ohlcv = ohlcv_cache[ohlcv_key]
         if ohlcv.empty:
             skipped.append(f"{symbol}/{timeframe}/{strategy} (no data)")
             continue
@@ -429,9 +438,10 @@ def run_backtest_sweep(
             print(format_atr_sl_sweep_table(results_by_atr))
             print(format_duration_table(duration_results_atr))
         else:
-            results, skipped = _collect_sweep_results(
-                conn, cfg, cfg.tp_r, symbols, strategies, start_ms, end_ms, sweep_id
-            )
+            with timed("backtest sweep"):
+                results, skipped = _collect_sweep_results(
+                    conn, cfg, cfg.tp_r, symbols, strategies, start_ms, end_ms, sweep_id
+                )
             print(
                 format_sweep_table(
                     results, cfg.min_trades, cfg.min_trades_per_tf or None

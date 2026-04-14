@@ -321,24 +321,27 @@ def run_param_sweep(args: argparse.Namespace) -> None:
     if grid_size > 5000:
         print(f"\n  WARNING: Grid has {grid_size} combos — this may take a while.")
 
+    from analytics.perf_timer import timed
+
     db_path = args.db or DEFAULT_DB_PATH
     conn: duckdb.DuckDBPyConnection = duckdb.connect(str(db_path), read_only=True)
     try:
-        rows = _run(
-            conn=conn,
-            strategy=args.strategy,
-            symbol=args.symbol,
-            timeframe=args.timeframe,
-            days=args.days,
-            param_ranges=param_ranges,
-            wfo_split=args.wfo_split,
-            min_trades=min_trades,
-            fee_pct=args.fee_pct,
-            top_n=args.top_n,
-            adr_suppress_threshold=args.adr_suppress_threshold,
-            since_ms=_parse_since_to_ms(args.since) if args.since else None,
-            day_filter=args.day_filter,
-        )
+        with timed("param-sweep total"):
+            rows = _run(
+                conn=conn,
+                strategy=args.strategy,
+                symbol=args.symbol,
+                timeframe=args.timeframe,
+                days=args.days,
+                param_ranges=param_ranges,
+                wfo_split=args.wfo_split,
+                min_trades=min_trades,
+                fee_pct=args.fee_pct,
+                top_n=args.top_n,
+                adr_suppress_threshold=args.adr_suppress_threshold,
+                since_ms=_parse_since_to_ms(args.since) if args.since else None,
+                day_filter=args.day_filter,
+            )
     finally:
         conn.close()
 
@@ -369,22 +372,25 @@ def run_param_audit(args: argparse.Namespace) -> None:
     print(f"\nStrategy audit  {args.symbol} / {args.timeframe} / {_window}")
     print(f"Strategies: {len(strategies)}  WFO split: {args.wfo_split:.0%} IS")
 
+    from analytics.perf_timer import timed
+
     db_path = args.db or DEFAULT_DB_PATH
     conn: duckdb.DuckDBPyConnection = duckdb.connect(str(db_path), read_only=True)
     try:
-        rows = run_strategy_audit(
-            conn=conn,
-            symbol=args.symbol,
-            timeframe=args.timeframe,
-            days=args.days,
-            strategies=strategies,
-            wfo_split=args.wfo_split,
-            min_trades=min_trades,
-            fee_pct=args.fee_pct,
-            adr_suppress_threshold=args.adr_suppress_threshold,
-            since_ms=_parse_since_to_ms(args.since) if args.since else None,
-            day_filter=args.day_filter,
-        )
+        with timed("param-audit total"):
+            rows = run_strategy_audit(
+                conn=conn,
+                symbol=args.symbol,
+                timeframe=args.timeframe,
+                days=args.days,
+                strategies=strategies,
+                wfo_split=args.wfo_split,
+                min_trades=min_trades,
+                fee_pct=args.fee_pct,
+                adr_suppress_threshold=args.adr_suppress_threshold,
+                since_ms=_parse_since_to_ms(args.since) if args.since else None,
+                day_filter=args.day_filter,
+            )
     finally:
         conn.close()
 

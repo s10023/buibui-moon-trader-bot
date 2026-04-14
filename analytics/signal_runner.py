@@ -186,8 +186,25 @@ def run_signal_watch(
                                 sec,
                             )
 
+        _cycle_count = 0
+        _COMBO_REFRESH_CYCLES = 10  # reload combo_lookup every N cycles
+
         while not shutdown_requested[0]:
+            _cycle_count += 1
             logger.info("--- scan cycle start ---")
+
+            # Reload combo_lookup periodically so newly saved combo backtest runs are
+            # picked up without requiring a daemon restart (P8 fix).
+            if _cycle_count > 1 and _cycle_count % _COMBO_REFRESH_CYCLES == 0:
+                with duckdb.connect(str(db_path)) as _cl_conn:
+                    fresh = get_combo_lookup(_cl_conn)
+                if len(fresh) != len(combo_lookup):
+                    logger.info(
+                        "Combo lookup refreshed: %d → %d pairs",
+                        len(combo_lookup),
+                        len(fresh),
+                    )
+                    combo_lookup = fresh
 
             # Open a short-lived connection for this cycle only.
             # Closing before the sleep window releases the write lock so the
