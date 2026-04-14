@@ -971,11 +971,11 @@ def run_cross_tf_combo_backtest_cmd(
     else:
         with ProcessPoolExecutor(max_workers=_max_workers) as pool:
             futures = {
-                pool.submit(_cross_tf_combo_worker, sym, htf, ltf, **worker_kwargs): (
+                pool.submit(_cross_tf_combo_worker, sym, htf, ltf, **worker_kwargs): (  # type: ignore[arg-type]
                     sym,
                     htf,
                     ltf,
-                )  # type: ignore[arg-type]
+                )
                 for sym, htf, ltf in chunks
             }
             for fut in as_completed(futures):
