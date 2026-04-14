@@ -46,8 +46,9 @@ logger = logging.getLogger(__name__)
 _MYT = ZoneInfo("Asia/Kuala_Lumpur")
 _DEFAULT_BACKFILL_DAYS = 90
 
-# Maximum new candles per cycle before the cache is considered stale and invalidated.
-# Normal: 1 candle closes per cycle. >2 = gap fill or backfill happened.
+# Maximum rows returned by the inclusive re-fetch before the cache is invalidated.
+# Normal cycle: 2 rows (re-fetched+finalised last row + new partial candle).
+# >2 = daemon missed a cycle or a gap fill happened — rebuild from scratch.
 _CACHE_INVALIDATE_THRESHOLD = 2
 
 
@@ -61,16 +62,22 @@ def _update_ohlcv_cache(
 ) -> None:
     """Incrementally refresh the in-memory OHLCV cache for one (symbol, tf) pair.
 
-    Hot path (normal cycle): queries only rows newer than the cached tail and appends
-    them — typically 0–1 rows instead of the full 4000–7000 row history.
+    Hot path (normal cycle): queries from the last cached row's open_time (inclusive)
+    so the partially-formed candle stored in the previous cycle is always replaced with
+    its finalised values — mirroring data_sync.sync() which also starts from `latest`
+    (not latest+1) for the same reason.  Typically 2 rows per cycle: the finalised last
+    candle + the newly opened partial candle.
 
-    Invalidation: if >2 new rows arrive (gap fill, backfill, or first run) the cache
-    is discarded and rebuilt from a full DB read so no candles are missed.
+    Invalidation: if >2 rows arrive (missed a cycle / gap fill) the cache is discarded
+    and rebuilt from a full DB read so no candles are skipped.
     """
     key = (symbol, tf)
     if key in cache and not cache[key].empty:
         cached_max_ts = int(cache[key]["open_time"].max())
-        new_rows = get_ohlcv(conn, symbol, tf, cached_max_ts + 1, now_ms)
+        # Fetch from cached_max_ts inclusive — the last cached row was a partial candle
+        # that has since been finalised in the DB by sync().  Replacing it ensures
+        # detectors and the volume gate always see the correct final OHLCV values.
+        new_rows = get_ohlcv(conn, symbol, tf, cached_max_ts, now_ms)
         if len(new_rows) > _CACHE_INVALIDATE_THRESHOLD:
             logger.info(
                 "OHLCV cache invalidated for %s/%s — %d new rows (backfill/gap)",
@@ -80,8 +87,9 @@ def _update_ohlcv_cache(
             )
             cache[key] = get_ohlcv(conn, symbol, tf, start_ms, now_ms)
         elif not new_rows.empty:
-            cache[key] = pd.concat([cache[key], new_rows], ignore_index=True)
-        # else: no new rows yet (candle not yet closed) — keep existing cache
+            # Drop the stale last row and replace with the updated slice.
+            cache[key] = pd.concat([cache[key].iloc[:-1], new_rows], ignore_index=True)
+        # else: DB has no rows at or after cached_max_ts (shouldn't happen) — keep as-is
     else:
         cache[key] = get_ohlcv(conn, symbol, tf, start_ms, now_ms)
 
