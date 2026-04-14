@@ -1460,9 +1460,9 @@ def run_scan_cycle(
                     day_filter=day_filter,
                     smt_trend_filter=smt_trend_filter,
                     secondary_symbol=secondary_symbol,
-                    adr_suppress_threshold=None
-                    if _is_adr_exempt(strategy_params, strategy)
-                    else (bias_cfg.adr_suppress_threshold if bias_cfg else None),
+                    adr_suppress_threshold=bias_cfg.adr_suppress_threshold
+                    if bias_cfg
+                    else None,
                     volume_suppress=_resolve_volume_suppress(
                         strategy_params, strategy, backtest_cfg.volume_suppress
                     )

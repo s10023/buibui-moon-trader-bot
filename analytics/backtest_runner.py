@@ -281,9 +281,7 @@ def _collect_sweep_results(
                 smt_trend_filter=cfg.smt_trend_filter,
                 secondary_symbol=secondary,
                 sweep_id=sweep_id,
-                adr_suppress_threshold=None
-                if cfg.is_adr_exempt(strategy)
-                else cfg.adr_suppress_threshold,
+                adr_suppress_threshold=cfg.adr_suppress_threshold,
                 volume_suppress=cfg.effective_volume_suppress(strategy) or None,
             )
             upsert_backtest_trades(conn, bt, run_id)
