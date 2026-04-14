@@ -206,7 +206,8 @@ buibui-param-audit:
 		$(if $(DAYS),--days $(DAYS),) \
 		$(if $(SINCE),--since $(SINCE),) \
 		$(if $(WFO_SPLIT),--wfo-split $(WFO_SPLIT),) \
-		$(if $(FEE_PCT),--fee-pct $(FEE_PCT),)
+		$(if $(FEE_PCT),--fee-pct $(FEE_PCT),) \
+		$(if $(DAY_FILTER),--day-filter $(DAY_FILTER),)
 
 buibui-param-sweep:
 	@echo "🔬 Running WFO parameter sweep..."
@@ -220,7 +221,8 @@ buibui-param-sweep:
 		$(if $(TOP_N),--top-n $(TOP_N),) \
 		$(if $(DAYS),--days $(DAYS),) \
 		$(if $(SINCE),--since $(SINCE),) \
-		$(if $(FEE_PCT),--fee-pct $(FEE_PCT),)
+		$(if $(FEE_PCT),--fee-pct $(FEE_PCT),) \
+		$(if $(DAY_FILTER),--day-filter $(DAY_FILTER),)
 
 buibui-recalibrate:
 	@echo "⭐ Recalibrating confidence star ratings from backtest DB..."

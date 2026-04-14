@@ -221,6 +221,7 @@ def run_param_sweep(
     top_n: int,
     adr_suppress_threshold: float | None = None,
     since_ms: int | None = None,
+    day_filter: str = "off",
 ) -> list[SweepRow]:
     """Run WFO grid sweep. Returns rows sorted by IS score (descending)."""
     import datetime
@@ -265,6 +266,14 @@ def run_param_sweep(
         signals_full = _filter_signals_by_adr(
             ohlcv_full, signals_full, adr_suppress_threshold
         )
+
+    if day_filter != "off" and not signals_full.empty:
+        from analytics.backtest_lib import filter_signals_by_day
+        from analytics.signal_config import _day_filter_to_weekdays
+
+        allowed_days = _day_filter_to_weekdays(day_filter)
+        if allowed_days is not None:
+            signals_full = filter_signals_by_day(signals_full, allowed_days)
 
     # Split signals at the same timestamp boundary as OHLCV.
     if not ohlcv_is.empty and not ohlcv_oos.empty:
@@ -520,6 +529,7 @@ def run_strategy_audit(
     fee_pct: float,
     adr_suppress_threshold: float | None = None,
     since_ms: int | None = None,
+    day_filter: str = "off",
 ) -> list[AuditRow]:
     """Quick tp_r sweep across all strategies — produces one verdict row per strategy."""
     import datetime
@@ -574,6 +584,14 @@ def run_strategy_audit(
             signals_full = _filter_signals_by_adr(
                 ohlcv_full, signals_full, adr_suppress_threshold
             )
+
+        if day_filter != "off" and not signals_full.empty:
+            from analytics.backtest_lib import filter_signals_by_day
+            from analytics.signal_config import _day_filter_to_weekdays
+
+            allowed_days = _day_filter_to_weekdays(day_filter)
+            if allowed_days is not None:
+                signals_full = filter_signals_by_day(signals_full, allowed_days)
 
         signals_is = signals_full[signals_full["open_time"] < split_ts].copy()
         signals_oos = signals_full[signals_full["open_time"] >= split_ts].copy()

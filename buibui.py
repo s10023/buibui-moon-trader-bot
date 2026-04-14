@@ -337,6 +337,7 @@ def run_param_sweep(args: argparse.Namespace) -> None:
             top_n=args.top_n,
             adr_suppress_threshold=args.adr_suppress_threshold,
             since_ms=_parse_since_to_ms(args.since) if args.since else None,
+            day_filter=args.day_filter,
         )
     finally:
         conn.close()
@@ -382,6 +383,7 @@ def run_param_audit(args: argparse.Namespace) -> None:
             fee_pct=args.fee_pct,
             adr_suppress_threshold=args.adr_suppress_threshold,
             since_ms=_parse_since_to_ms(args.since) if args.since else None,
+            day_filter=args.day_filter,
         )
     finally:
         conn.close()
@@ -909,6 +911,14 @@ def main() -> None:
         help="ADR suppress threshold (e.g. 0.80) — filter signals when today's range >= N × ADR-14",
     )
     param_sweep_parser.add_argument(
+        "--day-filter",
+        type=str,
+        default="off",
+        dest="day_filter",
+        choices=["off", "weekdays", "tue_thu"],
+        help="Restrict signals to allowed weekdays before WFO split (default: off)",
+    )
+    param_sweep_parser.add_argument(
         "--db",
         type=str,
         default=None,
@@ -971,6 +981,14 @@ def main() -> None:
         default=None,
         dest="adr_suppress_threshold",
         help="ADR suppress threshold (e.g. 0.80) — filter signals when today's range >= N × ADR-14",
+    )
+    param_audit_parser.add_argument(
+        "--day-filter",
+        type=str,
+        default="off",
+        dest="day_filter",
+        choices=["off", "weekdays", "tue_thu"],
+        help="Restrict signals to allowed weekdays before WFO split (default: off)",
     )
     param_audit_parser.add_argument(
         "--db", type=str, default=None, help="DuckDB path (default: analytics.db)"
