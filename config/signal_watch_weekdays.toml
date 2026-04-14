@@ -49,7 +49,8 @@ orb                  = ["1h", "4h"]        # 15m/1d suppressed (n/a — zero tra
 bos                  = ["15m", "1h", "4h"] # 1d all negative excluded
 pin_bar              = ["15m", "1h", "4h", "1d"]
 liquidity_sweep      = ["1h", "1d"]       # 15m/4h suppressed (negative)
-cvd_divergence       = ["15m", "1h", "4h"]  # 1d = n/a (zero trades on weekdays)
+cvd_divergence       = ["15m"]              # 1h all negative (was +0.97R, degraded with canonical since=2025-09-12); 4h 3 trades only
+doji                 = ["15m", "1h"]        # 4h all negative (-0.03R best); 1d too thin (3 trades)
 marubozu             = ["4h", "1d"]       # 15m/1h suppressed (negative)
 order_block          = ["4h", "1d"]       # 15m/1h suppressed (negative)
 morning_evening_star = ["15m", "1h", "4h"] # 1d suppressed (negative)
@@ -68,22 +69,21 @@ tp_r_1d  = 3.0                # +0.95R (21 trades, 50% WR)
 volume_suppress = false       # A14b: low-vol edge Δ=-0.07R (low +0.19R vs normal +0.12R)
 
 [strategy_params.pin_bar]
-tp_r_15m = 4.0                # +0.08R
-tp_r_1h  = 5.0                # WFO 200d: ETH 1h ↑+0.715R, SOL 1h ↑+0.325R — longs dominate (was 4.0)
-tp_r_4h  = 3.5                # +0.11R (was missing)
-tp_r_1d  = 3.5                # +1.00R (33 trades)
+tp_r_15m = 4.0                # sweep confirmed: +0.09R@4.0R
+tp_r_1h  = 4.0                # sweep peak: +0.16R; was 5.0=+0.14R (slight improvement, higher WR)
+tp_r_4h  = 3.5                # sweep tied 3.5R/4.0R (+0.08R); higher WR at 3.5R
+tp_r_1d  = 3.5                # sweep confirmed: +1.00R (33 trades)
 
 [strategy_params.hammer_hanging_man]
-tp_r_15m = 3.0                # +0.02R (borderline)
-tp_r_1h  = 5.0                # +0.25R (monotonically increasing; was 4.0=+0.22R)
-tp_r_4h  = 4.0                # WFO OOS: BTC+1.450R n=10 (confirmed optimal)
-tp_r_1d  = 3.0                # WFO OOS: BTC+0.550R n=5 (was 3.5 overfit OOS -0.150R)
+tp_r_15m = 3.0                # +0.06R@4.0R but 3.0R also borderline; conservative
+tp_r_1h  = 5.0                # sweep confirmed: +0.26R (monotonically increasing)
+tp_r_4h  = 4.0                # sweep confirmed: +0.03R (barely positive; hard mode gates if negative)
+tp_r_1d  = 3.5                # sweep peak: +0.88R (43%WR); was 3.0=+0.66R
 
 [strategy_params.doji]
-tp_r_15m = 3.5                # +0.09R
-tp_r_1h  = 3.0                # +0.26R
-tp_r_4h  = 1.5                # +0.14R (48% WR — best for this TF)
-tp_r_1d  = 3.5                # +0.82R (12 trades; 42% WR — avoiding lottery bias at 5.0R)
+tp_r_15m = 4.5                # sweep peak: +0.27R (287 trades, 24%WR); was 3.5=+0.09R
+tp_r_1h  = 2.5                # sweep peak: +0.43R (42%WR); was 3.0=+0.40R
+# tp_r_4h/tp_r_1d removed — doji restricted to ["15m","1h"] via strategy_timeframes
 volume_suppress = true        # A14b: normal-vol wins Δ=+0.11R (low +0.14R vs normal +0.25R)
 
 [strategy_params.inside_bar]
@@ -113,9 +113,9 @@ tp_r_1h  = 5.0                # +0.45R (28 trades, thin — monotonic climb)
 tp_r_4h  = 5.0                # +0.18R (10 trades; barely positive, hard mode may gate)
 
 [strategy_params.cvd_divergence]
-tp_r_15m = 3.0                # +0.04R (borderline; hard mode gates)
-tp_r_1h  = 5.0                # +0.97R (monotonically increasing; 62 trades, 34% WR)
-tp_r_4h  = 5.0                # +1.38R (monotonically increasing; 5 trades — small sample)
+tp_r_15m = 3.0                # +0.09R@3.0R (noisy; hard mode gates when negative)
+# tp_r_1h removed — weekdays CVD 1h ALL NEGATIVE (was +0.97R — degraded with canonical since=2025-09-12)
+# tp_r_4h removed — only 3 trades; excluded from strategy_timeframes
 volume_suppress = true        # A14b: normal-vol wins Δ=+0.13R (low +0.15R vs normal +0.28R)
 
 [strategy_params.trend_day]
@@ -142,9 +142,10 @@ tp_r_1d  = 4.5                # -0.14R (all negative; hard mode will suppress)
 volume_suppress = true        # A14b: normal-vol wins Δ=+0.08R (low -0.20R vs normal -0.12R)
 
 [strategy_params.morning_evening_star]
-tp_r_15m = 3.5                # +0.06R
-tp_r_1h  = 4.0                # +0.09R (peak; was 3.5=+0.08R)
-tp_r_4h  = 5.0                # +0.33R (monotonically increasing)
+tp_r_15m = 3.5                # sweep confirmed: +0.06R
+tp_r_1h  = 4.0                # sweep confirmed: +0.08R
+tp_r_4h  = 5.0                # sweep confirmed: +0.27R (monotonically increasing)
+tp_r_1d  = 4.0                # sweep peak: +0.22R (59 trades, 25%WR); was missing
 
 [strategy_params.order_block]
 # 15m/1h excluded via strategy_timeframes

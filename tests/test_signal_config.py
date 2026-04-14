@@ -319,23 +319,23 @@ tp_r_4h = 2.5
         # engulfing: TF-specific (15m=4.0, 1h=4.0, 4h=3.5); no per-symbol for BTC
         assert cfg.effective_tp_r("engulfing", "BTCUSDT", "1h") == 4.0
         assert cfg.effective_tp_r("engulfing", "BTCUSDT", "4h") == 3.5
-        # pin_bar: TF-specific (15m=4.5, 1h=3.5, 4h=4.5); longs use tp_r_long=5.0 from base
-        assert cfg.effective_tp_r("pin_bar", "BTCUSDT", "15m") == 4.5
+        # pin_bar: tp_r_15m removed — falls back to strategy-wide 3.0; longs use tp_r_long=5.0 from base
+        assert cfg.effective_tp_r("pin_bar", "BTCUSDT", "15m") == 3.0
         assert cfg.effective_tp_r("pin_bar", "BTCUSDT", "1h") == 3.5
         assert cfg.effective_tp_r("pin_bar", "BTCUSDT", "4h") == 4.5
         # hammer_hanging_man: strategy-wide 4.0, 1h override 5.0
         assert cfg.effective_tp_r("hammer_hanging_man", "BTCUSDT", "15m") == 4.0
         assert cfg.effective_tp_r("hammer_hanging_man", "BTCUSDT", "1h") == 5.0
-        # doji: SOLUSDT 15m falls back to TF-level 4.0 (no symbol override for SOL)
-        assert cfg.effective_tp_r("doji", "SOLUSDT", "15m") == 4.0
+        # doji: SOLUSDT 15m falls back to TF-level 4.5 (tp_r_15m updated 4.0→4.5; no symbol override for SOL)
+        assert cfg.effective_tp_r("doji", "SOLUSDT", "15m") == 4.5
         assert cfg.effective_tp_r("doji", "BTCUSDT", "1h") == 3.0
         # morning_evening_star: TF-specific (15m=3.5, 1h=4.0, 4h=5.0), 1d falls back
         assert cfg.effective_tp_r("morning_evening_star", "BTCUSDT", "15m") == 3.5
         assert cfg.effective_tp_r("morning_evening_star", "BTCUSDT", "1h") == 4.0
         assert cfg.effective_tp_r("morning_evening_star", "BTCUSDT", "4h") == 5.0
-        # trend_day: 4h override 3.5 (WFO OOS result), 1d falls back to global 3.0
+        # trend_day: 4h override 3.5 (WFO OOS), 1d override 4.5 (added from sweep)
         assert cfg.effective_tp_r("trend_day", "BTCUSDT", "4h") == 3.5
-        assert cfg.effective_tp_r("trend_day", "BTCUSDT", "1d") == 3.0
+        assert cfg.effective_tp_r("trend_day", "BTCUSDT", "1d") == 4.5
         assert cfg.effective_tp_r("orb", "BTCUSDT", "1h") == 4.5
         assert cfg.effective_tp_r("orb", "BTCUSDT", "4h") == 5.0
         # strategy not in params falls back to global
@@ -439,10 +439,10 @@ tp_r_15m = 3.5
         """signal_watch.toml per-symbol overrides (F5 sweep findings) must be applied."""
         cfg_path = Path(__file__).parent.parent / "config" / "signal_watch.toml"
         cfg = load_signal_config(cfg_path)
-        # doji: BTCUSDT 15m → 3.5, ETHUSDT 15m → 4.5, SOLUSDT → TF fallback 4.0
+        # doji: BTCUSDT 15m → 3.5, ETHUSDT 15m → 4.5, SOLUSDT → TF fallback 4.5 (tp_r_15m updated 4.0→4.5)
         assert cfg.effective_tp_r("doji", "BTCUSDT", "15m") == 3.5
         assert cfg.effective_tp_r("doji", "ETHUSDT", "15m") == 4.5
-        assert cfg.effective_tp_r("doji", "SOLUSDT", "15m") == 4.0
+        assert cfg.effective_tp_r("doji", "SOLUSDT", "15m") == 4.5
         # hammer_hanging_man: ETHUSDT 1h → 5.0 (symbol override), BTCUSDT → TF-level 5.0
         assert cfg.effective_tp_r("hammer_hanging_man", "ETHUSDT", "1h") == 5.0
         assert cfg.effective_tp_r("hammer_hanging_man", "BTCUSDT", "1h") == 5.0

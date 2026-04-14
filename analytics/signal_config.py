@@ -100,6 +100,12 @@ class StrategyOverride:
     volume_suppress: bool | None = None
     # None = inherit global [backtest].volume_spike_boost; True/False = per-strategy override.
     volume_spike_boost: bool | None = None
+    # Directional volume suppress — overrides volume_suppress for that direction when set.
+    volume_suppress_long: bool | None = None
+    volume_suppress_short: bool | None = None
+    # Directional spike boost — overrides volume_spike_boost for that direction when set.
+    volume_spike_boost_long: bool | None = None
+    volume_spike_boost_short: bool | None = None
     # Optional direction-split TP multiples. Falls back to tp_r when None.
     tp_r_long: float | None = None
     tp_r_short: float | None = None
@@ -295,6 +301,34 @@ class SignalWatchConfig:
             return override.volume_spike_boost
         return self.backtest.volume_spike_boost
 
+    def effective_volume_suppress_long(self, strategy: str) -> bool | None:
+        """Return per-strategy volume_suppress_long override, or None (fall back to symmetric)."""
+        override = self.strategy_params.get(strategy)
+        if override is not None:
+            return override.volume_suppress_long
+        return None
+
+    def effective_volume_suppress_short(self, strategy: str) -> bool | None:
+        """Return per-strategy volume_suppress_short override, or None (fall back to symmetric)."""
+        override = self.strategy_params.get(strategy)
+        if override is not None:
+            return override.volume_suppress_short
+        return None
+
+    def effective_volume_spike_boost_long(self, strategy: str) -> bool | None:
+        """Return per-strategy volume_spike_boost_long override, or None (fall back to symmetric)."""
+        override = self.strategy_params.get(strategy)
+        if override is not None:
+            return override.volume_spike_boost_long
+        return None
+
+    def effective_volume_spike_boost_short(self, strategy: str) -> bool | None:
+        """Return per-strategy volume_spike_boost_short override, or None (fall back to symmetric)."""
+        override = self.strategy_params.get(strategy)
+        if override is not None:
+            return override.volume_spike_boost_short
+        return None
+
     def effective_atr_sl_multiplier(
         self, strategy: str, symbol: str, tf: str
     ) -> float | None:
@@ -439,6 +473,10 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
                 )
         raw_vs = vals.get("volume_suppress")
         raw_vsb = vals.get("volume_spike_boost")
+        raw_vsl = vals.get("volume_suppress_long")
+        raw_vss = vals.get("volume_suppress_short")
+        raw_vsbl = vals.get("volume_spike_boost_long")
+        raw_vsbs = vals.get("volume_spike_boost_short")
         raw_tp_r_long = vals.get("tp_r_long")
         raw_tp_r_short = vals.get("tp_r_short")
         strategy_params[str(strat_name)] = StrategyOverride(
@@ -452,6 +490,10 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
             adr_exempt=bool(vals.get("adr_exempt", False)),
             volume_suppress=bool(raw_vs) if raw_vs is not None else None,
             volume_spike_boost=bool(raw_vsb) if raw_vsb is not None else None,
+            volume_suppress_long=bool(raw_vsl) if raw_vsl is not None else None,
+            volume_suppress_short=bool(raw_vss) if raw_vss is not None else None,
+            volume_spike_boost_long=bool(raw_vsbl) if raw_vsbl is not None else None,
+            volume_spike_boost_short=bool(raw_vsbs) if raw_vsbs is not None else None,
             tp_r_long=float(raw_tp_r_long) if raw_tp_r_long is not None else None,
             tp_r_short=float(raw_tp_r_short) if raw_tp_r_short is not None else None,
         )

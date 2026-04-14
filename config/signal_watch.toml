@@ -65,7 +65,8 @@ orb              = ["1h", "4h", "1d"] # 15m mean_r=-0.163 suppressed
 bos              = ["15m", "1h", "4h"] # 1d mean_r=-0.785 suppressed; 4h mean_r=+0.223 re-enabled
 pin_bar          = ["15m", "1h", "4h", "1d"] # 4h mean_r=-0.137 on weekdays; +0.40R on tue_thu (unlocked)
 liquidity_sweep  = ["1h", "1d"]       # 15m mean_r=-0.116, 4h mean_r=-0.160 suppressed
-cvd_divergence   = ["15m", "1h", "4h", "1d"] # 1h mean_r=+0.535 re-enabled
+cvd_divergence   = ["1h"]             # 15m all negative; 1h monotonic +1.38R@5.0 stable 41%WR; 4h only 2 trades
+doji             = ["15m", "1h"]      # 4h degraded: best 1.5R=+0.04R (16 trades); 1d too thin
 morning_evening_star = ["15m", "1h", "4h"] # 1d mean_r=-0.105 suppressed
 marubozu         = ["4h", "1d"]       # 15m mean_r=-0.120, 1h mean_r=-0.229 suppressed
 order_block      = ["4h", "1d"]       # 15m mean_r=-0.22, 1h mean_r=-0.33 suppressed; 4h+0.03R/1d+0.09R marginally positive — runtime min_avg_r gate handles suppression
@@ -92,9 +93,10 @@ tp_r_4h = 4.0                 # F5 WFO: SOL 4h optimal at 4.0R
 
 [strategy_params.pin_bar]
 tp_r = 3.0                    # fallback
-tp_r_15m = 4.5                # WFO ETH 15m +0.211R (519 trades); BTC 15m fully overfit
-tp_r_1h = 3.5                 # TP sweep peak: cross-symbol +0.26R (454 trades); longs use tp_r_long=5.0 from base
-tp_r_4h = 4.5                 # sweep peak: cross-symbol +0.46R (126 trades)
+# tp_r_15m removed — let directional from base apply (tp_r_long=5.0 / tp_r_short=3.0); combined plateau 3.0-4.0R (+0.11R)
+tp_r_1h = 3.5                 # sweep peak tied with 4.0R (+0.24R); higher WR at 3.5R
+tp_r_4h = 4.5                 # sweep peak: +0.40R (140 trades) — confirmed
+tp_r_1d = 4.0                 # sweep peak: +1.45R (18 trades, 50%WR); was missing (used 3.0R fallback)
 
 [strategy_params.hammer_hanging_man]
 tp_r = 4.0                    # WFO cross-symbol: BTC/ETH/SOL all positive at 4.0 (15m+1h)
@@ -106,9 +108,9 @@ tp_r_1h = 5.0                 # F5 WFO: ETH 1h optimal at 5.0R (confirmed by swe
 
 [strategy_params.doji]
 tp_r = 3.0                    # fallback
-tp_r_15m = 4.0                # WFO cross-symbol: BTC 15m +0.339R@3.5, ETH 15m +0.384R@4.0
-tp_r_1h  = 3.0                # TP sweep peak: cross-symbol +0.12R@3.0 (185 trades); was 3.5=+0.00R
-tp_r_4h  = 4.5                # sweep peak: cross-symbol +0.43R (41 trades)
+tp_r_15m = 4.5                # sweep peak: +0.45R (4h excluded; 15m 185 trades)
+tp_r_1h  = 3.0                # sweep peak: +0.69R (confirmed; 39 trades)
+# tp_r_4h removed — doji excluded from 4h via strategy_timeframes (best 1.5R=+0.04R, degraded)
 volume_suppress = true        # A14b: normal-vol wins Δ=+0.24R (low +0.26R vs normal +0.50R)
 
 [strategy_params.doji.BTCUSDT]
@@ -146,8 +148,9 @@ tp_r = 3.0                    # 15m+0.18R, 1h+0.22R (4h excluded via strategy_ti
 adr_exempt = true             # breakout — fires in continuation direction; ADR gate degrades it
 
 [strategy_params.trend_day]
-tp_r = 3.0                    # fallback for 1d
+tp_r = 3.0                    # fallback
 tp_r_4h = 3.5                 # WFO OOS: BTC+0.217R ETH+0.041R SOL+0.120R n=52-65 (was 5.0 overfit)
+tp_r_1d = 4.5                 # sweep peak: +0.26R (45 trades, 23%WR); was missing (used 3.0R → +0.04R)
 
 [strategy_params.orb]
 tp_r = 3.0                    # fallback for 1d
@@ -162,6 +165,7 @@ adr_exempt = true             # liquidity sweep — fires at structure extremes 
 tp_r_1h = 3.5                 # WFO OOS: BTC 1h peaks at 3.5R (+0.812R, n=47) vs global 5.0R (+0.722R)
 
 [strategy_params.cvd_divergence]
+tp_r_1h = 5.0                 # monotonically increasing: +1.38R@5.0R, stable 41%WR (38 trades, tue_thu)
 adr_exempt = true             # divergence between price/delta in trending conditions; ADR gate hurts it
 volume_suppress = false       # A14b: low-vol edge Δ=-0.24R (low +0.09R vs normal -0.15R)
 
