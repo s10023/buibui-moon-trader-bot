@@ -829,6 +829,7 @@ def run_scan_cycle(
     combo_lookup: "dict[tuple[str, str, frozenset[str]], Any] | None" = None,
     combo_window: int = 5,
     combo_min_avg_r: float = 1.0,
+    ohlcv_cache: "dict[tuple[str, str], pd.DataFrame] | None" = None,
 ) -> list[str]:
     """Scan all symbol+timeframe combinations and return formatted alert strings.
 
@@ -881,6 +882,7 @@ def run_scan_cycle(
 
     # Pre-fetch secondary OHLCV keyed by (secondary_symbol, tf) to avoid duplicate
     # DB queries when multiple primaries share the same secondary.
+    # Uses ohlcv_cache when available (daemon hot path) to avoid full DB reads.
     secondary_dfs: dict[tuple[str, str], pd.DataFrame] = {}
     if needs_secondary and secondary_map:
         for symbol in symbols:
@@ -889,7 +891,12 @@ def run_scan_cycle(
                 for tf in timeframes:
                     key = (sec, tf)
                     if key not in secondary_dfs:
-                        secondary_dfs[key] = get_ohlcv(conn, sec, tf, start_ms, now_ms)
+                        if ohlcv_cache and key in ohlcv_cache:
+                            secondary_dfs[key] = ohlcv_cache[key]
+                        else:
+                            secondary_dfs[key] = get_ohlcv(
+                                conn, sec, tf, start_ms, now_ms
+                            )
 
     alerts: list[str] = []
 
@@ -903,7 +910,12 @@ def run_scan_cycle(
             stats_ctx_cache[symbol] = _compute_stats_context(conn, symbol, now_myt)
 
         for tf in timeframes:
-            ohlcv_df = get_ohlcv(conn, symbol, tf, start_ms, now_ms)
+            _cache_key = (symbol, tf)
+            ohlcv_df = (
+                ohlcv_cache[_cache_key]
+                if ohlcv_cache and _cache_key in ohlcv_cache
+                else get_ohlcv(conn, symbol, tf, start_ms, now_ms)
+            )
             sec_key = ((secondary_map or {}).get(symbol, ""), tf)
             sec_df = secondary_dfs.get(sec_key) if needs_secondary else None
 
