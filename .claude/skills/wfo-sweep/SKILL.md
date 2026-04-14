@@ -36,7 +36,7 @@ Extract:
 - `timeframes` — list of TFs to sweep (e.g. `["15m", "1h", "4h", "1d"]`)
 - `symbols` — if set; otherwise default to `["BTCUSDT", "ETHUSDT", "SOLUSDT"]`
 - `fee_pct` — from `[backtest].fee_pct` or top-level, default `0.0005`
-- `day_filter` — for context/notes only (WFO respects full history)
+- `day_filter` — passed as `--day-filter` to every `param-audit` and `param-sweep` call so WFO runs on the correct trade population for this config
 - Current tp_r per strategy — read from `[strategy_params.<name>]` blocks
 
 ### Step 2: Phase 1 — Audit (all TFs, BTC only)
@@ -47,7 +47,8 @@ poetry run python buibui.py param-audit \
   --symbol BTCUSDT \
   --timeframe <TF> \
   --since 2025-09-12 \
-  --fee-pct <fee_pct>
+  --fee-pct <fee_pct> \
+  --day-filter <day_filter>
 ```
 
 Parse the audit table output. For each strategy × TF, note:
@@ -73,6 +74,7 @@ poetry run python buibui.py param-sweep \
   --timeframe <TF> \
   --since 2025-09-12 \
   --fee-pct <fee_pct> \
+  --day-filter <day_filter> \
   --top-n 10
 ```
 
@@ -183,3 +185,4 @@ WFO sweep complete — config/signal_watch.toml
 - If config has no symbols set, default to BTC/ETH/SOL (the 3 most-backtested)
 - WFO split default: 70% IS / 30% OOS — do not change unless history < 90d
 - Never commit a config where any strategy has OOS avg_r < 0 after the update
+- Always pass `--day-filter <day_filter>` to both `param-audit` and `param-sweep` — the WFO must run on the same trade population the config will see in production (tue_thu for signal_watch.toml, weekdays for weekdays, off for all)

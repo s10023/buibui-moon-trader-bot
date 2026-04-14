@@ -64,21 +64,30 @@ fvg                  = ["15m", "1h", "4h"] # 1d catastrophic suppressed
 [strategy_params.engulfing]
 tp_r_15m = 4.0                # +0.11R
 tp_r_1h  = 4.0                # +0.23R
-tp_r_4h  = 3.5                # +0.44R
-tp_r_1d  = 3.0                # +0.95R (21 trades, 50% WR)
+tp_r_4h  = 3.5                # +0.44R; ETH see per-symbol
+tp_r_1d  = 3.5                # WFO OOS (weekdays): BTC+0.450R n=3 (2026-04-14); was 3.0; SOL see per-symbol
 volume_suppress = false       # A14b: low-vol edge Δ=-0.07R (low +0.19R vs normal +0.12R)
+
+[strategy_params.engulfing.ETHUSDT]
+tp_r_4h = 4.0                 # WFO OOS (weekdays): +0.825R n=16 (2026-04-14); diverges from global 3.5R
+
+[strategy_params.engulfing.SOLUSDT]
+tp_r_1d = 2.5                 # WFO OOS (weekdays): +0.700R n=2 (2026-04-14); diverges from global 3.5R
 
 [strategy_params.pin_bar]
 tp_r_15m = 4.0                # sweep confirmed: +0.09R@4.0R
 tp_r_1h  = 4.0                # sweep peak: +0.16R; was 5.0=+0.14R (slight improvement, higher WR)
 tp_r_4h  = 3.5                # sweep tied 3.5R/4.0R (+0.08R); higher WR at 3.5R
-tp_r_1d  = 3.5                # sweep confirmed: +1.00R (33 trades)
+tp_r_1d  = 3.5                # sweep confirmed: +1.00R (33 trades); SOL see per-symbol
+
+[strategy_params.pin_bar.SOLUSDT]
+tp_r_1d = 2.5                 # WFO OOS (weekdays): +0.700R n=6 (2026-04-14); diverges from global 3.5R
 
 [strategy_params.hammer_hanging_man]
 tp_r_15m = 3.0                # +0.06R@4.0R but 3.0R also borderline; conservative
 tp_r_1h  = 5.0                # sweep confirmed: +0.26R (monotonically increasing)
 tp_r_4h  = 4.0                # sweep confirmed: +0.03R (barely positive; hard mode gates if negative)
-tp_r_1d  = 3.5                # sweep peak: +0.88R (43%WR); was 3.0=+0.66R
+tp_r_1d  = 4.0                # WFO OOS (weekdays): BTC+1.45R n=3, SOL+1.45R n=2 (2026-04-14); was 3.5
 
 [strategy_params.doji]
 tp_r_15m = 4.5                # sweep peak: +0.27R (287 trades, 24%WR); was 3.5=+0.09R
@@ -93,12 +102,12 @@ tp_r_4h  = 3.5                # +0.14R
 tp_r_1d  = 2.5                # +0.17R
 
 [strategy_params.eqh_eql]
-tp_r_1h  = 5.0                # WFO OOS: ETH+0.336R SOL+0.934R n=21/35 (ADR-gated); BTC see per-symbol
+tp_r_1h  = 2.5                # WFO OOS (weekdays): BTC+0.47R n=36 (2026-04-14); was 5.0 from unfiltered WFO
 tp_r_4h  = 2.0                # -0.27R (all negative; hard mode will suppress)
 tp_r_1d  = 2.0                # +0.96R (3 trades — noisy; hard mode will gate)
 
 [strategy_params.eqh_eql.BTCUSDT]
-tp_r_1h  = 3.5                # WFO OOS: BTC 1h peaks at 3.5R (+0.574R ADR-gated, n=40)
+tp_r_1h  = 2.5                # WFO OOS (weekdays): +0.466R n=36 (2026-04-14); was 3.5
 
 [strategy_params.fib_golden_zone]
 tp_r_4h  = 3.5                # +1.03R (was 3.0; clear peak)
