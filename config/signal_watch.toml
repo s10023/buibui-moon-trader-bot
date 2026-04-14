@@ -86,17 +86,24 @@ fvg              = ["15m", "1h", "4h"] # 1d catastrophic: ETH -1.07R, BTC -0.63R
 tp_r = 3.0                    # fallback
 tp_r_15m = 4.0                # sweep peak: cross-symbol +0.24R (1466 trades)
 tp_r_1h  = 4.0                # sweep peak: cross-symbol +0.41R (384 trades)
-tp_r_4h = 3.5                 # WFO cross-symbol: BTC 4h +0.390R, SOL 4h +0.450R (25/15 trades)
+tp_r_4h = 3.0                 # WFO OOS (tue_thu): BTC+1.132R (2026-04-14); was 3.5
 
 [strategy_params.engulfing.SOLUSDT]
-tp_r_4h = 4.0                 # F5 WFO: SOL 4h optimal at 4.0R
+tp_r_4h = 2.5                 # WFO OOS (tue_thu): +0.700R (2026-04-14); was 4.0
 
 [strategy_params.pin_bar]
 tp_r = 3.0                    # fallback
 # tp_r_15m removed — let directional from base apply (tp_r_long=5.0 / tp_r_short=3.0); combined plateau 3.0-4.0R (+0.11R)
-tp_r_1h = 3.5                 # sweep peak tied with 4.0R (+0.24R); higher WR at 3.5R
+tp_r_1h = 3.0                 # WFO OOS (tue_thu): BTC+0.283R (2026-04-14); was 3.5; see per-symbol for ETH/SOL
 tp_r_4h = 4.5                 # sweep peak: +0.40R (140 trades) — confirmed
-tp_r_1d = 4.0                 # sweep peak: +1.45R (18 trades, 50%WR); was missing (used 3.0R fallback)
+tp_r_1d = 4.0                 # WFO OOS (tue_thu): BTC+2.283R n=4; SOL see per-symbol override
+
+[strategy_params.pin_bar.ETHUSDT]
+tp_r_1h = 4.5                 # WFO OOS (tue_thu): +0.450R (2026-04-14); diverges from BTC 3.0R
+
+[strategy_params.pin_bar.SOLUSDT]
+tp_r_1h = 2.5                 # WFO OOS (tue_thu): +0.459R (2026-04-14); diverges from BTC 3.0R
+tp_r_1d = 2.5                 # WFO OOS (tue_thu): +1.575R (2026-04-14); diverges from global 4.0R
 
 [strategy_params.hammer_hanging_man]
 tp_r = 4.0                    # WFO cross-symbol: BTC/ETH/SOL all positive at 4.0 (15m+1h)
@@ -105,6 +112,9 @@ tp_r_1d = 3.0                 # WFO OOS: BTC+0.550R n=5 (global 4.0 was overfit;
 
 [strategy_params.hammer_hanging_man.ETHUSDT]
 tp_r_1h = 5.0                 # F5 WFO: ETH 1h optimal at 5.0R (confirmed by sweep)
+
+[strategy_params.hammer_hanging_man.SOLUSDT]
+tp_r_4h = 3.0                 # WFO OOS (tue_thu): +0.450R (2026-04-14); global 4.0R was overfit for SOL 4h
 
 [strategy_params.doji]
 tp_r = 3.0                    # fallback
@@ -117,11 +127,14 @@ volume_suppress = true        # A14b: normal-vol wins Δ=+0.24R (low +0.26R vs n
 tp_r_15m = 3.5                # F5 WFO: BTC 15m optimal at 3.5R (tighter than cross-symbol 4.0)
 
 [strategy_params.doji.ETHUSDT]
-tp_r_15m = 4.5                # F5 WFO: ETH 15m optimal at 4.5R
+tp_r_15m = 5.0                # WFO OOS (tue_thu): +0.371R (2026-04-14); was 4.5
 
 [strategy_params.inside_bar]
 tp_r = 3.0                    # fallback
 tp_r_4h = 3.5                 # sweep peak: cross-symbol +0.23R (172 trades)
+
+[strategy_params.inside_bar.ETHUSDT]
+tp_r_15m = 4.0                # WFO OOS (tue_thu): +0.184R (2026-04-14); global fallback was 3.0R
 
 [strategy_params.morning_evening_star]
 tp_r = 3.0                    # fallback for 1d
@@ -130,7 +143,7 @@ tp_r_1h  = 4.0                # sweep peak: cross-symbol +0.19R (713 trades); wa
 tp_r_4h  = 5.0                # sweep peak: cross-symbol +0.60R (175 trades), per-symbol consistent; was 2.5
 
 [strategy_params.morning_evening_star.BTCUSDT]
-tp_r_15m = 3.5                # F5 WFO: BTC 15m confirmed at 3.5R
+tp_r_15m = 3.0                # WFO OOS (tue_thu): +0.229R (2026-04-14); was 3.5
 
 [strategy_params.morning_evening_star.ETHUSDT]
 tp_r_15m = 4.0                # F5 WFO: ETH 15m optimal at 4.0R
@@ -149,8 +162,11 @@ adr_exempt = true             # breakout — fires in continuation direction; AD
 
 [strategy_params.trend_day]
 tp_r = 3.0                    # fallback
-tp_r_4h = 3.5                 # WFO OOS: BTC+0.217R ETH+0.041R SOL+0.120R n=52-65 (was 5.0 overfit)
+tp_r_4h = 3.5                 # WFO OOS: BTC+0.217R ETH+0.041R SOL+0.120R n=52-65 (was 5.0 overfit); BTC see per-symbol
 tp_r_1d = 4.5                 # sweep peak: +0.26R (45 trades, 23%WR); was missing (used 3.0R → +0.04R)
+
+[strategy_params.trend_day.BTCUSDT]
+tp_r_4h = 5.0                 # WFO OOS (tue_thu): +0.426R (2026-04-14); ETH/SOL diverge (1.0R/1.5R)
 
 [strategy_params.orb]
 tp_r = 3.0                    # fallback for 1d
@@ -158,11 +174,11 @@ tp_r_1h = 4.5                 # TP sweep peak: cross-symbol +0.17R (183 trades);
 tp_r_4h = 5.0                 # TP sweep peak: cross-symbol +0.26R (119 trades); was 3.0=+0.17R
 
 [strategy_params.eqh_eql]
-tp_r_1h = 5.0                 # WFO OOS: ETH+0.336R SOL+0.879R n=21/36; BTC diverges (see per-symbol)
+tp_r_1h = 2.5                 # WFO OOS (tue_thu): BTC+1.18R SOL+0.24R (2026-04-14); was 5.0 from unfiltered WFO
 adr_exempt = true             # liquidity sweep — fires at structure extremes in continuation direction
 
 [strategy_params.eqh_eql.BTCUSDT]
-tp_r_1h = 3.5                 # WFO OOS: BTC 1h peaks at 3.5R (+0.812R, n=47) vs global 5.0R (+0.722R)
+tp_r_1h = 2.5                 # WFO OOS (tue_thu): +1.182R (2026-04-14); was 3.5
 
 [strategy_params.cvd_divergence]
 tp_r_1h = 5.0                 # monotonically increasing: +1.38R@5.0R, stable 41%WR (38 trades, tue_thu)
