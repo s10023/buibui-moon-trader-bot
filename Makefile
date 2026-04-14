@@ -305,7 +305,7 @@ buibui-open-trades:
 	poetry run python trade/open_trades.py
 
 db-prune-backtests:
-	@echo "🧹 Pruning old backtest runs (keep last 7d OR last 10 per strategy×symbol×tf×day_filter, whichever is more recent)..."
+	@echo "🧹 Pruning old backtest runs (hard cutoff 30d; soft cutoff 7d+top-10 per strategy×symbol×tf×day_filter×adr_threshold)..."
 	@poetry run python scripts/db_prune_backtests.py
 
 clean-db:
