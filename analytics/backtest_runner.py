@@ -36,6 +36,7 @@ from analytics.data_store import (
     DEFAULT_DB_PATH,
     get_funding_rates,
     get_ohlcv,
+    init_schema,
     upsert_backtest_run,
     upsert_backtest_trades,
     upsert_combo_run,
@@ -988,6 +989,7 @@ def run_cross_tf_combo_backtest_cmd(
         conn_w: duckdb.DuckDBPyConnection = duckdb.connect(
             str(db_path), read_only=False
         )
+        init_schema(conn_w)
         try:
             for c in combo_results:
                 if len(c.result.closed_trades) >= min_trades:
