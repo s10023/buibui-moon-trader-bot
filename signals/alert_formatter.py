@@ -180,6 +180,9 @@ class ConfluenceData:
     type_a: str  # strategy_type of co_strategy (e.g. "fib")
     type_b: str  # strategy_type of primary strategy (e.g. "structural")
     orderflow_signals: list[str] = field(default_factory=list)  # step 5: OI/CVD/NPOC
+    # Cross-TF fields (empty string = same-TF combo).
+    htf_tf: str = ""  # HTF timeframe, e.g. "4h" — set for cross-TF confluences
+    ltf_tf: str = ""  # LTF timeframe, e.g. "15m" — set for cross-TF confluences
 
 
 @dataclass
@@ -351,10 +354,18 @@ def format_confluence_alert(
             ago_str = "1 candle ago"
         else:
             ago_str = f"{best_cofire.candles_ago} candles ago"
+        # Cross-TF confluences show which HTF TF provided the context.
+        if best_cofire.htf_tf:
+            cofire_header = (
+                f"\n> ⚡⚡ CONFLUENCE ({best_cofire.htf_tf} → {best_cofire.ltf_tf})"
+                f"\n> {best_cofire.co_strategy} ({best_cofire.htf_tf}) {ago_str}"
+            )
+        else:
+            cofire_header = (
+                f"\n> ⚡⚡ CONFLUENCE\n> {best_cofire.co_strategy} co-fired {ago_str}"
+            )
         cofire_block = (
-            f"\n> ⚡⚡ CONFLUENCE"
-            f"\n> {best_cofire.co_strategy} co-fired {ago_str}"
-            f"\n> Combo avg R: +{best_cofire.avg_r:.2f}R"
+            cofire_header + f"\n> Combo avg R: +{best_cofire.avg_r:.2f}R"
             f" · {best_cofire.trades} trades"
             f" · {best_cofire.win_rate:.1%} win"
             f"\n> Types: {best_cofire.type_a} + {best_cofire.type_b}"

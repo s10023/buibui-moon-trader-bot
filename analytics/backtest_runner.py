@@ -16,9 +16,11 @@ from analytics.backtest_config import BacktestSweepConfig
 from analytics.backtest_lib import (
     BacktestResult,
     ComboBacktestResult,
+    CrossTfComboBacktestResult,
     filter_signals_by_day,
     format_atr_sl_sweep_table,
     format_combo_table,
+    format_cross_tf_combo_table,
     format_directional_volume_split,
     format_duration_table,
     format_result,
@@ -28,6 +30,7 @@ from analytics.backtest_lib import (
     format_volume_split,
     run_backtest,
     run_combo_backtest,
+    run_cross_tf_combo_backtest,
 )
 from analytics.data_store import (
     DEFAULT_DB_PATH,
@@ -36,6 +39,7 @@ from analytics.data_store import (
     upsert_backtest_run,
     upsert_backtest_trades,
     upsert_combo_run,
+    upsert_cross_tf_combo_run,
 )
 from analytics.digest_lib import run_digest
 from analytics.indicators_lib import (
@@ -762,6 +766,255 @@ def run_combo_backtest_cmd(
         print(f"\n  Skipped {len(skipped)} combo(s):")
         for s in skipped[:10]:
             print(f"    • {s}")
+        if len(skipped) > 10:
+            print(f"    … and {len(skipped) - 10} more")
+
+
+def _cross_tf_combo_worker(
+    symbol: str,
+    tf_htf: str,
+    tf_ltf: str,
+    start_ms: int,
+    end_ms: int,
+    allowed_days: list[int] | None,
+    window_hours: float,
+    sl_pct: float,
+    tp_r: float,
+    fee_pct: float,
+    min_sl_pct: float,
+    min_signals: int,
+    db_path: Path,
+) -> tuple[list[CrossTfComboBacktestResult], list[str]]:
+    """Per-(symbol, tf_htf, tf_ltf) worker for cross-TF combo sweep.
+
+    Opens its own DB connection, detects all strategies on both TFs, runs all
+    ordered strategy_htf × strategy_ltf pairs, returns results + skipped messages.
+
+    Must be a top-level function so ProcessPoolExecutor can pickle it.
+    """
+    from analytics.indicators_lib import INCOMPATIBLE_PAIRS, KNOWN_STRATEGIES
+
+    _non_seasonal = [
+        s for s in KNOWN_STRATEGIES if s not in ("seasonality", "funding_reversion")
+    ]
+    results: list[CrossTfComboBacktestResult] = []
+    skipped: list[str] = []
+
+    conn: duckdb.DuckDBPyConnection = duckdb.connect(str(db_path), read_only=True)
+    try:
+        ohlcv_htf = get_ohlcv(conn, symbol, tf_htf, start_ms, end_ms)
+        ohlcv_ltf = get_ohlcv(conn, symbol, tf_ltf, start_ms, end_ms)
+        if ohlcv_htf.empty:
+            skipped.append(f"{symbol}/{tf_htf} (no HTF data)")
+            return results, skipped
+        if ohlcv_ltf.empty:
+            skipped.append(f"{symbol}/{tf_ltf} (no LTF data)")
+            return results, skipped
+
+        # Detect signals on each TF once, cache for all pair combinations.
+        htf_signals_cache: dict[str, pd.DataFrame] = {}
+        ltf_signals_cache: dict[str, pd.DataFrame] = {}
+
+        for strategy in _non_seasonal:
+            sigs_htf = detect_signals_for_strategy(
+                conn, ohlcv_htf, symbol, tf_htf, strategy, start_ms, end_ms
+            )
+            if sigs_htf is not None:
+                if allowed_days is not None:
+                    sigs_htf = filter_signals_by_day(sigs_htf, allowed_days)
+                if len(sigs_htf) >= min_signals:
+                    htf_signals_cache[strategy] = sigs_htf
+
+            sigs_ltf = detect_signals_for_strategy(
+                conn, ohlcv_ltf, symbol, tf_ltf, strategy, start_ms, end_ms
+            )
+            if sigs_ltf is not None:
+                if allowed_days is not None:
+                    sigs_ltf = filter_signals_by_day(sigs_ltf, allowed_days)
+                if len(sigs_ltf) >= min_signals:
+                    ltf_signals_cache[strategy] = sigs_ltf
+
+        if not htf_signals_cache or not ltf_signals_cache:
+            return results, skipped
+
+        # Run all ordered strategy_htf × strategy_ltf pairs.
+        for strat_htf, sigs_htf in htf_signals_cache.items():
+            for strat_ltf, sigs_ltf in ltf_signals_cache.items():
+                pair = frozenset({strat_htf, strat_ltf})
+                if pair in INCOMPATIBLE_PAIRS:
+                    skipped.append(
+                        f"{symbol}/{tf_htf}+{tf_ltf}: "
+                        f"{strat_htf}+{strat_ltf} (incompatible)"
+                    )
+                    continue
+                c = run_cross_tf_combo_backtest(
+                    ohlcv_ltf,
+                    sigs_htf,
+                    sigs_ltf,
+                    symbol,
+                    tf_htf,
+                    tf_ltf,
+                    strat_htf,
+                    strat_ltf,
+                    window_hours=window_hours,
+                    sl_pct=sl_pct,
+                    tp_r=tp_r,
+                    fee_pct=fee_pct,
+                    min_sl_pct=min_sl_pct,
+                    min_signals=min_signals,
+                )
+                results.append(c)
+    finally:
+        conn.close()
+
+    return results, skipped
+
+
+# Default HTF/LTF pairs for cross-TF sweep.
+_DEFAULT_HTF_LTF_PAIRS = [
+    ("4h", "15m"),
+    ("4h", "1h"),
+    ("1h", "15m"),
+    ("1d", "4h"),
+    ("1d", "1h"),
+]
+
+
+def run_cross_tf_combo_backtest_cmd(
+    symbols: list[str],
+    htf_ltf_pairs: list[tuple[str, str]] | None = None,
+    days: int = 200,
+    window_hours: float = 4.0,
+    sl_pct: float = 0.02,
+    tp_r: float = 2.0,
+    fee_pct: float = 0.0,
+    min_sl_pct: float = 0.0,
+    min_signals: int = 3,
+    min_trades: int = 3,
+    day_filter: str = "off",
+    save_results: bool = False,
+    db_path: Path = DEFAULT_DB_PATH,
+    since_ms: int | None = None,
+    config_path: Path | None = None,
+    workers: int | None = None,
+) -> None:
+    """Sweep all cross-TF strategy-pair co-firing backtests and print a ranked table.
+
+    For each (symbol, tf_htf, tf_ltf) chunk, detects signals on both TFs and
+    runs all ordered strategy_htf × strategy_ltf combinations where a same-direction
+    HTF signal fired within window_hours before the LTF signal.
+
+    workers controls parallelism over symbol × TF-pair chunks. Defaults to
+    min(4, cpu_count - 1). Pass workers=1 to run serially.
+    """
+    from analytics.signal_config import _day_filter_to_weekdays
+
+    if htf_ltf_pairs is None:
+        htf_ltf_pairs = _DEFAULT_HTF_LTF_PAIRS
+
+    if config_path is not None:
+        from analytics.backtest_config import load_backtest_config
+
+        cfg = load_backtest_config(config_path)
+        if not symbols:
+            symbols = cfg.symbols or []
+        if not symbols:
+            coins = load_coins_config()
+            symbols = list(coins.keys())
+        if day_filter == "off":
+            day_filter = cfg.day_filter
+        if not sl_pct or sl_pct == 0.02:
+            sl_pct = cfg.sl_pct
+        if tp_r == 2.0:
+            tp_r = cfg.tp_r
+        if not fee_pct:
+            fee_pct = cfg.fee_pct
+        if cfg.since:
+            since_ms = int(
+                datetime.datetime.fromisoformat(cfg.since)
+                .replace(tzinfo=datetime.UTC)
+                .timestamp()
+                * 1000
+            )
+
+    end_ms = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
+    start_ms = since_ms if since_ms is not None else end_ms - days * 24 * 3_600 * 1_000
+    allowed_days = _day_filter_to_weekdays(day_filter)
+
+    _max_workers = (
+        workers if workers is not None else min(4, max(1, (os.cpu_count() or 1) - 1))
+    )
+
+    # Chunks: one worker per (symbol, htf, ltf) tuple.
+    chunks = [(sym, htf, ltf) for sym in symbols for htf, ltf in htf_ltf_pairs]
+    combo_results: list[CrossTfComboBacktestResult] = []
+    skipped: list[str] = []
+
+    worker_kwargs = dict(
+        start_ms=start_ms,
+        end_ms=end_ms,
+        allowed_days=allowed_days,
+        window_hours=window_hours,
+        sl_pct=sl_pct,
+        tp_r=tp_r,
+        fee_pct=fee_pct,
+        min_sl_pct=min_sl_pct,
+        min_signals=min_signals,
+        db_path=db_path,
+    )
+
+    if _max_workers == 1:
+        for sym, htf, ltf in chunks:
+            r, s = _cross_tf_combo_worker(sym, htf, ltf, **worker_kwargs)  # type: ignore[arg-type]
+            combo_results.extend(r)
+            skipped.extend(s)
+    else:
+        with ProcessPoolExecutor(max_workers=_max_workers) as pool:
+            futures = {
+                pool.submit(_cross_tf_combo_worker, sym, htf, ltf, **worker_kwargs): (
+                    sym,
+                    htf,
+                    ltf,
+                )  # type: ignore[arg-type]
+                for sym, htf, ltf in chunks
+            }
+            for fut in as_completed(futures):
+                r, s = fut.result()
+                combo_results.extend(r)
+                skipped.extend(s)
+
+    # DB writes in main process — avoid concurrent write contention.
+    if save_results and combo_results:
+        conn_w: duckdb.DuckDBPyConnection = duckdb.connect(
+            str(db_path), read_only=False
+        )
+        try:
+            for c in combo_results:
+                if len(c.result.closed_trades) >= min_trades:
+                    upsert_cross_tf_combo_run(
+                        conn_w,
+                        c,
+                        days=days,
+                        data_start_ms=start_ms,
+                        data_end_ms=end_ms,
+                        sl_pct=sl_pct,
+                        tp_r=tp_r,
+                        fee_pct=fee_pct,
+                        day_filter=day_filter,
+                    )
+        finally:
+            conn_w.close()
+
+    print(format_cross_tf_combo_table(combo_results, min_trades=min_trades))
+    if save_results:
+        saved = sum(
+            1 for c in combo_results if len(c.result.closed_trades) >= min_trades
+        )
+        print(f"\n  {saved} cross-TF combo(s) saved to DB.")
+    if skipped:
+        print(f"\n  Skipped {len(skipped)} combo(s):")
+        for msg in skipped[:10]:
+            print(f"    • {msg}")
         if len(skipped) > 10:
             print(f"    … and {len(skipped) - 10} more")
 

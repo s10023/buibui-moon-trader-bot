@@ -23,6 +23,7 @@ from analytics.data_store import (
     DEFAULT_DB_PATH,
     get_combo_lookup,
     get_confidence_ratings,
+    get_cross_tf_combo_lookup,
     get_directional_confidence_ratings,
     get_ohlcv,
     init_schema,
@@ -35,6 +36,7 @@ from analytics.signal_config import (
     StrategyOverride,
 )
 from analytics.signal_lib import (
+    _parse_htf_ltf_pairs,
     run_scan_cycle,
     secs_until_next_boundary,
 )
@@ -176,7 +178,7 @@ def run_signal_watch(
         with duckdb.connect(str(db_path)) as init_conn:
             init_schema(init_conn)
 
-        # Load co-firing combo lookup from DB once at startup (D10 step 3).
+        # Load same-TF co-firing combo lookup from DB once at startup (D10 step 3).
         # combo_lookup is keyed by (symbol, tf, frozenset({a, b})) → best avg_r row.
         # Empty dict disables the co-fire check (no combo runs saved yet).
         with duckdb.connect(str(db_path)) as cl_conn:
@@ -184,7 +186,16 @@ def run_signal_watch(
         if combo_lookup:
             logger.info("Loaded combo lookup: %d pairs", len(combo_lookup))
         else:
-            logger.info("No combo runs found — co-fire tagging disabled")
+            logger.info("No combo runs found — same-TF co-fire tagging disabled")
+
+        # Load cross-TF combo lookup from DB once at startup (D10 step 4).
+        # cross_tf_lookup is keyed by (symbol, tf_htf, tf_ltf, strat_htf, strat_ltf).
+        with duckdb.connect(str(db_path)) as ct_conn:
+            cross_tf_lookup = get_cross_tf_combo_lookup(ct_conn)
+        if cross_tf_lookup:
+            logger.info("Loaded cross-TF lookup: %d pairs", len(cross_tf_lookup))
+        else:
+            logger.info("No cross-TF runs found — cross-TF co-fire tagging disabled")
 
         # Load per-config confidence ratings from DB once at startup.
         # Falls back to indicators_lib.py defaults when empty (no recalibrate run yet).
@@ -246,8 +257,8 @@ def run_signal_watch(
             _cycle_count += 1
             logger.info("--- scan cycle start ---")
 
-            # Reload combo_lookup periodically so newly saved combo backtest runs are
-            # picked up without requiring a daemon restart (P8 fix).
+            # Reload combo lookups periodically so newly saved backtest runs are
+            # picked up without requiring a daemon restart.
             if _cycle_count > 1 and _cycle_count % _COMBO_REFRESH_CYCLES == 0:
                 with duckdb.connect(str(db_path)) as _cl_conn:
                     fresh = get_combo_lookup(_cl_conn)
@@ -258,6 +269,15 @@ def run_signal_watch(
                         len(fresh),
                     )
                     combo_lookup = fresh
+                with duckdb.connect(str(db_path)) as _ct_conn:
+                    fresh_ct = get_cross_tf_combo_lookup(_ct_conn)
+                if len(fresh_ct) != len(cross_tf_lookup):
+                    logger.info(
+                        "Cross-TF lookup refreshed: %d → %d pairs",
+                        len(cross_tf_lookup),
+                        len(fresh_ct),
+                    )
+                    cross_tf_lookup = fresh_ct
 
             # Open a short-lived connection for this cycle only.
             # Closing before the sleep window releases the write lock so the
@@ -323,6 +343,16 @@ def run_signal_watch(
                     combo_lookup=combo_lookup or None,
                     combo_window=combo_cfg.window if combo_cfg else 5,
                     combo_min_avg_r=combo_cfg.min_avg_r if combo_cfg else 1.0,
+                    cross_tf_lookup=cross_tf_lookup or None,
+                    cross_tf_pairs=_parse_htf_ltf_pairs(combo_cfg.cross_tf_pairs)
+                    if combo_cfg
+                    else None,
+                    cross_tf_window_hours=combo_cfg.cross_tf_window_hours
+                    if combo_cfg
+                    else 4.0,
+                    cross_tf_min_avg_r=combo_cfg.cross_tf_min_avg_r
+                    if combo_cfg
+                    else 1.0,
                     ohlcv_cache=ohlcv_cache,
                 )
             # Connection is now closed — web API can read the DB during the sleep.

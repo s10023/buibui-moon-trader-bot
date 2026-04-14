@@ -46,6 +46,33 @@ def run_digest_cmd(args: argparse.Namespace) -> None:
 
 
 def run_backtest(args: argparse.Namespace) -> None:
+    # Cross-TF co-firing mode: --cross-tf
+    if getattr(args, "cross_tf", False):
+        since_ms = _parse_since_to_ms(args.since) if args.since else None
+        htf_ltf_pairs: list[tuple[str, str]] | None = None
+        if getattr(args, "htf_ltf", None):
+            htf_ltf_pairs = []
+            for pair_str in args.htf_ltf:
+                parts = pair_str.split(":")
+                if len(parts) == 2:
+                    htf_ltf_pairs.append((parts[0].strip(), parts[1].strip()))
+        backtest_runner.run_cross_tf_combo_backtest_cmd(
+            symbols=args.symbols or [],
+            htf_ltf_pairs=htf_ltf_pairs,
+            days=args.days,
+            window_hours=getattr(args, "window_hours", 4.0),
+            sl_pct=args.sl_pct,
+            tp_r=args.tp_r,
+            fee_pct=args.fee_pct,
+            min_trades=args.min_trades if args.min_trades is not None else 3,
+            day_filter="tue_thu" if args.day_filter else "off",
+            save_results=args.save,
+            since_ms=since_ms,
+            config_path=args.config,
+            workers=getattr(args, "workers", None),
+        )
+        return
+
     # Co-firing confluence mode: --combo
     if getattr(args, "combo", False):
         since_ms = _parse_since_to_ms(args.since) if args.since else None
@@ -806,6 +833,33 @@ def main() -> None:
         help=(
             "Parallel workers for combo backtest (default: min(4, cpu_count-1)). "
             "Pass 1 to run serially."
+        ),
+    )
+    backtest_parser.add_argument(
+        "--cross-tf",
+        action="store_true",
+        default=False,
+        dest="cross_tf",
+        help="Run cross-TF co-firing backtests (HTF context + LTF entry)",
+    )
+    backtest_parser.add_argument(
+        "--htf-ltf",
+        nargs="+",
+        default=None,
+        dest="htf_ltf",
+        help=(
+            "HTF:LTF pairs for cross-TF sweep, e.g. '4h:15m 4h:1h 1h:15m'. "
+            "Defaults to all 5 canonical pairs when omitted."
+        ),
+    )
+    backtest_parser.add_argument(
+        "--window-hours",
+        type=float,
+        default=4.0,
+        dest="window_hours",
+        help=(
+            "Cross-TF lookback: how many hours back to search for an HTF signal "
+            "(default: 4.0). Run the sweep across multiple values to find the optimum."
         ),
     )
     backtest_parser.set_defaults(func=run_backtest)

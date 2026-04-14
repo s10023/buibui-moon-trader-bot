@@ -425,6 +425,9 @@ poetry run python buibui.py backtest --symbols BTCUSDT ETHUSDT --timeframes 1h 4
 - `--save` — persist results to `backtest_runs` and `backtest_trades` tables in `analytics.db`
 - `--combo` — run co-firing confluence backtests across all strategy pairs; detects pairs within `--window` candles
 - `--window N` — co-firing window: ±N candles for strategy pair detection (default: `5`)
+- `--cross-tf` — run cross-TF co-firing backtests (HTF sets context, LTF is entry); sweeps all symbol × HTF/LTF-pair × strategy pairs
+- `--htf-ltf 4h:15m 4h:1h` — HTF:LTF pairs to sweep (default: all 5 canonical pairs)
+- `--window-hours N` — cross-TF lookback in hours: HTF signal must have fired within N hours of the LTF signal (default: `4.0`)
 - `--workers N` — parallel workers for combo backtest, one per symbol×TF chunk (default: `min(4, cpu_count-1)`); pass `1` for serial mode
 
 **Single-combo example output:**
