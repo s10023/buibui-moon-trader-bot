@@ -303,7 +303,7 @@ def run_param_sweep(
     sl_note = (
         " (sl_pct dropped — strategy uses structural SLs)" if uses_structural_sl else ""
     )
-    workers = max(1, min(os.cpu_count() or 1, n))
+    workers = max(1, min((os.cpu_count() or 2) - 1, n))
     print(f"\n  Sweep: {strategy} / {symbol} / {timeframe}{sl_note}")
     print(
         f"  Grid size: {n} combos | IS candles: {len(ohlcv_is)} | OOS candles: {len(ohlcv_oos)}"
@@ -588,7 +588,7 @@ def run_strategy_audit(
 
     # Phase 2 — run tp_r grid per strategy in parallel threads (run_backtest is pure
     # pandas, no DB access, so ThreadPoolExecutor is safe and avoids pickling overhead).
-    workers = max(1, min(os.cpu_count() or 1, len(active_strategies)))
+    workers = max(1, min((os.cpu_count() or 2) - 1, len(active_strategies)))
     print(
         f"  Phase 2: backtesting {len(active_strategies)} strategies × {len(tp_values)} tp_r values | workers: {workers}"
     )
