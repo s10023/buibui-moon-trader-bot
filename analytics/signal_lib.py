@@ -1557,6 +1557,7 @@ def run_scan_cycle(
                 backtest_summary=dir_summary,
                 stats_context=stats_ctx_cache.get(symbol),
                 cme_gap_warning=_gap_warning,
+                ohlcv_df=ohlcv_df,
             )
             alerts.append(msg)
             logger.info(
