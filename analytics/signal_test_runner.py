@@ -307,6 +307,7 @@ def run_signal_test(
                         backtest_summary=bt_summary,
                         stats_context=stats_ctx_cache.get(symbol),  # type: ignore[arg-type]
                         cme_gap_warning=gap_warning,
+                        ohlcv_df=ohlcv_df,
                     )
 
                     print(f"\n{'─' * 60}")

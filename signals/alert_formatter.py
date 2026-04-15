@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import pandas as pd
+
 _MYT = timezone(timedelta(hours=8))
 _ET = ZoneInfo("America/New_York")
 
@@ -210,6 +212,162 @@ class SignalEvent:
     )
 
 
+# ---------------------------------------------------------------------------
+# Candle-level warning helpers
+# ---------------------------------------------------------------------------
+
+
+def _is_marubozu(o: float, h: float, lo: float, c: float) -> bool:
+    """Both wicks ≤ 10% of body → wickless candle, body tends to fill first."""
+    body = abs(c - o)
+    if body == 0:
+        return False
+    upper_wick = h - max(o, c)
+    lower_wick = min(o, c) - lo
+    return upper_wick / body <= 0.10 and lower_wick / body <= 0.10
+
+
+def _is_doji(o: float, h: float, lo: float, c: float) -> bool:
+    """Body < 10% of total range → pure indecision candle."""
+    total_range = h - lo
+    if total_range == 0:
+        return False
+    return abs(c - o) / total_range <= 0.10
+
+
+def _is_inside_bar(h: float, lo: float, prev_h: float, prev_l: float) -> bool:
+    """Signal candle range entirely within prior candle's range → breakout unconfirmed."""
+    return h <= prev_h and lo >= prev_l
+
+
+def _wick_rejection_against(
+    o: float, h: float, lo: float, c: float, direction: str
+) -> bool:
+    """Wick pointing against signal direction > 40% of range → price resisted.
+
+    LONG: long upper wick = price rejected higher levels on this candle.
+    SHORT: long lower wick = price rejected lower levels on this candle.
+    """
+    total_range = h - lo
+    if total_range == 0:
+        return False
+    if direction == "long":
+        upper_wick = h - max(o, c)
+        return upper_wick / total_range > 0.40
+    else:
+        lower_wick = min(o, c) - lo
+        return lower_wick / total_range > 0.40
+
+
+def _has_equal_levels(
+    df: pd.DataFrame,
+    price: float,
+    direction: str,
+    lookback: int = 10,
+    tol_pct: float = 0.0015,
+) -> bool:
+    """Detect equal highs (above price, warns on SHORT) or equal lows (below, warns on LONG).
+
+    Equal highs above entry = buy-side liquidity → sweep likely before SHORT continues.
+    Equal lows below entry = sell-side liquidity → sweep likely before LONG continues.
+    Excludes the signal candle itself; looks at the preceding `lookback` candles.
+    """
+    hist = df.iloc[:-1].tail(lookback)
+    if len(hist) < 2:
+        return False
+    if direction == "long":
+        candidates = [float(v) for v in hist["low"].values if float(v) < price]
+    else:
+        candidates = [float(v) for v in hist["high"].values if float(v) > price]
+    if len(candidates) < 2:
+        return False
+    for i in range(len(candidates)):
+        for j in range(i + 1, len(candidates)):
+            if abs(candidates[i] - candidates[j]) / price <= tol_pct:
+                return True
+    return False
+
+
+def _has_consecutive_candles(df: pd.DataFrame, direction: str, n: int = 3) -> bool:
+    """Last n candles (including signal candle) all closed in signal direction → overextension."""
+    if len(df) < n:
+        return False
+    recent = df.tail(n)
+    closes = recent["close"].values
+    opens = recent["open"].values
+    if direction == "long":
+        return all(closes[i] > opens[i] for i in range(len(closes)))
+    else:
+        return all(closes[i] < opens[i] for i in range(len(closes)))
+
+
+def _build_candle_warnings(
+    events: list["SignalEvent"],
+    ohlcv_df: pd.DataFrame | None,
+) -> list[str]:
+    """Build ordered list of warning/note strings for the consolidated warnings block.
+
+    Volume notes (moved from header), candle shape checks, structural, and momentum
+    warnings. All are silent unless triggered. Rendered after SL/TP in the alert.
+    """
+    notes: list[str] = []
+
+    # Volume conviction note (moved from header for section consolidation)
+    if any(e.volume_spike for e in events):
+        notes.append("⚡ Volume spike — high conviction")
+    elif any(e.low_volume for e in events):
+        notes.append("⚠️ Low volume — weaker conviction")
+
+    if ohlcv_df is None or len(ohlcv_df) < 2:
+        return notes
+
+    last = ohlcv_df.iloc[-1]
+    o = float(last["open"])
+    h = float(last["high"])
+    lo = float(last["low"])
+    c = float(last["close"])
+    prev = ohlcv_df.iloc[-2]
+    prev_h = float(prev["high"])
+    prev_l = float(prev["low"])
+    direction = events[0].direction
+    price = events[0].price
+
+    # W7: Doji — check before marubozu (doji has no dominant body to call wickless)
+    if _is_doji(o, h, lo, c):
+        notes.append("⚠️ Doji signal candle — direction uncertain")
+    # W1: Marubozu (wickless body)
+    elif _is_marubozu(o, h, lo, c):
+        notes.append("⚠️ Wickless candle — body tends to fill first")
+
+    # W8: Inside bar
+    if _is_inside_bar(h, lo, prev_h, prev_l):
+        notes.append("⚠️ Signal inside prior range — breakout unconfirmed")
+
+    # W5: Wick rejection against direction (skip on doji — no dominant wick)
+    if not _is_doji(o, h, lo, c) and _wick_rejection_against(o, h, lo, c, direction):
+        wick_label = "Upper" if direction == "long" else "Lower"
+        notes.append(f"⚠️ {wick_label} wick rejection — price resisted signal direction")
+
+    # W2: Equal highs / equal lows (liquidity pool warning)
+    if _has_equal_levels(ohlcv_df, price, direction):
+        if direction == "long":
+            notes.append("⚠️ Equal lows below — sell-side liquidity, sweep likely first")
+        else:
+            notes.append("⚠️ Equal highs above — buy-side liquidity, sweep likely first")
+
+    # W6: Consecutive candles in signal direction → possible overextension
+    if _has_consecutive_candles(ohlcv_df, direction):
+        bias = "bullish" if direction == "long" else "bearish"
+        notes.append(f"⚠️ 3 {bias} candles in a row — possible overextension")
+
+    return notes
+
+
+# ---------------------------------------------------------------------------
+# SL helper
+# ---------------------------------------------------------------------------
+
+
 def _widest_sl(
     events: list["SignalEvent"],
     direction: str,
@@ -233,17 +391,24 @@ def _widest_sl(
         return max(valid) if valid else price * (1 + sl_pct)
 
 
+# ---------------------------------------------------------------------------
+# Public formatters
+# ---------------------------------------------------------------------------
+
+
 def format_signal_alert(
     event: "SignalEvent",
     sl_pct: float = 0.02,
     tp_r: float = 2.0,
     min_sl_pct: float = 0.0,
     cme_gap_warning: str | None = None,
+    ohlcv_df: pd.DataFrame | None = None,
 ) -> str:
     """Format a single SignalEvent as a Markdown Telegram message.
 
     Uses structural sl_price when valid; falls back to sl_pct otherwise.
     min_sl_pct: if set, SL distance is floored at this fraction of price.
+    ohlcv_df: recent OHLCV (signal candle = last row) for candle-level warnings.
     """
     return format_confluence_alert(
         [event],
@@ -251,6 +416,7 @@ def format_signal_alert(
         tp_r=tp_r,
         min_sl_pct=min_sl_pct,
         cme_gap_warning=cme_gap_warning,
+        ohlcv_df=ohlcv_df,
     )
 
 
@@ -262,6 +428,7 @@ def format_confluence_alert(
     backtest_summary: str | None = None,
     stats_context: "StatsContext | None" = None,
     cme_gap_warning: str | None = None,
+    ohlcv_df: pd.DataFrame | None = None,
 ) -> str:
     """Format one or more SignalEvents (same symbol/tf/direction) as a Telegram message.
 
@@ -270,6 +437,15 @@ def format_confluence_alert(
     SL is the widest (most conservative) structural level across all events.
     min_sl_pct: if set, SL distance is floored at this fraction of price (e.g. 0.005
     ensures SL is at least 0.5% away from entry — useful to suppress noise signals).
+    ohlcv_df: recent OHLCV (signal candle = last row) enables candle-level warnings.
+
+    Layout (sections separated by blank lines):
+      1. Header — symbol/tf/direction, strategy, stars, reason, context
+      2. Entry — price, time, session kill zone
+      3. Levels — SL and TP
+      4. Warnings — consolidated notes block (volume, candle shape, structure, momentum)
+      5. Edge — backtest summary + co-firing confluence blockquote
+      6. Context — stats lines (DOW, ADR, TP timing, weekly framing)
     """
     first = events[0]
     direction_label = "LONG 🟢" if first.direction == "long" else "SHORT 🔴"
@@ -299,6 +475,7 @@ def format_confluence_alert(
     actual_r = abs(tp_price - price) / sl_dist if sl_dist > 0 else tp_r
     tp_pct_display = abs(tp_price - price) / price * 100
 
+    # --- Section 1: Header (strategy identity, no volume note) ---
     if len(events) == 1:
         ev = events[0]
         stars = f"  {_stars(ev.confidence)}" if ev.confidence else ""
@@ -310,10 +487,6 @@ def format_confluence_alert(
         )
         if ev.context:
             header += f"{ev.context}\n"
-        if ev.volume_spike:
-            header += "⚡ Volume spike — high conviction\n"
-        elif ev.low_volume:
-            header += "⚠️ Low volume — weaker conviction\n"
     else:
         header = (
             f"<b>SIGNAL — {first.symbol} {first.timeframe}  ·  {direction_label}</b>\n"
@@ -326,22 +499,27 @@ def format_confluence_alert(
             if ev.context:
                 line += f"  ({ev.context})"
             header += line + "\n"
-        if any(e.volume_spike for e in events):
-            header += "⚡ Volume spike — high conviction\n"
-        elif any(e.low_volume for e in events):
-            header += "⚠️ Low volume — weaker conviction\n"
 
+    # --- Section 2: Entry ---
+    entry_line = f"{price:,.2f}  ·  {signal_time} MYT\n"
+
+    # --- Section 3: Levels ---
     sl_tp = (
         f"SL: {sl_price:,.2f}  ({sl_pct_display:.1f}%)\n"
         f"TP: {tp_price:,.2f}  ({tp_pct_display:.1f}%  ·  {actual_r:.1f}R)"
     )
-    msg = (
-        header + f"\n{price:,.2f}  ·  {signal_time} MYT\n" + session_line + f"\n{sl_tp}"
-    )
+
+    # --- Section 4: Warnings (consolidated — volume, candle, structural, momentum) ---
+    warnings = _build_candle_warnings(events, ohlcv_df)
     if cme_gap_warning:
-        msg += f"\n{cme_gap_warning}"
+        warnings.append(cme_gap_warning)
+    warnings_block = ("\n\n" + "\n".join(warnings)) if warnings else ""
+
+    # --- Section 5: Edge (backtest summary + co-firing confluence) ---
+    edge_block = ""
     if backtest_summary:
-        msg += f"\n\n{backtest_summary}"
+        edge_block += f"\n\n{backtest_summary}"
+
     best_cofire: ConfluenceData | None = max(
         (e.confluence_combo for e in events if e.confluence_combo is not None),
         key=lambda c: c.avg_r,
@@ -354,7 +532,6 @@ def format_confluence_alert(
             ago_str = "1 candle ago"
         else:
             ago_str = f"{best_cofire.candles_ago} candles ago"
-        # Cross-TF confluences show which HTF TF provided the context.
         if best_cofire.htf_tf:
             cofire_header = (
                 f"\n> ⚡⚡ CONFLUENCE ({best_cofire.htf_tf} → {best_cofire.ltf_tf})"
@@ -372,7 +549,19 @@ def format_confluence_alert(
         )
         for sig in best_cofire.orderflow_signals:
             cofire_block += f"\n> {sig}"
-        msg += f"\n{cofire_block}"
+        edge_block += f"\n{cofire_block}"
+
+    # --- Section 6: Context (stats) ---
+    stats_block = ""
     if stats_context is not None:
-        msg += f"\n\n{_format_stats_line(stats_context, first.direction)}"
-    return msg
+        stats_block = f"\n\n{_format_stats_line(stats_context, first.direction)}"
+
+    return (
+        header
+        + f"\n{entry_line}"
+        + session_line
+        + f"\n{sl_tp}"
+        + warnings_block
+        + edge_block
+        + stats_block
+    )
