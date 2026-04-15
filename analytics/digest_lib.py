@@ -96,6 +96,7 @@ QUERY_NAMES = [
     "consistency",
     "recovery_factor",
     "co_firing",
+    "cross_tf_combos",
 ]
 
 
@@ -618,6 +619,70 @@ def query_co_firing(
 
 
 # ---------------------------------------------------------------------------
+# Card 12 — Cross-TF co-firing leaderboard
+# ---------------------------------------------------------------------------
+
+
+def query_cross_tf_combos(
+    conn: duckdb.DuckDBPyConnection,
+    min_trades: int = 3,
+    top_n: int = 30,
+    scope: DigestScope | None = None,
+) -> DigestResult:
+    """Rank cross-TF strategy-pair combos by avg_r from backtest_cross_tf_combos.
+
+    HTF/LTF roles are ordered (not a frozenset), so 4h→15m and 15m→4h are distinct.
+    Deduplicates to the latest run per (symbol, tf_htf, tf_ltf, strategy_htf,
+    strategy_ltf, window_hours, day_filter).
+    """
+    sc_sql = ""
+    sc_params: list[Any] = []
+    if scope:
+        clauses: list[str] = []
+        if scope.day_filter is not None:
+            clauses.append("day_filter = ?")
+            sc_params.append(scope.day_filter)
+        if scope.fee_pct is not None:
+            clauses.append("fee_pct = ?")
+            sc_params.append(scope.fee_pct)
+        if scope.symbols:
+            placeholders = ", ".join("?" * len(scope.symbols))
+            clauses.append(f"symbol IN ({placeholders})")
+            sc_params.extend(scope.symbols)
+        if clauses:
+            sc_sql = " AND " + " AND ".join(clauses)
+
+    df = conn.execute(
+        f"""
+        -- One row per (symbol, tf_htf, tf_ltf, strategy_htf, strategy_ltf,
+        --              window_hours, day_filter) — latest run_at_ms wins.
+        SELECT
+            strategy_htf || ' → ' || strategy_ltf  AS combo,
+            tf_htf || ' → ' || tf_ltf              AS tf_pair,
+            symbol,
+            window_hours,
+            closed_trades                           AS trades,
+            ROUND(win_rate * 100, 1)                AS win_pct,
+            ROUND(avg_r, 3)                         AS avg_r,
+            ROUND(total_r, 2)                       AS total_r,
+            ROUND(max_drawdown_r, 2)                AS max_dd,
+            ROUND(recovery_factor, 2)               AS rf
+        FROM backtest_cross_tf_combos
+        WHERE closed_trades >= ?{sc_sql}
+        QUALIFY ROW_NUMBER() OVER (
+            PARTITION BY symbol, tf_htf, tf_ltf, strategy_htf, strategy_ltf,
+                         window_hours, day_filter
+            ORDER BY run_at_ms DESC
+        ) = 1
+        ORDER BY avg_r DESC
+        LIMIT {top_n}
+        """,
+        [min_trades] + sc_params,
+    ).df()
+    return _df_to_result(df)
+
+
+# ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
 
@@ -633,11 +698,13 @@ _QUERY_FN: dict[str, Callable[..., DigestResult]] = {
     "consistency": query_consistency,
     "recovery_factor": query_recovery_factor,
     "co_firing": query_co_firing,
+    "cross_tf_combos": query_cross_tf_combos,
 }
 
 
 _QUERY_MIN_TRADES: dict[str, int] = {
     "co_firing": 3,  # co-firing pairs are rare; lower floor than single-strategy queries
+    "cross_tf_combos": 3,  # cross-TF pairs are equally rare
 }
 _DEFAULT_MIN_TRADES = 5
 
@@ -665,6 +732,6 @@ def run_digest(
         if min_trades is not None
         else _QUERY_MIN_TRADES.get(query, _DEFAULT_MIN_TRADES)
     )
-    if query in ("combos", "co_firing"):
+    if query in ("combos", "co_firing", "cross_tf_combos"):
         return fn(conn, min_trades=effective_min, top_n=top_n, scope=scope)
     return fn(conn, min_trades=effective_min, scope=scope)
