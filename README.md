@@ -849,7 +849,8 @@ make buibui-digest QUERY=consistency        # edge breadth across symbol×TF com
 make buibui-digest QUERY=recovery_factor    # risk-adjusted ranking
 make buibui-digest QUERY=tf                 # timeframe ranking
 make buibui-digest QUERY=combos TOP_N=20    # best combos top-N
-make buibui-digest QUERY=co_firing         # co-firing confluence pair leaderboard
+make buibui-digest QUERY=co_firing          # co-firing confluence pair leaderboard
+make buibui-digest QUERY=cross_tf_combos   # cross-TF co-firing pair leaderboard (HTF→LTF)
 make buibui-digest MIN_TRADES=10            # raise min-trades threshold
 ```
 
