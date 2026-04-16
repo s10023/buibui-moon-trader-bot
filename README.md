@@ -754,7 +754,9 @@ SSE stream endpoints accept `?token=<API_TOKEN>` query param instead (browser `E
 ### Web Frontend — Svelte 5
 
 A single-page trading terminal UI. Dark theme, no component library, no SSR.
-Pages: Chart (candlesticks + signal markers), Backtest (DB-backed sortable/filterable results table + collapsible run form), Signal Feed (poll + filters), Positions (SSE), Prices (SSE).
+Pages: Chart (candlesticks + signal markers + structural zone overlays), Backtest (DB-backed sortable/filterable results table + collapsible run form), Signal Feed (poll + filters), Positions (SSE), Prices (SSE).
+
+Chart overlays include EMA 20/50/200, RSI sub-panel, Range Levels (MO/DO/WO + PDH/PDL/PWH/PWL/Mon H·L), CME Gap (15m/1h only), Fibonacci retracement, and **Structural Zones** (7 toggles: FVG boxes, Order Block boxes, EQH·EQL lines, BOS levels, Fib Golden Zone box, OTE box, swing pivot dots — powered by `GET /api/zones`).
 
 ```bash
 # Install frontend dependencies (first time)
