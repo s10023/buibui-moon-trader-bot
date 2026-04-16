@@ -386,6 +386,55 @@ export const getFib = (params: {
   return apiFetch<FibResponse>(`/api/fib?${q}`);
 };
 
+// ── Structural Zones ──────────────────────────────────────────────────────────
+
+export interface ZoneBox {
+  zone_type: "fvg" | "ob" | "fib_zone" | "ote";
+  direction: "bull" | "bear";
+  zone_low: number;
+  zone_high: number;
+  start_ms: number;
+  close_ms: number | null;
+  active: boolean;
+}
+
+export interface ZoneLine {
+  zone_type: "eqh" | "eql" | "bos";
+  direction: "bull" | "bear";
+  price: number;
+  start_ms: number;
+  close_ms: number | null;
+  label: string;
+  active: boolean;
+}
+
+export interface SwingPoint {
+  swing_type: "high" | "low";
+  price: number;
+  time_ms: number;
+}
+
+export interface ZonesResponse {
+  boxes: ZoneBox[];
+  lines: ZoneLine[];
+  swings: SwingPoint[];
+}
+
+export const getZones = (params: {
+  symbol: string;
+  timeframe: string;
+  start_ms: number;
+  end_ms: number;
+}) => {
+  const q = new URLSearchParams({
+    symbol: params.symbol,
+    timeframe: params.timeframe,
+    start_ms: String(params.start_ms),
+    end_ms: String(params.end_ms),
+  });
+  return apiFetch<ZonesResponse>(`/api/zones?${q}`);
+};
+
 // ── Stats ─────────────────────────────────────────────────────────────────────
 
 export interface P1P2DOWRow {

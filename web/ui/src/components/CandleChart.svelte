@@ -11,7 +11,7 @@
     type SeriesMarker,
     type Time,
   } from "lightweight-charts";
-  import type { CandleRow, FibResponse, FundingRow, OiRow, SignalRow } from "../api";
+  import type { CandleRow, FundingRow, OiRow, SignalRow, ZonesResponse } from "../api";
   import { getLiveCandle } from "../api";
   import { pricesStore, startPricesSSE, stopPricesSSE } from "../stores/prices";
 
@@ -51,14 +51,20 @@
     showFunding = false,
     oi = null,
     showOI = false,
-    showFib = false,
-    fibLevels = null,
     showEMA20 = false,
     showEMA50 = false,
     showEMA200 = false,
     showRSI = false,
     showRangeLevels = false,
     showCMEGaps = false,
+    zones = null,
+    showFVG = false,
+    showOB = false,
+    showEQHEQL = false,
+    showBOS = false,
+    showFibZone = false,
+    showOTE = false,
+    showSwings = false,
   }: {
     candles: CandleRow[];
     signals: SignalRow[];
@@ -68,27 +74,28 @@
     showFunding?: boolean;
     oi?: OiRow[] | null;
     showOI?: boolean;
-    showFib?: boolean;
-    fibLevels?: FibResponse | null;
     showEMA20?: boolean;
     showEMA50?: boolean;
     showEMA200?: boolean;
     showRSI?: boolean;
     showRangeLevels?: boolean;
     showCMEGaps?: boolean;
+    zones?: ZonesResponse | null;
+    showFVG?: boolean;
+    showOB?: boolean;
+    showEQHEQL?: boolean;
+    showBOS?: boolean;
+    showFibZone?: boolean;
+    showOTE?: boolean;
+    showSwings?: boolean;
   } = $props();
 
   let container: HTMLDivElement;
-  let fibLabelContainer: HTMLDivElement;
   let chart: IChartApi;
   let candleSeries: ISeriesApi<"Candlestick">;
   let volumeSeries: ISeriesApi<"Histogram">;
   let fundingSeries: ISeriesApi<"Histogram"> | null = null;
   let oiSeries: ISeriesApi<"Line"> | null = null;
-  let fibSeries: ISeriesApi<"Line">[] = [];
-  let fibLabelPrices: number[] = [];
-  let fibLabelEndTimes: number[] = []; // endTimeSec per level for X positioning
-
   // EMA series
   let ema20Series: ISeriesApi<"Line"> | null = null;
   let ema50Series: ISeriesApi<"Line"> | null = null;
@@ -107,6 +114,16 @@
   let cmeGapContainer: HTMLDivElement;
   let cmeGapDiv: HTMLDivElement | null = null;
   let cmeGapData: CMEGap | null = null;
+
+  // Structural zone overlay (C6)
+  let zonesContainer: HTMLDivElement;
+  let zoneBoxDivs: HTMLDivElement[] = [];
+  interface ZoneBoxData { low: number; high: number; startSec: number; endSec: number; }
+  let zoneBoxData: ZoneBoxData[] = [];
+  let zoneLineSeries: ISeriesApi<"Line">[] = [];
+  let zoneSwingDots: HTMLDivElement[] = [];
+  let zoneSwingPrices: number[] = [];
+  let zoneSwingTimes: number[] = [];
 
   // Tracks the in-progress live candle so open/high/low accumulate correctly
   // across SSE ticks instead of resetting each time.
@@ -481,169 +498,169 @@
     cmeGapContainer?.replaceChildren();
   }
 
-  // ── Fib levels ───────────────────────────────────────────────────────────────
+  // ── Structural zone overlay (C6) ─────────────────────────────────────────────
 
-  interface LocalFibLevel {
-    ratio: number;
-    label: string;
-    color: string;
-    lineWidth: number;
-  }
+  // Visual config per zone type+direction
+  const ZONE_STYLES: Record<string, { bg: string; border: string; labelColor: string; labelText: string }> = {
+    fvg_bull:      { bg: "rgba(86,211,100,0.10)",  border: "rgba(86,211,100,0.40)",  labelColor: "rgba(86,211,100,0.75)",  labelText: "FVG" },
+    fvg_bear:      { bg: "rgba(248,81,73,0.10)",   border: "rgba(248,81,73,0.40)",   labelColor: "rgba(248,81,73,0.75)",   labelText: "FVG" },
+    ob_bull:       { bg: "rgba(86,211,100,0.08)",  border: "rgba(86,211,100,0.50)",  labelColor: "rgba(86,211,100,0.75)",  labelText: "OB" },
+    ob_bear:       { bg: "rgba(248,81,73,0.08)",   border: "rgba(248,81,73,0.50)",   labelColor: "rgba(248,81,73,0.75)",   labelText: "OB" },
+    fib_zone_bull: { bg: "rgba(227,179,65,0.09)",  border: "rgba(227,179,65,0.45)",  labelColor: "rgba(227,179,65,0.75)",  labelText: "0.5–0.618" },
+    fib_zone_bear: { bg: "rgba(227,179,65,0.09)",  border: "rgba(227,179,65,0.45)",  labelColor: "rgba(227,179,65,0.75)",  labelText: "0.5–0.618" },
+    ote_bull:      { bg: "rgba(240,136,62,0.09)",  border: "rgba(240,136,62,0.45)",  labelColor: "rgba(240,136,62,0.75)",  labelText: "OTE" },
+    ote_bear:      { bg: "rgba(240,136,62,0.09)",  border: "rgba(240,136,62,0.45)",  labelColor: "rgba(240,136,62,0.75)",  labelText: "OTE" },
+  };
 
-  // Fib colors: anchors dim, progression warms into golden zone (0.5–0.618)
-  const FIB_LEVELS: LocalFibLevel[] = [
-    { ratio: 0,     label: "0",     color: "#484f58", lineWidth: 1 },
-    { ratio: 0.382, label: "0.382", color: "#56d364", lineWidth: 1 },
-    { ratio: 0.5,   label: "0.5",   color: "#e3b341", lineWidth: 1 },
-    { ratio: 0.618, label: "0.618", color: "#f0883e", lineWidth: 2 },
-    { ratio: 0.786, label: "0.786", color: "#ff7b72", lineWidth: 1 },
-    { ratio: 1,     label: "1",     color: "#484f58", lineWidth: 1 },
-  ];
-
-  interface FibResult {
-    price: number;
-    level: LocalFibLevel;
-    swingTimeSec: number;   // x-start: the earliest of swingHigh/swingLow time
-    endTimeSec: number;     // x-end: last candle time + 5 intervals (right edge)
-  }
-
-  function computeFibLevels(data: CandleRow[]): FibResult[] {
-    if (data.length < 4) return [];
-    const scan = data.slice(-22);
-    let swingHigh: number | null = null;
-    let swingHighTime = 0;
-    let swingLow: number | null = null;
-    let swingLowTime = 0;
-
-    for (let i = 1; i < scan.length - 1; i++) {
-      const prev = scan[i - 1];
-      const cur = scan[i];
-      const next = scan[i + 1];
-      if (cur.high > prev.high && cur.high > next.high) {
-        if (swingHigh === null || cur.high > swingHigh) {
-          swingHigh = cur.high;
-          swingHighTime = cur.open_time;
-        }
-      }
-      if (cur.low < prev.low && cur.low < next.low) {
-        if (swingLow === null || cur.low < swingLow) {
-          swingLow = cur.low;
-          swingLowTime = cur.open_time;
-        }
-      }
-    }
-
-    if (swingHigh === null || swingLow === null) return [];
-    const range = swingHigh - swingLow;
-    if (range <= 0) return [];
-
-    const last = data[data.length - 1];
-    const prev = data[data.length - 2];
-    const intervalMs = last.open_time - prev.open_time;
-    const swingTimeSec = Math.min(swingHighTime, swingLowTime) / 1000;
-    const endTimeSec = (last.open_time + 200 * intervalMs) / 1000;
-    // Orient from most recent swing: 0.0 at recent end, 1.0 at prior start
-    const upMove = swingHighTime > swingLowTime;
-
-    return FIB_LEVELS.map((level) => ({
-      price: upMove
-        ? swingHigh! - level.ratio * range
-        : swingLow! + level.ratio * range,
-      level,
-      swingTimeSec,
-      endTimeSec,
-    }));
-  }
-
-  function updateFibLabelPositions(): void {
-    if (!chart || !candleSeries || fibLabelPrices.length === 0) return;
-    const labels = fibLabelContainer?.querySelectorAll<HTMLSpanElement>(".fib-label");
-    if (!labels) return;
-    const overlayWidth = fibLabelContainer.clientWidth;
-    labels.forEach((el, i) => {
-      const y = candleSeries.priceToCoordinate(fibLabelPrices[i]);
-      if (y === null) { el.style.display = "none"; return; }
-      const rawX = chart.timeScale().timeToCoordinate(fibLabelEndTimes[i] as Time);
-      const x = rawX !== null ? Math.min(rawX, overlayWidth - 4) : overlayWidth - 4;
-      el.style.display = "block";
-      el.style.top = `${y - 8}px`;
-      el.style.left = `${x - el.offsetWidth - 4}px`;
+  function updateZoneBoxPositions(): void {
+    if (!chart || !candleSeries || zoneBoxDivs.length === 0) return;
+    const containerWidth = zonesContainer.clientWidth;
+    zoneBoxDivs.forEach((div, i) => {
+      const { low, high, startSec, endSec } = zoneBoxData[i];
+      const rawX1 = chart.timeScale().timeToCoordinate(startSec as Time);
+      if (rawX1 === null) { div.style.display = "none"; return; }
+      const rawX2 = chart.timeScale().timeToCoordinate(endSec as Time);
+      const clampedX2 = Math.min(containerWidth, rawX2 ?? containerWidth);
+      if (clampedX2 <= rawX1) { div.style.display = "none"; return; }
+      const py1 = candleSeries.priceToCoordinate(high);
+      const py2 = candleSeries.priceToCoordinate(low);
+      if (py1 === null || py2 === null) { div.style.display = "none"; return; }
+      const y1 = Math.min(py1, py2);
+      const y2 = Math.max(py1, py2);
+      div.style.display = "block";
+      div.style.left    = `${rawX1}px`;
+      div.style.width   = `${clampedX2 - rawX1}px`;
+      div.style.top     = `${y1}px`;
+      div.style.height  = `${Math.max(2, y2 - y1)}px`;
     });
   }
 
-  function drawFibLines(): void {
-    clearFibLines();
-    if (!chart || candles.length < 4) return;
+  function updateZoneSwingPositions(): void {
+    if (!chart || !candleSeries || zoneSwingDots.length === 0) return;
+    const containerWidth = zonesContainer.clientWidth;
+    zoneSwingDots.forEach((dot, i) => {
+      const x = chart.timeScale().timeToCoordinate(zoneSwingTimes[i] as Time);
+      const y = candleSeries.priceToCoordinate(zoneSwingPrices[i]);
+      if (x === null || y === null || x < 0 || x > containerWidth) { dot.style.display = "none"; return; }
+      dot.style.display = "block";
+      dot.style.left = `${x - 3}px`;
+      dot.style.top  = `${y - 3}px`;
+    });
+  }
+
+  function updateZonePositions(): void {
+    updateZoneBoxPositions();
+    updateZoneSwingPositions();
+  }
+
+  function drawZones(): void {
+    clearZones();
+    if (!chart || !zonesContainer || !zones || candles.length < 2) return;
 
     const last = candles[candles.length - 1];
     const prev = candles[candles.length - 2];
     const intervalMs = last.open_time - prev.open_time;
-    const endTimeSec = (last.open_time + 200 * intervalMs) / 1000;
+    const rightEdgeSec = (last.open_time + 200 * intervalMs) / 1000; // for lines only
+    const lastSec = last.open_time / 1000; // box active zones end here
 
-    // Prefer backend-computed levels (includes swing_start_ms); fall back to client-side.
-    const backendLevels = fibLevels;
-    const computed = backendLevels
-      ? (() => {
-          const swingTimeSec = backendLevels.swing_start_ms / 1000;
-          const FIB_COLOR: Record<string, string> = {
-            "0.0":   "#484f58",
-            "0.382": "#56d364",
-            "0.5":   "#e3b341",
-            "0.618": "#f0883e",
-            "0.786": "#ff7b72",
-            "1.0":   "#484f58",
-          };
-          return backendLevels.levels.map((bl) => {
-            const color = FIB_COLOR[bl.label] ?? "#6e7681";
-            const lineWidth: 1 | 2 = bl.label === "0.618" ? 2 : 1;
-            return { price: bl.price, color, lineWidth, label: bl.label, swingTimeSec, endTimeSec };
-          });
-        })()
-      : computeFibLevels(candles).map(({ price, level, swingTimeSec, endTimeSec }) => ({
-          price, color: level.color, lineWidth: level.lineWidth as 1 | 2, label: level.label, swingTimeSec, endTimeSec,
-        }));
+    // ── Box zones ──────────────────────────────────────────────────────────────
+    const activeBoxTypes = new Set<string>();
+    if (showFVG)     activeBoxTypes.add("fvg");
+    if (showOB)      activeBoxTypes.add("ob");
+    if (showFibZone) activeBoxTypes.add("fib_zone");
+    if (showOTE)     activeBoxTypes.add("ote");
 
-    fibLabelPrices = [];
-    fibLabelEndTimes = [];
-    for (const { price, color, lineWidth, label, swingTimeSec, endTimeSec } of computed) {
-      const series = chart.addLineSeries({
+    for (const box of zones.boxes) {
+      if (!activeBoxTypes.has(box.zone_type)) continue;
+      const styleKey = `${box.zone_type}_${box.direction}`;
+      const s = ZONE_STYLES[styleKey] ?? ZONE_STYLES["fvg_bull"];
+      const opacity = box.active ? 1 : 0.35;
+
+      const div = document.createElement("div");
+      div.className = "zone-box";
+      div.style.cssText = `background:${s.bg};border:1px solid ${s.border};opacity:${opacity};`;
+
+      const lbl = document.createElement("span");
+      lbl.className = "zone-box-label";
+      lbl.style.color = s.labelColor;
+      lbl.textContent = s.labelText;
+      div.appendChild(lbl);
+
+      zonesContainer.appendChild(div);
+      zoneBoxDivs.push(div);
+      // Active: end at last candle. Inactive: end at fill/mitigation candle.
+      const boxEndSec = box.active ? lastSec : (box.close_ms ? box.close_ms / 1000 : lastSec);
+      zoneBoxData.push({ low: box.zone_low, high: box.zone_high, startSec: box.start_ms / 1000, endSec: boxEndSec });
+    }
+
+    // ── Line zones (EQH/EQL/BOS) — line series from start_ms to right edge ──────
+    for (const line of zones.lines) {
+      const isEQH = line.zone_type === "eqh" || line.zone_type === "eql";
+      const isBOS = line.zone_type === "bos";
+      if (isEQH && !showEQHEQL) continue;
+      if (isBOS && !showBOS) continue;
+      if (!isEQH && !isBOS) continue;
+
+      const color = line.direction === "bull"
+        ? (isBOS ? "#56d36460" : "#56d36488")
+        : (isBOS ? "#f8514960" : "#f8514988");
+      const lineStyle = isBOS ? 3 : 2; // dotted for BOS, dashed for EQH/EQL
+      // Active → extends to right edge; inactive → ends at the break/sweep candle
+      const lineEndSec = line.active
+        ? rightEdgeSec
+        : (line.close_ms ? line.close_ms / 1000 : lastSec);
+      const opacity = line.active ? 1 : 0.4;
+
+      const s = chart.addLineSeries({
         color,
-        lineWidth,
+        lineWidth: 1,
+        lineStyle,
         priceScaleId: "right",
         lastValueVisible: false,
         priceLineVisible: false,
         crosshairMarkerVisible: false,
         title: "",
       });
-      series.setData([
-        { time: swingTimeSec as Time, value: price },
-        { time: endTimeSec as Time,   value: price },
+      s.applyOptions({ visible: opacity > 0.5 || !line.active });
+      s.setData([
+        { time: (line.start_ms / 1000) as Time, value: line.price },
+        { time: lineEndSec as Time, value: line.price },
       ]);
-      fibSeries.push(series);
-      fibLabelPrices.push(price);
-      fibLabelEndTimes.push(endTimeSec);
-
-      // HTML label at right end of line
-      const el = document.createElement("span");
-      el.className = "fib-label";
-      el.textContent = label;
-      el.style.color = color;
-      fibLabelContainer.appendChild(el);
+      // Mute inactive via alpha on the series color directly
+      if (!line.active) {
+        s.applyOptions({ color: color.replace(/[\d.]+\)$/, "0.35)") });
+      }
+      zoneLineSeries.push(s);
     }
-    // Defer so chart has finished layout before we call priceToCoordinate
-    requestAnimationFrame(updateFibLabelPositions);
-    chart.timeScale().subscribeVisibleLogicalRangeChange(updateFibLabelPositions);
+
+    // ── Swing dots ─────────────────────────────────────────────────────────────
+    if (showSwings) {
+      for (const pt of zones.swings) {
+        const dot = document.createElement("div");
+        dot.className = pt.swing_type === "high" ? "swing-dot swing-dot-high" : "swing-dot swing-dot-low";
+        zonesContainer.appendChild(dot);
+        zoneSwingDots.push(dot);
+        zoneSwingPrices.push(pt.price);
+        zoneSwingTimes.push(pt.time_ms / 1000);
+      }
+    }
+
+    requestAnimationFrame(updateZonePositions);
+    chart.timeScale().subscribeVisibleLogicalRangeChange(updateZonePositions);
   }
 
-  function clearFibLines(): void {
-    for (const s of fibSeries) {
-      try { chart.removeSeries(s); } catch { /* already removed */ }
+  function clearZones(): void {
+    zonesContainer?.replaceChildren();
+    zoneBoxDivs = [];
+    zoneBoxData = [];
+    for (const s of zoneLineSeries) {
+      try { chart?.removeSeries(s); } catch { /* already removed */ }
     }
-    fibSeries = [];
-    fibLabelPrices = [];
-    fibLabelEndTimes = [];
-    fibLabelContainer?.replaceChildren();
-    chart?.timeScale().unsubscribeVisibleLogicalRangeChange(updateFibLabelPositions);
+    zoneLineSeries = [];
+    zoneSwingDots = [];
+    zoneSwingPrices = [];
+    zoneSwingTimes = [];
+    chart?.timeScale().unsubscribeVisibleLogicalRangeChange(updateZonePositions);
   }
 
   // ── Chart init ───────────────────────────────────────────────────────────────
@@ -889,21 +906,6 @@
     );
   });
 
-  // ── Fibonacci overlay effect ──────────────────────────────────────────────────
-  // Re-runs whenever showFib, fibLevels (backend data), or candles change.
-
-  $effect(() => {
-    if (!candleSeries) return;
-    // Access fibLevels so the effect re-runs when backend data arrives.
-    void fibLevels;
-    void candles;
-    if (showFib) {
-      drawFibLines();
-    } else {
-      clearFibLines();
-    }
-  });
-
   // ── EMA effects ───────────────────────────────────────────────────────────────
 
   $effect(() => {
@@ -992,6 +994,21 @@
     }
   });
 
+  // ── Structural zone overlay effect (C6) ──────────────────────────────────────
+
+  $effect(() => {
+    if (!candleSeries) return;
+    void zones;
+    void candles;
+    const anyActive =
+      showFVG || showOB || showEQHEQL || showBOS || showFibZone || showOTE || showSwings;
+    if (anyActive && zones) {
+      drawZones();
+    } else {
+      clearZones();
+    }
+  });
+
   // ── Live price update via SSE ─────────────────────────────────────────────────
   // Derive the current candle's open_time from the timeframe interval so that
   // if a new candle period has opened since the data was fetched, the update
@@ -1070,7 +1087,7 @@
 <div class="chart-wrap">
   <div bind:this={container} class="chart-container"></div>
   <div bind:this={cmeGapContainer} class="cme-gap-overlay"></div>
-  <div bind:this={fibLabelContainer} class="fib-label-overlay"></div>
+  <div bind:this={zonesContainer} class="zones-overlay"></div>
   <div bind:this={rangeLabelContainer} class="range-label-overlay"></div>
   <img src="/buibui-logo.svg" alt="buibui" class="chart-logo" />
 </div>
@@ -1078,17 +1095,6 @@
 <style>
   .chart-wrap { position: relative; width: 100%; }
   .chart-container { width: 100%; }
-
-  .fib-label-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: calc(100% - 70px); /* stop before price axis */
-    height: 100%;
-    pointer-events: none;
-    overflow: hidden;
-    z-index: 5;
-  }
 
   .range-label-overlay {
     position: absolute;
@@ -1112,16 +1118,6 @@
     border-radius: 2px;
   }
 
-  :global(.fib-label) {
-    position: absolute;
-    font-size: 9px;
-    font-family: monospace;
-    letter-spacing: 0.04em;
-    white-space: nowrap;
-    background: rgba(13, 17, 23, 0.72);
-    padding: 1px 4px;
-    border-radius: 2px;
-  }
   .chart-logo {
     position: absolute;
     bottom: 10px;
@@ -1183,5 +1179,53 @@
     letter-spacing: 0.04em;
     white-space: nowrap;
     color: rgba(201, 209, 217, 0.55);
+  }
+
+  /* ── Structural zone overlay (C6) ── */
+  .zones-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: calc(100% - 70px);
+    height: 100%;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 2;
+  }
+
+  :global(.zone-box) {
+    position: absolute;
+    pointer-events: none;
+    border-radius: 1px;
+    min-height: 2px;
+  }
+
+  :global(.zone-box-label) {
+    position: absolute;
+    top: 2px;
+    left: 4px;
+    font-size: 8px;
+    font-family: monospace;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+    font-weight: 600;
+  }
+
+  :global(.swing-dot) {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    pointer-events: none;
+  }
+
+  :global(.swing-dot-high) {
+    background: rgba(240, 136, 62, 0.8);
+    border: 1px solid rgba(240, 136, 62, 0.5);
+  }
+
+  :global(.swing-dot-low) {
+    background: rgba(86, 211, 100, 0.8);
+    border: 1px solid rgba(86, 211, 100, 0.5);
   }
 </style>

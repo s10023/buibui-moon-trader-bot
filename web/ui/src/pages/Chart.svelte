@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getOhlcv, getSignals, getFib, type CandleRow, type FibResponse, type FundingRow, type OiRow, type SignalRow } from "../api";
+  import { getOhlcv, getSignals, getZones, type CandleRow, type FundingRow, type OiRow, type SignalRow, type ZonesResponse } from "../api";
   import { symbols } from "../stores/config";
   import { strategyNames } from "../stores/strategies";
   import { selectedSymbol, selectSymbol } from "../stores/watchlist";
@@ -59,7 +59,6 @@
   let selectedStrategies = $state<string[]>([]);
   let showFunding = $state(false);
   let showOI = $state(false);
-  let showFib = $state(false);
 
   // Indicator toggles (C2)
   let showEMA20 = $state(false);
@@ -73,11 +72,20 @@
   // CME gap toggle
   let showCMEGaps = $state(false);
 
+  // C6: Structural zone toggles
+  let showFVG = $state(false);
+  let showOB = $state(false);
+  let showEQHEQL = $state(false);
+  let showBOS = $state(false);
+  let showFibZone = $state(false);
+  let showOTE = $state(false);
+  let showSwings = $state(false);
+
   let candles = $state<CandleRow[]>([]);
   let signals = $state<SignalRow[]>([]);
   let funding = $state<FundingRow[] | null>(null);
   let oi = $state<OiRow[] | null>(null);
-  let fibLevels = $state<FibResponse | null>(null);
+  let zones = $state<ZonesResponse | null>(null);
   let loading = $state(false);
   let error = $state<string | null>(null);
   let loaded = $state(false);
@@ -97,26 +105,29 @@
     if (symbol && !loaded && !loading) void load();
   });
 
+  const anyZoneActive = () =>
+    showFVG || showOB || showEQHEQL || showBOS || showFibZone || showOTE || showSwings;
+
   async function load(): Promise<void> {
     loading = true;
     error = null;
     const end_ms = Date.now();
     const start_ms = end_ms - days * 24 * 60 * 60 * 1000;
     try {
-      const [ohlcvResp, sigResp, fibResp] = await Promise.all([
+      const [ohlcvResp, sigResp, zonesResp] = await Promise.all([
         getOhlcv({ symbol, timeframe, start_ms, end_ms, include_funding: showFunding, include_oi: showOI }),
         selectedStrategies.length > 0
           ? getSignals({ symbol, timeframe, start_ms, end_ms, strategies: selectedStrategies })
           : Promise.resolve({ signals: [] }),
-        showFib
-          ? getFib({ symbol, timeframe, start_ms, end_ms }).catch(() => null)
+        anyZoneActive()
+          ? getZones({ symbol, timeframe, start_ms, end_ms }).catch(() => null)
           : Promise.resolve(null),
       ]);
       candles = ohlcvResp.candles;
       signals = sigResp.signals;
       funding = ohlcvResp.funding;
       oi = ohlcvResp.oi;
-      fibLevels = fibResp ?? null;
+      zones = zonesResp ?? null;
       loaded = true;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -166,6 +177,7 @@
         <label>Days
           <input type="number" bind:value={days} min="7" max="365" onchange={() => void load()} />
         </label>
+        {#if false}<!-- Funding/OI hidden until CoinGlass API is wired -->
         <label class="checkbox-label">
           <input type="checkbox" bind:checked={showFunding} onchange={() => void load()} />
           <span>Funding</span>
@@ -174,10 +186,7 @@
           <input type="checkbox" bind:checked={showOI} onchange={() => void load()} />
           <span>OI</span>
         </label>
-        <label class="checkbox-label">
-          <input type="checkbox" bind:checked={showFib} onchange={() => void load()} />
-          <span>Fib</span>
-        </label>
+        {/if}
       </div>
 
       <!-- C2: Indicator toggles — pill buttons matching strategy pill style -->
@@ -191,6 +200,18 @@
         {#if timeframe === "15m" || timeframe === "1h"}
           <button class="pill" class:active={showCMEGaps} onclick={() => showCMEGaps = !showCMEGaps}>CME Gap</button>
         {/if}
+      </div>
+
+      <!-- C6: Structural zone overlays -->
+      <div class="form-row indicators-row">
+        <span class="section-label">Zones</span>
+        <button class="pill zone-pill" class:active={showFVG} onclick={() => { showFVG = !showFVG; void load(); }}>FVG</button>
+        <button class="pill zone-pill" class:active={showOB} onclick={() => { showOB = !showOB; void load(); }}>Ord Block</button>
+        <button class="pill zone-pill" class:active={showEQHEQL} onclick={() => { showEQHEQL = !showEQHEQL; void load(); }}>EQH·EQL</button>
+        <button class="pill zone-pill" class:active={showBOS} onclick={() => { showBOS = !showBOS; void load(); }}>BOS Levels</button>
+        <button class="pill zone-pill" class:active={showFibZone} onclick={() => { showFibZone = !showFibZone; void load(); }}>0.5–0.618</button>
+        <button class="pill zone-pill" class:active={showOTE} onclick={() => { showOTE = !showOTE; void load(); }}>OTE</button>
+        <button class="pill zone-pill" class:active={showSwings} onclick={() => { showSwings = !showSwings; void load(); }}>Swings</button>
       </div>
 
       {#if $strategyNames.length > 0}
@@ -240,14 +261,20 @@
           {showFunding}
           {oi}
           {showOI}
-          {showFib}
-          {fibLevels}
           {showEMA20}
           {showEMA50}
           {showEMA200}
           {showRSI}
           {showRangeLevels}
           {showCMEGaps}
+          {zones}
+          {showFVG}
+          {showOB}
+          {showEQHEQL}
+          {showBOS}
+          {showFibZone}
+          {showOTE}
+          {showSwings}
         />
       </div>
       <div class="chart-meta">
