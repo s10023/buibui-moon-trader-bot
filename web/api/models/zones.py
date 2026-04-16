@@ -21,6 +21,7 @@ class ZoneLine(BaseModel):
     direction: str  # "bull" | "bear"
     price: float
     start_ms: int
+    close_ms: int | None = None  # Unix ms when swept/broken; None if still active
     label: str  # short display label, e.g. "EQH", "S", "R"
     active: bool
 

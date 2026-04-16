@@ -202,17 +202,21 @@ def extract_eqh_eql_zones(
                 pool_price = (price_j + price_k) / 2
                 # Swept if any subsequent wick exceeded the pool + tolerance
                 threshold = pool_price * (1 + tolerance_pct)
-                active = (
-                    bool(np.all(highs[idx_k + 1 :] <= threshold))
-                    if idx_k + 1 < n
-                    else True
-                )
+                close_ms: int | None = None
+                active = True
+                if idx_k + 1 < n:
+                    for sweep_i in range(idx_k + 1, n):
+                        if highs[sweep_i] > threshold:
+                            active = False
+                            close_ms = int(open_times[sweep_i])
+                            break
                 zones.append(
                     {
                         "zone_type": "eqh",
                         "direction": "bear",
                         "price": pool_price,
                         "start_ms": int(open_times[idx_j]),
+                        "close_ms": close_ms,
                         "label": "EQH",
                         "active": active,
                     }
@@ -234,19 +238,23 @@ def extract_eqh_eql_zones(
             if abs(price_j - price_k) / price_j < tolerance_pct:
                 pool_price = (price_j + price_k) / 2
                 threshold = pool_price * (1 - tolerance_pct)
-                active = (
-                    bool(np.all(lows[idx_k + 1 :] >= threshold))
-                    if idx_k + 1 < n
-                    else True
-                )
+                close_ms_eql: int | None = None
+                active_eql = True
+                if idx_k + 1 < n:
+                    for sweep_i in range(idx_k + 1, n):
+                        if lows[sweep_i] < threshold:
+                            active_eql = False
+                            close_ms_eql = int(open_times[sweep_i])
+                            break
                 zones.append(
                     {
                         "zone_type": "eql",
                         "direction": "bull",
                         "price": pool_price,
                         "start_ms": int(open_times[idx_j]),
+                        "close_ms": close_ms_eql,
                         "label": "EQL",
-                        "active": active,
+                        "active": active_eql,
                     }
                 )
                 seen_eql.add(j)
@@ -262,10 +270,11 @@ def extract_bos_zones(
     lookback: int = 100,
     max_zones: int = 8,
 ) -> list[dict[str, Any]]:
-    """Return recent unbroken swing high/low levels (structural support/resistance).
+    """Return swing high/low BOS levels.
 
-    These are the levels traders watch for BOS — a close beyond them confirms a
-    Break of Structure. active=False when the level has already been broken.
+    active=True  — unbroken level (price never closed beyond it).
+    active=False — broken level with close_ms = time of the breaking candle.
+    Returns active levels + up to 5 most recent broken ones for context.
     """
     n = len(df)
     if n < swing_lookback * 3:
@@ -284,44 +293,53 @@ def extract_bos_zones(
         hi = min(n, i + swing_lookback + 1)
         conf_start = i + swing_lookback + 1
 
-        # Swing high → potential bearish BOS level
+        # Swing high → bearish BOS level
         if highs[i] == float(np.max(highs[lo:hi])):
-            broken = (
-                bool(np.any(closes[conf_start:] > highs[i]))
-                if conf_start < n
-                else False
+            close_ms: int | None = None
+            active = True
+            if conf_start < n:
+                for j in range(conf_start, n):
+                    if closes[j] > highs[i]:
+                        active = False
+                        close_ms = int(open_times[j])
+                        break
+            zones.append(
+                {
+                    "zone_type": "bos",
+                    "direction": "bear",
+                    "price": float(highs[i]),
+                    "start_ms": int(open_times[i]),
+                    "close_ms": close_ms,
+                    "label": "R",
+                    "active": active,
+                }
             )
-            if not broken:  # only return unbroken (active) structural levels
-                zones.append(
-                    {
-                        "zone_type": "bos",
-                        "direction": "bear",
-                        "price": float(highs[i]),
-                        "start_ms": int(open_times[i]),
-                        "label": "R",
-                        "active": True,
-                    }
-                )
 
-        # Swing low → potential bullish BOS level
+        # Swing low → bullish BOS level
         if lows[i] == float(np.min(lows[lo:hi])):
-            broken = (
-                bool(np.any(closes[conf_start:] < lows[i])) if conf_start < n else False
+            close_ms_s: int | None = None
+            active_s = True
+            if conf_start < n:
+                for j in range(conf_start, n):
+                    if closes[j] < lows[i]:
+                        active_s = False
+                        close_ms_s = int(open_times[j])
+                        break
+            zones.append(
+                {
+                    "zone_type": "bos",
+                    "direction": "bull",
+                    "price": float(lows[i]),
+                    "start_ms": int(open_times[i]),
+                    "close_ms": close_ms_s,
+                    "label": "S",
+                    "active": active_s,
+                }
             )
-            if not broken:
-                zones.append(
-                    {
-                        "zone_type": "bos",
-                        "direction": "bull",
-                        "price": float(lows[i]),
-                        "start_ms": int(open_times[i]),
-                        "label": "S",
-                        "active": True,
-                    }
-                )
 
-    # Most recent unbroken levels only
-    return zones[-max_zones:]
+    active_zones = [z for z in zones if z["active"]]
+    inactive_zones = [z for z in zones if not z["active"]][-5:]
+    return (active_zones + inactive_zones)[-max_zones:]
 
 
 def extract_fib_golden_zones(

@@ -603,7 +603,10 @@
         ? (isBOS ? "#56d36460" : "#56d36488")
         : (isBOS ? "#f8514960" : "#f8514988");
       const lineStyle = isBOS ? 3 : 2; // dotted for BOS, dashed for EQH/EQL
-      const lineEndSec = line.active ? endSec : lastSec;
+      // Active → extends to right edge; inactive → ends at the break/sweep candle
+      const lineEndSec = line.active
+        ? endSec
+        : (line.close_ms ? line.close_ms / 1000 : lastSec);
       const opacity = line.active ? 1 : 0.4;
 
       const s = chart.addLineSeries({

@@ -402,6 +402,7 @@ export interface ZoneLine {
   direction: "bull" | "bear";
   price: number;
   start_ms: number;
+  close_ms: number | null;
   label: string;
   active: boolean;
 }
