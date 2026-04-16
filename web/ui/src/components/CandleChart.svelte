@@ -6,13 +6,12 @@
     type CandlestickData,
     type HistogramData,
     type IChartApi,
-    type IPriceLine,
     type ISeriesApi,
     type LineData,
     type SeriesMarker,
     type Time,
   } from "lightweight-charts";
-  import type { CandleRow, FibResponse, FundingRow, OiRow, SignalRow, ZonesResponse } from "../api";
+  import type { CandleRow, FundingRow, OiRow, SignalRow, ZonesResponse } from "../api";
   import { getLiveCandle } from "../api";
   import { pricesStore, startPricesSSE, stopPricesSSE } from "../stores/prices";
 
@@ -52,8 +51,6 @@
     showFunding = false,
     oi = null,
     showOI = false,
-    showFib = false,
-    fibLevels = null,
     showEMA20 = false,
     showEMA50 = false,
     showEMA200 = false,
@@ -77,8 +74,6 @@
     showFunding?: boolean;
     oi?: OiRow[] | null;
     showOI?: boolean;
-    showFib?: boolean;
-    fibLevels?: FibResponse | null;
     showEMA20?: boolean;
     showEMA50?: boolean;
     showEMA200?: boolean;
@@ -96,16 +91,11 @@
   } = $props();
 
   let container: HTMLDivElement;
-  let fibLabelContainer: HTMLDivElement;
   let chart: IChartApi;
   let candleSeries: ISeriesApi<"Candlestick">;
   let volumeSeries: ISeriesApi<"Histogram">;
   let fundingSeries: ISeriesApi<"Histogram"> | null = null;
   let oiSeries: ISeriesApi<"Line"> | null = null;
-  let fibSeries: ISeriesApi<"Line">[] = [];
-  let fibLabelPrices: number[] = [];
-  let fibLabelEndTimes: number[] = []; // endTimeSec per level for X positioning
-
   // EMA series
   let ema20Series: ISeriesApi<"Line"> | null = null;
   let ema50Series: ISeriesApi<"Line"> | null = null;
@@ -130,7 +120,7 @@
   let zoneBoxDivs: HTMLDivElement[] = [];
   interface ZoneBoxData { low: number; high: number; startSec: number; endSec: number; }
   let zoneBoxData: ZoneBoxData[] = [];
-  let zonePriceLines: IPriceLine[] = [];
+  let zoneLineSeries: ISeriesApi<"Line">[] = [];
   let zoneSwingDots: HTMLDivElement[] = [];
   let zoneSwingPrices: number[] = [];
   let zoneSwingTimes: number[] = [];
@@ -600,32 +590,42 @@
       zoneBoxData.push({ low: box.zone_low, high: box.zone_high, startSec: box.start_ms / 1000, endSec });
     }
 
-    // ── Price lines (EQH/EQL/BOS) ──────────────────────────────────────────────
-    if (showEQHEQL) {
-      for (const line of zones.lines) {
-        if (line.zone_type !== "eqh" && line.zone_type !== "eql") continue;
-        zonePriceLines.push(candleSeries.createPriceLine({
-          price: line.price,
-          color: line.direction === "bull" ? "#56d36480" : "#f8514980",
-          lineWidth: 1,
-          lineStyle: 2,
-          axisLabelVisible: false,
-          title: line.label,
-        }));
+    // ── Line zones (EQH/EQL/BOS) — line series from start_ms to right edge ──────
+    const lastSec = last.open_time / 1000; // inactive zones end here (already closed)
+    for (const line of zones.lines) {
+      const isEQH = line.zone_type === "eqh" || line.zone_type === "eql";
+      const isBOS = line.zone_type === "bos";
+      if (isEQH && !showEQHEQL) continue;
+      if (isBOS && !showBOS) continue;
+      if (!isEQH && !isBOS) continue;
+
+      const color = line.direction === "bull"
+        ? (isBOS ? "#56d36460" : "#56d36488")
+        : (isBOS ? "#f8514960" : "#f8514988");
+      const lineStyle = isBOS ? 3 : 2; // dotted for BOS, dashed for EQH/EQL
+      const lineEndSec = line.active ? endSec : lastSec;
+      const opacity = line.active ? 1 : 0.4;
+
+      const s = chart.addLineSeries({
+        color,
+        lineWidth: 1,
+        lineStyle,
+        priceScaleId: "right",
+        lastValueVisible: false,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false,
+        title: "",
+      });
+      s.applyOptions({ visible: opacity > 0.5 || !line.active });
+      s.setData([
+        { time: (line.start_ms / 1000) as Time, value: line.price },
+        { time: lineEndSec as Time, value: line.price },
+      ]);
+      // Mute inactive via alpha on the series color directly
+      if (!line.active) {
+        s.applyOptions({ color: color.replace(/[\d.]+\)$/, "0.35)") });
       }
-    }
-    if (showBOS) {
-      for (const line of zones.lines) {
-        if (line.zone_type !== "bos") continue;
-        zonePriceLines.push(candleSeries.createPriceLine({
-          price: line.price,
-          color: line.direction === "bull" ? "#56d36460" : "#f8514960",
-          lineWidth: 1,
-          lineStyle: 3,
-          axisLabelVisible: false,
-          title: line.label,
-        }));
-      }
+      zoneLineSeries.push(s);
     }
 
     // ── Swing dots ─────────────────────────────────────────────────────────────
@@ -648,179 +648,14 @@
     zonesContainer?.replaceChildren();
     zoneBoxDivs = [];
     zoneBoxData = [];
-    for (const pl of zonePriceLines) {
-      try { candleSeries?.removePriceLine(pl); } catch { /* already removed */ }
+    for (const s of zoneLineSeries) {
+      try { chart?.removeSeries(s); } catch { /* already removed */ }
     }
-    zonePriceLines = [];
+    zoneLineSeries = [];
     zoneSwingDots = [];
     zoneSwingPrices = [];
     zoneSwingTimes = [];
     chart?.timeScale().unsubscribeVisibleLogicalRangeChange(updateZonePositions);
-  }
-
-  // ── Fib levels ───────────────────────────────────────────────────────────────
-
-  interface LocalFibLevel {
-    ratio: number;
-    label: string;
-    color: string;
-    lineWidth: number;
-  }
-
-  // Fib colors: anchors dim, progression warms into golden zone (0.5–0.618)
-  const FIB_LEVELS: LocalFibLevel[] = [
-    { ratio: 0,     label: "0",     color: "#484f58", lineWidth: 1 },
-    { ratio: 0.382, label: "0.382", color: "#56d364", lineWidth: 1 },
-    { ratio: 0.5,   label: "0.5",   color: "#e3b341", lineWidth: 1 },
-    { ratio: 0.618, label: "0.618", color: "#f0883e", lineWidth: 2 },
-    { ratio: 0.786, label: "0.786", color: "#ff7b72", lineWidth: 1 },
-    { ratio: 1,     label: "1",     color: "#484f58", lineWidth: 1 },
-  ];
-
-  interface FibResult {
-    price: number;
-    level: LocalFibLevel;
-    swingTimeSec: number;   // x-start: the earliest of swingHigh/swingLow time
-    endTimeSec: number;     // x-end: last candle time + 5 intervals (right edge)
-  }
-
-  function computeFibLevels(data: CandleRow[]): FibResult[] {
-    if (data.length < 4) return [];
-    const scan = data.slice(-22);
-    let swingHigh: number | null = null;
-    let swingHighTime = 0;
-    let swingLow: number | null = null;
-    let swingLowTime = 0;
-
-    for (let i = 1; i < scan.length - 1; i++) {
-      const prev = scan[i - 1];
-      const cur = scan[i];
-      const next = scan[i + 1];
-      if (cur.high > prev.high && cur.high > next.high) {
-        if (swingHigh === null || cur.high > swingHigh) {
-          swingHigh = cur.high;
-          swingHighTime = cur.open_time;
-        }
-      }
-      if (cur.low < prev.low && cur.low < next.low) {
-        if (swingLow === null || cur.low < swingLow) {
-          swingLow = cur.low;
-          swingLowTime = cur.open_time;
-        }
-      }
-    }
-
-    if (swingHigh === null || swingLow === null) return [];
-    const range = swingHigh - swingLow;
-    if (range <= 0) return [];
-
-    const last = data[data.length - 1];
-    const prev = data[data.length - 2];
-    const intervalMs = last.open_time - prev.open_time;
-    const swingTimeSec = Math.min(swingHighTime, swingLowTime) / 1000;
-    const endTimeSec = (last.open_time + 200 * intervalMs) / 1000;
-    // Orient from most recent swing: 0.0 at recent end, 1.0 at prior start
-    const upMove = swingHighTime > swingLowTime;
-
-    return FIB_LEVELS.map((level) => ({
-      price: upMove
-        ? swingHigh! - level.ratio * range
-        : swingLow! + level.ratio * range,
-      level,
-      swingTimeSec,
-      endTimeSec,
-    }));
-  }
-
-  function updateFibLabelPositions(): void {
-    if (!chart || !candleSeries || fibLabelPrices.length === 0) return;
-    const labels = fibLabelContainer?.querySelectorAll<HTMLSpanElement>(".fib-label");
-    if (!labels) return;
-    const overlayWidth = fibLabelContainer.clientWidth;
-    labels.forEach((el, i) => {
-      const y = candleSeries.priceToCoordinate(fibLabelPrices[i]);
-      if (y === null) { el.style.display = "none"; return; }
-      const rawX = chart.timeScale().timeToCoordinate(fibLabelEndTimes[i] as Time);
-      const x = rawX !== null ? Math.min(rawX, overlayWidth - 4) : overlayWidth - 4;
-      el.style.display = "block";
-      el.style.top = `${y - 8}px`;
-      el.style.left = `${x - el.offsetWidth - 4}px`;
-    });
-  }
-
-  function drawFibLines(): void {
-    clearFibLines();
-    if (!chart || candles.length < 4) return;
-
-    const last = candles[candles.length - 1];
-    const prev = candles[candles.length - 2];
-    const intervalMs = last.open_time - prev.open_time;
-    const endTimeSec = (last.open_time + 200 * intervalMs) / 1000;
-
-    // Prefer backend-computed levels (includes swing_start_ms); fall back to client-side.
-    const backendLevels = fibLevels;
-    const computed = backendLevels
-      ? (() => {
-          const swingTimeSec = backendLevels.swing_start_ms / 1000;
-          const FIB_COLOR: Record<string, string> = {
-            "0.0":   "#484f58",
-            "0.382": "#56d364",
-            "0.5":   "#e3b341",
-            "0.618": "#f0883e",
-            "0.786": "#ff7b72",
-            "1.0":   "#484f58",
-          };
-          return backendLevels.levels.map((bl) => {
-            const color = FIB_COLOR[bl.label] ?? "#6e7681";
-            const lineWidth: 1 | 2 = bl.label === "0.618" ? 2 : 1;
-            return { price: bl.price, color, lineWidth, label: bl.label, swingTimeSec, endTimeSec };
-          });
-        })()
-      : computeFibLevels(candles).map(({ price, level, swingTimeSec, endTimeSec }) => ({
-          price, color: level.color, lineWidth: level.lineWidth as 1 | 2, label: level.label, swingTimeSec, endTimeSec,
-        }));
-
-    fibLabelPrices = [];
-    fibLabelEndTimes = [];
-    for (const { price, color, lineWidth, label, swingTimeSec, endTimeSec } of computed) {
-      const series = chart.addLineSeries({
-        color,
-        lineWidth,
-        priceScaleId: "right",
-        lastValueVisible: false,
-        priceLineVisible: false,
-        crosshairMarkerVisible: false,
-        title: "",
-      });
-      series.setData([
-        { time: swingTimeSec as Time, value: price },
-        { time: endTimeSec as Time,   value: price },
-      ]);
-      fibSeries.push(series);
-      fibLabelPrices.push(price);
-      fibLabelEndTimes.push(endTimeSec);
-
-      // HTML label at right end of line
-      const el = document.createElement("span");
-      el.className = "fib-label";
-      el.textContent = label;
-      el.style.color = color;
-      fibLabelContainer.appendChild(el);
-    }
-    // Defer so chart has finished layout before we call priceToCoordinate
-    requestAnimationFrame(updateFibLabelPositions);
-    chart.timeScale().subscribeVisibleLogicalRangeChange(updateFibLabelPositions);
-  }
-
-  function clearFibLines(): void {
-    for (const s of fibSeries) {
-      try { chart.removeSeries(s); } catch { /* already removed */ }
-    }
-    fibSeries = [];
-    fibLabelPrices = [];
-    fibLabelEndTimes = [];
-    fibLabelContainer?.replaceChildren();
-    chart?.timeScale().unsubscribeVisibleLogicalRangeChange(updateFibLabelPositions);
   }
 
   // ── Chart init ───────────────────────────────────────────────────────────────
@@ -1066,21 +901,6 @@
     );
   });
 
-  // ── Fibonacci overlay effect ──────────────────────────────────────────────────
-  // Re-runs whenever showFib, fibLevels (backend data), or candles change.
-
-  $effect(() => {
-    if (!candleSeries) return;
-    // Access fibLevels so the effect re-runs when backend data arrives.
-    void fibLevels;
-    void candles;
-    if (showFib) {
-      drawFibLines();
-    } else {
-      clearFibLines();
-    }
-  });
-
   // ── EMA effects ───────────────────────────────────────────────────────────────
 
   $effect(() => {
@@ -1263,7 +1083,6 @@
   <div bind:this={container} class="chart-container"></div>
   <div bind:this={cmeGapContainer} class="cme-gap-overlay"></div>
   <div bind:this={zonesContainer} class="zones-overlay"></div>
-  <div bind:this={fibLabelContainer} class="fib-label-overlay"></div>
   <div bind:this={rangeLabelContainer} class="range-label-overlay"></div>
   <img src="/buibui-logo.svg" alt="buibui" class="chart-logo" />
 </div>
@@ -1271,17 +1090,6 @@
 <style>
   .chart-wrap { position: relative; width: 100%; }
   .chart-container { width: 100%; }
-
-  .fib-label-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: calc(100% - 70px); /* stop before price axis */
-    height: 100%;
-    pointer-events: none;
-    overflow: hidden;
-    z-index: 5;
-  }
 
   .range-label-overlay {
     position: absolute;
@@ -1305,16 +1113,6 @@
     border-radius: 2px;
   }
 
-  :global(.fib-label) {
-    position: absolute;
-    font-size: 9px;
-    font-family: monospace;
-    letter-spacing: 0.04em;
-    white-space: nowrap;
-    background: rgba(13, 17, 23, 0.72);
-    padding: 1px 4px;
-    border-radius: 2px;
-  }
   .chart-logo {
     position: absolute;
     bottom: 10px;

@@ -361,14 +361,30 @@ def extract_fib_golden_zones(
         zone_high = sl_price + 0.618 * swing_range
         dir_out = "bear"
 
-    start_idx = max(0, n - swing_lookback - bos_lookback - 1)
+    # Find actual swing pivot time — mirrors _find_bos_swing index logic
+    highs = df["high"].to_numpy(dtype=float)
+    lows = df["low"].to_numpy(dtype=float)
+    bos_start_i = n - bos_lookback - 1
+    s_start = max(0, bos_start_i - swing_lookback)
+    s_end = bos_start_i
+    if direction == "long":
+        sl_local = int(np.argmin(lows[s_start:s_end]))
+        sl_pos = s_start + sl_local
+        sh_local = int(np.argmax(highs[sl_pos:s_end])) if sl_pos + 1 < s_end else 0
+        start_ms = int(open_times[sl_pos + sh_local])
+    else:
+        sh_local = int(np.argmax(highs[s_start:s_end]))
+        sh_pos = s_start + sh_local
+        sl_local = int(np.argmin(lows[sh_pos:s_end])) if sh_pos + 1 < s_end else 0
+        start_ms = int(open_times[sh_pos + sl_local])
+
     return [
         {
             "zone_type": "fib_zone",
             "direction": dir_out,
             "zone_low": zone_low,
             "zone_high": zone_high,
-            "start_ms": int(open_times[start_idx]),
+            "start_ms": start_ms,
             "active": True,
         }
     ]
@@ -408,14 +424,30 @@ def extract_ote_zones(
         zone_high = sl_price + 0.786 * swing_range
         dir_out = "bear"
 
-    start_idx = max(0, n - swing_lookback - bos_lookback - 1)
+    # Find actual swing pivot time — mirrors _find_bos_swing index logic
+    highs = df["high"].to_numpy(dtype=float)
+    lows = df["low"].to_numpy(dtype=float)
+    bos_start_i = n - bos_lookback - 1
+    s_start = max(0, bos_start_i - swing_lookback)
+    s_end = bos_start_i
+    if direction == "long":
+        sl_local = int(np.argmin(lows[s_start:s_end]))
+        sl_pos = s_start + sl_local
+        sh_local = int(np.argmax(highs[sl_pos:s_end])) if sl_pos + 1 < s_end else 0
+        start_ms = int(open_times[sl_pos + sh_local])
+    else:
+        sh_local = int(np.argmax(highs[s_start:s_end]))
+        sh_pos = s_start + sh_local
+        sl_local = int(np.argmin(lows[sh_pos:s_end])) if sh_pos + 1 < s_end else 0
+        start_ms = int(open_times[sh_pos + sl_local])
+
     return [
         {
             "zone_type": "ote",
             "direction": dir_out,
             "zone_low": zone_low,
             "zone_high": zone_high,
-            "start_ms": int(open_times[start_idx]),
+            "start_ms": start_ms,
             "active": True,
         }
     ]
