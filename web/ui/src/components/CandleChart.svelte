@@ -6,12 +6,13 @@
     type CandlestickData,
     type HistogramData,
     type IChartApi,
+    type IPriceLine,
     type ISeriesApi,
     type LineData,
     type SeriesMarker,
     type Time,
   } from "lightweight-charts";
-  import type { CandleRow, FibResponse, FundingRow, OiRow, SignalRow } from "../api";
+  import type { CandleRow, FibResponse, FundingRow, OiRow, SignalRow, ZonesResponse } from "../api";
   import { getLiveCandle } from "../api";
   import { pricesStore, startPricesSSE, stopPricesSSE } from "../stores/prices";
 
@@ -59,6 +60,14 @@
     showRSI = false,
     showRangeLevels = false,
     showCMEGaps = false,
+    zones = null,
+    showFVG = false,
+    showOB = false,
+    showEQHEQL = false,
+    showBOS = false,
+    showFibZone = false,
+    showOTE = false,
+    showSwings = false,
   }: {
     candles: CandleRow[];
     signals: SignalRow[];
@@ -76,6 +85,14 @@
     showRSI?: boolean;
     showRangeLevels?: boolean;
     showCMEGaps?: boolean;
+    zones?: ZonesResponse | null;
+    showFVG?: boolean;
+    showOB?: boolean;
+    showEQHEQL?: boolean;
+    showBOS?: boolean;
+    showFibZone?: boolean;
+    showOTE?: boolean;
+    showSwings?: boolean;
   } = $props();
 
   let container: HTMLDivElement;
@@ -107,6 +124,16 @@
   let cmeGapContainer: HTMLDivElement;
   let cmeGapDiv: HTMLDivElement | null = null;
   let cmeGapData: CMEGap | null = null;
+
+  // Structural zone overlay (C6)
+  let zonesContainer: HTMLDivElement;
+  let zoneBoxDivs: HTMLDivElement[] = [];
+  interface ZoneBoxData { low: number; high: number; startSec: number; endSec: number; }
+  let zoneBoxData: ZoneBoxData[] = [];
+  let zonePriceLines: IPriceLine[] = [];
+  let zoneSwingDots: HTMLDivElement[] = [];
+  let zoneSwingPrices: number[] = [];
+  let zoneSwingTimes: number[] = [];
 
   // Tracks the in-progress live candle so open/high/low accumulate correctly
   // across SSE ticks instead of resetting each time.
@@ -479,6 +506,156 @@
     cmeGapData = null;
     chart?.timeScale().unsubscribeVisibleLogicalRangeChange(updateCMEGapPosition);
     cmeGapContainer?.replaceChildren();
+  }
+
+  // ── Structural zone overlay (C6) ─────────────────────────────────────────────
+
+  // Visual config per zone type+direction
+  const ZONE_STYLES: Record<string, { bg: string; border: string; labelColor: string; labelText: string }> = {
+    fvg_bull:      { bg: "rgba(86,211,100,0.10)",  border: "rgba(86,211,100,0.40)",  labelColor: "rgba(86,211,100,0.75)",  labelText: "FVG" },
+    fvg_bear:      { bg: "rgba(248,81,73,0.10)",   border: "rgba(248,81,73,0.40)",   labelColor: "rgba(248,81,73,0.75)",   labelText: "FVG" },
+    ob_bull:       { bg: "rgba(86,211,100,0.08)",  border: "rgba(86,211,100,0.50)",  labelColor: "rgba(86,211,100,0.75)",  labelText: "OB" },
+    ob_bear:       { bg: "rgba(248,81,73,0.08)",   border: "rgba(248,81,73,0.50)",   labelColor: "rgba(248,81,73,0.75)",   labelText: "OB" },
+    fib_zone_bull: { bg: "rgba(227,179,65,0.09)",  border: "rgba(227,179,65,0.45)",  labelColor: "rgba(227,179,65,0.75)",  labelText: "0.5–0.618" },
+    fib_zone_bear: { bg: "rgba(227,179,65,0.09)",  border: "rgba(227,179,65,0.45)",  labelColor: "rgba(227,179,65,0.75)",  labelText: "0.5–0.618" },
+    ote_bull:      { bg: "rgba(240,136,62,0.09)",  border: "rgba(240,136,62,0.45)",  labelColor: "rgba(240,136,62,0.75)",  labelText: "OTE" },
+    ote_bear:      { bg: "rgba(240,136,62,0.09)",  border: "rgba(240,136,62,0.45)",  labelColor: "rgba(240,136,62,0.75)",  labelText: "OTE" },
+  };
+
+  function updateZoneBoxPositions(): void {
+    if (!chart || !candleSeries || zoneBoxDivs.length === 0) return;
+    const containerWidth = zonesContainer.clientWidth;
+    zoneBoxDivs.forEach((div, i) => {
+      const { low, high, startSec, endSec } = zoneBoxData[i];
+      const rawX1 = chart.timeScale().timeToCoordinate(startSec as Time);
+      if (rawX1 === null) { div.style.display = "none"; return; }
+      const rawX2 = chart.timeScale().timeToCoordinate(endSec as Time);
+      const clampedX2 = Math.min(containerWidth, rawX2 ?? containerWidth);
+      if (clampedX2 <= rawX1) { div.style.display = "none"; return; }
+      const py1 = candleSeries.priceToCoordinate(high);
+      const py2 = candleSeries.priceToCoordinate(low);
+      if (py1 === null || py2 === null) { div.style.display = "none"; return; }
+      const y1 = Math.min(py1, py2);
+      const y2 = Math.max(py1, py2);
+      div.style.display = "block";
+      div.style.left    = `${rawX1}px`;
+      div.style.width   = `${clampedX2 - rawX1}px`;
+      div.style.top     = `${y1}px`;
+      div.style.height  = `${Math.max(2, y2 - y1)}px`;
+    });
+  }
+
+  function updateZoneSwingPositions(): void {
+    if (!chart || !candleSeries || zoneSwingDots.length === 0) return;
+    const containerWidth = zonesContainer.clientWidth;
+    zoneSwingDots.forEach((dot, i) => {
+      const x = chart.timeScale().timeToCoordinate(zoneSwingTimes[i] as Time);
+      const y = candleSeries.priceToCoordinate(zoneSwingPrices[i]);
+      if (x === null || y === null || x < 0 || x > containerWidth) { dot.style.display = "none"; return; }
+      dot.style.display = "block";
+      dot.style.left = `${x - 3}px`;
+      dot.style.top  = `${y - 3}px`;
+    });
+  }
+
+  function updateZonePositions(): void {
+    updateZoneBoxPositions();
+    updateZoneSwingPositions();
+  }
+
+  function drawZones(): void {
+    clearZones();
+    if (!chart || !zonesContainer || !zones || candles.length < 2) return;
+
+    const last = candles[candles.length - 1];
+    const prev = candles[candles.length - 2];
+    const intervalMs = last.open_time - prev.open_time;
+    const endSec = (last.open_time + 200 * intervalMs) / 1000;
+
+    // ── Box zones ──────────────────────────────────────────────────────────────
+    const activeBoxTypes = new Set<string>();
+    if (showFVG)     activeBoxTypes.add("fvg");
+    if (showOB)      activeBoxTypes.add("ob");
+    if (showFibZone) activeBoxTypes.add("fib_zone");
+    if (showOTE)     activeBoxTypes.add("ote");
+
+    for (const box of zones.boxes) {
+      if (!activeBoxTypes.has(box.zone_type)) continue;
+      const styleKey = `${box.zone_type}_${box.direction}`;
+      const s = ZONE_STYLES[styleKey] ?? ZONE_STYLES["fvg_bull"];
+      const opacity = box.active ? 1 : 0.35;
+
+      const div = document.createElement("div");
+      div.className = "zone-box";
+      div.style.cssText = `background:${s.bg};border:1px solid ${s.border};opacity:${opacity};`;
+
+      const lbl = document.createElement("span");
+      lbl.className = "zone-box-label";
+      lbl.style.color = s.labelColor;
+      lbl.textContent = s.labelText;
+      div.appendChild(lbl);
+
+      zonesContainer.appendChild(div);
+      zoneBoxDivs.push(div);
+      zoneBoxData.push({ low: box.zone_low, high: box.zone_high, startSec: box.start_ms / 1000, endSec });
+    }
+
+    // ── Price lines (EQH/EQL/BOS) ──────────────────────────────────────────────
+    if (showEQHEQL) {
+      for (const line of zones.lines) {
+        if (line.zone_type !== "eqh" && line.zone_type !== "eql") continue;
+        zonePriceLines.push(candleSeries.createPriceLine({
+          price: line.price,
+          color: line.direction === "bull" ? "#56d36480" : "#f8514980",
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: false,
+          title: line.label,
+        }));
+      }
+    }
+    if (showBOS) {
+      for (const line of zones.lines) {
+        if (line.zone_type !== "bos") continue;
+        zonePriceLines.push(candleSeries.createPriceLine({
+          price: line.price,
+          color: line.direction === "bull" ? "#56d36460" : "#f8514960",
+          lineWidth: 1,
+          lineStyle: 3,
+          axisLabelVisible: false,
+          title: line.label,
+        }));
+      }
+    }
+
+    // ── Swing dots ─────────────────────────────────────────────────────────────
+    if (showSwings) {
+      for (const pt of zones.swings) {
+        const dot = document.createElement("div");
+        dot.className = pt.swing_type === "high" ? "swing-dot swing-dot-high" : "swing-dot swing-dot-low";
+        zonesContainer.appendChild(dot);
+        zoneSwingDots.push(dot);
+        zoneSwingPrices.push(pt.price);
+        zoneSwingTimes.push(pt.time_ms / 1000);
+      }
+    }
+
+    requestAnimationFrame(updateZonePositions);
+    chart.timeScale().subscribeVisibleLogicalRangeChange(updateZonePositions);
+  }
+
+  function clearZones(): void {
+    zonesContainer?.replaceChildren();
+    zoneBoxDivs = [];
+    zoneBoxData = [];
+    for (const pl of zonePriceLines) {
+      try { candleSeries?.removePriceLine(pl); } catch { /* already removed */ }
+    }
+    zonePriceLines = [];
+    zoneSwingDots = [];
+    zoneSwingPrices = [];
+    zoneSwingTimes = [];
+    chart?.timeScale().unsubscribeVisibleLogicalRangeChange(updateZonePositions);
   }
 
   // ── Fib levels ───────────────────────────────────────────────────────────────
@@ -992,6 +1169,21 @@
     }
   });
 
+  // ── Structural zone overlay effect (C6) ──────────────────────────────────────
+
+  $effect(() => {
+    if (!candleSeries) return;
+    void zones;
+    void candles;
+    const anyActive =
+      showFVG || showOB || showEQHEQL || showBOS || showFibZone || showOTE || showSwings;
+    if (anyActive && zones) {
+      drawZones();
+    } else {
+      clearZones();
+    }
+  });
+
   // ── Live price update via SSE ─────────────────────────────────────────────────
   // Derive the current candle's open_time from the timeframe interval so that
   // if a new candle period has opened since the data was fetched, the update
@@ -1070,6 +1262,7 @@
 <div class="chart-wrap">
   <div bind:this={container} class="chart-container"></div>
   <div bind:this={cmeGapContainer} class="cme-gap-overlay"></div>
+  <div bind:this={zonesContainer} class="zones-overlay"></div>
   <div bind:this={fibLabelContainer} class="fib-label-overlay"></div>
   <div bind:this={rangeLabelContainer} class="range-label-overlay"></div>
   <img src="/buibui-logo.svg" alt="buibui" class="chart-logo" />
@@ -1183,5 +1376,53 @@
     letter-spacing: 0.04em;
     white-space: nowrap;
     color: rgba(201, 209, 217, 0.55);
+  }
+
+  /* ── Structural zone overlay (C6) ── */
+  .zones-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: calc(100% - 70px);
+    height: 100%;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 2;
+  }
+
+  :global(.zone-box) {
+    position: absolute;
+    pointer-events: none;
+    border-radius: 1px;
+    min-height: 2px;
+  }
+
+  :global(.zone-box-label) {
+    position: absolute;
+    top: 2px;
+    left: 4px;
+    font-size: 8px;
+    font-family: monospace;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+    font-weight: 600;
+  }
+
+  :global(.swing-dot) {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    pointer-events: none;
+  }
+
+  :global(.swing-dot-high) {
+    background: rgba(240, 136, 62, 0.8);
+    border: 1px solid rgba(240, 136, 62, 0.5);
+  }
+
+  :global(.swing-dot-low) {
+    background: rgba(86, 211, 100, 0.8);
+    border: 1px solid rgba(86, 211, 100, 0.5);
   }
 </style>

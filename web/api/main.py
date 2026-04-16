@@ -25,6 +25,7 @@ from web.api.routers import (
     signals,
     stats,
     stream,
+    zones,
 )
 
 
@@ -113,6 +114,7 @@ app.include_router(positions.router, prefix="/api")
 app.include_router(prices.router, prefix="/api")
 app.include_router(stats.router, prefix="/api")
 app.include_router(stream.router, prefix="/api")
+app.include_router(zones.router, prefix="/api")
 
 
 @app.get("/api/health")
