@@ -11,6 +11,7 @@ class ZoneBox(BaseModel):
     zone_low: float
     zone_high: float
     start_ms: int  # Unix ms — when the zone formed
+    close_ms: int | None = None  # Unix ms when filled/mitigated; None if still active
     active: bool  # False when filled / mitigated
 
 

@@ -394,6 +394,7 @@ export interface ZoneBox {
   zone_low: number;
   zone_high: number;
   start_ms: number;
+  close_ms: number | null;
   active: boolean;
 }
 

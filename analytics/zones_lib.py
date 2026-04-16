@@ -42,8 +42,13 @@ def extract_fvg_zones(
             mid = (gap_bot + gap_top) / 2
             if (gap_top - gap_bot) < min_gap_pct * mid:
                 continue
-            # Filled when any subsequent low crosses the CE from above
-            active = bool(np.all(lows[i + 2 :] > mid)) if i + 2 < n else True
+            close_ms: int | None = None
+            active = True
+            for fi in range(i + 2, n):
+                if lows[fi] <= mid:
+                    active = False
+                    close_ms = int(open_times[fi])
+                    break
             zones.append(
                 {
                     "zone_type": "fvg",
@@ -51,6 +56,7 @@ def extract_fvg_zones(
                     "zone_low": gap_bot,
                     "zone_high": gap_top,
                     "start_ms": int(open_times[i - 1]),
+                    "close_ms": close_ms,
                     "active": active,
                 }
             )
@@ -61,7 +67,13 @@ def extract_fvg_zones(
             mid = (gap_bot + gap_top) / 2
             if (gap_top - gap_bot) < min_gap_pct * mid:
                 continue
-            active = bool(np.all(highs[i + 2 :] < mid)) if i + 2 < n else True
+            close_ms_bear: int | None = None
+            active_bear = True
+            for fi in range(i + 2, n):
+                if highs[fi] >= mid:
+                    active_bear = False
+                    close_ms_bear = int(open_times[fi])
+                    break
             zones.append(
                 {
                     "zone_type": "fvg",
@@ -69,7 +81,8 @@ def extract_fvg_zones(
                     "zone_low": gap_bot,
                     "zone_high": gap_top,
                     "start_ms": int(open_times[i - 1]),
-                    "active": active,
+                    "close_ms": close_ms_bear,
+                    "active": active_bear,
                 }
             )
 
@@ -111,11 +124,12 @@ def extract_order_block_zones(
         if ob_close > ob_open and disp_close < ob_low * (1 - displacement_pct):
             ob_zone_bot = ob_open
             ob_zone_top = ob_close
-            # Mitigated: price enters zone AND closes below its bottom
-            active = True
+            ob_close_ms: int | None = None
+            ob_active = True
             for j in range(i + 2, n):
                 if highs[j] >= ob_zone_bot and closes[j] < ob_zone_bot:
-                    active = False
+                    ob_active = False
+                    ob_close_ms = int(open_times[j])
                     break
             zones.append(
                 {
@@ -124,7 +138,8 @@ def extract_order_block_zones(
                     "zone_low": ob_zone_bot,
                     "zone_high": ob_zone_top,
                     "start_ms": int(open_times[i]),
-                    "active": active,
+                    "close_ms": ob_close_ms,
+                    "active": ob_active,
                 }
             )
 
@@ -132,10 +147,12 @@ def extract_order_block_zones(
         elif ob_open > ob_close and disp_close > ob_high * (1 + displacement_pct):
             ob_zone_bot = ob_close
             ob_zone_top = ob_open
-            active = True
+            ob_close_ms_bull: int | None = None
+            ob_active_bull = True
             for j in range(i + 2, n):
                 if lows[j] <= ob_zone_top and closes[j] > ob_zone_top:
-                    active = False
+                    ob_active_bull = False
+                    ob_close_ms_bull = int(open_times[j])
                     break
             zones.append(
                 {
@@ -144,7 +161,8 @@ def extract_order_block_zones(
                     "zone_low": ob_zone_bot,
                     "zone_high": ob_zone_top,
                     "start_ms": int(open_times[i]),
-                    "active": active,
+                    "close_ms": ob_close_ms_bull,
+                    "active": ob_active_bull,
                 }
             )
 
@@ -200,13 +218,12 @@ def extract_eqh_eql_zones(
             idx_k, price_k = swing_highs[k]
             if abs(price_j - price_k) / price_j < tolerance_pct:
                 pool_price = (price_j + price_k) / 2
-                # Swept if any subsequent wick exceeded the pool + tolerance
-                threshold = pool_price * (1 + tolerance_pct)
+                # Retested when any subsequent wick reaches the pool level
                 close_ms: int | None = None
                 active = True
                 if idx_k + 1 < n:
                     for sweep_i in range(idx_k + 1, n):
-                        if highs[sweep_i] > threshold:
+                        if highs[sweep_i] >= pool_price:
                             active = False
                             close_ms = int(open_times[sweep_i])
                             break
@@ -237,12 +254,12 @@ def extract_eqh_eql_zones(
             idx_k, price_k = swing_lows[k]
             if abs(price_j - price_k) / price_j < tolerance_pct:
                 pool_price = (price_j + price_k) / 2
-                threshold = pool_price * (1 - tolerance_pct)
+                # Retested when any subsequent wick reaches the pool level
                 close_ms_eql: int | None = None
                 active_eql = True
                 if idx_k + 1 < n:
                     for sweep_i in range(idx_k + 1, n):
-                        if lows[sweep_i] < threshold:
+                        if lows[sweep_i] <= pool_price:
                             active_eql = False
                             close_ms_eql = int(open_times[sweep_i])
                             break

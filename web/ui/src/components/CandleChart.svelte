@@ -560,7 +560,8 @@
     const last = candles[candles.length - 1];
     const prev = candles[candles.length - 2];
     const intervalMs = last.open_time - prev.open_time;
-    const endSec = (last.open_time + 200 * intervalMs) / 1000;
+    const rightEdgeSec = (last.open_time + 200 * intervalMs) / 1000; // for lines only
+    const lastSec = last.open_time / 1000; // box active zones end here
 
     // ── Box zones ──────────────────────────────────────────────────────────────
     const activeBoxTypes = new Set<string>();
@@ -587,11 +588,12 @@
 
       zonesContainer.appendChild(div);
       zoneBoxDivs.push(div);
-      zoneBoxData.push({ low: box.zone_low, high: box.zone_high, startSec: box.start_ms / 1000, endSec });
+      // Active: end at last candle. Inactive: end at fill/mitigation candle.
+      const boxEndSec = box.active ? lastSec : (box.close_ms ? box.close_ms / 1000 : lastSec);
+      zoneBoxData.push({ low: box.zone_low, high: box.zone_high, startSec: box.start_ms / 1000, endSec: boxEndSec });
     }
 
     // ── Line zones (EQH/EQL/BOS) — line series from start_ms to right edge ──────
-    const lastSec = last.open_time / 1000; // inactive zones end here (already closed)
     for (const line of zones.lines) {
       const isEQH = line.zone_type === "eqh" || line.zone_type === "eql";
       const isBOS = line.zone_type === "bos";
@@ -605,7 +607,7 @@
       const lineStyle = isBOS ? 3 : 2; // dotted for BOS, dashed for EQH/EQL
       // Active → extends to right edge; inactive → ends at the break/sweep candle
       const lineEndSec = line.active
-        ? endSec
+        ? rightEdgeSec
         : (line.close_ms ? line.close_ms / 1000 : lastSec);
       const opacity = line.active ? 1 : 0.4;
 
