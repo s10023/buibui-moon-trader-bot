@@ -43,12 +43,14 @@ SOLUSDT = "ETHUSDT"
 [bias]
 adr_suppress_threshold = 0.80
 
-# D10 step 3 — live co-firing confluence detection.
-# window: look back this many candles in the signals DB for a co-firing partner.
+# D10 steps 3+4 — live co-firing confluence detection.
+# window: look back this many candles in the signals DB for a same-TF co-firing partner.
 # min_avg_r: only append the blockquote when the combo backtest avg_r meets this threshold.
+# cross_tf_window_hours: window=8h from sweep (1d→1h and 4h→15m pairs, Apr 2026).
 [combo]
 window = 5
 min_avg_r = 1.0
+cross_tf_window_hours = 8.0
 
 # Backtest filter defaults — identical across all three main configs.
 # signal_config.py reads these from [backtest]; backtest_config.py reads min_trades_*tf
