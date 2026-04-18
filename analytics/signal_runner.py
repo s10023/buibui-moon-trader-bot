@@ -284,10 +284,22 @@ def run_signal_watch(
             # web API's read-only connections can access the DB between cycles.
             with duckdb.connect(str(db_path)) as conn:
                 # Sync each symbol+timeframe; fall back to backfill for new symbols
-                start_ms = (
-                    int(time.time() * 1000) - _DEFAULT_BACKFILL_DAYS * 24 * 3600 * 1000
-                )
                 now_ms = int(time.time() * 1000)
+                backfill_start_ms = now_ms - _DEFAULT_BACKFILL_DAYS * 24 * 3600 * 1000
+                # OHLCV cache window: match backtest_cfg.since so _compute_backtest
+                # sees the same data range the alert labels (e.g. "since 2025-09-12").
+                # Falls back to 90d when no since is configured.
+                if backtest_cfg and backtest_cfg.since:
+                    import datetime as _dt
+
+                    cache_start_ms = int(
+                        _dt.datetime.strptime(backtest_cfg.since, "%Y-%m-%d")
+                        .replace(tzinfo=_dt.UTC)
+                        .timestamp()
+                        * 1000
+                    )
+                else:
+                    cache_start_ms = backfill_start_ms
                 for symbol in resolved_symbols:
                     for tf in resolved_timeframes:
                         try:
@@ -298,7 +310,7 @@ def run_signal_watch(
                                 symbol,
                                 tf,
                             )
-                            backfill(conn, client, symbol, tf, start_ms)
+                            backfill(conn, client, symbol, tf, backfill_start_ms)
                             ohlcv_cache.pop((symbol, tf), None)  # force cold read
                         except duckdb.IOException as exc:
                             logger.warning(
@@ -316,7 +328,7 @@ def run_signal_watch(
                 for symbol in all_symbols_to_cache:
                     for tf in resolved_timeframes:
                         _update_ohlcv_cache(
-                            conn, ohlcv_cache, symbol, tf, start_ms, now_ms
+                            conn, ohlcv_cache, symbol, tf, cache_start_ms, now_ms
                         )
 
                 alerts = run_scan_cycle(
