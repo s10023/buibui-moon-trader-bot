@@ -14,6 +14,25 @@ import pandas as pd
 
 DEFAULT_DB_PATH: Path = Path("analytics.db")
 
+_OUTCOME_COLUMNS = [
+    "signal_id",
+    "symbol",
+    "tf",
+    "strategy",
+    "direction",
+    "fired_at_ms",
+    "candle_ts_ms",
+    "entry_price",
+    "sl_price",
+    "tp_price",
+    "rr_ratio",
+    "confidence_at_fire",
+    "tags",
+    "outcome",
+    "outcome_r",
+    "outcome_filled_at_ms",
+]
+
 
 def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
     """Create all tables if they do not exist."""
@@ -487,42 +506,15 @@ def upsert_signal_outcome(conn: duckdb.DuckDBPyConnection, row: dict[str, Any]) 
     Conflicts on signal_id are replaced so that outcome / outcome_r /
     outcome_filled_at_ms can be backfilled later without inserting duplicates.
     """
-    df = pd.DataFrame([row])
-    # Ensure every column the table expects is present; fill missing with None.
-    _OUTCOME_COLUMNS = [
-        "signal_id",
-        "symbol",
-        "tf",
-        "strategy",
-        "direction",
-        "fired_at_ms",
-        "candle_ts_ms",
-        "entry_price",
-        "sl_price",
-        "tp_price",
-        "rr_ratio",
-        "confidence_at_fire",
-        "tags",
-        "outcome",
-        "outcome_r",
-        "outcome_filled_at_ms",
-    ]
-    for col in _OUTCOME_COLUMNS:
-        if col not in df.columns:
-            df[col] = None
-    df = df[_OUTCOME_COLUMNS]
-    # Explicit register/unregister in try/finally — see _upsert docstring for why.
-    conn.register("_outcome_upsert_df", df)
-    try:
-        conn.execute(
-            "INSERT OR REPLACE INTO signal_alert_outcomes "
-            "SELECT signal_id, symbol, tf, strategy, direction, fired_at_ms, "
-            "candle_ts_ms, entry_price, sl_price, tp_price, rr_ratio, "
-            "confidence_at_fire, tags, outcome, outcome_r, outcome_filled_at_ms "
-            "FROM _outcome_upsert_df"
-        )
-    finally:
-        conn.unregister("_outcome_upsert_df")
+    values = [row.get(col) for col in _OUTCOME_COLUMNS]
+    conn.execute(
+        "INSERT OR REPLACE INTO signal_alert_outcomes "
+        "(signal_id, symbol, tf, strategy, direction, fired_at_ms, "
+        "candle_ts_ms, entry_price, sl_price, tp_price, rr_ratio, "
+        "confidence_at_fire, tags, outcome, outcome_r, outcome_filled_at_ms) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        values,
+    )
 
 
 def _backtest_run_id(
@@ -819,8 +811,8 @@ def upsert_confidence_ratings(
             ar = row.get(avg_r_col)
             wr = row.get(win_rate_col)
             stats[key] = (
-                float(ar) if ar is not None and ar == ar else None,  # noqa: PLR0124
-                float(wr) if wr is not None and wr == wr else None,
+                float(ar) if ar is not None and not pd.isna(ar) else None,
+                float(wr) if wr is not None and not pd.isna(wr) else None,
             )
     rows = []
     for strategy, tf_map in ratings.items():
@@ -927,14 +919,12 @@ def upsert_combo_run(
     day_filter: str,
 ) -> str:
     """Persist a ComboBacktestResult aggregate row and return the combo_id."""
-    import datetime
-
     from analytics.backtest_lib import ComboBacktestResult
 
     assert isinstance(combo, ComboBacktestResult)
     r = combo.result
 
-    run_at_ms = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
+    run_at_ms = int(time.time() * 1000)
     # combo_id excludes run_at_ms so re-running overwrites the previous result
     # for the same (symbol, tf, pair, window, day_filter) instead of duplicating.
     combo_id = (
@@ -1021,7 +1011,7 @@ def get_combo_lookup(
     if df.empty:
         return {}
     lookup: dict[tuple[str, str, frozenset[str]], dict[str, Any]] = {}
-    for _, row in df.iterrows():
+    for row in df.to_dict("records"):
         key: tuple[str, str, frozenset[str]] = (
             str(row["symbol"]),
             str(row["timeframe"]),
@@ -1056,14 +1046,12 @@ def upsert_cross_tf_combo_run(
     strategy_htf, strategy_ltf, window_hours, day_filter) always overwrites
     the previous result via INSERT OR REPLACE.
     """
-    import datetime
-
     from analytics.backtest_lib import CrossTfComboBacktestResult
 
     assert isinstance(combo, CrossTfComboBacktestResult)
     r = combo.result
 
-    run_at_ms = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
+    run_at_ms = int(time.time() * 1000)
     wh = combo.window_hours
     wh_str = f"{wh:.1f}".rstrip("0").rstrip(".")
     combo_id = (
@@ -1145,7 +1133,7 @@ def get_cross_tf_combo_lookup(
     if df.empty:
         return {}
     lookup: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
-    for _, row in df.iterrows():
+    for row in df.to_dict("records"):
         key: tuple[str, str, str, str, str] = (
             str(row["symbol"]),
             str(row["tf_htf"]),
