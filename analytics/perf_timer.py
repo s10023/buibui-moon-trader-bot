@@ -18,7 +18,6 @@ from contextlib import contextmanager
 
 @contextmanager
 def timed(label: str) -> Generator[None, None, None]:
-    """Print elapsed wall-clock time for a labelled block to stdout."""
     t0 = time.perf_counter()
     yield
     elapsed = time.perf_counter() - t0

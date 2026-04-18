@@ -359,6 +359,27 @@ def extract_bos_zones(
     return (active_zones + inactive_zones)[-max_zones:]
 
 
+def _find_pivot_start_ms(
+    open_times: np.ndarray,
+    highs: np.ndarray,
+    lows: np.ndarray,
+    s_start: int,
+    s_end: int,
+    direction: str,
+) -> int:
+    """Return the open_time (ms) of the swing pivot used in the BOS fib/OTE zones."""
+    if direction == "long":
+        sl_local = int(np.argmin(lows[s_start:s_end]))
+        sl_pos = s_start + sl_local
+        sh_local = int(np.argmax(highs[sl_pos:s_end])) if sl_pos + 1 < s_end else 0
+        return int(open_times[sl_pos + sh_local])
+    else:
+        sh_local = int(np.argmax(highs[s_start:s_end]))
+        sh_pos = s_start + sh_local
+        sl_local = int(np.argmin(lows[sh_pos:s_end])) if sh_pos + 1 < s_end else 0
+        return int(open_times[sh_pos + sl_local])
+
+
 def extract_fib_golden_zones(
     df: pd.DataFrame,
     swing_lookback: int = 20,
@@ -396,22 +417,13 @@ def extract_fib_golden_zones(
         zone_high = sl_price + 0.618 * swing_range
         dir_out = "bear"
 
-    # Find actual swing pivot time — mirrors _find_bos_swing index logic
     highs = df["high"].to_numpy(dtype=float)
     lows = df["low"].to_numpy(dtype=float)
     bos_start_i = n - bos_lookback - 1
     s_start = max(0, bos_start_i - swing_lookback)
-    s_end = bos_start_i
-    if direction == "long":
-        sl_local = int(np.argmin(lows[s_start:s_end]))
-        sl_pos = s_start + sl_local
-        sh_local = int(np.argmax(highs[sl_pos:s_end])) if sl_pos + 1 < s_end else 0
-        start_ms = int(open_times[sl_pos + sh_local])
-    else:
-        sh_local = int(np.argmax(highs[s_start:s_end]))
-        sh_pos = s_start + sh_local
-        sl_local = int(np.argmin(lows[sh_pos:s_end])) if sh_pos + 1 < s_end else 0
-        start_ms = int(open_times[sh_pos + sl_local])
+    start_ms = _find_pivot_start_ms(
+        open_times, highs, lows, s_start, bos_start_i, direction
+    )
 
     return [
         {
@@ -459,22 +471,13 @@ def extract_ote_zones(
         zone_high = sl_price + 0.786 * swing_range
         dir_out = "bear"
 
-    # Find actual swing pivot time — mirrors _find_bos_swing index logic
     highs = df["high"].to_numpy(dtype=float)
     lows = df["low"].to_numpy(dtype=float)
     bos_start_i = n - bos_lookback - 1
     s_start = max(0, bos_start_i - swing_lookback)
-    s_end = bos_start_i
-    if direction == "long":
-        sl_local = int(np.argmin(lows[s_start:s_end]))
-        sl_pos = s_start + sl_local
-        sh_local = int(np.argmax(highs[sl_pos:s_end])) if sl_pos + 1 < s_end else 0
-        start_ms = int(open_times[sl_pos + sh_local])
-    else:
-        sh_local = int(np.argmax(highs[s_start:s_end]))
-        sh_pos = s_start + sh_local
-        sl_local = int(np.argmin(lows[sh_pos:s_end])) if sh_pos + 1 < s_end else 0
-        start_ms = int(open_times[sh_pos + sl_local])
+    start_ms = _find_pivot_start_ms(
+        open_times, highs, lows, s_start, bos_start_i, direction
+    )
 
     return [
         {

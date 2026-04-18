@@ -178,7 +178,6 @@ class BacktestFilterConfig:
     volume_spike_boost: bool = False
 
     def effective_min_trades(self, tf: str) -> int:
-        """Return per-TF override if configured, else the global min_trades."""
         return self.min_trades_per_tf.get(tf, self.min_trades)
 
 
@@ -299,42 +298,36 @@ class SignalWatchConfig:
         return self.sl_pct
 
     def effective_volume_suppress(self, strategy: str) -> bool:
-        """Return per-strategy volume_suppress if set, else the global [backtest] flag."""
         override = self.strategy_params.get(strategy)
         if override is not None and override.volume_suppress is not None:
             return override.volume_suppress
         return self.backtest.volume_suppress
 
     def effective_volume_spike_boost(self, strategy: str) -> bool:
-        """Return per-strategy volume_spike_boost if set, else the global [backtest] flag."""
         override = self.strategy_params.get(strategy)
         if override is not None and override.volume_spike_boost is not None:
             return override.volume_spike_boost
         return self.backtest.volume_spike_boost
 
     def effective_volume_suppress_long(self, strategy: str) -> bool | None:
-        """Return per-strategy volume_suppress_long override, or None (fall back to symmetric)."""
         override = self.strategy_params.get(strategy)
         if override is not None:
             return override.volume_suppress_long
         return None
 
     def effective_volume_suppress_short(self, strategy: str) -> bool | None:
-        """Return per-strategy volume_suppress_short override, or None (fall back to symmetric)."""
         override = self.strategy_params.get(strategy)
         if override is not None:
             return override.volume_suppress_short
         return None
 
     def effective_volume_spike_boost_long(self, strategy: str) -> bool | None:
-        """Return per-strategy volume_spike_boost_long override, or None (fall back to symmetric)."""
         override = self.strategy_params.get(strategy)
         if override is not None:
             return override.volume_spike_boost_long
         return None
 
     def effective_volume_spike_boost_short(self, strategy: str) -> bool | None:
-        """Return per-strategy volume_spike_boost_short override, or None (fall back to symmetric)."""
         override = self.strategy_params.get(strategy)
         if override is not None:
             return override.volume_spike_boost_short
