@@ -28,9 +28,11 @@ from web.api.routers import (
     zones,
 )
 
+_UI_DIST = (Path(__file__).resolve().parent.parent / "ui" / "dist").resolve()
+
 
 def _load_active_config(config_path: str) -> None:
-    """Parse TOML config and populate app.state with config name and structured data.
+    """Parse TOML config and populate app.state with the config name and structured data.
 
     Called once at startup. Logs a warning and leaves state empty on any failure.
     """
@@ -40,7 +42,6 @@ def _load_active_config(config_path: str) -> None:
     try:
         sw_cfg = load_signal_config(config_path)
         config_name = Path(config_path).stem
-        app.state.config_name = config_name
         app.state.active_config = ActiveConfigResponse(
             config_name=config_name,
             symbols=sw_cfg.symbols,
@@ -63,6 +64,7 @@ def _load_active_config(config_path: str) -> None:
                 for name, override in sw_cfg.strategy_params.items()
             },
         )
+        app.state.config_name = config_name
         logging.info("Active config loaded: %s", config_name)
     except Exception:
         logging.warning(
@@ -75,28 +77,32 @@ def _load_active_config(config_path: str) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Open DB (brief RW for schema, then read-only) and Binance client on startup."""
-    # Brief RW open to ensure schema is initialised.
-    # Skip gracefully if signal-watch daemon holds the write lock — schema already exists.
+    # Brief RW open to ensure schema is initialised. Skip gracefully if the
+    # signal-watch daemon already holds the write lock (schema must exist).
     try:
         with duckdb.connect(str(DEFAULT_DB_PATH)) as rw_conn:
             init_schema(rw_conn)
     except duckdb.IOException:
-        pass  # DB locked by signal daemon; schema already initialised
+        pass
+
     app.state.db_path = str(DEFAULT_DB_PATH)
     app.state.binance_client = create_client()
+    app.state.config_name = None
+    app.state.active_config = None
+
     config_path = os.environ.get("BUIBUI_CONFIG")
     if config_path:
         _load_active_config(config_path)
-    else:
-        app.state.config_name = None
-        app.state.active_config = None
     yield
 
 
 app = FastAPI(title="Buibui Web API", version="1.0.0", lifespan=lifespan)
 
-_cors_origins_raw = os.environ.get("CORS_ORIGINS", "http://localhost:5173")
-_cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
+_cors_origins = [
+    o.strip()
+    for o in os.environ.get("CORS_ORIGINS", "http://localhost:5173").split(",")
+    if o.strip()
+]
 
 app.add_middleware(
     CORSMiddleware,
@@ -105,16 +111,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(config.router, prefix="/api")
-app.include_router(ohlcv.router, prefix="/api")
-app.include_router(fib.router, prefix="/api")
-app.include_router(signals.router, prefix="/api")
-app.include_router(backtest.router, prefix="/api")
-app.include_router(positions.router, prefix="/api")
-app.include_router(prices.router, prefix="/api")
-app.include_router(stats.router, prefix="/api")
-app.include_router(stream.router, prefix="/api")
-app.include_router(zones.router, prefix="/api")
+for module in (
+    config,
+    ohlcv,
+    fib,
+    signals,
+    backtest,
+    positions,
+    prices,
+    stats,
+    stream,
+    zones,
+):
+    app.include_router(module.router, prefix="/api")
 
 
 @app.get("/api/health")
@@ -123,32 +132,24 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-_UI_DIST = os.path.abspath(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "../ui/dist")
-)
-if os.path.isdir(_UI_DIST):
+if _UI_DIST.is_dir():
     app.mount(
         "/assets",
-        StaticFiles(directory=os.path.join(_UI_DIST, "assets")),
+        StaticFiles(directory=str(_UI_DIST / "assets")),
         name="ui-assets",
     )
 
     @app.get("/", include_in_schema=False)
     def serve_ui() -> FileResponse:
         """Serve the Svelte SPA entry point."""
-        return FileResponse(os.path.join(_UI_DIST, "index.html"))
+        return FileResponse(str(_UI_DIST / "index.html"))
 
     @app.get("/buibui-logo.svg", include_in_schema=False)
     def serve_logo() -> FileResponse:
         """Serve the buibui logo from the dist root."""
-        return FileResponse(os.path.join(_UI_DIST, "buibui-logo.svg"))
+        return FileResponse(str(_UI_DIST / "buibui-logo.svg"))
 
 
 def run(host: str = "127.0.0.1", port: int = 8000, reload: bool = False) -> None:
     """Start the uvicorn server."""
-    uvicorn.run(
-        "web.api.main:app",
-        host=host,
-        port=port,
-        reload=reload,
-    )
+    uvicorn.run("web.api.main:app", host=host, port=port, reload=reload)

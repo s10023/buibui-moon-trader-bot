@@ -1,7 +1,5 @@
 """Prices router — GET /api/prices."""
 
-from typing import Any
-
 from binance.client import Client
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -11,11 +9,6 @@ from web.api.deps import get_client, require_token
 from web.api.models.prices import PriceRow, PricesResponse
 
 router = APIRouter(dependencies=[Depends(require_token)])
-
-
-def _cell_to_str(val: Any) -> str:
-    """Convert a table cell (possibly colored string) to plain string."""
-    return str(val)
 
 
 @router.get("/prices", response_model=PricesResponse)
@@ -29,22 +22,20 @@ def get_prices(client: Client = Depends(get_client)) -> PricesResponse:
             detail=f"Failed to load coins config: {exc}",
         ) from exc
 
-    symbols = list(coins.keys())
-    # Use telegram=True so we get plain text (no ANSI color codes)
-    table, _invalid = get_price_changes(client, symbols, telegram=True)
+    # telegram=True returns plain text (no ANSI color codes)
+    # row layout: [symbol, last_price, 15m%, 1h%, 4h%, asia%, 24h%]
+    table, _invalid = get_price_changes(client, list(coins.keys()), telegram=True)
 
-    # Table row layout: [symbol, last_price, 15m%, 1h%, 4h%, asia%, 24h%]
     rows = [
         PriceRow(
             symbol=str(row[0]),
-            last_price=_cell_to_str(row[1]),
-            change_15m=_cell_to_str(row[2]),
-            change_1h=_cell_to_str(row[3]),
-            change_4h=_cell_to_str(row[4]),
-            change_asia=_cell_to_str(row[5]),
-            change_24h=_cell_to_str(row[6]),
+            last_price=str(row[1]),
+            change_15m=str(row[2]),
+            change_1h=str(row[3]),
+            change_4h=str(row[4]),
+            change_asia=str(row[5]),
+            change_24h=str(row[6]),
         )
         for row in table
     ]
-
     return PricesResponse(prices=rows)

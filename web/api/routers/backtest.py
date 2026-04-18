@@ -6,7 +6,7 @@ from typing import Any
 import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
-from analytics.backtest_lib import run_backtest
+from analytics.backtest_lib import BacktestResult, run_backtest
 from analytics.backtest_runner import detect_signals_for_strategy
 from analytics.data_store import (
     get_ohlcv,
@@ -26,6 +26,66 @@ from web.api.models.backtest import (
 )
 
 router = APIRouter(dependencies=[Depends(require_token)])
+
+_MS_PER_DAY = 24 * 3_600 * 1_000
+
+
+def _resolve_window_ms(body: BacktestRequest) -> tuple[int, int]:
+    """Return (start_ms, end_ms) for the backtest window."""
+    end_ms = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
+    if body.since is not None:
+        since_dt = datetime.datetime.strptime(body.since, "%Y-%m-%d").replace(
+            tzinfo=datetime.UTC
+        )
+        return int(since_dt.timestamp() * 1000), end_ms
+    return end_ms - body.days * _MS_PER_DAY, end_ms
+
+
+def _resolve_smt_secondary(body: BacktestRequest) -> str:
+    """Pick secondary symbol from request or coins.json; raise 422 if missing."""
+    secondary: str | None = body.secondary_symbol
+    if secondary is None:
+        try:
+            secondary = load_coins_config().get(body.symbol, {}).get("smt_secondary")
+        except Exception:
+            secondary = None
+    if secondary is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="smt_divergence requires secondary_symbol or smt_secondary in coins.json.",
+        )
+    return secondary
+
+
+def _result_to_response(result: BacktestResult) -> BacktestResponse:
+    """BacktestResult uses cached_property, so build the response explicitly."""
+    return BacktestResponse(
+        symbol=result.symbol,
+        timeframe=result.timeframe,
+        strategy=result.strategy,
+        total_trades=len(result.trades),
+        closed_trades=len(result.closed_trades),
+        win_count=result.win_count,
+        loss_count=result.loss_count,
+        win_rate=result.win_rate,
+        avg_r=result.avg_r,
+        total_r=result.total_r,
+        max_drawdown_r=result.max_drawdown_r,
+        recovery_factor=result.recovery_factor,
+        long_closed_trades=len(result.long_closed_trades),
+        long_win_count=result.long_win_count,
+        long_win_rate=result.long_win_rate,
+        long_avg_r=result.long_avg_r,
+        long_total_r=result.long_total_r,
+        short_closed_trades=len(result.short_closed_trades),
+        short_win_count=result.short_win_count,
+        short_win_rate=result.short_win_rate,
+        short_avg_r=result.short_avg_r,
+        short_total_r=result.short_total_r,
+        trades=[
+            TradeModel.model_validate(t, from_attributes=True) for t in result.trades
+        ],
+    )
 
 
 @router.get("/backtest/runs", response_model=list[BacktestRunSummary])
@@ -83,15 +143,7 @@ def run_backtest_endpoint(
             detail=f"Unknown or unsupported strategy '{body.strategy}'.",
         )
 
-    end_ms = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
-    if body.since is not None:
-        _since_dt = datetime.datetime.strptime(body.since, "%Y-%m-%d").replace(
-            tzinfo=datetime.UTC
-        )
-        start_ms = int(_since_dt.timestamp() * 1000)
-    else:
-        start_ms = end_ms - body.days * 24 * 3_600 * 1_000
-
+    start_ms, end_ms = _resolve_window_ms(body)
     ohlcv = get_ohlcv(db, body.symbol, body.timeframe, start_ms, end_ms)
     if ohlcv.empty:
         raise HTTPException(
@@ -99,20 +151,9 @@ def run_backtest_endpoint(
             detail=f"No OHLCV data for {body.symbol} {body.timeframe}. Run 'analytics backfill' first.",
         )
 
-    # Resolve SMT secondary symbol from request or coins config
-    secondary_symbol = body.secondary_symbol
-    if body.strategy == "smt_divergence" and secondary_symbol is None:
-        try:
-            coins = load_coins_config()
-            cfg = coins.get(body.symbol, {})
-            secondary_symbol = cfg.get("smt_secondary")
-        except Exception:
-            pass
-        if secondary_symbol is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="smt_divergence requires secondary_symbol or smt_secondary in coins.json.",
-            )
+    secondary_symbol = (
+        _resolve_smt_secondary(body) if body.strategy == "smt_divergence" else None
+    )
 
     signals = detect_signals_for_strategy(
         db,
@@ -141,7 +182,6 @@ def run_backtest_endpoint(
         body.fee_pct,
     )
 
-    # Persist to DB
     run_id = upsert_backtest_run(
         db,
         result,
@@ -157,31 +197,4 @@ def run_backtest_endpoint(
         volume_suppress=None,
     )
     upsert_backtest_trades(db, result, run_id)
-
-    # Build BacktestResponse manually — BacktestResult has cached_property; cannot model_validate directly
-    trades = [TradeModel.model_validate(t, from_attributes=True) for t in result.trades]
-    return BacktestResponse(
-        symbol=result.symbol,
-        timeframe=result.timeframe,
-        strategy=result.strategy,
-        total_trades=len(result.trades),
-        closed_trades=len(result.closed_trades),
-        win_count=result.win_count,
-        loss_count=result.loss_count,
-        win_rate=result.win_rate,
-        avg_r=result.avg_r,
-        total_r=result.total_r,
-        max_drawdown_r=result.max_drawdown_r,
-        recovery_factor=result.recovery_factor,
-        long_closed_trades=len(result.long_closed_trades),
-        long_win_count=result.long_win_count,
-        long_win_rate=result.long_win_rate,
-        long_avg_r=result.long_avg_r,
-        long_total_r=result.long_total_r,
-        short_closed_trades=len(result.short_closed_trades),
-        short_win_count=result.short_win_count,
-        short_win_rate=result.short_win_rate,
-        short_avg_r=result.short_avg_r,
-        short_total_r=result.short_total_r,
-        trades=trades,
-    )
+    return _result_to_response(result)

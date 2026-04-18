@@ -38,29 +38,16 @@ def get_zones_endpoint(
     if len(df) < 4:
         return ZonesResponse(boxes=[], lines=[], swings=[])
 
-    boxes: list[ZoneBox] = []
-    lines: list[ZoneLine] = []
-    swings: list[SwingPoint] = []
+    box_extractors = (
+        extract_fvg_zones,
+        extract_order_block_zones,
+        extract_fib_golden_zones,
+        extract_ote_zones,
+    )
+    line_extractors = (extract_eqh_eql_zones, extract_bos_zones)
 
-    for z in extract_fvg_zones(df):
-        boxes.append(ZoneBox(**z))
-
-    for z in extract_order_block_zones(df):
-        boxes.append(ZoneBox(**z))
-
-    for z in extract_fib_golden_zones(df):
-        boxes.append(ZoneBox(**z))
-
-    for z in extract_ote_zones(df):
-        boxes.append(ZoneBox(**z))
-
-    for z in extract_eqh_eql_zones(df):
-        lines.append(ZoneLine(**z))
-
-    for z in extract_bos_zones(df):
-        lines.append(ZoneLine(**z))
-
-    for z in extract_swing_points(df):
-        swings.append(SwingPoint(**z))
+    boxes = [ZoneBox(**z) for extract in box_extractors for z in extract(df)]
+    lines = [ZoneLine(**z) for extract in line_extractors for z in extract(df)]
+    swings = [SwingPoint(**z) for z in extract_swing_points(df)]
 
     return ZonesResponse(boxes=boxes, lines=lines, swings=swings)

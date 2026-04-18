@@ -1,9 +1,7 @@
 """Fibonacci retracement router — GET /api/fib."""
 
-from http import HTTPStatus
-
 import duckdb
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from analytics.data_store import get_ohlcv
 from web.api.deps import get_db, require_token
@@ -11,7 +9,7 @@ from web.api.models.fib import FibLevel, FibResponse
 
 router = APIRouter(dependencies=[Depends(require_token)])
 
-# Fibonacci ratios and their labels; True = golden zone
+# Fibonacci ratios + labels; bool = golden zone
 _FIB_GRID: list[tuple[str, float, bool]] = [
     ("0.0", 0.0, False),
     ("0.382", 0.382, False),
@@ -30,27 +28,34 @@ def _detect_swings(
     """Find most recent swing high and swing low via 3-bar pivot in the last *lookback* bars.
 
     Returns (swing_low, swing_low_idx, swing_high, swing_high_idx) or None if either
-    pivot cannot be found.
-    Uses the same pivot logic as ``detect_fibonacci_retracement`` in indicators_lib.
+    pivot cannot be found. Uses the same pivot logic as
+    ``detect_fibonacci_retracement`` in indicators_lib.
     """
     n = len(highs)
     window_start = max(0, n - lookback)
-    window = range(window_start + 1, n - 1)  # need one bar on each side
 
     swing_high: float | None = None
-    swing_high_idx: int = 0
+    swing_high_idx = 0
     swing_low: float | None = None
-    swing_low_idx: int = 0
+    swing_low_idx = 0
 
-    for k in window:
-        if highs[k] > highs[k - 1] and highs[k] > highs[k + 1]:
-            if swing_high is None or highs[k] > swing_high:
-                swing_high = highs[k]
-                swing_high_idx = k
-        if lows[k] < lows[k - 1] and lows[k] < lows[k + 1]:
-            if swing_low is None or lows[k] < swing_low:
-                swing_low = lows[k]
-                swing_low_idx = k
+    for k in range(window_start + 1, n - 1):  # need one bar on each side
+        h = highs[k]
+        if (
+            h > highs[k - 1]
+            and h > highs[k + 1]
+            and (swing_high is None or h > swing_high)
+        ):
+            swing_high = h
+            swing_high_idx = k
+        lo = lows[k]
+        if (
+            lo < lows[k - 1]
+            and lo < lows[k + 1]
+            and (swing_low is None or lo < swing_low)
+        ):
+            swing_low = lo
+            swing_low_idx = k
 
     if swing_high is None or swing_low is None:
         return None
@@ -69,17 +74,14 @@ def get_fib_endpoint(
     df = get_ohlcv(db, symbol, timeframe, start_ms, end_ms)
     if len(df) < 4:
         raise HTTPException(
-            status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Not enough candles to detect swings (need at least 4).",
         )
 
-    highs: list[float] = df["high"].tolist()
-    lows: list[float] = df["low"].tolist()
-
-    result = _detect_swings(highs, lows)
+    result = _detect_swings(df["high"].tolist(), df["low"].tolist())
     if result is None:
         raise HTTPException(
-            status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Could not detect swing high and swing low in the given range.",
         )
 
@@ -87,25 +89,18 @@ def get_fib_endpoint(
     swing_range = swing_high - swing_low
     if swing_range <= 0:
         raise HTTPException(
-            status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Swing high equals swing low — degenerate range.",
         )
 
     open_times: list[int] = df["open_time"].tolist()
     swing_start_ms = int(min(open_times[swing_low_idx], open_times[swing_high_idx]))
 
-    # Orient levels from the most recent swing: 0.0 at recent end, 1.0 at prior start.
-    # Up move (high more recent): 0.0 at swing_high, 1.0 at swing_low.
-    # Down move (low more recent): 0.0 at swing_low, 1.0 at swing_high.
+    # Orient levels so 0.0 sits at the most recent swing and 1.0 at the prior swing.
     up_move = swing_high_idx > swing_low_idx
+    anchor, sign = (swing_high, -1.0) if up_move else (swing_low, 1.0)
     levels = [
-        FibLevel(
-            label=label,
-            price=swing_high - ratio * swing_range
-            if up_move
-            else swing_low + ratio * swing_range,
-            golden=golden,
-        )
+        FibLevel(label=label, price=anchor + sign * ratio * swing_range, golden=golden)
         for label, ratio, golden in _FIB_GRID
     ]
 
