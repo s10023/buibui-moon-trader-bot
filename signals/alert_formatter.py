@@ -16,29 +16,25 @@ _SESSION_EMOJI = {
     "NY": "🗽",
 }
 
+# ICT kill zone windows in ET hours (start inclusive, end exclusive).
+# Using ET (America/New_York) handles EST/EDT automatically so the windows stay
+# anchored to real-world session opens year-round.
+#   Asia    (Accumulation):  20:00–22:59 ET — around Tokyo open
+#   London  (Manipulation):  02:00–04:59 ET — before/around London open (~03:00 ET)
+#   NY      (Distribution):  07:00–09:59 ET — before/around NY open (09:30 ET)
+_KILL_ZONES: list[tuple[str, int, int]] = [
+    ("Asia", 20, 23),
+    ("London", 2, 5),
+    ("NY", 7, 10),
+]
+
 
 def _get_session_label(dt: datetime) -> str:
-    """Return the ICT kill zone label for a datetime, or empty string if outside.
-
-    ICT kill zones (ET, DST-aware via America/New_York):
-    - Asia    (Accumulation):  20:00–22:59 ET — around Tokyo open
-    - London  (Manipulation):  02:00–04:59 ET — before/around London open (~03:00 ET)
-    - NY      (Distribution):  07:00–09:59 ET — before/around NY open (09:30 ET)
-
-    Using ET (America/New_York) handles EST/EDT transitions automatically so the
-    windows stay anchored to the correct real-world session opens year-round.
-    """
-    dt_et = dt.astimezone(_ET)
-    hour = dt_et.hour
-    # Asia KZ: 8 PM – 11 PM ET
-    if 20 <= hour < 23:
-        return "Asia"
-    # London KZ: 2 AM – 5 AM ET
-    if 2 <= hour < 5:
-        return "London"
-    # NY KZ: 7 AM – 10 AM ET
-    if 7 <= hour < 10:
-        return "NY"
+    """Return the ICT kill zone label for a datetime, or empty string if outside."""
+    hour = dt.astimezone(_ET).hour
+    for label, start, end in _KILL_ZONES:
+        if start <= hour < end:
+            return label
     return ""
 
 
@@ -65,15 +61,9 @@ class StatsContext:
     avg_return_today: float = 0.0  # avg directional return this DOW, e.g. +0.021
     peak_high_hour_dow: int | None = None  # per-DOW peak high hour (MODE per DOW)
     peak_low_hour_dow: int | None = None  # per-DOW peak low hour
-    wk_low_still_ahead_pct: float | None = (
-        None  # % weeks where weekly low still to come
-    )
-    wk_high_still_ahead_pct: float | None = (
-        None  # % weeks where weekly high still to come
-    )
-    adr_move_up: bool | None = (
-        None  # True if today's move was upward (close > range midpoint)
-    )
+    wk_low_still_ahead_pct: float | None = None
+    wk_high_still_ahead_pct: float | None = None
+    adr_move_up: bool | None = None
     wk_low_still_ahead_conditioned_pct: float | None = None
     wk_high_still_ahead_conditioned_pct: float | None = None
     wk_move_bucket: str | None = None  # "small" | "medium" | "large"
@@ -92,6 +82,28 @@ def _adr_bar(consumed_pct: float) -> str:
     return f"[{bar}{suffix}]"
 
 
+def _weekly_timing_part(ctx: "StatsContext", is_long: bool) -> str | None:
+    """Format the weekly-framing fragment for the stats line.
+
+    Prefers the conditioned (by move bucket) value, then falls back to unconditional.
+    Returns None when no weekly data is available.
+    """
+    if is_long:
+        cond_pct = ctx.wk_low_still_ahead_conditioned_pct
+        plain_pct = ctx.wk_low_still_ahead_pct
+        label = "Weekly low"
+    else:
+        cond_pct = ctx.wk_high_still_ahead_conditioned_pct
+        plain_pct = ctx.wk_high_still_ahead_pct
+        label = "Weekly high"
+
+    if cond_pct is not None and ctx.wk_move_bucket is not None:
+        return f"{label}: {cond_pct:.0%} still ahead ({ctx.wk_move_bucket} move)"
+    if plain_pct is not None:
+        return f"{label}: {plain_pct:.0%} still ahead"
+    return None
+
+
 def _format_stats_line(ctx: "StatsContext", direction: str) -> str:
     """Format the stats context as two plain-English lines for Telegram.
 
@@ -99,8 +111,7 @@ def _format_stats_line(ctx: "StatsContext", direction: str) -> str:
     Line 2: TP window (peak hour for target direction) + weekly timing
     """
     dow_short = ctx.today_dow[:3]
-    dow_plural = ctx.today_dow + "s"  # e.g. "Mondays"
-
+    dow_plural = ctx.today_dow + "s"
     avg_ret_str = f"{ctx.avg_return_today:+.1%}"
     bull_str = (
         f"{dow_short} closes bullish {ctx.bull_pct_today:.0%} ({avg_ret_str} avg)"
@@ -108,55 +119,28 @@ def _format_stats_line(ctx: "StatsContext", direction: str) -> str:
 
     is_long = direction != "short"
     # "still ahead" = probability the directional extreme has NOT been set yet.
-    # High number = caution (likely more adverse move coming).
-    # Low number = favourable (extreme likely already behind you).
+    # High = caution (likely more adverse move coming). Low = favourable.
     if is_long:
-        still_ahead = 1 - ctx.p1_low_pct_today
-        p1_str = f"Low still ahead {still_ahead:.0%} of {dow_plural}"
+        p1_str = f"Low still ahead {1 - ctx.p1_low_pct_today:.0%} of {dow_plural}"
     else:
-        still_ahead = ctx.p1_low_pct_today
-        p1_str = f"High still ahead {still_ahead:.0%} of {dow_plural}"
+        p1_str = f"High still ahead {ctx.p1_low_pct_today:.0%} of {dow_plural}"
 
     if ctx.adr_consumed_pct is not None:
-        bar = _adr_bar(ctx.adr_consumed_pct)
-        adr_str = f"ADR {bar} {ctx.adr_consumed_pct:.0%} · {ctx.adr_14:.1%}"
+        adr_str = f"ADR {_adr_bar(ctx.adr_consumed_pct)} {ctx.adr_consumed_pct:.0%} · {ctx.adr_14:.1%}"
     else:
         adr_str = f"ADR {ctx.adr_14:.1%}"
 
     line1 = f"📐 {bull_str} · {p1_str} · {adr_str}"
 
-    parts2 = []
-    if is_long and ctx.peak_high_hour_dow is not None:
-        parts2.append(
-            f"TP window: high ~{ctx.peak_high_hour_dow:02d}:00 MYT on {dow_plural}"
-        )
-    elif not is_long and ctx.peak_low_hour_dow is not None:
-        parts2.append(
-            f"TP window: low ~{ctx.peak_low_hour_dow:02d}:00 MYT on {dow_plural}"
-        )
+    parts2: list[str] = []
+    peak_hour = ctx.peak_high_hour_dow if is_long else ctx.peak_low_hour_dow
+    if peak_hour is not None:
+        extreme = "high" if is_long else "low"
+        parts2.append(f"TP window: {extreme} ~{peak_hour:02d}:00 MYT on {dow_plural}")
 
-    if is_long:
-        if (
-            ctx.wk_low_still_ahead_conditioned_pct is not None
-            and ctx.wk_move_bucket is not None
-        ):
-            parts2.append(
-                f"Weekly low: {ctx.wk_low_still_ahead_conditioned_pct:.0%} still ahead"
-                f" ({ctx.wk_move_bucket} move)"
-            )
-        elif ctx.wk_low_still_ahead_pct is not None:
-            parts2.append(f"Weekly low: {ctx.wk_low_still_ahead_pct:.0%} still ahead")
-    elif not is_long:
-        if (
-            ctx.wk_high_still_ahead_conditioned_pct is not None
-            and ctx.wk_move_bucket is not None
-        ):
-            parts2.append(
-                f"Weekly high: {ctx.wk_high_still_ahead_conditioned_pct:.0%} still ahead"
-                f" ({ctx.wk_move_bucket} move)"
-            )
-        elif ctx.wk_high_still_ahead_pct is not None:
-            parts2.append(f"Weekly high: {ctx.wk_high_still_ahead_pct:.0%} still ahead")
+    weekly_part = _weekly_timing_part(ctx, is_long)
+    if weekly_part is not None:
+        parts2.append(weekly_part)
 
     if parts2:
         return line1 + "\n🎯 " + " · ".join(parts2)
@@ -174,17 +158,17 @@ class ConfluenceData:
     each entry is a pre-formatted string appended to the blockquote.
     """
 
-    co_strategy: str  # the strategy that co-fired (not the primary alert strategy)
-    candles_ago: int  # 0 = same candle, N = N candles before current signal
-    avg_r: float  # backtest combo avg R
-    trades: int  # backtest combo closed trades
-    win_rate: float  # 0.0–1.0
-    type_a: str  # strategy_type of co_strategy (e.g. "fib")
-    type_b: str  # strategy_type of primary strategy (e.g. "structural")
-    orderflow_signals: list[str] = field(default_factory=list)  # step 5: OI/CVD/NPOC
+    co_strategy: str
+    candles_ago: int
+    avg_r: float
+    trades: int
+    win_rate: float
+    type_a: str
+    type_b: str
+    orderflow_signals: list[str] = field(default_factory=list)
     # Cross-TF fields (empty string = same-TF combo).
-    htf_tf: str = ""  # HTF timeframe, e.g. "4h" — set for cross-TF confluences
-    ltf_tf: str = ""  # LTF timeframe, e.g. "15m" — set for cross-TF confluences
+    htf_tf: str = ""
+    ltf_tf: str = ""
 
 
 @dataclass
@@ -193,23 +177,17 @@ class SignalEvent:
     timeframe: str
     strategy: str
     direction: str  # "long" | "short"
-    reason: str  # raw reason string from detector (e.g. "fvg_long@43200.00-43350.00")
+    reason: str
     open_time: int  # Unix ms of the signal candle
     price: float  # close price of the signal candle
     sl_price: float = 0.0  # structural invalidation level (0 = use sl_pct fallback)
-    context: str = ""  # human-readable pattern context (e.g. candle timestamps)
+    context: str = ""  # human-readable pattern context
     confidence: int = 0  # 1–5 editorial quality score (0 = unset); shown as stars
     conflict: bool = False  # True when opposing direction fired same cycle
-    low_volume: bool = False  # True when volume was below confirmation threshold
-    volume_spike: bool = (
-        False  # True when volume was above 3× rolling mean (high conviction)
-    )
-    tp_price: float = (
-        0.0  # structural TP from detector (e.g. 1.618 fib ext); 0 = use tp_r fallback
-    )
-    confluence_combo: "ConfluenceData | None" = (
-        None  # set by _find_live_cofire when a known-good pair co-fired recently
-    )
+    low_volume: bool = False
+    volume_spike: bool = False
+    tp_price: float = 0.0  # structural TP from detector; 0 = use tp_r fallback
+    confluence_combo: "ConfluenceData | None" = None
 
 
 # ---------------------------------------------------------------------------
@@ -252,11 +230,10 @@ def _wick_rejection_against(
     if total_range == 0:
         return False
     if direction == "long":
-        upper_wick = h - max(o, c)
-        return upper_wick / total_range > 0.40
+        wick_against = h - max(o, c)
     else:
-        lower_wick = min(o, c) - lo
-        return lower_wick / total_range > 0.40
+        wick_against = min(o, c) - lo
+    return wick_against / total_range > 0.40
 
 
 def _has_equal_levels(
@@ -281,11 +258,14 @@ def _has_equal_levels(
         candidates = [float(v) for v in hist["high"].values if float(v) > price]
     if len(candidates) < 2:
         return False
-    for i in range(len(candidates)):
-        for j in range(i + 1, len(candidates)):
-            if abs(candidates[i] - candidates[j]) / price <= tol_pct:
-                return True
-    return False
+    # Sorted adjacency scan: if any pair is within tolerance, the closest pair
+    # must be adjacent after sorting — O(n log n) vs the prior O(n²) double loop.
+    candidates.sort()
+    tolerance = price * tol_pct
+    return any(
+        candidates[i + 1] - candidates[i] <= tolerance
+        for i in range(len(candidates) - 1)
+    )
 
 
 def _has_consecutive_candles(df: pd.DataFrame, direction: str, n: int = 3) -> bool:
@@ -293,12 +273,9 @@ def _has_consecutive_candles(df: pd.DataFrame, direction: str, n: int = 3) -> bo
     if len(df) < n:
         return False
     recent = df.tail(n)
-    closes = recent["close"].values
-    opens = recent["open"].values
     if direction == "long":
-        return all(closes[i] > opens[i] for i in range(len(closes)))
-    else:
-        return all(closes[i] < opens[i] for i in range(len(closes)))
+        return bool((recent["close"] > recent["open"]).all())
+    return bool((recent["close"] < recent["open"]).all())
 
 
 def _build_candle_warnings(
@@ -312,7 +289,6 @@ def _build_candle_warnings(
     """
     notes: list[str] = []
 
-    # Volume conviction note (moved from header for section consolidation)
     if any(e.volume_spike for e in events):
         notes.append("⚡ Volume spike — high conviction")
     elif any(e.low_volume for e in events):
@@ -322,20 +298,22 @@ def _build_candle_warnings(
         return notes
 
     last = ohlcv_df.iloc[-1]
-    o = float(last["open"])
-    h = float(last["high"])
-    lo = float(last["low"])
-    c = float(last["close"])
+    o, h, lo, c = (
+        float(last["open"]),
+        float(last["high"]),
+        float(last["low"]),
+        float(last["close"]),
+    )
     prev = ohlcv_df.iloc[-2]
     prev_h = float(prev["high"])
     prev_l = float(prev["low"])
     direction = events[0].direction
     price = events[0].price
+    is_doji = _is_doji(o, h, lo, c)
 
-    # W7: Doji — check before marubozu (doji has no dominant body to call wickless)
-    if _is_doji(o, h, lo, c):
+    # W7/W1: doji takes precedence over marubozu (doji has no dominant body).
+    if is_doji:
         notes.append("⚠️ Doji signal candle — direction uncertain")
-    # W1: Marubozu (wickless body)
     elif _is_marubozu(o, h, lo, c):
         notes.append("⚠️ Wickless candle — body tends to fill first")
 
@@ -344,7 +322,7 @@ def _build_candle_warnings(
         notes.append("⚠️ Signal inside prior range — breakout unconfirmed")
 
     # W5: Wick rejection against direction (skip on doji — no dominant wick)
-    if not _is_doji(o, h, lo, c) and _wick_rejection_against(o, h, lo, c, direction):
+    if not is_doji and _wick_rejection_against(o, h, lo, c, direction):
         wick_label = "Upper" if direction == "long" else "Lower"
         notes.append(f"⚠️ {wick_label} wick rejection — price resisted signal direction")
 
@@ -386,9 +364,81 @@ def _widest_sl(
     if direction == "long":
         valid = [e.sl_price for e in events if 0 < e.sl_price < price]
         return min(valid) if valid else price * (1 - sl_pct)
+    valid = [e.sl_price for e in events if e.sl_price > price]
+    return max(valid) if valid else price * (1 + sl_pct)
+
+
+def _apply_min_sl_floor(
+    price: float, sl_price: float, direction: str, min_sl_pct: float
+) -> float:
+    """Widen SL so the distance from price is at least min_sl_pct of price."""
+    if min_sl_pct <= 0:
+        return sl_price
+    min_dist = price * min_sl_pct
+    if direction == "long" and (price - sl_price) < min_dist:
+        return price - min_dist
+    if direction == "short" and (sl_price - price) < min_dist:
+        return price + min_dist
+    return sl_price
+
+
+def _candles_ago_str(n: int) -> str:
+    if n == 0:
+        return "this candle"
+    if n == 1:
+        return "1 candle ago"
+    return f"{n} candles ago"
+
+
+def _format_cofire_block(cofire: "ConfluenceData") -> str:
+    """Render the co-firing confluence blockquote (with optional orderflow lines)."""
+    ago_str = _candles_ago_str(cofire.candles_ago)
+    if cofire.htf_tf:
+        header = (
+            f"\n> ⚡⚡ CONFLUENCE ({cofire.htf_tf} → {cofire.ltf_tf})"
+            f"\n> {cofire.co_strategy} ({cofire.htf_tf}) {ago_str}"
+        )
     else:
-        valid = [e.sl_price for e in events if e.sl_price > price]
-        return max(valid) if valid else price * (1 + sl_pct)
+        header = f"\n> ⚡⚡ CONFLUENCE\n> {cofire.co_strategy} co-fired {ago_str}"
+    block = (
+        header + f"\n> Combo avg R: +{cofire.avg_r:.2f}R"
+        f" · {cofire.trades} trades"
+        f" · {cofire.win_rate:.1%} win"
+        f"\n> Types: {cofire.type_a} + {cofire.type_b}"
+    )
+    for sig in cofire.orderflow_signals:
+        block += f"\n> {sig}"
+    return block
+
+
+def _format_header(events: list["SignalEvent"], direction_label: str) -> str:
+    """Section 1 header — single-strategy layout or stacked confluence layout."""
+    first = events[0]
+    if len(events) == 1:
+        ev = first
+        stars = f"  {_stars(ev.confidence)}" if ev.confidence else ""
+        conflict_tag = " ⚠️ conflict" if ev.conflict else ""
+        header = (
+            f"<b>SIGNAL — {ev.symbol} {ev.timeframe}  ·  {direction_label}</b>\n"
+            f"<code>{ev.strategy}</code>{stars}{conflict_tag}\n"
+            f"<code>{ev.reason}</code>\n"
+        )
+        if ev.context:
+            header += f"{ev.context}\n"
+        return header
+
+    header = (
+        f"<b>SIGNAL — {first.symbol} {first.timeframe}  ·  {direction_label}</b>\n"
+        f"Confluence: {len(events)} strategies\n"
+    )
+    for ev in events:
+        stars = f" {_stars(ev.confidence)}" if ev.confidence else ""
+        conflict_tag = " ⚠️ conflict" if ev.conflict else ""
+        line = f"• <code>{ev.strategy}</code>{stars} — <code>{ev.reason}</code>{conflict_tag}"
+        if ev.context:
+            line += f"  ({ev.context})"
+        header += line + "\n"
+    return header
 
 
 # ---------------------------------------------------------------------------
@@ -448,21 +498,19 @@ def format_confluence_alert(
       6. Context — stats lines (DOW, ADR, TP timing, weekly framing)
     """
     first = events[0]
-    direction_label = "LONG 🟢" if first.direction == "long" else "SHORT 🔴"
+    direction = first.direction
     price = first.price
-    signal_time = _fmt_time(first.open_time)
+    direction_label = "LONG 🟢" if direction == "long" else "SHORT 🔴"
+
     signal_dt = datetime.fromtimestamp(first.open_time / 1000, tz=_MYT)
     session = _get_session_label(signal_dt)
     session_line = f"{_SESSION_EMOJI[session]} {session} Kill Zone\n" if session else ""
 
-    sl_price = _widest_sl(events, first.direction, price, sl_pct)
-    if min_sl_pct > 0:
-        min_dist = price * min_sl_pct
-        if first.direction == "long" and (price - sl_price) < min_dist:
-            sl_price = price - min_dist
-        elif first.direction == "short" and (sl_price - price) < min_dist:
-            sl_price = price + min_dist
-    if first.direction == "long":
+    # Levels: widest structural SL, floored by min_sl_pct; TP prefers structural tp_price.
+    sl_price = _apply_min_sl_floor(
+        price, _widest_sl(events, direction, price, sl_pct), direction, min_sl_pct
+    )
+    if direction == "long":
         sl_dist = price - sl_price
         structural_tp = first.tp_price if first.tp_price > price else 0.0
         tp_price = structural_tp if structural_tp > 0 else price + sl_dist * tp_r
@@ -475,33 +523,11 @@ def format_confluence_alert(
     actual_r = abs(tp_price - price) / sl_dist if sl_dist > 0 else tp_r
     tp_pct_display = abs(tp_price - price) / price * 100
 
-    # --- Section 1: Header (strategy identity, no volume note) ---
-    if len(events) == 1:
-        ev = events[0]
-        stars = f"  {_stars(ev.confidence)}" if ev.confidence else ""
-        conflict_tag = " ⚠️ conflict" if ev.conflict else ""
-        header = (
-            f"<b>SIGNAL — {ev.symbol} {ev.timeframe}  ·  {direction_label}</b>\n"
-            f"<code>{ev.strategy}</code>{stars}{conflict_tag}\n"
-            f"<code>{ev.reason}</code>\n"
-        )
-        if ev.context:
-            header += f"{ev.context}\n"
-    else:
-        header = (
-            f"<b>SIGNAL — {first.symbol} {first.timeframe}  ·  {direction_label}</b>\n"
-            f"Confluence: {len(events)} strategies\n"
-        )
-        for ev in events:
-            stars = f" {_stars(ev.confidence)}" if ev.confidence else ""
-            conflict_tag = " ⚠️ conflict" if ev.conflict else ""
-            line = f"• <code>{ev.strategy}</code>{stars} — <code>{ev.reason}</code>{conflict_tag}"
-            if ev.context:
-                line += f"  ({ev.context})"
-            header += line + "\n"
+    # --- Section 1: Header ---
+    header = _format_header(events, direction_label)
 
     # --- Section 2: Entry ---
-    entry_line = f"{price:,.2f}  ·  {signal_time} MYT\n"
+    entry_line = f"{price:,.2f}  ·  {_fmt_time(first.open_time)} MYT\n"
 
     # --- Section 3: Levels ---
     sl_tp = (
@@ -509,7 +535,7 @@ def format_confluence_alert(
         f"TP: {tp_price:,.2f}  ({tp_pct_display:.1f}%  ·  {actual_r:.1f}R)"
     )
 
-    # --- Section 4: Warnings (consolidated — volume, candle, structural, momentum) ---
+    # --- Section 4: Warnings ---
     warnings = _build_candle_warnings(events, ohlcv_df)
     if cme_gap_warning:
         warnings.append(cme_gap_warning)
@@ -526,35 +552,14 @@ def format_confluence_alert(
         default=None,
     )
     if best_cofire is not None:
-        if best_cofire.candles_ago == 0:
-            ago_str = "this candle"
-        elif best_cofire.candles_ago == 1:
-            ago_str = "1 candle ago"
-        else:
-            ago_str = f"{best_cofire.candles_ago} candles ago"
-        if best_cofire.htf_tf:
-            cofire_header = (
-                f"\n> ⚡⚡ CONFLUENCE ({best_cofire.htf_tf} → {best_cofire.ltf_tf})"
-                f"\n> {best_cofire.co_strategy} ({best_cofire.htf_tf}) {ago_str}"
-            )
-        else:
-            cofire_header = (
-                f"\n> ⚡⚡ CONFLUENCE\n> {best_cofire.co_strategy} co-fired {ago_str}"
-            )
-        cofire_block = (
-            cofire_header + f"\n> Combo avg R: +{best_cofire.avg_r:.2f}R"
-            f" · {best_cofire.trades} trades"
-            f" · {best_cofire.win_rate:.1%} win"
-            f"\n> Types: {best_cofire.type_a} + {best_cofire.type_b}"
-        )
-        for sig in best_cofire.orderflow_signals:
-            cofire_block += f"\n> {sig}"
-        edge_block += f"\n{cofire_block}"
+        edge_block += f"\n{_format_cofire_block(best_cofire)}"
 
     # --- Section 6: Context (stats) ---
-    stats_block = ""
-    if stats_context is not None:
-        stats_block = f"\n\n{_format_stats_line(stats_context, first.direction)}"
+    stats_block = (
+        f"\n\n{_format_stats_line(stats_context, direction)}"
+        if stats_context is not None
+        else ""
+    )
 
     return (
         header

@@ -7,22 +7,27 @@ State is persisted to a JSON file so dedup survives daemon restarts.
 """
 
 import json
+from contextlib import suppress
 from pathlib import Path
+
+
+def _key(symbol: str, timeframe: str, strategy: str) -> str:
+    return f"{symbol}:{timeframe}:{strategy}"
 
 
 class CooldownStore:
     def __init__(self, state_file: str) -> None:
         self._path = Path(state_file)
-        self._watermarks: dict[str, int] = {}  # "symbol:tf:strategy" → open_time ms
+        self._watermarks: dict[str, int] = {}
         self._load()
 
     def _load(self) -> None:
-        if self._path.exists():
-            try:
-                data = json.loads(self._path.read_text())
-                self._watermarks = data.get("watermarks", {})
-            except (json.JSONDecodeError, OSError):
-                pass
+        if not self._path.exists():
+            return
+        # Corrupted or unreadable state file: start empty rather than crash the daemon.
+        with suppress(json.JSONDecodeError, OSError):
+            data = json.loads(self._path.read_text())
+            self._watermarks = data.get("watermarks", {})
 
     def _save(self) -> None:
         self._path.write_text(json.dumps({"watermarks": self._watermarks}, indent=2))
@@ -31,13 +36,11 @@ class CooldownStore:
         self, symbol: str, timeframe: str, strategy: str, open_time: int
     ) -> bool:
         """Return True if open_time is newer than the last alerted candle."""
-        key = f"{symbol}:{timeframe}:{strategy}"
-        return self._watermarks.get(key, -1) < open_time
+        return self._watermarks.get(_key(symbol, timeframe, strategy), -1) < open_time
 
     def mark_candle(
         self, symbol: str, timeframe: str, strategy: str, open_time: int
     ) -> None:
         """Record open_time as the last alerted candle and persist."""
-        key = f"{symbol}:{timeframe}:{strategy}"
-        self._watermarks[key] = open_time
+        self._watermarks[_key(symbol, timeframe, strategy)] = open_time
         self._save()

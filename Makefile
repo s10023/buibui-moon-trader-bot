@@ -306,6 +306,7 @@ buibui-signal-test:
 		$(if $(TIMEFRAME),--timeframe $(TIMEFRAME),) \
 		$(if $(STRATEGY),--strategy $(STRATEGY),) \
 		$(if $(AT),--at $(AT),) \
+		$(if $(SINCE),--since $(SINCE),) \
 		$(if $(LOOKBACK),--lookback $(LOOKBACK),) \
 		$(if $(DIRECTION),--direction $(DIRECTION),) \
 		$(if $(TELEGRAM),--telegram,)

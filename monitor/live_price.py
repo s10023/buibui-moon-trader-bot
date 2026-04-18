@@ -24,6 +24,8 @@ HEADERS = PRICE_HEADERS
 KLINE_REFRESH_INTERVAL = 60
 # Abort the process after this many seconds with no successful WS message.
 WS_SILENCE_TIMEOUT = 120
+
+_KLINE_INTERVALS: list[tuple[str, int]] = [("15m", 15), ("1h", 60), ("4h", 240)]
 _SORT_COL_MAP: dict[str, int] = {
     "change_15m": HEADERS.index("15m %"),
     "change_1h": HEADERS.index("1h %"),
@@ -39,30 +41,35 @@ def _handle_ws_msg(msg: dict[str, Any], store: LiveDataStore) -> None:
         store.set_ws_status(connected=False)
         return
     data: dict[str, Any] = msg.get("data", msg)
-    if data.get("e") == "24hrMiniTicker":
-        try:
-            store.update_ticker(data["s"], float(data["c"]), float(data["o"]))
-        except (KeyError, ValueError):
-            logging.warning("Malformed miniTicker message: %s", msg)
+    if data.get("e") != "24hrMiniTicker":
+        return
+    try:
+        store.update_ticker(data["s"], float(data["c"]), float(data["o"]))
+    except (KeyError, ValueError):
+        logging.warning("Malformed miniTicker message: %s", msg)
 
 
 def _refresh_klines(client: Any, symbols: list[str], store: LiveDataStore) -> None:
     """Fetch kline open prices for all symbols and write to store."""
-    kline_map = batch_get_klines(
-        client, symbols, [("15m", 15), ("1h", 60), ("4h", 240)]
-    )
+    kline_map = batch_get_klines(client, symbols, _KLINE_INTERVALS)
     asia_map = batch_get_asia_open(client, symbols)
+
+    def _open(sym: str, interval: str) -> float | None:
+        k = kline_map.get((sym, interval))
+        return float(k[1]) if k else None
+
     for sym in symbols:
-        k15 = kline_map.get((sym, "15m"))
-        k60 = kline_map.get((sym, "1h"))
-        k240 = kline_map.get((sym, "4h"))
         store.update_klines(
             sym,
-            float(k15[1]) if k15 else None,
-            float(k60[1]) if k60 else None,
-            float(k240[1]) if k240 else None,
+            _open(sym, "15m"),
+            _open(sym, "1h"),
+            _open(sym, "4h"),
             asia_map.get(sym),
         )
+
+
+def _pct_change(last: float, base: float | None) -> float | None:
+    return ((last - base) / base * 100) if base else None
 
 
 def _build_table(
@@ -75,7 +82,10 @@ def _build_table(
     result = store.snapshot(symbols)
     ts = result.last_update.strftime("%H:%M:%S") if result.last_update else "--:--:--"
     if result.ws_connected:
-        title = f"\U0001f4c8 Live Crypto Price Monitor \u2014 Buibui Moon Bot  |  Last update: {ts}"
+        title = (
+            f"\U0001f4c8 Live Crypto Price Monitor \u2014 Buibui Moon Bot  "
+            f"|  Last update: {ts}"
+        )
     else:
         title = f"\u26a0\ufe0f  WebSocket reconnecting...  |  Last update: {ts}"
 
@@ -83,37 +93,30 @@ def _build_table(
     for header in HEADERS:
         table.add_column(header, justify="right")
 
-    # Build raw rows with float pct values for sorting
-    # Format: [symbol, price_str_or_none, pct_15m, pct_1h, pct_4h, pct_asia, pct_24h]
+    # Raw rows for sorting: [symbol, price_str_or_none, pct_15m, pct_1h, pct_4h, pct_asia, pct_24h]
     raw_rows: list[list[Any]] = []
     for sym in symbols:
         snap = result.data[sym]
         ticker: TickerData | None = snap.ticker
-        klines: KlineData | None = snap.klines
-
         if ticker is None:
             raw_rows.append([sym, None, None, None, None, None, None])
             continue
 
+        klines: KlineData | None = snap.klines
         last = ticker.last_price
         open_15m = klines.open_15m if klines else None
         open_1h = klines.open_1h if klines else None
         open_4h = klines.open_4h if klines else None
         asia_open = klines.asia_open if klines else None
 
-        pct_15m = ((last - open_15m) / open_15m * 100) if open_15m else None
-        pct_1h = ((last - open_1h) / open_1h * 100) if open_1h else None
-        pct_4h = ((last - open_4h) / open_4h * 100) if open_4h else None
-        pct_asia = ((last - asia_open) / asia_open * 100) if asia_open else None
-
         raw_rows.append(
             [
                 sym,
                 str(round(last, 4)),
-                pct_15m,
-                pct_1h,
-                pct_4h,
-                pct_asia,
+                _pct_change(last, open_15m),
+                _pct_change(last, open_1h),
+                _pct_change(last, open_4h),
+                _pct_change(last, asia_open),
                 ticker.change_24h,
             ]
         )
@@ -156,7 +159,6 @@ def _ws_watchdog(
         time.sleep(poll)
         result = store.snapshot([])
         if result.last_update is not None:
-            # Reset baseline whenever a real message was received.
             baseline = time.monotonic()
         elapsed = time.monotonic() - baseline
         if elapsed >= timeout:
@@ -181,6 +183,12 @@ def _kline_refresh_loop(
             _refresh_klines(client, symbols, store)
         except Exception:
             logging.exception("Kline refresh failed; retrying in %ds", interval)
+
+
+def _start_daemon(target: Any, args: tuple[Any, ...]) -> threading.Thread:
+    thread = threading.Thread(target=target, args=args, daemon=True)
+    thread.start()
+    return thread
 
 
 def run(
@@ -211,23 +219,9 @@ def run(
 
         twm.start_multiplex_socket(callback=ws_callback, streams=streams)
 
-        # 3. Kline refresh daemon
-        kline_thread = threading.Thread(
-            target=_kline_refresh_loop,
-            args=(client, coins, store),
-            daemon=True,
-        )
-        kline_thread.start()
+        _start_daemon(_kline_refresh_loop, (client, coins, store))
+        _start_daemon(_ws_watchdog, (store,))
 
-        # 4. WS watchdog — abort after WS_SILENCE_TIMEOUT seconds of silence
-        watchdog_thread = threading.Thread(
-            target=_ws_watchdog,
-            args=(store,),
-            daemon=True,
-        )
-        watchdog_thread.start()
-
-        # 5. Rich Live render loop (blocks until Ctrl-C or watchdog aborts)
         run_live_loop(
             lambda: _build_table(coins, store, sort_col, sort_order),
             interval=1.0,

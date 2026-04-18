@@ -225,12 +225,21 @@ def run_signal_test(args: argparse.Namespace) -> None:
         if sym in coins_config and "smt_secondary" in coins_config[sym]
     }
 
+    # Resolve since_ms: explicit --since > config's backtest.since (when --lookback
+    # is still at its default, meaning the user hasn't explicitly overridden it).
+    since_ms: int | None = None
+    if getattr(args, "since", None):
+        since_ms = _parse_since_to_ms(args.since)
+    elif args.lookback == 200 and cfg.backtest and cfg.backtest.since:
+        since_ms = _parse_since_to_ms(cfg.backtest.since)
+
     kwargs: dict[str, object] = dict(
         symbols=symbols,
         timeframes=timeframes,
         strategies=strategies,
         at_ms=at_ms,
         lookback=args.lookback,
+        since_ms=since_ms,
         tp_r=tp_r,
         sl_pct=cfg.sl_pct,
         min_sl_pct=min_sl_pct,
@@ -239,6 +248,9 @@ def run_signal_test(args: argparse.Namespace) -> None:
         backtest_cfg=cfg.backtest,
         day_filter=cfg.day_filter,
         secondary_map=secondary_map or None,
+        strategy_params=cfg.strategy_params or None,
+        bias_cfg=cfg.bias if cfg.bias.adr_suppress_threshold is not None else None,
+        atr_sl_multiplier=cfg.atr_sl_multiplier,
     )
     if getattr(args, "db_path", None):
         kwargs["db_path"] = pathlib.Path(args.db_path)
@@ -608,7 +620,17 @@ def main() -> None:
         "--lookback",
         type=int,
         default=200,
-        help="Number of candles to load (default: 200).",
+        help="Number of candles to load (default: 200). Ignored when --since is set.",
+    )
+    test_parser.add_argument(
+        "--since",
+        default=None,
+        metavar="YYYY-MM-DD",
+        help=(
+            "Load all candles from this date up to --at (or now). Overrides --lookback. "
+            "When --config is provided, defaults to [backtest].since from the TOML so "
+            "results match the live daemon's history window."
+        ),
     )
     test_parser.add_argument(
         "--direction",

@@ -4,6 +4,7 @@ Maps strategy name to plugin metadata. Excluded strategies:
 - seasonality: produces stats, not actionable entry signals
 - funding_reversion: requires live funding rate feed; fetch_funding_rates() is not
   wired into data_sync.py so no funding data flows into the DB reliably.
+- fibonacci_retracement: legacy, superseded by fib_golden_zone.
 
 `requires_funding`, `requires_secondary`, and `confidence` flags live on
 `analytics.indicators_lib.STRATEGY_REGISTRY`; they are not duplicated here.
@@ -21,8 +22,6 @@ from analytics.indicators_lib import (
     detect_engulfing,
     detect_eqh_eql,
     detect_fib_golden_zone,
-    # detect_fibonacci_retracement,  # Legacy — superseded by fib_golden_zone
-    # detect_funding_extreme,  # Excluded — no live funding feed; see registry docstring
     detect_fvg,
     detect_hammer_hanging_man,
     detect_inside_bar,
@@ -44,71 +43,31 @@ DetectorFn = Callable[..., pd.DataFrame]
 
 class SignalPlugin(TypedDict):
     detector: DetectorFn
-    # NOTE: confidence removed — resolved per-TF via STRATEGY_REGISTRY[name].get_confidence(tf)
+
+
+_DETECTORS: dict[str, DetectorFn] = {
+    "wick_fill": detect_wick_fills,
+    "marubozu": detect_marubozu_retest,
+    "orb": detect_orb_breakout,
+    "liquidity_sweep": detect_liquidity_sweep,
+    "fvg": detect_fvg,
+    "bos": detect_market_structure,
+    "smt_divergence": detect_smt_divergence,
+    "eqh_eql": detect_eqh_eql,
+    "order_block": detect_order_block,
+    "cvd_divergence": detect_cvd_divergence,
+    "trend_day": detect_trend_day,
+    "engulfing": detect_engulfing,
+    "pin_bar": detect_pin_bar,
+    "inside_bar": detect_inside_bar,
+    "hammer_hanging_man": detect_hammer_hanging_man,
+    "doji": detect_doji,
+    "morning_evening_star": detect_morning_evening_star,
+    "fib_golden_zone": detect_fib_golden_zone,
+    "ote_entry": detect_ote_entry,
+}
 
 
 SIGNAL_REGISTRY: dict[str, SignalPlugin] = {
-    "wick_fill": SignalPlugin(
-        detector=detect_wick_fills,
-    ),
-    "marubozu": SignalPlugin(
-        detector=detect_marubozu_retest,
-    ),
-    "orb": SignalPlugin(
-        detector=detect_orb_breakout,
-    ),
-    "liquidity_sweep": SignalPlugin(
-        detector=detect_liquidity_sweep,
-    ),
-    "fvg": SignalPlugin(
-        detector=detect_fvg,
-    ),
-    "bos": SignalPlugin(
-        detector=detect_market_structure,
-    ),
-    # funding_reversion excluded — requires live funding rate feed;
-    # fetch_funding_rates() not wired into data_sync so DB data is stale/partial.
-    "smt_divergence": SignalPlugin(
-        detector=detect_smt_divergence,
-    ),
-    "eqh_eql": SignalPlugin(
-        detector=detect_eqh_eql,
-    ),
-    "order_block": SignalPlugin(
-        detector=detect_order_block,
-    ),
-    "cvd_divergence": SignalPlugin(
-        detector=detect_cvd_divergence,
-    ),
-    "trend_day": SignalPlugin(
-        detector=detect_trend_day,
-    ),
-    "engulfing": SignalPlugin(
-        detector=detect_engulfing,
-    ),
-    "pin_bar": SignalPlugin(
-        detector=detect_pin_bar,
-    ),
-    "inside_bar": SignalPlugin(
-        detector=detect_inside_bar,
-    ),
-    "hammer_hanging_man": SignalPlugin(
-        detector=detect_hammer_hanging_man,
-    ),
-    "doji": SignalPlugin(
-        detector=detect_doji,
-    ),
-    "morning_evening_star": SignalPlugin(
-        detector=detect_morning_evening_star,
-    ),
-    # Legacy — superseded by fib_golden_zone. Uncomment to re-enable.
-    # "fibonacci_retracement": SignalPlugin(
-    #     detector=detect_fibonacci_retracement,
-    # ),
-    "fib_golden_zone": SignalPlugin(
-        detector=detect_fib_golden_zone,
-    ),
-    "ote_entry": SignalPlugin(
-        detector=detect_ote_entry,
-    ),
+    name: SignalPlugin(detector=fn) for name, fn in _DETECTORS.items()
 }
