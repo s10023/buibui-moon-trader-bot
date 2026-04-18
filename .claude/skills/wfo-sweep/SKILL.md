@@ -1,7 +1,6 @@
 ---
 name: wfo-sweep
 description: "Full automated Walk-Forward Optimization chain: param-audit → param-sweep → apply tp_r to TOML → backtest → recalibrate → commit. Use when a config feels stale, after adding strategies, or whenever the user wants to refresh tp_r values. One command does the whole chain."
-disable-model-invocation: true
 ---
 
 # WFO Sweep — Full Automated Parameter Refresh

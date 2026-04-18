@@ -1,7 +1,6 @@
 ---
 name: recalibrate
 description: "Update strategy star ratings from backtest results. Always use this after any `make buibui-backtest SAVE=1` run — star ratings won't reflect new data until recalibration runs. Also use when the user asks about confidence scores, star ratings, or strategy quality, or wants to apply recalibration."
-disable-model-invocation: true
 ---
 
 # Recalibrate Strategy Star Ratings

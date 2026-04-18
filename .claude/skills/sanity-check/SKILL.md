@@ -1,7 +1,6 @@
 ---
 name: sanity-check
 description: "Full project health check — CI, wiring audit, docs sync, skills freshness, architecture review. Run this weekly, after any large refactor or merge, or whenever something feels off about the codebase."
-disable-model-invocation: true
 ---
 
 # Sanity Check Skill

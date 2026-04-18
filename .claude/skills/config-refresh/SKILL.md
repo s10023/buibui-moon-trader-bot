@@ -1,7 +1,6 @@
 ---
 name: config-refresh
 description: "Full TOML refresh from a TP sweep — fixes strategy_timeframes gaps, updates tp_r per strategy × TF, validates, and commits. Run when a signal_watch config feels stale (30+ days since last sweep), after any detector rewrite, or when adding a new strategy that needs calibration."
-disable-model-invocation: true
 ---
 
 # Config Refresh — Full TOML Update from TP Sweep

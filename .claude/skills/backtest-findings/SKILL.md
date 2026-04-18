@@ -1,7 +1,6 @@
 ---
 name: backtest-findings
 description: "Interpret backtest sweep tables (ATR/TP/volume/duration) and commit winning params to TOML. Always use this after any sweep run — even when you're just reading a table and not sure what to do with it."
-disable-model-invocation: true
 ---
 
 # Backtest Findings — Interpreting Sweep Output
