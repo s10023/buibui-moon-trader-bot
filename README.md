@@ -20,7 +20,7 @@ A tactical crypto trading bot designed for fast, risk-managed, and confident ent
   Get regular position snapshots via Telegram bot.
 
 - **24/7 Signal Detection Daemon**
-  Polls closed candles every 5 minutes, runs 19 strategies (FVG, BOS, liquidity sweep, SMT divergence,
+  Polls closed candles every 5 minutes, runs 21 strategies (FVG, BOS, liquidity sweep, SMT divergence,
   CVD divergence, and more), and sends Telegram alerts with computed SL/TP levels. Two-layer dedup prevents spam.
   Alerts include a 2-line statistical context: direction-aware P1/P2 day bias, ADR consumed %, per-DOW empirical peak hour, and weekly P2 timing probability.
 
@@ -29,9 +29,6 @@ A tactical crypto trading bot designed for fast, risk-managed, and confident ent
   P1/P2 daily (was low made before high? by day-of-week), hourly extreme distribution (empirical kill zones),
   average daily range + today's consumed %, day-of-week patterns, session (Asia/London/NY) breakdown, and
   weekly P1/P2, avg return by day-of-week, and weekly P2 timing with P1 flip risk. Cached in DB, served via `GET /api/stats/{symbol}`, shown on the Stats web page.
-
-- **Manual Multi-Trade Entry Script** *(planned)*
-  Open multiple trades (BTC, ETH, alts) in one go, using USD-based sizing with automatic SL & leverage.
 
 ---
 
@@ -67,15 +64,23 @@ buibui-moon-trader-bot/
 │   ├── data_store.py                # Pure DuckDB read/write (schema, upsert, query helpers); tables: ohlcv, funding_rates, open_interest, signals, signal_alert_outcomes, backtest_runs, backtest_trades, stats_cache
 │   ├── data_sync.py                 # Backfill + incremental sync orchestration
 │   ├── indicators_lib.py            # Pure strategy signal detection (21 active strategies + STRATEGY_REGISTRY + DETECTOR_REGISTRY)
-│   ├── signal_config.py             # Pure config loader: SignalWatchConfig + load_signal_config()
+│   ├── signal_config.py             # Pure config loader: SignalWatchConfig, BacktestFilterConfig, BiasConfig, ComboConfig; TOML extends support
 │   ├── signal_lib.py                # Pure scan lib: scan_symbol(), run_scan_cycle(); injects StatsContext into alerts
-│   ├── stats_lib.py                 # Pure stats lib: compute_p1p2_daily, compute_hourly_extremes, compute_adr, compute_dow_patterns, compute_session_breakdown, compute_weekly_p1p2, compute_all → StatsBundle
 │   ├── signal_runner.py             # Signal daemon thin wrapper (creates client, opens DB, polls)
-│   └── backtest_config.py           # BacktestSweepConfig + load_backtest_config() for TOML sweep mode
+│   ├── signal_test_runner.py        # Historical replay: no DB writes, no cooldown; --at / --lookback
+│   ├── stats_lib.py                 # Pure stats lib: compute_p1p2_daily, compute_hourly_extremes, compute_adr, compute_dow_patterns, compute_session_breakdown, compute_weekly_p1p2, compute_all → StatsBundle
+│   ├── backtest_config.py           # BacktestSweepConfig + load_backtest_config() for TOML sweep mode
+│   ├── param_sweep.py               # WFO sweep lib: run_param_sweep / run_strategy_audit; parallelized via ProcessPoolExecutor
+│   ├── digest_lib.py                # 12 pre-canned SQL queries; run_digest; DigestScope; powers buibui digest
+│   ├── cme_gap_lib.py               # CME gap detection + alert warning helper
+│   ├── zones_lib.py                 # Structural zone extraction (geometry only): FVG, OB, EQH/EQL, BOS, Fib, OTE, swing points
+│   ├── recalibrate_lib.py           # Compute + write star ratings to DB or source
+│   ├── recalibrate_runner.py        # Recalibrate thin wrapper
+│   └── perf_timer.py                # timed(label) context manager
 ├── signals/
-│   ├── registry.py                  # SignalPlugin TypedDict + SIGNAL_REGISTRY (20 active strategies, with confidence)
+│   ├── registry.py                  # SignalPlugin TypedDict + SIGNAL_REGISTRY (19 actionable strategies; seasonality/funding_reversion/fibonacci_retracement excluded)
 │   ├── cooldown_store.py            # Two-layer dedup: candle watermark + cooldown timer
-│   └── alert_formatter.py           # SignalEvent + StatsContext dataclasses + format_signal_alert() → Markdown with SL/TP/stars/stats context
+│   └── alert_formatter.py           # SignalEvent, StatsContext, ConfluenceData; 6-section alert layout; W1–W8 candle warnings
 ├── web/
 │   ├── api/
 │   │   ├── main.py                  # FastAPI app: lifespan, CORS, health, router mounts, StaticFiles
@@ -92,8 +97,6 @@ buibui-moon-trader-bot/
 │           ├── stores/              # Svelte stores: config, strategies, prices, positions
 │           ├── pages/               # Chart, Backtest, SignalFeed, Positions, Prices, Stats
 │           └── components/          # Nav, CandleChart, BacktestResult, PriceRow, PositionRow, …
-├── trade/
-│   └── open_trades.py               # Multi-trade entry (planned)
 ├── utils/
 │   ├── binance_client.py            # Binance client creation, time sync, config loading
 │   ├── config_validation.py         # Validates coins.json schema
@@ -516,7 +519,7 @@ poetry run python buibui.py signal watch
 - `--config config/signal_watch.toml` — load all options from a TOML file; CLI flags override file values
 - `--symbols BTCUSDT ETHUSDT` — symbols to scan (default: all from `coins.json`)
 - `--timeframes 4h` — candle timeframes (default: `4h`)
-- `--strategies fvg bos` — strategies to run (default: all 19 except `seasonality`)
+- `--strategies fvg bos` — strategies to run (default: all 19 actionable from `SIGNAL_REGISTRY`)
 - `--tp-r 2.0` — R multiplier for TP level in alert messages (default: `2.0`)
 - `--telegram` — send alerts via Telegram
 - `--state-file signal_state.json` — path to cooldown/watermark state file
