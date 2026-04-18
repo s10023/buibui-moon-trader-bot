@@ -89,7 +89,6 @@ def _update_ohlcv_cache(
             )
             cache[key] = get_ohlcv(conn, symbol, tf, start_ms, now_ms)
         elif not new_rows.empty:
-            # Drop the stale last row and replace with the updated slice.
             cache[key] = pd.concat([cache[key].iloc[:-1], new_rows], ignore_index=True)
         # else: DB has no rows at or after cached_max_ts (shouldn't happen) — keep as-is
     else:
@@ -145,7 +144,6 @@ def run_signal_watch(
     # Expand deprecated --secondary-symbol into a map if --smt-pairs not provided.
     if secondary_symbol and not smt_pairs:
         smt_pairs = {s: secondary_symbol for s in resolved_symbols}
-    # CLI smt_pairs takes precedence over coins.json entries.
     secondary_map: dict[str, str] = {**coins_secondary_map, **(smt_pairs or {})}
     if not secondary_map:
         secondary_map_arg: dict[str, str] | None = None
@@ -174,7 +172,6 @@ def run_signal_watch(
 
     prev_handler = signal.signal(signal.SIGINT, _handle_sigint)
     try:
-        # Init schema once at startup (short-lived connection).
         with duckdb.connect(str(db_path)) as init_conn:
             init_schema(init_conn)
 

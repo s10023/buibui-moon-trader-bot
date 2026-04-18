@@ -73,14 +73,12 @@ def get_recent_cme_gap(
 
     open_times_ms: np.ndarray = np.asarray(ohlcv_df["open_time"].values, dtype=np.int64)
 
-    # Last candle before CME close → Friday close price
     fri_mask: np.ndarray = open_times_ms / 1000 < cme_close_sec
     if not bool(fri_mask.any()):
         return None
     fri_idx = int(fri_mask.nonzero()[0][-1])
     fri_close = float(ohlcv_df.iloc[fri_idx]["close"])
 
-    # First candle at/after CME open → Sunday/Monday open price
     mon_mask: np.ndarray = open_times_ms / 1000 >= cme_open_sec
     if not bool(mon_mask.any()):
         return None  # currently inside the CME closure window
@@ -96,7 +94,6 @@ def get_recent_cme_gap(
 
     gap_up = mon_open > fri_close
 
-    # Filled check: scan all candles from the Monday open onward
     subsequent = ohlcv_df.iloc[mon_idx:]
     lows: np.ndarray = np.asarray(subsequent["low"].values, dtype=float)
     highs: np.ndarray = np.asarray(subsequent["high"].values, dtype=float)

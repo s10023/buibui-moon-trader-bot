@@ -562,7 +562,6 @@ def _is_adr_exempt(
     strategy_params: dict[str, StrategyOverride] | None,
     strategy: str,
 ) -> bool:
-    """Return True if this strategy should bypass the ADR bias gate."""
     if not strategy_params:
         return False
     override = strategy_params.get(strategy)
@@ -574,7 +573,6 @@ def _resolve_volume_suppress(
     strategy: str,
     global_suppress: bool,
 ) -> bool:
-    """Return per-strategy volume_suppress if set, else the global fallback."""
     if strategy_params:
         override = strategy_params.get(strategy)
         if override is not None and override.volume_suppress is not None:
@@ -587,7 +585,6 @@ def _resolve_volume_spike_boost(
     strategy: str,
     global_boost: bool,
 ) -> bool:
-    """Return per-strategy volume_spike_boost if set, else the global fallback."""
     if strategy_params:
         override = strategy_params.get(strategy)
         if override is not None and override.volume_spike_boost is not None:
@@ -599,7 +596,6 @@ def _resolve_volume_suppress_long(
     strategy_params: dict[str, StrategyOverride] | None,
     strategy: str,
 ) -> bool | None:
-    """Return per-strategy volume_suppress_long, or None (fall back to symmetric)."""
     if strategy_params:
         override = strategy_params.get(strategy)
         if override is not None:
@@ -611,7 +607,6 @@ def _resolve_volume_suppress_short(
     strategy_params: dict[str, StrategyOverride] | None,
     strategy: str,
 ) -> bool | None:
-    """Return per-strategy volume_suppress_short, or None (fall back to symmetric)."""
     if strategy_params:
         override = strategy_params.get(strategy)
         if override is not None:
@@ -623,7 +618,6 @@ def _resolve_volume_spike_boost_long(
     strategy_params: dict[str, StrategyOverride] | None,
     strategy: str,
 ) -> bool | None:
-    """Return per-strategy volume_spike_boost_long, or None (fall back to symmetric)."""
     if strategy_params:
         override = strategy_params.get(strategy)
         if override is not None:
@@ -635,7 +629,6 @@ def _resolve_volume_spike_boost_short(
     strategy_params: dict[str, StrategyOverride] | None,
     strategy: str,
 ) -> bool | None:
-    """Return per-strategy volume_spike_boost_short, or None (fall back to symmetric)."""
     if strategy_params:
         override = strategy_params.get(strategy)
         if override is not None:
