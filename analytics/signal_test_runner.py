@@ -20,11 +20,21 @@ import pandas as pd
 from analytics.cme_gap_lib import cme_gap_alert_warning, get_recent_cme_gap
 from analytics.data_store import DEFAULT_DB_PATH, get_funding_rates, get_ohlcv
 from analytics.indicators_lib import STRATEGY_REGISTRY
-from analytics.signal_config import BacktestFilterConfig
+from analytics.signal_config import BacktestFilterConfig, BiasConfig, StrategyOverride
 from analytics.signal_lib import (
     _backtest_summary,
     _compute_backtest,
     _compute_stats_context,
+    _is_adr_exempt,
+    _resolve_atr_sl_multiplier,
+    _resolve_sl_pct,
+    _resolve_tp_r,
+    _resolve_volume_spike_boost,
+    _resolve_volume_spike_boost_long,
+    _resolve_volume_spike_boost_short,
+    _resolve_volume_suppress,
+    _resolve_volume_suppress_long,
+    _resolve_volume_suppress_short,
     parse_timeframe_secs,
 )
 from signals.alert_formatter import SignalEvent, format_confluence_alert
@@ -74,6 +84,7 @@ def run_signal_test(
     strategies: list[str],
     at_ms: int | None = None,
     lookback: int = 200,
+    since_ms: int | None = None,
     tp_r: float = 2.0,
     sl_pct: float = 0.02,
     min_sl_pct: float = 0.0,
@@ -83,6 +94,9 @@ def run_signal_test(
     backtest_cfg: BacktestFilterConfig | None = None,
     day_filter: str = "off",
     secondary_map: dict[str, str] | None = None,
+    strategy_params: dict[str, StrategyOverride] | None = None,
+    bias_cfg: BiasConfig | None = None,
+    atr_sl_multiplier: float | None = None,
 ) -> None:
     """Run detectors against historical candles and print formatted alerts.
 
@@ -103,7 +117,12 @@ def run_signal_test(
         Pin to a specific candle (Unix ms, UTC). The df is trimmed to candles
         with ``open_time <= at_ms`` before running the detector. Defaults to now.
     lookback:
-        Number of candles to load ending at ``at_ms`` (or now). Default 200.
+        Number of candles to load ending at ``at_ms`` (or now). Ignored when
+        ``since_ms`` is set. Default 200.
+    since_ms:
+        Load all candles from this Unix ms timestamp up to ``at_ms`` (or now).
+        Overrides ``lookback`` when set. Use to match the live daemon's full
+        history window so backtest counts, warnings, and stats context align.
     tp_r:
         TP risk:reward for alert formatting. Default 2.0.
     sl_pct:
@@ -145,7 +164,11 @@ def run_signal_test(
     if at_ms:
         at_dt = datetime.datetime.fromtimestamp(at_ms / 1000, tz=_MYT)
         print(f"  pinned at  : {at_dt.strftime('%Y-%m-%d %H:%M MYT')}")
-    print(f"  lookback   : {lookback} candles per TF")
+    if since_ms:
+        since_dt = datetime.datetime.fromtimestamp(since_ms / 1000, tz=_MYT)
+        print(f"  since      : {since_dt.strftime('%Y-%m-%d')} (full window)")
+    else:
+        print(f"  lookback   : {lookback} candles per TF")
     print()
 
     # Collect (open_time, alert_text) for all signals found.
@@ -163,7 +186,11 @@ def run_signal_test(
 
             for timeframe in timeframes:
                 tf_secs = parse_timeframe_secs(timeframe)
-                start_ms = end_ms - lookback * tf_secs * 1000
+                start_ms = (
+                    since_ms
+                    if since_ms is not None
+                    else end_ms - lookback * tf_secs * 1000
+                )
 
                 ohlcv_df = get_ohlcv(conn, symbol, timeframe, start_ms, end_ms)
                 if ohlcv_df.empty:
@@ -254,6 +281,25 @@ def run_signal_test(
                     # Backtest summary — mirrors live daemon's per-strategy computation.
                     bt_summary: str | None = None
                     if backtest_cfg and backtest_cfg.mode != "off":
+                        eff_tp_r = _resolve_tp_r(
+                            strategy_params, strategy, symbol, timeframe, tp_r
+                        )
+                        eff_sl_pct = _resolve_sl_pct(
+                            strategy_params, strategy, symbol, timeframe, sl_pct
+                        )
+                        eff_atr_sl = _resolve_atr_sl_multiplier(
+                            strategy_params,
+                            strategy,
+                            symbol,
+                            timeframe,
+                            atr_sl_multiplier,
+                        )
+                        tp_r_long = _resolve_tp_r(
+                            strategy_params, strategy, symbol, timeframe, tp_r, "long"
+                        )
+                        tp_r_short = _resolve_tp_r(
+                            strategy_params, strategy, symbol, timeframe, tp_r, "short"
+                        )
                         bt_result = _compute_backtest(
                             ohlcv_df=ohlcv_df,
                             strategy=strategy,
@@ -261,11 +307,38 @@ def run_signal_test(
                             funding_df=funding_df,
                             symbol=symbol,
                             timeframe=timeframe,
-                            sl_pct=sl_pct,
-                            tp_r=tp_r,
+                            sl_pct=eff_sl_pct,
+                            tp_r=eff_tp_r,
                             fee_pct=backtest_cfg.fee_pct,
                             day_filter=day_filter,
                             min_sl_pct=backtest_cfg.min_sl_pct,
+                            atr_sl_multiplier=eff_atr_sl,
+                            adr_suppress_threshold=bias_cfg.adr_suppress_threshold
+                            if bias_cfg
+                            else None,
+                            adr_exempt=_is_adr_exempt(strategy_params, strategy),
+                            volume_suppress=_resolve_volume_suppress(
+                                strategy_params, strategy, backtest_cfg.volume_suppress
+                            ),
+                            volume_spike_boost=_resolve_volume_spike_boost(
+                                strategy_params,
+                                strategy,
+                                backtest_cfg.volume_spike_boost,
+                            ),
+                            volume_suppress_long=_resolve_volume_suppress_long(
+                                strategy_params, strategy
+                            ),
+                            volume_suppress_short=_resolve_volume_suppress_short(
+                                strategy_params, strategy
+                            ),
+                            volume_spike_boost_long=_resolve_volume_spike_boost_long(
+                                strategy_params, strategy
+                            ),
+                            volume_spike_boost_short=_resolve_volume_spike_boost_short(
+                                strategy_params, strategy
+                            ),
+                            tp_r_long=tp_r_long if tp_r_long != eff_tp_r else None,
+                            tp_r_short=tp_r_short if tp_r_short != eff_tp_r else None,
                         )
                         if bt_result is not None:
                             bt_summary = _backtest_summary(
