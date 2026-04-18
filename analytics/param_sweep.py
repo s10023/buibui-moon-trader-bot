@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import argparse
 import itertools
+import math
 import os
 import sys
+import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from math import sqrt
@@ -251,7 +253,7 @@ def _sweep_grid_worker(
     decay = (oos_s / is_s) if is_s > 0 else float("nan")
     oos_avg_r = bt_oos.avg_r
     overfit = (oos_avg_r is None or oos_avg_r <= 0) or (
-        not (decay != decay) and decay < 0.4
+        not math.isnan(decay) and decay < 0.4
     )
     return SweepRow(
         params=params,
@@ -280,9 +282,7 @@ def run_param_sweep(
     day_filter: str = "off",
 ) -> list[SweepRow]:
     """Run WFO grid sweep. Returns rows sorted by IS score (descending)."""
-    import datetime
-
-    end_ms = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
+    end_ms = int(time.time() * 1000)
     start_ms = since_ms if since_ms is not None else end_ms - days * 24 * 3_600 * 1_000
 
     ohlcv_full = get_ohlcv(conn, symbol, timeframe, start_ms, end_ms)
@@ -421,7 +421,7 @@ def _fmt_pct(v: float) -> str:
 
 
 def _fmt_decay(v: float) -> str:
-    if v != v:  # NaN
+    if math.isnan(v):
         return "  —  "
     return f"{v:.2f}"
 
@@ -654,9 +654,7 @@ def run_strategy_audit(
     day_filter: str = "off",
 ) -> list[AuditRow]:
     """Quick tp_r sweep across all strategies — produces one verdict row per strategy."""
-    import datetime
-
-    end_ms = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
+    end_ms = int(time.time() * 1000)
     start_ms = since_ms if since_ms is not None else end_ms - days * 24 * 3_600 * 1_000
 
     ohlcv_full = get_ohlcv(conn, symbol, timeframe, start_ms, end_ms)

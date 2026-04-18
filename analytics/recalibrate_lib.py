@@ -182,7 +182,7 @@ def compute_recalibrated_ratings(
         return {}
 
     result: dict[str, dict[str, int]] = {}
-    for _, row in df.iterrows():
+    for row in df.to_dict("records"):
         strategy = str(row["strategy"])
         tf = str(row["timeframe"])
         total = int(row["total_trades"])
@@ -215,7 +215,7 @@ def compute_directional_ratings(
         return {}
 
     result: dict[str, dict[str, dict[str, int]]] = {}
-    for _, row in df.iterrows():
+    for row in df.to_dict("records"):
         strategy = str(row["strategy"])
         tf = str(row["timeframe"])
         dir_map: dict[str, int] = {}
@@ -223,9 +223,9 @@ def compute_directional_ratings(
             ("long", "long_total_trades", "long_avg_r"),
             ("short", "short_total_trades", "short_avg_r"),
         ]:
-            total = int(row[total_col]) if row[total_col] == row[total_col] else 0
+            total = int(row[total_col]) if not pd.isna(row[total_col]) else 0
             avg_r_raw = row[avg_r_col]
-            if total < min_trades or avg_r_raw != avg_r_raw:
+            if total < min_trades or pd.isna(avg_r_raw):
                 continue
             stars = win_rate_to_stars(float(avg_r_raw), total, min_trades)
             if stars is not None:
@@ -286,8 +286,8 @@ def format_recalibration_report(
             lar = row.get("long_avg_r")
             sar = row.get("short_avg_r")
             dir_stats[key] = (
-                float(lar) if lar is not None and lar == lar else None,  # noqa: PLR0124
-                float(sar) if sar is not None and sar == sar else None,
+                float(lar) if lar is not None and not pd.isna(lar) else None,
+                float(sar) if sar is not None and not pd.isna(sar) else None,
             )
 
     all_strategies = sorted(set(old_ratings) | set(new_ratings))
