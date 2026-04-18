@@ -13,14 +13,13 @@ from monitor.position_lib import fetch_open_positions
 from monitor.price_lib import get_price_changes
 from utils.binance_client import load_coins_config
 from web.api.deps import get_client, require_token_sse
-from web.api.models.positions import PositionRow, PositionsResponse
-from web.api.routers.positions import (
-    _parse_float_or_none,
-    _parse_int_or_none,
-    _strip_ansi,
-)
+from web.api.models.positions import PositionsResponse
+from web.api.routers.positions import row_to_position
 
 router = APIRouter()
+
+_PRICE_INTERVAL_S = 5
+_POSITIONS_INTERVAL_S = 10
 
 
 def _safe_load_symbols() -> tuple[list[str], dict[str, Any]]:
@@ -34,11 +33,12 @@ def _safe_load_symbols() -> tuple[list[str], dict[str, Any]]:
 
 async def _price_event_generator(client: Client) -> AsyncGenerator[str, None]:
     """Yield SSE price events every 5 seconds."""
+    loop = asyncio.get_running_loop()
     try:
         while True:
             symbols, _ = _safe_load_symbols()
             if symbols:
-                table, _ = await asyncio.get_running_loop().run_in_executor(
+                table, _ = await loop.run_in_executor(
                     None, get_price_changes, client, symbols, True
                 )
                 data = [
@@ -54,13 +54,14 @@ async def _price_event_generator(client: Client) -> AsyncGenerator[str, None]:
                     for row in table
                 ]
                 yield f"data: {json.dumps(data)}\n\n"
-            await asyncio.sleep(5)
+            await asyncio.sleep(_PRICE_INTERVAL_S)
     except asyncio.CancelledError:
         return
 
 
 async def _positions_event_generator(client: Client) -> AsyncGenerator[str, None]:
     """Yield SSE position events every 10 seconds."""
+    loop = asyncio.get_running_loop()
     try:
         while True:
             symbols, coins = _safe_load_symbols()
@@ -72,46 +73,20 @@ async def _positions_event_generator(client: Client) -> AsyncGenerator[str, None
                         wallet,
                         unrealized,
                         available,
-                    ) = await asyncio.get_running_loop().run_in_executor(
-                        None,
-                        fetch_open_positions,
-                        client,
-                        coins,
-                        symbols,
+                    ) = await loop.run_in_executor(
+                        None, fetch_open_positions, client, coins, symbols
                     )
-                    positions = [
-                        PositionRow(
-                            symbol=str(row[0]),
-                            side=_strip_ansi(row[1]),
-                            leverage=_parse_int_or_none(row[2]),
-                            entry_price=_parse_float_or_none(row[3]),
-                            mark_price=_parse_float_or_none(row[4]),
-                            margin=_parse_float_or_none(row[5]),
-                            notional=_parse_float_or_none(row[6]),
-                            pnl=_parse_float_or_none(row[7]),
-                            pnl_pct=_parse_float_or_none(row[8]),
-                            risk_pct=_strip_ansi(row[9]) if row[9] != "-" else None,
-                            sl_price=_parse_float_or_none(row[10]),
-                            sl_size=_strip_ansi(row[11]) if row[11] != "-" else None,
-                            sl_usd=_strip_ansi(row[12]) if row[12] != "-" else None,
-                            tp_price=row[15] if len(row) > 15 else None,
-                            liq_price=row[16] if len(row) > 16 else None,
-                            position_side=str(row[17]) if len(row) > 17 else "BOTH",
-                            margin_type=str(row[18]) if len(row) > 18 else None,
-                        )
-                        for row in rows
-                    ]
-                    data = PositionsResponse(
-                        positions=positions,
+                    payload = PositionsResponse(
+                        positions=[row_to_position(row) for row in rows],
                         wallet_balance=wallet,
                         unrealized_pnl=unrealized,
                         available_balance=available,
                         total_risk_usd=total_risk_usd,
                     ).model_dump()
-                    yield f"data: {json.dumps(data)}\n\n"
+                    yield f"data: {json.dumps(payload)}\n\n"
                 except Exception:
                     pass
-            await asyncio.sleep(10)
+            await asyncio.sleep(_POSITIONS_INTERVAL_S)
     except asyncio.CancelledError:
         return
 
