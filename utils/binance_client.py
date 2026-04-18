@@ -54,13 +54,12 @@ def get_wallet_target() -> tuple[list[float], list[str]]:
     Returns (valid_targets, invalid_entries) so callers can surface bad values
     in the display output rather than losing them to a log that gets cleared.
     """
-    raw = os.getenv("WALLET_TARGET", "")
-    if not raw.strip():
+    raw = os.getenv("WALLET_TARGET", "").strip()
+    if not raw:
         return [], []
     targets: list[float] = []
     invalid: list[str] = []
-    for part in raw.split(","):
-        part = part.strip()
+    for part in (p.strip() for p in raw.split(",")):
         try:
             targets.append(float(part))
         except ValueError:

@@ -13,6 +13,26 @@ def _get_env_credentials() -> tuple[str | None, str | None]:
     return os.getenv("TELEGRAM_BOT_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
 
 
+def _log_http_failure(err: requests.HTTPError, attempt: int, text: str) -> None:
+    status = err.response.status_code if err.response is not None else None
+    if status == 400:
+        preview = text[:200].replace("\n", " ")
+        logging.warning(
+            "Telegram 400 Bad Request (attempt %d/%d). Message preview: %r",
+            attempt,
+            _MAX_RETRIES,
+            preview,
+        )
+    else:
+        logging.warning(
+            "Telegram HTTP error %s (attempt %d/%d): %s",
+            status,
+            attempt,
+            _MAX_RETRIES,
+            err,
+        )
+
+
 def send_telegram_message(
     text: str,
     bot_token: str | None = None,
@@ -43,23 +63,7 @@ def send_telegram_message(
             return
         except requests.HTTPError as e:
             last_exc = e
-            status = e.response.status_code if e.response is not None else None
-            if status == 400:
-                preview = text[:200].replace("\n", " ")
-                logging.warning(
-                    "Telegram 400 Bad Request (attempt %d/%d). Message preview: %r",
-                    attempt,
-                    _MAX_RETRIES,
-                    preview,
-                )
-            else:
-                logging.warning(
-                    "Telegram HTTP error %s (attempt %d/%d): %s",
-                    status,
-                    attempt,
-                    _MAX_RETRIES,
-                    e,
-                )
+            _log_http_failure(e, attempt, text)
         except Exception as e:
             last_exc = e
             logging.warning(
