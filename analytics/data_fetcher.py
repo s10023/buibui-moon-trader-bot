@@ -4,7 +4,8 @@ All functions accept a Binance client as a parameter.
 No module-level side effects.
 """
 
-from typing import Literal
+from collections.abc import Callable
+from typing import Any, Literal
 
 import pandas as pd
 from binance.client import Client
@@ -28,6 +29,16 @@ FUNDING_COLUMNS: list[str] = ["symbol", "funding_time", "funding_rate"]
 OI_COLUMNS: list[str] = ["symbol", "timestamp", "oi_usd"]
 
 
+def _fetch_to_df(
+    raw: list[Any],
+    mapper: Callable[[Any], dict[str, Any]],
+    columns: list[str],
+) -> pd.DataFrame:
+    if not raw:
+        return pd.DataFrame(columns=columns)
+    return pd.DataFrame([mapper(r) for r in raw], columns=columns)
+
+
 def fetch_klines(
     client: Client,
     symbol: str,
@@ -44,10 +55,9 @@ def fetch_klines(
     raw = client.futures_klines(
         symbol=symbol, interval=interval, startTime=start_time, limit=limit
     )
-    if not raw:
-        return pd.DataFrame(columns=OHLCV_COLUMNS)
-    rows = [
-        {
+    return _fetch_to_df(
+        raw,
+        lambda k: {
             "symbol": symbol,
             "timeframe": interval,
             "open_time": int(k[0]),
@@ -57,10 +67,9 @@ def fetch_klines(
             "close": float(k[4]),
             "volume": float(k[5]),
             "taker_buy_volume": float(k[9]),
-        }
-        for k in raw
-    ]
-    return pd.DataFrame(rows, columns=OHLCV_COLUMNS)
+        },
+        OHLCV_COLUMNS,
+    )
 
 
 def fetch_funding_rates(
@@ -74,17 +83,15 @@ def fetch_funding_rates(
     Returns an empty DataFrame (with correct columns) if no data.
     """
     raw = client.futures_funding_rate(symbol=symbol, limit=limit)
-    if not raw:
-        return pd.DataFrame(columns=FUNDING_COLUMNS)
-    rows = [
-        {
+    return _fetch_to_df(
+        raw,
+        lambda r: {
             "symbol": r["symbol"],
             "funding_time": int(r["fundingTime"]),
             "funding_rate": float(r["fundingRate"]),
-        }
-        for r in raw
-    ]
-    return pd.DataFrame(rows, columns=FUNDING_COLUMNS)
+        },
+        FUNDING_COLUMNS,
+    )
 
 
 def fetch_open_interest(
@@ -101,14 +108,12 @@ def fetch_open_interest(
     Returns an empty DataFrame (with correct columns) if no data.
     """
     raw = client.futures_open_interest_hist(symbol=symbol, period=period, limit=limit)
-    if not raw:
-        return pd.DataFrame(columns=OI_COLUMNS)
-    rows = [
-        {
+    return _fetch_to_df(
+        raw,
+        lambda r: {
             "symbol": r["symbol"],
             "timestamp": int(r["timestamp"]),
             "oi_usd": float(r["sumOpenInterestValue"]),
-        }
-        for r in raw
-    ]
-    return pd.DataFrame(rows, columns=OI_COLUMNS)
+        },
+        OI_COLUMNS,
+    )

@@ -41,13 +41,25 @@ def _open_session(
         conn.close()
 
 
+def _sync_ancillary(
+    conn: duckdb.DuckDBPyConnection,
+    client: Any,
+    symbol: str,
+) -> None:
+    logging.info("Syncing funding rates for %s ...", symbol)
+    total_fr = sync_funding_rates(conn, client, symbol)
+    logging.info("Funding rates complete: %s — %d rows", symbol, total_fr)
+    logging.info("Syncing open interest for %s ...", symbol)
+    total_oi = sync_open_interest(conn, client, symbol)
+    logging.info("Open interest complete: %s — %d rows", symbol, total_oi)
+
+
 def run_backfill(
     symbols: list[str] | None,
     timeframes: list[str],
     since_ms: int,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> None:
-    """Create client, open DB, run backfill for all symbol/timeframe pairs."""
     resolved = _resolve_symbols(symbols)
     with _open_session(db_path) as (client, conn):
         for symbol in resolved:
@@ -57,12 +69,7 @@ def run_backfill(
                 logging.info(
                     "Backfill complete: %s %s — %d rows", symbol, timeframe, total
                 )
-            logging.info("Syncing funding rates for %s ...", symbol)
-            total_fr = sync_funding_rates(conn, client, symbol)
-            logging.info("Funding rates complete: %s — %d rows", symbol, total_fr)
-            logging.info("Syncing open interest for %s ...", symbol)
-            total_oi = sync_open_interest(conn, client, symbol)
-            logging.info("Open interest complete: %s — %d rows", symbol, total_oi)
+            _sync_ancillary(conn, client, symbol)
 
 
 def run_sync(
@@ -70,7 +77,6 @@ def run_sync(
     timeframes: list[str],
     db_path: Path = DEFAULT_DB_PATH,
 ) -> None:
-    """Create client, open DB, run incremental sync for all symbol/timeframe pairs."""
     resolved = _resolve_symbols(symbols)
     with _open_session(db_path) as (client, conn):
         for symbol in resolved:
@@ -83,9 +89,4 @@ def run_sync(
                     )
                 except ValueError as e:
                     logging.warning("%s — skipping (run backfill first)", e)
-            logging.info("Syncing funding rates for %s ...", symbol)
-            total_fr = sync_funding_rates(conn, client, symbol)
-            logging.info("Funding rates complete: %s — %d rows", symbol, total_fr)
-            logging.info("Syncing open interest for %s ...", symbol)
-            total_oi = sync_open_interest(conn, client, symbol)
-            logging.info("Open interest complete: %s — %d rows", symbol, total_oi)
+            _sync_ancillary(conn, client, symbol)
