@@ -12,6 +12,8 @@ config/coins.json
 .claude/*
 !.claude/skills
 !.claude/skills/*.md
+!.claude/context
+!.claude/context/*.md
 .idea/
 
 # Local planning docs — personal notes, not for public repo
