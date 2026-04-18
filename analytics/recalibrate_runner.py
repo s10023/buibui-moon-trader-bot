@@ -41,7 +41,6 @@ def run(
 
     adr_suppress_threshold: float | None = None
 
-    # Derive day_filter, config_name, and adr_suppress_threshold from the TOML when --config is provided.
     if config_path:
         from analytics.signal_config import load_signal_config
 

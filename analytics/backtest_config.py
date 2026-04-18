@@ -180,7 +180,6 @@ class BacktestSweepConfig:
     volume_spike_boost: bool = False
 
     def effective_min_trades(self, tf: str) -> int:
-        """Return per-TF override if configured, else the global min_trades."""
         return self.min_trades_per_tf.get(tf, self.min_trades)
 
     def effective_tp_r(
@@ -245,14 +244,12 @@ class BacktestSweepConfig:
         return override.adr_exempt if override is not None else False
 
     def effective_volume_suppress(self, strategy: str) -> bool:
-        """Return per-strategy volume_suppress if set, else the global flag."""
         override = self.strategy_params.get(strategy)
         if override is not None and override.volume_suppress is not None:
             return override.volume_suppress
         return self.volume_suppress
 
     def effective_volume_spike_boost(self, strategy: str) -> bool:
-        """Return per-strategy volume_spike_boost if set, else the global flag."""
         override = self.strategy_params.get(strategy)
         if override is not None and override.volume_spike_boost is not None:
             return override.volume_spike_boost

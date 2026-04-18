@@ -1348,7 +1348,7 @@ def format_seasonality(stats: pd.DataFrame) -> str:
         lines.append(header)
         lines.append(sep)
 
-        for _, row in subset.iterrows():
+        for row in subset.to_dict("records"):
             val = int(row["period_value"])
             if period_type == "day_of_week":
                 label = DAY_NAMES[val] if val < 7 else str(val)

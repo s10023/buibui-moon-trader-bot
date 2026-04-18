@@ -573,22 +573,7 @@ def query_co_firing(
     scope: DigestScope | None = None,
 ) -> DigestResult:
     """Rank strategy-pair combos by avg_r from backtest_combos table."""
-    sc_sql = ""
-    sc_params: list[Any] = []
-    if scope:
-        clauses: list[str] = []
-        if scope.day_filter is not None:
-            clauses.append("day_filter = ?")
-            sc_params.append(scope.day_filter)
-        if scope.fee_pct is not None:
-            clauses.append("fee_pct = ?")
-            sc_params.append(scope.fee_pct)
-        if scope.symbols:
-            placeholders = ", ".join("?" * len(scope.symbols))
-            clauses.append(f"symbol IN ({placeholders})")
-            sc_params.extend(scope.symbols)
-        if clauses:
-            sc_sql = " AND " + " AND ".join(clauses)
+    sc_sql, sc_params = _scope_clauses(scope)
 
     df = conn.execute(
         f"""
@@ -635,22 +620,7 @@ def query_cross_tf_combos(
     Deduplicates to the latest run per (symbol, tf_htf, tf_ltf, strategy_htf,
     strategy_ltf, window_hours, day_filter).
     """
-    sc_sql = ""
-    sc_params: list[Any] = []
-    if scope:
-        clauses: list[str] = []
-        if scope.day_filter is not None:
-            clauses.append("day_filter = ?")
-            sc_params.append(scope.day_filter)
-        if scope.fee_pct is not None:
-            clauses.append("fee_pct = ?")
-            sc_params.append(scope.fee_pct)
-        if scope.symbols:
-            placeholders = ", ".join("?" * len(scope.symbols))
-            clauses.append(f"symbol IN ({placeholders})")
-            sc_params.extend(scope.symbols)
-        if clauses:
-            sc_sql = " AND " + " AND ".join(clauses)
+    sc_sql, sc_params = _scope_clauses(scope)
 
     df = conn.execute(
         f"""

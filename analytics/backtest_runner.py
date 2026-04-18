@@ -127,8 +127,6 @@ def _collect_signals_map(
         tuple[str, str, str], tuple[pd.DataFrame, pd.DataFrame, str | None]
     ] = {}
     skipped: list[str] = []
-    # OHLCV cache: all strategies share the same candle data for a given symbol+TF.
-    # Avoids N_strategies redundant DB reads per (symbol, timeframe) pair.
     ohlcv_cache: dict[tuple[str, str], pd.DataFrame] = {}
 
     for symbol, timeframe, strategy in itertools.product(
@@ -195,8 +193,6 @@ def _collect_sweep_results(
     allowed_days = _day_filter_to_weekdays(cfg.day_filter)
     results: list[BacktestResult] = []
     skipped: list[str] = []
-    # OHLCV cache: all strategies share the same candle data for a given symbol+TF.
-    # Avoids N_strategies redundant DB reads per (symbol, timeframe) pair.
     ohlcv_cache: dict[tuple[str, str], pd.DataFrame] = {}
 
     for symbol, timeframe, strategy in itertools.product(
