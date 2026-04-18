@@ -1,7 +1,6 @@
 ---
 name: volume-sweep
 description: "Test volume_suppress flag per strategy — compare High Vol vs Low Vol avg R. Use when adding a strategy, after entry logic changes, or when reviewing volume-related bactest output. Also load when user asks about volume suppression, volume spike boost, or low-volume signals."
-disable-model-invocation: true
 ---
 
 # Volume Suppression Testing
