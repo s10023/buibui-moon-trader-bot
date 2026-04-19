@@ -27,6 +27,7 @@ from analytics.data_store import (
     get_directional_confidence_ratings,
     get_ohlcv,
     init_schema,
+    prune_backtest_cache,
 )
 from analytics.data_sync import backfill, sync
 from analytics.signal_config import (
@@ -174,6 +175,9 @@ def run_signal_watch(
     try:
         with duckdb.connect(str(db_path)) as init_conn:
             init_schema(init_conn)
+
+        with duckdb.connect(str(db_path)) as prune_conn:
+            prune_backtest_cache(prune_conn)
 
         # Load same-TF co-firing combo lookup from DB once at startup (D10 step 3).
         # combo_lookup is keyed by (symbol, tf, frozenset({a, b})) → best avg_r row.

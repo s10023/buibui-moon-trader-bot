@@ -57,6 +57,7 @@ cross_tf_window_hours = 8.0
 # from the top level (above). Both sets are needed.
 [backtest]
 mode = "hard"
+cache_enabled = true
 days = 200              # fallback (ignored when since is set)
 since = "2025-09-12"    # matches data backfill anchor; overrides days
 min_trades = 12

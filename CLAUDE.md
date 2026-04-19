@@ -36,7 +36,7 @@ make lint-md
   - `live_price.py` — WebSocket + Rich live mode for price monitor
   - `live_position.py` — WebSocket + Rich live mode for position monitor
 - `analytics/` — analytics data layer (DuckDB-backed). See `.claude/context/analytics.md` for full module API reference.
-  - `data_store.py` — DB schema, upsert/query helpers, `confidence_ratings`, combo tables, `DEFAULT_DB_PATH`
+  - `data_store.py` — DB schema, upsert/query helpers, `confidence_ratings`, combo tables, `DEFAULT_DB_PATH`; `BacktestSnapshot` duck-type; `backtest_cache` table with `get/put/prune_backtest_cache`
   - `data_fetcher.py` / `data_sync.py` / `analytics_runner.py` — fetch, sync orchestration, thin runner
   - `indicators_lib.py` — 21 active strategies; `STRATEGY_REGISTRY`, `DETECTOR_REGISTRY`, `StrategySpec`, `INCOMPATIBLE_PAIRS`
   - `backtest_lib.py` — `Trade`, `BacktestResult`, `run_backtest`; volume tiers, directional splits, D10 combo results
@@ -45,7 +45,7 @@ make lint-md
   - `digest_lib.py` — 12 pre-canned SQL queries; `run_digest`; `DigestScope`; powers `buibui digest` + analysis API
   - `cme_gap_lib.py` — CME gap detection + alert warning helper
   - `zones_lib.py` — structural zone extraction (geometry only): FVG, OB, EQH/EQL, BOS, Fib, OTE, swing points
-  - `signal_lib.py` — `scan_symbol` + `run_scan_cycle` (3-phase fan-out); ADR/volume gates; co-fire detection
+  - `signal_lib.py` — `scan_symbol` + `run_scan_cycle` (3-phase fan-out); ADR/volume gates; co-fire detection; L1→L2→compute backtest cache (`_bt_mem_cache`, `_reset_bt_cache`)
   - `signal_config.py` — `SignalWatchConfig`, `BacktestFilterConfig`, `BiasConfig`, `ComboConfig`; TOML `extends` support
   - `stats_lib.py` — P1/P2, ADR, DOW, session, weekly stats; live fields via `_inject_live_fields()`
   - `signal_runner.py` — daemon thin wrapper; OHLCV cache; combo lookup refresh every 10 cycles

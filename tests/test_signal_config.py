@@ -774,3 +774,13 @@ min_avg_r_short = 0.2
         cfg = BacktestFilterConfig()
         assert cfg.min_avg_r_long is None
         assert cfg.min_avg_r_short is None
+
+    def test_cache_enabled_defaults_true(self) -> None:
+        from analytics.signal_config import BacktestFilterConfig
+
+        assert BacktestFilterConfig().cache_enabled is True
+
+    def test_cache_enabled_can_be_disabled(self) -> None:
+        from analytics.signal_config import BacktestFilterConfig
+
+        assert BacktestFilterConfig(cache_enabled=False).cache_enabled is False
