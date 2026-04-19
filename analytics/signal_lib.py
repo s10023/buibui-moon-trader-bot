@@ -1028,7 +1028,6 @@ def run_scan_cycle(
     # Funding and stats are per-symbol; OHLCV is per (symbol, tf).
     # Isolating all DB reads before the parallel scan phase ensures no DuckDB
     # connection is accessed from multiple threads simultaneously.
-    _t0 = time.time()
     funding_map: dict[str, pd.DataFrame | None] = {}
     ohlcv_map: dict[tuple[str, str], pd.DataFrame] = {}
     for symbol in symbols:
@@ -1044,9 +1043,6 @@ def run_scan_cycle(
                 if ohlcv_cache and _key in ohlcv_cache
                 else get_ohlcv(conn, symbol, tf, start_ms, now_ms)
             )
-
-    logger.info("PERF Phase 1 (DB prefetch) done in %.1fs", time.time() - _t0)
-    _t0 = time.time()
 
     # --- Phase 2: Fan-out scan_symbol via ThreadPoolExecutor ---
     # scan_symbol is pure Python/pandas — no DB access, no shared mutable state.
@@ -1099,8 +1095,6 @@ def run_scan_cycle(
         for sym, tf in _pairs:
             scan_results.append(_scan_task(sym, tf))
 
-    logger.info("PERF Phase 2 (detector fan-out) done in %.1fs", time.time() - _t0)
-    _t0 = time.time()
     # --- Phase 3: Fan-in — sequential processing of scan results ---
     # All shared-state operations happen here: CooldownStore reads/writes,
     # bt_cache updates, DB writes (upsert_signals, upsert_backtest_run).
@@ -1722,5 +1716,4 @@ def run_scan_cycle(
                     "Failed to persist backtest run for %s %s %s", sym, tf, strategy
                 )
 
-    logger.info("PERF Phase 3 (fan-in + backtest) done in %.1fs", time.time() - _t0)
     return alerts

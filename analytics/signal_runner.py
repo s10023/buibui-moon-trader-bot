@@ -286,7 +286,6 @@ def run_signal_watch(
             with duckdb.connect(str(db_path)) as conn:
                 # Sync each symbol+timeframe; fall back to backfill for new symbols
                 now_ms = int(time.time() * 1000)
-                _t_cycle_start = now_ms
                 backfill_start_ms = now_ms - _DEFAULT_BACKFILL_DAYS * 24 * 3600 * 1000
                 # OHLCV cache window: match backtest_cfg.since so _compute_backtest
                 # sees the same data range the alert labels (e.g. "since 2025-09-12").
@@ -322,10 +321,6 @@ def run_signal_watch(
                                 exc,
                             )
 
-                logger.info(
-                    "PERF sync done in %.1fs",
-                    (time.time() * 1000 - _t_cycle_start) / 1000,
-                )
                 # Incrementally refresh OHLCV cache for all primary + secondary symbols.
                 # Secondary symbols (SMT) share the same cache keyed by (symbol, tf).
                 all_symbols_to_cache: set[str] = set(resolved_symbols)
@@ -337,11 +332,6 @@ def run_signal_watch(
                             conn, ohlcv_cache, symbol, tf, cache_start_ms, now_ms
                         )
 
-                logger.info(
-                    "PERF ohlcv_cache update done in %.1fs",
-                    (time.time() * 1000 - _t_cycle_start) / 1000,
-                )
-                _t_scan_start = time.time()
                 alerts = run_scan_cycle(
                     conn=conn,
                     symbols=resolved_symbols,
@@ -379,11 +369,6 @@ def run_signal_watch(
                     ohlcv_cache=ohlcv_cache,
                 )
             # Connection is now closed — web API can read the DB during the sleep.
-            logger.info(
-                "PERF scan_cycle done in %.1fs (total cycle %.1fs)",
-                time.time() - _t_scan_start,
-                (time.time() * 1000 - _t_cycle_start) / 1000,
-            )
 
             if alerts:
                 logger.info("%d alert(s) sent this cycle", len(alerts))
