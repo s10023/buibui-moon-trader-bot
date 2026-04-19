@@ -1,12 +1,18 @@
 """Tests for analytics/data_store.py."""
 
+import time
 from typing import Any
 
 import duckdb
 import pandas as pd
 import pytest
 
+from analytics.backtest_lib import BacktestResult, Trade
 from analytics.data_store import (
+    BacktestSnapshot,
+    _backtest_run_id,
+    _make_bt_cache_key,
+    get_backtest_cache,
     get_confidence_ratings,
     get_latest_open_time,
     get_ohlcv,
@@ -14,6 +20,8 @@ from analytics.data_store import (
     get_win_rate_by_strategy,
     init_schema,
     list_backtest_runs,
+    prune_backtest_cache,
+    put_backtest_cache,
     upsert_backtest_run,
     upsert_backtest_trades,
     upsert_confidence_ratings,
@@ -78,6 +86,7 @@ class TestInitSchema:
             "backtest_trades",
             "backtest_combos",
             "backtest_cross_tf_combos",
+            "backtest_cache",
             "stats_cache",
             "confidence_ratings",
         } == tables
@@ -740,3 +749,147 @@ class TestGetLatestOpenTime:
         ]
         upsert_ohlcv(conn, pd.DataFrame(rows))
         assert get_latest_open_time(conn, "BTCUSDT", "1h") == 1_700_003_600_000
+
+
+def _make_result(
+    symbol: str = "BTCUSDT",
+    tf: str = "1h",
+    strategy: str = "engulfing",
+) -> BacktestResult:
+    """Minimal BacktestResult with 2 long wins and 1 long loss."""
+    entry, sl, tp = 50000.0, 49000.0, 52000.0
+
+    def _trade(outcome: str) -> Trade:
+        exit_price = tp if outcome == "win" else sl
+        return Trade(
+            signal_time=1_000_000,
+            entry_time=1_100_000,
+            entry_price=entry,
+            direction="long",
+            sl_price=sl,
+            tp_price=tp,
+            exit_time=2_000_000,
+            exit_price=exit_price,
+            outcome=outcome,
+        )
+
+    return BacktestResult(
+        symbol=symbol,
+        timeframe=tf,
+        strategy=strategy,
+        trades=[_trade("win"), _trade("win"), _trade("loss")],
+    )
+
+
+class TestBacktestCache:
+    def test_get_miss(self, conn: duckdb.DuckDBPyConnection) -> None:
+        assert get_backtest_cache(conn, "nonexistent") is None
+
+    def test_put_and_get_round_trip(self, conn: duckdb.DuckDBPyConnection) -> None:
+        result = _make_result()
+        put_backtest_cache(conn, "key1", "run1", 100_000, result)
+        snap = get_backtest_cache(conn, "key1")
+        assert snap is not None
+        assert isinstance(snap, BacktestSnapshot)
+        assert len(snap.closed_trades) == len(result.closed_trades)
+        assert len(snap.long_closed_trades) == len(result.long_closed_trades)
+        assert len(snap.short_closed_trades) == len(result.short_closed_trades)
+        assert snap.win_count == result.win_count
+        assert snap.win_rate == pytest.approx(result.win_rate)
+        assert snap.avg_r == pytest.approx(result.avg_r)
+        assert snap.long_win_rate == pytest.approx(result.long_win_rate)
+        assert snap.long_avg_r == pytest.approx(result.long_avg_r)
+
+    def test_get_miss_on_different_key(self, conn: duckdb.DuckDBPyConnection) -> None:
+        result = _make_result()
+        put_backtest_cache(conn, "key1", "run1", 100_000, result)
+        assert get_backtest_cache(conn, "key2") is None
+
+    def test_prune_removes_old_entries(self, conn: duckdb.DuckDBPyConnection) -> None:
+        result = _make_result()
+        put_backtest_cache(conn, "new_key", "run_new", 100_000, result)
+        # Clone the row as "old_key" with cached_at_ms backdated 40 days.
+        old_ms = int(time.time() * 1000) - 40 * 24 * 3600 * 1000
+        conn.execute(
+            "INSERT INTO backtest_cache "
+            "SELECT 'old_key', run_id, last_candle_ts, symbol, timeframe, strategy, fee_pct, "
+            "n_closed, n_long, n_short, n_win, n_loss, r_win_rate, r_avg, r_total, "
+            "n_long_win, r_long_win_rate, r_long_avg, r_long_total, "
+            "n_short_win, r_short_win_rate, r_short_avg, r_short_total, "
+            "h_median, h_long_median, h_short_median, ? "
+            "FROM backtest_cache WHERE cache_key = 'new_key'",
+            [old_ms],
+        )
+        prune_backtest_cache(conn, keep_days=30)
+        assert get_backtest_cache(conn, "old_key") is None
+        assert get_backtest_cache(conn, "new_key") is not None
+
+    def test_prune_keeps_recent_entries(self, conn: duckdb.DuckDBPyConnection) -> None:
+        result = _make_result()
+        put_backtest_cache(conn, "key1", "run1", 100_000, result)
+        prune_backtest_cache(conn, keep_days=30)
+        assert get_backtest_cache(conn, "key1") is not None
+
+    def test_backtest_run_id_unchanged_for_defaults(self) -> None:
+        old_id = _backtest_run_id(
+            "BTCUSDT", "1h", "engulfing", 90, 0.02, 3.0, 0.0, "off", 1, None
+        )
+        new_id = _backtest_run_id(
+            "BTCUSDT",
+            "1h",
+            "engulfing",
+            90,
+            0.02,
+            3.0,
+            0.0,
+            "off",
+            1,
+            None,
+            min_sl_pct=0.0,
+            atr_sl_multiplier=None,
+            tp_r_long=None,
+            tp_r_short=None,
+            volume_suppress_long=None,
+            volume_suppress_short=None,
+            volume_spike_boost_long=None,
+            volume_spike_boost_short=None,
+            adr_exempt=False,
+        )
+        assert old_id == new_id
+
+    def test_backtest_run_id_changes_for_nondefault_min_sl(self) -> None:
+        base = _backtest_run_id(
+            "BTCUSDT", "1h", "engulfing", 90, 0.02, 3.0, 0.0, "off", 1, None
+        )
+        with_min_sl = _backtest_run_id(
+            "BTCUSDT",
+            "1h",
+            "engulfing",
+            90,
+            0.02,
+            3.0,
+            0.0,
+            "off",
+            1,
+            None,
+            min_sl_pct=0.005,
+        )
+        assert base != with_min_sl
+
+    def test_make_bt_cache_key_changes_with_ts(self) -> None:
+        k1 = _make_bt_cache_key("run1", 100)
+        k2 = _make_bt_cache_key("run1", 200)
+        assert k1 != k2
+
+    def test_make_bt_cache_key_changes_with_run_id(self) -> None:
+        k1 = _make_bt_cache_key("run1", 100)
+        k2 = _make_bt_cache_key("run2", 100)
+        assert k1 != k2
+
+    def test_snapshot_truthiness(self, conn: duckdb.DuckDBPyConnection) -> None:
+        result = _make_result()
+        put_backtest_cache(conn, "key1", "run1", 100_000, result)
+        snap = get_backtest_cache(conn, "key1")
+        assert snap is not None
+        assert bool(snap.closed_trades)
+        assert not bool(snap.short_closed_trades)
