@@ -29,9 +29,14 @@ from analytics.backtest_lib import (
 )
 from analytics.cme_gap_lib import cme_gap_alert_warning, get_recent_cme_gap
 from analytics.data_store import (
+    BacktestSnapshot,
+    _backtest_run_id,
+    _make_bt_cache_key,
+    get_backtest_cache,
     get_funding_rates,
     get_ohlcv,
     get_signals_history,
+    put_backtest_cache,
     upsert_backtest_run,
     upsert_signal_outcome,
     upsert_signals,
@@ -55,6 +60,15 @@ from signals.registry import SIGNAL_REGISTRY
 logger = logging.getLogger(__name__)
 
 _CANDLE_CLOSE_BUFFER_SECS = 10
+
+# Two-layer backtest cache: L1 (module dict, fast) backed by L2 (DuckDB, survives restarts).
+# Keys are 24-char hex strings from _make_bt_cache_key(run_id, last_candle_ts).
+_bt_mem_cache: dict[str, BacktestResult | BacktestSnapshot | None] = {}
+
+
+def _reset_bt_cache() -> None:
+    """Clear L1 memory cache. Call in test fixtures to prevent state bleed."""
+    _bt_mem_cache.clear()
 
 
 def _fmt_hold(hours: float) -> str:
@@ -252,7 +266,7 @@ def _compute_backtest(
 
 
 def _backtest_summary(
-    results: Mapping[str, BacktestResult | None],
+    results: Mapping[str, BacktestResult | BacktestSnapshot | None],
     strategies: list[str],
     cfg: BacktestFilterConfig,
     tf: str = "",
@@ -963,9 +977,10 @@ def run_scan_cycle(
     else:
         start_ms = now_ms - days * 24 * 3600 * 1000
 
-    # Per-cycle backtest cache: (symbol, tf, strategy) → BacktestResult | None
-    # Avoids recomputing the same strategy twice if it fires on multiple symbols.
-    bt_cache: dict[tuple[str, str, str], BacktestResult | None] = {}
+    # Freshly computed BacktestResult objects this cycle, keyed by (symbol, tf, strategy).
+    # Cache hits (BacktestSnapshot) are excluded — only full BacktestResult objects
+    # can be persisted to backtest_runs at end of cycle.
+    bt_to_save: dict[tuple[str, str, str], BacktestResult | None] = {}
 
     # Per-cycle stats context cache: symbol → StatsContext | None
     # Computed once per symbol (not per TF) to avoid redundant DB queries.
@@ -1127,76 +1142,158 @@ def run_scan_cycle(
         if not passing_events:
             continue
 
-        # Backtest filter — runs per strategy, caches results within the cycle.
+        # Backtest filter — L1 (module dict) → L2 (DuckDB) → full compute.
         # Per-strategy tp_r/sl_pct overrides are applied here so the filter
         # uses the same parameters the strategy was calibrated against.
-        bt_results: dict[str, BacktestResult | None] = {}
+        bt_results: dict[str, BacktestResult | BacktestSnapshot | None] = {}
         if backtest_cfg and backtest_cfg.mode != "off":
             for event in passing_events:
                 bt_key = (symbol, tf, event.strategy)
-                if bt_key not in bt_cache:
-                    eff_tp_r = _resolve_tp_r(
-                        strategy_params, event.strategy, symbol, tf, tp_r
-                    )
-                    eff_sl_pct = _resolve_sl_pct(
-                        strategy_params, event.strategy, symbol, tf, sl_pct
-                    )
-                    eff_atr_sl = _resolve_atr_sl_multiplier(
-                        strategy_params,
-                        event.strategy,
-                        symbol,
-                        tf,
-                        atr_sl_multiplier,
-                    )
-                    _tp_r_long = _resolve_tp_r(
-                        strategy_params, event.strategy, symbol, tf, tp_r, "long"
-                    )
+                eff_tp_r = _resolve_tp_r(
+                    strategy_params, event.strategy, symbol, tf, tp_r
+                )
+                eff_sl_pct = _resolve_sl_pct(
+                    strategy_params, event.strategy, symbol, tf, sl_pct
+                )
+                eff_atr_sl = _resolve_atr_sl_multiplier(
+                    strategy_params,
+                    event.strategy,
+                    symbol,
+                    tf,
+                    atr_sl_multiplier,
+                )
+                _tp_r_long = _resolve_tp_r(
+                    strategy_params, event.strategy, symbol, tf, tp_r, "long"
+                )
                 _tp_r_short = _resolve_tp_r(
                     strategy_params, event.strategy, symbol, tf, tp_r, "short"
                 )
-                bt_cache[bt_key] = _compute_backtest(
-                    ohlcv_df=ohlcv_df,
-                    strategy=event.strategy,
-                    secondary_df=sec_df,
-                    funding_df=funding_df,
-                    symbol=symbol,
-                    timeframe=tf,
-                    sl_pct=eff_sl_pct,
-                    tp_r=eff_tp_r,
-                    fee_pct=backtest_cfg.fee_pct,
-                    day_filter=day_filter,
-                    min_sl_pct=backtest_cfg.min_sl_pct,
-                    atr_sl_multiplier=eff_atr_sl,
-                    adr_suppress_threshold=bias_cfg.adr_suppress_threshold
-                    if bias_cfg
-                    else None,
-                    adr_exempt=_is_adr_exempt(strategy_params, event.strategy),
-                    volume_suppress=_resolve_volume_suppress(
-                        strategy_params,
-                        event.strategy,
-                        backtest_cfg.volume_suppress,
-                    ),
-                    volume_spike_boost=_resolve_volume_spike_boost(
-                        strategy_params,
-                        event.strategy,
-                        backtest_cfg.volume_spike_boost,
-                    ),
-                    volume_suppress_long=_resolve_volume_suppress_long(
-                        strategy_params, event.strategy
-                    ),
-                    volume_suppress_short=_resolve_volume_suppress_short(
-                        strategy_params, event.strategy
-                    ),
-                    volume_spike_boost_long=_resolve_volume_spike_boost_long(
-                        strategy_params, event.strategy
-                    ),
-                    volume_spike_boost_short=_resolve_volume_spike_boost_short(
-                        strategy_params, event.strategy
-                    ),
-                    tp_r_long=_tp_r_long if _tp_r_long != eff_tp_r else None,
-                    tp_r_short=_tp_r_short if _tp_r_short != eff_tp_r else None,
+                tp_r_long_eff = _tp_r_long if _tp_r_long != eff_tp_r else None
+                tp_r_short_eff = _tp_r_short if _tp_r_short != eff_tp_r else None
+                eff_vs_long = _resolve_volume_suppress_long(
+                    strategy_params, event.strategy
                 )
-                bt_results[event.strategy] = bt_cache[bt_key]
+                eff_vs_short = _resolve_volume_suppress_short(
+                    strategy_params, event.strategy
+                )
+                eff_vsb_long = _resolve_volume_spike_boost_long(
+                    strategy_params, event.strategy
+                )
+                eff_vsb_short = _resolve_volume_spike_boost_short(
+                    strategy_params, event.strategy
+                )
+                eff_adr_exempt = _is_adr_exempt(strategy_params, event.strategy)
+                eff_vs = _resolve_volume_suppress(
+                    strategy_params, event.strategy, backtest_cfg.volume_suppress
+                )
+                eff_vsb = _resolve_volume_spike_boost(
+                    strategy_params, event.strategy, backtest_cfg.volume_spike_boost
+                )
+                secondary_sym = (
+                    (secondary_map or {}).get(symbol)
+                    if event.strategy == "smt_divergence"
+                    else None
+                )
+
+                if backtest_cfg.cache_enabled:
+                    run_id = _backtest_run_id(
+                        symbol,
+                        tf,
+                        event.strategy,
+                        days,
+                        eff_sl_pct,
+                        eff_tp_r,
+                        backtest_cfg.fee_pct,
+                        day_filter,
+                        smt_trend_filter,
+                        secondary_sym,
+                        bias_cfg.adr_suppress_threshold if bias_cfg else None,
+                        eff_vs or None,
+                        backtest_cfg.min_sl_pct,
+                        eff_atr_sl,
+                        tp_r_long_eff,
+                        tp_r_short_eff,
+                        eff_vs_long or None,
+                        eff_vs_short or None,
+                        eff_vsb_long or None,
+                        eff_vsb_short or None,
+                        eff_adr_exempt,
+                    )
+                    last_candle_ts = int(ohlcv_df["open_time"].iloc[-2])
+                    cache_key = _make_bt_cache_key(run_id, last_candle_ts)
+
+                    if cache_key in _bt_mem_cache:
+                        bt_result: BacktestResult | BacktestSnapshot | None = (
+                            _bt_mem_cache[cache_key]
+                        )
+                    else:
+                        bt_result = get_backtest_cache(conn, cache_key)
+                        if bt_result is None:
+                            bt_result = _compute_backtest(
+                                ohlcv_df=ohlcv_df,
+                                strategy=event.strategy,
+                                secondary_df=sec_df,
+                                funding_df=funding_df,
+                                symbol=symbol,
+                                timeframe=tf,
+                                sl_pct=eff_sl_pct,
+                                tp_r=eff_tp_r,
+                                fee_pct=backtest_cfg.fee_pct,
+                                day_filter=day_filter,
+                                min_sl_pct=backtest_cfg.min_sl_pct,
+                                atr_sl_multiplier=eff_atr_sl,
+                                adr_suppress_threshold=bias_cfg.adr_suppress_threshold
+                                if bias_cfg
+                                else None,
+                                adr_exempt=eff_adr_exempt,
+                                volume_suppress=eff_vs,
+                                volume_spike_boost=eff_vsb,
+                                volume_suppress_long=eff_vs_long,
+                                volume_suppress_short=eff_vs_short,
+                                volume_spike_boost_long=eff_vsb_long,
+                                volume_spike_boost_short=eff_vsb_short,
+                                tp_r_long=tp_r_long_eff,
+                                tp_r_short=tp_r_short_eff,
+                            )
+                            if bt_result is not None:
+                                put_backtest_cache(
+                                    conn,
+                                    cache_key,
+                                    run_id,
+                                    last_candle_ts,
+                                    bt_result,
+                                )
+                                bt_to_save[bt_key] = bt_result
+                        _bt_mem_cache[cache_key] = bt_result
+                else:
+                    bt_result = _compute_backtest(
+                        ohlcv_df=ohlcv_df,
+                        strategy=event.strategy,
+                        secondary_df=sec_df,
+                        funding_df=funding_df,
+                        symbol=symbol,
+                        timeframe=tf,
+                        sl_pct=eff_sl_pct,
+                        tp_r=eff_tp_r,
+                        fee_pct=backtest_cfg.fee_pct,
+                        day_filter=day_filter,
+                        min_sl_pct=backtest_cfg.min_sl_pct,
+                        atr_sl_multiplier=eff_atr_sl,
+                        adr_suppress_threshold=bias_cfg.adr_suppress_threshold
+                        if bias_cfg
+                        else None,
+                        adr_exempt=eff_adr_exempt,
+                        volume_suppress=eff_vs,
+                        volume_spike_boost=eff_vsb,
+                        volume_suppress_long=eff_vs_long,
+                        volume_suppress_short=eff_vs_short,
+                        volume_spike_boost_long=eff_vsb_long,
+                        volume_spike_boost_short=eff_vsb_short,
+                        tp_r_long=tp_r_long_eff,
+                        tp_r_short=tp_r_short_eff,
+                    )
+                    bt_to_save[bt_key] = bt_result
+                bt_results[event.strategy] = bt_result
 
             if backtest_cfg.mode == "hard":
 
@@ -1567,12 +1664,11 @@ def run_scan_cycle(
                     send_telegram_message(msg)
                 except Exception:
                     logger.exception("Telegram send failed for %s", symbol)
-    # Persist bt_cache results to backtest_runs so win-rate data accumulates
-    # passively over time. Only runs if the backtest filter is active and
-    # save_results is enabled (default True). Covers only combos that fired a
-    # signal this cycle — for a full-sweep snapshot use `buibui backtest --save`.
-    if backtest_cfg and backtest_cfg.save_results and bt_cache:
-        for (sym, tf, strategy), bt_result in bt_cache.items():
+    # Persist freshly computed backtest results to backtest_runs so win-rate data
+    # accumulates passively. Cache hits (BacktestSnapshot) are excluded — only
+    # full BacktestResult objects land here. Covers combos that fired this cycle.
+    if backtest_cfg and backtest_cfg.save_results and bt_to_save:
+        for (sym, tf, strategy), bt_result in bt_to_save.items():
             if bt_result is None:
                 continue
             secondary_symbol = (

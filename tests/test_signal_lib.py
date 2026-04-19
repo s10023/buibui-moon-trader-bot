@@ -5,11 +5,13 @@ from unittest.mock import patch
 
 import duckdb
 import pandas as pd
+import pytest
 
 from analytics.data_store import init_schema
 from analytics.signal_lib import (
     _backtest_summary,
     _fmt_hold,
+    _reset_bt_cache,
     parse_timeframe_secs,
     run_scan_cycle,
     scan_symbol,
@@ -21,6 +23,12 @@ from signals.alert_formatter import (
     format_signal_alert,
 )
 from signals.cooldown_store import CooldownStore
+
+
+@pytest.fixture(autouse=True)
+def reset_bt_cache() -> None:
+    """Clear module-level L1 backtest cache before each test to prevent state bleed."""
+    _reset_bt_cache()
 
 
 class TestParseTimeframeSecs:
