@@ -176,6 +176,9 @@ class BacktestFilterConfig:
     # When True, a spike candle passes even if volume_suppress is on for that strategy.
     # Default off — enable per-strategy after confirming spike edge via volume split table.
     volume_spike_boost: bool = False
+    # Enable two-layer backtest cache (L1 module dict + L2 DuckDB table).
+    # Set false in TOML for instant rollback without a code deploy.
+    cache_enabled: bool = True
 
     def effective_min_trades(self, tf: str) -> int:
         return self.min_trades_per_tf.get(tf, self.min_trades)
