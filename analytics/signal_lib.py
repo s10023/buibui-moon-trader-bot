@@ -61,6 +61,12 @@ logger = logging.getLogger(__name__)
 
 _CANDLE_CLOSE_BUFFER_SECS = 10
 
+# Detectors only need recent candles to check the latest signal (max lookback = 100).
+# Slicing to this window before scan_symbol drastically reduces Phase 2 time
+# (e.g. 15m/200d = 19,200 rows → 200 rows = ~96× less data for pandas ops).
+# The full OHLCV window is preserved in ohlcv_map for _compute_backtest in Phase 3.
+_SCAN_WINDOW = 200
+
 # Two-layer backtest cache: L1 (module dict, fast) backed by L2 (DuckDB, survives restarts).
 # Keys are 24-char hex strings from _make_bt_cache_key(run_id, last_candle_ts).
 _bt_mem_cache: dict[str, BacktestResult | BacktestSnapshot | None] = {}
@@ -1022,6 +1028,7 @@ def run_scan_cycle(
     # Funding and stats are per-symbol; OHLCV is per (symbol, tf).
     # Isolating all DB reads before the parallel scan phase ensures no DuckDB
     # connection is accessed from multiple threads simultaneously.
+    _t0 = time.time()
     funding_map: dict[str, pd.DataFrame | None] = {}
     ohlcv_map: dict[tuple[str, str], pd.DataFrame] = {}
     for symbol in symbols:
@@ -1038,6 +1045,9 @@ def run_scan_cycle(
                 else get_ohlcv(conn, symbol, tf, start_ms, now_ms)
             )
 
+    logger.info("PERF Phase 1 (DB prefetch) done in %.1fs", time.time() - _t0)
+    _t0 = time.time()
+
     # --- Phase 2: Fan-out scan_symbol via ThreadPoolExecutor ---
     # scan_symbol is pure Python/pandas — no DB access, no shared mutable state.
     # pandas rolling/shift/boolean masks release the GIL → real concurrency.
@@ -1048,12 +1058,22 @@ def run_scan_cycle(
         _sec = secondary_dfs.get(_sec_key) if needs_secondary else None
         _funding = funding_map.get(_sym)
         _gap = get_recent_cme_gap(_ohlcv)
+        # Slice to _SCAN_WINDOW for detectors — they only need recent candles
+        # (max lookback = 100). Full window stays in ohlcv_map for Phase 3 backtest.
+        _ohlcv_scan = (
+            _ohlcv.iloc[-_SCAN_WINDOW:] if len(_ohlcv) > _SCAN_WINDOW else _ohlcv
+        )
+        _sec_scan = (
+            _sec.iloc[-_SCAN_WINDOW:]
+            if _sec is not None and len(_sec) > _SCAN_WINDOW
+            else _sec
+        )
         _events = scan_symbol(
-            ohlcv_df=_ohlcv,
+            ohlcv_df=_ohlcv_scan,
             symbol=_sym,
             timeframe=_tf,
             strategies=strategies,
-            secondary_df=_sec,
+            secondary_df=_sec_scan,
             funding_df=_funding,
             day_filter=day_filter,
             smt_trend_filter=smt_trend_filter,
@@ -1079,6 +1099,8 @@ def run_scan_cycle(
         for sym, tf in _pairs:
             scan_results.append(_scan_task(sym, tf))
 
+    logger.info("PERF Phase 2 (detector fan-out) done in %.1fs", time.time() - _t0)
+    _t0 = time.time()
     # --- Phase 3: Fan-in — sequential processing of scan results ---
     # All shared-state operations happen here: CooldownStore reads/writes,
     # bt_cache updates, DB writes (upsert_signals, upsert_backtest_run).
@@ -1700,4 +1722,5 @@ def run_scan_cycle(
                     "Failed to persist backtest run for %s %s %s", sym, tf, strategy
                 )
 
+    logger.info("PERF Phase 3 (fan-in + backtest) done in %.1fs", time.time() - _t0)
     return alerts
