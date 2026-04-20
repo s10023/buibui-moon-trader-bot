@@ -61,7 +61,7 @@ buibui-moon-trader-bot/
 │   ├── backtest_runner.py           # Backtest thin wrapper (opens DB, loads data, calls libs)
 │   ├── backtest_lib.py              # Pure backtest engine: Trade, BacktestResult, run_backtest
 │   ├── data_fetcher.py              # Pure Binance Futures API → DataFrames (klines, funding, OI)
-│   ├── data_store.py                # Pure DuckDB read/write (schema, upsert, query helpers); tables: ohlcv, funding_rates, open_interest, signals, signal_alert_outcomes, backtest_runs, backtest_trades, stats_cache
+│   ├── data_store.py                # Pure DuckDB read/write (schema, upsert, query helpers); tables: ohlcv, funding_rates, open_interest, signals, signal_alert_outcomes, backtest_runs, backtest_trades, backtest_cache, stats_cache
 │   ├── data_sync.py                 # Backfill + incremental sync orchestration
 │   ├── indicators_lib.py            # Pure strategy signal detection (21 active strategies + STRATEGY_REGISTRY + DETECTOR_REGISTRY)
 │   ├── signal_config.py             # Pure config loader: SignalWatchConfig, BacktestFilterConfig, BiasConfig, ComboConfig; TOML extends support
@@ -86,7 +86,7 @@ buibui-moon-trader-bot/
 │   │   ├── main.py                  # FastAPI app: lifespan, CORS, health, router mounts, StaticFiles
 │   │   ├── deps.py                  # Dependency factories: get_db, get_client, require_token, require_token_sse
 │   │   ├── models/                  # Pydantic request/response models
-│   │   └── routers/                 # Route handlers: config, ohlcv, signals, backtest, positions, prices, stream, stats
+│   │   └── routers/                 # Route handlers: config, ohlcv, fib, signals, backtest, positions, prices, stream, stats, zones
 │   └── ui/                          # Svelte 5 + Vite frontend (Phase 5)
 │       ├── package.json
 │       ├── vite.config.ts           # Vite config — proxies /api to :8000 in dev
@@ -745,6 +745,8 @@ SSE stream endpoints accept `?token=<API_TOKEN>` query param instead (browser `E
 | `GET` | `/api/prices` | Latest price changes for all configured symbols |
 | `GET` | `/api/stream/prices` | SSE — live prices every 5 s (`?token=`) |
 | `GET` | `/api/stream/positions` | SSE — live positions every 10 s (`?token=`) |
+| `GET` | `/api/stats/{symbol}` | Computed stats bundle (P1/P2, ADR, DOW, session, weekly) for a symbol |
+| `GET` | `/api/zones` | Structural zones for a symbol+timeframe (FVG, OB, EQH/EQL, BOS, Fib, OTE, swings) |
 
 **CORS:** Defaults to `http://localhost:5173` (Vite dev server). Override with `CORS_ORIGINS` env var (comma-separated). If you change `DEV_PORT`, update `CORS_ORIGINS` accordingly (e.g. `CORS_ORIGINS=http://localhost:3000`).
 
@@ -1062,6 +1064,5 @@ poetry run pytest tests/ -v
 
 ## Coming Soon / Ideas
 
-- Trade signal engine (support/resistance + volume traps)
 - Auto-close on global SL or high-risk warning
 - Telegram command handler (`/price`, `/position`)
