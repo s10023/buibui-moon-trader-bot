@@ -1087,12 +1087,20 @@ def run_scan_cycle(
             _futs = {_pool.submit(_scan_task, sym, tf): (sym, tf) for sym, tf in _pairs}
             for _fut in as_completed(_futs):
                 scan_results.append(_fut.result())
-        # Restore deterministic (symbol, tf) ordering for consistent alert output
+        # Sort HTF before LTF so Phase 3 writes HTF signals to DB first.
+        # Cross-TF co-fire checks query the DB — if LTF is processed first,
+        # the HTF signal from the same cycle isn't in DB yet and confluence
+        # is silently missed.
         _sym_idx = {s: i for i, s in enumerate(symbols)}
         _tf_idx = {t: i for i, t in enumerate(timeframes)}
-        scan_results.sort(key=lambda r: (_sym_idx[r[0]], _tf_idx[r[1]]))
+        scan_results.sort(key=lambda r: (_sym_idx[r[0]], -_tf_idx[r[1]]))
     else:
-        for sym, tf in _pairs:
+        # Single-worker: scan pairs in HTF-first order for the same reason.
+        _tf_idx_single = {t: i for i, t in enumerate(timeframes)}
+        _pairs_htf_first = sorted(
+            _pairs, key=lambda p: (symbols.index(p[0]), -_tf_idx_single[p[1]])
+        )
+        for sym, tf in _pairs_htf_first:
             scan_results.append(_scan_task(sym, tf))
 
     # --- Phase 3: Fan-in — sequential processing of scan results ---
