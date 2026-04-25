@@ -392,7 +392,7 @@ def write_confidence_to_db(
     )
     if not directional_ratings:
         return
-    for direction, total_col, avg_r_col, wr_col in [
+    for direction, _total_col, avg_r_col, wr_col in [
         ("long", "long_total_trades", "long_avg_r", "long_win_rate"),
         ("short", "short_total_trades", "short_avg_r", "short_win_rate"),
     ]:

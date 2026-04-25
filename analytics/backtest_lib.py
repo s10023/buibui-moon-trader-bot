@@ -636,7 +636,9 @@ def _find_cofire_signals(
 
         best_j: int | None = None
         best_dist = window + 1
-        for j, (t_b, dir_b, idx_b) in enumerate(zip(b_times, b_dirs, b_indices)):
+        for j, (_t_b, dir_b, idx_b) in enumerate(
+            zip(b_times, b_dirs, b_indices, strict=False)
+        ):
             if j in used_b or dir_b != dir_a or idx_b is None:
                 continue
             dist = abs(idx_b - idx_a)
@@ -769,7 +771,7 @@ def _find_cross_tf_signals(
 
         # Find the most recent HTF signal in the window with matching direction.
         best_htf_time: int | None = None
-        for htf_t, htf_d in zip(htf_times, htf_dirs):
+        for htf_t, htf_d in zip(htf_times, htf_dirs, strict=False):
             if htf_d != ltf_dir:
                 continue
             if window_start <= htf_t <= ltf_time:

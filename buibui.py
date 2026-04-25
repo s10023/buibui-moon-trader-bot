@@ -216,7 +216,7 @@ def run_signal_test(args: argparse.Namespace) -> None:
             except ValueError:
                 raise SystemExit(
                     f"error: --at '{args.at}' is not a valid ISO datetime or Unix ms timestamp"
-                )
+                ) from None
 
     # Build secondary_map from coins.json (same as signal_runner.py).
     secondary_map: dict[str, str] = {

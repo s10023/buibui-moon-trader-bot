@@ -21,7 +21,7 @@ def get_db(request: Request) -> Generator[duckdb.DuckDBPyConnection, None, None]
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database is busy (signal-watch is writing). Try again in a few seconds.",
-        )
+        ) from None
     try:
         yield conn
     finally:

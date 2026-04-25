@@ -134,7 +134,10 @@ def _build_grid(ranges: list[ParamRange]) -> list[dict[str, Any]]:
     """Cartesian product of all param ranges → list of param dicts."""
     keys = [r.name for r in ranges]
     value_lists = [r.values for r in ranges]
-    return [dict(zip(keys, combo)) for combo in itertools.product(*value_lists)]
+    return [
+        dict(zip(keys, combo, strict=False))
+        for combo in itertools.product(*value_lists)
+    ]
 
 
 # ---------------------------------------------------------------------------
