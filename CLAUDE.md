@@ -4,28 +4,38 @@ This file provides instructions for Claude Code when working in this repository.
 
 ## Project Overview
 
-Buibui Moon Trader Bot — a crypto trading bot for Binance Futures with live price monitoring and position tracking. Python 3.11+, managed with Poetry.
+Buibui Moon Trader Bot — a crypto trading bot for Binance Futures. Live price + position monitoring, an analytics/backtest stack (DuckDB), a 21-strategy signal engine with Telegram alerts, and a FastAPI + Svelte web UI. Python 3.11+, managed with Poetry.
 
 ## Key Commands
 
-After making **any** code changes, always run these checks:
+After making **any** Python code change:
 
 ```bash
-# Format Python code
-make lint-py
-
-# Type check
-make typecheck
-
-# Run tests
-make test
+make lint-py        # ruff format + lint
+make typecheck      # mypy strict
+make test           # full pytest suite
 ```
 
-For Markdown changes:
+For Markdown changes: `make lint-md`.
 
-```bash
-make lint-md
-```
+For UI / API changes: `make web-build` (production bundle) or `make web-dev` (Vite dev server).
+
+For routine DB refresh after backtest/strategy changes: `make db-update` (= `db-update-backtest` → `db-update-recalibrate` → `regression-update`).
+
+## CLI
+
+`buibui.py` is the single CLI entry point with subcommands:
+
+- `buibui monitor price | position` — live price / position monitor
+- `buibui signal watch | test` — live signal daemon / historical replay
+- `buibui analytics backfill | sync` — OHLCV ingestion
+- `buibui backtest` — run/save backtests (sweep, combo, cross-TF modes)
+- `buibui digest` — pre-canned analytics queries
+- `buibui param-audit | param-sweep` — WFO parameter tools
+- `buibui recalibrate` — refresh star ratings
+- `buibui web` — start FastAPI backend
+
+Each Makefile `buibui-*` target wraps the equivalent CLI invocation.
 
 ## Project Structure
 
@@ -38,7 +48,7 @@ make lint-md
 - `analytics/` — analytics data layer (DuckDB-backed). See `.claude/context/analytics.md` for full module API reference.
   - `data_store.py` — DB schema, upsert/query helpers, `confidence_ratings`, combo tables, `DEFAULT_DB_PATH`; `BacktestSnapshot` duck-type; `backtest_cache` table with `get/put/prune_backtest_cache`
   - `data_fetcher.py` / `data_sync.py` / `analytics_runner.py` — fetch, sync orchestration, thin runner
-  - `indicators_lib.py` — 21 active strategies; `STRATEGY_REGISTRY`, `DETECTOR_REGISTRY`, `StrategySpec`, `INCOMPATIBLE_PAIRS`
+  - `indicators_lib.py` — 21 entries in `STRATEGY_REGISTRY` (18 detectors in `DETECTOR_REGISTRY`); `StrategySpec`, `INCOMPATIBLE_PAIRS`
   - `backtest_lib.py` — `Trade`, `BacktestResult`, `run_backtest`; volume tiers, directional splits, D10 combo results
   - `backtest_runner.py` / `backtest_config.py` — thin runner + TOML config loader for sweep mode
   - `param_sweep.py` — WFO sweep lib; `run_param_sweep` / `run_strategy_audit`; parallelized via `ProcessPoolExecutor`
@@ -52,8 +62,8 @@ make lint-md
   - `signal_test_runner.py` — historical replay: no DB writes, no cooldown; `--at` / `--lookback`
   - `recalibrate_lib.py` / `recalibrate_runner.py` — compute + write star ratings to DB or source
   - `perf_timer.py` — `timed(label)` context manager
-- `signals/` — signal detection daemon package. See `.claude/context/signals.md` for full reference.
-  - `registry.py` — `SignalPlugin` TypedDict + `SIGNAL_REGISTRY` (19 actionable strategies; `seasonality`/`funding_reversion`/`fibonacci_retracement` excluded)
+- `signals/` — signal detection daemon package (alerting + dedup only — detection lives in `analytics/`). See `.claude/context/signals.md` for full reference.
+  - `registry.py` — `SignalPlugin` TypedDict + `SIGNAL_REGISTRY` (19 actionable strategies; `seasonality` / `funding_reversion` / `fibonacci_retracement` excluded)
   - `cooldown_store.py` — two-layer dedup: candle watermark + cooldown timer; JSON-persisted to `signal_state.json`
   - `alert_formatter.py` — `SignalEvent`, `StatsContext`, `ConfluenceData`; 6-section alert layout; W1–W8 candle warnings
   - `DEFAULT_DB_PATH` lives in `data_store.py` — import from there, do not redefine in runners
@@ -67,9 +77,11 @@ make lint-md
 - `web/` — web layer (Phase 4 + 5). See `.claude/context/web.md` for full API + UI reference.
   - `api/` — FastAPI: routers (config, ohlcv, fib, signals, backtest, positions, prices, stream, stats, zones); `GET /api/active-config`, `GET /api/zones`, `GET /api/backtest/analysis`; stats live fields via `_inject_live_fields()`
   - `ui/` — Svelte 5 + Vite; pages: Chart, Backtest, SignalFeed, Positions, Prices, Stats; build: `make web-build`
+- `trade/open_trades.py` — Binance Futures order opener (manual/CLI use; wired via `make buibui-open-trades`). No automation hooked into the signal daemon yet.
 - `tests/` — pytest suite; tests import from lib modules and pass mock dependencies directly
-- `config/coins.json` — per-symbol leverage and stop-loss config
-- `config/strategy_params.toml` — shared base config inherited by the three main signal_watch configs via `extends = "strategy_params.toml"`; contains `[smt_pairs]`, `[bias]`, `[backtest]` defaults, per-strategy `volume_suppress`/`volume_spike_boost` flags, and `tp_r_long`/`tp_r_short` directional overrides for `morning_evening_star`, `pin_bar`, `inside_bar` (Gate 3 phase 1, 200d WFO); `conservative`/`scalping`/`swing` do not extend this (different `[bias]`/`[backtest]` values)
+- `.claude/context/` — long-form module references (`analytics.md`, `signals.md`, `web.md`) split out to keep this file lean
+- `config/coins.json` — per-symbol leverage and stop-loss config (gitignored; see `coins.json.example`)
+- `config/strategy_params.toml` — shared base config inherited via `extends = "strategy_params.toml"` by `signal_watch.toml`, `signal_watch_all.toml`, `signal_watch_weekdays.toml`. Contains `[smt_pairs]`, `[bias]`, `[backtest]` defaults, per-strategy `volume_suppress` / `volume_spike_boost` flags, and `tp_r_long` / `tp_r_short` directional overrides. `conservative.toml` / `scalping.toml` / `swing.toml` do **not** extend it — they carry their own `[bias]` / `[backtest]` values.
 
 ## Code Style
 
@@ -100,7 +112,7 @@ When changes affect project structure, CLI commands, features, or behavior, upda
 
 ## Session Memory Protocol
 
-At the end of every session where anything changed (features, bug fixes, refactors, decisions), automatically update the **Current State** section in `~/.claude/projects/-home-kng-repo-buibui-moon-trader-bot/memory/MEMORY.md`. Do not wait to be asked.
+At the end of every session where anything changed (features, bug fixes, refactors, decisions), automatically update the **Current State** section in `~/.claude-personal/projects/-home-kng-repo-buibui-moon-trader-bot/memory/MEMORY.md`. Do not wait to be asked.
 
 Fields to keep current:
 
