@@ -229,10 +229,7 @@ def _wick_rejection_against(
     total_range = h - lo
     if total_range == 0:
         return False
-    if direction == "long":
-        wick_against = h - max(o, c)
-    else:
-        wick_against = min(o, c) - lo
+    wick_against = h - max(o, c) if direction == "long" else min(o, c) - lo
     return wick_against / total_range > 0.40
 
 

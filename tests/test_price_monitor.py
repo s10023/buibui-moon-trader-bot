@@ -194,16 +194,20 @@ class TestCreateClient:
     """Tests for create_client() startup validation."""
 
     def test_raises_value_error_when_api_key_missing(self) -> None:
-        with patch("utils.binance_client.load_dotenv"):
-            with patch.dict("os.environ", {}, clear=True):
-                with pytest.raises(ValueError, match="BINANCE_API_KEY"):
-                    create_client()
+        with (
+            patch("utils.binance_client.load_dotenv"),
+            patch.dict("os.environ", {}, clear=True),
+            pytest.raises(ValueError, match="BINANCE_API_KEY"),
+        ):
+            create_client()
 
     def test_raises_value_error_when_api_secret_missing(self) -> None:
-        with patch("utils.binance_client.load_dotenv"):
-            with patch.dict("os.environ", {"BINANCE_API_KEY": "key"}, clear=True):
-                with pytest.raises(ValueError, match="BINANCE_API_SECRET"):
-                    create_client()
+        with (
+            patch("utils.binance_client.load_dotenv"),
+            patch.dict("os.environ", {"BINANCE_API_KEY": "key"}, clear=True),
+            pytest.raises(ValueError, match="BINANCE_API_SECRET"),
+        ):
+            create_client()
 
 
 class TestGetWalletTarget:
@@ -310,12 +314,14 @@ class TestGetPriceChanges:
     ) -> None:
         mock_client = MagicMock()
         mock_client.get_ticker.return_value = mock_ticker_data
-        with patch("monitor.price_lib.batch_get_klines", return_value={}):
-            with patch("monitor.price_lib.get_open_price_asia", return_value=None):
-                table, invalid = get_price_changes(mock_client, ["XYZUSDT"])
-                assert len(table) == 1
-                assert table[0][1] == "Error"
-                assert len(invalid) == 1
+        with (
+            patch("monitor.price_lib.batch_get_klines", return_value={}),
+            patch("monitor.price_lib.get_open_price_asia", return_value=None),
+        ):
+            table, invalid = get_price_changes(mock_client, ["XYZUSDT"])
+            assert len(table) == 1
+            assert table[0][1] == "Error"
+            assert len(invalid) == 1
 
     def test_ticker_api_failure(self) -> None:
         mock_client = MagicMock()

@@ -34,10 +34,7 @@ def _make_result(
     # solve for loss_r: avg_r * total = wins * 2 + losses * loss_r
     total = wins + losses
     win_r = 2.0
-    if losses > 0:
-        loss_r = (avg_r * total - wins * win_r) / losses
-    else:
-        loss_r = -1.0
+    loss_r = (avg_r * total - wins * win_r) / losses if losses > 0 else -1.0
 
     for _ in range(losses):
         # entry=100, sl=98 → risk=2; to get loss_r we want exit such that (entry-exit)/risk = |loss_r|

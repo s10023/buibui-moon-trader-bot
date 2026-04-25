@@ -137,15 +137,17 @@ class TestComputeBacktest:
                 columns=["open_time", "direction", "sl_price", "reason"]
             )
 
-        with patch.dict(
-            "analytics.signal_lib.SIGNAL_REGISTRY",
-            {"fvg": {"detector": fake_detector, "confidence": 4}},
-        ):
-            with patch.dict(
+        with (
+            patch.dict(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {"fvg": {"detector": fake_detector, "confidence": 4}},
+            ),
+            patch.dict(
                 "analytics.signal_lib.STRATEGY_REGISTRY",
                 {"fvg": MagicMock(requires_funding=False, requires_secondary=False)},
-            ):
-                _compute_backtest(df, "fvg", None, None, "BTCUSDT", "4h", 0.02, 2.0)
+            ),
+        ):
+            _compute_backtest(df, "fvg", None, None, "BTCUSDT", "4h", 0.02, 2.0)
 
         assert captured == [len(df) - 1]  # detector saw n-1 candles
 
@@ -160,17 +162,19 @@ class TestComputeBacktest:
             }
         )
 
-        with patch.dict(
-            "analytics.signal_lib.SIGNAL_REGISTRY",
-            {"fvg": {"detector": lambda _: signals, "confidence": 4}},
-        ):
-            with patch.dict(
+        with (
+            patch.dict(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {"fvg": {"detector": lambda _: signals, "confidence": 4}},
+            ),
+            patch.dict(
                 "analytics.signal_lib.STRATEGY_REGISTRY",
                 {"fvg": MagicMock(requires_funding=False, requires_secondary=False)},
-            ):
-                result = _compute_backtest(
-                    df, "fvg", None, None, "BTCUSDT", "4h", 0.02, 2.0
-                )
+            ),
+        ):
+            result = _compute_backtest(
+                df, "fvg", None, None, "BTCUSDT", "4h", 0.02, 2.0
+            )
 
         assert result is not None
         assert isinstance(result, BacktestResult)
@@ -181,17 +185,19 @@ class TestComputeBacktest:
         def bad_detector(_: pd.DataFrame) -> pd.DataFrame:
             raise ValueError("boom")
 
-        with patch.dict(
-            "analytics.signal_lib.SIGNAL_REGISTRY",
-            {"fvg": {"detector": bad_detector, "confidence": 4}},
-        ):
-            with patch.dict(
+        with (
+            patch.dict(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {"fvg": {"detector": bad_detector, "confidence": 4}},
+            ),
+            patch.dict(
                 "analytics.signal_lib.STRATEGY_REGISTRY",
                 {"fvg": MagicMock(requires_funding=False, requires_secondary=False)},
-            ):
-                result = _compute_backtest(
-                    df, "fvg", None, None, "BTCUSDT", "4h", 0.02, 2.0
-                )
+            ),
+        ):
+            result = _compute_backtest(
+                df, "fvg", None, None, "BTCUSDT", "4h", 0.02, 2.0
+            )
 
         assert result is None
 
@@ -216,17 +222,19 @@ class TestComputeBacktest:
             }
         )
 
-        with patch.dict(
-            "analytics.signal_lib.SIGNAL_REGISTRY",
-            {"fvg": {"detector": lambda _: signals, "confidence": 4}},
-        ):
-            with patch.dict(
+        with (
+            patch.dict(
+                "analytics.signal_lib.SIGNAL_REGISTRY",
+                {"fvg": {"detector": lambda _: signals, "confidence": 4}},
+            ),
+            patch.dict(
                 "analytics.signal_lib.STRATEGY_REGISTRY",
                 {"fvg": MagicMock(requires_funding=False, requires_secondary=False)},
-            ):
-                result = _compute_backtest(
-                    df, "fvg", None, None, "BTCUSDT", "4h", 0.02, 2.0
-                )
+            ),
+        ):
+            result = _compute_backtest(
+                df, "fvg", None, None, "BTCUSDT", "4h", 0.02, 2.0
+            )
 
         assert result is not None
         assert len(result.trades) == 1

@@ -1403,41 +1403,39 @@ def detect_market_structure(
         open_time = int(df.iloc[row_idx]["open_time"])
 
         if typ == "H":
-            if last_sh is not None:
-                if price > last_sh:
-                    sl_val = last_sl if last_sl is not None else 0.0
-                    swing_range = (price - sl_val) / price if price > 0 else 0.0
-                    if swing_range >= min_swing_pct:
-                        label = "choch_long" if trend == "down" else "bos_long"
-                        signals.append(
-                            {
-                                "open_time": open_time,
-                                "direction": "long",
-                                "reason": f"{label}@{price:.2f}",
-                                "sl_price": sl_val,
-                                "context": "",
-                            }
-                        )
-                    trend = "up"
+            if last_sh is not None and price > last_sh:
+                sl_val = last_sl if last_sl is not None else 0.0
+                swing_range = (price - sl_val) / price if price > 0 else 0.0
+                if swing_range >= min_swing_pct:
+                    label = "choch_long" if trend == "down" else "bos_long"
+                    signals.append(
+                        {
+                            "open_time": open_time,
+                            "direction": "long",
+                            "reason": f"{label}@{price:.2f}",
+                            "sl_price": sl_val,
+                            "context": "",
+                        }
+                    )
+                trend = "up"
             last_sh = price
 
         else:  # "L"
-            if last_sl is not None:
-                if price < last_sl:
-                    sh_val = last_sh if last_sh is not None else 0.0
-                    swing_range = (sh_val - price) / price if price > 0 else 0.0
-                    if swing_range >= min_swing_pct:
-                        label = "choch_short" if trend == "up" else "bos_short"
-                        signals.append(
-                            {
-                                "open_time": open_time,
-                                "direction": "short",
-                                "reason": f"{label}@{price:.2f}",
-                                "sl_price": sh_val,
-                                "context": "",
-                            }
-                        )
-                    trend = "down"
+            if last_sl is not None and price < last_sl:
+                sh_val = last_sh if last_sh is not None else 0.0
+                swing_range = (sh_val - price) / price if price > 0 else 0.0
+                if swing_range >= min_swing_pct:
+                    label = "choch_short" if trend == "up" else "bos_short"
+                    signals.append(
+                        {
+                            "open_time": open_time,
+                            "direction": "short",
+                            "reason": f"{label}@{price:.2f}",
+                            "sl_price": sh_val,
+                            "context": "",
+                        }
+                    )
+                trend = "down"
             last_sl = price
 
     return _signals_to_df(signals)
@@ -1641,17 +1639,20 @@ def detect_smt_divergence(
                     prior_s_sh_val = float(highs_s[sh_s_window[:-1]].max())
                     secondary_also_new_high = latest_s_sh_val > prior_s_sh_val
 
-                if i == latest_p_sh_idx + swing_n and not secondary_also_new_high:
-                    if not trend_filter or close_p < ema_val:
-                        signals.append(
-                            {
-                                "open_time": int(open_times[i]),
-                                "direction": "short",
-                                "reason": f"smt_bearish@{latest_p_sh_val:.2f}",
-                                "sl_price": latest_p_sh_val,
-                                "context": "",
-                            }
-                        )
+                if (
+                    i == latest_p_sh_idx + swing_n
+                    and not secondary_also_new_high
+                    and (not trend_filter or close_p < ema_val)
+                ):
+                    signals.append(
+                        {
+                            "open_time": int(open_times[i]),
+                            "direction": "short",
+                            "reason": f"smt_bearish@{latest_p_sh_val:.2f}",
+                            "sl_price": latest_p_sh_val,
+                            "context": "",
+                        }
+                    )
 
         # ---- Bullish SMT ------------------------------------------------
         lo_p2 = int(np.searchsorted(sl_p_idx, win_start))
@@ -1675,17 +1676,20 @@ def detect_smt_divergence(
                     prior_s_sl_val = float(lows_s[sl_s_window[:-1]].min())
                     secondary_also_new_low = latest_s_sl_val < prior_s_sl_val
 
-                if i == latest_p_sl_idx + swing_n and not secondary_also_new_low:
-                    if not trend_filter or close_p > ema_val:
-                        signals.append(
-                            {
-                                "open_time": int(open_times[i]),
-                                "direction": "long",
-                                "reason": f"smt_bullish@{latest_p_sl_val:.2f}",
-                                "sl_price": latest_p_sl_val,
-                                "context": "",
-                            }
-                        )
+                if (
+                    i == latest_p_sl_idx + swing_n
+                    and not secondary_also_new_low
+                    and (not trend_filter or close_p > ema_val)
+                ):
+                    signals.append(
+                        {
+                            "open_time": int(open_times[i]),
+                            "direction": "long",
+                            "reason": f"smt_bullish@{latest_p_sl_val:.2f}",
+                            "sl_price": latest_p_sl_val,
+                            "context": "",
+                        }
+                    )
 
     return _signals_to_df(signals)
 
@@ -1899,7 +1903,7 @@ def detect_order_block(
 
     signals: list[dict[str, object]] = []
 
-    for i in range(0, n - 2):
+    for i in range(n - 2):
         ob_open = opens[i]
         ob_high = highs[i]
         ob_low = lows[i]

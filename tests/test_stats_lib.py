@@ -188,8 +188,8 @@ def test_compute_session_breakdown_has_sessions(
     assert "London" in sessions
     assert "NY" in sessions
     for row in result.rows:
-        assert 0.0 <= row.high_pct
-        assert 0.0 <= row.low_pct
+        assert row.high_pct >= 0.0
+        assert row.low_pct >= 0.0
 
 
 def test_compute_weekly_p1p2_positive(conn: duckdb.DuckDBPyConnection) -> None:

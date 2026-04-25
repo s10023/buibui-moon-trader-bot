@@ -484,9 +484,8 @@ def run_backtest(
             if direction == "short" and volume_spike_boost_short is not None
             else volume_spike_boost
         )
-        if _suppress and is_low_vol:
-            if not (_boost and is_spike):
-                continue
+        if _suppress and is_low_vol and not (_boost and is_spike):
+            continue
 
         entry_time = int(ohlcv_times_np[entry_idx])
         entry_price = opens_np[entry_idx]
@@ -774,9 +773,10 @@ def _find_cross_tf_signals(
         for htf_t, htf_d in zip(htf_times, htf_dirs, strict=False):
             if htf_d != ltf_dir:
                 continue
-            if window_start <= htf_t <= ltf_time:
-                if best_htf_time is None or htf_t > best_htf_time:
-                    best_htf_time = htf_t
+            if window_start <= htf_t <= ltf_time and (
+                best_htf_time is None or htf_t > best_htf_time
+            ):
+                best_htf_time = htf_t
 
         if best_htf_time is None:
             continue

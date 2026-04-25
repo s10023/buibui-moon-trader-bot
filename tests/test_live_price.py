@@ -1,5 +1,6 @@
 """Tests for monitor/live_price.py."""
 
+import contextlib
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -173,11 +174,9 @@ class TestWsWatchdog:
             patch("monitor.live_price.time.sleep", side_effect=fake_sleep),
             patch("monitor.live_price.sys.exit") as mock_exit,
             patch("monitor.live_price.time.monotonic", return_value=0.0),
+            contextlib.suppress(StopIteration),
         ):
-            try:
-                _ws_watchdog(store, timeout=120, poll=10)
-            except StopIteration:
-                pass
+            _ws_watchdog(store, timeout=120, poll=10)
 
         mock_exit.assert_not_called()
 
@@ -204,10 +203,8 @@ class TestWsWatchdog:
         ):
             # Run one iteration manually by stopping after exit is called
             mock_exit.side_effect = SystemExit(1)
-            try:
+            with contextlib.suppress(SystemExit):
                 _ws_watchdog(store, timeout=120, poll=10)
-            except SystemExit:
-                pass
 
         mock_exit.assert_called_once_with(1)
 
@@ -231,11 +228,9 @@ class TestWsWatchdog:
             patch("monitor.live_price.time.sleep", side_effect=fake_sleep),
             patch("monitor.live_price.sys.exit") as mock_exit,
             patch("monitor.live_price.time.monotonic", side_effect=fake_monotonic),
+            contextlib.suppress(StopIteration),
         ):
-            try:
-                _ws_watchdog(store, timeout=120, poll=10)
-            except StopIteration:
-                pass
+            _ws_watchdog(store, timeout=120, poll=10)
 
         mock_exit.assert_not_called()
 
@@ -259,10 +254,8 @@ class TestKlineRefreshLoop:
         ):
             # Make sleep raise StopIteration on third call to exit the while-loop
             mock_sleep.side_effect = [None, None, StopIteration]
-            try:
+            with contextlib.suppress(StopIteration):
                 _kline_refresh_loop(client, ["BTCUSDT"], store, interval=60)
-            except StopIteration:
-                pass
 
         assert call_count == 2  # ran twice despite first raising
 
@@ -303,10 +296,8 @@ class TestRun:
         with (
             patch("monitor.live_price.ThreadedWebsocketManager", return_value=mock_twm),
             patch("monitor.live_price._refresh_klines"),
+            contextlib.suppress(RuntimeError),
         ):
-            try:
-                run(client, ["BTCUSDT"])
-            except RuntimeError:
-                pass
+            run(client, ["BTCUSDT"])
 
         mock_twm.stop.assert_called_once()

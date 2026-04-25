@@ -144,7 +144,7 @@ def run_signal_watch(
     }
     # Expand deprecated --secondary-symbol into a map if --smt-pairs not provided.
     if secondary_symbol and not smt_pairs:
-        smt_pairs = {s: secondary_symbol for s in resolved_symbols}
+        smt_pairs = dict.fromkeys(resolved_symbols, secondary_symbol)
     secondary_map: dict[str, str] = {**coins_secondary_map, **(smt_pairs or {})}
     if not secondary_map:
         secondary_map_arg: dict[str, str] | None = None
