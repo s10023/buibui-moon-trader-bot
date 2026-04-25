@@ -17,7 +17,7 @@ from contextlib import contextmanager
 
 
 @contextmanager
-def timed(label: str) -> Generator[None, None, None]:
+def timed(label: str) -> Generator[None]:
     t0 = time.perf_counter()
     yield
     elapsed = time.perf_counter() - t0

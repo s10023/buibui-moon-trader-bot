@@ -12,7 +12,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 _bearer = HTTPBearer()
 
 
-def get_db(request: Request) -> Generator[duckdb.DuckDBPyConnection, None, None]:
+def get_db(request: Request) -> Generator[duckdb.DuckDBPyConnection]:
     """Open a fresh read-only DuckDB connection per request (thread-safe)."""
     db_path: str = request.app.state.db_path
     try:

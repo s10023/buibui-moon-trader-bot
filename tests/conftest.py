@@ -88,7 +88,7 @@ def _create_mock_client() -> MagicMock:
 
 
 @pytest.fixture()
-def web_client() -> Generator[TestClient, None, None]:
+def web_client() -> Generator[TestClient]:
     """TestClient with lifespan patched to avoid touching the real DB or Binance.
 
     Patches duckdb.connect and create_client in web.api.main so the lifespan

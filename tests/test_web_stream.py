@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-async def _one_price_event(client: Any) -> AsyncGenerator[str, None]:
+async def _one_price_event(client: Any) -> AsyncGenerator[str]:
     data = [
         {
             "symbol": "BTCUSDT",
@@ -23,7 +23,7 @@ async def _one_price_event(client: Any) -> AsyncGenerator[str, None]:
     yield f"data: {json.dumps(data)}\n\n"
 
 
-async def _one_positions_event(client: Any) -> AsyncGenerator[str, None]:
+async def _one_positions_event(client: Any) -> AsyncGenerator[str]:
     data = {
         "positions": [
             {

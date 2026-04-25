@@ -31,7 +31,7 @@ def _safe_load_symbols() -> tuple[list[str], dict[str, Any]]:
         return [], {}
 
 
-async def _price_event_generator(client: Client) -> AsyncGenerator[str, None]:
+async def _price_event_generator(client: Client) -> AsyncGenerator[str]:
     """Yield SSE price events every 5 seconds."""
     loop = asyncio.get_running_loop()
     try:
@@ -59,7 +59,7 @@ async def _price_event_generator(client: Client) -> AsyncGenerator[str, None]:
         return
 
 
-async def _positions_event_generator(client: Client) -> AsyncGenerator[str, None]:
+async def _positions_event_generator(client: Client) -> AsyncGenerator[str]:
     """Yield SSE position events every 10 seconds."""
     loop = asyncio.get_running_loop()
     try:
