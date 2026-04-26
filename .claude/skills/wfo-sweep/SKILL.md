@@ -1,6 +1,14 @@
 ---
 name: wfo-sweep
-description: "Full automated Walk-Forward Optimization chain: param-audit → param-sweep → apply tp_r to TOML → backtest → recalibrate → commit. Use when a config feels stale, after adding strategies, or whenever the user wants to refresh tp_r values. One command does the whole chain."
+description: >
+  Full automated Walk-Forward Optimization chain for a config TOML —
+  `param-audit` → `param-sweep` → apply `tp_r` to TOML → backtest →
+  recalibrate → commit. One invocation runs the whole chain end-to-end.
+  Invoke when the user says "/wfo-sweep", calls a config "stale", asks to
+  "refresh tp_r" or "rerun WFO", or after adding a new strategy that needs
+  validated `tp_r` values. This is the trusted production path for tp_r
+  (`/config-refresh` covers non-tp_r dimensions only).
+allowed-tools: Bash, Read, Edit, Write
 ---
 
 # WFO Sweep — Full Automated Parameter Refresh

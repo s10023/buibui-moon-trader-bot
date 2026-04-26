@@ -1,6 +1,12 @@
 ---
 name: post-branch
-description: "Post-branch docs check — update CLAUDE.md, README.md, MEMORY.md, Makefile, docker-compose.yml after finishing any branch. Run this automatically after every branch without being asked. Also includes writing the PR summary to /tmp/pr-<branch>.md."
+description: >
+  Post-branch docs sweep — review whether `CLAUDE.md`, `README.md`, `MEMORY.md`,
+  `Makefile`, and `docker-compose.yml` need updates after a branch's changes.
+  Invoke automatically when a feature/fix branch is complete (lint/typecheck/tests
+  green, commit done) — do not wait to be asked. Also triggers on the user
+  saying "/post-branch", "wrap up the branch", or "docs check".
+allowed-tools: Bash, Read, Edit
 ---
 
 # Post-Branch Docs Check

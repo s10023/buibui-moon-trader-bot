@@ -1,6 +1,13 @@
 ---
 name: pr-summary
-description: "Write PR title, summary, and test plan to /tmp/pr-<branch>.md after finishing a branch. Always run this automatically when a branch is complete — do not wait to be asked. Also load when the user says 'PR summary', 'write a PR', or 'finish up the branch'."
+description: >
+  Write a PR title, summary, and test plan to `/tmp/pr-<branch>.md` after a
+  branch is complete (lint/typecheck/tests green, commit done). Never returns
+  the content inline.
+  Invoke automatically when a branch finishes — do not wait. Also triggers on
+  the user saying "/pr-summary", "PR summary", "write a PR", or "finish up
+  the branch".
+allowed-tools: Bash, Write, Read
 ---
 
 # PR Summary

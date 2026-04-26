@@ -1,6 +1,12 @@
 ---
 name: sanity-check
-description: "Full project health check — CI, wiring audit, docs sync, skills freshness, architecture review. Run this weekly, after any large refactor or merge, or whenever something feels off about the codebase."
+description: >
+  Full project health check across five dimensions: CI hygiene, wiring audit,
+  docs sync, skills freshness, architecture review.
+  Invoke weekly, after any large refactor or merge, when the user says
+  "/sanity-check", or asks "is everything wired up", "do the docs match",
+  or "anything stale".
+allowed-tools: Bash, Read, Edit
 ---
 
 # Sanity Check Skill

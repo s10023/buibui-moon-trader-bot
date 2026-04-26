@@ -1,6 +1,12 @@
 ---
 name: stats-dashboard
-description: "Stats page architecture, card inventory, adding new stat cards, timezone and caching constraints. Always load this skill when working on the Stats page, stats_lib.py, or any P1/P2, ADR, DOW, session, or weekly timing data — even for small fixes."
+description: >
+  Stats page architecture: card inventory, adding new stat cards, timezone /
+  caching constraints, and the `stats_lib.py` ↔ router ↔ Svelte UI flow.
+  Invoke when the user says "/stats-dashboard", touches `stats_lib.py`,
+  `web/api/routers/stats.py`, `Stats.svelte`, or any P1/P2, ADR, DOW, session,
+  or weekly-timing data — even for small fixes.
+allowed-tools: "*"
 ---
 
 # Stats Dashboard Skill

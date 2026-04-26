@@ -1,6 +1,13 @@
 ---
 name: volume-sweep
-description: "Test volume_suppress flag per strategy — compare High Vol vs Low Vol avg R. Use when adding a strategy, after entry logic changes, or when reviewing volume-related bactest output. Also load when user asks about volume suppression, volume spike boost, or low-volume signals."
+description: >
+  Test the `volume_suppress` flag per strategy by reading the "Volume Impact"
+  split in backtest output (High Vol vs Low Vol avg R) and committing the
+  winner to TOML.
+  Invoke when the user says "/volume-sweep", adds a new strategy, changes entry
+  logic, or asks about "volume_suppress", "volume spike boost", or
+  "low-volume signals".
+allowed-tools: Bash, Read, Edit, Write
 ---
 
 # Volume Suppression Testing
