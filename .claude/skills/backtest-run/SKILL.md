@@ -1,6 +1,11 @@
 ---
 name: backtest-run
-description: "Quick reference for all buibui backtest CLI flags and invocations. Load whenever the user wants to run, plan, or discuss a backtest — including one-off runs, sweeps, saving results, or questions about flags."
+description: >
+  Quick reference for every `buibui backtest` CLI flag and `make buibui-backtest`
+  invocation — sweep, combo, cross-TF, save, since, day-filter, ATR, fees.
+  Invoke when the user says "/backtest-run", asks to "run a backtest",
+  "what's the flag for X", or wants to plan a sweep / combo / cross-TF run.
+allowed-tools: Bash, Read
 ---
 
 # Backtest Run — Quick Reference

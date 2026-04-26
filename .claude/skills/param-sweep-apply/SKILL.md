@@ -1,6 +1,13 @@
 ---
 name: param-sweep-apply
-description: "Auto-apply WFO param-sweep/param-audit results — parse pasted tables, pick best tp_r per strategy × TF using decision rules, edit TOML, run backtest + recalibrate. Use whenever the user pastes sweep or audit output and wants it applied, or after running param-sweep/param-audit manually outside the wfo-sweep chain."
+description: >
+  Auto-apply WFO `param-sweep` / `param-audit` results — parse pasted tables,
+  pick the best `tp_r` per strategy × timeframe via decision rules, edit TOML,
+  then run backtest + recalibrate.
+  Invoke when the user says "/param-sweep-apply", pastes a `param-sweep` or
+  `param-audit` table, or asks "apply these sweep results to the TOML".
+  Complement to `/wfo-sweep` — use this for manual / out-of-chain sweep runs.
+allowed-tools: Bash, Read, Edit, Write
 ---
 
 # Param Sweep Apply — Auto-apply WFO findings to TOML

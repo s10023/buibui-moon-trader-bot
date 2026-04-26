@@ -1,6 +1,13 @@
 ---
 name: new-strategy
-description: "Guided checklist for adding a new trading strategy. Always use this when implementing a new strategy — it covers all 4 required files (indicators_lib, DETECTOR_REGISTRY, signals/registry, tests). Missing any one of these causes silent failures or 500s in the UI."
+description: >
+  Guided checklist for adding a new trading strategy — covers the 4 mandatory
+  files (`indicators_lib.py`, `DETECTOR_REGISTRY`, `signals/registry.py`, tests).
+  Missing any one causes silent failures or 500s in the UI.
+  Invoke when the user says "/new-strategy", proposes "add a new strategy",
+  "implement strategy X", or starts wiring a fresh detector — even before any
+  code is written.
+allowed-tools: "*"
 ---
 
 # New Strategy Wiring Checklist

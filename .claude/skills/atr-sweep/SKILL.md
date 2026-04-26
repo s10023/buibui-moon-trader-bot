@@ -1,6 +1,12 @@
 ---
 name: atr-sweep
-description: "Find optimal ATR SL multiplier per strategy × TF. Use after SL-related changes, when backtests show high fee drag, or whenever the user wants to tune stop-loss sizing. Also load this when the user asks about atr_sl_multiplier or ATR-based stops."
+description: >
+  Find the optimal ATR SL multiplier per strategy × timeframe by running a sweep
+  and translating the winner into `atr_sl_multiplier` TOML overrides.
+  Invoke when the user says "/atr-sweep", asks about "atr_sl_multiplier",
+  "ATR-based stops", "fee drag", or any stop-loss sizing tune — and after
+  any SL-related code change.
+allowed-tools: Bash, Read, Edit, Write
 ---
 
 # ATR SL Multiplier Sweep

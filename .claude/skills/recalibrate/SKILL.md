@@ -1,6 +1,13 @@
 ---
 name: recalibrate
-description: "Update strategy star ratings from backtest results. Always use this after any `make buibui-backtest SAVE=1` run — star ratings won't reflect new data until recalibration runs. Also use when the user asks about confidence scores, star ratings, or strategy quality, or wants to apply recalibration."
+description: >
+  Update strategy star ratings in the `confidence_ratings` DB table from
+  accumulated backtest_runs. Ratings feed Backtest UI stars, Telegram alerts,
+  and the live signal-watch quality gate.
+  Invoke automatically after any `make buibui-backtest SAVE=1`. Also triggers on
+  the user saying "/recalibrate", asking about "star ratings", "confidence
+  score", or "strategy quality".
+allowed-tools: Bash
 ---
 
 # Recalibrate Strategy Star Ratings

@@ -1,6 +1,12 @@
 ---
 name: config-refresh
-description: "Full TOML refresh from a TP sweep — fixes strategy_timeframes gaps, updates tp_r per strategy × TF, validates, and commits. Run when a signal_watch config feels stale (30+ days since last sweep), after any detector rewrite, or when adding a new strategy that needs calibration."
+description: >
+  Full TOML refresh from a TP sweep — fixes `strategy_timeframes` gaps, updates
+  `tp_r` per strategy × timeframe, validates, and commits.
+  Invoke when the user says "/config-refresh", calls a `signal_watch*.toml` "stale",
+  asks to "refresh the config", "fix the timeframes", or after a detector rewrite
+  or new strategy add.
+allowed-tools: Bash, Read, Edit, Write
 ---
 
 # Config Refresh — Full TOML Update from TP Sweep

@@ -1,6 +1,12 @@
 ---
 name: signal-watch
-description: "Signal daemon workflow, TOML config reference, and signal flow. Always load this when configuring, debugging, starting, or modifying the live signal scanner — even for minor TOML changes or strategy additions."
+description: >
+  Signal daemon workflow, TOML config reference, and end-to-end signal flow
+  (sync → detect → dedup → backtest gate → Telegram → persist).
+  Invoke when the user says "/signal-watch", configures, debugs, starts, or
+  modifies the live signal scanner — even for minor TOML changes or strategy
+  additions.
+allowed-tools: "*"
 ---
 
 # Signal Watch Daemon

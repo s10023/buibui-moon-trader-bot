@@ -1,6 +1,13 @@
 ---
 name: backtest-findings
-description: "Interpret backtest sweep tables (ATR/TP/volume/duration) and commit winning params to TOML. Always use this after any sweep run — even when you're just reading a table and not sure what to do with it."
+description: >
+  Interpret any backtest sweep table (ATR / TP / volume / duration) and commit
+  the winning params to TOML.
+  Invoke when the user says "/backtest-findings", pastes a sweep table, or asks
+  "what do these results mean", "which tp_r should I pick", or otherwise needs
+  a sweep table translated into a TOML decision — even when they only want it
+  read aloud.
+allowed-tools: Bash, Read, Edit
 ---
 
 # Backtest Findings — Interpreting Sweep Output
