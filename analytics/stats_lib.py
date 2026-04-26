@@ -1417,10 +1417,7 @@ def compute_weekly_wick_percentile(
         high, low, open_, close = float(high), float(low), float(open_), float(close)
         if open_ <= 0:
             continue
-        if p1_dir == "low":
-            wick = min(open_, close) - low
-        else:
-            wick = high - max(open_, close)
+        wick = min(open_, close) - low if p1_dir == "low" else high - max(open_, close)
         historical.append(wick / open_ / adr_14)
 
     # Current week: MYT-based Monday 00:00 boundary (same as compute_weekly_current_state)

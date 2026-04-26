@@ -1408,26 +1408,25 @@ def run_scan_cycle(
                         backtest_cfg.volume_spike_boost,
                     )
                 )
-                if _suppress:
-                    if _is_low_volume(ohlcv_df, _idx):
-                        # Spike boost: exempt high-conviction candles from suppress.
-                        if _is_spike and _boost:
-                            logger.info(
-                                "Volume spike exempted %s %s — %s %s",
-                                symbol,
-                                tf,
-                                _e.direction.upper(),
-                                _e.strategy,
-                            )
-                        else:
-                            logger.info(
-                                "Volume filter suppressed %s %s — %s %s",
-                                symbol,
-                                tf,
-                                _e.direction.upper(),
-                                _e.strategy,
-                            )
-                            continue
+                if _suppress and _is_low_volume(ohlcv_df, _idx):
+                    # Spike boost: exempt high-conviction candles from suppress.
+                    if _is_spike and _boost:
+                        logger.info(
+                            "Volume spike exempted %s %s — %s %s",
+                            symbol,
+                            tf,
+                            _e.direction.upper(),
+                            _e.strategy,
+                        )
+                    else:
+                        logger.info(
+                            "Volume filter suppressed %s %s — %s %s",
+                            symbol,
+                            tf,
+                            _e.direction.upper(),
+                            _e.strategy,
+                        )
+                        continue
                 vol_filtered.append(_e)
             passing_events = vol_filtered
             if not passing_events:

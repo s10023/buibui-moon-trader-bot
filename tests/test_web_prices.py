@@ -36,7 +36,7 @@ def test_prices_empty_symbols_returns_empty_list(
     web_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Empty coins config returns empty prices list."""
-    monkeypatch.setattr("web.api.routers.prices.load_coins_config", lambda: {})
+    monkeypatch.setattr("web.api.routers.prices.load_coins_config", dict)
     monkeypatch.setattr(
         "web.api.routers.prices.get_price_changes",
         lambda *a, **kw: ([], []),

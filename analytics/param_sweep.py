@@ -385,11 +385,9 @@ def run_param_sweep(
                 ): p
                 for p in grid
             }
-            done = 0
             print("  Running...", end="", flush=True)
-            for fut in as_completed(futures):
+            for done, fut in enumerate(as_completed(futures), start=1):
                 rows.append(fut.result())
-                done += 1
                 if done % max(1, n // 20) == 0:
                     print(".", end="", flush=True)
         print(" done")
@@ -603,17 +601,16 @@ def _audit_strategy_worker(
         )
         is_n = len(bt_is.closed_trades)
         is_r = bt_is.avg_r
-        if is_n >= is_min and is_r is not None:
-            if best_is is None or is_r > best_is:
-                best_is = is_r
-                best_tp = tp
-                best_is_trades = is_n
-                best_oos = bt_oos.avg_r
-                best_oos_trades = len(bt_oos.closed_trades)
-                best_long_oos = bt_oos.long_avg_r
-                best_short_oos = bt_oos.short_avg_r
-                best_long_oos_n = len(bt_oos.long_closed_trades)
-                best_short_oos_n = len(bt_oos.short_closed_trades)
+        if is_n >= is_min and is_r is not None and (best_is is None or is_r > best_is):
+            best_is = is_r
+            best_tp = tp
+            best_is_trades = is_n
+            best_oos = bt_oos.avg_r
+            best_oos_trades = len(bt_oos.closed_trades)
+            best_long_oos = bt_oos.long_avg_r
+            best_short_oos = bt_oos.short_avg_r
+            best_long_oos_n = len(bt_oos.long_closed_trades)
+            best_short_oos_n = len(bt_oos.short_closed_trades)
 
     if best_is is None:
         verdict = "no_data"
@@ -740,34 +737,33 @@ def run_strategy_audit(
             to_submit.append((strat, sigs_is, sigs_oos))
 
     tp_values_list = [float(v) for v in tp_values]
-    with timed("backtest grid"):
-        with ProcessPoolExecutor(max_workers=workers) as pool:
-            futures = {
-                pool.submit(
-                    _audit_strategy_worker,
-                    strat,
-                    sigs_is,
-                    sigs_oos,
-                    ohlcv_is,
-                    ohlcv_oos,
-                    symbol,
-                    timeframe,
-                    tp_values_list,
-                    is_min,
-                    fee_pct,
-                ): strat
-                for strat, sigs_is, sigs_oos in to_submit
-            }
-            for fut in as_completed(futures):
-                strat = futures[fut]
-                row = fut.result()
-                rows.append(row)
-                verdict_label = (
-                    row.verdict
-                    if row.verdict != "skipped"
-                    else f"skipped ({row.skip_reason})"
-                )
-                print(f"  {strat}: {verdict_label}")
+    with timed("backtest grid"), ProcessPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(
+                _audit_strategy_worker,
+                strat,
+                sigs_is,
+                sigs_oos,
+                ohlcv_is,
+                ohlcv_oos,
+                symbol,
+                timeframe,
+                tp_values_list,
+                is_min,
+                fee_pct,
+            ): strat
+            for strat, sigs_is, sigs_oos in to_submit
+        }
+        for fut in as_completed(futures):
+            strat = futures[fut]
+            row = fut.result()
+            rows.append(row)
+            verdict_label = (
+                row.verdict
+                if row.verdict != "skipped"
+                else f"skipped ({row.skip_reason})"
+            )
+            print(f"  {strat}: {verdict_label}")
 
     # Sort: good → marginal → no_data → no_edge → skipped; within tier by OOS avg_r
     _order = {"good": 0, "marginal": 1, "no_data": 2, "no_edge": 3, "skipped": 4}

@@ -233,25 +233,25 @@ def run_signal_test(args: argparse.Namespace) -> None:
     elif args.lookback == 200 and cfg.backtest and cfg.backtest.since:
         since_ms = _parse_since_to_ms(cfg.backtest.since)
 
-    kwargs: dict[str, object] = dict(
-        symbols=symbols,
-        timeframes=timeframes,
-        strategies=strategies,
-        at_ms=at_ms,
-        lookback=args.lookback,
-        since_ms=since_ms,
-        tp_r=tp_r,
-        sl_pct=cfg.sl_pct,
-        min_sl_pct=min_sl_pct,
-        direction_filter=args.direction,
-        send_telegram=args.telegram,
-        backtest_cfg=cfg.backtest,
-        day_filter=cfg.day_filter,
-        secondary_map=secondary_map or None,
-        strategy_params=cfg.strategy_params or None,
-        bias_cfg=cfg.bias if cfg.bias.adr_suppress_threshold is not None else None,
-        atr_sl_multiplier=cfg.atr_sl_multiplier,
-    )
+    kwargs: dict[str, object] = {
+        "symbols": symbols,
+        "timeframes": timeframes,
+        "strategies": strategies,
+        "at_ms": at_ms,
+        "lookback": args.lookback,
+        "since_ms": since_ms,
+        "tp_r": tp_r,
+        "sl_pct": cfg.sl_pct,
+        "min_sl_pct": min_sl_pct,
+        "direction_filter": args.direction,
+        "send_telegram": args.telegram,
+        "backtest_cfg": cfg.backtest,
+        "day_filter": cfg.day_filter,
+        "secondary_map": secondary_map or None,
+        "strategy_params": cfg.strategy_params or None,
+        "bias_cfg": cfg.bias if cfg.bias.adr_suppress_threshold is not None else None,
+        "atr_sl_multiplier": cfg.atr_sl_multiplier,
+    }
     if getattr(args, "db_path", None):
         kwargs["db_path"] = pathlib.Path(args.db_path)
     _run(**kwargs)  # type: ignore[arg-type]

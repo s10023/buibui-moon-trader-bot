@@ -703,18 +703,18 @@ def run_combo_backtest_cmd(
     combo_results: list[ComboBacktestResult] = []
     skipped: list[str] = []
 
-    worker_kwargs = dict(
-        start_ms=start_ms,
-        end_ms=end_ms,
-        allowed_days=allowed_days,
-        window=window,
-        sl_pct=sl_pct,
-        tp_r=tp_r,
-        fee_pct=fee_pct,
-        min_sl_pct=min_sl_pct,
-        min_signals=min_signals,
-        db_path=db_path,
-    )
+    worker_kwargs = {
+        "start_ms": start_ms,
+        "end_ms": end_ms,
+        "allowed_days": allowed_days,
+        "window": window,
+        "sl_pct": sl_pct,
+        "tp_r": tp_r,
+        "fee_pct": fee_pct,
+        "min_sl_pct": min_sl_pct,
+        "min_signals": min_signals,
+        "db_path": db_path,
+    }
 
     if _max_workers == 1:
         # Serial path — no subprocess overhead, easier to debug.
@@ -947,18 +947,18 @@ def run_cross_tf_combo_backtest_cmd(
     combo_results: list[CrossTfComboBacktestResult] = []
     skipped: list[str] = []
 
-    worker_kwargs = dict(
-        start_ms=start_ms,
-        end_ms=end_ms,
-        allowed_days=allowed_days,
-        window_hours=window_hours,
-        sl_pct=sl_pct,
-        tp_r=tp_r,
-        fee_pct=fee_pct,
-        min_sl_pct=min_sl_pct,
-        min_signals=min_signals,
-        db_path=db_path,
-    )
+    worker_kwargs = {
+        "start_ms": start_ms,
+        "end_ms": end_ms,
+        "allowed_days": allowed_days,
+        "window_hours": window_hours,
+        "sl_pct": sl_pct,
+        "tp_r": tp_r,
+        "fee_pct": fee_pct,
+        "min_sl_pct": min_sl_pct,
+        "min_signals": min_signals,
+        "db_path": db_path,
+    }
 
     if _max_workers == 1:
         for sym, htf, ltf in chunks:
