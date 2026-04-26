@@ -140,6 +140,10 @@ Skills live in `.claude/skills/<name>/SKILL.md` (project-specific, committed to 
 | `pr-summary` | `/pr-summary` | Write PR title + summary + test plan to `/tmp/pr-<branch>.md` | After finishing any feature branch |
 | `post-branch` | `/post-branch` | Check CLAUDE.md, README.md, MEMORY.md, Makefile, docker-compose.yml for needed updates | After every branch — run automatically without being asked |
 | `stats-dashboard` | `/stats-dashboard` | Stats page architecture, card inventory, adding new cards, timezone constraints | When working on Stats page or `stats_lib.py` |
+| `db-update` | `/db-update` | Routine `make db-update`: backtest (3 configs) → recalibrate → regression golden refresh | After any detector / strategy / config change that affects ratings or fixtures |
+| `data-backfill` | `/data-backfill` | OHLCV ingestion via `buibui analytics backfill` / `sync` | First-time setup, wiped DB, new symbol or timeframe, filling a data gap |
+| `confluence-backtest` | `/confluence-backtest` | Cross-TF (`--cross-tf`) and same-TF (`--combo`) co-firing backtests; HTF/LTF pair sweeps | After adding a strategy, changing entry logic, or tuning the live `[combo]` gate |
+| `frontend-svelte` | `/frontend-svelte` | Svelte 5 + Vite UI workflow for `web/ui/` — pages, stores, lightweight-charts, dev/build commands | Any work under `web/ui/`; pair with `/frontend-design` for visual work |
 
 **Always load `/frontend-design` before any Svelte/CSS/UI changes.**
 
