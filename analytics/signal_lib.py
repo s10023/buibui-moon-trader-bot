@@ -387,7 +387,7 @@ def scan_symbol(
 
     events: list[SignalEvent] = []
 
-    _excluded_from_registry = {"seasonality", "funding_reversion"}
+    _excluded_from_registry = {"seasonality"}
 
     for strategy_name in strategies:
         plugin = SIGNAL_REGISTRY.get(strategy_name)

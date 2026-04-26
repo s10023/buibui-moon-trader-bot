@@ -34,7 +34,6 @@ from analytics.backtest_lib import (
 )
 from analytics.data_store import (
     DEFAULT_DB_PATH,
-    get_funding_rates,
     get_ohlcv,
     init_schema,
     upsert_backtest_run,
@@ -46,7 +45,6 @@ from analytics.digest_lib import run_digest
 from analytics.indicators_lib import (
     DETECTOR_REGISTRY,
     KNOWN_STRATEGIES,
-    detect_funding_extreme,
     detect_liquidity_sweep,
     detect_smt_divergence,
     seasonality_stats,
@@ -57,9 +55,7 @@ from utils.binance_client import load_coins_config
 
 _SIMPLE_DETECTORS = DETECTOR_REGISTRY
 
-_SWEEP_STRATEGIES: list[str] = [
-    s for s in KNOWN_STRATEGIES if s not in ("seasonality", "funding_reversion")
-]
+_SWEEP_STRATEGIES: list[str] = [s for s in KNOWN_STRATEGIES if s != "seasonality"]
 
 
 def detect_signals_for_strategy(
@@ -78,14 +74,8 @@ def detect_signals_for_strategy(
     """Return signals DataFrame, or None when required data is absent.
 
     ohlcv must already be fetched and non-empty by the caller.
-    Returns None only when funding or secondary OHLCV data is missing.
+    Returns None only when secondary OHLCV data is missing.
     """
-    if strategy == "funding_reversion":
-        funding = get_funding_rates(conn, symbol, start_ms, end_ms)
-        if funding.empty:
-            return None
-        return detect_funding_extreme(ohlcv, funding)
-
     if strategy == "smt_divergence":
         if secondary_symbol is None:
             return None
@@ -510,12 +500,7 @@ def run_backtest_cmd(
             conn, ohlcv, symbol, timeframe, strategy, start_ms, end_ms, secondary_symbol
         )
         if signals is None:
-            if strategy == "funding_reversion":
-                logging.error(
-                    "No funding rate data for %s. Run 'analytics backfill' first.",
-                    symbol,
-                )
-            elif strategy == "smt_divergence":
+            if strategy == "smt_divergence":
                 logging.error(
                     "--secondary-symbol required for smt_divergence strategy."
                 )
@@ -577,9 +562,7 @@ def _combo_worker(
     """
     from analytics.indicators_lib import INCOMPATIBLE_PAIRS, KNOWN_STRATEGIES
 
-    _non_seasonal = [
-        s for s in KNOWN_STRATEGIES if s not in ("seasonality", "funding_reversion")
-    ]
+    _non_seasonal = [s for s in KNOWN_STRATEGIES if s != "seasonality"]
     combo_results: list[ComboBacktestResult] = []
     skipped: list[str] = []
 
@@ -791,9 +774,7 @@ def _cross_tf_combo_worker(
     """
     from analytics.indicators_lib import INCOMPATIBLE_PAIRS, KNOWN_STRATEGIES
 
-    _non_seasonal = [
-        s for s in KNOWN_STRATEGIES if s not in ("seasonality", "funding_reversion")
-    ]
+    _non_seasonal = [s for s in KNOWN_STRATEGIES if s != "seasonality"]
     results: list[CrossTfComboBacktestResult] = []
     skipped: list[str] = []
 

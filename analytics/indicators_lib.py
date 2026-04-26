@@ -215,23 +215,6 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
         ],
         confidence={"15m": 1, "1d": 1, "1h": 1, "4h": 1},
     ),
-    "funding_reversion": StrategySpec(
-        name="funding_reversion",
-        description="Contrarian signals on extreme funding rates (mean reversion setup).",
-        strategy_type="flow",
-        params=[
-            ParamSpec(
-                "threshold",
-                "float",
-                0.001,
-                0.0001,
-                0.01,
-                "Absolute funding rate threshold to trigger a signal.",
-            ),
-        ],
-        requires_funding=True,
-        confidence=1,  # no funding data in DB — never fired in production
-    ),
     "smt_divergence": StrategySpec(
         name="smt_divergence",
         description="SMT divergence: primary makes new swing extreme but correlated asset does not.",
@@ -3129,9 +3112,9 @@ def detect_ote_entry(
 # ---------------------------------------------------------------------------
 # DETECTOR_REGISTRY — single source of truth for simple (OHLCV-only) detectors
 # ---------------------------------------------------------------------------
-# Strategies that require extra data (funding_reversion → funding rates,
-# smt_divergence → secondary OHLCV) are NOT listed here; callers handle
-# those explicitly.  seasonality is also excluded (returns stats, not signals).
+# Strategies that require extra data (smt_divergence → secondary OHLCV) are
+# NOT listed here; callers handle those explicitly.  seasonality is also
+# excluded (returns stats, not signals).
 
 DETECTOR_REGISTRY: dict[str, Callable[[pd.DataFrame], pd.DataFrame]] = {
     "wick_fill": detect_wick_fills,

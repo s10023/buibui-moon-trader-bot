@@ -2,8 +2,6 @@
 
 Maps strategy name to plugin metadata. Excluded strategies:
 - seasonality: produces stats, not actionable entry signals
-- funding_reversion: requires live funding rate feed; fetch_funding_rates() is not
-  wired into data_sync.py so no funding data flows into the DB reliably.
 - fibonacci_retracement: legacy, superseded by fib_golden_zone.
 
 `requires_funding`, `requires_secondary`, and `confidence` flags live on

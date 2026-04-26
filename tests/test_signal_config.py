@@ -312,7 +312,7 @@ tp_r_4h = 2.5
             cfg.effective_tp_r("engulfing", "BTCUSDT", "1d") == 3.5
         )  # WFO weekdays: 3.0→3.5R
         # strategy not in params falls back to global
-        assert cfg.effective_tp_r("funding_reversion", "BTCUSDT", "1h") == cfg.tp_r
+        assert cfg.effective_tp_r("seasonality", "BTCUSDT", "1h") == cfg.tp_r
 
     def test_signal_watch_toml_strategy_params_parsed(self) -> None:
         """signal_watch.toml (tue_thu) strategy_params (F5 WFO findings) must be applied."""

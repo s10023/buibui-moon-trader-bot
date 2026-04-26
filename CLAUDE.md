@@ -4,7 +4,7 @@ This file provides instructions for Claude Code when working in this repository.
 
 ## Project Overview
 
-Buibui Moon Trader Bot — a crypto trading bot for Binance Futures. Live price + position monitoring, an analytics/backtest stack (DuckDB), a 21-strategy signal engine with Telegram alerts, and a FastAPI + Svelte web UI. Python 3.11+, managed with Poetry.
+Buibui Moon Trader Bot — a crypto trading bot for Binance Futures. Live price + position monitoring, an analytics/backtest stack (DuckDB), a 20-strategy signal engine with Telegram alerts, and a FastAPI + Svelte web UI. Python 3.11+, managed with Poetry.
 
 ## Key Commands
 
@@ -48,7 +48,7 @@ Each Makefile `buibui-*` target wraps the equivalent CLI invocation.
 - `analytics/` — analytics data layer (DuckDB-backed). See `.claude/context/analytics.md` for full module API reference.
   - `data_store.py` — DB schema, upsert/query helpers, `confidence_ratings`, combo tables, `DEFAULT_DB_PATH`; `BacktestSnapshot` duck-type; `backtest_cache` table with `get/put/prune_backtest_cache`
   - `data_fetcher.py` / `data_sync.py` / `analytics_runner.py` — fetch, sync orchestration, thin runner
-  - `indicators_lib.py` — 21 entries in `STRATEGY_REGISTRY` (18 detectors in `DETECTOR_REGISTRY`); `StrategySpec`, `INCOMPATIBLE_PAIRS`
+  - `indicators_lib.py` — 20 entries in `STRATEGY_REGISTRY` (18 detectors in `DETECTOR_REGISTRY`); `StrategySpec`, `INCOMPATIBLE_PAIRS`
   - `backtest_lib.py` — `Trade`, `BacktestResult`, `run_backtest`; volume tiers, directional splits, D10 combo results
   - `backtest_runner.py` / `backtest_config.py` — thin runner + TOML config loader for sweep mode
   - `param_sweep.py` — WFO sweep lib; `run_param_sweep` / `run_strategy_audit`; parallelized via `ProcessPoolExecutor`
@@ -63,7 +63,7 @@ Each Makefile `buibui-*` target wraps the equivalent CLI invocation.
   - `recalibrate_lib.py` / `recalibrate_runner.py` — compute + write star ratings to DB or source
   - `perf_timer.py` — `timed(label)` context manager
 - `signals/` — signal detection daemon package (alerting + dedup only — detection lives in `analytics/`). See `.claude/context/signals.md` for full reference.
-  - `registry.py` — `SignalPlugin` TypedDict + `SIGNAL_REGISTRY` (19 actionable strategies; `seasonality` / `funding_reversion` / `fibonacci_retracement` excluded)
+  - `registry.py` — `SignalPlugin` TypedDict + `SIGNAL_REGISTRY` (19 actionable strategies; `seasonality` / `fibonacci_retracement` excluded)
   - `cooldown_store.py` — two-layer dedup: candle watermark + cooldown timer; JSON-persisted to `signal_state.json`
   - `alert_formatter.py` — `SignalEvent`, `StatsContext`, `ConfluenceData`; 6-section alert layout; W1–W8 candle warnings
   - `DEFAULT_DB_PATH` lives in `data_store.py` — import from there, do not redefine in runners
