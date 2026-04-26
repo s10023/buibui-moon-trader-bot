@@ -20,7 +20,7 @@ jobs:
 
       - name: Check for Markdown changes
         id: changes
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         with:
           filters: |
             markdown:
@@ -46,7 +46,7 @@ jobs:
 
       - name: Check for Python changes
         id: changes
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         with:
           filters: |
             python:
@@ -105,7 +105,7 @@ jobs:
 
       - name: Check for Python changes
         id: changes
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         with:
           filters: |
             python:
@@ -144,7 +144,7 @@ jobs:
 
       - name: Check for frontend changes
         id: changes
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         with:
           filters: |
             frontend:
