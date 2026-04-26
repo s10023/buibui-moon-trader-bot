@@ -27,7 +27,7 @@ def _resolve_symbols(symbols: list[str] | None) -> list[str]:
 @contextmanager
 def _open_session(
     db_path: Path,
-) -> Generator[tuple[Any, duckdb.DuckDBPyConnection], None, None]:
+) -> Generator[tuple[Any, duckdb.DuckDBPyConnection]]:
     try:
         client: Any = create_client()
     except Exception as e:

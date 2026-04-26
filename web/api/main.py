@@ -75,7 +75,7 @@ def _load_active_config(config_path: str) -> None:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Open DB (brief RW for schema, then read-only) and Binance client on startup."""
     # Brief RW open to ensure schema is initialised. Skip gracefully if the
     # signal-watch daemon already holds the write lock (schema must exist).

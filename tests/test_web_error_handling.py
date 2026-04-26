@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture()
-def _no_auth_client() -> Generator[TestClient, None, None]:
+def _no_auth_client() -> Generator[TestClient]:
     """TestClient with auth bypassed but get_db NOT overridden.
 
     This lets get_db run its real logic so we can test its error handling.
