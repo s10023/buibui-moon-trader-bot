@@ -59,7 +59,7 @@ SIGNAL_REGISTRY: dict[str, SignalPlugin] = {
 }
 ```
 
-### 3. `tests/test_indicators.py` (or new `tests/test_my_strategy.py`)
+### 3. `tests/test_indicators_lib.py` (or new `tests/test_my_strategy.py`)
 
 ```python
 import duckdb
@@ -157,7 +157,7 @@ tp_r = 3.0
 |------|----------------|
 | `analytics/indicators_lib.py` | `detect_X()`, `STRATEGY_REGISTRY`, `DETECTOR_REGISTRY` |
 | `signals/registry.py` | `SIGNAL_REGISTRY` entry |
-| `tests/test_indicators.py` | Unit tests for the new detector |
+| `tests/test_indicators_lib.py` | Unit tests for the new detector |
 | `analytics/backtest_runner.py` | Only for strategies needing funding/secondary data |
 
 ## Task: add a new strategy
