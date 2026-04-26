@@ -6,5 +6,16 @@ updates:
     schedule:
       interval: "weekly"
     allow:
-      - dependency-type: "direct" # Only update direct dependencies
+      - dependency-type: "direct"
     open-pull-requests-limit: 5
+    groups:
+      dev-dependencies:
+        dependency-type: "development"
+      runtime-dependencies:
+        dependency-type: "production"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
