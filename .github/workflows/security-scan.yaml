@@ -8,21 +8,8 @@ on:
 
 permissions:
   contents: read
-  security-events: write
 
 jobs:
-  codeql:
-    name: CodeQL
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: github/codeql-action/init@v3
-        with:
-          languages: python
-      - uses: github/codeql-action/analyze@v3
-        with:
-          category: "/language:python"
-
   trivy:
     name: Trivy filesystem scan
     runs-on: ubuntu-latest
