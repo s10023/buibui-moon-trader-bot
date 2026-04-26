@@ -23,7 +23,6 @@ strategies = [
     'liquidity_sweep',
     'fvg',
     'bos',
-    'funding_reversion',
     'smt_divergence',
     'eqh_eql',
     'order_block',

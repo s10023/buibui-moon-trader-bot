@@ -8,7 +8,7 @@ from analytics.indicators_lib import (
 )
 from signals.registry import SIGNAL_REGISTRY
 
-_REGISTRY_EXCLUDED = {"seasonality", "funding_reversion"}
+_REGISTRY_EXCLUDED = {"seasonality"}
 
 
 def test_registry_excludes_inactive_strategies() -> None:
@@ -37,10 +37,6 @@ def test_all_strategies_have_boolean_flags_in_strategy_registry() -> None:
         assert isinstance(spec.requires_secondary, bool), (
             f"{name}: requires_secondary not bool"
         )
-
-
-def test_funding_reversion_requires_funding() -> None:
-    assert STRATEGY_REGISTRY["funding_reversion"].requires_funding is True
 
 
 def test_smt_divergence_requires_secondary() -> None:

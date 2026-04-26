@@ -219,9 +219,9 @@ class TestFormatSignalAlert:
         event = SignalEvent(
             symbol="BTCUSDT",
             timeframe="4h",
-            strategy="funding_reversion",
+            strategy="bos",
             direction="long",
-            reason="funding_short_extreme@-0.0012",
+            reason="no_structural_sl",
             open_time=1700000000000,
             price=1000.0,
             sl_price=0.0,
