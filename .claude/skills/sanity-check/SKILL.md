@@ -77,7 +77,11 @@ Compare the two lists. Flag any strategy in STRATEGY_REGISTRY but not DETECTOR_R
 Check these in parallel:
 
 ### README.md
-- Does `## Usage` reflect all current `buibui` subcommands? (`buibui backtest`, `buibui signal-watch`, `buibui recalibrate`, `buibui analytics`, etc.)
+- Does `## Usage` reflect all current `buibui` subcommands? Verified set:
+  `monitor`, `signal`, `analytics`, `backtest`, `digest`, `param-sweep`,
+  `param-audit`, `recalibrate`, `web`. Note `signal` and `monitor` are
+  parent groups (`buibui signal watch`, `buibui signal test`,
+  `buibui monitor price`, `buibui monitor position`).
 - Does `## Directory Structure` list all current top-level modules?
 - Are any sections referencing removed features?
 
@@ -92,7 +96,7 @@ ls .claude/skills/*/SKILL.md
 Compare against the table in `CLAUDE.md` — flag any skill directory with no entry in the table, or any table entry with no corresponding `SKILL.md`.
 
 ### MEMORY.md
-Path: `~/.claude/projects/-home-kng-repo-buibui-moon-trader-bot/memory/MEMORY.md`
+Path: `~/.claude-personal/projects/-home-kng-repo-buibui-moon-trader-bot/memory/MEMORY.md`
 - Is **Current State** up to date with recent changes?
 - Are completed items marked ✅ in the To-Do List?
 - Are any open questions resolved that should be cleared?
