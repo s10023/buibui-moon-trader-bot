@@ -160,7 +160,7 @@ def test_golden_metrics(
 
     results: dict[str, dict[str, Any]] = {}
 
-    for strategy, detector_fn in DETECTOR_REGISTRY.items():
+    for strategy, _detector_fn in DETECTOR_REGISTRY.items():
         if strategy in _SKIP_STRATEGIES:
             continue
 

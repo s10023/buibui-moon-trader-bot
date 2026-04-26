@@ -159,10 +159,10 @@ def _filter_signals_by_adr(
     df["_move_up"] = (df["close"] > df["_mid"]).astype(float)
 
     consumed_map: dict[int, float] = dict(
-        zip(df["open_time"].astype(int), df["_consumed"].astype(float))
+        zip(df["open_time"].astype(int), df["_consumed"].astype(float), strict=False)
     )
     move_up_map: dict[int, float] = dict(
-        zip(df["open_time"].astype(int), df["_move_up"])
+        zip(df["open_time"].astype(int), df["_move_up"], strict=False)
     )
 
     signal_ratios = signals_df["open_time"].astype(int).map(consumed_map)
@@ -1322,11 +1322,11 @@ def run_scan_cycle(
             if backtest_cfg.mode == "hard":
 
                 def _passes_ev_gate(e: SignalEvent) -> bool:
-                    result = bt_results.get(e.strategy)
+                    result = bt_results.get(e.strategy)  # noqa: B023 — called inline below
                     if result is None:
                         return True  # no data — don't suppress
                     if len(result.closed_trades) < backtest_cfg.effective_min_trades(
-                        tf
+                        tf  # noqa: B023 — called inline below
                     ):
                         return True  # not enough trades — noise
                     if e.direction == "long":
