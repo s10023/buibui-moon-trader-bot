@@ -4,6 +4,8 @@
 **Scope:** Read-only audit of all 21 strategies in `analytics/indicators_lib.py` (3,152 LOC) and their test coverage in `tests/test_indicators_lib.py` + `tests/test_candle_patterns.py`. No code changes.
 **Severity tags:** `[critical]` bleeding now · `[high]` logic bug not bleeding · `[medium]` source drift / suboptimal · `[low]` cosmetic.
 
+> **Update 2026-04-27:** the `[high]` test-coverage gap on `fib_golden_zone` / `ote_entry` (cross-cutting observation 1, top-N finding 3) was a false alarm. The audit only inspected `tests/test_candle_patterns.py`; both detectors are in fact covered by `tests/test_fib_strategies.py` (`TestDetectFibGoldenZone` and `TestDetectOteEntry`). The corresponding lines below are struck through. No other findings change.
+
 ## Registry inventory
 
 - `STRATEGY_REGISTRY`: 21 entries (canonical list).
@@ -127,17 +129,18 @@
 - 0.5–0.618 retracement of last swing, SL at 0.786, TP at swing extreme.
 - Already in `INCOMPATIBLE_PAIRS` with `bos` (shared swing detection logic).
 - **[medium]** Per `project_f10_fib_golden_zone`, MEMORY suggests testing 1.382 as TP1 — Phase 3 backlog item, not a bug.
-- Tests in `test_candle_patterns.py`.
+- Tests in `test_fib_strategies.py::TestDetectFibGoldenZone` (4 cases incl. negative). *Original audit said `test_candle_patterns.py` — incorrect.*
 
 ### 21. ote_entry (`fib`) — `detect_ote_entry` (ICT OTE)
 
 - 0.618–0.786 OTE retracement after confirmed BOS; TP at 1.618 extension.
 - Stricter than fib_golden_zone (deeper zone). Logic mirrors it.
 - **[low]** Same swing-detection sharing as fib_golden_zone (already in INCOMPATIBLE_PAIRS with bos).
+- Tests in `test_fib_strategies.py::TestDetectOteEntry` (covers shallow-retrace, OTE hit, registry/signal wiring).
 
 ## Cross-cutting observations
 
-- **No detector unit-tests directory `tests/test_indicators_lib.py` for `fib_golden_zone` and `ote_entry`?** They live in `test_candle_patterns.py` (per imports there: `detect_doji, detect_engulfing, detect_fibonacci_retracement, detect_hammer_hanging_man, detect_inside_bar, detect_morning_evening_star, detect_pin_bar`). `fib_golden_zone` and `ote_entry` are not in that import list — verify they have test coverage somewhere; if not, that's a gap. **[high]**
+- ~~**No detector unit-tests directory `tests/test_indicators_lib.py` for `fib_golden_zone` and `ote_entry`?** They live in `test_candle_patterns.py` (per imports there: `detect_doji, detect_engulfing, detect_fibonacci_retracement, detect_hammer_hanging_man, detect_inside_bar, detect_morning_evening_star, detect_pin_bar`). `fib_golden_zone` and `ote_entry` are not in that import list — verify they have test coverage somewhere; if not, that's a gap. **[high]**~~ **Resolved 2026-04-27 (false alarm):** both detectors are covered by `tests/test_fib_strategies.py` (`TestDetectFibGoldenZone`, `TestDetectOteEntry`). The audit only inspected `test_candle_patterns.py`. No gap.
 - **`INCOMPATIBLE_PAIRS` is undersized.** Only 2 pairs. Likely candidates to add (Phase 3 — confirm via co-fire correlation): `{fib_golden_zone, ote_entry}` (overlap ≥61.8% retracement zones), `{eqh_eql, liquidity_sweep}` (both fade swing-extreme raids).
 - **No "no future leakage" property test** that runs every detector against a randomised partial-history slice and asserts the same signals fire as on the full history. Add in Phase 3 — would have caught any centred-window misuse before live.
 - **HTF-first ordering bug already fixed (PR #303)** — confluence relies on Phase 3 processing 1d→4h→1h→15m. Worth a regression test pinning ordering.
@@ -146,7 +149,7 @@
 
 1. **[critical] funding_reversion is dead code** — wired into registry but no funding data ever reaches the detector. Decide: wire G2 or remove from registry. (Strategy 8.)
 2. **[high] inside_bar uses body-only containment** — deviates from canonical inside-bar definition. Backtest impact unknown. Either rename or restore high/low containment. (Strategy 16.)
-3. **[high] Possible test-coverage gap on fib_golden_zone and ote_entry** — not in `test_candle_patterns.py` import list; verify in Phase 3 kickoff before audit. (Strategies 20, 21.)
+3. ~~**[high] Possible test-coverage gap on fib_golden_zone and ote_entry** — not in `test_candle_patterns.py` import list; verify in Phase 3 kickoff before audit. (Strategies 20, 21.)~~ **False alarm (2026-04-27):** both detectors are covered by `tests/test_fib_strategies.py::TestDetectFibGoldenZone` / `TestDetectOteEntry`.
 4. **[high] No "no-future-leakage" property test for centred-window detectors** (BOS, eqh_eql, smt_divergence) — single broken slice could ship undetected.
 5. **[high] smt_divergence mostly negative in backtest** (MEMORY, P3) — gate to ETH/1h or default off until D10 confluence layer earns its keep.
 6. **[medium] BOS docstring vs default mismatch** — `min_swing_pct` documented as 0.0 but default is 0.005.
