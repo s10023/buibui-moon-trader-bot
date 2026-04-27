@@ -2348,6 +2348,10 @@ def detect_inside_bar(
     prior candle's body (high of inside ≤ high of mother, low of inside ≥ low
     of mother using body extremes, not wicks).
 
+    Note: this is a *body-only* containment, which deviates from the canonical
+    inside-bar definition (high ≤ prev high AND low ≥ prev low). Chosen to
+    suppress wick-noise; tracked for an A/B backtest in Phase 3.
+
     Signal fires on the breakout candle (the candle AFTER the inside bar) that
     closes above/below the mother bar body:
     - Long: close > mother bar body top.
