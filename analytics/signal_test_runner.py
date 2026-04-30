@@ -20,6 +20,7 @@ import pandas as pd
 from analytics.cme_gap_lib import cme_gap_alert_warning, get_recent_cme_gap
 from analytics.data_store import DEFAULT_DB_PATH, get_funding_rates, get_ohlcv
 from analytics.indicators_lib import STRATEGY_REGISTRY
+from analytics.signal.types import SignalEvent
 from analytics.signal_config import BacktestFilterConfig, BiasConfig, StrategyOverride
 from analytics.signal_lib import (
     _backtest_summary,
@@ -37,7 +38,7 @@ from analytics.signal_lib import (
     _resolve_volume_suppress_short,
     parse_timeframe_secs,
 )
-from signals.alert_formatter import SignalEvent, format_confluence_alert
+from signals.alert_formatter import format_confluence_alert
 from signals.registry import SIGNAL_REGISTRY
 from utils.telegram import send_telegram_message
 

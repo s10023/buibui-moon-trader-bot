@@ -42,18 +42,14 @@ from analytics.data_store import (
     upsert_signals,
 )
 from analytics.indicators_lib import STRATEGY_REGISTRY
+from analytics.signal.types import ConfluenceData, SignalEvent, StatsContext
 from analytics.signal_config import (
     BacktestFilterConfig,
     BiasConfig,
     StrategyOverride,
     _day_filter_to_weekdays,
 )
-from signals.alert_formatter import (
-    ConfluenceData,
-    SignalEvent,
-    StatsContext,
-    format_confluence_alert,
-)
+from signals.alert_formatter import format_confluence_alert
 from signals.cooldown_store import CooldownStore
 from signals.registry import SIGNAL_REGISTRY
 
