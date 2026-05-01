@@ -1,9 +1,40 @@
 """Shared helpers used by multiple detectors (and zones_lib).
 
-Extracted from `analytics/indicators_lib.py` in strat-1. No behaviour change.
+Extracted from `analytics/indicators_lib.py` in strat-1 (`_find_bos_swing`,
+`volume_confirm`) and strat-2 (`_MYT`, `_fmt_time`, `_empty_signals`,
+`_signals_to_df`). No behaviour change.
 """
 
+from datetime import datetime, timedelta, timezone
+
 import pandas as pd
+
+from analytics.strategies._base import SIGNAL_COLUMNS
+
+_MYT = timezone(timedelta(hours=8))
+
+
+def _fmt_time(ts_ms: int) -> str:
+    """Format a Unix ms timestamp as a short MYT (UTC+8) string for alert context."""
+    return datetime.fromtimestamp(ts_ms / 1000, tz=_MYT).strftime("%d-%b %H:%M")
+
+
+def _empty_signals() -> pd.DataFrame:
+    return pd.DataFrame(columns=SIGNAL_COLUMNS)
+
+
+def _signals_to_df(signals: list[dict[str, object]]) -> pd.DataFrame:
+    if not signals:
+        return _empty_signals()
+    df = pd.DataFrame(signals)
+    # Ensure all expected columns exist; fill low_volume with False for detectors
+    # that don't use a volume gate (keeps the column schema uniform).
+    for col in SIGNAL_COLUMNS:
+        if col not in df.columns:
+            df[col] = False if col == "low_volume" else None
+    return (
+        df[SIGNAL_COLUMNS].drop_duplicates(subset=["open_time"]).reset_index(drop=True)
+    )
 
 
 def volume_confirm(
@@ -108,6 +139,9 @@ def _find_bos_swing(
 
 
 __all__ = [
+    "_empty_signals",
     "_find_bos_swing",
+    "_fmt_time",
+    "_signals_to_df",
     "volume_confirm",
 ]
