@@ -1,72 +1,381 @@
 ---
 name: post-branch
 description: >
-  Post-branch docs sweep — review whether `CLAUDE.md`, `README.md`, `MEMORY.md`,
-  `Makefile`, and `docker-compose.yml` need updates after a branch's changes.
-  Invoke automatically when a feature/fix branch is complete (lint/typecheck/tests
-  green, commit done) — do not wait to be asked. Also triggers on the user
+  Post-branch docs sweep — diff the branch's behaviour changes against the doc
+  surfaces (CLAUDE.md, README.md, MEMORY.md, Makefile, docker-compose.yml) and
+  propose targeted edits where they've drifted. Use IMMEDIATELY after `gh pr
+  create` succeeds, BEFORE reporting the PR URL back to the user. Skip for
+  pure refactors, bug fixes covered by tests, dependency bumps, and lint-only
+  commits — the behaviour gate (Step 1) decides. Confirm every edit before
+  writing; never force-push without explicit OK. Also triggers on the user
   saying "/post-branch", "wrap up the branch", or "docs check".
 allowed-tools: Bash, Read, Edit
 ---
 
-# Post-Branch Docs Check
+# Post-Branch Docs Sweep
 
-Run after every branch is finished (lint/typecheck/tests pass, commit done, PR summary written).
-Checks whether `CLAUDE.md`, `README.md`, `MEMORY.md`, `Makefile`, and `docker-compose.yml` need
-updates to reflect the branch's changes.
+The mental model: a PR's diff is the source of truth for what changed. The
+docs are claims about how the codebase behaves. After a PR introduces new
+flags, scripts, defaults, files, or commands, those claims often go stale —
+sometimes silently. This skill walks a fixed list of doc surfaces, diffs
+each one against the PR's actual behaviour, surfaces the drift, and proposes
+edits the user can approve.
 
-## When to use
+It runs **after** the PR exists. Its job is not to gatekeep the PR but to
+catch doc drift before merge — when fixing it is still cheap.
 
-After finishing any feature or fix branch. The user should never need to ask — run this
-automatically as part of wrapping up a branch.
+---
 
-## Task: run post-branch docs check
+## Doc-surface configuration
 
-1. Get the diff of what changed: `git diff main..HEAD --stat` + `git log main..HEAD --oneline`
+Each entry is a class of doc that might need updating when behaviour
+changes. **When porting this skill to another repo, edit only this block —
+the rest of the workflow stays the same.**
 
-2. **CLAUDE.md** — check if the project structure section needs updating:
-   - New files added → add to the relevant module list with a one-line description
-   - Existing module description is now stale → update it
-   - New exports from a lib (`def foo`, `class Bar`) → add to the module's description
-   - No structural change → no action
+```yaml
+surfaces:
+  - id: claude_md
+    path: CLAUDE.md
+    purpose: Authoritative project context for Claude Code (project structure, key commands, code style, agent skills)
 
-3. **README.md** — check if any user-facing section needs updating:
-   - New CLI subcommand or flag → add to the commands section
-   - Changed behaviour a user would notice → update the relevant section
-   - Internal refactor with no visible change → no action
+  - id: readme
+    path: README.md
+    purpose: User-facing project overview (CLI subcommands, install, quickstart)
 
-4. **MEMORY.md** — always update:
-   - Set "Last session" to today's date + one-line summary of what changed
-   - Mark completed items with `~~strikethrough~~ ✅ Done` in the To-Do table
-   - Add any new to-do items surfaced during the work
-   - Update "Open questions / pending" if anything was resolved or added
+  - id: memory_md
+    path: ~/.claude-personal/projects/-home-kng-repo-buibui-moon-trader-bot/memory/MEMORY.md
+    purpose: Cross-session memory; "Current State" section MUST be updated every session
+    always_update: true   # see Step 5
 
-5. **Makefile** — check if a new command needs a `buibui-*` or `docker-*` target:
-   - New `buibui.py` subcommand → add `make buibui-<name>` target
-   - No new commands → no action
+  - id: makefile
+    path: Makefile
+    purpose: Make targets — every `buibui.py` subcommand should have a `buibui-*` wrapper
+    scope: any_referencing_changed_artifact
 
-6. **docker-compose.yml** — check if a new long-running daemon needs a service:
-   - New daemon → `restart: unless-stopped`
-   - New one-shot tool → `profiles: [tools]`
-   - No new processes → no action
+  - id: docker_compose
+    path: docker-compose.yml
+    purpose: Long-running services (daemons → restart:unless-stopped) and one-shot tools (profiles:[tools])
+    scope: any_referencing_changed_artifact
 
-7. Report what was updated (or confirmed unchanged) for each file. Be explicit — "README: no
-   changes needed (internal refactor only)" is useful; silence is not.
+  - id: context_docs
+    path_glob: ".claude/context/*.md"
+    purpose: Long-form module API references (analytics.md, signals.md, web.md)
+    scope: any_referencing_changed_artifact
 
-## PR Summary
+# Files that, if changed, almost always require a doc walk:
+behavior_signal_globs:
+  - "buibui.py"
+  - "cli/**/*.py"
+  - "Makefile"
+  - "docker-compose.yml"
+  - ".github/workflows/**/*.yml"
+  - "pyproject.toml"
+  - "config/strategy_params.toml"
+  - "config/*signal_watch*.toml"
 
-The PR summary must follow the template in `.claude/skills/pr-summary/SKILL.md` exactly —
-read that skill before writing. Do not compose from scratch or skip sections.
-The template requires: PR Title, Background, Summary, How it works, Params/Config,
-Test plan (CI items pre-ticked), Stats, and the Claude Code footer.
+# Files that almost never require a doc walk (internal-only refactor space):
+behavior_skip_globs:
+  - "analytics/**/_*.py"          # underscore-private package internals
+  - "analytics/**/*.py"            # detector / signal / store internals (per-PR judgement)
+  - "tests/**"
+  - "**/*_test.py"
+  - "poetry.lock"
+  - "*.parquet"
+  - "tests/fixtures/**"
+```
 
-## Output format
+The `behavior_signal_globs` and `behavior_skip_globs` are heuristics, not
+absolute rules. A move that adds a new public symbol *is* user-facing even
+under `analytics/**`. Always read the diff before deciding.
+
+---
+
+## Step 1 — Behaviour gate: is this PR user-facing?
+
+Before walking any docs, decide if the PR changes behaviour a user or
+operator would notice. **If not, stop after MEMORY.md update — don't churn
+docs for invisible changes.**
+
+Read the PR's diff:
+
+```bash
+gh pr view <PR#> --json title,body,baseRefName,headRefName,files
+git diff main...<branch> -- .
+git log main..<branch> --oneline
+```
+
+(If `<PR#>` is omitted, infer from the current branch with
+`gh pr view --json number`.)
+
+User-facing signals — **walk the docs** if any are present:
+
+- New CLI subcommand or flag (`buibui.py`, `cli/`)
+- New Make target or changed default
+- New TOML config key or changed default
+- New environment variable
+- Renamed or moved file referenced from docs
+- New error class users will see (new exit code, new alert format)
+- New external dependency or system requirement
+- Behaviour change to an existing public command
+- New long-running daemon or one-shot tool (docker-compose)
+
+Skip signals — **stop here** (after MEMORY.md update) if the PR is purely:
+
+- Internal refactor that preserves the public API surface (byte-identical
+  re-export shim, registry/key order preserved, etc.)
+- Bug fix with a regression test added and no behaviour change
+- Dependency version bump with no API change
+- Lint/format-only commit
+- Test-only changes
+- Comment/docstring edits inside source files (not in the doc surfaces)
+- Regression-fixture refresh (`make regression-update`) with goldens unchanged
+
+**Strong refactor signals** — these almost always trigger user-facing doc
+edits because they change paths users / docs reference:
+
+- A module listed in CLAUDE.md's "Project Structure" was renamed, moved, or
+  reduced to a re-export shim (the path users `import` from is now stale)
+- The CLI subcommand surface changed (`buibui --help` differs)
+- A new `make buibui-*` target lands
+
+When in doubt, ask the user: *"This PR touches X. I see [signals]; want me
+to walk the docs, or is this internal-only?"*
+
+---
+
+## Step 2 — Identify changed artifacts
+
+From the diff, build a concrete list the doc walk will key off:
+
+- Each new/renamed/deleted **file** (especially modules listed in CLAUDE.md
+  Project Structure)
+- Each new **CLI flag/subcommand** in `buibui.py` / `cli/`
+- Each new **Make target** (lines added like `^[a-z_-]+:` in `Makefile`)
+- Each new **TOML config key** or changed default in `config/*.toml`
+- Each module that became a **shim** (line count drops drastically and body
+  is just `from X import …`) — the path users `import` from now points to
+  thin re-exports rather than real code
+
+Keep this list short and concrete — it's the basis for every doc diff.
+
+---
+
+## Step 3 — Walk each doc surface
+
+For each surface in the config, do the following:
+
+1. **Locate the relevant files.** Use `path` or `path_glob`. For `scope:
+   any_referencing_changed_artifact`, grep the doc tree for the artifact
+   name (script name, flag, Make target, module path).
+
+2. **Read the doc.** Look for:
+   - Outdated examples (old flag names, removed scripts)
+   - Missing entries (new flag/script/target absent from the listing)
+   - Broken file paths (post-rename, post-shim)
+   - Stale defaults
+   - Stale module-purpose descriptions ("module X holds Y" when Y has moved
+     to the package next door)
+
+3. **Decide if an edit is warranted.** Bias toward minimal, targeted edits.
+   Don't rewrite docs that aren't affected. If a `README.md` doesn't mention
+   the changed artifact at all and never did, leave it alone.
+
+4. **Propose the edit.** Show the user a unified-diff-style proposal:
+
+   ```
+   # CLAUDE.md (line 47)
+   - - `data_store.py` — DB schema, upsert/query helpers, `confidence_ratings`, …
+   + - `store/` — package: `schema.py`, `signals.py`, `backtest_runs.py`,
+   +   `backtest_cache.py`, `confidence.py`, `combos.py`, `stats_cache.py`.
+   +   `data_store.py` is a re-export shim for the 30+ external import sites.
+   ```
+
+   Wait for confirmation before writing.
+
+5. **Apply via the `Edit` tool.** Never use `Write` to overwrite a doc —
+   always targeted edits.
+
+---
+
+## Step 4 — Surface-specific checks
+
+### CLAUDE.md
+- "Project Structure" section: every module listed should match its real
+  current home. If a `*.py` file is now a shim, rename or annotate to
+  point at the package that holds the real code.
+- "Key Commands" / "CLI" sections: every subcommand should still resolve.
+- "Agent Skills" table: skills added/removed since last sweep are listed.
+
+### README.md
+- CLI subcommand list matches `buibui --help`.
+- Quickstart still works (commands referenced still exist).
+
+### Makefile
+- Every `buibui.py` subcommand has a `make buibui-<name>` target.
+- Every public daemon has a `docker-up` / `docker-down` line.
+
+### docker-compose.yml
+- Long-running daemons → `restart: unless-stopped`.
+- One-shot tools → `profiles: [tools]` so they don't auto-start.
+
+### `.claude/context/*.md`
+- Module API references (analytics.md, signals.md, web.md) match the
+  current package layout. These are the most refactor-sensitive docs.
+
+---
+
+## Step 5 — MEMORY.md update (always)
+
+Regardless of the behaviour gate, **always update MEMORY.md's "Current
+State"** at the end of every session. This is project policy (CLAUDE.md
+"Session Memory Protocol"):
+
+- Set "Last session" entry to today's date + branch name + one-line summary
+- Move the previous "Last session" entry to "Previous session"
+- Convert any relative dates ("Thursday") to absolute (`2026-05-01`)
+- Update / remove "Open questions / pending decisions" as appropriate
+
+This step runs even when the behaviour gate skipped the user-facing doc
+walk, because MEMORY.md tracks **what changed in the session**, not just
+behaviour-visible changes.
+
+---
+
+## Step 6 — Update the PR body
+
+Once edits are approved and applied (or the gate decided no edits were
+needed), append a "Documentation updates" section to the PR body so
+reviewers see the doc reasoning:
+
+```markdown
+## Documentation updates
+
+- `CLAUDE.md`: rewrote Project Structure entry for `analytics/store/` after
+  data_store.py reduced to a re-export shim
+- `README.md`: no change needed (no CLI surface change)
+- `MEMORY.md`: Current State updated with strat-2 summary
+```
+
+Use the three-step fetch → append → push sequence:
+
+```bash
+# 1. Fetch the current body
+gh pr view <PR#> --json body --jq .body > /tmp/pr_body.md
+
+# 2. Append the new section (Edit tool, or heredoc)
+cat >> /tmp/pr_body.md <<'EOF'
+
+## Documentation updates
+
+- `<file>`: <what changed>
+EOF
+
+# 3. Push the new body
+gh pr edit <PR#> --body-file /tmp/pr_body.md
+```
+
+If the original PR body already has a "Documentation updates" section, open
+`/tmp/pr_body.md` in the Edit tool and update it in place — don't append a
+duplicate.
+
+---
+
+## Step 7 — Commit and push
+
+Commit doc edits as a single follow-up commit on the PR branch:
+
+```bash
+git add <files>
+git commit -m "docs: sync docs with PR behavior changes"
+git push
+```
+
+If MEMORY.md is the only change, commit it with the message
+`chore: update memory for <branch>` — MEMORY.md lives outside the repo
+under `~/.claude-personal/...`, so it is **not** part of the project commit.
+Save it via the `Edit` tool only; do not `git add` it.
+
+**Push rules:**
+
+- Default: `git push` (no force).
+- If a rebase happened, use `--force-with-lease` and **only** with explicit
+  user approval. Never `--force`.
+- Never push to `main` from this skill. Ever.
+
+---
+
+## Step 8 — Rebase handling (only when needed)
+
+Sometimes a relevant doc lives on `main` but not on the PR branch (e.g. it
+landed in a sibling PR). The diff at Step 3 won't surface it. If suspected:
+
+1. Check if the doc exists on main: `git ls-tree main -- <doc-path>`
+2. If yes and missing on the PR branch, ask the user:
+   *"Doc X is on main but not this branch. Rebase onto main so we can
+   update it here, or skip and let the next PR handle it?"*
+3. Rebase only on explicit OK:
+   ```bash
+   git fetch origin main
+   git rebase origin/main
+   ```
+4. Resolve conflicts the user's way, not by force.
+
+---
+
+## Step 9 — Output format
+
+Always close with a per-surface report so the user has a clear summary:
 
 ```
-CLAUDE.md    — updated: <what changed> | no change needed: <reason>
-README.md    — updated: <what changed> | no change needed: <reason>
-MEMORY.md    — updated: current state + A19 marked done
-Makefile     — no change needed: no new CLI commands
+PR #<num> behaviour gate: <walked | skipped (pure refactor)>
+
+CLAUDE.md          — updated: <what> | no change needed: <reason>
+README.md          — updated: <what> | no change needed: <reason>
+MEMORY.md          — updated: Current State + <other>
+Makefile           — no change needed: no new CLI commands
 docker-compose.yml — no change needed: no new processes
-PR summary   — written to /tmp/pr-<branch>.md (following pr-summary.md template)
+.claude/context/*  — updated: analytics.md (store/ paths) | no change needed
+PR summary         — written to /tmp/pr-<branch>.md
+PR body            — appended "Documentation updates" section
 ```
+
+Be explicit. "no change needed: internal refactor only" is useful;
+silence is not.
+
+---
+
+## Safety rails (always)
+
+- **Confirm every edit.** This skill is a proposer, not an applier. The
+  user always gets a chance to say no.
+- **Don't rename or move files.** Path churn breaks others' in-flight
+  work. If a doc lives at the wrong path, propose the edit in place and
+  flag the path issue separately for the user to triage.
+- **Never use `Write` to overwrite a doc.** Always targeted `Edit`.
+- **No force-push without explicit OK.** `--force-with-lease` only, after
+  the user types yes.
+- **Stop on uncertainty.** If you can't tell whether a doc claim is stale,
+  show the user the doc snippet and the relevant diff hunk and ask.
+- **Draft-PR default:** if `gh pr create` was run with `--draft`, don't flip
+  it to ready-for-review as a side effect of this skill.
+
+---
+
+## When the skill should NOT run
+
+- The PR is closed or merged (too late — open a follow-up `docs:` PR).
+- The user said "skip docs" explicitly in the prompt.
+- The PR is from Dependabot or another bot.
+- The branch has no diff yet (PR was created against the wrong base).
+
+In these cases, say so and stop.
+
+---
+
+## PR Summary template
+
+The PR summary itself follows the template in
+`.claude/skills/pr-summary/SKILL.md` exactly — read that skill before
+writing. Do not compose from scratch or skip sections. The template
+requires: PR Title, Background, Summary, How it works, Params/Config,
+Test plan (CI items pre-ticked), Stats, and the Claude Code footer.
