@@ -22,11 +22,18 @@ Detailed API reference for `analytics/`. Load this when working on any analytics
 - `data_sync.py` — pure orchestration: paginated backfill + incremental sync
 - `analytics_runner.py` — thin wrapper: creates client, opens DB, calls sync lib
 
-## indicators_lib.py — strategy signal detection
+## strategies/ — strategy signal detection package
 
-- 21 active strategies: seasonality, wick_fill, marubozu, orb, liquidity_sweep, fvg, bos, funding_reversion, smt_divergence, eqh_eql, order_block, cvd_divergence, trend_day, engulfing, pin_bar, inside_bar, hammer_hanging_man, doji, morning_evening_star, fib_golden_zone, ote_entry
-- `fibonacci_retracement` — legacy/commented-out (superseded by `fib_golden_zone`)
-- Exports: `ParamSpec`, `StrategySpec`, `STRATEGY_REGISTRY`, `DETECTOR_REGISTRY`, `KNOWN_STRATEGIES`
+(`indicators_lib.py` is now a re-export shim; the 21 detect_* functions and the registries live in `analytics/strategies/` after strat-2.)
+
+- **Per-detector modules**: `wick_fills.py`, `marubozu_retest.py`, `orb_breakout.py`, `liquidity_sweep.py`, `fvg.py`, `market_structure.py` (= `bos`), `funding_extreme.py`, `smt_divergence.py`, `eqh_eql.py`, `order_block.py`, `cvd_divergence.py`, `trend_day.py`, `engulfing.py`, `pin_bar.py`, `inside_bar.py`, `hammer_hanging_man.py`, `doji.py`, `morning_evening_star.py`, `fibonacci_retracement.py` (legacy), `fib_golden_zone.py`, `ote_entry.py` — one file per `detect_*` function
+- **`_base.py`** — `ParamSpec`, `StrategySpec`, `SIGNAL_COLUMNS`
+- **`_shared.py`** — `_find_bos_swing`, `volume_confirm`, `_empty_signals`, `_signals_to_df`, `_fmt_time`
+- **`_seasonality.py`** — `seasonality_stats`, `SEASONALITY_COLUMNS` (returns stats DataFrame, not signals)
+- **`_registry.py`** — explicit-tuple-driven assembler holding `STRATEGY_REGISTRY` (20 entries), `DETECTOR_REGISTRY` (18 entries; `seasonality` / `smt_divergence` / legacy `fibonacci_retracement` excluded), `KNOWN_STRATEGIES`, `KNOWN_STRATEGY_TYPES`, `STRATEGY_TYPE_GROUPS`, `INCOMPATIBLE_PAIRS`, `patch_confidence_scores`
+- **`__init__.py`** — eager re-exports of every leaf + registry symbol; `analytics.indicators_lib` is a thin PEP 484 `X as X` shim that delegates here
+- 20 active strategies in `STRATEGY_REGISTRY`: `seasonality`, `wick_fill`, `marubozu`, `orb`, `liquidity_sweep`, `fvg`, `bos`, `smt_divergence`, `eqh_eql`, `order_block`, `cvd_divergence`, `trend_day`, `engulfing`, `pin_bar`, `inside_bar`, `hammer_hanging_man`, `doji`, `morning_evening_star`, `fib_golden_zone`, `ote_entry` (`fibonacci_retracement` legacy/commented-out; `funding_extreme` exists as a function but isn't registered — needs a 2-arg signature, called directly)
+- Exports re-exported from `analytics.indicators_lib`: `ParamSpec`, `StrategySpec`, `STRATEGY_REGISTRY`, `DETECTOR_REGISTRY`, `KNOWN_STRATEGIES`
 - `StrategySpec.confidence: dict[str, int] | int` — use `get_confidence(tf)` (falls back to `"default"` key then `3`)
 - `StrategySpec.tp_r_long/tp_r_short: float | None` — Gate 3 direction-split TP; use `get_tp_r(direction)` (falls back to 2.0)
 - `StrategySpec.strategy_type` — one of `structural`, `fib`, `price_action`, `candlestick`, `flow`, `session`
