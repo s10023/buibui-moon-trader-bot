@@ -9,64 +9,25 @@ No module-level side effects.
 """
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pandas as pd
 
+from analytics.strategies._base import SIGNAL_COLUMNS as SIGNAL_COLUMNS
+from analytics.strategies._base import ParamSpec as ParamSpec
+from analytics.strategies._base import StrategySpec as StrategySpec
+from analytics.strategies._seasonality import SEASONALITY_COLUMNS as SEASONALITY_COLUMNS
+from analytics.strategies._seasonality import seasonality_stats as seasonality_stats
+from analytics.strategies._shared import _find_bos_swing as _find_bos_swing
+from analytics.strategies._shared import volume_confirm as volume_confirm
 
-@dataclass
-class ParamSpec:
-    name: str
-    param_type: str  # "int" or "float"
-    default: int | float
-    min_val: int | float
-    max_val: int | float
-    description: str
-
-
-@dataclass
-class StrategySpec:
-    name: str
-    description: str
-    params: list[ParamSpec] = field(default_factory=list)
-    requires_funding: bool = False
-    requires_secondary: bool = False
-    # Taxonomy group for confluence logic. One of: structural, fib, price_action,
-    # candlestick, flow, session. Empty string means unclassified.
-    strategy_type: str = ""
-    # 1–5 quality score per TF or a single value for all TFs.
-    # Use a dict with a "default" key for TF-specific ratings:
-    #   {"default": 2, "4h": 4}  → 4★ on 4h, 2★ on all other TFs
-    # A plain int applies to all TFs.
-    confidence: dict[str, int] | int = 3
-    # Optional direction-split TP multiples. When set, the directional value is used
-    # instead of tp_r for that direction. Falls back to tp_r when None.
-    tp_r_long: float | None = None
-    tp_r_short: float | None = None
-
-    def get_tp_r(self, direction: str) -> float:
-        """Resolve effective tp_r for a given direction.
-
-        Falls back to the combined tp_r (2.0) when no directional value is set.
-        """
-        if direction == "long" and self.tp_r_long is not None:
-            return self.tp_r_long
-        if direction == "short" and self.tp_r_short is not None:
-            return self.tp_r_short
-        return 2.0
-
-    def get_confidence(self, tf: str) -> int:
-        """Resolve confidence for a given timeframe.
-
-        If confidence is a plain int, returns it directly.
-        If confidence is a dict, looks up tf, then "default", then falls back to 3.
-        """
-        if isinstance(self.confidence, int):
-            return self.confidence
-        return self.confidence.get(tf, self.confidence.get("default", 3))
-
+# `ParamSpec`, `StrategySpec`, `SIGNAL_COLUMNS`, `SEASONALITY_COLUMNS`,
+# `seasonality_stats`, `_find_bos_swing`, and `volume_confirm` were extracted to
+# `analytics/strategies/` in strat-1. The PEP 484 explicit re-export form
+# (`X as X`) keeps every existing `from analytics.indicators_lib import …` site
+# working without edits — it tells both ruff (F401) and mypy
+# (`implicit-reexport`) that these names are part of this module's public API.
 
 STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     "seasonality": StrategySpec(
@@ -596,17 +557,6 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
     ),
 }
 
-SIGNAL_COLUMNS: list[str] = [
-    "open_time",
-    "direction",
-    "reason",
-    "sl_price",
-    "context",
-    "low_volume",
-    "tp_price",
-]
-
-
 _MYT = timezone(timedelta(hours=8))
 
 
@@ -614,14 +564,6 @@ def _fmt_time(ts_ms: int) -> str:
     """Format a Unix ms timestamp as a short MYT (UTC+8) string for alert context."""
     return datetime.fromtimestamp(ts_ms / 1000, tz=_MYT).strftime("%d-%b %H:%M")
 
-
-SEASONALITY_COLUMNS: list[str] = [
-    "period_type",
-    "period_value",
-    "avg_return_pct",
-    "win_rate",
-    "count",
-]
 
 KNOWN_STRATEGIES: list[str] = list(STRATEGY_REGISTRY.keys())
 
@@ -682,61 +624,9 @@ def _signals_to_df(signals: list[dict[str, object]]) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# 1. Seasonality / Day-of-Week stats
+# 1. Seasonality / Day-of-Week stats — `seasonality_stats` lives in
+# `analytics.strategies._seasonality` (extracted in strat-1); imported above.
 # ---------------------------------------------------------------------------
-
-
-def seasonality_stats(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute average returns by day-of-week, hour-of-day, and week-of-month.
-
-    df must have columns: open_time (Unix ms BIGINT), open (float), close (float).
-    Returns a DataFrame with SEASONALITY_COLUMNS.
-    """
-    if df.empty or len(df) < 2:
-        return pd.DataFrame(columns=SEASONALITY_COLUMNS)
-
-    work = df[["open_time", "open", "close"]].copy()
-    work["ts"] = pd.to_datetime(work["open_time"].astype("int64"), unit="ms", utc=True)
-    work["return_pct"] = (work["close"] - work["open"]) / work["open"] * 100.0
-    work["is_win"] = work["return_pct"] > 0.0
-
-    rows: list[dict[str, object]] = []
-
-    for dow, group in work.groupby(work["ts"].dt.dayofweek):
-        rows.append(
-            {
-                "period_type": "day_of_week",
-                "period_value": int(dow),
-                "avg_return_pct": float(group["return_pct"].mean()),
-                "win_rate": float(group["is_win"].mean()),
-                "count": int(len(group)),
-            }
-        )
-
-    for hour, group in work.groupby(work["ts"].dt.hour):
-        rows.append(
-            {
-                "period_type": "hour_of_day",
-                "period_value": int(hour),
-                "avg_return_pct": float(group["return_pct"].mean()),
-                "win_rate": float(group["is_win"].mean()),
-                "count": int(len(group)),
-            }
-        )
-
-    work["week_of_month"] = (work["ts"].dt.day - 1) // 7 + 1
-    for wom, group in work.groupby(work["week_of_month"]):
-        rows.append(
-            {
-                "period_type": "week_of_month",
-                "period_value": int(wom),
-                "avg_return_pct": float(group["return_pct"].mean()),
-                "win_rate": float(group["is_win"].mean()),
-                "count": int(len(group)),
-            }
-        )
-
-    return pd.DataFrame(rows, columns=SEASONALITY_COLUMNS)
 
 
 # ---------------------------------------------------------------------------
@@ -2684,33 +2574,9 @@ def detect_morning_evening_star(
 
 
 # ---------------------------------------------------------------------------
-# Volume confirmation helper (D5)
+# Volume confirmation helper (D5) — `volume_confirm` lives in
+# `analytics.strategies._shared` (extracted in strat-1); imported above.
 # ---------------------------------------------------------------------------
-
-
-def volume_confirm(
-    df: pd.DataFrame,
-    idx: int,
-    multiplier: float = 1.5,
-    lookback: int = 20,
-) -> bool:
-    """Return True if the candle at `idx` has volume >= multiplier × rolling mean.
-
-    Uses the `lookback` candles *before* idx (no lookahead) to compute the
-    rolling average.  Returns True when volume data is unavailable (safe default).
-    """
-    if "volume" not in df.columns:
-        return True
-    if idx < 1:
-        return True
-    start = max(0, idx - lookback)
-    prior_vols = df["volume"].iloc[start:idx].astype(float)
-    if prior_vols.empty:
-        return True
-    avg = float(prior_vols.mean())
-    if avg == 0.0:
-        return True
-    return float(df["volume"].iloc[idx]) >= multiplier * avg
 
 
 # ---------------------------------------------------------------------------
@@ -2840,80 +2706,9 @@ def detect_fibonacci_retracement(
 # ---------------------------------------------------------------------------
 
 
-def _find_bos_swing(
-    df: pd.DataFrame,
-    swing_lookback: int,
-    bos_lookback: int,
-) -> tuple[float, float, str] | None:
-    """Find the most recent BOS and return (swing_low, swing_high, direction).
-
-    Two-zone approach (no-lookahead):
-
-    - Structural zone: [win_start, bos_start) — find the anchor swing high/low.
-      Uses absolute max/min to identify the dominant structural level.
-    - BOS zone: [bos_start, n-1) — check whether price broke the structural level.
-      The signal candle (n-1) is never included.
-
-    Bullish BOS:
-    1. Structural zone: lowest low = swing_low, highest high after swing_low = swing_high.
-    2. BOS zone: any bar has close or high > swing_high → bullish BOS confirmed.
-
-    Bearish BOS (symmetric):
-    1. Structural zone: highest high = swing_high, lowest low after swing_high = swing_low.
-    2. BOS zone: any bar has close or low < swing_low → bearish BOS confirmed.
-
-    Returns None if no clear BOS is found.
-    direction: 'long' (bullish BOS) | 'short' (bearish BOS).
-    """
-    n = len(df)
-    # Need structural zone + BOS zone + signal candle
-    if n < swing_lookback + bos_lookback + 1:
-        return None
-
-    highs = df["high"].to_numpy(dtype=float)
-    lows = df["low"].to_numpy(dtype=float)
-    closes = df["close"].to_numpy(dtype=float)
-
-    # BOS zone: last bos_lookback bars before the signal candle
-    bos_start = n - bos_lookback - 1  # inclusive
-    # Structural zone: swing_lookback bars before BOS zone
-    struct_start = max(0, bos_start - swing_lookback)
-    struct_end = bos_start  # exclusive
-
-    if struct_end - struct_start < 2:
-        return None
-
-    # --- Bullish BOS ---
-    # Structural swing_low = min low in structural zone
-    sl_local = int(lows[struct_start:struct_end].argmin())
-    sl_idx = struct_start + sl_local
-    sl_price = float(lows[sl_idx])
-    # Structural swing_high = max high from sl_idx forward (within structural zone)
-    post_sl_end = struct_end
-    if sl_idx + 1 < post_sl_end:
-        sh_local = int(highs[sl_idx:post_sl_end].argmax())
-        sh_idx = sl_idx + sh_local
-        sh_price = float(highs[sh_idx])
-        if sh_price > sl_price and sh_idx > sl_idx:
-            # Check BOS zone for break above sh_price
-            for conf_i in range(bos_start, n - 1):
-                if closes[conf_i] > sh_price or highs[conf_i] > sh_price:
-                    return (sl_price, sh_price, "long")
-
-    # --- Bearish BOS ---
-    sh_local2 = int(highs[struct_start:struct_end].argmax())
-    sh_idx2 = struct_start + sh_local2
-    sh_price2 = float(highs[sh_idx2])
-    if sh_idx2 + 1 < struct_end:
-        sl_local2 = int(lows[sh_idx2:struct_end].argmin())
-        sl_idx2 = sh_idx2 + sl_local2
-        sl_price2 = float(lows[sl_idx2])
-        if sh_price2 > sl_price2 and sl_idx2 > sh_idx2:
-            for conf_i in range(bos_start, n - 1):
-                if closes[conf_i] < sl_price2 or lows[conf_i] < sl_price2:
-                    return (sl_price2, sh_price2, "short")
-
-    return None
+# `_find_bos_swing` lives in `analytics.strategies._shared` (extracted in strat-1);
+# imported at top of this module. Used by detect_fib_golden_zone, detect_ote_entry,
+# and analytics/zones_lib.py.
 
 
 def detect_fib_golden_zone(
