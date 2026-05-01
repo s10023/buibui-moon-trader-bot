@@ -139,11 +139,11 @@ class TestComputeBacktest:
 
         with (
             patch.dict(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {"fvg": {"detector": fake_detector, "confidence": 4}},
             ),
             patch.dict(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {"fvg": MagicMock(requires_funding=False, requires_secondary=False)},
             ),
         ):
@@ -164,11 +164,11 @@ class TestComputeBacktest:
 
         with (
             patch.dict(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {"fvg": {"detector": lambda _: signals, "confidence": 4}},
             ),
             patch.dict(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {"fvg": MagicMock(requires_funding=False, requires_secondary=False)},
             ),
         ):
@@ -187,11 +187,11 @@ class TestComputeBacktest:
 
         with (
             patch.dict(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {"fvg": {"detector": bad_detector, "confidence": 4}},
             ),
             patch.dict(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {"fvg": MagicMock(requires_funding=False, requires_secondary=False)},
             ),
         ):
@@ -224,11 +224,11 @@ class TestComputeBacktest:
 
         with (
             patch.dict(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {"fvg": {"detector": lambda _: signals, "confidence": 4}},
             ),
             patch.dict(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {"fvg": MagicMock(requires_funding=False, requires_secondary=False)},
             ),
         ):
