@@ -20,8 +20,8 @@ A tactical crypto trading bot designed for fast, risk-managed, and confident ent
   Get regular position snapshots via Telegram bot.
 
 - **24/7 Signal Detection Daemon**
-  Polls closed candles every 5 minutes, runs 21 strategies (FVG, BOS, liquidity sweep, SMT divergence,
-  CVD divergence, and more), and sends Telegram alerts with computed SL/TP levels. Two-layer dedup prevents spam.
+  Polls closed candles every 5 minutes, runs 20 strategies (FVG, BOS, liquidity sweep, SMT divergence,
+  CVD divergence, and more — 19 actionable, plus `seasonality` stats), and sends Telegram alerts with computed SL/TP levels. Two-layer dedup prevents spam.
   Alerts include a 2-line statistical context: direction-aware P1/P2 day bias, ADR consumed %, per-DOW empirical peak hour, and weekly P2 timing probability.
 
 - **Statistical Context Engine** *(new)*
