@@ -49,7 +49,7 @@ class TestSecsUntilNextBoundary:
     def test_wakes_at_next_4h_boundary(self) -> None:
         # now = 14:02:00 UTC → next 4h boundary = 16:00:00 + 10s buffer
         now = 14 * 3600 + 2 * 60  # 50520s since midnight
-        with patch("analytics.signal_lib.time.time", return_value=float(now)):
+        with patch("analytics.signal.scanner.time.time", return_value=float(now)):
             secs, wake_ts = secs_until_next_boundary(["4h"])
         expected = (16 * 3600 + 10) - now  # 7090s
         assert secs == expected
@@ -58,7 +58,7 @@ class TestSecsUntilNextBoundary:
     def test_picks_earliest_boundary_across_timeframes(self) -> None:
         # now = 14:02:00 → next 1h boundary = 15:00:10, next 4h = 16:00:10
         now = 14 * 3600 + 2 * 60
-        with patch("analytics.signal_lib.time.time", return_value=float(now)):
+        with patch("analytics.signal.scanner.time.time", return_value=float(now)):
             secs, wake_ts = secs_until_next_boundary(["4h", "1h"])
         expected = (15 * 3600 + 10) - now  # 3490s — the 1h boundary wins
         assert secs == expected
@@ -67,7 +67,7 @@ class TestSecsUntilNextBoundary:
     def test_never_returns_negative(self) -> None:
         # now is exactly on a boundary + buffer — result should be a full interval away
         now = 4 * 3600 + 10  # exactly at 04:00:10
-        with patch("analytics.signal_lib.time.time", return_value=float(now)):
+        with patch("analytics.signal.scanner.time.time", return_value=float(now)):
             secs, _ = secs_until_next_boundary(["4h"])
         assert secs >= 0.0
 
@@ -420,10 +420,10 @@ class TestRunScanCycleSecondaryMap:
 
         with (
             patch(
-                "analytics.signal_lib.get_ohlcv", return_value=self._make_empty_df()
+                "analytics.signal.scanner.get_ohlcv", return_value=self._make_empty_df()
             ) as mock_get,
             patch(
-                "analytics.signal_lib.get_funding_rates",
+                "analytics.signal.scanner.get_funding_rates",
                 return_value=self._make_empty_df(),
             ),
         ):
@@ -449,10 +449,10 @@ class TestRunScanCycleSecondaryMap:
 
         with (
             patch(
-                "analytics.signal_lib.get_ohlcv", return_value=self._make_empty_df()
+                "analytics.signal.scanner.get_ohlcv", return_value=self._make_empty_df()
             ) as mock_get,
             patch(
-                "analytics.signal_lib.get_funding_rates",
+                "analytics.signal.scanner.get_funding_rates",
                 return_value=self._make_empty_df(),
             ),
         ):
@@ -550,7 +550,7 @@ class TestDayFilter:
 
         with (
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {
                     "fvg": {
                         "detector": lambda df: signals_df,
@@ -559,7 +559,7 @@ class TestDayFilter:
                 },
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {
                     "fvg": type(
                         "S",
@@ -590,7 +590,7 @@ class TestDayFilter:
 
         with (
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {
                     "fvg": {
                         "detector": lambda df: signals_df,
@@ -599,7 +599,7 @@ class TestDayFilter:
                 },
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {
                     "fvg": type(
                         "S",
@@ -630,7 +630,7 @@ class TestDayFilter:
 
         with (
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {
                     "fvg": {
                         "detector": lambda df: signals_df,
@@ -639,7 +639,7 @@ class TestDayFilter:
                 },
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {
                     "fvg": type(
                         "S",
@@ -670,7 +670,7 @@ class TestDayFilter:
 
         with (
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {
                     "fvg": {
                         "detector": lambda df: signals_df,
@@ -679,7 +679,7 @@ class TestDayFilter:
                 },
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {
                     "fvg": type(
                         "S",
@@ -710,7 +710,7 @@ class TestDayFilter:
 
         with (
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {
                     "fvg": {
                         "detector": lambda df: signals_df,
@@ -719,7 +719,7 @@ class TestDayFilter:
                 },
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {
                     "fvg": type(
                         "S",
@@ -750,7 +750,7 @@ class TestDayFilter:
 
         with (
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {
                     "fvg": {
                         "detector": lambda df: signals_df,
@@ -759,7 +759,7 @@ class TestDayFilter:
                 },
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {
                     "fvg": type(
                         "S",
@@ -793,12 +793,13 @@ class TestDayFilter:
         monday_signals = self._make_signals_df(self._MONDAY_MS)
 
         with (
-            patch("analytics.signal_lib.get_ohlcv", return_value=monday_ohlcv),
+            patch("analytics.signal.scanner.get_ohlcv", return_value=monday_ohlcv),
             patch(
-                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+                "analytics.signal.scanner.get_funding_rates",
+                return_value=pd.DataFrame(),
             ),
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {
                     "fvg": {
                         "detector": lambda df: monday_signals,
@@ -807,7 +808,7 @@ class TestDayFilter:
                 },
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {
                     "fvg": type(
                         "S",
@@ -846,12 +847,13 @@ class TestDayFilter:
         monday_signals = self._make_signals_df(self._MONDAY_MS)
 
         with (
-            patch("analytics.signal_lib.get_ohlcv", return_value=monday_ohlcv),
+            patch("analytics.signal.scanner.get_ohlcv", return_value=monday_ohlcv),
             patch(
-                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+                "analytics.signal.scanner.get_funding_rates",
+                return_value=pd.DataFrame(),
             ),
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {
                     "fvg": {
                         "detector": lambda df: monday_signals,
@@ -860,7 +862,7 @@ class TestDayFilter:
                 },
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {
                     "fvg": type(
                         "S",
@@ -961,7 +963,7 @@ class TestSMTTrendFilter:
 
         with (
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {
                     "smt_divergence": {
                         "detector": mock_detector,
@@ -970,7 +972,7 @@ class TestSMTTrendFilter:
                 },
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {
                     "smt_divergence": type(
                         "S",
@@ -1012,7 +1014,7 @@ class TestSMTTrendFilter:
 
         with (
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {
                     "smt_divergence": {
                         "detector": mock_detector,
@@ -1021,7 +1023,7 @@ class TestSMTTrendFilter:
                 },
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {
                     "smt_divergence": type(
                         "S",
@@ -1062,7 +1064,7 @@ class TestSMTTrendFilter:
 
         with (
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {
                     "smt_divergence": {
                         "detector": mock_detector,
@@ -1071,7 +1073,7 @@ class TestSMTTrendFilter:
                 },
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {
                     "smt_divergence": type(
                         "S",
@@ -1107,7 +1109,7 @@ class TestSMTTrendFilter:
 
         with (
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {
                     "fvg": {
                         "detector": mock_detector,
@@ -1116,7 +1118,7 @@ class TestSMTTrendFilter:
                 },
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {
                     "fvg": type(
                         "S",
@@ -1200,12 +1202,13 @@ class TestStrategyParamsAlertTpR:
         signals = self._make_signals_df()
 
         with (
-            patch("analytics.signal_lib.get_ohlcv", return_value=ohlcv),
+            patch("analytics.signal.scanner.get_ohlcv", return_value=ohlcv),
             patch(
-                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+                "analytics.signal.scanner.get_funding_rates",
+                return_value=pd.DataFrame(),
             ),
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {
                     "engulfing": {
                         "detector": lambda df: signals,
@@ -1214,7 +1217,7 @@ class TestStrategyParamsAlertTpR:
                 },
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {
                     "engulfing": type(
                         "S",
@@ -1333,11 +1336,11 @@ class TestStrategyTimeframes:
         ohlcv = self._make_ohlcv()
         with (
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 self._mock_registry("fvg"),
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 self._mock_spec_registry("fvg"),
             ),
         ):
@@ -1355,11 +1358,11 @@ class TestStrategyTimeframes:
         ohlcv = self._make_ohlcv()
         with (
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 self._mock_registry("fvg"),
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 self._mock_spec_registry("fvg"),
             ),
         ):
@@ -1377,11 +1380,11 @@ class TestStrategyTimeframes:
         ohlcv = self._make_ohlcv()
         with (
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 self._mock_registry("fvg"),
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 self._mock_spec_registry("fvg"),
             ),
         ):
@@ -1402,11 +1405,11 @@ class TestStrategyTimeframes:
         ohlcv = self._make_ohlcv()
         with (
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 self._mock_registry("fvg"),
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 self._mock_spec_registry("fvg"),
             ),
         ):
@@ -1424,11 +1427,11 @@ class TestStrategyTimeframes:
         ohlcv = self._make_ohlcv()
         with (
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 self._mock_registry("trend_day"),
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 self._mock_spec_registry("trend_day"),
             ),
         ):
@@ -1446,11 +1449,11 @@ class TestStrategyTimeframes:
         ohlcv = self._make_ohlcv()
         with (
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 self._mock_registry("trend_day"),
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 self._mock_spec_registry("trend_day"),
             ),
         ):
@@ -1535,19 +1538,20 @@ class TestConflictResolution:
         short_signals = self._make_signals_df("short", "bos_short")
 
         with (
-            patch("analytics.signal_lib.get_ohlcv", return_value=ohlcv),
+            patch("analytics.signal.scanner.get_ohlcv", return_value=ohlcv),
             patch(
-                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+                "analytics.signal.scanner.get_funding_rates",
+                return_value=pd.DataFrame(),
             ),
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {
                     "fvg": {"detector": lambda df: long_signals, "confidence": 4},
                     "bos": {"detector": lambda df: short_signals, "confidence": 2},
                 },
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {
                     "fvg": type(
                         "S",
@@ -1595,12 +1599,13 @@ class TestConflictResolution:
         short_signals = self._make_signals_df("short", "smt_short")
 
         with (
-            patch("analytics.signal_lib.get_ohlcv", return_value=ohlcv),
+            patch("analytics.signal.scanner.get_ohlcv", return_value=ohlcv),
             patch(
-                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+                "analytics.signal.scanner.get_funding_rates",
+                return_value=pd.DataFrame(),
             ),
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {
                     "fvg": {"detector": lambda df: long_signals, "confidence": 3},
                     "smt_divergence": {
@@ -1610,7 +1615,7 @@ class TestConflictResolution:
                 },
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {
                     "fvg": type(
                         "S",
@@ -1656,19 +1661,20 @@ class TestConflictResolution:
         short_signals = self._make_signals_df("short", "bos_short")
 
         with (
-            patch("analytics.signal_lib.get_ohlcv", return_value=ohlcv),
+            patch("analytics.signal.scanner.get_ohlcv", return_value=ohlcv),
             patch(
-                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+                "analytics.signal.scanner.get_funding_rates",
+                return_value=pd.DataFrame(),
             ),
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {
                     "fvg": {"detector": lambda df: long_signals, "confidence": 4},
                     "bos": {"detector": lambda df: short_signals, "confidence": 4},
                 },
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {
                     "fvg": type(
                         "S",
@@ -1715,19 +1721,20 @@ class TestConflictResolution:
         short_signals = self._make_signals_df("short", "bos_short")
 
         with (
-            patch("analytics.signal_lib.get_ohlcv", return_value=ohlcv),
+            patch("analytics.signal.scanner.get_ohlcv", return_value=ohlcv),
             patch(
-                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+                "analytics.signal.scanner.get_funding_rates",
+                return_value=pd.DataFrame(),
             ),
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {
                     "fvg": {"detector": lambda df: long_signals, "confidence": 5},
                     "bos": {"detector": lambda df: short_signals, "confidence": 3},
                 },
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {
                     "fvg": type(
                         "S",
@@ -1772,18 +1779,19 @@ class TestConflictResolution:
         long_signals = self._make_signals_df("long", "fvg_long")
 
         with (
-            patch("analytics.signal_lib.get_ohlcv", return_value=ohlcv),
+            patch("analytics.signal.scanner.get_ohlcv", return_value=ohlcv),
             patch(
-                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+                "analytics.signal.scanner.get_funding_rates",
+                return_value=pd.DataFrame(),
             ),
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {
                     "fvg": {"detector": lambda df: long_signals, "confidence": 4},
                 },
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {
                     "fvg": type(
                         "S",
@@ -1873,16 +1881,19 @@ class TestSignalOutcomePersistence:
         signals_df = self._make_signals_df()
 
         with (
-            patch("analytics.signal_lib.get_ohlcv", return_value=self._make_ohlcv()),
             patch(
-                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+                "analytics.signal.scanner.get_ohlcv", return_value=self._make_ohlcv()
             ),
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.get_funding_rates",
+                return_value=pd.DataFrame(),
+            ),
+            patch(
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {"fvg": {"detector": lambda df: signals_df, "confidence": 3}},
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {
                     "fvg": type(
                         "S",
@@ -1914,16 +1925,19 @@ class TestSignalOutcomePersistence:
         signals_df = self._make_signals_df()
 
         with (
-            patch("analytics.signal_lib.get_ohlcv", return_value=self._make_ohlcv()),
             patch(
-                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+                "analytics.signal.scanner.get_ohlcv", return_value=self._make_ohlcv()
             ),
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.get_funding_rates",
+                return_value=pd.DataFrame(),
+            ),
+            patch(
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {"fvg": {"detector": lambda df: signals_df, "confidence": 3}},
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {
                     "fvg": type(
                         "S",
@@ -2029,16 +2043,19 @@ class TestBacktestRunPersistence:
         bt_cfg = BacktestFilterConfig(mode="soft", days=90, save_results=save_results)
 
         with (
-            patch("analytics.signal_lib.get_ohlcv", return_value=self._make_ohlcv()),
             patch(
-                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+                "analytics.signal.scanner.get_ohlcv", return_value=self._make_ohlcv()
             ),
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.get_funding_rates",
+                return_value=pd.DataFrame(),
+            ),
+            patch(
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {"fvg": {"detector": lambda df: signals_df, "confidence": 3}},
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {
                     "fvg": type(
                         "S",
@@ -2093,16 +2110,19 @@ class TestBacktestRunPersistence:
         signals_df = self._make_signals_df()
 
         with (
-            patch("analytics.signal_lib.get_ohlcv", return_value=self._make_ohlcv()),
             patch(
-                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+                "analytics.signal.scanner.get_ohlcv", return_value=self._make_ohlcv()
             ),
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.get_funding_rates",
+                return_value=pd.DataFrame(),
+            ),
+            patch(
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {"fvg": {"detector": lambda df: signals_df, "confidence": 3}},
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {
                     "fvg": type(
                         "S",
@@ -2487,11 +2507,11 @@ class TestConfidenceOverrideInScanSymbol:
 
         with (
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {"fvg": {"detector": lambda df: signals_df}},
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {"fvg": _fake_registry_entry(get_confidence_val=2)},
             ),
         ):
@@ -2512,11 +2532,11 @@ class TestConfidenceOverrideInScanSymbol:
 
         with (
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {"fvg": {"detector": lambda df: signals_df}},
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {"fvg": _fake_registry_entry(get_confidence_val=3)},
             ),
         ):
@@ -2537,11 +2557,11 @@ class TestConfidenceOverrideInScanSymbol:
 
         with (
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {"fvg": {"detector": lambda df: signals_df}},
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {"fvg": _fake_registry_entry(get_confidence_val=3)},
             ),
         ):
@@ -2562,11 +2582,11 @@ class TestConfidenceOverrideInScanSymbol:
 
         with (
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {"fvg": {"detector": lambda df: signals_df}},
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {"fvg": _fake_registry_entry(get_confidence_val=4)},
             ),
         ):
@@ -2677,12 +2697,13 @@ class TestBiasLayer:
         ohlcv = self._make_ohlcv()
 
         with (
-            patch("analytics.signal_lib.get_ohlcv", return_value=ohlcv),
+            patch("analytics.signal.scanner.get_ohlcv", return_value=ohlcv),
             patch(
-                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+                "analytics.signal.scanner.get_funding_rates",
+                return_value=pd.DataFrame(),
             ),
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {
                     "fvg": {
                         "detector": lambda df: signals_df,
@@ -2691,7 +2712,7 @@ class TestBiasLayer:
                 },
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {
                     "fvg": type(
                         "S",
@@ -2705,7 +2726,7 @@ class TestBiasLayer:
                 },
             ),
             patch(
-                "analytics.signal_lib._compute_stats_context",
+                "analytics.signal.scanner._compute_stats_context",
                 return_value=stats_ctx,
             ),
         ):
@@ -2924,12 +2945,13 @@ class TestBiasLayer:
         ohlcv = self._make_ohlcv()
 
         with (
-            patch("analytics.signal_lib.get_ohlcv", return_value=ohlcv),
+            patch("analytics.signal.scanner.get_ohlcv", return_value=ohlcv),
             patch(
-                "analytics.signal_lib.get_funding_rates", return_value=pd.DataFrame()
+                "analytics.signal.scanner.get_funding_rates",
+                return_value=pd.DataFrame(),
             ),
             patch(
-                "analytics.signal_lib.SIGNAL_REGISTRY",
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
                 {
                     "fvg": {
                         "detector": lambda df: signals_df,
@@ -2938,7 +2960,7 @@ class TestBiasLayer:
                 },
             ),
             patch(
-                "analytics.signal_lib.STRATEGY_REGISTRY",
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
                 {
                     "fvg": type(
                         "S",
@@ -2952,7 +2974,7 @@ class TestBiasLayer:
                 },
             ),
             patch(
-                "analytics.signal_lib._compute_stats_context",
+                "analytics.signal.scanner._compute_stats_context",
                 return_value=ctx,
             ),
         ):
