@@ -24,16 +24,15 @@ Detailed API reference for `analytics/`. Load this when working on any analytics
 
 ## strategies/ — strategy signal detection package
 
-(`indicators_lib.py` is now a re-export shim; the 21 detect_* functions and the registries live in `analytics/strategies/` after strat-2.)
+(After strat-3 the prior `indicators_lib.py` shim is removed; the 21 detect_* functions and the registries live in `analytics/strategies/`. Public entry: `from analytics.strategies import ...`.)
 
 - **Per-detector modules**: `wick_fills.py`, `marubozu_retest.py`, `orb_breakout.py`, `liquidity_sweep.py`, `fvg.py`, `market_structure.py` (= `bos`), `funding_extreme.py`, `smt_divergence.py`, `eqh_eql.py`, `order_block.py`, `cvd_divergence.py`, `trend_day.py`, `engulfing.py`, `pin_bar.py`, `inside_bar.py`, `hammer_hanging_man.py`, `doji.py`, `morning_evening_star.py`, `fibonacci_retracement.py` (legacy), `fib_golden_zone.py`, `ote_entry.py` — one file per `detect_*` function
 - **`_base.py`** — `ParamSpec`, `StrategySpec`, `SIGNAL_COLUMNS`
 - **`_shared.py`** — `_find_bos_swing`, `volume_confirm`, `_empty_signals`, `_signals_to_df`, `_fmt_time`
 - **`_seasonality.py`** — `seasonality_stats`, `SEASONALITY_COLUMNS` (returns stats DataFrame, not signals)
 - **`_registry.py`** — explicit-tuple-driven assembler holding `STRATEGY_REGISTRY` (20 entries), `DETECTOR_REGISTRY` (18 entries; `seasonality` / `smt_divergence` / legacy `fibonacci_retracement` excluded), `KNOWN_STRATEGIES`, `KNOWN_STRATEGY_TYPES`, `STRATEGY_TYPE_GROUPS`, `INCOMPATIBLE_PAIRS`, `patch_confidence_scores`
-- **`__init__.py`** — eager re-exports of every leaf + registry symbol; `analytics.indicators_lib` is a thin PEP 484 `X as X` shim that delegates here
+- **`__init__.py`** — eager re-exports of every leaf + registry symbol; the public entry for callers
 - 20 active strategies in `STRATEGY_REGISTRY`: `seasonality`, `wick_fill`, `marubozu`, `orb`, `liquidity_sweep`, `fvg`, `bos`, `smt_divergence`, `eqh_eql`, `order_block`, `cvd_divergence`, `trend_day`, `engulfing`, `pin_bar`, `inside_bar`, `hammer_hanging_man`, `doji`, `morning_evening_star`, `fib_golden_zone`, `ote_entry` (`fibonacci_retracement` legacy/commented-out; `funding_extreme` exists as a function but isn't registered — needs a 2-arg signature, called directly)
-- Exports re-exported from `analytics.indicators_lib`: `ParamSpec`, `StrategySpec`, `STRATEGY_REGISTRY`, `DETECTOR_REGISTRY`, `KNOWN_STRATEGIES`
 - `StrategySpec.confidence: dict[str, int] | int` — use `get_confidence(tf)` (falls back to `"default"` key then `3`)
 - `StrategySpec.tp_r_long/tp_r_short: float | None` — Gate 3 direction-split TP; use `get_tp_r(direction)` (falls back to 2.0)
 - `StrategySpec.strategy_type` — one of `structural`, `fib`, `price_action`, `candlestick`, `flow`, `session`
@@ -105,7 +104,7 @@ Detailed API reference for `analytics/`. Load this when working on any analytics
 - `extract_ote_zones(df)` — current 0.618–0.786 OTE box
 - `extract_swing_points(df)` — recent 3-bar pivot highs/lows as dot annotations
 - All return `list[dict[str, Any]]` with `zone_low/high`, `price`, `start_ms`, `close_ms`, `active`, `direction`; active zones first + 3–5 recent inactive
-- Imports `_find_bos_swing` from `indicators_lib` for Fib/OTE
+- Imports `_find_bos_swing` from `analytics.strategies` for Fib/OTE
 
 ## signal_lib.py — pure scan lib
 
@@ -176,5 +175,5 @@ Detailed API reference for `analytics/`. Load this when working on any analytics
 - `compute_recalibrated_ratings(conn, min_trades)` → `dict[str, dict[str, int]]`
 - `compute_directional_ratings(conn, min_trades=5)` → `{strategy: {tf: {"long": stars, "short": stars}}}`
 - `write_confidence_to_db(conn, config_name, ratings, win_rates, day_filter=None, directional_ratings=None)`
-- `write_confidence_to_source` — legacy: patches `indicators_lib.py` directly
+- `write_confidence_to_source` — legacy: patches `analytics/strategies/_registry.py` directly
 - Runner: `--config <toml>` derives `day_filter`, `config_name`, `adr_suppress_threshold`; `--apply` writes to DB (with config) or source (without config)

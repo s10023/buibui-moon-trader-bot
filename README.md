@@ -63,7 +63,7 @@ buibui-moon-trader-bot/
 │   ├── data_fetcher.py              # Pure Binance Futures API → DataFrames (klines, funding, OI)
 │   ├── data_store.py                # Pure DuckDB read/write (schema, upsert, query helpers); tables: ohlcv, funding_rates, open_interest, signals, signal_alert_outcomes, backtest_runs, backtest_trades, backtest_cache, stats_cache
 │   ├── data_sync.py                 # Backfill + incremental sync orchestration
-│   ├── indicators_lib.py            # Pure strategy signal detection (21 active strategies + STRATEGY_REGISTRY + DETECTOR_REGISTRY)
+│   ├── strategies/                  # Per-detector strategy package (21 active strategies + STRATEGY_REGISTRY + DETECTOR_REGISTRY)
 │   ├── signal_config.py             # Pure config loader: SignalWatchConfig, BacktestFilterConfig, BiasConfig, ComboConfig; TOML extends support
 │   ├── signal_lib.py                # Pure scan lib: scan_symbol(), run_scan_cycle(); injects StatsContext into alerts
 │   ├── signal_runner.py             # Signal daemon thin wrapper (creates client, opens DB, polls)
@@ -473,7 +473,7 @@ poetry run python buibui.py recalibrate --config config/signal_watch.toml       
 poetry run python buibui.py recalibrate --config config/signal_watch.toml --apply    # write to DB
 poetry run python buibui.py recalibrate --config config/signal_watch_weekdays.toml --apply
 
-# Legacy: write global ratings directly to indicators_lib.py (still works, no --config needed)
+# Legacy: write global ratings directly to analytics/strategies/_registry.py (still works, no --config needed)
 poetry run python buibui.py recalibrate --apply
 poetry run python buibui.py recalibrate --min-trades 20 --apply
 ```
