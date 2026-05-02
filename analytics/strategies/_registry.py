@@ -16,6 +16,7 @@ import pandas as pd
 from analytics.strategies._base import ParamSpec, StrategySpec
 from analytics.strategies.cvd_divergence import detect_cvd_divergence
 from analytics.strategies.doji import detect_doji
+from analytics.strategies.ema import detect_ema
 from analytics.strategies.engulfing import detect_engulfing
 from analytics.strategies.eqh_eql import detect_eqh_eql
 from analytics.strategies.fib_golden_zone import detect_fib_golden_zone
@@ -559,6 +560,73 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
         ],
         confidence=1,  # 0 trades in backtest — multi-signal dedup inflates count, needs investigation
     ),
+    "ema": StrategySpec(
+        name="ema",
+        description="EMA pullback continuation: trend (slow EMA + slope) + regime gate, pullback wick into fast EMA, body trigger.",
+        strategy_type="trend",
+        params=[
+            ParamSpec(
+                "fast_period", "int", 20, 5, 100, "Fast EMA span (the pullback target)."
+            ),
+            ParamSpec(
+                "slow_period",
+                "int",
+                50,
+                20,
+                400,
+                "Slow EMA span (the trend filter); must be > fast_period.",
+            ),
+            ParamSpec(
+                "slope_lookback",
+                "int",
+                10,
+                3,
+                50,
+                "Bars to measure slow-EMA slope over.",
+            ),
+            ParamSpec(
+                "regime_lookback",
+                "int",
+                20,
+                5,
+                100,
+                "Bars to count price/fast-EMA crosses over (range = many crosses).",
+            ),
+            ParamSpec(
+                "max_crosses",
+                "int",
+                2,
+                0,
+                10,
+                "Max price/fast-EMA crosses inside regime_lookback to qualify as trending.",
+            ),
+            ParamSpec(
+                "min_slope_pct",
+                "float",
+                0.003,
+                0.0,
+                0.05,
+                "Minimum |slow-EMA slope| over slope_lookback (fraction).",
+            ),
+            ParamSpec(
+                "pullback_lookback",
+                "int",
+                5,
+                2,
+                30,
+                "Bars before the trigger to scan for an EMA touch + close-back.",
+            ),
+            ParamSpec(
+                "min_body_pct",
+                "float",
+                0.5,
+                0.1,
+                0.95,
+                "Minimum body-to-range ratio of the trigger candle.",
+            ),
+        ],
+        confidence=3,  # default placeholder; recalibrate after first backtest pass
+    ),
 }
 
 
@@ -572,6 +640,7 @@ KNOWN_STRATEGY_TYPES: list[str] = [
     "candlestick",
     "flow",
     "session",
+    "trend",
 ]
 
 # Inverse index: type → list of strategy names (derived from STRATEGY_REGISTRY).
@@ -627,6 +696,7 @@ DETECTOR_REGISTRY: dict[str, Callable[[pd.DataFrame], pd.DataFrame]] = {
     "morning_evening_star": detect_morning_evening_star,
     "fib_golden_zone": detect_fib_golden_zone,
     "ote_entry": detect_ote_entry,
+    "ema": detect_ema,
 }
 
 

@@ -32,6 +32,7 @@ from analytics.strategies._shared import (
 )
 from analytics.strategies.cvd_divergence import detect_cvd_divergence
 from analytics.strategies.doji import detect_doji
+from analytics.strategies.ema import detect_ema
 from analytics.strategies.engulfing import detect_engulfing
 from analytics.strategies.eqh_eql import detect_eqh_eql
 from analytics.strategies.fib_golden_zone import detect_fib_golden_zone
@@ -70,6 +71,7 @@ __all__ = [
     "compute_ema",
     "detect_cvd_divergence",
     "detect_doji",
+    "detect_ema",
     "detect_engulfing",
     "detect_eqh_eql",
     "detect_fib_golden_zone",
