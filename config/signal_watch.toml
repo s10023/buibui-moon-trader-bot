@@ -35,7 +35,8 @@ strategies = [
     'doji',
     'morning_evening_star',
     'fib_golden_zone',
-    'fvg'
+    'fvg',
+    'ema'
 ]
 
 # SL/TP defaults
@@ -183,6 +184,9 @@ tp_r_1h = 2.5                 # WFO OOS (tue_thu): +1.182R (2026-04-14); was 3.5
 tp_r_1h = 5.0                 # monotonically increasing: +1.38R@5.0R, stable 41%WR (38 trades, tue_thu)
 adr_exempt = true             # divergence between price/delta in trending conditions; ADR gate hurts it
 volume_suppress = false       # A14b: low-vol edge Δ=-0.24R (low +0.09R vs normal -0.15R)
+
+[strategy_params.ema]
+tp_r = 3.0                    # spec §6 default; tune per-TF after WFO sweep
 
 [strategy_params.smt_divergence]
 tp_r_15m = 4.0                # sweep peak: cross-symbol +0.90R (70 trades, 40% WR) post-spam-fix
