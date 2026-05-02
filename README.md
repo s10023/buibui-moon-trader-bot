@@ -63,7 +63,7 @@ buibui-moon-trader-bot/
 │   ├── data_fetcher.py              # Pure Binance Futures API → DataFrames (klines, funding, OI)
 │   ├── data_store.py                # Pure DuckDB read/write (schema, upsert, query helpers); tables: ohlcv, funding_rates, open_interest, signals, signal_alert_outcomes, backtest_runs, backtest_trades, backtest_cache, stats_cache
 │   ├── data_sync.py                 # Backfill + incremental sync orchestration
-│   ├── strategies/                  # Per-detector strategy package (21 active strategies + STRATEGY_REGISTRY + DETECTOR_REGISTRY)
+│   ├── strategies/                  # Per-detector strategy package (22 active strategies + STRATEGY_REGISTRY + DETECTOR_REGISTRY)
 │   ├── signal_config.py             # Pure config loader: SignalWatchConfig, BacktestFilterConfig, BiasConfig, ComboConfig; TOML extends support
 │   ├── signal_lib.py                # Pure scan lib: scan_symbol(), run_scan_cycle(); injects StatsContext into alerts
 │   ├── signal_runner.py             # Signal daemon thin wrapper (creates client, opens DB, polls)
@@ -78,7 +78,7 @@ buibui-moon-trader-bot/
 │   ├── recalibrate_runner.py        # Recalibrate thin wrapper
 │   └── perf_timer.py                # timed(label) context manager
 ├── signals/
-│   ├── registry.py                  # SignalPlugin TypedDict + SIGNAL_REGISTRY (19 actionable strategies; seasonality/funding_reversion/fibonacci_retracement excluded)
+│   ├── registry.py                  # SignalPlugin TypedDict + SIGNAL_REGISTRY (20 actionable strategies; seasonality/funding_reversion/fibonacci_retracement excluded)
 │   ├── cooldown_store.py            # Two-layer dedup: candle watermark + cooldown timer
 │   └── alert_formatter.py           # SignalEvent, StatsContext, ConfluenceData; 6-section alert layout; W1–W8 candle warnings
 ├── web/
@@ -401,6 +401,7 @@ poetry run python buibui.py backtest --symbols BTCUSDT ETHUSDT --timeframes 1h 4
 | `fib_golden_zone` | Fibonacci golden zone (0.5–0.618) entry after confirmed BOS; SL=swing low, TP=1.618 ext | ★☆☆☆☆ |
 | `ote_entry` | Optimal Trade Entry (0.618–0.786) after confirmed BOS — deeper, more selective retracement | ★☆☆☆☆ |
 | `seasonality` | Average return by day-of-week, hour, and week-of-month | ★★☆☆☆ |
+| `ema` | EMA pullback continuation (Variant A): trend (slow EMA + slope) + regime gate, pullback wick into fast EMA, body-fraction trigger | ★★★☆☆ |
 
 **Single-combo options:**
 
@@ -519,7 +520,7 @@ poetry run python buibui.py signal watch
 - `--config config/signal_watch.toml` — load all options from a TOML file; CLI flags override file values
 - `--symbols BTCUSDT ETHUSDT` — symbols to scan (default: all from `coins.json`)
 - `--timeframes 4h` — candle timeframes (default: `4h`)
-- `--strategies fvg bos` — strategies to run (default: all 19 actionable from `SIGNAL_REGISTRY`)
+- `--strategies fvg bos` — strategies to run (default: all 20 actionable from `SIGNAL_REGISTRY`)
 - `--tp-r 2.0` — R multiplier for TP level in alert messages (default: `2.0`)
 - `--telegram` — send alerts via Telegram
 - `--state-file signal_state.json` — path to cooldown/watermark state file
