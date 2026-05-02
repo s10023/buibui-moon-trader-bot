@@ -4,7 +4,7 @@ Detailed reference for `signals/`. Load this when working on alert formatting, c
 
 ## registry.py
 
-- `SignalPlugin` TypedDict + `SIGNAL_REGISTRY` — 19 actionable strategies
+- `SignalPlugin` TypedDict + `SIGNAL_REGISTRY` — 20 actionable strategies
 - Excluded: `seasonality` (inactive by design), `funding_reversion` (no live feed, partial DB), `fibonacci_retracement` (legacy)
 - `confidence` field removed — resolved per-TF at dispatch via `STRATEGY_REGISTRY[name].get_confidence(tf)`
 

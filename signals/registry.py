@@ -17,6 +17,7 @@ import pandas as pd
 from analytics.strategies import (
     detect_cvd_divergence,
     detect_doji,
+    detect_ema,
     detect_engulfing,
     detect_eqh_eql,
     detect_fib_golden_zone,
@@ -63,6 +64,7 @@ _DETECTORS: dict[str, DetectorFn] = {
     "morning_evening_star": detect_morning_evening_star,
     "fib_golden_zone": detect_fib_golden_zone,
     "ote_entry": detect_ote_entry,
+    "ema": detect_ema,
 }
 
 

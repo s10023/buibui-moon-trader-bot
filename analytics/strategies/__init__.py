@@ -25,10 +25,14 @@ from analytics.strategies._shared import (
     _find_bos_swing,
     _fmt_time,
     _signals_to_df,
+    compute_ema,
+    ema_cross_count,
+    is_trending,
     volume_confirm,
 )
 from analytics.strategies.cvd_divergence import detect_cvd_divergence
 from analytics.strategies.doji import detect_doji
+from analytics.strategies.ema import detect_ema
 from analytics.strategies.engulfing import detect_engulfing
 from analytics.strategies.eqh_eql import detect_eqh_eql
 from analytics.strategies.fib_golden_zone import detect_fib_golden_zone
@@ -64,8 +68,10 @@ __all__ = [
     "_find_bos_swing",
     "_fmt_time",
     "_signals_to_df",
+    "compute_ema",
     "detect_cvd_divergence",
     "detect_doji",
+    "detect_ema",
     "detect_engulfing",
     "detect_eqh_eql",
     "detect_fib_golden_zone",
@@ -85,6 +91,8 @@ __all__ = [
     "detect_smt_divergence",
     "detect_trend_day",
     "detect_wick_fills",
+    "ema_cross_count",
+    "is_trending",
     "patch_confidence_scores",
     "seasonality_stats",
     "volume_confirm",

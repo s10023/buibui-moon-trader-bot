@@ -34,7 +34,8 @@ strategies = [
     'hammer_hanging_man',
     'doji',
     'morning_evening_star',
-    'fib_golden_zone'
+    'fib_golden_zone',
+    'ema'
 ]
 
 # atr_sl_multiplier = 2.0  # ATR-based SL: SL distance = N × ATR14; overrides sl_pct when set
@@ -54,6 +55,9 @@ marubozu         = ["4h", "1d"]          # 15m/1h all negative
 # Per-strategy parameter overrides — tp_r and sl_pct.
 # Derived from TP sweep (200d, all days, 3 symbols — BTCUSDT/ETHUSDT/SOLUSDT).
 # Re-run after major data changes: make buibui-backtest CONFIG=config/signal_watch_all.toml SAVE=1
+
+[strategy_params.ema]
+tp_r = 3.0                    # spec §6 default; tune per-TF after WFO sweep
 
 [strategy_params.engulfing]
 tp_r_15m = 4.0                # sweep confirmed: +0.24R (after volume_suppress_long)

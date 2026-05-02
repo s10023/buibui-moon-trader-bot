@@ -32,7 +32,8 @@ strategies = [
     'doji',
     'morning_evening_star',
     'fib_golden_zone',
-    'fvg'
+    'fvg',
+    'ema'
 ]
 
 # atr_sl_multiplier = 2.0  # ATR-based SL: SL distance = N × ATR14; overrides sl_pct when set
@@ -59,6 +60,9 @@ fvg                  = ["15m", "1h", "4h"] # 1d catastrophic suppressed
 # Lookup order: TF-specific key (e.g. tp_r_4h) → strategy-wide tp_r → global tp_r.
 # Derived from TP sweep (200d, weekdays, 3 symbols — BTCUSDT/ETHUSDT/SOLUSDT).
 # Re-run after major data changes: make buibui-backtest CONFIG=config/signal_watch_weekdays.toml SAVE=1
+
+[strategy_params.ema]
+tp_r = 3.0                    # spec §6 default; tune per-TF after WFO sweep
 
 [strategy_params.engulfing]
 tp_r_15m = 4.0                # +0.11R
