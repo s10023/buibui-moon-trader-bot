@@ -25,6 +25,9 @@ from analytics.strategies._shared import (
     _find_bos_swing,
     _fmt_time,
     _signals_to_df,
+    compute_ema,
+    ema_cross_count,
+    is_trending,
     volume_confirm,
 )
 from analytics.strategies.cvd_divergence import detect_cvd_divergence
@@ -64,6 +67,7 @@ __all__ = [
     "_find_bos_swing",
     "_fmt_time",
     "_signals_to_df",
+    "compute_ema",
     "detect_cvd_divergence",
     "detect_doji",
     "detect_engulfing",
@@ -85,6 +89,8 @@ __all__ = [
     "detect_smt_divergence",
     "detect_trend_day",
     "detect_wick_fills",
+    "ema_cross_count",
+    "is_trending",
     "patch_confidence_scores",
     "seasonality_stats",
     "volume_confirm",

@@ -37,6 +37,77 @@ def _signals_to_df(signals: list[dict[str, object]]) -> pd.DataFrame:
     )
 
 
+def compute_ema(series: pd.Series, span: int) -> pd.Series:
+    """Standard recursive EMA (adjust=False) with alpha = 2 / (span + 1).
+
+    Why adjust=False: this matches the canonical trading-platform EMA
+    (TradingView, MT4, Binance) — pandas' default `adjust=True` uses an
+    unequal weighting at series start that drifts from broker values.
+    """
+    return series.astype(float).ewm(span=span, adjust=False).mean()
+
+
+def ema_cross_count(
+    close: pd.Series,
+    ema: pd.Series,
+    idx: int,
+    lookback: int,
+) -> int:
+    """Count price/EMA sign changes in the last `lookback` bars ending at idx.
+
+    A "cross" is a sign flip in (close - ema) between two consecutive non-zero
+    samples within the window. Zero-difference bars are skipped (treated as
+    inheriting the prior sign) so a single touch does not inflate the count.
+    """
+    start = max(0, idx - lookback + 1)
+    if start > idx:
+        return 0
+    diffs = close.iloc[start : idx + 1].to_numpy(dtype=float) - ema.iloc[
+        start : idx + 1
+    ].to_numpy(dtype=float)
+    count = 0
+    last_sign = 0
+    for d in diffs:
+        s = 1 if d > 0 else (-1 if d < 0 else 0)
+        if s == 0:
+            continue
+        if last_sign != 0 and s != last_sign:
+            count += 1
+        last_sign = s
+    return count
+
+
+def is_trending(
+    close: pd.Series,
+    ema_fast: pd.Series,
+    ema_slow: pd.Series,
+    idx: int,
+    slope_lookback: int = 10,
+    regime_lookback: int = 20,
+    max_crosses: int = 2,
+    min_slope_pct: float = 0.003,
+) -> bool:
+    """Binary regime gate: trending vs range/chop.
+
+    Trending requires both:
+    - few enough price/fast-EMA crosses in `regime_lookback` bars
+      (range markets cross the EMA repeatedly),
+    - slow-EMA |slope| over `slope_lookback` bars >= `min_slope_pct`
+      (a flat EMA = no directional conviction).
+    """
+    if idx < max(slope_lookback, regime_lookback - 1):
+        return False
+    slow_now = float(ema_slow.iloc[idx])
+    slow_then = float(ema_slow.iloc[idx - slope_lookback])
+    if slow_then == 0.0:
+        return False
+    slope_pct = abs((slow_now - slow_then) / slow_then)
+    if slope_pct < min_slope_pct:
+        return False
+    crosses = ema_cross_count(close, ema_fast, idx, regime_lookback)
+    return crosses <= max_crosses
+
+
 def volume_confirm(
     df: pd.DataFrame,
     idx: int,
@@ -143,5 +214,8 @@ __all__ = [
     "_find_bos_swing",
     "_fmt_time",
     "_signals_to_df",
+    "compute_ema",
+    "ema_cross_count",
+    "is_trending",
     "volume_confirm",
 ]
