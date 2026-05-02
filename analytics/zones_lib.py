@@ -390,7 +390,7 @@ def extract_fib_golden_zones(
     Returns 0 or 1 zone. The zone represents where price is expected to retrace
     after a confirmed BOS — the 50–61.8% retracement pocket.
     """
-    from analytics.indicators_lib import _find_bos_swing  # noqa: PLC0415
+    from analytics.strategies import _find_bos_swing  # noqa: PLC0415
 
     n = len(df)
     if n < swing_lookback + bos_lookback + 2:
@@ -446,7 +446,7 @@ def extract_ote_zones(
 
     Returns 0 or 1 zone. The deeper retracement pocket used by ICT OTE entries.
     """
-    from analytics.indicators_lib import _find_bos_swing  # noqa: PLC0415
+    from analytics.strategies import _find_bos_swing  # noqa: PLC0415
 
     n = len(df)
     if n < swing_lookback + bos_lookback + 2:

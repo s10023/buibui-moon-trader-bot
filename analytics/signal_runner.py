@@ -125,7 +125,7 @@ def run_signal_watch(
     boundary across all watched timeframes.
     """
     from analytics.data_store import get_ohlcv
-    from analytics.indicators_lib import KNOWN_STRATEGIES
+    from analytics.strategies import KNOWN_STRATEGIES
 
     client = create_client()
     coins_config = load_coins_config()

@@ -483,7 +483,7 @@ class TestWriteConfidenceToSource:
 # StrategySpec.get_confidence — TF resolution
 # ---------------------------------------------------------------------------
 
-from analytics.indicators_lib import StrategySpec  # noqa: E402
+from analytics.strategies import StrategySpec  # noqa: E402
 
 
 class TestStrategySpecGetConfidence:

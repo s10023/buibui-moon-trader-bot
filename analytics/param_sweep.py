@@ -34,8 +34,8 @@ import pandas as pd
 from analytics.backtest_lib import BacktestResult, run_backtest
 from analytics.backtest_runner import detect_signals_for_strategy
 from analytics.data_store import DEFAULT_DB_PATH, get_ohlcv
-from analytics.indicators_lib import KNOWN_STRATEGIES, STRATEGY_REGISTRY
 from analytics.perf_timer import timed
+from analytics.strategies import KNOWN_STRATEGIES, STRATEGY_REGISTRY
 
 # ---------------------------------------------------------------------------
 # Scoring

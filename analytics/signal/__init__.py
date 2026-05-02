@@ -29,7 +29,6 @@ from analytics.data_store import (
     upsert_signal_outcome,
     upsert_signals,
 )
-from analytics.indicators_lib import STRATEGY_REGISTRY
 from analytics.signal._common import (
     _CANDLE_CLOSE_BUFFER_SECS,
     _SCAN_WINDOW,
@@ -66,6 +65,7 @@ from analytics.signal_config import (
     StrategyOverride,
     _day_filter_to_weekdays,
 )
+from analytics.strategies import STRATEGY_REGISTRY
 from signals.cooldown_store import CooldownStore
 from signals.registry import SIGNAL_REGISTRY
 

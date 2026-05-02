@@ -6,9 +6,9 @@ import duckdb
 import pandas as pd
 
 from analytics.data_store import get_signals_history
-from analytics.indicators_lib import STRATEGY_REGISTRY
 from analytics.signal._common import parse_timeframe_secs
 from analytics.signal.types import ConfluenceData, SignalEvent
+from analytics.strategies import STRATEGY_REGISTRY
 
 
 def _find_live_cofire(
@@ -138,7 +138,7 @@ def _find_cross_tf_cofire(
 
     candles_ago is expressed in LTF candles for display consistency with same-TF.
     """
-    from analytics.indicators_lib import STRATEGY_REGISTRY
+    from analytics.strategies import STRATEGY_REGISTRY
 
     if not events or not cross_tf_lookup:
         return None

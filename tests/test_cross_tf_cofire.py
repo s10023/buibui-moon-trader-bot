@@ -33,7 +33,7 @@ def _make_signals(
     direction: str = "long",
     sl_price: float = 98.0,
 ) -> pd.DataFrame:
-    from analytics.indicators_lib import SIGNAL_COLUMNS
+    from analytics.strategies import SIGNAL_COLUMNS
 
     rows = [
         {

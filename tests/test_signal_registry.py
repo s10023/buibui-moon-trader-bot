@@ -1,6 +1,6 @@
 """Tests for signal registry completeness and correctness."""
 
-from analytics.indicators_lib import (
+from analytics.strategies import (
     KNOWN_STRATEGIES,
     KNOWN_STRATEGY_TYPES,
     STRATEGY_REGISTRY,

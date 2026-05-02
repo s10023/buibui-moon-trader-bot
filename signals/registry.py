@@ -5,7 +5,7 @@ Maps strategy name to plugin metadata. Excluded strategies:
 - fibonacci_retracement: legacy, superseded by fib_golden_zone.
 
 `requires_funding`, `requires_secondary`, and `confidence` flags live on
-`analytics.indicators_lib.STRATEGY_REGISTRY`; they are not duplicated here.
+`analytics.strategies.STRATEGY_REGISTRY`; they are not duplicated here.
 Confidence is resolved per-TF at dispatch time via STRATEGY_REGISTRY[name].get_confidence(tf).
 """
 
@@ -14,7 +14,7 @@ from typing import TypedDict
 
 import pandas as pd
 
-from analytics.indicators_lib import (
+from analytics.strategies import (
     detect_cvd_divergence,
     detect_doji,
     detect_engulfing,

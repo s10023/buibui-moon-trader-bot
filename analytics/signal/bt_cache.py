@@ -17,13 +17,13 @@ from analytics.backtest_lib import (
     run_backtest,
 )
 from analytics.data_store import BacktestSnapshot
-from analytics.indicators_lib import STRATEGY_REGISTRY
 from analytics.signal._common import _fmt_hold
 from analytics.signal.gates import _filter_signals_by_adr
 from analytics.signal_config import (
     BacktestFilterConfig,
     _day_filter_to_weekdays,
 )
+from analytics.strategies import STRATEGY_REGISTRY
 from signals.registry import SIGNAL_REGISTRY
 
 logger = logging.getLogger(__name__)

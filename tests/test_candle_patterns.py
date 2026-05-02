@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from analytics.indicators_lib import (
+from analytics.strategies import (
     SIGNAL_COLUMNS,
     STRATEGY_REGISTRY,
     detect_doji,

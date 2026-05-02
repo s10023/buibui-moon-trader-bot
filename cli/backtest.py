@@ -6,7 +6,7 @@ import argparse
 
 from analytics import backtest_runner
 from analytics.backtest_config import BacktestSweepConfig, load_backtest_config
-from analytics.indicators_lib import KNOWN_STRATEGIES
+from analytics.strategies import KNOWN_STRATEGIES
 from cli._common import parse_since_to_ms
 
 

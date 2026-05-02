@@ -1,4 +1,4 @@
-"""Tests for analytics/indicators_lib.py."""
+"""Tests for the analytics.strategies package (per-detector modules + seasonality)."""
 
 import datetime
 from collections.abc import Callable
@@ -6,7 +6,7 @@ from collections.abc import Callable
 import pandas as pd
 import pytest
 
-from analytics.indicators_lib import (
+from analytics.strategies import (
     SIGNAL_COLUMNS,
     detect_cvd_divergence,
     detect_eqh_eql,

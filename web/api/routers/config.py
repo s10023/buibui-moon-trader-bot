@@ -7,7 +7,7 @@ import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from analytics.data_store import get_confidence_ratings
-from analytics.indicators_lib import STRATEGY_REGISTRY
+from analytics.strategies import STRATEGY_REGISTRY
 from utils.binance_client import load_coins_config
 from web.api.deps import get_db, require_token
 from web.api.models.active_config import ActiveConfigResponse
