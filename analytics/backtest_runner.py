@@ -42,15 +42,15 @@ from analytics.data_store import (
     upsert_cross_tf_combo_run,
 )
 from analytics.digest_lib import run_digest
-from analytics.indicators_lib import (
+from analytics.perf_timer import timed
+from analytics.signal_lib import _filter_signals_by_adr
+from analytics.strategies import (
     DETECTOR_REGISTRY,
     KNOWN_STRATEGIES,
     detect_liquidity_sweep,
     detect_smt_divergence,
     seasonality_stats,
 )
-from analytics.perf_timer import timed
-from analytics.signal_lib import _filter_signals_by_adr
 from utils.binance_client import load_coins_config
 
 _SIMPLE_DETECTORS = DETECTOR_REGISTRY
@@ -560,7 +560,7 @@ def _combo_worker(
 
     Must be a top-level function so ProcessPoolExecutor can pickle it.
     """
-    from analytics.indicators_lib import INCOMPATIBLE_PAIRS, KNOWN_STRATEGIES
+    from analytics.strategies import INCOMPATIBLE_PAIRS, KNOWN_STRATEGIES
 
     _non_seasonal = [s for s in KNOWN_STRATEGIES if s != "seasonality"]
     combo_results: list[ComboBacktestResult] = []
@@ -772,7 +772,7 @@ def _cross_tf_combo_worker(
 
     Must be a top-level function so ProcessPoolExecutor can pickle it.
     """
-    from analytics.indicators_lib import INCOMPATIBLE_PAIRS, KNOWN_STRATEGIES
+    from analytics.strategies import INCOMPATIBLE_PAIRS, KNOWN_STRATEGIES
 
     _non_seasonal = [s for s in KNOWN_STRATEGIES if s != "seasonality"]
     results: list[CrossTfComboBacktestResult] = []

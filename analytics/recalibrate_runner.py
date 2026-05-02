@@ -9,7 +9,6 @@ from pathlib import Path
 import duckdb
 
 from analytics.data_store import DEFAULT_DB_PATH, init_schema
-from analytics.indicators_lib import STRATEGY_REGISTRY
 from analytics.recalibrate_lib import (
     compute_directional_ratings,
     compute_recalibrated_ratings,
@@ -18,20 +17,21 @@ from analytics.recalibrate_lib import (
     write_confidence_to_db,
     write_confidence_to_source,
 )
+from analytics.strategies import STRATEGY_REGISTRY
 
-_INDICATORS_LIB = Path(__file__).parent / "indicators_lib.py"
+_REGISTRY_PATH = Path(__file__).parent / "strategies" / "_registry.py"
 
 
 def run(
     args: argparse.Namespace,
     db_path: Path = DEFAULT_DB_PATH,
-    source_path: Path = _INDICATORS_LIB,
+    source_path: Path = _REGISTRY_PATH,
 ) -> None:
     """Open DB, compute recalibrated ratings, print report.
 
     --dry-run (default): show what would change without modifying anything.
     --apply with --config: write ratings to confidence_ratings DB table keyed by config name.
-    --apply without --config: legacy — patch confidence=N values directly in indicators_lib.py.
+    --apply without --config: legacy — patch confidence=N values directly in analytics/strategies/_registry.py.
     """
     apply: bool = getattr(args, "apply", False)
     min_trades: int = getattr(args, "min_trades", 10)
@@ -113,7 +113,7 @@ def run(
             else:
                 print(
                     "\n  Dry-run mode — no changes applied."
-                    " Use --apply to write ratings to indicators_lib.py."
+                    " Use --apply to write ratings to analytics/strategies/_registry.py."
                     " Pass --config to write per-config ratings to DB instead."
                 )
     finally:

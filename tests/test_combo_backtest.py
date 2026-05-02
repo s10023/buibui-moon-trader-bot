@@ -7,7 +7,7 @@ from analytics.backtest_lib import (
     _find_cofire_signals,
     run_combo_backtest,
 )
-from analytics.indicators_lib import INCOMPATIBLE_PAIRS, SIGNAL_COLUMNS
+from analytics.strategies import INCOMPATIBLE_PAIRS, SIGNAL_COLUMNS
 
 
 def _make_ohlcv(n: int = 20) -> pd.DataFrame:

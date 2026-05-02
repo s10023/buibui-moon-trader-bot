@@ -11,9 +11,9 @@ from cli._common import parse_since_to_ms, parse_smt_pairs
 
 
 def run_signal_test(args: argparse.Namespace) -> None:
-    from analytics.indicators_lib import KNOWN_STRATEGIES
     from analytics.signal_config import SignalWatchConfig, load_signal_config
     from analytics.signal_test_runner import run_signal_test as _run
+    from analytics.strategies import KNOWN_STRATEGIES
 
     cfg = SignalWatchConfig()
     if getattr(args, "config", None):

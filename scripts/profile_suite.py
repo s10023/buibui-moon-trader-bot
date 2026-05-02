@@ -43,9 +43,9 @@ from analytics.backtest_lib import (  # noqa: E402
     run_combo_backtest,
 )
 from analytics.data_store import DEFAULT_DB_PATH, get_ohlcv, init_schema  # noqa: E402
-from analytics.indicators_lib import DETECTOR_REGISTRY  # noqa: E402
 from analytics.param_sweep import ParamRange, run_param_sweep  # noqa: E402
 from analytics.signal_lib import run_scan_cycle  # noqa: E402
+from analytics.strategies import DETECTOR_REGISTRY  # noqa: E402
 from signals.cooldown_store import CooldownStore  # noqa: E402
 
 BENCH_SYMBOL = "BTCUSDT"

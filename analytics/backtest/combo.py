@@ -31,7 +31,7 @@ def _find_cofire_signals(
     candle (open_time, sl_price, tp_price). Each B signal is matched at most once.
     Returns an empty DataFrame when either strategy has fewer than min_signals.
     """
-    from analytics.indicators_lib import SIGNAL_COLUMNS
+    from analytics.strategies import SIGNAL_COLUMNS
 
     empty = pd.DataFrame(columns=SIGNAL_COLUMNS)
     if signals_a.empty or signals_b.empty:

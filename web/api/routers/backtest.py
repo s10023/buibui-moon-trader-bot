@@ -15,7 +15,7 @@ from analytics.data_store import (
     upsert_backtest_trades,
 )
 from analytics.digest_lib import QUERY_NAMES, DigestScope, run_digest
-from analytics.indicators_lib import KNOWN_STRATEGIES
+from analytics.strategies import KNOWN_STRATEGIES
 from utils.binance_client import load_coins_config
 from web.api.deps import get_db, require_token
 from web.api.models.backtest import (

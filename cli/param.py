@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from analytics.indicators_lib import KNOWN_STRATEGIES
+from analytics.strategies import KNOWN_STRATEGIES
 from cli._common import parse_since_to_ms
 
 

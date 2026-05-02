@@ -2,23 +2,19 @@
 
 Rule 1: ``analytics/*`` MUST NOT import from ``signals/*``.
 Rule 2: ``signals/*`` MAY import from ``analytics/*`` (one direction only).
+Rule 3: ``analytics.indicators_lib`` was removed in strat-3 — no file may import
+        from it. Strategies, registries, and shared helpers live in
+        ``analytics.strategies``.
 
-PR signal-1 lands the gate and migrates the lightweight type dataclasses
-(``SignalEvent``, ``StatsContext``, ``ConfluenceData``) out of
-``signals.alert_formatter`` into ``analytics.signal.types``. The remaining
-boundary crossings are tracked with explicit allowlists below — they get
-resolved as the rest of Phase 2 (signal-2 / signal-3) lands.
-
-Module-level allowlist for ``analytics/* → signals/*``:
+Module-level allowlist for ``analytics/* → signals/*`` (each is a deliberate
+domain-ownership boundary, not a violation):
 
 * ``signals.cooldown_store`` — scanner uses ``CooldownStore`` for two-layer
-  dedup state. Reconsidered in signal-3 (scanner reorganisation).
+  dedup state. ``signals/`` owns dedup.
 * ``signals.registry`` — scanner uses ``SIGNAL_REGISTRY`` to filter and dispatch
-  detectors. ``signals/`` owns the registry per spec domain-ownership;
-  reconsidered in signal-3.
+  detectors. ``signals/`` owns the dispatch registry.
 * ``signals.alert_formatter`` — scanner calls ``format_confluence_alert`` to
-  build the Telegram message before dispatch. ``signals/`` owns
-  ``alert_formatter``; reconsidered in signal-3.
+  build the Telegram message before dispatch. ``signals/`` owns alerting.
 
 Even when an analytics file imports from one of the allowlisted modules, the
 type dataclasses (``SignalEvent`` / ``StatsContext`` / ``ConfluenceData``) MUST
@@ -121,4 +117,40 @@ def test_layering_test_covers_known_files() -> None:
     files = _iter_py_files("analytics")
     assert len(files) >= 10, (
         f"Layering test only walked {len(files)} files in analytics/ — likely a bug."
+    )
+
+
+_INDICATORS_LIB_SCAN_ROOTS: tuple[str, ...] = (
+    "analytics",
+    "cli",
+    "monitor",
+    "scripts",
+    "signals",
+    "tests",
+    "trade",
+    "utils",
+    "web",
+)
+
+
+def test_no_imports_of_removed_indicators_lib() -> None:
+    """``analytics.indicators_lib`` was removed in strat-3 — no file may import
+    from it. Strategies, registries, and shared helpers all live under
+    ``analytics.strategies``.
+    """
+    violations: list[str] = []
+    for root in _INDICATORS_LIB_SCAN_ROOTS:
+        if not (REPO_ROOT / root).exists():
+            continue
+        for path in _iter_py_files(root):
+            if any(
+                mod == "analytics.indicators_lib"
+                or mod.startswith("analytics.indicators_lib.")
+                for mod in _imports_from(path, "analytics.indicators_lib")
+            ):
+                violations.append(str(path.relative_to(REPO_ROOT)))
+    assert not violations, (
+        "analytics.indicators_lib was removed in strat-3 — these files still "
+        "import from it (use analytics.strategies instead):\n"
+        + "\n".join(f"  {p}" for p in violations)
     )

@@ -36,7 +36,7 @@ def _find_cross_tf_signals(
     used (no exclusivity — one HTF signal can confirm multiple LTF signals).
     Returns an empty DataFrame when either input has fewer than min_signals.
     """
-    from analytics.indicators_lib import SIGNAL_COLUMNS
+    from analytics.strategies import SIGNAL_COLUMNS
 
     empty = pd.DataFrame(columns=SIGNAL_COLUMNS)
     if signals_htf.empty or signals_ltf.empty:

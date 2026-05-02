@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from analytics.backtest_runner import detect_signals_for_strategy
 from analytics.data_store import get_ohlcv, get_signals_history
-from analytics.indicators_lib import KNOWN_STRATEGIES, STRATEGY_REGISTRY
+from analytics.strategies import KNOWN_STRATEGIES, STRATEGY_REGISTRY
 from utils.binance_client import load_coins_config
 from web.api.deps import get_db, require_token
 from web.api.models.signals import SignalRow, SignalsRequest, SignalsResponse

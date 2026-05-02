@@ -26,11 +26,11 @@ import pandas as pd
 import pytest
 
 from analytics.backtest_lib import BacktestResult, run_backtest
-from analytics.indicators_lib import (
+from analytics.signal_config import SignalWatchConfig, load_signal_config
+from analytics.strategies import (
     DETECTOR_REGISTRY,
     detect_liquidity_sweep,
 )
-from analytics.signal_config import SignalWatchConfig, load_signal_config
 
 # Strategies that require extra data (secondary OHLCV) or are analytics-only —
 # not covered in Phase 1 of the regression suite.
