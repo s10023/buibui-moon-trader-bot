@@ -1,8 +1,28 @@
 # TradFi Equity Bot — Fork Design
 
 **Date:** 2026-04-10
-**Status:** Draft — name TBD
+**Status:** Draft — **name decided** 2026-05-02 (see §1); pre-fork checklist tracked in `~/.claude-personal/projects/-home-kng-repo-buibui-moon-trader-bot/memory/project_wifey_wall_street_fork.md`
 **Author:** brainstorming session
+
+---
+
+## 0. Updates after Phase 2 close (2026-05-02)
+
+This spec predates the Phase 2 architectural split. The §4 / §5 / §6 module references below pre-date the split; the post-split layout is:
+
+| Spec reference | Post-Phase-2 home |
+| --- | --- |
+| `analytics/indicators_lib.py` | **deleted** in strat-3 (PR #340) — package `analytics/strategies/` (21 detector modules + `_base`, `_shared`, `_seasonality`, `_registry`) |
+| `analytics/data_store.py` | thin re-export shim — package `analytics/store/` (8 modules; schema in `analytics/store/schema.py`, OHLCV upsert in `analytics/store/market_data.py`) |
+| `analytics/signal_lib.py` | 4-line shim — package `analytics/signal/` (8 modules) |
+| `analytics/backtest_lib.py` | thin shim — package `analytics/backtest/` (6 modules) |
+| `analytics/stats_lib.py` | thin shim — package `analytics/stats/` (13 modules) |
+
+`funding_reversion` (listed in §5 as "remove at fork") was already removed in Phase 1 H3 (2026-04-27). Fork inherits the absence — no fork-time action needed.
+
+The §4 carry-over verbatim files (`signals/cooldown_store.py`, `signals/alert_formatter.py`, `signals/registry.py`, plus the `web/` and `tests/` trees) are still at their original paths.
+
+The full plan (`docs/superpowers/plans/2026-04-10-tradfi-equity-fork.md`, 1,335 lines) has **not** been patched against Phase 2; review it fresh when execution starts.
 
 ---
 
@@ -13,16 +33,9 @@ Fork `buibui-moon-trader-bot` into a new repo targeting **US equities (single st
 continuous live daemon. It re-uses the entire strategy and backtest engine; only the data layer
 and equity-specific session logic are replaced.
 
-### Name candidates (TBD — pick one)
+### Name (decided 2026-05-02)
 
-| Name | Theme |
-| --- | --- |
-| `lunafi` | luna (moon lineage) + fi (finance) |
-| `moonshot` | keeps celestial theme, equities connotation |
-| `equiluna` | equities + luna lineage |
-| `starshot` | celestial + upside bias |
-
-Decision: **pending user choice.** Placeholder used throughout: `[BOTNAME]`.
+**Buibui Wifey Wall Street Bot.** Repo slug: `buibui-wifey-wall-street-bot`. CLI binary name still open (see §11 Q6: `buibui` → `wifey`, `bwws`, or keep). Placeholder `[BOTNAME]` retained throughout this spec for the repo/package rename mechanics.
 
 ---
 
@@ -68,7 +81,7 @@ These files are copied from buibui verbatim and need **zero modification** at fo
 
 | File / Module | Reason |
 | --- | --- |
-| `analytics/indicators_lib.py` | All 21 strategies are pure OHLCV math — no Binance coupling |
+| `analytics/strategies/` (was `indicators_lib.py` pre-Phase-2; see §0) | All 20 actionable strategies are pure OHLCV math — no Binance coupling. `funding_reversion` already removed in Phase 1 H3. |
 | `analytics/backtest_lib.py` | Engine is exchange-agnostic |
 | `analytics/param_sweep.py` | WFO logic is exchange-agnostic |
 | `analytics/digest_lib.py` | SQL aggregation over `backtest_runs` — unchanged |
@@ -91,7 +104,7 @@ These are crypto-specific and have no equity equivalent at launch:
 | --- | --- |
 | `analytics/cme_gap_lib.py` | Crypto CME gap (Fri 21:00–Sun 22:00 UTC). Replaced by overnight gap (§7.3). |
 | `utils/binance_client.py` | Replaced by `utils/alpaca_client.py` |
-| `funding_reversion` strategy | No funding rates in equities. Remove from `STRATEGY_REGISTRY` and `SIGNAL_REGISTRY`. |
+| ~~`funding_reversion` strategy~~ | Already removed from parent in Phase 1 H3 (2026-04-27). Fork inherits absence — no fork-time action. |
 | Funding rate columns in DB schema | `funding_time`, `funding_rate` — removed from `data_store.py` |
 | OI (open interest) data | Not available for equities at launch. Remove `oi_usd` column and OI fetching. |
 | `taker_buy_volume` column | Binance-specific. Alpaca provides `vwap` instead (see §6.2). |
@@ -165,7 +178,7 @@ def fetch_bars(
 - **No funding sync** — remove entirely
 - **No OI sync** — remove entirely
 
-### 6.5 DB schema (`analytics/data_store.py`)
+### 6.5 DB schema (`analytics/store/` post-Phase-2; was `data_store.py` pre-split — see §0)
 
 Modified (not copied verbatim):
 
@@ -238,6 +251,23 @@ needed for S/R detection.
 Earnings cause vol spikes and gaps that invalidate pattern setups. Future milestone: suppress
 signals within ±2 days of earnings using Alpaca's earnings calendar endpoint. Not in initial scope.
 
+### 7.6 Dual Telegram channel routing
+
+Two Telegram channels, one signal-generation pass:
+
+| Channel | Audience | Direction filter | Label rewrite |
+| --- | --- | --- | --- |
+| **Personal** | Self | Long + Short (full output) | None — keeps "LONG" / "SHORT" |
+| **Wife (`Buy`)** | Self + wife | Long only (Short suppressed entirely, not just hidden) | "LONG" → "BUY" everywhere user-visible (alert subject, body, summary) |
+
+**Implementation outline:**
+
+- Routing is a **dispatcher** concern, not a detector concern. Detectors emit a single `SignalEvent`; the dispatcher fans out to N publishers each with `(direction_filter, label_rewrite)` config.
+- Two BotFather bots (separate tokens). Two env-var groups: `TELEGRAM_PERSONAL_TOKEN` / `_CHAT_ID` and `TELEGRAM_WIFE_TOKEN` / `_CHAT_ID`. Manual setup.
+- Cooldown store keyed by `(symbol, tf, direction)` is already the right shape — wife channel dedup is independent of personal channel because `direction="short"` rows never reach it.
+- Label rewrite happens in the publisher right before `bot.send_message`; the underlying `SignalEvent` and DB row keep the canonical `"long"` direction. Backtest, recalibrate, and stats still see one truth.
+- Future extension: per-channel quality threshold (e.g. wife channel only ≥ 4-star ratings, or only certain strategy types) plugs into the same dispatcher config.
+
 ---
 
 ## 8. Strategies Assessment
@@ -304,11 +334,12 @@ Typical workflow:
 
 ## 11. Open Questions
 
-1. **Name** — pick from candidates in §1 (`lunafi`, `moonshot`, `equiluna`, `starshot`) or propose another
+1. ~~**Name**~~ — Resolved 2026-05-02: **Buibui Wifey Wall Street Bot**.
 2. **GitHub org/account** — same account as buibui or separate?
 3. **Initial watchlist** — MSTR, AAPL, CRCL confirmed; how many others?
 4. **Primary timeframe** — 1d only to start, or include 4h from day one?
 5. **Alpaca account type** — paper only initially, or set up live account from the start?
+6. **CLI binary name** — `buibui` rename to `wifey`, `bwws`, or keep `buibui`?
 
 ---
 
