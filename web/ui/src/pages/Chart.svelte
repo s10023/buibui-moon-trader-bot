@@ -32,6 +32,7 @@
     funding_reversion:    "Fund Rev",
     hammer_hanging_man:   "Hammer/HM",
     morning_evening_star: "M/E Star",
+    ema:                  "EMA Pullback",
   };
 
   // Strategy taxonomy — reviewed against detector logic in indicators_lib.py
@@ -42,6 +43,7 @@
     Candlestick:  ["engulfing", "pin_bar", "hammer_hanging_man", "doji", "morning_evening_star"],
     Flow:         ["smt_divergence", "cvd_divergence", "funding_reversion"],
     Session:      ["orb", "seasonality"],
+    Trend:        ["ema"],
   };
 
   function stratLabel(name: string): string {
@@ -50,7 +52,7 @@
 
   let expandedGroups = $state<Record<string, boolean>>({
     Structure: false, Fibonacci: false, "Price Action": false,
-    Candlestick: false, Flow: false, Session: false,
+    Candlestick: false, Flow: false, Session: false, Trend: false,
   });
 
   let symbol = $state($selectedSymbol);
