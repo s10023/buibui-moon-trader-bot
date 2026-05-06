@@ -185,10 +185,23 @@ class BacktestFilterConfig:
 
 
 @dataclass
+class HtfEmaAnchor:
+    """HTF EMA anchor for the F8 directional gate.
+
+    Resolved per-strategy: defaults from BiasConfig.htf_ema_default_* unless
+    overridden in BiasConfig.htf_ema_per_strategy[<strategy>].
+    """
+
+    tf: str = "4h"
+    period: int = 50
+    slope_lookback: int = 10
+
+
+@dataclass
 class BiasConfig:
     """Configuration for the statistics-driven bias layer (F8).
 
-    Controls two gates applied after the backtest/volume filters:
+    Controls three gates applied after the backtest/volume filters:
 
     1. ADR hard suppress: drop signals when today's range has already consumed
        >= adr_suppress_threshold of the 14-day ADR (e.g. 0.80 = 80%).
@@ -197,11 +210,39 @@ class BiasConfig:
     2. DOW soft suppress: reduce confidence by 1 star when the signal direction
        opposes today's historical DOW avg return.  Only fires when abs(avg_return)
        >= dow_suppress_min_abs_return (dead-band, default 0.5%).
+
+    3. HTF EMA directional gate: suppress signals whose direction opposes the
+       slope of an HTF (4h or 1d) EMA.  Per-strategy anchors are derived from
+       a 24-cell tue_thu sweep — most strategies use 4h EMA-50; a small set of
+       counter-trend / session strategies use 1d EMA-50 instead.
+
+       deadband_pct: when |slope| < deadband, the gate allows both directions
+       (the HTF has no opinion).  mode="soft" logs only; mode="hard" suppresses.
     """
 
     adr_suppress_threshold: float | None = None
     dow_soft_suppress: bool = False
     dow_suppress_min_abs_return: float = 0.005
+
+    # F8 HTF EMA directional gate.
+    htf_ema_enabled: bool = False
+    htf_ema_mode: str = "soft"  # "soft" = log only, "hard" = drop suppressed signals
+    htf_ema_default_tf: str = "4h"
+    htf_ema_default_period: int = 50
+    htf_ema_default_slope_lookback: int = 10
+    htf_ema_deadband_pct: float = 0.003
+    htf_ema_per_strategy: dict[str, HtfEmaAnchor] = field(default_factory=dict)
+
+    def htf_ema_anchor(self, strategy: str) -> HtfEmaAnchor:
+        """Resolve the HTF anchor for a strategy (override → default)."""
+        override = self.htf_ema_per_strategy.get(strategy)
+        if override is not None:
+            return override
+        return HtfEmaAnchor(
+            tf=self.htf_ema_default_tf,
+            period=self.htf_ema_default_period,
+            slope_lookback=self.htf_ema_default_slope_lookback,
+        )
 
 
 @dataclass
@@ -507,12 +548,41 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
 
     raw_bias = data.get("bias", {})
     raw_adr = raw_bias.get("adr_suppress_threshold")
+
+    raw_htf = raw_bias.get("htf_ema", {})
+    if not isinstance(raw_htf, dict):
+        raise ValueError("[bias.htf_ema] must be a TOML table")
+    raw_htf_overrides = raw_htf.get("per_strategy", {})
+    if not isinstance(raw_htf_overrides, dict):
+        raise ValueError("[bias.htf_ema.per_strategy] must be a TOML table")
+    htf_default_tf = str(raw_htf.get("default_tf", "4h"))
+    htf_default_period = int(raw_htf.get("default_period", 50))
+    htf_default_slope_lb = int(raw_htf.get("default_slope_lookback", 10))
+    htf_per_strategy: dict[str, HtfEmaAnchor] = {}
+    for strat, ov in raw_htf_overrides.items():
+        if not isinstance(ov, dict):
+            raise ValueError(
+                f"[bias.htf_ema.per_strategy.{strat}] must be a TOML table"
+            )
+        htf_per_strategy[str(strat)] = HtfEmaAnchor(
+            tf=str(ov.get("tf", htf_default_tf)),
+            period=int(ov.get("period", htf_default_period)),
+            slope_lookback=int(ov.get("slope_lookback", htf_default_slope_lb)),
+        )
+
     bias = BiasConfig(
         adr_suppress_threshold=float(raw_adr) if raw_adr is not None else None,
         dow_soft_suppress=bool(raw_bias.get("dow_soft_suppress", False)),
         dow_suppress_min_abs_return=float(
             raw_bias.get("dow_suppress_min_abs_return", 0.005)
         ),
+        htf_ema_enabled=bool(raw_htf.get("enabled", False)),
+        htf_ema_mode=str(raw_htf.get("mode", "soft")),
+        htf_ema_default_tf=htf_default_tf,
+        htf_ema_default_period=htf_default_period,
+        htf_ema_default_slope_lookback=htf_default_slope_lb,
+        htf_ema_deadband_pct=float(raw_htf.get("deadband_pct", 0.003)),
+        htf_ema_per_strategy=htf_per_strategy,
     )
 
     raw_combo = data.get("combo", {})

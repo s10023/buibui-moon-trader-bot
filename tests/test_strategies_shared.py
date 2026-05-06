@@ -10,6 +10,7 @@ import pandas as pd
 
 from analytics.strategies._shared import (
     compute_ema,
+    compute_htf_ema_slope,
     ema_cross_count,
     is_trending,
 )
@@ -98,3 +99,28 @@ class TestIsTrending:
         ema_fast = compute_ema(close, span=20)
         ema_slow = compute_ema(close, span=50)
         assert is_trending(close, ema_fast, ema_slow, idx=5) is False
+
+
+class TestComputeHtfEmaSlope:
+    def test_returns_none_when_warmup_insufficient(self) -> None:
+        # period=50, slope_lookback=10 → needs 61+ candles
+        s = pd.Series([100.0] * 30)
+        assert compute_htf_ema_slope(s, period=50, slope_lookback=10) is None
+
+    def test_returns_zero_for_flat_series(self) -> None:
+        s = pd.Series([100.0] * 200)
+        slope = compute_htf_ema_slope(s, period=50, slope_lookback=10)
+        assert slope == 0.0
+
+    def test_positive_slope_for_rising_series(self) -> None:
+        s = pd.Series([float(i) for i in range(1, 201)])
+        slope = compute_htf_ema_slope(s, period=50, slope_lookback=10)
+        assert slope is not None and slope > 0
+
+    def test_negative_slope_for_falling_series(self) -> None:
+        s = pd.Series([float(i) for i in range(200, 0, -1)])
+        slope = compute_htf_ema_slope(s, period=50, slope_lookback=10)
+        assert slope is not None and slope < 0
+
+    def test_returns_none_for_empty(self) -> None:
+        assert compute_htf_ema_slope(pd.Series([], dtype=float), 50, 10) is None
