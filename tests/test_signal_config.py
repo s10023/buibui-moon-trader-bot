@@ -578,6 +578,24 @@ class TestLoadWithExtends:
         # merged: base volume_suppress + child tp_r
         assert cfg.effective_volume_suppress("bos") is True
         assert cfg.effective_tp_r("bos", "BTCUSDT", "1h") == 3.0
+        # F8 HTF EMA gate inherited from base — enabled in hard mode after the
+        # 2026-05-06 soft-mode validation; per-strategy overrides loaded for the
+        # strategies that prefer 1d EMA-50.
+        assert cfg.bias.htf_ema_enabled is True
+        assert cfg.bias.htf_ema_mode == "hard"
+        assert cfg.bias.htf_ema_default_tf == "4h"
+        assert cfg.bias.htf_ema_default_period == 50
+        assert cfg.bias.htf_ema_deadband_pct == 0.003
+        # default anchor for non-overridden strategy
+        anchor_default = cfg.bias.htf_ema_anchor("bos")
+        assert anchor_default.tf == "4h" and anchor_default.period == 50
+        # override anchor for ema (1d EMA-50)
+        anchor_ema = cfg.bias.htf_ema_anchor("ema")
+        assert anchor_ema.tf == "1d" and anchor_ema.period == 50
+        for strat in ("smt_divergence", "cvd_divergence", "orb", "eqh_eql", "marubozu"):
+            assert cfg.bias.htf_ema_anchor(strat).tf == "1d", (
+                f"{strat} should override to 1d anchor"
+            )
 
 
 class TestEffectiveVolumeSuppress:

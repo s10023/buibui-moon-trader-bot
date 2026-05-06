@@ -77,6 +77,33 @@ def ema_cross_count(
     return count
 
 
+def compute_htf_ema_slope(
+    closes: pd.Series,
+    period: int,
+    slope_lookback: int,
+) -> float | None:
+    """Compute the EMA slope as a fraction over the last `slope_lookback` bars.
+
+    Returns (ema[-1] - ema[-1 - slope_lookback]) / ema[-1 - slope_lookback].
+    Positive = up-slope; negative = down-slope.
+
+    Returns None when:
+    - the series has fewer than `period + slope_lookback + 1` candles (warmup),
+    - the EMA value `slope_lookback` bars ago is zero (degenerate),
+    - or the input is empty.
+
+    Uses the same EMA semantics as compute_ema (adjust=False).
+    """
+    if closes is None or len(closes) < period + slope_lookback + 1:
+        return None
+    ema = compute_ema(closes, period)
+    now = float(ema.iloc[-1])
+    then = float(ema.iloc[-1 - slope_lookback])
+    if then == 0.0:
+        return None
+    return (now - then) / then
+
+
 def is_trending(
     close: pd.Series,
     ema_fast: pd.Series,

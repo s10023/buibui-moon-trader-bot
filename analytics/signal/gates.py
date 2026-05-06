@@ -1,8 +1,14 @@
 """Signal gates: ADR consumption filter and per-strategy ADR exemption."""
 
+import logging
+from collections.abc import Mapping
+
 import pandas as pd
 
-from analytics.signal_config import StrategyOverride
+from analytics.signal.types import SignalEvent
+from analytics.signal_config import BiasConfig, StrategyOverride
+
+logger = logging.getLogger(__name__)
 
 
 def _filter_signals_by_adr(
@@ -84,3 +90,69 @@ def _is_adr_exempt(
         return False
     override = strategy_params.get(strategy)
     return override.adr_exempt if override is not None else False
+
+
+def _apply_htf_ema_gate(
+    events: list[SignalEvent],
+    bias_cfg: BiasConfig,
+    htf_slope_cache: Mapping[tuple[str, str, int, int], float | None],
+    symbol: str,
+    tf: str,
+) -> list[SignalEvent]:
+    """F8 directional gate — suppress signals opposing the HTF EMA slope.
+
+    Per-strategy anchor resolved via bias_cfg.htf_ema_anchor(strategy).
+    Slope must be looked up in htf_slope_cache (pre-computed once per scan cycle).
+
+    Behaviour:
+      - slope is None (warmup / missing data) → allow.
+      - |slope| < deadband_pct → allow (HTF flat, no opinion).
+      - opposing direction in hard mode → drop.
+      - opposing direction in soft mode → log and keep.
+
+    Returns the (possibly filtered) event list. Never raises.
+    """
+    if not bias_cfg.htf_ema_enabled or not events:
+        return events
+
+    hard = bias_cfg.htf_ema_mode == "hard"
+    deadband = bias_cfg.htf_ema_deadband_pct
+    kept: list[SignalEvent] = []
+    suppressed = 0
+    for event in events:
+        anchor = bias_cfg.htf_ema_anchor(event.strategy)
+        slope = htf_slope_cache.get(
+            (symbol, anchor.tf, anchor.period, anchor.slope_lookback)
+        )
+        if slope is None or abs(slope) < deadband:
+            kept.append(event)
+            continue
+        opposing = (slope > 0 and event.direction == "short") or (
+            slope < 0 and event.direction == "long"
+        )
+        if not opposing:
+            kept.append(event)
+            continue
+        logger.info(
+            "F8 HTF EMA gate %s: %s %s %s %s — %s EMA-%d slope=%+.4f opposes",
+            "dropped" if hard else "soft-flagged",
+            symbol,
+            tf,
+            event.strategy,
+            event.direction,
+            anchor.tf,
+            anchor.period,
+            slope,
+        )
+        if hard:
+            suppressed += 1
+            continue
+        kept.append(event)
+    if suppressed and hard:
+        logger.info(
+            "F8 HTF EMA gate removed %d signal(s) for %s %s",
+            suppressed,
+            symbol,
+            tf,
+        )
+    return kept

@@ -45,7 +45,7 @@ from analytics.signal.cofire import (
     _find_cross_tf_cofire,
     _find_live_cofire,
 )
-from analytics.signal.gates import _is_adr_exempt
+from analytics.signal.gates import _apply_htf_ema_gate, _is_adr_exempt
 from analytics.signal.resolvers import (
     _resolve_atr_sl_multiplier,
     _resolve_sl_pct,
@@ -65,7 +65,7 @@ from analytics.signal_config import (
     StrategyOverride,
     _day_filter_to_weekdays,
 )
-from analytics.strategies import STRATEGY_REGISTRY
+from analytics.strategies import STRATEGY_REGISTRY, compute_htf_ema_slope
 from signals.cooldown_store import CooldownStore
 from signals.registry import SIGNAL_REGISTRY
 
@@ -343,6 +343,36 @@ def run_scan_cycle(
                 if ohlcv_cache and _key in ohlcv_cache
                 else get_ohlcv(conn, symbol, tf, start_ms, now_ms)
             )
+
+    # F8 HTF EMA slope cache — keyed by (symbol, htf_tf, period, slope_lookback).
+    # Pre-computed once per cycle from the union of default + per-strategy anchors.
+    # Reuses ohlcv_map / ohlcv_cache when the anchor TF is already loaded; otherwise
+    # fetches HTF candles from DB. Slope is computed on closed candles only
+    # (drops the in-progress bar) so a forming HTF candle does not skew direction.
+    htf_slope_cache: dict[tuple[str, str, int, int], float | None] = {}
+    if bias_cfg is not None and bias_cfg.htf_ema_enabled:
+        needed_anchors: set[tuple[str, int, int]] = {
+            (
+                bias_cfg.htf_ema_default_tf,
+                bias_cfg.htf_ema_default_period,
+                bias_cfg.htf_ema_default_slope_lookback,
+            )
+        }
+        for _ov in bias_cfg.htf_ema_per_strategy.values():
+            needed_anchors.add((_ov.tf, _ov.period, _ov.slope_lookback))
+        for _sym in symbols:
+            for _atf, _period, _slb in needed_anchors:
+                _ckey = (_sym, _atf, _period, _slb)
+                _df = ohlcv_map.get((_sym, _atf))
+                if _df is None and ohlcv_cache is not None:
+                    _df = ohlcv_cache.get((_sym, _atf))
+                if _df is None or _df.empty:
+                    _df = get_ohlcv(conn, _sym, _atf, start_ms, now_ms)
+                if _df is None or _df.empty or len(_df) < 3:
+                    htf_slope_cache[_ckey] = None
+                    continue
+                _closed = _df["close"].iloc[:-1]
+                htf_slope_cache[_ckey] = compute_htf_ema_slope(_closed, _period, _slb)
 
     # --- Phase 2: Fan-out scan_symbol via ThreadPoolExecutor ---
     # scan_symbol is pure Python/pandas — no DB access, no shared mutable state.
@@ -732,9 +762,22 @@ def run_scan_cycle(
             if not passing_events:
                 continue
 
-        # Bias gate — ADR progress and DOW context filters (F8).
+        # Bias gate — F8 HTF EMA, ADR progress, and DOW context filters.
         # Never raises — stats failures must not block signal dispatch.
         if bias_cfg is not None:
+            # Step 0: F8 HTF EMA directional gate (runs first — coarsest filter).
+            # Suppresses signals that fight the HTF trend (per-strategy anchor).
+            if bias_cfg.htf_ema_enabled and passing_events:
+                passing_events = _apply_htf_ema_gate(
+                    passing_events,
+                    bias_cfg,
+                    htf_slope_cache,
+                    symbol,
+                    tf,
+                )
+                if not passing_events:
+                    continue
+
             bias_ctx = stats_ctx_cache.get(symbol)
             if bias_ctx is not None:
                 # Step 1: ADR directional suppress — remove signals chasing the
