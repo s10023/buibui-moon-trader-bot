@@ -1,5 +1,7 @@
 # Phase 0 Audit — Findings & §3 Amendment
 
+> **Status (2026-05-07)**: Phase 1 cuts shipped via PR #348. Measured lift on weekdays config: **+0.0282R (+67% relative)**, `signal_watch.toml` (tue_thu): **+0.0006R (noise — already pre-tuned)**. Validation captured in `~/.claude-personal/.../memory/project_phase1_lift_validation.md`. The action map below is now live in production.
+
 **Audit run**: 2026-05-07 against `analytics.db` snapshot.
 **Inputs**: 698,758 closed trades · 4,413 same-tf combos · 31,520 cross-tf combos · 19 strategies · 4 timeframes (15m, 1h, 4h, 1d).
 **Verdict counts**: KILL = **0**, DEMOTE = **0**, KEEP = **19**.
