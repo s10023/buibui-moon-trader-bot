@@ -14,9 +14,9 @@ timeframes = ["15m", "1h", "4h", "1d"]
 # Suppress signals by day: "off" | "weekdays" (Mon–Fri) | "tue_thu" (Tue–Thu only)
 day_filter = "weekdays"
 
-# Same TF suppression as signal_watch.toml — wick_fill and fvg excluded
+# Same TF suppression as signal_watch.toml — wick_fill, marubozu, fvg excluded
+# Phase 1 (2026-05-07, audit-driven): marubozu + fvg removed entirely (DROP_TF on every TF).
 strategies = [
-    'marubozu',
     'orb',
     'liquidity_sweep',
     'bos',
@@ -32,7 +32,6 @@ strategies = [
     'doji',
     'morning_evening_star',
     'fib_golden_zone',
-    'fvg',
     'ema'
 ]
 
@@ -43,18 +42,16 @@ strategies = [
 [strategy_timeframes]
 trend_day            = ["4h", "1d"]
 fib_golden_zone      = ["4h", "1d"]       # 15m/1h suppressed (negative)
-eqh_eql              = ["1h", "4h", "1d"] # 15m suppressed; 1h re-enabled post between-pivot-break fix
-smt_divergence       = ["15m", "1h", "4h"]  # 1d excluded: 0% wins across all TP ratios
+eqh_eql              = ["1h", "1d"]       # Phase 1: 4h dropped (audit -0.217R, 33% positive)
+smt_divergence       = ["15m", "1h"]      # Phase 1: 4h dropped (audit -0.307R, 25% positive); 1d excluded
 orb                  = ["1h", "4h"]        # 15m/1d suppressed (n/a — zero trades on weekdays)
 bos                  = ["15m", "1h", "4h"] # 1d all negative excluded
 pin_bar              = ["15m", "1h", "4h", "1d"]
-liquidity_sweep      = ["1h", "1d"]       # 15m/4h suppressed (negative)
-cvd_divergence       = ["15m"]              # 1h all negative (was +0.97R, degraded with canonical since=2025-09-12); 4h 3 trades only
-doji                 = ["15m", "1h"]        # 4h all negative (-0.03R best); 1d too thin (3 trades)
-marubozu             = ["4h", "1d"]       # 15m/1h suppressed (negative)
-order_block          = ["4h", "1d"]       # 15m/1h suppressed (negative)
+liquidity_sweep      = ["1d"]              # Phase 1: 1h dropped (audit -0.250R, 0% positive); 15m/4h already excluded
+cvd_divergence       = ["1h"]              # Phase 1: 15m → 1h swap (audit shows 1h 80% positive +0.304R; 15m only 44%)
+doji                 = ["15m", "1h"]       # 4h all negative (-0.03R best); 1d too thin (3 trades)
+order_block          = ["1d"]              # Phase 1: 4h dropped (audit CONFLUENCE_ONLY -0.079R); 15m/1h already excluded
 morning_evening_star = ["15m", "1h", "4h"] # 1d suppressed (negative)
-fvg                  = ["15m", "1h", "4h"] # 1d catastrophic suppressed
 
 # Per-strategy parameter overrides — tp_r and sl_pct.
 # Lookup order: TF-specific key (e.g. tp_r_4h) → strategy-wide tp_r → global tp_r.
