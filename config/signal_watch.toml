@@ -19,7 +19,8 @@ day_filter = "tue_thu"
 # Strategies to run
 # wick_fill excluded: all TFs negative (pending BOS confluence fix). fvg added with trend_filter=1 (EMA-50 gate); still broadly negative but included for live monitoring — hard-mode filter suppresses at runtime
 strategies = [
-    'marubozu',
+    # Phase 1 cuts (2026-05-07, audit-driven): marubozu + fvg removed entirely
+    # (DROP_TF on every TF in audit; -0.16 to -0.64R wgt_avg_r).
     'orb',
     'liquidity_sweep',
     'bos',
@@ -35,7 +36,6 @@ strategies = [
     'doji',
     'morning_evening_star',
     'fib_golden_zone',
-    'fvg',
     'ema'
 ]
 
@@ -59,18 +59,16 @@ strategies = [
 [strategy_timeframes]
 trend_day        = ["4h", "1d"]       # 15m mean_r=-0.082 suppressed
 fib_golden_zone  = ["4h", "1d"]       # 15m mean_r=-0.254, 1h mean_r=-0.195 suppressed
-eqh_eql          = ["1h", "4h", "1d"] # 15m mean_r=-0.137 suppressed; 1h re-enabled post between-pivot-break fix (+0.722R OOS BTC)
-smt_divergence   = ["15m", "1h", "4h", "1d"]             # post-A18 pivot fix: all combos positive except BTCUSDT 4h (-0.58R); suppressed at runtime by hard-mode min_avg_r gate
-orb              = ["1h", "4h", "1d"] # 15m mean_r=-0.163 suppressed
-bos              = ["15m", "1h", "4h"] # 1d mean_r=-0.785 suppressed; 4h mean_r=+0.223 re-enabled
-pin_bar          = ["15m", "1h", "4h", "1d"] # 4h mean_r=-0.137 on weekdays; +0.40R on tue_thu (unlocked)
-liquidity_sweep  = ["1h", "1d"]       # 15m mean_r=-0.116, 4h mean_r=-0.160 suppressed
-cvd_divergence   = ["1h"]             # 15m all negative; 1h monotonic +1.38R@5.0 stable 41%WR; 4h only 2 trades
-doji             = ["15m", "1h"]      # 4h degraded: best 1.5R=+0.04R (16 trades); 1d too thin
-morning_evening_star = ["15m", "1h", "4h"] # 1d mean_r=-0.105 suppressed
-marubozu         = ["4h", "1d"]       # 15m mean_r=-0.120, 1h mean_r=-0.229 suppressed
-order_block      = ["4h", "1d"]       # 15m mean_r=-0.22, 1h mean_r=-0.33 suppressed; 4h+0.03R/1d+0.09R marginally positive — runtime min_avg_r gate handles suppression
-fvg              = ["15m", "1h", "4h"] # 1d catastrophic: ETH -1.07R, BTC -0.63R suppressed; 15m/1h/4h monitored via hard-mode gate
+eqh_eql          = ["1h", "1d"]              # Phase 1: 4h dropped (audit -0.217R, 33% positive); 15m already excluded
+smt_divergence   = ["15m", "1h", "1d"]       # Phase 1: 4h dropped (audit -0.307R, 25% positive)
+orb              = ["1h", "4h", "1d"]        # 15m mean_r=-0.163 suppressed
+bos              = ["15m", "1h", "4h"]       # 1d mean_r=-0.785 suppressed; 4h mean_r=+0.223 re-enabled
+pin_bar          = ["15m", "1h", "4h", "1d"] # audit confirms KEEP all TFs (50–100% positive)
+liquidity_sweep  = ["1d"]                    # Phase 1: 1h dropped (audit -0.250R, 0% positive); 15m/4h already excluded
+cvd_divergence   = ["1h"]                    # 1h monotonic +1.38R@5.0 stable 41%WR; audit confirms 80% positive
+doji             = ["15m", "1h"]             # 4h degraded: best 1.5R=+0.04R (16 trades); 1d too thin
+morning_evening_star = ["15m", "1h", "4h"]   # 1d mean_r=-0.105 suppressed
+order_block      = ["1d"]                    # Phase 1: 4h dropped (audit CONFLUENCE_ONLY, -0.079R); 15m/1h already excluded
 
 # Per-strategy parameter overrides — tp_r and sl_pct.
 # Lookup order: TF-specific key (e.g. tp_r_4h) → strategy-wide tp_r → global tp_r.
