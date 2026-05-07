@@ -52,7 +52,16 @@ In one sentence: *the bot fades liquidity raids at obvious levels, OR enters wit
 
 ## 3. STRATEGY REFACTOR — AGGRESSIVE CUTS
 
-Group → KEEP / SECONDARY / REMOVE.
+> **AMENDED 2026-05-07** — the wholesale-delete plan below is superseded by the data-driven action map in [`buibui-redesign-phase0-findings.md`](buibui-redesign-phase0-findings.md) §1. Phase 0 audit (698,758 trades) found **0 KILL / 0 DEMOTE / 19 KEEP** at the strategy-wide level: every detector has positive-edge slices somewhere. The operative cuts are now per-(strategy × timeframe), not strategy-wide.
+>
+> Headline contradictions of the original §3 below:
+>
+> - `liquidity_sweep` is **NOT** a "core edge" — only 1d works; 15m/1h/4h are 0–22% positive (DROP_TF).
+> - `cvd_divergence` is **NOT** synthetic fiction — 1h is 80% positive, +0.304 wgt_avg_r (KEEP 1h).
+> - `pin_bar`/`engulfing`/`doji` are **NOT** bloat — all work on 1h+ at ≥58% positive (KEEP alerter).
+> - `wick_fill`, `marubozu`, `fvg` ARE universally dead → original §3 deletion is the only one fully justified.
+>
+> The categories below are preserved as the original architectural intent but are **not** the operative Phase 1 plan. Phase 1 cleanup must follow the action map in the findings doc.
 
 ### Family 1: Liquidity & Structure (the core)
 
@@ -310,6 +319,8 @@ The alert is now a **trade decision sheet**, not a description. Same fields will
 ---
 
 ## 9. WHAT TO REMOVE / SIMPLIFY (delete list)
+
+> **AMENDED 2026-05-07** — Phase 0 audit found only 3 detectors universally dead (`wick_fill`, `marubozu`, `fvg`). The remaining 11 detectors slated for deletion below have positive-edge slices on at least one timeframe. The operative Phase 1 plan is **TF-level disable in `signal_watch*.toml` `strategy_timeframes`**, not detector-file deletion. See `buibui-redesign-phase0-findings.md` §3 for the exact TOML diff.
 
 ### Detectors to delete
 
