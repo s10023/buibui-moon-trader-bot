@@ -64,6 +64,7 @@ Each Makefile `buibui-*` target wraps the equivalent CLI invocation.
   - `signal_test_runner.py` — historical replay: no DB writes, no cooldown; `--at` / `--lookback`
   - `recalibrate_lib.py` / `recalibrate_runner.py` — compute + write star ratings to DB or source
   - `perf_timer.py` — `timed(label)` context manager
+  - `regime.py` — §6 regime classifier (`trend`/`range`/`high_vol`/`unknown`); pure function over OHLCV; lands as Phase 2 gate per `docs/redesign/buibui-redesign.md`
 - `signals/` — signal detection daemon package (alerting + dedup only — detection lives in `analytics/`). See `.claude/context/signals.md` for full reference.
   - `registry.py` — `SignalPlugin` TypedDict + `SIGNAL_REGISTRY` (20 actionable strategies; `seasonality` / `fibonacci_retracement` excluded)
   - `cooldown_store.py` — two-layer dedup: candle watermark + cooldown timer; JSON-persisted to `signal_state.json`
@@ -79,6 +80,8 @@ Each Makefile `buibui-*` target wraps the equivalent CLI invocation.
   - `api/` — FastAPI: routers (config, ohlcv, fib, signals, backtest, positions, prices, stream, stats, zones); `GET /api/active-config`, `GET /api/zones`, `GET /api/backtest/analysis`; stats live fields via `_inject_live_fields()`
   - `ui/` — Svelte 5 + Vite; pages: Chart, Backtest, SignalFeed, Positions, Prices, Stats; build: `make web-build`
 - `trade/open_trades.py` — Binance Futures order opener (manual/CLI use; wired via `make buibui-open-trades`). No automation hooked into the signal daemon yet.
+- `tools/` — one-shot analysis scripts (not part of the daemon/CLI surface):
+  - `strategy_edge_audit.py` — Phase 0 strategy edge audit; aggregates `backtest_trades` by (strategy × tf × regime × session) + combo uplift; deterministic KILL/DEMOTE/KEEP rule. Run via `PYTHONPATH=. poetry run python tools/strategy_edge_audit.py`. See `docs/redesign/buibui-redesign-phase0.md`.
 - `tests/` — pytest suite; tests import from lib modules and pass mock dependencies directly
 - `.claude/context/` — long-form module references (`analytics.md`, `signals.md`, `web.md`) split out to keep this file lean
 - `config/coins.json` — per-symbol leverage and stop-loss config (gitignored; see `coins.json.example`)

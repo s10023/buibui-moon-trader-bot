@@ -70,6 +70,12 @@ Detailed API reference for `analytics/`. Load this when working on any analytics
 
 - `timed(label)` context manager — prints `[perf] label: Xs`; import via `from analytics.perf_timer import timed`
 
+## regime.py
+
+- `classify_series(df, timeframe) → pd.Series[str]` — labels each row as `trend`/`range`/`high_vol`/`unknown` per §6 of `docs/redesign/buibui-redesign.md`
+- `high_vol` if ATR-14% ≥ 90-day rolling 80th-percentile; else `trend` if `|EMA-50 slope|` ≥ 0.5% over 10 bars; else `range`; `unknown` for rows lacking enough history
+- Used by `tools/strategy_edge_audit.py` (Phase 0). Promoted to live gate in Phase 2 of the redesign.
+
 ## param_sweep.py — WFO sweep lib
 
 - `run_param_sweep(conn, strategy, symbol, tf, days, param_ranges, wfo_split, min_trades, fee_pct, top_n, adr_suppress_threshold=None, day_filter="off")` → `list[SweepRow]`
