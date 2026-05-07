@@ -76,7 +76,8 @@ buibui-moon-trader-bot/
 │   ├── zones_lib.py                 # Structural zone extraction (geometry only): FVG, OB, EQH/EQL, BOS, Fib, OTE, swing points
 │   ├── recalibrate_lib.py           # Compute + write star ratings to DB or source
 │   ├── recalibrate_runner.py        # Recalibrate thin wrapper
-│   └── perf_timer.py                # timed(label) context manager
+│   ├── perf_timer.py                # timed(label) context manager
+│   └── regime.py                    # Regime classifier (trend/range/high_vol/unknown); §6 of v2 redesign
 ├── signals/
 │   ├── registry.py                  # SignalPlugin TypedDict + SIGNAL_REGISTRY (20 actionable strategies; seasonality/funding_reversion/fibonacci_retracement excluded)
 │   ├── cooldown_store.py            # Two-layer dedup: candle watermark + cooldown timer
