@@ -40,15 +40,26 @@ def _atr_wilder(df: pd.DataFrame, period: int = _ATR_PERIOD) -> pd.Series:
     return tr.ewm(alpha=1.0 / period, adjust=False).mean()
 
 
-def classify_series(df: pd.DataFrame, timeframe: str) -> pd.Series:
+def classify_series(
+    df: pd.DataFrame,
+    timeframe: str,
+    slope_threshold: float | None = None,
+) -> pd.Series:
     """Return a regime label per row.
 
     df must be sorted ascending by `open_time` and contain `high`, `low`, `close`.
     Returns a string series aligned with df.index.
+
+    `slope_threshold` overrides the module-level `_SLOPE_TREND_THRESHOLD` for
+    research / sweeps (see `tools/regime_threshold_sweep.py`). When None, the
+    live default is used.
     """
     bars_per_day = _BARS_PER_DAY.get(timeframe)
     if bars_per_day is None:
         raise ValueError(f"Unsupported timeframe: {timeframe}")
+    threshold = (
+        _SLOPE_TREND_THRESHOLD if slope_threshold is None else float(slope_threshold)
+    )
     history_window = bars_per_day * _ATR_HISTORY_DAYS
     min_history = max(50, bars_per_day * _MIN_HISTORY_DAYS)
 
@@ -63,7 +74,7 @@ def classify_series(df: pd.DataFrame, timeframe: str) -> pd.Series:
     )
 
     regime = pd.Series("range", index=df.index, dtype="object")
-    regime[slope.abs() >= _SLOPE_TREND_THRESHOLD] = "trend"
+    regime[slope.abs() >= threshold] = "trend"
     regime[atr_pct >= atr_p80] = "high_vol"
     regime[atr_pct.isna() | atr_p80.isna() | slope.isna()] = "unknown"
     return regime
