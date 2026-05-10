@@ -1,14 +1,16 @@
 ---
 name: post-branch
 description: >
-  Post-branch docs sweep — diff the branch's behaviour changes against the doc
-  surfaces (CLAUDE.md, README.md, MEMORY.md, Makefile, docker-compose.yml) and
-  propose targeted edits where they've drifted. Use IMMEDIATELY after `gh pr
-  create` succeeds, BEFORE reporting the PR URL back to the user. Skip for
-  pure refactors, bug fixes covered by tests, dependency bumps, and lint-only
-  commits — the behaviour gate (Step 1) decides. Confirm every edit before
-  writing; never force-push without explicit OK. Also triggers on the user
-  saying "/post-branch", "wrap up the branch", or "docs check".
+  Post-branch docs sweep + handoff — diff the branch's behaviour changes against
+  the doc surfaces (CLAUDE.md, README.md, MEMORY.md, Makefile, docker-compose.yml)
+  and propose targeted edits where they've drifted, then run a pre-merge
+  readiness check and offer a fresh-conversation handoff prompt. Use IMMEDIATELY
+  after `gh pr create` succeeds, BEFORE reporting the PR URL back to the user.
+  Skip for pure refactors, bug fixes covered by tests, dependency bumps, and
+  lint-only commits — the behaviour gate (Step 1) decides. Confirm every edit
+  before writing; never force-push without explicit OK. Also triggers on the
+  user saying "/post-branch", "wrap up the branch", "docs check",
+  "pre-merge check", or "next conversation prompt".
 allowed-tools: Bash, Read, Edit
 ---
 
@@ -324,7 +326,7 @@ landed in a sibling PR). The diff at Step 3 won't surface it. If suspected:
 
 ## Step 9 — Output format
 
-Always close with a per-surface report so the user has a clear summary:
+Output a per-surface report so the user has a clear summary:
 
 ```
 PR #<num> behaviour gate: <walked | skipped (pure refactor)>
@@ -337,10 +339,96 @@ docker-compose.yml — no change needed: no new processes
 .claude/context/*  — updated: analytics.md (store/ paths) | no change needed
 PR summary         — written to /tmp/pr-<branch>.md
 PR body            — appended "Documentation updates" section
+pre-merge          — clean | <blocker> (see Step 10a)
+handoff prompt     — written to /tmp/next-conversation-prompt.md | declined
 ```
 
 Be explicit. "no change needed: internal refactor only" is useful;
 silence is not.
+
+---
+
+## Step 10 — Post-PR handoff
+
+After the doc walk closes, the user usually wants two more things before
+moving on: a quick pre-merge readiness check, and a self-contained prompt
+they can paste into a fresh conversation when this branch is done. Bake
+both in here so the user doesn't have to ask each time.
+
+### 10a — Pre-merge readiness check
+
+Run a short status sweep and report any blockers in one line each:
+
+```bash
+git status --short                                      # working tree clean?
+git log @{u}..HEAD --oneline 2>/dev/null || true        # unpushed commits?
+gh pr view <PR#> --json mergeable,mergeStateStatus,reviewDecision,statusCheckRollup
+```
+
+Flag, do not fix:
+
+- Uncommitted changes in the working tree
+- Local commits not pushed to the PR branch
+- `mergeable: CONFLICTING` or `mergeStateStatus: DIRTY`
+- Failing required checks in `statusCheckRollup`
+- `reviewDecision: CHANGES_REQUESTED`
+
+Output one line per item. If everything is green, say so explicitly:
+`pre-merge: clean — ready when you are.`
+
+### 10b — Fresh-conversation handoff prompt
+
+Offer (don't auto-write) to draft a self-contained prompt the user can
+paste into the next conversation. Same shape as `/pr-summary` —
+**file-only output, never inline**.
+
+If the user accepts, write to `/tmp/next-conversation-prompt.md` with this
+structure:
+
+```markdown
+# Next conversation — <one-line context>
+
+## Just shipped
+- PR #<num>: <title> — <one-line outcome / verdict / lift>
+- Branch: `<branch>` (merged | open)
+- Key finding: <the surprising or load-bearing result, if any>
+
+## State of the world
+<2–4 bullets, drawn from MEMORY.md "Current State" + the PR body —
+what's live, what's in soft mode, what's still pending. Absolute dates.>
+
+## Reference
+- Memory: `~/.claude-personal/projects/<project-slug>/memory/MEMORY.md`
+- <Other docs / tools / branches the next session will need>
+
+## Suggested next tasks (pick one, or work in order)
+
+### Task 1 — <name>
+<2–4 sentences: what, why, where to start (file paths). Include the
+"cheapest move" or "recommended endgame" framing if there's a clear
+ranking.>
+
+### Task 2 — <name>
+<…>
+
+### Task 3 — <name>
+<…>
+```
+
+Source the content from:
+
+1. **MEMORY.md "Next focus" section** — the top 1–3 entries are usually the
+   right candidates. Convert any relative dates to absolute.
+2. **This PR's findings** — if the PR closed an option or unblocked one,
+   say so plainly so the next session doesn't re-ask.
+3. **Open questions / pending decisions** — pull anything that becomes
+   immediately actionable now that this PR shipped.
+
+Keep it tight: 1–3 task suggestions, not a backlog dump. The goal is a
+prompt that costs zero context to bring a fresh session up to speed.
+
+Print only the path + a one-line description. Do **not** echo the
+contents.
 
 ---
 
