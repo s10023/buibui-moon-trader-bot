@@ -77,7 +77,7 @@ buibui-moon-trader-bot/
 │   ├── recalibrate_lib.py           # Compute + write star ratings to DB or source
 │   ├── recalibrate_runner.py        # Recalibrate thin wrapper
 │   ├── perf_timer.py                # timed(label) context manager
-│   └── regime.py                    # Regime classifier (trend/range/high_vol/unknown); §6 of v2 redesign
+│   └── regime.py                    # Regime classifier (trend/range/high_vol/unknown); §6 of v2 redesign; Phase 2 live gate (soft mode)
 ├── signals/
 │   ├── registry.py                  # SignalPlugin TypedDict + SIGNAL_REGISTRY (20 actionable strategies; seasonality/funding_reversion/fibonacci_retracement excluded)
 │   ├── cooldown_store.py            # Two-layer dedup: candle watermark + cooldown timer
@@ -617,7 +617,8 @@ The inline backtest (computed each scan cycle per firing signal) respects all co
 `fee_pct`, `day_filter`, `sl_pct`, and `cooldown_seconds` are now all read from TOML and
 applied correctly — results stored in `backtest_runs` match what the live filter uses.
 
-**`[bias]`** — statistics-driven bias layer (F8). Both gates are disabled by default.
+**`[bias]`** — bias chain applied between detector fan-out and Telegram dispatch.
+Order: `regime` (Step −1) → `htf_ema` / F8 (Step 0) → `adr_suppress_threshold` → `dow_soft_suppress`.
 
 ```toml
 [bias]
@@ -631,10 +632,43 @@ adr_suppress_threshold = 0.80   # e.g. 0.80 = suppress chasing direction when 80
 # historical DOW avg return (from stats_lib). Signal still fires but shows lower conviction.
 dow_soft_suppress = false
 dow_suppress_min_abs_return = 0.005  # dead-band: ±0.5% to avoid noise from near-zero days
+
+# F8 HTF EMA directional gate — suppresses signals fighting the HTF trend.
+# See `config/strategy_params.toml` for the live anchor mix and per-strategy overrides.
+[bias.htf_ema]
+enabled = true
+mode = "hard"                   # "soft" = log only; "hard" = drop opposing signals
+default_tf = "4h"               # default anchor TF; per_strategy entries can override
+default_period = 50
+default_slope_lookback = 10
+deadband_pct = 0.003            # |slope| < 0.3% over slope_lookback bars → allow
+
+# v2 Phase 2 regime gate (per redesign §6) — Step −1, runs before F8.
+# Drops signals whose strategy type is not enabled in the current 4h regime.
+# `unknown` regime and cache misses always fall open.
+[bias.regime]
+enabled = true
+mode = "soft"                   # ship soft first; flip to "hard" after ≥2 weeks observation
+htf_tf = "4h"                   # regime classified off 4h candles
+
+[bias.regime.enabled_regimes]
+trend         = ["trend"]                       # continuation only in trend
+fib           = ["trend"]                       # BOS-anchored continuation
+flow          = ["trend", "range", "high_vol"]
+structural    = ["trend", "range", "high_vol"]
+price_action  = ["trend", "range", "high_vol"]
+candlestick   = ["trend", "range", "high_vol"]
+session       = ["trend", "range", "high_vol"]
+
+[bias.regime.per_strategy]
+bos = ["trend"]                 # continuation despite type=structural
 ```
 
-Both gates read from the per-symbol `StatsContext` computed each cycle (same data shown in the
-Telegram stats footer). If stats are unavailable for a symbol, both gates are silently skipped.
+ADR + DOW gates read from the per-symbol `StatsContext` computed each cycle (same data shown
+in the Telegram stats footer). F8 reads from a slope cache pre-computed once per cycle from
+HTF candles. Regime reads from a `dict[symbol, Regime]` classified once per cycle off the
+`htf_tf` candles. If any data is unavailable for a symbol, the corresponding gate is silently
+skipped (fall-open).
 
 **Example alert (Telegram, soft mode):**
 
