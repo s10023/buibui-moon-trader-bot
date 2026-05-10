@@ -36,6 +36,7 @@ from analytics.data_store import (
     upsert_signal_outcome,
     upsert_signals,
 )
+from analytics.regime import Regime, classify_series
 from analytics.signal._common import (
     _SCAN_WINDOW,
     _bt_mem_cache,
@@ -45,7 +46,11 @@ from analytics.signal.cofire import (
     _find_cross_tf_cofire,
     _find_live_cofire,
 )
-from analytics.signal.gates import _apply_htf_ema_gate, _is_adr_exempt
+from analytics.signal.gates import (
+    _apply_htf_ema_gate,
+    _apply_regime_gate,
+    _is_adr_exempt,
+)
 from analytics.signal.resolvers import (
     _resolve_atr_sl_multiplier,
     _resolve_sl_pct,
@@ -373,6 +378,29 @@ def run_scan_cycle(
                     continue
                 _closed = _df["close"].iloc[:-1]
                 htf_slope_cache[_ckey] = compute_htf_ema_slope(_closed, _period, _slb)
+
+    # v2 Phase 2 regime cache — keyed by symbol. One classification per cycle
+    # off the regime_htf_tf candles (default 4h per redesign §6). Mirrors the
+    # F8 "drop in-progress bar" rule by reading iloc[-2] (last closed candle).
+    # Cache miss / "unknown" → gate falls open.
+    regime_cache: dict[str, Regime] = {}
+    if bias_cfg is not None and bias_cfg.regime_enabled:
+        _r_tf = bias_cfg.regime_htf_tf
+        for _sym in symbols:
+            _df = ohlcv_map.get((_sym, _r_tf))
+            if _df is None and ohlcv_cache is not None:
+                _df = ohlcv_cache.get((_sym, _r_tf))
+            if _df is None or _df.empty:
+                _df = get_ohlcv(conn, _sym, _r_tf, start_ms, now_ms)
+            if _df is None or _df.empty or len(_df) < 2:
+                continue
+            try:
+                _series = classify_series(_df, _r_tf)
+            except ValueError:
+                # Unsupported timeframe — fall open.
+                continue
+            if len(_series) >= 2:
+                regime_cache[_sym] = _series.iloc[-2]  # last closed candle
 
     # --- Phase 2: Fan-out scan_symbol via ThreadPoolExecutor ---
     # scan_symbol is pure Python/pandas — no DB access, no shared mutable state.
@@ -762,10 +790,24 @@ def run_scan_cycle(
             if not passing_events:
                 continue
 
-        # Bias gate — F8 HTF EMA, ADR progress, and DOW context filters.
+        # Bias gate — regime, F8 HTF EMA, ADR progress, and DOW context filters.
         # Never raises — stats failures must not block signal dispatch.
         if bias_cfg is not None:
-            # Step 0: F8 HTF EMA directional gate (runs first — coarsest filter).
+            # Step −1: regime gate (v2 Phase 2 — coarsest, runs first).
+            # Drops signals whose strategy type is not enabled in the current
+            # 4h regime. F8 then refines direction within the allowed regime.
+            if bias_cfg.regime_enabled and passing_events:
+                passing_events = _apply_regime_gate(
+                    passing_events,
+                    bias_cfg,
+                    regime_cache,
+                    symbol,
+                    tf,
+                )
+                if not passing_events:
+                    continue
+
+            # Step 0: F8 HTF EMA directional gate.
             # Suppresses signals that fight the HTF trend (per-strategy anchor).
             if bias_cfg.htf_ema_enabled and passing_events:
                 passing_events = _apply_htf_ema_gate(
