@@ -102,6 +102,82 @@ hypothesis is empirically wrong for the live strategy mix**.
 - The replay tool generalises: any future regime-mapping change can be
   validated the same way before merge, no live observation required.
 
+## Threshold sweep — option 3.b investigated (2026-05-10)
+
+**Tool:** `tools/regime_threshold_sweep.py` (sweeps `_SLOPE_TREND_THRESHOLD`
+across 10 candidates against the same ~84K replayed trades).
+
+### Aggregate sweep
+
+```text
+threshold   n_supp   sup_avg_r   n_kept  kept_avg_r      lift
+   0.0010    24362     +0.0110    59660     -0.0792   -0.0902
+   0.0020    29238     +0.0166    54784     -0.0902   -0.1068
+   0.0030    33306     +0.0401    50716     -0.1142   -0.1543
+*  0.0050    40606     +0.0285    43416     -0.1293   -0.1579    ← live
+   0.0075    48991     +0.0179    35031     -0.1523   -0.1701
+   0.0100    56613     -0.0232    27409     -0.1147   -0.0914
+   0.0150    67255     -0.0667    16767     +0.0018   +0.0685    ← best
+   0.0200    74683     -0.0573     9339     -0.0190   +0.0383
+   0.0300    80840     -0.0504     3182     -0.1202   -0.0698
+   0.0500    81649     -0.0500     2373     -0.1574   -0.1074
+```
+
+The lift curve crosses positive in a narrow band [0.015, 0.020]. At 0.015:
+suppressed avg_r flips to −0.0667 (gate suppressing losers as designed) and
+kept avg_r flips to +0.0018 (barely break-even). The gate's *aggregate*
+soft→hard flip criteria are met for the first time.
+
+### Per-strategy decomposition at threshold = 0.015
+
+```text
+bos              sup n=58192  avg_r=-0.0726 | kept n=14376  avg_r=+0.0150  lift=+0.0876   ✓
+ema              sup n= 1511  avg_r=-0.1128 | kept n=  386  avg_r=-0.1107  lift=+0.0020   ~
+fib_golden_zone  sup n= 7552  avg_r=-0.0120 | kept n= 2005  avg_r=-0.0714  lift=-0.0593   ✗
+```
+
+`bos` carries 87% of the trade volume, so the aggregate verdict reflects
+`bos` almost exclusively. The other two strategies tell a different story:
+
+- `ema` is null — too few trades and both sides negative; the WFO-shipped
+  ETH/1h/tue_thu cell aside, ema has no edge for the gate to concentrate.
+- `fib_golden_zone` is **still inverted** at the winning aggregate
+  threshold — kept (trend) cells still lose more than suppressed (range)
+  cells.
+
+### Verdict
+
+Option 3.b (refine the classifier) is **partially valid**:
+
+1. For `bos`, raising `_SLOPE_TREND_THRESHOLD` from 0.005 → 0.015 (3×)
+   converts the gate from inverted to weakly correct. The exhaustion
+   hypothesis from the original findings holds for breakout strategies.
+2. For `fib_golden_zone`, no slope threshold rescues the §6 mapping. Its
+   range-regime edge is genuine — the strategy *prefers* range. Option
+   3.a (INVERT mapping) is the right move for this one strategy.
+3. For `ema`, the sample is too small to commit either way; carry the
+   live-only ETH/1h/tue_thu cell forward.
+
+Do not update `_SLOPE_TREND_THRESHOLD` globally. A clean fix is
+per-strategy regime mappings rather than a global classifier knob:
+
+- `bos` → trend allowed, with **threshold = 0.015** at the classifier level
+- `fib_golden_zone` → range/high_vol allowed (invert)
+- `ema` → soft mode only / no gate
+
+This means the v1 type→regime taxonomy is the deeper problem, not the
+classifier. Phase 2 step 2 (`SignalCandidate` re-derivation, option 3.c)
+remains the cleanest endgame; this branch is diagnostic, not a config flip.
+
+### Branch outcome
+
+- `tools/regime_threshold_sweep.py` — committed for future use; the same
+  tool will re-validate any per-strategy threshold or mapping proposal.
+- `analytics/regime.py` — `classify_series` now accepts an optional
+  `slope_threshold` override; module default unchanged. Forward-compatible
+  with per-strategy classifier configs if we ever take that path.
+- `config/strategy_params.toml` — **not modified.** Soft mode stays.
+
 ## What this does NOT cover
 
 - The replay only sees the 3 strategies the gate currently suppresses
