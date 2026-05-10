@@ -74,7 +74,7 @@ Detailed API reference for `analytics/`. Load this when working on any analytics
 
 - `classify_series(df, timeframe) → pd.Series[str]` — labels each row as `trend`/`range`/`high_vol`/`unknown` per §6 of `docs/redesign/buibui-redesign.md`
 - `high_vol` if ATR-14% ≥ 90-day rolling 80th-percentile; else `trend` if `|EMA-50 slope|` ≥ 0.5% over 10 bars; else `range`; `unknown` for rows lacking enough history
-- Used by `tools/strategy_edge_audit.py` (Phase 0). Promoted to live gate in Phase 2 of the redesign.
+- Used by `tools/strategy_edge_audit.py` (Phase 0). Live as soft-mode gate since 2026-05-10 — wired into `run_scan_cycle` as Step −1 of the bias chain via `analytics/signal/gates.py::_apply_regime_gate`.
 
 ## param_sweep.py — WFO sweep lib
 
@@ -164,7 +164,7 @@ Detailed API reference for `analytics/`. Load this when working on any analytics
 - `StrategyOverride`: `tp_r_long/short`, `adr_exempt`, `volume_suppress/spike_boost` (symmetric + directional long/short)
 - `SignalWatchConfig.effective_tp_r(strategy, symbol, tf, direction="")` — resolution: `symbol+TF → symbol → TF → directional → strategy → global`
 - `effective_volume_suppress/spike_boost(strategy)` — per-strategy → global; directional variants return `bool | None`
-- `BiasConfig(adr_suppress_threshold, dow_soft_suppress, dow_suppress_min_abs_return)` from `[bias]`
+- `BiasConfig` from `[bias]`: `adr_suppress_threshold`, `dow_soft_suppress`, `dow_suppress_min_abs_return`; F8 fields `htf_ema_enabled/mode/default_tf/default_period/default_slope_lookback/deadband_pct/per_strategy` (+ `htf_ema_anchor(strategy)` resolver); regime fields `regime_enabled/mode/htf_tf/enabled_regimes/per_strategy` (+ `regime_allowed(strategy, strategy_type, regime)` resolver — `unknown` regime + unmapped types fall open)
 - `ComboConfig`: same-TF `window=5`, `min_avg_r=1.0`; cross-TF `cross_tf_pairs`, `cross_tf_window_hours=4.0`, `cross_tf_min_avg_r=1.0`
 - `_deep_merge` + `_load_toml_with_extends` — config may declare `extends = "strategy_params.toml"`
 

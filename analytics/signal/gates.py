@@ -5,8 +5,10 @@ from collections.abc import Mapping
 
 import pandas as pd
 
+from analytics.regime import Regime
 from analytics.signal.types import SignalEvent
 from analytics.signal_config import BiasConfig, StrategyOverride
+from analytics.strategies import STRATEGY_REGISTRY
 
 logger = logging.getLogger(__name__)
 
@@ -154,5 +156,65 @@ def _apply_htf_ema_gate(
             suppressed,
             symbol,
             tf,
+        )
+    return kept
+
+
+def _apply_regime_gate(
+    events: list[SignalEvent],
+    bias_cfg: BiasConfig,
+    regime_cache: Mapping[str, Regime],
+    symbol: str,
+    tf: str,
+) -> list[SignalEvent]:
+    """v2 Phase 2 regime gate — drop signals not enabled in the current regime.
+
+    Per redesign §6 (docs/redesign/buibui-redesign.md). Resolution per event:
+      1. Look up current regime in regime_cache[symbol].
+      2. Cache miss or regime == "unknown" → allow.
+      3. Resolve allowed-regime list via bias_cfg.regime_allowed(strategy, type, regime).
+      4. Allowed → keep. Not allowed → drop in hard mode, log+keep in soft mode.
+
+    Returns the (possibly filtered) event list. Never raises.
+    """
+    if not bias_cfg.regime_enabled or not events:
+        return events
+
+    regime = regime_cache.get(symbol)
+    if regime is None or regime == "unknown":
+        return events
+
+    hard = bias_cfg.regime_mode == "hard"
+    kept: list[SignalEvent] = []
+    suppressed = 0
+    for event in events:
+        spec = STRATEGY_REGISTRY.get(event.strategy)
+        # Unknown strategy (not in registry) → fall open. Defensive: a freshly
+        # added detector should not be silently dropped before TOML is updated.
+        strategy_type = spec.strategy_type if spec is not None else ""
+        if bias_cfg.regime_allowed(event.strategy, strategy_type, regime):
+            kept.append(event)
+            continue
+        logger.info(
+            "Regime gate %s: %s %s %s %s — type=%s regime=%s",
+            "dropped" if hard else "soft-flagged",
+            symbol,
+            tf,
+            event.strategy,
+            event.direction,
+            strategy_type or "?",
+            regime,
+        )
+        if hard:
+            suppressed += 1
+            continue
+        kept.append(event)
+    if suppressed and hard:
+        logger.info(
+            "Regime gate removed %d signal(s) for %s %s (regime=%s)",
+            suppressed,
+            symbol,
+            tf,
+            regime,
         )
     return kept

@@ -199,22 +199,28 @@ class HtfEmaAnchor:
 
 @dataclass
 class BiasConfig:
-    """Configuration for the statistics-driven bias layer (F8).
+    """Configuration for the statistics-driven bias layer (F8) + regime gate (v2 Phase 2).
 
-    Controls three gates applied after the backtest/volume filters:
+    Controls four gates applied after the backtest/volume filters:
 
-    1. ADR hard suppress: drop signals when today's range has already consumed
+    1. Regime gate (v2 Phase 2): drop signals whose strategy type is not enabled
+       in the current 4h-classified regime (`trend` / `range` / `high_vol` /
+       `unknown`). `unknown` and cache misses fall open. Per-strategy overrides
+       supersede the type-level mapping (e.g. `bos` is continuation despite
+       being typed `structural`).
+
+    2. ADR hard suppress: drop signals when today's range has already consumed
        >= adr_suppress_threshold of the 14-day ADR (e.g. 0.80 = 80%).
        None = disabled (default).
 
-    2. DOW soft suppress: reduce confidence by 1 star when the signal direction
+    3. DOW soft suppress: reduce confidence by 1 star when the signal direction
        opposes today's historical DOW avg return.  Only fires when abs(avg_return)
        >= dow_suppress_min_abs_return (dead-band, default 0.5%).
 
-    3. HTF EMA directional gate: suppress signals whose direction opposes the
-       slope of an HTF (4h or 1d) EMA.  Per-strategy anchors are derived from
-       a 24-cell tue_thu sweep — most strategies use 4h EMA-50; a small set of
-       counter-trend / session strategies use 1d EMA-50 instead.
+    4. HTF EMA directional gate (F8): suppress signals whose direction opposes
+       the slope of an HTF (4h or 1d) EMA.  Per-strategy anchors are derived
+       from a 24-cell tue_thu sweep — most strategies use 4h EMA-50; a small
+       set of counter-trend / session strategies use 1d EMA-50 instead.
 
        deadband_pct: when |slope| < deadband, the gate allows both directions
        (the HTF has no opinion).  mode="soft" logs only; mode="hard" suppresses.
@@ -233,6 +239,19 @@ class BiasConfig:
     htf_ema_deadband_pct: float = 0.003
     htf_ema_per_strategy: dict[str, HtfEmaAnchor] = field(default_factory=dict)
 
+    # v2 Phase 2 regime gate.
+    regime_enabled: bool = False
+    regime_mode: str = "soft"  # "soft" = log only, "hard" = drop suppressed signals
+    regime_htf_tf: str = "4h"
+    # Strategy-type → list of regimes where the type is allowed.
+    # A strategy whose type is not in this map falls open (defensive: unknown
+    # type means a freshly-added detector hasn't been classified yet).
+    regime_enabled_regimes: dict[str, list[str]] = field(default_factory=dict)
+    # Per-strategy override: pins a specific strategy to a regime list,
+    # bypassing its strategy_type mapping. Used for strategies that don't
+    # match their type's behaviour (e.g. `bos` is continuation despite type=structural).
+    regime_per_strategy: dict[str, list[str]] = field(default_factory=dict)
+
     def htf_ema_anchor(self, strategy: str) -> HtfEmaAnchor:
         """Resolve the HTF anchor for a strategy (override → default)."""
         override = self.htf_ema_per_strategy.get(strategy)
@@ -243,6 +262,25 @@ class BiasConfig:
             period=self.htf_ema_default_period,
             slope_lookback=self.htf_ema_default_slope_lookback,
         )
+
+    def regime_allowed(self, strategy: str, strategy_type: str, regime: str) -> bool:
+        """Is `strategy` allowed to fire in the current `regime`?
+
+        Resolution order:
+          1. Per-strategy override (if present) — wins over type-level mapping.
+          2. Strategy-type → regime list.
+          3. No mapping found → fall open (defensive).
+        Always allow `unknown` regime (warmup / missing data).
+        """
+        if regime == "unknown":
+            return True
+        override = self.regime_per_strategy.get(strategy)
+        if override is not None:
+            return regime in override
+        type_regimes = self.regime_enabled_regimes.get(strategy_type)
+        if type_regimes is None:
+            return True  # unknown type → fall open
+        return regime in type_regimes
 
 
 @dataclass
@@ -570,6 +608,22 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
             slope_lookback=int(ov.get("slope_lookback", htf_default_slope_lb)),
         )
 
+    raw_regime = raw_bias.get("regime", {})
+    if not isinstance(raw_regime, dict):
+        raise ValueError("[bias.regime] must be a TOML table")
+    raw_regime_enabled_regimes = raw_regime.get("enabled_regimes", {})
+    if not isinstance(raw_regime_enabled_regimes, dict):
+        raise ValueError("[bias.regime.enabled_regimes] must be a TOML table")
+    raw_regime_per_strategy = raw_regime.get("per_strategy", {})
+    if not isinstance(raw_regime_per_strategy, dict):
+        raise ValueError("[bias.regime.per_strategy] must be a TOML table")
+    regime_enabled_regimes: dict[str, list[str]] = {
+        str(k): [str(r) for r in v] for k, v in raw_regime_enabled_regimes.items()
+    }
+    regime_per_strategy: dict[str, list[str]] = {
+        str(k): [str(r) for r in v] for k, v in raw_regime_per_strategy.items()
+    }
+
     bias = BiasConfig(
         adr_suppress_threshold=float(raw_adr) if raw_adr is not None else None,
         dow_soft_suppress=bool(raw_bias.get("dow_soft_suppress", False)),
@@ -583,6 +637,11 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         htf_ema_default_slope_lookback=htf_default_slope_lb,
         htf_ema_deadband_pct=float(raw_htf.get("deadband_pct", 0.003)),
         htf_ema_per_strategy=htf_per_strategy,
+        regime_enabled=bool(raw_regime.get("enabled", False)),
+        regime_mode=str(raw_regime.get("mode", "soft")),
+        regime_htf_tf=str(raw_regime.get("htf_tf", "4h")),
+        regime_enabled_regimes=regime_enabled_regimes,
+        regime_per_strategy=regime_per_strategy,
     )
 
     raw_combo = data.get("combo", {})

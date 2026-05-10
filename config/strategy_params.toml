@@ -67,6 +67,41 @@ orb             = { tf = "1d", period = 50, slope_lookback = 10 }
 eqh_eql         = { tf = "1d", period = 50, slope_lookback = 10 }
 marubozu        = { tf = "1d", period = 50, slope_lookback = 10 }
 
+# v2 Phase 2 regime gate (per redesign §6).
+# Step −1 of the bias chain — runs before F8. Drops signals whose strategy
+# type is not enabled in the current 4h-classified regime. F8 then refines
+# direction within the allowed regime.
+#
+# Soft mode first (logs only) — observe ≥2 weeks before flipping to hard:
+#   - need ≥500 suppressed candidates in logs.
+#   - backtest the suppressed subset → must show avg_r ≤ 0 to justify drop.
+#
+# `unknown` regime and cache misses always fall open (warmup safe).
+[bias.regime]
+enabled = true
+mode = "soft"                  # "soft" = log only; "hard" = drop suppressed
+htf_tf = "4h"                  # regime classified off 4h candles (§6)
+
+# Strategy-type → list of regimes where the type is allowed.
+# Continuation types (`trend`, `fib`) only fire in `trend` regime.
+# Reversion types (`flow`, `structural`, `price_action`, `candlestick`) and
+# `session` are allowed everywhere; F8 then trims counter-trend in `trend`.
+# NOTE: `fib` is bound to BOS-anchored detectors (fib_golden_zone, ote_entry).
+# If a pure-fib reversion strategy ships, override it via per_strategy below.
+[bias.regime.enabled_regimes]
+trend         = ["trend"]
+fib           = ["trend"]
+flow          = ["trend", "range", "high_vol"]
+structural    = ["trend", "range", "high_vol"]
+price_action  = ["trend", "range", "high_vol"]
+candlestick   = ["trend", "range", "high_vol"]
+session       = ["trend", "range", "high_vol"]
+
+# Per-strategy override — pin a specific strategy out of its type's mapping.
+# bos is continuation despite type=structural (break-of-structure = trend confirmation).
+[bias.regime.per_strategy]
+bos = ["trend"]
+
 # D10 steps 3+4 — live co-firing confluence detection.
 # window: look back this many candles in the signals DB for a same-TF co-firing partner.
 # min_avg_r: only append the blockquote when the combo backtest avg_r meets this threshold.
