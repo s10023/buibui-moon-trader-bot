@@ -99,8 +99,13 @@ session       = ["trend", "range", "high_vol"]
 
 # Per-strategy override — pin a specific strategy out of its type's mapping.
 # bos is continuation despite type=structural (break-of-structure = trend confirmation).
+# fib_golden_zone inverted off the default `fib`→`["trend"]` map: gate-replay
+# (PR #351) + threshold-sweep (PR #352) showed its trend cells avg_r=−0.11 while
+# range/high_vol cells avg_r=+0.02/+0.10 — the §6 default is inverted for this
+# strategy. Soft mode keeps the change observable before any hard flip.
 [bias.regime.per_strategy]
 bos = ["trend"]
+fib_golden_zone = ["range", "high_vol"]
 
 # D10 steps 3+4 — live co-firing confluence detection.
 # window: look back this many candles in the signals DB for a same-TF co-firing partner.
