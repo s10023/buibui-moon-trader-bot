@@ -100,6 +100,22 @@ class TestLoadBacktestConfig:
             assert cfg.day_filter == mode
             assert cfg.smt_trend_filter == 0
 
+    def test_atr_sl_floor_default(self) -> None:
+        cfg = BacktestSweepConfig()
+        assert cfg.atr_sl_floor is False
+
+    def test_load_atr_sl_floor_top_level(self, tmp_path: Path) -> None:
+        p = tmp_path / "cfg.toml"
+        p.write_text("symbols = []\natr_sl_floor = true\n")
+        cfg = load_backtest_config(p)
+        assert cfg.atr_sl_floor is True
+
+    def test_load_atr_sl_floor_backtest_section(self, tmp_path: Path) -> None:
+        p = tmp_path / "cfg.toml"
+        p.write_text("symbols = []\n[backtest]\natr_sl_floor = true\n")
+        cfg = load_backtest_config(p)
+        assert cfg.atr_sl_floor is True
+
     def test_load_per_tf_min_trades(self, tmp_path: Path) -> None:
         content = "min_trades = 20\nmin_trades_15m = 30\nmin_trades_4h = 10\nmin_trades_1d = 5\n"
         p = tmp_path / "cfg.toml"

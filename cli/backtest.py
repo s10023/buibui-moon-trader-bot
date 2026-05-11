@@ -90,6 +90,8 @@ def run_backtest(args: argparse.Namespace) -> None:
             cfg.atr_sl_multiplier = args.atr_sl_multiplier
         if args.atr_sl_multiplier_values:
             cfg.atr_sl_multiplier_values = args.atr_sl_multiplier_values
+        if getattr(args, "atr_sl_floor", False):
+            cfg.atr_sl_floor = True
         backtest_runner.run_backtest_sweep(cfg)
         return
 
@@ -110,6 +112,7 @@ def run_backtest(args: argparse.Namespace) -> None:
         if hasattr(args, "min_sl_pct") and args.min_sl_pct is not None
         else 0.0,
         atr_sl_multiplier=args.atr_sl_multiplier,
+        atr_sl_floor=getattr(args, "atr_sl_floor", False),
         secondary_symbol=args.secondary_symbol,
         save_results=args.save,
         since_ms=parse_since_to_ms(args.since) if args.since else None,
@@ -232,6 +235,17 @@ def add_backtest_subparser(
         default=None,
         dest="atr_sl_multiplier_values",
         help="ATR SL multiplier sweep: comparison table across values (e.g. 0.5 1.0 1.5 2.0 2.5)",
+    )
+    backtest_parser.add_argument(
+        "--atr-sl-floor",
+        action="store_true",
+        default=False,
+        dest="atr_sl_floor",
+        help=(
+            "F9: use atr_sl_multiplier × ATR14 as a minimum on top of structural sl_price "
+            "(max of distances). Required to make the ATR multiplier bite on strategies "
+            "that emit a structural sl_price."
+        ),
     )
     backtest_parser.add_argument(
         "--min-trades",

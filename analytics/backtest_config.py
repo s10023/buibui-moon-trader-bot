@@ -159,6 +159,11 @@ class BacktestSweepConfig:
     # e.g. [0.5, 1.0, 1.5, 2.0, 2.5] — shows avg R per strategy × TF at each multiplier.
     # Overrides atr_sl_multiplier for comparison only; tp_r and per-strategy overrides apply.
     atr_sl_multiplier_values: list[float] = field(default_factory=list)
+    # F9: use atr_sl_multiplier × ATR14 as a minimum SL distance on top of
+    # structural sl_price (max of structural / ATR-derived distance). Required
+    # to make the ATR multiplier actually bite on strategies that emit
+    # structural sl_price (all current production strategies).
+    atr_sl_floor: bool = False
     # liquidity_sweep entry mode:
     #   True  (default) — fib-extension mode: entry at 1.13/1.27 fib extension of range
     #   False           — pivot-sweep mode: entry on wick above pivot high + close inside
@@ -429,6 +434,9 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
             float(data["atr_sl_multiplier"])
             if data.get("atr_sl_multiplier") is not None
             else None
+        ),
+        atr_sl_floor=bool(
+            data.get("atr_sl_floor", _bt_section.get("atr_sl_floor", False))
         ),
         liq_sweep_use_fib=bool(
             data.get("liq_sweep_use_fib", _bt_section.get("liq_sweep_use_fib", True))
