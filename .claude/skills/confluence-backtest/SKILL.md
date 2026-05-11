@@ -2,11 +2,14 @@
 name: confluence-backtest
 description: >
   Run cross-TF and same-TF co-firing confluence backtests via `--cross-tf` and
-  `--combo` modes. Measures uplift when 2+ strategies agree within a window —
-  feeds the live signal-watch combo gate and the D10 confluence research.
-  Invoke when the user says "/confluence-backtest", asks to run "cross-TF" or
-  "combo" or "co-firing" backtests, mentions HTF/LTF pairs, `window_hours`,
-  `D10`, or wants to measure confluence uplift.
+  `--combo` modes, then spot-check the resulting `backtest_combos` /
+  `backtest_cross_tf_combos` tables via `tools/combo_health.py`. Measures
+  uplift when 2+ strategies agree within a window — feeds the live
+  signal-watch combo gate and the D10 confluence research. Invoke when the
+  user says "/confluence-backtest", asks to run "cross-TF" or "combo" or
+  "co-firing" backtests, mentions HTF/LTF pairs, `window_hours`, `D10`, wants
+  to measure confluence uplift, or asks to "spot-check combos", "are combos
+  healthy", or "did the combo refresh work".
 allowed-tools: Bash, Read
 ---
 
@@ -75,6 +78,41 @@ Key flags: `--htf-ltf "HTF:LTF ..."` (default: 5 canonical pairs),
 search for an HTF signal), `--workers N`, `--day-filter`, `--min-trades`,
 `--fee-pct`.
 
+## Post-run health check
+
+After any `SAVE=1` run — and especially after refreshing all three configs —
+spot-check the resulting tables before drawing conclusions:
+
+```bash
+PYTHONPATH=. poetry run python tools/combo_health.py
+# Custom freshness window (default 2h) or different day_filter bucket:
+PYTHONPATH=. poetry run python tools/combo_health.py --fresh-hours 6 --day-filter off
+```
+
+Reports, per table (`backtest_combos`, `backtest_cross_tf_combos`):
+
+- Total row count and `MAX(run_at_ms)` (last save).
+- Rows from runs within the freshness window (defaults to 2h).
+- `day_filter` distribution (`off` / `weekdays` / `tue_thu`).
+- Count and top 10 rows that pass the live alert gates:
+  - same-TF: `tue_thu` + `avg_r ≥ 1.0` + `closed_trades ≥ 5`
+  - cross-TF: `tue_thu` + `avg_r ≥ 0.0` + `closed_trades ≥ 5`
+
+Flags: `--db`, `--fresh-hours`, `--same-tf-min-avg-r`, `--cross-tf-min-avg-r`,
+`--min-trades`, `--day-filter`. Defaults match `[combo]` in
+`config/strategy_params.toml`.
+
+Common interpretations:
+
+- **n_fresh > 0** for both tables → refresh wrote rows; the `last_run_utc`
+  timestamp should match the wall-clock time of the run.
+- **same-TF viable count drops sharply between refreshes** → real regime
+  shift in confluence edge (e.g. the 2026-04-22 → 2026-05-11 drop from 28
+  to 13). Confluence blockquote in Telegram alerts will thin.
+- **Viable count = 0** → no surviving combos pass `min_avg_r`. Either the
+  gate is too tight or confluence has no edge in the current regime;
+  consider relaxing `[combo]` thresholds before assuming a data bug.
+
 ## Reading the output
 
 Both modes print per-pair tables with: `trades`, `win%`, `avg_r`, `lift_R`
@@ -125,6 +163,7 @@ After updating the config, `/db-update` (or at minimum
 | `analytics/data_store.py` | Combo result tables; `confluence_ratings` join |
 | `buibui.py` | `--combo`, `--cross-tf`, `--htf-ltf`, `--window`, `--window-hours` flags |
 | `Makefile` | `buibui-combo-backtest`, `buibui-cross-tf-backtest` targets |
+| `tools/combo_health.py` | Post-run spot-check: totals, freshness, live-gate viable counts, top combos |
 
 ## Related
 
