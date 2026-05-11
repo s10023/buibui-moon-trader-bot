@@ -60,12 +60,13 @@ make buibui-backtest CONFIG=config/signal_watch.toml
 
 ### ATR SL sweep
 ```bash
-# Via TOML
+# Via TOML — needs both keys (floor is required; without it the sweep is a no-op for structural strategies)
 # atr_sl_multiplier_values = [0.5, 1.0, 1.5, 2.0, 2.5]
+# atr_sl_floor = true
 make buibui-backtest CONFIG=config/signal_watch.toml
 
-# Via CLI
-buibui backtest --config config/signal_watch.toml --atr-sl-values 0.5 1.0 1.5 2.0 2.5
+# Via CLI — always pass --atr-sl-floor
+buibui backtest --config config/signal_watch.toml --atr-sl-floor --atr-sl-values 0.5 1.0 1.5 2.0 2.5
 ```
 
 ### Stable anchored window (recommended for saved runs)
@@ -95,6 +96,7 @@ buibui backtest
   --min-sl-pct FLOAT       Minimum SL % to prevent fee-drag explosion
   --atr-sl-multiplier N    ATR-based SL: N × ATR14
   --atr-sl-values N...     Multi-value ATR sweep (space-separated)
+  --atr-sl-floor           Widen structural SLs by max(structural, N × ATR14) — required for ATR sweep to bite on structural strategies
   --day-filter MODE        off | weekdays | tue_thu
   --save                   Persist results to DB (same as SAVE=1)
   --min-trades N           Hide combos below N trades
