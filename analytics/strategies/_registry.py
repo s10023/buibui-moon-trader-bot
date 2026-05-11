@@ -536,6 +536,13 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
         ],
         confidence={"15m": 1, "1h": 4, "4h": 4},
     ),
+    # ote_entry: registered for code completeness, NEVER enabled in any signal_watch config.
+    # WFO audit (2026-05-11, since 2025-09-12, BTC/ETH/SOL × 15m/1h/4h/1d, day_filter ∈ {tue_thu, off}):
+    # every cell with adequate OOS n is OOS-negative — BTC 15m -0.71R (n=53), ETH 15m -0.36R (n=47),
+    # SOL 15m -0.20R (n=50), BTC 15m off -0.55R (n=121); 4h/1d too thin to score (n≤7). Audit verdict
+    # "no edge — fix detector logic before re-sweeping" across all cells. Geometry verified correct;
+    # no-edge is regime-driven (deep-retracement shorts steamrolled by post-2025-09 bull trend) not buggy.
+    # Re-audit when regime shifts; consider removing if a second pass confirms dead.
     "ote_entry": StrategySpec(
         name="ote_entry",
         description="Optimal Trade Entry (OTE): 0.618–0.786 retracement after a confirmed BOS; TP = 1.618 extension.",
@@ -558,7 +565,7 @@ STRATEGY_REGISTRY: dict[str, StrategySpec] = {
                 "Rolling window half-size for BOS swing detection.",
             ),
         ],
-        confidence=1,  # 0 trades in backtest — multi-signal dedup inflates count, needs investigation
+        confidence=1,  # WFO no-edge verdict 2026-05-11; never enabled in signal_watch configs (see comment above).
     ),
     "ema": StrategySpec(
         name="ema",
