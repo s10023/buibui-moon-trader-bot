@@ -22,6 +22,31 @@ Prints a comparison table (like `tp_r_values`) showing avg R at each multiplier 
 - SL priority per trade: structural SL (e.g. pivot low from `liquidity_sweep`) → ATR-based → fixed `sl_pct`.
 - Per-strategy `tp_r` overrides from `[strategy_params]` still apply during the sweep.
 
+### Critical: `atr_sl_floor` is required for structural strategies
+
+Every active production strategy emits a structural `sl_price` on every
+signal, which short-circuits the ATR branch. Without the floor, **every
+multiplier column in the sweep is identical** — the ATR sweep is a no-op.
+Always run the sweep with the floor on:
+
+```bash
+buibui backtest --config <toml> --atr-sl-floor --atr-sl-values 0.5 1.0 1.5 2.0 2.5
+```
+
+Or in TOML:
+
+```toml
+atr_sl_floor = true   # top-level
+# or
+[backtest]
+atr_sl_floor = true
+```
+
+With the floor on, structural SLs are widened to `max(structural_dist,
+atr_mult × ATR14)`. Wider structural SLs still win; ATR only ratchets
+tight stops up. The flag defaults `False` so live production configs
+are unaffected.
+
 ## Config / TOML
 
 Add to any backtest TOML (e.g. `config/signal_watch.toml`):
@@ -47,14 +72,14 @@ atr_sl_multiplier_1h = 0.8     # 1h-specific override
 # Sweep via config
 make buibui-backtest CONFIG=config/signal_watch.toml
 
-# Sweep via CLI flags (no TOML needed)
-buibui backtest --config config/signal_watch.toml --atr-sl-values 0.5 1.0 1.5 2.0 2.5
+# Sweep via CLI flags (no TOML needed) — floor on
+buibui backtest --config config/signal_watch.toml --atr-sl-floor --atr-sl-values 0.5 1.0 1.5 2.0 2.5
 
-# Single fixed multiplier
-buibui backtest --config config/signal_watch.toml --atr-sl-multiplier 2.0
+# Single fixed multiplier (floor on)
+buibui backtest --config config/signal_watch.toml --atr-sl-floor --atr-sl-multiplier 2.0
 
-# Single-combo mode
-buibui backtest --symbol BTCUSDT --strategy bos --interval 1h --atr-sl-multiplier 1.5
+# Single-combo mode (floor on)
+buibui backtest --symbol BTCUSDT --strategy bos --interval 1h --atr-sl-floor --atr-sl-multiplier 1.5
 ```
 
 ## Output format
@@ -75,24 +100,24 @@ ATR SL Multiplier Comparison (aggregated across symbols)
 ## Reading the results
 
 1. Find the column where avg R peaks for each strategy × TF row — that's your optimal multiplier.
-2. Strategies with structural SLs (liquidity_sweep, order_block, eqh_eql) may see ATR override the structural SL only when the structural SL is absent — check trade count changes across columns.
-3. If avg R is flat across multipliers, the strategy likely has mostly structural SLs; ATR isn't the binding constraint.
-4. After finding winners, set `atr_sl_multiplier` (or per-strategy override) in TOML and re-run with `SAVE=1`:
+2. **All rows perfectly flat?** You forgot `--atr-sl-floor` (or `atr_sl_floor = true`). Without it the ATR branch is dead for structural strategies. Re-run with the floor on.
+3. With the floor on, expect best multipliers to cluster at the high end (2.0–2.5×) — structural SLs are usually too tight to begin with.
+4. Note: TP scales with SL distance. A wider ATR-floored SL also widens the `tp_r × dist` target, so win-rate gains net out against harder TP. Any `atr_sl_multiplier` TOML commit should be paired with a `tp_r` re-sweep at the chosen multiplier per cell.
+5. After finding winners, set `atr_sl_multiplier` + `atr_sl_floor` (or per-strategy override) in TOML and re-run with `SAVE=1`:
    ```bash
    make buibui-backtest CONFIG=config/signal_watch.toml SAVE=1
    ```
 
 ## Implementation files
 
-| File | What changed |
+| File | What's there |
 |------|-------------|
-| `analytics/backtest_lib.py` | `format_atr_sl_sweep_table()` — comparison table formatter |
-| `analytics/backtest_lib.py` | `_compute_atr14()` — ATR14 at signal candle index |
-| `analytics/backtest_lib.py` | `run_backtest()` — ATR SL path (structural → ATR → sl_pct) |
-| `analytics/backtest_runner.py` | `atr_sweep_mode` branch in `run_backtest_sweep()` |
-| `analytics/backtest_config.py` | `atr_sl_multiplier_values: list[float]` on `BacktestSweepConfig` |
-| `analytics/signal_config.py` | `atr_sl_multiplier` on `SignalWatchConfig` + `StrategyOverride` |
-| `buibui.py` | `--atr-sl-values` and `--atr-sl-multiplier` CLI flags |
+| `analytics/backtest/engine.py` | `_compute_atr14()`, `run_backtest(atr_sl_multiplier, atr_sl_floor)` — ATR SL path (structural → ATR → sl_pct); `atr_sl_floor=True` widens structural SLs via `max(structural_dist, atr_mult × ATR14)` |
+| `analytics/backtest/formatters.py` | `format_atr_sl_sweep_table()` — comparison table formatter |
+| `analytics/backtest_runner.py` | `atr_sweep_mode` branch in `run_backtest_sweep()`; threads `atr_sl_floor` through all 3 call sites |
+| `analytics/backtest_config.py` | `atr_sl_multiplier_values: list[float]` + `atr_sl_floor: bool` on `BacktestSweepConfig`; loadable top-level or under `[backtest]` |
+| `analytics/signal_config.py` | `atr_sl_multiplier` on `SignalWatchConfig` + `StrategyOverride` (live signal-watch path; no floor — live uses structural SLs directly) |
+| `cli/backtest.py` | `--atr-sl-values`, `--atr-sl-multiplier`, `--atr-sl-floor` CLI flags |
 
 ## Which config to sweep?
 
@@ -113,8 +138,8 @@ When the user asks to run an ATR sweep or find optimal ATR multipliers:
 1. Ask: "Which config — `signal_watch.toml` (tue_thu), `signal_watch_weekdays.toml`, or both?" Default to `signal_watch.toml` if not specified.
 2. Suggest range: `[0.5, 1.0, 1.5, 2.0, 2.5]` for swing/1h+; `[0.3, 0.5, 0.8, 1.0, 1.5]` for scalping
 3. Add `atr_sl_multiplier_values = [...]` to the chosen TOML (or use `--atr-sl-values` CLI flag to avoid editing the file)
-4. Run: `make buibui-backtest CONFIG=<file>`
-5. Read the output table — identify peak column per strategy × TF
-6. Translate findings into `atr_sl_multiplier` values in `[strategy_params.X]` of the same TOML
+4. Run with the floor on: `buibui backtest --config <file> --atr-sl-floor --atr-sl-values <vals>` (skipping the floor is the #1 way to get a useless sweep)
+5. Read the output table — identify peak column per strategy × TF. If rows are flat across all columns, the floor was off — re-run.
+6. Translate findings into `atr_sl_multiplier` values in `[strategy_params.X]` of the same TOML, set `atr_sl_floor = true` once at the top level, and **re-sweep `tp_r` at the chosen multiplier** per cell before committing — TP scales with SL distance.
 7. Re-run with `SAVE=1` to persist the winning config to DB
 8. If sweeping both configs: repeat steps 3–7 for the second config independently

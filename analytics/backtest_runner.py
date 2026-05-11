@@ -249,6 +249,7 @@ def _collect_sweep_results(
             cfg.fee_pct,
             min_sl_pct=cfg.min_sl_pct,
             atr_sl_multiplier=eff_atr_sl,
+            atr_sl_floor=cfg.atr_sl_floor,
             volume_suppress=cfg.effective_volume_suppress(strategy),
             volume_spike_boost=cfg.effective_volume_spike_boost(strategy),
             volume_suppress_long=cfg.effective_volume_suppress_long(strategy),
@@ -363,6 +364,7 @@ def run_backtest_sweep(
                         atr_sl_multiplier=cfg.effective_atr_sl_multiplier(
                             strat, sym, tf
                         ),
+                        atr_sl_floor=cfg.atr_sl_floor,
                         volume_suppress=cfg.effective_volume_suppress(strat),
                         volume_spike_boost=cfg.effective_volume_spike_boost(strat),
                         volume_suppress_long=cfg.effective_volume_suppress_long(strat),
@@ -405,6 +407,7 @@ def run_backtest_sweep(
                         cfg.fee_pct,
                         min_sl_pct=cfg.min_sl_pct,
                         atr_sl_multiplier=atr_mult,
+                        atr_sl_floor=cfg.atr_sl_floor,
                         volume_suppress=cfg.effective_volume_suppress(strat),
                         volume_spike_boost=cfg.effective_volume_spike_boost(strat),
                         volume_suppress_long=cfg.effective_volume_suppress_long(strat),
@@ -461,6 +464,7 @@ def run_backtest_cmd(
     fee_pct: float = 0.0,
     min_sl_pct: float = 0.0,
     atr_sl_multiplier: float | None = None,
+    atr_sl_floor: bool = False,
     secondary_symbol: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
     save_results: bool = False,
@@ -517,6 +521,7 @@ def run_backtest_cmd(
             fee_pct,
             min_sl_pct=min_sl_pct,
             atr_sl_multiplier=atr_sl_multiplier,
+            atr_sl_floor=atr_sl_floor,
         )
         print(format_result(bt_result))
 

@@ -1414,6 +1414,208 @@ class TestATRBasedSL:
 
 
 # ---------------------------------------------------------------------------
+# ATR SL floor (F9): widen structural SLs when ATR-derived distance is larger
+# ---------------------------------------------------------------------------
+
+
+class TestATRSLFloor:
+    """Tests for the atr_sl_floor parameter on the structural SL branch."""
+
+    def _make_ohlcv_flat(self, n: int = 20, base: float = 100.0) -> pd.DataFrame:
+        """n candles with constant range of 10 (ATR14 = 10)."""
+        interval = 3_600_000
+        rows = [
+            _candle(
+                _BASE_TIME + i * interval,
+                base,
+                base + 5.0,
+                base - 5.0,
+                base,
+            )
+            for i in range(n)
+        ]
+        return _make_ohlcv(rows)
+
+    def test_floor_off_preserves_structural_sl(self) -> None:
+        """Default behaviour: structural sl_price wins even when ATR is wider."""
+        ohlcv = self._make_ohlcv_flat(n=20, base=1000.0)
+        sig_time = int(ohlcv["open_time"].iloc[10])
+        # Tight structural SL: 998 (2 below entry). ATR14=10, mult=1.5 → atr_dist=15.
+        sigs = _make_signals_with_sl(
+            [
+                {
+                    "open_time": sig_time,
+                    "direction": "long",
+                    "reason": "x",
+                    "sl_price": 998.0,
+                }
+            ]
+        )
+        result = run_backtest(
+            ohlcv,
+            sigs,
+            "BTCUSDT",
+            "1h",
+            "test",
+            sl_pct=0.001,
+            tp_r=2.0,
+            atr_sl_multiplier=1.5,
+            atr_sl_floor=False,
+        )
+        assert len(result.trades) == 1
+        assert result.trades[0].sl_price == pytest.approx(998.0)
+
+    def test_floor_on_widens_tight_long_sl(self) -> None:
+        """Floor on + tight structural: ATR widens sl to entry - atr*mult."""
+        ohlcv = self._make_ohlcv_flat(n=20, base=1000.0)
+        sig_time = int(ohlcv["open_time"].iloc[10])
+        sigs = _make_signals_with_sl(
+            [
+                {
+                    "open_time": sig_time,
+                    "direction": "long",
+                    "reason": "x",
+                    "sl_price": 998.0,  # structural_dist = 2 < atr_dist = 15
+                }
+            ]
+        )
+        result = run_backtest(
+            ohlcv,
+            sigs,
+            "BTCUSDT",
+            "1h",
+            "test",
+            sl_pct=0.001,
+            tp_r=2.0,
+            atr_sl_multiplier=1.5,
+            atr_sl_floor=True,
+        )
+        assert len(result.trades) == 1
+        trade = result.trades[0]
+        # entry=1000, atr=10, mult=1.5 → sl=985, tp=1000+2*15=1030
+        assert trade.sl_price == pytest.approx(985.0)
+        assert trade.tp_price == pytest.approx(1030.0)
+
+    def test_floor_on_widens_tight_short_sl(self) -> None:
+        """Floor on + tight short structural: ATR widens sl to entry + atr*mult."""
+        ohlcv = self._make_ohlcv_flat(n=20, base=1000.0)
+        sig_time = int(ohlcv["open_time"].iloc[10])
+        sigs = _make_signals_with_sl(
+            [
+                {
+                    "open_time": sig_time,
+                    "direction": "short",
+                    "reason": "x",
+                    "sl_price": 1002.0,  # structural_dist = 2 < atr_dist = 15
+                }
+            ]
+        )
+        result = run_backtest(
+            ohlcv,
+            sigs,
+            "BTCUSDT",
+            "1h",
+            "test",
+            sl_pct=0.001,
+            tp_r=2.0,
+            atr_sl_multiplier=1.5,
+            atr_sl_floor=True,
+        )
+        assert len(result.trades) == 1
+        trade = result.trades[0]
+        assert trade.sl_price == pytest.approx(1015.0)
+        assert trade.tp_price == pytest.approx(970.0)
+
+    def test_floor_on_keeps_wide_structural_sl(self) -> None:
+        """Floor on + wide structural: structural wins, ATR no-ops."""
+        ohlcv = self._make_ohlcv_flat(n=20, base=1000.0)
+        sig_time = int(ohlcv["open_time"].iloc[10])
+        sigs = _make_signals_with_sl(
+            [
+                {
+                    "open_time": sig_time,
+                    "direction": "long",
+                    "reason": "x",
+                    "sl_price": 950.0,  # structural_dist = 50 > atr_dist = 15
+                }
+            ]
+        )
+        result = run_backtest(
+            ohlcv,
+            sigs,
+            "BTCUSDT",
+            "1h",
+            "test",
+            sl_pct=0.001,
+            tp_r=2.0,
+            atr_sl_multiplier=1.5,
+            atr_sl_floor=True,
+        )
+        assert len(result.trades) == 1
+        assert result.trades[0].sl_price == pytest.approx(950.0)
+
+    def test_floor_on_without_multiplier_is_noop(self) -> None:
+        """Floor flag alone (no multiplier set) does nothing."""
+        ohlcv = self._make_ohlcv_flat(n=20, base=1000.0)
+        sig_time = int(ohlcv["open_time"].iloc[10])
+        sigs = _make_signals_with_sl(
+            [
+                {
+                    "open_time": sig_time,
+                    "direction": "long",
+                    "reason": "x",
+                    "sl_price": 998.0,
+                }
+            ]
+        )
+        result = run_backtest(
+            ohlcv,
+            sigs,
+            "BTCUSDT",
+            "1h",
+            "test",
+            sl_pct=0.001,
+            tp_r=2.0,
+            atr_sl_multiplier=None,
+            atr_sl_floor=True,
+        )
+        assert len(result.trades) == 1
+        assert result.trades[0].sl_price == pytest.approx(998.0)
+
+    def test_floor_composes_with_min_sl_pct(self) -> None:
+        """min_sl_pct still acts as absolute minimum after ATR floor."""
+        ohlcv = self._make_ohlcv_flat(n=20, base=1000.0)
+        sig_time = int(ohlcv["open_time"].iloc[10])
+        # Tight structural (998). min_sl_pct=0.05 widens to 950 first (dist=50).
+        # ATR=10, mult=1.5 → atr_dist=15 < 50 → ATR floor is a no-op.
+        sigs = _make_signals_with_sl(
+            [
+                {
+                    "open_time": sig_time,
+                    "direction": "long",
+                    "reason": "x",
+                    "sl_price": 998.0,
+                }
+            ]
+        )
+        result = run_backtest(
+            ohlcv,
+            sigs,
+            "BTCUSDT",
+            "1h",
+            "test",
+            sl_pct=0.001,
+            tp_r=2.0,
+            min_sl_pct=0.05,
+            atr_sl_multiplier=1.5,
+            atr_sl_floor=True,
+        )
+        assert len(result.trades) == 1
+        # min_sl_pct=0.05 of 1000 = 50 → sl = 950
+        assert result.trades[0].sl_price == pytest.approx(950.0)
+
+
+# ---------------------------------------------------------------------------
 # Directional tp_r (Gate 3)
 # ---------------------------------------------------------------------------
 

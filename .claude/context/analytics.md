@@ -47,7 +47,7 @@ Detailed API reference for `analytics/`. Load this when working on any analytics
 - `Trade`, `BacktestResult`, `run_backtest`, format helpers
 - Fee drag: `2 * fee_pct * entry / risk`; `min_sl_pct` widens SLs too close to entry
 - Volume tiers: `_is_low_volume` (< 1.5× 20-candle mean) / `_is_volume_spike` (> 3× mean)
-- `run_backtest(volume_suppress, volume_spike_boost, volume_suppress_long/short=None, volume_spike_boost_long/short=None, tp_r_long/short=None)` — directional params take precedence over symmetric
+- `run_backtest(volume_suppress, volume_spike_boost, volume_suppress_long/short=None, volume_spike_boost_long/short=None, tp_r_long/short=None, atr_sl_floor=False)` — directional params take precedence over symmetric; `atr_sl_floor=True` widens structural sl_price via `max(structural_dist, atr_sl_multiplier × ATR14)` (no-op otherwise — every active strategy emits structural sl_price, which short-circuits the bare ATR branch)
 - `Trade.low_volume` / `Trade.volume_spike` tag volume tier per trade
 - `BacktestResult` exposes: `low/normal/spike_vol_closed_trades` + `*_avg_r`; 6 directional×volume cross-tabs (`long/short_low/normal/spike_vol_*`)
 - `format_volume_split()` — 3-way table; `format_directional_volume_split()` — ↑/↓ × Low/Normal/Spike

@@ -356,6 +356,7 @@ def run_backtest(
     fee_pct: float = 0.0,
     min_sl_pct: float = 0.0,
     atr_sl_multiplier: float | None = None,
+    atr_sl_floor: bool = False,
     volume_suppress: bool = False,
     volume_spike_boost: bool = False,
     volume_suppress_long: bool | None = None,
@@ -373,6 +374,10 @@ def run_backtest(
             otherwise sl_pct fraction of entry price (fixed fallback).
             min_sl_pct enforces a minimum SL distance from entry (e.g. 0.005 = 0.5%),
             widening SLs that land too close to entry.
+            atr_sl_floor=True (F9): on the structural-SL branch, widen sl_price
+            when atr_sl_multiplier × ATR14 exceeds the structural distance. Lets
+            ATR act as a volatility-adaptive minimum without overriding wider
+            structural levels. No-op when atr_sl_multiplier is None.
     TP:     tp_r × risk distance from entry price. When tp_r_long / tp_r_short are set,
             the directional value is used instead of tp_r for that trade direction.
     fee_pct: taker fee fraction applied on both entry and exit legs
@@ -465,6 +470,20 @@ def run_backtest(
                     sl_price = min(sl_price, entry_price - min_dist)
                 else:
                     sl_price = max(sl_price, entry_price + min_dist)
+            # F9: ATR as volatility-adaptive minimum on structural SLs. Widens
+            # tight structural stops on volatile candles; wider structural SLs
+            # still win. Opt-in via atr_sl_floor — default off preserves prior
+            # behaviour (atr_sl_multiplier is otherwise dead in this branch).
+            if atr_sl_floor and atr_sl_multiplier is not None:
+                atr = _compute_atr14(highs_np, lows_np, closes_np, sig_idx)
+                if atr is not None:
+                    atr_dist = atr_sl_multiplier * atr
+                    structural_dist = abs(entry_price - sl_price)
+                    if atr_dist > structural_dist:
+                        if direction == "long":
+                            sl_price = entry_price - atr_dist
+                        else:
+                            sl_price = entry_price + atr_dist
             if direction == "long":
                 tp_price = entry_price + eff_tp_r * abs(entry_price - sl_price)
             else:

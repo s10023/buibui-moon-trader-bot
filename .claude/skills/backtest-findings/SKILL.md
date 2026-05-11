@@ -50,7 +50,9 @@ Rows below threshold are hidden or should be ignored. Higher thresholds for the 
 ```
 
 - Peak column = optimal `atr_sl_multiplier` for that strategy × TF
-- Strategies with structural SLs (liquidity_sweep, order_block, eqh_eql) may be flat — ATR only kicks in when structural SL is absent
+- **All rows flat across every column?** The sweep was run without `--atr-sl-floor` (or `atr_sl_floor = true`). Every active strategy emits a structural `sl_price`, which short-circuits the ATR branch. Re-run with the floor on and the rows will move.
+- With the floor on, expect best multipliers to cluster at 2.0–2.5× — structural SLs are systematically too tight on most strategies.
+- TP scales with SL distance: a wider ATR-floored SL also widens the `tp_r × dist` target. Pair any `atr_sl_multiplier` commit with a `tp_r` re-sweep at the chosen multiplier per cell.
 
 ## Reading the volume split table
 
@@ -106,6 +108,10 @@ tp_r_1h = 2.0           # 1h only
 
 ### ATR SL override (per-strategy)
 ```toml
+# Required once at the top level — the floor is what makes per-strategy
+# atr_sl_multiplier actually take effect for structural strategies.
+atr_sl_floor = true
+
 [strategy_params.bos]
 atr_sl_multiplier = 1.5
 atr_sl_multiplier_1h = 2.0    # TF-specific
