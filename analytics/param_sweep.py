@@ -227,6 +227,8 @@ def _sweep_grid_worker(
     strategy: str,
     fee_pct: float,
     is_min: int,
+    atr_sl_multiplier: float | None = None,
+    atr_sl_floor: bool = False,
 ) -> SweepRow:
     """Single grid-combo backtest worker — module-level so ProcessPoolExecutor can pickle it."""
     tp_r = float(params.get("tp_r", 2.0))
@@ -240,6 +242,8 @@ def _sweep_grid_worker(
         sl_pct=sl_pct,
         tp_r=tp_r,
         fee_pct=fee_pct,
+        atr_sl_multiplier=atr_sl_multiplier,
+        atr_sl_floor=atr_sl_floor,
     )
     bt_oos = run_backtest(
         ohlcv_oos,
@@ -250,6 +254,8 @@ def _sweep_grid_worker(
         sl_pct=sl_pct,
         tp_r=tp_r,
         fee_pct=fee_pct,
+        atr_sl_multiplier=atr_sl_multiplier,
+        atr_sl_floor=atr_sl_floor,
     )
     is_s = _score(bt_is, is_min)
     oos_s = _score(bt_oos, 1)
@@ -283,6 +289,8 @@ def run_param_sweep(
     adr_suppress_threshold: float | None = None,
     since_ms: int | None = None,
     day_filter: str = "off",
+    atr_sl_multiplier: float | None = None,
+    atr_sl_floor: bool = False,
 ) -> list[SweepRow]:
     """Run WFO grid sweep. Returns rows sorted by IS score (descending)."""
     end_ms = int(time.time() * 1000)
@@ -382,6 +390,8 @@ def run_param_sweep(
                     strategy,
                     fee_pct,
                     is_min,
+                    atr_sl_multiplier,
+                    atr_sl_floor,
                 ): p
                 for p in grid
             }
@@ -561,6 +571,8 @@ def _audit_strategy_worker(
     tp_values: list[float | int],
     is_min: int,
     fee_pct: float,
+    atr_sl_multiplier: float | None = None,
+    atr_sl_floor: bool = False,
 ) -> AuditRow:
     """Per-strategy backtest grid worker — module-level so ProcessPoolExecutor can pickle it.
 
@@ -588,6 +600,8 @@ def _audit_strategy_worker(
             sl_pct=0.02,
             tp_r=tp,
             fee_pct=fee_pct,
+            atr_sl_multiplier=atr_sl_multiplier,
+            atr_sl_floor=atr_sl_floor,
         )
         bt_oos = run_backtest(
             ohlcv_oos,
@@ -598,6 +612,8 @@ def _audit_strategy_worker(
             sl_pct=0.02,
             tp_r=tp,
             fee_pct=fee_pct,
+            atr_sl_multiplier=atr_sl_multiplier,
+            atr_sl_floor=atr_sl_floor,
         )
         is_n = len(bt_is.closed_trades)
         is_r = bt_is.avg_r
@@ -652,6 +668,8 @@ def run_strategy_audit(
     adr_suppress_threshold: float | None = None,
     since_ms: int | None = None,
     day_filter: str = "off",
+    atr_sl_multiplier: float | None = None,
+    atr_sl_floor: bool = False,
 ) -> list[AuditRow]:
     """Quick tp_r sweep across all strategies — produces one verdict row per strategy."""
     end_ms = int(time.time() * 1000)
@@ -751,6 +769,8 @@ def run_strategy_audit(
                 tp_values_list,
                 is_min,
                 fee_pct,
+                atr_sl_multiplier,
+                atr_sl_floor,
             ): strat
             for strat, sigs_is, sigs_oos in to_submit
         }

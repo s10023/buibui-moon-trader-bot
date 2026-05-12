@@ -33,6 +33,22 @@ Always run the sweep with the floor on:
 buibui backtest --config <toml> --atr-sl-floor --atr-sl-values 0.5 1.0 1.5 2.0 2.5
 ```
 
+### Joint tp_r × ATR sweeps
+
+Once this skill surfaces a winning multiplier, the natural follow-up is
+to re-sweep `tp_r` at that multiplier (TP scales with SL distance). Use
+`buibui param-sweep` with the same floor flags for IS/OOS-validated
+joint sweeps:
+
+```bash
+buibui param-sweep --strategy <s> --symbol <sym> --timeframe <tf> \
+  --param tp_r=1.0:5.0:0.5 --since 2025-09-12 --day-filter tue_thu \
+  --atr-sl-floor --atr-sl-multiplier <winning_mult>
+```
+
+See `memory/project_f9_joint_sweep_findings.md` for the methodology and
+the per-tp_r-aggregate decision rule used for TOML commits.
+
 Or in TOML:
 
 ```toml

@@ -71,6 +71,8 @@ def run_param_sweep(args: argparse.Namespace) -> None:
                 adr_suppress_threshold=args.adr_suppress_threshold,
                 since_ms=parse_since_to_ms(args.since) if args.since else None,
                 day_filter=args.day_filter,
+                atr_sl_multiplier=args.atr_sl_multiplier,
+                atr_sl_floor=args.atr_sl_floor,
             )
     finally:
         conn.close()
@@ -119,6 +121,8 @@ def run_param_audit(args: argparse.Namespace) -> None:
                 adr_suppress_threshold=args.adr_suppress_threshold,
                 since_ms=parse_since_to_ms(args.since) if args.since else None,
                 day_filter=args.day_filter,
+                atr_sl_multiplier=args.atr_sl_multiplier,
+                atr_sl_floor=args.atr_sl_floor,
             )
     finally:
         conn.close()
@@ -217,6 +221,22 @@ def add_param_sweep_subparser(
         help="Restrict signals to allowed weekdays before WFO split (default: off)",
     )
     param_sweep_parser.add_argument(
+        "--atr-sl-multiplier",
+        type=float,
+        default=None,
+        dest="atr_sl_multiplier",
+        help="ATR-14 SL multiplier (e.g. 2.0). Used either as the SL itself (when "
+        "sl_price is absent) or, with --atr-sl-floor, as a lower bound on structural SL distance.",
+    )
+    param_sweep_parser.add_argument(
+        "--atr-sl-floor",
+        action="store_true",
+        default=False,
+        dest="atr_sl_floor",
+        help="F9 floor: widen structural SL to max(structural_dist, atr_mult × ATR14). "
+        "No-op without --atr-sl-multiplier.",
+    )
+    param_sweep_parser.add_argument(
         "--db",
         type=str,
         default=None,
@@ -290,6 +310,22 @@ def add_param_audit_subparser(
         dest="day_filter",
         choices=["off", "weekdays", "tue_thu"],
         help="Restrict signals to allowed weekdays before WFO split (default: off)",
+    )
+    param_audit_parser.add_argument(
+        "--atr-sl-multiplier",
+        type=float,
+        default=None,
+        dest="atr_sl_multiplier",
+        help="ATR-14 SL multiplier (e.g. 2.0). Used either as the SL itself (when "
+        "sl_price is absent) or, with --atr-sl-floor, as a lower bound on structural SL distance.",
+    )
+    param_audit_parser.add_argument(
+        "--atr-sl-floor",
+        action="store_true",
+        default=False,
+        dest="atr_sl_floor",
+        help="F9 floor: widen structural SL to max(structural_dist, atr_mult × ATR14). "
+        "No-op without --atr-sl-multiplier.",
     )
     param_audit_parser.add_argument(
         "--db", type=str, default=None, help="DuckDB path (default: analytics.db)"
