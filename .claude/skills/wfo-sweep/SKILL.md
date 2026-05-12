@@ -58,6 +58,12 @@ poetry run python buibui.py param-audit \
   --day-filter <day_filter>
 ```
 
+Optional F9 joint-sweep flags (when auditing strategies that emit
+structural SL prices and you want the floor applied during scoring):
+`--atr-sl-floor --atr-sl-multiplier <N>`. Without the floor the ATR
+branch is dead for every active strategy — leave it off for a vanilla
+audit.
+
 Parse the audit table output. For each strategy × TF, note:
 - `Best OOS avg_r` — positive = edge exists
 - `OOS n` — trade count on OOS portion
@@ -84,6 +90,13 @@ poetry run python buibui.py param-sweep \
   --day-filter <day_filter> \
   --top-n 10
 ```
+
+Optional joint `tp_r × atr_sl_multiplier` sweep: append
+`--atr-sl-floor --atr-sl-multiplier <N>` to score every tp_r in the grid
+with the F9 floor on at multiplier `N`. Useful for follow-up after an
+ATR-sweep winner — e.g. `--atr-sl-multiplier 2.0 --atr-sl-floor` plus
+`--param tp_r=1.0:5.0:0.5` finds the best tp_r at that multiplier. See
+`memory/project_f9_joint_sweep_findings.md` for the methodology.
 
 Collect results per (strategy, TF, symbol): best tp_r, OOS avg_r, OOS n, flag.
 
