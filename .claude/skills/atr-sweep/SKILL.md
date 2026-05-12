@@ -132,7 +132,9 @@ ATR SL Multiplier Comparison (aggregated across symbols)
 | `analytics/backtest/formatters.py` | `format_atr_sl_sweep_table()` — comparison table formatter |
 | `analytics/backtest_runner.py` | `atr_sweep_mode` branch in `run_backtest_sweep()`; threads `atr_sl_floor` through all 3 call sites |
 | `analytics/backtest_config.py` | `atr_sl_multiplier_values: list[float]` + `atr_sl_floor: bool` on `BacktestSweepConfig`; loadable top-level or under `[backtest]` |
-| `analytics/signal_config.py` | `atr_sl_multiplier` on `SignalWatchConfig` + `StrategyOverride` (live signal-watch path; no floor — live uses structural SLs directly) |
+| `analytics/signal_config.py` | `atr_sl_multiplier` + `atr_sl_floor` on `SignalWatchConfig` / `StrategyOverride` / `SymbolOverride` (live signal-watch path; per-symbol+TF override hierarchy) |
+| `analytics/signal/atr_floor.py` | `_apply_atr_floor()` — live SL widener; mirrors `engine.py` math (max(structural_dist, atr_mult × ATR14)) and recomputes `tp_price = entry ± tp_r × new_sl_dist` so live R:R matches the backtest cell |
+| `analytics/signal/scanner.py` | Calls `_apply_atr_floor` at top of Phase 3 (before conflict/dedup/bias/DB) so every downstream code path sees the corrected sl/tp |
 | `cli/backtest.py` | `--atr-sl-values`, `--atr-sl-multiplier`, `--atr-sl-floor` CLI flags |
 
 ## Which config to sweep?
