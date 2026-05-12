@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+from typing import Any
+from unittest.mock import patch
+
+import pandas as pd
+
 from analytics.backtest_lib import BacktestResult, Trade
 from analytics.param_sweep import (
     AuditRow,
     SweepRow,
+    _audit_strategy_worker,
     _directional_split_hint,
+    _sweep_grid_worker,
     format_audit_results,
     format_sweep_results,
 )
@@ -286,3 +293,101 @@ class TestAuditRowDirectional:
         )
         output = format_audit_results([row], "BTCUSDT", "4h", 180)
         assert "Directional split candidates" not in output
+
+
+class TestAtrFloorForwarding:
+    """F9 wiring: workers must forward atr_sl_multiplier/atr_sl_floor to run_backtest."""
+
+    @staticmethod
+    def _empty_df() -> pd.DataFrame:
+        return pd.DataFrame(
+            columns=["open_time", "open", "high", "low", "close", "volume"]
+        )
+
+    @staticmethod
+    def _empty_result() -> BacktestResult:
+        return BacktestResult(symbol="BTCUSDT", timeframe="1h", strategy="bos")
+
+    def test_sweep_grid_worker_forwards_floor_flags(self) -> None:
+        captured: list[dict[str, Any]] = []
+
+        def fake_run_backtest(*args: Any, **kwargs: Any) -> BacktestResult:
+            captured.append(kwargs)
+            return self._empty_result()
+
+        with patch("analytics.param_sweep.run_backtest", side_effect=fake_run_backtest):
+            _sweep_grid_worker(
+                params={"tp_r": 2.5},
+                ohlcv_is=self._empty_df(),
+                signals_is=self._empty_df(),
+                ohlcv_oos=self._empty_df(),
+                signals_oos=self._empty_df(),
+                symbol="BTCUSDT",
+                timeframe="1h",
+                strategy="bos",
+                fee_pct=0.0005,
+                is_min=1,
+                atr_sl_multiplier=2.5,
+                atr_sl_floor=True,
+            )
+
+        assert len(captured) == 2  # IS + OOS
+        for kwargs in captured:
+            assert kwargs["atr_sl_multiplier"] == 2.5
+            assert kwargs["atr_sl_floor"] is True
+            assert kwargs["tp_r"] == 2.5
+
+    def test_sweep_grid_worker_defaults_floor_off(self) -> None:
+        captured: list[dict[str, Any]] = []
+
+        def fake_run_backtest(*args: Any, **kwargs: Any) -> BacktestResult:
+            captured.append(kwargs)
+            return self._empty_result()
+
+        with patch("analytics.param_sweep.run_backtest", side_effect=fake_run_backtest):
+            _sweep_grid_worker(
+                params={"tp_r": 2.0},
+                ohlcv_is=self._empty_df(),
+                signals_is=self._empty_df(),
+                ohlcv_oos=self._empty_df(),
+                signals_oos=self._empty_df(),
+                symbol="BTCUSDT",
+                timeframe="1h",
+                strategy="bos",
+                fee_pct=0.0005,
+                is_min=1,
+            )
+
+        assert len(captured) == 2
+        for kwargs in captured:
+            assert kwargs["atr_sl_multiplier"] is None
+            assert kwargs["atr_sl_floor"] is False
+
+    def test_audit_strategy_worker_forwards_floor_flags(self) -> None:
+        captured: list[dict[str, Any]] = []
+
+        def fake_run_backtest(*args: Any, **kwargs: Any) -> BacktestResult:
+            captured.append(kwargs)
+            return self._empty_result()
+
+        with patch("analytics.param_sweep.run_backtest", side_effect=fake_run_backtest):
+            _audit_strategy_worker(
+                strat="bos",
+                signals_is=self._empty_df(),
+                signals_oos=self._empty_df(),
+                ohlcv_is=self._empty_df(),
+                ohlcv_oos=self._empty_df(),
+                symbol="BTCUSDT",
+                timeframe="1h",
+                tp_values=[1.0, 2.0],
+                is_min=1,
+                fee_pct=0.0005,
+                atr_sl_multiplier=2.0,
+                atr_sl_floor=True,
+            )
+
+        # 2 tp_values × (IS + OOS) = 4 calls
+        assert len(captured) == 4
+        for kwargs in captured:
+            assert kwargs["atr_sl_multiplier"] == 2.0
+            assert kwargs["atr_sl_floor"] is True
