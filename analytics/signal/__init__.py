@@ -46,6 +46,7 @@ from analytics.signal.cofire import (
 )
 from analytics.signal.gates import _filter_signals_by_adr, _is_adr_exempt
 from analytics.signal.resolvers import (
+    _resolve_atr_sl_floor,
     _resolve_atr_sl_multiplier,
     _resolve_sl_pct,
     _resolve_tp_r,
@@ -99,6 +100,7 @@ __all__ = [
     "_make_bt_cache_key",
     "_parse_htf_ltf_pairs",
     "_reset_bt_cache",
+    "_resolve_atr_sl_floor",
     "_resolve_atr_sl_multiplier",
     "_resolve_sl_pct",
     "_resolve_tp_r",

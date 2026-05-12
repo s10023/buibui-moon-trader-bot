@@ -26,6 +26,7 @@ from analytics.signal_lib import (
     _compute_backtest,
     _compute_stats_context,
     _is_adr_exempt,
+    _resolve_atr_sl_floor,
     _resolve_atr_sl_multiplier,
     _resolve_sl_pct,
     _resolve_tp_r,
@@ -98,6 +99,7 @@ def run_signal_test(
     strategy_params: dict[str, StrategyOverride] | None = None,
     bias_cfg: BiasConfig | None = None,
     atr_sl_multiplier: float | None = None,
+    atr_sl_floor: bool = False,
 ) -> None:
     """Run detectors against historical candles and print formatted alerts.
 
@@ -279,6 +281,21 @@ def run_signal_test(
                         row, symbol, timeframe, strategy, closed_df, fallback_close
                     )
 
+                    # F9 ATR-as-min-SL floor — apply so replay output matches
+                    # what the live daemon would produce for this candle.
+                    from analytics.signal.atr_floor import _apply_atr_floor
+
+                    _apply_atr_floor(
+                        [event],
+                        ohlcv_df,
+                        symbol,
+                        timeframe,
+                        strategy_params,
+                        tp_r,
+                        atr_sl_multiplier,
+                        atr_sl_floor,
+                    )
+
                     # Backtest summary — mirrors live daemon's per-strategy computation.
                     bt_summary: str | None = None
                     if backtest_cfg and backtest_cfg.mode != "off":
@@ -314,6 +331,13 @@ def run_signal_test(
                             day_filter=day_filter,
                             min_sl_pct=backtest_cfg.min_sl_pct,
                             atr_sl_multiplier=eff_atr_sl,
+                            atr_sl_floor=_resolve_atr_sl_floor(
+                                strategy_params,
+                                strategy,
+                                symbol,
+                                timeframe,
+                                atr_sl_floor,
+                            ),
                             adr_suppress_threshold=bias_cfg.adr_suppress_threshold
                             if bias_cfg
                             else None,

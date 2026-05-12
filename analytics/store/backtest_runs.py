@@ -30,6 +30,7 @@ def _backtest_run_id(
     volume_spike_boost_long: bool | None = None,
     volume_spike_boost_short: bool | None = None,
     adr_exempt: bool = False,
+    atr_sl_floor: bool = False,
 ) -> str:
     """Return a deterministic 16-char hex ID for a backtest param combination.
 
@@ -59,6 +60,8 @@ def _backtest_run_id(
         key += "|spike_s"
     if adr_exempt:
         key += "|adr_exempt"
+    if atr_sl_floor:
+        key += "|atr_floor"
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 

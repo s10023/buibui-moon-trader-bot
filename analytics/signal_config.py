@@ -61,9 +61,11 @@ class SymbolOverride:
     tp_r: float | None = None
     sl_pct: float | None = None
     atr_sl_multiplier: float | None = None
+    atr_sl_floor: bool | None = None
     tp_r_per_tf: dict[str, float] = field(default_factory=dict)
     sl_pct_per_tf: dict[str, float] = field(default_factory=dict)
     atr_sl_multiplier_per_tf: dict[str, float] = field(default_factory=dict)
+    atr_sl_floor_per_tf: dict[str, bool] = field(default_factory=dict)
 
 
 @dataclass
@@ -91,9 +93,11 @@ class StrategyOverride:
     tp_r: float | None = None
     sl_pct: float | None = None
     atr_sl_multiplier: float | None = None
+    atr_sl_floor: bool | None = None
     tp_r_per_tf: dict[str, float] = field(default_factory=dict)
     sl_pct_per_tf: dict[str, float] = field(default_factory=dict)
     atr_sl_multiplier_per_tf: dict[str, float] = field(default_factory=dict)
+    atr_sl_floor_per_tf: dict[str, bool] = field(default_factory=dict)
     per_symbol: dict[str, SymbolOverride] = field(default_factory=dict)
     adr_exempt: bool = False
     # None = inherit global [backtest].volume_suppress; True/False = per-strategy override.
@@ -336,6 +340,11 @@ class SignalWatchConfig:
     # When set, SL distance = atr_sl_multiplier × ATR14 at signal candle.
     # Per-strategy overrides in strategy_params take precedence.
     atr_sl_multiplier: float | None = None
+    # F9 ATR-as-min-SL floor — when True, structural SLs are widened to
+    # max(structural_dist, atr_sl_multiplier × ATR14) and tp_price is
+    # recomputed from tp_r × new_sl_dist to keep R:R intact. Default off
+    # mirrors backtest engine; opt-in per-strategy via strategy_params.
+    atr_sl_floor: bool = False
     # Statistics-driven bias layer (F8): ADR progress gate + DOW soft suppress.
     bias: BiasConfig = field(default_factory=BiasConfig)
     # Live co-firing confluence detection (D10 step 3).
@@ -433,6 +442,22 @@ class SignalWatchConfig:
                 return override.atr_sl_multiplier
         return self.atr_sl_multiplier
 
+    def effective_atr_sl_floor(self, strategy: str, symbol: str, tf: str) -> bool:
+        """Resolve atr_sl_floor: symbol+TF → symbol → TF-specific → strategy-wide → global."""
+        override = self.strategy_params.get(strategy)
+        if override is not None:
+            sym = override.per_symbol.get(symbol)
+            if sym is not None:
+                if tf in sym.atr_sl_floor_per_tf:
+                    return sym.atr_sl_floor_per_tf[tf]
+                if sym.atr_sl_floor is not None:
+                    return sym.atr_sl_floor
+            if tf in override.atr_sl_floor_per_tf:
+                return override.atr_sl_floor_per_tf[tf]
+            if override.atr_sl_floor is not None:
+                return override.atr_sl_floor
+        return self.atr_sl_floor
+
 
 def load_signal_config(path: str | Path) -> SignalWatchConfig:
     """Load SignalWatchConfig from a TOML file.
@@ -521,9 +546,17 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
             and k != "atr_sl_multiplier"
             and not isinstance(v, dict)
         }
+        atr_sl_floor_per_tf = {
+            k[len("atr_sl_floor_") :]: bool(v)
+            for k, v in vals.items()
+            if k.startswith("atr_sl_floor_")
+            and k != "atr_sl_floor"
+            and not isinstance(v, dict)
+        }
         tp_r_val = vals.get("tp_r")
         sl_pct_val = vals.get("sl_pct")
         atr_sl_val = vals.get("atr_sl_multiplier")
+        atr_sl_floor_val = vals.get("atr_sl_floor")
         per_symbol: dict[str, SymbolOverride] = {}
         for sym_key, sym_vals in vals.items():
             if isinstance(sym_vals, dict):
@@ -542,9 +575,15 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
                     for k, v in sym_vals.items()
                     if k.startswith("atr_sl_multiplier_") and k != "atr_sl_multiplier"
                 }
+                sym_atr_sl_floor_per_tf = {
+                    k[len("atr_sl_floor_") :]: bool(v)
+                    for k, v in sym_vals.items()
+                    if k.startswith("atr_sl_floor_") and k != "atr_sl_floor"
+                }
                 sym_tp_r_val = sym_vals.get("tp_r")
                 sym_sl_pct_val = sym_vals.get("sl_pct")
                 sym_atr_sl_val = sym_vals.get("atr_sl_multiplier")
+                sym_atr_sl_floor_val = sym_vals.get("atr_sl_floor")
                 per_symbol[sym_key] = SymbolOverride(
                     tp_r=float(sym_tp_r_val) if sym_tp_r_val is not None else None,
                     sl_pct=float(sym_sl_pct_val)
@@ -553,9 +592,15 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
                     atr_sl_multiplier=(
                         float(sym_atr_sl_val) if sym_atr_sl_val is not None else None
                     ),
+                    atr_sl_floor=(
+                        bool(sym_atr_sl_floor_val)
+                        if sym_atr_sl_floor_val is not None
+                        else None
+                    ),
                     tp_r_per_tf=sym_tp_r_per_tf,
                     sl_pct_per_tf=sym_sl_pct_per_tf,
                     atr_sl_multiplier_per_tf=sym_atr_sl_per_tf,
+                    atr_sl_floor_per_tf=sym_atr_sl_floor_per_tf,
                 )
         raw_vs = vals.get("volume_suppress")
         raw_vsb = vals.get("volume_spike_boost")
@@ -569,9 +614,13 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
             tp_r=float(tp_r_val) if tp_r_val is not None else None,
             sl_pct=float(sl_pct_val) if sl_pct_val is not None else None,
             atr_sl_multiplier=float(atr_sl_val) if atr_sl_val is not None else None,
+            atr_sl_floor=(
+                bool(atr_sl_floor_val) if atr_sl_floor_val is not None else None
+            ),
             tp_r_per_tf=tp_r_per_tf,
             sl_pct_per_tf=sl_pct_per_tf,
             atr_sl_multiplier_per_tf=atr_sl_per_tf,
+            atr_sl_floor_per_tf=atr_sl_floor_per_tf,
             per_symbol=per_symbol,
             adr_exempt=bool(vals.get("adr_exempt", False)),
             volume_suppress=bool(raw_vs) if raw_vs is not None else None,
@@ -674,6 +723,7 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
             if data.get("atr_sl_multiplier") is not None
             else None
         ),
+        atr_sl_floor=bool(data.get("atr_sl_floor", False)),
         bias=bias,
         combo=combo,
     )
