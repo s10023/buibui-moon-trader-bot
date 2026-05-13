@@ -30,6 +30,7 @@ from analytics.data_store import (
     prune_backtest_cache,
 )
 from analytics.data_sync import backfill, sync
+from analytics.signal.outcome_backfill import backfill_outcomes
 from analytics.signal_config import (
     BacktestFilterConfig,
     BiasConfig,
@@ -370,6 +371,14 @@ def run_signal_watch(
                     else 1.0,
                     ohlcv_cache=ohlcv_cache,
                 )
+
+                # T2 P2: walk OHLCV forward to resolve outstanding outcome rows.
+                # Reuses the same write conn; cheap (single SELECT + per-TF
+                # OHLCV reads). Failure is logged but never blocks the cycle.
+                try:
+                    backfill_outcomes(conn, now_ms=now_ms)
+                except Exception:
+                    logger.exception("Outcome backfill failed this cycle")
             # Connection is now closed — web API can read the DB during the sleep.
 
             if alerts:
