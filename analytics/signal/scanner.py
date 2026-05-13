@@ -949,31 +949,6 @@ def run_scan_cycle(
         except Exception:
             logger.exception("Failed to persist signals to DB for %s %s", symbol, tf)
 
-        # Persist outcome rows so win/loss can be backfilled later (A4 P1).
-        for e in passing_events:
-            signal_id = (
-                f"{e.symbol}-{e.timeframe}-{e.strategy}-{e.open_time}-{e.direction}"
-            )
-            try:
-                upsert_signal_outcome(
-                    conn,
-                    {
-                        "signal_id": signal_id,
-                        "symbol": e.symbol,
-                        "tf": e.timeframe,
-                        "strategy": e.strategy,
-                        "direction": e.direction,
-                        "fired_at_ms": now_fired_ms,
-                        "candle_ts_ms": e.open_time,
-                        "entry_price": e.price,
-                        "sl_price": e.sl_price or None,
-                        "confidence_at_fire": e.confidence,
-                        "tags": e.reason,
-                    },
-                )
-            except Exception:
-                logger.exception("Failed to persist signal outcome for %s", signal_id)
-
         # In a tied conflict, passing_events may contain both directions —
         # split by direction so each confluence alert is direction-homogeneous.
         directions_present = list(dict.fromkeys(e.direction for e in passing_events))
@@ -999,6 +974,60 @@ def run_scan_cycle(
                 _resolve_tp_r(strategy_params, e.strategy, symbol, tf, tp_r, direction)
                 for e in dir_events
             )
+
+            # Persist per-event outcome rows so win/loss can be backfilled later.
+            # tp_price/rr_ratio are filled here (after eff_alert_tp_r is known) so
+            # the backfill worker can resolve win/loss against the same target the
+            # alert showed. Per-event SL distance mirrors the formatter math
+            # (structural SL with min_sl_pct floor); rows without a structural SL
+            # persist NULL on sl_price+tp_price and stay unbackfilled by design.
+            for e in dir_events:
+                signal_id = (
+                    f"{e.symbol}-{e.timeframe}-{e.strategy}-{e.open_time}-{e.direction}"
+                )
+                entry = e.price
+                ev_sl: float | None = None
+                ev_tp: float | None = None
+                if direction == "long" and 0 < e.sl_price < entry:
+                    sl_dist = max(entry - e.sl_price, entry * min_sl_pct)
+                    ev_sl = entry - sl_dist
+                    ev_tp = (
+                        e.tp_price
+                        if e.tp_price > entry
+                        else entry + sl_dist * eff_alert_tp_r
+                    )
+                elif direction == "short" and e.sl_price > entry:
+                    sl_dist = max(e.sl_price - entry, entry * min_sl_pct)
+                    ev_sl = entry + sl_dist
+                    ev_tp = (
+                        e.tp_price
+                        if 0 < e.tp_price < entry
+                        else entry - sl_dist * eff_alert_tp_r
+                    )
+                try:
+                    upsert_signal_outcome(
+                        conn,
+                        {
+                            "signal_id": signal_id,
+                            "symbol": e.symbol,
+                            "tf": e.timeframe,
+                            "strategy": e.strategy,
+                            "direction": e.direction,
+                            "fired_at_ms": now_fired_ms,
+                            "candle_ts_ms": e.open_time,
+                            "entry_price": entry,
+                            "sl_price": ev_sl,
+                            "tp_price": ev_tp,
+                            "rr_ratio": eff_alert_tp_r if ev_tp is not None else None,
+                            "confidence_at_fire": e.confidence,
+                            "tags": e.reason,
+                        },
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to persist signal outcome for %s", signal_id
+                    )
+
             # Compute CME gap warning for this direction.
             # Rough TP mirrors the formatter's own SL/TP math so the gap
             # overlap check uses the same target price shown in the alert.

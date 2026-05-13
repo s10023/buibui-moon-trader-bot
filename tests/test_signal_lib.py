@@ -1961,7 +1961,8 @@ class TestSignalOutcomePersistence:
 
         row = conn.execute(
             "SELECT signal_id, symbol, tf, strategy, direction, candle_ts_ms, "
-            "sl_price, confidence_at_fire, outcome FROM signal_alert_outcomes"
+            "sl_price, tp_price, rr_ratio, confidence_at_fire, outcome "
+            "FROM signal_alert_outcomes"
         ).fetchone()
         assert row is not None
         assert row[0] == f"BTCUSDT-4h-fvg-{self._OPEN_TIME_MS}-long"
@@ -1970,9 +1971,197 @@ class TestSignalOutcomePersistence:
         assert row[3] == "fvg"
         assert row[4] == "long"
         assert row[5] == self._OPEN_TIME_MS
+        # entry=104 (close of signal candle), sl=98, sl_dist=6, default tp_r=2.0
+        # → tp_price = 104 + 6 × 2 = 116
         assert row[6] == 98.0
-        assert row[7] == 3
-        assert row[8] is None  # outcome not yet resolved
+        assert row[7] == pytest.approx(116.0)
+        assert row[8] == pytest.approx(2.0)
+        assert row[9] == 3
+        assert row[10] is None  # outcome not yet resolved
+
+    def test_outcome_row_short_direction_tp_below_entry(self, tmp_path: Any) -> None:
+        """Short signal: sl above entry, tp = entry − sl_dist × tp_r below entry."""
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        store = CooldownStore(str(tmp_path / "state.json"))
+        signals_df = pd.DataFrame(
+            [
+                {
+                    "open_time": self._OPEN_TIME_MS,
+                    "direction": "short",
+                    "reason": "fvg_short@106.00-108.00",
+                    "sl_price": 110.0,
+                    "context": "",
+                }
+            ]
+        )
+
+        with (
+            patch(
+                "analytics.signal.scanner.get_ohlcv", return_value=self._make_ohlcv()
+            ),
+            patch(
+                "analytics.signal.scanner.get_funding_rates",
+                return_value=pd.DataFrame(),
+            ),
+            patch(
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
+                {"fvg": {"detector": lambda df: signals_df, "confidence": 3}},
+            ),
+            patch(
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
+                {
+                    "fvg": type(
+                        "S",
+                        (),
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 3,
+                        },
+                    )()
+                },
+            ),
+        ):
+            run_scan_cycle(
+                conn=conn,
+                symbols=["BTCUSDT"],
+                timeframes=["4h"],
+                strategies=["fvg"],
+                store=store,
+            )
+
+        row = conn.execute(
+            "SELECT direction, entry_price, sl_price, tp_price, rr_ratio "
+            "FROM signal_alert_outcomes"
+        ).fetchone()
+        assert row is not None
+        # entry=104, sl=110, sl_dist=6, tp_r=2.0 → tp = 104 − 12 = 92
+        assert row[0] == "short"
+        assert row[1] == pytest.approx(104.0)
+        assert row[2] == pytest.approx(110.0)
+        assert row[3] == pytest.approx(92.0)
+        assert row[4] == pytest.approx(2.0)
+
+    def test_outcome_row_uses_structural_tp_when_present(self, tmp_path: Any) -> None:
+        """When detector emits tp_price on the correct side, persist it verbatim."""
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        store = CooldownStore(str(tmp_path / "state.json"))
+        signals_df = pd.DataFrame(
+            [
+                {
+                    "open_time": self._OPEN_TIME_MS,
+                    "direction": "long",
+                    "reason": "fvg_long@100.00-102.00",
+                    "sl_price": 98.0,
+                    "tp_price": 120.5,  # structural TP above entry
+                    "context": "",
+                }
+            ]
+        )
+
+        with (
+            patch(
+                "analytics.signal.scanner.get_ohlcv", return_value=self._make_ohlcv()
+            ),
+            patch(
+                "analytics.signal.scanner.get_funding_rates",
+                return_value=pd.DataFrame(),
+            ),
+            patch(
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
+                {"fvg": {"detector": lambda df: signals_df, "confidence": 3}},
+            ),
+            patch(
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
+                {
+                    "fvg": type(
+                        "S",
+                        (),
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 3,
+                        },
+                    )()
+                },
+            ),
+        ):
+            run_scan_cycle(
+                conn=conn,
+                symbols=["BTCUSDT"],
+                timeframes=["4h"],
+                strategies=["fvg"],
+                store=store,
+            )
+
+        row = conn.execute(
+            "SELECT tp_price, rr_ratio FROM signal_alert_outcomes"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == pytest.approx(120.5)  # structural TP wins
+        assert row[1] == pytest.approx(2.0)  # rr_ratio = eff_alert_tp_r
+
+    def test_outcome_row_skips_tp_when_no_structural_sl(self, tmp_path: Any) -> None:
+        """When sl_price=0 (no structural SL), sl_price and tp_price persist NULL."""
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        store = CooldownStore(str(tmp_path / "state.json"))
+        signals_df = pd.DataFrame(
+            [
+                {
+                    "open_time": self._OPEN_TIME_MS,
+                    "direction": "long",
+                    "reason": "fvg_long@100.00-102.00",
+                    "sl_price": 0.0,  # no structural SL
+                    "context": "",
+                }
+            ]
+        )
+
+        with (
+            patch(
+                "analytics.signal.scanner.get_ohlcv", return_value=self._make_ohlcv()
+            ),
+            patch(
+                "analytics.signal.scanner.get_funding_rates",
+                return_value=pd.DataFrame(),
+            ),
+            patch(
+                "analytics.signal.scanner.SIGNAL_REGISTRY",
+                {"fvg": {"detector": lambda df: signals_df, "confidence": 3}},
+            ),
+            patch(
+                "analytics.signal.scanner.STRATEGY_REGISTRY",
+                {
+                    "fvg": type(
+                        "S",
+                        (),
+                        {
+                            "requires_funding": False,
+                            "requires_secondary": False,
+                            "get_confidence": lambda self, tf: 3,
+                        },
+                    )()
+                },
+            ),
+        ):
+            run_scan_cycle(
+                conn=conn,
+                symbols=["BTCUSDT"],
+                timeframes=["4h"],
+                strategies=["fvg"],
+                store=store,
+            )
+
+        row = conn.execute(
+            "SELECT sl_price, tp_price, rr_ratio FROM signal_alert_outcomes"
+        ).fetchone()
+        assert row is not None
+        assert row[0] is None  # no structural SL persisted
+        assert row[1] is None
+        assert row[2] is None
 
 
 class TestBacktestRunPersistence:
