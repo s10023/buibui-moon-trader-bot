@@ -111,6 +111,19 @@ session       = ["trend", "range", "high_vol"]
 bos = ["high_vol", "range"]
 fib_golden_zone = ["range", "high_vol"]
 
+# T2c per-strategy directional suppress (Step −0.5 of bias chain).
+# Drops signals matching `[strategy_params.<name>].suppress_long` /
+# `.suppress_short`. Cheapest filter — pure per-event flag, runs before F8.
+# Justified by `tools/bos_routing_audit.py` (2026-05-13, n=72,643): the dominant
+# axis is DIRECTION (short +0.140R vs long −0.268R, spread 0.40R) — bigger than
+# regime (spread 0.18R) and session (0.23R). bos longs alone bleed avg_r=−0.27
+# on n=34,767 — the single largest pool of avoidable loss in the system.
+# Soft mode first; replay-verify via `tools/direction_filter_replay.py` and
+# observe ≥2 weeks before flipping to hard.
+[bias.direction_filter]
+enabled = true
+mode = "soft"
+
 # D10 steps 3+4 — live co-firing confluence detection.
 # window: look back this many candles in the signals DB for a same-TF co-firing partner.
 # min_avg_r: only append the blockquote when the combo backtest avg_r meets this threshold.
@@ -140,6 +153,7 @@ min_avg_r = 0.0
 # Strategies not listed here have no per-strategy flag override (loader default applies).
 [strategy_params.bos]
 volume_suppress = true        # A14b: normal-vol wins Δ=+0.11R
+suppress_long = true          # T2c: long-side avg_r=−0.268R on n=34,767 (routing audit 2026-05-13). Soft mode via [bias.direction_filter].
 
 [strategy_params.engulfing]
 volume_suppress_long = true   # directional: LONG low-vol -0.13R→+0.22R (tue_thu Δ=+0.36R); SHORT low-vol +0.72R — keep

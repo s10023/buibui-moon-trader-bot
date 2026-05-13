@@ -113,6 +113,11 @@ class StrategyOverride:
     # Optional direction-split TP multiples. Falls back to tp_r when None.
     tp_r_long: float | None = None
     tp_r_short: float | None = None
+    # T2c per-strategy directional suppress. When True, drop signals of that
+    # direction at the live bias chain (Step −0.5). Applied by
+    # _apply_direction_filter_gate when [bias.direction_filter].enabled = true.
+    suppress_long: bool = False
+    suppress_short: bool = False
 
 
 def _day_filter_to_weekdays(day_filter: str) -> list[int] | None:
@@ -242,6 +247,12 @@ class BiasConfig:
     htf_ema_default_slope_lookback: int = 10
     htf_ema_deadband_pct: float = 0.003
     htf_ema_per_strategy: dict[str, HtfEmaAnchor] = field(default_factory=dict)
+
+    # T2c per-strategy directional suppress gate (Step −0.5 of bias chain).
+    # Applied to StrategyOverride.suppress_long / .suppress_short flags.
+    # mode="soft" logs only; mode="hard" drops the matched-direction events.
+    direction_filter_enabled: bool = False
+    direction_filter_mode: str = "soft"
 
     # v2 Phase 2 regime gate.
     regime_enabled: bool = False
@@ -610,6 +621,8 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         raw_vsbs = vals.get("volume_spike_boost_short")
         raw_tp_r_long = vals.get("tp_r_long")
         raw_tp_r_short = vals.get("tp_r_short")
+        raw_suppress_long = vals.get("suppress_long")
+        raw_suppress_short = vals.get("suppress_short")
         strategy_params[str(strat_name)] = StrategyOverride(
             tp_r=float(tp_r_val) if tp_r_val is not None else None,
             sl_pct=float(sl_pct_val) if sl_pct_val is not None else None,
@@ -631,6 +644,12 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
             volume_spike_boost_short=bool(raw_vsbs) if raw_vsbs is not None else None,
             tp_r_long=float(raw_tp_r_long) if raw_tp_r_long is not None else None,
             tp_r_short=float(raw_tp_r_short) if raw_tp_r_short is not None else None,
+            suppress_long=bool(raw_suppress_long)
+            if raw_suppress_long is not None
+            else False,
+            suppress_short=bool(raw_suppress_short)
+            if raw_suppress_short is not None
+            else False,
         )
 
     raw_bias = data.get("bias", {})
@@ -656,6 +675,10 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
             period=int(ov.get("period", htf_default_period)),
             slope_lookback=int(ov.get("slope_lookback", htf_default_slope_lb)),
         )
+
+    raw_dir_filter = raw_bias.get("direction_filter", {})
+    if not isinstance(raw_dir_filter, dict):
+        raise ValueError("[bias.direction_filter] must be a TOML table")
 
     raw_regime = raw_bias.get("regime", {})
     if not isinstance(raw_regime, dict):
@@ -686,6 +709,8 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         htf_ema_default_slope_lookback=htf_default_slope_lb,
         htf_ema_deadband_pct=float(raw_htf.get("deadband_pct", 0.003)),
         htf_ema_per_strategy=htf_per_strategy,
+        direction_filter_enabled=bool(raw_dir_filter.get("enabled", False)),
+        direction_filter_mode=str(raw_dir_filter.get("mode", "soft")),
         regime_enabled=bool(raw_regime.get("enabled", False)),
         regime_mode=str(raw_regime.get("mode", "soft")),
         regime_htf_tf=str(raw_regime.get("htf_tf", "4h")),

@@ -48,6 +48,7 @@ from analytics.signal.cofire import (
     _find_live_cofire,
 )
 from analytics.signal.gates import (
+    _apply_direction_filter_gate,
     _apply_htf_ema_gate,
     _apply_regime_gate,
     _is_adr_exempt,
@@ -825,6 +826,20 @@ def run_scan_cycle(
                     passing_events,
                     bias_cfg,
                     regime_cache,
+                    symbol,
+                    tf,
+                )
+                if not passing_events:
+                    continue
+
+            # Step −0.5: T2c per-strategy directional suppress gate.
+            # Cheapest filter — pure per-event flag check, no HTF/regime data.
+            # Drops audited dead-direction cells (e.g. bos long −0.27R / n=34,767).
+            if bias_cfg.direction_filter_enabled and passing_events:
+                passing_events = _apply_direction_filter_gate(
+                    passing_events,
+                    bias_cfg,
+                    strategy_params,
                     symbol,
                     tf,
                 )

@@ -596,6 +596,56 @@ class TestLoadWithExtends:
             assert cfg.bias.htf_ema_anchor(strat).tf == "1d", (
                 f"{strat} should override to 1d anchor"
             )
+        # T2c direction filter (soft mode) inherited from base — gate enabled
+        # so suppress_long / suppress_short on per-strategy blocks fires.
+        assert cfg.bias.direction_filter_enabled is True
+        assert cfg.bias.direction_filter_mode == "soft"
+        # bos long-side suppress flag carried through the parser.
+        bos_override = cfg.strategy_params.get("bos")
+        assert bos_override is not None
+        assert bos_override.suppress_long is True
+        assert bos_override.suppress_short is False
+
+
+class TestDirectionFilterParsing:
+    def test_toml_round_trip_direction_filter(self, tmp_path: Path) -> None:
+        content = """\
+[bias.direction_filter]
+enabled = true
+mode = "hard"
+
+[strategy_params.bos]
+suppress_long = true
+
+[strategy_params.engulfing]
+suppress_short = true
+
+[strategy_params.pin_bar]
+suppress_long = true
+suppress_short = true
+"""
+        p = _write_toml(tmp_path, content)
+        cfg = load_signal_config(p)
+        assert cfg.bias.direction_filter_enabled is True
+        assert cfg.bias.direction_filter_mode == "hard"
+        assert cfg.strategy_params["bos"].suppress_long is True
+        assert cfg.strategy_params["bos"].suppress_short is False
+        assert cfg.strategy_params["engulfing"].suppress_long is False
+        assert cfg.strategy_params["engulfing"].suppress_short is True
+        assert cfg.strategy_params["pin_bar"].suppress_long is True
+        assert cfg.strategy_params["pin_bar"].suppress_short is True
+
+    def test_default_is_off_when_block_missing(self, tmp_path: Path) -> None:
+        content = """\
+[strategy_params.bos]
+tp_r = 3.0
+"""
+        p = _write_toml(tmp_path, content)
+        cfg = load_signal_config(p)
+        assert cfg.bias.direction_filter_enabled is False
+        assert cfg.bias.direction_filter_mode == "soft"
+        assert cfg.strategy_params["bos"].suppress_long is False
+        assert cfg.strategy_params["bos"].suppress_short is False
 
 
 class TestEffectiveVolumeSuppress:

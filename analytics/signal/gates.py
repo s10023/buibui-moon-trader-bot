@@ -160,6 +160,69 @@ def _apply_htf_ema_gate(
     return kept
 
 
+def _apply_direction_filter_gate(
+    events: list[SignalEvent],
+    bias_cfg: BiasConfig,
+    strategy_params: dict[str, StrategyOverride] | None,
+    symbol: str,
+    tf: str,
+) -> list[SignalEvent]:
+    """T2c per-strategy directional suppress gate (Step −0.5 of bias chain).
+
+    Drops signals whose direction is suppressed for that strategy via
+    StrategyOverride.suppress_long / .suppress_short. Cheapest filter in the
+    chain — no HTF data, no cache lookups, pure per-event flag check.
+
+    Behaviour:
+      - gate disabled → allow all.
+      - no per-strategy override → allow (defensive: unknown strategy falls open).
+      - direction not suppressed → allow.
+      - direction suppressed + hard mode → drop and log.
+      - direction suppressed + soft mode → log and keep.
+
+    Returns the (possibly filtered) event list. Never raises.
+    """
+    if not bias_cfg.direction_filter_enabled or not events:
+        return events
+    if not strategy_params:
+        return events
+
+    hard = bias_cfg.direction_filter_mode == "hard"
+    kept: list[SignalEvent] = []
+    suppressed = 0
+    for event in events:
+        override = strategy_params.get(event.strategy)
+        if override is None:
+            kept.append(event)
+            continue
+        is_suppressed = (event.direction == "long" and override.suppress_long) or (
+            event.direction == "short" and override.suppress_short
+        )
+        if not is_suppressed:
+            kept.append(event)
+            continue
+        logger.info(
+            "Direction filter %s: %s %s %s %s",
+            "dropped" if hard else "soft-flagged",
+            symbol,
+            tf,
+            event.strategy,
+            event.direction,
+        )
+        if hard:
+            suppressed += 1
+            continue
+        kept.append(event)
+    if suppressed and hard:
+        logger.info(
+            "Direction filter removed %d signal(s) for %s %s",
+            suppressed,
+            symbol,
+            tf,
+        )
+    return kept
+
+
 def _apply_regime_gate(
     events: list[SignalEvent],
     bias_cfg: BiasConfig,
