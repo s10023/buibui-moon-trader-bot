@@ -41,6 +41,7 @@ from analytics.signal._common import (
     _SCAN_WINDOW,
     _bt_mem_cache,
 )
+from analytics.signal.atr_floor import _apply_atr_floor
 from analytics.signal.bt_cache import _backtest_summary, _compute_backtest
 from analytics.signal.cofire import (
     _find_cross_tf_cofire,
@@ -52,6 +53,7 @@ from analytics.signal.gates import (
     _is_adr_exempt,
 )
 from analytics.signal.resolvers import (
+    _resolve_atr_sl_floor,
     _resolve_atr_sl_multiplier,
     _resolve_sl_pct,
     _resolve_tp_r,
@@ -246,6 +248,7 @@ def run_scan_cycle(
     strategy_timeframes: dict[str, list[str]] | None = None,
     strategy_params: dict[str, StrategyOverride] | None = None,
     atr_sl_multiplier: float | None = None,
+    atr_sl_floor: bool = False,
     confidence_override: dict[str, dict[str, int]] | None = None,
     directional_confidence_override: dict[str, dict[str, dict[str, int]]] | None = None,
     bias_cfg: BiasConfig | None = None,
@@ -470,6 +473,21 @@ def run_scan_cycle(
         sec_df = secondary_dfs.get(sec_key) if needs_secondary else None
         funding_df = funding_map.get(symbol)
 
+        # F9 ATR-as-min-SL floor — widen tight structural SLs and recompute
+        # TP from tp_r. Runs before conflict/dedup/bias so every downstream
+        # path (DB persistence, backtest filter, formatter) sees the
+        # corrected sl_price/tp_price. Default off; opt-in per-strategy.
+        events = _apply_atr_floor(
+            events,
+            ohlcv_df,
+            symbol,
+            tf,
+            strategy_params,
+            tp_r,
+            atr_sl_multiplier,
+            atr_sl_floor,
+        )
+
         # Conflict resolution: opposite directions on same symbol/tf
         # Pick the side with higher max confidence; on a tie, send both sides
         # (each signal's reason will have "⚠️ conflict" appended).
@@ -544,6 +562,9 @@ def run_scan_cycle(
                     tf,
                     atr_sl_multiplier,
                 )
+                eff_atr_floor = _resolve_atr_sl_floor(
+                    strategy_params, event.strategy, symbol, tf, atr_sl_floor
+                )
                 _tp_r_long = _resolve_tp_r(
                     strategy_params, event.strategy, symbol, tf, tp_r, "long"
                 )
@@ -600,6 +621,7 @@ def run_scan_cycle(
                         eff_vsb_long or None,
                         eff_vsb_short or None,
                         eff_adr_exempt,
+                        eff_atr_floor,
                     )
                     last_candle_ts = int(ohlcv_df["open_time"].iloc[-2])
                     cache_key = _make_bt_cache_key(run_id, last_candle_ts)
@@ -624,6 +646,7 @@ def run_scan_cycle(
                                 day_filter=day_filter,
                                 min_sl_pct=backtest_cfg.min_sl_pct,
                                 atr_sl_multiplier=eff_atr_sl,
+                                atr_sl_floor=eff_atr_floor,
                                 adr_suppress_threshold=bias_cfg.adr_suppress_threshold
                                 if bias_cfg
                                 else None,
@@ -661,6 +684,7 @@ def run_scan_cycle(
                         day_filter=day_filter,
                         min_sl_pct=backtest_cfg.min_sl_pct,
                         atr_sl_multiplier=eff_atr_sl,
+                        atr_sl_floor=eff_atr_floor,
                         adr_suppress_threshold=bias_cfg.adr_suppress_threshold
                         if bias_cfg
                         else None,

@@ -89,6 +89,32 @@ def _resolve_atr_sl_multiplier(
     return global_atr_sl
 
 
+def _resolve_atr_sl_floor(
+    strategy_params: dict[str, StrategyOverride] | None,
+    strategy: str,
+    symbol: str,
+    tf: str,
+    global_atr_sl_floor: bool,
+) -> bool:
+    """Resolve effective atr_sl_floor: symbol+TF → symbol → TF-specific → strategy-wide → global."""
+    if not strategy_params:
+        return global_atr_sl_floor
+    override = strategy_params.get(strategy)
+    if override is None:
+        return global_atr_sl_floor
+    sym = override.per_symbol.get(symbol)
+    if sym is not None:
+        if tf in sym.atr_sl_floor_per_tf:
+            return sym.atr_sl_floor_per_tf[tf]
+        if sym.atr_sl_floor is not None:
+            return sym.atr_sl_floor
+    if tf in override.atr_sl_floor_per_tf:
+        return override.atr_sl_floor_per_tf[tf]
+    if override.atr_sl_floor is not None:
+        return override.atr_sl_floor
+    return global_atr_sl_floor
+
+
 def _resolve_volume_suppress(
     strategy_params: dict[str, StrategyOverride] | None,
     strategy: str,

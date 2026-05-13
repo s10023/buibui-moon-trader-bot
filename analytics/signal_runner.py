@@ -114,6 +114,7 @@ def run_signal_watch(
     strategy_timeframes: dict[str, list[str]] | None = None,
     strategy_params: dict[str, StrategyOverride] | None = None,
     atr_sl_multiplier: float | None = None,
+    atr_sl_floor: bool = False,
     config_name: str | None = None,
     bias_cfg: BiasConfig | None = None,
     combo_cfg: ComboConfig | None = None,
@@ -349,6 +350,7 @@ def run_signal_watch(
                     strategy_timeframes=strategy_timeframes,
                     strategy_params=strategy_params,
                     atr_sl_multiplier=atr_sl_multiplier,
+                    atr_sl_floor=atr_sl_floor,
                     confidence_override=confidence_override or None,
                     directional_confidence_override=directional_confidence_override
                     or None,

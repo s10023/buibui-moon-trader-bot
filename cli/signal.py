@@ -89,6 +89,7 @@ def run_signal_test(args: argparse.Namespace) -> None:
         "strategy_params": cfg.strategy_params or None,
         "bias_cfg": cfg.bias if cfg.bias.adr_suppress_threshold is not None else None,
         "atr_sl_multiplier": cfg.atr_sl_multiplier,
+        "atr_sl_floor": cfg.atr_sl_floor,
     }
     if getattr(args, "db_path", None):
         kwargs["db_path"] = pathlib.Path(args.db_path)
@@ -137,6 +138,7 @@ def run_signal_watch(args: argparse.Namespace) -> None:
         strategy_timeframes=cfg.strategy_timeframes or None,
         strategy_params=cfg.strategy_params or None,
         atr_sl_multiplier=cfg.atr_sl_multiplier,
+        atr_sl_floor=cfg.atr_sl_floor,
         config_name=config_name,
         bias_cfg=cfg.bias,
         combo_cfg=cfg.combo,
