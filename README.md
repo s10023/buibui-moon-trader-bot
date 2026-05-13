@@ -661,7 +661,18 @@ candlestick   = ["trend", "range", "high_vol"]
 session       = ["trend", "range", "high_vol"]
 
 [bias.regime.per_strategy]
-bos = ["trend"]                 # continuation despite type=structural
+bos = ["high_vol", "range"]     # routing-audit-corrected (PR #366); trend regime was bos's worst
+fib_golden_zone = ["range", "high_vol"]   # inverted off §6 default (PR #354)
+
+# T2c per-strategy directional suppress — Step −0.5 of the bias chain.
+# Drops signals matching [strategy_params.<name>].suppress_long / .suppress_short.
+# Cheapest filter — pure per-event flag, no HTF / regime data.
+[bias.direction_filter]
+enabled = true
+mode = "soft"                   # flip to "hard" after ≥2 weeks of soft-mode logs
+
+[strategy_params.bos]
+suppress_long = true            # T2c: long-side avg_r=−0.268R on n=34,767 (routing audit 2026-05-13)
 ```
 
 ADR + DOW gates read from the per-symbol `StatsContext` computed each cycle (same data shown
