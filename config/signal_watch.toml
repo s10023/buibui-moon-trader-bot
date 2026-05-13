@@ -64,7 +64,7 @@ smt_divergence   = ["15m", "1h", "1d"]       # Phase 1: 4h dropped (audit -0.307
 orb              = ["1h", "4h", "1d"]        # 15m mean_r=-0.163 suppressed
 bos              = ["15m", "1h", "4h"]       # 1d mean_r=-0.785 suppressed; 4h mean_r=+0.223 re-enabled
 pin_bar          = ["15m", "1h", "4h", "1d"] # audit confirms KEEP all TFs (50–100% positive)
-liquidity_sweep  = ["1d"]                    # Phase 1: 1h dropped (audit -0.250R, 0% positive); 15m/4h already excluded
+liquidity_sweep  = ["1h", "1d"]              # 1h re-enabled 2026-05-13 with F9 floor (atr_sl_multiplier_1h=2.5, atr_sl_floor_1h=true); BTC+SOL net-positive OOS; ETH suppressed by live gate
 cvd_divergence   = ["1h"]                    # 1h monotonic +1.38R@5.0 stable 41%WR; audit confirms 80% positive
 doji             = ["15m", "1h"]             # 4h degraded: best 1.5R=+0.04R (16 trades); 1d too thin
 morning_evening_star = ["15m", "1h", "4h"]   # 1d mean_r=-0.105 suppressed
@@ -198,7 +198,23 @@ volume_suppress = true        # A14b: normal-vol wins Δ=+0.78R (low +0.63R vs n
 [strategy_params.smt_divergence.BTCUSDT]
 # No param override — BTC 4h relies on hard-mode backtest gate to suppress.
 
-# liquidity_sweep and marubozu volume_suppress flags live in strategy_params.toml (base).
+# liquidity_sweep 1h re-audit 2026-05-13 (tue_thu, since 2025-09-12, F9 floor on):
+#   BTC OOS +0.213R @ tp_r=1.5 (n=51) · SOL OOS +0.133R @ tp_r=1.0 (n=51) · ETH OOS -0.068R no edge (n=53)
+#   Aggregate (n=156) +0.089R @ tp_r=1.0 — passes +0.05R bar. ETH suppressed by min_avg_r=0.0 live gate.
+[strategy_params.liquidity_sweep]
+atr_sl_floor_1h = true          # F9: widen tight structural SL to max(structural, 2.5×ATR14)
+atr_sl_multiplier_1h = 2.5
+tp_r_1h = 1.0                   # SOL OOS pick (cross-symbol default for 1h)
+
+[strategy_params.liquidity_sweep.BTCUSDT]
+tp_r_1h = 1.5                   # 1h re-audit OOS: BTC +0.213R @ 1.5R (diverges from SOL 1.0R)
+
+# ETHUSDT 1h: -0.068R OOS (n=53, tue_thu) — no edge across tp_r ∈ {1.0,1.5,2.0}.
+# Hard-mode min_avg_r=0.0 gate suppresses at runtime. True per-symbol TF exclusion not yet supported.
+[strategy_params.liquidity_sweep.ETHUSDT]
+# No param override — ETH 1h relies on hard-mode backtest gate to suppress.
+
+# marubozu volume_suppress flags live in strategy_params.toml (base).
 # backtest, smt_pairs, and bias sections also live in strategy_params.toml (base).
 # Uncomment below to override specific backtest options for this config:
 # [backtest]
