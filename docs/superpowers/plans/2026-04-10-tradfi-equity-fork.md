@@ -4,15 +4,111 @@
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task.
 > Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Fork buibui-moon-trader-bot into a US-equities bot powered by Alpaca Markets API,
-running on-demand (EOD/EOW) against a watchlist of single stocks.
+---
+
+## 0. Updates after 2026-05-14 (read this first)
+
+This plan was drafted 2026-04-10 around an Alpaca-Markets data layer and a single-shot fork that included paper trading. Three decisions made 2026-05-14 materially alter it (companion spec `../specs/2026-04-10-tradfi-equity-fork-design.md` §0.1):
+
+1. **Alpaca dropped; yfinance committed for Phase A.** Polygon.io Starter $29/mo is the pre-approved upgrade target.
+2. **Timeframe scope cut to 4h / 1d / 1w only.** 15m and 1h are out of scope — this is what made yfinance viable.
+3. **Phased delivery.** Phase A = signals + dual Telegram only (no order layer). Phase B = broker / order execution, deferred entirely.
+4. **Migration tooling** between buibui and this fork is an open question (skill / shared package / patch queue). Deferred.
+
+### 0.a Task survival matrix (body below = original 2026-04-10 text, read with this lens)
+
+<!-- markdownlint-disable MD060 -->
+
+| Task                                                            | Status                    | Notes                                                                                                                                                                                                                                                                                 |
+|-----------------------------------------------------------------|---------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 1. Fork repo + strip crypto skeleton                            | ✅ ready                   | Delete also: anything tied to Binance live WebSockets. Positions tab + live wrappers stay out for Phase A.                                                                                                                                                                            |
+| 2. Add alpaca-py + create Alpaca client                         | 🔁 **REWRITE → yfinance** | `pip install yfinance`; new `utils/yfinance_client.py` factory (no auth needed); see 0.b sketch                                                                                                                                                                                       |
+| 3. Replace `data_fetcher.py` with Alpaca                        | 🔁 **REWRITE → yfinance** | Use `yf.Ticker(sym).history(period=..., interval=..., auto_adjust=False)` for 1h/1d/1w; resample 1h→4h client-side anchored to 13:30 UTC; see 0.b sketch                                                                                                                              |
+| 4. Update `data_store.py` (vwap column, drop funding/OI tables) | ⚠️ partial                | "drop funding/OI" survives. **`vwap` column is DROPPED entirely** (yfinance has no VWAP). Re-add only if swapping to Polygon. `taker_buy_volume` column is removed without replacement.                                                                                               |
+| 5. Update `data_sync.py` — remove funding/OI sync               | ⚠️ partial                | "remove funding/OI sync" survives. Rewire to yfinance client. Symbol format = plain ticker (`AAPL`, not `AAPLUSD`).                                                                                                                                                                   |
+| 6. Create `stocks.json` + config validation                     | ✅ ready                   |                                                                                                                                                                                                                                                                                       |
+| 7. Remove `funding_reversion` + `cvd_divergence`                | ✅ ready                   | `funding_reversion` already deleted in parent Phase 1 H3 — strip step is for `cvd_divergence` only                                                                                                                                                                                    |
+| 8. Fix ORB session anchor for US market open                    | ⚠️ scope change           | Original spec used 15m/1h ORB. With TFs ≥ 4h, ORB-on-15m is moot. Keep the anchor fix (13:30 UTC) for any future re-add of intraday TFs, but the strategy may not actively fire in Phase A. Verify `strategy_timeframes` in equity TOML excludes ORB or restricts it to non-intraday. |
+| 9. Create `overnight_gap_lib.py`                                | ✅ ready                   |                                                                                                                                                                                                                                                                                       |
+| 10. Wire overnight gap into signal_lib                          | ⚠️ import-path fix        | `analytics/signal_lib.py` is now a re-export shim; real wiring lives in `analytics/signal/` package (parent Phase 2). Update target paths.                                                                                                                                            |
+| 11. End-to-end smoke test                                       | 🔁 **REWRITE → yfinance** | No credentials needed; smoke test = `yf.Ticker("AAPL").history(period="6mo", interval="1h")` returns a DataFrame, then full pipeline through signal + alert + backtest                                                                                                                |
+
+<!-- markdownlint-enable MD060 -->
+
+### 0.b yfinance task sketches (for Tasks 2, 3, 11 rewrites)
+
+```python
+# utils/yfinance_client.py — Task 2 replacement
+# No auth, no client object. Module-level helpers only.
+import yfinance as yf
+
+_INTERVAL_MAP = {"1h": "60m", "1d": "1d", "1wk": "1wk"}
+
+def fetch_bars_yf(symbol: str, interval: str, period: str = "max") -> pd.DataFrame:
+    yf_interval = _INTERVAL_MAP[interval]
+    df = yf.Ticker(symbol).history(period=period, interval=yf_interval, auto_adjust=False)
+    # rename columns to canonical OHLCV schema (open, high, low, close, volume)
+    # convert index → open_time (UTC ms)
+    return df_canonical
+
+def resample_to_4h(hourly_df: pd.DataFrame) -> pd.DataFrame:
+    # anchor to 13:30 UTC = US market open (regular session)
+    return hourly_df.resample("4h", origin="start_day", offset="13h30min").agg({
+        "open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum",
+    }).dropna()
+```
+
+### 0.c Missing tasks not in the original plan body
+
+Audit 2026-05-14: the original plan was data-layer-only. These are required for a working Phase A bot and are **not present below**:
+
+<!-- markdownlint-disable MD060 -->
+
+| New task | Detail |
+| --- | --- |
+| **T12. Dual-Telegram dispatcher** | Spec §7.6 was sketched after the plan was written. Two BotFather bots → `TELEGRAM_PERSONAL_TOKEN/_CHAT_ID` + `TELEGRAM_WIFE_TOKEN/_CHAT_ID`. Dispatcher in `signals/` fans out to N publishers each with `(direction_filter, label_rewrite)`. Wife channel = long-only + "LONG"→"BUY" rewrite. **Port the pattern from parent PR #367's `_apply_direction_filter_gate` in `analytics/signal/gates.py` + `StrategyOverride.suppress_long/_short` flags** rather than re-deriving. |
+| **T13. Equity `signal_watch_*.toml` configs** | Parent has `signal_watch.toml` + `_all` + `_weekdays` extending `strategy_params.toml`. Equity fork needs its own base + variants with `strategy_timeframes` cut to 4h/1d/1w, equity session windows, no crypto-specific `smt_pairs` defaults. |
+| **T14. Backtest WFO + recalibrate on equity data** | Parent `tp_r` / `atr_sl_multiplier` values were tuned on crypto. They likely don't transfer. After Task 11 smoke test: run `make buibui-backtest SAVE=1` against the equity TOML → run `recalibrate` → review star ratings → spot-check via `tools/combo_health.py`. |
+| **T15. Alert formatter equity adaptations** | `signals/alert_formatter.py` formats `BTCUSDT @ $50000` with crypto conventions. Equity needs: ticker without `USDT` suffix, dollar formatting with 2 decimals (`$AAPL @ $187.42`), session warning footer ("after-hours data may not reflect retail fills"). |
+| **T16. Web UI equity hygiene** | Remove Positions tab from nav (deferred per spec §10). Default symbol in dropdowns → AAPL or MSTR. Page titles. |
+| **T17. Run-cadence wiring** | Bot is "on-demand" but the plan never says how. Options: manual CLI (`wifey scan`), local cron, GitHub Actions. Phase A pick: **manual CLI first**, document the cron snippet, defer automation to Phase B. |
+| **T18. Migration tooling — DEFERRED** | Placeholder task. Decision pending (skill / shared package / patch queue). Re-open after fork is alive and porting pain is concrete. |
+
+<!-- markdownlint-enable MD060 -->
+
+### 0.d Phase 2 module renames (apply when rewriting Tasks 2–5, 10, and the new T12–T16)
+
+| Old reference in this plan    | Post-Phase-2 home (parent repo)                                        |
+|-------------------------------|------------------------------------------------------------------------|
+| `analytics/data_store.py`     | `analytics/store/` package (8 modules); shim still re-exports          |
+| `analytics/data_fetcher.py`   | unchanged path                                                         |
+| `analytics/signal_lib.py`     | `analytics/signal/` package (10 modules); shim still re-exports        |
+| `analytics/indicators_lib.py` | **DELETED** in strat-3 (PR #340) — use `analytics/strategies/` package |
+| `analytics/backtest_lib.py`   | `analytics/backtest/` package                                          |
+| `analytics/stats_lib.py`      | `analytics/stats/` package                                             |
+
+### 0.e Net execution order (revised)
+
+1. Tasks 1, 6, 7, 9, 10 — ready today, broker-agnostic + minor import path fixes
+2. Tasks 2, 3, 4, 5, 11 — execute against yfinance using 0.b sketches
+3. Task 8 — apply anchor fix, verify TOML excludes ORB from active strategies (or keep as no-op stub)
+4. **T12** dual-Telegram — port from PR #367 pattern
+5. **T13** equity TOML configs — derive from parent `signal_watch.toml`
+6. **T14** backtest + recalibrate on equity data
+7. **T15, T16** alert + UI hygiene
+8. **T17** document manual-CLI run cadence
+
+The body of this plan below is **left as-is for historical context**. Read top-down: §0 here, then §0.b sketches, then §0.c additions, then dive into Task 1.
+
+---
+
+**Goal:** Fork buibui-moon-trader-bot into a US-equities bot powered by yfinance (Phase A; Polygon.io $29 as pre-approved upgrade), running on-demand (EOD/EOW) against a watchlist of single stocks. Timeframes: 4h / 1d / 1w only.
 
 **Architecture:** All strategy/backtest/web layers carry over unchanged. Only the data layer
-is swapped (Binance → Alpaca). Three crypto-only concepts are removed (funding, OI, CME gap)
-and replaced with their equity equivalents (vwap column, overnight gap). The fork is a
-standalone repo — no shared packages, no cross-repo sync.
+is swapped (Binance → yfinance). Three crypto-only concepts are removed (funding, OI, CME gap)
+and replaced with equity equivalents (overnight gap; **`vwap` column dropped entirely** — yfinance has no VWAP). The fork is a standalone repo — no shared packages, no cross-repo sync.
 
-**Tech Stack:** Python 3.11+, Poetry, alpaca-py, DuckDB, FastAPI, Svelte 5
+**Tech Stack:** Python 3.11+, Poetry, yfinance, DuckDB, FastAPI, Svelte 5
 
 > **IMPORTANT — Scope:** All tasks below execute inside the **forked repo**, not buibui.
 > After Task 1 you will be working in `~/repo/[BOTNAME]/`. File paths are relative to that root.
@@ -22,20 +118,24 @@ standalone repo — no shared packages, no cross-repo sync.
 
 ## File Map
 
-| Action | Path | Purpose |
-| --- | --- | --- |
-| Create | `utils/alpaca_client.py` | Alpaca SDK client factory (replaces binance_client.py) |
-| Rewrite | `analytics/data_fetcher.py` | Alpaca bar fetching (replaces Binance klines) |
-| Modify | `analytics/data_store.py` | Rename `taker_buy_volume`→`vwap`; drop funding/OI tables |
-| Modify | `analytics/data_sync.py` | Remove funding/OI sync; wire new fetcher |
-| Create | `config/stocks.json` | Equity watchlist (replaces coins.json) |
-| Modify | `utils/config_validation.py` | Validate stocks.json schema |
-| Modify | `analytics/indicators_lib.py` | Remove funding_reversion+cvd from registry; fix ORB anchor |
-| Modify | `signals/registry.py` | Remove funding_reversion+cvd entries |
-| Create | `analytics/overnight_gap_lib.py` | Overnight gap detection (replaces cme_gap_lib.py) |
-| Modify | `analytics/signal_lib.py` | Wire overnight_gap_lib; replace cme_gap imports |
-| Delete | `analytics/cme_gap_lib.py` | Crypto-specific — no equity equivalent |
-| Delete | `utils/binance_client.py` | Replaced by alpaca_client.py |
+<!-- markdownlint-disable MD060 -->
+
+| Action  | Path                             | Purpose                                                    |
+|---------|----------------------------------|------------------------------------------------------------|
+| Create  | `utils/yfinance_client.py`       | yfinance helper module (no auth; module-level functions)   |
+| Rewrite | `analytics/data_fetcher.py`      | yfinance bar fetching + 1h→4h resample (replaces Binance)  |
+| Modify  | `analytics/store/`               | **Drop** `taker_buy_volume` column entirely; drop funding/OI tables. (Post-Phase-2: was `analytics/data_store.py`.) |
+| Modify  | `analytics/data_sync.py`         | Remove funding/OI sync; wire yfinance fetcher              |
+| Create  | `config/stocks.json`             | Equity watchlist (replaces coins.json)                     |
+| Modify  | `utils/config_validation.py`     | Validate stocks.json schema                                |
+| Modify  | `analytics/strategies/_registry.py` | Remove `cvd_divergence` (`funding_reversion` already gone); update ORB session anchor default. (Post-Phase-2: was `analytics/indicators_lib.py`.) |
+| Modify  | `signals/registry.py`            | Remove `cvd_divergence` entry (`funding_reversion` already gone) |
+| Create  | `analytics/overnight_gap_lib.py` | Overnight gap detection (replaces cme_gap_lib.py)          |
+| Modify  | `analytics/signal/scanner.py`    | Wire overnight_gap_lib; remove cme_gap imports. (Post-Phase-2: was `analytics/signal_lib.py`.) |
+| Delete  | `analytics/cme_gap_lib.py`       | Crypto-specific — no equity equivalent                     |
+| Delete  | `utils/binance_client.py`        | Replaced by yfinance_client.py                             |
+
+<!-- markdownlint-enable MD060 -->
 
 ---
 
@@ -94,100 +194,137 @@ standalone repo — no shared packages, no cross-repo sync.
 
 ---
 
-## Task 2: Add alpaca-py and create Alpaca client
+## Task 2: Add yfinance and create yfinance helper module
 
 **Files:**
 
-- Create: `utils/alpaca_client.py`
-- Create: `tests/test_alpaca_client.py`
+- Create: `utils/yfinance_client.py`
+- Create: `tests/test_yfinance_client.py`
 
-- [ ] **Step 1: Add alpaca-py dependency**
+**Note:** yfinance has no API key. There's no "client" object in the Alpaca/Binance sense — just module-level functions wrapping `yf.Ticker(...).history()`. The "client" naming is kept for symmetry with the parent repo's `utils/binance_client.py`.
+
+- [ ] **Step 1: Add yfinance dependency**
 
   ```bash
-  poetry add alpaca-py
+  poetry add yfinance
   ```
 
 - [ ] **Step 2: Write the failing test**
 
-  Create `tests/test_alpaca_client.py`:
+  Create `tests/test_yfinance_client.py`:
 
   ```python
-  import os
-  from unittest.mock import patch
+  from unittest.mock import MagicMock, patch
 
-  import pytest
-
-
-  def test_create_data_client_requires_env_vars() -> None:
-      from utils.alpaca_client import create_data_client
-
-      with patch.dict(os.environ, {}, clear=True):
-          with pytest.raises(KeyError):
-              create_data_client()
+  import pandas as pd
 
 
-  def test_create_data_client_returns_client() -> None:
-      from utils.alpaca_client import create_data_client
+  def test_fetch_history_calls_yfinance_with_canonical_args() -> None:
+      from utils.yfinance_client import fetch_history
 
-      with patch.dict(
-          os.environ,
-          {"ALPACA_API_KEY": "test_key", "ALPACA_SECRET_KEY": "test_secret"},
-      ):
-          with patch("utils.alpaca_client.StockHistoricalDataClient") as mock_cls:
-              create_data_client()
-              mock_cls.assert_called_once_with("test_key", "test_secret")
+      mock_ticker = MagicMock()
+      mock_ticker.history.return_value = pd.DataFrame(
+          {"Open": [1.0], "High": [2.0], "Low": [0.5], "Close": [1.5], "Volume": [100]},
+          index=pd.DatetimeIndex(["2026-01-02"], tz="America/New_York"),
+      )
+      with patch("utils.yfinance_client.yf.Ticker", return_value=mock_ticker) as mock_cls:
+          df = fetch_history("AAPL", interval="1d", period="6mo")
+          mock_cls.assert_called_once_with("AAPL")
+          mock_ticker.history.assert_called_once_with(
+              period="6mo", interval="1d", auto_adjust=False, actions=False,
+          )
+          # canonical columns + UTC ms index
+          assert list(df.columns) == ["open", "high", "low", "close", "volume"]
+          assert df.index.tz is None  # converted to UTC then dropped tz
+
+
+  def test_fetch_history_returns_empty_df_on_no_data() -> None:
+      from utils.yfinance_client import fetch_history
+
+      mock_ticker = MagicMock()
+      mock_ticker.history.return_value = pd.DataFrame()
+      with patch("utils.yfinance_client.yf.Ticker", return_value=mock_ticker):
+          df = fetch_history("INVALID", interval="1d", period="6mo")
+          assert df.empty
   ```
 
 - [ ] **Step 3: Run test to verify it fails**
 
   ```bash
-  poetry run pytest tests/test_alpaca_client.py -v
+  poetry run pytest tests/test_yfinance_client.py -v
   ```
 
-  Expected: `ImportError: cannot import name 'create_data_client'`
+  Expected: `ImportError: cannot import name 'fetch_history'`
 
-- [ ] **Step 4: Create `utils/alpaca_client.py`**
+- [ ] **Step 4: Create `utils/yfinance_client.py`**
 
   ```python
-  """Alpaca Markets client factory.
+  """yfinance helper module.
 
-  Reads credentials from environment variables:
-    ALPACA_API_KEY    — Alpaca API key ID
-    ALPACA_SECRET_KEY — Alpaca secret key
+  No credentials, no module-level side effects. Wraps yfinance.Ticker.history()
+  and normalises the returned DataFrame to the canonical OHLCV schema used by
+  the rest of the pipeline (lowercase columns; UTC-naive DatetimeIndex).
 
-  No module-level side effects.
+  yfinance is an unofficial Yahoo Finance scraper. Yahoo may break or rate-limit
+  the underlying endpoints at any time — failures must be handled by callers.
   """
 
-  import os
+  import pandas as pd
+  import yfinance as yf
 
-  from alpaca.data.historical import StockHistoricalDataClient
-  from alpaca.trading.client import TradingClient
-
-
-  def create_data_client() -> StockHistoricalDataClient:
-      """Return an authenticated Alpaca data client."""
-      return StockHistoricalDataClient(
-          api_key=os.environ["ALPACA_API_KEY"],
-          secret_key=os.environ["ALPACA_SECRET_KEY"],
-      )
+  # yfinance interval strings (note: 4h is NOT supported natively — caller resamples 1h→4h)
+  YF_INTERVALS: dict[str, str] = {
+      "1h": "60m",
+      "1d": "1d",
+      "1wk": "1wk",
+  }
 
 
-  def create_trading_client(paper: bool = True) -> TradingClient:
-      """Return an authenticated Alpaca trading client.
+  def fetch_history(
+      symbol: str,
+      *,
+      interval: str,
+      period: str = "max",
+  ) -> pd.DataFrame:
+      """Fetch raw OHLCV bars for a single symbol.
 
-      paper=True uses paper trading endpoint (safe default).
+      Args:
+          symbol: Plain ticker, e.g. ``"AAPL"`` (no suffix).
+          interval: One of ``YF_INTERVALS`` keys (``"1h"``, ``"1d"``, ``"1wk"``).
+          period: yfinance period string (``"6mo"``, ``"2y"``, ``"max"``, ...).
+                  yfinance caps 1h period to 730 days regardless of this value.
+
+      Returns:
+          DataFrame with columns ``open, high, low, close, volume`` and a
+          UTC-naive DatetimeIndex. Empty DataFrame on no data.
+
+      ``auto_adjust=False`` preserves raw prices (S/R levels need absolute close).
+      ``actions=False`` strips Dividends and Stock Splits columns. Split adjustment
+      is applied by yfinance by default; dividend adjustment is not.
       """
-      return TradingClient(
-          api_key=os.environ["ALPACA_API_KEY"],
-          secret_key=os.environ["ALPACA_SECRET_KEY"],
-          paper=paper,
+      yf_interval = YF_INTERVALS[interval]
+      raw = yf.Ticker(symbol).history(
+          period=period,
+          interval=yf_interval,
+          auto_adjust=False,
+          actions=False,
       )
+      if raw.empty:
+          return raw
+      # Yahoo returns tz-aware America/New_York; convert to UTC then drop tz
+      idx_utc = raw.index.tz_convert("UTC").tz_localize(None)
+      df = raw.rename(
+          columns={"Open": "open", "High": "high", "Low": "low",
+                   "Close": "close", "Volume": "volume"},
+      )[["open", "high", "low", "close", "volume"]]
+      df.index = idx_utc
+      return df
   ```
 
 - [ ] **Step 5: Run tests to verify they pass**
 
   ```bash
-  poetry run pytest tests/test_alpaca_client.py -v
+  poetry run pytest tests/test_yfinance_client.py -v
   ```
 
   Expected: 2 PASSED
@@ -195,110 +332,124 @@ standalone repo — no shared packages, no cross-repo sync.
 - [ ] **Step 6: Commit**
 
   ```bash
-  git add utils/alpaca_client.py tests/test_alpaca_client.py pyproject.toml poetry.lock
-  git commit -m "feat: add alpaca-py client factory"
+  git add utils/yfinance_client.py tests/test_yfinance_client.py pyproject.toml poetry.lock
+  git commit -m "feat: add yfinance helper module"
   ```
 
 ---
 
-## Task 3: Replace data_fetcher.py with Alpaca implementation
+## Task 3: Replace data_fetcher.py with yfinance implementation
 
 **Files:**
 
 - Rewrite: `analytics/data_fetcher.py`
 - Modify: `tests/test_data_fetcher.py` (update existing tests)
 
-The new `fetch_bars()` keeps the same call signature as the old `fetch_klines()` so
-`data_sync.py` needs minimal changes.
+The new `fetch_bars()` keeps a similar call signature to the old `fetch_klines()` so `data_sync.py` needs minimal changes. **Differences from the Alpaca design:**
+
+- **No client parameter.** yfinance has no client object; functions wrap `utils.yfinance_client.fetch_history()` directly. Tests inject by patching `utils.yfinance_client.fetch_history`.
+- **No `vwap` column.** Dropped from `OHLCV_COLUMNS` and the schema.
+- **4h is synthesised.** yfinance does not serve 4h natively; fetch 1h and resample anchored to 13:30 UTC (US regular-session open). Calls for `"4h"` delegate to a `_resample_to_4h()` helper.
+- **No pagination by `limit` bars.** yfinance returns the full requested `period` in one call; the function caps the returned DataFrame at `limit` rows. The `start_ms` parameter is mapped to a yfinance `period` string ("6mo", "2y", "max") via a small helper.
 
 - [ ] **Step 1: Write the failing tests**
 
   Replace the contents of `tests/test_data_fetcher.py`:
 
   ```python
-  """Tests for Alpaca-backed data_fetcher."""
+  """Tests for yfinance-backed data_fetcher."""
 
   from datetime import datetime, timezone
   from typing import Any
-  from unittest.mock import MagicMock
+  from unittest.mock import patch
 
   import pandas as pd
-  import pytest
-  from alpaca.data.historical import StockHistoricalDataClient
 
   from analytics.data_fetcher import BARS_MAX_LIMIT, OHLCV_COLUMNS, fetch_bars
 
 
-  def _make_mock_client(rows: list[dict[str, Any]]) -> StockHistoricalDataClient:
-      """Build a mock Alpaca client that returns the given rows as a bar DataFrame."""
-      df = pd.DataFrame(rows)
-      df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
-      df = df.set_index(["symbol", "timestamp"])
-      mock_bars = MagicMock()
-      mock_bars.df = df
-      client = MagicMock(spec=StockHistoricalDataClient)
-      client.get_stock_bars.return_value = mock_bars
-      return client
+  def _yf_frame(rows: list[dict[str, Any]]) -> pd.DataFrame:
+      """Build a UTC-naive OHLCV DataFrame matching utils.yfinance_client output."""
+      idx = pd.DatetimeIndex([r["ts"] for r in rows])
+      return pd.DataFrame(
+          {
+              "open": [r["open"] for r in rows],
+              "high": [r["high"] for r in rows],
+              "low": [r["low"] for r in rows],
+              "close": [r["close"] for r in rows],
+              "volume": [r["volume"] for r in rows],
+          },
+          index=idx,
+      )
 
 
-  def _sample_row(
-      symbol: str = "AAPL",
-      ts: str = "2024-01-15T14:30:00+00:00",
-  ) -> dict[str, Any]:
-      return {
-          "symbol": symbol,
-          "timestamp": ts,
-          "open": 185.0,
-          "high": 187.5,
-          "low": 184.0,
-          "close": 186.0,
-          "volume": 1_000_000.0,
-          "trade_count": 5000,
-          "vwap": 185.8,
-      }
+  def _row(ts: str = "2024-01-15T14:30:00", price: float = 186.0) -> dict[str, Any]:
+      return {"ts": ts, "open": 185.0, "high": 187.5, "low": 184.0,
+              "close": price, "volume": 1_000_000.0}
 
 
-  def test_fetch_bars_returns_ohlcv_columns() -> None:
-      client = _make_mock_client([_sample_row()])
+  def test_fetch_bars_returns_canonical_columns() -> None:
       start_ms = int(datetime(2024, 1, 15, tzinfo=timezone.utc).timestamp() * 1000)
-      result = fetch_bars(client, "AAPL", "1d", start_ms)
+      with patch(
+          "analytics.data_fetcher.fetch_history",
+          return_value=_yf_frame([_row()]),
+      ):
+          result = fetch_bars("AAPL", "1d", start_ms)
       assert list(result.columns) == OHLCV_COLUMNS
 
 
   def test_fetch_bars_maps_fields_correctly() -> None:
-      client = _make_mock_client([_sample_row()])
       start_ms = int(datetime(2024, 1, 15, tzinfo=timezone.utc).timestamp() * 1000)
-      result = fetch_bars(client, "AAPL", "1d", start_ms)
+      with patch(
+          "analytics.data_fetcher.fetch_history",
+          return_value=_yf_frame([_row()]),
+      ):
+          result = fetch_bars("AAPL", "1d", start_ms)
       row = result.iloc[0]
       assert row["symbol"] == "AAPL"
       assert row["timeframe"] == "1d"
       assert row["close"] == 186.0
-      assert row["vwap"] == 185.8
-      # open_time is Unix milliseconds
       assert row["open_time"] == int(
           datetime(2024, 1, 15, 14, 30, tzinfo=timezone.utc).timestamp() * 1000
       )
 
 
   def test_fetch_bars_empty_returns_correct_columns() -> None:
-      client = MagicMock(spec=StockHistoricalDataClient)
-      mock_bars = MagicMock()
-      mock_bars.df = pd.DataFrame()
-      client.get_stock_bars.return_value = mock_bars
       start_ms = int(datetime(2024, 1, 15, tzinfo=timezone.utc).timestamp() * 1000)
-      result = fetch_bars(client, "AAPL", "1d", start_ms)
+      with patch(
+          "analytics.data_fetcher.fetch_history",
+          return_value=pd.DataFrame(),
+      ):
+          result = fetch_bars("AAPL", "1d", start_ms)
       assert result.empty
       assert list(result.columns) == OHLCV_COLUMNS
 
 
   def test_fetch_bars_respects_limit() -> None:
-      rows = [
-          _sample_row(ts=f"2024-01-{15 + i:02d}T14:30:00+00:00") for i in range(5)
-      ]
-      client = _make_mock_client(rows)
+      rows = [_row(ts=f"2024-01-{15 + i:02d}T14:30:00") for i in range(5)]
       start_ms = int(datetime(2024, 1, 15, tzinfo=timezone.utc).timestamp() * 1000)
-      result = fetch_bars(client, "AAPL", "1d", start_ms, limit=3)
-      assert len(result) <= 3
+      with patch(
+          "analytics.data_fetcher.fetch_history",
+          return_value=_yf_frame(rows),
+      ):
+          result = fetch_bars("AAPL", "1d", start_ms, limit=3)
+      assert len(result) == 3
+
+
+  def test_fetch_bars_4h_resamples_from_1h() -> None:
+      """Caller asks for 4h → fetcher pulls 1h and resamples anchored to 13:30 UTC."""
+      # 8 consecutive 1h bars starting 13:30 UTC → 2 complete 4h bars
+      rows = [_row(ts=f"2024-01-15T{13 + i:02d}:30:00") for i in range(8)]
+      start_ms = int(datetime(2024, 1, 15, tzinfo=timezone.utc).timestamp() * 1000)
+      with patch(
+          "analytics.data_fetcher.fetch_history",
+          return_value=_yf_frame(rows),
+      ) as mock_fetch:
+          result = fetch_bars("AAPL", "4h", start_ms)
+      # underlying fetch must request 1h, not 4h
+      assert mock_fetch.call_args.kwargs["interval"] == "1h"
+      assert len(result) == 2
+      assert (result["timeframe"] == "4h").all()
   ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -312,20 +463,21 @@ The new `fetch_bars()` keeps the same call signature as the old `fetch_klines()`
 - [ ] **Step 3: Rewrite `analytics/data_fetcher.py`**
 
   ```python
-  """Pure data-fetching logic — Alpaca Markets API to DataFrames.
+  """Pure data-fetching logic — yfinance to canonical OHLCV DataFrames.
 
-  All functions accept an Alpaca client as a parameter.
+  4h bars are synthesised by resampling 1h bars anchored to 13:30 UTC
+  (US regular-session open). Other intervals (1h, 1d, 1wk) pass through.
+
   No module-level side effects.
   """
 
   from datetime import datetime, timezone
 
   import pandas as pd
-  from alpaca.data.historical import StockHistoricalDataClient
-  from alpaca.data.requests import StockBarsRequest
-  from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 
-  BARS_MAX_LIMIT: int = 1000
+  from utils.yfinance_client import fetch_history
+
+  BARS_MAX_LIMIT: int = 5000
 
   OHLCV_COLUMNS: list[str] = [
       "symbol",
@@ -336,81 +488,77 @@ The new `fetch_bars()` keeps the same call signature as the old `fetch_klines()`
       "low",
       "close",
       "volume",
-      "vwap",
   ]
 
-  # Milliseconds per bar for each supported timeframe.
-  # Used to compute end_ms from start_ms + limit when fetching paginated windows.
-  _INTERVAL_MS: dict[str, int] = {
-      "15m": 15 * 60 * 1_000,
-      "1h": 60 * 60 * 1_000,
-      "4h": 4 * 60 * 60 * 1_000,
-      "1d": 24 * 60 * 60 * 1_000,
-  }
-
-  _TF_TO_ALPACA: dict[str, TimeFrame] = {
-      "15m": TimeFrame(15, TimeFrameUnit.Minute),
-      "1h": TimeFrame.Hour,
-      "4h": TimeFrame(4, TimeFrameUnit.Hour),
-      "1d": TimeFrame.Day,
+  # Mapping from canonical interval to (yfinance_interval, default_period).
+  # yfinance caps history per interval — defaults below stay within those caps.
+  _INTERVAL_CONFIG: dict[str, tuple[str, str]] = {
+      "1h": ("1h", "2y"),    # yf 1h caps at 730d
+      "4h": ("1h", "2y"),    # synthesised by resampling 1h
+      "1d": ("1d", "max"),   # unlimited
+      "1wk": ("1wk", "max"),
   }
 
 
   def fetch_bars(
-      client: StockHistoricalDataClient,
       symbol: str,
       interval: str,
       start_ms: int,
       limit: int = BARS_MAX_LIMIT,
   ) -> pd.DataFrame:
-      """Fetch up to `limit` bars starting from start_ms (Unix ms).
+      """Fetch up to ``limit`` bars at or after start_ms (Unix ms).
 
       Returns a DataFrame with columns matching OHLCV_COLUMNS.
-      Returns an empty DataFrame (with correct columns) if the API returns no data.
-      Raises on API errors — callers decide whether to retry or skip.
+      Returns an empty DataFrame (with correct columns) on no data.
+      Raises on yfinance / network errors — callers decide whether to retry.
       """
-      if interval not in _INTERVAL_MS:
+      if interval not in _INTERVAL_CONFIG:
           raise ValueError(
               f"Unsupported interval '{interval}'. "
-              f"Supported: {list(_INTERVAL_MS)}"
+              f"Supported: {list(_INTERVAL_CONFIG)}"
           )
-      alpaca_tf = _TF_TO_ALPACA[interval]
-      start_dt = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc)
-      end_ms = start_ms + limit * _INTERVAL_MS[interval]
-      end_dt = datetime.fromtimestamp(end_ms / 1000, tz=timezone.utc)
-
-      req = StockBarsRequest(
-          symbol_or_symbols=symbol,
-          timeframe=alpaca_tf,
-          start=start_dt,
-          end=end_dt,
-          adjustment="split",
-      )
-      bars = client.get_stock_bars(req)
-      df = bars.df
-
-      if df is None or df.empty:
+      yf_interval, period = _INTERVAL_CONFIG[interval]
+      raw = fetch_history(symbol, interval=yf_interval, period=period)
+      if raw.empty:
           return pd.DataFrame(columns=OHLCV_COLUMNS)
 
-      df = df.reset_index()  # columns: symbol, timestamp, open, high, low, close, volume, vwap, ...
+      if interval == "4h":
+          raw = _resample_to_4h(raw)
+          if raw.empty:
+              return pd.DataFrame(columns=OHLCV_COLUMNS)
+
+      # filter to start_ms forward
+      start_dt = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).replace(tzinfo=None)
+      raw = raw.loc[raw.index >= start_dt]
+      raw = raw.head(limit)
 
       result = pd.DataFrame(
           {
               "symbol": symbol,
               "timeframe": interval,
-              # Alpaca timestamps are tz-aware UTC; convert ns → ms
-              "open_time": (
-                  df["timestamp"].astype("int64") // 1_000_000
-              ).values,
-              "open": df["open"].astype(float).values,
-              "high": df["high"].astype(float).values,
-              "low": df["low"].astype(float).values,
-              "close": df["close"].astype(float).values,
-              "volume": df["volume"].astype(float).values,
-              "vwap": df["vwap"].astype(float).values,
+              "open_time": (raw.index.astype("int64") // 1_000_000).values,
+              "open": raw["open"].astype(float).values,
+              "high": raw["high"].astype(float).values,
+              "low": raw["low"].astype(float).values,
+              "close": raw["close"].astype(float).values,
+              "volume": raw["volume"].astype(float).values,
           }
       )
-      return result.head(limit)
+      return result
+
+
+  def _resample_to_4h(hourly: pd.DataFrame) -> pd.DataFrame:
+      """Resample 1h bars to 4h, anchored to 13:30 UTC (US regular-session open).
+
+      4h bins: 13:30-17:30, 17:30-21:30, 21:30-01:30, 01:30-05:30, 05:30-09:30, 09:30-13:30.
+      The first three cover RTH + early after-hours; the latter three cover overnight.
+      """
+      return (
+          hourly.resample("4h", origin="start_day", offset="13h30min")
+          .agg({"open": "first", "high": "max", "low": "min",
+                "close": "last", "volume": "sum"})
+          .dropna()
+      )
   ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -419,7 +567,7 @@ The new `fetch_bars()` keeps the same call signature as the old `fetch_klines()`
   poetry run pytest tests/test_data_fetcher.py -v
   ```
 
-  Expected: 4 PASSED
+  Expected: 5 PASSED
 
 - [ ] **Step 5: Run full lint + typecheck**
 
@@ -433,12 +581,12 @@ The new `fetch_bars()` keeps the same call signature as the old `fetch_klines()`
 
   ```bash
   git add analytics/data_fetcher.py tests/test_data_fetcher.py
-  git commit -m "feat: replace Binance data_fetcher with Alpaca fetch_bars"
+  git commit -m "feat: replace Binance data_fetcher with yfinance fetch_bars"
   ```
 
 ---
 
-## Task 4: Update data_store.py — rename vwap column, drop funding/OI tables
+## Task 4: Update store schema — drop taker_buy_volume column, drop funding/OI tables
 
 **Files:**
 
@@ -450,7 +598,8 @@ The new `fetch_bars()` keeps the same call signature as the old `fetch_klines()`
   Add to `tests/test_data_store.py`:
 
   ```python
-  def test_ohlcv_schema_has_vwap_not_taker_buy_volume() -> None:
+  def test_ohlcv_schema_has_no_taker_buy_volume_or_vwap() -> None:
+      """yfinance has no VWAP — column dropped entirely (not renamed)."""
       import duckdb
       from analytics.data_store import init_db
 
@@ -462,8 +611,8 @@ The new `fetch_bars()` keeps the same call signature as the old `fetch_klines()`
               "PRAGMA table_info('ohlcv')"
           ).fetchall()
       ]
-      assert "vwap" in cols
       assert "taker_buy_volume" not in cols
+      assert "vwap" not in cols
       conn.close()
 
 
@@ -497,21 +646,21 @@ The new `fetch_bars()` keeps the same call signature as the old `fetch_klines()`
 
   Expected: 3 FAILED (column is still `taker_buy_volume`, tables still exist).
 
-- [ ] **Step 3: Edit `analytics/data_store.py` — rename column in CREATE TABLE**
+- [ ] **Step 3: Edit `analytics/store/schema.py` — drop the column entirely**
 
-  Find the line in `init_db()` that defines the `ohlcv` table. Change:
+  (Post-Phase-2: schema lives in `analytics/store/schema.py`; `analytics/data_store.py` is a re-export shim.)
+
+  Find the line in `init_schema()` that defines the `ohlcv` table. **Delete** the `taker_buy_volume` line entirely — there is no replacement. yfinance does not provide VWAP per bar, so the column has no source.
 
   ```python
   # Before
       taker_buy_volume DOUBLE NOT NULL,
-  ```
 
-  To:
-
-  ```python
   # After
-      vwap DOUBLE NOT NULL,
+  # (line deleted)
   ```
+
+  If the column is later wanted (e.g. when upgrading to Polygon $29 Starter), re-add it as `vwap DOUBLE` (nullable) and backfill.
 
 - [ ] **Step 4: Edit `analytics/data_store.py` — remove funding_rates and open_interest table creation**
 
@@ -523,10 +672,9 @@ The new `fetch_bars()` keeps the same call signature as the old `fetch_klines()`
   Delete these functions entirely from `data_store.py`. Also remove any
   corresponding exports from `__all__` if present.
 
-- [ ] **Step 6: Update upsert_ohlcv to reference vwap**
+- [ ] **Step 6: Update upsert_ohlcv to drop taker_buy_volume**
 
-  Find `upsert_ohlcv` in `data_store.py`. Anywhere it references `taker_buy_volume`,
-  change it to `vwap`. The INSERT/ON CONFLICT column list and VALUES mapping both need updating.
+  (Post-Phase-2: `upsert_ohlcv` lives in `analytics/store/market_data.py`.) Anywhere it references `taker_buy_volume`, **delete** the reference. The INSERT column list, ON CONFLICT clause, and the VALUES mapping all need the column removed.
 
 - [ ] **Step 7: Run tests to verify they pass**
 
@@ -540,7 +688,7 @@ The new `fetch_bars()` keeps the same call signature as the old `fetch_klines()`
 
   ```bash
   git add analytics/data_store.py tests/test_data_store.py
-  git commit -m "feat: rename taker_buy_volume→vwap, drop funding/OI tables"
+  git commit -m "feat: drop taker_buy_volume column, drop funding/OI tables"
   ```
 
 ---
@@ -585,7 +733,7 @@ The new `fetch_bars()` keeps the same call signature as the old `fetch_klines()`
   fetch_open_interest,
   ```
 
-  Remove from the `from analytics.data_store import` block:
+  Remove from the `from analytics.store import` block (post-Phase-2; was `analytics.data_store`):
 
   ```python
   # Remove these lines
@@ -593,23 +741,22 @@ The new `fetch_bars()` keeps the same call signature as the old `fetch_klines()`
   upsert_open_interest,
   ```
 
-  Remove the Binance `Client` import and replace with the Alpaca client type:
+  Remove the Binance `Client` import. **No replacement client import needed** — yfinance has no client object, so `data_sync.py` no longer needs a client parameter at all:
 
   ```python
   # Before
   from binance.client import Client
 
-  # After
-  from alpaca.data.historical import StockHistoricalDataClient
+  # After: (delete the import; downstream calls drop the client argument)
   ```
 
 - [ ] **Step 4: Remove sync_funding_rates and sync_open_interest functions**
 
   Delete the `sync_funding_rates()` and `sync_open_interest()` functions entirely.
 
-- [ ] **Step 5: Update backfill() to use fetch_bars**
+- [ ] **Step 5: Update backfill() to use fetch_bars (no client argument)**
 
-  The `backfill()` function currently calls `fetch_klines`. Replace with `fetch_bars`:
+  The `backfill()` function currently calls `fetch_klines(client, ...)`. Replace with `fetch_bars(symbol, ...)` — note **no client argument** in the new signature:
 
   ```python
   # Before
@@ -626,15 +773,14 @@ The new `fetch_bars()` keeps the same call signature as the old `fetch_klines()`
       fetch_bars,
   )
   # ... inside backfill():
-  df = fetch_bars(client, symbol, timeframe, current_start, limit=BARS_MAX_LIMIT)
+  df = fetch_bars(symbol, timeframe, current_start, limit=BARS_MAX_LIMIT)
   ```
 
-  Update the `backfill()` signature to accept `StockHistoricalDataClient`:
+  Update the `backfill()` signature to drop the `client` parameter entirely:
 
   ```python
   def backfill(
       conn: duckdb.DuckDBPyConnection,
-      client: StockHistoricalDataClient,
       symbol: str,
       timeframe: str,
       start_ms: int,
@@ -652,10 +798,11 @@ The new `fetch_bars()` keeps the same call signature as the old `fetch_klines()`
   if len(df) < BARS_MAX_LIMIT:
   ```
 
+  **Note on pagination:** yfinance returns the full requested `period` in one call, so the parent repo's "page until short batch" loop in `backfill()` becomes a single call. Adjust the loop or short-circuit after one fetch — the choice is a follow-up cleanup, not blocking.
+
 - [ ] **Step 6: Update incremental_sync() similarly**
 
-  Find `incremental_sync()` and replace any `fetch_klines` calls with `fetch_bars`,
-  and update the `Client` type annotation to `StockHistoricalDataClient`.
+  Find `incremental_sync()` and replace any `fetch_klines(client, ...)` calls with `fetch_bars(symbol, ...)`. Drop the `client` parameter from the function signature.
   Remove any `sync_funding_rates` or `sync_open_interest` calls inside it.
 
 - [ ] **Step 7: Run tests**
@@ -668,24 +815,26 @@ The new `fetch_bars()` keeps the same call signature as the old `fetch_klines()`
 
 - [ ] **Step 8: Update `analytics/analytics_runner.py`**
 
-  This thin wrapper creates the client and calls sync. Update its import:
+  This thin wrapper creates the client and calls sync. With yfinance there's no client to create — just delete the client setup entirely:
 
   ```python
   # Before
   from utils.binance_client import create_client
+  client = create_client()
+  backfill(conn, client, symbol, timeframe, start_ms)
 
   # After
-  from utils.alpaca_client import create_data_client
+  # (no client import or creation)
+  backfill(conn, symbol, timeframe, start_ms)
   ```
 
-  Replace the `create_client()` call with `create_data_client()` and update the type
-  annotation on the client variable to `StockHistoricalDataClient`.
+  Delete any remaining `client` variable references.
 
 - [ ] **Step 9: Commit**
 
   ```bash
   git add analytics/data_sync.py analytics/analytics_runner.py tests/test_data_sync.py
-  git commit -m "feat: update data_sync and analytics_runner to use Alpaca, remove funding/OI"
+  git commit -m "feat: rewire data_sync to yfinance, remove funding/OI + client argument"
   ```
 
 ---
@@ -1280,12 +1429,17 @@ to open). This requires making the param functional again.
 
 ## Task 11: End-to-end smoke test
 
-- [ ] **Step 1: Set Alpaca credentials**
+**No credentials needed for data layer** — yfinance is unauthenticated. Telegram bot tokens are still needed for any alert path, but optional for this smoke test (defer to T12 work).
+
+- [ ] **Step 1: Sanity-check yfinance reachability**
+
+  Confirm the network + yfinance install work before running anything heavier:
 
   ```bash
-  export ALPACA_API_KEY=your_paper_key
-  export ALPACA_SECRET_KEY=your_paper_secret
+  poetry run python -c "import yfinance as yf; print(yf.Ticker('AAPL').history(period='5d', interval='1d'))"
   ```
+
+  Expected: 5 rows of recent AAPL daily OHLCV printed. If this fails (rate-limit, geo-block, Yahoo schema break), every other step will too — investigate before continuing.
 
 - [ ] **Step 2: Run the full test suite**
 
@@ -1293,7 +1447,7 @@ to open). This requires making the param functional again.
   make test
   ```
 
-  Expected: all tests pass. Fix any remaining import errors.
+  Expected: all tests pass. Fix any remaining import errors (likely culprits: leftover `binance` / `alpaca` imports, stale `vwap` column references in tests).
 
 - [ ] **Step 3: Backfill AAPL daily candles**
 
@@ -1301,35 +1455,51 @@ to open). This requires making the param functional again.
   poetry run python [BOTNAME].py sync --symbol AAPL --timeframe 1d --since 2023-01-01
   ```
 
-  Expected: candles stored in `analytics.db`.
+  Expected: candles stored in `analytics.db`. Spot-check via DuckDB CLI: `SELECT COUNT(*) FROM ohlcv WHERE symbol = 'AAPL' AND timeframe = '1d';` should be ≥ 500 rows.
 
-- [ ] **Step 4: Run a backtest on AAPL 1d**
+- [ ] **Step 4: Backfill AAPL 4h candles (validates resample path)**
+
+  ```bash
+  poetry run python [BOTNAME].py sync --symbol AAPL --timeframe 4h --since 2024-01-01
+  ```
+
+  Expected: 4h candles stored. **Key validation** — the resample from 1h→4h must produce bars anchored to 13:30 UTC. Spot-check: `SELECT MIN(EXTRACT('hour' FROM make_timestamp(open_time * 1000))) FROM ohlcv WHERE symbol = 'AAPL' AND timeframe = '4h';` — values should be {1, 5, 9, 13, 17, 21} (the 4h grid offset by 13:30 minutes — actually just check the minute portion is 30).
+
+- [ ] **Step 5: Run a backtest on AAPL 1d**
 
   ```bash
   poetry run python [BOTNAME].py backtest --symbol AAPL --timeframe 1d --days 365
   ```
 
-  Expected: backtest results printed; no crash.
+  Expected: backtest results printed; no crash. **Expect ratings to be poor** — crypto `tp_r` / `atr_sl_multiplier` defaults don't transfer to equities. This is T14's job to fix, not Task 11's.
 
-- [ ] **Step 5: Run the signal scanner**
+- [ ] **Step 6: Run the signal scanner**
 
   ```bash
   poetry run python [BOTNAME].py scan --symbol AAPL --timeframe 1d
   ```
 
-  Expected: signals printed or "no signals"; no crash.
+  Expected: signals printed or "no signals"; no crash. If alerts are wired (T12 complete), Telegram should receive messages on both channels.
 
-- [ ] **Step 6: Start the web dashboard**
+- [ ] **Step 7: Start the web dashboard**
 
   ```bash
   poetry run python [BOTNAME].py web
   ```
 
-  Visit `http://localhost:8000`. Expected: dashboard loads, Chart tab shows AAPL.
+  Visit `http://localhost:8000`. Expected: dashboard loads, Chart tab shows AAPL with daily candles. Positions tab should be **absent** (T16) — if it shows, that's a UI-hygiene leftover.
 
-- [ ] **Step 7: Final commit**
+- [ ] **Step 8: Final commit**
 
   ```bash
   git add -A
-  git commit -m "chore: smoke test passed — TradFi equity fork operational on AAPL 1d"
+  git commit -m "chore: smoke test passed — equity fork operational on AAPL 1d + 4h"
   ```
+
+**What this smoke test does NOT cover (handled by later tasks):**
+
+- Telegram dispatcher dual-publishing → T12
+- Equity-tuned `tp_r` and ratings → T14
+- Stock-formatted alert labels → T15
+- Web UI hygiene (Positions tab removal, default symbol) → T16
+- Run-cadence wiring (manual CLI vs cron vs Actions) → T17
