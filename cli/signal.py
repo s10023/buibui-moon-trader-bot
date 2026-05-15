@@ -110,7 +110,7 @@ def run_signal_watch(args: argparse.Namespace) -> None:
     if config_path is None:
         config_path = pick_default_config_for_today()
         print(
-            f"📅 No --config provided; auto-selected {config_path.name} for today's SGT weekday.",
+            f"📅 No --config provided; auto-selected {config_path.name} for today's UTC weekday.",
             file=sys.stderr,
         )
     cfg = load_signal_config(config_path)
@@ -173,9 +173,10 @@ def add_signal_subparser(
         metavar="FILE",
         help=(
             "Path to TOML config file (e.g. config/signal_watch.toml). "
-            "When omitted, auto-picks today's config by SGT weekday "
+            "When omitted, auto-picks today's config by UTC weekday "
             "(Mon/Fri→signal_watch_weekdays, Tue–Thu→signal_watch, "
-            "Sat/Sun→signal_watch_all). CLI flags override file values."
+            "Sat/Sun→signal_watch_all) so the picker matches the config's "
+            "day_filter scope on candle open_time. CLI flags override file values."
         ),
     )
     watch_parser.add_argument(

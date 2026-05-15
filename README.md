@@ -496,8 +496,13 @@ pruner removes ratings written under the previous scope so the daemon never read
 | `signal_watch_all.toml` | `weekend` | Sat, Sun |
 
 `buibui signal watch` with **no `--config`** auto-picks the matching config based on
-today's SGT (UTC+8) weekday. Explicit `--config X` always wins. The pick is made
-once at daemon startup — restart at a UTC midnight to refresh.
+today's **UTC weekday**. Explicit `--config X` always wins. The pick is made once
+at daemon startup — restart after a UTC midnight to refresh.
+
+UTC (not local time) so the picker agrees with `day_filter` by construction —
+each config's `day_filter` evaluates every candle's UTC `open_time`, so picking
+by UTC weekday guarantees the picked config will accept the candles the daemon
+will actually receive.
 
 **Star rating thresholds (avg R):**
 

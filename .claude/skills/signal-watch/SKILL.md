@@ -160,7 +160,7 @@ duckdb analytics.db "SELECT * FROM signals ORDER BY ts DESC LIMIT 20"
 | `config/signal_watch_weekdays.toml` | Mon + Fri only (`day_filter = "mon_fri"`) |
 | `config/signal_watch_all.toml` | Sat + Sun only (`day_filter = "weekend"`) |
 
-The three configs partition the calendar without overlap. When `buibui signal watch` is run with no `--config`, today's SGT (UTC+8) weekday auto-picks one of them. Explicit `--config X` still wins.
+The three configs partition the calendar without overlap. When `buibui signal watch` is run with no `--config`, today's **UTC weekday** auto-picks one of them. Explicit `--config X` still wins. UTC (not local time) so the picker agrees with each config's `day_filter`, which evaluates every candle's UTC `open_time`.
 
 ## Key implementation files
 

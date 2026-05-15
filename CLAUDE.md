@@ -27,7 +27,7 @@ For routine DB refresh after backtest/strategy changes: `make db-update` (= `db-
 `buibui.py` is the single CLI entry point with subcommands:
 
 - `buibui monitor price | position` — live price / position monitor
-- `buibui signal watch | test` — live signal daemon / historical replay. `watch` with no `--config` auto-picks today's config by SGT (UTC+8) weekday (Mon/Fri→`signal_watch_weekdays.toml`, Tue–Thu→`signal_watch.toml`, Sat/Sun→`signal_watch_all.toml`); the three configs partition the calendar without overlap
+- `buibui signal watch | test` — live signal daemon / historical replay. `watch` with no `--config` auto-picks today's config by **UTC weekday** (Mon/Fri→`signal_watch_weekdays.toml`, Tue–Thu→`signal_watch.toml`, Sat/Sun→`signal_watch_all.toml`); the three configs partition the calendar without overlap. UTC (not local) so the picker matches the `day_filter` scope on each candle's UTC `open_time`
 - `buibui analytics backfill | sync` — OHLCV ingestion
 - `buibui backtest` — run/save backtests (sweep, combo, cross-TF modes)
 - `buibui digest` — pre-canned analytics queries

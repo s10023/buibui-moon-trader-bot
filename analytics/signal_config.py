@@ -8,7 +8,7 @@ No module-level side effects.
 
 import tomllib
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -121,35 +121,38 @@ class StrategyOverride:
     suppress_short: bool = False
 
 
-SGT_TZ = timezone(timedelta(hours=8))
-
-
 def pick_default_config_for_today(
     *,
     now: datetime | None = None,
     config_dir: Path | None = None,
 ) -> Path:
-    """Auto-select a signal_watch config based on today's SGT (UTC+8) weekday.
+    """Auto-select a signal_watch config based on today's UTC weekday.
 
     The three production configs partition the calendar:
       Mon, Fri → signal_watch_weekdays.toml (day_filter = "mon_fri")
       Tue–Thu  → signal_watch.toml          (day_filter = "tue_thu")
       Sat, Sun → signal_watch_all.toml      (day_filter = "weekend")
 
-    The pick is made once at daemon startup using SGT weekday so the chosen
-    config's scope matches what the SGT-based operator considers "today". The
-    daemon does not auto-switch mid-run — restart it after a day boundary
-    to refresh the pick.
+    Why UTC: each config's `day_filter` evaluates every candle's UTC weekday
+    via `_day_filter_to_weekdays`. Using UTC here guarantees the picker and
+    the gate agree by construction — whatever the operator's wall clock says,
+    the picked config will accept the candles the daemon actually receives.
+    A local-time picker would drift up to ~8 hours from the gate scope at the
+    UTC day boundary, leaving the daemon scanning but suppressing every signal
+    until UTC midnight rolls in.
+
+    The pick is made once at daemon startup; the daemon does not auto-switch
+    mid-run. Restart after a UTC midnight to refresh the pick.
     """
     base = config_dir if config_dir is not None else Path("config")
     if now is None:
         now = datetime.now(UTC)
     elif now.tzinfo is None:
         now = now.replace(tzinfo=UTC)
-    sgt_weekday = now.astimezone(SGT_TZ).weekday()  # Mon=0 … Sun=6
-    if sgt_weekday in (0, 4):  # Mon, Fri
+    utc_weekday = now.astimezone(UTC).weekday()  # Mon=0 … Sun=6
+    if utc_weekday in (0, 4):  # Mon, Fri
         return base / "signal_watch_weekdays.toml"
-    if sgt_weekday in (5, 6):  # Sat, Sun
+    if utc_weekday in (5, 6):  # Sat, Sun
         return base / "signal_watch_all.toml"
     return base / "signal_watch.toml"  # Tue–Thu
 

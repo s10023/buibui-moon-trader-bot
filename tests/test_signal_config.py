@@ -73,14 +73,14 @@ class TestDayFilterToWeekdays:
 
 
 class TestPickDefaultConfigForToday:
-    """SGT (UTC+8) weekday → config picker."""
+    """UTC weekday → config picker."""
 
     @staticmethod
     def _at(year: int, month: int, day: int, hour: int = 12) -> datetime:
         return datetime(year, month, day, hour, 0, 0, tzinfo=UTC)
 
     def test_monday_picks_weekdays_config(self) -> None:
-        # 2026-05-18 is a Monday in both UTC and SGT.
+        # 2026-05-18 is a Monday in UTC.
         path = pick_default_config_for_today(now=self._at(2026, 5, 18))
         assert path == Path("config") / "signal_watch_weekdays.toml"
 
@@ -108,26 +108,35 @@ class TestPickDefaultConfigForToday:
         path = pick_default_config_for_today(now=self._at(2026, 5, 24))
         assert path == Path("config") / "signal_watch_all.toml"
 
-    def test_sgt_boundary_picks_by_sgt_not_utc(self) -> None:
-        """2026-05-17 16:00 UTC = 2026-05-18 00:00 SGT (Sun UTC → Mon SGT).
+    def test_late_friday_sgt_picks_by_utc_not_local(self) -> None:
+        """2026-05-15 16:10 UTC = 2026-05-16 00:10 SGT (Fri UTC → Sat SGT).
 
-        Auto-pick must use the SGT weekday (Mon) → weekdays config, not the
-        UTC weekday (Sun) which would pick the weekend config.
+        Regression for the live-daemon mismatch where an SGT-late-night
+        Friday session would otherwise pick the weekend config and have its
+        day_filter immediately suppress every UTC-Friday candle. Picker must
+        use the UTC weekday (Fri) → mon_fri config so the picked config
+        accepts the candles the daemon will actually receive.
         """
-        path = pick_default_config_for_today(now=self._at(2026, 5, 17, hour=16))
+        path = pick_default_config_for_today(
+            now=datetime(2026, 5, 15, 16, 10, 0, tzinfo=UTC)
+        )
         assert path == Path("config") / "signal_watch_weekdays.toml"
 
-    def test_sgt_boundary_pre_midnight_still_sunday(self) -> None:
-        """2026-05-17 15:59 UTC = 2026-05-17 23:59 SGT (still Sun in both) → weekend."""
-        sgt_just_before_midnight = datetime(2026, 5, 17, 15, 59, 0, tzinfo=UTC)
-        path = pick_default_config_for_today(now=sgt_just_before_midnight)
+    def test_late_sunday_sgt_still_picks_weekend(self) -> None:
+        """2026-05-17 16:10 UTC = 2026-05-18 00:10 SGT (Sun UTC → Mon SGT).
+
+        Picker uses UTC (Sun) → weekend config. The Mon SGT operator
+        intuition would mismatch here; this test documents that.
+        """
+        path = pick_default_config_for_today(
+            now=datetime(2026, 5, 17, 16, 10, 0, tzinfo=UTC)
+        )
         assert path == Path("config") / "signal_watch_all.toml"
 
     def test_naive_datetime_treated_as_utc(self) -> None:
         naive = datetime(2026, 5, 20, 12, 0, 0)  # no tzinfo
         path = pick_default_config_for_today(now=naive)
-        # Wednesday in UTC → SGT Wed afternoon → signal_watch
-        assert path == Path("config") / "signal_watch.toml"
+        assert path == Path("config") / "signal_watch.toml"  # Wed UTC
 
     def test_config_dir_override(self, tmp_path: Path) -> None:
         path = pick_default_config_for_today(
@@ -145,14 +154,14 @@ class TestPickDefaultConfigForToday:
         }
         assert path.parent == Path("config")
 
-    def test_explicit_non_utc_tz_is_converted_to_sgt(self) -> None:
-        """Caller passes an aware datetime in a different tz; helper converts to SGT."""
-        # 2026-05-17 12:00 in UTC-4 = 2026-05-17 16:00 UTC = 2026-05-18 00:00 SGT → Mon.
+    def test_explicit_non_utc_tz_is_converted_to_utc(self) -> None:
+        """Caller passes an aware datetime in a different tz; helper converts to UTC."""
+        # 2026-05-17 12:00 in UTC-4 = 2026-05-17 16:00 UTC → Sun → weekend.
         ny = timezone(timedelta(hours=-4))
         ny_noon_sunday = datetime(2026, 5, 17, 12, 0, 0, tzinfo=ny)
         assert (
             pick_default_config_for_today(now=ny_noon_sunday)
-            == Path("config") / "signal_watch_weekdays.toml"
+            == Path("config") / "signal_watch_all.toml"
         )
 
 

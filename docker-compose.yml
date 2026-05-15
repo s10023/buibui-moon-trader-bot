@@ -25,9 +25,9 @@ services:
 
   signal-watch:
     build: .
-    # No --config: the daemon auto-picks today's config by SGT (UTC+8) weekday
+    # No --config: the daemon auto-picks today's config by UTC weekday
     # (signal_watch.toml for Tue–Thu, signal_watch_weekdays.toml for Mon+Fri,
-    # signal_watch_all.toml for Sat+Sun). Restart at a UTC midnight to refresh
+    # signal_watch_all.toml for Sat+Sun). Restart after a UTC midnight to refresh
     # the pick. Pass --config <file> here to force a specific config.
     command: python buibui.py signal watch --telegram
     # .env is excluded from the image via .dockerignore (security).
