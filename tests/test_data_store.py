@@ -411,6 +411,8 @@ class _FakeTrade:
         tp_price: float,
         outcome: str,
         pnl_r: float | None,
+        low_volume: bool = False,
+        volume_spike: bool = False,
     ) -> None:
         self.signal_time = signal_time
         self.entry_time = entry_time
@@ -422,6 +424,8 @@ class _FakeTrade:
         self.exit_price: float | None = tp_price if outcome == "win" else sl_price
         self.outcome = outcome
         self.pnl_r = pnl_r
+        self.low_volume = low_volume
+        self.volume_spike = volume_spike
 
 
 class _FakeResult:
@@ -618,6 +622,19 @@ class TestUpsertBacktestTrades:
         run_id = upsert_backtest_run(conn, result, **_BT_PARAMS)
         upsert_backtest_trades(conn, result, run_id)
         assert _one(conn, "SELECT COUNT(*) FROM backtest_trades")[0] == 0
+
+    def test_volume_flags_persist(self, conn: duckdb.DuckDBPyConnection) -> None:
+        result = _FakeResult("BTCUSDT", "4h", "bos")
+        result.trades[0].low_volume = True
+        result.trades[0].volume_spike = False
+        result.trades[1].low_volume = False
+        result.trades[1].volume_spike = True
+        run_id = upsert_backtest_run(conn, result, **_BT_PARAMS)
+        upsert_backtest_trades(conn, result, run_id)
+        rows = conn.execute(
+            "SELECT low_volume, volume_spike FROM backtest_trades ORDER BY signal_time"
+        ).fetchall()
+        assert rows == [(True, False), (False, True)]
 
 
 class TestGetWinRateByStrategy:

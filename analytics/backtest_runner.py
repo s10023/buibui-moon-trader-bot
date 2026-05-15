@@ -339,6 +339,8 @@ def run_backtest_sweep(
     conn: duckdb.DuckDBPyConnection = duckdb.connect(
         str(db_path), read_only=not (cfg.save_results and single_run_mode)
     )
+    if cfg.save_results and single_run_mode:
+        init_schema(conn)
 
     try:
         if tp_sweep_mode:
