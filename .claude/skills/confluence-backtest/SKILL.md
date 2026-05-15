@@ -93,7 +93,7 @@ Reports, per table (`backtest_combos`, `backtest_cross_tf_combos`):
 
 - Total row count and `MAX(run_at_ms)` (last save).
 - Rows from runs within the freshness window (defaults to 2h).
-- `day_filter` distribution (`off` / `weekdays` / `tue_thu`).
+- `day_filter` distribution (`off` / `weekdays` / `mon_fri` / `tue_thu` / `weekend` / `no_monfi`).
 - Count and top 10 rows that pass the live alert gates:
   - same-TF: `tue_thu` + `avg_r ≥ 1.0` + `closed_trades ≥ 5`
   - cross-TF: `tue_thu` + `avg_r ≥ 0.0` + `closed_trades ≥ 5`

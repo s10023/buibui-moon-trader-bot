@@ -139,13 +139,14 @@ ATR SL Multiplier Comparison (aggregated across symbols)
 
 ## Which config to sweep?
 
-Two production signal_watch configs exist:
-- `config/signal_watch.toml` — `day_filter = "tue_thu"` (Tue–Thu only)
-- `config/signal_watch_weekdays.toml` — `day_filter = "weekdays"` (Mon–Fri)
+Three production signal_watch configs exist; together they partition the calendar:
+- `config/signal_watch.toml` — `day_filter = "tue_thu"` (Tue–Thu)
+- `config/signal_watch_weekdays.toml` — `day_filter = "mon_fri"` (Mon + Fri only)
+- `config/signal_watch_all.toml` — `day_filter = "weekend"` (Sat + Sun only)
 
-**Default: sweep `signal_watch.toml` only.** ATR sizing is a volatility question, not a day-of-week question — one sweep gives the baseline. The two configs already diverge in their `[strategy_params]` tp_r overrides (calibrated separately in F6), which absorbs most of the Mon/Fri difference.
+**Default: sweep `signal_watch.toml` only.** ATR sizing is a volatility question, not a day-of-week question — one sweep gives the baseline. The three configs already diverge in their `[strategy_params]` tp_r overrides (calibrated separately per WFO run), which absorbs most of the day-of-week difference.
 
-**Run both when:** the user explicitly asks, OR after live use shows weekdays underperforming tue_thu (Mon/Fri candles are wider/more volatile and may warrant a different multiplier).
+**Run all three when:** the user explicitly asks, OR after live use shows mon_fri / weekend cells underperforming tue_thu (Mon/Fri candles are wider/more volatile; weekend candles thinner).
 
 When sweeping both: run sequentially, produce separate findings, and write per-strategy `atr_sl_multiplier` overrides into each TOML independently.
 
@@ -153,7 +154,7 @@ When sweeping both: run sequentially, produce separate findings, and write per-s
 
 When the user asks to run an ATR sweep or find optimal ATR multipliers:
 
-1. Ask: "Which config — `signal_watch.toml` (tue_thu), `signal_watch_weekdays.toml`, or both?" Default to `signal_watch.toml` if not specified.
+1. Ask: "Which config — `signal_watch.toml` (tue_thu), `signal_watch_weekdays.toml` (mon_fri), `signal_watch_all.toml` (weekend), or all three?" Default to `signal_watch.toml` if not specified.
 2. Suggest range: `[0.5, 1.0, 1.5, 2.0, 2.5]` for swing/1h+; `[0.3, 0.5, 0.8, 1.0, 1.5]` for scalping
 3. Add `atr_sl_multiplier_values = [...]` to the chosen TOML (or use `--atr-sl-values` CLI flag to avoid editing the file)
 4. Run with the floor on: `buibui backtest --config <file> --atr-sl-floor --atr-sl-values <vals>` (skipping the floor is the #1 way to get a useless sweep)

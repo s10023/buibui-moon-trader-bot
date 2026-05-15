@@ -67,7 +67,7 @@ timeframes = ["15m", "1h", "4h", "1d"]
 telegram = true
 min_sl_pct = 0.005
 
-# Day filter: "off" | "weekdays" | "tue_thu"
+# Day filter: "off" | "weekdays" | "mon_fri" | "tue_thu" | "weekend" | "no_monfi"
 day_filter = "tue_thu"
 
 # EMA-50 trend gate for smt_divergence
@@ -156,9 +156,11 @@ duckdb analytics.db "SELECT * FROM signals ORDER BY ts DESC LIMIT 20"
 
 | File | Description |
 |------|-------------|
-| `config/signal_watch.toml` | Default: tue_thu filter, curated strategy list |
-| `config/signal_watch_weekdays.toml` | Weekdays (Mon–Fri) |
-| `config/signal_watch_all.toml` | All days — broad coverage |
+| `config/signal_watch.toml` | Tue–Thu (`day_filter = "tue_thu"`); curated strategy list |
+| `config/signal_watch_weekdays.toml` | Mon + Fri only (`day_filter = "mon_fri"`) |
+| `config/signal_watch_all.toml` | Sat + Sun only (`day_filter = "weekend"`) |
+
+The three configs partition the calendar without overlap. When `buibui signal watch` is run with no `--config`, today's SGT (UTC+8) weekday auto-picks one of them. Explicit `--config X` still wins.
 
 ## Key implementation files
 

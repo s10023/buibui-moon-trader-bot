@@ -90,7 +90,7 @@ Key reversals vs A13 (old tp_r=2.0):
 - **liquidity_sweep**: A13 said don't suppress (-0.11R delta); at current tp_r now +0.17R → **suppress**
 - **morning_evening_star**: A13 said suppress (+0.10R delta); at current tp_r now -0.14R → **don't suppress**
 
-Configs use config-specific sweeps — weekdays/all configs have slightly different decisions. See inline comments in each TOML.
+Configs use config-specific sweeps — the `mon_fri` and `weekend` configs see a narrower trade population than `tue_thu` and may give different decisions. See inline comments in each TOML.
 
 ## Workflow
 
@@ -104,7 +104,7 @@ make buibui-backtest CONFIG=config/signal_watch.toml
 #    |Δ| ≤ 0.05R → omit (neutral)
 
 # 3. Add volume_suppress to [strategy_params.X] in TOML
-# 4. Repeat for weekdays and all configs separately (day filter changes trade population)
+# 4. Repeat for the mon_fri (signal_watch_weekdays) and weekend (signal_watch_all) configs separately — day filter changes trade population
 
 # 5. Run quality gates
 make lint-py && make typecheck && make test
@@ -120,5 +120,5 @@ make lint-py && make typecheck && make test
 | `analytics/signal_lib.py` | `_resolve_volume_suppress()` — per-event lookup in live daemon loop |
 | `analytics/backtest_runner.py` | Passes `cfg.effective_volume_suppress(strategy)` to every `run_backtest()` call |
 | `config/signal_watch.toml` | Per-strategy `volume_suppress` in each `[strategy_params.X]` block |
-| `config/signal_watch_weekdays.toml` | Same — weekdays-specific decisions |
-| `config/signal_watch_all.toml` | Same — all-days decisions (includes wick_fill=true) |
+| `config/signal_watch_weekdays.toml` | Same — Mon + Fri only (`day_filter = "mon_fri"`) decisions |
+| `config/signal_watch_all.toml` | Same — Sat + Sun only (`day_filter = "weekend"`) decisions |

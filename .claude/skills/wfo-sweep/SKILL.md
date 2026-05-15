@@ -205,4 +205,4 @@ WFO sweep complete — config/signal_watch.toml
 - If config has no symbols set, default to BTC/ETH/SOL (the 3 most-backtested)
 - WFO split default: 70% IS / 30% OOS — do not change unless history < 90d
 - Never commit a config where any strategy has OOS avg_r < 0 after the update
-- Always pass `--day-filter <day_filter>` to both `param-audit` and `param-sweep` — the WFO must run on the same trade population the config will see in production (tue_thu for signal_watch.toml, weekdays for weekdays, off for all)
+- Always pass `--day-filter <day_filter>` to both `param-audit` and `param-sweep` — the WFO must run on the same trade population the config will see in production (`tue_thu` for `signal_watch.toml`, `mon_fri` for `signal_watch_weekdays.toml`, `weekend` for `signal_watch_all.toml`)

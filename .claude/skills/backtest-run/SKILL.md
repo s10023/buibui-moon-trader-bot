@@ -46,7 +46,7 @@ buibui backtest --config config/signal_watch.toml --strategy engulfing
 ```bash
 buibui backtest --config config/signal_watch.toml --day-filter tue_thu
 
-# Options: off | weekdays | tue_thu (default from TOML: tue_thu)
+# Options: off | weekdays | mon_fri | tue_thu | weekend | no_monfi (default from TOML: tue_thu)
 ```
 
 ### TP sweep (TOML only — no CLI flag for multi-value sweep)
@@ -97,7 +97,7 @@ buibui backtest
   --atr-sl-multiplier N    ATR-based SL: N × ATR14
   --atr-sl-values N...     Multi-value ATR sweep (space-separated)
   --atr-sl-floor           Widen structural SLs by max(structural, N × ATR14) — required for ATR sweep to bite on structural strategies
-  --day-filter MODE        off | weekdays | tue_thu
+  --day-filter MODE        off | weekdays | mon_fri | tue_thu | weekend | no_monfi
   --save                   Persist results to DB (same as SAVE=1)
   --min-trades N           Hide combos below N trades
   --secondary-symbol SYM   Secondary symbol for smt_divergence
@@ -107,9 +107,9 @@ buibui backtest
 
 | File | Description |
 |------|-------------|
-| `config/signal_watch.toml` | Default: tue_thu day filter, per-strategy tp_r from F6 sweep |
-| `config/signal_watch_weekdays.toml` | Weekdays (Mon–Fri), similar strategy params |
-| `config/signal_watch_all.toml` | All days, all TFs — broad sweep |
+| `config/signal_watch.toml` | Tue–Thu (`day_filter = "tue_thu"`); per-strategy tp_r from F6 sweep |
+| `config/signal_watch_weekdays.toml` | Mon + Fri only (`day_filter = "mon_fri"`) |
+| `config/signal_watch_all.toml` | Sat + Sun only (`day_filter = "weekend"`) |
 
 ## Viewing saved runs
 
