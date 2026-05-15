@@ -484,6 +484,20 @@ poetry run python buibui.py recalibrate --min-trades 20 --apply
 `backtest_runs` to only runs matching that `day_filter` before computing stars.
 `--apply` with `--config` writes to the `confidence_ratings` table keyed by config name —
 signal watch loads these at startup so each TOML config uses its own calibrated stars.
+When the active config's `day_filter` changes between runs, recalibrate's stale-row
+pruner removes ratings written under the previous scope so the daemon never reads zombies.
+
+**Day-filter scopes.** The three production configs partition the calendar:
+
+| Config | `day_filter` | Days |
+| --- | --- | --- |
+| `signal_watch.toml` | `tue_thu` | Tue, Wed, Thu |
+| `signal_watch_weekdays.toml` | `mon_fri` | Mon, Fri |
+| `signal_watch_all.toml` | `weekend` | Sat, Sun |
+
+`buibui signal watch` with **no `--config`** auto-picks the matching config based on
+today's SGT (UTC+8) weekday. Explicit `--config X` always wins. The pick is made
+once at daemon startup — restart at a UTC midnight to refresh.
 
 **Star rating thresholds (avg R):**
 

@@ -93,7 +93,7 @@ class TestLoadBacktestConfig:
         assert cfg.smt_trend_filter == 1
 
     def test_load_day_filter_string_modes(self, tmp_path: Path) -> None:
-        for mode in ("off", "weekdays", "tue_thu"):
+        for mode in ("off", "weekdays", "mon_fri", "tue_thu", "weekend"):
             p = tmp_path / f"cfg_{mode}.toml"
             p.write_text(f'symbols = []\nday_filter = "{mode}"\nsmt_trend_filter = 0\n')
             cfg = load_backtest_config(p)

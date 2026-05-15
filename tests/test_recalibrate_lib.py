@@ -14,6 +14,7 @@ from analytics.recalibrate_lib import (
     compute_directional_ratings,
     compute_recalibrated_ratings,
     format_recalibration_report,
+    prune_stale_ratings,
     win_rate_to_stars,
     write_confidence_to_db,
     write_confidence_to_source,
@@ -665,3 +666,79 @@ class TestComputeDirectionalRatings:
         conn.close()
         # 10 trades per direction < min_trades=15 → neither direction rated
         assert result == {}
+
+
+class TestPruneStaleRatings:
+    """prune_stale_ratings deletes rows with a mismatched day_filter."""
+
+    def _conn(self) -> duckdb.DuckDBPyConnection:
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        return conn
+
+    def _seed(
+        self,
+        conn: duckdb.DuckDBPyConnection,
+        config_name: str,
+        day_filter: str | None,
+        strategy: str = "fvg",
+        tf: str = "1h",
+    ) -> None:
+        empty_wr: pd.DataFrame = pd.DataFrame(
+            columns=["strategy", "timeframe", "avg_r", "win_rate"]
+        )
+        write_confidence_to_db(
+            conn,
+            config_name,
+            {strategy: {tf: 3}},
+            empty_wr,
+            day_filter=day_filter,
+        )
+
+    def _count(
+        self, conn: duckdb.DuckDBPyConnection, config_name: str
+    ) -> dict[str | None, int]:
+        rows = conn.execute(
+            "SELECT day_filter, COUNT(*) FROM confidence_ratings "
+            "WHERE config_name = ? GROUP BY day_filter",
+            [config_name],
+        ).fetchall()
+        return {r[0]: int(r[1]) for r in rows}
+
+    def test_returns_zero_when_no_stale_rows(self) -> None:
+        conn = self._conn()
+        self._seed(conn, "signal_watch_weekdays", "mon_fri")
+        n = prune_stale_ratings(conn, "signal_watch_weekdays", "mon_fri")
+        assert n == 0
+        assert self._count(conn, "signal_watch_weekdays") == {"mon_fri": 1}
+
+    def test_removes_rows_with_mismatched_day_filter(self) -> None:
+        conn = self._conn()
+        self._seed(conn, "signal_watch_weekdays", "weekdays", strategy="fvg", tf="1h")
+        self._seed(conn, "signal_watch_weekdays", "weekdays", strategy="bos", tf="4h")
+        self._seed(conn, "signal_watch_weekdays", "mon_fri", strategy="orb", tf="15m")
+        n = prune_stale_ratings(conn, "signal_watch_weekdays", "mon_fri")
+        # Two stale "weekdays" rows removed (fvg/1h and bos/4h).
+        assert n == 2
+        assert self._count(conn, "signal_watch_weekdays") == {"mon_fri": 1}
+
+    def test_does_not_touch_other_configs(self) -> None:
+        conn = self._conn()
+        self._seed(conn, "signal_watch_weekdays", "weekdays")
+        self._seed(conn, "signal_watch", "tue_thu")
+        n = prune_stale_ratings(conn, "signal_watch_weekdays", "mon_fri")
+        assert n == 1
+        assert self._count(conn, "signal_watch_weekdays") == {}
+        assert self._count(conn, "signal_watch") == {"tue_thu": 1}
+
+    def test_keeps_rows_with_null_day_filter(self) -> None:
+        """Rows where day_filter is NULL (legacy / unset) are left alone."""
+        conn = self._conn()
+        self._seed(conn, "signal_watch_weekdays", None)
+        self._seed(conn, "signal_watch_weekdays", "weekdays", strategy="bos")
+        n = prune_stale_ratings(conn, "signal_watch_weekdays", "mon_fri")
+        assert n == 1
+        # NULL-day_filter row preserved; "weekdays" row removed.
+        result = self._count(conn, "signal_watch_weekdays")
+        assert result.get(None) == 1
+        assert "weekdays" not in result

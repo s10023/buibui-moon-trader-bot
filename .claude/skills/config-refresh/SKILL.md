@@ -120,8 +120,8 @@ For tp_r refresh, follow up with `/wfo-sweep config/signal_watch_weekdays.toml`.
 | Config | Day filter | Notable differences vs reference |
 |--------|-----------|----------------------------------|
 | `signal_watch.toml` | tue_thu | Reference config; most swept |
-| `signal_watch_weekdays.toml` | weekdays | Mon/Fri included: smt 1d=0% wins, orb 1d=n/a, cvd 1d=n/a; hammer/mes 4h slightly positive |
-| `signal_watch_all.toml` | off | Much higher trade counts; weekend candles drag down reversal strategies |
+| `signal_watch_weekdays.toml` | mon_fri | Mon + Fri only — narrower scope; smaller trade counts than tue_thu, calibration drift can be larger |
+| `signal_watch_all.toml` | weekend | Sat + Sun only — thin weekend liquidity; reversal strategies tend to underperform vs Tue–Thu |
 
 ## Files
 

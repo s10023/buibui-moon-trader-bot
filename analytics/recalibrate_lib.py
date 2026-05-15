@@ -365,6 +365,35 @@ def format_recalibration_report(
     return "\n".join(lines)
 
 
+def prune_stale_ratings(
+    conn: duckdb.DuckDBPyConnection,
+    config_name: str,
+    day_filter: str,
+) -> int:
+    """Delete confidence_ratings rows for this config whose stored day_filter
+    no longer matches the current config's day_filter.
+
+    A given config_name should always reflect one day_filter scope at a time;
+    when the scope is changed (e.g. weekdays → mon_fri), the upsert path only
+    refreshes (config, strategy, tf, direction) keys that produced fresh runs
+    under the new scope, leaving the others as zombie rows. This helper deletes
+    those zombies. Returns the number of rows removed.
+    """
+    stale = conn.execute(
+        "SELECT COUNT(*) FROM confidence_ratings "
+        "WHERE config_name = ? AND day_filter IS NOT NULL AND day_filter <> ?",
+        [config_name, day_filter],
+    ).fetchone()
+    n_stale = int(stale[0]) if stale else 0
+    if n_stale:
+        conn.execute(
+            "DELETE FROM confidence_ratings "
+            "WHERE config_name = ? AND day_filter IS NOT NULL AND day_filter <> ?",
+            [config_name, day_filter],
+        )
+    return n_stale
+
+
 def write_confidence_to_db(
     conn: duckdb.DuckDBPyConnection,
     config_name: str,
