@@ -187,6 +187,8 @@ def upsert_backtest_trades(
             "exit_price": t.exit_price,
             "outcome": t.outcome,
             "pnl_r": t.pnl_r,
+            "low_volume": bool(getattr(t, "low_volume", False)),
+            "volume_spike": bool(getattr(t, "volume_spike", False)),
         }
         for t in result.trades
     ]
@@ -197,7 +199,7 @@ def upsert_backtest_trades(
             "INSERT OR REPLACE INTO backtest_trades SELECT "
             "trade_id, run_id, symbol, timeframe, strategy, direction, "
             "signal_time, entry_time, entry_price, sl_price, tp_price, "
-            "exit_time, exit_price, outcome, pnl_r "
+            "exit_time, exit_price, outcome, pnl_r, low_volume, volume_spike "
             "FROM _bt_trades_upsert_df"
         )
     finally:

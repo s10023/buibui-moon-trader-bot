@@ -165,9 +165,22 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
             exit_time       BIGINT,
             exit_price      DOUBLE,
             outcome         TEXT    NOT NULL,
-            pnl_r           DOUBLE
+            pnl_r           DOUBLE,
+            low_volume      BOOLEAN,
+            volume_spike    BOOLEAN
         )
     """)
+    # Migration: add volume flags for the gate audit / replay toolchain.
+    existing_bt_trade_cols = {
+        row[0]
+        for row in conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'backtest_trades'"
+        ).fetchall()
+    }
+    for col in ("low_volume", "volume_spike"):
+        if col not in existing_bt_trade_cols:
+            conn.execute(f"ALTER TABLE backtest_trades ADD COLUMN {col} BOOLEAN")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS stats_cache (
             symbol        TEXT    NOT NULL,
