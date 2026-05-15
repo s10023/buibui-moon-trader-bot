@@ -1,9 +1,10 @@
 # strategy_params.toml — shared base for main signal_watch configs.
 #
 # Configs that extend this file:
-#   signal_watch.toml          (tue_thu day filter)
-#   signal_watch_weekdays.toml (weekdays day filter)
-#   signal_watch_all.toml      (no day filter)
+#   signal_watch.toml          (day_filter = "tue_thu", Tue–Thu)
+#   signal_watch_weekdays.toml (day_filter = "mon_fri", Mon+Fri only)
+#   signal_watch_all.toml      (day_filter = "weekend", Sat+Sun only)
+# Together these three tile the calendar without overlap.
 #
 # Usage: add  extends = "strategy_params.toml"  as the first line of a config.
 # Keys in the extending config override the base (scalars/arrays replaced, dicts merged).

@@ -97,11 +97,23 @@ def run_signal_test(args: argparse.Namespace) -> None:
 
 
 def run_signal_watch(args: argparse.Namespace) -> None:
-    from analytics.signal_config import SignalWatchConfig, load_signal_config
+    import sys
+
+    from analytics.signal_config import (
+        SignalWatchConfig,
+        load_signal_config,
+        pick_default_config_for_today,
+    )
 
     cfg = SignalWatchConfig()
-    if getattr(args, "config", None):
-        cfg = load_signal_config(args.config)
+    config_path: pathlib.Path | None = getattr(args, "config", None)
+    if config_path is None:
+        config_path = pick_default_config_for_today()
+        print(
+            f"📅 No --config provided; auto-selected {config_path.name} for today's SGT weekday.",
+            file=sys.stderr,
+        )
+    cfg = load_signal_config(config_path)
 
     # CLI flags override config file values; None means "not provided by user"
     symbols = args.symbols if args.symbols is not None else cfg.symbols
@@ -118,9 +130,7 @@ def run_signal_watch(args: argparse.Namespace) -> None:
     # CLI --smt-pairs overrides config [smt_pairs] table entirely when provided
     smt_pairs = cli_smt_pairs if cli_smt_pairs is not None else (cfg.smt_pairs or None)
 
-    config_name = (
-        pathlib.Path(args.config).stem if getattr(args, "config", None) else None
-    )
+    config_name = pathlib.Path(config_path).stem
     signal_runner.run_signal_watch(
         symbols=symbols,
         timeframes=timeframes,
@@ -161,7 +171,12 @@ def add_signal_subparser(
         "--config",
         default=None,
         metavar="FILE",
-        help="Path to TOML config file (e.g. config/signal_watch.toml). CLI flags override file values.",
+        help=(
+            "Path to TOML config file (e.g. config/signal_watch.toml). "
+            "When omitted, auto-picks today's config by SGT weekday "
+            "(Mon/Fri→signal_watch_weekdays, Tue–Thu→signal_watch, "
+            "Sat/Sun→signal_watch_all). CLI flags override file values."
+        ),
     )
     watch_parser.add_argument(
         "--symbols",

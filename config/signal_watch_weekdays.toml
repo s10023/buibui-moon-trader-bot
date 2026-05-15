@@ -1,8 +1,13 @@
-# Signal Watch — weekdays profile (Mon–Fri, no weekend signals)
+# Signal Watch — Mon+Fri-only profile (the two weekdays signal_watch.toml skips)
 # Usage: make buibui-signal-watch CONFIG=config/signal_watch_weekdays.toml
 #
+# Scope: signal_watch.toml runs Tue–Thu; this config covers Mon+Fri so the two
+# together span the full work week without overlap. Filename kept as
+# "weekdays" for compatibility (Makefile, regression fixtures, DB rating keys);
+# day_filter scope is Mon+Fri only.
+#
 # Inherits: smt_pairs, bias, backtest defaults, and consistent per-strategy flags
-# from strategy_params.toml. Only weekdays-specific values are defined here.
+# from strategy_params.toml. Only Mon+Fri-specific values are defined here.
 
 extends = "strategy_params.toml"
 
@@ -11,8 +16,9 @@ extends = "strategy_params.toml"
 
 timeframes = ["15m", "1h", "4h", "1d"]
 
-# Suppress signals by day: "off" | "weekdays" (Mon–Fri) | "tue_thu" (Tue–Thu only)
-day_filter = "weekdays"
+# Suppress signals by day — Mon+Fri only (complement of signal_watch.toml Tue–Thu).
+# Valid values: "off" | "weekdays" | "mon_fri" | "tue_thu" | "weekend" | "no_monfi"
+day_filter = "mon_fri"
 
 # Same TF suppression as signal_watch.toml — wick_fill, marubozu, fvg excluded
 # Phase 1 (2026-05-07, audit-driven): marubozu + fvg removed entirely (DROP_TF on every TF).

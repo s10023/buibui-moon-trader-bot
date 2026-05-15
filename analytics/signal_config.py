@@ -8,6 +8,7 @@ No module-level side effects.
 
 import tomllib
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -120,21 +121,60 @@ class StrategyOverride:
     suppress_short: bool = False
 
 
+SGT_TZ = timezone(timedelta(hours=8))
+
+
+def pick_default_config_for_today(
+    *,
+    now: datetime | None = None,
+    config_dir: Path | None = None,
+) -> Path:
+    """Auto-select a signal_watch config based on today's SGT (UTC+8) weekday.
+
+    The three production configs partition the calendar:
+      Mon, Fri → signal_watch_weekdays.toml (day_filter = "mon_fri")
+      Tue–Thu  → signal_watch.toml          (day_filter = "tue_thu")
+      Sat, Sun → signal_watch_all.toml      (day_filter = "weekend")
+
+    The pick is made once at daemon startup using SGT weekday so the chosen
+    config's scope matches what the SGT-based operator considers "today". The
+    daemon does not auto-switch mid-run — restart it after a day boundary
+    to refresh the pick.
+    """
+    base = config_dir if config_dir is not None else Path("config")
+    if now is None:
+        now = datetime.now(UTC)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=UTC)
+    sgt_weekday = now.astimezone(SGT_TZ).weekday()  # Mon=0 … Sun=6
+    if sgt_weekday in (0, 4):  # Mon, Fri
+        return base / "signal_watch_weekdays.toml"
+    if sgt_weekday in (5, 6):  # Sat, Sun
+        return base / "signal_watch_all.toml"
+    return base / "signal_watch.toml"  # Tue–Thu
+
+
 def _day_filter_to_weekdays(day_filter: str) -> list[int] | None:
     """Convert day_filter mode string to allowed weekday list (Mon=0…Sun=6).
 
     Modes:
       "off"      — no filter (all days)
       "weekdays" — Mon–Fri (removes Sat, Sun)
-      "no_monfi" — remove Mon + Fri only; weekends still pass (legacy behaviour)
+      "mon_fri"  — Mon + Fri only (removes Tue, Wed, Thu, Sat, Sun)
       "tue_thu"  — Tue–Thu only (removes Mon, Fri, Sat, Sun)
+      "weekend"  — Sat + Sun only (removes Mon–Fri)
+      "no_monfi" — remove Mon + Fri only; weekends still pass (legacy behaviour)
     """
     if day_filter == "weekdays":
         return [0, 1, 2, 3, 4]  # Mon–Fri
+    if day_filter == "mon_fri":
+        return [0, 4]  # Mon + Fri only
     if day_filter == "no_monfi":
         return [1, 2, 3, 5, 6]  # Tue, Wed, Thu, Sat, Sun
     if day_filter == "tue_thu":
         return [1, 2, 3]  # Tue–Thu only
+    if day_filter == "weekend":
+        return [5, 6]  # Sat + Sun only
     return None  # "off" — no filter
 
 
@@ -337,7 +377,9 @@ class SignalWatchConfig:
     # Per-symbol SMT secondary map: {"BTCUSDT": "ETHUSDT", ...}
     smt_pairs: dict[str, str] = field(default_factory=dict)
     backtest: BacktestFilterConfig = field(default_factory=BacktestFilterConfig)
-    # Suppress signals by day: "off" | "weekdays" (Mon–Fri) | "tue_thu" (Tue–Thu only)
+    # Suppress signals by day:
+    # "off" | "weekdays" (Mon–Fri) | "mon_fri" (Mon+Fri) | "tue_thu" (Tue–Thu)
+    # | "weekend" (Sat+Sun) | "no_monfi" (legacy)
     day_filter: str = "off"
     # EMA-50 trend gate for smt_divergence (1=on, 0=off)
     smt_trend_filter: int = 1

@@ -1,9 +1,13 @@
-# Signal Watch — all days, full strategy set (reference / backtest profile)
-# No day filter, no TF suppression. Use for backtesting or 24/7 coverage.
+# Signal Watch — weekend-only profile (Sat+Sun, complements signal_watch.toml
+# Tue–Thu and signal_watch_weekdays.toml Mon+Fri so the three configs together
+# tile the calendar without overlap).
 # Usage: make buibui-signal-watch CONFIG=config/signal_watch_all.toml
 #
+# Filename kept as "all" for compatibility (Makefile, regression fixtures, DB
+# rating keys); day_filter scope is Sat+Sun only.
+#
 # Inherits: smt_pairs, bias, backtest defaults, and consistent per-strategy flags
-# from strategy_params.toml. Only all-days-specific values are defined here.
+# from strategy_params.toml. Only weekend-specific values are defined here.
 
 extends = "strategy_params.toml"
 
@@ -12,8 +16,9 @@ extends = "strategy_params.toml"
 
 timeframes = ["15m", "1h", "4h", "1d"]
 
-# No day filter — all days including weekends
-day_filter = "off"
+# Suppress signals by day — weekend only (Sat+Sun).
+# Valid values: "off" | "weekdays" | "mon_fri" | "tue_thu" | "weekend" | "no_monfi"
+day_filter = "weekend"
 
 # Full strategy set — no TF suppression
 strategies = [

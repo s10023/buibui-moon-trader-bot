@@ -1,6 +1,7 @@
 """Tests for analytics/signal_config.py — pure config loader."""
 
 import tomllib
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from analytics.signal_config import (
     _day_filter_to_weekdays,
     _deep_merge,
     load_signal_config,
+    pick_default_config_for_today,
 )
 
 
@@ -44,11 +46,114 @@ class TestDayFilterToWeekdays:
     def test_weekdays_returns_mon_fri(self) -> None:
         assert _day_filter_to_weekdays("weekdays") == [0, 1, 2, 3, 4]
 
+    def test_mon_fri_returns_mon_and_fri(self) -> None:
+        assert _day_filter_to_weekdays("mon_fri") == [0, 4]
+
     def test_tue_thu_returns_tue_wed_thu(self) -> None:
         assert _day_filter_to_weekdays("tue_thu") == [1, 2, 3]
 
+    def test_weekend_returns_sat_sun(self) -> None:
+        assert _day_filter_to_weekdays("weekend") == [5, 6]
+
+    def test_no_monfi_returns_tue_wed_thu_sat_sun(self) -> None:
+        assert _day_filter_to_weekdays("no_monfi") == [1, 2, 3, 5, 6]
+
     def test_unknown_string_returns_none(self) -> None:
         assert _day_filter_to_weekdays("unknown") is None
+
+    def test_modes_tile_full_week_without_overlap(self) -> None:
+        """tue_thu + mon_fri + weekend together cover all 7 days with no overlap."""
+        tue_thu = set(_day_filter_to_weekdays("tue_thu") or [])
+        mon_fri = set(_day_filter_to_weekdays("mon_fri") or [])
+        weekend = set(_day_filter_to_weekdays("weekend") or [])
+        assert tue_thu.isdisjoint(mon_fri)
+        assert tue_thu.isdisjoint(weekend)
+        assert mon_fri.isdisjoint(weekend)
+        assert tue_thu | mon_fri | weekend == {0, 1, 2, 3, 4, 5, 6}
+
+
+class TestPickDefaultConfigForToday:
+    """SGT (UTC+8) weekday → config picker."""
+
+    @staticmethod
+    def _at(year: int, month: int, day: int, hour: int = 12) -> datetime:
+        return datetime(year, month, day, hour, 0, 0, tzinfo=UTC)
+
+    def test_monday_picks_weekdays_config(self) -> None:
+        # 2026-05-18 is a Monday in both UTC and SGT.
+        path = pick_default_config_for_today(now=self._at(2026, 5, 18))
+        assert path == Path("config") / "signal_watch_weekdays.toml"
+
+    def test_tuesday_picks_signal_watch(self) -> None:
+        path = pick_default_config_for_today(now=self._at(2026, 5, 19))
+        assert path == Path("config") / "signal_watch.toml"
+
+    def test_wednesday_picks_signal_watch(self) -> None:
+        path = pick_default_config_for_today(now=self._at(2026, 5, 20))
+        assert path == Path("config") / "signal_watch.toml"
+
+    def test_thursday_picks_signal_watch(self) -> None:
+        path = pick_default_config_for_today(now=self._at(2026, 5, 21))
+        assert path == Path("config") / "signal_watch.toml"
+
+    def test_friday_picks_weekdays_config(self) -> None:
+        path = pick_default_config_for_today(now=self._at(2026, 5, 22))
+        assert path == Path("config") / "signal_watch_weekdays.toml"
+
+    def test_saturday_picks_all_config(self) -> None:
+        path = pick_default_config_for_today(now=self._at(2026, 5, 23))
+        assert path == Path("config") / "signal_watch_all.toml"
+
+    def test_sunday_picks_all_config(self) -> None:
+        path = pick_default_config_for_today(now=self._at(2026, 5, 24))
+        assert path == Path("config") / "signal_watch_all.toml"
+
+    def test_sgt_boundary_picks_by_sgt_not_utc(self) -> None:
+        """2026-05-17 16:00 UTC = 2026-05-18 00:00 SGT (Sun UTC → Mon SGT).
+
+        Auto-pick must use the SGT weekday (Mon) → weekdays config, not the
+        UTC weekday (Sun) which would pick the weekend config.
+        """
+        path = pick_default_config_for_today(now=self._at(2026, 5, 17, hour=16))
+        assert path == Path("config") / "signal_watch_weekdays.toml"
+
+    def test_sgt_boundary_pre_midnight_still_sunday(self) -> None:
+        """2026-05-17 15:59 UTC = 2026-05-17 23:59 SGT (still Sun in both) → weekend."""
+        sgt_just_before_midnight = datetime(2026, 5, 17, 15, 59, 0, tzinfo=UTC)
+        path = pick_default_config_for_today(now=sgt_just_before_midnight)
+        assert path == Path("config") / "signal_watch_all.toml"
+
+    def test_naive_datetime_treated_as_utc(self) -> None:
+        naive = datetime(2026, 5, 20, 12, 0, 0)  # no tzinfo
+        path = pick_default_config_for_today(now=naive)
+        # Wednesday in UTC → SGT Wed afternoon → signal_watch
+        assert path == Path("config") / "signal_watch.toml"
+
+    def test_config_dir_override(self, tmp_path: Path) -> None:
+        path = pick_default_config_for_today(
+            now=self._at(2026, 5, 18), config_dir=tmp_path
+        )
+        assert path == tmp_path / "signal_watch_weekdays.toml"
+
+    def test_default_now_returns_a_known_config(self) -> None:
+        """No args → uses datetime.now(UTC); result must be one of the three."""
+        path = pick_default_config_for_today()
+        assert path.name in {
+            "signal_watch.toml",
+            "signal_watch_weekdays.toml",
+            "signal_watch_all.toml",
+        }
+        assert path.parent == Path("config")
+
+    def test_explicit_non_utc_tz_is_converted_to_sgt(self) -> None:
+        """Caller passes an aware datetime in a different tz; helper converts to SGT."""
+        # 2026-05-17 12:00 in UTC-4 = 2026-05-17 16:00 UTC = 2026-05-18 00:00 SGT → Mon.
+        ny = timezone(timedelta(hours=-4))
+        ny_noon_sunday = datetime(2026, 5, 17, 12, 0, 0, tzinfo=ny)
+        assert (
+            pick_default_config_for_today(now=ny_noon_sunday)
+            == Path("config") / "signal_watch_weekdays.toml"
+        )
 
 
 class TestLoadSignalConfig:
@@ -89,7 +194,7 @@ ETHUSDT = "BTCUSDT"
         assert cfg.smt_pairs == {"BTCUSDT": "ETHUSDT", "ETHUSDT": "BTCUSDT"}
 
     def test_full_config_day_filter_string_modes(self, tmp_path: Path) -> None:
-        for mode in ("off", "weekdays", "tue_thu"):
+        for mode in ("off", "weekdays", "mon_fri", "tue_thu", "weekend"):
             content = f'day_filter = "{mode}"\n'
             p = _write_toml(tmp_path, content)
             cfg = load_signal_config(p)

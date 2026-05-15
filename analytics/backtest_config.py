@@ -136,7 +136,9 @@ class BacktestSweepConfig:
     min_trades_per_tf: dict[str, int] = field(default_factory=dict)
     # Per-symbol SMT secondary map: {"BTCUSDT": "ETHUSDT", ...}
     smt_pairs: dict[str, str] = field(default_factory=dict)
-    # Suppress signals by day: "off" | "weekdays" (Mon–Fri) | "tue_thu" (Tue–Thu only)
+    # Suppress signals by day:
+    # "off" | "weekdays" (Mon–Fri) | "mon_fri" (Mon+Fri) | "tue_thu" (Tue–Thu)
+    # | "weekend" (Sat+Sun) | "no_monfi" (legacy)
     day_filter: str = "off"
     # EMA-50 trend gate for smt_divergence (1=on, 0=off)
     smt_trend_filter: int = 1

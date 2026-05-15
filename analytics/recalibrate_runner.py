@@ -14,6 +14,7 @@ from analytics.recalibrate_lib import (
     compute_recalibrated_ratings,
     format_recalibration_report,
     get_backtest_win_rates,
+    prune_stale_ratings,
     write_confidence_to_db,
     write_confidence_to_source,
 )
@@ -91,6 +92,13 @@ def run(
                     day_filter=day_filter,
                     directional_ratings=dir_ratings,
                 )
+                if day_filter is not None:
+                    n_stale = prune_stale_ratings(conn, config_name, day_filter)
+                    if n_stale:
+                        print(
+                            f"  Pruned {n_stale} stale rating row(s) "
+                            f"with mismatched day_filter."
+                        )
                 print(
                     f"\n  Written to confidence_ratings table for config '{config_name}'."
                 )
