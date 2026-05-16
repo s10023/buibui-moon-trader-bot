@@ -162,6 +162,45 @@ class TestGateDayFilter:
         with pytest.raises(ValueError, match="Unknown candidate"):
             gate_audit._gate_day_filter(_frame([_trade()]), {"candidate": "bogus"})
 
+    @pytest.mark.parametrize(
+        "dow_offset,expected",
+        [
+            (0, False),  # Mon → keep
+            (1, True),  # Tue → drop
+            (2, True),  # Wed → drop
+            (3, True),  # Thu → drop
+            (4, False),  # Fri → keep
+            (5, True),  # Sat → drop
+            (6, True),  # Sun → drop
+        ],
+    )
+    def test_mon_fri_suppression(self, dow_offset: int, expected: bool) -> None:
+        df = _frame([_trade(signal_time=_MON + dow_offset * _DAY_MS)])
+        mask = gate_audit._gate_day_filter(df, {"candidate": "mon_fri"})
+        assert mask.tolist() == [expected]
+
+    @pytest.mark.parametrize(
+        "dow_offset,expected",
+        [
+            (0, True),  # Mon → drop
+            (1, True),  # Tue → drop
+            (2, True),  # Wed → drop
+            (3, True),  # Thu → drop
+            (4, True),  # Fri → drop
+            (5, False),  # Sat → keep
+            (6, False),  # Sun → keep
+        ],
+    )
+    def test_weekend_suppression(self, dow_offset: int, expected: bool) -> None:
+        df = _frame([_trade(signal_time=_MON + dow_offset * _DAY_MS)])
+        mask = gate_audit._gate_day_filter(df, {"candidate": "weekend"})
+        assert mask.tolist() == [expected]
+
+    def test_no_monfi_only_drops_mon_fri(self) -> None:
+        df = _frame([_trade(signal_time=_MON + d * _DAY_MS) for d in range(7)])
+        mask = gate_audit._gate_day_filter(df, {"candidate": "no_monfi"})
+        assert mask.tolist() == [True, False, False, False, True, False, False]
+
 
 class TestGateAdrExempt:
     """ADR handler — uses a stub OHLCV loader so no DB is touched."""
@@ -437,6 +476,19 @@ class TestParser:
             ["volume-suppress", "--run-id", "8576a830-fc21-463a-8a11-8d2a2a26d29e"]
         )
         assert args.run_id == "8576a830-fc21-463a-8a11-8d2a2a26d29e"
+
+    @pytest.mark.parametrize(
+        "mode", ["off", "weekdays", "mon_fri", "no_monfi", "tue_thu", "weekend"]
+    )
+    def test_day_filter_choices_accept_all_canonical_modes(self, mode: str) -> None:
+        parser = gate_audit.build_parser()
+        args = parser.parse_args(["day-filter", "--day-filter", mode])
+        assert args.day_filter == mode
+
+    def test_day_filter_rejects_unknown_mode(self) -> None:
+        parser = gate_audit.build_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(["day-filter", "--day-filter", "bogus"])
 
 
 # ---------------------------------------------------------------------------
