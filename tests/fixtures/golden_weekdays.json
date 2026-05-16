@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-16",
+  "generated_at": "2026-05-17",
   "config": "config/signal_watch_weekdays.toml",
   "strategies": {
     "wick_fill": {
@@ -505,22 +505,6 @@
         "max_drawdown_r": 62.3003,
         "recovery_factor": 0.0297
       },
-      "4h": {
-        "trade_count": 132,
-        "long_trade_count": 72,
-        "short_trade_count": 60,
-        "win_rate": 0.2273,
-        "avg_r": -0.0273,
-        "total_r": -3.6,
-        "long_avg_r": -0.2375,
-        "short_avg_r": 0.225,
-        "long_total_r": -17.1,
-        "short_total_r": 13.5,
-        "long_win_rate": 0.1806,
-        "short_win_rate": 0.2833,
-        "max_drawdown_r": 19.2,
-        "recovery_factor": -0.1875
-      },
       "1d": {
         "trade_count": 16,
         "long_trade_count": 9,
@@ -870,22 +854,6 @@
         "short_win_rate": 0.314,
         "max_drawdown_r": 37.2237,
         "recovery_factor": 0.055
-      },
-      "1h": {
-        "trade_count": 118,
-        "long_trade_count": 71,
-        "short_trade_count": 47,
-        "win_rate": 0.2627,
-        "avg_r": -0.0477,
-        "total_r": -5.626,
-        "long_avg_r": -0.1457,
-        "short_avg_r": 0.1004,
-        "long_total_r": -10.3438,
-        "short_total_r": 4.7178,
-        "long_win_rate": 0.2394,
-        "short_win_rate": 0.2979,
-        "max_drawdown_r": 31.6546,
-        "recovery_factor": -0.1777
       },
       "4h": {
         "trade_count": 34,

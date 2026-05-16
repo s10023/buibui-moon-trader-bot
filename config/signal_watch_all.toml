@@ -56,6 +56,7 @@ orb              = ["1h", "4h"]          # 15m all negative; 1d=n/a
 bos              = ["15m", "1h", "4h"]   # 1d=-0.30R to -1.01R excluded
 liquidity_sweep  = ["1h", "1d"]          # 15m/4h all negative
 marubozu         = ["4h", "1d"]          # 15m/1h all negative
+ema              = ["4h", "1d"]          # 2026-05-17 T6 Phase A day-filter audit: 15m+1h dropped (15m combined -0.66R 17% WR; 1h combined -0.44R 12% WR — long -1.06R 0% WR). All 4 cells both-direction ENABLE.
 
 # Per-strategy parameter overrides — tp_r and sl_pct.
 # Derived from TP sweep (200d, all days, 3 symbols — BTCUSDT/ETHUSDT/SOLUSDT).
