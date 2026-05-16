@@ -44,7 +44,20 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from analytics.backtest_config import load_backtest_config  # noqa: E402
 from analytics.signal.gates import _filter_signals_by_adr  # noqa: E402
+from analytics.signal_config import _day_filter_to_weekdays  # noqa: E402
 from analytics.store import DEFAULT_DB_PATH  # noqa: E402
+
+# Day-filter modes recognised by `_day_filter_to_weekdays`. Kept here as an
+# explicit allowlist so argparse can validate `--day-filter` and we can raise
+# loudly on unknown candidates (the canonical helper silently returns None).
+DAY_FILTER_MODES: tuple[str, ...] = (
+    "off",
+    "weekdays",
+    "mon_fri",
+    "no_monfi",
+    "tue_thu",
+    "weekend",
+)
 
 OhlcvLoader = Callable[[str, str], pd.DataFrame]
 
@@ -146,21 +159,22 @@ def _gate_adr_exempt(df: pd.DataFrame, params: dict[str, Any]) -> pd.Series:
 
 def _gate_day_filter(df: pd.DataFrame, params: dict[str, Any]) -> pd.Series:
     """Mask: trades whose signal day-of-week would be suppressed by the
-    candidate day_filter value.
+    candidate day_filter value. Defers to `_day_filter_to_weekdays` for the
+    canonical mode → allowed-weekdays mapping so this stays in sync with the
+    live signal-watch and backtest scope.
 
-      tue_thu   → Mon (0) + Fri (4) + Sat (5) + Sun (6) suppressed
-      weekdays  → Sat (5) + Sun (6) suppressed
-      off       → no suppression
+    Recognised modes: see `DAY_FILTER_MODES`. `off` keeps everything; every
+    other mode keeps only the weekdays returned by the canonical helper.
     """
     candidate = params["candidate"]
+    if candidate not in DAY_FILTER_MODES:
+        raise ValueError(f"Unknown candidate day_filter: {candidate}")
     if candidate == "off":
         return pd.Series(False, index=df.index)
+    allowed = _day_filter_to_weekdays(candidate)
+    assert allowed is not None  # guaranteed by DAY_FILTER_MODES check above
     dow = pd.to_datetime(df["signal_time"], unit="ms", utc=True).dt.dayofweek
-    if candidate == "tue_thu":
-        return ~dow.isin([1, 2, 3])  # keep Tue/Wed/Thu
-    if candidate == "weekdays":
-        return dow.isin([5, 6])  # drop Sat/Sun
-    raise ValueError(f"Unknown candidate day_filter: {candidate}")
+    return ~dow.isin(allowed)
 
 
 GATE_REGISTRY: dict[str, GateAudit] = {
@@ -448,7 +462,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--threshold", type=float, default=0.05)
     p.add_argument(
         "--day-filter",
-        choices=["off", "tue_thu", "weekdays"],
+        choices=list(DAY_FILTER_MODES),
         default=None,
         help="For gate=day-filter: which candidate value to test.",
     )
