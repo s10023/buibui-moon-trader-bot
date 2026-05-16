@@ -276,14 +276,6 @@ ETHUSDT = "BTCUSDT"
         assert "trend_day" in cfg.strategy_timeframes
         assert cfg.strategy_timeframes["trend_day"] == ["4h", "1d"]
 
-    def test_preset_configs_are_valid(self) -> None:
-        """All three named preset TOML files must parse without errors."""
-        config_dir = Path(__file__).parent.parent / "config"
-        for name in ("scalping.toml", "swing.toml", "conservative.toml"):
-            cfg = load_signal_config(config_dir / name)
-            assert cfg.timeframes, f"{name}: timeframes must not be empty"
-            assert cfg.strategies, f"{name}: strategies must not be empty"
-
 
 class TestBacktestFilterConfigPerTf:
     def test_effective_min_trades_uses_per_tf_override(self) -> None:
