@@ -81,9 +81,13 @@ def _gate_volume_suppress(df: pd.DataFrame, params: dict[str, Any]) -> pd.Series
     """Mask: low-volume trades on strategies that currently have
     volume_suppress=false in the active config. If we flip them all to True,
     these are the trades that would have been dropped.
+
+    NULL `low_volume` (pre-PR#371 rows) is treated as False so legacy trades
+    never get flagged as suppressed under an unknown-volume regime.
     """
     current_off = params["volume_suppress_off"]  # set[str] of strategy names
-    mask = df["low_volume"].astype(bool) & df["strategy"].isin(current_off)
+    flag = df["low_volume"].fillna(False).astype(bool)
+    mask = flag & df["strategy"].isin(current_off)
     return mask
 
 
@@ -91,9 +95,13 @@ def _gate_volume_spike_boost(df: pd.DataFrame, params: dict[str, Any]) -> pd.Ser
     """Mask: spike-volume trades on strategies that currently have
     volume_spike_boost=true. If we flip them all to false, these trades stop
     benefiting from boost-keep and get filtered by volume_suppress like normal.
+
+    NULL `volume_spike` (pre-PR#371 rows) treated as False — same rationale as
+    `_gate_volume_suppress`.
     """
     boosted = params["volume_spike_boost_on"]  # set[str]
-    mask = df["volume_spike"].astype(bool) & df["strategy"].isin(boosted)
+    flag = df["volume_spike"].fillna(False).astype(bool)
+    mask = flag & df["strategy"].isin(boosted)
     return mask
 
 
@@ -189,19 +197,31 @@ GATE_REGISTRY: dict[str, GateAudit] = {
 
 def load_trades(
     db_path: Path,
-    run_id: int | None,
+    run_ids: list[str] | None,
     since_ms: int | None,
 ) -> pd.DataFrame:
     """Return the trade frame the audit replays against.
 
-    Pinned to a single run_id when supplied; otherwise picks the most recent
-    run per (strategy, tf, symbol). See ASSUMPTIONS at top of file for schema.
+    Scoped to `run_ids` when supplied (list of UUID strings from
+    `backtest_runs.run_id`); otherwise reads every row. See ASSUMPTIONS at top
+    of file for schema.
     """
-    where = []
-    if run_id is not None:
-        where.append(f"run_id = {run_id}")
+    where: list[str] = []
+    params: list[object] = []
+    if run_ids is not None:
+        if not run_ids:
+            # Empty list = "scope matches nothing" — return an empty frame with
+            # the right columns rather than an unscoped read of every row.
+            placeholder = "?"
+            where.append(f"run_id = {placeholder}")
+            params.append("__no_match__")
+        else:
+            placeholders = ", ".join(["?"] * len(run_ids))
+            where.append(f"run_id IN ({placeholders})")
+            params.extend(run_ids)
     if since_ms is not None:
-        where.append(f"signal_time >= {since_ms}")
+        where.append("signal_time >= ?")
+        params.append(since_ms)
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
     sql = f"""
         SELECT symbol, timeframe AS tf, strategy, direction, signal_time,
@@ -211,7 +231,36 @@ def load_trades(
         {where_sql}
     """
     with duckdb.connect(str(db_path), read_only=True) as conn:
-        return conn.execute(sql).fetchdf()
+        return conn.execute(sql, params).fetchdf()
+
+
+def _resolve_config_run_ids(db_path: Path, config_path: Path) -> list[str]:
+    """Return `run_id`s belonging to the most recent sweep matching the
+    config's `day_filter`.
+
+    Path C (PR #372) made `day_filter` values disjoint across the three
+    production configs (`tue_thu` / `mon_fri` / `weekend`), so `day_filter`
+    alone is a sufficient scoping key. If multiple sweeps share the same
+    day_filter, the most recent one (by `run_at_ms`) wins — matches "audit the
+    latest run of this config" intent.
+    """
+    cfg = load_backtest_config(config_path)
+    day_filter = cfg.day_filter or "off"
+    with duckdb.connect(str(db_path), read_only=True) as conn:
+        sweep_row = conn.execute(
+            "SELECT sweep_id FROM backtest_runs "
+            "WHERE day_filter = ? "
+            "ORDER BY run_at_ms DESC LIMIT 1",
+            [day_filter],
+        ).fetchone()
+        if sweep_row is None:
+            return []
+        sweep_id = sweep_row[0]
+        rows = conn.execute(
+            "SELECT run_id FROM backtest_runs WHERE sweep_id = ?",
+            [sweep_id],
+        ).fetchall()
+    return [r[0] for r in rows]
 
 
 def build_audit_table(
@@ -365,7 +414,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="TOML config to resolve current toggle state from.",
     )
     p.add_argument("--db", type=Path, default=Path(DEFAULT_DB_PATH))
-    p.add_argument("--run-id", type=int, default=None)
+    p.add_argument(
+        "--run-id",
+        type=str,
+        default=None,
+        help="Pin to a single backtest_runs.run_id (UUID string). Overrides --config scoping.",
+    )
     p.add_argument(
         "--since",
         type=str,
@@ -415,7 +469,17 @@ def main() -> int:
         else None
     )
 
-    df = load_trades(args.db, args.run_id, since_ms)
+    if args.run_id is not None:
+        run_ids: list[str] | None = [args.run_id]
+        scope_label = f"run_id={args.run_id}"
+    elif args.config is not None:
+        run_ids = _resolve_config_run_ids(args.db, args.config)
+        scope_label = f"config={args.config} → {len(run_ids)} run_ids"
+    else:
+        run_ids = None
+        scope_label = "(unscoped — all backtest_trades rows)"
+
+    df = load_trades(args.db, run_ids, since_ms)
     for col, val in [
         ("strategy", args.strategy),
         ("tf", args.tf),
@@ -426,14 +490,14 @@ def main() -> int:
             df = df[df[col] == val]
 
     if df.empty:
-        print("No trades match filter — nothing to audit.")
+        print(f"No trades match filter ({scope_label}) — nothing to audit.")
         return 1
 
     ohlcv_loader = _make_db_ohlcv_loader(args.db) if args.gate == "adr-exempt" else None
     params = _resolve_params(args.gate, args.config, args, ohlcv_loader)
     print(f"Gate: {gate.name}  ({gate.description})")
     print(
-        f"Config: {args.config}  Rows: {len(df)}  min_n={args.min_n}  threshold={args.threshold}"
+        f"Scope: {scope_label}  Rows: {len(df)}  min_n={args.min_n}  threshold={args.threshold}"
     )
     print(f"Params: {params}")
     print()

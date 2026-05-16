@@ -8,7 +8,9 @@ handler is exercised with a stub OHLCV loader so no DB is touched.
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
+import duckdb
 import pandas as pd
 import pytest
 
@@ -79,6 +81,21 @@ class TestGateVolumeSuppress:
         mask = gate_audit._gate_volume_suppress(df, {"volume_suppress_off": set()})
         assert mask.tolist() == [False]
 
+    def test_null_low_volume_treated_as_false(self) -> None:
+        # Pre-PR#371 rows have NULL low_volume — must not crash on .astype(bool)
+        # and must never get flagged as suppressed (unknown-volume → kept).
+        df = _frame(
+            [
+                _trade(strategy="bos", low_volume=True),
+                _trade(strategy="bos", low_volume=False),
+                _trade(strategy="bos", low_volume=False),
+            ]
+        )
+        # Model DuckDB's nullable BOOLEAN: dtype="boolean" admits pd.NA.
+        df["low_volume"] = pd.array([True, False, pd.NA], dtype="boolean")
+        mask = gate_audit._gate_volume_suppress(df, {"volume_suppress_off": {"bos"}})
+        assert mask.tolist() == [True, False, False]
+
 
 class TestGateVolumeSpikeBoost:
     def test_only_boosted_strategies_with_spike_flagged(self) -> None:
@@ -93,6 +110,19 @@ class TestGateVolumeSpikeBoost:
             df, {"volume_spike_boost_on": {"engulfing"}}
         )
         assert mask.tolist() == [True, False, False]
+
+    def test_null_volume_spike_treated_as_false(self) -> None:
+        df = _frame(
+            [
+                _trade(strategy="engulfing", volume_spike=True),
+                _trade(strategy="engulfing", volume_spike=False),
+            ]
+        )
+        df["volume_spike"] = pd.array([True, pd.NA], dtype="boolean")
+        mask = gate_audit._gate_volume_spike_boost(
+            df, {"volume_spike_boost_on": {"engulfing"}}
+        )
+        assert mask.tolist() == [True, False]
 
 
 class TestGateDayFilter:
@@ -399,3 +429,121 @@ class TestParser:
         parser = gate_audit.build_parser()
         with pytest.raises(SystemExit):
             parser.parse_args(["bogus-gate"])
+
+    def test_run_id_accepts_uuid_string(self) -> None:
+        # backtest_runs.run_id is VARCHAR (UUID), not int — must not coerce.
+        parser = gate_audit.build_parser()
+        args = parser.parse_args(
+            ["volume-suppress", "--run-id", "8576a830-fc21-463a-8a11-8d2a2a26d29e"]
+        )
+        assert args.run_id == "8576a830-fc21-463a-8a11-8d2a2a26d29e"
+
+
+# ---------------------------------------------------------------------------
+# Config scoping (load_trades + _resolve_config_run_ids) — file-backed DuckDB
+# ---------------------------------------------------------------------------
+
+
+_MINIMAL_TOML_TUE_THU = """\
+symbols    = ["BTCUSDT"]
+timeframes = ["1h"]
+day_filter = "tue_thu"
+"""
+
+_MINIMAL_TOML_MON_FRI = """\
+symbols    = ["BTCUSDT"]
+timeframes = ["1h"]
+day_filter = "mon_fri"
+"""
+
+
+def _build_test_db(db_path: Path) -> None:
+    """Two sweeps with disjoint day_filters; trades partitioned by run_id."""
+    with duckdb.connect(str(db_path)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE backtest_runs (
+                run_id VARCHAR, sweep_id VARCHAR, day_filter VARCHAR, run_at_ms BIGINT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE backtest_trades (
+                run_id VARCHAR, symbol VARCHAR, timeframe VARCHAR, strategy VARCHAR,
+                direction VARCHAR, signal_time BIGINT, entry_price DOUBLE,
+                sl_price DOUBLE, exit_price DOUBLE, outcome VARCHAR, pnl_r DOUBLE,
+                low_volume BOOLEAN, volume_spike BOOLEAN
+            )
+            """
+        )
+        # Sweep A: day_filter=tue_thu, two runs
+        conn.execute(
+            "INSERT INTO backtest_runs VALUES "
+            "('run-A1', 'sweep-A', 'tue_thu', 1000), "
+            "('run-A2', 'sweep-A', 'tue_thu', 1000), "
+            "('run-B1', 'sweep-B', 'mon_fri', 2000)"
+        )
+        conn.execute(
+            "INSERT INTO backtest_trades VALUES "
+            "('run-A1','BTCUSDT','1h','bos','long',0,100.0,99.0,101.0,'win',1.0,FALSE,FALSE),"
+            "('run-A2','BTCUSDT','1h','bos','long',0,100.0,99.0,99.5,'loss',-0.5,TRUE,FALSE),"
+            "('run-B1','BTCUSDT','1h','bos','long',0,100.0,99.0,101.0,'win',1.0,FALSE,FALSE)"
+        )
+
+
+class TestResolveConfigRunIds:
+    def test_picks_latest_sweep_for_day_filter(self, tmp_path: Path) -> None:
+        db = tmp_path / "t.db"
+        _build_test_db(db)
+        cfg = tmp_path / "cfg.toml"
+        cfg.write_text(_MINIMAL_TOML_TUE_THU)
+        run_ids = gate_audit._resolve_config_run_ids(db, cfg)
+        assert set(run_ids) == {"run-A1", "run-A2"}
+
+    def test_returns_empty_when_no_sweep_matches(self, tmp_path: Path) -> None:
+        db = tmp_path / "t.db"
+        _build_test_db(db)
+        cfg = tmp_path / "cfg.toml"
+        cfg.write_text('symbols = ["BTCUSDT"]\nday_filter = "weekend"\n')
+        run_ids = gate_audit._resolve_config_run_ids(db, cfg)
+        assert run_ids == []
+
+    def test_picks_most_recent_when_multiple_sweeps_share_day_filter(
+        self, tmp_path: Path
+    ) -> None:
+        db = tmp_path / "t.db"
+        _build_test_db(db)
+        # Insert a SECOND tue_thu sweep that is more recent
+        with duckdb.connect(str(db)) as conn:
+            conn.execute(
+                "INSERT INTO backtest_runs VALUES "
+                "('run-C1', 'sweep-C', 'tue_thu', 9000)"
+            )
+        cfg = tmp_path / "cfg.toml"
+        cfg.write_text(_MINIMAL_TOML_TUE_THU)
+        run_ids = gate_audit._resolve_config_run_ids(db, cfg)
+        assert run_ids == ["run-C1"]
+
+
+class TestLoadTrades:
+    def test_run_ids_filter_quoted_safely(self, tmp_path: Path) -> None:
+        # Pass run_id strings through parameterized SQL — must not break on
+        # hyphens or be mis-typed as int.
+        db = tmp_path / "t.db"
+        _build_test_db(db)
+        df = gate_audit.load_trades(db, ["run-A1", "run-A2"], since_ms=None)
+        assert set(df["run_id"].tolist()) == {"run-A1", "run-A2"}
+        assert len(df) == 2
+
+    def test_run_ids_empty_list_returns_empty_frame(self, tmp_path: Path) -> None:
+        db = tmp_path / "t.db"
+        _build_test_db(db)
+        df = gate_audit.load_trades(db, [], since_ms=None)
+        assert df.empty
+
+    def test_no_run_ids_returns_all(self, tmp_path: Path) -> None:
+        db = tmp_path / "t.db"
+        _build_test_db(db)
+        df = gate_audit.load_trades(db, None, since_ms=None)
+        assert len(df) == 3
