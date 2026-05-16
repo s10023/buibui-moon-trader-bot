@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-15",
+  "generated_at": "2026-05-16",
   "config": "config/signal_watch_weekdays.toml",
   "strategies": {
     "wick_fill": {
@@ -374,36 +374,36 @@
     },
     "trend_day": {
       "4h": {
-        "trade_count": 239,
-        "long_trade_count": 118,
-        "short_trade_count": 121,
-        "win_rate": 0.2552,
-        "avg_r": 0.0559,
-        "total_r": 13.3492,
-        "long_avg_r": -0.1827,
+        "trade_count": 71,
+        "long_trade_count": 27,
+        "short_trade_count": 44,
+        "win_rate": 0.2817,
+        "avg_r": 0.2225,
+        "total_r": 15.8003,
+        "long_avg_r": 0.115,
         "short_avg_r": 0.2885,
-        "long_total_r": -21.56,
-        "short_total_r": 34.9092,
-        "long_win_rate": 0.2034,
-        "short_win_rate": 0.3058,
-        "max_drawdown_r": 27.5235,
-        "recovery_factor": 0.485
+        "long_total_r": 3.1043,
+        "short_total_r": 12.696,
+        "long_win_rate": 0.2593,
+        "short_win_rate": 0.2955,
+        "max_drawdown_r": 15.6369,
+        "recovery_factor": 1.0105
       },
       "1d": {
-        "trade_count": 32,
-        "long_trade_count": 15,
-        "short_trade_count": 17,
-        "win_rate": 0.2188,
-        "avg_r": 0.0609,
-        "total_r": 1.9486,
-        "long_avg_r": -0.3734,
-        "short_avg_r": 0.4441,
-        "long_total_r": -5.6003,
-        "short_total_r": 7.5489,
-        "long_win_rate": 0.1333,
-        "short_win_rate": 0.2941,
-        "max_drawdown_r": 9.1973,
-        "recovery_factor": 0.2119
+        "trade_count": 10,
+        "long_trade_count": 3,
+        "short_trade_count": 7,
+        "win_rate": 0.4,
+        "avg_r": 0.9754,
+        "total_r": 9.7541,
+        "long_avg_r": -1.0291,
+        "short_avg_r": 1.8345,
+        "long_total_r": -3.0873,
+        "short_total_r": 12.8414,
+        "long_win_rate": 0.0,
+        "short_win_rate": 0.5714,
+        "max_drawdown_r": 3.0906,
+        "recovery_factor": 3.156
       }
     },
     "engulfing": {
