@@ -185,3 +185,6 @@ tp_r_short = 2.0              # WFO 200d: BTC 1h ↓+0.229R@2.0, SOL 1h ↓+0.30
 
 [strategy_params.marubozu]
 volume_suppress = false       # A14b: low-vol edge Δ=-0.43R
+
+[strategy_params.ema]
+volume_suppress_long = true   # T6 Phase A gate audit (2026-05-16): long-side cells ENABLE across all configs (tue_thu 15m/1h n=70+56; mon_fri 15m/1h n=75+32; weekend 15m/1h n=63+30); shorts mixed → not flipped here

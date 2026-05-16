@@ -243,13 +243,16 @@ def _resolve_config_run_ids(db_path: Path, config_path: Path) -> list[str]:
     alone is a sufficient scoping key. If multiple sweeps share the same
     day_filter, the most recent one (by `run_at_ms`) wins — matches "audit the
     latest run of this config" intent.
+
+    Single-run backtests (no `--sweep` flag) write rows with `sweep_id IS NULL`.
+    These are excluded so a stray ad-hoc backtest can never shadow a real sweep.
     """
     cfg = load_backtest_config(config_path)
     day_filter = cfg.day_filter or "off"
     with duckdb.connect(str(db_path), read_only=True) as conn:
         sweep_row = conn.execute(
             "SELECT sweep_id FROM backtest_runs "
-            "WHERE day_filter = ? "
+            "WHERE day_filter = ? AND sweep_id IS NOT NULL "
             "ORDER BY run_at_ms DESC LIMIT 1",
             [day_filter],
         ).fetchone()

@@ -525,6 +525,25 @@ class TestResolveConfigRunIds:
         run_ids = gate_audit._resolve_config_run_ids(db, cfg)
         assert run_ids == ["run-C1"]
 
+    def test_ignores_single_run_backtests_with_null_sweep_id(
+        self, tmp_path: Path
+    ) -> None:
+        """Stray ad-hoc `buibui backtest` (no --sweep) writes rows with
+        sweep_id IS NULL. These must NOT shadow a real sweep, even if newer.
+        """
+        db = tmp_path / "t.db"
+        _build_test_db(db)
+        with duckdb.connect(str(db)) as conn:
+            # Inject a NULL-sweep tue_thu run that is more recent than sweep-A
+            conn.execute(
+                "INSERT INTO backtest_runs VALUES ('run-null-1', NULL, 'tue_thu', 9999)"
+            )
+        cfg = tmp_path / "cfg.toml"
+        cfg.write_text(_MINIMAL_TOML_TUE_THU)
+        run_ids = gate_audit._resolve_config_run_ids(db, cfg)
+        # Resolver must skip the NULL-sweep row and return sweep-A's runs
+        assert set(run_ids) == {"run-A1", "run-A2"}
+
 
 class TestLoadTrades:
     def test_run_ids_filter_quoted_safely(self, tmp_path: Path) -> None:

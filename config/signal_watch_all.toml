@@ -88,6 +88,8 @@ tp_r_15m = 4.0                # sweep confirmed: +0.15R
 tp_r_1h  = 3.0                # sweep confirmed: +0.23R
 tp_r_4h  = 1.5                # sweep peak: +0.13R (79 trades); was 3.0=+0.11R (degraded)
 tp_r_1d  = 4.5                # sweep confirmed: +0.58R (21 trades); was +1.05R (canonical window change)
+volume_suppress_long = false  # T6 Phase A gate audit (2026-05-16): 15m long n=269 supp=+0.548R, 1h long n=64 supp=+0.388R → DISABLE (low-vol IS the winner)
+volume_suppress_short = true  # T6 Phase A gate audit: 15m short n=235 supp=-0.135R, 1h short n=54 supp=-0.087R → ENABLE
 
 [strategy_params.inside_bar]
 tp_r_15m = 3.5                # +0.06R
@@ -129,10 +131,12 @@ volume_suppress = true        # A14b: normal-vol wins Δ=+0.28R (low +0.54R vs n
 tp_r_15m = 5.0                # +0.12R (monotonically increasing)
 tp_r_1h  = 5.0                # +0.63R (monotonically increasing)
 tp_r_4h  = 2.5                # +0.97R (peaks here; 7 trades — small sample)
+volume_suppress = false       # T6 Phase A gate audit (2026-05-16): weekend 15m long n=31 supp=+0.580R, 15m short n=56 supp=+0.339R → DISABLE both directions (low-vol IS the winner); cross-config conflict with tue_thu intentional
 
 [strategy_params.trend_day]
 tp_r_4h  = 3.5                # WFO OOS: BTC+0.217R ETH+0.041R SOL+0.120R n=52-65 (was 5.0 overfit)
 tp_r_1d  = 4.0                # +0.20R
+volume_suppress = true        # T6 Phase A gate audit (2026-05-16): 4 of 4 cells ENABLE (15m long n=1564, 15m short n=1447, 1h long n=271, 1h short n=272; all supp_avg_r in [-0.20, -0.08]R)
 
 [strategy_params.orb]
 tp_r_1h  = 4.5                # +0.00R (barely positive)
@@ -151,6 +155,7 @@ tp_r_15m = 3.0                # -0.17R (all negative; hard mode will suppress)
 tp_r_1h  = 1.5                # -0.15R (all negative; hard mode will suppress)
 tp_r_4h  = 2.5                # -0.22R (all negative; hard mode will suppress)
 tp_r_1d  = 4.5                # -0.15R (all negative; hard mode will suppress)
+volume_suppress = true        # T6 Phase A gate audit (2026-05-16): 3 of 3 cells ENABLE (15m long n=200 supp=-0.118R, 1h long n=74 supp=-0.169R, 1h short n=71 supp=-0.204R)
 
 [strategy_params.order_block]
 tp_r_15m = 1.5                # -0.20R (all negative; hard mode will suppress)

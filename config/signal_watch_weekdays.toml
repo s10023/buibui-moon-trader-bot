@@ -72,7 +72,8 @@ tp_r_15m = 4.0                # +0.11R
 tp_r_1h  = 4.0                # +0.23R
 tp_r_4h  = 3.5                # +0.44R; ETH see per-symbol
 tp_r_1d  = 3.5                # WFO OOS (weekdays): BTC+0.450R n=3 (2026-04-14); was 3.0; SOL see per-symbol
-volume_suppress = false       # A14b: low-vol edge Δ=-0.07R (low +0.19R vs normal +0.12R)
+volume_suppress = false       # A14b: low-vol edge Δ=-0.07R (low +0.19R vs normal +0.12R) — LONG-side; see directional override below
+volume_suppress_short = true  # T6 Phase A gate audit (2026-05-16): 1h short n=100, supp_avg_r=-0.050R → ENABLE (mon_fri-specific; tue_thu shorts stay false)
 
 [strategy_params.engulfing.ETHUSDT]
 tp_r_4h = 4.0                 # WFO OOS (weekdays): +0.825R n=16 (2026-04-14); diverges from global 3.5R
@@ -136,6 +137,7 @@ volume_suppress = true        # A14b: normal-vol wins Δ=+0.13R (low +0.15R vs n
 [strategy_params.trend_day]
 tp_r_4h  = 3.5                # WFO OOS: BTC+0.217R ETH+0.041R SOL+0.120R n=52-65 (was 5.0 overfit)
 tp_r_1d  = 4.0                # +0.23R
+volume_suppress = true        # T6 Phase A gate audit (2026-05-16): 5 of 6 cells ENABLE (15m long n=1228, 15m short n=1078, 1h long n=245, 1h short n=244, 4h long n=53; 4h short n=32 DISABLE is small-sample noise)
 
 [strategy_params.orb]
 tp_r_1h  = 4.5                # +0.02R (barely positive)
