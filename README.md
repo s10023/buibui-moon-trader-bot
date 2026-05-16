@@ -368,7 +368,7 @@ poetry run python buibui.py backtest --symbol BTCUSDT --strategy fvg --interval 
 **Sweep mode — TOML config:**
 
 ```bash
-poetry run python buibui.py backtest --config config/backtest_sample.toml
+poetry run python buibui.py backtest --config config/signal_watch.toml
 ```
 
 **Sweep mode — CLI flags:**
@@ -413,7 +413,7 @@ poetry run python buibui.py backtest --symbols BTCUSDT ETHUSDT --timeframes 1h 4
 
 **Sweep options (TOML or CLI):**
 
-- `--config FILE` — TOML preset file (see `config/backtest_sample.toml`)
+- `--config FILE` — TOML preset file (see `config/signal_watch.toml`)
 - `--symbols BTCUSDT ETHUSDT` — symbols to sweep
 - `--strategies fvg bos` — strategies to sweep
 - `--timeframes 1h 4h` — timeframes to sweep
@@ -972,7 +972,7 @@ print(get_win_rate_by_strategy(conn))
 Only includes combos with ≥ 20 closed trades. Use this to compare against the
 current editorial star ratings in `SIGNAL_REGISTRY` and adjust `confidence` values.
 
-**TOML opt-in** — add to `config/signal_watch.toml` or `config/backtest_sample.toml`:
+**TOML opt-in** — add to `config/signal_watch.toml`:
 
 ```toml
 save_results = true
