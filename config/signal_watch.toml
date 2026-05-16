@@ -162,6 +162,8 @@ adr_exempt = true             # breakout — fires in continuation direction; AD
 tp_r = 3.0                    # fallback
 tp_r_4h = 3.5                 # WFO OOS: BTC+0.217R ETH+0.041R SOL+0.120R n=52-65 (was 5.0 overfit); BTC see per-symbol
 tp_r_1d = 4.5                 # sweep peak: +0.26R (45 trades, 23%WR); was missing (used 3.0R → +0.04R)
+volume_suppress_long = true   # T6 Phase A gate audit (2026-05-16): 15m long n=1895 supp=-0.176R + 1h long n=411 supp=-0.227R → ENABLE
+volume_suppress_short = false # T6 Phase A gate audit: 1h short n=395 supp=+0.114R + 4h short n=85 supp=+0.607R → DISABLE (gate would kill winners)
 
 [strategy_params.trend_day.BTCUSDT]
 tp_r_4h = 5.0                 # WFO OOS (tue_thu): +0.426R (2026-04-14); ETH/SOL diverge (1.0R/1.5R)
@@ -181,7 +183,8 @@ tp_r_1h = 2.5                 # WFO OOS (tue_thu): +1.182R (2026-04-14); was 3.5
 [strategy_params.cvd_divergence]
 tp_r_1h = 5.0                 # monotonically increasing: +1.38R@5.0R, stable 41%WR (38 trades, tue_thu)
 adr_exempt = true             # divergence between price/delta in trending conditions; ADR gate hurts it
-volume_suppress = false       # A14b: low-vol edge Δ=-0.24R (low +0.09R vs normal -0.15R)
+volume_suppress = false       # A14b: low-vol edge Δ=-0.24R (low +0.09R vs normal -0.15R) — LONG-side only; see directional override below
+volume_suppress_short = true  # T6 Phase A gate audit (2026-05-16): 15m short n=96, supp_avg_r=-0.155R → ENABLE (low-vol shorts are losers)
 
 [strategy_params.ema]
 tp_r = 3.0                    # spec §6 default; tune per-TF after WFO sweep
