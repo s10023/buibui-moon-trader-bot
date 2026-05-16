@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-16",
+  "generated_at": "2026-05-17",
   "config": "config/signal_watch.toml",
   "strategies": {
     "wick_fill": {
@@ -169,22 +169,6 @@
       }
     },
     "liquidity_sweep": {
-      "1h": {
-        "trade_count": 239,
-        "long_trade_count": 131,
-        "short_trade_count": 108,
-        "win_rate": 0.3222,
-        "avg_r": -0.3576,
-        "total_r": -85.4606,
-        "long_avg_r": -0.3046,
-        "short_avg_r": -0.4218,
-        "long_total_r": -39.902,
-        "short_total_r": -45.5587,
-        "long_win_rate": 0.3435,
-        "short_win_rate": 0.2963,
-        "max_drawdown_r": 97.1905,
-        "recovery_factor": -0.8793
-      },
       "1d": {
         "trade_count": 5,
         "long_trade_count": 3,
