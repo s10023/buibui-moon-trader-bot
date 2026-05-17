@@ -48,7 +48,7 @@ strategies = [
 [strategy_timeframes]
 trend_day            = ["4h", "1d"]
 fib_golden_zone      = ["4h", "1d"]       # 15m/1h suppressed (negative)
-eqh_eql              = ["1h", "1d"]       # Phase 1: 4h dropped (audit -0.217R, 33% positive)
+eqh_eql              = ["1d"]              # 2026-05-17 T6 Phase A strategy_timeframes audit: 1h dropped (raw -0.149R n=184; cr combined -0.146R 1★, long +0.016R 2★, short -0.308R 1★ — no direction strong enough for Bucket C defer). Phase 1: 4h dropped earlier.
 smt_divergence       = ["15m", "1h"]      # Phase 1: 4h dropped (audit -0.307R, 25% positive); 1d excluded
 orb                  = ["1h", "4h"]        # 15m/1d suppressed (n/a — zero trades on weekdays)
 bos                  = ["15m", "1h", "4h"] # 1d all negative excluded
@@ -59,6 +59,8 @@ doji                 = ["15m", "1h"]       # 4h all negative (-0.03R best); 1d t
 order_block          = ["1d"]              # Phase 1: 4h dropped (audit CONFLUENCE_ONLY -0.079R); 15m/1h already excluded
 morning_evening_star = ["15m", "1h", "4h"] # 1d suppressed (negative)
 ema                  = ["15m", "4h", "1d"] # 2026-05-17 T6 Phase A day-filter audit: 1h dropped (combined -0.29R, 20% WR; both directions negative). 15m kept — short +0.57R 4★ outweighs long +0.03R 2★.
+engulfing            = ["4h", "1d"]        # 2026-05-17 T6 Phase A strategy_timeframes audit: 15m+1h dropped (15m raw -0.052R n=580 cr -0.105R 1★ both dirs negative; 1h raw -0.157R n=144 cr -0.433R 1★ both dirs negative). 4h n=16 / 1d n=1 too sparse to verdict, kept for future re-audit.
+hammer_hanging_man   = ["15m", "1h", "1d"] # 2026-05-17 T6 Phase A strategy_timeframes audit: 4h dropped (raw -0.217R n=51; cr combined -0.263R 1★, long -0.176R 1★, short -0.366R 1★ — all losing).
 
 # Per-strategy parameter overrides — tp_r and sl_pct.
 # Lookup order: TF-specific key (e.g. tp_r_4h) → strategy-wide tp_r → global tp_r.

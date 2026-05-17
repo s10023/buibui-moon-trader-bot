@@ -69,6 +69,7 @@ cvd_divergence   = ["1h"]                    # 1h monotonic +1.38R@5.0 stable 41
 doji             = ["15m", "1h"]             # 4h degraded: best 1.5R=+0.04R (16 trades); 1d too thin
 morning_evening_star = ["15m", "1h", "4h"]   # 1d mean_r=-0.105 suppressed
 order_block      = ["1d"]                    # Phase 1: 4h dropped (audit CONFLUENCE_ONLY, -0.079R); 15m/1h already excluded
+ema              = ["1h", "4h", "1d"]        # 2026-05-17 T6 Phase A strategy_timeframes audit: 15m dropped (raw -0.269R n=214 sweep; cr combined -0.052R 1★, long -0.356R 1★, short +0.073R 2★ — neither direction strong enough for Bucket C defer)
 
 # Per-strategy parameter overrides — tp_r and sl_pct.
 # Lookup order: TF-specific key (e.g. tp_r_4h) → strategy-wide tp_r → global tp_r.
