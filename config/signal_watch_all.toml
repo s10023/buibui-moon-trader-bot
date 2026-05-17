@@ -50,13 +50,18 @@ strategies = [
 [strategy_timeframes]
 trend_day        = ["4h", "1d"]          # 15m=-0.03R, 1h≈0.00R excluded
 fib_golden_zone  = ["1h", "4h", "1d"]   # 15m all negative excluded
-eqh_eql          = ["1h", "4h", "1d"]   # 15m=-0.08 to -0.16R excluded
+eqh_eql          = ["4h", "1d"]         # 2026-05-17 T6 Phase A strategy_timeframes audit: 1h dropped (raw -0.147R n=242; cr combined -0.140R 1★, long -0.413R 1★, short +0.034R 2★ — short marginally positive but below +0.10R / 3★ Bucket C bar). 15m already excluded.
 smt_divergence   = ["15m", "1h", "4h"]  # 1d=4 trades 25% WR excluded
 orb              = ["1h", "4h"]          # 15m all negative; 1d=n/a
 bos              = ["15m", "1h", "4h"]   # 1d=-0.30R to -1.01R excluded
 liquidity_sweep  = ["1h", "1d"]          # 15m/4h all negative
 marubozu         = ["4h", "1d"]          # 15m/1h all negative
 ema              = ["4h", "1d"]          # 2026-05-17 T6 Phase A day-filter audit: 15m+1h dropped (15m combined -0.66R 17% WR; 1h combined -0.44R 12% WR — long -1.06R 0% WR). All 4 cells both-direction ENABLE.
+engulfing        = ["15m", "1d"]         # 2026-05-17 T6 Phase A strategy_timeframes audit: 1h+4h dropped (1h raw -0.055R n=192 cr -0.068R 1★ all dirs negative; 4h raw -0.213R n=43 cr -0.214R 1★).
+fvg              = ["4h", "1d"]          # 2026-05-17 T6 Phase A strategy_timeframes audit: 15m+1h dropped (15m raw -0.178R n=142 cr -0.175R 1★ all dirs negative; 1h raw -0.105R n=61 cr -0.118R 1★). Volume_suppress=true already on; numbers reflect gate active.
+morning_evening_star = ["15m", "1h", "1d"]  # 2026-05-17 T6 Phase A strategy_timeframes audit: 4h dropped (raw -0.205R n=145; cr combined -0.232R 1★, long -0.074R 1★, short -0.390R 1★).
+order_block      = ["1h", "1d"]          # 2026-05-17 T6 Phase A strategy_timeframes audit: 15m+4h dropped (15m raw -0.244R n=212 cr -0.258R 1★ both dirs negative; 4h raw -0.270R n=63 cr -0.362R 1★).
+pin_bar          = ["15m", "4h", "1d"]   # 2026-05-17 T6 Phase A strategy_timeframes audit: 1h dropped (raw -0.170R n=453; cr combined -0.171R 1★, long -0.265R 1★, short -0.039R 1★).
 
 # Per-strategy parameter overrides — tp_r and sl_pct.
 # Derived from TP sweep (200d, all days, 3 symbols — BTCUSDT/ETHUSDT/SOLUSDT).

@@ -839,22 +839,6 @@
       }
     },
     "ema": {
-      "15m": {
-        "trade_count": 221,
-        "long_trade_count": 100,
-        "short_trade_count": 121,
-        "win_rate": 0.2851,
-        "avg_r": 0.0093,
-        "total_r": 2.0486,
-        "long_avg_r": -0.1374,
-        "short_avg_r": 0.1305,
-        "long_total_r": -13.7422,
-        "short_total_r": 15.7907,
-        "long_win_rate": 0.25,
-        "short_win_rate": 0.314,
-        "max_drawdown_r": 37.2237,
-        "recovery_factor": 0.055
-      },
       "1h": {
         "trade_count": 118,
         "long_trade_count": 71,
