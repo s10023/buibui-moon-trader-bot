@@ -226,3 +226,11 @@ tp_r_1h = 1.5                   # 1h re-audit OOS: BTC +0.213R @ 1.5R (diverges 
 # volume_suppress = false
 # liq_sweep_use_fib = true
 # liq_sweep_fib_range_close = false
+
+# T6 Phase A audit 2026-05-17 (docs/audits/2026-05-17-adr-suppress-threshold.md):
+# tue_thu sweep aggregate verdict ENABLE at candidate 0.75 only (n_supp=782
+# supp_avg_r=-0.067R); INSUFFICIENT at 0.70 / 0.65 and DISABLE at 0.60 — late
+# chasing-direction trades are losers only in the [0.75, 0.80) band. Merge with
+# strategy_params.toml [bias] preserves htf_ema, regime, direction_filter blocks.
+[bias]
+adr_suppress_threshold = 0.75
