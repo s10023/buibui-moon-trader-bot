@@ -678,7 +678,9 @@ class TestLoadWithExtends:
             "ETHUSDT": "BTCUSDT",
             "SOLUSDT": "ETHUSDT",
         }
-        assert cfg.bias.adr_suppress_threshold == 0.80
+        # T6 Phase A audit 2026-05-17: signal_watch.toml overrides base 0.80 → 0.75
+        # (tue_thu sweep ENABLE only in [0.75, 0.80) band).
+        assert cfg.bias.adr_suppress_threshold == 0.75
         assert cfg.backtest.effective_min_trades("15m") == 20
         assert cfg.backtest.effective_min_trades("4h") == 5
         # merged: base volume_suppress + child tp_r

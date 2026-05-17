@@ -179,3 +179,11 @@ tp_r_1d  = 1.5                # +0.59R (42 trades, 65% WR)
 # volume_suppress = false
 # liq_sweep_use_fib = true
 # liq_sweep_fib_range_close = true
+
+# T6 Phase A audit 2026-05-17 (docs/audits/2026-05-17-adr-suppress-threshold.md):
+# mon_fri sweep ENABLE at 0.60/0.65 (clean), INSUFFICIENT at 0.70, DISABLE at
+# 0.75 (the [0.75, 0.80) band is +0.184R winners on mon_fri). 0.65 captures the
+# losing bands [0.65, 0.75) at n_supp=1249 supp_avg_r=-0.104R. Conservative pick
+# over 0.60 (which would suppress 1790 trades for ~same per-trade verdict).
+[bias]
+adr_suppress_threshold = 0.65
