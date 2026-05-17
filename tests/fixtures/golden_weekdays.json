@@ -303,22 +303,6 @@
       }
     },
     "eqh_eql": {
-      "1h": {
-        "trade_count": 220,
-        "long_trade_count": 104,
-        "short_trade_count": 116,
-        "win_rate": 0.3727,
-        "avg_r": 0.1758,
-        "total_r": 38.6706,
-        "long_avg_r": 0.2819,
-        "short_avg_r": 0.0806,
-        "long_total_r": 29.322,
-        "short_total_r": 9.3485,
-        "long_win_rate": 0.4038,
-        "short_win_rate": 0.3448,
-        "max_drawdown_r": 26.362,
-        "recovery_factor": 1.4669
-      },
       "1d": {
         "trade_count": 1,
         "long_trade_count": 0,
@@ -407,38 +391,6 @@
       }
     },
     "engulfing": {
-      "15m": {
-        "trade_count": 1350,
-        "long_trade_count": 684,
-        "short_trade_count": 666,
-        "win_rate": 0.2207,
-        "avg_r": 0.0537,
-        "total_r": 72.4998,
-        "long_avg_r": -0.0266,
-        "short_avg_r": 0.1362,
-        "long_total_r": -18.2002,
-        "short_total_r": 90.7,
-        "long_win_rate": 0.2047,
-        "short_win_rate": 0.2372,
-        "max_drawdown_r": 107.55,
-        "recovery_factor": 0.6741
-      },
-      "1h": {
-        "trade_count": 349,
-        "long_trade_count": 170,
-        "short_trade_count": 179,
-        "win_rate": 0.2521,
-        "avg_r": 0.2107,
-        "total_r": 73.5499,
-        "long_avg_r": 0.2735,
-        "short_avg_r": 0.1511,
-        "long_total_r": 46.5,
-        "short_total_r": 27.0499,
-        "long_win_rate": 0.2647,
-        "short_win_rate": 0.2402,
-        "max_drawdown_r": 28.8501,
-        "recovery_factor": 2.5494
-      },
       "4h": {
         "trade_count": 86,
         "long_trade_count": 37,
@@ -620,22 +572,6 @@
         "short_win_rate": 0.1641,
         "max_drawdown_r": 52.95,
         "recovery_factor": -0.2606
-      },
-      "4h": {
-        "trade_count": 71,
-        "long_trade_count": 39,
-        "short_trade_count": 32,
-        "win_rate": 0.2958,
-        "avg_r": 0.4289,
-        "total_r": 30.45,
-        "long_avg_r": 0.1038,
-        "short_avg_r": 0.825,
-        "long_total_r": 4.05,
-        "short_total_r": 26.4,
-        "long_win_rate": 0.2308,
-        "short_win_rate": 0.375,
-        "max_drawdown_r": 9.45,
-        "recovery_factor": 3.2222
       },
       "1d": {
         "trade_count": 8,
