@@ -227,6 +227,35 @@ tp_r_1h = 1.5                   # 1h re-audit OOS: BTC +0.213R @ 1.5R (diverges 
 # liq_sweep_use_fib = true
 # liq_sweep_fib_range_close = false
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Bucket C TOML decisions — 2026-05-18 (docs/audits/2026-05-18-bucket-c-toml.md)
+# Per-tf-direction encodings via PR #384 schema. Source: `tools/gate_audit.py
+# volume-suppress --grain strategy_tf_dir --min-n 30` + confidence_ratings
+# dual-view (PR #377 protocol). Skipped: n_kept < 10 (statistical noise) and
+# kept_avg_r < supp_avg_r (dying — needs strategy_timeframes_<dir> cut instead).
+# bos deferred per T2a routing memo.
+# ─────────────────────────────────────────────────────────────────────────────
+
+[strategy_timeframes_long]
+inside_bar = ["15m", "1h", "1d"]   # cr 4h_L -0.029 1★ vs 4h_S +0.219 3★ — kill long, keep short
+
+[strategy_params.eqh_eql.volume_suppress_long_per_tf]
+"15m" = true   # supp_avg_r -0.0954 n=627
+"1h"  = true   # supp_avg_r -0.2772 n=64
+
+[strategy_params.eqh_eql.volume_suppress_short_per_tf]
+"15m" = true   # supp_avg_r -0.1702 n=603
+
+[strategy_params.hammer_hanging_man.volume_suppress_long_per_tf]
+"15m" = true   # supp_avg_r -0.2199 n=518
+
+[strategy_params.inside_bar.volume_suppress_long_per_tf]
+"15m" = true   # supp_avg_r -0.0935 n=1334
+"1h"  = true   # supp_avg_r -0.2057 n=289
+
+[strategy_params.morning_evening_star.volume_suppress_long_per_tf]
+"15m" = true   # supp_avg_r -0.0557 n=1236
+
 # T6 Phase A audit 2026-05-17 (docs/audits/2026-05-17-adr-suppress-threshold.md):
 # tue_thu sweep aggregate verdict ENABLE at candidate 0.75 only (n_supp=782
 # supp_avg_r=-0.067R); INSUFFICIENT at 0.70 / 0.65 and DISABLE at 0.60 — late
