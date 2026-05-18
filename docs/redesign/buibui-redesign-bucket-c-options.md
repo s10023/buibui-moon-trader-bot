@@ -159,14 +159,23 @@ Do both, **in sequence**:
 - Combo / cross-TF gate fields — covered by `/confluence-backtest`.
 - The 3 ON→OFF inverse questions — those need T6 regardless of schema.
 
-## Open questions
+## Decisions
 
-- **Q-BC-1**: Per-tf precedence — when a cell has both `volume_suppress_long` AND `volume_suppress_long_per_tf[tf]` set, which wins? **Tentative**: per-tf > per-direction > strategy > global, matching `tp_r_per_tf` precedence. Document in `effective_volume_suppress_*` helpers.
-- **Q-BC-2**: Should `strategy_timeframes_long` / `strategy_timeframes_short` coexist with `strategy_timeframes` (additive) or replace it (override)? **Tentative**: additive — `strategy_timeframes` is the default; directional lists narrow it. Mirrors how `volume_suppress_long` overlays `volume_suppress`.
-- **Q-BC-3**: TOML aesthetics — accept block proliferation (one `[strategy_params.X.volume_suppress_long_per_tf]` sub-table per strategy) or introduce a `[strategy_params.X.gates]` namespace to group new fields? **Tentative**: keep flat — matches existing `tp_r_per_tf` shape, avoids a deeper migration.
+- **Q-BC-1 — DECIDED**: Per-tf precedence is **per-tf > per-direction > strategy > global**, matching `tp_r_per_tf`. The new `effective_volume_suppress_long_per_tf(strategy, tf)` / `effective_volume_suppress_short_per_tf(strategy, tf)` helpers walk the chain: per-tf-dir dict → directional flag → strategy flag → backtest global. Same shape for `volume_spike_boost_*` and `adr_exempt_*`.
+- **Q-BC-2 — DECIDED**: `strategy_timeframes_long` / `strategy_timeframes_short` are **additive (narrowing)**. The base `strategy_timeframes[strategy]` list is the allowlist; the directional lists, when set, restrict the cell to that directional intersection (i.e. only emit `long` events for TFs that appear in **both** `strategy_timeframes[strategy]` AND `strategy_timeframes_long[strategy]`). When a directional list is empty/unset, the strategy emits that direction on the full base list. Mirrors the `volume_suppress_long` overlay on `volume_suppress`.
+- **Q-BC-3 — DECIDED**: Keep TOML **flat**. New per-tf-direction fields live as sibling sub-tables under `[strategy_params.X]`, matching `tp_r_per_tf`:
+
+  ```toml
+  [strategy_params.pin_bar]
+  volume_suppress = false
+  [strategy_params.pin_bar.volume_suppress_long_per_tf]
+  "15m" = true     # mon_fri 15m long ENABLE (PR #375 deferred)
+  ```
+
+  No `[gates]` namespace migration. The existing surface stays additive-compatible with older configs.
 
 ## Recommendation
 
 Ship **Option 3** (Hybrid). Start with the schema-extension PR — it earns measurable R from the 8 Bucket C strategies immediately and is independent of the 5-PR T6 stream. Then begin T6 PR-1 (foundation) when bandwidth allows.
 
-The decision the user needs to make now is whether to start the schema-extension PR; T6 sequencing can be picked up after that PR lands.
+Next concrete step: open `feat/bucket-c-schema-extension` — schema fields, resolvers, gate plumbing, tests. Follow-up PR encodes the 8 strategies' verdicts in TOML.
