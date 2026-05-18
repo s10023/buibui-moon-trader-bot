@@ -180,6 +180,41 @@ tp_r_1d  = 1.5                # +0.59R (42 trades, 65% WR)
 # liq_sweep_use_fib = true
 # liq_sweep_fib_range_close = true
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Bucket C TOML decisions — 2026-05-18 (docs/audits/2026-05-18-bucket-c-toml.md)
+# Per-tf-direction encodings via PR #384 schema. Skip rules same as tue_thu.
+# ─────────────────────────────────────────────────────────────────────────────
+
+[strategy_timeframes_long]
+inside_bar = ["15m", "1h", "1d"]   # cr 4h_L -0.305 1★ vs 4h_S +0.349 3★ — kill long, keep short
+
+[strategy_params.eqh_eql.volume_suppress_short_per_tf]
+"15m" = true   # supp_avg_r -0.3221 n=463
+"1h"  = true   # supp_avg_r -0.5967 n=47
+
+[strategy_params.fib_golden_zone.volume_suppress_short_per_tf]
+"15m" = true   # supp_avg_r -0.2267 n=170
+"1h"  = true   # supp_avg_r -0.1672 n=32
+
+[strategy_params.hammer_hanging_man.volume_suppress_long_per_tf]
+"1h" = true    # supp_avg_r -0.2250 n=80
+
+[strategy_params.inside_bar.volume_suppress_short_per_tf]
+"1h" = true    # supp_avg_r -0.1214 n=98
+
+[strategy_params.morning_evening_star.volume_suppress_long_per_tf]
+"1h" = true    # supp_avg_r -0.5783 n=53 (kept +0.873 n=13)
+
+[strategy_params.morning_evening_star.volume_suppress_short_per_tf]
+"4h" = true    # supp_avg_r -0.3834 n=36 (kept +1.350 n=10)
+
+[strategy_params.order_block.volume_suppress_long_per_tf]
+"1h" = true    # supp_avg_r -0.5300 n=55
+
+[strategy_params.order_block.volume_suppress_short_per_tf]
+"15m" = true   # supp_avg_r -0.2685 n=107
+"4h"  = true   # supp_avg_r -0.2269 n=33
+
 # T6 Phase A audit 2026-05-17 (docs/audits/2026-05-17-adr-suppress-threshold.md):
 # mon_fri sweep ENABLE at 0.60/0.65 (clean), INSUFFICIENT at 0.70, DISABLE at
 # 0.75 (the [0.75, 0.80) band is +0.184R winners on mon_fri). 0.65 captures the

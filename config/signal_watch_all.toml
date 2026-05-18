@@ -184,6 +184,28 @@ volume_suppress = true        # A14b: normal-vol wins Δ=+0.12R (low -0.15R vs n
 # liq_sweep_use_fib = true
 # liq_sweep_fib_range_close = false
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Bucket C TOML decisions — 2026-05-18 (docs/audits/2026-05-18-bucket-c-toml.md)
+# Per-tf-direction encodings via PR #384 schema. Skip rules same as tue_thu.
+# ─────────────────────────────────────────────────────────────────────────────
+
+[strategy_timeframes_long]
+inside_bar         = ["15m", "1h", "1d"]   # cr 4h_L -0.100 1★ vs 4h_S +0.348 3★
+hammer_hanging_man = ["15m", "4h", "1d"]   # cr 1h_L -0.327 1★ vs 1h_S +0.234 3★
+
+[strategy_params.eqh_eql.volume_suppress_long_per_tf]
+"15m" = true   # supp_avg_r -0.2800 n=638
+"1h"  = true   # supp_avg_r -0.9084 n=58 (kept +0.248 n=31)
+
+[strategy_params.fib_golden_zone.volume_suppress_short_per_tf]
+"15m" = true   # supp_avg_r -0.2662 n=179
+
+[strategy_params.order_block.volume_suppress_long_per_tf]
+"15m" = true   # supp_avg_r -0.2847 n=65
+
+[strategy_params.order_block.volume_suppress_short_per_tf]
+"15m" = true   # supp_avg_r -0.4124 n=65
+
 # T6 Phase A audit 2026-05-17 (docs/audits/2026-05-17-adr-suppress-threshold.md):
 # weekend sweep ENABLE at every candidate (-0.376 to -0.510R supp_avg_r across
 # 0.60/0.65/0.70/0.75). Late-ADR chasing on weekends is catastrophic — widest,
