@@ -142,10 +142,19 @@ def _resolve_volume_spike_boost(
 def _resolve_volume_suppress_long(
     strategy_params: dict[str, StrategyOverride] | None,
     strategy: str,
+    tf: str | None = None,
 ) -> bool | None:
+    """Resolve directional volume_suppress for `long`.
+
+    Precedence (Bucket C PR — Q-BC-1): per-tf-direction > per-direction.
+    Returns None when no directional override is set (caller falls back
+    to strategy-wide volume_suppress).
+    """
     if strategy_params:
         override = strategy_params.get(strategy)
         if override is not None:
+            if tf is not None and tf in override.volume_suppress_long_per_tf:
+                return override.volume_suppress_long_per_tf[tf]
             return override.volume_suppress_long
     return None
 
@@ -153,10 +162,13 @@ def _resolve_volume_suppress_long(
 def _resolve_volume_suppress_short(
     strategy_params: dict[str, StrategyOverride] | None,
     strategy: str,
+    tf: str | None = None,
 ) -> bool | None:
     if strategy_params:
         override = strategy_params.get(strategy)
         if override is not None:
+            if tf is not None and tf in override.volume_suppress_short_per_tf:
+                return override.volume_suppress_short_per_tf[tf]
             return override.volume_suppress_short
     return None
 
@@ -164,10 +176,13 @@ def _resolve_volume_suppress_short(
 def _resolve_volume_spike_boost_long(
     strategy_params: dict[str, StrategyOverride] | None,
     strategy: str,
+    tf: str | None = None,
 ) -> bool | None:
     if strategy_params:
         override = strategy_params.get(strategy)
         if override is not None:
+            if tf is not None and tf in override.volume_spike_boost_long_per_tf:
+                return override.volume_spike_boost_long_per_tf[tf]
             return override.volume_spike_boost_long
     return None
 
@@ -175,9 +190,12 @@ def _resolve_volume_spike_boost_long(
 def _resolve_volume_spike_boost_short(
     strategy_params: dict[str, StrategyOverride] | None,
     strategy: str,
+    tf: str | None = None,
 ) -> bool | None:
     if strategy_params:
         override = strategy_params.get(strategy)
         if override is not None:
+            if tf is not None and tf in override.volume_spike_boost_short_per_tf:
+                return override.volume_spike_boost_short_per_tf[tf]
             return override.volume_spike_boost_short
     return None

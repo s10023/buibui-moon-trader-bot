@@ -101,6 +101,10 @@ class StrategyOverride:
     atr_sl_floor_per_tf: dict[str, bool] = field(default_factory=dict)
     per_symbol: dict[str, SymbolOverride] = field(default_factory=dict)
     adr_exempt: bool = False
+    # Per-direction adr_exempt overrides (Bucket C PR — Q-BC-1 precedence:
+    # per-direction wins over strategy-wide adr_exempt). None = inherit adr_exempt.
+    adr_exempt_long: bool | None = None
+    adr_exempt_short: bool | None = None
     # None = inherit global [backtest].volume_suppress; True/False = per-strategy override.
     volume_suppress: bool | None = None
     # None = inherit global [backtest].volume_spike_boost; True/False = per-strategy override.
@@ -111,6 +115,13 @@ class StrategyOverride:
     # Directional spike boost — overrides volume_spike_boost for that direction when set.
     volume_spike_boost_long: bool | None = None
     volume_spike_boost_short: bool | None = None
+    # Per-tf directional overrides (Bucket C PR — Q-BC-1 precedence:
+    # per-tf-direction > per-direction > strategy > global). Keys are timeframe
+    # strings ("15m", "1h", "4h", "1d"); values are bool.
+    volume_suppress_long_per_tf: dict[str, bool] = field(default_factory=dict)
+    volume_suppress_short_per_tf: dict[str, bool] = field(default_factory=dict)
+    volume_spike_boost_long_per_tf: dict[str, bool] = field(default_factory=dict)
+    volume_spike_boost_short_per_tf: dict[str, bool] = field(default_factory=dict)
     # Optional direction-split TP multiples. Falls back to tp_r when None.
     tp_r_long: float | None = None
     tp_r_short: float | None = None
@@ -389,6 +400,12 @@ class SignalWatchConfig:
     # Per-strategy timeframe allow-list: {"trend_day": ["4h", "1d"], ...}
     # Strategies not listed here run on all configured timeframes.
     strategy_timeframes: dict[str, list[str]] = field(default_factory=dict)
+    # Per-direction strategy_timeframes narrowing (Bucket C PR — Q-BC-2:
+    # additive intersection with the base list). Empty dict = no directional
+    # narrowing; an entry restricts that strategy's directional emissions to
+    # the intersection of the base list AND this directional list.
+    strategy_timeframes_long: dict[str, list[str]] = field(default_factory=dict)
+    strategy_timeframes_short: dict[str, list[str]] = field(default_factory=dict)
     # Per-strategy parameter overrides (tp_r, sl_pct, TF-specific variants).
     # Lookup order: TF-specific → strategy-wide → global tp_r / sl_pct.
     strategy_params: dict[str, StrategyOverride] = field(default_factory=dict)
@@ -456,29 +473,93 @@ class SignalWatchConfig:
             return override.volume_spike_boost
         return self.backtest.volume_spike_boost
 
-    def effective_volume_suppress_long(self, strategy: str) -> bool | None:
+    def effective_volume_suppress_long(
+        self, strategy: str, tf: str | None = None
+    ) -> bool | None:
+        """Resolve directional volume_suppress for `long`.
+
+        Precedence: per-tf-direction > per-direction. Returns None when no
+        directional override is set (caller falls back to volume_suppress).
+        """
         override = self.strategy_params.get(strategy)
         if override is not None:
+            if tf is not None and tf in override.volume_suppress_long_per_tf:
+                return override.volume_suppress_long_per_tf[tf]
             return override.volume_suppress_long
         return None
 
-    def effective_volume_suppress_short(self, strategy: str) -> bool | None:
+    def effective_volume_suppress_short(
+        self, strategy: str, tf: str | None = None
+    ) -> bool | None:
+        """Resolve directional volume_suppress for `short` (see _long variant)."""
         override = self.strategy_params.get(strategy)
         if override is not None:
+            if tf is not None and tf in override.volume_suppress_short_per_tf:
+                return override.volume_suppress_short_per_tf[tf]
             return override.volume_suppress_short
         return None
 
-    def effective_volume_spike_boost_long(self, strategy: str) -> bool | None:
+    def effective_volume_spike_boost_long(
+        self, strategy: str, tf: str | None = None
+    ) -> bool | None:
         override = self.strategy_params.get(strategy)
         if override is not None:
+            if tf is not None and tf in override.volume_spike_boost_long_per_tf:
+                return override.volume_spike_boost_long_per_tf[tf]
             return override.volume_spike_boost_long
         return None
 
-    def effective_volume_spike_boost_short(self, strategy: str) -> bool | None:
+    def effective_volume_spike_boost_short(
+        self, strategy: str, tf: str | None = None
+    ) -> bool | None:
         override = self.strategy_params.get(strategy)
         if override is not None:
+            if tf is not None and tf in override.volume_spike_boost_short_per_tf:
+                return override.volume_spike_boost_short_per_tf[tf]
             return override.volume_spike_boost_short
         return None
+
+    def effective_adr_exempt(self, strategy: str, direction: str | None = None) -> bool:
+        """Resolve per-direction adr_exempt.
+
+        Precedence: per-direction (adr_exempt_long/short) → strategy-wide
+        (adr_exempt). When direction is None, returns the strategy-wide flag.
+        """
+        override = self.strategy_params.get(strategy)
+        if override is None:
+            return False
+        if direction == "long" and override.adr_exempt_long is not None:
+            return override.adr_exempt_long
+        if direction == "short" and override.adr_exempt_short is not None:
+            return override.adr_exempt_short
+        return override.adr_exempt
+
+    def effective_strategy_timeframes(
+        self, strategy: str, direction: str | None = None
+    ) -> list[str] | None:
+        """Resolve per-direction strategy_timeframes (Q-BC-2: additive narrowing).
+
+        - No base entry AND no directional entry → returns None (no filter).
+        - Base entry, no directional entry → returns base list.
+        - Base entry AND directional entry → returns intersection (preserves
+          base order).
+        - No base entry, directional entry → returns directional list.
+        """
+        base = self.strategy_timeframes.get(strategy)
+        if direction is None:
+            return base
+        if direction == "long":
+            dir_list = self.strategy_timeframes_long.get(strategy)
+        elif direction == "short":
+            dir_list = self.strategy_timeframes_short.get(strategy)
+        else:
+            return base
+        if dir_list is None:
+            return base
+        if base is None:
+            return list(dir_list)
+        dir_set = set(dir_list)
+        return [tf for tf in base if tf in dir_set]
 
     def effective_atr_sl_multiplier(
         self, strategy: str, symbol: str, tf: str
@@ -538,6 +619,24 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         )
     strategy_timeframes: dict[str, list[str]] = {
         str(k): [str(tf) for tf in v] for k, v in raw_stf.items()
+    }
+
+    raw_stf_long = data.get("strategy_timeframes_long", {})
+    if not isinstance(raw_stf_long, dict):
+        raise ValueError(
+            "strategy_timeframes_long must be a TOML table of strategy = [timeframes] entries"
+        )
+    strategy_timeframes_long: dict[str, list[str]] = {
+        str(k): [str(tf) for tf in v] for k, v in raw_stf_long.items()
+    }
+
+    raw_stf_short = data.get("strategy_timeframes_short", {})
+    if not isinstance(raw_stf_short, dict):
+        raise ValueError(
+            "strategy_timeframes_short must be a TOML table of strategy = [timeframes] entries"
+        )
+    strategy_timeframes_short: dict[str, list[str]] = {
+        str(k): [str(tf) for tf in v] for k, v in raw_stf_short.items()
     }
 
     raw_bt = data.get("backtest", {})
@@ -668,6 +767,23 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         raw_tp_r_short = vals.get("tp_r_short")
         raw_suppress_long = vals.get("suppress_long")
         raw_suppress_short = vals.get("suppress_short")
+        raw_adr_exempt_long = vals.get("adr_exempt_long")
+        raw_adr_exempt_short = vals.get("adr_exempt_short")
+
+        def _parse_per_tf_bool(
+            key: str,
+            _vals: dict[str, Any] = vals,
+            _strat: str = str(strat_name),
+        ) -> dict[str, bool]:
+            raw = _vals.get(key, {})
+            if not isinstance(raw, dict):
+                raise ValueError(f"strategy_params.{_strat}.{key} must be a TOML table")
+            return {str(k): bool(v) for k, v in raw.items()}
+
+        vsl_per_tf = _parse_per_tf_bool("volume_suppress_long_per_tf")
+        vss_per_tf = _parse_per_tf_bool("volume_suppress_short_per_tf")
+        vsbl_per_tf = _parse_per_tf_bool("volume_spike_boost_long_per_tf")
+        vsbs_per_tf = _parse_per_tf_bool("volume_spike_boost_short_per_tf")
         strategy_params[str(strat_name)] = StrategyOverride(
             tp_r=float(tp_r_val) if tp_r_val is not None else None,
             sl_pct=float(sl_pct_val) if sl_pct_val is not None else None,
@@ -681,12 +797,22 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
             atr_sl_floor_per_tf=atr_sl_floor_per_tf,
             per_symbol=per_symbol,
             adr_exempt=bool(vals.get("adr_exempt", False)),
+            adr_exempt_long=bool(raw_adr_exempt_long)
+            if raw_adr_exempt_long is not None
+            else None,
+            adr_exempt_short=bool(raw_adr_exempt_short)
+            if raw_adr_exempt_short is not None
+            else None,
             volume_suppress=bool(raw_vs) if raw_vs is not None else None,
             volume_spike_boost=bool(raw_vsb) if raw_vsb is not None else None,
             volume_suppress_long=bool(raw_vsl) if raw_vsl is not None else None,
             volume_suppress_short=bool(raw_vss) if raw_vss is not None else None,
             volume_spike_boost_long=bool(raw_vsbl) if raw_vsbl is not None else None,
             volume_spike_boost_short=bool(raw_vsbs) if raw_vsbs is not None else None,
+            volume_suppress_long_per_tf=vsl_per_tf,
+            volume_suppress_short_per_tf=vss_per_tf,
+            volume_spike_boost_long_per_tf=vsbl_per_tf,
+            volume_spike_boost_short_per_tf=vsbs_per_tf,
             tp_r_long=float(raw_tp_r_long) if raw_tp_r_long is not None else None,
             tp_r_short=float(raw_tp_r_short) if raw_tp_r_short is not None else None,
             suppress_long=bool(raw_suppress_long)
@@ -787,6 +913,8 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         day_filter=str(data.get("day_filter", "off")),
         smt_trend_filter=int(data.get("smt_trend_filter", 1)),
         strategy_timeframes=strategy_timeframes,
+        strategy_timeframes_long=strategy_timeframes_long,
+        strategy_timeframes_short=strategy_timeframes_short,
         strategy_params=strategy_params,
         atr_sl_multiplier=(
             float(data["atr_sl_multiplier"])
