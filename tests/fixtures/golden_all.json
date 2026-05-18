@@ -1,23 +1,23 @@
 {
-  "generated_at": "2026-05-17",
+  "generated_at": "2026-05-18",
   "config": "config/signal_watch_all.toml",
   "strategies": {
     "wick_fill": {
       "15m": {
-        "trade_count": 1191,
-        "long_trade_count": 666,
+        "trade_count": 1193,
+        "long_trade_count": 668,
         "short_trade_count": 525,
-        "win_rate": 0.204,
-        "avg_r": 0.0405,
-        "total_r": 48.2461,
-        "long_avg_r": 0.1127,
+        "win_rate": 0.2037,
+        "avg_r": 0.0384,
+        "total_r": 45.8461,
+        "long_avg_r": 0.1088,
         "short_avg_r": -0.0511,
-        "long_total_r": 75.0908,
+        "long_total_r": 72.6908,
         "short_total_r": -26.8447,
-        "long_win_rate": 0.2162,
+        "long_win_rate": 0.2156,
         "short_win_rate": 0.1886,
         "max_drawdown_r": 84.6669,
-        "recovery_factor": 0.5698
+        "recovery_factor": 0.5415
       },
       "1h": {
         "trade_count": 381,
@@ -206,20 +206,20 @@
     },
     "bos": {
       "15m": {
-        "trade_count": 833,
-        "long_trade_count": 398,
-        "short_trade_count": 435,
-        "win_rate": 0.1453,
-        "avg_r": -0.2301,
-        "total_r": -191.656,
-        "long_avg_r": -0.1405,
-        "short_avg_r": -0.3121,
-        "long_total_r": -55.9107,
-        "short_total_r": -135.7452,
-        "long_win_rate": 0.1608,
-        "short_win_rate": 0.131,
+        "trade_count": 835,
+        "long_trade_count": 399,
+        "short_trade_count": 436,
+        "win_rate": 0.1449,
+        "avg_r": -0.2323,
+        "total_r": -193.9955,
+        "long_avg_r": -0.1431,
+        "short_avg_r": -0.314,
+        "long_total_r": -57.1042,
+        "short_total_r": -136.8913,
+        "long_win_rate": 0.1604,
+        "short_win_rate": 0.1307,
         "max_drawdown_r": 209.581,
-        "recovery_factor": -0.9145
+        "recovery_factor": -0.9256
       },
       "1h": {
         "trade_count": 235,
