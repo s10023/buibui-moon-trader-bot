@@ -87,11 +87,24 @@ def _filter_signals_by_adr(
 def _is_adr_exempt(
     strategy_params: dict[str, StrategyOverride] | None,
     strategy: str,
+    direction: str | None = None,
 ) -> bool:
+    """Resolve adr_exempt for `(strategy, direction)`.
+
+    Precedence (Bucket C PR — Q-BC-1): per-direction (adr_exempt_long/short)
+    > strategy-wide (adr_exempt). When direction is None or not "long"/"short",
+    returns the strategy-wide flag.
+    """
     if not strategy_params:
         return False
     override = strategy_params.get(strategy)
-    return override.adr_exempt if override is not None else False
+    if override is None:
+        return False
+    if direction == "long" and override.adr_exempt_long is not None:
+        return override.adr_exempt_long
+    if direction == "short" and override.adr_exempt_short is not None:
+        return override.adr_exempt_short
+    return override.adr_exempt
 
 
 def _apply_htf_ema_gate(

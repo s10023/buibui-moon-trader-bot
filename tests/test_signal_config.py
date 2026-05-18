@@ -960,3 +960,241 @@ min_avg_r_short = 0.2
         from analytics.signal_config import BacktestFilterConfig
 
         assert BacktestFilterConfig(cache_enabled=False).cache_enabled is False
+
+
+class TestBucketCSchemaExtension:
+    """Bucket C PR — per-tf-direction overrides and directional adr_exempt /
+    strategy_timeframes.  See docs/redesign/buibui-redesign-bucket-c-options.md.
+    """
+
+    def test_strategy_override_new_field_defaults(self) -> None:
+        ov = StrategyOverride()
+        assert ov.adr_exempt_long is None
+        assert ov.adr_exempt_short is None
+        assert ov.volume_suppress_long_per_tf == {}
+        assert ov.volume_suppress_short_per_tf == {}
+        assert ov.volume_spike_boost_long_per_tf == {}
+        assert ov.volume_spike_boost_short_per_tf == {}
+
+    def test_signal_watch_config_new_field_defaults(self) -> None:
+        cfg = SignalWatchConfig()
+        assert cfg.strategy_timeframes_long == {}
+        assert cfg.strategy_timeframes_short == {}
+
+    def test_load_adr_exempt_directional(self, tmp_path: Path) -> None:
+        content = """\
+[strategy_params.bos]
+adr_exempt = true
+adr_exempt_long = true
+adr_exempt_short = false
+"""
+        p = _write_toml(tmp_path, content)
+        cfg = load_signal_config(p)
+        ov = cfg.strategy_params["bos"]
+        assert ov.adr_exempt is True
+        assert ov.adr_exempt_long is True
+        assert ov.adr_exempt_short is False
+
+    def test_load_volume_suppress_per_tf_dir(self, tmp_path: Path) -> None:
+        content = """\
+[strategy_params.pin_bar]
+volume_suppress = false
+[strategy_params.pin_bar.volume_suppress_long_per_tf]
+"15m" = true
+"1h" = false
+[strategy_params.pin_bar.volume_suppress_short_per_tf]
+"15m" = false
+"""
+        p = _write_toml(tmp_path, content)
+        cfg = load_signal_config(p)
+        ov = cfg.strategy_params["pin_bar"]
+        assert ov.volume_suppress_long_per_tf == {"15m": True, "1h": False}
+        assert ov.volume_suppress_short_per_tf == {"15m": False}
+
+    def test_load_volume_spike_boost_per_tf_dir(self, tmp_path: Path) -> None:
+        content = """\
+[strategy_params.engulfing]
+volume_spike_boost = true
+[strategy_params.engulfing.volume_spike_boost_long_per_tf]
+"15m" = false
+[strategy_params.engulfing.volume_spike_boost_short_per_tf]
+"4h" = true
+"""
+        p = _write_toml(tmp_path, content)
+        cfg = load_signal_config(p)
+        ov = cfg.strategy_params["engulfing"]
+        assert ov.volume_spike_boost is True
+        assert ov.volume_spike_boost_long_per_tf == {"15m": False}
+        assert ov.volume_spike_boost_short_per_tf == {"4h": True}
+
+    def test_load_strategy_timeframes_directional(self, tmp_path: Path) -> None:
+        content = """\
+[strategy_timeframes]
+pin_bar = ["15m", "1h", "4h", "1d"]
+
+[strategy_timeframes_long]
+pin_bar = ["15m", "1d"]
+
+[strategy_timeframes_short]
+pin_bar = ["1h", "4h"]
+"""
+        p = _write_toml(tmp_path, content)
+        cfg = load_signal_config(p)
+        assert cfg.strategy_timeframes["pin_bar"] == ["15m", "1h", "4h", "1d"]
+        assert cfg.strategy_timeframes_long["pin_bar"] == ["15m", "1d"]
+        assert cfg.strategy_timeframes_short["pin_bar"] == ["1h", "4h"]
+
+    def test_per_tf_dir_must_be_toml_table(self, tmp_path: Path) -> None:
+        content = """\
+[strategy_params.pin_bar]
+volume_suppress_long_per_tf = true
+"""
+        p = _write_toml(tmp_path, content)
+        with pytest.raises(ValueError, match="volume_suppress_long_per_tf"):
+            load_signal_config(p)
+
+
+class TestEffectiveAdrExempt:
+    """Q-BC-1 precedence: per-direction > strategy-wide."""
+
+    def test_no_override_returns_false(self) -> None:
+        cfg = SignalWatchConfig()
+        assert cfg.effective_adr_exempt("bos", "long") is False
+        assert cfg.effective_adr_exempt("bos", "short") is False
+
+    def test_strategy_wide_applies_when_no_directional(self) -> None:
+        cfg = SignalWatchConfig(
+            strategy_params={"bos": StrategyOverride(adr_exempt=True)}
+        )
+        assert cfg.effective_adr_exempt("bos", "long") is True
+        assert cfg.effective_adr_exempt("bos", "short") is True
+        assert cfg.effective_adr_exempt("bos") is True
+
+    def test_directional_overrides_strategy_wide(self) -> None:
+        cfg = SignalWatchConfig(
+            strategy_params={
+                "bos": StrategyOverride(
+                    adr_exempt=True,
+                    adr_exempt_long=True,
+                    adr_exempt_short=False,
+                )
+            }
+        )
+        assert cfg.effective_adr_exempt("bos", "long") is True
+        assert cfg.effective_adr_exempt("bos", "short") is False
+        # No direction → returns strategy-wide
+        assert cfg.effective_adr_exempt("bos") is True
+
+    def test_only_one_directional_set(self) -> None:
+        # adr_exempt_long=True overrides; short falls back to strategy-wide False
+        cfg = SignalWatchConfig(
+            strategy_params={
+                "bos": StrategyOverride(adr_exempt=False, adr_exempt_long=True)
+            }
+        )
+        assert cfg.effective_adr_exempt("bos", "long") is True
+        assert cfg.effective_adr_exempt("bos", "short") is False
+
+
+class TestEffectiveVolumeSuppressLongPerTf:
+    """Q-BC-1 precedence: per-tf-direction > per-direction > (caller fallback)."""
+
+    def test_per_tf_wins_over_directional(self) -> None:
+        cfg = SignalWatchConfig(
+            strategy_params={
+                "pin_bar": StrategyOverride(
+                    volume_suppress_long=False,
+                    volume_suppress_long_per_tf={"15m": True},
+                )
+            }
+        )
+        assert cfg.effective_volume_suppress_long("pin_bar", "15m") is True
+        assert cfg.effective_volume_suppress_long("pin_bar", "1h") is False
+        # No tf supplied → falls back to per-direction
+        assert cfg.effective_volume_suppress_long("pin_bar") is False
+
+    def test_per_tf_missing_tf_falls_back_to_directional(self) -> None:
+        cfg = SignalWatchConfig(
+            strategy_params={
+                "pin_bar": StrategyOverride(
+                    volume_suppress_long=True,
+                    volume_suppress_long_per_tf={"15m": False},
+                )
+            }
+        )
+        assert (
+            cfg.effective_volume_suppress_long("pin_bar", "15m") is False
+        )  # per-tf override
+        assert cfg.effective_volume_suppress_long("pin_bar", "1h") is True  # falls back
+
+    def test_per_tf_with_no_directional_returns_per_tf(self) -> None:
+        cfg = SignalWatchConfig(
+            strategy_params={
+                "pin_bar": StrategyOverride(
+                    volume_suppress_long_per_tf={"15m": True},
+                )
+            }
+        )
+        assert cfg.effective_volume_suppress_long("pin_bar", "15m") is True
+        # 1h missing AND no directional → None (caller falls back to strategy/global)
+        assert cfg.effective_volume_suppress_long("pin_bar", "1h") is None
+
+
+class TestEffectiveStrategyTimeframes:
+    """Q-BC-2 narrowing: intersection of base + directional."""
+
+    def test_no_base_no_directional_returns_none(self) -> None:
+        cfg = SignalWatchConfig()
+        assert cfg.effective_strategy_timeframes("pin_bar") is None
+        assert cfg.effective_strategy_timeframes("pin_bar", "long") is None
+
+    def test_base_only_returns_base(self) -> None:
+        cfg = SignalWatchConfig(
+            strategy_timeframes={"pin_bar": ["15m", "1h", "4h", "1d"]}
+        )
+        assert cfg.effective_strategy_timeframes("pin_bar") == ["15m", "1h", "4h", "1d"]
+        assert cfg.effective_strategy_timeframes("pin_bar", "long") == [
+            "15m",
+            "1h",
+            "4h",
+            "1d",
+        ]
+
+    def test_directional_narrows_base(self) -> None:
+        cfg = SignalWatchConfig(
+            strategy_timeframes={"pin_bar": ["15m", "1h", "4h", "1d"]},
+            strategy_timeframes_long={"pin_bar": ["15m", "1d"]},
+        )
+        # Long narrowed to intersection; short still gets full base list
+        assert cfg.effective_strategy_timeframes("pin_bar", "long") == ["15m", "1d"]
+        assert cfg.effective_strategy_timeframes("pin_bar", "short") == [
+            "15m",
+            "1h",
+            "4h",
+            "1d",
+        ]
+
+    def test_directional_only_returns_directional_list(self) -> None:
+        # No base entry; directional list defines the allowlist for that direction
+        cfg = SignalWatchConfig(
+            strategy_timeframes_long={"pin_bar": ["15m"]},
+        )
+        assert cfg.effective_strategy_timeframes("pin_bar", "long") == ["15m"]
+        assert cfg.effective_strategy_timeframes("pin_bar", "short") is None
+        assert cfg.effective_strategy_timeframes("pin_bar") is None
+
+    def test_intersection_preserves_base_order(self) -> None:
+        cfg = SignalWatchConfig(
+            strategy_timeframes={"pin_bar": ["1d", "4h", "1h", "15m"]},
+            strategy_timeframes_long={"pin_bar": ["15m", "1d"]},
+        )
+        # Result should preserve base's order, not directional's order
+        assert cfg.effective_strategy_timeframes("pin_bar", "long") == ["1d", "15m"]
+
+    def test_no_intersection_returns_empty_list(self) -> None:
+        cfg = SignalWatchConfig(
+            strategy_timeframes={"pin_bar": ["15m", "1h"]},
+            strategy_timeframes_long={"pin_bar": ["4h", "1d"]},
+        )
+        # Empty list (not None) — strategy still listed; just no allowed TFs
+        assert cfg.effective_strategy_timeframes("pin_bar", "long") == []

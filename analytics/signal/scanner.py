@@ -90,6 +90,8 @@ def scan_symbol(
     day_filter: str = "off",
     smt_trend_filter: int = 1,
     strategy_timeframes: dict[str, list[str]] | None = None,
+    strategy_timeframes_long: dict[str, list[str]] | None = None,
+    strategy_timeframes_short: dict[str, list[str]] | None = None,
     confidence_override: dict[str, dict[str, int]] | None = None,
     directional_confidence_override: dict[str, dict[str, dict[str, int]]] | None = None,
 ) -> list[SignalEvent]:
@@ -183,12 +185,24 @@ def scan_symbol(
 
         latest_signals = signals_df[signals_df["open_time"] == latest_open_time]
         for _, row in latest_signals.iterrows():
+            row_direction = str(row["direction"])
+            # Per-direction strategy_timeframes narrowing (Bucket C PR Q-BC-2).
+            # When a directional allowlist is set, intersect with the base list
+            # (which has already gated this strategy in at line 141).
+            if strategy_timeframes_long is not None and row_direction == "long":
+                dir_allowed = strategy_timeframes_long.get(strategy_name)
+                if dir_allowed is not None and timeframe not in dir_allowed:
+                    continue
+            if strategy_timeframes_short is not None and row_direction == "short":
+                dir_allowed = strategy_timeframes_short.get(strategy_name)
+                if dir_allowed is not None and timeframe not in dir_allowed:
+                    continue
             events.append(
                 SignalEvent(
                     symbol=symbol,
                     timeframe=timeframe,
                     strategy=strategy_name,
-                    direction=str(row["direction"]),
+                    direction=row_direction,
                     reason=str(row["reason"]),
                     open_time=latest_open_time,
                     price=latest_close,
@@ -199,7 +213,7 @@ def scan_symbol(
                         (directional_confidence_override or {})
                         .get(strategy_name, {})
                         .get(timeframe, {})
-                        .get(str(row["direction"]))
+                        .get(row_direction)
                         or (confidence_override or {})
                         .get(strategy_name, {})
                         .get(timeframe)
@@ -247,6 +261,8 @@ def run_scan_cycle(
     day_filter: str = "off",
     smt_trend_filter: int = 1,
     strategy_timeframes: dict[str, list[str]] | None = None,
+    strategy_timeframes_long: dict[str, list[str]] | None = None,
+    strategy_timeframes_short: dict[str, list[str]] | None = None,
     strategy_params: dict[str, StrategyOverride] | None = None,
     atr_sl_multiplier: float | None = None,
     atr_sl_floor: bool = False,
@@ -436,6 +452,8 @@ def run_scan_cycle(
             day_filter=day_filter,
             smt_trend_filter=smt_trend_filter,
             strategy_timeframes=strategy_timeframes,
+            strategy_timeframes_long=strategy_timeframes_long,
+            strategy_timeframes_short=strategy_timeframes_short,
             confidence_override=confidence_override,
             directional_confidence_override=directional_confidence_override,
         )
@@ -575,18 +593,20 @@ def run_scan_cycle(
                 tp_r_long_eff = _tp_r_long if _tp_r_long != eff_tp_r else None
                 tp_r_short_eff = _tp_r_short if _tp_r_short != eff_tp_r else None
                 eff_vs_long = _resolve_volume_suppress_long(
-                    strategy_params, event.strategy
+                    strategy_params, event.strategy, tf
                 )
                 eff_vs_short = _resolve_volume_suppress_short(
-                    strategy_params, event.strategy
+                    strategy_params, event.strategy, tf
                 )
                 eff_vsb_long = _resolve_volume_spike_boost_long(
-                    strategy_params, event.strategy
+                    strategy_params, event.strategy, tf
                 )
                 eff_vsb_short = _resolve_volume_spike_boost_short(
-                    strategy_params, event.strategy
+                    strategy_params, event.strategy, tf
                 )
-                eff_adr_exempt = _is_adr_exempt(strategy_params, event.strategy)
+                eff_adr_exempt = _is_adr_exempt(
+                    strategy_params, event.strategy, event.direction
+                )
                 eff_vs = _resolve_volume_suppress(
                     strategy_params, event.strategy, backtest_cfg.volume_suppress
                 )
@@ -760,10 +780,10 @@ def run_scan_cycle(
                 # Direction-aware suppress: directional fields take precedence over symmetric.
                 _dir = _e.direction
                 _suppress_long = _resolve_volume_suppress_long(
-                    strategy_params, _e.strategy
+                    strategy_params, _e.strategy, tf
                 )
                 _suppress_short = _resolve_volume_suppress_short(
-                    strategy_params, _e.strategy
+                    strategy_params, _e.strategy, tf
                 )
                 _suppress = (
                     _suppress_long
@@ -775,10 +795,10 @@ def run_scan_cycle(
                     )
                 )
                 _boost_long = _resolve_volume_spike_boost_long(
-                    strategy_params, _e.strategy
+                    strategy_params, _e.strategy, tf
                 )
                 _boost_short = _resolve_volume_spike_boost_short(
-                    strategy_params, _e.strategy
+                    strategy_params, _e.strategy, tf
                 )
                 _boost = (
                     _boost_long
@@ -887,7 +907,7 @@ def run_scan_cycle(
                         e
                         for e in passing_events
                         if e.direction != suppress_dir
-                        or _is_adr_exempt(strategy_params, e.strategy)
+                        or _is_adr_exempt(strategy_params, e.strategy, e.direction)
                     ]
                     if len(passing_events) < n_before:
                         logger.info(
