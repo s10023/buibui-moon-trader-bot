@@ -239,6 +239,13 @@ tp_r_1h = 1.5                   # 1h re-audit OOS: BTC +0.213R @ 1.5R (diverges 
 [strategy_timeframes_long]
 inside_bar = ["15m", "1h", "1d"]   # cr 4h_L -0.029 1★ vs 4h_S +0.219 3★ — kill long, keep short
 
+# Dying-cell directional cut — 2026-05-18 (docs/audits/2026-05-18-bucket-c-dying-cells.md).
+# hammer_hanging_man 1h/4h short are dying (kept_avg_r < supp_avg_r → volume_suppress
+# would save R but cell stays unprofitable); long side is profitable (1h_L 3★ +0.32R,
+# 4h_L 4★ +0.55R), so cut shorts directionally and keep longs.
+[strategy_timeframes_short]
+hammer_hanging_man = ["15m", "1d"]   # cr 1h_S 1★ -0.16R, 4h_S 1★ -0.12R dying — longs preserved
+
 [strategy_params.eqh_eql.volume_suppress_long_per_tf]
 "15m" = true   # supp_avg_r -0.0954 n=627
 "1h"  = true   # supp_avg_r -0.2772 n=64
