@@ -435,12 +435,12 @@ poetry run python buibui.py backtest --symbols BTCUSDT ETHUSDT --timeframes 1h 4
 - `--window-hours N` — cross-TF lookback in hours: HTF signal must have fired within N hours of the LTF signal (default: `4.0`)
 - `--workers N` — parallel workers for combo backtest, one per symbol×TF chunk (default: `min(4, cpu_count-1)`); pass `1` for serial mode
 
-**Live-parity options (T6, PR-1 plumbing + PR-2 regime port):**
+**Live-parity options (T6, PR-1 plumbing + PR-2 regime + PR-3 direction_filter + F8 HTF EMA):**
 
 - `--live-parity` — master switch; expands to enabling every per-gate flag below
 - `--with-regime` / `--without-regime` — **wired in PR-2.** Ports the live `_apply_regime_gate` into the backtest engine via per-signal HTF regime lookup (each historical signal is evaluated against the regime active at its own `open_time` — true replay parity). Reads `[bias.regime]` from the same TOML the signal daemon uses (`enabled`, `mode` soft/hard, `htf_tf`, `enabled_regimes`, `per_strategy`). When a sweep `--config` is supplied, the runner pre-classifies `bias.regime_htf_tf` candles per symbol once and threads the series through every `run_backtest()` call.
-- `--with-direction-filter` / `--without-direction-filter` — port the live `_apply_direction_filter_gate` (PR-3+)
-- `--with-f8-htf-ema` / `--without-f8-htf-ema` — port the live `_apply_htf_ema_gate` (PR-3+)
+- `--with-direction-filter` / `--without-direction-filter` — **wired in PR-3.** Ports the live `_apply_direction_filter_gate` — pure per-event flag check on `[strategy_params.<name>].suppress_long` / `.suppress_short`. Reads `[bias.direction_filter]` (`enabled`, `mode` soft/hard) + the live `[strategy_params]` block from the same TOML.
+- `--with-f8-htf-ema` / `--without-f8-htf-ema` — **wired in PR-3.** Ports the live `_apply_htf_ema_gate` via per-signal HTF slope lookup. The runner pre-computes an EMA slope series for every distinct `(anchor_tf, period, slope_lookback)` anchor needed by `[bias.htf_ema]` + `[bias.htf_ema.per_strategy]`, indexed by HTF open_time; the engine uses the same "last fully closed HTF candle at signal time" semantics as the regime gate.
 - `--with-adr-bias` / `--without-adr-bias` — port the live `_filter_signals_by_adr` (adr_suppress_threshold + adr_exempt; PR-4+)
 - `--with-conflict-resolver` / `--without-conflict-resolver` — port the live conflict resolver (PR-4+)
 - `--with-cooldown` / `--without-cooldown` — port the live per-(symbol, tf) candle cooldown (PR-5)
