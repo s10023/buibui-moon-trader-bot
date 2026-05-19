@@ -435,16 +435,16 @@ poetry run python buibui.py backtest --symbols BTCUSDT ETHUSDT --timeframes 1h 4
 - `--window-hours N` — cross-TF lookback in hours: HTF signal must have fired within N hours of the LTF signal (default: `4.0`)
 - `--workers N` — parallel workers for combo backtest, one per symbol×TF chunk (default: `min(4, cpu_count-1)`); pass `1` for serial mode
 
-**Live-parity options (T6, PR-1):**
+**Live-parity options (T6, PR-1 plumbing + PR-2 regime port):**
 
 - `--live-parity` — master switch; expands to enabling every per-gate flag below
-- `--with-regime` / `--without-regime` — port the live `_apply_regime_gate` into the backtest engine
-- `--with-direction-filter` / `--without-direction-filter` — port the live `_apply_direction_filter_gate`
-- `--with-f8-htf-ema` / `--without-f8-htf-ema` — port the live `_apply_htf_ema_gate`
-- `--with-adr-bias` / `--without-adr-bias` — port the live `_filter_signals_by_adr` (adr_suppress_threshold + adr_exempt)
-- `--with-conflict-resolver` / `--without-conflict-resolver` — port the live conflict resolver
-- `--with-cooldown` / `--without-cooldown` — port the live per-(symbol, tf) candle cooldown
-- TOML equivalent: `[backtest.live_parity]` block with `enabled` / `regime` / `direction_filter` / `f8_htf_ema` / `adr_bias` / `conflict_resolver` / `cooldown` keys + optional `[backtest.live_parity.cooldown_bars]` per-tf sub-table. CLI `--without-<gate>` wins over TOML; `--live-parity --without-cooldown` cleanly disables a single gate. **PR-1 is plumbing only — defaults (all `False`) are a no-op; gate logic ships in PRs 2-5.**
+- `--with-regime` / `--without-regime` — **wired in PR-2.** Ports the live `_apply_regime_gate` into the backtest engine via per-signal HTF regime lookup (each historical signal is evaluated against the regime active at its own `open_time` — true replay parity). Reads `[bias.regime]` from the same TOML the signal daemon uses (`enabled`, `mode` soft/hard, `htf_tf`, `enabled_regimes`, `per_strategy`). When a sweep `--config` is supplied, the runner pre-classifies `bias.regime_htf_tf` candles per symbol once and threads the series through every `run_backtest()` call.
+- `--with-direction-filter` / `--without-direction-filter` — port the live `_apply_direction_filter_gate` (PR-3+)
+- `--with-f8-htf-ema` / `--without-f8-htf-ema` — port the live `_apply_htf_ema_gate` (PR-3+)
+- `--with-adr-bias` / `--without-adr-bias` — port the live `_filter_signals_by_adr` (adr_suppress_threshold + adr_exempt; PR-4+)
+- `--with-conflict-resolver` / `--without-conflict-resolver` — port the live conflict resolver (PR-4+)
+- `--with-cooldown` / `--without-cooldown` — port the live per-(symbol, tf) candle cooldown (PR-5)
+- TOML equivalent: `[backtest.live_parity]` block with `enabled` / `regime` / `direction_filter` / `f8_htf_ema` / `adr_bias` / `conflict_resolver` / `cooldown` keys + optional `[backtest.live_parity.cooldown_bars]` per-tf sub-table. CLI `--without-<gate>` wins over TOML; `--live-parity --without-cooldown` cleanly disables a single gate. **All defaults `False` remain a true no-op — regression goldens unchanged.**
 
 **Single-combo example output:**
 
