@@ -609,6 +609,58 @@ def _apply_htf_ema_gate_to_signals(
     return _events_to_df(kept, signals)
 
 
+def _apply_adr_bias_gate_to_signals(
+    signals: pd.DataFrame,
+    ohlcv: pd.DataFrame,
+    symbol: str,
+    timeframe: str,
+    strategy: str,
+    bias_cfg: BiasConfig,
+    strategy_params: dict[str, StrategyOverride] | None,
+) -> pd.DataFrame:
+    """Run live's `_filter_signals_by_adr` honouring per-direction exemption.
+
+    Mirrors the live caller pattern: split signals by ``_is_adr_exempt(strategy,
+    direction)``, apply the live ADR filter on the non-exempt slice only, then
+    concat back. Lets per-direction overrides (`adr_exempt_long` /
+    `adr_exempt_short` from PR #380) pass through to the backtest path so
+    replay matches live signal selection.
+
+    The engine runs per-strategy, so exemption only varies by direction here —
+    a single split into long/short suffices, no per-row lookup needed.
+    """
+    if signals.empty:
+        return signals
+    if bias_cfg.adr_suppress_threshold is None:
+        return signals
+
+    from analytics.signal.gates import _filter_signals_by_adr, _is_adr_exempt
+
+    threshold = bias_cfg.adr_suppress_threshold
+    exempt_long = _is_adr_exempt(strategy_params, strategy, "long")
+    exempt_short = _is_adr_exempt(strategy_params, strategy, "short")
+
+    if exempt_long and exempt_short:
+        return signals
+    if not exempt_long and not exempt_short:
+        return _filter_signals_by_adr(ohlcv, signals, threshold)
+
+    # Per-direction: one side exempt, the other not. Split, filter the
+    # non-exempt slice, concat back ordered by open_time.
+    if exempt_long:
+        exempt = signals[signals["direction"] == "long"]
+        non_exempt = signals[signals["direction"] != "long"]
+    else:
+        exempt = signals[signals["direction"] == "short"]
+        non_exempt = signals[signals["direction"] != "short"]
+
+    if non_exempt.empty:
+        return signals
+    filtered = _filter_signals_by_adr(ohlcv, non_exempt, threshold)
+    out = pd.concat([exempt, filtered], ignore_index=True)
+    return out.sort_values("open_time").reset_index(drop=True)
+
+
 def run_backtest(
     ohlcv: pd.DataFrame,
     signals: pd.DataFrame,
@@ -667,6 +719,11 @@ def run_backtest(
       3. f8_htf_ema (PR-3) — drops signals opposing the HTF EMA slope active
          at signal time. Needs `bias_cfg.htf_ema_enabled` and
          `htf_slope_series_by_anchor` keyed by (anchor_tf, period, slope_lookback).
+      4. adr_bias (PR-4) — drops chasing-direction signals when intraday range
+         has consumed >= `bias_cfg.adr_suppress_threshold` of the 14-day ADR.
+         Honours per-direction exemption via `strategy_params` (PR #380's
+         `adr_exempt_long` / `adr_exempt_short`). Needs `bias_cfg` with the
+         threshold set; falls open otherwise.
     All gates default off and no-op when their inputs are absent — existing
     callers see no behavioural change.
     """
@@ -714,6 +771,16 @@ def run_backtest(
             strategy,
             bias_cfg,
             htf_slope_series_by_anchor,
+        )
+
+    if (
+        live_parity is not None
+        and live_parity.is_on("adr_bias")
+        and bias_cfg is not None
+        and bias_cfg.adr_suppress_threshold is not None
+    ):
+        signals = _apply_adr_bias_gate_to_signals(
+            signals, ohlcv, symbol, timeframe, strategy, bias_cfg, strategy_params
         )
 
     result = BacktestResult(
