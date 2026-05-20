@@ -80,9 +80,6 @@ class GateAudit:
                           in the chasing direction, for strategies currently exempt.
       day-filter        → apply the candidate day_filter to trades that fired
                           on filtered days.
-      volume-spike-boost → flip volume_spike_boost=false everywhere → mask
-                          trades with volume_spike=True for strategies that
-                          currently have volume_spike_boost=true.
     """
 
     name: str
@@ -101,20 +98,6 @@ def _gate_volume_suppress(df: pd.DataFrame, params: dict[str, Any]) -> pd.Series
     current_off = params["volume_suppress_off"]  # set[str] of strategy names
     flag = df["low_volume"].fillna(False).astype(bool)
     mask = flag & df["strategy"].isin(current_off)
-    return mask
-
-
-def _gate_volume_spike_boost(df: pd.DataFrame, params: dict[str, Any]) -> pd.Series:
-    """Mask: spike-volume trades on strategies that currently have
-    volume_spike_boost=true. If we flip them all to false, these trades stop
-    benefiting from boost-keep and get filtered by volume_suppress like normal.
-
-    NULL `volume_spike` (pre-PR#371 rows) treated as False — same rationale as
-    `_gate_volume_suppress`.
-    """
-    boosted = params["volume_spike_boost_on"]  # set[str]
-    flag = df["volume_spike"].fillna(False).astype(bool)
-    mask = flag & df["strategy"].isin(boosted)
     return mask
 
 
@@ -182,11 +165,6 @@ GATE_REGISTRY: dict[str, GateAudit] = {
         "volume-suppress",
         "Re-tag low-volume trades on strategies currently NOT volume_suppressed.",
         _gate_volume_suppress,
-    ),
-    "volume-spike-boost": GateAudit(
-        "volume-spike-boost",
-        "Re-tag spike-volume trades on strategies currently boosted.",
-        _gate_volume_spike_boost,
     ),
     "adr-exempt": GateAudit(
         "adr-exempt",
@@ -381,16 +359,6 @@ def _resolve_params(
             or (override.volume_suppress is None and not cfg.volume_suppress)
         }
         return {"volume_suppress_off": off}
-    if gate_name == "volume-spike-boost":
-        if config_path is None:
-            return {"volume_spike_boost_on": set()}
-        cfg = load_backtest_config(config_path)
-        on = {
-            name
-            for name, override in cfg.strategy_params.items()
-            if override.volume_spike_boost is True
-        }
-        return {"volume_spike_boost_on": on}
     if gate_name == "adr-exempt":
         if ohlcv_loader is None:
             raise ValueError("adr-exempt gate requires ohlcv_loader")

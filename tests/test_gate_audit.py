@@ -97,34 +97,6 @@ class TestGateVolumeSuppress:
         assert mask.tolist() == [True, False, False]
 
 
-class TestGateVolumeSpikeBoost:
-    def test_only_boosted_strategies_with_spike_flagged(self) -> None:
-        df = _frame(
-            [
-                _trade(strategy="engulfing", volume_spike=True),
-                _trade(strategy="engulfing", volume_spike=False),
-                _trade(strategy="bos", volume_spike=True),
-            ]
-        )
-        mask = gate_audit._gate_volume_spike_boost(
-            df, {"volume_spike_boost_on": {"engulfing"}}
-        )
-        assert mask.tolist() == [True, False, False]
-
-    def test_null_volume_spike_treated_as_false(self) -> None:
-        df = _frame(
-            [
-                _trade(strategy="engulfing", volume_spike=True),
-                _trade(strategy="engulfing", volume_spike=False),
-            ]
-        )
-        df["volume_spike"] = pd.array([True, pd.NA], dtype="boolean")
-        mask = gate_audit._gate_volume_spike_boost(
-            df, {"volume_spike_boost_on": {"engulfing"}}
-        )
-        assert mask.tolist() == [True, False]
-
-
 class TestGateDayFilter:
     @pytest.mark.parametrize(
         "dow_offset,expected",

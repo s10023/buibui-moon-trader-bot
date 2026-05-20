@@ -46,15 +46,9 @@ Currently DISABLED (explicit override):
 
 **Smell**: `cvd_divergence` is volume_suppress=false in signal_watch.toml but volume_suppress=true in signal_watch_weekdays.toml. Same A14b methodology should produce the same answer unless the day filter genuinely changes the volume regime. **Worth verifying.**
 
-### A2. `volume_spike_boost`
+### A2. `volume_spike_boost` — **DEPRECATED 2026-05-20**
 
-Currently ENABLED:
-
-| Strategy | Config | A15 note |
-| --- | --- | --- |
-| `engulfing` | base | spike +0.59R vs normal +0.23R (73 spikes) |
-
-Single cell — narrow audit. Re-run /volume-sweep with current 200d window.
+The flag was structurally inert (boost branch unreachable under suppression because `is_spike` and `is_low_vol` thresholds are mathematically disjoint). Removed from engine, configs, resolvers, audit tool, and tests. See [docs/audits/2026-05-20-volume-spike-boost-structural-inertness.md](../audits/2026-05-20-volume-spike-boost-structural-inertness.md). PR #381's audit findings retained for the historical record under a forward-reference banner; verdicts there should not be acted on.
 
 ### A3. `adr_exempt` (per-strategy)
 
@@ -122,7 +116,7 @@ Production TOML is **not** edited until each gate's audit PR lands. Live behavio
 | 2 | `day_filter` | Single global toggle; cheap. If `tue_thu` doesn't outperform, the whole signal_watch.toml premise wobbles. |
 | 3 | `strategy_timeframes` | Likely some excluded TFs are now positive (regime shift since Phase 1 cuts). |
 | 4 | `adr_exempt` | Cross-config inconsistency; either align or document why tue_thu is special. |
-| 5 | `volume_spike_boost` | Single cell. Re-verify or drop. |
+| 5 | ~~`volume_spike_boost`~~ | **DEPRECATED 2026-05-20** — structural-inertness finding (see A2 above). |
 | 6 | `adr_suppress_threshold` | Threshold sweep; might unlock per-strategy. |
 
 ## Cheapest first measurement — "strip baseline"
@@ -133,7 +127,7 @@ Before per-cell audits, one 10-minute experiment to scope the rest:
 # 1. Snapshot current avg_r per config
 make buibui-backtest CONFIG=config/signal_watch.toml SAVE=0 SINCE=2025-09-12 > /tmp/audit_baseline_signal_watch.txt
 
-# 2. Strip all volume_suppress + volume_spike_boost + adr_exempt overrides (temp branch)
+# 2. Strip all volume_suppress + adr_exempt overrides (temp branch)
 # 3. Rerun
 make buibui-backtest CONFIG=config/signal_watch.toml SAVE=0 SINCE=2025-09-12 > /tmp/audit_stripped_signal_watch.txt
 

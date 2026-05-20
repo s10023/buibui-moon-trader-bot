@@ -40,8 +40,6 @@ Current `StrategyOverride` (in `analytics/signal_config.py`) has these toggle / 
 adr_exempt:                  bool                    # single, not per-direction
 volume_suppress:             bool | None             # inherits global
 volume_suppress_long/short:  bool | None             # per-direction; per-tf MISSING
-volume_spike_boost:          bool | None             # inherits global
-volume_spike_boost_long/short: bool | None           # per-direction; per-tf MISSING
 suppress_long/short:         bool                    # T2c direction filter; per-tf MISSING
 ```
 
@@ -70,7 +68,7 @@ regime → direction_filter → f8_htf_ema → adr_bias → conflict_resolver �
 
 It introduces a new `LiveParityConfig` dataclass under `[backtest.live_parity]`, **reuses** the existing live `[bias]` + `[strategy_params.*]` blocks for gate parameters (per the plan: "same anchors, same regime allowlist, same suppress flags"), and adds CLI flags / a `/parity-sweep` skill for the 8-run measurement grid.
 
-**What T6 does:** lets backtest sweeps run with arbitrary gate combinations on/off, including a permissive-baseline run that turns every gate OFF. Suppressed-side trades appear in `backtest_trades` and become measurable. This **unblocks the 3 ON→OFF inverse questions** (volume_suppress mon_fri/weekend, adr_exempt mon_fri/weekend, volume_spike_boost non-engulfing).
+**What T6 does:** lets backtest sweeps run with arbitrary gate combinations on/off, including a permissive-baseline run that turns every gate OFF. Suppressed-side trades appear in `backtest_trades` and become measurable. This **unblocks the inverse questions** (volume_suppress mon_fri/weekend, adr_exempt mon_fri/weekend). The third historically-tracked question (`volume_spike_boost non-engulfing`) is now moot — the flag was deprecated 2026-05-20 after a structural-inertness finding ([docs/audits/2026-05-20-volume-spike-boost-structural-inertness.md](../audits/2026-05-20-volume-spike-boost-structural-inertness.md)).
 
 **What T6 does NOT do:** add new TOML fields to `StrategyOverride` or `BiasConfig`. The plan explicitly reuses existing schema. So T6 alone:
 
@@ -161,7 +159,7 @@ Do both, **in sequence**:
 
 ## Decisions
 
-- **Q-BC-1 — DECIDED**: Per-tf precedence is **per-tf > per-direction > strategy > global**, matching `tp_r_per_tf`. The new `effective_volume_suppress_long_per_tf(strategy, tf)` / `effective_volume_suppress_short_per_tf(strategy, tf)` helpers walk the chain: per-tf-dir dict → directional flag → strategy flag → backtest global. Same shape for `volume_spike_boost_*` and `adr_exempt_*`.
+- **Q-BC-1 — DECIDED**: Per-tf precedence is **per-tf > per-direction > strategy > global**, matching `tp_r_per_tf`. The new `effective_volume_suppress_long_per_tf(strategy, tf)` / `effective_volume_suppress_short_per_tf(strategy, tf)` helpers walk the chain: per-tf-dir dict → directional flag → strategy flag → backtest global. Same shape for `adr_exempt_*`. (Originally also planned for `volume_spike_boost_*`, dropped 2026-05-20 with the boost deprecation.)
 - **Q-BC-2 — DECIDED**: `strategy_timeframes_long` / `strategy_timeframes_short` are **additive (narrowing)**. The base `strategy_timeframes[strategy]` list is the allowlist; the directional lists, when set, restrict the cell to that directional intersection (i.e. only emit `long` events for TFs that appear in **both** `strategy_timeframes[strategy]` AND `strategy_timeframes_long[strategy]`). When a directional list is empty/unset, the strategy emits that direction on the full base list. Mirrors the `volume_suppress_long` overlay on `volume_suppress`.
 - **Q-BC-3 — DECIDED**: Keep TOML **flat**. New per-tf-direction fields live as sibling sub-tables under `[strategy_params.X]`, matching `tp_r_per_tf`:
 

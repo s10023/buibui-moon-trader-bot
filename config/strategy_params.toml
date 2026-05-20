@@ -158,7 +158,6 @@ suppress_long = true          # T2c: long-side avg_r=−0.268R on n=34,767 (rout
 
 [strategy_params.engulfing]
 volume_suppress_long = true   # directional: LONG low-vol -0.13R→+0.22R (tue_thu Δ=+0.36R); SHORT low-vol +0.72R — keep
-volume_spike_boost = true     # A15 spike sweep: spike +0.59R vs normal +0.23R (73 spikes)
 
 [strategy_params.pin_bar]
 tp_r_long = 5.0               # WFO 200d: ETH 1h+15m ↑+0.715R, SOL 1h ↑+0.325R — longs dominate

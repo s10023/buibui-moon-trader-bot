@@ -868,8 +868,6 @@ class TestBacktestCache:
             tp_r_short=None,
             volume_suppress_long=None,
             volume_suppress_short=None,
-            volume_spike_boost_long=None,
-            volume_spike_boost_short=None,
             adr_exempt=False,
         )
         assert old_id == new_id

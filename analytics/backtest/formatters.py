@@ -189,8 +189,8 @@ def format_directional_volume_split(results: list[BacktestResult]) -> str:
     """Show avg R split by volume tier × direction (LONG / SHORT), aggregated by strategy.
 
     Use this to decide whether volume_suppress_long / volume_suppress_short
-    or volume_spike_boost_long / volume_spike_boost_short are warranted.
-    A large per-direction delta signals a directional suppress/boost opportunity.
+    are warranted. A large per-direction delta signals a directional suppress
+    opportunity.
     """
     from collections import defaultdict
 

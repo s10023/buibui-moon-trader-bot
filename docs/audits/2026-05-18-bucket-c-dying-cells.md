@@ -69,4 +69,4 @@ Closure of step 2.5 of the Hybrid plan. Status of the 8 strategies tracked since
 - **Encoded via PR #385 / #385.5**: `eqh_eql`, `fib_golden_zone`, `hammer_hanging_man` (now with directional short cut too), `inside_bar`, `morning_evening_star`, `order_block`, `pin_bar`.
 - **Deferred to T3 router work**: `bos` (T2a routing memo + PR #380 `adr_exempt` schema gap).
 
-Three replay-only ON↔OFF inverse questions (`volume_suppress` mon_fri/weekend, `adr_exempt` mon_fri/weekend additions, `volume_spike_boost` for non-`engulfing` strategies) remain blocked on T6 backtest-live-parity engine work (`docs/redesign/buibui-redesign-t6-plan.md`).
+Two replay-only ON↔OFF inverse questions (`volume_suppress` mon_fri/weekend, `adr_exempt` mon_fri/weekend additions) remain blocked on T6 backtest-live-parity engine work (`docs/redesign/buibui-redesign-t6-plan.md`). The third historically-tracked question (`volume_spike_boost` for non-`engulfing` strategies) was closed 2026-05-20 by the structural-inertness finding (deprecation, not audit — see `docs/audits/2026-05-20-volume-spike-boost-structural-inertness.md`).

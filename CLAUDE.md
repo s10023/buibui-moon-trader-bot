@@ -88,7 +88,7 @@ Each Makefile `buibui-*` target wraps the equivalent CLI invocation.
 - `tests/` — pytest suite; tests import from lib modules and pass mock dependencies directly
 - `.claude/context/` — long-form module references (`analytics.md`, `signals.md`, `web.md`) split out to keep this file lean
 - `config/coins.json` — per-symbol leverage and stop-loss config (gitignored; see `coins.json.example`)
-- `config/strategy_params.toml` — shared base config inherited via `extends = "strategy_params.toml"` by `signal_watch.toml`, `signal_watch_all.toml`, `signal_watch_weekdays.toml`. Contains `[smt_pairs]`, `[bias]`, `[backtest]` defaults, per-strategy `volume_suppress` / `volume_spike_boost` flags, and `tp_r_long` / `tp_r_short` directional overrides.
+- `config/strategy_params.toml` — shared base config inherited via `extends = "strategy_params.toml"` by `signal_watch.toml`, `signal_watch_all.toml`, `signal_watch_weekdays.toml`. Contains `[smt_pairs]`, `[bias]`, `[backtest]` defaults, per-strategy `volume_suppress` flags, and `tp_r_long` / `tp_r_short` directional overrides.
 
 ## Code Style
 

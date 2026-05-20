@@ -169,12 +169,12 @@ All 7 cells of `docs/redesign/buibui-redesign-t6-phase-a-plan.md` are now audite
 2. ✅ `day_filter` — PR #377.
 3. ✅ `strategy_timeframes` — PR #379.
 4. ✅ `adr_exempt` — PR #380.
-5. ✅ `volume_spike_boost` — PR #381.
+5. ✅ `volume_spike_boost` — PR #381 (later deprecated 2026-05-20 — structural inertness; see `2026-05-20-volume-spike-boost-structural-inertness.md`).
 6. ✅ `adr_suppress_threshold` — this PR.
 
 (Cell ordering revised mid-phase to put deep-audits ahead of the simpler global-knob audits; the 7-vs-6 count discrepancy in earlier prompts reflected reorderings.)
 
-T6 Phase A is **closed**. Next phase is the backtest-live-parity engine work (`docs/redesign/buibui-redesign-t6-plan.md`), which unblocks Bucket C and the three known replay-only inverse questions (volume_suppress ON→OFF, adr_exempt OFF→ON, volume_spike_boost OFF→ON for mon_fri/weekend).
+T6 Phase A is **closed**. Next phase is the backtest-live-parity engine work (`docs/redesign/buibui-redesign-t6-plan.md`), which unblocks Bucket C and the two remaining replay-only inverse questions (volume_suppress ON→OFF, adr_exempt OFF→ON for mon_fri/weekend). The originally-tracked `volume_spike_boost` OFF→ON inverse was closed 2026-05-20 by the structural-inertness finding (deprecation, not audit).
 
 ## Reproducibility
 

@@ -94,7 +94,6 @@ fib_golden_zone = ["4h", "1d"]
 [strategy_params.engulfing]
 tp_r = 3.0
 # volume_suppress = true     # per-strategy override (None = inherit global)
-# volume_spike_boost = true  # spike candles (>3× mean) bypass suppress gate
 
 # SMT pairs resolved automatically from coins.json smt_secondary — no need for [smt_pairs]
 
@@ -109,7 +108,6 @@ min_trades_4h = 5
 min_trades_1d = 2
 min_avg_r = 0.0          # suppress signals with directional avg_r below this threshold
 # volume_suppress = false  # global fallback; per-strategy override takes precedence
-# volume_spike_boost = false
 ```
 
 **Note**: `filter_threshold` was renamed to `min_avg_r`. Update any old TOML that still has the old key.

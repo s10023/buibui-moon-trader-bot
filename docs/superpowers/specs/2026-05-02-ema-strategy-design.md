@@ -161,7 +161,6 @@ StrategySpec(
     tp_r_long=None,                     # populate after directional sweep
     tp_r_short=None,
     volume_suppress=False,              # to be set after /volume-sweep
-    volume_spike_boost=False,
 )
 ```
 
@@ -195,7 +194,7 @@ Sequence (each step gates the next):
    trade count by > 30 %.
 3. **WFO sweep** — `/wfo-sweep` chain on the full param set in §4. Picks per-TF optimal
    `(fast_period, slow_period, tp_r)` and writes `tp_r` to `signal_watch.toml`.
-4. **Volume sweep** — `/volume-sweep` to set `volume_suppress` and `volume_spike_boost` flags.
+4. **Volume sweep** — `/volume-sweep` to set `volume_suppress` flag.
 5. **Directional sweep** — re-run sweep with split `tp_r_long` / `tp_r_short` if directional
    skew is large (per `plan_directional_volume_suppress.md` precedent).
 6. **Recalibrate** — `make db-update` chain refreshes `confidence_ratings` star ratings and

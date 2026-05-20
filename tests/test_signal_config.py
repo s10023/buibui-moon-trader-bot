@@ -973,8 +973,6 @@ class TestBucketCSchemaExtension:
         assert ov.adr_exempt_short is None
         assert ov.volume_suppress_long_per_tf == {}
         assert ov.volume_suppress_short_per_tf == {}
-        assert ov.volume_spike_boost_long_per_tf == {}
-        assert ov.volume_spike_boost_short_per_tf == {}
 
     def test_signal_watch_config_new_field_defaults(self) -> None:
         cfg = SignalWatchConfig()
@@ -1010,22 +1008,6 @@ volume_suppress = false
         ov = cfg.strategy_params["pin_bar"]
         assert ov.volume_suppress_long_per_tf == {"15m": True, "1h": False}
         assert ov.volume_suppress_short_per_tf == {"15m": False}
-
-    def test_load_volume_spike_boost_per_tf_dir(self, tmp_path: Path) -> None:
-        content = """\
-[strategy_params.engulfing]
-volume_spike_boost = true
-[strategy_params.engulfing.volume_spike_boost_long_per_tf]
-"15m" = false
-[strategy_params.engulfing.volume_spike_boost_short_per_tf]
-"4h" = true
-"""
-        p = _write_toml(tmp_path, content)
-        cfg = load_signal_config(p)
-        ov = cfg.strategy_params["engulfing"]
-        assert ov.volume_spike_boost is True
-        assert ov.volume_spike_boost_long_per_tf == {"15m": False}
-        assert ov.volume_spike_boost_short_per_tf == {"4h": True}
 
     def test_load_strategy_timeframes_directional(self, tmp_path: Path) -> None:
         content = """\

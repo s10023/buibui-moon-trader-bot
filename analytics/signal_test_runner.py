@@ -30,9 +30,6 @@ from analytics.signal_lib import (
     _resolve_atr_sl_multiplier,
     _resolve_sl_pct,
     _resolve_tp_r,
-    _resolve_volume_spike_boost,
-    _resolve_volume_spike_boost_long,
-    _resolve_volume_spike_boost_short,
     _resolve_volume_suppress,
     _resolve_volume_suppress_long,
     _resolve_volume_suppress_short,
@@ -345,21 +342,10 @@ def run_signal_test(
                             volume_suppress=_resolve_volume_suppress(
                                 strategy_params, strategy, backtest_cfg.volume_suppress
                             ),
-                            volume_spike_boost=_resolve_volume_spike_boost(
-                                strategy_params,
-                                strategy,
-                                backtest_cfg.volume_spike_boost,
-                            ),
                             volume_suppress_long=_resolve_volume_suppress_long(
                                 strategy_params, strategy
                             ),
                             volume_suppress_short=_resolve_volume_suppress_short(
-                                strategy_params, strategy
-                            ),
-                            volume_spike_boost_long=_resolve_volume_spike_boost_long(
-                                strategy_params, strategy
-                            ),
-                            volume_spike_boost_short=_resolve_volume_spike_boost_short(
                                 strategy_params, strategy
                             ),
                             tp_r_long=tp_r_long if tp_r_long != eff_tp_r else None,

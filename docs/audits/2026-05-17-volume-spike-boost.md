@@ -1,5 +1,7 @@
 # T6 Phase A — `volume_spike_boost` Audit Findings (2026-05-17)
 
+> **Superseded — see [docs/audits/2026-05-20-volume-spike-boost-structural-inertness.md](2026-05-20-volume-spike-boost-structural-inertness.md).** The flag was deprecated 2026-05-20 after a follow-up audit proved it structurally inert (`is_spike` and `is_low_vol` thresholds are mathematically disjoint, so the boost branch is unreachable). The DISABLE verdicts below were measuring spike-candle profitability on engulfing in general, **not** the boost flag's behavioural effect. Kept for the historical record; do not act on the verdicts here.
+
 **Gate**: `volume_spike_boost` (per-strategy boolean; default `false`). When `true`, trades whose entry candle has `volume_spike = TRUE` bypass the `volume_suppress` filter — high-volume entries are protected even if low-volume gating would otherwise drop the cell.
 
 Currently exactly **one** strategy in the codebase has the boost enabled: `engulfing` (`config/strategy_params.toml:161`, A15 sweep note "spike +0.59R vs normal +0.23R, 73 spikes").

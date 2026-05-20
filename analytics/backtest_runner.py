@@ -566,11 +566,8 @@ def _collect_sweep_results(
             atr_sl_multiplier=eff_atr_sl,
             atr_sl_floor=cfg.atr_sl_floor,
             volume_suppress=cfg.effective_volume_suppress(strategy),
-            volume_spike_boost=cfg.effective_volume_spike_boost(strategy),
             volume_suppress_long=cfg.effective_volume_suppress_long(strategy),
             volume_suppress_short=cfg.effective_volume_suppress_short(strategy),
-            volume_spike_boost_long=cfg.effective_volume_spike_boost_long(strategy),
-            volume_spike_boost_short=cfg.effective_volume_spike_boost_short(strategy),
             live_parity=cfg.live_parity,
             bias_cfg=cfg.bias,
             regime_series=(
@@ -704,15 +701,8 @@ def run_backtest_sweep(
                         ),
                         atr_sl_floor=cfg.atr_sl_floor,
                         volume_suppress=cfg.effective_volume_suppress(strat),
-                        volume_spike_boost=cfg.effective_volume_spike_boost(strat),
                         volume_suppress_long=cfg.effective_volume_suppress_long(strat),
                         volume_suppress_short=cfg.effective_volume_suppress_short(
-                            strat
-                        ),
-                        volume_spike_boost_long=cfg.effective_volume_spike_boost_long(
-                            strat
-                        ),
-                        volume_spike_boost_short=cfg.effective_volume_spike_boost_short(
                             strat
                         ),
                         live_parity=cfg.live_parity,
@@ -761,15 +751,8 @@ def run_backtest_sweep(
                         atr_sl_multiplier=atr_mult,
                         atr_sl_floor=cfg.atr_sl_floor,
                         volume_suppress=cfg.effective_volume_suppress(strat),
-                        volume_spike_boost=cfg.effective_volume_spike_boost(strat),
                         volume_suppress_long=cfg.effective_volume_suppress_long(strat),
                         volume_suppress_short=cfg.effective_volume_suppress_short(
-                            strat
-                        ),
-                        volume_spike_boost_long=cfg.effective_volume_spike_boost_long(
-                            strat
-                        ),
-                        volume_spike_boost_short=cfg.effective_volume_spike_boost_short(
                             strat
                         ),
                         live_parity=cfg.live_parity,

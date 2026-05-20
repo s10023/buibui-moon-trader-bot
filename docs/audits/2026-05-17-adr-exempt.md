@@ -101,7 +101,7 @@ Remaining cells in the Phase A order from `buibui-redesign-t6-phase-a-plan.md`:
 2. ~~`day_filter`~~ — PR #377.
 3. ~~`strategy_timeframes`~~ — PR #379.
 4. ~~`adr_exempt`~~ — this audit.
-5. **`volume_spike_boost`** (next).
+5. ~~`volume_spike_boost`~~ — deprecated 2026-05-20 (structural inertness; see `docs/audits/2026-05-20-volume-spike-boost-structural-inertness.md`).
 6. `adr_suppress_threshold` (last).
 
 ## Reproducibility
