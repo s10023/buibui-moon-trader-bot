@@ -184,7 +184,6 @@ def test_golden_metrics(
                 fee_pct=cfg.backtest.fee_pct,
                 min_sl_pct=cfg.min_sl_pct,
                 volume_suppress=cfg.effective_volume_suppress(strategy),
-                volume_spike_boost=cfg.effective_volume_spike_boost(strategy),
                 tp_r_long=cfg.effective_tp_r(strategy, "BTCUSDT", tf, "long"),
                 tp_r_short=cfg.effective_tp_r(strategy, "BTCUSDT", tf, "short"),
             )

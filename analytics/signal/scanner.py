@@ -59,9 +59,6 @@ from analytics.signal.resolvers import (
     _resolve_atr_sl_multiplier,
     _resolve_sl_pct,
     _resolve_tp_r,
-    _resolve_volume_spike_boost,
-    _resolve_volume_spike_boost_long,
-    _resolve_volume_spike_boost_short,
     _resolve_volume_suppress,
     _resolve_volume_suppress_long,
     _resolve_volume_suppress_short,
@@ -561,20 +558,11 @@ def run_scan_cycle(
                 eff_vs_short = _resolve_volume_suppress_short(
                     strategy_params, event.strategy, tf
                 )
-                eff_vsb_long = _resolve_volume_spike_boost_long(
-                    strategy_params, event.strategy, tf
-                )
-                eff_vsb_short = _resolve_volume_spike_boost_short(
-                    strategy_params, event.strategy, tf
-                )
                 eff_adr_exempt = _is_adr_exempt(
                     strategy_params, event.strategy, event.direction
                 )
                 eff_vs = _resolve_volume_suppress(
                     strategy_params, event.strategy, backtest_cfg.volume_suppress
-                )
-                eff_vsb = _resolve_volume_spike_boost(
-                    strategy_params, event.strategy, backtest_cfg.volume_spike_boost
                 )
                 secondary_sym = (
                     (secondary_map or {}).get(symbol)
@@ -602,8 +590,6 @@ def run_scan_cycle(
                         tp_r_short_eff,
                         eff_vs_long or None,
                         eff_vs_short or None,
-                        eff_vsb_long or None,
-                        eff_vsb_short or None,
                         eff_adr_exempt,
                         eff_atr_floor,
                     )
@@ -636,11 +622,8 @@ def run_scan_cycle(
                                 else None,
                                 adr_exempt=eff_adr_exempt,
                                 volume_suppress=eff_vs,
-                                volume_spike_boost=eff_vsb,
                                 volume_suppress_long=eff_vs_long,
                                 volume_suppress_short=eff_vs_short,
-                                volume_spike_boost_long=eff_vsb_long,
-                                volume_spike_boost_short=eff_vsb_short,
                                 tp_r_long=tp_r_long_eff,
                                 tp_r_short=tp_r_short_eff,
                             )
@@ -674,11 +657,8 @@ def run_scan_cycle(
                         else None,
                         adr_exempt=eff_adr_exempt,
                         volume_suppress=eff_vs,
-                        volume_spike_boost=eff_vsb,
                         volume_suppress_long=eff_vs_long,
                         volume_suppress_short=eff_vs_short,
-                        volume_spike_boost_long=eff_vsb_long,
-                        volume_spike_boost_short=eff_vsb_short,
                         tp_r_long=tp_r_long_eff,
                         tp_r_short=tp_r_short_eff,
                     )
@@ -723,8 +703,7 @@ def run_scan_cycle(
 
         # Volume gate — per-strategy, handles both suppression and spike tagging.
         # Suppression: drop low-volume signal candles when the strategy has
-        #   volume_suppress enabled. Exception: spike candles bypass suppression
-        #   when volume_spike_boost is on (spike > 3× rolling mean = conviction).
+        #   volume_suppress enabled.
         # Spike tagging: always tag SignalEvent.volume_spike regardless of suppress
         #   so alert_formatter can show ⚡ even when suppression is off.
         if backtest_cfg:
@@ -737,8 +716,7 @@ def run_scan_cycle(
                         for i, t in enumerate(ohlcv_df["open_time"].astype("int64"))
                     }
                 _idx = vol_time_to_idx.get(int(_e.open_time), 0)
-                _is_spike = _is_volume_spike(ohlcv_df, _idx)
-                if _is_spike:
+                if _is_volume_spike(ohlcv_df, _idx):
                     _e.volume_spike = True
                 # Direction-aware suppress: directional fields take precedence over symmetric.
                 _dir = _e.direction
@@ -757,42 +735,15 @@ def run_scan_cycle(
                         strategy_params, _e.strategy, backtest_cfg.volume_suppress
                     )
                 )
-                _boost_long = _resolve_volume_spike_boost_long(
-                    strategy_params, _e.strategy, tf
-                )
-                _boost_short = _resolve_volume_spike_boost_short(
-                    strategy_params, _e.strategy, tf
-                )
-                _boost = (
-                    _boost_long
-                    if _dir == "long" and _boost_long is not None
-                    else _boost_short
-                    if _dir == "short" and _boost_short is not None
-                    else _resolve_volume_spike_boost(
-                        strategy_params,
-                        _e.strategy,
-                        backtest_cfg.volume_spike_boost,
-                    )
-                )
                 if _suppress and _is_low_volume(ohlcv_df, _idx):
-                    # Spike boost: exempt high-conviction candles from suppress.
-                    if _is_spike and _boost:
-                        logger.info(
-                            "Volume spike exempted %s %s — %s %s",
-                            symbol,
-                            tf,
-                            _e.direction.upper(),
-                            _e.strategy,
-                        )
-                    else:
-                        logger.info(
-                            "Volume filter suppressed %s %s — %s %s",
-                            symbol,
-                            tf,
-                            _e.direction.upper(),
-                            _e.strategy,
-                        )
-                        continue
+                    logger.info(
+                        "Volume filter suppressed %s %s — %s %s",
+                        symbol,
+                        tf,
+                        _e.direction.upper(),
+                        _e.strategy,
+                    )
+                    continue
                 vol_filtered.append(_e)
             passing_events = vol_filtered
             if not passing_events:

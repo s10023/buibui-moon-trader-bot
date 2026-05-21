@@ -774,11 +774,8 @@ def run_backtest(
     atr_sl_multiplier: float | None = None,
     atr_sl_floor: bool = False,
     volume_suppress: bool = False,
-    volume_spike_boost: bool = False,
     volume_suppress_long: bool | None = None,
     volume_suppress_short: bool | None = None,
-    volume_spike_boost_long: bool | None = None,
-    volume_spike_boost_short: bool | None = None,
     tp_r_long: float | None = None,
     tp_r_short: float | None = None,
     *,
@@ -937,8 +934,6 @@ def run_backtest(
         # Volume suppression: skip low-volume signal candles when enabled.
         # Directional params (volume_suppress_long / volume_suppress_short) take
         # precedence over the symmetric volume_suppress for their respective direction.
-        # Spike boost: exempt high-conviction candles (> 3× mean) from suppression.
-        # Directional spike boost params override the symmetric volume_spike_boost.
         _suppress = (
             volume_suppress_long
             if direction == "long" and volume_suppress_long is not None
@@ -946,14 +941,7 @@ def run_backtest(
             if direction == "short" and volume_suppress_short is not None
             else volume_suppress
         )
-        _boost = (
-            volume_spike_boost_long
-            if direction == "long" and volume_spike_boost_long is not None
-            else volume_spike_boost_short
-            if direction == "short" and volume_spike_boost_short is not None
-            else volume_spike_boost
-        )
-        if _suppress and is_low_vol and not (_boost and is_spike):
+        if _suppress and is_low_vol:
             continue
 
         entry_time = int(ohlcv_times_np[entry_idx])

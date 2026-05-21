@@ -27,8 +27,6 @@ def _backtest_run_id(
     tp_r_short: float | None = None,
     volume_suppress_long: bool | None = None,
     volume_suppress_short: bool | None = None,
-    volume_spike_boost_long: bool | None = None,
-    volume_spike_boost_short: bool | None = None,
     adr_exempt: bool = False,
     atr_sl_floor: bool = False,
 ) -> str:
@@ -54,10 +52,6 @@ def _backtest_run_id(
         key += "|vol_sup_l"
     if volume_suppress_short:
         key += "|vol_sup_s"
-    if volume_spike_boost_long:
-        key += "|spike_l"
-    if volume_spike_boost_short:
-        key += "|spike_s"
     if adr_exempt:
         key += "|adr_exempt"
     if atr_sl_floor:

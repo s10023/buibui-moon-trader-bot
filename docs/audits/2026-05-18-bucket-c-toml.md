@@ -93,7 +93,7 @@ Where `kept_avg_r < supp_avg_r` AND both views are negative, ENABLE saves margin
 
 - `volume_suppress` mon_fri / weekend (currently ON for `bos`, `engulfing`, `orb`, `liquidity_sweep`, `wick_fill`).
 - `volume_suppress_long` ON→OFF for `ema` per-config.
-- `volume_spike_boost` for non-`engulfing` strategies.
+- ~~`volume_spike_boost` for non-`engulfing` strategies~~ — closed 2026-05-20 by structural-inertness deprecation (see `docs/audits/2026-05-20-volume-spike-boost-structural-inertness.md`).
 
 Not addressable here.
 

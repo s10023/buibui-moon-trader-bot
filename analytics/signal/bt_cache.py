@@ -46,11 +46,8 @@ def _compute_backtest(
     adr_suppress_threshold: float | None = None,
     adr_exempt: bool = False,
     volume_suppress: bool = False,
-    volume_spike_boost: bool = False,
     volume_suppress_long: bool | None = None,
     volume_suppress_short: bool | None = None,
-    volume_spike_boost_long: bool | None = None,
-    volume_spike_boost_short: bool | None = None,
     tp_r_long: float | None = None,
     tp_r_short: float | None = None,
 ) -> BacktestResult | None:
@@ -65,9 +62,7 @@ def _compute_backtest(
     adr_exempt: when True, skips the ADR filter regardless of threshold (for
     breakout/continuation strategies that should not be ADR-gated).
     volume_suppress: skip signal candles with volume < 1.5× rolling mean.
-    volume_spike_boost: exempt spike candles (> 3× rolling mean) from suppression.
     volume_suppress_long/short: directional overrides — take precedence over volume_suppress.
-    volume_spike_boost_long/short: directional overrides — take precedence over volume_spike_boost.
     """
     hist_df = ohlcv_df.iloc[:-1]
     if len(hist_df) < 3:
@@ -115,11 +110,8 @@ def _compute_backtest(
         atr_sl_multiplier=atr_sl_multiplier,
         atr_sl_floor=atr_sl_floor,
         volume_suppress=volume_suppress,
-        volume_spike_boost=volume_spike_boost,
         volume_suppress_long=volume_suppress_long,
         volume_suppress_short=volume_suppress_short,
-        volume_spike_boost_long=volume_spike_boost_long,
-        volume_spike_boost_short=volume_spike_boost_short,
         tp_r_long=tp_r_long,
         tp_r_short=tp_r_short,
     )

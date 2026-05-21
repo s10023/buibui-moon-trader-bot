@@ -107,21 +107,14 @@ class StrategyOverride:
     adr_exempt_short: bool | None = None
     # None = inherit global [backtest].volume_suppress; True/False = per-strategy override.
     volume_suppress: bool | None = None
-    # None = inherit global [backtest].volume_spike_boost; True/False = per-strategy override.
-    volume_spike_boost: bool | None = None
     # Directional volume suppress — overrides volume_suppress for that direction when set.
     volume_suppress_long: bool | None = None
     volume_suppress_short: bool | None = None
-    # Directional spike boost — overrides volume_spike_boost for that direction when set.
-    volume_spike_boost_long: bool | None = None
-    volume_spike_boost_short: bool | None = None
     # Per-tf directional overrides (Bucket C PR — Q-BC-1 precedence:
     # per-tf-direction > per-direction > strategy > global). Keys are timeframe
     # strings ("15m", "1h", "4h", "1d"); values are bool.
     volume_suppress_long_per_tf: dict[str, bool] = field(default_factory=dict)
     volume_suppress_short_per_tf: dict[str, bool] = field(default_factory=dict)
-    volume_spike_boost_long_per_tf: dict[str, bool] = field(default_factory=dict)
-    volume_spike_boost_short_per_tf: dict[str, bool] = field(default_factory=dict)
     # Optional direction-split TP multiples. Falls back to tp_r when None.
     tp_r_long: float | None = None
     tp_r_short: float | None = None
@@ -235,10 +228,6 @@ class BacktestFilterConfig:
     # Enable after confirming via `make buibui-backtest` volume split that low-vol trades
     # underperform. Default off — investigate first.
     volume_suppress: bool = False
-    # Exempt spike candles (volume > 3× rolling mean) from volume_suppress.
-    # When True, a spike candle passes even if volume_suppress is on for that strategy.
-    # Default off — enable per-strategy after confirming spike edge via volume split table.
-    volume_spike_boost: bool = False
     # Enable two-layer backtest cache (L1 module dict + L2 DuckDB table).
     # Set false in TOML for instant rollback without a code deploy.
     cache_enabled: bool = True
@@ -467,12 +456,6 @@ class SignalWatchConfig:
             return override.volume_suppress
         return self.backtest.volume_suppress
 
-    def effective_volume_spike_boost(self, strategy: str) -> bool:
-        override = self.strategy_params.get(strategy)
-        if override is not None and override.volume_spike_boost is not None:
-            return override.volume_spike_boost
-        return self.backtest.volume_spike_boost
-
     def effective_volume_suppress_long(
         self, strategy: str, tf: str | None = None
     ) -> bool | None:
@@ -497,26 +480,6 @@ class SignalWatchConfig:
             if tf is not None and tf in override.volume_suppress_short_per_tf:
                 return override.volume_suppress_short_per_tf[tf]
             return override.volume_suppress_short
-        return None
-
-    def effective_volume_spike_boost_long(
-        self, strategy: str, tf: str | None = None
-    ) -> bool | None:
-        override = self.strategy_params.get(strategy)
-        if override is not None:
-            if tf is not None and tf in override.volume_spike_boost_long_per_tf:
-                return override.volume_spike_boost_long_per_tf[tf]
-            return override.volume_spike_boost_long
-        return None
-
-    def effective_volume_spike_boost_short(
-        self, strategy: str, tf: str | None = None
-    ) -> bool | None:
-        override = self.strategy_params.get(strategy)
-        if override is not None:
-            if tf is not None and tf in override.volume_spike_boost_short_per_tf:
-                return override.volume_spike_boost_short_per_tf[tf]
-            return override.volume_spike_boost_short
         return None
 
     def effective_adr_exempt(self, strategy: str, direction: str | None = None) -> bool:
@@ -669,7 +632,6 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         # [backtest].min_sl_pct takes precedence; falls back to top-level min_sl_pct
         min_sl_pct=float(raw_bt.get("min_sl_pct", data.get("min_sl_pct", 0.0))),
         volume_suppress=bool(raw_bt.get("volume_suppress", False)),
-        volume_spike_boost=bool(raw_bt.get("volume_spike_boost", False)),
     )
 
     raw_strategy_params = data.get("strategy_params", {})
@@ -758,11 +720,8 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
                     atr_sl_floor_per_tf=sym_atr_sl_floor_per_tf,
                 )
         raw_vs = vals.get("volume_suppress")
-        raw_vsb = vals.get("volume_spike_boost")
         raw_vsl = vals.get("volume_suppress_long")
         raw_vss = vals.get("volume_suppress_short")
-        raw_vsbl = vals.get("volume_spike_boost_long")
-        raw_vsbs = vals.get("volume_spike_boost_short")
         raw_tp_r_long = vals.get("tp_r_long")
         raw_tp_r_short = vals.get("tp_r_short")
         raw_suppress_long = vals.get("suppress_long")
@@ -782,8 +741,6 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
 
         vsl_per_tf = _parse_per_tf_bool("volume_suppress_long_per_tf")
         vss_per_tf = _parse_per_tf_bool("volume_suppress_short_per_tf")
-        vsbl_per_tf = _parse_per_tf_bool("volume_spike_boost_long_per_tf")
-        vsbs_per_tf = _parse_per_tf_bool("volume_spike_boost_short_per_tf")
         strategy_params[str(strat_name)] = StrategyOverride(
             tp_r=float(tp_r_val) if tp_r_val is not None else None,
             sl_pct=float(sl_pct_val) if sl_pct_val is not None else None,
@@ -804,15 +761,10 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
             if raw_adr_exempt_short is not None
             else None,
             volume_suppress=bool(raw_vs) if raw_vs is not None else None,
-            volume_spike_boost=bool(raw_vsb) if raw_vsb is not None else None,
             volume_suppress_long=bool(raw_vsl) if raw_vsl is not None else None,
             volume_suppress_short=bool(raw_vss) if raw_vss is not None else None,
-            volume_spike_boost_long=bool(raw_vsbl) if raw_vsbl is not None else None,
-            volume_spike_boost_short=bool(raw_vsbs) if raw_vsbs is not None else None,
             volume_suppress_long_per_tf=vsl_per_tf,
             volume_suppress_short_per_tf=vss_per_tf,
-            volume_spike_boost_long_per_tf=vsbl_per_tf,
-            volume_spike_boost_short_per_tf=vsbs_per_tf,
             tp_r_long=float(raw_tp_r_long) if raw_tp_r_long is not None else None,
             tp_r_short=float(raw_tp_r_short) if raw_tp_r_short is not None else None,
             suppress_long=bool(raw_suppress_long)
