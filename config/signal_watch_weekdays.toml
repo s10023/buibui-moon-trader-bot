@@ -75,8 +75,8 @@ tp_r_15m = 4.0                # +0.11R
 tp_r_1h  = 4.0                # +0.23R
 tp_r_4h  = 3.5                # +0.44R; ETH see per-symbol
 tp_r_1d  = 3.5                # WFO OOS (weekdays): BTC+0.450R n=3 (2026-04-14); was 3.0; SOL see per-symbol
-volume_suppress = false       # A14b: low-vol edge Δ=-0.07R (low +0.19R vs normal +0.12R) — LONG-side; see directional override below
-volume_suppress_short = true  # T6 Phase A gate audit (2026-05-16): 1h short n=100, supp_avg_r=-0.050R → ENABLE (mon_fri-specific; tue_thu shorts stay false)
+volume_suppress = false       # A14b note: dead code — `volume_suppress_long = true` is inherited from base and wins over this global; SHORT controlled by directional override below.
+volume_suppress_short = true  # T6 Phase A (2026-05-16): SHORT-side ENABLE for 4h/1d (INSUFFICIENT); per-tf overrides below now flip 15m & 1h SHORT OFF (2026-05-21 audit).
 
 [strategy_params.engulfing.ETHUSDT]
 tp_r_4h = 4.0                 # WFO OOS (weekdays): +0.825R n=16 (2026-04-14); diverges from global 3.5R
@@ -214,6 +214,24 @@ inside_bar = ["15m", "1h", "1d"]   # cr 4h_L -0.305 1★ vs 4h_S +0.349 3★ —
 [strategy_params.order_block.volume_suppress_short_per_tf]
 "15m" = true   # supp_avg_r -0.2685 n=107
 "4h"  = true   # supp_avg_r -0.2269 n=33
+
+# ─────────────────────────────────────────────────────────────────────────────
+# T6 Phase A — 2026-05-21 (docs/audits/2026-05-21-volume-suppress-mon-fri-weekend.md)
+# Inverse ON→OFF audit on currently-ON cells under full T6 live-parity stack.
+# ─────────────────────────────────────────────────────────────────────────────
+
+[strategy_params.engulfing.volume_suppress_long_per_tf]
+"1h" = false   # n_kept=13 -0.231R vs n_supp=95 +0.211R → DISABLE (CR 1★ -0.633R confirms)
+
+[strategy_params.engulfing.volume_suppress_short_per_tf]
+"15m" = false  # n_kept=70 -0.071R vs n_supp=368 +0.073R → DISABLE (CR 1★ -0.087R confirms)
+"1h"  = false  # n_kept=20 -0.250R vs n_supp=95 +0.158R → DISABLE (reverts 2026-05-16 ENABLE; CR 1★ -0.133R)
+
+[strategy_params.orb.volume_suppress_short_per_tf]
+"1h" = false   # n_kept=29 +0.138R vs n_supp=53 +0.349R → DISABLE (CR 2★ +0.064R marginal, audit dominates)
+
+[strategy_params.liquidity_sweep.volume_suppress_short_per_tf]
+"1h" = false   # n_kept=87 -0.379R vs n_supp=44 +0.500R → DISABLE (CR 1★ -0.510R confirms)
 
 # T6 Phase A audit 2026-05-17 (docs/audits/2026-05-17-adr-suppress-threshold.md):
 # mon_fri sweep ENABLE at 0.60/0.65 (clean), INSUFFICIENT at 0.70, DISABLE at
