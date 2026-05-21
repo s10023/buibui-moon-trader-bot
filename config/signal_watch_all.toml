@@ -206,6 +206,32 @@ hammer_hanging_man = ["15m", "4h", "1d"]   # cr 1h_L -0.327 1★ vs 1h_S +0.234 
 [strategy_params.order_block.volume_suppress_short_per_tf]
 "15m" = true   # supp_avg_r -0.4124 n=65
 
+# ─────────────────────────────────────────────────────────────────────────────
+# T6 Phase A — 2026-05-21 (docs/audits/2026-05-21-volume-suppress-mon-fri-weekend.md)
+# Inverse ON→OFF audit on currently-ON cells under full T6 live-parity stack.
+# ─────────────────────────────────────────────────────────────────────────────
+
+[strategy_params.engulfing.volume_suppress_long_per_tf]
+"1h" = false   # n_kept=34 -0.265R vs n_supp=122 +0.189R → DISABLE (CR 1★ -0.286R confirms)
+
+[strategy_params.orb.volume_suppress_short_per_tf]
+"4h" = false   # n_kept=7 +0.714R vs n_supp=51 +0.529R → DISABLE (CR 1★ -0.244R confirms)
+# 1h SHORT deferred to Bucket C: audit DISABLE (kept +0.407R, supp +0.328R) but
+# CR 3★ +0.441R shows the gate concentrates a high-quality subset — flipping
+# would dilute. Keep ON; re-evaluate with schema-aware analysis.
+
+[strategy_params.liquidity_sweep.volume_suppress_short_per_tf]
+"1h" = false   # n_kept=73 +0.315R vs n_supp=51 +0.177R → DISABLE (CR 2★ +0.029R weak; audit dominates)
+
+[strategy_params.wick_fill.volume_suppress_long_per_tf]
+"1d" = false   # n_kept=0, n_supp=43 +0.186R → DISABLE (no production 1d trades exist; flipping enables the cell)
+
+[strategy_params.wick_fill.volume_suppress_short_per_tf]
+"1h" = false   # n_kept=81 +0.037R vs n_supp=447 +0.128R → DISABLE (kept side eroded under live-parity; supp slice dominates)
+# 4h SHORT deferred to Bucket C: audit DISABLE (kept +1.400R n=5, supp +0.070R n=129)
+# but CR 5★ +1.398R confirms the gate concentrates a 5-star winning subset.
+# Flipping would dilute +1.4R → ~+0.12R. Keep ON.
+
 # T6 Phase A audit 2026-05-17 (docs/audits/2026-05-17-adr-suppress-threshold.md):
 # weekend sweep ENABLE at every candidate (-0.376 to -0.510R supp_avg_r across
 # 0.60/0.65/0.70/0.75). Late-ADR chasing on weekends is catastrophic — widest,
