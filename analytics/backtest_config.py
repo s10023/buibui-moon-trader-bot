@@ -212,6 +212,16 @@ class BacktestSweepConfig:
     # dataclasses have different fields by design — the backtest one carries
     # SL/TP overrides used by the engine; this one carries the live gate flags.
     live_strategy_params: "dict[str, LiveStrategyOverride] | None" = None
+    # Per-strategy timeframe allowlist (Bucket C — mirrors the live-side
+    # SignalWatchConfig fields). When the live config restricts a strategy to a
+    # subset of TFs and/or a single direction, the backtest replay must mask the
+    # same (strategy × tf × direction) cells so star ratings, WFO outputs, and
+    # UI metrics line up with what the daemon actually fires. Honoured by
+    # ``_collect_sweep_results``; resolution via ``effective_strategy_timeframes``.
+    # Q-BC-2: directional lists are additive narrowing on the base list.
+    strategy_timeframes: dict[str, list[str]] = field(default_factory=dict)
+    strategy_timeframes_long: dict[str, list[str]] = field(default_factory=dict)
+    strategy_timeframes_short: dict[str, list[str]] = field(default_factory=dict)
     # TOML stem the config was loaded from (e.g. 'signal_watch' for
     # `signal_watch.toml`). Used by the T6 PR-4b conflict_resolver gate to key
     # into the `confidence_ratings` table for the per-config avg_r tiebreaker.
@@ -334,6 +344,37 @@ class BacktestSweepConfig:
         if override is not None:
             return override.volume_suppress_short
         return None
+
+    def effective_strategy_timeframes(
+        self, strategy: str, direction: str | None = None
+    ) -> list[str] | None:
+        """Resolve per-direction strategy_timeframes (Q-BC-2: additive narrowing).
+
+        Mirrors ``SignalWatchConfig.effective_strategy_timeframes`` so backtest
+        replay drops the same (strategy × tf × direction) cells the live
+        scanner masks.
+
+        - No base entry AND no directional entry → returns None (no filter).
+        - Base entry, no directional entry → returns base list.
+        - Base entry AND directional entry → returns intersection (preserves
+          base order).
+        - No base entry, directional entry → returns directional list.
+        """
+        base = self.strategy_timeframes.get(strategy)
+        if direction is None:
+            return base
+        if direction == "long":
+            dir_list = self.strategy_timeframes_long.get(strategy)
+        elif direction == "short":
+            dir_list = self.strategy_timeframes_short.get(strategy)
+        else:
+            return base
+        if dir_list is None:
+            return base
+        if base is None:
+            return list(dir_list)
+        dir_set = set(dir_list)
+        return [tf for tf in base if tf in dir_set]
 
 
 def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
@@ -556,5 +597,8 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
         live_parity=live_parity_cfg,
         bias=bias_cfg,
         live_strategy_params=live_strategy_params,
+        strategy_timeframes=dict(_live_cfg.strategy_timeframes),
+        strategy_timeframes_long=dict(_live_cfg.strategy_timeframes_long),
+        strategy_timeframes_short=dict(_live_cfg.strategy_timeframes_short),
         config_name=Path(path).stem,
     )

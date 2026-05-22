@@ -10,6 +10,7 @@ from analytics.backtest_config import BacktestSweepConfig, StrategyOverride
 from analytics.backtest_lib import BacktestResult, Trade
 from analytics.backtest_runner import (
     _apply_legacy_adr_pre_filter,
+    _apply_strategy_timeframes_directional_filter,
     format_sweep_table,
 )
 
@@ -282,3 +283,107 @@ class TestApplyLegacyAdrPreFilter:
         _, called, _ = mock_filter.call_args.args
         assert list(called["direction"]) == ["long"]
         assert list(out["direction"]) == ["long", "short"]
+
+
+class TestApplyStrategyTimeframesDirectionalFilter:
+    """Per-direction strategy_timeframes mask (Bucket C — backtest-side parity)."""
+
+    def test_no_overrides_is_noop(self) -> None:
+        cfg = BacktestSweepConfig()
+        sigs = _signals(["long", "short", "long"])
+        out = _apply_strategy_timeframes_directional_filter(
+            cfg, "inside_bar", "4h", sigs
+        )
+        pd.testing.assert_frame_equal(out, sigs)
+
+    def test_empty_signals_is_noop(self) -> None:
+        cfg = BacktestSweepConfig(
+            strategy_timeframes_long={"inside_bar": ["15m", "1h", "1d"]}
+        )
+        sigs = _signals([])
+        out = _apply_strategy_timeframes_directional_filter(
+            cfg, "inside_bar", "4h", sigs
+        )
+        assert out.empty
+
+    def test_long_dropped_on_excluded_tf(self) -> None:
+        # inside_bar long restricted to ["15m", "1h", "1d"] — 4h long must drop.
+        cfg = BacktestSweepConfig(
+            strategy_timeframes={"inside_bar": ["15m", "1h", "4h", "1d"]},
+            strategy_timeframes_long={"inside_bar": ["15m", "1h", "1d"]},
+        )
+        sigs = _signals(["long", "short", "long", "short"])
+        out = _apply_strategy_timeframes_directional_filter(
+            cfg, "inside_bar", "4h", sigs
+        )
+        # Only shorts survive on 4h.
+        assert list(out["direction"]) == ["short", "short"]
+        assert list(out["open_time"]) == [1, 3]
+
+    def test_long_kept_on_allowed_tf(self) -> None:
+        # Same cfg, 15m is in the allowlist — nothing dropped.
+        cfg = BacktestSweepConfig(
+            strategy_timeframes={"inside_bar": ["15m", "1h", "4h", "1d"]},
+            strategy_timeframes_long={"inside_bar": ["15m", "1h", "1d"]},
+        )
+        sigs = _signals(["long", "short", "long"])
+        out = _apply_strategy_timeframes_directional_filter(
+            cfg, "inside_bar", "15m", sigs
+        )
+        pd.testing.assert_frame_equal(out, sigs)
+
+    def test_short_dropped_on_excluded_tf(self) -> None:
+        # hammer_hanging_man short restricted to ["15m", "1d"] — 1h short drops.
+        cfg = BacktestSweepConfig(
+            strategy_timeframes={"hammer_hanging_man": ["15m", "1h", "4h", "1d"]},
+            strategy_timeframes_short={"hammer_hanging_man": ["15m", "1d"]},
+        )
+        sigs = _signals(["short", "long", "short", "long"])
+        out = _apply_strategy_timeframes_directional_filter(
+            cfg, "hammer_hanging_man", "1h", sigs
+        )
+        assert list(out["direction"]) == ["long", "long"]
+        assert list(out["open_time"]) == [1, 3]
+
+    def test_both_directions_excluded_returns_empty(self) -> None:
+        # Both long and short restricted away from 4h.
+        cfg = BacktestSweepConfig(
+            strategy_timeframes={"foo": ["15m", "4h"]},
+            strategy_timeframes_long={"foo": ["15m"]},
+            strategy_timeframes_short={"foo": ["15m"]},
+        )
+        sigs = _signals(["long", "short"])
+        out = _apply_strategy_timeframes_directional_filter(cfg, "foo", "4h", sigs)
+        assert out.empty
+
+    def test_directional_only_no_base(self) -> None:
+        # No base list but strategy_timeframes_long set — directional list IS
+        # the allowlist; tf 4h not in it → drop longs.
+        cfg = BacktestSweepConfig(
+            strategy_timeframes_long={"pin_bar": ["15m", "1d"]},
+        )
+        sigs = _signals(["long", "short", "long"])
+        out = _apply_strategy_timeframes_directional_filter(cfg, "pin_bar", "4h", sigs)
+        assert list(out["direction"]) == ["short"]
+
+    def test_unrestricted_strategy_passes_through(self) -> None:
+        # Restrictions on inside_bar do not affect pin_bar.
+        cfg = BacktestSweepConfig(
+            strategy_timeframes={"inside_bar": ["15m", "1h", "1d"]},
+            strategy_timeframes_long={"inside_bar": ["15m", "1h"]},
+        )
+        sigs = _signals(["long", "short", "long"])
+        out = _apply_strategy_timeframes_directional_filter(cfg, "pin_bar", "4h", sigs)
+        pd.testing.assert_frame_equal(out, sigs)
+
+    def test_resets_index_after_drop(self) -> None:
+        cfg = BacktestSweepConfig(
+            strategy_timeframes={"inside_bar": ["15m", "4h"]},
+            strategy_timeframes_long={"inside_bar": ["15m"]},
+        )
+        sigs = _signals(["long", "short", "long", "short"])
+        out = _apply_strategy_timeframes_directional_filter(
+            cfg, "inside_bar", "4h", sigs
+        )
+        # Index reset to contiguous range after dropping longs.
+        assert list(out.index) == list(range(len(out)))
