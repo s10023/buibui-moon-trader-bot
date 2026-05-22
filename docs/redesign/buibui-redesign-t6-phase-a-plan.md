@@ -101,7 +101,8 @@ Single number, currently 0.80. Sweep `{0.60, 0.70, 0.80, 0.90, 0.95}` × suppres
 
 4. Aggregate verdicts at each grain (strategy/tf/direction/symbol):
    - `suppressed_avg_r ≤ −0.05R` AND `n ≥ 30` → **ENABLE at this scope**.
-   - `suppressed_avg_r ≥ +0.05R` AND `n ≥ 30` → **DISABLE** (gate is killing winners).
+   - `suppressed_avg_r ≥ +0.05R` AND `n ≥ 30` AND `kept_avg_r ≥ suppressed_avg_r + 0.05R` → **CONCENTRATE** (gate is concentrating quality on a higher-grade kept subset; lifting it would dilute net avg_r — keep ON; see PR #402).
+   - `suppressed_avg_r ≥ +0.05R` AND `n ≥ 30` otherwise → **DISABLE** (gate is killing winners).
    - else → noise / insufficient data → demote, don't ship.
 
 5. Pick the **smallest scope** where the verdict is unambiguous across the next-coarser level (per-direction beats per-strategy when sign differs across long/short).
