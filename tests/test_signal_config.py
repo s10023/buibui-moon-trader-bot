@@ -971,6 +971,8 @@ class TestBucketCSchemaExtension:
         ov = StrategyOverride()
         assert ov.adr_exempt_long is None
         assert ov.adr_exempt_short is None
+        assert ov.adr_exempt_long_per_tf == {}
+        assert ov.adr_exempt_short_per_tf == {}
         assert ov.volume_suppress_long_per_tf == {}
         assert ov.volume_suppress_short_per_tf == {}
 
@@ -992,6 +994,22 @@ adr_exempt_short = false
         assert ov.adr_exempt is True
         assert ov.adr_exempt_long is True
         assert ov.adr_exempt_short is False
+
+    def test_load_adr_exempt_per_tf_dir(self, tmp_path: Path) -> None:
+        content = """\
+[strategy_params.bos]
+adr_exempt = false
+[strategy_params.bos.adr_exempt_long_per_tf]
+"15m" = true
+"1h"  = false
+[strategy_params.bos.adr_exempt_short_per_tf]
+"15m" = true
+"""
+        p = _write_toml(tmp_path, content)
+        cfg = load_signal_config(p)
+        ov = cfg.strategy_params["bos"]
+        assert ov.adr_exempt_long_per_tf == {"15m": True, "1h": False}
+        assert ov.adr_exempt_short_per_tf == {"15m": True}
 
     def test_load_volume_suppress_per_tf_dir(self, tmp_path: Path) -> None:
         content = """\
@@ -1035,6 +1053,15 @@ volume_suppress_long_per_tf = true
         with pytest.raises(ValueError, match="volume_suppress_long_per_tf"):
             load_signal_config(p)
 
+    def test_adr_exempt_per_tf_must_be_toml_table(self, tmp_path: Path) -> None:
+        content = """\
+[strategy_params.bos]
+adr_exempt_short_per_tf = true
+"""
+        p = _write_toml(tmp_path, content)
+        with pytest.raises(ValueError, match="adr_exempt_short_per_tf"):
+            load_signal_config(p)
+
 
 class TestEffectiveAdrExempt:
     """Q-BC-1 precedence: per-direction > strategy-wide."""
@@ -1076,6 +1103,39 @@ class TestEffectiveAdrExempt:
         )
         assert cfg.effective_adr_exempt("bos", "long") is True
         assert cfg.effective_adr_exempt("bos", "short") is False
+
+    def test_per_tf_direction_beats_directional(self) -> None:
+        # adr_exempt_short_per_tf["15m"]=True wins on 15m; other tfs fall back
+        # to adr_exempt_short and then strategy-wide adr_exempt.
+        cfg = SignalWatchConfig(
+            strategy_params={
+                "bos": StrategyOverride(
+                    adr_exempt=False,
+                    adr_exempt_short=False,
+                    adr_exempt_short_per_tf={"15m": True},
+                )
+            }
+        )
+        assert cfg.effective_adr_exempt("bos", "short", "15m") is True
+        assert cfg.effective_adr_exempt("bos", "short", "1h") is False
+        assert cfg.effective_adr_exempt("bos", "long", "15m") is False
+        # No tf → falls back to per-direction (False) then strategy-wide (False)
+        assert cfg.effective_adr_exempt("bos", "short") is False
+
+    def test_per_tf_direction_can_disable_inherited_exemption(self) -> None:
+        # Strategy-wide True + adr_exempt_long_per_tf["1h"]=False → on 1h
+        # longs are NOT exempt; other tfs still pick up strategy-wide True.
+        cfg = SignalWatchConfig(
+            strategy_params={
+                "bos": StrategyOverride(
+                    adr_exempt=True,
+                    adr_exempt_long_per_tf={"1h": False},
+                )
+            }
+        )
+        assert cfg.effective_adr_exempt("bos", "long", "1h") is False
+        assert cfg.effective_adr_exempt("bos", "long", "15m") is True
+        assert cfg.effective_adr_exempt("bos", "short", "1h") is True
 
 
 class TestEffectiveVolumeSuppressLongPerTf:

@@ -106,6 +106,13 @@ class StrategyOverride:
     # for the live signal daemon and backtest replay.
     adr_exempt_long: bool | None = None
     adr_exempt_short: bool | None = None
+    # Per-tf directional adr_exempt overrides (Bucket C follow-up — precedence:
+    # per-tf-direction > per-direction > strategy-wide). Keys are timeframe
+    # strings ("15m", "1h", "4h", "1d"); values are bool. Mirrors
+    # signal_config.StrategyOverride so the same TOML keys parse identically
+    # for the live signal daemon and backtest replay.
+    adr_exempt_long_per_tf: dict[str, bool] = field(default_factory=dict)
+    adr_exempt_short_per_tf: dict[str, bool] = field(default_factory=dict)
     # None = inherit global volume_suppress; True/False = per-strategy override.
     volume_suppress: bool | None = None
     # Directional volume suppress — overrides volume_suppress for that direction when set.
@@ -280,20 +287,32 @@ class BacktestSweepConfig:
         override = self.strategy_params.get(strategy)
         return override.adr_exempt if override is not None else False
 
-    def effective_adr_exempt(self, strategy: str, direction: str | None = None) -> bool:
+    def effective_adr_exempt(
+        self,
+        strategy: str,
+        direction: str | None = None,
+        tf: str | None = None,
+    ) -> bool:
         """Resolve per-direction adr_exempt.
 
-        Precedence: per-direction (``adr_exempt_long`` / ``adr_exempt_short``)
-        wins when set, else strategy-wide ``adr_exempt``. When ``direction`` is
-        None or not "long"/"short", returns the strategy-wide flag.
+        Precedence: per-tf-direction (``adr_exempt_long_per_tf[tf]`` /
+        ``adr_exempt_short_per_tf[tf]``) → per-direction (``adr_exempt_long`` /
+        ``adr_exempt_short``) → strategy-wide ``adr_exempt``. When ``direction``
+        is None or not "long"/"short", returns the strategy-wide flag.
         """
         override = self.strategy_params.get(strategy)
         if override is None:
             return False
-        if direction == "long" and override.adr_exempt_long is not None:
-            return override.adr_exempt_long
-        if direction == "short" and override.adr_exempt_short is not None:
-            return override.adr_exempt_short
+        if direction == "long":
+            if tf is not None and tf in override.adr_exempt_long_per_tf:
+                return override.adr_exempt_long_per_tf[tf]
+            if override.adr_exempt_long is not None:
+                return override.adr_exempt_long
+        elif direction == "short":
+            if tf is not None and tf in override.adr_exempt_short_per_tf:
+                return override.adr_exempt_short_per_tf[tf]
+            if override.adr_exempt_short is not None:
+                return override.adr_exempt_short
         return override.adr_exempt
 
     def effective_volume_suppress(self, strategy: str) -> bool:
@@ -410,6 +429,19 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
         raw_tp_r_short = vals.get("tp_r_short")
         raw_adr_exempt_long = vals.get("adr_exempt_long")
         raw_adr_exempt_short = vals.get("adr_exempt_short")
+
+        def _parse_adr_per_tf_bool(
+            key: str,
+            _vals: dict[str, Any] = vals,
+            _strat: str = str(strat_name),
+        ) -> dict[str, bool]:
+            raw = _vals.get(key, {})
+            if not isinstance(raw, dict):
+                raise ValueError(f"strategy_params.{_strat}.{key} must be a TOML table")
+            return {str(k): bool(v) for k, v in raw.items()}
+
+        ael_per_tf = _parse_adr_per_tf_bool("adr_exempt_long_per_tf")
+        aes_per_tf = _parse_adr_per_tf_bool("adr_exempt_short_per_tf")
         strategy_params[str(strat_name)] = StrategyOverride(
             tp_r=float(tp_r_val) if tp_r_val is not None else None,
             sl_pct=float(sl_pct_val) if sl_pct_val is not None else None,
@@ -425,6 +457,8 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
             adr_exempt_short=bool(raw_adr_exempt_short)
             if raw_adr_exempt_short is not None
             else None,
+            adr_exempt_long_per_tf=ael_per_tf,
+            adr_exempt_short_per_tf=aes_per_tf,
             volume_suppress=bool(raw_vs) if raw_vs is not None else None,
             volume_suppress_long=bool(raw_vsl) if raw_vsl is not None else None,
             volume_suppress_short=bool(raw_vss) if raw_vss is not None else None,

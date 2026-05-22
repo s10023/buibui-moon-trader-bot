@@ -105,6 +105,13 @@ class StrategyOverride:
     # per-direction wins over strategy-wide adr_exempt). None = inherit adr_exempt.
     adr_exempt_long: bool | None = None
     adr_exempt_short: bool | None = None
+    # Per-tf directional adr_exempt overrides (Bucket C follow-up — Q-BC-1
+    # precedence: per-tf-direction > per-direction > strategy-wide). Keys are
+    # timeframe strings ("15m", "1h", "4h", "1d"); values are bool. Lets a
+    # single (tf, direction) cell flip without dragging the same direction on
+    # other tfs (e.g. bos 15m short mon_fri exempt, bos 4h short mon_fri kept).
+    adr_exempt_long_per_tf: dict[str, bool] = field(default_factory=dict)
+    adr_exempt_short_per_tf: dict[str, bool] = field(default_factory=dict)
     # None = inherit global [backtest].volume_suppress; True/False = per-strategy override.
     volume_suppress: bool | None = None
     # Directional volume suppress — overrides volume_suppress for that direction when set.
@@ -482,19 +489,32 @@ class SignalWatchConfig:
             return override.volume_suppress_short
         return None
 
-    def effective_adr_exempt(self, strategy: str, direction: str | None = None) -> bool:
+    def effective_adr_exempt(
+        self,
+        strategy: str,
+        direction: str | None = None,
+        tf: str | None = None,
+    ) -> bool:
         """Resolve per-direction adr_exempt.
 
-        Precedence: per-direction (adr_exempt_long/short) → strategy-wide
-        (adr_exempt). When direction is None, returns the strategy-wide flag.
+        Precedence: per-tf-direction (adr_exempt_long_per_tf[tf] /
+        adr_exempt_short_per_tf[tf]) → per-direction (adr_exempt_long/short) →
+        strategy-wide (adr_exempt). When direction is None, returns the
+        strategy-wide flag.
         """
         override = self.strategy_params.get(strategy)
         if override is None:
             return False
-        if direction == "long" and override.adr_exempt_long is not None:
-            return override.adr_exempt_long
-        if direction == "short" and override.adr_exempt_short is not None:
-            return override.adr_exempt_short
+        if direction == "long":
+            if tf is not None and tf in override.adr_exempt_long_per_tf:
+                return override.adr_exempt_long_per_tf[tf]
+            if override.adr_exempt_long is not None:
+                return override.adr_exempt_long
+        elif direction == "short":
+            if tf is not None and tf in override.adr_exempt_short_per_tf:
+                return override.adr_exempt_short_per_tf[tf]
+            if override.adr_exempt_short is not None:
+                return override.adr_exempt_short
         return override.adr_exempt
 
     def effective_strategy_timeframes(
@@ -741,6 +761,8 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
 
         vsl_per_tf = _parse_per_tf_bool("volume_suppress_long_per_tf")
         vss_per_tf = _parse_per_tf_bool("volume_suppress_short_per_tf")
+        ael_per_tf = _parse_per_tf_bool("adr_exempt_long_per_tf")
+        aes_per_tf = _parse_per_tf_bool("adr_exempt_short_per_tf")
         strategy_params[str(strat_name)] = StrategyOverride(
             tp_r=float(tp_r_val) if tp_r_val is not None else None,
             sl_pct=float(sl_pct_val) if sl_pct_val is not None else None,
@@ -760,6 +782,8 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
             adr_exempt_short=bool(raw_adr_exempt_short)
             if raw_adr_exempt_short is not None
             else None,
+            adr_exempt_long_per_tf=ael_per_tf,
+            adr_exempt_short_per_tf=aes_per_tf,
             volume_suppress=bool(raw_vs) if raw_vs is not None else None,
             volume_suppress_long=bool(raw_vsl) if raw_vsl is not None else None,
             volume_suppress_short=bool(raw_vss) if raw_vss is not None else None,

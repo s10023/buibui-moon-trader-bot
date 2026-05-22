@@ -648,8 +648,8 @@ def _apply_adr_bias_gate_to_signals(
     from analytics.signal.gates import _filter_signals_by_adr, _is_adr_exempt
 
     threshold = bias_cfg.adr_suppress_threshold
-    exempt_long = _is_adr_exempt(strategy_params, strategy, "long")
-    exempt_short = _is_adr_exempt(strategy_params, strategy, "short")
+    exempt_long = _is_adr_exempt(strategy_params, strategy, "long", timeframe)
+    exempt_short = _is_adr_exempt(strategy_params, strategy, "short", timeframe)
 
     if exempt_long and exempt_short:
         return signals

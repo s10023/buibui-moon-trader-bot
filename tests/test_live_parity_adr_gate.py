@@ -165,6 +165,35 @@ class TestApplyAdrBiasGateToSignals:
         # All three pass (long exempt, both shorts non-chasing); check ordering.
         assert out["open_time"].tolist() == [3_600_000, 7_200_000, 14_400_000]
 
+    def test_per_tf_direction_exempts_only_named_tf(self) -> None:
+        # adr_exempt_long_per_tf = {"15m": True} → chasing long passes on 15m.
+        signals = _signals([14_400_000], ["long"])
+        params = {"bos": StrategyOverride(adr_exempt_long_per_tf={"15m": True})}
+        out_15m = _apply_adr_bias_gate_to_signals(
+            signals, _chasing_ohlcv(), "BTCUSDT", "15m", "bos", _bias(0.50), params
+        )
+        assert len(out_15m) == 1
+        # Same cfg on 1h: no exemption → chasing long is cut.
+        out_1h = _apply_adr_bias_gate_to_signals(
+            signals, _chasing_ohlcv(), "BTCUSDT", "1h", "bos", _bias(0.50), params
+        )
+        assert out_1h.empty
+
+    def test_per_tf_direction_overrides_directional_flag(self) -> None:
+        # adr_exempt_long=True but adr_exempt_long_per_tf["1h"]=False — the
+        # per-tf-direction wins on 1h → chasing long is cut.
+        signals = _signals([14_400_000], ["long"])
+        params = {
+            "bos": StrategyOverride(
+                adr_exempt_long=True,
+                adr_exempt_long_per_tf={"1h": False},
+            )
+        }
+        out = _apply_adr_bias_gate_to_signals(
+            signals, _chasing_ohlcv(), "BTCUSDT", "1h", "bos", _bias(0.50), params
+        )
+        assert out.empty
+
 
 # ---------------------------------------------------------------------------
 # run_backtest integration — default no-op + on/off comparison

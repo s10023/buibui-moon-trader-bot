@@ -152,7 +152,7 @@ class TestApplyLegacyAdrPreFilter:
         sigs = _signals(["long", "short", "long"])
         ohlcv = pd.DataFrame()
         with patch("analytics.backtest_runner._filter_signals_by_adr") as mock_filter:
-            out = _apply_legacy_adr_pre_filter(cfg, "bos", ohlcv, sigs)
+            out = _apply_legacy_adr_pre_filter(cfg, "bos", "1h", ohlcv, sigs)
         mock_filter.assert_not_called()
         pd.testing.assert_frame_equal(out, sigs)
 
@@ -165,7 +165,7 @@ class TestApplyLegacyAdrPreFilter:
             "analytics.backtest_runner._filter_signals_by_adr",
             return_value=sentinel,
         ) as mock_filter:
-            out = _apply_legacy_adr_pre_filter(cfg, "bos", ohlcv, sigs)
+            out = _apply_legacy_adr_pre_filter(cfg, "bos", "1h", ohlcv, sigs)
         mock_filter.assert_called_once()
         # Full DataFrame went to _filter_signals_by_adr (no split).
         _, called_sigs, called_threshold = mock_filter.call_args.args
@@ -185,7 +185,7 @@ class TestApplyLegacyAdrPreFilter:
             "analytics.backtest_runner._filter_signals_by_adr",
             side_effect=lambda _o, s, _t: s,
         ) as mock_filter:
-            out = _apply_legacy_adr_pre_filter(cfg, "bos", ohlcv, sigs)
+            out = _apply_legacy_adr_pre_filter(cfg, "bos", "1h", ohlcv, sigs)
         # Only the long slice was passed to _filter_signals_by_adr.
         _, called_sigs, _ = mock_filter.call_args.args
         assert list(called_sigs["direction"]) == ["long", "long"]
@@ -205,7 +205,7 @@ class TestApplyLegacyAdrPreFilter:
             "analytics.backtest_runner._filter_signals_by_adr",
             side_effect=lambda _o, s, _t: s.iloc[:0],
         ):
-            out = _apply_legacy_adr_pre_filter(cfg, "bos", ohlcv, sigs)
+            out = _apply_legacy_adr_pre_filter(cfg, "bos", "1h", ohlcv, sigs)
         assert list(out["direction"]) == ["long"]
         assert list(out["open_time"]) == [1]
 
@@ -224,7 +224,61 @@ class TestApplyLegacyAdrPreFilter:
             "analytics.backtest_runner._filter_signals_by_adr",
             side_effect=lambda _o, s, _t: s,
         ) as mock_filter:
-            out = _apply_legacy_adr_pre_filter(cfg, "bos", ohlcv, sigs)
+            out = _apply_legacy_adr_pre_filter(cfg, "bos", "1h", ohlcv, sigs)
         _, called_sigs, _ = mock_filter.call_args.args
         assert list(called_sigs["direction"]) == ["short"]
+        assert list(out["direction"]) == ["long", "short"]
+
+    def test_per_tf_direction_only_exempts_named_tf(self) -> None:
+        # adr_exempt_short_per_tf = {"15m": true} exempts shorts on 15m only;
+        # the same cfg leaves shorts non-exempt on 1h.
+        cfg = BacktestSweepConfig(
+            adr_suppress_threshold=0.7,
+            strategy_params={
+                "bos": StrategyOverride(adr_exempt_short_per_tf={"15m": True})
+            },
+        )
+        sigs = _signals(["long", "short", "long", "short"])
+        ohlcv = pd.DataFrame()
+        with patch(
+            "analytics.backtest_runner._filter_signals_by_adr",
+            side_effect=lambda _o, s, _t: s,
+        ) as mock_filter_15m:
+            out_15m = _apply_legacy_adr_pre_filter(cfg, "bos", "15m", ohlcv, sigs)
+        # 15m: shorts are exempt → only longs go through filter.
+        _, called_15m, _ = mock_filter_15m.call_args.args
+        assert list(called_15m["direction"]) == ["long", "long"]
+        assert list(out_15m["open_time"]) == [0, 1, 2, 3]
+
+        with patch(
+            "analytics.backtest_runner._filter_signals_by_adr",
+            side_effect=lambda _o, s, _t: s,
+        ) as mock_filter_1h:
+            _apply_legacy_adr_pre_filter(cfg, "bos", "1h", ohlcv, sigs)
+        # 1h: neither side exempt → full DataFrame filtered.
+        _, called_1h, _ = mock_filter_1h.call_args.args
+        pd.testing.assert_frame_equal(called_1h, sigs)
+
+    def test_per_tf_direction_beats_directional_and_strategy_wide(self) -> None:
+        # adr_exempt=True + adr_exempt_long=True + adr_exempt_long_per_tf["15m"]=False.
+        # On 15m the per-tf-direction wins → longs are NOT exempt.
+        cfg = BacktestSweepConfig(
+            adr_suppress_threshold=0.7,
+            strategy_params={
+                "bos": StrategyOverride(
+                    adr_exempt=True,
+                    adr_exempt_long=True,
+                    adr_exempt_long_per_tf={"15m": False},
+                )
+            },
+        )
+        sigs = _signals(["long", "short"])
+        ohlcv = pd.DataFrame()
+        with patch(
+            "analytics.backtest_runner._filter_signals_by_adr",
+            side_effect=lambda _o, s, _t: s,
+        ) as mock_filter:
+            out = _apply_legacy_adr_pre_filter(cfg, "bos", "15m", ohlcv, sigs)
+        _, called, _ = mock_filter.call_args.args
+        assert list(called["direction"]) == ["long"]
         assert list(out["direction"]) == ["long", "short"]

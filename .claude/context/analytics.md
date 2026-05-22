@@ -173,8 +173,8 @@ Detailed API reference for `analytics/`. Load this when working on any analytics
 ## backtest_config.py — backtest sweep TOML loader
 
 - `BacktestSweepConfig`: `min_sl_pct`, `liq_sweep_use_fib`, `volume_suppress`, `since: str | None`
-- `is_adr_exempt(strategy)` — strategy-wide flag accessor (legacy shim); `effective_adr_exempt(strategy, direction)` resolves the Bucket C per-direction overrides (`adr_exempt_long`/`adr_exempt_short`) used by the runner's per-direction split helper `_apply_legacy_adr_pre_filter`
-- `StrategyOverride` mirrors signal_config: `adr_exempt`, `adr_exempt_long/short`, `volume_suppress` (+ `_long/_short`), `tp_r_long/short`
+- `is_adr_exempt(strategy)` — strategy-wide flag accessor (legacy shim); `effective_adr_exempt(strategy, direction, tf=None)` resolves the Bucket C per-direction overrides — precedence is per-tf-direction (`adr_exempt_long_per_tf[tf]` / `adr_exempt_short_per_tf[tf]`) → per-direction (`adr_exempt_long` / `adr_exempt_short`) → strategy-wide (`adr_exempt`). Used by the runner's per-direction split helper `_apply_legacy_adr_pre_filter(cfg, strategy, tf, ohlcv, signals)`, which threads `tf` so a single (tf, direction) cell can flip without dragging other tfs along.
+- `StrategyOverride` mirrors signal_config: `adr_exempt`, `adr_exempt_long/short`, `adr_exempt_long_per_tf` / `adr_exempt_short_per_tf`, `volume_suppress` (+ `_long/_short`), `tp_r_long/short`
 - `effective_tp_r` / `effective_volume_suppress` / directional variants — mirror signal_config resolution
 - Same `_deep_merge` + `_load_toml_with_extends` as signal_config.py
 
