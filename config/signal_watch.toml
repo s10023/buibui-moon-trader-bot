@@ -157,7 +157,14 @@ tp_r_1h = 4.5                 # F5 WFO: ETH 1h optimal at 4.5R
 
 [strategy_params.bos]
 tp_r = 3.0                    # 15m+0.18R, 1h+0.22R (4h excluded via strategy_timeframes)
-adr_exempt = true             # breakout — fires in continuation direction; ADR gate degrades it
+# 2026-05-17 ADR-exempt audit (tue_thu) flipped from strategy-wide to per-direction:
+#   - 15m long n_supp=115 supp_avg_r=-0.77R → ENABLE gate → drop long exemption
+#   - 1h  long n_supp=49  supp_avg_r=-0.54R → ENABLE gate → drop long exemption
+#   - 1h  short n_supp=80 supp_avg_r=+0.42R → DISABLE gate → keep short exempt
+# Bucket C schema-extension (PR /feat/bucket-c-backtest-config-adr-exempt-directional)
+# unblocked: backtest_config.StrategyOverride now mirrors signal_config with
+# adr_exempt_long / adr_exempt_short, so live + backtest replay agree.
+adr_exempt_short = true       # preserve ADR-late short winners (1h +0.42R; 15m/4h low n)
 
 [strategy_params.trend_day]
 tp_r = 3.0                    # fallback

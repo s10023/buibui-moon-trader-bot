@@ -270,3 +270,75 @@ tp_r_15m = 3.5
         assert cfg.effective_tp_r("doji", "BTCUSDT", "15m") == 3.5
         assert cfg.effective_tp_r("doji", "SOLUSDT", "15m") == 4.0
         assert cfg.effective_tp_r("doji", "ETHUSDT", "1h") == 3.0
+
+
+class TestAdrExemptDirectional:
+    """Per-direction adr_exempt overrides (Bucket C — mirrors signal_config)."""
+
+    def test_defaults(self) -> None:
+        ov = StrategyOverride()
+        assert ov.adr_exempt is False
+        assert ov.adr_exempt_long is None
+        assert ov.adr_exempt_short is None
+
+    def test_load_directional_keys(self, tmp_path: Path) -> None:
+        content = """\
+[strategy_params.bos]
+adr_exempt = false
+adr_exempt_short = true
+"""
+        p = tmp_path / "cfg.toml"
+        p.write_text(content)
+        cfg = load_backtest_config(p)
+        ov = cfg.strategy_params["bos"]
+        assert ov.adr_exempt is False
+        assert ov.adr_exempt_long is None
+        assert ov.adr_exempt_short is True
+
+    def test_effective_no_override(self) -> None:
+        cfg = BacktestSweepConfig()
+        assert cfg.effective_adr_exempt("bos") is False
+        assert cfg.effective_adr_exempt("bos", "long") is False
+        assert cfg.effective_adr_exempt("bos", "short") is False
+
+    def test_effective_strategy_wide(self) -> None:
+        cfg = BacktestSweepConfig(
+            strategy_params={"bos": StrategyOverride(adr_exempt=True)}
+        )
+        assert cfg.effective_adr_exempt("bos") is True
+        assert cfg.effective_adr_exempt("bos", "long") is True
+        assert cfg.effective_adr_exempt("bos", "short") is True
+
+    def test_effective_per_direction_beats_strategy_wide(self) -> None:
+        cfg = BacktestSweepConfig(
+            strategy_params={
+                "bos": StrategyOverride(
+                    adr_exempt=True,
+                    adr_exempt_long=True,
+                    adr_exempt_short=False,
+                )
+            }
+        )
+        assert cfg.effective_adr_exempt("bos", "long") is True
+        assert cfg.effective_adr_exempt("bos", "short") is False
+        assert cfg.effective_adr_exempt("bos") is True
+
+    def test_effective_only_one_direction_set(self) -> None:
+        # adr_exempt_short=True overrides; long falls back to strategy-wide False.
+        cfg = BacktestSweepConfig(
+            strategy_params={
+                "bos": StrategyOverride(adr_exempt=False, adr_exempt_short=True)
+            }
+        )
+        assert cfg.effective_adr_exempt("bos", "long") is False
+        assert cfg.effective_adr_exempt("bos", "short") is True
+
+    def test_is_adr_exempt_shim_still_strategy_wide(self) -> None:
+        # Legacy strategy-wide accessor ignores per-direction overrides — used
+        # by callers that haven't been ported to effective_adr_exempt yet.
+        cfg = BacktestSweepConfig(
+            strategy_params={
+                "bos": StrategyOverride(adr_exempt=False, adr_exempt_short=True)
+            }
+        )
+        assert cfg.is_adr_exempt("bos") is False

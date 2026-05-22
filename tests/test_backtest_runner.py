@@ -1,7 +1,17 @@
-"""Tests for analytics/backtest_runner.py — format_sweep_table."""
+"""Tests for analytics/backtest_runner.py — format_sweep_table + ADR pre-filter."""
 
+from __future__ import annotations
+
+from unittest.mock import patch
+
+import pandas as pd
+
+from analytics.backtest_config import BacktestSweepConfig, StrategyOverride
 from analytics.backtest_lib import BacktestResult, Trade
-from analytics.backtest_runner import format_sweep_table
+from analytics.backtest_runner import (
+    _apply_legacy_adr_pre_filter,
+    format_sweep_table,
+)
 
 
 def _make_result(
@@ -118,3 +128,103 @@ class TestFormatSweepTable:
         table = format_sweep_table(results, min_trades=5)
         assert "50.0%" in table
         assert "+0.50R" in table
+
+
+def _signals(directions: list[str]) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "open_time": list(range(len(directions))),
+            "direction": directions,
+        }
+    )
+
+
+class TestApplyLegacyAdrPreFilter:
+    """Per-direction split behaviour for the non-live-parity ADR pre-filter."""
+
+    def test_both_exempt_returns_signals_untouched(self) -> None:
+        cfg = BacktestSweepConfig(
+            adr_suppress_threshold=0.7,
+            strategy_params={
+                "bos": StrategyOverride(adr_exempt_long=True, adr_exempt_short=True)
+            },
+        )
+        sigs = _signals(["long", "short", "long"])
+        ohlcv = pd.DataFrame()
+        with patch("analytics.backtest_runner._filter_signals_by_adr") as mock_filter:
+            out = _apply_legacy_adr_pre_filter(cfg, "bos", ohlcv, sigs)
+        mock_filter.assert_not_called()
+        pd.testing.assert_frame_equal(out, sigs)
+
+    def test_neither_exempt_filters_full_set(self) -> None:
+        cfg = BacktestSweepConfig(adr_suppress_threshold=0.7)
+        sigs = _signals(["long", "short"])
+        ohlcv = pd.DataFrame()
+        sentinel = pd.DataFrame({"open_time": [99], "direction": ["short"]})
+        with patch(
+            "analytics.backtest_runner._filter_signals_by_adr",
+            return_value=sentinel,
+        ) as mock_filter:
+            out = _apply_legacy_adr_pre_filter(cfg, "bos", ohlcv, sigs)
+        mock_filter.assert_called_once()
+        # Full DataFrame went to _filter_signals_by_adr (no split).
+        _, called_sigs, called_threshold = mock_filter.call_args.args
+        pd.testing.assert_frame_equal(called_sigs, sigs)
+        assert called_threshold == 0.7
+        pd.testing.assert_frame_equal(out, sentinel)
+
+    def test_short_exempt_only_long_goes_through_filter(self) -> None:
+        cfg = BacktestSweepConfig(
+            adr_suppress_threshold=0.7,
+            strategy_params={"bos": StrategyOverride(adr_exempt_short=True)},
+        )
+        sigs = _signals(["long", "short", "long", "short"])
+        ohlcv = pd.DataFrame()
+        # Mock returns the input unchanged so the concat path is exercised.
+        with patch(
+            "analytics.backtest_runner._filter_signals_by_adr",
+            side_effect=lambda _o, s, _t: s,
+        ) as mock_filter:
+            out = _apply_legacy_adr_pre_filter(cfg, "bos", ohlcv, sigs)
+        # Only the long slice was passed to _filter_signals_by_adr.
+        _, called_sigs, _ = mock_filter.call_args.args
+        assert list(called_sigs["direction"]) == ["long", "long"]
+        # Result is ordered by open_time and round-trips every input row.
+        assert list(out["open_time"]) == [0, 1, 2, 3]
+        assert list(out["direction"]) == ["long", "short", "long", "short"]
+
+    def test_long_exempt_only_short_goes_through_filter(self) -> None:
+        cfg = BacktestSweepConfig(
+            adr_suppress_threshold=0.7,
+            strategy_params={"bos": StrategyOverride(adr_exempt_long=True)},
+        )
+        sigs = _signals(["short", "long", "short"])
+        ohlcv = pd.DataFrame()
+        # Drop all short rows to verify the concat preserves the exempt long.
+        with patch(
+            "analytics.backtest_runner._filter_signals_by_adr",
+            side_effect=lambda _o, s, _t: s.iloc[:0],
+        ):
+            out = _apply_legacy_adr_pre_filter(cfg, "bos", ohlcv, sigs)
+        assert list(out["direction"]) == ["long"]
+        assert list(out["open_time"]) == [1]
+
+    def test_per_direction_beats_strategy_wide(self) -> None:
+        # adr_exempt=True (strategy-wide) but adr_exempt_short=False — short
+        # signals should still be filtered.
+        cfg = BacktestSweepConfig(
+            adr_suppress_threshold=0.7,
+            strategy_params={
+                "bos": StrategyOverride(adr_exempt=True, adr_exempt_short=False)
+            },
+        )
+        sigs = _signals(["long", "short"])
+        ohlcv = pd.DataFrame()
+        with patch(
+            "analytics.backtest_runner._filter_signals_by_adr",
+            side_effect=lambda _o, s, _t: s,
+        ) as mock_filter:
+            out = _apply_legacy_adr_pre_filter(cfg, "bos", ohlcv, sigs)
+        _, called_sigs, _ = mock_filter.call_args.args
+        assert list(called_sigs["direction"]) == ["short"]
+        assert list(out["direction"]) == ["long", "short"]
