@@ -614,6 +614,26 @@ ETHUSDT = "BTCUSDT"
 SOLUSDT = "ETHUSDT"
 ```
 
+**`[strategy_timeframes]`** restricts a strategy to a subset of timeframes. Strategies not
+listed run on all TFs. The optional **`[strategy_timeframes_long]`** / **`[strategy_timeframes_short]`**
+sub-blocks narrow per direction (Bucket C — Q-BC-2 additive narrowing): the directional list, when set,
+intersects with the base list to determine the allowed (tf, direction) cells.
+
+```toml
+[strategy_timeframes]
+inside_bar = ["15m", "1h", "4h", "1d"]
+
+[strategy_timeframes_long]
+inside_bar = ["15m", "1h", "1d"]   # 4h long excluded; 4h short still fires
+
+[strategy_timeframes_short]
+hammer_hanging_man = ["15m", "1d"] # 1h/4h short excluded; long fires on all base TFs
+```
+
+Both the live signal daemon and `make buibui-backtest` (sweep mode) consume the same blocks — backtest
+parity was wired in PR #403. The base list hard-skips the (symbol, tf, strategy) cell entirely; the
+directional sub-blocks mask signal rows post-detection.
+
 **`[strategy_params]`** overrides `tp_r`, `sl_pct`, and volume/ADR gates per strategy, per TF, and per symbol.
 Resolution order: **symbol+TF → symbol → TF → strategy → global**.
 
