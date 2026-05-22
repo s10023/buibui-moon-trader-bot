@@ -333,6 +333,64 @@ class TestBuildAuditTable:
         )
         assert table.iloc[0]["verdict"] == "INSUFFICIENT"
 
+    def test_concentrate_verdict_when_kept_outperforms_supp_by_threshold(
+        self,
+    ) -> None:
+        # 40 low-vol winners @ +0.20R (suppressed-side profitable) +
+        # 40 normal-vol winners @ +1.00R (kept-side significantly better).
+        # supp_avg=+0.20 ≥ +threshold → would be DISABLE, but
+        # kept_avg=+1.00 ≥ supp_avg+threshold (0.25) → CONCENTRATE.
+        rows = [
+            _trade(strategy="bos", low_volume=True, pnl_r=0.20) for _ in range(40)
+        ] + [_trade(strategy="bos", low_volume=False, pnl_r=1.00) for _ in range(40)]
+        df = _frame(rows)
+        gate = gate_audit.GATE_REGISTRY["volume-suppress"]
+        table = gate_audit.build_audit_table(
+            df,
+            gate,
+            {"volume_suppress_off": {"bos"}},
+            ["strategy"],
+            min_n=30,
+            threshold=0.05,
+        )
+        assert table.iloc[0]["verdict"] == "CONCENTRATE"
+        assert table.iloc[0]["n_supp"] == 40
+        assert table.iloc[0]["n_kept"] == 40
+
+    def test_disable_retained_when_kept_does_not_outperform_supp(self) -> None:
+        # supp_avg=+0.20, kept_avg=+0.22 — delta 0.02 < threshold 0.05.
+        # Gate is not concentrating; DISABLE remains correct.
+        rows = [
+            _trade(strategy="bos", low_volume=True, pnl_r=0.20) for _ in range(40)
+        ] + [_trade(strategy="bos", low_volume=False, pnl_r=0.22) for _ in range(40)]
+        df = _frame(rows)
+        gate = gate_audit.GATE_REGISTRY["volume-suppress"]
+        table = gate_audit.build_audit_table(
+            df,
+            gate,
+            {"volume_suppress_off": {"bos"}},
+            ["strategy"],
+            min_n=30,
+            threshold=0.05,
+        )
+        assert table.iloc[0]["verdict"] == "DISABLE"
+
+    def test_disable_retained_when_no_kept_trades(self) -> None:
+        # All 40 trades are suppressed; n_kept=0 → cannot concentrate. DISABLE.
+        rows = [_trade(strategy="bos", low_volume=True, pnl_r=0.20) for _ in range(40)]
+        df = _frame(rows)
+        gate = gate_audit.GATE_REGISTRY["volume-suppress"]
+        table = gate_audit.build_audit_table(
+            df,
+            gate,
+            {"volume_suppress_off": {"bos"}},
+            ["strategy"],
+            min_n=30,
+            threshold=0.05,
+        )
+        assert table.iloc[0]["verdict"] == "DISABLE"
+        assert table.iloc[0]["n_kept"] == 0
+
     def test_grain_strategy_tf_dir_separates_directions(self) -> None:
         # LONG side: 40 lowvol losers → ENABLE.
         # SHORT side: 40 lowvol winners → DISABLE. Verdict must split.

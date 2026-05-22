@@ -16,9 +16,17 @@ Usage:
   PYTHONPATH=. poetry run python tools/gate_audit.py day-filter --day-filter tue_thu
 
 Decision rule per cell (n_supp >= --min-n):
-  supp_avg_r <= -0.05R  → ENABLE this gate at this scope
-  supp_avg_r >= +0.05R  → DISABLE (gate kills winners)
-  else                  → insufficient evidence
+  supp_avg_r <= -0.05R                                  → ENABLE this gate at this scope
+  supp_avg_r >= +0.05R AND kept_avg_r <  supp_avg_r + 0.05R → DISABLE (gate kills winners)
+  supp_avg_r >= +0.05R AND kept_avg_r >= supp_avg_r + 0.05R → CONCENTRATE (gate is concentrating quality on a higher-grade kept subset; lifting it would dilute)
+  else                                                  → insufficient evidence
+
+CONCENTRATE rationale: the gate "kills winners" reading is correct in the
+supp_avg slice in isolation, but if the kept slice out-performs supp by at
+least the threshold, lifting the gate floods the kept set with a lower-grade
+cohort and net avg_r degrades. Cases that triggered this guard during Phase A:
+PR #398 (orb 1h SHORT weekend, wick_fill 4h SHORT weekend) and PR #400
+(bos 4h short mon_fri, CR 4★ +0.895R kept-side concentration).
 
 ASSUMPTIONS (verify before relying on output):
   * `backtest_trades` schema includes: symbol, tf, strategy, direction,
@@ -294,7 +302,14 @@ def build_audit_table(
         if n_supp >= min_n and supp_avg <= -threshold:
             verdict = "ENABLE"
         elif n_supp >= min_n and supp_avg >= threshold:
-            verdict = "DISABLE"
+            if (
+                n_kept > 0
+                and not pd.isna(kept_avg)
+                and kept_avg >= supp_avg + threshold
+            ):
+                verdict = "CONCENTRATE"
+            else:
+                verdict = "DISABLE"
         else:
             verdict = "INSUFFICIENT"
         rows.append(
