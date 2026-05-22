@@ -230,6 +230,43 @@ def _build_confidence_ratings_map(
     return out
 
 
+def _apply_legacy_adr_pre_filter(
+    cfg: BacktestSweepConfig,
+    strategy: str,
+    ohlcv: pd.DataFrame,
+    signals: pd.DataFrame,
+) -> pd.DataFrame:
+    """Legacy non-live-parity ADR pre-filter honouring per-direction exemption.
+
+    Caller checks ``cfg.adr_suppress_threshold is not None`` and that
+    ``cfg.live_parity.adr_bias`` is off. Splits signals by direction when
+    ``adr_exempt_long`` / ``adr_exempt_short`` disagree so a per-direction flip
+    only relaxes the gate on the chosen side.
+    """
+    threshold = cfg.adr_suppress_threshold
+    assert threshold is not None
+    exempt_long = cfg.effective_adr_exempt(strategy, "long")
+    exempt_short = cfg.effective_adr_exempt(strategy, "short")
+    if exempt_long and exempt_short:
+        return signals
+    if not exempt_long and not exempt_short:
+        return _filter_signals_by_adr(ohlcv, signals, threshold)
+    if exempt_long:
+        exempt = signals[signals["direction"] == "long"]
+        non_exempt = signals[signals["direction"] != "long"]
+    else:
+        exempt = signals[signals["direction"] == "short"]
+        non_exempt = signals[signals["direction"] != "short"]
+    if non_exempt.empty:
+        return signals
+    filtered = _filter_signals_by_adr(ohlcv, non_exempt, threshold)
+    return (
+        pd.concat([exempt, filtered], ignore_index=True)
+        .sort_values("open_time")
+        .reset_index(drop=True)
+    )
+
+
 def _resolve_conflicts_for_signals_map(
     signals_map: dict[
         tuple[str, str, str], tuple[pd.DataFrame, pd.DataFrame, str | None]
@@ -531,11 +568,10 @@ def _collect_sweep_results(
         # legacy strategy-wide pre-filter here to avoid double-filtering.
         if (
             cfg.adr_suppress_threshold is not None
-            and not cfg.is_adr_exempt(strategy)
             and not signals.empty
             and not cfg.live_parity.is_on("adr_bias")
         ):
-            signals = _filter_signals_by_adr(ohlcv, signals, cfg.adr_suppress_threshold)
+            signals = _apply_legacy_adr_pre_filter(cfg, strategy, ohlcv, signals)
 
         signals_map[(symbol, timeframe, strategy)] = (ohlcv, signals, secondary)
 

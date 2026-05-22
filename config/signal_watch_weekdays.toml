@@ -125,6 +125,12 @@ tp_r_1d  = 3.5                # +0.48R (3 trades; 4.0+ drops to -1.02R — 0 win
 
 [strategy_params.bos]
 tp_r = 3.0                    # all TFs negative; hard mode suppresses at runtime
+# bos 15m short mon_fri (n_supp=138 supp_avg_r=+0.104R) remains deferred. The
+# Bucket C schema-extension PR added per-direction adr_exempt_long/short, but
+# strategy-wide-per-direction would also exempt bos 4h short mon_fri (CR 4★
+# +0.895R, audit n_supp=15 supp_avg_r=-0.747R: gate concentrates on the
+# high-quality kept subset; audit verdict KEEP OFF). Needs per-tf-direction
+# schema (adr_exempt_short_per_tf) to ship cleanly — separate follow-up PR.
 
 [strategy_params.smt_divergence]
 tp_r_15m = 4.0                # +0.73R (37% WR; post-spam-fix recalibrated from 5.0)

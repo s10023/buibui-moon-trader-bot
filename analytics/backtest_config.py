@@ -100,6 +100,12 @@ class StrategyOverride:
     atr_sl_multiplier_per_tf: dict[str, float] = field(default_factory=dict)
     per_symbol: dict[str, SymbolOverride] = field(default_factory=dict)
     adr_exempt: bool = False
+    # Per-direction adr_exempt overrides (Bucket C — per-direction wins over
+    # strategy-wide adr_exempt). None = inherit adr_exempt. Mirrors
+    # signal_config.StrategyOverride so the same TOML keys parse identically
+    # for the live signal daemon and backtest replay.
+    adr_exempt_long: bool | None = None
+    adr_exempt_short: bool | None = None
     # None = inherit global volume_suppress; True/False = per-strategy override.
     volume_suppress: bool | None = None
     # Directional volume suppress — overrides volume_suppress for that direction when set.
@@ -265,9 +271,30 @@ class BacktestSweepConfig:
         return self.atr_sl_multiplier
 
     def is_adr_exempt(self, strategy: str) -> bool:
-        """Return True if this strategy should bypass the ADR bias gate."""
+        """Return True if this strategy should bypass the ADR bias gate (strategy-wide).
+
+        Direction-agnostic shim retained for callers that only need the
+        strategy-wide flag. Prefer ``effective_adr_exempt(strategy, direction)``
+        when honouring per-direction overrides.
+        """
         override = self.strategy_params.get(strategy)
         return override.adr_exempt if override is not None else False
+
+    def effective_adr_exempt(self, strategy: str, direction: str | None = None) -> bool:
+        """Resolve per-direction adr_exempt.
+
+        Precedence: per-direction (``adr_exempt_long`` / ``adr_exempt_short``)
+        wins when set, else strategy-wide ``adr_exempt``. When ``direction`` is
+        None or not "long"/"short", returns the strategy-wide flag.
+        """
+        override = self.strategy_params.get(strategy)
+        if override is None:
+            return False
+        if direction == "long" and override.adr_exempt_long is not None:
+            return override.adr_exempt_long
+        if direction == "short" and override.adr_exempt_short is not None:
+            return override.adr_exempt_short
+        return override.adr_exempt
 
     def effective_volume_suppress(self, strategy: str) -> bool:
         override = self.strategy_params.get(strategy)
@@ -381,6 +408,8 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
         raw_vss = vals.get("volume_suppress_short")
         raw_tp_r_long = vals.get("tp_r_long")
         raw_tp_r_short = vals.get("tp_r_short")
+        raw_adr_exempt_long = vals.get("adr_exempt_long")
+        raw_adr_exempt_short = vals.get("adr_exempt_short")
         strategy_params[str(strat_name)] = StrategyOverride(
             tp_r=float(tp_r_val) if tp_r_val is not None else None,
             sl_pct=float(sl_pct_val) if sl_pct_val is not None else None,
@@ -390,6 +419,12 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
             atr_sl_multiplier_per_tf=atr_sl_per_tf,
             per_symbol=per_symbol,
             adr_exempt=bool(vals.get("adr_exempt", False)),
+            adr_exempt_long=bool(raw_adr_exempt_long)
+            if raw_adr_exempt_long is not None
+            else None,
+            adr_exempt_short=bool(raw_adr_exempt_short)
+            if raw_adr_exempt_short is not None
+            else None,
             volume_suppress=bool(raw_vs) if raw_vs is not None else None,
             volume_suppress_long=bool(raw_vsl) if raw_vsl is not None else None,
             volume_suppress_short=bool(raw_vss) if raw_vss is not None else None,
