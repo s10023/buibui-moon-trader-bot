@@ -233,6 +233,7 @@ def _build_confidence_ratings_map(
 def _apply_legacy_adr_pre_filter(
     cfg: BacktestSweepConfig,
     strategy: str,
+    tf: str,
     ohlcv: pd.DataFrame,
     signals: pd.DataFrame,
 ) -> pd.DataFrame:
@@ -240,13 +241,13 @@ def _apply_legacy_adr_pre_filter(
 
     Caller checks ``cfg.adr_suppress_threshold is not None`` and that
     ``cfg.live_parity.adr_bias`` is off. Splits signals by direction when
-    ``adr_exempt_long`` / ``adr_exempt_short`` disagree so a per-direction flip
-    only relaxes the gate on the chosen side.
+    ``adr_exempt_long`` / ``adr_exempt_short`` (or their per-tf variants)
+    disagree so a per-direction flip only relaxes the gate on the chosen side.
     """
     threshold = cfg.adr_suppress_threshold
     assert threshold is not None
-    exempt_long = cfg.effective_adr_exempt(strategy, "long")
-    exempt_short = cfg.effective_adr_exempt(strategy, "short")
+    exempt_long = cfg.effective_adr_exempt(strategy, "long", tf)
+    exempt_short = cfg.effective_adr_exempt(strategy, "short", tf)
     if exempt_long and exempt_short:
         return signals
     if not exempt_long and not exempt_short:
@@ -571,7 +572,9 @@ def _collect_sweep_results(
             and not signals.empty
             and not cfg.live_parity.is_on("adr_bias")
         ):
-            signals = _apply_legacy_adr_pre_filter(cfg, strategy, ohlcv, signals)
+            signals = _apply_legacy_adr_pre_filter(
+                cfg, strategy, timeframe, ohlcv, signals
+            )
 
         signals_map[(symbol, timeframe, strategy)] = (ohlcv, signals, secondary)
 

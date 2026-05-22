@@ -559,7 +559,7 @@ def run_scan_cycle(
                     strategy_params, event.strategy, tf
                 )
                 eff_adr_exempt = _is_adr_exempt(
-                    strategy_params, event.strategy, event.direction
+                    strategy_params, event.strategy, event.direction, tf
                 )
                 eff_vs = _resolve_volume_suppress(
                     strategy_params, event.strategy, backtest_cfg.volume_suppress
@@ -821,7 +821,7 @@ def run_scan_cycle(
                         e
                         for e in passing_events
                         if e.direction != suppress_dir
-                        or _is_adr_exempt(strategy_params, e.strategy, e.direction)
+                        or _is_adr_exempt(strategy_params, e.strategy, e.direction, tf)
                     ]
                     if len(passing_events) < n_before:
                         logger.info(

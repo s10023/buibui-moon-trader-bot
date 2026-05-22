@@ -280,6 +280,8 @@ class TestAdrExemptDirectional:
         assert ov.adr_exempt is False
         assert ov.adr_exempt_long is None
         assert ov.adr_exempt_short is None
+        assert ov.adr_exempt_long_per_tf == {}
+        assert ov.adr_exempt_short_per_tf == {}
 
     def test_load_directional_keys(self, tmp_path: Path) -> None:
         content = """\
@@ -342,3 +344,56 @@ adr_exempt_short = true
             }
         )
         assert cfg.is_adr_exempt("bos") is False
+
+    def test_load_per_tf_directional_keys(self, tmp_path: Path) -> None:
+        content = """\
+[strategy_params.bos]
+adr_exempt = false
+[strategy_params.bos.adr_exempt_short_per_tf]
+"15m" = true
+"1h"  = false
+"""
+        p = tmp_path / "cfg.toml"
+        p.write_text(content)
+        cfg = load_backtest_config(p)
+        ov = cfg.strategy_params["bos"]
+        assert ov.adr_exempt_short_per_tf == {"15m": True, "1h": False}
+        assert ov.adr_exempt_long_per_tf == {}
+
+    def test_effective_per_tf_direction_beats_directional(self) -> None:
+        cfg = BacktestSweepConfig(
+            strategy_params={
+                "bos": StrategyOverride(
+                    adr_exempt=False,
+                    adr_exempt_short=False,
+                    adr_exempt_short_per_tf={"15m": True},
+                )
+            }
+        )
+        assert cfg.effective_adr_exempt("bos", "short", "15m") is True
+        assert cfg.effective_adr_exempt("bos", "short", "1h") is False
+        assert cfg.effective_adr_exempt("bos", "long", "15m") is False
+
+    def test_effective_per_tf_direction_can_flip_inherited_exemption(self) -> None:
+        # Strategy-wide True + per-tf-direction False on the named tf only.
+        cfg = BacktestSweepConfig(
+            strategy_params={
+                "bos": StrategyOverride(
+                    adr_exempt=True,
+                    adr_exempt_long_per_tf={"1h": False},
+                )
+            }
+        )
+        assert cfg.effective_adr_exempt("bos", "long", "1h") is False
+        assert cfg.effective_adr_exempt("bos", "long", "15m") is True
+        assert cfg.effective_adr_exempt("bos", "short", "1h") is True
+
+    def test_per_tf_must_be_toml_table(self, tmp_path: Path) -> None:
+        content = """\
+[strategy_params.bos]
+adr_exempt_long_per_tf = true
+"""
+        p = tmp_path / "cfg.toml"
+        p.write_text(content)
+        with pytest.raises(ValueError, match="adr_exempt_long_per_tf"):
+            load_backtest_config(p)

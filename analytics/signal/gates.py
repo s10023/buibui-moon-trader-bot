@@ -163,22 +163,31 @@ def _is_adr_exempt(
     strategy_params: dict[str, StrategyOverride] | None,
     strategy: str,
     direction: str | None = None,
+    tf: str | None = None,
 ) -> bool:
-    """Resolve adr_exempt for `(strategy, direction)`.
+    """Resolve adr_exempt for `(strategy, direction, tf)`.
 
-    Precedence (Bucket C PR — Q-BC-1): per-direction (adr_exempt_long/short)
-    > strategy-wide (adr_exempt). When direction is None or not "long"/"short",
-    returns the strategy-wide flag.
+    Precedence (Bucket C PR — Q-BC-1):
+      per-tf-direction (adr_exempt_long_per_tf[tf] / adr_exempt_short_per_tf[tf])
+      > per-direction (adr_exempt_long/short)
+      > strategy-wide (adr_exempt).
+    When direction is None or not "long"/"short", returns the strategy-wide flag.
     """
     if not strategy_params:
         return False
     override = strategy_params.get(strategy)
     if override is None:
         return False
-    if direction == "long" and override.adr_exempt_long is not None:
-        return override.adr_exempt_long
-    if direction == "short" and override.adr_exempt_short is not None:
-        return override.adr_exempt_short
+    if direction == "long":
+        if tf is not None and tf in override.adr_exempt_long_per_tf:
+            return override.adr_exempt_long_per_tf[tf]
+        if override.adr_exempt_long is not None:
+            return override.adr_exempt_long
+    elif direction == "short":
+        if tf is not None and tf in override.adr_exempt_short_per_tf:
+            return override.adr_exempt_short_per_tf[tf]
+        if override.adr_exempt_short is not None:
+            return override.adr_exempt_short
     return override.adr_exempt
 
 

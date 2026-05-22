@@ -642,6 +642,7 @@ Two boolean flags are also supported per strategy block:
 
 - **`adr_exempt = true`** — skip the ADR bias gate for this strategy (use for breakout/continuation strategies that need range momentum)
 - **`adr_exempt_long = true/false`** / **`adr_exempt_short = true/false`** — per-direction override (Bucket C); when set, wins over the strategy-wide `adr_exempt`. Mirrors the live `signal_config` schema so the same TOML applies to live signal selection and backtest replay.
+- **`[strategy_params.<name>.adr_exempt_long_per_tf]`** / **`adr_exempt_short_per_tf`** — per-tf-direction override (Bucket C follow-up); a sub-table keyed by timeframe string (`"15m"`, `"1h"`, `"4h"`, `"1d"`) mapping to bool. Precedence is per-tf-direction > per-direction > strategy-wide. Lets a single (tf, direction) cell flip without dragging the same direction on other tfs (e.g. `bos 15m short mon_fri` exempt, `bos 4h short mon_fri` kept).
 - **`volume_suppress = true/false`** — override the global `[backtest].volume_suppress` for this strategy. `true` drops signals on candles with volume < 1.5× the 20-candle rolling mean; `false` explicitly keeps them even when the global flag is on. Omit to inherit the global default (off). Decision is data-driven: run `make buibui-backtest` and check the "Volume Impact" table for each strategy — suppress when normal-vol avg R clearly exceeds low-vol avg R (Δ > 0.05R).
 
 The inline backtest (computed each scan cycle per firing signal) respects all config values:
