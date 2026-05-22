@@ -397,3 +397,135 @@ adr_exempt_long_per_tf = true
         p.write_text(content)
         with pytest.raises(ValueError, match="adr_exempt_long_per_tf"):
             load_backtest_config(p)
+
+
+class TestStrategyTimeframesDirectional:
+    """Per-direction strategy_timeframes overrides (Bucket C — mirrors signal_config)."""
+
+    def test_defaults(self) -> None:
+        cfg = BacktestSweepConfig()
+        assert cfg.strategy_timeframes == {}
+        assert cfg.strategy_timeframes_long == {}
+        assert cfg.strategy_timeframes_short == {}
+
+    def test_load_from_toml(self, tmp_path: Path) -> None:
+        content = """\
+[strategy_timeframes]
+pin_bar = ["15m", "1h", "4h", "1d"]
+inside_bar = ["15m", "1h", "4h", "1d"]
+
+[strategy_timeframes_long]
+inside_bar = ["15m", "1h", "1d"]
+
+[strategy_timeframes_short]
+hammer_hanging_man = ["15m", "1d"]
+"""
+        p = tmp_path / "cfg.toml"
+        p.write_text(content)
+        cfg = load_backtest_config(p)
+        assert cfg.strategy_timeframes["pin_bar"] == ["15m", "1h", "4h", "1d"]
+        assert cfg.strategy_timeframes["inside_bar"] == ["15m", "1h", "4h", "1d"]
+        assert cfg.strategy_timeframes_long["inside_bar"] == ["15m", "1h", "1d"]
+        assert cfg.strategy_timeframes_short["hammer_hanging_man"] == ["15m", "1d"]
+
+    def test_effective_no_entry(self) -> None:
+        cfg = BacktestSweepConfig()
+        assert cfg.effective_strategy_timeframes("pin_bar") is None
+        assert cfg.effective_strategy_timeframes("pin_bar", "long") is None
+        assert cfg.effective_strategy_timeframes("pin_bar", "short") is None
+
+    def test_effective_base_only(self) -> None:
+        cfg = BacktestSweepConfig(
+            strategy_timeframes={"pin_bar": ["15m", "1h", "4h", "1d"]}
+        )
+        assert cfg.effective_strategy_timeframes("pin_bar") == [
+            "15m",
+            "1h",
+            "4h",
+            "1d",
+        ]
+        # No directional override → directional resolution returns base list.
+        assert cfg.effective_strategy_timeframes("pin_bar", "long") == [
+            "15m",
+            "1h",
+            "4h",
+            "1d",
+        ]
+        assert cfg.effective_strategy_timeframes("pin_bar", "short") == [
+            "15m",
+            "1h",
+            "4h",
+            "1d",
+        ]
+
+    def test_effective_directional_narrows_base(self) -> None:
+        # Q-BC-2 additive narrowing: directional list intersected with base.
+        cfg = BacktestSweepConfig(
+            strategy_timeframes={"inside_bar": ["15m", "1h", "4h", "1d"]},
+            strategy_timeframes_long={"inside_bar": ["15m", "1h", "1d"]},
+        )
+        assert cfg.effective_strategy_timeframes("inside_bar", "long") == [
+            "15m",
+            "1h",
+            "1d",
+        ]
+        # Short has no override → returns full base.
+        assert cfg.effective_strategy_timeframes("inside_bar", "short") == [
+            "15m",
+            "1h",
+            "4h",
+            "1d",
+        ]
+
+    def test_effective_directional_preserves_base_order(self) -> None:
+        # Directional list given in a different order; intersection follows base order.
+        cfg = BacktestSweepConfig(
+            strategy_timeframes={"pin_bar": ["15m", "1h", "4h", "1d"]},
+            strategy_timeframes_long={"pin_bar": ["1d", "15m"]},
+        )
+        assert cfg.effective_strategy_timeframes("pin_bar", "long") == ["15m", "1d"]
+
+    def test_effective_directional_only_no_base(self) -> None:
+        # No base entry, directional set → directional list (copy) returned.
+        cfg = BacktestSweepConfig(
+            strategy_timeframes_long={"pin_bar": ["15m", "1d"]},
+        )
+        assert cfg.effective_strategy_timeframes("pin_bar") is None
+        assert cfg.effective_strategy_timeframes("pin_bar", "long") == ["15m", "1d"]
+        assert cfg.effective_strategy_timeframes("pin_bar", "short") is None
+
+    def test_effective_empty_intersection(self) -> None:
+        # Directional list disjoint from base → empty intersection.
+        cfg = BacktestSweepConfig(
+            strategy_timeframes={"pin_bar": ["15m", "1h"]},
+            strategy_timeframes_long={"pin_bar": ["4h", "1d"]},
+        )
+        assert cfg.effective_strategy_timeframes("pin_bar", "long") == []
+
+    def test_load_signal_watch_toml_inherits_timeframes(self, tmp_path: Path) -> None:
+        # Loading via load_backtest_config pulls strategy_timeframes from the
+        # same signal_config parser the live daemon uses — single source of truth.
+        content = """\
+symbols = ["BTCUSDT"]
+timeframes = ["15m", "1h", "4h", "1d"]
+
+[strategy_timeframes]
+inside_bar = ["15m", "1h", "4h", "1d"]
+
+[strategy_timeframes_long]
+inside_bar = ["15m", "1h", "1d"]
+"""
+        p = tmp_path / "cfg.toml"
+        p.write_text(content)
+        cfg = load_backtest_config(p)
+        assert cfg.effective_strategy_timeframes("inside_bar", "long") == [
+            "15m",
+            "1h",
+            "1d",
+        ]
+        assert cfg.effective_strategy_timeframes("inside_bar", "short") == [
+            "15m",
+            "1h",
+            "4h",
+            "1d",
+        ]

@@ -268,6 +268,47 @@ def _apply_legacy_adr_pre_filter(
     )
 
 
+def _apply_strategy_timeframes_directional_filter(
+    cfg: BacktestSweepConfig,
+    strategy: str,
+    tf: str,
+    signals: pd.DataFrame,
+) -> pd.DataFrame:
+    """Drop signal rows by direction × tf per the live-side directional allowlists.
+
+    Mirrors the per-row mask the live scanner applies after detection
+    (``analytics/signal/scanner.py``). The base ``strategy_timeframes`` allowlist
+    is enforced upstream by skipping the (symbol, tf, strategy) cell before
+    detection, so this helper only handles the directional layer. No-op when
+    neither ``strategy_timeframes_long`` nor ``strategy_timeframes_short`` is
+    set for ``strategy``.
+
+    Scope: applied to the sweep paths (``_collect_sweep_results`` and
+    ``_collect_signals_map``) that feed ``backtest_runs`` + ``backtest_trades``
+    → recalibrate → ``confidence_ratings``. The combo + cross-TF workers
+    (``_combo_worker``, ``_cross_tf_combo_worker``) iterate all strategies per
+    (symbol, tf) for confluence measurement and are deferred to a follow-up.
+    """
+    if signals.empty:
+        return signals
+    long_dir = cfg.strategy_timeframes_long.get(strategy)
+    short_dir = cfg.strategy_timeframes_short.get(strategy)
+    if long_dir is None and short_dir is None:
+        return signals
+    mask = pd.Series(True, index=signals.index)
+    if long_dir is not None:
+        long_eff = cfg.effective_strategy_timeframes(strategy, "long")
+        if long_eff is not None and tf not in long_eff:
+            mask &= signals["direction"] != "long"
+    if short_dir is not None:
+        short_eff = cfg.effective_strategy_timeframes(strategy, "short")
+        if short_eff is not None and tf not in short_eff:
+            mask &= signals["direction"] != "short"
+    if mask.all():
+        return signals
+    return signals[mask].reset_index(drop=True)
+
+
 def _resolve_conflicts_for_signals_map(
     signals_map: dict[
         tuple[str, str, str], tuple[pd.DataFrame, pd.DataFrame, str | None]
@@ -419,6 +460,14 @@ def _collect_signals_map(
             skipped.append(f"{symbol}/{timeframe}/{strategy} (no smt_pair configured)")
             continue
 
+        # Bucket C — base strategy_timeframes allowlist (hard skip before detect).
+        base_allowed = cfg.effective_strategy_timeframes(strategy)
+        if base_allowed is not None and timeframe not in base_allowed:
+            skipped.append(
+                f"{symbol}/{timeframe}/{strategy} (strategy_timeframes excludes tf)"
+            )
+            continue
+
         ohlcv_key = (symbol, timeframe)
         if ohlcv_key not in ohlcv_cache:
             ohlcv_cache[ohlcv_key] = get_ohlcv(
@@ -447,6 +496,11 @@ def _collect_signals_map(
                 f"{symbol}/{timeframe}/{strategy} (missing funding/secondary data)"
             )
             continue
+
+        # Bucket C — directional strategy_timeframes_{long,short} mask.
+        signals = _apply_strategy_timeframes_directional_filter(
+            cfg, strategy, timeframe, signals
+        )
 
         if allowed_days is not None:
             signals = filter_signals_by_day(signals, allowed_days)
@@ -532,6 +586,14 @@ def _collect_sweep_results(
             skipped.append(f"{symbol}/{timeframe}/{strategy} (no smt_pair configured)")
             continue
 
+        # Bucket C — base strategy_timeframes allowlist (hard skip before detect).
+        base_allowed = cfg.effective_strategy_timeframes(strategy)
+        if base_allowed is not None and timeframe not in base_allowed:
+            skipped.append(
+                f"{symbol}/{timeframe}/{strategy} (strategy_timeframes excludes tf)"
+            )
+            continue
+
         ohlcv_key = (symbol, timeframe)
         if ohlcv_key not in ohlcv_cache:
             ohlcv_cache[ohlcv_key] = get_ohlcv(
@@ -560,6 +622,11 @@ def _collect_sweep_results(
                 f"{symbol}/{timeframe}/{strategy} (missing funding/secondary data)"
             )
             continue
+
+        # Bucket C — directional strategy_timeframes_{long,short} mask.
+        signals = _apply_strategy_timeframes_directional_filter(
+            cfg, strategy, timeframe, signals
+        )
 
         if allowed_days is not None:
             signals = filter_signals_by_day(signals, allowed_days)
