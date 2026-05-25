@@ -1,0 +1,78 @@
+name: Verify Data Source Geo-Access
+
+# THROWAWAY PROBE — verifies whether Bybit / OKX public market-data endpoints are
+# reachable from a US GitHub-hosted runner (Azure US IPs), the way Binance is NOT
+# (HTTP 451). This gates the scheduled signal-watch design: if Bybit answers 200
+# here, the keyless Bybit adapter is viable; if it 403/451s, we fall back to OKX
+# or yfinance. Manual trigger only — delete this workflow once the decision is made.
+#
+# Run it with:  gh workflow run verify-data-source.yaml --ref chore/verify-bybit-geo-access
+# Then read the run's Summary tab (or the job log).
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest   # US Azure IP — the real geo test
+    steps:
+      - name: Print runner public IP + geo
+        run: |
+          echo "Runner public IP:"
+          curl -s https://ipinfo.io/json || echo "(ipinfo unreachable)"
+          echo
+
+      - name: Probe endpoints (no auth, no key)
+        run: |
+          set +e   # don't abort on a single curl failure — probe them all
+
+          # label|url   (keyless public GETs only)
+          ENDPOINTS=(
+            "Bybit kline (BTCUSDT 1h)|https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=60&limit=1"
+            "Bybit tickers (BTCUSDT)|https://api.bybit.com/v5/market/tickers?category=linear&symbol=BTCUSDT"
+            "OKX candles (BTC-USDT-SWAP 1H)|https://www.okx.com/api/v5/market/candles?instId=BTC-USDT-SWAP&bar=1H&limit=1"
+          )
+
+          SUMMARY="| Endpoint | HTTP | Verdict |\n|---|---|---|\n"
+          BYBIT_OK=0
+          OKX_OK=0
+
+          for entry in "${ENDPOINTS[@]}"; do
+            label="${entry%%|*}"
+            url="${entry#*|}"
+            # -s silent, -o capture body head, -w status; 15s timeout
+            body=$(curl -s -m 15 -A "geo-probe/1.0" -w "\n%{http_code}" "$url")
+            code=$(echo "$body" | tail -n1)
+            head=$(echo "$body" | head -c 120 | tr '\n' ' ')
+
+            echo "[$label]"
+            echo "  HTTP $code"
+            echo "  body: $head"
+            echo
+
+            if [ "$code" = "200" ]; then
+              verdict="✅ reachable"
+              case "$label" in
+                Bybit*) BYBIT_OK=1 ;;
+                OKX*)   OKX_OK=1 ;;
+              esac
+            elif [ "$code" = "451" ] || [ "$code" = "403" ]; then
+              verdict="❌ GEO-BLOCKED ($code)"
+            else
+              verdict="⚠️ unexpected ($code)"
+            fi
+            SUMMARY="${SUMMARY}| ${label} | ${code} | ${verdict} |\n"
+          done
+
+          echo -e "$SUMMARY" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$BYBIT_OK" = "1" ]; then
+            echo "RESULT: Bybit reachable from this US runner — keyless Bybit adapter is viable." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          elif [ "$OKX_OK" = "1" ]; then
+            echo "RESULT: Bybit BLOCKED but OKX reachable — pivot the adapter to OKX." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          else
+            echo "RESULT: Both Bybit and OKX blocked from this runner — fall back to yfinance." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
