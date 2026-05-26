@@ -27,7 +27,7 @@ For routine DB refresh after backtest/strategy changes: `make db-update` (= `db-
 `buibui.py` is the single CLI entry point with subcommands:
 
 - `buibui monitor price | position` — live price / position monitor
-- `buibui signal watch | test` — live signal daemon / historical replay. `watch` with no `--config` auto-picks today's config by **UTC weekday** (Mon/Fri→`signal_watch_weekdays.toml`, Tue–Thu→`signal_watch.toml`, Sat/Sun→`signal_watch_all.toml`); the three configs partition the calendar without overlap. UTC (not local) so the picker matches the `day_filter` scope on each candle's UTC `open_time`
+- `buibui signal watch | test` — live signal daemon / historical replay. `watch` with no `--config` auto-picks today's config by **UTC weekday** (Mon/Fri→`signal_watch_weekdays.toml`, Tue–Thu→`signal_watch.toml`, Sat/Sun→`signal_watch_all.toml`); the three configs partition the calendar without overlap. UTC (not local) so the picker matches the `day_filter` scope on each candle's UTC `open_time`. `watch --once` runs a single scan cycle and exits (cron / GitHub Actions entry). `DATA_SOURCE=okx` env selects the keyless OKX adapter (`utils/okx_client.py`) instead of Binance — used by `.github/workflows/signal-watch.yaml`, which seeds an ephemeral `analytics.db` from the committed slim `live_signal.duckdb` (`make export-live-db`); local default `DATA_SOURCE=binance` is unaffected
 - `buibui analytics backfill | sync` — OHLCV ingestion
 - `buibui backtest` — run/save backtests (sweep, combo, cross-TF modes)
 - `buibui digest` — pre-canned analytics queries
@@ -71,7 +71,8 @@ Each Makefile `buibui-*` target wraps the equivalent CLI invocation.
   - `alert_formatter.py` — `SignalEvent`, `StatsContext`, `ConfluenceData`; 6-section alert layout; W1–W8 candle warnings
   - `DEFAULT_DB_PATH` lives in `analytics/store/schema.py` (re-exported via `analytics.data_store`) — import from either, do not redefine in runners
 - `utils/` — shared utilities:
-  - `binance_client.py` — Binance client creation, time sync, config loading
+  - `binance_client.py` — Binance client creation, time sync, config loading; `create_data_client()` dispatches on `DATA_SOURCE` (`okx`→`OKXClient`, else Binance)
+  - `okx_client.py` — keyless OKX V5 public market-data adapter; `OKXClient.futures_klines()` returns Binance-shaped OHLCV (backward pagination via `after`, drops unconfirmed candle, `1d`→`1Dutc`, neutral `taker_buy_volume=volume/2`). `analytics.data_fetcher.fetch_klines` branches on `isinstance(client, OKXClient)`; `KlineClient = Client | OKXClient` type alias. Funding/OI intentionally not implemented (no live detector needs them on the OKX path)
   - `config_validation.py` — coins.json schema validation
   - `telegram.py` — Telegram message sending
   - `live_store.py` — shared in-memory store for live WebSocket data

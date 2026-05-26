@@ -205,6 +205,36 @@ symbol for `smt_divergence` detection on that symbol.
 
 ---
 
+## Scheduled alerts (GitHub Actions)
+
+`.github/workflows/signal-watch.yaml` runs the signal daemon on an **hourly cron**
+and fires Telegram alerts — no always-on host required.
+
+- **Data source: OKX.** GitHub-hosted (US) runners are geo-blocked from Binance
+  (HTTP 451) and Bybit (403), but OKX V5 public market data is reachable. Set
+  `DATA_SOURCE=okx` to select the keyless `utils/okx_client.py` adapter; the daemon
+  entry point is `buibui signal watch --once` (single scan cycle, then exit).
+- **Calibration is committed, not recomputed.** `make export-live-db` writes a slim
+  `live_signal.duckdb` (~7 MB: `ohlcv` + `confidence_ratings` + combo tables, **no**
+  `backtest_trades`) by reading your local Binance `analytics.db` **read-only**. It is
+  committed in **plain git** (public-repo checkout bandwidth is free; Git LFS bandwidth
+  is metered even on public repos). Re-run `make export-live-db` and commit it whenever
+  calibration changes (e.g. after `make db-update`) — not every code change, to keep
+  history lean. Star ratings / combos stay Binance-derived; only the `min_avg_r` gate
+  recomputes on OKX candles, so it stays self-consistent.
+- **The runner never touches your data.** It copies `live_signal.duckdb` to an
+  ephemeral `analytics.db` inside the runner, incremental-syncs new OKX candles, scans,
+  and persists only `signal_state.json` (cooldown/dedup) via `actions/cache`. No DB is
+  ever written back or committed. Locally, `DATA_SOURCE` defaults to `binance`, so
+  `make db-update` is unaffected.
+- **Required repo secrets:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
+- **Caveat — `cvd_divergence`:** OKX candles lack taker-buy volume, so OKX-synced rows
+  set `taker_buy_volume = volume / 2` (neutral CVD delta). Committed Binance history
+  keeps real taker volume; only the newest OKX candles are neutral, so `cvd_divergence`
+  degrades gracefully (it won't fire a false directional signal) rather than crashing.
+
+---
+
 ## Usage
 
 ### Monitor Prices

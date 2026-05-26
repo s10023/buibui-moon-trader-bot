@@ -2,6 +2,14 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Execution deviations (2026-05-26):** Three changes from the plan as written below:
+
+1. **Plain git instead of Git LFS** (Task 8). LFS bandwidth is metered even on public repos; hourly checkouts of the ~7 MB DB would be ~4.9 GB/month, exceeding the 1 GiB free tier. Public-repo *plain* checkout bandwidth is free, so the DB is committed normally and exempted from the `check-added-large-files` pre-commit hook (`exclude: '^live_signal\.duckdb$'`). No `.gitattributes`. Re-export + commit only when calibration changes, to bound history growth.
+2. **Python 3.13, not 3.11** (Task 9). `pyproject.toml` requires `>=3.13,<3.14`; the workflow uses `setup-python@v5` with `3.13`.
+3. **Seed `config/coins.json` from `coins.json.example`** (Task 9). `run_signal_watch` calls `load_coins_config()` unconditionally but `coins.json` is gitignored; the example is byte-equivalent for the 3 live symbols, so the workflow does `cp config/coins.json.example config/coins.json`.
+
+The actual `live_signal.duckdb` exported was **6.8 MB** (ohlcv 97410 / confidence_ratings 486 / backtest_combos 4433 / backtest_cross_tf_combos 31563).
+
 **Goal:** Run the signal daemon on an hourly GitHub Actions cron using OKX market data (Binance is geo-blocked from US runners) and fire Telegram alerts, reading committed Binance-derived calibration.
 
 **Architecture:** A duck-typed **OKX client adapter** exposes `futures_klines(...)` so the existing `backfill`/`sync`/`fetch_klines` code works unchanged, selected by `DATA_SOURCE=okx`. A new `--once` flag runs a single scan cycle and exits. An export tool builds a slim ~12 MB `live_signal.duckdb` (calibration + OHLCV, **read-only** from the local Binance `analytics.db`), committed via Git LFS. The hourly workflow restores that DB to an **ephemeral** working copy, incremental-syncs new OKX candles, scans, alerts, and persists only `signal_state.json` via `actions/cache`. **No DB is ever written back or committed by the runner.**
