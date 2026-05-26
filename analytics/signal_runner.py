@@ -43,7 +43,7 @@ from analytics.signal_lib import (
     secs_until_next_boundary,
 )
 from signals.cooldown_store import CooldownStore
-from utils.binance_client import create_client, load_coins_config
+from utils.binance_client import create_data_client, load_coins_config
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +131,7 @@ def run_signal_watch(
     from analytics.data_store import get_ohlcv
     from analytics.strategies import KNOWN_STRATEGIES
 
-    client = create_client()
+    client = create_data_client()
     coins_config = load_coins_config()
 
     resolved_symbols = symbols or list(coins_config.keys())

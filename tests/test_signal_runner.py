@@ -91,3 +91,25 @@ def test_warm_cache_invalidates_on_gap() -> None:
 
     _update_ohlcv_cache(conn, cache, "BTCUSDT", "15m", _T0, _T0 + 6 * _MS)
     assert len(cache[("BTCUSDT", "15m")]) == 6  # full rebuild
+
+
+def test_create_data_client_returns_okx_when_env_set() -> None:
+    import os
+    from unittest.mock import patch
+
+    from utils.binance_client import create_data_client
+    from utils.okx_client import OKXClient
+
+    with patch.dict(os.environ, {"DATA_SOURCE": "okx"}):
+        assert isinstance(create_data_client(), OKXClient)
+
+
+def test_run_signal_watch_uses_create_data_client() -> None:
+    # The daemon must select its market-data client via create_data_client (so
+    # DATA_SOURCE=okx is honoured), not hardcode the Binance create_client.
+    import inspect
+
+    from analytics import signal_runner
+
+    src = inspect.getsource(signal_runner.run_signal_watch)
+    assert "create_data_client()" in src
