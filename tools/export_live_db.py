@@ -56,11 +56,12 @@ def export_live_db(src: Path = DEFAULT_SRC, out: Path = DEFAULT_OUT) -> None:
             for t in LIVE_TABLES
             if _table_exists(out_con, t)
         }
-        size_mb = out.stat().st_size / 1e6
-        print(f"Exported {out} ({size_mb:.1f} MB): {rows}")
     finally:
         src_con.close()
         out_con.close()
+    # Stat after close so DuckDB has flushed the file to its final size.
+    size_mb = out.stat().st_size / 1e6
+    print(f"Exported {out} ({size_mb:.1f} MB): {rows}")
 
 
 if __name__ == "__main__":
