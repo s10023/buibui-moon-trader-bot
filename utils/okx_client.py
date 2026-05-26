@@ -11,7 +11,10 @@ detector needs them on this path.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def _okx_row_to_binance(okx: list[str]) -> list[Any]:
@@ -56,3 +59,93 @@ def _to_okx_bar(timeframe: str) -> str:
     if timeframe not in _BAR_MAP:
         raise ValueError(f"unsupported OKX timeframe: {timeframe!r}")
     return _BAR_MAP[timeframe]
+
+
+_OKX_BASE = "https://www.okx.com"
+_CANDLES_PATH = "/api/v5/market/candles"
+_OKX_PAGE_LIMIT = 300  # OKX max rows per request
+
+
+class OKXClient:
+    """Minimal OKX market-data client exposing a Binance-compatible futures_klines."""
+
+    def __init__(self, session: Any | None = None, base_url: str = _OKX_BASE) -> None:
+        if session is None:
+            import requests
+
+            session = requests.Session()
+        self._session = session
+        self._base = base_url
+
+    def futures_klines(
+        self,
+        symbol: str,
+        interval: str,
+        start_time: int,
+        limit: int = 1000,
+    ) -> pd.DataFrame:
+        """Return klines with open_time >= start_time, ascending, Binance-shaped.
+
+        Paginates OKX's newest-first pages backward via ``after`` until start_time is
+        reached or history ends, then maps + filters + sorts. Drops the unconfirmed
+        in-progress candle (confirm == "0").
+        """
+        inst_id = _to_okx_inst_id(symbol)
+        bar = _to_okx_bar(interval)
+        collected: list[list[Any]] = []
+        after: str | None = None
+        while len(collected) < limit:
+            params: dict[str, Any] = {
+                "instId": inst_id,
+                "bar": bar,
+                "limit": str(_OKX_PAGE_LIMIT),
+            }
+            if after is not None:
+                params["after"] = after
+            resp = self._session.get(
+                f"{self._base}{_CANDLES_PATH}", params=params, timeout=15
+            )
+            resp.raise_for_status()
+            data = resp.json().get("data", [])
+            if not data:
+                break
+            for okx in data:
+                if okx[8] == "0":  # unconfirmed in-progress candle
+                    continue
+                collected.append(_okx_row_to_binance(okx))
+            oldest_ts = int(data[-1][0])
+            after = str(oldest_ts)
+            if oldest_ts <= start_time:
+                break  # reached the requested window start
+
+        rows = [r for r in collected if r[0] >= start_time]
+        rows.sort(key=lambda r: r[0])
+        return _rows_to_ohlcv_df(rows[:limit], symbol, interval)
+
+
+def _rows_to_ohlcv_df(
+    rows: list[list[Any]], symbol: str, interval: str
+) -> pd.DataFrame:
+    import pandas as pd
+
+    from analytics.data_fetcher import OHLCV_COLUMNS
+
+    if not rows:
+        return pd.DataFrame(columns=OHLCV_COLUMNS)
+    return pd.DataFrame(
+        [
+            {
+                "symbol": symbol,
+                "timeframe": interval,
+                "open_time": int(r[0]),
+                "open": float(r[1]),
+                "high": float(r[2]),
+                "low": float(r[3]),
+                "close": float(r[4]),
+                "volume": float(r[5]),
+                "taker_buy_volume": float(r[9]),
+            }
+            for r in rows
+        ],
+        columns=OHLCV_COLUMNS,
+    )
