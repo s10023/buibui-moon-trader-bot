@@ -18,8 +18,8 @@ Detailed API reference for `analytics/`. Load this when working on any analytics
 
 ## data_fetcher.py / data_sync.py / analytics_runner.py
 
-- `data_fetcher.py` — pure fetch: Binance Futures API → DataFrames (no DB)
-- `data_sync.py` — pure orchestration: paginated backfill + incremental sync
+- `data_fetcher.py` — pure fetch: Binance Futures API → DataFrames (no DB). `fetch_klines` accepts `KlineClient = Client | OKXClient` and branches on `isinstance(client, OKXClient)` (OKX returns a ready OHLCV DataFrame; Binance maps raw rows). `DATA_SOURCE=okx` selects the OKX adapter via `utils.binance_client.create_data_client`
+- `data_sync.py` — pure orchestration: paginated backfill + incremental sync (`backfill` / `sync` retyped to `KlineClient`, so they drive Binance or OKX)
 - `analytics_runner.py` — thin wrapper: creates client, opens DB, calls sync lib
 
 ## strategies/ — strategy signal detection package

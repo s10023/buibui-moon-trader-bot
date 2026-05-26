@@ -157,7 +157,7 @@ cd buibui-moon-trader-bot
 
 ### 2. Install dependencies
 
-Requires **Python >= 3.11** and [Poetry](https://python-poetry.org/).
+Requires **Python >= 3.13** and [Poetry](https://python-poetry.org/).
 
 ```bash
 poetry install --no-root
@@ -257,6 +257,23 @@ make export-live-db && git add live_signal.duckdb && git commit -m "build: refre
 Best run **right after `make db-update`** (refreshes calibration *and* advances the OHLCV
 snapshot in one step), and at minimum **weekly** so the `15m` gap never outruns OKX's
 recent-candle window. Everything else (OKX sync, dedup state, alerts) is automatic.
+
+### Pausing while running the daemon locally
+
+The cron job and a local `signal watch` daemon do **not** share dedup state (the runner
+uses `actions/cache`, your laptop uses its own `signal_state.json`), so running both
+fires **duplicate** alerts. Pause the cron before a local session and re-enable after:
+
+```sh
+gh workflow disable signal-watch.yaml      # stops the hourly cron + blocks manual dispatch
+# ... run the local daemon ...
+gh workflow enable signal-watch.yaml       # resume
+```
+
+It's a persistent state toggle (survives across runs until flipped back); an in-flight
+run still finishes. The same toggle lives in the **Actions** tab → **Signal Watch (OKX)**
+→ **⋯** → **Disable workflow**. Note scheduled workflows only fire from the **default
+branch**, so the cron does nothing until this workflow is merged to `main`.
 
 ---
 
