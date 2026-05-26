@@ -157,7 +157,7 @@ cd buibui-moon-trader-bot
 
 ### 2. Install dependencies
 
-Requires **Python >= 3.11** and [Poetry](https://python-poetry.org/).
+Requires **Python >= 3.13** and [Poetry](https://python-poetry.org/).
 
 ```bash
 poetry install --no-root
@@ -202,6 +202,82 @@ cp config/coins.json.example config/coins.json
 
 `smt_secondary` is optional. When set, the signal daemon uses it as the correlated
 symbol for `smt_divergence` detection on that symbol.
+
+---
+
+## Scheduled alerts (GitHub Actions)
+
+`.github/workflows/signal-watch.yaml` runs the signal daemon on an **hourly cron**
+and fires Telegram alerts — no always-on host required.
+
+- **Data source: OKX.** GitHub-hosted (US) runners are geo-blocked from Binance
+  (HTTP 451) and Bybit (403), but OKX V5 public market data is reachable. Set
+  `DATA_SOURCE=okx` to select the keyless `utils/okx_client.py` adapter; the daemon
+  entry point is `buibui signal watch --once` (single scan cycle, then exit).
+- **Calibration is committed, not recomputed.** `make export-live-db` writes a slim
+  `live_signal.duckdb` (~7 MB: `ohlcv` + `confidence_ratings` + combo tables, **no**
+  `backtest_trades`) by reading your local Binance `analytics.db` **read-only**. It is
+  committed in **plain git** (public-repo checkout bandwidth is free; Git LFS bandwidth
+  is metered even on public repos). Re-run `make export-live-db` and commit it whenever
+  calibration changes (e.g. after `make db-update`) — not every code change, to keep
+  history lean. Star ratings / combos stay Binance-derived; only the `min_avg_r` gate
+  recomputes on OKX candles, so it stays self-consistent.
+- **The runner never touches your data.** It copies `live_signal.duckdb` to an
+  ephemeral `analytics.db` inside the runner, incremental-syncs new OKX candles, scans,
+  and persists only `signal_state.json` (cooldown/dedup) via `actions/cache`. No DB is
+  ever written back or committed. Locally, `DATA_SOURCE` defaults to `binance`, so
+  `make db-update` is unaffected.
+- **Required repo secrets:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
+- **Caveat — `cvd_divergence`:** OKX candles lack taker-buy volume, so OKX-synced rows
+  set `taker_buy_volume = volume / 2` (neutral CVD delta). Committed Binance history
+  keeps real taker volume; only the newest OKX candles are neutral, so `cvd_divergence`
+  degrades gracefully (it won't fire a false directional signal) rather than crashing.
+
+### Maintenance — re-export cadence
+
+Each run starts from the **committed** `live_signal.duckdb` (the runner's working DB is
+ephemeral and discarded), so every hourly run re-syncs the **entire gap** from the
+snapshot's newest candle up to now — not just the last hour. Two things drift as the
+committed snapshot ages:
+
+1. **OHLCV gap → eventual holes.** OKX's `/market/candles` only serves a bounded window
+   of recent candles, and the shortest timeframe (`15m`) exhausts it first. If the
+   snapshot goes stale beyond OKX's reach, the incremental sync can no longer bridge the
+   gap and you get missing candles.
+2. **Frozen calibration.** `confidence_ratings` (stars), `backtest_combos`, and
+   `backtest_cross_tf_combos` never update on the runner — they are whatever the last
+   export captured. Same-candle confluence grouping (`Confluence: N strategies`) is
+   computed live and is unaffected, but the **combo / cross-TF historical-edge tagging**
+   only recognises pairs present at export time: a pair discovered by a later backtest is
+   silently skipped (the signal still fires, just without its combo stats) until you
+   re-export. Star-gated alert quality drifts the same way.
+
+**Fix — re-export and commit periodically:**
+
+```sh
+make export-live-db && git add live_signal.duckdb && git commit -m "build: refresh live DB" && git push
+```
+
+Best run **right after `make db-update`** (refreshes calibration *and* advances the OHLCV
+snapshot in one step), and at minimum **weekly** so the `15m` gap never outruns OKX's
+recent-candle window. Everything else (OKX sync, dedup state, alerts) is automatic.
+
+### Pausing while running the daemon locally
+
+The cron job and a local `signal watch` daemon do **not** share dedup state (the runner
+uses `actions/cache`, your laptop uses its own `signal_state.json`), so running both
+fires **duplicate** alerts. Pause the cron before a local session and re-enable after:
+
+```sh
+gh workflow disable signal-watch.yaml      # stops the hourly cron + blocks manual dispatch
+# ... run the local daemon ...
+gh workflow enable signal-watch.yaml       # resume
+```
+
+It's a persistent state toggle (survives across runs until flipped back); an in-flight
+run still finishes. The same toggle lives in the **Actions** tab → **Signal Watch (OKX)**
+→ **⋯** → **Disable workflow**. Note scheduled workflows only fire from the **default
+branch**, so the cron does nothing until this workflow is merged to `main`.
 
 ---
 

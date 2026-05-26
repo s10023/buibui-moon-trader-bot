@@ -1,0 +1,67 @@
+# Hourly signal-watch on OKX market data (Binance/Bybit are geo-blocked from
+# GH-hosted US runners). Restores the committed slim live_signal.duckdb to an
+# EPHEMERAL analytics.db inside the runner, incremental-syncs new OKX candles,
+# runs one scan cycle, fires Telegram alerts, and persists only signal_state.json.
+# No DB is ever written back or committed by the runner.
+name: Signal Watch (OKX)
+
+on:
+  schedule:
+    - cron: '0 * * * *'   # hourly, on the hour (UTC)
+  workflow_dispatch:
+
+concurrency:
+  group: signal-watch
+  cancel-in-progress: false   # let a run finish; don't drop alerts mid-flight
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (live_signal.duckdb is plain git, no LFS)
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'   # repo requires >=3.13,<3.14
+
+      - name: Install Poetry
+        run: pipx install poetry
+
+      - name: Cache Poetry download cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: poetry-${{ runner.os }}-${{ hashFiles('poetry.lock') }}
+
+      - name: Install dependencies
+        run: poetry install --no-root
+
+      - name: Restore signal_state.json (cooldown/dedup)
+        uses: actions/cache@v4
+        with:
+          path: signal_state.json
+          key: signal-state-${{ github.run_id }}
+          restore-keys: |
+            signal-state-
+
+      - name: Seed coins config from the committed example
+        run: cp config/coins.json.example config/coins.json
+
+      - name: Seed working DB from committed live DB (ephemeral, never committed)
+        run: cp live_signal.duckdb analytics.db
+
+      - name: Run one scan cycle (auto-picks config by UTC weekday)
+        env:
+          DATA_SOURCE: okx
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: poetry run python buibui.py signal watch --once --telegram
+
+      - name: Save signal_state.json
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: signal_state.json
+          key: signal-state-${{ github.run_id }}

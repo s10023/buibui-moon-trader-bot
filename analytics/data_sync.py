@@ -12,6 +12,7 @@ from binance.client import Client
 
 from analytics.data_fetcher import (
     KLINES_MAX_LIMIT,
+    KlineClient,
     OIPeriod,
     fetch_funding_rates,
     fetch_klines,
@@ -37,7 +38,7 @@ _DEFAULT_SLEEP_SECONDS: float = 0.1
 
 def backfill(
     conn: duckdb.DuckDBPyConnection,
-    client: Client,
+    client: KlineClient,
     symbol: str,
     timeframe: str,
     start_ms: int,
@@ -115,7 +116,7 @@ def sync_open_interest(
 
 def sync(
     conn: duckdb.DuckDBPyConnection,
-    client: Client,
+    client: KlineClient,
     symbol: str,
     timeframe: str,
     sleep_fn: Callable[[float], None] | None = None,

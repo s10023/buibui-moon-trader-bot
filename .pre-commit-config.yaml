@@ -9,6 +9,10 @@ repos:
       - id: check-toml
       - id: check-added-large-files
         args: ['--maxkb=1200']
+        # live_signal.duckdb is the slim calibration+OHLCV DB committed for the
+        # GH Actions OKX signal-watch job (~7MB). Stored in plain git (public repo
+        # checkout bandwidth is free; LFS bandwidth is metered even on public repos).
+        exclude: '^live_signal\.duckdb$'
       - id: check-merge-conflict
 
   - repo: https://github.com/astral-sh/ruff-pre-commit

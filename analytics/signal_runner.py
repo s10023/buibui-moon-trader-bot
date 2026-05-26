@@ -43,7 +43,7 @@ from analytics.signal_lib import (
     secs_until_next_boundary,
 )
 from signals.cooldown_store import CooldownStore
-from utils.binance_client import create_client, load_coins_config
+from utils.binance_client import create_data_client, load_coins_config
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +121,7 @@ def run_signal_watch(
     config_name: str | None = None,
     bias_cfg: BiasConfig | None = None,
     combo_cfg: ComboConfig | None = None,
+    max_cycles: int | None = None,
 ) -> None:
     """Run the signal detection daemon loop.
 
@@ -131,7 +132,7 @@ def run_signal_watch(
     from analytics.data_store import get_ohlcv
     from analytics.strategies import KNOWN_STRATEGIES
 
-    client = create_client()
+    client = create_data_client()
     coins_config = load_coins_config()
 
     resolved_symbols = symbols or list(coins_config.keys())
@@ -389,6 +390,12 @@ def run_signal_watch(
                 logger.info("%d alert(s) sent this cycle", len(alerts))
             else:
                 logger.info("No new signals this cycle")
+
+            if max_cycles is not None and _cycle_count >= max_cycles:
+                logger.info(
+                    "max_cycles=%d reached — exiting after one-shot run", max_cycles
+                )
+                break
 
             sleep_secs, wake_ts = secs_until_next_boundary(resolved_timeframes)
             next_dt = datetime.fromtimestamp(wake_ts, tz=_MYT).strftime("%H:%M:%S MYT")

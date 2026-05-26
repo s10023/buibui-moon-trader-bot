@@ -131,6 +131,11 @@ def run_signal_watch(args: argparse.Namespace) -> None:
     smt_pairs = cli_smt_pairs if cli_smt_pairs is not None else (cfg.smt_pairs or None)
 
     config_name = pathlib.Path(config_path).stem
+    # Only override the daemon's default DB when --db-path is given (e.g. a throwaway
+    # copy for smoke tests, so a one-shot run never writes the real analytics.db).
+    db_override: dict[str, object] = {}
+    if getattr(args, "db_path", None):
+        db_override["db_path"] = pathlib.Path(args.db_path)
     signal_runner.run_signal_watch(
         symbols=symbols,
         timeframes=timeframes,
@@ -154,6 +159,8 @@ def run_signal_watch(args: argparse.Namespace) -> None:
         config_name=config_name,
         bias_cfg=cfg.bias,
         combo_cfg=cfg.combo,
+        max_cycles=1 if getattr(args, "once", False) else None,
+        **db_override,  # type: ignore[arg-type]
     )
 
 
@@ -239,6 +246,18 @@ def add_signal_subparser(
         default=None,
         dest="min_sl_pct",
         help="Minimum SL distance as a fraction of price (e.g. 0.005 = 0.5%%; default: 0 = disabled, or from --config)",
+    )
+    watch_parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run a single scan cycle then exit (for cron / GitHub Actions).",
+    )
+    watch_parser.add_argument(
+        "--db-path",
+        default=None,
+        dest="db_path",
+        help="Path to analytics.db (default: project default). Use a copy to avoid "
+        "writing the live DB.",
     )
     watch_parser.set_defaults(func=run_signal_watch)
 
