@@ -136,3 +136,33 @@ class TestFetchOpenInterest:
         df = fetch_open_interest(client, "BTCUSDT", "1h")
         assert df.iloc[0]["oi_usd"] == 30_000_000.0
         assert df.iloc[0]["timestamp"] == 1_700_000_000_000
+
+
+class TestFetchKlinesOKXPassthrough:
+    """fetch_klines must return an OKXClient's DataFrame directly (no re-map)."""
+
+    def test_passes_through_okx_dataframe(self) -> None:
+        from utils.okx_client import OKXClient
+
+        class _Resp:
+            status_code = 200
+
+            def json(self) -> dict[str, Any]:
+                # one confirmed candle at ts 1000
+                return {
+                    "code": "0",
+                    "data": [["1000", "1", "2", "0.5", "1.5", "100", "x", "y", "1"]],
+                }
+
+            def raise_for_status(self) -> None:
+                return None
+
+        class _Session:
+            def get(self, url: str, params: dict[str, Any], timeout: float) -> "_Resp":
+                return _Resp()
+
+        client = OKXClient(session=_Session())
+        df = fetch_klines(client, "BTCUSDT", "1h", 1000)
+        assert list(df.columns) == OHLCV_COLUMNS
+        assert df["open_time"].iloc[0] == 1000
+        assert float(df["taker_buy_volume"].iloc[0]) == 100 / 2

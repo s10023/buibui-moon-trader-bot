@@ -39,6 +39,20 @@ def create_client() -> Client:
     return client
 
 
+def create_data_client() -> Any:
+    """Return the market-data client for the active DATA_SOURCE.
+
+    DATA_SOURCE=okx  -> OKXClient (keyless OKX V5 public market data).
+    anything else    -> Binance futures client (create_client()), the default.
+    """
+    source = os.environ.get("DATA_SOURCE", "binance").lower()
+    if source == "okx":
+        from utils.okx_client import OKXClient
+
+        return OKXClient()
+    return create_client()
+
+
 def load_coins_config(path: Path | str = _DEFAULT_COINS_PATH) -> dict[str, Any]:
     """Load and validate coins.json, return config dict."""
     with open(path) as f:

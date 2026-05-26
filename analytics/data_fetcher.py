@@ -10,7 +10,14 @@ from typing import Any, Literal
 import pandas as pd
 from binance.client import Client
 
+from utils.okx_client import OKXClient
+
 OIPeriod = Literal["5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"]
+
+# Market-data clients fetch_klines can drive. Binance and OKX have incompatible
+# futures_klines keyword names (startTime vs start_time), so a structural Protocol
+# can't match both — a union narrowed by isinstance is the honest type.
+type KlineClient = Client | OKXClient
 
 KLINES_MAX_LIMIT: int = 1000
 
@@ -40,7 +47,7 @@ def _fetch_to_df(
 
 
 def fetch_klines(
-    client: Client,
+    client: KlineClient,
     symbol: str,
     interval: str,
     start_time: int,
@@ -51,7 +58,12 @@ def fetch_klines(
     Returns a DataFrame with columns matching OHLCV_COLUMNS.
     Returns an empty DataFrame (with correct columns) if the API returns no data.
     Raises on API errors — callers decide whether to retry or skip.
+
+    When `client` is an OKXClient, its futures_klines already returns a Binance-shaped
+    OHLCV DataFrame, so pass it through directly; otherwise map the Binance raw rows.
     """
+    if isinstance(client, OKXClient):
+        return client.futures_klines(symbol, interval, start_time, limit)
     raw = client.futures_klines(
         symbol=symbol, interval=interval, startTime=start_time, limit=limit
     )
