@@ -113,3 +113,13 @@ def test_run_signal_watch_uses_create_data_client() -> None:
 
     src = inspect.getsource(signal_runner.run_signal_watch)
     assert "create_data_client()" in src
+
+
+def test_run_signal_watch_accepts_max_cycles() -> None:
+    import inspect
+
+    from analytics import signal_runner
+
+    sig = inspect.signature(signal_runner.run_signal_watch)
+    assert "max_cycles" in sig.parameters
+    assert sig.parameters["max_cycles"].default is None
