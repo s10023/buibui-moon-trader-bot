@@ -34,3 +34,25 @@ def _okx_row_to_binance(okx: list[str]) -> list[Any]:
         0,  # 8 trades (unused)
         str(volume / 2),  # 9 taker_buy_volume (neutral)
     ]
+
+
+# USDT-perp symbol map: Binance "BTCUSDT" -> OKX "BTC-USDT-SWAP".
+_INST_SUFFIX = "USDT"
+
+
+def _to_okx_inst_id(symbol: str) -> str:
+    if not symbol.endswith(_INST_SUFFIX):
+        raise ValueError(f"cannot map symbol to OKX instId: {symbol!r}")
+    base = symbol[: -len(_INST_SUFFIX)]
+    return f"{base}-USDT-SWAP"
+
+
+# Bar map. 1d -> 1Dutc so the daily candle opens at 00:00 UTC (matches Binance
+# open_time / day_filter). OKX hour bars (1H/4H) are UTC-aligned by default.
+_BAR_MAP = {"15m": "15m", "1h": "1H", "4h": "4H", "1d": "1Dutc"}
+
+
+def _to_okx_bar(timeframe: str) -> str:
+    if timeframe not in _BAR_MAP:
+        raise ValueError(f"unsupported OKX timeframe: {timeframe!r}")
+    return _BAR_MAP[timeframe]
