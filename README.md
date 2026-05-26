@@ -233,6 +233,31 @@ and fires Telegram alerts — no always-on host required.
   keeps real taker volume; only the newest OKX candles are neutral, so `cvd_divergence`
   degrades gracefully (it won't fire a false directional signal) rather than crashing.
 
+### Maintenance — re-export cadence
+
+Each run starts from the **committed** `live_signal.duckdb` (the runner's working DB is
+ephemeral and discarded), so every hourly run re-syncs the **entire gap** from the
+snapshot's newest candle up to now — not just the last hour. Two things drift as the
+committed snapshot ages:
+
+1. **OHLCV gap → eventual holes.** OKX's `/market/candles` only serves a bounded window
+   of recent candles, and the shortest timeframe (`15m`) exhausts it first. If the
+   snapshot goes stale beyond OKX's reach, the incremental sync can no longer bridge the
+   gap and you get missing candles.
+2. **Frozen calibration.** `confidence_ratings` (stars), combos, and cross-TF combos
+   never update on the runner — they are whatever the last export captured. Star-gated
+   alert quality and combo confluence drift until you re-export.
+
+**Fix — re-export and commit periodically:**
+
+```sh
+make export-live-db && git add live_signal.duckdb && git commit -m "build: refresh live DB" && git push
+```
+
+Best run **right after `make db-update`** (refreshes calibration *and* advances the OHLCV
+snapshot in one step), and at minimum **weekly** so the `15m` gap never outruns OKX's
+recent-candle window. Everything else (OKX sync, dedup state, alerts) is automatic.
+
 ---
 
 ## Usage
