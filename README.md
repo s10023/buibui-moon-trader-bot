@@ -244,9 +244,13 @@ committed snapshot ages:
    of recent candles, and the shortest timeframe (`15m`) exhausts it first. If the
    snapshot goes stale beyond OKX's reach, the incremental sync can no longer bridge the
    gap and you get missing candles.
-2. **Frozen calibration.** `confidence_ratings` (stars), combos, and cross-TF combos
-   never update on the runner — they are whatever the last export captured. Star-gated
-   alert quality and combo confluence drift until you re-export.
+2. **Frozen calibration.** `confidence_ratings` (stars), `backtest_combos`, and
+   `backtest_cross_tf_combos` never update on the runner — they are whatever the last
+   export captured. Same-candle confluence grouping (`Confluence: N strategies`) is
+   computed live and is unaffected, but the **combo / cross-TF historical-edge tagging**
+   only recognises pairs present at export time: a pair discovered by a later backtest is
+   silently skipped (the signal still fires, just without its combo stats) until you
+   re-export. Star-gated alert quality drifts the same way.
 
 **Fix — re-export and commit periodically:**
 
