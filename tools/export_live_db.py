@@ -27,13 +27,20 @@ DEFAULT_SRC = Path("analytics.db")
 DEFAULT_OUT = Path("live_signal.duckdb")
 
 
+def _scalar(con: duckdb.DuckDBPyConnection, sql: str, params: list[object]) -> int:
+    """Return the first column of the first row as an int (0 if no row)."""
+    row = con.execute(sql, params).fetchone()
+    return int(row[0]) if row is not None else 0
+
+
 def _table_exists(con: duckdb.DuckDBPyConnection, table: str) -> bool:
     return bool(
-        con.execute(
+        _scalar(
+            con,
             "SELECT COUNT(*) FROM information_schema.tables "
             "WHERE table_schema='main' AND table_name=?",
             [table],
-        ).fetchone()[0]
+        )
     )
 
 
@@ -52,7 +59,7 @@ def export_live_db(src: Path = DEFAULT_SRC, out: Path = DEFAULT_OUT) -> None:
             df = src_con.execute(f'SELECT * FROM "{table}"').fetchdf()  # noqa: F841
             out_con.execute(f'CREATE TABLE "{table}" AS SELECT * FROM df')
         rows = {
-            t: out_con.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]
+            t: _scalar(out_con, f'SELECT COUNT(*) FROM "{t}"', [])
             for t in LIVE_TABLES
             if _table_exists(out_con, t)
         }

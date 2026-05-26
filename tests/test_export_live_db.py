@@ -50,5 +50,6 @@ def test_export_does_not_mutate_source(tmp_path: Path) -> None:
     # source untouched (read-only access); mtime unchanged
     assert src.stat().st_mtime_ns == before
     con = duckdb.connect(str(src), read_only=True)
-    assert con.execute("SELECT COUNT(*) FROM backtest_trades").fetchone()[0] == 1
+    row = con.execute("SELECT COUNT(*) FROM backtest_trades").fetchone()
     con.close()
+    assert row is not None and row[0] == 1
