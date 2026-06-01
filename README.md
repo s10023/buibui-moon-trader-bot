@@ -765,11 +765,19 @@ dow_suppress_min_abs_return = 0.005  # dead-band: ±0.5% to avoid noise from nea
 # See `config/strategy_params.toml` for the live anchor mix and per-strategy overrides.
 [bias.htf_ema]
 enabled = true
-mode = "hard"                   # "soft" = log only; "hard" = drop opposing signals
+mode = "soft"                   # "soft" = log only; "hard" = drop opposing signals
 default_tf = "4h"               # default anchor TF; per_strategy entries can override
 default_period = 50
 default_slope_lookback = 10
 deadband_pct = 0.003            # |slope| < 0.3% over slope_lookback bars → allow
+# Directions F8 may suppress when a signal opposes the HTF slope. Precedence:
+# per-strategy override → this global → built-in ("long","short")=symmetric.
+# [] = full exempt; omitting the key = symmetric (back-compat). 2026-06-01
+# ablation found counter-trend shorts win, so the global gates longs only;
+# flow family (cvd/smt) is exempt, fib family (fib_golden_zone/ote_entry) stays
+# symmetric. Shipped soft for observation; hard flip is OOS-gated
+# (`tools/htf_ema_gate_replay.py --oos-frac 0.3`).
+suppress_directions = ["long"]
 
 # v2 Phase 2 regime gate (per redesign §6) — Step −1, runs before F8.
 # Drops signals whose strategy type is not enabled in the current 4h regime.
