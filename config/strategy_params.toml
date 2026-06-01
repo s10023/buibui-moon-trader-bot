@@ -54,16 +54,22 @@ adr_suppress_threshold = 0.80
 # Soft-tested 2026-05-05; flipped to hard 2026-05-06.
 [bias.htf_ema]
 enabled = true
-mode = "hard"                  # "soft" = log only; "hard" = drop opposing signals
+mode = "soft"                  # soft-first observation; flip to "hard" after OOS confirm
 default_tf = "4h"
 default_period = 50
 default_slope_lookback = 10
 deadband_pct = 0.003           # |slope| < 0.3% over slope_lookback bars → allow
+suppress_directions = ["long"] # gate counter-trend longs only; counter-trend shorts win (ablation 2026-06-01)
 
 [bias.htf_ema.per_strategy]
+# flow family — fully exempt (counter-trend shorts +0.78R, longs ~0):
+cvd_divergence  = { tf = "1d", period = 50, slope_lookback = 10, suppress_directions = [] }
+smt_divergence  = { tf = "1d", period = 50, slope_lookback = 10, suppress_directions = [] }
+# fib family — keep full symmetric gate (both directions lose counter-trend):
+fib_golden_zone = { suppress_directions = ["long", "short"] }
+ote_entry       = { suppress_directions = ["long", "short"] }
+# 1d-anchor strategies inherit the global suppress_directions = ["long"]:
 ema             = { tf = "1d", period = 50, slope_lookback = 10 }
-smt_divergence  = { tf = "1d", period = 50, slope_lookback = 10 }
-cvd_divergence  = { tf = "1d", period = 50, slope_lookback = 10 }
 orb             = { tf = "1d", period = 50, slope_lookback = 10 }
 eqh_eql         = { tf = "1d", period = 50, slope_lookback = 10 }
 marubozu        = { tf = "1d", period = 50, slope_lookback = 10 }
