@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import cast
 
 import duckdb
 import pandas as pd
@@ -114,8 +115,14 @@ def annotate_suppression(
 
     parts: list[pd.DataFrame] = []
     group_cols = ["symbol", "anchor_tf", "anchor_period", "anchor_slb"]
-    for (symbol, atf, period, slb), g in trades.groupby(group_cols, sort=False):
-        series = _slope_series(conn, str(symbol), str(atf), int(period), int(slb))
+    for key, g in trades.groupby(group_cols, sort=False):
+        symbol, atf, period, slb = (
+            cast(str, key[0]),
+            cast(str, key[1]),
+            cast(int, key[2]),
+            cast(int, key[3]),
+        )
+        series = _slope_series(conn, symbol, atf, period, slb)
         tf_ms = _TF_MS[str(atf)]
         g = g.copy()
         keys = g["entry_time"].apply(lambda t, _m=tf_ms: _last_closed_open(int(t), _m))
@@ -218,7 +225,54 @@ def render(trades: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
-def run(db_path: Path, config_path: Path) -> tuple[pd.DataFrame, str]:
+def split_is_oos(
+    trades: pd.DataFrame, oos_frac: float
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Split trades by entry_time: latest `oos_frac` fraction → out-of-sample.
+
+    oos_frac <= 0 → all in-sample, empty OOS. Deterministic time split (no
+    shuffling) so the OOS window is a genuine forward holdout.
+    """
+    if oos_frac <= 0 or trades.empty:
+        return trades, trades.iloc[0:0]
+    cutoff = trades["entry_time"].quantile(1.0 - oos_frac)
+    is_df = trades[trades["entry_time"] < cutoff]
+    oos_df = trades[trades["entry_time"] >= cutoff]
+    return is_df, oos_df
+
+
+def render_is_oos(trades: pd.DataFrame, oos_frac: float) -> str:
+    types = {n: s.strategy_type for n, s in STRATEGY_REGISTRY.items()}
+    trades = trades.copy()
+    trades["type"] = trades["strategy"].map(types)
+    is_df, oos_df = split_is_oos(trades, oos_frac)
+    lines = ["", f"IS/OOS short-side check (oos_frac={oos_frac}):", "-" * 64]
+    lines.append(f"{'type':<14} {'IS short_r':>11} {'OOS short_r':>12} {'verdict':>10}")
+    lines.append("-" * 64)
+
+    def _short_r(df: pd.DataFrame, typ: str) -> float | None:
+        sub = df[
+            (df["type"] == typ) & (df["suppressed"]) & (df["direction"] == "short")
+        ]
+        return float(sub["pnl_r"].mean()) if len(sub) else None
+
+    for typ in sorted({t for t in types.values() if isinstance(t, str)}):
+        is_r, oos_r = _short_r(is_df, typ), _short_r(oos_df, typ)
+        if is_r is None or oos_r is None:
+            verdict = "n/a"
+        elif is_r > 0 and oos_r > 0:
+            verdict = "RELAX"
+        else:
+            verdict = "KEEP"
+        is_s = f"{is_r:+.4f}" if is_r is not None else "  --  "
+        oos_s = f"{oos_r:+.4f}" if oos_r is not None else "  --  "
+        lines.append(f"{typ:<14} {is_s:>11} {oos_s:>12} {verdict:>10}")
+    return "\n".join(lines)
+
+
+def run(
+    db_path: Path, config_path: Path, oos_frac: float = 0.0
+) -> tuple[pd.DataFrame, str]:
     cfg = load_signal_config(config_path)
     if not cfg.bias.htf_ema_enabled:
         raise SystemExit(f"{config_path}: [bias.htf_ema].enabled is false.")
@@ -227,7 +281,10 @@ def run(db_path: Path, config_path: Path) -> tuple[pd.DataFrame, str]:
     if trades.empty:
         raise SystemExit("No closed backtest_trades found.")
     trades = annotate_suppression(trades, conn, cfg.bias)
-    return trades, render(trades)
+    verdict = render(trades)
+    if oos_frac > 0:
+        verdict = verdict + render_is_oos(trades, oos_frac)
+    return trades, verdict
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -237,8 +294,14 @@ def main(argv: list[str] | None = None) -> int:
         "--config", type=Path, default=Path("config/strategy_params.toml")
     )
     parser.add_argument("--out", type=Path, default=None)
+    parser.add_argument(
+        "--oos-frac",
+        type=float,
+        default=0.0,
+        help="Fraction of latest trades held out for OOS short-side check.",
+    )
     args = parser.parse_args(argv)
-    trades, verdict = run(args.db, args.config)
+    trades, verdict = run(args.db, args.config, args.oos_frac)
     print(verdict)
     if args.out is not None:
         aggregate(trades, ["strategy", "timeframe", "direction", "anchor_tf"]).to_csv(
