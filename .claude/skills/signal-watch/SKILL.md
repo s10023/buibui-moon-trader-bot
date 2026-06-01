@@ -113,10 +113,10 @@ min_avg_r = 0.0          # suppress signals with directional avg_r below this th
 [bias.htf_ema]
 enabled = true
 mode = "soft"            # "soft" = log only (no suppression); "hard" = live suppression
-default_tf = "1d"
+default_tf = "4h"
 default_period = 50
-default_slope_lookback = 5
-deadband_pct = 0.0
+default_slope_lookback = 10
+deadband_pct = 0.003
 # suppress_directions scopes which signal directions F8 may suppress:
 #   ["long","short"] = symmetric (default when key is omitted — back-compat)
 #   ["long"]         = counter-trend longs only (production global default)
