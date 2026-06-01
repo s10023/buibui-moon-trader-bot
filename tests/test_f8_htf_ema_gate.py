@@ -28,6 +28,7 @@ def _bias(
     mode: str = "hard",
     deadband: float = 0.003,
     overrides: dict[str, HtfEmaAnchor] | None = None,
+    default_suppress_directions: tuple[str, ...] = ("long", "short"),
 ) -> BiasConfig:
     return BiasConfig(
         htf_ema_enabled=enabled,
@@ -37,6 +38,7 @@ def _bias(
         htf_ema_default_slope_lookback=10,
         htf_ema_deadband_pct=deadband,
         htf_ema_per_strategy=overrides or {},
+        htf_ema_default_suppress_directions=default_suppress_directions,
     )
 
 
@@ -123,3 +125,43 @@ class TestHtfEmaGate:
     def test_empty_event_list_returns_empty(self) -> None:
         out = _apply_htf_ema_gate([], _bias(mode="hard"), {}, "BTCUSDT", "1h")
         assert out == []
+
+    def test_long_only_scope_keeps_counter_trend_short(self) -> None:
+        # slope up → SHORT opposes, but scope = ["long"] → short is NOT suppressed.
+        cache = {("BTCUSDT", "4h", 50, 10): 0.05}
+        events = [_evt("bos", "long"), _evt("bos", "short")]
+        out = _apply_htf_ema_gate(
+            events,
+            _bias(mode="hard", default_suppress_directions=("long",)),
+            cache,
+            "BTCUSDT",
+            "1h",
+        )
+        assert {e.direction for e in out} == {"long", "short"}
+
+    def test_long_only_scope_still_drops_counter_trend_long(self) -> None:
+        # slope down → LONG opposes; scope ["long"] still drops it.
+        cache = {("BTCUSDT", "4h", 50, 10): -0.05}
+        events = [_evt("bos", "long"), _evt("bos", "short")]
+        out = _apply_htf_ema_gate(
+            events,
+            _bias(mode="hard", default_suppress_directions=("long",)),
+            cache,
+            "BTCUSDT",
+            "1h",
+        )
+        assert [e.direction for e in out] == ["short"]
+
+    def test_empty_scope_exempts_strategy_via_override(self) -> None:
+        # cvd_divergence override with suppress_directions=() → never suppressed.
+        overrides = {
+            "cvd_divergence": HtfEmaAnchor(
+                tf="4h", period=50, slope_lookback=10, suppress_directions=()
+            )
+        }
+        cache = {("BTCUSDT", "4h", 50, 10): 0.05}
+        events = [_evt("cvd_divergence", "long"), _evt("cvd_divergence", "short")]
+        out = _apply_htf_ema_gate(
+            events, _bias(mode="hard", overrides=overrides), cache, "BTCUSDT", "1h"
+        )
+        assert len(out) == 2
