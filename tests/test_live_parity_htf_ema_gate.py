@@ -226,6 +226,36 @@ class TestApplyHtfEmaGateToSignals:
         )
         assert sorted(out["open_time"].tolist()) == [2_500, 4_500]
 
+    def test_long_only_scope_keeps_counter_trend_short(self) -> None:
+        # Up-slope → a SHORT opposes; scope ["long"] must keep it (and still
+        # keep the aligned long). Proves the engine inherits the live gate's
+        # suppress_directions via delegation — no engine code change.
+        bias = BiasConfig(
+            htf_ema_enabled=True,
+            htf_ema_mode="hard",
+            htf_ema_default_tf="4h",
+            htf_ema_default_period=50,
+            htf_ema_default_slope_lookback=10,
+            htf_ema_deadband_pct=0.003,
+            htf_ema_default_suppress_directions=("long",),
+        )
+        anchor_key = ("4h", 50, 10)
+        slope_series = pd.Series(
+            [0.05, 0.05, 0.05, 0.05],
+            index=pd.Index([1_000, 2_000, 3_000, 4_000], dtype="int64"),
+        )
+        signals = _toy_signals([3_500, 4_500], ["long", "short"])
+        out = _apply_htf_ema_gate_to_signals(
+            signals,
+            "BTCUSDT",
+            "1h",
+            "bos",
+            bias,
+            {anchor_key: slope_series},
+        )
+        # Both survive: long aligns with up-slope, short is out-of-scope.
+        assert sorted(out["open_time"].tolist()) == [3_500, 4_500]
+
     def test_per_strategy_anchor_routing(self) -> None:
         # Two different strategies route to two different anchors; their slopes
         # at the same signal time may disagree.
