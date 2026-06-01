@@ -580,6 +580,41 @@ tp_r_15m = 3.5
         )  # WFO tue_thu: 3.5→3.0R
 
 
+class TestHtfEmaSuppressDirectionsParser:
+    def test_parser_reads_global_and_override_suppress_directions(
+        self, tmp_path: Path
+    ) -> None:
+        cfg_text = """
+[bias.htf_ema]
+enabled = true
+mode = "soft"
+suppress_directions = ["long"]
+
+[bias.htf_ema.per_strategy]
+cvd_divergence = { tf = "1d", suppress_directions = [] }
+ema = { tf = "1d" }
+"""
+        p = _write_toml(tmp_path, cfg_text)
+        bias = load_signal_config(p).bias
+        assert bias.htf_ema_default_suppress_directions == ("long",)
+        # Override with explicit [] is exempt.
+        assert bias.htf_ema_anchor("cvd_divergence").suppress_directions == ()
+        # Override without the key inherits the global ["long"].
+        assert bias.htf_ema_anchor("ema").suppress_directions == ("long",)
+        # Unlisted strategy inherits the global default too.
+        assert bias.htf_ema_anchor("bos").suppress_directions == ("long",)
+
+    def test_parser_rejects_invalid_direction_token(self, tmp_path: Path) -> None:
+        cfg_text = """
+[bias.htf_ema]
+enabled = true
+suppress_directions = ["sideways"]
+"""
+        p = _write_toml(tmp_path, cfg_text)
+        with pytest.raises(ValueError, match="suppress_directions"):
+            load_signal_config(p)
+
+
 class TestDeepMerge:
     def test_scalar_override_wins(self) -> None:
         assert _deep_merge({"a": 1}, {"a": 2}) == {"a": 2}
