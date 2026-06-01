@@ -331,6 +331,7 @@ class BiasConfig:
             tf=self.htf_ema_default_tf,
             period=self.htf_ema_default_period,
             slope_lookback=self.htf_ema_default_slope_lookback,
+            suppress_directions=self.htf_ema_default_suppress_directions,
         )
 
     def regime_allowed(self, strategy: str, strategy_type: str, regime: str) -> bool:

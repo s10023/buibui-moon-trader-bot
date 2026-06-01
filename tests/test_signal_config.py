@@ -1254,3 +1254,26 @@ def test_bias_config_default_suppress_directions_is_both() -> None:
 
     bias = BiasConfig()
     assert bias.htf_ema_default_suppress_directions == ("long", "short")
+
+
+def test_htf_ema_anchor_no_override_inherits_global_suppress_directions() -> None:
+    from analytics.signal_config import BiasConfig
+
+    bias = BiasConfig(htf_ema_default_suppress_directions=("long",))
+    anchor = bias.htf_ema_anchor("bos")  # no override
+    assert anchor.tf == "4h"
+    assert anchor.suppress_directions == ("long",)
+
+
+def test_htf_ema_anchor_override_keeps_its_own_suppress_directions() -> None:
+    from analytics.signal_config import BiasConfig, HtfEmaAnchor
+
+    bias = BiasConfig(
+        htf_ema_default_suppress_directions=("long",),
+        htf_ema_per_strategy={
+            "cvd_divergence": HtfEmaAnchor(tf="1d", suppress_directions=())
+        },
+    )
+    anchor = bias.htf_ema_anchor("cvd_divergence")
+    assert anchor.tf == "1d"
+    assert anchor.suppress_directions == ()
