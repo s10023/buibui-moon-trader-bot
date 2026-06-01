@@ -108,7 +108,37 @@ min_trades_4h = 5
 min_trades_1d = 2
 min_avg_r = 0.0          # suppress signals with directional avg_r below this threshold
 # volume_suppress = false  # global fallback; per-strategy override takes precedence
+
+# F8 HTF EMA gate — suppress counter-trend signals when signal opposes HTF EMA slope
+[bias.htf_ema]
+enabled = true
+mode = "soft"            # "soft" = log only (no suppression); "hard" = live suppression
+default_tf = "4h"
+default_period = 50
+default_slope_lookback = 10
+deadband_pct = 0.003
+# suppress_directions scopes which signal directions F8 may suppress:
+#   ["long","short"] = symmetric (default when key is omitted — back-compat)
+#   ["long"]         = counter-trend longs only (production global default)
+#   []               = full exempt (signal always passes)
+suppress_directions = ["long"]
+
+# Per-strategy overrides (precedence: per-strategy → global → built-in symmetric)
+[bias.htf_ema.per_strategy.cvd_divergence]
+suppress_directions = []   # flow family: fully exempt
+
+[bias.htf_ema.per_strategy.smt_divergence]
+suppress_directions = []   # flow family: fully exempt
+
+[bias.htf_ema.per_strategy.fib_golden_zone]
+suppress_directions = ["long", "short"]   # fib family: keep symmetric gate
+
+[bias.htf_ema.per_strategy.ote_entry]
+suppress_directions = ["long", "short"]   # fib family: keep symmetric gate
 ```
+
+Hard-mode flip is deliberately OOS-gated — run `tools/htf_ema_gate_replay.py --oos-frac 0.3`
+to confirm OOS edge before changing `mode = "soft"` to `mode = "hard"`.
 
 **Note**: `filter_threshold` was renamed to `min_avg_r`. Update any old TOML that still has the old key.
 

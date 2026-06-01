@@ -229,7 +229,7 @@ def _apply_htf_ema_gate(
         opposing = (slope > 0 and event.direction == "short") or (
             slope < 0 and event.direction == "long"
         )
-        if not opposing:
+        if not opposing or event.direction not in anchor.suppress_directions:
             kept.append(event)
             continue
         logger.info(

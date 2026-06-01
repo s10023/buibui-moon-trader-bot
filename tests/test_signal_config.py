@@ -580,6 +580,41 @@ tp_r_15m = 3.5
         )  # WFO tue_thu: 3.5→3.0R
 
 
+class TestHtfEmaSuppressDirectionsParser:
+    def test_parser_reads_global_and_override_suppress_directions(
+        self, tmp_path: Path
+    ) -> None:
+        cfg_text = """
+[bias.htf_ema]
+enabled = true
+mode = "soft"
+suppress_directions = ["long"]
+
+[bias.htf_ema.per_strategy]
+cvd_divergence = { tf = "1d", suppress_directions = [] }
+ema = { tf = "1d" }
+"""
+        p = _write_toml(tmp_path, cfg_text)
+        bias = load_signal_config(p).bias
+        assert bias.htf_ema_default_suppress_directions == ("long",)
+        # Override with explicit [] is exempt.
+        assert bias.htf_ema_anchor("cvd_divergence").suppress_directions == ()
+        # Override without the key inherits the global ["long"].
+        assert bias.htf_ema_anchor("ema").suppress_directions == ("long",)
+        # Unlisted strategy inherits the global default too.
+        assert bias.htf_ema_anchor("bos").suppress_directions == ("long",)
+
+    def test_parser_rejects_invalid_direction_token(self, tmp_path: Path) -> None:
+        cfg_text = """
+[bias.htf_ema]
+enabled = true
+suppress_directions = ["sideways"]
+"""
+        p = _write_toml(tmp_path, cfg_text)
+        with pytest.raises(ValueError, match="suppress_directions"):
+            load_signal_config(p)
+
+
 class TestDeepMerge:
     def test_scalar_override_wins(self) -> None:
         assert _deep_merge({"a": 1}, {"a": 2}) == {"a": 2}
@@ -686,14 +721,24 @@ class TestLoadWithExtends:
         # merged: base volume_suppress + child tp_r
         assert cfg.effective_volume_suppress("bos") is True
         assert cfg.effective_tp_r("bos", "BTCUSDT", "1h") == 3.0
-        # F8 HTF EMA gate inherited from base — enabled in hard mode after the
-        # 2026-05-06 soft-mode validation; per-strategy overrides loaded for the
-        # strategies that prefer 1d EMA-50.
+        # F8 HTF EMA gate inherited from base — back to soft mode for the
+        # 2026-06-01 asymmetric suppress_directions rollout (observation window;
+        # hard flip is an OOS-gated follow-up). Per-strategy overrides loaded for
+        # the strategies that prefer 1d EMA-50.
         assert cfg.bias.htf_ema_enabled is True
-        assert cfg.bias.htf_ema_mode == "hard"
+        assert cfg.bias.htf_ema_mode == "soft"
         assert cfg.bias.htf_ema_default_tf == "4h"
         assert cfg.bias.htf_ema_default_period == 50
         assert cfg.bias.htf_ema_deadband_pct == 0.003
+        # asymmetric scope: global suppresses counter-trend longs only; flow
+        # family (cvd/smt) fully exempt; fib family keeps the symmetric gate.
+        assert cfg.bias.htf_ema_default_suppress_directions == ("long",)
+        assert cfg.bias.htf_ema_anchor("cvd_divergence").suppress_directions == ()
+        assert cfg.bias.htf_ema_anchor("fib_golden_zone").suppress_directions == (
+            "long",
+            "short",
+        )
+        assert cfg.bias.htf_ema_anchor("bos").suppress_directions == ("long",)
         # default anchor for non-overridden strategy
         anchor_default = cfg.bias.htf_ema_anchor("bos")
         assert anchor_default.tf == "4h" and anchor_default.period == 50
@@ -1240,3 +1285,40 @@ class TestEffectiveStrategyTimeframes:
         )
         # Empty list (not None) — strategy still listed; just no allowed TFs
         assert cfg.effective_strategy_timeframes("pin_bar", "long") == []
+
+
+def test_htf_ema_anchor_defaults_to_both_directions() -> None:
+    from analytics.signal_config import HtfEmaAnchor
+
+    anchor = HtfEmaAnchor()
+    assert anchor.suppress_directions == ("long", "short")
+
+
+def test_bias_config_default_suppress_directions_is_both() -> None:
+    from analytics.signal_config import BiasConfig
+
+    bias = BiasConfig()
+    assert bias.htf_ema_default_suppress_directions == ("long", "short")
+
+
+def test_htf_ema_anchor_no_override_inherits_global_suppress_directions() -> None:
+    from analytics.signal_config import BiasConfig
+
+    bias = BiasConfig(htf_ema_default_suppress_directions=("long",))
+    anchor = bias.htf_ema_anchor("bos")  # no override
+    assert anchor.tf == "4h"
+    assert anchor.suppress_directions == ("long",)
+
+
+def test_htf_ema_anchor_override_keeps_its_own_suppress_directions() -> None:
+    from analytics.signal_config import BiasConfig, HtfEmaAnchor
+
+    bias = BiasConfig(
+        htf_ema_default_suppress_directions=("long",),
+        htf_ema_per_strategy={
+            "cvd_divergence": HtfEmaAnchor(tf="1d", suppress_directions=())
+        },
+    )
+    anchor = bias.htf_ema_anchor("cvd_divergence")
+    assert anchor.tf == "1d"
+    assert anchor.suppress_directions == ()

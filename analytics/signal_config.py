@@ -28,6 +28,29 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return result
 
 
+_VALID_DIRECTIONS = ("long", "short")
+
+
+def _parse_suppress_directions(
+    raw: object, default: tuple[str, ...], where: str
+) -> tuple[str, ...]:
+    """Validate a suppress_directions list ⊆ {long, short}; fall back to default."""
+    if raw is None:
+        return default
+    if not isinstance(raw, list):
+        raise ValueError(f"{where}.suppress_directions must be a TOML array")
+    out: list[str] = []
+    for item in raw:
+        token = str(item)
+        if token not in _VALID_DIRECTIONS:
+            raise ValueError(
+                f"{where}.suppress_directions has invalid value {token!r} "
+                f"(allowed: {_VALID_DIRECTIONS})"
+            )
+        out.append(token)
+    return tuple(out)
+
+
 def _load_toml_with_extends(path: str | Path) -> dict[str, Any]:
     """Load a TOML file, merging a base file first if an 'extends' key is present.
 
@@ -254,6 +277,10 @@ class HtfEmaAnchor:
     tf: str = "4h"
     period: int = 50
     slope_lookback: int = 10
+    # F8 directions the gate is allowed to suppress when a signal opposes the
+    # HTF slope. Empty tuple = never suppress (full exempt). Default reproduces
+    # the original symmetric gate.
+    suppress_directions: tuple[str, ...] = ("long", "short")
 
 
 @dataclass
@@ -296,6 +323,7 @@ class BiasConfig:
     htf_ema_default_period: int = 50
     htf_ema_default_slope_lookback: int = 10
     htf_ema_deadband_pct: float = 0.003
+    htf_ema_default_suppress_directions: tuple[str, ...] = ("long", "short")
     htf_ema_per_strategy: dict[str, HtfEmaAnchor] = field(default_factory=dict)
 
     # T2c per-strategy directional suppress gate (Step −0.5 of bias chain).
@@ -326,6 +354,7 @@ class BiasConfig:
             tf=self.htf_ema_default_tf,
             period=self.htf_ema_default_period,
             slope_lookback=self.htf_ema_default_slope_lookback,
+            suppress_directions=self.htf_ema_default_suppress_directions,
         )
 
     def regime_allowed(self, strategy: str, strategy_type: str, regime: str) -> bool:
@@ -811,6 +840,9 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
     htf_default_tf = str(raw_htf.get("default_tf", "4h"))
     htf_default_period = int(raw_htf.get("default_period", 50))
     htf_default_slope_lb = int(raw_htf.get("default_slope_lookback", 10))
+    htf_default_suppress = _parse_suppress_directions(
+        raw_htf.get("suppress_directions"), ("long", "short"), "[bias.htf_ema]"
+    )
     htf_per_strategy: dict[str, HtfEmaAnchor] = {}
     for strat, ov in raw_htf_overrides.items():
         if not isinstance(ov, dict):
@@ -821,6 +853,11 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
             tf=str(ov.get("tf", htf_default_tf)),
             period=int(ov.get("period", htf_default_period)),
             slope_lookback=int(ov.get("slope_lookback", htf_default_slope_lb)),
+            suppress_directions=_parse_suppress_directions(
+                ov.get("suppress_directions"),
+                htf_default_suppress,
+                f"[bias.htf_ema.per_strategy.{strat}]",
+            ),
         )
 
     raw_dir_filter = raw_bias.get("direction_filter", {})
@@ -856,6 +893,7 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         htf_ema_default_slope_lookback=htf_default_slope_lb,
         htf_ema_deadband_pct=float(raw_htf.get("deadband_pct", 0.003)),
         htf_ema_per_strategy=htf_per_strategy,
+        htf_ema_default_suppress_directions=htf_default_suppress,
         direction_filter_enabled=bool(raw_dir_filter.get("enabled", False)),
         direction_filter_mode=str(raw_dir_filter.get("mode", "soft")),
         regime_enabled=bool(raw_regime.get("enabled", False)),
