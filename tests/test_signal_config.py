@@ -1240,3 +1240,17 @@ class TestEffectiveStrategyTimeframes:
         )
         # Empty list (not None) — strategy still listed; just no allowed TFs
         assert cfg.effective_strategy_timeframes("pin_bar", "long") == []
+
+
+def test_htf_ema_anchor_defaults_to_both_directions() -> None:
+    from analytics.signal_config import HtfEmaAnchor
+
+    anchor = HtfEmaAnchor()
+    assert anchor.suppress_directions == ("long", "short")
+
+
+def test_bias_config_default_suppress_directions_is_both() -> None:
+    from analytics.signal_config import BiasConfig
+
+    bias = BiasConfig()
+    assert bias.htf_ema_default_suppress_directions == ("long", "short")

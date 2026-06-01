@@ -254,6 +254,10 @@ class HtfEmaAnchor:
     tf: str = "4h"
     period: int = 50
     slope_lookback: int = 10
+    # F8 directions the gate is allowed to suppress when a signal opposes the
+    # HTF slope. Empty tuple = never suppress (full exempt). Default reproduces
+    # the original symmetric gate.
+    suppress_directions: tuple[str, ...] = ("long", "short")
 
 
 @dataclass
@@ -296,6 +300,7 @@ class BiasConfig:
     htf_ema_default_period: int = 50
     htf_ema_default_slope_lookback: int = 10
     htf_ema_deadband_pct: float = 0.003
+    htf_ema_default_suppress_directions: tuple[str, ...] = ("long", "short")
     htf_ema_per_strategy: dict[str, HtfEmaAnchor] = field(default_factory=dict)
 
     # T2c per-strategy directional suppress gate (Step −0.5 of bias chain).
