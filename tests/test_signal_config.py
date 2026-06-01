@@ -721,14 +721,24 @@ class TestLoadWithExtends:
         # merged: base volume_suppress + child tp_r
         assert cfg.effective_volume_suppress("bos") is True
         assert cfg.effective_tp_r("bos", "BTCUSDT", "1h") == 3.0
-        # F8 HTF EMA gate inherited from base — enabled in hard mode after the
-        # 2026-05-06 soft-mode validation; per-strategy overrides loaded for the
-        # strategies that prefer 1d EMA-50.
+        # F8 HTF EMA gate inherited from base — back to soft mode for the
+        # 2026-06-01 asymmetric suppress_directions rollout (observation window;
+        # hard flip is an OOS-gated follow-up). Per-strategy overrides loaded for
+        # the strategies that prefer 1d EMA-50.
         assert cfg.bias.htf_ema_enabled is True
-        assert cfg.bias.htf_ema_mode == "hard"
+        assert cfg.bias.htf_ema_mode == "soft"
         assert cfg.bias.htf_ema_default_tf == "4h"
         assert cfg.bias.htf_ema_default_period == 50
         assert cfg.bias.htf_ema_deadband_pct == 0.003
+        # asymmetric scope: global suppresses counter-trend longs only; flow
+        # family (cvd/smt) fully exempt; fib family keeps the symmetric gate.
+        assert cfg.bias.htf_ema_default_suppress_directions == ("long",)
+        assert cfg.bias.htf_ema_anchor("cvd_divergence").suppress_directions == ()
+        assert cfg.bias.htf_ema_anchor("fib_golden_zone").suppress_directions == (
+            "long",
+            "short",
+        )
+        assert cfg.bias.htf_ema_anchor("bos").suppress_directions == ("long",)
         # default anchor for non-overridden strategy
         anchor_default = cfg.bias.htf_ema_anchor("bos")
         assert anchor_default.tf == "4h" and anchor_default.period == 50
