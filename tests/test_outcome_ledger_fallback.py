@@ -12,11 +12,53 @@ from unittest.mock import patch
 
 import duckdb
 import pandas as pd
+import pytest
 
 from analytics.signal.scanner import _resolve_outcome_sl_tp, run_scan_cycle
 from analytics.signal.types import SignalEvent
 from analytics.store import init_schema
+from signals.alert_formatter import _apply_min_sl_floor, _widest_sl
 from signals.cooldown_store import CooldownStore
+
+
+def _formatter_sl_tp(
+    *,
+    direction: str,
+    price: float,
+    struct_sl: float,
+    struct_tp: float,
+    sl_pct: float,
+    min_sl_pct: float,
+    tp_r: float,
+) -> tuple[float, float]:
+    """Reproduce the alert formatter's SL/TP for a single-event group
+    (signals/alert_formatter.py:451-461) so the ledger can be checked against it."""
+    events = [
+        SignalEvent(
+            symbol="BTCUSDT",
+            timeframe="1h",
+            strategy="bos",
+            direction=direction,
+            reason="x",
+            open_time=0,
+            price=price,
+            sl_price=struct_sl,
+            tp_price=struct_tp,
+        )
+    ]
+    sl_price = _apply_min_sl_floor(
+        price, _widest_sl(events, direction, price, sl_pct), direction, min_sl_pct
+    )
+    if direction == "long":
+        sl_dist = price - sl_price
+        structural_tp = struct_tp if struct_tp > price else 0.0
+        tp_price = structural_tp if structural_tp > 0 else price + sl_dist * tp_r
+    else:
+        sl_dist = sl_price - price
+        structural_tp = struct_tp if 0 < struct_tp < price else 0.0
+        tp_price = structural_tp if structural_tp > 0 else price - sl_dist * tp_r
+    return sl_price, tp_price
+
 
 _HOUR = 3_600_000
 
@@ -231,4 +273,101 @@ class TestWriterNeverNull:
         # sl_dist = 2 → sl 102, tp 100 - 2*2 = 96
         assert math.isclose(row["sl_price"], 102.0)
         assert math.isclose(row["tp_price"], 96.0)
+        assert math.isclose(row["rr_ratio"], 2.0)
+
+
+class TestFormatterParity:
+    """The ledger's per-event SL/TP matches the alert formatter for a single-event
+    (no confluence) group — same grain, so values are exact."""
+
+    @pytest.mark.parametrize("direction", ["long", "short"])
+    @pytest.mark.parametrize("min_sl_pct", [0.0, 0.01, 0.05])
+    def test_ledger_matches_formatter_for_no_structural_event(
+        self, direction: str, min_sl_pct: float
+    ) -> None:
+        price, sl_pct, tp_r = 100.0, 0.02, 2.0
+        ledger = _resolve_outcome_sl_tp(
+            direction=direction,
+            entry=price,
+            struct_sl=0.0,
+            struct_tp=0.0,
+            eff_sl_pct=sl_pct,
+            min_sl_pct=min_sl_pct,
+            tp_r=tp_r,
+        )
+        formatter = _formatter_sl_tp(
+            direction=direction,
+            price=price,
+            struct_sl=0.0,
+            struct_tp=0.0,
+            sl_pct=sl_pct,
+            min_sl_pct=min_sl_pct,
+            tp_r=tp_r,
+        )
+        assert ledger[0] == pytest.approx(formatter[0])
+        assert ledger[1] == pytest.approx(formatter[1])
+
+    @pytest.mark.parametrize("direction", ["long", "short"])
+    def test_ledger_matches_formatter_for_structural_event(
+        self, direction: str
+    ) -> None:
+        price, sl_pct, tp_r = 100.0, 0.02, 2.0
+        struct_sl = 95.0 if direction == "long" else 105.0
+        ledger = _resolve_outcome_sl_tp(
+            direction=direction,
+            entry=price,
+            struct_sl=struct_sl,
+            struct_tp=0.0,
+            eff_sl_pct=sl_pct,
+            min_sl_pct=0.0,
+            tp_r=tp_r,
+        )
+        formatter = _formatter_sl_tp(
+            direction=direction,
+            price=price,
+            struct_sl=struct_sl,
+            struct_tp=0.0,
+            sl_pct=sl_pct,
+            min_sl_pct=0.0,
+            tp_r=tp_r,
+        )
+        assert ledger[0] == pytest.approx(formatter[0])
+        assert ledger[1] == pytest.approx(formatter[1])
+
+
+class TestStructuralUnchanged:
+    """Lock the no-regression on the structural-SL path that already worked (11%)."""
+
+    def test_structural_long_row_unchanged(self, tmp_path: Any) -> None:
+        # entry 100, structural sl 96 → sl_dist 4, sl 96, tp 100 + 4*2 = 108
+        event = SignalEvent(
+            symbol="BTCUSDT",
+            timeframe="1h",
+            strategy="bos",
+            direction="long",
+            reason="test",
+            open_time=_HOUR,
+            price=100.0,
+            sl_price=96.0,
+        )
+        row = _run_cycle_with_event(event, tmp_path)
+        assert math.isclose(row["sl_price"], 96.0)
+        assert math.isclose(row["tp_price"], 108.0)
+        assert math.isclose(row["rr_ratio"], 2.0)
+
+    def test_structural_short_row_unchanged(self, tmp_path: Any) -> None:
+        # entry 100, structural sl 103 → sl_dist 3, sl 103, tp 100 - 3*2 = 94
+        event = SignalEvent(
+            symbol="BTCUSDT",
+            timeframe="1h",
+            strategy="bos",
+            direction="short",
+            reason="test",
+            open_time=_HOUR,
+            price=100.0,
+            sl_price=103.0,
+        )
+        row = _run_cycle_with_event(event, tmp_path)
+        assert math.isclose(row["sl_price"], 103.0)
+        assert math.isclose(row["tp_price"], 94.0)
         assert math.isclose(row["rr_ratio"], 2.0)
