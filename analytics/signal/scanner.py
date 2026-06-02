@@ -78,6 +78,38 @@ from signals.registry import SIGNAL_REGISTRY
 logger = logging.getLogger(__name__)
 
 
+def _resolve_outcome_sl_tp(
+    *,
+    direction: str,
+    entry: float,
+    struct_sl: float,
+    struct_tp: float,
+    eff_sl_pct: float,
+    min_sl_pct: float,
+    tp_r: float,
+) -> tuple[float, float]:
+    """Return (sl_price, tp_price) for an outcome-ledger row.
+
+    Mirrors the alert formatter's fallback (``signals/alert_formatter.py``):
+    use the event's structural SL when it sits on the correct side of ``entry``,
+    otherwise fall back to ``entry*(1∓eff_sl_pct)``. The SL distance is floored
+    by ``entry*min_sl_pct``; the structural TP is preferred over
+    ``entry ± sl_dist*tp_r`` when valid. Always returns concrete floats so every
+    fired event is scoreable.
+    """
+    if direction == "long":
+        structural = struct_sl if 0 < struct_sl < entry else entry * (1 - eff_sl_pct)
+        sl_dist = max(entry - structural, entry * min_sl_pct)
+        sl_price = entry - sl_dist
+        tp_price = struct_tp if struct_tp > entry else entry + sl_dist * tp_r
+    else:  # short
+        structural = struct_sl if struct_sl > entry else entry * (1 + eff_sl_pct)
+        sl_dist = max(structural - entry, entry * min_sl_pct)
+        sl_price = entry + sl_dist
+        tp_price = struct_tp if 0 < struct_tp < entry else entry - sl_dist * tp_r
+    return sl_price, tp_price
+
+
 def scan_symbol(
     ohlcv_df: pd.DataFrame,
     symbol: str,
