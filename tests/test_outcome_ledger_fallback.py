@@ -7,8 +7,85 @@ docs/superpowers/specs/2026-06-01-outcome-ledger-sl-tp-fallback-design.md.
 """
 
 import math
+from typing import Any
+from unittest.mock import patch
 
-from analytics.signal.scanner import _resolve_outcome_sl_tp
+import duckdb
+import pandas as pd
+
+from analytics.signal.scanner import _resolve_outcome_sl_tp, run_scan_cycle
+from analytics.signal.types import SignalEvent
+from analytics.store import init_schema
+from signals.cooldown_store import CooldownStore
+
+_HOUR = 3_600_000
+
+
+def _ohlcv_df(open_time_ms: int) -> pd.DataFrame:
+    """Minimal 3-row OHLCV frame; second-to-last row is the latest closed candle."""
+    rows = [
+        {
+            "open_time": open_time_ms - 1000,
+            "open": 100.0,
+            "high": 105.0,
+            "low": 98.0,
+            "close": 102.0,
+            "volume": 1.0,
+        },
+        {
+            "open_time": open_time_ms,
+            "open": 102.0,
+            "high": 106.0,
+            "low": 100.0,
+            "close": 100.0,
+            "volume": 1.0,
+        },
+        {
+            "open_time": open_time_ms + 1000,
+            "open": 100.0,
+            "high": 100.5,
+            "low": 99.5,
+            "close": 100.2,
+            "volume": 0.1,
+        },
+    ]
+    return pd.DataFrame(rows)
+
+
+def _run_cycle_with_event(event: SignalEvent, tmp_path: Any) -> dict[str, Any]:
+    """Drive run_scan_cycle with scan_symbol stubbed to emit `event`, then return
+    the persisted signal_alert_outcomes row as a dict."""
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    store = CooldownStore(str(tmp_path / "state.json"))
+    df = _ohlcv_df(event.open_time)
+
+    with (
+        patch("analytics.signal.scanner.get_ohlcv", return_value=df),
+        patch(
+            "analytics.signal.scanner.get_funding_rates", return_value=pd.DataFrame()
+        ),
+        patch("analytics.signal.scanner.scan_symbol", return_value=[event]),
+    ):
+        run_scan_cycle(
+            conn=conn,
+            symbols=[event.symbol],
+            timeframes=[event.timeframe],
+            strategies=[event.strategy],
+            store=store,
+            tp_r=2.0,
+            sl_pct=0.02,
+            min_sl_pct=0.0,
+        )
+
+    cols = ["sl_price", "tp_price", "rr_ratio", "entry_price"]
+    row = conn.execute(
+        f"SELECT {', '.join(cols)} FROM signal_alert_outcomes "
+        "WHERE strategy = ? AND direction = ?",
+        [event.strategy, event.direction],
+    ).fetchone()
+    assert row is not None, "no outcome row persisted"
+    return dict(zip(cols, row, strict=True))
 
 
 class TestResolveOutcomeSlTp:
@@ -109,3 +186,49 @@ class TestResolveOutcomeSlTp:
         )
         assert math.isclose(sl, 104.0)
         assert math.isclose(tp, 80.0)
+
+
+class TestWriterNeverNull:
+    """The outcome-ledger writer persists non-NULL SL/TP for every fired event."""
+
+    def test_outcome_row_never_null_for_no_structural_long(self, tmp_path: Any) -> None:
+        event = SignalEvent(
+            symbol="BTCUSDT",
+            timeframe="1h",
+            strategy="bos",
+            direction="long",
+            reason="test",
+            open_time=_HOUR,
+            price=100.0,
+            sl_price=0.0,  # no structural SL — previously wrote NULL
+        )
+        row = _run_cycle_with_event(event, tmp_path)
+        assert row["sl_price"] is not None
+        assert row["tp_price"] is not None
+        assert row["rr_ratio"] is not None
+        # pct fallback: sl_dist = 100*0.02 = 2 → sl 98, tp 100 + 2*2 = 104
+        assert math.isclose(row["sl_price"], 98.0)
+        assert math.isclose(row["tp_price"], 104.0)
+        assert math.isclose(row["rr_ratio"], 2.0)
+
+    def test_outcome_row_never_null_for_no_structural_short(
+        self, tmp_path: Any
+    ) -> None:
+        event = SignalEvent(
+            symbol="BTCUSDT",
+            timeframe="1h",
+            strategy="bos",
+            direction="short",
+            reason="test",
+            open_time=_HOUR,
+            price=100.0,
+            sl_price=0.0,
+        )
+        row = _run_cycle_with_event(event, tmp_path)
+        assert row["sl_price"] is not None
+        assert row["tp_price"] is not None
+        assert row["rr_ratio"] is not None
+        # sl_dist = 2 → sl 102, tp 100 - 2*2 = 96
+        assert math.isclose(row["sl_price"], 102.0)
+        assert math.isclose(row["tp_price"], 96.0)
+        assert math.isclose(row["rr_ratio"], 2.0)
