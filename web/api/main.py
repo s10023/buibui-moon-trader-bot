@@ -19,6 +19,7 @@ from web.api.routers import (
     backtest,
     config,
     fib,
+    live_outcomes,
     ohlcv,
     positions,
     prices,
@@ -122,6 +123,7 @@ for module in (
     stats,
     stream,
     zones,
+    live_outcomes,
 ):
     app.include_router(module.router, prefix="/api")
 
