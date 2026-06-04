@@ -193,6 +193,9 @@ volume_suppress = true        # A14b: normal-vol wins Δ=+0.12R (low -0.15R vs n
 inside_bar         = ["15m", "1h", "1d"]   # cr 4h_L -0.100 1★ vs 4h_S +0.348 3★
 hammer_hanging_man = ["15m", "4h", "1d"]   # cr 1h_L -0.327 1★ vs 1h_S +0.234 3★
 
+[strategy_timeframes_short]
+trend_day          = ["1d"]                # 2026-06-04 DOW prune: 4h short -0.78(11) weekend (Group A); long keeps 4h via base
+
 [strategy_params.eqh_eql.volume_suppress_long_per_tf]
 "15m" = true   # supp_avg_r -0.2800 n=638
 "1h"  = true   # supp_avg_r -0.9084 n=58 (kept +0.248 n=31)

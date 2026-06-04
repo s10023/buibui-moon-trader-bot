@@ -63,7 +63,7 @@ eqh_eql          = ["1h", "1d"]              # Phase 1: 4h dropped (audit -0.217
 smt_divergence   = ["15m", "1h", "1d"]       # Phase 1: 4h dropped (audit -0.307R, 25% positive)
 orb              = ["1h", "4h", "1d"]        # 15m mean_r=-0.163 suppressed
 bos              = ["15m", "1h", "4h"]       # 1d mean_r=-0.785 suppressed; 4h mean_r=+0.223 re-enabled
-pin_bar          = ["15m", "1h", "4h", "1d"] # audit confirms KEEP all TFs (50–100% positive)
+pin_bar          = ["15m", "4h", "1d"]       # 2026-06-04 DOW prune: 1h L -0.29(23)/S -0.63(16) tue_thu, neg both dirs (Group A)
 liquidity_sweep  = ["1d"]                    # 2026-05-17 T6 Phase A day-filter audit: 1h dropped (combined -0.48R, 31% WR, n=287; per-symbol BTC/ETH/SOL all -0.23 to -0.61R). F9 floor + atr_sl_multiplier_1h overrides retained below for future re-enable.
 cvd_divergence   = ["1h"]                    # 1h monotonic +1.38R@5.0 stable 41%WR; audit confirms 80% positive
 doji             = ["15m", "1h"]             # 4h degraded: best 1.5R=+0.04R (16 trades); 1d too thin
@@ -252,6 +252,7 @@ inside_bar = ["15m", "1h", "1d"]   # cr 4h_L -0.029 1★ vs 4h_S +0.219 3★ —
 # 4h_L 4★ +0.55R), so cut shorts directionally and keep longs.
 [strategy_timeframes_short]
 hammer_hanging_man = ["15m", "1d"]   # cr 1h_S 1★ -0.16R, 4h_S 1★ -0.12R dying — longs preserved
+trend_day          = ["1d"]          # 2026-06-04 DOW prune: 4h short -0.25(12) tue_thu (Group A); long keeps 4h via base
 
 [strategy_params.eqh_eql.volume_suppress_long_per_tf]
 "15m" = true   # supp_avg_r -0.0954 n=627
