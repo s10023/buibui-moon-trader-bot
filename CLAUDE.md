@@ -65,6 +65,7 @@ Each Makefile `buibui-*` target wraps the equivalent CLI invocation.
   - `recalibrate_lib.py` / `recalibrate_runner.py` — compute + write star ratings to DB or source
   - `perf_timer.py` — `timed(label)` context manager
   - `regime.py` — §6 regime classifier (`trend`/`range`/`high_vol`/`unknown`); pure function over OHLCV; wired as Phase 2 live gate (soft mode shipped 2026-05-10) per `docs/redesign/buibui-redesign.md`
+  - `research_guards/` — P0a-1 overfitting / multiple-testing controls (pure math, no DB/IO/deps beyond numpy + stdlib `statistics.NormalDist`): `psr.py` (Probabilistic Sharpe), `dsr.py` (Deflated Sharpe + `expected_max_sharpe`), `pbo.py` (`cscv_pbo` / `PBOResult` — CSCV overfit probability), `haircut.py` (`haircut_sharpe` Bonferroni/Holm/BHY), `mintrl.py` (Minimum Track Record Length), `bootstrap.py` (`block_bootstrap_ci` stationary/circular). Not yet wired into sweeps/audits/recalibrate (P0a-2). See `docs/redesign/2026-06-05-p0a-1-research-guards-pr.md`
 - `signals/` — signal detection daemon package (alerting + dedup only — detection lives in `analytics/`). See `.claude/context/signals.md` for full reference.
   - `registry.py` — `SignalPlugin` TypedDict + `SIGNAL_REGISTRY` (20 actionable strategies; `seasonality` / `fibonacci_retracement` excluded)
   - `cooldown_store.py` — two-layer dedup: candle watermark + cooldown timer; JSON-persisted to `signal_state.json`
