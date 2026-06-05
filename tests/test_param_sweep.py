@@ -13,10 +13,13 @@ from analytics.param_sweep import (
     SweepRow,
     _audit_strategy_worker,
     _directional_split_hint,
+    _recommended_row,
+    _row_to_trialperf,
     _sweep_grid_worker,
     format_audit_results,
     format_sweep_results,
 )
+from analytics.sweep_guard import CommitGateVerdict
 
 _BASE_TIME = 1_700_000_000_000
 
@@ -219,6 +222,66 @@ class TestFormatSweepResultsDirectional:
 
     def test_empty_rows_returns_no_results(self) -> None:
         assert format_sweep_results([], "fvg", "BTCUSDT", "4h") == "  No results."
+
+
+# ---------------------------------------------------------------------------
+# Commit gate wiring (P0a-2)
+# ---------------------------------------------------------------------------
+
+
+def _verdict(decision: str, reasons: list[str] | None = None) -> CommitGateVerdict:
+    return CommitGateVerdict(
+        decision=decision,
+        dsr=0.97 if decision == "COMMIT" else 0.40,
+        pbo=0.20,
+        min_trl=12.0,
+        n_obs=40,
+        n_trials=99,
+        reasons=reasons or [],
+    )
+
+
+class TestCommitGateWiring:
+    def test_row_to_trialperf_pools_is_and_oos(self) -> None:
+        row = _make_sweep_row(long_trades=[_win("long")], short_trades=[_loss("short")])
+        # add an IS trade so pooling is observable
+        row.is_result.trades.append(_win("long", 2.0))
+        tp = _row_to_trialperf(row)
+        # 1 IS win + 1 OOS win + 1 OOS loss = 3 closed trades
+        assert len(tp.returns) == 3
+        assert len(tp.times) == len(tp.returns)
+        assert tp.returns.count(-1.0) == 1  # the short loss
+
+    def test_recommended_row_skips_overfit(self) -> None:
+        overfit = _make_sweep_row(tp_r=1.0, overfit=True, long_trades=[_win("long")])
+        clean = _make_sweep_row(tp_r=2.0, overfit=False, long_trades=[_win("long")])
+        assert _recommended_row([overfit, clean]) is clean
+        assert _recommended_row([overfit]) is None
+
+    def test_format_renders_commit_pass(self) -> None:
+        row = _make_sweep_row(long_trades=[_win("long")] * 3)
+        out = format_sweep_results(
+            [row], "fvg", "BTCUSDT", "4h", gate=_verdict("COMMIT")
+        )
+        assert "COMMIT-GATE: PASS" in out
+        assert "DSR=0.97" in out
+
+    def test_format_renders_do_not_commit(self) -> None:
+        row = _make_sweep_row(long_trades=[_win("long")] * 3)
+        out = format_sweep_results(
+            [row],
+            "fvg",
+            "BTCUSDT",
+            "4h",
+            gate=_verdict("DO_NOT_COMMIT", ["DSR 0.40 < 0.95"]),
+        )
+        assert "DO-NOT-COMMIT" in out
+        assert "DSR 0.40 < 0.95" in out
+
+    def test_format_no_gate_is_backcompat(self) -> None:
+        row = _make_sweep_row(long_trades=[_win("long")] * 3)
+        out = format_sweep_results([row], "fvg", "BTCUSDT", "4h")
+        assert "COMMIT-GATE" not in out
 
 
 # ---------------------------------------------------------------------------
