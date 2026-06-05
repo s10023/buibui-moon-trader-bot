@@ -70,7 +70,8 @@ buibui-moon-trader-bot/
 │   ├── signal_test_runner.py        # Historical replay: no DB writes, no cooldown; --at / --lookback
 │   ├── stats_lib.py                 # Pure stats lib: compute_p1p2_daily, compute_hourly_extremes, compute_adr, compute_dow_patterns, compute_session_breakdown, compute_weekly_p1p2, compute_all → StatsBundle
 │   ├── backtest_config.py           # BacktestSweepConfig + load_backtest_config() for TOML sweep mode
-│   ├── param_sweep.py               # WFO sweep lib: run_param_sweep / run_strategy_audit; parallelized via ProcessPoolExecutor
+│   ├── param_sweep.py               # WFO sweep lib: run_param_sweep (→ ParamSweepReport w/ commit gate) / run_strategy_audit; parallelized via ProcessPoolExecutor
+│   ├── sweep_guard.py               # P0a-2 commit gate: refuse swept tp_r unless DSR>=0.95 & PBO<=0.5 & n>=MinTRL (consumes research_guards)
 │   ├── digest_lib.py                # 12 pre-canned SQL queries; run_digest; DigestScope; powers buibui digest
 │   ├── cme_gap_lib.py               # CME gap detection + alert warning helper
 │   ├── zones_lib.py                 # Structural zone extraction (geometry only): FVG, OB, EQH/EQL, BOS, Fib, OTE, swing points

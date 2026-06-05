@@ -24,7 +24,27 @@ Either:
 
 ## Decision rules
 
+### Commit gate (P0a-2) — HARD REFUSAL, check this FIRST
+
+Each `param-sweep` table now ends with a `COMMIT-GATE` line for its recommended config
+(the overfitting guard: Deflated Sharpe + PBO + Minimum Track Record Length). **This is a
+hard pre-condition — apply it before the tp_r selection rules below:**
+
+- `✓ COMMIT-GATE: PASS` → the cell cleared the gate; proceed to select tp_r as usual.
+- `✗ COMMIT-GATE: DO-NOT-COMMIT` → **do NOT write this cell's tp_r.** Skip it, note the
+  failing metric (e.g. "DSR 0.80 < 0.95" / "PBO 0.62 > 0.50" / "n 24 < MinTRL 41").
+- `⚠ COMMIT-GATE: INSUFFICIENT` → **do NOT write this cell's tp_r.** Too few trades/trials
+  to evaluate; note "insufficient (gate)".
+- **No `COMMIT-GATE` line** (older paste / param-audit only) → fall back to the legacy filters
+  below, but flag in the report that the cell was not gate-checked.
+
+The gate is intentionally strict (errs toward skepticism). The **only** way to commit a
+`DO-NOT-COMMIT` / `INSUFFICIENT` cell is an explicit user override ("override the gate for X");
+default behaviour is to refuse and report.
+
 ### Selecting best tp_r from a sweep table
+
+(Only for cells that PASSED the commit gate above.)
 
 1. **Filter**: keep only rows where `flag = ok` (drop `⚠ OVERFIT`)
 2. **Filter**: keep only rows with OOS n ≥ min_trades threshold for that TF:
@@ -55,8 +75,9 @@ WFO sweeps are run against a specific config (usually `signal_watch.toml` with `
 
 ## Execution steps
 
-1. **Parse** all pasted sweep/audit tables — extract strategy, TF, tp_r, OOS avg_r, OOS n, flag
-2. **Apply decision rules** above per strategy × TF
+1. **Parse** all pasted sweep/audit tables — extract strategy, TF, tp_r, OOS avg_r, OOS n, flag,
+   and the `COMMIT-GATE` verdict (PASS / DO-NOT-COMMIT / INSUFFICIENT) + its metrics
+2. **Apply decision rules** above per strategy × TF — **commit gate first**, then tp_r selection
 3. **Read** `config/signal_watch.toml` — note current tp_r values
 4. **Diff** new values vs current — skip unchanged
 5. **Edit** `signal_watch.toml` with new values; update comments with WFO OOS data
@@ -77,7 +98,9 @@ Changes applied:
   morning_evening_star  15m   3.0 → 3.5          +0.339R    162
   trend_day             4h    3.0 → 5.0          +0.519R     53
 
-Skipped (overfit / insufficient trades / marginal):
+Skipped (commit gate / overfit / insufficient trades / marginal):
+  bos       1h  — ✗ DO-NOT-COMMIT (DSR 0.81 < 0.95)
+  order_block 4h — ⚠ INSUFFICIENT (gate): 22 trades < 28
   pin_bar   15m — fully overfit
   doji      1h  — marginal (+0.023R, 41 trades)
 

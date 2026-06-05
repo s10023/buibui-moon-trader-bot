@@ -78,8 +78,9 @@ Detailed API reference for `analytics/`. Load this when working on any analytics
 
 ## param_sweep.py — WFO sweep lib
 
-- `run_param_sweep(conn, strategy, symbol, tf, days, param_ranges, wfo_split, min_trades, fee_pct, top_n, adr_suppress_threshold=None, day_filter="off", atr_sl_multiplier=None, atr_sl_floor=False)` → `list[SweepRow]` — `atr_sl_multiplier`/`atr_sl_floor` forwarded to every grid `run_backtest()` call (F9 joint sweeps)
-- `run_strategy_audit(...)` → `list[AuditRow]` — same `atr_sl_multiplier`/`atr_sl_floor` kwargs as `run_param_sweep`; forwarded to each worker's `run_backtest()`
+- `run_param_sweep(conn, strategy, symbol, tf, days, param_ranges, wfo_split, min_trades, fee_pct, top_n, adr_suppress_threshold=None, day_filter="off", atr_sl_multiplier=None, atr_sl_floor=False)` → `ParamSweepReport(rows: list[SweepRow], gate: CommitGateVerdict, n_grid: int)` — `atr_sl_multiplier`/`atr_sl_floor` forwarded to every grid `run_backtest()` call (F9 joint sweeps)
+- **P0a-2 commit gate (`sweep_guard.py`):** `ParamSweepReport.gate` = `evaluate_commit_gate(chosen, all_trials, n_grid)`. The recommended (top non-overfit) row commits only if `DSR ≥ 0.95 ∧ PBO ≤ 0.5 ∧ n_obs ≥ MinTRL(0.95)`, computed over the **full grid pre-truncation** (N floored at grid size so top-N can't inflate DSR). `< 2` trials or `< 2·n_splits` trades → `INSUFFICIENT`. `format_sweep_results(rows, ..., gate=...)` renders the `COMMIT-GATE` stamp; `/wfo-sweep` + `/param-sweep-apply` hard-refuse non-`COMMIT` cells.
+- `run_strategy_audit(...)` → `list[AuditRow]` — same `atr_sl_multiplier`/`atr_sl_floor` kwargs as `run_param_sweep`; forwarded to each worker's `run_backtest()` (commit gate not yet wired here — deferred sub-PR)
 - Applies `day_filter` before IS/OOS split — grades same population the live daemon sees
 - `SweepRow` / `AuditRow` expose `long/short_oos_avg_r`, `long/short_oos_n` (Gate 3)
 - `_directional_split_hint(row)` fires when |↑OOS − ↓OOS| ≥ 0.1R and n ≥ 3 each

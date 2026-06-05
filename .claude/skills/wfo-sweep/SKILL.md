@@ -104,7 +104,18 @@ Collect results per (strategy, TF, symbol): best tp_r, OOS avg_r, OOS n, flag.
 
 For each strategy × TF:
 
-**Picking best tp_r:**
+**Commit gate (P0a-2) — check FIRST, hard refusal:**
+Every `param-sweep` output ends with a `COMMIT-GATE` line for its recommended config
+(Deflated Sharpe + PBO + Minimum Track Record Length — the overfitting guard).
+
+- `✓ COMMIT-GATE: PASS` → proceed to pick tp_r below.
+- `✗ COMMIT-GATE: DO-NOT-COMMIT` → **skip the cell, never write its tp_r.** Note the failing
+  metric (e.g. "DSR 0.81 < 0.95"). This is the project's multiple-testing correction; an
+  in-sample winner that fails here is an overfit mirage.
+- `⚠ COMMIT-GATE: INSUFFICIENT` → **skip the cell.** Too few trades/trials to evaluate.
+- Override only on explicit user instruction ("override the gate for X").
+
+**Picking best tp_r:** (only for cells that PASSED the commit gate)
 1. Filter: keep only rows with `flag = ok` (drop `⚠ OVERFIT`)
 2. Filter: OOS n ≥ min_trades threshold for that TF
 3. Filter: OOS avg_r > 0
@@ -205,4 +216,7 @@ WFO sweep complete — config/signal_watch.toml
 - If config has no symbols set, default to BTC/ETH/SOL (the 3 most-backtested)
 - WFO split default: 70% IS / 30% OOS — do not change unless history < 90d
 - Never commit a config where any strategy has OOS avg_r < 0 after the update
+- **Never write a `tp_r` for a cell whose `param-sweep` output stamped `DO-NOT-COMMIT` or
+  `INSUFFICIENT`** — the commit gate (DSR/PBO/MinTRL) is a hard pre-condition that runs before
+  the OOS-avg_r selection. Report skipped cells with their failing metric.
 - Always pass `--day-filter <day_filter>` to both `param-audit` and `param-sweep` — the WFO must run on the same trade population the config will see in production (`tue_thu` for `signal_watch.toml`, `mon_fri` for `signal_watch_weekdays.toml`, `weekend` for `signal_watch_all.toml`)
