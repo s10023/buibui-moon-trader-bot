@@ -12,12 +12,17 @@ those trades are still in the data and can be re-masked. Testing relaxation
 (T_cand > T_now) would need a permissive baseline run (T6 engine work or a
 one-off backtest with the threshold disabled).
 
-Decision rule per cell (n_supp >= --min-n at this candidate):
-  supp_avg_r <= -0.05R  → ENABLE this candidate (tighten — late-ADR chasing
-                          trades in [T_cand, T_now) are losers we should drop).
-  supp_avg_r >= +0.05R  → DISABLE this candidate (keep T_now — tightening would
-                          suppress winners).
+Decision rule per cell (n_supp >= --min-n at this candidate). Each verdict needs
+a bootstrap CI on the additionally-suppressed slice clearing the ±bar AND a Holm
+multiple-testing-adjusted p-value < alpha (shared across the candidates / cells
+tested in one run; see `analytics/audit_guard.py`):
+  CI hi <= -bar  AND  p < alpha → ENABLE this candidate (tighten — late-ADR
+                          chasing trades in [T_cand, T_now) are losers to drop).
+  CI lo >= +bar  AND  p < alpha → DISABLE this candidate (keep T_now —
+                          tightening would suppress winners).
   else                  → INSUFFICIENT.
+
+This replaces the prior crude ±0.05R point-estimate bar (P0a-2 sub-PR 2).
 
 The aggregate view (across non-exempt strategies) is the primary signal — the
 global `adr_suppress_threshold` is the only knob the current schema exposes.
@@ -41,6 +46,7 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+from analytics import audit_guard  # noqa: E402
 from analytics.backtest_config import load_backtest_config  # noqa: E402
 from analytics.store import DEFAULT_DB_PATH  # noqa: E402
 from tools.gate_audit import _resolve_config_run_ids, load_trades  # noqa: E402
@@ -152,16 +158,25 @@ def aggregate_sweep(
     exempt: set[str],
     min_n: int,
     verdict_threshold: float,
+    *,
+    alpha: float = audit_guard.DEFAULT_ALPHA,
+    n_boot: int = audit_guard.DEFAULT_N_BOOT,
+    seed: int | None = audit_guard.DEFAULT_SEED,
 ) -> pd.DataFrame:
     """For each candidate < current_threshold, mask additionally-suppressed
     trades (chasing & ratio in [candidate, current_threshold) & non-exempt) and
     aggregate avg_r across the whole non-exempt population.
+
+    Verdicts come from `analytics.audit_guard.evaluate_audit_cells`; the Holm
+    haircut is shared across all candidates tested in this sweep.
     """
     df = df.copy()
     df["_pnl"] = pd.to_numeric(df["pnl_r"], errors="coerce")
     df = df.dropna(subset=["_pnl"])
     non_exempt = df[~df["strategy"].isin(exempt)]
-    rows = []
+
+    metas: list[tuple[float, pd.DataFrame]] = []
+    cells: list[audit_guard.AuditCell] = []
     for cand in candidates:
         mask = (
             non_exempt["_chasing"]
@@ -171,24 +186,36 @@ def aggregate_sweep(
         )
         supp = non_exempt[mask]
         kept = non_exempt[~mask]
-        n_supp = len(supp)
+        cells.append(
+            audit_guard.AuditCell(label=str(cand), supp_r=supp["_pnl"].tolist())
+        )
+        metas.append((cand, kept))
+
+    verdicts = audit_guard.evaluate_audit_cells(
+        cells,
+        bar=verdict_threshold,
+        alpha=alpha,
+        min_n=min_n,
+        n_boot=n_boot,
+        seed=seed,
+        enable_concentrate=False,
+    )
+
+    rows = []
+    for (cand, kept), v in zip(metas, verdicts, strict=True):
         n_kept = len(kept)
-        supp_avg = supp["_pnl"].mean() if n_supp else float("nan")
         kept_avg = kept["_pnl"].mean() if n_kept else float("nan")
-        if n_supp >= min_n and supp_avg <= -verdict_threshold:
-            verdict = "ENABLE"
-        elif n_supp >= min_n and supp_avg >= verdict_threshold:
-            verdict = "DISABLE"
-        else:
-            verdict = "INSUFFICIENT"
         rows.append(
             {
                 "candidate": cand,
-                "n_supp": n_supp,
-                "supp_avg_r": round(supp_avg, 4) if n_supp else None,
+                "n_supp": v.n_supp,
+                "supp_avg_r": round(v.supp_avg, 4) if v.supp_avg is not None else None,
+                "ci_lo": round(v.ci_lo, 4) if v.ci_lo is not None else None,
+                "ci_hi": round(v.ci_hi, 4) if v.ci_hi is not None else None,
+                "adj_p": round(v.adj_pvalue, 4) if v.adj_pvalue is not None else None,
                 "n_kept": n_kept,
                 "kept_avg_r": round(kept_avg, 4) if n_kept else None,
-                "verdict": verdict,
+                "verdict": v.decision,
             }
         )
     return pd.DataFrame(rows)
@@ -201,9 +228,16 @@ def per_strategy_sweep(
     exempt: set[str],
     min_n: int,
     verdict_threshold: float,
+    *,
+    alpha: float = audit_guard.DEFAULT_ALPHA,
+    n_boot: int = audit_guard.DEFAULT_N_BOOT,
+    seed: int | None = audit_guard.DEFAULT_SEED,
 ) -> pd.DataFrame:
     """Per-(strategy, tf, direction) view at one candidate threshold. Returns
-    the same n_supp / supp_avg_r / verdict columns as `aggregate_sweep`.
+    the same n_supp / supp_avg_r / CI / verdict columns as `aggregate_sweep`.
+
+    The Holm haircut is shared across every (strategy, tf, direction) cell in
+    this view.
     """
     df = df.copy()
     df["_pnl"] = pd.to_numeric(df["pnl_r"], errors="coerce")
@@ -215,22 +249,36 @@ def per_strategy_sweep(
         & (df["_ratio"] >= candidate)
         & (df["_ratio"] < current_threshold)
     )
-    rows = []
+
+    metas: list[tuple[object, object, object, pd.DataFrame]] = []
+    cells: list[audit_guard.AuditCell] = []
     for key, sub in df.groupby(["strategy", "tf", "direction"], dropna=False):
         assert isinstance(key, tuple)
         strategy, tf, direction = key
         supp = sub[sub["_suppressed"]]
         kept = sub[~sub["_suppressed"]]
-        n_supp = len(supp)
+        cells.append(
+            audit_guard.AuditCell(
+                label=f"{strategy} × {tf} × {direction}",
+                supp_r=supp["_pnl"].tolist(),
+            )
+        )
+        metas.append((strategy, tf, direction, kept))
+
+    verdicts = audit_guard.evaluate_audit_cells(
+        cells,
+        bar=verdict_threshold,
+        alpha=alpha,
+        min_n=min_n,
+        n_boot=n_boot,
+        seed=seed,
+        enable_concentrate=False,
+    )
+
+    rows = []
+    for (strategy, tf, direction, kept), v in zip(metas, verdicts, strict=True):
         n_kept = len(kept)
-        supp_avg = supp["_pnl"].mean() if n_supp else float("nan")
         kept_avg = kept["_pnl"].mean() if n_kept else float("nan")
-        if n_supp >= min_n and supp_avg <= -verdict_threshold:
-            verdict = "ENABLE"
-        elif n_supp >= min_n and supp_avg >= verdict_threshold:
-            verdict = "DISABLE"
-        else:
-            verdict = "INSUFFICIENT"
         rows.append(
             {
                 "strategy": strategy,
@@ -238,9 +286,12 @@ def per_strategy_sweep(
                 "direction": direction,
                 "n_kept": n_kept,
                 "kept_avg_r": round(kept_avg, 4) if n_kept else None,
-                "n_supp": n_supp,
-                "supp_avg_r": round(supp_avg, 4) if n_supp else None,
-                "verdict": verdict,
+                "n_supp": v.n_supp,
+                "supp_avg_r": round(v.supp_avg, 4) if v.supp_avg is not None else None,
+                "ci_lo": round(v.ci_lo, 4) if v.ci_lo is not None else None,
+                "ci_hi": round(v.ci_hi, 4) if v.ci_hi is not None else None,
+                "adj_p": round(v.adj_pvalue, 4) if v.adj_pvalue is not None else None,
+                "verdict": v.decision,
             }
         )
     out = pd.DataFrame(rows)
@@ -262,7 +313,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Comma-separated candidate thresholds < current threshold (default %(default)s).",
     )
     p.add_argument("--min-n", type=int, default=30)
-    p.add_argument("--verdict-threshold", type=float, default=0.05)
+    p.add_argument(
+        "--verdict-threshold",
+        type=float,
+        default=0.05,
+        help="±bar (R) the bootstrap CI must clear for ENABLE/DISABLE.",
+    )
+    p.add_argument(
+        "--alpha",
+        type=float,
+        default=audit_guard.DEFAULT_ALPHA,
+        help="CI level + Holm-adjusted p-value significance cutoff (default %(default)s).",
+    )
+    p.add_argument(
+        "--n-boot",
+        type=int,
+        default=audit_guard.DEFAULT_N_BOOT,
+        help="Bootstrap resamples for the per-cell CI (default %(default)s).",
+    )
+    p.add_argument(
+        "--seed",
+        type=int,
+        default=audit_guard.DEFAULT_SEED,
+        help="Bootstrap RNG seed for reproducible verdicts (default %(default)s).",
+    )
     p.add_argument(
         "--per-strategy-at",
         type=float,
@@ -300,11 +374,22 @@ def main() -> int:
     print(f"Scope: {len(run_ids)} run_ids, {len(annotated)} trades")
     print(f"Exempt strategies (skipped): {sorted(exempt) if exempt else '(none)'}")
     print(f"Candidate thresholds: {candidates}")
-    print(f"min_n = {args.min_n}, verdict bar = ±{args.verdict_threshold}R")
+    print(
+        f"min_n = {args.min_n}, verdict bar = ±{args.verdict_threshold}R, "
+        f"alpha = {args.alpha}, n_boot = {args.n_boot}"
+    )
     print()
 
     agg = aggregate_sweep(
-        annotated, candidates, current, exempt, args.min_n, args.verdict_threshold
+        annotated,
+        candidates,
+        current,
+        exempt,
+        args.min_n,
+        args.verdict_threshold,
+        alpha=args.alpha,
+        n_boot=args.n_boot,
+        seed=args.seed,
     )
     print("--- aggregate sweep (non-exempt population) ---")
     print(agg.to_string(index=False))
@@ -312,7 +397,15 @@ def main() -> int:
 
     per_at = args.per_strategy_at if args.per_strategy_at is not None else candidates[0]
     per = per_strategy_sweep(
-        annotated, per_at, current, exempt, args.min_n, args.verdict_threshold
+        annotated,
+        per_at,
+        current,
+        exempt,
+        args.min_n,
+        args.verdict_threshold,
+        alpha=args.alpha,
+        n_boot=args.n_boot,
+        seed=args.seed,
     )
     print(f"--- per-(strategy, tf, direction) at candidate {per_at} ---")
     if per.empty:

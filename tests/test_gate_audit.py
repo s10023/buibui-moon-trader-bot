@@ -391,6 +391,26 @@ class TestBuildAuditTable:
         assert table.iloc[0]["verdict"] == "DISABLE"
         assert table.iloc[0]["n_kept"] == 0
 
+    def test_marginal_loser_now_insufficient_under_ci_gate(self) -> None:
+        # 20 suppressed @ +0.7 and 20 @ -0.9 → supp_avg = -0.10 (the OLD ±0.05R
+        # bar would ENABLE), but the high-variance slice's bootstrap CI straddles
+        # the bar → the CI+haircut gate returns INSUFFICIENT instead.
+        rows = [
+            _trade(strategy="bos", low_volume=True, pnl_r=0.7) for _ in range(20)
+        ] + [_trade(strategy="bos", low_volume=True, pnl_r=-0.9) for _ in range(20)]
+        df = _frame(rows)
+        gate = gate_audit.GATE_REGISTRY["volume-suppress"]
+        table = gate_audit.build_audit_table(
+            df,
+            gate,
+            {"volume_suppress_off": {"bos"}},
+            ["strategy"],
+            min_n=30,
+            threshold=0.05,
+        )
+        assert round(table.iloc[0]["supp_avg_r"], 2) == -0.10
+        assert table.iloc[0]["verdict"] == "INSUFFICIENT"
+
     def test_grain_strategy_tf_dir_separates_directions(self) -> None:
         # LONG side: 40 lowvol losers → ENABLE.
         # SHORT side: 40 lowvol winners → DISABLE. Verdict must split.

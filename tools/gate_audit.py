@@ -15,11 +15,18 @@ Usage:
   PYTHONPATH=. poetry run python tools/gate_audit.py adr-exempt --config config/signal_watch.toml
   PYTHONPATH=. poetry run python tools/gate_audit.py day-filter --day-filter tue_thu
 
-Decision rule per cell (n_supp >= --min-n):
-  supp_avg_r <= -0.05R                                  → ENABLE this gate at this scope
-  supp_avg_r >= +0.05R AND kept_avg_r <  supp_avg_r + 0.05R → DISABLE (gate kills winners)
-  supp_avg_r >= +0.05R AND kept_avg_r >= supp_avg_r + 0.05R → CONCENTRATE (gate is concentrating quality on a higher-grade kept subset; lifting it would dilute)
+Decision rule per cell (n_supp >= --min-n). Each verdict needs BOTH a
+bootstrap CI on the suppressed slice's mean R clearing the ±bar AND a
+Holm multiple-testing-adjusted p-value < alpha (see `analytics/audit_guard.py`):
+  CI hi <= -bar  AND  Holm-adj p < alpha                → ENABLE (suppressed slice are losers to drop)
+  CI lo >= +bar  AND  p < alpha  AND  kept_avg <  supp_avg + bar → DISABLE (gate kills winners)
+  CI lo >= +bar  AND  p < alpha  AND  kept_avg >= supp_avg + bar → CONCENTRATE (gate is concentrating quality on a higher-grade kept subset; lifting it would dilute)
   else                                                  → insufficient evidence
+
+The CI is serial-correlation aware and the haircut corrects for the number of
+cells tested in one run — replacing the prior crude ±0.05R point-estimate bar
+(P0a-2 sub-PR 2). `--threshold` is the bar; `--alpha` / `--n-boot` / `--seed`
+tune the CI + haircut.
 
 CONCENTRATE rationale: the gate "kills winners" reading is correct in the
 supp_avg slice in isolation, but if the kept slice out-performs supp by at
@@ -50,6 +57,7 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+from analytics import audit_guard  # noqa: E402
 from analytics.backtest_config import load_backtest_config  # noqa: E402
 from analytics.signal.gates import _filter_signals_by_adr  # noqa: E402
 from analytics.signal_config import _day_filter_to_weekdays  # noqa: E402
@@ -273,8 +281,17 @@ def build_audit_table(
     grain: list[str],
     min_n: int,
     threshold: float,
+    *,
+    alpha: float = audit_guard.DEFAULT_ALPHA,
+    n_boot: int = audit_guard.DEFAULT_N_BOOT,
+    seed: int | None = audit_guard.DEFAULT_SEED,
 ) -> pd.DataFrame:
-    """Return one row per `grain` group with n / avg_r / verdict columns.
+    """Return one row per `grain` group with n / avg_r / CI / verdict columns.
+
+    Verdicts come from `analytics.audit_guard.evaluate_audit_cells`: the bootstrap
+    CI + Holm haircut are shared across all grain groups in THIS table, so the
+    multiple-testing correction reflects the number of cells the run actually
+    tested. `threshold` is the ±bar.
 
     grain examples:
       ["strategy"]                          → coarsest
@@ -287,40 +304,44 @@ def build_audit_table(
     df["_pnl"] = pd.to_numeric(df["pnl_r"], errors="coerce")
     df = df.dropna(subset=["_pnl"])
 
-    rows: list[dict[str, Any]] = []
+    metas: list[tuple[tuple[Any, ...], pd.DataFrame]] = []
+    cells: list[audit_guard.AuditCell] = []
     for key, sub in df.groupby(grain, dropna=False):
         key_tuple = key if isinstance(key, tuple) else (key,)
         kept = sub[~sub["_suppressed"]]
         supp = sub[sub["_suppressed"]]
-        n_kept = len(kept)
-        n_supp = len(supp)
-        kept_avg = kept["_pnl"].mean() if n_kept else float("nan")
-        supp_avg = supp["_pnl"].mean() if n_supp else float("nan")
-        dR = (n_kept * kept_avg if n_kept else 0.0) - (
-            (n_kept + n_supp) * sub["_pnl"].mean() if n_kept + n_supp else 0.0
+        cells.append(
+            audit_guard.AuditCell(
+                label=" × ".join(str(k) for k in key_tuple),
+                supp_r=supp["_pnl"].tolist(),
+                kept_r=kept["_pnl"].tolist(),
+            )
         )
-        if n_supp >= min_n and supp_avg <= -threshold:
-            verdict = "ENABLE"
-        elif n_supp >= min_n and supp_avg >= threshold:
-            if (
-                n_kept > 0
-                and not pd.isna(kept_avg)
-                and kept_avg >= supp_avg + threshold
-            ):
-                verdict = "CONCENTRATE"
-            else:
-                verdict = "DISABLE"
-        else:
-            verdict = "INSUFFICIENT"
+        metas.append((key_tuple, sub))
+
+    verdicts = audit_guard.evaluate_audit_cells(
+        cells, bar=threshold, alpha=alpha, min_n=min_n, n_boot=n_boot, seed=seed
+    )
+
+    rows: list[dict[str, Any]] = []
+    for (key_tuple, sub), v in zip(metas, verdicts, strict=True):
+        total_n = len(sub)
+        all_mean = sub["_pnl"].mean() if total_n else 0.0
+        dR = (
+            v.n_kept * v.kept_avg if (v.n_kept and v.kept_avg is not None) else 0.0
+        ) - (total_n * all_mean if total_n else 0.0)
         rows.append(
             {
                 **dict(zip(grain, key_tuple, strict=True)),
-                "n_kept": n_kept,
-                "kept_avg_r": round(kept_avg, 4) if n_kept else None,
-                "n_supp": n_supp,
-                "supp_avg_r": round(supp_avg, 4) if n_supp else None,
+                "n_kept": v.n_kept,
+                "kept_avg_r": round(v.kept_avg, 4) if v.kept_avg is not None else None,
+                "n_supp": v.n_supp,
+                "supp_avg_r": round(v.supp_avg, 4) if v.supp_avg is not None else None,
+                "ci_lo": round(v.ci_lo, 4) if v.ci_lo is not None else None,
+                "ci_hi": round(v.ci_hi, 4) if v.ci_hi is not None else None,
+                "adj_p": round(v.adj_pvalue, 4) if v.adj_pvalue is not None else None,
                 "delta_R": round(dR, 2),
-                "verdict": verdict,
+                "verdict": v.decision,
             }
         )
     out = pd.DataFrame(rows)
@@ -442,7 +463,30 @@ def build_parser() -> argparse.ArgumentParser:
         ],
     )
     p.add_argument("--min-n", type=int, default=30)
-    p.add_argument("--threshold", type=float, default=0.05)
+    p.add_argument(
+        "--threshold",
+        type=float,
+        default=0.05,
+        help="±bar (R) the bootstrap CI must clear for ENABLE/DISABLE.",
+    )
+    p.add_argument(
+        "--alpha",
+        type=float,
+        default=audit_guard.DEFAULT_ALPHA,
+        help="CI level + Holm-adjusted p-value significance cutoff (default %(default)s).",
+    )
+    p.add_argument(
+        "--n-boot",
+        type=int,
+        default=audit_guard.DEFAULT_N_BOOT,
+        help="Bootstrap resamples for the per-cell CI (default %(default)s).",
+    )
+    p.add_argument(
+        "--seed",
+        type=int,
+        default=audit_guard.DEFAULT_SEED,
+        help="Bootstrap RNG seed for reproducible verdicts (default %(default)s).",
+    )
     p.add_argument(
         "--day-filter",
         choices=list(DAY_FILTER_MODES),
@@ -497,7 +541,8 @@ def main() -> int:
     params = _resolve_params(args.gate, args.config, args, ohlcv_loader)
     print(f"Gate: {gate.name}  ({gate.description})")
     print(
-        f"Scope: {scope_label}  Rows: {len(df)}  min_n={args.min_n}  threshold={args.threshold}"
+        f"Scope: {scope_label}  Rows: {len(df)}  min_n={args.min_n}  "
+        f"bar=±{args.threshold}R  alpha={args.alpha}  n_boot={args.n_boot}"
     )
     print(f"Params: {params}")
     print()
@@ -508,7 +553,17 @@ def main() -> int:
         else [GRAIN_COLUMNS[args.grain]]
     )
     for grain in grains_to_print:
-        table = build_audit_table(df, gate, params, grain, args.min_n, args.threshold)
+        table = build_audit_table(
+            df,
+            gate,
+            params,
+            grain,
+            args.min_n,
+            args.threshold,
+            alpha=args.alpha,
+            n_boot=args.n_boot,
+            seed=args.seed,
+        )
         print(f"--- grain: {' × '.join(grain)} ---")
         if table.empty:
             print("(empty)")
