@@ -72,6 +72,7 @@ buibui-moon-trader-bot/
 │   ├── backtest_config.py           # BacktestSweepConfig + load_backtest_config() for TOML sweep mode
 │   ├── param_sweep.py               # WFO sweep lib: run_param_sweep (→ ParamSweepReport w/ commit gate) / run_strategy_audit; parallelized via ProcessPoolExecutor
 │   ├── sweep_guard.py               # P0a-2 commit gate: refuse swept tp_r unless DSR>=0.95 & PBO<=0.5 & n>=MinTRL (consumes research_guards)
+│   ├── audit_guard.py               # P0a-2 sub-PR 2: audit-tool ENABLE/DISABLE/CONCENTRATE verdicts via bootstrap CI + Holm haircut (consumes research_guards)
 │   ├── digest_lib.py                # 12 pre-canned SQL queries; run_digest; DigestScope; powers buibui digest
 │   ├── cme_gap_lib.py               # CME gap detection + alert warning helper
 │   ├── zones_lib.py                 # Structural zone extraction (geometry only): FVG, OB, EQH/EQL, BOS, Fib, OTE, swing points
