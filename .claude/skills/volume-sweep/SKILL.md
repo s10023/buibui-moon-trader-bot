@@ -117,7 +117,7 @@ make lint-py && make typecheck && make test
 | `analytics/backtest_lib.py` | `format_volume_split()` — volume split table; `run_backtest(volume_suppress=bool)` — skips low-vol signals when True |
 | `analytics/backtest_config.py` | `StrategyOverride.volume_suppress: bool \| None`; `BacktestSweepConfig.volume_suppress: bool`; `effective_volume_suppress(strategy)` |
 | `analytics/signal_config.py` | `StrategyOverride.volume_suppress: bool \| None`; `BacktestFilterConfig.volume_suppress: bool`; `SignalWatchConfig.effective_volume_suppress(strategy)` |
-| `analytics/signal_lib.py` | `_resolve_volume_suppress()` — per-event lookup in live daemon loop |
+| `analytics/signal/resolvers.py` | `_resolve_volume_suppress()` — per-event lookup in live daemon loop |
 | `analytics/backtest_runner.py` | Passes `cfg.effective_volume_suppress(strategy)` to every `run_backtest()` call |
 | `config/signal_watch.toml` | Per-strategy `volume_suppress` in each `[strategy_params.X]` block |
 | `config/signal_watch_weekdays.toml` | Same — Mon + Fri only (`day_filter = "mon_fri"`) decisions |

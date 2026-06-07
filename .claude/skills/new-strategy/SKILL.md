@@ -14,7 +14,7 @@ allowed-tools: "*"
 
 Guided workflow for adding a new trading strategy to buibui. All 4 locations must be updated together or the web UI will 500 on the strategy.
 
-After strat-2 (PR #338) the detection layer is one file per detector under `analytics/strategies/`. There is no monolithic `indicators_lib.py` to edit any more — that file is a 41-line re-export shim.
+After strat-2 (PR #338) the detection layer is one file per detector under `analytics/strategies/`. There is no monolithic `indicators_lib.py` any more — that re-export shim was removed in strat-3. Import detectors and the registries from `analytics.strategies` directly.
 
 ## The 4 mandatory edits
 
@@ -86,14 +86,12 @@ DETECTOR_REGISTRY: dict[str, Callable[[pd.DataFrame], pd.DataFrame]] = {
 
 `KNOWN_STRATEGIES`, `KNOWN_STRATEGY_TYPES`, and `STRATEGY_TYPE_GROUPS` are auto-built from `STRATEGY_REGISTRY` — no manual update needed.
 
-Also re-export from the package by adding the import + `__all__` entry to `analytics/strategies/__init__.py`, and the PEP 484 re-export line to `analytics/indicators_lib.py` (preserves the legacy `from analytics.indicators_lib import detect_my_strategy` path).
+Also re-export from the package by adding the import + `__all__` entry to `analytics/strategies/__init__.py` (this is the public entry — `from analytics.strategies import detect_my_strategy`).
 
 ### 3. `signals/registry.py` — live signal daemon
 
 ```python
-from analytics.indicators_lib import STRATEGY_REGISTRY, detect_my_strategy
-# or, equivalently:
-# from analytics.strategies import STRATEGY_REGISTRY, detect_my_strategy
+from analytics.strategies import STRATEGY_REGISTRY, detect_my_strategy
 
 SIGNAL_REGISTRY: dict[str, SignalPlugin] = {
     ...,
@@ -106,13 +104,13 @@ SIGNAL_REGISTRY: dict[str, SignalPlugin] = {
 }
 ```
 
-### 4. `tests/test_indicators_lib.py` (or new `tests/test_my_strategy.py`)
+### 4. `tests/test_my_strategy.py`
 
 ```python
 import pandas as pd
-from analytics.indicators_lib import detect_my_strategy   # via shim
-# or:
-# from analytics.strategies.my_strategy import detect_my_strategy   # direct
+from analytics.strategies.my_strategy import detect_my_strategy   # direct
+# or, equivalently:
+# from analytics.strategies import detect_my_strategy   # via package re-export
 
 
 def test_my_strategy_long() -> None:
@@ -214,9 +212,8 @@ tp_r = 3.0
 | `analytics/strategies/<name>.py` | Create new file with the `detect_X()` function (one detector per file) |
 | `analytics/strategies/_registry.py` | Add the import, the `STRATEGY_REGISTRY` entry, and the `DETECTOR_REGISTRY` entry |
 | `analytics/strategies/__init__.py` | Add the import + `__all__` entry for eager re-export |
-| `analytics/indicators_lib.py` | Add the PEP 484 `from analytics.strategies import detect_X as detect_X` shim line |
 | `signals/registry.py` | `SignalPlugin` entry (only if the strategy is actionable for live alerts — `seasonality` and `fibonacci_retracement` excluded) |
-| `tests/test_indicators_lib.py` | Unit tests for the new detector (or create `tests/test_<name>.py`) |
+| `tests/test_<name>.py` | Unit tests for the new detector |
 | `analytics/backtest_runner.py` | Only for strategies needing funding / secondary OHLCV data |
 
 ## Task: add a new strategy
@@ -228,9 +225,8 @@ When the user asks to add a new strategy:
 3. Add the import + `StrategySpec` entry to `STRATEGY_REGISTRY` in `analytics/strategies/_registry.py`.
 4. Add the `DETECTOR_REGISTRY` entry (or skip + add explicit branch in `backtest_runner.py` if needs extra data).
 5. Add the eager import + `__all__` entry to `analytics/strategies/__init__.py`.
-6. Add the PEP 484 re-export line to `analytics/indicators_lib.py` (keeps legacy import paths working).
-7. Add `SignalPlugin` entry to `signals/registry.py` (skip for non-actionable strategies).
-8. Write at least 2 tests: one that fires a signal, one edge case that produces no signal.
-9. Run `make lint-py && make typecheck && make test` (must end clean).
-10. Run quick backtest: `buibui backtest --symbol BTCUSDT --strategy <name> --interval 1h`.
+6. Add `SignalPlugin` entry to `signals/registry.py` (skip for non-actionable strategies).
+7. Write at least 2 tests: one that fires a signal, one edge case that produces no signal.
+8. Run `make lint-py && make typecheck && make test` (must end clean).
+9. Run quick backtest: `buibui backtest --symbol BTCUSDT --strategy <name> --interval 1h`.
 11. If positive results, add to `config/signal_watch.toml` strategies list.

@@ -135,7 +135,7 @@ the combo lookup every 10 cycles.
 
 Cross-TF: there is **no live gate yet** — results currently inform the D10
 roadmap and Card 12 in the digest UI. When wiring lands, it will live in
-`signal_lib.run_scan_cycle()`'s Phase 3 step (HTF-first ordering — see
+`analytics/signal/scanner.py`'s `run_scan_cycle()` Phase 3 step (HTF-first ordering — see
 2026-04-22 fix in MEMORY).
 
 After updating the config, `/db-update` (or at minimum
@@ -158,7 +158,7 @@ After updating the config, `/db-update` (or at minimum
 | `analytics/backtest_lib.py` | `run_combo_backtest()`, cross-TF combo runner, D10 result types |
 | `analytics/backtest_runner.py` | `run_combo_backtest_cmd()`, `run_cross_tf_combo_backtest_cmd()` |
 | `analytics/signal_config.py` | `ComboConfig` (`[combo]` section parser) |
-| `analytics/signal_lib.py` | Live combo detection in `run_scan_cycle()` Phase 3 |
+| `analytics/signal/cofire.py` | Live combo detection (called from `scanner.py:run_scan_cycle()` Phase 3) |
 | `analytics/digest_lib.py` | Card 12 `query_cross_tf_combos` |
 | `analytics/data_store.py` | Combo result tables; `confluence_ratings` join |
 | `buibui.py` | `--combo`, `--cross-tf`, `--htf-ltf`, `--window`, `--window-hours` flags |

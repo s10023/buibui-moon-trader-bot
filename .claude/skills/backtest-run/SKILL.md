@@ -128,7 +128,7 @@ duckdb analytics.db "SELECT strategy, timeframe, symbol, avg_r, closed_trades FR
 ```bash
 # Update star ratings from saved DB results
 buibui recalibrate          # dry-run
-buibui recalibrate --apply  # apply to indicators_lib.py
+buibui recalibrate --apply  # apply to analytics/strategies/_registry.py
 ```
 
 ## Task: run a backtest

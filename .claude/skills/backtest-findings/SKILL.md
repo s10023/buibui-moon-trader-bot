@@ -136,7 +136,7 @@ make buibui-backtest CONFIG=config/signal_watch.toml SAVE=1
 
 # Optionally recalibrate star ratings from DB
 buibui recalibrate          # dry-run — shows diff
-buibui recalibrate --apply  # writes to indicators_lib.py
+buibui recalibrate --apply  # writes to analytics/strategies/_registry.py
 ```
 
 ## Where findings are stored
