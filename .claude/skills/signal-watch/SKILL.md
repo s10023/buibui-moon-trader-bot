@@ -16,7 +16,7 @@ allowed-tools: "*"
 ## What it does
 
 1. **Sync candles**: fetches latest OHLCV from Binance Futures, stores in `analytics.db`
-2. **Detect signals**: runs all configured strategies via `indicators_lib` detectors
+2. **Detect signals**: runs all configured strategies via `analytics/strategies` detectors
 3. **Dedup**: two-layer cooldown in `signals/cooldown_store.py`:
    - Candle watermark per `(symbol, tf, strategy)` — never re-alerts same candle
    - Cooldown timer per `(symbol, strategy, direction)` — default 1h between alerts
@@ -194,7 +194,7 @@ The three configs partition the calendar without overlap. When `buibui signal wa
 
 | File | Role |
 |------|------|
-| `analytics/signal_lib.py` | `scan_symbol()`, `run_scan_cycle()` — core detection loop |
+| `analytics/signal/scanner.py` | `scan_symbol()`, `run_scan_cycle()` — core detection loop (`signal_lib.py` is a 4-line re-export shim) |
 | `analytics/signal_runner.py` | Thin wrapper: creates client, opens DB, poll loop |
 | `analytics/signal_config.py` | `SignalWatchConfig`, `BacktestFilterConfig`, `load_signal_config()` |
 | `signals/cooldown_store.py` | Two-layer dedup: candle watermark + cooldown timer (JSON-persisted) |

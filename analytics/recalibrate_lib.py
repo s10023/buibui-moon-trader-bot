@@ -449,7 +449,8 @@ def write_confidence_to_source(
     updates: Mapping[str, dict[str, int] | int],
     source_path: Path,
 ) -> list[str]:
-    """Patch confidence values in indicators_lib.py for each strategy in updates.
+    """Patch confidence values in ``source_path`` (the StrategySpec source,
+    ``analytics/strategies/_registry.py``) for each strategy in updates.
 
     Accepts either a plain int (applies to all TFs) or a per-TF dict
     (e.g. {"default": 2, "4h": 4}).

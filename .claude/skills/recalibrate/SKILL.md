@@ -22,7 +22,7 @@ the live signal filter's quality gate.
 2. Maps avg_r → 1–5 stars (see thresholds below) — combined, long, and short directions
 3. Dry-run (default): prints a diff of old vs new ratings
 4. `--apply` with `--config`: writes combined + directional (long/short) stars to `confidence_ratings` DB table, keyed by `(config_name, strategy, tf, direction)`
-5. `--apply` without `--config`: legacy fallback — patches `confidence=N` directly in `indicators_lib.py`
+5. `--apply` without `--config`: legacy fallback — patches `confidence=N` directly in `analytics/strategies/_registry.py`
 
 **Prefer `--config` path** — it keeps ratings per-config and doesn't touch source code.
 
@@ -54,7 +54,7 @@ buibui recalibrate --config config/signal_watch.toml
 # Apply — writes to confidence_ratings DB table keyed by config_name
 buibui recalibrate --config config/signal_watch.toml --apply
 
-# Legacy apply (no --config) — patches confidence=N in indicators_lib.py source
+# Legacy apply (no --config) — patches confidence=N in analytics/strategies/_registry.py source
 buibui recalibrate --apply
 
 # Adjust minimum trade threshold

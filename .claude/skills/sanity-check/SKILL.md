@@ -39,15 +39,24 @@ Check all of the following:
 
 ### Strategy registry completeness
 Every strategy must appear in ALL of these locations or it silently breaks:
-- `analytics/indicators_lib.py` — `STRATEGY_REGISTRY` dict entry
-- `analytics/indicators_lib.py` — `DETECTOR_REGISTRY` dict entry (except `funding_reversion`, `smt_divergence` — they have explicit branches in `backtest_runner.py`)
-- `signals/registry.py` — `SIGNAL_REGISTRY` entry (all except `seasonality` and legacy `fibonacci_retracement`)
+- `analytics/strategies/_registry.py` — `STRATEGY_REGISTRY` entry (21)
+- `analytics/strategies/_registry.py` — `DETECTOR_REGISTRY` entry (19; excludes `seasonality`, `smt_divergence`, and legacy `fibonacci_retracement` — `smt_divergence` has an explicit branch in `backtest_runner.py`)
+- `signals/registry.py` — `SIGNAL_REGISTRY` entry (20; all except `seasonality` and legacy `fibonacci_retracement`)
 - `tests/` — at least one test for the detector function
 
-Run this to get a cross-reference:
+Run this to get the cross-reference (imports the registries directly — robust to dict vs list shape):
 ```bash
-grep -n '"[a-z_]*":' analytics/indicators_lib.py | grep -E "(STRATEGY|DETECTOR)_REGISTRY"
-grep -n 'name=' signals/registry.py
+poetry run python -c "
+from analytics.strategies._registry import STRATEGY_REGISTRY, DETECTOR_REGISTRY
+from signals.registry import SIGNAL_REGISTRY
+strat=set(STRATEGY_REGISTRY); det=set(DETECTOR_REGISTRY); sig=set(SIGNAL_REGISTRY)
+print('counts STRATEGY=%d DETECTOR=%d SIGNAL=%d' % (len(strat),len(det),len(sig)))
+print('STRATEGY-DETECTOR:', sorted(strat-det))   # expect: seasonality, smt_divergence
+print('DETECTOR-STRATEGY:', sorted(det-strat))   # expect: []
+print('DETECTOR-SIGNAL  :', sorted(det-sig))     # expect: []
+print('SIGNAL-DETECTOR  :', sorted(sig-det))     # expect: smt_divergence (explicit branch)
+print('STRATEGY-SIGNAL  :', sorted(strat-sig))   # expect: seasonality (not actionable)
+"
 ```
 
 Compare the two lists. Flag any strategy in STRATEGY_REGISTRY but not DETECTOR_REGISTRY (or vice versa), and any in DETECTOR_REGISTRY but not SIGNAL_REGISTRY.
@@ -63,7 +72,7 @@ Compare the two lists. Flag any strategy in STRATEGY_REGISTRY but not DETECTOR_R
 
 ### Data pipeline
 - `data_sync.py` syncs OHLCV — confirm it's wired into `analytics_runner.py` and `signal_runner.py`
-- `upsert_signals` in `data_store.py` — confirm it's called from `signal_lib.py:run_scan_cycle()`
+- `upsert_signals` in `analytics/store/signals.py` (re-exported via `data_store.py`) — confirm it's called from `analytics/signal/scanner.py:run_scan_cycle()` (`signal_lib.py` is now a 4-line shim)
 - `upsert_backtest_run` / `upsert_backtest_trades` — confirm called from `backtest_runner.py` when `SAVE=1`
 
 ### Thin wrapper / pure lib boundary
@@ -111,7 +120,7 @@ For each skill, verify the **key claims** are still true:
 
 | Skill | What to verify |
 |-------|---------------|
-| `atr-sweep` | `--atr-sl-values` CLI flag exists in `buibui.py`; `format_atr_sl_sweep_table` exists in `backtest_lib.py` |
+| `atr-sweep` | `--atr-sl-values` CLI flag exists in `cli/backtest.py`; `format_atr_sl_sweep_table` exported from `analytics/backtest/` (re-exported via `backtest_lib.py` shim) |
 | `volume-sweep` | `volume_suppress` field in `BacktestSweepConfig`; `effective_volume_suppress(strategy)` on `BacktestSweepConfig` |
 | `backtest-findings` | Min-trades thresholds still match `recalibrate_lib.py` defaults |
 | `recalibrate` | `buibui recalibrate` subcommand wired in `buibui.py`; `--config` + `--apply` flags present; `confidence_ratings` DB table exists |
