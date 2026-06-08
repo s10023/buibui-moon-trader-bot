@@ -201,6 +201,7 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
             win_rate      REAL,
             updated_at_ms BIGINT,
             day_filter    TEXT,
+            dsr           REAL,
             PRIMARY KEY (config_name, strategy, tf, direction)
         )
     """)
@@ -238,6 +239,17 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
         conn.execute("ALTER TABLE confidence_ratings_v2 RENAME TO confidence_ratings")
     elif "day_filter" not in existing_cr_cols:
         conn.execute("ALTER TABLE confidence_ratings ADD COLUMN day_filter TEXT")
+    # Migration: add DSR annotation column (P0a-2 sub-PR 3). Re-query because the
+    # branches above may have recreated the table (legacy direction backfill).
+    final_cr_cols = {
+        row[0]
+        for row in conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'confidence_ratings'"
+        ).fetchall()
+    }
+    if "dsr" not in final_cr_cols:
+        conn.execute("ALTER TABLE confidence_ratings ADD COLUMN dsr REAL")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS backtest_combos (
             combo_id         TEXT    PRIMARY KEY,

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import duckdb
 import pandas as pd
+import pytest
 
 from analytics.data_store import (
     get_directional_confidence_ratings,
@@ -12,6 +13,7 @@ from analytics.data_store import (
 )
 from analytics.recalibrate_lib import (
     compute_directional_ratings,
+    compute_dsr_ratings,
     compute_recalibrated_ratings,
     format_recalibration_report,
     prune_stale_ratings,
@@ -389,6 +391,52 @@ class TestFormatRecalibrationReport:
         report = format_recalibration_report(old, new, win_rates)
         assert "3→4" in report
 
+    def test_flags_high_star_low_dsr_as_suspect(self) -> None:
+        old: dict[str, dict[str, int] | int] = {"fvg": 3}
+        new: dict[str, dict[str, int]] = {"fvg": {"1h": 5}}
+        win_rates = pd.DataFrame(
+            [
+                {
+                    "strategy": "fvg",
+                    "timeframe": "1h",
+                    "total_trades": 40,
+                    "win_rate": 0.7,
+                    "avg_r": 1.0,
+                }
+            ]
+        )
+        dsr_ratings = {"fvg": {"1h": {"combined": 0.40, "long": None, "short": None}}}
+        report = format_recalibration_report(
+            old, new, win_rates, dsr_ratings=dsr_ratings
+        )
+        assert "Suspect" in report
+        assert "fvg/1h" in report.split("Suspect", 1)[1]
+
+    def test_does_not_flag_high_dsr_cell(self) -> None:
+        old: dict[str, dict[str, int] | int] = {"fvg": 3}
+        new: dict[str, dict[str, int]] = {"fvg": {"1h": 5}}
+        win_rates = pd.DataFrame(
+            columns=["strategy", "timeframe", "total_trades", "win_rate", "avg_r"]
+        )
+        dsr_ratings = {"fvg": {"1h": {"combined": 0.99, "long": None, "short": None}}}
+        report = format_recalibration_report(
+            old, new, win_rates, dsr_ratings=dsr_ratings
+        )
+        assert "Suspect" not in report
+
+    def test_does_not_flag_low_star_low_dsr(self) -> None:
+        # 3★ cell with low DSR is not "suspect" — only high-conviction (★≥4) cells.
+        old: dict[str, dict[str, int] | int] = {"fvg": 3}
+        new: dict[str, dict[str, int]] = {"fvg": {"1h": 3}}
+        win_rates = pd.DataFrame(
+            columns=["strategy", "timeframe", "total_trades", "win_rate", "avg_r"]
+        )
+        dsr_ratings = {"fvg": {"1h": {"combined": 0.10, "long": None, "short": None}}}
+        report = format_recalibration_report(
+            old, new, win_rates, dsr_ratings=dsr_ratings
+        )
+        assert "Suspect" not in report
+
 
 # ---------------------------------------------------------------------------
 # write_confidence_to_source — patches indicators_lib.py source in-place
@@ -581,6 +629,34 @@ class TestWriteConfidenceToDb:
         combined = get_confidence_ratings(conn, "signal_watch")
         assert combined["fvg"]["1h"] == 3
 
+    def test_writes_dsr_annotation_per_direction(self) -> None:
+        conn = self._conn()
+        ratings = {"fvg": {"1h": 4}}
+        dir_ratings = {"fvg": {"1h": {"long": 5, "short": 1}}}
+        dsr_ratings: dict[str, dict[str, dict[str, float | None]]] = {
+            "fvg": {"1h": {"combined": 0.80, "long": 0.91, "short": 0.20}}
+        }
+        empty_wr: pd.DataFrame = pd.DataFrame(
+            columns=["strategy", "timeframe", "avg_r", "win_rate"]
+        )
+        write_confidence_to_db(
+            conn,
+            "signal_watch",
+            ratings,
+            empty_wr,
+            directional_ratings=dir_ratings,
+            dsr_ratings=dsr_ratings,
+        )
+        rows = dict(
+            conn.execute(
+                "SELECT direction, dsr FROM confidence_ratings "
+                "WHERE strategy = 'fvg' AND tf = '1h'"
+            ).fetchall()
+        )
+        assert rows["combined"] == pytest.approx(0.80)
+        assert rows["long"] == pytest.approx(0.91)
+        assert rows["short"] == pytest.approx(0.20)
+
 
 # ---------------------------------------------------------------------------
 # compute_directional_ratings
@@ -742,3 +818,177 @@ class TestPruneStaleRatings:
         result = self._count(conn, "signal_watch_weekdays")
         assert result.get(None) == 1
         assert "weekdays" not in result
+
+
+# ---------------------------------------------------------------------------
+# compute_dsr_ratings — Deflated Sharpe annotation (P0a-2 sub-PR 3)
+# ---------------------------------------------------------------------------
+
+
+def _seed_cell(
+    conn: duckdb.DuckDBPyConnection,
+    run_id: str,
+    strategy: str,
+    tf: str,
+    trades: list[tuple[str, float]],
+    *,
+    symbol: str = "BTCUSDT",
+    day_filter: str = "off",
+    run_at_ms: int = 1000,
+) -> None:
+    """Insert one backtest_run + its per-trade rows. ``trades`` is (direction, pnl_r)."""
+    n = len(trades)
+    wins = sum(1 for _, r in trades if r > 0)
+    avg_r = sum(r for _, r in trades) / n if n else 0.0
+    conn.execute(
+        "INSERT INTO backtest_runs "
+        "(run_id, symbol, timeframe, strategy, data_start_ms, data_end_ms, days, "
+        "sl_pct, tp_r, fee_pct, day_filter, smt_trend_filter, total_signals, "
+        "closed_trades, win_count, loss_count, win_rate, avg_r, total_r, "
+        "max_drawdown_r, run_at_ms) VALUES "
+        "(?, ?, ?, ?, 0, 1, 90, 0.02, 2.0, 0.0, ?, 1, ?, ?, ?, ?, ?, ?, ?, 0.0, ?)",
+        [
+            run_id,
+            symbol,
+            tf,
+            strategy,
+            day_filter,
+            n,
+            n,
+            wins,
+            n - wins,
+            wins / n if n else 0.0,
+            avg_r,
+            avg_r * n,
+            run_at_ms,
+        ],
+    )
+    for i, (direction, pnl_r) in enumerate(trades):
+        conn.execute(
+            "INSERT INTO backtest_trades "
+            "(trade_id, run_id, symbol, timeframe, strategy, direction, signal_time, "
+            "entry_time, entry_price, sl_price, tp_price, outcome, pnl_r) VALUES "
+            "(?, ?, ?, ?, ?, ?, ?, ?, 100.0, 99.0, 102.0, ?, ?)",
+            [
+                f"{run_id}-{i}",
+                run_id,
+                symbol,
+                tf,
+                strategy,
+                direction,
+                i,
+                i,
+                "win" if pnl_r > 0 else "loss",
+                pnl_r,
+            ],
+        )
+
+
+# A consistently-positive R stream (sr ~ 0.35 over 30 trades): single-cell DSR is high.
+_POS_STREAM = [("long", 1.0)] * 20 + [("long", -1.0)] * 10
+
+
+class TestComputeDsrRatings:
+    def _conn(self) -> duckdb.DuckDBPyConnection:
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        return conn
+
+    def test_empty_db_returns_empty_dict(self) -> None:
+        conn = self._conn()
+        assert compute_dsr_ratings(conn) == {}
+        conn.close()
+
+    def test_run_without_trades_returns_empty(self) -> None:
+        conn = self._conn()
+        # run row but zero backtest_trades rows
+        conn.execute(
+            "INSERT INTO backtest_runs "
+            "(run_id, symbol, timeframe, strategy, data_start_ms, data_end_ms, days, "
+            "sl_pct, tp_r, fee_pct, day_filter, smt_trend_filter, total_signals, "
+            "closed_trades, win_count, loss_count, win_rate, avg_r, total_r, "
+            "max_drawdown_r, run_at_ms) VALUES "
+            "('r0', 'BTCUSDT', '1h', 'fvg', 0, 1, 90, 0.02, 2.0, 0.0, 'off', 1, "
+            "10, 10, 6, 4, 0.6, 0.3, 3.0, 1.0, 1000)"
+        )
+        assert compute_dsr_ratings(conn) == {}
+        conn.close()
+
+    def test_tiny_n_degenerate_cell_does_not_poison_family(self) -> None:
+        """A 2-trade near-identical-loss cell has a huge-magnitude per-trade Sharpe.
+        It must be excluded from the trial family (n below min_trades) rather than
+        inflating the deflation benchmark and collapsing every cell's DSR to ~0."""
+        conn = self._conn()
+        _seed_cell(conn, "good", "fvg", "1h", _POS_STREAM)  # n=30
+        _seed_cell(conn, "deg", "bos", "15m", [("long", -1.0), ("long", -1.001)])
+        result = compute_dsr_ratings(conn)
+        conn.close()
+        # well-sampled cell keeps its high DSR; degenerate cell is not annotated
+        assert result["fvg"]["1h"]["combined"] is not None
+        assert result["fvg"]["1h"]["combined"] > 0.9
+        assert result["bos"]["15m"]["combined"] is None
+
+    def test_consistent_positive_cell_has_high_dsr(self) -> None:
+        conn = self._conn()
+        _seed_cell(conn, "r1", "fvg", "1h", _POS_STREAM)
+        result = compute_dsr_ratings(conn)
+        conn.close()
+        dsr = result["fvg"]["1h"]["combined"]
+        assert dsr is not None
+        assert dsr > 0.9
+        # all-long stream → long equals combined, short undefined
+        assert result["fvg"]["1h"]["long"] == pytest.approx(dsr)
+        assert result["fvg"]["1h"]["short"] is None
+
+    def test_dsr_is_deflated_within_a_larger_family(self) -> None:
+        """The same cell's DSR drops once it sits inside a dispersed trial family —
+        proves the deflation uses the per-pass cell family, not a bare PSR."""
+        alone = self._conn()
+        _seed_cell(alone, "r1", "fvg", "1h", _POS_STREAM)
+        dsr_alone = compute_dsr_ratings(alone)["fvg"]["1h"]["combined"]
+        alone.close()
+
+        crowded = self._conn()
+        _seed_cell(crowded, "r1", "fvg", "1h", _POS_STREAM)
+        # five other 30-trade cells with varied win rates → varied Sharpes →
+        # non-zero cross-trial variance (all clear MIN_DSR_TRADES so they count)
+        for k, wins in enumerate([10, 12, 14, 16, 18]):
+            stream = [("long", 1.0)] * wins + [("long", -1.0)] * (30 - wins)
+            _seed_cell(crowded, f"r{k + 2}", f"s{k}", "1h", stream)
+        dsr_crowded = compute_dsr_ratings(crowded)["fvg"]["1h"]["combined"]
+        crowded.close()
+
+        assert dsr_alone is not None and dsr_crowded is not None
+        assert dsr_crowded < dsr_alone
+
+    def test_directional_split_computed_independently(self) -> None:
+        conn = self._conn()
+        trades = [("long", 1.0)] * 12 + [("long", -1.0)] * 4
+        trades += [("short", -1.0)] * 12 + [("short", 1.0)] * 4
+        _seed_cell(conn, "r1", "bos", "4h", trades)
+        # min_trades=5 so the 16-trade directional slices qualify in this small seed
+        result = compute_dsr_ratings(conn, min_trades=5)["bos"]["4h"]
+        conn.close()
+        assert result["long"] is not None
+        assert result["short"] is not None
+        # long edge is positive, short edge is negative → long DSR > short DSR
+        assert result["long"] > result["short"]
+
+    def test_uses_only_latest_run_per_cell(self) -> None:
+        """An older run with a losing stream must not pollute the newer winning run."""
+        conn = self._conn()
+        _seed_cell(conn, "old", "fvg", "1h", [("long", -1.0)] * 30, run_at_ms=500)
+        _seed_cell(conn, "new", "fvg", "1h", _POS_STREAM, run_at_ms=2000)
+        dsr = compute_dsr_ratings(conn)["fvg"]["1h"]["combined"]
+        conn.close()
+        # dedup → newer winning stream wins → high DSR (older losers would tank it)
+        assert dsr is not None and dsr > 0.9
+
+    def test_respects_day_filter_scope(self) -> None:
+        conn = self._conn()
+        _seed_cell(conn, "a", "fvg", "1h", _POS_STREAM, day_filter="off")
+        _seed_cell(conn, "b", "bos", "4h", _POS_STREAM, day_filter="tue_thu")
+        result = compute_dsr_ratings(conn, day_filter="tue_thu")
+        conn.close()
+        assert "bos" in result
+        assert "fvg" not in result
