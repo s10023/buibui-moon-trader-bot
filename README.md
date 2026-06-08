@@ -76,7 +76,7 @@ buibui-moon-trader-bot/
 │   ├── digest_lib.py                # 12 pre-canned SQL queries; run_digest; DigestScope; powers buibui digest
 │   ├── cme_gap_lib.py               # CME gap detection + alert warning helper
 │   ├── zones_lib.py                 # Structural zone extraction (geometry only): FVG, OB, EQH/EQL, BOS, Fib, OTE, swing points
-│   ├── recalibrate_lib.py           # Compute + write star ratings to DB or source
+│   ├── recalibrate_lib.py           # Compute + write star ratings to DB or source (+ DSR overfit annotation)
 │   ├── recalibrate_runner.py        # Recalibrate thin wrapper
 │   ├── perf_timer.py                # timed(label) context manager
 │   └── regime.py                    # Regime classifier (trend/range/high_vol/unknown); §6 of v2 redesign; Phase 2 live gate (soft mode)
