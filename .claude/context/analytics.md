@@ -7,7 +7,7 @@ Detailed API reference for `analytics/`. Load this when working on any analytics
 - `upsert_signals(conn, df)` / `get_signals_history(conn, symbol, tf, start_ms, end_ms)`
 - `list_backtest_runs(conn)` — newest-first; JOINs `stars`, `long_stars`, `short_stars` from `confidence_ratings` by `(strategy, tf, day_filter, direction)`; PARTITION BY includes `adr_suppress_threshold` so ADR-on/off runs appear as separate rows
 - `upsert_backtest_run` / `upsert_backtest_trades`
-- `upsert_confidence_ratings(conn, config_name, ratings, win_rates, day_filter=None, direction="combined")` — PK `(config_name, strategy, tf, direction)`; direction = `'combined'` | `'long'` | `'short'`
+- `upsert_confidence_ratings(conn, config_name, ratings, win_rates, day_filter=None, direction="combined", dsr_map=None)` — PK `(config_name, strategy, tf, direction)`; direction = `'combined'` | `'long'` | `'short'`; `dsr_map={strategy: {tf: dsr}}` writes the additive `dsr REAL` column (NULL when absent)
 - `get_confidence_ratings(conn, config_name, direction="combined")` / `get_directional_confidence_ratings(conn, config_name)` → `{strategy: {tf: {"long": stars, "short": stars}}}`
 - `backtest_runs` columns: `adr_suppress_threshold REAL NULL`, `recovery_factor DOUBLE NULL`, `volume_suppress BOOLEAN NULL`
 - `_backtest_run_id` appends `|adr:X` / `|vol_suppress` for unique run_id per param combo
@@ -186,6 +186,8 @@ Detailed API reference for `analytics/`. Load this when working on any analytics
 - `get_backtest_win_rates(conn)` → DataFrame with combined + directional columns
 - `compute_recalibrated_ratings(conn, min_trades)` → `dict[str, dict[str, int]]`
 - `compute_directional_ratings(conn, min_trades=5)` → `{strategy: {tf: {"long": stars, "short": stars}}}`
-- `write_confidence_to_db(conn, config_name, ratings, win_rates, day_filter=None, directional_ratings=None)`
+- `compute_dsr_ratings(conn, day_filter=None, adr_suppress_threshold=None, min_trades=MIN_DSR_TRADES)` → `{strategy: {tf: {"combined"|"long"|"short": dsr}}}` (P0a-2 sub-PR 3). Pools `backtest_trades.pnl_r` over the same latest-run-per-(strategy, tf, symbol) set the ratings use (shared `_build_run_filter` scoping), computes each cell's per-trade Sharpe, and deflates it against the per-pass cell family via `research_guards.deflated_sharpe_ratio` (N = per-pass cell count = an N-floor on the true search → optimistic). `MIN_DSR_TRADES = 30` gates family membership + DSR computation (a tiny-n low-dispersion cell's extreme Sharpe would otherwise inflate the cross-trial variance and collapse every DSR to ~0); `DSR_SUSPECT_THRESHOLD = 0.95`
+- `write_confidence_to_db(conn, config_name, ratings, win_rates, day_filter=None, directional_ratings=None, dsr_ratings=None)` — `dsr_ratings` sliced per direction into `upsert_confidence_ratings(dsr_map=)` → the `confidence_ratings.dsr` column
+- `format_recalibration_report(..., dsr_ratings=None)` appends a "⚠ Suspect (★≥4 but DSR<0.95)" line
 - `write_confidence_to_source` — legacy: patches `analytics/strategies/_registry.py` directly
 - Runner: `--config <toml>` derives `day_filter`, `config_name`, `adr_suppress_threshold`; `--apply` writes to DB (with config) or source (without config)

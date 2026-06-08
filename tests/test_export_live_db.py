@@ -16,7 +16,9 @@ def _make_source(path: Path) -> None:
         "INSERT INTO ohlcv VALUES ('BTCUSDT', '1h', 1, 10, 11, 9, 10.5, 100, 50)"
     )
     con.execute(
-        "INSERT INTO confidence_ratings VALUES "
+        "INSERT INTO confidence_ratings "
+        "(config_name, strategy, tf, direction, stars, avg_r, win_rate, "
+        "updated_at_ms, day_filter) VALUES "
         "('signal_watch', 'bos', '1h', 'long', 3, 0.2, 0.5, 1, 'tue_thu')"
     )
     # backtest_trades carries bulk rows that must NOT be copied into the slim DB.

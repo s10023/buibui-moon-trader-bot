@@ -15,6 +15,7 @@ def upsert_confidence_ratings(
     direction: str = "combined",
     avg_r_col: str = "avg_r",
     win_rate_col: str = "win_rate",
+    dsr_map: dict[str, dict[str, float]] | None = None,
 ) -> None:
     """Upsert per-config confidence star ratings keyed by (config_name, strategy, tf, direction).
 
@@ -23,6 +24,8 @@ def upsert_confidence_ratings(
     day_filter: the config's day_filter value — stored so backtest rows can JOIN correctly.
     direction: 'combined' (default), 'long', or 'short'.
     avg_r_col / win_rate_col: column names to read from win_rates (allows directional lookups).
+    dsr_map: {strategy: {tf: dsr}} for this direction — the Deflated Sharpe annotation
+        (P0a-2 sub-PR 3). A high-star / low-DSR cell is overfit-suspect. None → dsr NULL.
     """
     if not ratings:
         return
@@ -41,6 +44,7 @@ def upsert_confidence_ratings(
     for strategy, tf_map in ratings.items():
         for tf, stars in tf_map.items():
             avg_r_val, win_rate_val = stats.get((strategy, tf), (None, None))
+            dsr_val = (dsr_map or {}).get(strategy, {}).get(tf)
             rows.append(
                 {
                     "config_name": config_name,
@@ -52,6 +56,7 @@ def upsert_confidence_ratings(
                     "win_rate": win_rate_val,
                     "updated_at_ms": now_ms,
                     "day_filter": day_filter,
+                    "dsr": float(dsr_val) if dsr_val is not None else None,
                 }
             )
     df = pd.DataFrame(rows)
@@ -60,7 +65,7 @@ def upsert_confidence_ratings(
         conn.execute(
             "INSERT OR REPLACE INTO confidence_ratings "
             "SELECT config_name, strategy, tf, direction, stars, avg_r, win_rate, "
-            "updated_at_ms, day_filter "
+            "updated_at_ms, day_filter, dsr "
             "FROM _cr_upsert_df"
         )
     finally:

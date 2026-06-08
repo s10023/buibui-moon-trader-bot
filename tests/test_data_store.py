@@ -96,6 +96,47 @@ class TestInitSchema:
         tables = {r[0] for r in conn.execute("SHOW TABLES").fetchall()}
         assert "ohlcv" in tables
 
+    def test_confidence_ratings_has_dsr_column(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        cols = {
+            row[0]
+            for row in conn.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'confidence_ratings'"
+            ).fetchall()
+        }
+        assert "dsr" in cols
+
+    def test_migrates_dsr_onto_legacy_confidence_ratings(self) -> None:
+        """A confidence_ratings table created before the dsr column gains it,
+        preserving existing rows with a NULL dsr."""
+        c = duckdb.connect(":memory:")
+        c.execute(
+            "CREATE TABLE confidence_ratings ("
+            "config_name TEXT NOT NULL, strategy TEXT NOT NULL, tf TEXT NOT NULL, "
+            "direction TEXT NOT NULL, stars INTEGER NOT NULL, avg_r REAL, "
+            "win_rate REAL, updated_at_ms BIGINT, day_filter TEXT, "
+            "PRIMARY KEY (config_name, strategy, tf, direction))"
+        )
+        c.execute(
+            "INSERT INTO confidence_ratings VALUES "
+            "('signal_watch', 'fvg', '1h', 'combined', 3, 0.3, 0.5, 1, 'off')"
+        )
+        init_schema(c)
+        cols = {
+            row[0]
+            for row in c.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'confidence_ratings'"
+            ).fetchall()
+        }
+        assert "dsr" in cols
+        assert c.execute("SELECT stars, dsr FROM confidence_ratings").fetchone() == (
+            3,
+            None,
+        )
+
 
 class TestUpsertOhlcv:
     def test_inserts_rows(self, conn: duckdb.DuckDBPyConnection) -> None:
@@ -753,6 +794,37 @@ class TestConfidenceRatings:
         upsert_backtest_run(conn, result, **_BT_PARAMS)
         df = list_backtest_runs(conn)
         assert pd.isna(df.iloc[0]["stars"])
+
+    def test_upsert_persists_dsr_from_map(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        win_rates = pd.DataFrame(
+            [{"strategy": "fvg", "timeframe": "1h", "avg_r": 0.6, "win_rate": 0.6}]
+        )
+        upsert_confidence_ratings(
+            conn,
+            "signal_watch",
+            {"fvg": {"1h": 4}},
+            win_rates,
+            dsr_map={"fvg": {"1h": 0.42}},
+        )
+        dsr = _one(
+            conn,
+            "SELECT dsr FROM confidence_ratings "
+            "WHERE strategy = 'fvg' AND tf = '1h' AND direction = 'combined'",
+        )[0]
+        assert dsr == pytest.approx(0.42)
+
+    def test_upsert_dsr_null_when_no_map(self, conn: duckdb.DuckDBPyConnection) -> None:
+        win_rates = pd.DataFrame(
+            [{"strategy": "fvg", "timeframe": "1h", "avg_r": 0.6, "win_rate": 0.6}]
+        )
+        upsert_confidence_ratings(conn, "signal_watch", {"fvg": {"1h": 4}}, win_rates)
+        dsr = _one(
+            conn,
+            "SELECT dsr FROM confidence_ratings WHERE strategy = 'fvg' AND tf = '1h'",
+        )[0]
+        assert dsr is None
 
 
 class TestGetLatestOpenTime:

@@ -11,6 +11,7 @@ import duckdb
 from analytics.data_store import DEFAULT_DB_PATH, init_schema
 from analytics.recalibrate_lib import (
     compute_directional_ratings,
+    compute_dsr_ratings,
     compute_recalibrated_ratings,
     format_recalibration_report,
     get_backtest_win_rates,
@@ -68,12 +69,21 @@ def run(
             day_filter=day_filter,
             adr_suppress_threshold=adr_suppress_threshold,
         )
+        dsr_ratings = compute_dsr_ratings(
+            conn,
+            day_filter=day_filter,
+            adr_suppress_threshold=adr_suppress_threshold,
+        )
 
         old_ratings = {
             name: spec.confidence for name, spec in STRATEGY_REGISTRY.items()
         }
         report = format_recalibration_report(
-            old_ratings, new_ratings, win_rates, directional_ratings=dir_ratings
+            old_ratings,
+            new_ratings,
+            win_rates,
+            directional_ratings=dir_ratings,
+            dsr_ratings=dsr_ratings,
         )
         print(report)
 
@@ -91,6 +101,7 @@ def run(
                     win_rates,
                     day_filter=day_filter,
                     directional_ratings=dir_ratings,
+                    dsr_ratings=dsr_ratings,
                 )
                 if day_filter is not None:
                     n_stale = prune_stale_ratings(conn, config_name, day_filter)
