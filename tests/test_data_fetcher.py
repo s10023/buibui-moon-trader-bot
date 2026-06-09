@@ -115,6 +115,25 @@ class TestFetchFundingRates:
         assert df.iloc[0]["funding_time"] == 1_700_000_000_000
         assert df.iloc[0]["funding_rate"] == 0.0001
 
+    def test_start_time_passes_time_kwargs(self) -> None:
+        client = MagicMock()
+        client.futures_funding_rate.return_value = [_FUNDING_RAW]
+        fetch_funding_rates(
+            client, "BTCUSDT", limit=1000, start_time=1_000, end_time=2_000
+        )
+        kwargs = client.futures_funding_rate.call_args.kwargs
+        assert kwargs["startTime"] == 1_000
+        assert kwargs["endTime"] == 2_000
+        assert kwargs["limit"] == 1000
+
+    def test_omits_time_kwargs_when_not_given(self) -> None:
+        client = MagicMock()
+        client.futures_funding_rate.return_value = [_FUNDING_RAW]
+        fetch_funding_rates(client, "BTCUSDT")
+        kwargs = client.futures_funding_rate.call_args.kwargs
+        assert "startTime" not in kwargs
+        assert "endTime" not in kwargs
+
 
 class TestFetchOpenInterest:
     def test_returns_dataframe_with_correct_columns(self) -> None:
