@@ -35,6 +35,9 @@ _OI_MAX_LIMIT: int = 500
 
 _DEFAULT_SLEEP_SECONDS: float = 0.1
 
+# Binance funding-rate-history endpoint caps at 1000 records per request.
+_FUNDING_BACKFILL_LIMIT: int = 1000
+
 
 def backfill(
     conn: duckdb.DuckDBPyConnection,
@@ -92,6 +95,51 @@ def sync_funding_rates(
     upsert_funding_rates(conn, df)
     logging.info("sync_funding_rates %s: stored %d rows", symbol, len(df))
     return len(df)
+
+
+def backfill_funding_rates(
+    conn: duckdb.DuckDBPyConnection,
+    client: Client,
+    symbol: str,
+    since_ms: int,
+    until_ms: int | None = None,
+    sleep_fn: Callable[[float], None] | None = None,
+) -> int:
+    """Fetch full funding-rate history from since_ms forward and store it.
+
+    Paginates in 1000-record batches (the endpoint cap), advancing past the last
+    fundingTime each page. Returns total rows upserted. Stops when a short page
+    (fewer rows than the limit) or an empty page is returned.
+
+    Binance-only: the OKX adapter does not serve funding, and this is reached only
+    on the Binance backfill path.
+    """
+    _sleep = sleep_fn if sleep_fn is not None else time.sleep
+    total = 0
+    current_start = since_ms
+    while True:
+        df = fetch_funding_rates(
+            client,
+            symbol,
+            limit=_FUNDING_BACKFILL_LIMIT,
+            start_time=current_start,
+            end_time=until_ms,
+        )
+        if df.empty:
+            break
+        upsert_funding_rates(conn, df)
+        total += len(df)
+        logging.info(
+            "backfill_funding_rates %s: stored %d rows (total %d)",
+            symbol,
+            len(df),
+            total,
+        )
+        if len(df) < _FUNDING_BACKFILL_LIMIT:
+            break
+        current_start = int(df["funding_time"].iloc[-1]) + 1
+        _sleep(_DEFAULT_SLEEP_SECONDS)
+    return total
 
 
 def sync_open_interest(
