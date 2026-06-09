@@ -416,7 +416,7 @@ poetry run python buibui.py analytics backfill --since 2023-01-01
 
 Options:
 
-- `--since YYYY-MM-DD` — start date for backfill (default: `2023-01-01`)
+- `--since YYYY-MM-DD` — start date for backfill (default: `2023-01-01`); also bounds funding-rate history depth (a deep backfill now pulls full funding history, not just the recent ~90 days)
 - `--symbols BTCUSDT ETHUSDT` — symbols to fetch (default: all coins in `config/coins.json`)
 - `--timeframes 1h 4h 1d` — timeframes to fetch (default: `1h 4h 1d`)
 

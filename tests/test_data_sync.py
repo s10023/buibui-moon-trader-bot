@@ -14,7 +14,12 @@ from analytics.data_store import (
     init_schema,
     upsert_ohlcv,
 )
-from analytics.data_sync import backfill, sync, sync_funding_rates
+from analytics.data_sync import (
+    backfill,
+    backfill_funding_rates,
+    sync,
+    sync_funding_rates,
+)
 
 
 def _make_conn() -> duckdb.DuckDBPyConnection:
@@ -188,3 +193,42 @@ class TestSyncFundingRates:
             sync_funding_rates(conn, object(), "BTCUSDT", days=30)
         # 30 days * 24h / 8h per funding = 90
         assert captured_kwargs[0]["limit"] == 90
+
+
+class TestBackfillFundingRates:
+    def test_stores_single_short_page(self) -> None:
+        conn = _make_conn()
+        df = _make_funding_df([1_000, 2_000])
+        with patch("analytics.data_sync.fetch_funding_rates", return_value=df):
+            total = backfill_funding_rates(
+                conn, object(), "BTCUSDT", 0, sleep_fn=lambda _: None
+            )
+        assert total == 2
+        stored = get_funding_rates(conn, "BTCUSDT", 0, 9_999_999)
+        assert list(stored["funding_time"]) == [1_000, 2_000]
+
+    def test_paginates_and_advances_start(self) -> None:
+        conn = _make_conn()
+        page1 = _make_funding_df(list(range(1, 1001)))  # 1000 rows -> next page
+        page2 = _make_funding_df([1_001, 1_002])  # short page -> stop
+        starts: list[Any] = []
+
+        def fake(*args: Any, **kwargs: Any) -> pd.DataFrame:
+            starts.append(kwargs.get("start_time"))
+            return page1 if len(starts) == 1 else page2
+
+        with patch("analytics.data_sync.fetch_funding_rates", side_effect=fake):
+            total = backfill_funding_rates(
+                conn, object(), "BTCUSDT", 0, sleep_fn=lambda _: None
+            )
+        assert total == 1002
+        assert starts == [0, 1_001]  # advanced past page1's last funding_time
+
+    def test_stops_on_empty_page(self) -> None:
+        conn = _make_conn()
+        empty = pd.DataFrame(columns=FUNDING_COLUMNS)
+        with patch("analytics.data_sync.fetch_funding_rates", return_value=empty):
+            total = backfill_funding_rates(
+                conn, object(), "BTCUSDT", 0, sleep_fn=lambda _: None
+            )
+        assert total == 0

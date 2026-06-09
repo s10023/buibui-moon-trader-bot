@@ -88,13 +88,25 @@ def fetch_funding_rates(
     client: Client,
     symbol: str,
     limit: int = 100,
+    start_time: int | None = None,
+    end_time: int | None = None,
 ) -> pd.DataFrame:
-    """Fetch the most recent `limit` funding rate records for symbol.
+    """Fetch funding rate records for symbol.
+
+    Without `start_time`, returns the most recent `limit` records (back-compat).
+    With `start_time` (Unix ms), Binance returns records from that time forward in
+    ascending fundingTime order — used by the paginated history backfill. `end_time`
+    optionally bounds the upper edge. Binance caps `limit` at 1000.
 
     Returns a DataFrame with columns matching FUNDING_COLUMNS.
     Returns an empty DataFrame (with correct columns) if no data.
     """
-    raw = client.futures_funding_rate(symbol=symbol, limit=limit)
+    kwargs: dict[str, Any] = {"symbol": symbol, "limit": limit}
+    if start_time is not None:
+        kwargs["startTime"] = start_time
+    if end_time is not None:
+        kwargs["endTime"] = end_time
+    raw = client.futures_funding_rate(**kwargs)
     return _fetch_to_df(
         raw,
         lambda r: {
