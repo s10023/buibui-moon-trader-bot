@@ -502,6 +502,22 @@ hammer_hanging_man = ["15m", "1d"]
         )
         assert cfg.effective_strategy_timeframes("pin_bar", "long") == []
 
+    def test_slippage_bps_resolves_to_fraction(self, tmp_path: Path) -> None:
+        toml = tmp_path / "c.toml"
+        toml.write_text("[backtest]\nslippage_bps = 2.0\n")
+        cfg = load_backtest_config(str(toml))
+        assert cfg.slippage_pct == pytest.approx(0.0002)
+
+    def test_slippage_defaults_to_2bps_when_omitted(self, tmp_path: Path) -> None:
+        toml = tmp_path / "c.toml"
+        toml.write_text('[backtest]\nmode = "hard"\n')
+        cfg = load_backtest_config(str(toml))
+        assert cfg.slippage_pct == pytest.approx(0.0002)
+
+    def test_slippage_field_default_is_zero(self) -> None:
+        # Direct construction stays byte-stable (engine no-op).
+        assert BacktestSweepConfig().slippage_pct == 0.0
+
     def test_load_signal_watch_toml_inherits_timeframes(self, tmp_path: Path) -> None:
         # Loading via load_backtest_config pulls strategy_timeframes from the
         # same signal_config parser the live daemon uses — single source of truth.
