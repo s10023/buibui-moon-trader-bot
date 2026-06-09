@@ -1845,3 +1845,221 @@ class TestDirectionalTpR:
         # TP for short = entry - tp_r * sl_dist (tp_r=2.0, not tp_r_long=0.5)
         expected_tp = trade.entry_price - 2.0 * (trade.sl_price - trade.entry_price)
         assert trade.tp_price == pytest.approx(expected_tp)
+
+
+# ---------------------------------------------------------------------------
+# run_backtest — funding + slippage costs
+# ---------------------------------------------------------------------------
+
+
+def _one_long_win_setup() -> tuple[pd.DataFrame, pd.DataFrame]:
+    """OHLCV where a long entered at candle 1 wins by candle 3.
+
+    Times are ms: 0,1,2,3,4. Signal at t=0 -> entry at t=1 open=100.
+    SL fallback = 2% (sl_pct), risk = 2.0. TP at tp_r=2 -> 104. High hits 104 at t=3.
+    """
+    rows = [
+        {
+            "open_time": 0,
+            "open": 100,
+            "high": 101,
+            "low": 99,
+            "close": 100,
+            "volume": 1000,
+            "taker_buy_volume": 500,
+        },
+        {
+            "open_time": 1,
+            "open": 100,
+            "high": 101,
+            "low": 99,
+            "close": 100,
+            "volume": 1000,
+            "taker_buy_volume": 500,
+        },
+        {
+            "open_time": 2,
+            "open": 100,
+            "high": 102,
+            "low": 99,
+            "close": 101,
+            "volume": 1000,
+            "taker_buy_volume": 500,
+        },
+        {
+            "open_time": 3,
+            "open": 101,
+            "high": 105,
+            "low": 100,
+            "close": 104,
+            "volume": 1000,
+            "taker_buy_volume": 500,
+        },
+        {
+            "open_time": 4,
+            "open": 104,
+            "high": 106,
+            "low": 103,
+            "close": 105,
+            "volume": 1000,
+            "taker_buy_volume": 500,
+        },
+    ]
+    ohlcv = pd.DataFrame(rows)
+    signals = pd.DataFrame([{"open_time": 0, "direction": "long"}])
+    return ohlcv, signals
+
+
+class TestRunBacktestCosts:
+    def test_funding_none_is_byte_stable(self) -> None:
+        ohlcv, signals = _one_long_win_setup()
+        base = run_backtest(ohlcv, signals, "BTCUSDT", "1h", "fvg", sl_pct=0.02)
+        none = run_backtest(
+            ohlcv, signals, "BTCUSDT", "1h", "fvg", sl_pct=0.02, funding_series=None
+        )
+        assert base.closed_trades[0].funding_r == 0.0
+        assert none.closed_trades[0].pnl_r == pytest.approx(base.closed_trades[0].pnl_r)
+
+    def test_long_pays_funding_when_rate_positive(self) -> None:
+        ohlcv, signals = _one_long_win_setup()
+        # Funding stamp at t=2 (inside (entry=1, exit=3]) with positive rate.
+        funding = pd.Series([0.01], index=[2])
+        res = run_backtest(
+            ohlcv, signals, "BTCUSDT", "1h", "fvg", sl_pct=0.02, funding_series=funding
+        )
+        trade = res.closed_trades[0]
+        # entry=100, risk=2, long -> funding_r = +1 * 0.01 * 100 / 2 = 0.5
+        assert trade.funding_r == pytest.approx(0.5)
+        # net_R = raw 2.0 - funding 0.5 (no fee/slippage)
+        assert trade.pnl_r == pytest.approx(2.0 - 0.5)
+
+    def test_short_receives_funding_when_rate_positive(self) -> None:
+        # short: entry 100, sl 102 (risk 2), tp 96; low hits 96 at t=3.
+        rows = [
+            {
+                "open_time": 0,
+                "open": 100,
+                "high": 101,
+                "low": 99,
+                "close": 100,
+                "volume": 1000,
+                "taker_buy_volume": 500,
+            },
+            {
+                "open_time": 1,
+                "open": 100,
+                "high": 101,
+                "low": 99,
+                "close": 100,
+                "volume": 1000,
+                "taker_buy_volume": 500,
+            },
+            {
+                "open_time": 2,
+                "open": 100,
+                "high": 101,
+                "low": 98,
+                "close": 99,
+                "volume": 1000,
+                "taker_buy_volume": 500,
+            },
+            {
+                "open_time": 3,
+                "open": 99,
+                "high": 100,
+                "low": 95,
+                "close": 96,
+                "volume": 1000,
+                "taker_buy_volume": 500,
+            },
+            {
+                "open_time": 4,
+                "open": 96,
+                "high": 97,
+                "low": 94,
+                "close": 95,
+                "volume": 1000,
+                "taker_buy_volume": 500,
+            },
+        ]
+        ohlcv = pd.DataFrame(rows)
+        signals = pd.DataFrame([{"open_time": 0, "direction": "short"}])
+        funding = pd.Series([0.01], index=[2])
+        res = run_backtest(
+            ohlcv, signals, "BTCUSDT", "1h", "fvg", sl_pct=0.02, funding_series=funding
+        )
+        trade = res.closed_trades[0]
+        # short -> funding_r = -1 * 0.01 * 100 / 2 = -0.5; pnl_r subtracts -> +0.5 added
+        assert trade.funding_r == pytest.approx(-0.5)
+        assert trade.pnl_r == pytest.approx(2.0 - (-0.5))
+
+    def test_funding_window_is_exclusive_of_entry_inclusive_of_exit(self) -> None:
+        ohlcv, signals = _one_long_win_setup()
+        # Stamps at entry (t=1, excluded), inside (t=2, included), exit (t=3, included),
+        # after (t=4, excluded). Only t=2 and t=3 count.
+        funding = pd.Series([0.01, 0.02, 0.03, 0.04], index=[1, 2, 3, 4])
+        res = run_backtest(
+            ohlcv, signals, "BTCUSDT", "1h", "fvg", sl_pct=0.02, funding_series=funding
+        )
+        # sum = 0.02 + 0.03 = 0.05 -> funding_r = 0.05 * 100 / 2 = 2.5
+        assert res.closed_trades[0].funding_r == pytest.approx(2.5)
+
+    def test_empty_funding_series_is_zero(self) -> None:
+        ohlcv, signals = _one_long_win_setup()
+        funding = pd.Series([], dtype=float)
+        res = run_backtest(
+            ohlcv, signals, "BTCUSDT", "1h", "fvg", sl_pct=0.02, funding_series=funding
+        )
+        assert res.closed_trades[0].funding_r == 0.0
+
+    def test_slippage_param_flows_to_trade(self) -> None:
+        ohlcv, signals = _one_long_win_setup()
+        res = run_backtest(
+            ohlcv, signals, "BTCUSDT", "1h", "fvg", sl_pct=0.02, slippage_pct=0.0002
+        )
+        trade = res.closed_trades[0]
+        assert trade.slippage_pct == 0.0002
+        # net_R = 2.0 - slippage_drag (2*0.0002*100/2 = 0.02)
+        assert trade.pnl_r == pytest.approx(2.0 - 0.02)
+
+    def test_open_trade_accrues_no_funding(self) -> None:
+        # Price never reaches SL (98) or TP (104) → trade stays open. The
+        # at-close guard (exit_time is not None) means open trades accrue 0
+        # funding by design; PR-3 handles live open-position cost separately.
+        rows = [
+            {
+                "open_time": 0,
+                "open": 100,
+                "high": 101,
+                "low": 99,
+                "close": 100,
+                "volume": 1000,
+                "taker_buy_volume": 500,
+            },
+            {
+                "open_time": 1,
+                "open": 100,
+                "high": 101,
+                "low": 99,
+                "close": 100,
+                "volume": 1000,
+                "taker_buy_volume": 500,
+            },
+            {
+                "open_time": 2,
+                "open": 100,
+                "high": 102,
+                "low": 99,
+                "close": 101,
+                "volume": 1000,
+                "taker_buy_volume": 500,
+            },
+        ]
+        ohlcv = pd.DataFrame(rows)
+        signals = pd.DataFrame([{"open_time": 0, "direction": "long"}])
+        funding = pd.Series([0.01, 0.02], index=[1, 2])
+        res = run_backtest(
+            ohlcv, signals, "BTCUSDT", "1h", "fvg", sl_pct=0.02, funding_series=funding
+        )
+        assert res.trades[0].outcome == "open"
+        assert res.trades[0].funding_r == 0.0
