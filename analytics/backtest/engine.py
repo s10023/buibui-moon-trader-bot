@@ -87,19 +87,23 @@ class Trade:
     exit_price: float | None = None
     outcome: str = "open"  # "win" | "loss" | "open"
     fee_pct: float = 0.0
+    slippage_pct: float = 0.0  # per-leg slippage as a fraction of entry price
+    # funding cost in R units; precomputed at close (see run_backtest)
+    funding_r: float = 0.0
     low_volume: bool = False  # True when signal candle volume < 1.5× rolling mean
     volume_spike: bool = False  # True when signal candle volume > 3× rolling mean
 
     @property
     def pnl_r(self) -> float | None:
-        """P&L expressed in R multiples (1R = amount risked), after fees.
+        """P&L in R multiples (1R = amount risked), after fees, slippage, funding.
 
-        Fee drag: each leg (entry + exit) costs fee_pct of notional.
-        Position is sized to risk 1R at the actual SL distance, so:
+        Fee drag: each leg (entry + exit) costs fee_pct of notional →
           fee_drag_r = 2 * fee_pct * entry_price / risk
-
-        This correctly penalises tight-SL strategies (e.g. wick_fill on 15m)
-        where fees consume a large fraction of the actual risk taken.
+        Slippage drag has the identical shape with slippage_pct, so both
+        auto-concentrate their pain on tight-SL cells where costs eat the
+        actual risk taken. funding_r is precomputed at close (run_backtest
+        needs the funding series + exit_time, which this property cannot see)
+        and subtracted directly.
         """
         if self.exit_price is None:
             return None
@@ -111,7 +115,8 @@ class Trade:
         else:
             raw_r = (self.entry_price - self.exit_price) / risk
         fee_drag_r = 2.0 * self.fee_pct * self.entry_price / risk
-        return raw_r - fee_drag_r
+        slippage_drag_r = 2.0 * self.slippage_pct * self.entry_price / risk
+        return raw_r - fee_drag_r - slippage_drag_r - self.funding_r
 
 
 @dataclass

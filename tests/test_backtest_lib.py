@@ -45,6 +45,102 @@ class TestTradePnlR:
         )
         assert t.pnl_r == pytest.approx(2.0)
 
+    def test_slippage_subtracts_like_fee(self) -> None:
+        # risk = 2, entry = 100 → slippage_drag_r = 2 * 0.0002 * 100 / 2 = 0.02
+        t = Trade(
+            signal_time=0,
+            entry_time=1,
+            entry_price=100.0,
+            direction="long",
+            sl_price=98.0,  # risk = 2
+            tp_price=104.0,
+            exit_price=104.0,
+            exit_time=2,
+            outcome="win",
+            slippage_pct=0.0002,
+        )
+        assert t.pnl_r == pytest.approx(2.0 - 0.02)
+
+    def test_slippage_hurts_tight_sl_more(self) -> None:
+        # Same slippage_pct, tighter SL → larger R drag (R-normalisation property).
+        tight = Trade(
+            signal_time=0,
+            entry_time=1,
+            entry_price=100.0,
+            direction="long",
+            sl_price=99.0,
+            tp_price=102.0,
+            exit_price=102.0,
+            exit_time=2,
+            outcome="win",
+            slippage_pct=0.0002,
+        )  # risk = 1 → drag = 2 * 0.0002 * 100 / 1 = 0.04
+        wide = Trade(
+            signal_time=0,
+            entry_time=1,
+            entry_price=100.0,
+            direction="long",
+            sl_price=96.0,
+            tp_price=108.0,
+            exit_price=108.0,
+            exit_time=2,
+            outcome="win",
+            slippage_pct=0.0002,
+        )  # risk = 4 → drag = 2 * 0.0002 * 100 / 4 = 0.01
+        assert tight.pnl_r is not None
+        assert wide.pnl_r is not None
+        assert (2.0 - tight.pnl_r) > (2.0 - wide.pnl_r)
+
+    def test_funding_r_subtracts(self) -> None:
+        # funding_r is precomputed; pnl_r subtracts it verbatim.
+        t = Trade(
+            signal_time=0,
+            entry_time=1,
+            entry_price=100.0,
+            direction="long",
+            sl_price=98.0,
+            tp_price=104.0,
+            exit_price=104.0,
+            exit_time=2,
+            outcome="win",
+            funding_r=0.05,
+        )
+        assert t.pnl_r == pytest.approx(2.0 - 0.05)
+
+    def test_all_cost_terms_compose(self) -> None:
+        t = Trade(
+            signal_time=0,
+            entry_time=1,
+            entry_price=100.0,
+            direction="long",
+            sl_price=98.0,
+            tp_price=104.0,
+            exit_price=104.0,
+            exit_time=2,
+            outcome="win",
+            fee_pct=0.0005,
+            slippage_pct=0.0002,
+            funding_r=0.05,
+        )
+        fee = 2.0 * 0.0005 * 100.0 / 2.0  # 0.05
+        slip = 2.0 * 0.0002 * 100.0 / 2.0  # 0.02
+        assert t.pnl_r == pytest.approx(2.0 - fee - slip - 0.05)
+
+    def test_defaults_are_byte_stable(self) -> None:
+        # New fields default to 0.0 → unchanged from the fee-only formula.
+        t = Trade(
+            signal_time=0,
+            entry_time=1,
+            entry_price=100.0,
+            direction="long",
+            sl_price=98.0,
+            tp_price=104.0,
+            exit_price=104.0,
+            exit_time=2,
+            outcome="win",
+        )
+        assert t.pnl_r == pytest.approx(2.0)
+
     def test_long_loss_returns_negative(self) -> None:
         t = Trade(
             signal_time=0,
