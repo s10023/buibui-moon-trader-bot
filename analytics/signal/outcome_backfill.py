@@ -23,6 +23,7 @@ Pure function over conn + now_ms + config dict; no clock or network I/O.
 """
 
 import logging
+from typing import Any
 
 import duckdb
 import numpy as np
@@ -44,6 +45,43 @@ DEFAULT_MAX_HOLD_BARS: dict[str, int] = {
 }
 
 
+def _net_outcome_r(
+    raw_r: float,
+    *,
+    direction: str,
+    entry: float,
+    sl_price: float,
+    entry_ts: int,
+    exit_ts: int,
+    fee_pct: float,
+    slippage_pct: float,
+    funding_times: "np.ndarray[Any, np.dtype[np.int64]] | None",
+    funding_rates: "np.ndarray[Any, np.dtype[np.float64]] | None",
+) -> float:
+    """net_R = raw_R − fee_R − slippage_R − funding_R, mirroring Trade.pnl_r.
+
+    Fee/slippage: 2 legs × pct × entry / risk (engine.py::Trade.pnl_r).
+    Funding: stamps in (entry_ts, exit_ts] via searchsorted side="right" on
+    both ends; long pays positive rates (+side_sign), short receives (−)
+    — engine.py run_backtest's at-close funding block. Zero-risk rows return
+    raw_r untouched: costs in R are undefined when nothing is risked (the
+    engine returns pnl_r=None there; the ledger keeps the row scoreable).
+    """
+    risk = abs(entry - sl_price)
+    if risk <= 0.0:
+        return raw_r
+    drag_r = 2.0 * (fee_pct + slippage_pct) * entry / risk
+    funding_r = 0.0
+    if funding_times is not None and funding_rates is not None:
+        lo_i = int(np.searchsorted(funding_times, entry_ts, side="right"))
+        hi_i = int(np.searchsorted(funding_times, exit_ts, side="right"))
+        if hi_i > lo_i:
+            funding_sum = float(funding_rates[lo_i:hi_i].sum())
+            side_sign = 1.0 if direction == "long" else -1.0
+            funding_r = side_sign * funding_sum * entry / risk
+    return raw_r - drag_r - funding_r
+
+
 def _scan_forward(
     bars: pd.DataFrame,
     candle_ts_ms: int,
@@ -53,8 +91,19 @@ def _scan_forward(
     tp_price: float,
     rr_ratio: float,
     max_hold_bars: int,
+    *,
+    fee_pct: float = 0.0,
+    slippage_pct: float = 0.0,
+    funding_times: "np.ndarray[Any, np.dtype[np.int64]] | None" = None,
+    funding_rates: "np.ndarray[Any, np.dtype[np.float64]] | None" = None,
 ) -> tuple[str | None, float | None, int | None]:
-    """Decide outcome for one signal given pre-fetched OHLCV bars for its TF."""
+    """Decide outcome for one signal given pre-fetched OHLCV bars for its TF.
+
+    Resolved outcome_r is net of costs (P0b PR-3): the same
+    net_R = raw_R − fee_R − slippage_R − funding_R the engine applies in
+    Trade.pnl_r. Defaults (zero costs, no funding) reproduce the historical
+    raw behaviour byte-for-byte.
+    """
     post = bars[bars["open_time"] > candle_ts_ms].reset_index(drop=True)
     if post.empty:
         return None, None, None
@@ -76,10 +125,31 @@ def _scan_forward(
     sl_first = int(sl_idxs[0]) if len(sl_idxs) else len(t)
     tp_first = int(tp_idxs[0]) if len(tp_idxs) else len(t)
 
+    # Entry fills at the open of the first post-signal bar — the same
+    # next-bar-open convention as the engine's Trade.entry_time. Anchors
+    # the funding window (entry_ts, exit_ts].
+    entry_ts = int(t[0])
+
+    def _net(raw_r: float, exit_ts: int) -> float:
+        return _net_outcome_r(
+            raw_r,
+            direction=direction,
+            entry=entry,
+            sl_price=sl_price,
+            entry_ts=entry_ts,
+            exit_ts=exit_ts,
+            fee_pct=fee_pct,
+            slippage_pct=slippage_pct,
+            funding_times=funding_times,
+            funding_rates=funding_rates,
+        )
+
     if sl_first <= tp_first and sl_first < len(t):
-        return "loss", -1.0, int(t[sl_first])
+        exit_ts = int(t[sl_first])
+        return "loss", _net(-1.0, exit_ts), exit_ts
     if tp_first < len(t):
-        return "win", float(rr_ratio), int(t[tp_first])
+        exit_ts = int(t[tp_first])
+        return "win", _net(float(rr_ratio), exit_ts), exit_ts
 
     # Neither hit within the window so far.
     if len(window) < max_hold_bars:
@@ -88,13 +158,17 @@ def _scan_forward(
     sl_dist = abs(entry - sl_price)
     last_close = float(window["close"].iloc[-1])
     mtm_r = (last_close - entry) / sl_dist * sign if sl_dist > 0 else 0.0
-    return "expired", float(mtm_r), int(t[-1])
+    exit_ts_exp = int(t[-1])
+    return "expired", _net(float(mtm_r), exit_ts_exp), exit_ts_exp
 
 
 def backfill_outcomes(
     conn: duckdb.DuckDBPyConnection,
     now_ms: int,
     max_hold_bars_by_tf: dict[str, int] | None = None,
+    *,
+    fee_pct: float = 0.0,
+    slippage_pct: float = 0.0,
 ) -> dict[str, int]:
     """Resolve unresolved signal_alert_outcomes rows by walking OHLCV forward.
 
@@ -105,6 +179,10 @@ def backfill_outcomes(
 
     Only rows with both `tp_price` and `sl_price` set are eligible — that
     matches the P1 fire-time persistence rule.
+
+    Resolved `outcome_r` is net of costs — `fee_pct` / `slippage_pct` are
+    per-leg fractions (same semantics as `BacktestFilterConfig`); defaults
+    0.0 keep raw behaviour.
     """
     hold_map = {**DEFAULT_MAX_HOLD_BARS, **(max_hold_bars_by_tf or {})}
 
@@ -160,6 +238,8 @@ def backfill_outcomes(
                 float(tp_price),
                 float(rr_ratio),
                 max_hold,
+                fee_pct=fee_pct,
+                slippage_pct=slippage_pct,
             )
             if outcome is None:
                 counts["open"] += 1
