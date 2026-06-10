@@ -158,6 +158,17 @@ def test_golden_metrics(
 
     fixtures = _load_fixtures(["15m", "1h", "4h", "1d"])
 
+    # Funding fixture (P0b) — drives the at-close funding_r so goldens reflect
+    # the full net_R. Absent fixture → funding_series=None (engine no-op).
+    funding_path = FIXTURE_DIR / "btc_funding_200d.parquet"
+    funding_series: pd.Series | None = None
+    if funding_path.exists():
+        fdf = pd.read_parquet(funding_path)
+        funding_series = pd.Series(
+            fdf["funding_rate"].astype(float).to_numpy(),
+            index=fdf["funding_time"].astype("int64").to_numpy(),
+        )
+
     results: dict[str, dict[str, Any]] = {}
 
     for strategy, _detector_fn in DETECTOR_REGISTRY.items():
@@ -182,10 +193,12 @@ def test_golden_metrics(
                 sl_pct=cfg.sl_pct,
                 tp_r=cfg.effective_tp_r(strategy, "BTCUSDT", tf),
                 fee_pct=cfg.backtest.fee_pct,
+                slippage_pct=cfg.backtest.slippage_pct,
                 min_sl_pct=cfg.min_sl_pct,
                 volume_suppress=cfg.effective_volume_suppress(strategy),
                 tp_r_long=cfg.effective_tp_r(strategy, "BTCUSDT", tf, "long"),
                 tp_r_short=cfg.effective_tp_r(strategy, "BTCUSDT", tf, "short"),
+                funding_series=funding_series,
             )
 
             if not result.closed_trades:
