@@ -42,6 +42,7 @@ from analytics.backtest_lib import (
 )
 from analytics.data_store import (
     DEFAULT_DB_PATH,
+    get_funding_rates,
     get_ohlcv,
     init_schema,
     upsert_backtest_run,
@@ -188,6 +189,33 @@ def _build_htf_slope_series_by_symbol(
             len(needed),
             len(out),
         )
+    return out
+
+
+def _build_funding_series_by_symbol(
+    conn: duckdb.DuckDBPyConnection,
+    symbols: list[str],
+    start_ms: int,
+    end_ms: int,
+) -> dict[str, pd.Series]:
+    """Load the funding-rate series per symbol once per sweep.
+
+    Funding costs are always-on (no gate), so this is built unconditionally.
+    Returns ``{symbol: Series}`` indexed by funding_time (ms, ascending) so the
+    engine's at-close ``searchsorted`` window works. Symbols with no funding
+    rows are omitted — the engine then sees ``funding_series=None`` and falls
+    to ``funding_r = 0.0`` (graceful, matches a pre-backfill data gap).
+    """
+    out: dict[str, pd.Series] = {}
+    for sym in symbols:
+        df = get_funding_rates(conn, sym, start_ms, end_ms)
+        if df.empty:
+            continue
+        out[sym] = pd.Series(
+            df["funding_rate"].astype(float).to_numpy(),
+            index=df["funding_time"].astype("int64").to_numpy(),
+        )
+    logger.debug("funding series: loaded %d/%d symbol(s)", len(out), len(symbols))
     return out
 
 
@@ -523,6 +551,7 @@ def _collect_sweep_results(
     ratings_map: dict[tuple[str, str, str], float] | None = None,
     regime_series_by_symbol: dict[str, pd.Series] | None = None,
     htf_slope_by_symbol: dict[str, dict[tuple[str, int, int], pd.Series]] | None = None,
+    funding_by_symbol: dict[str, pd.Series] | None = None,
 ) -> tuple[list[BacktestResult], list[str]]:
     """Run one full symbol × TF × strategy grid for a given tp_r value.
 
@@ -570,6 +599,10 @@ def _collect_sweep_results(
     if htf_slope_by_symbol is None:
         htf_slope_by_symbol = _build_htf_slope_series_by_symbol(
             conn, cfg, symbols, start_ms, end_ms
+        )
+    if funding_by_symbol is None:
+        funding_by_symbol = _build_funding_series_by_symbol(
+            conn, symbols, start_ms, end_ms
         )
     if ratings_map is None and cfg.live_parity.is_on("conflict_resolver"):
         ratings_map = _build_confidence_ratings_map(conn, cfg)
@@ -687,6 +720,8 @@ def _collect_sweep_results(
                 if htf_slope_by_symbol is not None
                 else None
             ),
+            slippage_pct=cfg.slippage_pct,
+            funding_series=funding_by_symbol.get(symbol),
         )
         results.append(bt)
 
@@ -780,6 +815,9 @@ def run_backtest_sweep(
         htf_slope_by_symbol = _build_htf_slope_series_by_symbol(
             conn, cfg, symbols, start_ms, end_ms
         )
+        funding_by_symbol = _build_funding_series_by_symbol(
+            conn, symbols, start_ms, end_ms
+        )
         ratings_map = _build_confidence_ratings_map(conn, cfg)
         if tp_sweep_mode:
             # Detect signals once — tp_r does not affect signal detection
@@ -824,6 +862,8 @@ def run_backtest_sweep(
                             if htf_slope_by_symbol is not None
                             else None
                         ),
+                        slippage_pct=cfg.slippage_pct,
+                        funding_series=funding_by_symbol.get(sym),
                     )
                     tp_results.append(bt)
                 results_by_tp[tp_r] = tp_results
@@ -874,6 +914,8 @@ def run_backtest_sweep(
                             if htf_slope_by_symbol is not None
                             else None
                         ),
+                        slippage_pct=cfg.slippage_pct,
+                        funding_series=funding_by_symbol.get(sym),
                     )
                     atr_results.append(bt)
                 results_by_atr[atr_mult] = atr_results
@@ -897,6 +939,7 @@ def run_backtest_sweep(
                     ratings_map=ratings_map,
                     regime_series_by_symbol=regime_series_by_symbol,
                     htf_slope_by_symbol=htf_slope_by_symbol,
+                    funding_by_symbol=funding_by_symbol,
                 )
             print(
                 format_sweep_table(
@@ -926,6 +969,7 @@ def run_backtest_cmd(
     sl_pct: float = 0.02,
     tp_r: float = 2.0,
     fee_pct: float = 0.0,
+    slippage_pct: float = 0.0,
     min_sl_pct: float = 0.0,
     atr_sl_multiplier: float | None = None,
     atr_sl_floor: bool = False,
@@ -1030,6 +1074,10 @@ def run_backtest_cmd(
             if not htf_slope_by_anchor:
                 htf_slope_by_anchor = None
 
+        funding_series = _build_funding_series_by_symbol(
+            conn, [symbol], start_ms, end_ms
+        ).get(symbol)
+
         bt_result = run_backtest(
             ohlcv,
             signals,
@@ -1047,6 +1095,8 @@ def run_backtest_cmd(
             regime_series=regime_series,
             strategy_params=live_strategy_params,
             htf_slope_series_by_anchor=htf_slope_by_anchor,
+            slippage_pct=slippage_pct,
+            funding_series=funding_series,
         )
         print(format_result(bt_result))
 

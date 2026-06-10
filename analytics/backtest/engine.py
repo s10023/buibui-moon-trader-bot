@@ -87,19 +87,23 @@ class Trade:
     exit_price: float | None = None
     outcome: str = "open"  # "win" | "loss" | "open"
     fee_pct: float = 0.0
+    slippage_pct: float = 0.0  # per-leg slippage as a fraction of entry price
+    # funding cost in R units; precomputed at close (see run_backtest)
+    funding_r: float = 0.0
     low_volume: bool = False  # True when signal candle volume < 1.5× rolling mean
     volume_spike: bool = False  # True when signal candle volume > 3× rolling mean
 
     @property
     def pnl_r(self) -> float | None:
-        """P&L expressed in R multiples (1R = amount risked), after fees.
+        """P&L in R multiples (1R = amount risked), after fees, slippage, funding.
 
-        Fee drag: each leg (entry + exit) costs fee_pct of notional.
-        Position is sized to risk 1R at the actual SL distance, so:
+        Fee drag: each leg (entry + exit) costs fee_pct of notional →
           fee_drag_r = 2 * fee_pct * entry_price / risk
-
-        This correctly penalises tight-SL strategies (e.g. wick_fill on 15m)
-        where fees consume a large fraction of the actual risk taken.
+        Slippage drag has the identical shape with slippage_pct, so both
+        auto-concentrate their pain on tight-SL cells where costs eat the
+        actual risk taken. funding_r is precomputed at close (run_backtest
+        needs the funding series + exit_time, which this property cannot see)
+        and subtracted directly.
         """
         if self.exit_price is None:
             return None
@@ -111,7 +115,8 @@ class Trade:
         else:
             raw_r = (self.entry_price - self.exit_price) / risk
         fee_drag_r = 2.0 * self.fee_pct * self.entry_price / risk
-        return raw_r - fee_drag_r
+        slippage_drag_r = 2.0 * self.slippage_pct * self.entry_price / risk
+        return raw_r - fee_drag_r - slippage_drag_r - self.funding_r
 
 
 @dataclass
@@ -784,6 +789,8 @@ def run_backtest(
     regime_series: pd.Series | None = None,
     strategy_params: dict[str, StrategyOverride] | None = None,
     htf_slope_series_by_anchor: Mapping[tuple[str, int, int], pd.Series] | None = None,
+    slippage_pct: float = 0.0,
+    funding_series: pd.Series | None = None,
 ) -> BacktestResult:
     """Simulate trades from signals on historical OHLCV.
 
@@ -828,6 +835,16 @@ def run_backtest(
          from `live_parity.cooldown_bars_per_tf`.
     All gates default off and no-op when their inputs are absent — existing
     callers see no behavioural change.
+
+    slippage_pct: per-leg slippage as a fraction of entry price, identical shape
+        to fee_pct (2 legs × slippage_pct × entry / risk). Passed through to
+        every Trade unchanged; default 0.0 is byte-stable with prior behaviour.
+    funding_series: pd.Series indexed by funding_time (ms, ascending, matching
+        the ORDER BY from get_funding_rates). Drives per-trade funding_r computed
+        AT CLOSE: rates in the half-open window (entry_time, exit_time] are summed
+        and converted to R units (sum × entry_price / risk). Long pays positive
+        funding (reduces net R); short receives (negative funding_r adds to net R).
+        None or empty → funding_r stays 0.0 (byte-stable no-op).
     """
     if live_parity is not None and any(
         live_parity.is_on(gate) for gate in _LIVE_PARITY_GATE_ORDER
@@ -908,6 +925,19 @@ def run_backtest(
     closes_np = ohlcv["close"].to_numpy(dtype=float)
     time_to_idx: dict[int, int] = {int(t): i for i, t in enumerate(ohlcv_times_np)}
     n_candles = len(ohlcv_times_np)
+
+    # Pre-extract the funding series once for funding-cost computation at close.
+    # Index is funding_time (ms), ascending (get_funding_rates ORDER BY funding_time).
+    if funding_series is not None and not funding_series.empty:
+        funding_times_np: np.ndarray[Any, np.dtype[np.int64]] | None = (
+            funding_series.index.to_numpy(dtype=np.int64)
+        )
+        funding_rates_np: np.ndarray[Any, np.dtype[np.float64]] | None = (
+            funding_series.to_numpy(dtype=float)
+        )
+    else:
+        funding_times_np = None
+        funding_rates_np = None
 
     # Pre-extract signal arrays once — avoids creating a pandas Series per row.
     sig_times_np = signals["open_time"].to_numpy(dtype=np.int64)
@@ -1019,6 +1049,7 @@ def run_backtest(
             sl_price=sl_price,
             tp_price=tp_price,
             fee_pct=fee_pct,
+            slippage_pct=slippage_pct,
             low_volume=is_low_vol,
             volume_spike=is_spike,
         )
@@ -1049,6 +1080,27 @@ def run_backtest(
             trade.exit_price = tp_price
             trade.outcome = "win"
         # else: neither hit → trade remains open
+
+        # Funding cost in R units (P0b PR-2). Sum funding stamps held in
+        # (entry_time, exit_time]; long pays (+), short receives (−). The
+        # subtraction happens in Trade.pnl_r. Graceful 0.0 with no series/data.
+        if (
+            funding_times_np is not None
+            and funding_rates_np is not None
+            and trade.exit_time is not None
+        ):
+            # Same 1R risk distance used for tp_price above; recomputed here
+            # because the loop doesn't keep it in a local.
+            risk = abs(entry_price - sl_price)
+            if risk > 0.0:
+                lo_i = int(np.searchsorted(funding_times_np, entry_time, side="right"))
+                hi_i = int(
+                    np.searchsorted(funding_times_np, trade.exit_time, side="right")
+                )
+                if hi_i > lo_i:
+                    funding_sum = float(funding_rates_np[lo_i:hi_i].sum())
+                    side_sign = 1.0 if direction == "long" else -1.0
+                    trade.funding_r = side_sign * funding_sum * entry_price / risk
 
         result.trades.append(trade)
 

@@ -12,6 +12,7 @@ Output:
     tests/fixtures/btc_1h_200d.parquet
     tests/fixtures/btc_4h_200d.parquet
     tests/fixtures/btc_1d_200d.parquet
+    tests/fixtures/btc_funding_200d.parquet
 """
 
 from __future__ import annotations
@@ -26,7 +27,11 @@ import duckdb
 REPO_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from analytics.data_store import DEFAULT_DB_PATH, get_ohlcv  # noqa: E402
+from analytics.data_store import (  # noqa: E402
+    DEFAULT_DB_PATH,
+    get_funding_rates,
+    get_ohlcv,
+)
 
 SYMBOL = "BTCUSDT"
 SINCE = "2025-09-12"  # canonical anchor — matches `--since` backfill date
@@ -63,6 +68,22 @@ def main() -> None:
             out = OUTPUT_DIR / f"btc_{tf}_200d.parquet"
             df.to_parquet(out, index=False)
             print(f"  wrote {out.name}  ({len(df)} rows)")
+
+        # Funding-rate fixture (P0b) — lets the regression goldens reflect the
+        # full net_R (raw − fee − slippage − funding). One stamp / 8h; the
+        # window is a superset of the OHLCV span so every trade's funding
+        # accrual resolves.
+        fdf = get_funding_rates(conn, SYMBOL, since_ms, now_ms)
+        if fdf.empty:
+            print(
+                f"WARNING: no funding for {SYMBOL} — funding fixture skipped",
+                file=sys.stderr,
+            )
+        else:
+            fdf["symbol"] = fdf["symbol"].astype(object)
+            fout = OUTPUT_DIR / "btc_funding_200d.parquet"
+            fdf.to_parquet(fout, index=False)
+            print(f"  wrote {fout.name}  ({len(fdf)} rows)")
     finally:
         conn.close()
 

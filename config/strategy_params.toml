@@ -154,6 +154,7 @@ min_trades_1h  = 12
 min_trades_4h  = 5
 min_trades_1d  = 2
 min_avg_r = 0.0
+slippage_bps = 2.0      # per-leg slippage (4 bps round-trip); honest-cost model (P0b)
 
 # Per-strategy flags consistent across all three main configs.
 # Only non-tp_r fields are here — tp_r values are calibrated per day_filter in each config.

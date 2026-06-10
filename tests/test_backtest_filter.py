@@ -293,6 +293,17 @@ class TestBacktestFilterConfig:
         cfg = load_signal_config(p)
         assert cfg.backtest.min_avg_r == 0.25
 
+    def test_slippage_bps_resolves_to_fraction(self, tmp_path: Any) -> None:
+        from analytics.signal_config import load_signal_config
+
+        toml = tmp_path / "c.toml"
+        toml.write_text("[backtest]\nslippage_bps = 2.0\n")
+        cfg = load_signal_config(str(toml))
+        assert cfg.backtest.slippage_pct == pytest.approx(0.0002)
+
+    def test_slippage_field_default_is_zero(self) -> None:
+        assert BacktestFilterConfig().slippage_pct == 0.0
+
 
 # ---------------------------------------------------------------------------
 # Hard filter: avg_r (EV) gate

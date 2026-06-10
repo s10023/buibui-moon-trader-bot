@@ -251,6 +251,8 @@ class BacktestFilterConfig:
     save_results: bool = True
     # Taker fee per leg (e.g. 0.0005 = 0.05%); applied to each backtest trade
     fee_pct: float = 0.0
+    # Per-leg slippage as a price fraction (resolved from [backtest].slippage_bps).
+    slippage_pct: float = 0.0
     # Minimum SL distance from entry as a fraction (e.g. 0.005 = 0.5%).
     # Widens structural SLs that land too close to entry (prevents fee-drag explosion).
     min_sl_pct: float = 0.0
@@ -678,6 +680,9 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         save_results=bool(raw_bt.get("save_results", True)),
         # [backtest].fee_pct takes precedence; falls back to top-level fee_pct
         fee_pct=float(raw_bt.get("fee_pct", data.get("fee_pct", 0.0))),
+        # [backtest].slippage_bps (per leg) → fraction; default 2.0 bps (honest cost)
+        slippage_pct=float(raw_bt.get("slippage_bps", data.get("slippage_bps", 2.0)))
+        / 10000.0,
         # [backtest].min_sl_pct takes precedence; falls back to top-level min_sl_pct
         min_sl_pct=float(raw_bt.get("min_sl_pct", data.get("min_sl_pct", 0.0))),
         volume_suppress=bool(raw_bt.get("volume_suppress", False)),

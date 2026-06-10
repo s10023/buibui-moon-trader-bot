@@ -138,6 +138,8 @@ class BacktestSweepConfig:
     sl_pct: float = 0.02
     tp_r: float = 2.0
     fee_pct: float = 0.0
+    # Per-leg slippage as a price fraction (resolved from [backtest].slippage_bps).
+    slippage_pct: float = 0.0
     min_sl_pct: float = 0.0
     # Global fallback — use effective_min_trades(tf) to get per-TF value.
     # Sweep mode applies this to total closed trades (not directional) for table filtering.
@@ -558,6 +560,10 @@ def load_backtest_config(path: str | Path) -> BacktestSweepConfig:
         sl_pct=float(data.get("sl_pct", 0.02)),
         tp_r=float(data.get("tp_r", 2.0)),
         fee_pct=float(data.get("fee_pct", 0.0)),
+        slippage_pct=float(
+            _bt_section.get("slippage_bps", data.get("slippage_bps", 2.0))  # type: ignore[arg-type]
+        )
+        / 10000.0,  # bps per leg → price fraction
         min_sl_pct=float(data.get("min_sl_pct", 0.0)),
         min_trades=int(data.get("min_trades", 20)),
         min_trades_per_tf=per_tf,

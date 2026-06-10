@@ -4,15 +4,20 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import duckdb
 import pandas as pd
+import pytest
 
 from analytics.backtest_config import BacktestSweepConfig, StrategyOverride
 from analytics.backtest_lib import BacktestResult, Trade
 from analytics.backtest_runner import (
     _apply_legacy_adr_pre_filter,
     _apply_strategy_timeframes_directional_filter,
+    _build_funding_series_by_symbol,
+    _collect_sweep_results,
     format_sweep_table,
 )
+from analytics.data_store import init_schema, upsert_funding_rates, upsert_ohlcv
 
 
 def _make_result(
@@ -387,3 +392,156 @@ class TestApplyStrategyTimeframesDirectionalFilter:
         )
         # Index reset to contiguous range after dropping longs.
         assert list(out.index) == list(range(len(out)))
+
+
+def _make_in_memory_conn() -> duckdb.DuckDBPyConnection:
+    """Create a fresh in-memory DuckDB connection with the full schema."""
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    return conn
+
+
+class TestBuildFundingSeriesBySymbol:
+    """Builder returns a Series per symbol; missing symbols are omitted."""
+
+    def test_returns_series_for_seeded_symbol(self) -> None:
+        conn = _make_in_memory_conn()
+        upsert_funding_rates(
+            conn,
+            pd.DataFrame(
+                {
+                    "symbol": ["BTCUSDT", "BTCUSDT"],
+                    "funding_time": [1000, 2000],
+                    "funding_rate": [0.01, 0.02],
+                }
+            ),
+        )
+        out = _build_funding_series_by_symbol(conn, ["BTCUSDT", "ETHUSDT"], 0, 9999)
+        assert "BTCUSDT" in out
+        # ETHUSDT has no rows → omitted (engine falls to funding_r = 0.0)
+        assert "ETHUSDT" not in out
+        s = out["BTCUSDT"]
+        assert list(s.index) == [1000, 2000]
+        assert list(s.to_numpy()) == [pytest.approx(0.01), pytest.approx(0.02)]
+
+    def test_empty_db_returns_empty_dict(self) -> None:
+        conn = _make_in_memory_conn()
+        out = _build_funding_series_by_symbol(conn, ["BTCUSDT"], 0, 9999)
+        assert out == {}
+
+    def test_time_range_filter_respected(self) -> None:
+        conn = _make_in_memory_conn()
+        upsert_funding_rates(
+            conn,
+            pd.DataFrame(
+                {
+                    "symbol": ["BTCUSDT", "BTCUSDT"],
+                    "funding_time": [1000, 5000],
+                    "funding_rate": [0.01, 0.02],
+                }
+            ),
+        )
+        # Request only up to 3000 — should see only the first row.
+        out = _build_funding_series_by_symbol(conn, ["BTCUSDT"], 0, 3000)
+        assert "BTCUSDT" in out
+        assert list(out["BTCUSDT"].index) == [1000]
+
+
+def _make_ohlcv_df(symbol: str, timeframe: str, n: int = 5) -> pd.DataFrame:
+    """Minimal OHLCV DataFrame for seeding the DB."""
+    base = 1_700_000_000_000  # arbitrary ms timestamp
+    return pd.DataFrame(
+        {
+            "symbol": [symbol] * n,
+            "timeframe": [timeframe] * n,
+            "open_time": [base + i * 3_600_000 for i in range(n)],
+            "open": [100.0 + i for i in range(n)],
+            "high": [105.0 + i for i in range(n)],
+            "low": [95.0 + i for i in range(n)],
+            "close": [101.0 + i for i in range(n)],
+            "volume": [1_000.0] * n,
+            "taker_buy_volume": [500.0] * n,
+        }
+    )
+
+
+class TestCollectSweepResultsPlumbing:
+    """Prove slippage_pct + funding_series reach run_backtest in the sweep path."""
+
+    def test_slippage_and_funding_series_passed_to_run_backtest(self) -> None:
+        conn = _make_in_memory_conn()
+
+        # Seed OHLCV so the cell is not skipped.
+        ohlcv_df = _make_ohlcv_df("BTCUSDT", "1h", n=20)
+        upsert_ohlcv(conn, ohlcv_df)
+
+        # Seed a funding row so the builder returns a non-empty Series.
+        upsert_funding_rates(
+            conn,
+            pd.DataFrame(
+                {
+                    "symbol": ["BTCUSDT"],
+                    "funding_time": [1_700_000_000_000],
+                    "funding_rate": [0.0001],
+                }
+            ),
+        )
+
+        start_ms = 0
+        end_ms = 9_999_999_999_999
+
+        cfg = BacktestSweepConfig(
+            symbols=["BTCUSDT"],
+            timeframes=["1h"],
+            strategies=["fvg"],
+            slippage_pct=0.0002,
+            save_results=False,
+        )
+
+        # Minimal signals DataFrame with the required columns.
+        fake_signals = pd.DataFrame(
+            {
+                "open_time": [1_700_000_000_000],
+                "direction": ["long"],
+                "reason": ["fvg"],
+                "sl_price": [99.0],
+                "context": [None],
+                "low_volume": [False],
+                "tp_price": [103.0],
+            }
+        )
+
+        fake_bt_result = BacktestResult(
+            symbol="BTCUSDT", timeframe="1h", strategy="fvg"
+        )
+
+        with (
+            patch(
+                "analytics.backtest_runner.detect_signals_for_strategy",
+                return_value=fake_signals,
+            ),
+            patch(
+                "analytics.backtest_runner.run_backtest",
+                return_value=fake_bt_result,
+            ) as mock_run_backtest,
+        ):
+            _collect_sweep_results(
+                conn,
+                cfg,
+                cfg.tp_r,
+                ["BTCUSDT"],
+                ["fvg"],
+                start_ms,
+                end_ms,
+            )
+
+        assert mock_run_backtest.called, "run_backtest was not called"
+        kwargs = mock_run_backtest.call_args.kwargs
+
+        assert kwargs.get("slippage_pct") == pytest.approx(0.0002)
+        # funding_series should be the BTC Series we seeded (not None).
+        funding_series = kwargs.get("funding_series")
+        assert funding_series is not None, (
+            "funding_series was None — not threaded through"
+        )
+        assert 1_700_000_000_000 in funding_series.index
