@@ -226,12 +226,14 @@ def backfill_outcomes(
         # _net_outcome_r via searchsorted. Empty table (e.g. the OKX
         # GH-Actions path never ingests funding) → None → funding_r = 0.0.
         fdf = get_funding_rates(conn, symbol, int(earliest_candle), now_ms)
+        funding_times: np.ndarray[Any, np.dtype[np.int64]] | None
+        funding_rates: np.ndarray[Any, np.dtype[np.float64]] | None
         if fdf.empty:
             funding_times = None
             funding_rates = None
         else:
-            funding_times = fdf["funding_time"].astype("int64").to_numpy()
-            funding_rates = fdf["funding_rate"].astype(float).to_numpy()
+            funding_times = fdf["funding_time"].to_numpy(dtype=np.int64)
+            funding_rates = fdf["funding_rate"].to_numpy(dtype=np.float64)
 
         max_hold = hold_map.get(tf, max(hold_map.values()))
         updates: list[tuple[str, float, int, str]] = []
