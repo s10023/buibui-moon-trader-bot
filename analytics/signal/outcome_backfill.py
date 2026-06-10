@@ -13,11 +13,17 @@ mirroring the backtest engine semantics in `analytics/backtest/engine.py`:
 Same-bar TP+SL resolves to "loss" (conservative, matches the engine).
 
 Outcomes:
-  - "win"     — TP hit first. outcome_r = +rr_ratio
-  - "loss"    — SL hit first or same-bar tie. outcome_r = -1.0
+  - "win"     — TP hit first. outcome_r = +rr_ratio − costs
+  - "loss"    — SL hit first or same-bar tie. outcome_r = -1.0 − costs
   - "expired" — exceeded `max_hold_bars` without hitting either.
-                outcome_r = mark-to-market at the last in-window bar.
+                outcome_r = mark-to-market at the last in-window bar − costs.
   - (NULL)    — still within hold window; retry on the next cycle.
+
+Costs (P0b PR-3, live-ledger parity with Trade.pnl_r):
+  net_R = raw_R − fee_R − slippage_R − funding_R. Fee/slippage are per-leg
+  fractions passed by the caller (defaults 0.0); funding is read from the
+  `funding_rates` table on the same conn — stamps in (entry, exit], long
+  pays / short receives. Missing funding data degrades gracefully to 0.0.
 
 Pure function over conn + now_ms + config dict; no clock or network I/O.
 """
@@ -29,7 +35,7 @@ import duckdb
 import numpy as np
 import pandas as pd
 
-from analytics.data_store import get_ohlcv
+from analytics.data_store import get_funding_rates, get_ohlcv
 from analytics.signal._common import parse_timeframe_secs
 
 logger = logging.getLogger(__name__)
@@ -215,6 +221,18 @@ def backfill_outcomes(
             counts["no_ohlcv"] += len(tf_rows)
             continue
 
+        # Funding stamps for the cost window (P0b PR-3). One fetch per group
+        # spanning earliest signal → now; per-row windows are narrowed in
+        # _net_outcome_r via searchsorted. Empty table (e.g. the OKX
+        # GH-Actions path never ingests funding) → None → funding_r = 0.0.
+        fdf = get_funding_rates(conn, symbol, int(earliest_candle), now_ms)
+        if fdf.empty:
+            funding_times = None
+            funding_rates = None
+        else:
+            funding_times = fdf["funding_time"].astype("int64").to_numpy()
+            funding_rates = fdf["funding_rate"].astype(float).to_numpy()
+
         max_hold = hold_map.get(tf, max(hold_map.values()))
         updates: list[tuple[str, float, int, str]] = []
 
@@ -240,6 +258,8 @@ def backfill_outcomes(
                 max_hold,
                 fee_pct=fee_pct,
                 slippage_pct=slippage_pct,
+                funding_times=funding_times,
+                funding_rates=funding_rates,
             )
             if outcome is None:
                 counts["open"] += 1
