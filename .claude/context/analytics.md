@@ -76,6 +76,14 @@ Detailed API reference for `analytics/`. Load this when working on any analytics
 - `high_vol` if ATR-14% ≥ 90-day rolling 80th-percentile; else `trend` if `|EMA-50 slope|` ≥ 0.5% over 10 bars; else `range`; `unknown` for rows lacking enough history
 - Used by `tools/strategy_edge_audit.py` (Phase 0). Live as soft-mode gate since 2026-05-10 — wired into `run_scan_cycle` as Step −1 of the bias chain via `analytics/signal/gates.py::_apply_regime_gate`.
 
+## exits/ — exit-policy research package (diagnostic-only)
+
+- Exit spec: `docs/redesign/2026-06-05-exit-improvement-spec.md`; N2 ships §2 only — `policies.py` / `replay.py` land with the exit-sweep PR, gated on the N2 verdict (`docs/audits/2026-06-11-mfe-mae-diagnostic.md`)
+- `mfe_mae.py::compute_excursions(conn) → pd.DataFrame[EXCURSION_COLUMNS]` — per-resolved-`signal_alert_outcomes`-row MFE_R/MAE_R (÷ |entry − sl|) over the actually-held window `candle_ts_ms < open_time ≤ outcome_filled_at_ms`; (symbol, tf)-grouped OHLCV fetch + `np.searchsorted` row windows (same batching as `backfill_outcomes`); zero-risk / missing-OHLCV rows dropped
+- Conservative intrabar clamps (spec §4 adverse-first applied to measurement): loss exit bar's favorable extreme excluded from MFE; win MFE = `max(prior_fav, rr_ratio)` (no overshoot credit) but exit-bar adverse counts in MAE; expired counts both extremes of every bar; both floored at 0. Excursions are GROSS of costs (net lives in `outcome_r`)
+- `mfe_mae.py::aggregate_cohorts(excursions, *, by=("strategy","tf","direction"), min_n=30)` — cohort (win/loss/expired) × cell table: `n`, `mfe_mean/p50`, `mae_mean/p50`, `reach_05`/`reach_10` (share with MFE ≥ 0.5R/1.0R), `tp_r_p50`, `bars_held_p50`, `outcome_r_mean`; `by=()` = overall roll-up
+- CLI: `tools/exit_audit.py` (read-only diagnose mode; `--min-n`, `--csv`)
+
 ## param_sweep.py — WFO sweep lib
 
 - `run_param_sweep(conn, strategy, symbol, tf, days, param_ranges, wfo_split, min_trades, fee_pct, top_n, adr_suppress_threshold=None, day_filter="off", atr_sl_multiplier=None, atr_sl_floor=False)` → `ParamSweepReport(rows: list[SweepRow], gate: CommitGateVerdict, n_grid: int)` — `atr_sl_multiplier`/`atr_sl_floor` forwarded to every grid `run_backtest()` call (F9 joint sweeps)
