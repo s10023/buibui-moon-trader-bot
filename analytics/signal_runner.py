@@ -381,7 +381,12 @@ def run_signal_watch(
                 # Reuses the same write conn; cheap (single SELECT + per-TF
                 # OHLCV reads). Failure is logged but never blocks the cycle.
                 try:
-                    backfill_outcomes(conn, now_ms=now_ms)
+                    backfill_outcomes(
+                        conn,
+                        now_ms=now_ms,
+                        fee_pct=backtest_cfg.fee_pct if backtest_cfg else 0.0,
+                        slippage_pct=backtest_cfg.slippage_pct if backtest_cfg else 0.0,
+                    )
                 except Exception:
                     logger.exception("Outcome backfill failed this cycle")
             # Connection is now closed — web API can read the DB during the sleep.
