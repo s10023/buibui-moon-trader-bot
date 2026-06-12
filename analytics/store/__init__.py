@@ -37,9 +37,11 @@ from analytics.store.market_data import (
     get_latest_open_time,
     get_ohlcv,
     get_open_interest,
+    get_symbol_lifecycle,
     upsert_funding_rates,
     upsert_ohlcv,
     upsert_open_interest,
+    upsert_symbol_lifecycle,
 )
 from analytics.store.schema import init_schema
 from analytics.store.signals import (
@@ -71,6 +73,7 @@ __all__ = [
     "get_open_interest",
     "get_signals_history",
     "get_stats_cache",
+    "get_symbol_lifecycle",
     "get_win_rate_by_strategy",
     "init_schema",
     "list_backtest_runs",
@@ -87,6 +90,7 @@ __all__ = [
     "upsert_ohlcv",
     "upsert_open_interest",
     "upsert_signal_outcome",
+    "upsert_symbol_lifecycle",
     "upsert_signals",
     "upsert_stats_cache",
 ]
