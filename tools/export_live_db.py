@@ -5,6 +5,8 @@ local Binance analytics.db into a fresh live_signal.duckdb, leaving the bulky
 backtest_trades / backtest_runs / backtest_cache empty. The full schema is created
 via init_schema() so every table keeps its PRIMARY KEY — a plain CTAS copy drops
 the PK, which breaks the daemon's `INSERT OR REPLACE INTO ohlcv` on the first sync.
+The ohlcv copy is scoped to coins.json symbols within a 400-day rolling window so
+universe/deep-history rows never reach the committed file.
 The source is opened READ-ONLY and never mutated. Run after `make db-update` /
 recalibrate, then commit the output (plain git, not LFS — bandwidth is metered).
 
@@ -14,11 +16,13 @@ Usage: PYTHONPATH=. poetry run python tools/export_live_db.py [SRC] [OUT]
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 
 import duckdb
 
 from analytics.store.schema import init_schema
+from utils.binance_client import load_coins_config
 
 LIVE_TABLES: list[str] = [
     "ohlcv",
@@ -29,6 +33,10 @@ LIVE_TABLES: list[str] = [
 
 DEFAULT_SRC = Path("analytics.db")
 DEFAULT_OUT = Path("live_signal.duckdb")
+
+# The committed slim DB is checked out hourly by GH Actions — keep it scoped to
+# what the daemon actually reads: live (coins.json) symbols, rolling window.
+_OHLCV_FLOOR_DAYS: int = 400
 
 
 def _scalar(con: duckdb.DuckDBPyConnection, sql: str, params: list[object]) -> int:
@@ -48,10 +56,22 @@ def _table_exists(con: duckdb.DuckDBPyConnection, table: str) -> bool:
     )
 
 
-def export_live_db(src: Path = DEFAULT_SRC, out: Path = DEFAULT_OUT) -> None:
+def export_live_db(
+    src: Path = DEFAULT_SRC,
+    out: Path = DEFAULT_OUT,
+    *,
+    ohlcv_symbols: list[str] | None = None,
+    ohlcv_floor_days: int = _OHLCV_FLOOR_DAYS,
+    now_ms: int | None = None,
+) -> None:
     if not src.exists():
         raise FileNotFoundError(f"source DB not found: {src}")
     out.unlink(missing_ok=True)  # fresh file; never appends to a stale one
+
+    if ohlcv_symbols is None:
+        ohlcv_symbols = sorted(load_coins_config().keys())
+    now = now_ms if now_ms is not None else int(time.time() * 1000)
+    floor_ms = now - ohlcv_floor_days * 86_400_000
 
     # Source opened READ-ONLY — guarantees we never overwrite local Binance data.
     src_con = duckdb.connect(str(src), read_only=True)
@@ -65,7 +85,15 @@ def export_live_db(src: Path = DEFAULT_SRC, out: Path = DEFAULT_OUT) -> None:
         for table in LIVE_TABLES:
             if not _table_exists(src_con, table):
                 continue
-            df = src_con.execute(f'SELECT * FROM "{table}"').fetchdf()  # noqa: F841
+            if table == "ohlcv":
+                placeholders = ", ".join("?" for _ in ohlcv_symbols)
+                df = src_con.execute(
+                    f"SELECT * FROM ohlcv WHERE symbol IN ({placeholders}) "
+                    "AND open_time >= ?",
+                    [*ohlcv_symbols, floor_ms],
+                ).fetchdf()  # noqa: F841
+            else:
+                df = src_con.execute(f'SELECT * FROM "{table}"').fetchdf()  # noqa: F841
             out_con.execute(f'INSERT INTO "{table}" BY NAME SELECT * FROM df')
         rows = {
             t: _scalar(out_con, f'SELECT COUNT(*) FROM "{t}"', [])
