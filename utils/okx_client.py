@@ -52,7 +52,7 @@ def _to_okx_inst_id(symbol: str) -> str:
 
 # Bar map. 1d -> 1Dutc so the daily candle opens at 00:00 UTC (matches Binance
 # open_time / day_filter). OKX hour bars (1H/4H) are UTC-aligned by default.
-_BAR_MAP = {"15m": "15m", "1h": "1H", "4h": "4H", "1d": "1Dutc"}
+_BAR_MAP = {"15m": "15m", "1h": "1H", "4h": "4H", "1d": "1Dutc", "1w": "1Wutc"}
 
 
 def _to_okx_bar(timeframe: str) -> str:
