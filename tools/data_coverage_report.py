@@ -35,21 +35,21 @@ def ohlcv_coverage(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
         "FROM ohlcv GROUP BY symbol, timeframe ORDER BY symbol, timeframe"
     ).df()
 
-    def _expected(row: pd.Series) -> object:
+    expected: list[int | None] = []
+    gap_pct: list[float | None] = []
+    for _, row in df.iterrows():
         tf_ms = TF_MS.get(str(row["timeframe"]))
         if tf_ms is None:
-            return None
-        return int((int(row["last_ms"]) - int(row["first_ms"])) // tf_ms) + 1
-
-    df["expected"] = df.apply(_expected, axis=1)
-    df["gap_pct"] = df.apply(
-        lambda r: (
-            round(1.0 - float(r["n"]) / float(r["expected"]), 4)
-            if r["expected"] is not None and float(r["expected"]) > 0
-            else None
-        ),
-        axis=1,
-    )
+            expected.append(None)
+            gap_pct.append(None)
+            continue
+        exp = int((int(row["last_ms"]) - int(row["first_ms"])) // tf_ms) + 1
+        expected.append(exp)
+        gap_pct.append(
+            round(1.0 - float(row["n"]) / float(exp), 4) if exp > 0 else None
+        )
+    df["expected"] = pd.Series(expected, dtype="object")
+    df["gap_pct"] = gap_pct
     return df
 
 

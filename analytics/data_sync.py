@@ -6,6 +6,7 @@ Accepts all dependencies as parameters — no module-level side effects.
 import logging
 import time
 from collections.abc import Callable
+from typing import Any
 
 import duckdb
 import pandas as pd
@@ -216,8 +217,8 @@ def refresh_symbol_lifecycle(
     if not tracked:
         return 0
 
-    def _opt_int(value: object) -> int | None:
-        return None if value is None or pd.isna(value) else int(value)  # type: ignore[arg-type]
+    def _opt_int(value: Any) -> int | None:
+        return None if value is None or pd.isna(value) else int(value)
 
     rows: list[dict[str, object]] = []
     for sym in tracked:
