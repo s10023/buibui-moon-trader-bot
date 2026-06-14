@@ -6,6 +6,15 @@ system's first risk-adjusted numbers (Sharpe / Sortino / max-DD / attribution)
 under policy #0 (today's exits). Pure libs over a DuckDB conn; no live risk.
 """
 
+from portfolio.book import BookResult, LedgerTrade, PaperBook, SizedTrade
+from portfolio.replay import replay_ledger
 from portfolio.sizing import SizingConfig
 
-__all__ = ["SizingConfig"]
+__all__ = [
+    "BookResult",
+    "LedgerTrade",
+    "PaperBook",
+    "SizedTrade",
+    "SizingConfig",
+    "replay_ledger",
+]
