@@ -217,3 +217,89 @@ def test_compounding_curve_diverges_from_fixed_after_pnl() -> None:
     res = PaperBook(cfg, grid, close, regime_by_signal=None).run(trades)
     # comp 2nd trade risk_capital > fixed because equity grew after trade 1
     assert res.pnl_comp[-1] > res.pnl_fixed[-1]
+
+
+def test_governor_shrinks_size_after_volatile_run() -> None:
+    # Build a volatile compounding history, then check a late trade is downsized.
+    # Uses R=±40 spanning 2 calendar days so pnl_comp has non-zero daily changes
+    # (same-day trades collapse to a step function with 50% zero-return days which
+    # dilutes annualized vol below the 20% target and keeps g_vol > 1).
+    cfg = SizingConfig(vol_window_days=20)
+    grid = _grid(60)
+    close = {"BTCUSDT": _flat_close(60, 100.0)}
+    trades = []
+    # alternating big win/loss every 2 days for 40 days -> high realized vol
+    r = 40.0
+    for i in range(20):
+        day = i * 2
+        r = -r
+        trades.append(
+            LedgerTrade(
+                f"v{i}",
+                "BTCUSDT",
+                "15m",
+                "fvg",
+                "long",
+                day * _DAY + 1,
+                (day + 1) * _DAY + 1,
+                100.0,
+                95.0,
+                "win" if r > 0 else "loss",
+                r,
+            )
+        )
+    # a calm reference trade very early (low prior vol) and one late (high prior vol)
+    res = PaperBook(cfg, grid, close, regime_by_signal=None).run(trades)
+    early = next(t for t in res.sized if t.signal_id == "v1")
+    late = next(t for t in res.sized if t.signal_id == "v19")
+    assert late.g_vol < early.g_vol  # governor reacted to the volatile run
+    assert late.r_eff <= early.r_eff
+
+
+def test_governor_is_causal_only_reads_past() -> None:
+    # A single trade has no prior history -> g_vol must be the cold-start 1.0
+    cfg = SizingConfig()
+    grid = _grid(10)
+    close = {"BTCUSDT": _flat_close(10, 100.0)}
+    trades = [
+        LedgerTrade(
+            "s1",
+            "BTCUSDT",
+            "15m",
+            "fvg",
+            "long",
+            5 * _DAY + 1,
+            5 * _DAY + 2,
+            100.0,
+            95.0,
+            "win",
+            2.0,
+        )
+    ]
+    res = PaperBook(cfg, grid, close, regime_by_signal=None).run(trades)
+    assert res.sized[0].g_vol == pytest.approx(1.0)
+
+
+def test_regime_high_vol_halves_size() -> None:
+    cfg = SizingConfig()
+    grid = _grid(4)
+    close = {"BTCUSDT": _flat_close(4, 100.0)}
+    trades = [
+        LedgerTrade(
+            "s1",
+            "BTCUSDT",
+            "1h",
+            "bos",
+            "long",
+            1 * _DAY + 1,
+            2 * _DAY,
+            100.0,
+            95.0,
+            "loss",
+            -1.0,
+        )
+    ]
+    res = PaperBook(cfg, grid, close, regime_by_signal={"s1": "high_vol"}).run(trades)
+    # g_regime 0.5 -> r_eff = 0.0025 * 0.5 = 0.00125, rc_fixed = 12.5
+    assert res.sized[0].g_regime == pytest.approx(0.5)
+    assert res.sized[0].rc_fixed == pytest.approx(12.5)
