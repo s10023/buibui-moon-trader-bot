@@ -6,6 +6,7 @@ import pytest
 
 from analytics.store import init_schema, upsert_signal_outcome
 from portfolio.replay import replay_ledger
+from portfolio.report import format_report
 from portfolio.sizing import SizingConfig
 
 _DAY = 86_400_000
@@ -145,3 +146,27 @@ def test_replay_empty_ledger_returns_empty_result() -> None:
     init_schema(conn)
     res = replay_ledger(conn, SizingConfig())
     assert res.sized == [] and len(res.daily_index) == 0
+
+
+def test_format_report_renders_headline() -> None:
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    _seed_ohlcv_1d(conn, "BTCUSDT", 12)
+    for i, (ed, oc, r) in enumerate(
+        [(1, "win", 2.0), (3, "loss", -1.0), (5, "win", 2.0)]
+    ):
+        _seed_resolved(
+            conn,
+            signal_id=f"s{i}",
+            symbol="BTCUSDT",
+            entry_day=ed,
+            exit_day=ed,
+            outcome=oc,
+            outcome_r=r,
+        )
+    cfg = SizingConfig(apply_high_vol_halving=False)
+    res = replay_ledger(conn, cfg)
+    text = format_report(res, cfg)
+    assert "Sharpe" in text
+    assert "fixed-notional" in text.lower()
+    assert "Attribution" in text
