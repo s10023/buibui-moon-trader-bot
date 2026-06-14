@@ -418,7 +418,19 @@ Options:
 
 - `--since YYYY-MM-DD` — start date for backfill (default: `2023-01-01`); also bounds funding-rate history depth (a deep backfill now pulls full funding history, not just the recent ~90 days)
 - `--symbols BTCUSDT ETHUSDT` — symbols to fetch (default: all coins in `config/coins.json`)
-- `--timeframes 1h 4h 1d` — timeframes to fetch (default: `1h 4h 1d`)
+- `--universe` — fetch the committed 25-perp research universe from `config/universe.toml` instead (mutually exclusive with `--symbols`; criterion + refresh tool: `tools/select_universe.py`)
+- `--timeframes 1h 4h 1d 1w` — timeframes to fetch (default: `1h 4h`)
+
+**Deep universe backfill (research breadth):**
+
+```bash
+make universe-backfill            # --universe, 1h/4h/1d/1w, since 2019-01-01
+```
+
+Every backfill/sync run also refreshes the `symbol_lifecycle` table from
+futures exchangeInfo — symbols that disappear from the exchange are marked
+`DELISTED` (noted, never dropped) so the research breadth set stays
+survivorship-aware. Coverage audit: `tools/data_coverage_report.py`.
 
 **Incremental sync — fetch new candles since last stored:**
 
@@ -428,7 +440,7 @@ poetry run python buibui.py analytics sync
 
 Options:
 
-- `--symbols` / `--timeframes` — same as backfill
+- `--symbols` / `--universe` / `--timeframes` — same as backfill
 - Requires backfill to have been run first for each symbol/timeframe
 
 Data is stored in `analytics.db` (auto-created in CWD).
@@ -1009,6 +1021,7 @@ make buibui-monitor-position-telegram
 make buibui-analytics-backfill              # Backfill from 2023-01-01 (default)
 make buibui-analytics-backfill SINCE=2024-01-01   # Backfill from custom date
 make buibui-analytics-sync                  # Incremental sync
+make universe-backfill                      # Deep 25-perp universe (1h/4h/1d/1w since 2019)
 ```
 
 **Backtest:**

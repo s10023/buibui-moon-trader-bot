@@ -89,6 +89,8 @@ def test_to_okx_bar_uses_utc_daily() -> None:
     assert _to_okx_bar("4h") == "4H"
     # 1Dutc so daily candle open aligns to 00:00 UTC like Binance open_time
     assert _to_okx_bar("1d") == "1Dutc"
+    # 1Wutc likewise anchors the weekly open to UTC (Binance weekly = Mon 00:00 UTC)
+    assert _to_okx_bar("1w") == "1Wutc"
 
 
 def test_to_okx_bar_rejects_unknown() -> None:

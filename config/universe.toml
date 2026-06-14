@@ -1,0 +1,35 @@
+# Research universe (SoT item N3) — selected by tools/select_universe.py.
+# Refresh = rerun the tool, review the diff, commit. Rotated-out symbols keep
+# their OHLCV/funding data; the symbol_lifecycle table records the history.
+# This file is deliberately NOT coins.json — coins.json drives the live daemon
+# and backtest defaults; the universe is research-only breadth (P2/P3).
+[universe]
+selected_at = "2026-06-12"
+criterion = "top-25 USDT-M perpetuals by 30d median daily quote volume; status TRADING; stablecoin bases excluded; listed >= 1y (Binance fapi snapshot)"
+symbols = [
+  "BTCUSDT",
+  "ETHUSDT",
+  "SOLUSDT",
+  "ZECUSDT",
+  "HYPEUSDT",
+  "XRPUSDT",
+  "DOGEUSDT",
+  "NEARUSDT",
+  "BNBUSDT",
+  "WLDUSDT",
+  "SUIUSDT",
+  "1000PEPEUSDT",
+  "ADAUSDT",
+  "TONUSDT",
+  "ONDOUSDT",
+  "TAOUSDT",
+  "LINKUSDT",
+  "AVAXUSDT",
+  "BCHUSDT",
+  "FILUSDT",
+  "INJUSDT",
+  "ENAUSDT",
+  "XLMUSDT",
+  "VVVUSDT",
+  "PAXGUSDT",
+]

@@ -6,8 +6,10 @@ Accepts all dependencies as parameters — no module-level side effects.
 import logging
 import time
 from collections.abc import Callable
+from typing import Any
 
 import duckdb
+import pandas as pd
 from binance.client import Client
 
 from analytics.data_fetcher import (
@@ -15,14 +17,17 @@ from analytics.data_fetcher import (
     KlineClient,
     OIPeriod,
     fetch_funding_rates,
+    fetch_futures_symbol_info,
     fetch_klines,
     fetch_open_interest,
 )
 from analytics.data_store import (
     get_latest_open_time,
+    get_symbol_lifecycle,
     upsert_funding_rates,
     upsert_ohlcv,
     upsert_open_interest,
+    upsert_symbol_lifecycle,
 )
 
 # Binance funding rates are emitted every 8 hours.
@@ -184,3 +189,81 @@ def sync(
     if latest is None:
         raise ValueError(f"No data found for {symbol}/{timeframe}. Run backfill first.")
     return backfill(conn, client, symbol, timeframe, latest, sleep_fn=sleep_fn)
+
+
+def refresh_symbol_lifecycle(
+    conn: duckdb.DuckDBPyConnection,
+    client: Client,
+    symbols: list[str],
+    now_ms: int | None = None,
+) -> int:
+    """Refresh the symbol_lifecycle table from futures exchangeInfo (N3).
+
+    Tracked set = existing lifecycle rows ∪ `symbols` for this run. Symbols
+    present in exchangeInfo get their status + last_checked_ms updated
+    (first_checked_ms preserved). Symbols absent are marked DELISTED with a
+    sticky delisted_noted_ms — their OHLCV/funding rows are NEVER touched
+    (noted, not dropped). Returns the number of rows upserted.
+
+    Survivorship limitation (documented): perps delisted before first tracking
+    are not enumerable from the free API, so the guard is forward-looking.
+    """
+    now = now_ms if now_ms is not None else int(time.time() * 1000)
+    info = fetch_futures_symbol_info(client)
+    info_map = {str(r["symbol"]): r for _, r in info.iterrows()}
+    existing = get_symbol_lifecycle(conn)
+    existing_map = {str(r["symbol"]): r for _, r in existing.iterrows()}
+    tracked = sorted(set(symbols) | set(existing_map))
+    if not tracked:
+        return 0
+
+    def _opt_int(value: Any) -> int | None:
+        return None if value is None or pd.isna(value) else int(value)
+
+    rows: list[dict[str, object]] = []
+    for sym in tracked:
+        prev = existing_map.get(sym)
+        live = info_map.get(sym)
+        first_checked = _opt_int(prev["first_checked_ms"]) if prev is not None else None
+        onboard = _opt_int(prev["onboard_ms"]) if prev is not None else None
+        delisted_noted = (
+            _opt_int(prev["delisted_noted_ms"]) if prev is not None else None
+        )
+        if live is not None:
+            status = str(live["status"])
+            onboard = _opt_int(live["onboard_ms"])
+        else:
+            status = "DELISTED"
+            if delisted_noted is None:
+                delisted_noted = now
+        rows.append(
+            {
+                "symbol": sym,
+                "status": status,
+                "onboard_ms": onboard,
+                "first_checked_ms": first_checked if first_checked is not None else now,
+                "last_checked_ms": now,
+                "delisted_noted_ms": delisted_noted,
+            }
+        )
+    df = pd.DataFrame(
+        rows,
+        columns=[
+            "symbol",
+            "status",
+            "onboard_ms",
+            "first_checked_ms",
+            "last_checked_ms",
+            "delisted_noted_ms",
+        ],
+    )
+    for col in (
+        "onboard_ms",
+        "first_checked_ms",
+        "last_checked_ms",
+        "delisted_noted_ms",
+    ):
+        df[col] = df[col].astype("Int64")
+    upsert_symbol_lifecycle(conn, df)
+    logging.info("refresh_symbol_lifecycle: %d symbols tracked", len(df))
+    return len(df)

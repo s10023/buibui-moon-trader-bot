@@ -36,7 +36,7 @@ def test_export_copies_live_table_data(tmp_path: Path) -> None:
     out = tmp_path / "live_signal.duckdb"
     _make_source(src)
 
-    export_live_db(src, out)
+    export_live_db(src, out, ohlcv_symbols=["BTCUSDT"], now_ms=1_000)
 
     con = duckdb.connect(str(out), read_only=True)
     tables = {
@@ -63,7 +63,7 @@ def test_exported_ohlcv_supports_insert_or_replace(tmp_path: Path) -> None:
     out = tmp_path / "live_signal.duckdb"
     _make_source(src)
 
-    export_live_db(src, out)
+    export_live_db(src, out, ohlcv_symbols=["BTCUSDT"], now_ms=1_000)
 
     con = duckdb.connect(str(out))
     # Same primary key as the seeded row → must REPLACE, not raise.
@@ -84,7 +84,7 @@ def test_export_does_not_mutate_source(tmp_path: Path) -> None:
     _make_source(src)
     before = src.stat().st_mtime_ns
 
-    export_live_db(src, out)
+    export_live_db(src, out, ohlcv_symbols=["BTCUSDT"], now_ms=1_000)
 
     # source untouched (read-only access); mtime unchanged
     assert src.stat().st_mtime_ns == before
@@ -92,3 +92,39 @@ def test_export_does_not_mutate_source(tmp_path: Path) -> None:
     row = con.execute("SELECT COUNT(*) FROM backtest_trades").fetchone()
     con.close()
     assert row is not None and row[0] == 1
+
+
+def test_export_scopes_ohlcv_to_symbols_and_floor(tmp_path: Path) -> None:
+    """Universe/deep-history rows must never reach the committed slim DB."""
+    src = tmp_path / "analytics.db"
+    out = tmp_path / "live_signal.duckdb"
+    _make_source(src)
+    con = duckdb.connect(str(src))
+    # Universe symbol — excluded by symbol scoping.
+    con.execute(
+        "INSERT INTO ohlcv VALUES ('ZECUSDT', '1h', 1, 10, 11, 9, 10.5, 100, 50)"
+    )
+    # Live symbol but ancient — excluded by the 400-day floor.
+    con.execute(
+        "INSERT INTO ohlcv VALUES ('BTCUSDT', '1h', 2, 10, 11, 9, 10.5, 100, 50)"
+    )
+    # Live symbol, recent — kept.
+    now_ms = 500 * 86_400_000
+    recent = now_ms - 86_400_000  # 1 day old, floor is 400 days
+    con.execute(
+        "INSERT INTO ohlcv VALUES ('BTCUSDT', '1h', ?, 10, 11, 9, 10.5, 100, 50)",
+        [recent],
+    )
+    con.close()
+
+    export_live_db(src, out, ohlcv_symbols=["BTCUSDT"], now_ms=now_ms)
+
+    con = duckdb.connect(str(out), read_only=True)
+    rows = con.execute(
+        "SELECT symbol, open_time FROM ohlcv ORDER BY open_time"
+    ).fetchall()
+    # Calibration tables stay unscoped.
+    cr = con.execute("SELECT COUNT(*) FROM confidence_ratings").fetchone()
+    con.close()
+    assert rows == [("BTCUSDT", recent)]
+    assert cr == (1,)

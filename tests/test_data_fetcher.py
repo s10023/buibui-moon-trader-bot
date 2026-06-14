@@ -8,9 +8,11 @@ import pytest
 from analytics.data_fetcher import (
     FUNDING_COLUMNS,
     KLINES_MAX_LIMIT,
+    LIFECYCLE_COLUMNS,
     OHLCV_COLUMNS,
     OI_COLUMNS,
     fetch_funding_rates,
+    fetch_futures_symbol_info,
     fetch_klines,
     fetch_open_interest,
 )
@@ -185,3 +187,61 @@ class TestFetchKlinesOKXPassthrough:
         assert list(df.columns) == OHLCV_COLUMNS
         assert df["open_time"].iloc[0] == 1000
         assert float(df["taker_buy_volume"].iloc[0]) == 100 / 2
+
+
+_EXCHANGE_INFO_RAW: dict[str, Any] = {
+    "symbols": [
+        {
+            "symbol": "BTCUSDT",
+            "status": "TRADING",
+            "onboardDate": 1_569_398_400_000,
+            "quoteAsset": "USDT",
+            "contractType": "PERPETUAL",
+        },
+        {
+            "symbol": "ETHUSDT_260626",  # dated future, not a perp — excluded
+            "status": "TRADING",
+            "onboardDate": 1_700_000_000_000,
+            "quoteAsset": "USDT",
+            "contractType": "CURRENT_QUARTER",
+        },
+        {
+            "symbol": "BTCUSDC",  # wrong quote — excluded
+            "status": "TRADING",
+            "onboardDate": 1_700_000_000_000,
+            "quoteAsset": "USDC",
+            "contractType": "PERPETUAL",
+        },
+        {
+            "symbol": "OLDUSDT",  # non-TRADING status still returned (caller decides)
+            "status": "SETTLING",
+            "onboardDate": 1_600_000_000_000,
+            "quoteAsset": "USDT",
+            "contractType": "PERPETUAL",
+        },
+    ]
+}
+
+
+class TestFetchFuturesSymbolInfo:
+    def test_returns_usdt_perpetuals_only(self) -> None:
+        client = MagicMock()
+        client.futures_exchange_info.return_value = _EXCHANGE_INFO_RAW
+        df = fetch_futures_symbol_info(client)
+        assert list(df.columns) == LIFECYCLE_COLUMNS
+        assert sorted(df["symbol"]) == ["BTCUSDT", "OLDUSDT"]
+
+    def test_maps_status_and_onboard_ms(self) -> None:
+        client = MagicMock()
+        client.futures_exchange_info.return_value = _EXCHANGE_INFO_RAW
+        df = fetch_futures_symbol_info(client)
+        btc = df[df["symbol"] == "BTCUSDT"].iloc[0]
+        assert btc["status"] == "TRADING"
+        assert int(btc["onboard_ms"]) == 1_569_398_400_000
+
+    def test_empty_response_returns_empty_frame_with_columns(self) -> None:
+        client = MagicMock()
+        client.futures_exchange_info.return_value = {"symbols": []}
+        df = fetch_futures_symbol_info(client)
+        assert df.empty
+        assert list(df.columns) == LIFECYCLE_COLUMNS

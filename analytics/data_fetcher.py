@@ -34,6 +34,7 @@ OHLCV_COLUMNS: list[str] = [
 ]
 FUNDING_COLUMNS: list[str] = ["symbol", "funding_time", "funding_rate"]
 OI_COLUMNS: list[str] = ["symbol", "timestamp", "oi_usd"]
+LIFECYCLE_COLUMNS: list[str] = ["symbol", "status", "onboard_ms"]
 
 
 def _fetch_to_df(
@@ -141,3 +142,28 @@ def fetch_open_interest(
         },
         OI_COLUMNS,
     )
+
+
+def fetch_futures_symbol_info(client: Client) -> pd.DataFrame:
+    """Fetch USDT-M perpetual symbol metadata from futures exchangeInfo.
+
+    Returns a DataFrame with columns matching LIFECYCLE_COLUMNS — one row per
+    USDT-quoted PERPETUAL contract, regardless of status (callers decide how to
+    treat non-TRADING). Binance-only: the OKX adapter does not serve
+    exchangeInfo, and lifecycle refresh runs on the Binance backfill path.
+    """
+    raw = client.futures_exchange_info()
+    rows = [
+        {
+            "symbol": s["symbol"],
+            "status": str(s.get("status", "")),
+            "onboard_ms": int(s["onboardDate"])
+            if s.get("onboardDate") is not None
+            else None,
+        }
+        for s in raw.get("symbols", [])
+        if s.get("quoteAsset") == "USDT" and s.get("contractType") == "PERPETUAL"
+    ]
+    df = pd.DataFrame(rows, columns=LIFECYCLE_COLUMNS)
+    df["onboard_ms"] = df["onboard_ms"].astype("Int64")
+    return df

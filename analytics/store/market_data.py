@@ -88,6 +88,28 @@ def get_open_interest(
     ).df()
 
 
+def upsert_symbol_lifecycle(conn: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> None:
+    """Insert or replace symbol lifecycle rows (N3 survivorship guard).
+
+    df must have columns: symbol, status, onboard_ms, first_checked_ms,
+    last_checked_ms, delisted_noted_ms. Conflicts on (symbol) are replaced.
+    """
+    _upsert(
+        conn,
+        df,
+        "symbol_lifecycle",
+        "symbol, status, onboard_ms, first_checked_ms, last_checked_ms, delisted_noted_ms",
+    )
+
+
+def get_symbol_lifecycle(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
+    """Return all symbol lifecycle rows ordered by symbol."""
+    return conn.execute(
+        "SELECT symbol, status, onboard_ms, first_checked_ms, last_checked_ms, "
+        "delisted_noted_ms FROM symbol_lifecycle ORDER BY symbol"
+    ).df()
+
+
 def get_latest_open_time(
     conn: duckdb.DuckDBPyConnection,
     symbol: str,

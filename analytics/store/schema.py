@@ -45,6 +45,16 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
         )
     """)
     conn.execute("""
+        CREATE TABLE IF NOT EXISTS symbol_lifecycle (
+            symbol            TEXT   PRIMARY KEY,
+            status            TEXT   NOT NULL,
+            onboard_ms        BIGINT,
+            first_checked_ms  BIGINT NOT NULL,
+            last_checked_ms   BIGINT NOT NULL,
+            delisted_noted_ms BIGINT
+        )
+    """)
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS signals (
             symbol        VARCHAR NOT NULL,
             timeframe     VARCHAR NOT NULL,

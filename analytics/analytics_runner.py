@@ -13,6 +13,7 @@ from analytics.data_store import DEFAULT_DB_PATH, init_schema
 from analytics.data_sync import (
     backfill,
     backfill_funding_rates,
+    refresh_symbol_lifecycle,
     sync,
     sync_funding_rates,
     sync_open_interest,
@@ -65,6 +66,16 @@ def _sync_ancillary(
     logging.info("Open interest complete: %s — %d rows", symbol, total_oi)
 
 
+def _refresh_lifecycle_safe(
+    conn: duckdb.DuckDBPyConnection, client: Any, symbols: list[str]
+) -> None:
+    """Refresh symbol_lifecycle; non-fatal on error (must never block ingest)."""
+    try:
+        refresh_symbol_lifecycle(conn, client, symbols)
+    except Exception as e:
+        logging.warning("symbol_lifecycle refresh failed (continuing): %s", e)
+
+
 def run_backfill(
     symbols: list[str] | None,
     timeframes: list[str],
@@ -72,15 +83,24 @@ def run_backfill(
     db_path: Path = DEFAULT_DB_PATH,
 ) -> None:
     resolved = _resolve_symbols(symbols)
+    failures: list[str] = []
     with _open_session(db_path) as (client, conn):
+        _refresh_lifecycle_safe(conn, client, resolved)
         for symbol in resolved:
-            for timeframe in timeframes:
-                logging.info("Backfilling %s %s ...", symbol, timeframe)
-                total = backfill(conn, client, symbol, timeframe, since_ms)
-                logging.info(
-                    "Backfill complete: %s %s — %d rows", symbol, timeframe, total
-                )
-            _sync_ancillary(conn, client, symbol, funding_since_ms=since_ms)
+            try:
+                for timeframe in timeframes:
+                    logging.info("Backfilling %s %s ...", symbol, timeframe)
+                    total = backfill(conn, client, symbol, timeframe, since_ms)
+                    logging.info(
+                        "Backfill complete: %s %s — %d rows", symbol, timeframe, total
+                    )
+                _sync_ancillary(conn, client, symbol, funding_since_ms=since_ms)
+            except Exception:
+                logging.exception("backfill failed for %s — continuing", symbol)
+                failures.append(symbol)
+    if failures:
+        logging.error("backfill finished with failures: %s", ", ".join(failures))
+        sys.exit(1)
 
 
 def run_sync(
@@ -89,15 +109,27 @@ def run_sync(
     db_path: Path = DEFAULT_DB_PATH,
 ) -> None:
     resolved = _resolve_symbols(symbols)
+    failures: list[str] = []
     with _open_session(db_path) as (client, conn):
+        _refresh_lifecycle_safe(conn, client, resolved)
         for symbol in resolved:
-            for timeframe in timeframes:
-                logging.info("Syncing %s %s ...", symbol, timeframe)
-                try:
-                    total = sync(conn, client, symbol, timeframe)
-                    logging.info(
-                        "Sync complete: %s %s — %d new rows", symbol, timeframe, total
-                    )
-                except ValueError as e:
-                    logging.warning("%s — skipping (run backfill first)", e)
-            _sync_ancillary(conn, client, symbol)
+            try:
+                for timeframe in timeframes:
+                    logging.info("Syncing %s %s ...", symbol, timeframe)
+                    try:
+                        total = sync(conn, client, symbol, timeframe)
+                        logging.info(
+                            "Sync complete: %s %s — %d new rows",
+                            symbol,
+                            timeframe,
+                            total,
+                        )
+                    except ValueError as e:
+                        logging.warning("%s — skipping (run backfill first)", e)
+                _sync_ancillary(conn, client, symbol)
+            except Exception:
+                logging.exception("sync failed for %s — continuing", symbol)
+                failures.append(symbol)
+    if failures:
+        logging.error("sync finished with failures: %s", ", ".join(failures))
+        sys.exit(1)
