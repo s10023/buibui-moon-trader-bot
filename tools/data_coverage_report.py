@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pandas as pd
@@ -84,8 +85,17 @@ def _md_table(df: pd.DataFrame) -> str:
         "| " + " | ".join("---" for _ in cols) + " |",
     ]
     for _, r in df.iterrows():
-        lines.append("| " + " | ".join("" if pd.isna(v) else str(v) for v in r) + " |")
+        lines.append("| " + " | ".join(_fmt_cell(v) for v in r) + " |")
     return "\n".join(lines) + "\n"
+
+
+def _fmt_cell(value: Any) -> str:
+    """Render a table cell — date columns (duckdb DATE → Timestamp) as YYYY-MM-DD."""
+    if pd.isna(value):
+        return ""
+    if isinstance(value, pd.Timestamp):
+        return value.strftime("%Y-%m-%d")
+    return str(value)
 
 
 def format_report(
