@@ -90,9 +90,10 @@ def _md_table(df: pd.DataFrame) -> str:
 
 
 def _fmt_cell(value: Any) -> str:
-    """Render a table cell — date columns (duckdb DATE → Timestamp) as YYYY-MM-DD."""
+    """Render a table cell — nulls as an em-dash (keeps markdown tables non-empty,
+    MD060-clean), date columns (duckdb DATE → Timestamp) as YYYY-MM-DD."""
     if pd.isna(value):
-        return ""
+        return "—"
     if isinstance(value, pd.Timestamp):
         return value.strftime("%Y-%m-%d")
     return str(value)
