@@ -1021,6 +1021,7 @@ make buibui-monitor-position-telegram
 make buibui-analytics-backfill              # Backfill from 2023-01-01 (default)
 make buibui-analytics-backfill SINCE=2024-01-01   # Backfill from custom date
 make buibui-analytics-sync                  # Incremental sync
+make universe-backfill                      # Deep 25-perp universe (1h/4h/1d/1w since 2019)
 ```
 
 **Backtest:**
