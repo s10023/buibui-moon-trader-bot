@@ -27,13 +27,17 @@ def test_position_is_causal_no_lookahead() -> None:
     funding = pd.Series(0.0, index=close.index)
     base = instrument_returns(close, funding, ForecastConfig())
 
-    # perturb ONLY the last close; nothing before the last row may change.
+    # Perturb a MIDDLE bar: leverage at index k is sized from info ≤ k-1, so
+    # close[k] must not affect leverage[:k+1].
+    k = len(close) // 2
     bumped = close.copy()
-    bumped.iloc[-1] *= 1.5
+    bumped.iloc[k] *= 1.5
     after = instrument_returns(bumped, funding, ForecastConfig())
 
     pd.testing.assert_series_equal(
-        base["leverage"].iloc[:-1], after["leverage"].iloc[:-1], check_names=False
+        base["leverage"].iloc[: k + 1],
+        after["leverage"].iloc[: k + 1],
+        check_names=False,
     )
 
 

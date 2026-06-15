@@ -14,10 +14,7 @@ import pandas as pd
 
 from analytics.forecast.config import ForecastConfig
 from analytics.forecast.ewmac import combine_forecasts
-from analytics.forecast.vol import (  # noqa: F401 (annualize re-exported)
-    annualize,
-    ew_return_vol,
-)
+from analytics.forecast.vol import ew_return_vol
 
 
 def instrument_returns(
@@ -34,9 +31,8 @@ def instrument_returns(
     forecast = combine_forecasts(
         close, cfg.speeds, cfg.fdm, cfg.vol_span, cfg.cap
     ).shift(1)
-    vol_ann = (
-        ew_return_vol(close, cfg.vol_span).mul(np.sqrt(cfg.annualization_days)).shift(1)
-    )
+    # ew_return_vol is already causal (.shift(1) baked in) — no extra shift
+    vol_ann = ew_return_vol(close, cfg.vol_span).mul(np.sqrt(cfg.annualization_days))
 
     leverage = (forecast / 10.0) * (cfg.vol_target_annual / vol_ann)
     leverage = leverage.replace([np.inf, -np.inf], np.nan)
@@ -44,7 +40,7 @@ def instrument_returns(
     r = close.pct_change()
     gross = leverage * r
 
-    lev_prev = leverage.shift(1)
+    lev_prev = leverage.shift(1).fillna(0.0)
     turnover_cost = (leverage - lev_prev).abs() * (cfg.fee_pct + cfg.slippage_pct)
 
     fund = funding_daily.reindex(close.index).fillna(0.0)

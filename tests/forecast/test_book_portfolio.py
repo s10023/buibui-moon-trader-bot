@@ -41,14 +41,24 @@ def test_governor_is_clamped() -> None:
 
 
 def test_governor_is_causal() -> None:
-    # perturbing the final day must not change any earlier governor value
-    a = _series(np.linspace(100.0, 400.0, 600))
+    # Use a volatile random-walk so governor is not clamped at k.
+    # Perturb a MIDDLE bar k: governor at index k uses trailing_vol[k] which
+    # is computed via .shift(1) from pre[:k] only — so close[k] must not
+    # affect governor[:k+1].
+    rng = np.random.default_rng(42)
+    prices = np.exp(np.cumsum(rng.standard_normal(600) * 0.05)) * 100.0
+    a = _series(prices)
     z = pd.Series(0.0, index=a.index)
-    base = run_forecast_backtest({"AAA": a}, {"AAA": z}, ForecastConfig())
+    cfg = ForecastConfig()
+    base = run_forecast_backtest({"AAA": a}, {"AAA": z}, cfg)
+    # k=100 is in an unclamped region (verified: governor[100] ≈ 0.656)
+    k = 100
     bumped = a.copy()
-    bumped.iloc[-1] *= 2.0
-    after = run_forecast_backtest({"AAA": bumped}, {"AAA": z}, ForecastConfig())
-    np.testing.assert_allclose(base.governor[:-1], after.governor[:-1], equal_nan=True)
+    bumped.iloc[k] *= 3.0
+    after = run_forecast_backtest({"AAA": bumped}, {"AAA": z}, cfg)
+    np.testing.assert_allclose(
+        base.governor[: k + 1], after.governor[: k + 1], equal_nan=True
+    )
 
 
 def test_inactive_instrument_excluded_from_mean() -> None:
