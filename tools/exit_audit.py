@@ -7,14 +7,16 @@ mean/median MFE_R and MAE_R, the share of trades whose MFE reached
 held. Read the tables against the 4-pattern verdict grid in
 `docs/redesign/2026-06-05-exit-improvement-spec.md` §2.
 
-Read-only — no writes, no schema changes. The exit-policy sweep modes land
-in a later PR (spec §3–§5).
+Read-only — no writes, no schema changes. `--replay` runs the exit-policy A/B
+(spec §3–§5): re-resolves the ledger under policy #0 (fixed) vs the composite
+and reports portfolio Sharpe / max-DD via the P1 paper book.
 
 Usage::
 
     PYTHONPATH=. poetry run python tools/exit_audit.py
     PYTHONPATH=. poetry run python tools/exit_audit.py --min-n 20
     PYTHONPATH=. poetry run python tools/exit_audit.py --csv /tmp/excursions.csv
+    PYTHONPATH=. poetry run python tools/exit_audit.py --replay
 """
 
 from __future__ import annotations
@@ -26,7 +28,9 @@ import duckdb
 import pandas as pd
 
 from analytics.exits import aggregate_cohorts, compute_excursions
+from analytics.exits.audit import run_exit_ab
 from analytics.store import DEFAULT_DB_PATH
+from portfolio.sizing import SizingConfig
 
 
 def _print_df(title: str, df: pd.DataFrame) -> None:
@@ -37,9 +41,39 @@ def _print_df(title: str, df: pd.DataFrame) -> None:
     print(df.to_string(index=False, float_format=lambda x: f"{x:+.3f}"))
 
 
+def _run_replay(con: duckdb.DuckDBPyConnection) -> None:
+    rows = run_exit_ab(con, SizingConfig())
+    df = pd.DataFrame(
+        {
+            "policy": r.name,
+            "n_sized": r.n_sized,
+            "n_skip": r.n_skipped,
+            "sharpe": r.sharpe,
+            "sortino": r.sortino,
+            "max_dd": r.max_dd,
+            "expiry": r.expiry_rate,
+            "win": r.win_rate,
+            "hold_bars": r.avg_hold_bars,
+            "avg_r": r.avg_r,
+        }
+        for r in rows
+    )
+    _print_df("Exit-policy A/B (portfolio via P1 paper book; gross of costs)", df)
+    print(
+        "\nHeadline = portfolio Sharpe (fixed basis). expiry/win/avg_r are over the "
+        "FULL re-resolved population; the portfolio reflects only the cap-admitted "
+        "subset. Composite 'expired' includes the deliberate time-stop exits."
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH, help="DuckDB path")
+    parser.add_argument(
+        "--replay",
+        action="store_true",
+        help="run the exit-policy A/B (fixed vs composite) instead of the diagnostic",
+    )
     parser.add_argument(
         "--min-n",
         type=int,
@@ -56,6 +90,10 @@ def main() -> None:
 
     con = duckdb.connect(str(args.db), read_only=True)
     print(f"DB: {args.db}")
+
+    if args.replay:
+        _run_replay(con)
+        return
 
     excursions = compute_excursions(con)
     resolved_row = con.execute(

@@ -4,6 +4,11 @@ The only module in `portfolio/` that touches the database. Reads resolved
 `signal_alert_outcomes` rows, builds a daily grid spanning the ledger, aligns
 each symbol's 1d close to that grid (forward-filled), optionally labels each
 entry's 1d regime via `analytics.regime.classify_series`, and runs `PaperBook`.
+
+`book_from_trades` is the reusable seam: it takes an already-built
+`list[LedgerTrade]` (e.g. re-resolved under an exit policy) and runs the same
+grid/close/regime/PaperBook machinery. `replay_ledger` is the DB front door that
+builds the trades from the ledger and delegates to it.
 """
 
 from __future__ import annotations
@@ -39,42 +44,20 @@ def _empty_result(cfg: SizingConfig) -> BookResult:
     )
 
 
-def replay_ledger(conn: duckdb.DuckDBPyConnection, cfg: SizingConfig) -> BookResult:
-    """Replay resolved signal outcomes through the paper book.
+def book_from_trades(
+    conn: duckdb.DuckDBPyConnection,
+    cfg: SizingConfig,
+    trades: list[LedgerTrade],
+) -> BookResult:
+    """Run a prebuilt ledger-trade list through the paper book.
 
-    Parameters
-    ----------
-    conn:
-        Open DuckDB connection with `signal_alert_outcomes` and `ohlcv` tables.
-    cfg:
-        Sizing configuration controlling risk fractions, vol governor, and
-        whether high-vol regime halving is applied.
-
-    Returns
-    -------
-    BookResult
-        Daily MTM curves (fixed and compound basis) plus per-trade accounting.
+    Builds the daily grid spanning the trades, aligns each symbol's 1d close
+    (forward-filled) and — when `cfg.apply_high_vol_halving` — its 1d regime,
+    then replays via `PaperBook`. The reusable seam shared by `replay_ledger`
+    and the exit-policy A/B (which feeds re-resolved `(realized_r, exit_ts)`).
     """
-    rows = conn.execute(_RESOLVED_SQL).fetchall()
-    if not rows:
+    if not trades:
         return _empty_result(cfg)
-
-    trades = [
-        LedgerTrade(
-            signal_id=str(r[0]),
-            symbol=str(r[1]),
-            tf=str(r[2]),
-            strategy=str(r[3]),
-            direction=str(r[4]),
-            entry_ts_ms=int(r[5]),
-            exit_ts_ms=int(r[6]),
-            entry_price=float(r[7]),
-            sl_price=float(r[8]),
-            outcome=str(r[9]),
-            realized_r=float(r[10]),
-        )
-        for r in rows
-    ]
 
     min_entry = min(t.entry_ts_ms for t in trades)
     max_exit = max(t.exit_ts_ms for t in trades)
@@ -128,3 +111,42 @@ def replay_ledger(conn: duckdb.DuckDBPyConnection, cfg: SizingConfig) -> BookRes
         regime_by_signal=regime_by_signal if cfg.apply_high_vol_halving else None,
     )
     return book.run(trades)
+
+
+def replay_ledger(conn: duckdb.DuckDBPyConnection, cfg: SizingConfig) -> BookResult:
+    """Replay resolved signal outcomes through the paper book.
+
+    Parameters
+    ----------
+    conn:
+        Open DuckDB connection with `signal_alert_outcomes` and `ohlcv` tables.
+    cfg:
+        Sizing configuration controlling risk fractions, vol governor, and
+        whether high-vol regime halving is applied.
+
+    Returns
+    -------
+    BookResult
+        Daily MTM curves (fixed and compound basis) plus per-trade accounting.
+    """
+    rows = conn.execute(_RESOLVED_SQL).fetchall()
+    if not rows:
+        return _empty_result(cfg)
+
+    trades = [
+        LedgerTrade(
+            signal_id=str(r[0]),
+            symbol=str(r[1]),
+            tf=str(r[2]),
+            strategy=str(r[3]),
+            direction=str(r[4]),
+            entry_ts_ms=int(r[5]),
+            exit_ts_ms=int(r[6]),
+            entry_price=float(r[7]),
+            sl_price=float(r[8]),
+            outcome=str(r[9]),
+            realized_r=float(r[10]),
+        )
+        for r in rows
+    ]
+    return book_from_trades(conn, cfg, trades)
