@@ -127,7 +127,16 @@ So: **location-gate the mean-reversion book; do not location-gate the momentum b
 ## 10. Open decisions (need answers before coding)
 
 1. ~~Ledger schema: exit timestamp?~~ **RESOLVED 2026-06-05** — `outcome_filled_at_ms` is a clean per-row exit timestamp (candle clock). Build concurrency directly; no sequential-fallback stage.
-2. **Compounding vs fixed notional** as the headline curve (report both; pick one for the Sharpe headline).
-3. **Cluster definition:** static majors cluster for P1, or derive clusters from rolling correlation now?
-4. **Conviction in P1.5:** do we trust the live OOS avg_r (n≥30) enough to size on it, or stay uniform until P2 forecasts?
-5. **Exit improvement** (40%-expiry leak): sibling task — spec trailing/partial-TP separately and A/B against the P1 baseline curve.
+2. ~~Compounding vs fixed notional as the headline curve?~~ **RESOLVED 2026-06-14** — headline Sharpe = **fixed-notional / constant-R** curve (order-independent → not flattered by an early streak; the honest edge read, consistent with the project's de-biasing ethos). The **compounding** curve (risk-% of current equity; what the paper account would have done and what the vol-governor's feedback acts on) is **reported alongside**, never hidden. Both curves keep the governor + caps active; the only difference is whether risk-% is taken of current vs initial equity.
+3. ~~Cluster definition: static vs rolling correlation?~~ **RESOLVED 2026-06-14** — **static majors `{BTC, ETH, SOL}` for P1**; rolling-correlation IDM deferred to P1.5.
+4. **Conviction in P1.5:** do we trust the live OOS avg_r (n≥30) enough to size on it, or stay uniform until P2 forecasts? (Still open — out of P1 scope; `g_conviction`=1.0 in P1.)
+5. ~~Exit improvement sequencing?~~ **RESOLVED 2026-06-14** — **sequenced, P1 portfolio first.** This branch ships the `portfolio/` package + first Sharpe/Sortino/max-DD under **policy #0 (today's exits)**. Exit-policy replay (#1/#2/#6 per the exit spec) lands as a **sibling second branch** that reuses this `PaperBook` for the joint A/B vs policy #0.
+
+### Build choices resolved 2026-06-14 (carried into the implementation plan)
+
+- **Vol governor is causal** — `g_vol` at each entry reads trailing `vol_window_days` realized vol of the paper equity curve *ending strictly before that entry*. No look-ahead.
+- **Portfolio vol from a mark-to-market daily curve** — `book.py` builds a daily MTM equity series from the time-overlapped open positions (§4); metrics + governor read its returns.
+- **Cap breach → scale-down-to-fit**, with a skip floor (headroom below an epsilon → skip rather than open a dust position).
+- **Annualize on √365** (crypto trades daily); Sharpe/Sortino on daily MTM returns; Calmar = annualized return / max-DD.
+- **No OOS gate for P1** — it fits zero parameters (pure replay at fixed defaults); DSR/PBO/OOS become mandatory in the sibling exit branch (exits have DOF).
+- **Known caveat to surface in the report:** `outcome_r` mixes pre/post-PR-3 cost rows (the de-biased ledger as-is).

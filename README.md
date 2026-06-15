@@ -627,6 +627,32 @@ make buibui-recalibrate CONFIG=config/signal_watch.toml APPLY=1    # write to DB
 make buibui-signal-watch CONFIG=config/signal_watch.toml            # restart; loads DB stars
 ```
 
+### Portfolio Replay — Paper-Portfolio Risk-Adjusted Numbers
+
+Replays the resolved live outcome ledger (`signal_alert_outcomes`) through the Carver
+two-layer position-sizing model (`docs/redesign/2026-06-05-p1-sizing-spec.md`) into an
+overlapping-position paper book, then prints the system's risk-adjusted numbers —
+Sharpe / Sortino / Calmar / max-drawdown / annualized return + vol / exposure / turnover,
+plus a per-(strategy × tf × direction) P&L attribution. **Read-only** over `analytics.db`
+(no Telegram, no DB writes, no schema changes).
+
+```bash
+# Defaults: $10k paper capital, 0.25% per-trade risk on stop, 20% annual vol-target,
+# 2% concurrent-risk cap, 1% majors-cluster cap
+poetry run python buibui.py portfolio replay
+make buibui-portfolio-replay                       # equivalent
+
+# Overrides
+make buibui-portfolio-replay CAPITAL=25000 VOL_TARGET=0.30
+make buibui-portfolio-replay CONFIG=config/strategy_params.toml   # optional [portfolio] block
+```
+
+Two equity-curve bases are reported in parallel: **fixed-notional / constant-R** (the
+headline Sharpe) and **compounding** (the vol-governor's feedback basis). The vol governor
+is causal (reads only trailing realized vol strictly before each entry). Baseline verdict:
+`docs/audits/2026-06-14-p1-portfolio-baseline.md`. The exit-policy replay (time-stop /
+breakeven / partial-at-1R) is a follow-up that reuses this same paper book.
+
 ### Signal Watch — 24/7 Strategy Alerts
 
 Runs a polling daemon that scans closed candles every N seconds and sends Telegram alerts

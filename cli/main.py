@@ -7,7 +7,17 @@ import logging
 
 from dotenv import load_dotenv
 
-from cli import analytics, backtest, digest, monitor, param, recalibrate, signal, web
+from cli import (
+    analytics,
+    backtest,
+    digest,
+    monitor,
+    param,
+    portfolio,
+    recalibrate,
+    signal,
+    web,
+)
 
 
 def main() -> None:
@@ -24,6 +34,7 @@ def main() -> None:
     digest.add_digest_subparser(subparsers)
     param.add_param_sweep_subparser(subparsers)
     param.add_param_audit_subparser(subparsers)
+    portfolio.add_portfolio_subparser(subparsers)
     recalibrate.add_recalibrate_subparser(subparsers)
     web.add_web_subparser(subparsers)
     args = parser.parse_args()
