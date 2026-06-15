@@ -81,7 +81,7 @@ def run_forecast_backtest(
     """Aggregate per-instrument subsystem returns + causal vol governor."""
     union = pd.DatetimeIndex([])
     for s in closes.values():
-        union = union.union(s.index)
+        union = union.union(pd.DatetimeIndex(s.index))
     union = union.sort_values()
 
     per_net: dict[str, pd.Series] = {}
