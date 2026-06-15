@@ -62,9 +62,9 @@ def instrument_returns(
 @dataclass(frozen=True)
 class ForecastBookResult:
     daily_index: pd.DatetimeIndex
-    portfolio_return: np.ndarray  # net, post-governor
+    portfolio_return: np.ndarray  # net, post-governor (NaN-free; warm-up = 0.0)
     pre_governor_return: np.ndarray
-    governor: np.ndarray
+    governor: np.ndarray  # NaN for the first gov_window warm-up bars
     active_count: np.ndarray
     per_instrument_net: dict[str, pd.Series]
 
