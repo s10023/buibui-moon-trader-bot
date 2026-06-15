@@ -6,7 +6,10 @@ module in ``analytics/forecast/`` that touches the database; never writes.
 
 from __future__ import annotations
 
+import dataclasses
+
 import duckdb
+import numpy as np
 import pandas as pd
 
 from analytics.forecast.book import ForecastBookResult, run_forecast_backtest
@@ -64,3 +67,33 @@ def replay_universe(
     syms = symbols if symbols is not None else load_universe()
     closes, fundings = load_daily_inputs(conn, syms)
     return run_forecast_backtest(closes, fundings, cfg)
+
+
+def replay_trials(
+    conn: duckdb.DuckDBPyConnection,
+    cfg: ForecastConfig,
+    symbols: list[str] | None = None,
+) -> dict[str, np.ndarray]:
+    """Daily portfolio returns for each single-speed sleeve + the combined book.
+
+    The honest multiple-testing family for DSR/PBO and the H2 check
+    (s64_256 vs combined). Reuses ``replay_universe`` by swapping
+    ``cfg.speeds`` to a single pair per trial.
+
+    Keys:
+    - ``"s{fast}_{slow}"`` — one per speed in ``cfg.speeds``
+    - ``"combined"`` — the full multi-speed book
+    """
+    syms = symbols if symbols is not None else load_universe()
+    closes, fundings = load_daily_inputs(conn, syms)
+
+    trials: dict[str, np.ndarray] = {}
+    for fast, slow, scalar in cfg.speeds:
+        single_cfg = dataclasses.replace(cfg, speeds=((fast, slow, scalar),))
+        result = run_forecast_backtest(closes, fundings, single_cfg)
+        key = f"s{fast}_{slow}"
+        trials[key] = result.portfolio_return
+
+    combined = run_forecast_backtest(closes, fundings, cfg)
+    trials["combined"] = combined.portfolio_return
+    return trials
