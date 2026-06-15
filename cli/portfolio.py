@@ -21,8 +21,11 @@ def run_portfolio_replay(args: argparse.Namespace) -> None:
     if args.vol_target is not None:
         cfg = replace(cfg, vol_target_annual=float(args.vol_target))
     conn = duckdb.connect(str(args.db), read_only=True)
-    res = replay_ledger(conn, cfg)
-    print(format_report(res, cfg))
+    try:
+        res = replay_ledger(conn, cfg)
+        print(format_report(res, cfg))
+    finally:
+        conn.close()
 
 
 def add_portfolio_subparser(

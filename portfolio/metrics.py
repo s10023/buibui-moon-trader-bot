@@ -101,6 +101,7 @@ def attribution(
         return pd.DataFrame()
     rows = [
         {
+            "symbol": t.symbol,
             "strategy": t.strategy,
             "tf": t.tf,
             "direction": t.direction,

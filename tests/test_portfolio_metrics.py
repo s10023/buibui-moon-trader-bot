@@ -6,14 +6,37 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from portfolio.book import SizedTrade
 from portfolio.metrics import (
     annual_return,
     annual_vol,
+    attribution,
     calmar,
     max_drawdown,
     sharpe,
     sortino,
 )
+
+
+def _sized(symbol: str, strategy: str, direction: str, realized_r: float) -> SizedTrade:
+    return SizedTrade(
+        signal_id=f"{symbol}-{strategy}-{direction}",
+        symbol=symbol,
+        tf="1h",
+        strategy=strategy,
+        direction=direction,
+        entry_idx=0,
+        exit_idx=1,
+        r_eff=0.0025,
+        g_vol=1.0,
+        g_regime=1.0,
+        rc_fixed=25.0,
+        rc_comp=25.0,
+        pnl_fixed=25.0 * realized_r,
+        pnl_comp=25.0 * realized_r,
+        realized_r=realized_r,
+        regime=None,
+    )
 
 
 def _curve(values: list[float]) -> pd.Series:
@@ -61,3 +84,32 @@ def test_flat_curve_is_zero_not_nan() -> None:
     assert sharpe(curve) == 0.0
     assert sortino(curve) == 0.0
     assert max_drawdown(curve) == 0.0
+
+
+def test_attribution_empty_is_empty_frame() -> None:
+    assert attribution([]).empty
+
+
+def test_attribution_default_grouping() -> None:
+    sized = [
+        _sized("BTCUSDT", "fvg", "short", 2.0),
+        _sized("ETHUSDT", "bos", "long", -1.0),
+    ]
+    agg = attribution(sized)
+    assert set(agg.columns) >= {"strategy", "tf", "direction", "n", "total_r", "avg_r"}
+    assert len(agg) == 2
+    # sorted by total_pnl desc -> the +2R fvg short on top
+    assert agg.iloc[0]["strategy"] == "fvg"
+
+
+def test_attribution_groups_by_symbol() -> None:
+    # the `by` parameter must actually work for any groupable SizedTrade field
+    sized = [
+        _sized("BTCUSDT", "fvg", "short", 2.0),
+        _sized("BTCUSDT", "bos", "long", 1.0),
+        _sized("ETHUSDT", "bos", "long", -1.0),
+    ]
+    agg = attribution(sized, by=("symbol",))
+    assert list(agg["symbol"]) == ["BTCUSDT", "ETHUSDT"]
+    btc = agg[agg["symbol"] == "BTCUSDT"].iloc[0]
+    assert btc["n"] == 2 and btc["total_r"] == pytest.approx(3.0)
