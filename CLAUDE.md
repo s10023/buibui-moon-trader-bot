@@ -183,6 +183,7 @@ Skills live in `.claude/skills/<name>/SKILL.md` (project-specific, committed to 
 | `confluence-backtest` | `/confluence-backtest` | Cross-TF (`--cross-tf`) and same-TF (`--combo`) co-firing backtests; HTF/LTF pair sweeps; post-run spot-check via `tools/combo_health.py` | After adding a strategy, changing entry logic, tuning the live `[combo]` gate, or to confirm combo tables are healthy after a refresh |
 | `frontend-svelte` | `/frontend-svelte` | Svelte 5 + Vite UI workflow for `web/ui/` — pages, stores, lightweight-charts, dev/build commands | Any work under `web/ui/`; pair with `/frontend-design` for visual work |
 | `journal-trade` | `/journal-trade` | Capture a manual trade into the gitignored `docs/plans/journal/` (structured frontmatter + Thesis/Plan/Execution/Outcome/Retrospective narrative); MYT→UTC timestamps; ground-truth feeder for F2/T2/T5 | When the user says "journal my trade", pastes trade-execution details, or a logged trade closes |
+| `sync-child` | `/sync-child` | Reverse back-port catch-up: surface NET-NEW wifey-fork work worth porting into this repo (drops dependabot / docs-config / already-ported-from-here; classifies remainder PORT/EVALUATE → `/tmp/child-sync-<date>.md`). Mirror of wifey's `sync-parent`, run the other way. Read-only — a human ports. Always queries wifey with explicit `gh -R s10023/buibui-wifey-wall-street-bot` | Periodic fork catch-up; when the user says "check the fork", "what's net-new in wifey", or "back-port from wifey" |
 
 **Always load `/frontend-design` before any Svelte/CSS/UI changes.**
 
