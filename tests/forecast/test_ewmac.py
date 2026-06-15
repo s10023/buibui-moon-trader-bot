@@ -1,0 +1,36 @@
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+
+from analytics.forecast.ewmac import raw_ewmac, scaled_forecast
+
+
+def test_raw_ewmac_positive_in_uptrend() -> None:
+    close = pd.Series(np.linspace(100.0, 200.0, 300))
+    raw = raw_ewmac(close, fast=8, slow=32)
+    # steady uptrend -> fast EMA above slow EMA -> positive once warmed up
+    assert raw.iloc[-1] > 0.0
+
+
+def test_raw_ewmac_matches_pandas_ewm() -> None:
+    close = pd.Series([1.0, 2.0, 3.0, 5.0, 8.0, 13.0, 21.0])
+    expected = (
+        close.ewm(span=2, adjust=False).mean() - close.ewm(span=4, adjust=False).mean()
+    )
+    pd.testing.assert_series_equal(raw_ewmac(close, 2, 4), expected, check_names=False)
+
+
+def test_scaled_forecast_is_capped() -> None:
+    # explosive trend -> raw/price_vol large -> must clip to +cap
+    close = pd.Series(np.geomspace(1.0, 1e6, 400))
+    f = scaled_forecast(close, fast=8, slow=32, scalar=5.3, vol_span=32, cap=20.0)
+    assert f.dropna().max() <= 20.0 + 1e-9
+    assert f.dropna().min() >= -20.0 - 1e-9
+
+
+def test_scaled_forecast_sign_follows_trend() -> None:
+    up = pd.Series(np.linspace(100.0, 300.0, 400))
+    down = pd.Series(np.linspace(300.0, 100.0, 400))
+    assert scaled_forecast(up, 8, 32, 5.3, 32, 20.0).iloc[-1] > 0.0
+    assert scaled_forecast(down, 8, 32, 5.3, 32, 20.0).iloc[-1] < 0.0
