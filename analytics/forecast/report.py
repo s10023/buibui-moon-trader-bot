@@ -72,7 +72,8 @@ def evaluate(
     sr_d = _per_period_sharpe(r)
     trial_srs = [_per_period_sharpe(v) for v in trial_returns.values()]
 
-    # PBO over the trial family (rows trimmed to common length)
+    # PBO over the trial family (rows trimmed to common length).
+    # cscv_pbo's default n_splits=14 needs block_size = T // 14 >= 2, i.e. T >= 28.
     min_len = min((len(v) for v in trial_returns.values()), default=0)
     if min_len >= 28 and len(trial_returns) >= 2:
         mat = np.column_stack([v[-min_len:] for v in trial_returns.values()])
