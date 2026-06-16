@@ -34,6 +34,14 @@ class ForecastConfig:
     g_min: float = 0.5
     g_max: float = 1.5
     annualization_days: float = 365.0
+    weights: tuple[float, ...] | None = None
+
+    def __post_init__(self) -> None:
+        if self.weights is not None and len(self.weights) != len(self.speeds):
+            raise ValueError(
+                f"weights length {len(self.weights)} != "
+                f"speeds length {len(self.speeds)}"
+            )
 
     @property
     def min_history(self) -> int:

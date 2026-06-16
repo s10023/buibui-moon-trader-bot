@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from analytics.forecast.config import ForecastConfig
 
 
@@ -43,3 +45,18 @@ def test_from_toml_missing_backtest_uses_defaults(tmp_path) -> None:  # type: ig
     cfg = ForecastConfig.from_toml(p)
     assert cfg.fee_pct == 0.0005
     assert cfg.slippage_pct == 0.0002
+
+
+def test_weights_defaults_to_none() -> None:
+    assert ForecastConfig().weights is None
+
+
+def test_weights_length_mismatch_raises() -> None:
+    # default speeds has 4 entries; 2 weights must raise
+    with pytest.raises(ValueError):
+        ForecastConfig(weights=(1.0, 1.0))
+
+
+def test_weights_matching_length_ok() -> None:
+    cfg = ForecastConfig(weights=(1.0, 1.0, 1.0, 1.0))
+    assert cfg.weights == (1.0, 1.0, 1.0, 1.0)
