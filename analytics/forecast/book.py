@@ -29,7 +29,7 @@ def instrument_returns(
     close index (0.0 where missing).
     """
     forecast = combine_forecasts(
-        close, cfg.speeds, cfg.fdm, cfg.vol_span, cfg.cap
+        close, cfg.speeds, cfg.fdm, cfg.vol_span, cfg.cap, weights=cfg.weights
     ).shift(1)
     # ew_return_vol is already causal (.shift(1) baked in) — no extra shift
     vol_ann = ew_return_vol(close, cfg.vol_span).mul(np.sqrt(cfg.annualization_days))

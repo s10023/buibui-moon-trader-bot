@@ -57,3 +57,40 @@ def test_combine_respects_cap_after_fdm() -> None:
         cap=20.0,
     )
     assert combined.dropna().abs().max() <= 20.0 + 1e-9
+
+
+def test_equal_weights_matches_none_path() -> None:
+    close = pd.Series(np.linspace(100.0, 130.0, 400))
+    speeds = ((8, 32, 5.3), (16, 64, 3.75), (32, 128, 2.65))
+    none_path = combine_forecasts(close, speeds=speeds, fdm=1.25, vol_span=32, cap=20.0)
+    eq_path = combine_forecasts(
+        close, speeds=speeds, fdm=1.25, vol_span=32, cap=20.0, weights=(1.0, 1.0, 1.0)
+    )
+    pd.testing.assert_series_equal(none_path, eq_path, check_names=False)
+
+
+def test_weighted_mean_matches_manual_after_warmup() -> None:
+    close = pd.Series(np.linspace(100.0, 130.0, 400))
+    speeds = ((8, 32, 5.3), (16, 64, 3.75))
+    combined = combine_forecasts(
+        close, speeds=speeds, fdm=1.25, vol_span=32, cap=20.0, weights=(3.0, 1.0)
+    )
+    f1 = scaled_forecast(close, 8, 32, 5.3, 32, 20.0)
+    f2 = scaled_forecast(close, 16, 64, 3.75, 32, 20.0)
+    both = f1.notna() & f2.notna()
+    expected = ((f1[both] * 0.75 + f2[both] * 0.25) * 1.25).clip(-20.0, 20.0)
+    pd.testing.assert_series_equal(combined[both], expected, check_names=False)
+
+
+def test_weighted_zero_weight_drops_a_speed() -> None:
+    close = pd.Series(np.linspace(100.0, 130.0, 400))
+    speeds = ((8, 32, 5.3), (16, 64, 3.75))
+    # weight 0 on the slow speed -> equals the fast speed alone x FDM, capped
+    combined = combine_forecasts(
+        close, speeds=speeds, fdm=1.25, vol_span=32, cap=20.0, weights=(1.0, 0.0)
+    )
+    f1 = scaled_forecast(close, 8, 32, 5.3, 32, 20.0)
+    expected = (f1 * 1.25).clip(-20.0, 20.0)
+    pd.testing.assert_series_equal(
+        combined[f1.notna()], expected[f1.notna()], check_names=False
+    )

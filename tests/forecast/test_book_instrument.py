@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 import pandas as pd
 
@@ -60,3 +62,22 @@ def test_turnover_cost_nonnegative_and_charged_on_change() -> None:
     out = instrument_returns(close, funding, ForecastConfig())
     assert (out["turnover_cost"].dropna() >= 0.0).all()
     assert out["turnover_cost"].dropna().sum() > 0.0  # leverage ramps -> some cost
+
+
+def test_weighted_combine_has_no_lookahead() -> None:
+    close = pd.Series(np.linspace(100.0, 160.0, 400))
+    funding = pd.Series(0.0, index=close.index)
+    cfg = dataclasses.replace(ForecastConfig(), weights=(0.6, 0.3, 0.1, 0.0))
+
+    base = instrument_returns(close, funding, cfg)
+    bumped = close.copy()
+    bumped.iloc[300] *= 1.5
+    pert = instrument_returns(bumped, pd.Series(0.0, index=close.index), cfg)
+
+    # leverage on day d uses forecast through d-1; perturbing close[300] can only
+    # move leverage from day 301 onward. Days 0..299 must be byte-identical.
+    pd.testing.assert_series_equal(
+        base["leverage"].iloc[:300],
+        pert["leverage"].iloc[:300],
+        check_names=False,
+    )

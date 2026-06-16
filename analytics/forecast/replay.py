@@ -14,6 +14,7 @@ import pandas as pd
 
 from analytics.forecast.book import ForecastBookResult, run_forecast_backtest
 from analytics.forecast.config import ForecastConfig
+from analytics.forecast.weights import candidate_schemes
 from analytics.store.market_data import get_funding_rates, get_ohlcv
 from analytics.universe import load_universe
 
@@ -97,3 +98,23 @@ def replay_trials(
     combined = run_forecast_backtest(closes, fundings, cfg)
     trials["combined"] = combined.portfolio_return
     return trials
+
+
+def replay_weight_schemes(
+    conn: duckdb.DuckDBPyConnection,
+    cfg: ForecastConfig,
+    symbols: list[str] | None = None,
+) -> dict[str, ForecastBookResult]:
+    """Run the universe book once per candidate weight scheme (read-only).
+
+    Keys are scheme names from ``candidate_schemes``; values are the full
+    ``ForecastBookResult`` under that scheme's weights. Loads the daily inputs
+    once and re-runs the book per scheme via ``dataclasses.replace``.
+    """
+    syms = symbols if symbols is not None else load_universe()
+    closes, fundings = load_daily_inputs(conn, syms)
+    out: dict[str, ForecastBookResult] = {}
+    for name, scheme in candidate_schemes(cfg).items():
+        scheme_cfg = dataclasses.replace(cfg, weights=scheme.weights)
+        out[name] = run_forecast_backtest(closes, fundings, scheme_cfg)
+    return out

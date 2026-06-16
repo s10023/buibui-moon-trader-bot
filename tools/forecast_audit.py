@@ -30,7 +30,9 @@ from analytics.forecast import (
     evaluate,
     replay_trials,
     replay_universe,
+    replay_weight_schemes,
 )
+from analytics.forecast.weights import candidate_schemes
 from analytics.store import DEFAULT_DB_PATH
 from analytics.universe import load_universe
 
@@ -64,6 +66,58 @@ def build_report_row(
     }
 
 
+def _ann_sharpe_of(r: np.ndarray, ann: float) -> float:
+    sd = float(np.std(r, ddof=1)) if len(r) > 1 else 0.0
+    return (float(np.mean(r)) / sd * ann) if sd > 1e-12 else 0.0
+
+
+def build_weight_study(
+    conn: duckdb.DuckDBPyConnection,
+    symbols: list[str],
+) -> pd.DataFrame:
+    """Per-scheme universe Sharpe + two-family DSR/PBO stamps + gate verdict.
+
+    DSR deflates over {all schemes} + {per-speed singles}; PBO/CSCV over the
+    schemes only (the configs we select among). Clears the bar iff
+    DSR >= 0.95 and PBO <= 0.5 and boot_lo > 0.
+    """
+    cfg = ForecastConfig()
+    ann = math.sqrt(cfg.annualization_days)
+    schemes = candidate_schemes(cfg)
+
+    results = replay_weight_schemes(conn, cfg, symbols=symbols)
+    scheme_returns = {name: res.portfolio_return for name, res in results.items()}
+    singles = {
+        k: v
+        for k, v in replay_trials(conn, cfg, symbols=symbols).items()
+        if k != "combined"
+    }
+    dsr_family = {**scheme_returns, **singles}
+    pbo_family = scheme_returns
+
+    rows: list[dict[str, object]] = []
+    for name, res in results.items():
+        rep = evaluate(res, cfg, trial_returns=dsr_family, pbo_returns=pbo_family)
+        clears = bool(rep.dsr >= 0.95 and rep.pbo <= 0.5 and rep.boot_lo > 0.0)
+        rows.append(
+            {
+                "scheme": name,
+                "a_priori": schemes[name].a_priori,
+                "sharpe": _ann_sharpe_of(res.portfolio_return, ann),
+                "dsr": rep.dsr,
+                "pbo": rep.pbo,
+                "boot_lo": rep.boot_lo,
+                "min_trl": rep.min_trl,
+                "clears": clears,
+            }
+        )
+    df = (
+        pd.DataFrame(rows).sort_values("sharpe", ascending=False).reset_index(drop=True)
+    )
+    df["rank"] = range(1, len(df) + 1)
+    return df
+
+
 def _per_speed_sharpes(
     conn: duckdb.DuckDBPyConnection, symbols: list[str]
 ) -> pd.DataFrame:
@@ -95,6 +149,11 @@ def main() -> None:
         default=",".join(_MAJORS),
         help="comma-separated majors-only contrast set",
     )
+    parser.add_argument(
+        "--weight-study",
+        action="store_true",
+        help="run the forecast-weight study (DSR/PBO-gated) and exit",
+    )
     args = parser.parse_args()
 
     conn = duckdb.connect(str(args.db), read_only=True)
@@ -102,6 +161,29 @@ def main() -> None:
 
     universe = load_universe()
     majors = [s.strip().upper() for s in args.majors.split(",") if s.strip()]
+
+    if args.weight_study:
+        df = build_weight_study(conn, universe)
+        _print_df("Forecast-weight study (universe)", df)
+        winners = df[df["clears"]]
+        if winners.empty:
+            print(
+                "\nVERDICT: no scheme clears DSR>=0.95 & PBO<=0.5 & boot_lo>0 -> "
+                "equal-weight stays; the lift is in-sample. Breadth (P3) remains "
+                "the binding constraint."
+            )
+        else:
+            ap = winners[winners["a_priori"]]
+            kind = "a-priori" if not ap.empty else "data-snooped only"
+            best = (ap if not ap.empty else winners).iloc[0]
+            print(
+                f"\nVERDICT: {len(winners)} scheme(s) clear the bar ({kind}); "
+                f"best = {best['scheme']} (Sharpe {best['sharpe']:+.3f}, "
+                f"DSR {best['dsr']:.3f}, PBO {best['pbo']:.3f}). "
+                "If a-priori -> re-test G2 with these weights; if snooped-only -> "
+                "suggestive, needs OOS confirmation before shipping."
+            )
+        return
 
     rows = [
         build_report_row(conn, "universe @2bps", universe, 2.0),

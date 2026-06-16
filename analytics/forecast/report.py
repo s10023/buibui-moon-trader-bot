@@ -59,11 +59,17 @@ def evaluate(
     result: ForecastBookResult,
     cfg: ForecastConfig,
     trial_returns: dict[str, npt.NDArray[np.float64]],
+    pbo_returns: dict[str, npt.NDArray[np.float64]] | None = None,
 ) -> G2Report:
     """Compute all G2 metrics and research-guard stamps.
 
     ``trial_returns`` is the honest multiple-testing family (per-speed sleeves
     + combined) — the same set that ``replay_trials`` produces.
+
+    ``pbo_returns`` (optional) is the PBO/CSCV selection family; when given it
+    is used for the CSCV matrix only while DSR still deflates against the wider
+    ``trial_returns``.  The forecast-weight study passes the schemes-only family
+    here.  Defaults to ``trial_returns`` when *None* (back-compat identical).
     """
     r = result.portfolio_return
     curve = equity_curve(result)
@@ -72,11 +78,12 @@ def evaluate(
     sr_d = _per_period_sharpe(r)
     trial_srs = [_per_period_sharpe(v) for v in trial_returns.values()]
 
-    # PBO over the trial family (rows trimmed to common length).
+    # PBO over the selection family (defaults to the DSR family).
     # cscv_pbo's default n_splits=14 needs block_size = T // 14 >= 2, i.e. T >= 28.
-    min_len = min((len(v) for v in trial_returns.values()), default=0)
-    if min_len >= 28 and len(trial_returns) >= 2:
-        mat = np.column_stack([v[-min_len:] for v in trial_returns.values()])
+    pbo_family = pbo_returns if pbo_returns is not None else trial_returns
+    min_len = min((len(v) for v in pbo_family.values()), default=0)
+    if min_len >= 28 and len(pbo_family) >= 2:
+        mat = np.column_stack([v[-min_len:] for v in pbo_family.values()])
         pbo = cscv_pbo(mat).pbo
     else:
         pbo = float("nan")
