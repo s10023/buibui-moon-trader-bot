@@ -7,6 +7,7 @@ instruments (Carver convention); capped to +/-20 before sizing.
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from analytics.forecast.vol import price_vol
@@ -40,12 +41,31 @@ def combine_forecasts(
     fdm: float,
     vol_span: int,
     cap: float,
+    weights: tuple[float, ...] | None = None,
 ) -> pd.Series:
-    """Equal-weight mean of per-speed forecasts x FDM, re-capped to +/-cap."""
+    """Weighted mean of per-speed forecasts x FDM, re-capped to +/-cap.
+
+    ``weights`` (one per speed, normalised internally; NaN legs re-normalised
+    per row) defaults to equal weight, which is byte-identical to the prior
+    ``.mean(axis=1)`` path.
+    """
     parts = [
         scaled_forecast(close, fast, slow, scalar, vol_span, cap)
         for fast, slow, scalar in speeds
     ]
     stacked = pd.concat(parts, axis=1)
-    mean = stacked.mean(axis=1)
+    if weights is None:
+        mean = stacked.mean(axis=1)
+    else:
+        if len(weights) != len(speeds):
+            raise ValueError("weights length must match speeds length")
+        w = np.asarray(weights, dtype=float)
+        vals = stacked.to_numpy()
+        present = ~np.isnan(vals)
+        denom = (present * w).sum(axis=1)
+        num = np.nansum(vals * w, axis=1)
+        mean_vals = np.divide(
+            num, denom, out=np.full_like(num, np.nan), where=denom > 0.0
+        )
+        mean = pd.Series(mean_vals, index=stacked.index)
     return (mean * fdm).clip(lower=-cap, upper=cap)
