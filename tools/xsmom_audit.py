@@ -183,9 +183,12 @@ def main() -> None:
         build_xs_report_row(conn, "universe neutral @2bps", universe, 2.0, True),
     ]
     _print_df("Dollar-neutral gate (original vs neutral)", pd.DataFrame(neutral_rows))
-    _print_df("Beta attribution (universe)", _beta_attribution_table(conn, universe))
     _print_df(
-        "Forward persistence (neutral, universe)", _persistence_table(conn, universe)
+        "Beta attribution (universe @2bps)", _beta_attribution_table(conn, universe)
+    )
+    _print_df(
+        "Forward persistence (neutral, universe @2bps)",
+        _persistence_table(conn, universe),
     )
 
     sweep = [

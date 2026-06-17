@@ -121,5 +121,6 @@ candidate in the system.
   trailing-window persistence. Market proxy = active-set equal-weight universe
   return; BTC proxy reindexed onto the same union daily index for positional
   alignment.
-- Sanity: `trend_sharpe` +0.375 reproduces the G2 trend headline (+0.36); the
-  original `corr_to_trend` +0.370 reproduces G3.
+- Sanity: `trend_sharpe` +0.375 is consistent with the G2 trend headline
+  (~+0.36 — minor drift from OHLCV added since G2, the DB now extends to
+  2026-06-17); the original `corr_to_trend` +0.370 matches G3.
