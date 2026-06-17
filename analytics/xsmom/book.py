@@ -14,6 +14,7 @@ import pandas as pd
 
 from analytics.forecast.config import ForecastConfig
 from analytics.forecast.ewmac import combine_forecasts
+from analytics.forecast.vol import ew_return_vol
 
 
 def _union_index(closes: dict[str, pd.Series]) -> pd.DatetimeIndex:
@@ -54,6 +55,28 @@ def xs_demeaned_forecasts(
     """
     f = xs_forecasts(closes, cfg)
     return f.sub(f.mean(axis=1), axis=0)
+
+
+def xs_leverage(closes: dict[str, pd.Series], cfg: ForecastConfig) -> pd.DataFrame:
+    """Causal cross-sectional (demeaned) vol-parity leverage matrix.
+
+    Demean the forecast across active instruments (dollar-neutral), shift one day
+    (position on day `d` uses info through `d-1`), then vol-target each leg:
+    `leverage_i = (g_i_shifted / 10) * (vol_target / vol_ann_i)`. The `/10` mirrors
+    the trend sleeve so magnitudes are comparable; the absolute level is governed
+    downstream. Columns = symbols, index = union daily index.
+    """
+    demeaned = xs_demeaned_forecasts(closes, cfg)
+    demeaned_shifted = demeaned.shift(1)
+    union = pd.DatetimeIndex(demeaned.index)
+    ann = np.sqrt(cfg.annualization_days)
+
+    lev_cols: dict[str, pd.Series] = {}
+    for sym, close in closes.items():
+        vol_ann = ew_return_vol(close, cfg.vol_span).mul(ann).reindex(union)
+        lev = (demeaned_shifted[sym] / 10.0) * (cfg.vol_target_annual / vol_ann)
+        lev_cols[sym] = lev.replace([np.inf, -np.inf], np.nan)
+    return pd.DataFrame(lev_cols, index=union)
 
 
 @dataclass(frozen=True)

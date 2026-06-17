@@ -58,3 +58,32 @@ def test_demean_over_active_set_with_staggered_history() -> None:
     assert len(early) > 0
     np.testing.assert_allclose(early[["A", "B"]].sum(axis=1).to_numpy(), 0.0, atol=1e-9)
     assert early["C"].isna().all()
+
+
+def test_xs_leverage_sign_long_strong_short_weak() -> None:
+    from analytics.xsmom.book import xs_leverage
+
+    lev = xs_leverage(_closes(), ForecastConfig())
+    last = lev.iloc[-1]
+    # strong uptrend held long, weak downtrend held short
+    assert last["STRONG"] > 0.0
+    assert last["WEAK"] < 0.0
+
+
+def test_xs_leverage_is_causal_no_lookahead() -> None:
+    from analytics.xsmom.book import xs_leverage
+
+    closes = _closes()
+    base = xs_leverage(closes, ForecastConfig())
+
+    # Perturb a MIDDLE bar of ONE instrument. Leverage at index k is sized from
+    # demeaned forecasts through k-1, so close[k] must not affect leverage[:k+1]
+    # for ANY column (the cross-sectional demean couples instruments).
+    k = 250
+    bumped = {s: c.copy() for s, c in closes.items()}
+    bumped["STRONG"].iloc[k] *= 1.5
+    after = xs_leverage(bumped, ForecastConfig())
+
+    pd.testing.assert_frame_equal(
+        base.iloc[: k + 1], after.iloc[: k + 1], check_names=False
+    )
