@@ -8,10 +8,13 @@
 ## What was built
 
 A standalone cross-sectional momentum sleeve: the existing capped multi-speed
-EWMAC forecast per instrument, cross-sectionally demeaned each day (dollar-
-neutral), `.shift(1)`'d for causality, vol-parity sized, and run through a
-dollar-neutral long-short book with honest costs (turnover + funding; shorts
-*receive* funding on perps) and the 20%-vol portfolio governor. Evaluated
+EWMAC forecast per instrument, cross-sectionally demeaned each day (zero-sum **in
+forecast space**), `.shift(1)`'d for causality, vol-parity sized, and run through a
+**forecast-demeaned** long-short book with honest costs (turnover + funding; shorts
+*receive* funding on perps) and the 20%-vol portfolio governor. Note: vol-parity
+sizing applies a different per-instrument multiplier to the zero-sum forecast row,
+so the *signed leverages* do not sum to zero — the book carries a ≈9% residual net
+exposure (see Caveats). Evaluated
 universe-wide with DSR / PBO / block-bootstrap-CI / MinTRL, plus correlation to
 the trend sleeve. New package `analytics/xsmom/` ({`book`, `replay`, `report`}),
 pure / causal / read-only — reuses `ForecastConfig`, `combine_forecasts`,
@@ -105,14 +108,24 @@ trend.
   confirm the true Sharpe exceeds 1.0** — only that it is very likely > 0. The
   point estimate is well above 1.0; the confirmation of *that level* is not yet
   earned.
-- **Vol runs hot.** Realised ann_vol is 32% vs the 20% target — the causal
-  governor lags realised vol in crypto's volatility clustering (it clips at
-  1.5×/0.5× on a trailing, shifted estimate). Sharpe is vol-invariant so this does
-  not inflate it, but a live deployment would either tighten the governor or
-  accept the higher vol.
-- **Dollar-neutral, not beta-neutral.** No BTC-beta neutralisation (deferred). A
-  dollar-neutral demeaned book already nets out most market beta, but residual
-  beta is unmeasured here — a noted refinement.
+- **Vol runs hot, and the governor is mostly clip-pinned.** Realised ann_vol is
+  33% vs the 20% target — but the cause is not mainly lag: the causal governor is
+  saturated **~69% of days** (pinned at the 0.5× floor 58%, the 1.5× cap 11%), so
+  it actively targets vol only ~31% of the time. "20%-vol target" is therefore
+  largely nominal. Sharpe is vol-invariant so this does not inflate the headline,
+  but a live deployment would re-scale the per-instrument sizing so the governor
+  operates inside its band rather than against a clip.
+- **Not position-dollar-neutral, and ~10% of the return is a directional tilt
+  that compounds survivorship.** The *forecast* row is zero-sum, but vol-parity
+  sizing leaves a **≈9% residual net exposure** at the position level (median
+  net/gross ≈ 0.089). That residual has **−0.20 correlation to the equal-weight
+  alt market** and contributes **~10% of the mean return with a favourable sign**
+  — i.e. a small net-short-the-laggards bet. On a survivor universe this is
+  *exactly* the bet that benefits from the dead names being absent, so it
+  **compounds the survivorship optimism above** rather than being independent of
+  it. The measured beta contribution should be netted out (or BTC-beta-neutralised)
+  in the survivorship re-test before the headline is trusted; treating the book as
+  "dollar-neutral" overstated its market-neutrality.
 
 ## Recommendation / next levers (in order)
 
