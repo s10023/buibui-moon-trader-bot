@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pandas as pd
 
@@ -45,6 +47,8 @@ def test_corr_to_trend_identical_is_one() -> None:
         res, ForecastConfig(), trial_returns={"combined": r}, trend_returns=r
     )
     assert rep.corr_to_trend > 0.99
+    # single-trial family -> PBO guard returns NaN
+    assert math.isnan(rep.pbo)
 
 
 def test_corr_to_trend_anticorrelated_is_negative() -> None:
@@ -55,6 +59,7 @@ def test_corr_to_trend_anticorrelated_is_negative() -> None:
         res, ForecastConfig(), trial_returns={"combined": r}, trend_returns=-r
     )
     assert rep.corr_to_trend < -0.99
+    assert math.isnan(rep.pbo)
 
 
 def test_flat_returns_degenerate_to_zero() -> None:
@@ -67,3 +72,6 @@ def test_flat_returns_degenerate_to_zero() -> None:
     )
     assert rep.sharpe_annual == 0.0
     assert rep.corr_to_trend == 0.0
+    # sr_d == 0 degenerate branch
+    assert rep.dsr == 0.0
+    assert math.isinf(rep.min_trl)

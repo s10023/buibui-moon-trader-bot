@@ -48,7 +48,11 @@ def _aligned_corr(a: npt.NDArray[np.float64], b: npt.NDArray[np.float64]) -> flo
     y = np.asarray(b[-n:], dtype=np.float64)
     live = ~((x == 0.0) & (y == 0.0))
     x, y = x[live], y[live]
-    if len(x) < 2 or float(np.std(x)) < 1e-12 or float(np.std(y)) < 1e-12:
+    if (
+        len(x) < 2
+        or float(np.std(x, ddof=1)) < 1e-12
+        or float(np.std(y, ddof=1)) < 1e-12
+    ):
         return 0.0
     return float(np.corrcoef(x, y)[0, 1])
 
