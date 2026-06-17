@@ -22,12 +22,22 @@ from pathlib import Path
 
 import duckdb
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 from analytics.forecast import ForecastConfig, replay_universe
+from analytics.forecast.replay import load_daily_inputs
 from analytics.store import DEFAULT_DB_PATH
 from analytics.universe import load_universe
-from analytics.xsmom import evaluate_xs, replay_xs, replay_xs_trials
+from analytics.xsmom import (
+    beta_attribution,
+    equal_weight_market_return,
+    evaluate_xs,
+    replay_xs,
+    replay_xs_trials,
+    run_xs_backtest,
+    subperiod_sharpe,
+)
 
 _MAJORS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
 
@@ -37,8 +47,13 @@ def build_xs_report_row(
     label: str,
     symbols: list[str],
     slippage_bps: float,
+    xs_dollar_neutral: bool = False,
 ) -> dict[str, object]:
-    cfg = dataclasses.replace(ForecastConfig(), slippage_pct=slippage_bps / 10_000.0)
+    cfg = dataclasses.replace(
+        ForecastConfig(),
+        slippage_pct=slippage_bps / 10_000.0,
+        xs_dollar_neutral=xs_dollar_neutral,
+    )
     result = replay_xs(conn, cfg, symbols=symbols)
     trials = replay_xs_trials(conn, cfg, symbols=symbols)
     trend = replay_universe(conn, cfg, symbols=symbols).portfolio_return
@@ -76,6 +91,62 @@ def _per_speed_xs_sharpes(
     return pd.DataFrame(rows)
 
 
+def _beta_attribution_table(
+    conn: duckdb.DuckDBPyConnection, symbols: list[str]
+) -> pd.DataFrame:
+    closes, fundings = load_daily_inputs(conn, symbols)
+    mkt = equal_weight_market_return(closes)
+    union = mkt.index
+    mkt_arr: npt.NDArray[np.float64] = np.asarray(mkt.to_numpy(), dtype=np.float64)
+    btc: npt.NDArray[np.float64] | None = (
+        np.asarray(
+            closes["BTCUSDT"].pct_change().reindex(union).to_numpy(), dtype=np.float64
+        )
+        if "BTCUSDT" in closes
+        else None
+    )
+    rows: list[dict[str, object]] = []
+    for label, neutral in (("original", False), ("dollar-neutral", True)):
+        cfg = dataclasses.replace(
+            ForecastConfig(), slippage_pct=0.0002, xs_dollar_neutral=neutral
+        )
+        r = run_xs_backtest(closes, fundings, cfg).portfolio_return
+        proxies: list[tuple[str, npt.NDArray[np.float64]]] = [("alt-mkt", mkt_arr)]
+        if btc is not None:
+            proxies.append(("BTC", btc))
+        for proxy_name, proxy in proxies:
+            ba = beta_attribution(r, proxy)
+            rows.append(
+                {
+                    "book": label,
+                    "proxy": proxy_name,
+                    "alpha_ann": ba.alpha_annual,
+                    "beta": ba.beta,
+                    "alpha_t": ba.alpha_tstat,
+                    "hedged_sharpe": ba.beta_hedged_sharpe,
+                    "r2": ba.r_squared,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def _persistence_table(
+    conn: duckdb.DuckDBPyConnection, symbols: list[str]
+) -> pd.DataFrame:
+    closes, fundings = load_daily_inputs(conn, symbols)
+    cfg = dataclasses.replace(
+        ForecastConfig(), slippage_pct=0.0002, xs_dollar_neutral=True
+    )
+    res = run_xs_backtest(closes, fundings, cfg)
+    pr = subperiod_sharpe(res.portfolio_return, res.daily_index)
+    rows: list[dict[str, object]] = [
+        {"period": str(year), "sharpe": sr} for year, sr in sorted(pr.by_year.items())
+    ]
+    rows.append({"period": "trailing_2y", "sharpe": pr.trailing_2y})
+    rows.append({"period": "trailing_1y", "sharpe": pr.trailing_1y})
+    return pd.DataFrame(rows)
+
+
 def _print_df(title: str, df: pd.DataFrame) -> None:
     print(f"\n=== {title} ===")
     if df.empty:
@@ -106,6 +177,16 @@ def main() -> None:
         build_xs_report_row(conn, "majors @2bps", majors, 2.0),
     ]
     _print_df("Gate G3 — XS breadth contrast", pd.DataFrame(rows))
+
+    neutral_rows = [
+        build_xs_report_row(conn, "universe original @2bps", universe, 2.0, False),
+        build_xs_report_row(conn, "universe neutral @2bps", universe, 2.0, True),
+    ]
+    _print_df("Dollar-neutral gate (original vs neutral)", pd.DataFrame(neutral_rows))
+    _print_df("Beta attribution (universe)", _beta_attribution_table(conn, universe))
+    _print_df(
+        "Forward persistence (neutral, universe)", _persistence_table(conn, universe)
+    )
 
     sweep = [
         build_xs_report_row(conn, f"universe @{b:g}bps", universe, b)
