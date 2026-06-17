@@ -27,8 +27,9 @@ def xs_forecasts(closes: dict[str, pd.Series], cfg: ForecastConfig) -> pd.DataFr
     """Raw combined EWMAC forecasts per instrument, aligned to the union daily index.
 
     Columns = symbols, index = sorted union of all instrument dates. NaN where an
-    instrument has not-yet-warmed-up; zero-vol instruments (e.g. stablecoins, constant
-    prices) produce NaN from 0/0 division and are filled to 0.0 (no trend signal).
+    instrument has not-yet-warmed-up or where return-vol is undefined. NaN warmup bars
+    are intentional: the cross-sectional demean (`xs_demeaned_forecasts`) skips NaN via
+    `mean(axis=1)`, so only warmed-up instruments contribute to the mean.
     Causal: each column is `combine_forecasts(...)`, which uses only closes through
     each day.
     """
@@ -38,8 +39,6 @@ def xs_forecasts(closes: dict[str, pd.Series], cfg: ForecastConfig) -> pd.DataFr
         f = combine_forecasts(
             close, cfg.speeds, cfg.fdm, cfg.vol_span, cfg.cap, weights=cfg.weights
         )
-        # Zero-vol instruments yield 0/0=NaN; fill to 0 (no trend signal).
-        f = f.fillna(0.0)
         cols[sym] = f.reindex(union)
     return pd.DataFrame(cols, index=union)
 

@@ -9,9 +9,15 @@ from analytics.xsmom.book import xs_demeaned_forecasts, xs_forecasts
 
 def _closes() -> dict[str, pd.Series]:
     idx = pd.date_range("2021-01-01", periods=500, freq="D")
+    # STRONG/WEAK are monotone ramps that saturate the EWMAC cap (±20).
+    # FLAT is a seeded random walk with tiny positive drift so its forecast is
+    # defined (non-NaN) and sub-cap, sitting between STRONG and WEAK.
+    rng = np.random.default_rng(42)
+    log_returns = rng.normal(0.0005, 0.01, 500)
+    flat_rw = 200.0 * np.exp(np.cumsum(log_returns))
     return {
         "STRONG": pd.Series(np.linspace(100.0, 400.0, 500), index=idx),
-        "FLAT": pd.Series(np.full(500, 200.0), index=idx),
+        "FLAT": pd.Series(flat_rw, index=idx),
         "WEAK": pd.Series(np.linspace(400.0, 100.0, 500), index=idx),
     }
 
