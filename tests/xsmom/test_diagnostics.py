@@ -63,3 +63,34 @@ def test_beta_attribution_degenerate_market_is_safe() -> None:
     assert ba.r_squared == 0.0
     # hedged == port when there is no market factor to remove
     assert abs(ba.alpha_annual - float(np.mean(port)) * 365.0) < 1e-9
+
+
+def test_subperiod_sharpe_by_year_and_trailing() -> None:
+    from analytics.xsmom.diagnostics import subperiod_sharpe
+
+    idx = pd.date_range("2021-01-01", "2022-12-31", freq="D")
+    rng = np.random.default_rng(1)
+    # 2021 strongly positive drift, 2022 flat-ish — distinct per-year Sharpe.
+    r = np.where(
+        idx.year.to_numpy() == 2021,
+        rng.normal(0.002, 0.01, len(idx)),
+        rng.normal(0.0, 0.01, len(idx)),
+    )
+    rep = subperiod_sharpe(r, idx, ann_days=365.0)
+    assert set(rep.by_year.keys()) == {2021, 2022}
+    assert rep.by_year[2021] > rep.by_year[2022]
+    assert rep.n_obs == len(idx)
+    # trailing 1y window pulls only from 2022 -> close to the 2022 figure
+    assert rep.trailing_1y < rep.by_year[2021]
+    # trailing 2y covers both years -> Sharpe strictly between the per-year values
+    assert rep.by_year[2022] < rep.trailing_2y < rep.by_year[2021]
+
+
+def test_subperiod_sharpe_degenerate_slices_are_zero_not_nan() -> None:
+    from analytics.xsmom.diagnostics import subperiod_sharpe
+
+    idx = pd.date_range("2021-01-01", periods=1, freq="D")
+    rep = subperiod_sharpe(np.array([0.01]), idx, ann_days=365.0)
+    assert rep.by_year[2021] == 0.0  # single obs -> 0.0, not NaN
+    assert rep.trailing_1y == 0.0
+    assert rep.trailing_2y == 0.0

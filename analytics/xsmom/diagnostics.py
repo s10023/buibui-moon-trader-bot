@@ -104,3 +104,39 @@ def beta_attribution(
         beta_hedged_sharpe=_ann_sharpe(hedged, ann_days),
         r_squared=r2,
     )
+
+
+@dataclass(frozen=True)
+class PersistenceReport:
+    by_year: dict[int, float]
+    trailing_2y: float
+    trailing_1y: float
+    n_obs: int
+
+
+def subperiod_sharpe(
+    port_ret: npt.ArrayLike,
+    index: pd.DatetimeIndex,
+    ann_days: float = 365.0,
+) -> PersistenceReport:
+    """Annualized Sharpe per calendar year + trailing 2y / 1y windows.
+
+    Any sub-slice with < 2 observations or ~0 std returns 0.0 (never NaN),
+    assuming ``port_ret`` itself contains no NaN values (the XS book's
+    ``portfolio_return`` is NaN-free by construction).
+    """
+    dt_index = pd.DatetimeIndex(index)
+    s = pd.Series(np.asarray(port_ret, dtype=np.float64), index=dt_index)
+    by_year = {
+        int(year): _ann_sharpe(np.asarray(grp, dtype=np.float64), ann_days)
+        for year, grp in s.groupby(dt_index.year)
+    }
+    last = dt_index.max()
+    t2 = s[dt_index > last - pd.Timedelta(days=730)]
+    t1 = s[dt_index > last - pd.Timedelta(days=365)]
+    return PersistenceReport(
+        by_year=by_year,
+        trailing_2y=_ann_sharpe(np.asarray(t2, dtype=np.float64), ann_days),
+        trailing_1y=_ann_sharpe(np.asarray(t1, dtype=np.float64), ann_days),
+        n_obs=len(s),
+    )
