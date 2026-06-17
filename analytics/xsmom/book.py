@@ -87,3 +87,63 @@ class XSBookResult:
     governor: np.ndarray  # NaN for the first gov_window warm-up bars
     active_count: np.ndarray
     per_instrument_net: dict[str, pd.Series]
+
+
+def run_xs_backtest(
+    closes: dict[str, pd.Series],
+    fundings: dict[str, pd.Series],
+    cfg: ForecastConfig,
+) -> XSBookResult:
+    """Causal dollar-neutral long-short book over the demeaned forecast.
+
+    Per instrument: gross = leverage * return; honest costs = turnover
+    `|Δlev|*(fee+slip)` + funding `leverage*funding` (shorts receive funding).
+    Aggregate = SUM of legs (long-short portfolio P&L; the level is set by the
+    causal 20%-vol governor, so sum-vs-mean is only a scale it absorbs).
+    """
+    leverage = xs_leverage(closes, cfg)
+    union = pd.DatetimeIndex(leverage.index)
+    cost = cfg.fee_pct + cfg.slippage_pct
+
+    per_net: dict[str, pd.Series] = {}
+    net_cols: list[pd.Series] = []
+    for sym, close in closes.items():
+        lev = leverage[sym]
+        r = close.pct_change().reindex(union)
+        gross = lev * r
+        turnover = (lev - lev.shift(1).fillna(0.0)).abs() * cost
+        fund = (
+            fundings.get(sym, pd.Series(0.0, index=close.index))
+            .reindex(union)
+            .fillna(0.0)
+        )
+        funding_cost = lev * fund
+        net = gross - turnover - funding_cost
+        per_net[sym] = net
+        net_cols.append(net)
+
+    net_mat = pd.concat(net_cols, axis=1)
+    active = net_mat.notna().sum(axis=1)
+    pre = net_mat.sum(axis=1)  # all-NaN warm-up rows -> 0.0 (skipna)
+
+    ann = np.sqrt(cfg.annualization_days)
+    trailing_vol = (
+        pre.rolling(cfg.gov_window, min_periods=cfg.gov_window).std().shift(1) * ann
+    )
+    g = (cfg.vol_target_annual / trailing_vol).clip(cfg.g_min, cfg.g_max)
+    port = g.fillna(0.0) * pre
+
+    return XSBookResult(
+        daily_index=union,
+        portfolio_return=port.to_numpy(dtype=np.float64),
+        pre_governor_return=pre.to_numpy(dtype=np.float64),
+        governor=g.to_numpy(dtype=np.float64),
+        active_count=active.to_numpy(dtype=np.int64),
+        per_instrument_net=per_net,
+    )
+
+
+def equity_curve(result: XSBookResult) -> pd.Series:
+    """Compounding equity curve (starts at 1.0) for portfolio.metrics."""
+    r = pd.Series(result.portfolio_return, index=result.daily_index)
+    return (1.0 + r).cumprod()

@@ -87,3 +87,34 @@ def test_xs_leverage_is_causal_no_lookahead() -> None:
     pd.testing.assert_frame_equal(
         base.iloc[: k + 1], after.iloc[: k + 1], check_names=False
     )
+
+
+def _fundings(closes: dict[str, pd.Series]) -> dict[str, pd.Series]:
+    return {s: pd.Series(0.0, index=c.index) for s, c in closes.items()}
+
+
+def test_run_xs_backtest_long_winner_short_loser_nets_positive() -> None:
+    from analytics.xsmom.book import equity_curve, run_xs_backtest
+
+    closes = _closes()
+    res = run_xs_backtest(closes, _fundings(closes), ForecastConfig())
+    assert res.portfolio_return.shape[0] == 500
+    assert not np.isnan(res.portfolio_return).any()
+    # long the strong / short the weak over a clean cross-section compounds up
+    assert equity_curve(res).iloc[-1] > 1.0
+    assert res.active_count.max() == 3
+
+
+def test_run_xs_backtest_short_leg_receives_funding() -> None:
+    from analytics.xsmom.book import run_xs_backtest
+
+    closes = _closes()
+    pos_fund = {s: pd.Series(0.001, index=c.index) for s, c in closes.items()}
+    res = run_xs_backtest(closes, pos_fund, ForecastConfig())
+    # WEAK is held short; positive funding on a short is a CREDIT -> net funding
+    # cost on that leg is negative over the warmed-up tail.
+    weak_net = res.per_instrument_net["WEAK"].dropna()
+    no_fund = run_xs_backtest(closes, _fundings(closes), ForecastConfig())
+    weak_net_nf = no_fund.per_instrument_net["WEAK"].dropna()
+    # with positive funding the short leg nets HIGHER than with zero funding
+    assert weak_net.sum() > weak_net_nf.sum()
