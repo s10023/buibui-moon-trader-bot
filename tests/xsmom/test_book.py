@@ -118,3 +118,62 @@ def test_run_xs_backtest_short_leg_receives_funding() -> None:
     weak_net_nf = no_fund.per_instrument_net["WEAK"].dropna()
     # with positive funding the short leg nets HIGHER than with zero funding
     assert weak_net.sum() > weak_net_nf.sum()
+
+
+def test_xs_leverage_dollar_neutral_rows_sum_to_zero() -> None:
+    from analytics.xsmom.book import xs_leverage
+
+    cfg = ForecastConfig(xs_dollar_neutral=True)
+    lev = xs_leverage(_closes(), cfg)
+    warm = lev.dropna(how="any")
+    assert len(warm) > 0
+    # Each active day's positions net to zero (truly dollar-neutral).
+    np.testing.assert_allclose(warm.sum(axis=1).to_numpy(), 0.0, atol=1e-9)
+
+
+def test_xs_leverage_dollar_neutral_changes_net_exposure() -> None:
+    from analytics.xsmom.book import xs_leverage
+
+    closes = _closes()
+    off = xs_leverage(closes, ForecastConfig())
+    on = xs_leverage(closes, ForecastConfig(xs_dollar_neutral=True))
+    # Off path keeps a residual net exposure; the flag removes it.
+    off_net = off.dropna(how="any").sum(axis=1).abs().max()
+    on_net = on.dropna(how="any").sum(axis=1).abs().max()
+    assert off_net > 1e-6
+    assert on_net < 1e-9
+
+
+def test_xs_leverage_dollar_neutral_active_set_with_staggered_history() -> None:
+    from analytics.xsmom.book import xs_leverage
+
+    idx_full = pd.date_range("2021-01-01", periods=500, freq="D")
+    idx_late = pd.date_range("2021-06-01", periods=400, freq="D")
+    closes = {
+        "A": pd.Series(np.linspace(100.0, 400.0, 500), index=idx_full),
+        "B": pd.Series(np.linspace(400.0, 100.0, 500), index=idx_full),
+        "C": pd.Series(np.linspace(100.0, 300.0, 400), index=idx_late),
+    }
+    lev = xs_leverage(closes, ForecastConfig(xs_dollar_neutral=True))
+    early = lev.loc[lev["C"].isna() & lev[["A", "B"]].notna().all(axis=1)]
+    assert len(early) > 0
+    # Re-center over the active set only; the absent instrument stays NaN.
+    np.testing.assert_allclose(early[["A", "B"]].sum(axis=1).to_numpy(), 0.0, atol=1e-9)
+    assert early["C"].isna().all()
+
+
+def test_xs_leverage_dollar_neutral_is_causal_no_lookahead() -> None:
+    from analytics.xsmom.book import xs_leverage
+
+    closes = _closes()
+    cfg = ForecastConfig(xs_dollar_neutral=True)
+    base = xs_leverage(closes, cfg)
+    k = 250
+    bumped = {s: c.copy() for s, c in closes.items()}
+    bumped["STRONG"].iloc[k] *= 1.5
+    after = xs_leverage(bumped, cfg)
+    # Row k itself is included (`: k + 1`): leverage at k is sized from demeaned
+    # forecasts through k-1 (the `.shift(1)`), so close[k] cannot affect it.
+    pd.testing.assert_frame_equal(
+        base.iloc[: k + 1], after.iloc[: k + 1], check_names=False
+    )

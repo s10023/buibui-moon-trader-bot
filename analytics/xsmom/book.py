@@ -64,7 +64,9 @@ def xs_leverage(closes: dict[str, pd.Series], cfg: ForecastConfig) -> pd.DataFra
     (position on day `d` uses info through `d-1`), then vol-target each leg:
     `leverage_i = (g_i_shifted / 10) * (vol_target / vol_ann_i)`. The `/10` mirrors
     the trend sleeve so magnitudes are comparable; the absolute level is governed
-    downstream. Columns = symbols, index = union daily index.
+    downstream. Columns = symbols, index = union daily index. When
+    ``cfg.xs_dollar_neutral`` is set, the matrix is re-centered so each day's
+    active leverage sums to zero (dollar-neutral).
     """
     demeaned = xs_demeaned_forecasts(closes, cfg)
     demeaned_shifted = demeaned.shift(1)
@@ -76,7 +78,14 @@ def xs_leverage(closes: dict[str, pd.Series], cfg: ForecastConfig) -> pd.DataFra
         vol_ann = ew_return_vol(close, cfg.vol_span).mul(ann).reindex(union)
         lev = (demeaned_shifted[sym] / 10.0) * (cfg.vol_target_annual / vol_ann)
         lev_cols[sym] = lev.replace([np.inf, -np.inf], np.nan)
-    return pd.DataFrame(lev_cols, index=union)
+    lev_df = pd.DataFrame(lev_cols, index=union)
+    if cfg.xs_dollar_neutral:
+        # Subtract the per-day active-set mean leverage so each day's positions
+        # net to zero (dollar-neutral). Same skipna idiom as the forecast demean:
+        # NaN cells stay NaN; a same-day op on already-shifted leverage adds no
+        # look-ahead.
+        lev_df = lev_df.sub(lev_df.mean(axis=1), axis=0)
+    return lev_df
 
 
 @dataclass(frozen=True)
