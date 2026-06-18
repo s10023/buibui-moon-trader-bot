@@ -1,6 +1,7 @@
 {
     "globs": [
         "**/*.md",
+        "!.git",
         "!.venv",
         "!venv",
         "!node_modules",
