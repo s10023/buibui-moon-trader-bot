@@ -84,7 +84,7 @@ def test_governor_targets_vol() -> None:
 def test_combine_is_causal_no_lookahead() -> None:
     xs, tr = _pair(seed=3)
     cfg = CombineConfig()  # causal IDM + governor
-    base = combine_books(xs, tr, cfg).portfolio_return
+    base = combine_books(xs, tr, cfg)
     bumped_xs = XSBookResult(
         daily_index=xs.daily_index,
         portfolio_return=xs.portfolio_return.copy(),
@@ -93,10 +93,18 @@ def test_combine_is_causal_no_lookahead() -> None:
         active_count=xs.active_count,
         per_instrument_net={},
     )
-    bumped_xs.portfolio_return[400] += 5.0  # perturb a future sleeve return
-    after = combine_books(bumped_xs, tr, cfg).portfolio_return
-    # combined[t] for t < 400 uses corr/vol through t-1 + day-t returns only
-    np.testing.assert_array_equal(base[:400], after[:400])
+    k = 400
+    bumped_xs.portfolio_return[k] += 5.0  # perturb a future sleeve return
+    after = combine_books(bumped_xs, tr, cfg)
+    # portfolio_return[k] legitimately moves (pre_k earns the day-k return), so
+    # only strictly-earlier returns must be byte-identical.
+    np.testing.assert_array_equal(base.portfolio_return[:k], after.portfolio_return[:k])
+    # The SIZING quantities (idm, governor) are causal THROUGH k-1, so they must
+    # be unchanged up to AND INCLUDING bar k. This is what actually guards both
+    # .shift(1)s: without the IDM shift, idm[k] would move; without the governor
+    # shift, governor[k] would move.
+    np.testing.assert_array_equal(base.idm[: k + 1], after.idm[: k + 1])
+    np.testing.assert_array_equal(base.governor[: k + 1], after.governor[: k + 1])
 
 
 def test_combine_aligns_mismatched_indices() -> None:
