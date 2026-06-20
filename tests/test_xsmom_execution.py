@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from pytest import approx as pytest_approx
 
-from analytics.xsmom.execution import ExecutionCostConfig, dollar_adv
+from analytics.xsmom.execution import (
+    ExecutionCostConfig,
+    dollar_adv,
+    turnover_cost_rate,
+)
 
 
 def _idx(n: int) -> pd.DatetimeIndex:
@@ -46,3 +51,45 @@ def test_dollar_adv_is_causal_to_same_day_volume() -> None:
     # The bump is not a no-op: it surfaces downstream (median is robust to a
     # single outlier, so the first changed value lands at day 7, not day 6).
     assert not np.array_equal(out.iloc[6:].to_numpy(), base.iloc[6:].to_numpy())
+
+
+def test_turnover_cost_rate_tiers_and_sqrt_impact() -> None:
+    idx = _idx(2)
+    # Two instruments: one major-liquid, one thin alt.
+    leverage = pd.DataFrame({"BIG": [0.0, 0.5], "THIN": [0.0, 0.5]}, index=idx)
+    adv = {
+        "BIG": pd.Series([np.nan, 2_000_000_000.0], index=idx),  # major tier
+        "THIN": pd.Series([np.nan, 1_000_000.0], index=idx),  # alt tier
+    }
+    cfg = ExecutionCostConfig(capital=10_000_000.0, k=0.1, impact="sqrt")
+    rate = turnover_cost_rate(leverage, adv, cfg)
+    # Row 0: leverage diff 0 but ADV NaN -> impact NaN -> rate NaN.
+    assert rate.loc[idx[0]].isna().all()
+    # Row 1, BIG: fee + major half-spread + k*sqrt(0.5*10e6 / 2e9)
+    exp_big = 0.0005 + 1.0 / 1e4 + 0.1 * np.sqrt(0.5 * 10_000_000.0 / 2_000_000_000.0)
+    assert rate.loc[idx[1], "BIG"] == pytest_approx(exp_big)
+    # THIN pays the alt spread AND far more impact (tiny ADV).
+    exp_thin = 0.0005 + 8.0 / 1e4 + 0.1 * np.sqrt(0.5 * 10_000_000.0 / 1_000_000.0)
+    assert rate.loc[idx[1], "THIN"] == pytest_approx(exp_thin)
+    assert rate.loc[idx[1], "THIN"] > rate.loc[idx[1], "BIG"]
+
+
+def test_turnover_cost_rate_collapses_to_flat_at_zero_impact() -> None:
+    idx = _idx(2)
+    leverage = pd.DataFrame({"X": [0.0, 0.3]}, index=idx)
+    adv = {"X": pd.Series([1e9, 1e9], index=idx)}
+    # k=0 and all tiers equal -> a flat per-leg constant.
+    cfg = ExecutionCostConfig(
+        k=0.0, major_bps=2.0, mid_bps=2.0, alt_bps=2.0, fee_pct=0.0005
+    )
+    rate = turnover_cost_rate(leverage, adv, cfg)
+    assert np.allclose(rate["X"].to_numpy(), 0.0005 + 2.0 / 1e4)
+
+
+def test_turnover_cost_rate_monotonic_in_capital() -> None:
+    idx = _idx(2)
+    leverage = pd.DataFrame({"X": [0.0, 0.4]}, index=idx)
+    adv = {"X": pd.Series([5e7, 5e7], index=idx)}  # alt tier, finite ADV
+    lo = turnover_cost_rate(leverage, adv, ExecutionCostConfig(capital=1e6, k=0.1))
+    hi = turnover_cost_rate(leverage, adv, ExecutionCostConfig(capital=1e8, k=0.1))
+    assert hi.loc[idx[1], "X"] > lo.loc[idx[1], "X"]

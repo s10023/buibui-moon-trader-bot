@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
 
 
@@ -46,3 +47,46 @@ def dollar_adv(
     for sym, dv in dollar_volumes.items():
         out[sym] = dv.rolling(window).median().shift(1)
     return out
+
+
+def turnover_cost_rate(
+    leverage: pd.DataFrame,
+    adv: dict[str, pd.Series],
+    cfg: ExecutionCostConfig,
+) -> pd.DataFrame:
+    """Per-(instrument, day) turnover cost rate (fraction of capital per |Δlev|).
+
+    `rate = fee + half_spread(ADV-tier) + k * impact(|Δlev| * capital / ADV)`.
+    `impact` is `sqrt` (headline) or `linear`. NaN ADV (warm-up) -> NaN rate, so
+    those cells drop out of the book's net (same skipna semantics as leverage
+    warm-up). inf (zero-ADV) is mapped to NaN for the same reason.
+    """
+    idx = leverage.index
+    adv_df = pd.DataFrame(
+        {
+            sym: adv.get(sym, pd.Series(np.nan, index=idx)).reindex(idx)
+            for sym in leverage.columns
+        },
+        index=idx,
+    )
+
+    # A-priori half-spread tiers (bps -> fraction). NaN ADV falls to the alt
+    # default but the impact term below makes the whole rate NaN there anyway.
+    conds = [adv_df >= cfg.major_cutoff, adv_df >= cfg.mid_cutoff]
+    choices = [cfg.major_bps, cfg.mid_bps]
+    half_spread = pd.DataFrame(
+        np.select(conds, choices, default=cfg.alt_bps) / 1e4,
+        index=idx,
+        columns=leverage.columns,
+    )
+
+    dlev = (leverage - leverage.shift(1).fillna(0.0)).abs()
+    participation = (dlev * cfg.capital / adv_df).replace([np.inf, -np.inf], np.nan)
+    if cfg.impact == "sqrt":
+        impact = cfg.k * np.sqrt(participation)
+    elif cfg.impact == "linear":
+        impact = cfg.k * participation
+    else:
+        raise ValueError(f"unknown impact form: {cfg.impact!r}")
+
+    return cfg.fee_pct + half_spread + impact
