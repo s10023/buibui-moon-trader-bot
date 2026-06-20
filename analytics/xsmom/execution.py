@@ -16,6 +16,9 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from analytics.forecast.config import ForecastConfig
+from analytics.xsmom.book import XSBookResult, run_xs_backtest, xs_leverage
+
 
 @dataclass(frozen=True)
 class ExecutionCostConfig:
@@ -90,3 +93,21 @@ def turnover_cost_rate(
         raise ValueError(f"unknown impact form: {cfg.impact!r}")
 
     return cfg.fee_pct + half_spread + impact
+
+
+def run_xs_with_costs(
+    closes: dict[str, pd.Series],
+    fundings: dict[str, pd.Series],
+    cfg: ForecastConfig,
+    exec_cfg: ExecutionCostConfig,
+    adv: dict[str, pd.Series],
+) -> XSBookResult:
+    """Run the XS book under the size-aware cost model.
+
+    Builds the leverage matrix once to derive `|Δlev|`, computes the per-day
+    cost-rate, and feeds it to `run_xs_backtest`. `adv` is precomputed (it does
+    not depend on `cfg.speeds`) so the caller can reuse it across trials.
+    """
+    leverage = xs_leverage(closes, cfg)
+    rate = turnover_cost_rate(leverage, adv, exec_cfg)
+    return run_xs_backtest(closes, fundings, cfg, turnover_cost_rate=rate)
