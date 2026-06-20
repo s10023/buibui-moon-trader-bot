@@ -86,7 +86,7 @@ def turnover_cost_rate(
     dlev = (leverage - leverage.shift(1).fillna(0.0)).abs()
     participation = (dlev * cfg.capital / adv_df).replace([np.inf, -np.inf], np.nan)
     if cfg.impact == "sqrt":
-        impact = cfg.k * np.sqrt(participation)
+        impact = cfg.k * participation.pow(0.5)
     elif cfg.impact == "linear":
         impact = cfg.k * participation
     else:

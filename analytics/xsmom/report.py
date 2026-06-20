@@ -139,3 +139,36 @@ def evaluate_xs(
         corr_to_trend=corr_to_trend,
         trend_sharpe=trend_sharpe,
     )
+
+
+def evaluate_xs_capacity(
+    capacity_runs: dict[float, dict[str, object]],
+    cfg: ForecastConfig,
+) -> pd.DataFrame:
+    """Capacity table: de-biased gate stats per target capital.
+
+    Reuses `evaluate_xs` per capital (same DSR/PBO/boot-CI/MinTRL machinery).
+    The `gate` column is the de-biased verdict
+    `DSR >= 0.95 ∧ PBO <= 0.5 ∧ boot_lo > 0`. The diversification read is
+    irrelevant here, so `trend_returns` is empty. Rows preserve insertion order
+    of `capacity_runs`, so the headline = the largest capital with `gate=True`.
+    """
+    empty_trend: npt.NDArray[np.float64] = np.array([], dtype=np.float64)
+    rows: list[dict[str, object]] = []
+    for capital, payload in capacity_runs.items():
+        result: XSBookResult = payload["result"]  # type: ignore[assignment]
+        trials: dict[str, npt.NDArray[np.float64]] = payload["trials"]  # type: ignore[assignment]
+        rep = evaluate_xs(result, cfg, trial_returns=trials, trend_returns=empty_trend)
+        rows.append(
+            {
+                "capital": capital,
+                "sharpe": rep.sharpe_annual,
+                "dsr": rep.dsr,
+                "pbo": rep.pbo,
+                "boot_lo": rep.boot_lo,
+                "boot_hi": rep.boot_hi,
+                "min_trl": rep.min_trl,
+                "gate": bool(rep.dsr >= 0.95 and rep.pbo <= 0.5 and rep.boot_lo > 0.0),
+            }
+        )
+    return pd.DataFrame(rows)

@@ -9,6 +9,7 @@ from analytics.store.market_data import upsert_ohlcv
 from analytics.store.schema import init_schema
 from analytics.xsmom.execution import ExecutionCostConfig
 from analytics.xsmom.replay import load_daily_dollar_volumes, replay_xs_capacity
+from analytics.xsmom.report import evaluate_xs_capacity
 
 
 def _seed(conn: duckdb.DuckDBPyConnection, n: int = 400) -> list[str]:
@@ -67,3 +68,17 @@ def test_replay_xs_capacity_structure_and_cost_monotonicity() -> None:
     lo = float(np.nansum(runs[1e5]["result"].pre_governor_return))
     hi = float(np.nansum(runs[1e9]["result"].pre_governor_return))
     assert hi <= lo
+
+
+def test_evaluate_xs_capacity_table_shape_and_gate() -> None:
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    syms = _seed(conn)
+    cfg = ForecastConfig()
+    exec_cfg = ExecutionCostConfig(k=0.5)
+    runs = replay_xs_capacity(conn, cfg, exec_cfg, [1e5, 1e9], symbols=syms)
+    table = evaluate_xs_capacity(runs, cfg)
+    assert list(table["capital"]) == [1e5, 1e9]
+    for col in ("sharpe", "dsr", "pbo", "boot_lo", "boot_hi", "min_trl", "gate"):
+        assert col in table.columns
+    assert table["gate"].dtype == bool
