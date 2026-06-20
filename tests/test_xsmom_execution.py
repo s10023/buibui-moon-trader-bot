@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 import pandas as pd
 from pytest import approx as pytest_approx
 
+from analytics.forecast.config import ForecastConfig
+from analytics.xsmom.book import run_xs_backtest, xs_leverage
 from analytics.xsmom.execution import (
     ExecutionCostConfig,
     dollar_adv,
@@ -93,3 +97,36 @@ def test_turnover_cost_rate_monotonic_in_capital() -> None:
     lo = turnover_cost_rate(leverage, adv, ExecutionCostConfig(capital=1e6, k=0.1))
     hi = turnover_cost_rate(leverage, adv, ExecutionCostConfig(capital=1e8, k=0.1))
     assert hi.loc[idx[1], "X"] > lo.loc[idx[1], "X"]
+
+
+def _synth_inputs(
+    n: int = 400, seed: int = 0
+) -> tuple[dict[str, pd.Series], dict[str, pd.Series]]:
+    rng = np.random.default_rng(seed)
+    idx = pd.date_range("2021-01-01", periods=n, freq="D", tz="UTC")
+    closes: dict[str, pd.Series] = {}
+    fundings: dict[str, pd.Series] = {}
+    for i, sym in enumerate(["A", "B", "C"]):
+        steps = rng.normal(0.0, 0.02, n) + 0.0005 * (i - 1)
+        closes[sym] = pd.Series(100.0 * np.exp(np.cumsum(steps)), index=idx)
+        fundings[sym] = pd.Series(0.0, index=idx)
+    return closes, fundings
+
+
+def test_run_xs_backtest_default_off_is_byte_identical() -> None:
+    closes, fundings = _synth_inputs()
+    cfg = dataclasses.replace(ForecastConfig(), speeds=((8, 32, 5.3),))
+    base = run_xs_backtest(closes, fundings, cfg)
+    again = run_xs_backtest(closes, fundings, cfg, turnover_cost_rate=None)
+    assert np.array_equal(base.portfolio_return, again.portfolio_return, equal_nan=True)
+
+
+def test_run_xs_backtest_constant_rate_matches_scalar_path() -> None:
+    closes, fundings = _synth_inputs()
+    cfg = dataclasses.replace(ForecastConfig(), speeds=((8, 32, 5.3),))
+    base = run_xs_backtest(closes, fundings, cfg)  # scalar cost = fee + slip
+    lev = xs_leverage(closes, cfg)
+    flat = cfg.fee_pct + cfg.slippage_pct
+    const_rate = pd.DataFrame(flat, index=lev.index, columns=lev.columns)
+    out = run_xs_backtest(closes, fundings, cfg, turnover_cost_rate=const_rate)
+    assert np.allclose(base.portfolio_return, out.portfolio_return, equal_nan=True)
