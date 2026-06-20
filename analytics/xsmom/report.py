@@ -23,6 +23,7 @@ from analytics.research_guards import (
     min_track_record_length,
 )
 from analytics.xsmom.book import XSBookResult, equity_curve
+from analytics.xsmom.execution import CapacityRun
 from portfolio import metrics
 
 
@@ -142,7 +143,7 @@ def evaluate_xs(
 
 
 def evaluate_xs_capacity(
-    capacity_runs: dict[float, dict[str, object]],
+    capacity_runs: dict[float, CapacityRun],
     cfg: ForecastConfig,
 ) -> pd.DataFrame:
     """Capacity table: de-biased gate stats per target capital.
@@ -156,9 +157,12 @@ def evaluate_xs_capacity(
     empty_trend: npt.NDArray[np.float64] = np.array([], dtype=np.float64)
     rows: list[dict[str, object]] = []
     for capital, payload in capacity_runs.items():
-        result: XSBookResult = payload["result"]  # type: ignore[assignment]
-        trials: dict[str, npt.NDArray[np.float64]] = payload["trials"]  # type: ignore[assignment]
-        rep = evaluate_xs(result, cfg, trial_returns=trials, trend_returns=empty_trend)
+        rep = evaluate_xs(
+            payload["result"],
+            cfg,
+            trial_returns=payload["trials"],
+            trend_returns=empty_trend,
+        )
         rows.append(
             {
                 "capital": capital,

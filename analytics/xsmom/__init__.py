@@ -18,6 +18,7 @@ from analytics.xsmom.diagnostics import (
     subperiod_sharpe,
 )
 from analytics.xsmom.execution import (
+    CapacityRun,
     ExecutionCostConfig,
     dollar_adv,
     run_xs_with_costs,
@@ -33,6 +34,7 @@ from analytics.xsmom.report import XSReport, evaluate_xs, evaluate_xs_capacity
 
 __all__ = [
     "BetaAttribution",
+    "CapacityRun",
     "ExecutionCostConfig",
     "PersistenceReport",
     "XSBookResult",

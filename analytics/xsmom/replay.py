@@ -19,6 +19,7 @@ from analytics.store.market_data import get_ohlcv
 from analytics.universe import load_universe
 from analytics.xsmom.book import XSBookResult, run_xs_backtest
 from analytics.xsmom.execution import (
+    CapacityRun,
     ExecutionCostConfig,
     dollar_adv,
     run_xs_with_costs,
@@ -92,7 +93,7 @@ def replay_xs_capacity(
     exec_cfg: ExecutionCostConfig,
     capitals: list[float],
     symbols: list[str] | None = None,
-) -> dict[float, dict[str, object]]:
+) -> dict[float, CapacityRun]:
     """Run the XS book + its DSR/PBO trial family under size-aware costs per capital.
 
     For each target capital `C`: rebuild each trial's own cost-rate (cost depends
@@ -105,7 +106,7 @@ def replay_xs_capacity(
     dvol = load_daily_dollar_volumes(conn, syms)
     adv = dollar_adv(dvol, exec_cfg.adv_window)
 
-    out: dict[float, dict[str, object]] = {}
+    out: dict[float, CapacityRun] = {}
     for capital in capitals:
         ec = dataclasses.replace(exec_cfg, capital=capital)
         result = run_xs_with_costs(closes, fundings, cfg, ec, adv)

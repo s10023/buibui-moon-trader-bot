@@ -12,12 +12,20 @@ median shifted one day, so day-`d` cost uses liquidity through `d-1` only.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TypedDict
 
 import numpy as np
 import pandas as pd
 
 from analytics.forecast.config import ForecastConfig
 from analytics.xsmom.book import XSBookResult, run_xs_backtest, xs_leverage
+
+
+class CapacityRun(TypedDict):
+    """One capital level's book + its DSR/PBO trial family under size-aware costs."""
+
+    result: XSBookResult
+    trials: dict[str, np.ndarray]
 
 
 @dataclass(frozen=True)

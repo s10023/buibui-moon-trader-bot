@@ -59,7 +59,7 @@ def test_replay_xs_capacity_structure_and_cost_monotonicity() -> None:
     runs = replay_xs_capacity(conn, cfg, exec_cfg, capitals, symbols=syms)
     assert set(runs) == set(capitals)
     for capital in capitals:
-        assert "result" in runs[capital] and "trials" in runs[capital]
+        assert runs[capital]["result"].pre_governor_return.shape[0] > 0
         assert "combined" in runs[capital]["trials"]
     # More capital => more impact => higher turnover cost => weakly lower
     # PRE-governor net return (positions are identical across capital; only the

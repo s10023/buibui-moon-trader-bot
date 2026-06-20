@@ -75,7 +75,7 @@ def test_turnover_cost_rate_tiers_and_sqrt_impact() -> None:
     # THIN pays the alt spread AND far more impact (tiny ADV).
     exp_thin = 0.0005 + 8.0 / 1e4 + 0.1 * np.sqrt(0.5 * 10_000_000.0 / 1_000_000.0)
     assert rate.loc[idx[1], "THIN"] == pytest_approx(exp_thin)
-    assert rate.loc[idx[1], "THIN"] > rate.loc[idx[1], "BIG"]
+    assert rate["THIN"].to_numpy()[1] > rate["BIG"].to_numpy()[1]
 
 
 def test_turnover_cost_rate_collapses_to_flat_at_zero_impact() -> None:
@@ -96,7 +96,7 @@ def test_turnover_cost_rate_monotonic_in_capital() -> None:
     adv = {"X": pd.Series([5e7, 5e7], index=idx)}  # alt tier, finite ADV
     lo = turnover_cost_rate(leverage, adv, ExecutionCostConfig(capital=1e6, k=0.1))
     hi = turnover_cost_rate(leverage, adv, ExecutionCostConfig(capital=1e8, k=0.1))
-    assert hi.loc[idx[1], "X"] > lo.loc[idx[1], "X"]
+    assert hi["X"].to_numpy()[1] > lo["X"].to_numpy()[1]
 
 
 def _synth_inputs(
