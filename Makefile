@@ -271,6 +271,10 @@ buibui-forecast-weight-study:  ## P2: read-only forecast-weight study (DSR/PBO-g
 buibui-xsmom-audit:  ## P3: read-only cross-sectional momentum sleeve audit over the N3 universe
 	PYTHONPATH=. poetry run python tools/xsmom_audit.py
 
+.PHONY: buibui-xsmom-capacity-audit
+buibui-xsmom-capacity-audit:  ## P3: read-only XS execution-realism capacity stress test
+	PYTHONPATH=. poetry run python tools/xsmom_capacity_audit.py
+
 .PHONY: buibui-combine-audit
 buibui-combine-audit:  ## P3: read-only trend×XS IDM combine-layer audit over the N3 universe
 	PYTHONPATH=. poetry run python tools/combine_audit.py

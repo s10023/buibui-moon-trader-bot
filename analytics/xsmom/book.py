@@ -102,17 +102,28 @@ def run_xs_backtest(
     closes: dict[str, pd.Series],
     fundings: dict[str, pd.Series],
     cfg: ForecastConfig,
+    *,
+    turnover_cost_rate: pd.DataFrame | None = None,
 ) -> XSBookResult:
     """Causal dollar-neutral long-short book over the demeaned forecast.
 
     Per instrument: gross = leverage * return; honest costs = turnover
-    `|Δlev|*(fee+slip)` + funding `leverage*funding` (shorts receive funding).
-    Aggregate = SUM of legs (long-short portfolio P&L; the level is set by the
-    causal 20%-vol governor, so sum-vs-mean is only a scale it absorbs).
+    `|Δlev| * rate` + funding `leverage*funding` (shorts receive funding).
+    `rate` defaults to the flat scalar `fee_pct + slippage_pct`; when
+    ``turnover_cost_rate`` (a per-instrument, per-day DataFrame) is supplied,
+    each leg uses its own size-aware rate instead (the capacity stress test).
+    Passing ``None`` is byte-identical to the flat path. Aggregate = SUM of
+    legs (long-short portfolio P&L; the level is set by the causal 20%-vol
+    governor, so sum-vs-mean is only a scale it absorbs).
     """
     leverage = xs_leverage(closes, cfg)
     union = pd.DatetimeIndex(leverage.index)
     cost = cfg.fee_pct + cfg.slippage_pct
+    rate_df = (
+        turnover_cost_rate.reindex(index=union)
+        if turnover_cost_rate is not None
+        else None
+    )
 
     per_net: dict[str, pd.Series] = {}
     net_cols: list[pd.Series] = []
@@ -120,7 +131,11 @@ def run_xs_backtest(
         lev = leverage[sym]
         r = close.pct_change().reindex(union)
         gross = lev * r
-        turnover = (lev - lev.shift(1).fillna(0.0)).abs() * cost
+        dlev = (lev - lev.shift(1).fillna(0.0)).abs()
+        if rate_df is not None and sym in rate_df.columns:
+            turnover = dlev * rate_df[sym]
+        else:
+            turnover = dlev * cost
         fund = (
             fundings.get(sym, pd.Series(0.0, index=close.index))
             .reindex(union)
