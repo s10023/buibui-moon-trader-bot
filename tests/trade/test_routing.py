@@ -157,3 +157,33 @@ def test_leverage_aggregates_come_from_book() -> None:
     )
     assert abs(plan.target_gross_leverage - 0.3) < 1e-12
     assert abs(plan.target_net_leverage - (-0.1)) < 1e-12
+
+
+def test_trim_short_same_side_is_reduce_only() -> None:
+    # currently short 10 units, target short 5 -> BUY 5, reduce_only (covers, no cross)
+    book = _book([_pos("AAAUSDT", -0.05)])  # -$500 -> -5 units @ 100
+    plan = build_order_plan(
+        book,
+        current_positions={"AAAUSDT": -10.0},
+        marks={"AAAUSDT": 100.0},
+        filters={"AAAUSDT": _filters("AAAUSDT")},
+        no_trade_band_frac=0.0,
+        capital=10_000.0,
+    )
+    o = plan.intents[0]
+    assert o.side == "BUY" and o.qty == 5.0 and o.reduce_only is True
+
+
+def test_flip_short_to_long_is_not_reduce_only() -> None:
+    # currently short 10, target long 5 -> BUY 15, NOT reduce_only (must flip)
+    book = _book([_pos("AAAUSDT", 0.05)])  # +$500 -> +5 units @ 100
+    plan = build_order_plan(
+        book,
+        current_positions={"AAAUSDT": -10.0},
+        marks={"AAAUSDT": 100.0},
+        filters={"AAAUSDT": _filters("AAAUSDT")},
+        no_trade_band_frac=0.0,
+        capital=10_000.0,
+    )
+    o = plan.intents[0]
+    assert o.side == "BUY" and o.qty == 15.0 and o.reduce_only is False
