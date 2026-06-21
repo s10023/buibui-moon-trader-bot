@@ -10,11 +10,13 @@ proof.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
 
 from analytics.forecast.config import ForecastConfig
-from analytics.xsmom.book import xs_demeaned_forecasts, xs_leverage
+from analytics.xsmom.book import run_xs_backtest, xs_demeaned_forecasts, xs_leverage
 
 
 def next_period_leverage(
@@ -85,3 +87,76 @@ def next_period_governor(pre_returns: pd.Series, cfg: ForecastConfig) -> float:
         return 1.0
     g = cfg.vol_target_annual / (trailing_std * ann)
     return float(np.clip(g, cfg.g_min, cfg.g_max))
+
+
+@dataclass(frozen=True)
+class TargetPosition:
+    symbol: str
+    side: str  # "long" | "short" | "flat"
+    leverage: float  # governor-scaled, signed
+    notional_usd: float  # leverage * capital
+    forecast: float  # demeaned (relative-strength) signal, for context
+
+
+@dataclass(frozen=True)
+class TargetBook:
+    as_of_date: str  # ISO date of the last completed 1d bar (T)
+    next_period_date: str  # ISO date these targets are held during (T+1)
+    capital: float
+    governor: float
+    active_count: int
+    gross_leverage: float
+    net_leverage: float
+    positions: list[TargetPosition]
+
+
+def build_target_book(
+    closes: dict[str, pd.Series],
+    fundings: dict[str, pd.Series],
+    cfg: ForecastConfig,
+    capital: float,
+) -> TargetBook:
+    """Assemble today's governor-scaled XS target positions.
+
+    Runs `run_xs_backtest` once to recover the pre-governor return series (so the
+    governor is identical to the validated book), then scales the next-period
+    per-leg leverage by the next-period governor. Active (non-NaN) legs only.
+    """
+    res = run_xs_backtest(closes, fundings, cfg)
+    pre = pd.Series(res.pre_governor_return, index=res.daily_index)
+    g_next = next_period_governor(pre, cfg)
+    lev = next_period_leverage(closes, cfg)
+    forecast_latest = xs_demeaned_forecasts(closes, cfg).iloc[-1]
+
+    positions: list[TargetPosition] = []
+    gross = 0.0
+    net = 0.0
+    for sym in sorted(lev.index):
+        raw = float(lev[sym])
+        if not np.isfinite(raw):
+            continue
+        scaled = g_next * raw
+        side = "long" if scaled > 0 else "short" if scaled < 0 else "flat"
+        positions.append(
+            TargetPosition(
+                symbol=sym,
+                side=side,
+                leverage=scaled,
+                notional_usd=scaled * capital,
+                forecast=float(forecast_latest.get(sym, np.nan)),
+            )
+        )
+        gross += abs(scaled)
+        net += scaled
+
+    last = pd.Timestamp(res.daily_index[-1])
+    return TargetBook(
+        as_of_date=last.date().isoformat(),
+        next_period_date=(last + pd.Timedelta(days=1)).date().isoformat(),
+        capital=capital,
+        governor=g_next,
+        active_count=len(positions),
+        gross_leverage=gross,
+        net_leverage=net,
+        positions=positions,
+    )

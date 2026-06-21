@@ -6,7 +6,9 @@ import pandas as pd
 from analytics.forecast.config import ForecastConfig
 from analytics.xsmom.book import run_xs_backtest, xs_demeaned_forecasts, xs_leverage
 from analytics.xsmom.live import (
+    build_target_book,
     next_period_governor,
+    next_period_leverage,
     reconcile,
 )
 
@@ -67,3 +69,36 @@ def test_governor_matches_book_next_bar() -> None:
 def test_governor_cold_start_is_neutral() -> None:
     pre = pd.Series([0.01, -0.02, 0.0])  # fewer than gov_window points
     assert next_period_governor(pre, ForecastConfig()) == 1.0
+
+
+def test_build_target_book_positions() -> None:
+    closes = _make_closes()
+    fundings = _make_fundings(closes)
+    cfg = ForecastConfig()
+    book = build_target_book(closes, fundings, cfg, 10_000.0)
+
+    assert book.active_count == len(book.positions)
+    assert book.active_count > 0
+
+    res = run_xs_backtest(closes, fundings, cfg)
+    pre = pd.Series(res.pre_governor_return, index=res.daily_index)
+    g = next_period_governor(pre, cfg)
+    lev = next_period_leverage(closes, cfg)
+    assert book.governor == g
+
+    for p in book.positions:
+        assert abs(p.leverage - g * float(lev[p.symbol])) < 1e-12
+        assert abs(p.notional_usd - p.leverage * 10_000.0) < 1e-9
+        expected_side = (
+            "long" if p.leverage > 0 else "short" if p.leverage < 0 else "flat"
+        )
+        assert p.side == expected_side
+
+    assert (
+        abs(book.gross_leverage - sum(abs(p.leverage) for p in book.positions)) < 1e-12
+    )
+    assert abs(book.net_leverage - sum(p.leverage for p in book.positions)) < 1e-12
+
+    last = pd.Timestamp(res.daily_index[-1])
+    assert book.as_of_date == last.date().isoformat()
+    assert book.next_period_date == (last + pd.Timedelta(days=1)).date().isoformat()
