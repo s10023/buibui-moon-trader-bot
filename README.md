@@ -660,7 +660,7 @@ from the latest causal EWMAC forecast stored in `analytics.db`. Saves a gitignor
 to `docs/plans/xsmom_targets/<date>.json`. Read-only — no order routing.
 
 ```bash
-make buibui-analytics-sync --universe   # sync universe OHLCV first
+PYTHONPATH=. poetry run python buibui.py analytics sync --universe   # sync universe OHLCV first
 make buibui-xsmom-targets               # print today's target table + save snapshot
 ```
 

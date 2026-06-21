@@ -79,6 +79,10 @@ def next_period_governor(pre_returns: pd.Series, cfg: ForecastConfig) -> float:
     `trailing_std_asof_T` is the UNSHIFTED rolling std of the pre-governor
     portfolio returns at `T`. Cold start (< gov_window history, or degenerate
     vol) returns the neutral 1.0 — matching `portfolio.sizing.vol_governor`.
+    Note: this live cold-start neutral 1.0 is a convenience default and does NOT
+    match the research book's warm-up convention, which zeroes the governor for
+    the first `gov_window` bars; do not try to reconcile governor values across
+    the warm-up period.
     """
     ann = np.sqrt(cfg.annualization_days)
     trailing_std = float(

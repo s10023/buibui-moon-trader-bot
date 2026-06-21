@@ -101,17 +101,18 @@ def main() -> None:
 
     cfg = ForecastConfig.from_toml(args.config) if args.config else ForecastConfig()
     symbols = args.symbols.split(",") if args.symbols else load_universe()
-    conn = duckdb.connect(str(args.db), read_only=True)
 
-    if args.reconcile:
-        closes, _ = load_daily_inputs(conn, symbols)
-        union = next(iter(closes.values())).index
-        cutoff = union[-5]
-        diff = reconcile(closes, cfg, cutoff)
-        print(f"reconcile @ {cutoff.date().isoformat()}: max abs diff = {diff:.3e}")
-        return
+    with duckdb.connect(str(args.db), read_only=True) as conn:
+        if args.reconcile:
+            closes, _ = load_daily_inputs(conn, symbols)
+            union = next(iter(closes.values())).index
+            cutoff = union[-5]
+            diff = reconcile(closes, cfg, cutoff)
+            print(f"reconcile @ {cutoff.date().isoformat()}: max abs diff = {diff:.3e}")
+            return
 
-    book = replay_targets(conn, cfg, args.capital, symbols=symbols)
+        book = replay_targets(conn, cfg, args.capital, symbols=symbols)
+
     prev = load_latest_snapshot(args.snapshot_dir)
     print(format_target_table(book, position_deltas(book, prev)))
     if not args.no_snapshot:

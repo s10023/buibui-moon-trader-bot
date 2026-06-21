@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 
 import numpy as np
@@ -127,3 +128,30 @@ def test_position_deltas() -> None:
     assert position_deltas(book, None) == {
         p.symbol: p.notional_usd for p in book.positions
     }
+
+
+def test_reconcile_dollar_neutral() -> None:
+    """reconcile contract must hold for xs_dollar_neutral=True."""
+    closes = _make_closes()
+    cfg_neutral = dataclasses.replace(ForecastConfig(), xs_dollar_neutral=True)
+    union = xs_leverage(closes, cfg_neutral).index
+    cutoff = union[-5]
+    assert reconcile(closes, cfg_neutral, cutoff) < 1e-9
+
+
+def test_position_deltas_exit_leg() -> None:
+    """Symbol present only in the prior snapshot yields delta = -prior_notional."""
+    closes = _make_closes()
+    book = build_target_book(closes, _make_fundings(closes), ForecastConfig(), 10_000.0)
+    prev = target_book_to_dict(book)
+    prev["positions"].append(
+        {
+            "symbol": "ZZZUSDT",
+            "side": "long",
+            "leverage": 0.5,
+            "notional_usd": 5000.0,
+            "forecast": 1.0,
+        }
+    )
+    deltas = position_deltas(book, prev)
+    assert abs(deltas["ZZZUSDT"] - (-5000.0)) < 1e-9
