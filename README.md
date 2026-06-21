@@ -653,6 +653,22 @@ is causal (reads only trailing realized vol strictly before each entry). Baselin
 `docs/audits/2026-06-14-p1-portfolio-baseline.md`. The exit-policy replay (time-stop /
 breakeven / partial-at-1R) is a follow-up that reuses this same paper book.
 
+### XS Target Positions — Daily Read-Only Target Generator
+
+Generates today's governor-scaled XS target positions (side, leverage, $notional at ~$10k)
+from the latest causal EWMAC forecast stored in `analytics.db`. Saves a gitignored snapshot
+to `docs/plans/xsmom_targets/<date>.json`. Read-only — no order routing.
+
+```bash
+PYTHONPATH=. poetry run python buibui.py analytics sync --universe   # sync universe OHLCV first
+make buibui-xsmom-targets               # print today's target table + save snapshot
+```
+
+- `make buibui-xsmom-targets` — read-only daily XS target-position generator
+  (`tools/xsmom_targets.py`): today's governor-scaled target positions
+  (side · leverage · $notional at ~$10k) + a gitignored snapshot. Run
+  `buibui analytics sync --universe` first. No order routing.
+
 ### Signal Watch — 24/7 Strategy Alerts
 
 Runs a polling daemon that scans closed candles every N seconds and sends Telegram alerts
