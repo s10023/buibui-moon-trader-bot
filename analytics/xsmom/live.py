@@ -11,6 +11,7 @@ proof.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -160,3 +161,61 @@ def build_target_book(
         net_leverage=net,
         positions=positions,
     )
+
+
+def target_book_to_dict(book: TargetBook) -> dict[str, Any]:
+    """Plain JSON-serializable dict for the gitignored daily snapshot."""
+    return {
+        "as_of_date": book.as_of_date,
+        "next_period_date": book.next_period_date,
+        "capital": book.capital,
+        "governor": book.governor,
+        "active_count": book.active_count,
+        "gross_leverage": book.gross_leverage,
+        "net_leverage": book.net_leverage,
+        "positions": [
+            {
+                "symbol": p.symbol,
+                "side": p.side,
+                "leverage": p.leverage,
+                "notional_usd": p.notional_usd,
+                "forecast": p.forecast,
+            }
+            for p in book.positions
+        ],
+    }
+
+
+def target_book_from_dict(d: dict[str, Any]) -> TargetBook:
+    """Inverse of `target_book_to_dict`."""
+    return TargetBook(
+        as_of_date=d["as_of_date"],
+        next_period_date=d["next_period_date"],
+        capital=d["capital"],
+        governor=d["governor"],
+        active_count=d["active_count"],
+        gross_leverage=d["gross_leverage"],
+        net_leverage=d["net_leverage"],
+        positions=[
+            TargetPosition(
+                symbol=p["symbol"],
+                side=p["side"],
+                leverage=p["leverage"],
+                notional_usd=p["notional_usd"],
+                forecast=p["forecast"],
+            )
+            for p in d["positions"]
+        ],
+    )
+
+
+def position_deltas(book: TargetBook, prev: dict[str, Any] | None) -> dict[str, float]:
+    """Δ notional_usd per symbol vs a prior snapshot dict (None -> all current)."""
+    prev_notional: dict[str, float] = {}
+    if prev is not None:
+        prev_notional = {p["symbol"]: p["notional_usd"] for p in prev["positions"]}
+    cur_notional = {p.symbol: p.notional_usd for p in book.positions}
+    out: dict[str, float] = {}
+    for sym in set(cur_notional) | set(prev_notional):
+        out[sym] = cur_notional.get(sym, 0.0) - prev_notional.get(sym, 0.0)
+    return out

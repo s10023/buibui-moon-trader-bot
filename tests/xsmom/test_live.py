@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pandas as pd
 
@@ -9,7 +11,10 @@ from analytics.xsmom.live import (
     build_target_book,
     next_period_governor,
     next_period_leverage,
+    position_deltas,
     reconcile,
+    target_book_from_dict,
+    target_book_to_dict,
 )
 
 _SYMS = ["AAAUSDT", "BBBUSDT", "CCCUSDT", "DDDUSDT"]
@@ -102,3 +107,23 @@ def test_build_target_book_positions() -> None:
     last = pd.Timestamp(res.daily_index[-1])
     assert book.as_of_date == last.date().isoformat()
     assert book.next_period_date == (last + pd.Timedelta(days=1)).date().isoformat()
+
+
+def test_snapshot_round_trip() -> None:
+    closes = _make_closes()
+    book = build_target_book(closes, _make_fundings(closes), ForecastConfig(), 10_000.0)
+    d = target_book_to_dict(book)
+    assert json.loads(json.dumps(d)) == d  # JSON-serializable, stable
+    book2 = target_book_from_dict(d)
+    assert target_book_to_dict(book2) == d
+
+
+def test_position_deltas() -> None:
+    closes = _make_closes()
+    book = build_target_book(closes, _make_fundings(closes), ForecastConfig(), 10_000.0)
+    same = target_book_to_dict(book)
+    deltas = position_deltas(book, same)
+    assert all(abs(v) < 1e-9 for v in deltas.values())
+    assert position_deltas(book, None) == {
+        p.symbol: p.notional_usd for p in book.positions
+    }
