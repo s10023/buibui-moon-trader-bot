@@ -67,3 +67,21 @@ def reconcile(
     book_row = full.loc[after[0]]
     diff = (live.reindex(book_row.index).fillna(0.0) - book_row.fillna(0.0)).abs()
     return float(diff.max())
+
+
+def next_period_governor(pre_returns: pd.Series, cfg: ForecastConfig) -> float:
+    """Causal 20%-vol governor to apply during the next bar.
+
+    `clip(vol_target / (trailing_std_asof_T * sqrt(ann)), g_min, g_max)`, where
+    `trailing_std_asof_T` is the UNSHIFTED rolling std of the pre-governor
+    portfolio returns at `T`. Cold start (< gov_window history, or degenerate
+    vol) returns the neutral 1.0 — matching `portfolio.sizing.vol_governor`.
+    """
+    ann = np.sqrt(cfg.annualization_days)
+    trailing_std = float(
+        pre_returns.rolling(cfg.gov_window, min_periods=cfg.gov_window).std().iloc[-1]
+    )
+    if not np.isfinite(trailing_std) or trailing_std <= 0.0:
+        return 1.0
+    g = cfg.vol_target_annual / (trailing_std * ann)
+    return float(np.clip(g, cfg.g_min, cfg.g_max))

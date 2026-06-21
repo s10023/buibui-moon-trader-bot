@@ -4,8 +4,11 @@ import numpy as np
 import pandas as pd
 
 from analytics.forecast.config import ForecastConfig
-from analytics.xsmom.book import xs_demeaned_forecasts, xs_leverage
-from analytics.xsmom.live import reconcile
+from analytics.xsmom.book import run_xs_backtest, xs_demeaned_forecasts, xs_leverage
+from analytics.xsmom.live import (
+    next_period_governor,
+    reconcile,
+)
 
 _SYMS = ["AAAUSDT", "BBBUSDT", "CCCUSDT", "DDDUSDT"]
 
@@ -44,3 +47,23 @@ def test_demeaned_latest_sums_to_zero() -> None:
     closes = _make_closes()
     latest = xs_demeaned_forecasts(closes, ForecastConfig()).iloc[-1]
     assert abs(float(latest.dropna().sum())) < 1e-9
+
+
+def _make_fundings(closes: dict[str, pd.Series]) -> dict[str, pd.Series]:
+    return {sym: pd.Series(0.0, index=s.index) for sym, s in closes.items()}
+
+
+def test_governor_matches_book_next_bar() -> None:
+    closes = _make_closes()
+    cfg = ForecastConfig()
+    res = run_xs_backtest(closes, _make_fundings(closes), cfg)
+    pre = pd.Series(res.pre_governor_return, index=res.daily_index)
+    g_full = pd.Series(res.governor, index=res.daily_index)
+    k = len(pre) - 2  # cutoff index; next bar = k+1 = last
+    g_live = next_period_governor(pre.iloc[: k + 1], cfg)
+    assert abs(g_live - float(g_full.iloc[k + 1])) < 1e-9
+
+
+def test_governor_cold_start_is_neutral() -> None:
+    pre = pd.Series([0.01, -0.02, 0.0])  # fewer than gov_window points
+    assert next_period_governor(pre, ForecastConfig()) == 1.0
