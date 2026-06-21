@@ -24,6 +24,7 @@ from analytics.xsmom.execution import (
     dollar_adv,
     run_xs_with_costs,
 )
+from analytics.xsmom.live import TargetBook, build_target_book
 
 _FAR_PAST = 0
 _FAR_FUTURE = 9_999_999_999_999
@@ -119,3 +120,15 @@ def replay_xs_capacity(
         trials["combined"] = result.portfolio_return
         out[capital] = {"result": result, "trials": trials}
     return out
+
+
+def replay_targets(
+    conn: duckdb.DuckDBPyConnection,
+    cfg: ForecastConfig,
+    capital: float,
+    symbols: list[str] | None = None,
+) -> TargetBook:
+    """Load the universe's 1d inputs and build today's XS target book (read-only)."""
+    syms = symbols if symbols is not None else load_universe()
+    closes, fundings = load_daily_inputs(conn, syms)
+    return build_target_book(closes, fundings, cfg, capital)
