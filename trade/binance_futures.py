@@ -2,7 +2,7 @@
 
 Thin, injectable wrapper over a `python-binance` Client. Read methods always
 hit the API; write methods (`ensure_account_config`, `submit_market`) are
-no-op-and-log when `mode == "dry_run"`. The client is constructed by the CLL
+no-op-and-log when `mode == "dry_run"`. The client is constructed by the CLI
 (mainnet for dry_run/live, testnet client for testnet) and injected here, so
 this class is unit-testable with a MagicMock.
 """

@@ -89,8 +89,9 @@ def run_once(
     data_age = _data_age_hours(book.as_of_date, now)
 
     positions = adapter.get_positions()
-    marks = adapter.get_marks(symbols)
-    filters = adapter.get_filters(symbols)
+    all_symbols = sorted(set(symbols) | set(positions))
+    marks = adapter.get_marks(all_symbols)
+    filters = adapter.get_filters(all_symbols)
     plan = build_order_plan(
         book,
         positions,

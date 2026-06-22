@@ -187,3 +187,34 @@ def test_flip_short_to_long_is_not_reduce_only() -> None:
     )
     o = plan.intents[0]
     assert o.side == "BUY" and o.qty == 15.0 and o.reduce_only is False
+
+
+def test_missing_filters_is_skipped() -> None:
+    book = _book([_pos("AAAUSDT", 0.1)])
+    plan = build_order_plan(
+        book,
+        current_positions={},
+        marks={"AAAUSDT": 100.0},
+        filters={},  # no filter entry for the symbol
+        no_trade_band_frac=0.0,
+        capital=10_000.0,
+    )
+    assert plan.intents == []
+    assert any(s.reason == "skip:no_filters" for s in plan.skipped)
+
+
+def test_order_qty_equal_min_qty_passes() -> None:
+    # target $10 -> 0.1 units @ 100, exactly at min_qty=0.1 (strict < means it submits)
+    book = _book([_pos("AAAUSDT", 0.001)])
+    plan = build_order_plan(
+        book,
+        current_positions={},
+        marks={"AAAUSDT": 100.0},
+        filters={
+            "AAAUSDT": _filters("AAAUSDT", step=0.1, min_qty=0.1, min_notional=5.0)
+        },
+        no_trade_band_frac=0.0,
+        capital=10_000.0,
+    )
+    assert len(plan.intents) == 1
+    assert abs(plan.intents[0].qty - 0.1) < 1e-9

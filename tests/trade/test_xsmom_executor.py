@@ -189,3 +189,24 @@ def test_peak_equity_is_monotonic(tmp_path: Path) -> None:
         now=pd.Timestamp("2022-02-05", tz="UTC"),
     )
     assert load_state(p)["peak_equity"] == 12_000.0  # not lowered to 10k
+
+
+def test_run_once_closes_off_universe_position(tmp_path: Path) -> None:
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    syms = _seed(conn)
+    # open position in a symbol no longer in the universe -> must be closed
+    adapter = _FakeAdapter(equity=10_000.0, positions={"ZZZUSDT": 5.0}, marks={})
+    res = run_once(
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
+        _limits(),
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
+        state_path=tmp_path / "s.json",
+        now=pd.Timestamp("2022-02-05", tz="UTC"),
+    )
+    closes = [i for i in res.submitted if i.symbol == "ZZZUSDT"]
+    assert len(closes) == 1 and closes[0].reduce_only is True
