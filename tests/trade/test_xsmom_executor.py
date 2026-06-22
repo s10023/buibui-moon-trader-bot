@@ -89,7 +89,7 @@ def _limits(**kw: float) -> RiskLimits:
         "max_data_staleness_hours": 1e9,
     }
     base.update(kw)
-    return RiskLimits(**base)  # type: ignore[arg-type]
+    return RiskLimits(**base)
 
 
 def test_load_state_defaults_when_absent(tmp_path: Path) -> None:

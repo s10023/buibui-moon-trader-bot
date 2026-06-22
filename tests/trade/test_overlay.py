@@ -6,15 +6,15 @@ from trade.routing import OrderIntent, OrderPlan
 
 
 def _limits(**kw: float) -> RiskLimits:
-    base = dict(
-        max_gross_leverage=3.0,
-        max_position_notional_frac=0.5,
-        max_drawdown_frac=0.25,
-        max_run_turnover_frac=1.0,
-        max_data_staleness_hours=36.0,
-    )
+    base: dict[str, float] = {
+        "max_gross_leverage": 3.0,
+        "max_position_notional_frac": 0.5,
+        "max_drawdown_frac": 0.25,
+        "max_run_turnover_frac": 1.0,
+        "max_data_staleness_hours": 36.0,
+    }
     base.update(kw)
-    return RiskLimits(**base)  # type: ignore[arg-type]
+    return RiskLimits(**base)
 
 
 def _book(
