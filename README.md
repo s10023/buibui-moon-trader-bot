@@ -669,6 +669,30 @@ make buibui-xsmom-targets               # print today's target table + save snap
   (side · leverage · $notional at ~$10k) + a gitignored snapshot. Run
   `buibui analytics sync --universe` first. No order routing.
 
+### XS Order Routing — Overlay-Gated Executor
+
+Turns the XS target book into Binance Futures orders, gated by a fail-closed risk overlay.
+The pure routing/overlay logic and the injectable Binance adapter live under `trade/`;
+`analytics/xsmom/` stays pure/read-only.
+
+```bash
+PYTHONPATH=. poetry run python buibui.py analytics sync --universe   # sync universe OHLCV first
+make buibui-xsmom-execute                # DRY-RUN: print the order plan, submit nothing
+make buibui-xsmom-execute MODE=testnet   # submit on Binance Futures testnet (validation)
+```
+
+- **Dry-run is the default** — it sizes the book off live account equity, reconciles
+  against current exchange positions into a market-order plan (LOT_SIZE rounding,
+  no-trade band, min-notional skips), runs the overlay, and prints the plan **without
+  submitting anything**.
+- The **risk overlay** (fail-closed, blocks the whole plan on any breach): kill-switch,
+  drawdown halt, gross-leverage cap, per-instrument notional cap, per-run turnover guard,
+  data-staleness guard. Toggle the kill-switch with `--kill` / `--resume`.
+- `--mode testnet` validates the full order-submission path at zero capital risk (needs
+  `BINANCE_TESTNET_API_KEY` / `BINANCE_TESTNET_API_SECRET`). `--mode live` is double-gated
+  by `--i-understand-live` **and** `BINANCE_ALLOW_LIVE=1` (the mainnet flip is a later
+  supervised step). Requires one-way position mode.
+
 ### Signal Watch — 24/7 Strategy Alerts
 
 Runs a polling daemon that scans closed candles every N seconds and sends Telegram alerts
