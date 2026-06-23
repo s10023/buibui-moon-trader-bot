@@ -16,6 +16,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import os
 from pathlib import Path
 
@@ -87,7 +88,7 @@ def _build_client(mode: str):  # type: ignore[no-untyped-def]
     return create_client()  # mainnet (reads only in dry_run)
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
     parser.add_argument("--config", type=Path, default=None)
@@ -97,16 +98,27 @@ def main() -> None:
     )
     parser.add_argument("--no-trade-band", type=float, default=0.005)
     parser.add_argument("--exchange-leverage", type=int, default=5)
-    parser.add_argument("--max-gross-leverage", type=float, default=3.0)
+    parser.add_argument(
+        "--vol-target",
+        type=float,
+        default=0.20,
+        help="Portfolio vol target (validated 0.20; deploy first live cycles at 0.10)",
+    )
+    parser.add_argument("--max-gross-leverage", type=float, default=4.5)
     parser.add_argument("--max-position-notional-frac", type=float, default=0.5)
     parser.add_argument("--max-drawdown-frac", type=float, default=0.25)
     parser.add_argument("--max-run-turnover-frac", type=float, default=1.0)
     parser.add_argument("--max-data-staleness-hours", type=float, default=36.0)
+    parser.add_argument("--min-active-positions", type=int, default=15)
     parser.add_argument("--i-understand-live", action="store_true")
     parser.add_argument("--kill", action="store_true")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--state-dir", type=Path, default=_DEFAULT_STATE_DIR)
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
 
     state_path = args.state_dir / f"execution_state_{args.mode}.json"
 
@@ -126,6 +138,7 @@ def main() -> None:
         raise SystemExit(gate_err)
 
     cfg = ForecastConfig.from_toml(args.config) if args.config else ForecastConfig()
+    cfg = dataclasses.replace(cfg, vol_target_annual=args.vol_target)
     symbols = args.symbols.split(",") if args.symbols else load_universe()
     limits = RiskLimits(
         max_gross_leverage=args.max_gross_leverage,
@@ -133,6 +146,7 @@ def main() -> None:
         max_drawdown_frac=args.max_drawdown_frac,
         max_run_turnover_frac=args.max_run_turnover_frac,
         max_data_staleness_hours=args.max_data_staleness_hours,
+        min_active_positions=args.min_active_positions,
     )
 
     adapter = BinanceFuturesAdapter(_build_client(args.mode), mode=args.mode)

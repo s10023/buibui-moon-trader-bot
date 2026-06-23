@@ -15,6 +15,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 from pathlib import Path
 from typing import Any
@@ -82,6 +83,7 @@ def main() -> None:
     parser.add_argument(
         "--config", type=Path, default=None, help="Optional TOML for ForecastConfig"
     )
+    parser.add_argument("--vol-target", type=float, default=0.20)
     parser.add_argument(
         "--symbols",
         type=str,
@@ -100,6 +102,7 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = ForecastConfig.from_toml(args.config) if args.config else ForecastConfig()
+    cfg = dataclasses.replace(cfg, vol_target_annual=args.vol_target)
     symbols = args.symbols.split(",") if args.symbols else load_universe()
 
     with duckdb.connect(str(args.db), read_only=True) as conn:
