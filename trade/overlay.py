@@ -20,6 +20,7 @@ class RiskLimits:
     max_drawdown_frac: float
     max_run_turnover_frac: float
     max_data_staleness_hours: float
+    min_active_positions: int = 0
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,12 @@ def evaluate_overlay(
     data_age_hours: float,
 ) -> OverlayVerdict:
     aborts: list[str] = []
+
+    if book.active_count < limits.min_active_positions:
+        aborts.append(
+            f"thin book: active_count {book.active_count} < "
+            f"min {limits.min_active_positions}"
+        )
 
     if account.kill_switch:
         aborts.append("kill-switch engaged")

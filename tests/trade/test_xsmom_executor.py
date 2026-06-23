@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import numpy as np
@@ -80,13 +81,14 @@ class _FakeAdapter:
         return {"ok": True}
 
 
-def _limits(**kw: float) -> RiskLimits:
-    base = {
+def _limits(**kw: Any) -> RiskLimits:
+    base: dict[str, Any] = {
         "max_gross_leverage": 10.0,
         "max_position_notional_frac": 1.0,
         "max_drawdown_frac": 0.5,
         "max_run_turnover_frac": 10.0,
         "max_data_staleness_hours": 1e9,
+        "min_active_positions": 0,
     }
     base.update(kw)
     return RiskLimits(**base)
