@@ -11,7 +11,7 @@ DEV_PORT ?= 5173
 PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*" -not -path "./.venv/*")
 DOCKER_IMAGE = buibui-bot
 
-.PHONY: lint lint-md lint-md-fix lint-py-check lint-py typecheck test test-regression regression-update poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-open-trades buibui-analytics-backfill buibui-analytics-sync universe-backfill buibui-backtest buibui-combo-backtest buibui-cross-tf-backtest buibui-signal-watch buibui-param-audit buibui-param-sweep buibui-recalibrate buibui-digest buibui-web web-install web-dev web-build web-preview web-full clean-db clean export-live-db buibui-portfolio-replay buibui-forecast-audit buibui-forecast-weight-study buibui-xsmom-audit buibui-combine-audit buibui-carry-audit buibui-xsmom-capacity-audit buibui-xsmom-targets buibui-xsmom-execute
+.PHONY: lint lint-md lint-md-fix lint-py-check lint-py typecheck test test-regression regression-update poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-open-trades buibui-analytics-backfill buibui-analytics-sync universe-backfill buibui-backtest buibui-combo-backtest buibui-cross-tf-backtest buibui-signal-watch buibui-param-audit buibui-param-sweep buibui-recalibrate buibui-digest buibui-web web-install web-dev web-build web-preview web-full clean-db clean export-live-db buibui-portfolio-replay buibui-forecast-audit buibui-forecast-weight-study buibui-xsmom-audit buibui-combine-audit buibui-carry-audit buibui-xsmom-capacity-audit buibui-xsmom-targets buibui-xsmom-execute buibui-universe-sync buibui-xsmom-daily
 
 lint: lint-md lint-py
 
@@ -282,6 +282,15 @@ buibui-xsmom-targets:  ## P3: read-only daily XS target positions (run buibui-an
 .PHONY: buibui-xsmom-execute
 buibui-xsmom-execute:  ## P3: XS-solo order-routing executor (dry-run by default; MODE=testnet to submit)
 	PYTHONPATH=. poetry run python tools/xsmom_execute.py $(if $(MODE),--mode $(MODE),)
+
+.PHONY: buibui-universe-sync
+buibui-universe-sync:  ## P3: incremental 1d sync of the full research universe (XS book input)
+	PYTHONPATH=. poetry run python buibui.py analytics sync --universe --timeframes 1d
+
+.PHONY: buibui-xsmom-daily
+buibui-xsmom-daily:  ## P3: daily XS workflow — sync universe 1d, then executor dry-run
+	$(MAKE) buibui-universe-sync
+	$(MAKE) buibui-xsmom-execute
 
 .PHONY: buibui-combine-audit
 buibui-combine-audit:  ## P3: read-only trend×XS IDM combine-layer audit over the N3 universe
