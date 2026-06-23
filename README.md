@@ -660,14 +660,16 @@ from the latest causal EWMAC forecast stored in `analytics.db`. Saves a gitignor
 to `docs/plans/xsmom_targets/<date>.json`. Read-only — no order routing.
 
 ```bash
-PYTHONPATH=. poetry run python buibui.py analytics sync --universe   # sync universe OHLCV first
+make buibui-universe-sync               # sync universe 1d OHLCV (required — XS runs on 1d only)
 make buibui-xsmom-targets               # print today's target table + save snapshot
 ```
 
+- `make buibui-universe-sync` — `analytics sync --universe --timeframes 1d`. **Must run
+  before targets/executor**: the XS book runs on 1d bars only, but `analytics sync`'s default
+  timeframes (`1h 4h`) never refresh 1d, silently degenerating the book to majors-only.
 - `make buibui-xsmom-targets` — read-only daily XS target-position generator
   (`tools/xsmom_targets.py`): today's governor-scaled target positions
-  (side · leverage · $notional at ~$10k) + a gitignored snapshot. Run
-  `buibui analytics sync --universe` first. No order routing.
+  (side · leverage · $notional at ~$10k) + a gitignored snapshot. No order routing.
 
 ### XS Order Routing — Overlay-Gated Executor
 
@@ -676,18 +678,25 @@ The pure routing/overlay logic and the injectable Binance adapter live under `tr
 `analytics/xsmom/` stays pure/read-only.
 
 ```bash
-PYTHONPATH=. poetry run python buibui.py analytics sync --universe   # sync universe OHLCV first
-make buibui-xsmom-execute                # DRY-RUN: print the order plan, submit nothing
-make buibui-xsmom-execute MODE=testnet   # submit on Binance Futures testnet (validation)
+make buibui-universe-sync               # sync universe 1d OHLCV first (see above)
+make buibui-xsmom-daily                 # universe 1d sync + executor dry-run (one command)
+make buibui-xsmom-execute               # DRY-RUN: print the order plan, submit nothing
+make buibui-xsmom-execute MODE=testnet  # submit on Binance Futures testnet (validation)
 ```
 
+- `make buibui-xsmom-daily` — convenience wrapper: `buibui-universe-sync` then
+  `buibui-xsmom-execute` (dry-run). The recommended daily command.
 - **Dry-run is the default** — it sizes the book off live account equity, reconciles
   against current exchange positions into a market-order plan (LOT_SIZE rounding,
   no-trade band, min-notional skips), runs the overlay, and prints the plan **without
   submitting anything**.
 - The **risk overlay** (fail-closed, blocks the whole plan on any breach): kill-switch,
   drawdown halt, gross-leverage cap, per-instrument notional cap, per-run turnover guard,
-  data-staleness guard. Toggle the kill-switch with `--kill` / `--resume`.
+  data-staleness guard. Toggle the kill-switch with `--kill` / `--resume`. Overlay defaults
+  are calibrated to the real book envelope: `--vol-target 0.20` (validated; deploy first
+  live cycles at `0.10`), `--max-gross-leverage 4.5`, `--min-active-positions 15` (breadth
+  guard — aborts on a thin/degenerate cross-section), auto cold-start turnover allowance
+  (lets the full book establish on day 1 without tripping the steady-state churn guard).
 - `--mode testnet` validates the full order-submission path at zero capital risk (needs
   `BINANCE_TESTNET_API_KEY` / `BINANCE_TESTNET_API_SECRET`). `--mode live` is double-gated
   by `--i-understand-live` **and** `BINANCE_ALLOW_LIVE=1` (the mainnet flip is a later
