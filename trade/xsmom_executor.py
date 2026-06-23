@@ -92,6 +92,9 @@ def run_once(
     all_symbols = sorted(set(symbols) | set(positions))
     marks = adapter.get_marks(all_symbols)
     filters = adapter.get_filters(all_symbols)
+    current_gross_notional = sum(
+        abs(qty) * marks.get(sym, 0.0) for sym, qty in positions.items()
+    )
     plan = build_order_plan(
         book,
         positions,
@@ -102,7 +105,14 @@ def run_once(
     )
 
     account = AccountState(equity=equity, peak_equity=prior_peak, kill_switch=kill)
-    verdict = evaluate_overlay(plan, book, account, limits, data_age)
+    verdict = evaluate_overlay(
+        plan,
+        book,
+        account,
+        limits,
+        data_age,
+        current_gross_notional=current_gross_notional,
+    )
 
     submitted: list[OrderIntent] = []
     failed: list[tuple[OrderIntent, str]] = []
