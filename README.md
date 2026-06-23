@@ -667,7 +667,7 @@ make buibui-xsmom-targets               # print today's target table + save snap
 - `make buibui-universe-sync` — `analytics sync --universe --timeframes 1d`. **Must run
   before targets/executor**: the XS book runs on 1d bars only, but `analytics sync`'s default
   timeframes (`1h 4h`) never refresh 1d, silently degenerating the book to majors-only.
-- `make buibui-xsmom-targets` — read-only daily XS target-position generator
+- `make buibui-xsmom-targets` — read-only daily XS target-position generator. Accepts `--vol-target` (default 0.20) for parity with the executor.
   (`tools/xsmom_targets.py`): today's governor-scaled target positions
   (side · leverage · $notional at ~$10k) + a gitignored snapshot. No order routing.
 
