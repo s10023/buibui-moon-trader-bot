@@ -37,6 +37,16 @@ from trade.xsmom_executor import (
 _DEFAULT_STATE_DIR = Path("docs/plans/xsmom_targets")
 
 
+def _fmt_price(mark: float | None) -> str:
+    if mark is None or mark <= 0:
+        return "—"
+    if mark >= 1000:
+        return f"{mark:,.0f}"
+    if mark >= 1:
+        return f"{mark:,.2f}"
+    return f"{mark:.5f}"
+
+
 def check_live_gate(
     mode: str, *, i_understand_live: bool, allow_live_env: str | None
 ) -> str | None:
