@@ -77,6 +77,10 @@ def evaluate_overlay(
                 f"> cap {notional_cap:.2f}"
             )
 
+    # "Establishing" = current gross < half the target gross. This is the
+    # cold-start case (flat book), but also any mid-life event that halves gross
+    # (a large adverse move or partial liquidation) — intended: both want to
+    # rebuild to target, and the looser cap is still bounded by the gross guard.
     target_gross_notional = plan.target_gross_leverage * book.capital
     establishing = (
         current_gross_notional is not None

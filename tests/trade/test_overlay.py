@@ -184,7 +184,7 @@ def test_cold_start_allows_full_build() -> None:
         data_age_hours=1.0,
         current_gross_notional=0.0,
     )
-    assert v.allowed is True
+    assert v.allowed is True and v.aborts == []
 
 
 def test_cold_start_still_bounded_by_gross_cap() -> None:

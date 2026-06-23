@@ -83,7 +83,12 @@ def main() -> None:
     parser.add_argument(
         "--config", type=Path, default=None, help="Optional TOML for ForecastConfig"
     )
-    parser.add_argument("--vol-target", type=float, default=0.20)
+    parser.add_argument(
+        "--vol-target",
+        type=float,
+        default=0.20,
+        help="Portfolio vol target (validated 0.20; deploy first live cycles at 0.10)",
+    )
     parser.add_argument(
         "--symbols",
         type=str,

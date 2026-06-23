@@ -92,9 +92,17 @@ def run_once(
     all_symbols = sorted(set(symbols) | set(positions))
     marks = adapter.get_marks(all_symbols)
     filters = adapter.get_filters(all_symbols)
-    current_gross_notional = sum(
-        abs(qty) * marks.get(sym, 0.0) for sym, qty in positions.items()
-    )
+    # Fail-safe: a held position with a missing/zero mark would under-count
+    # current gross and wrongly trip the looser cold-start turnover cap. When
+    # we cannot price the whole held book, pass None so the overlay falls back
+    # to the tighter steady-state cap.
+    current_gross_notional: float | None
+    if positions and any(marks.get(sym, 0.0) == 0.0 for sym in positions):
+        current_gross_notional = None
+    else:
+        current_gross_notional = sum(
+            abs(qty) * marks[sym] for sym, qty in positions.items()
+        )
     plan = build_order_plan(
         book,
         positions,

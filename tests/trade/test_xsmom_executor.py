@@ -263,3 +263,32 @@ def test_steady_state_turnover_blocks(tmp_path: Path) -> None:
     assert res.verdict.allowed is False and any(
         "turnover" in a.lower() for a in res.verdict.aborts
     )
+
+
+def test_missing_mark_forces_steady_state_cap(tmp_path: Path) -> None:
+    # A held position whose mark is missing (0.0) must NOT be counted as
+    # zero-gross — that would under-count current gross and wrongly trip the
+    # looser cold-start turnover cap. The executor passes current_gross=None,
+    # so the overlay applies the tighter steady-state cap and blocks.
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    syms = _seed(conn)
+    adapter = _FakeAdapter(
+        equity=10_000.0,
+        positions={"AAAUSDT": 1_000.0},
+        marks={"AAAUSDT": 0.0, "BBBUSDT": 100.0, "CCCUSDT": 100.0},
+    )
+    limits = _limits(max_run_turnover_frac=0.0001)
+    res = run_once(
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
+        limits,
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
+        state_path=tmp_path / "state.json",
+    )
+    assert res.verdict.allowed is False and any(
+        "turnover" in a.lower() for a in res.verdict.aborts
+    )
