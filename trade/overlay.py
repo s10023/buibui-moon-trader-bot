@@ -42,6 +42,8 @@ def evaluate_overlay(
     account: AccountState,
     limits: RiskLimits,
     data_age_hours: float,
+    *,
+    current_gross_notional: float | None = None,
 ) -> OverlayVerdict:
     aborts: list[str] = []
 
@@ -75,8 +77,15 @@ def evaluate_overlay(
                 f"> cap {notional_cap:.2f}"
             )
 
+    target_gross_notional = plan.target_gross_leverage * book.capital
+    establishing = (
+        current_gross_notional is not None
+        and current_gross_notional < 0.5 * target_gross_notional
+    )
     turnover = sum(abs(o.delta_notional) for o in plan.intents)
-    turnover_cap = limits.max_run_turnover_frac * book.capital
+    turnover_cap = (
+        limits.max_gross_leverage if establishing else limits.max_run_turnover_frac
+    ) * book.capital
     if turnover > turnover_cap:
         aborts.append(f"run turnover {turnover:.2f} > cap {turnover_cap:.2f}")
 

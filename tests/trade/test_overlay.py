@@ -170,3 +170,45 @@ def test_breadth_guard_passes_full_book() -> None:
         data_age_hours=1.0,
     )
     assert v.allowed is True
+
+
+def test_cold_start_allows_full_build() -> None:
+    # establishing (current gross 0 < half target): turnover capped at the
+    # gross cap (4.5x), not the tight 1.0x steady-state cap.
+    # target_gross_notional = 2.88 * 10000 = 28800; turnover = 28800 < 45000.
+    v = evaluate_overlay(
+        _plan([_intent(28_800.0)], gross=2.88),
+        _book([], gross=2.88),
+        AccountState(10_000.0, 10_000.0, False),
+        _limits(max_gross_leverage=4.5),
+        data_age_hours=1.0,
+        current_gross_notional=0.0,
+    )
+    assert v.allowed is True
+
+
+def test_cold_start_still_bounded_by_gross_cap() -> None:
+    # even establishing, an over-leveraged target trips the separate gross guard
+    v = evaluate_overlay(
+        _plan([_intent(50_000.0)], gross=5.0),
+        _book([], gross=5.0),
+        AccountState(10_000.0, 10_000.0, False),
+        _limits(max_gross_leverage=4.5),
+        data_age_hours=1.0,
+        current_gross_notional=0.0,
+    )
+    assert v.allowed is False and any("gross" in a.lower() for a in v.aborts)
+
+
+def test_steady_state_turnover_still_capped() -> None:
+    # current gross == target gross -> NOT establishing -> tight 1.0x cap.
+    # turnover 28800 > 1.0 * 10000 -> abort.
+    v = evaluate_overlay(
+        _plan([_intent(28_800.0)], gross=2.88),
+        _book([], gross=2.88),
+        AccountState(10_000.0, 10_000.0, False),
+        _limits(max_gross_leverage=4.5),
+        data_age_hours=1.0,
+        current_gross_notional=28_800.0,
+    )
+    assert v.allowed is False and any("turnover" in a.lower() for a in v.aborts)
