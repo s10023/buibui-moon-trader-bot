@@ -85,13 +85,24 @@ def run_once(
     kill = bool(state["kill_switch"])
 
     equity = adapter.get_equity()
-    book = replay_targets(conn, cfg, equity, symbols=symbols)
+    book = replay_targets(conn, cfg, equity, symbols=symbols, now=now)
     data_age = _data_age_hours(book.as_of_date, now)
 
     positions = adapter.get_positions()
     all_symbols = sorted(set(symbols) | set(positions))
     marks = adapter.get_marks(all_symbols)
     filters = adapter.get_filters(all_symbols)
+    # Fail-safe: a held position with a missing/zero mark would under-count
+    # current gross and wrongly trip the looser cold-start turnover cap. When
+    # we cannot price the whole held book, pass None so the overlay falls back
+    # to the tighter steady-state cap.
+    current_gross_notional: float | None
+    if positions and any(marks.get(sym, 0.0) == 0.0 for sym in positions):
+        current_gross_notional = None
+    else:
+        current_gross_notional = sum(
+            abs(qty) * marks[sym] for sym, qty in positions.items()
+        )
     plan = build_order_plan(
         book,
         positions,
@@ -102,7 +113,14 @@ def run_once(
     )
 
     account = AccountState(equity=equity, peak_equity=prior_peak, kill_switch=kill)
-    verdict = evaluate_overlay(plan, book, account, limits, data_age)
+    verdict = evaluate_overlay(
+        plan,
+        book,
+        account,
+        limits,
+        data_age,
+        current_gross_notional=current_gross_notional,
+    )
 
     submitted: list[OrderIntent] = []
     failed: list[tuple[OrderIntent, str]] = []

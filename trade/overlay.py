@@ -20,6 +20,7 @@ class RiskLimits:
     max_drawdown_frac: float
     max_run_turnover_frac: float
     max_data_staleness_hours: float
+    min_active_positions: int = 0
 
 
 @dataclass(frozen=True)
@@ -41,8 +42,16 @@ def evaluate_overlay(
     account: AccountState,
     limits: RiskLimits,
     data_age_hours: float,
+    *,
+    current_gross_notional: float | None = None,
 ) -> OverlayVerdict:
     aborts: list[str] = []
+
+    if book.active_count < limits.min_active_positions:
+        aborts.append(
+            f"thin book: active_count {book.active_count} < "
+            f"min {limits.min_active_positions}"
+        )
 
     if account.kill_switch:
         aborts.append("kill-switch engaged")
@@ -68,8 +77,19 @@ def evaluate_overlay(
                 f"> cap {notional_cap:.2f}"
             )
 
+    # "Establishing" = current gross < half the target gross. This is the
+    # cold-start case (flat book), but also any mid-life event that halves gross
+    # (a large adverse move or partial liquidation) — intended: both want to
+    # rebuild to target, and the looser cap is still bounded by the gross guard.
+    target_gross_notional = plan.target_gross_leverage * book.capital
+    establishing = (
+        current_gross_notional is not None
+        and current_gross_notional < 0.5 * target_gross_notional
+    )
     turnover = sum(abs(o.delta_notional) for o in plan.intents)
-    turnover_cap = limits.max_run_turnover_frac * book.capital
+    turnover_cap = (
+        limits.max_gross_leverage if establishing else limits.max_run_turnover_frac
+    ) * book.capital
     if turnover > turnover_cap:
         aborts.append(f"run turnover {turnover:.2f} > cap {turnover_cap:.2f}")
 

@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+from typing import Any
+
 from analytics.xsmom.live import TargetBook, TargetPosition
 from trade.overlay import AccountState, RiskLimits, evaluate_overlay
 from trade.routing import OrderIntent, OrderPlan
 
 
 def _limits(**kw: float) -> RiskLimits:
-    base: dict[str, float] = {
+    base: dict[str, Any] = {
         "max_gross_leverage": 3.0,
         "max_position_notional_frac": 0.5,
         "max_drawdown_frac": 0.25,
         "max_run_turnover_frac": 1.0,
         "max_data_staleness_hours": 36.0,
+        "min_active_positions": 0,
     }
     base.update(kw)
     return RiskLimits(**base)
@@ -140,3 +143,72 @@ def test_multiple_breaches_collected() -> None:
         data_age_hours=99.0,
     )
     assert v.allowed is False and len(v.aborts) >= 3
+
+
+def test_breadth_guard_aborts_thin_book() -> None:
+    # active_count = 1 (one position) < min 15
+    book = _book([TargetPosition("AAAUSDT", "long", 0.1, 100.0, 0.0)])
+    v = evaluate_overlay(
+        _plan([]),
+        book,
+        AccountState(10_000.0, 10_000.0, False),
+        _limits(min_active_positions=15),
+        data_age_hours=1.0,
+    )
+    assert v.allowed is False and any("thin book" in a for a in v.aborts)
+
+
+def test_breadth_guard_passes_full_book() -> None:
+    positions = [
+        TargetPosition(f"S{i}USDT", "long", 0.1, 100.0, 0.0) for i in range(15)
+    ]
+    v = evaluate_overlay(
+        _plan([_intent(100.0)]),
+        _book(positions),
+        AccountState(10_000.0, 10_000.0, False),
+        _limits(min_active_positions=15),
+        data_age_hours=1.0,
+    )
+    assert v.allowed is True
+
+
+def test_cold_start_allows_full_build() -> None:
+    # establishing (current gross 0 < half target): turnover capped at the
+    # gross cap (4.5x), not the tight 1.0x steady-state cap.
+    # target_gross_notional = 2.88 * 10000 = 28800; turnover = 28800 < 45000.
+    v = evaluate_overlay(
+        _plan([_intent(28_800.0)], gross=2.88),
+        _book([], gross=2.88),
+        AccountState(10_000.0, 10_000.0, False),
+        _limits(max_gross_leverage=4.5),
+        data_age_hours=1.0,
+        current_gross_notional=0.0,
+    )
+    assert v.allowed is True and v.aborts == []
+
+
+def test_cold_start_still_bounded_by_gross_cap() -> None:
+    # even establishing, an over-leveraged target trips the separate gross guard
+    v = evaluate_overlay(
+        _plan([_intent(50_000.0)], gross=5.0),
+        _book([], gross=5.0),
+        AccountState(10_000.0, 10_000.0, False),
+        _limits(max_gross_leverage=4.5),
+        data_age_hours=1.0,
+        current_gross_notional=0.0,
+    )
+    assert v.allowed is False and any("gross" in a.lower() for a in v.aborts)
+
+
+def test_steady_state_turnover_still_capped() -> None:
+    # current gross == target gross -> NOT establishing -> tight 1.0x cap.
+    # turnover 28800 > 1.0 * 10000 -> abort.
+    v = evaluate_overlay(
+        _plan([_intent(28_800.0)], gross=2.88),
+        _book([], gross=2.88),
+        AccountState(10_000.0, 10_000.0, False),
+        _limits(max_gross_leverage=4.5),
+        data_age_hours=1.0,
+        current_gross_notional=28_800.0,
+    )
+    assert v.allowed is False and any("turnover" in a.lower() for a in v.aborts)

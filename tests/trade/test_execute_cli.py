@@ -59,3 +59,22 @@ def test_format_result_renders_counts() -> None:
 def test_format_result_shows_aborts_when_blocked() -> None:
     out = format_result(_result(False, []))
     assert "abort" in out.lower() or "blocked" in out.lower()
+
+
+def test_parser_defaults_recalibrated() -> None:
+    from tools.xsmom_execute import build_parser
+
+    args = build_parser().parse_args([])
+    assert args.max_gross_leverage == 4.5
+    assert args.vol_target == 0.20
+    assert args.min_active_positions == 15
+
+
+def test_parser_overrides() -> None:
+    from tools.xsmom_execute import build_parser
+
+    args = build_parser().parse_args(
+        ["--vol-target", "0.10", "--min-active-positions", "20"]
+    )
+    assert args.vol_target == 0.10
+    assert args.min_active_positions == 20

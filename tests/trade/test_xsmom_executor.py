@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import numpy as np
@@ -80,13 +81,14 @@ class _FakeAdapter:
         return {"ok": True}
 
 
-def _limits(**kw: float) -> RiskLimits:
-    base = {
+def _limits(**kw: Any) -> RiskLimits:
+    base: dict[str, Any] = {
         "max_gross_leverage": 10.0,
         "max_position_notional_frac": 1.0,
         "max_drawdown_frac": 0.5,
         "max_run_turnover_frac": 10.0,
         "max_data_staleness_hours": 1e9,
+        "min_active_positions": 0,
     }
     base.update(kw)
     return RiskLimits(**base)
@@ -210,3 +212,83 @@ def test_run_once_closes_off_universe_position(tmp_path: Path) -> None:
     )
     closes = [i for i in res.submitted if i.symbol == "ZZZUSDT"]
     assert len(closes) == 1 and closes[0].reduce_only is True
+
+
+def test_cold_start_build_passes_overlay(tmp_path: Path) -> None:
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    syms = _seed(conn)
+    adapter = _FakeAdapter(
+        equity=10_000.0, positions={}, marks=dict.fromkeys(syms, 100.0)
+    )
+    # Tight steady-state turnover frac, generous gross cap: a cold start (no
+    # positions) must STILL pass because the executor forwards current_gross=0,
+    # so the establishing branch lifts the turnover cap to the gross cap.
+    limits = _limits(max_run_turnover_frac=0.0001)
+    res = run_once(
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
+        limits,
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
+        state_path=tmp_path / "state.json",
+    )
+    assert res.verdict.allowed is True
+
+
+def test_steady_state_turnover_blocks(tmp_path: Path) -> None:
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    syms = _seed(conn)
+    # Large existing positions => current gross >> half target => NOT establishing
+    # => tight steady-state turnover cap applies => the rebalance is blocked.
+    adapter = _FakeAdapter(
+        equity=10_000.0,
+        positions=dict.fromkeys(syms, 1000.0),
+        marks=dict.fromkeys(syms, 100.0),
+    )
+    limits = _limits(max_run_turnover_frac=0.0001)
+    res = run_once(
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
+        limits,
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
+        state_path=tmp_path / "state.json",
+    )
+    assert res.verdict.allowed is False and any(
+        "turnover" in a.lower() for a in res.verdict.aborts
+    )
+
+
+def test_missing_mark_forces_steady_state_cap(tmp_path: Path) -> None:
+    # A held position whose mark is missing (0.0) must NOT be counted as
+    # zero-gross — that would under-count current gross and wrongly trip the
+    # looser cold-start turnover cap. The executor passes current_gross=None,
+    # so the overlay applies the tighter steady-state cap and blocks.
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    syms = _seed(conn)
+    adapter = _FakeAdapter(
+        equity=10_000.0,
+        positions={"AAAUSDT": 1_000.0},
+        marks={"AAAUSDT": 0.0, "BBBUSDT": 100.0, "CCCUSDT": 100.0},
+    )
+    limits = _limits(max_run_turnover_frac=0.0001)
+    res = run_once(
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
+        limits,
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
+        state_path=tmp_path / "state.json",
+    )
+    assert res.verdict.allowed is False and any(
+        "turnover" in a.lower() for a in res.verdict.aborts
+    )

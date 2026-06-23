@@ -8,6 +8,7 @@ never writes.
 from __future__ import annotations
 
 import dataclasses
+from datetime import UTC, datetime
 
 import duckdb
 import numpy as np
@@ -122,13 +123,45 @@ def replay_xs_capacity(
     return out
 
 
+def _drop_unclosed_daily(
+    series_map: dict[str, pd.Series], now: pd.Timestamp
+) -> dict[str, pd.Series]:
+    """Drop trailing daily bars not yet closed as of ``now``.
+
+    A 1d bar indexed at UTC-midnight date ``d`` closes at ``d + 1 day``; keep
+    only bars whose close-time is ``<= now`` so the live cross-section aligns on
+    the last *completed* daily close. The local Binance sync keeps the still
+    forming candle, so a daemon-advanced majors bar must not become the
+    alignment point — that would both degenerate the book to a thin majors-only
+    cross-section and compute positions from a partial (look-ahead) bar.
+    Symbols left with no bars are dropped from the map.
+    """
+    out: dict[str, pd.Series] = {}
+    for sym, s in series_map.items():
+        kept = s[s.index + pd.Timedelta(days=1) <= now]
+        if not kept.empty:
+            out[sym] = kept
+    return out
+
+
 def replay_targets(
     conn: duckdb.DuckDBPyConnection,
     cfg: ForecastConfig,
     capital: float,
     symbols: list[str] | None = None,
+    *,
+    now: pd.Timestamp | None = None,
 ) -> TargetBook:
-    """Load the universe's 1d inputs and build today's XS target book (read-only)."""
+    """Load the universe's 1d inputs and build today's XS target book (read-only).
+
+    Trailing daily bars not yet closed as of ``now`` (default: current UTC) are
+    dropped from both closes and funding so the cross-section aligns on the last
+    completed daily close — see ``_drop_unclosed_daily``.
+    """
+    now = now if now is not None else pd.Timestamp(datetime.now(UTC))
     syms = symbols if symbols is not None else load_universe()
     closes, fundings = load_daily_inputs(conn, syms)
+    closes = _drop_unclosed_daily(closes, now)
+    fundings = _drop_unclosed_daily(fundings, now)
+    fundings = {s: fundings[s] for s in closes if s in fundings}
     return build_target_book(closes, fundings, cfg, capital)
