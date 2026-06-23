@@ -702,6 +702,37 @@ make buibui-xsmom-execute MODE=testnet  # submit on Binance Futures testnet (val
   by `--i-understand-live` **and** `BINANCE_ALLOW_LIVE=1` (the mainnet flip is a later
   supervised step). Requires one-way position mode.
 
+### XS executor dry-run output
+
+`make buibui-xsmom-execute` (dry-run default) prints the target book as a Rich
+table — one row per active leg (not just the legs that trade this cycle), sorted
+by |notional| descending:
+
+| Column | Meaning |
+| --- | --- |
+| SYM | Instrument |
+| SIDE | LONG (green) / SHORT (red) |
+| CUR→TGT | Current leverage → target leverage (signed, governor-scaled) |
+| $NOTIONAL | Target dollar exposure (leverage × equity) |
+| Δ$ | Dollar move this cycle (the order, if any) |
+| MARK | Latest mark price |
+| FCAST | Demeaned cross-sectional forecast (relative-strength signal) |
+| ACTION | open / rebalance / close / hold (band) / skip:&lt;why&gt; |
+
+The header summarises the book: `GOV` (vol governor), `GROSS` / `NET` leverage,
+leg count, total gross notional. Leverage is vol-targeted and vol-parity — **not
+1× per leg**; `--exchange-leverage` is only the Binance margin setting, separate
+from the book's gross.
+
+Three output versions:
+
+- **dry-run plan** (default): the advisory plan; nothing is submitted.
+- **⛔ BLOCKED by overlay**: a risk guardrail tripped — the book table still
+  renders (so you see what was blocked) beneath the abort reasons; nothing
+  submits.
+- **testnet submit** (`--mode testnet`): same layout; the footer's `submitted` /
+  `failed` counts reflect real orders placed on testnet.
+
 ### Signal Watch — 24/7 Strategy Alerts
 
 Runs a polling daemon that scans closed candles every N seconds and sends Telegram alerts
