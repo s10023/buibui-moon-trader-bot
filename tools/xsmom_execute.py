@@ -17,16 +17,25 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import io
+import math
 import os
+import shutil
+from dataclasses import dataclass
 from pathlib import Path
 
 import duckdb
+from rich import box
+from rich.console import Console
+from rich.table import Table
+from rich.text import Text
 
 from analytics.forecast.config import ForecastConfig
 from analytics.store import DEFAULT_DB_PATH
 from analytics.universe import load_universe
 from trade.binance_futures import BinanceFuturesAdapter
 from trade.overlay import RiskLimits
+from trade.routing import OrderIntent
 from trade.xsmom_executor import (
     ExecutionResult,
     load_state,
@@ -47,6 +56,110 @@ def _fmt_price(mark: float | None) -> str:
     return f"{mark:.5f}"
 
 
+def _action_label(reason: str) -> str:
+    return "hold (band)" if reason == "skip:band" else reason
+
+
+@dataclass(frozen=True)
+class _Row:
+    symbol: str
+    side: str
+    cur_lev: float
+    tgt_lev: float
+    notional: float  # target notional_usd
+    delta: float
+    mark: float | None
+    forecast: float | None
+    action: str
+
+
+def _assemble_rows(res: ExecutionResult) -> list[_Row]:
+    action_by_sym: dict[str, OrderIntent] = {}
+    for o in res.plan.intents:
+        action_by_sym[o.symbol] = o
+    for o in res.plan.skipped:
+        action_by_sym.setdefault(o.symbol, o)
+
+    equity = res.equity or 0.0
+    book_syms = {p.symbol for p in res.book.positions}
+    rows: list[_Row] = []
+
+    for p in res.book.positions:
+        mark = res.marks.get(p.symbol)
+        cur_qty = res.positions.get(p.symbol, 0.0)
+        cur_lev: float = cur_qty * mark / equity if mark and equity else 0.0
+        order = action_by_sym.get(p.symbol)
+        rows.append(
+            _Row(
+                symbol=p.symbol,
+                side=p.side,
+                cur_lev=cur_lev,
+                tgt_lev=p.leverage,
+                notional=p.notional_usd,
+                delta=order.delta_notional if order else 0.0,
+                mark=mark,
+                forecast=p.forecast,
+                action=_action_label(order.reason) if order else "—",
+            )
+        )
+
+    for sym, qty in res.positions.items():
+        if sym in book_syms or qty == 0.0:
+            continue
+        mark = res.marks.get(sym)
+        cur_lev = qty * mark / equity if mark and equity else 0.0
+        order = action_by_sym.get(sym)
+        rows.append(
+            _Row(
+                symbol=sym,
+                side="long" if qty > 0 else "short",
+                cur_lev=cur_lev,
+                tgt_lev=0.0,
+                notional=0.0,
+                delta=order.delta_notional if order else 0.0,
+                mark=mark,
+                forecast=None,
+                action=_action_label(order.reason) if order else "close",
+            )
+        )
+
+    rows.sort(key=lambda r: max(abs(r.notional), abs(r.cur_lev) * equity), reverse=True)
+    return rows
+
+
+def _side_text(side: str) -> Text:
+    style = {"long": "green", "short": "red"}.get(side, "dim")
+    return Text(side.upper(), style=style)
+
+
+def _build_table(rows: list[_Row]) -> Table:
+    table = Table(show_header=True, header_style="bold", box=box.SIMPLE_HEAVY)
+    table.add_column("SYM")
+    table.add_column("SIDE")
+    table.add_column("CUR→TGT", justify="right")
+    table.add_column("$NOTIONAL", justify="right")
+    table.add_column("Δ$", justify="right")
+    table.add_column("MARK", justify="right")
+    table.add_column("FCAST", justify="right")
+    table.add_column("ACTION")
+    for r in rows:
+        if r.forecast is None or not math.isfinite(r.forecast):
+            fcast = "—"
+        else:
+            fcast = f"{r.forecast:+.1f}"
+        table.add_row(
+            r.symbol,
+            _side_text(r.side),
+            f"{r.cur_lev:+.2f}→{r.tgt_lev:+.2f}",
+            f"{r.notional:+,.0f}",
+            f"{r.delta:+,.0f}",
+            _fmt_price(r.mark),
+            fcast,
+            r.action,
+        )
+    return table
+
+
 def check_live_gate(
     mode: str, *, i_understand_live: bool, allow_live_env: str | None
 ) -> str | None:
@@ -61,29 +174,47 @@ def check_live_gate(
 
 
 def format_result(res: ExecutionResult) -> str:
-    lines = [
-        f"XS execute [{res.mode}] — hold {res.book.next_period_date}   "
-        f"equity ${res.equity:,.2f}   governor {res.book.governor:.2f}",
-    ]
-    if not res.verdict.allowed:
-        lines.append("ORDER PLAN BLOCKED by overlay:")
-        lines.extend(f"  abort: {a}" for a in res.verdict.aborts)
-        return "\n".join(lines)
-    lines.append(
-        f"{'SYM':<12}{'SIDE':<6}{'QTY':>12}{'RED':>5}{'Δ$NOTIONAL':>14}  reason"
+    book = res.book
+    gross_notional = book.gross_leverage * book.capital
+    summary = (
+        f"GOV {book.governor:.2f} · GROSS {book.gross_leverage:.2f}× · "
+        f"NET {book.net_leverage:+.2f}× · {book.active_count} legs · "
+        f"gross ${gross_notional:,.0f}"
     )
-    for o in res.plan.intents:
-        lines.append(
-            f"{o.symbol:<12}{o.side:<6}{o.qty:>12.4f}"
-            f"{('Y' if o.reduce_only else 'N'):>5}{o.delta_notional:>+14,.0f}  {o.reason}"
+
+    width = max(shutil.get_terminal_size((140, 24)).columns, 140)
+    buf = io.StringIO()
+    console = Console(file=buf, width=width, force_terminal=True, markup=False)
+
+    if res.verdict.allowed:
+        console.print(
+            f"XS execute · {res.mode} · hold {book.next_period_date} · "
+            f"equity ${res.equity:,.2f}"
         )
-    lines.append(
-        f"submitted={len(res.submitted)}  skipped={len(res.plan.skipped)}  "
-        f"failed={len(res.failed)}"
+    else:
+        console.print(
+            Text(
+                f"⛔ XS execute · {res.mode} · hold {book.next_period_date} · "
+                "BLOCKED by overlay",
+                style="bold red",
+            )
+        )
+    console.print(summary)
+    if not res.verdict.allowed:
+        console.print("aborts:")
+        for a in res.verdict.aborts:
+            console.print(f"  · {a}")
+
+    console.print(_build_table(_assemble_rows(res)))
+
+    console.print(
+        f"submitted {len(res.submitted)} · skipped {len(res.plan.skipped)} · "
+        f"failed {len(res.failed)}"
     )
     for intent, err in res.failed:
-        lines.append(f"  FAILED {intent.symbol} {intent.side} {intent.qty}: {err}")
-    return "\n".join(lines)
+        console.print(f"  FAILED {intent.symbol} {intent.side} {intent.qty}: {err}")
+
+    return buf.getvalue()
 
 
 def _build_client(mode: str):  # type: ignore[no-untyped-def]

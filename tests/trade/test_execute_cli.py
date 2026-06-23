@@ -1,25 +1,42 @@
 from __future__ import annotations
 
-from analytics.xsmom.live import TargetBook
+from analytics.xsmom.live import TargetBook, TargetPosition
 from tools.xsmom_execute import check_live_gate, format_result
 from trade.overlay import OverlayVerdict
 from trade.routing import OrderIntent, OrderPlan
 from trade.xsmom_executor import ExecutionResult
 
 
-def _result(allowed: bool, intents: list[OrderIntent]) -> ExecutionResult:
+def _result(
+    allowed: bool,
+    intents: list[OrderIntent],
+    *,
+    book_positions: list[TargetPosition] | None = None,
+    skipped: list[OrderIntent] | None = None,
+    marks: dict[str, float] | None = None,
+    positions: dict[str, float] | None = None,
+    aborts: list[str] | None = None,
+) -> ExecutionResult:
+    legs = book_positions or []
+    gross = sum(abs(p.leverage) for p in legs)
+    net = sum(p.leverage for p in legs)
     book = TargetBook(
-        "2026-06-21", "2026-06-22", 10_000.0, 1.0, len(intents), 1.0, 0.0, []
+        "2026-06-21", "2026-06-22", 10_000.0, 1.0, len(legs), gross, net, legs
     )
-    plan = OrderPlan(intents, [], 1.0, 0.0)
+    plan = OrderPlan(intents, skipped or [], gross, net)
+    verdict = OverlayVerdict(
+        allowed, aborts if aborts is not None else ([] if allowed else ["x"])
+    )
     return ExecutionResult(
-        OverlayVerdict(allowed, [] if allowed else ["x"]),
+        verdict,
         plan,
         book,
         intents if allowed else [],
         [],
         10_000.0,
         "dry_run",
+        marks or {},
+        positions or {},
     )
 
 
@@ -50,8 +67,14 @@ def test_non_live_modes_never_gated() -> None:
 
 
 def test_format_result_renders_counts() -> None:
+    pos = TargetPosition("AAAUSDT", "long", 0.50, 5000.0, 3.2)
     out = format_result(
-        _result(True, [OrderIntent("AAAUSDT", "BUY", 1.0, False, 100.0, "open")])
+        _result(
+            True,
+            [OrderIntent("AAAUSDT", "BUY", 1.0, False, 100.0, "open")],
+            book_positions=[pos],
+            marks={"AAAUSDT": 100.0},
+        )
     )
     assert "AAAUSDT" in out and "submitted" in out.lower()
 
@@ -88,3 +111,52 @@ def test_fmt_price_adaptive_precision() -> None:
     assert _fmt_price(0.1234) == "0.12340"  # < 1 -> 5 decimals
     assert _fmt_price(None) == "—"  # absent
     assert _fmt_price(0.0) == "—"  # non-positive
+
+
+def test_format_result_shows_inband_leg_and_leverage() -> None:
+    legs = [
+        TargetPosition("AAAUSDT", "long", 0.50, 5000.0, 3.2),
+        TargetPosition("BBBUSDT", "short", -0.30, -3000.0, -2.1),
+    ]
+    intents = [OrderIntent("AAAUSDT", "BUY", 10.0, False, 5000.0, "open")]
+    skipped = [OrderIntent("BBBUSDT", "SELL", 0.0, True, 40.0, "skip:band")]
+    out = format_result(
+        _result(
+            True,
+            intents,
+            book_positions=legs,
+            skipped=skipped,
+            marks={"AAAUSDT": 100.0, "BBBUSDT": 50.0},
+        )
+    )
+    assert "hold (band)" in out  # in-band leg is shown, not hidden
+    assert "+0.50" in out and "-0.30" in out  # signed leverage column
+
+
+def test_format_result_renders_close_only_row() -> None:
+    out = format_result(
+        _result(
+            True,
+            [OrderIntent("ZZZUSDT", "SELL", 5.0, True, -500.0, "close")],
+            book_positions=[],
+            positions={"ZZZUSDT": 5.0},
+            marks={"ZZZUSDT": 100.0},
+        )
+    )
+    assert "ZZZUSDT" in out and "close" in out
+
+
+def test_format_result_blocked_still_shows_book_table() -> None:
+    legs = [TargetPosition("AAAUSDT", "long", 0.50, 5000.0, 3.2)]
+    out = format_result(
+        _result(
+            False,
+            [],
+            book_positions=legs,
+            marks={"AAAUSDT": 100.0},
+            aborts=["gross leverage 5.0x > cap 4.5x"],
+        )
+    )
+    assert "AAAUSDT" in out  # table still rendered when blocked
+    assert "blocked" in out.lower()  # banner present
+    assert "gross leverage" in out  # abort reason shown
