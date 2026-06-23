@@ -85,7 +85,7 @@ def run_once(
     kill = bool(state["kill_switch"])
 
     equity = adapter.get_equity()
-    book = replay_targets(conn, cfg, equity, symbols=symbols)
+    book = replay_targets(conn, cfg, equity, symbols=symbols, now=now)
     data_age = _data_age_hours(book.as_of_date, now)
 
     positions = adapter.get_positions()
