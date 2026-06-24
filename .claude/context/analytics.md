@@ -112,6 +112,13 @@ Detailed API reference for `analytics/`. Load this when working on any analytics
 - `get_recent_cme_gap(ohlcv_df, _now_sec=None)` — most recent Fri 21:00–Sun 22:00 UTC gap
 - `cme_gap_alert_warning(gap, direction, entry, tp_price)` — LONG: unfilled gap below entry; SHORT: gap in TP path
 
+## reference_levels.py — calendar reference-level geometry (look-ahead-safe)
+
+- `compute_levels(daily_ohlcv, entry_ts_ms)` — the 9 levels known at an entry: MO/WO/DO opens, MonH/MonL (excluded on Monday entries — range still forming), PDH/PDL, PWH/PWL. Uses only completed prior periods (current-period opens are fixed at period start). Week = Monday 00:00 UTC.
+- `compute_levels_table(daily_ohlcv)` — vectorized per-day table (one row per day, columns = `LEVEL_NAMES`), row-for-row equal to `compute_levels`; lets the audit tag ~850k trades cheaply.
+- `nearest_level(price, levels)` — name + absolute distance of the closest non-None level; `("", inf)` when none defined.
+- `sweep_flag(tf_ohlcv, entry_idx, level_price, direction, lookback=3)` — did price wick beyond the level in the last N bars and reclaim (long) / reject (short) by the entry candle's close. Pure; reused by `tools/reference_level_proximity_audit.py`.
+
 ## zones_lib.py — structural zone extraction (geometry only, no trade signals)
 
 - `extract_fvg_zones(df)` — bull/bear FVG boxes; `active=False` + `close_ms` when CE midpoint crossed
