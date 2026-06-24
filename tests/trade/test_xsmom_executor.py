@@ -150,6 +150,30 @@ def test_run_once_overlay_breach_submits_nothing(tmp_path: Path) -> None:
     assert res.submitted == [] and adapter.config_calls == 0
 
 
+def test_run_once_threads_marks_and_positions(tmp_path: Path) -> None:
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    syms = _seed(conn)
+    adapter = _FakeAdapter(
+        equity=10_000.0,
+        positions={"AAAUSDT": 2.0},
+        marks=dict.fromkeys(syms, 100.0),
+    )
+    res = run_once(
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
+        _limits(),
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
+        state_path=tmp_path / "s.json",
+        now=pd.Timestamp("2022-02-05", tz="UTC"),
+    )
+    assert res.marks["AAAUSDT"] == 100.0
+    assert res.positions["AAAUSDT"] == 2.0
+
+
 def test_run_once_isolates_per_order_failure(tmp_path: Path) -> None:
     conn = duckdb.connect(":memory:")
     init_schema(conn)
