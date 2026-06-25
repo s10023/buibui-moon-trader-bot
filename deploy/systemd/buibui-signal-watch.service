@@ -1,0 +1,11 @@
+[Unit]
+Description=buibui signal-watch (one scan cycle, Binance-direct)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=buibui
+WorkingDirectory=/opt/buibui
+EnvironmentFile=/opt/buibui/.env
+ExecStart=/opt/buibui/deploy/run-job.sh signal-watch HEALTHCHECKS_URL_SIGNAL -- /opt/buibui/deploy/run-signal.sh

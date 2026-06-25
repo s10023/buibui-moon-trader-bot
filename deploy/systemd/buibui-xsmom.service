@@ -1,0 +1,12 @@
+[Unit]
+Description=buibui XS executor (universe 1d sync + order routing)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=buibui
+WorkingDirectory=/opt/buibui
+EnvironmentFile=/opt/buibui/.env
+# Mode/capital come from the EnvironmentFile (EXEC_MODE / EXEC_CAPITAL).
+ExecStart=/opt/buibui/deploy/run-job.sh xsmom HEALTHCHECKS_URL_XSMOM -- /opt/buibui/deploy/run-xsmom.sh

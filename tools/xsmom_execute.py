@@ -251,6 +251,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-run-turnover-frac", type=float, default=1.0)
     parser.add_argument("--max-data-staleness-hours", type=float, default=36.0)
     parser.add_argument("--min-active-positions", type=int, default=15)
+    parser.add_argument(
+        "--capital",
+        type=float,
+        default=None,
+        help=(
+            "Size the book off this fixed capital instead of live account equity. "
+            "Use on testnet (set to your real account's equity) for a "
+            "capital-matched A/B; live mode should omit it and use real equity."
+        ),
+    )
     parser.add_argument("--i-understand-live", action="store_true")
     parser.add_argument("--kill", action="store_true")
     parser.add_argument("--resume", action="store_true")
@@ -301,6 +311,7 @@ def main() -> None:
             no_trade_band_frac=args.no_trade_band,
             exchange_leverage=args.exchange_leverage,
             state_path=state_path,
+            capital_override=args.capital,
         )
     print(format_result(res))
 
