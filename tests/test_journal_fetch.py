@@ -280,3 +280,28 @@ def test_fetch_candidates_orchestrator_no_network() -> None:
     assert c.status == "closed"
     # Read-only: never placed or cancelled an order.
     assert not client.futures_create_order.called
+
+
+def test_fetch_candidates_requests_most_recent_trades() -> None:
+    """Must NOT constrain futures_account_trades with startTime.
+
+    Binance returns only [startTime, startTime+7d] when startTime is sent, so a
+    >7-day lookback would drop the MOST RECENT trades — backwards for journaling.
+    We pass limit only (most-recent fills) and filter by cutoff in code.
+    """
+    client = MagicMock()
+    client.futures_account_trades.return_value = []
+    client.futures_position_information.return_value = []
+    client.futures_get_open_orders.return_value = []
+    client.futures_income_history.return_value = []
+
+    fetch_candidates(
+        client,
+        symbols=["BTCUSDT"],
+        days=14,
+        journal_dir=None,
+        include_journaled=True,
+    )
+
+    _, kwargs = client.futures_account_trades.call_args
+    assert "startTime" not in kwargs

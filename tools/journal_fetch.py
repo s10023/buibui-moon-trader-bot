@@ -379,9 +379,11 @@ def fetch_candidates(
 
     out: list[TradeCandidate] = []
     for sym in symbols:
-        fills = client.futures_account_trades(
-            symbol=sym, startTime=cutoff_ms, limit=1000
-        )
+        # No startTime: Binance caps account_trades / income_history to
+        # [startTime, startTime+7d] when it is set, which drops the MOST RECENT
+        # trades on a >7-day lookback. Fetch the most-recent fills and filter by
+        # cutoff in code instead.
+        fills = client.futures_account_trades(symbol=sym, limit=1000)
         cands = [
             c
             for c in group_fills(sym, fills)
@@ -396,7 +398,7 @@ def fetch_candidates(
                 sl, tp = _stops_from_orders(open_orders, sym, c.position_side)
                 attach_exchange_stops(c, sl, tp)
         income = client.futures_income_history(
-            symbol=sym, incomeType="FUNDING_FEE", startTime=cutoff_ms, limit=1000
+            symbol=sym, incomeType="FUNDING_FEE", limit=1000
         )
         for c in cands:
             attach_funding(c, income)
