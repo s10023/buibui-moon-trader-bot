@@ -16,18 +16,114 @@ Full design + rationale: `docs/superpowers/specs/2026-06-25-vps-deployment-desig
 
 ## Step 0 — Provision the VPS
 
-**Primary: Oracle Cloud Always-Free.** ARM Ampere A1, Ubuntu 24.04, region
-`ap-singapore-1` (closest to Malaysia; **home region is permanent — pick Singapore**).
-Even 1 OCPU / 6 GB is ample.
+**Primary: Oracle Cloud Always-Free**, ARM Ampere A1, Ubuntu 24.04. Region **Malaysia
+(Johor)** if offered (lowest latency from MY — Oracle added it recently), else **Singapore
+(`ap-singapore-1`)**. The **home region is permanent**, so pick carefully. Even 1 OCPU /
+6 GB is ample.
 
-- **Reserve a static public IP** (Networking → Reserved Public IPs) — required for the
-  Binance API-key IP allowlist in Step 4.
-- Known signup friction: the card-verify step rejects many prepaid/local debit cards —
-  use a **Visa/Mastercard credit card**. If ARM shows "out of host capacity", retry
-  creation, try another availability domain, or fall back to the free **AMD micro** shape.
+**Signup gotchas:** the card-verify step rejects many prepaid/local debit cards — use a
+**Visa/Mastercard credit card** (expect a ~$1 refunded auth hold). Do **not** "Upgrade to
+Pay As You Go" — a free account is **suspended, not billed**, if it ever exceeds a limit.
 
-**Fallback if Oracle blocks you:** Racknerd (~$15/yr) or Hetzner CX22 (~€4/mo), Ubuntu
-24.04, Singapore/nearest region. Every step below is identical.
+### Create instance — field by field
+
+`☰ Menu → Compute → Instances → Create instance`:
+
+| Field | Setting | Why |
+| --- | --- | --- |
+| Name | `buibui-prod` | — |
+| Placement | default AD-1; **no Fault Domain** ("Let Oracle choose") | A1 capacity is transient — see below |
+| Image | **Edit → Change image → Canonical Ubuntu 24.04**, full **`aarch64`** build — **not "Minimal"** | Minimal strips packages we need (deadsnakes PPA, build deps) |
+| Shape | **Change shape → Ampere → VM.Standard.A1.Flex → 1 OCPU / 6 GB** (green "Always Free-eligible") | The free ARM box |
+| Capacity type | **On-demand** | Not Preemptible (reclaimed) / Reservation (paid) |
+| Live migration | **Enabled** if offered | No-downtime host maintenance; `Persistent=true` timers cover a reboot regardless |
+| Shielded instance | **Off** | Not our threat model; can cause ARM boot trouble |
+| Networking | **Create new VCN → Create new subnet (PUBLIC)** | A private subnet greys out the public-IP option |
+| Assign public IPv4 | tick if it un-greys; else assign a Reserved IP after creation (below) | — |
+| VNIC name | blank (auto) | — |
+| SSH keys | **Upload public key file (.pub)** → your `.pub` (Ctrl+H in the file dialog reveals the hidden `.ssh` folder) | You keep your private key |
+| Boot volume | **default (~50 GB) — do not bump** | Stays inside the 200 GB Always-Free limit |
+| Initialization script | blank | We provision manually (Step 1) |
+
+The estimated cost (~$2.76/mo for the boot volume) is **wrong for the free tier** — the
+calculator "does not reflect any tier unit pricing." Real cost is **$0** (boot vol within
+200 GB free, A1 within 4 OCPU / 24 GB free).
+
+**→ Create → wait for RUNNING → copy the Public IP.**
+
+### "Out of capacity for shape VM.Standard.A1.Flex"
+
+The #1 Oracle ARM gotcha — **transient, not a hard block.** In order:
+
+1. **Retry Create** — capacity is released continuously; it often lands within a few tries.
+2. Try **AD-2 / AD-3** if the region offers them (single-AD regions like Johor won't), and
+   leave the Fault Domain unset.
+3. Retry at **off-peak local hours** (early morning) — noticeably better odds.
+4. Hands-off: the **auto-retry loop** below hammers the launch API across every AD until
+   one frees up (lands unattended, often overnight).
+5. Still stuck → **fallback host** (below).
+
+### Auto-retry the A1 launch (free-tier capacity loop)
+
+`deploy/oci-retry-launch.sh` keeps calling the launch API until capacity frees up, then
+Telegrams you the IP. Run it under `tmux`/`nohup` and walk away.
+
+**One-time OCI-CLI setup:**
+
+1. Install the CLI:
+
+   ```bash
+   bash -c "$(curl -L https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh)"
+   ```
+
+2. Configure auth — `oci setup config` generates a keypair in `~/.oci/` and asks for your
+   **User OCID** + **Tenancy OCID** + **region** (Console → Profile menu → your user →
+   *OCID*; → Tenancy → *OCID*; region e.g. `ap-johor-1` / `ap-singapore-1`). Then paste
+   `~/.oci/oci_api_key_public.pem` into Console → **Identity → Users → <you> → API Keys →
+   Add API Key → Paste public key**. Verify: `oci iam region list` prints a table (not an
+   auth error).
+3. Create the **VCN + a PUBLIC subnet** once in the console (networking has no capacity
+   limit), and copy the **subnet OCID**.
+
+**Run it:**
+
+```bash
+SUBNET_OCID=ocid1.subnet.oc1... \
+SSH_KEY=~/.ssh/id_oracle_buibui.pub \
+  tmux new -s oci 'bash deploy/oci-retry-launch.sh'
+```
+
+The script auto-discovers the latest Ubuntu 24.04 `aarch64` image, sweeps **all**
+availability domains each cycle, aborts immediately on a *non-capacity* error (bad config),
+and (if `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` are in `.env`) pings you on success. Optional
+env: `DISPLAY_NAME`, `OCPUS`, `MEM_GB`, `BOOT_VOL_GB`, `SLEEP_SECS`, `COMPARTMENT_OCID`.
+
+### Assign the static (Reserved) public IP
+
+Required for the Binance key IP-allowlist (Step 4); also makes the IP survive stop/start.
+
+1. Instance → **Resources → Attached VNICs** → primary VNIC.
+2. **Resources → IPv4 Addresses** → primary private IP → **⋮ → Edit**.
+3. **Public IP type → Reserved public IP → Create new reserved public IP** (`buibui-ip`) →
+   **Save**.
+
+If the dialog offers no public-IP option your subnet is **Private** — terminate, recreate,
+and force **Create new VCN → Public subnet** (verify under Networking → VCN → Subnets →
+"Subnet Access").
+
+### Fallback host (if Oracle A1 won't land)
+
+- **AMD micro** (`VM.Standard.E2.1.Micro`, Always-Free, usually has capacity) — but **1 GB
+  RAM**, tight for `poetry install` (pandas/pyarrow/duckdb); add a 2 GB swapfile and expect
+  it sluggish.
+- **Paid:** Racknerd (~$15/yr) or Hetzner CX22 (~€4/mo), 2+ GB RAM, no capacity lottery.
+  **Every step below is identical.**
+
+Then SSH in (default login user `ubuntu`):
+
+```bash
+ssh -i ~/.ssh/id_oracle_buibui ubuntu@<PUBLIC_IP>
+```
 
 ## Step 1 — Box bring-up
 
