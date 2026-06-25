@@ -289,6 +289,54 @@ def test_steady_state_turnover_blocks(tmp_path: Path) -> None:
     )
 
 
+def test_capital_override_sizes_off_fixed_capital(tmp_path: Path) -> None:
+    # `capital_override` makes the book size off a fixed capital instead of the
+    # account equity — so a testnet run with the faucet's ~15k balance can be
+    # forced to size like the real ~2.3k account (matching min-notional/lot-size
+    # discretization for a faithful A/B). The adapter equity is deliberately
+    # distinct from the override to prove it is ignored for sizing + reporting.
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    syms = _seed(conn)
+    adapter = _FakeAdapter(equity=50_000.0, positions={}, marks={})
+    res = run_once(
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
+        _limits(),
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
+        state_path=tmp_path / "s.json",
+        now=pd.Timestamp("2022-02-05", tz="UTC"),
+        capital_override=2_300.0,
+    )
+    assert res.equity == 2_300.0
+    assert res.book.capital == 2_300.0
+
+
+def test_capital_override_none_uses_adapter_equity(tmp_path: Path) -> None:
+    # Default (no override) is unchanged: the executor sizes off the live
+    # account equity reported by the adapter.
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    syms = _seed(conn)
+    adapter = _FakeAdapter(equity=10_000.0, positions={}, marks={})
+    res = run_once(
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
+        _limits(),
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
+        state_path=tmp_path / "s.json",
+        now=pd.Timestamp("2022-02-05", tz="UTC"),
+    )
+    assert res.equity == 10_000.0
+    assert res.book.capital == 10_000.0
+
+
 def test_missing_mark_forces_steady_state_cap(tmp_path: Path) -> None:
     # A held position whose mark is missing (0.0) must NOT be counted as
     # zero-gross — that would under-count current gross and wrongly trip the

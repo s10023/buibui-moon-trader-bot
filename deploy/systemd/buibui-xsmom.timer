@@ -1,0 +1,10 @@
+[Unit]
+Description=Run buibui XS executor daily at 00:10 UTC (just after the daily close)
+
+[Timer]
+OnCalendar=*-*-* 00:10:00 UTC
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,10 @@
+[Unit]
+Description=Run buibui signal-watch every 15 minutes (matched to the 15m timeframe)
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+RandomizedDelaySec=20
+
+[Install]
+WantedBy=timers.target

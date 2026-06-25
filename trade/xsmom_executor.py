@@ -80,13 +80,17 @@ def run_once(
     exchange_leverage: int,
     state_path: Path,
     now: pd.Timestamp | None = None,
+    capital_override: float | None = None,
 ) -> ExecutionResult:
     now = now if now is not None else pd.Timestamp(datetime.now(UTC))
     state = load_state(state_path)
     prior_peak = float(state["peak_equity"])
     kill = bool(state["kill_switch"])
 
-    equity = adapter.get_equity()
+    # `capital_override` sizes the book off a fixed capital (and reports it as
+    # equity) instead of the live account balance — used for a capital-matched
+    # testnet vs real-account A/B. Default keeps the live-equity behavior.
+    equity = capital_override if capital_override is not None else adapter.get_equity()
     book = replay_targets(conn, cfg, equity, symbols=symbols, now=now)
     data_age = _data_age_hours(book.as_of_date, now)
 
