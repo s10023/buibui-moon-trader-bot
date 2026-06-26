@@ -16,9 +16,13 @@ def extract_fvg_zones(
     df: pd.DataFrame,
     lookback: int = 100,
     min_gap_pct: float = 0.001,
-    max_zones: int = 30,
+    max_zones: int | None = 30,
 ) -> list[dict[str, Any]]:
-    """Return FVG price boxes. active=False once the CE (midpoint) is crossed."""
+    """Return FVG price boxes. active=False once the CE (midpoint) is crossed.
+
+    ``max_zones=None`` returns the full chronological zone list (untrimmed,
+    every active + inactive zone) — used by the structural touch-decay audit.
+    """
     n = len(df)
     if n < 3:
         return []
@@ -86,6 +90,8 @@ def extract_fvg_zones(
                 }
             )
 
+    if max_zones is None:
+        return zones
     # Active zones first, then the 5 most recent filled ones (for context)
     active_zones = [z for z in zones if z["active"]]
     inactive_zones = [z for z in zones if not z["active"]][-5:]
@@ -97,9 +103,12 @@ def extract_order_block_zones(
     df: pd.DataFrame,
     lookback: int = 100,
     displacement_pct: float = 0.003,
-    max_zones: int = 20,
+    max_zones: int | None = 20,
 ) -> list[dict[str, Any]]:
-    """Return OB price boxes. active=False once the zone is fully mitigated."""
+    """Return OB price boxes. active=False once the zone is fully mitigated.
+
+    ``max_zones=None`` returns the full chronological zone list (untrimmed).
+    """
     n = len(df)
     if n < 3:
         return []
@@ -166,6 +175,8 @@ def extract_order_block_zones(
                 }
             )
 
+    if max_zones is None:
+        return zones
     active_zones = [z for z in zones if z["active"]]
     inactive_zones = [z for z in zones if not z["active"]][-3:]
     return (active_zones + inactive_zones)[-max_zones:]
@@ -176,12 +187,13 @@ def extract_eqh_eql_zones(
     lookback: int = 100,
     tolerance_pct: float = 0.003,
     swing_n: int = 5,
-    max_zones: int = 10,
+    max_zones: int | None = 10,
 ) -> list[dict[str, Any]]:
     """Return EQH/EQL horizontal lines (liquidity pool levels).
 
     Finds pairs of swing highs (or lows) within tolerance_pct of each other.
     active=False when the pool has been swept (wick above EQH or below EQL).
+    ``max_zones=None`` returns the full chronological zone list (untrimmed).
     """
     n = len(df)
     if n < 2 * swing_n + 1:
@@ -278,6 +290,8 @@ def extract_eqh_eql_zones(
                 seen_eql.add(k)
                 break
 
+    if max_zones is None:
+        return zones
     return zones[-max_zones:]
 
 
@@ -285,13 +299,14 @@ def extract_bos_zones(
     df: pd.DataFrame,
     swing_lookback: int = 5,
     lookback: int = 100,
-    max_zones: int = 8,
+    max_zones: int | None = 8,
 ) -> list[dict[str, Any]]:
     """Return swing high/low BOS levels.
 
     active=True  — unbroken level (price never closed beyond it).
     active=False — broken level with close_ms = time of the breaking candle.
     Returns active levels + up to 5 most recent broken ones for context.
+    ``max_zones=None`` returns the full chronological level list (untrimmed).
     """
     n = len(df)
     if n < swing_lookback * 3:
@@ -354,6 +369,8 @@ def extract_bos_zones(
                 }
             )
 
+    if max_zones is None:
+        return zones
     active_zones = [z for z in zones if z["active"]]
     inactive_zones = [z for z in zones if not z["active"]][-5:]
     return (active_zones + inactive_zones)[-max_zones:]
