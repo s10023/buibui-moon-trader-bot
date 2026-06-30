@@ -114,10 +114,11 @@ Read-only, no DB writes; mirrors `tools/journal_fetch.py`'s shape. Responsibilit
 - Download each photo at `?name=orig` into a gitignored per-id media dir; return local paths.
 - On `__typename == "TweetTombstone"`, non-200, or empty payload → return `Unavailable(reason)`.
 
-**Implementation risk to spike first (does not affect this design):** the `token` is derived by a
-JavaScript float `(.../1e15*π).toString(36)` quirk that does not port trivially to Python. The plan
-must validate a Python port against the Node reference (both proven this session); if the port is
-not exact, a tiny Node helper invoked from the tool is the fallback. Decide in the plan, not here.
+**Implementation note (resolved 2026-06-30):** the `token` query param must be *present and
+non-empty* but its value is **not validated** by the endpoint — `token=a` returns a byte-identical
+payload to the algorithmically-derived token (verified on both test tweets; only an *absent* token
+fails, returning `{}`). So no JS-float `.toString(36)` port is needed: the fetcher is **pure
+Python** passing a fixed dummy token.
 
 ### (2) The extract subagent
 
@@ -207,7 +208,8 @@ tools/x_fetch.{py|mjs}          # syndication fetcher (committed; language per t
 
 ## Open questions (for the plan)
 
-- Fetcher language: Python (if the token port is exact) vs a tiny Node helper — spike decides.
+- ~~Fetcher language~~ **RESOLVED:** pure Python — a fixed dummy `token` suffices (see § The
+  fetcher), no JS-float port or Node helper needed.
 - Exact `pundit-calls.jsonl` line schema reuse: confirm it matches the parent spec's pundit-call
   schema field-for-field so Phase-2 resolution can consume both YouTube and X uniformly.
 - Skill name: `/ingest-x` (working) vs folding into a future unified `/ingest <url>` front door.
