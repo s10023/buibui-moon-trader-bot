@@ -17,6 +17,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Protocol
 
+import requests
+
 _SYNDICATION_URL = "https://cdn.syndication.twimg.com/tweet-result"
 _TOKEN = "a"  # any non-empty value works; the endpoint does not validate it
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
@@ -34,8 +36,6 @@ class HttpGet(Protocol):
 
 
 def _requests_get(url: str, *, headers: dict[str, str]) -> HttpResponse:
-    import requests
-
     return requests.get(url, headers=headers, timeout=20)  # type: ignore[return-value]
 
 

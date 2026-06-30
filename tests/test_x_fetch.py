@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,7 +26,7 @@ class FakeResp:
     content: bytes = b""
 
 
-def make_get(resp: FakeResp):  # type: ignore[no-untyped-def]
+def make_get(resp: FakeResp) -> Callable[..., FakeResp]:
     def _get(url: str, *, headers: dict[str, str]) -> FakeResp:
         return resp
 
