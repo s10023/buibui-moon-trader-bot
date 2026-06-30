@@ -13,6 +13,7 @@ from tools.x_fetch import (
     Unavailable,
     XPost,
     _format_human,
+    _orig,
     download_photos,
     fetch_x_post,
     parse_tweet_id,
@@ -175,3 +176,23 @@ def test_format_human() -> None:
     assert "Today's analysis $BTC" in out
     assert "photos: 1" in out
     assert "ABC.jpg?name=orig" in out
+
+
+# ---------------------------------------------------------------------------
+# Fix robustness: non-dict JSON + missing photo url
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_non_dict_json() -> None:
+    res = fetch_x_post(
+        "https://x.com/a/status/9",
+        get=make_get(FakeResp(200, "[1,2,3]")),
+    )
+    assert isinstance(res, Unavailable)
+
+
+def test_orig_strips_existing_query() -> None:
+    assert (
+        _orig("https://pbs.twimg.com/media/ABC.jpg?format=jpg&name=small")
+        == "https://pbs.twimg.com/media/ABC.jpg?name=orig"
+    )

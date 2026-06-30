@@ -80,11 +80,17 @@ def fetch_x_post(url: str, *, get: HttpGet = _requests_get) -> XPost | Unavailab
         data = json.loads(resp.text)
     except json.JSONDecodeError:
         return Unavailable("non-JSON response")
+    if not isinstance(data, dict):
+        return Unavailable("unexpected JSON shape")
     if not data or data.get("__typename") == "TweetTombstone" or "text" not in data:
         return Unavailable("post unavailable (protected/deleted/age-gated)")
     media = data.get("mediaDetails") or []
     video_present = any(m.get("type") in ("video", "animated_gif") for m in media)
-    photos = tuple(_orig(p["url"]) for p in (data.get("photos") or []))
+    photos = tuple(
+        _orig(p["url"])
+        for p in (data.get("photos") or [])
+        if isinstance(p, dict) and p.get("url")
+    )
     user = data.get("user") or {}
     return XPost(
         source="twitter",
