@@ -8,17 +8,17 @@ First-touch is a positive-EV, cost-netted tradable entry (boot-CI>0, Holm, n≥M
 
 Pre-committed BUILD gate (locked before running): on the **headline config** (`tp_r=2.0` × `sl_model=atr_floor` × `tf=1d`), first-touch (`touch_index==1`) net realized R must clear `n_first ≥ 30`, a block-bootstrap CI lower bound `> 0.0`, a Holm-adjusted `p < 0.05` across the (zone_type × direction) family, `n_first ≥ MinTRL(0.95)`, AND `DSR ≥ 0.95 ∧ PBO ≤ 0.5` over the tp_r × sl_model trial family. The first−repeat decay lift is secondary corroboration. Substrate = backtest/OHLCV (the live ledger cannot gate — cooldown removes repeats).
 
-Params: `tfs=['1d']`  `zone_types=['fvg', 'eqh_eql', 'bos']`  `tp_r_grid=[1.0, 1.5, 2.0, 3.0]`  `sl_models=['structural', 'atr_floor', 'fixed_atr']`  `fee_bps=5.0`  `slippage_bps=2.0`  `n_boot=10000`  `seed=12345`. Resolved trades: **2152399**.
+Params: `tfs=['1d', '4h']`  `zone_types=['fvg', 'eqh_eql', 'bos']`  `tp_r_grid=[1.0, 1.5, 2.0, 3.0]`  `sl_models=['structural', 'atr_floor', 'fixed_atr']`  `fee_bps=5.0`  `slippage_bps=2.0`  `n_boot=10000`  `seed=12345`. Resolved trades: **35112730**.
 
 ## Primary gate (per zone_type × direction, headline config)
 
 | zone × dir | n_first | n_rep | first_avg_r | boot CI | Holm p | MinTRL | DSR | PBO | decay lift | split | decision |
 | --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | :-: | --- |
-| bos/long | 2542 | 31165 | +0.218 | [+0.154, +0.285] | 0.000 | 127 | 1.000 | 0.122 | +0.321 | ✓ | **BUILD** |
-| bos/short | 2311 | 27853 | +0.188 | [+0.124, +0.253] | 0.000 | 169 | 1.000 | 0.047 | +0.242 | ✓ | **BUILD** |
+| bos/long | 2542 | 31166 | +0.218 | [+0.154, +0.285] | 0.000 | 127 | 1.000 | 0.122 | +0.321 | ✓ | **BUILD** |
+| bos/short | 2311 | 27856 | +0.188 | [+0.124, +0.253] | 0.000 | 169 | 1.000 | 0.045 | +0.243 | ✓ | **BUILD** |
 | eqh_eql/long | 384 | 7599 | +0.407 | [+0.253, +0.556] | 0.000 | 39 | 0.970 | 0.226 | +0.430 | ✓ | **BUILD** |
-| fvg/long | 3840 | 48090 | +0.540 | [+0.487, +0.593] | 0.000 | 23 | 1.000 | 0.000 | +0.649 | ✓ | **BUILD** |
-| fvg/short | 3718 | 45464 | +0.514 | [+0.465, +0.564] | 0.000 | 25 | 1.000 | 0.000 | +0.549 | ✓ | **BUILD** |
+| fvg/long | 3841 | 48092 | +0.540 | [+0.487, +0.593] | 0.000 | 23 | 1.000 | 0.000 | +0.649 | ✓ | **BUILD** |
+| fvg/short | 3718 | 45482 | +0.514 | [+0.465, +0.564] | 0.000 | 25 | 1.000 | 0.000 | +0.550 | ✓ | **BUILD** |
 | eqh_eql/short | 317 | 6276 | +0.420 | [+0.248, +0.589] | 0.000 | 37 | 1.000 | 0.541 | +0.407 | ✓ | **NO-EDGE** |
 
 ## Robustness — tp_r × sl_model sensitivity (reported, not gate-deciding)
@@ -41,10 +41,10 @@ First-touch net avg_r at tf=`1d` (n≥30); gross in parens.
 | bos/long | 3.0 | structural | 2534 | +0.267 | +0.340 |
 | bos/short | 1.0 | atr_floor | 2317 | +0.078 | +0.105 |
 | bos/short | 1.0 | fixed_atr | 2320 | +0.135 | +0.153 |
-| bos/short | 1.0 | structural | 2317 | +0.175 | +0.246 |
+| bos/short | 1.0 | structural | 2318 | +0.175 | +0.247 |
 | bos/short | 1.5 | atr_floor | 2313 | +0.149 | +0.172 |
 | bos/short | 1.5 | fixed_atr | 2313 | +0.173 | +0.185 |
-| bos/short | 1.5 | structural | 2313 | +0.237 | +0.305 |
+| bos/short | 1.5 | structural | 2314 | +0.238 | +0.306 |
 | bos/short | 2.0 | atr_floor | 2311 | +0.188 | +0.206 |
 | bos/short | 2.0 | fixed_atr | 2310 | +0.188 | +0.194 |
 | bos/short | 2.0 | structural | 2311 | +0.266 | +0.329 |
@@ -75,18 +75,18 @@ First-touch net avg_r at tf=`1d` (n≥30); gross in parens.
 | eqh_eql/short | 3.0 | atr_floor | 317 | +0.501 | +0.502 |
 | eqh_eql/short | 3.0 | fixed_atr | 316 | +0.422 | +0.405 |
 | eqh_eql/short | 3.0 | structural | 317 | +0.436 | +0.476 |
-| fvg/long | 1.0 | atr_floor | 3841 | +0.424 | +0.466 |
-| fvg/long | 1.0 | fixed_atr | 3838 | +0.288 | +0.321 |
-| fvg/long | 1.0 | structural | 3841 | +0.446 | +0.505 |
-| fvg/long | 1.5 | atr_floor | 3841 | +0.503 | +0.550 |
+| fvg/long | 1.0 | atr_floor | 3842 | +0.424 | +0.466 |
+| fvg/long | 1.0 | fixed_atr | 3839 | +0.288 | +0.321 |
+| fvg/long | 1.0 | structural | 3842 | +0.445 | +0.505 |
+| fvg/long | 1.5 | atr_floor | 3842 | +0.503 | +0.550 |
 | fvg/long | 1.5 | fixed_atr | 3833 | +0.356 | +0.394 |
-| fvg/long | 1.5 | structural | 3841 | +0.573 | +0.637 |
-| fvg/long | 2.0 | atr_floor | 3840 | +0.540 | +0.593 |
+| fvg/long | 1.5 | structural | 3842 | +0.573 | +0.637 |
+| fvg/long | 2.0 | atr_floor | 3841 | +0.540 | +0.593 |
 | fvg/long | 2.0 | fixed_atr | 3831 | +0.409 | +0.453 |
-| fvg/long | 2.0 | structural | 3840 | +0.680 | +0.748 |
-| fvg/long | 3.0 | atr_floor | 3837 | +0.594 | +0.658 |
+| fvg/long | 2.0 | structural | 3841 | +0.680 | +0.748 |
+| fvg/long | 3.0 | atr_floor | 3838 | +0.594 | +0.657 |
 | fvg/long | 3.0 | fixed_atr | 3829 | +0.482 | +0.538 |
-| fvg/long | 3.0 | structural | 3838 | +0.802 | +0.881 |
+| fvg/long | 3.0 | structural | 3839 | +0.802 | +0.881 |
 | fvg/short | 1.0 | atr_floor | 3731 | +0.452 | +0.483 |
 | fvg/short | 1.0 | fixed_atr | 3723 | +0.318 | +0.334 |
 | fvg/short | 1.0 | structural | 3732 | +0.497 | +0.548 |
@@ -94,10 +94,10 @@ First-touch net avg_r at tf=`1d` (n≥30); gross in parens.
 | fvg/short | 1.5 | fixed_atr | 3708 | +0.329 | +0.343 |
 | fvg/short | 1.5 | structural | 3729 | +0.594 | +0.643 |
 | fvg/short | 2.0 | atr_floor | 3718 | +0.514 | +0.540 |
-| fvg/short | 2.0 | fixed_atr | 3704 | +0.375 | +0.386 |
+| fvg/short | 2.0 | fixed_atr | 3705 | +0.374 | +0.385 |
 | fvg/short | 2.0 | structural | 3722 | +0.678 | +0.726 |
 | fvg/short | 3.0 | atr_floor | 3696 | +0.560 | +0.582 |
-| fvg/short | 3.0 | fixed_atr | 3688 | +0.344 | +0.350 |
+| fvg/short | 3.0 | fixed_atr | 3690 | +0.343 | +0.350 |
 | fvg/short | 3.0 | structural | 3707 | +0.798 | +0.844 |
 
 ## Live context — blended structural avg_r
