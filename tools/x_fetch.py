@@ -11,9 +11,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import re
 import sys
-from dataclasses import asdict, dataclass
+import time
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
@@ -58,6 +62,8 @@ class XPost:
     video_present: bool
     is_thread: bool
     is_quote: bool
+    quoted_text: str = ""  # nested quoted_tweet body, best-effort
+    quoted_author: str = ""  # nested quoted_tweet @handle, best-effort
 
 
 @dataclass(frozen=True)
@@ -92,6 +98,8 @@ def fetch_x_post(url: str, *, get: HttpGet = _requests_get) -> XPost | Unavailab
         if isinstance(p, dict) and p.get("url")
     )
     user = data.get("user") or {}
+    quoted = data.get("quoted_tweet") or {}
+    quoted_user = quoted.get("user") or {} if isinstance(quoted, dict) else {}
     return XPost(
         source="twitter",
         author=user.get("screen_name", ""),
@@ -103,6 +111,8 @@ def fetch_x_post(url: str, *, get: HttpGet = _requests_get) -> XPost | Unavailab
         video_present=video_present,
         is_thread=data.get("parent") is not None,
         is_quote=data.get("quoted_tweet") is not None,
+        quoted_text=quoted.get("text", "") if isinstance(quoted, dict) else "",
+        quoted_author=quoted_user.get("screen_name", ""),
     )
 
 
@@ -121,6 +131,97 @@ def download_photos(
     return paths
 
 
+@dataclass(frozen=True)
+class BatchResult:
+    url: str
+    post: XPost | Unavailable
+    photo_paths: list[str] = field(default_factory=list)
+    cached: bool = False
+
+
+def _cache_path(cache_dir: Path, tweet_id: str) -> Path:
+    return cache_dir / f"{tweet_id}.json"
+
+
+def _load_cached(cache_dir: Path, tweet_id: str) -> tuple[XPost, list[str]] | None:
+    path = _cache_path(cache_dir, tweet_id)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+        raw = dict(data["post"])
+        raw["photo_urls"] = tuple(raw.get("photo_urls", ()))
+        return XPost(**raw), list(data.get("photo_paths", []))
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return None  # corrupt cache ⇒ treat as a miss, re-fetch
+
+
+def _write_cache(
+    cache_dir: Path, tweet_id: str, post: XPost, photo_paths: list[str]
+) -> None:
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "post": asdict(post),
+        "photo_paths": photo_paths,
+        "fetched_at_utc": datetime.now(UTC).isoformat(),
+    }
+    _cache_path(cache_dir, tweet_id).write_text(json.dumps(payload, indent=2))
+
+
+def fetch_x_batch(
+    urls: list[str],
+    *,
+    cache_dir: Path = Path(".cache/x-posts"),
+    media_root: Path = Path(".cache/x-media"),
+    min_delay: float = 4.0,
+    max_delay: float = 12.0,
+    force: bool = False,
+    get: HttpGet = _requests_get,
+    sleep: Callable[[float], None] = time.sleep,
+    rng: random.Random | None = None,
+) -> list[BatchResult]:
+    """Fetch several posts once each, with a randomized cooldown between *network*
+    fetches and a per-id dedup cache (re-runs hit zero network). Cache hits add no
+    pause; the first network fetch is never delayed. ``sleep``/``rng``/``get`` are
+    injected for deterministic tests. Downloads charts once (no double-fetch)."""
+    rng = rng or random.Random()
+    results: list[BatchResult] = []
+    did_network = False
+    for url in urls:
+        try:
+            tweet_id = parse_tweet_id(url)
+        except ValueError as exc:
+            results.append(BatchResult(url=url, post=Unavailable(str(exc))))
+            continue
+        if not force:
+            cached = _load_cached(cache_dir, tweet_id)
+            if cached is not None:
+                post, photo_paths = cached
+                results.append(
+                    BatchResult(
+                        url=url, post=post, photo_paths=photo_paths, cached=True
+                    )
+                )
+                continue
+        if did_network:
+            sleep(rng.uniform(min_delay, max_delay))
+        did_network = True
+        post_or_err = fetch_x_post(url, get=get)
+        if isinstance(post_or_err, Unavailable):
+            results.append(BatchResult(url=url, post=post_or_err))
+            continue
+        photo_paths = [
+            str(p) for p in download_photos(post_or_err, media_root / tweet_id, get=get)
+        ]
+        _write_cache(cache_dir, tweet_id, post_or_err, photo_paths)
+        results.append(
+            BatchResult(
+                url=url, post=post_or_err, photo_paths=photo_paths, cached=False
+            )
+        )
+    return results
+
+
 def _format_human(post: XPost) -> str:
     lines = [
         f"@{post.author} ({post.author_name})  {post.post_ts_utc}",
@@ -128,22 +229,79 @@ def _format_human(post: XPost) -> str:
         f"photos: {len(post.photo_urls)}  video: {post.video_present}  "
         f"thread: {post.is_thread}  quote: {post.is_quote}",
     ]
+    if post.quoted_text:
+        lines.append(f"  ↳ quoting @{post.quoted_author}: {post.quoted_text}")
     lines.extend(f"  {u}" for u in post.photo_urls)
     return "\n".join(lines)
 
 
-def main(argv: list[str] | None = None) -> int:
+def _result_to_dict(result: BatchResult) -> dict[str, object]:
+    base: dict[str, object] = {
+        "url": result.url,
+        "cached": result.cached,
+        "photo_paths": result.photo_paths,
+    }
+    if isinstance(result.post, Unavailable):
+        return {**base, "post": None, "unavailable": result.post.reason}
+    return {**base, "post": asdict(result.post), "unavailable": None}
+
+
+def main(
+    argv: list[str] | None = None,
+    *,
+    get: HttpGet = _requests_get,
+    sleep: Callable[[float], None] = time.sleep,
+) -> int:
     parser = argparse.ArgumentParser(
-        description="Fetch an X post via the public syndication endpoint (read-only)."
+        description="Fetch one or more X posts via the public syndication endpoint (read-only)."
     )
-    parser.add_argument("url")
+    parser.add_argument("urls", nargs="+", help="one or more X/Twitter status URLs")
     parser.add_argument("--json", action="store_true", help="emit JSON")
+    parser.add_argument(
+        "--batch", action="store_true", help="force batch mode for a single URL"
+    )
+    parser.add_argument("--force", action="store_true", help="ignore the dedup cache")
+    parser.add_argument(
+        "--min-delay", type=float, default=4.0, help="min cooldown seconds"
+    )
+    parser.add_argument(
+        "--max-delay", type=float, default=12.0, help="max cooldown seconds"
+    )
+    parser.add_argument("--cache-dir", default=".cache/x-posts", help="dedup cache dir")
+    parser.add_argument(
+        "--media-root", default=".cache/x-media", help="downloaded-chart dir"
+    )
     args = parser.parse_args(argv)
-    result = fetch_x_post(args.url)
-    if isinstance(result, Unavailable):
-        print(f"UNAVAILABLE: {result.reason}", file=sys.stderr)
-        return 1
-    print(json.dumps(asdict(result), indent=2) if args.json else _format_human(result))
+
+    if len(args.urls) == 1 and not args.batch:
+        result = fetch_x_post(args.urls[0], get=get)
+        if isinstance(result, Unavailable):
+            print(f"UNAVAILABLE: {result.reason}", file=sys.stderr)
+            return 1
+        print(
+            json.dumps(asdict(result), indent=2) if args.json else _format_human(result)
+        )
+        return 0
+
+    results = fetch_x_batch(
+        args.urls,
+        cache_dir=Path(args.cache_dir),
+        media_root=Path(args.media_root),
+        min_delay=args.min_delay,
+        max_delay=args.max_delay,
+        force=args.force,
+        get=get,
+        sleep=sleep,
+    )
+    if args.json:
+        print(json.dumps([_result_to_dict(r) for r in results], indent=2))
+    else:
+        for r in results:
+            tag = " [cached]" if r.cached else ""
+            if isinstance(r.post, Unavailable):
+                print(f"UNAVAILABLE ({r.post.reason}): {r.url}")
+            else:
+                print(f"{_format_human(r.post)}{tag}\n")
     return 0
 
 
