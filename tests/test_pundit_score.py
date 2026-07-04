@@ -76,6 +76,17 @@ class TestLoaders:
         assert calls[0].entry_px == 58100.0
         assert calls[0].stop_px is None
 
+    def test_load_ledger_warns_on_non_object_json_line(self, tmp_path: Path) -> None:
+        p = tmp_path / "calls.jsonl"
+        p.write_text(
+            json.dumps(self._good_line()) + "\n" + json.dumps([1, 2]) + "\n",
+            encoding="utf-8",
+        )
+        calls, warnings = load_ledger(p)
+        assert len(calls) == 1
+        assert calls[0].author == "A"
+        assert len(warnings) == 1 and "line 2" in warnings[0]
+
     def test_load_overrides_and_missing_file(self, tmp_path: Path) -> None:
         p = tmp_path / "overrides.jsonl"
         p.write_text(

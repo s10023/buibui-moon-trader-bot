@@ -129,6 +129,9 @@ def load_ledger(path: Path) -> tuple[list[LedgerCall], list[str]]:
             continue
         try:
             obj = json.loads(raw)
+            if not isinstance(obj, dict):
+                warnings.append(f"ledger line {line_no}: skipped (not a JSON object)")
+                continue
             calls.append(
                 LedgerCall(
                     line_no=line_no,
