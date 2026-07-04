@@ -13,10 +13,12 @@ Entries/stops/TP are resolved through the production backtest engine
 (``analytics/backtest/engine.run_backtest``) so the cost model
 (``net_R = raw − fee − slippage − funding``), next-bar-open entry, and SL/TP
 candle scan match live exactly. The gate keys on a pre-committed headline config
-(``--headline-tp-r`` × ``--headline-sl-model`` × ``--headline-tf``); the
-tp_r × sl_model grid is reported as a robustness sensitivity, and DSR / PBO over
-that grid deflate the headline. The live ledger cannot isolate first touches
-(cooldown removes repeats) — it is shown only as blended context.
+(``--headline-tp-r`` × ``--headline-sl-model``) evaluated SEPARATELY for every tf
+passed via ``--timeframes`` — there is no cross-tf pooling, and a BUILD on one tf
+does NOT imply a BUILD on another. Each tf gets its own gate table + tp_r ×
+sl_model sensitivity table; DSR / PBO over that grid deflate each tf's own
+headline. The live ledger cannot isolate first touches (cooldown removes
+repeats) — it is shown only as blended context.
 
 Read-only — no DB writes, no engine change.
 
@@ -105,6 +107,7 @@ def _live_context(db: Path) -> pd.DataFrame:
 
 
 def _headline(verdicts: list[StructuralBuildVerdict]) -> tuple[str, str]:
+    """Per-tf headline: decision + rationale for one tf's verdict list."""
     built = [f"{v.zone_type}/{v.direction}" for v in verdicts if v.decision == "BUILD"]
     if built:
         return (
@@ -124,6 +127,54 @@ def _headline(verdicts: list[StructuralBuildVerdict]) -> tuple[str, str]:
     return (
         "INSUFFICIENT",
         "No cell reaches min_n first touches at the headline config → underpowered.",
+    )
+
+
+def _combined_headline(
+    verdicts_by_tf: dict[str, list[StructuralBuildVerdict]],
+) -> tuple[str, str]:
+    """Overall status across ALL requested tfs — never claims a tf it didn't test.
+
+    Deliberately does NOT collapse a per-tf disagreement into a single BUILD/
+    NO-EDGE — a mixed outcome (e.g. BUILD on 1d, NO-EDGE on 4h) is reported as
+    MIXED so a verdict is never claimed to "hold" on a tf that contradicts it.
+    """
+    per_tf = {tf: _headline(vs)[0] for tf, vs in verdicts_by_tf.items()}
+    statuses = set(per_tf.values())
+    tfs = list(verdicts_by_tf)
+
+    if statuses == {"BUILD"}:
+        return (
+            "BUILD",
+            "BUILD holds independently on every requested timeframe ("
+            + ", ".join(tfs)
+            + ") — see the per-tf breakdown below for each tf's own cells.",
+        )
+    if "BUILD" in statuses:
+        build_tfs = [tf for tf in tfs if per_tf[tf] == "BUILD"]
+        other = [f"{tf}={per_tf[tf]}" for tf in tfs if per_tf[tf] != "BUILD"]
+        return (
+            "MIXED",
+            "BUILD holds ONLY on "
+            + ", ".join(build_tfs)
+            + "; does NOT replicate on "
+            + ", ".join(other)
+            + ". Do not report this as a single cross-tf BUILD — read the "
+            "per-tf breakdown; a `structural_touch` detector would have to be "
+            "scoped to the tf(s) that actually clear the gate.",
+        )
+    if statuses == {"NO-EDGE"}:
+        return (
+            "NO-EDGE",
+            "No powered cell on any requested tf ("
+            + ", ".join(tfs)
+            + ") clears the de-biased BUILD bar — XS-solo stays the deploy core.",
+        )
+    return (
+        "INSUFFICIENT",
+        "No cell on any requested tf ("
+        + ", ".join(tfs)
+        + ") reaches min_n first touches at the headline config → underpowered.",
     )
 
 
@@ -228,14 +279,39 @@ def _caveats() -> list[str]:
     ]
 
 
+def _tf_section(
+    tf: str, verdicts: list[StructuralBuildVerdict], table: pd.DataFrame, *, min_n: int
+) -> list[str]:
+    """One tf's gate table + sensitivity table (both scoped to this tf only)."""
+    verdict, rationale = _headline(verdicts)
+    return [
+        f"### tf=`{tf}` — headline: **{verdict}**",
+        "",
+        rationale,
+        "",
+        f"#### Primary gate (per zone_type × direction, tf=`{tf}`)",
+        "",
+        *_gate_table(verdicts),
+        "",
+        f"#### Robustness — tp_r × sl_model sensitivity (tf=`{tf}`, reported, "
+        "not gate-deciding)",
+        "",
+        *_sensitivity_table(table, headline_tf=tf, min_n=min_n),
+        "",
+    ]
+
+
 def _report(
     *,
-    verdicts: list[StructuralBuildVerdict],
+    verdicts_by_tf: dict[str, list[StructuralBuildVerdict]],
     table: pd.DataFrame,
     live: pd.DataFrame,
     args: argparse.Namespace,
 ) -> str:
-    verdict, rationale = _headline(verdicts)
+    verdict, rationale = _combined_headline(verdicts_by_tf)
+    tf_sections: list[str] = []
+    for tf in verdicts_by_tf:
+        tf_sections.extend(_tf_section(tf, verdicts_by_tf[tf], table, min_n=args.min_n))
     out = [
         "# Faithful per-strategy structural entry-sim harness",
         "",
@@ -246,28 +322,25 @@ def _report(
         rationale,
         "",
         "Pre-committed BUILD gate (locked before running): on the **headline config** "
-        f"(`tp_r={args.headline_tp_r}` × `sl_model={args.headline_sl_model}` × "
-        f"`tf={args.headline_tf}`), first-touch (`touch_index==1`) net realized R must "
-        f"clear `n_first ≥ {args.min_n}`, a block-bootstrap CI lower bound `> {args.bar}`, "
-        f"a Holm-adjusted `p < {args.alpha}` across the (zone_type × direction) family, "
-        "`n_first ≥ MinTRL(0.95)`, AND `DSR ≥ 0.95 ∧ PBO ≤ 0.5` over the tp_r × sl_model "
-        "trial family. The first−repeat decay lift is secondary corroboration. "
-        "Substrate = backtest/OHLCV (the live ledger cannot gate — cooldown removes "
-        "repeats).",
+        f"(`tp_r={args.headline_tp_r}` × `sl_model={args.headline_sl_model}`), "
+        "evaluated SEPARATELY for each tf below (no cross-tf pooling), first-touch "
+        "(`touch_index==1`) net realized R must clear `n_first ≥ "
+        f"{args.min_n}`, a block-bootstrap CI lower bound `> {args.bar}`, "
+        f"a Holm-adjusted `p < {args.alpha}` across that tf's (zone_type × direction) "
+        "family, `n_first ≥ MinTRL(0.95)`, AND `DSR ≥ 0.95 ∧ PBO ≤ 0.5` over that tf's "
+        "tp_r × sl_model trial family. The first−repeat decay lift is secondary "
+        "corroboration. Substrate = backtest/OHLCV (the live ledger cannot gate — "
+        "cooldown removes repeats).",
         "",
         f"Params: `tfs={args.timeframes}`  `zone_types={args.zone_types}`  "
         f"`tp_r_grid={args.tp_r_grid}`  `sl_models={args.sl_models}`  "
         f"`fee_bps={args.fee_bps}`  `slippage_bps={args.slippage_bps}`  "
-        f"`n_boot={args.n_boot}`  `seed={args.seed}`. Resolved trades: **{len(table)}**.",
+        f"`n_boot={args.n_boot}`  `seed={args.seed}`. Resolved trades (all tfs): "
+        f"**{len(table)}**.",
         "",
-        "## Primary gate (per zone_type × direction, headline config)",
+        "## Per-timeframe breakdown",
         "",
-        *_gate_table(verdicts),
-        "",
-        "## Robustness — tp_r × sl_model sensitivity (reported, not gate-deciding)",
-        "",
-        *_sensitivity_table(table, headline_tf=args.headline_tf, min_n=args.min_n),
-        "",
+        *tf_sections,
         "## Live context — blended structural avg_r",
         "",
         *_live_table(live),
@@ -281,8 +354,9 @@ def _report(
         "*Realized R through real next-bar-open entries, structural / ATR stops, and "
         "`tp_r × risk` targets, net of fees + slippage + funding via the production "
         "engine. A BUILD verdict motivates a `structural_touch` detector (still "
-        "live-OOS gated); NO-EDGE closes the thread. ob / fib zone types and the 4h "
-        "robustness pass are opt-in via `--zone-types` / `--timeframes`.*",
+        "live-OOS gated), scoped to the tf(s) that actually clear the gate; NO-EDGE "
+        "on a tf closes the thread for that tf. ob / fib zone types are opt-in via "
+        "`--zone-types`.*",
         "",
     ]
     return "\n".join(out)
@@ -300,7 +374,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--sl-models", nargs="+", default=list(SL_MODELS))
     p.add_argument("--headline-tp-r", type=float, default=2.0)
     p.add_argument("--headline-sl-model", default="atr_floor")
-    p.add_argument("--headline-tf", default="1d")
+    p.add_argument(
+        "--headline-tf",
+        nargs="+",
+        default=None,
+        help="tf(s) to gate on; default = --timeframes (every requested tf gets "
+        "its own gate + tables — no cross-tf pooling)",
+    )
     p.add_argument("--fee-bps", type=float, default=5.0, help="per-leg taker fee (bps)")
     p.add_argument(
         "--slippage-bps", type=float, default=2.0, help="per-leg slippage (bps)"
@@ -357,30 +437,35 @@ def main() -> int:
             {}, args.zone_types, tp_r_grid=args.tp_r_grid, sl_models=args.sl_models
         )
     )
-    verdicts = evaluate_build(
-        table,
-        headline_tp_r=args.headline_tp_r,
-        headline_sl_model=args.headline_sl_model,
-        headline_tf=args.headline_tf,
-        min_n=args.min_n,
-        bar=args.bar,
-        alpha=args.alpha,
-        n_boot=args.n_boot,
-        seed=args.seed,
-    )
+    headline_tfs = args.headline_tf if args.headline_tf else args.timeframes
+    verdicts_by_tf: dict[str, list[StructuralBuildVerdict]] = {}
+    for tf in headline_tfs:
+        verdicts_by_tf[tf] = evaluate_build(
+            table,
+            headline_tp_r=args.headline_tp_r,
+            headline_sl_model=args.headline_sl_model,
+            headline_tf=tf,
+            min_n=args.min_n,
+            bar=args.bar,
+            alpha=args.alpha,
+            n_boot=args.n_boot,
+            seed=args.seed,
+        )
     live = _live_context(args.db)
-    report = _report(verdicts=verdicts, table=table, live=live, args=args)
+    report = _report(verdicts_by_tf=verdicts_by_tf, table=table, live=live, args=args)
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(report)
-    verdict, rationale = _headline(verdicts)
+    verdict, rationale = _combined_headline(verdicts_by_tf)
     print(f"\nHeadline verdict: {verdict}\n{rationale}\n")
-    for v in sorted(verdicts, key=lambda v: v.zone_type):
-        print(
-            f"  {v.zone_type}/{v.direction}: {v.decision}  "
-            f"(n_first={v.n_first} first_avg_r={_fmt(v.first_avg_r)} "
-            f"dsr={_fmt_p(v.dsr)} pbo={_fmt_p(v.pbo)})"
-        )
+    for tf in headline_tfs:
+        print(f"tf={tf}:")
+        for v in sorted(verdicts_by_tf[tf], key=lambda v: v.zone_type):
+            print(
+                f"  {v.zone_type}/{v.direction}: {v.decision}  "
+                f"(n_first={v.n_first} first_avg_r={_fmt(v.first_avg_r)} "
+                f"dsr={_fmt_p(v.dsr)} pbo={_fmt_p(v.pbo)})"
+            )
     print(f"\nWrote {args.out}")
     return 0
 

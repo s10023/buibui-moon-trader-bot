@@ -4,53 +4,82 @@
 
 ## Headline verdict: **BUILD**
 
+BUILD holds independently on every requested timeframe (1d) — see the per-tf breakdown below for each tf's own cells.
+
+Pre-committed BUILD gate (locked before running): on the **headline config** (`tp_r=2.0` × `sl_model=atr_floor`), evaluated SEPARATELY for each tf below (no cross-tf pooling), first-touch (`touch_index==1`) net realized R must clear `n_first ≥ 30`, a block-bootstrap CI lower bound `> 0.0`, a Holm-adjusted `p < 0.05` across that tf's (zone_type × direction) family, `n_first ≥ MinTRL(0.95)`, AND `DSR ≥ 0.95 ∧ PBO ≤ 0.5` over that tf's tp_r × sl_model trial family. The first−repeat decay lift is secondary corroboration. Substrate = backtest/OHLCV (the live ledger cannot gate — cooldown removes repeats).
+
+Params: `tfs=['1d']`  `zone_types=['fvg', 'eqh_eql', 'bos']`  `tp_r_grid=[1.0, 1.5, 2.0, 3.0]`  `sl_models=['structural', 'atr_floor', 'fixed_atr']`  `fee_bps=5.0`  `slippage_bps=2.0`  `n_boot=10000`  `seed=12345`. Resolved trades (all tfs): **2152924**.
+
+## Correction (2026-07-02) — retracting the "1d+4h" claim in `e7cf450`
+
+Commit `e7cf450` ("regenerate structural entry-sim verdict with 1d+4h — BUILD holds") was
+**misleading**: `structural_entry_sim_audit.py` hardcoded gate evaluation and every printed
+table to `tf="1d"`, so even though that run's `build_realized_table` call resolved trades
+across both `1d` and `4h` (its "Resolved trades" count included both), the 4h zone/direction
+cells were never actually passed through `evaluate_build` — no 4h gate verdict was ever
+computed, let alone a BUILD one. The tool has been fixed on this branch (per-tf evaluation +
+reporting, no cross-tf pooling; see `_combined_headline`, which now reports `MIXED` instead of
+collapsing a per-tf disagreement into a single verdict).
+
+Re-running the fixed tool for `1d` alone reproduces the original 1d numbers below
+(bos/long/short, eqh_eql/long, fvg/long/short = BUILD; eqh_eql/short = NO-EDGE) — the
+**1d verdict itself is unchanged and stands**. A `1d + 4h` re-run was attempted with the fixed
+tool but the OS OOM-killed the process (~20.8GB resident) before it could finish: 4h has ~6×
+the bar count of 1d, and `build_realized_table` (`analytics/structural_entry_sim.py`)
+accumulates every per-touch trade row across the full symbol × tf × zone_type × tp_r × sl_model
+grid in memory before one final concat — a memory-scaling issue in the harness itself, not a
+correctness bug, and not necessarily deterministic (headroom depends on what else is running on
+the machine at the time). Fixing it (streaming/chunked accumulation instead of an
+all-in-memory list-of-DataFrames) is tracked as a follow-up; until then, **4h is UNVALIDATED**
+— do not cite `e7cf450` or this run as 4h evidence. The BUILD verdict below is 1d-only.
+
+## Per-timeframe breakdown
+
+### tf=`1d` — headline: **BUILD**
+
 First-touch is a positive-EV, cost-netted tradable entry (boot-CI>0, Holm, n≥MinTRL, DSR/PBO) on: bos/long, bos/short, eqh_eql/long, fvg/long, fvg/short → build a `structural_touch` detector for these cells (live-OOS gated).
 
-Pre-committed BUILD gate (locked before running): on the **headline config** (`tp_r=2.0` × `sl_model=atr_floor` × `tf=1d`), first-touch (`touch_index==1`) net realized R must clear `n_first ≥ 30`, a block-bootstrap CI lower bound `> 0.0`, a Holm-adjusted `p < 0.05` across the (zone_type × direction) family, `n_first ≥ MinTRL(0.95)`, AND `DSR ≥ 0.95 ∧ PBO ≤ 0.5` over the tp_r × sl_model trial family. The first−repeat decay lift is secondary corroboration. Substrate = backtest/OHLCV (the live ledger cannot gate — cooldown removes repeats).
-
-Params: `tfs=['1d', '4h']`  `zone_types=['fvg', 'eqh_eql', 'bos']`  `tp_r_grid=[1.0, 1.5, 2.0, 3.0]`  `sl_models=['structural', 'atr_floor', 'fixed_atr']`  `fee_bps=5.0`  `slippage_bps=2.0`  `n_boot=10000`  `seed=12345`. Resolved trades: **35112730**.
-
-## Primary gate (per zone_type × direction, headline config)
+#### Primary gate (per zone_type × direction, tf=`1d`)
 
 | zone × dir | n_first | n_rep | first_avg_r | boot CI | Holm p | MinTRL | DSR | PBO | decay lift | split | decision |
 | --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | :-: | --- |
-| bos/long | 2542 | 31166 | +0.218 | [+0.154, +0.285] | 0.000 | 127 | 1.000 | 0.122 | +0.321 | ✓ | **BUILD** |
-| bos/short | 2311 | 27856 | +0.188 | [+0.124, +0.253] | 0.000 | 169 | 1.000 | 0.045 | +0.243 | ✓ | **BUILD** |
-| eqh_eql/long | 384 | 7599 | +0.407 | [+0.253, +0.556] | 0.000 | 39 | 0.970 | 0.226 | +0.430 | ✓ | **BUILD** |
-| fvg/long | 3841 | 48092 | +0.540 | [+0.487, +0.593] | 0.000 | 23 | 1.000 | 0.000 | +0.649 | ✓ | **BUILD** |
+| bos/long | 2542 | 31175 | +0.218 | [+0.154, +0.285] | 0.000 | 127 | 1.000 | 0.127 | +0.321 | ✓ | **BUILD** |
+| bos/short | 2311 | 27856 | +0.188 | [+0.124, +0.253] | 0.000 | 169 | 1.000 | 0.046 | +0.243 | ✓ | **BUILD** |
+| eqh_eql/long | 384 | 7600 | +0.407 | [+0.253, +0.556] | 0.000 | 39 | 0.970 | 0.226 | +0.430 | ✓ | **BUILD** |
+| fvg/long | 3841 | 48106 | +0.540 | [+0.487, +0.593] | 0.000 | 23 | 1.000 | 0.000 | +0.649 | ✓ | **BUILD** |
 | fvg/short | 3718 | 45482 | +0.514 | [+0.465, +0.564] | 0.000 | 25 | 1.000 | 0.000 | +0.550 | ✓ | **BUILD** |
 | eqh_eql/short | 317 | 6276 | +0.420 | [+0.248, +0.589] | 0.000 | 37 | 1.000 | 0.541 | +0.407 | ✓ | **NO-EDGE** |
 
-## Robustness — tp_r × sl_model sensitivity (reported, not gate-deciding)
+#### Robustness — tp_r × sl_model sensitivity (tf=`1d`, reported, not gate-deciding)
 
 First-touch net avg_r at tf=`1d` (n≥30); gross in parens.
 
 | zone × dir | tp_r | sl_model | n | net avg_r | gross |
 | --- | ---: | --- | ---: | ---: | ---: |
 | bos/long | 1.0 | atr_floor | 2545 | +0.136 | +0.167 |
-| bos/long | 1.0 | fixed_atr | 2546 | +0.138 | +0.164 |
+| bos/long | 1.0 | fixed_atr | 2547 | +0.138 | +0.164 |
 | bos/long | 1.0 | structural | 2545 | +0.158 | +0.216 |
 | bos/long | 1.5 | atr_floor | 2543 | +0.205 | +0.240 |
-| bos/long | 1.5 | fixed_atr | 2543 | +0.167 | +0.197 |
+| bos/long | 1.5 | fixed_atr | 2544 | +0.167 | +0.197 |
 | bos/long | 1.5 | structural | 2543 | +0.227 | +0.288 |
 | bos/long | 2.0 | atr_floor | 2542 | +0.218 | +0.257 |
-| bos/long | 2.0 | fixed_atr | 2538 | +0.159 | +0.193 |
+| bos/long | 2.0 | fixed_atr | 2539 | +0.158 | +0.192 |
 | bos/long | 2.0 | structural | 2542 | +0.238 | +0.303 |
 | bos/long | 3.0 | atr_floor | 2534 | +0.235 | +0.282 |
-| bos/long | 3.0 | fixed_atr | 2532 | +0.114 | +0.158 |
+| bos/long | 3.0 | fixed_atr | 2533 | +0.114 | +0.158 |
 | bos/long | 3.0 | structural | 2534 | +0.267 | +0.340 |
-| bos/short | 1.0 | atr_floor | 2317 | +0.078 | +0.105 |
+| bos/short | 1.0 | atr_floor | 2318 | +0.078 | +0.105 |
 | bos/short | 1.0 | fixed_atr | 2320 | +0.135 | +0.153 |
 | bos/short | 1.0 | structural | 2318 | +0.175 | +0.247 |
-| bos/short | 1.5 | atr_floor | 2313 | +0.149 | +0.172 |
+| bos/short | 1.5 | atr_floor | 2314 | +0.149 | +0.172 |
 | bos/short | 1.5 | fixed_atr | 2313 | +0.173 | +0.185 |
 | bos/short | 1.5 | structural | 2314 | +0.238 | +0.306 |
 | bos/short | 2.0 | atr_floor | 2311 | +0.188 | +0.206 |
 | bos/short | 2.0 | fixed_atr | 2310 | +0.188 | +0.194 |
-| bos/short | 2.0 | structural | 2311 | +0.266 | +0.329 |
+| bos/short | 2.0 | structural | 2312 | +0.267 | +0.330 |
 | bos/short | 3.0 | atr_floor | 2305 | +0.211 | +0.222 |
 | bos/short | 3.0 | fixed_atr | 2306 | +0.166 | +0.162 |
-| bos/short | 3.0 | structural | 2307 | +0.275 | +0.332 |
+| bos/short | 3.0 | structural | 2308 | +0.276 | +0.333 |
 | eqh_eql/long | 1.0 | atr_floor | 384 | +0.252 | +0.286 |
 | eqh_eql/long | 1.0 | fixed_atr | 384 | +0.268 | +0.297 |
 | eqh_eql/long | 1.0 | structural | 384 | +0.057 | +0.302 |
@@ -116,8 +145,8 @@ Blended over ALL touches (live cooldown removes repeats — cannot isolate first
 | eqh_eql | short | 17 | +0.773 |
 | liquidity_sweep | short | 9 | +0.889 |
 | fib_golden_zone | long | 9 | +0.672 |
-| fib_golden_zone | short | 3 | +0.500 |
 | liquidity_sweep | long | 3 | +0.833 |
+| fib_golden_zone | short | 3 | +0.500 |
 
 ## Interpretation & caveats (always read before acting)
 
@@ -129,4 +158,4 @@ Blended over ALL touches (live cooldown removes repeats — cannot isolate first
 
 ---
 
-*Realized R through real next-bar-open entries, structural / ATR stops, and `tp_r × risk` targets, net of fees + slippage + funding via the production engine. A BUILD verdict motivates a `structural_touch` detector (still live-OOS gated); NO-EDGE closes the thread. ob / fib zone types and the 4h robustness pass are opt-in via `--zone-types` / `--timeframes`.*
+*Realized R through real next-bar-open entries, structural / ATR stops, and `tp_r × risk` targets, net of fees + slippage + funding via the production engine. A BUILD verdict motivates a `structural_touch` detector (still live-OOS gated), scoped to the tf(s) that actually clear the gate; NO-EDGE on a tf closes the thread for that tf. ob / fib zone types are opt-in via `--zone-types`.*
