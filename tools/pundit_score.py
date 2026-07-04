@@ -20,8 +20,11 @@ Usage::
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 
 HOUR_MS = 3_600_000
 DAY_MS = 86_400_000
@@ -68,3 +71,106 @@ def parse_level_field(text: str | None) -> ParsedField:
         _expand(nm.group(1), nm.group(2)) for nm in _NUM_RE.finditer(cleaned)
     )
     return ParsedField(zones=tuple(zones), numbers=numbers, unspecified=False)
+
+
+@dataclass(frozen=True)
+class LedgerCall:
+    """One line of docs/plans/pundit-calls.jsonl."""
+
+    line_no: int
+    source: str
+    author: str
+    url: str
+    call_ts_utc: str
+    symbol: str
+    direction: str
+    entry: str
+    stop: str
+    target: str
+    horizon: str
+    confidence: str
+    raw_quote: str
+    entry_px: float | None = None
+    stop_px: float | None = None
+    target_px: float | None = None
+
+    @property
+    def call_ts_ms(self) -> int:
+        dt = datetime.fromisoformat(self.call_ts_utc.replace("Z", "+00:00"))
+        return int(dt.timestamp() * 1000)
+
+
+@dataclass(frozen=True)
+class Override:
+    """One line of docs/plans/pundit-overrides.jsonl — wins over parsed values."""
+
+    url: str
+    entry_px: float | None = None
+    stop_px: float | None = None
+    target_px: float | None = None
+    family: str | None = None
+    skip: bool = False
+    note: str = ""
+
+
+def _opt_float(obj: dict[str, object], key: str) -> float | None:
+    val = obj.get(key)
+    return float(val) if isinstance(val, (int, float)) else None
+
+
+def load_ledger(path: Path) -> tuple[list[LedgerCall], list[str]]:
+    """Parse the ledger JSONL; malformed lines become warnings, never crashes."""
+    calls: list[LedgerCall] = []
+    warnings: list[str] = []
+    for line_no, raw in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        if not raw.strip():
+            continue
+        try:
+            obj = json.loads(raw)
+            calls.append(
+                LedgerCall(
+                    line_no=line_no,
+                    source=str(obj.get("source", "")),
+                    author=str(obj.get("author", "")),
+                    url=str(obj.get("url", "")),
+                    call_ts_utc=str(obj["call_ts_utc"]),
+                    symbol=str(obj["symbol"]),
+                    direction=str(obj.get("direction", "")).lower(),
+                    entry=str(obj.get("entry", "") or ""),
+                    stop=str(obj.get("stop", "") or ""),
+                    target=str(obj.get("target", "") or ""),
+                    horizon=str(obj.get("horizon", "unspecified") or "unspecified"),
+                    confidence=str(obj.get("confidence", "") or ""),
+                    raw_quote=str(obj.get("raw_quote", "") or ""),
+                    entry_px=_opt_float(obj, "entry_px"),
+                    stop_px=_opt_float(obj, "stop_px"),
+                    target_px=_opt_float(obj, "target_px"),
+                )
+            )
+        except (ValueError, KeyError) as exc:
+            warnings.append(f"ledger line {line_no}: skipped ({exc})")
+    return calls, warnings
+
+
+def load_overrides(path: Path) -> dict[str, Override]:
+    """Parse the overrides sidecar; absent file means no overrides."""
+    if not path.exists():
+        return {}
+    out: dict[str, Override] = {}
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        if not raw.strip():
+            continue
+        obj = json.loads(raw)
+        url = str(obj["url"])
+        out[url] = Override(
+            url=url,
+            entry_px=_opt_float(obj, "entry_px"),
+            stop_px=_opt_float(obj, "stop_px"),
+            target_px=_opt_float(obj, "target_px"),
+            family=str(obj["family"]) if obj.get("family") else None,
+            skip=bool(obj.get("skip", False)),
+            note=str(obj.get("note", "") or ""),
+        )
+    return out
