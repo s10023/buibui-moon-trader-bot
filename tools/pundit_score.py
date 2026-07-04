@@ -240,6 +240,116 @@ def resolve_levels(
     )
 
 
+FAMILY_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "sweep_reclaim",
+        (
+            "sweep",
+            "reclaim",
+            "sfp",
+            "stop hunt",
+            "stop-hunt",
+            "deviation below",
+            "deviation above",
+        ),
+    ),
+    (
+        "vp_level",
+        ("poc", "vah", "val ", "value area", "value-area", "volume profile", "vwap"),
+    ),
+    (
+        "ref_level",
+        (
+            "pdl",
+            "pdh",
+            "pwh",
+            "pwl",
+            "pdval",
+            "range low",
+            "range high",
+            "range-low",
+            "range-high",
+            "weekly open",
+            "daily open",
+            "monday",
+        ),
+    ),
+    (
+        "ema_trend",
+        (
+            "ema",
+            "moving average",
+            "50w",
+            "200d",
+            "trendline",
+            "diagonal",
+            "downtrend",
+            "uptrend",
+            "higher low",
+            "lower high",
+        ),
+    ),
+    (
+        "flow",
+        (
+            "cvd",
+            "open interest",
+            " oi ",
+            "absorption",
+            "delta",
+            "spot bid",
+            "spot flow",
+            "orderflow",
+            "funding",
+        ),
+    ),
+    (
+        "accumulation_zone",
+        ("accumulation", "dca", "demand zone", "spot-demand", "supply zone", "demand"),
+    ),
+    (
+        "breakout_deviation",
+        (
+            "breakout",
+            "break of",
+            "break above",
+            "break below",
+            "acceptance",
+            "deviation",
+        ),
+    ),
+)
+
+
+def _keyword_hit(t: str, keyword: str) -> bool:
+    """Substring match that rejects a hit embedded mid-word.
+
+    Bare short keywords (e.g. ``"ema"``) otherwise false-match inside unrelated
+    words — ``"remains"`` (r-EMA-ins) and ``"demand"`` (d-EMA-nd) both contain
+    ``"ema"``. Requiring the character just before the match not be a letter
+    keeps ``"50ema"``/``"1W 50EMA"`` matching (digit before ``"ema"``) while
+    rejecting the mid-word cases. Multi-word keywords already delimited by
+    their own spaces (``"val "``, ``" oi "``) are unaffected.
+    """
+    start = 0
+    while True:
+        idx = t.find(keyword, start)
+        if idx == -1:
+            return False
+        if idx == 0 or not t[idx - 1].isalpha():
+            return True
+        start = idx + 1
+
+
+def tag_family(text: str) -> str:
+    """First-match keyword family — a grouping key, not a model (spec §Family)."""
+    t = f" {text.lower()} "
+    for family, keywords in FAMILY_KEYWORDS:
+        if any(_keyword_hit(t, k) for k in keywords):
+            return family
+    return "other"
+
+
 def load_overrides(path: Path) -> dict[str, Override]:
     """Parse the overrides sidecar; absent file means no overrides."""
     if not path.exists():

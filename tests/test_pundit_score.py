@@ -13,6 +13,7 @@ from tools.pundit_score import (
     load_overrides,
     parse_level_field,
     resolve_levels,
+    tag_family,
 )
 
 
@@ -193,3 +194,23 @@ class TestResolveLevels:
         lv = resolve_levels(call, ov, self.REF)
         assert lv.entry_px == 58200.0
         assert lv.parse_confidence == "override"
+
+
+class TestTagFamily:
+    def test_one_case_per_family(self) -> None:
+        cases = {
+            "sweep range low then reclaim": "sweep_reclaim",
+            "rotation toward the composite POC": "vp_level",
+            "PDL is the trigger": "ref_level",
+            "holding the 1W 50EMA": "ema_trend",
+            "CVD remains heavy, absorption at lows": "flow",
+            "spot-demand accumulation zone below": "accumulation_zone",
+            "break of $81 would be very positive": "breakout_deviation",
+            "just vibes": "other",
+        }
+        for text, family in cases.items():
+            assert tag_family(text) == family, text
+
+    def test_priority_order_first_match_wins(self) -> None:
+        # 'sweep' outranks 'poc' because sweep_reclaim is listed first.
+        assert tag_family("sweep into the POC") == "sweep_reclaim"
