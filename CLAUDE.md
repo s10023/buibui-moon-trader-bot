@@ -17,6 +17,8 @@ This file provides instructions for Claude Code when working in this repository.
 
 **Token efficiency.** Skills are dormant until invoked — don't load what you don't need. Use the context-mode `ctx_*` tools for any command/output over ~20 lines. `/compact` proactively at logical boundaries (don't wait for autocompaction). Delegate heavy reads/long analysis to a subagent only when the saved main-context clutter outweighs the startup cost.
 
+**Model delegation policy.** The main thread (Fable) is the orchestrator/tech lead — design, judgment, review, and routing stay here; don't burn main-thread quota on bulk mechanical work. Delegate down by tier: **sonnet** subagents for high-volume execution with a self-contained inline brief (vision extraction, file sweeps, boilerplate, test triage); **haiku** for trivial one-shot lookups; **opus** subagents only as a quota escape valve for long *parallel* research — Opus sits below Fable in capability, so this conserves limits, it does not buy better thinking. Every subagent brief must be drift-proof: goal + success metric + rubric inline, no SoT/memory re-reads. Verify subagent/background work directly (`ps`, `journalctl`, `git status`) — self-reports can be stale.
+
 **Guardrail.** A PreToolUse hook (`.claude/hooks/guard-destructive.py`) blocks catastrophic Bash (rm -rf, git reset --hard, force-push, DB wipes). If blocked, do not work around it silently — surface it.
 
 ## Project Overview
