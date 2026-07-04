@@ -322,21 +322,35 @@ FAMILY_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
 
 
 def _keyword_hit(t: str, keyword: str) -> bool:
-    """Substring match that rejects a hit embedded mid-word.
+    """Symmetric word-boundary substring match.
 
-    Bare short keywords (e.g. ``"ema"``) otherwise false-match inside unrelated
-    words — ``"remains"`` (r-EMA-ins) and ``"demand"`` (d-EMA-nd) both contain
-    ``"ema"``. Requiring the character just before the match not be a letter
-    keeps ``"50ema"``/``"1W 50EMA"`` matching (digit before ``"ema"``) while
-    rejecting the mid-word cases. Multi-word keywords already delimited by
-    their own spaces (``"val "``, ``" oi "``) are unaffected.
+    ``keyword`` is stripped of its own leading/trailing spaces before matching
+    (multi-word phrases keep their internal spaces, which match literally); a
+    hit is accepted only when the character immediately before the match AND
+    the character immediately after it are both non-letters (start/end of
+    string count as non-letters). A digit on either side does NOT block a
+    match, so ``"50ema"``/``"1W 50EMA"`` still hit ``"ema"``. This keeps bare
+    short keywords from false-matching mid-word — ``"remains"`` (r-EMA-ins)
+    and ``"demand"`` (d-EMA-nd) both contain ``"ema"`` but must not tag
+    ``ema_trend`` — while a space-wrapped keyword like ``" oi "`` still hits
+    inside ``"reported oi levels are climbing"`` (a left-boundary-only check
+    on the raw, un-stripped ``" oi "`` match anchors on the leading space
+    itself, whose *preceding* character is the last letter of "reported" —
+    wrongly rejecting the hit) and ``"val "`` does not hit inside ``"value"``
+    (the trailing ``"u"`` fails the right-boundary check). All occurrences
+    are checked, not just the first, since an earlier occurrence can fail a
+    boundary test while a later one passes.
     """
+    kw = keyword.strip(" ")
     start = 0
     while True:
-        idx = t.find(keyword, start)
+        idx = t.find(kw, start)
         if idx == -1:
             return False
-        if idx == 0 or not t[idx - 1].isalpha():
+        left_ok = idx == 0 or not t[idx - 1].isalpha()
+        end = idx + len(kw)
+        right_ok = end == len(t) or not t[end].isalpha()
+        if left_ok and right_ok:
             return True
         start = idx + 1
 

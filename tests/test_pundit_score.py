@@ -214,3 +214,15 @@ class TestTagFamily:
     def test_priority_order_first_match_wins(self) -> None:
         # 'sweep' outranks 'poc' because sweep_reclaim is listed first.
         assert tag_family("sweep into the POC") == "sweep_reclaim"
+
+    def test_space_wrapped_keyword_hits_at_left_edge(self) -> None:
+        # ' oi ' (flow) is space-delimited on both sides in FAMILY_KEYWORDS;
+        # a left-boundary-only check anchored on the match's leading space
+        # would reject this because the preceding character is the last
+        # letter of "reported" — must still hit.
+        assert tag_family("reported oi levels are climbing") == "flow"
+
+    def test_keyword_prefix_of_longer_word_does_not_hit(self) -> None:
+        # 'val ' (vp_level) is a strict prefix of 'value'; the right-boundary
+        # guard must reject the embedded match so this stays untagged.
+        assert tag_family("the value of this setup is unclear") == "other"
