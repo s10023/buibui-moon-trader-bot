@@ -157,6 +157,89 @@ def load_ledger(path: Path) -> tuple[list[LedgerCall], list[str]]:
     return calls, warnings
 
 
+@dataclass(frozen=True)
+class ResolvedLevels:
+    """Numeric levels for one call after parsing, overrides, and fallbacks."""
+
+    entry_px: float
+    entry_is_thesis: bool
+    stop_px: float | None
+    target_px: float | None
+    parse_confidence: str  # ok | low | override | fallback
+
+
+def select_level(
+    parsed: ParsedField, ref_close: float, role: str, direction: str
+) -> tuple[float | None, bool]:
+    """Pick a price from parsed candidates. Returns (price | None, low_confidence).
+
+    Zone first (both edges must pass the sanity gate): entry -> mid, stop -> far
+    edge, target -> near edge. Else the first single number passing the gate;
+    multiple distinct sane numbers flag low confidence. Candidates present but all
+    rejected also flag low confidence.
+    """
+
+    def sane(x: float) -> bool:
+        return SANITY_LO * ref_close <= x <= SANITY_HI * ref_close
+
+    for lo, hi in parsed.zones:
+        if sane(lo) and sane(hi):
+            if role == "entry":
+                return (lo + hi) / 2.0, False
+            # stop: far edge (long stops sit below -> lo; short stops above -> hi)
+            # target: near edge (long targets above -> lo is nearest; short -> hi)
+            return (lo if direction == "long" else hi), False
+    sane_nums = [x for x in parsed.numbers if sane(x)]
+    if sane_nums:
+        return sane_nums[0], len(set(sane_nums)) > 1
+    return None, bool(parsed.numbers or parsed.zones)
+
+
+def resolve_levels(
+    call: LedgerCall, override: Override | None, ref_close: float
+) -> ResolvedLevels:
+    """Resolve entry/stop/target with precedence override > ledger px > text > fallback."""
+    used_override = False
+    low_flag = False
+
+    def pick(
+        ov_px: float | None, ledger_px: float | None, text: str, role: str
+    ) -> float | None:
+        nonlocal used_override, low_flag
+        if ov_px is not None:
+            used_override = True
+            return ov_px
+        if ledger_px is not None:
+            return ledger_px
+        px, low = select_level(parse_level_field(text), ref_close, role, call.direction)
+        low_flag = low_flag or low
+        return px
+
+    ov = override
+    entry = pick(ov.entry_px if ov else None, call.entry_px, call.entry, "entry")
+    stop = pick(ov.stop_px if ov else None, call.stop_px, call.stop, "stop")
+    target = pick(ov.target_px if ov else None, call.target_px, call.target, "target")
+
+    entry_is_thesis = entry is None
+    if entry is None:
+        entry = ref_close
+    if used_override:
+        confidence = "override"
+    elif entry_is_thesis:
+        confidence = "fallback"
+    elif low_flag:
+        confidence = "low"
+    else:
+        confidence = "ok"
+    return ResolvedLevels(
+        entry_px=entry,
+        entry_is_thesis=entry_is_thesis,
+        stop_px=stop,
+        target_px=target,
+        parse_confidence=confidence,
+    )
+
+
 def load_overrides(path: Path) -> dict[str, Override]:
     """Parse the overrides sidecar; absent file means no overrides."""
     if not path.exists():
