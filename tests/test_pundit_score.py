@@ -6,17 +6,22 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+import duckdb
 import pandas as pd
 
+from analytics.store.market_data import upsert_ohlcv
+from analytics.store.schema import init_schema
 from tools.pundit_score import (
     LedgerCall,
     Override,
     ScoredCall,
     aggregate,
+    build_parser,
     build_priors,
     find_call_candle,
     find_fill,
     load_ledger,
+    load_ohlcv_for_calls,
     load_overrides,
     parse_level_field,
     render_report,
@@ -486,3 +491,34 @@ class TestAggregateAndOutputs:
         assert isinstance(vp_level, dict)
         assert vp_level["long"]["n"] == 1  # loss call, raw_quote "POC rotation"
         assert vp_level["long"]["hit_rate"] == 0.0
+
+
+class TestDbAndCli:
+    def test_load_ohlcv_for_calls_in_memory(self) -> None:
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        df = _candles([(100, 110, 90, 105)] * 30)
+        df["taker_buy_volume"] = 0.5  # upsert_ohlcv requires the full 9-column list
+        upsert_ohlcv(conn, df)
+        d1 = df.copy()
+        d1["timeframe"] = "1d"
+        upsert_ohlcv(conn, d1)
+        calls = [_call()]
+        data = load_ohlcv_for_calls(conn, calls, FAR)
+        assert not data[("BTCUSDT", "1h")].empty
+        assert not data[("BTCUSDT", "1d")].empty
+        assert list(data[("BTCUSDT", "1h")]["open_time"]) == sorted(
+            data[("BTCUSDT", "1h")]["open_time"]
+        )
+
+    def test_build_parser_defaults(self) -> None:
+        args = build_parser().parse_args([])
+        assert args.ledger == Path("docs/plans/pundit-calls.jsonl")
+        assert args.overrides == Path("docs/plans/pundit-overrides.jsonl")
+        assert args.json == Path("docs/plans/pundit-priors.json")
+        assert args.min_n == 5
+        assert args.as_of is None
+
+    def test_parse_as_of(self) -> None:
+        args = build_parser().parse_args(["--as-of", "2026-07-04T00:00:00Z"])
+        assert args.as_of == "2026-07-04T00:00:00Z"

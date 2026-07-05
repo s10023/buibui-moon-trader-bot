@@ -20,17 +20,22 @@ Usage::
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+import duckdb
 import numpy as np
 import pandas as pd
 
 from analytics.backtest.engine import _compute_atr14
+from analytics.store import DEFAULT_DB_PATH
+from analytics.store.market_data import get_ohlcv
 
 HOUR_MS = 3_600_000
 DAY_MS = 86_400_000
@@ -774,3 +779,67 @@ def build_priors(
         "authors": authors,
         "families": families,
     }
+
+
+def load_ohlcv_for_calls(
+    conn: duckdb.DuckDBPyConnection, calls: list[LedgerCall], as_of_ms: int
+) -> dict[tuple[str, str], pd.DataFrame]:
+    """1h + 1d frames per symbol, buffered back far enough for ATR14 warm-up."""
+    out: dict[tuple[str, str], pd.DataFrame] = {}
+    for symbol in sorted({c.symbol for c in calls}):
+        start = min(c.call_ts_ms for c in calls if c.symbol == symbol)
+        for tf, buffer_ms in (("1h", 20 * HOUR_MS), ("1d", 20 * DAY_MS)):
+            df = get_ohlcv(conn, symbol, tf, start - buffer_ms, as_of_ms)
+            out[(symbol, tf)] = df.sort_values("open_time").reset_index(drop=True)
+    return out
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--ledger", type=Path, default=Path("docs/plans/pundit-calls.jsonl"))
+    p.add_argument(
+        "--overrides", type=Path, default=Path("docs/plans/pundit-overrides.jsonl")
+    )
+    p.add_argument("--db", type=Path, default=Path(DEFAULT_DB_PATH))
+    p.add_argument("--as-of", dest="as_of", default=None, help="ISO UTC; default: now")
+    p.add_argument("--json", type=Path, default=Path("docs/plans/pundit-priors.json"))
+    p.add_argument("--min-n", dest="min_n", type=int, default=5)
+    return p
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    if args.as_of is not None:
+        as_of_dt = datetime.fromisoformat(str(args.as_of).replace("Z", "+00:00"))
+    else:
+        as_of_dt = datetime.now(tz=UTC)
+    as_of_ms = int(as_of_dt.timestamp() * 1000)
+    as_of_iso = as_of_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    calls, warnings = load_ledger(args.ledger)
+    overrides = load_overrides(args.overrides)
+    with duckdb.connect(str(args.db), read_only=True) as conn:
+        data = load_ohlcv_for_calls(conn, calls, as_of_ms)
+    scored = [
+        score_call(
+            c,
+            overrides.get(c.url),
+            data.get((c.symbol, "1h"), pd.DataFrame()),
+            data.get((c.symbol, "1d"), pd.DataFrame()),
+            as_of_ms,
+        )
+        for c in calls
+    ]
+    print(render_report(scored, warnings, as_of_iso, args.min_n))
+    generated_at = datetime.now(tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    priors = build_priors(scored, as_of_iso, generated_at, args.min_n)
+    args.json.parent.mkdir(parents=True, exist_ok=True)
+    args.json.write_text(
+        json.dumps(priors, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    print(f"priors written: {args.json}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

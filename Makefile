@@ -308,6 +308,10 @@ buibui-structural-touch-audit:  ## read-only structural level-hold touch-decay k
 buibui-structural-entry-sim-audit:  ## read-only faithful per-strategy structural entry-sim harness (realized R)
 	PYTHONPATH=. poetry run python tools/structural_entry_sim_audit.py
 
+.PHONY: buibui-pundit-score
+buibui-pundit-score:  ## score the pundit-call ledger vs OHLCV -> priors (sync universe 1h/1d first)
+	PYTHONPATH=. poetry run python tools/pundit_score.py
+
 ## Routine DB update: run all-config backtests + recalibrate + regression update
 db-update-backtest:
 	@echo "📊 Running backtest for all 3 signal_watch configs (SINCE=2025-09-12)..."
