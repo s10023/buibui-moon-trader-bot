@@ -673,8 +673,9 @@ def _fmt_ts(ts_ms: int | None) -> str:
 
 def _cell_table(cells: dict[str, CellStats], label: str, min_n: int) -> list[str]:
     lines = [
-        f"| {label} | n | trig | open | resolved | hit% | avg R | avg ATR-R | |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        f"| {label} | n | trig | open | resolved | wins | losses "
+        "| hit% | avg R | avg ATR-R | |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for key in sorted(cells):
         c = cells[key]
@@ -682,6 +683,7 @@ def _cell_table(cells: dict[str, CellStats], label: str, min_n: int) -> list[str
         mark = f"⚠ n<{min_n}" if c.n < min_n else ""
         lines.append(
             f"| {key} | {c.n} | {c.triggered} | {c.open_} | {c.resolved} "
+            f"| {c.wins} | {c.resolved - c.wins} "
             f"| {hit} | {_fmt(c.avg_r)} | {_fmt(c.avg_atr_r)} | {mark} |"
         )
     return lines
@@ -754,7 +756,13 @@ def build_priors(
             if sc.call.author == author:
                 fam_counts.setdefault(sc.family, {"n": 0})["n"] += 1
         authors[author] = _cell_dict(by_author[author]) | {"families": fam_counts}
-    families = {key: _cell_dict(by_family[key]) for key in sorted(by_family)}
+    # Nested {family: {direction: stats}} — the binding shape for the downstream
+    # daily-brief consumer (analytics/brief/pundit.py::build_board on
+    # feat/market-brief), NOT a flat "family/direction" key (spec §Outputs).
+    families: dict[str, dict[str, object]] = {}
+    for fam_key in sorted(by_family):  # fam_key == "family/direction"
+        family, _, direction = fam_key.rpartition("/")
+        families.setdefault(family, {})[direction] = _cell_dict(by_family[fam_key])
     return {
         "generated_at": generated_at_iso,
         "as_of": as_of_iso,

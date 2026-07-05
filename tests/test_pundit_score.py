@@ -443,6 +443,25 @@ class TestAggregateAndOutputs:
         assert "ledger line 9" in report
         assert "OPEN" in report and "WIN" in report and "LOSS" in report
         assert "⚠" in report  # n<5 marker present at this tiny n
+        # Finding 1 (spec §Outputs): explicit wins/losses columns, not just `resolved`.
+        assert (
+            "| author | n | trig | open | resolved | wins | losses "
+            "| hit% | avg R | avg ATR-R | |" in report
+        )
+        # cell A: n=2, triggered=2, open=1, resolved=1, wins=1, losses=resolved-wins=0.
+        assert "| A | 2 | 2 | 1 | 1 | 1 | 0 |" in report
+        # cell B: n=1, triggered=1, open=0, resolved=1, wins=0, losses=1.
+        assert "| B | 1 | 1 | 0 | 1 | 0 | 1 |" in report
+        # every markdown table (header/delimiter/every data row) has a uniform
+        # column count — a mismatch is a real rendering defect.
+        table: list[str] = []
+        for line in [*report.splitlines(), ""]:
+            if line.startswith("|"):
+                table.append(line)
+            elif table:
+                counts = {ln.count("|") for ln in table}
+                assert len(counts) == 1, table
+                table = []
 
     def test_build_priors_schema_and_determinism(self) -> None:
         scored = _scored_fixture()
@@ -453,4 +472,17 @@ class TestAggregateAndOutputs:
         assert p1["policy"]["windows"]["intraday"] == "48h"  # type: ignore[index]
         authors = p1["authors"]
         assert isinstance(authors, dict) and authors["A"]["n"] == 2
-        assert "families" in p1
+        # Finding 2 (spec §Outputs, binding contract with analytics/brief/pundit.py
+        # on feat/market-brief): families is NESTED {family: {direction: stats}},
+        # never a flat "family/direction" key.
+        families = p1["families"]
+        assert isinstance(families, dict)
+        for fam_key in families:
+            assert "/" not in fam_key, "families must be nested, not 'family/direction'"
+        other = families["other"]
+        assert isinstance(other, dict)
+        assert other["long"]["n"] == 2  # win + open_, both family=other/direction=long
+        vp_level = families["vp_level"]
+        assert isinstance(vp_level, dict)
+        assert vp_level["long"]["n"] == 1  # loss call, raw_quote "POC rotation"
+        assert vp_level["long"]["hit_rate"] == 0.0
