@@ -110,6 +110,18 @@ class TestLoaders:
         assert calls[0].author == "A"
         assert len(warnings) == 1 and "line 2" in warnings[0]
 
+    def test_load_ledger_warns_on_malformed_call_ts_utc(self, tmp_path: Path) -> None:
+        bad_line = self._good_line() | {"call_ts_utc": "not-a-date"}
+        p = tmp_path / "calls.jsonl"
+        p.write_text(
+            json.dumps(self._good_line()) + "\n" + json.dumps(bad_line) + "\n",
+            encoding="utf-8",
+        )
+        calls, warnings = load_ledger(p)
+        assert len(calls) == 1
+        assert calls[0].author == "A"
+        assert len(warnings) == 1 and "line 2" in warnings[0]
+
     def test_load_overrides_and_missing_file(self, tmp_path: Path) -> None:
         p = tmp_path / "overrides.jsonl"
         p.write_text(

@@ -143,26 +143,26 @@ def load_ledger(path: Path) -> tuple[list[LedgerCall], list[str]]:
             if not isinstance(obj, dict):
                 warnings.append(f"ledger line {line_no}: skipped (not a JSON object)")
                 continue
-            calls.append(
-                LedgerCall(
-                    line_no=line_no,
-                    source=str(obj.get("source", "")),
-                    author=str(obj.get("author", "")),
-                    url=str(obj.get("url", "")),
-                    call_ts_utc=str(obj["call_ts_utc"]),
-                    symbol=str(obj["symbol"]),
-                    direction=str(obj.get("direction", "")).lower(),
-                    entry=str(obj.get("entry", "") or ""),
-                    stop=str(obj.get("stop", "") or ""),
-                    target=str(obj.get("target", "") or ""),
-                    horizon=str(obj.get("horizon", "unspecified") or "unspecified"),
-                    confidence=str(obj.get("confidence", "") or ""),
-                    raw_quote=str(obj.get("raw_quote", "") or ""),
-                    entry_px=_opt_float(obj, "entry_px"),
-                    stop_px=_opt_float(obj, "stop_px"),
-                    target_px=_opt_float(obj, "target_px"),
-                )
+            call = LedgerCall(
+                line_no=line_no,
+                source=str(obj.get("source", "")),
+                author=str(obj.get("author", "")),
+                url=str(obj.get("url", "")),
+                call_ts_utc=str(obj["call_ts_utc"]),
+                symbol=str(obj["symbol"]),
+                direction=str(obj.get("direction", "")).lower(),
+                entry=str(obj.get("entry", "") or ""),
+                stop=str(obj.get("stop", "") or ""),
+                target=str(obj.get("target", "") or ""),
+                horizon=str(obj.get("horizon", "unspecified") or "unspecified"),
+                confidence=str(obj.get("confidence", "") or ""),
+                raw_quote=str(obj.get("raw_quote", "") or ""),
+                entry_px=_opt_float(obj, "entry_px"),
+                stop_px=_opt_float(obj, "stop_px"),
+                target_px=_opt_float(obj, "target_px"),
             )
+            _ = call.call_ts_ms  # eager-parse call_ts_utc now (raise here, not later)
+            calls.append(call)
         except (ValueError, KeyError) as exc:
             warnings.append(f"ledger line {line_no}: skipped ({exc})")
     return calls, warnings
