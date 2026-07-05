@@ -26,6 +26,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
+
 HOUR_MS = 3_600_000
 DAY_MS = 86_400_000
 WINDOWS_MS: dict[str, int] = {
@@ -384,3 +386,38 @@ def load_overrides(path: Path) -> dict[str, Override]:
             note=str(obj.get("note", "") or ""),
         )
     return out
+
+
+def window_ms(horizon: str) -> int:
+    """Pre-committed horizon window (spec §Windows); unknown values -> unspecified."""
+    return WINDOWS_MS.get(horizon, WINDOWS_MS["unspecified"])
+
+
+def find_call_candle(df: pd.DataFrame, ts_ms: int) -> int | None:
+    """Index of the 1h candle containing ts_ms, or None when outside the data."""
+    if df.empty:
+        return None
+    idx = int(df["open_time"].searchsorted(ts_ms, side="right")) - 1
+    if idx < 0 or ts_ms >= int(df["open_time"].iloc[idx]) + HOUR_MS:
+        return None
+    return idx
+
+
+def find_fill(
+    df: pd.DataFrame, call_idx: int, entry_px: float, is_thesis: bool, limit_ms: int
+) -> tuple[int, float] | None:
+    """First candle at/after the call that fills the entry (spec §Trigger).
+
+    Thesis entries fill immediately at the call candle close. Level entries fill on
+    the first later candle whose range contains the price (direction-agnostic touch:
+    covers both pullback and breakout entries). Candles opening after limit_ms never
+    fill.
+    """
+    if is_thesis:
+        return call_idx, float(df["close"].iloc[call_idx])
+    for i in range(call_idx + 1, len(df)):
+        if int(df["open_time"].iloc[i]) > limit_ms:
+            return None
+        if float(df["low"].iloc[i]) <= entry_px <= float(df["high"].iloc[i]):
+            return i, entry_px
+    return None

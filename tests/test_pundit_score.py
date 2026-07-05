@@ -6,14 +6,19 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pandas as pd
+
 from tools.pundit_score import (
     LedgerCall,
     Override,
+    find_call_candle,
+    find_fill,
     load_ledger,
     load_overrides,
     parse_level_field,
     resolve_levels,
     tag_family,
+    window_ms,
 )
 
 
@@ -226,3 +231,56 @@ class TestTagFamily:
         # 'val ' (vp_level) is a strict prefix of 'value'; the right-boundary
         # guard must reject the embedded match so this stays untagged.
         assert tag_family("the value of this setup is unclear") == "other"
+
+
+T0 = 1_781_949_600_000  # 2026-06-20T10:00:00Z
+
+
+def _candles(
+    prices: list[tuple[float, float, float, float]], start_ms: int = T0
+) -> pd.DataFrame:
+    """1h OHLC frames from (open, high, low, close) tuples."""
+    return pd.DataFrame(
+        [
+            {
+                "symbol": "BTCUSDT",
+                "timeframe": "1h",
+                "open_time": start_ms + i * 3_600_000,
+                "open": o,
+                "high": h,
+                "low": lo,
+                "close": c,
+                "volume": 1.0,
+            }
+            for i, (o, h, lo, c) in enumerate(prices)
+        ]
+    )
+
+
+class TestWindowsAndFill:
+    def test_window_ms_mapping(self) -> None:
+        assert window_ms("intraday") == 48 * 3_600_000
+        assert window_ms("swing") == 30 * 86_400_000
+        assert window_ms("unspecified") == 14 * 86_400_000
+        assert window_ms("weird") == 14 * 86_400_000
+
+    def test_find_call_candle(self) -> None:
+        df = _candles([(100, 110, 90, 105)] * 3)
+        assert find_call_candle(df, T0) == 0
+        assert find_call_candle(df, T0 + 90 * 60 * 1000) == 1  # mid-candle
+        assert find_call_candle(df, T0 - 1) is None
+        assert find_call_candle(df, T0 + 3 * 3_600_000) is None  # past data end
+
+    def test_thesis_fill_at_call_close(self) -> None:
+        df = _candles([(100, 110, 90, 105), (105, 120, 100, 115)])
+        assert find_fill(df, 0, 105.0, True, T0 + 10 * 3_600_000) == (0, 105.0)
+
+    def test_level_fill_on_first_touch_after_call(self) -> None:
+        df = _candles([(100, 110, 90, 105), (105, 108, 101, 102), (102, 106, 95, 96)])
+        # entry 98 first trades inside candle 2 (low 95).
+        assert find_fill(df, 0, 98.0, False, T0 + 10 * 3_600_000) == (2, 98.0)
+
+    def test_level_fill_respects_deadline(self) -> None:
+        df = _candles([(100, 110, 90, 105), (105, 108, 101, 102), (102, 106, 95, 96)])
+        # deadline before candle 2 opens -> no fill.
+        assert find_fill(df, 0, 98.0, False, T0 + 3_600_000) is None
