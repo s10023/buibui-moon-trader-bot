@@ -22,8 +22,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -605,3 +606,163 @@ def score_call(
         atr_r=atr_r,
         win=state == STATE_WIN,
     )
+
+
+@dataclass
+class CellStats:
+    """Roll-up counters for one report cell (author, or family x direction)."""
+
+    n: int = 0
+    triggered: int = 0
+    open_: int = 0
+    resolved: int = 0
+    wins: int = 0
+    r_sum: float = 0.0
+    r_n: int = 0
+    atr_r_sum: float = 0.0
+    atr_r_n: int = 0
+
+    def add(self, sc: ScoredCall) -> None:
+        self.n += 1
+        if sc.fill_ts_ms is not None:
+            self.triggered += 1
+        if sc.state == STATE_OPEN:
+            self.open_ += 1
+        if sc.state in RESOLVED_STATES:
+            self.resolved += 1
+            if sc.win:
+                self.wins += 1
+            if sc.r is not None:
+                self.r_sum += sc.r
+                self.r_n += 1
+            if sc.atr_r is not None:
+                self.atr_r_sum += sc.atr_r
+                self.atr_r_n += 1
+
+    @property
+    def hit_rate(self) -> float | None:
+        return self.wins / self.resolved if self.resolved else None
+
+    @property
+    def avg_r(self) -> float | None:
+        return self.r_sum / self.r_n if self.r_n else None
+
+    @property
+    def avg_atr_r(self) -> float | None:
+        return self.atr_r_sum / self.atr_r_n if self.atr_r_n else None
+
+
+def aggregate(
+    scored: list[ScoredCall], key_fn: Callable[[ScoredCall], str]
+) -> dict[str, CellStats]:
+    cells: dict[str, CellStats] = {}
+    for sc in scored:
+        cells.setdefault(key_fn(sc), CellStats()).add(sc)
+    return cells
+
+
+def _fmt(x: float | None, nd: int = 2) -> str:
+    return f"{x:.{nd}f}" if x is not None else "—"
+
+
+def _fmt_ts(ts_ms: int | None) -> str:
+    if ts_ms is None:
+        return "—"
+    return datetime.fromtimestamp(ts_ms / 1000, tz=UTC).strftime("%Y-%m-%d %H:%M")
+
+
+def _cell_table(cells: dict[str, CellStats], label: str, min_n: int) -> list[str]:
+    lines = [
+        f"| {label} | n | trig | open | resolved | hit% | avg R | avg ATR-R | |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for key in sorted(cells):
+        c = cells[key]
+        hit = f"{100 * c.hit_rate:.0f}%" if c.hit_rate is not None else "—"
+        mark = f"⚠ n<{min_n}" if c.n < min_n else ""
+        lines.append(
+            f"| {key} | {c.n} | {c.triggered} | {c.open_} | {c.resolved} "
+            f"| {hit} | {_fmt(c.avg_r)} | {_fmt(c.avg_atr_r)} | {mark} |"
+        )
+    return lines
+
+
+def render_report(
+    scored: list[ScoredCall], warnings: list[str], as_of_iso: str, min_n: int
+) -> str:
+    """Full markdown report: roll-ups + per-call audit trail (spec §Outputs)."""
+    lines = [
+        "# Pundit-ledger scorecard",
+        "",
+        f"- as-of: {as_of_iso} · calls: {len(scored)} · ledger warnings: {len(warnings)}",
+        "- Descriptive priors only — NO verdicts; cells below min-n are markers, not gates.",
+        "",
+    ]
+    for w in warnings:
+        lines.append(f"- WARNING: {w}")
+    if warnings:
+        lines.append("")
+    lines += ["## Per author", ""]
+    lines += _cell_table(aggregate(scored, lambda sc: sc.call.author), "author", min_n)
+    lines += ["", "## Per setup-family × direction", ""]
+    lines += _cell_table(
+        aggregate(scored, lambda sc: f"{sc.family}/{sc.call.direction}"),
+        "family/direction",
+        min_n,
+    )
+    lines += ["", "## Audit trail", ""]
+    lines += [
+        "| author | symbol | dir | call ts (UTC) | entry | stop | target | conf | family | state | R | ATR-R | note |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for sc in scored:
+        lv = sc.levels
+        lines.append(
+            f"| {sc.call.author} | {sc.call.symbol} | {sc.call.direction} "
+            f"| {_fmt_ts(sc.call.call_ts_ms)} "
+            f"| {_fmt(lv.entry_px) if lv else '—'}{' (thesis)' if lv and lv.entry_is_thesis else ''} "
+            f"| {_fmt(lv.stop_px) if lv else '—'} | {_fmt(lv.target_px) if lv else '—'} "
+            f"| {lv.parse_confidence if lv else '—'} | {sc.family} | {sc.state} "
+            f"| {_fmt(sc.r)} | {_fmt(sc.atr_r)} | {sc.note} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _cell_dict(c: CellStats) -> dict[str, object]:
+    return {
+        "n": c.n,
+        "triggered": c.triggered,
+        "open": c.open_,
+        "resolved": c.resolved,
+        "wins": c.wins,
+        "hit_rate": c.hit_rate,
+        "avg_r": c.avg_r,
+        "avg_atr_r": c.avg_atr_r,
+    }
+
+
+def build_priors(
+    scored: list[ScoredCall], as_of_iso: str, generated_at_iso: str, min_n: int
+) -> dict[str, object]:
+    """Machine-readable priors (spec §Outputs) — the daily-brief / trade-card hook."""
+    by_author = aggregate(scored, lambda sc: sc.call.author)
+    by_family = aggregate(scored, lambda sc: f"{sc.family}/{sc.call.direction}")
+    authors: dict[str, object] = {}
+    for author in sorted(by_author):
+        fam_counts: dict[str, dict[str, int]] = {}
+        for sc in scored:
+            if sc.call.author == author:
+                fam_counts.setdefault(sc.family, {"n": 0})["n"] += 1
+        authors[author] = _cell_dict(by_author[author]) | {"families": fam_counts}
+    families = {key: _cell_dict(by_family[key]) for key in sorted(by_family)}
+    return {
+        "generated_at": generated_at_iso,
+        "as_of": as_of_iso,
+        "policy": {
+            "windows": {"intraday": "48h", "swing": "30d", "unspecified": "14d"},
+            "atr": "atr14 1h intraday / 1d swing",
+            "min_n_marker": min_n,
+        },
+        "authors": authors,
+        "families": families,
+    }

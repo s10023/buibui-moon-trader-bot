@@ -12,11 +12,14 @@ from tools.pundit_score import (
     LedgerCall,
     Override,
     ScoredCall,
+    aggregate,
+    build_priors,
     find_call_candle,
     find_fill,
     load_ledger,
     load_overrides,
     parse_level_field,
+    render_report,
     resolve_levels,
     score_call,
     tag_family,
@@ -384,3 +387,70 @@ class TestScoreCall:
     def test_unresolvable_without_data(self) -> None:
         sc = _score(_call(), _candles([]), FAR)
         assert sc.state == "UNRESOLVABLE"
+
+
+def _scored_fixture() -> list[ScoredCall]:
+    df = _candles([(100, 101, 99, 100), (100, 100, 99, 100), (100, 125, 98, 120)])
+    win = _score(
+        _call(entry="100", stop="90", target="120", horizon="intraday"), df, FAR
+    )
+    loss_df = _candles([(100, 101, 99, 100), (100, 130, 85, 110)])
+    loss = _score(
+        _call(
+            author="B",
+            url="https://x.com/B/status/2",
+            entry="100",
+            stop="90",
+            target="120",
+            horizon="intraday",
+            raw_quote="POC rotation",
+        ),
+        loss_df,
+        FAR,
+    )
+    open_df = _candles([(100, 101, 99, 100), (100, 101, 99, 100)])
+    open_ = _score(
+        _call(
+            author="A",
+            url="https://x.com/A/status/3",
+            entry="100",
+            stop="90",
+            target="120",
+            horizon="swing",
+        ),
+        open_df,
+        T0 + 2 * 3_600_000,
+    )
+    return [win, loss, open_]
+
+
+class TestAggregateAndOutputs:
+    def test_aggregate_per_author(self) -> None:
+        cells = aggregate(_scored_fixture(), lambda sc: sc.call.author)
+        a, b = cells["A"], cells["B"]
+        assert (a.n, a.triggered, a.open_, a.resolved, a.wins) == (2, 2, 1, 1, 1)
+        assert a.hit_rate == 1.0 and a.avg_r == 2.0
+        assert (b.n, b.resolved, b.wins) == (1, 1, 0)
+        assert b.avg_r == -1.0
+
+    def test_render_report_sections_and_audit_trail(self) -> None:
+        report = render_report(
+            _scored_fixture(), ["ledger line 9: skipped"], "2026-07-04T00:00:00Z", 5
+        )
+        assert "## Per author" in report
+        assert "## Per setup-family" in report
+        assert "## Audit trail" in report
+        assert "ledger line 9" in report
+        assert "OPEN" in report and "WIN" in report and "LOSS" in report
+        assert "⚠" in report  # n<5 marker present at this tiny n
+
+    def test_build_priors_schema_and_determinism(self) -> None:
+        scored = _scored_fixture()
+        p1 = build_priors(scored, "2026-07-04T00:00:00Z", "2026-07-04T09:00:00Z", 5)
+        p2 = build_priors(scored, "2026-07-04T00:00:00Z", "2026-07-04T09:00:00Z", 5)
+        assert json.dumps(p1, sort_keys=True) == json.dumps(p2, sort_keys=True)
+        assert p1["as_of"] == "2026-07-04T00:00:00Z"
+        assert p1["policy"]["windows"]["intraday"] == "48h"  # type: ignore[index]
+        authors = p1["authors"]
+        assert isinstance(authors, dict) and authors["A"]["n"] == 2
+        assert "families" in p1
