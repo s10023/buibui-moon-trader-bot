@@ -11,12 +11,14 @@ import pandas as pd
 from tools.pundit_score import (
     LedgerCall,
     Override,
+    ScoredCall,
     find_call_candle,
     find_fill,
     load_ledger,
     load_overrides,
     parse_level_field,
     resolve_levels,
+    score_call,
     tag_family,
     window_ms,
 )
@@ -284,3 +286,101 @@ class TestWindowsAndFill:
         df = _candles([(100, 110, 90, 105), (105, 108, 101, 102), (102, 106, 95, 96)])
         # deadline before candle 2 opens -> no fill.
         assert find_fill(df, 0, 98.0, False, T0 + 3_600_000) is None
+
+
+def _score(
+    call: LedgerCall,
+    df_1h: pd.DataFrame,
+    as_of_ms: int,
+    override: Override | None = None,
+) -> ScoredCall:
+    df_1d = _candles([(100, 110, 90, 105)] * 20, start_ms=T0 - 20 * 86_400_000)
+    df_1d["open_time"] = [T0 - (20 - i) * 86_400_000 for i in range(20)]
+    df_1d["timeframe"] = "1d"
+    return score_call(call, override, df_1h, df_1d, as_of_ms)
+
+
+FAR = T0 + 40 * 86_400_000  # as_of far beyond every swing window
+
+
+class TestScoreCall:
+    def test_win_target_hit_with_stop_gives_rr(self) -> None:
+        call = _call(entry="100", stop="90", target="120", horizon="intraday")
+        df = _candles([(100, 101, 99, 100), (100, 100, 99, 100), (100, 125, 98, 120)])
+        sc = _score(call, df, FAR)
+        assert sc.state == "WIN" and sc.win is True
+        assert sc.r == 2.0  # (120-100)/(100-90)
+        assert sc.fill_px == 100.0 and sc.exit_px == 120.0
+
+    def test_adverse_first_same_bar_is_loss(self) -> None:
+        call = _call(entry="100", stop="90", target="120", horizon="intraday")
+        df = _candles([(100, 101, 99, 100), (100, 130, 85, 110)])
+        sc = _score(call, df, FAR)
+        assert sc.state == "LOSS" and sc.r == -1.0
+
+    def test_stop_no_target_expiry_exit_scales_by_risk(self) -> None:
+        call = _call(entry="100", stop="95", target="unspecified", horizon="intraday")
+        # 50 candles; entry touches candle 1; window 48h from fill; exit at expiry close 104.
+        rows: list[tuple[float, float, float, float]] = [
+            (100.0, 101.0, 99.0, 100.0)
+        ] + [(100.0, 104.0, 99.0, 104.0)] * 50
+        sc = _score(call, _candles(rows), FAR)
+        assert sc.state == "WIN"
+        assert sc.r is not None and abs(sc.r - 0.8) < 1e-9  # (104-100)/5
+
+    def test_no_stop_uses_atr_proxy_and_sign(self) -> None:
+        call = _call(entry="100", stop="", target="", horizon="intraday")
+        # 20 warm-up candles BEFORE the call so ATR14 has closed 1h history at fill
+        # (mirrors load_ohlcv_for_calls' 20-candle back-buffer).
+        rows: list[tuple[float, float, float, float]] = [
+            (100.0, 101.0, 99.0, 100.0)
+        ] * 21 + [(100.0, 101.0, 95.0, 96.0)] * 50
+        sc = _score(call, _candles(rows, start_ms=T0 - 20 * 3_600_000), FAR)
+        assert sc.state == "LOSS" and sc.r is None
+        assert sc.atr_r is not None and sc.atr_r < 0
+
+    def test_short_direction_win(self) -> None:
+        call = _call(
+            direction="short", entry="100", stop="110", target="80", horizon="intraday"
+        )
+        df = _candles([(100, 101, 99, 100), (100, 102, 75, 80)])
+        sc = _score(call, df, FAR)
+        assert sc.state == "WIN" and sc.r == 2.0  # (100-80)/(110-100)
+
+    def test_open_in_position_before_expiry(self) -> None:
+        call = _call(entry="100", stop="90", target="120", horizon="swing")
+        df = _candles([(100, 101, 99, 100), (100, 101, 99, 100)])
+        sc = _score(call, df, T0 + 2 * 3_600_000)
+        assert sc.state == "OPEN" and sc.note == "in position"
+
+    def test_open_awaiting_trigger(self) -> None:
+        call = _call(entry="90", stop="85", target="120", horizon="swing")
+        df = _candles([(100, 101, 99, 100), (100, 101, 99, 100)])
+        sc = _score(call, df, T0 + 2 * 3_600_000)
+        assert sc.state == "OPEN" and sc.note == "awaiting trigger"
+
+    def test_not_triggered_after_deadline(self) -> None:
+        call = _call(entry="90", stop="85", target="120", horizon="intraday")
+        rows: list[tuple[float, float, float, float]] = [
+            (100, 101, 99, 100)
+        ] * 60  # 60h of candles never touching 90
+        sc = _score(call, _candles(rows), FAR)
+        assert sc.state == "NOT_TRIGGERED"
+
+    def test_stale_when_data_ends_mid_window(self) -> None:
+        call = _call(entry="100", stop="90", target="120", horizon="swing")
+        df = _candles(
+            [(100, 101, 99, 100), (100, 101, 99, 100)]
+        )  # 2h of data, 30d window
+        sc = _score(call, df, FAR)
+        assert sc.state == "STALE"
+
+    def test_neutral_unscored_and_skip(self) -> None:
+        df = _candles([(100, 101, 99, 100)])
+        assert _score(_call(direction="neutral"), df, FAR).state == "UNSCORED"
+        ov = Override(url="https://x.com/A/status/1", skip=True)
+        assert _score(_call(), df, FAR, override=ov).state == "SKIPPED"
+
+    def test_unresolvable_without_data(self) -> None:
+        sc = _score(_call(), _candles([]), FAR)
+        assert sc.state == "UNRESOLVABLE"

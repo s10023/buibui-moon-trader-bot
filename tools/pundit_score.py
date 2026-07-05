@@ -26,7 +26,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
+
+from analytics.backtest.engine import _compute_atr14
 
 HOUR_MS = 3_600_000
 DAY_MS = 86_400_000
@@ -421,3 +424,184 @@ def find_fill(
         if float(df["low"].iloc[i]) <= entry_px <= float(df["high"].iloc[i]):
             return i, entry_px
     return None
+
+
+STATE_WIN = "WIN"
+STATE_LOSS = "LOSS"
+STATE_OPEN = "OPEN"
+STATE_NOT_TRIGGERED = "NOT_TRIGGERED"
+STATE_UNSCORED = "UNSCORED"
+STATE_UNRESOLVABLE = "UNRESOLVABLE"
+STATE_STALE = "STALE"
+STATE_SKIPPED = "SKIPPED"
+RESOLVED_STATES = (STATE_WIN, STATE_LOSS)
+
+
+@dataclass(frozen=True)
+class ScoredCall:
+    """One ledger call after resolution against OHLCV."""
+
+    call: LedgerCall
+    levels: ResolvedLevels | None
+    family: str
+    state: str
+    fill_ts_ms: int | None = None
+    fill_px: float | None = None
+    exit_ts_ms: int | None = None
+    exit_px: float | None = None
+    r: float | None = None
+    atr_r: float | None = None
+    win: bool | None = None
+    note: str = ""
+
+
+def atr14_before(df: pd.DataFrame, ts_ms: int, tf_ms: int) -> float | None:
+    """ATR14 over the candles fully closed by ts_ms (engine TR-mean convention)."""
+    if df.empty:
+        return None
+    closed = int((df["open_time"] + tf_ms <= ts_ms).sum())
+    idx = closed - 1
+    if idx < 1:
+        return None
+    return _compute_atr14(
+        df["high"].to_numpy(dtype=np.float64),
+        df["low"].to_numpy(dtype=np.float64),
+        df["close"].to_numpy(dtype=np.float64),
+        idx,
+    )
+
+
+def score_call(
+    call: LedgerCall,
+    override: Override | None,
+    df_1h: pd.DataFrame,
+    df_1d: pd.DataFrame,
+    as_of_ms: int,
+) -> ScoredCall:
+    """Resolve one call: trigger -> walk -> state + R (spec §Scoring semantics)."""
+    family = (
+        override.family
+        if override is not None and override.family
+        else tag_family(f"{call.raw_quote} {call.entry}")
+    )
+    if override is not None and override.skip:
+        return ScoredCall(call, None, family, STATE_SKIPPED, note=override.note)
+    if call.direction == "neutral":
+        return ScoredCall(call, None, family, STATE_UNSCORED, note="neutral direction")
+    if df_1h.empty:
+        return ScoredCall(call, None, family, STATE_UNRESOLVABLE, note="no OHLCV")
+    call_idx = find_call_candle(df_1h, call.call_ts_ms)
+    if call_idx is None:
+        return ScoredCall(
+            call, None, family, STATE_UNRESOLVABLE, note="call candle missing"
+        )
+
+    ref_close = float(df_1h["close"].iloc[call_idx])
+    levels = resolve_levels(call, override, ref_close)
+    win_ms = window_ms(call.horizon)
+    data_end_ms = int(df_1h["open_time"].iloc[-1]) + HOUR_MS
+    trigger_deadline = call.call_ts_ms + win_ms
+
+    fill = find_fill(
+        df_1h,
+        call_idx,
+        levels.entry_px,
+        levels.entry_is_thesis,
+        min(trigger_deadline, as_of_ms),
+    )
+    if fill is None:
+        if trigger_deadline <= as_of_ms and data_end_ms >= trigger_deadline:
+            return ScoredCall(call, levels, family, STATE_NOT_TRIGGERED)
+        if data_end_ms < min(trigger_deadline, as_of_ms):
+            return ScoredCall(
+                call,
+                levels,
+                family,
+                STATE_STALE,
+                note="OHLCV ends in trigger window — sync first",
+            )
+        return ScoredCall(call, levels, family, STATE_OPEN, note="awaiting trigger")
+
+    fill_idx, fill_px = fill
+    fill_ts = int(df_1h["open_time"].iloc[fill_idx])
+    expiry_ms = fill_ts + win_ms
+    dirsign = 1.0 if call.direction == "long" else -1.0
+    risk = abs(fill_px - levels.stop_px) if levels.stop_px is not None else None
+    # Thesis entries fill AT the close -> exits start next bar; level entries can be
+    # stopped/targeted on the fill bar itself (adverse-first, conservative).
+    start_idx = fill_idx + 1 if levels.entry_is_thesis else fill_idx
+    scan_limit = min(expiry_ms, as_of_ms)
+
+    state = ""
+    exit_px: float | None = None
+    exit_ts: int | None = None
+    for i in range(start_idx, len(df_1h)):
+        ot = int(df_1h["open_time"].iloc[i])
+        if ot > scan_limit:
+            break
+        lo = float(df_1h["low"].iloc[i])
+        hi = float(df_1h["high"].iloc[i])
+        if levels.stop_px is not None and lo <= levels.stop_px <= hi:
+            state, exit_px, exit_ts = STATE_LOSS, levels.stop_px, ot
+            break
+        if levels.target_px is not None and lo <= levels.target_px <= hi:
+            state, exit_px, exit_ts = STATE_WIN, levels.target_px, ot
+            break
+
+    if not state:
+        if expiry_ms <= as_of_ms and data_end_ms >= expiry_ms:
+            exp_idx = int(df_1h["open_time"].searchsorted(expiry_ms, side="right")) - 1
+            exit_px = float(df_1h["close"].iloc[exp_idx])
+            exit_ts = int(df_1h["open_time"].iloc[exp_idx])
+            # Expiry classified by sign; exactly flat counts as LOSS (conservative).
+            state = STATE_WIN if dirsign * (exit_px - fill_px) > 0 else STATE_LOSS
+        elif data_end_ms < min(expiry_ms, as_of_ms):
+            return ScoredCall(
+                call,
+                levels,
+                family,
+                STATE_STALE,
+                fill_ts_ms=fill_ts,
+                fill_px=fill_px,
+                note="OHLCV ends mid-window — sync first",
+            )
+        else:
+            return ScoredCall(
+                call,
+                levels,
+                family,
+                STATE_OPEN,
+                fill_ts_ms=fill_ts,
+                fill_px=fill_px,
+                note="in position",
+            )
+
+    assert exit_px is not None and exit_ts is not None
+    r: float | None = None
+    if risk is not None and risk > 0:
+        if state == STATE_LOSS and exit_px == levels.stop_px:
+            r = -1.0
+        elif (
+            state == STATE_WIN
+            and levels.target_px is not None
+            and exit_px == levels.target_px
+        ):
+            r = abs(levels.target_px - fill_px) / risk
+        else:  # expiry exit with a known stop
+            r = dirsign * (exit_px - fill_px) / risk
+    tf_ms = HOUR_MS if call.horizon == "intraday" else DAY_MS
+    atr = atr14_before(df_1h if call.horizon == "intraday" else df_1d, fill_ts, tf_ms)
+    atr_r = dirsign * (exit_px - fill_px) / atr if atr else None
+    return ScoredCall(
+        call,
+        levels,
+        family,
+        state,
+        fill_ts_ms=fill_ts,
+        fill_px=fill_px,
+        exit_ts_ms=exit_ts,
+        exit_px=exit_px,
+        r=r,
+        atr_r=atr_r,
+        win=state == STATE_WIN,
+    )
