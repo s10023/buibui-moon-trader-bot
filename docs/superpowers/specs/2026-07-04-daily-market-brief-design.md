@@ -132,7 +132,10 @@ to the tuple above and note it in the health footer).
   `reference_levels.sweep_flag` on the completed-1d frame at the last completed bar
   index, default `lookback=3`; direction `"long"` for lows (wick below, close back
   above), `"short"` for highs. Rendered as `swept✓`.
-- Panel header also shows `atr14` (absolute) and ADR% from `stats.adr.compute_adr`.
+- Panel header also shows `atr14` (absolute) and ADR% — computed **locally** from the
+  completed-1d frame (mean of `(high − low) / open` over the last 14 completed bars),
+  NOT via `stats.adr.compute_adr` (that reads 1h data and windows from wall-clock
+  *now*, which would break `--as-of` determinism).
 
 ### 2. Structural zones (`zones.py`)
 
@@ -168,6 +171,14 @@ All from the existing stats computes at `stats_days`, keyed to the day-ahead wee
 Stats computes raise `ValueError` on missing data — `seasonality.py` catches per
 symbol and returns an empty strip (rendered as `seasonality: n/a`), never crashes.
 
+**Determinism amendment (found at plan time):** the four consumed stats functions
+(`compute_dow_patterns`, `compute_session_breakdown`, `compute_weekly_p1p2`,
+`compute_weekly_p2_timing`) window from wall-clock *now* via `_start_ms(days)`. They
+gain an **additive keyword-only `end_ms: int | None = None`** parameter — `None`
+keeps the exact current behaviour (all existing callers unchanged, byte-identical);
+the brief passes `end_ms=as_of_ms` so the strip is `--as-of`-reproducible. These
+queries read **1h** OHLCV, so the brief's seasonality strip depends on 1h data.
+
 ### 5. Pundit board (`pundit.py`) — file contract only
 
 - **Priors** (`pundit-priors.json`, written by the scorer): parse `generated_at`,
@@ -188,8 +199,9 @@ symbol and returns an empty strip (rendered as `seasonality: n/a`), never crashe
 
 ### 6. Health footer (`health.py`)
 
-- Per symbol × tf in `zone_tfs` (default `("4h", "1d")` — health tracks exactly the
-  tfs the brief consumes): age of the last **completed** bar relative to
+- Per symbol × tf in `zone_tfs + ("1h",)` (default `("4h", "1d", "1h")` — health
+  tracks exactly the tfs the brief consumes: panels read 4h/1d, the seasonality
+  stats read 1h): age of the last **completed** bar relative to
   `as_of`; `⚠ stale` when at least one full bar is missing (age ≥ 2·tf_ms), `✓`
   otherwise, `✗ no data` when the frame is empty.
 - Files: priors `generated_at` age in days (or `absent`); ledger call count +
