@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import duckdb
 
-from analytics.stats._common import _DOW_SHORT, _start_ms
+from analytics.stats._common import _DOW_SHORT, _window_ms
 
 
 @dataclass
@@ -28,6 +28,8 @@ def compute_session_breakdown(
     conn: duckdb.DuckDBPyConnection,
     symbol: str,
     days: int = 180,
+    *,
+    end_ms: int | None = None,
 ) -> SessionResult:
     """Compute session breakdown: which session (Asia/London/NY) most often makes daily H/L.
 
@@ -36,9 +38,11 @@ def compute_session_breakdown(
     - London: 14-21
     - NY:     >= 20 OR <= 3  (crosses midnight; overlaps with London 20-21)
 
+    end_ms: window end (Unix ms); None = now (default, unchanged behaviour).
+
     Raises ValueError if no OHLCV data exists for the symbol.
     """
-    start = _start_ms(days)
+    start, end = _window_ms(days, end_ms)
 
     # Session high/low pct overall
     rows = conn.execute(
@@ -54,7 +58,7 @@ def compute_session_breakdown(
                       OR HOUR((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP) <= 3             THEN 'NY'
                     ELSE 'Off'
                 END AS session
-            FROM ohlcv WHERE symbol = $symbol AND timeframe = '1h' AND open_time >= $start_ms
+            FROM ohlcv WHERE symbol = $symbol AND timeframe = '1h' AND open_time >= $start_ms AND open_time <= $end_ms
         ),
         daily_ext AS (
             SELECT trade_date, MAX(high) AS day_high, MIN(low) AS day_low
@@ -76,7 +80,7 @@ def compute_session_breakdown(
         FROM session_ext CROSS JOIN totals t
         GROUP BY session, t.n
         """,
-        {"symbol": symbol, "start_ms": start},
+        {"symbol": symbol, "start_ms": start, "end_ms": end},
     ).fetchall()
 
     if not rows:
@@ -96,7 +100,7 @@ def compute_session_breakdown(
                       OR HOUR((epoch_ms(open_time) + INTERVAL 8 HOUR)::TIMESTAMP) <= 3             THEN 'NY'
                     ELSE 'Off'
                 END AS session
-            FROM ohlcv WHERE symbol = $symbol AND timeframe = '1h' AND open_time >= $start_ms
+            FROM ohlcv WHERE symbol = $symbol AND timeframe = '1h' AND open_time >= $start_ms AND open_time <= $end_ms
         ),
         daily_ext AS (
             SELECT trade_date, MAX(high) AS day_high, MIN(low) AS day_low
@@ -122,7 +126,7 @@ def compute_session_breakdown(
         JOIN totals_by_dow td ON se.dow = td.dow
         GROUP BY se.session, se.dow, td.n
         """,
-        {"symbol": symbol, "start_ms": start},
+        {"symbol": symbol, "start_ms": start, "end_ms": end},
     ).fetchall()
 
     # Build by_dow per session

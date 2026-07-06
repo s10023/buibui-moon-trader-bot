@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import duckdb
 
-from analytics.stats._common import _DOW_SHORT, _start_ms
+from analytics.stats._common import _DOW_SHORT, _window_ms
 
 
 @dataclass
@@ -23,13 +23,16 @@ def compute_weekly_p1p2(
     conn: duckdb.DuckDBPyConnection,
     symbol: str,
     days: int = 180,
+    *,
+    end_ms: int | None = None,
 ) -> WeeklyP1P2Result:
     """Compute weekly P1/P2: fraction of weeks where weekly low was made before weekly high.
 
     Also identifies dominant day for weekly high and weekly low.
+    end_ms: window end (Unix ms); None = now (default, unchanged behaviour).
     Raises ValueError if no OHLCV data exists for the symbol.
     """
-    start = _start_ms(days)
+    start, end = _window_ms(days, end_ms)
     rows = conn.execute(
         """
         WITH weekly AS (
@@ -37,7 +40,7 @@ def compute_weekly_p1p2(
                 date_trunc('week', epoch_ms(open_time)::TIMESTAMP) AS week_start,
                 MAX(high) AS wk_high, MIN(low) AS wk_low
             FROM ohlcv
-            WHERE symbol = $symbol AND timeframe = '1h' AND open_time >= $start_ms
+            WHERE symbol = $symbol AND timeframe = '1h' AND open_time >= $start_ms AND open_time <= $end_ms
             GROUP BY week_start
         ),
         wk_first_hit AS (
@@ -54,7 +57,7 @@ def compute_weekly_p1p2(
             FROM ohlcv h
             JOIN weekly w
               ON date_trunc('week', epoch_ms(h.open_time)::TIMESTAMP) = w.week_start
-            WHERE h.symbol = $symbol AND h.timeframe = '1h' AND h.open_time >= $start_ms
+            WHERE h.symbol = $symbol AND h.timeframe = '1h' AND h.open_time >= $start_ms AND h.open_time <= $end_ms
             GROUP BY w.week_start
         )
         SELECT
@@ -65,7 +68,7 @@ def compute_weekly_p1p2(
         FROM wk_first_hit
         WHERE high_ts IS NOT NULL AND low_ts IS NOT NULL
         """,
-        {"symbol": symbol, "start_ms": start},
+        {"symbol": symbol, "start_ms": start, "end_ms": end},
     ).fetchone()
 
     if rows is None or rows[3] == 0:
@@ -81,7 +84,7 @@ def compute_weekly_p1p2(
                 date_trunc('week', epoch_ms(open_time)::TIMESTAMP) AS week_start,
                 MAX(high) AS wk_high, MIN(low) AS wk_low
             FROM ohlcv
-            WHERE symbol = $symbol AND timeframe = '1h' AND open_time >= $start_ms
+            WHERE symbol = $symbol AND timeframe = '1h' AND open_time >= $start_ms AND open_time <= $end_ms
             GROUP BY week_start
         ),
         wk_first_hit AS (
@@ -96,7 +99,7 @@ def compute_weekly_p1p2(
             FROM ohlcv h
             JOIN weekly w
               ON date_trunc('week', epoch_ms(h.open_time)::TIMESTAMP) = w.week_start
-            WHERE h.symbol = $symbol AND h.timeframe = '1h' AND h.open_time >= $start_ms
+            WHERE h.symbol = $symbol AND h.timeframe = '1h' AND h.open_time >= $start_ms AND h.open_time <= $end_ms
             GROUP BY w.week_start
         ),
         total AS (SELECT COUNT(*) AS n FROM wk_first_hit WHERE high_day IS NOT NULL AND low_day IS NOT NULL)
@@ -109,7 +112,7 @@ def compute_weekly_p1p2(
         WHERE high_day IS NOT NULL AND low_day IS NOT NULL
         GROUP BY high_day, low_day, t.n
         """,
-        {"symbol": symbol, "start_ms": start},
+        {"symbol": symbol, "start_ms": start, "end_ms": end},
     ).fetchall()
 
     total_wks = int(sample_weeks)
