@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from cli import (
     analytics,
     backtest,
+    brief,
     digest,
     monitor,
     param,
@@ -31,6 +32,7 @@ def main() -> None:
     signal.add_signal_subparser(subparsers)
     analytics.add_analytics_subparser(subparsers)
     backtest.add_backtest_subparser(subparsers)
+    brief.add_brief_subparser(subparsers)
     digest.add_digest_subparser(subparsers)
     param.add_param_sweep_subparser(subparsers)
     param.add_param_audit_subparser(subparsers)
