@@ -10,6 +10,7 @@
   import Positions from "./pages/Positions.svelte";
   import Prices from "./pages/Prices.svelte";
   import Stats from "./pages/Stats.svelte";
+  import Brief from "./pages/Brief.svelte";
 
   let route = $state(window.location.hash || "#/chart");
 
@@ -39,6 +40,8 @@
   <Prices />
 {:else if route === "#/stats"}
   <Stats />
+{:else if route === "#/brief"}
+  <Brief />
 {:else}
   <Chart />
 {/if}
