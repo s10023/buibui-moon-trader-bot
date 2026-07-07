@@ -653,9 +653,8 @@ export interface BriefAuthorPrior {
   flagged: boolean;
 }
 
-// NOTE: unlike the author prior, the family prior DOES carry avg_r (see
-// web/api/models/brief.py::PunditFamilyPriorModel) — both avg_r and avg_atr_r
-// are present.
+// The family prior carries both avg_r and avg_atr_r, matching the author prior
+// (see web/api/models/brief.py::PunditFamilyPriorModel).
 export interface BriefFamilyPrior {
   family: string;
   direction: string;
