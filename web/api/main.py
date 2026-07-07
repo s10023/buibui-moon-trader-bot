@@ -17,6 +17,7 @@ from analytics.data_store import DEFAULT_DB_PATH, init_schema
 from utils.binance_client import create_client
 from web.api.routers import (
     backtest,
+    brief,
     config,
     fib,
     live_outcomes,
@@ -124,6 +125,7 @@ for module in (
     stream,
     zones,
     live_outcomes,
+    brief,
 ):
     app.include_router(module.router, prefix="/api")
 
