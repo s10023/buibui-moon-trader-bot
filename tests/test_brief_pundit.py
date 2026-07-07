@@ -52,7 +52,23 @@ def _priors() -> str:
                 "bob": {"n": 2, "hit_rate": 1.0, "avg_r": 1.0, "avg_atr_r": 1.5},
             },
             "families": {
-                "sweep_reclaim": {"long": {"n": 6, "hit_rate": 0.6, "avg_atr_r": 1.1}}
+                "sweep_reclaim": {
+                    "long": {
+                        "n": 6,
+                        "hit_rate": 0.6,
+                        "avg_r": 0.5,
+                        "avg_atr_r": 1.1,
+                    }
+                },
+                # avg_r null (no resolved calls) — must parse to None, not crash.
+                "breakout": {
+                    "short": {
+                        "n": 6,
+                        "hit_rate": 0.5,
+                        "avg_r": None,
+                        "avg_atr_r": 0.8,
+                    }
+                },
             },
         }
     )
@@ -87,6 +103,9 @@ def test_board_happy_path(tmp_path: Path) -> None:
     assert bob.flagged is True  # n=2 < 5
     assert board.families[0].family == "sweep_reclaim"
     assert board.families[0].direction == "long"
+    assert board.families[0].avg_r == 0.5  # float avg_r parsed
+    breakout = next(f for f in board.families if f.family == "breakout")
+    assert breakout.avg_r is None  # null avg_r parses to None, no crash
 
 
 def test_board_absent_files(tmp_path: Path) -> None:

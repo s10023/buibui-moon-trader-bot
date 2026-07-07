@@ -93,6 +93,7 @@ def _load_priors(
                             direction=str(direction),
                             n=n,
                             hit_rate=_opt_float(cell.get("hit_rate")),
+                            avg_r=_opt_float(cell.get("avg_r")),
                             avg_atr_r=_opt_float(cell.get("avg_atr_r")),
                             flagged=n < min_n,
                         )

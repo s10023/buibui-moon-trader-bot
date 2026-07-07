@@ -10,6 +10,7 @@ from analytics.brief.types import (
     PunditAuthorPrior,
     PunditBoard,
     PunditCallRow,
+    PunditFamilyPrior,
     SeasonalityStrip,
     SymbolPanel,
     ZoneRow,
@@ -126,24 +127,47 @@ def _call_line(call: PunditCallRow) -> str:
     )
 
 
-def _family_str(board: PunditBoard) -> str:
-    bits: list[str] = []
-    for f in board.families:
-        cell = f"{f.family}/{f.direction} n={f.n}"
-        if f.flagged:
-            cell += " ⚠"
-        else:
-            if f.hit_rate is not None:
-                cell += f" · {fmt_frac(f.hit_rate)}"
-            if f.avg_atr_r is not None:
-                cell += f" · {f.avg_atr_r:+.1f} ATR-R̄"
-        bits.append(cell)
-    return " | ".join(bits)
+def _hit_str(value: float | None) -> str:
+    return fmt_frac(value) if value is not None else "—"
+
+
+def _avg_r_str(value: float | None) -> str:
+    return f"{value:+.2f}R" if value is not None else "—R"
+
+
+def _atr_r_str(value: float | None) -> str:
+    return f"{value:+.1f} ATR-R" if value is not None else "— ATR-R"
+
+
+def _stats_str(
+    hit_rate: float | None, avg_r: float | None, avg_atr_r: float | None
+) -> str:
+    return f"{_hit_str(hit_rate)} · {_avg_r_str(avg_r)} · {_atr_r_str(avg_atr_r)}"
+
+
+def _author_board_line(a: PunditAuthorPrior) -> str:
+    flag = " ⚠" if a.flagged else ""
+    return (
+        f"  {a.author}  n={a.n}{flag} · {_stats_str(a.hit_rate, a.avg_r, a.avg_atr_r)}"
+    )
+
+
+def _family_board_line(f: PunditFamilyPrior) -> str:
+    flag = " ⚠" if f.flagged else ""
+    return (
+        f"  {f.family}/{f.direction}  n={f.n}{flag} · "
+        f"{_stats_str(f.hit_rate, f.avg_r, f.avg_atr_r)}"
+    )
+
+
+def _priors_age_str(age_days: int | None) -> str:
+    """Guard the None age (priors JSON valid but generated_at unparseable)."""
+    return f"{age_days}d" if age_days is not None else "?d"
 
 
 def _pundit_lines(board: PunditBoard) -> list[str]:
     if board.priors_status == "ok":
-        priors_bit = f"priors {board.priors_age_days}d old"
+        priors_bit = f"priors {_priors_age_str(board.priors_age_days)} old"
     else:
         priors_bit = f"priors: {board.priors_status} — run make buibui-pundit-score"
     if board.ledger_status == "ok":
@@ -157,8 +181,14 @@ def _pundit_lines(board: PunditBoard) -> list[str]:
         lines.append(_call_line(call))
     if not board.recent_calls:
         lines.append("no recent calls")
+    if board.authors:
+        lines.append("Top authors (by n):")
+        for a in sorted(board.authors, key=lambda a: (-a.n, a.author)):
+            lines.append(_author_board_line(a))
     if board.families:
-        lines.append(f"FAMILIES  {_family_str(board)}")
+        lines.append("Top families (by n):")
+        for f in sorted(board.families, key=lambda f: (-f.n, f.family, f.direction)):
+            lines.append(_family_board_line(f))
     return lines
 
 
@@ -178,7 +208,7 @@ def _health_lines(bundle: BriefBundle) -> list[str]:
         parts.append(f"{symbol} " + " ".join(tf_bits))
     board = bundle.pundit
     if board.priors_status == "ok":
-        parts.append(f"priors {board.priors_age_days}d")
+        parts.append(f"priors {_priors_age_str(board.priors_age_days)}")
     else:
         parts.append(f"priors {board.priors_status}")
     if board.ledger_status == "ok":

@@ -93,6 +93,7 @@ class PunditFamilyPrior:
     direction: str
     n: int
     hit_rate: float | None
+    avg_r: float | None
     avg_atr_r: float | None
     flagged: bool
 
