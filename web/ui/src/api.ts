@@ -594,6 +594,136 @@ export interface LiveOutcomesResponse {
 export const getLiveOutcomes = (days: number = 30, minN: number = 1) =>
   apiFetch<LiveOutcomesResponse>(`/api/live-outcomes?days=${days}&min_n=${minN}`);
 
+// ── Daily Brief ───────────────────────────────────────────────────────────────
+
+export interface BriefLevelRow {
+  name: string;
+  price: number;
+  dist_atr: number;
+  swept: boolean;
+}
+
+export interface BriefZoneRow {
+  tf: string;
+  zone_type: string;
+  direction: string;
+  zone_low: number;
+  zone_high: number;
+  dist_atr: number;
+  inside: boolean;
+}
+
+export interface BriefSeasonalityStrip {
+  dow: string;
+  bull_pct: number | null;
+  avg_range_pct: number | null;
+  sample_days: number | null;
+  high_session: string | null;
+  high_session_pct: number | null;
+  low_session: string | null;
+  low_session_pct: number | null;
+  weekly_low_still_ahead: number | null;
+  weekly_high_still_ahead: number | null;
+  typical_low_day: string | null;
+  typical_high_day: string | null;
+}
+
+export interface BriefSymbolPanel {
+  symbol: string;
+  ref_close: number;
+  ref_close_ts_ms: number;
+  atr14: number;
+  adr_pct: number | null;
+  regime_1d: string;
+  regime_4h: string;
+  levels_above: BriefLevelRow[];
+  levels_below: BriefLevelRow[];
+  zones_above: BriefZoneRow[];
+  zones_below: BriefZoneRow[];
+  seasonality: BriefSeasonalityStrip | null;
+  error: string | null;
+}
+
+export interface BriefAuthorPrior {
+  author: string;
+  n: number;
+  hit_rate: number | null;
+  avg_r: number | null;
+  avg_atr_r: number | null;
+  flagged: boolean;
+}
+
+// The family prior carries both avg_r and avg_atr_r, matching the author prior
+// (see web/api/models/brief.py::PunditFamilyPriorModel).
+export interface BriefFamilyPrior {
+  family: string;
+  direction: string;
+  n: number;
+  hit_rate: number | null;
+  avg_r: number | null;
+  avg_atr_r: number | null;
+  flagged: boolean;
+}
+
+export interface BriefCallRow {
+  author: string;
+  symbol: string;
+  direction: string;
+  entry: string;
+  target: string;
+  horizon: string;
+  age_days: number;
+  on_panel: boolean;
+  prior: BriefAuthorPrior | null;
+}
+
+export interface BriefPunditBoard {
+  priors_status: string;
+  priors_age_days: number | null;
+  min_n_marker: number | null;
+  ledger_status: string;
+  ledger_total: number;
+  ledger_skipped: number;
+  recent_calls: BriefCallRow[];
+  authors: BriefAuthorPrior[];
+  families: BriefFamilyPrior[];
+}
+
+export interface BriefHealthRow {
+  symbol: string;
+  tf: string;
+  status: string;
+  bars_behind: number;
+}
+
+export interface BriefHealthReport {
+  rows: BriefHealthRow[];
+  notes: string[];
+  data_ok: boolean;
+}
+
+export interface BriefResponse {
+  as_of_ms: number;
+  day_ahead: string;
+  panels: BriefSymbolPanel[];
+  pundit: BriefPunditBoard;
+  health: BriefHealthReport;
+}
+
+export const getBrief = (params?: {
+  symbols?: string[];
+  days?: number;
+  as_of?: string;
+}) => {
+  const q = new URLSearchParams({
+    ...(params?.symbols?.length ? { symbols: params.symbols.join(",") } : {}),
+    ...(params?.days ? { days: String(params.days) } : {}),
+    ...(params?.as_of ? { as_of: params.as_of } : {}),
+  });
+  const qs = q.toString();
+  return apiFetch<BriefResponse>(qs ? `/api/brief?${qs}` : "/api/brief");
+};
+
 // ── SSE helper ────────────────────────────────────────────────────────────────
 
 // EventSource cannot send Authorization headers — token passed as ?token= query param.

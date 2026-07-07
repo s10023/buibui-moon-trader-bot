@@ -30,6 +30,8 @@ A tactical crypto trading bot designed for fast, risk-managed, and confident ent
   average daily range + today's consumed %, day-of-week patterns, session (Asia/London/NY) breakdown, and
   weekly P1/P2, avg return by day-of-week, and weekly P2 timing with P1 flip risk. Cached in DB, served via `GET /api/stats/{symbol}`, shown on the Stats web page.
 
+- `buibui brief` — daily market brief (levels/zones/regime/seasonality/pundit board; `make buibui-brief`)
+
 ---
 
 ## Risk Rules (Preconfigured)

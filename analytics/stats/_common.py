@@ -35,3 +35,13 @@ _ISODOW_TO_SHORT = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 def _start_ms(days: int) -> int:
     """Return Unix ms timestamp for `days` ago from now."""
     return int((datetime.now(tz=UTC) - timedelta(days=days)).timestamp() * 1000)
+
+
+def _window_ms(days: int, end_ms: int | None) -> tuple[int, int]:
+    """(start, end) Unix-ms window ending at ``end_ms`` (None = now).
+
+    ``end_ms=None`` reproduces ``_start_ms(days)`` exactly, so callers that do
+    not pass it are byte-identical to the pre-end_ms behaviour.
+    """
+    end = end_ms if end_ms is not None else int(datetime.now(tz=UTC).timestamp() * 1000)
+    return end - days * 86_400_000, end

@@ -259,6 +259,12 @@ buibui-portfolio-replay:
 		$(if $(CAPITAL),--capital $(CAPITAL),) \
 		$(if $(VOL_TARGET),--vol-target $(VOL_TARGET),)
 
+.PHONY: buibui-brief
+buibui-brief:  ## Daily market brief (read-only; SYMBOLS=/AS_OF= optional)
+	@poetry run python buibui.py brief \
+		$(if $(SYMBOLS),--symbols $(SYMBOLS),) \
+		$(if $(AS_OF),--as-of $(AS_OF),)
+
 .PHONY: buibui-forecast-audit
 buibui-forecast-audit:  ## P2: read-only EWMAC trend-sleeve G2 audit over the N3 universe
 	PYTHONPATH=. poetry run python tools/forecast_audit.py

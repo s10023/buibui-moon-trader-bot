@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import duckdb
 
-from analytics.stats._common import _ISODOW_TO_SHORT, _start_ms
+from analytics.stats._common import _ISODOW_TO_SHORT, _window_ms
 
 
 @dataclass
@@ -25,15 +25,19 @@ def compute_weekly_p2_timing(
     conn: duckdb.DuckDBPyConnection,
     symbol: str,
     days: int = 180,
+    *,
+    end_ms: int | None = None,
 ) -> WeeklyP2Timing:
     """Compute weekly P2 timing: for each DOW, fraction of weeks where weekly extreme is still ahead.
 
     For DOW X: low_still_ahead_by_dow[X] = % of weeks where weekly low was made AFTER day X.
     Uses ISODOW (1=Monday ... 7=Sunday).
 
+    end_ms: window end (Unix ms); None = now (default, unchanged behaviour).
+
     Raises ValueError if no OHLCV data exists for the symbol.
     """
-    start = _start_ms(days)
+    start, end = _window_ms(days, end_ms)
     rows = conn.execute(
         """
         WITH weekly AS (
@@ -41,7 +45,7 @@ def compute_weekly_p2_timing(
                 date_trunc('week', epoch_ms(open_time)::TIMESTAMP) AS week_start,
                 MAX(high) AS wk_high, MIN(low) AS wk_low
             FROM ohlcv
-            WHERE symbol = $symbol AND timeframe = '1h' AND open_time >= $start_ms
+            WHERE symbol = $symbol AND timeframe = '1h' AND open_time >= $start_ms AND open_time <= $end_ms
             GROUP BY week_start
         ),
         wk_extreme_dow AS (
@@ -54,7 +58,7 @@ def compute_weekly_p2_timing(
             FROM ohlcv h
             JOIN weekly w
               ON date_trunc('week', epoch_ms(h.open_time)::TIMESTAMP) = w.week_start
-            WHERE h.symbol = $symbol AND h.timeframe = '1h' AND h.open_time >= $start_ms
+            WHERE h.symbol = $symbol AND h.timeframe = '1h' AND h.open_time >= $start_ms AND h.open_time <= $end_ms
             GROUP BY w.week_start
         ),
         valid_weeks AS (
@@ -74,7 +78,7 @@ def compute_weekly_p2_timing(
         GROUP BY g.isodow, t.n
         ORDER BY g.isodow
         """,
-        {"symbol": symbol, "start_ms": start},
+        {"symbol": symbol, "start_ms": start, "end_ms": end},
     ).fetchall()
 
     if not rows:
@@ -99,7 +103,7 @@ def compute_weekly_p2_timing(
                     AS candle_isodow,
                 high, low
             FROM ohlcv
-            WHERE symbol = $symbol AND timeframe = '1h' AND open_time >= $start_ms
+            WHERE symbol = $symbol AND timeframe = '1h' AND open_time >= $start_ms AND open_time <= $end_ms
         ),
         daily_by_dow AS (
             SELECT week_start, candle_isodow,
@@ -139,7 +143,7 @@ def compute_weekly_p2_timing(
         GROUP BY candle_isodow
         ORDER BY candle_isodow
         """,
-        {"symbol": symbol, "start_ms": start},
+        {"symbol": symbol, "start_ms": start, "end_ms": end},
     ).fetchall()
 
     low_flip_risk: dict[str, float] = {}

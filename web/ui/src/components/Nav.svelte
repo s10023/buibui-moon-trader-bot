@@ -9,6 +9,7 @@
     { href: "#/positions", label: "Positions" },
     { href: "#/prices",    label: "Prices" },
     { href: "#/stats",     label: "Stats" },
+    { href: "#/brief",     label: "Brief" },
   ];
 
   let { route }: { route: string } = $props();

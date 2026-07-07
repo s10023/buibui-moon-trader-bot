@@ -1,0 +1,53 @@
+"""Brief router: happy path, param validation, dependency overrides."""
+
+import duckdb
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from tests._brief_fixtures import START_MS, make_conn, seed_symbol
+from web.api.deps import get_db, require_token
+from web.api.routers import brief as brief_router
+
+AS_OF_ISO = "2024-03-01T00:00:00Z"
+
+
+def _client(conn: duckdb.DuckDBPyConnection) -> TestClient:
+    app = FastAPI()
+    app.include_router(brief_router.router, prefix="/api")
+    app.dependency_overrides[get_db] = lambda: conn
+    app.dependency_overrides[require_token] = lambda: None
+    return TestClient(app)
+
+
+def test_get_brief_happy_path() -> None:
+    conn = make_conn()
+    seed_symbol(conn, "BTCUSDT", START_MS, 60)
+    client = _client(conn)
+    res = client.get(
+        "/api/brief",
+        params={"symbols": "BTCUSDT", "days": 60, "as_of": AS_OF_ISO},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["panels"][0]["symbol"] == "BTCUSDT"
+    assert body["panels"][0]["error"] is None
+    assert body["pundit"]["priors_status"] in ("ok", "absent", "unreadable")
+    assert isinstance(body["health"]["data_ok"], bool)
+
+
+def test_get_brief_invalid_as_of_400() -> None:
+    conn = make_conn()
+    client = _client(conn)
+    res = client.get("/api/brief", params={"as_of": "not-a-date"})
+    assert res.status_code == 400
+
+
+def test_get_brief_error_panel_embedded() -> None:
+    conn = make_conn()
+    client = _client(conn)
+    res = client.get(
+        "/api/brief",
+        params={"symbols": "NODATAUSDT", "days": 60, "as_of": AS_OF_ISO},
+    )
+    assert res.status_code == 200
+    assert res.json()["panels"][0]["error"] is not None

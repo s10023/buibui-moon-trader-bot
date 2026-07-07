@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import duckdb
 
-from analytics.stats._common import _DOW_SHORT, _start_ms
+from analytics.stats._common import _DOW_SHORT, _window_ms
 
 
 @dataclass
@@ -31,12 +31,16 @@ def compute_dow_patterns(
     conn: duckdb.DuckDBPyConnection,
     symbol: str,
     days: int = 180,
+    *,
+    end_ms: int | None = None,
 ) -> DOWResult:
     """Compute day-of-week average range, bull percentage, and sample count.
 
+    end_ms: window end (Unix ms); None = now (default, unchanged behaviour).
+
     Raises ValueError if no OHLCV data exists for the symbol.
     """
-    start = _start_ms(days)
+    start, end = _window_ms(days, end_ms)
     rows = conn.execute(
         """
         WITH daily AS (
@@ -48,7 +52,7 @@ def compute_dow_patterns(
                 LAST(close ORDER BY open_time)  AS day_close
             FROM ohlcv
             WHERE symbol = $symbol AND timeframe = '1h'
-              AND open_time >= $start_ms
+              AND open_time >= $start_ms AND open_time <= $end_ms
             GROUP BY trade_date, dow
         )
         SELECT
@@ -72,7 +76,7 @@ def compute_dow_patterns(
         GROUP BY dow
         ORDER BY dow
         """,
-        {"symbol": symbol, "start_ms": start},
+        {"symbol": symbol, "start_ms": start, "end_ms": end},
     ).fetchall()
 
     if not rows:
