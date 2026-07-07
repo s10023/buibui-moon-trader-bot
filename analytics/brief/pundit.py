@@ -53,49 +53,53 @@ def _load_priors(
     try:
         data = json.loads(path.read_text())
         authors_raw = data["authors"]
-        families_raw = data.get("families", {})
-        min_n = int(data.get("policy", {}).get("min_n_marker", 5))
         if not isinstance(authors_raw, dict):
             raise TypeError("authors must be a mapping")
-    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-        return "unreadable", None, None, {}, []
-    age_days: int | None = None
-    gen_ms = _parse_iso_ms(str(data.get("generated_at", "")))
-    if gen_ms is not None:
-        age_days = max(0, (as_of_ms - gen_ms) // _DAY_MS)
-    authors: dict[str, PunditAuthorPrior] = {}
-    for name, cell in authors_raw.items():
-        if not isinstance(cell, dict):
-            continue
-        n = int(cell.get("n", 0))
-        authors[str(name)] = PunditAuthorPrior(
-            author=str(name),
-            n=n,
-            hit_rate=_opt_float(cell.get("hit_rate")),
-            avg_r=_opt_float(cell.get("avg_r")),
-            avg_atr_r=_opt_float(cell.get("avg_atr_r")),
-            flagged=n < min_n,
-        )
-    families: list[PunditFamilyPrior] = []
-    if isinstance(families_raw, dict):
-        for fam, dirs in families_raw.items():
-            if not isinstance(dirs, dict):
+        families_raw = data.get("families", {})
+        policy_raw = data.get("policy", {})
+        policy = policy_raw if isinstance(policy_raw, dict) else {}
+        min_n = int(policy.get("min_n_marker", 5))
+
+        age_days: int | None = None
+        gen_ms = _parse_iso_ms(str(data.get("generated_at", "")))
+        if gen_ms is not None:
+            age_days = max(0, (as_of_ms - gen_ms) // _DAY_MS)
+
+        authors: dict[str, PunditAuthorPrior] = {}
+        for name, cell in authors_raw.items():
+            if not isinstance(cell, dict):
                 continue
-            for direction, cell in dirs.items():
-                if not isinstance(cell, dict):
+            n = int(cell.get("n", 0))
+            authors[str(name)] = PunditAuthorPrior(
+                author=str(name),
+                n=n,
+                hit_rate=_opt_float(cell.get("hit_rate")),
+                avg_r=_opt_float(cell.get("avg_r")),
+                avg_atr_r=_opt_float(cell.get("avg_atr_r")),
+                flagged=n < min_n,
+            )
+        families: list[PunditFamilyPrior] = []
+        if isinstance(families_raw, dict):
+            for fam, dirs in families_raw.items():
+                if not isinstance(dirs, dict):
                     continue
-                n = int(cell.get("n", 0))
-                families.append(
-                    PunditFamilyPrior(
-                        family=str(fam),
-                        direction=str(direction),
-                        n=n,
-                        hit_rate=_opt_float(cell.get("hit_rate")),
-                        avg_atr_r=_opt_float(cell.get("avg_atr_r")),
-                        flagged=n < min_n,
+                for direction, cell in dirs.items():
+                    if not isinstance(cell, dict):
+                        continue
+                    n = int(cell.get("n", 0))
+                    families.append(
+                        PunditFamilyPrior(
+                            family=str(fam),
+                            direction=str(direction),
+                            n=n,
+                            hit_rate=_opt_float(cell.get("hit_rate")),
+                            avg_atr_r=_opt_float(cell.get("avg_atr_r")),
+                            flagged=n < min_n,
+                        )
                     )
-                )
-    families.sort(key=lambda f: -f.n)
+        families.sort(key=lambda f: -f.n)
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError, AttributeError):
+        return "unreadable", None, None, {}, []
     return "ok", age_days, min_n, authors, families[:_MAX_PRIORS_ROWS]
 
 

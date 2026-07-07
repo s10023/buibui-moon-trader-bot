@@ -111,3 +111,58 @@ def test_future_dated_call_excluded(tmp_path: Path) -> None:
     cfg.ledger_path.write_text(_call("alice", "BTCUSDT", -2))  # 2 days in future
     board = build_board(cfg)
     assert board.recent_calls == []
+
+
+def test_board_null_policy_falls_back_to_default_min_n(tmp_path: Path) -> None:
+    # "policy": null — data.get("policy", {}) returns None (key present, not
+    # absent), so a naive .get("min_n_marker", ...) chain raises AttributeError.
+    # A non-dict policy is optional metadata: the file is otherwise well-formed,
+    # so this should degrade to the default min_n rather than "unreadable".
+    cfg = _cfg(tmp_path)
+    cfg.priors_path.write_text(
+        json.dumps({"authors": {"alice": {"n": 6}}, "policy": None})
+    )
+    cfg.ledger_path.write_text(_call("alice", "BTCUSDT", 1))
+    board = build_board(cfg)
+    assert board.priors_status == "ok"
+    assert board.min_n_marker == 5  # default fallback, no crash
+    assert len(board.recent_calls) == 1
+    assert board.recent_calls[0].prior is not None
+    assert board.recent_calls[0].prior.flagged is False  # n=6 >= default 5
+
+
+def test_board_null_n_degrades_gracefully(tmp_path: Path) -> None:
+    # "n": null in an author cell — int(None) raises TypeError.
+    cfg = _cfg(tmp_path)
+    cfg.priors_path.write_text(
+        json.dumps(
+            {
+                "authors": {"alice": {"n": None, "hit_rate": 0.5}},
+                "policy": {"min_n_marker": 5},
+            }
+        )
+    )
+    cfg.ledger_path.write_text(_call("alice", "BTCUSDT", 1))
+    board = build_board(cfg)
+    assert board.priors_status == "unreadable"
+    assert len(board.recent_calls) == 1
+    assert board.recent_calls[0].prior is None
+
+
+def test_board_non_numeric_n_degrades_gracefully(tmp_path: Path) -> None:
+    # "n": "abc" in a family cell — int("abc") raises ValueError.
+    cfg = _cfg(tmp_path)
+    cfg.priors_path.write_text(
+        json.dumps(
+            {
+                "authors": {"alice": {"n": 6}},
+                "policy": {"min_n_marker": 5},
+                "families": {"sweep_reclaim": {"long": {"n": "abc"}}},
+            }
+        )
+    )
+    cfg.ledger_path.write_text(_call("alice", "BTCUSDT", 1))
+    board = build_board(cfg)
+    assert board.priors_status == "unreadable"
+    assert len(board.recent_calls) == 1
+    assert board.recent_calls[0].prior is None
