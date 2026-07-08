@@ -46,6 +46,7 @@ class SymbolPanel:
     symbol: str
     ref_close: float
     ref_close_ts_ms: int
+    ref_price_source: str  # "1h" | "1d_forming" | "1d_close"
     atr14: float
     adr_pct: float | None
     regime_1d: str
@@ -64,6 +65,7 @@ def error_panel(symbol: str, message: str) -> SymbolPanel:
         symbol=symbol,
         ref_close=0.0,
         ref_close_ts_ms=0,
+        ref_price_source="1d_close",
         atr14=0.0,
         adr_pct=None,
         regime_1d="unknown",
