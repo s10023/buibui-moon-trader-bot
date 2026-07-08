@@ -7,6 +7,7 @@
   let data = $state<BriefResponse | null>(null);
   let loading = $state(true);
   let error = $state<string | null>(null);
+  let showLegend = $state(false);
 
   const REGIME_LABEL: Record<string, string> = {
     trend: "Trend",
@@ -62,11 +63,66 @@
           {data.health.data_ok ? "● data ok" : "⚠ data issue"}
         </span>
       {/if}
+      <button class="btn-refresh" onclick={() => (showLegend = !showLegend)}>
+        ⓘ legend
+      </button>
       <button class="btn-refresh" onclick={() => void load()} disabled={loading}>
         {loading ? "Loading…" : "Refresh"}
       </button>
     </div>
   </div>
+
+  {#if showLegend}
+    <div class="card legend-card">
+      <div class="card-header"><span class="card-title">Reading this brief</span></div>
+      <dl class="legend-list muted">
+        <dt>Regime 1D / 4H</dt>
+        <dd>
+          Classifier output (trend / range / high-vol / unknown) from the same
+          regime model that soft-gates live signals.
+        </dd>
+        <dt>ATR14</dt>
+        <dd>
+          Daily Wilder ATR in price units — the yardstick: every ± number on
+          levels and zones is a distance in daily ATRs from the Last price.
+        </dd>
+        <dt>Levels</dt>
+        <dd>
+          PDH/PDL prior day high/low · PWH/PWL prior week · MonH/MonL Monday's
+          range (active Tue onward) · DO/WO/MO today's / this week's / this
+          month's open.
+        </dd>
+        <dt>swept</dt>
+        <dd>
+          Price pierced the level during the current period and now trades back
+          on the original side (sweep + reclaim/reject).
+        </dd>
+        <dt>Zones</dt>
+        <dd>
+          Structural zones per timeframe — FVG fair-value gap · OB order block ·
+          BOS break of structure · EQH/EQL equal highs/lows. Tag shows ATR
+          distance, or "inside" when price is within the zone.
+        </dd>
+        <dt>Last</dt>
+        <dd>
+          Reference price for all distances: freshest completed 1h close,
+          falling back to the forming or last completed daily bar (tagged).
+        </dd>
+        <dt>Seasonality</dt>
+        <dd>
+          Day-of-week stats over the lookback: bull % of days, average range,
+          which session most often prints the day's high/low, and typical
+          weekly high/low days.
+        </dd>
+        <dt>Pundit board</dt>
+        <dd>
+          Recent ledger calls with per-author priors: n calls scored, hit
+          rate, and average R (ATR-proxy R for stop-less calls). ⚠ marks
+          low-sample authors; ● marks calls on a symbol shown above.
+        </dd>
+      </dl>
+    </div>
+  {/if}
 
   {#if error}
     <ErrorBanner {error} />
@@ -112,9 +168,15 @@
                 </div>
               {/each}
               <div class="lvl-row close-row">
-                <span class="lvl-name">CLOSE</span>
+                <span class="lvl-name">LAST</span>
                 <span class="lvl-price num">{fmtPrice(panel.ref_close)}</span>
-                <span></span>
+                <span class="lvl-dist num muted">
+                  {panel.ref_price_source === "1h"
+                    ? "1h close"
+                    : panel.ref_price_source === "1d_forming"
+                      ? "1d forming"
+                      : "1d close"}
+                </span>
               </div>
               {#each panel.levels_below as lvl (lvl.name)}
                 <div class="lvl-row below">
@@ -628,4 +690,9 @@
     font-size: 11px;
     margin-top: 6px;
   }
+
+  .legend-card { margin-bottom: 16px; }
+  .legend-list { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 0.85rem; margin: 0; }
+  .legend-list dt { font-weight: 600; color: var(--text-dim); }
+  .legend-list dd { margin: 0; }
 </style>

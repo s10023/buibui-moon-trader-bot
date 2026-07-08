@@ -39,6 +39,7 @@ class SymbolPanelModel(BaseModel):
     symbol: str
     ref_close: float
     ref_close_ts_ms: int
+    ref_price_source: str
     atr14: float
     adr_pct: float | None
     regime_1d: str

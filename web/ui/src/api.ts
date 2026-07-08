@@ -632,6 +632,7 @@ export interface BriefSymbolPanel {
   symbol: string;
   ref_close: number;
   ref_close_ts_ms: number;
+  ref_price_source: string;
   atr14: number;
   adr_pct: number | null;
   regime_1d: string;
