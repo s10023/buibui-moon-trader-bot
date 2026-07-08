@@ -141,6 +141,6 @@ regression pipeline).
 
 ## Rollout
 
-Single branch/PR (`fix/brief-m0-sweep-price-legend`). Read-only
-analytics change + UI addition; no DB, schema, config, or golden
-change.
+Single branch/PR (`docs/m0-brief-fixes` — spec, plan, and code ride
+together). Read-only analytics change + UI addition; no DB, schema,
+config, or golden change.
