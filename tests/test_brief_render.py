@@ -66,6 +66,14 @@ def test_render_end_to_end_byte_stable(tmp_path: Path) -> None:
     assert "alice" in out1
 
 
+def test_render_last_price_label(tmp_path: Path) -> None:
+    cfg, conn = _seeded_cfg(tmp_path)
+    out = render_markdown(compute_brief(conn, cfg))
+    assert "Last " in out
+    assert "(1h close 00:00 UTC)" in out
+    assert "Close " not in out  # old label gone
+
+
 def _seeded_cfg_with_priors(
     tmp_path: Path, priors_text: str
 ) -> tuple[BriefConfig, duckdb.DuckDBPyConnection]:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from analytics.brief._common import TF_MS
 from analytics.brief.types import (
     BriefBundle,
     LevelRow,
@@ -83,6 +84,17 @@ def _strip_lines(strip: SeasonalityStrip | None) -> list[str]:
     return lines
 
 
+def _ref_price_label(panel: SymbolPanel) -> str:
+    """Human tag for the reference-price basis, e.g. "1h close 09:00 UTC"."""
+    if panel.ref_price_source == "1d_forming":
+        return "1d forming"
+    tf = "1h" if panel.ref_price_source == "1h" else "1d"
+    close_ts = pd.Timestamp(
+        panel.ref_close_ts_ms + TF_MS[tf], unit="ms", tz="UTC"
+    ).strftime("%H:%M")
+    return f"{tf} close {close_ts} UTC"
+
+
 def _panel_lines(panel: SymbolPanel) -> list[str]:
     lines = [f"── {panel.symbol} " + "─" * 44]
     if panel.error is not None:
@@ -90,7 +102,8 @@ def _panel_lines(panel: SymbolPanel) -> list[str]:
         return lines
     adr = f" · ADR {fmt_frac(panel.adr_pct)}" if panel.adr_pct is not None else ""
     lines.append(
-        f"Close {fmt_price(panel.ref_close)} · Regime 1d {panel.regime_1d} / "
+        f"Last {fmt_price(panel.ref_close)} ({_ref_price_label(panel)}) · "
+        f"Regime 1d {panel.regime_1d} / "
         f"4h {panel.regime_4h} · ATR14(1d) {fmt_price(panel.atr14)}{adr}"
     )
     above = " · ".join(_level_str(r) for r in panel.levels_above) or "none"
