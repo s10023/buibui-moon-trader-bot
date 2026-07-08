@@ -51,7 +51,7 @@ def _compute_panel(
     ref_ts = int(ref_bar["open_time"])
     atr = atr14_wilder(completed_1d)
     levels_above, levels_below = build_level_rows(
-        daily, completed_1d, as_of, ref_close, atr, cfg.max_levels_per_side
+        daily, as_of, ref_close, atr, cfg.max_levels_per_side
     )
     frames: dict[str, pd.DataFrame] = {}
     for tf in cfg.zone_tfs:
