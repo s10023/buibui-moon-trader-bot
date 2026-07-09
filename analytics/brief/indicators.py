@@ -14,7 +14,7 @@ from collections.abc import Callable
 
 import pandas as pd
 
-from analytics.brief._common import day_ahead_dow
+from analytics.brief._common import DAY_MS, day_ahead_dow
 from analytics.brief.types import (
     BbState,
     CandleHit,
@@ -26,7 +26,7 @@ from analytics.brief.types import (
     RangeState,
     VwapState,
 )
-from analytics.indicators import pa_character
+from analytics.indicators import anchored_vwap, bollinger_state, pa_character
 from analytics.reference_levels import compute_levels
 from analytics.strategies._shared import compute_ema
 from analytics.strategies.doji import detect_doji
@@ -35,6 +35,7 @@ from analytics.strategies.hammer_hanging_man import detect_hammer_hanging_man
 from analytics.strategies.inside_bar import detect_inside_bar
 from analytics.strategies.morning_evening_star import detect_morning_evening_star
 from analytics.strategies.pin_bar import detect_pin_bar
+from analytics.volume_profile import build_profile, value_area
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,20 @@ _CANDLE_DETECTORS: tuple[tuple[str, Callable[[pd.DataFrame], pd.DataFrame]], ...
 )
 
 _PA_LOOKBACK = 10
+_PROFILE_DAYS = 60
+
+
+def _week_anchor_ms(as_of_ms: int) -> int:
+    """Monday 00:00 UTC of the week containing as_of (reference_levels rule)."""
+    ts = pd.Timestamp(as_of_ms, unit="ms", tz="UTC").normalize()
+    monday = ts - pd.Timedelta(days=int(ts.weekday()))
+    return int(monday.value // 1_000_000)
+
+
+def _month_anchor_ms(as_of_ms: int) -> int:
+    """First of the month, 00:00 UTC."""
+    ts = pd.Timestamp(as_of_ms, unit="ms", tz="UTC").normalize().replace(day=1)
+    return int(ts.value // 1_000_000)
 
 
 def _ema_value(close: pd.Series, span: int) -> pd.Series | None:
@@ -186,19 +201,63 @@ def _pa_state(completed_1d: pd.DataFrame, atr14: float) -> PaState | None:
 
 
 def _bb_state(completed_1d: pd.DataFrame, ref_close: float) -> BbState | None:
-    raise NotImplementedError  # Task 5
+    if completed_1d.empty:
+        return None
+    read = bollinger_state(completed_1d["close"].astype(float), ref_price=ref_close)
+    if read is None:
+        return None
+    return BbState(
+        pct_b=read.pct_b,
+        bandwidth=read.bandwidth,
+        bw_pctile=read.bw_pctile,
+        squeeze=read.squeeze,
+    )
 
 
 def _vwap_state(
     completed_1h: pd.DataFrame, ref_close: float, atr14: float, as_of_ms: int
 ) -> VwapState | None:
-    raise NotImplementedError  # Task 5
+    if atr14 <= 0.0:
+        return None
+    weekly = anchored_vwap(completed_1h, _week_anchor_ms(as_of_ms))
+    monthly = anchored_vwap(completed_1h, _month_anchor_ms(as_of_ms))
+    if weekly is None and monthly is None:
+        return None
+    return VwapState(
+        weekly_price=weekly,
+        weekly_dist_atr=((ref_close - weekly) / atr14) if weekly is not None else None,
+        monthly_price=monthly,
+        monthly_dist_atr=(
+            (ref_close - monthly) / atr14 if monthly is not None else None
+        ),
+    )
 
 
 def _profile_state(
     completed_1h: pd.DataFrame, ref_close: float, atr14: float, as_of_ms: int
 ) -> ProfileState | None:
-    raise NotImplementedError  # Task 5
+    if atr14 <= 0.0 or completed_1h.empty:
+        return None
+    window = completed_1h[
+        completed_1h["open_time"] >= as_of_ms - _PROFILE_DAYS * DAY_MS
+    ]
+    profile = build_profile(window)
+    if profile is None:
+        return None
+    poc, vah, val = value_area(profile)
+    if ref_close > vah:
+        vs_value = "above"
+    elif ref_close < val:
+        vs_value = "below"
+    else:
+        vs_value = "inside"
+    return ProfileState(
+        poc=poc,
+        vah=vah,
+        val=val,
+        vs_value=vs_value,
+        poc_dist_atr=(poc - ref_close) / atr14,
+    )
 
 
 def build_indicator_state(
@@ -212,16 +271,13 @@ def build_indicator_state(
     """(IndicatorState | None, notes) — independent sub-blocks (spec).
 
     Notes are unprefixed ("indicator ema failed (...)"); the bundle adds
-    the symbol. NotImplementedError from a not-yet-built sub-block (staged
-    Tasks 4-5) is treated as "absent", not "failed" — no note.
+    the symbol.
     """
     notes: list[str] = []
 
     def run(name: str, fn: Callable[[], object]) -> object:
         try:
             return fn()
-        except NotImplementedError:
-            return None
         except Exception as exc:  # independence contract
             logger.warning("brief indicators: %s failed: %s", name, exc)
             notes.append(f"indicator {name} failed ({exc})")

@@ -236,3 +236,128 @@ class TestPaState:
         from analytics.brief.indicators import _pa_state
 
         assert _pa_state(_daily_frame(15), atr14=0.0) is None
+
+
+H1_MS = 3_600_000
+
+
+def _hourly_frame(n_hours: int, price: float = 100.0) -> pd.DataFrame:
+    rows = [
+        {
+            "open_time": START_MS + i * H1_MS,
+            "open": price,
+            "high": price * 1.001,
+            "low": price * 0.999,
+            "close": price,
+            "volume": 100.0,
+        }
+        for i in range(n_hours)
+    ]
+    return pd.DataFrame(rows)
+
+
+class TestVwapState:
+    def test_weekly_and_monthly_anchor(self) -> None:
+        from analytics.brief.indicators import _vwap_state
+
+        # START_MS is Mon 2024-01-01 00:00 UTC: week + month anchor coincide.
+        hourly = _hourly_frame(48)
+        as_of = START_MS + 2 * DAY_MS
+        state = _vwap_state(hourly, ref_close=102.0, atr14=2.0, as_of_ms=as_of)
+        assert state is not None
+        assert state.weekly_price is not None
+        assert abs(state.weekly_price - 100.0) < 0.2  # flat 100 bars
+        assert state.weekly_dist_atr is not None
+        assert state.weekly_dist_atr > 0  # price above VWAP -> positive
+        assert state.monthly_price is not None
+
+    def test_no_bars_past_anchor_is_none(self) -> None:
+        from analytics.brief.indicators import _vwap_state
+
+        # as_of in the NEXT week/month with no 1h bars after the anchors.
+        hourly = _hourly_frame(24)
+        as_of = START_MS + 40 * DAY_MS  # 2024-02-10, anchors past the data
+        assert _vwap_state(hourly, 100.0, 2.0, as_of) is None
+
+    def test_zero_atr_is_none(self) -> None:
+        from analytics.brief.indicators import _vwap_state
+
+        assert _vwap_state(_hourly_frame(24), 100.0, 0.0, START_MS + DAY_MS) is None
+
+
+class TestProfileState:
+    def test_inside_value_area(self) -> None:
+        from analytics.brief.indicators import _profile_state
+
+        hourly = _hourly_frame(24 * 10)
+        as_of = START_MS + 10 * DAY_MS
+        state = _profile_state(hourly, ref_close=100.0, atr14=2.0, as_of_ms=as_of)
+        assert state is not None
+        assert state.vs_value == "inside"
+        assert state.val <= state.poc <= state.vah
+
+    def test_above_value_area(self) -> None:
+        from analytics.brief.indicators import _profile_state
+
+        hourly = _hourly_frame(24 * 10)
+        as_of = START_MS + 10 * DAY_MS
+        state = _profile_state(hourly, ref_close=200.0, atr14=2.0, as_of_ms=as_of)
+        assert state is not None
+        assert state.vs_value == "above"
+        assert state.poc_dist_atr < 0  # POC far below price
+
+    def test_empty_window_is_none(self) -> None:
+        from analytics.brief.indicators import _profile_state
+
+        # All bars older than the 60d window.
+        hourly = _hourly_frame(24)
+        as_of = START_MS + 100 * DAY_MS
+        assert _profile_state(hourly, 100.0, 2.0, as_of) is None
+
+
+class TestBbStateAdapter:
+    def test_flows_through(self) -> None:
+        from analytics.brief.indicators import _bb_state
+
+        state = _bb_state(_daily_frame(60), ref_close=100.0)
+        assert state is not None
+        assert isinstance(state.pct_b, float)
+
+
+class TestFailureIsolation:
+    def test_poisoned_hourly_frame_fails_only_hourly_blocks(self) -> None:
+        # 1h frame with rows but NO volume column: vwap + profile raise
+        # KeyError inside the adapter -> their sub-blocks None + 2 notes;
+        # the 1d-based sub-blocks survive.
+        df = _daily_frame(250)
+        regime = pd.Series(["trend"] * 250)
+        # open_time must land INSIDE the week/month anchor windows and the
+        # 60d profile window, otherwise vwap/profile return None (empty
+        # window) instead of raising, and no note is emitted.
+        bad_hourly = pd.DataFrame(
+            [
+                {
+                    "open_time": START_MS + 249 * DAY_MS,
+                    "open": 1.0,
+                    "high": 1.0,
+                    "low": 1.0,
+                    "close": 1.0,
+                }
+            ]
+        )
+        state, notes = build_indicator_state(
+            completed_1d=df,
+            completed_1h=bad_hourly,
+            regime_series_1d=regime,
+            ref_close=100.0,
+            atr14=2.0,
+            as_of_ms=START_MS + 250 * DAY_MS,
+        )
+        assert state is not None
+        assert state.ema is not None
+        assert state.pa is not None
+        assert state.vwap is None
+        assert state.profile is None
+        assert sum("failed" in n for n in notes) == 2
+        assert any(n.startswith("indicator vwap failed") for n in notes)
+        assert any(n.startswith("indicator profile failed") for n in notes)
