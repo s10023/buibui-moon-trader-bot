@@ -140,3 +140,28 @@ def test_bundle_falls_back_without_1h_and_notes_it() -> None:
     panel = bundle.panels[0]
     assert panel.ref_price_source == "1d_close"
     assert any("ref price" in n for n in bundle.health.notes)
+
+
+def test_panel_has_indicator_state() -> None:
+    conn = make_conn()
+    seed_symbol(conn, "BTCUSDT", START_MS, 60)
+    bundle = compute_brief(conn, _cfg(("BTCUSDT",)))
+    panel = bundle.panels[0]
+    assert panel.error is None
+    assert panel.indicators is not None
+    # 60 seeded days: EMA20/50 available, EMA200 not.
+    assert panel.indicators.ema is not None
+    assert panel.indicators.ema.above_20 is not None
+    assert panel.indicators.ema.above_200 is None
+    assert panel.indicators.range_state is not None
+    assert panel.indicators.candles is not None
+    assert panel.indicators.vwap is not None
+    assert panel.indicators.profile is not None
+
+
+def test_indicators_deterministic() -> None:
+    conn = make_conn()
+    seed_symbol(conn, "BTCUSDT", START_MS, 60)
+    first = compute_brief(conn, _cfg(("BTCUSDT",)))
+    second = compute_brief(conn, _cfg(("BTCUSDT",)))
+    assert first.panels[0].indicators == second.panels[0].indicators
