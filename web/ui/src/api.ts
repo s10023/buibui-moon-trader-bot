@@ -628,6 +628,72 @@ export interface BriefSeasonalityStrip {
   typical_high_day: string | null;
 }
 
+export interface BriefEmaState {
+  above_20: boolean | null;
+  above_50: boolean | null;
+  above_200: boolean | null;
+  stack: string | null;
+  slope_200: string | null;
+}
+
+export interface BriefRangeState {
+  label: string;
+  since_ms: number;
+  bars: number;
+  range_low: number | null;
+  range_high: number | null;
+  pos: number | null;
+}
+
+export interface BriefMondayState {
+  state: string;
+  pos: number | null;
+}
+
+export interface BriefCandleHit {
+  pattern: string;
+  direction: string;
+}
+
+export interface BriefPaState {
+  label: string;
+  er: number;
+  speed_atr: number;
+}
+
+export interface BriefBbState {
+  pct_b: number;
+  bandwidth: number;
+  bw_pctile: number | null;
+  squeeze: boolean | null;
+}
+
+export interface BriefVwapState {
+  weekly_price: number | null;
+  weekly_dist_atr: number | null;
+  monthly_price: number | null;
+  monthly_dist_atr: number | null;
+}
+
+export interface BriefProfileState {
+  poc: number;
+  vah: number;
+  val: number;
+  vs_value: string;
+  poc_dist_atr: number;
+}
+
+export interface BriefIndicatorState {
+  ema: BriefEmaState | null;
+  range_state: BriefRangeState | null;
+  monday: BriefMondayState | null;
+  candles: BriefCandleHit[] | null;
+  pa: BriefPaState | null;
+  bb: BriefBbState | null;
+  vwap: BriefVwapState | null;
+  profile: BriefProfileState | null;
+}
+
 export interface BriefSymbolPanel {
   symbol: string;
   ref_close: number;
@@ -642,6 +708,7 @@ export interface BriefSymbolPanel {
   zones_above: BriefZoneRow[];
   zones_below: BriefZoneRow[];
   seasonality: BriefSeasonalityStrip | null;
+  indicators: BriefIndicatorState | null;
   error: string | null;
 }
 
