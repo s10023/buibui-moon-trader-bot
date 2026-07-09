@@ -87,6 +87,11 @@ class TestRangeState:
     def test_empty_regime_is_none(self) -> None:
         assert _range_state(_daily_frame(0), pd.Series(dtype=object), 1.0) is None
 
+    def test_misaligned_regime_series_is_none(self) -> None:
+        df = _daily_frame(10)
+        regime = pd.Series(["range"] * 7)  # shorter than the frame
+        assert _range_state(df, regime, ref_close=100.0) is None
+
 
 class TestMondayState:
     def test_forming_on_monday(self) -> None:

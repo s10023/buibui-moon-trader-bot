@@ -85,6 +85,8 @@ def _range_state(
 ) -> RangeState | None:
     if regime_series_1d.empty or completed_1d.empty:
         return None
+    if len(regime_series_1d) != len(completed_1d):
+        return None
     labels = [str(v) for v in regime_series_1d.tolist()]
     label = labels[-1]
     bars = 1
