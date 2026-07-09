@@ -90,7 +90,9 @@ web/ui/src/pages/Brief.svelte   + indicators sub-section + legend entries
 - `value_area(profile, pct=0.70) -> (poc, vah, val)` — POC = center of the
   max-volume bin; greedy expansion adding the higher-volume neighbor bin
   until cumulative volume ≥ `pct` of total; VAH/VAL = outer edges of the
-  expanded region.
+  expanded region. Deterministic tie-breaks: equal-volume POC candidates →
+  lowest-price bin; equal-volume neighbors during expansion → the upper
+  bin.
 
 ### `analytics/indicators.py` (new, pure)
 
@@ -154,7 +156,8 @@ distances are ATR14-normalised — consistent with the levels/zones gauges.
 EMA 20/50/200 via `strategies/_shared.compute_ema` on completed 1d closes.
 Reports: ref_close above/below each EMA; stack label (`bullish` =
 EMA20 > EMA50 > EMA200, `bearish` = EMA200 > EMA50 > EMA20, else `mixed`);
-EMA200 slope `rising`/`falling` vs its value 5 bars ago. Fewer than 200
+EMA200 slope `rising` when EMA200[-1] > EMA200[-6], else `falling` (floats
+make exact equality irrelevant). Fewer than 200
 completed bars → the unavailable EMA reads None (no error; stack/slope
 require the EMAs they reference, else None).
 
@@ -165,13 +168,15 @@ Run-length of the trailing identical label on the shared 1d regime series
 `regime_1d`). Reports: current label, `since` (open date of the run's
 first bar), bars-in-state. When the label is `range`: run high/low
 (max high / min low over the run's bars) and ref_close position in that
-band clipped to [0, 1]. `unknown` label → duration only.
+band clipped to [0, 1] (zero-width band → position None). `unknown`
+label → duration only.
 
 ### 3. Monday-range state
 
 Vs MonH/MonL from `compute_levels`: `above` (ref_close > MonH), `below`
 (ref_close < MonL), else `inside` with position fraction
-(ref − MonL) / (MonH − MonL). When `as_of` falls on a Monday (UTC), the
+(ref − MonL) / (MonH − MonL) (zero-width range → fraction None). When
+`as_of` falls on a Monday (UTC), the
 state is `forming` — the current week's Monday range is not yet a
 reference, the same exclusion the levels gauge applies. Levels absent →
 sub-block None.
@@ -217,11 +222,13 @@ the anchor itself) → that VWAP None.
 
 ### Independence contract
 
-Mirrors the seasonality strip: each of the seven computes independently
-inside the adapter (per-component try/except); one failure → that
-sub-block None + a health note (`"SYM: indicator <name> failed"`); only
-all seven failing makes `SymbolPanel.indicators` None. Per-symbol
-isolation (`error_panel`) unchanged.
+Mirrors the seasonality strip: every sub-block computes independently
+inside the adapter (per-component try/except; BB and AVWAP — one roadmap
+component — are two independent sub-blocks, so eight in total); one
+failure → that sub-block None + a health note
+(`"SYM: indicator <name> failed"`); only all sub-blocks failing makes
+`SymbolPanel.indicators` None. Per-symbol isolation (`error_panel`)
+unchanged.
 
 ## Types (sketch — exact fields frozen at plan time)
 
@@ -264,8 +271,9 @@ VP 60d: POC 108.4k (−0.3 ATR) · VA 104.1k–113.9k · inside
 ```
 
 A failed sub-block **drops its line** (seasonality-strip behavior; the
-health footer records why). Valid empty states still render
-(`Candle(y): none`).
+health footer records why). The shared `BB | AVWAP` line drops only the
+failed half and renders the surviving half alone; it disappears only when
+both fail. Valid empty states still render (`Candle(y): none`).
 
 ## API + UI
 
