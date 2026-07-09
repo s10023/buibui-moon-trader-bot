@@ -113,6 +113,7 @@ def _compute_panel(
         zones_above=zones_above,
         zones_below=zones_below,
         seasonality=build_strip(conn, symbol, as_of, cfg.stats_days),
+        indicators=None,
         error=None,
     )
 
