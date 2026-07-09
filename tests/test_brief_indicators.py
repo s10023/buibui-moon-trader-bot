@@ -139,3 +139,100 @@ class TestBuildIndicatorState:
         assert state.ema is not None
         assert state.range_state is not None
         assert notes == []
+
+
+class TestCandleHits:
+    def test_bullish_engulfing_on_last_bar(self) -> None:
+        from analytics.brief.indicators import _candle_hits
+
+        # Bar 0 bearish (100 -> 98), bar 1 bullish engulfing (97 -> 101).
+        df = pd.DataFrame(
+            [
+                {
+                    "open_time": START_MS,
+                    "open": 100.0,
+                    "high": 100.5,
+                    "low": 97.5,
+                    "close": 98.0,
+                    "volume": 1000.0,
+                },
+                {
+                    "open_time": START_MS + DAY_MS,
+                    "open": 97.0,
+                    "high": 101.5,
+                    "low": 96.5,
+                    "close": 101.0,
+                    "volume": 1000.0,
+                },
+            ]
+        )
+        hits = _candle_hits(df)
+        assert ("engulfing", "long") in [(h.pattern, h.direction) for h in hits]
+
+    def test_pattern_on_earlier_bar_is_ignored(self) -> None:
+        from analytics.brief.indicators import _candle_hits
+
+        # Same engulfing pair, then a plain drifting third bar: engulfing
+        # fired on bar 1, which is no longer the last bar -> not reported.
+        df = pd.DataFrame(
+            [
+                {
+                    "open_time": START_MS,
+                    "open": 100.0,
+                    "high": 100.5,
+                    "low": 97.5,
+                    "close": 98.0,
+                    "volume": 1000.0,
+                },
+                {
+                    "open_time": START_MS + DAY_MS,
+                    "open": 97.0,
+                    "high": 101.5,
+                    "low": 96.5,
+                    "close": 101.0,
+                    "volume": 1000.0,
+                },
+                {
+                    "open_time": START_MS + 2 * DAY_MS,
+                    "open": 101.0,
+                    "high": 101.6,
+                    "low": 100.8,
+                    "close": 101.5,
+                    "volume": 1000.0,
+                },
+            ]
+        )
+        hits = _candle_hits(df)
+        assert ("engulfing", "long") not in [(h.pattern, h.direction) for h in hits]
+
+    def test_no_patterns_is_empty_list_not_none(self) -> None:
+        from analytics.brief.indicators import _candle_hits
+
+        hits = _candle_hits(_daily_frame(30))
+        assert isinstance(hits, list)
+
+
+class TestPaState:
+    def test_labels_flow_through(self) -> None:
+        from analytics.brief.indicators import _pa_state
+
+        rows = [
+            {
+                "open_time": START_MS + i * DAY_MS,
+                "open": 100.0 + i,
+                "high": 101.0 + i,
+                "low": 99.0 + i,
+                "close": 100.0 + i,
+                "volume": 1000.0,
+            }
+            for i in range(15)
+        ]
+        state = _pa_state(pd.DataFrame(rows), atr14=1.0)
+        assert state is not None
+        assert state.label == "impulse_up"
+        assert state.er > 0.99
+
+    def test_zero_atr_is_none(self) -> None:
+        from analytics.brief.indicators import _pa_state
+
+        assert _pa_state(_daily_frame(15), atr14=0.0) is None

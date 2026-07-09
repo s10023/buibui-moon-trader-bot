@@ -26,13 +26,33 @@ from analytics.brief.types import (
     RangeState,
     VwapState,
 )
+from analytics.indicators import pa_character
 from analytics.reference_levels import compute_levels
 from analytics.strategies._shared import compute_ema
+from analytics.strategies.doji import detect_doji
+from analytics.strategies.engulfing import detect_engulfing
+from analytics.strategies.hammer_hanging_man import detect_hammer_hanging_man
+from analytics.strategies.inside_bar import detect_inside_bar
+from analytics.strategies.morning_evening_star import detect_morning_evening_star
+from analytics.strategies.pin_bar import detect_pin_bar
 
 logger = logging.getLogger(__name__)
 
 _EMA_SPANS = (20, 50, 200)
 _SLOPE_LOOKBACK = 5
+
+# marubozu_retest deliberately excluded — it fires on the retest bar, not
+# the pattern bar.
+_CANDLE_DETECTORS: tuple[tuple[str, Callable[[pd.DataFrame], pd.DataFrame]], ...] = (
+    ("doji", detect_doji),
+    ("engulfing", detect_engulfing),
+    ("hammer_hanging_man", detect_hammer_hanging_man),
+    ("inside_bar", detect_inside_bar),
+    ("morning_evening_star", detect_morning_evening_star),
+    ("pin_bar", detect_pin_bar),
+)
+
+_PA_LOOKBACK = 10
 
 
 def _ema_value(close: pd.Series, span: int) -> pd.Series | None:
@@ -141,11 +161,28 @@ def _monday_state(
 
 
 def _candle_hits(completed_1d: pd.DataFrame) -> list[CandleHit]:
-    raise NotImplementedError  # Task 4
+    """Anatomy-detector signals landing on the LAST completed 1d bar."""
+    if completed_1d.empty:
+        return []
+    last_open = int(completed_1d["open_time"].iloc[-1])
+    hits: list[CandleHit] = []
+    for name, detect in _CANDLE_DETECTORS:
+        signals = detect(completed_1d)
+        if signals.empty:
+            continue
+        on_last = signals[signals["open_time"] == last_open]
+        for direction in on_last["direction"]:
+            hits.append(CandleHit(pattern=name, direction=str(direction)))
+    return sorted(hits, key=lambda h: (h.pattern, h.direction))
 
 
 def _pa_state(completed_1d: pd.DataFrame, atr14: float) -> PaState | None:
-    raise NotImplementedError  # Task 4
+    read = pa_character(
+        completed_1d["close"].astype(float), atr14=atr14, n=_PA_LOOKBACK
+    )
+    if read is None:
+        return None
+    return PaState(label=read.label, er=read.er, speed_atr=read.speed_atr)
 
 
 def _bb_state(completed_1d: pd.DataFrame, ref_close: float) -> BbState | None:
