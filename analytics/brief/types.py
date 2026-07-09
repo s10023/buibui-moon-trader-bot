@@ -42,6 +42,81 @@ class SeasonalityStrip:
 
 
 @dataclass(frozen=True)
+class EmaState:
+    above_20: bool | None
+    above_50: bool | None
+    above_200: bool | None
+    stack: str | None  # "bullish" | "bearish" | "mixed"
+    slope_200: str | None  # "rising" | "falling"
+
+
+@dataclass(frozen=True)
+class RangeState:
+    label: str  # regime label of the current run
+    since_ms: int  # open_time of the run's first bar
+    bars: int
+    range_low: float | None  # only when label == "range"
+    range_high: float | None
+    pos: float | None  # ref position in the range, clipped [0, 1]
+
+
+@dataclass(frozen=True)
+class MondayState:
+    state: str  # "above" | "inside" | "below" | "forming"
+    pos: float | None  # fraction inside MonL..MonH, only for "inside"
+
+
+@dataclass(frozen=True)
+class CandleHit:
+    pattern: str  # detector name, e.g. "engulfing"
+    direction: str  # "long" | "short"
+
+
+@dataclass(frozen=True)
+class PaState:
+    label: str  # impulse_up | impulse_down | grind_up | grind_down | chop
+    er: float
+    speed_atr: float
+
+
+@dataclass(frozen=True)
+class BbState:
+    pct_b: float
+    bandwidth: float
+    bw_pctile: float | None
+    squeeze: bool | None
+
+
+@dataclass(frozen=True)
+class VwapState:
+    weekly_price: float | None
+    weekly_dist_atr: float | None  # (ref - vwap) / atr: + = price above
+    monthly_price: float | None
+    monthly_dist_atr: float | None
+
+
+@dataclass(frozen=True)
+class ProfileState:
+    poc: float
+    vah: float
+    val: float
+    vs_value: str  # "above" | "inside" | "below"
+    poc_dist_atr: float  # (poc - ref) / atr: + = POC above price
+
+
+@dataclass(frozen=True)
+class IndicatorState:
+    ema: EmaState | None
+    range_state: RangeState | None
+    monday: MondayState | None
+    candles: list[CandleHit] | None  # [] = no patterns (valid); None = failed
+    pa: PaState | None
+    bb: BbState | None
+    vwap: VwapState | None
+    profile: ProfileState | None
+
+
+@dataclass(frozen=True)
 class SymbolPanel:
     symbol: str
     ref_close: float
@@ -56,6 +131,7 @@ class SymbolPanel:
     zones_above: list[ZoneRow]
     zones_below: list[ZoneRow]
     seasonality: SeasonalityStrip | None
+    indicators: IndicatorState | None
     error: str | None
 
 
@@ -75,6 +151,7 @@ def error_panel(symbol: str, message: str) -> SymbolPanel:
         zones_above=[],
         zones_below=[],
         seasonality=None,
+        indicators=None,
         error=message,
     )
 

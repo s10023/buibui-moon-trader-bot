@@ -114,6 +114,44 @@
           which session most often prints the day's high/low, and typical
           weekly high/low days.
         </dd>
+        <dt>EMA</dt>
+        <dd>
+          Price vs the 20/50/200-day EMAs (▲ above / ▼ below / — not enough
+          history), the stack order (bullish 20&gt;50&gt;200), and the 200's
+          5-day slope.
+        </dd>
+        <dt>State</dt>
+        <dd>
+          Current 1D regime and how many bars it has held; when ranging, the
+          run's high–low band and where price sits inside it.
+        </dd>
+        <dt>Monday</dt>
+        <dd>
+          Price vs this week's Monday range (above / inside / below); "forming"
+          on Mondays while the range is still being set.
+        </dd>
+        <dt>Candle</dt>
+        <dd>
+          Anatomy patterns detected on yesterday's completed daily candle
+          (engulfing, pin bar, doji, inside bar, hammer, star).
+        </dd>
+        <dt>PA</dt>
+        <dd>
+          Price-action character over the last 10 days: impulse (fast
+          directional) vs grind (slow directional) vs chop, from efficiency
+          ratio × ATR-normalised speed.
+        </dd>
+        <dt>BB/VWAP</dt>
+        <dd>
+          Bollinger(20,2σ) %B and bandwidth (p = squeeze percentile), plus
+          price distance in ATRs from the weekly (W) and monthly (M) anchored
+          VWAPs.
+        </dd>
+        <dt>VP 60d</dt>
+        <dd>
+          60-day volume profile from our own 1h data: point of control and 70%
+          value area, with price above / inside / below value.
+        </dd>
         <dt>Pundit board</dt>
         <dd>
           Recent ledger calls with per-author priors: n calls scored, hit
@@ -155,6 +193,96 @@
               ATR14 {fmtPrice(panel.atr14)}
               {#if panel.adr_pct !== null}· ADR {fmtPct(panel.adr_pct)}{/if}
             </div>
+
+            {#if panel.indicators}
+              {@const ind = panel.indicators}
+              <div class="indicators muted">
+                {#if ind.ema}
+                  <div class="ind-row">
+                    <span class="ind-label">EMA</span>
+                    <span>
+                      {#each [[ind.ema.above_20, 20], [ind.ema.above_50, 50], [ind.ema.above_200, 200]] as [above, span]}
+                        <span
+                          class="ema-bit"
+                          class:pos={above === true}
+                          class:neg={above === false}
+                        >
+                          {above === null ? "—" : above ? "▲" : "▼"}{span}
+                        </span>
+                      {/each}
+                      {#if ind.ema.stack}· stack {ind.ema.stack}{/if}
+                      {#if ind.ema.slope_200}· 200 {ind.ema.slope_200}{/if}
+                    </span>
+                  </div>
+                {/if}
+                {#if ind.range_state}
+                  <div class="ind-row">
+                    <span class="ind-label">State</span>
+                    <span>
+                      {ind.range_state.label} · {ind.range_state.bars} bars
+                      {#if ind.range_state.range_low !== null && ind.range_state.range_high !== null}
+                        · {fmtPrice(ind.range_state.range_low)}–{fmtPrice(ind.range_state.range_high)}
+                        {#if ind.range_state.pos !== null}· {fmtPct(ind.range_state.pos)}{/if}
+                      {/if}
+                    </span>
+                  </div>
+                {/if}
+                {#if ind.monday}
+                  <div class="ind-row">
+                    <span class="ind-label">Monday</span>
+                    <span>
+                      {ind.monday.state}{#if ind.monday.pos !== null}&nbsp;({fmtPct(ind.monday.pos)}){/if}
+                    </span>
+                  </div>
+                {/if}
+                {#if ind.candles}
+                  <div class="ind-row">
+                    <span class="ind-label">Candle</span>
+                    <span>
+                      {ind.candles.length
+                        ? ind.candles.map((c) => `${c.pattern}·${c.direction}`).join(", ")
+                        : "none"}
+                    </span>
+                  </div>
+                {/if}
+                {#if ind.pa}
+                  <div class="ind-row">
+                    <span class="ind-label">PA</span>
+                    <span>
+                      {ind.pa.label} · ER {ind.pa.er.toFixed(2)} · {ind.pa.speed_atr.toFixed(2)} ATR/bar
+                    </span>
+                  </div>
+                {/if}
+                {#if ind.bb || ind.vwap}
+                  <div class="ind-row">
+                    <span class="ind-label">BB/VWAP</span>
+                    <span>
+                      {#if ind.bb}
+                        %B {ind.bb.pct_b.toFixed(2)} · bw {(ind.bb.bandwidth * 100).toFixed(1)}%
+                        {#if ind.bb.bw_pctile !== null}
+                          (p{Math.round(ind.bb.bw_pctile * 100)}{ind.bb.squeeze ? " squeeze" : ""})
+                        {/if}
+                      {/if}
+                      {#if ind.vwap}
+                        {#if ind.bb}·{/if}
+                        {#if ind.vwap.weekly_dist_atr !== null}W {fmtDist(ind.vwap.weekly_dist_atr)}{/if}
+                        {#if ind.vwap.monthly_dist_atr !== null}M {fmtDist(ind.vwap.monthly_dist_atr)}{/if}
+                      {/if}
+                    </span>
+                  </div>
+                {/if}
+                {#if ind.profile}
+                  <div class="ind-row">
+                    <span class="ind-label">VP 60d</span>
+                    <span>
+                      POC {fmtPrice(ind.profile.poc)} ({fmtDist(ind.profile.poc_dist_atr)})
+                      · VA {fmtPrice(ind.profile.val)}–{fmtPrice(ind.profile.vah)}
+                      · {ind.profile.vs_value}
+                    </span>
+                  </div>
+                {/if}
+              </div>
+            {/if}
 
             <div class="ladder">
               {#each [...panel.levels_above].reverse() as lvl (lvl.name)}
@@ -695,4 +823,28 @@
   .legend-list { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 0.85rem; margin: 0; }
   .legend-list dt { font-weight: 600; color: var(--text-dim); }
   .legend-list dd { margin: 0; }
+
+  /* ── Indicator states ─────────────────────────────────────────────────── */
+  .indicators {
+    display: grid;
+    gap: 2px;
+    font-size: 11px;
+    margin-bottom: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ind-row {
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: 8px;
+    padding: 1px 4px;
+  }
+
+  .ind-label {
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+  }
+
+  .ema-bit { margin-right: 4px; }
 </style>

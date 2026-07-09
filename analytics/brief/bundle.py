@@ -16,6 +16,7 @@ from analytics.brief._common import (
 )
 from analytics.brief.config import BriefConfig
 from analytics.brief.health import build_health
+from analytics.brief.indicators import build_indicator_state
 from analytics.brief.levels import adr_pct_14, atr14_wilder, build_level_rows
 from analytics.brief.pundit import build_board
 from analytics.brief.seasonality import build_strip
@@ -28,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 _DAILY_FETCH_DAYS = 500  # regime 1d needs ~90d ATR history + EMA warmup
 _H4_FETCH_DAYS = 200
-_H1_FETCH_DAYS = 3
+_H1_FETCH_DAYS = 62  # 60d volume profile + monthly AVWAP + 2d margin
 _MIN_DAILY_BARS = 15  # ATR14 + one reference bar
 _REF_1H_MAX_LAG_MS = 2 * TF_MS["1h"]
 
@@ -99,6 +100,16 @@ def _compute_panel(
     zones_above, zones_below = build_zone_rows(
         frames, ref_close, atr, cfg.max_zones_per_side
     )
+    regime_series_1d = classify_series(completed_1d, "1d")
+    indicators, ind_notes = build_indicator_state(
+        completed_1d=completed_1d,
+        completed_1h=completed_1h,
+        regime_series_1d=regime_series_1d,
+        ref_close=ref_close,
+        atr14=atr,
+        as_of_ms=as_of,
+    )
+    notes.extend(f"{symbol}: {n}" for n in ind_notes)
     return SymbolPanel(
         symbol=symbol,
         ref_close=ref_close,
@@ -106,13 +117,14 @@ def _compute_panel(
         ref_price_source=ref_source,
         atr14=atr,
         adr_pct=adr_pct_14(completed_1d),
-        regime_1d=_regime_label(completed_1d, "1d"),
+        regime_1d=str(regime_series_1d.iloc[-1]),
         regime_4h=_regime_label(frames.get("4h", pd.DataFrame()), "4h"),
         levels_above=levels_above,
         levels_below=levels_below,
         zones_above=zones_above,
         zones_below=zones_below,
         seasonality=build_strip(conn, symbol, as_of, cfg.stats_days),
+        indicators=indicators,
         error=None,
     )
 
