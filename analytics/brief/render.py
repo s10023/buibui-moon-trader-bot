@@ -6,14 +6,23 @@ import pandas as pd
 
 from analytics.brief._common import TF_MS
 from analytics.brief.types import (
+    BbState,
     BriefBundle,
+    CandleHit,
+    EmaState,
+    IndicatorState,
     LevelRow,
+    MondayState,
+    PaState,
+    ProfileState,
     PunditAuthorPrior,
     PunditBoard,
     PunditCallRow,
     PunditFamilyPrior,
+    RangeState,
     SeasonalityStrip,
     SymbolPanel,
+    VwapState,
     ZoneRow,
 )
 
@@ -95,6 +104,101 @@ def _ref_price_label(panel: SymbolPanel) -> str:
     return f"{tf} close {close_ts} UTC"
 
 
+def _ema_bit(above: bool | None, span: int) -> str:
+    if above is None:
+        return f"—{span}"
+    return f"{'▲' if above else '▼'}{span}"
+
+
+def _ema_line(ema: EmaState) -> str:
+    spans = " ".join(
+        _ema_bit(a, s)
+        for a, s in ((ema.above_20, 20), (ema.above_50, 50), (ema.above_200, 200))
+    )
+    stack = f"stack {ema.stack}" if ema.stack is not None else "stack n/a"
+    slope = f"200 {ema.slope_200}" if ema.slope_200 is not None else "200 n/a"
+    return f"{'EMA':<9}{spans} · {stack} · {slope}"
+
+
+def _state_line(rs: RangeState) -> str:
+    since = pd.Timestamp(rs.since_ms, unit="ms", tz="UTC").strftime("%Y-%m-%d")
+    head = f"{'State':<9}{rs.label} since {since} ({rs.bars} bars)"
+    if rs.range_low is None or rs.range_high is None:
+        return head
+    bounds = f"{fmt_price(rs.range_low)}–{fmt_price(rs.range_high)}"
+    pos = f" · {fmt_frac(rs.pos)}" if rs.pos is not None else ""
+    return f"{head} · {bounds}{pos}"
+
+
+def _monday_line(monday: MondayState) -> str:
+    pos = f" ({fmt_frac(monday.pos)})" if monday.pos is not None else ""
+    return f"{'Monday':<9}{monday.state}{pos}"
+
+
+def _candle_line(candles: list[CandleHit]) -> str:
+    bits = ", ".join(f"{c.pattern}·{c.direction}" for c in candles) or "none"
+    return f"{'Candle':<9}{bits}"
+
+
+def _pa_line(pa: PaState) -> str:
+    return f"{'PA':<9}{pa.label} · ER {pa.er:.2f} · {pa.speed_atr:.2f} ATR/bar"
+
+
+def _bb_bit(bb: BbState) -> str:
+    bits = f"%B {bb.pct_b:.2f} · bw {bb.bandwidth * 100:.1f}%"
+    if bb.bw_pctile is not None:
+        squeeze = " squeeze" if bb.squeeze else ""
+        bits += f" (p{round(bb.bw_pctile * 100)}{squeeze})"
+    return bits
+
+
+def _vwap_bit(vwap: VwapState) -> str:
+    parts: list[str] = []
+    if vwap.weekly_dist_atr is not None:
+        parts.append(f"W {fmt_dist(vwap.weekly_dist_atr)}")
+    if vwap.monthly_dist_atr is not None:
+        parts.append(f"M {fmt_dist(vwap.monthly_dist_atr)}")
+    return " · ".join(parts)
+
+
+def _profile_line(profile: ProfileState) -> str:
+    return (
+        f"{'VP60d':<9}POC {fmt_price(profile.poc)} ({fmt_dist(profile.poc_dist_atr)})"
+        f" · VA {fmt_price(profile.val)}–{fmt_price(profile.vah)}"
+        f" · {profile.vs_value}"
+    )
+
+
+def _indicator_lines(state: IndicatorState | None) -> list[str]:
+    """One line per surviving sub-block; failed blocks drop silently."""
+    if state is None:
+        return []
+    lines: list[str] = []
+    if state.ema is not None:
+        lines.append(_ema_line(state.ema))
+    if state.range_state is not None:
+        lines.append(_state_line(state.range_state))
+    if state.monday is not None:
+        lines.append(_monday_line(state.monday))
+    if state.candles is not None:
+        lines.append(_candle_line(state.candles))
+    if state.pa is not None:
+        lines.append(_pa_line(state.pa))
+    bb_bit = _bb_bit(state.bb) if state.bb is not None else None
+    vwap_bit = _vwap_bit(state.vwap) if state.vwap is not None else None
+    if vwap_bit == "":
+        vwap_bit = None
+    if bb_bit is not None and vwap_bit is not None:
+        lines.append(f"{'BB':<9}{bb_bit} | AVWAP {vwap_bit}")
+    elif bb_bit is not None:
+        lines.append(f"{'BB':<9}{bb_bit}")
+    elif vwap_bit is not None:
+        lines.append(f"{'AVWAP':<9}{vwap_bit}")
+    if state.profile is not None:
+        lines.append(_profile_line(state.profile))
+    return lines
+
+
 def _panel_lines(panel: SymbolPanel) -> list[str]:
     lines = [f"── {panel.symbol} " + "─" * 44]
     if panel.error is not None:
@@ -106,6 +210,7 @@ def _panel_lines(panel: SymbolPanel) -> list[str]:
         f"Regime 1d {panel.regime_1d} / "
         f"4h {panel.regime_4h} · ATR14(1d) {fmt_price(panel.atr14)}{adr}"
     )
+    lines.extend(_indicator_lines(panel.indicators))
     above = " · ".join(_level_str(r) for r in panel.levels_above) or "none"
     below = " · ".join(_level_str(r) for r in panel.levels_below) or "none"
     lines.append(f"Levels   above → {above}")

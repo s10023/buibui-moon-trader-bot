@@ -7,7 +7,24 @@ import duckdb
 
 from analytics.brief.bundle import compute_brief
 from analytics.brief.config import BriefConfig
-from analytics.brief.render import fmt_dist, fmt_frac, fmt_price, render_markdown
+from analytics.brief.render import (
+    _indicator_lines,
+    fmt_dist,
+    fmt_frac,
+    fmt_price,
+    render_markdown,
+)
+from analytics.brief.types import (
+    BbState,
+    CandleHit,
+    EmaState,
+    IndicatorState,
+    MondayState,
+    PaState,
+    ProfileState,
+    RangeState,
+    VwapState,
+)
 from tests._brief_fixtures import DAY_MS, START_MS, make_conn, seed_symbol
 
 AS_OF = START_MS + 60 * DAY_MS
@@ -177,3 +194,134 @@ def test_render_error_panel(tmp_path: Path) -> None:
     out = render_markdown(compute_brief(conn, cfg2))
     assert "ERROR: " in out
     assert "data ⚠" in out
+
+
+def _full_state() -> IndicatorState:
+    return IndicatorState(
+        ema=EmaState(
+            above_20=True,
+            above_50=True,
+            above_200=False,
+            stack="mixed",
+            slope_200="falling",
+        ),
+        range_state=RangeState(
+            label="range",
+            since_ms=1_708_300_800_000,  # 2024-02-19 UTC
+            bars=18,
+            range_low=105200.0,
+            range_high=112800.0,
+            pos=0.62,
+        ),
+        monday=MondayState(state="inside", pos=0.43),
+        candles=[
+            CandleHit(pattern="doji", direction="short"),
+            CandleHit(pattern="engulfing", direction="long"),
+        ],
+        pa=PaState(label="grind_up", er=0.55, speed_atr=0.4),
+        bb=BbState(pct_b=0.71, bandwidth=0.083, bw_pctile=0.23, squeeze=False),
+        vwap=VwapState(
+            weekly_price=101.0,
+            weekly_dist_atr=0.4,
+            monthly_price=110.0,
+            monthly_dist_atr=-1.2,
+        ),
+        profile=ProfileState(
+            poc=108400.0,
+            vah=113900.0,
+            val=104100.0,
+            vs_value="inside",
+            poc_dist_atr=-0.3,
+        ),
+    )
+
+
+class TestIndicatorLines:
+    def test_full_block(self) -> None:
+        lines = _indicator_lines(_full_state())
+        assert lines == [
+            "EMA      ▲20 ▲50 ▼200 · stack mixed · 200 falling",
+            "State    range since 2024-02-19 (18 bars) · 105,200–112,800 · 62%",
+            "Monday   inside (43%)",
+            "Candle   doji·short, engulfing·long",
+            "PA       grind_up · ER 0.55 · 0.40 ATR/bar",
+            "BB       %B 0.71 · bw 8.3% (p23) | AVWAP W +0.40 · M -1.20",
+            "VP60d    POC 108,400 (-0.30) · VA 104,100–113,900 · inside",
+        ]
+
+    def test_none_state_is_empty(self) -> None:
+        assert _indicator_lines(None) == []
+
+    def test_failed_blocks_drop_lines(self) -> None:
+        state = IndicatorState(
+            ema=None,
+            range_state=None,
+            monday=None,
+            candles=[],
+            pa=None,
+            bb=None,
+            vwap=None,
+            profile=None,
+        )
+        assert _indicator_lines(state) == ["Candle   none"]
+
+    def test_bb_half_survives_alone(self) -> None:
+        state = IndicatorState(
+            ema=None,
+            range_state=None,
+            monday=None,
+            candles=None,
+            pa=None,
+            bb=BbState(pct_b=0.5, bandwidth=0.02, bw_pctile=None, squeeze=None),
+            vwap=None,
+            profile=None,
+        )
+        assert _indicator_lines(state) == ["BB       %B 0.50 · bw 2.0%"]
+
+    def test_vwap_half_survives_alone_with_squeeze_variants(self) -> None:
+        state = IndicatorState(
+            ema=None,
+            range_state=None,
+            monday=None,
+            candles=None,
+            pa=None,
+            bb=None,
+            vwap=VwapState(
+                weekly_price=None,
+                weekly_dist_atr=None,
+                monthly_price=100.0,
+                monthly_dist_atr=0.8,
+            ),
+            profile=None,
+        )
+        assert _indicator_lines(state) == ["AVWAP    M +0.80"]
+
+    def test_ema_warmup_and_trend_state(self) -> None:
+        state = IndicatorState(
+            ema=EmaState(
+                above_20=True,
+                above_50=None,
+                above_200=None,
+                stack=None,
+                slope_200=None,
+            ),
+            range_state=RangeState(
+                label="trend",
+                since_ms=1_708_300_800_000,
+                bars=5,
+                range_low=None,
+                range_high=None,
+                pos=None,
+            ),
+            monday=MondayState(state="forming", pos=None),
+            candles=None,
+            pa=None,
+            bb=None,
+            vwap=None,
+            profile=None,
+        )
+        assert _indicator_lines(state) == [
+            "EMA      ▲20 —50 —200 · stack n/a · 200 n/a",
+            "State    trend since 2024-02-19 (5 bars)",
+            "Monday   forming",
+        ]
