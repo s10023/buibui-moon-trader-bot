@@ -694,6 +694,43 @@ export interface BriefIndicatorState {
   profile: BriefProfileState | null;
 }
 
+export interface BriefSessionClock {
+  label: string;
+  start_ms: number;
+  end_ms: number;
+  is_overlap: boolean;
+  next_label: string;
+  next_start_ms: number;
+}
+
+export interface BriefSessionRecapRow {
+  session: string;
+  start_ms: number;
+  end_ms: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  net_pct: number;
+  net_atr: number | null;
+  range_atr: number | null;
+  n_bars: number;
+  expected_bars: number;
+  made_set_high: boolean;
+  made_set_low: boolean;
+}
+
+export interface BriefSessionTendencyRow {
+  session: string;
+  high_pct: number;
+  low_pct: number;
+}
+
+export interface BriefSessionState {
+  recap: BriefSessionRecapRow[] | null;
+  tendency: BriefSessionTendencyRow[] | null;
+}
+
 export interface BriefSymbolPanel {
   symbol: string;
   ref_close: number;
@@ -709,6 +746,7 @@ export interface BriefSymbolPanel {
   zones_below: BriefZoneRow[];
   seasonality: BriefSeasonalityStrip | null;
   indicators: BriefIndicatorState | null;
+  sessions: BriefSessionState | null;
   error: string | null;
 }
 
@@ -774,6 +812,7 @@ export interface BriefResponse {
   as_of_ms: number;
   day_ahead: string;
   panels: BriefSymbolPanel[];
+  session_clock: BriefSessionClock | null;
   pundit: BriefPunditBoard;
   health: BriefHealthReport;
 }
