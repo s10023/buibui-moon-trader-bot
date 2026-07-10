@@ -1,0 +1,123 @@
+"""brief/sessions adapter — recap + tendency assembly and degradation."""
+
+import pandas as pd
+
+from analytics.brief.sessions import build_session_state
+from analytics.stats.session import SessionResult, SessionRow
+
+H = 3_600_000
+# 2024-01-01 00:00:00 UTC — Monday, exactly 08:00 MYT (Asia open).
+START = 1_704_067_200_000
+AS_OF = START + 30 * H  # Tuesday 14:00 MYT — Tue Asia just completed
+
+
+def _h1_frame(hours: list[int]) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "open_time": START + h * H,
+                "open": float(h),
+                "high": float(h) + 2.0,
+                "low": float(h),
+                "close": float(h) + 1.0,
+                "volume": 1.0,
+            }
+            for h in hours
+        ]
+    )
+
+
+def _tendency() -> SessionResult:
+    return SessionResult(
+        rows=[
+            SessionRow(session="Asia", high_pct=0.31, low_pct=0.38, by_dow={}),
+            SessionRow(session="London", high_pct=0.35, low_pct=0.27, by_dow={}),
+            SessionRow(session="NY", high_pct=0.34, low_pct=0.35, by_dow={}),
+        ]
+    )
+
+
+def test_full_recap_three_windows() -> None:
+    state, notes = build_session_state(
+        _h1_frame(list(range(30))), atr14=2.0, as_of_ms=AS_OF, tendency=_tendency()
+    )
+    assert notes == []
+    assert state is not None and state.recap is not None
+    assert [r.session for r in state.recap] == ["London", "NY", "Asia"]
+    london, ny, asia = state.recap
+    # London bars 6..13: open 6, close 14, high 15, low 6.
+    assert london.open == 6.0 and london.close == 14.0
+    assert london.high == 15.0 and london.low == 6.0
+    assert london.net_atr == 4.0 and london.range_atr == 4.5
+    assert london.n_bars == 8 and london.expected_bars == 8
+    # Asia (Tue) bars 24..29: open 24, close 30, high 31, low 24.
+    assert asia.open == 24.0 and asia.close == 30.0
+    assert asia.net_pct == (30.0 - 24.0) / 24.0 * 100.0
+    assert asia.n_bars == 6 and asia.expected_bars == 6
+    # Set extremes: highest high = Asia (31), lowest low = London (6).
+    assert asia.made_set_high and not asia.made_set_low
+    assert london.made_set_low and not london.made_set_high
+    assert not ny.made_set_high and not ny.made_set_low
+
+
+def test_tendency_mirrored_without_by_dow() -> None:
+    state, _ = build_session_state(
+        _h1_frame(list(range(30))), atr14=2.0, as_of_ms=AS_OF, tendency=_tendency()
+    )
+    assert state is not None and state.tendency is not None
+    assert [t.session for t in state.tendency] == ["Asia", "London", "NY"]
+    assert state.tendency[0].high_pct == 0.31
+    assert state.tendency[2].low_pct == 0.35
+
+
+def test_empty_window_omitted_with_note() -> None:
+    # No Tuesday-Asia bars (hours 24..29 missing).
+    state, notes = build_session_state(
+        _h1_frame(list(range(24))), atr14=2.0, as_of_ms=AS_OF, tendency=None
+    )
+    assert state is not None and state.recap is not None
+    assert [r.session for r in state.recap] == ["London", "NY"]
+    assert notes == ["session recap: no 1h bars for Asia window"]
+    # Markers recomputed over the rows PRESENT: NY high 21 beats London 15.
+    london, ny = state.recap
+    assert ny.made_set_high and london.made_set_low
+    assert state.tendency is None
+
+
+def test_partial_window_kept_with_bar_count() -> None:
+    hours = [h for h in range(30) if h not in (17, 18)]  # NY loses 2 bars
+    state, notes = build_session_state(
+        _h1_frame(hours), atr14=2.0, as_of_ms=AS_OF, tendency=None
+    )
+    assert notes == []
+    assert state is not None and state.recap is not None
+    ny = state.recap[1]
+    assert ny.session == "NY"
+    assert ny.n_bars == 4 and ny.expected_bars == 6
+    assert ny.open == 14.0 and ny.close == 20.0  # OHLC from available bars
+
+
+def test_all_windows_empty_recap_none() -> None:
+    state, notes = build_session_state(
+        _h1_frame([]), atr14=2.0, as_of_ms=AS_OF, tendency=_tendency()
+    )
+    assert notes == ["session recap: no 1h bars in any window"]
+    assert state is not None
+    assert state.recap is None and state.tendency is not None
+
+
+def test_both_halves_none_collapses_state() -> None:
+    state, notes = build_session_state(
+        _h1_frame([]), atr14=2.0, as_of_ms=AS_OF, tendency=None
+    )
+    assert state is None
+    assert notes == ["session recap: no 1h bars in any window"]
+
+
+def test_zero_atr_drops_atr_fields() -> None:
+    state, _ = build_session_state(
+        _h1_frame(list(range(30))), atr14=0.0, as_of_ms=AS_OF, tendency=None
+    )
+    assert state is not None and state.recap is not None
+    assert all(r.net_atr is None and r.range_atr is None for r in state.recap)
+    assert state.recap[0].net_pct != 0.0  # pct never needs ATR

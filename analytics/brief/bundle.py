@@ -125,6 +125,7 @@ def _compute_panel(
         zones_below=zones_below,
         seasonality=build_strip(conn, symbol, as_of, cfg.stats_days),
         indicators=indicators,
+        sessions=None,  # wired in Task 3
         error=None,
     )
 
@@ -146,6 +147,7 @@ def compute_brief(
     return BriefBundle(
         as_of_ms=cfg.as_of_ms,
         day_ahead=day_ahead_label(cfg.as_of_ms),
+        session_clock=None,  # wired in Task 3
         panels=panels,
         pundit=build_board(cfg),
         health=build_health(conn, cfg, [*(extra_notes or []), *panel_notes]),
