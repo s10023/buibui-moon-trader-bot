@@ -117,6 +117,47 @@ class IndicatorState:
 
 
 @dataclass(frozen=True)
+class SessionClock:
+    label: str  # "Asia" | "London" | "NY" | "Off"
+    start_ms: int
+    end_ms: int
+    is_overlap: bool  # London 20:00-21:59 MYT
+    next_label: str
+    next_start_ms: int
+
+
+@dataclass(frozen=True)
+class SessionRecapRow:
+    session: str
+    start_ms: int
+    end_ms: int
+    open: float
+    high: float
+    low: float
+    close: float
+    net_pct: float  # (close - open) / open * 100
+    net_atr: float | None  # (close - open) / atr14; None when atr14 <= 0
+    range_atr: float | None  # (high - low) / atr14; None when atr14 <= 0
+    n_bars: int
+    expected_bars: int  # window hours: Asia 6 / London 8 / NY 6
+    made_set_high: bool  # highest high across the recap rows present
+    made_set_low: bool
+
+
+@dataclass(frozen=True)
+class SessionTendencyRow:
+    session: str
+    high_pct: float  # fraction of days this session made the daily high
+    low_pct: float
+
+
+@dataclass(frozen=True)
+class SessionState:
+    recap: list[SessionRecapRow] | None  # None = no window had bars
+    tendency: list[SessionTendencyRow] | None  # None = stats compute failed
+
+
+@dataclass(frozen=True)
 class SymbolPanel:
     symbol: str
     ref_close: float
@@ -132,6 +173,7 @@ class SymbolPanel:
     zones_below: list[ZoneRow]
     seasonality: SeasonalityStrip | None
     indicators: IndicatorState | None
+    sessions: SessionState | None
     error: str | None
 
 
@@ -152,6 +194,7 @@ def error_panel(symbol: str, message: str) -> SymbolPanel:
         zones_below=[],
         seasonality=None,
         indicators=None,
+        sessions=None,
         error=message,
     )
 
@@ -222,6 +265,7 @@ class HealthReport:
 class BriefBundle:
     as_of_ms: int
     day_ahead: str  # e.g. "Fri 2026-07-04"
+    session_clock: SessionClock | None
     panels: list[SymbolPanel]
     pundit: PunditBoard
     health: HealthReport

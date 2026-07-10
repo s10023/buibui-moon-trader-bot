@@ -21,10 +21,17 @@ from analytics.brief.types import (
     PunditFamilyPrior,
     RangeState,
     SeasonalityStrip,
+    SessionClock,
+    SessionRecapRow,
+    SessionState,
+    SessionTendencyRow,
     SymbolPanel,
     VwapState,
     ZoneRow,
 )
+
+_MYT_OFFSET_MS = 8 * 3_600_000
+_DOW = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 
 def fmt_price(value: float) -> str:
@@ -199,6 +206,70 @@ def _indicator_lines(state: IndicatorState | None) -> list[str]:
     return lines
 
 
+def _myt_hhmm(ms: int) -> str:
+    return pd.Timestamp(ms + _MYT_OFFSET_MS, unit="ms", tz="UTC").strftime("%H:%M")
+
+
+def _fmt_dur(ms: int) -> str:
+    minutes = ms // 60_000
+    return f"{minutes // 60}h{minutes % 60:02d}m"
+
+
+def _clock_line(clock: SessionClock | None, as_of_ms: int) -> str | None:
+    if clock is None:
+        return None
+    span = f"{_myt_hhmm(clock.start_ms)}–{_myt_hhmm(clock.end_ms)} MYT"
+    nxt = f"next {clock.next_label} {_myt_hhmm(clock.next_start_ms)} MYT"
+    if clock.label == "Off":
+        return f"Session: between sessions ({span}) · {nxt}"
+    overlap = " (NY overlap)" if clock.is_overlap else ""
+    elapsed = _fmt_dur(as_of_ms - clock.start_ms)
+    left = _fmt_dur(clock.end_ms - as_of_ms)
+    return (
+        f"Session: {clock.label}{overlap} {span} · {elapsed} in / {left} left · {nxt}"
+    )
+
+
+def _recap_bit(row: SessionRecapRow) -> str:
+    start = pd.Timestamp(row.start_ms + _MYT_OFFSET_MS, unit="ms", tz="UTC")
+    end = pd.Timestamp(row.end_ms + _MYT_OFFSET_MS, unit="ms", tz="UTC")
+    span = (
+        f"{_DOW[int(start.weekday())]} {start.strftime('%H')}–{end.strftime('%H')} MYT"
+    )
+    cov = (
+        ""
+        if row.n_bars >= row.expected_bars
+        else f" ({row.n_bars}/{row.expected_bars} bars)"
+    )
+    atr_bit = f" ({fmt_dist(row.net_atr)} ATR)" if row.net_atr is not None else ""
+    rng = f"range {row.range_atr:.1f} ATR" if row.range_atr is not None else "range n/a"
+    marks = (" ·set-high" if row.made_set_high else "") + (
+        " ·set-low" if row.made_set_low else ""
+    )
+    return (
+        f"{row.session:<7}{span}{cov} · net {row.net_pct:+.2f}%{atr_bit} · {rng}{marks}"
+    )
+
+
+def _tendency_bit(rows: list[SessionTendencyRow]) -> str:
+    hi = " · ".join(f"{r.session} {fmt_frac(r.high_pct)}" for r in rows)
+    lo = " · ".join(f"{r.session} {fmt_frac(r.low_pct)}" for r in rows)
+    return f"tendency: day-high {hi} | day-low {lo}"
+
+
+def _session_lines(state: SessionState | None) -> list[str]:
+    if state is None:
+        return []
+    bits: list[str] = []
+    if state.recap is not None:
+        bits.extend(_recap_bit(r) for r in state.recap)
+    if state.tendency is not None:
+        bits.append(_tendency_bit(state.tendency))
+    if not bits:
+        return []
+    return [f"{'Sessions':<9}{bits[0]}"] + [f"{'':9}{b}" for b in bits[1:]]
+
+
 def _panel_lines(panel: SymbolPanel) -> list[str]:
     lines = [f"── {panel.symbol} " + "─" * 44]
     if panel.error is not None:
@@ -211,6 +282,7 @@ def _panel_lines(panel: SymbolPanel) -> list[str]:
         f"4h {panel.regime_4h} · ATR14(1d) {fmt_price(panel.atr14)}{adr}"
     )
     lines.extend(_indicator_lines(panel.indicators))
+    lines.extend(_session_lines(panel.sessions))
     above = " · ".join(_level_str(r) for r in panel.levels_above) or "none"
     below = " · ".join(_level_str(r) for r in panel.levels_below) or "none"
     lines.append(f"Levels   above → {above}")
@@ -345,8 +417,11 @@ def render_markdown(bundle: BriefBundle) -> str:
     data = "OK" if bundle.health.data_ok else "⚠ (see health)"
     lines = [
         f"BUIBUI DAILY BRIEF — {bundle.day_ahead} · as-of {as_of} UTC · data {data}",
-        "",
     ]
+    clock = _clock_line(bundle.session_clock, bundle.as_of_ms)
+    if clock is not None:
+        lines.append(clock)
+    lines.append("")
     for panel in bundle.panels:
         lines.extend(_panel_lines(panel))
         lines.append("")

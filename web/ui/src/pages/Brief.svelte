@@ -35,6 +35,12 @@
       timeStyle: "short",
     });
 
+  const MYT_MS = 28_800_000;
+  const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const mytHHMM = (ms: number) => new Date(ms + MYT_MS).toISOString().slice(11, 16);
+  const mytHH = (ms: number) => new Date(ms + MYT_MS).toISOString().slice(11, 13);
+  const mytDow = (ms: number) => DOW[(new Date(ms + MYT_MS).getUTCDay() + 6) % 7];
+
   async function load(): Promise<void> {
     loading = true;
     error = null;
@@ -62,6 +68,15 @@
         <span class="health-pill" class:ok={data.health.data_ok} class:warn={!data.health.data_ok}>
           {data.health.data_ok ? "● data ok" : "⚠ data issue"}
         </span>
+        {#if data.session_clock}
+          {@const clk = data.session_clock}
+          <span class="clock-pill">
+            {clk.label === "Off" ? "between sessions" : clk.label}{clk.is_overlap
+              ? " (NY overlap)"
+              : ""}
+            · next {clk.next_label} {mytHHMM(clk.next_start_ms)} MYT
+          </span>
+        {/if}
       {/if}
       <button class="btn-refresh" onclick={() => (showLegend = !showLegend)}>
         ⓘ legend
@@ -151,6 +166,22 @@
         <dd>
           60-day volume profile from our own 1h data: point of control and 70%
           value area, with price above / inside / below value.
+        </dd>
+        <dt>Session clock</dt>
+        <dd>
+          Current MYT trading session: Asia 08–14 · London 14–22 · NY 22–04;
+          20–22 = London–NY overlap. "between sessions" = the Off gap.
+        </dd>
+        <dt>Sessions</dt>
+        <dd>
+          Last 3 completed sessions: net move and range in ATR14 units.
+          "(n/m bars)" flags partial 1h coverage.
+        </dd>
+        <dt>·set-high / ·set-low</dt>
+        <dd>Which of the 3 sessions printed the day's high / low.</dd>
+        <dt>tendency</dt>
+        <dd>
+          Share of the last 180 days each session made the daily high or low.
         </dd>
         <dt>Pundit board</dt>
         <dd>
@@ -279,6 +310,32 @@
                       · VA {fmtPrice(ind.profile.val)}–{fmtPrice(ind.profile.vah)}
                       · {ind.profile.vs_value}
                     </span>
+                  </div>
+                {/if}
+              </div>
+            {/if}
+
+            {#if panel.sessions}
+              {@const s = panel.sessions}
+              <div class="sessions muted">
+                {#if s.recap}
+                  {#each s.recap as row}
+                    <div>
+                      <span class="sess-name">{row.session}</span>
+                      {mytDow(row.start_ms)} {mytHH(row.start_ms)}–{mytHH(row.end_ms)} MYT
+                      {#if row.n_bars < row.expected_bars}({row.n_bars}/{row.expected_bars} bars){/if}
+                      · net {row.net_pct >= 0 ? "+" : ""}{row.net_pct.toFixed(2)}%{row.net_atr !== null
+                        ? ` (${row.net_atr >= 0 ? "+" : ""}${row.net_atr.toFixed(2)} ATR)`
+                        : ""} · {row.range_atr !== null ? `range ${row.range_atr.toFixed(1)} ATR` : "range n/a"}
+                      {#if row.made_set_high}<span class="sess-mark">·set-high</span>{/if}
+                      {#if row.made_set_low}<span class="sess-mark">·set-low</span>{/if}
+                    </div>
+                  {/each}
+                {/if}
+                {#if s.tendency}
+                  <div>
+                    tendency: day-high {s.tendency.map((t) => `${t.session} ${Math.round(t.high_pct * 100)}%`).join(" · ")}
+                    | day-low {s.tendency.map((t) => `${t.session} ${Math.round(t.low_pct * 100)}%`).join(" · ")}
                   </div>
                 {/if}
               </div>
@@ -513,6 +570,15 @@
 
   .health-pill.ok { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
   .health-pill.warn { color: var(--yellow); border-color: color-mix(in srgb, var(--yellow) 40%, transparent); }
+
+  .clock-pill {
+    font-size: 10px;
+    letter-spacing: 0.03em;
+    padding: 2px 8px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+  }
 
   .btn-refresh {
     font-size: 11px;
@@ -847,4 +913,24 @@
   }
 
   .ema-bit { margin-right: 4px; }
+
+  /* ── Sessions ──────────────────────────────────────────────────────────── */
+  .sessions {
+    display: grid;
+    gap: 2px;
+    font-size: 11px;
+    margin-bottom: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sess-name {
+    display: inline-block;
+    min-width: 48px;
+    color: var(--text-dim);
+  }
+
+  .sess-mark {
+    color: var(--accent);
+    margin-left: 2px;
+  }
 </style>

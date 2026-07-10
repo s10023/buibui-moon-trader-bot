@@ -101,6 +101,43 @@ class IndicatorStateModel(BaseModel):
     profile: ProfileStateModel | None
 
 
+class SessionClockModel(BaseModel):
+    label: str
+    start_ms: int
+    end_ms: int
+    is_overlap: bool
+    next_label: str
+    next_start_ms: int
+
+
+class SessionRecapRowModel(BaseModel):
+    session: str
+    start_ms: int
+    end_ms: int
+    open: float
+    high: float
+    low: float
+    close: float
+    net_pct: float
+    net_atr: float | None
+    range_atr: float | None
+    n_bars: int
+    expected_bars: int
+    made_set_high: bool
+    made_set_low: bool
+
+
+class SessionTendencyRowModel(BaseModel):
+    session: str
+    high_pct: float
+    low_pct: float
+
+
+class SessionStateModel(BaseModel):
+    recap: list[SessionRecapRowModel] | None
+    tendency: list[SessionTendencyRowModel] | None
+
+
 class SymbolPanelModel(BaseModel):
     symbol: str
     ref_close: float
@@ -116,6 +153,7 @@ class SymbolPanelModel(BaseModel):
     zones_below: list[ZoneRowModel]
     seasonality: SeasonalityStripModel | None
     indicators: IndicatorStateModel | None
+    sessions: SessionStateModel | None
     error: str | None
 
 
@@ -179,5 +217,6 @@ class BriefResponse(BaseModel):
     as_of_ms: int
     day_ahead: str
     panels: list[SymbolPanelModel]
+    session_clock: SessionClockModel | None
     pundit: PunditBoardModel
     health: HealthReportModel

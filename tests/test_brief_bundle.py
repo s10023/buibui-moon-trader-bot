@@ -165,3 +165,40 @@ def test_indicators_deterministic() -> None:
     first = compute_brief(conn, _cfg(("BTCUSDT",)))
     second = compute_brief(conn, _cfg(("BTCUSDT",)))
     assert first.panels[0].indicators == second.panels[0].indicators
+
+
+def test_bundle_session_clock() -> None:
+    conn = make_conn()
+    seed_symbol(conn, "BTCUSDT", START_MS, 60)
+    bundle = compute_brief(conn, _cfg(("BTCUSDT",)))
+    clock = bundle.session_clock
+    assert clock is not None
+    assert clock.label == "Asia"  # 08:00 MYT — Asia open boundary
+    assert clock.start_ms == AS_OF
+    assert clock.end_ms == AS_OF + 6 * H1_MS
+    assert clock.next_label == "London"
+    assert clock.is_overlap is False
+
+
+def test_panel_has_session_state() -> None:
+    conn = make_conn()
+    seed_symbol(conn, "BTCUSDT", START_MS, 60)
+    bundle = compute_brief(conn, _cfg(("BTCUSDT",)))
+    panel = bundle.panels[0]
+    assert panel.error is None
+    assert panel.sessions is not None
+    recap = panel.sessions.recap
+    assert recap is not None
+    assert [r.session for r in recap] == ["Asia", "London", "NY"]
+    assert [r.n_bars for r in recap] == [r.expected_bars for r in recap]
+    assert sum(r.made_set_high for r in recap) == 1
+    assert sum(r.made_set_low for r in recap) == 1
+    tendency = panel.sessions.tendency
+    assert tendency is not None and len(tendency) == 3
+
+
+def test_error_panel_has_no_sessions() -> None:
+    conn = make_conn()
+    seed_symbol(conn, "BTCUSDT", START_MS, 60)
+    bundle = compute_brief(conn, _cfg(("BTCUSDT", "NODATAUSDT")))
+    assert bundle.panels[1].sessions is None

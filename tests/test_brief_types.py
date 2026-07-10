@@ -1,5 +1,7 @@
 """Brief package skeleton: config defaults, completed-bar boundary, serialisation."""
 
+from dataclasses import asdict
+
 import pandas as pd
 
 from analytics.brief._common import (
@@ -14,6 +16,9 @@ from analytics.brief.types import (
     BriefBundle,
     HealthReport,
     PunditBoard,
+    SessionRecapRow,
+    SessionState,
+    SessionTendencyRow,
     bundle_to_dict,
     error_panel,
 )
@@ -62,6 +67,7 @@ def test_bundle_to_dict_json_safe() -> None:
     bundle = BriefBundle(
         as_of_ms=AS_OF,
         day_ahead="Mon 2024-01-01",
+        session_clock=None,
         panels=[error_panel("BTCUSDT", "boom")],
         pundit=PunditBoard(
             priors_status="absent",
@@ -82,3 +88,34 @@ def test_bundle_to_dict_json_safe() -> None:
     import json
 
     json.dumps(d)  # must be JSON-serialisable
+
+
+def test_error_panel_sessions_none() -> None:
+    assert error_panel("X", "boom").sessions is None
+
+
+def test_session_state_serialises() -> None:
+    state = SessionState(
+        recap=[
+            SessionRecapRow(
+                session="Asia",
+                start_ms=0,
+                end_ms=6 * 3_600_000,
+                open=1.0,
+                high=2.0,
+                low=0.5,
+                close=1.5,
+                net_pct=50.0,
+                net_atr=0.25,
+                range_atr=0.75,
+                n_bars=6,
+                expected_bars=6,
+                made_set_high=True,
+                made_set_low=False,
+            )
+        ],
+        tendency=[SessionTendencyRow(session="Asia", high_pct=0.3, low_pct=0.4)],
+    )
+    d = asdict(state)
+    assert d["recap"][0]["session"] == "Asia"
+    assert d["tendency"][0]["high_pct"] == 0.3

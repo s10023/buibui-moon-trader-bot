@@ -20,9 +20,12 @@ from analytics.brief.indicators import build_indicator_state
 from analytics.brief.levels import adr_pct_14, atr14_wilder, build_level_rows
 from analytics.brief.pundit import build_board
 from analytics.brief.seasonality import build_strip
-from analytics.brief.types import BriefBundle, SymbolPanel, error_panel
+from analytics.brief.sessions import build_session_state
+from analytics.brief.types import BriefBundle, SessionClock, SymbolPanel, error_panel
 from analytics.brief.zones import build_zone_rows
 from analytics.regime import classify_series
+from analytics.session_windows import session_at
+from analytics.stats.session import compute_session_breakdown
 from analytics.store.market_data import get_ohlcv
 
 logger = logging.getLogger(__name__)
@@ -38,6 +41,18 @@ def _regime_label(df: pd.DataFrame, timeframe: str) -> str:
     if df.empty:
         return "unknown"
     return str(classify_series(df, timeframe).iloc[-1])
+
+
+def _session_clock(as_of_ms: int) -> SessionClock:
+    cur = session_at(as_of_ms)
+    return SessionClock(
+        label=cur.label,
+        start_ms=cur.start_ms,
+        end_ms=cur.end_ms,
+        is_overlap=cur.is_overlap,
+        next_label=cur.next_label,
+        next_start_ms=cur.next_start_ms,
+    )
 
 
 def _resolve_ref_price(
@@ -110,6 +125,18 @@ def _compute_panel(
         as_of_ms=as_of,
     )
     notes.extend(f"{symbol}: {n}" for n in ind_notes)
+    try:
+        tendency = compute_session_breakdown(conn, symbol, cfg.stats_days, end_ms=as_of)
+    except Exception as exc:  # tendency is optional; recap may still render
+        tendency = None
+        notes.append(f"{symbol}: session tendency failed ({exc})")
+    sessions, sess_notes = build_session_state(
+        completed_1h=completed_1h,
+        atr14=atr,
+        as_of_ms=as_of,
+        tendency=tendency,
+    )
+    notes.extend(f"{symbol}: {n}" for n in sess_notes)
     return SymbolPanel(
         symbol=symbol,
         ref_close=ref_close,
@@ -125,6 +152,7 @@ def _compute_panel(
         zones_below=zones_below,
         seasonality=build_strip(conn, symbol, as_of, cfg.stats_days),
         indicators=indicators,
+        sessions=sessions,
         error=None,
     )
 
@@ -146,6 +174,7 @@ def compute_brief(
     return BriefBundle(
         as_of_ms=cfg.as_of_ms,
         day_ahead=day_ahead_label(cfg.as_of_ms),
+        session_clock=_session_clock(cfg.as_of_ms),
         panels=panels,
         pundit=build_board(cfg),
         health=build_health(conn, cfg, [*(extra_notes or []), *panel_notes]),
