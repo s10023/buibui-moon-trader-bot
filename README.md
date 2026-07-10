@@ -30,7 +30,7 @@ A tactical crypto trading bot designed for fast, risk-managed, and confident ent
   average daily range + today's consumed %, day-of-week patterns, session (Asia/London/NY) breakdown, and
   weekly P1/P2, avg return by day-of-week, and weekly P2 timing with P1 flip risk. Cached in DB, served via `GET /api/stats/{symbol}`, shown on the Stats web page.
 
-- `buibui brief` — daily market brief (levels/zones/regime/seasonality/pundit board; `make buibui-brief`). The brief also carries an indicator-state block per symbol: EMA 20/50/200 stack, regime run-length with range bounds, Monday-range position, yesterday's candle patterns, PA character (impulse/grind/chop), Bollinger + weekly/monthly anchored-VWAP reads, and a 60-day volume-profile POC/VAH/VAL — all computed from our own OHLCV.
+- `buibui brief` — daily market brief (levels/zones/regime/seasonality/pundit board; `make buibui-brief`). The brief also carries an indicator-state block per symbol: EMA 20/50/200 stack, regime run-length with range bounds, Monday-range position, yesterday's candle patterns, PA character (impulse/grind/chop), Bollinger + weekly/monthly anchored-VWAP reads, and a 60-day volume-profile POC/VAH/VAL — all computed from our own OHLCV. An M2 session layer adds a bundle-level session clock (Asia/London/NY in MYT) plus a per-symbol recap of the last 3 completed sessions (net move and range in ATR units, set-extreme markers, partial-coverage flags) and the 180-day session high/low tendency percentages.
 
 ---
 
