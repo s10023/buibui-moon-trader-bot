@@ -8,7 +8,9 @@ import duckdb
 from analytics.brief.bundle import compute_brief
 from analytics.brief.config import BriefConfig
 from analytics.brief.render import (
+    _clock_line,
     _indicator_lines,
+    _recap_bit,
     fmt_dist,
     fmt_frac,
     fmt_price,
@@ -23,6 +25,8 @@ from analytics.brief.types import (
     PaState,
     ProfileState,
     RangeState,
+    SessionClock,
+    SessionRecapRow,
     VwapState,
 )
 from tests._brief_fixtures import DAY_MS, START_MS, make_conn, seed_symbol
@@ -325,3 +329,95 @@ class TestIndicatorLines:
             "State    trend since 2024-02-19 (5 bars)",
             "Monday   forming",
         ]
+
+
+H1 = 3_600_000
+
+
+def test_clock_line_active_session() -> None:
+    clock = SessionClock(
+        label="London",
+        start_ms=START_MS + 6 * H1,
+        end_ms=START_MS + 14 * H1,
+        is_overlap=False,
+        next_label="NY",
+        next_start_ms=START_MS + 14 * H1,
+    )
+    line = _clock_line(clock, START_MS + 9 * H1)  # 17:00 MYT
+    assert line == (
+        "Session: London 14:00–22:00 MYT · 3h00m in / 5h00m left · next NY 22:00 MYT"
+    )
+
+
+def test_clock_line_overlap_and_off() -> None:
+    overlap = SessionClock(
+        label="London",
+        start_ms=START_MS + 6 * H1,
+        end_ms=START_MS + 14 * H1,
+        is_overlap=True,
+        next_label="NY",
+        next_start_ms=START_MS + 14 * H1,
+    )
+    assert _clock_line(overlap, START_MS + 13 * H1) is not None
+    assert "London (NY overlap)" in str(_clock_line(overlap, START_MS + 13 * H1))
+    off = SessionClock(
+        label="Off",
+        start_ms=START_MS + 20 * H1,
+        end_ms=START_MS + 24 * H1,
+        is_overlap=False,
+        next_label="Asia",
+        next_start_ms=START_MS + 24 * H1,
+    )
+    assert _clock_line(off, START_MS + 21 * H1) == (
+        "Session: between sessions (04:00–08:00 MYT) · next Asia 08:00 MYT"
+    )
+    assert _clock_line(None, START_MS) is None
+
+
+def test_recap_bit_formats() -> None:
+    row = SessionRecapRow(
+        session="Asia",
+        start_ms=START_MS,  # Mon 08:00 MYT
+        end_ms=START_MS + 6 * H1,
+        open=100.0,
+        high=103.0,
+        low=99.0,
+        close=101.0,
+        net_pct=1.0,
+        net_atr=0.5,
+        range_atr=2.0,
+        n_bars=6,
+        expected_bars=6,
+        made_set_high=True,
+        made_set_low=False,
+    )
+    assert _recap_bit(row) == (
+        "Asia   Mon 08–14 MYT · net +1.00% (+0.50 ATR) · range 2.0 ATR ·set-high"
+    )
+    partial = SessionRecapRow(
+        session="NY",
+        start_ms=START_MS + 14 * H1,
+        end_ms=START_MS + 20 * H1,
+        open=100.0,
+        high=103.0,
+        low=99.0,
+        close=101.0,
+        net_pct=1.0,
+        net_atr=None,
+        range_atr=None,
+        n_bars=4,
+        expected_bars=6,
+        made_set_high=False,
+        made_set_low=False,
+    )
+    assert _recap_bit(partial) == (
+        "NY     Mon 22–04 MYT (4/6 bars) · net +1.00% · range n/a"
+    )
+
+
+def test_markdown_carries_session_lines(tmp_path: Path) -> None:
+    cfg, conn = _seeded_cfg(tmp_path)  # as_of = Fri 08:00 MYT, Asia open
+    out = render_markdown(compute_brief(conn, cfg))
+    assert "\nSession: Asia 08:00–14:00 MYT · 0h00m in / 6h00m left" in out
+    assert "\nSessions " in out
+    assert "tendency: day-high " in out
