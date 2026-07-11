@@ -27,6 +27,46 @@ taking a manual trade; the card is advisory and routes no orders.
 | D5 | Architecture | New top-level `card/` package (approach A), brief-style pure lib + thin CLI |
 | D6 | Money-math | The LLM never computes size/risk; deterministic post-pass enforces hard rules in code |
 
+## Addendum — 2026-07-11 (post-Brief-M0/M1/M2 delta, pre-plan)
+
+Written when the implementation plan was drawn up. Brief milestones M0
+(#473), M1 (#474), M2 (#475) merged **after** this spec was approved; the
+`panel` block is composed from `compute_brief`, so F2 inherits them with
+zero extra plumbing. Where this addendum conflicts with the body above, the
+addendum wins.
+
+- **Panel block is richer than specced.** `SymbolPanel` now carries
+  `ref_price_source` + a fresh-1h `ref_close` (M0), `indicators:
+  IndicatorState | None` (M1 — EMA stack, regime run-length + range bounds,
+  Monday-range state, yesterday candle patterns, PA character, BB %B /
+  bandwidth / squeeze, weekly+monthly AVWAP dist, 60d volume-profile
+  POC/VAH/VAL), and `sessions: SessionState | None` (M2 — last-3-session
+  recap vs ATR14 + 180d tendencies). The bundle-level `session_clock`
+  (`SessionClock`) also joins `MarketState` as its own field.
+- **Rubric update.** The prompt may now cite indicator/session fields that
+  actually exist (BB squeeze, AVWAP dist, profile `vs_value`, EMA stack, PA
+  label, Monday-range state, session tendencies). The "G1/G2 indicator
+  pack" non-goal is **partially superseded** — RSI/MACD still don't exist
+  and still must not be claimed.
+- **Pundit block = the brief's `PunditBoard`** (composition, not a second
+  parser): `compute_brief` already loads priors + ledger with
+  status/age/flagged handling, so `MarketState.pundit` is `PunditBoard |
+  None` instead of a re-read of `pundit-priors.json`.
+- **`recent_fires` annotation corrected.** `confidence_ratings` persists
+  `stars / avg_r / win_rate / dsr` (there is no `n` column) — the fires
+  block carries those four; the "sample-size < 30 ⇒ downgrade conviction"
+  prompt rule keys on missing ratings / low `dsr` instead of `n`.
+- **Pundit-row horizon key confirmed** (the spec's implementer note):
+  `WINDOWS_MS` keys are `intraday` (48h) / `swing` (30d) / `unspecified`
+  (14d) → the ledger row uses `"intraday"`.
+- **Module deltas locked in the plan:** `card/run.py` (orchestrator:
+  prompt → LLM → parse → one re-ask → post-pass, keeps the CLI thin) and
+  `card/errors.py` (`CardError` / `CardValidationError`);
+  `snapshot_market_state` additionally takes the `SizingConfig` (daily_r +
+  XS capital need it) and injectable `brief_fn` / `targets_fn` seams
+  (house DI pattern); `LLMClient.generate` returns an `LLMResponse`
+  (text + notional cost + usage) so the ledger cost field stays typed.
+
 ## Non-goals / deferred (named, not built)
 
 - Web AI tab, `GET /api/card`, Telegram delivery (v1.1+; the pure lib is the
