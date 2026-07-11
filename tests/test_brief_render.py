@@ -7,7 +7,28 @@ import duckdb
 
 from analytics.brief.bundle import compute_brief
 from analytics.brief.config import BriefConfig
-from analytics.brief.render import fmt_dist, fmt_frac, fmt_price, render_markdown
+from analytics.brief.render import (
+    _clock_line,
+    _indicator_lines,
+    _recap_bit,
+    fmt_dist,
+    fmt_frac,
+    fmt_price,
+    render_markdown,
+)
+from analytics.brief.types import (
+    BbState,
+    CandleHit,
+    EmaState,
+    IndicatorState,
+    MondayState,
+    PaState,
+    ProfileState,
+    RangeState,
+    SessionClock,
+    SessionRecapRow,
+    VwapState,
+)
 from tests._brief_fixtures import DAY_MS, START_MS, make_conn, seed_symbol
 
 AS_OF = START_MS + 60 * DAY_MS
@@ -64,6 +85,14 @@ def test_render_end_to_end_byte_stable(tmp_path: Path) -> None:
     assert "run make buibui-pundit-score" in out1  # absent priors note
     assert "── HEALTH ──" in out1
     assert "alice" in out1
+
+
+def test_render_last_price_label(tmp_path: Path) -> None:
+    cfg, conn = _seeded_cfg(tmp_path)
+    out = render_markdown(compute_brief(conn, cfg))
+    assert "Last " in out
+    assert "(1h close 00:00 UTC)" in out
+    assert "Close " not in out  # old label gone
 
 
 def _seeded_cfg_with_priors(
@@ -169,3 +198,226 @@ def test_render_error_panel(tmp_path: Path) -> None:
     out = render_markdown(compute_brief(conn, cfg2))
     assert "ERROR: " in out
     assert "data ⚠" in out
+
+
+def _full_state() -> IndicatorState:
+    return IndicatorState(
+        ema=EmaState(
+            above_20=True,
+            above_50=True,
+            above_200=False,
+            stack="mixed",
+            slope_200="falling",
+        ),
+        range_state=RangeState(
+            label="range",
+            since_ms=1_708_300_800_000,  # 2024-02-19 UTC
+            bars=18,
+            range_low=105200.0,
+            range_high=112800.0,
+            pos=0.62,
+        ),
+        monday=MondayState(state="inside", pos=0.43),
+        candles=[
+            CandleHit(pattern="doji", direction="short"),
+            CandleHit(pattern="engulfing", direction="long"),
+        ],
+        pa=PaState(label="grind_up", er=0.55, speed_atr=0.4),
+        bb=BbState(pct_b=0.71, bandwidth=0.083, bw_pctile=0.23, squeeze=False),
+        vwap=VwapState(
+            weekly_price=101.0,
+            weekly_dist_atr=0.4,
+            monthly_price=110.0,
+            monthly_dist_atr=-1.2,
+        ),
+        profile=ProfileState(
+            poc=108400.0,
+            vah=113900.0,
+            val=104100.0,
+            vs_value="inside",
+            poc_dist_atr=-0.3,
+        ),
+    )
+
+
+class TestIndicatorLines:
+    def test_full_block(self) -> None:
+        lines = _indicator_lines(_full_state())
+        assert lines == [
+            "EMA      ▲20 ▲50 ▼200 · stack mixed · 200 falling",
+            "State    range since 2024-02-19 (18 bars) · 105,200–112,800 · 62%",
+            "Monday   inside (43%)",
+            "Candle   doji·short, engulfing·long",
+            "PA       grind_up · ER 0.55 · 0.40 ATR/bar",
+            "BB       %B 0.71 · bw 8.3% (p23) | AVWAP W +0.40 · M -1.20",
+            "VP60d    POC 108,400 (-0.30) · VA 104,100–113,900 · inside",
+        ]
+
+    def test_none_state_is_empty(self) -> None:
+        assert _indicator_lines(None) == []
+
+    def test_failed_blocks_drop_lines(self) -> None:
+        state = IndicatorState(
+            ema=None,
+            range_state=None,
+            monday=None,
+            candles=[],
+            pa=None,
+            bb=None,
+            vwap=None,
+            profile=None,
+        )
+        assert _indicator_lines(state) == ["Candle   none"]
+
+    def test_bb_half_survives_alone(self) -> None:
+        state = IndicatorState(
+            ema=None,
+            range_state=None,
+            monday=None,
+            candles=None,
+            pa=None,
+            bb=BbState(pct_b=0.5, bandwidth=0.02, bw_pctile=None, squeeze=None),
+            vwap=None,
+            profile=None,
+        )
+        assert _indicator_lines(state) == ["BB       %B 0.50 · bw 2.0%"]
+
+    def test_vwap_half_survives_alone_with_squeeze_variants(self) -> None:
+        state = IndicatorState(
+            ema=None,
+            range_state=None,
+            monday=None,
+            candles=None,
+            pa=None,
+            bb=None,
+            vwap=VwapState(
+                weekly_price=None,
+                weekly_dist_atr=None,
+                monthly_price=100.0,
+                monthly_dist_atr=0.8,
+            ),
+            profile=None,
+        )
+        assert _indicator_lines(state) == ["AVWAP    M +0.80"]
+
+    def test_ema_warmup_and_trend_state(self) -> None:
+        state = IndicatorState(
+            ema=EmaState(
+                above_20=True,
+                above_50=None,
+                above_200=None,
+                stack=None,
+                slope_200=None,
+            ),
+            range_state=RangeState(
+                label="trend",
+                since_ms=1_708_300_800_000,
+                bars=5,
+                range_low=None,
+                range_high=None,
+                pos=None,
+            ),
+            monday=MondayState(state="forming", pos=None),
+            candles=None,
+            pa=None,
+            bb=None,
+            vwap=None,
+            profile=None,
+        )
+        assert _indicator_lines(state) == [
+            "EMA      ▲20 —50 —200 · stack n/a · 200 n/a",
+            "State    trend since 2024-02-19 (5 bars)",
+            "Monday   forming",
+        ]
+
+
+H1 = 3_600_000
+
+
+def test_clock_line_active_session() -> None:
+    clock = SessionClock(
+        label="London",
+        start_ms=START_MS + 6 * H1,
+        end_ms=START_MS + 14 * H1,
+        is_overlap=False,
+        next_label="NY",
+        next_start_ms=START_MS + 14 * H1,
+    )
+    line = _clock_line(clock, START_MS + 9 * H1)  # 17:00 MYT
+    assert line == (
+        "Session: London 14:00–22:00 MYT · 3h00m in / 5h00m left · next NY 22:00 MYT"
+    )
+
+
+def test_clock_line_overlap_and_off() -> None:
+    overlap = SessionClock(
+        label="London",
+        start_ms=START_MS + 6 * H1,
+        end_ms=START_MS + 14 * H1,
+        is_overlap=True,
+        next_label="NY",
+        next_start_ms=START_MS + 14 * H1,
+    )
+    assert _clock_line(overlap, START_MS + 13 * H1) is not None
+    assert "London (NY overlap)" in str(_clock_line(overlap, START_MS + 13 * H1))
+    off = SessionClock(
+        label="Off",
+        start_ms=START_MS + 20 * H1,
+        end_ms=START_MS + 24 * H1,
+        is_overlap=False,
+        next_label="Asia",
+        next_start_ms=START_MS + 24 * H1,
+    )
+    assert _clock_line(off, START_MS + 21 * H1) == (
+        "Session: between sessions (04:00–08:00 MYT) · next Asia 08:00 MYT"
+    )
+    assert _clock_line(None, START_MS) is None
+
+
+def test_recap_bit_formats() -> None:
+    row = SessionRecapRow(
+        session="Asia",
+        start_ms=START_MS,  # Mon 08:00 MYT
+        end_ms=START_MS + 6 * H1,
+        open=100.0,
+        high=103.0,
+        low=99.0,
+        close=101.0,
+        net_pct=1.0,
+        net_atr=0.5,
+        range_atr=2.0,
+        n_bars=6,
+        expected_bars=6,
+        made_set_high=True,
+        made_set_low=False,
+    )
+    assert _recap_bit(row) == (
+        "Asia   Mon 08–14 MYT · net +1.00% (+0.50 ATR) · range 2.0 ATR ·set-high"
+    )
+    partial = SessionRecapRow(
+        session="NY",
+        start_ms=START_MS + 14 * H1,
+        end_ms=START_MS + 20 * H1,
+        open=100.0,
+        high=103.0,
+        low=99.0,
+        close=101.0,
+        net_pct=1.0,
+        net_atr=None,
+        range_atr=None,
+        n_bars=4,
+        expected_bars=6,
+        made_set_high=False,
+        made_set_low=False,
+    )
+    assert _recap_bit(partial) == (
+        "NY     Mon 22–04 MYT (4/6 bars) · net +1.00% · range n/a"
+    )
+
+
+def test_markdown_carries_session_lines(tmp_path: Path) -> None:
+    cfg, conn = _seeded_cfg(tmp_path)  # as_of = Fri 08:00 MYT, Asia open
+    out = render_markdown(compute_brief(conn, cfg))
+    assert "\nSession: Asia 08:00–14:00 MYT · 0h00m in / 6h00m left" in out
+    assert "\nSessions " in out
+    assert "tendency: day-high " in out

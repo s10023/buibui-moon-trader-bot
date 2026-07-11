@@ -51,3 +51,48 @@ def test_get_brief_error_panel_embedded() -> None:
     )
     assert res.status_code == 200
     assert res.json()["panels"][0]["error"] is not None
+
+
+def test_get_brief_panel_includes_indicators() -> None:
+    conn = make_conn()
+    seed_symbol(conn, "BTCUSDT", START_MS, 60)
+    client = _client(conn)
+    res = client.get(
+        "/api/brief",
+        params={"symbols": "BTCUSDT", "days": 60, "as_of": AS_OF_ISO},
+    )
+    assert res.status_code == 200
+    panel = res.json()["panels"][0]
+    assert panel["indicators"] is not None
+    assert panel["indicators"]["ema"]["above_20"] is not None
+    assert panel["indicators"]["profile"]["vs_value"] in (
+        "above",
+        "inside",
+        "below",
+    )
+
+
+def test_get_brief_carries_sessions() -> None:
+    conn = make_conn()
+    seed_symbol(conn, "BTCUSDT", START_MS, 60)
+    client = _client(conn)
+    res = client.get(
+        "/api/brief",
+        params={"symbols": "BTCUSDT", "days": 60, "as_of": AS_OF_ISO},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    clock = body["session_clock"]
+    assert clock["label"] == "Asia"
+    assert set(clock) == {
+        "label",
+        "start_ms",
+        "end_ms",
+        "is_overlap",
+        "next_label",
+        "next_start_ms",
+    }
+    sessions = body["panels"][0]["sessions"]
+    assert sessions is not None
+    assert [r["session"] for r in sessions["recap"]] == ["Asia", "London", "NY"]
+    assert len(sessions["tendency"]) == 3

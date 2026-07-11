@@ -7,11 +7,11 @@ Detailed reference for `web/`. Load this when working on the FastAPI backend or 
 - `main.py` — app + StaticFiles mount; reads `BUIBUI_CONFIG` env var (set by `buibui web --config <toml>`); stores `app.state.config_name` + `app.state.active_config`
 - `deps.py` — `require_token`, `require_token_sse` (SSE query-param auth)
 - `routers/` — config, ohlcv, fib, signals, backtest, positions, prices, stream, stats, zones, live_outcomes, brief
-- `models/` — Pydantic models per router; `active_config.py` → `ActiveConfigResponse` + `StrategyParamsModel`; `zones.py` → `ZoneBox`, `ZoneLine`, `SwingPoint`, `ZonesResponse`; `brief.py` → `BriefResponse` + section models (levels/zones/seasonality/pundit/health)
+- `models/` — Pydantic models per router; `active_config.py` → `ActiveConfigResponse` + `StrategyParamsModel`; `zones.py` → `ZoneBox`, `ZoneLine`, `SwingPoint`, `ZonesResponse`; `brief.py` → `BriefResponse` + section models (levels/zones/seasonality/indicators/sessions/pundit/health — M1 added `IndicatorStateModel` + 8 sub-models mirroring `analytics/brief/types.py`; M2 added `SessionClockModel` + `SessionStateModel`/`SessionRecapRowModel`/`SessionTendencyRowModel`)
 
 ### Key endpoints
 
-- `GET /api/brief?symbols&days&as_of` → daily market-brief bundle (`BriefResponse`): per-symbol levels/zones/regime/seasonality panels + pundit board + health footer; read-only via `get_db`, deterministic (`as_of` ISO8601 → byte-identical; omitted → server clock)
+- `GET /api/brief?symbols&days&as_of` → daily market-brief bundle (`BriefResponse`): per-symbol levels/zones/regime/seasonality/indicator-state panels (additive `indicators` key, null-safe) + M2 session layer (top-level `session_clock`; additive per-panel `sessions` = last-3-completed MYT-session recap + 180d tendency, null-safe) + pundit board + health footer; read-only via `get_db`, deterministic (`as_of` ISO8601 → byte-identical; omitted → server clock). Brief.svelte renders a header clock chip + per-card Sessions sub-section + legend entries mirroring the markdown formats
 - `GET /api/zones?symbol&timeframe&start_ms&end_ms` → `ZonesResponse(boxes, lines, swings)`; `ZoneBox`/`ZoneLine` carry `close_ms: int | None`
 - `GET /api/backtest/runs` / `POST /api/backtest` — `BacktestRunSummary` has `stars/long_stars/short_stars: int | None`, `long/short_total_r/recovery_factor: float | None`; validators coerce pandas NaN → None
 - `GET /api/strategies?config=<name>` — confidence values with per-config DB ratings override

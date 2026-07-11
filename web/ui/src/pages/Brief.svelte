@@ -7,6 +7,7 @@
   let data = $state<BriefResponse | null>(null);
   let loading = $state(true);
   let error = $state<string | null>(null);
+  let showLegend = $state(false);
 
   const REGIME_LABEL: Record<string, string> = {
     trend: "Trend",
@@ -33,6 +34,12 @@
       dateStyle: "medium",
       timeStyle: "short",
     });
+
+  const MYT_MS = 28_800_000;
+  const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const mytHHMM = (ms: number) => new Date(ms + MYT_MS).toISOString().slice(11, 16);
+  const mytHH = (ms: number) => new Date(ms + MYT_MS).toISOString().slice(11, 13);
+  const mytDow = (ms: number) => DOW[(new Date(ms + MYT_MS).getUTCDay() + 6) % 7];
 
   async function load(): Promise<void> {
     loading = true;
@@ -61,12 +68,130 @@
         <span class="health-pill" class:ok={data.health.data_ok} class:warn={!data.health.data_ok}>
           {data.health.data_ok ? "● data ok" : "⚠ data issue"}
         </span>
+        {#if data.session_clock}
+          {@const clk = data.session_clock}
+          <span class="clock-pill">
+            {clk.label === "Off" ? "between sessions" : clk.label}{clk.is_overlap
+              ? " (NY overlap)"
+              : ""}
+            · next {clk.next_label} {mytHHMM(clk.next_start_ms)} MYT
+          </span>
+        {/if}
       {/if}
+      <button class="btn-refresh" onclick={() => (showLegend = !showLegend)}>
+        ⓘ legend
+      </button>
       <button class="btn-refresh" onclick={() => void load()} disabled={loading}>
         {loading ? "Loading…" : "Refresh"}
       </button>
     </div>
   </div>
+
+  {#if showLegend}
+    <div class="card legend-card">
+      <div class="card-header"><span class="card-title">Reading this brief</span></div>
+      <dl class="legend-list muted">
+        <dt>Regime 1D / 4H</dt>
+        <dd>
+          Classifier output (trend / range / high-vol / unknown) from the same
+          regime model that soft-gates live signals.
+        </dd>
+        <dt>ATR14</dt>
+        <dd>
+          Daily Wilder ATR in price units — the yardstick: every ± number on
+          levels and zones is a distance in daily ATRs from the Last price.
+        </dd>
+        <dt>Levels</dt>
+        <dd>
+          PDH/PDL prior day high/low · PWH/PWL prior week · MonH/MonL Monday's
+          range (active Tue onward) · DO/WO/MO today's / this week's / this
+          month's open.
+        </dd>
+        <dt>swept</dt>
+        <dd>
+          Price pierced the level during the current period and now trades back
+          on the original side (sweep + reclaim/reject).
+        </dd>
+        <dt>Zones</dt>
+        <dd>
+          Structural zones per timeframe — FVG fair-value gap · OB order block ·
+          BOS break of structure · EQH/EQL equal highs/lows. Tag shows ATR
+          distance, or "inside" when price is within the zone.
+        </dd>
+        <dt>Last</dt>
+        <dd>
+          Reference price for all distances: freshest completed 1h close,
+          falling back to the forming or last completed daily bar (tagged).
+        </dd>
+        <dt>Seasonality</dt>
+        <dd>
+          Day-of-week stats over the lookback: bull % of days, average range,
+          which session most often prints the day's high/low, and typical
+          weekly high/low days.
+        </dd>
+        <dt>EMA</dt>
+        <dd>
+          Price vs the 20/50/200-day EMAs (▲ above / ▼ below / — not enough
+          history), the stack order (bullish 20&gt;50&gt;200), and the 200's
+          5-day slope.
+        </dd>
+        <dt>State</dt>
+        <dd>
+          Current 1D regime and how many bars it has held; when ranging, the
+          run's high–low band and where price sits inside it.
+        </dd>
+        <dt>Monday</dt>
+        <dd>
+          Price vs this week's Monday range (above / inside / below); "forming"
+          on Mondays while the range is still being set.
+        </dd>
+        <dt>Candle</dt>
+        <dd>
+          Anatomy patterns detected on yesterday's completed daily candle
+          (engulfing, pin bar, doji, inside bar, hammer, star).
+        </dd>
+        <dt>PA</dt>
+        <dd>
+          Price-action character over the last 10 days: impulse (fast
+          directional) vs grind (slow directional) vs chop, from efficiency
+          ratio × ATR-normalised speed.
+        </dd>
+        <dt>BB/VWAP</dt>
+        <dd>
+          Bollinger(20,2σ) %B and bandwidth (p = squeeze percentile), plus
+          price distance in ATRs from the weekly (W) and monthly (M) anchored
+          VWAPs.
+        </dd>
+        <dt>VP 60d</dt>
+        <dd>
+          60-day volume profile from our own 1h data: point of control and 70%
+          value area, with price above / inside / below value.
+        </dd>
+        <dt>Session clock</dt>
+        <dd>
+          Current MYT trading session: Asia 08–14 · London 14–22 · NY 22–04;
+          20–22 = London–NY overlap. "between sessions" = the Off gap.
+        </dd>
+        <dt>Sessions</dt>
+        <dd>
+          Last 3 completed sessions: net move and range in ATR14 units.
+          "(n/m bars)" flags partial 1h coverage.
+        </dd>
+        <dt>·set-high / ·set-low</dt>
+        <dd>Which of the 3 sessions printed the day's high / low.</dd>
+        <dt>tendency</dt>
+        <dd>
+          Share of the last 180 days each session made the daily high or low.
+        </dd>
+        <dt>Pundit board</dt>
+        <dd>
+          Recent ledger calls with per-author priors: n calls scored, hit
+          rate, and average R (ATR-proxy R for stop-less calls). ⚠ marks
+          low-sample authors; ● marks calls on a symbol shown above.
+        </dd>
+      </dl>
+    </div>
+  {/if}
 
   {#if error}
     <ErrorBanner {error} />
@@ -100,6 +225,122 @@
               {#if panel.adr_pct !== null}· ADR {fmtPct(panel.adr_pct)}{/if}
             </div>
 
+            {#if panel.indicators}
+              {@const ind = panel.indicators}
+              <div class="indicators muted">
+                {#if ind.ema}
+                  <div class="ind-row">
+                    <span class="ind-label">EMA</span>
+                    <span>
+                      {#each [[ind.ema.above_20, 20], [ind.ema.above_50, 50], [ind.ema.above_200, 200]] as [above, span]}
+                        <span
+                          class="ema-bit"
+                          class:pos={above === true}
+                          class:neg={above === false}
+                        >
+                          {above === null ? "—" : above ? "▲" : "▼"}{span}
+                        </span>
+                      {/each}
+                      {#if ind.ema.stack}· stack {ind.ema.stack}{/if}
+                      {#if ind.ema.slope_200}· 200 {ind.ema.slope_200}{/if}
+                    </span>
+                  </div>
+                {/if}
+                {#if ind.range_state}
+                  <div class="ind-row">
+                    <span class="ind-label">State</span>
+                    <span>
+                      {ind.range_state.label} · {ind.range_state.bars} bars
+                      {#if ind.range_state.range_low !== null && ind.range_state.range_high !== null}
+                        · {fmtPrice(ind.range_state.range_low)}–{fmtPrice(ind.range_state.range_high)}
+                        {#if ind.range_state.pos !== null}· {fmtPct(ind.range_state.pos)}{/if}
+                      {/if}
+                    </span>
+                  </div>
+                {/if}
+                {#if ind.monday}
+                  <div class="ind-row">
+                    <span class="ind-label">Monday</span>
+                    <span>
+                      {ind.monday.state}{#if ind.monday.pos !== null}&nbsp;({fmtPct(ind.monday.pos)}){/if}
+                    </span>
+                  </div>
+                {/if}
+                {#if ind.candles}
+                  <div class="ind-row">
+                    <span class="ind-label">Candle</span>
+                    <span>
+                      {ind.candles.length
+                        ? ind.candles.map((c) => `${c.pattern}·${c.direction}`).join(", ")
+                        : "none"}
+                    </span>
+                  </div>
+                {/if}
+                {#if ind.pa}
+                  <div class="ind-row">
+                    <span class="ind-label">PA</span>
+                    <span>
+                      {ind.pa.label} · ER {ind.pa.er.toFixed(2)} · {ind.pa.speed_atr.toFixed(2)} ATR/bar
+                    </span>
+                  </div>
+                {/if}
+                {#if ind.bb || ind.vwap}
+                  <div class="ind-row">
+                    <span class="ind-label">BB/VWAP</span>
+                    <span>
+                      {#if ind.bb}
+                        %B {ind.bb.pct_b.toFixed(2)} · bw {(ind.bb.bandwidth * 100).toFixed(1)}%
+                        {#if ind.bb.bw_pctile !== null}
+                          (p{Math.round(ind.bb.bw_pctile * 100)}{ind.bb.squeeze ? " squeeze" : ""})
+                        {/if}
+                      {/if}
+                      {#if ind.vwap}
+                        {#if ind.bb}·{/if}
+                        {#if ind.vwap.weekly_dist_atr !== null}W {fmtDist(ind.vwap.weekly_dist_atr)}{/if}
+                        {#if ind.vwap.monthly_dist_atr !== null}M {fmtDist(ind.vwap.monthly_dist_atr)}{/if}
+                      {/if}
+                    </span>
+                  </div>
+                {/if}
+                {#if ind.profile}
+                  <div class="ind-row">
+                    <span class="ind-label">VP 60d</span>
+                    <span>
+                      POC {fmtPrice(ind.profile.poc)} ({fmtDist(ind.profile.poc_dist_atr)})
+                      · VA {fmtPrice(ind.profile.val)}–{fmtPrice(ind.profile.vah)}
+                      · {ind.profile.vs_value}
+                    </span>
+                  </div>
+                {/if}
+              </div>
+            {/if}
+
+            {#if panel.sessions}
+              {@const s = panel.sessions}
+              <div class="sessions muted">
+                {#if s.recap}
+                  {#each s.recap as row}
+                    <div>
+                      <span class="sess-name">{row.session}</span>
+                      {mytDow(row.start_ms)} {mytHH(row.start_ms)}–{mytHH(row.end_ms)} MYT
+                      {#if row.n_bars < row.expected_bars}({row.n_bars}/{row.expected_bars} bars){/if}
+                      · net {row.net_pct >= 0 ? "+" : ""}{row.net_pct.toFixed(2)}%{row.net_atr !== null
+                        ? ` (${row.net_atr >= 0 ? "+" : ""}${row.net_atr.toFixed(2)} ATR)`
+                        : ""} · {row.range_atr !== null ? `range ${row.range_atr.toFixed(1)} ATR` : "range n/a"}
+                      {#if row.made_set_high}<span class="sess-mark">·set-high</span>{/if}
+                      {#if row.made_set_low}<span class="sess-mark">·set-low</span>{/if}
+                    </div>
+                  {/each}
+                {/if}
+                {#if s.tendency}
+                  <div>
+                    tendency: day-high {s.tendency.map((t) => `${t.session} ${Math.round(t.high_pct * 100)}%`).join(" · ")}
+                    | day-low {s.tendency.map((t) => `${t.session} ${Math.round(t.low_pct * 100)}%`).join(" · ")}
+                  </div>
+                {/if}
+              </div>
+            {/if}
+
             <div class="ladder">
               {#each [...panel.levels_above].reverse() as lvl (lvl.name)}
                 <div class="lvl-row above">
@@ -112,9 +353,15 @@
                 </div>
               {/each}
               <div class="lvl-row close-row">
-                <span class="lvl-name">CLOSE</span>
+                <span class="lvl-name">LAST</span>
                 <span class="lvl-price num">{fmtPrice(panel.ref_close)}</span>
-                <span></span>
+                <span class="lvl-dist num muted">
+                  {panel.ref_price_source === "1h"
+                    ? "1h close"
+                    : panel.ref_price_source === "1d_forming"
+                      ? "1d forming"
+                      : "1d close"}
+                </span>
               </div>
               {#each panel.levels_below as lvl (lvl.name)}
                 <div class="lvl-row below">
@@ -323,6 +570,15 @@
 
   .health-pill.ok { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
   .health-pill.warn { color: var(--yellow); border-color: color-mix(in srgb, var(--yellow) 40%, transparent); }
+
+  .clock-pill {
+    font-size: 10px;
+    letter-spacing: 0.03em;
+    padding: 2px 8px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+  }
 
   .btn-refresh {
     font-size: 11px;
@@ -627,5 +883,54 @@
   .health-note {
     font-size: 11px;
     margin-top: 6px;
+  }
+
+  .legend-card { margin-bottom: 16px; }
+  .legend-list { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 0.85rem; margin: 0; }
+  .legend-list dt { font-weight: 600; color: var(--text-dim); }
+  .legend-list dd { margin: 0; }
+
+  /* ── Indicator states ─────────────────────────────────────────────────── */
+  .indicators {
+    display: grid;
+    gap: 2px;
+    font-size: 11px;
+    margin-bottom: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ind-row {
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: 8px;
+    padding: 1px 4px;
+  }
+
+  .ind-label {
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+  }
+
+  .ema-bit { margin-right: 4px; }
+
+  /* ── Sessions ──────────────────────────────────────────────────────────── */
+  .sessions {
+    display: grid;
+    gap: 2px;
+    font-size: 11px;
+    margin-bottom: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sess-name {
+    display: inline-block;
+    min-width: 48px;
+    color: var(--text-dim);
+  }
+
+  .sess-mark {
+    color: var(--accent);
+    margin-left: 2px;
   }
 </style>

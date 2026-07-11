@@ -4,17 +4,34 @@ from __future__ import annotations
 
 import pandas as pd
 
+from analytics.brief._common import TF_MS
 from analytics.brief.types import (
+    BbState,
     BriefBundle,
+    CandleHit,
+    EmaState,
+    IndicatorState,
     LevelRow,
+    MondayState,
+    PaState,
+    ProfileState,
     PunditAuthorPrior,
     PunditBoard,
     PunditCallRow,
     PunditFamilyPrior,
+    RangeState,
     SeasonalityStrip,
+    SessionClock,
+    SessionRecapRow,
+    SessionState,
+    SessionTendencyRow,
     SymbolPanel,
+    VwapState,
     ZoneRow,
 )
+
+_MYT_OFFSET_MS = 8 * 3_600_000
+_DOW = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 
 def fmt_price(value: float) -> str:
@@ -83,6 +100,176 @@ def _strip_lines(strip: SeasonalityStrip | None) -> list[str]:
     return lines
 
 
+def _ref_price_label(panel: SymbolPanel) -> str:
+    """Human tag for the reference-price basis, e.g. "1h close 09:00 UTC"."""
+    if panel.ref_price_source == "1d_forming":
+        return "1d forming"
+    tf = "1h" if panel.ref_price_source == "1h" else "1d"
+    close_ts = pd.Timestamp(
+        panel.ref_close_ts_ms + TF_MS[tf], unit="ms", tz="UTC"
+    ).strftime("%H:%M")
+    return f"{tf} close {close_ts} UTC"
+
+
+def _ema_bit(above: bool | None, span: int) -> str:
+    if above is None:
+        return f"—{span}"
+    return f"{'▲' if above else '▼'}{span}"
+
+
+def _ema_line(ema: EmaState) -> str:
+    spans = " ".join(
+        _ema_bit(a, s)
+        for a, s in ((ema.above_20, 20), (ema.above_50, 50), (ema.above_200, 200))
+    )
+    stack = f"stack {ema.stack}" if ema.stack is not None else "stack n/a"
+    slope = f"200 {ema.slope_200}" if ema.slope_200 is not None else "200 n/a"
+    return f"{'EMA':<9}{spans} · {stack} · {slope}"
+
+
+def _state_line(rs: RangeState) -> str:
+    since = pd.Timestamp(rs.since_ms, unit="ms", tz="UTC").strftime("%Y-%m-%d")
+    head = f"{'State':<9}{rs.label} since {since} ({rs.bars} bars)"
+    if rs.range_low is None or rs.range_high is None:
+        return head
+    bounds = f"{fmt_price(rs.range_low)}–{fmt_price(rs.range_high)}"
+    pos = f" · {fmt_frac(rs.pos)}" if rs.pos is not None else ""
+    return f"{head} · {bounds}{pos}"
+
+
+def _monday_line(monday: MondayState) -> str:
+    pos = f" ({fmt_frac(monday.pos)})" if monday.pos is not None else ""
+    return f"{'Monday':<9}{monday.state}{pos}"
+
+
+def _candle_line(candles: list[CandleHit]) -> str:
+    bits = ", ".join(f"{c.pattern}·{c.direction}" for c in candles) or "none"
+    return f"{'Candle':<9}{bits}"
+
+
+def _pa_line(pa: PaState) -> str:
+    return f"{'PA':<9}{pa.label} · ER {pa.er:.2f} · {pa.speed_atr:.2f} ATR/bar"
+
+
+def _bb_bit(bb: BbState) -> str:
+    bits = f"%B {bb.pct_b:.2f} · bw {bb.bandwidth * 100:.1f}%"
+    if bb.bw_pctile is not None:
+        squeeze = " squeeze" if bb.squeeze else ""
+        bits += f" (p{round(bb.bw_pctile * 100)}{squeeze})"
+    return bits
+
+
+def _vwap_bit(vwap: VwapState) -> str:
+    parts: list[str] = []
+    if vwap.weekly_dist_atr is not None:
+        parts.append(f"W {fmt_dist(vwap.weekly_dist_atr)}")
+    if vwap.monthly_dist_atr is not None:
+        parts.append(f"M {fmt_dist(vwap.monthly_dist_atr)}")
+    return " · ".join(parts)
+
+
+def _profile_line(profile: ProfileState) -> str:
+    return (
+        f"{'VP60d':<9}POC {fmt_price(profile.poc)} ({fmt_dist(profile.poc_dist_atr)})"
+        f" · VA {fmt_price(profile.val)}–{fmt_price(profile.vah)}"
+        f" · {profile.vs_value}"
+    )
+
+
+def _indicator_lines(state: IndicatorState | None) -> list[str]:
+    """One line per surviving sub-block; failed blocks drop silently."""
+    if state is None:
+        return []
+    lines: list[str] = []
+    if state.ema is not None:
+        lines.append(_ema_line(state.ema))
+    if state.range_state is not None:
+        lines.append(_state_line(state.range_state))
+    if state.monday is not None:
+        lines.append(_monday_line(state.monday))
+    if state.candles is not None:
+        lines.append(_candle_line(state.candles))
+    if state.pa is not None:
+        lines.append(_pa_line(state.pa))
+    bb_bit = _bb_bit(state.bb) if state.bb is not None else None
+    vwap_bit = _vwap_bit(state.vwap) if state.vwap is not None else None
+    if vwap_bit == "":
+        vwap_bit = None
+    if bb_bit is not None and vwap_bit is not None:
+        lines.append(f"{'BB':<9}{bb_bit} | AVWAP {vwap_bit}")
+    elif bb_bit is not None:
+        lines.append(f"{'BB':<9}{bb_bit}")
+    elif vwap_bit is not None:
+        lines.append(f"{'AVWAP':<9}{vwap_bit}")
+    if state.profile is not None:
+        lines.append(_profile_line(state.profile))
+    return lines
+
+
+def _myt_hhmm(ms: int) -> str:
+    return pd.Timestamp(ms + _MYT_OFFSET_MS, unit="ms", tz="UTC").strftime("%H:%M")
+
+
+def _fmt_dur(ms: int) -> str:
+    minutes = ms // 60_000
+    return f"{minutes // 60}h{minutes % 60:02d}m"
+
+
+def _clock_line(clock: SessionClock | None, as_of_ms: int) -> str | None:
+    if clock is None:
+        return None
+    span = f"{_myt_hhmm(clock.start_ms)}–{_myt_hhmm(clock.end_ms)} MYT"
+    nxt = f"next {clock.next_label} {_myt_hhmm(clock.next_start_ms)} MYT"
+    if clock.label == "Off":
+        return f"Session: between sessions ({span}) · {nxt}"
+    overlap = " (NY overlap)" if clock.is_overlap else ""
+    elapsed = _fmt_dur(as_of_ms - clock.start_ms)
+    left = _fmt_dur(clock.end_ms - as_of_ms)
+    return (
+        f"Session: {clock.label}{overlap} {span} · {elapsed} in / {left} left · {nxt}"
+    )
+
+
+def _recap_bit(row: SessionRecapRow) -> str:
+    start = pd.Timestamp(row.start_ms + _MYT_OFFSET_MS, unit="ms", tz="UTC")
+    end = pd.Timestamp(row.end_ms + _MYT_OFFSET_MS, unit="ms", tz="UTC")
+    span = (
+        f"{_DOW[int(start.weekday())]} {start.strftime('%H')}–{end.strftime('%H')} MYT"
+    )
+    cov = (
+        ""
+        if row.n_bars >= row.expected_bars
+        else f" ({row.n_bars}/{row.expected_bars} bars)"
+    )
+    atr_bit = f" ({fmt_dist(row.net_atr)} ATR)" if row.net_atr is not None else ""
+    rng = f"range {row.range_atr:.1f} ATR" if row.range_atr is not None else "range n/a"
+    marks = (" ·set-high" if row.made_set_high else "") + (
+        " ·set-low" if row.made_set_low else ""
+    )
+    return (
+        f"{row.session:<7}{span}{cov} · net {row.net_pct:+.2f}%{atr_bit} · {rng}{marks}"
+    )
+
+
+def _tendency_bit(rows: list[SessionTendencyRow]) -> str:
+    hi = " · ".join(f"{r.session} {fmt_frac(r.high_pct)}" for r in rows)
+    lo = " · ".join(f"{r.session} {fmt_frac(r.low_pct)}" for r in rows)
+    return f"tendency: day-high {hi} | day-low {lo}"
+
+
+def _session_lines(state: SessionState | None) -> list[str]:
+    if state is None:
+        return []
+    bits: list[str] = []
+    if state.recap is not None:
+        bits.extend(_recap_bit(r) for r in state.recap)
+    if state.tendency is not None:
+        bits.append(_tendency_bit(state.tendency))
+    if not bits:
+        return []
+    return [f"{'Sessions':<9}{bits[0]}"] + [f"{'':9}{b}" for b in bits[1:]]
+
+
 def _panel_lines(panel: SymbolPanel) -> list[str]:
     lines = [f"── {panel.symbol} " + "─" * 44]
     if panel.error is not None:
@@ -90,9 +277,12 @@ def _panel_lines(panel: SymbolPanel) -> list[str]:
         return lines
     adr = f" · ADR {fmt_frac(panel.adr_pct)}" if panel.adr_pct is not None else ""
     lines.append(
-        f"Close {fmt_price(panel.ref_close)} · Regime 1d {panel.regime_1d} / "
+        f"Last {fmt_price(panel.ref_close)} ({_ref_price_label(panel)}) · "
+        f"Regime 1d {panel.regime_1d} / "
         f"4h {panel.regime_4h} · ATR14(1d) {fmt_price(panel.atr14)}{adr}"
     )
+    lines.extend(_indicator_lines(panel.indicators))
+    lines.extend(_session_lines(panel.sessions))
     above = " · ".join(_level_str(r) for r in panel.levels_above) or "none"
     below = " · ".join(_level_str(r) for r in panel.levels_below) or "none"
     lines.append(f"Levels   above → {above}")
@@ -227,8 +417,11 @@ def render_markdown(bundle: BriefBundle) -> str:
     data = "OK" if bundle.health.data_ok else "⚠ (see health)"
     lines = [
         f"BUIBUI DAILY BRIEF — {bundle.day_ahead} · as-of {as_of} UTC · data {data}",
-        "",
     ]
+    clock = _clock_line(bundle.session_clock, bundle.as_of_ms)
+    if clock is not None:
+        lines.append(clock)
+    lines.append("")
     for panel in bundle.panels:
         lines.extend(_panel_lines(panel))
         lines.append("")
