@@ -20,7 +20,11 @@ def render_card(final: FinalCard) -> str:
             f"{card.direction} · entry {card.entry} · SL {card.sl} · RR(tp1) {rr}"
         )
         lines.append(f"TP1 {card.tp1} · TP2 {card.tp2} · TP3 {card.tp3}")
-    if final.size_units is not None:
+    if (
+        final.size_units is not None
+        and final.notional_usd is not None
+        and final.risk_usd is not None
+    ):
         lines.append(
             f"size: {final.size_units} units · notional "
             f"${final.notional_usd:.2f} · risk ${final.risk_usd:.2f} "

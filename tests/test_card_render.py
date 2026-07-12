@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from typing import Any
 
@@ -77,3 +78,12 @@ class TestRender:
 
     def test_deterministic(self) -> None:
         assert render_card(_final("TRADE")) == render_card(_final("TRADE"))
+
+    def test_partial_sizing_fields_suppress_size_block(self) -> None:
+        # The four sizing fields are independently optional; a card with
+        # size_units set but the money fields None must not crash — the
+        # honest degradation is to skip the size block, not print $0.00.
+        final = dataclasses.replace(_final("TRADE"), notional_usd=None, risk_usd=None)
+        out = render_card(final)  # must not raise
+        assert "▲ TRADE" in out
+        assert "units" not in out
