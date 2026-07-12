@@ -3,9 +3,22 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from typing import Any
 
+from card.config import CardConfig
 from card.errors import CardValidationError
+from card.prompt import PROMPT_VERSION
+from card.state import MarketState
+from portfolio.sizing import (
+    SizingConfig,
+    apply_caps,
+    cluster_of,
+    effective_risk_fraction,
+    position_size,
+    regime_multiplier,
+    risk_per_unit,
+)
 
 _VERDICTS = ("TRADE", "NO_TRADE")
 _DIRECTIONS = ("long", "short")
@@ -97,4 +110,164 @@ def parse_trade_card(text: str) -> TradeCard:
         expected_hold=_s("expected_hold"),
         valid_until_utc=_s("valid_until_utc"),
         no_trade_reason=_s("no_trade_reason"),
+    )
+
+
+@dataclass(frozen=True)
+class FinalCard:
+    symbol: str
+    as_of_ms: int
+    verdict: str  # "TRADE" | "NO_TRADE" | "VETOED"
+    card: TradeCard
+    size_units: float | None
+    notional_usd: float | None
+    risk_usd: float | None
+    risk_frac: float | None
+    rr_tp1: float | None
+    warnings: list[str]
+    veto_reasons: list[str]
+    state_digest: str
+    prompt_version: str
+    model: str
+    generated_at_ms: int
+    cost_usd_notional: float | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def post_pass(
+    card: TradeCard,
+    state: MarketState,
+    sizing: SizingConfig,
+    cfg: CardConfig,
+    *,
+    digest: str,
+    model: str,
+    generated_at_ms: int,
+    cost_usd_notional: float | None = None,
+) -> FinalCard:
+    """The LLM proposes prices; this code decides money and rules (D6).
+
+    Sizing notes: g_vol is neutral 1.0 (no live equity curve exists at card
+    time); open risk is approximated as one r_base per open position (the
+    account rows carry no SL, so true open risk is unknowable) — surfaced as
+    a warning, never silent.
+    """
+    warnings: list[str] = []
+    veto: list[str] = []
+    size_units: float | None = None
+    notional_usd: float | None = None
+    risk_usd: float | None = None
+    risk_frac: float | None = None
+    rr_tp1: float | None = None
+
+    if card.verdict == "TRADE":
+        # validation guarantees these are positive floats for TRADE
+        entry = float(card.entry or 0.0)
+        sl = float(card.sl or 0.0)
+        direction = card.direction or ""
+        tps = [float(t) for t in (card.tp1, card.tp2, card.tp3) if t is not None]
+
+        # (a) SL side + TP ordering
+        if direction == "long" and sl >= entry:
+            veto.append("SL must be below entry for a long")
+        if direction == "short" and sl <= entry:
+            veto.append("SL must be above entry for a short")
+        expected = sorted(tps) if direction == "long" else sorted(tps, reverse=True)
+        if tps != expected:
+            veto.append("TPs must be ordered away from entry")
+        if tps and direction == "long" and tps[0] <= entry:
+            veto.append("tp1 must be above entry for a long")
+        if tps and direction == "short" and tps[0] >= entry:
+            veto.append("tp1 must be below entry for a short")
+
+        # (b) planned RR floor
+        rpu = risk_per_unit(entry, sl)
+        if rpu > 0.0 and card.tp1 is not None:
+            rr_tp1 = abs(float(card.tp1) - entry) / rpu
+            if rr_tp1 < cfg.min_rr:
+                veto.append(f"rr_tp1 {rr_tp1:.2f} breaches min_rr {cfg.min_rr}")
+
+        # (c) conflicting open position + (d) circuit breaker
+        if state.account is not None:
+            for pos in state.account.positions:
+                if pos.symbol == state.symbol and pos.side != direction:
+                    veto.append(f"conflicting open {pos.side} position on {pos.symbol}")
+            if state.account.daily_r <= cfg.daily_loss_limit_r:
+                veto.append(
+                    f"daily loss {state.account.daily_r:.2f}R breaches "
+                    f"circuit breaker {cfg.daily_loss_limit_r}R"
+                )
+        else:
+            warnings.append("account state unavailable — hard rules unverified")
+
+        # (e) entry sanity band vs ref_close
+        panel = state.panel
+        if panel is not None and panel.error is None and panel.ref_close > 0.0:
+            band = cfg.entry_band_pct / 100.0
+            if abs(entry - panel.ref_close) / panel.ref_close > band:
+                veto.append(
+                    f"entry {entry} outside ±{cfg.entry_band_pct}% of "
+                    f"ref_close {panel.ref_close}"
+                )
+        else:
+            warnings.append("ref price unavailable — entry sanity unverified")
+
+        # sizing (P1 reuse) — only when nothing vetoed
+        if not veto:
+            regime = panel.regime_1d if panel is not None else None
+            r_eff = effective_risk_fraction(
+                sizing,
+                g_vol=1.0,
+                g_regime=regime_multiplier(regime, sizing),
+            )
+            open_risk_total = 0.0
+            open_risk_cluster = 0.0
+            if state.account is not None and state.account.positions:
+                cluster = cluster_of(state.symbol, sizing)
+                open_risk_total = len(state.account.positions) * sizing.r_base
+                open_risk_cluster = sum(
+                    sizing.r_base
+                    for p in state.account.positions
+                    if cluster_of(p.symbol, sizing) == cluster
+                )
+                warnings.append(
+                    "open risk approximated as one r_base per open position"
+                )
+            r_adm = apply_caps(
+                r_eff,
+                symbol=state.symbol,
+                open_risk_total=open_risk_total,
+                open_risk_cluster=open_risk_cluster,
+                cfg=sizing,
+            )
+            if r_adm <= 0.0:
+                veto.append("no risk headroom under concurrent/cluster caps")
+            else:
+                risk_frac = r_adm
+                risk_usd = sizing.capital * r_adm
+                size_units = position_size(risk_usd, entry, sl)
+                notional_usd = size_units * entry
+
+    verdict = "VETOED" if veto else card.verdict
+    if veto:
+        size_units = notional_usd = risk_usd = risk_frac = None
+    return FinalCard(
+        symbol=state.symbol,
+        as_of_ms=state.now_ms,
+        verdict=verdict,
+        card=card,
+        size_units=size_units,
+        notional_usd=notional_usd,
+        risk_usd=risk_usd,
+        risk_frac=risk_frac,
+        rr_tp1=rr_tp1,
+        warnings=warnings,
+        veto_reasons=veto,
+        state_digest=digest,
+        prompt_version=PROMPT_VERSION,
+        model=model,
+        generated_at_ms=generated_at_ms,
+        cost_usd_notional=cost_usd_notional,
     )
