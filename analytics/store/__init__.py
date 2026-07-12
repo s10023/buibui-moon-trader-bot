@@ -28,6 +28,7 @@ from analytics.store.combos import (
     upsert_cross_tf_combo_run,
 )
 from analytics.store.confidence import (
+    get_confidence_rating_rows,
     get_confidence_ratings,
     get_directional_confidence_ratings,
     upsert_confidence_ratings,
@@ -64,6 +65,7 @@ __all__ = [
     "_upsert",
     "get_backtest_cache",
     "get_combo_lookup",
+    "get_confidence_rating_rows",
     "get_confidence_ratings",
     "get_cross_tf_combo_lookup",
     "get_directional_confidence_ratings",
