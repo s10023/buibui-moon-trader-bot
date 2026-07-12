@@ -86,6 +86,19 @@ class TestValidation:
         obj = _trade_obj(verdict="NO_TRADE", no_trade_reason=None)
         assert any("no_trade_reason" in e for e in validate_card_obj(obj))
 
+    def test_non_finite_prices_rejected(self) -> None:
+        # json.dumps emits NaN/Infinity literals; json.loads reads them back,
+        # so an LLM emitting "entry": NaN must be caught by validation.
+        nan_obj = _trade_obj(entry=float("nan"))
+        assert any("entry" in e for e in validate_card_obj(nan_obj))
+        with pytest.raises(CardValidationError):
+            parse_trade_card(json.dumps(nan_obj))
+
+        inf_obj = _trade_obj(tp1=float("inf"))
+        assert any("tp1" in e for e in validate_card_obj(inf_obj))
+        with pytest.raises(CardValidationError):
+            parse_trade_card(json.dumps(inf_obj))
+
 
 def _state_for_post(
     *,
