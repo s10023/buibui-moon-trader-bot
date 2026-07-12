@@ -157,6 +157,8 @@ class TestPostPass:
         final = _post(_trade_obj(sl=101.0), _state_for_post())
         assert final.verdict == "VETOED"
         assert any("SL" in r for r in final.veto_reasons)
+        # rr_tp1 was computed against an invalid stop distance — must be nulled
+        assert final.rr_tp1 is None
 
     def test_tp_disorder_vetoes(self) -> None:
         final = _post(_trade_obj(tp2=102.0), _state_for_post())
@@ -230,3 +232,32 @@ class TestPostPass:
         final = _post(_trade_obj(), _state_for_post(account=account))
         assert final.verdict == "TRADE"
         assert any("approximated" in w for w in final.warnings)
+
+    def test_zero_headroom_vetoes(self) -> None:
+        # 4 open ETHUSDT longs in the majors cluster with BTCUSDT: each is
+        # approximated at one r_base (0.25%), so open_risk_cluster = 1% =
+        # r_cluster_max -> cluster headroom 0 -> apply_caps returns 0.0.
+        # Long side (no conflict veto) and daily_r 0 (no circuit breaker)
+        # isolate the headroom veto.
+        account = AccountState(
+            positions=[
+                OpenPosition(
+                    symbol="ETHUSDT",
+                    side="long",
+                    qty=1.0,
+                    entry=100.0,
+                    mark=100.0,
+                    upnl_usd=0.0,
+                )
+                for _ in range(4)
+            ],
+            daily_pnl_usd=0.0,
+            daily_r=0.0,
+            equity_usd=None,
+        )
+        final = _post(_trade_obj(), _state_for_post(account=account))
+        assert final.verdict == "VETOED"
+        assert any("headroom" in r for r in final.veto_reasons)
+        assert final.size_units is None
+        assert final.risk_usd is None
+        assert final.rr_tp1 is None

@@ -252,7 +252,7 @@ def post_pass(
 
     verdict = "VETOED" if veto else card.verdict
     if veto:
-        size_units = notional_usd = risk_usd = risk_frac = None
+        size_units = notional_usd = risk_usd = risk_frac = rr_tp1 = None
     return FinalCard(
         symbol=state.symbol,
         as_of_ms=state.now_ms,
