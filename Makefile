@@ -265,6 +265,13 @@ buibui-brief:  ## Daily market brief (read-only; SYMBOLS=/AS_OF= optional)
 		$(if $(SYMBOLS),--symbols $(SYMBOLS),) \
 		$(if $(AS_OF),--as-of $(AS_OF),)
 
+.PHONY: buibui-card
+buibui-card:  ## AI trade card (SYMBOL= required; DIRECTION=/AS_OF=/DRY=1 optional)
+	@poetry run python buibui.py card $(SYMBOL) \
+		$(if $(DIRECTION),--direction $(DIRECTION),) \
+		$(if $(AS_OF),--as-of $(AS_OF),) \
+		$(if $(DRY),--dry-run,)
+
 .PHONY: buibui-forecast-audit
 buibui-forecast-audit:  ## P2: read-only EWMAC trend-sleeve G2 audit over the N3 universe
 	PYTHONPATH=. poetry run python tools/forecast_audit.py
