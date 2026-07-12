@@ -107,6 +107,12 @@ class TestClaudeCliClient:
         with pytest.raises(CardError, match="timeout"):
             _client(runner).generate("p")
 
+    def test_non_dict_envelope_is_carderror(self) -> None:
+        runner = RecordingRunner([_proc("[]"), _proc("[]")])
+        with pytest.raises(CardError):
+            _client(runner).generate("p")
+        assert len(runner.calls) == 2  # retry happened, no AttributeError escape
+
     def test_error_envelope_is_carderror(self) -> None:
         bad = json.dumps({"subtype": "error", "is_error": True, "result": ""})
         runner = RecordingRunner([_proc(bad), _proc(bad)])

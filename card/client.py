@@ -62,13 +62,13 @@ class ClaudeCliClient:
     runner: RunnerFn | None = None
 
     def generate(self, prompt: str) -> LLMResponse:
-        last_err = "unknown"
+        last_exc: CardError | None = None
         for _ in range(2):  # one retry per spec
             try:
                 return self._call(prompt)
             except CardError as exc:
-                last_err = str(exc)
-        raise CardError(f"LLM call failed after retry: {last_err}")
+                last_exc = exc
+        raise CardError(f"LLM call failed after retry: {last_exc}") from last_exc
 
     def _call(self, prompt: str) -> LLMResponse:
         run = self.runner if self.runner is not None else _default_runner
@@ -102,6 +102,8 @@ class ClaudeCliClient:
             envelope: dict[str, Any] = json.loads(proc.stdout)
         except json.JSONDecodeError as exc:
             raise CardError(f"bad envelope JSON: {exc}") from exc
+        if not isinstance(envelope, dict):
+            raise CardError("envelope is not a JSON object")
         if envelope.get("subtype") != "success" or envelope.get("is_error"):
             raise CardError(f"envelope not success: subtype={envelope.get('subtype')}")
         result = envelope.get("result")
