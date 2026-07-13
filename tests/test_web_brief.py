@@ -64,6 +64,17 @@ def test_get_brief_panel_includes_indicators() -> None:
     assert res.status_code == 200
     panel = res.json()["panels"][0]
     assert panel["indicators"] is not None
+    # All 8 sub-models serialize (present even when a block is None).
+    assert set(panel["indicators"]) == {
+        "ema",
+        "range_state",
+        "monday",
+        "candles",
+        "pa",
+        "bb",
+        "vwap",
+        "profile",
+    }
     assert panel["indicators"]["ema"]["above_20"] is not None
     assert panel["indicators"]["profile"]["vs_value"] in (
         "above",

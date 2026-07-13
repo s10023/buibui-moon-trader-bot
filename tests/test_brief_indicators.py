@@ -92,6 +92,15 @@ class TestRangeState:
         regime = pd.Series(["range"] * 7)  # shorter than the frame
         assert _range_state(df, regime, ref_close=100.0) is None
 
+    def test_reordered_same_length_regime_series_is_none(self) -> None:
+        # Same length but a reordered index -> not positionally aligned with
+        # the frame. classify_series always returns index=df.index, so this
+        # never happens in production; the guard must still reject it rather
+        # than silently mislabel bars.
+        df = _daily_frame(10)  # default RangeIndex 0..9
+        regime = pd.Series(["range"] * 10, index=list(range(9, -1, -1)))
+        assert _range_state(df, regime, ref_close=100.0) is None
+
 
 class TestMondayState:
     def test_forming_on_monday(self) -> None:
@@ -139,6 +148,35 @@ class TestBuildIndicatorState:
         assert state.ema is not None
         assert state.range_state is not None
         assert notes == []
+
+    def test_all_blocks_failing_collapses_to_none(self) -> None:
+        # Non-empty but non-numeric frames: every sub-block raises inside the
+        # independence-contract wrapper -> all None -> state collapses. A
+        # non-Monday as_of keeps _monday_state from returning a "forming".
+        poison = pd.DataFrame(
+            [
+                {
+                    "open_time": START_MS + DAY_MS,
+                    "open": "x",
+                    "high": "x",
+                    "low": "x",
+                    "close": "x",
+                    "volume": "x",
+                }
+            ]
+        )
+        regime = pd.Series(["range"], index=poison.index)  # index-aligned
+        state, notes = build_indicator_state(
+            completed_1d=poison,
+            completed_1h=poison.copy(),
+            regime_series_1d=regime,
+            ref_close=100.0,
+            atr14=2.0,
+            as_of_ms=START_MS + DAY_MS,  # Tuesday
+        )
+        assert state is None
+        # ema/range/candle/pa/bb/vwap/profile all raise -> >= 7 failure notes.
+        assert sum("failed" in n for n in notes) >= 7
 
 
 class TestCandleHits:
@@ -322,6 +360,30 @@ class TestBbStateAdapter:
         state = _bb_state(_daily_frame(60), ref_close=100.0)
         assert state is not None
         assert isinstance(state.pct_b, float)
+
+    def test_empty_frame_is_none(self) -> None:
+        from analytics.brief.indicators import _bb_state
+
+        assert _bb_state(_daily_frame(0), ref_close=100.0) is None
+
+    def test_constant_price_read_none_is_none(self) -> None:
+        from analytics.brief.indicators import _bb_state
+
+        # Flat closes -> sd 0 -> bollinger_state None -> adapter None.
+        flat = pd.DataFrame(
+            [
+                {
+                    "open_time": START_MS + i * DAY_MS,
+                    "open": 100.0,
+                    "high": 100.0,
+                    "low": 100.0,
+                    "close": 100.0,
+                    "volume": 1000.0,
+                }
+                for i in range(30)
+            ]
+        )
+        assert _bb_state(flat, ref_close=100.0) is None
 
 
 class TestFailureIsolation:

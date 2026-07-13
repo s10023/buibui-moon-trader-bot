@@ -43,6 +43,10 @@ class TestAnchoredVwap:
         df = pd.DataFrame([_hbar(10, 100.0, 0.0)])
         assert anchored_vwap(df, anchor_ms=0) is None
 
+    def test_empty_frame_returns_none(self) -> None:
+        # The `hourly_df.empty` early-return, distinct from an empty window.
+        assert anchored_vwap(pd.DataFrame(), anchor_ms=0) is None
+
 
 class TestEfficiencyRatio:
     def test_straight_line_is_one(self) -> None:
@@ -79,6 +83,20 @@ class TestPaCharacter:
         assert read is not None
         assert read.label == "grind_down"
 
+    def test_impulse_down(self) -> None:
+        # -1.0/bar, ATR 1.0 -> ER 1.0 directional, speed 1.0 >= 0.8, down.
+        close = pd.Series([10.0 - float(i) for i in range(11)])
+        read = pa_character(close, atr14=1.0)
+        assert read is not None
+        assert read.label == "impulse_down"
+
+    def test_grind_up(self) -> None:
+        # +0.5/bar, ATR 1.0 -> ER 1.0 directional, speed 0.5 < 0.8, up.
+        close = pd.Series([0.5 * i for i in range(11)])
+        read = pa_character(close, atr14=1.0)
+        assert read is not None
+        assert read.label == "grind_up"
+
     def test_chop(self) -> None:
         close = pd.Series([0.0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0])
         read = pa_character(close, atr14=1.0)
@@ -107,6 +125,11 @@ class TestBollingerState:
     def test_constant_price_returns_none(self) -> None:
         # sd == 0 -> bands collapse -> None.
         assert bollinger_state(pd.Series([100.0] * 30), ref_price=100.0) is None
+
+    def test_zero_mean_price_returns_none(self) -> None:
+        # middle == 0 (bands undefined as a %) even with non-zero sd -> None.
+        # Alternating -1/+1 over 20 bars: rolling mean 0, population sd 1.
+        assert bollinger_state(pd.Series([-1.0, 1.0] * 10), ref_price=0.0) is None
 
     def test_short_series_returns_none(self) -> None:
         assert bollinger_state(pd.Series([100.0, 101.0]), ref_price=100.0) is None
