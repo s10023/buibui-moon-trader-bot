@@ -20,12 +20,12 @@ def _cfg(tmp_path: Path, **kwargs: object) -> BriefConfig:
     )
 
 
-def _call(author: str, symbol: str, days_before: int) -> str:
+def _call(author: str, symbol: str, days_before: int, source: str = "twitter") -> str:
     ts_ms = AS_OF - days_before * DAY_MS
     iso = f"{__import__('datetime').datetime.fromtimestamp(ts_ms / 1000, tz=__import__('datetime').UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
     return json.dumps(
         {
-            "source": "twitter",
+            "source": source,
             "author": author,
             "url": "https://x.com/x/status/1",
             "call_ts_utc": iso,
@@ -106,6 +106,51 @@ def test_board_happy_path(tmp_path: Path) -> None:
     assert board.families[0].avg_r == 0.5  # float avg_r parsed
     breakout = next(f for f in board.families if f.family == "breakout")
     assert breakout.avg_r is None  # null avg_r parses to None, no crash
+
+
+def test_board_excludes_ai_card_dual_writes(tmp_path: Path) -> None:
+    # TRADE cards dual-write a {source:"ai-card", author:"buibui_card"} row to
+    # the same ledger so the scorer can grade the AI. The board must NOT cite
+    # the card as an external pundit (self-citation). The line still counts in
+    # ledger_total (it is a real ledger line) but is excluded from the board —
+    # not treated as malformed/skipped.
+    cfg = _cfg(tmp_path)
+    cfg.ledger_path.write_text(
+        "\n".join(
+            [
+                _call("alice", "BTCUSDT", 1),
+                _call("buibui_card", "BTCUSDT", 1, source="ai-card"),
+            ]
+        )
+    )
+    board = build_board(cfg)
+    assert [c.author for c in board.recent_calls] == ["alice"]
+    assert board.ledger_total == 2  # both lines counted
+    assert board.ledger_skipped == 0  # ai-card row excluded, not malformed
+
+
+def test_board_omits_ai_card_author_from_priors(tmp_path: Path) -> None:
+    # The scorer scores buibui_card (the kill-test) and writes it into
+    # priors.json, but the board must not surface the card's own track record
+    # as if it were an external pundit — even when its n outranks humans.
+    cfg = _cfg(tmp_path)
+    cfg.priors_path.write_text(
+        json.dumps(
+            {
+                "generated_at": "2023-12-31T00:00:00Z",
+                "policy": {"min_n_marker": 5},
+                "authors": {
+                    "alice": {"n": 6, "hit_rate": 0.5, "avg_r": 0.2},
+                    "buibui_card": {"n": 9, "hit_rate": 0.4, "avg_r": -0.1},
+                },
+            }
+        )
+    )
+    cfg.ledger_path.write_text(_call("alice", "BTCUSDT", 1))
+    board = build_board(cfg)
+    names = [a.author for a in board.authors]
+    assert "alice" in names
+    assert "buibui_card" not in names
 
 
 def test_board_absent_files(tmp_path: Path) -> None:

@@ -22,6 +22,12 @@ from analytics.brief.types import (
 _DAY_MS = 86_400_000
 _MAX_PRIORS_ROWS = 8  # render constant per spec, not config
 _TEXT_TRUNC = 60
+# The AI trade card dual-writes its TRADE calls to the same ledger so the
+# scorer can grade it, but the card is never an external pundit to itself:
+# exclude its rows from the board (keyed off the stable `source` machine field)
+# and its scored track record from the priors-derived authors list.
+_AI_CARD_SOURCE = "ai-card"
+_AI_CARD_AUTHOR = "buibui_card"
 
 
 def _parse_iso_ms(value: str) -> int | None:
@@ -126,6 +132,8 @@ def build_board(cfg: BriefConfig) -> PunditBoard:
             if not isinstance(raw, dict):
                 skipped += 1
                 continue
+            if raw.get("source") == _AI_CARD_SOURCE:
+                continue  # card's own dual-write — excluded, not malformed
             ts_ms = _parse_iso_ms(str(raw.get("call_ts_utc", "")))
             author = raw.get("author")
             symbol = raw.get("symbol")
@@ -150,7 +158,10 @@ def build_board(cfg: BriefConfig) -> PunditBoard:
                 )
             )
     calls.sort(key=lambda c: c.age_days)  # newest first; ties keep file order
-    top_authors = sorted(authors_by_name.values(), key=lambda a: -a.n)
+    top_authors = sorted(
+        (a for a in authors_by_name.values() if a.author != _AI_CARD_AUTHOR),
+        key=lambda a: -a.n,
+    )
     return PunditBoard(
         priors_status=status,
         priors_age_days=age_days,
