@@ -114,6 +114,36 @@ def test_both_halves_none_collapses_state() -> None:
     assert notes == ["session recap: no 1h bars in any window"]
 
 
+def _flat_bars(hours: range, high: float, low: float) -> list[dict[str, float]]:
+    return [
+        {
+            "open_time": START + h * H,
+            "open": low + 1.0,
+            "high": high,
+            "low": low,
+            "close": high - 1.0,
+            "volume": 1.0,
+        }
+        for h in hours
+    ]
+
+
+def test_set_extreme_ties_go_to_earliest_window() -> None:
+    # Recap order is [London, NY, Asia]. London & Asia tie on high (50) ->
+    # earliest (London) is set-high; NY & Asia tie on low (5) -> earliest of
+    # the two (NY) is set-low. max/min return the first of equals.
+    frame = pd.DataFrame(
+        _flat_bars(range(6, 14), high=50.0, low=10.0)  # London
+        + _flat_bars(range(14, 20), high=40.0, low=5.0)  # NY
+        + _flat_bars(range(24, 30), high=50.0, low=5.0)  # Asia
+    )
+    state, _ = build_session_state(frame, atr14=2.0, as_of_ms=AS_OF, tendency=None)
+    assert state is not None and state.recap is not None
+    london, ny, asia = state.recap
+    assert london.made_set_high and not asia.made_set_high
+    assert ny.made_set_low and not asia.made_set_low
+
+
 def test_zero_atr_drops_atr_fields() -> None:
     state, _ = build_session_state(
         _h1_frame(list(range(30))), atr14=0.0, as_of_ms=AS_OF, tendency=None

@@ -11,6 +11,7 @@ from analytics.brief.render import (
     _clock_line,
     _indicator_lines,
     _recap_bit,
+    _session_lines,
     fmt_dist,
     fmt_frac,
     fmt_price,
@@ -27,6 +28,7 @@ from analytics.brief.types import (
     RangeState,
     SessionClock,
     SessionRecapRow,
+    SessionState,
     VwapState,
 )
 from tests._brief_fixtures import DAY_MS, START_MS, make_conn, seed_symbol
@@ -300,6 +302,26 @@ class TestIndicatorLines:
         )
         assert _indicator_lines(state) == ["AVWAP    M +0.80"]
 
+    def test_bb_survives_when_vwap_bit_empty(self) -> None:
+        # vwap present but every distance None -> _vwap_bit "" -> dropped;
+        # bb present alone renders "BB" (not the "BB | AVWAP" combined form).
+        state = IndicatorState(
+            ema=None,
+            range_state=None,
+            monday=None,
+            candles=None,
+            pa=None,
+            bb=BbState(pct_b=0.5, bandwidth=0.02, bw_pctile=None, squeeze=None),
+            vwap=VwapState(
+                weekly_price=None,
+                weekly_dist_atr=None,
+                monthly_price=None,
+                monthly_dist_atr=None,
+            ),
+            profile=None,
+        )
+        assert _indicator_lines(state) == ["BB       %B 0.50 · bw 2.0%"]
+
     def test_ema_warmup_and_trend_state(self) -> None:
         state = IndicatorState(
             ema=EmaState(
@@ -413,6 +435,35 @@ def test_recap_bit_formats() -> None:
     assert _recap_bit(partial) == (
         "NY     Mon 22–04 MYT (4/6 bars) · net +1.00% · range n/a"
     )
+
+
+def test_recap_bit_set_low_alone() -> None:
+    row = SessionRecapRow(
+        session="London",
+        start_ms=START_MS + 6 * H1,
+        end_ms=START_MS + 14 * H1,
+        open=100.0,
+        high=101.0,
+        low=95.0,
+        close=99.0,
+        net_pct=-1.0,
+        net_atr=-0.5,
+        range_atr=3.0,
+        n_bars=8,
+        expected_bars=8,
+        made_set_high=False,
+        made_set_low=True,
+    )
+    bit = _recap_bit(row)
+    assert bit.endswith("·set-low")
+    assert "·set-high" not in bit
+
+
+def test_session_lines_none_and_empty_are_empty() -> None:
+    assert _session_lines(None) == []
+    # State present but both halves None (defensive; the adapter collapses
+    # this to None, but the renderer must not emit a bare header).
+    assert _session_lines(SessionState(recap=None, tendency=None)) == []
 
 
 def test_markdown_carries_session_lines(tmp_path: Path) -> None:

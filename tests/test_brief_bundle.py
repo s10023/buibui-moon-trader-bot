@@ -1,6 +1,7 @@
 """Orchestrator: panel assembly, per-symbol isolation, determinism."""
 
 import pandas as pd
+import pytest
 
 from analytics.brief._common import TF_MS
 from analytics.brief.bundle import _resolve_ref_price, compute_brief
@@ -202,3 +203,24 @@ def test_error_panel_has_no_sessions() -> None:
     seed_symbol(conn, "BTCUSDT", START_MS, 60)
     bundle = compute_brief(conn, _cfg(("BTCUSDT", "NODATAUSDT")))
     assert bundle.panels[1].sessions is None
+
+
+def test_tendency_failure_keeps_recap_and_notes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # compute_session_breakdown raising must not sink the panel: the recap
+    # half still renders, tendency drops to None, and a health note lands.
+    conn = make_conn()
+    seed_symbol(conn, "BTCUSDT", START_MS, 60)
+
+    def boom(*args: object, **kwargs: object) -> object:
+        raise RuntimeError("tendency exploded")
+
+    monkeypatch.setattr("analytics.brief.bundle.compute_session_breakdown", boom)
+    bundle = compute_brief(conn, _cfg(("BTCUSDT",)))
+    panel = bundle.panels[0]
+    assert panel.error is None
+    assert panel.sessions is not None
+    assert panel.sessions.recap is not None  # recap survives
+    assert panel.sessions.tendency is None  # tendency dropped
+    assert any("session tendency failed" in n for n in bundle.health.notes)

@@ -120,7 +120,11 @@ def _range_state(
 ) -> RangeState | None:
     if regime_series_1d.empty or completed_1d.empty:
         return None
-    if len(regime_series_1d) != len(completed_1d):
+    # Positional alignment is the contract (labels zipped by position with
+    # the frame's rows). classify_series always returns index=df.index, so
+    # this holds in production; index equality (which also rejects length
+    # mismatches) guards against a reordered/misaligned series mislabeling.
+    if not regime_series_1d.index.equals(completed_1d.index):
         return None
     labels = [str(v) for v in regime_series_1d.tolist()]
     label = labels[-1]

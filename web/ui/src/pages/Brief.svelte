@@ -24,6 +24,9 @@
         : v.toFixed(4);
 
   const fmtDist = (v: number): string => (v >= 0 ? `+${v.toFixed(2)}` : v.toFixed(2));
+  // Rounding: JS Math.round is half-up; the markdown renderer's fmt_frac is
+  // Python "%.0f" (half-to-even). These surfaces are independent, so a
+  // sub-percent half-point tie can round differently — accepted as cosmetic.
   const fmtPct = (v: number | null): string => (v === null ? "—" : `${Math.round(v * 100)}%`);
   const fmtR = (v: number | null): string =>
     v === null ? "—" : (v >= 0 ? "+" : "") + v.toFixed(2);
@@ -37,9 +40,9 @@
 
   const MYT_MS = 28_800_000;
   const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  const mytHHMM = (ms: number) => new Date(ms + MYT_MS).toISOString().slice(11, 16);
-  const mytHH = (ms: number) => new Date(ms + MYT_MS).toISOString().slice(11, 13);
-  const mytDow = (ms: number) => DOW[(new Date(ms + MYT_MS).getUTCDay() + 6) % 7];
+  const mytHHMM = (ms: number): string => new Date(ms + MYT_MS).toISOString().slice(11, 16);
+  const mytHH = (ms: number): string => new Date(ms + MYT_MS).toISOString().slice(11, 13);
+  const mytDow = (ms: number): string => DOW[(new Date(ms + MYT_MS).getUTCDay() + 6) % 7];
 
   async function load(): Promise<void> {
     loading = true;
