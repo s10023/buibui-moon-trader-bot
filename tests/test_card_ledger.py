@@ -97,3 +97,13 @@ class TestLedger:
         assert a["url"] == "ai-card://1760000100000-BTCUSDT"
         assert a["raw_quote"] == "ref_close 100 above POC 99"
         assert b["call_ts_utc"].endswith("Z")
+
+    def test_url_differs_across_generations(self) -> None:
+        import dataclasses
+
+        a = pundit_row(_final("TRADE"))
+        b = pundit_row(
+            dataclasses.replace(_final("TRADE"), generated_at_ms=1_760_000_200_000)
+        )
+        assert a["url"] != b["url"]  # generated_at_ms makes each call distinct
+        assert b["url"] == "ai-card://1760000200000-BTCUSDT"

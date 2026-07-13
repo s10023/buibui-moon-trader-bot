@@ -223,6 +223,20 @@ class TestPostPass:
         assert final.verdict == "TRADE"
         assert any("account state unavailable" in w for w in final.warnings)
 
+    def test_degraded_panel_warns_ref_unavailable_not_vetoes(self) -> None:
+        # A panel that failed to compute (error set, ref_close 0) must skip the
+        # entry-band sanity check with a warning, never veto a valid trade.
+        import dataclasses
+
+        from analytics.brief.types import error_panel
+
+        state = dataclasses.replace(
+            _state_for_post(), panel=error_panel("BTCUSDT", "no data")
+        )
+        final = _post(_trade_obj(), state)
+        assert final.verdict == "TRADE"
+        assert any("ref price unavailable" in w for w in final.warnings)
+
     def test_cluster_cap_consumes_headroom(self) -> None:
         # ETHUSDT open long is in the majors cluster with BTCUSDT:
         # cluster headroom 1% - 0.25% = 0.75% >= r_eff 0.25% -> still sized,

@@ -69,7 +69,15 @@ class TestRender:
         out = render_card(_final("NO_TRADE"))
         assert "─ NO TRADE" in out
         assert "regime conflict" in out
-        assert "entry" not in out.split("\n")[0]
+        # the banner is the first line and carries no trade prices
+        assert out.startswith("BUIBUI TRADE CARD — BTCUSDT · ─ NO TRADE")
+        assert "gate: regime conflict" in out
+
+    def test_cost_footer_reads_na_when_cost_none(self) -> None:
+        final = dataclasses.replace(_final("TRADE"), cost_usd_notional=None)
+        out = render_card(final)
+        assert "cost n/a" in out
+        assert "notional]" not in out  # no "$… notional" cost when absent
 
     def test_vetoed_layout(self) -> None:
         out = render_card(_final("VETOED"))

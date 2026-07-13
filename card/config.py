@@ -16,7 +16,6 @@ class CardConfig:
     timeout_s: float = 180.0
     min_rr: float = 1.0
     daily_loss_limit_r: float = -2.0
-    valid_hours: float = 12.0
     entry_band_pct: float = 5.0
     fires_lookback_bars: int = 4
     fires_timeframes: tuple[str, ...] = ("1h", "4h", "1d")

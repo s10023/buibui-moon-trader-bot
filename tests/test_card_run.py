@@ -49,15 +49,16 @@ _VALID = json.dumps(
 
 
 class FakeClient:
-    def __init__(self, texts: list[str]) -> None:
+    def __init__(self, texts: list[str], model: str | None = "sonnet") -> None:
         self.texts = texts
         self.prompts: list[str] = []
+        self._model = model
 
     def generate(self, prompt: str) -> LLMResponse:
         self.prompts.append(prompt)
         return LLMResponse(
             text=self.texts.pop(0),
-            model="sonnet",
+            model=self._model,
             cost_usd_notional=0.01,
             input_tokens=1,
             output_tokens=1,
@@ -96,3 +97,22 @@ class TestGenerateCard:
                 client,
                 generated_at_ms=7,
             )
+
+    def test_retry_prompt_extends_the_original(self) -> None:
+        client = FakeClient(["not json at all", _VALID])
+        generate_card(_state(), CardConfig(), SizingConfig(), client, generated_at_ms=7)
+        assert len(client.prompts) == 2
+        # the re-ask is the original prompt plus the failure feedback appended
+        assert client.prompts[1].startswith(client.prompts[0])
+        assert "Respond again with ONLY a corrected JSON object" in client.prompts[1]
+
+    def test_model_falls_back_to_cfg_when_response_omits_it(self) -> None:
+        client = FakeClient([_VALID], model=None)
+        final = generate_card(
+            _state(),
+            CardConfig(model="haiku"),
+            SizingConfig(),
+            client,
+            generated_at_ms=7,
+        )
+        assert final.model == "haiku"  # cfg.model, since response.model was None
