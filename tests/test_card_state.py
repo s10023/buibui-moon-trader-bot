@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import duckdb
+import pandas as pd
 import pytest
 
 from analytics.brief.types import (
@@ -19,6 +23,8 @@ from card.state import (
     MarketState,
     OpenPosition,
     RecentFire,
+    _fires_block,
+    _xs_block,
     snapshot_market_state,
     state_digest,
 )
@@ -234,3 +240,77 @@ class TestSnapshotMarketState:
             )
 
         assert _snap() == _snap()
+
+
+class TestXsBlock:
+    def test_prefers_todays_snapshot_over_fresh_replay(self, tmp_path: Path) -> None:
+        # When today's target snapshot exists, the card must read it (matching
+        # what the executor saw) and never re-run replay_targets.
+        date = pd.Timestamp(_NOW_MS, unit="ms", tz="UTC").date().isoformat()
+        snap = tmp_path / f"{date}.json"
+        snap.write_text(
+            json.dumps(
+                {
+                    "governor": 1.1,
+                    "as_of_date": date,
+                    "positions": [
+                        {"symbol": "BTCUSDT", "side": "long", "leverage": 0.5},
+                        {"symbol": "ETHUSDT", "side": "flat"},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        def _must_not_call(*_a: object, **_k: object) -> object:
+            raise AssertionError("targets_fn called despite snapshot present")
+
+        conn = duckdb.connect(":memory:")  # unused on the snapshot branch
+        out = _xs_block(
+            conn, "BTCUSDT", 10_000.0, _NOW_MS, str(tmp_path), _must_not_call
+        )
+        assert out is not None
+        assert out["side"] == "long"
+        assert out["governor"] == 1.1
+        assert out["as_of_date"] == date
+
+    def test_symbol_absent_from_snapshot_returns_none(self, tmp_path: Path) -> None:
+        date = pd.Timestamp(_NOW_MS, unit="ms", tz="UTC").date().isoformat()
+        snap = tmp_path / f"{date}.json"
+        snap.write_text(
+            json.dumps({"governor": 1.0, "positions": []}), encoding="utf-8"
+        )
+        conn = duckdb.connect(":memory:")  # unused on the snapshot branch
+        assert (
+            _xs_block(
+                conn, "BTCUSDT", 10_000.0, _NOW_MS, str(tmp_path), lambda *a, **k: None
+            )
+            is None
+        )
+
+
+class TestFiresBlock:
+    def test_falls_back_to_combined_rating_when_no_directional(self) -> None:
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        conn.execute(
+            "INSERT INTO signals (symbol, timeframe, strategy, open_time, "
+            "direction, entry_price, sl_price, reason, confidence, fired_at) "
+            f"VALUES ('BTCUSDT', '1h', 'fvg', {_NOW_MS - 1_000_000}, 'long', "
+            "100.0, 99.0, 'r', 3, 0)"
+        )
+        # only a 'combined' rating exists — no ('fvg','1h','long') row
+        conn.execute(
+            "INSERT INTO confidence_ratings "
+            "(config_name, strategy, tf, direction, stars, avg_r, win_rate, "
+            "updated_at_ms, day_filter, dsr) "
+            "VALUES ('signal_watch', 'fvg', '1h', 'combined', 2, 0.05, 0.5, "
+            "0, NULL, 0.8)"
+        )
+        fires = _fires_block(
+            conn, "BTCUSDT", CardConfig(fires_timeframes=("1h",)), _NOW_MS
+        )
+        assert len(fires) == 1
+        assert fires[0].direction == "long"
+        assert fires[0].stars == 2  # from the combined fallback
+        assert fires[0].avg_r == pytest.approx(0.05)

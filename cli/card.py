@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from typing import Any
 
@@ -13,6 +14,7 @@ from analytics.brief._common import parse_as_of_ms
 from analytics.data_store import DEFAULT_DB_PATH
 from card.client import ClaudeCliClient
 from card.config import CardConfig
+from card.errors import CardError
 from card.ledger import append_ledgers
 from card.prompt import build_prompt
 from card.render import render_card
@@ -21,6 +23,7 @@ from card.state import AccountProvider, OpenPosition, snapshot_market_state
 from portfolio.sizing import SizingConfig
 
 _INCOME_TYPES = {"REALIZED_PNL", "COMMISSION", "FUNDING_FEE"}
+_INCOME_PAGE_LIMIT = 1000
 
 
 class BinanceAccountProvider:
@@ -48,16 +51,38 @@ class BinanceAccountProvider:
         return out
 
     def daily_pnl_usd(self, start_ms: int, end_ms: int) -> float:
-        rows = self._client.futures_income_history(
-            startTime=start_ms, endTime=end_ms, limit=1000
-        )
-        return float(
-            sum(
-                float(r.get("income", 0) or 0)
-                for r in rows
-                if r.get("incomeType") in _INCOME_TYPES
+        """Sum realized income over [start_ms, end_ms], paginating the cap.
+
+        Binance /fapi/v1/income returns at most `_INCOME_PAGE_LIMIT` rows in
+        ascending time order; a high-churn day exceeds it, and one truncated
+        fetch would undercount PnL and mis-fire the loss-limit gate. Walk
+        forward by advancing startTime to the last row's time, deduping by
+        tranId (rows can share a millisecond) until a short page ends it.
+        """
+        total = 0.0
+        seen: set[Any] = set()
+        cursor = start_ms
+        while True:
+            rows = self._client.futures_income_history(
+                startTime=cursor, endTime=end_ms, limit=_INCOME_PAGE_LIMIT
             )
-        )
+            if not rows:
+                break
+            for r in rows:
+                tran_id = r.get("tranId")
+                if tran_id is not None:
+                    if tran_id in seen:
+                        continue
+                    seen.add(tran_id)
+                if r.get("incomeType") in _INCOME_TYPES:
+                    total += float(r.get("income", 0) or 0)
+            if len(rows) < _INCOME_PAGE_LIMIT:
+                break
+            last_time = max(int(r.get("time", cursor) or cursor) for r in rows)
+            if last_time <= cursor:
+                break  # no forward progress -> avoid an infinite loop
+            cursor = last_time
+        return float(total)
 
     def equity_usd(self) -> float | None:
         try:
@@ -112,9 +137,13 @@ def run_card_cmd(args: argparse.Namespace) -> None:
         timeout_s=cfg.timeout_s,
         config_dir=cfg.claude_config_dir,
     )
-    final = generate_card(
-        state, cfg, sizing, client, generated_at_ms=int(time.time() * 1000)
-    )
+    try:
+        final = generate_card(
+            state, cfg, sizing, client, generated_at_ms=int(time.time() * 1000)
+        )
+    except CardError as exc:
+        print(f"card generation failed: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
     if args.json:
         print(json.dumps(final.to_dict(), indent=2, sort_keys=True))
     else:

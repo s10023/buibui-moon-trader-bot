@@ -19,7 +19,6 @@ class TestCardConfig:
         assert cfg.timeout_s == 180.0
         assert cfg.min_rr == 1.0
         assert cfg.daily_loss_limit_r == -2.0
-        assert cfg.valid_hours == 12.0
         assert cfg.entry_band_pct == 5.0
         assert cfg.fires_lookback_bars == 4
         assert cfg.fires_timeframes == ("1h", "4h", "1d")
@@ -50,6 +49,14 @@ class TestCardConfig:
         toml = tmp_path / "bad.toml"
         toml.write_text("[card]\nnot_a_field = 1\n")
         with pytest.raises(ValueError, match="unknown"):
+            CardConfig.from_toml(toml)
+
+    def test_from_toml_non_dict_block_raises(self, tmp_path: Path) -> None:
+        # `card` as a scalar (not a table) must fail loudly, never silently
+        # fall back to defaults.
+        toml = tmp_path / "scalar.toml"
+        toml.write_text('card = "not a table"\n')
+        with pytest.raises(ValueError, match="must be a TOML table"):
             CardConfig.from_toml(toml)
 
     def test_error_hierarchy(self) -> None:

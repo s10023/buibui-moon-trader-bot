@@ -118,3 +118,11 @@ class TestClaudeCliClient:
         runner = RecordingRunner([_proc(bad), _proc(bad)])
         with pytest.raises(CardError):
             _client(runner).generate("p")
+
+    def test_empty_stdout_on_success_exit_is_carderror(self) -> None:
+        # returncode 0 but empty stdout -> json.loads("") must surface as a
+        # CardError (bad envelope), not an uncaught JSONDecodeError.
+        runner = RecordingRunner([_proc("", returncode=0), _proc("", returncode=0)])
+        with pytest.raises(CardError):
+            _client(runner).generate("p")
+        assert len(runner.calls) == 2  # retried, then raised

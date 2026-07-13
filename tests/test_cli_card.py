@@ -86,6 +86,36 @@ class TestBinanceAccountProvider:
         provider = BinanceAccountProvider(self._client())
         assert provider.equity_usd() == 9000.0
 
+    def test_daily_pnl_paginates_past_1000_row_cap(self) -> None:
+        # A high-churn day exceeds the 1000-row cap; a single unpaginated
+        # fetch would undercount daily PnL and mis-fire the loss-limit gate.
+        rows: list[dict[str, Any]] = [
+            {
+                "incomeType": "REALIZED_PNL",
+                "income": "1.0",
+                "time": i,
+                "tranId": i,
+            }
+            for i in range(1, 2501)  # 2500 rows -> 3 pages
+        ]
+
+        class _PagingClient:
+            def __init__(self) -> None:
+                self.calls: list[tuple[int, int]] = []
+
+            def futures_income_history(
+                self, *, startTime: int, endTime: int, limit: int
+            ) -> list[dict[str, Any]]:
+                self.calls.append((startTime, endTime))
+                window = [r for r in rows if startTime <= r["time"] <= endTime]
+                return window[:limit]
+
+        client = _PagingClient()
+        provider = BinanceAccountProvider(client)
+        # every row is +1.0 REALIZED_PNL -> the full 2500 must be summed once
+        assert provider.daily_pnl_usd(0, 10_000) == 2500.0
+        assert len(client.calls) >= 3  # actually paged, not one truncated fetch
+
 
 class TestDryRun:
     def test_dry_run_prints_state_and_prompt_no_llm(
@@ -114,3 +144,44 @@ class TestDryRun:
         out = capsys.readouterr().out
         assert '"symbol": "BTCUSDT"' in out
         assert "MARKET STATE JSON" in out  # the prompt was printed
+
+
+class TestCardErrorExit:
+    def test_card_error_exits_nonzero_with_message(
+        self, capsys: Any, tmp_path: Any, monkeypatch: Any
+    ) -> None:
+        import argparse
+
+        import duckdb
+        import pytest
+
+        from analytics.store.schema import init_schema
+        from card.errors import CardError
+        from cli import card as card_mod
+
+        db = tmp_path / "t.db"
+        conn = duckdb.connect(str(db))
+        init_schema(conn)
+        conn.close()
+
+        def _boom(*_a: Any, **_k: Any) -> Any:
+            raise CardError("llm exploded")
+
+        monkeypatch.setattr(card_mod, "generate_card", _boom)
+        monkeypatch.setattr(card_mod, "_build_account_provider", lambda: None)
+
+        args = argparse.Namespace(
+            symbol="BTCUSDT",
+            direction=None,
+            as_of="2026-07-11T00:00:00Z",
+            db=str(db),
+            config=None,
+            json=False,
+            dry_run=False,
+            no_ledger=True,
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            card_mod.run_card_cmd(args)
+        assert exc_info.value.code == 1
+        # a clean stderr message, not a raw traceback
+        assert "llm exploded" in capsys.readouterr().err

@@ -135,7 +135,9 @@ mirror `SizingConfig.from_toml` / `BriefConfig`). Fields (defaults):
 - `timeout_s: float = 180.0` — subprocess wall clock.
 - `min_rr: float = 1.0` — post-pass floor on planned RR.
 - `daily_loss_limit_r: float = -2.0` — circuit breaker threshold in R.
-- `valid_hours: float = 12.0` — default card validity window.
+- ~~`valid_hours: float = 12.0` — default card validity window.~~ Dropped as
+  dead in the 2026-07-13 follow-up batch: validity is carried by the LLM's
+  `valid_until_utc` field directly, and no post-pass rule ever read `valid_hours`.
 - `entry_band_pct: float = 5.0` — post-pass sanity band: proposed entry must
   sit within ±this % of `ref_close`.
 - `fires_lookback_bars: int = 4` — recent-detector-fire window per TF.
