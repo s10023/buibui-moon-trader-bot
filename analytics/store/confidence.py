@@ -95,6 +95,31 @@ def get_confidence_ratings(
     return result
 
 
+def get_confidence_rating_rows(
+    conn: duckdb.DuckDBPyConnection,
+    config_name: str,
+) -> dict[tuple[str, str, str], dict[str, float | int | None]]:
+    """Full rating rows for one config, keyed (strategy, tf, direction).
+
+    Values carry stars / avg_r / win_rate / dsr (all the quality columns the
+    table persists — there is no n column). Empty dict when unwritten.
+    """
+    rows = conn.execute(
+        "SELECT strategy, tf, direction, stars, avg_r, win_rate, dsr "
+        "FROM confidence_ratings WHERE config_name = ?",
+        [config_name],
+    ).fetchall()
+    return {
+        (str(r[0]), str(r[1]), str(r[2])): {
+            "stars": r[3],
+            "avg_r": r[4],
+            "win_rate": r[5],
+            "dsr": r[6],
+        }
+        for r in rows
+    }
+
+
 def get_directional_confidence_ratings(
     conn: duckdb.DuckDBPyConnection,
     config_name: str,

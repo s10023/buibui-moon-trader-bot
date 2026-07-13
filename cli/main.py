@@ -11,6 +11,7 @@ from cli import (
     analytics,
     backtest,
     brief,
+    card,
     digest,
     monitor,
     param,
@@ -33,6 +34,7 @@ def main() -> None:
     analytics.add_analytics_subparser(subparsers)
     backtest.add_backtest_subparser(subparsers)
     brief.add_brief_subparser(subparsers)
+    card.add_card_subparser(subparsers)
     digest.add_digest_subparser(subparsers)
     param.add_param_sweep_subparser(subparsers)
     param.add_param_audit_subparser(subparsers)
