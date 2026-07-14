@@ -22,6 +22,10 @@ class BriefConfig:
     max_recent_calls: int = 10
     ledger_path: Path = Path("docs/plans/pundit-calls.jsonl")
     priors_path: Path = Path("docs/plans/pundit-priors.json")
+    external_dir: Path = Path("docs/plans/external-context")
+    external_max_age_hours: float = 48.0
+    external_max_rows_per_side: int = 3
+    external_allowed_sources: tuple[str, ...] = ("coinglass", "mmt")
 
 
 def default_symbols() -> tuple[tuple[str, ...], list[str]]:

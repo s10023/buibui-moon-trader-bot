@@ -5,6 +5,10 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+import duckdb
+
+from analytics.brief.bundle import compute_brief
+from analytics.brief.config import BriefConfig
 from analytics.brief.external import load_external_state, validate_snapshot_dict
 from analytics.brief.types import (
     ExternalClusterRow,
@@ -12,6 +16,7 @@ from analytics.brief.types import (
     ExternalState,
     error_panel,
 )
+from tests._brief_fixtures import DAY_MS, START_MS, make_conn, seed_symbol
 
 HOUR_MS = 3_600_000
 
@@ -225,3 +230,56 @@ def test_loader_caps_rows_nearest_first(tmp_path: Path) -> None:
     assert state is not None
     above = state.snapshots[0].clusters_above  # type: ignore[attr-defined]
     assert [r.price_lo for r in above] == [64_000.0, 65_000.0]
+
+
+BUNDLE_AS_OF = START_MS + 60 * DAY_MS
+
+
+def _bundle_cfg(tmp_path: Path, external_dir: Path) -> BriefConfig:
+    return BriefConfig(
+        symbols=("BTCUSDT",),
+        as_of_ms=BUNDLE_AS_OF,
+        ledger_path=tmp_path / "absent.jsonl",
+        priors_path=tmp_path / "absent.json",
+        external_dir=external_dir,
+    )
+
+
+def test_bundle_wires_external_block(tmp_path: Path) -> None:
+    conn: duckdb.DuckDBPyConnection = make_conn()
+    seed_symbol(conn, "BTCUSDT", START_MS, 60)
+    bare = compute_brief(conn, _bundle_cfg(tmp_path, tmp_path / "missing"))
+    panel = bare.panels[0]
+    assert panel.error is None and panel.external is None
+    ref = panel.ref_close
+    ext_dir = tmp_path / "ext"
+    ext_dir.mkdir()
+    snap = _valid_snapshot(
+        captured_at_ms=BUNDLE_AS_OF - HOUR_MS,
+        ingested_at_ms=BUNDLE_AS_OF,
+        spot_price_hint=ref,
+        clusters=[
+            {
+                "price_lo": ref * 1.04,
+                "price_hi": ref * 1.05,
+                "kind": "liq",
+                "intensity": "high",
+                "label": "",
+            },
+            {
+                "price_lo": ref * 0.95,
+                "price_hi": ref * 0.96,
+                "kind": "liq",
+                "intensity": "med",
+                "label": "",
+            },
+        ],
+    )
+    (ext_dir / "coinglass_liq_heatmap_BTCUSDT.json").write_text(json.dumps(snap))
+    wired = compute_brief(conn, _bundle_cfg(tmp_path, ext_dir))
+    ext = wired.panels[0].external
+    assert ext is not None
+    assert len(ext.snapshots) == 1
+    assert len(ext.snapshots[0].clusters_above) == 1
+    assert len(ext.snapshots[0].clusters_below) == 1
+    conn.close()
