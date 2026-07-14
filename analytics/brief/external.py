@@ -189,7 +189,9 @@ def load_external_state(
     for path in sorted(dir_path.glob("*.json")):
         try:
             data = json.loads(path.read_text())
-        except (OSError, json.JSONDecodeError) as exc:
+        except (OSError, ValueError) as exc:
+            # ValueError covers json.JSONDecodeError AND UnicodeDecodeError
+            # (bad encoding from read_text) — notes, never exceptions.
             notes.append(f"external: unreadable {path.name} ({exc})")
             continue
         problems = validate_snapshot_dict(data)

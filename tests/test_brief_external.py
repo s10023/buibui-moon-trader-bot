@@ -186,6 +186,13 @@ def test_loader_notes_on_bad_files(tmp_path: Path) -> None:
     assert any("unknown source" in n for n in notes)
 
 
+def test_loader_bad_encoding_is_note_not_exception(tmp_path: Path) -> None:
+    (tmp_path / "badenc.json").write_bytes(b"\xff\xfe{ not utf8")
+    state, notes = _load(tmp_path)
+    assert state is None
+    assert any("unreadable" in n for n in notes)
+
+
 def test_loader_all_stale_note(tmp_path: Path) -> None:
     _write(tmp_path, "old.json", _valid_snapshot(captured_at_ms=AS_OF - 80 * HOUR_MS))
     state, notes = _load(tmp_path)
