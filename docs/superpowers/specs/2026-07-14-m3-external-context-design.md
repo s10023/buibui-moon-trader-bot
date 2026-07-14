@@ -157,11 +157,12 @@ mmt_ETHUSDT.png            ← capture time falls back to file mtime
 "outcome": "written" | "skipped" | "dropped" } }` — outcome recorded so a
 deliberately dropped image isn't re-surfaced every run.
 
-### Extracted snapshot: `docs/plans/external-context/<source>_<panel>_<SYMBOL>_<ts>.json`
+### Extracted snapshot: `docs/plans/external-context/<source>_<panel>[_<window>]_<SYMBOL>_<ts>.json`
 
-(`panel` is in the output filename — a same-minute heatmap + map pair must
-not collide. The **input** filename stays panel-free: vision classifies the
-panel trivially.)
+(`panel` and the window are in the output filename — a same-minute
+heatmap + map pair, or a Heatmap-24h + Heatmap-1w pair, must not collide.
+The **input** filename stays panel-free: vision classifies the panel
+trivially.)
 
 ```json
 {
@@ -229,8 +230,11 @@ filenames and skipped panels listed for information.
 
 ## Brief-side reader (`analytics/brief/external.py`)
 
-- `load_external_state(dir_path, symbol, as_of_ms, atr14, ref_price, cfg)
-  -> ExternalState | None` — scans the JSON dir; keeps the **latest fresh
+- `load_external_state(dir_path, symbol, ref_close, atr14, as_of_ms,
+  allowed_sources, max_age_hours, max_rows_per_side)
+  -> tuple[ExternalState | None, list[str]]` — notes are UNPREFIXED and the
+  bundle prefixes the symbol (the M1/M2 adapter contract; notes are NOT
+  stored on the state). Scans the JSON dir; keeps the **latest fresh
   snapshot per (source, panel, window)** for the symbol (the daily
   Heatmap-24h + Map-1d pair coexists, as do Coinglass and MMT); ignores
   stale (> `max_age_hours` vs `as_of_ms` — `--as-of` replays stay
@@ -266,7 +270,6 @@ class ExternalSnapshot:
 @dataclass(frozen=True)
 class ExternalState:
     snapshots: list[ExternalSnapshot]
-    notes: list[str]
 ```
 
 - `SymbolPanel.external: ExternalState | None` — additive; `None` keeps every
@@ -282,18 +285,19 @@ class ExternalState:
 
 ## Config
 
-`[brief.external]` in the brief config TOML (all optional; defaults shown):
+There is no brief TOML in this codebase — `BriefConfig` (frozen dataclass,
+`analytics/brief/config.py`) is the config surface, so the knobs land as
+four appended fields with defaults (plan-time adaptation):
 
-```toml
-[brief.external]
-dir = "docs/plans/external-context"
-max_age_hours = 48
-max_rows_per_side = 3
-allowed_sources = ["coinglass", "mmt"]
+```python
+external_dir: Path = Path("docs/plans/external-context")
+external_max_age_hours: float = 48.0
+external_max_rows_per_side: int = 3
+external_allowed_sources: tuple[str, ...] = ("coinglass", "mmt")
 ```
 
-`allowed_sources` is consumed by `tools/chart_drops.py` (filename gate) and
-the loader (unknown-source files → health note, not a crash).
+`external_allowed_sources` is consumed by `tools/chart_drops.py` (filename
+gate) and the loader (unknown-source files → health note, not a crash).
 
 ## Rendering
 
