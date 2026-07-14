@@ -11,6 +11,12 @@ hold one contract.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+from typing import Any
+
+from analytics.brief.types import ExternalClusterRow, ExternalSnapshot, ExternalState
+
 SCHEMA_VERSION = "external-levels-v1"
 ALLOWED_PANELS = ("liq_heatmap", "book_heatmap", "liq_map")
 ALLOWED_KINDS = ("liq", "book")
@@ -107,3 +113,120 @@ def validate_snapshot_dict(data: object) -> list[str]:
         for idx, item in enumerate(data["clusters"]):
             problems.extend(_check_cluster(idx, item))
     return problems
+
+
+def _build_snapshot(
+    data: dict[str, Any],
+    ref_close: float,
+    atr14: float,
+    as_of_ms: int,
+    max_rows_per_side: int,
+    notes: list[str],
+) -> ExternalSnapshot:
+    above: list[ExternalClusterRow] = []
+    below: list[ExternalClusterRow] = []
+    for item in data["clusters"]:
+        lo, hi = float(item["price_lo"]), float(item["price_hi"])
+        mid = (lo + hi) / 2.0
+        row = ExternalClusterRow(
+            price_lo=lo,
+            price_hi=hi,
+            kind=str(item["kind"]),
+            intensity=str(item["intensity"]),
+            label=str(item["label"]),
+            dist_atr=(mid - ref_close) / atr14,
+        )
+        (above if mid >= ref_close else below).append(row)
+    above.sort(key=lambda r: r.dist_atr)  # nearest first
+    below.sort(key=lambda r: -r.dist_atr)  # nearest first (least negative)
+    hint = data["spot_price_hint"]
+    deviation = (
+        hint is not None
+        and ref_close > 0
+        and abs(float(hint) - ref_close) / ref_close > _SPOT_DEVIATION_FRAC
+    )
+    if deviation:
+        notes.append(
+            f"external: spot hint deviates ({data['source']} {data['panel']})"
+            " — check symbol/axis read"
+        )
+    return ExternalSnapshot(
+        source=str(data["source"]),
+        panel=str(data["panel"]),
+        window=data["window"],
+        scope=data["scope"],
+        captured_at_ms=int(data["captured_at_ms"]),
+        age_hours=(as_of_ms - int(data["captured_at_ms"])) / _MS_PER_HOUR,
+        spot_price_hint=None if hint is None else float(hint),
+        spot_hint_deviation=bool(deviation),
+        clusters_above=above[:max_rows_per_side],
+        clusters_below=below[:max_rows_per_side],
+    )
+
+
+def load_external_state(
+    dir_path: Path,
+    symbol: str,
+    ref_close: float,
+    atr14: float,
+    as_of_ms: int,
+    allowed_sources: tuple[str, ...],
+    max_age_hours: float,
+    max_rows_per_side: int,
+) -> tuple[ExternalState | None, list[str]]:
+    """(state, notes) for one symbol. Notes are UNPREFIXED (bundle adds it).
+
+    Latest fresh snapshot per (source, panel, window); absent dir or no
+    files for this symbol -> (None, []) silently (feature is opt-in by
+    usage); all-stale -> the re-drop note; malformed/unknown-source files
+    -> per-file notes, never exceptions.
+    """
+    if not dir_path.is_dir():
+        return None, []
+    notes: list[str] = []
+    fresh: dict[tuple[str, str, str], dict[str, Any]] = {}
+    stale_latest_ms: int | None = None
+    for path in sorted(dir_path.glob("*.json")):
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            notes.append(f"external: unreadable {path.name} ({exc})")
+            continue
+        problems = validate_snapshot_dict(data)
+        if problems:
+            notes.append(f"external: invalid {path.name} ({problems[0]})")
+            continue
+        if data["symbol"] != symbol:
+            continue  # another panel's file — not an error
+        if data["source"] not in allowed_sources:
+            notes.append(f"external: unknown source {data['source']!r} in {path.name}")
+            continue
+        captured = int(data["captured_at_ms"])
+        if captured > as_of_ms:
+            notes.append(f"external: {path.name} captured in the future — skipped")
+            continue
+        if (as_of_ms - captured) / _MS_PER_HOUR > max_age_hours:
+            if stale_latest_ms is None or captured > stale_latest_ms:
+                stale_latest_ms = captured
+            continue
+        key = (str(data["source"]), str(data["panel"]), str(data["window"] or ""))
+        kept = fresh.get(key)
+        if kept is None or captured > int(kept["captured_at_ms"]):
+            fresh[key] = data
+    if not fresh:
+        if stale_latest_ms is not None:
+            age_days = (as_of_ms - stale_latest_ms) / _MS_PER_HOUR / 24.0
+            notes.append(
+                f"external context stale (latest {age_days:.1f}d) — re-drop screenshots"
+            )
+        return None, notes
+    if atr14 <= 0:
+        notes.append("external: ATR unavailable — block omitted")
+        return None, notes
+    snapshots = [
+        _build_snapshot(
+            fresh[key], ref_close, atr14, as_of_ms, max_rows_per_side, notes
+        )
+        for key in sorted(fresh)
+    ]
+    return ExternalState(snapshots=snapshots), notes
