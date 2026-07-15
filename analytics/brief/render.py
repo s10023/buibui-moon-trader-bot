@@ -10,6 +10,9 @@ from analytics.brief.types import (
     BriefBundle,
     CandleHit,
     EmaState,
+    ExternalClusterRow,
+    ExternalSnapshot,
+    ExternalState,
     IndicatorState,
     LevelRow,
     MondayState,
@@ -270,6 +273,36 @@ def _session_lines(state: SessionState | None) -> list[str]:
     return [f"{'Sessions':<9}{bits[0]}"] + [f"{'':9}{b}" for b in bits[1:]]
 
 
+_PANEL_SHORT = {"liq_heatmap": "liq", "book_heatmap": "book", "liq_map": "map"}
+
+
+def _cluster_bit(row: ExternalClusterRow) -> str:
+    lo, hi = fmt_price(row.price_lo), fmt_price(row.price_hi)
+    band = lo if lo == hi else f"{lo}–{hi}"
+    strength = "HIGH" if row.intensity == "high" else row.intensity
+    label_bit = f" {row.label}" if row.label else ""
+    return f"{band} {strength}{label_bit} ({fmt_dist(row.dist_atr)})"
+
+
+def _external_snapshot_bit(snap: ExternalSnapshot) -> str:
+    win = f" ({snap.window})" if snap.window else ""
+    scope_bit = " agg" if snap.scope == "agg" else ""
+    dev = " ⚠spot" if snap.spot_hint_deviation else ""
+    above = ", ".join(_cluster_bit(r) for r in snap.clusters_above) or "none"
+    below = ", ".join(_cluster_bit(r) for r in snap.clusters_below) or "none"
+    return (
+        f"{snap.source} {_PANEL_SHORT.get(snap.panel, snap.panel)}{win}{scope_bit}"
+        f" · {snap.age_hours:.0f}h{dev} · above {above} · below {below}"
+    )
+
+
+def _external_lines(state: ExternalState | None) -> list[str]:
+    if state is None or not state.snapshots:
+        return []
+    bits = [_external_snapshot_bit(s) for s in state.snapshots]
+    return [f"{'External':<9}{bits[0]}"] + [f"{'':9}{b}" for b in bits[1:]]
+
+
 def _panel_lines(panel: SymbolPanel) -> list[str]:
     lines = [f"── {panel.symbol} " + "─" * 44]
     if panel.error is not None:
@@ -283,6 +316,7 @@ def _panel_lines(panel: SymbolPanel) -> list[str]:
     )
     lines.extend(_indicator_lines(panel.indicators))
     lines.extend(_session_lines(panel.sessions))
+    lines.extend(_external_lines(panel.external))
     above = " · ".join(_level_str(r) for r in panel.levels_above) or "none"
     below = " · ".join(_level_str(r) for r in panel.levels_below) or "none"
     lines.append(f"Levels   above → {above}")

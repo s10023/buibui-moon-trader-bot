@@ -107,3 +107,21 @@ def test_get_brief_carries_sessions() -> None:
     assert sessions is not None
     assert [r["session"] for r in sessions["recap"]] == ["Asia", "London", "NY"]
     assert len(sessions["tendency"]) == 3
+
+
+def test_get_brief_panel_serializes_external_key() -> None:
+    # No external-context snapshots are seeded for this fixture DB, so the
+    # field resolves to null — this asserts the key round-trips through the
+    # Pydantic response model at all (SymbolPanelModel must declare it or
+    # BriefResponse(**bundle_to_dict(bundle)) silently drops it).
+    conn = make_conn()
+    seed_symbol(conn, "BTCUSDT", START_MS, 60)
+    client = _client(conn)
+    res = client.get(
+        "/api/brief",
+        params={"symbols": "BTCUSDT", "days": 60, "as_of": AS_OF_ISO},
+    )
+    assert res.status_code == 200
+    panel = res.json()["panels"][0]
+    assert "external" in panel
+    assert panel["external"] is None

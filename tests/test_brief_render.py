@@ -9,6 +9,7 @@ from analytics.brief.bundle import compute_brief
 from analytics.brief.config import BriefConfig
 from analytics.brief.render import (
     _clock_line,
+    _external_lines,
     _indicator_lines,
     _recap_bit,
     _session_lines,
@@ -21,6 +22,9 @@ from analytics.brief.types import (
     BbState,
     CandleHit,
     EmaState,
+    ExternalClusterRow,
+    ExternalSnapshot,
+    ExternalState,
     IndicatorState,
     MondayState,
     PaState,
@@ -472,3 +476,62 @@ def test_markdown_carries_session_lines(tmp_path: Path) -> None:
     assert "\nSession: Asia 08:00–14:00 MYT · 0h00m in / 6h00m left" in out
     assert "\nSessions " in out
     assert "tendency: day-high " in out
+
+
+def _ext_snapshot(**overrides: object) -> ExternalSnapshot:
+    base: dict[str, object] = {
+        "source": "coinglass",
+        "panel": "liq_heatmap",
+        "window": "24h",
+        "scope": "pair",
+        "captured_at_ms": 0,
+        "age_hours": 14.4,
+        "spot_price_hint": None,
+        "spot_hint_deviation": False,
+        "clusters_above": [
+            ExternalClusterRow(
+                price_lo=66_000.0,
+                price_hi=66_200.0,
+                kind="liq",
+                intensity="high",
+                label="",
+                dist_atr=1.83,
+            )
+        ],
+        "clusters_below": [
+            ExternalClusterRow(
+                price_lo=61_200.0,
+                price_hi=61_500.0,
+                kind="liq",
+                intensity="med",
+                label="100x-heavy",
+                dist_atr=-1.62,
+            )
+        ],
+    }
+    base.update(overrides)
+    return ExternalSnapshot(**base)  # type: ignore[arg-type]
+
+
+def test_external_lines_format() -> None:
+    lines = _external_lines(ExternalState(snapshots=[_ext_snapshot()]))
+    assert lines == [
+        "External coinglass liq (24h) · 14h · "
+        "above 66,000–66,200 HIGH (+1.83) · "
+        "below 61,200–61,500 med 100x-heavy (-1.62)"
+    ]
+
+
+def test_external_lines_variants() -> None:
+    assert _external_lines(None) == []
+    agg = _ext_snapshot(
+        source="mmt",
+        panel="liq_map",
+        window=None,
+        scope="agg",
+        spot_hint_deviation=True,
+        clusters_above=[],
+    )
+    lines = _external_lines(ExternalState(snapshots=[_ext_snapshot(), agg]))
+    assert len(lines) == 2
+    assert lines[1].startswith(" " * 9 + "mmt map agg · 14h ⚠spot · above none")

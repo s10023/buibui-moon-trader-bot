@@ -731,6 +731,32 @@ export interface BriefSessionState {
   tendency: BriefSessionTendencyRow[] | null;
 }
 
+export interface BriefExternalClusterRow {
+  price_lo: number;
+  price_hi: number;
+  kind: string;
+  intensity: string;
+  label: string;
+  dist_atr: number;
+}
+
+export interface BriefExternalSnapshot {
+  source: string;
+  panel: string;
+  window: string | null;
+  scope: string | null;
+  captured_at_ms: number;
+  age_hours: number;
+  spot_price_hint: number | null;
+  spot_hint_deviation: boolean;
+  clusters_above: BriefExternalClusterRow[];
+  clusters_below: BriefExternalClusterRow[];
+}
+
+export interface BriefExternalState {
+  snapshots: BriefExternalSnapshot[];
+}
+
 export interface BriefSymbolPanel {
   symbol: string;
   ref_close: number;
@@ -748,6 +774,7 @@ export interface BriefSymbolPanel {
   indicators: BriefIndicatorState | null;
   sessions: BriefSessionState | null;
   error: string | null;
+  external: BriefExternalState | null;
 }
 
 export interface BriefAuthorPrior {

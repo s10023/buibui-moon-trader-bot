@@ -15,6 +15,7 @@ from analytics.brief._common import (
     day_ahead_label,
 )
 from analytics.brief.config import BriefConfig
+from analytics.brief.external import load_external_state
 from analytics.brief.health import build_health
 from analytics.brief.indicators import build_indicator_state
 from analytics.brief.levels import adr_pct_14, atr14_wilder, build_level_rows
@@ -137,6 +138,17 @@ def _compute_panel(
         tendency=tendency,
     )
     notes.extend(f"{symbol}: {n}" for n in sess_notes)
+    external, ext_notes = load_external_state(
+        dir_path=cfg.external_dir,
+        symbol=symbol,
+        ref_close=ref_close,
+        atr14=atr,
+        as_of_ms=as_of,
+        allowed_sources=cfg.external_allowed_sources,
+        max_age_hours=cfg.external_max_age_hours,
+        max_rows_per_side=cfg.external_max_rows_per_side,
+    )
+    notes.extend(f"{symbol}: {n}" for n in ext_notes)
     return SymbolPanel(
         symbol=symbol,
         ref_close=ref_close,
@@ -153,6 +165,7 @@ def _compute_panel(
         seasonality=build_strip(conn, symbol, as_of, cfg.stats_days),
         indicators=indicators,
         sessions=sessions,
+        external=external,
         error=None,
     )
 

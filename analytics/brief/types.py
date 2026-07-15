@@ -158,6 +158,35 @@ class SessionState:
 
 
 @dataclass(frozen=True)
+class ExternalClusterRow:
+    price_lo: float
+    price_hi: float
+    kind: str  # "liq" | "book"
+    intensity: str  # "high" | "med" | "low"
+    label: str
+    dist_atr: float  # (band midpoint - ref) / atr14: + = above price
+
+
+@dataclass(frozen=True)
+class ExternalSnapshot:
+    source: str  # "coinglass" | "mmt" (config-extensible)
+    panel: str  # "liq_heatmap" | "book_heatmap" | "liq_map"
+    window: str | None  # from the visible timeframe selector, e.g. "24h"
+    scope: str | None  # "pair" | "agg"
+    captured_at_ms: int
+    age_hours: float
+    spot_price_hint: float | None
+    spot_hint_deviation: bool  # |hint - ref| / ref > 0.10
+    clusters_above: list[ExternalClusterRow]  # nearest-first
+    clusters_below: list[ExternalClusterRow]  # nearest-first
+
+
+@dataclass(frozen=True)
+class ExternalState:
+    snapshots: list[ExternalSnapshot]
+
+
+@dataclass(frozen=True)
 class SymbolPanel:
     symbol: str
     ref_close: float
@@ -175,6 +204,7 @@ class SymbolPanel:
     indicators: IndicatorState | None
     sessions: SessionState | None
     error: str | None
+    external: ExternalState | None = None
 
 
 def error_panel(symbol: str, message: str) -> SymbolPanel:

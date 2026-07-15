@@ -138,6 +138,32 @@ class SessionStateModel(BaseModel):
     tendency: list[SessionTendencyRowModel] | None
 
 
+class ExternalClusterRowModel(BaseModel):
+    price_lo: float
+    price_hi: float
+    kind: str
+    intensity: str
+    label: str
+    dist_atr: float
+
+
+class ExternalSnapshotModel(BaseModel):
+    source: str
+    panel: str
+    window: str | None
+    scope: str | None
+    captured_at_ms: int
+    age_hours: float
+    spot_price_hint: float | None
+    spot_hint_deviation: bool
+    clusters_above: list[ExternalClusterRowModel]
+    clusters_below: list[ExternalClusterRowModel]
+
+
+class ExternalStateModel(BaseModel):
+    snapshots: list[ExternalSnapshotModel]
+
+
 class SymbolPanelModel(BaseModel):
     symbol: str
     ref_close: float
@@ -155,6 +181,7 @@ class SymbolPanelModel(BaseModel):
     indicators: IndicatorStateModel | None
     sessions: SessionStateModel | None
     error: str | None
+    external: ExternalStateModel | None = None
 
 
 class PunditAuthorPriorModel(BaseModel):

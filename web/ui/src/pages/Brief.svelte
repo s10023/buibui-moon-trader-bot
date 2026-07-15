@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getBrief, type BriefResponse } from "../api";
+  import { getBrief, type BriefResponse, type BriefExternalClusterRow } from "../api";
   import LoadingSpinner from "../components/LoadingSpinner.svelte";
   import ErrorBanner from "../components/ErrorBanner.svelte";
 
@@ -43,6 +43,26 @@
   const mytHHMM = (ms: number): string => new Date(ms + MYT_MS).toISOString().slice(11, 16);
   const mytHH = (ms: number): string => new Date(ms + MYT_MS).toISOString().slice(11, 13);
   const mytDow = (ms: number): string => DOW[(new Date(ms + MYT_MS).getUTCDay() + 6) % 7];
+
+  const PANEL_SHORT: Record<string, string> = {
+    liq_heatmap: "liq",
+    book_heatmap: "book",
+    liq_map: "map",
+  };
+  function panelShort(p: string): string {
+    return PANEL_SHORT[p] ?? p;
+  }
+  function extCluster(c: BriefExternalClusterRow): string {
+    const band =
+      c.price_lo === c.price_hi
+        ? fmtPrice(c.price_lo)
+        : `${fmtPrice(c.price_lo)}–${fmtPrice(c.price_hi)}`;
+    const strength = c.intensity === "high" ? "HIGH" : c.intensity;
+    return `${band} ${strength}${c.label ? " " + c.label : ""} (${fmtDist(c.dist_atr)})`;
+  }
+  function extClusters(rows: BriefExternalClusterRow[]): string {
+    return rows.length ? rows.map(extCluster).join(", ") : "none";
+  }
 
   async function load(): Promise<void> {
     loading = true;
@@ -341,6 +361,20 @@
                     | day-low {s.tendency.map((t) => `${t.session} ${Math.round(t.low_pct * 100)}%`).join(" · ")}
                   </div>
                 {/if}
+              </div>
+            {/if}
+
+            {#if panel.external}
+              <div class="sessions muted">
+                {#each panel.external.snapshots as snap}
+                  <div>
+                    <span class="sess-name">EXT</span>
+                    {snap.source} {panelShort(snap.panel)}{snap.window ? ` (${snap.window})` : ""}{snap.scope === "agg" ? " agg" : ""}
+                    · {Math.round(snap.age_hours)}h{snap.spot_hint_deviation ? " ⚠spot" : ""}
+                    · above {extClusters(snap.clusters_above)}
+                    · below {extClusters(snap.clusters_below)}
+                  </div>
+                {/each}
               </div>
             {/if}
 
