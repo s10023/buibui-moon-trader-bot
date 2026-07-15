@@ -5,6 +5,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from tools.chart_drops import (
     file_sha256,
     load_ledger,
@@ -203,3 +205,26 @@ def test_cli_scan_write_mark(tmp_path: Path, capsys: Any) -> None:
     outcomes = {v["filename"]: v["outcome"] for v in load_ledger(ledger).values()}
     assert outcomes["mmt_ETHUSDT.png"] == "dropped"
     assert (drop / "done" / "mmt_ETHUSDT.png").is_file()
+
+
+def test_cli_move_failure_leaves_ledger_unmarked(tmp_path: Path) -> None:
+    drop = tmp_path / "drops"
+    drop.mkdir()
+    img = drop / "coinglass_BTCUSDT_20260714-0930.png"
+    img.write_bytes(b"img")
+    (drop / "done").write_text("blocker")  # file blocks mkdir -> move raises
+    ledger = tmp_path / "ledger.json"
+    with pytest.raises(OSError):
+        main(
+            [
+                "mark",
+                "--image",
+                str(img),
+                "--outcome",
+                "dropped",
+                "--ledger",
+                str(ledger),
+            ]
+        )
+    assert load_ledger(ledger) == {}  # hash marked only after outcome is final
+    assert img.is_file()  # image stays visible to the next scan

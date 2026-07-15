@@ -188,19 +188,22 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
         return 0
+    # Ledger consistency: mark a hash only AFTER its outcome is final —
+    # the move is part of finalizing, so sha/name are captured pre-move
+    # (the file leaves this path), the move runs, THEN the ledger is
+    # written. A failed move raises with the ledger untouched, so the
+    # image stays visible to the next scan.
+    sha = file_sha256(args.image)
+    name = args.image.name
     if args.cmd == "write":
         snapshot = json.loads(args.json_file.read_text())
         path = write_snapshot(snapshot, args.out_dir)
-        mark_processed(
-            args.ledger, file_sha256(args.image), args.image.name, "written", now_ms
-        )
         moved = move_to_done(args.image)
+        mark_processed(args.ledger, sha, name, "written", now_ms)
         print(json.dumps({"written": str(path), "image_moved_to": str(moved)}))
         return 0
-    mark_processed(
-        args.ledger, file_sha256(args.image), args.image.name, args.outcome, now_ms
-    )
     moved = move_to_done(args.image)
+    mark_processed(args.ledger, sha, name, args.outcome, now_ms)
     print(json.dumps({"marked": args.outcome, "image_moved_to": str(moved)}))
     return 0
 
