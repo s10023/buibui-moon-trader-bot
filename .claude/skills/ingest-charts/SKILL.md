@@ -29,6 +29,11 @@ PYTHONPATH=. poetry run python tools/chart_drops.py scan
 - `unparseable` non-empty → list the names and ask the operator to rename to
   `<source>_<SYMBOL>[_<YYYYMMDD[-HHMM]>].png|.jpg|.jpeg` (source ∈
   coinglass|mmt, MYT timestamp). Do NOT guess. Continue with `pending`.
+  Echo these copy-paste examples with the rename request:
+  `coinglass_BTCUSDT_20260715-0930.jpeg` (heatmap) ·
+  `coinglass_BTCUSDT_20260715-0931.jpeg` (map — bump the minute so names
+  differ) · `mmt_ETHUSDT.png` (no timestamp = file mtime). Panel type never
+  goes in the name — the extraction detects heatmap vs map.
 
 ## 2. Extract (one sonnet subagent per pending image)
 

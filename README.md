@@ -32,6 +32,16 @@ A tactical crypto trading bot designed for fast, risk-managed, and confident ent
 
 - `buibui brief` — daily market brief (levels/zones/regime/seasonality/pundit board; `make buibui-brief`). The brief also carries an indicator-state block per symbol: EMA 20/50/200 stack, regime run-length with range bounds, Monday-range position, yesterday's candle patterns, PA character (impulse/grind/chop), Bollinger + weekly/monthly anchored-VWAP reads, and a 60-day volume-profile POC/VAH/VAL — all computed from our own OHLCV. An M2 session layer adds a bundle-level session clock (Asia/London/NY in MYT) plus a per-symbol recap of the last 3 completed sessions (net move and range in ATR units, set-extreme markers, partial-coverage flags) and the 180-day session high/low tendency percentages. The Brief can also surface operator-verified external levels (Coinglass/MMT liquidation heatmaps and maps, ingested from manual screenshots via `/ingest-charts`) as a per-symbol External block with snapshot age and ATR distances; snapshots older than 48h drop out with a health note.
 
+  Screenshot drop-filename examples (dir `docs/plans/chart-drops/`; pattern `<source>_<SYMBOL>[_<YYYYMMDD[-HHMM]>].png|.jpg|.jpeg` — source lowercase `coinglass`|`mmt`, SYMBOL uppercase perp name, timestamp = your MYT wall clock. The panel type is NOT in the name — vision detects heatmap vs map; same-day drops just need different minutes so the names differ):
+
+  ```text
+  coinglass_BTCUSDT_20260715-0930.jpeg   # Liq Heatmap 24h  (daily pair, 1 of 2)
+  coinglass_BTCUSDT_20260715-0931.jpeg   # Liq Map 1d       (daily pair, 2 of 2 — bump the minute)
+  coinglass_BTCUSDT_20260715-0935.jpeg   # optional Heatmap 1w when swing-planning
+  mmt_ETHUSDT_20260715.png               # date-only is fine (time-of-day from file mtime)
+  mmt_SOLUSDT.png                        # no timestamp at all — capture time = file mtime
+  ```
+
 - `buibui card SYMBOL` — AI trade card (F2): feeds the brief panel, pundit board, XS target, recent fires, and live account into an LLM (`claude -p`, subscription auth) with a fixed rubric, then deterministically sizes and rule-checks the result in code (VETOED on violation). Advisory only, no order routing. Every call logs to `docs/plans/ai-cards.jsonl`. `--dry-run` prints the state + prompt with no LLM call. `make buibui-card SYMBOL=BTCUSDT [DIRECTION=] [AS_OF=] [DRY=1]`.
 
 ---
