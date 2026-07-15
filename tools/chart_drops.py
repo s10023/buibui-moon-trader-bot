@@ -10,13 +10,17 @@ Run via: PYTHONPATH=. poetry run python tools/chart_drops.py scan|write|mark
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+import time
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+from analytics.brief.external import validate_snapshot_dict
 
 DEFAULT_DROP_DIR = Path("docs/plans/chart-drops")
 DEFAULT_OUT_DIR = Path("docs/plans/external-context")
@@ -123,3 +127,83 @@ def scan_drops(
             )
         )
     return pending, unparseable
+
+
+def snapshot_filename(data: dict[str, Any]) -> str:
+    ts = datetime.fromtimestamp(data["captured_at_ms"] / 1000, tz=_MYT)
+    window = f"_{data['window']}" if data["window"] else ""
+    return (
+        f"{data['source']}_{data['panel']}{window}_{data['symbol']}"
+        f"_{ts.strftime('%Y%m%d-%H%M')}.json"
+    )
+
+
+def write_snapshot(snapshot: dict[str, Any], out_dir: Path = DEFAULT_OUT_DIR) -> Path:
+    problems = validate_snapshot_dict(snapshot)
+    if problems:
+        raise ValueError("invalid snapshot: " + "; ".join(problems))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / snapshot_filename(snapshot)
+    path.write_text(json.dumps(snapshot, indent=2) + "\n")
+    return path
+
+
+def move_to_done(image_path: Path) -> Path:
+    done = image_path.parent / "done"
+    done.mkdir(exist_ok=True)
+    target = done / image_path.name
+    counter = 1
+    while target.exists():
+        target = done / f"{image_path.stem}_{counter}{image_path.suffix}"
+        counter += 1
+    image_path.rename(target)
+    return target
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Chart-drop helper for /ingest-charts (scan / write / mark)"
+    )
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    p_scan = sub.add_parser("scan", help="List unprocessed drops as JSON")
+    p_scan.add_argument("--drop-dir", type=Path, default=DEFAULT_DROP_DIR)
+    p_scan.add_argument("--ledger", type=Path, default=DEFAULT_LEDGER)
+    p_write = sub.add_parser("write", help="Validate + write an approved snapshot")
+    p_write.add_argument("--json-file", type=Path, required=True)
+    p_write.add_argument("--image", type=Path, required=True)
+    p_write.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
+    p_write.add_argument("--ledger", type=Path, default=DEFAULT_LEDGER)
+    p_mark = sub.add_parser("mark", help="Record a skipped/dropped image")
+    p_mark.add_argument("--image", type=Path, required=True)
+    p_mark.add_argument("--outcome", choices=["skipped", "dropped"], required=True)
+    p_mark.add_argument("--ledger", type=Path, default=DEFAULT_LEDGER)
+    args = parser.parse_args(argv)
+    now_ms = int(time.time() * 1000)
+    if args.cmd == "scan":
+        pending, unparseable = scan_drops(args.drop_dir, args.ledger)
+        print(
+            json.dumps(
+                {"pending": [asdict(p) for p in pending], "unparseable": unparseable},
+                indent=2,
+            )
+        )
+        return 0
+    if args.cmd == "write":
+        snapshot = json.loads(args.json_file.read_text())
+        path = write_snapshot(snapshot, args.out_dir)
+        mark_processed(
+            args.ledger, file_sha256(args.image), args.image.name, "written", now_ms
+        )
+        moved = move_to_done(args.image)
+        print(json.dumps({"written": str(path), "image_moved_to": str(moved)}))
+        return 0
+    mark_processed(
+        args.ledger, file_sha256(args.image), args.image.name, args.outcome, now_ms
+    )
+    moved = move_to_done(args.image)
+    print(json.dumps({"marked": args.outcome, "image_moved_to": str(moved)}))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
