@@ -121,8 +121,8 @@
         </dd>
         <dt>ATR14</dt>
         <dd>
-          Daily Wilder ATR in price units — the yardstick: every ± number on
-          levels and zones is a distance in daily ATRs from the Last price.
+          Daily Wilder ATR in price units. Every ± number on levels and
+          zones is a distance in daily ATRs from the Last price.
         </dd>
         <dt>Levels</dt>
         <dd>
@@ -137,7 +137,7 @@
         </dd>
         <dt>Zones</dt>
         <dd>
-          Structural zones per timeframe — FVG fair-value gap · OB order block ·
+          Structural zones per timeframe: FVG fair-value gap · OB order block ·
           BOS break of structure · EQH/EQL equal highs/lows. Tag shows ATR
           distance, or "inside" when price is within the zone.
         </dd>
@@ -205,6 +205,15 @@
         <dt>tendency</dt>
         <dd>
           Share of the last 180 days each session made the daily high or low.
+        </dd>
+        <dt>External</dt>
+        <dd>
+          Verified liquidation and order-book levels read from
+          operator-dropped chart screenshots (Coinglass / MMT). Each line is
+          one snapshot: source, panel (liq / book / map), window, capture
+          age, then price bands with intensity (HIGH = brightest) and ATR
+          distance. ⚠spot flags a snapshot whose printed spot price
+          disagrees with the brief's reference price.
         </dd>
         <dt>Pundit board</dt>
         <dd>
