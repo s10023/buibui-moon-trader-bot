@@ -1,5 +1,7 @@
 """Orchestrator: panel assembly, per-symbol isolation, determinism."""
 
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
@@ -13,7 +15,14 @@ H1_MS = TF_MS["1h"]
 
 
 def _cfg(symbols: tuple[str, ...]) -> BriefConfig:
-    return BriefConfig(symbols=symbols, as_of_ms=AS_OF, stats_days=60)
+    # Point external_dir at a nonexistent path: real operator snapshots in the
+    # default docs/plans/external-context/ must never leak into this suite.
+    return BriefConfig(
+        symbols=symbols,
+        as_of_ms=AS_OF,
+        stats_days=60,
+        external_dir=Path("tests/no-such-external-context"),
+    )
 
 
 def test_compute_brief_happy_path() -> None:
