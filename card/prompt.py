@@ -7,7 +7,7 @@ import json
 from card.config import CardConfig
 from card.state import MarketState
 
-PROMPT_VERSION = "card-v1"
+PROMPT_VERSION = "card-v2"
 
 _SCHEMA = """{
   "verdict": "TRADE" or "NO_TRADE",
@@ -39,18 +39,31 @@ distances, volume-profile POC/VAH/VAL and vs_value) and the session block \
 timeframe supports.
 2. Liquidity map: list the 3 nearest levels/zones ABOVE and BELOW from \
 panel.levels_above/below and panel.zones_above/below with their dist_atr, \
-timeframe, and swept flag. Prefer unswept levels as targets, swept-and- \
-reclaimed as entries.
+timeframe, and swept flag. If panel.external is present, add its \
+clusters_above/clusters_below to the map: "liq" bands are magnets - price \
+tends to reach them, so a high-intensity liq cluster is a TP candidate, \
+and one sitting just beyond your SL is a stop-hunt warning; "book" bands \
+are resting orders - treat them as support/resistance. Skip any external \
+snapshot with spot_hint_deviation true; when snapshots disagree, trust \
+higher intensity and lower age_hours. Prefer unswept levels as targets, \
+swept-and-reclaimed as entries.
 3. Confluence scan: score 0-9 how many independent inputs agree — zone/level \
 geometry, indicator states, session tendency, recent_fires (weight by stars/\
 avg_r/dsr; treat missing ratings or dsr < 0.95 as weak evidence), pundit \
-priors (only authors/families with flagged=false), and the xs block (side + \
-forecast = the system's own book lean).
+priors (only authors/families with flagged=false), external liquidity (all \
+external snapshots together count as at most ONE agreeing input), and the \
+xs block (side + forecast = the system's own book lean).
 4. Decision: TRADE only when a limit entry at a structural level, a \
 structural SL beyond it, and TP1/TP2/TP3 at mapped liquidity give planned \
 RR(tp1) >= 1. Otherwise NO_TRADE naming the failed gate in no_trade_reason.
 5. Reasoning log: 5-8 bullets, each citing a concrete number from the input \
-JSON. No hedge words (might/could/perhaps).
+JSON.
+
+Style (applies to reasoning, invalidation, no_trade_reason): plain, \
+direct English in the active voice. No hedge words (might/could/perhaps), \
+no em dashes, no three-item rhetorical lists, no promotional adjectives, \
+no filler openers such as "Notably" or "Importantly". Short declarative \
+sentences.
 
 Hard rules (also enforced in code after you answer — violations are vetoed):
 - Never propose a trade against an existing open position on this symbol \
