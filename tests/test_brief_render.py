@@ -35,7 +35,7 @@ from analytics.brief.types import (
     SessionState,
     VwapState,
 )
-from tests._brief_fixtures import DAY_MS, START_MS, make_conn, seed_symbol
+from tests._brief_fixtures import DAY_MS, START_MS, brief_cfg, make_conn, seed_symbol
 
 AS_OF = START_MS + 60 * DAY_MS
 
@@ -69,10 +69,9 @@ def _seeded_cfg(tmp_path: Path) -> tuple[BriefConfig, duckdb.DuckDBPyConnection]
             }
         )
     )
-    cfg = BriefConfig(
-        symbols=("BTCUSDT",),
-        as_of_ms=AS_OF,
-        stats_days=60,
+    cfg = brief_cfg(
+        ("BTCUSDT",),
+        AS_OF,
         ledger_path=ledger,
         priors_path=tmp_path / "missing-priors.json",
     )
@@ -122,10 +121,9 @@ def _seeded_cfg_with_priors(
     )
     priors = tmp_path / "priors.json"
     priors.write_text(priors_text)
-    cfg = BriefConfig(
-        symbols=("BTCUSDT",),
-        as_of_ms=AS_OF,
-        stats_days=60,
+    cfg = brief_cfg(
+        ("BTCUSDT",),
+        AS_OF,
         ledger_path=ledger,
         priors_path=priors,
     )
@@ -194,10 +192,9 @@ def test_render_priors_age_none_guard(tmp_path: Path) -> None:
 
 def test_render_error_panel(tmp_path: Path) -> None:
     cfg, conn = _seeded_cfg(tmp_path)
-    cfg2 = BriefConfig(
-        symbols=("NODATAUSDT",),
-        as_of_ms=AS_OF,
-        stats_days=60,
+    cfg2 = brief_cfg(
+        ("NODATAUSDT",),
+        AS_OF,
         ledger_path=cfg.ledger_path,
         priors_path=cfg.priors_path,
     )

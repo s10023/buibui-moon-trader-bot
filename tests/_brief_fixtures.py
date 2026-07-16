@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
+from typing import Any
 
 import duckdb
 import pandas as pd
 
+from analytics.brief.config import BriefConfig
 from analytics.data_store import init_schema
 from analytics.store.market_data import upsert_ohlcv
 
@@ -95,3 +98,15 @@ def _row(
         "volume": 1000.0,
         "taker_buy_volume": 500.0,
     }
+
+
+def brief_cfg(symbols: tuple[str, ...], as_of_ms: int, **overrides: Any) -> BriefConfig:
+    """BriefConfig for tests — external_dir isolated by default.
+
+    Real operator snapshots live in the default docs/plans/external-context/
+    and must never leak into the suite (the 2026-07-16 test_brief_bundle
+    incident); route every test constructor through here.
+    """
+    overrides.setdefault("stats_days", 60)
+    overrides.setdefault("external_dir", Path("tests/no-such-external-context"))
+    return BriefConfig(symbols=symbols, as_of_ms=as_of_ms, **overrides)
