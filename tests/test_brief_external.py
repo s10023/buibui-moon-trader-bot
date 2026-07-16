@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import duckdb
+import pytest
 
 from analytics.brief.bundle import compute_brief
 from analytics.brief.config import BriefConfig
@@ -111,6 +112,39 @@ def test_validate_rejects_bad_shapes() -> None:
     missing = _valid_snapshot()
     del missing["window"]
     assert validate_snapshot_dict(missing) != []
+
+
+@pytest.mark.parametrize(
+    ("mutate", "fragment"),
+    [
+        (lambda d: d["clusters"].__setitem__(0, "not-a-dict"), "not an object"),
+        (lambda d: d["clusters"][0].pop("kind"), "bad keys"),
+        (lambda d: d["clusters"][0].update(price_lo="x"), "prices not numbers"),
+        (
+            lambda d: d["clusters"][0].update(price_lo=9.0, price_hi=1.0),
+            "price_lo > price_hi",
+        ),
+        (
+            lambda d: d["clusters"][0].update(price_lo=-1.0, price_hi=2.0),
+            "price_lo <= 0",
+        ),
+        (lambda d: d["clusters"][0].update(kind="magic"), "kind"),
+        (lambda d: d["clusters"][0].update(intensity="nuclear"), "intensity"),
+        (lambda d: d["clusters"][0].update(label=7), "label not a string"),
+        (lambda d: d.update(source=""), "source"),
+        (lambda d: d.update(symbol=7), "symbol"),
+        (lambda d: d.update(notes=None), "notes"),
+        (lambda d: d.update(spot_price_hint="high"), "spot_price_hint"),
+        (lambda d: d.update(verified=False), "verified"),
+        (lambda d: d.update(clusters=[]), "clusters"),
+    ],
+)
+def test_validate_snapshot_dict_rejects(mutate, fragment) -> None:  # type: ignore[no-untyped-def]
+    data = _valid_snapshot()
+    mutate(data)
+    problems = validate_snapshot_dict(data)
+    assert problems, f"expected a problem for {fragment}"
+    assert any(fragment in p for p in problems)
 
 
 def _load(
@@ -230,6 +264,64 @@ def test_loader_caps_rows_nearest_first(tmp_path: Path) -> None:
     assert state is not None
     above = state.snapshots[0].clusters_above  # type: ignore[attr-defined]
     assert [r.price_lo for r in above] == [64_000.0, 65_000.0]
+
+
+def test_below_side_cap_keeps_nearest_first(tmp_path: Path) -> None:
+    data = _valid_snapshot()
+    # 4 bands below ref=100, nearest first should survive the cap of 3.
+    data["clusters"] = [
+        {
+            "price_lo": lo,
+            "price_hi": lo + 1.0,
+            "kind": "liq",
+            "intensity": "low",
+            "label": "",
+        }
+        for lo in (90.0, 80.0, 70.0, 60.0)
+    ]
+    (tmp_path / "coinglass_liq_map_1d_BTCUSDT.json").write_text(json.dumps(data))
+    state, _ = load_external_state(
+        tmp_path, "BTCUSDT", 100.0, 2.0, AS_OF, ("coinglass",), 48.0, 3
+    )
+    assert state is not None
+    below = state.snapshots[0].clusters_below
+    assert len(below) == 3
+    mids = [(r.price_lo + r.price_hi) / 2 for r in below]
+    assert mids == sorted(mids, reverse=True)  # nearest (least deep) first
+
+
+def test_ref_close_zero_no_deviation_note(tmp_path: Path) -> None:
+    data = _valid_snapshot()
+    data["spot_price_hint"] = 123.0
+    (tmp_path / "coinglass_liq_map_1d_BTCUSDT.json").write_text(json.dumps(data))
+    state, notes = load_external_state(
+        tmp_path, "BTCUSDT", 0.0, 2.0, AS_OF, ("coinglass",), 48.0, 3
+    )
+    assert state is not None
+    assert not any("deviates" in n for n in notes)
+    assert state.snapshots[0].spot_hint_deviation is False
+
+
+def test_mixed_fresh_and_stale_same_key_keeps_fresh_silently(tmp_path: Path) -> None:
+    fresh = _valid_snapshot()
+    stale = _valid_snapshot()
+    stale["captured_at_ms"] = AS_OF - int(72 * 3_600_000)
+    (tmp_path / "a_fresh.json").write_text(json.dumps(fresh))
+    (tmp_path / "b_stale.json").write_text(json.dumps(stale))
+    state, notes = load_external_state(
+        tmp_path, "BTCUSDT", 100.0, 2.0, AS_OF, ("coinglass",), 48.0, 3
+    )
+    assert state is not None
+    assert len(state.snapshots) == 1
+    assert not any("stale" in n for n in notes)  # fresh exists -> no re-drop nag
+
+
+def test_unreadable_directory_entry_becomes_note(tmp_path: Path) -> None:
+    (tmp_path / "dir.json").mkdir()  # read_text -> IsADirectoryError (OSError)
+    _, notes = load_external_state(
+        tmp_path, "BTCUSDT", 100.0, 2.0, AS_OF, ("coinglass",), 48.0, 3
+    )
+    assert any("unreadable dir.json" in n for n in notes)
 
 
 def test_invalid_file_noted_only_in_its_own_symbols_pass(tmp_path: Path) -> None:

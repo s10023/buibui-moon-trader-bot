@@ -10,6 +10,7 @@ from analytics.brief.config import BriefConfig
 from analytics.brief.render import (
     _clock_line,
     _external_lines,
+    _external_snapshot_bit,
     _indicator_lines,
     _recap_bit,
     _session_lines,
@@ -532,3 +533,51 @@ def test_external_lines_variants() -> None:
     lines = _external_lines(ExternalState(snapshots=[_ext_snapshot(), agg]))
     assert len(lines) == 2
     assert lines[1].startswith(" " * 9 + "mmt map agg · 14h ⚠spot · above none")
+
+
+def _ext_row(lo: float, hi: float, dist: float, label: str = "") -> ExternalClusterRow:
+    return ExternalClusterRow(
+        price_lo=lo,
+        price_hi=hi,
+        kind="liq",
+        intensity="med",
+        label=label,
+        dist_atr=dist,
+    )
+
+
+def test_external_snapshot_bit_joins_multiple_clusters() -> None:
+    snap = ExternalSnapshot(
+        source="coinglass",
+        panel="liq_map",
+        window="1d",
+        scope="pair",
+        captured_at_ms=1,
+        age_hours=14.0,
+        spot_price_hint=None,
+        spot_hint_deviation=False,
+        clusters_above=[_ext_row(101, 102, 0.5), _ext_row(105, 106, 1.5, "top")],
+        clusters_below=[],
+    )
+    bit = _external_snapshot_bit(snap)
+    assert ", " in bit.split("above ")[1].split(" · below")[0]
+    assert bit.endswith("below none")
+
+
+def test_external_snapshot_bit_both_sides_none() -> None:
+    snap = ExternalSnapshot(
+        source="coinglass",
+        panel="liq_heatmap",
+        window=None,
+        scope="agg",
+        captured_at_ms=1,
+        age_hours=3.0,
+        spot_price_hint=None,
+        spot_hint_deviation=False,
+        clusters_above=[],
+        clusters_below=[],
+    )
+    bit = _external_snapshot_bit(snap)
+    assert "above none" in bit
+    assert "below none" in bit
+    assert " agg " in bit

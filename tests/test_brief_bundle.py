@@ -1,5 +1,7 @@
 """Orchestrator: panel assembly, per-symbol isolation, determinism."""
 
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
@@ -224,3 +226,16 @@ def test_tendency_failure_keeps_recap_and_notes(
     assert panel.sessions.recap is not None  # recap survives
     assert panel.sessions.tendency is None  # tendency dropped
     assert any("session tendency failed" in n for n in bundle.health.notes)
+
+
+def test_external_notes_flow_prefixed_through_bundle(tmp_path: Path) -> None:
+    ext = tmp_path / "ext"
+    ext.mkdir()
+    (ext / "junk.json").write_text("{not json")
+    conn = make_conn()
+    seed_symbol(conn, "BTCUSDT", START_MS, 60)
+    bundle = compute_brief(conn, brief_cfg(("BTCUSDT",), AS_OF, external_dir=ext))
+    assert any(
+        n.startswith("BTCUSDT: external: unreadable junk.json")
+        for n in bundle.health.notes
+    )
