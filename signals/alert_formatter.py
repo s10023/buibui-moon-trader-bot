@@ -231,9 +231,9 @@ def _build_candle_warnings(
     notes: list[str] = []
 
     if any(e.volume_spike for e in events):
-        notes.append("⚡ Volume spike — high conviction")
+        notes.append("⚡ Volume spike: high conviction")
     elif any(e.low_volume for e in events):
-        notes.append("⚠️ Low volume — weaker conviction")
+        notes.append("⚠️ Low volume: weaker conviction")
 
     if ohlcv_df is None or len(ohlcv_df) < 2:
         return notes
@@ -254,30 +254,30 @@ def _build_candle_warnings(
 
     # W7/W1: doji takes precedence over marubozu (doji has no dominant body).
     if is_doji:
-        notes.append("⚠️ Doji signal candle — direction uncertain")
+        notes.append("⚠️ Doji signal candle: direction uncertain")
     elif _is_marubozu(o, h, lo, c):
-        notes.append("⚠️ Wickless candle — body tends to fill first")
+        notes.append("⚠️ Wickless candle: body tends to fill first")
 
     # W8: Inside bar
     if _is_inside_bar(h, lo, prev_h, prev_l):
-        notes.append("⚠️ Signal inside prior range — breakout unconfirmed")
+        notes.append("⚠️ Signal inside prior range: breakout unconfirmed")
 
     # W5: Wick rejection against direction (skip on doji — no dominant wick)
     if not is_doji and _wick_rejection_against(o, h, lo, c, direction):
         wick_label = "Upper" if direction == "long" else "Lower"
-        notes.append(f"⚠️ {wick_label} wick rejection — price resisted signal direction")
+        notes.append(f"⚠️ {wick_label} wick rejection: price resisted signal direction")
 
     # W2: Equal highs / equal lows (liquidity pool warning)
     if _has_equal_levels(ohlcv_df, price, direction):
         if direction == "long":
-            notes.append("⚠️ Equal lows below — sell-side liquidity, sweep likely first")
+            notes.append("⚠️ Equal lows below: sell-side liquidity, sweep likely first")
         else:
-            notes.append("⚠️ Equal highs above — buy-side liquidity, sweep likely first")
+            notes.append("⚠️ Equal highs above: buy-side liquidity, sweep likely first")
 
     # W6: Consecutive candles in signal direction → possible overextension
     if _has_consecutive_candles(ohlcv_df, direction):
         bias = "bullish" if direction == "long" else "bearish"
-        notes.append(f"⚠️ 3 {bias} candles in a row — possible overextension")
+        notes.append(f"⚠️ 3 {bias} candles in a row: possible overextension")
 
     return notes
 

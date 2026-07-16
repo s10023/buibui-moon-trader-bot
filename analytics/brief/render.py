@@ -393,7 +393,7 @@ def _pundit_lines(board: PunditBoard) -> list[str]:
     if board.priors_status == "ok":
         priors_bit = f"priors {_priors_age_str(board.priors_age_days)} old"
     else:
-        priors_bit = f"priors: {board.priors_status} — run make buibui-pundit-score"
+        priors_bit = f"priors {board.priors_status}; run make buibui-pundit-score"
     if board.ledger_status == "ok":
         ledger_bit = (
             f"ledger {board.ledger_total} calls · {len(board.recent_calls)} recent"

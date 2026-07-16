@@ -269,8 +269,8 @@ class TestLowVolumeWarning:
 
     def test_low_volume_true_shows_warning(self) -> None:
         msg = format_signal_alert(self._make_event(low_volume=True))
-        assert "⚠️ Low volume — weaker conviction" in msg
+        assert "⚠️ Low volume: weaker conviction" in msg
 
     def test_low_volume_false_no_warning(self) -> None:
         msg = format_signal_alert(self._make_event(low_volume=False))
-        assert "⚠️ Low volume — weaker conviction" not in msg
+        assert "⚠️ Low volume: weaker conviction" not in msg
