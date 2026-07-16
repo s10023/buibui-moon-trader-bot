@@ -194,12 +194,13 @@ def load_external_state(
             # (bad encoding from read_text) — notes, never exceptions.
             notes.append(f"external: unreadable {path.name} ({exc})")
             continue
+        claimed = data.get("symbol") if isinstance(data, dict) else None
+        if isinstance(claimed, str) and claimed and claimed != symbol:
+            continue  # another symbol's file — its own pass reports problems
         problems = validate_snapshot_dict(data)
         if problems:
             notes.append(f"external: invalid {path.name} ({problems[0]})")
             continue
-        if data["symbol"] != symbol:
-            continue  # another panel's file — not an error
         if data["source"] not in allowed_sources:
             notes.append(f"external: unknown source {data['source']!r} in {path.name}")
             continue

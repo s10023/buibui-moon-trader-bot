@@ -232,6 +232,34 @@ def test_loader_caps_rows_nearest_first(tmp_path: Path) -> None:
     assert [r.price_lo for r in above] == [64_000.0, 65_000.0]
 
 
+def test_invalid_file_noted_only_in_its_own_symbols_pass(tmp_path: Path) -> None:
+    # bad intensity -> invalid, but symbol is readable: ETHUSDT owns it.
+    bad = _valid_snapshot(symbol="ETHUSDT")  # the file's existing builder (line 60)
+    bad["clusters"][0]["intensity"] = "nuclear"
+    (tmp_path / "coinglass_liq_map_1d_ETHUSDT.json").write_text(json.dumps(bad))
+
+    _, btc_notes = load_external_state(
+        tmp_path, "BTCUSDT", 100.0, 2.0, AS_OF, ("coinglass",), 48.0, 3
+    )
+    _, eth_notes = load_external_state(
+        tmp_path, "ETHUSDT", 100.0, 2.0, AS_OF, ("coinglass",), 48.0, 3
+    )
+    assert btc_notes == []
+    assert any("invalid" in n for n in eth_notes)
+
+
+def test_symbolless_invalid_file_still_noted_everywhere(tmp_path: Path) -> None:
+    (tmp_path / "junk.json").write_text('{"schema": "external-levels-v1"}')
+    _, btc_notes = load_external_state(
+        tmp_path, "BTCUSDT", 100.0, 2.0, AS_OF, ("coinglass",), 48.0, 3
+    )
+    _, eth_notes = load_external_state(
+        tmp_path, "ETHUSDT", 100.0, 2.0, AS_OF, ("coinglass",), 48.0, 3
+    )
+    assert any("invalid" in n for n in btc_notes)
+    assert any("invalid" in n for n in eth_notes)
+
+
 BUNDLE_AS_OF = START_MS + 60 * DAY_MS
 
 
