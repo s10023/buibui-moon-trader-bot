@@ -48,6 +48,21 @@ def test_parse_rejects_bad_names() -> None:
     assert parse_drop_filename("random.png") is None
 
 
+def test_parse_drop_filename_uppercase_extension() -> None:
+    parsed = parse_drop_filename("coinglass_BTCUSDT_20260716-1040.PNG")
+    assert parsed is not None
+    source, symbol, ts_ms = parsed
+    assert (source, symbol) == ("coinglass", "BTCUSDT")
+    assert ts_ms is not None
+
+
+def test_parse_drop_filename_mixed_case_jpeg() -> None:
+    assert parse_drop_filename("mmt_ETHUSDT.Jpeg") is not None
+    # source/symbol case rules unchanged:
+    assert parse_drop_filename("Coinglass_BTCUSDT.png") is None
+    assert parse_drop_filename("coinglass_btcusdt.png") is None
+
+
 def test_ledger_roundtrip(tmp_path: Path) -> None:
     ledger = tmp_path / "sub" / "processed.json"
     assert load_ledger(ledger) == {}
@@ -91,6 +106,16 @@ def test_scan_mtime_fallback(tmp_path: Path) -> None:
     pending, _ = scan_drops(drop, tmp_path / "ledger.json")
     assert pending[0].ts_from_filename is False
     assert pending[0].captured_at_ms == int(img.stat().st_mtime * 1000)
+
+
+def test_scan_drops_picks_up_uppercase_png(tmp_path: Path) -> None:
+    drop = tmp_path / "drops"
+    drop.mkdir()
+    (drop / "coinglass_BTCUSDT_20260716-1040.PNG").write_bytes(b"img")
+    pending, unparseable = scan_drops(drop, tmp_path / "ledger.json")
+    assert unparseable == []
+    assert len(pending) == 1
+    assert pending[0].symbol == "BTCUSDT"
 
 
 def _snapshot(**overrides: Any) -> dict[str, Any]:

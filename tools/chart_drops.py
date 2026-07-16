@@ -31,7 +31,7 @@ _MYT = timezone(timedelta(hours=8))
 _IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg")
 _NAME_RE = re.compile(
     r"^(?P<source>[a-z0-9]+)_(?P<symbol>[A-Z0-9]+)"
-    r"(?:_(?P<ts>\d{8}(?:-\d{4})?))?\.(?:png|jpg|jpeg)$"
+    r"(?:_(?P<ts>\d{8}(?:-\d{4})?))?\.(?i:png|jpg|jpeg)$"
 )
 
 
