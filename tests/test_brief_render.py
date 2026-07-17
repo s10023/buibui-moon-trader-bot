@@ -479,6 +479,7 @@ def test_markdown_carries_session_lines(tmp_path: Path) -> None:
 def _ext_snapshot(**overrides: object) -> ExternalSnapshot:
     base: dict[str, object] = {
         "source": "coinglass",
+        "venue": None,
         "panel": "liq_heatmap",
         "window": "24h",
         "scope": "pair",
@@ -549,6 +550,7 @@ def _ext_row(lo: float, hi: float, dist: float, label: str = "") -> ExternalClus
 def test_external_snapshot_bit_joins_multiple_clusters() -> None:
     snap = ExternalSnapshot(
         source="coinglass",
+        venue=None,
         panel="liq_map",
         window="1d",
         scope="pair",
@@ -567,6 +569,7 @@ def test_external_snapshot_bit_joins_multiple_clusters() -> None:
 def test_external_snapshot_bit_both_sides_none() -> None:
     snap = ExternalSnapshot(
         source="coinglass",
+        venue=None,
         panel="liq_heatmap",
         window=None,
         scope="agg",

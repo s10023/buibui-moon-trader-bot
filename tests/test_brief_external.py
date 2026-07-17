@@ -36,6 +36,7 @@ def _row(dist_atr: float = 1.8) -> ExternalClusterRow:
 def test_external_types_serialise() -> None:
     snap = ExternalSnapshot(
         source="coinglass",
+        venue=None,
         panel="liq_heatmap",
         window="24h",
         scope="pair",
@@ -147,6 +148,21 @@ def test_validate_snapshot_dict_rejects(mutate, fragment) -> None:  # type: igno
     assert any(fragment in p for p in problems)
 
 
+def test_venue_absent_and_null_both_valid_and_unspecified(tmp_path: Path) -> None:
+    legacy = _valid_snapshot()  # no venue key at all
+    nulled = _valid_snapshot()
+    nulled["venue"] = None
+    assert validate_snapshot_dict(legacy) == []
+    assert validate_snapshot_dict(nulled) == []
+
+
+def test_venue_must_be_nonempty_string_or_null() -> None:
+    for bad in ("", 7, ["binance"]):
+        data = _valid_snapshot()
+        data["venue"] = bad
+        assert any("venue" in p for p in validate_snapshot_dict(data))
+
+
 def _load(
     tmp_path: Path,
     *,
@@ -206,6 +222,51 @@ def test_loader_latest_per_source_panel_window(tmp_path: Path) -> None:
     assert len(snaps) == 2  # heatmap (latest of the two) + map
     heat = [s for s in snaps if s.panel == "liq_heatmap"][0]
     assert heat.age_hours == 2.0
+
+
+def test_same_panel_window_different_venue_coexist(tmp_path: Path) -> None:
+    a = _valid_snapshot()
+    a["venue"] = "binance"
+    b = _valid_snapshot()
+    b["venue"] = "hyperliquid"
+    (tmp_path / "a.json").write_text(json.dumps(a))
+    (tmp_path / "b.json").write_text(json.dumps(b))
+    state, _ = load_external_state(
+        tmp_path, "BTCUSDT", 100.0, 2.0, AS_OF, ("coinglass",), 48.0, 3
+    )
+    assert state is not None
+    assert len(state.snapshots) == 2
+    assert {s.venue for s in state.snapshots} == {"binance", "hyperliquid"}
+
+
+def test_same_panel_window_different_scope_coexist(tmp_path: Path) -> None:
+    a = _valid_snapshot()
+    a["scope"] = "pair"
+    b = _valid_snapshot()
+    b["scope"] = "agg"
+    (tmp_path / "a.json").write_text(json.dumps(a))
+    (tmp_path / "b.json").write_text(json.dumps(b))
+    state, _ = load_external_state(
+        tmp_path, "BTCUSDT", 100.0, 2.0, AS_OF, ("coinglass",), 48.0, 3
+    )
+    assert state is not None
+    assert len(state.snapshots) == 2
+
+
+def test_identical_full_key_still_latest_wins(tmp_path: Path) -> None:
+    older = _valid_snapshot()
+    newer = _valid_snapshot()
+    newer["captured_at_ms"] = older["captured_at_ms"] + 3_600_000
+    for d in (older, newer):
+        d["venue"] = "binance"
+    (tmp_path / "a.json").write_text(json.dumps(older))
+    (tmp_path / "b.json").write_text(json.dumps(newer))
+    state, _ = load_external_state(
+        tmp_path, "BTCUSDT", 100.0, 2.0, AS_OF, ("coinglass",), 48.0, 3
+    )
+    assert state is not None
+    assert len(state.snapshots) == 1
+    assert state.snapshots[0].captured_at_ms == newer["captured_at_ms"]
 
 
 def test_loader_ignores_other_symbols_silently(tmp_path: Path) -> None:
