@@ -48,6 +48,21 @@ def test_parse_rejects_bad_names() -> None:
     assert parse_drop_filename("random.png") is None
 
 
+def test_parse_drop_filename_uppercase_extension() -> None:
+    parsed = parse_drop_filename("coinglass_BTCUSDT_20260716-1040.PNG")
+    assert parsed is not None
+    source, symbol, ts_ms = parsed
+    assert (source, symbol) == ("coinglass", "BTCUSDT")
+    assert ts_ms is not None
+
+
+def test_parse_drop_filename_mixed_case_jpeg() -> None:
+    assert parse_drop_filename("mmt_ETHUSDT.Jpeg") is not None
+    # source/symbol case rules unchanged:
+    assert parse_drop_filename("Coinglass_BTCUSDT.png") is None
+    assert parse_drop_filename("coinglass_btcusdt.png") is None
+
+
 def test_ledger_roundtrip(tmp_path: Path) -> None:
     ledger = tmp_path / "sub" / "processed.json"
     assert load_ledger(ledger) == {}
@@ -56,6 +71,13 @@ def test_ledger_roundtrip(tmp_path: Path) -> None:
     data = load_ledger(ledger)
     assert data["abc123"]["outcome"] == "written"
     assert data["def456"]["ingested_at_ms"] == 2_000
+
+
+def test_load_ledger_corrupt_raises_actionable_error(tmp_path: Path) -> None:
+    ledger = tmp_path / "processed.json"
+    ledger.write_text("{broken")
+    with pytest.raises(ValueError, match="corrupt ledger"):
+        load_ledger(ledger)
 
 
 def test_scan_drops(tmp_path: Path) -> None:
@@ -91,6 +113,16 @@ def test_scan_mtime_fallback(tmp_path: Path) -> None:
     pending, _ = scan_drops(drop, tmp_path / "ledger.json")
     assert pending[0].ts_from_filename is False
     assert pending[0].captured_at_ms == int(img.stat().st_mtime * 1000)
+
+
+def test_scan_drops_picks_up_uppercase_png(tmp_path: Path) -> None:
+    drop = tmp_path / "drops"
+    drop.mkdir()
+    (drop / "coinglass_BTCUSDT_20260716-1040.PNG").write_bytes(b"img")
+    pending, unparseable = scan_drops(drop, tmp_path / "ledger.json")
+    assert unparseable == []
+    assert len(pending) == 1
+    assert pending[0].symbol == "BTCUSDT"
 
 
 def _snapshot(**overrides: Any) -> dict[str, Any]:
@@ -205,6 +237,44 @@ def test_cli_scan_write_mark(tmp_path: Path, capsys: Any) -> None:
     outcomes = {v["filename"]: v["outcome"] for v in load_ledger(ledger).values()}
     assert outcomes["mmt_ETHUSDT.png"] == "dropped"
     assert (drop / "done" / "mmt_ETHUSDT.png").is_file()
+
+
+def test_mark_processed_rejects_unknown_outcome(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="outcome"):
+        mark_processed(tmp_path / "l.json", "sha", "f.png", "exploded", 1)
+
+
+def test_write_branch_move_failure_fails_open(tmp_path: Path) -> None:
+    # done/ existing as a FILE makes move_to_done raise; the snapshot is
+    # already written (fail-open), but the ledger MUST stay unmarked so
+    # the image is still visible to the next scan.
+    drop = tmp_path / "drops"
+    drop.mkdir()
+    image = drop / "coinglass_BTCUSDT_20260716-1040.png"
+    image.write_bytes(b"img")
+    (drop / "done").write_text("not a dir")
+    snap_file = tmp_path / "snap.json"
+    snap_file.write_text(
+        json.dumps(_snapshot())
+    )  # the file's existing builder (line 96)
+    out_dir = tmp_path / "out"
+    ledger = tmp_path / "ledger.json"
+    with pytest.raises(OSError):
+        main(
+            [
+                "write",
+                "--json-file",
+                str(snap_file),
+                "--image",
+                str(image),
+                "--out-dir",
+                str(out_dir),
+                "--ledger",
+                str(ledger),
+            ]
+        )
+    assert image.exists()  # image untouched in the drop dir
+    assert load_ledger(ledger) == {}  # unmarked -> next scan retries
 
 
 def test_cli_move_failure_leaves_ledger_unmarked(tmp_path: Path) -> None:

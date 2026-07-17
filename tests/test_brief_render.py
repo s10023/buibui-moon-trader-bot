@@ -10,6 +10,7 @@ from analytics.brief.config import BriefConfig
 from analytics.brief.render import (
     _clock_line,
     _external_lines,
+    _external_snapshot_bit,
     _indicator_lines,
     _recap_bit,
     _session_lines,
@@ -35,7 +36,7 @@ from analytics.brief.types import (
     SessionState,
     VwapState,
 )
-from tests._brief_fixtures import DAY_MS, START_MS, make_conn, seed_symbol
+from tests._brief_fixtures import DAY_MS, START_MS, brief_cfg, make_conn, seed_symbol
 
 AS_OF = START_MS + 60 * DAY_MS
 
@@ -69,10 +70,9 @@ def _seeded_cfg(tmp_path: Path) -> tuple[BriefConfig, duckdb.DuckDBPyConnection]
             }
         )
     )
-    cfg = BriefConfig(
-        symbols=("BTCUSDT",),
-        as_of_ms=AS_OF,
-        stats_days=60,
+    cfg = brief_cfg(
+        ("BTCUSDT",),
+        AS_OF,
         ledger_path=ledger,
         priors_path=tmp_path / "missing-priors.json",
     )
@@ -122,10 +122,9 @@ def _seeded_cfg_with_priors(
     )
     priors = tmp_path / "priors.json"
     priors.write_text(priors_text)
-    cfg = BriefConfig(
-        symbols=("BTCUSDT",),
-        as_of_ms=AS_OF,
-        stats_days=60,
+    cfg = brief_cfg(
+        ("BTCUSDT",),
+        AS_OF,
         ledger_path=ledger,
         priors_path=priors,
     )
@@ -194,10 +193,9 @@ def test_render_priors_age_none_guard(tmp_path: Path) -> None:
 
 def test_render_error_panel(tmp_path: Path) -> None:
     cfg, conn = _seeded_cfg(tmp_path)
-    cfg2 = BriefConfig(
-        symbols=("NODATAUSDT",),
-        as_of_ms=AS_OF,
-        stats_days=60,
+    cfg2 = brief_cfg(
+        ("NODATAUSDT",),
+        AS_OF,
         ledger_path=cfg.ledger_path,
         priors_path=cfg.priors_path,
     )
@@ -535,3 +533,51 @@ def test_external_lines_variants() -> None:
     lines = _external_lines(ExternalState(snapshots=[_ext_snapshot(), agg]))
     assert len(lines) == 2
     assert lines[1].startswith(" " * 9 + "mmt map agg · 14h ⚠spot · above none")
+
+
+def _ext_row(lo: float, hi: float, dist: float, label: str = "") -> ExternalClusterRow:
+    return ExternalClusterRow(
+        price_lo=lo,
+        price_hi=hi,
+        kind="liq",
+        intensity="med",
+        label=label,
+        dist_atr=dist,
+    )
+
+
+def test_external_snapshot_bit_joins_multiple_clusters() -> None:
+    snap = ExternalSnapshot(
+        source="coinglass",
+        panel="liq_map",
+        window="1d",
+        scope="pair",
+        captured_at_ms=1,
+        age_hours=14.0,
+        spot_price_hint=None,
+        spot_hint_deviation=False,
+        clusters_above=[_ext_row(101, 102, 0.5), _ext_row(105, 106, 1.5, "top")],
+        clusters_below=[],
+    )
+    bit = _external_snapshot_bit(snap)
+    assert ", " in bit.split("above ")[1].split(" · below")[0]
+    assert bit.endswith("below none")
+
+
+def test_external_snapshot_bit_both_sides_none() -> None:
+    snap = ExternalSnapshot(
+        source="coinglass",
+        panel="liq_heatmap",
+        window=None,
+        scope="agg",
+        captured_at_ms=1,
+        age_hours=3.0,
+        spot_price_hint=None,
+        spot_hint_deviation=False,
+        clusters_above=[],
+        clusters_below=[],
+    )
+    bit = _external_snapshot_bit(snap)
+    assert "above none" in bit
+    assert "below none" in bit
+    assert " agg " in bit

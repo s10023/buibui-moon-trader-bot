@@ -53,10 +53,9 @@
     return PANEL_SHORT[p] ?? p;
   }
   function extCluster(c: BriefExternalClusterRow): string {
-    const band =
-      c.price_lo === c.price_hi
-        ? fmtPrice(c.price_lo)
-        : `${fmtPrice(c.price_lo)}–${fmtPrice(c.price_hi)}`;
+    const lo = fmtPrice(c.price_lo);
+    const hi = fmtPrice(c.price_hi);
+    const band = lo === hi ? lo : `${lo}–${hi}`;
     const strength = c.intensity === "high" ? "HIGH" : c.intensity;
     return `${band} ${strength}${c.label ? " " + c.label : ""} (${fmtDist(c.dist_atr)})`;
   }
@@ -209,11 +208,14 @@
         <dt>External</dt>
         <dd>
           Verified liquidation and order-book levels read from
-          operator-dropped chart screenshots (Coinglass / MMT). Each line is
-          one snapshot: source, panel (liq / book / map), window, capture
-          age, then price bands with intensity (HIGH = brightest) and ATR
-          distance. ⚠spot flags a snapshot whose printed spot price
-          disagrees with the brief's reference price.
+          operator-dropped chart screenshots (Coinglass / MMT). Each line
+          is one snapshot: source, panel (liq / book / map), window, an
+          "agg" tag when the panel shows exchange-aggregated rather than
+          pair-specific data, capture age, then price bands split above /
+          below the reference price (nearest first, capped per side) with
+          intensity (HIGH = brightest) and ATR distance. ⚠spot flags a
+          snapshot whose printed spot price disagrees with the brief's
+          reference price.
         </dd>
         <dt>Pundit board</dt>
         <dd>

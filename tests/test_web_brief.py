@@ -1,6 +1,10 @@
 """Brief router: happy path, param validation, dependency overrides."""
 
+import json
+from pathlib import Path
+
 import duckdb
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -9,6 +13,8 @@ from web.api.deps import get_db, require_token
 from web.api.routers import brief as brief_router
 
 AS_OF_ISO = "2024-03-01T00:00:00Z"
+AS_OF_MS = 1_709_251_200_000  # == AS_OF_ISO
+_H1 = 3_600_000
 
 
 def _client(conn: duckdb.DuckDBPyConnection) -> TestClient:
@@ -125,3 +131,77 @@ def test_get_brief_panel_serializes_external_key() -> None:
     panel = res.json()["panels"][0]
     assert "external" in panel
     assert panel["external"] is None
+
+
+def test_get_brief_external_populated_path_parity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Router uses the DEFAULT relative external_dir -> chdir into a temp
+    # tree with one fresh snapshot; nested external models must round-trip.
+    conn = make_conn()
+    seed_symbol(conn, "BTCUSDT", START_MS, 60)
+    ext_dir = tmp_path / "docs" / "plans" / "external-context"
+    ext_dir.mkdir(parents=True)
+    snapshot = {
+        "schema": "external-levels-v1",
+        "source": "coinglass",
+        "symbol": "BTCUSDT",
+        "panel": "liq_map",
+        "window": "1d",
+        "scope": "pair",
+        "captured_at_ms": AS_OF_MS - 14 * _H1,
+        "ingested_at_ms": AS_OF_MS - 13 * _H1,
+        "verified": True,
+        "spot_price_hint": None,
+        "clusters": [
+            {
+                "price_lo": 1.0,
+                "price_hi": 2.0,
+                "kind": "liq",
+                "intensity": "low",
+                "label": "",
+            },
+            {
+                "price_lo": 900_000.0,
+                "price_hi": 1_000_000.0,
+                "kind": "liq",
+                "intensity": "high",
+                "label": "magnet",
+            },
+        ],
+        "notes": "",
+    }
+    (ext_dir / "coinglass_liq_map_1d_BTCUSDT.json").write_text(json.dumps(snapshot))
+    monkeypatch.chdir(tmp_path)
+    client = _client(conn)
+    res = client.get(
+        "/api/brief",
+        params={"symbols": "BTCUSDT", "days": 60, "as_of": AS_OF_ISO},
+    )
+    assert res.status_code == 200
+    ext = res.json()["panels"][0]["external"]
+    assert ext is not None
+    assert len(ext["snapshots"]) == 1
+    snap = ext["snapshots"][0]
+    assert snap["source"] == "coinglass"
+    assert snap["panel"] == "liq_map"
+    assert snap["window"] == "1d"
+    assert snap["scope"] == "pair"
+    assert snap["captured_at_ms"] == AS_OF_MS - 14 * _H1
+    assert round(snap["age_hours"]) == 14
+    assert snap["spot_price_hint"] is None
+    assert snap["spot_hint_deviation"] is False
+    # seeded closes sit far inside (2, 900k): one cluster per side.
+    assert len(snap["clusters_above"]) == 1
+    assert len(snap["clusters_below"]) == 1
+    row = snap["clusters_above"][0]
+    assert set(row) == {
+        "price_lo",
+        "price_hi",
+        "kind",
+        "intensity",
+        "label",
+        "dist_atr",
+    }
+    assert row["label"] == "magnet"
+    assert row["dist_atr"] > 0

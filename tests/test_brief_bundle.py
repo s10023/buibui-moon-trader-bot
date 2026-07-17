@@ -8,21 +8,14 @@ import pytest
 from analytics.brief._common import TF_MS
 from analytics.brief.bundle import _resolve_ref_price, compute_brief
 from analytics.brief.config import BriefConfig
-from tests._brief_fixtures import DAY_MS, START_MS, make_conn, seed_symbol
+from tests._brief_fixtures import DAY_MS, START_MS, brief_cfg, make_conn, seed_symbol
 
 AS_OF = START_MS + 60 * DAY_MS
 H1_MS = TF_MS["1h"]
 
 
 def _cfg(symbols: tuple[str, ...]) -> BriefConfig:
-    # Point external_dir at a nonexistent path: real operator snapshots in the
-    # default docs/plans/external-context/ must never leak into this suite.
-    return BriefConfig(
-        symbols=symbols,
-        as_of_ms=AS_OF,
-        stats_days=60,
-        external_dir=Path("tests/no-such-external-context"),
-    )
+    return brief_cfg(symbols, AS_OF)
 
 
 def test_compute_brief_happy_path() -> None:
@@ -233,3 +226,16 @@ def test_tendency_failure_keeps_recap_and_notes(
     assert panel.sessions.recap is not None  # recap survives
     assert panel.sessions.tendency is None  # tendency dropped
     assert any("session tendency failed" in n for n in bundle.health.notes)
+
+
+def test_external_notes_flow_prefixed_through_bundle(tmp_path: Path) -> None:
+    ext = tmp_path / "ext"
+    ext.mkdir()
+    (ext / "junk.json").write_text("{not json")
+    conn = make_conn()
+    seed_symbol(conn, "BTCUSDT", START_MS, 60)
+    bundle = compute_brief(conn, brief_cfg(("BTCUSDT",), AS_OF, external_dir=ext))
+    assert any(
+        n.startswith("BTCUSDT: external: unreadable junk.json")
+        for n in bundle.health.notes
+    )
