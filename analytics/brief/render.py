@@ -285,13 +285,14 @@ def _cluster_bit(row: ExternalClusterRow) -> str:
 
 
 def _external_snapshot_bit(snap: ExternalSnapshot) -> str:
+    src = snap.source if snap.venue is None else f"{snap.source}/{snap.venue}"
     win = f" ({snap.window})" if snap.window else ""
     scope_bit = " agg" if snap.scope == "agg" else ""
     dev = " ⚠spot" if snap.spot_hint_deviation else ""
     above = ", ".join(_cluster_bit(r) for r in snap.clusters_above) or "none"
     below = ", ".join(_cluster_bit(r) for r in snap.clusters_below) or "none"
     return (
-        f"{snap.source} {_PANEL_SHORT.get(snap.panel, snap.panel)}{win}{scope_bit}"
+        f"{src} {_PANEL_SHORT.get(snap.panel, snap.panel)}{win}{scope_bit}"
         f" · {snap.age_hours:.0f}h{dev} · above {above} · below {below}"
     )
 

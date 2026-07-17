@@ -27,13 +27,18 @@ PYTHONPATH=. poetry run python tools/chart_drops.py scan
 
 - `pending` empty and `unparseable` empty → report "no new drops" and stop.
 - `unparseable` non-empty → list the names and ask the operator to rename to
-  `<source>_<SYMBOL>[_<YYYYMMDD[-HHMM]>].png|.jpg|.jpeg` (source ∈
-  coinglass|mmt, MYT timestamp). Do NOT guess. Continue with `pending`.
-  Echo these copy-paste examples with the rename request:
+  `<source>[-<venue>]_<SYMBOL>[_<YYYYMMDD[-HHMM]>].png|.jpg|.jpeg` (source ∈
+  coinglass|mmt, MYT timestamp). `venue` is an optional dash-suffixed token
+  on the source segment naming the specific exchange a panel's data comes
+  from (e.g. Coinglass's per-exchange liq-map view); omit it when the panel
+  is exchange-aggregated or the exchange is unknown. Do NOT guess. Continue
+  with `pending`. Echo these copy-paste examples with the rename request:
   `coinglass_BTCUSDT_20260715-0930.jpeg` (heatmap) ·
   `coinglass_BTCUSDT_20260715-0931.jpeg` (map — bump the minute so names
-  differ) · `mmt_ETHUSDT.png` (no timestamp = file mtime). Panel type never
-  goes in the name — the extraction detects heatmap vs map.
+  differ) · `coinglass-hyperliquid_BTCUSDT_20260716-1040.png` (map scoped
+  to the Hyperliquid venue) · `mmt_ETHUSDT.png` (no timestamp = file
+  mtime). Panel type never goes in the name — the extraction detects
+  heatmap vs map.
 
 ## 2. Extract (one sonnet subagent per pending image)
 
@@ -94,10 +99,12 @@ gate.
 For each approved image build the final snapshot dict:
 
 - `schema` "external-levels-v1"; `source`+`symbol` from the filename;
-  `panel`/`window`/`scope`/`spot_price_hint`/`clusters` from the extraction
-  after operator corrections; `captured_at_ms` from the scan output;
-  `ingested_at_ms` = now (ms); `verified` true; `notes` = correction
-  summary or "".
+  `venue` from the filename's dash-suffixed source token via
+  `PendingDrop.venue` (optional; null/absent = unspecified — most drops
+  have no venue); `panel`/`window`/`scope`/`spot_price_hint`/`clusters`
+  from the extraction after operator corrections; `captured_at_ms` from
+  the scan output; `ingested_at_ms` = now (ms); `verified` true; `notes` =
+  correction summary or "".
 
 Save it to a scratchpad temp file, then:
 

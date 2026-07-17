@@ -170,6 +170,9 @@ class ExternalClusterRow:
 @dataclass(frozen=True)
 class ExternalSnapshot:
     source: str  # "coinglass" | "mmt" (config-extensible)
+    venue: (
+        str | None
+    )  # exchange the panel shows (e.g. "binance", "hyperliquid"); None = unspecified
     panel: str  # "liq_heatmap" | "book_heatmap" | "liq_map"
     window: str | None  # from the visible timeframe selector, e.g. "24h"
     scope: str | None  # "pair" | "agg"

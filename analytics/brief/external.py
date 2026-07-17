@@ -40,6 +40,7 @@ _REQUIRED_KEYS = {
     "notes",
 }
 _CLUSTER_KEYS = {"price_lo", "price_hi", "kind", "intensity", "label"}
+_OPTIONAL_KEYS = {"venue"}  # additive 2026-07-16; absent == null == unspecified
 
 
 def _is_num(value: object) -> bool:
@@ -73,13 +74,15 @@ def validate_snapshot_dict(data: object) -> list[str]:
     """Contract check shared by writer and reader. [] means valid.
 
     Unknown top-level keys are rejected — the schema version bumps instead.
+    ``venue`` is the one sanctioned optional key (schema stays
+    ``external-levels-v1``): absent or null both mean unspecified.
     """
     if not isinstance(data, dict):
         return ["snapshot is not a JSON object"]
     problems: list[str] = []
     keys = set(data)
     missing = _REQUIRED_KEYS - keys
-    unknown = keys - _REQUIRED_KEYS
+    unknown = keys - _REQUIRED_KEYS - _OPTIONAL_KEYS
     if missing:
         problems.append(f"missing keys: {sorted(missing)}")
     if unknown:
@@ -99,6 +102,9 @@ def validate_snapshot_dict(data: object) -> list[str]:
         problems.append("window: not a string or null")
     if data["scope"] is not None and data["scope"] not in ALLOWED_SCOPES:
         problems.append(f"scope {data['scope']!r} not in {ALLOWED_SCOPES}")
+    venue = data.get("venue")
+    if venue is not None and (not isinstance(venue, str) or not venue):
+        problems.append("venue: not a non-empty string or null")
     for key in ("captured_at_ms", "ingested_at_ms"):
         value = data[key]
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
@@ -152,6 +158,7 @@ def _build_snapshot(
         )
     return ExternalSnapshot(
         source=str(data["source"]),
+        venue=None if data.get("venue") is None else str(data["venue"]),
         panel=str(data["panel"]),
         window=data["window"],
         scope=data["scope"],
@@ -176,15 +183,17 @@ def load_external_state(
 ) -> tuple[ExternalState | None, list[str]]:
     """(state, notes) for one symbol. Notes are UNPREFIXED (bundle adds it).
 
-    Latest fresh snapshot per (source, panel, window); absent dir or no
-    files for this symbol -> (None, []) silently (feature is opt-in by
-    usage); all-stale -> the re-drop note; malformed/unknown-source files
-    -> per-file notes, never exceptions.
+    Latest fresh snapshot per (source, venue, scope, panel, window) —
+    Binance-pair vs exchange-aggregated vs Hyperliquid snapshots of the
+    same panel+window coexist rather than clobbering each other; absent
+    dir or no files for this symbol -> (None, []) silently (feature is
+    opt-in by usage); all-stale -> the re-drop note; malformed/unknown-source
+    files -> per-file notes, never exceptions.
     """
     if not dir_path.is_dir():
         return None, []
     notes: list[str] = []
-    fresh: dict[tuple[str, str, str], dict[str, Any]] = {}
+    fresh: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
     stale_latest_ms: int | None = None
     for path in sorted(dir_path.glob("*.json")):
         try:
@@ -212,7 +221,13 @@ def load_external_state(
             if stale_latest_ms is None or captured > stale_latest_ms:
                 stale_latest_ms = captured
             continue
-        key = (str(data["source"]), str(data["panel"]), str(data["window"] or ""))
+        key = (
+            str(data["source"]),
+            str(data.get("venue") or ""),
+            str(data["scope"] or ""),
+            str(data["panel"]),
+            str(data["window"] or ""),
+        )
         kept = fresh.get(key)
         if kept is None or captured > int(kept["captured_at_ms"]):
             fresh[key] = data
