@@ -73,6 +73,13 @@ def test_ledger_roundtrip(tmp_path: Path) -> None:
     assert data["def456"]["ingested_at_ms"] == 2_000
 
 
+def test_load_ledger_corrupt_raises_actionable_error(tmp_path: Path) -> None:
+    ledger = tmp_path / "processed.json"
+    ledger.write_text("{broken")
+    with pytest.raises(ValueError, match="corrupt ledger"):
+        load_ledger(ledger)
+
+
 def test_scan_drops(tmp_path: Path) -> None:
     drop = tmp_path / "drops"
     drop.mkdir()
@@ -230,6 +237,44 @@ def test_cli_scan_write_mark(tmp_path: Path, capsys: Any) -> None:
     outcomes = {v["filename"]: v["outcome"] for v in load_ledger(ledger).values()}
     assert outcomes["mmt_ETHUSDT.png"] == "dropped"
     assert (drop / "done" / "mmt_ETHUSDT.png").is_file()
+
+
+def test_mark_processed_rejects_unknown_outcome(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="outcome"):
+        mark_processed(tmp_path / "l.json", "sha", "f.png", "exploded", 1)
+
+
+def test_write_branch_move_failure_fails_open(tmp_path: Path) -> None:
+    # done/ existing as a FILE makes move_to_done raise; the snapshot is
+    # already written (fail-open), but the ledger MUST stay unmarked so
+    # the image is still visible to the next scan.
+    drop = tmp_path / "drops"
+    drop.mkdir()
+    image = drop / "coinglass_BTCUSDT_20260716-1040.png"
+    image.write_bytes(b"img")
+    (drop / "done").write_text("not a dir")
+    snap_file = tmp_path / "snap.json"
+    snap_file.write_text(
+        json.dumps(_snapshot())
+    )  # the file's existing builder (line 96)
+    out_dir = tmp_path / "out"
+    ledger = tmp_path / "ledger.json"
+    with pytest.raises(OSError):
+        main(
+            [
+                "write",
+                "--json-file",
+                str(snap_file),
+                "--image",
+                str(image),
+                "--out-dir",
+                str(out_dir),
+                "--ledger",
+                str(ledger),
+            ]
+        )
+    assert image.exists()  # image untouched in the drop dir
+    assert load_ledger(ledger) == {}  # unmarked -> next scan retries
 
 
 def test_cli_move_failure_leaves_ledger_unmarked(tmp_path: Path) -> None:

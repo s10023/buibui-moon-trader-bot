@@ -74,7 +74,12 @@ def file_sha256(path: Path) -> str:
 def load_ledger(path: Path) -> dict[str, dict[str, Any]]:
     if not path.is_file():
         return {}
-    data = json.loads(path.read_text())
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        # A corrupt dedup ledger must fail loudly: silently treating it as
+        # empty would re-ingest every already-processed image on next scan.
+        raise ValueError(f"corrupt ledger {path} — fix or delete it: {exc}") from exc
     return data if isinstance(data, dict) else {}
 
 
