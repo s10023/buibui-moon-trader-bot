@@ -302,7 +302,7 @@ def test_ref_close_zero_no_deviation_note(tmp_path: Path) -> None:
     assert state.snapshots[0].spot_hint_deviation is False
 
 
-def test_mixed_fresh_and_stale_same_key_keeps_fresh_silently(tmp_path: Path) -> None:
+def test_stale_file_note_suppressed_when_fresh_exists(tmp_path: Path) -> None:
     fresh = _valid_snapshot()
     stale = _valid_snapshot()
     stale["captured_at_ms"] = AS_OF - int(72 * 3_600_000)
@@ -313,7 +313,8 @@ def test_mixed_fresh_and_stale_same_key_keeps_fresh_silently(tmp_path: Path) -> 
     )
     assert state is not None
     assert len(state.snapshots) == 1
-    assert not any("stale" in n for n in notes)  # fresh exists -> no re-drop nag
+    # stale sibling skipped pre-dedup; with fresh present, no re-drop note fires
+    assert not any("stale" in n for n in notes)
 
 
 def test_unreadable_directory_entry_becomes_note(tmp_path: Path) -> None:
