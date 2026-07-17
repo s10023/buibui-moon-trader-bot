@@ -68,3 +68,9 @@ class TestPrompt:
         assert '"verdict"' in RUBRIC
         assert "ONLY a JSON object" in RUBRIC
         assert "confluence" in RUBRIC.lower()
+
+    def test_rubric_external_trust_guards_pinned(self) -> None:
+        # card-v2 delta fragments not covered by the original contract pins
+        assert '"book" bands' in RUBRIC
+        assert "higher intensity and lower age_hours" in RUBRIC
+        assert "spot_hint_deviation true" in RUBRIC
