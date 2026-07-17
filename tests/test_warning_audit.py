@@ -1,0 +1,131 @@
+"""Tests for analytics/warning_audit.py (H9 warning-value audit lib)."""
+
+from __future__ import annotations
+
+import pandas as pd
+
+from analytics.signal.types import SignalEvent
+from analytics.warning_audit import WARNING_KEYS, compute_warning_flags
+from signals.alert_formatter import _build_candle_warnings
+
+
+def _mk_df(rows: list[tuple[float, float, float, float]]) -> pd.DataFrame:
+    """OHLCV frame from (open, high, low, close) tuples; 1h spacing."""
+    return pd.DataFrame(
+        {
+            "open_time": [3_600_000 * i for i in range(len(rows))],
+            "open": [r[0] for r in rows],
+            "high": [r[1] for r in rows],
+            "low": [r[2] for r in rows],
+            "close": [r[3] for r in rows],
+            "volume": [100.0] * len(rows),
+        }
+    )
+
+
+# (name, rows, {direction: {key: expected}}) — unlisted keys expected False.
+_CASES: list[
+    tuple[str, list[tuple[float, float, float, float]], dict[str, dict[str, bool]]]
+] = [
+    (
+        "plain",
+        [(100.0, 101.0, 99.0, 100.5), (100.5, 103.0, 100.0, 102.0)],
+        {"long": {}, "short": {}},
+    ),
+    (
+        "marubozu",
+        [(100.0, 101.0, 99.0, 100.5), (100.0, 110.5, 99.8, 110.0)],
+        {"long": {"w1_marubozu": True}, "short": {"w1_marubozu": True}},
+    ),
+    (
+        # doji with a huge upper wick: raw wick-rejection is True for long but
+        # MUST be suppressed because the candle is a doji (live precedence).
+        "doji_suppresses_w5",
+        [(100.0, 101.0, 99.0, 100.5), (100.0, 110.0, 99.5, 100.4)],
+        {"long": {"w7_doji": True}, "short": {"w7_doji": True}},
+    ),
+    (
+        "inside_bar",
+        [(100.0, 110.0, 90.0, 105.0), (104.0, 106.0, 95.0, 96.0)],
+        {"long": {"w8_inside_bar": True}, "short": {"w8_inside_bar": True}},
+    ),
+    (
+        "wick_reject_long_only",
+        [(100.0, 101.0, 99.0, 100.5), (100.0, 110.0, 99.5, 102.0)],
+        {"long": {"w5_wick_rejection": True}, "short": {}},
+    ),
+    (
+        "equal_lows_long_only",
+        [
+            (100.0, 101.0, 95.0, 100.2),
+            (100.2, 100.6, 95.1, 100.4),
+            (100.4, 100.8, 99.6, 100.0),
+        ],
+        {"long": {"w2_equal_levels": True}, "short": {}},
+    ),
+    (
+        "three_greens_long_only",
+        [
+            (100.0, 101.5, 99.0, 101.0),
+            (101.0, 102.5, 100.0, 102.0),
+            (102.0, 103.5, 101.2, 103.0),
+        ],
+        {"long": {"w6_consecutive": True}, "short": {}},
+    ),
+]
+
+# Note substrings in _build_candle_warnings output → flag key.
+_NOTE_MARKERS = {
+    "w1_marubozu": "Wickless candle",
+    "w2_equal_levels": "liquidity",
+    "w5_wick_rejection": "wick rejection",
+    "w6_consecutive": "in a row",
+    "w7_doji": "Doji signal candle",
+    "w8_inside_bar": "inside prior range",
+}
+
+
+class TestComputeWarningFlags:
+    def test_returns_none_below_two_rows(self) -> None:
+        df = _mk_df([(100.0, 101.0, 99.0, 100.5)])
+        assert compute_warning_flags(df, "long") is None
+
+    def test_all_keys_present(self) -> None:
+        df = _mk_df(_CASES[0][1])
+        flags = compute_warning_flags(df, "long")
+        assert flags is not None
+        assert set(flags) == set(WARNING_KEYS)
+
+    def test_expected_flags_per_case(self) -> None:
+        for name, rows, per_dir in _CASES:
+            df = _mk_df(rows)
+            for direction, expected in per_dir.items():
+                flags = compute_warning_flags(df, direction)
+                assert flags is not None, name
+                for key in WARNING_KEYS:
+                    want = expected.get(key, False)
+                    assert flags[key] is want, f"{name}/{direction}/{key}"
+
+
+class TestLiveParity:
+    """compute_warning_flags must agree with _build_candle_warnings exactly."""
+
+    def test_parity_across_case_battery(self) -> None:
+        for name, rows, per_dir in _CASES:
+            df = _mk_df(rows)
+            for direction in per_dir:
+                event = SignalEvent(
+                    symbol="BTCUSDT",
+                    timeframe="1h",
+                    strategy="wick_fills",
+                    direction=direction,
+                    reason="parity-test",
+                    open_time=int(df.iloc[-1]["open_time"]),
+                    price=float(df.iloc[-1]["close"]),
+                )
+                notes = _build_candle_warnings([event], df)
+                flags = compute_warning_flags(df, direction)
+                assert flags is not None, name
+                for key, marker in _NOTE_MARKERS.items():
+                    fired_live = any(marker in n for n in notes)
+                    assert flags[key] is fired_live, f"{name}/{direction}/{key}"
