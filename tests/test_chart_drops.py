@@ -28,16 +28,17 @@ def _myt_ms(y: int, mo: int, d: int, h: int = 0, mi: int = 0) -> int:
 
 def test_parse_full_name() -> None:
     parsed = parse_drop_filename("coinglass_BTCUSDT_20260714-0930.png")
-    assert parsed == ("coinglass", "BTCUSDT", _myt_ms(2026, 7, 14, 9, 30))
+    assert parsed == ("coinglass", None, "BTCUSDT", _myt_ms(2026, 7, 14, 9, 30))
 
 
 def test_parse_date_only_and_no_ts() -> None:
     assert parse_drop_filename("mmt_ETHUSDT_20260714.jpg") == (
         "mmt",
+        None,
         "ETHUSDT",
         _myt_ms(2026, 7, 14),
     )
-    assert parse_drop_filename("mmt_ETHUSDT.jpeg") == ("mmt", "ETHUSDT", None)
+    assert parse_drop_filename("mmt_ETHUSDT.jpeg") == ("mmt", None, "ETHUSDT", None)
 
 
 def test_parse_rejects_bad_names() -> None:
@@ -51,16 +52,41 @@ def test_parse_rejects_bad_names() -> None:
 def test_parse_drop_filename_uppercase_extension() -> None:
     parsed = parse_drop_filename("coinglass_BTCUSDT_20260716-1040.PNG")
     assert parsed is not None
-    source, symbol, ts_ms = parsed
-    assert (source, symbol) == ("coinglass", "BTCUSDT")
+    source, venue, symbol, ts_ms = parsed
+    assert (source, venue, symbol) == ("coinglass", None, "BTCUSDT")
     assert ts_ms is not None
 
 
 def test_parse_drop_filename_mixed_case_jpeg() -> None:
-    assert parse_drop_filename("mmt_ETHUSDT.Jpeg") is not None
+    parsed = parse_drop_filename("mmt_ETHUSDT.Jpeg")
+    assert parsed is not None
+    assert parsed[1] is None  # venue
     # source/symbol case rules unchanged:
     assert parse_drop_filename("Coinglass_BTCUSDT.png") is None
     assert parse_drop_filename("coinglass_btcusdt.png") is None
+
+
+def test_parse_drop_filename_with_venue_token() -> None:
+    parsed = parse_drop_filename("coinglass-hyperliquid_BTCUSDT_20260716-1040.png")
+    assert parsed is not None
+    source, venue, symbol, ts_ms = parsed
+    assert (source, venue, symbol) == ("coinglass", "hyperliquid", "BTCUSDT")
+    assert ts_ms is not None
+
+
+def test_parse_drop_filename_without_venue_is_none_venue() -> None:
+    parsed = parse_drop_filename("coinglass_BTCUSDT_20260716-1040.png")
+    assert parsed is not None
+    assert parsed[1] is None
+
+
+def test_scan_drops_carries_venue(tmp_path: Path) -> None:
+    drop = tmp_path / "drops"
+    drop.mkdir()
+    (drop / "coinglass-hyperliquid_BTCUSDT_20260716-1040.png").write_bytes(b"i")
+    pending, unparseable = scan_drops(drop, tmp_path / "ledger.json")
+    assert unparseable == []
+    assert pending[0].venue == "hyperliquid"
 
 
 def test_ledger_roundtrip(tmp_path: Path) -> None:
@@ -161,6 +187,15 @@ def test_snapshot_filename_includes_window() -> None:
         snapshot_filename(_snapshot(window=None, panel="liq_map"))
         == "coinglass_liq_map_BTCUSDT_20260714-0930.json"
     )
+
+
+def test_snapshot_filename_includes_venue() -> None:
+    data = _snapshot()
+    data["venue"] = "hyperliquid"
+    name = snapshot_filename(data)
+    assert name.startswith("coinglass-hyperliquid_")
+    data.pop("venue")
+    assert snapshot_filename(data).startswith("coinglass_")
 
 
 def test_write_snapshot_validates(tmp_path: Path) -> None:

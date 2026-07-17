@@ -30,7 +30,7 @@ OUTCOMES = ("written", "skipped", "dropped")
 _MYT = timezone(timedelta(hours=8))
 _IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg")
 _NAME_RE = re.compile(
-    r"^(?P<source>[a-z0-9]+)_(?P<symbol>[A-Z0-9]+)"
+    r"^(?P<source>[a-z0-9]+)(?:-(?P<venue>[a-z0-9]+))?_(?P<symbol>[A-Z0-9]+)"
     r"(?:_(?P<ts>\d{8}(?:-\d{4})?))?\.(?i:png|jpg|jpeg)$"
 )
 
@@ -40,6 +40,7 @@ class PendingDrop:
     path: str
     sha256: str
     source: str
+    venue: str | None
     symbol: str
     captured_at_ms: int
     ts_from_filename: bool
@@ -47,10 +48,12 @@ class PendingDrop:
 
 def parse_drop_filename(
     name: str, allowed_sources: tuple[str, ...] = ALLOWED_SOURCES
-) -> tuple[str, str, int | None] | None:
-    """(source, symbol, captured_at_ms | None) or None if unparseable.
+) -> tuple[str, str | None, str, int | None] | None:
+    """(source, venue | None, symbol, captured_at_ms | None) or None if unparseable.
 
-    Timestamp is the operator's wall clock — MYT (fixed UTC+8).
+    venue is an optional dash-suffixed token on the source segment (e.g.
+    "coinglass-hyperliquid"); absent when the drop has no dash. Timestamp
+    is the operator's wall clock — MYT (fixed UTC+8).
     """
     match = _NAME_RE.match(name)
     if match is None or match.group("source") not in allowed_sources:
@@ -64,7 +67,7 @@ def parse_drop_filename(
         except ValueError:
             return None
         ts_ms = int(parsed.timestamp() * 1000)
-    return match.group("source"), match.group("symbol"), ts_ms
+    return match.group("source"), match.group("venue"), match.group("symbol"), ts_ms
 
 
 def file_sha256(path: Path) -> str:
@@ -119,13 +122,14 @@ def scan_drops(
         if parsed is None:
             unparseable.append(path.name)
             continue
-        source, symbol, ts_ms = parsed
+        source, venue, symbol, ts_ms = parsed
         captured = ts_ms if ts_ms is not None else int(path.stat().st_mtime * 1000)
         pending.append(
             PendingDrop(
                 path=str(path),
                 sha256=sha,
                 source=source,
+                venue=venue,
                 symbol=symbol,
                 captured_at_ms=captured,
                 ts_from_filename=ts_ms is not None,
@@ -137,8 +141,9 @@ def scan_drops(
 def snapshot_filename(data: dict[str, Any]) -> str:
     ts = datetime.fromtimestamp(data["captured_at_ms"] / 1000, tz=_MYT)
     window = f"_{data['window']}" if data["window"] else ""
+    src = data["source"] + (f"-{data['venue']}" if data.get("venue") else "")
     return (
-        f"{data['source']}_{data['panel']}{window}_{data['symbol']}"
+        f"{src}_{data['panel']}{window}_{data['symbol']}"
         f"_{ts.strftime('%Y%m%d-%H%M')}.json"
     )
 
