@@ -742,6 +742,7 @@ export interface BriefExternalClusterRow {
 
 export interface BriefExternalSnapshot {
   source: string;
+  venue: string | null;
   panel: string;
   window: string | null;
   scope: string | null;

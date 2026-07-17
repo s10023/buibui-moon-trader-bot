@@ -184,6 +184,8 @@ def test_get_brief_external_populated_path_parity(
     assert len(ext["snapshots"]) == 1
     snap = ext["snapshots"][0]
     assert snap["source"] == "coinglass"
+    assert "venue" in snap
+    assert snap["venue"] is None
     assert snap["panel"] == "liq_map"
     assert snap["window"] == "1d"
     assert snap["scope"] == "pair"

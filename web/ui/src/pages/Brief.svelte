@@ -209,13 +209,14 @@
         <dd>
           Verified liquidation and order-book levels read from
           operator-dropped chart screenshots (Coinglass / MMT). Each line
-          is one snapshot: source, panel (liq / book / map), window, an
-          "agg" tag when the panel shows exchange-aggregated rather than
-          pair-specific data, capture age, then price bands split above /
-          below the reference price (nearest first, capped per side) with
-          intensity (HIGH = brightest) and ATR distance. ⚠spot flags a
-          snapshot whose printed spot price disagrees with the brief's
-          reference price.
+          is one snapshot: source (with /venue when the panel shows one
+          specific exchange's data, e.g. coinglass/hyperliquid), panel
+          (liq / book / map), window, an "agg" tag when the panel shows
+          exchange-aggregated rather than pair-specific data, capture age,
+          then price bands split above / below the reference price
+          (nearest first, capped per side) with intensity (HIGH =
+          brightest) and ATR distance. ⚠spot flags a snapshot whose
+          printed spot price disagrees with the brief's reference price.
         </dd>
         <dt>Pundit board</dt>
         <dd>
@@ -380,7 +381,7 @@
                 {#each panel.external.snapshots as snap}
                   <div>
                     <span class="sess-name">EXT</span>
-                    {snap.source} {panelShort(snap.panel)}{snap.window ? ` (${snap.window})` : ""}{snap.scope === "agg" ? " agg" : ""}
+                    {snap.source}{snap.venue ? `/${snap.venue}` : ""} {panelShort(snap.panel)}{snap.window ? ` (${snap.window})` : ""}{snap.scope === "agg" ? " agg" : ""}
                     · {Math.round(snap.age_hours)}h{snap.spot_hint_deviation ? " ⚠spot" : ""}
                     · above {extClusters(snap.clusters_above)}
                     · below {extClusters(snap.clusters_below)}

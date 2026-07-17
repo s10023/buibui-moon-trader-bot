@@ -149,6 +149,7 @@ class ExternalClusterRowModel(BaseModel):
 
 class ExternalSnapshotModel(BaseModel):
     source: str
+    venue: str | None
     panel: str
     window: str | None
     scope: str | None

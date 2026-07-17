@@ -584,3 +584,37 @@ def test_external_snapshot_bit_both_sides_none() -> None:
     assert "above none" in bit
     assert "below none" in bit
     assert " agg " in bit
+
+
+def test_external_snapshot_bit_shows_venue() -> None:
+    snap = ExternalSnapshot(
+        source="coinglass",
+        venue="hyperliquid",
+        panel="liq_map",
+        window="1d",
+        scope="pair",
+        captured_at_ms=1,
+        age_hours=2.0,
+        spot_price_hint=None,
+        spot_hint_deviation=False,
+        clusters_above=[_ext_row(101, 102, 0.5)],
+        clusters_below=[],
+    )
+    assert _external_snapshot_bit(snap).startswith("coinglass/hyperliquid map (1d)")
+
+
+def test_external_snapshot_bit_no_venue_unchanged() -> None:
+    snap = ExternalSnapshot(
+        source="coinglass",
+        venue=None,
+        panel="liq_map",
+        window="1d",
+        scope="pair",
+        captured_at_ms=1,
+        age_hours=2.0,
+        spot_price_hint=None,
+        spot_hint_deviation=False,
+        clusters_above=[_ext_row(101, 102, 0.5)],
+        clusters_below=[],
+    )
+    assert _external_snapshot_bit(snap).startswith("coinglass map (1d)")
