@@ -8,7 +8,9 @@ import pandas as pd
 from analytics.signal.types import SignalEvent
 from analytics.warning_audit import (
     WARNING_KEYS,
+    WarningVerdict,
     compute_warning_flags,
+    evaluate_warning_cells,
     tag_trades,
     two_sample_lift_ci,
 )
@@ -186,3 +188,66 @@ class TestTagTrades:
         assert dropped == 3
         assert tagged.empty
         assert set(WARNING_KEYS) <= set(tagged.columns)
+
+
+def _block(
+    n: int, r_mean: float, flag: str | None, rng: np.random.Generator
+) -> pd.DataFrame:
+    df = pd.DataFrame({"direction": ["long"] * n, "r": rng.normal(r_mean, 0.3, n)})
+    for key in WARNING_KEYS:
+        df[key] = key == flag
+    return df
+
+
+class TestEvaluateWarningCells:
+    def test_taxonomy_mapping(self) -> None:
+        rng = np.random.default_rng(7)
+        tagged = pd.concat(
+            [
+                _block(80, -0.8, "w7_doji", rng),  # reliable loser
+                _block(80, 0.8, "w1_marubozu", rng),  # reliable winner
+                _block(80, 0.0, "w6_consecutive", rng),  # powered, no effect
+                _block(5, -1.0, "w2_equal_levels", rng),  # under-powered
+                _block(300, 0.05, None, rng),  # clean bulk
+            ]
+        ).reset_index(drop=True)
+        verdicts = evaluate_warning_cells(tagged, n_boot=500)
+        assert len(verdicts) == 12
+        by: dict[tuple[str, str], WarningVerdict] = {
+            (v.warning, v.direction): v for v in verdicts
+        }
+        assert by[("w7_doji", "long")].verdict == "SUPPRESS-CANDIDATE"
+        assert by[("w1_marubozu", "long")].verdict == "REVERSE"
+        assert by[("w6_consecutive", "long")].verdict == "COSMETIC"
+        assert by[("w2_equal_levels", "long")].verdict == "INSUFFICIENT"
+        assert by[("w7_doji", "short")].verdict == "INSUFFICIENT"
+        # lift stamp populated on a tested cell
+        assert by[("w7_doji", "long")].lift_hi < 0.0
+
+    def test_concentrate_maps_to_cosmetic_with_raw_kept(self) -> None:
+        rng = np.random.default_rng(11)
+        tagged = pd.concat(
+            [
+                _block(80, 0.3, "w8_inside_bar", rng),
+                _block(300, 0.9, None, rng),
+            ]
+        ).reset_index(drop=True)
+        verdicts = evaluate_warning_cells(tagged, n_boot=500)
+        by = {(v.warning, v.direction): v for v in verdicts}
+        v = by[("w8_inside_bar", "long")]
+        assert v.raw_decision == "CONCENTRATE"
+        assert v.verdict == "COSMETIC"
+
+    def test_single_holm_family(self) -> None:
+        rng = np.random.default_rng(3)
+        tagged = pd.concat(
+            [
+                _block(80, -0.8, "w7_doji", rng),
+                _block(80, 0.8, "w1_marubozu", rng),
+                _block(300, 0.05, None, rng),
+            ]
+        ).reset_index(drop=True)
+        verdicts = evaluate_warning_cells(tagged, n_boot=500)
+        tested = [v for v in verdicts if v.adj_pvalue is not None]
+        # every tested cell reports the same family size
+        assert len({v.n_tests for v in tested}) == 1

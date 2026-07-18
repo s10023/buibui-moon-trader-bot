@@ -15,11 +15,13 @@ scope. See ``docs/superpowers/plans/2026-07-17-h9-warning-value-audit.md``.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
+from analytics import audit_guard
 from signals.alert_formatter import (
     _has_consecutive_candles,
     _has_equal_levels,
@@ -157,3 +159,99 @@ def tag_trades(
     tagged = entries.loc[keep_idx].reset_index(drop=True)
     flags_df = pd.DataFrame(flag_rows)[list(WARNING_KEYS)]
     return pd.concat([tagged, flags_df], axis=1), dropped
+
+
+@dataclass(frozen=True)
+class WarningVerdict:
+    """Pre-committed H9 verdict for one (warning × direction) cell."""
+
+    warning: str
+    direction: str
+    n_warned: int
+    n_clean: int
+    avg_warned: float | None
+    avg_clean: float | None
+    ci_lo: float | None
+    ci_hi: float | None
+    adj_pvalue: float | None
+    n_tests: int
+    lift_lo: float
+    lift_hi: float
+    raw_decision: str  # audit_guard ENABLE/DISABLE/CONCENTRATE/INSUFFICIENT
+    verdict: str  # SUPPRESS-CANDIDATE / REVERSE / COSMETIC / INSUFFICIENT
+    reasons: list[str]
+
+
+def evaluate_warning_cells(
+    tagged: pd.DataFrame,
+    *,
+    min_n: int = 30,
+    bar: float = 0.05,
+    alpha: float = 0.05,
+    n_boot: int = 10_000,
+    seed: int | None = 12345,
+) -> list[WarningVerdict]:
+    """Verdict per (warning × direction) — ONE Holm family per call.
+
+    The warned slice is treated as the would-be-suppressed slice of a
+    hypothetical warning gate, so :mod:`analytics.audit_guard` semantics map
+    directly: ENABLE (warned reliably ≤ −bar) → SUPPRESS-CANDIDATE; DISABLE
+    (warned reliably ≥ +bar) → REVERSE; CONCENTRATE and tested-but-not-clearing
+    (both cohorts ≥ min_n) → COSMETIC; otherwise INSUFFICIENT. The two-sample
+    lift CI is a reported corroboration stamp, never gate-deciding.
+    """
+    specs = [(w, d) for w in WARNING_KEYS for d in ("long", "short")]
+    warned_arrays: list[npt.NDArray[np.float64]] = []
+    clean_arrays: list[npt.NDArray[np.float64]] = []
+    for w, d in specs:
+        sub = tagged[tagged["direction"] == d]
+        warned_arrays.append(sub.loc[sub[w], "r"].to_numpy(dtype=np.float64))
+        clean_arrays.append(sub.loc[~sub[w], "r"].to_numpy(dtype=np.float64))
+    cells = [
+        audit_guard.AuditCell(
+            label=f"{w}/{d}",
+            supp_r=warned_arrays[i].tolist(),
+            kept_r=clean_arrays[i].tolist(),
+        )
+        for i, (w, d) in enumerate(specs)
+    ]
+    cell_verdicts = audit_guard.evaluate_audit_cells(
+        cells, bar=bar, alpha=alpha, min_n=min_n, n_boot=n_boot, seed=seed
+    )
+    out: list[WarningVerdict] = []
+    for i, ((w, d), cv) in enumerate(zip(specs, cell_verdicts, strict=True)):
+        lift_lo, lift_hi = two_sample_lift_ci(
+            warned_arrays[i], clean_arrays[i], alpha=alpha, n_boot=n_boot, seed=seed
+        )
+        if cv.decision == audit_guard.DECISION_ENABLE:
+            verdict = VERDICT_SUPPRESS
+        elif cv.decision == audit_guard.DECISION_DISABLE:
+            verdict = VERDICT_REVERSE
+        elif (
+            cv.decision == audit_guard.DECISION_CONCENTRATE
+            or cv.n_supp >= min_n
+            and cv.n_kept >= min_n
+        ):
+            verdict = VERDICT_COSMETIC
+        else:
+            verdict = VERDICT_INSUFFICIENT
+        out.append(
+            WarningVerdict(
+                warning=w,
+                direction=d,
+                n_warned=cv.n_supp,
+                n_clean=cv.n_kept,
+                avg_warned=cv.supp_avg,
+                avg_clean=cv.kept_avg,
+                ci_lo=cv.ci_lo,
+                ci_hi=cv.ci_hi,
+                adj_pvalue=cv.adj_pvalue,
+                n_tests=cv.n_tests,
+                lift_lo=lift_lo,
+                lift_hi=lift_hi,
+                raw_decision=cv.decision,
+                verdict=verdict,
+                reasons=list(cv.reasons),
+            )
+        )
+    return out
