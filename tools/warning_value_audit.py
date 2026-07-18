@@ -42,8 +42,6 @@ from analytics.warning_audit import (  # noqa: E402
     tag_trades,
 )
 
-DEFAULT_OUT = REPO_ROOT / "docs" / "audits" / "2026-07-17-h9-warning-value.md"
-
 _TF_MS = {
     "15m": 15 * 60_000,
     "1h": 60 * 60_000,
@@ -310,7 +308,9 @@ def main() -> int:
     since_ms: int | None = None
     if args.since_days is not None:
         since_ms = int(
-            (pd.Timestamp.utcnow() - pd.Timedelta(days=args.since_days)).timestamp()
+            (
+                pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=args.since_days)
+            ).timestamp()
             * 1000
         )
     sources = ["backtest", "live"] if args.source == "both" else [args.source]
