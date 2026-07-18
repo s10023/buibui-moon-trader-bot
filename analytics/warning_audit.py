@@ -14,6 +14,10 @@ scope. See ``docs/superpowers/plans/2026-07-17-h9-warning-value-audit.md``.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+
+import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 from signals.alert_formatter import (
@@ -76,3 +80,80 @@ def compute_warning_flags(
         "w7_doji": doji,
         "w8_inside_bar": _is_inside_bar(h, lo, prev_h, prev_l),
     }
+
+
+def two_sample_lift_ci(
+    warned: Sequence[float] | npt.NDArray[np.float64],
+    clean: Sequence[float] | npt.NDArray[np.float64],
+    *,
+    alpha: float = 0.05,
+    n_boot: int = 10_000,
+    seed: int | None = 12345,
+) -> tuple[float, float]:
+    """Seeded two-sample bootstrap CI for ``mean(warned) - mean(clean)``.
+
+    Independent i.i.d. resamples of each cohort; percentile CI of the
+    difference of means. ``(nan, nan)`` when either cohort has < 2 rows.
+    Report-only corroboration — never gate-deciding (see plan).
+    """
+    a = np.asarray(warned, dtype=np.float64)
+    b = np.asarray(clean, dtype=np.float64)
+    if a.shape[0] < 2 or b.shape[0] < 2:
+        return (float("nan"), float("nan"))
+    rng = np.random.default_rng(seed)
+    diffs = np.empty(n_boot, dtype=np.float64)
+    for i in range(n_boot):
+        ra = rng.integers(0, a.shape[0], a.shape[0])
+        rb = rng.integers(0, b.shape[0], b.shape[0])
+        diffs[i] = a[ra].mean() - b[rb].mean()
+    lo = float(np.quantile(diffs, alpha / 2.0))
+    hi = float(np.quantile(diffs, 1.0 - alpha / 2.0))
+    return (lo, hi)
+
+
+def tag_trades(
+    entries: pd.DataFrame,
+    ohlcv_by_key: Mapping[tuple[str, str], pd.DataFrame],
+    *,
+    window_bars: int = 12,
+) -> tuple[pd.DataFrame, int]:
+    """Tag every entry row with its six warning flags.
+
+    ``entries`` columns: symbol, tf, strategy, direction, ts_ms (signal candle
+    ``open_time``), r. Rows whose signal candle is absent from the OHLCV frame
+    or whose window has < 2 bars are dropped and counted. ``window_bars=12``
+    covers every helper's lookback (W2 scans 10 prior bars).
+    """
+    keep_idx: list[int] = []
+    flag_rows: list[dict[str, bool]] = []
+    dropped = 0
+    pairs = entries[["symbol", "tf"]].drop_duplicates()
+    for symbol, tf in zip(pairs["symbol"], pairs["tf"], strict=True):
+        sub = entries[(entries["symbol"] == symbol) & (entries["tf"] == tf)]
+        df = ohlcv_by_key.get((str(symbol), str(tf)))
+        if df is None or df.empty:
+            dropped += len(sub)
+            continue
+        times = df["open_time"].to_numpy(dtype=np.int64)
+        for idx, ts, direction in zip(
+            sub.index, sub["ts_ms"], sub["direction"], strict=True
+        ):
+            i = int(np.searchsorted(times, int(ts)))
+            if i >= len(times) or int(times[i]) != int(ts):
+                dropped += 1
+                continue
+            window = df.iloc[max(0, i - window_bars + 1) : i + 1]
+            flags = compute_warning_flags(window, str(direction))
+            if flags is None:
+                dropped += 1
+                continue
+            keep_idx.append(int(idx))
+            flag_rows.append(flags)
+    if not keep_idx:
+        empty = entries.iloc[0:0].copy()
+        for key in WARNING_KEYS:
+            empty[key] = pd.Series(dtype=bool)
+        return empty, dropped
+    tagged = entries.loc[keep_idx].reset_index(drop=True)
+    flags_df = pd.DataFrame(flag_rows)[list(WARNING_KEYS)]
+    return pd.concat([tagged, flags_df], axis=1), dropped

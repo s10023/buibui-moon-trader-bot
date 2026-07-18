@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from analytics.signal.types import SignalEvent
-from analytics.warning_audit import WARNING_KEYS, compute_warning_flags
+from analytics.warning_audit import (
+    WARNING_KEYS,
+    compute_warning_flags,
+    tag_trades,
+    two_sample_lift_ci,
+)
 from signals.alert_formatter import _build_candle_warnings
 
 
@@ -129,3 +135,54 @@ class TestLiveParity:
                 for key, marker in _NOTE_MARKERS.items():
                     fired_live = any(marker in n for n in notes)
                     assert flags[key] is fired_live, f"{name}/{direction}/{key}"
+
+
+class TestTwoSampleLiftCi:
+    def test_separated_cohorts_ci_excludes_zero(self) -> None:
+        rng = np.random.default_rng(7)
+        warned = rng.normal(1.0, 0.1, 50)
+        clean = rng.normal(0.0, 0.1, 50)
+        lo, hi = two_sample_lift_ci(warned, clean, n_boot=500)
+        assert lo > 0.5
+        assert hi > lo
+
+    def test_tiny_cohort_returns_nan(self) -> None:
+        lo, hi = two_sample_lift_ci([1.0], [0.0, 0.1], n_boot=100)
+        assert np.isnan(lo) and np.isnan(hi)
+
+
+class TestTagTrades:
+    def _entries(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "symbol": ["BTCUSDT"] * 3,
+                "tf": ["1h"] * 3,
+                "strategy": ["wick_fills"] * 3,
+                "direction": ["long"] * 3,
+                # candle 3 (plenty of history), candle 0 (< 2-bar window),
+                # and a timestamp absent from the OHLCV frame.
+                "ts_ms": [3 * 3_600_000, 0, 999_999_999],
+                "r": [0.5, -1.0, 1.0],
+            }
+        )
+
+    def test_tags_matching_and_drops_unmatched(self) -> None:
+        ohlcv = _mk_df(
+            [
+                (100.0, 101.0, 99.0, 100.5),
+                (100.5, 102.0, 100.0, 101.5),
+                (101.5, 103.0, 101.0, 102.5),
+                (102.5, 104.0, 102.0, 103.5),  # 3 greens incl. this one
+            ]
+        )
+        tagged, dropped = tag_trades(self._entries(), {("BTCUSDT", "1h"): ohlcv})
+        assert dropped == 2
+        assert len(tagged) == 1
+        assert bool(tagged.iloc[0]["w6_consecutive"]) is True
+        assert set(WARNING_KEYS) <= set(tagged.columns)
+
+    def test_missing_symbol_frame_drops_all(self) -> None:
+        tagged, dropped = tag_trades(self._entries(), {})
+        assert dropped == 3
+        assert tagged.empty
+        assert set(WARNING_KEYS) <= set(tagged.columns)
