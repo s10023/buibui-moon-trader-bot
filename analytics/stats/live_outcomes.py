@@ -18,6 +18,7 @@ it lives in its own router and is never cached. Empty ledger is a valid state
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import duckdb
@@ -67,6 +68,38 @@ class LiveOutcomeSymbolRow:
 
     symbol: str
     n: int
+
+
+@dataclass
+class OpenPosition:
+    """One unresolved ledger row — the alert is still live."""
+
+    signal_id: str
+    symbol: str
+    strategy: str
+    tf: str
+    direction: str
+    fired_at_ms: int
+    entry_price: float | None
+    sl_price: float | None
+    tp_price: float | None
+
+
+@dataclass
+class MarkedOpenPosition:
+    """An open position with current-price arithmetic attached.
+
+    ``unrealized_r`` is GROSS of costs, unlike the resolved ``outcome_r`` in
+    the tables, which is net of fee + slippage + funding. Netting an open
+    position would mean accruing funding to the current moment; the UI labels
+    this column gross instead.
+    """
+
+    position: OpenPosition
+    mark: float | None
+    unrealized_r: float | None
+    dist_sl_pct: float | None
+    dist_tp_pct: float | None
 
 
 @dataclass
@@ -228,3 +261,101 @@ def compute_live_outcomes(
         by_strategy=by_strategy,
         symbols=symbols,
     )
+
+
+def open_positions(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    symbol: str | None = None,
+) -> list[OpenPosition]:
+    """Return unresolved ledger rows, newest first.
+
+    Pure DB read — no price, no network, no clock.
+    """
+    where = "WHERE outcome IS NULL"
+    params: list[object] = []
+    if symbol:
+        where += " AND symbol = ?"
+        params.append(symbol)
+
+    rows = conn.execute(
+        f"""
+        SELECT signal_id, symbol, strategy, tf, direction, fired_at_ms,
+               entry_price, sl_price, tp_price
+        FROM signal_alert_outcomes
+        {where}
+        ORDER BY fired_at_ms DESC
+        """,
+        tuple(params),
+    ).fetchall()
+
+    return [
+        OpenPosition(
+            signal_id=str(sid),
+            symbol=str(sym),
+            strategy=str(strategy),
+            tf=str(tf),
+            direction=str(direction),
+            fired_at_ms=int(fired_at_ms),
+            entry_price=None if entry is None else float(entry),
+            sl_price=None if sl is None else float(sl),
+            tp_price=None if tp is None else float(tp),
+        )
+        for (
+            sid,
+            sym,
+            strategy,
+            tf,
+            direction,
+            fired_at_ms,
+            entry,
+            sl,
+            tp,
+        ) in rows
+    ]
+
+
+def mark_open_positions(
+    rows: Sequence[OpenPosition],
+    marks: Mapping[str, float],
+) -> list[MarkedOpenPosition]:
+    """Attach mark price, gross unrealized R, and SL/TP distances.
+
+    Pure: no clock, no network, no DB. Every derived field degrades to ``None``
+    rather than raising, so a missing price or a degenerate stop never breaks
+    the panel.
+    """
+    marked: list[MarkedOpenPosition] = []
+
+    for pos in rows:
+        mark = marks.get(pos.symbol)
+        unrealized_r: float | None = None
+        dist_sl_pct: float | None = None
+        dist_tp_pct: float | None = None
+
+        # A missing or zero mark is a bad tick — nothing derived is meaningful.
+        if mark is not None and mark > 0:
+            if pos.entry_price is not None and pos.sl_price is not None:
+                risk = abs(pos.entry_price - pos.sl_price)
+                if risk > 0:
+                    gain = (
+                        mark - pos.entry_price
+                        if pos.direction == "long"
+                        else pos.entry_price - mark
+                    )
+                    unrealized_r = gain / risk
+                dist_sl_pct = abs(mark - pos.sl_price) / mark
+            if pos.tp_price is not None:
+                dist_tp_pct = abs(mark - pos.tp_price) / mark
+
+        marked.append(
+            MarkedOpenPosition(
+                position=pos,
+                mark=mark if mark is not None and mark > 0 else None,
+                unrealized_r=unrealized_r,
+                dist_sl_pct=dist_sl_pct,
+                dist_tp_pct=dist_tp_pct,
+            )
+        )
+
+    return marked

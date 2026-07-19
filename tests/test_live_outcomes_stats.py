@@ -17,7 +17,10 @@ from analytics.stats import (
     LiveOutcomesResult,
     LiveOutcomeStrategyRow,
     LiveOutcomeSymbolRow,
+    OpenPosition,
     compute_live_outcomes,
+    mark_open_positions,
+    open_positions,
 )
 
 _NOW_MS = int(time.time() * 1000)
@@ -252,3 +255,116 @@ def test_unknown_symbol_returns_zero_rollup_not_error() -> None:
     assert res.by_strategy == []
     # Chips still list the real symbols so the operator can navigate back.
     assert [r.symbol for r in res.symbols] == ["BTCUSDT"]
+
+
+def _open_pos(
+    *,
+    symbol: str = "BTCUSDT",
+    direction: str = "long",
+    entry: float | None = 100.0,
+    sl: float | None = 95.0,
+    tp: float | None = 110.0,
+) -> OpenPosition:
+    return OpenPosition(
+        signal_id="x",
+        symbol=symbol,
+        strategy="bos",
+        tf="1h",
+        direction=direction,
+        fired_at_ms=_NOW_MS,
+        entry_price=entry,
+        sl_price=sl,
+        tp_price=tp,
+    )
+
+
+def test_open_positions_returns_only_unresolved_newest_first() -> None:
+    conn = _conn()
+    _insert(conn, "resolved", outcome="win", outcome_r=1.0)
+    _insert(conn, "older", outcome=None, outcome_r=None, fired_at_ms=_NOW_MS - 1000)
+    _insert(conn, "newer", outcome=None, outcome_r=None, fired_at_ms=_NOW_MS)
+
+    rows = open_positions(conn)
+
+    assert [r.signal_id for r in rows] == ["newer", "older"]
+    assert rows[0].entry_price == 100.0
+    assert rows[0].sl_price == 95.0
+
+
+def test_open_positions_honours_symbol_filter() -> None:
+    conn = _conn()
+    _insert(conn, "b", symbol="BTCUSDT", outcome=None, outcome_r=None)
+    _insert(conn, "e", symbol="ETHUSDT", outcome=None, outcome_r=None)
+
+    assert [r.signal_id for r in open_positions(conn, symbol="ETHUSDT")] == ["e"]
+
+
+def test_mark_long_and_short_unrealized_r_sign() -> None:
+    # risk = |100 - 95| = 5. Long at mark 105 → +1R. Short at mark 105 → -1R.
+    long_pos = _open_pos(direction="long", entry=100.0, sl=95.0)
+    short_pos = _open_pos(direction="short", entry=100.0, sl=105.0)
+
+    marked = mark_open_positions([long_pos, short_pos], {"BTCUSDT": 105.0})
+
+    assert marked[0].unrealized_r is not None
+    assert abs(marked[0].unrealized_r - 1.0) < 1e-9
+    assert marked[1].unrealized_r is not None
+    assert abs(marked[1].unrealized_r - (-1.0)) < 1e-9
+
+
+def test_mark_computes_distances_to_sl_and_tp() -> None:
+    pos = _open_pos(entry=100.0, sl=95.0, tp=110.0)
+
+    marked = mark_open_positions([pos], {"BTCUSDT": 100.0})
+
+    assert marked[0].mark == 100.0
+    assert marked[0].dist_sl_pct is not None
+    assert abs(marked[0].dist_sl_pct - 0.05) < 1e-9
+    assert marked[0].dist_tp_pct is not None
+    assert abs(marked[0].dist_tp_pct - 0.10) < 1e-9
+
+
+def test_mark_missing_symbol_yields_all_none() -> None:
+    marked = mark_open_positions([_open_pos()], {"ETHUSDT": 3000.0})
+
+    assert marked[0].mark is None
+    assert marked[0].unrealized_r is None
+    assert marked[0].dist_sl_pct is None
+    assert marked[0].dist_tp_pct is None
+    # The ledger row itself still comes back.
+    assert marked[0].position.symbol == "BTCUSDT"
+
+
+def test_mark_zero_risk_does_not_divide_by_zero() -> None:
+    # entry == sl → risk 0. Must yield None, not ZeroDivisionError or inf.
+    pos = _open_pos(entry=100.0, sl=100.0)
+
+    marked = mark_open_positions([pos], {"BTCUSDT": 105.0})
+
+    assert marked[0].unrealized_r is None
+    # Distance to the stop is still meaningful.
+    assert marked[0].dist_sl_pct is not None
+
+
+def test_mark_null_entry_or_tp_degrades_field_by_field() -> None:
+    no_entry = mark_open_positions([_open_pos(entry=None)], {"BTCUSDT": 105.0})
+    assert no_entry[0].unrealized_r is None
+
+    no_tp = mark_open_positions([_open_pos(tp=None)], {"BTCUSDT": 105.0})
+    assert no_tp[0].dist_tp_pct is None
+    # Everything else still computed.
+    assert no_tp[0].unrealized_r is not None
+    assert no_tp[0].dist_sl_pct is not None
+
+
+def test_mark_zero_mark_price_yields_none() -> None:
+    # A zero mark is a bad tick, not a price — every derived field degrades.
+    marked = mark_open_positions([_open_pos()], {"BTCUSDT": 0.0})
+
+    assert marked[0].unrealized_r is None
+    assert marked[0].dist_sl_pct is None
+    assert marked[0].dist_tp_pct is None
+
+
+def test_mark_empty_input_returns_empty() -> None:
+    assert mark_open_positions([], {"BTCUSDT": 100.0}) == []
