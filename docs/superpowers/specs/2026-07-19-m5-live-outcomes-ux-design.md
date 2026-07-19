@@ -139,7 +139,8 @@ Given `risk = abs(entry - sl)`:
 
 - long: `unrealized_r = (mark - entry) / risk`
 - short: `unrealized_r = (entry - mark) / risk`
-- `dist_sl_pct = abs(mark - sl) / mark`, `dist_tp_pct = abs(mark - tp) / mark`
+- `dist_sl_pct = abs(mark - sl) / mark` — needs the stop and the mark, **not** the entry
+- `dist_tp_pct = abs(mark - tp) / mark` — needs the target and the mark only
 
 Positive `unrealized_r` always means in profit, both directions.
 
@@ -148,7 +149,7 @@ Every derived field independently degrades to `None` rather than raising:
 | Condition | Result |
 | --- | --- |
 | symbol absent from `marks` | `mark`, `unrealized_r`, both distances = `None` |
-| `entry_price` or `sl_price` is NULL | `unrealized_r` = `None` |
+| `entry_price` or `sl_price` is NULL | `unrealized_r` = `None` (the distances are unaffected — each field is gated only on the inputs its own formula reads) |
 | `risk == 0` (entry == sl) | `unrealized_r` = `None` — division-by-zero guard |
 | `tp_price` is NULL | `dist_tp_pct` = `None` |
 | `mark == 0` | every derived field = `None` — a zero mark is a bad tick, not a price |
