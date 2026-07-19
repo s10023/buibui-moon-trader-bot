@@ -16,6 +16,7 @@ from analytics.stats import (
     LiveOutcomeCell,
     LiveOutcomesResult,
     LiveOutcomeStrategyRow,
+    LiveOutcomeSymbolRow,
     compute_live_outcomes,
 )
 
@@ -180,3 +181,74 @@ def test_open_rows_excluded_from_cells() -> None:
     # No resolved rows → no cell breakdown.
     assert res.cells == []
     assert res.by_strategy == []
+
+
+def test_symbol_filter_slices_rollup_and_tables() -> None:
+    conn = _conn()
+    _insert(conn, "b1", symbol="BTCUSDT", outcome="win", outcome_r=1.0)
+    _insert(conn, "b2", symbol="BTCUSDT", outcome="loss", outcome_r=-1.0)
+    _insert(conn, "e1", symbol="ETHUSDT", outcome="win", outcome_r=2.0)
+
+    res = compute_live_outcomes(conn, days=0, min_n=1, symbol="BTCUSDT")
+
+    # Roll-up follows the filter too (spec D2) — not just the tables.
+    assert res.rollup.total_rows == 2
+    assert res.rollup.resolved == 2
+    assert res.rollup.wins == 1
+    assert res.rollup.losses == 1
+    # Tables: avg_r over BTC rows only = (1.0 - 1.0) / 2 = 0.0
+    assert len(res.by_strategy) == 1
+    assert res.by_strategy[0].avg_r == 0.0
+
+
+def test_symbol_none_matches_unfiltered_baseline() -> None:
+    conn = _conn()
+    _insert(conn, "b1", symbol="BTCUSDT", outcome="win", outcome_r=1.0)
+    _insert(conn, "e1", symbol="ETHUSDT", outcome="loss", outcome_r=-1.0)
+
+    explicit_none = compute_live_outcomes(conn, days=0, min_n=1, symbol=None)
+    default = compute_live_outcomes(conn, days=0, min_n=1)
+
+    assert explicit_none.rollup == default.rollup
+    assert explicit_none.cells == default.cells
+    assert explicit_none.by_strategy == default.by_strategy
+    assert default.rollup.total_rows == 2
+
+
+def test_symbols_chip_list_is_global_and_stable() -> None:
+    conn = _conn()
+    _insert(conn, "b1", symbol="BTCUSDT", outcome="win", outcome_r=1.0)
+    _insert(conn, "b2", symbol="BTCUSDT", outcome="win", outcome_r=1.0)
+    _insert(conn, "e1", symbol="ETHUSDT", outcome="win", outcome_r=1.0)
+    # Old row: must still count toward the chip list despite the days window.
+    _insert(
+        conn,
+        "s1",
+        symbol="SOLUSDT",
+        outcome="win",
+        outcome_r=1.0,
+        fired_at_ms=_NOW_MS - 400 * _DAY_MS,
+    )
+
+    filtered = compute_live_outcomes(conn, days=30, min_n=1, symbol="ETHUSDT")
+
+    # Chips are global: unaffected by BOTH the symbol filter and the days window.
+    assert [(r.symbol, r.n) for r in filtered.symbols] == [
+        ("BTCUSDT", 2),
+        ("ETHUSDT", 1),
+        ("SOLUSDT", 1),
+    ]
+    assert isinstance(filtered.symbols[0], LiveOutcomeSymbolRow)
+
+
+def test_unknown_symbol_returns_zero_rollup_not_error() -> None:
+    conn = _conn()
+    _insert(conn, "b1", symbol="BTCUSDT", outcome="win", outcome_r=1.0)
+
+    res = compute_live_outcomes(conn, days=0, min_n=1, symbol="DOGEUSDT")
+
+    assert res.rollup.total_rows == 0
+    assert res.cells == []
+    assert res.by_strategy == []
+    # Chips still list the real symbols so the operator can navigate back.
+    assert [r.symbol for r in res.symbols] == ["BTCUSDT"]

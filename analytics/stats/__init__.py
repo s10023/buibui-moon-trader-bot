@@ -13,6 +13,7 @@ from analytics.stats.live_outcomes import (
     LiveOutcomesResult,
     LiveOutcomesRollup,
     LiveOutcomeStrategyRow,
+    LiveOutcomeSymbolRow,
     compute_live_outcomes,
 )
 from analytics.stats.p1p2 import P1P2Result, compute_p1p2_daily
@@ -53,6 +54,7 @@ __all__ = [
     "HourlyResult",
     "LiveOutcomeCell",
     "LiveOutcomeStrategyRow",
+    "LiveOutcomeSymbolRow",
     "LiveOutcomesResult",
     "LiveOutcomesRollup",
     "P1P2Result",

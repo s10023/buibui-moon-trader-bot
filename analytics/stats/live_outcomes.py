@@ -62,6 +62,14 @@ class LiveOutcomeStrategyRow:
 
 
 @dataclass
+class LiveOutcomeSymbolRow:
+    """One symbol chip: the symbol and its all-time alert count."""
+
+    symbol: str
+    n: int
+
+
+@dataclass
 class LiveOutcomesResult:
     """Full live-outcomes payload for the Stats card."""
 
@@ -70,21 +78,38 @@ class LiveOutcomesResult:
     rollup: LiveOutcomesRollup
     cells: list[LiveOutcomeCell]
     by_strategy: list[LiveOutcomeStrategyRow]
+    symbols: list[LiveOutcomeSymbolRow]  # chip list — always global, all-time
 
 
 def compute_live_outcomes(
     conn: duckdb.DuckDBPyConnection,
     days: int = 30,
     min_n: int = 1,
+    *,
+    symbol: str | None = None,
 ) -> LiveOutcomesResult:
     """Compute the live-outcomes roll-up + breakdowns.
 
-    ``days`` windows only the per-cell / per-strategy tables (0 = all time); the
-    roll-up is always all-time so ``open_no_tp`` stays a true integrity gauge.
+    ``days`` windows only the per-cell / per-strategy tables (0 = all time).
+
+    ``symbol`` scopes the roll-up AND both tables to one symbol; ``None`` (the
+    default, and the UI's ALL chip) is the global view and is byte-identical to
+    the pre-symbol-filter behaviour. Under a symbol filter ``open_no_tp``
+    reports that symbol's integrity rather than the ledger's.
+
+    ``symbols`` (the chip list) is always global and all-time, unaffected by
+    both arguments, so chips never disappear or churn as filters change.
+
     Never raises on empty data — returns a zero roll-up.
     """
+    sym_where = ""
+    sym_params: tuple[object, ...] = ()
+    if symbol:
+        sym_where = "WHERE symbol = ?"
+        sym_params = (symbol,)
+
     totals = conn.execute(
-        """
+        f"""
         SELECT
           COUNT(*)                                     AS total_rows,
           COUNT(*) FILTER (WHERE outcome IS NOT NULL)  AS resolved,
@@ -95,7 +120,9 @@ def compute_live_outcomes(
           COUNT(*) FILTER (WHERE outcome = 'loss')     AS losses,
           COUNT(*) FILTER (WHERE outcome = 'expired')  AS expired
         FROM signal_alert_outcomes
-        """
+        {sym_where}
+        """,
+        sym_params,
     ).fetchone()
 
     rollup = LiveOutcomesRollup(
@@ -110,6 +137,9 @@ def compute_live_outcomes(
 
     where = "WHERE outcome IS NOT NULL"
     params: list[object] = []
+    if symbol:
+        where += " AND symbol = ?"
+        params.append(symbol)
     if days > 0:
         cutoff_ms = int((time.time() - days * 86_400) * 1000)
         where += " AND fired_at_ms >= ?"
@@ -177,10 +207,24 @@ def compute_live_outcomes(
         for (s, n, win_rate, avg_r) in strat_rows
     ]
 
+    symbol_rows = conn.execute(
+        """
+        SELECT symbol, COUNT(*) AS n
+        FROM signal_alert_outcomes
+        GROUP BY symbol
+        ORDER BY n DESC, symbol ASC
+        """
+    ).fetchall()
+
+    symbols = [
+        LiveOutcomeSymbolRow(symbol=str(sym), n=int(n)) for (sym, n) in symbol_rows
+    ]
+
     return LiveOutcomesResult(
         days=days,
         min_n=min_n,
         rollup=rollup,
         cells=cells,
         by_strategy=by_strategy,
+        symbols=symbols,
     )
