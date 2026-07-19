@@ -151,7 +151,7 @@ Every derived field independently degrades to `None` rather than raising:
 | `entry_price` or `sl_price` is NULL | `unrealized_r` = `None` |
 | `risk == 0` (entry == sl) | `unrealized_r` = `None` — division-by-zero guard |
 | `tp_price` is NULL | `dist_tp_pct` = `None` |
-| `mark == 0` | both distances = `None` |
+| `mark == 0` | every derived field = `None` — a zero mark is a bad tick, not a price |
 
 The function never raises and never consults a clock, so its tests are exact.
 
@@ -322,14 +322,18 @@ path, so any movement is a bug in the change.
 
 ## 10. Effort estimate
 
-Four tasks, sonnet-executable from this spec:
+Five tasks, sonnet-executable from this spec:
 
-1. Data layer — symbol filter, chip list, `open_positions`,
-   `mark_open_positions` + their tests
-2. API layer — extended route, new `/open` route, models + their tests
-3. UI extraction — card out of `Stats.svelte` into `LiveOutcomes.svelte`, no
+1. Data layer — symbol filter + chip list, with tests
+2. Data layer — `open_positions` + pure `mark_open_positions`, with tests
+3. API layer — extended route, new `/open` route, models, TypeScript client
+4. UI extraction — card out of `Stats.svelte` into `LiveOutcomes.svelte`, no
    behaviour change (a clean checkpoint: the page must look identical)
-4. UI features — chips, sorting, open panel, help-text update
+5. UI features — chips, sorting, open panel, help-text update
 
-Task 3 is deliberately a pure move so that any visual regression is isolated
-from the feature work in task 4.
+Task 4 is deliberately a pure move so that any visual regression is isolated
+from the feature work in task 5. Tasks 1 and 2 are split because they are
+independently testable deliverables that a reviewer could accept separately,
+even though they edit the same module.
+
+Plan: `docs/superpowers/plans/2026-07-19-m5-live-outcomes-ux.md`
