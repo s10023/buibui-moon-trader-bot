@@ -101,6 +101,17 @@
   }
 
   const fmtR = (v: number | null) => (v === null ? "—" : (v >= 0 ? "+" : "") + v.toFixed(3));
+  // Adaptive price formatter — the open-panel ledger mixes BTC (~64000) with
+  // sub-dollar alts, so a fixed decimal count either loses precision on the
+  // small side or floods the column on the large side.
+  const fmtPrice = (v: number | null): string => {
+    if (v === null) return "—";
+    return v >= 1000
+      ? v.toLocaleString("en-US", { maximumFractionDigits: 0 })
+      : v >= 1
+        ? v.toFixed(2)
+        : v.toFixed(4);
+  };
   // Largest |avg_r| among visible cells — used to scale the diverging bars.
   const loMaxAbsR = $derived(
     liveOutcomes
@@ -259,8 +270,8 @@
                 {p.direction === "long" ? "▲ L" : "▼ S"}
               </span>
               <span class="num muted">{fmtAge(p.fired_at_ms)}</span>
-              <span class="num muted">{p.entry_price === null ? "—" : p.entry_price}</span>
-              <span class="num">{p.mark === null ? "—" : p.mark}</span>
+              <span class="num muted">{fmtPrice(p.entry_price)}</span>
+              <span class="num">{fmtPrice(p.mark)}</span>
               <span class="num" class:val-green={(p.unrealized_r ?? 0) > 0} class:val-red={(p.unrealized_r ?? 0) < 0}>
                 {fmtR(p.unrealized_r)}
               </span>
@@ -462,6 +473,8 @@
 
   .lo-open {
     margin: 10px 0 4px;
+    max-height: 360px;
+    overflow-y: auto;
   }
   .lo-note {
     font-size: 11px;
@@ -512,7 +525,7 @@
   }
 
   .lo-open-row {
-    grid-template-columns: 78px 92px 34px 34px 52px 1fr 1fr 58px 52px 52px;
+    grid-template-columns: 78px minmax(0, 1fr) 34px 34px 52px 76px 76px 58px 52px 52px;
   }
 
   .lo-row:not(.lo-head):hover {

@@ -4,15 +4,17 @@ Graduates the read-only CLI stop-gap ``tools/live_outcomes_report.py`` into the
 Stats page. Reads the live ``signal_alert_outcomes`` ledger (populated by the
 signal daemon's outcome writer + backfill worker) and returns:
 
-- a roll-up: total / resolved / open mix + win/loss/expired counts (all-time —
-  ``open_no_tp`` is a data-integrity gauge that should read 0 after the
-  outcome-ledger SL/TP fallback fix);
+- a roll-up: total / resolved / open mix + win/loss/expired counts (all-time
+  by default, optionally scoped to one symbol — ``open_no_tp`` is a
+  data-integrity gauge that should read 0 after the outcome-ledger SL/TP
+  fallback fix);
 - per-(strategy, tf, direction) win-rate / avg-R cells (windowed by ``days``);
 - a per-strategy roll-up (windowed by ``days``), ordered by avg-R desc.
 
-Unlike the per-symbol StatsBundle cards this aggregates across all symbols, so
-it lives in its own router and is never cached. Empty ledger is a valid state
-(no alerts fired yet) — returns a zero roll-up rather than raising.
+Unlike the per-symbol StatsBundle cards this aggregates across all symbols by
+default, so it lives in its own router and is never cached. Empty ledger is a
+valid state (no alerts fired yet) — returns a zero roll-up rather than
+raising.
 """
 
 from __future__ import annotations
