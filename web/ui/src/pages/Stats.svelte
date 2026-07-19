@@ -96,8 +96,8 @@
       example: "Exceedance 20% → this week's P1 wick is larger than 80% of historical weeks. Strong sweep-and-reverse signal — wait for 1h close to confirm before entering.",
     },
     liveOutcomes: {
-      what: "REAL outcomes of every Telegram alert the live daemon fired, scored from the signal_alert_outcomes ledger (cross-symbol). Roll-up is all-time: resolved = TP/SL touched or held to expiry; No-TP should read 0 (every fired alert now persists a stop/target). The tables window by the selected period. Win rate excludes expired trades; avg R averages outcome_r over all resolved rows.",
-      value: "This is ground truth — what actually happened live, not a backtest. Use it to confirm or kill an edge: if a (strategy, tf, direction) cell is positive live with enough N, it earns its place; if it bleeds, it's a hard-flip candidate. Note retro-backfilled rows use a pct-fallback stop (best-effort R), while forward rows are exact.",
+      what: "REAL outcomes of every Telegram alert the live daemon fired, scored from the signal_alert_outcomes ledger. The symbol chips scope the whole card — roll-up, open list, and both tables — to one coin; ALL is the cross-symbol view. Resolved = TP/SL touched or held to expiry; No-TP should read 0 (every fired alert now persists a stop/target). The tables window by the selected period; the roll-up is all-time. Win rate excludes expired trades; avg R averages outcome_r over all resolved rows. Click any column header to sort, and the open count to see what is live right now.",
+      value: "This is ground truth — what actually happened live, not a backtest. Use it to confirm or kill an edge: if a (strategy, tf, direction) cell is positive live with enough N, it earns its place; if it bleeds, it's a hard-flip candidate. Note retro-backfilled rows use a pct-fallback stop (best-effort R), while forward rows are exact. Unrealized R in the open panel is GROSS of costs, unlike the net avg R in the tables — don't compare them directly.",
       example: "bos 1h short +1.46R (70% win, n=40) vs bos 1h long −0.50R → shorts win, longs lose. Evidence for suppressing bos longs.",
     },
   };
