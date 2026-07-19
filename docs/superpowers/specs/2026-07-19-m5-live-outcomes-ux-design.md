@@ -208,10 +208,20 @@ raises 503 on the daemon's write lock, which the UI handles (§7).
 
 ### 6.1 Extraction
 
-`LiveOutcomes.svelte` receives the card's existing markup, its `lo-*` CSS
-block, `CARD_HELP.liveOutcomes`, and the `rbar` snippet. It owns its own data
-fetching (the card is already independent of the page's symbol/days picker).
-`Stats.svelte` is left with a single `<LiveOutcomes />` mount.
+Following the `PathCone.svelte` precedent, `Stats.svelte` keeps the card shell,
+header and help panel, and `LiveOutcomes.svelte` owns the body: the roll-up
+strip, the `rbar` snippet, the `lo-*` CSS, all data fetching (the card is
+already independent of the page's symbol/days picker), and **all** controls.
+
+This split is forced by Svelte style scoping: `.card`, `.card-header`,
+`.pill-toggle` and the `.help-*` rules are defined inside `Stats.svelte` and do
+not reach a child component. Duplicating them would invite style drift, so the
+component instead styles its own controls with `.lo-chip` rules mirroring
+PathCone's `.chip`.
+
+One consequence: the period and min-n toggles move out of the card header into
+a control row inside the body, where they sit beside the new symbol chips. All
+three control groups then read as one row, as they do on the path cone.
 
 Load `/frontend-design` before touching CSS. All new styling reuses the
 existing dark-minimal terminal vocabulary; no new visual language.

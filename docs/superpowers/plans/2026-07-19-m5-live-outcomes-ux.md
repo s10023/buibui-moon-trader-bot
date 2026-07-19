@@ -1038,31 +1038,42 @@ git commit -m "feat(api): symbol-scoped live outcomes + marked open-positions ro
 - Consumes: `getLiveOutcomes` from Task 3 (signature is backward compatible).
 - Produces: `<LiveOutcomes />` — a self-contained, prop-less component.
 
-**This task is a pure move.** The rendered page must be pixel-identical when it
-is done. Adding a feature here makes any visual regression impossible to
-attribute. Features land in Task 5.
+**Follow the PathCone precedent exactly.** `.card`, `.card-header`,
+`.card-title`, `.header-actions`, `.pill-toggle`, `.help-btn`, `.help-panel`,
+`.help-section`, `.grid` and `.val-green` / `.val-red` are all defined **inside
+`Stats.svelte`** and are Svelte-scoped, so they do not reach a child component.
+`PathCone.svelte` handles this by leaving the card shell, header and help panel
+in `Stats.svelte` and owning only the body plus its own controls — which it
+styles with its own `.chip-group` / `.chip` rules rather than reusing
+`.pill-toggle`. Do the same here. Do not copy the chrome CSS into the component.
 
-- [ ] **Step 1: Create the component shell**
+**One deliberate visual change:** the period and min-n toggles move out of the
+card header and down into a control row inside the component, joining the symbol
+chips added in Task 5. Everything else must look identical.
 
-Create `web/ui/src/components/LiveOutcomes.svelte` and move these pieces out of
-`Stats.svelte` into it verbatim:
+- [ ] **Step 1: Create the component**
+
+Create `web/ui/src/components/LiveOutcomes.svelte`. Move these out of
+`Stats.svelte`:
 
 From the `<script>` block:
 
 - the `liveOutcomes`, `loLoading`, `loError`, `loDays`, `loMinN` state declarations (`Stats.svelte:36-40`)
 - `loadLiveOutcomes`, `setLoDays`, `setLoMinN` (`Stats.svelte:136-158`)
 - `fmtR` and `loMaxAbsR` (`Stats.svelte:160-170`)
-- the `liveOutcomes` entry of `CARD_HELP` (`Stats.svelte:110-114`)
 - a local copy of `formatPct` (`Stats.svelte:121`) — `Stats.svelte` still uses it elsewhere, so copy rather than move
 
-From the markup: the `rbar` snippet (`Stats.svelte:752-765`) and the whole card
-block (`Stats.svelte:767-875`).
+From the markup: the `rbar` snippet (`Stats.svelte:752-765`) and the card
+**body** — `Stats.svelte:793-873`, i.e. the `{#if loError}` block through its
+matching `{/if}`. The `.grid` / `.card` / `.card-header` / help-panel wrapper
+(`Stats.svelte:768-791`) and its closing tags stay in `Stats.svelte`.
 
 From the styles: the `/* ── Live Alert Outcomes ── */` block
-(`Stats.svelte:1633` to the end of the file).
+(`Stats.svelte:1633` to the end of the file), plus copies of just two rules the
+body needs — `.val-green` and `.val-red`. Read their exact declarations from
+`Stats.svelte` rather than guessing at the colour values.
 
-The component needs its own help-toggle state, since `openHelp` stays in
-`Stats.svelte` for the other cards:
+Component skeleton:
 
 ```svelte
 <script lang="ts">
@@ -1074,7 +1085,6 @@ The component needs its own help-toggle state, since `openHelp` stays in
   let loError = $state<string | null>(null);
   let loDays = $state(30); // 0 = all time
   let loMinN = $state(1);
-  let helpOpen = $state(false);
 
   onMount(() => {
     void loadLiveOutcomes();
@@ -1082,20 +1092,44 @@ The component needs its own help-toggle state, since `openHelp` stays in
 </script>
 ```
 
-Replace the two `openHelp === "liveOutcomes"` conditions with `helpOpen`, and
-the `onclick={() => toggleHelp("liveOutcomes")}` with
-`onclick={() => (helpOpen = !helpOpen)}`. Also change `class:active={openHelp === "liveOutcomes"}`
-to `class:active={helpOpen}`.
+- [ ] **Step 2: Add the control row**
 
-Any style rule the component uses but does not own — `.card`, `.card-wide`,
-`.card-header`, `.card-title`, `.header-actions`, `.pill-toggle`, `.help-btn`,
-`.help-panel`, `.help-section`, `.help-label`, `.help-example`, `.grid`,
-`.muted`, `.num`, `.val-green`, `.val-red` — must be copied into the component's
-`<style>` block. Svelte scopes styles per component, so a rule left behind in
-`Stats.svelte` will not reach the component's markup. Copy the rules you need
-from `Stats.svelte` rather than guessing at values.
+The toggles that lived in the card header become a control row at the top of the
+component's body, directly above the `lo-rollup` block. Style them with the
+component's own classes, modelled on `PathCone.svelte`'s `.chip-group` / `.chip`
+— read those rules and mirror them so the two cards' controls look alike:
 
-- [ ] **Step 2: Mount it and delete the moved code**
+```svelte
+      <div class="lo-controls">
+        <div class="lo-chip-group">
+          <button class="lo-chip" class:active={loDays === 30} onclick={() => setLoDays(30)}>30D</button>
+          <button class="lo-chip" class:active={loDays === 90} onclick={() => setLoDays(90)}>90D</button>
+          <button class="lo-chip" class:active={loDays === 0} onclick={() => setLoDays(0)}>All</button>
+        </div>
+        <div class="lo-chip-group">
+          <button class="lo-chip" class:active={loMinN === 1} onclick={() => setLoMinN(1)}>n≥1</button>
+          <button class="lo-chip" class:active={loMinN === 10} onclick={() => setLoMinN(10)}>n≥10</button>
+        </div>
+      </div>
+```
+
+```css
+  .lo-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 10px 0 4px;
+  }
+  .lo-chip-group {
+    display: flex;
+    gap: 4px;
+  }
+```
+
+For `.lo-chip` and `.lo-chip.active`, copy the declarations from
+`PathCone.svelte`'s `.chip` and `.chip.active` so the two cards match.
+
+- [ ] **Step 3: Mount it and delete the moved code**
 
 In `Stats.svelte`, import the component alongside the existing `PathCone` import:
 
@@ -1103,20 +1137,25 @@ In `Stats.svelte`, import the component alongside the existing `PathCone` import
 import LiveOutcomes from "../components/LiveOutcomes.svelte";
 ```
 
-Replace the entire card block (`Stats.svelte:767-875`, from the
-`<!-- Live Alert Outcomes ... -->` comment through its closing `</div>`) with:
+Remove the two `pill-toggle` divs from the card header (the toggles now live in
+the component), leaving the title and the help button. Then replace the card
+body — `Stats.svelte:793-873` — with the mount, keeping the surrounding card
+wrapper intact:
 
 ```svelte
-  <LiveOutcomes />
+      <LiveOutcomes />
 ```
 
-Then delete from `Stats.svelte`: the moved state declarations, the three
-`lo*` functions, `fmtR`, `loMaxAbsR`, the `rbar` snippet, the `liveOutcomes`
-`CARD_HELP` entry, the `void loadLiveOutcomes();` line inside `onMount`, the
-`getLiveOutcomes` and `type LiveOutcomesResponse` imports, and the
+Then delete from `Stats.svelte`: the moved state declarations, the three `lo*`
+functions, `fmtR`, `loMaxAbsR`, the `rbar` snippet, the
+`void loadLiveOutcomes();` line inside `onMount`, the `getLiveOutcomes` and
+`type LiveOutcomesResponse` imports, and the
 `/* ── Live Alert Outcomes ── */` style block.
 
-- [ ] **Step 3: Verify nothing else used the moved helpers**
+Keep the `liveOutcomes` entry of `CARD_HELP` in `Stats.svelte` — the help panel
+stays in the shell. Task 5 updates its wording.
+
+- [ ] **Step 4: Verify nothing else used the moved helpers**
 
 Run:
 
@@ -1128,7 +1167,7 @@ Expected: only the `<LiveOutcomes />` mount line matches, or no output at all.
 If `fmtR` still has call sites in `Stats.svelte`, keep a copy there — do not
 delete a helper another card is using.
 
-- [ ] **Step 4: Build**
+- [ ] **Step 5: Build**
 
 Run: `make web-build`
 
@@ -1136,7 +1175,7 @@ Expected: build succeeds with no unused-variable or unresolved-reference errors.
 Svelte will warn about unused CSS selectors if you left orphaned rules behind —
 clean those up.
 
-- [ ] **Step 5: Verify the page is visually unchanged**
+- [ ] **Step 6: Verify the page**
 
 Start the backend and screenshot the Stats page:
 
@@ -1148,20 +1187,21 @@ google-chrome --headless=new --disable-gpu --no-sandbox \
   --screenshot=/tmp/stats-after-extract.png "http://localhost:8000/#/stats"
 ```
 
-Expected: the Live Alert Outcomes card renders identically — roll-up tiles,
-period and min-n toggles, the help `?` button, and both tables with their
-diverging R bars. Compare against the card as it looked before your change.
-Stop the server when done: `pkill -f "buibui.py web --host"`.
+Expected: the Live Alert Outcomes card renders as before with one intended
+difference — the period and min-n toggles now sit in a control row below the
+roll-up tiles instead of in the card header. Everything else is unchanged:
+roll-up tiles, the help `?` button and its panel, and both tables with their
+diverging R bars. Stop the server when done: `pkill -f "buibui.py web --host"`.
 
 If the DuckDB read fails with a lock error, the signal daemon is running and
 holding the write lock — that is expected and not caused by your change. Retry,
 or check with `pgrep -af "buibui.py signal watch"`.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add web/ui/src/components/LiveOutcomes.svelte web/ui/src/pages/Stats.svelte
-git commit -m "refactor(ui): extract Live Alert Outcomes card into its own component"
+git commit -m "refactor(ui): extract Live Alert Outcomes body into its own component"
 ```
 
 ---
@@ -1171,10 +1211,11 @@ git commit -m "refactor(ui): extract Live Alert Outcomes card into its own compo
 **Files:**
 
 - Modify: `web/ui/src/components/LiveOutcomes.svelte`
+- Modify: `web/ui/src/pages/Stats.svelte` (Step 6 only — the `CARD_HELP.liveOutcomes` text, which stayed in the shell)
 
 **Interfaces:**
 
-- Consumes: `getLiveOutcomes(days, minN, symbol)`, `getLiveOutcomesOpen(symbol)`, and the `LiveOutcomeSymbolRow` / `LiveOpenPosition` / `LiveOpenPositionsResponse` types from Task 3; the component from Task 4.
+- Consumes: `getLiveOutcomes(days, minN, symbol)`, `getLiveOutcomesOpen(symbol)`, and the `LiveOutcomeSymbolRow` / `LiveOpenPosition` / `LiveOpenPositionsResponse` types from Task 3; the component and its `.lo-controls` / `.lo-chip` classes from Task 4.
 - Produces: the finished card. Nothing downstream consumes it.
 
 Load the `/frontend-design` skill before writing CSS. All new styling reuses the
@@ -1217,21 +1258,24 @@ Update `loadLiveOutcomes` to pass the symbol:
 liveOutcomes = await getLiveOutcomes(loDays, loMinN, loSymbol);
 ```
 
-Add the chip row markup directly below the `lo-rollup` block and above
-`lo-scope`:
+Add a third chip group to the `.lo-controls` row Task 4 created, after the
+period and min-n groups:
 
 ```svelte
-        <div class="lo-chips">
-          <button class:active={loSymbol === null} onclick={() => setLoSymbol(null)}>
+        <div class="lo-chip-group">
+          <button class="lo-chip" class:active={loSymbol === null} onclick={() => setLoSymbol(null)}>
             ALL <span class="lo-chip-n">{loTotalAllSymbols.toLocaleString()}</span>
           </button>
           {#each liveOutcomes.symbols as s}
-            <button class:active={loSymbol === s.symbol} onclick={() => setLoSymbol(s.symbol)}>
+            <button class="lo-chip" class:active={loSymbol === s.symbol} onclick={() => setLoSymbol(s.symbol)}>
               {s.symbol} <span class="lo-chip-n">{s.n.toLocaleString()}</span>
             </button>
           {/each}
         </div>
 ```
+
+The symbol chips reuse `.lo-chip` / `.lo-chip.active` from Task 4, so they match
+the period and min-n toggles automatically. Only the count needs new styling.
 
 Update the scope line so it names the active symbol:
 
@@ -1242,41 +1286,14 @@ Update the scope line so it names the active symbol:
         </div>
 ```
 
-Style the chips to match the existing `.pill-toggle` buttons:
+One new rule for the count:
 
 ```css
-  .lo-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin: 10px 0 4px;
-  }
-  .lo-chips button {
-    background: transparent;
-    border: 1px solid var(--border, #2a3441);
-    color: var(--muted, #7d8a99);
-    font: inherit;
-    font-size: 11px;
-    letter-spacing: 0.04em;
-    padding: 3px 9px;
-    cursor: pointer;
-    border-radius: 2px;
-  }
-  .lo-chips button:hover {
-    color: var(--fg, #d5dde6);
-  }
-  .lo-chips button.active {
-    color: var(--accent, #4ade9b);
-    border-color: var(--accent, #4ade9b);
-  }
   .lo-chip-n {
     opacity: 0.55;
     margin-left: 4px;
   }
 ```
-
-Check the actual CSS custom-property names used elsewhere in the file and match
-them; the fallbacks above are only a safety net.
 
 - [ ] **Step 2: Verify the chips work**
 
@@ -1566,8 +1583,10 @@ already in the file — read them first and mirror the column-template approach:
 
 - [ ] **Step 6: Update the card help text**
 
-The help text currently promises a cross-symbol, always-all-time roll-up. Both
-claims are now conditional. Replace the `what` string and extend `value`:
+`CARD_HELP.liveOutcomes` lives in `web/ui/src/pages/Stats.svelte` (the help panel
+stayed in the card shell). Its text currently promises a cross-symbol,
+always-all-time roll-up; both claims are now conditional. Replace the `what`
+string and extend `value` there:
 
 ```typescript
       what: "REAL outcomes of every Telegram alert the live daemon fired, scored from the signal_alert_outcomes ledger. The symbol chips scope the whole card — roll-up, open list, and both tables — to one coin; ALL is the cross-symbol view. Resolved = TP/SL touched or held to expiry; No-TP should read 0 (every fired alert now persists a stop/target). The tables window by the selected period; the roll-up is all-time. Win rate excludes expired trades; avg R averages outcome_r over all resolved rows. Click any column header to sort, and the open count to see what is live right now.",
@@ -1602,7 +1621,7 @@ moved, stop — nothing in this task touches a backtest path, so it is a bug.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add web/ui/src/components/LiveOutcomes.svelte
+git add web/ui/src/components/LiveOutcomes.svelte web/ui/src/pages/Stats.svelte
 git commit -m "feat(ui): symbol chips, sortable tables, live-marked open panel"
 ```
 
