@@ -160,7 +160,7 @@ Detailed API reference for `analytics/`. Load this when working on any analytics
 - `compute_session_breakdown`, `compute_weekly_p1p2`, `compute_weekly_p2_timing` → `WeeklyP2Timing`
 - `compute_weekly_flip_risk_conditioned` → `WeeklyFlipRiskConditioned`; p1_direction="low"=bullish, "high"=bearish
 - `compute_all` → `StatsBundle`
-- Live (never-cached) functions via `_inject_live_fields()`: `compute_weekly_current_state`, `compute_daily_distance`, `compute_weekly_wick_percentile`
+- Live (never-cached) functions via `_inject_live_fields()`: `compute_weekly_current_state`, `compute_today_path`, `compute_weekly_wick_percentile`
 - All times MYT (UTC+8): `(epoch_ms + INTERVAL 8 HOUR)::TIMESTAMP`; raises `ValueError` on empty data
 
 ## signal_runner.py — thin daemon wrapper
