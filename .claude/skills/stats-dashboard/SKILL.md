@@ -25,7 +25,7 @@ web/ui/src/pages/Stats.svelte   ← 10-card grid UI
 web/ui/src/api.ts               ← getStats(symbol, days) typed client
 ```
 
-## The 10 Cards
+## The 11 Cards
 
 ### Cached in StatsBundle (`compute_all` → `stats_cache` table)
 
@@ -38,12 +38,13 @@ web/ui/src/api.ts               ← getStats(symbol, days) typed client
 | Session Breakdown | `compute_session_breakdown` | `sessions` | Asia (08–13 MYT)/London (14–21)/NY (20–03); 04–07 dead zone; London/NY overlap double-counted |
 | Weekly P1/P2 | `compute_weekly_p1p2` | `weekly_p1p2` | raw DOW distribution (not cumulative); use P2 Timing for "is extreme in yet?" |
 | Weekly P2 Timing | `compute_weekly_p2_timing` + `compute_weekly_flip_risk_conditioned` | `weekly_p2_timing` + `weekly_flip_risk_conditioned` | All: unconditional still-ahead % + flip risk; Bullish/Bearish P1 toggle: P(P2 still ahead \| p1_direction, DOW); live "This week" banner |
+| Daily Path Cone | `compute_path_cone(conn, symbol)` | `path_cone` | all-history conditional cone: ADR-normalized hourly paths × (direction × weekday) percentile bands + timing/excursion/pivot percentiles; ignores `days` |
 
 ### Live — never cached (injected after cache hit via `_inject_live_fields()`)
 
 | Card | stats_lib fn | Notes |
 |------|-------------|-------|
-| Daily Distance | `compute_daily_distance(conn, symbol, adr_14, days)` | P(historical daily move > today's) + gap to p80; fresh every request |
+| Today Path overlay | `compute_today_path(conn, symbol)` | Today's in-progress hourly path (×ADR14) overlaid on the Daily Path Cone bands via `_inject_live_fields()`; fresh every request |
 | P1 Wick Rank | `compute_weekly_wick_percentile(conn, symbol, adr_14, days)` | Current week's P1 wick exceedance vs historical P1 wicks; "P1 not yet set" when only one weekly extreme has formed; fresh every request |
 | Weekly Current State | `compute_weekly_current_state(conn, symbol, adr_14, days)` | Live banner: current DOW, move% from weekly open, distance bucket, conditioned low/high-still-ahead probabilities |
 
