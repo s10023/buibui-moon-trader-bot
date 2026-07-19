@@ -329,12 +329,14 @@ def mark_open_positions(
 
     for pos in rows:
         mark = marks.get(pos.symbol)
+        mark_valid = mark is not None and mark > 0
         unrealized_r: float | None = None
         dist_sl_pct: float | None = None
         dist_tp_pct: float | None = None
 
         # A missing or zero mark is a bad tick — nothing derived is meaningful.
-        if mark is not None and mark > 0:
+        if mark_valid:
+            assert mark is not None  # narrow for mypy; mark_valid implies not None
             if pos.entry_price is not None and pos.sl_price is not None:
                 risk = abs(pos.entry_price - pos.sl_price)
                 if risk > 0:
@@ -344,6 +346,7 @@ def mark_open_positions(
                         else pos.entry_price - mark
                     )
                     unrealized_r = gain / risk
+            if pos.sl_price is not None:
                 dist_sl_pct = abs(mark - pos.sl_price) / mark
             if pos.tp_price is not None:
                 dist_tp_pct = abs(mark - pos.tp_price) / mark
@@ -351,7 +354,7 @@ def mark_open_positions(
         marked.append(
             MarkedOpenPosition(
                 position=pos,
-                mark=mark if mark is not None and mark > 0 else None,
+                mark=mark if mark_valid else None,
                 unrealized_r=unrealized_r,
                 dist_sl_pct=dist_sl_pct,
                 dist_tp_pct=dist_tp_pct,

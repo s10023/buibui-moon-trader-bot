@@ -349,12 +349,25 @@ def test_mark_zero_risk_does_not_divide_by_zero() -> None:
 def test_mark_null_entry_or_tp_degrades_field_by_field() -> None:
     no_entry = mark_open_positions([_open_pos(entry=None)], {"BTCUSDT": 105.0})
     assert no_entry[0].unrealized_r is None
+    # dist_sl_pct only needs the stop and the mark — a null entry must not
+    # suppress it.
+    assert no_entry[0].dist_sl_pct is not None
 
     no_tp = mark_open_positions([_open_pos(tp=None)], {"BTCUSDT": 105.0})
     assert no_tp[0].dist_tp_pct is None
     # Everything else still computed.
     assert no_tp[0].unrealized_r is not None
     assert no_tp[0].dist_sl_pct is not None
+
+
+def test_mark_null_entry_still_computes_stop_distance() -> None:
+    # dist_sl_pct needs only the stop and the mark — a null entry must not
+    # suppress it, though it does suppress unrealized_r.
+    marked = mark_open_positions([_open_pos(entry=None)], {"BTCUSDT": 105.0})
+
+    assert marked[0].unrealized_r is None
+    assert marked[0].dist_sl_pct is not None
+    assert abs(marked[0].dist_sl_pct - (10.0 / 105.0)) < 1e-9
 
 
 def test_mark_zero_mark_price_yields_none() -> None:
