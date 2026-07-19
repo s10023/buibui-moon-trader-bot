@@ -208,3 +208,39 @@ def test_extreme_tie_earliest_hour_wins(conn: duckdb.DuckDBPyConnection) -> None
     )
     cone = compute_path_cone(conn, _SYMBOL, now_ms=_NOW_MS)
     assert cone.combos["all|all"].low_in_by[0] == pytest.approx(1.0)
+
+
+def test_stats_response_requires_path_cone() -> None:
+    """Pre-M5 cached JSON (no path_cone) must fail validation so the router's
+    corrupted-cache fallback recomputes — the cache self-heals on deploy day."""
+    import pydantic
+    import pytest as _pytest
+
+    from web.api.models.stats import StatsResponse
+
+    with _pytest.raises(pydantic.ValidationError):
+        StatsResponse.model_validate_json('{"symbol": "X", "days": 180}')
+    assert "path_cone" in StatsResponse.model_fields
+    assert "today_path" in StatsResponse.model_fields
+    assert "daily_distance" not in StatsResponse.model_fields
+
+
+def test_path_cone_response_round_trip() -> None:
+    """The cached block survives a JSON dump → validate cycle unchanged."""
+    from web.api.models.stats import ConeComboResponse, PathConeResponse
+
+    combo = ConeComboResponse(
+        direction="bull",
+        weekday="mon",
+        n=2,
+        bands=[[-0.1, 0.0, 0.125, 0.2, 0.3]] * 24,
+        low_in_by=[1.0] * 24,
+        high_in_by=[0.0] + [1.0] * 23,
+        mae_p=[0.1, 0.19, 0.24],
+        mfe_p=[0.1, 0.19, 0.24],
+        high_piv=[0.5, 0.5],
+        low_piv=[0.5, 0.5],
+    )
+    original = PathConeResponse(combos={"bull|mon": combo}, total_days=2)
+    restored = PathConeResponse.model_validate_json(original.model_dump_json())
+    assert restored == original
