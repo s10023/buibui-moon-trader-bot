@@ -292,7 +292,9 @@
   {:else}
     <div class="lo-cols">
       <div class="lo-block">
-        <div class="lo-block-title">By strategy</div>
+        <div class="lo-block-title">
+          By strategy <span class="lo-title-note">(n≥{liveOutcomes.min_n} total)</span>
+        </div>
         <div class="lo-table">
           <div class="lo-row lo-head">
             <button class="lo-th" onclick={() => (stratSort = toggleSort(stratSort, "strategy"))}>
@@ -300,6 +302,9 @@
             </button>
             <button class="lo-th num" onclick={() => (stratSort = toggleSort(stratSort, "n"))}>
               n{stratSort?.key === "n" ? (stratSort.dir === "desc" ? " ▾" : " ▴") : ""}
+            </button>
+            <button class="lo-th num" onclick={() => (stratSort = toggleSort(stratSort, "expired"))}>
+              exp{stratSort?.key === "expired" ? (stratSort.dir === "desc" ? " ▾" : " ▴") : ""}
             </button>
             <button class="lo-th num" onclick={() => (stratSort = toggleSort(stratSort, "win_rate"))}>
               win{stratSort?.key === "win_rate" ? (stratSort.dir === "desc" ? " ▾" : " ▴") : ""}
@@ -313,6 +318,7 @@
             <div class="lo-row">
               <span class="lo-strat">{s.strategy}</span>
               <span class="num muted">{s.n}</span>
+              <span class="num muted">{s.expired}</span>
               <span class="num">{s.win_rate === null ? "—" : formatPct(s.win_rate)}</span>
               <span class="num" class:val-green={(s.avg_r ?? 0) > 0} class:val-red={(s.avg_r ?? 0) < 0}>{fmtR(s.avg_r)}</span>
               <span class="lo-bar-cell">{@render rbar(s.avg_r)}</span>
@@ -322,7 +328,10 @@
       </div>
 
       <div class="lo-block">
-        <div class="lo-block-title">By strategy · tf · direction</div>
+        <div class="lo-block-title">
+          By strategy · tf · direction
+          <span class="lo-title-note">(n≥{liveOutcomes.min_n} per cell)</span>
+        </div>
         <div class="lo-table lo-scroll">
           <div class="lo-row lo-cell-row lo-head">
             <button class="lo-th" onclick={() => (cellSort = toggleSort(cellSort, "strategy"))}>
@@ -336,6 +345,9 @@
             </button>
             <button class="lo-th num" onclick={() => (cellSort = toggleSort(cellSort, "n"))}>
               n{cellSort?.key === "n" ? (cellSort.dir === "desc" ? " ▾" : " ▴") : ""}
+            </button>
+            <button class="lo-th num" onclick={() => (cellSort = toggleSort(cellSort, "expired"))}>
+              exp{cellSort?.key === "expired" ? (cellSort.dir === "desc" ? " ▾" : " ▴") : ""}
             </button>
             <button class="lo-th num" onclick={() => (cellSort = toggleSort(cellSort, "win_rate"))}>
               win{cellSort?.key === "win_rate" ? (cellSort.dir === "desc" ? " ▾" : " ▴") : ""}
@@ -351,13 +363,22 @@
               <span class="muted">{c.tf}</span>
               <span class:val-green={c.direction === "long"} class:val-red={c.direction === "short"}>{c.direction === "long" ? "▲ L" : "▼ S"}</span>
               <span class="num muted">{c.n}</span>
+              <span class="num muted">{c.expired}</span>
               <span class="num">{c.win_rate === null ? "—" : formatPct(c.win_rate)}</span>
               <span class="num" class:val-green={(c.avg_r ?? 0) > 0} class:val-red={(c.avg_r ?? 0) < 0}>{fmtR(c.avg_r)}</span>
               <span class="lo-bar-cell">{@render rbar(c.avg_r)}</span>
             </div>
           {/each}
+          {#if sortedCells.length === 0}
+            <div class="lo-msg muted">
+              no cell clears n≥{liveOutcomes.min_n} — lower min n to see the breakdown
+            </div>
+          {/if}
         </div>
       </div>
+    </div>
+    <div class="lo-note muted">
+      win% = wins/(wins+losses); expired excluded. avg R is net of costs and includes expired.
     </div>
   {/if}
 {/if}
@@ -501,6 +522,14 @@
     margin-bottom: 6px;
   }
 
+  .lo-title-note {
+    font-size: 9px;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    text-transform: none;
+    color: #777;
+  }
+
   .lo-table { display: flex; flex-direction: column; }
 
   .lo-scroll {
@@ -510,7 +539,7 @@
 
   .lo-row {
     display: grid;
-    grid-template-columns: 1fr 34px 46px 56px 64px;
+    grid-template-columns: 1fr 34px 34px 46px 56px 64px;
     align-items: center;
     gap: 6px;
     font-size: 11px;
@@ -521,7 +550,7 @@
   }
 
   .lo-cell-row {
-    grid-template-columns: 1fr 34px 34px 30px 44px 56px 60px;
+    grid-template-columns: 1fr 34px 34px 30px 34px 44px 56px 60px;
   }
 
   .lo-open-row {
