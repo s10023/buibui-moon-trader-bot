@@ -381,3 +381,38 @@ def test_mark_zero_mark_price_yields_none() -> None:
 
 def test_mark_empty_input_returns_empty() -> None:
     assert mark_open_positions([], {"BTCUSDT": 100.0}) == []
+
+
+def test_by_strategy_carries_outcome_counts() -> None:
+    conn = _conn()
+    _insert(conn, "w1", strategy="bos", outcome="win", outcome_r=1.5)
+    _insert(conn, "l1", strategy="bos", outcome="loss", outcome_r=-1.0)
+    _insert(conn, "e1", strategy="bos", outcome="expired", outcome_r=0.2)
+    _insert(conn, "e2", strategy="bos", outcome="expired", outcome_r=-0.1)
+
+    res = compute_live_outcomes(conn, days=0, min_n=1)
+    row = res.by_strategy[0]
+    assert row.strategy == "bos"
+    assert row.n == 4
+    assert row.wins == 1
+    assert row.losses == 1
+    assert row.expired == 2
+    # win% still excludes expired: 1 / (1 + 1)
+    assert row.win_rate == 0.5
+    # avg_r still spans every resolved row: (1.5 - 1.0 + 0.2 - 0.1) / 4
+    assert row.avg_r is not None
+    assert abs(row.avg_r - 0.15) < 1e-9
+
+
+def test_by_strategy_expired_only_has_null_win_rate() -> None:
+    conn = _conn()
+    _insert(conn, "e1", strategy="fvg", outcome="expired", outcome_r=0.0)
+    _insert(conn, "e2", strategy="fvg", outcome="expired", outcome_r=0.0)
+
+    res = compute_live_outcomes(conn, days=0, min_n=1)
+    row = res.by_strategy[0]
+    assert row.n == 2
+    assert row.wins == 0
+    assert row.losses == 0
+    assert row.expired == 2
+    assert row.win_rate is None

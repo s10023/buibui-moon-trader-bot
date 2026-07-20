@@ -60,6 +60,9 @@ class LiveOutcomeStrategyRow:
 
     strategy: str
     n: int
+    wins: int
+    losses: int
+    expired: int
     win_rate: float | None
     avg_r: float | None
 
@@ -220,6 +223,9 @@ def compute_live_outcomes(
         SELECT
           strategy,
           COUNT(*) AS n,
+          COUNT(*) FILTER (WHERE outcome='win')     AS wins,
+          COUNT(*) FILTER (WHERE outcome='loss')    AS losses,
+          COUNT(*) FILTER (WHERE outcome='expired') AS expired,
           AVG(CASE WHEN outcome='win'  THEN 1.0
                    WHEN outcome='loss' THEN 0.0 END) AS win_rate,
           AVG(outcome_r)                            AS avg_r
@@ -236,10 +242,13 @@ def compute_live_outcomes(
         LiveOutcomeStrategyRow(
             strategy=str(s),
             n=int(n),
+            wins=int(wins),
+            losses=int(losses),
+            expired=int(expired),
             win_rate=None if win_rate is None else float(win_rate),
             avg_r=None if avg_r is None else float(avg_r),
         )
-        for (s, n, win_rate, avg_r) in strat_rows
+        for (s, n, wins, losses, expired, win_rate, avg_r) in strat_rows
     ]
 
     symbol_rows = conn.execute(

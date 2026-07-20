@@ -71,6 +71,9 @@ def get_live_outcomes(
             LiveOutcomeStrategyModel(
                 strategy=s.strategy,
                 n=s.n,
+                wins=s.wins,
+                losses=s.losses,
+                expired=s.expired,
                 win_rate=s.win_rate,
                 avg_r=s.avg_r,
             )
