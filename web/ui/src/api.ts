@@ -598,6 +598,9 @@ export interface LiveOutcomeCell {
 export interface LiveOutcomeStrategyRow {
   strategy: string;
   n: number;
+  wins: number;
+  losses: number;
+  expired: number;
   win_rate: number | null;
   avg_r: number | null;
 }

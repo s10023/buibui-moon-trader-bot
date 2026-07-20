@@ -28,6 +28,9 @@ class LiveOutcomeCellModel(BaseModel):
 class LiveOutcomeStrategyModel(BaseModel):
     strategy: str
     n: int
+    wins: int
+    losses: int
+    expired: int
     win_rate: float | None
     avg_r: float | None
 

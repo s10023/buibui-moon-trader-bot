@@ -197,3 +197,27 @@ def test_open_endpoint_symbol_filter() -> None:
     finally:
         with pytest.raises(StopIteration):
             next(client_gen)
+
+
+def test_by_strategy_exposes_outcome_counts() -> None:
+    """The new counts must survive the Pydantic boundary.
+
+    A response model missing these fields drops them silently rather than
+    erroring — the M3 failure mode where ``extra="ignore"`` swallowed a whole
+    block at exactly this seam.
+    """
+    conn = _seed_conn()
+    client_gen = _client_for(conn)
+    client = next(client_gen)
+    try:
+        resp = client.get("/api/live-outcomes?days=0&min_n=1")
+        assert resp.status_code == 200
+        row = resp.json()["by_strategy"][0]
+        assert row["strategy"] == "bos"
+        assert row["n"] == 2
+        assert row["wins"] == 1
+        assert row["losses"] == 1
+        assert row["expired"] == 0
+    finally:
+        with pytest.raises(StopIteration):
+            next(client_gen)
