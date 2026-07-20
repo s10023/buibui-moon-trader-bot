@@ -41,7 +41,7 @@
   const W = 760;
   const H = 280;
   const PL = 46;
-  const PR = 10;
+  const PR = 30;
   const PT = 12;
   const PB = 26;
 
@@ -108,6 +108,44 @@
   const highInNow = $derived(
     hasData && elapsed >= 1 ? combo!.high_in_by[Math.min(elapsed, 24) - 1] : null
   );
+
+  let hoverStep = $state<number | null>(null);
+
+  // Pointer x → elapsed step. Reading the SVG's client rect keeps this correct
+  // at any rendered width, since the chart scales through its viewBox.
+  function onPointerMove(ev: PointerEvent): void {
+    const svg = (ev.currentTarget as SVGGraphicsElement).ownerSVGElement;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width === 0) return;
+    const vbX = ((ev.clientX - rect.left) / rect.width) * W;
+    const raw = Math.round(((vbX - PL) / (W - PL - PR)) * 24);
+    hoverStep = Math.max(0, Math.min(24, raw));
+  }
+
+  // Bands are indexed 0…23 for steps 1…24; step 0 is the open, where every
+  // percentile is 0 by construction.
+  const hoverRow = $derived.by(() => {
+    if (hoverStep === null || !combo || combo.n === 0) return null;
+    const step = hoverStep;
+    const vals = step === 0 ? [0, 0, 0, 0, 0] : combo.bands[step - 1];
+    // A short bands array would leave vals undefined and crash on vals[4].
+    if (!vals) return null;
+    const today =
+      todayPath && step >= 1 && step <= todayPath.points.length
+        ? todayPath.points[step - 1]
+        : null;
+    return { step, vals, today };
+  });
+
+  // Price when the live overlay gives us today_open + adr14; the cone's native
+  // ADR multiple otherwise.
+  const fmtVal = (v: number): string => {
+    const p = px(v, 1);
+    return p === null ? fmtAdr(v) + "×" : fmtPx(p);
+  };
+  const hourLabel = (step: number): string =>
+    String((step + 8) % 24).padStart(2, "0") + ":00";
 </script>
 
 <div class="cone">
@@ -152,6 +190,15 @@
           class="today-dot"
         />
       {/if}
+      {#if hoverStep !== null}
+        <line
+          x1={x(hoverStep)}
+          y1={PT}
+          x2={x(hoverStep)}
+          y2={H - PB}
+          class="cone-guide"
+        />
+      {/if}
       {#each ticks as t}
         <text x={x(t.step)} y={H - 8} class="axis-label" text-anchor="middle"
           >{t.label}</text
@@ -164,7 +211,37 @@
       <text x={PL - 6} y={H - PB} class="axis-label" text-anchor="end"
         >{fmtAdr(yDomain.min)}×</text
       >
+      <rect
+        x={PL}
+        y={PT}
+        width={W - PL - PR}
+        height={H - PT - PB}
+        fill="transparent"
+        role="presentation"
+        onpointermove={onPointerMove}
+        onpointerleave={() => (hoverStep = null)}
+      />
     </svg>
+
+    <div class="cone-readout">
+      {#if hoverRow}
+        <span class="cone-readout-hour"
+          >{hourLabel(hoverRow.step)} (+{hoverRow.step}h)</span
+        >
+        <span
+          >p90 {fmtVal(hoverRow.vals[4])} · p75 {fmtVal(hoverRow.vals[3])} · p50
+          {fmtVal(hoverRow.vals[2])} · p25 {fmtVal(hoverRow.vals[1])} · p10
+          {fmtVal(hoverRow.vals[0])}</span
+        >
+        {#if hoverRow.today !== null}
+          <span class="cone-readout-today"
+            >today {fmtVal(hoverRow.today)} ({fmtAdr(hoverRow.today)}×)</span
+          >
+        {/if}
+      {:else}
+        <span class="cone-muted">hover the chart for hourly percentiles</span>
+      {/if}
+    </div>
 
     <div class="cone-footer">
       {#if lowInNow !== null && highInNow !== null}
@@ -283,5 +360,27 @@
   .cone-empty {
     padding: 2rem 0;
     text-align: center;
+  }
+  .cone-guide {
+    stroke: #666;
+    stroke-width: 1;
+    stroke-dasharray: 3 3;
+  }
+  .cone-readout {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem 1rem;
+    min-height: 2.4em;
+    padding-top: 4px;
+    font-size: 0.78rem;
+    color: #bbb;
+  }
+  .cone-readout-hour {
+    color: #e5e7eb;
+    font-variant-numeric: tabular-nums;
+  }
+  .cone-readout-today {
+    color: #60a5fa;
   }
 </style>
