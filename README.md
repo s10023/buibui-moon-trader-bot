@@ -1063,7 +1063,8 @@ SSE stream endpoints accept `?token=<API_TOKEN>` query param instead (browser `E
 | `GET` | `/api/stream/prices` | SSE — live prices every 5 s (`?token=`) |
 | `GET` | `/api/stream/positions` | SSE — live positions every 10 s (`?token=`) |
 | `GET` | `/api/stats/{symbol}` | Computed stats bundle (P1/P2, ADR, DOW, session, weekly) for a symbol |
-| `GET` | `/api/live-outcomes` | Cross-symbol roll-up of fired-alert outcomes from `signal_alert_outcomes` (win/loss/avg-R per strategy×tf×direction) |
+| `GET` | `/api/live-outcomes` | Cross-symbol roll-up of fired-alert outcomes from `signal_alert_outcomes` (win/loss/avg-R per strategy×tf×direction; optional `symbol` query param scopes the roll-up to one symbol) |
+| `GET` | `/api/live-outcomes/open` | Unresolved alerts marked to the live price (`?symbol=`); degrades to `marks_ok=false` with null price columns when the price feed is unavailable |
 | `GET` | `/api/zones` | Structural zones for a symbol+timeframe (FVG, OB, EQH/EQL, BOS, Fib, OTE, swings) |
 
 **CORS:** Defaults to `http://localhost:5173` (Vite dev server). Override with `CORS_ORIGINS` env var (comma-separated). If you change `DEV_PORT`, update `CORS_ORIGINS` accordingly (e.g. `CORS_ORIGINS=http://localhost:3000`).
