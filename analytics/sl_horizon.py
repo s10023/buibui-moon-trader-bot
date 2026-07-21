@@ -14,9 +14,13 @@ Pure: no DB, no IO, no network. The DB front door is
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
+import numpy as np
+import pandas as pd
+
+from analytics.backtest.engine import _compute_atr14
 from analytics.signal.outcome_backfill import DEFAULT_MAX_HOLD_BARS
 
 # A-priori and fixed. Brackets the current effective ratio at 1h (~3.6), 4h
@@ -105,3 +109,29 @@ def counterfactual_levels(
 ) -> tuple[float, float]:
     """The ``k × ATR14`` arm. ``tp_r`` is pinned by the caller, never swept."""
     return levels_from_sl_dist(entry, direction, sl_dist=k * atr, tp_r=tp_r)
+
+
+def atr_by_open_time(
+    ohlcv: pd.DataFrame, open_times: Iterable[int]
+) -> dict[int, float | None]:
+    """ATR14 at each requested signal bar, keyed by that bar's ``open_time``.
+
+    Delegates to the engine's ``_compute_atr14`` so the audit and the live path
+    cannot disagree on what ATR14 means. Returns ``None`` for an ``open_time``
+    absent from ``ohlcv`` and for the first bar (no prior close for a true
+    range) — callers drop those signals rather than substituting a value.
+    """
+    wanted = [int(t) for t in open_times]
+    if ohlcv is None or ohlcv.empty:
+        return dict.fromkeys(wanted)
+
+    highs = ohlcv["high"].to_numpy(dtype=np.float64)
+    lows = ohlcv["low"].to_numpy(dtype=np.float64)
+    closes = ohlcv["close"].to_numpy(dtype=np.float64)
+    position = {int(t): i for i, t in enumerate(ohlcv["open_time"].to_numpy())}
+
+    out: dict[int, float | None] = {}
+    for t in wanted:
+        idx = position.get(t)
+        out[t] = None if idx is None else _compute_atr14(highs, lows, closes, idx)
+    return out

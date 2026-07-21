@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import numpy as np
+import pandas as pd
 import pytest
 
 from analytics.sl_horizon import (
@@ -9,6 +11,7 @@ from analytics.sl_horizon import (
     DEFAULT_MULTIPLIERS,
     SLGridConfig,
     arm_label,
+    atr_by_open_time,
     baseline_levels,
     counterfactual_levels,
 )
@@ -79,3 +82,59 @@ def test_counterfactual_rejects_unknown_direction() -> None:
 def test_counterfactual_rejects_non_positive_risk() -> None:
     with pytest.raises(ValueError, match="sl_dist"):
         counterfactual_levels(100.0, "long", atr=0.0, k=1.0, tp_r=3.0)
+
+
+def _ramp_ohlcv(n: int = 40, step: float = 1.0) -> pd.DataFrame:
+    """Deterministic OHLCV with a constant 2.0-wide bar and a `step` drift."""
+    open_times = [1_000 + i * 100 for i in range(n)]
+    closes = [100.0 + i * step for i in range(n)]
+    return pd.DataFrame(
+        {
+            "open_time": open_times,
+            "open": [c - 0.5 for c in closes],
+            "high": [c + 1.0 for c in closes],
+            "low": [c - 1.0 for c in closes],
+            "close": closes,
+            "volume": [10.0] * n,
+        }
+    )
+
+
+def test_atr_by_open_time_returns_a_value_per_known_bar() -> None:
+    df = _ramp_ohlcv()
+    got = atr_by_open_time(df, [1_000 + 20 * 100, 1_000 + 30 * 100])
+    assert set(got) == {3_000, 4_000}
+    assert all(v is not None and v > 0.0 for v in got.values())
+
+
+def test_atr_by_open_time_is_none_for_unknown_open_time() -> None:
+    df = _ramp_ohlcv()
+    assert atr_by_open_time(df, [999_999]) == {999_999: None}
+
+
+def test_atr_by_open_time_is_none_at_the_first_bar() -> None:
+    # _compute_atr14 needs a prior close, so idx 0 has no ATR.
+    df = _ramp_ohlcv()
+    assert atr_by_open_time(df, [1_000]) == {1_000: None}
+
+
+def test_atr_by_open_time_matches_the_engine_primitive() -> None:
+    from analytics.backtest.engine import _compute_atr14
+
+    df = _ramp_ohlcv()
+    idx = 25
+    expected = _compute_atr14(
+        df["high"].to_numpy(dtype=np.float64),
+        df["low"].to_numpy(dtype=np.float64),
+        df["close"].to_numpy(dtype=np.float64),
+        idx,
+    )
+    got = atr_by_open_time(df, [int(df["open_time"].iloc[idx])])
+    assert got[int(df["open_time"].iloc[idx])] == pytest.approx(expected)
+
+
+def test_atr_by_open_time_handles_empty_frame() -> None:
+    empty = pd.DataFrame(
+        columns=["open_time", "open", "high", "low", "close", "volume"]
+    )
+    assert atr_by_open_time(empty, [1_000]) == {1_000: None}
