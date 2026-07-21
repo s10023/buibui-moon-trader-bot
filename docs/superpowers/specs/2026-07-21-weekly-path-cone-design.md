@@ -139,11 +139,16 @@ across 24 combos.
 
 ### 4.3 Named risk — cached bundle shape
 
-`StatsBundle` is cached via `analytics/stats/stats_cache.py`. Adding a field changes the
-cached shape. **Implementation must verify how cache entries are keyed/versioned**; if
-the cache does not version on schema, warm stale entries will deserialize without the new
-field and the endpoint will 500 on first deploy. A short check, but one that ships broken
-if unrecorded.
+**RESOLVED 2026-07-21 — already mitigated, no work required.** `StatsBundle` is cached
+via `analytics/store/stats_cache.py`, keyed `(symbol, days, computed_date)` with **no
+schema version**, so a warm entry written before this change will lack the new field.
+That is safe anyway: `web/api/routers/stats.py:202-208` wraps
+`StatsResponse.model_validate_json(cached)` in `try/except Exception` and falls through
+to a full recompute on failure. A stale entry therefore degrades to one recompute, not a
+500.
+
+Implementation must **not** remove that try/except, and must not make the new field
+required in a way that bypasses it (e.g. validating the cache payload elsewhere).
 
 ## 5. Data contract
 
@@ -172,14 +177,22 @@ AWR14 for week `w` = mean `(high − low)/open` over the 14 complete weeks stric
 
 Direction = `bull` if week close > week open, `bear` if <, else `doji`.
 
-### 5.2 Coverage pre-check (blocking)
+### 5.2 Coverage pre-check — RUN 2026-07-21, PASSED
 
-Before writing the module, count what fraction of BTCUSDT weeks since 2019 carry all 168
-bars. Memory records the N3 backfill at 0% gap, so near-total is expected.
+Counted over `analytics.db`, interior weeks only (first and last partial weeks dropped):
 
-**If more than ~5% of weeks drop, fall back to 4h bars (42 steps) rather than loosening
-the completeness rule.** A week missing six hours would otherwise enter the population as
-a legitimate path shape.
+| Symbol | Interior weeks | Exactly 168 bars | Short | Over |
+| --- | --- | --- | --- | --- |
+| BTCUSDT | 358 (2019-09-02 → 2026-07-20) | **358 (100.0%)** | 0 | 0 |
+| ETHUSDT | 346 | **346 (100.0%)** | 0 | 0 |
+| SOLUSDT | 304 | **304 (100.0%)** | 0 | 0 |
+
+**168 hourly bars confirmed; the 4h/42-step fallback is not needed and is dropped from
+scope.** The all-168 completeness rule costs nothing on the majors.
+
+Resulting population for BTCUSDT: 358 − 14 AWR warmup ≈ **344 usable weeks**, splitting
+roughly 172/172 bull/bear. (§2.1's "~390 / ~195" was an estimate; these are the measured
+figures and supersede it.)
 
 ## 6. Surfaces
 
