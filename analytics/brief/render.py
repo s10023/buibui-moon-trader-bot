@@ -301,11 +301,21 @@ def _weekly_lines(state: WeeklyState | None) -> list[str]:
     """Forming-week position inside the weekly cone. Conditional on outcome."""
     if state is None:
         return []
-    day = _DOW[min((state.elapsed_h - 1) // 24, 6)] if state.elapsed_h > 0 else _DOW[0]
-    hod = (state.elapsed_h - 1) % 24 if state.elapsed_h > 0 else 0
+    # Elapsed-moment convention — matches WeeklyCone.svelte's hourLabel(): day
+    # index h // 24, hour h % 24. h counts fully-closed bars since the Monday
+    # 00:00 UTC weekly open, so h=63 means 63 hours have elapsed = Wed 15:00
+    # UTC (not the open time of the 63rd bar). h == total_bars (168) is the
+    # right edge of the week (Sunday 24:00 UTC = next Monday 00:00 UTC) and is
+    # rendered explicitly rather than wrapping back to "Mon 00:00" via //24.
+    h = state.elapsed_h
+    day_hour = (
+        "Sun 24:00 UTC"
+        if h >= state.total_bars
+        else f"{_DOW[h // 24]} {h % 24:02d}:00 UTC"
+    )
     head = (
         f"Week  {state.path_direction} path so far · "
-        f"h{state.elapsed_h}/{state.total_bars} ({day} {hod:02d}:00 UTC) · "
+        f"h{state.elapsed_h}/{state.total_bars} ({day_hour}) · "
         f"{state.norm_now:+.2f}×AWR"
     )
     # C1: the adapter (analytics/brief/weekly.py::build_weekly_state) falls

@@ -640,6 +640,18 @@ def test_weekly_lines_bull_shows_conditional_clause() -> None:
     assert "of those weeks had set their low by now" in lines[2]
 
 
+def test_weekly_lines_head_uses_elapsed_moment_convention() -> None:
+    """N1 fix: `h` is hours elapsed since the Monday 00:00 UTC weekly open
+    (day = h // 24, hour = h % 24) — matching WeeklyCone.svelte's hourLabel()
+    exactly, not the open time of the last completed bar (h - 1). h=168 is
+    the right edge of the week and is rendered as "Sun 24:00 UTC" rather than
+    wrapping to "Mon 00:00" via modulo."""
+    assert "h40/168 (Tue 16:00 UTC)" in _weekly_lines(_weekly_state(elapsed_h=40))[0]
+    assert "h63/168 (Wed 15:00 UTC)" in _weekly_lines(_weekly_state(elapsed_h=63))[0]
+    assert "h0/168 (Mon 00:00 UTC)" in _weekly_lines(_weekly_state(elapsed_h=0))[0]
+    assert "h168/168 (Sun 24:00 UTC)" in _weekly_lines(_weekly_state(elapsed_h=168))[0]
+
+
 def test_weekly_lines_flat_omits_conditional_clause() -> None:
     """B2/C1 fix: cone.combos only has all/bull/bear — a "flat" state's
     conditional fields mirror the unconditional ones (adapter fallback), so

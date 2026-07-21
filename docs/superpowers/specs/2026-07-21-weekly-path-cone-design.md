@@ -215,7 +215,7 @@ Load `/frontend-design` before UI work; gate on **both** `make web-build` and
 ### 6.2 Brief — weekly-state block
 
 ```text
-Week  bull path · h63/168 (Thu 15:00 UTC) · +0.42×AWR
+Week  bull path · h63/168 (Wed 15:00 UTC) · +0.42×AWR
       p68 of bullish weeks (n=195) · p61 unconditional (n=390)
       low set Tue h31 · high h58 · 71% of bull weeks had set their low by now
 ```

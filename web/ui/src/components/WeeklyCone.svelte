@@ -124,13 +124,16 @@
     return p === null ? fmtAwr(v) + "×" : fmtPx(p);
   };
 
-  // Day + UTC hour label, e.g. "Wed 14:00 UTC" (I1). Resolved as UTC — not
-  // MYT — to match the x-axis gridlines (DAY_BOUNDARIES, UTC), the help
-  // copy ("Monday 00:00 UTC weekly open"), and the Brief's weekly-state
-  // line (prints e.g. "(Wed 14:00 UTC)"); "UTC" is spelled out so the
-  // anchoring can't be misread. step === TOTAL_STEPS (168) is the right
-  // chart edge / end of week (Sunday 24:00 UTC = next Monday 00:00 UTC) —
-  // rendered explicitly rather than wrapping back to "Mon 00:00" via modulo.
+  // Day + UTC hour label, e.g. "Wed 15:00 UTC" (I1). Resolved as UTC — not
+  // MYT — to match the x-axis gridlines (DAY_BOUNDARIES, UTC) and the help
+  // copy ("Monday 00:00 UTC weekly open"); "UTC" is spelled out so the
+  // anchoring can't be misread. This is the elapsed-moment convention (step
+  // hours since the Monday 00:00 UTC open) — the Brief's weekly-state line
+  // (analytics/brief/render.py::_weekly_lines) mirrors this exact convention
+  // so the two surfaces agree on what "h63" means. step === TOTAL_STEPS
+  // (168) is the right chart edge / end of week (Sunday 24:00 UTC = next
+  // Monday 00:00 UTC) — rendered explicitly rather than wrapping back to
+  // "Mon 00:00" via modulo.
   const hourLabel = (step: number): string => {
     if (step >= TOTAL_STEPS) return "Sun 24:00 UTC";
     const hourOfWeek = ((step % TOTAL_STEPS) + TOTAL_STEPS) % TOTAL_STEPS;
