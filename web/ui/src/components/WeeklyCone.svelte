@@ -23,15 +23,15 @@
 
   // "all" is never a selectable alternative — it is always the unconditional
   // reference band drawn underneath whichever conditional cone is selected.
-  const DIRS = [
+  const DIRS: { key: "bull" | "bear"; label: string }[] = [
     { key: "bull", label: "Bull" },
     { key: "bear", label: "Bear" },
   ];
 
   const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  // First step belonging to each day: bands are 1-indexed hourly closes, so
-  // Monday's first candle closes at step 1, Tuesday's at step 25, etc.
-  const DAY_BOUNDARIES = [1, 25, 49, 73, 97, 121, 145];
+  // True day boundaries (Mon occupies x(0)…x(24), Tue x(24)…x(48), …). 0 and
+  // 168 are the chart edges and need no gridline.
+  const DAY_BOUNDARIES = [24, 48, 72, 96, 120, 144];
 
   let dir = $state<"bull" | "bear">("bull");
 
@@ -74,10 +74,13 @@
     currentWeekPath ? overlayPath(currentWeekPath.points, TOTAL_STEPS, yDomain, geo) : ""
   );
 
-  const dayTicks = DAY_BOUNDARIES.map((b, i) => ({
-    boundary: b,
-    center: b + 11.5,
-    label: DAY_LABELS[i],
+  // Interior day-boundary gridlines only — 0 and 168 are the chart edges.
+  const dayGridlines = DAY_BOUNDARIES;
+
+  // Day label centers — one per day, at the midpoint of its 24h span.
+  const dayTicks = DAY_LABELS.map((label, i) => ({
+    center: i * 24 + 12,
+    label,
   }));
 
   const fmtAwr = fmtNorm;
@@ -142,7 +145,7 @@
           class:active={dir === d.key}
           class:bull={d.key === "bull"}
           class:bear={d.key === "bear"}
-          onclick={() => (dir = d.key as "bull" | "bear")}>{d.label}</button
+          onclick={() => (dir = d.key)}>{d.label}</button
         >
       {/each}
     </div>
@@ -166,14 +169,8 @@
       <path d={bandOuterD} class="wcone-band-outer" class:bull={dir === "bull"} class:bear={dir === "bear"} />
       <path d={bandInnerD} class="wcone-band-inner" class:bull={dir === "bull"} class:bear={dir === "bear"} />
       <line x1={x(0)} y1={y(0)} x2={x(TOTAL_STEPS)} y2={y(0)} class="wcone-zero-line" />
-      {#each dayTicks as t}
-        <line
-          x1={x(t.boundary)}
-          y1={PT}
-          x2={x(t.boundary)}
-          y2={H - PB}
-          class="wcone-day-gridline"
-        />
+      {#each dayGridlines as b}
+        <line x1={x(b)} y1={PT} x2={x(b)} y2={H - PB} class="wcone-day-gridline" />
       {/each}
       <path d={medianD} class="wcone-median" class:bull={dir === "bull"} class:bear={dir === "bear"} />
       {#if weekD && currentWeekPath}
@@ -322,17 +319,11 @@
     stroke-width: 1;
     stroke-dasharray: 3 2;
   }
-  .wcone-band-outer {
-    fill: rgba(96, 165, 250, 0.1);
-  }
   .wcone-band-outer.bull {
     fill: color-mix(in srgb, var(--green) 14%, transparent);
   }
   .wcone-band-outer.bear {
     fill: color-mix(in srgb, var(--red) 14%, transparent);
-  }
-  .wcone-band-inner {
-    fill: rgba(96, 165, 250, 0.18);
   }
   .wcone-band-inner.bull {
     fill: color-mix(in srgb, var(--green) 26%, transparent);
@@ -345,12 +336,11 @@
     stroke-dasharray: 2 3;
   }
   .wcone-day-gridline {
-    stroke: var(--border);
+    stroke: color-mix(in srgb, var(--muted) 55%, transparent);
     stroke-dasharray: 1 3;
   }
   .wcone-median {
     fill: none;
-    stroke: #60a5fa;
     stroke-width: 1.5;
   }
   .wcone-median.bull {

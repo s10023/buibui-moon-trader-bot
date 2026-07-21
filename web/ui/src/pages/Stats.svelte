@@ -93,8 +93,8 @@
     },
     weeklyCone: {
       what: "The same chart one horizon up: hourly closes as ×AWR14 from the Monday 00:00 UTC weekly open, pooled over 168 hours. The gray band is the unconditional reference — every complete historical week. The colored band is CONDITIONAL ON OUTCOME: a 'bull' week is defined by closing above its open, so that cone sits above the reference band by construction — that separation is not a forecast, it's what already-bullish weeks looked like along the way. The dotted amber line is this week so far.",
-      value: "Compare this week's amber line to the reference band, not the conditional one, if you don't yet know how this week will close. Once a direction looks likely, the matching conditional cone shows what weeks like this one typically did next. 'By now' and pivots read the same way as the daily cone, one week wide.",
-      example: "Wed 14:00 MYT, week running above the gray median: switch to Bull — if bull weeks are riding p75 with high-in-by 60%, the up-move may already be mostly in.",
+      value: "Compare this week's amber line to the gray reference band — that is the only unconditional read. The bull/bear cones describe the shape of weeks that already finished that way; they cannot tell you which one this week is in. 'By now' and pivots read the same way as the daily cone, one week wide.",
+      example: "Bull weeks (closed above open) rode p75 by Wed 14:00 MYT with low-in-by 60% — that's the shape of a finished bull week, in hindsight, not a preview of this one.",
     },
     wickPercentile: {
       what: "For this week's P1 candle (the 1h candle that first set the weekly extreme), how does its wick size compare to all historical P1 candles? Wick is measured in the P1 direction (lower wick for P1=low, upper wick for P1=high), normalised by the candle's open price and ADR14. Exceedance % = fraction of historical P1 weeks with a BIGGER wick than this week's.",
