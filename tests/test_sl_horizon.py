@@ -1,0 +1,81 @@
+"""Unit tests for the ST9/H11 SL-horizon audit library."""
+
+from __future__ import annotations
+
+import pytest
+
+from analytics.sl_horizon import (
+    BASELINE_ARM,
+    DEFAULT_MULTIPLIERS,
+    SLGridConfig,
+    arm_label,
+    baseline_levels,
+    counterfactual_levels,
+)
+
+
+def test_default_grid_is_the_a_priori_one() -> None:
+    assert DEFAULT_MULTIPLIERS == (0.5, 1.0, 1.5, 2.0, 3.0)
+
+
+def test_config_defaults_match_live_hold_horizons() -> None:
+    cfg = SLGridConfig()
+    assert cfg.max_hold_bars_by_tf["15m"] == 96
+    assert cfg.max_hold_bars_by_tf["1h"] == 48
+    assert cfg.max_hold_bars_by_tf["4h"] == 30
+    assert cfg.max_hold_bars_by_tf["1d"] == 14
+    assert cfg.baseline_pct == 0.02
+
+
+def test_config_rejects_empty_grid() -> None:
+    with pytest.raises(ValueError, match="multipliers"):
+        SLGridConfig(multipliers=())
+
+
+def test_config_rejects_non_positive_multiplier() -> None:
+    with pytest.raises(ValueError, match="multipliers"):
+        SLGridConfig(multipliers=(1.0, 0.0))
+
+
+def test_arm_label_is_stable_and_distinct() -> None:
+    # `:g` drops the trailing zero, so 1.0 -> "atr_1". Task 5's _k_from_arm
+    # inverts this, and Task 4's fixtures use these exact strings.
+    assert arm_label(1.0) == "atr_1"
+    assert arm_label(0.5) == "atr_0.5"
+    assert arm_label(2.0) == "atr_2"
+    assert arm_label(1.0) != BASELINE_ARM
+
+
+def test_baseline_levels_long_is_two_percent_below_entry() -> None:
+    sl, tp = baseline_levels(100.0, "long", baseline_pct=0.02, tp_r=3.0)
+    assert sl == pytest.approx(98.0)
+    assert tp == pytest.approx(106.0)
+
+
+def test_baseline_levels_short_mirrors_long() -> None:
+    sl, tp = baseline_levels(100.0, "short", baseline_pct=0.02, tp_r=3.0)
+    assert sl == pytest.approx(102.0)
+    assert tp == pytest.approx(94.0)
+
+
+def test_counterfactual_levels_scale_with_atr_and_k() -> None:
+    sl, tp = counterfactual_levels(100.0, "long", atr=2.0, k=1.5, tp_r=3.0)
+    assert sl == pytest.approx(97.0)  # 100 - 1.5 * 2.0
+    assert tp == pytest.approx(109.0)  # 100 + 3.0 * 3.0
+
+
+def test_counterfactual_tp_tracks_tp_r_times_sl_distance() -> None:
+    for tp_r in (1.0, 2.5, 4.0):
+        sl, tp = counterfactual_levels(100.0, "short", atr=1.0, k=2.0, tp_r=tp_r)
+        sl_dist = abs(100.0 - sl)
+        assert abs(100.0 - tp) == pytest.approx(tp_r * sl_dist)
+
+
+def test_counterfactual_rejects_unknown_direction() -> None:
+    with pytest.raises(ValueError, match="direction"):
+        counterfactual_levels(100.0, "sideways", atr=1.0, k=1.0, tp_r=3.0)
+
+
+def test_counterfactual_rejects_non_positive_risk() -> None:
+    with pytest.raises(ValueError, match="sl_dist"):
+        counterfactual_levels(100.0, "long", atr=0.0, k=1.0, tp_r=3.0)
