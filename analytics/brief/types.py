@@ -189,7 +189,7 @@ class ExternalState:
     snapshots: list[ExternalSnapshot]
 
 
-@dataclass
+@dataclass(frozen=True)
 class WeeklyState:
     """Where the forming week sits inside the weekly cone (M5, conditional-on-outcome)."""
 
@@ -206,6 +206,17 @@ class WeeklyState:
     low_in_by_now: (
         float  # fraction of same-direction weeks that had set their low by now
     )
+
+
+@dataclass(frozen=True)
+class MonthlyContext:
+    """Descriptive monthly context — three numbers, deliberately NOT a cone."""
+
+    mtd_return_pct: float
+    mtd_elapsed_frac: float  # 0–1, how much of the month has elapsed
+    pct_of_months: float  # rank of MTD return among COMPLETED prior months
+    n_months: int
+    range_position: float | None  # (price − low) / (high − low), None when flat
 
 
 @dataclass(frozen=True)
@@ -228,6 +239,7 @@ class SymbolPanel:
     error: str | None
     external: ExternalState | None = None
     weekly: WeeklyState | None = None
+    monthly: MonthlyContext | None = None
 
 
 def error_panel(symbol: str, message: str) -> SymbolPanel:

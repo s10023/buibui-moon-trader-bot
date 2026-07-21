@@ -12,8 +12,10 @@ from analytics.brief.render import (
     _external_lines,
     _external_snapshot_bit,
     _indicator_lines,
+    _monthly_lines,
     _recap_bit,
     _session_lines,
+    _weekly_lines,
     fmt_dist,
     fmt_frac,
     fmt_price,
@@ -28,6 +30,7 @@ from analytics.brief.types import (
     ExternalState,
     IndicatorState,
     MondayState,
+    MonthlyContext,
     PaState,
     ProfileState,
     RangeState,
@@ -35,6 +38,7 @@ from analytics.brief.types import (
     SessionRecapRow,
     SessionState,
     VwapState,
+    WeeklyState,
 )
 from tests._brief_fixtures import DAY_MS, START_MS, brief_cfg, make_conn, seed_symbol
 
@@ -601,6 +605,86 @@ def test_external_snapshot_bit_shows_venue() -> None:
         clusters_below=[],
     )
     assert _external_snapshot_bit(snap).startswith("coinglass/hyperliquid map (1d)")
+
+
+def _weekly_state(**overrides: object) -> WeeklyState:
+    base: dict[str, object] = {
+        "path_direction": "bull",
+        "elapsed_h": 40,
+        "total_bars": 168,
+        "norm_now": 0.35,
+        "pct_conditional": 62.0,
+        "pct_unconditional": 58.0,
+        "n_conditional": 172,
+        "n_unconditional": 344,
+        "low_hour": 3,
+        "high_hour": 39,
+        "low_in_by_now": 0.71,
+    }
+    base.update(overrides)
+    return WeeklyState(**base)  # type: ignore[arg-type]
+
+
+def test_weekly_lines_none_is_empty() -> None:
+    assert _weekly_lines(None) == []
+
+
+def test_weekly_lines_bull_shows_conditional_clause() -> None:
+    lines = _weekly_lines(_weekly_state())
+    assert len(lines) == 3
+    assert "of weeks that closed bull (n=172)" in lines[1]
+    assert "p58 unconditional (n=344)" in lines[1]
+    assert "of those weeks had set their low by now" in lines[2]
+
+
+def test_weekly_lines_flat_omits_conditional_clause() -> None:
+    """B2 fix: cone.combos only has all/bull/bear — a "flat" state's
+    conditional fields mirror the unconditional ones (adapter fallback), so
+    the rendered rank line must not claim a "closed flat" cohort exists, and
+    the timing line must attribute to "all weeks", not "those weeks"."""
+    state = _weekly_state(
+        path_direction="flat",
+        pct_conditional=58.0,
+        n_conditional=344,
+    )
+    lines = _weekly_lines(state)
+    assert len(lines) == 3
+    ranks = lines[1]
+    assert "closed flat" not in ranks
+    assert "flat" not in ranks  # no direction word leaks into the rank line
+    assert ranks == "      p58 unconditional (n=344)"
+    assert "of all weeks had set their low by now" in lines[2]
+    assert "of those weeks" not in lines[2]
+
+
+def test_monthly_lines_none_is_empty() -> None:
+    assert _monthly_lines(None) == []
+
+
+def test_monthly_lines_full() -> None:
+    ctx = MonthlyContext(
+        mtd_return_pct=4.2,
+        mtd_elapsed_frac=0.65,
+        pct_of_months=70.0,
+        n_months=84,
+        range_position=0.8,
+    )
+    assert _monthly_lines(ctx) == [
+        "Month +4.2% · p70 of 84 completed months · range position 0.80 (65% elapsed)"
+    ]
+
+
+def test_monthly_lines_range_position_none() -> None:
+    ctx = MonthlyContext(
+        mtd_return_pct=-1.0,
+        mtd_elapsed_frac=0.10,
+        pct_of_months=50.0,
+        n_months=0,
+        range_position=None,
+    )
+    assert _monthly_lines(ctx) == [
+        "Month -1.0% · p50 of 0 completed months · range position — (10% elapsed)"
+    ]
 
 
 def test_external_snapshot_bit_no_venue_unchanged() -> None:

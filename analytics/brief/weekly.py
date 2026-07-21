@@ -58,6 +58,12 @@ def build_weekly_state(
         direction = "flat"
 
     all_combo = cone.combos["all"]
+    # "flat" has no cohort in cone.combos (only all/bull/bear) — this falls
+    # back to the unconditional pool, so pct_cond/n_conditional below mirror
+    # pct_uncond/n_unconditional exactly. The renderer (render.py::
+    # _weekly_lines) MUST omit the "of weeks that closed flat" clause in that
+    # case — presenting the unconditional population as a flat-closing
+    # cohort would be a false label (see 2026-07-20 task-4 review, B2).
     cond_combo = cone.combos.get(direction, all_combo)
     if not all_combo.bands:
         return None, ["weekly cone: population has no bands"]
@@ -70,10 +76,10 @@ def build_weekly_state(
         else pct_uncond
     )
 
-    low_hour = current.points.index(min(current.points)) + 1 if current.points else None
-    high_hour = (
-        current.points.index(max(current.points)) + 1 if current.points else None
-    )
+    # current.points is guaranteed non-empty by the guard at the top of this
+    # function, so these can never fall back to None.
+    low_hour = current.points.index(min(current.points)) + 1
+    high_hour = current.points.index(max(current.points)) + 1
     low_in_by_now = (
         cond_combo.low_in_by[idx] if cond_combo.low_in_by else all_combo.low_in_by[idx]
     )

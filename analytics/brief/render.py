@@ -16,6 +16,7 @@ from analytics.brief.types import (
     IndicatorState,
     LevelRow,
     MondayState,
+    MonthlyContext,
     PaState,
     ProfileState,
     PunditAuthorPrior,
@@ -274,6 +275,25 @@ def _session_lines(state: SessionState | None) -> list[str]:
     return [f"{'Sessions':<9}{bits[0]}"] + [f"{'':9}{b}" for b in bits[1:]]
 
 
+def _monthly_lines(ctx: MonthlyContext | None) -> list[str]:
+    """Descriptive monthly context. Not a distribution, not a forecast.
+
+    No ``seasonality`` param: ``SeasonalityStrip`` carries only day-of-week /
+    session / weekly-timing fields (see ``analytics/brief/seasonality.py``) —
+    it has no calendar-month data to duplicate, and it already renders its
+    own line via ``_strip_lines`` at its own call site in ``_panel_lines``.
+    """
+    if ctx is None:
+        return []
+    rng = "—" if ctx.range_position is None else f"{ctx.range_position:.2f}"
+    head = (
+        f"Month {ctx.mtd_return_pct:+.1f}% · p{ctx.pct_of_months:.0f} of "
+        f"{ctx.n_months} completed months · range position {rng} "
+        f"({ctx.mtd_elapsed_frac:.0%} elapsed)"
+    )
+    return [head]
+
+
 def _weekly_lines(state: WeeklyState | None) -> list[str]:
     """Forming-week position inside the weekly cone. Conditional on outcome."""
     if state is None:
@@ -285,14 +305,29 @@ def _weekly_lines(state: WeeklyState | None) -> list[str]:
         f"h{state.elapsed_h}/{state.total_bars} ({day} {hod:02d}:00 UTC) · "
         f"{state.norm_now:+.2f}×AWR"
     )
-    ranks = (
-        f"      p{state.pct_conditional:.0f} of weeks that closed "
-        f"{state.path_direction} (n={state.n_conditional}) · "
-        f"p{state.pct_unconditional:.0f} unconditional (n={state.n_unconditional})"
-    )
+    # "flat" has no cohort in the weekly cone (only all/bull/bear) — the
+    # adapter (analytics/brief/weekly.py::build_weekly_state) falls the
+    # conditional pool back to the unconditional one in that case. Presenting
+    # that as "weeks that closed flat" would misattribute the unconditional
+    # population as a conditional cohort, so omit the conditional clause and
+    # attribute the timing stat to "all weeks" instead of "those weeks".
+    is_flat = state.path_direction == "flat"
+    if is_flat:
+        ranks = (
+            f"      p{state.pct_unconditional:.0f} unconditional "
+            f"(n={state.n_unconditional})"
+        )
+        timing_cohort = "all weeks"
+    else:
+        ranks = (
+            f"      p{state.pct_conditional:.0f} of weeks that closed "
+            f"{state.path_direction} (n={state.n_conditional}) · "
+            f"p{state.pct_unconditional:.0f} unconditional (n={state.n_unconditional})"
+        )
+        timing_cohort = "those weeks"
     timing = (
         f"      low so far h{state.low_hour} · high so far h{state.high_hour} · "
-        f"{state.low_in_by_now:.0%} of those weeks had set their low by now"
+        f"{state.low_in_by_now:.0%} of {timing_cohort} had set their low by now"
     )
     return [head, ranks, timing]
 
@@ -341,6 +376,7 @@ def _panel_lines(panel: SymbolPanel) -> list[str]:
     )
     lines.extend(_indicator_lines(panel.indicators))
     lines.extend(_session_lines(panel.sessions))
+    lines.extend(_monthly_lines(panel.monthly))
     lines.extend(_weekly_lines(panel.weekly))
     lines.extend(_external_lines(panel.external))
     above = " · ".join(_level_str(r) for r in panel.levels_above) or "none"

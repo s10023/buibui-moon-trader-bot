@@ -19,6 +19,7 @@ from analytics.brief.external import load_external_state
 from analytics.brief.health import build_health
 from analytics.brief.indicators import build_indicator_state
 from analytics.brief.levels import adr_pct_14, atr14_wilder, build_level_rows
+from analytics.brief.monthly import build_monthly_context
 from analytics.brief.pundit import build_board
 from analytics.brief.seasonality import build_strip
 from analytics.brief.sessions import build_session_state
@@ -158,6 +159,13 @@ def _compute_panel(
     except Exception as exc:  # weekly block is optional
         weekly, wk_notes = None, [f"weekly cone failed ({exc})"]
     notes.extend(f"{symbol}: {n}" for n in wk_notes)
+    try:
+        monthly, mo_notes = build_monthly_context(
+            completed_1d=completed_1d, as_of_ms=as_of
+        )
+    except Exception as exc:  # monthly block is optional
+        monthly, mo_notes = None, [f"monthly context failed ({exc})"]
+    notes.extend(f"{symbol}: {n}" for n in mo_notes)
     return SymbolPanel(
         symbol=symbol,
         ref_close=ref_close,
@@ -176,6 +184,7 @@ def _compute_panel(
         sessions=sessions,
         external=external,
         weekly=weekly,
+        monthly=monthly,
         error=None,
     )
 

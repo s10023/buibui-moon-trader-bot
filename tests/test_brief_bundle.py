@@ -58,9 +58,15 @@ def test_compute_brief_extra_notes_flow_to_health() -> None:
     # 60 seeded days is short of the weekly cone's 14-complete-prior-weeks
     # floor, so the M5 weekly block degrades to its own health note (added
     # after "fallback" in this fixture — see analytics/brief/weekly.py).
+    # AS_OF (START_MS + 60d) also lands exactly on the 2024-03-01 month
+    # boundary, so the fixture's last completed daily bar (Feb 29) falls in
+    # the PRIOR month — the current month has zero completed bars, and the
+    # M5 monthly block (Task 5) degrades to its own note too, appended after
+    # the weekly one — see analytics/brief/monthly.py.
     assert bundle.health.notes == [
         "fallback",
         "BTCUSDT: weekly cone: no forming-week path (short history?)",
+        "BTCUSDT: monthly context: no bars in the current month",
     ]
 
 

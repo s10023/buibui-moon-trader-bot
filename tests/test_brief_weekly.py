@@ -86,3 +86,22 @@ def test_percentile_saturates_at_tails() -> None:
     state, _ = build_weekly_state(cone=_bundle(), current=current)
     assert state is not None
     assert state.pct_unconditional == 90.0
+
+
+def test_direction_flat_on_exact_zero() -> None:
+    """norm_now == 0.0 exactly reads as 'flat' — no bull/bear cohort exists
+
+    for it in cone.combos (only all/bull/bear), so the conditional pool
+    falls back to the unconditional one (n_conditional == n_unconditional).
+    The renderer, not this adapter, is responsible for never presenting that
+    fallback as a real "closed flat" cohort (see render.py::_weekly_lines).
+    """
+    current = CurrentWeekPath(
+        points=[0.0] * 62, elapsed_h=62, awr14_current=0.02, week_open=100.0
+    )
+    state, notes = build_weekly_state(cone=_bundle(), current=current)
+    assert state is not None
+    assert notes == []
+    assert state.path_direction == "flat"
+    assert state.n_conditional == state.n_unconditional == 344
+    assert state.pct_conditional == state.pct_unconditional

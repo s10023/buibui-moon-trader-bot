@@ -165,6 +165,28 @@ class ExternalStateModel(BaseModel):
     snapshots: list[ExternalSnapshotModel]
 
 
+class WeeklyStateModel(BaseModel):
+    path_direction: str
+    elapsed_h: int
+    total_bars: int
+    norm_now: float
+    pct_conditional: float
+    pct_unconditional: float
+    n_conditional: int
+    n_unconditional: int
+    low_hour: int | None
+    high_hour: int | None
+    low_in_by_now: float
+
+
+class MonthlyContextModel(BaseModel):
+    mtd_return_pct: float
+    mtd_elapsed_frac: float
+    pct_of_months: float
+    n_months: int
+    range_position: float | None
+
+
 class SymbolPanelModel(BaseModel):
     symbol: str
     ref_close: float
@@ -183,6 +205,8 @@ class SymbolPanelModel(BaseModel):
     sessions: SessionStateModel | None
     error: str | None
     external: ExternalStateModel | None = None
+    weekly: WeeklyStateModel | None = None
+    monthly: MonthlyContextModel | None = None
 
 
 class PunditAuthorPriorModel(BaseModel):
