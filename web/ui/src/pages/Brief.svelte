@@ -1,6 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getBrief, type BriefResponse, type BriefExternalClusterRow } from "../api";
+  import {
+    getBrief,
+    type BriefResponse,
+    type BriefExternalClusterRow,
+    type BriefWeeklyState,
+  } from "../api";
   import LoadingSpinner from "../components/LoadingSpinner.svelte";
   import ErrorBanner from "../components/ErrorBanner.svelte";
 
@@ -62,6 +67,35 @@
   function extClusters(rows: BriefExternalClusterRow[]): string {
     return rows.length ? rows.map(extCluster).join(", ") : "none";
   }
+
+  // Mirrors analytics/brief/render.py::_weekly_lines so the tab and the CLI
+  // cannot disagree on which moment an elapsed-hour count names.
+  //
+  // Elapsed-moment convention: h counts fully-closed bars since the Monday
+  // 00:00 UTC weekly open, so h=63 means 63 hours have elapsed (Wed 15:00
+  // UTC), not the open of the 63rd bar. h == total_bars is the right edge of
+  // the week and is spelled "Sun 24:00 UTC" rather than wrapping to "Mon
+  // 00:00" via the day division.
+  //
+  // The axis stays UTC-anchored because the week is defined by the Binance
+  // weekly candle; MYT rides along in the readout only, as the operator's
+  // working timezone. The MYT day index is computed independently, NOT
+  // derived from the UTC one — UTC+8 routinely lands on a different weekday
+  // (h=40 is Tue 16:00 UTC but Wed 00:00 MYT), and h in [160, 168] wraps into
+  // the FOLLOWING week's Monday while the UTC week is still open. That wrap
+  // collides in string form with h=0 (both read "Mon 08:00 MYT", a week
+  // apart); the paired UTC half always disambiguates them in context.
+  function weekHourLabel(w: BriefWeeklyState): string {
+    const h = w.elapsed_h;
+    const hhmm = (x: number): string => `${String(x % 24).padStart(2, "0")}:00`;
+    const utc =
+      h >= w.total_bars ? "Sun 24:00 UTC" : `${DOW[Math.floor(h / 24)]} ${hhmm(h)} UTC`;
+    const myt = (h + 8) % w.total_bars;
+    return `${utc} · ${DOW[Math.floor(myt / 24)]} ${hhmm(myt)} MYT`;
+  }
+
+  const signed = (x: number, dp: number): string => (x >= 0 ? "+" : "") + x.toFixed(dp);
+  const hourTag = (h: number | null): string => (h === null ? "—" : `h${h}`);
 
   async function load(): Promise<void> {
     loading = true;
@@ -204,6 +238,31 @@
         <dt>tendency</dt>
         <dd>
           Share of the last 180 days each session made the daily high or low.
+        </dd>
+        <dt>Month</dt>
+        <dd>
+          Month-to-date return, its percentile against completed prior
+          months, and where price sits in the month's range (0 = low,
+          1 = high), with the share of the month elapsed. The percentile is
+          unconditional — every completed prior month, not split by
+          direction. Deliberately three numbers rather than a cone like the
+          weekly block: splitting ~90 months by direction leaves ~45 per
+          group, too thin to draw percentile bands from.
+        </dd>
+        <dt>Week</dt>
+        <dd>
+          Where the forming week sits in the weekly path cone: the direction
+          of the path <em>so far</em>, hours elapsed since the Monday 00:00
+          UTC open, and the move in AWR14 units. The percentiles rank this
+          path against past weeks that closed the same direction, and against
+          all weeks. <strong>This describes the week so far. It is not a
+          forecast, and the direction shown is not a claim about where the
+          week closes.</strong> Weeks are grouped by how they
+          <em>ended</em>, so the bull band sits above the all-weeks band by
+          construction — mid-week you do not know which group this week
+          belongs to. When no same-direction cohort resolves, only the
+          all-weeks rank is shown. Hours are UTC, since the week is defined
+          by the Monday 00:00 UTC candle, with MYT alongside in the readout.
         </dd>
         <dt>External</dt>
         <dd>
@@ -373,6 +432,58 @@
                     | day-low {s.tendency.map((t) => `${t.session} ${Math.round(t.low_pct * 100)}%`).join(" · ")}
                   </div>
                 {/if}
+              </div>
+            {/if}
+
+            {#if panel.monthly}
+              {@const m = panel.monthly}
+              <div class="sessions muted">
+                <div>
+                  <span class="sess-name">MONTH</span>
+                  {signed(m.mtd_return_pct, 1)}%
+                  · {m.pct_of_months === null ? "—" : `p${Math.round(m.pct_of_months)}`} of
+                  {m.n_months} completed months
+                  · range position {m.range_position === null
+                    ? "—"
+                    : m.range_position.toFixed(2)}
+                  ({Math.round(m.mtd_elapsed_frac * 100)}% elapsed)
+                </div>
+              </div>
+            {/if}
+
+            {#if panel.weekly}
+              {@const w = panel.weekly}
+              <div class="sessions muted">
+                <div>
+                  <span class="sess-name">WEEK</span>
+                  {w.path_direction} path so far · h{w.elapsed_h}/{w.total_bars}
+                  ({weekHourLabel(w)}) · {signed(w.norm_now, 2)}×AWR
+                </div>
+                <!--
+                  The conditional pool falls back to the unconditional one
+                  whenever a same-direction cohort can't be resolved distinctly
+                  — either "flat" has no cohort at all, or the bull/bear combo
+                  exists but is empty. `conditional_is_fallback` covers BOTH;
+                  keying on path_direction alone missed the empty-combo case and
+                  labelled the unconditional population as a cohort. So drop the
+                  cohort clause entirely and attribute the timing stat to "all
+                  weeks" instead of "those weeks".
+                -->
+                <div>
+                  {#if w.conditional_is_fallback}
+                    p{Math.round(w.pct_unconditional)} unconditional (n={w.n_unconditional})
+                  {:else}
+                    p{Math.round(w.pct_conditional)} of weeks that closed
+                    {w.path_direction} (n={w.n_conditional})
+                    · p{Math.round(w.pct_unconditional)} unconditional (n={w.n_unconditional})
+                  {/if}
+                </div>
+                <div>
+                  low close so far {hourTag(w.low_hour)} · high close so far
+                  {hourTag(w.high_hour)} · {Math.round(w.low_in_by_now * 100)}% of
+                  {w.conditional_is_fallback ? "all weeks" : "those weeks"} had set their
+                  low by now
+                </div>
               </div>
             {/if}
 
