@@ -1825,7 +1825,7 @@ def test_resolve_live_arms_produces_one_row_per_alert_per_arm() -> None:
     assert len(rows) == 3
 
 
-def test_resolve_live_arms_baseline_uses_the_stored_sl(*, ) -> None:
+def test_resolve_live_arms_baseline_uses_the_stored_sl() -> None:
     """The live baseline must reproduce the alert, so it uses the STORED sl_price."""
     cfg = SLGridConfig(multipliers=(1.0,))
     alerts = pd.DataFrame(
@@ -1855,8 +1855,10 @@ def test_resolve_live_arms_baseline_uses_the_stored_sl(*, ) -> None:
     assert baseline["sl_dist_pct"] == pytest.approx(0.03)
 ```
 
-Remove the stray `*,` in `test_resolve_live_arms_baseline_uses_the_stored_sl(*, )` —
-write it as `def test_resolve_live_arms_baseline_uses_the_stored_sl() -> None:`.
+**Note on the `backtest_trades` INSERT above:** the column list is explicit, but if
+`trade_id` is NOT NULL without a default in the live schema, add it to the INSERT.
+Read `analytics/store/schema.py` and adapt — the test's *intent* (two runs, same
+signal, later `run_id` wins) is what matters, not the literal column list.
 
 - [ ] **Step 2: Run test to verify it fails**
 
