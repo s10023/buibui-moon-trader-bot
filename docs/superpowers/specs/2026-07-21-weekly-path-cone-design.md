@@ -215,10 +215,15 @@ Load `/frontend-design` before UI work; gate on **both** `make web-build` and
 ### 6.2 Brief — weekly-state block
 
 ```text
-Week  bull path · h63/168 (Wed 15:00 UTC) · +0.42×AWR
+Week  bull path · h63/168 (Wed 15:00 UTC · Wed 23:00 MYT) · +0.42×AWR
       p68 of bullish weeks (n=195) · p61 unconditional (n=390)
       low set Tue h31 · high h58 · 71% of bull weeks had set their low by now
 ```
+
+The axis, day bands, and gridlines stay UTC-anchored — the week is defined by the
+Binance weekly candle (Monday 00:00 UTC) and re-anchoring it to MYT would diverge from
+that boundary and from `analytics/reference_levels.py`; MYT is surfaced only in this
+hour readout, alongside UTC, because that is the operator's working timezone.
 
 Degrades to a health note on failure, never failing the brief.
 

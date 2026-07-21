@@ -124,21 +124,42 @@
     return p === null ? fmtAwr(v) + "×" : fmtPx(p);
   };
 
-  // Day + UTC hour label, e.g. "Wed 15:00 UTC" (I1). Resolved as UTC — not
-  // MYT — to match the x-axis gridlines (DAY_BOUNDARIES, UTC) and the help
-  // copy ("Monday 00:00 UTC weekly open"); "UTC" is spelled out so the
-  // anchoring can't be misread. This is the elapsed-moment convention (step
-  // hours since the Monday 00:00 UTC open) — the Brief's weekly-state line
-  // (analytics/brief/render.py::_weekly_lines) mirrors this exact convention
-  // so the two surfaces agree on what "h63" means. step === TOTAL_STEPS
-  // (168) is the right chart edge / end of week (Sunday 24:00 UTC = next
-  // Monday 00:00 UTC) — rendered explicitly rather than wrapping back to
-  // "Mon 00:00" via modulo.
-  const hourLabel = (step: number): string => {
-    if (step >= TOTAL_STEPS) return "Sun 24:00 UTC";
-    const hourOfWeek = ((step % TOTAL_STEPS) + TOTAL_STEPS) % TOTAL_STEPS;
+  // Day + hour label, e.g. "Wed 15:00 UTC · Wed 23:00 MYT" (I1). The x-axis
+  // gridlines (DAY_BOUNDARIES) and the help copy ("Monday 00:00 UTC weekly
+  // open") stay UTC-anchored — the week is defined by the Binance weekly
+  // candle, Monday 00:00 UTC — so "UTC" is spelled out there so the
+  // anchoring can't be misread. MYT is surfaced ADDITIONALLY here, in the
+  // hover readout only, because that's the operator's working timezone.
+  // This is the elapsed-moment convention (step hours since the Monday
+  // 00:00 UTC open) — the Brief's weekly-state line
+  // (analytics/brief/render.py::_weekly_lines) mirrors this exact
+  // convention, MYT half included, so the two surfaces agree on what "h63"
+  // means. step === TOTAL_STEPS (168) is the right chart edge / end of week
+  // (Sunday 24:00 UTC = next Monday 00:00 UTC) — rendered explicitly rather
+  // than wrapping back to "Mon 00:00" via modulo.
+  //
+  // The MYT day index is computed INDEPENDENTLY of the UTC one, not derived
+  // from it: UTC+8 routinely lands on a different weekday (e.g. step=40 is
+  // Tue 16:00 UTC but Wed 00:00 MYT — the two axes disagree on which day it
+  // is), and step in [160, 168] wraps into the FOLLOWING week's Monday in
+  // MYT even though the UTC week hasn't ended yet. That wrap collides in
+  // string form with step=0's "Mon 08:00 MYT" (both render as "Mon 08:00
+  // MYT", one week apart) — left as plain "Mon" rather than annotating
+  // "(next week)", since the paired UTC half ("Mon 00:00 UTC" vs "Sun
+  // 24:00 UTC") always disambiguates the two in context.
+  const formatDayHour = (hourOfWeek: number, tz: string): string => {
     const dayIdx = Math.floor(hourOfWeek / 24);
-    return `${DAY_LABELS[dayIdx]} ${String(hourOfWeek % 24).padStart(2, "0")}:00 UTC`;
+    return `${DAY_LABELS[dayIdx]} ${String(hourOfWeek % 24).padStart(2, "0")}:00 ${tz}`;
+  };
+
+  const hourLabel = (step: number): string => {
+    const utcPart =
+      step >= TOTAL_STEPS
+        ? "Sun 24:00 UTC"
+        : formatDayHour(((step % TOTAL_STEPS) + TOTAL_STEPS) % TOTAL_STEPS, "UTC");
+    const mytHourOfWeek = (((step + 8) % TOTAL_STEPS) + TOTAL_STEPS) % TOTAL_STEPS;
+    const mytPart = formatDayHour(mytHourOfWeek, "MYT");
+    return `${utcPart} · ${mytPart}`;
   };
 </script>
 

@@ -307,15 +307,28 @@ def _weekly_lines(state: WeeklyState | None) -> list[str]:
     # UTC (not the open time of the 63rd bar). h == total_bars (168) is the
     # right edge of the week (Sunday 24:00 UTC = next Monday 00:00 UTC) and is
     # rendered explicitly rather than wrapping back to "Mon 00:00" via //24.
+    # The axis/day-boundaries stay UTC-anchored (the week is defined by the
+    # Binance weekly candle, Monday 00:00 UTC) — MYT is surfaced here in the
+    # readout only, because that is the operator's working timezone. The MYT
+    # day index is computed independently from the UTC one, NOT derived from
+    # it: UTC+8 routinely lands on a different weekday (e.g. h=40 is Tue
+    # 16:00 UTC but Wed 00:00 MYT), and h in [160, 168] wraps into the
+    # FOLLOWING week's Monday in MYT even though the UTC week hasn't ended
+    # yet. That wrap collides in string form with h=0's "Mon 08:00 MYT"
+    # (both render as "Mon 08:00 MYT", one week apart) — left as plain "Mon"
+    # since the paired UTC half ("Mon 00:00 UTC" vs "Sun 24:00 UTC") always
+    # disambiguates the two in context.
     h = state.elapsed_h
     day_hour = (
         "Sun 24:00 UTC"
         if h >= state.total_bars
         else f"{_DOW[h // 24]} {h % 24:02d}:00 UTC"
     )
+    myt_hour_of_week = (h + 8) % state.total_bars
+    myt_day_hour = f"{_DOW[myt_hour_of_week // 24]} {myt_hour_of_week % 24:02d}:00 MYT"
     head = (
         f"Week  {state.path_direction} path so far · "
-        f"h{state.elapsed_h}/{state.total_bars} ({day_hour}) · "
+        f"h{state.elapsed_h}/{state.total_bars} ({day_hour} · {myt_day_hour}) · "
         f"{state.norm_now:+.2f}×AWR"
     )
     # C1: the adapter (analytics/brief/weekly.py::build_weekly_state) falls

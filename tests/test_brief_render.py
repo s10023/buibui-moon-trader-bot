@@ -645,11 +645,30 @@ def test_weekly_lines_head_uses_elapsed_moment_convention() -> None:
     (day = h // 24, hour = h % 24) — matching WeeklyCone.svelte's hourLabel()
     exactly, not the open time of the last completed bar (h - 1). h=168 is
     the right edge of the week and is rendered as "Sun 24:00 UTC" rather than
-    wrapping to "Mon 00:00" via modulo."""
-    assert "h40/168 (Tue 16:00 UTC)" in _weekly_lines(_weekly_state(elapsed_h=40))[0]
-    assert "h63/168 (Wed 15:00 UTC)" in _weekly_lines(_weekly_state(elapsed_h=63))[0]
-    assert "h0/168 (Mon 00:00 UTC)" in _weekly_lines(_weekly_state(elapsed_h=0))[0]
-    assert "h168/168 (Sun 24:00 UTC)" in _weekly_lines(_weekly_state(elapsed_h=168))[0]
+    wrapping to "Mon 00:00" via modulo.
+
+    MYT (UTC+8) rides alongside UTC in the same parenthetical, matching the
+    chart's dual-timezone hourLabel(). The MYT half is NOT derived from the
+    UTC day index — h=40 is the asymmetric case: Tue 16:00 UTC but Wed 00:00
+    MYT, i.e. the two axes disagree about which weekday it is. That's the
+    whole reason the MYT day index has to be computed independently rather
+    than reusing the UTC one."""
+    assert (
+        "h40/168 (Tue 16:00 UTC · Wed 00:00 MYT)"
+        in _weekly_lines(_weekly_state(elapsed_h=40))[0]
+    )
+    assert (
+        "h63/168 (Wed 15:00 UTC · Wed 23:00 MYT)"
+        in _weekly_lines(_weekly_state(elapsed_h=63))[0]
+    )
+    assert (
+        "h0/168 (Mon 00:00 UTC · Mon 08:00 MYT)"
+        in _weekly_lines(_weekly_state(elapsed_h=0))[0]
+    )
+    assert (
+        "h168/168 (Sun 24:00 UTC · Mon 08:00 MYT)"
+        in _weekly_lines(_weekly_state(elapsed_h=168))[0]
+    )
 
 
 def test_weekly_lines_flat_omits_conditional_clause() -> None:
