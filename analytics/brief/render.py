@@ -16,6 +16,7 @@ from analytics.brief.types import (
     IndicatorState,
     LevelRow,
     MondayState,
+    MonthlyContext,
     PaState,
     ProfileState,
     PunditAuthorPrior,
@@ -30,6 +31,7 @@ from analytics.brief.types import (
     SessionTendencyRow,
     SymbolPanel,
     VwapState,
+    WeeklyState,
     ZoneRow,
 )
 
@@ -273,6 +275,97 @@ def _session_lines(state: SessionState | None) -> list[str]:
     return [f"{'Sessions':<9}{bits[0]}"] + [f"{'':9}{b}" for b in bits[1:]]
 
 
+def _monthly_lines(ctx: MonthlyContext | None) -> list[str]:
+    """Descriptive monthly context. Not a distribution, not a forecast.
+
+    No ``seasonality`` param: ``SeasonalityStrip`` carries only day-of-week /
+    session / weekly-timing fields (see ``analytics/brief/seasonality.py``) —
+    it has no calendar-month data to duplicate, and it already renders its
+    own line via ``_strip_lines`` at its own call site in ``_panel_lines``.
+    """
+    if ctx is None:
+        return []
+    rng = "—" if ctx.range_position is None else f"{ctx.range_position:.2f}"
+    # M2: zero completed prior months means no percentile is computable —
+    # render "—", not a fabricated p50.
+    pct_bit = "—" if ctx.pct_of_months is None else f"p{ctx.pct_of_months:.0f}"
+    head = (
+        f"Month {ctx.mtd_return_pct:+.1f}% · {pct_bit} of "
+        f"{ctx.n_months} completed months · range position {rng} "
+        f"({ctx.mtd_elapsed_frac:.0%} elapsed)"
+    )
+    return [head]
+
+
+def _weekly_lines(state: WeeklyState | None) -> list[str]:
+    """Forming-week position inside the weekly cone. Conditional on outcome."""
+    if state is None:
+        return []
+    # Elapsed-moment convention — matches WeeklyCone.svelte's hourLabel(): day
+    # index h // 24, hour h % 24. h counts fully-closed bars since the Monday
+    # 00:00 UTC weekly open, so h=63 means 63 hours have elapsed = Wed 15:00
+    # UTC (not the open time of the 63rd bar). h == total_bars (168) is the
+    # right edge of the week (Sunday 24:00 UTC = next Monday 00:00 UTC) and is
+    # rendered explicitly rather than wrapping back to "Mon 00:00" via //24.
+    # The axis/day-boundaries stay UTC-anchored (the week is defined by the
+    # Binance weekly candle, Monday 00:00 UTC) — MYT is surfaced here in the
+    # readout only, because that is the operator's working timezone. The MYT
+    # day index is computed independently from the UTC one, NOT derived from
+    # it: UTC+8 routinely lands on a different weekday (e.g. h=40 is Tue
+    # 16:00 UTC but Wed 00:00 MYT), and h in [160, 168] wraps into the
+    # FOLLOWING week's Monday in MYT even though the UTC week hasn't ended
+    # yet. That wrap collides in string form with h=0's "Mon 08:00 MYT"
+    # (both render as "Mon 08:00 MYT", one week apart) — left as plain "Mon"
+    # since the paired UTC half ("Mon 00:00 UTC" vs "Sun 24:00 UTC") always
+    # disambiguates the two in context.
+    h = state.elapsed_h
+    day_hour = (
+        "Sun 24:00 UTC"
+        if h >= state.total_bars
+        else f"{_DOW[h // 24]} {h % 24:02d}:00 UTC"
+    )
+    myt_hour_of_week = (h + 8) % state.total_bars
+    myt_day_hour = f"{_DOW[myt_hour_of_week // 24]} {myt_hour_of_week % 24:02d}:00 MYT"
+    head = (
+        f"Week  {state.path_direction} path so far · "
+        f"h{state.elapsed_h}/{state.total_bars} ({day_hour} · {myt_day_hour}) · "
+        f"{state.norm_now:+.2f}×AWR"
+    )
+    # C1: the adapter (analytics/brief/weekly.py::build_weekly_state) falls
+    # the conditional pool back to the unconditional one whenever a
+    # same-direction cohort can't be resolved distinctly — either "flat" has
+    # no cohort at all, or the bull/bear combo exists but is empty (n=0).
+    # `conditional_is_fallback` covers BOTH cases; keying on
+    # `path_direction == "flat"` alone missed the empty-combo case and
+    # rendered the unconditional population under a false "closed bear
+    # (n=0)"-style cohort label. Presenting the fallback as a real cohort
+    # would misattribute the unconditional population as conditional, so
+    # omit the conditional clause and attribute the timing stat to
+    # "all weeks" instead of "those weeks".
+    if state.conditional_is_fallback:
+        ranks = (
+            f"      p{state.pct_unconditional:.0f} unconditional "
+            f"(n={state.n_unconditional})"
+        )
+        timing_cohort = "all weeks"
+    else:
+        ranks = (
+            f"      p{state.pct_conditional:.0f} of weeks that closed "
+            f"{state.path_direction} (n={state.n_conditional}) · "
+            f"p{state.pct_unconditional:.0f} unconditional (n={state.n_unconditional})"
+        )
+        timing_cohort = "those weeks"
+    # I4: low_hour/high_hour are CLOSE-based (see weekly.py comment) while
+    # low_in_by_now is drawn from an intrabar low/high distribution — label
+    # the former explicitly so the two are not read as the same definition.
+    timing = (
+        f"      low close so far h{state.low_hour} · "
+        f"high close so far h{state.high_hour} · "
+        f"{state.low_in_by_now:.0%} of {timing_cohort} had set their low by now"
+    )
+    return [head, ranks, timing]
+
+
 _PANEL_SHORT = {"liq_heatmap": "liq", "book_heatmap": "book", "liq_map": "map"}
 
 
@@ -317,6 +410,8 @@ def _panel_lines(panel: SymbolPanel) -> list[str]:
     )
     lines.extend(_indicator_lines(panel.indicators))
     lines.extend(_session_lines(panel.sessions))
+    lines.extend(_monthly_lines(panel.monthly))
+    lines.extend(_weekly_lines(panel.weekly))
     lines.extend(_external_lines(panel.external))
     above = " · ".join(_level_str(r) for r in panel.levels_above) or "none"
     below = " · ".join(_level_str(r) for r in panel.levels_below) or "none"

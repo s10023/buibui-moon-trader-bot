@@ -12,8 +12,10 @@ from analytics.brief.render import (
     _external_lines,
     _external_snapshot_bit,
     _indicator_lines,
+    _monthly_lines,
     _recap_bit,
     _session_lines,
+    _weekly_lines,
     fmt_dist,
     fmt_frac,
     fmt_price,
@@ -28,6 +30,7 @@ from analytics.brief.types import (
     ExternalState,
     IndicatorState,
     MondayState,
+    MonthlyContext,
     PaState,
     ProfileState,
     RangeState,
@@ -35,6 +38,7 @@ from analytics.brief.types import (
     SessionRecapRow,
     SessionState,
     VwapState,
+    WeeklyState,
 )
 from tests._brief_fixtures import DAY_MS, START_MS, brief_cfg, make_conn, seed_symbol
 
@@ -601,6 +605,142 @@ def test_external_snapshot_bit_shows_venue() -> None:
         clusters_below=[],
     )
     assert _external_snapshot_bit(snap).startswith("coinglass/hyperliquid map (1d)")
+
+
+def _weekly_state(**overrides: object) -> WeeklyState:
+    base: dict[str, object] = {
+        "path_direction": "bull",
+        "elapsed_h": 40,
+        "total_bars": 168,
+        "norm_now": 0.35,
+        "pct_conditional": 62.0,
+        "pct_unconditional": 58.0,
+        "n_conditional": 172,
+        "n_unconditional": 344,
+        "low_hour": 3,
+        "high_hour": 39,
+        "low_in_by_now": 0.71,
+        "conditional_is_fallback": False,
+    }
+    base.update(overrides)
+    return WeeklyState(**base)  # type: ignore[arg-type]
+
+
+def test_weekly_lines_none_is_empty() -> None:
+    assert _weekly_lines(None) == []
+
+
+def test_weekly_lines_bull_shows_conditional_clause() -> None:
+    lines = _weekly_lines(_weekly_state())
+    assert len(lines) == 3
+    assert "of weeks that closed bull (n=172)" in lines[1]
+    assert "p58 unconditional (n=344)" in lines[1]
+    assert "low close so far h3" in lines[2]
+    assert "high close so far h39" in lines[2]
+    assert "of those weeks had set their low by now" in lines[2]
+
+
+def test_weekly_lines_head_uses_elapsed_moment_convention() -> None:
+    """N1 fix: `h` is hours elapsed since the Monday 00:00 UTC weekly open
+    (day = h // 24, hour = h % 24) — matching WeeklyCone.svelte's hourLabel()
+    exactly, not the open time of the last completed bar (h - 1). h=168 is
+    the right edge of the week and is rendered as "Sun 24:00 UTC" rather than
+    wrapping to "Mon 00:00" via modulo.
+
+    MYT (UTC+8) rides alongside UTC in the same parenthetical, matching the
+    chart's dual-timezone hourLabel(). The MYT half is NOT derived from the
+    UTC day index — h=40 is the asymmetric case: Tue 16:00 UTC but Wed 00:00
+    MYT, i.e. the two axes disagree about which weekday it is. That's the
+    whole reason the MYT day index has to be computed independently rather
+    than reusing the UTC one."""
+    assert (
+        "h40/168 (Tue 16:00 UTC · Wed 00:00 MYT)"
+        in _weekly_lines(_weekly_state(elapsed_h=40))[0]
+    )
+    assert (
+        "h63/168 (Wed 15:00 UTC · Wed 23:00 MYT)"
+        in _weekly_lines(_weekly_state(elapsed_h=63))[0]
+    )
+    assert (
+        "h0/168 (Mon 00:00 UTC · Mon 08:00 MYT)"
+        in _weekly_lines(_weekly_state(elapsed_h=0))[0]
+    )
+    assert (
+        "h168/168 (Sun 24:00 UTC · Mon 08:00 MYT)"
+        in _weekly_lines(_weekly_state(elapsed_h=168))[0]
+    )
+
+
+def test_weekly_lines_flat_omits_conditional_clause() -> None:
+    """B2/C1 fix: cone.combos only has all/bull/bear — a "flat" state's
+    conditional fields mirror the unconditional ones (adapter fallback), so
+    the rendered rank line must not claim a "closed flat" cohort exists, and
+    the timing line must attribute to "all weeks", not "those weeks". Driven
+    by `conditional_is_fallback`, not `path_direction == "flat"` (C1)."""
+    state = _weekly_state(
+        path_direction="flat",
+        pct_conditional=58.0,
+        n_conditional=344,
+        conditional_is_fallback=True,
+    )
+    lines = _weekly_lines(state)
+    assert len(lines) == 3
+    ranks = lines[1]
+    assert "closed flat" not in ranks
+    assert "flat" not in ranks  # no direction word leaks into the rank line
+    assert ranks == "      p58 unconditional (n=344)"
+    assert "of all weeks had set their low by now" in lines[2]
+    assert "of those weeks" not in lines[2]
+
+
+def test_weekly_lines_empty_conditional_combo_omits_clause() -> None:
+    """C1: a bear combo that EXISTS in cone.combos but has zero weeks
+    (bands=[]) also falls back to the unconditional population in the
+    adapter — a non-"flat" direction can still hit the fallback, so the
+    renderer must key off `conditional_is_fallback`, not the direction
+    string, or it would render a false "closed bear (n=0)" cohort label."""
+    state = _weekly_state(
+        path_direction="bear",
+        pct_conditional=58.0,
+        n_conditional=344,
+        conditional_is_fallback=True,
+    )
+    lines = _weekly_lines(state)
+    ranks = lines[1]
+    assert "closed bear" not in ranks
+    assert ranks == "      p58 unconditional (n=344)"
+    assert "of all weeks had set their low by now" in lines[2]
+    assert "of those weeks" not in lines[2]
+
+
+def test_monthly_lines_none_is_empty() -> None:
+    assert _monthly_lines(None) == []
+
+
+def test_monthly_lines_full() -> None:
+    ctx = MonthlyContext(
+        mtd_return_pct=4.2,
+        mtd_elapsed_frac=0.65,
+        pct_of_months=70.0,
+        n_months=84,
+        range_position=0.8,
+    )
+    assert _monthly_lines(ctx) == [
+        "Month +4.2% · p70 of 84 completed months · range position 0.80 (65% elapsed)"
+    ]
+
+
+def test_monthly_lines_range_position_none() -> None:
+    ctx = MonthlyContext(
+        mtd_return_pct=-1.0,
+        mtd_elapsed_frac=0.10,
+        pct_of_months=None,
+        n_months=0,
+        range_position=None,
+    )
+    assert _monthly_lines(ctx) == [
+        "Month -1.0% · — of 0 completed months · range position — (10% elapsed)"
+    ]
 
 
 def test_external_snapshot_bit_no_venue_unchanged() -> None:

@@ -4,6 +4,18 @@
     PathConeResponse,
     TodayPathResponse,
   } from "../api";
+  import {
+    bandPath,
+    coneX,
+    coneY,
+    fmtNorm,
+    fmtPrice,
+    linePath,
+    overlayPath,
+    toPrice,
+    type ConeGeometry,
+    type YDomain,
+  } from "../lib/cone";
 
   let {
     pathCone,
@@ -38,14 +50,11 @@
   const hasData = $derived(!!combo && combo.n > 0);
 
   // ── SVG geometry (viewBox units) ──
-  const W = 760;
-  const H = 280;
-  const PL = 46;
-  const PR = 30;
-  const PT = 12;
-  const PB = 26;
+  const TOTAL_STEPS = 24;
+  const geo: ConeGeometry = { W: 760, H: 280, PL: 46, PR: 30, PT: 12, PB: 26 };
+  const { W, H, PL, PR, PT, PB } = geo;
 
-  const yDomain = $derived.by(() => {
+  const yDomain = $derived.by<YDomain>(() => {
     const vals: number[] = [0];
     if (combo && combo.n > 0)
       for (const row of combo.bands) vals.push(row[0], row[4]);
@@ -56,36 +65,18 @@
     return { min: lo - pad, max: hi + pad };
   });
 
-  const x = (step: number) => PL + (step / 24) * (W - PL - PR);
-  const y = (v: number) =>
-    PT + ((yDomain.max - v) / (yDomain.max - yDomain.min)) * (H - PT - PB);
+  const x = (step: number) => coneX(step, TOTAL_STEPS, geo);
+  const y = (v: number) => coneY(v, yDomain, geo);
 
-  // Filled band polygon between percentile columns loIdx/hiIdx (0=p10 … 4=p90).
-  function bandD(loIdx: number, hiIdx: number): string {
-    if (!combo || combo.n === 0) return "";
-    const pts = [`M ${x(0)} ${y(0)}`];
-    combo.bands.forEach((row, i) => pts.push(`L ${x(i + 1)} ${y(row[hiIdx])}`));
-    for (let i = combo.bands.length - 1; i >= 0; i--)
-      pts.push(`L ${x(i + 1)} ${y(combo.bands[i][loIdx])}`);
-    pts.push("Z");
-    return pts.join(" ");
-  }
+  const bandD = (loIdx: number, hiIdx: number): string =>
+    combo ? bandPath(combo.bands, loIdx, hiIdx, TOTAL_STEPS, yDomain, geo) : "";
 
-  function lineD(idx: number): string {
-    if (!combo || combo.n === 0) return "";
-    return [
-      `M ${x(0)} ${y(0)}`,
-      ...combo.bands.map((row, i) => `L ${x(i + 1)} ${y(row[idx])}`),
-    ].join(" ");
-  }
+  const lineD = (idx: number): string =>
+    combo ? linePath(combo.bands, idx, TOTAL_STEPS, yDomain, geo) : "";
 
-  const todayD = $derived.by(() => {
-    if (!todayPath || todayPath.points.length === 0) return "";
-    return [
-      `M ${x(0)} ${y(0)}`,
-      ...todayPath.points.map((v, i) => `L ${x(i + 1)} ${y(v)}`),
-    ].join(" ");
-  });
+  const todayD = $derived(
+    todayPath ? overlayPath(todayPath.points, TOTAL_STEPS, yDomain, geo) : ""
+  );
 
   // Axis: elapsed UTC hour → MYT label (UTC+8, no DST)
   const ticks = [0, 4, 8, 12, 16, 20, 24].map((s) => ({
@@ -93,13 +84,10 @@
     label: String((s + 8) % 24).padStart(2, "0") + ":00",
   }));
 
-  const fmtAdr = (v: number) => (v >= 0 ? "+" : "") + v.toFixed(2);
+  const fmtAdr = fmtNorm;
   const px = (mag: number, side: 1 | -1) =>
-    todayPath
-      ? todayPath.today_open * (1 + side * mag * todayPath.adr14_today)
-      : null;
-  const fmtPx = (p: number | null) =>
-    p === null ? "—" : p >= 1000 ? p.toFixed(0) : p.toFixed(4);
+    toPrice(mag, side, todayPath?.today_open ?? null, todayPath?.adr14_today ?? null);
+  const fmtPx = fmtPrice;
 
   const elapsed = $derived(todayPath?.elapsed_h ?? 0);
   const lowInNow = $derived(

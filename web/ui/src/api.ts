@@ -543,6 +543,30 @@ export interface TodayPathResponse {
   today_open: number;
 }
 
+export interface WeeklyConeCombo {
+  direction: string;
+  n: number;
+  bands: number[][];
+  low_in_by: number[];
+  high_in_by: number[];
+  mae_p: number[];
+  mfe_p: number[];
+  high_piv: number[];
+  low_piv: number[];
+}
+
+export interface WeeklyCone {
+  combos: Record<string, WeeklyConeCombo>;
+  total_weeks: number;
+}
+
+export interface CurrentWeekPath {
+  points: number[];
+  elapsed_h: number;
+  awr14_current: number;
+  week_open: number;
+}
+
 export interface WeeklyWickPercentileResponse {
   current_wick_of_adr: number | null;
   exceedance_pct: number | null;
@@ -566,6 +590,8 @@ export interface StatsResponse {
   path_cone: PathConeResponse;
   today_path: TodayPathResponse | null;
   weekly_wick_percentile: WeeklyWickPercentileResponse | null;
+  weekly_cone: WeeklyCone | null;
+  current_week_path: CurrentWeekPath | null;
 }
 
 export const getStats = (symbol: string, days: number = 180) =>

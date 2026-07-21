@@ -8,8 +8,18 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from analytics.brief.types import (
+    BriefBundle,
+    HealthReport,
+    MonthlyContext,
+    PunditBoard,
+    SymbolPanel,
+    WeeklyState,
+    bundle_to_dict,
+)
 from tests._brief_fixtures import START_MS, make_conn, seed_symbol
 from web.api.deps import get_db, require_token
+from web.api.models.brief import BriefResponse
 from web.api.routers import brief as brief_router
 
 AS_OF_ISO = "2024-03-01T00:00:00Z"
@@ -207,3 +217,88 @@ def test_get_brief_external_populated_path_parity(
     }
     assert row["label"] == "magnet"
     assert row["dist_atr"] > 0
+
+
+def _panel_with_weekly_and_monthly(symbol: str) -> SymbolPanel:
+    weekly = WeeklyState(
+        path_direction="bull",
+        elapsed_h=40,
+        total_bars=168,
+        norm_now=0.35,
+        pct_conditional=62.0,
+        pct_unconditional=58.0,
+        n_conditional=172,
+        n_unconditional=344,
+        low_hour=3,
+        high_hour=39,
+        low_in_by_now=0.71,
+        conditional_is_fallback=False,
+    )
+    monthly = MonthlyContext(
+        mtd_return_pct=4.2,
+        mtd_elapsed_frac=0.65,
+        pct_of_months=70.0,
+        n_months=84,
+        range_position=0.8,
+    )
+    return SymbolPanel(
+        symbol=symbol,
+        ref_close=100.0,
+        ref_close_ts_ms=0,
+        ref_price_source="1h",
+        atr14=1.0,
+        adr_pct=None,
+        regime_1d="trend",
+        regime_4h="trend",
+        levels_above=[],
+        levels_below=[],
+        zones_above=[],
+        zones_below=[],
+        seasonality=None,
+        indicators=None,
+        sessions=None,
+        error=None,
+        weekly=weekly,
+        monthly=monthly,
+    )
+
+
+def test_brief_response_carries_populated_weekly_and_monthly() -> None:
+    # SymbolPanelModel must declare BOTH `weekly` and `monthly` fields:
+    # BriefResponse(**bundle_to_dict(bundle)) (the exact construction the
+    # router uses) is pydantic v2, which silently DROPS any key in the dict
+    # that isn't a declared model field — so a populated block that never
+    # shows up here would ship the API/UI half-wired while the CLI/markdown
+    # renderer (which reads the dataclass directly) looked complete.
+    bundle = BriefBundle(
+        as_of_ms=AS_OF_MS,
+        day_ahead="Fri 2024-03-01",
+        session_clock=None,
+        panels=[_panel_with_weekly_and_monthly("BTCUSDT")],
+        pundit=PunditBoard(
+            priors_status="absent",
+            priors_age_days=None,
+            min_n_marker=None,
+            ledger_status="absent",
+            ledger_total=0,
+            ledger_skipped=0,
+            recent_calls=[],
+            authors=[],
+            families=[],
+        ),
+        health=HealthReport(rows=[], notes=[], data_ok=True),
+    )
+    response = BriefResponse(**bundle_to_dict(bundle))
+    panel = response.panels[0]
+
+    assert panel.weekly is not None
+    assert panel.weekly.path_direction == "bull"
+    assert panel.weekly.n_conditional == 172
+    assert panel.weekly.n_unconditional == 344
+    assert panel.weekly.low_in_by_now == 0.71
+    assert panel.weekly.conditional_is_fallback is False
+
+    assert panel.monthly is not None
+    assert panel.monthly.mtd_return_pct == 4.2
+    assert panel.monthly.n_months == 84
+    assert panel.monthly.range_position == 0.8

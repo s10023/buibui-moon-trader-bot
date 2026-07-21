@@ -19,14 +19,17 @@ from analytics.brief.external import load_external_state
 from analytics.brief.health import build_health
 from analytics.brief.indicators import build_indicator_state
 from analytics.brief.levels import adr_pct_14, atr14_wilder, build_level_rows
+from analytics.brief.monthly import build_monthly_context
 from analytics.brief.pundit import build_board
 from analytics.brief.seasonality import build_strip
 from analytics.brief.sessions import build_session_state
 from analytics.brief.types import BriefBundle, SessionClock, SymbolPanel, error_panel
+from analytics.brief.weekly import build_weekly_state
 from analytics.brief.zones import build_zone_rows
 from analytics.regime import classify_series
 from analytics.session_windows import session_at
 from analytics.stats.session import compute_session_breakdown
+from analytics.stats.weekly_cone import compute_current_week_path, compute_weekly_cone
 from analytics.store.market_data import get_ohlcv
 
 logger = logging.getLogger(__name__)
@@ -34,6 +37,12 @@ logger = logging.getLogger(__name__)
 _DAILY_FETCH_DAYS = 500  # regime 1d needs ~90d ATR history + EMA warmup
 _H4_FETCH_DAYS = 200
 _H1_FETCH_DAYS = 62  # 60d volume profile + monthly AVWAP + 2d margin
+# I3: monthly context ranks MTD return against ALL completed prior months —
+# the shared 500-day _DAILY_FETCH_DAYS above is only ~16 months, an
+# underpowered population (6pp per rank step). A separate, deeper 1d fetch
+# is cheap (1d bars, a few thousand rows) and deliberately does NOT widen
+# the shared window used by ATR/regime/indicators/level-building.
+_MONTHLY_FETCH_DAYS = 365 * 8
 _MIN_DAILY_BARS = 15  # ATR14 + one reference bar
 _REF_1H_MAX_LAG_MS = 2 * TF_MS["1h"]
 
@@ -149,6 +158,26 @@ def _compute_panel(
         max_rows_per_side=cfg.external_max_rows_per_side,
     )
     notes.extend(f"{symbol}: {n}" for n in ext_notes)
+    try:
+        weekly_cone = compute_weekly_cone(conn, symbol, now_ms=as_of)
+        current_week = compute_current_week_path(conn, symbol, now_ms=as_of)
+        weekly, wk_notes = build_weekly_state(cone=weekly_cone, current=current_week)
+    except Exception as exc:  # weekly block is optional
+        weekly, wk_notes = None, [f"weekly cone failed ({exc})"]
+    notes.extend(f"{symbol}: {n}" for n in wk_notes)
+    try:
+        # I3: a separate, deeper 1d fetch — completed_1d (500 days) is too
+        # thin a population for the monthly percentile.
+        monthly_daily = get_ohlcv(
+            conn, symbol, "1d", as_of - _MONTHLY_FETCH_DAYS * DAY_MS, as_of
+        )
+        completed_monthly_1d = completed_bars(monthly_daily, "1d", as_of)
+        monthly, mo_notes = build_monthly_context(
+            completed_1d=completed_monthly_1d, as_of_ms=as_of
+        )
+    except Exception as exc:  # monthly block is optional
+        monthly, mo_notes = None, [f"monthly context failed ({exc})"]
+    notes.extend(f"{symbol}: {n}" for n in mo_notes)
     return SymbolPanel(
         symbol=symbol,
         ref_close=ref_close,
@@ -166,6 +195,8 @@ def _compute_panel(
         indicators=indicators,
         sessions=sessions,
         external=external,
+        weekly=weekly,
+        monthly=monthly,
         error=None,
     )
 
