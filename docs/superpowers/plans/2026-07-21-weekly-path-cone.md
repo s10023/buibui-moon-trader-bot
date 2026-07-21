@@ -858,23 +858,69 @@ shipped daily cone would otherwise be indistinguishable from a bug in the new co
 
 - [ ] **Step 1: Extract the pure math into `web/ui/src/lib/cone.ts`**
 
-Move these out of `PathCone.svelte` unchanged in behavior. The exact current
-implementations are in that file; copy them verbatim, add explicit types, and export:
+**This is a parameterizing refactor, not a copy.** The current helpers in
+`PathCone.svelte` (lines ~59–102) are closures over component state — `combo`,
+`yDomain`, `todayPath`, and the `W/H/PL/PR/PT/PB` geometry constants. Two of them are
+also hardcoded to the daily period: `x()` divides by `24`, and `px()` reads
+`todayPath.today_open` / `todayPath.adr14_today` by name. Neither can serve the weekly
+cone as written. Extract them as free functions taking explicit arguments:
 
-- `px(...)` — the ADR/AWR-relative → price conversion used by the hover readout.
-- `fmtPx(...)` — price formatting.
-- the band-path (SVG `d` string) construction helper.
+```ts
+export interface ConeGeometry {
+  W: number; H: number; PL: number; PR: number; PT: number; PB: number;
+}
 
-The module must be pure: no Svelte imports, no DOM access, no component state. It takes
-numbers in and returns numbers/strings out. Give every export an explicit parameter and
-return type — `make web-check` runs the TS type gate and `web-build` alone will not catch
-a missing annotation.
+export interface YDomain { min: number; max: number; }
 
-While moving `fmtPx`, fix the known defect recorded in memory `path-cone-followups`: it
-renders four decimals below 1000, and the #496 readout surfaces it five times per line,
-so a mid-priced asset reads `p90 152.3400 · p75 149.8800 · …`. Choose a decimal count
-from the value's magnitude instead. This is the one intentional behavior change in this
-step; everything else must be byte-for-byte equivalent.
+/** Step index (0…totalSteps) → viewBox x. `totalSteps` is 24 daily, 168 weekly. */
+export function coneX(step: number, totalSteps: number, g: ConeGeometry): number;
+
+/** Value (×ADR or ×AWR) → viewBox y. */
+export function coneY(v: number, dom: YDomain, g: ConeGeometry): number;
+
+/** Filled polygon between percentile columns loIdx/hiIdx (0=p10 … 4=p90). */
+export function bandPath(
+  bands: number[][], loIdx: number, hiIdx: number,
+  totalSteps: number, dom: YDomain, g: ConeGeometry,
+): string;
+
+/** Single percentile line. */
+export function linePath(
+  bands: number[][], idx: number,
+  totalSteps: number, dom: YDomain, g: ConeGeometry,
+): string;
+
+/** Overlay path for a partial period's normalized points. */
+export function overlayPath(
+  points: number[], totalSteps: number, dom: YDomain, g: ConeGeometry,
+): string;
+
+/** Normalized magnitude → absolute price. `open` and `normalizer` are the
+ *  period's open and its ADR14 (daily) or AWR14 (weekly). */
+export function toPrice(
+  mag: number, side: 1 | -1, open: number | null, normalizer: number | null,
+): number | null;
+
+/** Signed ×ADR/×AWR label, e.g. "+0.42". */
+export function fmtNorm(v: number): string;
+
+/** Price label. Decimals scale with magnitude — see the fix below. */
+export function fmtPrice(p: number | null): string;
+```
+
+Empty-input behavior must match today's: `bandPath`/`linePath` return `""` when there
+are no bands, and `toPrice` returns `null` when `open` or `normalizer` is null.
+
+The module must be pure — no Svelte imports, no runes, no DOM access. Give every export
+explicit parameter and return types; `make web-check` is the TS gate and `web-build`
+alone will not catch a missing annotation.
+
+**One intentional behavior change:** today's `fmtPx` is
+`p >= 1000 ? p.toFixed(0) : p.toFixed(4)`, so a mid-priced asset renders four decimals
+and the #496 hover readout surfaces that five times in one line
+(`p90 152.3400 · p75 149.8800 · …`, memory `path-cone-followups`). Scale the decimal
+count with magnitude instead — e.g. 0 decimals ≥1000, 2 decimals ≥1, 4 decimals below 1.
+Everything else must be behavior-preserving.
 
 - [ ] **Step 2: Point `PathCone.svelte` at the shared module**
 
