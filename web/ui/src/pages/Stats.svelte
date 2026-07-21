@@ -6,6 +6,7 @@
   import LoadingSpinner from "../components/LoadingSpinner.svelte";
   import ErrorBanner from "../components/ErrorBanner.svelte";
   import PathCone from "../components/PathCone.svelte";
+  import WeeklyCone from "../components/WeeklyCone.svelte";
   import LiveOutcomes from "../components/LiveOutcomes.svelte";
 
   const TIMEFRAMES_DAYS = [30, 90, 180, 365];
@@ -89,6 +90,11 @@
       what: "Historical intraday paths — hourly closes as ×ADR14 from the UTC day open — pooled into percentile bands: p10–p90 outer, p25–p75 inner, median line. Filter by day direction (bull/bear at close) and weekday; the dotted amber line is today so far on the same scale. 'By now' row: fraction of matching days whose eventual daily low/high was already set by the current hour. Pivots: typical (p50) and extended (p80) high/low excursions mapped to today's prices.",
       value: "Read where today sits inside the historical envelope: hugging p90 = extended vs the template — chasing here is late; near the median = nothing unusual yet. The 'by now' row says whether the daily extreme is statistically already in. Pivots give price targets/invalidation for the day. Thin-sample combos (n<30, amber ⚠) are directional hints, not statistics.",
       example: "Bull + Tue at 14:00 MYT: today riding p75, low-in-by 81% → the dip is likely in; H p80 pivot 1.6% above → remaining upside bounded. Fade extension, don't chase.",
+    },
+    weeklyCone: {
+      what: "The same chart one horizon up: hourly closes as ×AWR14 from the Monday 00:00 UTC weekly open, pooled over 168 hours. The gray band is the unconditional reference — every complete historical week. The colored band is CONDITIONAL ON OUTCOME: a 'bull' week is defined by closing above its open, so that cone sits above the reference band by construction — that separation is not a forecast, it's what already-bullish weeks looked like along the way. The dotted amber line is this week so far.",
+      value: "Compare this week's amber line to the reference band, not the conditional one, if you don't yet know how this week will close. Once a direction looks likely, the matching conditional cone shows what weeks like this one typically did next. 'By now' and pivots read the same way as the daily cone, one week wide.",
+      example: "Wed 14:00 MYT, week running above the gray median: switch to Bull — if bull weeks are riding p75 with high-in-by 60%, the up-move may already be mostly in.",
     },
     wickPercentile: {
       what: "For this week's P1 candle (the 1h candle that first set the weekly extreme), how does its wick size compare to all historical P1 candles? Wick is measured in the P1 direction (lower wick for P1=low, upper wick for P1=high), normalised by the candle's open price and ADR14. Exceedance % = fraction of historical P1 weeks with a BIGGER wick than this week's.",
@@ -209,6 +215,22 @@
         </div>
       {/if}
       <PathCone pathCone={stats.path_cone} todayPath={stats.today_path} />
+    </div>
+
+    <!-- Weekly Path Cone — same chart, one horizon up -->
+    <div class="card hero-card">
+      <div class="card-header">
+        <span class="card-title">Weekly Path Cone</span>
+        <button class="help-btn" class:active={openHelp === "weeklyCone"} onclick={() => toggleHelp("weeklyCone")} aria-label="Help">?</button>
+      </div>
+      {#if openHelp === "weeklyCone"}
+        <div class="help-panel">
+          <div class="help-section"><span class="help-label">What</span>{CARD_HELP.weeklyCone.what}</div>
+          <div class="help-section"><span class="help-label">Use</span>{CARD_HELP.weeklyCone.value}</div>
+          <div class="help-section help-example"><span class="help-label">e.g.</span>{CARD_HELP.weeklyCone.example}</div>
+        </div>
+      {/if}
+      <WeeklyCone weeklyCone={stats.weekly_cone} currentWeekPath={stats.current_week_path} />
     </div>
 
     <div class="grid">
