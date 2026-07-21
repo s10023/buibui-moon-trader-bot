@@ -849,6 +849,37 @@ export interface BriefExternalState {
   snapshots: BriefExternalSnapshot[];
 }
 
+export interface BriefWeeklyState {
+  path_direction: string;
+  elapsed_h: number;
+  total_bars: number;
+  norm_now: number;
+  pct_conditional: number;
+  pct_unconditional: number;
+  n_conditional: number;
+  n_unconditional: number;
+  low_hour: number | null;
+  high_hour: number | null;
+  low_in_by_now: number;
+  /**
+   * True when the same-direction cohort could not be resolved distinctly and
+   * the conditional pool fell back to the unconditional one. The renderer is
+   * TOLD rather than inferring from `path_direction`: a "flat" week has no
+   * cohort at all, but a bull/bear combo can also exist while being empty.
+   * Both cases must drop the cohort label — presenting the unconditional
+   * population under a cohort name misattributes it as conditional.
+   */
+  conditional_is_fallback: boolean;
+}
+
+export interface BriefMonthlyContext {
+  mtd_return_pct: number;
+  mtd_elapsed_frac: number;
+  pct_of_months: number | null;
+  n_months: number;
+  range_position: number | null;
+}
+
 export interface BriefSymbolPanel {
   symbol: string;
   ref_close: number;
@@ -867,6 +898,8 @@ export interface BriefSymbolPanel {
   sessions: BriefSessionState | null;
   error: string | null;
   external: BriefExternalState | null;
+  weekly: BriefWeeklyState | null;
+  monthly: BriefMonthlyContext | null;
 }
 
 export interface BriefAuthorPrior {
