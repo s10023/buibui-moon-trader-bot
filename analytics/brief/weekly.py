@@ -49,6 +49,12 @@ def build_weekly_state(
     if cone.total_weeks == 0 or "all" not in cone.combos:
         return None, ["weekly cone: no complete weeks in population"]
 
+    # M1: `points[-1]` is the FORMING bar — hour (elapsed_h + 1) — since
+    # `current.points` includes the still-open hour, whereas `elapsed_h`
+    # counts only fully-closed bars. It is ranked below (via `idx`) against
+    # the last COMPLETED hour's band (elapsed_h), one step behind. Harmless
+    # in practice (adjacent-hour bands move slowly) but worth flagging since
+    # the head line labels this value as being at "h{elapsed_h}".
     norm_now = current.points[-1]
     if norm_now > 0:
         direction = "bull"
@@ -60,14 +66,20 @@ def build_weekly_state(
     all_combo = cone.combos["all"]
     # "flat" has no cohort in cone.combos (only all/bull/bear) — this falls
     # back to the unconditional pool, so pct_cond/n_conditional below mirror
-    # pct_uncond/n_unconditional exactly. The renderer (render.py::
-    # _weekly_lines) MUST omit the "of weeks that closed flat" clause in that
-    # case — presenting the unconditional population as a flat-closing
-    # cohort would be a false label (see 2026-07-20 task-4 review, B2).
+    # pct_uncond/n_unconditional exactly. A same-direction combo CAN also
+    # exist but be empty (n=0, bands=[]) when the population has zero weeks
+    # of that outcome. `conditional_is_fallback` below captures BOTH cases so
+    # the renderer (render.py::_weekly_lines) can omit the "of weeks that
+    # closed X" clause without inferring it from `path_direction == "flat"`
+    # — presenting the unconditional population as a conditional cohort
+    # would be a false label (see 2026-07-20 task-4 review, B2; C1 2026-07-21).
     cond_combo = cone.combos.get(direction, all_combo)
+    conditional_is_fallback = cond_combo is all_combo or not cond_combo.bands
     if not all_combo.bands:
         return None, ["weekly cone: population has no bands"]
 
+    # bands[elapsed_h - 1] is the LAST COMPLETED hour's band (see M1 comment
+    # above on norm_now) — one step behind the forming-bar value it ranks.
     idx = min(max(current.elapsed_h - 1, 0), len(all_combo.bands) - 1)
     pct_uncond = _percentile_of(all_combo.bands[idx], norm_now)
     pct_cond = (
@@ -78,6 +90,11 @@ def build_weekly_state(
 
     # current.points is guaranteed non-empty by the guard at the top of this
     # function, so these can never fall back to None.
+    # I4: these are CLOSE-based (current.points holds hourly closes only —
+    # CurrentWeekPath carries no intrabar high/low). low_in_by_now below
+    # compares against a historical distribution built from intrabar
+    # lows/highs (WeeklyConeCombo.low_in_by) — the renderer must label
+    # low_hour/high_hour as "close" to avoid implying the same definition.
     low_hour = current.points.index(min(current.points)) + 1
     high_hour = current.points.index(max(current.points)) + 1
     low_in_by_now = (
@@ -97,6 +114,7 @@ def build_weekly_state(
             low_hour=low_hour,
             high_hour=high_hour,
             low_in_by_now=low_in_by_now,
+            conditional_is_fallback=conditional_is_fallback,
         ),
         [],
     )

@@ -37,6 +37,12 @@ logger = logging.getLogger(__name__)
 _DAILY_FETCH_DAYS = 500  # regime 1d needs ~90d ATR history + EMA warmup
 _H4_FETCH_DAYS = 200
 _H1_FETCH_DAYS = 62  # 60d volume profile + monthly AVWAP + 2d margin
+# I3: monthly context ranks MTD return against ALL completed prior months —
+# the shared 500-day _DAILY_FETCH_DAYS above is only ~16 months, an
+# underpowered population (6pp per rank step). A separate, deeper 1d fetch
+# is cheap (1d bars, a few thousand rows) and deliberately does NOT widen
+# the shared window used by ATR/regime/indicators/level-building.
+_MONTHLY_FETCH_DAYS = 365 * 8
 _MIN_DAILY_BARS = 15  # ATR14 + one reference bar
 _REF_1H_MAX_LAG_MS = 2 * TF_MS["1h"]
 
@@ -160,8 +166,14 @@ def _compute_panel(
         weekly, wk_notes = None, [f"weekly cone failed ({exc})"]
     notes.extend(f"{symbol}: {n}" for n in wk_notes)
     try:
+        # I3: a separate, deeper 1d fetch — completed_1d (500 days) is too
+        # thin a population for the monthly percentile.
+        monthly_daily = get_ohlcv(
+            conn, symbol, "1d", as_of - _MONTHLY_FETCH_DAYS * DAY_MS, as_of
+        )
+        completed_monthly_1d = completed_bars(monthly_daily, "1d", as_of)
         monthly, mo_notes = build_monthly_context(
-            completed_1d=completed_1d, as_of_ms=as_of
+            completed_1d=completed_monthly_1d, as_of_ms=as_of
         )
     except Exception as exc:  # monthly block is optional
         monthly, mo_notes = None, [f"monthly context failed ({exc})"]

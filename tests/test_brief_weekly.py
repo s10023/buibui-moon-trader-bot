@@ -105,3 +105,57 @@ def test_direction_flat_on_exact_zero() -> None:
     assert state.path_direction == "flat"
     assert state.n_conditional == state.n_unconditional == 344
     assert state.pct_conditional == state.pct_unconditional
+    assert state.conditional_is_fallback is True
+
+
+def test_conditional_is_fallback_false_when_cohort_populated() -> None:
+    """A real bull/bear cohort with weeks in it is NOT a fallback."""
+    current = CurrentWeekPath(
+        points=[0.0] * 62 + [0.4], elapsed_h=62, awr14_current=0.02, week_open=100.0
+    )
+    state, _ = build_weekly_state(cone=_bundle(), current=current)
+    assert state is not None
+    assert state.path_direction == "bull"
+    assert state.conditional_is_fallback is False
+
+
+def test_conditional_is_fallback_true_when_cohort_empty() -> None:
+    """C1: the bear combo key EXISTS in cone.combos but has zero weeks
+    (n=0, bands=[]) — a non-"flat" direction can also hit the fallback, so
+    the flag must be set from bands emptiness, not inferred from the
+    direction string being "flat"."""
+    bundle = WeeklyConeBundle(
+        combos={
+            "all": _combo("all", 344),
+            "bull": _combo("bull", 344),
+            "bear": WeeklyConeCombo(
+                direction="bear",
+                n=0,
+                bands=[],
+                low_in_by=[],
+                high_in_by=[],
+                mae_p=[],
+                mfe_p=[],
+                high_piv=[],
+                low_piv=[],
+            ),
+        },
+        total_weeks=344,
+    )
+    current = CurrentWeekPath(
+        points=[0.0] * 62 + [-0.4], elapsed_h=62, awr14_current=0.02, week_open=100.0
+    )
+    state, notes = build_weekly_state(cone=bundle, current=current)
+    assert state is not None
+    assert notes == []
+    assert state.path_direction == "bear"
+    assert state.conditional_is_fallback is True
+    # Unlike the "flat" case (where cond_combo IS all_combo by identity, so
+    # n_conditional mirrors n_unconditional), here cond_combo is the
+    # genuinely-empty "bear" combo object — n_conditional is its own n=0.
+    # The renderer never reads n_conditional/pct_conditional when
+    # conditional_is_fallback is True (see render.py::_weekly_lines), so
+    # this doesn't leak into the rendered text either way.
+    assert state.n_conditional == 0
+    assert state.n_unconditional == 344
+    assert state.pct_conditional == state.pct_unconditional

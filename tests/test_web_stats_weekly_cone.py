@@ -7,11 +7,14 @@ import pytest
 
 from analytics.data_store import init_schema
 from analytics.stats.bundle import compute_all
-from web.api.models.stats import CurrentWeekPathResponse, WeeklyConeResponse
+from web.api.models.stats import (
+    CurrentWeekPathResponse,
+    StatsResponse,
+    WeeklyConeResponse,
+)
+from web.api.routers.stats import _bundle_to_response
 
 _SYMBOL = "WAPIUSDT"
-_NOW = datetime(2026, 3, 4, 12, 30, tzinfo=UTC)
-_NOW_MS = int(_NOW.timestamp() * 1000)
 _CURRENT_WEEK = date(2026, 3, 2)
 
 
@@ -83,10 +86,34 @@ def test_bundle_carries_weekly_cone(conn: duckdb.DuckDBPyConnection) -> None:
     assert bundle.weekly_cone.total_weeks > 0
 
 
-def test_weekly_cone_response_roundtrip() -> None:
-    """The response model serializes and validates."""
+def test_weekly_cone_response_roundtrip_empty() -> None:
+    """The response model serializes and validates on the degenerate shell."""
     resp = WeeklyConeResponse(combos={}, total_weeks=0)
     assert WeeklyConeResponse.model_validate_json(resp.model_dump_json()) == resp
+
+
+def test_weekly_cone_response_roundtrip_populated(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """A POPULATED weekly cone actually exercises _bundle_to_response's
+    weekly-cone construction (the empty-combos test above never touches the
+    nested WeeklyConeCombo fields — bands/low_in_by/mae_p/etc — because
+    there is nothing in `combos` to iterate), and the nested payload must
+    itself survive a JSON round-trip."""
+    bundle = compute_all(conn, _SYMBOL, 180)
+    assert bundle.weekly_cone.combos["all"].n > 0  # genuinely populated
+
+    response = _bundle_to_response(bundle)
+    assert response.weekly_cone is not None  # _bundle_to_response always sets it
+    assert response.weekly_cone.total_weeks == bundle.weekly_cone.total_weeks
+    resp_all = response.weekly_cone.combos["all"]
+    src_all = bundle.weekly_cone.combos["all"]
+    assert resp_all.n == src_all.n
+    assert resp_all.bands == src_all.bands
+    assert resp_all.bands  # non-empty nested payload actually exercised
+
+    round_tripped = StatsResponse.model_validate_json(response.model_dump_json())
+    assert round_tripped.weekly_cone == response.weekly_cone
 
 
 def test_current_week_path_response_optional() -> None:

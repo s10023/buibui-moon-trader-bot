@@ -206,6 +206,14 @@ class WeeklyState:
     low_in_by_now: (
         float  # fraction of same-direction weeks that had set their low by now
     )
+    # True when the same-direction cohort could not be resolved distinctly
+    # from the unconditional population: either "flat" has no cohort at all
+    # (cone.combos only has all/bull/bear), or the bull/bear combo key exists
+    # but is empty (n=0). In both cases pct_conditional/n_conditional are
+    # just copies of the unconditional numbers. The renderer MUST key off
+    # this flag — not off `path_direction == "flat"` — before presenting a
+    # "weeks that closed X" cohort label (see C1, 2026-07-21 review).
+    conditional_is_fallback: bool
 
 
 @dataclass(frozen=True)
@@ -214,7 +222,7 @@ class MonthlyContext:
 
     mtd_return_pct: float
     mtd_elapsed_frac: float  # 0–1, how much of the month has elapsed
-    pct_of_months: float  # rank of MTD return among COMPLETED prior months
+    pct_of_months: float | None  # rank of MTD return among COMPLETED prior months
     n_months: int
     range_position: float | None  # (price − low) / (high − low), None when flat
 

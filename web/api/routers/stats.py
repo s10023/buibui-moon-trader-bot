@@ -6,12 +6,12 @@ import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from analytics.data_store import DEFAULT_DB_PATH, get_stats_cache, upsert_stats_cache
-from analytics.stats.weekly_cone import compute_current_week_path
 from analytics.stats_lib import (
     StatsBundle,
     WeeklyCurrentState,
     WeeklyWickPercentile,
     compute_all,
+    compute_current_week_path,
     compute_today_path,
     compute_weekly_current_state,
     compute_weekly_wick_percentile,
@@ -225,6 +225,13 @@ def get_stats(
     if cached is not None:
         try:
             response = StatsResponse.model_validate_json(cached)
+            if response.weekly_cone is None:
+                # I2: weekly_cone/current_week_path are Optional, so a warm
+                # cache entry written before they existed validates cleanly
+                # with weekly_cone=None instead of failing validation — force
+                # the fall-through to recompute rather than serving a stale
+                # null (the mitigation this branch exists for).
+                raise ValueError("cached response missing weekly_cone")
             # Still inject live fields even on cache hit
             _inject_live_fields(db, symbol, days, response)
             return response

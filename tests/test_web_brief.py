@@ -232,6 +232,7 @@ def _panel_with_weekly_and_monthly(symbol: str) -> SymbolPanel:
         low_hour=3,
         high_hour=39,
         low_in_by_now=0.71,
+        conditional_is_fallback=False,
     )
     monthly = MonthlyContext(
         mtd_return_pct=4.2,
@@ -295,6 +296,7 @@ def test_brief_response_carries_populated_weekly_and_monthly() -> None:
     assert panel.weekly.n_conditional == 172
     assert panel.weekly.n_unconditional == 344
     assert panel.weekly.low_in_by_now == 0.71
+    assert panel.weekly.conditional_is_fallback is False
 
     assert panel.monthly is not None
     assert panel.monthly.mtd_return_pct == 4.2

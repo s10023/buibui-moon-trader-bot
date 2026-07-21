@@ -286,8 +286,11 @@ def _monthly_lines(ctx: MonthlyContext | None) -> list[str]:
     if ctx is None:
         return []
     rng = "—" if ctx.range_position is None else f"{ctx.range_position:.2f}"
+    # M2: zero completed prior months means no percentile is computable —
+    # render "—", not a fabricated p50.
+    pct_bit = "—" if ctx.pct_of_months is None else f"p{ctx.pct_of_months:.0f}"
     head = (
-        f"Month {ctx.mtd_return_pct:+.1f}% · p{ctx.pct_of_months:.0f} of "
+        f"Month {ctx.mtd_return_pct:+.1f}% · {pct_bit} of "
         f"{ctx.n_months} completed months · range position {rng} "
         f"({ctx.mtd_elapsed_frac:.0%} elapsed)"
     )
@@ -305,14 +308,18 @@ def _weekly_lines(state: WeeklyState | None) -> list[str]:
         f"h{state.elapsed_h}/{state.total_bars} ({day} {hod:02d}:00 UTC) · "
         f"{state.norm_now:+.2f}×AWR"
     )
-    # "flat" has no cohort in the weekly cone (only all/bull/bear) — the
-    # adapter (analytics/brief/weekly.py::build_weekly_state) falls the
-    # conditional pool back to the unconditional one in that case. Presenting
-    # that as "weeks that closed flat" would misattribute the unconditional
-    # population as a conditional cohort, so omit the conditional clause and
-    # attribute the timing stat to "all weeks" instead of "those weeks".
-    is_flat = state.path_direction == "flat"
-    if is_flat:
+    # C1: the adapter (analytics/brief/weekly.py::build_weekly_state) falls
+    # the conditional pool back to the unconditional one whenever a
+    # same-direction cohort can't be resolved distinctly — either "flat" has
+    # no cohort at all, or the bull/bear combo exists but is empty (n=0).
+    # `conditional_is_fallback` covers BOTH cases; keying on
+    # `path_direction == "flat"` alone missed the empty-combo case and
+    # rendered the unconditional population under a false "closed bear
+    # (n=0)"-style cohort label. Presenting the fallback as a real cohort
+    # would misattribute the unconditional population as conditional, so
+    # omit the conditional clause and attribute the timing stat to
+    # "all weeks" instead of "those weeks".
+    if state.conditional_is_fallback:
         ranks = (
             f"      p{state.pct_unconditional:.0f} unconditional "
             f"(n={state.n_unconditional})"
@@ -325,8 +332,12 @@ def _weekly_lines(state: WeeklyState | None) -> list[str]:
             f"p{state.pct_unconditional:.0f} unconditional (n={state.n_unconditional})"
         )
         timing_cohort = "those weeks"
+    # I4: low_hour/high_hour are CLOSE-based (see weekly.py comment) while
+    # low_in_by_now is drawn from an intrabar low/high distribution — label
+    # the former explicitly so the two are not read as the same definition.
     timing = (
-        f"      low so far h{state.low_hour} · high so far h{state.high_hour} · "
+        f"      low close so far h{state.low_hour} · "
+        f"high close so far h{state.high_hour} · "
         f"{state.low_in_by_now:.0%} of {timing_cohort} had set their low by now"
     )
     return [head, ranks, timing]

@@ -74,9 +74,6 @@
     currentWeekPath ? overlayPath(currentWeekPath.points, TOTAL_STEPS, yDomain, geo) : ""
   );
 
-  // Interior day-boundary gridlines only — 0 and 168 are the chart edges.
-  const dayGridlines = DAY_BOUNDARIES;
-
   // Day label centers — one per day, at the midpoint of its 24h span.
   const dayTicks = DAY_LABELS.map((label, i) => ({
     center: i * 24 + 12,
@@ -127,12 +124,18 @@
     return p === null ? fmtAwr(v) + "×" : fmtPx(p);
   };
 
-  // Day + MYT hour label, e.g. "Wed 14:00".
+  // Day + UTC hour label, e.g. "Wed 14:00 UTC" (I1). Resolved as UTC — not
+  // MYT — to match the x-axis gridlines (DAY_BOUNDARIES, UTC), the help
+  // copy ("Monday 00:00 UTC weekly open"), and the Brief's weekly-state
+  // line (prints e.g. "(Wed 14:00 UTC)"); "UTC" is spelled out so the
+  // anchoring can't be misread. step === TOTAL_STEPS (168) is the right
+  // chart edge / end of week (Sunday 24:00 UTC = next Monday 00:00 UTC) —
+  // rendered explicitly rather than wrapping back to "Mon 00:00" via modulo.
   const hourLabel = (step: number): string => {
+    if (step >= TOTAL_STEPS) return "Sun 24:00 UTC";
     const hourOfWeek = ((step % TOTAL_STEPS) + TOTAL_STEPS) % TOTAL_STEPS;
     const dayIdx = Math.floor(hourOfWeek / 24);
-    const mytHour = ((hourOfWeek % 24) + 8) % 24;
-    return `${DAY_LABELS[dayIdx]} ${String(mytHour).padStart(2, "0")}:00`;
+    return `${DAY_LABELS[dayIdx]} ${String(hourOfWeek % 24).padStart(2, "0")}:00 UTC`;
   };
 </script>
 
@@ -169,7 +172,7 @@
       <path d={bandOuterD} class="wcone-band-outer" class:bull={dir === "bull"} class:bear={dir === "bear"} />
       <path d={bandInnerD} class="wcone-band-inner" class:bull={dir === "bull"} class:bear={dir === "bear"} />
       <line x1={x(0)} y1={y(0)} x2={x(TOTAL_STEPS)} y2={y(0)} class="wcone-zero-line" />
-      {#each dayGridlines as b}
+      {#each DAY_BOUNDARIES as b}
         <line x1={x(b)} y1={PT} x2={x(b)} y2={H - PB} class="wcone-day-gridline" />
       {/each}
       <path d={medianD} class="wcone-median" class:bull={dir === "bull"} class:bear={dir === "bear"} />

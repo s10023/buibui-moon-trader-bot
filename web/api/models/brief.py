@@ -177,12 +177,13 @@ class WeeklyStateModel(BaseModel):
     low_hour: int | None
     high_hour: int | None
     low_in_by_now: float
+    conditional_is_fallback: bool
 
 
 class MonthlyContextModel(BaseModel):
     mtd_return_pct: float
     mtd_elapsed_frac: float
-    pct_of_months: float
+    pct_of_months: float | None
     n_months: int
     range_position: float | None
 
