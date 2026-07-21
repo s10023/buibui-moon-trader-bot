@@ -189,6 +189,25 @@ class ExternalState:
     snapshots: list[ExternalSnapshot]
 
 
+@dataclass
+class WeeklyState:
+    """Where the forming week sits inside the weekly cone (M5, conditional-on-outcome)."""
+
+    path_direction: str  # "bull" | "bear" | "flat" — the week SO FAR, not a forecast
+    elapsed_h: int
+    total_bars: int
+    norm_now: float  # current normalized position (×AWR)
+    pct_conditional: float  # percentile within same-direction weeks at this hour
+    pct_unconditional: float  # percentile within all weeks at this hour
+    n_conditional: int
+    n_unconditional: int
+    low_hour: int | None  # hour the week's low has been set so far
+    high_hour: int | None
+    low_in_by_now: (
+        float  # fraction of same-direction weeks that had set their low by now
+    )
+
+
 @dataclass(frozen=True)
 class SymbolPanel:
     symbol: str
@@ -208,6 +227,7 @@ class SymbolPanel:
     sessions: SessionState | None
     error: str | None
     external: ExternalState | None = None
+    weekly: WeeklyState | None = None
 
 
 def error_panel(symbol: str, message: str) -> SymbolPanel:

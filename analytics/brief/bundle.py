@@ -23,10 +23,12 @@ from analytics.brief.pundit import build_board
 from analytics.brief.seasonality import build_strip
 from analytics.brief.sessions import build_session_state
 from analytics.brief.types import BriefBundle, SessionClock, SymbolPanel, error_panel
+from analytics.brief.weekly import build_weekly_state
 from analytics.brief.zones import build_zone_rows
 from analytics.regime import classify_series
 from analytics.session_windows import session_at
 from analytics.stats.session import compute_session_breakdown
+from analytics.stats.weekly_cone import compute_current_week_path, compute_weekly_cone
 from analytics.store.market_data import get_ohlcv
 
 logger = logging.getLogger(__name__)
@@ -149,6 +151,13 @@ def _compute_panel(
         max_rows_per_side=cfg.external_max_rows_per_side,
     )
     notes.extend(f"{symbol}: {n}" for n in ext_notes)
+    try:
+        weekly_cone = compute_weekly_cone(conn, symbol, now_ms=as_of)
+        current_week = compute_current_week_path(conn, symbol, now_ms=as_of)
+        weekly, wk_notes = build_weekly_state(cone=weekly_cone, current=current_week)
+    except Exception as exc:  # weekly block is optional
+        weekly, wk_notes = None, [f"weekly cone failed ({exc})"]
+    notes.extend(f"{symbol}: {n}" for n in wk_notes)
     return SymbolPanel(
         symbol=symbol,
         ref_close=ref_close,
@@ -166,6 +175,7 @@ def _compute_panel(
         indicators=indicators,
         sessions=sessions,
         external=external,
+        weekly=weekly,
         error=None,
     )
 

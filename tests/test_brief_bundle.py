@@ -55,7 +55,13 @@ def test_compute_brief_extra_notes_flow_to_health() -> None:
     conn = make_conn()
     seed_symbol(conn, "BTCUSDT", START_MS, 60)
     bundle = compute_brief(conn, _cfg(("BTCUSDT",)), extra_notes=["fallback"])
-    assert bundle.health.notes == ["fallback"]
+    # 60 seeded days is short of the weekly cone's 14-complete-prior-weeks
+    # floor, so the M5 weekly block degrades to its own health note (added
+    # after "fallback" in this fixture — see analytics/brief/weekly.py).
+    assert bundle.health.notes == [
+        "fallback",
+        "BTCUSDT: weekly cone: no forming-week path (short history?)",
+    ]
 
 
 def _h1_frame(last_open_ms: int, n: int = 5, close: float = 101.0) -> pd.DataFrame:

@@ -30,6 +30,7 @@ from analytics.brief.types import (
     SessionTendencyRow,
     SymbolPanel,
     VwapState,
+    WeeklyState,
     ZoneRow,
 )
 
@@ -273,6 +274,29 @@ def _session_lines(state: SessionState | None) -> list[str]:
     return [f"{'Sessions':<9}{bits[0]}"] + [f"{'':9}{b}" for b in bits[1:]]
 
 
+def _weekly_lines(state: WeeklyState | None) -> list[str]:
+    """Forming-week position inside the weekly cone. Conditional on outcome."""
+    if state is None:
+        return []
+    day = _DOW[min((state.elapsed_h - 1) // 24, 6)] if state.elapsed_h > 0 else _DOW[0]
+    hod = (state.elapsed_h - 1) % 24 if state.elapsed_h > 0 else 0
+    head = (
+        f"Week  {state.path_direction} path so far · "
+        f"h{state.elapsed_h}/{state.total_bars} ({day} {hod:02d}:00 UTC) · "
+        f"{state.norm_now:+.2f}×AWR"
+    )
+    ranks = (
+        f"      p{state.pct_conditional:.0f} of weeks that closed "
+        f"{state.path_direction} (n={state.n_conditional}) · "
+        f"p{state.pct_unconditional:.0f} unconditional (n={state.n_unconditional})"
+    )
+    timing = (
+        f"      low so far h{state.low_hour} · high so far h{state.high_hour} · "
+        f"{state.low_in_by_now:.0%} of those weeks had set their low by now"
+    )
+    return [head, ranks, timing]
+
+
 _PANEL_SHORT = {"liq_heatmap": "liq", "book_heatmap": "book", "liq_map": "map"}
 
 
@@ -317,6 +341,7 @@ def _panel_lines(panel: SymbolPanel) -> list[str]:
     )
     lines.extend(_indicator_lines(panel.indicators))
     lines.extend(_session_lines(panel.sessions))
+    lines.extend(_weekly_lines(panel.weekly))
     lines.extend(_external_lines(panel.external))
     above = " · ".join(_level_str(r) for r in panel.levels_above) or "none"
     below = " · ".join(_level_str(r) for r in panel.levels_below) or "none"
