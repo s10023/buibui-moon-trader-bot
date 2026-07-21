@@ -1048,8 +1048,19 @@ def test_percentile_within_bands() -> None:
     )
     state, _ = build_weekly_state(cone=_bundle(), current=current)
     assert state is not None
-    assert 0 <= state.pct_conditional <= 100
-    assert 0 <= state.pct_unconditional <= 100
+    # Saturates at the ladder ends — only p10…p90 is resolvable from 5 bands.
+    assert 10 <= state.pct_conditional <= 90
+    assert 10 <= state.pct_unconditional <= 90
+
+
+def test_percentile_saturates_at_tails() -> None:
+    """A value far above p90 reports 90, not 100 — no invented precision."""
+    current = CurrentWeekPath(
+        points=[0.0] * 62 + [99.0], elapsed_h=62, awr14_current=0.02, week_open=100.0
+    )
+    state, _ = build_weekly_state(cone=_bundle(), current=current)
+    assert state is not None
+    assert state.pct_unconditional == 90.0
 ```
 
 - [ ] **Step 2: Run to verify it fails**
@@ -1113,13 +1124,17 @@ from analytics.stats.weekly_cone import CurrentWeekPath, WeeklyConeBundle
 def _percentile_of(bands_at_hour: list[float], value: float) -> float:
     """Approximate percentile of `value` against the p10/25/50/75/90 ladder.
 
-    Linear interpolation between adjacent band edges; clamped to [0, 100].
+    Linear interpolation between adjacent band edges, SATURATING at the ends:
+    the cone bundle carries only five percentiles, so nothing outside
+    [p10, p90] is resolvable and the return value is clamped to [10, 90].
+    A returned 10.0 means "at or below p10", 90.0 means "at or above p90" —
+    the renderer must not present those as exact ranks.
     """
     ladder = [10.0, 25.0, 50.0, 75.0, 90.0]
     if value <= bands_at_hour[0]:
-        return 0.0 if value < bands_at_hour[0] else ladder[0]
+        return ladder[0]
     if value >= bands_at_hour[-1]:
-        return 100.0 if value > bands_at_hour[-1] else ladder[-1]
+        return ladder[-1]
     for i in range(len(ladder) - 1):
         lo, hi = bands_at_hour[i], bands_at_hour[i + 1]
         if lo <= value <= hi:
