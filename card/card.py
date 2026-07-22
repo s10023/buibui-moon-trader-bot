@@ -10,7 +10,7 @@ from typing import Any
 from card.config import CardConfig
 from card.errors import CardValidationError
 from card.prompt import PROMPT_VERSION
-from card.state import MarketState
+from card.state import MarketState, RecentFire
 from portfolio.sizing import (
     SizingConfig,
     apply_caps,
@@ -24,6 +24,14 @@ from portfolio.sizing import (
 _VERDICTS = ("TRADE", "NO_TRADE")
 _DIRECTIONS = ("long", "short")
 _PRICE_KEYS = ("entry", "sl", "tp1", "tp2", "tp3")
+
+# Live-vs-backtest contradiction thresholds (a-priori, mirrored in the card-v3
+# rubric so code and prompt cannot disagree). MIN_N is an evidence floor, not
+# the n>=30 promotion gate — this warning only displays. NOISE_R is the
+# round-trip cost drift between pre/post-2026-06-11 ledger rows (~0.06R),
+# rounded up: smaller gaps are not readable.
+_LIVE_MIN_N = 10
+_LIVE_NOISE_R = 0.15
 
 
 @dataclass(frozen=True)
@@ -41,6 +49,29 @@ class TradeCard:
     expected_hold: str | None
     valid_until_utc: str | None
     no_trade_reason: str | None
+
+
+def _live_negative_fires(fires: list[RecentFire]) -> list[RecentFire]:
+    """Cells whose live record is negative AND readably worse than backtest.
+
+    Deduped per (strategy, tf, direction) — one cell firing three times in the
+    lookback is one contradiction, not three warnings.
+    """
+    seen: set[tuple[str, str, str]] = set()
+    out: list[RecentFire] = []
+    for f in fires:
+        key = (f.strategy, f.tf, f.direction)
+        if key in seen:
+            continue
+        if f.live_n is None or f.live_n < _LIVE_MIN_N:
+            continue
+        if f.live_avg_r is None or f.live_avg_r >= 0.0:
+            continue
+        if f.avg_r is None or f.avg_r - f.live_avg_r <= _LIVE_NOISE_R:
+            continue
+        seen.add(key)
+        out.append(f)
+    return out
 
 
 def _is_num(v: object) -> bool:
@@ -214,6 +245,16 @@ def post_pass(
                 )
         else:
             warnings.append("ref price unavailable — entry sanity unverified")
+
+        # (f) live ledger contradicts the backtest star on a cited cell.
+        # Display only: a veto here would be a promotion mechanism and needs
+        # the n>=30 gate the golden-signal loop is blocked on.
+        for f in _live_negative_fires(state.recent_fires):
+            warnings.append(
+                f"live record contradicts backtest: {f.strategy}/{f.tf}/"
+                f"{f.direction} is {f.live_avg_r:.3f}R over n={f.live_n} live "
+                f"but rated {f.stars}★ / {f.avg_r:.3f}R in backtest"
+            )
 
         # sizing (P1 reuse) — only when nothing vetoed
         if not veto:

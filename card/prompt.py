@@ -7,7 +7,7 @@ import json
 from card.config import CardConfig
 from card.state import MarketState
 
-PROMPT_VERSION = "card-v2"
+PROMPT_VERSION = "card-v3"
 
 _SCHEMA = """{
   "verdict": "TRADE" or "NO_TRADE",
@@ -48,11 +48,20 @@ snapshot with spot_hint_deviation true; when snapshots disagree, trust \
 higher intensity and lower age_hours. Prefer unswept levels as targets, \
 swept-and-reclaimed as entries.
 3. Confluence scan: score 0-9 how many independent inputs agree — zone/level \
-geometry, indicator states, session tendency, recent_fires (weight by stars/\
-avg_r/dsr; treat missing ratings or dsr < 0.95 as weak evidence), pundit \
+geometry, indicator states, session tendency, recent_fires (see 3a), pundit \
 priors (only authors/families with flagged=false), external liquidity (all \
 external snapshots together count as at most ONE agreeing input), and the \
 xs block (side + forecast = the system's own book lean).
+3a. Reading recent_fires: each fire carries TWO quality channels. stars/avg_r/\
+dsr are BACKTEST simulation (treat missing ratings or dsr < 0.95 as weak \
+evidence). live_n/live_avg_r are the REAL track record of that exact \
+strategy+timeframe+direction cell in production. The live record wins on \
+conflict: when live_avg_r is negative at live_n >= 10, that fire is evidence \
+AGAINST the trade no matter how many stars it has, and you must say so in a \
+reasoning bullet citing both numbers. When live_avg_r is positive at \
+live_n >= 10 but stars are low, count it as a genuine agreeing input. \
+Treat live_n < 10 or null live_n as no live evidence either way — do not \
+read a null as a bad record. Live gaps smaller than 0.15R are noise.
 4. Decision: TRADE only when a limit entry at a structural level, a \
 structural SL beyond it, and TP1/TP2/TP3 at mapped liquidity give planned \
 RR(tp1) >= 1. Otherwise NO_TRADE naming the failed gate in no_trade_reason.

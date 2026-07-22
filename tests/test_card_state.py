@@ -62,6 +62,8 @@ class TestMarketState:
                     avg_r=0.12,
                     win_rate=0.5,
                     dsr=0.9,
+                    live_n=7,
+                    live_avg_r=-0.31,
                 )
             ],
             account=AccountState(
@@ -314,3 +316,114 @@ class TestFiresBlock:
         assert fires[0].direction == "long"
         assert fires[0].stars == 2  # from the combined fallback
         assert fires[0].avg_r == pytest.approx(0.05)
+
+
+def _insert_fire(conn: duckdb.DuckDBPyConnection) -> None:
+    """One 'fvg'/'1h'/'long' signal inside the card's lookback window."""
+    conn.execute(
+        "INSERT INTO signals (symbol, timeframe, strategy, open_time, "
+        "direction, entry_price, sl_price, reason, confidence, fired_at) "
+        f"VALUES ('BTCUSDT', '1h', 'fvg', {_NOW_MS - 1_000_000}, 'long', "
+        "100.0, 99.0, 'r', 3, 0)"
+    )
+
+
+def _insert_resolved(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    signal_id: str,
+    outcome: str,
+    outcome_r: float,
+    symbol: str = "BTCUSDT",
+    strategy: str = "fvg",
+    tf: str = "1h",
+    direction: str = "long",
+) -> None:
+    """One resolved live-ledger row."""
+    conn.execute(
+        "INSERT INTO signal_alert_outcomes (signal_id, symbol, tf, strategy, "
+        "direction, fired_at_ms, candle_ts_ms, entry_price, sl_price, "
+        "tp_price, outcome, outcome_r, outcome_filled_at_ms) VALUES "
+        f"('{signal_id}', '{symbol}', '{tf}', '{strategy}', '{direction}', "
+        f"{_NOW_MS - 2_000_000}, {_NOW_MS - 2_000_000}, 100.0, 99.0, 103.0, "
+        f"'{outcome}', {outcome_r}, {_NOW_MS - 1_500_000})"
+    )
+
+
+class TestFiresLiveOutcomes:
+    """The live ledger is a second, independent quality channel on each fire.
+
+    Backtest ratings come from `backtest_trades` via recalibrate; they can be
+    strongly positive on a cell the live ledger says loses money. The card
+    must carry both so the rubric can see the contradiction.
+    """
+
+    def test_live_record_annotated_alongside_backtest_rating(self) -> None:
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        _insert_fire(conn)
+        conn.execute(
+            "INSERT INTO confidence_ratings "
+            "(config_name, strategy, tf, direction, stars, avg_r, win_rate, "
+            "updated_at_ms, day_filter, dsr) "
+            "VALUES ('signal_watch', 'fvg', '1h', 'long', 5, 0.95, 0.6, "
+            "0, NULL, 0.99)"
+        )
+        # live ledger disagrees: two losses on the same cell
+        _insert_resolved(conn, signal_id="a", outcome="loss", outcome_r=-1.0)
+        _insert_resolved(conn, signal_id="b", outcome="loss", outcome_r=-0.6)
+
+        fires = _fires_block(
+            conn, "BTCUSDT", CardConfig(fires_timeframes=("1h",)), _NOW_MS
+        )
+
+        assert len(fires) == 1
+        assert fires[0].avg_r == pytest.approx(0.95)  # backtest, unchanged
+        assert fires[0].live_n == 2
+        assert fires[0].live_avg_r == pytest.approx(-0.8)
+
+    def test_live_record_is_cross_symbol(self) -> None:
+        """Parity with the star: recalibrate pools symbols, so this must too."""
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        _insert_fire(conn)
+        _insert_resolved(conn, signal_id="a", outcome="loss", outcome_r=-1.0)
+        _insert_resolved(
+            conn, signal_id="b", outcome="win", outcome_r=3.0, symbol="ETHUSDT"
+        )
+
+        fires = _fires_block(
+            conn, "BTCUSDT", CardConfig(fires_timeframes=("1h",)), _NOW_MS
+        )
+
+        assert fires[0].live_n == 2
+        assert fires[0].live_avg_r == pytest.approx(1.0)
+
+    def test_no_live_history_leaves_fields_none(self) -> None:
+        """An unfired-live cell must read as absent, never as zero."""
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        _insert_fire(conn)
+
+        fires = _fires_block(
+            conn, "BTCUSDT", CardConfig(fires_timeframes=("1h",)), _NOW_MS
+        )
+
+        assert fires[0].live_n is None
+        assert fires[0].live_avg_r is None
+
+    def test_live_lookup_is_direction_scoped(self) -> None:
+        """The short record must not leak onto a long fire."""
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        _insert_fire(conn)
+        _insert_resolved(
+            conn, signal_id="a", outcome="loss", outcome_r=-1.0, direction="short"
+        )
+
+        fires = _fires_block(
+            conn, "BTCUSDT", CardConfig(fires_timeframes=("1h",)), _NOW_MS
+        )
+
+        assert fires[0].direction == "long"
+        assert fires[0].live_n is None

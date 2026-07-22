@@ -237,6 +237,71 @@ class TestPostPass:
         assert final.verdict == "TRADE"
         assert any("ref price unavailable" in w for w in final.warnings)
 
+    def test_live_negative_fire_warns_not_vetoes(self) -> None:
+        """A live-losing cell is surfaced deterministically, never trusted to
+        the LLM alone. Display only — promotion/veto needs the n>=30 gate."""
+        import dataclasses
+
+        from card.state import RecentFire
+
+        state = dataclasses.replace(
+            _state_for_post(),
+            recent_fires=[
+                RecentFire(
+                    strategy="morning_evening_star",
+                    tf="4h",
+                    direction="short",
+                    open_time=1,
+                    entry_price=100.0,
+                    stars=5,
+                    avg_r=0.946,
+                    win_rate=0.7,
+                    dsr=0.26,
+                    live_n=28,
+                    live_avg_r=-0.605,
+                )
+            ],
+        )
+        final = _post(_trade_obj(), state)
+        assert final.verdict == "TRADE"  # display only, never a veto
+        warning = next(w for w in final.warnings if "morning_evening_star" in w)
+        assert "5" in warning and "-0.605" in warning and "28" in warning
+
+    def test_live_positive_and_thin_cells_do_not_warn(self) -> None:
+        """Only the contradiction warns: a winning cell and an under-powered
+        cell must both stay silent, or the warning becomes noise."""
+        import dataclasses
+
+        from card.state import RecentFire
+
+        def fire(**kw: Any) -> Any:
+            base: dict[str, Any] = {
+                "strategy": "bos",
+                "tf": "1h",
+                "direction": "short",
+                "open_time": 1,
+                "entry_price": 100.0,
+                "stars": 2,
+                "avg_r": 0.037,
+                "win_rate": 0.5,
+                "dsr": 0.5,
+                "live_n": 40,
+                "live_avg_r": 1.46,
+            }
+            base.update(kw)
+            return RecentFire(**base)
+
+        state = dataclasses.replace(
+            _state_for_post(),
+            recent_fires=[
+                fire(),  # live-positive
+                fire(strategy="fvg", live_n=4, live_avg_r=-0.9),  # thin
+                fire(strategy="doji", live_n=None, live_avg_r=None),  # no live
+            ],
+        )
+        final = _post(_trade_obj(), state)
+        assert not [w for w in final.warnings if "live" in w]
+
     def test_cluster_cap_consumes_headroom(self) -> None:
         # ETHUSDT open long is in the majors cluster with BTCUSDT:
         # cluster headroom 1% - 0.25% = 0.75% >= r_eff 0.25% -> still sized,

@@ -20,6 +20,12 @@ class CardConfig:
     fires_lookback_bars: int = 4
     fires_timeframes: tuple[str, ...] = ("1h", "4h", "1d")
     ratings_config: str = "signal_watch"
+    # Lookback for the per-fire live record. 0 = all time, which maximises n.
+    # Caveat: `outcome_r` only became net of costs on 2026-06-11 (PR #432) and
+    # already-resolved rows were never restated, so an all-time window mixes
+    # gross and net rows. Round-trip cost is ~0.06R on a 2% stop, so live-vs-
+    # backtest gaps under ~0.15R are not readable; larger ones are unaffected.
+    live_window_days: int = 0
     sizing_toml: str | None = None
     cards_path: str = "docs/plans/ai-cards.jsonl"
     pundit_calls_path: str = "docs/plans/pundit-calls.jsonl"

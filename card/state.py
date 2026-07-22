@@ -17,6 +17,7 @@ from analytics.brief.config import BriefConfig
 from analytics.brief.types import PunditBoard, SessionClock, SymbolPanel
 from analytics.forecast.config import ForecastConfig
 from analytics.signal._common import parse_timeframe_secs
+from analytics.stats.live_outcomes import compute_live_outcomes
 from analytics.store.confidence import get_confidence_rating_rows
 from analytics.store.signals import get_signals_history
 from analytics.xsmom.live import target_book_to_dict
@@ -66,6 +67,11 @@ class RecentFire:
     avg_r: float | None
     win_rate: float | None
     dsr: float | None
+    # Live-ledger record for the same cell — an independent second channel.
+    # `avg_r`/`stars` above come from `backtest_trades` via recalibrate and can
+    # be strongly positive on a cell the live ledger says loses money.
+    live_n: int | None
+    live_avg_r: float | None
 
 
 @dataclass(frozen=True)
@@ -140,8 +146,18 @@ def _fires_block(
     cfg: CardConfig,
     now_ms: int,
 ) -> list[RecentFire]:
-    """Fired events in the last fires_lookback_bars per TF, quality-annotated."""
+    """Fired events in the last fires_lookback_bars per TF, quality-annotated.
+
+    Two independent quality channels are attached per cell: the backtest star
+    (`confidence_ratings`, from recalibrate) and the live record
+    (`signal_alert_outcomes`). Both are cross-symbol so the pair is
+    like-for-like — recalibrate pools symbols per (strategy, tf).
+    """
     ratings = get_confidence_rating_rows(conn, cfg.ratings_config)
+    live = {
+        (c.strategy, c.tf, c.direction): c
+        for c in compute_live_outcomes(conn, days=cfg.live_window_days, min_n=1).cells
+    }
     fires: list[RecentFire] = []
     for tf in cfg.fires_timeframes:
         span_ms = parse_timeframe_secs(tf) * 1000 * cfg.fires_lookback_bars
@@ -150,6 +166,9 @@ def _fires_block(
             r = ratings.get((str(row["strategy"]), tf, str(row["direction"])))
             if r is None:
                 r = ratings.get((str(row["strategy"]), tf, "combined"))
+            # No 'combined' fallback here: the live ledger stores a real
+            # direction on every row, so a miss means no live history.
+            lv = live.get((str(row["strategy"]), tf, str(row["direction"])))
             fires.append(
                 RecentFire(
                     strategy=str(row["strategy"]),
@@ -165,6 +184,10 @@ def _fires_block(
                         else None
                     ),
                     dsr=float(r["dsr"]) if r and r["dsr"] is not None else None,
+                    live_n=lv.n if lv else None,
+                    live_avg_r=(
+                        float(lv.avg_r) if lv and lv.avg_r is not None else None
+                    ),
                 )
             )
     return fires
