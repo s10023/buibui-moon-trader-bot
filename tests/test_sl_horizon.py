@@ -100,6 +100,31 @@ def _ramp_ohlcv(n: int = 40, step: float = 1.0) -> pd.DataFrame:
     )
 
 
+def _varying_range_ohlcv(n: int = 40, tr_step: float = 10.0) -> pd.DataFrame:
+    """OHLCV whose true range grows every bar, so ATR14 is index-sensitive.
+
+    Close is held constant so the high/low-vs-prev-close legs of the true-range
+    formula are always exactly half the high-low leg, which means true range at
+    bar i (i >= 1) is exactly ``i * tr_step`` with no ambiguity. Unlike
+    `_ramp_ohlcv` (constant 2.0 true range -> constant ATR14 everywhere, so an
+    off-by-one lookup would go undetected), this fixture makes ATR14 strictly
+    increasing with idx: adjacent indices differ by a fixed, large step.
+    """
+    open_times = [1_000 + i * 100 for i in range(n)]
+    close = 100.0
+    widths = [i * tr_step for i in range(n)]
+    return pd.DataFrame(
+        {
+            "open_time": open_times,
+            "open": [close] * n,
+            "high": [close + w / 2.0 for w in widths],
+            "low": [close - w / 2.0 for w in widths],
+            "close": [close] * n,
+            "volume": [10.0] * n,
+        }
+    )
+
+
 def test_atr_by_open_time_returns_a_value_per_known_bar() -> None:
     df = _ramp_ohlcv()
     got = atr_by_open_time(df, [1_000 + 20 * 100, 1_000 + 30 * 100])
@@ -131,6 +156,38 @@ def test_atr_by_open_time_matches_the_engine_primitive() -> None:
     )
     got = atr_by_open_time(df, [int(df["open_time"].iloc[idx])])
     assert got[int(df["open_time"].iloc[idx])] == pytest.approx(expected)
+
+
+def test_atr_by_open_time_is_index_sensitive() -> None:
+    """`_ramp_ohlcv`'s constant true range means every index yields the same
+    ATR14, so a silent off-by-one in the open_time -> position lookup would
+    still pass `test_atr_by_open_time_matches_the_engine_primitive` above (it
+    would just quietly match the wrong row). This fixture's true range grows
+    every bar, so neighbouring indices give measurably different ATR14 —
+    proving the lookup actually resolves to the right row, not a nearby one.
+    """
+    from analytics.backtest.engine import _compute_atr14
+
+    df = _varying_range_ohlcv()
+    idx = 25
+    open_times = [int(df["open_time"].iloc[i]) for i in (idx - 1, idx, idx + 1)]
+    got = atr_by_open_time(df, open_times)
+
+    highs = df["high"].to_numpy(dtype=np.float64)
+    lows = df["low"].to_numpy(dtype=np.float64)
+    closes = df["close"].to_numpy(dtype=np.float64)
+    expected = {
+        ot: _compute_atr14(highs, lows, closes, i)
+        for ot, i in zip(open_times, (idx - 1, idx, idx + 1), strict=True)
+    }
+
+    for ot in open_times:
+        assert got[ot] == pytest.approx(expected[ot])
+
+    before, at, after = (got[ot] for ot in open_times)
+    assert before is not None and at is not None and after is not None
+    assert abs(at - before) > 1.0
+    assert abs(at - after) > 1.0
 
 
 def test_atr_by_open_time_handles_empty_frame() -> None:
