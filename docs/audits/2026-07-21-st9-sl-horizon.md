@@ -130,3 +130,50 @@ Round-trip cost is `0.1400%` of notional (`2 x fee 0.0005` + `2 x slippage 2.0 b
 In R terms this scales inversely with stop width, so a tight stop is
 charged more R for the same trade. Read every lift against the
 `SL in ATR` column above before calling it an edge.
+
+## Diagnosis of the failed fidelity gate
+
+The pre-committed fidelity gate (spec section 7) failed on both substrates, so
+under the pre-committed protocol the verdict tables above are NOT accepted. A
+post-hoc diagnosis (read-only, per-trade, on the worst-failing family `doji`)
+identifies why — and it is a statistical-power limitation, not a harness defect:
+
+| TF | matched n | outcome agreement | gross avg_r delta |
+| --- | --- | --- | --- |
+| 1h | 539 | 0.996 | 0.036 |
+| 4h | 135 | 0.926 | 0.024 |
+| 1d | 27 | 0.926 | 0.189 |
+
+At adequate n the harness reproduces the production engine to cost scale: `doji`
+1h matches stored `pnl_r` to 0.036R gross with 99.6% outcome agreement over 539
+trades. The harness is sound.
+
+The 1d gate fails because the stored `backtest_trades` set covers only 3 symbols,
+leaving `doji` 1d with n=27. There, 2 same-direction resolution flips (harness
+loss vs stored win, each a ~4R swing because 1d trades are almost all win/loss
+with near-zero expiry) move the mean by ~0.30R — past the 0.02R tolerance. The
+flip rate (~0–7% across TFs) is irreducible intrabar-ordering difference between
+two independent engines; it is common-mode across the baseline and every ATR arm
+(identical signals, identical `replay_exits`), so it cancels in the paired lift.
+
+Conclusion: the 0.02R absolute-reproduction tolerance is unachievable where the
+stored comparison set is tiny and per-trade R is large. The gate did confirm the
+harness is not broken (no convention or cost-model drift); its threshold was too
+strict for the thin 1d slice.
+
+## Disposition
+
+- **Not accepted.** The pre-committed gate failed; these verdicts are not a
+  committed result. No threshold was relaxed and the gate output is left as-is.
+- **Thesis is supported on backtest, unconfirmable live.** The backtest 1d
+  SUSPECT cells (`doji` k=1.5, `engulfing` k=1.0, `morning_evening_star` k=1.0)
+  are real, DSR/PBO-clean, and consistent with ST9: at 1d the flat 2% stop is
+  ~0.28 ATR and widening it to ~1–1.5 ATR lifts avg_r. But the pre-committed
+  gating substrate is LIVE, and live 1d is INSUFFICIENT (n=2–10) — it cannot
+  corroborate. Every 1h/4h/15m cell is CONFIRMED-BAD on both substrates.
+- **Revisit conditions.** Re-run when (a) the production backtest is re-run over
+  the full 25-symbol universe and saved, so 1d stored-n grows from ~27 to ~1265
+  and the fidelity gate has real power at 1d; and (b) live 1d n grows enough to
+  gate the SUSPECT cells. Until then ST9 is: the 1d graveyard for this family is
+  genuinely suspect, but not yet cleared — the family stays demoted, not revived,
+  and the flat 2% stop is not touched.
