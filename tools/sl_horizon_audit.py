@@ -271,3 +271,220 @@ def check_fidelity(
         worst_avg_r_delta=worst,
         reasons=reasons,
     )
+
+
+#: The backtest engine has no expiry, so the fidelity replay must not impose one.
+#: Larger than any realistic OHLCV history, so the window is never truncated.
+NO_TIME_STOP_BARS = 10_000_000
+
+
+def load_stored_backtest_trades(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    symbols: list[str],
+    timeframes: list[str],
+) -> pd.DataFrame:
+    """Stored engine trades for the family, deduped across saved runs.
+
+    Keeps the lexicographically-latest ``run_id`` per
+    ``(symbol, tf, strategy, direction, signal_time)`` — the same dedup
+    ``tools/warning_value_audit.py`` uses. Returns the columns
+    ``check_fidelity`` expects: ``strategy``, ``tf``, ``key``, ``stored_r``,
+    ``stored_outcome``.
+    """
+    fam = ", ".join("?" for _ in FAMILY)
+    sym = ", ".join("?" for _ in symbols)
+    tfs = ", ".join("?" for _ in timeframes)
+    raw = conn.execute(
+        f"""
+        SELECT run_id, symbol, timeframe AS tf, strategy, direction,
+               signal_time, pnl_r, outcome
+        FROM backtest_trades
+        WHERE strategy IN ({fam})
+          AND symbol IN ({sym})
+          AND timeframe IN ({tfs})
+          AND pnl_r IS NOT NULL
+        """,
+        [*FAMILY, *symbols, *timeframes],
+    ).df()
+    if raw.empty:
+        return pd.DataFrame(
+            columns=["strategy", "tf", "key", "stored_r", "stored_outcome"]
+        )
+
+    # Sort then drop_duplicates in pandas — DuckDB window functions have
+    # segfaulted on this table before (see feedback_duckdb_window_functions).
+    raw = raw.sort_values("run_id")
+    deduped = raw.drop_duplicates(
+        subset=["symbol", "tf", "strategy", "direction", "signal_time"], keep="last"
+    )
+    deduped = deduped.assign(
+        key=(
+            deduped["symbol"].astype(str)
+            + "|"
+            + deduped["direction"].astype(str)
+            + "|"
+            + deduped["signal_time"].astype("int64").astype(str)
+        )
+    )
+    return deduped.rename(columns={"pnl_r": "stored_r", "outcome": "stored_outcome"})[
+        ["strategy", "tf", "key", "stored_r", "stored_outcome"]
+    ]
+
+
+def resolve_live_arms(
+    alerts: pd.DataFrame,
+    ohlcv_by_key: dict[tuple[str, str], pd.DataFrame],
+    *,
+    cfg: SLGridConfig,
+    tp_r_for: TpRLookup,
+) -> pd.DataFrame:
+    """Resolve live alerts under the baseline and each ``k`` arm.
+
+    The baseline arm uses the alert's **stored** ``sl_price``, not a recomputed
+    2%, so it reproduces what actually fired — that is what makes the stored
+    ``outcome_r`` a usable second fidelity anchor. The ``k`` arms replace the
+    stop with ``k × ATR14`` at the signal candle.
+    """
+    rows: list[dict[str, object]] = []
+    for (symbol, tf), grp in alerts.groupby(["symbol", "tf"], sort=True):
+        ohlcv = ohlcv_by_key.get((str(symbol), str(tf)))
+        if ohlcv is None or ohlcv.empty:
+            continue
+        max_hold = cfg.max_hold_bars_by_tf.get(str(tf), 48)
+        position = {int(t): i for i, t in enumerate(ohlcv["open_time"].to_numpy())}
+        atr_map = atr_by_open_time(ohlcv, grp["candle_ts_ms"].tolist())
+
+        for _, alert in grp.iterrows():
+            candle_ts = int(alert["candle_ts_ms"])
+            sig_idx = position.get(candle_ts)
+            atr = atr_map.get(candle_ts)
+            if sig_idx is None or atr is None or atr <= 0.0:
+                continue
+
+            direction = str(alert["direction"])
+            strategy = str(alert["strategy"])
+            entry = float(alert["entry_price"])
+            tp_r = tp_r_for(strategy, str(symbol), str(tf), direction)
+
+            _entry_unused, highs, lows, closes = window_for_signal(
+                ohlcv, sig_idx=sig_idx, convention="live", max_hold_bars=max_hold
+            )
+            if len(highs) == 0:
+                continue
+
+            arms: list[tuple[str, float]] = [(BASELINE_ARM, float(alert["sl_price"]))]
+            for k in cfg.multipliers:
+                sl_price, _tp = counterfactual_levels(
+                    entry, direction, atr=atr, k=k, tp_r=tp_r
+                )
+                arms.append((arm_label(k), sl_price))
+
+            for arm, sl_price in arms:
+                res = resolve_arm(
+                    highs,
+                    lows,
+                    closes,
+                    direction=direction,
+                    entry=entry,
+                    sl_price=sl_price,
+                    tp_r=tp_r,
+                    max_hold_bars=max_hold,
+                    round_trip_cost_pct=cfg.round_trip_cost_pct,
+                    funding_r=0.0,
+                )
+                if res is None:
+                    continue
+                rows.append(
+                    {
+                        "symbol": symbol,
+                        "tf": tf,
+                        "strategy": strategy,
+                        "direction": direction,
+                        "open_time": candle_ts,
+                        "arm": arm,
+                        "net_r": res.net_r,
+                        "realized_r": res.realized_r,
+                        "outcome": res.outcome,
+                        "exit_bar": res.exit_bar,
+                        "sl_dist_pct": res.sl_dist_pct,
+                        "cost_r": res.cost_r,
+                        "atr_pct": atr / entry,
+                        "key": f"{symbol}|{direction}|{candle_ts}",
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
+def backtest_fidelity(
+    conn: duckdb.DuckDBPyConnection,
+    signals: pd.DataFrame,
+    ohlcv_by_key: dict[tuple[str, str], pd.DataFrame],
+    *,
+    cfg: SLGridConfig,
+    tp_r_for: TpRLookup,
+) -> FidelityReport:
+    """Spec §7a — replay the baseline arm with NO time stop and compare to stored.
+
+    A systematic offset here almost always means the entry convention is wrong,
+    not that the model is wrong. Check `window_for_signal(convention="engine")`
+    against `analytics/backtest/engine.py:954-1061` before anything else.
+    """
+    no_expiry = SLGridConfig(
+        multipliers=cfg.multipliers,
+        baseline_pct=cfg.baseline_pct,
+        max_hold_bars_by_tf=dict.fromkeys(TF_MS, NO_TIME_STOP_BARS),
+        fee_pct=cfg.fee_pct,
+        slippage_bps=cfg.slippage_bps,
+    )
+    replayed = resolve_all_arms(
+        signals, ohlcv_by_key, cfg=no_expiry, convention="engine", tp_r_for=tp_r_for
+    )
+    if replayed.empty:
+        return FidelityReport(
+            passed=False,
+            n_matched=0,
+            agreement=0.0,
+            worst_avg_r_delta=float("nan"),
+            reasons=["baseline replay produced no rows"],
+        )
+    baseline = replayed[replayed["arm"] == BASELINE_ARM].copy()
+    baseline["key"] = (
+        baseline["symbol"].astype(str)
+        + "|"
+        + baseline["direction"].astype(str)
+        + "|"
+        + baseline["open_time"].astype("int64").astype(str)
+    )
+    stored = load_stored_backtest_trades(
+        conn,
+        symbols=sorted({str(s) for s in signals["symbol"].unique()}),
+        timeframes=sorted({str(t) for t in signals["tf"].unique()}),
+    )
+    return check_fidelity(baseline, stored, tolerance_r=0.02, min_agreement=0.95)
+
+
+def live_fidelity(live_rows: pd.DataFrame, alerts: pd.DataFrame) -> FidelityReport:
+    """Spec §7b — the re-resolved live baseline vs the stored ``outcome_r``."""
+    if live_rows.empty:
+        return FidelityReport(
+            passed=False,
+            n_matched=0,
+            agreement=0.0,
+            worst_avg_r_delta=float("nan"),
+            reasons=["live replay produced no rows"],
+        )
+    baseline = live_rows[live_rows["arm"] == BASELINE_ARM].copy()
+    stored = alerts.assign(
+        key=(
+            alerts["symbol"].astype(str)
+            + "|"
+            + alerts["direction"].astype(str)
+            + "|"
+            + alerts["candle_ts_ms"].astype("int64").astype(str)
+        ),
+        tf=alerts["tf"],
+    ).rename(columns={"outcome_r": "stored_r", "outcome": "stored_outcome"})[
+        ["strategy", "tf", "key", "stored_r", "stored_outcome"]
+    ]
+    return check_fidelity(baseline, stored, tolerance_r=0.02, min_agreement=0.95)
