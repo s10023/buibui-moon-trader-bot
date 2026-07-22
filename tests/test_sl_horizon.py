@@ -8,16 +8,22 @@ import pytest
 
 from analytics.sl_horizon import (
     BASELINE_ARM,
+    DECISION_CONFIRMED_BAD,
+    DECISION_INSUFFICIENT,
+    DECISION_NO_DIFFERENCE,
+    DECISION_SUSPECT,
     DEFAULT_MULTIPLIERS,
     SIGNAL_KEY,
     ArmResult,
     SLGridConfig,
+    SLVerdict,
     arm_label,
     atr_by_open_time,
     baseline_levels,
     build_paired_table,
     counterfactual_levels,
     describe_horizon,
+    evaluate_sl_grid,
     resolve_arm,
     window_for_signal,
 )
@@ -495,3 +501,71 @@ def test_describe_horizon_computes_sl_in_atr_units() -> None:
     got = describe_horizon(rows, arm="flat_2pct")
     # 2% stop / 0.5% ATR = 4 ATR-widths
     assert got.iloc[0]["median_sl_atr"] == pytest.approx(4.0)
+
+
+def _paired(
+    n: int, baseline: float, lifts: dict[str, float], *, noise: float = 0.01
+) -> pd.DataFrame:
+    """A paired table with a controlled per-arm lift over the baseline."""
+    rng = np.random.default_rng(7)
+    data: dict[str, object] = {
+        "symbol": ["BTCUSDT"] * n,
+        "tf": ["1h"] * n,
+        "strategy": ["pin_bar"] * n,
+        "direction": ["long"] * n,
+        "open_time": list(range(n)),
+        BASELINE_ARM: rng.normal(baseline, noise, n),
+    }
+    for arm, lift in lifts.items():
+        data[arm] = np.asarray(data[BASELINE_ARM]) + rng.normal(lift, noise, n)
+    return pd.DataFrame(data)
+
+
+def test_insufficient_when_below_min_n() -> None:
+    wide = _paired(10, -0.2, {"atr_1": 0.5})
+    got = evaluate_sl_grid(wide, arms=["atr_1"], cfg=SLGridConfig(min_n=30))
+    assert len(got) == 1
+    assert got[0].decision == DECISION_INSUFFICIENT
+    assert got[0].n == 10
+
+
+def test_suspect_when_an_arm_clearly_beats_the_baseline() -> None:
+    wide = _paired(400, -0.2, {"atr_1": 0.5})
+    got = evaluate_sl_grid(wide, arms=["atr_1"], cfg=SLGridConfig())
+    assert got[0].decision == DECISION_SUSPECT
+    assert got[0].best_k == pytest.approx(1.0)
+    assert got[0].best_lift is not None and got[0].best_lift > 0.05
+
+
+def test_confirmed_bad_when_no_arm_helps_and_baseline_is_negative() -> None:
+    wide = _paired(400, -0.2, {"atr_1": 0.0})
+    got = evaluate_sl_grid(wide, arms=["atr_1"], cfg=SLGridConfig())
+    assert got[0].decision == DECISION_CONFIRMED_BAD
+
+
+def test_no_difference_when_no_arm_helps_but_baseline_is_positive() -> None:
+    wide = _paired(400, 0.3, {"atr_1": 0.0})
+    got = evaluate_sl_grid(wide, arms=["atr_1"], cfg=SLGridConfig())
+    assert got[0].decision == DECISION_NO_DIFFERENCE
+
+
+def test_ties_break_toward_the_larger_k() -> None:
+    # Two arms with an identical lift: the wider, cheaper-to-trade stop wins.
+    wide = _paired(400, -0.2, {"atr_1": 0.5})
+    wide["atr_2"] = wide["atr_1"]
+    got = evaluate_sl_grid(wide, arms=["atr_1", "atr_2"], cfg=SLGridConfig())
+    assert got[0].best_k == pytest.approx(2.0)
+
+
+def test_verdicts_are_returned_per_strategy_tf_cell() -> None:
+    a = _paired(400, -0.2, {"atr_1": 0.5})
+    b = _paired(400, -0.2, {"atr_1": 0.0})
+    b["tf"] = "4h"
+    got = evaluate_sl_grid(pd.concat([a, b]), arms=["atr_1"], cfg=SLGridConfig())
+    assert {v.tf for v in got} == {"1h", "4h"}
+    assert all(isinstance(v, SLVerdict) for v in got)
+
+
+def test_empty_input_returns_no_verdicts() -> None:
+    empty = pd.DataFrame(columns=[*SIGNAL_KEY, BASELINE_ARM, "atr_1"])
+    assert evaluate_sl_grid(empty, arms=["atr_1"], cfg=SLGridConfig()) == []

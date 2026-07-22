@@ -22,9 +22,11 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
+from analytics.audit_guard import AuditCell, CellVerdict, evaluate_audit_cells
 from analytics.backtest.engine import _compute_atr14
 from analytics.exits.policies import fixed as fixed_policy
 from analytics.exits.replay import replay_exits
+from analytics.research_guards import cscv_pbo, deflated_sharpe_ratio
 from analytics.signal.outcome_backfill import DEFAULT_MAX_HOLD_BARS
 
 # A-priori and fixed. Brackets the current effective ratio at 1h (~3.6), 4h
@@ -326,3 +328,197 @@ def describe_horizon(
             }
         )
     return pd.DataFrame(records)
+
+
+DECISION_SUSPECT = "SUSPECT"
+DECISION_CONFIRMED_BAD = "CONFIRMED-BAD"
+DECISION_NO_DIFFERENCE = "NO-DIFFERENCE"
+DECISION_INSUFFICIENT = "INSUFFICIENT"
+
+_DSR_FLOOR = 0.95
+_PBO_CEILING = 0.5
+
+
+@dataclass(frozen=True)
+class SLVerdict:
+    """Pre-committed verdict for one (strategy × TF) cell."""
+
+    strategy: str
+    tf: str
+    decision: str
+    n: int
+    baseline_avg_r: float
+    best_k: float | None
+    best_lift: float | None
+    ci_lo: float | None
+    ci_hi: float | None
+    adj_pvalue: float | None
+    dsr: float | None
+    pbo: float | None
+    reasons: list[str]
+
+
+def _k_from_arm(arm: str) -> float:
+    """Inverse of :func:`arm_label`."""
+    return float(arm.removeprefix("atr_"))
+
+
+def _sharpe(arr: npt.NDArray[np.float64]) -> float:
+    if arr.size < 2:
+        return 0.0
+    sd = float(np.std(arr, ddof=1))
+    return 0.0 if sd == 0.0 else float(np.mean(arr)) / sd
+
+
+def evaluate_sl_grid(
+    paired: pd.DataFrame, *, arms: Sequence[str], cfg: SLGridConfig
+) -> list[SLVerdict]:
+    """Pre-committed SUSPECT / CONFIRMED-BAD / NO-DIFFERENCE / INSUFFICIENT verdicts.
+
+    The statistic is the **paired** per-signal lift ``net_r[arm] − net_r[baseline]``.
+    Because both arms ran on the identical signal set, this is far better powered
+    than a two-sample comparison and is immune to the signal population's own
+    quality. Feeding the difference series to ``evaluate_audit_cells`` as
+    ``supp_r`` turns its ±bar + Holm machinery into a paired test with no change
+    to ``analytics/audit_guard.py``.
+
+    One ``evaluate_audit_cells`` call covers every (strategy × TF × k) cell in
+    the run, so the Holm family is shared across the whole substrate — one family
+    per substrate, never pooled across substrates.
+    """
+    if paired.empty:
+        return []
+
+    groups = list(paired.groupby(["strategy", "tf"], sort=True))
+
+    # Build one AuditCell per (strategy, tf, arm); the whole list is one family.
+    cells: list[AuditCell] = []
+    index: list[tuple[int, str]] = []  # (group position, arm)
+    for gi, (_, grp) in enumerate(groups):
+        for arm in arms:
+            diff = (grp[arm] - grp[BASELINE_ARM]).to_numpy(dtype=np.float64)
+            cells.append(AuditCell(label=f"g{gi}|{arm}", supp_r=diff.tolist()))
+            index.append((gi, arm))
+
+    verdicts_flat = evaluate_audit_cells(
+        cells,
+        bar=cfg.bar,
+        alpha=cfg.alpha,
+        min_n=cfg.min_n,
+        n_boot=cfg.n_boot,
+        seed=cfg.seed,
+        enable_concentrate=False,
+    )
+
+    by_group: dict[int, list[tuple[str, CellVerdict]]] = {}
+    for (gi, arm), cv in zip(index, verdicts_flat, strict=True):
+        by_group.setdefault(gi, []).append((arm, cv))
+
+    out: list[SLVerdict] = []
+    for gi, ((strategy, tf), grp) in enumerate(groups):
+        n = int(len(grp))
+        baseline_avg = float(grp[BASELINE_ARM].mean())
+        reasons: list[str] = []
+
+        if n < cfg.min_n:
+            out.append(
+                SLVerdict(
+                    strategy=str(strategy),
+                    tf=str(tf),
+                    decision=DECISION_INSUFFICIENT,
+                    n=n,
+                    baseline_avg_r=baseline_avg,
+                    best_k=None,
+                    best_lift=None,
+                    ci_lo=None,
+                    ci_hi=None,
+                    adj_pvalue=None,
+                    dsr=None,
+                    pbo=None,
+                    reasons=[f"n={n} < min_n={cfg.min_n}"],
+                )
+            )
+            continue
+
+        # Candidates: arms whose paired-lift CI cleared +bar. In audit_guard's
+        # (counterintuitive) vocabulary a reliably POSITIVE slice returns
+        # "DISABLE" (ci_lo >= +bar); "ENABLE" is the reliably-NEGATIVE branch
+        # (ci_hi <= -bar). We want arms that BEAT baseline, i.e. positive lift,
+        # so we filter on "DISABLE". enable_concentrate=False guarantees a
+        # positive cell never resolves to CONCENTRATE, so DISABLE is unambiguous.
+        candidates = [(arm, cv) for arm, cv in by_group[gi] if cv.decision == "DISABLE"]
+
+        if not candidates:
+            decision = (
+                DECISION_CONFIRMED_BAD
+                if baseline_avg <= 0.0
+                else DECISION_NO_DIFFERENCE
+            )
+            reasons.append("no arm cleared the +bar CI test")
+            reasons.append(f"baseline avg_r={baseline_avg:.4f}")
+            out.append(
+                SLVerdict(
+                    strategy=str(strategy),
+                    tf=str(tf),
+                    decision=decision,
+                    n=n,
+                    baseline_avg_r=baseline_avg,
+                    best_k=None,
+                    best_lift=None,
+                    ci_lo=None,
+                    ci_hi=None,
+                    adj_pvalue=None,
+                    dsr=None,
+                    pbo=None,
+                    reasons=reasons,
+                )
+            )
+            continue
+
+        # Winning k: largest mean lift; ties break toward the LARGER k.
+        best_arm, best_cv = max(
+            candidates,
+            key=lambda pair: (float(pair[1].supp_avg or 0.0), _k_from_arm(pair[0])),
+        )
+
+        # DSR / PBO over the k-grid family for this cell.
+        diffs = {
+            arm: (grp[arm] - grp[BASELINE_ARM]).to_numpy(dtype=np.float64)
+            for arm in arms
+        }
+        trial_srs = [_sharpe(v) for v in diffs.values()]
+        dsr = deflated_sharpe_ratio(_sharpe(diffs[best_arm]), n, trial_srs=trial_srs)
+        pbo: float | None
+        if len(arms) < 2:
+            pbo = None
+            reasons.append("PBO skipped — needs >= 2 arms")
+        else:
+            matrix = np.column_stack([diffs[a] for a in arms])
+            pbo = float(cscv_pbo(matrix).pbo)
+
+        gates_ok = dsr >= _DSR_FLOOR and (pbo is None or pbo <= _PBO_CEILING)
+        decision = DECISION_SUSPECT if gates_ok else DECISION_NO_DIFFERENCE
+        if not gates_ok:
+            reasons.append(
+                f"lift cleared the bar but overfit gates failed "
+                f"(dsr={dsr:.3f} < {_DSR_FLOOR} or pbo={pbo} > {_PBO_CEILING})"
+            )
+
+        out.append(
+            SLVerdict(
+                strategy=str(strategy),
+                tf=str(tf),
+                decision=decision,
+                n=n,
+                baseline_avg_r=baseline_avg,
+                best_k=_k_from_arm(best_arm),
+                best_lift=float(best_cv.supp_avg or 0.0),
+                ci_lo=best_cv.ci_lo,
+                ci_hi=best_cv.ci_hi,
+                adj_pvalue=best_cv.adj_pvalue,
+                dsr=dsr,
+                pbo=pbo,
+                reasons=reasons,
+            )
+        )
+    return out
