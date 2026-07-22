@@ -17,7 +17,7 @@ Run: ``PYTHONPATH=. poetry run python tools/sl_horizon_audit.py``
 
 from __future__ import annotations
 
-import argparse  # noqa: F401 (reserved for a later task's CLI entry point)
+import argparse
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -34,7 +34,6 @@ if str(REPO_ROOT) not in sys.path:
 from analytics.sl_horizon import (  # noqa: E402
     BASELINE_ARM,
     FAMILY,
-    SIGNAL_KEY,  # noqa: F401 (reserved for a later task)
     SLGridConfig,
     arm_label,
     atr_by_open_time,
@@ -43,7 +42,7 @@ from analytics.sl_horizon import (  # noqa: E402
     resolve_arm,
     window_for_signal,
 )
-from analytics.store import DEFAULT_DB_PATH  # noqa: E402, F401 (later task)
+from analytics.store import DEFAULT_DB_PATH  # noqa: E402
 from analytics.store.market_data import get_ohlcv  # noqa: E402
 from analytics.strategies._registry import DETECTOR_REGISTRY  # noqa: E402
 
@@ -488,3 +487,217 @@ def live_fidelity(live_rows: pd.DataFrame, alerts: pd.DataFrame) -> FidelityRepo
         ["strategy", "tf", "key", "stored_r", "stored_outcome"]
     ]
     return check_fidelity(baseline, stored, tolerance_r=0.02, min_agreement=0.95)
+
+
+from analytics.signal.resolvers import _resolve_tp_r  # noqa: E402
+from analytics.signal_config import load_signal_config  # noqa: E402
+from analytics.sl_horizon import (  # noqa: E402
+    SLVerdict,
+    build_paired_table,
+    describe_horizon,
+    evaluate_sl_grid,
+)
+from analytics.universe import load_universe  # noqa: E402
+
+DEFAULT_CONFIG = "config/signal_watch.toml"
+DEFAULT_OUT = REPO_ROOT / "docs" / "audits" / "2026-07-21-st9-sl-horizon.md"
+MAJORS = ("BTCUSDT", "ETHUSDT", "SOLUSDT")
+
+
+def build_tp_r_lookup(config_path: str) -> TpRLookup:
+    """Pin tp_r per (strategy, symbol, tf, direction) from a live config.
+
+    tp_r is PINNED, never swept — the audit has exactly one free axis (k).
+    """
+    cfg = load_signal_config(config_path)
+
+    def lookup(strategy: str, symbol: str, tf: str, direction: str) -> float:
+        return _resolve_tp_r(
+            cfg.strategy_params, strategy, symbol, tf, cfg.tp_r, direction
+        )
+
+    return lookup
+
+
+def _fmt(value: float | None, digits: int = 3) -> str:
+    return "—" if value is None or not np.isfinite(value) else f"{value:.{digits}f}"
+
+
+def render_report(
+    *,
+    horizon: pd.DataFrame,
+    verdicts_live: list[SLVerdict],
+    verdicts_backtest: list[SLVerdict],
+    fidelity_backtest: FidelityReport,
+    fidelity_live: FidelityReport,
+    cfg: SLGridConfig,
+) -> str:
+    """Render the markdown audit report (markdownlint-conformant)."""
+    lines: list[str] = [
+        "# ST9 / H11 — SL-horizon audit",
+        "",
+        "Read-only. Live `signal_alert_outcomes` GATES the verdict;",
+        "`backtest_trades` corroborates. One Holm family per substrate.",
+        "",
+        f"Grid (a-priori, never tuned): `k in {list(cfg.multipliers)}` x ATR14, "
+        f"baseline `{cfg.baseline_pct:.0%}` flat. `tp_r` pinned, never swept.",
+        "",
+        "## Fidelity gate",
+        "",
+        "| Substrate | Passed | Matched | Agreement | Worst avg_r delta |",
+        "| --- | --- | --- | --- | --- |",
+        f"| backtest | {fidelity_backtest.passed} | {fidelity_backtest.n_matched} | "
+        f"{_fmt(fidelity_backtest.agreement)} | {_fmt(fidelity_backtest.worst_avg_r_delta)} |",
+        f"| live | {fidelity_live.passed} | {fidelity_live.n_matched} | "
+        f"{_fmt(fidelity_live.agreement)} | {_fmt(fidelity_live.worst_avg_r_delta)} |",
+        "",
+    ]
+    for report, name in ((fidelity_backtest, "backtest"), (fidelity_live, "live")):
+        for reason in report.reasons:
+            lines.append(f"- **{name} fidelity:** {reason}")
+    if fidelity_backtest.reasons or fidelity_live.reasons:
+        lines.append("")
+
+    lines += [
+        "## Descriptive horizon (baseline arm)",
+        "",
+        "| Strategy | TF | n | avg_r | median bars | expiry rate | SL % | SL in ATR |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for _, row in horizon.iterrows():
+        lines.append(
+            f"| {row['strategy']} | {row['tf']} | {int(row['n'])} | "
+            f"{_fmt(row['avg_r'])} | {_fmt(row['median_bars'], 1)} | "
+            f"{_fmt(row['expiry_rate'])} | {_fmt(row['median_sl_pct'], 4)} | "
+            f"{_fmt(row['median_sl_atr'], 2)} |"
+        )
+    lines.append("")
+
+    for verdicts, name in (
+        (verdicts_live, "LIVE (gate)"),
+        (verdicts_backtest, "Backtest"),
+    ):
+        lines += [
+            f"## Verdicts — {name}",
+            "",
+            "| Strategy | TF | Decision | n | baseline avg_r | best k | lift | "
+            "CI lo | CI hi | adj p | DSR | PBO |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        ]
+        for v in verdicts:
+            lines.append(
+                f"| {v.strategy} | {v.tf} | **{v.decision}** | {v.n} | "
+                f"{_fmt(v.baseline_avg_r)} | {_fmt(v.best_k, 1)} | {_fmt(v.best_lift)} | "
+                f"{_fmt(v.ci_lo)} | {_fmt(v.ci_hi)} | {_fmt(v.adj_pvalue)} | "
+                f"{_fmt(v.dsr)} | {_fmt(v.pbo)} |"
+            )
+        lines.append("")
+
+    cost = cfg.round_trip_cost_pct
+    lines += [
+        "## Cost context",
+        "",
+        f"Round-trip cost is `{cost:.4%}` of notional "
+        f"(`2 x fee {cfg.fee_pct:.4f}` + `2 x slippage {cfg.slippage_bps} bps`).",
+        "In R terms this scales inversely with stop width, so a tight stop is",
+        "charged more R for the same trade. Read every lift against the",
+        "`SL in ATR` column above before calling it an edge.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point. Read-only; writes only the markdown report."""
+    parser = argparse.ArgumentParser(description="ST9/H11 SL-horizon audit (read-only)")
+    parser.add_argument("--db", default=str(DEFAULT_DB_PATH))
+    parser.add_argument("--config", default=DEFAULT_CONFIG)
+    parser.add_argument("--out", default=str(DEFAULT_OUT))
+    parser.add_argument(
+        "--timeframes",
+        nargs="+",
+        default=["1h", "4h", "1d"],
+        help="15m is majors-only (no universe OHLCV at 15m).",
+    )
+    parser.add_argument("--min-n", type=int, default=30)
+    parser.add_argument(
+        "--majors-only",
+        action="store_true",
+        help="Restrict to BTC/ETH/SOL for a like-for-like cross-TF read.",
+    )
+    args = parser.parse_args(argv)
+
+    cfg = SLGridConfig(min_n=args.min_n)
+    arms = [arm_label(k) for k in cfg.multipliers]
+    conn = duckdb.connect(args.db, read_only=True)
+    try:
+        symbols = list(MAJORS) if args.majors_only else load_universe()
+        tp_r_for = build_tp_r_lookup(args.config)
+
+        ohlcv_by_key = {
+            (str(sym), str(tf)): get_ohlcv(conn, str(sym), str(tf), 0, 2**62)
+            for tf in args.timeframes
+            for sym in symbols
+        }
+
+        # --- backtest leg (corroboration) ---
+        signals = load_backtest_signals(
+            conn, symbols=symbols, timeframes=list(args.timeframes)
+        )
+        bt_rows = resolve_all_arms(
+            signals, ohlcv_by_key, cfg=cfg, convention="engine", tp_r_for=tp_r_for
+        )
+        fid_bt = backtest_fidelity(
+            conn, signals, ohlcv_by_key, cfg=cfg, tp_r_for=tp_r_for
+        )
+
+        # --- live leg (the GATE) ---
+        alerts = load_live_signals(conn)
+        live_ohlcv = (
+            {
+                (str(sym), str(tf)): get_ohlcv(conn, str(sym), str(tf), 0, 2**62)
+                for tf in sorted({str(t) for t in alerts["tf"].unique()})
+                for sym in sorted({str(s) for s in alerts["symbol"].unique()})
+            }
+            if not alerts.empty
+            else {}
+        )
+        live_rows = resolve_live_arms(alerts, live_ohlcv, cfg=cfg, tp_r_for=tp_r_for)
+        fid_live = live_fidelity(live_rows, alerts)
+    finally:
+        conn.close()
+
+    bt_verdicts = evaluate_sl_grid(
+        build_paired_table(bt_rows, arms=[BASELINE_ARM, *arms]), arms=arms, cfg=cfg
+    )
+    live_verdicts = evaluate_sl_grid(
+        build_paired_table(live_rows, arms=[BASELINE_ARM, *arms]), arms=arms, cfg=cfg
+    )
+
+    report = render_report(
+        horizon=describe_horizon(bt_rows, arm=BASELINE_ARM),
+        verdicts_live=live_verdicts,
+        verdicts_backtest=bt_verdicts,
+        fidelity_backtest=fid_bt,
+        fidelity_live=fid_live,
+        cfg=cfg,
+    )
+    Path(args.out).write_text(report, encoding="utf-8")
+    print(report)
+
+    # The fidelity gate is an ACCEPTANCE condition, not a warning. A non-zero
+    # exit makes a drifting harness impossible to ignore in CI or a make run.
+    if not (fid_bt.passed and fid_live.passed):
+        print(
+            "\nFIDELITY GATE FAILED — verdicts above are NOT trustworthy.\n"
+            "Check the entry convention first (engine enters at opens[sig_idx+1] "
+            "and scans inclusive; live uses the stored entry with a window "
+            "strictly after the signal candle).",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

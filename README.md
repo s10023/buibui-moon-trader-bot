@@ -509,6 +509,13 @@ poetry run python buibui.py backtest --symbols BTCUSDT ETHUSDT --timeframes 1h 4
 | `seasonality` | Average return by day-of-week, hour, and week-of-month | ★★☆☆☆ |
 | `ema` | EMA pullback continuation (Variant A): trend (slow EMA + slope) + regime gate, pullback wick into fast EMA, body-fraction trigger | ★★★☆☆ |
 
+Six candle-pattern strategies above (`engulfing`, `pin_bar`, `inside_bar`,
+`hammer_hanging_man`, `doji`, `morning_evening_star`) hard-code a flat 2% stop
+(`--sl-pct` default) at every timeframe. `make buibui-sl-horizon-audit`
+(`tools/sl_horizon_audit.py`) is a read-only audit that re-resolves those same
+signals under an ATR-scaled counterfactual stop grid — verdict:
+`docs/audits/2026-07-21-st9-sl-horizon.md`.
+
 **Single-combo options:**
 
 - `--symbol BTCUSDT` — primary symbol
