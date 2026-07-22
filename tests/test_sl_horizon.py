@@ -9,11 +9,14 @@ import pytest
 from analytics.sl_horizon import (
     BASELINE_ARM,
     DEFAULT_MULTIPLIERS,
+    ArmResult,
     SLGridConfig,
     arm_label,
     atr_by_open_time,
     baseline_levels,
     counterfactual_levels,
+    resolve_arm,
+    window_for_signal,
 )
 
 
@@ -195,3 +198,176 @@ def test_atr_by_open_time_handles_empty_frame() -> None:
         columns=["open_time", "open", "high", "low", "close", "volume"]
     )
     assert atr_by_open_time(empty, [1_000]) == {1_000: None}
+
+
+def test_window_engine_convention_starts_at_the_bar_after_signal() -> None:
+    df = _ramp_ohlcv(n=20)
+    entry, highs, lows, closes = window_for_signal(
+        df, sig_idx=5, convention="engine", max_hold_bars=4
+    )
+    # Engine enters at the OPEN of sig_idx + 1 and scans from that bar inclusive.
+    assert entry == pytest.approx(float(df["open"].iloc[6]))
+    assert len(highs) == 4
+    assert highs[0] == pytest.approx(float(df["high"].iloc[6]))
+
+
+def test_window_live_convention_starts_strictly_after_signal() -> None:
+    df = _ramp_ohlcv(n=20)
+    entry, highs, lows, closes = window_for_signal(
+        df, sig_idx=5, convention="live", max_hold_bars=4
+    )
+    # Live uses the signal candle's close as entry, window strictly after it.
+    assert entry == pytest.approx(float(df["close"].iloc[5]))
+    assert len(highs) == 4
+    assert highs[0] == pytest.approx(float(df["high"].iloc[6]))
+
+
+def test_window_returns_empty_when_no_forward_bars() -> None:
+    df = _ramp_ohlcv(n=8)
+    _, highs, _, _ = window_for_signal(
+        df, sig_idx=7, convention="engine", max_hold_bars=4
+    )
+    assert len(highs) == 0
+
+
+def test_window_rejects_unknown_convention() -> None:
+    df = _ramp_ohlcv(n=20)
+    with pytest.raises(ValueError, match="convention"):
+        window_for_signal(df, sig_idx=5, convention="nope", max_hold_bars=4)
+
+
+def _flat_window(
+    n: int, price: float = 100.0
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """A window that never moves — guarantees an expiry, not a win or loss."""
+    arr = np.full(n, price, dtype=np.float64)
+    return arr.copy(), arr.copy(), arr.copy()
+
+
+def test_resolve_arm_deducts_cost_from_realized_r() -> None:
+    highs, lows, closes = _flat_window(10)
+    res = resolve_arm(
+        highs,
+        lows,
+        closes,
+        direction="long",
+        entry=100.0,
+        sl_price=98.0,
+        tp_r=3.0,
+        max_hold_bars=10,
+        round_trip_cost_pct=0.0014,
+        funding_r=0.0,
+    )
+    assert isinstance(res, ArmResult)
+    # risk = 2.0; cost = 0.0014 * 100 / 2.0 = 0.07R
+    assert res.cost_r == pytest.approx(0.07)
+    assert res.net_r == pytest.approx(res.realized_r - 0.07)
+    assert res.net_r < res.realized_r
+
+
+def test_resolve_arm_zero_cost_leaves_realized_r_untouched() -> None:
+    highs, lows, closes = _flat_window(10)
+    res = resolve_arm(
+        highs,
+        lows,
+        closes,
+        direction="long",
+        entry=100.0,
+        sl_price=98.0,
+        tp_r=3.0,
+        max_hold_bars=10,
+        round_trip_cost_pct=0.0,
+        funding_r=0.0,
+    )
+    assert res is not None
+    assert res.cost_r == pytest.approx(0.0)
+    assert res.net_r == pytest.approx(res.realized_r)
+
+
+def test_resolve_arm_cost_in_r_grows_as_the_stop_tightens() -> None:
+    highs, lows, closes = _flat_window(10)
+    wide = resolve_arm(
+        highs,
+        lows,
+        closes,
+        direction="long",
+        entry=100.0,
+        sl_price=98.0,
+        tp_r=3.0,
+        max_hold_bars=10,
+        round_trip_cost_pct=0.0014,
+        funding_r=0.0,
+    )
+    tight = resolve_arm(
+        highs,
+        lows,
+        closes,
+        direction="long",
+        entry=100.0,
+        sl_price=99.5,
+        tp_r=3.0,
+        max_hold_bars=10,
+        round_trip_cost_pct=0.0014,
+        funding_r=0.0,
+    )
+    assert wide is not None
+    assert tight is not None
+    # Same cash cost, four times the risk denominator -> four times the R cost.
+    assert tight.cost_r > wide.cost_r
+    assert tight.cost_r == pytest.approx(4.0 * wide.cost_r)
+
+
+def test_resolve_arm_subtracts_funding() -> None:
+    highs, lows, closes = _flat_window(10)
+    res = resolve_arm(
+        highs,
+        lows,
+        closes,
+        direction="long",
+        entry=100.0,
+        sl_price=98.0,
+        tp_r=3.0,
+        max_hold_bars=10,
+        round_trip_cost_pct=0.0,
+        funding_r=0.03,
+    )
+    assert res is not None
+    assert res.net_r == pytest.approx(res.realized_r - 0.03)
+
+
+def test_resolve_arm_returns_none_on_empty_window() -> None:
+    empty = np.array([], dtype=np.float64)
+    assert (
+        resolve_arm(
+            empty,
+            empty,
+            empty,
+            direction="long",
+            entry=100.0,
+            sl_price=98.0,
+            tp_r=3.0,
+            max_hold_bars=10,
+            round_trip_cost_pct=0.0,
+            funding_r=0.0,
+        )
+        is None
+    )
+
+
+def test_resolve_arm_returns_none_on_zero_risk() -> None:
+    highs, lows, closes = _flat_window(10)
+    assert (
+        resolve_arm(
+            highs,
+            lows,
+            closes,
+            direction="long",
+            entry=100.0,
+            sl_price=100.0,
+            tp_r=3.0,
+            max_hold_bars=10,
+            round_trip_cost_pct=0.0,
+            funding_r=0.0,
+        )
+        is None
+    )

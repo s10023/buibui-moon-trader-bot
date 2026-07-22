@@ -16,11 +16,15 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from typing import Literal
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 from analytics.backtest.engine import _compute_atr14
+from analytics.exits.policies import fixed as fixed_policy
+from analytics.exits.replay import replay_exits
 from analytics.signal.outcome_backfill import DEFAULT_MAX_HOLD_BARS
 
 # A-priori and fixed. Brackets the current effective ratio at 1h (~3.6), 4h
@@ -135,3 +139,121 @@ def atr_by_open_time(
         idx = position.get(t)
         out[t] = None if idx is None else _compute_atr14(highs, lows, closes, idx)
     return out
+
+
+EntryConvention = Literal["engine", "live"]
+
+#: Entry/window conventions. These differ between substrates and the difference
+#: is load-bearing — see the fidelity checks in `tools/sl_horizon_audit.py`.
+ENTRY_CONVENTIONS: tuple[str, ...] = ("engine", "live")
+
+
+def window_for_signal(
+    ohlcv: pd.DataFrame,
+    *,
+    sig_idx: int,
+    convention: str,
+    max_hold_bars: int,
+) -> tuple[
+    float,
+    npt.NDArray[np.float64],
+    npt.NDArray[np.float64],
+    npt.NDArray[np.float64],
+]:
+    """Return ``(entry_price, highs, lows, closes)`` for one signal's forward window.
+
+    ``convention``:
+
+    * ``"engine"`` — mirrors ``analytics/backtest/engine.py``: entry is the OPEN
+      of bar ``sig_idx + 1`` and the scan window starts at that same bar, so a
+      trade can stop out on its own entry bar.
+    * ``"live"`` — mirrors ``analytics/signal/outcome_backfill.py``: entry is the
+      CLOSE of the signal bar and the window is the bars strictly after it.
+
+    The window is truncated to ``max_hold_bars``; expiry then falls out of window
+    exhaustion, so no explicit time-stop policy is needed.
+    """
+    if convention not in ENTRY_CONVENTIONS:
+        raise ValueError(
+            f"unknown convention {convention!r}; expected one of {ENTRY_CONVENTIONS}"
+        )
+
+    highs = ohlcv["high"].to_numpy(dtype=np.float64)
+    lows = ohlcv["low"].to_numpy(dtype=np.float64)
+    closes = ohlcv["close"].to_numpy(dtype=np.float64)
+    opens = ohlcv["open"].to_numpy(dtype=np.float64)
+
+    start = sig_idx + 1
+    if convention == "engine":
+        entry = float(opens[start]) if start < len(opens) else float("nan")
+    else:
+        entry = float(closes[sig_idx])
+
+    stop = start + max_hold_bars
+    return entry, highs[start:stop], lows[start:stop], closes[start:stop]
+
+
+@dataclass(frozen=True)
+class ArmResult:
+    """One signal resolved under one arm, net of costs."""
+
+    outcome: str
+    realized_r: float
+    exit_bar: int
+    sl_dist_pct: float
+    cost_r: float
+    funding_r: float
+    net_r: float
+
+
+def resolve_arm(
+    highs: npt.NDArray[np.float64],
+    lows: npt.NDArray[np.float64],
+    closes: npt.NDArray[np.float64],
+    *,
+    direction: str,
+    entry: float,
+    sl_price: float,
+    tp_r: float,
+    max_hold_bars: int,
+    round_trip_cost_pct: float,
+    funding_r: float,
+) -> ArmResult | None:
+    """Resolve one signal under one arm and net out costs.
+
+    Returns ``None`` when the signal is unresolvable (empty forward window or
+    zero risk) — the caller drops it from **every** arm so the paired comparison
+    stays row-aligned.
+
+    ``net_r = realized_r − cost_r − funding_r``, matching the P0b honest-cost
+    convention in ``analytics/signal/outcome_backfill.py``. ``cost_r`` converts a
+    cash cost into R by dividing by the risk, so a tighter stop is charged more
+    R for the same trade — which is exactly the effect this audit must not hide.
+    """
+    risk = abs(entry - sl_price)
+    if risk <= 0.0 or len(highs) == 0 or not np.isfinite(entry):
+        return None
+
+    try:
+        outcome = replay_exits(
+            highs,
+            lows,
+            closes,
+            direction=direction,
+            entry=entry,
+            sl_price=sl_price,
+            policy=fixed_policy(tp_r=tp_r, max_hold_bars=max_hold_bars),
+        )
+    except ValueError:
+        return None
+
+    cost_r = round_trip_cost_pct * entry / risk
+    return ArmResult(
+        outcome=outcome.outcome,
+        realized_r=outcome.realized_r,
+        exit_bar=outcome.exit_bar,
+        sl_dist_pct=risk / entry,
+        cost_r=cost_r,
+        funding_r=funding_r,
+        net_r=outcome.realized_r - cost_r - funding_r,
+    )
