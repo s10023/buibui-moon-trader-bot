@@ -9,7 +9,7 @@ Detailed API reference for `analytics/`. Load this when working on any analytics
 - `upsert_backtest_run` / `upsert_backtest_trades`
 - `upsert_confidence_ratings(conn, config_name, ratings, win_rates, day_filter=None, direction="combined", dsr_map=None)` — PK `(config_name, strategy, tf, direction)`; direction = `'combined'` | `'long'` | `'short'`; `dsr_map={strategy: {tf: dsr}}` writes the additive `dsr REAL` column (NULL when absent)
 - `get_confidence_ratings(conn, config_name, direction="combined")` / `get_directional_confidence_ratings(conn, config_name)` → `{strategy: {tf: {"long": stars, "short": stars}}}`
-- `get_confidence_rating_rows(conn, config_name)` → `{(strategy, tf, direction): {stars, avg_r, win_rate, dsr}}` — full quality rows for one config; consumed by `card/state.py` `_fires_block` (F2)
+- `get_confidence_rating_rows(conn, config_name)` → `{(strategy, tf, direction): {stars, avg_r, win_rate, dsr}}` — full quality rows for one config; consumed by `card/state.py` `_fires_block` (F2), which since card-v3 pairs it with `analytics/stats/live_outcomes.py::compute_live_outcomes` on the same `(strategy, tf, direction)` key — backtest star and live record are two independent channels and can disagree sharply
 - `backtest_runs` columns: `adr_suppress_threshold REAL NULL`, `recovery_factor DOUBLE NULL`, `volume_suppress BOOLEAN NULL`
 - `_backtest_run_id` appends `|adr:X` / `|vol_suppress` for unique run_id per param combo
 - **D10 same-TF**: `backtest_combos` table; `upsert_combo_run` → stable `combo_id` (`symbol|tf|A+B|wN|day_filter`, no timestamp → `INSERT OR REPLACE`); `list_combo_runs(conn)`; `get_combo_lookup(conn)` → `dict[(symbol, tf, frozenset({a,b})), row_dict]` best avg_r per pair
