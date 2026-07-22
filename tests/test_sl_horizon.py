@@ -9,12 +9,15 @@ import pytest
 from analytics.sl_horizon import (
     BASELINE_ARM,
     DEFAULT_MULTIPLIERS,
+    SIGNAL_KEY,
     ArmResult,
     SLGridConfig,
     arm_label,
     atr_by_open_time,
     baseline_levels,
+    build_paired_table,
     counterfactual_levels,
+    describe_horizon,
     resolve_arm,
     window_for_signal,
 )
@@ -371,3 +374,124 @@ def test_resolve_arm_returns_none_on_zero_risk() -> None:
         )
         is None
     )
+
+
+def _arm_rows() -> pd.DataFrame:
+    """Two signals × two arms, plus one signal missing an arm."""
+    return pd.DataFrame(
+        [
+            # signal A — complete
+            {
+                "symbol": "BTCUSDT",
+                "tf": "1h",
+                "strategy": "pin_bar",
+                "direction": "long",
+                "open_time": 1,
+                "arm": "flat_2pct",
+                "net_r": -1.0,
+                "outcome": "loss",
+                "exit_bar": 3,
+                "sl_dist_pct": 0.02,
+            },
+            {
+                "symbol": "BTCUSDT",
+                "tf": "1h",
+                "strategy": "pin_bar",
+                "direction": "long",
+                "open_time": 1,
+                "arm": "atr_1",
+                "net_r": 0.5,
+                "outcome": "expired",
+                "exit_bar": 9,
+                "sl_dist_pct": 0.01,
+            },
+            # signal B — complete
+            {
+                "symbol": "BTCUSDT",
+                "tf": "1h",
+                "strategy": "pin_bar",
+                "direction": "long",
+                "open_time": 2,
+                "arm": "flat_2pct",
+                "net_r": 3.0,
+                "outcome": "win",
+                "exit_bar": 5,
+                "sl_dist_pct": 0.02,
+            },
+            {
+                "symbol": "BTCUSDT",
+                "tf": "1h",
+                "strategy": "pin_bar",
+                "direction": "long",
+                "open_time": 2,
+                "arm": "atr_1",
+                "net_r": 1.0,
+                "outcome": "win",
+                "exit_bar": 2,
+                "sl_dist_pct": 0.01,
+            },
+            # signal C — MISSING the atr_1 arm, must be dropped entirely
+            {
+                "symbol": "BTCUSDT",
+                "tf": "1h",
+                "strategy": "pin_bar",
+                "direction": "long",
+                "open_time": 3,
+                "arm": "flat_2pct",
+                "net_r": -1.0,
+                "outcome": "loss",
+                "exit_bar": 1,
+                "sl_dist_pct": 0.02,
+            },
+        ]
+    )
+
+
+def test_signal_key_is_the_documented_tuple() -> None:
+    assert SIGNAL_KEY == ["symbol", "tf", "strategy", "direction", "open_time"]
+
+
+def test_build_paired_table_pivots_one_row_per_signal() -> None:
+    wide = build_paired_table(_arm_rows(), arms=["flat_2pct", "atr_1"])
+    assert len(wide) == 2
+    assert set(wide["open_time"]) == {1, 2}
+
+
+def test_build_paired_table_drops_signals_missing_any_arm() -> None:
+    wide = build_paired_table(_arm_rows(), arms=["flat_2pct", "atr_1"])
+    # Signal C resolved under the baseline only; dropping it (rather than
+    # zero-filling) is what keeps the paired difference honest.
+    assert 3 not in set(wide["open_time"])
+
+
+def test_build_paired_table_preserves_net_r_per_arm() -> None:
+    wide = build_paired_table(_arm_rows(), arms=["flat_2pct", "atr_1"])
+    row = wide[wide["open_time"] == 1].iloc[0]
+    assert row["flat_2pct"] == pytest.approx(-1.0)
+    assert row["atr_1"] == pytest.approx(0.5)
+
+
+def test_build_paired_table_empty_input_returns_empty_frame() -> None:
+    empty = pd.DataFrame(
+        columns=[*SIGNAL_KEY, "arm", "net_r", "outcome", "exit_bar", "sl_dist_pct"]
+    )
+    assert build_paired_table(empty, arms=["flat_2pct"]).empty
+
+
+def test_describe_horizon_reports_expiry_rate_and_median_bars() -> None:
+    got = describe_horizon(_arm_rows(), arm="flat_2pct")
+    row = got.iloc[0]
+    assert row["strategy"] == "pin_bar"
+    assert row["tf"] == "1h"
+    assert row["n"] == 3
+    # one win, two losses, no expiries in the baseline arm
+    assert row["expiry_rate"] == pytest.approx(0.0)
+    assert row["median_bars"] == pytest.approx(3.0)
+
+
+def test_describe_horizon_computes_sl_in_atr_units() -> None:
+    rows = _arm_rows()
+    rows["atr_pct"] = 0.005  # ATR is 0.5% of price
+    got = describe_horizon(rows, arm="flat_2pct")
+    # 2% stop / 0.5% ATR = 4 ATR-widths
+    assert got.iloc[0]["median_sl_atr"] == pytest.approx(4.0)

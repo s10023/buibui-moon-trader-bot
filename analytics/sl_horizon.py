@@ -14,7 +14,7 @@ Pure: no DB, no IO, no network. The DB front door is
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -257,3 +257,72 @@ def resolve_arm(
         funding_r=funding_r,
         net_r=outcome.realized_r - cost_r - funding_r,
     )
+
+
+#: Identity of one signal. Every arm resolves the same set of these.
+SIGNAL_KEY: list[str] = ["symbol", "tf", "strategy", "direction", "open_time"]
+
+
+def build_paired_table(arm_rows: pd.DataFrame, *, arms: Sequence[str]) -> pd.DataFrame:
+    """Pivot long arm rows to one row per signal with one ``net_r`` column per arm.
+
+    A signal that failed to resolve under **any** arm is dropped from **all**
+    arms. Zero-filling instead would silently credit the missing arm with a
+    flat outcome and bias the paired difference.
+    """
+    if arm_rows.empty:
+        return pd.DataFrame(columns=[*SIGNAL_KEY, *arms])
+
+    wide = arm_rows.pivot_table(
+        index=SIGNAL_KEY, columns="arm", values="net_r", aggfunc="first"
+    )
+    missing = [a for a in arms if a not in wide.columns]
+    for arm in missing:
+        wide[arm] = np.nan
+    wide = wide[list(arms)].dropna(how="any")
+    return wide.reset_index()
+
+
+def describe_horizon(
+    arm_rows: pd.DataFrame, *, arm: str = BASELINE_ARM
+) -> pd.DataFrame:
+    """Per (strategy, tf) descriptive horizon table for one arm.
+
+    Columns: ``strategy``, ``tf``, ``n``, ``avg_r``, ``median_bars``,
+    ``expiry_rate``, ``median_sl_pct``, and ``median_sl_atr`` when the caller
+    supplied an ``atr_pct`` column (ATR14 as a fraction of entry price).
+    """
+    subset = arm_rows[arm_rows["arm"] == arm]
+    if subset.empty:
+        return pd.DataFrame(
+            columns=[
+                "strategy",
+                "tf",
+                "n",
+                "avg_r",
+                "median_bars",
+                "expiry_rate",
+                "median_sl_pct",
+                "median_sl_atr",
+            ]
+        )
+
+    records: list[dict[str, object]] = []
+    for (strategy, tf), grp in subset.groupby(["strategy", "tf"], sort=True):
+        sl_atr = float("nan")
+        if "atr_pct" in grp.columns:
+            ratio = grp["sl_dist_pct"] / grp["atr_pct"]
+            sl_atr = float(ratio.median())
+        records.append(
+            {
+                "strategy": strategy,
+                "tf": tf,
+                "n": int(len(grp)),
+                "avg_r": float(grp["net_r"].mean()),
+                "median_bars": float(grp["exit_bar"].median()),
+                "expiry_rate": float((grp["outcome"] == "expired").mean()),
+                "median_sl_pct": float(grp["sl_dist_pct"].median()),
+                "median_sl_atr": sl_atr,
+            }
+        )
+    return pd.DataFrame(records)
