@@ -953,7 +953,10 @@ git commit -m "feat(sl-horizon): paired arm table + descriptive horizon rollup"
   - `analytics.audit_guard.AuditCell(label: str, supp_r: Sequence[float], kept_r: Sequence[float] = [])`
   - `analytics.audit_guard.evaluate_audit_cells(cells, *, bar, alpha, min_n, haircut_method, n_boot, boot_method, seed, enable_concentrate) -> list[CellVerdict]`
     — `CellVerdict` has `decision`, `n_supp`, `supp_avg`, `ci_lo`, `ci_hi`, `adj_pvalue`,
-    `n_tests`, `reasons`. `decision == "ENABLE"` means the CI cleared `+bar`.
+    `n_tests`, `reasons`. **audit_guard's labels are counterintuitive:** a reliably
+    POSITIVE slice (`ci_lo >= +bar`) returns `"DISABLE"`; `"ENABLE"` is the reliably
+    NEGATIVE branch (`ci_hi <= -bar`). This audit feeds it the paired lift and wants
+    arms that BEAT baseline, so a winning arm is `"DISABLE"`, not `"ENABLE"`.
   - `analytics.research_guards.deflated_sharpe_ratio(sr, n_obs, *, trial_srs=None, ...) -> float`
   - `analytics.research_guards.cscv_pbo(perf_matrix, n_splits=14, metric=None) -> PBOResult`
     (`PBOResult` exposes `.pbo`)
@@ -964,7 +967,8 @@ git commit -m "feat(sl-horizon): paired arm table + descriptive horizon rollup"
 
 - One `evaluate_audit_cells` call over **every** `(strategy × TF × k)` cell in the run,
   so the Holm family is shared across the whole substrate. Never call it per cell.
-- Candidate `k` = those whose `CellVerdict.decision == "ENABLE"` (CI cleared `+bar`).
+- Candidate `k` = those whose `CellVerdict.decision == "DISABLE"` (reliably-positive
+  paired lift, `ci_lo >= +bar`; see the counterintuitive-labels note above).
 - Winning `k` = largest `supp_avg` among candidates; **ties break toward the larger `k`**.
 - `SUSPECT` also requires `dsr >= 0.95` and `pbo <= 0.5` over the k-grid.
 - `INSUFFICIENT` is checked first, on `n < min_n`.
@@ -1171,9 +1175,14 @@ def evaluate_sl_grid(
             )
             continue
 
-        # Candidates: arms whose CI cleared +bar (audit_guard's ENABLE branch).
+        # Candidates: arms whose paired-lift CI cleared +bar. In audit_guard's
+        # (counterintuitive) vocabulary a reliably POSITIVE slice returns
+        # "DISABLE" (ci_lo >= +bar); "ENABLE" is the reliably-NEGATIVE branch
+        # (ci_hi <= -bar). We want arms that BEAT baseline, i.e. positive lift,
+        # so we filter on "DISABLE". enable_concentrate=False guarantees a
+        # positive cell never resolves to CONCENTRATE, so DISABLE is unambiguous.
         candidates = [
-            (arm, cv) for arm, cv in by_group[gi] if cv.decision == "ENABLE"
+            (arm, cv) for arm, cv in by_group[gi] if cv.decision == "DISABLE"
         ]
 
         if not candidates:
