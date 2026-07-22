@@ -26,7 +26,18 @@ def _state(hint: str | None = None) -> MarketState:
 
 class TestPrompt:
     def test_version_constant(self) -> None:
-        assert PROMPT_VERSION == "card-v2"
+        assert PROMPT_VERSION == "card-v3"
+
+    def test_rubric_live_record_beats_backtest_star(self) -> None:
+        """card-v3: the live ledger overrides the backtest star on conflict.
+
+        Without this the model sees live_avg_r in the state JSON with no
+        instruction and improvises a weighting.
+        """
+        assert "live_n" in RUBRIC
+        assert "live_avg_r" in RUBRIC
+        # the conflict rule must be explicit, not left to inference
+        assert "live_avg_r is negative" in RUBRIC
 
     def test_rubric_external_directions(self) -> None:
         # card-v2: external clusters are mapped liquidity with trust guards
