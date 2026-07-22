@@ -145,8 +145,11 @@ identifies why — and it is a statistical-power limitation, not a harness defec
 | 1d | 27 | 0.926 | 0.189 |
 
 At adequate n the harness reproduces the production engine to cost scale: `doji`
-1h matches stored `pnl_r` to 0.036R gross with 99.6% outcome agreement over 539
-trades. The harness is sound.
+1h matches stored `pnl_r` to 0.036R with 99.6% outcome agreement over 539 trades.
+(That 0.036R is `harness net_r + cost_r` vs stored `pnl_r`; the harness fidelity
+replay omits funding while stored `pnl_r` includes it, so part of the residual is
+funding, not harness error — the true reproduction is tighter still.) The harness
+is sound.
 
 The 1d gate fails because the stored `backtest_trades` set covers only 3 symbols,
 leaving `doji` 1d with n=27. There, 2 same-direction resolution flips (harness

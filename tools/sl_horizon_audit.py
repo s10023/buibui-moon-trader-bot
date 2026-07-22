@@ -234,10 +234,11 @@ def check_fidelity(
 ) -> FidelityReport:
     """Compare a replayed baseline arm against the stored substrate.
 
-    Both conditions must hold, per (strategy x tf):
-    ``|avg_r_replayed - avg_r_stored| <= tolerance_r`` AND matched-trade outcome
-    agreement ``>= min_agreement``. The mean alone would hide offsetting
-    per-trade errors; the agreement rate alone would hide a uniform shift.
+    Both conditions must hold: the avg_r delta is checked **per (strategy, tf)**
+    (``|avg_r_replayed - avg_r_stored| <= tolerance_r`` for every cell) while the
+    outcome agreement is checked **globally** over all matched trades
+    (``>= min_agreement``). The mean alone would hide offsetting per-trade errors;
+    the agreement rate alone would hide a uniform shift.
     """
     merged = replayed.merge(stored, on=["strategy", "tf", "key"], how="inner")
     if merged.empty:
