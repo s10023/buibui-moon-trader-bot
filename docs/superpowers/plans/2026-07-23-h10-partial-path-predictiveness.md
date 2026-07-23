@@ -469,6 +469,39 @@ def test_expanding_mean_is_causal() -> None:
             assert before[w] == pytest.approx(after[w]), f"week {i} moved"
 
 
+def test_baseline_excludes_the_week_it_prices() -> None:
+    """SELF-INCLUSION GUARD — the case the perturbation test structurally cannot see.
+
+    `test_expanding_mean_is_causal` above catches whole-history look-ahead (a
+    global mean leaking the future into the past), but it CANNOT catch a week
+    pricing against a baseline that includes itself: that contaminates only the
+    week's own value, identically in the base and perturbed runs, so the
+    comparison cancels it out. Verified by mutation — moving the baseline
+    advance above the emit block leaves that test green.
+
+    52 flat prior weeks (remaining 0.0), then one extreme week (remaining 10.0).
+    The extreme week is the FIRST to clear the min_prior_obs warm-up, so its
+    baseline must be the mean of the 52 priors (0.0) and its value exactly 10.0.
+    Under self-inclusion it would be 10 - 10/53 = 9.811..., and this fails.
+    """
+    cfg = wp.PathConfig()
+
+    def _path(remaining: float) -> tuple[float, ...]:
+        path = [0.0] * WEEK_BARS
+        for j in range(23, WEEK_BARS):
+            path[j] = 1.0
+        path[WEEK_BARS - 1] = 1.0 + remaining
+        return tuple(path)
+
+    pop = [wp.SymbolWeek("A", _week(i), _path(0.0)) for i in range(52)]
+    pop.append(wp.SymbolWeek("A", _week(52), _path(10.0)))
+
+    obs = wp.build_observations(pop, 24, cfg)
+    assert len(obs) == 1
+    assert obs[0].week == _week(52)
+    assert obs[0].value == pytest.approx(10.0)
+
+
 def test_cross_section_is_averaged_not_counted() -> None:
     """25 identical symbols must give the same observation as 1 (spec §5.1)."""
     cfg = wp.PathConfig()
@@ -593,9 +626,12 @@ def build_observations(
                     mean_abs_signal=float(np.mean(magnitudes)),
                 )
             )
-        # Advance the baseline only AFTER emitting — week t must never see itself.
-        # This ordering IS the causality guarantee; moving it above the emit
-        # block silently introduces look-ahead and reddens the causality test.
+        # Advance the baseline only AFTER emitting — week t must never price
+        # against a mean that includes itself. This ordering IS the causality
+        # guarantee; test_baseline_excludes_the_week_it_prices is the guard that
+        # actually detects a move above the emit block (the broader
+        # test_expanding_mean_is_causal does NOT — self-inclusion cancels out of
+        # its base-vs-perturbed comparison).
         for _, rem, _ in entries:
             prior_sum += rem
             prior_count += 1
@@ -608,7 +644,7 @@ Run: `poetry run pytest tests/test_weekly_path.py -v`
 
 Expected: all passed (13 tests).
 
-If `test_pure_drift_does_not_read_as_skill` fails, the demean is broken — do **not** loosen the tolerance. If `test_expanding_mean_is_causal` fails, the baseline is being advanced before the emit block instead of after.
+If `test_pure_drift_does_not_read_as_skill` fails, the demean is broken — do **not** loosen the tolerance. If `test_baseline_excludes_the_week_it_prices` fails, the baseline is being advanced before the emit block instead of after.
 
 - [ ] **Step 10: Run, lint, typecheck**
 

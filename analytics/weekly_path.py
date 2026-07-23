@@ -134,9 +134,12 @@ def build_observations(
                     mean_abs_signal=float(np.mean(magnitudes)),
                 )
             )
-        # Advance the baseline only AFTER emitting — week t must never see itself.
-        # This ordering IS the causality guarantee; moving it above the emit
-        # block silently introduces look-ahead and reddens the causality test.
+        # Advance the baseline only AFTER emitting — week t must never price
+        # against a mean that includes itself. This ordering IS the causality
+        # guarantee; test_baseline_excludes_the_week_it_prices is the guard that
+        # actually detects a move above the emit block (the broader
+        # test_expanding_mean_is_causal does NOT — self-inclusion cancels out of
+        # its base-vs-perturbed comparison).
         for _, rem, _ in entries:
             prior_sum += rem
             prior_count += 1

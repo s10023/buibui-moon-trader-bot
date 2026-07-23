@@ -124,6 +124,34 @@ def test_expanding_mean_is_causal() -> None:
             assert before[w] == pytest.approx(after[w]), f"week {i} moved"
 
 
+def test_baseline_excludes_the_week_it_prices() -> None:
+    """SELF-INCLUSION GUARD — the case the perturbation test structurally cannot see.
+
+    52 flat prior weeks (remaining 0.0), then one extreme week (remaining 10.0).
+    The extreme week is the FIRST week to clear the min_prior_obs warm-up, so its
+    baseline must be the mean of the 52 priors (0.0), making its value exactly
+    10.0. If the baseline were advanced BEFORE the emit block, the week would
+    price against a mean that includes itself: 10 - 10/53 = 9.811..., and this
+    assertion fails.
+    """
+    cfg = wp.PathConfig()
+
+    def _path(remaining: float) -> tuple[float, ...]:
+        path = [0.0] * WEEK_BARS
+        for j in range(23, WEEK_BARS):
+            path[j] = 1.0
+        path[WEEK_BARS - 1] = 1.0 + remaining
+        return tuple(path)
+
+    pop = [wp.SymbolWeek("A", _week(i), _path(0.0)) for i in range(52)]
+    pop.append(wp.SymbolWeek("A", _week(52), _path(10.0)))
+
+    obs = wp.build_observations(pop, 24, cfg)
+    assert len(obs) == 1
+    assert obs[0].week == _week(52)
+    assert obs[0].value == pytest.approx(10.0)
+
+
 def test_cross_section_is_averaged_not_counted() -> None:
     """25 identical symbols must give the same observation as 1 (spec §5.1)."""
     cfg = wp.PathConfig()
