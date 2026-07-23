@@ -213,3 +213,91 @@ def test_malformed_paths_are_excluded() -> None:
     obs = wp.build_observations(good + bad, 24, cfg)
     assert obs
     assert all(o.n_symbols == 1 for o in obs), "the 167-bar symbol must not contribute"
+
+
+def _synthetic(effect: float, n_weeks: int = 400, seed: int = 7) -> list[wp.SymbolWeek]:
+    """A population whose signed, demeaned remaining return has mean ~= `effect`."""
+    rng = np.random.default_rng(seed)
+    pop: list[wp.SymbolWeek] = []
+    for i in range(n_weeks):
+        sign = 1.0 if rng.random() < 0.5 else -1.0
+        at_h = sign * 1.0
+        rest = sign * effect + rng.normal(0.0, 0.05)
+        path = [0.0] * WEEK_BARS
+        for j in range(23, WEEK_BARS):
+            path[j] = at_h
+        path[WEEK_BARS - 1] = at_h + rest
+        pop.append(wp.SymbolWeek("A", _week(i), tuple(path)))
+    return pop
+
+
+def test_positive_effect_maps_to_PREDICTIVE_not_REVERTING() -> None:
+    """THE INVERSION GUARD.
+
+    audit_guard returns DISABLE for a reliably POSITIVE mean (it was written for
+    gate auditing, where supp_r is a suppressed slice). Mapping ENABLE ->
+    PREDICTIVE would invert every verdict in this audit while still looking
+    plausible. See analytics/audit_guard.py:196-207.
+    """
+    verdicts = {
+        v.hour: v for v in wp.evaluate_hours(_synthetic(+0.60), wp.PathConfig())
+    }
+    v24 = verdicts[24]
+    assert v24.mean_v is not None and v24.mean_v > 0
+    assert v24.verdict == wp.VERDICT_PREDICTIVE
+
+
+def test_negative_effect_maps_to_REVERTING() -> None:
+    verdicts = {
+        v.hour: v for v in wp.evaluate_hours(_synthetic(-0.60), wp.PathConfig())
+    }
+    v24 = verdicts[24]
+    assert v24.mean_v is not None and v24.mean_v < 0
+    assert v24.verdict == wp.VERDICT_REVERTING
+
+
+def test_no_effect_reads_NO_EDGE_when_well_powered() -> None:
+    verdicts = {v.hour: v for v in wp.evaluate_hours(_synthetic(0.0), wp.PathConfig())}
+    assert verdicts[24].verdict == wp.VERDICT_NO_EDGE
+
+
+def test_thin_population_reads_INSUFFICIENT() -> None:
+    verdicts = {
+        v.hour: v
+        for v in wp.evaluate_hours(_synthetic(+0.60, n_weeks=90), wp.PathConfig())
+    }
+    # 90 weeks minus the 52-observation baseline warm-up leaves < min_n.
+    assert verdicts[24].verdict == wp.VERDICT_INSUFFICIENT
+
+
+def test_time_split_disagreement_demotes_to_INSUFFICIENT() -> None:
+    """A headline that CLEARS the bar is still demoted when a half disagrees.
+
+    Magnitudes are deliberately unequal. Equal-and-opposite halves would cancel
+    to a ~0 headline, which reads NO-EDGE on its own merits — the demotion
+    branch would never be reached and the test would assert the right answer
+    for the wrong reason. Here the pooled mean clears +bar (so the verdict would
+    otherwise be PREDICTIVE) while the late half carries the opposite sign, so
+    only the time-split condition can produce INSUFFICIENT.
+    """
+    first = _synthetic(+2.0, n_weeks=250, seed=3)
+    second_raw = _synthetic(-0.3, n_weeks=250, seed=4)
+    second = [
+        wp.SymbolWeek(sw.symbol, _week(250 + i), sw.norm_path)
+        for i, sw in enumerate(second_raw)
+    ]
+    verdicts = {v.hour: v for v in wp.evaluate_hours(first + second, wp.PathConfig())}
+    v24 = verdicts[24]
+    # The headline alone would have earned PREDICTIVE ...
+    assert v24.mean_v is not None and v24.mean_v > wp.PathConfig().bar
+    # ... but the halves disagree in sign ...
+    assert v24.early_mean is not None and v24.early_mean > 0
+    assert v24.late_mean is not None and v24.late_mean < 0
+    # ... so the time-split condition demotes it.
+    assert v24.verdict == wp.VERDICT_INSUFFICIENT
+    assert any("time-split" in r for r in v24.reasons)
+
+
+def test_all_gated_hours_are_reported() -> None:
+    verdicts = wp.evaluate_hours(_synthetic(0.0), wp.PathConfig())
+    assert [v.hour for v in verdicts] == list(wp.GATED_HOURS)

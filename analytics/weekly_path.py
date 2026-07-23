@@ -21,10 +21,17 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 import numpy as np
+
+from analytics.audit_guard import (
+    DECISION_DISABLE,
+    DECISION_ENABLE,
+    AuditCell,
+    evaluate_audit_cells,
+)
 
 WEEK_BARS = 168
 GATED_HOURS = (24, 48, 72, 96, 120)  # end of Mon/Tue/Wed/Thu/Fri, UTC
@@ -41,6 +48,12 @@ class PathConfig:
     min_prior_obs: int = 52  # symbol-weeks required before the expanding mean is usable
     n_boot: int = 10_000
     seed: int | None = 12345
+
+
+# Module-level singleton so `evaluate_hours` can default to it without calling a
+# constructor in an argument default (ruff B008). PathConfig is frozen, so one
+# shared instance is safe.
+DEFAULT_CONFIG = PathConfig()
 
 
 @dataclass(frozen=True)
@@ -143,4 +156,111 @@ def build_observations(
         for _, rem, _ in entries:
             prior_sum += rem
             prior_count += 1
+    return out
+
+
+VERDICT_PREDICTIVE = "PREDICTIVE"
+VERDICT_REVERTING = "REVERTING"
+VERDICT_NO_EDGE = "NO-EDGE"
+VERDICT_INSUFFICIENT = "INSUFFICIENT"
+
+
+@dataclass(frozen=True)
+class HourVerdict:
+    hour: int
+    verdict: str
+    n_weeks: int
+    mean_v: float | None
+    ci_lo: float | None
+    ci_hi: float | None
+    adj_pvalue: float | None
+    early_mean: float | None
+    late_mean: float | None
+    reasons: list[str] = field(default_factory=list)
+
+
+def _halves(values: list[float]) -> tuple[float | None, float | None]:
+    """Means of the early and late halves, split at the median week."""
+    if len(values) < 4:
+        return None, None
+    mid = len(values) // 2
+    return float(np.mean(values[:mid])), float(np.mean(values[mid:]))
+
+
+def evaluate_hours(
+    weeks: Sequence[SymbolWeek],
+    cfg: PathConfig = DEFAULT_CONFIG,
+) -> list[HourVerdict]:
+    """Pre-committed verdict per gated hour, sharing one Holm family (spec §6).
+
+    IMPORTANT — audit_guard's decisions are INVERTED relative to the sign of the
+    mean, because it was written for gate auditing where `supp_r` is a
+    suppressed slice (analytics/audit_guard.py:196-207):
+
+        DISABLE  <=> mean reliably POSITIVE  => PREDICTIVE here
+        ENABLE   <=> mean reliably NEGATIVE  => REVERTING here
+
+    Mapping ENABLE -> PREDICTIVE would invert every verdict.
+    """
+    series: dict[int, list[float]] = {}
+    for hour in cfg.hours:
+        series[hour] = [o.value for o in build_observations(weeks, hour, cfg)]
+
+    cells = [AuditCell(label=f"h{h}", supp_r=series[h]) for h in cfg.hours]
+    results = evaluate_audit_cells(
+        cells,
+        bar=cfg.bar,
+        alpha=cfg.alpha,
+        min_n=cfg.min_n,
+        n_boot=cfg.n_boot,
+        boot_method="circular",
+        seed=cfg.seed,
+        enable_concentrate=False,
+    )
+
+    out: list[HourVerdict] = []
+    for hour, cell in zip(cfg.hours, results, strict=True):
+        values = series[hour]
+        n = len(values)
+        early, late = _halves(values)
+        reasons = list(cell.reasons)
+
+        if cell.decision == DECISION_DISABLE:
+            verdict = VERDICT_PREDICTIVE
+        elif cell.decision == DECISION_ENABLE:
+            verdict = VERDICT_REVERTING
+        elif n >= cfg.min_n:
+            verdict = VERDICT_NO_EDGE
+        else:
+            verdict = VERDICT_INSUFFICIENT
+
+        # The early/late split is a verdict CONDITION, not a footnote (spec §6.1).
+        if verdict in (VERDICT_PREDICTIVE, VERDICT_REVERTING):
+            headline = cell.supp_avg or 0.0
+            if (
+                early is None
+                or late is None
+                or np.sign(early) != np.sign(headline)
+                or np.sign(late) != np.sign(headline)
+            ):
+                verdict = VERDICT_INSUFFICIENT
+                reasons.append(
+                    f"time-split sign disagreement (early {early}, late {late}, "
+                    f"headline {headline})"
+                )
+
+        out.append(
+            HourVerdict(
+                hour=hour,
+                verdict=verdict,
+                n_weeks=n,
+                mean_v=cell.supp_avg,
+                ci_lo=cell.ci_lo,
+                ci_hi=cell.ci_hi,
+                adj_pvalue=cell.adj_pvalue,
+                early_mean=early,
+                late_mean=late,
+                reasons=reasons,
+            )
+        )
     return out

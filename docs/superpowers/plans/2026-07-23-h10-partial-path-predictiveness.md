@@ -736,15 +736,29 @@ def test_thin_population_reads_INSUFFICIENT() -> None:
 
 
 def test_time_split_disagreement_demotes_to_INSUFFICIENT() -> None:
-    """A strong first half and an opposite second half is not an edge."""
-    first = _synthetic(+1.2, n_weeks=250, seed=3)
-    second_raw = _synthetic(-1.2, n_weeks=250, seed=4)
+    """A headline that CLEARS the bar is still demoted when a half disagrees.
+
+    Magnitudes are deliberately unequal. Equal-and-opposite halves would cancel
+    to a ~0 headline, which reads NO-EDGE on its own merits — the demotion
+    branch would never be reached and the test would assert the right answer
+    for the wrong reason. Here the pooled mean clears +bar (so the verdict would
+    otherwise be PREDICTIVE) while the late half carries the opposite sign, so
+    only the time-split condition can produce INSUFFICIENT.
+    """
+    first = _synthetic(+2.0, n_weeks=250, seed=3)
+    second_raw = _synthetic(-0.3, n_weeks=250, seed=4)
     second = [
         wp.SymbolWeek(sw.symbol, _week(250 + i), sw.norm_path)
         for i, sw in enumerate(second_raw)
     ]
     verdicts = {v.hour: v for v in wp.evaluate_hours(first + second, wp.PathConfig())}
     v24 = verdicts[24]
+    # The headline alone would have earned PREDICTIVE ...
+    assert v24.mean_v is not None and v24.mean_v > wp.PathConfig().bar
+    # ... but the halves disagree in sign ...
+    assert v24.early_mean is not None and v24.early_mean > 0
+    assert v24.late_mean is not None and v24.late_mean < 0
+    # ... so the time-split condition demotes it.
     assert v24.verdict == wp.VERDICT_INSUFFICIENT
     assert any("time-split" in r for r in v24.reasons)
 
@@ -776,6 +790,11 @@ from analytics.audit_guard import (
 ```
 
 ```python
+# Module-level singleton so `evaluate_hours` can default to it without calling a
+# constructor in an argument default (ruff B008). PathConfig is frozen, so one
+# shared instance is safe. Place this directly after the PathConfig class.
+DEFAULT_CONFIG = PathConfig()
+
 VERDICT_PREDICTIVE = "PREDICTIVE"
 VERDICT_REVERTING = "REVERTING"
 VERDICT_NO_EDGE = "NO-EDGE"
@@ -806,7 +825,7 @@ def _halves(values: list[float]) -> tuple[float | None, float | None]:
 
 def evaluate_hours(
     weeks: Sequence[SymbolWeek],
-    cfg: PathConfig = PathConfig(),
+    cfg: PathConfig = DEFAULT_CONFIG,
 ) -> list[HourVerdict]:
     """Pre-committed verdict per gated hour, sharing one Holm family (spec §6).
 
@@ -836,7 +855,7 @@ def evaluate_hours(
     )
 
     out: list[HourVerdict] = []
-    for hour, cell in zip(cfg.hours, results):
+    for hour, cell in zip(cfg.hours, results, strict=True):
         values = series[hour]
         n = len(values)
         early, late = _halves(values)
