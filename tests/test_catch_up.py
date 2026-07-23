@@ -421,36 +421,48 @@ class TestRunnerPassesCatchUp:
     looks like it worked, which is worse than not shipping it at all.
     """
 
-    def _call_kwargs(self, *, catch_up: bool | None) -> dict[str, Any]:
+    def _call_kwargs(self, tmp_path: Any, *, catch_up: bool | None) -> dict[str, Any]:
+        """Drive one daemon cycle with every external touchpoint stubbed.
+
+        `run_signal_watch` reaches for five things before it ever calls
+        `run_scan_cycle`, and each one has to be neutralised:
+        `create_data_client()` (reads BINANCE_API_KEY from .env),
+        `load_coins_config()` (reads gitignored config/coins.json), the OHLCV
+        sync/backfill pair, the real `analytics.db`, and the real
+        `signal_state.json`. The last two are the dangerous ones — the default
+        args point at live files, so this test wrote to the operator's actual
+        DB and cooldown state until it was pinned to tmp_path. CI (no .env, no
+        coins.json) is the honest environment; a local .env hid all of it.
+        """
         from analytics import signal_runner
 
         kwargs: dict[str, Any] = {} if catch_up is None else {"catch_up": catch_up}
         with (
             patch("analytics.signal_runner.run_scan_cycle", return_value=[]) as rsc,
             patch("analytics.signal_runner.get_ohlcv", return_value=pd.DataFrame()),
-            # No real client: `create_data_client()` reads BINANCE_API_KEY from
-            # .env and raises without it. A local .env masked this — CI, which
-            # has no keys, is the honest environment. Tests must never build a
-            # live client (CLAUDE.md: pass a MagicMock directly).
             patch(
                 "analytics.signal_runner.create_data_client",
                 return_value=MagicMock(),
             ),
+            patch("analytics.signal_runner.load_coins_config", return_value={}),
             patch("analytics.signal_runner.sync"),
             patch("analytics.signal_runner.backfill"),
+            patch("analytics.signal_runner.backfill_outcomes", return_value=0),
         ):
             signal_runner.run_signal_watch(
                 symbols=["BTCUSDT"],
                 timeframes=["4h"],
                 strategies=["fvg"],
                 max_cycles=1,
+                state_file=str(tmp_path / "state.json"),
+                db_path=tmp_path / "test.db",
                 **kwargs,
             )
         assert rsc.call_count == 1
         return dict(rsc.call_args.kwargs)
 
-    def test_catch_up_true_reaches_run_scan_cycle(self) -> None:
-        assert self._call_kwargs(catch_up=True).get("catch_up") is True
+    def test_catch_up_true_reaches_run_scan_cycle(self, tmp_path: Any) -> None:
+        assert self._call_kwargs(tmp_path, catch_up=True).get("catch_up") is True
 
-    def test_default_is_off(self) -> None:
-        assert self._call_kwargs(catch_up=None).get("catch_up") is False
+    def test_default_is_off(self, tmp_path: Any) -> None:
+        assert self._call_kwargs(tmp_path, catch_up=None).get("catch_up") is False
