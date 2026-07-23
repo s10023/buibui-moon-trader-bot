@@ -310,6 +310,39 @@ def test_magnitude_breakdown_has_three_terciles() -> None:
     assert all(r.n_weeks > 0 for r in rows)
 
 
+def test_magnitude_terciles_are_ordered_by_signal_size() -> None:
+    """The tercile split must actually discriminate on |signal|.
+
+    `_synthetic` pins the hour-24 signal to a constant, so the test above cannot
+    fail even if the magnitude sort is deleted outright (verified by mutation).
+    This population varies |signal| across weeks AND scales the remaining
+    return with that magnitude (same sign), so each tercile's OWN `mean_v` can
+    only come out strictly increasing (tercile 1 < 2 < 3) if the weeks were
+    actually rank-sorted by |signal| before the split — an unsorted (or
+    otherwise broken) split scrambles the magnitude/tercile correspondence and
+    produces a non-monotone `mean_v` sequence instead (verified by mutation:
+    replacing the sort with an identity pass-through breaks this assertion
+    while leaving the test above green).
+    """
+    cfg = wp.PathConfig()
+    rng = np.random.default_rng(11)
+    pop: list[wp.SymbolWeek] = []
+    for i in range(400):
+        sign = 1.0 if rng.random() < 0.5 else -1.0
+        magnitude = float(rng.uniform(0.1, 5.0))
+        at_h = sign * magnitude
+        path = [0.0] * WEEK_BARS
+        for j in range(23, WEEK_BARS):
+            path[j] = at_h
+        path[WEEK_BARS - 1] = at_h + sign * magnitude * 0.3
+        pop.append(wp.SymbolWeek("A", _week(i), tuple(path)))
+
+    rows = wp.magnitude_breakdown(pop, 24, cfg)
+    assert [r.tercile for r in rows] == [1, 2, 3]
+    assert all(r.n_weeks > 0 for r in rows)
+    assert rows[0].mean_v < rows[1].mean_v < rows[2].mean_v
+
+
 def test_hour_curve_covers_every_hour() -> None:
     points = wp.hour_curve(_synthetic(0.0, n_weeks=200), wp.PathConfig())
     assert [p.hour for p in points] == list(range(1, wp.WEEK_BARS + 1))

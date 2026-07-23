@@ -311,6 +311,15 @@ def magnitude_breakdown(
     is a constant by construction) — rank-based splitting still yields three
     non-empty groups whenever there are enough qualifying weeks. Each tercile
     is then collapsed per calendar week exactly as the headline is.
+
+    Rank-based splitting forces equal-sized terciles, which means that under
+    heavy ties identical |signal| values can land in DIFFERENT terciles
+    (whichever side of the equal-count boundary the stable sort places them
+    on). This is immaterial here: the input is continuous AWR-normalized
+    price data, where exact ties in |signal| are effectively impossible. It
+    is still the preferred behaviour over value-threshold cuts, which
+    collapse to a single populated bucket when magnitudes are tied, rather
+    than merely reassigning a handful of boundary rows.
     """
     idx = _index_for(hour)
     candidates = [
