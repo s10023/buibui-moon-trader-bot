@@ -301,3 +301,43 @@ def test_time_split_disagreement_demotes_to_INSUFFICIENT() -> None:
 def test_all_gated_hours_are_reported() -> None:
     verdicts = wp.evaluate_hours(_synthetic(0.0), wp.PathConfig())
     assert [v.hour for v in verdicts] == list(wp.GATED_HOURS)
+
+
+def test_magnitude_breakdown_has_three_terciles() -> None:
+    rows = wp.magnitude_breakdown(_synthetic(+0.5), 24, wp.PathConfig())
+    assert [r.tercile for r in rows] == [1, 2, 3]
+    assert all(r.hour == 24 for r in rows)
+    assert all(r.n_weeks > 0 for r in rows)
+
+
+def test_hour_curve_covers_every_hour() -> None:
+    points = wp.hour_curve(_synthetic(0.0, n_weeks=200), wp.PathConfig())
+    assert [p.hour for p in points] == list(range(1, wp.WEEK_BARS + 1))
+
+
+def test_family_stamps_report_five_trials() -> None:
+    stamps = wp.family_stamps(_synthetic(+0.6), wp.PathConfig())
+    assert stamps.n_trials == len(wp.GATED_HOURS)
+    assert stamps.best_hour in wp.GATED_HOURS
+    assert stamps.dsr is not None and 0.0 <= stamps.dsr <= 1.0
+    assert stamps.pbo is not None and 0.0 <= stamps.pbo <= 1.0
+
+
+def test_family_stamps_degrade_on_thin_data() -> None:
+    """Thin input returns None rather than raising — the driver still renders.
+
+    60 weeks leaves ~8 observations after the 52-symbol-week warm-up, far under
+    the 28 rows cscv_pbo needs, so PBO specifically must come back None.
+    """
+    stamps = wp.family_stamps(_synthetic(0.0, n_weeks=60), wp.PathConfig())
+    assert stamps.n_trials == len(wp.GATED_HOURS)
+    assert stamps.pbo is None
+
+
+def test_family_stamps_on_empty_population() -> None:
+    """No weeks at all must not raise — every stamp is None."""
+    stamps = wp.family_stamps([], wp.PathConfig())
+    assert stamps.n_trials == len(wp.GATED_HOURS)
+    assert stamps.best_hour is None
+    assert stamps.dsr is None
+    assert stamps.pbo is None

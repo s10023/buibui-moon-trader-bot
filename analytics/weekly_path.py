@@ -32,6 +32,11 @@ from analytics.audit_guard import (
     AuditCell,
     evaluate_audit_cells,
 )
+from analytics.research_guards import (
+    cscv_pbo,
+    deflated_sharpe_ratio,
+    min_track_record_length,
+)
 
 WEEK_BARS = 168
 GATED_HOURS = (24, 48, 72, 96, 120)  # end of Mon/Tue/Wed/Thu/Fri, UTC
@@ -264,3 +269,152 @@ def evaluate_hours(
             )
         )
     return out
+
+
+@dataclass(frozen=True)
+class MagnitudeRow:
+    hour: int
+    tercile: int  # 1 = smallest |signal|, 3 = largest
+    n_weeks: int
+    mean_v: float
+
+
+@dataclass(frozen=True)
+class CurvePoint:
+    hour: int
+    n_weeks: int
+    mean_v: float
+
+
+@dataclass(frozen=True)
+class FamilyStamps:
+    n_trials: int
+    best_hour: int | None
+    best_sharpe: float | None
+    dsr: float | None
+    pbo: float | None
+    min_trl: float | None
+
+
+def magnitude_breakdown(
+    weeks: Sequence[SymbolWeek],
+    hour: int,
+    cfg: PathConfig,
+) -> list[MagnitudeRow]:
+    """Mean v within terciles of |signal| (spec §7 — reported, never gating).
+
+    Terciles are RANK-based (a stable sort of the qualifying symbol-weeks by
+    |path[h-1]|, split into three near-equal-count groups), not value-threshold
+    cuts on the quantiles of the pooled distribution. A value-threshold cut
+    degenerates to one all-or-nothing bucket whenever the magnitude
+    distribution has ties at the cut points (e.g. a population where |signal|
+    is a constant by construction) — rank-based splitting still yields three
+    non-empty groups whenever there are enough qualifying weeks. Each tercile
+    is then collapsed per calendar week exactly as the headline is.
+    """
+    idx = _index_for(hour)
+    candidates = [
+        sw
+        for sw in weeks
+        if len(sw.norm_path) == WEEK_BARS and signal_sign(sw.norm_path, hour) != 0.0
+    ]
+    if not candidates:
+        return []
+    ordered = sorted(candidates, key=lambda sw: abs(sw.norm_path[idx]))
+    groups = np.array_split(np.arange(len(ordered)), 3)
+
+    rows: list[MagnitudeRow] = []
+    for tercile, group in zip((1, 2, 3), groups, strict=True):
+        subset = [ordered[i] for i in group]
+        obs = build_observations(subset, hour, cfg)
+        values = [o.value for o in obs]
+        rows.append(
+            MagnitudeRow(
+                hour=hour,
+                tercile=tercile,
+                n_weeks=len(values),
+                mean_v=float(np.mean(values)) if values else 0.0,
+            )
+        )
+    return rows
+
+
+def hour_curve(weeks: Sequence[SymbolWeek], cfg: PathConfig) -> list[CurvePoint]:
+    """mean(v) at every hour 1..168 — a descriptive shape, never gating."""
+    points: list[CurvePoint] = []
+    for hour in range(1, WEEK_BARS + 1):
+        values = [o.value for o in build_observations(weeks, hour, cfg)]
+        points.append(
+            CurvePoint(
+                hour=hour,
+                n_weeks=len(values),
+                mean_v=float(np.mean(values)) if values else 0.0,
+            )
+        )
+    return points
+
+
+def _sharpe(values: list[float]) -> float | None:
+    if len(values) < 2:
+        return None
+    arr = np.asarray(values, dtype=np.float64)
+    sd = float(np.std(arr, ddof=1))
+    if sd == 0.0:
+        return None
+    return float(np.mean(arr) / sd)
+
+
+def family_stamps(weeks: Sequence[SymbolWeek], cfg: PathConfig) -> FamilyStamps:
+    """DSR / PBO / MinTRL over the gated-hour family (spec §6).
+
+    The hours are reported together and none is selected, but the stamps make
+    the family size visible. PBO needs equal-length columns, so it runs over the
+    intersection of weeks present at every hour. Degrades to None rather than
+    raising, so a thin run still renders a report.
+    """
+    series = {h: build_observations(weeks, h, cfg) for h in cfg.hours}
+    by_hour = {h: [o.value for o in obs] for h, obs in series.items()}
+
+    # Explicit annotation: mypy strict will not narrow `float | None` -> `float`
+    # through a dict comprehension's `if` clause.
+    usable: dict[int, float] = {}
+    for h, values in by_hour.items():
+        sr = _sharpe(values)
+        if sr is not None:
+            usable[h] = sr
+    if not usable:
+        return FamilyStamps(len(cfg.hours), None, None, None, None, None)
+
+    best_hour = max(usable, key=lambda h: usable[h])
+    best_sr = usable[best_hour]
+
+    dsr: float | None = None
+    n_obs = len(by_hour[best_hour])
+    if n_obs >= 2 and len(usable) >= 2:
+        dsr = deflated_sharpe_ratio(
+            best_sr, n_obs, trial_srs=[usable[h] for h in sorted(usable)]
+        )
+
+    min_trl: float | None = None
+    if best_sr > 0.0:
+        value = min_track_record_length(best_sr, confidence=0.95)
+        min_trl = None if value == float("inf") else value
+
+    pbo: float | None = None
+    common = set.intersection(*({o.week for o in series[h]} for h in cfg.hours))
+    # cscv_pbo's default n_splits=14 needs >= 2 rows per block, so >= 28 rows.
+    if len(common) >= 28:
+        order = sorted(common)
+        matrix = np.array(
+            [
+                [next(o.value for o in series[h] if o.week == w) for h in cfg.hours]
+                for w in order
+            ],
+            dtype=np.float64,
+        )
+        try:
+            pbo = cscv_pbo(matrix).pbo
+        except ValueError:
+            pbo = None
+
+    return FamilyStamps(len(cfg.hours), best_hour, best_sr, dsr, pbo, min_trl)
