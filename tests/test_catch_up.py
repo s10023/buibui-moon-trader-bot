@@ -14,7 +14,7 @@ here is mode-aware rather than global.
 """
 
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import duckdb
 import pandas as pd
@@ -428,6 +428,16 @@ class TestRunnerPassesCatchUp:
         with (
             patch("analytics.signal_runner.run_scan_cycle", return_value=[]) as rsc,
             patch("analytics.signal_runner.get_ohlcv", return_value=pd.DataFrame()),
+            # No real client: `create_data_client()` reads BINANCE_API_KEY from
+            # .env and raises without it. A local .env masked this — CI, which
+            # has no keys, is the honest environment. Tests must never build a
+            # live client (CLAUDE.md: pass a MagicMock directly).
+            patch(
+                "analytics.signal_runner.create_data_client",
+                return_value=MagicMock(),
+            ),
+            patch("analytics.signal_runner.sync"),
+            patch("analytics.signal_runner.backfill"),
         ):
             signal_runner.run_signal_watch(
                 symbols=["BTCUSDT"],
