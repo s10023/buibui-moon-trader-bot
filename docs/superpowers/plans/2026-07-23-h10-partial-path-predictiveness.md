@@ -425,11 +425,12 @@ def test_driftless_random_walk_reads_near_zero_at_every_hour() -> None:
     """
     rng = np.random.default_rng(0)
     pop: list[wp.SymbolWeek] = []
-    for i in range(400):
-        steps = rng.normal(0.0, 0.1, WEEK_BARS)
-        pop.append(
-            wp.SymbolWeek("BTCUSDT", _week(i), tuple(np.cumsum(steps)))
-        )
+    for i in range(600):
+        # Step sigma is deliberately small: the remaining return's sampling
+        # error must sit well under the 0.05 bar, or this test flakes on a
+        # correct implementation rather than catching a broken one.
+        steps = rng.normal(0.0, 0.02, WEEK_BARS)
+        pop.append(wp.SymbolWeek("BTCUSDT", _week(i), tuple(np.cumsum(steps))))
     for hour in wp.GATED_HOURS:
         obs = wp.build_observations(pop, hour, wp.PathConfig())
         mean_v = float(np.mean([o.value for o in obs]))
@@ -471,19 +472,29 @@ def test_expanding_mean_is_causal() -> None:
 def test_cross_section_is_averaged_not_counted() -> None:
     """25 identical symbols must give the same observation as 1 (spec §5.1)."""
     cfg = wp.PathConfig()
-    one = [wp.SymbolWeek("A", _week(i), _linear_path(0.0, float(i % 3) - 1.0)) for i in range(120)]
+    one = [
+        wp.SymbolWeek("A", _week(i), _linear_path(0.0, float(i % 3) - 1.0))
+        for i in range(200)
+    ]
     many: list[wp.SymbolWeek] = []
-    for i in range(120):
+    for i in range(200):
         for s in range(25):
-            many.append(wp.SymbolWeek(f"S{s}", _week(i), _linear_path(0.0, float(i % 3) - 1.0)))
+            many.append(
+                wp.SymbolWeek(f"S{s}", _week(i), _linear_path(0.0, float(i % 3) - 1.0))
+            )
 
-    obs_one = wp.build_observations(one, 24, cfg)
-    obs_many = wp.build_observations(many, 24, cfg)
-    assert len(obs_one) == len(obs_many)
-    for a, b in zip(obs_one, obs_many):
-        assert a.week == b.week
-        assert a.value == pytest.approx(b.value)
-    assert obs_many[0].n_symbols == 25
+    # Compared over the weeks COMMON to both runs, not position-by-position:
+    # min_prior_obs counts symbol-weeks, so the 25-symbol population finishes
+    # its baseline warm-up ~25x sooner and legitimately emits more weeks.
+    obs_one = {o.week: o for o in wp.build_observations(one, 24, cfg)}
+    obs_many = {o.week: o for o in wp.build_observations(many, 24, cfg)}
+    common = set(obs_one) & set(obs_many)
+    assert common, "the two runs must overlap on some weeks"
+    for w in common:
+        # If the collapse summed instead of averaging, these would differ 25x.
+        assert obs_one[w].value == pytest.approx(obs_many[w].value)
+        assert obs_one[w].n_symbols == 1
+        assert obs_many[w].n_symbols == 25
 
 
 def test_flat_weeks_are_dropped() -> None:
@@ -898,9 +909,23 @@ def test_family_stamps_report_five_trials() -> None:
 
 
 def test_family_stamps_degrade_on_thin_data() -> None:
-    """Thin input returns Nones rather than raising — the driver still renders."""
+    """Thin input returns None rather than raising — the driver still renders.
+
+    60 weeks leaves ~8 observations after the 52-symbol-week warm-up, far under
+    the 28 rows cscv_pbo needs, so PBO specifically must come back None.
+    """
     stamps = wp.family_stamps(_synthetic(0.0, n_weeks=60), wp.PathConfig())
     assert stamps.n_trials == len(wp.GATED_HOURS)
+    assert stamps.pbo is None
+
+
+def test_family_stamps_on_empty_population() -> None:
+    """No weeks at all must not raise — every stamp is None."""
+    stamps = wp.family_stamps([], wp.PathConfig())
+    assert stamps.n_trials == len(wp.GATED_HOURS)
+    assert stamps.best_hour is None
+    assert stamps.dsr is None
+    assert stamps.pbo is None
 ```
 
 - [ ] **Step 2: Run to verify they fail**
