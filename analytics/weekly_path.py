@@ -19,9 +19,12 @@ Pure: no DB, no I/O, no network. The driver is tools/weekly_path_audit.py.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
+
+import numpy as np
 
 WEEK_BARS = 168
 GATED_HOURS = (24, 48, 72, 96, 120)  # end of Mon/Tue/Wed/Thu/Fri, UTC
@@ -79,3 +82,62 @@ def signal_sign(norm_path: Sequence[float], hour: int) -> float:
 def remaining_return(norm_path: Sequence[float], hour: int) -> float:
     """Return from `hour` to the week's close, in AWR units."""
     return float(norm_path[WEEK_BARS - 1] - norm_path[_index_for(hour)])
+
+
+def build_observations(
+    weeks: Sequence[SymbolWeek],
+    hour: int,
+    cfg: PathConfig,
+) -> list[WeekObservation]:
+    """One observation per calendar week: mean over symbols of the signed,
+    causally demeaned remaining return.
+
+    The expanding baseline `mu_t` is the mean raw remaining return over ALL
+    symbol-weeks strictly EARLIER than week `t` — pooled across symbols, which
+    keeps it stable while staying causal. A week is emitted only once at least
+    `cfg.min_prior_obs` prior symbol-weeks exist, so the earliest weeks do not
+    ride a one-sample baseline.
+
+    Weeks whose signal is exactly flat contribute nothing (their sign is
+    undefined); a calendar week with no contributing symbol is omitted.
+    """
+    # (sign, raw remaining return, |signal| magnitude) per contributing symbol.
+    by_week: dict[date, list[tuple[float, float, float]]] = defaultdict(list)
+    for sw in weeks:
+        if len(sw.norm_path) != WEEK_BARS:
+            continue
+        sign = signal_sign(sw.norm_path, hour)
+        if sign == 0.0:
+            continue
+        by_week[sw.week].append(
+            (
+                sign,
+                remaining_return(sw.norm_path, hour),
+                abs(sw.norm_path[_index_for(hour)]),
+            )
+        )
+
+    out: list[WeekObservation] = []
+    prior_sum = 0.0
+    prior_count = 0
+    for week in sorted(by_week):
+        entries = by_week[week]
+        if prior_count >= cfg.min_prior_obs:
+            mu = prior_sum / prior_count
+            values = [sign * (rem - mu) for sign, rem, _ in entries]
+            magnitudes = [mag for _, _, mag in entries]
+            out.append(
+                WeekObservation(
+                    week=week,
+                    value=float(np.mean(values)),
+                    n_symbols=len(entries),
+                    mean_abs_signal=float(np.mean(magnitudes)),
+                )
+            )
+        # Advance the baseline only AFTER emitting — week t must never see itself.
+        # This ordering IS the causality guarantee; moving it above the emit
+        # block silently introduces look-ahead and reddens the causality test.
+        for _, rem, _ in entries:
+            prior_sum += rem
+            prior_count += 1
+    return out
