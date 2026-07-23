@@ -227,6 +227,27 @@ symbol for `smt_divergence` detection on that symbol.
 `.github/workflows/signal-watch.yaml` runs the signal daemon on an **hourly cron**
 and fires Telegram alerts — no always-on host required.
 
+> **Status + reality check (measured 2026-07-23).** This workflow is currently
+> **disabled**. GitHub queues and drops scheduled runs under fleet load: across the
+> last 200 runs the hourly cron delivered **35%** (only 12.6% on time, median gap
+> 2.6h, max 6.7h), so **65% of 1h candles were never scanned**. Worse, the drops are
+> not random — run-hour distribution is non-uniform at p<0.01 (Asia 0.70x,
+> Off-hours 1.62x), which makes the resulting ledger *session-skewed*, not merely
+> thin. Do not treat a scheduled-cron ledger as a clean out-of-sample sample.
+> Mitigation is `--catch-up` below: it decouples ledger completeness from run
+> frequency, so a single run per day yields the same rows as a perfect hourly cron.
+
+- **`--catch-up` (off by default).** Replays every un-alerted **closed** candle
+  since the last run instead of only the newest, so a skipped cycle no longer
+  loses those ledger rows. Backfilled candles are recorded but **never sent to
+  Telegram** — only the newest closed candle can alert, since a signal that old is
+  not tradeable. A cold-start guard keeps a fresh `signal_state.json` from bursting
+  the whole window. Depth is bounded by the 200-candle scan window (~8 days on 1h,
+  ~33 on 4h, ~200 on 1d). Caveat: gating context (regime / HTF-EMA / ADR / DOW /
+  star ratings) is evaluated as-of-now, so a backfill reaching past a ratings
+  refresh is look-ahead in the gating and should be read as backtest, not OOS.
+  Enable with `make buibui-signal-watch CATCH_UP=1` or `--catch-up`.
+
 - **Data source: OKX.** GitHub-hosted (US) runners are geo-blocked from Binance
   (HTTP 451) and Bybit (403), but OKX V5 public market data is reachable. Set
   `DATA_SOURCE=okx` to select the keyless `utils/okx_client.py` adapter; the daemon

@@ -124,12 +124,18 @@ def scan_symbol(
     strategy_timeframes_short: dict[str, list[str]] | None = None,
     confidence_override: dict[str, dict[str, int]] | None = None,
     directional_confidence_override: dict[str, dict[str, dict[str, int]]] | None = None,
+    catch_up: bool = False,
 ) -> list[SignalEvent]:
     """Run requested strategies against a pre-fetched OHLCV DataFrame.
 
     Returns SignalEvents whose open_time matches the latest candle in the data.
     Only the latest candle is checked — signals on older candles are ignored
     to prevent re-alerting on historical data after a restart.
+
+    catch_up=True instead emits an event for EVERY closed candle in the window,
+    each priced at its own candle close, so a cycle that never ran can be
+    replayed (SoT N6). The forming bar stays excluded either way. Dedup is not
+    weakened: `run_scan_cycle` still drops candles the watermark has seen.
 
     When day_filter is "tue_thu", signals whose open_time falls on Monday (weekday 0)
     or Friday (weekday 4) in UTC are suppressed (ICT weekly cycle — lower-quality
@@ -151,7 +157,13 @@ def scan_symbol(
     # data, producing spurious 100%-body readings.
     closed_df = ohlcv_df.iloc[:-1]
     latest_open_time = int(closed_df["open_time"].iloc[-1])
-    latest_close = float(closed_df["close"].iloc[-1])
+    # Per-candle close, so a replayed event carries ITS OWN entry price rather
+    # than the newest one — otherwise every backfilled outcome_r is computed
+    # from a price that candle never traded at.
+    close_by_open: dict[int, float] = {
+        int(o): float(c)
+        for o, c in zip(closed_df["open_time"], closed_df["close"], strict=True)
+    }
 
     events: list[SignalEvent] = []
 
@@ -213,8 +225,13 @@ def scan_symbol(
         if signals_df.empty:
             continue
 
-        latest_signals = signals_df[signals_df["open_time"] == latest_open_time]
+        if catch_up:
+            latest_signals = signals_df[signals_df["open_time"].isin(close_by_open)]
+        else:
+            latest_signals = signals_df[signals_df["open_time"] == latest_open_time]
         for _, row in latest_signals.iterrows():
+            row_open_time = int(row["open_time"])
+            row_price = close_by_open[row_open_time]
             row_direction = str(row["direction"])
             # Per-direction strategy_timeframes narrowing (Bucket C PR Q-BC-2).
             # When a directional allowlist is set, intersect with the base list
@@ -234,8 +251,8 @@ def scan_symbol(
                     strategy=strategy_name,
                     direction=row_direction,
                     reason=str(row["reason"]),
-                    open_time=latest_open_time,
-                    price=latest_close,
+                    open_time=row_open_time,
+                    price=row_price,
                     sl_price=float(row["sl_price"]),
                     tp_price=float(row["tp_price"]) if row.get("tp_price") else 0.0,
                     context=str(row["context"]),
@@ -307,6 +324,7 @@ def run_scan_cycle(
     cross_tf_window_hours: float = 4.0,
     cross_tf_min_avg_r: float = 1.0,
     ohlcv_cache: "dict[tuple[str, str], pd.DataFrame] | None" = None,
+    catch_up: bool = False,
 ) -> list[str]:
     """Scan all symbol+timeframe combinations and return formatted alert strings.
 
@@ -486,6 +504,7 @@ def run_scan_cycle(
             strategy_timeframes_short=strategy_timeframes_short,
             confidence_override=confidence_override,
             directional_confidence_override=directional_confidence_override,
+            catch_up=catch_up,
         )
         return _sym, _tf, _events, _gap
 
@@ -513,10 +532,44 @@ def run_scan_cycle(
         for sym, tf in _pairs_htf_first:
             scan_results.append(_scan_task(sym, tf))
 
+    # --- Phase 2b: catch-up expansion (SoT N6) ---
+    # Split each (symbol, tf) result into one pseudo-result per candle
+    # open_time so conflict resolution + confluence stacking below stay
+    # per-candle correct. Default path = one group = byte-identical.
+    _grouped: list[Any] = []
+    for _sym, _tf, _events, _gap in scan_results:
+        if not catch_up or not _events:
+            _grouped.append((_sym, _tf, _events, _gap, False))
+            continue
+        _full = ohlcv_map[(_sym, _tf)]
+        if len(_full) < 2:
+            _grouped.append((_sym, _tf, _events, _gap, False))
+            continue
+        # The newest CLOSED candle — taken from OHLCV, not from the events.
+        # Using max(event.open_time) would promote an older candle to "latest"
+        # whenever the newest bar produced no signal, and that candle would
+        # then alert as if it were live.
+        _latest_closed = int(_full["open_time"].iloc[-2])
+        # Cold-start guard: a key with no watermark has never fired, so every
+        # candle in the 200-bar window would look "missed" and burst into the
+        # ledger on first contact. Restrict such keys to the latest candle.
+        _kept = [
+            e
+            for e in _events
+            if e.open_time == _latest_closed
+            or store.last_marked(_sym, _tf, e.strategy) is not None
+        ]
+        _by_candle: dict[int, list[SignalEvent]] = {}
+        for _e in _kept:
+            _by_candle.setdefault(_e.open_time, []).append(_e)
+        for _ot in sorted(_by_candle):
+            _grouped.append((_sym, _tf, _by_candle[_ot], _gap, _ot != _latest_closed))
+    scan_results = _grouped
+
     # --- Phase 3: Fan-in — sequential processing of scan results ---
     # All shared-state operations happen here: CooldownStore reads/writes,
     # bt_cache updates, DB writes (upsert_signals, upsert_backtest_run).
-    for symbol, tf, events, cme_gap in scan_results:
+    for symbol, tf, events, cme_gap, is_backfill in scan_results:
         ohlcv_df = ohlcv_map[(symbol, tf)]
         sec_key = ((secondary_map or {}).get(symbol, ""), tf)
         sec_df = secondary_dfs.get(sec_key) if needs_secondary else None
@@ -888,8 +941,11 @@ def run_scan_cycle(
                                     avg_ret,
                                 )
 
-        for event in passing_events:
-            store.mark_candle(symbol, tf, event.strategy, event.open_time)
+        # Note: the candle watermark is NOT stamped here. It is marked only after
+        # a successful live dispatch (see the send block below), so a non-sending
+        # / dry run never "consumes" a candle and dedups the real alert away.
+        # DB + outcome persistence stay unconditional — they are idempotent
+        # upserts and re-run harmlessly. (Ported from wifey #68.)
 
         # Persist passing signals to DB so the Signal Feed can read from DB
         # instead of re-scanning on every page load.
@@ -1076,6 +1132,16 @@ def run_scan_cycle(
                     _best_cofire.candles_ago,
                 )
 
+            if is_backfill:
+                # Recovered candle: recorded above as ledger evidence, never
+                # alerted — a signal this old is not tradeable, and a burst of
+                # stale alerts is noise. Consume the watermark so the next run
+                # does not replay it. This is the deliberate divergence from
+                # wifey #68's "only mark on dispatch" rule.
+                for event in dir_events:
+                    store.mark_candle(symbol, tf, event.strategy, event.open_time)
+                continue
+
             # Stack all passing strategies into one confluence alert
             msg = format_confluence_alert(
                 dir_events,
@@ -1102,6 +1168,12 @@ def run_scan_cycle(
                     send_telegram_message(msg)
                 except Exception:
                     logger.exception("Telegram send failed for %s", symbol)
+                else:
+                    # Consume the candle only once the alert is actually out.
+                    # Every passing event lands in exactly one direction group,
+                    # so this covers passing_events exactly once.
+                    for event in dir_events:
+                        store.mark_candle(symbol, tf, event.strategy, event.open_time)
     # Persist freshly computed backtest results to backtest_runs so win-rate data
     # accumulates passively. Cache hits (BacktestSnapshot) are excluded — only
     # full BacktestResult objects land here. Covers combos that fired this cycle.
