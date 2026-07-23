@@ -160,6 +160,7 @@ def run_signal_watch(args: argparse.Namespace) -> None:
         bias_cfg=cfg.bias,
         combo_cfg=cfg.combo,
         max_cycles=1 if getattr(args, "once", False) else None,
+        catch_up=getattr(args, "catch_up", False),
         **db_override,  # type: ignore[arg-type]
     )
 
@@ -251,6 +252,19 @@ def add_signal_subparser(
         "--once",
         action="store_true",
         help="Run a single scan cycle then exit (for cron / GitHub Actions).",
+    )
+    watch_parser.add_argument(
+        "--catch-up",
+        action="store_true",
+        dest="catch_up",
+        help=(
+            "Replay every un-alerted CLOSED candle since the last run, not just "
+            "the newest one (SoT N6). Recovers ledger rows lost to a missed or "
+            "skipped cycle. Backfilled candles are recorded but never sent to "
+            "Telegram — only the newest closed candle can alert. Off by default; "
+            "the default path is unchanged. Depth is bounded by the 200-candle "
+            "scan window (1h ~8 days, 4h ~33 days, 1d ~200 days)."
+        ),
     )
     watch_parser.add_argument(
         "--db-path",

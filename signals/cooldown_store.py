@@ -38,6 +38,16 @@ class CooldownStore:
         """Return True if open_time is newer than the last alerted candle."""
         return self._watermarks.get(_key(symbol, timeframe, strategy), -1) < open_time
 
+    def last_marked(self, symbol: str, timeframe: str, strategy: str) -> int | None:
+        """Last alerted candle open_time for this key, or None if never marked.
+
+        Backs the catch-up cold-start guard: `is_new_candle` answers True both
+        for a genuinely missed candle and for a key that has never fired, so it
+        cannot distinguish "replay from the watermark" from "first contact,
+        take the latest candle only".
+        """
+        return self._watermarks.get(_key(symbol, timeframe, strategy))
+
     def mark_candle(
         self, symbol: str, timeframe: str, strategy: str, open_time: int
     ) -> None:

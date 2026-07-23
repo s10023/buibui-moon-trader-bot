@@ -122,6 +122,7 @@ def run_signal_watch(
     bias_cfg: BiasConfig | None = None,
     combo_cfg: ComboConfig | None = None,
     max_cycles: int | None = None,
+    catch_up: bool = False,
 ) -> None:
     """Run the signal detection daemon loop.
 
@@ -375,6 +376,7 @@ def run_signal_watch(
                     if combo_cfg
                     else 1.0,
                     ohlcv_cache=ohlcv_cache,
+                    catch_up=catch_up,
                 )
 
                 # T2 P2: walk OHLCV forward to resolve outstanding outcome rows.
