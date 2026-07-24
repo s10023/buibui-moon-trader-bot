@@ -96,6 +96,11 @@
 
   const signed = (x: number, dp: number): string => (x >= 0 ? "+" : "") + x.toFixed(dp);
   const hourTag = (h: number | null): string => (h === null ? "—" : `h${h}`);
+  // Mirrors analytics/brief/render.py::_fmt_pct — the cone clamps to p10/p90 for
+  // values outside the 5-percentile ladder, so the rails are unresolvable and
+  // must read ≤p10 / ≥p90 rather than an exact rank the cone cannot place.
+  const fmtRank = (p: number): string =>
+    p >= 90 ? "≥p90" : p <= 10 ? "≤p10" : `p${Math.round(p)}`;
 
   async function load(): Promise<void> {
     loading = true;
@@ -471,11 +476,11 @@
                 -->
                 <div>
                   {#if w.conditional_is_fallback}
-                    p{Math.round(w.pct_unconditional)} unconditional (n={w.n_unconditional})
+                    {fmtRank(w.pct_unconditional)} unconditional (n={w.n_unconditional})
                   {:else}
-                    p{Math.round(w.pct_conditional)} of weeks that closed
+                    {fmtRank(w.pct_conditional)} of weeks that closed
                     {w.path_direction} (n={w.n_conditional})
-                    · p{Math.round(w.pct_unconditional)} unconditional (n={w.n_unconditional})
+                    · {fmtRank(w.pct_unconditional)} unconditional (n={w.n_unconditional})
                   {/if}
                 </div>
                 <div>

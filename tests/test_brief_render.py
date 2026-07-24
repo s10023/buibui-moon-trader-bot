@@ -713,6 +713,47 @@ def test_weekly_lines_empty_conditional_combo_omits_clause() -> None:
     assert "of those weeks" not in lines[2]
 
 
+def test_weekly_lines_saturated_high_uses_ge_prefix() -> None:
+    """`_percentile_of` clamps to 90.0 for any value AT OR ABOVE the p90 band
+    edge — nothing beyond p90 is resolvable from the 5-percentile ladder. So a
+    rendered 90.0 must read "≥p90", not the exact-rank "p90" its own docstring
+    forbids the renderer from claiming. Applies to both the conditional and
+    unconditional legs of the non-fallback rank line."""
+    ranks = _weekly_lines(_weekly_state(pct_conditional=90.0, pct_unconditional=90.0))[
+        1
+    ]
+    assert ranks == (
+        "      ≥p90 of weeks that closed bull (n=172) · ≥p90 unconditional (n=344)"
+    )
+
+
+def test_weekly_lines_saturated_low_uses_le_prefix() -> None:
+    """Mirror of the high rail: 10.0 means "at or below p10" and must render
+    "≤p10". Exercised on the fallback line so the single unconditional leg is
+    checked too."""
+    state = _weekly_state(
+        path_direction="flat",
+        pct_conditional=10.0,
+        pct_unconditional=10.0,
+        n_conditional=344,
+        conditional_is_fallback=True,
+    )
+    assert _weekly_lines(state)[1] == "      ≤p10 unconditional (n=344)"
+
+
+def test_weekly_lines_interior_percentile_unprefixed() -> None:
+    """A resolvable interior rank (strictly between the rails) keeps the bare
+    "p{n}" form — the inequality prefix is reserved for the unresolvable rails,
+    so a p58 must not gain a spurious ≤/≥."""
+    ranks = _weekly_lines(_weekly_state(pct_conditional=62.0, pct_unconditional=58.0))[
+        1
+    ]
+    assert "≤" not in ranks
+    assert "≥" not in ranks
+    assert "p62 of weeks that closed bull" in ranks
+    assert "p58 unconditional" in ranks
+
+
 def test_monthly_lines_none_is_empty() -> None:
     assert _monthly_lines(None) == []
 
