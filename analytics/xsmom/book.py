@@ -45,19 +45,31 @@ def xs_forecasts(closes: dict[str, pd.Series], cfg: ForecastConfig) -> pd.DataFr
 
 
 def xs_demeaned_forecasts(
-    closes: dict[str, pd.Series], cfg: ForecastConfig
+    closes: dict[str, pd.Series],
+    cfg: ForecastConfig,
+    *,
+    forecasts: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Cross-sectionally demeaned forecasts (relative strength).
 
     `g_i(d) = f_i(d) - mean_{j in active(d)} f_j(d)`; the row mean skips NaN so it
     is taken over the active instruments only. Each active row sums to ~0
-    (dollar-neutral). Not yet shifted — see `xs_leverage`.
+    (dollar-neutral). Not yet shifted — see `xs_leverage`. When ``forecasts`` is
+    given (a raw per-instrument forecast matrix, union-indexed, NaN warmup
+    preserved) it is demeaned in place of the internal EWMAC path — this is how a
+    sibling sleeve (e.g. reversal) injects its own signal. ``None`` is
+    byte-identical to the EWMAC path.
     """
-    f = xs_forecasts(closes, cfg)
+    f = xs_forecasts(closes, cfg) if forecasts is None else forecasts
     return f.sub(f.mean(axis=1), axis=0)
 
 
-def xs_leverage(closes: dict[str, pd.Series], cfg: ForecastConfig) -> pd.DataFrame:
+def xs_leverage(
+    closes: dict[str, pd.Series],
+    cfg: ForecastConfig,
+    *,
+    forecasts: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     """Causal cross-sectional (demeaned) vol-parity leverage matrix.
 
     Demean the forecast across active instruments (dollar-neutral), shift one day
@@ -66,9 +78,10 @@ def xs_leverage(closes: dict[str, pd.Series], cfg: ForecastConfig) -> pd.DataFra
     the trend sleeve so magnitudes are comparable; the absolute level is governed
     downstream. Columns = symbols, index = union daily index. When
     ``cfg.xs_dollar_neutral`` is set, the matrix is re-centered so each day's
-    active leverage sums to zero (dollar-neutral).
+    active leverage sums to zero (dollar-neutral). ``forecasts`` (default ``None``,
+    the EWMAC path) injects a sibling sleeve's raw forecast matrix.
     """
-    demeaned = xs_demeaned_forecasts(closes, cfg)
+    demeaned = xs_demeaned_forecasts(closes, cfg, forecasts=forecasts)
     demeaned_shifted = demeaned.shift(1)
     union = pd.DatetimeIndex(demeaned.index)
     ann = np.sqrt(cfg.annualization_days)
@@ -104,6 +117,7 @@ def run_xs_backtest(
     cfg: ForecastConfig,
     *,
     turnover_cost_rate: pd.DataFrame | None = None,
+    forecasts: pd.DataFrame | None = None,
 ) -> XSBookResult:
     """Causal dollar-neutral long-short book over the demeaned forecast.
 
@@ -114,9 +128,11 @@ def run_xs_backtest(
     each leg uses its own size-aware rate instead (the capacity stress test).
     Passing ``None`` is byte-identical to the flat path. Aggregate = SUM of
     legs (long-short portfolio P&L; the level is set by the causal 20%-vol
-    governor, so sum-vs-mean is only a scale it absorbs).
+    governor, so sum-vs-mean is only a scale it absorbs). ``forecasts``
+    (default ``None``) injects a sibling sleeve's raw forecast matrix in place
+    of the EWMAC path; ``None`` is byte-identical.
     """
-    leverage = xs_leverage(closes, cfg)
+    leverage = xs_leverage(closes, cfg, forecasts=forecasts)
     union = pd.DatetimeIndex(leverage.index)
     cost = cfg.fee_pct + cfg.slippage_pct
     rate_df = (
