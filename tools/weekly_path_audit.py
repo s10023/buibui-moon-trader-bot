@@ -102,6 +102,12 @@ def render_report(
     if curve:
         lines.append("### Hour curve (reported, non-gating) — every 12th hour")
         lines.append("")
+        lines.append(
+            "_Note: `remaining` is 0 by construction at h168, and its scale "
+            "shrinks toward the week's end — the tail is largely structural. "
+            "The rise is the informative part; do not read a peak hour precisely._"
+        )
+        lines.append("")
         lines.append("| hour | n weeks | mean v |")
         lines.append("| --- | --- | --- |")
         for p in curve:

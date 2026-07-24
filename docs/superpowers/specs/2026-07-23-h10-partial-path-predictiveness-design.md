@@ -183,11 +183,15 @@ regardless of the truth.
 | `bar` | **0.05 AWR / week** | Round-trip fee + slippage ≈ 0.2% against a ~8% weekly range ≈ 0.02 AWR, so the bar is ~2.5× cost and the effect must survive execution with margin. Detection needs a mean near 0.10 AWR — an implied annual Sharpe around 1.4, where XS-solo cleared at +1.375. |
 | `alpha` | 0.05 | Repo default. |
 | `min_n` | 52 weeks | One year of observations. |
+| `min_prior_obs` | 52 symbol-weeks | The expanding causal baseline (§2.1) must not be a one- or few-sample mean in the earliest weeks. A calendar week is emitted only once at least this many strictly-earlier symbol-weeks exist, so the demean is stable from the first observation. This trims the front of the sample — hence the realized gated n ≈ 321 rather than the ~344 §4 predicts from the raw week count. |
 | `n_boot` | `audit_guard` default | Circular block bootstrap. |
 | `seed` | `audit_guard.DEFAULT_SEED` | Reproducibility. |
 
-All five values are **pre-committed** — fixed in this document before any result
-is computed, never tuned against an outcome.
+All of these values are **pre-committed** — fixed in this document before any
+result is computed, never tuned against an outcome. (`min_prior_obs` was added
+to this table on 2026-07-23 when the whole-branch review noted it was
+code-only; it was fixed in the implementation plan before any result existed,
+so this is a documentation completeness fix, not a post-hoc change.)
 
 Consumed via `analytics/audit_guard.py::evaluate_audit_cells` with
 `enable_concentrate=False` (there is no kept-vs-suppressed split here; the

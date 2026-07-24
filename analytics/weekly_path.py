@@ -349,7 +349,15 @@ def magnitude_breakdown(
 
 
 def hour_curve(weeks: Sequence[SymbolWeek], cfg: PathConfig) -> list[CurvePoint]:
-    """mean(v) at every hour 1..168 — a descriptive shape, never gating."""
+    """mean(v) at every hour 1..168 — a descriptive shape, never gating.
+
+    Read the tail with care: ``remaining`` is identically 0 at hour 168, so
+    ``mean_v`` there is 0 by construction, and ``sd(remaining)`` shrinks
+    monotonically toward the week's end, mechanically compressing everything
+    past roughly hour 144. The curve's RISE (against that shrinking scale) is
+    informative; its terminal decay is largely structural. Do not read a peak
+    hour off this curve precisely — the gated verdicts, not the curve, decide.
+    """
     points: list[CurvePoint] = []
     for hour in range(1, WEEK_BARS + 1):
         values = [o.value for o in build_observations(weeks, hour, cfg)]
