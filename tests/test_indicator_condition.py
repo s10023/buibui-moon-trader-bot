@@ -2,7 +2,19 @@
 
 from __future__ import annotations
 
-from analytics.indicator_condition import IndicatorConditionConfig, _map_verdict
+from analytics.brief.types import (
+    BbState,
+    EmaState,
+    IndicatorState,
+    MondayState,
+    PaState,
+)
+from analytics.indicator_condition import (
+    _AXES,
+    IndicatorConditionConfig,
+    _map_verdict,
+    axis_states,
+)
 
 CFG = IndicatorConditionConfig()
 
@@ -80,3 +92,52 @@ def test_map_insufficient_passthrough() -> None:
         )
         == "INSUFFICIENT"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Task 2: axis_states                                                          #
+# --------------------------------------------------------------------------- #
+
+
+def _state(**kw: object) -> IndicatorState:
+    base: dict[str, object] = {
+        "ema": None,
+        "range_state": None,
+        "monday": None,
+        "candles": None,
+        "pa": None,
+        "bb": None,
+        "vwap": None,
+        "profile": None,
+    }
+    base.update(kw)
+    return IndicatorState(**base)  # type: ignore[arg-type]
+
+
+def test_axis_states_reads_ema_bb_pa_monday() -> None:
+    st = _state(
+        ema=EmaState(
+            above_20=True,
+            above_50=True,
+            above_200=False,
+            stack="bullish",
+            slope_200="rising",
+        ),
+        bb=BbState(pct_b=0.05, bandwidth=0.02, bw_pctile=0.1, squeeze=True),
+        pa=PaState(label="grind_up", er=0.5, speed_atr=0.4),
+        monday=MondayState(state="inside", pos=0.4),
+    )
+    ax = axis_states(st, regime_label="trend", ref_close=100.0)
+    assert ax["ema_stack"] == "bullish"
+    assert ax["ema_slope"] == "rising"
+    assert ax["bb_squeeze"] == "squeeze"
+    assert ax["bb_pctb"] == "low"  # 0.05 < 0.2
+    assert ax["pa_char"] == "grind_up"
+    assert ax["monday_range"] == "inside"
+    assert ax["regime"] == "trend"
+
+
+def test_axis_states_missing_subblocks_are_none() -> None:
+    ax = axis_states(_state(), regime_label=None, ref_close=100.0)
+    assert set(ax) == set(_AXES)
+    assert all(v is None for v in ax.values())
