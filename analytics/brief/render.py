@@ -297,6 +297,21 @@ def _monthly_lines(ctx: MonthlyContext | None) -> list[str]:
     return [head]
 
 
+def _fmt_pct(p: float) -> str:
+    """Render a weekly-cone percentile rank, honouring the ±rail saturation.
+
+    `_percentile_of` clamps to 10.0 / 90.0 for values outside the p10..p90
+    band ladder — those are unresolvable, so they must read "≤p10" / "≥p90"
+    rather than the exact ranks the cone cannot actually place. Interior
+    values (strictly between the rails) keep the bare "p{n}" form.
+    """
+    if p >= 90.0:
+        return "≥p90"
+    if p <= 10.0:
+        return "≤p10"
+    return f"p{p:.0f}"
+
+
 def _weekly_lines(state: WeeklyState | None) -> list[str]:
     """Forming-week position inside the weekly cone. Conditional on outcome."""
     if state is None:
@@ -344,15 +359,16 @@ def _weekly_lines(state: WeeklyState | None) -> list[str]:
     # "all weeks" instead of "those weeks".
     if state.conditional_is_fallback:
         ranks = (
-            f"      p{state.pct_unconditional:.0f} unconditional "
+            f"      {_fmt_pct(state.pct_unconditional)} unconditional "
             f"(n={state.n_unconditional})"
         )
         timing_cohort = "all weeks"
     else:
         ranks = (
-            f"      p{state.pct_conditional:.0f} of weeks that closed "
+            f"      {_fmt_pct(state.pct_conditional)} of weeks that closed "
             f"{state.path_direction} (n={state.n_conditional}) · "
-            f"p{state.pct_unconditional:.0f} unconditional (n={state.n_unconditional})"
+            f"{_fmt_pct(state.pct_unconditional)} unconditional "
+            f"(n={state.n_unconditional})"
         )
         timing_cohort = "those weeks"
     # I4: low_hour/high_hour are CLOSE-based (see weekly.py comment) while
