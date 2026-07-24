@@ -17,6 +17,8 @@ from analytics.indicator_condition import (
     IndicatorConditionConfig,
     _map_verdict,
     axis_states,
+    build_condition_cells,
+    evaluate_conditions,
     tag_trades,
 )
 
@@ -222,3 +224,46 @@ def test_tag_trades_is_causal_and_mutation_proof() -> None:
 
     tagged2 = tag_trades(entries, {("TST", "1d"): d1_future, ("TST", "1h"): h1})
     assert tagged2.iloc[0]["ema_stack"] == base  # causal: future bar is invisible
+
+
+# --------------------------------------------------------------------------- #
+# Task 4: build_condition_cells + evaluate_conditions (the two-leg gate)      #
+# --------------------------------------------------------------------------- #
+
+_OTHER_AXES = (
+    "ema_slope",
+    "regime",
+    "bb_squeeze",
+    "bb_pctb",
+    "vwap_weekly",
+    "vwap_monthly",
+    "vp_value_area",
+    "pa_char",
+    "monday_range",
+)
+
+
+def test_evaluate_builds_on_strong_positive_state() -> None:
+    rng = np.random.default_rng(0)
+    n = 400
+    # 'bullish' EMA trades average +0.5R, others average -0.1R (both low-noise).
+    with_r = rng.normal(0.5, 0.3, n)
+    without_r = rng.normal(-0.1, 0.3, n)
+    df = pd.DataFrame(
+        {
+            "direction": ["long"] * (2 * n),
+            "strategy": ["s"] * (2 * n),
+            "ema_stack": (["bullish"] * n) + (["bearish"] * n),
+            "pnl_r": list(with_r) + list(without_r),
+            **{a: ["x"] * (2 * n) for a in _OTHER_AXES},
+        }
+    )
+    cells = build_condition_cells(df, axes=("ema_stack",))
+    verdicts = evaluate_conditions(cells, IndicatorConditionConfig())
+    bull = [
+        v
+        for v in verdicts
+        if v.axis == "ema_stack" and v.state == "bullish" and v.direction == "long"
+    ]
+    assert bull and bull[0].verdict == "BUILD"
+    assert bull[0].lift > 0.4

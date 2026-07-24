@@ -10,14 +10,19 @@ ENABLE == reliably negative (-> AVOID). Do not "fix" this to the intuitive map.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
+import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
+from analytics import audit_guard
 from analytics.backtest.engine import _compute_atr14
 from analytics.brief.indicators import build_indicator_state
 from analytics.brief.types import IndicatorState
 from analytics.regime import classify_series
+from analytics.research_guards import cscv_pbo, deflated_sharpe_ratio
 
 # Minimum pre-entry bar count on each timeframe before we trust M1 state
 # enough to tag a trade. This is a coarse floor (some sub-blocks, e.g.
@@ -178,5 +183,237 @@ def tag_trades(
                 )
                 if state is not None:
                     axes = axis_states(state, regime_label, ref_close)
-        rows.append({**tr.to_dict(), **axes})
+        row: dict[str, object] = {str(k): v for k, v in tr.to_dict().items()}
+        row.update(axes)
+        rows.append(row)
     return pd.DataFrame(rows)
+
+
+@dataclass(frozen=True)
+class _RawCell:
+    """One (axis, state, direction) split, pre-gate."""
+
+    axis: str
+    state: str
+    direction: str
+    with_r: npt.NDArray[np.float64]
+    without_r: npt.NDArray[np.float64]
+
+
+def build_condition_cells(
+    tagged: pd.DataFrame, *, axes: Sequence[str]
+) -> list[_RawCell]:
+    """Split ``tagged`` trades into per-(axis-state x direction) cells.
+
+    For a given axis, the "without" slice is same-direction trades whose
+    value on that axis is present and differs from the tested state (design
+    doc §7). Rows where the axis is ``None``/NaN are excluded from that
+    axis's split entirely (never coerced into a state, never dropped from
+    other axes' splits).
+    """
+    cells: list[_RawCell] = []
+    if tagged.empty:
+        return cells
+    for axis in axes:
+        if axis not in tagged.columns:
+            continue
+        sub_axis = tagged[tagged[axis].notna()]
+        if sub_axis.empty:
+            continue
+        for direction, dgrp in sub_axis.groupby("direction", sort=True):
+            states = sorted({str(s) for s in dgrp[axis]})
+            for state in states:
+                with_mask = dgrp[axis].astype(str) == state
+                with_r = dgrp.loc[with_mask, "pnl_r"].to_numpy(dtype=np.float64)
+                without_r = dgrp.loc[~with_mask, "pnl_r"].to_numpy(dtype=np.float64)
+                cells.append(
+                    _RawCell(
+                        axis=axis,
+                        state=state,
+                        direction=str(direction),
+                        with_r=with_r,
+                        without_r=without_r,
+                    )
+                )
+    return cells
+
+
+@dataclass(frozen=True)
+class ConditionVerdict:
+    axis: str
+    state: str
+    direction: str
+    verdict: str  # BUILD | AVOID | NO-EDGE | INSUFFICIENT
+    n_with: int
+    n_without: int
+    avg_r_with: float
+    avg_r_without: float
+    lift: float
+    lift_lo: float
+    lift_hi: float
+    dsr: float | None
+    pbo: float | None
+
+
+def _lift_ci(
+    with_r: npt.NDArray[np.float64],
+    without_r: npt.NDArray[np.float64],
+    cfg: IndicatorConditionConfig,
+) -> tuple[float, float, float]:
+    """Seeded two-sample bootstrap CI on mean(with) - mean(without)."""
+    if with_r.shape[0] < 2 or without_r.shape[0] < 2:
+        lift = (
+            float(with_r.mean() - without_r.mean())
+            if with_r.size and without_r.size
+            else float("nan")
+        )
+        return lift, float("nan"), float("nan")
+    rng = np.random.default_rng(cfg.seed)
+    diffs = np.empty(cfg.n_boot)
+    for i in range(cfg.n_boot):
+        a = rng.choice(with_r, size=len(with_r), replace=True)
+        b = rng.choice(without_r, size=len(without_r), replace=True)
+        diffs[i] = a.mean() - b.mean()
+    lift = float(with_r.mean() - without_r.mean())
+    lo, hi = np.quantile(diffs, [cfg.alpha / 2, 1 - cfg.alpha / 2])
+    return lift, float(lo), float(hi)
+
+
+def _cell_sharpe(arr: npt.NDArray[np.float64]) -> float:
+    if arr.shape[0] < 2:
+        return 0.0
+    sd = float(np.std(arr, ddof=1))
+    if sd == 0.0:
+        return 0.0
+    return float(np.mean(arr)) / sd
+
+
+# Family-DSR/PBO construction for the H8 axis-state family. Unlike a
+# swept-parameter family (analytics/sl_horizon.py's k-grid, which re-scores
+# the SAME signals under each arm -> a natural paired T x N matrix), H8's
+# states are DISJOINT trade populations with no shared row index. This folds
+# each state's own return sequence (row order, a time proxy) into
+# _PBO_PERIODS equal chunks, giving a shared T axis cscv_pbo can split.
+_PBO_PERIODS = 20
+_PBO_SPLITS = 4
+
+
+def _family_pbo(arrays: list[npt.NDArray[np.float64]]) -> float | None:
+    """PBO across an (axis, direction) family's states. ``None`` when fewer
+    than 2 states clear the period floor (mirrors sl_horizon.py's graceful
+    "PBO skipped" branch — a cell can still be BUILD/AVOID-eligible on DSR
+    alone only if DSR's own multiplicity check also degrades gracefully, but
+    _map_verdict requires BOTH dsr and pbo non-None, so a family of size 1
+    can never gate — by design, there is nothing to overfit to.
+    """
+    usable = [a for a in arrays if a.shape[0] >= _PBO_PERIODS]
+    if len(usable) < 2:
+        return None
+    cols: list[npt.NDArray[np.float64]] = []
+    for a in usable:
+        n_use = (a.shape[0] // _PBO_PERIODS) * _PBO_PERIODS
+        cols.append(a[:n_use].reshape(_PBO_PERIODS, -1).mean(axis=1))
+    matrix = np.column_stack(cols)
+    try:
+        return float(cscv_pbo(matrix, n_splits=_PBO_SPLITS).pbo)
+    except ValueError:
+        return None
+
+
+def _family_dsr(
+    target_r: npt.NDArray[np.float64], family_arrays: list[npt.NDArray[np.float64]]
+) -> float:
+    trial_srs = [_cell_sharpe(a) for a in family_arrays if a.shape[0] >= 2]
+    if not trial_srs:
+        trial_srs = [_cell_sharpe(target_r)]
+    return deflated_sharpe_ratio(
+        _cell_sharpe(target_r), max(int(target_r.shape[0]), 1), trial_srs=trial_srs
+    )
+
+
+def evaluate_conditions(
+    cells: list[_RawCell], cfg: IndicatorConditionConfig
+) -> list[ConditionVerdict]:
+    """The design doc §7 gate: one Holm family across every cell passed in,
+    plus a per-(axis, direction) DSR/PBO family stamp and the inverted-verdict
+    map (``_map_verdict``).
+    """
+    if not cells:
+        return []
+    ag_cells = [
+        audit_guard.AuditCell(
+            label=f"{c.axis}|{c.state}|{c.direction}",
+            supp_r=c.with_r.tolist(),
+            kept_r=c.without_r.tolist(),
+        )
+        for c in cells
+    ]
+    cell_verdicts = audit_guard.evaluate_audit_cells(
+        ag_cells,
+        bar=cfg.bar,
+        alpha=cfg.alpha,
+        min_n=cfg.min_n,
+        n_boot=cfg.n_boot,
+        seed=cfg.seed,
+    )
+
+    by_family: dict[tuple[str, str], list[int]] = {}
+    for i, c in enumerate(cells):
+        by_family.setdefault((c.axis, c.direction), []).append(i)
+
+    out: list[ConditionVerdict] = []
+    for c, cv in zip(cells, cell_verdicts, strict=True):
+        n_with, n_without = c.with_r.shape[0], c.without_r.shape[0]
+        avg_with = float(c.with_r.mean()) if n_with else float("nan")
+        avg_without = float(c.without_r.mean()) if n_without else float("nan")
+        if cv.decision == "INSUFFICIENT":
+            out.append(
+                ConditionVerdict(
+                    axis=c.axis,
+                    state=c.state,
+                    direction=c.direction,
+                    verdict="INSUFFICIENT",
+                    n_with=n_with,
+                    n_without=n_without,
+                    avg_r_with=avg_with,
+                    avg_r_without=avg_without,
+                    lift=0.0,
+                    lift_lo=0.0,
+                    lift_hi=0.0,
+                    dsr=None,
+                    pbo=None,
+                )
+            )
+            continue
+        lift, lift_lo, lift_hi = _lift_ci(c.with_r, c.without_r, cfg)
+        family_idx = by_family[(c.axis, c.direction)]
+        family_arrays = [cells[j].with_r for j in family_idx]
+        dsr = _family_dsr(c.with_r, family_arrays)
+        pbo = _family_pbo(family_arrays)
+        verdict = _map_verdict(
+            cv.decision,
+            lift=lift,
+            lift_lo=lift_lo,
+            lift_hi=lift_hi,
+            dsr=dsr,
+            pbo=pbo,
+            cfg=cfg,
+        )
+        out.append(
+            ConditionVerdict(
+                axis=c.axis,
+                state=c.state,
+                direction=c.direction,
+                verdict=verdict,
+                n_with=n_with,
+                n_without=n_without,
+                avg_r_with=avg_with,
+                avg_r_without=avg_without,
+                lift=lift,
+                lift_lo=lift_lo,
+                lift_hi=lift_hi,
+                dsr=dsr,
+                pbo=pbo,
+            )
+        )
+    return out
