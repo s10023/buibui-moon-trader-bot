@@ -12,7 +12,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pandas as pd
+
+from analytics.backtest.engine import _compute_atr14
+from analytics.brief.indicators import build_indicator_state
 from analytics.brief.types import IndicatorState
+from analytics.regime import classify_series
+
+# Minimum pre-entry bar count on each timeframe before we trust M1 state
+# enough to tag a trade. This is a coarse floor (some sub-blocks, e.g.
+# EmaState.stack, additionally need >= 200 1d bars internally and simply
+# return None below that — the floor here just guards against computing
+# indicators over near-empty slices).
+_MIN_1D_BARS = 60
+_MIN_1H_BARS = 60
 
 _AXES: tuple[str, ...] = (
     "ema_stack",
@@ -116,3 +129,54 @@ def axis_states(
     if state.monday is not None:
         out["monday_range"] = state.monday.state
     return out
+
+
+def tag_trades(
+    entries: pd.DataFrame, market_by_pair: dict[tuple[str, str], pd.DataFrame]
+) -> pd.DataFrame:
+    """Add one column per axis (state as-of entry) to ``entries``.
+
+    ``entries`` must have ``symbol`` and ``entry_time`` columns.
+    ``market_by_pair`` must carry ``(symbol, "1d")`` and ``(symbol, "1h")``
+    OHLCV — M1 indicator state is always computed from 1d + 1h regardless of
+    the trade's own timeframe (mirrors the brief panel).
+
+    **Causal core (load-bearing):** for a trade at ``entry_time = t``, only
+    bars with ``open_time <= t`` are visible — the entry bar itself is the
+    last usable bar. Any bar with ``open_time > t`` MUST be excluded before
+    calling ``build_indicator_state``; this is what
+    ``test_tag_trades_is_causal_and_mutation_proof`` locks. Rows whose
+    (symbol) has no 1d/1h OHLCV, or where the pre-entry slice is too short
+    for M1, get all-None axes (excluded per-axis downstream, never dropped
+    globally).
+    """
+    rows: list[dict[str, object]] = []
+    for _, tr in entries.iterrows():
+        sym = str(tr["symbol"])
+        t = int(tr["entry_time"])
+        d1 = market_by_pair.get((sym, "1d"))
+        h1 = market_by_pair.get((sym, "1h"))
+        axes: dict[str, str | None] = dict.fromkeys(_AXES)
+        if d1 is not None and h1 is not None:
+            c1d = d1[d1["open_time"] <= t].reset_index(drop=True)
+            c1h = h1[h1["open_time"] <= t].reset_index(drop=True)
+            if len(c1d) >= _MIN_1D_BARS and len(c1h) >= _MIN_1H_BARS:
+                ref_close = float(c1d["close"].iloc[-1])
+                atr14 = _compute_atr14(
+                    c1d["high"].to_numpy(dtype=float),
+                    c1d["low"].to_numpy(dtype=float),
+                    c1d["close"].to_numpy(dtype=float),
+                    len(c1d) - 1,
+                )
+                atr_last = float(atr14) if atr14 is not None else 0.0
+                regime_series = classify_series(c1d, "1d")
+                regime_label = (
+                    str(regime_series.iloc[-1]) if len(regime_series) else None
+                )
+                state, _notes = build_indicator_state(
+                    c1d, c1h, regime_series, ref_close, atr_last, as_of_ms=t
+                )
+                if state is not None:
+                    axes = axis_states(state, regime_label, ref_close)
+        rows.append({**tr.to_dict(), **axes})
+    return pd.DataFrame(rows)

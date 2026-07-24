@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import numpy as np
+import pandas as pd
+
 from analytics.brief.types import (
     BbState,
     EmaState,
@@ -14,6 +17,7 @@ from analytics.indicator_condition import (
     IndicatorConditionConfig,
     _map_verdict,
     axis_states,
+    tag_trades,
 )
 
 CFG = IndicatorConditionConfig()
@@ -141,3 +145,80 @@ def test_axis_states_missing_subblocks_are_none() -> None:
     ax = axis_states(_state(), regime_label=None, ref_close=100.0)
     assert set(ax) == set(_AXES)
     assert all(v is None for v in ax.values())
+
+
+# --------------------------------------------------------------------------- #
+# Task 3: tag_trades — as-of-entry causal tagging + look-ahead mutation guard  #
+# --------------------------------------------------------------------------- #
+
+_DAY = 86_400_000
+
+
+def _synth_ohlcv(n: int, start: int, tf_ms: int, closes: list[float]) -> pd.DataFrame:
+    ot = [start + i * tf_ms for i in range(n)]
+    c = np.array(closes, dtype=float)
+    return pd.DataFrame(
+        {
+            "open_time": ot,
+            "open": c,
+            "high": c * 1.01,
+            "low": c * 0.99,
+            "close": c,
+            "volume": np.full(n, 1000.0),
+        }
+    )
+
+
+def test_tag_trades_is_causal_and_mutation_proof() -> None:
+    """A trade at t = the entry bar's open_time. Bars after t must not
+    change its state.
+
+    Deviation from the plan's illustrative version: the plan's snippet used
+    only 40 1d bars, which leaves EmaState.stack == None both before and
+    after the mutation (e50/e200 both need len(close) >= their span), so the
+    assertion passes vacuously without exercising the causal guard at all.
+    This version uses FLAT closes (all bars == 300.0) over 220 1d bars so
+    e20 == e50 == e200 exactly for every row (stack == "mixed", a
+    deterministic, non-accidental baseline), then mutates the SINGLE bar
+    immediately after entry (k+1) to a wild value. If that bar ever leaked
+    into the as-of-entry slice, EWM math *guarantees* a flip to "bullish"
+    (a fresh shock added to identical prior EMA values always lands the
+    faster-span EMA above the slower ones: e20 > e50 > e200), so the mutation
+    can only fail to move the result if the guard is genuinely causal — no
+    vacuous pass is possible here.
+    """
+    start = 1_700_000_000_000
+    n_d1 = 220
+    closes_d1 = [300.0] * n_d1
+    d1 = _synth_ohlcv(n_d1, start, _DAY, closes_d1)
+    h1_tf_ms = _DAY // 24
+    n_h1 = n_d1 * 24
+    h1 = _synth_ohlcv(n_h1, start, h1_tf_ms, [300.0] * n_h1)
+
+    k = 210  # >= 200 bars of pre-entry history for EMA200 to resolve
+    t = int(d1["open_time"].iloc[k])
+    entries = pd.DataFrame(
+        [
+            {
+                "symbol": "TST",
+                "tf": "1d",
+                "strategy": "s",
+                "direction": "long",
+                "entry_time": t,
+                "pnl_r": 1.0,
+            }
+        ]
+    )
+    market = {("TST", "1d"): d1, ("TST", "1h"): h1}
+
+    tagged = tag_trades(entries, market)
+    base = tagged.iloc[0]["ema_stack"]
+    assert base == "mixed"  # flat closes -> e20 == e50 == e200 exactly
+
+    # Mutate the bar immediately AFTER entry (k+1) to a wild value.
+    d1_future = d1.copy()
+    future_idx = k + 1
+    d1_future.loc[future_idx, ["close", "high", "low", "open"]] = 1_000_000.0
+
+    tagged2 = tag_trades(entries, {("TST", "1d"): d1_future, ("TST", "1h"): h1})
+    assert tagged2.iloc[0]["ema_stack"] == base  # causal: future bar is invisible
