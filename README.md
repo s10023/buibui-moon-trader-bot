@@ -542,6 +542,13 @@ audit that tests whether a week's AWR-normalized partial path at hour `h`
 predicts the return from `h` to the week's close, beyond drift — see spec
 `docs/superpowers/specs/2026-07-23-h10-partial-path-predictiveness-design.md`.
 
+`make buibui-indicator-condition-audit` (`tools/indicator_condition_audit.py`)
+is a read-only audit that tags every historical trade with the M1 brief-indicator
+state (EMA stack/slope, regime, Bollinger, anchored-VWAP distance, volume-profile
+value-area, price-action character, Monday-range) that held at its entry, then
+emits a BUILD / AVOID / NO-EDGE / INSUFFICIENT verdict per (indicator-state ×
+direction) — verdict `docs/audits/2026-07-24-h8-m1-indicator-conditioning.md`.
+
 **Single-combo options:**
 
 - `--symbol BTCUSDT` — primary symbol
