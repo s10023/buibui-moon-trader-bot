@@ -201,3 +201,18 @@ def test_injected_forecast_overrides_signal() -> None:
     neg = xs_leverage(closes, ForecastConfig(), forecasts=-f)
     assert base.iloc[-1]["STRONG"] > 0.0
     assert neg.iloc[-1]["STRONG"] < 0.0
+
+
+def test_run_xs_backtest_forwards_forecasts_into_leverage() -> None:
+    # Guards run_xs_backtest's one-line `forecasts=` forward into xs_leverage.
+    # Injecting a negated forecast must change the book vs the default path; if
+    # the forward were dropped, both would fall through to the same internal
+    # EWMAC path and produce identical returns — the "wired but ignored kwarg"
+    # gap that test_injected_forecast_equals_internal_path cannot see.
+    from analytics.xsmom.book import run_xs_backtest, xs_forecasts
+
+    closes = _closes()
+    f = xs_forecasts(closes, ForecastConfig())
+    base = run_xs_backtest(closes, _fundings(closes), ForecastConfig())
+    neg = run_xs_backtest(closes, _fundings(closes), ForecastConfig(), forecasts=-f)
+    assert not np.array_equal(base.portfolio_return, neg.portfolio_return)
