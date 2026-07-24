@@ -136,6 +136,47 @@ def axis_states(
     return out
 
 
+def _axes_as_of(
+    sym: str, t: int, market_by_pair: dict[tuple[str, str], pd.DataFrame]
+) -> dict[str, str | None]:
+    """Compute the M1 axis states for one ``(symbol, entry_time=t)``.
+
+    **Causal core (load-bearing):** only bars with ``open_time <= t`` are
+    visible — the entry bar itself is the last usable bar. Any bar with
+    ``open_time > t`` MUST be excluded before calling
+    ``build_indicator_state``; this is what
+    ``test_tag_trades_is_causal_and_mutation_proof`` locks. A symbol with no
+    1d/1h OHLCV, or a pre-entry slice too short for M1, yields all-None axes.
+    The full causal history (not a trailing cap) is passed through, so an
+    indicator's warmup is identical to running it over all bars up to ``t``.
+    """
+    d1 = market_by_pair.get((sym, "1d"))
+    h1 = market_by_pair.get((sym, "1h"))
+    axes: dict[str, str | None] = dict.fromkeys(_AXES)
+    if d1 is None or h1 is None:
+        return axes
+    c1d = d1[d1["open_time"] <= t].reset_index(drop=True)
+    c1h = h1[h1["open_time"] <= t].reset_index(drop=True)
+    if len(c1d) < _MIN_1D_BARS or len(c1h) < _MIN_1H_BARS:
+        return axes
+    ref_close = float(c1d["close"].iloc[-1])
+    atr14 = _compute_atr14(
+        c1d["high"].to_numpy(dtype=float),
+        c1d["low"].to_numpy(dtype=float),
+        c1d["close"].to_numpy(dtype=float),
+        len(c1d) - 1,
+    )
+    atr_last = float(atr14) if atr14 is not None else 0.0
+    regime_series = classify_series(c1d, "1d")
+    regime_label = str(regime_series.iloc[-1]) if len(regime_series) else None
+    state, _notes = build_indicator_state(
+        c1d, c1h, regime_series, ref_close, atr_last, as_of_ms=t
+    )
+    if state is None:
+        return axes
+    return axis_states(state, regime_label, ref_close)
+
+
 def tag_trades(
     entries: pd.DataFrame, market_by_pair: dict[tuple[str, str], pd.DataFrame]
 ) -> pd.DataFrame:
@@ -146,43 +187,24 @@ def tag_trades(
     OHLCV — M1 indicator state is always computed from 1d + 1h regardless of
     the trade's own timeframe (mirrors the brief panel).
 
-    **Causal core (load-bearing):** for a trade at ``entry_time = t``, only
-    bars with ``open_time <= t`` are visible — the entry bar itself is the
-    last usable bar. Any bar with ``open_time > t`` MUST be excluded before
-    calling ``build_indicator_state``; this is what
-    ``test_tag_trades_is_causal_and_mutation_proof`` locks. Rows whose
-    (symbol) has no 1d/1h OHLCV, or where the pre-entry slice is too short
-    for M1, get all-None axes (excluded per-axis downstream, never dropped
-    globally).
+    The M1 state depends only on ``(symbol, entry_time)`` (the causal slice),
+    NOT on the trade's strategy/direction/tf, so the per-``(symbol, t)`` result
+    is **memoized** — many strategies firing on the same candle share one
+    compute. This is a pure dedup: byte-identical to computing every row
+    independently (see ``_axes_as_of`` for the causal guard). Rows whose symbol
+    has no 1d/1h OHLCV, or where the pre-entry slice is too short for M1, get
+    all-None axes (excluded per-axis downstream, never dropped globally).
     """
+    cache: dict[tuple[str, int], dict[str, str | None]] = {}
     rows: list[dict[str, object]] = []
     for _, tr in entries.iterrows():
         sym = str(tr["symbol"])
         t = int(tr["entry_time"])
-        d1 = market_by_pair.get((sym, "1d"))
-        h1 = market_by_pair.get((sym, "1h"))
-        axes: dict[str, str | None] = dict.fromkeys(_AXES)
-        if d1 is not None and h1 is not None:
-            c1d = d1[d1["open_time"] <= t].reset_index(drop=True)
-            c1h = h1[h1["open_time"] <= t].reset_index(drop=True)
-            if len(c1d) >= _MIN_1D_BARS and len(c1h) >= _MIN_1H_BARS:
-                ref_close = float(c1d["close"].iloc[-1])
-                atr14 = _compute_atr14(
-                    c1d["high"].to_numpy(dtype=float),
-                    c1d["low"].to_numpy(dtype=float),
-                    c1d["close"].to_numpy(dtype=float),
-                    len(c1d) - 1,
-                )
-                atr_last = float(atr14) if atr14 is not None else 0.0
-                regime_series = classify_series(c1d, "1d")
-                regime_label = (
-                    str(regime_series.iloc[-1]) if len(regime_series) else None
-                )
-                state, _notes = build_indicator_state(
-                    c1d, c1h, regime_series, ref_close, atr_last, as_of_ms=t
-                )
-                if state is not None:
-                    axes = axis_states(state, regime_label, ref_close)
+        key = (sym, t)
+        axes = cache.get(key)
+        if axes is None:
+            axes = _axes_as_of(sym, t, market_by_pair)
+            cache[key] = axes
         row: dict[str, object] = {str(k): v for k, v in tr.to_dict().items()}
         row.update(axes)
         rows.append(row)
