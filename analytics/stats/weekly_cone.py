@@ -68,7 +68,7 @@ class CurrentWeekPath:
 
 
 @dataclass
-class _WeekRecord:
+class WeekRecord:
     week: date  # the Monday
     direction: str  # "bull" | "bear" | "doji"
     norm_path: list[float]
@@ -78,6 +78,9 @@ class _WeekRecord:
     mfe: float
     high_mag: float
     low_mag: float
+
+
+_WeekRecord = WeekRecord  # back-compat alias for internal references
 
 
 def _week_key(moment: datetime) -> date:
@@ -229,6 +232,24 @@ def compute_weekly_cone(
         pop = [r for r in records if direction == "all" or r.direction == direction]
         combos[direction] = _combo_from(direction, pop)
     return WeeklyConeBundle(combos=combos, total_weeks=len(records))
+
+
+def week_records(
+    conn: duckdb.DuckDBPyConnection,
+    symbol: str,
+    *,
+    now_ms: int | None = None,
+) -> list[WeekRecord]:
+    """The cone's own completed-week population, chronological.
+
+    Shared with the H10 partial-path audit so the audit and the Brief cannot
+    disagree on AWR normalization or week-population rules. Returns [] on thin
+    data rather than raising, matching compute_weekly_cone.
+    """
+    now = now_ms if now_ms is not None else int(datetime.now(tz=UTC).timestamp() * 1000)
+    current_week = _week_key(datetime.fromtimestamp(now / 1000, tz=UTC))
+    records, _ = _build_records(_fetch_hourly(conn, symbol), current_week)
+    return records
 
 
 def compute_current_week_path(

@@ -537,6 +537,11 @@ Six candle-pattern strategies above (`engulfing`, `pin_bar`, `inside_bar`,
 signals under an ATR-scaled counterfactual stop grid — verdict:
 `docs/audits/2026-07-21-st9-sl-horizon.md`.
 
+`make buibui-weekly-path-audit` (`tools/weekly_path_audit.py`) is a read-only
+audit that tests whether a week's AWR-normalized partial path at hour `h`
+predicts the return from `h` to the week's close, beyond drift — see spec
+`docs/superpowers/specs/2026-07-23-h10-partial-path-predictiveness-design.md`.
+
 **Single-combo options:**
 
 - `--symbol BTCUSDT` — primary symbol

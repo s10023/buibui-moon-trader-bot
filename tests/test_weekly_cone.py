@@ -15,11 +15,14 @@ import duckdb
 import pytest
 
 from analytics.data_store import init_schema
+from analytics.stats import weekly_cone
 from analytics.stats.weekly_cone import (
     WEEK_BARS,
     WeeklyConeBundle,
+    WeekRecord,
     compute_current_week_path,
     compute_weekly_cone,
+    week_records,
 )
 
 _SYMBOL = "WCONEUSDT"
@@ -175,3 +178,38 @@ def test_low_high_timing_curves(conn: duckdb.DuckDBPyConnection) -> None:
     assert combo.high_in_by[0] == pytest.approx(0.0)
     assert combo.high_in_by[1] == pytest.approx(1.0)
     assert len(combo.low_in_by) == WEEK_BARS
+
+
+def test_week_records_matches_cone_population(conn: duckdb.DuckDBPyConnection) -> None:
+    """The public wrapper returns exactly the population the cone counts."""
+    _seed_warmup(conn, _CURRENT_WEEK - timedelta(weeks=17), n=14)
+    _insert_week(conn, _CURRENT_WEEK - timedelta(weeks=3), k=0.4)
+    _insert_week(conn, _CURRENT_WEEK - timedelta(weeks=2), k=-0.4)
+
+    records = week_records(conn, _SYMBOL, now_ms=_NOW_MS)
+    bundle = compute_weekly_cone(conn, _SYMBOL, now_ms=_NOW_MS)
+
+    assert len(records) == bundle.total_weeks == 2
+    assert all(len(r.norm_path) == WEEK_BARS for r in records)
+    assert {r.direction for r in records} == {"bull", "bear"}
+
+
+def test_week_records_are_chronological(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_warmup(conn, _CURRENT_WEEK - timedelta(weeks=17), n=14)
+    _insert_week(conn, _CURRENT_WEEK - timedelta(weeks=3), k=0.4)
+    _insert_week(conn, _CURRENT_WEEK - timedelta(weeks=2), k=-0.4)
+
+    records = week_records(conn, _SYMBOL, now_ms=_NOW_MS)
+    assert [r.week for r in records] == sorted(r.week for r in records)
+
+
+def test_week_records_thin_data_returns_empty(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """Matches compute_weekly_cone: never raises on a short history."""
+    assert week_records(conn, _SYMBOL, now_ms=_NOW_MS) == []
+
+
+def test_private_alias_still_resolves() -> None:
+    """The rename must not break internal references inside the module."""
+    assert weekly_cone._WeekRecord is WeekRecord
