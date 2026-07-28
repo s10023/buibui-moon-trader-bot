@@ -82,3 +82,32 @@ def test_fetch_meta_unavailable_on_bad_json() -> None:
     got = fetch_meta(YT_URL, run=make_run(FakeProc(0, "not json")))
     assert isinstance(got, Unavailable)
     assert "JSON" in got.reason
+
+
+def test_fetch_meta_unavailable_on_non_numeric_duration() -> None:
+    payload = json.dumps({**json.loads(YTDLP_JSON), "duration": "N/A"})
+    got = fetch_meta(YT_URL, run=make_run(FakeProc(0, payload)))
+    assert isinstance(got, Unavailable)
+    assert "duration" in got.reason
+
+
+def test_fetch_meta_unavailable_on_out_of_range_timestamp() -> None:
+    payload = json.dumps({**json.loads(YTDLP_JSON), "timestamp": 1e20})
+    got = fetch_meta(YT_URL, run=make_run(FakeProc(0, payload)))
+    assert isinstance(got, Unavailable)
+    assert "timestamp" in got.reason
+
+
+def test_fetch_meta_missing_timestamp_yields_empty_string_not_now() -> None:
+    raw = json.loads(YTDLP_JSON)
+    del raw["timestamp"]
+    meta = fetch_meta(YT_URL, run=make_run(FakeProc(0, json.dumps(raw))))
+    assert isinstance(meta, VideoMeta)
+    assert meta.publish_ts_utc == ""
+
+
+def test_fetch_meta_bool_timestamp_treated_as_absent() -> None:
+    payload = json.dumps({**json.loads(YTDLP_JSON), "timestamp": True})
+    meta = fetch_meta(YT_URL, run=make_run(FakeProc(0, payload)))
+    assert isinstance(meta, VideoMeta)
+    assert meta.publish_ts_utc == ""

@@ -72,18 +72,25 @@ def fetch_meta(url: str, *, run: RunProc = _subprocess_run) -> VideoMeta | Unava
     if not isinstance(data, dict):
         return Unavailable("yt-dlp returned unexpected JSON shape")
     timestamp = data.get("timestamp")
-    publish = (
-        datetime.fromtimestamp(float(timestamp), UTC).isoformat()
-        if isinstance(timestamp, (int, float))
-        else ""
-    )
+    publish = ""
+    if isinstance(timestamp, (int, float)) and not isinstance(timestamp, bool):
+        try:
+            publish = datetime.fromtimestamp(float(timestamp), UTC).isoformat()
+        except (OverflowError, OSError, ValueError):
+            return Unavailable(f"unusable timestamp in yt-dlp JSON: {timestamp!r}")
+    try:
+        duration = float(data.get("duration") or 0.0)
+    except (TypeError, ValueError):
+        return Unavailable(
+            f"unusable duration in yt-dlp JSON: {data.get('duration')!r}"
+        )
     return VideoMeta(
         source=source,
         video_id=video_id,
         author=str(data.get("uploader_id") or data.get("uploader") or ""),
         title=str(data.get("title") or ""),
         publish_ts_utc=publish,
-        duration_s=float(data.get("duration") or 0.0),
+        duration_s=duration,
         lang=str(data.get("language") or ""),
         url=url,
     )
