@@ -68,3 +68,21 @@ def test_matrix_aligned_to_union_with_nan_warmup() -> None:
     # last bar: winner UP short (negative), loser DOWN long (positive)
     assert m.iloc[-1]["UP"] < 0.0
     assert m.iloc[-1]["DOWN"] > 0.0
+
+
+def test_crowding_sign_fades_building_crowded_long() -> None:
+    from analytics.xsrev.forecast import crowding_forecast_matrix
+
+    idx = _idx(60)
+    closes = {"AAA": pd.Series(np.linspace(100.0, 120.0, 60), index=idx)}
+    # crowded long (funding > 0) with a late OI SPIKE (inflow suddenly strong) ->
+    # the OI-growth z-score is clearly positive at the last bar -> fade the
+    # building crowded long -> forecast negative. NB a linear OI ramp would NOT
+    # work: its growth-rate DECELERATES on a rising base, so the end z-score would
+    # go negative and flip the sign.
+    fundings = {"AAA": pd.Series(0.001, index=idx)}
+    oi_vals = np.full(60, 1e6)
+    oi_vals[-1] = 1.5e6
+    ois = {"AAA": pd.Series(oi_vals, index=idx)}
+    m = crowding_forecast_matrix(closes, fundings, ois, ReversalConfig())
+    assert m["AAA"].dropna().iloc[-1] < 0.0

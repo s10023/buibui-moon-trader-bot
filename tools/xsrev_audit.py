@@ -24,10 +24,14 @@ import numpy as np
 import pandas as pd
 
 from analytics.forecast.config import ForecastConfig
+from analytics.forecast.replay import load_daily_inputs
 from analytics.store import DEFAULT_DB_PATH
 from analytics.universe import load_universe
 from analytics.xsmom import evaluate_xs, replay_xs
+from analytics.xsmom.book import run_xs_backtest
 from analytics.xsrev import ReversalConfig, replay_xsrev, replay_xsrev_trials
+from analytics.xsrev.forecast import crowding_forecast_matrix
+from analytics.xsrev.replay import load_daily_open_interest
 from portfolio import metrics
 
 _MAJORS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
@@ -111,6 +115,33 @@ def _scalar_sensitivity(
     return pd.DataFrame(rows)
 
 
+def _oi_crowding_panel(
+    conn: duckdb.DuckDBPyConnection, symbols: list[str]
+) -> pd.DataFrame:
+    """DESCRIPTIVE-ONLY OI-positioning read over the shallow OI overlap window."""
+    closes, fundings = load_daily_inputs(conn, symbols)
+    ois = load_daily_open_interest(conn, symbols)
+    have = [s for s in closes if s in ois]
+    if len(have) < 2:
+        return pd.DataFrame()
+    closes = {s: closes[s] for s in have}
+    fundings = {s: fundings[s] for s in have}
+    cfg = ReversalConfig()
+    forecasts = crowding_forecast_matrix(closes, fundings, ois, cfg)
+    res = run_xs_backtest(closes, fundings, cfg.sleeve_cfg, forecasts=forecasts)
+    curve = (1.0 + pd.Series(res.portfolio_return)).cumprod()
+    return pd.DataFrame(
+        [
+            {
+                "panel": "OI crowding (DESCRIPTIVE)",
+                "n_inst": len(have),
+                "days": len(res.portfolio_return),
+                "sharpe": metrics.sharpe(curve),
+            }
+        ]
+    )
+
+
 def _print_df(title: str, df: pd.DataFrame) -> None:
     print(f"\n=== {title} ===")
     if df.empty:
@@ -156,6 +187,14 @@ def main() -> None:
     )
     _print_df(
         "Scalar sensitivity (universe @2bps)", _scalar_sensitivity(conn, universe)
+    )
+
+    oi = _oi_crowding_panel(conn, universe)
+    _print_df("OI-positioning crowding — DESCRIPTIVE ONLY (underpowered)", oi)
+    print(
+        "\n[OI panel is DESCRIPTIVE ONLY] open_interest is ~144d (majors) / 30-60d "
+        "(rest) — far short of MinTRL. No BUILD/SHELF verdict; a rigorous OI arm "
+        "needs a deeper OI backfill (CoinGlass, not justified pre-gate)."
     )
 
     print(

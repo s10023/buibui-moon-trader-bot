@@ -79,3 +79,37 @@ def reversal_forecast_matrix(
         )
         cols[sym] = f.reindex(union)
     return pd.DataFrame(cols, index=union)
+
+
+def crowding_forecast_matrix(
+    closes: dict[str, pd.Series],
+    fundings: dict[str, pd.Series],
+    ois: dict[str, pd.Series],
+    cfg: ReversalConfig,
+    *,
+    oi_window: int = 20,
+    funding_span: int = 5,
+) -> pd.DataFrame:
+    """DESCRIPTIVE-ONLY positioning forecast: ``-sign(EWMA funding) * z(OI growth)``.
+
+    Fade the side the crowd is BUILDING into (funding sign = which side is crowded;
+    OI-growth z-score = whether inflow is unusually strong right now). Same shape as
+    ``reversal_forecast_matrix``. NOT a gated signal — ``open_interest`` history is
+    shallow (~144d majors); this exists for an underpowered exploratory read only.
+    The z-score uses a trailing rolling mean/std; position-level causality comes from
+    the downstream ``.shift(1)`` in ``xs_leverage``, same as the reversal path.
+    """
+    union = _union_index(closes)
+    cols: dict[str, pd.Series] = {}
+    for sym in closes:
+        oi = ois.get(sym)
+        fund = fundings.get(sym)
+        if oi is None or fund is None:
+            continue
+        growth = oi.pct_change()
+        roll = growth.rolling(oi_window)
+        z = (growth - roll.mean()) / roll.std()
+        sign_f = np.sign(fund.ewm(span=funding_span, adjust=False).mean())
+        raw = (-sign_f * z).clip(lower=-cfg.cap, upper=cfg.cap)
+        cols[sym] = raw.reindex(union)
+    return pd.DataFrame(cols, index=union)
