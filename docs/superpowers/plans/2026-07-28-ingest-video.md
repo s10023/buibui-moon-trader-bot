@@ -1203,19 +1203,35 @@ def test_extract_frames_skips_failed_grabs(tmp_path: Path) -> None:
     assert paths == []
 
 
-def test_batch_second_network_fetch_sleeps_first_does_not(tmp_path: Path) -> None:
-    slept: list[float] = []
-
+# fetch_video_batch passes work_dir=cache_dir/<video_id> to fetch_transcript, so a fake
+# that writes captions to tmp_path itself would be globbed for in the wrong directory.
+# Derive the location from yt-dlp's own -o argument, which is how yt-dlp names sub files.
+def make_ytdlp_run(
+    calls: list[list[str]] | None = None, fail_substr: str | None = None
+) -> Callable[[list[str]], FakeProc]:
     def _run(cmd: list[str]) -> FakeProc:
+        if calls is not None:
+            calls.append(cmd)
+        joined = " ".join(cmd)
+        if fail_substr is not None and fail_substr in joined:
+            return FakeProc(1, "", "Private video")
         if "--dump-json" in cmd:
             return FakeProc(0, YTDLP_JSON)
-        (tmp_path / "sub.zh.vtt").write_text(VTT)
+        if "-o" in cmd:
+            out = Path(cmd[cmd.index("-o") + 1])
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.with_name(f"{out.name}.zh.vtt").write_text(VTT, encoding="utf-8")
         return FakeProc(0)
 
+    return _run
+
+
+def test_batch_second_network_fetch_sleeps_first_does_not(tmp_path: Path) -> None:
+    slept: list[float] = []
     fetch_video_batch(
         [YT_URL, "https://youtu.be/AAAAAAAAAAA"],
         cache_dir=tmp_path,
-        run=_run,
+        run=make_ytdlp_run(),
         sleep=slept.append,
         rng=random.Random(0),
     )
@@ -1225,33 +1241,26 @@ def test_batch_second_network_fetch_sleeps_first_does_not(tmp_path: Path) -> Non
 def test_batch_cache_hit_does_no_network_and_no_sleep(tmp_path: Path) -> None:
     slept: list[float] = []
     calls: list[list[str]] = []
+    run = make_ytdlp_run(calls)
 
-    def _run(cmd: list[str]) -> FakeProc:
-        calls.append(cmd)
-        if "--dump-json" in cmd:
-            return FakeProc(0, YTDLP_JSON)
-        (tmp_path / "sub.zh.vtt").write_text(VTT)
-        return FakeProc(0)
+    first_run = fetch_video_batch(
+        [YT_URL], cache_dir=tmp_path, run=run, sleep=slept.append
+    )
+    assert first_run[0].cached is False
+    calls_after_first = len(calls)
 
-    fetch_video_batch([YT_URL], cache_dir=tmp_path, run=_run, sleep=slept.append)
-    first = len(calls)
-    results = fetch_video_batch([YT_URL], cache_dir=tmp_path, run=_run, sleep=slept.append)
-    assert len(calls) == first
+    results = fetch_video_batch([YT_URL], cache_dir=tmp_path, run=run, sleep=slept.append)
+    assert len(calls) == calls_after_first
     assert results[0].cached is True
+    assert results[0].segments[1].text == "我在这里做多"
     assert slept == []
 
 
 def test_batch_isolates_one_bad_video(tmp_path: Path) -> None:
-    def _run(cmd: list[str]) -> FakeProc:
-        if "BBBBBBBBBBB" in " ".join(cmd):
-            return FakeProc(1, "", "Private video")
-        if "--dump-json" in cmd:
-            return FakeProc(0, YTDLP_JSON)
-        (tmp_path / "sub.zh.vtt").write_text(VTT)
-        return FakeProc(0)
-
     results = fetch_video_batch(
-        ["https://youtu.be/BBBBBBBBBBB", YT_URL], cache_dir=tmp_path, run=_run
+        ["https://youtu.be/BBBBBBBBBBB", YT_URL],
+        cache_dir=tmp_path,
+        run=make_ytdlp_run(fail_substr="BBBBBBBBBBB"),
     )
     assert isinstance(results[0].meta, Unavailable)
     assert isinstance(results[1].meta, VideoMeta)
@@ -1318,15 +1327,14 @@ def _load_cached(cache_dir: Path, video_id: str) -> BatchResult | None:
         return None  # corrupt cache ⇒ treat as a miss, re-fetch
 
 
-def _write_cache(cache_dir: Path, result: BatchResult) -> None:
-    assert isinstance(result.meta, VideoMeta)
-    path = _cache_file(cache_dir, result.meta.video_id)
+def _write_cache(cache_dir: Path, result: BatchResult, meta: VideoMeta) -> None:
+    path = _cache_file(cache_dir, meta.video_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(
             {
                 "url": result.url,
-                "meta": asdict(result.meta),
+                "meta": asdict(meta),
                 "segments": [asdict(s) for s in result.segments],
                 "frame_paths": result.frame_paths,
                 "fetched_at_utc": datetime.now(UTC).isoformat(),
@@ -1383,7 +1391,7 @@ def fetch_video_batch(
                 results.append(BatchResult(url=url, meta=segments))
                 continue
             result = BatchResult(url=url, meta=meta, segments=segments)
-            _write_cache(cache_dir, result)
+            _write_cache(cache_dir, result, meta)
             results.append(result)
         except OSError as exc:  # one bad video never kills the batch
             results.append(BatchResult(url=url, meta=Unavailable(f"{type(exc).__name__}: {exc}")))
