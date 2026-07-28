@@ -84,3 +84,34 @@ def test_cli_emits_json(capsys: pytest.CaptureFixture[str]) -> None:
     payload = json.loads(capsys.readouterr().out)
     assert payload["call_ts_source"] == "stated"
     assert payload["call_ts_utc"] == "2026-07-28T08:00:00+00:00"
+
+
+def test_naive_stated_time_falls_back_to_publish() -> None:
+    got = resolve_call_ts(PUB, stated_ts_utc="2026-07-28T08:00:00")
+    assert got.call_ts_source == "publish"
+    assert got.call_ts_utc == PUB
+
+
+def test_bare_date_stated_time_falls_back_to_publish() -> None:
+    got = resolve_call_ts(PUB, stated_ts_utc="2026-07-27", stated_date_only=True)
+    assert got.call_ts_source == "publish"
+
+
+def test_naive_publish_time_raises() -> None:
+    with pytest.raises(ValueError, match="publish_ts_utc"):
+        resolve_call_ts("2026-07-28T14:00:00")
+
+
+def test_stated_time_exactly_equal_to_publish_is_rejected() -> None:
+    got = resolve_call_ts(PUB, stated_ts_utc=PUB)
+    assert got.call_ts_source == "publish"
+
+
+def test_is_backlog_raises_on_unparseable_publish() -> None:
+    with pytest.raises(ValueError, match="publish_ts_utc"):
+        is_backlog("not a timestamp", "2026-07-30T14:00:00+00:00")
+
+
+def test_is_backlog_raises_on_naive_ingested() -> None:
+    with pytest.raises(ValueError, match="ingested_ts_utc"):
+        is_backlog(PUB, "2026-07-30T14:00:00")

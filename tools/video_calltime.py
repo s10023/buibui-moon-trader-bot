@@ -36,6 +36,19 @@ def _parse(value: str) -> datetime | None:
         return None
 
 
+def _parse_aware(value: str) -> datetime | None:
+    """ISO-8601 with an explicit UTC offset, else None.
+
+    A naive value is rejected rather than assumed UTC: the caller's contract is that
+    a stated time carries a resolved zone, and silently assuming one could shift a
+    call by up to 12h in the look-ahead-permitting direction.
+    """
+    parsed = _parse(value)
+    if parsed is None or parsed.tzinfo is None:
+        return None
+    return parsed
+
+
 def resolve_call_ts(
     publish_ts_utc: str,
     *,
@@ -46,7 +59,7 @@ def resolve_call_ts(
 ) -> CallTime:
     """Stated time if it survives every bound, else publish time."""
     publish = _parse(publish_ts_utc)
-    if publish is None:
+    if publish is None or publish.tzinfo is None:
         raise ValueError(f"publish_ts_utc is not ISO-8601: {publish_ts_utc!r}")
 
     fallback = CallTime(
@@ -57,7 +70,7 @@ def resolve_call_ts(
     )
     if stated_ts_utc is None:
         return fallback
-    stated = _parse(stated_ts_utc)
+    stated = _parse_aware(stated_ts_utc)
     if stated is None:
         return fallback
     if stated_date_only:
@@ -82,9 +95,11 @@ def is_backlog(
 ) -> bool:
     """True when our ingest lags publication — describes our lag, not the pundit's."""
     publish = _parse(publish_ts_utc)
+    if publish is None or publish.tzinfo is None:
+        raise ValueError(f"publish_ts_utc is not ISO-8601: {publish_ts_utc!r}")
     ingested = _parse(ingested_ts_utc)
-    if publish is None or ingested is None:
-        return False
+    if ingested is None or ingested.tzinfo is None:
+        raise ValueError(f"ingested_ts_utc is not ISO-8601: {ingested_ts_utc!r}")
     return ingested - publish > timedelta(hours=threshold_h)
 
 
