@@ -177,3 +177,42 @@ def test_xs_leverage_dollar_neutral_is_causal_no_lookahead() -> None:
     pd.testing.assert_frame_equal(
         base.iloc[: k + 1], after.iloc[: k + 1], check_names=False
     )
+
+
+def test_injected_forecast_equals_internal_path() -> None:
+    # Injecting the SAME forecast the internal EWMAC path computes must be
+    # byte-identical to the default path — proves the wiring + default are intact.
+    from analytics.xsmom.book import run_xs_backtest, xs_forecasts
+
+    closes = _closes()
+    f = xs_forecasts(closes, ForecastConfig())
+    base = run_xs_backtest(closes, _fundings(closes), ForecastConfig())
+    inj = run_xs_backtest(closes, _fundings(closes), ForecastConfig(), forecasts=f)
+    np.testing.assert_array_equal(base.portfolio_return, inj.portfolio_return)
+
+
+def test_injected_forecast_overrides_signal() -> None:
+    # A negated forecast must flip the leverage sign vs the default path.
+    from analytics.xsmom.book import xs_forecasts, xs_leverage
+
+    closes = _closes()
+    f = xs_forecasts(closes, ForecastConfig())
+    base = xs_leverage(closes, ForecastConfig())
+    neg = xs_leverage(closes, ForecastConfig(), forecasts=-f)
+    assert base.iloc[-1]["STRONG"] > 0.0
+    assert neg.iloc[-1]["STRONG"] < 0.0
+
+
+def test_run_xs_backtest_forwards_forecasts_into_leverage() -> None:
+    # Guards run_xs_backtest's one-line `forecasts=` forward into xs_leverage.
+    # Injecting a negated forecast must change the book vs the default path; if
+    # the forward were dropped, both would fall through to the same internal
+    # EWMAC path and produce identical returns — the "wired but ignored kwarg"
+    # gap that test_injected_forecast_equals_internal_path cannot see.
+    from analytics.xsmom.book import run_xs_backtest, xs_forecasts
+
+    closes = _closes()
+    f = xs_forecasts(closes, ForecastConfig())
+    base = run_xs_backtest(closes, _fundings(closes), ForecastConfig())
+    neg = run_xs_backtest(closes, _fundings(closes), ForecastConfig(), forecasts=-f)
+    assert not np.array_equal(base.portfolio_return, neg.portfolio_return)
