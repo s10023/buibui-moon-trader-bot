@@ -12,8 +12,9 @@ routed, attributable research items in the existing three-stream pipeline, plus 
 per-video note, at a token cost that does not require the main thread to look at the video.
 
 **Success metric (one line).** A batch of pasted URLs produces correctly-attributed routed items
-behind exactly one human review gate, with `call_ts_utc` equal to the video's publish time, at
-≤ `FRAME_CAP` extracted frames per video and zero stream writes before approval.
+behind exactly one human review gate, with `call_ts_utc` never later than the video's publish time
+and never unverifiably earlier, at ≤ `FRAME_CAP` extracted frames per video and zero stream writes
+before approval.
 
 ## Non-goals
 
@@ -53,6 +54,7 @@ Fixed before any tuning, so a later change is a visible decision rather than a d
 | `DEDUP_WINDOW_S` | 45 | Marks inside this window collapse to one |
 | `SAFETY_SAMPLE_S` | 300 | One frame per 5 minutes regardless of triggers |
 | `BACKLOG_THRESHOLD_H` | 24 | Publish-to-ingest gap above which `backlog: true` |
+| `STATED_TS_MAX_LEAD_H` | 168 | Max hours a stated call time may precede publish before it is rejected |
 
 ### `tools/video_fetch.py` — fetch and materialise
 
@@ -145,7 +147,7 @@ item records `corrected_from`.
 Matches the existing pundit-call schema, with the video additions:
 
 ```json
-{"source":"youtube","author":"<handle>","url":"<url>&t=<ts>s","call_ts_utc":"<video publish time>","ingested_ts_utc":"<now>","backlog":false,"symbol":"...","direction":"...","entry":"...","stop":"...","target":"...","horizon":"...","confidence":"...","raw_quote":"<original language>","raw_quote_en":"<english>"}
+{"source":"youtube","author":"<handle>","url":"<url>&t=<ts>s","call_ts_utc":"<resolved call time>","call_ts_source":"stated|publish","publish_ts_utc":"<publish time>","stated_ts_raw":"<verbatim quote or empty>","ingested_ts_utc":"<now>","backlog":false,"symbol":"...","direction":"...","entry":"...","stop":"...","target":"...","horizon":"...","confidence":"...","raw_quote":"<original language>","raw_quote_en":"<english>"}
 ```
 
 `source` is `youtube` or `x-video`. The URL carries a timestamp deep link so a scored call points
@@ -173,7 +175,7 @@ degrade the ledger's fidelity.
 
 ## Correctness: the ledger-integrity constraint
 
-**`call_ts_utc` is the video's publish time, never the ingest time.**
+**`call_ts_utc` is when the call was made — never the ingest time.**
 
 `tools/pundit_score.py` resolves every call in `pundit-calls.jsonl` against OHLCV forward from
 `call_ts_utc`. Getting this wrong on a backlog video would score a three-week-old call against the
@@ -181,12 +183,48 @@ three weeks of price action the pundit already knew about — a look-ahead defec
 every author's hit rate and corrupt `docs/plans/pundit-priors.json`, which feeds the daily brief
 and the F2 trade card.
 
-Three mechanisms:
+### Resolution order: stated time, then publish time
 
-1. `call_ts_utc` = publish time, taken from yt-dlp metadata, never `now`.
-2. A separate `ingested_ts_utc`.
-3. `backlog: true` whenever publish precedes ingest by more than one day — so a resolved backlog
-   call is never misread as a live setup.
+Speakers often open with the date and time ("it's Monday the 28th, 8am"). That is closer to when
+the call was actually made than the publish timestamp, so it is preferred — **but it is
+pundit-supplied and unverifiable, and it moves in the look-ahead-permitting direction.** Publish
+time is an upper bound taken from platform metadata; a stated time is a claim. A speaker who
+records late and states an earlier time would be credited with price action they had already seen.
+
+So the stated time is preferred but bounded:
+
+1. Pass 1 extracts `stated_ts` when the speaker states a date and/or time near the start.
+2. Accept it only when **all** hold:
+   - it parses, and its timezone is explicit or inferable from the channel locale (the inference
+     is recorded, not silently applied);
+   - `stated_ts < publish_ts` — a stated time at or after publish is nonsense and is rejected;
+   - `publish_ts - stated_ts <= 168h` — a video claiming to predate publication by more than a
+     week is a re-upload or a false claim.
+3. When only a **date** is stated with no resolvable time of day, use the **end** of that date in
+   the resolved zone, clamped below `publish_ts`. The conservative edge, so the pundit is never
+   credited with intraday movement they may not have seen.
+4. Otherwise `call_ts_utc = publish_ts`.
+
+### Fields always persisted
+
+| Field | Meaning |
+| --- | --- |
+| `call_ts_utc` | The resolved call time used by the scorer |
+| `call_ts_source` | `stated` or `publish` |
+| `publish_ts_utc` | Always recorded, whichever source won |
+| `stated_ts_raw` | The verbatim quote the stated time came from, for audit |
+| `ingested_ts_utc` | When this pipeline saw it |
+| `backlog` | `true` when publish precedes ingest by more than `BACKLOG_THRESHOLD_H` |
+
+`backlog` is computed from **publish** time, not stated time — it describes our ingest lag, not
+the pundit's.
+
+### Why `call_ts_source` is worth persisting
+
+It makes an unverifiable input testable. If an author's `stated`-sourced calls score
+systematically better than their `publish`-sourced ones, that is evidence of a gamed timestamp,
+and it is visible in the ledger rather than silently inflating their prior. Deferred as an audit,
+not built now — but the field has to exist from day one or the evidence is unrecoverable.
 
 This is also why the human gate stays mandatory regardless of batch size.
 
