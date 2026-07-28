@@ -34,10 +34,17 @@ _DEIXIS_PATTERNS: tuple[str, ...] = (
 _DEIXIS_RE = re.compile("|".join(_DEIXIS_PATTERNS), re.IGNORECASE)
 
 _SYMBOL_RE = re.compile(
-    r"\b(?:btc|eth|sol|xrp|doge|bnb|ada|avax|link|bitcoin|ether(?:eum)?)\b",
+    r"\b(?:btc|eth|sol|xrp|doge|bnb|ada|avax|chainlink|bitcoin|ether(?:eum)?)\b",
     re.IGNORECASE,
 )
-_NUMBER_RE = re.compile(r"\b\d[\d,]*(?:\.\d+)?\s*[km]?\b", re.IGNORECASE)
+_NUMBER_RE = re.compile(
+    r"\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b"  # 2,980 · 62,400
+    r"|\b\d{3,}(?:\.\d+)?\b"  # 62400 · 138
+    r"|\b\d+\.\d+\b"  # 62.4 · 138.5
+    r"|\b\d+(?:\.\d+)?\s*[km]\b",  # 62.4k · 1.2m
+    re.IGNORECASE,
+)
+_YEAR_RE = re.compile(r"^(?:19|20)\d{2}$")
 
 
 @dataclass(frozen=True)
@@ -58,6 +65,14 @@ def _mark(ts_s: float, reason: str) -> FrameMark:
     return FrameMark(ts_s=ts_s, reason=reason, weight=_WEIGHTS[reason])
 
 
+def _has_price(text: str) -> bool:
+    """A price-shaped number that is not a bare calendar year."""
+    return any(
+        not _YEAR_RE.match(match.group(0).strip())
+        for match in _NUMBER_RE.finditer(text)
+    )
+
+
 def deixis_marks(segments: list[TranscriptSegment]) -> list[FrameMark]:
     """Segments where the speaker points at something only the frame shows."""
     return [_mark(s.ts_s, "deixis") for s in segments if _DEIXIS_RE.search(s.text)]
@@ -68,7 +83,7 @@ def level_marks(segments: list[TranscriptSegment]) -> list[FrameMark]:
     return [
         _mark(s.ts_s, "level")
         for s in segments
-        if _SYMBOL_RE.search(s.text) and _NUMBER_RE.search(s.text)
+        if _SYMBOL_RE.search(s.text) and _has_price(s.text)
     ]
 
 

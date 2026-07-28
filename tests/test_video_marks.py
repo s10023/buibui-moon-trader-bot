@@ -82,3 +82,34 @@ def test_select_never_exceeds_frame_cap_by_default() -> None:
     segments = [seg(float(i * 5), "taking a long here") for i in range(200)]
     marks = select(segments, item_ts=[], duration_s=1000.0)
     assert len(marks) <= FRAME_CAP
+
+
+def test_level_marks_ignores_link_in_the_description() -> None:
+    segments = [seg(10.0, "link in the description, I've been trading 15 years")]
+    assert level_marks(segments) == []
+
+
+def test_level_marks_ignores_small_counts() -> None:
+    segments = [seg(10.0, "here are my top 3 setups for BTC")]
+    assert level_marks(segments) == []
+
+
+def test_level_marks_ignores_bare_years() -> None:
+    segments = [seg(10.0, "ETH did this back in 2021")]
+    assert level_marks(segments) == []
+
+
+def test_level_marks_accepts_price_shapes() -> None:
+    cases = [
+        "BTC at 62400",
+        "ETH 2,980",
+        "SOL 138.5",
+        "BTC 62.4k",
+        "shorting BTC at 63.8",
+    ]
+    for text in cases:
+        assert level_marks([seg(10.0, text)]) != [], text
+
+
+def test_level_marks_still_needs_a_symbol() -> None:
+    assert level_marks([seg(10.0, "it printed 62400 on the hourly")]) == []
