@@ -5,15 +5,21 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 
 from tools.video_fetch import (
+    GROQ_MAX_BYTES,
     Unavailable,
     VideoMeta,
     fetch_meta,
+    fetch_transcript,
     parse_video_url,
+    parse_vtt,
+    split_audio,
 )
+from tools.video_marks import TranscriptSegment
 
 YT_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 X_URL = "https://x.com/someone/status/1234567890"
@@ -111,3 +117,138 @@ def test_fetch_meta_bool_timestamp_treated_as_absent() -> None:
     meta = fetch_meta(YT_URL, run=make_run(FakeProc(0, payload)))
     assert isinstance(meta, VideoMeta)
     assert meta.publish_ts_utc == ""
+
+
+VTT = """WEBVTT
+
+00:00:04.000 --> 00:00:07.000
+大盘很安静
+
+00:00:10.500 --> 00:00:13.000
+我在这里做多
+"""
+
+
+def test_parse_vtt_maps_cues_to_segments() -> None:
+    segments = parse_vtt(VTT, lang="zh")
+    assert segments == [
+        TranscriptSegment(ts_s=4.0, text="大盘很安静", lang="zh"),
+        TranscriptSegment(ts_s=10.5, text="我在这里做多", lang="zh"),
+    ]
+
+
+def test_parse_vtt_ignores_header_and_blank_lines() -> None:
+    assert parse_vtt("WEBVTT\n\n\n", lang="en") == []
+
+
+def _meta() -> VideoMeta:
+    return VideoMeta(
+        source="youtube",
+        video_id="dQw4w9WgXcQ",
+        author="@cryptoTrader",
+        title="BTC weekly outlook",
+        publish_ts_utc="2026-07-28T14:00:00+00:00",
+        duration_s=2280.0,
+        lang="zh",
+        url=YT_URL,
+    )
+
+
+def test_fetch_transcript_prefers_captions(tmp_path: Path) -> None:
+    captured: list[list[str]] = []
+
+    def _run(cmd: list[str]) -> FakeProc:
+        captured.append(cmd)
+        (tmp_path / "sub.zh.vtt").write_text(VTT)
+        return FakeProc(0, "")
+
+    segments = fetch_transcript(_meta(), run=_run, work_dir=tmp_path)
+    assert isinstance(segments, list)
+    assert segments[1].text == "我在这里做多"
+    assert not any("whisper" in " ".join(c) for c in captured)
+
+
+def test_fetch_transcript_unavailable_without_captions_or_key(tmp_path: Path) -> None:
+    got = fetch_transcript(_meta(), run=make_run(FakeProc(0, "")), work_dir=tmp_path)
+    assert isinstance(got, Unavailable)
+    assert "no captions" in got.reason.lower()
+
+
+def test_split_audio_returns_single_chunk_when_small(tmp_path: Path) -> None:
+    audio = tmp_path / "a.opus"
+    audio.write_bytes(b"x" * 1024)
+    chunks = split_audio(audio, 600.0, run=make_run(FakeProc(0)))
+    assert chunks == [(audio, 0.0)]
+
+
+def test_split_audio_splits_oversized_and_carries_offsets(tmp_path: Path) -> None:
+    audio = tmp_path / "a.opus"
+    audio.write_bytes(b"x" * (GROQ_MAX_BYTES * 2 + 1))
+    calls: list[list[str]] = []
+
+    def _run(cmd: list[str]) -> FakeProc:
+        calls.append(cmd)
+        return FakeProc(0)
+
+    chunks = split_audio(audio, 900.0, run=_run)
+    assert len(chunks) == 3
+    assert [round(offset, 1) for _, offset in chunks] == [0.0, 300.0, 600.0]
+    assert all(c[0] == "ffmpeg" for c in calls)
+
+
+def test_split_audio_drops_chunks_ffmpeg_failed_on(tmp_path: Path) -> None:
+    audio = tmp_path / "a.opus"
+    audio.write_bytes(b"x" * (GROQ_MAX_BYTES * 2 + 1))
+    chunks = split_audio(audio, 900.0, run=make_run(FakeProc(1)))
+    assert chunks == []
+
+
+# ---------------------------------------------------------------------------
+# Self-review regression: fetch_transcript must degrade, not raise (see
+# "Correctness notes" in the task-4 brief) even when Groq's own response is
+# malformed — a later task calls this inside a batch loop that must survive
+# one bad video.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class FakeHttpResp:
+    status_code: int
+    text: str = ""
+
+
+def test_fetch_transcript_groq_skips_malformed_segments_without_raising(
+    tmp_path: Path,
+) -> None:
+    def _run(cmd: list[str]) -> FakeProc:
+        if "-x" in cmd:  # the audio-extraction yt-dlp call
+            out = Path(cmd[cmd.index("-o") + 1])
+            out.write_bytes(b"x" * 1024)
+        return FakeProc(0, "")
+
+    payload = json.dumps(
+        {
+            "language": "en",
+            "segments": [
+                {"start": 1.0, "text": "good segment"},
+                {"start": "not-a-number", "text": "non-numeric start"},
+                {"text": "missing start key entirely"},
+                {"start": 2.0},
+                {"start": 3.0, "text": "   "},
+            ],
+        }
+    )
+
+    def _get(
+        url: str,
+        *,
+        headers: dict[str, str],
+        files: dict[str, object],
+        data: dict[str, str],
+    ) -> FakeHttpResp:
+        return FakeHttpResp(200, payload)
+
+    segments = fetch_transcript(
+        _meta(), run=_run, get=_get, groq_key="fake-key", work_dir=tmp_path
+    )
+    assert segments == [TranscriptSegment(ts_s=1.0, text="good segment", lang="en")]
