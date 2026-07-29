@@ -39,12 +39,13 @@ every URL the user pasted, then run the flow once over the whole set.
 ### 1. Fetch the whole batch in ONE call
 
 ```bash
-PYTHONPATH=. poetry run python tools/video_fetch.py <url1> <url2> … --batch --json
+PYTHONPATH=. poetry run python tools/video_fetch.py <url1> <url2> … --json
 ```
 
-Always use `--batch` even for one URL, so cache/cooldown behaviour is uniform. Output is
-a JSON **array**, one element per URL **in the position it was requested** (`url` on each
-element is that position's URL, correct even on a cache hit — do not assume array order
+`tools/video_fetch.py` always batches (unlike `tools/x_fetch.py`, it has no separate
+single-URL path, so there is no `--batch` flag to pass). Output is a JSON **array**,
+one element per URL **in the position it was requested** (`url` on each element is
+that position's URL, correct even on a cache hit — do not assume array order
 otherwise). Per element:
 
 - `url` — the URL actually requested at this position
@@ -124,7 +125,12 @@ PYTHONPATH=. poetry run python tools/video_calltime.py \
 - Pass `--date-only` only when `stated_date_only` was `true`.
 - `--stated-raw` is always passed (an empty string is fine).
 - `--ingested` is the current UTC time, e.g. `` $(date -u +%Y-%m-%dT%H:%M:%SZ) `` —
-  needed so the tool can also compute `backlog`.
+  needed so the tool can also compute `backlog`. **Capture this one value per batch and
+  reuse it verbatim** everywhere `ingested_ts_utc` is written later (the Stream C line
+  in step 8, the per-video note frontmatter in step 9) — do not call `date -u` again at
+  those points; two separate calls could disagree by however long the batch took to
+  process, and the field exists to say when THIS pipeline saw the video, not to be
+  re-timestamped per write site.
 - **If `meta.publish_ts_utc` is an empty string** (yt-dlp returned no timestamp field —
   rare, but possible), `video_calltime.py` raises `ValueError` rather than guessing.
   Treat that video as call-time-unresolvable and skip it with a health note; do not pass
@@ -151,7 +157,12 @@ exactly the look-ahead defect this tool exists to prevent (see Guardrails).
 There is no CLI for this — `video_marks.select` and `video_fetch.extract_frames` are
 library calls. Per shape-3 video: write its `meta` dict, `segments` array, and the kept
 items' `ts` values (from step 3's top-`ITEM_CAP` candidates) to a scratch file with the
-Write tool, then run:
+Write tool at `.cache/video/<meta.video_id>/marks_input.json` — concretely, for a video
+whose `meta.video_id` is `dQw4w9WgXcQ`, the scratch file is
+`.cache/video/dQw4w9WgXcQ/marks_input.json`. Then run (there is exactly ONE
+`<video_id>` placeholder to substitute below, in the `Path(...).read_text()` line — for
+that same example it becomes
+`Path(".cache/video/dQw4w9WgXcQ/marks_input.json")`):
 
 ```bash
 PYTHONPATH=. poetry run python - <<'PY'
@@ -306,6 +317,13 @@ import — do not fork it) and append per this table, identical to `/ingest-x`:
 
 Create the sink file with a one-line header if it does not exist. Report a one-line
 result per item (routed → which file, or dropped → verdict).
+
+**Stream C requires a real `symbol` — never route a `setup` item with `symbol: null` or
+`symbol: ""` to `pundit-calls.jsonl`.** `tools/pundit_score.py` has no null check of its
+own; it would read the literal string `"None"` as a symbol and pollute the scored
+ledger. If pass 2 could not resolve a symbol for a `setup` item, treat it as a dropped
+candidate instead (reason: "no symbol resolved") in the digest and the per-video note,
+not a Stream C write.
 
 **Before appending a `claim`, grep the target sink for the gist first** — see Guardrails
 on the inherited dedup gap.

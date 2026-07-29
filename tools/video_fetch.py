@@ -498,11 +498,16 @@ def _load_cached(cache_dir: Path, video_id: str) -> BatchResult | None:
         return None
     try:
         data = json.loads(path.read_text())
+        # A cached frame_paths entry can point at a JPEG deleted since it was
+        # written (extract_frames now downloads real media and can be re-run with
+        # a pruned .cache/); a stale path here would silently send pass 2 to a
+        # nonexistent file, so drop anything that no longer exists on disk.
+        frame_paths = [p for p in data.get("frame_paths", []) if Path(p).exists()]
         return BatchResult(
             url=data["url"],
             meta=VideoMeta(**data["meta"]),
             segments=[TranscriptSegment(**s) for s in data["segments"]],
-            frame_paths=list(data.get("frame_paths", [])),
+            frame_paths=frame_paths,
             cached=True,
         )
     except (json.JSONDecodeError, KeyError, TypeError):
@@ -630,7 +635,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("urls", nargs="+", help="one or more YouTube / X video URLs")
     parser.add_argument("--json", action="store_true", help="emit JSON")
-    parser.add_argument("--batch", action="store_true", help="force batch mode")
     parser.add_argument("--force", action="store_true", help="ignore the dedup cache")
     parser.add_argument("--min-delay", type=float, default=4.0)
     parser.add_argument("--max-delay", type=float, default=12.0)

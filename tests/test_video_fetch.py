@@ -6,7 +6,7 @@ import json
 import random
 import subprocess
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -16,6 +16,7 @@ from tools.video_fetch import (
     GROQ_MAX_BYTES,
     Unavailable,
     VideoMeta,
+    _load_cached,
     _result_to_dict,
     extract_frames,
     fetch_meta,
@@ -682,6 +683,37 @@ def test_result_to_dict_surfaces_transcript_error_as_unavailable(
 # operator's key silently never reaches the Groq fallback, and the resulting
 # "no GROQ_API_KEY configured" error misdirects (key is present, just unread).
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Deferred-list item (final review, 2026-07-28): now that extract_frames
+# downloads real media and produces real JPEGs, a cache hit whose frames were
+# since deleted (e.g. a pruned .cache/) must not send pass 2 to nonexistent
+# files.
+# ---------------------------------------------------------------------------
+
+
+def test_load_cached_drops_frame_paths_pointing_at_deleted_files(
+    tmp_path: Path,
+) -> None:
+    video_id = "dQw4w9WgXcQ"
+    asset_dir = tmp_path / video_id
+    asset_dir.mkdir(parents=True)
+    existing_frame = asset_dir / "f_0020.jpg"
+    existing_frame.write_bytes(b"jpeg")
+    missing_frame = asset_dir / "f_0090.jpg"  # never written
+    payload = {
+        "url": YT_URL,
+        "meta": asdict(_meta()),
+        "segments": [],
+        "frame_paths": [str(existing_frame), str(missing_frame)],
+        "fetched_at_utc": "2026-07-28T00:00:00+00:00",
+    }
+    (asset_dir / "asset.json").write_text(json.dumps(payload))
+
+    cached = _load_cached(tmp_path, video_id)
+    assert cached is not None
+    assert cached.frame_paths == [str(existing_frame)]
 
 
 def test_main_loads_dotenv_before_reading_the_key(
