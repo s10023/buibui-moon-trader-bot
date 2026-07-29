@@ -188,7 +188,7 @@ with zero routable candidates can still produce frames via those triggers or the
 
 Dispatch whenever `frame_paths` from step 5 is non-empty — independent of whether step 3
 found any candidates (see note above). A video whose selection produced zero frames
-skips pass 2 entirely: treat every kept item from pass 1 as `confidence: "low"`,
+skips pass 2 entirely: treat every kept item from pass 1 as `vision_confidence: "low"`,
 `frame_path: null`, and record `chart_present: false` for that video in the digest and
 note, with no subagent dispatch.
 
@@ -216,7 +216,7 @@ SoT, or memory file. Instruct it to return ONLY this JSON:
       "content_type": "claim | setup | mechanic",
       "verdict": "NOVEL | ALREADY-TESTED | FROZEN-CATEGORY | NOT-FALSIFIABLE",
       "gap_note": "one line: implied primitive + does the system already have/test/freeze it?",
-      "confidence": "high | medium | low",
+      "vision_confidence": "high | medium | low",
       "corrected_from": "the transcript's original value, or empty"
     }
   ]
@@ -230,33 +230,36 @@ Rules for the subagent:
   the transcript's original claim in `corrected_from`. When nothing was corrected, leave
   `corrected_from` empty.
 - Anything the frames do **not** visually corroborate (no frame near that `ts`, or the
-  nearest frame doesn't show what was said) gets `confidence: "low"`. Reserve `"high"`
-  for a frame that directly confirms the claim; `"medium"` for partial/ambiguous support.
+  nearest frame doesn't show what was said) gets `vision_confidence: "low"`. Reserve
+  `"high"` for a frame that directly confirms the claim; `"medium"` for
+  partial/ambiguous support.
 - `raw_quote` stays in the transcript's original language (Chinese stays Chinese);
   `raw_quote_en` is always English (identical to `raw_quote` when the source is already
   English).
 - `verdict` applies only when `content_type = claim`; for `setup`/`mechanic` default it
   to `NOVEL` (non-blocking — routing uses `content_type` for those, same as `/ingest-x`).
 - `chart_present: false` when no frame in this video shows a chart at all (pure
-  talking-head) — still emit `items` from the transcript alone, all `confidence: "low"`,
-  `frame_path: null`.
+  talking-head) — still emit `items` from the transcript alone, all
+  `vision_confidence: "low"`, `frame_path: null`.
 
-**Name collision, deliberate — read this before touching the ledger writer.** This
-item-level `confidence` (high/medium/low, pass 2's visual-corroboration rating) reuses
-the same JSON key as `/ingest-x`'s Stream C ledger `confidence` field, which there means
-"verbatim hedging phrase, or empty." For a video-sourced ledger line, `confidence`
-carries the visual-corroboration meaning instead. `tools/pundit_score.py` treats the
-field as opaque free text in both cases (nothing in it parses or scores on `confidence`),
-so this is safe — but it is a real, deliberate meaning-shift by source, not an oversight.
-Do not "fix" it later by writing a hedging phrase for video-sourced calls.
+**`confidence` vs `vision_confidence` — never merge these, they mean different things.**
+`confidence` means the same thing across **every** source already in
+`docs/plans/pundit-calls.jsonl`: the pundit's verbatim hedging phrase, or empty. This
+pipeline does not extract that from a video (pass 2's contract is a visual-corroboration
+read, not a hedging-language read — see the next step's Stream C schema for how the two
+fields coexist without colliding). `vision_confidence` is **video-only** and records
+whether pass 2 could visually corroborate the item against a frame — a property no other
+source in the ledger has or needs. Keeping them as separate columns means a future
+`GROUP BY confidence` (or any other query over the hedging-language column) stays honest
+across every source, instead of silently mixing two incompatible populations.
 
 ### 7. ONE consolidated digest for the whole batch
 
 Print a single table — one row per kept item across every video: video (title) · author ·
 `call_ts_utc` (`call_ts_source`) · `ts` · `content_type` · `verdict` · proposed routing ·
-`confidence`. Below the table, per video: the pass-1 `summary`, the dropped candidates
-with their reasons, the `chart_present` flag, and `backlog` when `true`. List any shape-1
-/ shape-2 videos separately with their skip reason. **Write nothing yet.**
+`vision_confidence`. Below the table, per video: the pass-1 `summary`, the dropped
+candidates with their reasons, the `chart_present` flag, and `backlog` when `true`. List
+any shape-1 / shape-2 videos separately with their skip reason. **Write nothing yet.**
 
 ### 8. Route on a single approval
 
@@ -297,11 +300,15 @@ URL).
 **Stream C line** (`pundit-calls.jsonl`, one JSON line, extends the `/ingest-x` schema):
 
 ```json
-{"source":"youtube","author":"<handle>","url":"<url, with the deep link above for youtube>","ts":252.0,"call_ts_utc":"<resolved call time>","call_ts_source":"stated|publish","publish_ts_utc":"<publish time>","stated_ts_raw":"<verbatim quote or empty>","ingested_ts_utc":"<now>","backlog":false,"symbol":"...","direction":"...","entry":"...","stop":"...","target":"...","horizon":"...","confidence":"high|medium|low","raw_quote":"<original language>","raw_quote_en":"<english>","corrected_from":"<transcript's original value, or empty>"}
+{"source":"youtube","author":"<handle>","url":"<url, with the deep link above for youtube>","ts":252.0,"call_ts_utc":"<resolved call time>","call_ts_source":"stated|publish","publish_ts_utc":"<publish time>","stated_ts_raw":"<verbatim quote or empty>","ingested_ts_utc":"<now>","backlog":false,"symbol":"...","direction":"...","entry":"...","stop":"...","target":"...","horizon":"...","confidence":"","vision_confidence":"high|medium|low","raw_quote":"<original language>","raw_quote_en":"<english>","corrected_from":"<transcript's original value, or empty>"}
 ```
 
 `source` is `youtube` or `x-video` (from `meta.source`, verbatim — `tools/video_fetch.py`
-already resolves this).
+already resolves this). **`confidence` is always written as an empty string for a video
+row.** It keeps its `/ingest-x` meaning (the pundit's verbatim hedging phrase) — this
+pipeline does not currently extract that from a video, so the honest value is "not
+collected," not a repurposed visual-corroboration score. `vision_confidence` carries pass
+2's high/medium/low rating instead; see the "never merge these" note in step 6.
 
 ### 9. Write the per-video note
 
@@ -324,8 +331,8 @@ Contents:
   `publish_ts_utc`, `call_ts_utc`, `call_ts_source`, `stated_ts_raw`, `ingested_ts_utc`,
   `backlog`, `chart_present`
 - the pass-1 `summary`
-- an items table: `ts` · `content_type` · `verdict` · routing outcome · `confidence` ·
-  `frame_path`
+- an items table: `ts` · `content_type` · `verdict` · routing outcome ·
+  `vision_confidence` · `frame_path`
 - the dropped candidates, with reasons
 - frame references (path + `ts` for every extracted frame, including ones that produced
   no routed item — that's how you learn the sampling triggers are working)
