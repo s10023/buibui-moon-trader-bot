@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Protocol
 
 import requests
+from dotenv import load_dotenv
 
 from tools.video_marks import FrameMark, TranscriptSegment
 
@@ -496,6 +497,7 @@ def _requests_post(
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_dotenv()
     parser = argparse.ArgumentParser(
         description="Fetch video metadata + transcript for /ingest-video (read-only)."
     )

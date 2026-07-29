@@ -19,6 +19,7 @@ from tools.video_fetch import (
     fetch_meta,
     fetch_transcript,
     fetch_video_batch,
+    main,
     parse_video_url,
     parse_vtt,
     split_audio,
@@ -435,3 +436,22 @@ def test_result_to_dict_surfaces_transcript_error_as_unavailable(
     payload = _result_to_dict(results[0])
     assert payload["unavailable"]
     assert payload["meta"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Fix round 2: main() must load .env before reading GROQ_API_KEY, or the
+# operator's key silently never reaches the Groq fallback, and the resulting
+# "no GROQ_API_KEY configured" error misdirects (key is present, just unread).
+# ---------------------------------------------------------------------------
+
+
+def test_main_loads_dotenv_before_reading_the_key(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    called: list[bool] = []
+    monkeypatch.setattr(
+        "tools.video_fetch.load_dotenv", lambda *a, **k: called.append(True)
+    )
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    main(["https://example.com/not-a-video", "--json", "--cache-dir", str(tmp_path)])
+    assert called == [True]
