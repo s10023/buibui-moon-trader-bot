@@ -14,6 +14,7 @@ from tools.video_fetch import (
     GROQ_MAX_BYTES,
     Unavailable,
     VideoMeta,
+    _result_to_dict,
     extract_frames,
     fetch_meta,
     fetch_transcript,
@@ -392,3 +393,45 @@ def test_batch_isolates_one_bad_video(tmp_path: Path) -> None:
     )
     assert isinstance(results[0].meta, Unavailable)
     assert isinstance(results[1].meta, VideoMeta)
+
+
+# ---------------------------------------------------------------------------
+# Fix round 1: cache-hit URL must be the URL actually requested at that
+# position (not whichever URL first populated the video_id), and a
+# transcript-only failure must not discard the already-fetched VideoMeta.
+# ---------------------------------------------------------------------------
+
+
+def test_cache_hit_returns_the_url_actually_requested(tmp_path: Path) -> None:
+    run = make_ytdlp_run()
+    fetch_video_batch(["https://youtu.be/dQw4w9WgXcQ"], cache_dir=tmp_path, run=run)
+    results = fetch_video_batch([YT_URL], cache_dir=tmp_path, run=run)
+    assert results[0].cached is True
+    assert results[0].url == YT_URL
+
+
+def test_transcript_failure_keeps_meta_and_reports_separately(tmp_path: Path) -> None:
+    def _run(cmd: list[str]) -> FakeProc:
+        if "--dump-json" in cmd:
+            return FakeProc(0, YTDLP_JSON)
+        return FakeProc(0)  # no captions written, no groq key configured
+
+    results = fetch_video_batch([YT_URL], cache_dir=tmp_path, run=_run)
+    assert isinstance(results[0].meta, VideoMeta)
+    assert results[0].meta.author == "@cryptoTrader"
+    assert results[0].transcript_error != ""
+    assert results[0].segments == []
+
+
+def test_result_to_dict_surfaces_transcript_error_as_unavailable(
+    tmp_path: Path,
+) -> None:
+    def _run(cmd: list[str]) -> FakeProc:
+        if "--dump-json" in cmd:
+            return FakeProc(0, YTDLP_JSON)
+        return FakeProc(0)
+
+    results = fetch_video_batch([YT_URL], cache_dir=tmp_path, run=_run)
+    payload = _result_to_dict(results[0])
+    assert payload["unavailable"]
+    assert payload["meta"] is not None

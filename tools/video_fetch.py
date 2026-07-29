@@ -16,7 +16,7 @@ import re
 import subprocess
 import time
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
@@ -359,6 +359,9 @@ class BatchResult:
     segments: list[TranscriptSegment] = field(default_factory=list)
     frame_paths: list[str] = field(default_factory=list)
     cached: bool = False
+    # Non-empty only when `meta` holds a real VideoMeta but the transcript itself
+    # could not be produced — distinct from `meta` being Unavailable (video unreachable).
+    transcript_error: str = ""
 
 
 def _cache_file(cache_dir: Path, video_id: str) -> Path:
@@ -428,7 +431,7 @@ def fetch_video_batch(
         if not force:
             cached = _load_cached(cache_dir, video_id)
             if cached is not None:
-                results.append(cached)
+                results.append(replace(cached, url=url))
                 continue
         if did_network:
             sleep(rng.uniform(min_delay, max_delay))
@@ -446,7 +449,9 @@ def fetch_video_batch(
                 work_dir=cache_dir / video_id,
             )
             if isinstance(segments, Unavailable):
-                results.append(BatchResult(url=url, meta=segments))
+                results.append(
+                    BatchResult(url=url, meta=meta, transcript_error=segments.reason)
+                )
                 continue
             result = BatchResult(url=url, meta=meta, segments=segments)
             _write_cache(cache_dir, result, meta)
@@ -470,7 +475,7 @@ def _result_to_dict(result: BatchResult) -> dict[str, object]:
         **base,
         "meta": asdict(result.meta),
         "segments": [asdict(s) for s in result.segments],
-        "unavailable": None,
+        "unavailable": result.transcript_error or None,
     }
 
 
@@ -522,6 +527,11 @@ def main(argv: list[str] | None = None) -> int:
         for r in results:
             if isinstance(r.meta, Unavailable):
                 print(f"UNAVAILABLE ({r.meta.reason}): {r.url}")
+            elif r.transcript_error:
+                print(
+                    f"{r.meta.author}  {r.meta.title}  "
+                    f"TRANSCRIPT UNAVAILABLE ({r.transcript_error})"
+                )
             else:
                 tag = " [cached]" if r.cached else ""
                 print(
