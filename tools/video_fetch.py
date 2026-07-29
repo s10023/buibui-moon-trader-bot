@@ -71,6 +71,47 @@ def parse_video_url(url: str) -> tuple[str, str]:
     raise ValueError(f"not a supported video URL: {url!r}")
 
 
+def _numeric_ts(value: object) -> float | None:
+    """A usable epoch-seconds field: int/float, explicitly not bool (bool is an int
+    subclass, and `timestamp: true` in yt-dlp JSON must be treated as absent, not 1)."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return None
+
+
+def _resolve_publish_ts(data: dict[str, object]) -> str | Unavailable:
+    """`max(timestamp, release_timestamp)` when both are usable — for a premiere,
+    `timestamp` is upload time and `release_timestamp` is when it actually went
+    public; taking the earlier value makes the publish upper bound too early, which
+    is the look-ahead-permitting direction for `video_calltime.py`'s bound. Falls
+    back to `upload_date` (YYYYMMDD) at end-of-day UTC — the same conservative
+    end-of-day convention `video_calltime.py` already uses for date-only stated
+    times — only when neither numeric field is usable; otherwise `""`.
+    """
+    candidates = [
+        t
+        for t in (
+            _numeric_ts(data.get("timestamp")),
+            _numeric_ts(data.get("release_timestamp")),
+        )
+        if t is not None
+    ]
+    if candidates:
+        chosen = max(candidates)
+        try:
+            return datetime.fromtimestamp(chosen, UTC).isoformat()
+        except (OverflowError, OSError, ValueError):
+            return Unavailable(f"unusable timestamp in yt-dlp JSON: {chosen!r}")
+    upload_date = data.get("upload_date")
+    if isinstance(upload_date, str) and upload_date:
+        try:
+            day = datetime.strptime(upload_date, "%Y%m%d").replace(tzinfo=UTC)
+        except ValueError:
+            return ""
+        return day.replace(hour=23, minute=59, second=59).isoformat()
+    return ""
+
+
 def fetch_meta(url: str, *, run: RunProc = _subprocess_run) -> VideoMeta | Unavailable:
     source, video_id = parse_video_url(url)
     proc = run(["yt-dlp", "--dump-json", "--no-warnings", "--skip-download", url])
@@ -82,13 +123,9 @@ def fetch_meta(url: str, *, run: RunProc = _subprocess_run) -> VideoMeta | Unava
         return Unavailable("yt-dlp returned non-JSON output")
     if not isinstance(data, dict):
         return Unavailable("yt-dlp returned unexpected JSON shape")
-    timestamp = data.get("timestamp")
-    publish = ""
-    if isinstance(timestamp, (int, float)) and not isinstance(timestamp, bool):
-        try:
-            publish = datetime.fromtimestamp(float(timestamp), UTC).isoformat()
-        except (OverflowError, OSError, ValueError):
-            return Unavailable(f"unusable timestamp in yt-dlp JSON: {timestamp!r}")
+    publish = _resolve_publish_ts(data)
+    if isinstance(publish, Unavailable):
+        return publish
     try:
         duration = float(data.get("duration") or 0.0)
     except (TypeError, ValueError):
@@ -543,7 +580,11 @@ def fetch_video_batch(
             result = BatchResult(url=url, meta=meta, segments=segments)
             _write_cache(cache_dir, result, meta)
             results.append(result)
-        except OSError as exc:  # one bad video never kills the batch
+        except (OSError, subprocess.SubprocessError) as exc:
+            # one bad video never kills the batch. subprocess.TimeoutExpired
+            # subclasses SubprocessError, not OSError — _subprocess_run sets
+            # timeout=600, so a hung yt-dlp/ffmpeg call must be caught here too,
+            # not just a plain OSError.
             results.append(
                 BatchResult(url=url, meta=Unavailable(f"{type(exc).__name__}: {exc}"))
             )

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import random
+import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -120,6 +122,60 @@ def test_fetch_meta_missing_timestamp_yields_empty_string_not_now() -> None:
 def test_fetch_meta_bool_timestamp_treated_as_absent() -> None:
     payload = json.dumps({**json.loads(YTDLP_JSON), "timestamp": True})
     meta = fetch_meta(YT_URL, run=make_run(FakeProc(0, payload)))
+    assert isinstance(meta, VideoMeta)
+    assert meta.publish_ts_utc == ""
+
+
+# ---------------------------------------------------------------------------
+# I2 (final review, 2026-07-28): a premiere's `timestamp` is upload time and
+# `release_timestamp` is when it actually went public. Taking the earlier value
+# makes the publish upper bound too early — the look-ahead-permitting direction
+# for video_calltime.py's stated-time bound — so the LATER of the two wins.
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_meta_release_timestamp_later_than_timestamp_wins() -> None:
+    raw = json.loads(YTDLP_JSON)
+    raw["timestamp"] = 1785247200
+    raw["release_timestamp"] = 1785247200 + 3600  # premiere went live an hour later
+    meta = fetch_meta(YT_URL, run=make_run(FakeProc(0, json.dumps(raw))))
+    assert isinstance(meta, VideoMeta)
+    expected = datetime.fromtimestamp(raw["release_timestamp"], UTC).isoformat()
+    assert meta.publish_ts_utc == expected
+
+
+def test_fetch_meta_release_timestamp_earlier_than_timestamp_loses() -> None:
+    raw = json.loads(YTDLP_JSON)
+    raw["timestamp"] = 1785247200
+    raw["release_timestamp"] = 1785247200 - 3600
+    meta = fetch_meta(YT_URL, run=make_run(FakeProc(0, json.dumps(raw))))
+    assert isinstance(meta, VideoMeta)
+    expected = datetime.fromtimestamp(raw["timestamp"], UTC).isoformat()
+    assert meta.publish_ts_utc == expected
+
+
+def test_fetch_meta_bool_release_timestamp_treated_as_absent() -> None:
+    raw = json.loads(YTDLP_JSON)
+    del raw["timestamp"]
+    raw["release_timestamp"] = True
+    meta = fetch_meta(YT_URL, run=make_run(FakeProc(0, json.dumps(raw))))
+    assert isinstance(meta, VideoMeta)
+    assert meta.publish_ts_utc == ""
+
+
+def test_fetch_meta_falls_back_to_upload_date_end_of_day() -> None:
+    raw = json.loads(YTDLP_JSON)
+    del raw["timestamp"]
+    raw["upload_date"] = "20260714"
+    meta = fetch_meta(YT_URL, run=make_run(FakeProc(0, json.dumps(raw))))
+    assert isinstance(meta, VideoMeta)
+    assert meta.publish_ts_utc == "2026-07-14T23:59:59+00:00"
+
+
+def test_fetch_meta_no_timestamp_fields_at_all_yields_empty_string() -> None:
+    raw = json.loads(YTDLP_JSON)
+    del raw["timestamp"]
+    meta = fetch_meta(YT_URL, run=make_run(FakeProc(0, json.dumps(raw))))
     assert isinstance(meta, VideoMeta)
     assert meta.publish_ts_utc == ""
 
@@ -553,6 +609,27 @@ def test_batch_isolates_one_bad_video(tmp_path: Path) -> None:
         ["https://youtu.be/BBBBBBBBBBB", YT_URL],
         cache_dir=tmp_path,
         run=make_ytdlp_run(fail_substr="BBBBBBBBBBB"),
+    )
+    assert isinstance(results[0].meta, Unavailable)
+    assert isinstance(results[1].meta, VideoMeta)
+
+
+# ---------------------------------------------------------------------------
+# I1 (final review, 2026-07-28): _subprocess_run sets timeout=600, and
+# subprocess.TimeoutExpired subclasses SubprocessError, not OSError — the old
+# `except OSError` let one hung yt-dlp abort the whole batch with a traceback,
+# contradicting "one bad video never kills the batch".
+# ---------------------------------------------------------------------------
+
+
+def test_batch_survives_a_hung_subprocess_timeout(tmp_path: Path) -> None:
+    def _run(cmd: list[str]) -> FakeProc:
+        if "CCCCCCCCCCC" in " ".join(cmd):
+            raise subprocess.TimeoutExpired(cmd, 600)
+        return make_ytdlp_run()(cmd)
+
+    results = fetch_video_batch(
+        ["https://youtu.be/CCCCCCCCCCC", YT_URL], cache_dir=tmp_path, run=_run
     )
     assert isinstance(results[0].meta, Unavailable)
     assert isinstance(results[1].meta, VideoMeta)

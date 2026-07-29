@@ -281,6 +281,16 @@ Print a single table — one row per kept item across every video: video (title)
 candidates with their reasons, the `chart_present` flag, and `backlog` when `true`. List
 any shape-1 / shape-2 videos separately with their skip reason. **Write nothing yet.**
 
+**For any video where `call_ts_source == "stated"`, also print `stated_ts_raw`,
+`publish_ts_utc`, and the delta between the stated and publish times (e.g. "stated
+2026-07-14T08:00:00+08:00 vs publish 2026-07-14T22:10:00+00:00, Δ14h").** A stated time
+can move `call_ts_utc` up to `STATED_TS_MAX_LEAD_H` (168h) earlier than publish, and this
+digest — specifically the human looking at it — is the only runtime control on that
+input; `call_ts_utc (call_ts_source)` alone does not show the approver the quote that
+justified the shift, so they cannot judge it. Showing the raw quote and the gap is what
+lets the approver reject a fabricated or implausible timestamp before it reaches the
+ledger.
+
 ### 8. Route on a single approval
 
 After the user approves the batch, for each item compute the destination with

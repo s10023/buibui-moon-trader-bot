@@ -74,7 +74,7 @@ URL → `VideoAsset`. Deterministic, no LLM calls.
 ### `tools/video_marks.py` — frame selection
 
 Pure, no I/O.
-`select(segments, pass1_marks, *, cap=FRAME_CAP, window_s=DEDUP_WINDOW_S, sample_s=SAFETY_SAMPLE_S) -> list[FrameMark]`.
+`select(segments, item_ts, duration_s, *, cap=FRAME_CAP, window_s=DEDUP_WINDOW_S, sample_s=SAFETY_SAMPLE_S) -> list[FrameMark]`.
 
 This is the novel unit and the reason `claude-video` is not adopted. Three trigger classes:
 
@@ -136,7 +136,7 @@ The `/ingest-x` fields are unchanged. Four are added:
 | --- | --- |
 | `ts` | offset in the video, seconds |
 | `frame_path` | local frame for this item, or null |
-| `confidence` | `high` / `medium` / `low` — low when pass 2 could not corroborate visually |
+| `vision_confidence` | `high` / `medium` / `low` — low when pass 2 could not corroborate visually. Distinct from `confidence` (the pundit's verbatim hedging phrase, unchanged from `/ingest-x`) — `confidence` is retained on video rows but always written empty, since this pipeline does not extract hedging language from a video |
 | `raw_quote_en` | English translation; `raw_quote` stays in the original language |
 
 Where pass 2 reads a number off the chart that contradicts the transcript, the chart wins and the
@@ -147,7 +147,7 @@ item records `corrected_from`.
 Matches the existing pundit-call schema, with the video additions:
 
 ```json
-{"source":"youtube","author":"<handle>","url":"<url>&t=<ts>s","call_ts_utc":"<resolved call time>","call_ts_source":"stated|publish","publish_ts_utc":"<publish time>","stated_ts_raw":"<verbatim quote or empty>","ingested_ts_utc":"<now>","backlog":false,"symbol":"...","direction":"...","entry":"...","stop":"...","target":"...","horizon":"...","confidence":"...","raw_quote":"<original language>","raw_quote_en":"<english>"}
+{"source":"youtube","author":"<handle>","url":"<url>&t=<ts>s","ts":252.0,"call_ts_utc":"<resolved call time>","call_ts_source":"stated|publish","publish_ts_utc":"<publish time>","stated_ts_raw":"<verbatim quote or empty>","ingested_ts_utc":"<now>","backlog":false,"symbol":"...","direction":"...","entry":"...","stop":"...","target":"...","horizon":"...","confidence":"","vision_confidence":"high|medium|low","raw_quote":"<original language>","raw_quote_en":"<english>"}
 ```
 
 `source` is `youtube` or `x-video`. The URL carries a timestamp deep link so a scored call points
@@ -237,8 +237,8 @@ claim passes the human digest. Three cheap layers instead of one expensive one:
 1. A domain vocabulary hint passed to ASR (FVG, OTE, liquidity sweep, BOS, ticker names) fixes
    most jargon mangling at the source.
 2. Frames are ground truth: pass 2 corrects transcript numbers against the chart it is reading.
-3. Anything pass 2 cannot corroborate visually is flagged `confidence: low` rather than silently
-   repaired.
+3. Anything pass 2 cannot corroborate visually is flagged `vision_confidence: low` rather than
+   silently repaired.
 
 ## Failure modes
 
