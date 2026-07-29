@@ -44,6 +44,20 @@ A tactical crypto trading bot designed for fast, risk-managed, and confident ent
 
 - `buibui card SYMBOL` — AI trade card (F2): feeds the brief panel, pundit board, XS target, recent fires, and live account into an LLM (`claude -p`, subscription auth) with a fixed rubric, then deterministically sizes and rule-checks the result in code (VETOED on violation). Advisory only, no order routing. Every call logs to `docs/plans/ai-cards.jsonl`. `--dry-run` prints the state + prompt with no LLM call. `make buibui-card SYMBOL=BTCUSDT [DIRECTION=] [AS_OF=] [DRY=1]`.
 
+- `/ingest-video` *(Claude Code skill)* — turn a pasted YouTube or X video URL, including
+  Chinese-language video, into routed research items. Fetches metadata + transcript
+  (`tools/video_fetch.py`: yt-dlp captions, Groq `whisper-large-v3` fallback for
+  caption-less video, per-video dedup cache), then two sonnet subagent passes — text-only
+  segmenting/ranking, then vision over a small set of transcript-selected frames
+  (`tools/video_marks.py`; frames follow deictic phrases and spoken price levels, never
+  scene-change, so a 38-minute video costs 8–15 images instead of ~100). The in-video call
+  time is resolved deterministically in code (`tools/video_calltime.py`, never by model
+  date arithmetic) — a stated time is preferred but bounded below the video's publish
+  timestamp, so a backlog video can't be scored against price action the speaker had
+  already seen. One consolidated review digest, one approval, then routes into the same
+  three research streams as `/ingest-x` plus a durable per-video note under
+  `docs/plans/video-notes/`.
+
 ---
 
 ## Risk Rules (Preconfigured)

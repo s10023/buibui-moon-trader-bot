@@ -47,7 +47,8 @@ dependencies = [
     "pandas (>=3.0.5,<4.0.0)",
     "fastapi (>=0.140.7)",
     "uvicorn[standard] (>=0.51.0)",
-    "pyarrow (>=23.0.1,<24.0.0)"
+    "pyarrow (>=23.0.1,<24.0.0)",
+    "yt-dlp (>=2026.7.4,<2027.0.0)"
 ]
 package-mode = false
 
