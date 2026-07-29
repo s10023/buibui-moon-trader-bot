@@ -133,20 +133,42 @@ class HttpPost(Protocol):
 
 
 def parse_vtt(text: str, lang: str) -> list[TranscriptSegment]:
-    """WebVTT cues → segments. Cue start time is the segment timestamp."""
+    """WebVTT cues → segments. Cue start time is the segment timestamp.
+
+    A cue's text may wrap over several lines — YouTube auto-captions routinely do —
+    so every line of a cue is joined into one segment. Keeping only the first line
+    would silently discard a majority of a real transcript.
+    """
     segments: list[TranscriptSegment] = []
     pending_ts: float | None = None
+    pending_lines: list[str] = []
+
+    def _flush() -> None:
+        nonlocal pending_ts, pending_lines
+        if pending_ts is not None and pending_lines:
+            segments.append(
+                TranscriptSegment(
+                    ts_s=pending_ts, text=" ".join(pending_lines), lang=lang
+                )
+            )
+        pending_ts = None
+        pending_lines = []
+
     for line in text.splitlines():
         stripped = line.strip()
         match = _VTT_CUE_RE.search(stripped)
         if match:
+            _flush()
             hours, minutes, seconds, millis = (int(g) for g in match.groups())
             pending_ts = hours * 3600 + minutes * 60 + seconds + millis / 1000
             continue
-        if pending_ts is None or not stripped or stripped == "WEBVTT":
+        if not stripped:
+            _flush()
             continue
-        segments.append(TranscriptSegment(ts_s=pending_ts, text=stripped, lang=lang))
-        pending_ts = None
+        if pending_ts is None or stripped == "WEBVTT":
+            continue
+        pending_lines.append(stripped)
+    _flush()
     return segments
 
 
@@ -197,6 +219,11 @@ def split_audio(
     size = audio.stat().st_size
     if size <= max_bytes:
         return [(audio, 0.0)]
+    if duration_s <= 0:
+        # Without a duration we cannot compute per-chunk offsets, and a chunk at the
+        # wrong offset silently mis-times every segment it carries. Refusing to chunk
+        # surfaces as Unavailable, which is recoverable; mis-timed segments are not.
+        return []
     parts = -(-size // max_bytes)  # ceil
     span = duration_s / parts
     chunks: list[tuple[Path, float]] = []

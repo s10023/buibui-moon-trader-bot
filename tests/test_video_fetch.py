@@ -203,6 +203,52 @@ def test_split_audio_drops_chunks_ffmpeg_failed_on(tmp_path: Path) -> None:
     assert chunks == []
 
 
+MULTILINE_VTT = """WEBVTT
+
+00:00:04.000 --> 00:00:07.000
+this is the first line
+and this is the second
+
+00:00:10.500 --> 00:00:13.000
+single line cue
+"""
+
+
+def test_parse_vtt_joins_multi_line_cues() -> None:
+    assert parse_vtt(MULTILINE_VTT, lang="en") == [
+        TranscriptSegment(
+            ts_s=4.0, text="this is the first line and this is the second", lang="en"
+        ),
+        TranscriptSegment(ts_s=10.5, text="single line cue", lang="en"),
+    ]
+
+
+def test_parse_vtt_joins_cue_without_trailing_blank_line() -> None:
+    vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nline one\nline two\n"
+    assert parse_vtt(vtt, lang="en") == [
+        TranscriptSegment(ts_s=1.0, text="line one line two", lang="en")
+    ]
+
+
+def test_parse_vtt_ignores_sequence_identifier_lines() -> None:
+    vtt = "WEBVTT\n\n1\n00:00:01.000 --> 00:00:02.000\nhello\n"
+    assert parse_vtt(vtt, lang="en") == [
+        TranscriptSegment(ts_s=1.0, text="hello", lang="en")
+    ]
+
+
+def test_split_audio_refuses_to_chunk_without_a_duration(tmp_path: Path) -> None:
+    audio = tmp_path / "a.opus"
+    audio.write_bytes(b"x" * (GROQ_MAX_BYTES * 2 + 1))
+    assert split_audio(audio, 0.0, run=make_run(FakeProc(0))) == []
+
+
+def test_split_audio_small_file_ignores_missing_duration(tmp_path: Path) -> None:
+    audio = tmp_path / "a.opus"
+    audio.write_bytes(b"x" * 1024)
+    assert split_audio(audio, 0.0, run=make_run(FakeProc(0))) == [(audio, 0.0)]
+
+
 # ---------------------------------------------------------------------------
 # Self-review regression: fetch_transcript must degrade, not raise (see
 # "Correctness notes" in the task-4 brief) even when Groq's own response is
