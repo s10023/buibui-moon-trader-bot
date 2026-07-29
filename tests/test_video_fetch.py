@@ -173,6 +173,69 @@ def test_fetch_transcript_prefers_captions(tmp_path: Path) -> None:
     assert not any("whisper" in " ".join(c) for c in captured)
 
 
+# ---------------------------------------------------------------------------
+# CRITICAL 2 (final review, 2026-07-28): --sub-langs all pulled ~100 machine
+# translations alongside the original, and sorted(glob)[0] picked alphabetically
+# ("af" beats "zh") — the headline Chinese-video case got an English-derived
+# machine translation mislabelled meta.lang="zh". Fix: targeted --sub-langs,
+# explicit preference-ordered selection, and lang stamped from the CHOSEN file.
+# ---------------------------------------------------------------------------
+
+_AF_VTT = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\naf text\n"
+_EN_VTT = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nen text\n"
+
+
+def test_fetch_transcript_prefers_matching_lang_over_alphabetical(
+    tmp_path: Path,
+) -> None:
+    def _run(cmd: list[str]) -> FakeProc:
+        (tmp_path / "sub.af.vtt").write_text(_AF_VTT)
+        (tmp_path / "sub.en.vtt").write_text(_EN_VTT)
+        (tmp_path / "sub.zh.vtt").write_text(VTT)
+        return FakeProc(0, "")
+
+    segments = fetch_transcript(_meta(), run=_run, work_dir=tmp_path)
+    assert isinstance(segments, list)
+    assert segments[1].text == "我在这里做多"
+    assert all(s.lang == "zh" for s in segments)
+
+
+def test_fetch_transcript_matches_lang_prefixed_variant(tmp_path: Path) -> None:
+    def _run(cmd: list[str]) -> FakeProc:
+        (tmp_path / "sub.zh-Hans.vtt").write_text(VTT)
+        return FakeProc(0, "")
+
+    segments = fetch_transcript(_meta(), run=_run, work_dir=tmp_path)
+    assert isinstance(segments, list)
+    assert segments and all(s.lang == "zh-Hans" for s in segments)
+
+
+def test_fetch_transcript_falls_back_to_english_without_mislabeling(
+    tmp_path: Path,
+) -> None:
+    def _run(cmd: list[str]) -> FakeProc:
+        (tmp_path / "sub.en.vtt").write_text(_EN_VTT)
+        return FakeProc(0, "")
+
+    segments = fetch_transcript(_meta(), run=_run, work_dir=tmp_path)
+    assert isinstance(segments, list)
+    assert segments and all(s.lang == "en" for s in segments)
+
+
+def test_fetch_transcript_requests_targeted_sub_langs_not_all(tmp_path: Path) -> None:
+    captured: list[list[str]] = []
+
+    def _run(cmd: list[str]) -> FakeProc:
+        captured.append(cmd)
+        (tmp_path / "sub.zh.vtt").write_text(VTT)
+        return FakeProc(0, "")
+
+    fetch_transcript(_meta(), run=_run, work_dir=tmp_path)
+    sub_langs = captured[0][captured[0].index("--sub-langs") + 1]
+    assert sub_langs == "zh,zh-orig,en"
+    assert sub_langs != "all"
+
+
 def test_fetch_transcript_unavailable_without_captions_or_key(tmp_path: Path) -> None:
     got = fetch_transcript(_meta(), run=make_run(FakeProc(0, "")), work_dir=tmp_path)
     assert isinstance(got, Unavailable)

@@ -180,6 +180,39 @@ def parse_vtt(text: str, lang: str) -> list[TranscriptSegment]:
     return segments
 
 
+_SUB_FILENAME_RE = re.compile(r"^sub\.(.+)\.vtt$")
+
+
+def _select_caption_track(vtts: list[Path], lang: str) -> Path | None:
+    """Pick the right track out of yt-dlp's `--sub-langs` results.
+
+    `--sub-langs all` used to be requested here, which returns the original track
+    plus roughly a hundred machine translations; picking `sorted(...)[0]` then chose
+    alphabetically ("af" beats "zh"). Preference order now: exact `lang` match, then
+    `lang-orig`, then any code that starts with `lang` (handles `zh-Hans`), then
+    `en`, then whatever is left — deterministic over the (already sorted) glob order.
+    """
+    if not vtts:
+        return None
+    by_code: dict[str, Path] = {}
+    for path in vtts:
+        match = _SUB_FILENAME_RE.match(path.name)
+        if match:
+            by_code[match.group(1)] = path
+    if lang:
+        if lang in by_code:
+            return by_code[lang]
+        orig_key = f"{lang}-orig"
+        if orig_key in by_code:
+            return by_code[orig_key]
+        for code, path in by_code.items():
+            if code.startswith(lang):
+                return path
+    if "en" in by_code:
+        return by_code["en"]
+    return vtts[0]
+
+
 def fetch_transcript(
     meta: VideoMeta,
     *,
@@ -188,8 +221,16 @@ def fetch_transcript(
     groq_key: str | None = None,
     work_dir: Path = Path(".cache/video"),
 ) -> list[TranscriptSegment] | Unavailable:
-    """Existing captions in any language first; Groq whisper-large-v3 only when absent."""
+    """Existing captions in any language first; Groq whisper-large-v3 only when absent.
+
+    Requests a targeted `--sub-langs` list (never "all" — see `_select_caption_track`)
+    and stamps each segment with the CHOSEN file's own language code, never
+    `meta.lang` blindly: a video with no `meta.lang` track available may legitimately
+    fall back to English captions, and mislabeling that fallback as `meta.lang` would
+    silently corrupt `raw_quote`'s language guarantee.
+    """
     work_dir.mkdir(parents=True, exist_ok=True)
+    sub_langs = f"{meta.lang},{meta.lang}-orig,en" if meta.lang else "en"
     run(
         [
             "yt-dlp",
@@ -199,15 +240,18 @@ def fetch_transcript(
             "--sub-format",
             "vtt",
             "--sub-langs",
-            "all",
+            sub_langs,
             "-o",
             str(work_dir / "sub"),
             meta.url,
         ]
     )
     vtts = sorted(work_dir.glob("sub*.vtt"))
-    if vtts:
-        return parse_vtt(vtts[0].read_text(encoding="utf-8"), lang=meta.lang or "en")
+    chosen = _select_caption_track(vtts, meta.lang)
+    if chosen is not None:
+        match = _SUB_FILENAME_RE.match(chosen.name)
+        lang_code = match.group(1) if match else (meta.lang or "en")
+        return parse_vtt(chosen.read_text(encoding="utf-8"), lang=lang_code)
     if groq_key is None or get is None:
         return Unavailable("no captions available and no GROQ_API_KEY configured")
     return _transcribe_groq(
