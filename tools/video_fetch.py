@@ -321,6 +321,37 @@ def _transcribe_groq(
     return segments
 
 
+def _ensure_local_media(
+    meta: VideoMeta, dest_dir: Path, *, run: RunProc
+) -> Path | None:
+    """Download the video once so ffmpeg can seek a LOCAL file.
+
+    `meta.url` is a web page (e.g. a YouTube watch URL) — ffmpeg cannot demux that,
+    so every `-i meta.url` seek used to fail silently and `frame_paths` was always
+    `[]`. Reused when a `video.*` file already exists in `dest_dir` (e.g. a prior
+    call left one behind); returns `None` on a failed/empty download, never raises.
+    """
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    existing = sorted(dest_dir.glob("video.*"))
+    if existing:
+        return existing[0]
+    proc = run(
+        [
+            "yt-dlp",
+            "-f",
+            "bv*[height<=1080]",
+            "-o",
+            str(dest_dir / "video.%(ext)s"),
+            "--no-playlist",
+            meta.url,
+        ]
+    )
+    if proc.returncode != 0:
+        return None
+    produced = sorted(dest_dir.glob("video.*"))
+    return produced[0] if produced else None
+
+
 def extract_frames(
     meta: VideoMeta,
     marks: list[FrameMark],
@@ -328,28 +359,39 @@ def extract_frames(
     *,
     run: RunProc = _subprocess_run,
 ) -> list[str]:
-    """One ffmpeg seek per mark. Never speculative — marks come from the transcript pass."""
+    """One ffmpeg seek per mark, against a locally downloaded copy of the video —
+    never `meta.url` directly (see `_ensure_local_media`). Never speculative — marks
+    come from the transcript pass. The downloaded media is removed once every mark
+    has been attempted; frames are the artifact, the source file is not, and the
+    operator's backlog makes unbounded video files in `.cache/` a real cost.
+    """
     dest_dir.mkdir(parents=True, exist_ok=True)
+    local_media = _ensure_local_media(meta, dest_dir, run=run)
+    if local_media is None:
+        return []
     paths: list[str] = []
-    for mark in marks:
-        out = dest_dir / f"f_{int(mark.ts_s):04d}.jpg"
-        proc = run(
-            [
-                "ffmpeg",
-                "-y",
-                "-ss",
-                str(mark.ts_s),
-                "-i",
-                meta.url,
-                "-frames:v",
-                "1",
-                "-q:v",
-                "3",
-                str(out),
-            ]
-        )
-        if proc.returncode == 0:
-            paths.append(str(out))
+    try:
+        for mark in marks:
+            out = dest_dir / f"f_{int(mark.ts_s):04d}.jpg"
+            proc = run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-ss",
+                    str(mark.ts_s),
+                    "-i",
+                    str(local_media),
+                    "-frames:v",
+                    "1",
+                    "-q:v",
+                    "3",
+                    str(out),
+                ]
+            )
+            if proc.returncode == 0:
+                paths.append(str(out))
+    finally:
+        local_media.unlink(missing_ok=True)
     return paths
 
 

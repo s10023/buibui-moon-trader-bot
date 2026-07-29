@@ -310,15 +310,41 @@ def test_fetch_transcript_groq_skips_malformed_segments_without_raising(
 # ---------------------------------------------------------------------------
 
 
+# extract_frames now downloads the video locally once (ffmpeg cannot demux the
+# meta.url web page) before seeking with ffmpeg. This fake mimics yt-dlp's -o
+# output-template substitution well enough for a test: it writes a real file at
+# <dest_dir>/video.mp4 so _ensure_local_media's post-download glob finds something.
+def make_download_run(
+    ffmpeg_calls: list[list[str]] | None = None,
+    yt_dlp_calls: list[list[str]] | None = None,
+    *,
+    ffmpeg_returncode: int = 0,
+    download_returncode: int = 0,
+    write_frame_bytes: bool = False,
+) -> Callable[..., FakeProc]:
+    def _run(cmd: list[str]) -> FakeProc:
+        if cmd[0] == "yt-dlp":
+            if yt_dlp_calls is not None:
+                yt_dlp_calls.append(cmd)
+            if download_returncode == 0:
+                template = cmd[cmd.index("-o") + 1]
+                out_path = Path(template.replace("%(ext)s", "mp4"))
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                out_path.write_bytes(b"fake video bytes")
+            return FakeProc(download_returncode)
+        if ffmpeg_calls is not None:
+            ffmpeg_calls.append(cmd)
+        if ffmpeg_returncode == 0 and write_frame_bytes:
+            Path(cmd[-1]).write_bytes(b"jpeg bytes")
+        return FakeProc(ffmpeg_returncode)
+
+    return _run
+
+
 def test_extract_frames_one_ffmpeg_call_per_mark(tmp_path: Path) -> None:
     calls: list[list[str]] = []
-
-    def _run(cmd: list[str]) -> FakeProc:
-        calls.append(cmd)
-        return FakeProc(0)
-
     marks = [FrameMark(20.0, "item", 3), FrameMark(90.0, "deixis", 2)]
-    paths = extract_frames(_meta(), marks, tmp_path, run=_run)
+    paths = extract_frames(_meta(), marks, tmp_path, run=make_download_run(calls))
     assert len(calls) == 2
     assert all(c[0] == "ffmpeg" for c in calls)
     assert [Path(p).name for p in paths] == ["f_0020.jpg", "f_0090.jpg"]
@@ -326,9 +352,82 @@ def test_extract_frames_one_ffmpeg_call_per_mark(tmp_path: Path) -> None:
 
 def test_extract_frames_skips_failed_grabs(tmp_path: Path) -> None:
     paths = extract_frames(
-        _meta(), [FrameMark(20.0, "item", 3)], tmp_path, run=make_run(FakeProc(1))
+        _meta(),
+        [FrameMark(20.0, "item", 3)],
+        tmp_path,
+        run=make_download_run(ffmpeg_returncode=1),
     )
     assert paths == []
+
+
+# ---------------------------------------------------------------------------
+# CRITICAL 1 (final review, 2026-07-28): extract_frames used to seek meta.url —
+# a web page ffmpeg cannot demux — so every grab silently failed. Frames must
+# come from a locally downloaded copy, downloaded once and reused across marks.
+# ---------------------------------------------------------------------------
+
+
+def test_extract_frames_ffmpeg_input_is_local_path_not_meta_url(tmp_path: Path) -> None:
+    calls: list[list[str]] = []
+    extract_frames(
+        _meta(), [FrameMark(20.0, "item", 3)], tmp_path, run=make_download_run(calls)
+    )
+    assert len(calls) == 1
+    i_arg = calls[0][calls[0].index("-i") + 1]
+    assert i_arg != _meta().url
+    assert "video" in i_arg
+
+
+def test_extract_frames_downloads_once_for_five_marks(tmp_path: Path) -> None:
+    ffmpeg_calls: list[list[str]] = []
+    yt_dlp_calls: list[list[str]] = []
+    marks = [FrameMark(float(i * 10), "item", 3) for i in range(5)]
+    extract_frames(
+        _meta(),
+        marks,
+        tmp_path,
+        run=make_download_run(ffmpeg_calls, yt_dlp_calls),
+    )
+    assert len(yt_dlp_calls) == 1
+    assert len(ffmpeg_calls) == 5
+
+
+def test_extract_frames_reuses_existing_local_media(tmp_path: Path) -> None:
+    (tmp_path / "video.mp4").write_bytes(b"already downloaded")
+    yt_dlp_calls: list[list[str]] = []
+    extract_frames(
+        _meta(),
+        [FrameMark(20.0, "item", 3)],
+        tmp_path,
+        run=make_download_run(yt_dlp_calls=yt_dlp_calls),
+    )
+    assert yt_dlp_calls == []
+
+
+def test_extract_frames_failed_download_returns_empty_and_calls_no_ffmpeg(
+    tmp_path: Path,
+) -> None:
+    ffmpeg_calls: list[list[str]] = []
+    paths = extract_frames(
+        _meta(),
+        [FrameMark(20.0, "item", 3)],
+        tmp_path,
+        run=make_download_run(ffmpeg_calls, download_returncode=1),
+    )
+    assert paths == []
+    assert ffmpeg_calls == []
+
+
+def test_extract_frames_deletes_media_but_keeps_frames(tmp_path: Path) -> None:
+    paths = extract_frames(
+        _meta(),
+        [FrameMark(20.0, "item", 3)],
+        tmp_path,
+        run=make_download_run(write_frame_bytes=True),
+    )
+    assert paths == [str(tmp_path / "f_0020.jpg")]
+    assert not list(tmp_path.glob("video.*"))
+    assert (tmp_path / "f_0020.jpg").exists()
 
 
 # fetch_video_batch passes work_dir=cache_dir/<video_id> to fetch_transcript, so a fake

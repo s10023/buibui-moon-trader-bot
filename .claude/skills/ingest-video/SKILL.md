@@ -174,23 +174,43 @@ print(json.dumps({"marks": [asdict(m) for m in marks], "frame_paths": frame_path
 PY
 ```
 
-Replace `<video_id>` with `meta.video_id` in both the scratch-file path and the
-`Path(...)` literal. `marks_input.json` shape:
+`marks_input.json` shape:
 `{"meta": <verbatim meta dict from step 1>, "segments": <verbatim segments array from
 step 1>, "item_ts": [<ts of each kept item from step 3>]}`. Frames land at
-`.cache/video/<video_id>/frames/f_NNNN.jpg` (already gitignored, alongside the fetch
-cache). `select()` is deterministic and caps at `FRAME_CAP` = 15; frames can come from
-deixis phrases and spoken price levels even when `item_ts` is short or empty — a video
-with zero routable candidates can still produce frames via those triggers or the
-`SAFETY_SAMPLE_S` (300s) floor.
+`.cache/video/<meta.video_id>/frames/f_NNNN.jpg` (already gitignored, alongside the
+fetch cache). `extract_frames` downloads the video once into that same frames
+directory (ffmpeg cannot seek the web-page URL directly), seeks the local copy per
+mark, then deletes the downloaded video — only the frame JPEGs persist. `select()` is
+deterministic and caps at `FRAME_CAP` = 15; frames can come from deixis phrases and
+spoken price levels even when `item_ts` is short or empty — a video with zero routable
+candidates can still produce frames via those triggers or the `SAFETY_SAMPLE_S` (300s)
+floor.
+
+**`marks` non-empty but `frame_paths` empty is a download failure, not "no chart" —
+keep the two apart.** `select()` returns at least the safety-sample marks for any
+`duration_s > 0`, so an empty `marks` list only happens for a (rare) zero-duration
+video. If `marks` came back non-empty here but `frame_paths` is still `[]`, the
+video's media download failed (network error, age-gate, region block) — record that
+video's health note as "frame extraction failed (media download error)". Do NOT record
+`chart_present: false` for that case; that flag is reserved for step 6, where frames
+WERE produced and pass 2 actually looked at them and found no chart.
 
 ### 6. Pass 2 — vision subagent, one per video, pinned to sonnet
 
 Dispatch whenever `frame_paths` from step 5 is non-empty — independent of whether step 3
-found any candidates (see note above). A video whose selection produced zero frames
-skips pass 2 entirely: treat every kept item from pass 1 as `vision_confidence: "low"`,
-`frame_path: null`, and record `chart_present: false` for that video in the digest and
-note, with no subagent dispatch.
+found any candidates (see note above). When `frame_paths` is empty, which health note
+you write depends on step 5's `marks` distinction:
+
+- `marks` was also empty (a zero-duration video — rare): skip pass 2, treat every kept
+  item from pass 1 as `vision_confidence: "low"`, `frame_path: null`, and record
+  `chart_present: false` for that video in the digest and note.
+- `marks` was non-empty (the ordinary empty-`frame_paths` case): this is the step-5
+  download failure, not "no chart". Skip pass 2, still mark every kept item
+  `vision_confidence: "low"` / `frame_path: null`, but write the step-5 health note
+  ("frame extraction failed (media download error)") instead of `chart_present: false`
+  — you never actually looked, so don't claim you did.
+
+No subagent dispatch in either case.
 
 Otherwise, dispatch a `general-purpose` subagent, **`model: "sonnet"`**,
 `subagent_type: "general-purpose"`. Give it: the `frame_paths` list (it Reads each one —
