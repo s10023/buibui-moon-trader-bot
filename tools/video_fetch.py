@@ -8,15 +8,22 @@ same contract as tools/x_fetch.py.
 
 from __future__ import annotations
 
+import argparse
 import json
+import os
+import random
 import re
 import subprocess
-from dataclasses import dataclass
+import time
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
-from tools.video_marks import TranscriptSegment
+import requests
+
+from tools.video_marks import FrameMark, TranscriptSegment
 
 _YT_RE = re.compile(r"(?:youtube\.com/watch\?v=|youtu\.be/)([A-Za-z0-9_-]{11})")
 _X_RE = re.compile(r"(?:twitter|x)\.com/[^/]+/status/(\d+)")
@@ -311,3 +318,218 @@ def _transcribe_groq(
             if text:
                 segments.append(TranscriptSegment(ts_s=ts_s, text=text, lang=lang))
     return segments
+
+
+def extract_frames(
+    meta: VideoMeta,
+    marks: list[FrameMark],
+    dest_dir: Path,
+    *,
+    run: RunProc = _subprocess_run,
+) -> list[str]:
+    """One ffmpeg seek per mark. Never speculative — marks come from the transcript pass."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    paths: list[str] = []
+    for mark in marks:
+        out = dest_dir / f"f_{int(mark.ts_s):04d}.jpg"
+        proc = run(
+            [
+                "ffmpeg",
+                "-y",
+                "-ss",
+                str(mark.ts_s),
+                "-i",
+                meta.url,
+                "-frames:v",
+                "1",
+                "-q:v",
+                "3",
+                str(out),
+            ]
+        )
+        if proc.returncode == 0:
+            paths.append(str(out))
+    return paths
+
+
+@dataclass(frozen=True)
+class BatchResult:
+    url: str
+    meta: VideoMeta | Unavailable
+    segments: list[TranscriptSegment] = field(default_factory=list)
+    frame_paths: list[str] = field(default_factory=list)
+    cached: bool = False
+
+
+def _cache_file(cache_dir: Path, video_id: str) -> Path:
+    return cache_dir / video_id / "asset.json"
+
+
+def _load_cached(cache_dir: Path, video_id: str) -> BatchResult | None:
+    path = _cache_file(cache_dir, video_id)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+        return BatchResult(
+            url=data["url"],
+            meta=VideoMeta(**data["meta"]),
+            segments=[TranscriptSegment(**s) for s in data["segments"]],
+            frame_paths=list(data.get("frame_paths", [])),
+            cached=True,
+        )
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return None  # corrupt cache ⇒ treat as a miss, re-fetch
+
+
+def _write_cache(cache_dir: Path, result: BatchResult, meta: VideoMeta) -> None:
+    path = _cache_file(cache_dir, meta.video_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "url": result.url,
+                "meta": asdict(meta),
+                "segments": [asdict(s) for s in result.segments],
+                "frame_paths": result.frame_paths,
+                "fetched_at_utc": datetime.now(UTC).isoformat(),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+
+
+def fetch_video_batch(
+    urls: list[str],
+    *,
+    cache_dir: Path = Path(".cache/video"),
+    min_delay: float = 4.0,
+    max_delay: float = 12.0,
+    force: bool = False,
+    run: RunProc = _subprocess_run,
+    get: HttpPost | None = None,
+    groq_key: str | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    rng: random.Random | None = None,
+) -> list[BatchResult]:
+    """Fetch metadata + transcript per video once, with a randomized cooldown between
+    *network* fetches and a per-id dedup cache. Cache hits add no pause; the first
+    network fetch is never delayed. One failing video never kills the batch."""
+    rng = rng or random.Random()
+    results: list[BatchResult] = []
+    did_network = False
+    for url in urls:
+        try:
+            _, video_id = parse_video_url(url)
+        except ValueError as exc:
+            results.append(BatchResult(url=url, meta=Unavailable(str(exc))))
+            continue
+        if not force:
+            cached = _load_cached(cache_dir, video_id)
+            if cached is not None:
+                results.append(cached)
+                continue
+        if did_network:
+            sleep(rng.uniform(min_delay, max_delay))
+        did_network = True
+        try:
+            meta = fetch_meta(url, run=run)
+            if isinstance(meta, Unavailable):
+                results.append(BatchResult(url=url, meta=meta))
+                continue
+            segments = fetch_transcript(
+                meta,
+                run=run,
+                get=get,
+                groq_key=groq_key,
+                work_dir=cache_dir / video_id,
+            )
+            if isinstance(segments, Unavailable):
+                results.append(BatchResult(url=url, meta=segments))
+                continue
+            result = BatchResult(url=url, meta=meta, segments=segments)
+            _write_cache(cache_dir, result, meta)
+            results.append(result)
+        except OSError as exc:  # one bad video never kills the batch
+            results.append(
+                BatchResult(url=url, meta=Unavailable(f"{type(exc).__name__}: {exc}"))
+            )
+    return results
+
+
+def _result_to_dict(result: BatchResult) -> dict[str, object]:
+    base: dict[str, object] = {
+        "url": result.url,
+        "cached": result.cached,
+        "frame_paths": result.frame_paths,
+    }
+    if isinstance(result.meta, Unavailable):
+        return {**base, "meta": None, "segments": [], "unavailable": result.meta.reason}
+    return {
+        **base,
+        "meta": asdict(result.meta),
+        "segments": [asdict(s) for s in result.segments],
+        "unavailable": None,
+    }
+
+
+def _requests_post(
+    url: str, *, headers: dict[str, str], files: dict[str, object], data: dict[str, str]
+) -> HttpResponse:
+    # HttpPost's `files: dict[str, object]` is the deliberately-loose injectable-protocol
+    # shape (fakes in tests, real file handles in production); requests' own stub wants a
+    # narrower Mapping type. Both are runtime-compatible for our one caller (_transcribe_groq
+    # passes {"file": <BufferedReader>}), so both codes are ignored at this one boundary.
+    return requests.post(  # type: ignore[return-value]
+        url,
+        headers=headers,
+        files=files,  # type: ignore[arg-type]
+        data=data,
+        timeout=300,
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Fetch video metadata + transcript for /ingest-video (read-only)."
+    )
+    parser.add_argument("urls", nargs="+", help="one or more YouTube / X video URLs")
+    parser.add_argument("--json", action="store_true", help="emit JSON")
+    parser.add_argument("--batch", action="store_true", help="force batch mode")
+    parser.add_argument("--force", action="store_true", help="ignore the dedup cache")
+    parser.add_argument("--min-delay", type=float, default=4.0)
+    parser.add_argument("--max-delay", type=float, default=12.0)
+    parser.add_argument("--cache-dir", default=".cache/video")
+    args = parser.parse_args(argv)
+
+    results = fetch_video_batch(
+        args.urls,
+        cache_dir=Path(args.cache_dir),
+        min_delay=args.min_delay,
+        max_delay=args.max_delay,
+        force=args.force,
+        get=_requests_post,
+        groq_key=os.environ.get("GROQ_API_KEY"),
+    )
+    if args.json:
+        print(
+            json.dumps(
+                [_result_to_dict(r) for r in results], indent=2, ensure_ascii=False
+            )
+        )
+    else:
+        for r in results:
+            if isinstance(r.meta, Unavailable):
+                print(f"UNAVAILABLE ({r.meta.reason}): {r.url}")
+            else:
+                tag = " [cached]" if r.cached else ""
+                print(
+                    f"{r.meta.author}  {r.meta.title}  {r.meta.publish_ts_utc}  "
+                    f"{len(r.segments)} segments{tag}"
+                )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import random
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,13 +14,15 @@ from tools.video_fetch import (
     GROQ_MAX_BYTES,
     Unavailable,
     VideoMeta,
+    extract_frames,
     fetch_meta,
     fetch_transcript,
+    fetch_video_batch,
     parse_video_url,
     parse_vtt,
     split_audio,
 )
-from tools.video_marks import TranscriptSegment
+from tools.video_marks import FrameMark, TranscriptSegment
 
 YT_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 X_URL = "https://x.com/someone/status/1234567890"
@@ -298,3 +301,94 @@ def test_fetch_transcript_groq_skips_malformed_segments_without_raising(
         _meta(), run=_run, get=_get, groq_key="fake-key", work_dir=tmp_path
     )
     assert segments == [TranscriptSegment(ts_s=1.0, text="good segment", lang="en")]
+
+
+# ---------------------------------------------------------------------------
+# Task 5: extract_frames, dedup cache, batch fetch, CLI
+# ---------------------------------------------------------------------------
+
+
+def test_extract_frames_one_ffmpeg_call_per_mark(tmp_path: Path) -> None:
+    calls: list[list[str]] = []
+
+    def _run(cmd: list[str]) -> FakeProc:
+        calls.append(cmd)
+        return FakeProc(0)
+
+    marks = [FrameMark(20.0, "item", 3), FrameMark(90.0, "deixis", 2)]
+    paths = extract_frames(_meta(), marks, tmp_path, run=_run)
+    assert len(calls) == 2
+    assert all(c[0] == "ffmpeg" for c in calls)
+    assert [Path(p).name for p in paths] == ["f_0020.jpg", "f_0090.jpg"]
+
+
+def test_extract_frames_skips_failed_grabs(tmp_path: Path) -> None:
+    paths = extract_frames(
+        _meta(), [FrameMark(20.0, "item", 3)], tmp_path, run=make_run(FakeProc(1))
+    )
+    assert paths == []
+
+
+# fetch_video_batch passes work_dir=cache_dir/<video_id> to fetch_transcript, so a fake
+# that writes captions to tmp_path itself would be globbed for in the wrong directory.
+# Derive the location from yt-dlp's own -o argument, which is how yt-dlp names sub files.
+def make_ytdlp_run(
+    calls: list[list[str]] | None = None, fail_substr: str | None = None
+) -> Callable[..., FakeProc]:
+    def _run(cmd: list[str]) -> FakeProc:
+        if calls is not None:
+            calls.append(cmd)
+        joined = " ".join(cmd)
+        if fail_substr is not None and fail_substr in joined:
+            return FakeProc(1, "", "Private video")
+        if "--dump-json" in cmd:
+            return FakeProc(0, YTDLP_JSON)
+        if "-o" in cmd:
+            out = Path(cmd[cmd.index("-o") + 1])
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.with_name(f"{out.name}.zh.vtt").write_text(VTT, encoding="utf-8")
+        return FakeProc(0)
+
+    return _run
+
+
+def test_batch_second_network_fetch_sleeps_first_does_not(tmp_path: Path) -> None:
+    slept: list[float] = []
+    fetch_video_batch(
+        [YT_URL, "https://youtu.be/AAAAAAAAAAA"],
+        cache_dir=tmp_path,
+        run=make_ytdlp_run(),
+        sleep=slept.append,
+        rng=random.Random(0),
+    )
+    assert len(slept) == 1
+
+
+def test_batch_cache_hit_does_no_network_and_no_sleep(tmp_path: Path) -> None:
+    slept: list[float] = []
+    calls: list[list[str]] = []
+    run = make_ytdlp_run(calls)
+
+    first_run = fetch_video_batch(
+        [YT_URL], cache_dir=tmp_path, run=run, sleep=slept.append
+    )
+    assert first_run[0].cached is False
+    calls_after_first = len(calls)
+
+    results = fetch_video_batch(
+        [YT_URL], cache_dir=tmp_path, run=run, sleep=slept.append
+    )
+    assert len(calls) == calls_after_first
+    assert results[0].cached is True
+    assert results[0].segments[1].text == "我在这里做多"
+    assert slept == []
+
+
+def test_batch_isolates_one_bad_video(tmp_path: Path) -> None:
+    results = fetch_video_batch(
+        ["https://youtu.be/BBBBBBBBBBB", YT_URL],
+        cache_dir=tmp_path,
+        run=make_ytdlp_run(fail_substr="BBBBBBBBBBB"),
+    )
+    assert isinstance(results[0].meta, Unavailable)
+    assert isinstance(results[1].meta, VideoMeta)
