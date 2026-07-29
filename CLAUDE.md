@@ -180,7 +180,9 @@ Each Makefile `buibui-*` target wraps the equivalent CLI invocation.
 ## Dependencies
 
 - Managed via Poetry: `poetry install --no-root`
-- Runtime: `duckdb` (analytics DB), `pandas` (DataFrames), `pyarrow` (parquet fixture I/O)
+- Runtime: `duckdb` (analytics DB), `pandas` (DataFrames), `pyarrow` (parquet fixture I/O), `yt-dlp` (`/ingest-video` metadata + captions + media)
+- System (not Poetry-managed): `ffmpeg` — `/ingest-video` frame extraction + audio chunking. Absent ⇒ every frame grab fails and the skill records a "frame extraction failed" health note
+- Optional env: `GROQ_API_KEY` — `whisper-large-v3` fallback, used ONLY for caption-less video (nearly all X video). Unset ⇒ those videos are skipped with a health note, captioned video is unaffected. See `.env.example`
 - Dev deps: ruff, mypy, pytest, pytest-mock, pre-commit, type stubs, pandas-stubs
 - Never modify `poetry.lock` manually — use `poetry add` / `poetry remove`
 
