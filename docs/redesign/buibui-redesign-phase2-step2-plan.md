@@ -80,16 +80,16 @@ class SignalCandidate:
     symbol: str
     timeframe: str
     candle_ts_ms: int
-    strategy: str             # legacy name kept for traceability
-    setup_family: SetupFamily # 'liquidity' | 'continuation' | 'orderblock' |
-                              # 'candlestick' | 'session' | 'flow'
+    strategy: str  # legacy name kept for traceability
+    setup_family: SetupFamily  # 'liquidity' | 'continuation' | 'orderblock' |
+    # 'candlestick' | 'session' | 'flow'
 
     # axes (router reads these — first-class, not derived)
-    direction: Literal['long', 'short']
-    regime: Literal['trend', 'range', 'high_vol', 'unknown']
-    session: Literal['asia', 'london', 'ny_am', 'ny_pm', 'overnight']
-    volume_state: Literal['spike', 'normal', 'low']
-    htf_bias: Literal['with', 'against', 'flat']  # F8 slope vs direction
+    direction: Literal["long", "short"]
+    regime: Literal["trend", "range", "high_vol", "unknown"]
+    session: Literal["asia", "london", "ny_am", "ny_pm", "overnight"]
+    volume_state: Literal["spike", "normal", "low"]
+    htf_bias: Literal["with", "against", "flat"]  # F8 slope vs direction
 
     # geometry
     entry: float
@@ -100,7 +100,7 @@ class SignalCandidate:
 
     # context (computed once at fire time)
     atr14: float
-    expected_r_prior: ExpectedR | None        # see §5
+    expected_r_prior: ExpectedR | None  # see §5
 ```
 
 `SetupFamily` is six-valued and bridges the v1 `STRATEGY_TYPE_GROUPS` taxonomy

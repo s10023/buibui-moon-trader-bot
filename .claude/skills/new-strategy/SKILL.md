@@ -108,7 +108,7 @@ SIGNAL_REGISTRY: dict[str, SignalPlugin] = {
 
 ```python
 import pandas as pd
-from analytics.strategies.my_strategy import detect_my_strategy   # direct
+from analytics.strategies.my_strategy import detect_my_strategy  # direct
 # or, equivalently:
 # from analytics.strategies import detect_my_strategy   # via package re-export
 

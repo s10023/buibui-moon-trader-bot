@@ -34,8 +34,11 @@ tests/
 
 ```python
 def probabilistic_sharpe_ratio(
-    sr: float, n_obs: int, skew: float = 0.0,
-    kurtosis: float = 3.0, sr_benchmark: float = 0.0,
+    sr: float,
+    n_obs: int,
+    skew: float = 0.0,
+    kurtosis: float = 3.0,
+    sr_benchmark: float = 0.0,
 ) -> float: ...
 ```
 
@@ -49,12 +52,17 @@ def probabilistic_sharpe_ratio(
 ```python
 EULER_MASCHERONI = 0.5772156649015329
 
+
 def expected_max_sharpe(n_trials: int, sr_variance: float) -> float: ...
 def deflated_sharpe_ratio(
-    sr: float, n_obs: int, *,
-    trial_srs: Sequence[float] | None = None,        # path A: derive N + V
-    n_trials: int | None = None, sr_variance: float | None = None,  # path B: explicit
-    skew: float = 0.0, kurtosis: float = 3.0,
+    sr: float,
+    n_obs: int,
+    *,
+    trial_srs: Sequence[float] | None = None,  # path A: derive N + V
+    n_trials: int | None = None,
+    sr_variance: float | None = None,  # path B: explicit
+    skew: float = 0.0,
+    kurtosis: float = 3.0,
 ) -> float: ...
 ```
 
@@ -69,13 +77,17 @@ def deflated_sharpe_ratio(
 ```python
 @dataclass(frozen=True)
 class PBOResult:
-    pbo: float; logits: list[float]
-    degradation_slope: float; n_combinations: int
+    pbo: float
+    logits: list[float]
+    degradation_slope: float
+    n_combinations: int
+
 
 def cscv_pbo(
-    perf_matrix: npt.NDArray[np.float64],   # (T_periods, N_trials) per-period returns
+    perf_matrix: npt.NDArray[np.float64],  # (T_periods, N_trials) per-period returns
     n_splits: int = 14,
-    metric: Callable[[npt.NDArray[np.float64]], float] | None = None,  # default: Sharpe of a column
+    metric: Callable[[npt.NDArray[np.float64]], float]
+    | None = None,  # default: Sharpe of a column
 ) -> PBOResult: ...
 ```
 
@@ -89,13 +101,19 @@ def cscv_pbo(
 ```python
 @dataclass(frozen=True)
 class HaircutResult:
-    adjusted_pvalue: float; haircut_sharpe: float
-    haircut_pct: float; method: str; fell_back: bool
+    adjusted_pvalue: float
+    haircut_sharpe: float
+    haircut_pct: float
+    method: str
+    fell_back: bool
+
 
 def haircut_sharpe(
-    sr: float, n_obs: int, n_tests: int,
+    sr: float,
+    n_obs: int,
+    n_tests: int,
     method: Literal["bonferroni", "holm", "bhy"] = "holm",
-    pvalues_all: Sequence[float] | None = None,   # required for holm/bhy ordering
+    pvalues_all: Sequence[float] | None = None,  # required for holm/bhy ordering
 ) -> HaircutResult: ...
 ```
 
@@ -111,8 +129,11 @@ def haircut_sharpe(
 
 ```python
 def min_track_record_length(
-    sr: float, skew: float = 0.0, kurtosis: float = 3.0,
-    target_sr: float = 0.0, confidence: float = 0.95,
+    sr: float,
+    skew: float = 0.0,
+    kurtosis: float = 3.0,
+    target_sr: float = 0.0,
+    confidence: float = 0.95,
 ) -> float: ...
 ```
 
@@ -125,12 +146,18 @@ def min_track_record_length(
 ```python
 @dataclass(frozen=True)
 class BootstrapCI:
-    point: float; lo: float; hi: float; alpha: float; n_valid: int
+    point: float
+    lo: float
+    hi: float
+    alpha: float
+    n_valid: int
+
 
 def block_bootstrap_ci(
     returns: npt.NDArray[np.float64],
     stat_fn: Callable[[npt.NDArray[np.float64]], float],
-    n_boot: int = 10_000, block: int | None = None,
+    n_boot: int = 10_000,
+    block: int | None = None,
     alpha: float = 0.05,
     method: Literal["stationary", "circular"] = "stationary",
     seed: int | None = None,

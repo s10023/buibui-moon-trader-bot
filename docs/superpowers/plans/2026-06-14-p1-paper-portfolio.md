@@ -87,7 +87,7 @@ def test_sizing_config_from_toml_overrides(tmp_path) -> None:
         "capital = 25000\n"
         "r_base = 0.005\n"
         "vol_target_annual = 0.15\n"
-        "clusters = [[\"BTCUSDT\", \"ETHUSDT\"]]\n"
+        'clusters = [["BTCUSDT", "ETHUSDT"]]\n'
     )
     cfg = SizingConfig.from_toml(p)
     assert cfg.capital == 25_000.0
@@ -178,15 +178,25 @@ class SizingConfig:
         cfg = cls()
         kwargs: dict[str, Any] = {}
         for field_name in (
-            "capital", "r_base", "vol_target_annual", "vol_window_days",
-            "g_vol_min", "g_vol_max", "r_open_max", "r_cluster_max",
-            "high_vol_risk_mult", "apply_high_vol_halving", "skip_floor_frac",
+            "capital",
+            "r_base",
+            "vol_target_annual",
+            "vol_window_days",
+            "g_vol_min",
+            "g_vol_max",
+            "r_open_max",
+            "r_cluster_max",
+            "high_vol_risk_mult",
+            "apply_high_vol_halving",
+            "skip_floor_frac",
             "annualization_days",
         ):
             if field_name in block:
                 kwargs[field_name] = block[field_name]
         if "clusters" in block:
-            kwargs["clusters"] = tuple(tuple(str(s) for s in c) for c in block["clusters"])
+            kwargs["clusters"] = tuple(
+                tuple(str(s) for s in c) for c in block["clusters"]
+            )
         return replace(cfg, **kwargs)
 ```
 
@@ -258,7 +268,9 @@ def test_regime_multiplier() -> None:
 
 def test_effective_risk_fraction() -> None:
     cfg = SizingConfig()  # r_base 0.0025
-    assert effective_risk_fraction(cfg, g_vol=1.0, g_regime=1.0) == pytest.approx(0.0025)
+    assert effective_risk_fraction(cfg, g_vol=1.0, g_regime=1.0) == pytest.approx(
+        0.0025
+    )
     assert effective_risk_fraction(cfg, g_vol=1.5, g_regime=0.5) == pytest.approx(
         0.0025 * 1.5 * 0.5
     )
@@ -280,20 +292,35 @@ def test_apply_caps_scales_down_to_fit() -> None:
     ) == pytest.approx(0.0025)
     # cluster nearly full => scaled to remaining headroom
     assert apply_caps(
-        0.0025, symbol="BTCUSDT", open_risk_total=0.005, open_risk_cluster=0.009, cfg=cfg
+        0.0025,
+        symbol="BTCUSDT",
+        open_risk_total=0.005,
+        open_risk_cluster=0.009,
+        cfg=cfg,
     ) == pytest.approx(0.001)
     # total cap binds before cluster
     assert apply_caps(
-        0.0025, symbol="DOGEUSDT", open_risk_total=0.0195, open_risk_cluster=0.0, cfg=cfg
+        0.0025,
+        symbol="DOGEUSDT",
+        open_risk_total=0.0195,
+        open_risk_cluster=0.0,
+        cfg=cfg,
     ) == pytest.approx(0.0005)
 
 
 def test_apply_caps_skip_floor() -> None:
     cfg = SizingConfig()  # skip_floor_frac 0.1 => floor 0.00025
     # headroom below floor => skip (0.0)
-    assert apply_caps(
-        0.0025, symbol="BTCUSDT", open_risk_total=0.0199, open_risk_cluster=0.0, cfg=cfg
-    ) == 0.0
+    assert (
+        apply_caps(
+            0.0025,
+            symbol="BTCUSDT",
+            open_risk_total=0.0199,
+            open_risk_cluster=0.0,
+            cfg=cfg,
+        )
+        == 0.0
+    )
 ```
 
 - [ ] **Step 2: Run to verify it fails**
@@ -429,7 +456,7 @@ def _curve(values: list[float]) -> pd.Series:
 
 def test_sharpe_positive_drift() -> None:
     # steady +0.1%/day, zero variance theoretically -> guard returns 0.0
-    flat = _curve([100.0 * (1.001 ** i) for i in range(50)])
+    flat = _curve([100.0 * (1.001**i) for i in range(50)])
     # constant geometric return has ~0 stdev of pct change -> sharpe guard 0.0
     assert sharpe(flat) == pytest.approx(0.0, abs=1e-6)
 
@@ -660,9 +687,17 @@ def test_same_day_trade_banks_realized_on_exit_day() -> None:
     # entry and exit both on day 2; win +2R
     trades = [
         LedgerTrade(
-            signal_id="s1", symbol="BTCUSDT", tf="15m", strategy="fvg",
-            direction="long", entry_ts_ms=2 * _DAY + 1, exit_ts_ms=2 * _DAY + 5,
-            entry_price=100.0, sl_price=95.0, outcome="win", realized_r=2.0,
+            signal_id="s1",
+            symbol="BTCUSDT",
+            tf="15m",
+            strategy="fvg",
+            direction="long",
+            entry_ts_ms=2 * _DAY + 1,
+            exit_ts_ms=2 * _DAY + 5,
+            entry_price=100.0,
+            sl_price=95.0,
+            outcome="win",
+            realized_r=2.0,
         )
     ]
     book = PaperBook(cfg, grid, close, regime_by_signal=None)
@@ -681,9 +716,17 @@ def test_multi_day_long_marks_to_market() -> None:
     close = {"BTCUSDT": np.array([100, 100, 105, 110, 110, 110], dtype=np.float64)}
     trades = [
         LedgerTrade(
-            signal_id="s1", symbol="BTCUSDT", tf="1h", strategy="bos",
-            direction="long", entry_ts_ms=1 * _DAY + 1, exit_ts_ms=3 * _DAY + 1,
-            entry_price=100.0, sl_price=95.0, outcome="win", realized_r=2.0,
+            signal_id="s1",
+            symbol="BTCUSDT",
+            tf="1h",
+            strategy="bos",
+            direction="long",
+            entry_ts_ms=1 * _DAY + 1,
+            exit_ts_ms=3 * _DAY + 1,
+            entry_price=100.0,
+            sl_price=95.0,
+            outcome="win",
+            realized_r=2.0,
         )
     ]
     res = PaperBook(cfg, grid, close, regime_by_signal=None).run(trades)
@@ -702,9 +745,17 @@ def test_short_marks_invert_sign() -> None:
     close = {"BTCUSDT": np.array([100, 100, 95, 90], dtype=np.float64)}
     trades = [
         LedgerTrade(
-            signal_id="s1", symbol="BTCUSDT", tf="1h", strategy="bos",
-            direction="short", entry_ts_ms=1 * _DAY + 1, exit_ts_ms=3 * _DAY + 1,
-            entry_price=100.0, sl_price=105.0, outcome="win", realized_r=2.0,
+            signal_id="s1",
+            symbol="BTCUSDT",
+            tf="1h",
+            strategy="bos",
+            direction="short",
+            entry_ts_ms=1 * _DAY + 1,
+            exit_ts_ms=3 * _DAY + 1,
+            entry_price=100.0,
+            sl_price=105.0,
+            outcome="win",
+            realized_r=2.0,
         )
     ]
     res = PaperBook(cfg, grid, close, regime_by_signal=None).run(trades)
@@ -713,7 +764,9 @@ def test_short_marks_invert_sign() -> None:
 
 
 def test_cluster_cap_scales_down_third_major() -> None:
-    cfg = SizingConfig()  # r_cluster_max 0.01; three majors at 0.0025 each = 0.0075 < 0.01
+    cfg = (
+        SizingConfig()
+    )  # r_cluster_max 0.01; three majors at 0.0025 each = 0.0075 < 0.01
     grid = _grid(3)
     close = {s: _flat_close(3, 100.0) for s in ("BTCUSDT", "ETHUSDT", "SOLUSDT")}
     # four concurrent majors: 4th must be capped (0.0075 used, headroom 0.0025)
@@ -721,9 +774,17 @@ def test_cluster_cap_scales_down_third_major() -> None:
     for i, sym in enumerate(("BTCUSDT", "ETHUSDT", "SOLUSDT", "BTCUSDT")):
         trades.append(
             LedgerTrade(
-                signal_id=f"s{i}", symbol=sym, tf="1h", strategy="bos",
-                direction="long", entry_ts_ms=1 * _DAY + i, exit_ts_ms=2 * _DAY,
-                entry_price=100.0, sl_price=95.0, outcome="loss", realized_r=-1.0,
+                signal_id=f"s{i}",
+                symbol=sym,
+                tf="1h",
+                strategy="bos",
+                direction="long",
+                entry_ts_ms=1 * _DAY + i,
+                exit_ts_ms=2 * _DAY,
+                entry_price=100.0,
+                sl_price=95.0,
+                outcome="loss",
+                realized_r=-1.0,
             )
         )
     res = PaperBook(cfg, grid, close, regime_by_signal=None).run(trades)
@@ -742,9 +803,17 @@ def test_open_risk_cap_skips_when_headroom_below_floor() -> None:
     for i in range(9):
         trades.append(
             LedgerTrade(
-                signal_id=f"s{i}", symbol=f"C{i}USDT", tf="1h", strategy="bos",
-                direction="long", entry_ts_ms=1 * _DAY + i, exit_ts_ms=2 * _DAY,
-                entry_price=100.0, sl_price=95.0, outcome="loss", realized_r=-1.0,
+                signal_id=f"s{i}",
+                symbol=f"C{i}USDT",
+                tf="1h",
+                strategy="bos",
+                direction="long",
+                entry_ts_ms=1 * _DAY + i,
+                exit_ts_ms=2 * _DAY,
+                entry_price=100.0,
+                sl_price=95.0,
+                outcome="loss",
+                realized_r=-1.0,
             )
         )
     res = PaperBook(cfg, grid, close, regime_by_signal=None).run(trades)
@@ -758,9 +827,17 @@ def test_zero_risk_trade_skipped() -> None:
     close = {"BTCUSDT": _flat_close(3, 100.0)}
     trades = [
         LedgerTrade(
-            signal_id="s1", symbol="BTCUSDT", tf="1h", strategy="bos",
-            direction="long", entry_ts_ms=1 * _DAY, exit_ts_ms=2 * _DAY,
-            entry_price=100.0, sl_price=100.0, outcome="loss", realized_r=-1.0,
+            signal_id="s1",
+            symbol="BTCUSDT",
+            tf="1h",
+            strategy="bos",
+            direction="long",
+            entry_ts_ms=1 * _DAY,
+            exit_ts_ms=2 * _DAY,
+            entry_price=100.0,
+            sl_price=100.0,
+            outcome="loss",
+            realized_r=-1.0,
         )
     ]
     res = PaperBook(cfg, grid, close, regime_by_signal=None).run(trades)
@@ -773,10 +850,32 @@ def test_compounding_curve_diverges_from_fixed_after_pnl() -> None:
     close = {"BTCUSDT": _flat_close(4, 100.0)}
     # two sequential wins; second sizes off grown equity on the comp basis
     trades = [
-        LedgerTrade("s1", "BTCUSDT", "15m", "fvg", "long", 0 * _DAY + 1, 0 * _DAY + 2,
-                    100.0, 95.0, "win", 4.0),
-        LedgerTrade("s2", "BTCUSDT", "15m", "fvg", "long", 2 * _DAY + 1, 2 * _DAY + 2,
-                    100.0, 95.0, "win", 4.0),
+        LedgerTrade(
+            "s1",
+            "BTCUSDT",
+            "15m",
+            "fvg",
+            "long",
+            0 * _DAY + 1,
+            0 * _DAY + 2,
+            100.0,
+            95.0,
+            "win",
+            4.0,
+        ),
+        LedgerTrade(
+            "s2",
+            "BTCUSDT",
+            "15m",
+            "fvg",
+            "long",
+            2 * _DAY + 1,
+            2 * _DAY + 2,
+            100.0,
+            95.0,
+            "win",
+            4.0,
+        ),
     ]
     res = PaperBook(cfg, grid, close, regime_by_signal=None).run(trades)
     # comp 2nd trade risk_capital > fixed because equity grew after trade 1
@@ -907,16 +1006,22 @@ class PaperBook:
         n = len(self.daily_index)
         pnl_fixed = np.zeros(n)
         pnl_comp = np.zeros(n)
-        open_positions: list[tuple[int, float, str]] = []  # (exit_ts_ms, r_eff, cluster)
+        open_positions: list[
+            tuple[int, float, str]
+        ] = []  # (exit_ts_ms, r_eff, cluster)
         sized: list[SizedTrade] = []
         skipped: list[tuple[str, str]] = []
 
         for t in sorted(trades, key=lambda x: x.entry_ts_ms):
-            entry_idx = int(np.searchsorted(self.daily_index, t.entry_ts_ms, side="right")) - 1
+            entry_idx = (
+                int(np.searchsorted(self.daily_index, t.entry_ts_ms, side="right")) - 1
+            )
             if entry_idx < 0:
                 skipped.append((t.signal_id, "before_grid"))
                 continue
-            exit_idx = int(np.searchsorted(self.daily_index, t.exit_ts_ms, side="right")) - 1
+            exit_idx = (
+                int(np.searchsorted(self.daily_index, t.exit_ts_ms, side="right")) - 1
+            )
             exit_idx = max(exit_idx, entry_idx)
 
             rpu = risk_per_unit(t.entry_price, t.sl_price)
@@ -927,11 +1032,15 @@ class PaperBook:
             open_positions = [p for p in open_positions if p[0] > t.entry_ts_ms]
 
             g_vol = self._g_vol(pnl_comp, entry_idx)
-            regime = None if self.regime_by_signal is None else self.regime_by_signal.get(
-                t.signal_id
+            regime = (
+                None
+                if self.regime_by_signal is None
+                else self.regime_by_signal.get(t.signal_id)
             )
             g_regime = regime_multiplier(regime, self.cfg)
-            r_eff_candidate = effective_risk_fraction(self.cfg, g_vol=g_vol, g_regime=g_regime)
+            r_eff_candidate = effective_risk_fraction(
+                self.cfg, g_vol=g_vol, g_regime=g_regime
+            )
 
             cluster = cluster_of(t.symbol, self.cfg)
             open_total = sum(p[1] for p in open_positions)
@@ -963,18 +1072,32 @@ class PaperBook:
             open_positions.append((t.exit_ts_ms, r_eff, cluster))
             sized.append(
                 SizedTrade(
-                    signal_id=t.signal_id, symbol=t.symbol, tf=t.tf,
-                    strategy=t.strategy, direction=t.direction,
-                    entry_idx=entry_idx, exit_idx=exit_idx, r_eff=r_eff,
-                    g_vol=g_vol, g_regime=g_regime, rc_fixed=rc_fixed, rc_comp=rc_comp,
-                    pnl_fixed=rc_fixed * t.realized_r, pnl_comp=rc_comp * t.realized_r,
-                    realized_r=t.realized_r, regime=regime,
+                    signal_id=t.signal_id,
+                    symbol=t.symbol,
+                    tf=t.tf,
+                    strategy=t.strategy,
+                    direction=t.direction,
+                    entry_idx=entry_idx,
+                    exit_idx=exit_idx,
+                    r_eff=r_eff,
+                    g_vol=g_vol,
+                    g_regime=g_regime,
+                    rc_fixed=rc_fixed,
+                    rc_comp=rc_comp,
+                    pnl_fixed=rc_fixed * t.realized_r,
+                    pnl_comp=rc_comp * t.realized_r,
+                    realized_r=t.realized_r,
+                    regime=regime,
                 )
             )
 
         return BookResult(
-            daily_index=self.daily_index, capital=self.cfg.capital,
-            pnl_fixed=pnl_fixed, pnl_comp=pnl_comp, sized=sized, skipped=skipped,
+            daily_index=self.daily_index,
+            capital=self.cfg.capital,
+            pnl_fixed=pnl_fixed,
+            pnl_comp=pnl_comp,
+            sized=sized,
+            skipped=skipped,
         )
 ```
 
@@ -1020,9 +1143,19 @@ def test_governor_shrinks_size_after_volatile_run() -> None:
         day = i * 2
         r = -r
         trades.append(
-            LedgerTrade(f"v{i}", "BTCUSDT", "15m", "fvg", "long",
-                        day * _DAY + 1, day * _DAY + 2, 100.0, 95.0,
-                        "win" if r > 0 else "loss", r)
+            LedgerTrade(
+                f"v{i}",
+                "BTCUSDT",
+                "15m",
+                "fvg",
+                "long",
+                day * _DAY + 1,
+                day * _DAY + 2,
+                100.0,
+                95.0,
+                "win" if r > 0 else "loss",
+                r,
+            )
         )
     # a calm reference trade very early (low prior vol) and one late (high prior vol)
     res = PaperBook(cfg, grid, close, regime_by_signal=None).run(trades)
@@ -1038,8 +1171,19 @@ def test_governor_is_causal_only_reads_past() -> None:
     grid = _grid(10)
     close = {"BTCUSDT": _flat_close(10, 100.0)}
     trades = [
-        LedgerTrade("s1", "BTCUSDT", "15m", "fvg", "long", 5 * _DAY + 1, 5 * _DAY + 2,
-                    100.0, 95.0, "win", 2.0)
+        LedgerTrade(
+            "s1",
+            "BTCUSDT",
+            "15m",
+            "fvg",
+            "long",
+            5 * _DAY + 1,
+            5 * _DAY + 2,
+            100.0,
+            95.0,
+            "win",
+            2.0,
+        )
     ]
     res = PaperBook(cfg, grid, close, regime_by_signal=None).run(trades)
     assert res.sized[0].g_vol == pytest.approx(1.0)
@@ -1050,8 +1194,19 @@ def test_regime_high_vol_halves_size() -> None:
     grid = _grid(4)
     close = {"BTCUSDT": _flat_close(4, 100.0)}
     trades = [
-        LedgerTrade("s1", "BTCUSDT", "1h", "bos", "long", 1 * _DAY + 1, 2 * _DAY,
-                    100.0, 95.0, "loss", -1.0)
+        LedgerTrade(
+            "s1",
+            "BTCUSDT",
+            "1h",
+            "bos",
+            "long",
+            1 * _DAY + 1,
+            2 * _DAY,
+            100.0,
+            95.0,
+            "loss",
+            -1.0,
+        )
     ]
     res = PaperBook(cfg, grid, close, regime_by_signal={"s1": "high_vol"}).run(trades)
     # g_regime 0.5 -> r_eff = 0.0025 * 0.5 = 0.00125, rc_fixed = 12.5
@@ -1113,9 +1268,15 @@ def _seed_ohlcv_1d(conn: duckdb.DuckDBPyConnection, symbol: str, n_days: int) ->
     df = pd.DataFrame(
         [
             {
-                "symbol": symbol, "timeframe": "1d", "open_time": d * _DAY,
-                "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0,
-                "volume": 1.0, "taker_buy_volume": 0.5,
+                "symbol": symbol,
+                "timeframe": "1d",
+                "open_time": d * _DAY,
+                "open": 100.0,
+                "high": 101.0,
+                "low": 99.0,
+                "close": 100.0,
+                "volume": 1.0,
+                "taker_buy_volume": 0.5,
             }
             for d in range(n_days)
         ]
@@ -1126,19 +1287,36 @@ def _seed_ohlcv_1d(conn: duckdb.DuckDBPyConnection, symbol: str, n_days: int) ->
 
 
 def _seed_resolved(
-    conn: duckdb.DuckDBPyConnection, *, signal_id: str, symbol: str,
-    entry_day: int, exit_day: int, outcome: str, outcome_r: float,
-    direction: str = "long", entry: float = 100.0, sl: float = 95.0,
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    signal_id: str,
+    symbol: str,
+    entry_day: int,
+    exit_day: int,
+    outcome: str,
+    outcome_r: float,
+    direction: str = "long",
+    entry: float = 100.0,
+    sl: float = 95.0,
 ) -> None:
     upsert_signal_outcome(
         conn,
         {
-            "signal_id": signal_id, "symbol": symbol, "tf": "15m",
-            "strategy": "fvg", "direction": direction,
-            "fired_at_ms": entry_day * _DAY, "candle_ts_ms": entry_day * _DAY,
-            "entry_price": entry, "sl_price": sl, "tp_price": entry + 10.0,
-            "rr_ratio": 2.0, "confidence_at_fire": 3, "tags": "",
-            "outcome": outcome, "outcome_r": outcome_r,
+            "signal_id": signal_id,
+            "symbol": symbol,
+            "tf": "15m",
+            "strategy": "fvg",
+            "direction": direction,
+            "fired_at_ms": entry_day * _DAY,
+            "candle_ts_ms": entry_day * _DAY,
+            "entry_price": entry,
+            "sl_price": sl,
+            "tp_price": entry + 10.0,
+            "rr_ratio": 2.0,
+            "confidence_at_fire": 3,
+            "tags": "",
+            "outcome": outcome,
+            "outcome_r": outcome_r,
             "outcome_filled_at_ms": exit_day * _DAY,
         },
     )
@@ -1148,10 +1326,24 @@ def test_replay_ledger_produces_curves_and_trades() -> None:
     conn = duckdb.connect(":memory:")
     init_schema(conn)
     _seed_ohlcv_1d(conn, "BTCUSDT", 12)
-    _seed_resolved(conn, signal_id="a", symbol="BTCUSDT", entry_day=1, exit_day=1,
-                   outcome="win", outcome_r=2.0)
-    _seed_resolved(conn, signal_id="b", symbol="BTCUSDT", entry_day=3, exit_day=3,
-                   outcome="loss", outcome_r=-1.0)
+    _seed_resolved(
+        conn,
+        signal_id="a",
+        symbol="BTCUSDT",
+        entry_day=1,
+        exit_day=1,
+        outcome="win",
+        outcome_r=2.0,
+    )
+    _seed_resolved(
+        conn,
+        signal_id="b",
+        symbol="BTCUSDT",
+        entry_day=3,
+        exit_day=3,
+        outcome="loss",
+        outcome_r=-1.0,
+    )
     cfg = SizingConfig(apply_high_vol_halving=False)  # isolate sizing from regime
     res = replay_ledger(conn, cfg)
     assert len(res.sized) == 2
@@ -1163,17 +1355,35 @@ def test_replay_skips_unscoreable_and_null_r() -> None:
     conn = duckdb.connect(":memory:")
     init_schema(conn)
     _seed_ohlcv_1d(conn, "BTCUSDT", 6)
-    _seed_resolved(conn, signal_id="ok", symbol="BTCUSDT", entry_day=1, exit_day=1,
-                   outcome="win", outcome_r=2.0)
+    _seed_resolved(
+        conn,
+        signal_id="ok",
+        symbol="BTCUSDT",
+        entry_day=1,
+        exit_day=1,
+        outcome="win",
+        outcome_r=2.0,
+    )
     # NULL outcome_r -> excluded by the query
     upsert_signal_outcome(
         conn,
         {
-            "signal_id": "null_r", "symbol": "BTCUSDT", "tf": "15m",
-            "strategy": "fvg", "direction": "long", "fired_at_ms": 2 * _DAY,
-            "candle_ts_ms": 2 * _DAY, "entry_price": 100.0, "sl_price": 95.0,
-            "tp_price": 110.0, "rr_ratio": 2.0, "confidence_at_fire": 3, "tags": "",
-            "outcome": "open", "outcome_r": None, "outcome_filled_at_ms": None,
+            "signal_id": "null_r",
+            "symbol": "BTCUSDT",
+            "tf": "15m",
+            "strategy": "fvg",
+            "direction": "long",
+            "fired_at_ms": 2 * _DAY,
+            "candle_ts_ms": 2 * _DAY,
+            "entry_price": 100.0,
+            "sl_price": 95.0,
+            "tp_price": 110.0,
+            "rr_ratio": 2.0,
+            "confidence_at_fire": 3,
+            "tags": "",
+            "outcome": "open",
+            "outcome_r": None,
+            "outcome_filled_at_ms": None,
         },
     )
     res = replay_ledger(conn, SizingConfig(apply_high_vol_halving=False))
@@ -1228,8 +1438,12 @@ _RESOLVED_SQL = (
 
 def _empty_result(cfg: SizingConfig) -> BookResult:
     return BookResult(
-        daily_index=np.array([], dtype=np.int64), capital=cfg.capital,
-        pnl_fixed=np.array([]), pnl_comp=np.array([]), sized=[], skipped=[],
+        daily_index=np.array([], dtype=np.int64),
+        capital=cfg.capital,
+        pnl_fixed=np.array([]),
+        pnl_comp=np.array([]),
+        sized=[],
+        skipped=[],
     )
 
 
@@ -1240,9 +1454,16 @@ def replay_ledger(conn: duckdb.DuckDBPyConnection, cfg: SizingConfig) -> BookRes
 
     trades = [
         LedgerTrade(
-            signal_id=str(r[0]), symbol=str(r[1]), tf=str(r[2]), strategy=str(r[3]),
-            direction=str(r[4]), entry_ts_ms=int(r[5]), exit_ts_ms=int(r[6]),
-            entry_price=float(r[7]), sl_price=float(r[8]), outcome=str(r[9]),
+            signal_id=str(r[0]),
+            symbol=str(r[1]),
+            tf=str(r[2]),
+            strategy=str(r[3]),
+            direction=str(r[4]),
+            entry_ts_ms=int(r[5]),
+            exit_ts_ms=int(r[6]),
+            entry_price=float(r[7]),
+            sl_price=float(r[8]),
+            outcome=str(r[9]),
             realized_r=float(r[10]),
         )
         for r in rows
@@ -1282,12 +1503,16 @@ def replay_ledger(conn: duckdb.DuckDBPyConnection, cfg: SizingConfig) -> BookRes
             grid = regime_by_symbol_grid.get(t.symbol)
             if grid is None:
                 continue
-            entry_idx = int(np.searchsorted(daily_index, t.entry_ts_ms, side="right")) - 1
+            entry_idx = (
+                int(np.searchsorted(daily_index, t.entry_ts_ms, side="right")) - 1
+            )
             if 0 <= entry_idx < len(grid):
                 regime_by_signal[t.signal_id] = str(grid[entry_idx])
 
     book = PaperBook(
-        cfg, daily_index, close_by_symbol,
+        cfg,
+        daily_index,
+        close_by_symbol,
         regime_by_signal=regime_by_signal if cfg.apply_high_vol_halving else None,
     )
     return book.run(trades)
@@ -1300,8 +1525,12 @@ from portfolio.replay import replay_ledger
 from portfolio.sizing import SizingConfig
 
 __all__ = [
-    "BookResult", "LedgerTrade", "PaperBook", "SizedTrade",
-    "SizingConfig", "replay_ledger",
+    "BookResult",
+    "LedgerTrade",
+    "PaperBook",
+    "SizedTrade",
+    "SizingConfig",
+    "replay_ledger",
 ]
 ```
 
@@ -1343,9 +1572,18 @@ def test_format_report_renders_headline(capsys=None) -> None:
     conn = duckdb.connect(":memory:")
     init_schema(conn)
     _seed_ohlcv_1d(conn, "BTCUSDT", 12)
-    for i, (ed, oc, r) in enumerate([(1, "win", 2.0), (3, "loss", -1.0), (5, "win", 2.0)]):
-        _seed_resolved(conn, signal_id=f"s{i}", symbol="BTCUSDT",
-                       entry_day=ed, exit_day=ed, outcome=oc, outcome_r=r)
+    for i, (ed, oc, r) in enumerate(
+        [(1, "win", 2.0), (3, "loss", -1.0), (5, "win", 2.0)]
+    ):
+        _seed_resolved(
+            conn,
+            signal_id=f"s{i}",
+            symbol="BTCUSDT",
+            entry_day=ed,
+            exit_day=ed,
+            outcome=oc,
+            outcome_r=r,
+        )
     cfg = SizingConfig(apply_high_vol_halving=False)
     res = replay_ledger(conn, cfg)
     text = format_report(res, cfg)
@@ -1400,8 +1638,10 @@ def format_report(res: BookResult, cfg: SizingConfig) -> str:
     lines.append(f"  Calmar        {metrics.calmar(fixed_curve, ppy):+.2f}")
     lines.append(f"  Max drawdown  {metrics.max_drawdown(fixed_curve):+.1%}")
     lines.append(f"  Ann. return   {metrics.annual_return(fixed_curve, ppy):+.1%}")
-    lines.append(f"  Ann. vol      {metrics.annual_vol(fixed_curve, ppy):.1%} "
-                 f"(target {cfg.vol_target_annual:.0%})")
+    lines.append(
+        f"  Ann. vol      {metrics.annual_vol(fixed_curve, ppy):.1%} "
+        f"(target {cfg.vol_target_annual:.0%})"
+    )
     lines.append(f"  Avg exposure  {metrics.avg_exposure(res):.2%} gross open risk")
     lines.append(f"  Risk turnover {metrics.risk_turnover(res):.1f}x")
     lines.append(f"  Final equity  {fixed[-1]:,.0f}")
@@ -1458,13 +1698,28 @@ def add_portfolio_subparser(
         "portfolio", help="Paper-portfolio replay of the live outcome ledger"
     )
     sub = p.add_subparsers(dest="portfolio_command", required=True)
-    replay_p = sub.add_parser("replay", help="Replay signal_alert_outcomes into a sized book")
-    replay_p.add_argument("--db", type=Path, default=DEFAULT_DB_PATH, help="DuckDB path")
-    replay_p.add_argument("--config", type=str, default=None,
-                          help="TOML with a [portfolio] block (optional)")
-    replay_p.add_argument("--capital", type=float, default=None, help="paper capital override")
-    replay_p.add_argument("--vol-target", type=float, default=None, dest="vol_target",
-                          help="annual vol target override (e.g. 0.20)")
+    replay_p = sub.add_parser(
+        "replay", help="Replay signal_alert_outcomes into a sized book"
+    )
+    replay_p.add_argument(
+        "--db", type=Path, default=DEFAULT_DB_PATH, help="DuckDB path"
+    )
+    replay_p.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="TOML with a [portfolio] block (optional)",
+    )
+    replay_p.add_argument(
+        "--capital", type=float, default=None, help="paper capital override"
+    )
+    replay_p.add_argument(
+        "--vol-target",
+        type=float,
+        default=None,
+        dest="vol_target",
+        help="annual vol target override (e.g. 0.20)",
+    )
     replay_p.set_defaults(func=run_portfolio_replay)
 ```
 
@@ -1493,8 +1748,17 @@ Add `portfolio` to the import line and register the subparser:
 
 ```python
 from cli import (
-    analytics, backtest, digest, monitor, param, portfolio, recalibrate, signal, web,
+    analytics,
+    backtest,
+    digest,
+    monitor,
+    param,
+    portfolio,
+    recalibrate,
+    signal,
+    web,
 )
+
 # ... inside main(), alongside the other add_*_subparser calls:
 portfolio.add_portfolio_subparser(subparsers)
 ```

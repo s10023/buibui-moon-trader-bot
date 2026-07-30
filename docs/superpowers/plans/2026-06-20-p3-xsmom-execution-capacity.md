@@ -179,9 +179,7 @@ from analytics.xsmom.execution import turnover_cost_rate
 def test_turnover_cost_rate_tiers_and_sqrt_impact() -> None:
     idx = _idx(2)
     # Two instruments: one major-liquid, one thin alt.
-    leverage = pd.DataFrame(
-        {"BIG": [0.0, 0.5], "THIN": [0.0, 0.5]}, index=idx
-    )
+    leverage = pd.DataFrame({"BIG": [0.0, 0.5], "THIN": [0.0, 0.5]}, index=idx)
     adv = {
         "BIG": pd.Series([np.nan, 2_000_000_000.0], index=idx),  # major tier
         "THIN": pd.Series([np.nan, 1_000_000.0], index=idx),  # alt tier
@@ -249,7 +247,10 @@ def turnover_cost_rate(
     """
     idx = leverage.index
     adv_df = pd.DataFrame(
-        {sym: adv.get(sym, pd.Series(np.nan, index=idx)).reindex(idx) for sym in leverage.columns},
+        {
+            sym: adv.get(sym, pd.Series(np.nan, index=idx)).reindex(idx)
+            for sym in leverage.columns
+        },
         index=idx,
     )
 
@@ -326,9 +327,7 @@ def test_run_xs_backtest_default_off_is_byte_identical() -> None:
     cfg = dataclasses.replace(ForecastConfig(), speeds=((8, 32, 5.3),))
     base = run_xs_backtest(closes, fundings, cfg)
     again = run_xs_backtest(closes, fundings, cfg, turnover_cost_rate=None)
-    assert np.array_equal(
-        base.portfolio_return, again.portfolio_return, equal_nan=True
-    )
+    assert np.array_equal(base.portfolio_return, again.portfolio_return, equal_nan=True)
 
 
 def test_run_xs_backtest_constant_rate_matches_scalar_path() -> None:
@@ -341,9 +340,7 @@ def test_run_xs_backtest_constant_rate_matches_scalar_path() -> None:
     flat = cfg.fee_pct + cfg.slippage_pct
     const_rate = pd.DataFrame(flat, index=lev.index, columns=lev.columns)
     out = run_xs_backtest(closes, fundings, cfg, turnover_cost_rate=const_rate)
-    assert np.allclose(
-        base.portfolio_return, out.portfolio_return, equal_nan=True
-    )
+    assert np.allclose(base.portfolio_return, out.portfolio_return, equal_nan=True)
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -586,7 +583,10 @@ def load_daily_dollar_volumes(
             continue
         idx = pd.to_datetime(bars["open_time"], unit="ms", utc=True).dt.normalize()
         dv = pd.Series(
-            (bars["volume"].to_numpy(dtype=float) * bars["close"].to_numpy(dtype=float)),
+            (
+                bars["volume"].to_numpy(dtype=float)
+                * bars["close"].to_numpy(dtype=float)
+            ),
             index=idx,
         )
         out[sym] = dv[~dv.index.duplicated(keep="last")].sort_index()
@@ -709,9 +709,7 @@ def evaluate_xs_capacity(
                 "boot_lo": rep.boot_lo,
                 "boot_hi": rep.boot_hi,
                 "min_trl": rep.min_trl,
-                "gate": bool(
-                    rep.dsr >= 0.95 and rep.pbo <= 0.5 and rep.boot_lo > 0.0
-                ),
+                "gate": bool(rep.dsr >= 0.95 and rep.pbo <= 0.5 and rep.boot_lo > 0.0),
             }
         )
     return pd.DataFrame(rows)
@@ -837,18 +835,24 @@ def main() -> None:
     wide = dataclasses.replace(base, major_bps=2.0, mid_bps=6.0, alt_bps=16.0)
     _print_df(
         "Capacity sweep (tight spreads)",
-        evaluate_xs_capacity(replay_xs_capacity(conn, cfg, tight, _CAPITALS, symbols=syms), cfg),
+        evaluate_xs_capacity(
+            replay_xs_capacity(conn, cfg, tight, _CAPITALS, symbols=syms), cfg
+        ),
     )
     _print_df(
         "Capacity sweep (wide spreads)",
-        evaluate_xs_capacity(replay_xs_capacity(conn, cfg, wide, _CAPITALS, symbols=syms), cfg),
+        evaluate_xs_capacity(
+            replay_xs_capacity(conn, cfg, wide, _CAPITALS, symbols=syms), cfg
+        ),
     )
 
     # 4. sqrt vs linear impact form.
     lin = dataclasses.replace(base, impact="linear")
     _print_df(
         "Capacity sweep (linear impact)",
-        evaluate_xs_capacity(replay_xs_capacity(conn, cfg, lin, _CAPITALS, symbols=syms), cfg),
+        evaluate_xs_capacity(
+            replay_xs_capacity(conn, cfg, lin, _CAPITALS, symbols=syms), cfg
+        ),
     )
 
     conn.close()

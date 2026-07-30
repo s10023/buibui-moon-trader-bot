@@ -141,9 +141,7 @@ class CombineConfig:
 
     def __post_init__(self) -> None:
         if self.idm_mode not in _VALID_IDM_MODES:
-            raise ValueError(
-                f"idm_mode {self.idm_mode!r} not in {_VALID_IDM_MODES}"
-            )
+            raise ValueError(f"idm_mode {self.idm_mode!r} not in {_VALID_IDM_MODES}")
 
     @classmethod
     def from_toml(cls, path: Path | str) -> CombineConfig:
@@ -303,7 +301,9 @@ def test_causal_idm_series_warmup_is_neutral_one() -> None:
     rng = np.random.default_rng(2)
     a = rng.standard_normal(600)
     b = rng.standard_normal(600)
-    s = causal_idm_series(a, b, 0.5, 0.5, window=365, min_periods=120, cap=2.5, index=idx)
+    s = causal_idm_series(
+        a, b, 0.5, 0.5, window=365, min_periods=120, cap=2.5, index=idx
+    )
     assert len(s) == 600
     # before min_periods of trailing data the IDM is the neutral 1.0
     assert (s.iloc[:120] == 1.0).all()
@@ -315,7 +315,9 @@ def test_causal_idm_series_identical_streams_trends_to_one() -> None:
     idx = pd.date_range("2021-01-01", periods=600, freq="D")
     rng = np.random.default_rng(3)
     a = rng.standard_normal(600)
-    s = causal_idm_series(a, a, 0.5, 0.5, window=365, min_periods=120, cap=2.5, index=idx)
+    s = causal_idm_series(
+        a, a, 0.5, 0.5, window=365, min_periods=120, cap=2.5, index=idx
+    )
     # perfectly correlated sleeves -> no diversification -> IDM ~ 1.0 once warmed
     assert abs(s.iloc[-1] - 1.0) < 1e-6
 
@@ -325,10 +327,14 @@ def test_causal_idm_series_is_causal_no_lookahead() -> None:
     rng = np.random.default_rng(4)
     a = rng.standard_normal(600)
     b = rng.standard_normal(600)
-    base = causal_idm_series(a, b, 0.5, 0.5, window=365, min_periods=120, cap=2.5, index=idx)
+    base = causal_idm_series(
+        a, b, 0.5, 0.5, window=365, min_periods=120, cap=2.5, index=idx
+    )
     a2 = a.copy()
     a2[400] += 5.0  # perturb a future return
-    after = causal_idm_series(a2, b, 0.5, 0.5, window=365, min_periods=120, cap=2.5, index=idx)
+    after = causal_idm_series(
+        a2, b, 0.5, 0.5, window=365, min_periods=120, cap=2.5, index=idx
+    )
     # IDM at day t uses corr through t-1; a change at 400 cannot move IDM[:401]
     pd.testing.assert_series_equal(base.iloc[:401], after.iloc[:401], check_names=False)
 ```
@@ -351,9 +357,7 @@ import pandas as pd
 Append:
 
 ```python
-def _joint_live_corr(
-    a: npt.NDArray[np.float64], b: npt.NDArray[np.float64]
-) -> float:
+def _joint_live_corr(a: npt.NDArray[np.float64], b: npt.NDArray[np.float64]) -> float:
     """Pearson corr over the common tail, excluding joint dead warm-up (0, 0).
 
     Mirrors `analytics.xsmom.report._aligned_corr`. Degenerate (n<2 or zero
@@ -779,24 +783,56 @@ def test_report_shape_and_fields() -> None:
 
 def test_gate_verdict_true_when_all_pass() -> None:
     rep = CombineReport(
-        sharpe_annual=1.5, sortino_annual=2.0, max_dd=-0.1, calmar=3.0,
-        annual_return=0.3, annual_vol=0.2, n_obs=800,
-        dsr=0.99, pbo=0.2, boot_lo=0.4, boot_hi=2.5, min_trl=300.0,
-        corr_xs_trend=0.37, realized_idm=1.2, vol_xs=0.2, vol_trend=0.2,
-        vol_combined=0.165, diversification_mult=1.21, sharpe_xs=1.375,
-        sharpe_trend=0.36, xs_contribution=0.0006, trend_contribution=0.0002,
+        sharpe_annual=1.5,
+        sortino_annual=2.0,
+        max_dd=-0.1,
+        calmar=3.0,
+        annual_return=0.3,
+        annual_vol=0.2,
+        n_obs=800,
+        dsr=0.99,
+        pbo=0.2,
+        boot_lo=0.4,
+        boot_hi=2.5,
+        min_trl=300.0,
+        corr_xs_trend=0.37,
+        realized_idm=1.2,
+        vol_xs=0.2,
+        vol_trend=0.2,
+        vol_combined=0.165,
+        diversification_mult=1.21,
+        sharpe_xs=1.375,
+        sharpe_trend=0.36,
+        xs_contribution=0.0006,
+        trend_contribution=0.0002,
     )
     assert combine_gate_verdict(rep) is True
 
 
 def test_gate_verdict_false_when_pbo_high() -> None:
     rep = CombineReport(
-        sharpe_annual=1.5, sortino_annual=2.0, max_dd=-0.1, calmar=3.0,
-        annual_return=0.3, annual_vol=0.2, n_obs=800,
-        dsr=0.99, pbo=0.6, boot_lo=0.4, boot_hi=2.5, min_trl=300.0,
-        corr_xs_trend=0.37, realized_idm=1.2, vol_xs=0.2, vol_trend=0.2,
-        vol_combined=0.165, diversification_mult=1.21, sharpe_xs=1.375,
-        sharpe_trend=0.36, xs_contribution=0.0006, trend_contribution=0.0002,
+        sharpe_annual=1.5,
+        sortino_annual=2.0,
+        max_dd=-0.1,
+        calmar=3.0,
+        annual_return=0.3,
+        annual_vol=0.2,
+        n_obs=800,
+        dsr=0.99,
+        pbo=0.6,
+        boot_lo=0.4,
+        boot_hi=2.5,
+        min_trl=300.0,
+        corr_xs_trend=0.37,
+        realized_idm=1.2,
+        vol_xs=0.2,
+        vol_trend=0.2,
+        vol_combined=0.165,
+        diversification_mult=1.21,
+        sharpe_xs=1.375,
+        sharpe_trend=0.36,
+        xs_contribution=0.0006,
+        trend_contribution=0.0002,
     )
     assert combine_gate_verdict(rep) is False
 
@@ -804,7 +840,8 @@ def test_gate_verdict_false_when_pbo_high() -> None:
 def test_flat_returns_degenerate_to_zero() -> None:
     res = _result(np.zeros(500), idm=np.ones(500))
     rep = evaluate_combined(
-        res, CombineConfig(),
+        res,
+        CombineConfig(),
         trial_returns={"combined": np.zeros(500)},
         xs_returns=np.zeros(500),
         trend_returns=np.zeros(500),
@@ -932,11 +969,16 @@ def evaluate_combined(
     ann = math.sqrt(cfg.sleeve_cfg.annualization_days)
 
     sr_d = _per_period_sharpe(r)
-    trial_srs = [_per_period_sharpe(np.asarray(v, dtype=np.float64)) for v in trial_returns.values()]
+    trial_srs = [
+        _per_period_sharpe(np.asarray(v, dtype=np.float64))
+        for v in trial_returns.values()
+    ]
 
     min_len = min((len(v) for v in trial_returns.values()), default=0)
     if min_len >= 28 and len(trial_returns) >= 2:
-        mat = np.column_stack([np.asarray(v, dtype=np.float64)[-min_len:] for v in trial_returns.values()])
+        mat = np.column_stack(
+            [np.asarray(v, dtype=np.float64)[-min_len:] for v in trial_returns.values()]
+        )
         pbo = cscv_pbo(mat).pbo
     else:
         pbo = float("nan")
@@ -1000,11 +1042,7 @@ def combine_gate_verdict(report: CombineReport) -> bool:
     """The headline gate: DSR ≥ 0.95 ∧ PBO ≤ 0.5 ∧ boot_lo > 0."""
     if math.isnan(report.pbo):
         return False
-    return (
-        report.dsr >= _GATE_DSR
-        and report.pbo <= _GATE_PBO
-        and report.boot_lo > 0.0
-    )
+    return report.dsr >= _GATE_DSR and report.pbo <= _GATE_PBO and report.boot_lo > 0.0
 ```
 
 - [ ] **Step 4: Run to verify pass**
@@ -1369,9 +1407,7 @@ def _cfg(
     w_trend: float = 0.5,
     idm_mode: str = "causal",
 ) -> CombineConfig:
-    sleeve = dataclasses.replace(
-        ForecastConfig(), slippage_pct=slippage_bps / 10_000.0
-    )
+    sleeve = dataclasses.replace(ForecastConfig(), slippage_pct=slippage_bps / 10_000.0)
     return CombineConfig(
         sleeve_cfg=sleeve, w_xs=w_xs, w_trend=w_trend, idm_mode=idm_mode
     )
@@ -1456,9 +1492,15 @@ def main() -> None:
         "Weights sensitivity (universe @2bps)",
         pd.DataFrame(
             [
-                build_combine_report_row(conn, "equal 0.5/0.5", universe, 2.0, 0.5, 0.5),
-                build_combine_report_row(conn, "xs-heavy 0.7/0.3", universe, 2.0, 0.7, 0.3),
-                build_combine_report_row(conn, "xs-heavy 0.79/0.21", universe, 2.0, 0.79, 0.21),
+                build_combine_report_row(
+                    conn, "equal 0.5/0.5", universe, 2.0, 0.5, 0.5
+                ),
+                build_combine_report_row(
+                    conn, "xs-heavy 0.7/0.3", universe, 2.0, 0.7, 0.3
+                ),
+                build_combine_report_row(
+                    conn, "xs-heavy 0.79/0.21", universe, 2.0, 0.79, 0.21
+                ),
             ]
         ),
     )
@@ -1467,8 +1509,12 @@ def main() -> None:
         "IDM-mode sensitivity (universe @2bps)",
         pd.DataFrame(
             [
-                build_combine_report_row(conn, "causal", universe, 2.0, idm_mode="causal"),
-                build_combine_report_row(conn, "static", universe, 2.0, idm_mode="static"),
+                build_combine_report_row(
+                    conn, "causal", universe, 2.0, idm_mode="causal"
+                ),
+                build_combine_report_row(
+                    conn, "static", universe, 2.0, idm_mode="static"
+                ),
             ]
         ),
     )

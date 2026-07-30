@@ -128,7 +128,7 @@ by `fired_at_ms` desc. Pure DB read — no price, no network, no clock.
 class MarkedOpenPosition:
     position: OpenPosition
     mark: float | None
-    unrealized_r: float | None   # GROSS of costs (D6)
+    unrealized_r: float | None  # GROSS of costs (D6)
     dist_sl_pct: float | None
     dist_tp_pct: float | None
 ```

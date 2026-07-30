@@ -99,9 +99,7 @@ class TestBuildProfile:
     def test_partial_overlap_is_proportional(self) -> None:
         # Bins over [100, 110] (10 bins). Second bar spans [100, 102] with
         # volume 50 -> 25 into bin 0 and 25 into bin 1.
-        df = pd.DataFrame(
-            [_bar(0, 100.0, 110.0, 0.0), _bar(1, 100.0, 102.0, 50.0)]
-        )
+        df = pd.DataFrame([_bar(0, 100.0, 110.0, 0.0), _bar(1, 100.0, 102.0, 50.0)])
         prof = build_profile(df, n_bins=10)
         assert prof is not None
         assert abs(prof.volumes[0] - 25.0) < 1e-9
@@ -110,23 +108,21 @@ class TestBuildProfile:
 
     def test_zero_width_bar_lands_in_containing_bin(self) -> None:
         # high == low: all volume into the single bin containing that price.
-        df = pd.DataFrame(
-            [_bar(0, 100.0, 110.0, 0.0), _bar(1, 104.5, 104.5, 30.0)]
-        )
+        df = pd.DataFrame([_bar(0, 100.0, 110.0, 0.0), _bar(1, 104.5, 104.5, 30.0)])
         prof = build_profile(df, n_bins=10)
         assert prof is not None
         assert abs(prof.volumes[4] - 30.0) < 1e-9
 
     def test_zero_width_bar_at_top_edge_lands_in_last_bin(self) -> None:
-        df = pd.DataFrame(
-            [_bar(0, 100.0, 110.0, 0.0), _bar(1, 110.0, 110.0, 5.0)]
-        )
+        df = pd.DataFrame([_bar(0, 100.0, 110.0, 0.0), _bar(1, 110.0, 110.0, 5.0)])
         prof = build_profile(df, n_bins=10)
         assert prof is not None
         assert abs(prof.volumes[9] - 5.0) < 1e-9
 
     def test_empty_frame_returns_none(self) -> None:
-        df = pd.DataFrame(columns=["open_time", "open", "high", "low", "close", "volume"])
+        df = pd.DataFrame(
+            columns=["open_time", "open", "high", "low", "close", "volume"]
+        )
         assert build_profile(df) is None
 
     def test_zero_span_returns_none(self) -> None:
@@ -240,9 +236,7 @@ def build_profile(hourly_df: pd.DataFrame, n_bins: int = 100) -> VolumeProfile |
     return VolumeProfile(bin_edges=tuple(edges), volumes=tuple(volumes))
 
 
-def value_area(
-    profile: VolumeProfile, pct: float = 0.70
-) -> tuple[float, float, float]:
+def value_area(profile: VolumeProfile, pct: float = 0.70) -> tuple[float, float, float]:
     """(poc, vah, val) — greedy expansion around the POC bin to ``pct``.
 
     Deterministic tie-breaks: equal-volume POC candidates -> lowest-price
@@ -345,7 +339,9 @@ def _hbar(open_time: int, price: float, volume: float) -> dict[str, object]:
 class TestAnchoredVwap:
     def test_hand_math(self) -> None:
         # typical == price here (flat bars). VWAP = (100*10 + 110*30)/40 = 107.5
-        df = pd.DataFrame([_hbar(0, 90.0, 99.0), _hbar(10, 100.0, 10.0), _hbar(20, 110.0, 30.0)])
+        df = pd.DataFrame(
+            [_hbar(0, 90.0, 99.0), _hbar(10, 100.0, 10.0), _hbar(20, 110.0, 30.0)]
+        )
         assert anchored_vwap(df, anchor_ms=10) == 107.5
 
     def test_anchor_boundary_is_inclusive(self) -> None:
@@ -444,8 +440,7 @@ class TestBollingerState:
         # 100 flat-ish bars then 60 alternating: enough bandwidth history
         # (>= 60 valid bandwidth values) -> pctile is not None and in [0, 1].
         close = pd.Series(
-            [100.0 + (0.1 if i % 2 else -0.1) for i in range(100)]
-            + [99.0, 101.0] * 30
+            [100.0 + (0.1 if i % 2 else -0.1) for i in range(100)] + [99.0, 101.0] * 30
         )
         read = bollinger_state(close, ref_price=100.0)
         assert read is not None
@@ -930,8 +925,7 @@ def _ema_state(completed_1d: pd.DataFrame, ref_close: float) -> EmaState | None:
         for span, s in series.items()
     }
     above = {
-        span: (ref_close > v if v is not None else None)
-        for span, v in values.items()
+        span: (ref_close > v if v is not None else None) for span, v in values.items()
     }
     e20, e50, e200 = values[20], values[50], values[200]
     stack: str | None = None
@@ -1075,9 +1069,7 @@ def build_indicator_state(
     candles = run("candle", lambda: _candle_hits(completed_1d))
     pa = run("pa", lambda: _pa_state(completed_1d, atr14))
     bb = run("bb", lambda: _bb_state(completed_1d, ref_close))
-    vwap = run(
-        "vwap", lambda: _vwap_state(completed_1h, ref_close, atr14, as_of_ms)
-    )
+    vwap = run("vwap", lambda: _vwap_state(completed_1h, ref_close, atr14, as_of_ms))
     profile = run(
         "profile", lambda: _profile_state(completed_1h, ref_close, atr14, as_of_ms)
     )
@@ -1705,12 +1697,12 @@ In `analytics/brief/bundle.py`:
    and then in the `SymbolPanel(...)` construction:
 
    ```python
-       regime_1d=str(regime_series_1d.iloc[-1]),
-       regime_4h=_regime_label(frames.get("4h", pd.DataFrame()), "4h"),
-       ...
-       seasonality=build_strip(conn, symbol, as_of, cfg.stats_days),
-       indicators=indicators,
-       error=None,
+   regime_1d = (str(regime_series_1d.iloc[-1]),)
+   regime_4h = (_regime_label(frames.get("4h", pd.DataFrame()), "4h"),)
+   ...
+   seasonality = (build_strip(conn, symbol, as_of, cfg.stats_days),)
+   indicators = (indicators,)
+   error = (None,)
    ```
 
    (`_regime_label` stays — the 4h read still uses it. `completed_1d` is
@@ -1795,12 +1787,19 @@ from analytics.brief.types import (
 def _full_state() -> IndicatorState:
     return IndicatorState(
         ema=EmaState(
-            above_20=True, above_50=True, above_200=False,
-            stack="mixed", slope_200="falling",
+            above_20=True,
+            above_50=True,
+            above_200=False,
+            stack="mixed",
+            slope_200="falling",
         ),
         range_state=RangeState(
-            label="range", since_ms=1_708_300_800_000,  # 2024-02-19 UTC
-            bars=18, range_low=105200.0, range_high=112800.0, pos=0.62,
+            label="range",
+            since_ms=1_708_300_800_000,  # 2024-02-19 UTC
+            bars=18,
+            range_low=105200.0,
+            range_high=112800.0,
+            pos=0.62,
         ),
         monday=MondayState(state="inside", pos=0.43),
         candles=[
@@ -1810,12 +1809,17 @@ def _full_state() -> IndicatorState:
         pa=PaState(label="grind_up", er=0.55, speed_atr=0.4),
         bb=BbState(pct_b=0.71, bandwidth=0.083, bw_pctile=0.23, squeeze=False),
         vwap=VwapState(
-            weekly_price=101.0, weekly_dist_atr=0.4,
-            monthly_price=110.0, monthly_dist_atr=-1.2,
+            weekly_price=101.0,
+            weekly_dist_atr=0.4,
+            monthly_price=110.0,
+            monthly_dist_atr=-1.2,
         ),
         profile=ProfileState(
-            poc=108400.0, vah=113900.0, val=104100.0,
-            vs_value="inside", poc_dist_atr=-0.3,
+            poc=108400.0,
+            vah=113900.0,
+            val=104100.0,
+            vs_value="inside",
+            poc_dist_atr=-0.3,
         ),
     )
 
@@ -1838,27 +1842,43 @@ class TestIndicatorLines:
 
     def test_failed_blocks_drop_lines(self) -> None:
         state = IndicatorState(
-            ema=None, range_state=None, monday=None,
-            candles=[], pa=None, bb=None, vwap=None, profile=None,
+            ema=None,
+            range_state=None,
+            monday=None,
+            candles=[],
+            pa=None,
+            bb=None,
+            vwap=None,
+            profile=None,
         )
         assert _indicator_lines(state) == ["Candle   none"]
 
     def test_bb_half_survives_alone(self) -> None:
         state = IndicatorState(
-            ema=None, range_state=None, monday=None, candles=None,
+            ema=None,
+            range_state=None,
+            monday=None,
+            candles=None,
             pa=None,
             bb=BbState(pct_b=0.5, bandwidth=0.02, bw_pctile=None, squeeze=None),
-            vwap=None, profile=None,
+            vwap=None,
+            profile=None,
         )
         assert _indicator_lines(state) == ["BB       %B 0.50 · bw 2.0%"]
 
     def test_vwap_half_survives_alone_with_squeeze_variants(self) -> None:
         state = IndicatorState(
-            ema=None, range_state=None, monday=None, candles=None, pa=None,
+            ema=None,
+            range_state=None,
+            monday=None,
+            candles=None,
+            pa=None,
             bb=None,
             vwap=VwapState(
-                weekly_price=None, weekly_dist_atr=None,
-                monthly_price=100.0, monthly_dist_atr=0.8,
+                weekly_price=None,
+                weekly_dist_atr=None,
+                monthly_price=100.0,
+                monthly_dist_atr=0.8,
             ),
             profile=None,
         )
@@ -1867,15 +1887,26 @@ class TestIndicatorLines:
     def test_ema_warmup_and_trend_state(self) -> None:
         state = IndicatorState(
             ema=EmaState(
-                above_20=True, above_50=None, above_200=None,
-                stack=None, slope_200=None,
+                above_20=True,
+                above_50=None,
+                above_200=None,
+                stack=None,
+                slope_200=None,
             ),
             range_state=RangeState(
-                label="trend", since_ms=1_708_300_800_000, bars=5,
-                range_low=None, range_high=None, pos=None,
+                label="trend",
+                since_ms=1_708_300_800_000,
+                bars=5,
+                range_low=None,
+                range_high=None,
+                pos=None,
             ),
             monday=MondayState(state="forming", pos=None),
-            candles=None, pa=None, bb=None, vwap=None, profile=None,
+            candles=None,
+            pa=None,
+            bb=None,
+            vwap=None,
+            profile=None,
         )
         assert _indicator_lines(state) == [
             "EMA      ▲20 —50 —200 · stack n/a · 200 n/a",
@@ -1934,9 +1965,7 @@ def _candle_line(candles: list[CandleHit]) -> str:
 
 
 def _pa_line(pa: PaState) -> str:
-    return (
-        f"{'PA':<9}{pa.label} · ER {pa.er:.2f} · {pa.speed_atr:.2f} ATR/bar"
-    )
+    return f"{'PA':<9}{pa.label} · ER {pa.er:.2f} · {pa.speed_atr:.2f} ATR/bar"
 
 
 def _bb_bit(bb: BbState) -> str:

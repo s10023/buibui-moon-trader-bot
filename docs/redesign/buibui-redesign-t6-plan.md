@@ -12,6 +12,7 @@ Add a single `LiveParityConfig` dataclass passed to `run_backtest()`. Keeps the 
 # analytics/backtest/live_parity_config.py  (NEW)
 from dataclasses import dataclass, field
 
+
 @dataclass(frozen=True)
 class LiveParityConfig:
     """Toggle live-only gates inside run_backtest(). All default False.
@@ -19,13 +20,14 @@ class LiveParityConfig:
     Set `enabled=True` to flip every individual flag on at once (still respects
     explicit False overrides). Logged once per backtest run.
     """
+
     enabled: bool = False
     regime: bool = False
     direction_filter: bool = False
     f8_htf_ema: bool = False
-    adr_bias: bool = False           # ADR-consumption suppress (chasing direction)
+    adr_bias: bool = False  # ADR-consumption suppress (chasing direction)
     conflict_resolver: bool = False  # per-candle long-vs-short resolution
-    cooldown: bool = False           # N-bar same-(sym,tf,strat,dir) suppression
+    cooldown: bool = False  # N-bar same-(sym,tf,strat,dir) suppression
 
     def is_on(self, gate: str) -> bool:
         return self.enabled or bool(getattr(self, gate))
@@ -45,7 +47,7 @@ def run_backtest(
     atr_sl_floor: bool = False,
     # NEW — all default values preserve current behaviour
     live_parity: LiveParityConfig | None = None,
-    bias_cfg: "BiasConfig | None" = None,         # required when any gate on
+    bias_cfg: "BiasConfig | None" = None,  # required when any gate on
     strategy_params: "dict[str, StrategyOverride] | None" = None,
     htf_slope_cache: "Mapping[tuple[str,str,int,int], float | None] | None" = None,
     regime_cache: "Mapping[str, Regime] | None" = None,
@@ -57,7 +59,9 @@ Gates run **before** trade simulation, on the signals frame. Live operates on `l
 
 ```python
 def _df_to_events(df: pd.DataFrame) -> list[SignalEvent]: ...
-def _events_to_df(events: list[SignalEvent], original_df: pd.DataFrame) -> pd.DataFrame: ...
+def _events_to_df(
+    events: list[SignalEvent], original_df: pd.DataFrame
+) -> pd.DataFrame: ...
 ```
 
 This keeps gate logic single-sourced in `analytics/signal/gates.py` — no re-implementation, no drift risk.

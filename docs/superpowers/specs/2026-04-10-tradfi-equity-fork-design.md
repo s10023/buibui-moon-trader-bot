@@ -199,6 +199,7 @@ import pandas as pd
 
 YF_INTERVALS: dict[str, str] = {"1h": "60m", "1d": "1d", "1wk": "1wk"}
 
+
 def fetch_history(symbol: str, *, interval: str, period: str = "max") -> pd.DataFrame:
     """Return canonical OHLCV (lowercase columns, UTC-naive DatetimeIndex).
 
@@ -322,11 +323,12 @@ US equities close at 4pm and re-open at 9:30am the next trading day. Every day h
 ```python
 @dataclass
 class OvernightGap:
-    gap_pct: float     # (open - prev_close) / prev_close
+    gap_pct: float  # (open - prev_close) / prev_close
     gap_up: bool
-    filled: bool       # did price return to prev_close intraday?
+    filled: bool  # did price return to prev_close intraday?
     prev_close: float
     today_open: float
+
 
 def get_overnight_gap(ohlcv_df: pd.DataFrame) -> OvernightGap | None: ...
 def gap_fill_warning(gap: OvernightGap, direction: str, entry: float) -> str | None: ...

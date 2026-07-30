@@ -249,10 +249,11 @@ filenames and skipped panels listed for information.
 class ExternalClusterRow:
     price_lo: float
     price_hi: float
-    kind: str            # "liq" | "book"
-    intensity: str       # "high" | "med" | "low"
+    kind: str  # "liq" | "book"
+    intensity: str  # "high" | "med" | "low"
     label: str
-    dist_atr: float      # signed distance from ref to band midpoint, in ATR14
+    dist_atr: float  # signed distance from ref to band midpoint, in ATR14
+
 
 @dataclass(frozen=True)
 class ExternalSnapshot:
@@ -263,9 +264,10 @@ class ExternalSnapshot:
     captured_at_ms: int
     age_hours: float
     spot_price_hint: float | None
-    spot_hint_deviation: bool   # |hint − ref| / ref > 0.10
-    clusters_above: list[ExternalClusterRow]   # nearest-first
-    clusters_below: list[ExternalClusterRow]   # nearest-first
+    spot_hint_deviation: bool  # |hint − ref| / ref > 0.10
+    clusters_above: list[ExternalClusterRow]  # nearest-first
+    clusters_below: list[ExternalClusterRow]  # nearest-first
+
 
 @dataclass(frozen=True)
 class ExternalState:

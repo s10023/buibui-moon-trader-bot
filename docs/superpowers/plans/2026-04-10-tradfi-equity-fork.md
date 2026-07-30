@@ -44,18 +44,32 @@ import yfinance as yf
 
 _INTERVAL_MAP = {"1h": "60m", "1d": "1d", "1wk": "1wk"}
 
+
 def fetch_bars_yf(symbol: str, interval: str, period: str = "max") -> pd.DataFrame:
     yf_interval = _INTERVAL_MAP[interval]
-    df = yf.Ticker(symbol).history(period=period, interval=yf_interval, auto_adjust=False)
+    df = yf.Ticker(symbol).history(
+        period=period, interval=yf_interval, auto_adjust=False
+    )
     # rename columns to canonical OHLCV schema (open, high, low, close, volume)
     # convert index → open_time (UTC ms)
     return df_canonical
 
+
 def resample_to_4h(hourly_df: pd.DataFrame) -> pd.DataFrame:
     # anchor to 13:30 UTC = US market open (regular session)
-    return hourly_df.resample("4h", origin="start_day", offset="13h30min").agg({
-        "open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum",
-    }).dropna()
+    return (
+        hourly_df.resample("4h", origin="start_day", offset="13h30min")
+        .agg(
+            {
+                "open": "first",
+                "high": "max",
+                "low": "min",
+                "close": "last",
+                "volume": "sum",
+            }
+        )
+        .dropna()
+    )
 ```
 
 ### 0.c Missing tasks not in the original plan body
@@ -231,7 +245,10 @@ and replaced with equity equivalents (overnight gap; **`vwap` column dropped ent
           df = fetch_history("AAPL", interval="1d", period="6mo")
           mock_cls.assert_called_once_with("AAPL")
           mock_ticker.history.assert_called_once_with(
-              period="6mo", interval="1d", auto_adjust=False, actions=False,
+              period="6mo",
+              interval="1d",
+              auto_adjust=False,
+              actions=False,
           )
           # canonical columns + UTC ms index
           assert list(df.columns) == ["open", "high", "low", "close", "volume"]
@@ -314,8 +331,13 @@ and replaced with equity equivalents (overnight gap; **`vwap` column dropped ent
       # Yahoo returns tz-aware America/New_York; convert to UTC then drop tz
       idx_utc = raw.index.tz_convert("UTC").tz_localize(None)
       df = raw.rename(
-          columns={"Open": "open", "High": "high", "Low": "low",
-                   "Close": "close", "Volume": "volume"},
+          columns={
+              "Open": "open",
+              "High": "high",
+              "Low": "low",
+              "Close": "close",
+              "Volume": "volume",
+          },
       )[["open", "high", "low", "close", "volume"]]
       df.index = idx_utc
       return df
@@ -384,8 +406,14 @@ The new `fetch_bars()` keeps a similar call signature to the old `fetch_klines()
 
 
   def _row(ts: str = "2024-01-15T14:30:00", price: float = 186.0) -> dict[str, Any]:
-      return {"ts": ts, "open": 185.0, "high": 187.5, "low": 184.0,
-              "close": price, "volume": 1_000_000.0}
+      return {
+          "ts": ts,
+          "open": 185.0,
+          "high": 187.5,
+          "low": 184.0,
+          "close": price,
+          "volume": 1_000_000.0,
+      }
 
 
   def test_fetch_bars_returns_canonical_columns() -> None:
@@ -493,9 +521,9 @@ The new `fetch_bars()` keeps a similar call signature to the old `fetch_klines()
   # Mapping from canonical interval to (yfinance_interval, default_period).
   # yfinance caps history per interval — defaults below stay within those caps.
   _INTERVAL_CONFIG: dict[str, tuple[str, str]] = {
-      "1h": ("1h", "2y"),    # yf 1h caps at 730d
-      "4h": ("1h", "2y"),    # synthesised by resampling 1h
-      "1d": ("1d", "max"),   # unlimited
+      "1h": ("1h", "2y"),  # yf 1h caps at 730d
+      "4h": ("1h", "2y"),  # synthesised by resampling 1h
+      "1d": ("1d", "max"),  # unlimited
       "1wk": ("1wk", "max"),
   }
 
@@ -514,8 +542,7 @@ The new `fetch_bars()` keeps a similar call signature to the old `fetch_klines()
       """
       if interval not in _INTERVAL_CONFIG:
           raise ValueError(
-              f"Unsupported interval '{interval}'. "
-              f"Supported: {list(_INTERVAL_CONFIG)}"
+              f"Unsupported interval '{interval}'. Supported: {list(_INTERVAL_CONFIG)}"
           )
       yf_interval, period = _INTERVAL_CONFIG[interval]
       raw = fetch_history(symbol, interval=yf_interval, period=period)
@@ -528,7 +555,9 @@ The new `fetch_bars()` keeps a similar call signature to the old `fetch_klines()
               return pd.DataFrame(columns=OHLCV_COLUMNS)
 
       # filter to start_ms forward
-      start_dt = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).replace(tzinfo=None)
+      start_dt = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).replace(
+          tzinfo=None
+      )
       raw = raw.loc[raw.index >= start_dt]
       raw = raw.head(limit)
 
@@ -555,8 +584,15 @@ The new `fetch_bars()` keeps a similar call signature to the old `fetch_klines()
       """
       return (
           hourly.resample("4h", origin="start_day", offset="13h30min")
-          .agg({"open": "first", "high": "max", "low": "min",
-                "close": "last", "volume": "sum"})
+          .agg(
+              {
+                  "open": "first",
+                  "high": "max",
+                  "low": "min",
+                  "close": "last",
+                  "volume": "sum",
+              }
+          )
           .dropna()
       )
   ```
@@ -605,12 +641,7 @@ The new `fetch_bars()` keeps a similar call signature to the old `fetch_klines()
 
       conn = duckdb.connect(":memory:")
       init_db(conn)
-      cols = [
-          r[1]
-          for r in conn.execute(
-              "PRAGMA table_info('ohlcv')"
-          ).fetchall()
-      ]
+      cols = [r[1] for r in conn.execute("PRAGMA table_info('ohlcv')").fetchall()]
       assert "taker_buy_volume" not in cols
       assert "vwap" not in cols
       conn.close()
@@ -728,17 +759,17 @@ The new `fetch_bars()` keeps a similar call signature to the old `fetch_klines()
 
   ```python
   # Remove these lines
-  OIPeriod,
-  fetch_funding_rates,
-  fetch_open_interest,
+  (OIPeriod,)
+  (fetch_funding_rates,)
+  (fetch_open_interest,)
   ```
 
   Remove from the `from analytics.store import` block (post-Phase-2; was `analytics.data_store`):
 
   ```python
   # Remove these lines
-  upsert_funding_rates,
-  upsert_open_interest,
+  (upsert_funding_rates,)
+  (upsert_open_interest,)
   ```
 
   Remove the Binance `Client` import. **No replacement client import needed** — yfinance has no client object, so `data_sync.py` no longer needs a client parameter at all:
@@ -764,6 +795,7 @@ The new `fetch_bars()` keeps a similar call signature to the old `fetch_klines()
       KLINES_MAX_LIMIT,
       fetch_klines,
   )
+
   # ... inside backfill():
   df = fetch_klines(client, symbol, timeframe, current_start, limit=KLINES_MAX_LIMIT)
 
@@ -772,6 +804,7 @@ The new `fetch_bars()` keeps a similar call signature to the old `fetch_klines()
       BARS_MAX_LIMIT,
       fetch_bars,
   )
+
   # ... inside backfill():
   df = fetch_bars(symbol, timeframe, current_start, limit=BARS_MAX_LIMIT)
   ```
@@ -820,6 +853,7 @@ The new `fetch_bars()` keeps a similar call signature to the old `fetch_klines()
   ```python
   # Before
   from utils.binance_client import create_client
+
   client = create_client()
   backfill(conn, client, symbol, timeframe, start_ms)
 
@@ -1064,15 +1098,17 @@ to open). This requires making the param functional again.
       for day in range(3):
           for hour in range(24):
               ts = base_ms + day * 24 * hour_ms + hour * hour_ms
-              rows.append({
-                  "open_time": ts,
-                  "open": 185.0 + hour * 0.1,
-                  "high": 187.0 + hour * 0.1,
-                  "low": 183.0 + hour * 0.1,
-                  "close": 186.0 + hour * 0.1,
-                  "volume": 1_000_000.0,
-                  "vwap": 185.5,
-              })
+              rows.append(
+                  {
+                      "open_time": ts,
+                      "open": 185.0 + hour * 0.1,
+                      "high": 187.0 + hour * 0.1,
+                      "low": 183.0 + hour * 0.1,
+                      "close": 186.0 + hour * 0.1,
+                      "volume": 1_000_000.0,
+                      "vwap": 185.5,
+                  }
+              )
       df = pd.DataFrame(rows)
       # With anchor at 13, signals reference 13:00 UTC candles as session open
       signals = detect_orb_breakout(df, session_hour_utc=13)
@@ -1101,7 +1137,9 @@ to open). This requires making the param functional again.
   session_mask = pd.to_datetime(df["open_time"], unit="ms", utc=True).dt.hour == 0
 
   # After (anchors on session_hour_utc — default 13 for 9am ET)
-  session_mask = pd.to_datetime(df["open_time"], unit="ms", utc=True).dt.hour == session_hour_utc
+  session_mask = (
+      pd.to_datetime(df["open_time"], unit="ms", utc=True).dt.hour == session_hour_utc
+  )
   ```
 
   The exact code will differ — match the pattern you found in Step 1.
@@ -1142,7 +1180,11 @@ to open). This requires making the param functional again.
   import pandas as pd
   import pytest
 
-  from analytics.overnight_gap_lib import OvernightGap, gap_fill_warning, get_overnight_gap
+  from analytics.overnight_gap_lib import (
+      OvernightGap,
+      gap_fill_warning,
+      get_overnight_gap,
+  )
 
 
   def _make_df(rows: list[dict]) -> pd.DataFrame:  # type: ignore[type-arg]
@@ -1150,10 +1192,28 @@ to open). This requires making the param functional again.
 
 
   def test_gap_up_detected() -> None:
-      df = _make_df([
-          {"open_time": 1, "open": 100.0, "high": 102.0, "low": 99.0, "close": 101.0, "volume": 1e6, "vwap": 100.5},
-          {"open_time": 2, "open": 103.0, "high": 105.0, "low": 102.0, "close": 104.0, "volume": 1e6, "vwap": 103.5},
-      ])
+      df = _make_df(
+          [
+              {
+                  "open_time": 1,
+                  "open": 100.0,
+                  "high": 102.0,
+                  "low": 99.0,
+                  "close": 101.0,
+                  "volume": 1e6,
+                  "vwap": 100.5,
+              },
+              {
+                  "open_time": 2,
+                  "open": 103.0,
+                  "high": 105.0,
+                  "low": 102.0,
+                  "close": 104.0,
+                  "volume": 1e6,
+                  "vwap": 103.5,
+              },
+          ]
+      )
       gap = get_overnight_gap(df)
       assert gap is not None
       assert gap.gap_up is True
@@ -1163,10 +1223,28 @@ to open). This requires making the param functional again.
 
 
   def test_gap_down_detected() -> None:
-      df = _make_df([
-          {"open_time": 1, "open": 100.0, "high": 102.0, "low": 99.0, "close": 101.0, "volume": 1e6, "vwap": 100.5},
-          {"open_time": 2, "open": 98.0, "high": 99.0, "low": 97.0, "close": 98.5, "volume": 1e6, "vwap": 98.2},
-      ])
+      df = _make_df(
+          [
+              {
+                  "open_time": 1,
+                  "open": 100.0,
+                  "high": 102.0,
+                  "low": 99.0,
+                  "close": 101.0,
+                  "volume": 1e6,
+                  "vwap": 100.5,
+              },
+              {
+                  "open_time": 2,
+                  "open": 98.0,
+                  "high": 99.0,
+                  "low": 97.0,
+                  "close": 98.5,
+                  "volume": 1e6,
+                  "vwap": 98.2,
+              },
+          ]
+      )
       gap = get_overnight_gap(df)
       assert gap is not None
       assert gap.gap_up is False
@@ -1174,35 +1252,83 @@ to open). This requires making the param functional again.
 
 
   def test_gap_up_filled_when_low_touches_prev_close() -> None:
-      df = _make_df([
-          {"open_time": 1, "open": 100.0, "high": 102.0, "low": 99.0, "close": 101.0, "volume": 1e6, "vwap": 100.5},
-          # Gap up to 105 open but low comes back to 101 (filled)
-          {"open_time": 2, "open": 105.0, "high": 107.0, "low": 101.0, "close": 106.0, "volume": 1e6, "vwap": 105.0},
-      ])
+      df = _make_df(
+          [
+              {
+                  "open_time": 1,
+                  "open": 100.0,
+                  "high": 102.0,
+                  "low": 99.0,
+                  "close": 101.0,
+                  "volume": 1e6,
+                  "vwap": 100.5,
+              },
+              # Gap up to 105 open but low comes back to 101 (filled)
+              {
+                  "open_time": 2,
+                  "open": 105.0,
+                  "high": 107.0,
+                  "low": 101.0,
+                  "close": 106.0,
+                  "volume": 1e6,
+                  "vwap": 105.0,
+              },
+          ]
+      )
       gap = get_overnight_gap(df)
       assert gap is not None
       assert gap.filled is True
 
 
   def test_gap_up_not_filled_when_low_above_prev_close() -> None:
-      df = _make_df([
-          {"open_time": 1, "open": 100.0, "high": 102.0, "low": 99.0, "close": 101.0, "volume": 1e6, "vwap": 100.5},
-          {"open_time": 2, "open": 105.0, "high": 107.0, "low": 103.0, "close": 106.0, "volume": 1e6, "vwap": 105.0},
-      ])
+      df = _make_df(
+          [
+              {
+                  "open_time": 1,
+                  "open": 100.0,
+                  "high": 102.0,
+                  "low": 99.0,
+                  "close": 101.0,
+                  "volume": 1e6,
+                  "vwap": 100.5,
+              },
+              {
+                  "open_time": 2,
+                  "open": 105.0,
+                  "high": 107.0,
+                  "low": 103.0,
+                  "close": 106.0,
+                  "volume": 1e6,
+                  "vwap": 105.0,
+              },
+          ]
+      )
       gap = get_overnight_gap(df)
       assert gap is not None
       assert gap.filled is False
 
 
   def test_returns_none_when_fewer_than_two_rows() -> None:
-      df = _make_df([
-          {"open_time": 1, "open": 100.0, "high": 102.0, "low": 99.0, "close": 101.0, "volume": 1e6, "vwap": 100.5},
-      ])
+      df = _make_df(
+          [
+              {
+                  "open_time": 1,
+                  "open": 100.0,
+                  "high": 102.0,
+                  "low": 99.0,
+                  "close": 101.0,
+                  "volume": 1e6,
+                  "vwap": 100.5,
+              },
+          ]
+      )
       assert get_overnight_gap(df) is None
 
 
   def test_gap_fill_warning_long_below_unfilled_gap_down() -> None:
-      gap = OvernightGap(gap_pct=-0.02, gap_up=False, filled=False, prev_close=101.0, today_open=99.0)
+      gap = OvernightGap(
+          gap_pct=-0.02, gap_up=False, filled=False, prev_close=101.0, today_open=99.0
+      )
       # Going long; unfilled gap-down at 101 is above entry — gap may act as resistance
       warning = gap_fill_warning(gap, direction="long", entry=100.0)
       assert warning is not None
@@ -1210,12 +1336,16 @@ to open). This requires making the param functional again.
 
 
   def test_gap_fill_warning_none_when_gap_filled() -> None:
-      gap = OvernightGap(gap_pct=-0.02, gap_up=False, filled=True, prev_close=101.0, today_open=99.0)
+      gap = OvernightGap(
+          gap_pct=-0.02, gap_up=False, filled=True, prev_close=101.0, today_open=99.0
+      )
       assert gap_fill_warning(gap, direction="long", entry=100.0) is None
 
 
   def test_gap_fill_warning_short_above_unfilled_gap_up() -> None:
-      gap = OvernightGap(gap_pct=0.02, gap_up=True, filled=False, prev_close=99.0, today_open=101.0)
+      gap = OvernightGap(
+          gap_pct=0.02, gap_up=True, filled=False, prev_close=99.0, today_open=101.0
+      )
       # Going short; unfilled gap-up prev_close at 99 is below entry — may act as support
       warning = gap_fill_warning(gap, direction="short", entry=100.0)
       assert warning is not None
@@ -1249,11 +1379,11 @@ to open). This requires making the param functional again.
 
   @dataclass
   class OvernightGap:
-      gap_pct: float      # (today_open - prev_close) / prev_close; negative = gap down
-      gap_up: bool        # True if today opened above yesterday's close
-      filled: bool        # True if price returned to prev_close during today's session
-      prev_close: float   # Yesterday's closing price
-      today_open: float   # Today's opening price
+      gap_pct: float  # (today_open - prev_close) / prev_close; negative = gap down
+      gap_up: bool  # True if today opened above yesterday's close
+      filled: bool  # True if price returned to prev_close during today's session
+      prev_close: float  # Yesterday's closing price
+      today_open: float  # Today's opening price
 
 
   def get_overnight_gap(ohlcv_df: pd.DataFrame) -> OvernightGap | None:
@@ -1386,16 +1516,14 @@ to open). This requires making the param functional again.
 
   ```python
   # Before
-  _gap_warning = cme_gap_alert_warning(
-      cme_gap, direction, _entry, _rough_tp
-  )
+  _gap_warning = cme_gap_alert_warning(cme_gap, direction, _entry, _rough_tp)
   # ...
-  cme_gap_warning=_gap_warning,
+  cme_gap_warning = (_gap_warning,)
 
   # After
   _gap_warning = gap_fill_warning(overnight_gap, direction, _entry)
   # ...
-  cme_gap_warning=_gap_warning,
+  cme_gap_warning = (_gap_warning,)
   ```
 
   Note: `gap_fill_warning` takes 3 args (`gap`, `direction`, `entry`) vs

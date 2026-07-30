@@ -144,8 +144,8 @@ from `SignalEvent`), or `analytics/signal/scanner.py` (scanner reads from `STRAT
 ```python
 StrategySpec(
     name="ema",
-    detector="ema",                     # maps to detect_ema in DETECTOR_REGISTRY
-    strategy_type="trend",              # NEW "Trend" group in STRATEGY_TYPE_GROUPS
+    detector="ema",  # maps to detect_ema in DETECTOR_REGISTRY
+    strategy_type="trend",  # NEW "Trend" group in STRATEGY_TYPE_GROUPS
     description="EMA pullback continuation",
     params=ParamSpec(
         fast_period=20,
@@ -158,9 +158,9 @@ StrategySpec(
         min_body_pct=0.5,
     ),
     tp_r=3.0,
-    tp_r_long=None,                     # populate after directional sweep
+    tp_r_long=None,  # populate after directional sweep
     tp_r_short=None,
-    volume_suppress=False,              # to be set after /volume-sweep
+    volume_suppress=False,  # to be set after /volume-sweep
 )
 ```
 

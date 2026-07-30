@@ -75,15 +75,15 @@ Expected: FAIL — `test_weights_length_mismatch_raises` does not raise (field/v
 In `analytics/forecast/config.py`, add the field to the dataclass (after `annualization_days`) and a `__post_init__`:
 
 ```python
-    annualization_days: float = 365.0
-    weights: tuple[float, ...] | None = None
+annualization_days: float = 365.0
+weights: tuple[float, ...] | None = None
 
-    def __post_init__(self) -> None:
-        if self.weights is not None and len(self.weights) != len(self.speeds):
-            raise ValueError(
-                f"weights length {len(self.weights)} != "
-                f"speeds length {len(self.speeds)}"
-            )
+
+def __post_init__(self) -> None:
+    if self.weights is not None and len(self.weights) != len(self.speeds):
+        raise ValueError(
+            f"weights length {len(self.weights)} != speeds length {len(self.speeds)}"
+        )
 ```
 
 (`__post_init__` only raises — it sets nothing — so it is compatible with `frozen=True`.)
@@ -693,7 +693,9 @@ def build_weight_study(
                 "clears": clears,
             }
         )
-    df = pd.DataFrame(rows).sort_values("sharpe", ascending=False).reset_index(drop=True)
+    df = (
+        pd.DataFrame(rows).sort_values("sharpe", ascending=False).reset_index(drop=True)
+    )
     df["rank"] = range(1, len(df) + 1)
     return df
 ```

@@ -112,8 +112,9 @@ def _load_toml_with_extends(path: str) -> dict:
 `StrategySpec` (`indicators_lib.py`):
 
 ```python
-tp_r_long: float | None = None   # falls back to tp_r if not set
+tp_r_long: float | None = None  # falls back to tp_r if not set
 tp_r_short: float | None = None
+
 
 def get_tp_r(self, direction: str) -> float:
     if direction == "long" and self.tp_r_long is not None:

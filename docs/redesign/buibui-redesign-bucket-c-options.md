@@ -46,14 +46,14 @@ suppress_long/short:         bool                    # T2c direction filter; per
 Current `SignalWatchConfig`:
 
 ```python
-strategy_timeframes:  dict[str, list[str]]           # per-strategy list; no per-direction split
-day_filter:           str                            # global per-config; no per-strategy carve-out
+strategy_timeframes: dict[str, list[str]]  # per-strategy list; no per-direction split
+day_filter: str  # global per-config; no per-strategy carve-out
 ```
 
 Current `BiasConfig`:
 
 ```python
-adr_suppress_threshold:  float | None                # global per-config; not per-strategy
+adr_suppress_threshold: float | None  # global per-config; not per-strategy
 ```
 
 Bucket C asks for: per-tf splits on `volume_suppress[_long/_short]`, per-direction (and per-tf) splits on `adr_exempt`, per-direction splits on `strategy_timeframes`, and per-direction carve-outs on `day_filter`.
@@ -87,16 +87,16 @@ Add the missing fields to `StrategyOverride` / `BiasConfig`. Concrete shapes (pr
 class StrategyOverride:
     ...
     # Per-tf directional volume_suppress; falls back to volume_suppress_long/short → volume_suppress
-    volume_suppress_long_per_tf:  dict[str, bool] = field(default_factory=dict)
+    volume_suppress_long_per_tf: dict[str, bool] = field(default_factory=dict)
     volume_suppress_short_per_tf: dict[str, bool] = field(default_factory=dict)
     # Per-direction adr_exempt; falls back to adr_exempt
-    adr_exempt_long:  bool | None = None
+    adr_exempt_long: bool | None = None
     adr_exempt_short: bool | None = None
 ```
 
 ```python
 # In SignalWatchConfig
-strategy_timeframes_long:  dict[str, list[str]] = field(default_factory=dict)
+strategy_timeframes_long: dict[str, list[str]] = field(default_factory=dict)
 strategy_timeframes_short: dict[str, list[str]] = field(default_factory=dict)
 ```
 

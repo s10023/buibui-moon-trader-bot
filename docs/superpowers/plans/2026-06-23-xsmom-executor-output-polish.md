@@ -126,11 +126,11 @@ Add to `tests/trade/test_execute_cli.py`:
 def test_fmt_price_adaptive_precision() -> None:
     from tools.xsmom_execute import _fmt_price
 
-    assert _fmt_price(62140.0) == "62,140"   # >= 1000 -> no decimals, thousands
-    assert _fmt_price(148.2) == "148.20"     # >= 1 -> 2 decimals
-    assert _fmt_price(0.1234) == "0.12340"   # < 1 -> 5 decimals
-    assert _fmt_price(None) == "—"           # absent
-    assert _fmt_price(0.0) == "—"            # non-positive
+    assert _fmt_price(62140.0) == "62,140"  # >= 1000 -> no decimals, thousands
+    assert _fmt_price(148.2) == "148.20"  # >= 1 -> 2 decimals
+    assert _fmt_price(0.1234) == "0.12340"  # < 1 -> 5 decimals
+    assert _fmt_price(None) == "—"  # absent
+    assert _fmt_price(0.0) == "—"  # non-positive
 ```
 
 - [ ] **Step 2: Run test to verify it fails**

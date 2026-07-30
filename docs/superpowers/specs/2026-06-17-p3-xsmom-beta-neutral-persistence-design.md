@@ -96,20 +96,24 @@ flag. `XSBookResult` shape is unchanged.
 no DB/IO.
 
 ```python
-def equal_weight_market_return(closes: dict[str, pd.Series]) -> pd.Series: ...
+def equal_weight_market_return(closes: dict[str, pd.Series]) -> pd.Series:
+    ...
     # active-set mean of per-instrument close.pct_change(), union daily index
+
 
 @dataclass(frozen=True)
 class BetaAttribution:
-    alpha_annual: float        # intercept * annualization_days
+    alpha_annual: float  # intercept * annualization_days
     beta: float
-    alpha_tstat: float         # intercept t-stat = alpha_hat / SE(alpha_hat)
+    alpha_tstat: float  # intercept t-stat = alpha_hat / SE(alpha_hat)
     beta_hedged_sharpe: float  # annualized Sharpe of (port_ret - beta*mkt_ret)
     r_squared: float
 
+
 def beta_attribution(
     port_ret: np.ndarray, mkt_ret: np.ndarray, ann_days: float = 365.0
-) -> BetaAttribution: ...
+) -> BetaAttribution:
+    ...
     # full-sample OLS r_port = alpha + beta*r_mkt + eps; degenerate-safe
     # (zero-variance market -> beta 0.0, beta_hedged == port).
 ```
@@ -137,14 +141,16 @@ Same `diagnostics.py` module:
 ```python
 @dataclass(frozen=True)
 class PersistenceReport:
-    by_year: dict[int, float]   # calendar-year annualized Sharpe
+    by_year: dict[int, float]  # calendar-year annualized Sharpe
     trailing_2y: float
     trailing_1y: float
     n_obs: int
 
+
 def subperiod_sharpe(
     port_ret: np.ndarray, index: pd.DatetimeIndex, ann_days: float = 365.0
-) -> PersistenceReport: ...
+) -> PersistenceReport:
+    ...
     # slice by index.year; trailing windows = last 730 / 365 calendar days;
     # any sub-slice with < 2 obs or ~0 std -> 0.0 (never NaN)
 ```

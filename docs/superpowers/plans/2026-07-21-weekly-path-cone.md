@@ -156,7 +156,17 @@ def _insert_week(
             "INSERT OR REPLACE INTO ohlcv "
             "(symbol, timeframe, open_time, open, high, low, close, volume, "
             "taker_buy_volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [_SYMBOL, "1h", base_ms + h * 3_600_000, 100.0, high, low, close, 100.0, 50.0],
+            [
+                _SYMBOL,
+                "1h",
+                base_ms + h * 3_600_000,
+                100.0,
+                high,
+                low,
+                close,
+                100.0,
+                50.0,
+            ],
         )
 
 
@@ -384,7 +394,9 @@ def _fetch_hourly(
         sql += "AND open_time >= ? "
         params.append(start_ms)
     sql += "ORDER BY open_time"
-    by_week: dict[date, list[tuple[int, float, float, float, float]]] = defaultdict(list)
+    by_week: dict[date, list[tuple[int, float, float, float, float]]] = defaultdict(
+        list
+    )
     for open_time, o, h, lo, c in conn.execute(sql, params).fetchall():
         moment = datetime.fromtimestamp(int(open_time) / 1000, tz=UTC)
         by_week[_week_key(moment)].append(
@@ -640,7 +652,17 @@ def _insert_week(
             "INSERT OR REPLACE INTO ohlcv "
             "(symbol, timeframe, open_time, open, high, low, close, volume, "
             "taker_buy_volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [_SYMBOL, "1h", base_ms + h * 3_600_000, 100.0, high, low, close, 100.0, 50.0],
+            [
+                _SYMBOL,
+                "1h",
+                base_ms + h * 3_600_000,
+                100.0,
+                high,
+                low,
+                close,
+                100.0,
+                50.0,
+            ],
         )
 
 
@@ -652,9 +674,9 @@ def conn() -> duckdb.DuckDBPyConnection:
         _insert_week(c, _CURRENT_WEEK - timedelta(weeks=20 - i), k=0.2)
     # 1d bars so compute_all's other stats have something to chew on.
     for i in range(140):
-        day_ms = int(
-            datetime(2025, 11, 1, tzinfo=UTC).timestamp() * 1000
-        ) + i * 86_400_000
+        day_ms = (
+            int(datetime(2025, 11, 1, tzinfo=UTC).timestamp() * 1000) + i * 86_400_000
+        )
         c.execute(
             "INSERT OR REPLACE INTO ohlcv "
             "(symbol, timeframe, open_time, open, high, low, close, volume, "
@@ -1051,7 +1073,11 @@ def _combo(direction: str, n: int) -> WeeklyConeCombo:
 
 def _bundle() -> WeeklyConeBundle:
     return WeeklyConeBundle(
-        combos={"all": _combo("all", 344), "bull": _combo("bull", 172), "bear": _combo("bear", 172)},
+        combos={
+            "all": _combo("all", 344),
+            "bull": _combo("bull", 172),
+            "bear": _combo("bear", 172),
+        },
         total_weeks=344,
     )
 
@@ -1066,7 +1092,9 @@ def test_none_when_no_current_path() -> None:
 def test_none_when_population_empty() -> None:
     """Empty cone -> no state, one note."""
     empty = WeeklyConeBundle(combos={}, total_weeks=0)
-    current = CurrentWeekPath(points=[0.2], elapsed_h=1, awr14_current=0.02, week_open=100.0)
+    current = CurrentWeekPath(
+        points=[0.2], elapsed_h=1, awr14_current=0.02, week_open=100.0
+    )
     state, notes = build_weekly_state(cone=empty, current=current)
     assert state is None
     assert len(notes) == 1
@@ -1134,7 +1162,9 @@ class WeeklyState:
     n_unconditional: int
     low_hour: int | None  # hour the week's low has been set so far
     high_hour: int | None
-    low_in_by_now: float  # fraction of same-direction weeks that had set their low by now
+    low_in_by_now: (
+        float  # fraction of same-direction weeks that had set their low by now
+    )
 ```
 
 and add to `SymbolPanel`, after `external`:
@@ -1223,9 +1253,7 @@ def build_weekly_state(
         else pct_uncond
     )
 
-    low_hour = (
-        current.points.index(min(current.points)) + 1 if current.points else None
-    )
+    low_hour = current.points.index(min(current.points)) + 1 if current.points else None
     high_hour = (
         current.points.index(max(current.points)) + 1 if current.points else None
     )
@@ -1538,13 +1566,11 @@ Expected: 3 passed.
 In `analytics/brief/bundle.py`, after the weekly block from Task 4:
 
 ```python
-    try:
-        monthly, mo_notes = build_monthly_context(
-            completed_1d=completed_1d, as_of_ms=as_of
-        )
-    except Exception as exc:  # monthly block is optional
-        monthly, mo_notes = None, [f"monthly context failed ({exc})"]
-    notes.extend(f"{symbol}: {n}" for n in mo_notes)
+try:
+    monthly, mo_notes = build_monthly_context(completed_1d=completed_1d, as_of_ms=as_of)
+except Exception as exc:  # monthly block is optional
+    monthly, mo_notes = None, [f"monthly context failed ({exc})"]
+notes.extend(f"{symbol}: {n}" for n in mo_notes)
 ```
 
 Add `monthly=monthly,` to the `SymbolPanel(...)` construction plus the import.

@@ -92,32 +92,40 @@ DIRECTIONS = ("all", "bull", "bear")
 WEEK_BARS = 168
 _AWR_WINDOW = 14  # weeks
 
+
 @dataclass
 class WeeklyConeCombo:
-    direction: str            # "all" | "bull" | "bear"
+    direction: str  # "all" | "bull" | "bear"
     n: int
     bands: list[list[float]]  # 168 steps × 5 percentiles (×AWR)
-    low_in_by: list[float]    # 168 cumulative P(week low set by hour h)
+    low_in_by: list[float]  # 168 cumulative P(week low set by hour h)
     high_in_by: list[float]
-    mae_p: list[float]        # [p10, p50, p90] of path minimum
+    mae_p: list[float]  # [p10, p50, p90] of path minimum
     mfe_p: list[float]
-    high_piv: list[float]     # [p50, p80] of (week_high − open)/open/awr14
+    high_piv: list[float]  # [p50, p80] of (week_high − open)/open/awr14
     low_piv: list[float]
+
 
 @dataclass
 class WeeklyConeBundle:
     combos: dict[str, WeeklyConeCombo]  # keyed by direction
     total_weeks: int
 
+
 @dataclass
 class CurrentWeekPath:
-    points: list[float]   # normalized hourly closes, forming bar last
-    elapsed_h: int        # 0–168
+    points: list[float]  # normalized hourly closes, forming bar last
+    elapsed_h: int  # 0–168
     awr14_current: float
     week_open: float
 
-def compute_weekly_cone(conn, symbol, *, now_ms: int | None = None) -> WeeklyConeBundle: ...
-def compute_current_week_path(conn, symbol, *, now_ms: int | None = None) -> CurrentWeekPath | None: ...
+
+def compute_weekly_cone(
+    conn, symbol, *, now_ms: int | None = None
+) -> WeeklyConeBundle: ...
+def compute_current_week_path(
+    conn, symbol, *, now_ms: int | None = None
+) -> CurrentWeekPath | None: ...
 ```
 
 The operator's chosen (a)+(c) pairing needs no new concept: `DIRECTIONS` already models

@@ -130,20 +130,21 @@ snapshot.
 @dataclass(frozen=True)
 class TargetPosition:
     symbol: str
-    side: str            # "long" | "short" | "flat"
-    leverage: float      # governor-scaled, signed
+    side: str  # "long" | "short" | "flat"
+    leverage: float  # governor-scaled, signed
     notional_usd: float  # leverage * capital
-    forecast: float      # demeaned (relative-strength) signal, for context
+    forecast: float  # demeaned (relative-strength) signal, for context
+
 
 @dataclass(frozen=True)
 class TargetBook:
-    as_of_date: str          # ISO date of the last completed 1d bar (T)
-    next_period_date: str    # ISO date these targets are held during (T+1)
+    as_of_date: str  # ISO date of the last completed 1d bar (T)
+    next_period_date: str  # ISO date these targets are held during (T+1)
     capital: float
-    governor: float          # g_next
+    governor: float  # g_next
     active_count: int
-    gross_leverage: float    # sum |leverage|
-    net_leverage: float      # sum leverage (≈ small residual; XS is ~dollar-neutral)
+    gross_leverage: float  # sum |leverage|
+    net_leverage: float  # sum leverage (≈ small residual; XS is ~dollar-neutral)
     positions: list[TargetPosition]
 ```
 

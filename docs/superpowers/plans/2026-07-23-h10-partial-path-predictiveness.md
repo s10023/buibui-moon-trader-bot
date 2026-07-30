@@ -33,7 +33,7 @@ Both are §2 of the spec. Each has a dedicated failing-first test. If you find y
 `analytics/audit_guard.py::evaluate_audit_cells` was written for gate auditing, where `supp_r` is a *suppressed* slice. Its decisions are therefore **inverted relative to the sign of the mean** (verified at `analytics/audit_guard.py:196-207`):
 
 ```python
-if ci_hi <= -bar and significant:   # reliably NEGATIVE mean
+if ci_hi <= -bar and significant:  # reliably NEGATIVE mean
     decision = DECISION_ENABLE
 elif ci_lo >= bar and significant:  # reliably POSITIVE mean
     decision = DECISION_DISABLE
@@ -394,7 +394,9 @@ git commit -m "feat(h10): partial-path signal + remaining-return primitives"
 These are the tests the audit exists for. Append to `tests/test_weekly_path.py`:
 
 ```python
-def _population(paths_by_week: dict[int, list[tuple[str, tuple[float, ...]]]]) -> list[wp.SymbolWeek]:
+def _population(
+    paths_by_week: dict[int, list[tuple[str, tuple[float, ...]]]],
+) -> list[wp.SymbolWeek]:
     out: list[wp.SymbolWeek] = []
     for i, entries in sorted(paths_by_week.items()):
         for symbol, path in entries:
@@ -446,7 +448,9 @@ def test_constructed_continuation_reads_positive() -> None:
         # Same sign in both halves => the partial path predicts the remainder.
         first = np.linspace(0.0, direction * 1.0, 24)
         rest = np.linspace(direction * 1.0, direction * 3.0, WEEK_BARS - 24)
-        pop.append(wp.SymbolWeek("BTCUSDT", _week(i), tuple(np.concatenate([first, rest]))))
+        pop.append(
+            wp.SymbolWeek("BTCUSDT", _week(i), tuple(np.concatenate([first, rest])))
+        )
     obs = wp.build_observations(pop, 24, wp.PathConfig())
     assert float(np.mean([o.value for o in obs])) > 0.5
 
@@ -711,14 +715,18 @@ def test_positive_effect_maps_to_PREDICTIVE_not_REVERTING() -> None:
     PREDICTIVE would invert every verdict in this audit while still looking
     plausible. See analytics/audit_guard.py:196-207.
     """
-    verdicts = {v.hour: v for v in wp.evaluate_hours(_synthetic(+0.60), wp.PathConfig())}
+    verdicts = {
+        v.hour: v for v in wp.evaluate_hours(_synthetic(+0.60), wp.PathConfig())
+    }
     v24 = verdicts[24]
     assert v24.mean_v is not None and v24.mean_v > 0
     assert v24.verdict == wp.VERDICT_PREDICTIVE
 
 
 def test_negative_effect_maps_to_REVERTING() -> None:
-    verdicts = {v.hour: v for v in wp.evaluate_hours(_synthetic(-0.60), wp.PathConfig())}
+    verdicts = {
+        v.hour: v for v in wp.evaluate_hours(_synthetic(-0.60), wp.PathConfig())
+    }
     v24 = verdicts[24]
     assert v24.mean_v is not None and v24.mean_v < 0
     assert v24.verdict == wp.VERDICT_REVERTING
@@ -730,7 +738,10 @@ def test_no_effect_reads_NO_EDGE_when_well_powered() -> None:
 
 
 def test_thin_population_reads_INSUFFICIENT() -> None:
-    verdicts = {v.hour: v for v in wp.evaluate_hours(_synthetic(+0.60, n_weeks=90), wp.PathConfig())}
+    verdicts = {
+        v.hour: v
+        for v in wp.evaluate_hours(_synthetic(+0.60, n_weeks=90), wp.PathConfig())
+    }
     # 90 weeks minus the 52-observation baseline warm-up leaves < min_n.
     assert verdicts[24].verdict == wp.VERDICT_INSUFFICIENT
 
@@ -1168,10 +1179,7 @@ def family_stamps(weeks: Sequence[SymbolWeek], cfg: PathConfig) -> FamilyStamps:
         order = sorted(common)
         matrix = np.array(
             [
-                [
-                    next(o.value for o in series[h] if o.week == w)
-                    for h in cfg.hours
-                ]
+                [next(o.value for o in series[h] if o.week == w) for h in cfg.hours]
                 for w in order
             ],
             dtype=np.float64,
@@ -1246,7 +1254,9 @@ def _seed(conn: duckdb.DuckDBPyConnection, symbol: str, n_weeks: int) -> None:
         for b in range(168):
             ts = int((start + timedelta(weeks=w, hours=b)).timestamp() * 1000)
             price *= 1.0005 if (w + b) % 3 else 0.9995
-            rows.append((symbol, "1h", ts, price, price * 1.01, price * 0.99, price, 1.0, 0.5))
+            rows.append(
+                (symbol, "1h", ts, price, price * 1.01, price * 0.99, price, 1.0, 0.5)
+            )
     conn.executemany(
         "INSERT INTO ohlcv (symbol, timeframe, open_time, open, high, low, close, "
         "volume, taker_buy_volume) VALUES (?,?,?,?,?,?,?,?,?)",
@@ -1375,7 +1385,9 @@ def render_report(
     lines.append("")
     lines.append("Units are AWR per week (the week's own trailing AWR14).")
     lines.append("")
-    lines.append("| hour | verdict | n weeks | mean v | CI lo | CI hi | Holm p | early | late |")
+    lines.append(
+        "| hour | verdict | n weeks | mean v | CI lo | CI hi | Holm p | early | late |"
+    )
     lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
     for v in verdicts:
         lines.append(
@@ -1398,7 +1410,9 @@ def render_report(
         lines.append("| hour | tercile | n weeks | mean v |")
         lines.append("| --- | --- | --- | --- |")
         for r in magnitude_rows:
-            lines.append(f"| h{r.hour} | {r.tercile} | {r.n_weeks} | {_fmt(r.mean_v)} |")
+            lines.append(
+                f"| h{r.hour} | {r.tercile} | {r.n_weeks} | {_fmt(r.mean_v)} |"
+            )
         lines.append("")
 
     if curve:

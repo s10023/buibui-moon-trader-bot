@@ -114,9 +114,7 @@ In `tests/_brief_fixtures.py` (add `Any` to the `typing` import and
 `analytics.brief.config`):
 
 ```python
-def brief_cfg(
-    symbols: tuple[str, ...], as_of_ms: int, **overrides: Any
-) -> BriefConfig:
+def brief_cfg(symbols: tuple[str, ...], as_of_ms: int, **overrides: Any) -> BriefConfig:
     """BriefConfig for tests — external_dir isolated by default.
 
     Real operator snapshots live in the default docs/plans/external-context/
@@ -476,16 +474,24 @@ def test_get_brief_external_populated_path_parity(
         "verified": True,
         "spot_price_hint": None,
         "clusters": [
-            {"price_lo": 1.0, "price_hi": 2.0, "kind": "liq",
-             "intensity": "low", "label": ""},
-            {"price_lo": 900_000.0, "price_hi": 1_000_000.0, "kind": "liq",
-             "intensity": "high", "label": "magnet"},
+            {
+                "price_lo": 1.0,
+                "price_hi": 2.0,
+                "kind": "liq",
+                "intensity": "low",
+                "label": "",
+            },
+            {
+                "price_lo": 900_000.0,
+                "price_hi": 1_000_000.0,
+                "kind": "liq",
+                "intensity": "high",
+                "label": "magnet",
+            },
         ],
         "notes": "",
     }
-    (ext_dir / "coinglass_liq_map_1d_BTCUSDT.json").write_text(
-        json.dumps(snapshot)
-    )
+    (ext_dir / "coinglass_liq_map_1d_BTCUSDT.json").write_text(json.dumps(snapshot))
     monkeypatch.chdir(tmp_path)
     client = _client(conn)
     res = client.get(
@@ -510,7 +516,12 @@ def test_get_brief_external_populated_path_parity(
     assert len(snap["clusters_below"]) == 1
     row = snap["clusters_above"][0]
     assert set(row) == {
-        "price_lo", "price_hi", "kind", "intensity", "label", "dist_atr",
+        "price_lo",
+        "price_hi",
+        "kind",
+        "intensity",
+        "label",
+        "dist_atr",
     }
     assert row["label"] == "magnet"
     assert row["dist_atr"] > 0
@@ -567,8 +578,14 @@ import pytest
         (lambda d: d["clusters"].__setitem__(0, "not-a-dict"), "not an object"),
         (lambda d: d["clusters"][0].pop("kind"), "bad keys"),
         (lambda d: d["clusters"][0].update(price_lo="x"), "prices not numbers"),
-        (lambda d: d["clusters"][0].update(price_lo=9.0, price_hi=1.0), "price_lo > price_hi"),
-        (lambda d: d["clusters"][0].update(price_lo=-1.0, price_hi=2.0), "price_lo <= 0"),
+        (
+            lambda d: d["clusters"][0].update(price_lo=9.0, price_hi=1.0),
+            "price_lo > price_hi",
+        ),
+        (
+            lambda d: d["clusters"][0].update(price_lo=-1.0, price_hi=2.0),
+            "price_lo <= 0",
+        ),
         (lambda d: d["clusters"][0].update(kind="magic"), "kind"),
         (lambda d: d["clusters"][0].update(intensity="nuclear"), "intensity"),
         (lambda d: d["clusters"][0].update(label=7), "label not a string"),
@@ -600,8 +617,13 @@ def test_below_side_cap_keeps_nearest_first(tmp_path: Path) -> None:
     data = _valid_snapshot()
     # 4 bands below ref=100, nearest first should survive the cap of 3.
     data["clusters"] = [
-        {"price_lo": lo, "price_hi": lo + 1.0, "kind": "liq",
-         "intensity": "low", "label": ""}
+        {
+            "price_lo": lo,
+            "price_hi": lo + 1.0,
+            "kind": "liq",
+            "intensity": "low",
+            "label": "",
+        }
         for lo in (90.0, 80.0, 70.0, 60.0)
     ]
     (tmp_path / "coinglass_liq_map_1d_BTCUSDT.json").write_text(json.dumps(data))
@@ -659,9 +681,7 @@ def test_external_notes_flow_prefixed_through_bundle(tmp_path: Path) -> None:
     (ext / "junk.json").write_text("{not json")
     conn = make_conn()
     seed_symbol(conn, "BTCUSDT", START_MS, 60)
-    bundle = compute_brief(
-        conn, brief_cfg(("BTCUSDT",), AS_OF, external_dir=ext)
-    )
+    bundle = compute_brief(conn, brief_cfg(("BTCUSDT",), AS_OF, external_dir=ext))
     assert any(
         n.startswith("BTCUSDT: external: unreadable junk.json")
         for n in bundle.health.notes
@@ -676,15 +696,24 @@ file already asserts on — it is asserted in the existing health tests.)
 ```python
 def _ext_row(lo: float, hi: float, dist: float, label: str = "") -> ExternalClusterRow:
     return ExternalClusterRow(
-        price_lo=lo, price_hi=hi, kind="liq", intensity="med",
-        label=label, dist_atr=dist,
+        price_lo=lo,
+        price_hi=hi,
+        kind="liq",
+        intensity="med",
+        label=label,
+        dist_atr=dist,
     )
 
 
 def test_external_snapshot_bit_joins_multiple_clusters() -> None:
     snap = ExternalSnapshot(
-        source="coinglass", panel="liq_map", window="1d", scope="pair",
-        captured_at_ms=1, age_hours=14.0, spot_price_hint=None,
+        source="coinglass",
+        panel="liq_map",
+        window="1d",
+        scope="pair",
+        captured_at_ms=1,
+        age_hours=14.0,
+        spot_price_hint=None,
         spot_hint_deviation=False,
         clusters_above=[_ext_row(101, 102, 0.5), _ext_row(105, 106, 1.5, "top")],
         clusters_below=[],
@@ -696,9 +725,16 @@ def test_external_snapshot_bit_joins_multiple_clusters() -> None:
 
 def test_external_snapshot_bit_both_sides_none() -> None:
     snap = ExternalSnapshot(
-        source="coinglass", panel="liq_heatmap", window=None, scope="agg",
-        captured_at_ms=1, age_hours=3.0, spot_price_hint=None,
-        spot_hint_deviation=False, clusters_above=[], clusters_below=[],
+        source="coinglass",
+        panel="liq_heatmap",
+        window=None,
+        scope="agg",
+        captured_at_ms=1,
+        age_hours=3.0,
+        spot_price_hint=None,
+        spot_hint_deviation=False,
+        clusters_above=[],
+        clusters_below=[],
     )
     bit = _external_snapshot_bit(snap)
     assert "above none" in bit
@@ -793,14 +829,25 @@ def test_write_branch_move_failure_fails_open(tmp_path: Path) -> None:
     image.write_bytes(b"img")
     (drop / "done").write_text("not a dir")
     snap_file = tmp_path / "snap.json"
-    snap_file.write_text(json.dumps(_snapshot()))  # the file's existing builder (line 96)
+    snap_file.write_text(
+        json.dumps(_snapshot())
+    )  # the file's existing builder (line 96)
     out_dir = tmp_path / "out"
     ledger = tmp_path / "ledger.json"
     with pytest.raises(OSError):
-        main([
-            "write", "--json-file", str(snap_file), "--image", str(image),
-            "--out-dir", str(out_dir), "--ledger", str(ledger),
-        ])
+        main(
+            [
+                "write",
+                "--json-file",
+                str(snap_file),
+                "--image",
+                str(image),
+                "--out-dir",
+                str(out_dir),
+                "--ledger",
+                str(ledger),
+            ]
+        )
     assert image.exists()  # image untouched in the drop dir
     assert load_ledger(ledger) == {}  # unmarked -> next scan retries
 ```
@@ -923,7 +970,7 @@ and widen the dedup key to `(source, venue, scope, panel, window)`.
 
 ```python
 def test_venue_absent_and_null_both_valid_and_unspecified(tmp_path: Path) -> None:
-    legacy = _valid_snapshot()          # no venue key at all
+    legacy = _valid_snapshot()  # no venue key at all
     nulled = _valid_snapshot()
     nulled["venue"] = None
     assert validate_snapshot_dict(legacy) == []
@@ -1014,13 +1061,15 @@ optional key (schema stays `external-levels-v1`).
 `analytics/brief/types.py` — `ExternalSnapshot`, insert after `source`:
 
 ```python
-    venue: str | None  # exchange the panel shows (e.g. "binance", "hyperliquid"); None = unspecified
+venue: (
+    str | None
+)  # exchange the panel shows (e.g. "binance", "hyperliquid"); None = unspecified
 ```
 
 `_build_snapshot` — add to the constructor call:
 
 ```python
-        venue=None if data.get("venue") is None else str(data["venue"]),
+venue = (None if data.get("venue") is None else str(data["venue"]),)
 ```
 
 Dedup key in `load_external_state` (widen the `fresh` annotation to
@@ -1191,20 +1240,34 @@ Thread `venue` through every presentation surface. Legacy snapshots
 ```python
 def test_external_snapshot_bit_shows_venue() -> None:
     snap = ExternalSnapshot(
-        source="coinglass", venue="hyperliquid", panel="liq_map",
-        window="1d", scope="pair", captured_at_ms=1, age_hours=2.0,
-        spot_price_hint=None, spot_hint_deviation=False,
-        clusters_above=[_ext_row(101, 102, 0.5)], clusters_below=[],
+        source="coinglass",
+        venue="hyperliquid",
+        panel="liq_map",
+        window="1d",
+        scope="pair",
+        captured_at_ms=1,
+        age_hours=2.0,
+        spot_price_hint=None,
+        spot_hint_deviation=False,
+        clusters_above=[_ext_row(101, 102, 0.5)],
+        clusters_below=[],
     )
     assert _external_snapshot_bit(snap).startswith("coinglass/hyperliquid map (1d)")
 
 
 def test_external_snapshot_bit_no_venue_unchanged() -> None:
     snap = ExternalSnapshot(
-        source="coinglass", venue=None, panel="liq_map", window="1d",
-        scope="pair", captured_at_ms=1, age_hours=2.0,
-        spot_price_hint=None, spot_hint_deviation=False,
-        clusters_above=[_ext_row(101, 102, 0.5)], clusters_below=[],
+        source="coinglass",
+        venue=None,
+        panel="liq_map",
+        window="1d",
+        scope="pair",
+        captured_at_ms=1,
+        age_hours=2.0,
+        spot_price_hint=None,
+        spot_hint_deviation=False,
+        clusters_above=[_ext_row(101, 102, 0.5)],
+        clusters_below=[],
     )
     assert _external_snapshot_bit(snap).startswith("coinglass map (1d)")
 ```

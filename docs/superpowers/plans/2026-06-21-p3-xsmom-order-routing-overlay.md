@@ -58,34 +58,49 @@ from analytics.xsmom.live import TargetBook, TargetPosition
 from trade.routing import ExchangeFilters, build_order_plan
 
 
-def _filters(sym: str, step: float = 0.001, min_qty: float = 0.001,
-             min_notional: float = 5.0) -> ExchangeFilters:
-    return ExchangeFilters(symbol=sym, qty_step=step, min_qty=min_qty,
-                           min_notional=min_notional)
+def _filters(
+    sym: str, step: float = 0.001, min_qty: float = 0.001, min_notional: float = 5.0
+) -> ExchangeFilters:
+    return ExchangeFilters(
+        symbol=sym, qty_step=step, min_qty=min_qty, min_notional=min_notional
+    )
 
 
 def _book(positions: list[TargetPosition], capital: float = 10_000.0) -> TargetBook:
     gross = sum(abs(p.leverage) for p in positions)
     net = sum(p.leverage for p in positions)
     return TargetBook(
-        as_of_date="2026-06-21", next_period_date="2026-06-22", capital=capital,
-        governor=1.0, active_count=len(positions), gross_leverage=gross,
-        net_leverage=net, positions=positions,
+        as_of_date="2026-06-21",
+        next_period_date="2026-06-22",
+        capital=capital,
+        governor=1.0,
+        active_count=len(positions),
+        gross_leverage=gross,
+        net_leverage=net,
+        positions=positions,
     )
 
 
 def _pos(sym: str, lev: float, capital: float = 10_000.0) -> TargetPosition:
-    return TargetPosition(symbol=sym, side="long" if lev > 0 else "short",
-                          leverage=lev, notional_usd=lev * capital, forecast=0.0)
+    return TargetPosition(
+        symbol=sym,
+        side="long" if lev > 0 else "short",
+        leverage=lev,
+        notional_usd=lev * capital,
+        forecast=0.0,
+    )
 
 
 def test_open_from_flat_rounds_qty_down_to_step() -> None:
     # target notional = 0.1*10000 = $1000 at mark 100 -> 10.0 units; step 0.001
     book = _book([_pos("AAAUSDT", 0.1)])
     plan = build_order_plan(
-        book, current_positions={}, marks={"AAAUSDT": 100.0},
+        book,
+        current_positions={},
+        marks={"AAAUSDT": 100.0},
         filters={"AAAUSDT": _filters("AAAUSDT")},
-        no_trade_band_frac=0.005, capital=10_000.0,
+        no_trade_band_frac=0.005,
+        capital=10_000.0,
     )
     assert len(plan.intents) == 1
     o = plan.intents[0]
@@ -98,9 +113,12 @@ def test_below_band_is_skipped() -> None:
     # delta notional $20 < band 0.005*10000 = $50
     book = _book([_pos("AAAUSDT", 0.1)])
     plan = build_order_plan(
-        book, current_positions={"AAAUSDT": 9.8}, marks={"AAAUSDT": 100.0},
+        book,
+        current_positions={"AAAUSDT": 9.8},
+        marks={"AAAUSDT": 100.0},
         filters={"AAAUSDT": _filters("AAAUSDT")},
-        no_trade_band_frac=0.005, capital=10_000.0,
+        no_trade_band_frac=0.005,
+        capital=10_000.0,
     )
     assert plan.intents == []
     assert any(s.reason == "skip:band" for s in plan.skipped)
@@ -109,9 +127,12 @@ def test_below_band_is_skipped() -> None:
 def test_below_min_notional_is_skipped() -> None:
     book = _book([_pos("AAAUSDT", 0.0006)])  # $6 notional, min_notional 10
     plan = build_order_plan(
-        book, current_positions={}, marks={"AAAUSDT": 100.0},
+        book,
+        current_positions={},
+        marks={"AAAUSDT": 100.0},
         filters={"AAAUSDT": _filters("AAAUSDT", min_notional=10.0)},
-        no_trade_band_frac=0.0, capital=10_000.0,
+        no_trade_band_frac=0.0,
+        capital=10_000.0,
     )
     assert plan.intents == []
     assert any(s.reason == "skip:min_notional" for s in plan.skipped)
@@ -121,9 +142,12 @@ def test_trim_same_side_is_reduce_only() -> None:
     # target long 5 units, currently long 10 -> SELL 5, reduce_only
     book = _book([_pos("AAAUSDT", 0.05)])  # $500 -> 5 units @ 100
     plan = build_order_plan(
-        book, current_positions={"AAAUSDT": 10.0}, marks={"AAAUSDT": 100.0},
+        book,
+        current_positions={"AAAUSDT": 10.0},
+        marks={"AAAUSDT": 100.0},
         filters={"AAAUSDT": _filters("AAAUSDT")},
-        no_trade_band_frac=0.0, capital=10_000.0,
+        no_trade_band_frac=0.0,
+        capital=10_000.0,
     )
     o = plan.intents[0]
     assert o.side == "SELL" and o.qty == 5.0 and o.reduce_only is True
@@ -137,7 +161,8 @@ def test_close_absent_symbol_full_reduce_only() -> None:
         current_positions={"AAAUSDT": 10.0, "ZZZUSDT": 3.0},
         marks={"AAAUSDT": 100.0, "ZZZUSDT": 50.0},
         filters={"AAAUSDT": _filters("AAAUSDT"), "ZZZUSDT": _filters("ZZZUSDT")},
-        no_trade_band_frac=0.99, capital=10_000.0,   # huge band; close must still fire
+        no_trade_band_frac=0.99,
+        capital=10_000.0,  # huge band; close must still fire
     )
     closes = [o for o in plan.intents if o.symbol == "ZZZUSDT"]
     assert len(closes) == 1
@@ -149,9 +174,12 @@ def test_flip_long_to_short_is_not_reduce_only() -> None:
     # currently long 10, target short 5 -> SELL 15, NOT reduce_only (must flip)
     book = _book([_pos("AAAUSDT", -0.05)])  # -$500 -> -5 units @ 100
     plan = build_order_plan(
-        book, current_positions={"AAAUSDT": 10.0}, marks={"AAAUSDT": 100.0},
+        book,
+        current_positions={"AAAUSDT": 10.0},
+        marks={"AAAUSDT": 100.0},
         filters={"AAAUSDT": _filters("AAAUSDT")},
-        no_trade_band_frac=0.0, capital=10_000.0,
+        no_trade_band_frac=0.0,
+        capital=10_000.0,
     )
     o = plan.intents[0]
     assert o.side == "SELL" and o.qty == 15.0 and o.reduce_only is False
@@ -160,9 +188,12 @@ def test_flip_long_to_short_is_not_reduce_only() -> None:
 def test_missing_mark_is_skipped() -> None:
     book = _book([_pos("AAAUSDT", 0.1)])
     plan = build_order_plan(
-        book, current_positions={}, marks={},
+        book,
+        current_positions={},
+        marks={},
         filters={"AAAUSDT": _filters("AAAUSDT")},
-        no_trade_band_frac=0.0, capital=10_000.0,
+        no_trade_band_frac=0.0,
+        capital=10_000.0,
     )
     assert plan.intents == []
     assert any(s.reason == "skip:no_mark" for s in plan.skipped)
@@ -171,10 +202,12 @@ def test_missing_mark_is_skipped() -> None:
 def test_leverage_aggregates_come_from_book() -> None:
     book = _book([_pos("AAAUSDT", 0.1), _pos("BBBUSDT", -0.2)])
     plan = build_order_plan(
-        book, current_positions={},
+        book,
+        current_positions={},
         marks={"AAAUSDT": 100.0, "BBBUSDT": 100.0},
         filters={"AAAUSDT": _filters("AAAUSDT"), "BBBUSDT": _filters("BBBUSDT")},
-        no_trade_band_frac=0.0, capital=10_000.0,
+        no_trade_band_frac=0.0,
+        capital=10_000.0,
     )
     assert plan.target_gross_leverage == 0.3
     assert abs(plan.target_net_leverage - (-0.1)) < 1e-12
@@ -267,15 +300,33 @@ def build_order_plan(
         filt = filters.get(sym)
 
         if mark is None or mark <= 0:
-            skipped.append(OrderIntent(sym, "SELL" if current > 0 else "BUY",
-                                       0.0, False, 0.0, "skip:no_mark"))
+            skipped.append(
+                OrderIntent(
+                    sym,
+                    "SELL" if current > 0 else "BUY",
+                    0.0,
+                    False,
+                    0.0,
+                    "skip:no_mark",
+                )
+            )
             continue
         if filt is None:
-            skipped.append(OrderIntent(sym, "SELL" if current > 0 else "BUY",
-                                       0.0, False, 0.0, "skip:no_filters"))
+            skipped.append(
+                OrderIntent(
+                    sym,
+                    "SELL" if current > 0 else "BUY",
+                    0.0,
+                    False,
+                    0.0,
+                    "skip:no_filters",
+                )
+            )
             continue
 
-        target_qty = 0.0 if is_close else _signed_target_qty(notional, mark, filt.qty_step)
+        target_qty = (
+            0.0 if is_close else _signed_target_qty(notional, mark, filt.qty_step)
+        )
         delta_qty = _round_down_to_step(target_qty - current, filt.qty_step)
         delta_qty = math.copysign(delta_qty, target_qty - current)
         delta_notional = delta_qty * mark
@@ -292,24 +343,40 @@ def build_order_plan(
         reason = "close" if is_close else ("rebalance" if current != 0.0 else "open")
 
         if order_qty == 0.0:
-            skipped.append(OrderIntent(sym, side, 0.0, reduce_only,
-                                       delta_notional, "skip:noop"))
+            skipped.append(
+                OrderIntent(sym, side, 0.0, reduce_only, delta_notional, "skip:noop")
+            )
             continue
         if order_qty < filt.min_qty:
-            skipped.append(OrderIntent(sym, side, order_qty, reduce_only,
-                                       delta_notional, "skip:min_qty"))
+            skipped.append(
+                OrderIntent(
+                    sym, side, order_qty, reduce_only, delta_notional, "skip:min_qty"
+                )
+            )
             continue
         if abs(delta_notional) < filt.min_notional:
-            skipped.append(OrderIntent(sym, side, order_qty, reduce_only,
-                                       delta_notional, "skip:min_notional"))
+            skipped.append(
+                OrderIntent(
+                    sym,
+                    side,
+                    order_qty,
+                    reduce_only,
+                    delta_notional,
+                    "skip:min_notional",
+                )
+            )
             continue
         if not is_close and abs(delta_notional) < band:
-            skipped.append(OrderIntent(sym, side, order_qty, reduce_only,
-                                       delta_notional, "skip:band"))
+            skipped.append(
+                OrderIntent(
+                    sym, side, order_qty, reduce_only, delta_notional, "skip:band"
+                )
+            )
             continue
 
-        intents.append(OrderIntent(sym, side, order_qty, reduce_only,
-                                   delta_notional, reason))
+        intents.append(
+            OrderIntent(sym, side, order_qty, reduce_only, delta_notional, reason)
+        )
 
     return OrderPlan(
         intents=intents,
@@ -356,23 +423,44 @@ from trade.routing import OrderIntent, OrderPlan
 
 
 def _limits(**kw: float) -> RiskLimits:
-    base = dict(max_gross_leverage=3.0, max_position_notional_frac=0.5,
-                max_drawdown_frac=0.25, max_run_turnover_frac=1.0,
-                max_data_staleness_hours=36.0)
+    base = dict(
+        max_gross_leverage=3.0,
+        max_position_notional_frac=0.5,
+        max_drawdown_frac=0.25,
+        max_run_turnover_frac=1.0,
+        max_data_staleness_hours=36.0,
+    )
     base.update(kw)
     return RiskLimits(**base)  # type: ignore[arg-type]
 
 
-def _book(positions: list[TargetPosition], gross: float = 1.0,
-          net: float = 0.0, capital: float = 10_000.0) -> TargetBook:
-    return TargetBook(as_of_date="2026-06-21", next_period_date="2026-06-22",
-                      capital=capital, governor=1.0, active_count=len(positions),
-                      gross_leverage=gross, net_leverage=net, positions=positions)
+def _book(
+    positions: list[TargetPosition],
+    gross: float = 1.0,
+    net: float = 0.0,
+    capital: float = 10_000.0,
+) -> TargetBook:
+    return TargetBook(
+        as_of_date="2026-06-21",
+        next_period_date="2026-06-22",
+        capital=capital,
+        governor=1.0,
+        active_count=len(positions),
+        gross_leverage=gross,
+        net_leverage=net,
+        positions=positions,
+    )
 
 
-def _plan(intents: list[OrderIntent], gross: float = 1.0, net: float = 0.0) -> OrderPlan:
-    return OrderPlan(intents=intents, skipped=[],
-                     target_gross_leverage=gross, target_net_leverage=net)
+def _plan(
+    intents: list[OrderIntent], gross: float = 1.0, net: float = 0.0
+) -> OrderPlan:
+    return OrderPlan(
+        intents=intents,
+        skipped=[],
+        target_gross_leverage=gross,
+        target_net_leverage=net,
+    )
 
 
 def _intent(notional: float) -> OrderIntent:
@@ -380,62 +468,94 @@ def _intent(notional: float) -> OrderIntent:
 
 
 def test_all_pass_is_allowed() -> None:
-    v = evaluate_overlay(_plan([_intent(100.0)]), _book([]),
-                         AccountState(10_000.0, 10_000.0, False),
-                         _limits(), data_age_hours=1.0)
+    v = evaluate_overlay(
+        _plan([_intent(100.0)]),
+        _book([]),
+        AccountState(10_000.0, 10_000.0, False),
+        _limits(),
+        data_age_hours=1.0,
+    )
     assert v.allowed is True and v.aborts == []
 
 
 def test_kill_switch_aborts() -> None:
-    v = evaluate_overlay(_plan([]), _book([]),
-                         AccountState(10_000.0, 10_000.0, True),
-                         _limits(), data_age_hours=1.0)
+    v = evaluate_overlay(
+        _plan([]),
+        _book([]),
+        AccountState(10_000.0, 10_000.0, True),
+        _limits(),
+        data_age_hours=1.0,
+    )
     assert v.allowed is False and any("kill" in a.lower() for a in v.aborts)
 
 
 def test_drawdown_aborts() -> None:
     # equity 7000 < peak 10000 * (1-0.25) = 7500
-    v = evaluate_overlay(_plan([]), _book([]),
-                         AccountState(7_000.0, 10_000.0, False),
-                         _limits(), data_age_hours=1.0)
+    v = evaluate_overlay(
+        _plan([]),
+        _book([]),
+        AccountState(7_000.0, 10_000.0, False),
+        _limits(),
+        data_age_hours=1.0,
+    )
     assert v.allowed is False and any("drawdown" in a.lower() for a in v.aborts)
 
 
 def test_gross_leverage_cap_aborts() -> None:
-    v = evaluate_overlay(_plan([], gross=3.5), _book([], gross=3.5),
-                         AccountState(10_000.0, 10_000.0, False),
-                         _limits(), data_age_hours=1.0)
+    v = evaluate_overlay(
+        _plan([], gross=3.5),
+        _book([], gross=3.5),
+        AccountState(10_000.0, 10_000.0, False),
+        _limits(),
+        data_age_hours=1.0,
+    )
     assert v.allowed is False and any("gross" in a.lower() for a in v.aborts)
 
 
 def test_per_instrument_notional_cap_aborts() -> None:
     # leg notional 6000 > 0.5 * 10000 = 5000
     book = _book([TargetPosition("AAAUSDT", "long", 0.6, 6_000.0, 0.0)])
-    v = evaluate_overlay(_plan([]), book,
-                         AccountState(10_000.0, 10_000.0, False),
-                         _limits(), data_age_hours=1.0)
+    v = evaluate_overlay(
+        _plan([]),
+        book,
+        AccountState(10_000.0, 10_000.0, False),
+        _limits(),
+        data_age_hours=1.0,
+    )
     assert v.allowed is False and any("notional" in a.lower() for a in v.aborts)
 
 
 def test_run_turnover_guard_aborts() -> None:
     # total |delta_notional| = 12000 > 1.0 * 10000
-    v = evaluate_overlay(_plan([_intent(7_000.0), _intent(-5_000.0)]), _book([]),
-                         AccountState(10_000.0, 10_000.0, False),
-                         _limits(), data_age_hours=1.0)
+    v = evaluate_overlay(
+        _plan([_intent(7_000.0), _intent(-5_000.0)]),
+        _book([]),
+        AccountState(10_000.0, 10_000.0, False),
+        _limits(),
+        data_age_hours=1.0,
+    )
     assert v.allowed is False and any("turnover" in a.lower() for a in v.aborts)
 
 
 def test_staleness_aborts() -> None:
-    v = evaluate_overlay(_plan([]), _book([]),
-                         AccountState(10_000.0, 10_000.0, False),
-                         _limits(), data_age_hours=48.0)
+    v = evaluate_overlay(
+        _plan([]),
+        _book([]),
+        AccountState(10_000.0, 10_000.0, False),
+        _limits(),
+        data_age_hours=48.0,
+    )
     assert v.allowed is False and any("stale" in a.lower() for a in v.aborts)
 
 
 def test_multiple_breaches_collected() -> None:
-    v = evaluate_overlay(_plan([], gross=5.0), _book([]),
-                         AccountState(1_000.0, 10_000.0, True),
-                         _limits(), data_age_hours=99.0)
+    v = evaluate_overlay(
+        _plan([], gross=5.0),
+        _book([]),
+        AccountState(1_000.0, 10_000.0, True),
+        _limits(),
+        data_age_hours=99.0,
+    )
     assert v.allowed is False and len(v.aborts) >= 3
 ```
 
@@ -520,9 +640,7 @@ def evaluate_overlay(
     turnover = sum(abs(o.delta_notional) for o in plan.intents)
     turnover_cap = limits.max_run_turnover_frac * book.capital
     if turnover > turnover_cap:
-        aborts.append(
-            f"run turnover {turnover:.2f} > cap {turnover_cap:.2f}"
-        )
+        aborts.append(f"run turnover {turnover:.2f} > cap {turnover_cap:.2f}")
 
     if data_age_hours > limits.max_data_staleness_hours:
         aborts.append(
@@ -606,10 +724,13 @@ def test_get_filters_extracts_lot_and_notional() -> None:
     client = MagicMock()
     client.futures_exchange_info.return_value = {
         "symbols": [
-            {"symbol": "AAAUSDT", "filters": [
-                {"filterType": "LOT_SIZE", "stepSize": "0.001", "minQty": "0.001"},
-                {"filterType": "MIN_NOTIONAL", "notional": "5"},
-            ]},
+            {
+                "symbol": "AAAUSDT",
+                "filters": [
+                    {"filterType": "LOT_SIZE", "stepSize": "0.001", "minQty": "0.001"},
+                    {"filterType": "MIN_NOTIONAL", "notional": "5"},
+                ],
+            },
         ]
     }
     adapter = BinanceFuturesAdapter(client, mode="dry_run")
@@ -641,7 +762,11 @@ def test_submit_market_calls_create_order_on_testnet() -> None:
     adapter = BinanceFuturesAdapter(client, mode="testnet")
     adapter.submit_market(_intent())
     client.futures_create_order.assert_called_once_with(
-        symbol="AAAUSDT", side="BUY", type="MARKET", quantity=2.0, reduceOnly=False,
+        symbol="AAAUSDT",
+        side="BUY",
+        type="MARKET",
+        quantity=2.0,
+        reduceOnly=False,
     )
 
 
@@ -655,6 +780,7 @@ def test_ensure_account_config_raises_on_hedge_mode() -> None:
 
 def test_ensure_account_config_swallows_4046(monkeypatch: Any) -> None:
     import trade.binance_futures as mod
+
     monkeypatch.setattr(mod, "APIError", _APIError, raising=False)
     client = MagicMock()
     client.futures_get_position_mode.return_value = {"dualSidePosition": False}
@@ -741,7 +867,9 @@ class BinanceFuturesAdapter:
                 elif f["filterType"] == "MIN_NOTIONAL":
                     min_notional = float(f["notional"])
             out[s["symbol"]] = ExchangeFilters(
-                symbol=s["symbol"], qty_step=step, min_qty=min_qty,
+                symbol=s["symbol"],
+                qty_step=step,
+                min_qty=min_qty,
                 min_notional=min_notional,
             )
         return out
@@ -750,9 +878,7 @@ class BinanceFuturesAdapter:
         rows = self.client.futures_mark_price()
         wanted = set(symbols)
         return {
-            r["symbol"]: float(r["markPrice"])
-            for r in rows
-            if r["symbol"] in wanted
+            r["symbol"]: float(r["markPrice"]) for r in rows if r["symbol"] in wanted
         }
 
     # ----- writes -----
@@ -773,11 +899,19 @@ class BinanceFuturesAdapter:
 
     def submit_market(self, intent: OrderIntent) -> dict[str, Any]:
         if self.mode == "dry_run":
-            return {"dryRun": True, "symbol": intent.symbol, "side": intent.side,
-                    "qty": intent.qty, "reduceOnly": intent.reduce_only}
+            return {
+                "dryRun": True,
+                "symbol": intent.symbol,
+                "side": intent.side,
+                "qty": intent.qty,
+                "reduceOnly": intent.reduce_only,
+            }
         return self.client.futures_create_order(  # type: ignore[no-any-return]
-            symbol=intent.symbol, side=intent.side, type="MARKET",
-            quantity=intent.qty, reduceOnly=intent.reduce_only,
+            symbol=intent.symbol,
+            side=intent.side,
+            type="MARKET",
+            quantity=intent.qty,
+            reduceOnly=intent.reduce_only,
         )
 ```
 
@@ -836,19 +970,31 @@ def _seed(conn: duckdb.DuckDBPyConnection, n: int = 400) -> list[str]:
     for i, sym in enumerate(syms):
         steps = rng.normal(0.0005 * (i - 1), 0.02, n)
         close = 100.0 * np.exp(np.cumsum(steps))
-        rows = pd.DataFrame({
-            "symbol": sym, "timeframe": "1d",
-            "open_time": [start + k * _DAY for k in range(n)],
-            "open": close, "high": close * 1.01, "low": close * 0.99,
-            "close": close, "volume": 1000.0, "taker_buy_volume": 500.0,
-        })
+        rows = pd.DataFrame(
+            {
+                "symbol": sym,
+                "timeframe": "1d",
+                "open_time": [start + k * _DAY for k in range(n)],
+                "open": close,
+                "high": close * 1.01,
+                "low": close * 0.99,
+                "close": close,
+                "volume": 1000.0,
+                "taker_buy_volume": 500.0,
+            }
+        )
         upsert_ohlcv(conn, rows)
     return syms
 
 
 class _FakeAdapter:
-    def __init__(self, equity: float, positions: dict[str, float],
-                 marks: dict[str, float], mode: str = "dry_run") -> None:
+    def __init__(
+        self,
+        equity: float,
+        positions: dict[str, float],
+        marks: dict[str, float],
+        mode: str = "dry_run",
+    ) -> None:
         self._equity = equity
         self._positions = positions
         self._marks = marks
@@ -868,6 +1014,7 @@ class _FakeAdapter:
 
     def get_filters(self, symbols: list[str]):  # type: ignore[no-untyped-def]
         from trade.routing import ExchangeFilters
+
         return {s: ExchangeFilters(s, 0.001, 0.001, 5.0) for s in symbols}
 
     def ensure_account_config(self, symbols: list[str], *, leverage: int) -> None:
@@ -881,9 +1028,13 @@ class _FakeAdapter:
 
 
 def _limits(**kw: float) -> RiskLimits:
-    base = dict(max_gross_leverage=10.0, max_position_notional_frac=1.0,
-                max_drawdown_frac=0.5, max_run_turnover_frac=10.0,
-                max_data_staleness_hours=1e9)
+    base = dict(
+        max_gross_leverage=10.0,
+        max_position_notional_frac=1.0,
+        max_drawdown_frac=0.5,
+        max_run_turnover_frac=10.0,
+        max_data_staleness_hours=1e9,
+    )
     base.update(kw)
     return RiskLimits(**base)  # type: ignore[arg-type]
 
@@ -907,8 +1058,14 @@ def test_run_once_happy_path_submits(tmp_path: Path) -> None:
     adapter = _FakeAdapter(equity=10_000.0, positions={}, marks={})
     state_path = tmp_path / "execution_state_dry_run.json"
     res = run_once(
-        conn, adapter, ForecastConfig(), syms, _limits(),
-        no_trade_band_frac=0.0, exchange_leverage=5, state_path=state_path,
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
+        _limits(),
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
+        state_path=state_path,
         now=pd.Timestamp("2022-02-05", tz="UTC"),
     )
     assert res.verdict.allowed is True
@@ -924,9 +1081,13 @@ def test_run_once_overlay_breach_submits_nothing(tmp_path: Path) -> None:
     syms = _seed(conn)
     adapter = _FakeAdapter(equity=10_000.0, positions={}, marks={})
     res = run_once(
-        conn, adapter, ForecastConfig(), syms,
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
         _limits(max_data_staleness_hours=0.0),  # force staleness breach
-        no_trade_band_frac=0.0, exchange_leverage=5,
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
         state_path=tmp_path / "s.json",
         now=pd.Timestamp("2022-12-31", tz="UTC"),  # well after the last seeded bar
     )
@@ -941,8 +1102,13 @@ def test_run_once_isolates_per_order_failure(tmp_path: Path) -> None:
     adapter = _FakeAdapter(equity=10_000.0, positions={}, marks={})
     adapter.fail_symbol = "*"  # every submit raises
     res = run_once(
-        conn, adapter, ForecastConfig(), syms, _limits(),
-        no_trade_band_frac=0.0, exchange_leverage=5,
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
+        _limits(),
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
         state_path=tmp_path / "s.json",
         now=pd.Timestamp("2022-02-05", tz="UTC"),
     )
@@ -958,9 +1124,17 @@ def test_peak_equity_is_monotonic(tmp_path: Path) -> None:
     init_schema(conn)
     syms = _seed(conn)
     adapter = _FakeAdapter(equity=10_000.0, positions={}, marks={})
-    run_once(conn, adapter, ForecastConfig(), syms, _limits(),
-             no_trade_band_frac=0.0, exchange_leverage=5, state_path=p,
-             now=pd.Timestamp("2022-02-05", tz="UTC"))
+    run_once(
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
+        _limits(),
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
+        state_path=p,
+        now=pd.Timestamp("2022-02-05", tz="UTC"),
+    )
     assert load_state(p)["peak_equity"] == 12_000.0  # not lowered to 10k
 ```
 
@@ -1066,8 +1240,12 @@ def run_once(
     marks = adapter.get_marks(symbols)
     filters = adapter.get_filters(symbols)
     plan = build_order_plan(
-        book, positions, marks, filters,
-        no_trade_band_frac=no_trade_band_frac, capital=equity,
+        book,
+        positions,
+        marks,
+        filters,
+        no_trade_band_frac=no_trade_band_frac,
+        capital=equity,
     )
 
     account = AccountState(equity=equity, peak_equity=prior_peak, kill_switch=kill)
@@ -1099,8 +1277,13 @@ def run_once(
     save_state(state_path, state)
 
     return ExecutionResult(
-        verdict=verdict, plan=plan, book=book, submitted=submitted,
-        failed=failed, equity=equity, mode=adapter.mode,
+        verdict=verdict,
+        plan=plan,
+        book=book,
+        submitted=submitted,
+        failed=failed,
+        equity=equity,
+        mode=adapter.mode,
     )
 ```
 
@@ -1143,20 +1326,32 @@ from tools.xsmom_execute import check_live_gate, format_result
 
 
 def _result(allowed: bool, intents: list[OrderIntent]) -> ExecutionResult:
-    book = TargetBook("2026-06-21", "2026-06-22", 10_000.0, 1.0,
-                      len(intents), 1.0, 0.0, [])
+    book = TargetBook(
+        "2026-06-21", "2026-06-22", 10_000.0, 1.0, len(intents), 1.0, 0.0, []
+    )
     plan = OrderPlan(intents, [], 1.0, 0.0)
-    return ExecutionResult(OverlayVerdict(allowed, [] if allowed else ["x"]),
-                           plan, book, intents if allowed else [], [],
-                           10_000.0, "dry_run")
+    return ExecutionResult(
+        OverlayVerdict(allowed, [] if allowed else ["x"]),
+        plan,
+        book,
+        intents if allowed else [],
+        [],
+        10_000.0,
+        "dry_run",
+    )
 
 
 def test_live_gate_blocks_without_flag_and_env() -> None:
-    assert check_live_gate("live", i_understand_live=False, allow_live_env=None) is not None
+    assert (
+        check_live_gate("live", i_understand_live=False, allow_live_env=None)
+        is not None
+    )
 
 
 def test_live_gate_blocks_with_only_flag() -> None:
-    assert check_live_gate("live", i_understand_live=True, allow_live_env=None) is not None
+    assert (
+        check_live_gate("live", i_understand_live=True, allow_live_env=None) is not None
+    )
 
 
 def test_live_gate_opens_with_flag_and_env() -> None:
@@ -1164,12 +1359,18 @@ def test_live_gate_opens_with_flag_and_env() -> None:
 
 
 def test_non_live_modes_never_gated() -> None:
-    assert check_live_gate("dry_run", i_understand_live=False, allow_live_env=None) is None
-    assert check_live_gate("testnet", i_understand_live=False, allow_live_env=None) is None
+    assert (
+        check_live_gate("dry_run", i_understand_live=False, allow_live_env=None) is None
+    )
+    assert (
+        check_live_gate("testnet", i_understand_live=False, allow_live_env=None) is None
+    )
 
 
 def test_format_result_renders_counts() -> None:
-    out = format_result(_result(True, [OrderIntent("AAAUSDT", "BUY", 1.0, False, 100.0, "open")]))
+    out = format_result(
+        _result(True, [OrderIntent("AAAUSDT", "BUY", 1.0, False, 100.0, "open")])
+    )
     assert "AAAUSDT" in out and "submitted" in out.lower()
 
 
@@ -1246,7 +1447,9 @@ def format_result(res: ExecutionResult) -> str:
         lines.append("ORDER PLAN BLOCKED by overlay:")
         lines.extend(f"  abort: {a}" for a in res.verdict.aborts)
         return "\n".join(lines)
-    lines.append(f"{'SYM':<12}{'SIDE':<6}{'QTY':>12}{'RED':>5}{'Δ$NOTIONAL':>14}  reason")
+    lines.append(
+        f"{'SYM':<12}{'SIDE':<6}{'QTY':>12}{'RED':>5}{'Δ$NOTIONAL':>14}  reason"
+    )
     for o in res.plan.intents:
         lines.append(
             f"{o.symbol:<12}{o.side:<6}{o.qty:>12.4f}"
@@ -1278,8 +1481,9 @@ def main() -> None:
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
     parser.add_argument("--config", type=Path, default=None)
     parser.add_argument("--symbols", type=str, default=None)
-    parser.add_argument("--mode", choices=("dry_run", "testnet", "live"),
-                        default="dry_run")
+    parser.add_argument(
+        "--mode", choices=("dry_run", "testnet", "live"), default="dry_run"
+    )
     parser.add_argument("--no-trade-band", type=float, default=0.005)
     parser.add_argument("--exchange-leverage", type=int, default=5)
     parser.add_argument("--max-gross-leverage", type=float, default=3.0)
@@ -1303,7 +1507,8 @@ def main() -> None:
         return
 
     gate_err = check_live_gate(
-        args.mode, i_understand_live=args.i_understand_live,
+        args.mode,
+        i_understand_live=args.i_understand_live,
         allow_live_env=os.environ.get("BINANCE_ALLOW_LIVE"),
     )
     if gate_err:
@@ -1322,9 +1527,14 @@ def main() -> None:
     adapter = BinanceFuturesAdapter(_build_client(args.mode), mode=args.mode)
     with duckdb.connect(str(args.db), read_only=True) as conn:
         res = run_once(
-            conn, adapter, cfg, symbols, limits,
+            conn,
+            adapter,
+            cfg,
+            symbols,
+            limits,
             no_trade_band_frac=args.no_trade_band,
-            exchange_leverage=args.exchange_leverage, state_path=state_path,
+            exchange_leverage=args.exchange_leverage,
+            state_path=state_path,
         )
     print(format_result(res))
 

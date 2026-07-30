@@ -158,9 +158,7 @@ class TestExcursionConventions:
                 {"open_time": 2 * _HOUR, "high": 112.0, "low": 94.0, "close": 96.0},
             ],
         )
-        _insert_resolved(
-            conn, signal_id="s1", outcome="loss", filled_at_ms=2 * _HOUR
-        )
+        _insert_resolved(conn, signal_id="s1", outcome="loss", filled_at_ms=2 * _HOUR)
         exc = compute_excursions(conn)
         assert len(exc) == 1
         row = exc.iloc[0]
@@ -182,9 +180,7 @@ class TestExcursionConventions:
                 {"open_time": 2 * _HOUR, "high": 118.0, "low": 96.0, "close": 115.0},
             ],
         )
-        _insert_resolved(
-            conn, signal_id="s1", outcome="win", filled_at_ms=2 * _HOUR
-        )
+        _insert_resolved(conn, signal_id="s1", outcome="win", filled_at_ms=2 * _HOUR)
         exc = compute_excursions(conn)
         row = exc.iloc[0]
         assert row["mfe_r"] == pytest.approx(2.0)
@@ -252,9 +248,7 @@ class TestExcursionConventions:
             "1h",
             [{"open_time": _HOUR, "high": 99.0, "low": 94.0, "close": 95.0}],
         )
-        _insert_resolved(
-            conn, signal_id="s1", outcome="loss", filled_at_ms=_HOUR
-        )
+        _insert_resolved(conn, signal_id="s1", outcome="loss", filled_at_ms=_HOUR)
         exc = compute_excursions(conn)
         row = exc.iloc[0]
         assert row["mfe_r"] == 0.0
@@ -279,9 +273,7 @@ class TestComputeExcursionsRobustness:
     def test_missing_ohlcv_row_skipped(self) -> None:
         conn = duckdb.connect(":memory:")
         init_schema(conn)
-        _insert_resolved(
-            conn, signal_id="s1", outcome="loss", filled_at_ms=_HOUR
-        )
+        _insert_resolved(conn, signal_id="s1", outcome="loss", filled_at_ms=_HOUR)
         assert compute_excursions(conn).empty
 
     def test_open_rows_excluded(self) -> None:
@@ -328,9 +320,7 @@ class TestComputeExcursionsRobustness:
             "4h",
             [{"open_time": 4 * _HOUR, "high": 12.0, "low": 9.7, "close": 11.0}],
         )
-        _insert_resolved(
-            conn, signal_id="b1", outcome="expired", filled_at_ms=_HOUR
-        )
+        _insert_resolved(conn, signal_id="b1", outcome="expired", filled_at_ms=_HOUR)
         _insert_resolved(
             conn,
             signal_id="e1",
@@ -346,7 +336,9 @@ class TestComputeExcursionsRobustness:
         assert set(exc["symbol"]) == {"BTCUSDT", "ETHUSDT"}
         eth = exc[exc["symbol"] == "ETHUSDT"].iloc[0]
         assert eth["mfe_r"] == pytest.approx(4.0)  # (12-10)/0.5
-        assert eth["mae_r"] == pytest.approx(0.6)  # (10-9.7)/0.5 -> fav; high 12 adv? no: long -> adv=(10-9.7)/0.5
+        assert eth["mae_r"] == pytest.approx(
+            0.6
+        )  # (10-9.7)/0.5 -> fav; high 12 adv? no: long -> adv=(10-9.7)/0.5
 
 
 class TestAggregateCohorts:
@@ -738,7 +730,9 @@ def main() -> None:
         print("(nothing to report)")
         return
 
-    _print_df("Cohort roll-up (all cells)", aggregate_cohorts(excursions, by=(), min_n=1))
+    _print_df(
+        "Cohort roll-up (all cells)", aggregate_cohorts(excursions, by=(), min_n=1)
+    )
     _print_df(
         f"Cohort × (strategy, tf, direction) — min_n={args.min_n}",
         aggregate_cohorts(excursions, min_n=args.min_n),

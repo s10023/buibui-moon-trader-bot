@@ -101,9 +101,7 @@ def _insert_day(
     wide_high: float | None = None,
 ) -> None:
     """Insert one synthetic UTC day of 1h bars (see module docstring)."""
-    base_ms = int(
-        datetime(day.year, day.month, day.day, tzinfo=UTC).timestamp() * 1000
-    )
+    base_ms = int(datetime(day.year, day.month, day.day, tzinfo=UTC).timestamp() * 1000)
     close = 100.0 + k
     for h in range(n_bars):
         if h == 0:
@@ -383,9 +381,7 @@ def _fetch_hourly(
         sql += "AND open_time >= ? "
         params.append(start_ms)
     sql += "ORDER BY open_time"
-    by_day: dict[date, list[tuple[int, float, float, float, float]]] = defaultdict(
-        list
-    )
+    by_day: dict[date, list[tuple[int, float, float, float, float]]] = defaultdict(list)
     for open_time, o, h, lo, c in conn.execute(sql, params).fetchall():
         d = datetime.fromtimestamp(int(open_time) / 1000, tz=UTC).date()
         by_day[d].append((int(open_time), float(o), float(h), float(lo), float(c)))
@@ -481,9 +477,7 @@ def _combo_from(direction: str, weekday: str, pop: list[_DayRecord]) -> ConeComb
     high_in_by = [sum(1 for r in pop if r.high_hour <= h) / n for h in range(1, 25)]
     mae_p = [float(v) for v in np.percentile([r.mae for r in pop], EXCURSION_PCTS)]
     mfe_p = [float(v) for v in np.percentile([r.mfe for r in pop], EXCURSION_PCTS)]
-    high_piv = [
-        float(v) for v in np.percentile([r.high_mag for r in pop], PIVOT_PCTS)
-    ]
+    high_piv = [float(v) for v in np.percentile([r.high_mag for r in pop], PIVOT_PCTS)]
     low_piv = [float(v) for v in np.percentile([r.low_mag for r in pop], PIVOT_PCTS)]
     return ConeCombo(
         direction=direction,

@@ -77,9 +77,7 @@ def test_xs_leverage_dollar_neutral_active_set_with_staggered_history() -> None:
     early = lev.loc[lev["C"].isna() & lev[["A", "B"]].notna().all(axis=1)]
     assert len(early) > 0
     # Re-center over the active set only; the absent instrument stays NaN.
-    np.testing.assert_allclose(
-        early[["A", "B"]].sum(axis=1).to_numpy(), 0.0, atol=1e-9
-    )
+    np.testing.assert_allclose(early[["A", "B"]].sum(axis=1).to_numpy(), 0.0, atol=1e-9)
     assert early["C"].isna().all()
 
 

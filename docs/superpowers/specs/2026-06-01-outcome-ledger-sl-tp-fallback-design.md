@@ -39,7 +39,9 @@ Two code paths compute SL/TP from the same `SignalEvent`s, but only one has a fa
 
 ```python
 valid = [e.sl_price for e in events if 0 < e.sl_price < price]
-return min(valid) if valid else price * (1 - sl_pct)   # ← pct fallback when no structural SL
+return (
+    min(valid) if valid else price * (1 - sl_pct)
+)  # ← pct fallback when no structural SL
 ```
 
 It then floors by `min_sl_pct` (`_apply_min_sl_floor`) and derives TP from
@@ -48,9 +50,12 @@ It then floors by `min_sl_pct` (`_apply_min_sl_floor`) and derives TP from
 **Outcome-ledger writer — NO fallback** (`analytics/signal/scanner.py:918-940`):
 
 ```python
-ev_sl = None; ev_tp = None
-if direction == "long" and 0 < e.sl_price < entry:   # structural SL only
-    sl_dist = max(entry - e.sl_price, entry * min_sl_pct); ev_sl = ...; ev_tp = ...
+ev_sl = None
+ev_tp = None
+if direction == "long" and 0 < e.sl_price < entry:  # structural SL only
+    sl_dist = max(entry - e.sl_price, entry * min_sl_pct)
+    ev_sl = ...
+    ev_tp = ...
 elif direction == "short" and e.sl_price > entry:
     ...
 # else → ev_sl/ev_tp stay None → row persisted with NULL sl_price+tp_price → never scored

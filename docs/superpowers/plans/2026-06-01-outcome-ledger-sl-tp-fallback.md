@@ -40,8 +40,14 @@ Lift the per-event SL/TP math out of the inline loop into a pure helper so it ca
 
 ```python
 def _resolve_outcome_sl_tp(
-    *, direction: str, entry: float, struct_sl: float, struct_tp: float,
-    eff_sl_pct: float, min_sl_pct: float, tp_r: float,
+    *,
+    direction: str,
+    entry: float,
+    struct_sl: float,
+    struct_tp: float,
+    eff_sl_pct: float,
+    min_sl_pct: float,
+    tp_r: float,
 ) -> tuple[float, float]:
     """Return (sl_price, tp_price) for an outcome-ledger row, mirroring the alert
     formatter's fallback when struct_sl is invalid for `direction`."""

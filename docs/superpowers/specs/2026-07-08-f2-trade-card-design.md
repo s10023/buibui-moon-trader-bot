@@ -215,10 +215,11 @@ inherently nondeterministic, which is why the ledger stores the state digest.
 class LLMClient(Protocol):
     def generate(self, prompt: str) -> str: ...
 
+
 @dataclass(frozen=True)
 class ClaudeCliClient:
-    binary: str            # cfg.claude_bin — "claude-personal"
-    model: str             # cfg.model
+    binary: str  # cfg.claude_bin — "claude-personal"
+    model: str  # cfg.model
     timeout_s: float
     runner: RunnerFn = subprocess.run  # injectable for tests
 ```
