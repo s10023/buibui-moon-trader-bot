@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from monitor.position_lib import (
+    _fetch_all_tpsl_prices,
     color_risk_usd,
     color_sl_size,
     colorize,
@@ -16,6 +17,7 @@ from monitor.position_lib import (
     fetch_open_positions,
     get_stop_loss_for_symbol,
     get_wallet_balance,
+    normalize_conditional_orders,
 )
 from tests.conftest import SAMPLE_COIN_ORDER, SAMPLE_COINS_CONFIG, strip_ansi
 
@@ -253,6 +255,147 @@ class TestGetStopLossForSymbol:
         ]
         assert get_stop_loss_for_symbol(mock_client, "BTCUSDT", "SHORT") == 80000.0
         assert get_stop_loss_for_symbol(mock_client, "BTCUSDT", "LONG") == 80000.0
+
+
+def _algo_sl_row(
+    symbol: str = "BTCUSDT",
+    trigger_price: str = "66303.0",
+    position_side: str = "SHORT",
+    order_type: str = "STOP_MARKET",
+    algo_status: str = "NEW",
+) -> dict[str, Any]:
+    """A /fapi/v1/openAlgoOrders row exactly as the live API returns it."""
+    return {
+        "algoId": 2000001322792267,
+        "clientAlgoId": "stToAg_OTO_625810520_2",
+        "algoType": "CONDITIONAL",
+        "orderType": order_type,
+        "symbol": symbol,
+        "side": "BUY",
+        "positionSide": position_side,
+        "timeInForce": "GTE_GTC",
+        "quantity": "0.015",
+        "algoStatus": algo_status,
+        "actualOrderId": "",
+        "actualQty": "0.0",
+        "triggerPrice": trigger_price,
+        "price": "0.0",
+        "icebergQuantity": None,
+        "workingType": "CONTRACT_PRICE",
+        "closePosition": False,
+        "priceProtect": False,
+        "reduceOnly": True,
+        "createTime": 1785420891478,
+        "updateTime": 1785420891478,
+        "triggerTime": 0,
+        "goodTillDate": 0,
+    }
+
+
+class TestConditionalAlgoOrders:
+    """Binance's 2025-12-09 migration moved conditional orders (UI TP/SL, stop
+    orders) to /fapi/v1/openAlgoOrders; classic openOrders no longer returns
+    them. The monitor must query BOTH sources or every UI-placed SL is
+    invisible (observed live 2026-07-30: 0 classic orders, 6 algo-side SLs)."""
+
+    def test_normalize_maps_algo_fields_to_classic_shape(self) -> None:
+        rows = normalize_conditional_orders([_algo_sl_row()])
+        assert rows == [
+            {
+                "symbol": "BTCUSDT",
+                "type": "STOP_MARKET",
+                "stopPrice": "66303.0",
+                "positionSide": "SHORT",
+            }
+        ]
+
+    def test_normalize_drops_non_new_status(self) -> None:
+        assert (
+            normalize_conditional_orders([_algo_sl_row(algo_status="CANCELED")]) == []
+        )
+        assert (
+            normalize_conditional_orders([_algo_sl_row(algo_status="FINISHED")]) == []
+        )
+
+    def test_normalize_drops_classic_shaped_rows(self) -> None:
+        """A naive mock (or a double-fetch) can hand classic rows to the
+        normalizer; rows without orderType must be dropped, not crash."""
+        classic = {"type": "STOP_MARKET", "stopPrice": "50000.0"}
+        assert normalize_conditional_orders([classic]) == []
+
+    def test_get_stop_loss_finds_conditional_sl(self) -> None:
+        """Classic openOrders empty, SL resting algo-side — the live defect."""
+        mock_client = MagicMock()
+
+        def fake_orders(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+            if kwargs.get("conditional"):
+                return [_algo_sl_row()]
+            return []
+
+        mock_client.futures_get_open_orders.side_effect = fake_orders
+        assert get_stop_loss_for_symbol(mock_client, "BTCUSDT", "SHORT") == 66303.0
+
+    def test_get_stop_loss_classic_error_still_finds_conditional(self) -> None:
+        """A classic-fetch failure must not abort the conditional fetch."""
+        mock_client = MagicMock()
+
+        def fake_orders(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+            if kwargs.get("conditional"):
+                return [_algo_sl_row()]
+            raise Exception("classic API error")
+
+        mock_client.futures_get_open_orders.side_effect = fake_orders
+        assert get_stop_loss_for_symbol(mock_client, "BTCUSDT", "SHORT") == 66303.0
+
+    def test_fetch_all_tpsl_prices_merges_both_sources(self) -> None:
+        """Classic TP + algo-side SL on the same (symbol, side) must merge."""
+        mock_client = MagicMock()
+        classic_tp = {
+            "symbol": "BTCUSDT",
+            "type": "TAKE_PROFIT_MARKET",
+            "positionSide": "SHORT",
+            "stopPrice": "60000.0",
+        }
+
+        def fake_orders(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+            if kwargs.get("conditional"):
+                return [
+                    _algo_sl_row(),
+                    _algo_sl_row(
+                        symbol="ETHUSDT",
+                        trigger_price="1977.9",
+                        order_type="TAKE_PROFIT_MARKET",
+                    ),
+                ]
+            return [classic_tp]
+
+        mock_client.futures_get_open_orders.side_effect = fake_orders
+        prices = _fetch_all_tpsl_prices(mock_client)
+        assert prices[("BTCUSDT", "SHORT")] == {"sl": 66303.0, "tp": 60000.0}
+        assert prices[("ETHUSDT", "SHORT")] == {"sl": None, "tp": 1977.9}
+
+    def test_fetch_open_positions_shows_conditional_sl(
+        self,
+        mock_positions_data: list[dict[str, Any]],
+        mock_futures_balance: list[dict[str, Any]],
+    ) -> None:
+        """End-to-end: a UI-placed (algo-side) SL populates the SL column."""
+        mock_client = MagicMock()
+        mock_client.futures_position_information.return_value = mock_positions_data
+        mock_client.futures_account_balance.return_value = mock_futures_balance
+
+        def fake_orders(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+            if kwargs.get("conditional"):
+                return [_algo_sl_row(trigger_price="111000.0")]
+            return []
+
+        mock_client.futures_get_open_orders.side_effect = fake_orders
+        positions, total_risk, _, _, _ = fetch_open_positions(
+            mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER
+        )
+        btc_row = next(r for r in positions if r[0] == "BTCUSDT")
+        assert btc_row[10] == f"{111000.0:.5f}"
+        assert total_risk > 0
 
 
 class TestFetchOpenPositions:

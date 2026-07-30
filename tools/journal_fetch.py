@@ -24,6 +24,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from monitor.position_lib import normalize_conditional_orders
+
 _DEFAULT_JOURNAL_DIR = Path("docs/plans/journal")
 _SL_ORDER_TYPES = ("STOP_MARKET", "STOP")
 _TP_ORDER_TYPES = ("TAKE_PROFIT_MARKET", "TAKE_PROFIT")
@@ -375,7 +377,13 @@ def fetch_candidates(
     """Assemble enriched, indexed, sorted trade candidates (read-only)."""
     cutoff_ms = _now_ms() - days * 86_400_000
     positions = client.futures_position_information()
-    open_orders = client.futures_get_open_orders()
+    open_orders = list(client.futures_get_open_orders())
+    # UI-placed TP/SL live on /fapi/v1/openAlgoOrders since Binance's 2025-12-09
+    # conditional-order migration; classic openOrders no longer returns them.
+    with contextlib.suppress(Exception):
+        open_orders += normalize_conditional_orders(
+            client.futures_get_open_orders(conditional=True)
+        )
 
     out: list[TradeCandidate] = []
     for sym in symbols:
