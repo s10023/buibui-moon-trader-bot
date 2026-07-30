@@ -305,3 +305,48 @@ def test_fetch_candidates_requests_most_recent_trades() -> None:
 
     _, kwargs = client.futures_account_trades.call_args
     assert "startTime" not in kwargs
+
+
+def test_fetch_candidates_attaches_conditional_algo_sl() -> None:
+    """UI-placed SLs live on /fapi/v1/openAlgoOrders (post-2025-12-09 Binance
+    migration), not in classic openOrders — the open-position SL/TP pre-fill
+    must query both sources or every exchange stop shows as absent."""
+    client = MagicMock()
+    client.futures_account_trades.return_value = [
+        _fill("SELL", "64978", "0.155", BASE_MS + 1000, position_side="SHORT"),
+    ]
+    client.futures_position_information.return_value = []
+    client.futures_income_history.return_value = []
+
+    def fake_orders(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        if kwargs.get("conditional"):
+            return [
+                {
+                    "algoType": "CONDITIONAL",
+                    "orderType": "STOP_MARKET",
+                    "symbol": "BTCUSDT",
+                    "side": "BUY",
+                    "positionSide": "SHORT",
+                    "algoStatus": "NEW",
+                    "triggerPrice": "66303.0",
+                    "price": "0.0",
+                    "reduceOnly": True,
+                    "closePosition": False,
+                }
+            ]
+        return []
+
+    client.futures_get_open_orders.side_effect = fake_orders
+
+    candidates = fetch_candidates(
+        client,
+        symbols=["BTCUSDT"],
+        days=3650,
+        journal_dir=None,
+        include_journaled=True,
+    )
+
+    assert len(candidates) == 1
+    c = candidates[0]
+    assert c.status == "open"
+    assert c.exchange_sl == 66303.0

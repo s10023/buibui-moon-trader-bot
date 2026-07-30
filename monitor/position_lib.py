@@ -122,6 +122,52 @@ def _position_side_matches(order_side: str, position_side: str) -> bool:
     return order_side == position_side
 
 
+def normalize_conditional_orders(
+    orders: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Map /fapi/v1/openAlgoOrders rows into the classic open-order shape.
+
+    Since 2025-12-09 Binance routes conditional order types (STOP, STOP_MARKET,
+    TAKE_PROFIT, TAKE_PROFIT_MARKET, TRAILING_STOP_MARKET) — including every
+    UI-placed TP/SL — to a separate algo-order subsystem; classic
+    /fapi/v1/openOrders no longer returns them. Algo rows carry
+    ``orderType``/``triggerPrice`` instead of ``type``/``stopPrice``. Rows
+    without ``orderType`` (already classic-shaped) and rows whose
+    ``algoStatus`` is not NEW (canceled/triggered) are dropped.
+    """
+    normalized: list[dict[str, Any]] = []
+    for o in orders:
+        order_type = o.get("orderType")
+        if not order_type or o.get("algoStatus", "NEW") != "NEW":
+            continue
+        normalized.append(
+            {
+                "symbol": o.get("symbol", ""),
+                "type": order_type,
+                "stopPrice": o.get("triggerPrice"),
+                "positionSide": o.get("positionSide", "BOTH"),
+            }
+        )
+    return normalized
+
+
+def _fetch_conditional_orders(
+    client: Client, symbol: str | None = None
+) -> list[dict[str, Any]]:
+    """Fetch open conditional (algo) orders, normalized to the classic shape."""
+    try:
+        if symbol is None:
+            orders: list[dict[str, Any]] = client.futures_get_open_orders(
+                conditional=True
+            )
+        else:
+            orders = client.futures_get_open_orders(symbol=symbol, conditional=True)
+    except Exception as e:
+        logging.warning("Conditional (algo) order fetch failed: %s", e)
+        return []
+    return normalize_conditional_orders(orders)
+
+
 def _find_order_price(
     orders: list[dict[str, Any]],
     order_types: tuple[str, ...],
@@ -156,15 +202,16 @@ def _find_tp_in_orders(
 def get_stop_loss_for_symbol(
     client: Client, symbol: str, position_side: str = "BOTH"
 ) -> float | None:
-    """Get the stop-loss price for a symbol from open orders.
+    """Get the stop-loss price for a symbol from open orders (classic + conditional).
 
     Pass position_side in hedge mode to match only the correct side's SL order.
     """
     try:
-        orders = client.futures_get_open_orders(symbol=symbol)
+        orders = list(client.futures_get_open_orders(symbol=symbol))
     except Exception as e:
         logging.warning("SL fetch failed for %s: %s", symbol, e)
-        return None
+        orders = []
+    orders += _fetch_conditional_orders(client, symbol)
     return _find_sl_in_orders(orders, position_side)
 
 
@@ -177,9 +224,12 @@ def _fetch_all_tpsl_prices(
     positions on the same symbol have independent SL/TP orders.
     """
     try:
-        all_orders: list[dict[str, Any]] = client.futures_get_open_orders()
+        all_orders: list[dict[str, Any]] = list(client.futures_get_open_orders())
     except Exception as e:
         logging.warning("Failed to fetch all open orders: %s", e)
+        all_orders = []
+    all_orders += _fetch_conditional_orders(client)
+    if not all_orders:
         return {}
 
     orders_by_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
