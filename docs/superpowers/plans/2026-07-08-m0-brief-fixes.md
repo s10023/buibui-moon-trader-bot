@@ -284,9 +284,7 @@ def build_level_rows(
         if price is None:
             continue
         dist = (float(price) - ref_price) / atr14
-        swept = _swept_current_period(
-            daily_df, as_of_ms, name, float(price), ref_price
-        )
+        swept = _swept_current_period(daily_df, as_of_ms, name, float(price), ref_price)
         rows.append(LevelRow(name=name, price=float(price), dist_atr=dist, swept=swept))
     above = sorted((r for r in rows if r.dist_atr > 0), key=lambda r: r.dist_atr)
     below = sorted((r for r in rows if r.dist_atr <= 0), key=lambda r: -r.dist_atr)
@@ -374,7 +372,13 @@ def _d1_frame(as_of_ms: int, forming: bool) -> tuple[pd.DataFrame, pd.DataFrame]
     completed = pd.DataFrame(rows)
     if not forming:
         return completed.copy(), completed
-    f = {"open_time": day_start, "open": 100.5, "high": 104.0, "low": 100.0, "close": 103.5}
+    f = {
+        "open_time": day_start,
+        "open": 100.5,
+        "high": 104.0,
+        "low": 100.0,
+        "close": 103.5,
+    }
     return pd.concat([completed, pd.DataFrame([f])], ignore_index=True), completed
 
 

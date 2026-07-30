@@ -64,15 +64,24 @@ from utils.okx_client import _okx_row_to_binance
 
 def test_okx_row_to_binance_maps_and_sets_neutral_taker_volume() -> None:
     # OKX row: ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm
-    okx = ["1726128000000", "60000.0", "60500.0", "59800.0", "60250.0",
-           "1234.5", "74000000", "74000000", "1"]
+    okx = [
+        "1726128000000",
+        "60000.0",
+        "60500.0",
+        "59800.0",
+        "60250.0",
+        "1234.5",
+        "74000000",
+        "74000000",
+        "1",
+    ]
     row = _okx_row_to_binance(okx)
-    assert row[0] == 1726128000000          # open_time (int ms)
-    assert row[1] == "60000.0"              # open
-    assert row[2] == "60500.0"              # high
-    assert row[3] == "59800.0"              # low
-    assert row[4] == "60250.0"              # close
-    assert row[5] == "1234.5"               # volume
+    assert row[0] == 1726128000000  # open_time (int ms)
+    assert row[1] == "60000.0"  # open
+    assert row[2] == "60500.0"  # high
+    assert row[3] == "59800.0"  # low
+    assert row[4] == "60250.0"  # close
+    assert row[5] == "1234.5"  # volume
     # index 9 = taker_buy_volume = volume / 2 (neutral CVD)
     assert float(row[9]) == 1234.5 / 2
     assert len(row) == 10
@@ -118,16 +127,16 @@ def _okx_row_to_binance(okx: list[str]) -> list[Any]:
     """
     volume = float(okx[5])
     return [
-        int(okx[0]),        # 0 open_time (ms)
-        okx[1],             # 1 open
-        okx[2],             # 2 high
-        okx[3],             # 3 low
-        okx[4],             # 4 close
-        okx[5],             # 5 volume
-        "0",                # 6 close_time (unused)
-        "0",                # 7 quote_volume (unused)
-        0,                  # 8 trades (unused)
-        str(volume / 2),    # 9 taker_buy_volume (neutral)
+        int(okx[0]),  # 0 open_time (ms)
+        okx[1],  # 1 open
+        okx[2],  # 2 high
+        okx[3],  # 3 low
+        okx[4],  # 4 close
+        okx[5],  # 5 volume
+        "0",  # 6 close_time (unused)
+        "0",  # 7 quote_volume (unused)
+        0,  # 8 trades (unused)
+        str(volume / 2),  # 9 taker_buy_volume (neutral)
     ]
 ```
 
@@ -440,19 +449,33 @@ class _OKXLike:
 
     def futures_klines(self, symbol, interval, startTime, limit=1000):  # type: ignore[no-untyped-def]
         return pd.DataFrame(
-            [{"symbol": symbol, "timeframe": interval, "open_time": startTime,
-              "open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5,
-              "volume": 10.0, "taker_buy_volume": 5.0}],
+            [
+                {
+                    "symbol": symbol,
+                    "timeframe": interval,
+                    "open_time": startTime,
+                    "open": 1.0,
+                    "high": 2.0,
+                    "low": 0.5,
+                    "close": 1.5,
+                    "volume": 10.0,
+                    "taker_buy_volume": 5.0,
+                }
+            ],
             columns=OHLCV_COLUMNS,
         )
 
 
 def test_fetch_klines_passes_through_okx_dataframe() -> None:
     from utils.okx_client import OKXClient
+
     client = _OKXLike()
     # mark it as OKX by type so fetch_klines branches
-    df = fetch_klines.__wrapped__(client, "BTCUSDT", "1h", 1000) if hasattr(
-        fetch_klines, "__wrapped__") else fetch_klines(client, "BTCUSDT", "1h", 1000)
+    df = (
+        fetch_klines.__wrapped__(client, "BTCUSDT", "1h", 1000)
+        if hasattr(fetch_klines, "__wrapped__")
+        else fetch_klines(client, "BTCUSDT", "1h", 1000)
+    )
     assert list(df.columns) == OHLCV_COLUMNS
     assert df["open_time"].iloc[0] == 1000
 ```
@@ -630,7 +653,7 @@ Expected: FAIL — `assert 'max_cycles' in {...}`
 In `analytics/signal_runner.py`, add to the `run_signal_watch` signature (after `combo_cfg`):
 
 ```python
-    max_cycles: int | None = None,
+max_cycles: int | None = (None,)
 ```
 
 Then immediately after the `backfill_outcomes` try/except block and the `if alerts: ... else: ...` logging (right before `sleep_secs, wake_ts = secs_until_next_boundary(...)` at ~line 393), insert:
@@ -658,7 +681,7 @@ In `cli/signal.py`, add to the watch parser (before `watch_parser.set_defaults`)
 And in the `run_signal_watch(args)` body, add to the `signal_runner.run_signal_watch(...)` call kwargs:
 
 ```python
-        max_cycles=1 if getattr(args, "once", False) else None,
+max_cycles = (1 if getattr(args, "once", False) else None,)
 ```
 
 - [ ] **Step 5: Run tests + typecheck**
@@ -715,9 +738,12 @@ def test_export_copies_only_live_tables(tmp_path: Path) -> None:
     export_live_db(src, out)
 
     con = duckdb.connect(str(out), read_only=True)
-    tables = {r[0] for r in con.execute(
-        "SELECT table_name FROM information_schema.tables WHERE table_schema='main'"
-    ).fetchall()}
+    tables = {
+        r[0]
+        for r in con.execute(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema='main'"
+        ).fetchall()
+    }
     con.close()
     assert tables == set(LIVE_TABLES)
     assert "backtest_trades" not in tables

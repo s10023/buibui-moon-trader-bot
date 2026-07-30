@@ -377,7 +377,9 @@ def test_atr_by_open_time_matches_the_engine_primitive() -> None:
 
 
 def test_atr_by_open_time_handles_empty_frame() -> None:
-    empty = pd.DataFrame(columns=["open_time", "open", "high", "low", "close", "volume"])
+    empty = pd.DataFrame(
+        columns=["open_time", "open", "high", "low", "close", "volume"]
+    )
     assert atr_by_open_time(empty, [1_000]) == {1_000: None}
 ```
 
@@ -419,9 +421,7 @@ def atr_by_open_time(
     highs = ohlcv["high"].to_numpy(dtype=np.float64)
     lows = ohlcv["low"].to_numpy(dtype=np.float64)
     closes = ohlcv["close"].to_numpy(dtype=np.float64)
-    position = {
-        int(t): i for i, t in enumerate(ohlcv["open_time"].to_numpy())
-    }
+    position = {int(t): i for i, t in enumerate(ohlcv["open_time"].to_numpy())}
 
     out: dict[int, float | None] = {}
     for t in wanted:
@@ -509,7 +509,9 @@ def test_window_rejects_unknown_convention() -> None:
         window_for_signal(df, sig_idx=5, convention="nope", max_hold_bars=4)
 
 
-def _flat_window(n: int, price: float = 100.0) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _flat_window(
+    n: int, price: float = 100.0
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """A window that never moves — guarantees an expiry, not a win or loss."""
     arr = np.full(n, price, dtype=np.float64)
     return arr.copy(), arr.copy(), arr.copy()
@@ -557,12 +559,28 @@ def test_resolve_arm_zero_cost_leaves_realized_r_untouched() -> None:
 def test_resolve_arm_cost_in_r_grows_as_the_stop_tightens() -> None:
     highs, lows, closes = _flat_window(10)
     wide = resolve_arm(
-        highs, lows, closes, direction="long", entry=100.0, sl_price=98.0,
-        tp_r=3.0, max_hold_bars=10, round_trip_cost_pct=0.0014, funding_r=0.0,
+        highs,
+        lows,
+        closes,
+        direction="long",
+        entry=100.0,
+        sl_price=98.0,
+        tp_r=3.0,
+        max_hold_bars=10,
+        round_trip_cost_pct=0.0014,
+        funding_r=0.0,
     )
     tight = resolve_arm(
-        highs, lows, closes, direction="long", entry=100.0, sl_price=99.5,
-        tp_r=3.0, max_hold_bars=10, round_trip_cost_pct=0.0014, funding_r=0.0,
+        highs,
+        lows,
+        closes,
+        direction="long",
+        entry=100.0,
+        sl_price=99.5,
+        tp_r=3.0,
+        max_hold_bars=10,
+        round_trip_cost_pct=0.0014,
+        funding_r=0.0,
     )
     # Same cash cost, four times the risk denominator -> four times the R cost.
     assert tight.cost_r > wide.cost_r
@@ -572,8 +590,16 @@ def test_resolve_arm_cost_in_r_grows_as_the_stop_tightens() -> None:
 def test_resolve_arm_subtracts_funding() -> None:
     highs, lows, closes = _flat_window(10)
     res = resolve_arm(
-        highs, lows, closes, direction="long", entry=100.0, sl_price=98.0,
-        tp_r=3.0, max_hold_bars=10, round_trip_cost_pct=0.0, funding_r=0.03,
+        highs,
+        lows,
+        closes,
+        direction="long",
+        entry=100.0,
+        sl_price=98.0,
+        tp_r=3.0,
+        max_hold_bars=10,
+        round_trip_cost_pct=0.0,
+        funding_r=0.03,
     )
     assert res.net_r == pytest.approx(res.realized_r - 0.03)
 
@@ -582,8 +608,16 @@ def test_resolve_arm_returns_none_on_empty_window() -> None:
     empty = np.array([], dtype=np.float64)
     assert (
         resolve_arm(
-            empty, empty, empty, direction="long", entry=100.0, sl_price=98.0,
-            tp_r=3.0, max_hold_bars=10, round_trip_cost_pct=0.0, funding_r=0.0,
+            empty,
+            empty,
+            empty,
+            direction="long",
+            entry=100.0,
+            sl_price=98.0,
+            tp_r=3.0,
+            max_hold_bars=10,
+            round_trip_cost_pct=0.0,
+            funding_r=0.0,
         )
         is None
     )
@@ -593,8 +627,16 @@ def test_resolve_arm_returns_none_on_zero_risk() -> None:
     highs, lows, closes = _flat_window(10)
     assert (
         resolve_arm(
-            highs, lows, closes, direction="long", entry=100.0, sl_price=100.0,
-            tp_r=3.0, max_hold_bars=10, round_trip_cost_pct=0.0, funding_r=0.0,
+            highs,
+            lows,
+            closes,
+            direction="long",
+            entry=100.0,
+            sl_price=100.0,
+            tp_r=3.0,
+            max_hold_bars=10,
+            round_trip_cost_pct=0.0,
+            funding_r=0.0,
         )
         is None
     )
@@ -778,23 +820,68 @@ def _arm_rows() -> pd.DataFrame:
     return pd.DataFrame(
         [
             # signal A — complete
-            {"symbol": "BTCUSDT", "tf": "1h", "strategy": "pin_bar",
-             "direction": "long", "open_time": 1, "arm": "flat_2pct",
-             "net_r": -1.0, "outcome": "loss", "exit_bar": 3, "sl_dist_pct": 0.02},
-            {"symbol": "BTCUSDT", "tf": "1h", "strategy": "pin_bar",
-             "direction": "long", "open_time": 1, "arm": "atr_1",
-             "net_r": 0.5, "outcome": "expired", "exit_bar": 9, "sl_dist_pct": 0.01},
+            {
+                "symbol": "BTCUSDT",
+                "tf": "1h",
+                "strategy": "pin_bar",
+                "direction": "long",
+                "open_time": 1,
+                "arm": "flat_2pct",
+                "net_r": -1.0,
+                "outcome": "loss",
+                "exit_bar": 3,
+                "sl_dist_pct": 0.02,
+            },
+            {
+                "symbol": "BTCUSDT",
+                "tf": "1h",
+                "strategy": "pin_bar",
+                "direction": "long",
+                "open_time": 1,
+                "arm": "atr_1",
+                "net_r": 0.5,
+                "outcome": "expired",
+                "exit_bar": 9,
+                "sl_dist_pct": 0.01,
+            },
             # signal B — complete
-            {"symbol": "BTCUSDT", "tf": "1h", "strategy": "pin_bar",
-             "direction": "long", "open_time": 2, "arm": "flat_2pct",
-             "net_r": 3.0, "outcome": "win", "exit_bar": 5, "sl_dist_pct": 0.02},
-            {"symbol": "BTCUSDT", "tf": "1h", "strategy": "pin_bar",
-             "direction": "long", "open_time": 2, "arm": "atr_1",
-             "net_r": 1.0, "outcome": "win", "exit_bar": 2, "sl_dist_pct": 0.01},
+            {
+                "symbol": "BTCUSDT",
+                "tf": "1h",
+                "strategy": "pin_bar",
+                "direction": "long",
+                "open_time": 2,
+                "arm": "flat_2pct",
+                "net_r": 3.0,
+                "outcome": "win",
+                "exit_bar": 5,
+                "sl_dist_pct": 0.02,
+            },
+            {
+                "symbol": "BTCUSDT",
+                "tf": "1h",
+                "strategy": "pin_bar",
+                "direction": "long",
+                "open_time": 2,
+                "arm": "atr_1",
+                "net_r": 1.0,
+                "outcome": "win",
+                "exit_bar": 2,
+                "sl_dist_pct": 0.01,
+            },
             # signal C — MISSING the atr_1 arm, must be dropped entirely
-            {"symbol": "BTCUSDT", "tf": "1h", "strategy": "pin_bar",
-             "direction": "long", "open_time": 3, "arm": "flat_2pct",
-             "net_r": -1.0, "outcome": "loss", "exit_bar": 1, "sl_dist_pct": 0.02},
+            {
+                "symbol": "BTCUSDT",
+                "tf": "1h",
+                "strategy": "pin_bar",
+                "direction": "long",
+                "open_time": 3,
+                "arm": "flat_2pct",
+                "net_r": -1.0,
+                "outcome": "loss",
+                "exit_bar": 1,
+                "sl_dist_pct": 0.02,
+            },
         ]
     )
 
@@ -883,7 +970,9 @@ def build_paired_table(arm_rows: pd.DataFrame, *, arms: Sequence[str]) -> pd.Dat
     return wide.reset_index()
 
 
-def describe_horizon(arm_rows: pd.DataFrame, *, arm: str = BASELINE_ARM) -> pd.DataFrame:
+def describe_horizon(
+    arm_rows: pd.DataFrame, *, arm: str = BASELINE_ARM
+) -> pd.DataFrame:
     """Per (strategy, tf) descriptive horizon table for one arm.
 
     Columns: ``strategy``, ``tf``, ``n``, ``avg_r``, ``median_bars``,
@@ -894,8 +983,14 @@ def describe_horizon(arm_rows: pd.DataFrame, *, arm: str = BASELINE_ARM) -> pd.D
     if subset.empty:
         return pd.DataFrame(
             columns=[
-                "strategy", "tf", "n", "avg_r", "median_bars",
-                "expiry_rate", "median_sl_pct", "median_sl_atr",
+                "strategy",
+                "tf",
+                "n",
+                "avg_r",
+                "median_bars",
+                "expiry_rate",
+                "median_sl_pct",
+                "median_sl_atr",
             ]
         )
 
@@ -1166,10 +1261,18 @@ def evaluate_sl_grid(
         if n < cfg.min_n:
             out.append(
                 SLVerdict(
-                    strategy=str(strategy), tf=str(tf),
-                    decision=DECISION_INSUFFICIENT, n=n,
-                    baseline_avg_r=baseline_avg, best_k=None, best_lift=None,
-                    ci_lo=None, ci_hi=None, adj_pvalue=None, dsr=None, pbo=None,
+                    strategy=str(strategy),
+                    tf=str(tf),
+                    decision=DECISION_INSUFFICIENT,
+                    n=n,
+                    baseline_avg_r=baseline_avg,
+                    best_k=None,
+                    best_lift=None,
+                    ci_lo=None,
+                    ci_hi=None,
+                    adj_pvalue=None,
+                    dsr=None,
+                    pbo=None,
                     reasons=[f"n={n} < min_n={cfg.min_n}"],
                 )
             )
@@ -1181,21 +1284,30 @@ def evaluate_sl_grid(
         # (ci_hi <= -bar). We want arms that BEAT baseline, i.e. positive lift,
         # so we filter on "DISABLE". enable_concentrate=False guarantees a
         # positive cell never resolves to CONCENTRATE, so DISABLE is unambiguous.
-        candidates = [
-            (arm, cv) for arm, cv in by_group[gi] if cv.decision == "DISABLE"
-        ]
+        candidates = [(arm, cv) for arm, cv in by_group[gi] if cv.decision == "DISABLE"]
 
         if not candidates:
             decision = (
-                DECISION_CONFIRMED_BAD if baseline_avg <= 0.0 else DECISION_NO_DIFFERENCE
+                DECISION_CONFIRMED_BAD
+                if baseline_avg <= 0.0
+                else DECISION_NO_DIFFERENCE
             )
             reasons.append("no arm cleared the +bar CI test")
             reasons.append(f"baseline avg_r={baseline_avg:.4f}")
             out.append(
                 SLVerdict(
-                    strategy=str(strategy), tf=str(tf), decision=decision, n=n,
-                    baseline_avg_r=baseline_avg, best_k=None, best_lift=None,
-                    ci_lo=None, ci_hi=None, adj_pvalue=None, dsr=None, pbo=None,
+                    strategy=str(strategy),
+                    tf=str(tf),
+                    decision=decision,
+                    n=n,
+                    baseline_avg_r=baseline_avg,
+                    best_k=None,
+                    best_lift=None,
+                    ci_lo=None,
+                    ci_hi=None,
+                    adj_pvalue=None,
+                    dsr=None,
+                    pbo=None,
                     reasons=reasons,
                 )
             )
@@ -1208,11 +1320,12 @@ def evaluate_sl_grid(
         )
 
         # DSR / PBO over the k-grid family for this cell.
-        diffs = {arm: (grp[arm] - grp[BASELINE_ARM]).to_numpy(dtype=np.float64) for arm in arms}
+        diffs = {
+            arm: (grp[arm] - grp[BASELINE_ARM]).to_numpy(dtype=np.float64)
+            for arm in arms
+        }
         trial_srs = [_sharpe(v) for v in diffs.values()]
-        dsr = deflated_sharpe_ratio(
-            _sharpe(diffs[best_arm]), n, trial_srs=trial_srs
-        )
+        dsr = deflated_sharpe_ratio(_sharpe(diffs[best_arm]), n, trial_srs=trial_srs)
         pbo: float | None
         if len(arms) < 2:
             pbo = None
@@ -1231,14 +1344,19 @@ def evaluate_sl_grid(
 
         out.append(
             SLVerdict(
-                strategy=str(strategy), tf=str(tf), decision=decision, n=n,
+                strategy=str(strategy),
+                tf=str(tf),
+                decision=decision,
+                n=n,
                 baseline_avg_r=baseline_avg,
                 best_k=_k_from_arm(best_arm),
                 best_lift=float(best_cv.supp_avg or 0.0),
                 ci_lo=best_cv.ci_lo,
                 ci_hi=best_cv.ci_hi,
                 adj_pvalue=best_cv.adj_pvalue,
-                dsr=dsr, pbo=pbo, reasons=reasons,
+                dsr=dsr,
+                pbo=pbo,
+                reasons=reasons,
             )
         )
     return out
@@ -1669,7 +1787,10 @@ def check_fidelity(
     merged = replayed.merge(stored, on=["strategy", "tf", "key"], how="inner")
     if merged.empty:
         return FidelityReport(
-            passed=False, n_matched=0, agreement=0.0, worst_avg_r_delta=float("nan"),
+            passed=False,
+            n_matched=0,
+            agreement=0.0,
+            worst_avg_r_delta=float("nan"),
             reasons=["no rows matched between replayed and stored substrates"],
         )
 
@@ -1685,9 +1806,7 @@ def check_fidelity(
 
     agreement = float((merged["outcome"] == merged["stored_outcome"]).mean())
     if agreement < min_agreement:
-        reasons.append(
-            f"outcome agreement {agreement:.3f} < required {min_agreement}"
-        )
+        reasons.append(f"outcome agreement {agreement:.3f} < required {min_agreement}")
 
     return FidelityReport(
         passed=not reasons,
@@ -1766,11 +1885,39 @@ def test_load_stored_backtest_trades_dedups_across_runs(
     conn: duckdb.DuckDBPyConnection,
 ) -> None:
     rows = [
-        ("r1", "BTCUSDT", "1h", "pin_bar", "long", 1000, 1100, 100.0, 98.0, 106.0,
-         1200, 106.0, "win", 3.0),
+        (
+            "r1",
+            "BTCUSDT",
+            "1h",
+            "pin_bar",
+            "long",
+            1000,
+            1100,
+            100.0,
+            98.0,
+            106.0,
+            1200,
+            106.0,
+            "win",
+            3.0,
+        ),
         # same signal, later run_id — only this one should survive
-        ("r2", "BTCUSDT", "1h", "pin_bar", "long", 1000, 1100, 100.0, 98.0, 106.0,
-         1200, 98.0, "loss", -1.0),
+        (
+            "r2",
+            "BTCUSDT",
+            "1h",
+            "pin_bar",
+            "long",
+            1000,
+            1100,
+            100.0,
+            98.0,
+            106.0,
+            1200,
+            98.0,
+            "loss",
+            -1.0,
+        ),
     ]
     for r in rows:
         conn.execute(
@@ -1782,7 +1929,9 @@ def test_load_stored_backtest_trades_dedups_across_runs(
     got = load_stored_backtest_trades(conn, symbols=["BTCUSDT"], timeframes=["1h"])
     assert len(got) == 1
     assert got.iloc[0]["stored_outcome"] == "loss"
-    assert set(["strategy", "tf", "key", "stored_r", "stored_outcome"]) <= set(got.columns)
+    assert set(["strategy", "tf", "key", "stored_r", "stored_outcome"]) <= set(
+        got.columns
+    )
 
 
 def test_load_stored_backtest_trades_key_is_unique_per_signal(
@@ -1793,8 +1942,22 @@ def test_load_stored_backtest_trades_key_is_unique_per_signal(
             "INSERT INTO backtest_trades (run_id, symbol, timeframe, strategy, "
             "direction, signal_time, entry_time, entry_price, sl_price, tp_price, "
             "exit_time, exit_price, outcome, pnl_r) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            ["r1", "BTCUSDT", "1h", "pin_bar", "long", sig_time, sig_time + 100,
-             100.0, 98.0, 106.0, sig_time + 200, 106.0, "win", 3.0],
+            [
+                "r1",
+                "BTCUSDT",
+                "1h",
+                "pin_bar",
+                "long",
+                sig_time,
+                sig_time + 100,
+                100.0,
+                98.0,
+                106.0,
+                sig_time + 200,
+                106.0,
+                "win",
+                3.0,
+            ],
         )
     got = load_stored_backtest_trades(conn, symbols=["BTCUSDT"], timeframes=["1h"])
     assert got["key"].nunique() == 2
@@ -1805,11 +1968,18 @@ def test_resolve_live_arms_produces_one_row_per_alert_per_arm() -> None:
     alerts = pd.DataFrame(
         [
             {
-                "signal_id": "a", "symbol": "BTCUSDT", "tf": "1h",
-                "strategy": "pin_bar", "direction": "long",
-                "candle_ts_ms": 2_000, "entry_price": 100.0,
-                "sl_price": 98.0, "tp_price": 106.0, "rr_ratio": 3.0,
-                "outcome": "win", "outcome_r": 3.0,
+                "signal_id": "a",
+                "symbol": "BTCUSDT",
+                "tf": "1h",
+                "strategy": "pin_bar",
+                "direction": "long",
+                "candle_ts_ms": 2_000,
+                "entry_price": 100.0,
+                "sl_price": 98.0,
+                "tp_price": 106.0,
+                "rr_ratio": 3.0,
+                "outcome": "win",
+                "outcome_r": 3.0,
             }
         ]
     )
@@ -1840,11 +2010,18 @@ def test_resolve_live_arms_baseline_uses_the_stored_sl() -> None:
     alerts = pd.DataFrame(
         [
             {
-                "signal_id": "a", "symbol": "BTCUSDT", "tf": "1h",
-                "strategy": "pin_bar", "direction": "long",
-                "candle_ts_ms": 2_000, "entry_price": 100.0,
-                "sl_price": 97.0, "tp_price": 109.0, "rr_ratio": 3.0,
-                "outcome": "win", "outcome_r": 3.0,
+                "signal_id": "a",
+                "symbol": "BTCUSDT",
+                "tf": "1h",
+                "strategy": "pin_bar",
+                "direction": "long",
+                "candle_ts_ms": 2_000,
+                "entry_price": 100.0,
+                "sl_price": 97.0,
+                "tp_price": 109.0,
+                "rr_ratio": 3.0,
+                "outcome": "win",
+                "outcome_r": 3.0,
             }
         ]
     )
@@ -1852,8 +2029,11 @@ def test_resolve_live_arms_baseline_uses_the_stored_sl() -> None:
     ohlcv = pd.DataFrame(
         {
             "open_time": [1_000 * i for i in range(n)],
-            "open": [100.0] * n, "high": [101.0] * n,
-            "low": [99.0] * n, "close": [100.0] * n, "volume": [10.0] * n,
+            "open": [100.0] * n,
+            "high": [101.0] * n,
+            "low": [99.0] * n,
+            "close": [100.0] * n,
+            "volume": [10.0] * n,
         }
     )
     rows = resolve_live_arms(
@@ -1914,7 +2094,9 @@ def load_stored_backtest_trades(
         [*FAMILY, *symbols, *timeframes],
     ).df()
     if raw.empty:
-        return pd.DataFrame(columns=["strategy", "tf", "key", "stored_r", "stored_outcome"])
+        return pd.DataFrame(
+            columns=["strategy", "tf", "key", "stored_r", "stored_outcome"]
+        )
 
     # Sort then drop_duplicates in pandas — DuckDB window functions have
     # segfaulted on this table before (see feedback_duckdb_window_functions).
@@ -1925,8 +2107,10 @@ def load_stored_backtest_trades(
     deduped = deduped.assign(
         key=(
             deduped["symbol"].astype(str)
-            + "|" + deduped["direction"].astype(str)
-            + "|" + deduped["signal_time"].astype("int64").astype(str)
+            + "|"
+            + deduped["direction"].astype(str)
+            + "|"
+            + deduped["signal_time"].astype("int64").astype(str)
         )
     )
     return deduped.rename(columns={"pnl_r": "stored_r", "outcome": "stored_outcome"})[
@@ -1984,21 +2168,34 @@ def resolve_live_arms(
 
             for arm, sl_price in arms:
                 res = resolve_arm(
-                    highs, lows, closes,
-                    direction=direction, entry=entry, sl_price=sl_price,
-                    tp_r=tp_r, max_hold_bars=max_hold,
-                    round_trip_cost_pct=cfg.round_trip_cost_pct, funding_r=0.0,
+                    highs,
+                    lows,
+                    closes,
+                    direction=direction,
+                    entry=entry,
+                    sl_price=sl_price,
+                    tp_r=tp_r,
+                    max_hold_bars=max_hold,
+                    round_trip_cost_pct=cfg.round_trip_cost_pct,
+                    funding_r=0.0,
                 )
                 if res is None:
                     continue
                 rows.append(
                     {
-                        "symbol": symbol, "tf": tf, "strategy": strategy,
-                        "direction": direction, "open_time": candle_ts,
-                        "arm": arm, "net_r": res.net_r,
-                        "realized_r": res.realized_r, "outcome": res.outcome,
-                        "exit_bar": res.exit_bar, "sl_dist_pct": res.sl_dist_pct,
-                        "cost_r": res.cost_r, "atr_pct": atr / entry,
+                        "symbol": symbol,
+                        "tf": tf,
+                        "strategy": strategy,
+                        "direction": direction,
+                        "open_time": candle_ts,
+                        "arm": arm,
+                        "net_r": res.net_r,
+                        "realized_r": res.realized_r,
+                        "outcome": res.outcome,
+                        "exit_bar": res.exit_bar,
+                        "sl_dist_pct": res.sl_dist_pct,
+                        "cost_r": res.cost_r,
+                        "atr_pct": atr / entry,
                         "key": f"{symbol}|{direction}|{candle_ts}",
                     }
                 )
@@ -2031,14 +2228,19 @@ def backtest_fidelity(
     )
     if replayed.empty:
         return FidelityReport(
-            passed=False, n_matched=0, agreement=0.0, worst_avg_r_delta=float("nan"),
+            passed=False,
+            n_matched=0,
+            agreement=0.0,
+            worst_avg_r_delta=float("nan"),
             reasons=["baseline replay produced no rows"],
         )
     baseline = replayed[replayed["arm"] == BASELINE_ARM].copy()
     baseline["key"] = (
         baseline["symbol"].astype(str)
-        + "|" + baseline["direction"].astype(str)
-        + "|" + baseline["open_time"].astype("int64").astype(str)
+        + "|"
+        + baseline["direction"].astype(str)
+        + "|"
+        + baseline["open_time"].astype("int64").astype(str)
     )
     stored = load_stored_backtest_trades(
         conn,
@@ -2052,15 +2254,20 @@ def live_fidelity(live_rows: pd.DataFrame, alerts: pd.DataFrame) -> FidelityRepo
     """Spec §7b — the re-resolved live baseline vs the stored ``outcome_r``."""
     if live_rows.empty:
         return FidelityReport(
-            passed=False, n_matched=0, agreement=0.0, worst_avg_r_delta=float("nan"),
+            passed=False,
+            n_matched=0,
+            agreement=0.0,
+            worst_avg_r_delta=float("nan"),
             reasons=["live replay produced no rows"],
         )
     baseline = live_rows[live_rows["arm"] == BASELINE_ARM].copy()
     stored = alerts.assign(
         key=(
             alerts["symbol"].astype(str)
-            + "|" + alerts["direction"].astype(str)
-            + "|" + alerts["candle_ts_ms"].astype("int64").astype(str)
+            + "|"
+            + alerts["direction"].astype(str)
+            + "|"
+            + alerts["candle_ts_ms"].astype("int64").astype(str)
         ),
         tf=alerts["tf"],
     ).rename(columns={"outcome_r": "stored_r", "outcome": "stored_outcome"})[
@@ -2190,7 +2397,10 @@ def render_report(
         )
     lines.append("")
 
-    for verdicts, name in ((verdicts_live, "LIVE (gate)"), (verdicts_backtest, "Backtest")):
+    for verdicts, name in (
+        (verdicts_live, "LIVE (gate)"),
+        (verdicts_backtest, "Backtest"),
+    ):
         lines += [
             f"## Verdicts — {name}",
             "",
@@ -2233,12 +2443,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", default=DEFAULT_CONFIG)
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     parser.add_argument(
-        "--timeframes", nargs="+", default=["1h", "4h", "1d"],
+        "--timeframes",
+        nargs="+",
+        default=["1h", "4h", "1d"],
         help="15m is majors-only (no universe OHLCV at 15m).",
     )
     parser.add_argument("--min-n", type=int, default=30)
     parser.add_argument(
-        "--majors-only", action="store_true",
+        "--majors-only",
+        action="store_true",
         help="Restrict to BTC/ETH/SOL for a like-for-like cross-TF read.",
     )
     args = parser.parse_args(argv)
@@ -2269,14 +2482,16 @@ def main(argv: list[str] | None = None) -> int:
 
         # --- live leg (the GATE) ---
         alerts = load_live_signals(conn)
-        live_ohlcv = {
-            (str(sym), str(tf)): get_ohlcv(conn, str(sym), str(tf), 0, 2**62)
-            for tf in sorted({str(t) for t in alerts["tf"].unique()})
-            for sym in sorted({str(s) for s in alerts["symbol"].unique()})
-        } if not alerts.empty else {}
-        live_rows = resolve_live_arms(
-            alerts, live_ohlcv, cfg=cfg, tp_r_for=tp_r_for
+        live_ohlcv = (
+            {
+                (str(sym), str(tf)): get_ohlcv(conn, str(sym), str(tf), 0, 2**62)
+                for tf in sorted({str(t) for t in alerts["tf"].unique()})
+                for sym in sorted({str(s) for s in alerts["symbol"].unique()})
+            }
+            if not alerts.empty
+            else {}
         )
+        live_rows = resolve_live_arms(alerts, live_ohlcv, cfg=cfg, tp_r_for=tp_r_for)
         fid_live = live_fidelity(live_rows, alerts)
     finally:
         conn.close()

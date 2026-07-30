@@ -235,7 +235,9 @@ def level_marks(segments: list[TranscriptSegment]) -> list[FrameMark]:
     ]
 
 
-def sample_marks(duration_s: float, *, sample_s: float = SAFETY_SAMPLE_S) -> list[FrameMark]:
+def sample_marks(
+    duration_s: float, *, sample_s: float = SAFETY_SAMPLE_S
+) -> list[FrameMark]:
     """Low-rate safety sample so the vision pass is not blind between pointing moments."""
     if sample_s <= 0 or duration_s <= 0:
         return []
@@ -243,7 +245,9 @@ def sample_marks(duration_s: float, *, sample_s: float = SAFETY_SAMPLE_S) -> lis
     return [_mark(i * sample_s, "sample") for i in range(count)]
 
 
-def dedupe(marks: list[FrameMark], *, window_s: float = DEDUP_WINDOW_S) -> list[FrameMark]:
+def dedupe(
+    marks: list[FrameMark], *, window_s: float = DEDUP_WINDOW_S
+) -> list[FrameMark]:
     """Collapse marks inside `window_s` to the highest-weight one.
 
     Stops a twenty-second riff about "here" yielding eight near-identical frames.
@@ -952,9 +956,17 @@ def fetch_transcript(
     work_dir.mkdir(parents=True, exist_ok=True)
     run(
         [
-            "yt-dlp", "--skip-download", "--write-subs", "--write-auto-subs",
-            "--sub-format", "vtt", "--sub-langs", "all",
-            "-o", str(work_dir / "sub"), meta.url,
+            "yt-dlp",
+            "--skip-download",
+            "--write-subs",
+            "--write-auto-subs",
+            "--sub-format",
+            "vtt",
+            "--sub-langs",
+            "all",
+            "-o",
+            str(work_dir / "sub"),
+            meta.url,
         ]
     )
     vtts = sorted(work_dir.glob("sub*.vtt"))
@@ -962,7 +974,9 @@ def fetch_transcript(
         return parse_vtt(vtts[0].read_text(encoding="utf-8"), lang=meta.lang or "en")
     if groq_key is None or get is None:
         return Unavailable("no captions available and no GROQ_API_KEY configured")
-    return _transcribe_groq(meta, run=run, get=get, groq_key=groq_key, work_dir=work_dir)
+    return _transcribe_groq(
+        meta, run=run, get=get, groq_key=groq_key, work_dir=work_dir
+    )
 
 
 def _transcribe_groq(
@@ -975,8 +989,19 @@ def _transcribe_groq(
 ) -> list[TranscriptSegment] | Unavailable:
     audio = work_dir / f"{meta.video_id}.opus"
     proc = run(
-        ["yt-dlp", "-f", "bestaudio", "-x", "--audio-format", "opus",
-         "--audio-quality", "6", "-o", str(audio), meta.url]
+        [
+            "yt-dlp",
+            "-f",
+            "bestaudio",
+            "-x",
+            "--audio-format",
+            "opus",
+            "--audio-quality",
+            "6",
+            "-o",
+            str(audio),
+            meta.url,
+        ]
     )
     if proc.returncode != 0 or not audio.exists():
         return Unavailable(proc.stderr.strip() or "audio extraction failed")
@@ -999,7 +1024,9 @@ def _transcribe_groq(
         return Unavailable("Groq returned non-JSON output")
     lang = str(payload.get("language") or meta.lang or "en")
     return [
-        TranscriptSegment(ts_s=float(s["start"]), text=str(s["text"]).strip(), lang=lang)
+        TranscriptSegment(
+            ts_s=float(s["start"]), text=str(s["text"]).strip(), lang=lang
+        )
         for s in payload.get("segments", [])
         if str(s.get("text", "")).strip()
     ]
@@ -1067,7 +1094,9 @@ Expected: FAIL — `ImportError: cannot import name 'split_audio'`
 Append to `tools/video_fetch.py`:
 
 ```python
-GROQ_MAX_BYTES = 24 * 1024 * 1024  # Groq rejects >25MB; leave headroom for multipart overhead
+GROQ_MAX_BYTES = (
+    24 * 1024 * 1024
+)  # Groq rejects >25MB; leave headroom for multipart overhead
 
 
 def split_audio(
@@ -1089,8 +1118,19 @@ def split_audio(
         offset = i * span
         out = audio.with_name(f"{audio.stem}_{i:02d}{audio.suffix}")
         proc = run(
-            ["ffmpeg", "-y", "-ss", str(offset), "-t", str(span),
-             "-i", str(audio), "-c", "copy", str(out)]
+            [
+                "ffmpeg",
+                "-y",
+                "-ss",
+                str(offset),
+                "-t",
+                str(span),
+                "-i",
+                str(audio),
+                "-c",
+                "copy",
+                str(out),
+            ]
         )
         if proc.returncode == 0:
             chunks.append((out, offset))
@@ -1249,7 +1289,9 @@ def test_batch_cache_hit_does_no_network_and_no_sleep(tmp_path: Path) -> None:
     assert first_run[0].cached is False
     calls_after_first = len(calls)
 
-    results = fetch_video_batch([YT_URL], cache_dir=tmp_path, run=run, sleep=slept.append)
+    results = fetch_video_batch(
+        [YT_URL], cache_dir=tmp_path, run=run, sleep=slept.append
+    )
     assert len(calls) == calls_after_first
     assert results[0].cached is True
     assert results[0].segments[1].text == "我在这里做多"
@@ -1289,8 +1331,19 @@ def extract_frames(
     for mark in marks:
         out = dest_dir / f"f_{int(mark.ts_s):04d}.jpg"
         proc = run(
-            ["ffmpeg", "-y", "-ss", str(mark.ts_s), "-i", meta.url,
-             "-frames:v", "1", "-q:v", "3", str(out)]
+            [
+                "ffmpeg",
+                "-y",
+                "-ss",
+                str(mark.ts_s),
+                "-i",
+                meta.url,
+                "-frames:v",
+                "1",
+                "-q:v",
+                "3",
+                str(out),
+            ]
         )
         if proc.returncode == 0:
             paths.append(str(out))
@@ -1384,7 +1437,10 @@ def fetch_video_batch(
                 results.append(BatchResult(url=url, meta=meta))
                 continue
             segments = fetch_transcript(
-                meta, run=run, get=get, groq_key=groq_key,
+                meta,
+                run=run,
+                get=get,
+                groq_key=groq_key,
                 work_dir=cache_dir / video_id,
             )
             if isinstance(segments, Unavailable):
@@ -1394,7 +1450,9 @@ def fetch_video_batch(
             _write_cache(cache_dir, result, meta)
             results.append(result)
         except OSError as exc:  # one bad video never kills the batch
-            results.append(BatchResult(url=url, meta=Unavailable(f"{type(exc).__name__}: {exc}")))
+            results.append(
+                BatchResult(url=url, meta=Unavailable(f"{type(exc).__name__}: {exc}"))
+            )
     return results
 
 
@@ -1437,7 +1495,11 @@ def main(argv: list[str] | None = None) -> int:
         groq_key=os.environ.get("GROQ_API_KEY"),
     )
     if args.json:
-        print(json.dumps([_result_to_dict(r) for r in results], indent=2, ensure_ascii=False))
+        print(
+            json.dumps(
+                [_result_to_dict(r) for r in results], indent=2, ensure_ascii=False
+            )
+        )
     else:
         for r in results:
             if isinstance(r.meta, Unavailable):

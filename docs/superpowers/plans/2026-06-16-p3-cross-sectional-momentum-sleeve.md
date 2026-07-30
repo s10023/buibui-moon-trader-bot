@@ -690,9 +690,7 @@ def _ann_sharpe(r: npt.NDArray[np.float64], ann: float) -> float:
     return _per_period_sharpe(r) * ann
 
 
-def _aligned_corr(
-    a: npt.NDArray[np.float64], b: npt.NDArray[np.float64]
-) -> float:
+def _aligned_corr(a: npt.NDArray[np.float64], b: npt.NDArray[np.float64]) -> float:
     """Pearson corr over the common tail, excluding joint dead warm-up (0, 0)."""
     n = min(len(a), len(b))
     if n < 2:

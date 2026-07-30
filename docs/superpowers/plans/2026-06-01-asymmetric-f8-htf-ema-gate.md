@@ -119,7 +119,9 @@ def test_htf_ema_anchor_override_keeps_its_own_suppress_directions() -> None:
 
     bias = BiasConfig(
         htf_ema_default_suppress_directions=("long",),
-        htf_ema_per_strategy={"cvd_divergence": HtfEmaAnchor(tf="1d", suppress_directions=())},
+        htf_ema_per_strategy={
+            "cvd_divergence": HtfEmaAnchor(tf="1d", suppress_directions=())
+        },
     )
     anchor = bias.htf_ema_anchor("cvd_divergence")
     assert anchor.tf == "1d"
@@ -200,45 +202,47 @@ def _bias(
 Add these tests to `class TestHtfEmaGate`:
 
 ```python
-    def test_long_only_scope_keeps_counter_trend_short(self) -> None:
-        # slope up → SHORT opposes, but scope = ["long"] → short is NOT suppressed.
-        cache = {("BTCUSDT", "4h", 50, 10): 0.05}
-        events = [_evt("bos", "long"), _evt("bos", "short")]
-        out = _apply_htf_ema_gate(
-            events,
-            _bias(mode="hard", default_suppress_directions=("long",)),
-            cache,
-            "BTCUSDT",
-            "1h",
-        )
-        assert {e.direction for e in out} == {"long", "short"}
+def test_long_only_scope_keeps_counter_trend_short(self) -> None:
+    # slope up → SHORT opposes, but scope = ["long"] → short is NOT suppressed.
+    cache = {("BTCUSDT", "4h", 50, 10): 0.05}
+    events = [_evt("bos", "long"), _evt("bos", "short")]
+    out = _apply_htf_ema_gate(
+        events,
+        _bias(mode="hard", default_suppress_directions=("long",)),
+        cache,
+        "BTCUSDT",
+        "1h",
+    )
+    assert {e.direction for e in out} == {"long", "short"}
 
-    def test_long_only_scope_still_drops_counter_trend_long(self) -> None:
-        # slope down → LONG opposes; scope ["long"] still drops it.
-        cache = {("BTCUSDT", "4h", 50, 10): -0.05}
-        events = [_evt("bos", "long"), _evt("bos", "short")]
-        out = _apply_htf_ema_gate(
-            events,
-            _bias(mode="hard", default_suppress_directions=("long",)),
-            cache,
-            "BTCUSDT",
-            "1h",
-        )
-        assert [e.direction for e in out] == ["short"]
 
-    def test_empty_scope_exempts_strategy_via_override(self) -> None:
-        # cvd_divergence override with suppress_directions=() → never suppressed.
-        overrides = {
-            "cvd_divergence": HtfEmaAnchor(
-                tf="4h", period=50, slope_lookback=10, suppress_directions=()
-            )
-        }
-        cache = {("BTCUSDT", "4h", 50, 10): 0.05}
-        events = [_evt("cvd_divergence", "long"), _evt("cvd_divergence", "short")]
-        out = _apply_htf_ema_gate(
-            events, _bias(mode="hard", overrides=overrides), cache, "BTCUSDT", "1h"
+def test_long_only_scope_still_drops_counter_trend_long(self) -> None:
+    # slope down → LONG opposes; scope ["long"] still drops it.
+    cache = {("BTCUSDT", "4h", 50, 10): -0.05}
+    events = [_evt("bos", "long"), _evt("bos", "short")]
+    out = _apply_htf_ema_gate(
+        events,
+        _bias(mode="hard", default_suppress_directions=("long",)),
+        cache,
+        "BTCUSDT",
+        "1h",
+    )
+    assert [e.direction for e in out] == ["short"]
+
+
+def test_empty_scope_exempts_strategy_via_override(self) -> None:
+    # cvd_divergence override with suppress_directions=() → never suppressed.
+    overrides = {
+        "cvd_divergence": HtfEmaAnchor(
+            tf="4h", period=50, slope_lookback=10, suppress_directions=()
         )
-        assert len(out) == 2
+    }
+    cache = {("BTCUSDT", "4h", 50, 10): 0.05}
+    events = [_evt("cvd_divergence", "long"), _evt("cvd_divergence", "short")]
+    out = _apply_htf_ema_gate(
+        events, _bias(mode="hard", overrides=overrides), cache, "BTCUSDT", "1h"
+    )
+    assert len(out) == 2
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -370,31 +374,29 @@ def _parse_suppress_directions(
 Then in the htf parser block (currently lines ~811-824), after `htf_default_slope_lb = ...`:
 
 ```python
-    htf_default_suppress = _parse_suppress_directions(
-        raw_htf.get("suppress_directions"), ("long", "short"), "[bias.htf_ema]"
+htf_default_suppress = _parse_suppress_directions(
+    raw_htf.get("suppress_directions"), ("long", "short"), "[bias.htf_ema]"
+)
+htf_per_strategy: dict[str, HtfEmaAnchor] = {}
+for strat, ov in raw_htf_overrides.items():
+    if not isinstance(ov, dict):
+        raise ValueError(f"[bias.htf_ema.per_strategy.{strat}] must be a TOML table")
+    htf_per_strategy[str(strat)] = HtfEmaAnchor(
+        tf=str(ov.get("tf", htf_default_tf)),
+        period=int(ov.get("period", htf_default_period)),
+        slope_lookback=int(ov.get("slope_lookback", htf_default_slope_lb)),
+        suppress_directions=_parse_suppress_directions(
+            ov.get("suppress_directions"),
+            htf_default_suppress,
+            f"[bias.htf_ema.per_strategy.{strat}]",
+        ),
     )
-    htf_per_strategy: dict[str, HtfEmaAnchor] = {}
-    for strat, ov in raw_htf_overrides.items():
-        if not isinstance(ov, dict):
-            raise ValueError(
-                f"[bias.htf_ema.per_strategy.{strat}] must be a TOML table"
-            )
-        htf_per_strategy[str(strat)] = HtfEmaAnchor(
-            tf=str(ov.get("tf", htf_default_tf)),
-            period=int(ov.get("period", htf_default_period)),
-            slope_lookback=int(ov.get("slope_lookback", htf_default_slope_lb)),
-            suppress_directions=_parse_suppress_directions(
-                ov.get("suppress_directions"),
-                htf_default_suppress,
-                f"[bias.htf_ema.per_strategy.{strat}]",
-            ),
-        )
 ```
 
 And in the `BiasConfig(...)` constructor call (currently lines ~852-858), add the new kwarg after `htf_ema_per_strategy=htf_per_strategy,`:
 
 ```python
-        htf_ema_default_suppress_directions=htf_default_suppress,
+htf_ema_default_suppress_directions = (htf_default_suppress,)
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -629,8 +631,11 @@ def render_is_oos(trades: pd.DataFrame, oos_frac: float) -> str:
     lines.append(f"{'type':<14} {'IS short_r':>11} {'OOS short_r':>12} {'verdict':>10}")
     lines.append("-" * 64)
     for typ in sorted(t for t in types.values() if isinstance(t, str)):
+
         def _short_r(df: pd.DataFrame) -> float | None:
-            sub = df[(df["type"] == typ) & (df["suppressed"]) & (df["direction"] == "short")]
+            sub = df[
+                (df["type"] == typ) & (df["suppressed"]) & (df["direction"] == "short")
+            ]
             return float(sub["pnl_r"].mean()) if len(sub) else None
 
         is_r, oos_r = _short_r(is_df), _short_r(oos_df)
@@ -649,8 +654,12 @@ def render_is_oos(trades: pd.DataFrame, oos_frac: float) -> str:
 Wire into `run` (append to the rendered verdict when `oos_frac > 0`) and add the CLI flag in `main`:
 
 ```python
-    parser.add_argument("--oos-frac", type=float, default=0.0,
-                        help="Fraction of latest trades held out for OOS short-side check.")
+parser.add_argument(
+    "--oos-frac",
+    type=float,
+    default=0.0,
+    help="Fraction of latest trades held out for OOS short-side check.",
+)
 ```
 
 Update `run`'s signature to accept `oos_frac: float = 0.0` and, when `> 0`, append `render_is_oos(trades, oos_frac)` to the returned verdict string; pass `args.oos_frac` from `main`.

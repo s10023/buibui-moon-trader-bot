@@ -81,14 +81,14 @@ Thin surfaces (no logic beyond arg parsing / model mapping):
 ```python
 @dataclass(frozen=True)
 class BriefConfig:
-    symbols: tuple[str, ...]          # default: coins.json keys; fallback
-                                      # ("BTCUSDT", "ETHUSDT", "SOLUSDT") if absent
-    as_of_ms: int                     # resolved by the caller; drives everything
-    stats_days: int = 180             # stats-package convention
+    symbols: tuple[str, ...]  # default: coins.json keys; fallback
+    # ("BTCUSDT", "ETHUSDT", "SOLUSDT") if absent
+    as_of_ms: int  # resolved by the caller; drives everything
+    stats_days: int = 180  # stats-package convention
     zone_tfs: tuple[str, ...] = ("4h", "1d")
     max_levels_per_side: int = 4
-    max_zones_per_side: int = 2       # per timeframe
-    recent_call_days: int = 14        # pundit board recency window
+    max_zones_per_side: int = 2  # per timeframe
+    recent_call_days: int = 14  # pundit board recency window
     max_recent_calls: int = 10
     ledger_path: Path = Path("docs/plans/pundit-calls.jsonl")
     priors_path: Path = Path("docs/plans/pundit-priors.json")
@@ -213,26 +213,44 @@ queries read **1h** OHLCV, so the brief's seasonality strip depends on 1h data.
 ```python
 @dataclass(frozen=True)
 class LevelRow:
-    name: str; price: float; dist_atr: float; swept: bool
+    name: str
+    price: float
+    dist_atr: float
+    swept: bool
+
 
 @dataclass(frozen=True)
 class ZoneRow:
-    tf: str; zone_type: str; direction: str
-    zone_low: float; zone_high: float; dist_atr: float; inside: bool
+    tf: str
+    zone_type: str
+    direction: str
+    zone_low: float
+    zone_high: float
+    dist_atr: float
+    inside: bool
+
 
 @dataclass(frozen=True)
 class SymbolPanel:
-    symbol: str; ref_close: float; ref_close_ts_ms: int
-    atr14: float; adr_pct: float | None
-    regime_1d: str; regime_4h: str
-    levels_above: list[LevelRow]; levels_below: list[LevelRow]
-    zones_above: list[ZoneRow]; zones_below: list[ZoneRow]
+    symbol: str
+    ref_close: float
+    ref_close_ts_ms: int
+    atr14: float
+    adr_pct: float | None
+    regime_1d: str
+    regime_4h: str
+    levels_above: list[LevelRow]
+    levels_below: list[LevelRow]
+    zones_above: list[ZoneRow]
+    zones_below: list[ZoneRow]
     seasonality: SeasonalityStrip | None
-    error: str | None            # per-symbol failure stub (panel renders the error)
+    error: str | None  # per-symbol failure stub (panel renders the error)
+
 
 @dataclass(frozen=True)
 class BriefBundle:
-    as_of_ms: int; day_ahead: str          # "Fri 2026-07-04"
+    as_of_ms: int
+    day_ahead: str  # "Fri 2026-07-04"
     panels: list[SymbolPanel]
     pundit: PunditBoard
     health: HealthReport

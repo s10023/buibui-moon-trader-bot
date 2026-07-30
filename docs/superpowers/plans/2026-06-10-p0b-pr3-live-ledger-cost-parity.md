@@ -341,93 +341,95 @@ from analytics.store import init_schema, upsert_funding_rates, upsert_signal_out
 Append to `TestCostParity`:
 
 ```python
-    def test_long_pays_positive_funding(self) -> None:
-        conn = duckdb.connect(":memory:")
-        init_schema(conn)
-        _insert_signal(conn, candle_ts_ms=0, entry=100.0, sl=95.0, tp=110.0, rr=2.0)
-        _insert_ohlcv(
-            conn,
-            "BTCUSDT",
-            "1h",
-            [
-                {"open_time": _HOUR, "high": 102.0, "low": 99.0, "close": 101.0},
-                {"open_time": 2 * _HOUR, "high": 111.0, "low": 100.0, "close": 110.5},
-            ],
-        )
-        # Entry fills at bar-1 open (_HOUR). Window is (entry, exit]: the stamp
-        # AT entry is excluded; the mid-hold stamp and the stamp AT exit count.
-        _insert_funding(
-            conn,
-            [
-                (_HOUR, 0.0001),
-                (_HOUR + _HOUR // 2, 0.0001),
-                (2 * _HOUR, 0.0001),
-            ],
-        )
+def test_long_pays_positive_funding(self) -> None:
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    _insert_signal(conn, candle_ts_ms=0, entry=100.0, sl=95.0, tp=110.0, rr=2.0)
+    _insert_ohlcv(
+        conn,
+        "BTCUSDT",
+        "1h",
+        [
+            {"open_time": _HOUR, "high": 102.0, "low": 99.0, "close": 101.0},
+            {"open_time": 2 * _HOUR, "high": 111.0, "low": 100.0, "close": 110.5},
+        ],
+    )
+    # Entry fills at bar-1 open (_HOUR). Window is (entry, exit]: the stamp
+    # AT entry is excluded; the mid-hold stamp and the stamp AT exit count.
+    _insert_funding(
+        conn,
+        [
+            (_HOUR, 0.0001),
+            (_HOUR + _HOUR // 2, 0.0001),
+            (2 * _HOUR, 0.0001),
+        ],
+    )
 
-        counts = backfill_outcomes(conn, now_ms=3 * _HOUR)
+    counts = backfill_outcomes(conn, now_ms=3 * _HOUR)
 
-        assert counts["win"] == 1
-        _, outcome_r, _ = _fetch_one(conn, "sig1")
-        # funding_sum = 0.0002 → funding_r = +0.0002 × 100 / 5 = 0.004 (long pays)
-        assert outcome_r == pytest.approx(2.0 - 0.004)
+    assert counts["win"] == 1
+    _, outcome_r, _ = _fetch_one(conn, "sig1")
+    # funding_sum = 0.0002 → funding_r = +0.0002 × 100 / 5 = 0.004 (long pays)
+    assert outcome_r == pytest.approx(2.0 - 0.004)
 
-    def test_short_receives_positive_funding(self) -> None:
-        conn = duckdb.connect(":memory:")
-        init_schema(conn)
-        _insert_signal(
-            conn,
-            candle_ts_ms=0,
-            direction="short",
-            entry=100.0,
-            sl=105.0,
-            tp=90.0,
-            rr=2.0,
-        )
-        _insert_ohlcv(
-            conn,
-            "BTCUSDT",
-            "1h",
-            [
-                {"open_time": _HOUR, "high": 102.0, "low": 99.0, "close": 100.0},
-                {"open_time": 2 * _HOUR, "high": 101.0, "low": 89.5, "close": 90.5},
-            ],
-        )
-        _insert_funding(
-            conn,
-            [(_HOUR + _HOUR // 2, 0.0001), (2 * _HOUR, 0.0001)],
-        )
 
-        counts = backfill_outcomes(conn, now_ms=3 * _HOUR)
+def test_short_receives_positive_funding(self) -> None:
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    _insert_signal(
+        conn,
+        candle_ts_ms=0,
+        direction="short",
+        entry=100.0,
+        sl=105.0,
+        tp=90.0,
+        rr=2.0,
+    )
+    _insert_ohlcv(
+        conn,
+        "BTCUSDT",
+        "1h",
+        [
+            {"open_time": _HOUR, "high": 102.0, "low": 99.0, "close": 100.0},
+            {"open_time": 2 * _HOUR, "high": 101.0, "low": 89.5, "close": 90.5},
+        ],
+    )
+    _insert_funding(
+        conn,
+        [(_HOUR + _HOUR // 2, 0.0001), (2 * _HOUR, 0.0001)],
+    )
 
-        assert counts["win"] == 1
-        _, outcome_r, _ = _fetch_one(conn, "sig1")
-        # side_sign = −1 → funding_r = −0.004; subtracting it ADDS R (short receives)
-        assert outcome_r == pytest.approx(2.0 + 0.004)
+    counts = backfill_outcomes(conn, now_ms=3 * _HOUR)
 
-    def test_all_costs_combined(self) -> None:
-        conn = duckdb.connect(":memory:")
-        init_schema(conn)
-        _insert_signal(conn, candle_ts_ms=0, entry=100.0, sl=95.0, tp=110.0, rr=2.0)
-        _insert_ohlcv(
-            conn,
-            "BTCUSDT",
-            "1h",
-            [
-                {"open_time": _HOUR, "high": 102.0, "low": 99.0, "close": 101.0},
-                {"open_time": 2 * _HOUR, "high": 111.0, "low": 100.0, "close": 110.5},
-            ],
-        )
-        _insert_funding(conn, [(2 * _HOUR, 0.0002)])
+    assert counts["win"] == 1
+    _, outcome_r, _ = _fetch_one(conn, "sig1")
+    # side_sign = −1 → funding_r = −0.004; subtracting it ADDS R (short receives)
+    assert outcome_r == pytest.approx(2.0 + 0.004)
 
-        counts = backfill_outcomes(
-            conn, now_ms=3 * _HOUR, fee_pct=0.0005, slippage_pct=0.0002
-        )
 
-        assert counts["win"] == 1
-        _, outcome_r, _ = _fetch_one(conn, "sig1")
-        # drag 0.028 + funding 0.0002 × 100 / 5 = 0.004 → 2.0 − 0.032
-        assert outcome_r == pytest.approx(2.0 - 0.032)
+def test_all_costs_combined(self) -> None:
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    _insert_signal(conn, candle_ts_ms=0, entry=100.0, sl=95.0, tp=110.0, rr=2.0)
+    _insert_ohlcv(
+        conn,
+        "BTCUSDT",
+        "1h",
+        [
+            {"open_time": _HOUR, "high": 102.0, "low": 99.0, "close": 101.0},
+            {"open_time": 2 * _HOUR, "high": 111.0, "low": 100.0, "close": 110.5},
+        ],
+    )
+    _insert_funding(conn, [(2 * _HOUR, 0.0002)])
+
+    counts = backfill_outcomes(
+        conn, now_ms=3 * _HOUR, fee_pct=0.0005, slippage_pct=0.0002
+    )
+
+    assert counts["win"] == 1
+    _, outcome_r, _ = _fetch_one(conn, "sig1")
+    # drag 0.028 + funding 0.0002 × 100 / 5 = 0.004 → 2.0 − 0.032
+    assert outcome_r == pytest.approx(2.0 - 0.032)
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -464,10 +466,10 @@ from analytics.data_store import get_funding_rates, get_ohlcv
 (c) Pass both into the `_scan_forward` call alongside the Task-1 kwargs:
 
 ```python
-                fee_pct=fee_pct,
-                slippage_pct=slippage_pct,
-                funding_times=funding_times,
-                funding_rates=funding_rates,
+fee_pct = (fee_pct,)
+slippage_pct = (slippage_pct,)
+funding_times = (funding_times,)
+funding_rates = (funding_rates,)
 ```
 
 (d) Update the module docstring's "Outcomes" block to state the net semantics:
@@ -524,17 +526,15 @@ In `analytics/signal_runner.py`, replace:
 with:
 
 ```python
-                try:
-                    backfill_outcomes(
-                        conn,
-                        now_ms=now_ms,
-                        fee_pct=backtest_cfg.fee_pct if backtest_cfg else 0.0,
-                        slippage_pct=backtest_cfg.slippage_pct
-                        if backtest_cfg
-                        else 0.0,
-                    )
-                except Exception:
-                    logger.exception("Outcome backfill failed this cycle")
+try:
+    backfill_outcomes(
+        conn,
+        now_ms=now_ms,
+        fee_pct=backtest_cfg.fee_pct if backtest_cfg else 0.0,
+        slippage_pct=backtest_cfg.slippage_pct if backtest_cfg else 0.0,
+    )
+except Exception:
+    logger.exception("Outcome backfill failed this cycle")
 ```
 
 - [ ] **Step 2: Update CLAUDE.md**

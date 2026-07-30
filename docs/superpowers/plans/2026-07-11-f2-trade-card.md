@@ -101,8 +101,7 @@ class TestCardConfig:
     def test_from_toml_overrides(self, tmp_path: Path) -> None:
         toml = tmp_path / "card.toml"
         toml.write_text(
-            '[card]\nmodel = "haiku"\nmin_rr = 1.5\n'
-            'fires_timeframes = ["4h", "1d"]\n'
+            '[card]\nmodel = "haiku"\nmin_rr = 1.5\nfires_timeframes = ["4h", "1d"]\n'
         )
         cfg = CardConfig.from_toml(toml)
         assert cfg.model == "haiku"
@@ -112,12 +111,12 @@ class TestCardConfig:
 
     def test_from_toml_missing_block_is_defaults(self, tmp_path: Path) -> None:
         toml = tmp_path / "empty.toml"
-        toml.write_text('[other]\nx = 1\n')
+        toml.write_text("[other]\nx = 1\n")
         assert CardConfig.from_toml(toml) == CardConfig()
 
     def test_from_toml_unknown_key_raises(self, tmp_path: Path) -> None:
         toml = tmp_path / "bad.toml"
-        toml.write_text('[card]\nnot_a_field = 1\n')
+        toml.write_text("[card]\nnot_a_field = 1\n")
         with pytest.raises(ValueError, match="unknown"):
             CardConfig.from_toml(toml)
 
@@ -635,9 +634,7 @@ class TestSnapshotMarketState:
                     now_ms=_NOW_MS,
                     account_provider=None,
                     brief_fn=lambda _conn, cfg: _fake_bundle(cfg.symbols[0]),
-                    targets_fn=lambda *a, **k: (_ for _ in ()).throw(
-                        RuntimeError("x")
-                    ),
+                    targets_fn=lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x")),
                 )
             )
 
@@ -732,9 +729,7 @@ def _xs_block(
     if snap.exists():
         book: dict[str, Any] = json.loads(snap.read_text(encoding="utf-8"))
     else:
-        book = target_book_to_dict(
-            targets_fn(conn, ForecastConfig(), capital, now=now)
-        )
+        book = target_book_to_dict(targets_fn(conn, ForecastConfig(), capital, now=now))
     row = next(
         (
             p
@@ -826,7 +821,9 @@ def snapshot_market_state(
 
     xs: dict[str, Any] | None = None
     try:
-        xs = _xs_block(conn, symbol, sizing.capital, now_ms, cfg.targets_dir, targets_fn)
+        xs = _xs_block(
+            conn, symbol, sizing.capital, now_ms, cfg.targets_dir, targets_fn
+        )
     except Exception as exc:
         health.append(f"xs: {exc}")
 
@@ -1044,9 +1041,7 @@ def build_prompt(state: MarketState, cfg: CardConfig) -> str:
             "that side explicitly, and flag if the opposite side scores "
             "higher. You may still answer NO_TRADE."
         )
-    parts.append(
-        "MARKET STATE JSON:\n" + json.dumps(state.to_dict(), sort_keys=True)
-    )
+    parts.append("MARKET STATE JSON:\n" + json.dumps(state.to_dict(), sort_keys=True))
     return "\n\n".join(parts)
 ```
 
@@ -1154,7 +1149,12 @@ class TestClaudeCliClient:
         resp = _client(runner).generate("hello")
         call = runner.calls[0]
         assert call["cmd"] == [
-            "claude", "-p", "--model", "sonnet", "--output-format", "json",
+            "claude",
+            "-p",
+            "--model",
+            "sonnet",
+            "--output-format",
+            "json",
         ]
         assert call["input"] == "hello"
         env = call["env"]
@@ -1171,14 +1171,12 @@ class TestClaudeCliClient:
         assert resp.input_tokens == 10
 
     def test_fenced_result_is_stripped(self) -> None:
-        fenced = "```json\n{\"x\": 1}\n```"
+        fenced = '```json\n{"x": 1}\n```'
         runner = RecordingRunner([_proc(_envelope(fenced))])
         assert _client(runner).generate("p").text == '{"x": 1}'
 
     def test_retry_once_then_success(self) -> None:
-        runner = RecordingRunner(
-            [_proc("", returncode=1), _proc(_envelope("ok"))]
-        )
+        runner = RecordingRunner([_proc("", returncode=1), _proc(_envelope("ok"))])
         assert _client(runner).generate("p").text == "ok"
         assert len(runner.calls) == 2
 
@@ -1286,8 +1284,12 @@ class ClaudeCliClient:
     def _call(self, prompt: str) -> LLMResponse:
         run = self.runner if self.runner is not None else _default_runner
         cmd = [
-            self.binary, "-p", "--model", self.model,
-            "--output-format", "json",
+            self.binary,
+            "-p",
+            "--model",
+            self.model,
+            "--output-format",
+            "json",
         ]
         env = {k: v for k, v in os.environ.items() if k not in _STRIP_ENV}
         env["CLAUDE_CONFIG_DIR"] = str(Path(self.config_dir).expanduser())
@@ -1304,21 +1306,15 @@ class ClaudeCliClient:
                     check=False,
                 )
             except subprocess.TimeoutExpired as exc:
-                raise CardError(
-                    f"LLM timeout after {self.timeout_s}s"
-                ) from exc
+                raise CardError(f"LLM timeout after {self.timeout_s}s") from exc
         if proc.returncode != 0:
-            raise CardError(
-                f"claude exited {proc.returncode}: {proc.stderr[:500]}"
-            )
+            raise CardError(f"claude exited {proc.returncode}: {proc.stderr[:500]}")
         try:
             envelope: dict[str, Any] = json.loads(proc.stdout)
         except json.JSONDecodeError as exc:
             raise CardError(f"bad envelope JSON: {exc}") from exc
         if envelope.get("subtype") != "success" or envelope.get("is_error"):
-            raise CardError(
-                f"envelope not success: subtype={envelope.get('subtype')}"
-            )
+            raise CardError(f"envelope not success: subtype={envelope.get('subtype')}")
         result = envelope.get("result")
         if not isinstance(result, str):
             raise CardError("envelope missing result text")
@@ -1329,9 +1325,7 @@ class ClaudeCliClient:
         return LLMResponse(
             text=_strip_fences(result),
             model=self.model,
-            cost_usd_notional=(
-                float(cost) if isinstance(cost, (int, float)) else None
-            ),
+            cost_usd_notional=(float(cost) if isinstance(cost, (int, float)) else None),
             input_tokens=int(in_tok) if isinstance(in_tok, int) else None,
             output_tokens=int(out_tok) if isinstance(out_tok, int) else None,
         )
@@ -1729,7 +1723,10 @@ class TestPostPass:
         assert any("daily loss" in r for r in final.veto_reasons)
 
     def test_entry_band_vetoes(self) -> None:
-        final = _post(_trade_obj(entry=120.0, sl=118.0, tp1=124.0, tp2=126.0, tp3=130.0), _state_for_post())
+        final = _post(
+            _trade_obj(entry=120.0, sl=118.0, tp1=124.0, tp2=126.0, tp3=130.0),
+            _state_for_post(),
+        )
         assert final.verdict == "VETOED"
         assert any("entry" in r for r in final.veto_reasons)
 
@@ -1864,17 +1861,13 @@ def post_pass(
         if rpu > 0.0 and card.tp1 is not None:
             rr_tp1 = abs(float(card.tp1) - entry) / rpu
             if rr_tp1 < cfg.min_rr:
-                veto.append(
-                    f"rr_tp1 {rr_tp1:.2f} breaches min_rr {cfg.min_rr}"
-                )
+                veto.append(f"rr_tp1 {rr_tp1:.2f} breaches min_rr {cfg.min_rr}")
 
         # (c) conflicting open position + (d) circuit breaker
         if state.account is not None:
             for pos in state.account.positions:
                 if pos.symbol == state.symbol and pos.side != direction:
-                    veto.append(
-                        f"conflicting open {pos.side} position on {pos.symbol}"
-                    )
+                    veto.append(f"conflicting open {pos.side} position on {pos.symbol}")
             if state.account.daily_r <= cfg.daily_loss_limit_r:
                 veto.append(
                     f"daily loss {state.account.daily_r:.2f}R breaches "
@@ -2067,9 +2060,7 @@ class TestLedger:
         assert len(append_ledgers(_final("VETOED"), cfg)) == 1
         assert not Path(cfg.pundit_calls_path).exists()
 
-    def test_pundit_row_parses_through_scorer_loader(
-        self, tmp_path: Path
-    ) -> None:
+    def test_pundit_row_parses_through_scorer_loader(self, tmp_path: Path) -> None:
         from tools.pundit_score import load_ledger
 
         cfg = _cfg(tmp_path)
@@ -2300,8 +2291,7 @@ def render_card(final: FinalCard) -> str:
     if card.verdict == "TRADE":
         rr = f"{final.rr_tp1:.2f}" if final.rr_tp1 is not None else "?"
         lines.append(
-            f"{card.direction} · entry {card.entry} · SL {card.sl} · "
-            f"RR(tp1) {rr}"
+            f"{card.direction} · entry {card.entry} · SL {card.sl} · RR(tp1) {rr}"
         )
         lines.append(f"TP1 {card.tp1} · TP2 {card.tp2} · TP3 {card.tp3}")
     if final.size_units is not None:
@@ -2463,7 +2453,10 @@ class TestGenerateCard:
         client = FakeClient(["nope", "still nope"])
         with pytest.raises(CardValidationError):
             generate_card(
-                _state(), CardConfig(), SizingConfig(), client,
+                _state(),
+                CardConfig(),
+                SizingConfig(),
+                client,
                 generated_at_ms=7,
             )
 ```
@@ -2595,9 +2588,15 @@ class TestParser:
     def test_flags(self) -> None:
         args = _parse(
             [
-                "card", "ETHUSDT", "--direction", "short",
-                "--as-of", "2026-07-11T00:00:00Z", "--dry-run",
-                "--no-ledger", "--json",
+                "card",
+                "ETHUSDT",
+                "--direction",
+                "short",
+                "--as-of",
+                "2026-07-11T00:00:00Z",
+                "--dry-run",
+                "--no-ledger",
+                "--json",
             ]
         )
         assert args.direction == "short"
@@ -2768,13 +2767,9 @@ def _build_account_provider() -> AccountProvider | None:
 def run_card_cmd(args: argparse.Namespace) -> None:
     cfg = CardConfig.from_toml(args.config) if args.config else CardConfig()
     sizing = (
-        SizingConfig.from_toml(cfg.sizing_toml)
-        if cfg.sizing_toml
-        else SizingConfig()
+        SizingConfig.from_toml(cfg.sizing_toml) if cfg.sizing_toml else SizingConfig()
     )
-    now_ms = (
-        parse_as_of_ms(args.as_of) if args.as_of else int(time.time() * 1000)
-    )
+    now_ms = parse_as_of_ms(args.as_of) if args.as_of else int(time.time() * 1000)
     provider = None if args.dry_run else _build_account_provider()
     conn = duckdb.connect(str(args.db), read_only=True)
     try:

@@ -185,9 +185,7 @@ def reconcile(
     if len(after) == 0:
         raise ValueError("cutoff leaves no bar after it")
     book_row = full.loc[after[0]]
-    diff = (
-        live.reindex(book_row.index).fillna(0.0) - book_row.fillna(0.0)
-    ).abs()
+    diff = (live.reindex(book_row.index).fillna(0.0) - book_row.fillna(0.0)).abs()
     return float(diff.max())
 ```
 
@@ -324,7 +322,9 @@ def test_build_target_book_positions() -> None:
         )
         assert p.side == expected_side
 
-    assert abs(book.gross_leverage - sum(abs(p.leverage) for p in book.positions)) < 1e-12
+    assert (
+        abs(book.gross_leverage - sum(abs(p.leverage) for p in book.positions)) < 1e-12
+    )
     assert abs(book.net_leverage - sum(p.leverage for p in book.positions)) < 1e-12
 
     last = pd.Timestamp(res.daily_index[-1])
@@ -520,9 +520,7 @@ def target_book_from_dict(d: dict[str, Any]) -> TargetBook:
     )
 
 
-def position_deltas(
-    book: TargetBook, prev: dict[str, Any] | None
-) -> dict[str, float]:
+def position_deltas(book: TargetBook, prev: dict[str, Any] | None) -> dict[str, float]:
     """Δ notional_usd per symbol vs a prior snapshot dict (None -> all current)."""
     prev_notional: dict[str, float] = {}
     if prev is not None:
@@ -684,7 +682,9 @@ def _make_closes(n: int = 400) -> dict[str, pd.Series]:
     idx = pd.date_range("2021-01-01", periods=n, freq="D", tz="UTC")
     rng = np.random.default_rng(5)
     return {
-        sym: pd.Series(100.0 * np.exp(np.cumsum(rng.normal(0.0005 * (i - 1), 0.02, n))), index=idx)
+        sym: pd.Series(
+            100.0 * np.exp(np.cumsum(rng.normal(0.0005 * (i - 1), 0.02, n))), index=idx
+        )
         for i, sym in enumerate(_SYMS)
     }
 
@@ -862,12 +862,27 @@ def load_latest_snapshot(snapshot_dir: Path) -> dict[str, Any] | None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH, help="DuckDB path")
-    parser.add_argument("--capital", type=float, default=10_000.0, help="Account capital USD")
-    parser.add_argument("--config", type=Path, default=None, help="Optional TOML for ForecastConfig")
-    parser.add_argument("--symbols", type=str, default=None, help="Comma-separated override of the universe")
+    parser.add_argument(
+        "--capital", type=float, default=10_000.0, help="Account capital USD"
+    )
+    parser.add_argument(
+        "--config", type=Path, default=None, help="Optional TOML for ForecastConfig"
+    )
+    parser.add_argument(
+        "--symbols",
+        type=str,
+        default=None,
+        help="Comma-separated override of the universe",
+    )
     parser.add_argument("--snapshot-dir", type=Path, default=_DEFAULT_SNAPSHOT_DIR)
-    parser.add_argument("--no-snapshot", action="store_true", help="Skip writing the snapshot")
-    parser.add_argument("--reconcile", action="store_true", help="Print frozen-clock reconcile diff and exit")
+    parser.add_argument(
+        "--no-snapshot", action="store_true", help="Skip writing the snapshot"
+    )
+    parser.add_argument(
+        "--reconcile",
+        action="store_true",
+        help="Print frozen-clock reconcile diff and exit",
+    )
     args = parser.parse_args()
 
     cfg = ForecastConfig.from_toml(args.config) if args.config else ForecastConfig()

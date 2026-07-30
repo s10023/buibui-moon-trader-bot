@@ -439,7 +439,9 @@ def test_loader_latest_per_source_panel_window(tmp_path: Path) -> None:
     _write(
         tmp_path,
         "map.json",
-        _valid_snapshot(panel="liq_map", window="1d", captured_at_ms=AS_OF - 3 * HOUR_MS),
+        _valid_snapshot(
+            panel="liq_map", window="1d", captured_at_ms=AS_OF - 3 * HOUR_MS
+        ),
     )
     state, _ = _load(tmp_path)
     assert state is not None
@@ -602,9 +604,7 @@ def load_external_state(
         if data["symbol"] != symbol:
             continue  # another panel's file — not an error
         if data["source"] not in allowed_sources:
-            notes.append(
-                f"external: unknown source {data['source']!r} in {path.name}"
-            )
+            notes.append(f"external: unknown source {data['source']!r} in {path.name}")
             continue
         captured = int(data["captured_at_ms"])
         if captured > as_of_ms:
@@ -622,15 +622,16 @@ def load_external_state(
         if stale_latest_ms is not None:
             age_days = (as_of_ms - stale_latest_ms) / _MS_PER_HOUR / 24.0
             notes.append(
-                f"external context stale (latest {age_days:.1f}d)"
-                " — re-drop screenshots"
+                f"external context stale (latest {age_days:.1f}d) — re-drop screenshots"
             )
         return None, notes
     if atr14 <= 0:
         notes.append("external: ATR unavailable — block omitted")
         return None, notes
     snapshots = [
-        _build_snapshot(fresh[key], ref_close, atr14, as_of_ms, max_rows_per_side, notes)
+        _build_snapshot(
+            fresh[key], ref_close, atr14, as_of_ms, max_rows_per_side, notes
+        )
         for key in sorted(fresh)
     ]
     return ExternalState(snapshots=snapshots), notes
@@ -847,8 +848,12 @@ def test_external_lines_format() -> None:
 def test_external_lines_variants() -> None:
     assert _external_lines(None) == []
     agg = _ext_snapshot(
-        source="mmt", panel="liq_map", window=None, scope="agg",
-        spot_hint_deviation=True, clusters_above=[],
+        source="mmt",
+        panel="liq_map",
+        window=None,
+        scope="agg",
+        spot_hint_deviation=True,
+        clusters_above=[],
     )
     lines = _external_lines(ExternalState(snapshots=[_ext_snapshot(), agg]))
     assert len(lines) == 2
@@ -1003,7 +1008,9 @@ def test_scan_drops(tmp_path: Path) -> None:
     assert item.ts_from_filename is True
     assert item.sha256 == file_sha256(drop / "coinglass_BTCUSDT_20260714-0930.png")
     # ledger-marked files disappear from the next scan
-    mark_processed(ledger, item.sha256, "coinglass_BTCUSDT_20260714-0930.png", "written", 1)
+    mark_processed(
+        ledger, item.sha256, "coinglass_BTCUSDT_20260714-0930.png", "written", 1
+    )
     pending2, _ = scan_drops(drop, ledger)
     assert pending2 == []
 
@@ -1271,10 +1278,14 @@ def test_cli_scan_write_mark(tmp_path: Path, capsys: Any) -> None:
         main(
             [
                 "write",
-                "--json-file", str(json_file),
-                "--image", str(img),
-                "--out-dir", str(out_dir),
-                "--ledger", str(ledger),
+                "--json-file",
+                str(json_file),
+                "--image",
+                str(img),
+                "--out-dir",
+                str(out_dir),
+                "--ledger",
+                str(ledger),
             ]
         )
         == 0
@@ -1285,7 +1296,17 @@ def test_cli_scan_write_mark(tmp_path: Path, capsys: Any) -> None:
     img_b = drop / "mmt_ETHUSDT.png"
     img_b.write_bytes(b"other")
     assert (
-        main(["mark", "--image", str(img_b), "--outcome", "dropped", "--ledger", str(ledger)])
+        main(
+            [
+                "mark",
+                "--image",
+                str(img_b),
+                "--outcome",
+                "dropped",
+                "--ledger",
+                str(ledger),
+            ]
+        )
         == 0
     )
     outcomes = {v["filename"]: v["outcome"] for v in load_ledger(ledger).values()}

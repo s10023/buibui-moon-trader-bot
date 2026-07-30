@@ -92,7 +92,9 @@ class TestParseLevelField:
             assert parse_level_field(text).unspecified, repr(text)
 
     def test_messy_multi_number_keeps_zone_and_singles(self) -> None:
-        p = parse_level_field("Sweep range low ~57,900-58,200 then reclaim (price 58,254)")
+        p = parse_level_field(
+            "Sweep range low ~57,900-58,200 then reclaim (price 58,254)"
+        )
         assert (57900.0, 58200.0) in p.zones
         assert 58254.0 in p.numbers
 ```
@@ -173,7 +175,9 @@ def parse_level_field(text: str | None) -> ParsedField:
         a = _expand(zm.group(1), zm.group(2))
         b = _expand(zm.group(3), zm.group(4))
         zones.append((min(a, b), max(a, b)))
-    numbers = tuple(_expand(nm.group(1), nm.group(2)) for nm in _NUM_RE.finditer(cleaned))
+    numbers = tuple(
+        _expand(nm.group(1), nm.group(2)) for nm in _NUM_RE.finditer(cleaned)
+    )
     return ParsedField(zones=tuple(zones), numbers=numbers, unspecified=False)
 ```
 
@@ -255,9 +259,13 @@ class TestLoaders:
     def test_load_overrides_and_missing_file(self, tmp_path: Path) -> None:
         p = tmp_path / "overrides.jsonl"
         p.write_text(
-            json.dumps({"url": "https://x.com/A/status/1", "stop_px": 56900.0, "skip": False})
+            json.dumps(
+                {"url": "https://x.com/A/status/1", "stop_px": 56900.0, "skip": False}
+            )
             + "\n"
-            + json.dumps({"url": "https://x.com/B/status/2", "skip": True, "note": "dup"})
+            + json.dumps(
+                {"url": "https://x.com/B/status/2", "skip": True, "note": "dup"}
+            )
             + "\n",
             encoding="utf-8",
         )
@@ -333,7 +341,9 @@ def load_ledger(path: Path) -> tuple[list[LedgerCall], list[str]]:
     """Parse the ledger JSONL; malformed lines become warnings, never crashes."""
     calls: list[LedgerCall] = []
     warnings: list[str] = []
-    for line_no, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    for line_no, raw in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
         if not raw.strip():
             continue
         try:
@@ -473,7 +483,12 @@ class TestResolveLevels:
 
     def test_zone_edges_short(self) -> None:
         lv = resolve_levels(
-            _call(direction="short", entry="58,800-59,000", stop="59,200-59,600", target="57,000-57,400"),
+            _call(
+                direction="short",
+                entry="58,800-59,000",
+                stop="59,200-59,600",
+                target="57,000-57,400",
+            ),
             None,
             self.REF,
         )
@@ -493,7 +508,9 @@ class TestResolveLevels:
         assert lv.parse_confidence == "fallback"
 
     def test_unspecified_entry_thesis_fallback(self) -> None:
-        lv = resolve_levels(_call(entry="unspecified", stop="", target=""), None, self.REF)
+        lv = resolve_levels(
+            _call(entry="unspecified", stop="", target=""), None, self.REF
+        )
         assert lv.entry_is_thesis and lv.entry_px == self.REF
         assert lv.stop_px is None and lv.target_px is None
         assert lv.parse_confidence == "fallback"
@@ -669,13 +686,83 @@ Add to `tools/pundit_score.py`:
 
 ```python
 FAMILY_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("sweep_reclaim", ("sweep", "reclaim", "sfp", "stop hunt", "stop-hunt", "deviation below", "deviation above")),
-    ("vp_level", ("poc", "vah", "val ", "value area", "value-area", "volume profile", "vwap")),
-    ("ref_level", ("pdl", "pdh", "pwh", "pwl", "pdval", "range low", "range high", "range-low", "range-high", "weekly open", "daily open", "monday")),
-    ("ema_trend", ("ema", "moving average", "50w", "200d", "trendline", "diagonal", "downtrend", "uptrend", "higher low", "lower high")),
-    ("flow", ("cvd", "open interest", " oi ", "absorption", "delta", "spot bid", "spot flow", "orderflow", "funding")),
-    ("accumulation_zone", ("accumulation", "dca", "demand zone", "spot-demand", "supply zone", "demand")),
-    ("breakout_deviation", ("breakout", "break of", "break above", "break below", "acceptance", "deviation")),
+    (
+        "sweep_reclaim",
+        (
+            "sweep",
+            "reclaim",
+            "sfp",
+            "stop hunt",
+            "stop-hunt",
+            "deviation below",
+            "deviation above",
+        ),
+    ),
+    (
+        "vp_level",
+        ("poc", "vah", "val ", "value area", "value-area", "volume profile", "vwap"),
+    ),
+    (
+        "ref_level",
+        (
+            "pdl",
+            "pdh",
+            "pwh",
+            "pwl",
+            "pdval",
+            "range low",
+            "range high",
+            "range-low",
+            "range-high",
+            "weekly open",
+            "daily open",
+            "monday",
+        ),
+    ),
+    (
+        "ema_trend",
+        (
+            "ema",
+            "moving average",
+            "50w",
+            "200d",
+            "trendline",
+            "diagonal",
+            "downtrend",
+            "uptrend",
+            "higher low",
+            "lower high",
+        ),
+    ),
+    (
+        "flow",
+        (
+            "cvd",
+            "open interest",
+            " oi ",
+            "absorption",
+            "delta",
+            "spot bid",
+            "spot flow",
+            "orderflow",
+            "funding",
+        ),
+    ),
+    (
+        "accumulation_zone",
+        ("accumulation", "dca", "demand zone", "spot-demand", "supply zone", "demand"),
+    ),
+    (
+        "breakout_deviation",
+        (
+            "breakout",
+            "break of",
+            "break above",
+            "break below",
+            "acceptance",
+            "deviation",
+        ),
+    ),
 )
 
 
@@ -733,7 +820,9 @@ add this shared candle builder at module level of the test file:
 T0 = 1_781_949_600_000  # 2026-06-20T10:00:00Z
 
 
-def _candles(prices: list[tuple[float, float, float, float]], start_ms: int = T0) -> pd.DataFrame:
+def _candles(
+    prices: list[tuple[float, float, float, float]], start_ms: int = T0
+) -> pd.DataFrame:
     """1h OHLC frames from (open, high, low, close) tuples."""
     return pd.DataFrame(
         [
@@ -924,7 +1013,9 @@ class TestScoreCall:
         assert sc.atr_r is not None and sc.atr_r < 0
 
     def test_short_direction_win(self) -> None:
-        call = _call(direction="short", entry="100", stop="110", target="80", horizon="intraday")
+        call = _call(
+            direction="short", entry="100", stop="110", target="80", horizon="intraday"
+        )
         df = _candles([(100, 101, 99, 100), (100, 102, 75, 80)])
         sc = _score(call, df, FAR)
         assert sc.state == "WIN" and sc.r == 2.0  # (100-80)/(110-100)
@@ -949,7 +1040,9 @@ class TestScoreCall:
 
     def test_stale_when_data_ends_mid_window(self) -> None:
         call = _call(entry="100", stop="90", target="120", horizon="swing")
-        df = _candles([(100, 101, 99, 100), (100, 101, 99, 100)])  # 2h of data, 30d window
+        df = _candles(
+            [(100, 101, 99, 100), (100, 101, 99, 100)]
+        )  # 2h of data, 30d window
         sc = _score(call, df, FAR)
         assert sc.state == "STALE"
 
@@ -1043,7 +1136,9 @@ def score_call(
         return ScoredCall(call, None, family, STATE_UNRESOLVABLE, note="no OHLCV")
     call_idx = find_call_candle(df_1h, call.call_ts_ms)
     if call_idx is None:
-        return ScoredCall(call, None, family, STATE_UNRESOLVABLE, note="call candle missing")
+        return ScoredCall(
+            call, None, family, STATE_UNRESOLVABLE, note="call candle missing"
+        )
 
     ref_close = float(df_1h["close"].iloc[call_idx])
     levels = resolve_levels(call, override, ref_close)
@@ -1052,14 +1147,22 @@ def score_call(
     trigger_deadline = call.call_ts_ms + win_ms
 
     fill = find_fill(
-        df_1h, call_idx, levels.entry_px, levels.entry_is_thesis, min(trigger_deadline, as_of_ms)
+        df_1h,
+        call_idx,
+        levels.entry_px,
+        levels.entry_is_thesis,
+        min(trigger_deadline, as_of_ms),
     )
     if fill is None:
         if trigger_deadline <= as_of_ms and data_end_ms >= trigger_deadline:
             return ScoredCall(call, levels, family, STATE_NOT_TRIGGERED)
         if data_end_ms < min(trigger_deadline, as_of_ms):
             return ScoredCall(
-                call, levels, family, STATE_STALE, note="OHLCV ends in trigger window — sync first"
+                call,
+                levels,
+                family,
+                STATE_STALE,
+                note="OHLCV ends in trigger window — sync first",
             )
         return ScoredCall(call, levels, family, STATE_OPEN, note="awaiting trigger")
 
@@ -1098,13 +1201,23 @@ def score_call(
             state = STATE_WIN if dirsign * (exit_px - fill_px) > 0 else STATE_LOSS
         elif data_end_ms < min(expiry_ms, as_of_ms):
             return ScoredCall(
-                call, levels, family, STATE_STALE,
-                fill_ts_ms=fill_ts, fill_px=fill_px, note="OHLCV ends mid-window — sync first",
+                call,
+                levels,
+                family,
+                STATE_STALE,
+                fill_ts_ms=fill_ts,
+                fill_px=fill_px,
+                note="OHLCV ends mid-window — sync first",
             )
         else:
             return ScoredCall(
-                call, levels, family, STATE_OPEN,
-                fill_ts_ms=fill_ts, fill_px=fill_px, note="in position",
+                call,
+                levels,
+                family,
+                STATE_OPEN,
+                fill_ts_ms=fill_ts,
+                fill_px=fill_px,
+                note="in position",
             )
 
     assert exit_px is not None and exit_ts is not None
@@ -1112,7 +1225,11 @@ def score_call(
     if risk is not None and risk > 0:
         if state == STATE_LOSS and exit_px == levels.stop_px:
             r = -1.0
-        elif state == STATE_WIN and levels.target_px is not None and exit_px == levels.target_px:
+        elif (
+            state == STATE_WIN
+            and levels.target_px is not None
+            and exit_px == levels.target_px
+        ):
             r = abs(levels.target_px - fill_px) / risk
         else:  # expiry exit with a known stop
             r = dirsign * (exit_px - fill_px) / risk
@@ -1120,9 +1237,17 @@ def score_call(
     atr = atr14_before(df_1h if call.horizon == "intraday" else df_1d, fill_ts, tf_ms)
     atr_r = dirsign * (exit_px - fill_px) / atr if atr else None
     return ScoredCall(
-        call, levels, family, state,
-        fill_ts_ms=fill_ts, fill_px=fill_px, exit_ts_ms=exit_ts, exit_px=exit_px,
-        r=r, atr_r=atr_r, win=state == STATE_WIN,
+        call,
+        levels,
+        family,
+        state,
+        fill_ts_ms=fill_ts,
+        fill_px=fill_px,
+        exit_ts_ms=exit_ts,
+        exit_px=exit_px,
+        r=r,
+        atr_r=atr_r,
+        win=state == STATE_WIN,
     )
 ```
 
@@ -1169,18 +1294,35 @@ Append to `tests/test_pundit_score.py`:
 ```python
 def _scored_fixture() -> list[ScoredCall]:
     df = _candles([(100, 101, 99, 100), (100, 100, 99, 100), (100, 125, 98, 120)])
-    win = _score(_call(entry="100", stop="90", target="120", horizon="intraday"), df, FAR)
+    win = _score(
+        _call(entry="100", stop="90", target="120", horizon="intraday"), df, FAR
+    )
     loss_df = _candles([(100, 101, 99, 100), (100, 130, 85, 110)])
     loss = _score(
-        _call(author="B", url="https://x.com/B/status/2", entry="100", stop="90",
-              target="120", horizon="intraday", raw_quote="POC rotation"),
-        loss_df, FAR,
+        _call(
+            author="B",
+            url="https://x.com/B/status/2",
+            entry="100",
+            stop="90",
+            target="120",
+            horizon="intraday",
+            raw_quote="POC rotation",
+        ),
+        loss_df,
+        FAR,
     )
     open_df = _candles([(100, 101, 99, 100), (100, 101, 99, 100)])
     open_ = _score(
-        _call(author="A", url="https://x.com/A/status/3", entry="100", stop="90",
-              target="120", horizon="swing"),
-        open_df, T0 + 2 * 3_600_000,
+        _call(
+            author="A",
+            url="https://x.com/A/status/3",
+            entry="100",
+            stop="90",
+            target="120",
+            horizon="swing",
+        ),
+        open_df,
+        T0 + 2 * 3_600_000,
     )
     return [win, loss, open_]
 
@@ -1195,7 +1337,9 @@ class TestAggregateAndOutputs:
         assert b.avg_r == -1.0
 
     def test_render_report_sections_and_audit_trail(self) -> None:
-        report = render_report(_scored_fixture(), ["ledger line 9: skipped"], "2026-07-04T00:00:00Z", 5)
+        report = render_report(
+            _scored_fixture(), ["ledger line 9: skipped"], "2026-07-04T00:00:00Z", 5
+        )
         assert "## Per author" in report
         assert "## Per setup-family" in report
         assert "## Audit trail" in report
@@ -1489,7 +1633,9 @@ def load_ohlcv_for_calls(
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--ledger", type=Path, default=Path("docs/plans/pundit-calls.jsonl"))
-    p.add_argument("--overrides", type=Path, default=Path("docs/plans/pundit-overrides.jsonl"))
+    p.add_argument(
+        "--overrides", type=Path, default=Path("docs/plans/pundit-overrides.jsonl")
+    )
     p.add_argument("--db", type=Path, default=Path(DEFAULT_DB_PATH))
     p.add_argument("--as-of", dest="as_of", default=None, help="ISO UTC; default: now")
     p.add_argument("--json", type=Path, default=Path("docs/plans/pundit-priors.json"))
@@ -1524,7 +1670,9 @@ def main() -> int:
     generated_at = datetime.now(tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     priors = build_priors(scored, as_of_iso, generated_at, args.min_n)
     args.json.parent.mkdir(parents=True, exist_ok=True)
-    args.json.write_text(json.dumps(priors, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    args.json.write_text(
+        json.dumps(priors, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     print(f"priors written: {args.json}")
     return 0
 

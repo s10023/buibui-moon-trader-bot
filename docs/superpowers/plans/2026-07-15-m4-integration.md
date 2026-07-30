@@ -62,21 +62,23 @@ In `tests/test_card_prompt.py`, replace the `test_version_constant` method
 `class TestPrompt`:
 
 ```python
-    def test_version_constant(self) -> None:
-        assert PROMPT_VERSION == "card-v2"
+def test_version_constant(self) -> None:
+    assert PROMPT_VERSION == "card-v2"
 
-    def test_rubric_external_directions(self) -> None:
-        # card-v2: external clusters are mapped liquidity with trust guards
-        assert "panel.external" in RUBRIC
-        assert "spot_hint_deviation" in RUBRIC
-        assert "at most ONE agreeing input" in RUBRIC
-        assert "stop-hunt warning" in RUBRIC
 
-    def test_rubric_style_block(self) -> None:
-        # card-v2: humanizer style directive covers all generated prose
-        assert "Style (applies to reasoning, invalidation" in RUBRIC
-        assert "No hedge words (might/could/perhaps)" in RUBRIC
-        assert "no em dashes" in RUBRIC
+def test_rubric_external_directions(self) -> None:
+    # card-v2: external clusters are mapped liquidity with trust guards
+    assert "panel.external" in RUBRIC
+    assert "spot_hint_deviation" in RUBRIC
+    assert "at most ONE agreeing input" in RUBRIC
+    assert "stop-hunt warning" in RUBRIC
+
+
+def test_rubric_style_block(self) -> None:
+    # card-v2: humanizer style directive covers all generated prose
+    assert "Style (applies to reasoning, invalidation" in RUBRIC
+    assert "No hedge words (might/could/perhaps)" in RUBRIC
+    assert "no em dashes" in RUBRIC
 ```
 
 - [ ] **Step 3: Run the test file to verify the new tests fail**

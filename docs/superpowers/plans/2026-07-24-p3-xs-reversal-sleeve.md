@@ -466,9 +466,7 @@ def combine_reversal_forecasts(
     cap: float,
 ) -> pd.Series:
     """Equal-weight mean of per-window reversal forecasts x FDM, re-capped."""
-    parts = [
-        scaled_reversal_forecast(close, w, scalar, vol_span, cap) for w in windows
-    ]
+    parts = [scaled_reversal_forecast(close, w, scalar, vol_span, cap) for w in windows]
     mean = pd.concat(parts, axis=1).mean(axis=1)
     return (mean * fdm).clip(lower=-cap, upper=cap)
 
@@ -562,7 +560,7 @@ def test_reversal_leverage_is_inverse_of_momentum() -> None:
     )
     last = lev.iloc[-1]
     assert last["STRONG"] < 0.0  # winner held short
-    assert last["WEAK"] > 0.0    # loser held long
+    assert last["WEAK"] > 0.0  # loser held long
 
 
 def test_run_xsrev_backtest_shape_and_finite() -> None:
@@ -722,9 +720,7 @@ def test_replay_xsrev_trials_has_per_window_plus_combined() -> None:
     init_schema(conn)
     _seed(conn, "AAAUSDT", 1.0)
     _seed(conn, "BBBUSDT", -0.5)
-    trials = replay_xsrev_trials(
-        conn, ReversalConfig(), symbols=["AAAUSDT", "BBBUSDT"]
-    )
+    trials = replay_xsrev_trials(conn, ReversalConfig(), symbols=["AAAUSDT", "BBBUSDT"])
     assert set(trials) == {"k2", "k3", "k5", "k7", "combined"}
     for v in trials.values():
         assert isinstance(v, np.ndarray)
@@ -961,7 +957,15 @@ def test_build_xsrev_report_row_returns_dict() -> None:
         conn, "label", symbols=["AAAUSDT", "BBBUSDT"], slippage_bps=2.0
     )
     assert row["label"] == "label"
-    for col in ("sharpe", "dsr", "pbo", "boot_lo", "min_trl", "corr_to_xs", "xs_sharpe"):
+    for col in (
+        "sharpe",
+        "dsr",
+        "pbo",
+        "boot_lo",
+        "min_trl",
+        "corr_to_xs",
+        "xs_sharpe",
+    ):
         assert col in row
 ```
 
@@ -1067,7 +1071,9 @@ def _k1_diagnostic_row(
     result = replay_xsrev(conn, cfg, symbols=symbols)
     trials = replay_xsrev_trials(conn, cfg, symbols=symbols)
     xs_ret = replay_xs(conn, ForecastConfig(), symbols=symbols).portfolio_return
-    rep = evaluate_xs(result, cfg.sleeve_cfg, trial_returns=trials, trend_returns=xs_ret)
+    rep = evaluate_xs(
+        result, cfg.sleeve_cfg, trial_returns=trials, trend_returns=xs_ret
+    )
     return {"label": "k=1 (diagnostic)", "sharpe": rep.sharpe_annual, "dsr": rep.dsr}
 
 
@@ -1125,8 +1131,12 @@ def main() -> None:
         ),
     )
     _print_df("Per-window (k) Sharpe", _per_window_sharpes(conn, universe))
-    _print_df("k=1 bounce diagnostic", pd.DataFrame([_k1_diagnostic_row(conn, universe)]))
-    _print_df("Scalar sensitivity (universe @2bps)", _scalar_sensitivity(conn, universe))
+    _print_df(
+        "k=1 bounce diagnostic", pd.DataFrame([_k1_diagnostic_row(conn, universe)])
+    )
+    _print_df(
+        "Scalar sensitivity (universe @2bps)", _scalar_sensitivity(conn, universe)
+    )
 
     print(
         "\nRead: reversal BUILDs only if the universe book clears the gate "
@@ -1301,8 +1311,14 @@ def _oi_crowding_panel(
     res = run_xs_backtest(closes, fundings, cfg.sleeve_cfg, forecasts=forecasts)
     curve = (1.0 + pd.Series(res.portfolio_return)).cumprod()
     return pd.DataFrame(
-        [{"panel": "OI crowding (DESCRIPTIVE)", "n_inst": len(have),
-          "days": len(res.portfolio_return), "sharpe": metrics.sharpe(curve)}]
+        [
+            {
+                "panel": "OI crowding (DESCRIPTIVE)",
+                "n_inst": len(have),
+                "days": len(res.portfolio_return),
+                "sharpe": metrics.sharpe(curve),
+            }
+        ]
     )
 ```
 

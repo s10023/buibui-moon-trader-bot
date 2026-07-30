@@ -596,9 +596,7 @@ def test_dow_end_ms_cuts_window() -> None:
     seed_symbol(conn, SYM, START_MS, 60)
     full = compute_dow_patterns(conn, SYM, 3650, end_ms=START_MS + 60 * DAY_MS)
     half = compute_dow_patterns(conn, SYM, 3650, end_ms=START_MS + 30 * DAY_MS)
-    assert sum(r.sample_days for r in half.rows) < sum(
-        r.sample_days for r in full.rows
-    )
+    assert sum(r.sample_days for r in half.rows) < sum(r.sample_days for r in full.rows)
 
 
 def test_session_end_ms_accepted() -> None:
@@ -652,11 +650,7 @@ def _window_ms(days: int, end_ms: int | None) -> tuple[int, int]:
     ``end_ms=None`` reproduces ``_start_ms(days)`` exactly, so callers that do
     not pass it are byte-identical to the pre-end_ms behaviour.
     """
-    end = (
-        end_ms
-        if end_ms is not None
-        else int(datetime.now(tz=UTC).timestamp() * 1000)
-    )
+    end = end_ms if end_ms is not None else int(datetime.now(tz=UTC).timestamp() * 1000)
     return end - days * 86_400_000, end
 ```
 
@@ -899,9 +893,7 @@ def build_level_rows(
         direction = _SWEEP_DIRECTION.get(name)
         if direction is not None and entry_idx >= 0:
             swept = sweep_flag(completed_1d, entry_idx, float(price), direction)
-        rows.append(
-            LevelRow(name=name, price=float(price), dist_atr=dist, swept=swept)
-        )
+        rows.append(LevelRow(name=name, price=float(price), dist_atr=dist, swept=swept))
     above = sorted((r for r in rows if r.dist_atr > 0), key=lambda r: r.dist_atr)
     below = sorted((r for r in rows if r.dist_atr <= 0), key=lambda r: -r.dist_atr)
     return above[:max_per_side], below[:max_per_side]
@@ -965,16 +957,39 @@ def _frame() -> pd.DataFrame:
 
 def _fake_zones(*_args: Any, **_kwargs: Any) -> list[dict[str, Any]]:
     return [
-        {"zone_type": "fvg", "direction": "bull", "zone_low": 90.0,
-         "zone_high": 92.0, "active": True},
-        {"zone_type": "fvg", "direction": "bear", "zone_low": 110.0,
-         "zone_high": 112.0, "active": True},
-        {"zone_type": "fvg", "direction": "bull", "zone_low": 95.0,
-         "zone_high": 96.0, "active": False},  # inactive -> dropped
-        {"zone_type": "bos", "direction": "bull", "price": 98.0,
-         "active": True},  # single-price zone
-        {"zone_type": "eqh", "direction": "bear", "price": 99.5,
-         "active": True},  # ref inside? no: 99.5 < 100 -> below
+        {
+            "zone_type": "fvg",
+            "direction": "bull",
+            "zone_low": 90.0,
+            "zone_high": 92.0,
+            "active": True,
+        },
+        {
+            "zone_type": "fvg",
+            "direction": "bear",
+            "zone_low": 110.0,
+            "zone_high": 112.0,
+            "active": True,
+        },
+        {
+            "zone_type": "fvg",
+            "direction": "bull",
+            "zone_low": 95.0,
+            "zone_high": 96.0,
+            "active": False,
+        },  # inactive -> dropped
+        {
+            "zone_type": "bos",
+            "direction": "bull",
+            "price": 98.0,
+            "active": True,
+        },  # single-price zone
+        {
+            "zone_type": "eqh",
+            "direction": "bear",
+            "price": 99.5,
+            "active": True,
+        },  # ref inside? no: 99.5 < 100 -> below
     ]
 
 
@@ -1001,8 +1016,15 @@ def test_build_zone_rows_normalises_and_signs() -> None:
 
 def test_build_zone_rows_inside_marker() -> None:
     def one_zone(*_args: Any, **_kwargs: Any) -> list[dict[str, Any]]:
-        return [{"zone_type": "ob", "direction": "bull", "zone_low": 99.0,
-                 "zone_high": 101.0, "active": True}]
+        return [
+            {
+                "zone_type": "ob",
+                "direction": "bull",
+                "zone_low": 99.0,
+                "zone_high": 101.0,
+                "active": True,
+            }
+        ]
 
     with (
         patch("analytics.brief.zones.extract_fvg_zones", _empty),
@@ -1107,9 +1129,7 @@ def build_zone_rows(
                     inside=inside,
                 )
             )
-        tf_above = sorted(
-            (r for r in rows if r.dist_atr > 0), key=lambda r: r.dist_atr
-        )
+        tf_above = sorted((r for r in rows if r.dist_atr > 0), key=lambda r: r.dist_atr)
         tf_below = sorted(
             (r for r in rows if r.dist_atr <= 0), key=lambda r: -r.dist_atr
         )
@@ -1495,7 +1515,9 @@ def _opt_float(value: Any) -> float | None:
 
 def _load_priors(
     path: Path, as_of_ms: int
-) -> tuple[str, int | None, int | None, dict[str, PunditAuthorPrior], list[PunditFamilyPrior]]:
+) -> tuple[
+    str, int | None, int | None, dict[str, PunditAuthorPrior], list[PunditFamilyPrior]
+]:
     """(status, age_days, min_n_marker, authors_by_name, top families)."""
     if not path.exists():
         return "absent", None, None, {}, []
@@ -2229,13 +2251,10 @@ def _pundit_lines(board: PunditBoard) -> list[str]:
     if board.priors_status == "ok":
         priors_bit = f"priors {board.priors_age_days}d old"
     else:
-        priors_bit = (
-            f"priors: {board.priors_status} — run make buibui-pundit-score"
-        )
+        priors_bit = f"priors: {board.priors_status} — run make buibui-pundit-score"
     if board.ledger_status == "ok":
         ledger_bit = (
-            f"ledger {board.ledger_total} calls · "
-            f"{len(board.recent_calls)} recent"
+            f"ledger {board.ledger_total} calls · {len(board.recent_calls)} recent"
         )
     else:
         ledger_bit = "ledger: not found"
@@ -2283,8 +2302,7 @@ def render_markdown(bundle: BriefBundle) -> str:
     )
     data = "OK" if bundle.health.data_ok else "⚠ (see health)"
     lines = [
-        f"BUIBUI DAILY BRIEF — {bundle.day_ahead} · as-of {as_of} UTC · "
-        f"data {data}",
+        f"BUIBUI DAILY BRIEF — {bundle.day_ahead} · as-of {as_of} UTC · data {data}",
         "",
     ]
     for panel in bundle.panels:
@@ -2395,9 +2413,7 @@ def test_run_brief_cmd_writes_outputs(tmp_path: Path, capsys: Any) -> None:
     assert "BUIBUI DAILY BRIEF" in md_path.read_text()
 
 
-def test_run_brief_cmd_all_panels_failed_exits_1(
-    tmp_path: Path, capsys: Any
-) -> None:
+def test_run_brief_cmd_all_panels_failed_exits_1(tmp_path: Path, capsys: Any) -> None:
     db = _make_db(tmp_path)
     import pytest
 
@@ -2435,9 +2451,7 @@ from analytics.store.schema import DEFAULT_DB_PATH
 
 
 def run_brief_cmd(args: argparse.Namespace) -> None:
-    as_of_ms = (
-        parse_as_of_ms(args.as_of) if args.as_of else int(time.time() * 1000)
-    )
+    as_of_ms = parse_as_of_ms(args.as_of) if args.as_of else int(time.time() * 1000)
     notes: list[str] = []
     if args.symbols:
         symbols = tuple(args.symbols)
@@ -2479,9 +2493,7 @@ def add_brief_subparser(
         dest="as_of",
         help="ISO8601 anchor, e.g. 2026-07-04T00:10:00Z (default: now)",
     )
-    p.add_argument(
-        "--days", type=int, default=180, help="Seasonality window in days"
-    )
+    p.add_argument("--days", type=int, default=180, help="Seasonality window in days")
     p.add_argument(
         "--json", default=None, help="Also write the bundle JSON to this path"
     )
@@ -2795,9 +2807,7 @@ def get_brief(
         as_of_ms = int(time.time() * 1000)
     notes: list[str] = []
     if symbols:
-        symbol_tuple = tuple(
-            s.strip().upper() for s in symbols.split(",") if s.strip()
-        )
+        symbol_tuple = tuple(s.strip().upper() for s in symbols.split(",") if s.strip())
     else:
         symbol_tuple, notes = default_symbols()
     if not symbol_tuple:

@@ -44,14 +44,24 @@ CFG = IndicatorConditionConfig()
 def test_map_disable_positive_lift_is_build() -> None:
     # audit_guard DISABLE == with-state slice reliably POSITIVE -> BUILD.
     assert (
-        _map_verdict("DISABLE", lift=0.20, lift_lo=0.05, lift_hi=0.35, dsr=0.97, pbo=0.2, cfg=CFG)
+        _map_verdict(
+            "DISABLE", lift=0.20, lift_lo=0.05, lift_hi=0.35, dsr=0.97, pbo=0.2, cfg=CFG
+        )
         == "BUILD"
     )
 
 
 def test_map_enable_negative_lift_is_avoid() -> None:
     assert (
-        _map_verdict("ENABLE", lift=-0.20, lift_lo=-0.35, lift_hi=-0.05, dsr=0.97, pbo=0.2, cfg=CFG)
+        _map_verdict(
+            "ENABLE",
+            lift=-0.20,
+            lift_lo=-0.35,
+            lift_hi=-0.05,
+            dsr=0.97,
+            pbo=0.2,
+            cfg=CFG,
+        )
         == "AVOID"
     )
 
@@ -59,7 +69,9 @@ def test_map_enable_negative_lift_is_avoid() -> None:
 def test_map_disable_is_never_avoid() -> None:
     # Guardrail: the intuitive-but-wrong DISABLE->AVOID map must be impossible.
     assert (
-        _map_verdict("DISABLE", lift=0.20, lift_lo=0.05, lift_hi=0.35, dsr=0.97, pbo=0.2, cfg=CFG)
+        _map_verdict(
+            "DISABLE", lift=0.20, lift_lo=0.05, lift_hi=0.35, dsr=0.97, pbo=0.2, cfg=CFG
+        )
         != "AVOID"
     )
 
@@ -67,21 +79,39 @@ def test_map_disable_is_never_avoid() -> None:
 def test_map_family_fail_is_no_edge() -> None:
     # DSR/PBO family gate not cleared -> NO-EDGE even with a clean lift.
     assert (
-        _map_verdict("DISABLE", lift=0.20, lift_lo=0.05, lift_hi=0.35, dsr=0.80, pbo=0.2, cfg=CFG)
+        _map_verdict(
+            "DISABLE", lift=0.20, lift_lo=0.05, lift_hi=0.35, dsr=0.80, pbo=0.2, cfg=CFG
+        )
         == "NO-EDGE"
     )
 
 
 def test_map_concentrate_is_no_edge() -> None:
     assert (
-        _map_verdict("CONCENTRATE", lift=0.20, lift_lo=0.05, lift_hi=0.35, dsr=0.97, pbo=0.2, cfg=CFG)
+        _map_verdict(
+            "CONCENTRATE",
+            lift=0.20,
+            lift_lo=0.05,
+            lift_hi=0.35,
+            dsr=0.97,
+            pbo=0.2,
+            cfg=CFG,
+        )
         == "NO-EDGE"
     )
 
 
 def test_map_insufficient_passthrough() -> None:
     assert (
-        _map_verdict("INSUFFICIENT", lift=0.0, lift_lo=0.0, lift_hi=0.0, dsr=None, pbo=None, cfg=CFG)
+        _map_verdict(
+            "INSUFFICIENT",
+            lift=0.0,
+            lift_lo=0.0,
+            lift_hi=0.0,
+            dsr=None,
+            pbo=None,
+            cfg=CFG,
+        )
         == "INSUFFICIENT"
     )
 ```
@@ -112,11 +142,11 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class IndicatorConditionConfig:
-    bar: float = 0.05          # R economic bar (~2.5x round-trip cost)
-    alpha: float = 0.05        # Holm family alpha
-    min_n: int = 30            # per-cell floor
-    n_boot: int = 2000         # bootstrap resamples
-    block: int = 5             # block length for serial-correlation-aware boot
+    bar: float = 0.05  # R economic bar (~2.5x round-trip cost)
+    alpha: float = 0.05  # Holm family alpha
+    min_n: int = 30  # per-cell floor
+    n_boot: int = 2000  # bootstrap resamples
+    block: int = 5  # block length for serial-correlation-aware boot
     seed: int = 12345
     dsr_floor: float = 0.95
     pbo_ceil: float = 0.5
@@ -174,19 +204,40 @@ Convert an `IndicatorState` (+ regime label + ref price) into the 10 pre-registe
 - [ ] **Step 1: Write the failing test**
 
 ```python
-from analytics.brief.types import BbState, EmaState, IndicatorState, MondayState, PaState
+from analytics.brief.types import (
+    BbState,
+    EmaState,
+    IndicatorState,
+    MondayState,
+    PaState,
+)
 from analytics.indicator_condition import _AXES, axis_states
 
 
 def _state(**kw: object) -> IndicatorState:
-    base = dict(ema=None, range_state=None, monday=None, candles=None, pa=None, bb=None, vwap=None, profile=None)
+    base = dict(
+        ema=None,
+        range_state=None,
+        monday=None,
+        candles=None,
+        pa=None,
+        bb=None,
+        vwap=None,
+        profile=None,
+    )
     base.update(kw)
     return IndicatorState(**base)  # type: ignore[arg-type]
 
 
 def test_axis_states_reads_ema_bb_pa_monday() -> None:
     st = _state(
-        ema=EmaState(above_20=True, above_50=True, above_200=False, stack="bullish", slope_200="rising"),
+        ema=EmaState(
+            above_20=True,
+            above_50=True,
+            above_200=False,
+            stack="bullish",
+            slope_200="rising",
+        ),
         bb=BbState(pct_b=0.05, bandwidth=0.02, bw_pctile=0.1, squeeze=True),
         pa=PaState(label="grind_up", er=0.5, speed_atr=0.4),
         monday=MondayState(state="inside", pos=0.4),
@@ -195,7 +246,7 @@ def test_axis_states_reads_ema_bb_pa_monday() -> None:
     assert ax["ema_stack"] == "bullish"
     assert ax["ema_slope"] == "rising"
     assert ax["bb_squeeze"] == "squeeze"
-    assert ax["bb_pctb"] == "low"           # 0.05 < 0.2
+    assert ax["bb_pctb"] == "low"  # 0.05 < 0.2
     assert ax["pa_char"] == "grind_up"
     assert ax["monday_range"] == "inside"
     assert ax["regime"] == "trend"
@@ -219,8 +270,16 @@ Expected: FAIL — `axis_states` not defined.
 from analytics.brief.types import IndicatorState
 
 _AXES: tuple[str, ...] = (
-    "ema_stack", "ema_slope", "regime", "bb_squeeze", "bb_pctb",
-    "vwap_weekly", "vwap_monthly", "vp_value_area", "pa_char", "monday_range",
+    "ema_stack",
+    "ema_slope",
+    "regime",
+    "bb_squeeze",
+    "bb_pctb",
+    "vwap_weekly",
+    "vwap_monthly",
+    "vp_value_area",
+    "pa_char",
+    "monday_range",
 )
 
 
@@ -239,13 +298,19 @@ def axis_states(
         out["bb_squeeze"] = "squeeze" if state.bb.squeeze else "no_squeeze"
         if state.bb.pct_b is not None:
             out["bb_pctb"] = (
-                "low" if state.bb.pct_b < 0.2 else "high" if state.bb.pct_b > 0.8 else "mid"
+                "low"
+                if state.bb.pct_b < 0.2
+                else "high"
+                if state.bb.pct_b > 0.8
+                else "mid"
             )
     if state.vwap is not None:
         if state.vwap.weekly_dist_atr is not None:
             out["vwap_weekly"] = "above" if state.vwap.weekly_dist_atr >= 0 else "below"
         if state.vwap.monthly_dist_atr is not None:
-            out["vwap_monthly"] = "above" if state.vwap.monthly_dist_atr >= 0 else "below"
+            out["vwap_monthly"] = (
+                "above" if state.vwap.monthly_dist_atr >= 0 else "below"
+            )
     if state.profile is not None:
         if ref_close > state.profile.vah:
             out["vp_value_area"] = "above"
@@ -296,21 +361,40 @@ _DAY = 86_400_000
 def _synth_ohlcv(n: int, start: int, tf_ms: int, closes: list[float]) -> pd.DataFrame:
     ot = [start + i * tf_ms for i in range(n)]
     c = np.array(closes, dtype=float)
-    return pd.DataFrame({
-        "open_time": ot, "open": c, "high": c * 1.01, "low": c * 0.99,
-        "close": c, "volume": np.full(n, 1000.0),
-    })
+    return pd.DataFrame(
+        {
+            "open_time": ot,
+            "open": c,
+            "high": c * 1.01,
+            "low": c * 0.99,
+            "close": c,
+            "volume": np.full(n, 1000.0),
+        }
+    )
 
 
 def test_tag_trades_is_causal_and_mutation_proof() -> None:
     # A trade at t = close of bar k. Bars after k must not change its state.
     start = 1_700_000_000_000
-    closes_up = [100 + i for i in range(40)]            # steady uptrend through k
+    closes_up = [100 + i for i in range(40)]  # steady uptrend through k
     d1 = _synth_ohlcv(40, start, _DAY, closes_up)
-    h1 = _synth_ohlcv(40 * 24, start, _DAY // 24, [100 + i / 24 for i in range(40 * 24)])
+    h1 = _synth_ohlcv(
+        40 * 24, start, _DAY // 24, [100 + i / 24 for i in range(40 * 24)]
+    )
     k = 30
     t = int(d1.open_time.iloc[k])  # entry at bar k's open==close alignment; see note
-    entries = pd.DataFrame([{ "symbol": "TST", "tf": "1d", "strategy": "s", "direction": "long", "entry_time": t, "pnl_r": 1.0 }])
+    entries = pd.DataFrame(
+        [
+            {
+                "symbol": "TST",
+                "tf": "1d",
+                "strategy": "s",
+                "direction": "long",
+                "entry_time": t,
+                "pnl_r": 1.0,
+            }
+        ]
+    )
     market = {("TST", "1d"): d1, ("TST", "1h"): h1}
 
     tagged = tag_trades(entries, market)
@@ -338,7 +422,9 @@ import pandas as pd
 
 from analytics.backtest.engine import _compute_atr14
 from analytics.brief.indicators import build_indicator_state
-from analytics.regime import classify_regime  # confirm the exact fn name in analytics/regime.py
+from analytics.regime import (
+    classify_regime,
+)  # confirm the exact fn name in analytics/regime.py
 
 
 def _tf_ms(tf: str) -> int:
@@ -366,9 +452,13 @@ def tag_trades(
             if len(c1d) >= 60 and len(c1h) >= 60:  # M1 min history
                 ref_close = float(c1d["close"].iloc[-1])
                 atr14 = _compute_atr14(c1d)  # returns a Series aligned to c1d
-                atr_last = float(atr14.iloc[-1]) if hasattr(atr14, "iloc") else float(atr14)
-                regime_series = classify_regime(c1d)          # pd.Series of labels
-                regime_label = str(regime_series.iloc[-1]) if len(regime_series) else None
+                atr_last = (
+                    float(atr14.iloc[-1]) if hasattr(atr14, "iloc") else float(atr14)
+                )
+                regime_series = classify_regime(c1d)  # pd.Series of labels
+                regime_label = (
+                    str(regime_series.iloc[-1]) if len(regime_series) else None
+                )
                 state, _notes = build_indicator_state(
                     c1d, c1h, regime_series, ref_close, atr_last, as_of_ms=t
                 )
@@ -406,7 +496,11 @@ Split tagged trades into per-(axis-state × direction) cells, run the two-leg ga
 - [ ] **Step 1: Write the failing test** (a strongly positive with-state slice -> BUILD)
 
 ```python
-from analytics.indicator_condition import IndicatorConditionConfig, build_condition_cells, evaluate_conditions
+from analytics.indicator_condition import (
+    IndicatorConditionConfig,
+    build_condition_cells,
+    evaluate_conditions,
+)
 
 
 def test_evaluate_builds_on_strong_positive_state() -> None:
@@ -415,16 +509,35 @@ def test_evaluate_builds_on_strong_positive_state() -> None:
     # 'bullish' EMA trades average +0.5R, others average -0.1R (both low-noise).
     with_r = rng.normal(0.5, 0.3, n)
     without_r = rng.normal(-0.1, 0.3, n)
-    df = pd.DataFrame({
-        "direction": ["long"] * (2 * n),
-        "strategy": ["s"] * (2 * n),
-        "ema_stack": (["bullish"] * n) + (["bearish"] * n),
-        "pnl_r": list(with_r) + list(without_r),
-        **{a: ["x"] * (2 * n) for a in ("ema_slope", "regime", "bb_squeeze", "bb_pctb", "vwap_weekly", "vwap_monthly", "vp_value_area", "pa_char", "monday_range")},
-    })
+    df = pd.DataFrame(
+        {
+            "direction": ["long"] * (2 * n),
+            "strategy": ["s"] * (2 * n),
+            "ema_stack": (["bullish"] * n) + (["bearish"] * n),
+            "pnl_r": list(with_r) + list(without_r),
+            **{
+                a: ["x"] * (2 * n)
+                for a in (
+                    "ema_slope",
+                    "regime",
+                    "bb_squeeze",
+                    "bb_pctb",
+                    "vwap_weekly",
+                    "vwap_monthly",
+                    "vp_value_area",
+                    "pa_char",
+                    "monday_range",
+                )
+            },
+        }
+    )
     cells = build_condition_cells(df, axes=("ema_stack",))
     verdicts = evaluate_conditions(cells, IndicatorConditionConfig())
-    bull = [v for v in verdicts if v.axis == "ema_stack" and v.state == "bullish" and v.direction == "long"]
+    bull = [
+        v
+        for v in verdicts
+        if v.axis == "ema_stack" and v.state == "bullish" and v.direction == "long"
+    ]
     assert bull and bull[0].verdict == "BUILD"
     assert bull[0].lift > 0.4
 ```
@@ -447,7 +560,7 @@ class ConditionVerdict:
     axis: str
     state: str
     direction: str
-    verdict: str            # BUILD | AVOID | NO-EDGE | INSUFFICIENT
+    verdict: str  # BUILD | AVOID | NO-EDGE | INSUFFICIENT
     n_with: int
     n_without: int
     avg_r_with: float

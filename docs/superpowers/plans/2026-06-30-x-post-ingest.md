@@ -56,13 +56,17 @@ class FakeResp:
 def make_get(resp: "FakeResp"):
     def _get(url: str, *, headers: dict[str, str]) -> "FakeResp":
         return resp
+
     return _get
 
 
 @pytest.mark.parametrize(
     "url, expected",
     [
-        ("https://x.com/cryptic_heych/status/2071837700500644228?s=20", "2071837700500644228"),
+        (
+            "https://x.com/cryptic_heych/status/2071837700500644228?s=20",
+            "2071837700500644228",
+        ),
         ("https://twitter.com/jack/status/20", "20"),
         ("https://x.com/foo/status/123/", "123"),
     ],
@@ -167,7 +171,9 @@ _CRYPTIC = {
     "created_at": "2026-06-30T06:06:15.000Z",
     "user": {"name": "HeycH", "screen_name": "cryptic_heych"},
     "photos": [{"url": "https://pbs.twimg.com/media/ABC.jpg"}],
-    "mediaDetails": [{"type": "photo", "media_url_https": "https://pbs.twimg.com/media/ABC.jpg"}],
+    "mediaDetails": [
+        {"type": "photo", "media_url_https": "https://pbs.twimg.com/media/ABC.jpg"}
+    ],
 }
 
 
@@ -186,7 +192,9 @@ def test_fetch_maps_fields() -> None:
 
 def test_fetch_video_flag() -> None:
     payload = dict(_CRYPTIC, photos=[], mediaDetails=[{"type": "video"}])
-    post = fetch_x_post("https://x.com/a/status/9", get=make_get(FakeResp(200, json.dumps(payload))))
+    post = fetch_x_post(
+        "https://x.com/a/status/9", get=make_get(FakeResp(200, json.dumps(payload)))
+    )
     assert isinstance(post, XPost)
     assert post.video_present is True
     assert post.photo_urls == ()
@@ -194,7 +202,9 @@ def test_fetch_video_flag() -> None:
 
 def test_fetch_tombstone() -> None:
     payload = {"__typename": "TweetTombstone"}
-    res = fetch_x_post("https://x.com/a/status/9", get=make_get(FakeResp(200, json.dumps(payload))))
+    res = fetch_x_post(
+        "https://x.com/a/status/9", get=make_get(FakeResp(200, json.dumps(payload)))
+    )
     assert isinstance(res, Unavailable)
 
 
@@ -306,20 +316,36 @@ from tools.x_fetch import download_photos
 
 def test_download_photos_writes_files(tmp_path: Path) -> None:
     post = XPost(
-        source="twitter", author="a", author_name="A", url="u", post_ts_utc="t",
-        text="x", photo_urls=("https://pbs.twimg.com/media/ABC.jpg?name=orig",),
-        video_present=False, is_thread=False, is_quote=False,
+        source="twitter",
+        author="a",
+        author_name="A",
+        url="u",
+        post_ts_utc="t",
+        text="x",
+        photo_urls=("https://pbs.twimg.com/media/ABC.jpg?name=orig",),
+        video_present=False,
+        is_thread=False,
+        is_quote=False,
     )
-    paths = download_photos(post, tmp_path, get=make_get(FakeResp(200, content=b"\xff\xd8jpeg")))
+    paths = download_photos(
+        post, tmp_path, get=make_get(FakeResp(200, content=b"\xff\xd8jpeg"))
+    )
     assert paths == [tmp_path / "0.jpg"]
     assert (tmp_path / "0.jpg").read_bytes() == b"\xff\xd8jpeg"
 
 
 def test_download_photos_skips_errors(tmp_path: Path) -> None:
     post = XPost(
-        source="twitter", author="a", author_name="A", url="u", post_ts_utc="t",
-        text="x", photo_urls=("https://pbs.twimg.com/media/ABC.jpg?name=orig",),
-        video_present=False, is_thread=False, is_quote=False,
+        source="twitter",
+        author="a",
+        author_name="A",
+        url="u",
+        post_ts_utc="t",
+        text="x",
+        photo_urls=("https://pbs.twimg.com/media/ABC.jpg?name=orig",),
+        video_present=False,
+        is_thread=False,
+        is_quote=False,
     )
     paths = download_photos(post, tmp_path, get=make_get(FakeResp(500)))
     assert paths == []
@@ -337,7 +363,9 @@ Expected: FAIL — `ImportError: cannot import name 'download_photos'`.
 from pathlib import Path
 
 
-def download_photos(post: XPost, dest_dir: Path, *, get: HttpGet = _requests_get) -> list[Path]:
+def download_photos(
+    post: XPost, dest_dir: Path, *, get: HttpGet = _requests_get
+) -> list[Path]:
     dest_dir.mkdir(parents=True, exist_ok=True)
     paths: list[Path] = []
     for i, photo_url in enumerate(post.photo_urls):
@@ -386,10 +414,16 @@ from tools.x_fetch import _format_human
 
 def test_format_human() -> None:
     post = XPost(
-        source="twitter", author="cryptic_heych", author_name="HeycH", url="u",
-        post_ts_utc="2026-06-30T06:06:15.000Z", text="Today's analysis $BTC",
+        source="twitter",
+        author="cryptic_heych",
+        author_name="HeycH",
+        url="u",
+        post_ts_utc="2026-06-30T06:06:15.000Z",
+        text="Today's analysis $BTC",
         photo_urls=("https://pbs.twimg.com/media/ABC.jpg?name=orig",),
-        video_present=False, is_thread=False, is_quote=False,
+        video_present=False,
+        is_thread=False,
+        is_quote=False,
     )
     out = _format_human(post)
     assert "@cryptic_heych" in out

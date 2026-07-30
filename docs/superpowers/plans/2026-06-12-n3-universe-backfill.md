@@ -65,7 +65,7 @@ class TestLoadUniverse:
             load_universe(p)
 
     def test_missing_universe_block_raises(self, tmp_path: Path) -> None:
-        p = _write_toml(tmp_path / "universe.toml", '[other]\nx = 1\n')
+        p = _write_toml(tmp_path / "universe.toml", "[other]\nx = 1\n")
         with pytest.raises(ValueError, match="symbols"):
             load_universe(p)
 
@@ -225,7 +225,12 @@ def _make_conn() -> duckdb.DuckDBPyConnection:
 
 def _life_df(rows: list[dict[str, object]]) -> pd.DataFrame:
     df = pd.DataFrame(rows, columns=LIFE_COLS)
-    for col in ("onboard_ms", "first_checked_ms", "last_checked_ms", "delisted_noted_ms"):
+    for col in (
+        "onboard_ms",
+        "first_checked_ms",
+        "last_checked_ms",
+        "delisted_noted_ms",
+    ):
         df[col] = df[col].astype("Int64")
     return df
 
@@ -457,7 +462,9 @@ def fetch_futures_symbol_info(client: Client) -> pd.DataFrame:
         {
             "symbol": s["symbol"],
             "status": str(s.get("status", "")),
-            "onboard_ms": int(s["onboardDate"]) if s.get("onboardDate") is not None else None,
+            "onboard_ms": int(s["onboardDate"])
+            if s.get("onboardDate") is not None
+            else None,
         }
         for s in raw.get("symbols", [])
         if s.get("quoteAsset") == "USDT" and s.get("contractType") == "PERPETUAL"
@@ -507,9 +514,7 @@ def _info_df(rows: list[dict[str, object]]) -> pd.DataFrame:
 class TestRefreshSymbolLifecycle:
     def test_inserts_new_symbols(self) -> None:
         conn = _make_conn()
-        info = _info_df(
-            [{"symbol": "BTCUSDT", "status": "TRADING", "onboard_ms": 111}]
-        )
+        info = _info_df([{"symbol": "BTCUSDT", "status": "TRADING", "onboard_ms": 111}])
         with patch("analytics.data_sync.fetch_futures_symbol_info", return_value=info):
             n = refresh_symbol_lifecycle(conn, object(), ["BTCUSDT"], now_ms=1_000)
         assert n == 1
@@ -524,9 +529,7 @@ class TestRefreshSymbolLifecycle:
 
     def test_update_preserves_first_checked_ms(self) -> None:
         conn = _make_conn()
-        info = _info_df(
-            [{"symbol": "BTCUSDT", "status": "TRADING", "onboard_ms": 111}]
-        )
+        info = _info_df([{"symbol": "BTCUSDT", "status": "TRADING", "onboard_ms": 111}])
         with patch("analytics.data_sync.fetch_futures_symbol_info", return_value=info):
             refresh_symbol_lifecycle(conn, object(), ["BTCUSDT"], now_ms=1_000)
             refresh_symbol_lifecycle(conn, object(), ["BTCUSDT"], now_ms=2_000)
@@ -540,7 +543,9 @@ class TestRefreshSymbolLifecycle:
             [{"symbol": "BTCUSDT", "status": "TRADING", "onboard_ms": 111}]
         )
         gone = _info_df([])
-        with patch("analytics.data_sync.fetch_futures_symbol_info", return_value=present):
+        with patch(
+            "analytics.data_sync.fetch_futures_symbol_info", return_value=present
+        ):
             refresh_symbol_lifecycle(conn, object(), ["BTCUSDT"], now_ms=1_000)
         with patch("analytics.data_sync.fetch_futures_symbol_info", return_value=gone):
             refresh_symbol_lifecycle(conn, object(), [], now_ms=2_000)
@@ -648,7 +653,9 @@ def refresh_symbol_lifecycle(
         live = info_map.get(sym)
         first_checked = _opt_int(prev["first_checked_ms"]) if prev is not None else None
         onboard = _opt_int(prev["onboard_ms"]) if prev is not None else None
-        delisted_noted = _opt_int(prev["delisted_noted_ms"]) if prev is not None else None
+        delisted_noted = (
+            _opt_int(prev["delisted_noted_ms"]) if prev is not None else None
+        )
         if live is not None:
             status = str(live["status"])
             onboard = _opt_int(live["onboard_ms"])
@@ -677,7 +684,12 @@ def refresh_symbol_lifecycle(
             "delisted_noted_ms",
         ],
     )
-    for col in ("onboard_ms", "first_checked_ms", "last_checked_ms", "delisted_noted_ms"):
+    for col in (
+        "onboard_ms",
+        "first_checked_ms",
+        "last_checked_ms",
+        "delisted_noted_ms",
+    ):
         df[col] = df[col].astype("Int64")
     upsert_symbol_lifecycle(conn, df)
     logging.info("refresh_symbol_lifecycle: %d symbols tracked", len(df))
@@ -757,9 +769,7 @@ class TestRunBackfillResilience:
 
         p = _patches(backfill={"side_effect": fake_backfill})
         with p[0], p[1], p[2], p[3], p[4], pytest.raises(SystemExit):
-            run_backfill(
-                ["AAAUSDT", "BBBUSDT"], ["1h"], 0, db_path=tmp_path / "t.db"
-            )
+            run_backfill(["AAAUSDT", "BBBUSDT"], ["1h"], 0, db_path=tmp_path / "t.db")
         assert "BBBUSDT" in calls  # later symbol still processed
 
     def test_all_green_does_not_exit(self, tmp_path: Path) -> None:
@@ -1167,7 +1177,9 @@ def test_export_scopes_ohlcv_to_symbols_and_floor(tmp_path: Path) -> None:
     export_live_db(src, out, ohlcv_symbols=["BTCUSDT"], now_ms=now_ms)
 
     con = duckdb.connect(str(out), read_only=True)
-    rows = con.execute("SELECT symbol, open_time FROM ohlcv ORDER BY open_time").fetchall()
+    rows = con.execute(
+        "SELECT symbol, open_time FROM ohlcv ORDER BY open_time"
+    ).fetchall()
     # Calibration tables stay unscoped.
     cr = con.execute("SELECT COUNT(*) FROM confidence_ratings").fetchone()
     con.close()
@@ -1215,19 +1227,18 @@ Inside, before the table loop:
 Replace the unconditional copy inside the `for table in LIVE_TABLES:` loop:
 
 ```python
-        for table in LIVE_TABLES:
-            if not _table_exists(src_con, table):
-                continue
-            if table == "ohlcv":
-                placeholders = ", ".join("?" for _ in ohlcv_symbols)
-                df = src_con.execute(
-                    f"SELECT * FROM ohlcv WHERE symbol IN ({placeholders}) "
-                    "AND open_time >= ?",
-                    [*ohlcv_symbols, floor_ms],
-                ).fetchdf()  # noqa: F841
-            else:
-                df = src_con.execute(f'SELECT * FROM "{table}"').fetchdf()  # noqa: F841
-            out_con.execute(f'INSERT INTO "{table}" BY NAME SELECT * FROM df')
+for table in LIVE_TABLES:
+    if not _table_exists(src_con, table):
+        continue
+    if table == "ohlcv":
+        placeholders = ", ".join("?" for _ in ohlcv_symbols)
+        df = src_con.execute(
+            f"SELECT * FROM ohlcv WHERE symbol IN ({placeholders}) AND open_time >= ?",
+            [*ohlcv_symbols, floor_ms],
+        ).fetchdf()  # noqa: F841
+    else:
+        df = src_con.execute(f'SELECT * FROM "{table}"').fetchdf()  # noqa: F841
+    out_con.execute(f'INSERT INTO "{table}" BY NAME SELECT * FROM df')
 ```
 
 Update the module docstring's first paragraph to mention the scoping (append one sentence): `The ohlcv copy is scoped to coins.json symbols within a 400-day rolling window so universe/deep-history rows never reach the committed file.`
@@ -1262,13 +1273,19 @@ Create `tests/test_select_universe.py`:
 
 from typing import Any
 
-from tools.select_universe import eligible_perps, format_universe_toml, rank_by_median_volume
+from tools.select_universe import (
+    eligible_perps,
+    format_universe_toml,
+    rank_by_median_volume,
+)
 
 _DAY_MS = 86_400_000
 _AS_OF = 1_000 * _DAY_MS  # arbitrary "today"
 
 
-def _sym(symbol: str, *, base: str, onboard_days_ago: int, **over: Any) -> dict[str, Any]:
+def _sym(
+    symbol: str, *, base: str, onboard_days_ago: int, **over: Any
+) -> dict[str, Any]:
     d: dict[str, Any] = {
         "symbol": symbol,
         "baseAsset": base,
@@ -1288,12 +1305,18 @@ class TestEligiblePerps:
                 _sym("BTCUSDT", base="BTC", onboard_days_ago=900),
                 _sym("NEWUSDT", base="NEW", onboard_days_ago=100),  # too young
                 _sym("USDCUSDT", base="USDC", onboard_days_ago=900),  # stable base
-                _sym("ETHUSDT_2606", base="ETH", onboard_days_ago=900,
-                     contractType="CURRENT_QUARTER"),  # not a perp
-                _sym("OLDUSDT", base="OLD", onboard_days_ago=900,
-                     status="SETTLING"),  # not trading
-                _sym("ETHBTC", base="ETH", onboard_days_ago=900,
-                     quoteAsset="BTC"),  # wrong quote
+                _sym(
+                    "ETHUSDT_2606",
+                    base="ETH",
+                    onboard_days_ago=900,
+                    contractType="CURRENT_QUARTER",
+                ),  # not a perp
+                _sym(
+                    "OLDUSDT", base="OLD", onboard_days_ago=900, status="SETTLING"
+                ),  # not trading
+                _sym(
+                    "ETHBTC", base="ETH", onboard_days_ago=900, quoteAsset="BTC"
+                ),  # wrong quote
             ]
         }
         out = eligible_perps(info, as_of_ms=_AS_OF, min_age_days=365)
@@ -1316,8 +1339,9 @@ class TestRankByMedianVolume:
 
 class TestFormatUniverseToml:
     def test_emits_universe_block(self) -> None:
-        out = format_universe_toml(["BTCUSDT", "ETHUSDT"], selected_at="2026-06-12",
-                                   criterion="test crit")
+        out = format_universe_toml(
+            ["BTCUSDT", "ETHUSDT"], selected_at="2026-06-12", criterion="test crit"
+        )
         assert "[universe]" in out
         assert 'selected_at = "2026-06-12"' in out
         assert '"BTCUSDT",' in out
@@ -1357,8 +1381,18 @@ _DAY_MS = 86_400_000
 _CANDIDATE_POOL = 60  # pre-rank by 24h volume, re-rank this many by 30d median
 
 STABLE_BASES: set[str] = {
-    "USDC", "FDUSD", "TUSD", "DAI", "BUSD", "EURI", "USDP", "AEUR",
-    "USD1", "USDE", "BFUSD", "XUSD",
+    "USDC",
+    "FDUSD",
+    "TUSD",
+    "DAI",
+    "BUSD",
+    "EURI",
+    "USDP",
+    "AEUR",
+    "USD1",
+    "USDE",
+    "BFUSD",
+    "XUSD",
 }
 
 
@@ -1387,9 +1421,9 @@ def rank_by_median_volume(
     """Rank symbols by median daily quote volume, descending; truncate to top_n."""
     ranked = sorted(
         daily_quote_volumes,
-        key=lambda s: statistics.median(daily_quote_volumes[s])
-        if daily_quote_volumes[s]
-        else 0.0,
+        key=lambda s: (
+            statistics.median(daily_quote_volumes[s]) if daily_quote_volumes[s] else 0.0
+        ),
         reverse=True,
     )
     return ranked[:top_n]
@@ -1436,9 +1470,7 @@ def main() -> None:
     vols: dict[str, list[float]] = {}
     for t in by_24h:
         sym = str(t["symbol"])
-        kl = _get_json(
-            f"{_FAPI}/fapi/v1/klines?symbol={sym}&interval=1d&limit=31"
-        )
+        kl = _get_json(f"{_FAPI}/fapi/v1/klines?symbol={sym}&interval=1d&limit=31")
         vols[sym] = [float(k[7]) for k in kl[:-1]]  # k[7] = quote vol; drop partial day
         time.sleep(0.15)
 
@@ -1618,9 +1650,11 @@ def ohlcv_coverage(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
 
     df["expected"] = df.apply(_expected, axis=1)
     df["gap_pct"] = df.apply(
-        lambda r: round(1.0 - float(r["n"]) / float(r["expected"]), 4)
-        if r["expected"] is not None and float(r["expected"]) > 0
-        else None,
+        lambda r: (
+            round(1.0 - float(r["n"]) / float(r["expected"]), 4)
+            if r["expected"] is not None and float(r["expected"]) > 0
+            else None
+        ),
         axis=1,
     )
     return df
@@ -1668,7 +1702,15 @@ def format_report(
         "",
         _md_table(
             ohlcv[
-                ["symbol", "timeframe", "n", "first_day", "last_day", "expected", "gap_pct"]
+                [
+                    "symbol",
+                    "timeframe",
+                    "n",
+                    "first_day",
+                    "last_day",
+                    "expected",
+                    "gap_pct",
+                ]
             ]
             if not ohlcv.empty
             else ohlcv
@@ -1711,7 +1753,10 @@ def _md_table(df: pd.DataFrame) -> str:
     if df.empty:
         return "(no rows)\n"
     cols = list(df.columns)
-    lines = ["| " + " | ".join(cols) + " |", "| " + " | ".join("---" for _ in cols) + " |"]
+    lines = [
+        "| " + " | ".join(cols) + " |",
+        "| " + " | ".join("---" for _ in cols) + " |",
+    ]
     for _, r in df.iterrows():
         lines.append("| " + " | ".join("" if pd.isna(v) else str(v) for v in r) + " |")
     return "\n".join(lines) + "\n"

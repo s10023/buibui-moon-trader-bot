@@ -61,24 +61,23 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 Add these two methods inside the existing `class TestFetchFundingRates:` in `tests/test_data_fetcher.py` (the `_FUNDING_RAW` fixture and `MagicMock` import already exist at the top of the file):
 
 ```python
-    def test_start_time_passes_time_kwargs(self) -> None:
-        client = MagicMock()
-        client.futures_funding_rate.return_value = [_FUNDING_RAW]
-        fetch_funding_rates(
-            client, "BTCUSDT", limit=1000, start_time=1_000, end_time=2_000
-        )
-        kwargs = client.futures_funding_rate.call_args.kwargs
-        assert kwargs["startTime"] == 1_000
-        assert kwargs["endTime"] == 2_000
-        assert kwargs["limit"] == 1000
+def test_start_time_passes_time_kwargs(self) -> None:
+    client = MagicMock()
+    client.futures_funding_rate.return_value = [_FUNDING_RAW]
+    fetch_funding_rates(client, "BTCUSDT", limit=1000, start_time=1_000, end_time=2_000)
+    kwargs = client.futures_funding_rate.call_args.kwargs
+    assert kwargs["startTime"] == 1_000
+    assert kwargs["endTime"] == 2_000
+    assert kwargs["limit"] == 1000
 
-    def test_omits_time_kwargs_when_not_given(self) -> None:
-        client = MagicMock()
-        client.futures_funding_rate.return_value = [_FUNDING_RAW]
-        fetch_funding_rates(client, "BTCUSDT")
-        kwargs = client.futures_funding_rate.call_args.kwargs
-        assert "startTime" not in kwargs
-        assert "endTime" not in kwargs
+
+def test_omits_time_kwargs_when_not_given(self) -> None:
+    client = MagicMock()
+    client.futures_funding_rate.return_value = [_FUNDING_RAW]
+    fetch_funding_rates(client, "BTCUSDT")
+    kwargs = client.futures_funding_rate.call_args.kwargs
+    assert "startTime" not in kwargs
+    assert "endTime" not in kwargs
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**

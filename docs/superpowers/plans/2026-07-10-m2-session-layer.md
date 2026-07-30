@@ -941,8 +941,7 @@ def test_clock_line_active_session() -> None:
     )
     line = _clock_line(clock, START_MS + 9 * H1)  # 17:00 MYT
     assert line == (
-        "Session: London 14:00–22:00 MYT · 3h00m in / 5h00m left · "
-        "next NY 22:00 MYT"
+        "Session: London 14:00–22:00 MYT · 3h00m in / 5h00m left · next NY 22:00 MYT"
     )
 
 
@@ -1062,15 +1061,16 @@ def _clock_line(clock: SessionClock | None, as_of_ms: int) -> str | None:
     overlap = " (NY overlap)" if clock.is_overlap else ""
     elapsed = _fmt_dur(as_of_ms - clock.start_ms)
     left = _fmt_dur(clock.end_ms - as_of_ms)
-    return f"Session: {clock.label}{overlap} {span} · {elapsed} in / {left} left · {nxt}"
+    return (
+        f"Session: {clock.label}{overlap} {span} · {elapsed} in / {left} left · {nxt}"
+    )
 
 
 def _recap_bit(row: SessionRecapRow) -> str:
     start = pd.Timestamp(row.start_ms + _MYT_OFFSET_MS, unit="ms", tz="UTC")
     end = pd.Timestamp(row.end_ms + _MYT_OFFSET_MS, unit="ms", tz="UTC")
     span = (
-        f"{_DOW[int(start.weekday())]} "
-        f"{start.strftime('%H')}–{end.strftime('%H')} MYT"
+        f"{_DOW[int(start.weekday())]} {start.strftime('%H')}–{end.strftime('%H')} MYT"
     )
     cov = (
         ""
@@ -1082,7 +1082,9 @@ def _recap_bit(row: SessionRecapRow) -> str:
     marks = (" ·set-high" if row.made_set_high else "") + (
         " ·set-low" if row.made_set_low else ""
     )
-    return f"{row.session:<7}{span}{cov} · net {row.net_pct:+.2f}%{atr_bit} · {rng}{marks}"
+    return (
+        f"{row.session:<7}{span}{cov} · net {row.net_pct:+.2f}%{atr_bit} · {rng}{marks}"
+    )
 
 
 def _tendency_bit(rows: list[SessionTendencyRow]) -> str:

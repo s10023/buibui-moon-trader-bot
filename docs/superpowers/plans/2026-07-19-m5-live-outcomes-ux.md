@@ -243,18 +243,16 @@ The `cell_rows` and `strat_rows` queries already interpolate `{where}` and pass 
 Add before the `return`:
 
 ```python
-    symbol_rows = conn.execute(
-        """
-        SELECT symbol, COUNT(*) AS n
-        FROM signal_alert_outcomes
-        GROUP BY symbol
-        ORDER BY n DESC, symbol ASC
-        """
-    ).fetchall()
+symbol_rows = conn.execute(
+    """
+    SELECT symbol, COUNT(*) AS n
+    FROM signal_alert_outcomes
+    GROUP BY symbol
+    ORDER BY n DESC, symbol ASC
+    """
+).fetchall()
 
-    symbols = [
-        LiveOutcomeSymbolRow(symbol=str(sym), n=int(n)) for (sym, n) in symbol_rows
-    ]
+symbols = [LiveOutcomeSymbolRow(symbol=str(sym), n=int(n)) for (sym, n) in symbol_rows]
 ```
 
 Add `symbols=symbols` to the `LiveOutcomesResult(...)` construction.
@@ -871,9 +869,7 @@ def get_live_outcomes(
 Add `symbols` to the returned `LiveOutcomesResponse(...)`:
 
 ```python
-        symbols=[
-            LiveOutcomeSymbolModel(symbol=s.symbol, n=s.n) for s in result.symbols
-        ],
+symbols = ([LiveOutcomeSymbolModel(symbol=s.symbol, n=s.n) for s in result.symbols],)
 ```
 
 - [ ] **Step 5: Add the open route**

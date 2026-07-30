@@ -368,8 +368,7 @@ def test_raw_ewmac_positive_in_uptrend() -> None:
 def test_raw_ewmac_matches_pandas_ewm() -> None:
     close = pd.Series([1.0, 2.0, 3.0, 5.0, 8.0, 13.0, 21.0])
     expected = (
-        close.ewm(span=2, adjust=False).mean()
-        - close.ewm(span=4, adjust=False).mean()
+        close.ewm(span=2, adjust=False).mean() - close.ewm(span=4, adjust=False).mean()
     )
     pd.testing.assert_series_equal(raw_ewmac(close, 2, 4), expected, check_names=False)
 
@@ -655,9 +654,7 @@ def instrument_returns(
         close, cfg.speeds, cfg.fdm, cfg.vol_span, cfg.cap
     ).shift(1)
     vol_ann = (
-        ew_return_vol(close, cfg.vol_span)
-        .mul(np.sqrt(cfg.annualization_days))
-        .shift(1)
+        ew_return_vol(close, cfg.vol_span).mul(np.sqrt(cfg.annualization_days)).shift(1)
     )
 
     leverage = (forecast / 10.0) * (cfg.vol_target_annual / vol_ann)
@@ -773,9 +770,7 @@ def test_governor_is_causal() -> None:
     bumped = a.copy()
     bumped.iloc[-1] *= 2.0
     after = run_forecast_backtest({"AAA": bumped}, {"AAA": z}, ForecastConfig())
-    np.testing.assert_allclose(
-        base.governor[:-1], after.governor[:-1], equal_nan=True
-    )
+    np.testing.assert_allclose(base.governor[:-1], after.governor[:-1], equal_nan=True)
 
 
 def test_inactive_instrument_excluded_from_mean() -> None:
@@ -840,11 +835,11 @@ def run_forecast_backtest(
     pre = pre.fillna(0.0)
 
     ann = np.sqrt(cfg.annualization_days)
-    trailing_vol = pre.rolling(cfg.gov_window, min_periods=cfg.gov_window).std().shift(
-        1
-    ) * ann
+    trailing_vol = (
+        pre.rolling(cfg.gov_window, min_periods=cfg.gov_window).std().shift(1) * ann
+    )
     g = (cfg.vol_target_annual / trailing_vol).clip(cfg.g_min, cfg.g_max)
-    port = (g.fillna(0.0) * pre)
+    port = g.fillna(0.0) * pre
 
     return ForecastBookResult(
         daily_index=union,
@@ -1575,7 +1570,9 @@ def main() -> None:
     ]
     _print_df("Cost sensitivity (universe)", pd.DataFrame(sweep))
 
-    _print_df("Per-speed Sharpe (H2: s64_256 vs combined)", _per_speed_sharpes(conn, universe))
+    _print_df(
+        "Per-speed Sharpe (H2: s64_256 vs combined)", _per_speed_sharpes(conn, universe)
+    )
 
     print(
         "\nG2 = trend-sleeve OOS Sharpe >= ~1 on the universe, costs in, "

@@ -74,35 +74,38 @@ import nothing from `binance` and do no I/O.
 
 ```python
 @dataclass(frozen=True)
-class ExchangeFilters:        # per symbol, from futures_exchange_info
+class ExchangeFilters:  # per symbol, from futures_exchange_info
     symbol: str
-    qty_step: float           # LOT_SIZE stepSize
-    min_qty: float            # LOT_SIZE minQty
-    min_notional: float       # MIN_NOTIONAL notional
+    qty_step: float  # LOT_SIZE stepSize
+    min_qty: float  # LOT_SIZE minQty
+    min_notional: float  # MIN_NOTIONAL notional
+
 
 @dataclass(frozen=True)
 class OrderIntent:
     symbol: str
-    side: str                 # "BUY" | "SELL"
-    qty: float                # positive, lot-rounded
-    reduce_only: bool         # True when shrinking / closing a leg
-    delta_notional: float     # signed, for logging / overlay
-    reason: str               # "rebalance" | "open" | "close" | "skip:<why>"
+    side: str  # "BUY" | "SELL"
+    qty: float  # positive, lot-rounded
+    reduce_only: bool  # True when shrinking / closing a leg
+    delta_notional: float  # signed, for logging / overlay
+    reason: str  # "rebalance" | "open" | "close" | "skip:<why>"
+
 
 @dataclass(frozen=True)
 class OrderPlan:
-    intents: list[OrderIntent]    # actionable orders only
-    skipped: list[OrderIntent]    # below band / minNotional / no-op (audit trail)
+    intents: list[OrderIntent]  # actionable orders only
+    skipped: list[OrderIntent]  # below band / minNotional / no-op (audit trail)
     target_gross_leverage: float
     target_net_leverage: float
 
+
 def build_order_plan(
     book: TargetBook,
-    current_positions: dict[str, float],   # symbol -> signed qty (from exchange)
-    marks: dict[str, float],               # symbol -> mark price
+    current_positions: dict[str, float],  # symbol -> signed qty (from exchange)
+    marks: dict[str, float],  # symbol -> mark price
     filters: dict[str, ExchangeFilters],
     *,
-    no_trade_band_frac: float,             # band as frac of capital (e.g. 0.005)
+    no_trade_band_frac: float,  # band as frac of capital (e.g. 0.005)
     capital: float,
 ) -> OrderPlan: ...
 ```
@@ -126,22 +129,25 @@ def build_order_plan(
 ```python
 @dataclass(frozen=True)
 class RiskLimits:
-    max_gross_leverage: float           # e.g. 3.0
-    max_position_notional_frac: float   # per-instrument cap, frac of capital (e.g. 0.5)
-    max_drawdown_frac: float            # halt if equity < peak*(1-x) (e.g. 0.25)
-    max_run_turnover_frac: float        # abort if a run trades > x of capital (e.g. 1.0)
-    max_data_staleness_hours: float     # abort if last 1d bar older than this (e.g. 36)
+    max_gross_leverage: float  # e.g. 3.0
+    max_position_notional_frac: float  # per-instrument cap, frac of capital (e.g. 0.5)
+    max_drawdown_frac: float  # halt if equity < peak*(1-x) (e.g. 0.25)
+    max_run_turnover_frac: float  # abort if a run trades > x of capital (e.g. 1.0)
+    max_data_staleness_hours: float  # abort if last 1d bar older than this (e.g. 36)
+
 
 @dataclass(frozen=True)
 class AccountState:
     equity: float
-    peak_equity: float                  # from state file, max-updated each run
-    kill_switch: bool                   # from state file / flag
+    peak_equity: float  # from state file, max-updated each run
+    kill_switch: bool  # from state file / flag
+
 
 @dataclass(frozen=True)
 class OverlayVerdict:
     allowed: bool
-    aborts: list[str]                   # human-readable breach reasons (empty = allowed)
+    aborts: list[str]  # human-readable breach reasons (empty = allowed)
+
 
 def evaluate_overlay(
     plan: OrderPlan,
@@ -199,14 +205,20 @@ class ExecutionResult:
     verdict: OverlayVerdict
     plan: OrderPlan
     submitted: list[OrderIntent]
-    failed: list[tuple[OrderIntent, str]]   # (intent, error message)
+    failed: list[tuple[OrderIntent, str]]  # (intent, error message)
     equity: float
     mode: str
 
+
 def run_once(
-    conn, adapter: BinanceFuturesAdapter, cfg: ForecastConfig,
-    symbols: list[str], limits: RiskLimits, *,
-    no_trade_band_frac: float, exchange_leverage: int,
+    conn,
+    adapter: BinanceFuturesAdapter,
+    cfg: ForecastConfig,
+    symbols: list[str],
+    limits: RiskLimits,
+    *,
+    no_trade_band_frac: float,
+    exchange_leverage: int,
     state_path: Path,
 ) -> ExecutionResult: ...
 ```

@@ -463,9 +463,7 @@ def test_funding_sign_short_receives_funding() -> None:
     # Short position * positive funding -> funding_cost negative -> net > gross.
     idx = _idx(120)
     rng = np.random.default_rng(1)
-    close = pd.Series(
-        100.0 * np.exp(np.cumsum(rng.normal(0.0, 0.001, 120))), index=idx
-    )
+    close = pd.Series(100.0 * np.exp(np.cumsum(rng.normal(0.0, 0.001, 120))), index=idx)
     closes = {"AAA": close}
     fundings = {"AAA": pd.Series(0.002, index=idx)}  # strongly positive -> go short
     cfg = CarryConfig(carry_spans=(1,), cross_sectional=False)
@@ -833,7 +831,9 @@ def replay_carry_trials(
     trials: dict[str, np.ndarray] = {}
     for s in cfg.carry_spans:
         single = dataclasses.replace(cfg, carry_spans=(s,))
-        trials[f"span{s}"] = run_carry_backtest(closes, fundings, single).portfolio_return
+        trials[f"span{s}"] = run_carry_backtest(
+            closes, fundings, single
+        ).portfolio_return
     trials["combined"] = run_carry_backtest(closes, fundings, cfg).portfolio_return
     return trials
 ```
@@ -896,15 +896,29 @@ def _make_inputs(n: int = 300) -> tuple[dict[str, pd.Series], dict[str, pd.Serie
 
 def test_gate_verdict_boundaries() -> None:
     base = CarryReport(
-        sharpe_annual=1.0, sortino_annual=1.0, max_dd=-0.1, calmar=1.0,
-        annual_return=0.2, annual_vol=0.2, n_obs=300,
-        dsr=0.96, pbo=0.4, boot_lo=0.1, boot_hi=2.0, min_trl=100.0,
-        corr_to_xs=0.0, xs_sharpe=1.3, corr_to_trend=0.2, trend_sharpe=0.3,
+        sharpe_annual=1.0,
+        sortino_annual=1.0,
+        max_dd=-0.1,
+        calmar=1.0,
+        annual_return=0.2,
+        annual_vol=0.2,
+        n_obs=300,
+        dsr=0.96,
+        pbo=0.4,
+        boot_lo=0.1,
+        boot_hi=2.0,
+        min_trl=100.0,
+        corr_to_xs=0.0,
+        xs_sharpe=1.3,
+        corr_to_trend=0.2,
+        trend_sharpe=0.3,
     )
     assert carry_gate_verdict(base) is True
     assert carry_gate_verdict(base.__class__(**{**base.__dict__, "dsr": 0.94})) is False
     assert carry_gate_verdict(base.__class__(**{**base.__dict__, "pbo": 0.6})) is False
-    assert carry_gate_verdict(base.__class__(**{**base.__dict__, "boot_lo": 0.0})) is False
+    assert (
+        carry_gate_verdict(base.__class__(**{**base.__dict__, "boot_lo": 0.0})) is False
+    )
 
 
 def test_evaluate_carry_fields_present() -> None:
@@ -918,7 +932,9 @@ def test_evaluate_carry_fields_present() -> None:
     }
     xs = res.portfolio_return * 0.5
     trend = res.portfolio_return * 0.3
-    rep = evaluate_carry(res, cfg, trial_returns=trials, xs_returns=xs, trend_returns=trend)
+    rep = evaluate_carry(
+        res, cfg, trial_returns=trials, xs_returns=xs, trend_returns=trend
+    )
     assert isinstance(rep, CarryReport)
     assert rep.n_obs == 300
     assert -1.0 <= rep.corr_to_xs <= 1.0
@@ -931,7 +947,8 @@ def test_corr_to_xs_excludes_joint_dead_warmup() -> None:
     res = run_carry_backtest(closes, fundings, cfg)
     # XS returns identical to the book -> corr should be ~1.0 over the live tail
     rep = evaluate_carry(
-        res, cfg,
+        res,
+        cfg,
         trial_returns={"span1": res.portfolio_return, "combined": res.portfolio_return},
         xs_returns=res.portfolio_return.copy(),
         trend_returns=res.portfolio_return.copy(),
@@ -1272,7 +1289,9 @@ from analytics.xsmom import replay_xs
 _MAJORS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
 
 
-def _cfg(slippage_bps: float, *, cross_sectional: bool, scalar: float = 30.0) -> CarryConfig:
+def _cfg(
+    slippage_bps: float, *, cross_sectional: bool, scalar: float = 30.0
+) -> CarryConfig:
     sleeve = dataclasses.replace(ForecastConfig(), slippage_pct=slippage_bps / 10_000.0)
     return CarryConfig(
         sleeve_cfg=sleeve, cross_sectional=cross_sectional, carry_scalar=scalar
@@ -1352,7 +1371,9 @@ def main() -> None:
 
     _print_df(
         "Gate — headline cross-sectional carry (universe @2bps)",
-        pd.DataFrame([build_report_row(conn, "xs-carry universe @2bps", universe, 2.0)]),
+        pd.DataFrame(
+            [build_report_row(conn, "xs-carry universe @2bps", universe, 2.0)]
+        ),
     )
 
     _print_df(
@@ -1398,9 +1419,7 @@ def main() -> None:
         "Scalar sensitivity (cross-sectional universe @2bps)",
         pd.DataFrame(
             [
-                build_report_row(
-                    conn, f"scalar={s:g}", universe, 2.0, scalar=s
-                )
+                build_report_row(conn, f"scalar={s:g}", universe, 2.0, scalar=s)
                 for s in (15.0, 30.0, 60.0)
             ]
         ),

@@ -43,65 +43,105 @@ These keep zero behavioural drift because the new `run_backtest` params default 
 Add to `tests/test_backtest_lib.py` inside `class TestTradePnlR` (after `test_long_win_returns_positive`, before `test_long_loss_returns_negative`):
 
 ```python
-    def test_slippage_subtracts_like_fee(self) -> None:
-        # risk = 2, entry = 100 → slippage_drag_r = 2 * 0.0002 * 100 / 2 = 0.02
-        t = Trade(
-            signal_time=0,
-            entry_time=1,
-            entry_price=100.0,
-            direction="long",
-            sl_price=98.0,  # risk = 2
-            tp_price=104.0,
-            exit_price=104.0,
-            exit_time=2,
-            outcome="win",
-            slippage_pct=0.0002,
-        )
-        assert t.pnl_r == pytest.approx(2.0 - 0.02)
+def test_slippage_subtracts_like_fee(self) -> None:
+    # risk = 2, entry = 100 → slippage_drag_r = 2 * 0.0002 * 100 / 2 = 0.02
+    t = Trade(
+        signal_time=0,
+        entry_time=1,
+        entry_price=100.0,
+        direction="long",
+        sl_price=98.0,  # risk = 2
+        tp_price=104.0,
+        exit_price=104.0,
+        exit_time=2,
+        outcome="win",
+        slippage_pct=0.0002,
+    )
+    assert t.pnl_r == pytest.approx(2.0 - 0.02)
 
-    def test_slippage_hurts_tight_sl_more(self) -> None:
-        # Same slippage_pct, tighter SL → larger R drag (R-normalisation property).
-        tight = Trade(
-            signal_time=0, entry_time=1, entry_price=100.0, direction="long",
-            sl_price=99.0, tp_price=102.0, exit_price=102.0, exit_time=2,
-            outcome="win", slippage_pct=0.0002,
-        )  # risk = 1 → drag = 2 * 0.0002 * 100 / 1 = 0.04
-        wide = Trade(
-            signal_time=0, entry_time=1, entry_price=100.0, direction="long",
-            sl_price=96.0, tp_price=108.0, exit_price=108.0, exit_time=2,
-            outcome="win", slippage_pct=0.0002,
-        )  # risk = 4 → drag = 2 * 0.0002 * 100 / 4 = 0.01
-        tight_drag = 2.0 - tight.pnl_r  # type: ignore[operator]
-        wide_drag = 2.0 - wide.pnl_r  # type: ignore[operator]
-        assert tight_drag > wide_drag
 
-    def test_funding_r_subtracts(self) -> None:
-        # funding_r is precomputed; pnl_r subtracts it verbatim.
-        t = Trade(
-            signal_time=0, entry_time=1, entry_price=100.0, direction="long",
-            sl_price=98.0, tp_price=104.0, exit_price=104.0, exit_time=2,
-            outcome="win", funding_r=0.05,
-        )
-        assert t.pnl_r == pytest.approx(2.0 - 0.05)
+def test_slippage_hurts_tight_sl_more(self) -> None:
+    # Same slippage_pct, tighter SL → larger R drag (R-normalisation property).
+    tight = Trade(
+        signal_time=0,
+        entry_time=1,
+        entry_price=100.0,
+        direction="long",
+        sl_price=99.0,
+        tp_price=102.0,
+        exit_price=102.0,
+        exit_time=2,
+        outcome="win",
+        slippage_pct=0.0002,
+    )  # risk = 1 → drag = 2 * 0.0002 * 100 / 1 = 0.04
+    wide = Trade(
+        signal_time=0,
+        entry_time=1,
+        entry_price=100.0,
+        direction="long",
+        sl_price=96.0,
+        tp_price=108.0,
+        exit_price=108.0,
+        exit_time=2,
+        outcome="win",
+        slippage_pct=0.0002,
+    )  # risk = 4 → drag = 2 * 0.0002 * 100 / 4 = 0.01
+    tight_drag = 2.0 - tight.pnl_r  # type: ignore[operator]
+    wide_drag = 2.0 - wide.pnl_r  # type: ignore[operator]
+    assert tight_drag > wide_drag
 
-    def test_all_cost_terms_compose(self) -> None:
-        t = Trade(
-            signal_time=0, entry_time=1, entry_price=100.0, direction="long",
-            sl_price=98.0, tp_price=104.0, exit_price=104.0, exit_time=2,
-            outcome="win", fee_pct=0.0005, slippage_pct=0.0002, funding_r=0.05,
-        )
-        fee = 2.0 * 0.0005 * 100.0 / 2.0   # 0.05
-        slip = 2.0 * 0.0002 * 100.0 / 2.0  # 0.02
-        assert t.pnl_r == pytest.approx(2.0 - fee - slip - 0.05)
 
-    def test_defaults_are_byte_stable(self) -> None:
-        # New fields default to 0.0 → unchanged from the fee-only formula.
-        t = Trade(
-            signal_time=0, entry_time=1, entry_price=100.0, direction="long",
-            sl_price=98.0, tp_price=104.0, exit_price=104.0, exit_time=2,
-            outcome="win",
-        )
-        assert t.pnl_r == pytest.approx(2.0)
+def test_funding_r_subtracts(self) -> None:
+    # funding_r is precomputed; pnl_r subtracts it verbatim.
+    t = Trade(
+        signal_time=0,
+        entry_time=1,
+        entry_price=100.0,
+        direction="long",
+        sl_price=98.0,
+        tp_price=104.0,
+        exit_price=104.0,
+        exit_time=2,
+        outcome="win",
+        funding_r=0.05,
+    )
+    assert t.pnl_r == pytest.approx(2.0 - 0.05)
+
+
+def test_all_cost_terms_compose(self) -> None:
+    t = Trade(
+        signal_time=0,
+        entry_time=1,
+        entry_price=100.0,
+        direction="long",
+        sl_price=98.0,
+        tp_price=104.0,
+        exit_price=104.0,
+        exit_time=2,
+        outcome="win",
+        fee_pct=0.0005,
+        slippage_pct=0.0002,
+        funding_r=0.05,
+    )
+    fee = 2.0 * 0.0005 * 100.0 / 2.0  # 0.05
+    slip = 2.0 * 0.0002 * 100.0 / 2.0  # 0.02
+    assert t.pnl_r == pytest.approx(2.0 - fee - slip - 0.05)
+
+
+def test_defaults_are_byte_stable(self) -> None:
+    # New fields default to 0.0 → unchanged from the fee-only formula.
+    t = Trade(
+        signal_time=0,
+        entry_time=1,
+        entry_price=100.0,
+        direction="long",
+        sl_price=98.0,
+        tp_price=104.0,
+        exit_price=104.0,
+        exit_time=2,
+        outcome="win",
+    )
+    assert t.pnl_r == pytest.approx(2.0)
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -114,11 +154,13 @@ Expected: FAIL — `TypeError: __init__() got an unexpected keyword argument 'sl
 In `analytics/backtest/engine.py`, add the two fields to `Trade` after `fee_pct: float = 0.0` (line 89):
 
 ```python
-    fee_pct: float = 0.0
-    slippage_pct: float = 0.0  # per-leg slippage as a price fraction (fee-shaped)
-    funding_r: float = 0.0  # funding cost in R units; precomputed at close (see run_backtest)
-    low_volume: bool = False  # True when signal candle volume < 1.5× rolling mean
-    volume_spike: bool = False  # True when signal candle volume > 3× rolling mean
+fee_pct: float = 0.0
+slippage_pct: float = 0.0  # per-leg slippage as a price fraction (fee-shaped)
+funding_r: float = (
+    0.0  # funding cost in R units; precomputed at close (see run_backtest)
+)
+low_volume: bool = False  # True when signal candle volume < 1.5× rolling mean
+volume_spike: bool = False  # True when signal candle volume > 3× rolling mean
 ```
 
 Then replace the `pnl_r` body (lines 104-114) — update the docstring and the return:
@@ -191,16 +233,51 @@ def _one_long_win_setup() -> tuple[pd.DataFrame, pd.DataFrame]:
     SL fallback = 2% (sl_pct), risk = 2.0. TP at tp_r=2 → 104. High hits 104 at t=3.
     """
     rows = [
-        {"open_time": 0, "open": 100, "high": 101, "low": 99, "close": 100,
-         "volume": 1000, "taker_buy_volume": 500},
-        {"open_time": 1, "open": 100, "high": 101, "low": 99, "close": 100,
-         "volume": 1000, "taker_buy_volume": 500},
-        {"open_time": 2, "open": 100, "high": 102, "low": 99, "close": 101,
-         "volume": 1000, "taker_buy_volume": 500},
-        {"open_time": 3, "open": 101, "high": 105, "low": 100, "close": 104,
-         "volume": 1000, "taker_buy_volume": 500},
-        {"open_time": 4, "open": 104, "high": 106, "low": 103, "close": 105,
-         "volume": 1000, "taker_buy_volume": 500},
+        {
+            "open_time": 0,
+            "open": 100,
+            "high": 101,
+            "low": 99,
+            "close": 100,
+            "volume": 1000,
+            "taker_buy_volume": 500,
+        },
+        {
+            "open_time": 1,
+            "open": 100,
+            "high": 101,
+            "low": 99,
+            "close": 100,
+            "volume": 1000,
+            "taker_buy_volume": 500,
+        },
+        {
+            "open_time": 2,
+            "open": 100,
+            "high": 102,
+            "low": 99,
+            "close": 101,
+            "volume": 1000,
+            "taker_buy_volume": 500,
+        },
+        {
+            "open_time": 3,
+            "open": 101,
+            "high": 105,
+            "low": 100,
+            "close": 104,
+            "volume": 1000,
+            "taker_buy_volume": 500,
+        },
+        {
+            "open_time": 4,
+            "open": 104,
+            "high": 106,
+            "low": 103,
+            "close": 105,
+            "volume": 1000,
+            "taker_buy_volume": 500,
+        },
     ]
     ohlcv = pd.DataFrame(rows)
     signals = pd.DataFrame([{"open_time": 0, "direction": "long"}])
@@ -233,16 +310,51 @@ class TestRunBacktestCosts:
     def test_short_receives_funding_when_rate_positive(self) -> None:
         # Mirror short: entry 100, sl 102 (risk 2), tp 96; low hits 96.
         rows = [
-            {"open_time": 0, "open": 100, "high": 101, "low": 99, "close": 100,
-             "volume": 1000, "taker_buy_volume": 500},
-            {"open_time": 1, "open": 100, "high": 101, "low": 99, "close": 100,
-             "volume": 1000, "taker_buy_volume": 500},
-            {"open_time": 2, "open": 100, "high": 101, "low": 98, "close": 99,
-             "volume": 1000, "taker_buy_volume": 500},
-            {"open_time": 3, "open": 99, "high": 100, "low": 95, "close": 96,
-             "volume": 1000, "taker_buy_volume": 500},
-            {"open_time": 4, "open": 96, "high": 97, "low": 94, "close": 95,
-             "volume": 1000, "taker_buy_volume": 500},
+            {
+                "open_time": 0,
+                "open": 100,
+                "high": 101,
+                "low": 99,
+                "close": 100,
+                "volume": 1000,
+                "taker_buy_volume": 500,
+            },
+            {
+                "open_time": 1,
+                "open": 100,
+                "high": 101,
+                "low": 99,
+                "close": 100,
+                "volume": 1000,
+                "taker_buy_volume": 500,
+            },
+            {
+                "open_time": 2,
+                "open": 100,
+                "high": 101,
+                "low": 98,
+                "close": 99,
+                "volume": 1000,
+                "taker_buy_volume": 500,
+            },
+            {
+                "open_time": 3,
+                "open": 99,
+                "high": 100,
+                "low": 95,
+                "close": 96,
+                "volume": 1000,
+                "taker_buy_volume": 500,
+            },
+            {
+                "open_time": 4,
+                "open": 96,
+                "high": 97,
+                "low": 94,
+                "close": 95,
+                "volume": 1000,
+                "taker_buy_volume": 500,
+            },
         ]
         ohlcv = pd.DataFrame(rows)
         signals = pd.DataFrame([{"open_time": 0, "direction": "short"}])
@@ -295,9 +407,9 @@ Expected: FAIL — `TypeError: run_backtest() got an unexpected keyword argument
 In `analytics/backtest/engine.py`, add two kw-only params to `run_backtest` (after `htf_slope_series_by_anchor` at line 786):
 
 ```python
-    htf_slope_series_by_anchor: Mapping[tuple[str, int, int], pd.Series] | None = None,
-    slippage_pct: float = 0.0,
-    funding_series: pd.Series | None = None,
+htf_slope_series_by_anchor: Mapping[tuple[str, int, int], pd.Series] | None = (None,)
+slippage_pct: float = (0.0,)
+funding_series: pd.Series | None = (None,)
 ```
 
 After the OHLCV array pre-extraction block (after line 910, `n_candles = len(ohlcv_times_np)`), add the funding pre-extract:
@@ -316,31 +428,27 @@ After the OHLCV array pre-extraction block (after line 910, `n_candles = len(ohl
 Add `slippage_pct=slippage_pct,` to the `Trade(...)` construction (after `fee_pct=fee_pct,` at line 1021):
 
 ```python
-            fee_pct=fee_pct,
-            slippage_pct=slippage_pct,
-            low_volume=is_low_vol,
-            volume_spike=is_spike,
+fee_pct = (fee_pct,)
+slippage_pct = (slippage_pct,)
+low_volume = (is_low_vol,)
+volume_spike = (is_spike,)
 ```
 
 After the exit-determination block (after line 1051's `# else: neither hit → trade remains open`, before `result.trades.append(trade)` at line 1053), add the funding_r computation:
 
 ```python
-        # Funding cost in R units (P0b PR-2). Sum funding stamps held in
-        # (entry_time, exit_time]; long pays (+), short receives (−). The
-        # subtraction happens in Trade.pnl_r. Graceful 0.0 with no series/data.
-        if funding_times_np is not None and trade.exit_time is not None:
-            risk = abs(entry_price - sl_price)
-            if risk > 0.0:
-                lo_i = int(
-                    np.searchsorted(funding_times_np, entry_time, side="right")
-                )
-                hi_i = int(
-                    np.searchsorted(funding_times_np, trade.exit_time, side="right")
-                )
-                if hi_i > lo_i:
-                    funding_sum = float(funding_rates_np[lo_i:hi_i].sum())
-                    side_sign = 1.0 if direction == "long" else -1.0
-                    trade.funding_r = side_sign * funding_sum * entry_price / risk
+# Funding cost in R units (P0b PR-2). Sum funding stamps held in
+# (entry_time, exit_time]; long pays (+), short receives (−). The
+# subtraction happens in Trade.pnl_r. Graceful 0.0 with no series/data.
+if funding_times_np is not None and trade.exit_time is not None:
+    risk = abs(entry_price - sl_price)
+    if risk > 0.0:
+        lo_i = int(np.searchsorted(funding_times_np, entry_time, side="right"))
+        hi_i = int(np.searchsorted(funding_times_np, trade.exit_time, side="right"))
+        if hi_i > lo_i:
+            funding_sum = float(funding_rates_np[lo_i:hi_i].sum())
+            side_sign = 1.0 if direction == "long" else -1.0
+            trade.funding_r = side_sign * funding_sum * entry_price / risk
 ```
 
 Update the `run_backtest` docstring (the gate list around lines 808-830) with a short note that `slippage_pct` mirrors `fee_pct` and `funding_series` (indexed by funding_time ms) drives the at-close `funding_r`; both default to byte-stable no-ops.
@@ -375,34 +483,37 @@ Find how each test module builds a TOML + loads config (search for `load_backtes
 For `tests/test_backtest_config.py` (sweep config):
 
 ```python
-    def test_slippage_bps_resolves_to_fraction(self, tmp_path: Path) -> None:
-        toml = tmp_path / "c.toml"
-        toml.write_text('[backtest]\nslippage_bps = 2.0\n')
-        cfg = load_backtest_config(str(toml))
-        assert cfg.slippage_pct == pytest.approx(0.0002)
+def test_slippage_bps_resolves_to_fraction(self, tmp_path: Path) -> None:
+    toml = tmp_path / "c.toml"
+    toml.write_text("[backtest]\nslippage_bps = 2.0\n")
+    cfg = load_backtest_config(str(toml))
+    assert cfg.slippage_pct == pytest.approx(0.0002)
 
-    def test_slippage_defaults_to_2bps_when_omitted(self, tmp_path: Path) -> None:
-        toml = tmp_path / "c.toml"
-        toml.write_text('[backtest]\nmode = "hard"\n')
-        cfg = load_backtest_config(str(toml))
-        assert cfg.slippage_pct == pytest.approx(0.0002)
 
-    def test_slippage_field_default_is_zero(self) -> None:
-        # Direct construction stays byte-stable (engine no-op).
-        assert BacktestSweepConfig().slippage_pct == 0.0
+def test_slippage_defaults_to_2bps_when_omitted(self, tmp_path: Path) -> None:
+    toml = tmp_path / "c.toml"
+    toml.write_text('[backtest]\nmode = "hard"\n')
+    cfg = load_backtest_config(str(toml))
+    assert cfg.slippage_pct == pytest.approx(0.0002)
+
+
+def test_slippage_field_default_is_zero(self) -> None:
+    # Direct construction stays byte-stable (engine no-op).
+    assert BacktestSweepConfig().slippage_pct == 0.0
 ```
 
 For `tests/test_backtest_filter.py` (live `BacktestFilterConfig`):
 
 ```python
-    def test_slippage_bps_resolves_to_fraction(self, tmp_path: Path) -> None:
-        toml = tmp_path / "c.toml"
-        toml.write_text('[backtest]\nslippage_bps = 2.0\n')
-        cfg = load_signal_config(str(toml))
-        assert cfg.backtest.slippage_pct == pytest.approx(0.0002)
+def test_slippage_bps_resolves_to_fraction(self, tmp_path: Path) -> None:
+    toml = tmp_path / "c.toml"
+    toml.write_text("[backtest]\nslippage_bps = 2.0\n")
+    cfg = load_signal_config(str(toml))
+    assert cfg.backtest.slippage_pct == pytest.approx(0.0002)
 
-    def test_slippage_field_default_is_zero(self) -> None:
-        assert BacktestFilterConfig().slippage_pct == 0.0
+
+def test_slippage_field_default_is_zero(self) -> None:
+    assert BacktestFilterConfig().slippage_pct == 0.0
 ```
 
 Adjust imports (`Path`, `pytest`, `BacktestSweepConfig`/`load_backtest_config`, `BacktestFilterConfig`/`load_signal_config`) to match each file's existing imports.
@@ -523,9 +634,7 @@ def test_build_funding_series_by_symbol(in_memory_db) -> None:
             }
         ),
     )
-    out = _build_funding_series_by_symbol(
-        in_memory_db, ["BTCUSDT", "ETHUSDT"], 0, 9999
-    )
+    out = _build_funding_series_by_symbol(in_memory_db, ["BTCUSDT", "ETHUSDT"], 0, 9999)
     assert "BTCUSDT" in out
     assert "ETHUSDT" not in out  # no data → omitted (engine falls to funding_r=0)
     s = out["BTCUSDT"]
@@ -545,8 +654,8 @@ Expected: FAIL — `ImportError: cannot import name '_build_funding_series_by_sy
 In `analytics/backtest_runner.py`, add `get_funding_rates` to the `from analytics.data_store import (...)` block (after `get_ohlcv,` at line 45):
 
 ```python
-    get_funding_rates,
-    get_ohlcv,
+(get_funding_rates,)
+(get_ohlcv,)
 ```
 
 Add the builder after `_build_regime_series_by_symbol` (after line 118):
@@ -588,31 +697,27 @@ Expected: PASS.
 Add a kw-only param to `_collect_sweep_results` (after `htf_slope_by_symbol=...` at line 525):
 
 ```python
-    htf_slope_by_symbol: dict[str, dict[tuple[str, int, int], pd.Series]] | None = None,
-    funding_by_symbol: dict[str, pd.Series] | None = None,
+htf_slope_by_symbol: dict[str, dict[tuple[str, int, int], pd.Series]] | None = (None,)
+funding_by_symbol: dict[str, pd.Series] | None = (None,)
 ```
 
 After the `htf_slope_by_symbol is None` build block (after line 573), add:
 
 ```python
-    if funding_by_symbol is None:
-        funding_by_symbol = _build_funding_series_by_symbol(
-            conn, symbols, start_ms, end_ms
-        )
+if funding_by_symbol is None:
+    funding_by_symbol = _build_funding_series_by_symbol(conn, symbols, start_ms, end_ms)
 ```
 
 In the Phase-3 `run_backtest(...)` call (line 662), add two args after `cfg.fee_pct,` and inside the kw block (after `htf_slope_series_by_anchor=...`):
 
 ```python
-            cfg.fee_pct,
-            slippage_pct=cfg.slippage_pct,
-            ...
-            htf_slope_series_by_anchor=(
-                htf_slope_by_symbol.get(symbol)
-                if htf_slope_by_symbol is not None
-                else None
-            ),
-            funding_series=funding_by_symbol.get(symbol),
+(cfg.fee_pct,)
+slippage_pct = (cfg.slippage_pct,)
+...
+htf_slope_series_by_anchor = (
+    (htf_slope_by_symbol.get(symbol) if htf_slope_by_symbol is not None else None),
+)
+funding_series = (funding_by_symbol.get(symbol),)
 ```
 
 Note: `slippage_pct` is kw-only on `run_backtest`, so it must go in the keyword section, not positionally after `cfg.fee_pct`. Place both `slippage_pct=cfg.slippage_pct` and `funding_series=...` in the keyword block (alongside `min_sl_pct=...`).
@@ -622,25 +727,23 @@ Note: `slippage_pct` is kw-only on `run_backtest`, so it must go in the keyword 
 In `run_backtest_sweep`'s try-block, after `htf_slope_by_symbol = _build_htf_slope_series_by_symbol(...)` (line 782), add:
 
 ```python
-        funding_by_symbol = _build_funding_series_by_symbol(
-            conn, symbols, start_ms, end_ms
-        )
+funding_by_symbol = _build_funding_series_by_symbol(conn, symbols, start_ms, end_ms)
 ```
 
 In the **tp-sweep** `run_backtest(...)` (line 795) and **atr-sweep** `run_backtest(...)` (line 847), add to each keyword block:
 
 ```python
-                        live_parity=cfg.live_parity,
-                        slippage_pct=cfg.slippage_pct,
-                        ...
-                        funding_series=funding_by_symbol.get(sym),
+live_parity = (cfg.live_parity,)
+slippage_pct = (cfg.slippage_pct,)
+...
+funding_series = (funding_by_symbol.get(sym),)
 ```
 
 In the single-run branch's `_collect_sweep_results(...)` call (line 888), pass the pre-built map:
 
 ```python
-                    htf_slope_by_symbol=htf_slope_by_symbol,
-                    funding_by_symbol=funding_by_symbol,
+htf_slope_by_symbol = (htf_slope_by_symbol,)
+funding_by_symbol = (funding_by_symbol,)
 ```
 
 - [ ] **Step 7: Thread into `run_backtest_cmd`**
@@ -648,28 +751,28 @@ In the single-run branch's `_collect_sweep_results(...)` call (line 888), pass t
 Add a param to `run_backtest_cmd` (after `fee_pct: float = 0.0,` at line 928):
 
 ```python
-    fee_pct: float = 0.0,
-    slippage_pct: float = 0.0,
+fee_pct: float = (0.0,)
+slippage_pct: float = (0.0,)
 ```
 
 Build the funding series before the `run_backtest(...)` call (after the `htf_slope_by_anchor` block ends, ~line 1031):
 
 ```python
-        funding_series = _build_funding_series_by_symbol(
-            conn, [symbol], start_ms, end_ms
-        ).get(symbol)
+funding_series = _build_funding_series_by_symbol(conn, [symbol], start_ms, end_ms).get(
+    symbol
+)
 ```
 
 Add to the `run_backtest(...)` keyword block (line 1033):
 
 ```python
-            sl_pct,
-            tp_r,
-            fee_pct,
-            slippage_pct=slippage_pct,
-            ...
-            htf_slope_series_by_anchor=htf_slope_by_anchor,
-            funding_series=funding_series,
+(sl_pct,)
+(tp_r,)
+(fee_pct,)
+slippage_pct = (slippage_pct,)
+...
+htf_slope_series_by_anchor = (htf_slope_by_anchor,)
+funding_series = (funding_series,)
 ```
 
 - [ ] **Step 8: Add a sweep-level integration test**
@@ -762,11 +865,11 @@ In `tests/test_regression.py`, load the funding fixture once (near the OHLCV `fi
 Add the two new args to the `run_backtest(...)` call (after `fee_pct=cfg.backtest.fee_pct,` at line 184, in the keyword block):
 
 ```python
-                fee_pct=cfg.backtest.fee_pct,
-                slippage_pct=cfg.backtest.slippage_pct,
-                ...
-                tp_r_short=cfg.effective_tp_r(strategy, "BTCUSDT", tf, "short"),
-                funding_series=funding_series,
+fee_pct = (cfg.backtest.fee_pct,)
+slippage_pct = (cfg.backtest.slippage_pct,)
+...
+tp_r_short = (cfg.effective_tp_r(strategy, "BTCUSDT", tf, "short"),)
+funding_series = (funding_series,)
 ```
 
 Ensure `import pandas as pd` exists at the top of `tests/test_regression.py` (add if missing).
