@@ -443,15 +443,16 @@ Supported sort keys:
 
 Append `:asc` or `:desc` to control the sort direction (defaults to `desc`).
 
-> **Known limitation — SL/TP columns require standalone Binance orders.**
-> `SL Price`, `% to SL`, `SL USD`, and `TP Price` are populated by reading open
-> `STOP_MARKET` / `STOP` and `TAKE_PROFIT_MARKET` / `TAKE_PROFIT` orders from the
-> Binance API. Binance's **Position TP/SL** feature (set at order opening or via the
-> TP/SL tab on a position) is stored internally by Binance and is **not exposed
-> through any public REST API** — no endpoint returns this data. Those columns will
-> show `–` and `Total SL Risk` will show `$0.00` when Position TP/SL is used.
-> To see SL/TP data in the monitor, place them as standalone orders from the Binance
-> order form instead of using the TP/SL tab.
+> **Note — how SL/TP columns are sourced.** `SL Price`, `% to SL`, `SL USD`, and
+> `TP Price` are populated by reading open `STOP_MARKET` / `STOP` and
+> `TAKE_PROFIT_MARKET` / `TAKE_PROFIT` orders from **both** Binance order books:
+> the classic one (`/fapi/v1/openOrders`) and the conditional/algo one
+> (`/fapi/v1/openAlgoOrders`). Binance migrated all conditional order types —
+> including UI-placed Position TP/SL and standalone stop orders — to the algo
+> subsystem on 2025-12-09, so the monitor queries both and merges the results.
+> The old limitation ("Position TP/SL is not exposed through any public REST
+> API") no longer applies: TP/SL set via the position card or at order opening
+> now shows in the monitor.
 
 ### Analytics — Backfill Historical Data
 
