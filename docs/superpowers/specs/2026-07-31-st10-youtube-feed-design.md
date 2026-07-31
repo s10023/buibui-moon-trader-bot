@@ -75,6 +75,11 @@ Design answer, three properties:
    skipped-but-below-watermark videos silently unreachable and couples consumption to fetch
    order — the exact semantics the ledger model exists to avoid.
 
+The floor bounds the **daily `poll` only** — it keeps a fresh channel add from flooding the
+feed. It is not a wall: the deep back-catalogue is reachable any time via the explicit
+`backfill` subcommand (§5), which ignores the floor but still respects the ledger, so
+ingested/skipped videos never re-present through either path.
+
 Failure window: if the session dies between routing and `mark`, the routed videos re-present
 on the next poll. This is deliberate fail-open toward *visible* duplication rather than
 invisible loss; the skill instructs a per-video-note existence check
@@ -89,7 +94,8 @@ ships Cowen as the first entry.
 
 ```toml
 [feed]
-cold_start_days = 14      # floor_ts = add-time − this; older uploads are never candidates
+cold_start_days = 14      # floor_ts = add-time − this; bounds the daily poll only —
+                          # older uploads stay reachable via `backfill` (§5)
 
 [[channel]]
 id = "UC..."                       # UC… channel id — fill via `yt_feed.py resolve <handle>`
@@ -121,9 +127,9 @@ typed, pure logic separated from transport. The HTTP `get` is injected (as in
    derived id errors (404), fall back to `channels.list?part=contentDetails` and read
    `relatedPlaylists.uploads`.
 2. Fetch page 1 of `playlistItems.list` (`maxResults=50`, newest-first). Bounded recovery:
-   anything that falls off page 1 without a ledger entry is gone from the feed — same
-   philosophy as the scanner's 200-candle `_SCAN_WINDOW`; the operator can always paste a URL
-   manually.
+   anything that falls off page 1 without a ledger entry drops out of the daily feed — same
+   philosophy as the scanner's 200-candle `_SCAN_WINDOW`. It stays recoverable via
+   `backfill` (below) or a manual URL paste.
 3. Drop: below `floor_ts_utc`; already in the ledger; title-filtered.
 4. Batch `videos.list?part=contentDetails,snippet` for the survivors (50 ids/call) →
    `contentDetails.duration` (ISO-8601 parse) and `snippet.liveBroadcastContent` (a field of
@@ -153,6 +159,18 @@ by design). Idempotent; re-marking overwrites (last wins). Accepts bare video id
 `channel_id: null` when unknown — the ledger's only job is diffing, and diffing is by
 video id.
 
+**`backfill CHANNEL_ID [--since ISO_DATE] [--max-videos N] [--config PATH] [--state PATH]
+[--json]`** — the deep-backlog path, read-only like `poll`. Pages through the channel's full
+uploads playlist (50/page, 1 unit/page, newest-first) until `--since` or `--max-videos`
+(default 200) is reached. Differences from `poll`: it **ignores `floor_ts_utc`** (that is its
+purpose) and takes exactly one channel per invocation; everything else is identical — same
+ledger diff, same title/duration/live filters, same candidate JSON shape, same exclusion
+summary. Deferral semantics: an unpicked backfill candidate is below the poll floor, so it
+reappears only on the next `backfill` run of that channel, never in the daily feed. For a
+"tons of old videos" channel the intended workflow is tranches: run `backfill`, pick a
+session-quota-sized batch by `est_tokens`, ingest, `mark`, repeat another day — the ledger
+carries the progress, no extra bookkeeping.
+
 **`resolve HANDLE`** — `channels.list?forHandle=<handle>&part=id,snippet` → prints a
 ready-to-paste `[[channel]]` TOML block (id + name). Never writes config — a follow-list
 change stays a deliberate operator edit, the `select_universe.py` convention.
@@ -161,7 +179,7 @@ change stays a deliberate operator edit, the `select_universe.py` convention.
 
 | Endpoint | Units | Called |
 | --- | --- | --- |
-| `playlistItems.list` | 1 | once per channel per poll |
+| `playlistItems.list` | 1 | once per channel per poll; 1 per 50-video page in `backfill` (a 2,000-video channel ≈ 40 units) |
 | `videos.list` | 1 per 50 ids | once per ≤50 surviving candidates |
 | `channels.list` | 1 | `resolve`, and the rare `UU`-derivation fallback |
 | `search.list` | 100 | **never** |
@@ -227,9 +245,13 @@ rule").
 
 Orchestration only, mirroring the sibling skills' shape. Flow:
 
-1. `PYTHONPATH=. poetry run python tools/yt_feed.py poll --json`
+1. `PYTHONPATH=. poetry run python tools/yt_feed.py poll --json` — or, when the operator
+   asks for a channel's back-catalogue ("backfill <channel>", "ingest the old videos"),
+   `tools/yt_feed.py backfill <channel_id> --json` instead; every later step is identical.
 2. Render the candidate table: channel · title · duration · age · `est_tokens` — plus the
-   per-channel exclusion summary and any errors. Zero candidates → report and stop.
+   per-channel exclusion summary and any errors. Zero candidates → report and stop. For a
+   large backfill, recommend a tranche sized to remaining session quota (rank by
+   `est_tokens`) rather than ingesting the whole list in one go.
 3. Operator picks. Syntax: ingest some, optionally explicitly skip others; **anything not
    named is deferred** (no mark, reappears next poll).
 4. Run the existing `/ingest-video` flow, steps 1–9, over the picked URLs **by reference**
@@ -294,7 +316,8 @@ The full per-run perf ledger + calibrated estimator stays a separate project
    sane candidates with correct durations and exclusion summaries; an aborted run (stop after
    step 2 of the skill) changes nothing on disk; a full run through `/ingest-video` +
    `mark` consumes exactly the picked/skipped ids; the next `poll` re-presents deferred
-   candidates and nothing that was marked.
+   candidates and nothing that was marked. `backfill` on one real channel pages past 50
+   videos, lists below-floor candidates, and never re-presents marked ids.
 3. Retrospective rule visible end-to-end on a real video that reviews a prior-day entry:
    flagged in the digest, absent from `pundit-calls.jsonl`, present in the note.
 4. Docs updated: README, CLAUDE.md (tools + skills tables), `.env.example`
