@@ -190,11 +190,30 @@ sink is read from, which is what makes the CLI testable against fixtures.
 The check runs **before** the review digest is printed, so candidates appear inside the
 digest rather than after approval.
 
+### 5.1 Seeding the ledger
+
+A ledger that starts empty is blind to everything routed before it existed — the exact
+cached-post-re-routed case §1 describes. `seed` backfills it from Stream C's own records:
+`parse_source_id` recovers the X status id or YouTube video id from each persisted `url`,
+and `item_ts` comes from the row's own `ts` so a seeded key matches byte-for-byte what
+`mark` would have written at routing time.
+
+Only Stream C can be seeded — Streams A and B persist no source id, which is the same
+constraint that forced a side ledger in §2. Rows whose URL yields no id are skipped, which
+correctly excludes the F2 card's own `ai-card://` dual-writes: those are the system quoting
+itself, not ingested content.
+
+Read-only without `--apply`, matching `tools/backfill_null_tp_outcomes.py` — this is a
+retroactive migration over the operator's data, so a human confirms it. The count reports
+new vs already-present vs skipped rather than a bare total; "would seed 94" when 6 are
+already recorded is the kind of misleading number this module exists to stop.
+
 ## 6. Out of scope
 
 - **Never auto-drops a semantic match.** Advisory only; the operator's review gate stays
   the decision point — same posture as `verified:true` in `/ingest-charts` and `mark` in ST10.
-- **No retro-dedupe of the existing sinks.** They are clean (§1).
+- **No retro-dedupe of the existing sinks.** They are clean (§1). Seeding the ledger
+  (§5.1) is a different thing: it records what was already routed, and rewrites nothing.
 - **No cross-language matching** beyond what the already-normalised English rows provide.
 - No schema change, no DB touch, no golden-fixture impact. All writes land in gitignored
   `docs/plans/`.

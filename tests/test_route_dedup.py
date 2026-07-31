@@ -18,7 +18,9 @@ from tools.route_dedup import (
     load_ledger,
     main,
     normalize_levels,
+    parse_source_id,
     remove_routed,
+    seed_items,
     split_entries,
 )
 from tools.x_route import route_target
@@ -291,8 +293,125 @@ def test_find_similar_respects_top_n() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Seeding. Without this the identity layer ships blind to everything already
+# routed — exactly the cached-post-re-routed case backlog #7 was written about.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://x.com/JordiCharts/status/2072488868553601519", "2072488868553601519"),
+        ("https://twitter.com/a/status/123", "123"),
+        ("https://www.youtube.com/watch?v=umX9m7y7jsU&t=886s", "umX9m7y7jsU"),
+        ("https://youtu.be/0jctzIc5t_E?t=251s", "0jctzIc5t_E"),
+    ],
+)
+def test_parse_source_id_reads_every_url_shape(url: str, expected: str) -> None:
+    assert parse_source_id(url) == expected
+
+
+# The F2 card dual-writes its own calls into Stream C; those are not ingested
+# content and must not enter the routing ledger.
+@pytest.mark.parametrize("url", ["ai-card://1783907021091-BTCUSDT", "", "nonsense"])
+def test_parse_source_id_returns_none_for_non_ingested_urls(url: str) -> None:
+    assert parse_source_id(url) is None
+
+
+def test_seed_items_uses_the_rows_own_ts_so_it_matches_what_mark_would_write() -> None:
+    rows = [{"url": "https://youtu.be/0jctzIc5t_E?t=251s", "ts": 251.0}]
+    items = seed_items(rows, sink=PUNDIT_SINK, fallback_ts_utc="2026-07-31T00:00:00Z")
+    assert items[0].source_id == "0jctzIc5t_E"
+    assert items[0].item_ts == 251.0
+
+
+def test_seed_items_defaults_an_x_post_to_zero_ts() -> None:
+    rows = [{"url": "https://x.com/a/status/99"}]
+    items = seed_items(rows, sink=PUNDIT_SINK, fallback_ts_utc="2026-07-31T00:00:00Z")
+    assert items[0].item_ts == 0.0
+
+
+def test_seed_items_skips_underivable_urls() -> None:
+    rows = [{"url": "ai-card://x"}, {"url": "https://x.com/a/status/99"}]
+    items = seed_items(rows, sink=PUNDIT_SINK, fallback_ts_utc="2026-07-31T00:00:00Z")
+    assert len(items) == 1
+
+
+def test_seed_items_prefers_the_rows_own_ingest_time() -> None:
+    rows = [
+        {"url": "https://x.com/a/status/99", "ingested_ts_utc": "2026-07-01T00:00:00Z"}
+    ]
+    items = seed_items(rows, sink=PUNDIT_SINK, fallback_ts_utc="2026-07-31T00:00:00Z")
+    assert items[0].routed_ts_utc == "2026-07-01T00:00:00Z"
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
+
+def test_seed_writes_nothing_without_apply(tmp_path: Path) -> None:
+    sink = tmp_path / "pundit-calls.jsonl"
+    sink.write_text('{"url":"https://x.com/a/status/99"}\n', encoding="utf-8")
+    ledger = tmp_path / "routed.json"
+    assert main(["seed", "--sink-path", str(sink), "--ledger", str(ledger)]) == 0
+    assert not ledger.exists()
+
+
+def test_seed_with_apply_populates_and_then_blocks(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sink = tmp_path / "pundit-calls.jsonl"
+    sink.write_text('{"url":"https://x.com/a/status/99"}\n', encoding="utf-8")
+    ledger = tmp_path / "routed.json"
+    main(["seed", "--sink-path", str(sink), "--ledger", str(ledger), "--apply"])
+    capsys.readouterr()
+    main(
+        [
+            "check",
+            "--source-id",
+            "99",
+            "--item-ts",
+            "0",
+            "--sink",
+            PUNDIT_SINK,
+            "--sink-path",
+            str(sink),
+            "--text",
+            "x",
+            "--ledger",
+            str(ledger),
+        ]
+    )
+    assert json.loads(capsys.readouterr().out)["already_routed"] is True
+
+
+# A count that ignores what's already in the ledger is exactly the kind of
+# misleading number this module exists to stop.
+def test_seed_dry_run_counts_only_what_is_actually_new(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sink = tmp_path / "pundit-calls.jsonl"
+    sink.write_text(
+        '{"url":"https://x.com/a/status/99"}\n{"url":"https://x.com/a/status/100"}\n',
+        encoding="utf-8",
+    )
+    ledger = tmp_path / "routed.json"
+    main(["seed", "--sink-path", str(sink), "--ledger", str(ledger), "--apply"])
+    capsys.readouterr()
+    main(["seed", "--sink-path", str(sink), "--ledger", str(ledger)])
+    out = capsys.readouterr().out
+    assert "0 new" in out
+    assert "2 already" in out
+
+
+def test_seed_is_idempotent(tmp_path: Path) -> None:
+    sink = tmp_path / "pundit-calls.jsonl"
+    sink.write_text('{"url":"https://x.com/a/status/99"}\n', encoding="utf-8")
+    ledger = tmp_path / "routed.json"
+    for _ in range(2):
+        main(["seed", "--sink-path", str(sink), "--ledger", str(ledger), "--apply"])
+    assert len(load_ledger(ledger)) == 1
 
 
 def test_check_reports_not_routed_and_emits_json(

@@ -57,6 +57,13 @@ _MIN_SCORE = 3.0
 
 _EXCERPT_CHARS = 240
 
+# Ordered: the X status form is checked before the YouTube id forms.
+_SOURCE_ID_PATTERNS = (
+    re.compile(r"/status/(\d+)"),
+    re.compile(r"[?&]v=([\w-]{11})"),
+    re.compile(r"youtu\.be/([\w-]{11})"),
+)
+
 _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _NUMBER = re.compile(r"[~$]?(\d[\d,]*(?:\.\d+)?)\s*([kK])?")
 _WORD = re.compile(r"[a-z]{4,}")
@@ -205,6 +212,58 @@ def remove_routed(path: Path, *, source_id: str, item_ts: float, sink: str) -> N
         i for i in load_ledger(path) if _key(i.source_id, i.item_ts, i.sink) != wanted
     ]
     _write_ledger(path, kept)
+
+
+# ---------------------------------------------------------------------------
+# Seeding (pure)
+# ---------------------------------------------------------------------------
+
+
+def parse_source_id(url: str) -> str | None:
+    """The ingest source id inside a persisted sink URL, or None if there isn't one.
+
+    `None` is the right answer for the F2 card's own Stream C dual-writes
+    (`ai-card://…`): those are the system quoting itself, not ingested content, and
+    they must never enter the routing ledger.
+    """
+    for pattern in _SOURCE_ID_PATTERNS:
+        match = pattern.search(url)
+        if match:
+            return match.group(1)
+    return None
+
+
+def seed_items(
+    rows: list[dict[str, Any]], *, sink: str, fallback_ts_utc: str
+) -> list[RoutedItem]:
+    """Ledger rows for content already routed into `sink`, from the sink's own records.
+
+    Without this the identity layer would ship blind to every item routed before it
+    existed — the cached-post-re-routed case this module was written to stop. Only
+    Stream C can be seeded; Streams A and B persist no source id, which is why the
+    ledger is a side file in the first place.
+
+    `item_ts` comes from the row's own `ts` so a seeded key matches byte-for-byte
+    what `mark` would have written at routing time.
+    """
+    items: list[RoutedItem] = []
+    for row in rows:
+        source_id = parse_source_id(str(row.get("url") or ""))
+        if source_id is None:
+            continue
+        items.append(
+            RoutedItem(
+                source_id=source_id,
+                item_ts=float(row.get("ts") or 0.0),
+                sink=sink,
+                routed_ts_utc=str(
+                    row.get("ingested_ts_utc")
+                    or row.get("call_ts_utc")
+                    or fallback_ts_utc
+                ),
+            )
+        )
+    return items
 
 
 # ---------------------------------------------------------------------------
@@ -370,6 +429,36 @@ def _cmd_unmark(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_seed(args: argparse.Namespace) -> int:
+    sink_path = Path(args.sink_path or PUNDIT_SINK)
+    rows: list[dict[str, Any]] = []
+    if sink_path.exists():
+        for line in sink_path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                try:
+                    rows.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue  # a hand-edited line should not abort the migration
+    items = seed_items(
+        rows, sink=PUNDIT_SINK, fallback_ts_utc=datetime.now(UTC).isoformat()
+    )
+    skipped = len(rows) - len(items)
+    # Report against the ledger's actual contents. "would seed 94" when 6 are
+    # already recorded is the sort of misleading count this module exists to stop.
+    existing = load_ledger(Path(args.ledger))
+    new = [i for i in items if not is_routed(existing, i.source_id, i.item_ts, i.sink)]
+    tail = (
+        f"{len(new)} new, {len(items) - len(new)} already in the ledger, "
+        f"{skipped} with no ingest source id (e.g. the card's own ai-card:// rows)"
+    )
+    if not args.apply:
+        print(f"[dry run] {len(rows)} rows in {sink_path}: {tail}. --apply to write.")
+        return 0
+    append_routed(Path(args.ledger), items)
+    print(f"seeded {args.ledger}: {tail}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -396,8 +485,21 @@ def main(argv: list[str] | None = None) -> int:
             )
             p.add_argument("--top-n", type=int, default=3)
 
+    p_seed = sub.add_parser(
+        "seed",
+        help="backfill the ledger from pundit-calls.jsonl — read-only without --apply",
+    )
+    p_seed.add_argument("--ledger", default=str(DEFAULT_LEDGER))
+    p_seed.add_argument("--sink-path", default="", help="read Stream C from here")
+    p_seed.add_argument("--apply", action="store_true", help="actually write")
+
     args = parser.parse_args(argv)
-    handlers = {"check": _cmd_check, "mark": _cmd_mark, "unmark": _cmd_unmark}
+    handlers = {
+        "check": _cmd_check,
+        "mark": _cmd_mark,
+        "unmark": _cmd_unmark,
+        "seed": _cmd_seed,
+    }
     return handlers[args.cmd](args)
 
 
