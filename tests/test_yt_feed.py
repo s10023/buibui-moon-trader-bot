@@ -12,6 +12,7 @@ import pytest
 from tools.yt_feed import (
     ChannelConfig,
     _resolve_durations,
+    backfill_channel,
     estimate_tokens,
     floor_for,
     load_feed_config,
@@ -347,3 +348,98 @@ class TestPollChannel:
         assert len(cands) == 60
         assert len(get.calls) == 2
         assert len(get.calls[0][1]["id"].split(",")) == 50
+
+
+class TestBackfillChannel:
+    def _pages(self) -> dict[str, list[FakeResp]]:
+        page1 = {
+            "items": [playlist_item("aaaaaaaaaa1", "recent", "2026-07-30T00:00:00Z")],
+            "nextPageToken": "P2",
+        }
+        page2 = {
+            "items": [playlist_item("aaaaaaaaaa2", "ancient", "2025-01-15T00:00:00Z")],
+        }
+        videos = {
+            "items": [
+                video_item("aaaaaaaaaa1", "PT30M"),
+                video_item("aaaaaaaaaa2", "PT30M"),
+            ]
+        }
+        return {
+            "playlistItems": [FakeResp(200, page1), FakeResp(200, page2)],
+            "videos": [FakeResp(200, videos)],
+        }
+
+    def test_pagination_ignores_floor_and_respects_ledger(self) -> None:
+        state: dict[str, Any] = {
+            "version": 1,
+            "channels": {
+                "UCabcdefghijklmnopqrstu": {
+                    "added_ts_utc": "2026-07-31T00:00:00+00:00",
+                    "floor_ts_utc": "2026-07-17T00:00:00+00:00",
+                }
+            },
+            "videos": {"aaaaaaaaaa1": {"status": "ingested"}},
+        }
+        get = FakeGet(self._pages())
+        result = backfill_channel(
+            make_channel(),
+            state,
+            now=NOW,
+            get=get,
+            api_key="K",
+            since=None,
+            max_videos=200,
+        )
+        # the 2025 video is WAY below the poll floor but IS a backfill candidate
+        assert [c.video_id for c in result.candidates] == ["aaaaaaaaaa2"]
+        assert result.excluded["ledgered"] == 1
+        assert result.floor_ts_utc == ""
+        # second page requested with the pageToken
+        assert get.calls[1][1]["pageToken"] == "P2"
+
+    def test_since_stops_paging_and_excludes_older(self) -> None:
+        get = FakeGet(self._pages())
+        since = datetime(2026, 1, 1, tzinfo=UTC)
+        result = backfill_channel(
+            make_channel(),
+            {"version": 1, "channels": {}, "videos": {}},
+            now=NOW,
+            get=get,
+            api_key="K",
+            since=since,
+            max_videos=200,
+        )
+        assert [c.video_id for c in result.candidates] == ["aaaaaaaaaa1"]
+        assert result.excluded["below_floor"] == 1  # "older than --since" bucket
+        # page1's last item (2026-07-30) is newer than since, so page2 WAS fetched;
+        # its item then landed below since. Now verify early-stop: with since after
+        # page1's last item, page2 must never be fetched.
+        get2 = FakeGet(self._pages())
+        result2 = backfill_channel(
+            make_channel(),
+            {"version": 1, "channels": {}, "videos": {}},
+            now=NOW,
+            get=get2,
+            api_key="K",
+            since=datetime(2026, 7, 31, tzinfo=UTC),
+            max_videos=200,
+        )
+        assert result2.candidates == []
+        playlist_calls = [c for c in get2.calls if c[0].endswith("playlistItems")]
+        assert len(playlist_calls) == 1
+
+    def test_max_videos_bounds_examined_entries(self) -> None:
+        get = FakeGet(self._pages())
+        result = backfill_channel(
+            make_channel(),
+            {"version": 1, "channels": {}, "videos": {}},
+            now=NOW,
+            get=get,
+            api_key="K",
+            since=None,
+            max_videos=1,
+        )
+        assert len(result.candidates) == 1
+        playlist_calls = [c for c in get.calls if c[0].endswith("playlistItems")]
+        assert len(playlist_calls) == 1

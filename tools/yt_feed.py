@@ -403,3 +403,59 @@ def poll_channel(
     except FeedApiError as exc:
         result.errors.append(str(exc))
     return result
+
+
+def backfill_channel(
+    channel: ChannelConfig,
+    state: dict[str, Any],
+    *,
+    now: datetime,
+    get: HttpGet,
+    api_key: str,
+    since: datetime | None,
+    max_videos: int,
+) -> ChannelResult:
+    """Deep back-catalogue scan (spec §5): floor ignored, ledger respected, read-only.
+
+    `since` reuses the "below_floor" exclusion bucket (= "older than --since" here);
+    `max_videos` bounds playlist entries examined, keeping quota predictable.
+    """
+    excluded = dict.fromkeys(_EXCLUDE_REASONS, 0)
+    result = ChannelResult(channel.id, channel.name, "", [], excluded, [])
+    collected: list[dict[str, Any]] = []
+    token: str | None = None
+    try:
+        uploads = uploads_playlist_id(channel.id)
+        while True:
+            try:
+                page = _fetch_playlist_page(get, api_key, uploads, token)
+            except FeedApiError as exc:
+                if token is None and "404" in str(exc):
+                    uploads = _resolve_uploads_id(get, api_key, channel.id)
+                    page = _fetch_playlist_page(get, api_key, uploads, token)
+                else:
+                    raise
+            items = page.get("items", [])
+            collected.extend(items[: max_videos - len(collected)])
+            token = page.get("nextPageToken")
+            last_pub_raw = (
+                items[-1].get("contentDetails", {}).get("videoPublishedAt")
+                if items
+                else None
+            )
+            past_since = (
+                since is not None
+                and last_pub_raw is not None
+                and datetime.fromisoformat(last_pub_raw) < since
+            )
+            if token is None or len(collected) >= max_videos or past_since:
+                break
+        survivors = _scan_items(
+            channel, collected, ledger=state["videos"], floor=since, excluded=excluded
+        )
+        result.candidates = _resolve_durations(
+            get, api_key, survivors, channel, now, excluded
+        )
+    except FeedApiError as exc:
+        result.errors.append(str(exc))
+    return result
