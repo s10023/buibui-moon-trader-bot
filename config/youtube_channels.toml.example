@@ -1,0 +1,16 @@
+# YouTube channel follow list for /ingest-feed (ST10).
+# Copy to config/youtube_channels.toml (gitignored — a follow list is personal).
+# Resolve a channel id from a handle:
+#   PYTHONPATH=. poetry run python tools/yt_feed.py resolve <handle>
+# Spec: docs/superpowers/specs/2026-07-31-st10-youtube-feed-design.md
+
+[feed]
+cold_start_days = 14   # bounds the daily poll only; old videos stay reachable via `backfill`
+
+[[channel]]
+id = "UCRvqjQPSeaWn-uEx-w0XOIg"
+name = "Benjamin Cowen"
+title_include = []
+title_exclude = ["#shorts"]
+min_duration_s = 180
+lang = "en"

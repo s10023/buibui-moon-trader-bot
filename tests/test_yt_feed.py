@@ -710,3 +710,10 @@ class TestMainPoll:
         state = load_state(state_path)
         assert state["videos"]["aaaaaaaaaaa"]["status"] == "ingested"
         assert "UCx" in state["channels"]
+
+
+class TestExampleConfig:
+    def test_example_config_parses(self) -> None:
+        cfg = load_feed_config(Path("config/youtube_channels.toml.example"))
+        assert cfg.cold_start_days == 14
+        assert cfg.channels[0].name == "Benjamin Cowen"
