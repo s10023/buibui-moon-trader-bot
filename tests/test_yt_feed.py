@@ -19,6 +19,8 @@ from tools.yt_feed import (
     load_state,
     parse_iso8601_duration,
     poll_channel,
+    resolve_handle,
+    run_mark,
     save_state,
     title_excluded,
     uploads_playlist_id,
@@ -443,3 +445,154 @@ class TestBackfillChannel:
         assert len(result.candidates) == 1
         playlist_calls = [c for c in get.calls if c[0].endswith("playlistItems")]
         assert len(playlist_calls) == 1
+
+
+class TestMark:
+    def test_writes_statuses_and_summary_count(self, tmp_path: Path) -> None:
+        p = tmp_path / "s.json"
+        n = run_mark(
+            p,
+            ingested=["aaaaaaaaaaa"],
+            skipped=["bbbbbbbbbbb"],
+            channel_seen=[],
+            candidates_json=None,
+            now=NOW,
+        )
+        assert n == 2
+        state = load_state(p)
+        assert state["videos"]["aaaaaaaaaaa"]["status"] == "ingested"
+        assert state["videos"]["bbbbbbbbbbb"]["status"] == "skipped"
+        assert state["videos"]["aaaaaaaaaaa"]["channel_id"] is None
+
+    def test_candidates_json_enriches(self, tmp_path: Path) -> None:
+        cj = tmp_path / "cands.json"
+        cj.write_text(
+            json.dumps(
+                {
+                    "candidates": [
+                        {
+                            "video_id": "aaaaaaaaaaa",
+                            "channel_id": "UCx",
+                            "title": "BTC weekly",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        p = tmp_path / "s.json"
+        run_mark(
+            p,
+            ingested=["aaaaaaaaaaa"],
+            skipped=[],
+            channel_seen=[],
+            candidates_json=cj,
+            now=NOW,
+        )
+        entry = load_state(p)["videos"]["aaaaaaaaaaa"]
+        assert entry["channel_id"] == "UCx"
+        assert entry["title"] == "BTC weekly"
+
+    def test_bad_id_aborts(self, tmp_path: Path) -> None:
+        with pytest.raises(SystemExit):
+            run_mark(
+                tmp_path / "s.json",
+                ingested=["nope"],
+                skipped=[],
+                channel_seen=[],
+                candidates_json=None,
+                now=NOW,
+            )
+
+    def test_id_in_both_lists_aborts(self, tmp_path: Path) -> None:
+        with pytest.raises(SystemExit):
+            run_mark(
+                tmp_path / "s.json",
+                ingested=["aaaaaaaaaaa"],
+                skipped=["aaaaaaaaaaa"],
+                channel_seen=[],
+                candidates_json=None,
+                now=NOW,
+            )
+
+    def test_remark_overwrites_last_wins(self, tmp_path: Path) -> None:
+        p = tmp_path / "s.json"
+        run_mark(
+            p,
+            ingested=[],
+            skipped=["aaaaaaaaaaa"],
+            channel_seen=[],
+            candidates_json=None,
+            now=NOW,
+        )
+        run_mark(
+            p,
+            ingested=["aaaaaaaaaaa"],
+            skipped=[],
+            channel_seen=[],
+            candidates_json=None,
+            now=NOW,
+        )
+        assert load_state(p)["videos"]["aaaaaaaaaaa"]["status"] == "ingested"
+
+    def test_channel_seen_persists_but_never_moves_existing_floor(
+        self, tmp_path: Path
+    ) -> None:
+        p = tmp_path / "s.json"
+        run_mark(
+            p,
+            ingested=[],
+            skipped=[],
+            channel_seen=["UCx=2026-07-17T00:00:00+00:00"],
+            candidates_json=None,
+            now=NOW,
+        )
+        assert (
+            load_state(p)["channels"]["UCx"]["floor_ts_utc"]
+            == "2026-07-17T00:00:00+00:00"
+        )
+        run_mark(
+            p,
+            ingested=[],
+            skipped=[],
+            channel_seen=["UCx=2026-07-25T00:00:00+00:00"],
+            candidates_json=None,
+            now=NOW,
+        )
+        # static floor: a later --channel-seen must NOT advance it
+        assert (
+            load_state(p)["channels"]["UCx"]["floor_ts_utc"]
+            == "2026-07-17T00:00:00+00:00"
+        )
+
+    def test_bad_channel_seen_aborts(self, tmp_path: Path) -> None:
+        with pytest.raises(SystemExit):
+            run_mark(
+                tmp_path / "s.json",
+                ingested=[],
+                skipped=[],
+                channel_seen=["UCx:2026-07-17T00:00:00+00:00"],  # colon, not =
+                candidates_json=None,
+                now=NOW,
+            )
+
+
+class TestResolve:
+    def test_resolve_request_shape_and_toml_block(self) -> None:
+        payload = {
+            "items": [{"id": "UCreal", "snippet": {"title": "Into The Cryptoverse"}}]
+        }
+        get = FakeGet({"channels": [FakeResp(200, payload)]})
+        block = resolve_handle(get, "K", "intothecryptoverse")
+        url, params = get.calls[0]
+        assert url.endswith("/channels")
+        assert params["forHandle"] == "@intothecryptoverse"
+        assert params["part"] == "id,snippet"
+        assert "[[channel]]" in block
+        assert 'id = "UCreal"' in block
+        assert 'name = "Into The Cryptoverse"' in block
+
+    def test_resolve_unknown_handle_aborts(self) -> None:
+        get = FakeGet({"channels": [FakeResp(200, {"items": []})]})
+        with pytest.raises(SystemExit):
+            resolve_handle(get, "K", "@ghost")

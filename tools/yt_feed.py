@@ -459,3 +459,78 @@ def backfill_channel(
     except FeedApiError as exc:
         result.errors.append(str(exc))
     return result
+
+
+def run_mark(
+    state_path: Path,
+    *,
+    ingested: list[str],
+    skipped: list[str],
+    channel_seen: list[str],
+    candidates_json: Path | None,
+    now: datetime,
+) -> int:
+    """The ONLY state writer. Every entry is an explicit outcome (spec §3)."""
+    overlap = set(ingested) & set(skipped)
+    if overlap:
+        raise SystemExit(
+            f"video id(s) in both --ingested and --skipped: {sorted(overlap)}"
+        )
+    state = load_state(state_path)
+    meta: dict[str, dict[str, str]] = {}
+    if candidates_json is not None:
+        payload = json.loads(candidates_json.read_text(encoding="utf-8"))
+        for cand in payload.get("candidates", []):
+            meta[cand["video_id"]] = {
+                "channel_id": cand.get("channel_id", ""),
+                "title": cand.get("title", ""),
+            }
+    count = 0
+    for status, ids in (("ingested", ingested), ("skipped", skipped)):
+        for vid in ids:
+            if not _VIDEO_ID_RE.match(vid):
+                raise SystemExit(f"not a YouTube video id: {vid!r}")
+            enrich = meta.get(vid, {})
+            state["videos"][vid] = {
+                "status": status,
+                "channel_id": enrich.get("channel_id") or None,
+                "title": enrich.get("title") or None,
+                "decided_ts_utc": now.isoformat(),
+            }
+            count += 1
+    for pair in channel_seen:
+        cid, sep, floor_raw = pair.partition("=")
+        if sep != "=" or not cid.startswith("UC") or not floor_raw:
+            raise SystemExit(f"bad --channel-seen (want UC…=<iso ts>): {pair!r}")
+        try:
+            datetime.fromisoformat(floor_raw)
+        except ValueError as exc:
+            raise SystemExit(f"bad --channel-seen timestamp: {floor_raw!r}") from exc
+        # setdefault is load-bearing: an existing floor is STATIC and never moves
+        state["channels"].setdefault(
+            cid, {"added_ts_utc": now.isoformat(), "floor_ts_utc": floor_raw}
+        )
+    save_state(state_path, state)
+    return count
+
+
+def resolve_handle(get: HttpGet, api_key: str, handle: str) -> str:
+    """Handle → ready-to-paste [[channel]] TOML block. Never writes config."""
+    normalized = handle if handle.startswith("@") else f"@{handle}"
+    data = _api_get(
+        get, api_key, "channels", {"part": "id,snippet", "forHandle": normalized}
+    )
+    items = data.get("items", [])
+    if not items:
+        raise SystemExit(f"no channel found for handle {normalized!r}")
+    cid = items[0]["id"]
+    name = items[0]["snippet"]["title"]
+    return (
+        "[[channel]]\n"
+        f'id = "{cid}"\n'
+        f'name = "{name}"\n'
+        "title_include = []\n"
+        'title_exclude = ["#shorts"]\n'
+        f"min_duration_s = {_DEFAULT_MIN_DURATION_S}\n"
+        'lang = ""\n'
+    )
