@@ -58,6 +58,17 @@ A tactical crypto trading bot designed for fast, risk-managed, and confident ent
   three research streams as `/ingest-x` plus a durable per-video note under
   `docs/plans/video-notes/`.
 
+- `/ingest-feed` *(Claude Code skill)* — auto-discovers new uploads instead of waiting for
+  a pasted URL. `tools/yt_feed.py poll` reads each followed channel's uploads playlist
+  (read-only YouTube Data API v3, `YOUTUBE_API_KEY`, ~2–3 quota units/channel/day, never
+  `search.list`); `backfill <UC…>` deep-pages a single channel's back catalogue. Follow
+  list lives in gitignored `config/youtube_channels.toml`. The skill presents candidates
+  (title/duration/age/est-token rank) for the operator to pick, then hands the picked URLs
+  to the existing `/ingest-video` flow unchanged — every research-sink write still happens
+  behind that skill's single approval gate. Consumption is stamped only by an explicit
+  `mark` call after routing completes (never at fetch time), so an aborted run re-presents
+  the same videos next poll instead of silently losing them.
+
 ---
 
 ## Risk Rules (Preconfigured)

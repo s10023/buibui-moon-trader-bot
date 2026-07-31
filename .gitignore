@@ -4,8 +4,10 @@ __pycache__/
 .env
 .coverage
 
-# Ignore only config/coins.json
+# Personal config (examples are committed)
 config/coins.json
+# Personal YouTube follow list for /ingest-feed (example is committed)
+config/youtube_channels.toml
 
 # But don't ignore other files in config/
 !config/
