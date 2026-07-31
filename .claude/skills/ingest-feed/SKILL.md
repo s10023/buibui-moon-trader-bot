@@ -71,9 +71,12 @@ PYTHONPATH=. poetry run python tools/yt_feed.py mark \
   --channel-seen <UC…>=<floor_ts_utc from the poll output, one per channel polled>
 ```
 
-`--channel-seen` persists first-seen channels' static floors (`setdefault` — it can
-never move an existing floor). Do this in the same turn as routing: the gap between
-routing and mark is the one failure window (see Guardrails).
+`--ingested` covers only candidates whose step-4 routing actually completed — if
+`/ingest-video` dropped or failed on a picked video, omit its id here; it gets NO mark
+and simply re-presents next poll/backfill, same as a deferred candidate. `--channel-seen`
+persists first-seen channels' static floors (`setdefault` — it can never move an existing
+floor). Do this in the same turn as routing: the gap between routing and mark is the one
+failure window (see Guardrails).
 
 ### 6. Report
 

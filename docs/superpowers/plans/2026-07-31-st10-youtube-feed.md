@@ -1729,8 +1729,8 @@ Run: `poetry run pytest tests/test_yt_feed.py -k Example -v` — expected FAIL (
 - [ ] **Step 2: Create `config/youtube_channels.toml.example`**
 
 First resolve Cowen's real channel id — never hand-guess an id (spec §4). If `YOUTUBE_API_KEY` is available in the environment run:
-`PYTHONPATH=. poetry run python tools/yt_feed.py resolve intothecryptoverse`
-and paste its output block. If no key is available in the execution environment, use the placeholder `id = "UCRvqjQPSeaWn-uEx-w0XOIg"` **only after verifying it**: `curl -s "https://www.youtube.com/@intothecryptoverse" | grep -o 'channel_id=[A-Za-z0-9_-]*' | head -1` must print the same id; otherwise leave `id = "UC__FILL_ME_VIA_RESOLVE"` and note it in the PR body as an operator to-do. Then write:
+`PYTHONPATH=. poetry run python tools/yt_feed.py resolve benjaminjcowen`
+and paste its output block. If no key is available in the execution environment, use the placeholder `id = "UCRvqjQPSeaWn-uEx-w0XOIg"` **only after verifying it**: `curl -s "https://www.youtube.com/@benjaminjcowen" | grep -o 'channel_id=[A-Za-z0-9_-]*' | head -1` must print the same id; otherwise leave `id = "UC__FILL_ME_VIA_RESOLVE"` and note it in the PR body as an operator to-do. Then write:
 
 ```toml
 # YouTube channel follow list for /ingest-feed (ST10).
