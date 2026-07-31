@@ -105,8 +105,10 @@ append_routed(path, items) -> None                     # I/O, atomic, idempotent
 
 `RoutedItem` is a frozen dataclass: `source_id`, `item_ts`, `sink`, `routed_ts_utc`.
 
-An exact hit **blocks** the append — unambiguous, no judgement required. Escape hatch:
-`--force`, for deliberately re-routing after deleting a bad row.
+An exact hit **blocks** the append — unambiguous, no judgement required. The escape hatch
+is a separate `remove_routed` / `unmark` verb rather than a `--force` flag on the check:
+"forget that this was routed" is an explicit, auditable action, whereas a force flag on a
+read-only query has ambiguous semantics.
 
 ### 4.2 Semantic layer (pure)
 
@@ -135,6 +137,27 @@ fit on n=1. Because the output is advisory, a false positive costs a glance at t
 and a false negative costs a corrupted sink; the asymmetry says err loose. This is stated
 so a later reader does not mistake a loose threshold for sloppiness.
 
+Measured on the real sinks (all-pairs cross-comparison, 2026-07-31): thesis-inbox 4 flags
+across 156 ordered pairs (≈0.31 candidates per newly routed item), mechanics-backlog 0
+across 342. Low enough to sit in a review digest without drowning it.
+
+### 4.3 Stream C is exempt from the semantic layer
+
+`find_similar` returns `[]` for any sink outside `SEMANTIC_SINKS`
+(= thesis-inbox + mechanics-backlog). This is a correction discovered during
+implementation, not an omission:
+
+- **Two pundits making the same call are two genuine observations.**
+  `tools/pundit_score.py` scores per author; collapsing them would delete a real data
+  point from an author's record. In Stream C, agreement is signal, not duplication. Only
+  an exact re-append of the *same* call is wrong, and the identity layer already blocks that.
+- Independently, the calibration pass showed JSONL lines scoring 11+ against each other on
+  **shared schema keys** (`source`, `author`, `direction`, …) rather than content — word
+  matching over that sink is measuring the wrong thing entirely.
+
+The `check` output therefore carries `semantic_checked: bool`, so the digest can say the
+near-duplicate pass did not run rather than implying the sink was checked and found clean.
+
 ## 5. Wiring
 
 Both skills, at the routing step (`/ingest-x` step 4, `/ingest-video` step 8):
@@ -153,10 +176,19 @@ CLI shape (mirrors `tools/chart_drops.py` / `tools/yt_feed.py` subcommand style)
 
 ```bash
 PYTHONPATH=. poetry run python tools/route_dedup.py check \
-  --source-id <id> --item-ts <ts> --sink <path> --text "<gist>" --json
+  --source-id <id> --item-ts <ts> --sink <path> --text "<gist>"
 PYTHONPATH=. poetry run python tools/route_dedup.py mark \
-  --source-id <id> --item-ts <ts> --sink <path> [--force]
+  --source-id <id> --item-ts <ts> --sink <path>
+PYTHONPATH=. poetry run python tools/route_dedup.py unmark \
+  --source-id <id> --item-ts <ts> --sink <path>
 ```
+
+`check` prints JSON: `already_routed`, `semantic_checked`, and `candidates` (each with
+`excerpt`, `score`, `shared_levels`, `shared_terms`). `--sink-path` overrides where the
+sink is read from, which is what makes the CLI testable against fixtures.
+
+The check runs **before** the review digest is printed, so candidates appear inside the
+digest rather than after approval.
 
 ## 6. Out of scope
 

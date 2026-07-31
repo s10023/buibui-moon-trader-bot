@@ -78,6 +78,23 @@ pasted, then run the flow once over the whole set.
    `is_thread` / `cached` where set. Show each `chart_read` and the full extraction
    JSON below the table. Write NOTHING yet.
 
+   **Run the dedup check before printing the digest**, once per non-dropped post, so
+   its result appears *in* the digest rather than after approval:
+
+   ```bash
+   PYTHONPATH=. poetry run python tools/route_dedup.py check \
+     --source-id <status id> --item-ts 0 --sink <route_target output> \
+     --text "<the gist being routed>"
+   ```
+
+   - `already_routed: true` → **do not append.** Show the row as "already routed",
+     and route nothing for it in step 4. This is exact and needs no judgement.
+   - `candidates` non-empty → **not a block.** Print each candidate's `excerpt` and
+     `shared_levels` under that post's row and let the user decide: new row,
+     corroboration line on the existing entry, or drop.
+   - `semantic_checked: false` means the near-duplicate pass did not run for that
+     sink (Stream C, by design — see step 4). Say so; do not report it as clean.
+
 4. **Route on a single approval.** After the user approves the batch, for each post
    compute the destination with `tools/x_route.py::route_target(content_type, verdict)`
    (returns the sink path or `None` for a drop) and append per this table. Report a
@@ -91,6 +108,22 @@ pasted, then run the flow once over the whole set.
    | claim | ALREADY-TESTED / FROZEN-CATEGORY / NOT-FALSIFIABLE | **drop** — state "seen, verdict X", write nothing |
 
    Create the sink file with a one-line header if it does not exist.
+
+   **After each successful append, record it:**
+
+   ```bash
+   PYTHONPATH=. poetry run python tools/route_dedup.py mark \
+     --source-id <status id> --item-ts 0 --sink <sink path>
+   ```
+
+   `mark` runs **after** the write, never before. Marking at check time would let an
+   abandoned review consume the id and dedup away the real append later — the
+   wifey-#68 watermark-on-send defect class. Never mark a dropped post.
+
+   Stream C is deliberately exempt from the near-duplicate pass: two pundits making
+   the same call are two real observations and `tools/pundit_score.py` scores both
+   authors, so collapsing them would delete signal. Stream C still gets the exact
+   `already_routed` block.
 
    **Stream C line** (`pundit-calls.jsonl`, one line, matches the parent spec's
    pundit-call schema):
