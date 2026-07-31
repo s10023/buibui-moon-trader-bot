@@ -312,6 +312,27 @@ justified the shift, so they cannot judge it. Showing the raw quote and the gap 
 lets the approver reject a fabricated or implausible timestamp before it reaches the
 ledger.
 
+**Run the dedup check before printing the digest**, once per non-dropped item, so its
+result appears *in* the digest rather than after approval. `--item-ts` is the item's own
+`ts` — never omit it, and never key on the video id alone: one video legitimately yields
+several items (`umX9m7y7jsU` produced calls at `t=162s` AND `t=886s`), and collapsing them
+would delete real rows.
+
+```bash
+PYTHONPATH=. poetry run python tools/route_dedup.py check \
+  --source-id <meta.video_id> --item-ts <item ts> --sink <route_target output> \
+  --text "<the gist being routed>"
+```
+
+- `already_routed: true` → **do not append.** Show the item as "already routed" and route
+  nothing for it in step 8. Exact match, no judgement needed.
+- `candidates` non-empty → **not a block.** Print each candidate's `excerpt` and
+  `shared_levels` under that item and let the user decide: new row, corroboration line on
+  the existing entry, or drop. Bulk video ingest makes this the common case — a pundit
+  routinely repeats one thesis across a week of uploads.
+- `semantic_checked: false` means the near-duplicate pass did not run for that sink
+  (Stream C, by design — see step 8). Say so; do not report it as clean.
+
 ### 8. Route on a single approval
 
 After the user approves the batch, for each item compute the destination with
@@ -329,6 +350,22 @@ import — do not fork it) and append per this table, identical to `/ingest-x`:
 Create the sink file with a one-line header if it does not exist. Report a one-line
 result per item (routed → which file, or dropped → verdict).
 
+**After each successful append, record it:**
+
+```bash
+PYTHONPATH=. poetry run python tools/route_dedup.py mark \
+  --source-id <meta.video_id> --item-ts <item ts> --sink <sink path>
+```
+
+`mark` runs **after** the write, never before. Marking at check time would let an
+abandoned review consume the id and dedup away the real append later — the wifey-#68
+watermark-on-send defect class, the same rule ST10's feed ledger follows. Never mark a
+dropped item.
+
+Stream C is deliberately exempt from the near-duplicate pass: two pundits making the same
+call are two real observations and `tools/pundit_score.py` scores both authors, so
+collapsing them would delete signal. Stream C still gets the exact `already_routed` block.
+
 **Stream C requires a real `symbol` — never route a `setup` item with `symbol: null` or
 `symbol: ""` to `pundit-calls.jsonl`.** `tools/pundit_score.py` has no null check of its
 own; it would read the literal string `"None"` as a symbol and pollute the scored
@@ -336,8 +373,8 @@ ledger. If pass 2 could not resolve a symbol for a `setup` item, treat it as a d
 candidate instead (reason: "no symbol resolved") in the digest and the per-video note,
 not a Stream C write.
 
-**Before appending a `claim`, grep the target sink for the gist first** — see Guardrails
-on the inherited dedup gap.
+The dedup check from step 7 covers this — a `claim` whose check returned candidates must
+have shown them in the digest, and an `already_routed: true` claim is not appended at all.
 
 **Deep-link rule — separator-aware, do not reintroduce the bug.** A YouTube timestamp
 deep link must respect whatever the URL already has:
@@ -453,12 +490,11 @@ is frozen. A claim that just restates one of these candlestick/structure pattern
   tool exists to prevent (see the spec's "ledger-integrity constraint").
 - Output is a hypothesis/setup/mechanic to TEST — never an "add a detector" task. The
   22-strategy detector list is frozen, same as `/ingest-x`.
-- The inherited sink-grep dedup gap (`/ingest-x` iteration-2 backlog item #7, never
-  built): nothing here checks whether a claim already exists in the target sink before
-  appending. Bulk video ingest makes this bite harder than single X posts, because a
-  pundit routinely repeats the same thesis across a week of uploads. Before appending a
-  `claim` that reads familiar, grep `docs/plans/thesis-inbox.md` yourself; there is no
-  automated guard against a duplicate H-row.
+- Routing dedup is `tools/route_dedup.py` (checked in step 7, marked in step 8) — the
+  manual "grep the sink yourself" guardrail is retired. Two things it does NOT do, and
+  you must not assume otherwise: it never auto-drops a near-duplicate (the digest and
+  the human decide), and it runs no near-duplicate pass at all on Stream C, where two
+  pundits making the same call are two real observations rather than a duplicate.
 - Two subagent passes, both pinned to `model: "sonnet"` — never let either inherit Opus.
   Neither may read any repo, SoT, or memory file; the rubric above is the only context
   either needs beyond the video's own transcript/frames.
