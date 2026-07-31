@@ -17,6 +17,7 @@ from tools.yt_feed import (
     floor_for,
     load_feed_config,
     load_state,
+    main,
     parse_iso8601_duration,
     poll_channel,
     resolve_handle,
@@ -596,3 +597,116 @@ class TestResolve:
         get = FakeGet({"channels": [FakeResp(200, {"items": []})]})
         with pytest.raises(SystemExit):
             resolve_handle(get, "K", "@ghost")
+
+
+def write_config(tmp_path: Path, extra_channel: str = "") -> Path:
+    p = tmp_path / "channels.toml"
+    p.write_text(
+        '[[channel]]\nid = "UCabcdefghijklmnopqrstu"\nname = "One"\n' + extra_channel,
+        encoding="utf-8",
+    )
+    return p
+
+
+class TestMainPoll:
+    def test_missing_api_key_exits_2(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
+        rc = main(
+            [
+                "poll",
+                "--config",
+                str(write_config(tmp_path)),
+                "--state",
+                str(tmp_path / "s.json"),
+            ],
+            get=FakeGet({}),
+            now=NOW,
+        )
+        assert rc == 2
+        assert "YOUTUBE_API_KEY" in capsys.readouterr().err
+
+    def test_partial_failure_exits_1_keeps_other_channel(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.setenv("YOUTUBE_API_KEY", "K")
+        cfg = write_config(
+            tmp_path, '[[channel]]\nid = "UCzzzzzzzzzzzzzzzzzzzzz"\nname = "Two"\n'
+        )
+        good = {
+            "items": [
+                playlist_item("ggggggggggg", "BTC weekly", "2026-07-31T02:00:00Z")
+            ]
+        }
+        vids = {"items": [video_item("ggggggggggg", "PT21M")]}
+        err = {"error": {"code": 403, "errors": [{"reason": "quotaExceeded"}]}}
+        get = FakeGet(
+            {
+                "playlistItems": [FakeResp(200, good), FakeResp(403, err)],
+                "videos": [FakeResp(200, vids)],
+            }
+        )
+        state_path = tmp_path / "s.json"
+        rc = main(
+            ["poll", "--config", str(cfg), "--state", str(state_path), "--json"],
+            get=get,
+            now=NOW,
+        )
+        assert rc == 1
+        payload = json.loads(capsys.readouterr().out)
+        assert [c["video_id"] for c in payload["candidates"]] == ["ggggggggggg"]
+        assert any(
+            "quotaExceeded" in e for ch in payload["channels"] for e in ch["errors"]
+        )
+        # read-only invariant: poll wrote NOTHING
+        assert not state_path.exists()
+
+    def test_backfill_requires_channel_in_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("YOUTUBE_API_KEY", "K")
+        with pytest.raises(SystemExit, match="not in config"):
+            main(
+                [
+                    "backfill",
+                    "UCnotconfigured000000000",
+                    "--config",
+                    str(write_config(tmp_path)),
+                    "--state",
+                    str(tmp_path / "s.json"),
+                ],
+                get=FakeGet({}),
+                now=NOW,
+            )
+
+    def test_mark_via_cli(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)  # mark needs no key
+        state_path = tmp_path / "s.json"
+        rc = main(
+            [
+                "mark",
+                "--state",
+                str(state_path),
+                "--ingested",
+                "aaaaaaaaaaa",
+                "--skipped",
+                "bbbbbbbbbbb",
+                "--channel-seen",
+                "UCx=2026-07-17T00:00:00+00:00",
+            ],
+            get=FakeGet({}),
+            now=NOW,
+        )
+        assert rc == 0
+        state = load_state(state_path)
+        assert state["videos"]["aaaaaaaaaaa"]["status"] == "ingested"
+        assert "UCx" in state["channels"]

@@ -13,12 +13,14 @@ Spec: docs/superpowers/specs/2026-07-31-st10-youtube-feed-design.md
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
+import sys
 import tomllib
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -534,3 +536,172 @@ def resolve_handle(get: HttpGet, api_key: str, handle: str) -> str:
         f"min_duration_s = {_DEFAULT_MIN_DURATION_S}\n"
         'lang = ""\n'
     )
+
+
+def _results_to_dict(results: list[ChannelResult], now: datetime) -> dict[str, Any]:
+    return {
+        "generated_utc": now.isoformat(),
+        "candidates": [asdict(c) for r in results for c in r.candidates],
+        "channels": [
+            {
+                "channel_id": r.channel_id,
+                "channel_name": r.channel_name,
+                "floor_ts_utc": r.floor_ts_utc,
+                "excluded": r.excluded,
+                "errors": r.errors,
+            }
+            for r in results
+        ],
+    }
+
+
+def _format_human(results: list[ChannelResult]) -> str:
+    lines: list[str] = []
+    for r in results:
+        drops = ", ".join(f"{k}={v}" for k, v in r.excluded.items() if v)
+        lines.append(
+            f"# {r.channel_name} ({r.channel_id})"
+            + (f" — excluded: {drops}" if drops else "")
+        )
+        for e in r.errors:
+            lines.append(f"  ERROR: {e}")
+        for c in r.candidates:
+            mins = c.duration_s // 60
+            lines.append(
+                f"  {c.video_id}  {mins:>4}m  {c.age_h:>7.1f}h  ~{c.est_tokens // 1000}k tok  {c.title}"
+            )
+    total = sum(len(r.candidates) for r in results)
+    lines.append(f"# {total} candidate(s)")
+    return "\n".join(lines)
+
+
+def main(
+    argv: list[str] | None = None,
+    *,
+    get: HttpGet = _requests_get,
+    now: datetime | None = None,
+) -> int:
+    parser = argparse.ArgumentParser(
+        description="YouTube channel auto-feed for /ingest-feed (read-only except `mark`)."
+    )
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p_poll = sub.add_parser(
+        "poll", help="list new uploads across the configured channels"
+    )
+    p_back = sub.add_parser(
+        "backfill", help="page a channel's deep back-catalogue (floor ignored)"
+    )
+    p_back.add_argument("channel_id", help="UC… id; must exist in the channel config")
+    p_back.add_argument(
+        "--since", default=None, help="ISO date/ts; stop at older uploads"
+    )
+    p_back.add_argument(
+        "--max-videos",
+        type=int,
+        default=_DEFAULT_BACKFILL_MAX,
+        help="max playlist entries examined (quota bound)",
+    )
+    for p in (p_poll, p_back):
+        p.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+        p.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
+        p.add_argument("--json", action="store_true", dest="as_json")
+
+    p_mark = sub.add_parser(
+        "mark", help="record explicit outcomes (the ONLY state writer)"
+    )
+    p_mark.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
+    p_mark.add_argument("--ingested", nargs="*", default=[])
+    p_mark.add_argument("--skipped", nargs="*", default=[])
+    p_mark.add_argument(
+        "--channel-seen",
+        action="append",
+        default=[],
+        help="UC…=<floor iso ts> — persists a channel entry (setdefault only)",
+    )
+    p_mark.add_argument(
+        "--candidates-json",
+        type=Path,
+        default=None,
+        help="poll/backfill --json output; enriches ledger rows",
+    )
+
+    p_res = sub.add_parser(
+        "resolve", help="handle → ready-to-paste [[channel]] TOML block"
+    )
+    p_res.add_argument("handle")
+
+    args = parser.parse_args(argv)
+    now_dt = now if now is not None else datetime.now(UTC)
+
+    if args.cmd == "mark":
+        count = run_mark(
+            args.state,
+            ingested=args.ingested,
+            skipped=args.skipped,
+            channel_seen=args.channel_seen,
+            candidates_json=args.candidates_json,
+            now=now_dt,
+        )
+        print(f"marked {count} video(s) in {args.state}")
+        return 0
+
+    api_key = os.environ.get("YOUTUBE_API_KEY", "")
+    if not api_key:
+        print(
+            "YOUTUBE_API_KEY is not set — add it to .env (see .env.example)",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.cmd == "resolve":
+        print(resolve_handle(get, api_key, args.handle), end="")
+        return 0
+
+    cfg = load_feed_config(args.config)
+    state = load_state(args.state)
+    if args.cmd == "poll":
+        results = [
+            poll_channel(
+                ch,
+                state,
+                now=now_dt,
+                get=get,
+                api_key=api_key,
+                cold_start_days=cfg.cold_start_days,
+            )
+            for ch in cfg.channels
+        ]
+    else:  # backfill
+        by_id = {ch.id: ch for ch in cfg.channels}
+        channel = by_id.get(args.channel_id)
+        if channel is None:
+            raise SystemExit(
+                f"channel {args.channel_id} not in config {args.config} — add it first "
+                "(filters live in config)"
+            )
+        since = datetime.fromisoformat(args.since) if args.since else None
+        if since is not None and since.tzinfo is None:
+            since = since.replace(tzinfo=UTC)
+        results = [
+            backfill_channel(
+                channel,
+                state,
+                now=now_dt,
+                get=get,
+                api_key=api_key,
+                since=since,
+                max_videos=args.max_videos,
+            )
+        ]
+
+    print(
+        json.dumps(_results_to_dict(results, now_dt), indent=2)
+        if args.as_json
+        else _format_human(results)
+    )
+    return 1 if any(r.errors for r in results) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
