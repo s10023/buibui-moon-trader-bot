@@ -654,12 +654,43 @@ def write_config(tmp_path: Path, extra_channel: str = "") -> Path:
 
 
 class TestMainPoll:
+    def test_main_loads_dotenv_before_reading_the_key(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # A key that lives only in .env must reach os.environ BEFORE main() reads
+        # it. Every other test sets the env var directly, so this is the only test
+        # that exercises the .env -> os.environ hop at all.
+        called: list[bool] = []
+
+        def fake_load_dotenv(*a: Any, **k: Any) -> None:
+            called.append(True)
+            monkeypatch.setenv("YOUTUBE_API_KEY", "FROM_DOTENV")
+
+        monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
+        monkeypatch.setattr("tools.yt_feed.load_dotenv", fake_load_dotenv)
+        get = FakeGet(
+            {
+                "channels": [
+                    FakeResp(
+                        200,
+                        {"items": [{"id": "UCzzz", "snippet": {"title": "Chan"}}]},
+                    )
+                ]
+            }
+        )
+        rc = main(["resolve", "@somehandle"], get=get, now=NOW)
+        assert called == [True]
+        assert rc == 0  # no "key is not set" abort
+        assert get.calls[0][1]["key"] == "FROM_DOTENV"
+        assert 'id = "UCzzz"' in capsys.readouterr().out
+
     def test_missing_api_key_exits_2(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
+        monkeypatch.setattr("tools.yt_feed.load_dotenv", lambda *a, **k: None)
         monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
         rc = main(
             [

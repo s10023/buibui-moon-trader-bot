@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import requests
+from dotenv import load_dotenv
 
 from tools.video_marks import FRAME_CAP
 
@@ -598,6 +599,7 @@ def main(
     get: HttpGet = _requests_get,
     now: datetime | None = None,
 ) -> int:
+    load_dotenv()  # YOUTUBE_API_KEY may live only in .env
     parser = argparse.ArgumentParser(
         description="YouTube channel auto-feed for /ingest-feed (read-only except `mark`)."
     )
