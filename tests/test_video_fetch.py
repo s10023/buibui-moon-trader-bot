@@ -550,6 +550,127 @@ def test_extract_frames_deletes_media_but_keeps_frames(tmp_path: Path) -> None:
     assert (tmp_path / "f_0020.jpg").exists()
 
 
+# ---------------------------------------------------------------------------
+# Round-2 feed finding (2026-07-31): a transient failure here costs a WHOLE
+# vision pass, silently. The skill reads `frame_paths == []`, writes a "frame
+# extraction failed (media download error)" health note and skips pass 2
+# entirely — yet a bare re-run with no other change returned 15/15 frames.
+# So extract_frames retries ONCE, and only on total failure.
+# ---------------------------------------------------------------------------
+
+
+def make_flaky_run(
+    yt_dlp_calls: list[list[str]] | None = None,
+    *,
+    fail_downloads: int = 0,
+    ffmpeg_fails_on_attempts: tuple[int, ...] = (),
+) -> Callable[..., FakeProc]:
+    """Fake whose failures are keyed to the attempt number (= download count).
+
+    `fail_downloads` fails the first N yt-dlp calls (transient network shape);
+    `ffmpeg_fails_on_attempts` instead lets the download succeed but fails every
+    seek on those attempts (the corrupt/partial-media shape — the file exists,
+    ffmpeg just cannot demux it).
+    """
+    downloads = 0
+
+    def _run(cmd: list[str]) -> FakeProc:
+        nonlocal downloads
+        if cmd[0] == "yt-dlp":
+            downloads += 1
+            if yt_dlp_calls is not None:
+                yt_dlp_calls.append(cmd)
+            if downloads <= fail_downloads:
+                return FakeProc(1)
+            out_path = Path(cmd[cmd.index("-o") + 1].replace("%(ext)s", "mp4"))
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_bytes(b"fake video bytes")
+            return FakeProc(0)
+        if downloads in ffmpeg_fails_on_attempts:
+            return FakeProc(1)
+        Path(cmd[-1]).write_bytes(b"jpeg bytes")
+        return FakeProc(0)
+
+    return _run
+
+
+def test_extract_frames_retries_once_after_a_transient_download_failure(
+    tmp_path: Path,
+) -> None:
+    yt_dlp_calls: list[list[str]] = []
+    paths = extract_frames(
+        _meta(),
+        [FrameMark(20.0, "item", 3)],
+        tmp_path,
+        run=make_flaky_run(yt_dlp_calls, fail_downloads=1),
+    )
+    assert [Path(p).name for p in paths] == ["f_0020.jpg"]
+    assert len(yt_dlp_calls) == 2
+
+
+def test_extract_frames_retries_once_when_every_seek_fails_on_the_first_copy(
+    tmp_path: Path,
+) -> None:
+    # Download "succeeds" but the media is unusable, so all marks fail. The
+    # first attempt's media is unlinked, so the retry re-downloads a good copy.
+    yt_dlp_calls: list[list[str]] = []
+    paths = extract_frames(
+        _meta(),
+        [FrameMark(20.0, "item", 3), FrameMark(90.0, "deixis", 2)],
+        tmp_path,
+        run=make_flaky_run(yt_dlp_calls, ffmpeg_fails_on_attempts=(1,)),
+    )
+    assert [Path(p).name for p in paths] == ["f_0020.jpg", "f_0090.jpg"]
+    assert len(yt_dlp_calls) == 2
+
+
+def test_extract_frames_retries_at_most_once(tmp_path: Path) -> None:
+    yt_dlp_calls: list[list[str]] = []
+    paths = extract_frames(
+        _meta(),
+        [FrameMark(20.0, "item", 3)],
+        tmp_path,
+        run=make_flaky_run(yt_dlp_calls, fail_downloads=99),
+    )
+    assert paths == []
+    assert len(yt_dlp_calls) == 2
+
+
+def test_extract_frames_does_not_retry_a_partial_success(tmp_path: Path) -> None:
+    # One seek lands past the end of the video — a per-mark fact, not a
+    # transient one. Re-downloading the whole video to re-fail it is pure cost.
+    yt_dlp_calls: list[list[str]] = []
+
+    def _run(cmd: list[str]) -> FakeProc:
+        if cmd[0] == "yt-dlp":
+            yt_dlp_calls.append(cmd)
+            out_path = Path(cmd[cmd.index("-o") + 1].replace("%(ext)s", "mp4"))
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_bytes(b"fake video bytes")
+            return FakeProc(0)
+        if cmd[cmd.index("-ss") + 1] == "90.0":
+            return FakeProc(1)
+        Path(cmd[-1]).write_bytes(b"jpeg bytes")
+        return FakeProc(0)
+
+    paths = extract_frames(
+        _meta(),
+        [FrameMark(20.0, "item", 3), FrameMark(90.0, "deixis", 2)],
+        tmp_path,
+        run=_run,
+    )
+    assert [Path(p).name for p in paths] == ["f_0020.jpg"]
+    assert len(yt_dlp_calls) == 1
+
+
+def test_extract_frames_without_marks_does_not_retry(tmp_path: Path) -> None:
+    # Zero frames is the CORRECT answer for zero marks, not a failure to retry.
+    yt_dlp_calls: list[list[str]] = []
+    paths = extract_frames(_meta(), [], tmp_path, run=make_flaky_run(yt_dlp_calls))
+    assert paths == []
+    assert len(yt_dlp_calls) == 1
+
+
 # fetch_video_batch passes work_dir=cache_dir/<video_id> to fetch_transcript, so a fake
 # that writes captions to tmp_path itself would be globbed for in the wrong directory.
 # Derive the location from yt-dlp's own -o argument, which is how yt-dlp names sub files.

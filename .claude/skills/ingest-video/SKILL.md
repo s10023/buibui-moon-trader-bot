@@ -202,7 +202,9 @@ keep the two apart.** `select()` returns at least the safety-sample marks for an
 `duration_s > 0`, so an empty `marks` list only happens for a (rare) zero-duration
 video. If `marks` came back non-empty here but `frame_paths` is still `[]`, the
 video's media download failed (network error, age-gate, region block) — record that
-video's health note as "frame extraction failed (media download error)". Do NOT record
+video's health note as "frame extraction failed (media download error)". `extract_frames`
+already retried the download-and-seek once internally, so an empty list here has failed
+**twice**; do not re-run the step by hand hoping for a different result. Do NOT record
 `chart_present: false` for that case; that flag is reserved for step 6, where frames
 WERE produced and pass 2 actually looked at them and found no chart.
 

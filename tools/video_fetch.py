@@ -433,20 +433,9 @@ def _ensure_local_media(
     return produced[0] if produced else None
 
 
-def extract_frames(
-    meta: VideoMeta,
-    marks: list[FrameMark],
-    dest_dir: Path,
-    *,
-    run: RunProc = _subprocess_run,
+def _attempt_frames(
+    meta: VideoMeta, marks: list[FrameMark], dest_dir: Path, *, run: RunProc
 ) -> list[str]:
-    """One ffmpeg seek per mark, against a locally downloaded copy of the video —
-    never `meta.url` directly (see `_ensure_local_media`). Never speculative — marks
-    come from the transcript pass. The downloaded media is removed once every mark
-    has been attempted; frames are the artifact, the source file is not, and the
-    operator's backlog makes unbounded video files in `.cache/` a real cost.
-    """
-    dest_dir.mkdir(parents=True, exist_ok=True)
     local_media = _ensure_local_media(meta, dest_dir, run=run)
     if local_media is None:
         return []
@@ -473,6 +462,34 @@ def extract_frames(
                 paths.append(str(out))
     finally:
         local_media.unlink(missing_ok=True)
+    return paths
+
+
+def extract_frames(
+    meta: VideoMeta,
+    marks: list[FrameMark],
+    dest_dir: Path,
+    *,
+    run: RunProc = _subprocess_run,
+) -> list[str]:
+    """One ffmpeg seek per mark, against a locally downloaded copy of the video —
+    never `meta.url` directly (see `_ensure_local_media`). Never speculative — marks
+    come from the transcript pass. The downloaded media is removed once every mark
+    has been attempted; frames are the artifact, the source file is not, and the
+    operator's backlog makes unbounded video files in `.cache/` a real cost.
+
+    Retries the whole download-and-seek ONCE when asked for marks and given back
+    nothing, because that outcome is silently expensive: `/ingest-video` reads an
+    empty list as a media-download failure, skips the vision pass for that video
+    and records a health note, so one transient yt-dlp error costs the entire
+    chart read (observed 2026-07-31 — a bare re-run then returned 15/15 frames).
+    Total failure is the only retryable shape: a partial result means those marks
+    individually failed to seek, and re-downloading to re-fail them is pure cost.
+    """
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    paths = _attempt_frames(meta, marks, dest_dir, run=run)
+    if marks and not paths:
+        paths = _attempt_frames(meta, marks, dest_dir, run=run)
     return paths
 
 
