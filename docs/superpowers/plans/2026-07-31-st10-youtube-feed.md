@@ -125,7 +125,7 @@ class TestLoadFeedConfig:
         cfg = load_feed_config(
             self._write(
                 tmp_path,
-                '[feed]\ncold_start_days = 7\n\n[[channel]]\n'
+                "[feed]\ncold_start_days = 7\n\n[[channel]]\n"
                 'id = "UCabcdefghijklmnopqrstu"\nname = "Cowen"\n'
                 'title_include = ["btc"]\ntitle_exclude = ["#shorts"]\n'
                 'min_duration_s = 240\nlang = "en"\n',
@@ -246,8 +246,12 @@ def load_feed_config(path: Path) -> FeedConfig:
             ChannelConfig(
                 id=cid,
                 name=str(raw.get("name", cid)),
-                title_include=tuple(str(k).lower() for k in raw.get("title_include", [])),
-                title_exclude=tuple(str(k).lower() for k in raw.get("title_exclude", [])),
+                title_include=tuple(
+                    str(k).lower() for k in raw.get("title_include", [])
+                ),
+                title_exclude=tuple(
+                    str(k).lower() for k in raw.get("title_exclude", [])
+                ),
                 min_duration_s=int(raw.get("min_duration_s", _DEFAULT_MIN_DURATION_S)),
                 lang=str(raw.get("lang", "")),
             )
@@ -278,7 +282,11 @@ def parse_iso8601_duration(raw: str) -> int:
 
 def estimate_tokens(duration_s: int) -> int:
     """Ranking-grade (±30%) ingest-cost estimate — spec §9."""
-    return duration_s * EST_TOKENS_PER_S + FRAME_CAP * EST_TOKENS_PER_FRAME + EST_FIXED_OVERHEAD
+    return (
+        duration_s * EST_TOKENS_PER_S
+        + FRAME_CAP * EST_TOKENS_PER_FRAME
+        + EST_FIXED_OVERHEAD
+    )
 
 
 def title_excluded(title: str, channel: ChannelConfig) -> bool:
@@ -286,7 +294,9 @@ def title_excluded(title: str, channel: ChannelConfig) -> bool:
     low = title.lower()
     if any(k in low for k in channel.title_exclude):
         return True
-    return bool(channel.title_include) and not any(k in low for k in channel.title_include)
+    return bool(channel.title_include) and not any(
+        k in low for k in channel.title_include
+    )
 ```
 
 (`field`, `asdict`, `json`, `os`, `sys`, `argparse`, `requests`, `UTC`, `datetime`, `timedelta`, `Protocol`, `Any` are used by later tasks — keep the imports now so the file only grows.)
@@ -338,7 +348,9 @@ class TestState:
 
     def test_wrong_version_aborts(self, tmp_path: Path) -> None:
         p = tmp_path / "s.json"
-        p.write_text(json.dumps({"version": 99, "channels": {}, "videos": {}}), encoding="utf-8")
+        p.write_text(
+            json.dumps({"version": 99, "channels": {}, "videos": {}}), encoding="utf-8"
+        )
         with pytest.raises(SystemExit):
             load_state(p)
 
@@ -355,8 +367,12 @@ class TestState:
         state = {
             "version": 1,
             "videos": {},
-            "channels": {"UCx": {"added_ts_utc": "2026-07-01T00:00:00+00:00",
-                                  "floor_ts_utc": "2026-06-17T00:00:00+00:00"}},
+            "channels": {
+                "UCx": {
+                    "added_ts_utc": "2026-07-01T00:00:00+00:00",
+                    "floor_ts_utc": "2026-06-17T00:00:00+00:00",
+                }
+            },
         }
         assert floor_for("UCx", state, now, 14) == datetime(2026, 6, 17, tzinfo=UTC)
 
@@ -511,7 +527,12 @@ class TestPollChannel:
             }
         )
         poll_channel(
-            self._channel(), dict(FRESH_STATE), now=NOW, get=get, api_key="K", cold_start_days=14
+            self._channel(),
+            dict(FRESH_STATE),
+            now=NOW,
+            get=get,
+            api_key="K",
+            cold_start_days=14,
         )
         url, params = get.calls[0]
         assert url == "https://www.googleapis.com/youtube/v3/playlistItems"
@@ -534,7 +555,9 @@ class TestPollChannel:
                 playlist_item("ddddddddddd", "clip #shorts", "2026-07-30T02:00:00Z"),
                 playlist_item("eeeeeeeeeee", "a short one", "2026-07-30T03:00:00Z"),
                 playlist_item("fffffffffff", "premiere soon", "2026-07-30T04:00:00Z"),
-                playlist_item("ggggggggggg", "BTC weekly outlook", "2026-07-31T02:00:00Z"),
+                playlist_item(
+                    "ggggggggggg", "BTC weekly outlook", "2026-07-31T02:00:00Z"
+                ),
             ]
         }
         videos = {
@@ -544,13 +567,19 @@ class TestPollChannel:
                 video_item("ggggggggggg", "PT21M"),
             ]
         }
-        get = FakeGet({"playlistItems": [FakeResp(200, page)], "videos": [FakeResp(200, videos)]})
+        get = FakeGet(
+            {"playlistItems": [FakeResp(200, page)], "videos": [FakeResp(200, videos)]}
+        )
         result = poll_channel(
             self._channel(), state, now=NOW, get=get, api_key="K", cold_start_days=14
         )
         assert result.excluded == {
-            "below_floor": 1, "ledgered": 1, "title_filtered": 1,
-            "too_short": 1, "live_or_upcoming": 1, "unavailable": 1,
+            "below_floor": 1,
+            "ledgered": 1,
+            "title_filtered": 1,
+            "too_short": 1,
+            "live_or_upcoming": 1,
+            "unavailable": 1,
         }
         assert [c.video_id for c in result.candidates] == ["ggggggggggg"]
         cand = result.candidates[0]
@@ -574,7 +603,12 @@ class TestPollChannel:
             }
         )
         result = poll_channel(
-            self._channel(), dict(FRESH_STATE), now=NOW, get=get, api_key="K", cold_start_days=14
+            self._channel(),
+            dict(FRESH_STATE),
+            now=NOW,
+            get=get,
+            api_key="K",
+            cold_start_days=14,
         )
         assert result.errors == []
         assert get.calls[2][1]["playlistId"] == "UUother"
@@ -583,23 +617,46 @@ class TestPollChannel:
         err = {"error": {"code": 403, "errors": [{"reason": "quotaExceeded"}]}}
         get = FakeGet({"playlistItems": [FakeResp(403, err)]})
         result = poll_channel(
-            self._channel(), dict(FRESH_STATE), now=NOW, get=get, api_key="K", cold_start_days=14
+            self._channel(),
+            dict(FRESH_STATE),
+            now=NOW,
+            get=get,
+            api_key="K",
+            cold_start_days=14,
         )
         assert result.candidates == []
         assert any("quotaExceeded" in e for e in result.errors)
 
     def test_duration_batching_chunks_at_50(self) -> None:
         survivors = [
-            {"video_id": f"v{i:010d}", "title": f"t{i}", "publish": NOW - timedelta(hours=2)}
+            {
+                "video_id": f"v{i:010d}",
+                "title": f"t{i}",
+                "publish": NOW - timedelta(hours=2),
+            }
             for i in range(60)
         ]
         videos_pages = [
-            FakeResp(200, {"items": [video_item(s["video_id"], "PT10M") for s in survivors[:50]]}),
-            FakeResp(200, {"items": [video_item(s["video_id"], "PT10M") for s in survivors[50:]]}),
+            FakeResp(
+                200,
+                {"items": [video_item(s["video_id"], "PT10M") for s in survivors[:50]]},
+            ),
+            FakeResp(
+                200,
+                {"items": [video_item(s["video_id"], "PT10M") for s in survivors[50:]]},
+            ),
         ]
         get = FakeGet({"videos": videos_pages})
         excluded = dict.fromkeys(
-            ("below_floor", "ledgered", "title_filtered", "too_short", "live_or_upcoming", "unavailable"), 0
+            (
+                "below_floor",
+                "ledgered",
+                "title_filtered",
+                "too_short",
+                "live_or_upcoming",
+                "unavailable",
+            ),
+            0,
         )
         cands = _resolve_durations(
             get, "K", survivors, make_channel(min_duration_s=60), NOW, excluded
@@ -703,7 +760,9 @@ def _fetch_playlist_page(
 
 
 def _resolve_uploads_id(get: HttpGet, api_key: str, channel_id: str) -> str:
-    data = _api_get(get, api_key, "channels", {"part": "contentDetails", "id": channel_id})
+    data = _api_get(
+        get, api_key, "channels", {"part": "contentDetails", "id": channel_id}
+    )
     items = data.get("items", [])
     if not items:
         raise FeedApiError(f"channel not found: {channel_id}")
@@ -759,7 +818,10 @@ def _resolve_durations(
             get,
             api_key,
             "videos",
-            {"part": "contentDetails,snippet", "id": ",".join(s["video_id"] for s in chunk)},
+            {
+                "part": "contentDetails,snippet",
+                "id": ",".join(s["video_id"] for s in chunk),
+            },
         )
         by_id = {v["id"]: v for v in data.get("items", [])}
         for s in chunk:
@@ -767,7 +829,10 @@ def _resolve_durations(
             if video is None:
                 excluded["unavailable"] += 1
                 continue
-            if video.get("snippet", {}).get("liveBroadcastContent", "none") in ("live", "upcoming"):
+            if video.get("snippet", {}).get("liveBroadcastContent", "none") in (
+                "live",
+                "upcoming",
+            ):
                 excluded["live_or_upcoming"] += 1
                 continue
             try:
@@ -810,19 +875,29 @@ def poll_channel(
     """Daily-feed scan of one channel. Strictly read-only — writes nothing."""
     floor = floor_for(channel.id, state, now, cold_start_days)
     excluded = dict.fromkeys(_EXCLUDE_REASONS, 0)
-    result = ChannelResult(channel.id, channel.name, floor.isoformat(), [], excluded, [])
+    result = ChannelResult(
+        channel.id, channel.name, floor.isoformat(), [], excluded, []
+    )
     try:
         try:
-            page = _fetch_playlist_page(get, api_key, uploads_playlist_id(channel.id), None)
+            page = _fetch_playlist_page(
+                get, api_key, uploads_playlist_id(channel.id), None
+            )
         except FeedApiError as exc:
             if "404" not in str(exc):
                 raise
             uploads = _resolve_uploads_id(get, api_key, channel.id)
             page = _fetch_playlist_page(get, api_key, uploads, None)
         survivors = _scan_items(
-            channel, page.get("items", []), ledger=state["videos"], floor=floor, excluded=excluded
+            channel,
+            page.get("items", []),
+            ledger=state["videos"],
+            floor=floor,
+            excluded=excluded,
         )
-        result.candidates = _resolve_durations(get, api_key, survivors, channel, now, excluded)
+        result.candidates = _resolve_durations(
+            get, api_key, survivors, channel, now, excluded
+        )
     except FeedApiError as exc:
         result.errors.append(str(exc))
     return result
@@ -885,14 +960,23 @@ class TestBackfillChannel:
     def test_pagination_ignores_floor_and_respects_ledger(self) -> None:
         state: dict[str, Any] = {
             "version": 1,
-            "channels": {"UCabcdefghijklmnopqrstu": {
-                "added_ts_utc": "2026-07-31T00:00:00+00:00",
-                "floor_ts_utc": "2026-07-17T00:00:00+00:00"}},
+            "channels": {
+                "UCabcdefghijklmnopqrstu": {
+                    "added_ts_utc": "2026-07-31T00:00:00+00:00",
+                    "floor_ts_utc": "2026-07-17T00:00:00+00:00",
+                }
+            },
             "videos": {"aaaaaaaaaa1": {"status": "ingested"}},
         }
         get = FakeGet(self._pages())
         result = backfill_channel(
-            make_channel(), state, now=NOW, get=get, api_key="K", since=None, max_videos=200
+            make_channel(),
+            state,
+            now=NOW,
+            get=get,
+            api_key="K",
+            since=None,
+            max_videos=200,
         )
         # the 2025 video is WAY below the poll floor but IS a backfill candidate
         assert [c.video_id for c in result.candidates] == ["aaaaaaaaaa2"]
@@ -905,8 +989,13 @@ class TestBackfillChannel:
         get = FakeGet(self._pages())
         since = datetime(2026, 1, 1, tzinfo=UTC)
         result = backfill_channel(
-            make_channel(), {"version": 1, "channels": {}, "videos": {}},
-            now=NOW, get=get, api_key="K", since=since, max_videos=200,
+            make_channel(),
+            {"version": 1, "channels": {}, "videos": {}},
+            now=NOW,
+            get=get,
+            api_key="K",
+            since=since,
+            max_videos=200,
         )
         assert [c.video_id for c in result.candidates] == ["aaaaaaaaaa1"]
         assert result.excluded["below_floor"] == 1  # "older than --since" bucket
@@ -915,9 +1004,13 @@ class TestBackfillChannel:
         # page1's last item, page2 must never be fetched.
         get2 = FakeGet(self._pages())
         result2 = backfill_channel(
-            make_channel(), {"version": 1, "channels": {}, "videos": {}},
-            now=NOW, get=get2, api_key="K",
-            since=datetime(2026, 7, 31, tzinfo=UTC), max_videos=200,
+            make_channel(),
+            {"version": 1, "channels": {}, "videos": {}},
+            now=NOW,
+            get=get2,
+            api_key="K",
+            since=datetime(2026, 7, 31, tzinfo=UTC),
+            max_videos=200,
         )
         assert result2.candidates == []
         playlist_calls = [c for c in get2.calls if c[0].endswith("playlistItems")]
@@ -926,8 +1019,13 @@ class TestBackfillChannel:
     def test_max_videos_bounds_examined_entries(self) -> None:
         get = FakeGet(self._pages())
         result = backfill_channel(
-            make_channel(), {"version": 1, "channels": {}, "videos": {}},
-            now=NOW, get=get, api_key="K", since=None, max_videos=1,
+            make_channel(),
+            {"version": 1, "channels": {}, "videos": {}},
+            now=NOW,
+            get=get,
+            api_key="K",
+            since=None,
+            max_videos=1,
         )
         assert len(result.candidates) == 1
         playlist_calls = [c for c in get.calls if c[0].endswith("playlistItems")]
@@ -976,7 +1074,9 @@ def backfill_channel(
             collected.extend(items[: max_videos - len(collected)])
             token = page.get("nextPageToken")
             last_pub_raw = (
-                items[-1].get("contentDetails", {}).get("videoPublishedAt") if items else None
+                items[-1].get("contentDetails", {}).get("videoPublishedAt")
+                if items
+                else None
             )
             past_since = (
                 since is not None
@@ -988,7 +1088,9 @@ def backfill_channel(
         survivors = _scan_items(
             channel, collected, ledger=state["videos"], floor=since, excluded=excluded
         )
-        result.candidates = _resolve_durations(get, api_key, survivors, channel, now, excluded)
+        result.candidates = _resolve_durations(
+            get, api_key, survivors, channel, now, excluded
+        )
     except FeedApiError as exc:
         result.errors.append(str(exc))
     return result
@@ -1032,8 +1134,12 @@ class TestMark:
     def test_writes_statuses_and_summary_count(self, tmp_path: Path) -> None:
         p = tmp_path / "s.json"
         n = run_mark(
-            p, ingested=["aaaaaaaaaaa"], skipped=["bbbbbbbbbbb"],
-            channel_seen=[], candidates_json=None, now=NOW,
+            p,
+            ingested=["aaaaaaaaaaa"],
+            skipped=["bbbbbbbbbbb"],
+            channel_seen=[],
+            candidates_json=None,
+            now=NOW,
         )
         assert n == 2
         state = load_state(p)
@@ -1043,63 +1149,129 @@ class TestMark:
 
     def test_candidates_json_enriches(self, tmp_path: Path) -> None:
         cj = tmp_path / "cands.json"
-        cj.write_text(json.dumps({"candidates": [
-            {"video_id": "aaaaaaaaaaa", "channel_id": "UCx", "title": "BTC weekly"}
-        ]}), encoding="utf-8")
+        cj.write_text(
+            json.dumps(
+                {
+                    "candidates": [
+                        {
+                            "video_id": "aaaaaaaaaaa",
+                            "channel_id": "UCx",
+                            "title": "BTC weekly",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
         p = tmp_path / "s.json"
-        run_mark(p, ingested=["aaaaaaaaaaa"], skipped=[],
-                 channel_seen=[], candidates_json=cj, now=NOW)
+        run_mark(
+            p,
+            ingested=["aaaaaaaaaaa"],
+            skipped=[],
+            channel_seen=[],
+            candidates_json=cj,
+            now=NOW,
+        )
         entry = load_state(p)["videos"]["aaaaaaaaaaa"]
         assert entry["channel_id"] == "UCx"
         assert entry["title"] == "BTC weekly"
 
     def test_bad_id_aborts(self, tmp_path: Path) -> None:
         with pytest.raises(SystemExit):
-            run_mark(tmp_path / "s.json", ingested=["nope"], skipped=[],
-                     channel_seen=[], candidates_json=None, now=NOW)
+            run_mark(
+                tmp_path / "s.json",
+                ingested=["nope"],
+                skipped=[],
+                channel_seen=[],
+                candidates_json=None,
+                now=NOW,
+            )
 
     def test_id_in_both_lists_aborts(self, tmp_path: Path) -> None:
         with pytest.raises(SystemExit):
-            run_mark(tmp_path / "s.json", ingested=["aaaaaaaaaaa"], skipped=["aaaaaaaaaaa"],
-                     channel_seen=[], candidates_json=None, now=NOW)
+            run_mark(
+                tmp_path / "s.json",
+                ingested=["aaaaaaaaaaa"],
+                skipped=["aaaaaaaaaaa"],
+                channel_seen=[],
+                candidates_json=None,
+                now=NOW,
+            )
 
     def test_remark_overwrites_last_wins(self, tmp_path: Path) -> None:
         p = tmp_path / "s.json"
-        run_mark(p, ingested=[], skipped=["aaaaaaaaaaa"],
-                 channel_seen=[], candidates_json=None, now=NOW)
-        run_mark(p, ingested=["aaaaaaaaaaa"], skipped=[],
-                 channel_seen=[], candidates_json=None, now=NOW)
+        run_mark(
+            p,
+            ingested=[],
+            skipped=["aaaaaaaaaaa"],
+            channel_seen=[],
+            candidates_json=None,
+            now=NOW,
+        )
+        run_mark(
+            p,
+            ingested=["aaaaaaaaaaa"],
+            skipped=[],
+            channel_seen=[],
+            candidates_json=None,
+            now=NOW,
+        )
         assert load_state(p)["videos"]["aaaaaaaaaaa"]["status"] == "ingested"
 
-    def test_channel_seen_persists_but_never_moves_existing_floor(self, tmp_path: Path) -> None:
+    def test_channel_seen_persists_but_never_moves_existing_floor(
+        self, tmp_path: Path
+    ) -> None:
         p = tmp_path / "s.json"
-        run_mark(p, ingested=[], skipped=[],
-                 channel_seen=["UCx=2026-07-17T00:00:00+00:00"],
-                 candidates_json=None, now=NOW)
-        assert load_state(p)["channels"]["UCx"]["floor_ts_utc"] == "2026-07-17T00:00:00+00:00"
-        run_mark(p, ingested=[], skipped=[],
-                 channel_seen=["UCx=2026-07-25T00:00:00+00:00"],
-                 candidates_json=None, now=NOW)
+        run_mark(
+            p,
+            ingested=[],
+            skipped=[],
+            channel_seen=["UCx=2026-07-17T00:00:00+00:00"],
+            candidates_json=None,
+            now=NOW,
+        )
+        assert (
+            load_state(p)["channels"]["UCx"]["floor_ts_utc"]
+            == "2026-07-17T00:00:00+00:00"
+        )
+        run_mark(
+            p,
+            ingested=[],
+            skipped=[],
+            channel_seen=["UCx=2026-07-25T00:00:00+00:00"],
+            candidates_json=None,
+            now=NOW,
+        )
         # static floor: a later --channel-seen must NOT advance it
-        assert load_state(p)["channels"]["UCx"]["floor_ts_utc"] == "2026-07-17T00:00:00+00:00"
+        assert (
+            load_state(p)["channels"]["UCx"]["floor_ts_utc"]
+            == "2026-07-17T00:00:00+00:00"
+        )
 
     def test_bad_channel_seen_aborts(self, tmp_path: Path) -> None:
         with pytest.raises(SystemExit):
-            run_mark(tmp_path / "s.json", ingested=[], skipped=[],
-                     channel_seen=["UCx:2026-07-17T00:00:00+00:00"],  # colon, not =
-                     candidates_json=None, now=NOW)
+            run_mark(
+                tmp_path / "s.json",
+                ingested=[],
+                skipped=[],
+                channel_seen=["UCx:2026-07-17T00:00:00+00:00"],  # colon, not =
+                candidates_json=None,
+                now=NOW,
+            )
 
 
 class TestResolve:
     def test_resolve_request_shape_and_toml_block(self) -> None:
-        payload = {"items": [{"id": "UCreal", "snippet": {"title": "Into The Cryptoverse"}}]}
+        payload = {
+            "items": [{"id": "UCreal", "snippet": {"title": "Into The Cryptoverse"}}]
+        }
         get = FakeGet({"channels": [FakeResp(200, payload)]})
         block = resolve_handle(get, "K", "intothecryptoverse")
         url, params = get.calls[0]
         assert url.endswith("/channels")
         assert params["forHandle"] == "@intothecryptoverse"
         assert params["part"] == "id,snippet"
-        assert '[[channel]]' in block
+        assert "[[channel]]" in block
         assert 'id = "UCreal"' in block
         assert 'name = "Into The Cryptoverse"' in block
 
@@ -1129,7 +1301,9 @@ def run_mark(
     """The ONLY state writer. Every entry is an explicit outcome (spec §3)."""
     overlap = set(ingested) & set(skipped)
     if overlap:
-        raise SystemExit(f"video id(s) in both --ingested and --skipped: {sorted(overlap)}")
+        raise SystemExit(
+            f"video id(s) in both --ingested and --skipped: {sorted(overlap)}"
+        )
     state = load_state(state_path)
     meta: dict[str, dict[str, str]] = {}
     if candidates_json is not None:
@@ -1171,7 +1345,9 @@ def run_mark(
 def resolve_handle(get: HttpGet, api_key: str, handle: str) -> str:
     """Handle → ready-to-paste [[channel]] TOML block. Never writes config."""
     normalized = handle if handle.startswith("@") else f"@{handle}"
-    data = _api_get(get, api_key, "channels", {"part": "id,snippet", "forHandle": normalized})
+    data = _api_get(
+        get, api_key, "channels", {"part": "id,snippet", "forHandle": normalized}
+    )
     items = data.get("items", [])
     if not items:
         raise SystemExit(f"no channel found for handle {normalized!r}")
@@ -1235,35 +1411,61 @@ def write_config(tmp_path: Path, extra_channel: str = "") -> Path:
 
 class TestMainPoll:
     def test_missing_api_key_exits_2(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
-        rc = main(["poll", "--config", str(write_config(tmp_path)),
-                   "--state", str(tmp_path / "s.json")], get=FakeGet({}), now=NOW)
+        rc = main(
+            [
+                "poll",
+                "--config",
+                str(write_config(tmp_path)),
+                "--state",
+                str(tmp_path / "s.json"),
+            ],
+            get=FakeGet({}),
+            now=NOW,
+        )
         assert rc == 2
         assert "YOUTUBE_API_KEY" in capsys.readouterr().err
 
     def test_partial_failure_exits_1_keeps_other_channel(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         monkeypatch.setenv("YOUTUBE_API_KEY", "K")
         cfg = write_config(
             tmp_path, '[[channel]]\nid = "UCzzzzzzzzzzzzzzzzzzzzz"\nname = "Two"\n'
         )
-        good = {"items": [playlist_item("ggggggggggg", "BTC weekly", "2026-07-31T02:00:00Z")]}
+        good = {
+            "items": [
+                playlist_item("ggggggggggg", "BTC weekly", "2026-07-31T02:00:00Z")
+            ]
+        }
         vids = {"items": [video_item("ggggggggggg", "PT21M")]}
         err = {"error": {"code": 403, "errors": [{"reason": "quotaExceeded"}]}}
-        get = FakeGet({
-            "playlistItems": [FakeResp(200, good), FakeResp(403, err)],
-            "videos": [FakeResp(200, vids)],
-        })
+        get = FakeGet(
+            {
+                "playlistItems": [FakeResp(200, good), FakeResp(403, err)],
+                "videos": [FakeResp(200, vids)],
+            }
+        )
         state_path = tmp_path / "s.json"
-        rc = main(["poll", "--config", str(cfg), "--state", str(state_path), "--json"],
-                  get=get, now=NOW)
+        rc = main(
+            ["poll", "--config", str(cfg), "--state", str(state_path), "--json"],
+            get=get,
+            now=NOW,
+        )
         assert rc == 1
         payload = json.loads(capsys.readouterr().out)
         assert [c["video_id"] for c in payload["candidates"]] == ["ggggggggggg"]
-        assert any("quotaExceeded" in e for ch in payload["channels"] for e in ch["errors"])
+        assert any(
+            "quotaExceeded" in e for ch in payload["channels"] for e in ch["errors"]
+        )
         # read-only invariant: poll wrote NOTHING
         assert not state_path.exists()
 
@@ -1272,17 +1474,39 @@ class TestMainPoll:
     ) -> None:
         monkeypatch.setenv("YOUTUBE_API_KEY", "K")
         with pytest.raises(SystemExit, match="not in config"):
-            main(["backfill", "UCnotconfigured000000000",
-                  "--config", str(write_config(tmp_path)),
-                  "--state", str(tmp_path / "s.json")], get=FakeGet({}), now=NOW)
+            main(
+                [
+                    "backfill",
+                    "UCnotconfigured000000000",
+                    "--config",
+                    str(write_config(tmp_path)),
+                    "--state",
+                    str(tmp_path / "s.json"),
+                ],
+                get=FakeGet({}),
+                now=NOW,
+            )
 
-    def test_mark_via_cli(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_mark_via_cli(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)  # mark needs no key
         state_path = tmp_path / "s.json"
-        rc = main(["mark", "--state", str(state_path),
-                   "--ingested", "aaaaaaaaaaa", "--skipped", "bbbbbbbbbbb",
-                   "--channel-seen", "UCx=2026-07-17T00:00:00+00:00"],
-                  get=FakeGet({}), now=NOW)
+        rc = main(
+            [
+                "mark",
+                "--state",
+                str(state_path),
+                "--ingested",
+                "aaaaaaaaaaa",
+                "--skipped",
+                "bbbbbbbbbbb",
+                "--channel-seen",
+                "UCx=2026-07-17T00:00:00+00:00",
+            ],
+            get=FakeGet({}),
+            now=NOW,
+        )
         assert rc == 0
         state = load_state(state_path)
         assert state["videos"]["aaaaaaaaaaa"]["status"] == "ingested"
@@ -1318,7 +1542,10 @@ def _format_human(results: list[ChannelResult]) -> str:
     lines: list[str] = []
     for r in results:
         drops = ", ".join(f"{k}={v}" for k, v in r.excluded.items() if v)
-        lines.append(f"# {r.channel_name} ({r.channel_id})" + (f" — excluded: {drops}" if drops else ""))
+        lines.append(
+            f"# {r.channel_name} ({r.channel_id})"
+            + (f" — excluded: {drops}" if drops else "")
+        )
         for e in r.errors:
             lines.append(f"  ERROR: {e}")
         for c in r.candidates:
@@ -1342,27 +1569,49 @@ def main(
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    p_poll = sub.add_parser("poll", help="list new uploads across the configured channels")
-    p_back = sub.add_parser("backfill", help="page a channel's deep back-catalogue (floor ignored)")
+    p_poll = sub.add_parser(
+        "poll", help="list new uploads across the configured channels"
+    )
+    p_back = sub.add_parser(
+        "backfill", help="page a channel's deep back-catalogue (floor ignored)"
+    )
     p_back.add_argument("channel_id", help="UC… id; must exist in the channel config")
-    p_back.add_argument("--since", default=None, help="ISO date/ts; stop at older uploads")
-    p_back.add_argument("--max-videos", type=int, default=_DEFAULT_BACKFILL_MAX,
-                        help="max playlist entries examined (quota bound)")
+    p_back.add_argument(
+        "--since", default=None, help="ISO date/ts; stop at older uploads"
+    )
+    p_back.add_argument(
+        "--max-videos",
+        type=int,
+        default=_DEFAULT_BACKFILL_MAX,
+        help="max playlist entries examined (quota bound)",
+    )
     for p in (p_poll, p_back):
         p.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
         p.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
         p.add_argument("--json", action="store_true", dest="as_json")
 
-    p_mark = sub.add_parser("mark", help="record explicit outcomes (the ONLY state writer)")
+    p_mark = sub.add_parser(
+        "mark", help="record explicit outcomes (the ONLY state writer)"
+    )
     p_mark.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
     p_mark.add_argument("--ingested", nargs="*", default=[])
     p_mark.add_argument("--skipped", nargs="*", default=[])
-    p_mark.add_argument("--channel-seen", action="append", default=[],
-                        help="UC…=<floor iso ts> — persists a channel entry (setdefault only)")
-    p_mark.add_argument("--candidates-json", type=Path, default=None,
-                        help="poll/backfill --json output; enriches ledger rows")
+    p_mark.add_argument(
+        "--channel-seen",
+        action="append",
+        default=[],
+        help="UC…=<floor iso ts> — persists a channel entry (setdefault only)",
+    )
+    p_mark.add_argument(
+        "--candidates-json",
+        type=Path,
+        default=None,
+        help="poll/backfill --json output; enriches ledger rows",
+    )
 
-    p_res = sub.add_parser("resolve", help="handle → ready-to-paste [[channel]] TOML block")
+    p_res = sub.add_parser(
+        "resolve", help="handle → ready-to-paste [[channel]] TOML block"
+    )
     p_res.add_argument("handle")
 
     args = parser.parse_args(argv)
@@ -1370,15 +1619,22 @@ def main(
 
     if args.cmd == "mark":
         count = run_mark(
-            args.state, ingested=args.ingested, skipped=args.skipped,
-            channel_seen=args.channel_seen, candidates_json=args.candidates_json, now=now_dt,
+            args.state,
+            ingested=args.ingested,
+            skipped=args.skipped,
+            channel_seen=args.channel_seen,
+            candidates_json=args.candidates_json,
+            now=now_dt,
         )
         print(f"marked {count} video(s) in {args.state}")
         return 0
 
     api_key = os.environ.get("YOUTUBE_API_KEY", "")
     if not api_key:
-        print("YOUTUBE_API_KEY is not set — add it to .env (see .env.example)", file=sys.stderr)
+        print(
+            "YOUTUBE_API_KEY is not set — add it to .env (see .env.example)",
+            file=sys.stderr,
+        )
         return 2
 
     if args.cmd == "resolve":
@@ -1389,8 +1645,14 @@ def main(
     state = load_state(args.state)
     if args.cmd == "poll":
         results = [
-            poll_channel(ch, state, now=now_dt, get=get, api_key=api_key,
-                         cold_start_days=cfg.cold_start_days)
+            poll_channel(
+                ch,
+                state,
+                now=now_dt,
+                get=get,
+                api_key=api_key,
+                cold_start_days=cfg.cold_start_days,
+            )
             for ch in cfg.channels
         ]
     else:  # backfill
@@ -1405,12 +1667,22 @@ def main(
         if since is not None and since.tzinfo is None:
             since = since.replace(tzinfo=UTC)
         results = [
-            backfill_channel(channel, state, now=now_dt, get=get, api_key=api_key,
-                             since=since, max_videos=args.max_videos)
+            backfill_channel(
+                channel,
+                state,
+                now=now_dt,
+                get=get,
+                api_key=api_key,
+                since=since,
+                max_videos=args.max_videos,
+            )
         ]
 
-    print(json.dumps(_results_to_dict(results, now_dt), indent=2) if args.as_json
-          else _format_human(results))
+    print(
+        json.dumps(_results_to_dict(results, now_dt), indent=2)
+        if args.as_json
+        else _format_human(results)
+    )
     return 1 if any(r.errors for r in results) else 0
 
 
