@@ -17,10 +17,12 @@ import json
 import os
 import re
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
+
+import requests
 
 from tools.video_marks import FRAME_CAP
 
@@ -172,3 +174,232 @@ def floor_for(
     if entry is not None:
         return datetime.fromisoformat(entry["floor_ts_utc"])
     return now - timedelta(days=cold_start_days)
+
+
+class HttpResponse(Protocol):
+    status_code: int
+    text: str
+
+
+class HttpGet(Protocol):
+    def __call__(self, url: str, *, params: dict[str, str]) -> HttpResponse: ...
+
+
+def _requests_get(url: str, *, params: dict[str, str]) -> HttpResponse:
+    return requests.get(url, params=params, timeout=20)  # type: ignore[return-value]
+
+
+class FeedApiError(Exception):
+    """A YouTube Data API call failed; message carries HTTP status + API reason."""
+
+
+_EXCLUDE_REASONS = (
+    "below_floor",
+    "ledgered",
+    "title_filtered",
+    "too_short",
+    "live_or_upcoming",
+    "unavailable",
+)
+
+
+@dataclass(frozen=True)
+class Candidate:
+    channel_id: str
+    channel_name: str
+    video_id: str
+    url: str
+    title: str
+    publish_ts_utc: str
+    duration_s: int
+    age_h: float
+    est_tokens: int
+    lang_hint: str
+
+
+@dataclass
+class ChannelResult:
+    channel_id: str
+    channel_name: str
+    floor_ts_utc: str
+    candidates: list[Candidate] = field(default_factory=list)
+    excluded: dict[str, int] = field(default_factory=dict)
+    errors: list[str] = field(default_factory=list)
+
+
+def _api_error_reason(body: str) -> str:
+    try:
+        payload = json.loads(body)
+        reason = payload["error"]["errors"][0]["reason"]
+        return str(reason)
+    except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+        return ""
+
+
+def _api_get(
+    get: HttpGet, api_key: str, endpoint: str, params: dict[str, str]
+) -> dict[str, Any]:
+    resp = get(f"{_API_BASE}/{endpoint}", params={**params, "key": api_key})
+    if resp.status_code != 200:
+        reason = _api_error_reason(resp.text)
+        suffix = f" ({reason})" if reason else ""
+        raise FeedApiError(f"{endpoint} HTTP {resp.status_code}{suffix}")
+    result: dict[str, Any] = json.loads(resp.text)
+    return result
+
+
+def _fetch_playlist_page(
+    get: HttpGet, api_key: str, playlist_id: str, page_token: str | None
+) -> dict[str, Any]:
+    params = {
+        "part": "snippet,contentDetails",
+        "playlistId": playlist_id,
+        "maxResults": str(_PAGE_SIZE),
+    }
+    if page_token is not None:
+        params["pageToken"] = page_token
+    return _api_get(get, api_key, "playlistItems", params)
+
+
+def _resolve_uploads_id(get: HttpGet, api_key: str, channel_id: str) -> str:
+    data = _api_get(
+        get, api_key, "channels", {"part": "contentDetails", "id": channel_id}
+    )
+    items = data.get("items", [])
+    if not items:
+        raise FeedApiError(f"channel not found: {channel_id}")
+    uploads: str = items[0]["contentDetails"]["relatedPlaylists"]["uploads"]
+    return uploads
+
+
+def _scan_items(
+    channel: ChannelConfig,
+    items: list[dict[str, Any]],
+    *,
+    ledger: dict[str, Any],
+    floor: datetime | None,
+    excluded: dict[str, int],
+) -> list[dict[str, Any]]:
+    """First-stage filter over playlistItems entries (pre-quota: no API calls here)."""
+    survivors: list[dict[str, Any]] = []
+    for item in items:
+        details = item.get("contentDetails", {})
+        snippet = item.get("snippet", {})
+        vid = details.get("videoId") or snippet.get("resourceId", {}).get("videoId")
+        pub_raw = details.get("videoPublishedAt")
+        title = str(snippet.get("title", ""))
+        if not vid or not pub_raw or title in ("Deleted video", "Private video"):
+            excluded["unavailable"] += 1
+            continue
+        pub = datetime.fromisoformat(pub_raw)
+        if floor is not None and pub < floor:
+            excluded["below_floor"] += 1
+            continue
+        if vid in ledger:
+            excluded["ledgered"] += 1
+            continue
+        if title_excluded(title, channel):
+            excluded["title_filtered"] += 1
+            continue
+        survivors.append({"video_id": vid, "title": title, "publish": pub})
+    return survivors
+
+
+def _resolve_durations(
+    get: HttpGet,
+    api_key: str,
+    survivors: list[dict[str, Any]],
+    channel: ChannelConfig,
+    now: datetime,
+    excluded: dict[str, int],
+) -> list[Candidate]:
+    candidates: list[Candidate] = []
+    for start in range(0, len(survivors), _PAGE_SIZE):
+        chunk = survivors[start : start + _PAGE_SIZE]
+        data = _api_get(
+            get,
+            api_key,
+            "videos",
+            {
+                "part": "contentDetails,snippet",
+                "id": ",".join(s["video_id"] for s in chunk),
+            },
+        )
+        by_id = {v["id"]: v for v in data.get("items", [])}
+        for s in chunk:
+            video = by_id.get(s["video_id"])
+            if video is None:
+                excluded["unavailable"] += 1
+                continue
+            if video.get("snippet", {}).get("liveBroadcastContent", "none") in (
+                "live",
+                "upcoming",
+            ):
+                excluded["live_or_upcoming"] += 1
+                continue
+            try:
+                duration_s = parse_iso8601_duration(
+                    video.get("contentDetails", {}).get("duration", "")
+                )
+            except ValueError:
+                excluded["unavailable"] += 1
+                continue
+            if duration_s < channel.min_duration_s:
+                excluded["too_short"] += 1
+                continue
+            publish: datetime = s["publish"]
+            candidates.append(
+                Candidate(
+                    channel_id=channel.id,
+                    channel_name=channel.name,
+                    video_id=s["video_id"],
+                    url=f"https://www.youtube.com/watch?v={s['video_id']}",
+                    title=s["title"],
+                    publish_ts_utc=publish.isoformat(),
+                    duration_s=duration_s,
+                    age_h=round((now - publish).total_seconds() / 3600, 1),
+                    est_tokens=estimate_tokens(duration_s),
+                    lang_hint=channel.lang,
+                )
+            )
+    return candidates
+
+
+def poll_channel(
+    channel: ChannelConfig,
+    state: dict[str, Any],
+    *,
+    now: datetime,
+    get: HttpGet,
+    api_key: str,
+    cold_start_days: int,
+) -> ChannelResult:
+    """Daily-feed scan of one channel. Strictly read-only — writes nothing."""
+    floor = floor_for(channel.id, state, now, cold_start_days)
+    excluded = dict.fromkeys(_EXCLUDE_REASONS, 0)
+    result = ChannelResult(
+        channel.id, channel.name, floor.isoformat(), [], excluded, []
+    )
+    try:
+        try:
+            page = _fetch_playlist_page(
+                get, api_key, uploads_playlist_id(channel.id), None
+            )
+        except FeedApiError as exc:
+            if "404" not in str(exc):
+                raise
+            uploads = _resolve_uploads_id(get, api_key, channel.id)
+            page = _fetch_playlist_page(get, api_key, uploads, None)
+        survivors = _scan_items(
+            channel,
+            page.get("items", []),
+            ledger=state["videos"],
+            floor=floor,
+            excluded=excluded,
+        )
+        result.candidates = _resolve_durations(
+            get, api_key, survivors, channel, now, excluded
+        )
+    except FeedApiError as exc:
+        result.errors.append(str(exc))
+    return result
