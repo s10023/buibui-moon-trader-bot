@@ -245,6 +245,7 @@ SoT, or memory file. Instruct it to return ONLY this JSON:
       "raw_quote_en": "English translation of raw_quote",
       "chart_read": "what the frame shows (levels, structure, annotations)",
       "content_type": "claim | setup | mechanic",
+      "retrospective": false,
       "verdict": "NOVEL | ALREADY-TESTED | FROZEN-CATEGORY | NOT-FALSIFIABLE",
       "gap_note": "one line: implied primitive + does the system already have/test/freeze it?",
       "vision_confidence": "high | medium | low",
@@ -272,6 +273,13 @@ Rules for the subagent:
 - `chart_present: false` when no frame in this video shows a chart at all (pure
   talking-head) — still emit `items` from the transcript alone, all
   `vision_confidence: "low"`, `frame_path: null`.
+- `retrospective` — `true` when the speaker is reviewing or managing a position entered
+  **before** this video (past-tense entry, "we entered yesterday", "已经进场", a
+  screenshot of a prior day's fill), rather than issuing a new actionable call. When the
+  entry timing is unclear, `true` — the conservative direction for ledger integrity
+  (a retrospective stamped with this video's `call_ts_utc` scores forward from a point
+  where the outcome is partly known, flattering the author's hit rate). For
+  `claim`/`mechanic` items always `false`.
 
 **`confidence` vs `vision_confidence` — never merge these, they mean different things.**
 `confidence` means the same thing across **every** source already in
@@ -287,8 +295,8 @@ across every source, instead of silently mixing two incompatible populations.
 ### 7. ONE consolidated digest for the whole batch
 
 Print a single table — one row per kept item across every video: video (title) · author ·
-`call_ts_utc` (`call_ts_source`) · `ts` · `content_type` · `verdict` · proposed routing ·
-`vision_confidence`. Below the table, per video: the pass-1 `summary`, the dropped
+`call_ts_utc` (`call_ts_source`) · `ts` · `content_type` · `retrospective` · `verdict` ·
+proposed routing · `vision_confidence`. Below the table, per video: the pass-1 `summary`, the dropped
 candidates with their reasons, the `chart_present` flag, and `backlog` when `true`. List
 any shape-1 / shape-2 videos separately with their skip reason. **Write nothing yet.**
 
@@ -310,7 +318,8 @@ import — do not fork it) and append per this table, identical to `/ingest-x`:
 
 | content_type | verdict | Append to |
 | --- | --- | --- |
-| setup | — | `docs/plans/pundit-calls.jsonl` (one JSON line, schema below) |
+| setup (`retrospective: false`) | — | `docs/plans/pundit-calls.jsonl` (one JSON line, schema below) |
+| setup (`retrospective: true`) | — | **drop** — reason "retrospective — call predates video"; shown in the digest and the per-video note, never a Stream C write |
 | mechanic | — | `docs/plans/mechanics-backlog.md` (a `- ` bullet) |
 | claim | NOVEL | `docs/plans/thesis-inbox.md` (a draft `H` row) |
 | claim | ALREADY-TESTED / FROZEN-CATEGORY / NOT-FALSIFIABLE | **drop** — state "seen, verdict X", write nothing |
@@ -379,7 +388,7 @@ Contents:
   `publish_ts_utc`, `call_ts_utc`, `call_ts_source`, `stated_ts_raw`, `ingested_ts_utc`,
   `backlog`, `chart_present`
 - the pass-1 `summary`
-- an items table: `ts` · `content_type` · `verdict` · routing outcome ·
+- an items table: `ts` · `content_type` · `retrospective` · `verdict` · routing outcome ·
   `vision_confidence` · `frame_path`
 - the dropped candidates, with reasons
 - frame references (path + `ts` for every extracted frame, including ones that produced
