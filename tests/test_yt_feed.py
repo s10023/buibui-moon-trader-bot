@@ -447,6 +447,24 @@ class TestBackfillChannel:
         playlist_calls = [c for c in get.calls if c[0].endswith("playlistItems")]
         assert len(playlist_calls) == 1
 
+    def test_empty_items_page_stops_pagination(self) -> None:
+        # a page with a nextPageToken but zero items makes no progress; must
+        # not loop forever chasing the token
+        page1 = {"items": [], "nextPageToken": "P2"}
+        get = FakeGet({"playlistItems": [FakeResp(200, page1)]})
+        result = backfill_channel(
+            make_channel(),
+            {"version": 1, "channels": {}, "videos": {}},
+            now=NOW,
+            get=get,
+            api_key="K",
+            since=None,
+            max_videos=200,
+        )
+        assert result.candidates == []
+        playlist_calls = [c for c in get.calls if c[0].endswith("playlistItems")]
+        assert len(playlist_calls) == 1
+
 
 class TestMark:
     def test_writes_statuses_and_summary_count(self, tmp_path: Path) -> None:
@@ -540,29 +558,30 @@ class TestMark:
         self, tmp_path: Path
     ) -> None:
         p = tmp_path / "s.json"
+        cid = "UCabcdefghijklmnopqrstuv"
         run_mark(
             p,
             ingested=[],
             skipped=[],
-            channel_seen=["UCx=2026-07-17T00:00:00+00:00"],
+            channel_seen=[f"{cid}=2026-07-17T00:00:00+00:00"],
             candidates_json=None,
             now=NOW,
         )
         assert (
-            load_state(p)["channels"]["UCx"]["floor_ts_utc"]
+            load_state(p)["channels"][cid]["floor_ts_utc"]
             == "2026-07-17T00:00:00+00:00"
         )
         run_mark(
             p,
             ingested=[],
             skipped=[],
-            channel_seen=["UCx=2026-07-25T00:00:00+00:00"],
+            channel_seen=[f"{cid}=2026-07-25T00:00:00+00:00"],
             candidates_json=None,
             now=NOW,
         )
         # static floor: a later --channel-seen must NOT advance it
         assert (
-            load_state(p)["channels"]["UCx"]["floor_ts_utc"]
+            load_state(p)["channels"][cid]["floor_ts_utc"]
             == "2026-07-17T00:00:00+00:00"
         )
 
@@ -573,6 +592,32 @@ class TestMark:
                 ingested=[],
                 skipped=[],
                 channel_seen=["UCx:2026-07-17T00:00:00+00:00"],  # colon, not =
+                candidates_json=None,
+                now=NOW,
+            )
+
+    def test_channel_seen_rejects_naive_timestamp(self, tmp_path: Path) -> None:
+        # a valid-shape channel id but an offset-less timestamp must be
+        # rejected, never silently assumed-UTC (mirrors video_calltime.py)
+        with pytest.raises(SystemExit):
+            run_mark(
+                tmp_path / "s.json",
+                ingested=[],
+                skipped=[],
+                channel_seen=["UCabcdefghijklmnopqrstuv=2026-07-17T00:00:00"],
+                candidates_json=None,
+                now=NOW,
+            )
+
+    def test_channel_seen_rejects_malformed_channel_id(self, tmp_path: Path) -> None:
+        # passes the old bare startswith("UC") check but fails the full
+        # 24-char shape
+        with pytest.raises(SystemExit):
+            run_mark(
+                tmp_path / "s.json",
+                ingested=[],
+                skipped=[],
+                channel_seen=["UCshort=2026-07-17T00:00:00+00:00"],
                 candidates_json=None,
                 now=NOW,
             )
@@ -701,7 +746,7 @@ class TestMainPoll:
                 "--skipped",
                 "bbbbbbbbbbb",
                 "--channel-seen",
-                "UCx=2026-07-17T00:00:00+00:00",
+                "UCabcdefghijklmnopqrstuv=2026-07-17T00:00:00+00:00",
             ],
             get=FakeGet({}),
             now=NOW,
@@ -709,7 +754,7 @@ class TestMainPoll:
         assert rc == 0
         state = load_state(state_path)
         assert state["videos"]["aaaaaaaaaaa"]["status"] == "ingested"
-        assert "UCx" in state["channels"]
+        assert "UCabcdefghijklmnopqrstuv" in state["channels"]
 
 
 class TestExampleConfig:

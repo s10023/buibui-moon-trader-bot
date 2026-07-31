@@ -40,6 +40,8 @@ _STATE_VERSION = 1
 DEFAULT_CONFIG_PATH = Path("config/youtube_channels.toml")
 DEFAULT_STATE_PATH = Path("docs/plans/yt-feed-state.json")
 _VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+# YouTube channel ids are always 24 chars: "UC" + 22 of [A-Za-z0-9_-]
+_CHANNEL_ID_RE = re.compile(r"^UC[A-Za-z0-9_-]{22}$")
 _ISO_DUR_RE = re.compile(
     r"^P(?:(?P<d>\d+)D)?(?:T(?:(?P<h>\d+)H)?(?:(?P<m>\d+)M)?(?:(?P<s>\d+)S)?)?$"
 )
@@ -438,6 +440,10 @@ def backfill_channel(
                 else:
                     raise
             items = page.get("items", [])
+            if not items:
+                # guards a malformed API page (nextPageToken present but zero
+                # items) from paging forever with no progress
+                break
             collected.extend(items[: max_videos - len(collected)])
             token = page.get("nextPageToken")
             last_pub_raw = (
@@ -502,12 +508,23 @@ def run_mark(
             count += 1
     for pair in channel_seen:
         cid, sep, floor_raw = pair.partition("=")
-        if sep != "=" or not cid.startswith("UC") or not floor_raw:
+        if sep != "=" or not _CHANNEL_ID_RE.match(cid) or not floor_raw:
             raise SystemExit(f"bad --channel-seen (want UC…=<iso ts>): {pair!r}")
         try:
-            datetime.fromisoformat(floor_raw)
+            floor_dt = datetime.fromisoformat(floor_raw)
         except ValueError as exc:
             raise SystemExit(f"bad --channel-seen timestamp: {floor_raw!r}") from exc
+        if floor_dt.tzinfo is None:
+            # mirrors tools/video_calltime.py: a naive timestamp is REJECTED,
+            # never assumed-UTC — assuming a zone would silently apply an
+            # unrecorded inference, and floor_for later parses this value
+            # naive too, which would crash the next poll comparing it against
+            # an aware pub timestamp
+            raise SystemExit(
+                "bad --channel-seen timestamp (naive, no UTC offset — pass "
+                "the floor_ts_utc value from poll's JSON output verbatim): "
+                f"{floor_raw!r}"
+            )
         # setdefault is load-bearing: an existing floor is STATIC and never moves
         state["channels"].setdefault(
             cid, {"added_ts_utc": now.isoformat(), "floor_ts_utc": floor_raw}
