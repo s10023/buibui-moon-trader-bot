@@ -13,10 +13,14 @@ Spec: docs/superpowers/specs/2026-07-31-st10-youtube-feed-design.md
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import tomllib
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from tools.video_marks import FRAME_CAP
 
@@ -122,3 +126,49 @@ def title_excluded(title: str, channel: ChannelConfig) -> bool:
     return bool(channel.title_include) and not any(
         k in low for k in channel.title_include
     )
+
+
+def _fresh_state() -> dict[str, Any]:
+    return {"version": _STATE_VERSION, "channels": {}, "videos": {}}
+
+
+def load_state(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return _fresh_state()
+    try:
+        state: Any = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(
+            f"malformed state file {path}: {exc} — refusing to silently reset "
+            "(that would re-queue everything ever ingested); fix or move the file"
+        ) from exc
+    if (
+        not isinstance(state, dict)
+        or state.get("version") != _STATE_VERSION
+        or not isinstance(state.get("channels"), dict)
+        or not isinstance(state.get("videos"), dict)
+    ):
+        raise SystemExit(
+            f"unrecognized state shape/version in {path} — refusing to silently reset"
+        )
+    return state
+
+
+def save_state(path: Path, state: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def floor_for(
+    channel_id: str, state: dict[str, Any], now: datetime, cold_start_days: int
+) -> datetime:
+    """Static per-channel candidacy floor (spec §3): persisted value wins; else computed.
+
+    Never advanced by any fetch — the entry is persisted only by `mark`.
+    """
+    entry = state["channels"].get(channel_id)
+    if entry is not None:
+        return datetime.fromisoformat(entry["floor_ts_utc"])
+    return now - timedelta(days=cold_start_days)

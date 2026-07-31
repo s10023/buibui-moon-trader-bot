@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -10,8 +12,11 @@ import pytest
 from tools.yt_feed import (
     ChannelConfig,
     estimate_tokens,
+    floor_for,
     load_feed_config,
+    load_state,
     parse_iso8601_duration,
+    save_state,
     title_excluded,
     uploads_playlist_id,
 )
@@ -102,3 +107,50 @@ class TestLoadFeedConfig:
     def test_non_uc_id_aborts(self, tmp_path: Path) -> None:
         with pytest.raises(SystemExit):
             load_feed_config(self._write(tmp_path, '[[channel]]\nid = "abc"\n'))
+
+
+class TestState:
+    def test_missing_file_returns_fresh(self, tmp_path: Path) -> None:
+        state = load_state(tmp_path / "yt-feed-state.json")
+        assert state == {"version": 1, "channels": {}, "videos": {}}
+
+    def test_malformed_json_aborts(self, tmp_path: Path) -> None:
+        p = tmp_path / "s.json"
+        p.write_text("{not json", encoding="utf-8")
+        with pytest.raises(SystemExit, match="refusing"):
+            load_state(p)
+
+    def test_wrong_version_aborts(self, tmp_path: Path) -> None:
+        p = tmp_path / "s.json"
+        p.write_text(
+            json.dumps({"version": 99, "channels": {}, "videos": {}}), encoding="utf-8"
+        )
+        with pytest.raises(SystemExit):
+            load_state(p)
+
+    def test_save_roundtrip_atomic(self, tmp_path: Path) -> None:
+        p = tmp_path / "sub" / "s.json"
+        state = load_state(p)
+        state["videos"]["aaaaaaaaaaa"] = {"status": "ingested"}
+        save_state(p, state)
+        assert load_state(p)["videos"]["aaaaaaaaaaa"]["status"] == "ingested"
+        assert not p.with_suffix(".json.tmp").exists()
+
+    def test_floor_prefers_persisted_entry(self, tmp_path: Path) -> None:
+        now = datetime(2026, 7, 31, 9, 0, tzinfo=UTC)
+        state = {
+            "version": 1,
+            "videos": {},
+            "channels": {
+                "UCx": {
+                    "added_ts_utc": "2026-07-01T00:00:00+00:00",
+                    "floor_ts_utc": "2026-06-17T00:00:00+00:00",
+                }
+            },
+        }
+        assert floor_for("UCx", state, now, 14) == datetime(2026, 6, 17, tzinfo=UTC)
+
+    def test_floor_computed_for_unknown_channel(self) -> None:
+        now = datetime(2026, 7, 31, 9, 0, tzinfo=UTC)
+        state = {"version": 1, "videos": {}, "channels": {}}
+        assert floor_for("UCy", state, now, 14) == now - timedelta(days=14)
