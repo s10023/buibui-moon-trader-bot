@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -14,6 +15,7 @@ from tools.route_dedup import (
     RoutedItem,
     append_routed,
     find_similar,
+    find_source_duplicate_pairs,
     is_routed,
     load_ledger,
     main,
@@ -21,6 +23,7 @@ from tools.route_dedup import (
     parse_source_id,
     remove_routed,
     seed_items,
+    semantic_scope,
     split_entries,
 )
 from tools.x_route import route_target
@@ -229,17 +232,10 @@ def test_find_similar_on_an_empty_sink_is_empty() -> None:
     assert find_similar("anything at all", THESIS_SINK, "") == []
 
 
-# Two pundits making the same call are two real observations — pundit_score.py scores
-# both authors — so collapsing them would destroy signal. Stream C gets identity
-# dedup only, and the digest is told the semantic pass did not run.
-def test_find_similar_never_runs_on_the_pundit_ledger() -> None:
-    line = (
-        '{"author":"a","symbol":"BTCUSDT","entry":"69000","raw_quote_en":"69k holds"}'
-    )
-    assert find_similar("69k cost basis holds", PUNDIT_SINK, line) == []
-
-
-def test_check_reports_that_stream_c_had_no_semantic_pass(
+# Stream C's pass is scoped to one source, so on an absent sink there is nothing to
+# compare — but the scope is still reported, because "no candidates" and "no pass"
+# have to stay distinguishable in the digest.
+def test_check_on_an_absent_stream_c_sink_still_reports_its_scope(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     main(
@@ -259,7 +255,9 @@ def test_check_reports_that_stream_c_had_no_semantic_pass(
             str(tmp_path / "routed.json"),
         ]
     )
-    assert json.loads(capsys.readouterr().out)["semantic_checked"] is False
+    out = json.loads(capsys.readouterr().out)
+    assert out["semantic_scope"] == "same-source"
+    assert out["candidates"] == []
 
 
 def test_check_reports_a_semantic_pass_on_stream_a(
@@ -290,6 +288,247 @@ def test_check_reports_a_semantic_pass_on_stream_a(
 def test_find_similar_respects_top_n() -> None:
     claim = "short-term holder cost basis around 69k, and USDT.D dominance too"
     assert len(find_similar(claim, THESIS_SINK, _INBOX, top_n=1)) <= 1
+
+
+# ---------------------------------------------------------------------------
+# Stream C's same-source blind spot. The exemption is right ACROSS sources — two
+# pundits making the same call are two real observations and pundit_score.py scores
+# both authors — but it was applied WITHIN one video too. Observed 2026-07-31: two
+# items from a single video were the entry leg and the target leg of the SAME open
+# long, and both became ledger rows.
+# ---------------------------------------------------------------------------
+
+_VIDEO_ID = "abc12345678"
+_OTHER_VIDEO_ID = "zyx98765432"
+
+
+def _call_row(
+    *,
+    video_id: str = _VIDEO_ID,
+    ts: float = 0.0,
+    symbol: str = "BTCUSDT",
+    direction: str = "long",
+    entry: str = "115200",
+    stop: str = "113800",
+    target: str = "118500",
+    raw_quote_en: str = "",
+) -> dict[str, Any]:
+    return {
+        "source": "youtube",
+        "author": "@somepundit",
+        "url": f"https://www.youtube.com/watch?v={video_id}&t={int(ts)}s",
+        "ts": ts,
+        "horizon": "swing",
+        "confidence": "",
+        "symbol": symbol,
+        "direction": direction,
+        "entry": entry,
+        "stop": stop,
+        "target": target,
+        "raw_quote_en": raw_quote_en,
+    }
+
+
+# Deliberately NOT the same field values. Pass 2 extracts each leg from the moment it
+# was spoken, so the entry leg carries no target and the target leg carries no stop —
+# the shared entry price is the whole of the evidence that they are one position.
+_ENTRY_LEG = _call_row(
+    ts=162.0,
+    target="",
+    raw_quote_en="we are long from 115,200 with the stop under 113,800",
+)
+_TARGET_LEG = _call_row(
+    ts=886.0,
+    stop="",
+    raw_quote_en="the first target for this long sits at 118,500",
+)
+_UNRELATED_CALL = _call_row(
+    ts=1500.0,
+    symbol="ETHUSDT",
+    direction="short",
+    entry="3620",
+    stop="3705",
+    target="3410",
+    raw_quote_en="ether looks heavy into the 3,705 supply shelf",
+)
+
+# The real umX9m7y7jsU pair, which route_dedup's own key docstring names as the rows
+# this module exists to PROTECT: same video, same symbol, same direction, two
+# genuinely different trades. Same-source matching must not collapse them.
+_SWEEP_BUY = _call_row(
+    ts=162.6,
+    stop="",
+    target="",
+    entry="conditional long-term spot buy on a sweep below the 57,856.93 week low",
+    raw_quote_en="if we sweep the weekly low I am bidding spot down there",
+)
+_BREAKOUT_LONG = _call_row(
+    ts=886.2,
+    stop="",
+    entry="breakout long on confirmed acceptance above 80,000",
+    target="110000",
+    raw_quote_en="reclaiming eighty thousand opens the path to six figures next year",
+)
+
+
+def _jsonl(*rows: dict[str, Any]) -> str:
+    return "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
+
+
+def test_stream_c_stays_exempt_without_a_source_id() -> None:
+    """Back-compat: no source id means no same-source scope, so nothing is checked."""
+    assert find_similar("69k cost basis holds", PUNDIT_SINK, _jsonl(_ENTRY_LEG)) == []
+
+
+def test_an_unrecognized_sink_is_quietly_unscopeable_not_an_error() -> None:
+    """Scoping needs entries that persist a URL. A sink that has none — including a
+    typo'd `--sink` — returns [] as it always did, rather than raising out of the
+    entry splitter."""
+    assert find_similar("anything", "docs/plans/typo.md", "", source_id=_VIDEO_ID) == []
+    assert semantic_scope("docs/plans/typo.md", _VIDEO_ID) == "none"
+
+
+def test_stream_c_flags_a_same_source_restatement() -> None:
+    hits = find_similar(
+        "long 115,200 targeting 118,500",
+        PUNDIT_SINK,
+        _jsonl(_ENTRY_LEG),
+        source_id=_VIDEO_ID,
+    )
+    assert hits
+    assert 115200.0 in hits[0].shared_levels
+
+
+def test_stream_c_ignores_an_identical_call_from_a_different_source() -> None:
+    """The cross-author exemption, unchanged: this is the case that must NOT fire."""
+    other = _call_row(video_id=_OTHER_VIDEO_ID, ts=40.0, raw_quote_en="long 115,200")
+    assert (
+        find_similar(
+            "long 115,200 targeting 118,500",
+            PUNDIT_SINK,
+            _jsonl(other),
+            source_id=_VIDEO_ID,
+        )
+        == []
+    )
+
+
+def test_stream_c_scoring_ignores_schema_keys() -> None:
+    """Two unrelated calls from ONE video must not match on shared JSON keys.
+
+    Scoring the raw line makes every Stream C pair look alike — `source`, `author`,
+    `symbol`, `direction`, `horizon`, `confidence` are terms in every row — which is
+    why the sink read as uniformly self-similar in the original calibration pass and
+    the semantic layer was switched off for it wholesale.
+    """
+    assert (
+        find_similar(
+            "ether short into the 3,705 supply shelf",
+            PUNDIT_SINK,
+            _jsonl(_ENTRY_LEG),
+            source_id=_VIDEO_ID,
+        )
+        == []
+    )
+
+
+# ---------------------------------------------------------------------------
+# Intra-batch pairs. Every check in the review digest runs BEFORE approval, so when
+# a video's items are checked none of them are on disk yet — the pair that shipped
+# the defect is invisible to any sink-file comparison. It is only findable item-vs-item.
+# ---------------------------------------------------------------------------
+
+
+def test_two_legs_of_one_position_are_flagged() -> None:
+    pairs = find_source_duplicate_pairs([_ENTRY_LEG, _TARGET_LEG])
+    assert len(pairs) == 1
+    assert (pairs[0].left_ts, pairs[0].right_ts) == (162.0, 886.0)
+    assert 115200.0 in pairs[0].shared_levels
+
+
+def test_genuinely_different_calls_in_one_video_are_not_flagged() -> None:
+    assert find_source_duplicate_pairs([_ENTRY_LEG, _UNRELATED_CALL]) == []
+
+
+def test_two_distinct_trades_on_one_symbol_survive() -> None:
+    """The adversarial negative: matching symbol AND direction, different trade."""
+    assert find_source_duplicate_pairs([_SWEEP_BUY, _BREAKOUT_LONG]) == []
+
+
+def test_pairs_needs_at_least_two_items() -> None:
+    assert find_source_duplicate_pairs([]) == []
+    assert find_source_duplicate_pairs([_ENTRY_LEG]) == []
+
+
+def test_pairs_are_reported_once_not_in_both_orders() -> None:
+    pairs = find_source_duplicate_pairs([_ENTRY_LEG, _TARGET_LEG, _UNRELATED_CALL])
+    assert len(pairs) == 1
+
+
+def test_pairs_cli_reads_an_items_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    items = tmp_path / "items.json"
+    items.write_text(json.dumps([_ENTRY_LEG, _TARGET_LEG]), encoding="utf-8")
+    main(["pairs", "--items", str(items)])
+    out = json.loads(capsys.readouterr().out)
+    assert len(out["pairs"]) == 1
+    assert out["pairs"][0]["left_ts"] == 162.0
+
+
+def test_check_reports_the_semantic_scope_it_actually_used(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`semantic_checked` alone can no longer describe Stream C — it is checked, but
+    only against its own source. The digest has to be able to say which."""
+    sink = tmp_path / "pundit-calls.jsonl"
+    sink.write_text(_jsonl(_ENTRY_LEG), encoding="utf-8")
+    main(
+        [
+            "check",
+            "--source-id",
+            _VIDEO_ID,
+            "--item-ts",
+            "886",
+            "--sink",
+            PUNDIT_SINK,
+            "--sink-path",
+            str(sink),
+            "--text",
+            "long 115,200 targeting 118,500",
+            "--ledger",
+            str(tmp_path / "routed.json"),
+        ]
+    )
+    out = json.loads(capsys.readouterr().out)
+    assert out["semantic_checked"] is True
+    assert out["semantic_scope"] == "same-source"
+    assert out["candidates"]
+
+
+def test_check_reports_full_scope_on_stream_a(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sink = tmp_path / "thesis-inbox.md"
+    sink.write_text(_INBOX, encoding="utf-8")
+    main(
+        [
+            "check",
+            "--source-id",
+            _VIDEO_ID,
+            "--item-ts",
+            "0",
+            "--sink",
+            THESIS_SINK,
+            "--sink-path",
+            str(sink),
+            "--text",
+            "69k",
+            "--ledger",
+            str(tmp_path / "routed.json"),
+        ]
+    )
+    assert json.loads(capsys.readouterr().out)["semantic_scope"] == "all-entries"
 
 
 # ---------------------------------------------------------------------------

@@ -92,8 +92,12 @@ pasted, then run the flow once over the whole set.
    - `candidates` non-empty → **not a block.** Print each candidate's `excerpt` and
      `shared_levels` under that post's row and let the user decide: new row,
      corroboration line on the existing entry, or drop.
-   - `semantic_checked: false` means the near-duplicate pass did not run for that
-     sink (Stream C, by design — see step 4). Say so; do not report it as clean.
+   - `semantic_scope` says what the near-duplicate pass compared against:
+     `all-entries` (Streams A and B) or `same-source` (Stream C — only rows from this
+     same status id, never another author's). Report it; never let an empty
+     `candidates` list read as "checked against everything and clean". On Stream C the
+     same-source scope is near-inert here, since one X post routes one item — the
+     identity layer is what protects this sink.
 
 4. **Route on a single approval.** After the user approves the batch, for each post
    compute the destination with `tools/x_route.py::route_target(content_type, verdict)`
@@ -120,10 +124,15 @@ pasted, then run the flow once over the whole set.
    abandoned review consume the id and dedup away the real append later — the
    wifey-#68 watermark-on-send defect class. Never mark a dropped post.
 
-   Stream C is deliberately exempt from the near-duplicate pass: two pundits making
+   Stream C's near-duplicate exemption is **across sources only**: two pundits making
    the same call are two real observations and `tools/pundit_score.py` scores both
-   authors, so collapsing them would delete signal. Stream C still gets the exact
-   `already_routed` block.
+   authors, so collapsing those would delete signal. Within one `source_id` the pass
+   does run — that matters for `/ingest-video`, where one video yields several items;
+   here one post yields one. Stream C still gets the exact `already_routed` block.
+
+   `route_target` also takes `retrospective=` / `rejected=` keyword flags that drop a
+   `setup`. This pipeline extracts neither, so both stay `False` and routing is
+   unchanged; see `/ingest-video`'s step 6 for what they mean.
 
    **Stream C line** (`pundit-calls.jsonl`, one line, matches the parent spec's
    pundit-call schema):

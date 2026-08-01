@@ -30,9 +30,24 @@ THESIS_SINK = "docs/plans/thesis-inbox.md"
 MECHANICS_SINK = "docs/plans/mechanics-backlog.md"
 PUNDIT_SINK = "docs/plans/pundit-calls.jsonl"
 
-# Sinks where a near-duplicate is a defect. Stream C is absent on purpose — see
-# `find_similar`.
+# Sinks where a near-duplicate is a defect between ANY two entries. Stream C is absent
+# on purpose — there it is a defect only within one source. See `find_similar`.
 SEMANTIC_SINKS = frozenset({THESIS_SINK, MECHANICS_SINK})
+
+# The Stream C fields that carry what the call actually SAYS. Scoring the raw JSONL
+# line instead is what made this sink look uniformly self-similar in the original
+# calibration pass: `source`, `author`, `symbol`, `direction`, `horizon`,
+# `confidence` … are themselves terms, so any two rows share ~15 of them before one
+# word of content matches. Reading only the values restores the signal.
+_PUNDIT_CONTENT_FIELDS = (
+    "symbol",
+    "direction",
+    "entry",
+    "stop",
+    "target",
+    "raw_quote",
+    "raw_quote_en",
+)
 
 DEFAULT_LEDGER = Path("docs/plans/routed-ledger.json")
 
@@ -116,6 +131,19 @@ class DedupCandidate:
     score: float
     shared_levels: tuple[float, ...]
     shared_terms: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class DuplicatePair:
+    """Two items from ONE source that look like the same call described twice."""
+
+    left_ts: float
+    right_ts: float
+    score: float
+    shared_levels: tuple[float, ...]
+    shared_terms: tuple[str, ...]
+    left_excerpt: str
+    right_excerpt: str
 
 
 # ---------------------------------------------------------------------------
@@ -302,6 +330,30 @@ def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
     return len(a & b) / len(union) if union else 0.0
 
 
+def _score(a: str, b: str) -> tuple[float, frozenset[float], frozenset[str]]:
+    """Shared by both entry points so a claim-vs-entry and an item-vs-item comparison
+    can never drift onto different scales."""
+    a_terms, b_terms = _terms(a), _terms(b)
+    shared_levels = normalize_levels(a) & normalize_levels(b)
+    score = _LEVEL_WEIGHT * len(shared_levels) + _TERM_WEIGHT * _jaccard(
+        a_terms, b_terms
+    )
+    return score, shared_levels, a_terms & b_terms
+
+
+def pundit_content_text(row: dict[str, Any]) -> str:
+    """The comparable content of one Stream C row — values only, never the keys."""
+    return " ".join(str(row.get(f) or "") for f in _PUNDIT_CONTENT_FIELDS)
+
+
+def _parse_jsonl_entry(entry: str) -> dict[str, Any] | None:
+    try:
+        row = json.loads(entry)
+    except json.JSONDecodeError:
+        return None  # a hand-edited line should not abort a check
+    return row if isinstance(row, dict) else None
+
+
 def split_entries(sink: str, text: str) -> list[str]:
     """Split a sink's raw text into the entries a duplicate would land beside."""
     if sink.endswith(".jsonl"):
@@ -319,6 +371,35 @@ def split_entries(sink: str, text: str) -> list[str]:
     return [text[a:b].strip() for a, b in zip(starts, bounds, strict=True)]
 
 
+def semantic_scope(sink: str, source_id: str | None) -> str:
+    """What `find_similar` will actually compare against — `check` reports this so a
+    digest can never read an empty candidate list as "checked and clean"."""
+    if sink in SEMANTIC_SINKS:
+        return "all-entries"
+    # Scoping to one source needs entries that persist their own URL, which today
+    # means the JSONL sink. Anything else is unscopeable, so nothing is compared.
+    return "same-source" if source_id and sink.endswith(".jsonl") else "none"
+
+
+def _comparable_entries(
+    sink: str, sink_text: str, source_id: str | None
+) -> list[tuple[str, str]]:
+    """`(text to score, excerpt)` per in-scope entry."""
+    if semantic_scope(sink, source_id) == "none":
+        return []
+    entries = split_entries(sink, sink_text)
+    if sink in SEMANTIC_SINKS:
+        return [(e, e) for e in entries]
+    scoped: list[tuple[str, str]] = []
+    for entry in entries:
+        row = _parse_jsonl_entry(entry)
+        if row is None or parse_source_id(str(row.get("url") or "")) != source_id:
+            continue
+        content = pundit_content_text(row)
+        scoped.append((content, content))
+    return scoped
+
+
 def find_similar(
     claim: str,
     sink: str,
@@ -326,37 +407,30 @@ def find_similar(
     *,
     top_n: int = 3,
     min_score: float = _MIN_SCORE,
+    source_id: str | None = None,
 ) -> list[DedupCandidate]:
     """Entries in `sink_text` that look like they already say what `claim` says.
 
     Advisory only — the caller surfaces these in the review digest and a human
     decides new row / corroboration / drop.
 
-    Returns `[]` for any sink outside `SEMANTIC_SINKS`, which today means Stream C.
-    That is deliberate, not an omission: two pundits making the same call are two
-    genuine observations and `pundit_score.py` scores both authors, so collapsing
-    them would destroy signal rather than protect it. Stream C is guarded by the
-    identity layer alone. (A calibration pass over the real ledger also showed
-    JSONL lines score highly against each other purely on shared schema keys —
-    a second, independent reason not to run word matching over that sink.)
+    Outside `SEMANTIC_SINKS` (today: Stream C) the comparison is narrowed to entries
+    from `source_id`, and without one there is nothing to compare and the result is
+    `[]`. Two pundits making the same call are two genuine observations that
+    `pundit_score.py` scores separately, so matching ACROSS sources would destroy
+    signal — but that argument never covered one video restating its own call, which
+    is how an entry leg and a target leg of a single position became two ledger rows
+    on 2026-07-31. Same-source entries are scored on their content fields only; see
+    `_PUNDIT_CONTENT_FIELDS` for why the raw line cannot be used.
     """
-    if sink not in SEMANTIC_SINKS:
-        return []
-    claim_levels = normalize_levels(claim)
-    claim_terms = _terms(claim)
     hits: list[DedupCandidate] = []
-    for entry in split_entries(sink, sink_text):
-        entry_terms = _terms(entry)
-        shared_levels = claim_levels & normalize_levels(entry)
-        shared_terms = claim_terms & entry_terms
-        score = _LEVEL_WEIGHT * len(shared_levels) + _TERM_WEIGHT * _jaccard(
-            claim_terms, entry_terms
-        )
+    for text, excerpt in _comparable_entries(sink, sink_text, source_id):
+        score, shared_levels, shared_terms = _score(claim, text)
         if score >= min_score:
             hits.append(
                 DedupCandidate(
                     sink=sink,
-                    excerpt=entry[:_EXCERPT_CHARS],
+                    excerpt=excerpt[:_EXCERPT_CHARS],
                     score=round(score, 3),
                     shared_levels=tuple(sorted(shared_levels)),
                     shared_terms=tuple(sorted(shared_terms)),
@@ -364,6 +438,43 @@ def find_similar(
             )
     hits.sort(key=lambda c: -c.score)
     return hits[:top_n]
+
+
+def find_source_duplicate_pairs(
+    rows: list[dict[str, Any]], *, min_score: float = _MIN_SCORE
+) -> list[DuplicatePair]:
+    """Pairs among ONE source's pending Stream C items that look like one call twice.
+
+    `find_similar` cannot see these. Every check in the review digest runs BEFORE the
+    approval that writes anything, so when a video's items are checked none of them
+    are on disk yet — the pair is only findable item-vs-item, which is why this is a
+    separate pass rather than another sink comparison.
+
+    Advisory, like everything else here: a hit is printed in the digest and the human
+    decides one row or two. Two legs of one position and two genuinely distinct calls
+    on the same symbol look similar by construction, and only the human knows which
+    they are watching.
+    """
+    pairs: list[DuplicatePair] = []
+    texts = [pundit_content_text(r) for r in rows]
+    for i in range(len(rows)):
+        for j in range(i + 1, len(rows)):
+            score, shared_levels, shared_terms = _score(texts[i], texts[j])
+            if score < min_score:
+                continue
+            pairs.append(
+                DuplicatePair(
+                    left_ts=float(rows[i].get("ts") or 0.0),
+                    right_ts=float(rows[j].get("ts") or 0.0),
+                    score=round(score, 3),
+                    shared_levels=tuple(sorted(shared_levels)),
+                    shared_terms=tuple(sorted(shared_terms)),
+                    left_excerpt=texts[i][:_EXCERPT_CHARS],
+                    right_excerpt=texts[j][:_EXCERPT_CHARS],
+                )
+            )
+    pairs.sort(key=lambda p: -p.score)
+    return pairs
 
 
 # ---------------------------------------------------------------------------
@@ -376,14 +487,20 @@ def _cmd_check(args: argparse.Namespace) -> int:
     already = is_routed(ledger, args.source_id, args.item_ts, args.sink)
     sink_path = Path(args.sink_path or args.sink)
     text = sink_path.read_text(encoding="utf-8") if sink_path.exists() else ""
-    candidates = find_similar(args.text, args.sink, text, top_n=args.top_n)
+    candidates = find_similar(
+        args.text, args.sink, text, top_n=args.top_n, source_id=args.source_id
+    )
+    scope = semantic_scope(args.sink, args.source_id)
     print(
         json.dumps(
             {
                 "already_routed": already,
                 # Tells the digest what was actually checked, so "no candidates"
-                # is never mistaken for "checked and found clean".
-                "semantic_checked": args.sink in SEMANTIC_SINKS,
+                # is never mistaken for "checked and found clean". Stream C is now
+                # checked too, but only against itself — `semantic_scope` is the
+                # field that says which, and `semantic_checked` alone cannot.
+                "semantic_checked": scope != "none",
+                "semantic_scope": scope,
                 "candidates": [
                     {
                         "sink": c.sink,
@@ -426,6 +543,36 @@ def _cmd_unmark(args: argparse.Namespace) -> int:
         sink=args.sink,
     )
     print(f"unmarked {args.source_id}@{args.item_ts} -> {args.sink}")
+    return 0
+
+
+def _cmd_pairs(args: argparse.Namespace) -> int:
+    raw: Any = json.loads(Path(args.items).read_text(encoding="utf-8"))
+    if not isinstance(raw, list):
+        raise SystemExit(f"{args.items} must hold a JSON array of Stream C items")
+    rows = [r for r in raw if isinstance(r, dict)]
+    pairs = find_source_duplicate_pairs(rows)
+    print(
+        json.dumps(
+            {
+                "n_items": len(rows),
+                "pairs": [
+                    {
+                        "left_ts": p.left_ts,
+                        "right_ts": p.right_ts,
+                        "score": p.score,
+                        "shared_levels": list(p.shared_levels),
+                        "shared_terms": list(p.shared_terms),
+                        "left_excerpt": p.left_excerpt,
+                        "right_excerpt": p.right_excerpt,
+                    }
+                    for p in pairs
+                ],
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 
@@ -485,6 +632,16 @@ def main(argv: list[str] | None = None) -> int:
             )
             p.add_argument("--top-n", type=int, default=3)
 
+    p_pairs = sub.add_parser(
+        "pairs",
+        help="flag one source's pending Stream C items that restate each other",
+    )
+    p_pairs.add_argument(
+        "--items",
+        required=True,
+        help="path to a JSON array of this source's pending Stream C items",
+    )
+
     p_seed = sub.add_parser(
         "seed",
         help="backfill the ledger from pundit-calls.jsonl — read-only without --apply",
@@ -498,6 +655,7 @@ def main(argv: list[str] | None = None) -> int:
         "check": _cmd_check,
         "mark": _cmd_mark,
         "unmark": _cmd_unmark,
+        "pairs": _cmd_pairs,
         "seed": _cmd_seed,
     }
     return handlers[args.cmd](args)

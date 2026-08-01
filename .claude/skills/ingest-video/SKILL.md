@@ -248,6 +248,7 @@ SoT, or memory file. Instruct it to return ONLY this JSON:
       "chart_read": "what the frame shows (levels, structure, annotations)",
       "content_type": "claim | setup | mechanic",
       "retrospective": false,
+      "rejected": false,
       "verdict": "NOVEL | ALREADY-TESTED | FROZEN-CATEGORY | NOT-FALSIFIABLE",
       "gap_note": "one line: implied primitive + does the system already have/test/freeze it?",
       "vision_confidence": "high | medium | low",
@@ -282,6 +283,14 @@ Rules for the subagent:
   (a retrospective stamped with this video's `call_ts_utc` scores forward from a point
   where the outcome is partly known, flattering the author's hit rate). For
   `claim`/`mechanic` items always `false`.
+- `rejected` — `true` when the speaker walks through a trade and then argues **against
+  taking it** ("but I wouldn't touch this", "我不会进"). The setup is real and fully
+  specified, which is exactly why it is dangerous: it looks identical to a live call,
+  so `route_target` would send it to Stream C and `tools/pundit_score.py` would score
+  the author on a trade they declined. This shipped once (2026-07-31 round 3) and only
+  the human reading the digest caught it. Distinct from `retrospective` — that one is
+  about *when* the position was entered, this one about *whether it was taken at all*;
+  both can be false, either can be true. For `claim`/`mechanic` items always `false`.
 
 **`confidence` vs `vision_confidence` — never merge these, they mean different things.**
 `confidence` means the same thing across **every** source already in
@@ -297,7 +306,8 @@ across every source, instead of silently mixing two incompatible populations.
 ### 7. ONE consolidated digest for the whole batch
 
 Print a single table — one row per kept item across every video: video (title) · author ·
-`call_ts_utc` (`call_ts_source`) · `ts` · `content_type` · `retrospective` · `verdict` ·
+`call_ts_utc` (`call_ts_source`) · `ts` · `content_type` · `retrospective` · `rejected` ·
+`verdict` ·
 proposed routing · `vision_confidence`. Below the table, per video: the pass-1 `summary`, the dropped
 candidates with their reasons, the `chart_present` flag, and `backlog` when `true`. List
 any shape-1 / shape-2 videos separately with their skip reason. **Write nothing yet.**
@@ -330,22 +340,50 @@ PYTHONPATH=. poetry run python tools/route_dedup.py check \
   `shared_levels` under that item and let the user decide: new row, corroboration line on
   the existing entry, or drop. Bulk video ingest makes this the common case — a pundit
   routinely repeats one thesis across a week of uploads.
-- `semantic_checked: false` means the near-duplicate pass did not run for that sink
-  (Stream C, by design — see step 8). Say so; do not report it as clean.
+- `semantic_scope` says what the near-duplicate pass actually compared against:
+  `all-entries` (Streams A and B), `same-source` (Stream C — only this video's own
+  earlier rows, never another author's), or `none`. Report it; never let an empty
+  `candidates` list read as "checked against everything and clean".
+
+**Then run the intra-video pass, once per video that has two or more Stream-C-bound
+items.** `check` cannot catch these: every check runs *before* the approval that writes
+anything, so when a video's items are checked none of them are on disk yet — two legs of
+one position are only findable item-vs-item. Write the video's pending Stream C items
+(the pass-2 item dicts are enough — it reads `symbol`/`direction`/`entry`/`stop`/
+`target`/`raw_quote*`/`ts`) to a scratch file, then:
+
+```bash
+PYTHONPATH=. poetry run python tools/route_dedup.py pairs \
+  --items .cache/video/<video_id>/pending_calls.json
+```
+
+Print every returned pair under that video: both `ts` values, `score`, `shared_levels`,
+and both excerpts. **Advisory, never a block** — two legs of one position and two
+genuinely distinct calls on one symbol look alike by construction, and only the operator
+knows which they are watching. Calibration on the 109-row ledger: 1 of 22 same-source
+pairs flagged, and the known-legitimate `umX9m7y7jsU` pair (one video, two different
+BTCUSDT longs) is correctly left alone.
 
 ### 8. Route on a single approval
 
 After the user approves the batch, for each item compute the destination with
-`tools/x_route.py::route_target(content_type, verdict)` (same taxonomy, unchanged
-import — do not fork it) and append per this table, identical to `/ingest-x`:
+`tools/x_route.py::route_target(content_type, verdict, retrospective=…, rejected=…)`
+(same taxonomy, unchanged import — do not fork it) and append per this table:
 
 | content_type | verdict | Append to |
 | --- | --- | --- |
-| setup (`retrospective: false`) | — | `docs/plans/pundit-calls.jsonl` (one JSON line, schema below) |
+| setup (`retrospective: false`, `rejected: false`) | — | `docs/plans/pundit-calls.jsonl` (one JSON line, schema below) |
 | setup (`retrospective: true`) | — | **drop** — reason "retrospective — call predates video"; shown in the digest and the per-video note, never a Stream C write |
+| setup (`rejected: true`) | — | **drop** — reason "rejected — speaker argued against taking it"; shown in the digest and the per-video note, never a Stream C write |
 | mechanic | — | `docs/plans/mechanics-backlog.md` (a `- ` bullet) |
 | claim | NOVEL | `docs/plans/thesis-inbox.md` (a draft `H` row) |
 | claim | ALREADY-TESTED / FROZEN-CATEGORY / NOT-FALSIFIABLE | **drop** — state "seen, verdict X", write nothing |
+
+**Pass both flags to `route_target` — do not hand-apply the two setup rows.** The
+function returns `None` for either, so the drop is a code path with a test behind it
+rather than a table you have to remember to consult at the end of a six-video batch.
+That is precisely how the `rejected` case shipped. `/ingest-x` does not extract either
+flag, so both default to `False` there and its behaviour is unchanged.
 
 Create the sink file with a one-line header if it does not exist. Report a one-line
 result per item (routed → which file, or dropped → verdict).
@@ -362,9 +400,12 @@ abandoned review consume the id and dedup away the real append later — the wif
 watermark-on-send defect class, the same rule ST10's feed ledger follows. Never mark a
 dropped item.
 
-Stream C is deliberately exempt from the near-duplicate pass: two pundits making the same
-call are two real observations and `tools/pundit_score.py` scores both authors, so
-collapsing them would delete signal. Stream C still gets the exact `already_routed` block.
+Stream C's near-duplicate exemption is **across sources only**: two pundits making the
+same call are two real observations and `tools/pundit_score.py` scores both authors, so
+collapsing those would delete signal. It never justified one video restating its own
+call, which is how an entry leg and a target leg of a single position became two rows —
+so within one `source_id` the pass does run (step 7's `same-source` scope plus the
+`pairs` call). Stream C also still gets the exact `already_routed` block.
 
 **Stream C requires a real `symbol` — never route a `setup` item with `symbol: null` or
 `symbol: ""` to `pundit-calls.jsonl`.** `tools/pundit_score.py` has no null check of its
@@ -427,8 +468,8 @@ Contents:
   `publish_ts_utc`, `call_ts_utc`, `call_ts_source`, `stated_ts_raw`, `ingested_ts_utc`,
   `backlog`, `chart_present`
 - the pass-1 `summary`
-- an items table: `ts` · `content_type` · `retrospective` · `verdict` · routing outcome ·
-  `vision_confidence` · `frame_path`
+- an items table: `ts` · `content_type` · `retrospective` · `rejected` · `verdict` ·
+  routing outcome · `vision_confidence` · `frame_path`
 - the dropped candidates, with reasons
 - frame references (path + `ts` for every extracted frame, including ones that produced
   no routed item — that's how you learn the sampling triggers are working)
@@ -491,10 +532,14 @@ is frozen. A claim that just restates one of these candlestick/structure pattern
 - Output is a hypothesis/setup/mechanic to TEST — never an "add a detector" task. The
   22-strategy detector list is frozen, same as `/ingest-x`.
 - Routing dedup is `tools/route_dedup.py` (checked in step 7, marked in step 8) — the
-  manual "grep the sink yourself" guardrail is retired. Two things it does NOT do, and
-  you must not assume otherwise: it never auto-drops a near-duplicate (the digest and
-  the human decide), and it runs no near-duplicate pass at all on Stream C, where two
-  pundits making the same call are two real observations rather than a duplicate.
+  manual "grep the sink yourself" guardrail is retired. One thing it does NOT do, and
+  you must not assume otherwise: it never auto-drops a near-duplicate — the digest and
+  the human decide, on Stream C and everywhere else. On Stream C its near-duplicate pass
+  is scoped to a single `source_id`, so it will never flag two authors making the same
+  call, which are two real observations rather than a duplicate.
+- A `setup` the speaker declined is not a call. `rejected: true` is the only thing
+  standing between "he talked through this short" and "he is scored on this short";
+  pass it to `route_target` rather than applying it by eye.
 - Two subagent passes, both pinned to `model: "sonnet"` — never let either inherit Opus.
   Neither may read any repo, SoT, or memory file; the rubric above is the only context
   either needs beyond the video's own transcript/frames.
