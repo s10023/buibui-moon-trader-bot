@@ -141,7 +141,7 @@ Measured on the real sinks (all-pairs cross-comparison, 2026-07-31): thesis-inbo
 across 156 ordered pairs (≈0.31 candidates per newly routed item), mechanics-backlog 0
 across 342. Low enough to sit in a review digest without drowning it.
 
-### 4.3 Stream C is exempt from the semantic layer
+### 4.3 Stream C is exempt from the semantic layer — across sources only
 
 `find_similar` returns `[]` for any sink outside `SEMANTIC_SINKS`
 (= thesis-inbox + mechanics-backlog). This is a correction discovered during
@@ -157,6 +157,31 @@ implementation, not an omission:
 
 The `check` output therefore carries `semantic_checked: bool`, so the digest can say the
 near-duplicate pass did not run rather than implying the sink was checked and found clean.
+
+#### 4.3.1 Amendment (2026-08-01): the exemption never covered one source restating itself
+
+Both arguments above are about **different** sources. Neither justified applying the
+exemption *within* one `source_id`, and doing so shipped a defect: two items from a single
+video were the entry leg and the target leg of the same open long. So:
+
+- `find_similar` takes `source_id`. Outside `SEMANTIC_SINKS` it scores only entries whose
+  own persisted `url` resolves to that same id; with no `source_id` it still returns `[]`.
+  Cross-author matching remains impossible by construction.
+- The schema-key finding is handled rather than routed around: Stream C entries are scored
+  on `_PUNDIT_CONTENT_FIELDS` **values** only (`symbol`, `direction`, `entry`, `stop`,
+  `target`, `raw_quote*`), so keys are no longer terms.
+- `semantic_checked: bool` cannot express this — it is now accompanied by
+  `semantic_scope: "all-entries" | "same-source" | "none"`, and the digest reports the scope.
+- **`find_source_duplicate_pairs` + the `pairs` subcommand** carry the actual fix. Every
+  `check` runs *before* the approval that writes anything, so a video's items are never on
+  disk when they are checked — the shipped pair is invisible to any sink comparison and is
+  only findable item-vs-item. `pairs` takes one source's pending Stream C items and returns
+  scored pairs; advisory, like everything else here.
+
+Calibration over the 109-row live ledger (89 sources, 8 with >1 item): **1 of 22
+same-source pairs flagged** — a genuine restatement of one 62,500 support level 19s apart —
+and the `umX9m7y7jsU` pair that §4.1's key rule names as must-not-collapse is correctly
+left alone. That pair is pinned as a regression test.
 
 ## 5. Wiring
 
@@ -181,11 +206,15 @@ PYTHONPATH=. poetry run python tools/route_dedup.py mark \
   --source-id <id> --item-ts <ts> --sink <path>
 PYTHONPATH=. poetry run python tools/route_dedup.py unmark \
   --source-id <id> --item-ts <ts> --sink <path>
+PYTHONPATH=. poetry run python tools/route_dedup.py pairs \
+  --items <path to this source's pending Stream C items>
 ```
 
-`check` prints JSON: `already_routed`, `semantic_checked`, and `candidates` (each with
-`excerpt`, `score`, `shared_levels`, `shared_terms`). `--sink-path` overrides where the
-sink is read from, which is what makes the CLI testable against fixtures.
+`check` prints JSON: `already_routed`, `semantic_checked`, `semantic_scope` (§4.3.1), and
+`candidates` (each with `excerpt`, `score`, `shared_levels`, `shared_terms`).
+`--sink-path` overrides where the sink is read from, which is what makes the CLI testable
+against fixtures. `pairs` prints `n_items` and `pairs` (each with both `ts` values,
+`score`, `shared_levels`, `shared_terms`, both excerpts).
 
 The check runs **before** the review digest is printed, so candidates appear inside the
 digest rather than after approval.
