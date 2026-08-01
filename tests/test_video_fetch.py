@@ -847,3 +847,75 @@ def test_main_loads_dotenv_before_reading_the_key(
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     main(["https://example.com/not-a-video", "--json", "--cache-dir", str(tmp_path)])
     assert called == [True]
+
+
+# ---------------------------------------------------------------------------
+# Round-3 feed finding (2026-07-31): yt-dlp 2026.07.04 enables ONLY deno as a
+# JavaScript runtime by default, and deno is not installed on this box (node and
+# bun are). Captions still resolve without one, so the failure disguises itself
+# as a single unlucky video — but every path that downloads MEDIA dies with
+# `HTTP Error 403: Forbidden`, including _ensure_local_media. That returns None,
+# extract_frames returns [], and /ingest-video reads the empty list as a media
+# failure and skips the whole vision pass. Last session that would have cost all
+# six videos their chart correction had it not been caught mid-run.
+#
+# A network-free suite cannot catch a wrong argument to a real binary, so the
+# only thing worth asserting is the command SHAPE, at every call site.
+# ---------------------------------------------------------------------------
+
+
+def _ytdlp_kind(cmd: list[str]) -> str:
+    if "--dump-json" in cmd:
+        return "meta"
+    if "--write-subs" in cmd:
+        return "captions"
+    if "-x" in cmd:
+        return "audio"
+    return "media"
+
+
+def _enables_js_runtime(cmd: list[str]) -> bool:
+    return any(
+        flag == "--js-runtimes" and value == "node"
+        for flag, value in zip(cmd, cmd[1:], strict=False)
+    )
+
+
+def test_every_ytdlp_call_site_enables_an_installed_js_runtime(
+    tmp_path: Path,
+) -> None:
+    calls: list[list[str]] = []
+
+    def _run(cmd: list[str]) -> FakeProc:
+        calls.append(cmd)
+        if cmd[0] != "yt-dlp":
+            return FakeProc(0)
+        kind = _ytdlp_kind(cmd)
+        if kind == "meta":
+            return FakeProc(0, YTDLP_JSON)
+        if kind == "audio":
+            Path(cmd[cmd.index("-o") + 1]).write_bytes(b"x" * 1024)
+        elif kind == "media":
+            out = Path(cmd[cmd.index("-o") + 1].replace("%(ext)s", "mp4"))
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(b"fake video bytes")
+        return FakeProc(0)
+
+    def _get(
+        url: str,
+        *,
+        headers: dict[str, str],
+        files: dict[str, object],
+        data: dict[str, str],
+    ) -> FakeHttpResp:
+        return FakeHttpResp(200, json.dumps({"language": "zh", "segments": []}))
+
+    # No captions are written, so this walks the Groq fallback too and reaches
+    # the audio-extraction call site.
+    fetch_meta(YT_URL, run=_run)
+    fetch_transcript(_meta(), run=_run, get=_get, groq_key="k", work_dir=tmp_path)
+    extract_frames(_meta(), [FrameMark(20.0, "item", 3)], tmp_path, run=_run)
+
+    ytdlp = [cmd for cmd in calls if cmd[0] == "yt-dlp"]
+    assert {_ytdlp_kind(cmd) for cmd in ytdlp} == {"meta", "captions", "audio", "media"}
+    assert [cmd for cmd in ytdlp if not _enables_js_runtime(cmd)] == []

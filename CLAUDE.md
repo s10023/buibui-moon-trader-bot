@@ -182,8 +182,9 @@ Each Makefile `buibui-*` target wraps the equivalent CLI invocation.
 ## Dependencies
 
 - Managed via Poetry: `poetry install --no-root`
-- Runtime: `duckdb` (analytics DB), `pandas` (DataFrames), `pyarrow` (parquet fixture I/O), `yt-dlp` (`/ingest-video` metadata + captions + media)
+- Runtime: `duckdb` (analytics DB), `pandas` (DataFrames), `pyarrow` (parquet fixture I/O), `yt-dlp` (`/ingest-video` metadata + captions + media), `yt-dlp-ejs` (YouTube JS challenge solver — see below)
 - System (not Poetry-managed): `ffmpeg` — `/ingest-video` frame extraction + audio chunking. Absent ⇒ every frame grab fails and the skill records a "frame extraction failed" health note
+- System (not Poetry-managed): **`node`** — YouTube media downloads need a JavaScript runtime to solve the signature / n challenges. yt-dlp enables only `deno` by default, so `tools/video_fetch.py` passes `--js-runtimes node` at every call site (the `_YT_DLP` prefix) and `yt-dlp-ejs` supplies the solver script. Both halves are required: without the runtime yt-dlp warns "No supported JavaScript runtime" and drops to a fallback client; without `yt-dlp-ejs` it reports "Signature solving failed" / "n challenge solving failed". Either way captions still resolve, so the failure looks like one unlucky video while every media download can 403 — which costs `/ingest-video` the whole vision pass
 - Optional env: `GROQ_API_KEY` — `whisper-large-v3` fallback, used ONLY for caption-less video (nearly all X video). Unset ⇒ those videos are skipped with a health note, captioned video is unaffected. See `.env.example`
 - Dev deps: ruff, mypy, pytest, pytest-mock, pre-commit, type stubs, pandas-stubs
 - Never modify `poetry.lock` manually — use `poetry add` / `poetry remove`

@@ -44,6 +44,21 @@ def _subprocess_run(cmd: list[str]) -> Completedish:
     return subprocess.run(cmd, capture_output=True, text=True, timeout=600, check=False)
 
 
+# Every yt-dlp invocation starts here — never build a bare ["yt-dlp", ...].
+#
+# yt-dlp 2026.07.04 enables ONLY deno as a JavaScript runtime by default, and
+# deno is not installed on this box (node and bun are). Without an available
+# runtime yt-dlp cannot solve YouTube's signature challenge, so every path that
+# downloads MEDIA fails with `HTTP Error 403: Forbidden` — including
+# `_ensure_local_media`, which silently costs the entire vision pass. Captions
+# still resolve without a runtime, which is what makes the failure look like one
+# unlucky video rather than a broken box.
+#
+# `--js-runtimes` is ADDITIVE, so this only widens the accepted set: deno keeps
+# its higher priority and still wins wherever it is installed.
+_YT_DLP: tuple[str, ...] = ("yt-dlp", "--js-runtimes", "node")
+
+
 @dataclass(frozen=True)
 class VideoMeta:
     source: str
@@ -114,7 +129,7 @@ def _resolve_publish_ts(data: dict[str, object]) -> str | Unavailable:
 
 def fetch_meta(url: str, *, run: RunProc = _subprocess_run) -> VideoMeta | Unavailable:
     source, video_id = parse_video_url(url)
-    proc = run(["yt-dlp", "--dump-json", "--no-warnings", "--skip-download", url])
+    proc = run([*_YT_DLP, "--dump-json", "--no-warnings", "--skip-download", url])
     if proc.returncode != 0:
         return Unavailable(proc.stderr.strip() or f"yt-dlp exit {proc.returncode}")
     try:
@@ -270,7 +285,7 @@ def fetch_transcript(
     sub_langs = f"{meta.lang},{meta.lang}-orig,en" if meta.lang else "en"
     run(
         [
-            "yt-dlp",
+            *_YT_DLP,
             "--skip-download",
             "--write-subs",
             "--write-auto-subs",
@@ -350,7 +365,7 @@ def _transcribe_groq(
     audio = work_dir / f"{meta.video_id}.opus"
     proc = run(
         [
-            "yt-dlp",
+            *_YT_DLP,
             "-f",
             "bestaudio",
             "-x",
@@ -418,7 +433,7 @@ def _ensure_local_media(
         return existing[0]
     proc = run(
         [
-            "yt-dlp",
+            *_YT_DLP,
             "-f",
             "bv*[height<=1080]",
             "-o",
