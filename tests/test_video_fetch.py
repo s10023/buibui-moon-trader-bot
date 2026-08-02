@@ -461,6 +461,12 @@ def make_download_run(
     return _run
 
 
+def _no_sleep(_seconds: float) -> None:
+    """Skip extract_frames' retry backoff. Any test whose run-fake ends with zero
+    frames now walks the full retry ladder, so without this the suite would pay
+    the real wall-clock pauses to assert facts about attempt COUNTS."""
+
+
 def test_extract_frames_one_ffmpeg_call_per_mark(tmp_path: Path) -> None:
     calls: list[list[str]] = []
     marks = [FrameMark(20.0, "item", 3), FrameMark(90.0, "deixis", 2)]
@@ -476,6 +482,7 @@ def test_extract_frames_skips_failed_grabs(tmp_path: Path) -> None:
         [FrameMark(20.0, "item", 3)],
         tmp_path,
         run=make_download_run(ffmpeg_returncode=1),
+        sleep=_no_sleep,
     )
     assert paths == []
 
@@ -533,6 +540,7 @@ def test_extract_frames_failed_download_returns_empty_and_calls_no_ffmpeg(
         [FrameMark(20.0, "item", 3)],
         tmp_path,
         run=make_download_run(ffmpeg_calls, download_returncode=1),
+        sleep=_no_sleep,
     )
     assert paths == []
     assert ffmpeg_calls == []
@@ -555,7 +563,15 @@ def test_extract_frames_deletes_media_but_keeps_frames(tmp_path: Path) -> None:
 # vision pass, silently. The skill reads `frame_paths == []`, writes a "frame
 # extraction failed (media download error)" health note and skips pass 2
 # entirely — yet a bare re-run with no other change returned 15/15 frames.
-# So extract_frames retries ONCE, and only on total failure.
+# So extract_frames retries, and only on total failure.
+#
+# Round-4 feed finding (2026-08-01): ONE retry was not enough. Two transient
+# `HTTP 403`s survived the built-in retry and both cleared on a single MANUAL
+# re-run — one of them on the video that produced that batch's only complete
+# entry+stop+target row. Round 5 saw zero 403s, so the failure is intermittent,
+# not gone. Hence 3 attempts with a short backoff: the failure is server-side
+# and immediate, so retrying with no pause just spends all three attempts
+# inside the same bad second.
 # ---------------------------------------------------------------------------
 
 
@@ -603,6 +619,7 @@ def test_extract_frames_retries_once_after_a_transient_download_failure(
         [FrameMark(20.0, "item", 3)],
         tmp_path,
         run=make_flaky_run(yt_dlp_calls, fail_downloads=1),
+        sleep=_no_sleep,
     )
     assert [Path(p).name for p in paths] == ["f_0020.jpg"]
     assert len(yt_dlp_calls) == 2
@@ -619,21 +636,86 @@ def test_extract_frames_retries_once_when_every_seek_fails_on_the_first_copy(
         [FrameMark(20.0, "item", 3), FrameMark(90.0, "deixis", 2)],
         tmp_path,
         run=make_flaky_run(yt_dlp_calls, ffmpeg_fails_on_attempts=(1,)),
+        sleep=_no_sleep,
     )
     assert [Path(p).name for p in paths] == ["f_0020.jpg", "f_0090.jpg"]
     assert len(yt_dlp_calls) == 2
 
 
-def test_extract_frames_retries_at_most_once(tmp_path: Path) -> None:
+def test_extract_frames_retries_at_most_twice(tmp_path: Path) -> None:
     yt_dlp_calls: list[list[str]] = []
     paths = extract_frames(
         _meta(),
         [FrameMark(20.0, "item", 3)],
         tmp_path,
         run=make_flaky_run(yt_dlp_calls, fail_downloads=99),
+        sleep=_no_sleep,
     )
     assert paths == []
-    assert len(yt_dlp_calls) == 2
+    assert len(yt_dlp_calls) == 3
+
+
+def test_extract_frames_recovers_on_the_third_attempt(tmp_path: Path) -> None:
+    # The round-4 shape: two consecutive transient 403s, then success. Under one
+    # retry this returned [] and cost the whole vision pass for that video.
+    yt_dlp_calls: list[list[str]] = []
+    paths = extract_frames(
+        _meta(),
+        [FrameMark(20.0, "item", 3)],
+        tmp_path,
+        run=make_flaky_run(yt_dlp_calls, fail_downloads=2),
+        sleep=_no_sleep,
+    )
+    assert [Path(p).name for p in paths] == ["f_0020.jpg"]
+    assert len(yt_dlp_calls) == 3
+
+
+def test_extract_frames_backs_off_between_retries_only(tmp_path: Path) -> None:
+    # One pause per RETRY, never before the first attempt (that would delay every
+    # healthy video) and never after the last (nothing is waiting on it). The
+    # pause has to be there at all: the 403 is server-side and returns instantly,
+    # so a zero-delay retry loop spends all three attempts in the same bad second.
+    sleeps: list[float] = []
+    extract_frames(
+        _meta(),
+        [FrameMark(20.0, "item", 3)],
+        tmp_path,
+        run=make_flaky_run(fail_downloads=99),
+        sleep=sleeps.append,
+    )
+    assert len(sleeps) == 2
+    assert sleeps == sorted(sleeps)
+    assert all(0 < s <= 10 for s in sleeps)
+
+
+def test_extract_frames_does_not_sleep_when_the_first_attempt_works(
+    tmp_path: Path,
+) -> None:
+    sleeps: list[float] = []
+    extract_frames(
+        _meta(),
+        [FrameMark(20.0, "item", 3)],
+        tmp_path,
+        run=make_download_run(),
+        sleep=sleeps.append,
+    )
+    assert sleeps == []
+
+
+def test_extract_frames_retries_keep_the_js_runtime_flag(tmp_path: Path) -> None:
+    # The #520 defect class, one layer down: a retry path that rebuilds a bare
+    # ["yt-dlp", ...] drops --js-runtimes, so every retry 403s exactly like the
+    # attempt it exists to rescue. A network-free suite can only see the SHAPE.
+    yt_dlp_calls: list[list[str]] = []
+    extract_frames(
+        _meta(),
+        [FrameMark(20.0, "item", 3)],
+        tmp_path,
+        run=make_flaky_run(yt_dlp_calls, fail_downloads=99),
+        sleep=_no_sleep,
+    )
+    assert len(yt_dlp_calls) == 3
+    assert [cmd for cmd in yt_dlp_calls if not _enables_js_runtime(cmd)] == []
 
 
 def test_extract_frames_does_not_retry_a_partial_success(tmp_path: Path) -> None:

@@ -480,12 +480,23 @@ def _attempt_frames(
     return paths
 
 
+# One pause per retry, so 3 attempts total. Round-4 (2026-08-01): two transient
+# `HTTP 403`s survived the previous single retry and BOTH cleared on a manual
+# re-run — one of them on the video carrying that batch's only complete
+# entry+stop+target row. The pause is what makes the extra attempt worth
+# anything: a 403 is server-side and returns instantly, so a zero-delay loop
+# spends every attempt inside the same bad second. Kept short because a whole
+# batch pays this serially, and the ceiling only binds on videos already lost.
+_FRAME_RETRY_BACKOFF_S: tuple[float, ...] = (2.0, 5.0)
+
+
 def extract_frames(
     meta: VideoMeta,
     marks: list[FrameMark],
     dest_dir: Path,
     *,
     run: RunProc = _subprocess_run,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> list[str]:
     """One ffmpeg seek per mark, against a locally downloaded copy of the video —
     never `meta.url` directly (see `_ensure_local_media`). Never speculative — marks
@@ -493,17 +504,25 @@ def extract_frames(
     has been attempted; frames are the artifact, the source file is not, and the
     operator's backlog makes unbounded video files in `.cache/` a real cost.
 
-    Retries the whole download-and-seek ONCE when asked for marks and given back
+    Retries the whole download-and-seek when asked for marks and given back
     nothing, because that outcome is silently expensive: `/ingest-video` reads an
     empty list as a media-download failure, skips the vision pass for that video
     and records a health note, so one transient yt-dlp error costs the entire
     chart read (observed 2026-07-31 — a bare re-run then returned 15/15 frames).
     Total failure is the only retryable shape: a partial result means those marks
     individually failed to seek, and re-downloading to re-fail them is pure cost.
+
+    Attempts are spaced by `_FRAME_RETRY_BACKOFF_S` — see there for why one retry
+    proved too few.
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
     paths = _attempt_frames(meta, marks, dest_dir, run=run)
-    if marks and not paths:
+    if not marks:
+        return paths
+    for backoff in _FRAME_RETRY_BACKOFF_S:
+        if paths:
+            break
+        sleep(backoff)
         paths = _attempt_frames(meta, marks, dest_dir, run=run)
     return paths
 

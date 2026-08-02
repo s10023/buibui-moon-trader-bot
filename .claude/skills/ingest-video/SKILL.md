@@ -39,8 +39,43 @@ every URL the user pasted, then run the flow once over the whole set.
 ### 1. Fetch the whole batch in ONE call
 
 ```bash
-PYTHONPATH=. poetry run python tools/video_fetch.py <url1> <url2> … --json
+PYTHONPATH=. poetry run python tools/video_fetch.py <url1> <url2> … --json \
+  > .cache/video/_batch.json
 ```
+
+**Redirect to a file — never let the batch JSON print into your context.** A batch of 8
+carries eight full transcripts; splitting them to disk and passing subagents a *path*
+measured ~24k tokens saved on an 8-video batch and changed no output. The split below
+prints a compact index only:
+
+```bash
+PYTHONPATH=. poetry run python - <<'PY'
+import json
+from pathlib import Path
+
+index = []
+for el in json.loads(Path(".cache/video/_batch.json").read_text()):
+    row = {"url": el["url"], "cached": el.get("cached"), "unavailable": el.get("unavailable")}
+    meta = el.get("meta")
+    if meta:
+        out = Path(".cache/video") / meta["video_id"]
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "transcript.json").write_text(
+            json.dumps({"meta": meta, "segments": el.get("segments", [])},
+                       ensure_ascii=False, indent=2)
+        )
+        row |= {k: meta[k] for k in
+                ("video_id", "author", "title", "duration_s", "lang", "publish_ts_utc")}
+        row["n_segments"] = len(el.get("segments", []))
+        row["transcript_path"] = str(out / "transcript.json")
+    index.append(row)
+print(json.dumps(index, ensure_ascii=False, indent=2))
+PY
+```
+
+Every later step reads `.cache/video/<video_id>/transcript.json` (already gitignored,
+alongside the fetch cache and the frames). You work from the index; the transcripts stay
+on disk.
 
 `tools/video_fetch.py` always batches (unlike `tools/x_fetch.py`, it has no separate
 single-URL path, so there is no `--batch` flag to pass). Output is a JSON **array**,
@@ -77,7 +112,10 @@ For each shape-3 video, dispatch a `general-purpose` subagent via the Task tool 
 **`model: "sonnet"`** (do not inherit Opus) and `subagent_type: "general-purpose"`. Give
 it:
 
-- the video's `segments` array, verbatim
+- the video's `transcript_path` from step 1 — **the path, not the transcript.** Instruct
+  it to Read that file; `segments` is the `"segments"` key inside it. Pasting the array
+  into the prompt puts the whole transcript in your context for no gain, since the
+  subagent has its own.
 - `meta.publish_ts_utc`, `meta.author`, `meta.lang` — **context only**, for resolving a
   relative stated date ("last Monday") and inferring a speaker's timezone from channel
   locale. It must NOT compute a final call time itself — that happens in code, step 4.
@@ -155,14 +193,11 @@ exactly the look-ahead defect this tool exists to prevent (see Guardrails).
 ### 5. Select and extract frames
 
 There is no CLI for this — `video_marks.select` and `video_fetch.extract_frames` are
-library calls. Per shape-3 video: write its `meta` dict, `segments` array, and the kept
-items' `ts` values (from step 3's top-`ITEM_CAP` candidates) to a scratch file with the
-Write tool at `.cache/video/<meta.video_id>/marks_input.json` — concretely, for a video
-whose `meta.video_id` is `dQw4w9WgXcQ`, the scratch file is
-`.cache/video/dQw4w9WgXcQ/marks_input.json`. Then run (there is exactly ONE
-`<video_id>` placeholder to substitute below, in the `Path(...).read_text()` line — for
-that same example it becomes
-`Path(".cache/video/dQw4w9WgXcQ/marks_input.json")`):
+library calls. The transcript is already on disk from step 1, so there are exactly **two**
+placeholders to substitute per shape-3 video: `VIDEO_ID` and `ITEM_TS` (the kept items'
+`ts` values from step 3's top-`ITEM_CAP` candidates — a short list of floats). Do NOT
+write a `marks_input.json` with the Write tool; that pulled the whole transcript back
+through your context to hand it to a script that can read it itself.
 
 ```bash
 PYTHONPATH=. poetry run python - <<'PY'
@@ -173,11 +208,14 @@ from pathlib import Path
 from tools.video_fetch import VideoMeta, extract_frames
 from tools.video_marks import TranscriptSegment, select
 
-raw = json.loads(Path(".cache/video/<video_id>/marks_input.json").read_text())
+VIDEO_ID = "<video_id>"          # e.g. "dQw4w9WgXcQ"
+ITEM_TS = [<ts of each kept item from step 3>]   # e.g. [252.0, 886.0]
+
+raw = json.loads((Path(".cache/video") / VIDEO_ID / "transcript.json").read_text())
 meta = VideoMeta(**raw["meta"])
 segments = [TranscriptSegment(**s) for s in raw["segments"]]
 
-marks = select(segments, raw["item_ts"], meta.duration_s)  # cap defaults to FRAME_CAP (15)
+marks = select(segments, ITEM_TS, meta.duration_s)  # cap defaults to FRAME_CAP (15)
 dest_dir = Path(".cache/video") / meta.video_id / "frames"
 frame_paths = extract_frames(meta, marks, dest_dir)
 
@@ -185,9 +223,7 @@ print(json.dumps({"marks": [asdict(m) for m in marks], "frame_paths": frame_path
 PY
 ```
 
-`marks_input.json` shape:
-`{"meta": <verbatim meta dict from step 1>, "segments": <verbatim segments array from
-step 1>, "item_ts": [<ts of each kept item from step 3>]}`. Frames land at
+Frames land at
 `.cache/video/<meta.video_id>/frames/f_NNNN.jpg` (already gitignored, alongside the
 fetch cache). `extract_frames` downloads the video once into that same frames
 directory (ffmpeg cannot seek the web-page URL directly), seeks the local copy per
@@ -203,8 +239,12 @@ keep the two apart.** `select()` returns at least the safety-sample marks for an
 video. If `marks` came back non-empty here but `frame_paths` is still `[]`, the
 video's media download failed (network error, age-gate, region block) — record that
 video's health note as "frame extraction failed (media download error)". `extract_frames`
-already retried the download-and-seek once internally, so an empty list here has failed
-**twice**; do not re-run the step by hand hoping for a different result. Do NOT record
+already retried the download-and-seek internally (3 attempts, short backoff) — but the
+`HTTP 403` behind this is **intermittent and server-side**, so a built-in retry does not
+exhaust it: round 4 hit two that survived the retry and **both cleared on a single manual
+re-run**, one of them on the video carrying that batch's only complete
+entry+stop+target row. So **re-run the step once by hand**, and take the health note only
+if it comes back empty again. Do NOT record
 `chart_present: false` for that case; that flag is reserved for step 6, where frames
 WERE produced and pass 2 actually looked at them and found no chart.
 
@@ -218,7 +258,8 @@ you write depends on step 5's `marks` distinction:
   item from pass 1 as `vision_confidence: "low"`, `frame_path: null`, and record
   `chart_present: false` for that video in the digest and note.
 - `marks` was non-empty (the ordinary empty-`frame_paths` case): this is the step-5
-  download failure, not "no chart". Skip pass 2, still mark every kept item
+  download failure, not "no chart" — and only after step 5's hand re-run also came back
+  empty. Skip pass 2, still mark every kept item
   `vision_confidence: "low"` / `frame_path: null`, but write the step-5 health note
   ("frame extraction failed (media download error)") instead of `chart_present: false`
   — you never actually looked, so don't claim you did.
@@ -227,7 +268,8 @@ No subagent dispatch in either case.
 
 Otherwise, dispatch a `general-purpose` subagent, **`model: "sonnet"`**,
 `subagent_type: "general-purpose"`. Give it: the `frame_paths` list (it Reads each one —
-vision), the `segments` array (context for what was said), the kept items from step 3
+vision), the `transcript_path` from step 1 (**the path** — it Reads that file for context
+on what was said; do not paste `segments`), the kept items from step 3
 (`ts`, `content_type`, `gist`), and the item schema below. It must NOT read any repo,
 SoT, or memory file. Instruct it to return ONLY this JSON:
 
@@ -450,17 +492,26 @@ collected," not a repurposed visual-corroboration score. `vision_confidence` car
 ### 9. Write the per-video note
 
 One file per video (not per item) at
-`docs/plans/video-notes/<date>-<author-slug>-<title-slug>.md` — already gitignored via
-`docs/plans/`. `<date>` is the ingest date (UTC, `YYYY-MM-DD`). Slugify both the author
-and title the same way:
+`docs/plans/video-notes/<date>-<author-slug>-<video_id>.md` — already gitignored via
+`docs/plans/`. `<date>` is the ingest date (UTC, `YYYY-MM-DD`).
 
 ```bash
 slug() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed -E 's/^-+|-+$//g' | cut -c1-40; }
-note_path="docs/plans/video-notes/$(date -u +%F)-$(slug "$AUTHOR")-$(slug "$TITLE").md"
+note_path="docs/plans/video-notes/$(date -u +%F)-$(slug "$AUTHOR")-$VIDEO_ID.md"
 ```
 
-If two videos in the same batch collide on the same path (same author, same day, near-
-identical title), append the `video_id` to disambiguate rather than overwriting.
+**`video_id`, not a title slug — this is the rule, not a collision fallback.** `slug()`
+keeps only `[a-z0-9]`, so a Chinese-language title slugifies to the **empty string** and
+every note from that channel collapses onto one path. On these channels the collision is
+guaranteed, not an edge case: round 4 produced an 8-way collision on a single
+`<date>-tiabtc-btc.md`, which silently overwrites 7 of the 8 notes. `video_id` is unique
+by construction and is also the key everything else in this flow is filed under
+(`.cache/video/<video_id>/`, the routing ledger, the YouTube deep link).
+
+A CJK **handle** collapses the same way — `meta.author` is usually the Latin `@handle`
+(`@Traderfengge`), but not always (`@大漂亮`), and then the name reads
+`<date>--<video_id>.md` with an empty author segment. Ugly, still unique, still correct:
+do not "fix" it by putting the title back.
 
 Contents:
 
@@ -476,6 +527,25 @@ Contents:
 - the transcript, original language, as fetched — **not proofread; it is scratch, not
   the artifact** (see spec §Transcript quality). Only routed items carry a reviewed
   `raw_quote`/`raw_quote_en` pair; the rest of the transcript is left as-is.
+
+Write everything above the transcript with the Write tool, then **append the transcript
+with code** — it is already on disk from step 1, and retyping it is exactly the round-trip
+step 1 exists to avoid:
+
+```bash
+PYTHONPATH=. poetry run python - <<'PY'
+import json
+from pathlib import Path
+
+VIDEO_ID = "<video_id>"
+NOTE = Path("<note_path>")
+
+raw = json.loads((Path(".cache/video") / VIDEO_ID / "transcript.json").read_text())
+lines = "\n".join(f"- `{s['ts_s']:.1f}` {s['text']}" for s in raw["segments"])
+with NOTE.open("a") as fh:
+    fh.write(f"\n## Transcript (as fetched, not proofread)\n\n{lines}\n")
+PY
+```
 
 ## Inline classification rubric (self-contained — paste into BOTH the pass-1 and pass-2 subagent prompts)
 
