@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from typing import Any
 
@@ -74,6 +75,66 @@ def test_format_and_snapshot_round_trip(tmp_path: Any) -> None:
 
 def test_load_latest_snapshot_empty_dir(tmp_path: Any) -> None:
     assert load_latest_snapshot(tmp_path) is None
+
+
+# The executor writes `execution_state_<mode>.json` into this same directory
+# (tools/xsmom_execute.py). That name sorts AFTER any `<date>.json`, so an
+# unfiltered `*.json` glob picked it up and handed a non-snapshot dict to
+# position_deltas -> KeyError: 'positions'.
+_EXECUTOR_STATE = json.dumps(
+    {"peak_equity": 2350.8, "kill_switch": False, "last_run": {"mode": "dry_run"}}
+)
+
+
+def test_load_latest_snapshot_ignores_executor_state_file(tmp_path: Any) -> None:
+    (tmp_path / "execution_state_dry_run.json").write_text(_EXECUTOR_STATE)
+    (tmp_path / "2026-08-01.json").write_text(
+        json.dumps({"next_period_date": "2026-08-01", "positions": []})
+    )
+    loaded = load_latest_snapshot(tmp_path)
+    assert loaded is not None
+    assert loaded["next_period_date"] == "2026-08-01"
+
+
+def test_load_latest_snapshot_state_file_only_is_none(tmp_path: Any) -> None:
+    (tmp_path / "execution_state_dry_run.json").write_text(_EXECUTOR_STATE)
+    assert load_latest_snapshot(tmp_path) is None
+
+
+def test_load_latest_snapshot_skips_unparseable_and_takes_newest(
+    tmp_path: Any,
+) -> None:
+    (tmp_path / "2026-07-31.json").write_text(
+        json.dumps({"next_period_date": "2026-07-31", "positions": []})
+    )
+    (tmp_path / "2026-08-02.json").write_text("{ not json")
+    loaded = load_latest_snapshot(tmp_path)
+    assert loaded is not None
+    assert loaded["next_period_date"] == "2026-07-31"
+
+
+def test_main_runs_with_only_executor_state_present(
+    tmp_path: Any, capsys: Any, monkeypatch: Any
+) -> None:
+    """End-to-end guard: the crash reproduced through main(), not just the loader."""
+    db = tmp_path / "a.db"
+    _seed_db(str(db))
+    (tmp_path / "execution_state_dry_run.json").write_text(_EXECUTOR_STATE)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "xsmom_targets",
+            "--db",
+            str(db),
+            "--symbols",
+            ",".join(_SYMS),
+            "--snapshot-dir",
+            str(tmp_path),
+        ],
+    )
+    main()
+    assert "XS target positions" in capsys.readouterr().out
 
 
 def test_main_prints_and_writes_snapshot(

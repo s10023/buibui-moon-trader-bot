@@ -35,6 +35,8 @@ from analytics.xsmom.live import (
 from analytics.xsmom.replay import replay_targets
 
 _DEFAULT_SNAPSHOT_DIR = Path("docs/plans/xsmom_targets")
+# `write_snapshot` names files `<next_period_date>.json` — match that shape only.
+_SNAPSHOT_GLOB = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].json"
 
 
 def format_target_table(book: TargetBook, deltas: dict[str, float]) -> str:
@@ -65,13 +67,25 @@ def write_snapshot(book: TargetBook, snapshot_dir: Path) -> Path:
 
 
 def load_latest_snapshot(snapshot_dir: Path) -> dict[str, Any] | None:
-    """Most recent snapshot dict by filename, or None if the dir is empty."""
+    """Most recent target snapshot, or None if there is no usable one.
+
+    Only date-named files count. The executor writes its own
+    `execution_state_<mode>.json` into this same directory, and that name sorts
+    AFTER any `<date>.json`, so an unfiltered `*.json` glob picked it up and
+    handed a non-snapshot dict to `position_deltas` (KeyError: 'positions').
+    The `"positions"` check is the belt to that braces: any other foreign file
+    landing here degrades to None rather than crashing a read-only report.
+    """
     if not snapshot_dir.exists():
         return None
-    files = sorted(snapshot_dir.glob("*.json"))
-    if not files:
-        return None
-    return json.loads(files[-1].read_text())  # type: ignore[no-any-return]
+    for path in sorted(snapshot_dir.glob(_SNAPSHOT_GLOB), reverse=True):
+        try:
+            data = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict) and "positions" in data:
+            return data
+    return None
 
 
 def main() -> None:
