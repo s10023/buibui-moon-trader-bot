@@ -106,6 +106,40 @@ transcript at all; without it, `unavailable` reports that explicitly (see shape 
 
 Only shape-3 videos continue through the rest of this flow.
 
+### 2b. Sibling-repo check — before spending any subagent tokens
+
+This repo and the wifey fork (`~/repo/buibui-wifey-wall-street-bot/`) follow overlapping
+channels — Benjamin Cowen sits in both queues today. `tools/route_dedup.py`'s ledger is
+**per-repo**, so nothing else catches a cross-repo double-ingest. `/ingest-feed` runs this
+at its step 2, but a pasted URL reaches this skill directly and skips that, so run it here
+too:
+
+```bash
+grep -rl -E 'video_id: *"?(<id1>|<id2>|…)"?' \
+  ~/repo/buibui-wifey-wall-street-bot/docs/plans/video-notes/ 2>/dev/null
+```
+
+Grep the **frontmatter**, never the filename: wifey still names notes
+`<date>-<author-slug>-<title-slug>.md` (it has not received #522's `video_id`-slug fix), so
+filenames are not comparable across the two repos. `video_id:` in frontmatter is present in
+both.
+
+**A hit is not automatically a skip — apply the subject rule:**
+
+- crypto instrument → **here** (perp data + the only working scorer)
+- equities / macro / gold / oil / DXY / bonds → **wifey**
+- one video covering both legitimately yields rows in **both** repos. Two different calls,
+  not a duplicate.
+
+Route by **subject, never by repo priority.** Our scorer assumes 24/7 perp bars, so a macro
+call scored here resolves against the wrong bars, and wifey's ETF proxies mean **oil fails
+quietly** (USO sits in roughly the same $70-85 band as WTI without tracking it). Neither
+repo is a safe default for the other's subject.
+
+Confirmed live on 2026-08-02 (`/ingest-feed` round 6): 4 of 9 Cowen candidates were already
+in wifey, and they were exactly the 4 macro ones — both repos had already split him by
+subject before any rule said to.
+
 ### 3. Pass 1 — text-only subagent, one per video, pinned to sonnet
 
 For each shape-3 video, dispatch a `general-purpose` subagent via the Task tool with
