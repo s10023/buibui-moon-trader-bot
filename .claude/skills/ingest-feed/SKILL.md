@@ -135,5 +135,11 @@ summary line ("marked N video(s)") as evidence the ledger write happened.
   `pundit-calls.jsonl` itself — those writes live inside `/ingest-video`'s flow only.
 - A follow-list change (`config/youtube_channels.toml`) is a deliberate operator edit;
   `resolve` prints a block to paste, it never writes config.
+- When adding a channel that opens every upload by recapping prior positions, fill in
+  `handle` and `intro_recap_s` in that block. Without them `/ingest-video` routes those
+  opening past-calls as if they were today's — on 2026-08-03 that put a never-filled
+  entry and a past trade's exit management into the sinks. Both keys are opt-in; a
+  channel without them behaves exactly as before, and `handle` is required for
+  `intro_recap_s` to have any effect at all.
 - Quota: poll ≈ 2–3 units/channel/day against 10,000/day — never call `search.list`
   (100 units); the tool doesn't, don't add it.
