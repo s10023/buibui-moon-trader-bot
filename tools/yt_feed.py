@@ -487,6 +487,7 @@ def run_mark(
         )
     state = load_state(state_path)
     meta: dict[str, dict[str, str]] = {}
+    derived_seen: list[str] = []
     if candidates_json is not None:
         payload = json.loads(candidates_json.read_text(encoding="utf-8"))
         for cand in payload.get("candidates", []):
@@ -494,6 +495,19 @@ def run_mark(
                 "channel_id": cand.get("channel_id", ""),
                 "title": cand.get("title", ""),
             }
+        # The poll payload's `channels` array already carries both fields
+        # --channel-seen wants, so derive the pairs rather than making the
+        # operator repeat the flag once per followed channel (9x today).
+        # Entries missing either field are skipped: poll always emits both, so
+        # their absence means a different payload shape, and the explicit flag
+        # stays available for that. These are appended AFTER the explicit
+        # pairs because the write below is a setdefault — first writer wins, so
+        # an explicit --channel-seen still overrides a derived one.
+        for chan in payload.get("channels", []):
+            cid_raw = chan.get("channel_id")
+            floor_raw = chan.get("floor_ts_utc")
+            if cid_raw and floor_raw:
+                derived_seen.append(f"{cid_raw}={floor_raw}")
     count = 0
     for status, ids in (("ingested", ingested), ("skipped", skipped)):
         for vid in ids:
@@ -507,7 +521,7 @@ def run_mark(
                 "decided_ts_utc": now.isoformat(),
             }
             count += 1
-    for pair in channel_seen:
+    for pair in [*channel_seen, *derived_seen]:
         cid, sep, floor_raw = pair.partition("=")
         if sep != "=" or not _CHANNEL_ID_RE.match(cid) or not floor_raw:
             raise SystemExit(f"bad --channel-seen (want UC…=<iso ts>): {pair!r}")
