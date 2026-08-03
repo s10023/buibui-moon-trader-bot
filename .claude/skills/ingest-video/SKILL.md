@@ -150,9 +150,12 @@ subject before any rule said to.
 
 ### 3. Pass 1 — text-only subagent, one per video, pinned to sonnet
 
-For each shape-3 video, dispatch a `general-purpose` subagent via the Task tool with
-**`model: "sonnet"`** (do not inherit Opus) and `subagent_type: "general-purpose"`. Give
-it:
+For each shape-3 video, dispatch a subagent via the Task tool with **`model: "sonnet"`**
+(do not inherit Opus) and **`subagent_type: "Explore"`** — measured **3.6× cheaper** than
+`general-purpose` at identical quality on the same extraction shape (24,187 vs 87,975
+tokens, 2026-08-03 A/B), the likely mechanism being that it does not inherit full project
+context. `Explore` is documented as reading *excerpts*, so state explicitly that it must
+**Read the transcript file in full and not sample it**. Give it:
 
 - the video's `transcript_path` from step 1 — **the path, not the transcript.** Instruct
   it to Read that file; `segments` is the `"segments"` key inside it. Pasting the array
@@ -403,7 +406,14 @@ you write depends on step 5's `marks` distinction:
 No subagent dispatch in either case.
 
 Otherwise, dispatch a `general-purpose` subagent, **`model: "sonnet"`**,
-`subagent_type: "general-purpose"`. Give it: the `frame_paths` list (it Reads each one —
+`subagent_type: "general-purpose"`. **This one stays `general-purpose` deliberately** —
+pass 1 and `/ingest-x` moved to `Explore` on a measured 3.6× saving, but that A/B covered
+single-image transcription, and pass 2 is a materially harder task (cross-references the
+transcript against ≤15 frames, chart-corrects spoken levels, emits multi-item JSON with
+per-item confidence) on a payload of real frame tokens that will not shrink. Pass 2 is
+where this pipeline's value lives (round 5: 11 chart corrections, one a level 2.2% off
+that would have triggered on a sweep that never happened). **A/B it on ONE video before
+switching it** — do not assume the saving transfers. Give it: the `frame_paths` list (it Reads each one —
 vision), the `transcript_path` from step 1 (**the path** — it Reads that file for context
 on what was said; do not paste `segments`), the kept items from step 3
 (`ts`, `content_type`, `gist`), and the item schema below. It must NOT read any repo,
