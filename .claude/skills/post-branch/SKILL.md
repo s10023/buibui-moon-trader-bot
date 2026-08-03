@@ -438,6 +438,11 @@ a final step of every task, not only of this skill. Structure:
 ```markdown
 # Next conversation — <one-line context>
 
+## DO THIS FIRST — daily operator check (unprompted, every session)
+
+<Carry this block forward VERBATIM, refreshing only the "State at <date>"
+line. See "Standing blocks" below — it is not optional and not per-PR.>
+
 ## READ FIRST — PR state (snapshot, re-verify before acting)
 
 | PR | Branch | Contents | State at write time |
@@ -473,6 +478,28 @@ ranking.>
 ### Task 3 — <name>
 <…>
 ```
+
+### Standing blocks — carry forward, never regenerate
+
+This file is **overwritten** each run, so anything not in the template above is
+silently deleted. Some blocks are standing operational content that belongs to
+the project, not to this PR. **Before writing, read the existing
+`next-conversation-prompt.md` and carry these forward verbatim**, refreshing
+only their dated "state at" lines:
+
+- **The daily operator check** (`make buibui-xsmom-daily`,
+  `CATCH_UP=1 make buibui-signal-watch`) — there is no cron
+  (`[[live-system-dark-since-2026-06-24]]`), so the handoff is the only thing
+  that surfaces it. Keep it as the FIRST section, above the PR table.
+- **Standing findings** — the accumulated gotcha list. Append to it; do not
+  replace it with only this PR's findings.
+- **Skill-fix queue** and **open questions** — these outlive any one PR.
+
+This exists because on 2026-08-03 the operator had to ask "why didn't you
+remind me to run the xsmom daily?". The reminder was real but lived only in a
+dense memory bullet, and once added to the handoff it would have been erased by
+the very next run of this skill. A template that overwrites is a template that
+must name what survives.
 
 Source the content from:
 
