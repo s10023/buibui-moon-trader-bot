@@ -252,3 +252,13 @@ Skills live in `.claude/skills/<name>/SKILL.md` (project-specific, committed to 
 - Commit messages use conventional commits: `feat:`, `fix:`, `test:`, `docs:`, `build:`, `chore:`
 - Branch naming: `feat/`, `fix/`, `docs/`, `chore/`
 - Do not commit `.env`, `config/coins.json`, or IDE-specific files
+- **After `gh pr create` succeeds, invoke `/post-branch` before reporting the PR
+  URL back to the user.** Not optional and not conditional — the skill's own Step 1
+  behaviour gate decides whether a docs sweep is warranted, so invoking it on a pure
+  refactor costs one cheap check. This line exists because the skills table's generic
+  "use them proactively" demonstrably was not enough: on 2026-08-03 `/post-branch`
+  fired **zero times across three PRs** (#524, #525, #526) on the main thread, by the
+  same agent that had spent that session repairing the skill. A `PostToolUse` hook on
+  `Bash` in `.claude/settings.json` backs this up with a harness-emitted reminder — but
+  that file is gitignored (like `guard-destructive.py`), so on a fresh clone **this
+  paragraph is the only enforcement that survives**. Re-add the hook if you reclone.
