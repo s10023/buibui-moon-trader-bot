@@ -23,6 +23,7 @@ class TestCardConfig:
         assert cfg.fires_lookback_bars == 4
         assert cfg.fires_timeframes == ("1h", "4h", "1d")
         assert cfg.ratings_config == "signal_watch"
+        assert cfg.live_window_days == 60
         assert cfg.sizing_toml is None
         assert cfg.cards_path == "docs/plans/ai-cards.jsonl"
         assert cfg.pundit_calls_path == "docs/plans/pundit-calls.jsonl"
@@ -39,6 +40,24 @@ class TestCardConfig:
         assert cfg.min_rr == 1.5
         assert cfg.fires_timeframes == ("4h", "1d")
         assert cfg.claude_bin == "claude"  # untouched default
+
+    def test_live_window_days_default_excludes_most_gross_cost_rows(self) -> None:
+        """The live-record window must not default to all-time.
+
+        `outcome_r` only became net of costs on 2026-06-11 (PR #432) and
+        resolved rows were never restated, so an all-time window mixes cost
+        bases by ~0.06R. That is larger than some cells' entire live edge —
+        BTC's card once cited a cell at +0.036R, i.e. a citation that is
+        literally true and evidentially empty. A bounded window is the fix;
+        0 stays available as an explicit opt-in, not as the default.
+        """
+        assert CardConfig().live_window_days > 0
+
+    def test_live_window_days_zero_still_selectable(self, tmp_path: Path) -> None:
+        """0 must remain reachable — it is the all-time escape hatch."""
+        toml = tmp_path / "card.toml"
+        toml.write_text("[card]\nlive_window_days = 0\n")
+        assert CardConfig.from_toml(toml).live_window_days == 0
 
     def test_from_toml_missing_block_is_defaults(self, tmp_path: Path) -> None:
         toml = tmp_path / "empty.toml"

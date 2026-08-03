@@ -125,10 +125,23 @@ def compute_live_outcomes(
     min_n: int = 1,
     *,
     symbol: str | None = None,
+    now_ms: int | None = None,
 ) -> LiveOutcomesResult:
     """Compute the live-outcomes roll-up + breakdowns.
 
     ``days`` windows only the per-cell / per-strategy tables (0 = all time).
+
+    ``now_ms`` anchors that window. ``None`` (the default) uses the wall clock
+    and is byte-identical to the pre-parameter behaviour, which is what the API
+    router wants. Callers that reconstruct a past moment MUST pass their own
+    clock: the F2 card takes an explicit ``now_ms`` so ``--as-of`` is
+    reproducible, and a wall-clock cutoff would annotate a past-dated card with
+    outcomes recorded *after* its as-of date — look-ahead in the one surface
+    built for determinism. Harmless while ``days`` was 0 (no cutoff is computed
+    at all); a live bug the moment a non-zero window became the default. Note it
+    bounds the cell / per-strategy tables only — the roll-up stays all-time by
+    design, as it already did for ``days``, so an as-of caller must read
+    ``cells`` (which is what the card does), not ``rollup``.
 
     ``symbol`` scopes the roll-up AND both tables to one symbol; ``None`` (the
     default, and the UI's ALL chip) is the global view and is byte-identical to
@@ -179,9 +192,21 @@ def compute_live_outcomes(
         where += " AND symbol = ?"
         params.append(symbol)
     if days > 0:
-        cutoff_ms = int((time.time() - days * 86_400) * 1000)
+        anchor_ms = int(time.time() * 1000) if now_ms is None else now_ms
+        cutoff_ms = anchor_ms - days * 86_400_000
         where += " AND fired_at_ms >= ?"
         params.append(cutoff_ms)
+    if now_ms is not None:
+        # An explicit clock means "reconstruct the ledger as of this instant",
+        # so it needs an UPPER bound too. Moving only the lower bound would
+        # still let rows fired after the as-of date through, since the window
+        # is otherwise one-sided — the look-ahead this parameter exists to
+        # stop. Applied independently of `days` so `days=0` + `now_ms` means
+        # all-time-up-to-the-clock rather than all-time-including-the-future.
+        # Unreachable for the wall-clock default: no row is fired in the
+        # future, so the API router stays byte-identical.
+        where += " AND fired_at_ms <= ?"
+        params.append(now_ms)
 
     cell_rows = conn.execute(
         f"""
