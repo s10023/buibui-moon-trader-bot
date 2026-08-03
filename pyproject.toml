@@ -83,6 +83,11 @@ disallow_untyped_defs = true
 disallow_incomplete_defs = true
 warn_unused_ignores = true
 warn_return_any = true
+# docs/plans/ is gitignored working material — one-off audit scripts, the journal,
+# the pundit ledger. Walking it means a throwaway script can turn `make typecheck`
+# red on main for everyone, which is exactly what two 2026-08-02 seasonality
+# scratch scripts did. Nothing here ships, so nothing here gates.
+exclude = "^docs/plans/"
 
 [[tool.mypy.overrides]]
 module = "binance.*"
