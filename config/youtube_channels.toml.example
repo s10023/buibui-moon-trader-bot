@@ -3,6 +3,28 @@
 # Resolve a channel id from a handle:
 #   PYTHONPATH=. poetry run python tools/yt_feed.py resolve <handle>
 # Spec: docs/superpowers/specs/2026-07-31-st10-youtube-feed-design.md
+#
+# Per-channel keys:
+#   id             UC… channel id. The poll path keys on this.
+#   name           display name, for humans and for the poll table.
+#   handle         @handle. REQUIRED for `intro_recap_s` to do anything, because
+#                  /ingest-video only ever sees the video's `meta.author` (an @handle),
+#                  which matches neither `id` nor a CJK `name`. Without it the lookup
+#                  silently returns nothing and the rule never fires.
+#   title_include  keep only titles containing one of these (empty = keep all).
+#   title_exclude  drop titles containing any of these; wins over include.
+#   min_duration_s drop shorter uploads.
+#   lang           hint only.
+#   intro_recap_s  seconds of opening recap/teaser that are NOT a fresh call. 0 = off.
+#
+# On `intro_recap_s` — why it exists, so nobody deletes it as noise:
+# some channels open EVERY upload by replaying prior positions ("在開始視頻之前還是回顧
+# 一下我上週的策略") before saying anything new. A `setup` extracted from that window is a
+# past call stamped with today's `call_ts_utc`, which scores the author on a trade that
+# was already resolved — or, as seen on 2026-08-03, on an entry that never even filled.
+# Set it to the timestamp where genuinely new content starts; err high, since the cost of
+# a few seconds of over-trimming is one lost candidate, while the cost of under-trimming
+# is a corrupted ledger row that nothing downstream can detect.
 
 [feed]
 cold_start_days = 14   # bounds the daily poll only; old videos stay reachable via `backfill`
@@ -10,7 +32,20 @@ cold_start_days = 14   # bounds the daily poll only; old videos stay reachable v
 [[channel]]
 id = "UCRvqjQPSeaWn-uEx-w0XOIg"
 name = "Benjamin Cowen"
+handle = "@intothecryptoverse"
 title_include = []
 title_exclude = ["#shorts"]
 min_duration_s = 180
 lang = "en"
+intro_recap_s = 0
+
+# Example of a channel that DOES open with a recap block every time.
+# [[channel]]
+# id = "UCkSCETUQ-oPbVccY9Z7vZZg"
+# name = "大漂亮的K线日记"
+# handle = "@GiantCutie-K"
+# title_include = []
+# title_exclude = ["#shorts"]
+# min_duration_s = 180
+# lang = "zh"
+# intro_recap_s = 75

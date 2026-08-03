@@ -56,6 +56,15 @@ class ChannelConfig:
     title_exclude: tuple[str, ...]
     min_duration_s: int
     lang: str
+    # `handle` exists so /ingest-video can find this row at all. The poll path keys on
+    # `id`, but a pasted URL never goes through the poll — all it has is the video's
+    # `meta.author` (an @handle), which matches neither `id` nor a CJK display `name`.
+    handle: str = ""
+    # Seconds of opening recap/teaser to treat as NOT-a-fresh-call. 0 = no such rule.
+    # Some channels open every upload by replaying prior positions before saying
+    # anything new; a `setup` extracted from that window is a past call wearing
+    # today's timestamp. See `intro_recap_s` in the .example for the full rationale.
+    intro_recap_s: int = 0
 
 
 @dataclass(frozen=True)
@@ -90,12 +99,60 @@ def load_feed_config(path: Path) -> FeedConfig:
                 ),
                 min_duration_s=int(raw.get("min_duration_s", _DEFAULT_MIN_DURATION_S)),
                 lang=str(raw.get("lang", "")),
+                handle=str(raw.get("handle", "")),
+                intro_recap_s=int(raw.get("intro_recap_s", 0)),
             )
         )
     return FeedConfig(
         cold_start_days=int(feed.get("cold_start_days", _DEFAULT_COLD_START_DAYS)),
         channels=tuple(channels),
     )
+
+
+def _norm_handle(raw: str) -> str:
+    return raw.strip().lstrip("@").casefold()
+
+
+def channel_hint(
+    config: FeedConfig, *, author: str = "", channel_id: str = ""
+) -> ChannelConfig | None:
+    """Find a configured channel from what /ingest-video actually has.
+
+    Pure. Matches on `channel_id` first (exact, unambiguous), then `handle`, then
+    `name` — the last two case-insensitively and ignoring a leading '@'.
+
+    `author` is `VideoMeta.author`, which is an @handle and therefore matches neither
+    the `UC…` id the poll path keys on nor a CJK display `name`. That mismatch is why
+    the `handle` field exists; without it this lookup silently returns None for every
+    Chinese-language channel and the intro-recap rule never fires.
+    """
+    if channel_id:
+        for ch in config.channels:
+            if ch.id == channel_id:
+                return ch
+    if not author:
+        return None
+    wanted = _norm_handle(author)
+    if not wanted:
+        return None
+    for ch in config.channels:
+        if ch.handle and _norm_handle(ch.handle) == wanted:
+            return ch
+    for ch in config.channels:
+        if _norm_handle(ch.name) == wanted:
+            return ch
+    return None
+
+
+def is_intro_recap(ts: float, channel: ChannelConfig | None) -> bool:
+    """True when `ts` falls in the channel's opening recap/teaser window.
+
+    Deliberately `<` rather than `<=`: `intro_recap_s` names the first second of real
+    content, so a channel with no rule (0) never flags anything, including ts=0.0.
+    """
+    if channel is None or channel.intro_recap_s <= 0:
+        return False
+    return ts < channel.intro_recap_s
 
 
 def uploads_playlist_id(channel_id: str) -> str:
@@ -563,10 +620,12 @@ def resolve_handle(get: HttpGet, api_key: str, handle: str) -> str:
         "[[channel]]\n"
         f'id = "{cid}"\n'
         f'name = "{name}"\n'
+        f'handle = "{normalized}"\n'
         "title_include = []\n"
         'title_exclude = ["#shorts"]\n'
         f"min_duration_s = {_DEFAULT_MIN_DURATION_S}\n"
         'lang = ""\n'
+        "intro_recap_s = 0\n"
     )
 
 
@@ -664,6 +723,16 @@ def main(
     )
     p_res.add_argument("handle")
 
+    p_hint = sub.add_parser(
+        "hint",
+        help="per-channel ingest hints (intro_recap_s) for /ingest-video; needs no API key",
+    )
+    p_hint.add_argument(
+        "--author", default="", help="VideoMeta.author, e.g. @GiantCutie-K"
+    )
+    p_hint.add_argument("--channel-id", default="", help="UC… id, if known")
+    p_hint.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+
     args = parser.parse_args(argv)
     now_dt = now if now is not None else datetime.now(UTC)
 
@@ -677,6 +746,28 @@ def main(
             now=now_dt,
         )
         print(f"marked {count} video(s) in {args.state}")
+        return 0
+
+    if args.cmd == "hint":
+        # Pure local config read — deliberately ahead of the API-key gate below, so
+        # /ingest-video can ask for a hint without YOUTUBE_API_KEY set.
+        match = channel_hint(
+            load_feed_config(args.config),
+            author=args.author,
+            channel_id=args.channel_id,
+        )
+        print(
+            json.dumps(
+                {
+                    "matched": match is not None,
+                    "channel_id": match.id if match else "",
+                    "name": match.name if match else "",
+                    "handle": match.handle if match else "",
+                    "intro_recap_s": match.intro_recap_s if match else 0,
+                },
+                ensure_ascii=False,
+            )
+        )
         return 0
 
     api_key = os.environ.get("YOUTUBE_API_KEY", "")

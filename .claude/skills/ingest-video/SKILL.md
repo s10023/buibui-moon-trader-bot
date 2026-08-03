@@ -161,7 +161,24 @@ it:
 - `meta.publish_ts_utc`, `meta.author`, `meta.lang` — **context only**, for resolving a
   relative stated date ("last Monday") and inferring a speaker's timezone from channel
   locale. It must NOT compute a final call time itself — that happens in code, step 4.
+- the channel's `intro_recap_s`, when it has one (see below) — a number, not a rule to
+  re-derive
 - the inline classification rubric (below)
+
+**First, ask the config whether this channel opens with a recap block:**
+
+```bash
+PYTHONPATH=. poetry run python tools/yt_feed.py hint --author "<meta.author>"
+```
+
+Pure local config read, no API key, no network. Returns
+`{"matched": …, "intro_recap_s": N, …}`; `matched: false` or `intro_recap_s: 0` means no
+rule and nothing changes. Run it per video — a batch can span channels.
+
+Note this keys on `meta.author` (an @handle), which matches neither the `UC…` id the poll
+path uses nor a CJK display `name` — that is why `config/youtube_channels.toml` carries a
+`handle` field. **A channel with `intro_recap_s` set but no `handle` will silently never
+match.**
 
 It must NOT read any repo, SoT, or memory file — the rubric is self-contained. Instruct
 it to return ONLY this JSON:
@@ -174,7 +191,8 @@ it to return ONLY this JSON:
   "stated_ts_raw": "verbatim quote or empty",
   "candidates": [
     {"ts": 252.0, "content_type": "setup|claim|mechanic", "specificity": 1-5,
-     "is_relay": false, "originating_author": "@ThisChannel", "gist": "..."}
+     "is_relay": false, "originating_author": "@ThisChannel",
+     "is_intro_recap": false, "retrospective": false, "gist": "..."}
   ]
 }
 ```
@@ -190,7 +208,28 @@ speaker's timezone is inferable from context, otherwise emit `null` — never gu
 budget for items this repo can actually use, so spending a slot on one it will drop at
 routing wastes the slot silently. Instruct the subagent, in this order:
 
-1. **Drop RELAYED `setup` candidates first — the call must be the speaker's own.** Set
+1. **Drop `setup` candidates inside the channel's intro-recap window — they are past
+   calls.** If `intro_recap_s` came back non-zero, set `is_intro_recap: true` on every
+   candidate with `ts < intro_recap_s`. For a `setup`, ALSO set `retrospective: true`,
+   which is what makes `route_target` drop it. For a `claim` or `mechanic`, set only
+   `is_intro_recap` and keep the candidate — an idea stays portable regardless of when in
+   the video it was said — but the digest must show the flag so the human can decline it.
+
+   **Why this is a rule and not a judgement call.** Some channels open every single upload
+   by replaying prior positions before saying anything new. A `setup` lifted from that
+   window is a *previous* call stamped with *today's* `call_ts_utc`, so
+   `tools/pundit_score.py` scores the author on a trade that already resolved. On
+   2026-08-03 the 7.24 upload's opening block described an entry that **never filled**
+   (「離我入場的位置綠色框框就差幾塊錢」) — scoring that would have credited a trade nobody took.
+
+   **And why `claim`/`mechanic` still need the flag rather than nothing.** `route_target`'s
+   `retrospective` drop is **setup-only by design**, so a retrospective *mechanic* has no
+   code path that stops it. That is exactly what happened the same day: the 7.20 upload's
+   recap block ("上週14號我們是入場了一個比特幣的多單" — a past trade's exit management) was
+   typed as a `mechanic` and routed to Stream B with nothing objecting. Only an operator
+   reading the digest caught it. The flag is what makes that visible instead of silent.
+
+2. **Drop RELAYED `setup` candidates — the call must be the speaker's own.** Set
    `is_relay: true` whenever the speaker is reading out, reacting to, or summarising a
    call made by **someone else** (「X老师给了一个多单」, a screenshot of another
    analyst's Discord/Telegram post, an on-screen name card introducing a third party),
@@ -198,16 +237,17 @@ routing wastes the slot silently. Instruct the subagent, in this order:
    `originating_author` to the channel's own handle only for the speaker's own calls.
    **`claim` and `mechanic` candidates are exempt** — an idea is portable regardless of
    who first said it, and Streams A/B do not score anyone.
-2. **Drop non-crypto `setup` candidates.** A setup on SPX, gold, DXY, oil or a
+3. **Drop non-crypto `setup` candidates.** A setup on SPX, gold, DXY, oil or a
    single equity routes to wifey (step 2b's subject rule), never to `pundit-calls.jsonl`
    here — our scorer resolves against 24/7 perp bars it has no data for.
-3. **`mechanic` candidates stay eligible regardless of symbol.** A risk-management or
+4. **`mechanic` candidates stay eligible regardless of symbol.** A risk-management or
    execution technique demonstrated on SPX is just as portable as one on BTC; the
    instrument is incidental to a mechanic in a way it never is to a setup.
-4. **Then** rank what remains by `specificity` descending and keep the top `ITEM_CAP` (5 —
+5. **Then** rank what remains by `specificity` descending and keep the top `ITEM_CAP` (5 —
    `tools/video_marks.py::ITEM_CAP`).
 
-Report every dropped candidate with a one-line reason, distinguishing the three causes —
+Report every dropped candidate with a one-line reason, distinguishing the four causes —
+`intro-recap window (ts < intro_recap_s), a prior call not today's` vs
 `relayed call by 陈哥, not the speaker's own` vs `non-crypto setup (SPX), routes to wifey`
 vs `specificity 2, below the top-5 cutoff` — for the digest and the note. **Filtered items
 belong in the note too:** they are the record that the video contained something this repo
@@ -444,9 +484,12 @@ across every source, instead of silently mixing two incompatible populations.
 ### 7. ONE consolidated digest for the whole batch
 
 Print a single table — one row per kept item across every video: video (title) · author ·
-`call_ts_utc` (`call_ts_source`) · `ts` · `content_type` · `retrospective` · `rejected` ·
-`verdict` ·
-proposed routing · `vision_confidence`. Below the table, per video: the pass-1 `summary`, the dropped
+`call_ts_utc` (`call_ts_source`) · `ts` · `content_type` · `retrospective` ·
+`is_intro_recap` · `rejected` · `verdict` ·
+proposed routing · `vision_confidence`.
+
+**`is_intro_recap: true` on a `claim`/`mechanic` must be visible in this table**, since no
+code will drop it — the human deciding is the entire mechanism there (step 3, rule 1). Below the table, per video: the pass-1 `summary`, the dropped
 candidates with their reasons, the `chart_present` flag, and `backlog` when `true`. List
 any shape-1 / shape-2 videos separately with their skip reason. **Write nothing yet.**
 
@@ -706,6 +749,15 @@ is frozen. A claim that just restates one of these candlestick/structure pattern
 - A `setup` the speaker declined is not a call. `rejected: true` is the only thing
   standing between "he talked through this short" and "he is scored on this short";
   pass it to `route_target` rather than applying it by eye.
+- A `setup` from the channel's opening recap block is not today's call. `intro_recap_s`
+  (step 3, from `yt_feed.py hint`) is the only thing that catches it, and it is **opt-in
+  per channel** — an unconfigured channel silently has no rule, which is correct but means
+  a newly-followed recap-style channel needs the field set before its first ingest. The
+  companion failure is quieter: `route_target`'s `retrospective` drop is **setup-only**, so
+  a retrospective `mechanic` or `claim` has NO code path stopping it — that is why those
+  carry `is_intro_recap` into the digest instead of being dropped. If a future round finds
+  a past trade's exit management sitting in `mechanics-backlog.md`, the bug is that the
+  flag never reached the digest, not that the case is unknown.
 - A `setup` the speaker **relayed** is not their call either. The attribution filter in
   step 3 drops it before the cap, so it never reaches frames, pass 2, or a sink — which
   is also why pass 2 has no `originating_author` field to fill. This one has regressed
