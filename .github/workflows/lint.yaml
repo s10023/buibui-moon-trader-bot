@@ -110,18 +110,25 @@ jobs:
         if: steps.changes.outputs.python == 'true'
         run: poetry run mypy .
 
+      # Deliberately no --cov. Nothing in this repo consumes coverage: there is
+      # no codecov/coveralls step, no fail_under gate, and coverage.xml was only
+      # ever uploaded as an artifact nobody downloads. pytest-cov's tracer runs
+      # on every line of every test, and this step is ~85% of the job, so that
+      # was the most expensive unread file in CI. `make test-cov` still produces
+      # it locally for anyone who actually wants to read it.
+      # -q not -v: 2900 verbose lines make a failure harder to find, not easier.
+      # --durations keeps the slowest tests visible so the next tuning round
+      # starts from data rather than a guess.
       - name: Run tests
         if: steps.changes.outputs.python == 'true'
-        run: poetry run pytest tests/ -v --cov --cov-report=term-missing --cov-report=xml --junitxml=test-results.xml --ignore=tests/test_regression.py
+        run: poetry run pytest tests/ -q --durations=25 --junitxml=test-results.xml --ignore=tests/test_regression.py
 
       - name: Upload test results
         if: steps.changes.outputs.python == 'true' && !cancelled()
         uses: actions/upload-artifact@v7
         with:
           name: test-results
-          path: |
-            test-results.xml
-            coverage.xml
+          path: test-results.xml
 
   regression:
     name: Regression tests
