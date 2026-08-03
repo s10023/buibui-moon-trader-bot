@@ -25,7 +25,17 @@ class CardConfig:
     # already-resolved rows were never restated, so an all-time window mixes
     # gross and net rows. Round-trip cost is ~0.06R on a 2% stop, so live-vs-
     # backtest gaps under ~0.15R are not readable; larger ones are unaffected.
-    live_window_days: int = 0
+    #
+    # Default is 60 rather than 0 because all-time produced a citation that was
+    # true and yet evidentially empty: BTC's card cited inside_bar/1h/short at
+    # live_n 136 / +0.036R, which is SMALLER than the ~0.06R contamination that
+    # window carries — and the same cell over 30d is −0.325R. A window is the
+    # cheap fix; note it is *relative* while the contamination boundary is
+    # *absolute*, so 60d still reaches ~a week past 2026-06-11 as of 2026-08-03
+    # and self-cleans as time passes. 30d would be clean immediately but thins n
+    # below the live_n >= 10 floor the live-beats-backtest rule needs to fire at
+    # all. Set 0 to restore all-time, or lower it once the ledger is deeper.
+    live_window_days: int = 60
     sizing_toml: str | None = None
     cards_path: str = "docs/plans/ai-cards.jsonl"
     pundit_calls_path: str = "docs/plans/pundit-calls.jsonl"

@@ -154,9 +154,14 @@ def _fires_block(
     like-for-like — recalibrate pools symbols per (strategy, tf).
     """
     ratings = get_confidence_rating_rows(conn, cfg.ratings_config)
+    # now_ms is threaded so --as-of stays reproducible: without it the window
+    # would be cut from the wall clock and a past-dated card would cite live
+    # outcomes recorded after its own as-of date.
     live = {
         (c.strategy, c.tf, c.direction): c
-        for c in compute_live_outcomes(conn, days=cfg.live_window_days, min_n=1).cells
+        for c in compute_live_outcomes(
+            conn, days=cfg.live_window_days, min_n=1, now_ms=now_ms
+        ).cells
     }
     fires: list[RecentFire] = []
     for tf in cfg.fires_timeframes:

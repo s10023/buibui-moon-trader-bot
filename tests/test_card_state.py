@@ -338,15 +338,17 @@ def _insert_resolved(
     strategy: str = "fvg",
     tf: str = "1h",
     direction: str = "long",
+    fired_at_ms: int | None = None,
 ) -> None:
     """One resolved live-ledger row."""
+    fired = _NOW_MS - 2_000_000 if fired_at_ms is None else fired_at_ms
     conn.execute(
         "INSERT INTO signal_alert_outcomes (signal_id, symbol, tf, strategy, "
         "direction, fired_at_ms, candle_ts_ms, entry_price, sl_price, "
         "tp_price, outcome, outcome_r, outcome_filled_at_ms) VALUES "
         f"('{signal_id}', '{symbol}', '{tf}', '{strategy}', '{direction}', "
-        f"{_NOW_MS - 2_000_000}, {_NOW_MS - 2_000_000}, 100.0, 99.0, 103.0, "
-        f"'{outcome}', {outcome_r}, {_NOW_MS - 1_500_000})"
+        f"{fired}, {fired}, 100.0, 99.0, 103.0, "
+        f"'{outcome}', {outcome_r}, {fired + 500_000})"
     )
 
 
@@ -381,6 +383,43 @@ class TestFiresLiveOutcomes:
         assert fires[0].avg_r == pytest.approx(0.95)  # backtest, unchanged
         assert fires[0].live_n == 2
         assert fires[0].live_avg_r == pytest.approx(-0.8)
+
+    def test_live_window_is_anchored_to_the_cards_clock(self) -> None:
+        """`--as-of` must not cite outcomes recorded after its own date.
+
+        End-to-end guard for the wall-clock coupling that the non-zero
+        `live_window_days` default introduced: the card composes its panel as
+        of `now_ms`, so its live annotation has to obey the same clock. Here
+        the only in-window row is the pre-as-of one; the row 30 days later is
+        real, resolved, on the same cell, and must still be invisible.
+        """
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        _insert_fire(conn)
+        _insert_resolved(
+            conn,
+            signal_id="past",
+            outcome="loss",
+            outcome_r=-1.0,
+            fired_at_ms=_NOW_MS - 2_000_000,
+        )
+        _insert_resolved(
+            conn,
+            signal_id="after",
+            outcome="win",
+            outcome_r=3.0,
+            fired_at_ms=_NOW_MS + 30 * 86_400_000,
+        )
+
+        fires = _fires_block(
+            conn,
+            "BTCUSDT",
+            CardConfig(fires_timeframes=("1h",), live_window_days=60),
+            _NOW_MS,
+        )
+
+        assert fires[0].live_n == 1, "post-as-of outcome leaked into the card"
+        assert fires[0].live_avg_r == pytest.approx(-1.0)
 
     def test_live_record_is_cross_symbol(self) -> None:
         """Parity with the star: recalibrate pools symbols, so this must too."""

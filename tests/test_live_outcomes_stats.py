@@ -175,6 +175,65 @@ def test_days_window_applies_to_cells_not_rollup() -> None:
     assert res.cells[0].losses == 0
 
 
+def test_now_ms_moves_the_window_lower_bound() -> None:
+    """The window must cut from the caller's clock, not the wall clock.
+
+    Anchored 100 days back, a row from 110 days ago is outside a 30d window
+    and a row from 105 days ago is inside — the exact opposite of what the
+    wall clock would say, where both are ancient and neither survives.
+    """
+    conn = _conn()
+    as_of = _NOW_MS - 100 * _DAY_MS
+    _insert(conn, "in", outcome="win", outcome_r=1.0, fired_at_ms=as_of - 5 * _DAY_MS)
+    _insert(
+        conn, "out", outcome="loss", outcome_r=-1.0, fired_at_ms=as_of - 40 * _DAY_MS
+    )
+
+    res = compute_live_outcomes(conn, days=30, min_n=1, now_ms=as_of)
+
+    assert len(res.cells) == 1
+    assert res.cells[0].wins == 1
+    assert res.cells[0].losses == 0
+    # Wall-clock default sees neither: both are >30d old in real time.
+    assert compute_live_outcomes(conn, days=30, min_n=1).cells == []
+
+
+def test_now_ms_also_excludes_rows_fired_after_the_as_of_clock() -> None:
+    """The half the lower bound alone does NOT fix.
+
+    The window is otherwise one-sided (`fired_at_ms >= cutoff`), so anchoring
+    only the lower bound still lets post-as-of rows through — which is the
+    look-ahead the parameter exists to stop. A card dated 100 days ago must
+    not cite an outcome recorded yesterday.
+    """
+    conn = _conn()
+    as_of = _NOW_MS - 100 * _DAY_MS
+    _insert(conn, "past", outcome="win", outcome_r=1.0, fired_at_ms=as_of - _DAY_MS)
+    _insert(conn, "future", outcome="loss", outcome_r=-1.0, fired_at_ms=_NOW_MS)
+
+    res = compute_live_outcomes(conn, days=30, min_n=1, now_ms=as_of)
+
+    assert len(res.cells) == 1
+    assert res.cells[0].wins == 1
+    assert res.cells[0].losses == 0, "post-as-of row leaked into an as-of read"
+
+
+def test_now_ms_bounds_all_time_reads_too() -> None:
+    """`days=0` + a clock means all-time-up-to-then, not all-time-plus-future."""
+    conn = _conn()
+    as_of = _NOW_MS - 100 * _DAY_MS
+    _insert(
+        conn, "old", outcome="win", outcome_r=1.0, fired_at_ms=as_of - 400 * _DAY_MS
+    )
+    _insert(conn, "future", outcome="loss", outcome_r=-1.0, fired_at_ms=_NOW_MS)
+
+    res = compute_live_outcomes(conn, days=0, min_n=1, now_ms=as_of)
+
+    assert len(res.cells) == 1
+    assert res.cells[0].wins == 1
+    assert res.cells[0].losses == 0
+
+
 def test_open_rows_excluded_from_cells() -> None:
     conn = _conn()
     _insert(conn, "open", outcome=None, outcome_r=None)
