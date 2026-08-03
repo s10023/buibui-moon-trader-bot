@@ -2,7 +2,8 @@
 name: post-branch
 description: >
   Post-branch docs sweep + handoff — diff the branch's behaviour changes against
-  the doc surfaces (CLAUDE.md, README.md, MEMORY.md, Makefile, docker-compose.yml)
+  the doc surfaces (CLAUDE.md, README.md, MEMORY.md, Makefile, docker-compose.yml,
+  .claude/context/*.md, .claude/skills/*/SKILL.md)
   and propose targeted edits where they've drifted, then run a pre-merge
   readiness check and offer a fresh-conversation handoff prompt. Use IMMEDIATELY
   after `gh pr create` succeeds, BEFORE reporting the PR URL back to the user.
@@ -11,7 +12,7 @@ description: >
   before writing; never force-push without explicit OK. Also triggers on the
   user saying "/post-branch", "wrap up the branch", "docs check",
   "pre-merge check", or "next conversation prompt".
-allowed-tools: Bash, Read, Edit
+allowed-tools: Bash, Read, Edit, Write
 ---
 
 # Post-Branch Docs Sweep
@@ -63,6 +64,12 @@ surfaces:
     path_glob: ".claude/context/*.md"
     purpose: Long-form module API references (analytics.md, signals.md, web.md)
     scope: any_referencing_changed_artifact
+
+  - id: skill_docs
+    path_glob: ".claude/skills/*/SKILL.md"
+    purpose: Workflow instructions that name tools, flags and file paths — they drift exactly like CLAUDE.md does
+    scope: any_referencing_changed_artifact
+    lint: manual   # see below
 
 # Files that, if changed, almost always require a doc walk:
 behavior_signal_globs:
@@ -184,7 +191,7 @@ For each surface in the config, do the following:
 
 4. **Propose the edit.** Show the user a unified-diff-style proposal:
 
-   ```
+   ```diff
    # CLAUDE.md (line 47)
    - - `data_store.py` — DB schema, upsert/query helpers, `confidence_ratings`, …
    + - `store/` — package: `schema.py`, `signals.py`, `backtest_runs.py`,
@@ -202,6 +209,7 @@ For each surface in the config, do the following:
 ## Step 4 — Surface-specific checks
 
 ### CLAUDE.md
+
 - "Project Structure" section: every module listed should match its real
   current home. If a `*.py` file is now a shim, rename or annotate to
   point at the package that holds the real code.
@@ -209,20 +217,52 @@ For each surface in the config, do the following:
 - "Agent Skills" table: skills added/removed since last sweep are listed.
 
 ### README.md
+
 - CLI subcommand list matches `buibui --help`.
 - Quickstart still works (commands referenced still exist).
 
 ### Makefile
+
 - Every `buibui.py` subcommand has a `make buibui-<name>` target.
 - Every public daemon has a `docker-up` / `docker-down` line.
 
 ### docker-compose.yml
+
 - Long-running daemons → `restart: unless-stopped`.
 - One-shot tools → `profiles: [tools]` so they don't auto-start.
 
 ### `.claude/context/*.md`
+
 - Module API references (analytics.md, signals.md, web.md) match the
   current package layout. These are the most refactor-sensitive docs.
+
+### `.claude/skills/*/SKILL.md`
+
+- A skill that names a tool, flag, path or constant drifts exactly like
+  CLAUDE.md does. Grep the skill tree for the changed artifact's name — a
+  renamed flag or a moved module leaves a skill quietly instructing the next
+  session to run something that no longer exists.
+- **markdownlint cannot see these files.** `.claude` is in the ignore globs
+  of `.markdownlint-cli2.jsonc` in both this repo and the wifey fork, so
+  `make lint-md` skips the whole tree — and the exclusion still wins even if
+  you pass an explicit path from the repo root. Run it from *outside* the
+  repo, and **pass `--config` explicitly**:
+
+  ```bash
+  cd /tmp && npx markdownlint-cli2 --fix \
+    --config "$HOME/repo/<repo>/.markdownlint.json" \
+    "$HOME/repo/<repo>/.claude/skills/<name>/SKILL.md"
+  ```
+
+  Both halves matter. Without leaving the repo the ignore glob drops the
+  file; without `--config` you silently lint against markdownlint's
+  *defaults* rather than the repo's rules, so `MD013` (line length) fires on
+  every prose line while a real violation hides in the noise. Dropping
+  `--fix` is fine for a check-only pass.
+
+  This tree has never been linted. Two `MD038`s survived months of sweeps,
+  and the first real run of the recipe above turned up 16 more in this file
+  alone.
 
 ---
 
@@ -292,10 +332,11 @@ git commit -m "docs: sync docs with PR behavior changes"
 git push
 ```
 
-If MEMORY.md is the only change, commit it with the message
-`chore: update memory for <branch>` — MEMORY.md lives outside the repo
-under `~/.claude-personal/...`, so it is **not** part of the project commit.
-Save it via the `Edit` tool only; do not `git add` it.
+**MEMORY.md is never committed.** It lives outside the repo under
+`~/.claude-personal/...`, so it is not part of any project commit — save it
+via the `Edit` tool only, and never `git add` it. If the MEMORY.md update is
+the only thing this step produced, there is simply nothing to commit here;
+say so and move on.
 
 **Push rules:**
 
@@ -316,10 +357,12 @@ landed in a sibling PR). The diff at Step 3 won't surface it. If suspected:
    *"Doc X is on main but not this branch. Rebase onto main so we can
    update it here, or skip and let the next PR handle it?"*
 3. Rebase only on explicit OK:
+
    ```bash
    git fetch origin main
    git rebase origin/main
    ```
+
 4. Resolve conflicts the user's way, not by force.
 
 ---
@@ -328,19 +371,20 @@ landed in a sibling PR). The diff at Step 3 won't surface it. If suspected:
 
 Output a per-surface report so the user has a clear summary:
 
-```
+```text
 PR #<num> behaviour gate: <walked | skipped (pure refactor)>
 
 CLAUDE.md          — updated: <what> | no change needed: <reason>
 README.md          — updated: <what> | no change needed: <reason>
-MEMORY.md          — updated: Current State + <other>
+MEMORY.md          — updated: Current State + <other>  (never committed)
 Makefile           — no change needed: no new CLI commands
 docker-compose.yml — no change needed: no new processes
 .claude/context/*  — updated: analytics.md (store/ paths) | no change needed
+.claude/skills/*   — updated: <skill> | no change needed: <reason>
 PR summary         — written to /tmp/pr-<branch>.md
 PR body            — appended "Documentation updates" section
 pre-merge          — clean | <blocker> (see Step 10a)
-handoff prompt     — written to /tmp/next-conversation-prompt.md | declined
+handoff prompt     — written to docs/plans/next-conversation-prompt.md | declined
 ```
 
 Be explicit. "no change needed: internal refactor only" is useful;
@@ -382,8 +426,12 @@ Offer (don't auto-write) to draft a self-contained prompt the user can
 paste into the next conversation. Same shape as `/pr-summary` —
 **file-only output, never inline**.
 
-If the user accepts, write to `/tmp/next-conversation-prompt.md` with this
-structure:
+If the user accepts, write to **`docs/plans/next-conversation-prompt.md`** —
+gitignored, but inside the repo and therefore durable. **Not `/tmp`:** the
+user deletes conversations, and a handoff that evaporates on reboot defeats
+the point. Overwrite the existing file rather than starting a new one; it is
+a standing document whose whole value is being current, and keeping it so is
+a final step of every task, not only of this skill. Structure:
 
 ```markdown
 # Next conversation — <one-line context>
