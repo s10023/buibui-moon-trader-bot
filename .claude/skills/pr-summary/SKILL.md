@@ -53,6 +53,13 @@ Reviewers should understand the motivation before the mechanics.
 
 Items already verified by CI at commit time are pre-ticked. Manual items remain unchecked.
 
+**Only tick a command that has already returned.** "Verified at commit time" means the
+result is in hand — not that the command is running and expected to pass. A gate still
+in flight gets `[ ]` plus a note, and is ticked once it finishes. A PR body is durable
+and gets read as a claim about what was checked, so a hopeful tick is a false statement
+even when the run later goes green. This bit on 2026-08-03: `make test-regression` was
+pre-ticked while still executing.
+
 - [x] `make test` — <N> passed
 - [x] `make lint-py` — ruff clean
 - [x] `make typecheck` — mypy clean
