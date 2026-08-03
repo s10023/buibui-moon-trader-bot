@@ -386,6 +386,7 @@ PR summary         — written to /tmp/pr-<branch>.md
 PR body            — appended "Documentation updates" section
 pre-merge          — clean | <blocker> (see Step 10a)
 handoff prompt     — written to docs/plans/next-conversation-prompt.md | declined
+PR state re-check  — #<num>: <OPEN | MERGED>, handoff table rewritten to match
 ```
 
 Be explicit. "no change needed: internal refactor only" is useful;
@@ -437,9 +438,18 @@ a final step of every task, not only of this skill. Structure:
 ```markdown
 # Next conversation — <one-line context>
 
+## READ FIRST — PR state (snapshot, re-verify before acting)
+
+| PR | Branch | Contents | State at write time |
+| --- | --- | --- | --- |
+| #<num> | `<branch>` | <one line> | OPEN / MERGED |
+
+**This table is a snapshot, not live state.** First move:
+`gh pr view <num> --json state`. If MERGED, sync main, delete the branch,
+and start on a task below — do not re-litigate merged work.
+
 ## Just shipped
 - PR #<num>: <title> — <one-line outcome / verdict / lift>
-- Branch: `<branch>` (merged | open)
 - Key finding: <the surprising or load-bearing result, if any>
 
 ## State of the world
@@ -478,6 +488,34 @@ prompt that costs zero context to bring a fresh session up to speed.
 
 Print only the path + a one-line description. Do **not** echo the
 contents.
+
+### 10c — Re-verify PR state as the LAST action (never skip)
+
+This skill writes the handoff *before* the merge, so its most prominent
+instruction is the first thing to go stale. On 2026-08-03 all three PRs
+(#524, #525, #526) merged within minutes of their handoff being written, and
+PR #530 merged the same way — each left the next session with a wrong
+opening move. The handoff is the one artifact that survives a session
+delete, so a stale first line there is the most expensive kind of stale.
+
+Immediately before you report done — after **every** other step, including
+any commit and push — re-query every PR named in the handoff, not just the
+one this run created:
+
+```bash
+gh pr view <PR#> --json state,mergedAt --jq '"\(.state) \(.mergedAt)"'
+```
+
+Then rewrite the state table in place to match. If a PR merged in the
+meantime, update the "first move" line too: the next session should be told
+to start on a task, not to merge something already merged. If it merged and
+the local branch still exists, say so — the branch delete is
+`gh pr view` -gated by `[[verify-merge-before-branch-delete]]` and is the
+natural first action for the next session.
+
+One API call per PR. That is the whole cost of the difference between a
+handoff that opens the next session productively and one that sends it down
+a dead path.
 
 ---
 
