@@ -77,7 +77,8 @@ behavior_signal_globs:
   - "cli/**/*.py"
   - "Makefile"
   - "docker-compose.yml"
-  - ".github/workflows/**/*.yml"
+  - ".github/workflows/**/*.yaml"   # NOT *.yml — every workflow here uses .yaml,
+                                    # so the old .yml glob never once matched
   - "pyproject.toml"
   - "config/strategy_params.toml"
   - "config/*signal_watch*.toml"
