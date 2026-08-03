@@ -70,7 +70,16 @@ Items already verified by CI at commit time are pre-ticked. Manual items remain 
 
 ## Note on GitHub CLI
 
-`gh pr create` fails for this project (collaborator permission error). Provide the PR summary as a copyable file at `/tmp/pr-<branch>.md` — the user will paste it manually into GitHub.
+`gh pr create` **works** for this project — it created PRs #522–#525 across
+2026-08-01/02/03. This section used to claim it fails with a collaborator
+permission error; that was stale and cost several PRs a manual paste for no
+reason. Still write the file at `/tmp/pr-<branch>.md` (it is the deliverable of
+this skill, and useful as a `--body-file`), but do not tell the user the CLI is
+unavailable.
+
+If `gh` ever does fail with "Could not resolve to a Repository", that is the
+account, not the permission: run `gh auth switch --user s10023`. Don't debug
+`gh` config past that.
 
 ## Conventional commit types for PR titles
 
