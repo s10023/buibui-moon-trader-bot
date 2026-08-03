@@ -151,8 +151,10 @@ buibui-moon-trader-bot/
 ├── .env.example                     # Environment variable template
 ├── .github/
 │   └── workflows/
-│       ├── lint.yaml                # CI: lint, format, typecheck
-│       └── docker-build.yaml        # CI: Docker image build
+│       ├── lint.yaml                # CI: lint, format, typecheck, regression, frontend
+│       ├── docker-build.yaml        # CI: Docker image build
+│       ├── security-scan.yaml       # CI: Trivy filesystem scan (report-only)
+│       └── signal-watch.yaml        # Cron: hourly signal daemon on OKX data
 ├── Makefile                         # Dev & run commands
 ├── Dockerfile                       # Container setup
 ├── pyproject.toml                   # Poetry dependencies
@@ -1404,7 +1406,9 @@ running signal-watch or analytics services.
 
 ## GitHub Actions
 
-Three workflows run automatically on every push and pull request:
+Four workflows live in `.github/workflows/` — three run on push and pull request, one on a
+cron. Every job carries a `timeout-minutes`, and `concurrency` cancels superseded **PR** runs
+but never `main` runs: cancelling on `main` would destroy the record of whether `main` is green.
 
 ### `lint.yaml` — CI (always active)
 
@@ -1412,20 +1416,34 @@ Runs on every push to `main` and every PR. Uses path filters so only relevant jo
 
 | Job | Triggers on | Steps |
 | --- | --- | --- |
-| `markdownlint` | `*.md` changes | markdownlint-cli2 across all Markdown files |
+| `markdownlint` | `*.md` changes | markdownlint-cli2 across all Markdown files; also validates `SKILL.md` frontmatter when `.claude/skills/**` changes |
 | `lint-typecheck-test` | `*.py` / `pyproject.toml` / `poetry.lock` changes | ruff check, ruff format, mypy, pytest (with coverage), uploads test XML + coverage XML as artifacts |
-| `regression` | `*.py` / TOML / fixture / golden JSON changes | runs `make test-regression` against committed golden files; fails with a diff report if metrics drift |
+| `regression` | `analytics/**` / config TOML / fixtures / goldens / `pyproject.toml` / `poetry.lock` changes | runs `make test-regression` against committed golden files; fails with a diff report if metrics drift |
+| `frontend-check` | `web/ui/**` changes | npm ci, vite build, `svelte-check` |
 
-### `docker-build.yaml` — Docker build check (always active)
+Both Python jobs cache `~/.cache/pypoetry` — which holds the downloaded wheels **and** the
+virtualenv — on a key shared with `signal-watch.yaml`.
 
-Builds the Docker image on every push and PR to catch any `Dockerfile` or dependency issues early.
+The `regression` filter is deliberately narrower than "every Python file": `tests/test_regression.py`
+imports from `analytics.*` only, so a `tools/` or `web/` change cannot move a golden. But
+`pyproject.toml` and `poetry.lock` stay in scope, because a pandas or numpy bump **does** move
+goldens — which is the drift the suite exists to catch.
 
-### `monitor.yaml` — Scheduled position monitor (disabled placeholder)
+### `docker-build.yaml` — Docker build check
 
-Commented-out template for running the position monitor on a 15-minute cron schedule via a
-**self-hosted runner** on an Oracle Cloud VM. GitHub-hosted runners use rotating IPs that
-cannot be whitelisted in Binance — this workflow only makes sense with a static-IP self-hosted
-runner. Enable it once the Oracle Cloud VM is set up.
+Builds the Docker image when the `Dockerfile`, `docker-compose.yml`, or the dependency manifests
+change, catching build breakage early. Docs-only PRs skip it.
+
+### `security-scan.yaml` — Trivy filesystem scan
+
+Scans the tree for CRITICAL and HIGH vulnerabilities on push and PR to `main`. It reports only —
+`exit-code: '0'` means a finding never fails the build.
+
+### `signal-watch.yaml` — hourly signal daemon (OKX)
+
+Hourly cron running one scan cycle against OKX market data; see the signal-watch section above
+for the ephemeral-DB mechanics. Its `concurrency` is deliberately set to **not** cancel in
+progress — cancelling a live scan drops alerts.
 
 ---
 
