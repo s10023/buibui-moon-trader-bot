@@ -46,8 +46,13 @@ pasted, then run the flow once over the whole set.
    download one-liner — `photo_paths` already holds the local files.
 
 2. **Extract via a subagent — one per post, pinned to sonnet.** For each post,
-   dispatch a `general-purpose` subagent (Task tool) **with `model: "sonnet"`**
-   (do not inherit Opus) and `subagent_type: "general-purpose"`. Give it: the post
+   dispatch a subagent (Task tool) **with `model: "sonnet"`** (do not inherit Opus)
+   and **`subagent_type: "Explore"`** — measured **3.6× cheaper** than
+   `general-purpose` at identical quality on exactly this task (24,187 vs 87,975
+   tokens, 2026-08-03 A/B on a real 2-post batch), the likely mechanism being that
+   it does not inherit full project context. Cost here is **fixed per-subagent
+   overhead, not payload** (6 varied posts landed inside a ±2% band), so the
+   dispatch type is the lever and image size is not. Give it: the post
    `text` (and `quoted_text` prefixed `"[quoting @<quoted_author>]"` when present),
    the `photo_paths`, the schema below, and the **inline rubric** in the next
    section. Instruct it to Read each image (vision) and return ONLY this JSON — it
@@ -65,6 +70,7 @@ pasted, then run the flow once over the whole set.
      "chart_read": "what the chart shows (levels, structure, annotations)",
      "content_type": "claim | setup | mechanic",
      "verdict": "NOVEL | ALREADY-TESTED | FROZEN-CATEGORY | NOT-FALSIFIABLE",
+     "is_retrospective": "true | false",
      "gap_note": "one line: implied primitive + does the system already have/test/freeze it?"
    }
    ```
@@ -72,11 +78,36 @@ pasted, then run the flow once over the whole set.
    `verdict` applies only when `content_type = claim`; for `setup`/`mechanic` set it
    to `NOVEL` as a non-blocking default (routing uses `content_type` for those).
 
+   **`is_retrospective` = the post describes a call whose outcome was already known
+   when it was posted** — an archive repost, a past trade recapped, a chart annotated
+   after the fact. Judge it from the post text plus the chart; the tell is almost
+   always written down: "found this in the archives", "back in April", "this was the
+   plan", past-tense narration of an entry already taken, or a price axis visibly
+   stale against the post's own date. Default `false`; set `true` only on positive
+   evidence, since on the `setup` path it deletes the row. Say which words or which
+   axis reading drove a `true` in `raw_quote` / `chart_read` so the digest can show
+   the reasoning rather than a bare boolean.
+
+   This exists because on 2026-08-03 a five-step BTC rotation walkthrough captioned
+   "found this in the archives, check out the price axis" reached the digest as a
+   routable `setup`, and was stopped only by a human hand-writing a warning into that
+   one subagent's prompt. Luck plus a person, not a rule — the identical post with
+   entry/stop/target and no hand-written warning scores its author on a call whose
+   outcome was already known.
+
 3. **ONE consolidated review digest** for the whole batch. Print a single table —
    one row per post: author · `post_ts_utc` · symbol/direction · `content_type` ·
    `verdict` · proposed routing · `gap_note`; note `quoted_text` / `video_present` /
    `is_thread` / `cached` where set. Show each `chart_read` and the full extraction
    JSON below the table. Write NOTHING yet.
+
+   **Surface `is_retrospective: true` in its own column, on EVERY row — including
+   `claim` and `mechanic` rows that still route.** The drop in step 4 is
+   **`setup`-only by design**, so a past trade's management notes typed as `mechanic`
+   route to Stream B with nothing objecting. That is not a bug to fix in the router
+   (a retrospective mechanic is often still a perfectly good mechanic), but it is
+   yours to see and decide on, and it is precisely the hole `/ingest-feed` shipped
+   #535 for. A `true` on a routing row is a prompt to the reviewer, not a block.
 
    **Run the dedup check before printing the digest**, once per non-dropped post, so
    its result appears *in* the digest rather than after approval:
@@ -100,8 +131,10 @@ pasted, then run the flow once over the whole set.
      identity layer is what protects this sink.
 
 4. **Route on a single approval.** After the user approves the batch, for each post
-   compute the destination with `tools/x_route.py::route_target(content_type, verdict)`
-   (returns the sink path or `None` for a drop) and append per this table. Report a
+   compute the destination with
+   `tools/x_route.py::route_target(content_type, verdict, retrospective=<is_retrospective>)`
+   (returns the sink path or `None` for a drop) and append per this table. Pass the
+   extracted `is_retrospective` through — never re-judge it here. Report a
    one-line result per post (routed → which file, or dropped → verdict).
 
    | content_type | verdict | Append to |
@@ -130,9 +163,11 @@ pasted, then run the flow once over the whole set.
    does run — that matters for `/ingest-video`, where one video yields several items;
    here one post yields one. Stream C still gets the exact `already_routed` block.
 
-   `route_target` also takes `retrospective=` / `rejected=` keyword flags that drop a
-   `setup`. This pipeline extracts neither, so both stay `False` and routing is
-   unchanged; see `/ingest-video`'s step 6 for what they mean.
+   `route_target`'s other keyword flag, `rejected=`, drops a `setup` the author walked
+   through and then argued **against** taking. This pipeline does not extract it, so it
+   stays `False`; see `/ingest-video`'s step 6. Left open deliberately — the
+   retrospective tell is written in the post text and was measured firing, while a
+   talked-out-of-it setup is rarer on X and a mis-set flag silently deletes a real call.
 
    **Stream C line** (`pundit-calls.jsonl`, one line, matches the parent spec's
    pundit-call schema):
