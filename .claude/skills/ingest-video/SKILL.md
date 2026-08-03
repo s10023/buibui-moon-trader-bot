@@ -173,7 +173,8 @@ it to return ONLY this JSON:
   "stated_date_only": false,
   "stated_ts_raw": "verbatim quote or empty",
   "candidates": [
-    {"ts": 252.0, "content_type": "setup|claim|mechanic", "specificity": 1-5, "gist": "..."}
+    {"ts": 252.0, "content_type": "setup|claim|mechanic", "specificity": 1-5,
+     "is_relay": false, "originating_author": "@ThisChannel", "gist": "..."}
   ]
 }
 ```
@@ -185,28 +186,63 @@ emits `2026-07-14T08:00:00` with no offset gets the same downstream result as em
 nothing, just less honestly. Instruct the subagent: state the offset whenever the
 speaker's timezone is inferable from context, otherwise emit `null` — never guess UTC.
 
-**Filter for subject BEFORE applying the cap — not after.** The cap is a budget for items
-this repo can actually use, so spending a slot on one it will drop at routing wastes the
-slot silently. In order:
+**Filter for ATTRIBUTION and SUBJECT BEFORE applying the cap — not after.** The cap is a
+budget for items this repo can actually use, so spending a slot on one it will drop at
+routing wastes the slot silently. Instruct the subagent, in this order:
 
-1. **Drop non-crypto `setup` candidates first.** A setup on SPX, gold, DXY, oil or a
+1. **Drop RELAYED `setup` candidates first — the call must be the speaker's own.** Set
+   `is_relay: true` whenever the speaker is reading out, reacting to, or summarising a
+   call made by **someone else** (「X老师给了一个多单」, a screenshot of another
+   analyst's Discord/Telegram post, an on-screen name card introducing a third party),
+   and put that person's name in `originating_author`. Set `is_relay: false` and
+   `originating_author` to the channel's own handle only for the speaker's own calls.
+   **`claim` and `mechanic` candidates are exempt** — an idea is portable regardless of
+   who first said it, and Streams A/B do not score anyone.
+2. **Drop non-crypto `setup` candidates.** A setup on SPX, gold, DXY, oil or a
    single equity routes to wifey (step 2b's subject rule), never to `pundit-calls.jsonl`
    here — our scorer resolves against 24/7 perp bars it has no data for.
-2. **`mechanic` candidates stay eligible regardless of symbol.** A risk-management or
+3. **`mechanic` candidates stay eligible regardless of symbol.** A risk-management or
    execution technique demonstrated on SPX is just as portable as one on BTC; the
    instrument is incidental to a mechanic in a way it never is to a setup.
-3. **Then** rank what remains by `specificity` descending and keep the top `ITEM_CAP` (5 —
+4. **Then** rank what remains by `specificity` descending and keep the top `ITEM_CAP` (5 —
    `tools/video_marks.py::ITEM_CAP`).
 
-Report every dropped candidate with a one-line reason, distinguishing the two causes —
-`non-crypto setup (SPX), routes to wifey` vs `specificity 2, below the top-5 cutoff` — for
-the digest and the note. **Subject-filtered items belong in the note too:** they are the
-record that the video contained something this repo deliberately declined, not something
-it failed to see.
+Report every dropped candidate with a one-line reason, distinguishing the three causes —
+`relayed call by 陈哥, not the speaker's own` vs `non-crypto setup (SPX), routes to wifey`
+vs `specificity 2, below the top-5 cutoff` — for the digest and the note. **Filtered items
+belong in the note too:** they are the record that the video contained something this repo
+deliberately declined, not something it failed to see. Relayed calls in particular must be
+preserved verbatim in the note with their `originating_author`, so a future attribution
+roster can mine them without re-fetching the video.
 
-Round 5 (2026-08-01) established this and round 6 confirmed it paid: a **specificity-4
-S&P 500 setup** was dropped before the cap, freeing a slot for a crypto item that would
-otherwise have been cut at rank 6.
+Round 5 (2026-08-01) established the subject half and round 6 confirmed it paid: a
+**specificity-4 S&P 500 setup** was dropped before the cap, freeing a slot for a crypto
+item that would otherwise have been cut at rank 6.
+
+**The attribution half is here because it was diagnosed and then NOT shipped, and
+regressed.** Round 1 (2026-07-31, Kolunite `6qjuqdlmRVE`) found that `ITEM_CAP` ranks on
+`specificity` alone and that this **inverts an aggregator video**: pass 1 returned 25
+candidates, the top 5 by specificity were **all second-hand relays**, and the host's own
+call ranked 6th — a naive top-5 keep would have routed five unattributable calls and
+dropped the only legitimate one. That run fixed it with inline channel context and never
+wrote it down here. **Round 7 (2026-08-03) reproduced the identical inversion: 5 of 5 kept
+items were relays, 0 host-own.**
+
+Why it is a correctness issue and not an ergonomics one: `tools/pundit_score.py` groups on
+`author`, which comes from `meta.author` — the **channel**, not the caller. A routed relay
+therefore credits the channel with someone else's call. Round 7 made the consequence
+concrete: 峰哥's call was relayed inside a Kolunite roundup **in the same batch as 峰哥's
+own video**, under an ASR-mangled name that would not collide with `@Traderfengge` — so
+the double-count would also have been invisible to any author-level grouping.
+`tools/route_dedup.py`'s Stream C semantic pass is scoped to `same-source` and
+**structurally cannot** catch a relay against the original author's own row.
+
+**Do not "solve" this by writing `originating_author` into the Stream C `author` field.**
+Relayed names fragment (`输情`/`瞬间` and `舒琴` are one person; ASR mangles CJK names) and
+collide (`陈志峰` turned out to be three traders run together). Attributing on an
+unnormalised extracted name manufactures phantom pundits with fake track records while
+starving the real ones of rows. Routing relays needs a curated name→handle roster first;
+until that exists, **drop them here and preserve them in the note.**
 
 ### 4. Resolve the call time deterministically — never in the prompt
 
@@ -670,6 +706,13 @@ is frozen. A claim that just restates one of these candlestick/structure pattern
 - A `setup` the speaker declined is not a call. `rejected: true` is the only thing
   standing between "he talked through this short" and "he is scored on this short";
   pass it to `route_target` rather than applying it by eye.
+- A `setup` the speaker **relayed** is not their call either. The attribution filter in
+  step 3 drops it before the cap, so it never reaches frames, pass 2, or a sink — which
+  is also why pass 2 has no `originating_author` field to fill. This one has regressed
+  once already (diagnosed round 1, repeated round 7) because the fix lived in a memory
+  file instead of in this document. If a future round finds relays in the kept set again,
+  the bug is that step 3's rule was dropped from the pass-1 prompt, not that it is
+  unknown.
 - Two subagent passes, both pinned to `model: "sonnet"` — never let either inherit Opus.
   Neither may read any repo, SoT, or memory file; the rubric above is the only context
   either needs beyond the video's own transcript/frames.
