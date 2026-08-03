@@ -11,10 +11,13 @@ import pytest
 
 from tools.yt_feed import (
     ChannelConfig,
+    FeedConfig,
     _resolve_durations,
     backfill_channel,
+    channel_hint,
     estimate_tokens,
     floor_for,
+    is_intro_recap,
     load_feed_config,
     load_state,
     main,
@@ -937,3 +940,179 @@ class TestExampleConfig:
         cfg = load_feed_config(Path("config/youtube_channels.toml.example"))
         assert cfg.cold_start_days == 14
         assert cfg.channels[0].name == "Benjamin Cowen"
+
+
+class TestChannelHint:
+    """`intro_recap_s` lookup — the /ingest-video side of the channel config.
+
+    Context: this exists because a `mechanic` extracted from a channel's opening
+    recap block routed to Stream B on 2026-08-03. `route_target`'s `retrospective`
+    drop is setup-only by design, so nothing in code caught it; the rule lived only
+    in an operator's head. These tests pin the lookup so it cannot regress the way
+    the /ingest-video attribution filter did (diagnosed round 1, repeated round 7).
+    """
+
+    def _cfg(self) -> FeedConfig:
+        return FeedConfig(
+            cold_start_days=14,
+            channels=(
+                make_channel(
+                    id="UCkSCETUQ-oPbVccY9Z7vZZg",
+                    name="大漂亮的K线日记",
+                    handle="@GiantCutie-K",
+                    intro_recap_s=75,
+                ),
+                make_channel(
+                    id="UCRvqjQPSeaWn-uEx-w0XOIg",
+                    name="Benjamin Cowen",
+                    handle="@intothecryptoverse",
+                ),
+            ),
+        )
+
+    def test_matches_on_handle_when_name_is_cjk(self) -> None:
+        """The load-bearing case: meta.author matches neither `id` nor a CJK `name`."""
+        match = channel_hint(self._cfg(), author="@GiantCutie-K")
+        assert match is not None
+        assert match.intro_recap_s == 75
+
+    def test_handle_match_ignores_case_and_at_sign(self) -> None:
+        for probe in ("giantcutie-k", "@giantcutie-k", "  @GIANTCUTIE-K  "):
+            match = channel_hint(self._cfg(), author=probe)
+            assert match is not None, probe
+            assert match.intro_recap_s == 75, probe
+
+    def test_channel_id_wins_over_author(self) -> None:
+        match = channel_hint(
+            self._cfg(),
+            author="@GiantCutie-K",
+            channel_id="UCRvqjQPSeaWn-uEx-w0XOIg",
+        )
+        assert match is not None
+        assert match.name == "Benjamin Cowen"
+
+    def test_falls_back_to_name_when_no_handle_configured(self) -> None:
+        cfg = FeedConfig(
+            cold_start_days=14,
+            channels=(make_channel(name="Benjamin Cowen", intro_recap_s=30),),
+        )
+        match = channel_hint(cfg, author="Benjamin Cowen")
+        assert match is not None
+        assert match.intro_recap_s == 30
+
+    def test_unknown_author_returns_none(self) -> None:
+        assert channel_hint(self._cfg(), author="@nobody") is None
+
+    def test_empty_author_returns_none(self) -> None:
+        assert channel_hint(self._cfg(), author="") is None
+        assert channel_hint(self._cfg(), author="@") is None
+
+
+class TestIsIntroRecap:
+    def test_flags_timestamps_inside_the_window(self) -> None:
+        ch = make_channel(intro_recap_s=75)
+        assert is_intro_recap(39.1, ch) is True
+        assert is_intro_recap(59.9, ch) is True
+
+    def test_boundary_is_exclusive(self) -> None:
+        """`intro_recap_s` names the first second of real content."""
+        assert is_intro_recap(75.0, make_channel(intro_recap_s=75)) is False
+        assert is_intro_recap(74.999, make_channel(intro_recap_s=75)) is True
+
+    def test_zero_disables_the_rule_entirely(self) -> None:
+        """A channel with no rule must never flag anything, including ts=0.0."""
+        assert is_intro_recap(0.0, make_channel(intro_recap_s=0)) is False
+        assert is_intro_recap(10.0, make_channel(intro_recap_s=0)) is False
+
+    def test_none_channel_is_safe(self) -> None:
+        """An unconfigured channel degrades to no rule, never to an exception."""
+        assert is_intro_recap(5.0, None) is False
+
+
+class TestIntroRecapConfigParsing:
+    def test_new_fields_parse(self, tmp_path: Path) -> None:
+        p = tmp_path / "channels.toml"
+        p.write_text(
+            "[feed]\ncold_start_days = 14\n\n[[channel]]\n"
+            'id = "UCkSCETUQ-oPbVccY9Z7vZZg"\nname = "大漂亮的K线日记"\n'
+            'handle = "@GiantCutie-K"\nintro_recap_s = 75\n',
+            encoding="utf-8",
+        )
+        cfg = load_feed_config(p)
+        assert cfg.channels[0].handle == "@GiantCutie-K"
+        assert cfg.channels[0].intro_recap_s == 75
+
+    def test_both_fields_are_optional(self, tmp_path: Path) -> None:
+        """Every existing config predates these keys and must still load."""
+        p = tmp_path / "channels.toml"
+        p.write_text(
+            "[feed]\ncold_start_days = 14\n\n[[channel]]\n"
+            'id = "UCabcdefghijklmnopqrstu"\nname = "Old Entry"\n',
+            encoding="utf-8",
+        )
+        cfg = load_feed_config(p)
+        assert cfg.channels[0].handle == ""
+        assert cfg.channels[0].intro_recap_s == 0
+
+
+class TestHintCli:
+    def test_hint_needs_no_api_key(
+        self, tmp_path: Path, capsys: Any, monkeypatch: Any
+    ) -> None:
+        """A pure config read must not be gated behind YOUTUBE_API_KEY."""
+        monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
+        p = tmp_path / "channels.toml"
+        p.write_text(
+            "[feed]\ncold_start_days = 14\n\n[[channel]]\n"
+            'id = "UCkSCETUQ-oPbVccY9Z7vZZg"\nname = "大漂亮的K线日记"\n'
+            'handle = "@GiantCutie-K"\nintro_recap_s = 75\n',
+            encoding="utf-8",
+        )
+        rc = main(
+            ["hint", "--author", "@GiantCutie-K", "--config", str(p)],
+            get=FakeGet({}),
+            now=NOW,
+        )
+        assert rc == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["matched"] is True
+        assert out["intro_recap_s"] == 75
+
+    def test_hint_reports_unmatched_without_failing(
+        self, tmp_path: Path, capsys: Any, monkeypatch: Any
+    ) -> None:
+        monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
+        p = tmp_path / "channels.toml"
+        p.write_text(
+            "[feed]\ncold_start_days = 14\n\n[[channel]]\n"
+            'id = "UCabcdefghijklmnopqrstu"\nname = "Other"\n',
+            encoding="utf-8",
+        )
+        rc = main(
+            ["hint", "--author", "@nobody", "--config", str(p)],
+            get=FakeGet({}),
+            now=NOW,
+        )
+        assert rc == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["matched"] is False
+        assert out["intro_recap_s"] == 0
+
+
+class TestResolveEmitsNewKeys:
+    def test_resolve_block_includes_handle_and_intro_recap(self) -> None:
+        """A pasted block should carry the keys, or nobody learns they exist."""
+
+        def get(url: str, *, params: dict[str, str]) -> Any:
+            return FakeResp(
+                200,
+                {
+                    "items": [
+                        {"id": "UCabcdefghijklmnopqrstu", "snippet": {"title": "X"}}
+                    ]
+                },
+            )
+
+        block = resolve_handle(get, "K", "somehandle")
+        assert 'handle = "@somehandle"' in block
+        assert "intro_recap_s = 0" in block
