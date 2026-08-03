@@ -1417,12 +1417,19 @@ Runs on every push to `main` and every PR. Uses path filters so only relevant jo
 | Job | Triggers on | Steps |
 | --- | --- | --- |
 | `markdownlint` | `*.md` changes | markdownlint-cli2 across all Markdown files; also validates `SKILL.md` frontmatter when `.claude/skills/**` changes |
-| `lint-typecheck-test` | `*.py` / `pyproject.toml` / `poetry.lock` changes | ruff check, ruff format, mypy, pytest (with coverage), uploads test XML + coverage XML as artifacts |
+| `lint-typecheck-test` | `*.py` / `pyproject.toml` / `poetry.lock` changes | ruff check, ruff format, mypy, pytest (no coverage — see below), uploads test XML as an artifact |
 | `regression` | `analytics/**` / config TOML / fixtures / goldens / `pyproject.toml` / `poetry.lock` changes | runs `make test-regression` against committed golden files; fails with a diff report if metrics drift |
 | `frontend-check` | `web/ui/**` changes | npm ci, vite build, `svelte-check` |
 
 Both Python jobs cache `~/.cache/pypoetry` — which holds the downloaded wheels **and** the
 virtualenv — on a key shared with `signal-watch.yaml`.
+
+CI runs pytest **without** `pytest-cov`. Nothing in the repo consumed the coverage report —
+there is no codecov/coveralls step and no `fail_under` gate, so `coverage.xml` was uploaded
+on every run and never downloaded. Measured over the full suite the tracer cost 50s
+(−19.4%), and this job is ~85% of the Python pipeline, so it was the most expensive unread
+file in CI. Coverage is still available locally on demand via `make test-cov`. Both `make
+test` and CI pass `--durations`, which keeps the slowest tests visible.
 
 The `regression` filter is deliberately narrower than "every Python file": `tests/test_regression.py`
 imports from `analytics.*` only, so a `tools/` or `web/` change cannot move a golden. But
