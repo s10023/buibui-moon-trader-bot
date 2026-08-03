@@ -116,13 +116,21 @@ too:
 
 ```bash
 grep -rl -E 'video_id: *"?(<id1>|<id2>|…)"?' \
-  ~/repo/buibui-wifey-wall-street-bot/docs/plans/video-notes/ 2>/dev/null
+  ~/repo/buibui-wifey-wall-street-bot/docs/plans/video-notes/ \
+  docs/plans/video-notes/ 2>/dev/null
 ```
 
-Grep the **frontmatter**, never the filename: wifey still names notes
-`<date>-<author-slug>-<title-slug>.md` (it has not received #522's `video_id`-slug fix), so
-filenames are not comparable across the two repos. `video_id:` in frontmatter is present in
-both.
+Both directories, deliberately. A hit in **this** repo's dir means you already ingested it
+here — skip it outright. A pasted URL bypasses `/ingest-feed`'s re-presented-candidate
+guard entirely, and `route_dedup.py`'s `check` runs later in the flow (step 7), after the
+subagent spend this step exists to protect; the `.cache/video/<id>/` cache only spares the
+re-download, never the re-ingest.
+
+Grep the **frontmatter**, never the filename: wifey names notes
+`<date>-<author-slug>-<title-slug>.md` (it has not received #522's `video_id`-slug fix),
+and **our own pre-#522 notes still carry title slugs**, so filenames are not comparable
+across the two repos — nor even within this one. `video_id:` in frontmatter is present in
+every note on both sides.
 
 **A hit is not automatically a skip — apply the subject rule:**
 
@@ -177,10 +185,28 @@ emits `2026-07-14T08:00:00` with no offset gets the same downstream result as em
 nothing, just less honestly. Instruct the subagent: state the offset whenever the
 speaker's timezone is inferable from context, otherwise emit `null` — never guess UTC.
 
-Rank `candidates` by `specificity` descending. Keep the top `ITEM_CAP` (5 —
-`tools/video_marks.py::ITEM_CAP`) as this video's kept items; report the rest as dropped,
-with a one-line reason each (e.g. `specificity 2, below the top-5 cutoff`), for the
-digest and the note.
+**Filter for subject BEFORE applying the cap — not after.** The cap is a budget for items
+this repo can actually use, so spending a slot on one it will drop at routing wastes the
+slot silently. In order:
+
+1. **Drop non-crypto `setup` candidates first.** A setup on SPX, gold, DXY, oil or a
+   single equity routes to wifey (step 2b's subject rule), never to `pundit-calls.jsonl`
+   here — our scorer resolves against 24/7 perp bars it has no data for.
+2. **`mechanic` candidates stay eligible regardless of symbol.** A risk-management or
+   execution technique demonstrated on SPX is just as portable as one on BTC; the
+   instrument is incidental to a mechanic in a way it never is to a setup.
+3. **Then** rank what remains by `specificity` descending and keep the top `ITEM_CAP` (5 —
+   `tools/video_marks.py::ITEM_CAP`).
+
+Report every dropped candidate with a one-line reason, distinguishing the two causes —
+`non-crypto setup (SPX), routes to wifey` vs `specificity 2, below the top-5 cutoff` — for
+the digest and the note. **Subject-filtered items belong in the note too:** they are the
+record that the video contained something this repo deliberately declined, not something
+it failed to see.
+
+Round 5 (2026-08-01) established this and round 6 confirmed it paid: a **specificity-4
+S&P 500 setup** was dropped before the cap, freeing a slot for a crypto item that would
+otherwise have been cut at rank 6.
 
 ### 4. Resolve the call time deterministically — never in the prompt
 
@@ -451,7 +477,7 @@ After the user approves the batch, for each item compute the destination with
 | setup (`retrospective: false`, `rejected: false`) | — | `docs/plans/pundit-calls.jsonl` (one JSON line, schema below) |
 | setup (`retrospective: true`) | — | **drop** — reason "retrospective — call predates video"; shown in the digest and the per-video note, never a Stream C write |
 | setup (`rejected: true`) | — | **drop** — reason "rejected — speaker argued against taking it"; shown in the digest and the per-video note, never a Stream C write |
-| mechanic | — | `docs/plans/mechanics-backlog.md` (a `- ` bullet) |
+| mechanic | — | `docs/plans/mechanics-backlog.md` (a `-` list bullet) |
 | claim | NOVEL | `docs/plans/thesis-inbox.md` (a draft `H` row) |
 | claim | ALREADY-TESTED / FROZEN-CATEGORY / NOT-FALSIFIABLE | **drop** — state "seen, verdict X", write nothing |
 

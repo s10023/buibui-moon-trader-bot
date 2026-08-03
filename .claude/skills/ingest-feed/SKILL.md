@@ -45,18 +45,24 @@ and `mark`. Confirm with the operator before re-ingesting it.
 
 **Sibling-repo guard (cross-repo dedup).** Also check the wifey fork's notes — the two
 repos follow overlapping channels and `route_dedup.py`'s ledger is per-repo, so nothing
-else catches this:
+else catches this. Grep **both** dirs in one pass:
 
 ```bash
 grep -rl -E 'video_id: *"?(<id1>|<id2>|…)"?' \
-  ~/repo/buibui-wifey-wall-street-bot/docs/plans/video-notes/ 2>/dev/null
+  ~/repo/buibui-wifey-wall-street-bot/docs/plans/video-notes/ \
+  docs/plans/video-notes/ 2>/dev/null
 ```
 
-**Grep the frontmatter, not the filename.** Wifey's `/ingest-video` still names notes
-`<date>-<author-slug>-<title-slug>.md` — it has not received the #522 `video_id`-slug
-fix — so its filenames do not carry the id. `video_id:` in frontmatter is the one key
-present in both repos regardless of naming convention. (Back-porting #522's slug rule to
-wifey is a `/sync-parent` item; until then, never match on its filenames.)
+Both directories, deliberately — this subsumes the re-presented-candidate guard above and
+covers the case that guard misses, since a hit in **our** dir is a same-repo re-ingest and
+`.cache/video/<id>/` only spares the re-download, never the re-ingest.
+
+**Grep the frontmatter, not the filename — in both repos.** Wifey's `/ingest-video` still
+names notes `<date>-<author-slug>-<title-slug>.md` (it has not received the #522
+`video_id`-slug fix), and **our own pre-#522 notes still carry title slugs too**, so
+filenames are not comparable across the two repos *nor even within this one*. `video_id:`
+in frontmatter is the one key present in every note on both sides. (Back-porting #522's
+slug rule to wifey is a `/sync-parent` item; until then, never match on its filenames.)
 
 A hit is **not** automatically a skip — apply the subject rule: **crypto → here,
 equities/macro/gold/oil/DXY/bonds → wifey**, and a video covering both legitimately
