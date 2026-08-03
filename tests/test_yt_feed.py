@@ -585,6 +585,150 @@ class TestMark:
             == "2026-07-17T00:00:00+00:00"
         )
 
+    def test_channel_seen_derived_from_poll_json(self, tmp_path: Path) -> None:
+        """The poll payload already carries both fields; don't retype them.
+
+        `--channel-seen` takes ONE pair per flag, so marking a 9-channel poll
+        meant repeating it nine times with values copied by hand out of the
+        very JSON already being passed to `--candidates-json`.
+        """
+        p = tmp_path / "s.json"
+        a, b = "UCabcdefghijklmnopqrstuv", "UCzyxwvutsrqponmlkjihgfe"
+        payload = tmp_path / "poll.json"
+        payload.write_text(
+            json.dumps(
+                {
+                    "candidates": [],
+                    "channels": [
+                        {"channel_id": a, "floor_ts_utc": "2026-07-17T00:00:00+00:00"},
+                        {"channel_id": b, "floor_ts_utc": "2026-07-18T00:00:00+00:00"},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        run_mark(
+            p,
+            ingested=[],
+            skipped=[],
+            channel_seen=[],
+            candidates_json=payload,
+            now=NOW,
+        )
+
+        chans = load_state(p)["channels"]
+        assert chans[a]["floor_ts_utc"] == "2026-07-17T00:00:00+00:00"
+        assert chans[b]["floor_ts_utc"] == "2026-07-18T00:00:00+00:00"
+
+    def test_derived_channel_seen_never_moves_an_existing_floor(
+        self, tmp_path: Path
+    ) -> None:
+        """Deriving must not weaken the static-floor guarantee.
+
+        This is the wifey-#68 defect class: a watermark that advances on its
+        own. The derived pairs go through the same setdefault as explicit ones,
+        so a later poll reporting a newer floor cannot move a recorded one.
+        """
+        p = tmp_path / "s.json"
+        cid = "UCabcdefghijklmnopqrstuv"
+        run_mark(
+            p,
+            ingested=[],
+            skipped=[],
+            channel_seen=[f"{cid}=2026-07-17T00:00:00+00:00"],
+            candidates_json=None,
+            now=NOW,
+        )
+        payload = tmp_path / "poll.json"
+        payload.write_text(
+            json.dumps(
+                {
+                    "candidates": [],
+                    "channels": [
+                        {"channel_id": cid, "floor_ts_utc": "2026-08-01T00:00:00+00:00"}
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        run_mark(
+            p,
+            ingested=[],
+            skipped=[],
+            channel_seen=[],
+            candidates_json=payload,
+            now=NOW,
+        )
+
+        assert (
+            load_state(p)["channels"][cid]["floor_ts_utc"]
+            == "2026-07-17T00:00:00+00:00"
+        )
+
+    def test_explicit_channel_seen_wins_over_derived(self, tmp_path: Path) -> None:
+        """Ordering is load-bearing: setdefault means first writer wins."""
+        p = tmp_path / "s.json"
+        cid = "UCabcdefghijklmnopqrstuv"
+        payload = tmp_path / "poll.json"
+        payload.write_text(
+            json.dumps(
+                {
+                    "candidates": [],
+                    "channels": [
+                        {"channel_id": cid, "floor_ts_utc": "2026-08-01T00:00:00+00:00"}
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        run_mark(
+            p,
+            ingested=[],
+            skipped=[],
+            channel_seen=[f"{cid}=2026-07-17T00:00:00+00:00"],
+            candidates_json=payload,
+            now=NOW,
+        )
+
+        assert (
+            load_state(p)["channels"][cid]["floor_ts_utc"]
+            == "2026-07-17T00:00:00+00:00"
+        )
+
+    def test_derived_channel_seen_skips_incomplete_entries(
+        self, tmp_path: Path
+    ) -> None:
+        """A payload shape without both fields must not abort the whole mark."""
+        p = tmp_path / "s.json"
+        cid = "UCabcdefghijklmnopqrstuv"
+        payload = tmp_path / "poll.json"
+        payload.write_text(
+            json.dumps(
+                {
+                    "candidates": [],
+                    "channels": [
+                        {"channel_id": cid},  # no floor_ts_utc
+                        {"floor_ts_utc": "2026-07-17T00:00:00+00:00"},  # no id
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        run_mark(
+            p,
+            ingested=[],
+            skipped=[],
+            channel_seen=[],
+            candidates_json=payload,
+            now=NOW,
+        )
+
+        assert load_state(p)["channels"] == {}
+
     def test_bad_channel_seen_aborts(self, tmp_path: Path) -> None:
         with pytest.raises(SystemExit):
             run_mark(
