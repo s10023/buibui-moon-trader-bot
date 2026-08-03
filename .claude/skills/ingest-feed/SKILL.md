@@ -43,6 +43,36 @@ Zero candidates → report that and stop.
 "note exists — was this already routed?" — a prior run may have died between routing
 and `mark`. Confirm with the operator before re-ingesting it.
 
+**Sibling-repo guard (cross-repo dedup).** Also check the wifey fork's notes — the two
+repos follow overlapping channels and `route_dedup.py`'s ledger is per-repo, so nothing
+else catches this. Grep **both** dirs in one pass:
+
+```bash
+grep -rl -E 'video_id: *"?(<id1>|<id2>|…)"?' \
+  ~/repo/buibui-wifey-wall-street-bot/docs/plans/video-notes/ \
+  docs/plans/video-notes/ 2>/dev/null
+```
+
+Both directories, deliberately — this subsumes the re-presented-candidate guard above and
+covers the case that guard misses, since a hit in **our** dir is a same-repo re-ingest and
+`.cache/video/<id>/` only spares the re-download, never the re-ingest.
+
+**Grep the frontmatter, not the filename — in both repos.** Wifey's `/ingest-video` still
+names notes `<date>-<author-slug>-<title-slug>.md` (it has not received the #522
+`video_id`-slug fix), and **our own pre-#522 notes still carry title slugs too**, so
+filenames are not comparable across the two repos *nor even within this one*. `video_id:`
+in frontmatter is the one key present in every note on both sides. (Back-porting #522's
+slug rule to wifey is a `/sync-parent` item; until then, never match on its filenames.)
+
+A hit is **not** automatically a skip — apply the subject rule: **crypto → here,
+equities/macro/gold/oil/DXY/bonds → wifey**, and a video covering both legitimately
+yields rows in both repos (two different calls, not a duplicate). Route by subject, never
+by repo priority: our scorer assumes 24/7 perp bars, so a macro call scored here resolves
+against the wrong bars, and USO-vs-WTI fails *quietly*. Videos that are wholly the
+sibling's subject should be `mark --skipped` here, not deferred, so they stop
+re-presenting forever. Round 6 (2026-08-02) hit exactly this: 4 of 9 Cowen candidates were
+already in wifey, and they were precisely the 4 macro ones.
+
 For a large backfill, recommend a tranche sized to the remaining session quota rather
 than ingesting the whole list — the ledger carries the progress across days.
 
