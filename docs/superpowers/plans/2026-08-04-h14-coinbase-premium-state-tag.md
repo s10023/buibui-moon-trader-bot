@@ -183,7 +183,9 @@ def test_coinbase_pages_and_normalizes() -> None:
             return [[1_577_923_200, 1.0, 2.0, 1.5, 7_100.0, 10.0]]  # 2020-01-02
         return [[1_577_836_800, 1.0, 2.0, 1.5, 7_000.0, 10.0]]  # 2020-01-01
 
-    df = fetch_coinbase_daily("BTC-USD", 1_577_836_800_000, 1_578_009_600_000, get=fake_get)
+    df = fetch_coinbase_daily(
+        "BTC-USD", 1_577_836_800_000, 1_578_009_600_000, get=fake_get
+    )
     assert list(df.columns) == ["open_time", "close"]
     assert list(df["open_time"]) == [1_577_836_800_000, 1_577_923_200_000]
     assert list(df["close"]) == [7_000.0, 7_100.0]
@@ -361,7 +363,11 @@ def test_label_levels_uses_the_pre_registered_thresholds() -> None:
     z = _series([-2.0, -1.0, 0.0, 1.0, 2.0, float("nan")])
     out = label_levels(z)
     assert list(out[:5]) == [
-        "depressed", "depressed", "neutral", "elevated", "elevated",
+        "depressed",
+        "depressed",
+        "neutral",
+        "elevated",
+        "elevated",
     ]
     assert pd.isna(out.iloc[5])
 ```
@@ -433,7 +439,9 @@ def causal_zscore(series: pd.Series, window: int = Z_WINDOW) -> pd.Series:
 
 def label_levels(z: pd.Series) -> pd.Series:
     """Pre-registered ±1.0 thresholds. NaN (warm-up) stays NaN, never 'neutral'."""
-    out = pd.Series(np.where(z >= Z_THRESHOLD, LEVEL_ELEVATED, LEVEL_NEUTRAL), index=z.index)
+    out = pd.Series(
+        np.where(z >= Z_THRESHOLD, LEVEL_ELEVATED, LEVEL_NEUTRAL), index=z.index
+    )
     out = out.where(z > -Z_THRESHOLD, LEVEL_DEPRESSED)
     return out.where(z.notna(), other=np.nan)
 
@@ -441,7 +449,9 @@ def label_levels(z: pd.Series) -> pd.Series:
 def label_changes(series: pd.Series, span: int = CHANGE_SPAN) -> pd.Series:
     """Sign of the ``span``-day change. NaN warm-up preserved."""
     delta = series.diff(span)
-    out = pd.Series(np.where(delta >= 0.0, CHANGE_RISING, CHANGE_FALLING), index=series.index)
+    out = pd.Series(
+        np.where(delta >= 0.0, CHANGE_RISING, CHANGE_FALLING), index=series.index
+    )
     return out.where(delta.notna(), other=np.nan)
 ```
 
@@ -509,8 +519,12 @@ def test_collapse_gives_one_observation_per_day_not_per_trade() -> None:
 
 def test_sign_inversion_is_mapped_the_right_way_round() -> None:
     # A reliably POSITIVE slice must come back as BUILD, not AVOID.
-    good = AuditCell(label="elevated|long", supp_r=[0.5] * 40 + [0.4] * 40, kept_r=[0.0] * 80)
-    bad = AuditCell(label="depressed|long", supp_r=[-0.5] * 40 + [-0.4] * 40, kept_r=[0.0] * 80)
+    good = AuditCell(
+        label="elevated|long", supp_r=[0.5] * 40 + [0.4] * 40, kept_r=[0.0] * 80
+    )
+    bad = AuditCell(
+        label="depressed|long", supp_r=[-0.5] * 40 + [-0.4] * 40, kept_r=[0.0] * 80
+    )
     verdicts = dict(evaluate_premium_states([good, bad]))
     assert verdicts["elevated|long"] == VERDICT_BUILD
     assert verdicts["depressed|long"] == VERDICT_AVOID
@@ -546,8 +560,8 @@ VERDICT_INSUFFICIENT = "INSUFFICIENT"
 # relative to "is this state good". Verified in analytics/audit_guard.py:1-20.
 # This inversion caused defects in ST9 and H8 — the mapping is asserted by a test.
 _VERDICT_MAP = {
-    DECISION_DISABLE: VERDICT_BUILD,      # slice reliably POSITIVE
-    DECISION_ENABLE: VERDICT_AVOID,       # slice reliably NEGATIVE
+    DECISION_DISABLE: VERDICT_BUILD,  # slice reliably POSITIVE
+    DECISION_ENABLE: VERDICT_AVOID,  # slice reliably NEGATIVE
     DECISION_INSUFFICIENT: VERDICT_INSUFFICIENT,
 }
 

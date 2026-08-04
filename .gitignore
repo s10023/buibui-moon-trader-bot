@@ -41,3 +41,6 @@ skills-lock.json
 
 # X-post ingest (and research-ingestion) caches
 .cache/
+
+# Subagent-driven-development scratch workspace (ledger, briefs, review packages)
+.superpowers/
