@@ -7,6 +7,8 @@ no API key is used or required.
 from __future__ import annotations
 
 import json
+import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -80,4 +82,61 @@ def fetch_binance_spot_daily(
             # re-requesting the same window forever.
             break
         cursor = next_cursor
+    return _frame(rows)
+
+
+_YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart"
+
+
+class YahooFetchError(RuntimeError):
+    """Yahoo returned no usable series — rate limit, bad symbol, or empty result.
+
+    Raised rather than returning an empty frame on purpose: an empty frame is
+    indistinguishable downstream from "this symbol legitimately has no bars in
+    the window", which would silently produce an audit over no data.
+    """
+
+
+def fetch_yahoo_daily(
+    symbol: str, start_ms: int, end_ms: int, *, get: Getter = http_get_json
+) -> pd.DataFrame:
+    """Daily closes for a Yahoo Finance symbol (e.g. ``JPY=X``), keyless.
+
+    ``period1``/``period2`` are SECONDS, and returned bar timestamps are seconds
+    — both converted here so callers stay in the repo's millisecond convention.
+
+    Null closes are dropped, never forward-filled: a synthetic close would enter
+    the weekly aggregation in Task 3 and silently alter a run count.
+    """
+    url = (
+        f"{_YAHOO_CHART}/{urllib.parse.quote(symbol, safe='')}"
+        f"?period1={start_ms // 1000}&period2={end_ms // 1000}&interval=1d"
+    )
+    try:
+        payload = get(url)
+    except urllib.error.HTTPError as exc:
+        raise YahooFetchError(f"Yahoo HTTP {exc.code} for {symbol}") from exc
+
+    chart = (payload or {}).get("chart") or {}
+    err = chart.get("error")
+    if err:
+        desc = err.get("description") if isinstance(err, dict) else str(err)
+        raise YahooFetchError(f"Yahoo error for {symbol}: {desc}")
+
+    results = chart.get("result") or []
+    if not results:
+        raise YahooFetchError(f"Yahoo returned no result for {symbol}")
+
+    block = results[0]
+    stamps = block.get("timestamp") or []
+    quotes = (block.get("indicators") or {}).get("quote") or [{}]
+    closes = quotes[0].get("close") or []
+
+    rows: list[tuple[int, float]] = [
+        (int(t) * 1000, float(c))
+        for t, c in zip(stamps, closes, strict=False)
+        if c is not None
+    ]
+    if not rows:
+        raise YahooFetchError(f"Yahoo returned no usable closes for {symbol}")
     return _frame(rows)
