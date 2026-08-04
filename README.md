@@ -577,6 +577,16 @@ value-area, price-action character, Monday-range) that held at its entry, then
 emits a BUILD / AVOID / NO-EDGE / INSUFFICIENT verdict per (indicator-state ×
 direction) — verdict `docs/audits/2026-07-24-h8-m1-indicator-conditioning.md`.
 
+`make buibui-premium-state-audit` (`tools/premium_state_audit.py`) is a read-only
+audit that tags every historical trade with the **Coinbase-premium** market state
+(US-spot demand measured against Binance, plus the USDT peg deviation it is
+routinely confounded with) as of the last completed daily close before entry,
+collapses to one observation per UTC day, and emits the same BUILD / AVOID /
+NO-EDGE / INSUFFICIENT verdict per (state × direction). The first conditioning
+axis built from a **different venue's** order flow rather than a re-slice of the
+same OHLCV — verdict `docs/audits/2026-08-04-h14-coinbase-premium-state-tag.md`
+(NO-EDGE on all 10 pre-registered cells).
+
 **Single-combo options:**
 
 - `--symbol BTCUSDT` — primary symbol
