@@ -48,6 +48,7 @@ from analytics.audit_guard import (  # noqa: E402
     evaluate_audit_cells,
 )
 from analytics.research_guards import min_track_record_length  # noqa: E402
+from analytics.state_audit import family_pbo  # noqa: E402
 from analytics.store import DEFAULT_DB_PATH, init_schema  # noqa: E402
 from analytics.store.venue_prices import (  # noqa: E402
     get_venue_spot_daily,
@@ -70,17 +71,16 @@ from analytics.venue_premium import (  # noqa: E402
     VERDICT_INSUFFICIENT,
     VERDICT_NO_EDGE,
     _cell_family_key,  # noqa: SLF001 -- the paired lib's own family grouping, not reinvented
-    _cell_sharpe,  # noqa: SLF001
-    _family_dsr,  # noqa: SLF001
-    _family_pbo,  # noqa: SLF001
-    _sign_agrees_early_late,  # noqa: SLF001
     build_premium_series,
     build_state_cells,
     causal_zscore,
+    cell_sharpe,
     collapse_to_daily,
     evaluate_premium_states,
+    family_dsr,
     label_changes,
     label_levels,
+    sign_agrees_early_late,
 )
 
 _DAY_MS = 86_400_000
@@ -308,7 +308,7 @@ def _cell_diagnostics(cells: list[AuditCell]) -> dict[str, dict[str, float | Non
             out[cell.label] = {"dsr": None, "pbo": None, "mintrl": None}
             continue
         supp = np.asarray(cell.supp_r, dtype=np.float64)
-        sharpe = _cell_sharpe(supp)
+        sharpe = cell_sharpe(supp)
         mintrl = min_track_record_length(
             abs(sharpe), target_sr=0.0, confidence=MINTRL_CONFIDENCE
         )
@@ -316,8 +316,8 @@ def _cell_diagnostics(cells: list[AuditCell]) -> dict[str, dict[str, float | Non
         family_arrays = [
             np.asarray(cells[j].supp_r, dtype=np.float64) for j in family_idx
         ]
-        dsr = _family_dsr(supp, family_arrays)
-        pbo = _family_pbo(family_arrays)
+        dsr = family_dsr(supp, family_arrays)
+        pbo = family_pbo(family_arrays)
         out[cell.label] = {"dsr": dsr, "pbo": pbo, "mintrl": mintrl}
     return out
 
@@ -372,7 +372,7 @@ def _build_rows(
                 mintrl=diag["mintrl"],
                 # Step 7 / amendments.md A3 point 2: printed via the SAME
                 # function that decides the gate, not a separate calc.
-                stable=_sign_agrees_early_late(list(cell.supp_r)),
+                stable=sign_agrees_early_late(list(cell.supp_r)),
                 n_trades=n_trades,
                 mean_r_trades=mean_r_trades,
                 verdict=verdict_by_label[cell.label],

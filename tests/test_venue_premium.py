@@ -18,8 +18,6 @@ from analytics.venue_premium import (
     VERDICT_BUILD,
     VERDICT_INSUFFICIENT,
     VERDICT_NO_EDGE,
-    _map_verdict,
-    _sign_agrees_early_late,
     build_premium_series,
     build_state_cells,
     causal_zscore,
@@ -27,6 +25,8 @@ from analytics.venue_premium import (
     evaluate_premium_states,
     label_changes,
     label_levels,
+    map_verdict,
+    sign_agrees_early_late,
 )
 
 DAY = 86_400_000
@@ -231,22 +231,22 @@ def test_build_state_cells_on_empty_daily_returns_no_cells() -> None:
 
 
 def test_sign_agrees_early_late_true_when_both_halves_positive() -> None:
-    assert _sign_agrees_early_late([1.0, 2.0, 3.0, 4.0]) is True
+    assert sign_agrees_early_late([1.0, 2.0, 3.0, 4.0]) is True
 
 
 def test_sign_agrees_early_late_true_when_both_halves_negative() -> None:
-    assert _sign_agrees_early_late([-1.0, -2.0, -3.0, -4.0]) is True
+    assert sign_agrees_early_late([-1.0, -2.0, -3.0, -4.0]) is True
 
 
 def test_sign_agrees_early_late_false_when_signs_flip() -> None:
     # Early half strongly positive, late half strongly negative: the overall
     # mean can still be positive, but the early/late split must catch the
     # instability regardless.
-    assert _sign_agrees_early_late([10.0, 10.0, -9.0, -9.0]) is False
+    assert sign_agrees_early_late([10.0, 10.0, -9.0, -9.0]) is False
 
 
 def test_sign_agrees_early_late_false_on_too_short_a_sequence() -> None:
-    assert _sign_agrees_early_late([1.0]) is False
+    assert sign_agrees_early_late([1.0]) is False
 
 
 # --------------------------------------------------------------------------- #
@@ -265,10 +265,10 @@ def _verdict(
     pbo: float | None = 0.2,
     stable: bool = True,
 ) -> str:
-    """``_map_verdict`` with a "clears the full gate" default for every
+    """``map_verdict`` with a "clears the full gate" default for every
     keyword — each test overrides exactly the one input it means to fail.
     """
-    return _map_verdict(
+    return map_verdict(
         decision, n_supp=n_supp, n_days_ok=n_days_ok, dsr=dsr, pbo=pbo, stable=stable
     )
 
