@@ -140,6 +140,20 @@ Skip signals — **stop here** (after MEMORY.md update) if the PR is purely:
 - Comment/docstring edits inside source files (not in the doc surfaces)
 - Regression-fixture refresh (`make regression-update`) with goldens unchanged
 
+**Rule-claim exception — applies even when the gate above says skip.** If the
+PR *adds or changes a rule* in any doc surface ("never run X", "always use
+Y", "the gate is Z"), grep the other surfaces for instructions that violate
+that rule before you stop. A rule is worth less than nothing while a sibling
+doc still tells the reader to do the opposite — the reader now gets
+contradictory instructions from the same repo.
+
+This is not hypothetical. PR #539 added "never diagnose golden drift from a
+bare `pytest tests/`" to CLAUDE.md. The gate correctly classified it as
+doc-only and would have stopped there — while `README.md:1482` was still
+instructing readers to run exactly that command. One targeted grep for the
+new rule's subject caught it. Cost: one grep. Value: the PR's own claim
+stops being contradicted by the file new contributors read first.
+
 **Strong refactor signals** — these almost always trigger user-facing doc
 edits because they change paths users / docs reference:
 

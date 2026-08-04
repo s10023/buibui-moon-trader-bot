@@ -50,6 +50,7 @@ def detect_my_strategy(
 ```
 
 Rules:
+
 - File name = function suffix without `detect_` (so `detect_wick_fills` → `wick_fills.py`).
 - One detector function per file. Do not stack helpers; put shared helpers into `analytics/strategies/_shared.py`.
 - Always end with `return _signals_to_df(signals)` — that handles the empty case + column normalisation.
@@ -126,6 +127,7 @@ def test_my_strategy_no_signal() -> None:
 ```
 
 Rules:
+
 - `duckdb.connect(":memory:")` for any DB-touching tests — never touch `analytics.db`.
 - Pass `MagicMock` for the binance client where applicable.
 - No real network calls.
@@ -208,7 +210,7 @@ tp_r = 3.0
 ## Implementation files reference
 
 | File | What to update |
-|------|----------------|
+| ------ | ---------------- |
 | `analytics/strategies/<name>.py` | Create new file with the `detect_X()` function (one detector per file) |
 | `analytics/strategies/_registry.py` | Add the import, the `STRATEGY_REGISTRY` entry, and the `DETECTOR_REGISTRY` entry |
 | `analytics/strategies/__init__.py` | Add the import + `__all__` entry for eager re-export |
@@ -229,4 +231,4 @@ When the user asks to add a new strategy:
 7. Write at least 2 tests: one that fires a signal, one edge case that produces no signal.
 8. Run `make lint-py && make typecheck && make test` (must end clean).
 9. Run quick backtest: `buibui backtest --symbol BTCUSDT --strategy <name> --interval 1h`.
-11. If positive results, add to `config/signal_watch.toml` strategies list.
+10. If positive results, add to `config/signal_watch.toml` strategies list.

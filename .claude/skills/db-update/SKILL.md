@@ -24,7 +24,7 @@ three signal_watch configs. Use it whenever:
 
 ## What `make db-update` does
 
-```
+```text
 make db-update
   ├─ db-update-backtest      backtest 3 configs with SINCE=2025-09-12 SAVE=1
   │    ├─ buibui-backtest CONFIG=config/signal_watch.toml          SAVE=1
@@ -55,9 +55,11 @@ make regression-update       # golden fixtures only — for tests/test_regressio
 ## After the chain
 
 1. **Review golden diffs** before committing:
+
    ```bash
    git diff tests/fixtures/golden_*.json
    ```
+
    Large diffs are expected after detector or config changes; small diffs after
    recalibration-only runs. If a diff is unexpectedly massive, stop and
    investigate before committing.
@@ -80,7 +82,7 @@ make regression-update       # golden fixtures only — for tests/test_regressio
 ## Implementation files
 
 | File | Role |
-|------|------|
+| ------ | ------ |
 | `Makefile` | `db-update`, `db-update-backtest`, `db-update-recalibrate`, `regression-update` targets |
 | `analytics/backtest_runner.py` | `--save` writes `backtest_runs` + `backtest_trades` |
 | `analytics/recalibrate_lib.py` | Reads `backtest_runs`, writes `confidence_ratings` |
