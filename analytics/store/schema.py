@@ -45,6 +45,15 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
         )
     """)
     conn.execute("""
+        CREATE TABLE IF NOT EXISTS venue_spot_daily (
+            venue     TEXT   NOT NULL,
+            symbol    TEXT   NOT NULL,
+            open_time BIGINT NOT NULL,
+            close     DOUBLE NOT NULL,
+            PRIMARY KEY (venue, symbol, open_time)
+        )
+    """)
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS symbol_lifecycle (
             symbol            TEXT   PRIMARY KEY,
             status            TEXT   NOT NULL,

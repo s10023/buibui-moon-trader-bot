@@ -80,6 +80,7 @@ class TestInitSchema:
             "ohlcv",
             "funding_rates",
             "open_interest",
+            "venue_spot_daily",
             "symbol_lifecycle",
             "signals",
             "signal_alert_outcomes",
