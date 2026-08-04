@@ -22,7 +22,11 @@ from analytics.backtest.engine import _compute_atr14
 from analytics.brief.indicators import build_indicator_state
 from analytics.brief.types import IndicatorState
 from analytics.regime import classify_series
-from analytics.research_guards import cscv_pbo, deflated_sharpe_ratio
+from analytics.research_guards import (
+    cscv_pbo,
+    deflated_sharpe_ratio,
+    min_track_record_length,
+)
 
 # Minimum pre-entry bar count on each timeframe before we trust M1 state
 # enough to tag a trade. This is a coarse floor (some sub-blocks, e.g.
@@ -56,12 +60,14 @@ class IndicatorConditionConfig:
     seed: int = 12345
     dsr_floor: float = 0.95
     pbo_ceil: float = 0.5
+    mintrl_confidence: float = 0.95  # design doc §7: n >= MinTRL(0.95)
 
 
 def _map_verdict(
     decision: str,
     *,
     n_supp: int,
+    n_ok: bool,
     lift: float,
     lift_lo: float,
     lift_hi: float,
@@ -87,6 +93,13 @@ def _map_verdict(
     Split on ``n_supp``: only a cell below ``cfg.min_n`` is truly
     INSUFFICIENT; a powered null is NO-EDGE. Mirrors the same fix in
     ``analytics/venue_premium.py`` (H14).
+
+    **``n_ok`` is the design doc §7 MinTRL leg** (``n >= MinTRL(0.95)`` on the
+    with-state slice). It was pre-registered in the spec — twice, at §1 and
+    §7 — but was never implemented, so every previously published BUILD cell
+    cleared a gate that was missing a pre-committed condition. A cell failing
+    it is NO-EDGE: the effect may be real, but the slice is too short for the
+    claimed Sharpe to be distinguishable from luck at 95% confidence.
     """
     if decision == "INSUFFICIENT":
         return "INSUFFICIENT" if n_supp < cfg.min_n else "NO-EDGE"
@@ -96,9 +109,10 @@ def _map_verdict(
         and dsr >= cfg.dsr_floor
         and pbo <= cfg.pbo_ceil
     )
-    if decision == "DISABLE" and lift > 0 and lift_lo > 0 and family_ok:
+    gate_ok = family_ok and n_ok
+    if decision == "DISABLE" and lift > 0 and lift_lo > 0 and gate_ok:
         return "BUILD"
-    if decision == "ENABLE" and lift < 0 and lift_hi < 0 and family_ok:
+    if decision == "ENABLE" and lift < 0 and lift_hi < 0 and gate_ok:
         return "AVOID"
     return "NO-EDGE"
 
@@ -285,6 +299,7 @@ class ConditionVerdict:
     lift_hi: float
     dsr: float | None
     pbo: float | None
+    mintrl: float | None = None  # design doc §7 leg; None when not evaluated
 
 
 def _lift_ci(
@@ -451,9 +466,19 @@ def evaluate_conditions(
         family_arrays = [cells[j].with_r for j in family_idx]
         dsr = _family_dsr(c.with_r, family_arrays)
         pbo = _family_pbo(family_arrays)
+        # Design doc §7's MinTRL leg. Magnitude Sharpe for the same reason
+        # _family_dsr uses it: MinTRL of a negative Sharpe against target 0 is
+        # inf, which would make the AVOID branch unreachable all over again.
+        mintrl = min_track_record_length(
+            abs(_cell_sharpe(c.with_r)),
+            target_sr=0.0,
+            confidence=cfg.mintrl_confidence,
+        )
+        n_ok = float(n_with) >= mintrl
         verdict = _map_verdict(
             cv.decision,
             n_supp=n_with,
+            n_ok=n_ok,
             lift=lift,
             lift_lo=lift_lo,
             lift_hi=lift_hi,
@@ -476,6 +501,7 @@ def evaluate_conditions(
                 lift_hi=lift_hi,
                 dsr=dsr,
                 pbo=pbo,
+                mintrl=mintrl,
             )
         )
     return out

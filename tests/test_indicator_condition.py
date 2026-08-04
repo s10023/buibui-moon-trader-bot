@@ -33,6 +33,7 @@ def test_map_disable_positive_lift_is_build() -> None:
         _map_verdict(
             "DISABLE",
             n_supp=120,
+            n_ok=True,
             lift=0.20,
             lift_lo=0.05,
             lift_hi=0.35,
@@ -49,6 +50,7 @@ def test_map_enable_negative_lift_is_avoid() -> None:
         _map_verdict(
             "ENABLE",
             n_supp=120,
+            n_ok=True,
             lift=-0.20,
             lift_lo=-0.35,
             lift_hi=-0.05,
@@ -66,6 +68,7 @@ def test_map_disable_is_never_avoid() -> None:
         _map_verdict(
             "DISABLE",
             n_supp=120,
+            n_ok=True,
             lift=0.20,
             lift_lo=0.05,
             lift_hi=0.35,
@@ -83,6 +86,7 @@ def test_map_family_fail_is_no_edge() -> None:
         _map_verdict(
             "DISABLE",
             n_supp=120,
+            n_ok=True,
             lift=0.20,
             lift_lo=0.05,
             lift_hi=0.35,
@@ -99,6 +103,7 @@ def test_map_concentrate_is_no_edge() -> None:
         _map_verdict(
             "CONCENTRATE",
             n_supp=120,
+            n_ok=True,
             lift=0.20,
             lift_lo=0.05,
             lift_hi=0.35,
@@ -116,6 +121,7 @@ def test_map_insufficient_underpowered_stays_insufficient() -> None:
         _map_verdict(
             "INSUFFICIENT",
             n_supp=CFG.min_n - 1,
+            n_ok=False,
             lift=0.0,
             lift_lo=0.0,
             lift_hi=0.0,
@@ -136,6 +142,7 @@ def test_map_insufficient_but_powered_is_no_edge() -> None:
         _map_verdict(
             "INSUFFICIENT",
             n_supp=CFG.min_n * 4,
+            n_ok=True,
             lift=0.01,
             lift_lo=-0.20,
             lift_hi=0.22,
@@ -419,3 +426,72 @@ def test_evaluate_avoid_is_reachable_end_to_end() -> None:
     bull = next(v for v in verdicts if v.state == "bullish" and v.direction == "long")
     assert bull.verdict == "AVOID"
     assert bull.lift < 0 and bull.lift_hi < 0
+
+
+def test_map_mintrl_fail_is_no_edge() -> None:
+    """Design doc §7 pre-registered ``n >= MinTRL(0.95)`` on the with-state
+    slice, and the code never implemented it -- so every previously published
+    BUILD cell cleared a gate missing a pre-committed leg. A cell that fails it
+    is NO-EDGE: the effect may be real, but the slice is too short for the
+    claimed Sharpe to be told from luck at 95% confidence.
+    """
+    assert (
+        _map_verdict(
+            "DISABLE",
+            n_supp=120,
+            n_ok=False,
+            lift=0.20,
+            lift_lo=0.05,
+            lift_hi=0.35,
+            dsr=0.97,
+            pbo=0.2,
+            cfg=CFG,
+        )
+        == "NO-EDGE"
+    )
+
+
+def test_map_mintrl_fail_blocks_avoid_too() -> None:
+    # The leg must bind in BOTH directions, or it just re-creates the
+    # one-directional blindness this branch exists to remove.
+    assert (
+        _map_verdict(
+            "ENABLE",
+            n_supp=120,
+            n_ok=False,
+            lift=-0.20,
+            lift_lo=-0.35,
+            lift_hi=-0.05,
+            dsr=0.97,
+            pbo=0.2,
+            cfg=CFG,
+        )
+        == "NO-EDGE"
+    )
+
+
+def test_evaluate_reports_mintrl_on_resolved_cells() -> None:
+    """The MinTRL figure is rendered in the audit table so a reader can see
+    WHICH leg a NO-EDGE cell failed. It must therefore be populated on every
+    resolved cell, and must be finite for a real effect."""
+    rng = np.random.default_rng(0)
+    n = 400
+    df = pd.DataFrame(
+        {
+            "direction": ["long"] * (2 * n),
+            "strategy": ["s"] * (2 * n),
+            "ema_stack": (["bullish"] * n) + (["bearish"] * n),
+            "pnl_r": list(rng.normal(0.5, 0.3, n)) + list(rng.normal(-0.1, 0.3, n)),
+            **{a: ["x"] * (2 * n) for a in _OTHER_AXES},
+        }
+    )
+    cells = build_condition_cells(df, axes=("ema_stack",))
+    bull = next(
+        v
+        for v in evaluate_conditions(cells, CFG)
+        if v.state == "bullish" and v.direction == "long"
+    )
+    assert bull.mintrl is not None
+    assert np.isfinite(bull.mintrl)
+    assert float(bull.n_with) >= bull.mintrl  # a strong effect clears it
+    assert bull.verdict == "BUILD"
