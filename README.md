@@ -1476,11 +1476,16 @@ This project uses:
 To check formatting and types locally:
 
 ```bash
-poetry run ruff check .
-poetry run ruff format --check .
-poetry run mypy .
-poetry run pytest tests/ -v
+make lint-py          # ruff format + lint
+make typecheck        # mypy strict
+make test             # full suite (excludes the golden regression tests)
+make test-regression  # goldens — passes the --timeout=300 they need
 ```
+
+Run the goldens via `make test-regression`, never a bare `pytest tests/`:
+`pyproject.toml` sets a global 30s timeout and those three backtests take
+~97s, so a bare run reports timeouts that look exactly like real golden
+drift.
 
 ---
 
