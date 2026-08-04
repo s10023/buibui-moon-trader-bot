@@ -6,12 +6,30 @@ Spec: docs/superpowers/specs/2026-08-04-h14-coinbase-premium-state-tag-design.md
 import numpy as np
 import pandas as pd
 
+from analytics.audit_guard import (
+    DECISION_CONCENTRATE,
+    DECISION_DISABLE,
+    DECISION_ENABLE,
+    DECISION_INSUFFICIENT,
+    AuditCell,
+)
 from analytics.venue_premium import (
+    VERDICT_AVOID,
+    VERDICT_BUILD,
+    VERDICT_INSUFFICIENT,
+    VERDICT_NO_EDGE,
+    _map_verdict,
+    _sign_agrees_early_late,
     build_premium_series,
+    build_state_cells,
     causal_zscore,
+    collapse_to_daily,
+    evaluate_premium_states,
     label_changes,
     label_levels,
 )
+
+DAY = 86_400_000
 
 
 def _series(vals: list[float]) -> pd.Series:
@@ -111,3 +129,257 @@ def test_label_changes_preserves_nan_warmup() -> None:
     s = _series([1.0, 2.0, 3.0])
     out = label_changes(s, span=5)
     assert out.isna().all()
+
+
+# --------------------------------------------------------------------------- #
+# Task 4: collapse_to_daily — one observation per day, one-day entry lag
+# (spec Sec.5/Sec.6, amendments.md A2)
+# --------------------------------------------------------------------------- #
+
+
+def test_collapse_gives_one_observation_per_day_not_per_trade() -> None:
+    # 4 trades, 2 days, one direction -> 2 observations, NOT 4.
+    # NOTE (amendments.md A2): the `states` index is shifted one day EARLIER
+    # than a naive same-day fixture would use, because collapse_to_daily maps
+    # day d -> states[d - lag_days] (default lag_days=1), never states[d].
+    trades = pd.DataFrame(
+        {
+            "entry_time": [DAY * 100 + 1, DAY * 100 + 2, DAY * 101 + 1, DAY * 101 + 2],
+            "direction": ["long"] * 4,
+            "pnl_r": [1.0, 3.0, -1.0, -3.0],
+        }
+    )
+    states = pd.Series({99: "elevated", 100: "depressed"})
+    out = collapse_to_daily(trades, states)
+    assert len(out) == 2
+    assert sorted(out["mean_r"]) == [-2.0, 2.0]
+    assert set(out["state"]) == {"elevated", "depressed"}
+
+
+def test_state_lag_maps_day_minus_lag_not_day_itself() -> None:
+    # A trade entering during day 101 must be tagged with states[100] (the
+    # last completed daily close strictly BEFORE its entry) — and must NOT
+    # be tagged with states[101], which is look-ahead: day 101's own close
+    # is not known until 00:00 UTC on day 102.
+    trades = pd.DataFrame(
+        {"entry_time": [DAY * 101 + 1], "direction": ["long"], "pnl_r": [1.0]}
+    )
+    states = pd.Series({100: "elevated", 101: "depressed"})
+    out = collapse_to_daily(trades, states)
+    assert out.loc[0, "state"] == "elevated"
+    assert out.loc[0, "state"] != "depressed"
+
+
+def test_state_lag_survives_gaps_in_the_day_index() -> None:
+    # states has NO entry for day 101 (a gap, e.g. a day the premium fetch
+    # missed). A trade on day 102 must look up states[101] (day - lag_days)
+    # directly, find nothing, and be dropped. A POSITIONAL `.shift(1)` would
+    # instead keep states' existing index [100, 102] and slide the VALUES
+    # down by one position — silently handing day 102's lookup day 100's
+    # value ("elevated") instead of correctly finding no entry.
+    trades = pd.DataFrame(
+        {"entry_time": [DAY * 102 + 1], "direction": ["long"], "pnl_r": [1.0]}
+    )
+    states = pd.Series({100: "elevated", 102: "depressed"})
+    out = collapse_to_daily(trades, states)
+    assert len(out) == 0
+
+
+def test_collapse_on_empty_trades_returns_empty_frame() -> None:
+    trades = pd.DataFrame(columns=["entry_time", "direction", "pnl_r"])
+    out = collapse_to_daily(trades, pd.Series(dtype=object))
+    assert list(out.columns) == ["day", "direction", "mean_r", "state"]
+    assert len(out) == 0
+
+
+# --------------------------------------------------------------------------- #
+# Task 4: build_state_cells
+# --------------------------------------------------------------------------- #
+
+
+def test_build_state_cells_kept_is_same_direction_complement() -> None:
+    daily = pd.DataFrame(
+        {
+            "day": [1, 2, 3, 4],
+            "direction": ["long", "long", "long", "short"],
+            "mean_r": [1.0, 2.0, -1.0, 5.0],
+            "state": ["elevated", "elevated", "depressed", "elevated"],
+        }
+    )
+    cells = build_state_cells(daily)
+    by_label = {c.label: c for c in cells}
+    # long/elevated: supp = the two elevated-long rows; kept = the one
+    # depressed-long row. The short row must never leak into a long cell.
+    assert sorted(by_label["elevated|long"].supp_r) == [1.0, 2.0]
+    assert list(by_label["elevated|long"].kept_r) == [-1.0]
+    assert list(by_label["depressed|long"].supp_r) == [-1.0]
+    assert sorted(by_label["depressed|long"].kept_r) == [1.0, 2.0]
+    # short/elevated has no same-direction complement.
+    assert list(by_label["elevated|short"].supp_r) == [5.0]
+    assert list(by_label["elevated|short"].kept_r) == []
+
+
+def test_build_state_cells_on_empty_daily_returns_no_cells() -> None:
+    daily = pd.DataFrame(columns=["day", "direction", "mean_r", "state"])
+    assert build_state_cells(daily) == []
+
+
+# --------------------------------------------------------------------------- #
+# Task 4: _sign_agrees_early_late (amendments.md A3 point 2 — a verdict
+# input, not a printed-only column)
+# --------------------------------------------------------------------------- #
+
+
+def test_sign_agrees_early_late_true_when_both_halves_positive() -> None:
+    assert _sign_agrees_early_late([1.0, 2.0, 3.0, 4.0]) is True
+
+
+def test_sign_agrees_early_late_true_when_both_halves_negative() -> None:
+    assert _sign_agrees_early_late([-1.0, -2.0, -3.0, -4.0]) is True
+
+
+def test_sign_agrees_early_late_false_when_signs_flip() -> None:
+    # Early half strongly positive, late half strongly negative: the overall
+    # mean can still be positive, but the early/late split must catch the
+    # instability regardless.
+    assert _sign_agrees_early_late([10.0, 10.0, -9.0, -9.0]) is False
+
+
+def test_sign_agrees_early_late_false_on_too_short_a_sequence() -> None:
+    assert _sign_agrees_early_late([1.0]) is False
+
+
+# --------------------------------------------------------------------------- #
+# Task 4: _map_verdict — the sign inversion (spec Sec.7), the A1 INSUFFICIENT
+# split, and the A3 full pre-committed gate. Mirrors the direct-unit-test
+# style of tests/test_indicator_condition.py's `_map_verdict` coverage.
+# --------------------------------------------------------------------------- #
+
+
+def _verdict(
+    decision: str,
+    *,
+    n_supp: int = 40,
+    n_days_ok: bool = True,
+    dsr: float | None = 0.97,
+    pbo: float | None = 0.2,
+    stable: bool = True,
+) -> str:
+    """``_map_verdict`` with a "clears the full gate" default for every
+    keyword — each test overrides exactly the one input it means to fail.
+    """
+    return _map_verdict(
+        decision, n_supp=n_supp, n_days_ok=n_days_ok, dsr=dsr, pbo=pbo, stable=stable
+    )
+
+
+def test_map_disable_full_gate_is_build() -> None:
+    assert _verdict(DECISION_DISABLE) == VERDICT_BUILD
+
+
+def test_map_disable_is_never_avoid() -> None:
+    # Guardrail against the intuitive-but-wrong DISABLE->AVOID map (the
+    # inversion that bit ST9 and H8).
+    assert _verdict(DECISION_DISABLE) != VERDICT_AVOID
+
+
+def test_map_enable_full_gate_is_avoid() -> None:
+    assert _verdict(DECISION_ENABLE) == VERDICT_AVOID
+
+
+def test_map_enable_is_never_build() -> None:
+    assert _verdict(DECISION_ENABLE) != VERDICT_BUILD
+
+
+def test_map_concentrate_is_always_no_edge() -> None:
+    assert _verdict(DECISION_CONCENTRATE) == VERDICT_NO_EDGE
+
+
+def test_map_insufficient_below_min_n_is_insufficient() -> None:
+    assert (
+        _verdict(
+            DECISION_INSUFFICIENT,
+            n_supp=5,
+            n_days_ok=False,
+            dsr=None,
+            pbo=None,
+            stable=False,
+        )
+        == VERDICT_INSUFFICIENT
+    )
+
+
+def test_map_insufficient_powered_null_is_no_edge_not_insufficient() -> None:
+    # amendments.md A1: audit_guard's INSUFFICIENT conflates "n < min_n"
+    # (genuinely underpowered) with "powered but the CI/Holm gate never
+    # cleared" (a real, powered NO). A POWERED (n >= MIN_N=30) null cell must
+    # map to NO-EDGE — collapsing it into INSUFFICIENT makes the spec's most
+    # likely outcome (spec Sec.8 branch 2: all cells NO-EDGE) unreachable.
+    assert (
+        _verdict(
+            DECISION_INSUFFICIENT, n_days_ok=False, dsr=None, pbo=None, stable=False
+        )
+        == VERDICT_NO_EDGE
+    )
+
+
+def test_map_disable_fails_mintrl_is_no_edge() -> None:
+    assert _verdict(DECISION_DISABLE, n_days_ok=False) == VERDICT_NO_EDGE
+
+
+def test_map_disable_fails_dsr_is_no_edge() -> None:
+    assert _verdict(DECISION_DISABLE, dsr=0.80) == VERDICT_NO_EDGE
+
+
+def test_map_disable_fails_pbo_is_no_edge() -> None:
+    assert _verdict(DECISION_DISABLE, pbo=0.7) == VERDICT_NO_EDGE
+
+
+def test_map_disable_fails_stability_is_no_edge() -> None:
+    # amendments.md A3 point 2: early/late sign agreement is a VERDICT INPUT.
+    assert _verdict(DECISION_DISABLE, stable=False) == VERDICT_NO_EDGE
+
+
+def test_map_disable_missing_dsr_or_pbo_is_no_edge() -> None:
+    assert _verdict(DECISION_DISABLE, dsr=None) == VERDICT_NO_EDGE
+    assert _verdict(DECISION_DISABLE, pbo=None) == VERDICT_NO_EDGE
+
+
+# --------------------------------------------------------------------------- #
+# Task 4: evaluate_premium_states — the full public pipeline over AuditCells
+# --------------------------------------------------------------------------- #
+
+
+def test_sign_inversion_is_mapped_the_right_way_round() -> None:
+    # A reliably POSITIVE slice must come back as BUILD, not AVOID.
+    good = AuditCell(
+        label="elevated|long", supp_r=[0.5] * 40 + [0.4] * 40, kept_r=[0.0] * 80
+    )
+    bad = AuditCell(
+        label="depressed|long", supp_r=[-0.5] * 40 + [-0.4] * 40, kept_r=[0.0] * 80
+    )
+    verdicts = dict(evaluate_premium_states([good, bad]))
+    assert verdicts["elevated|long"] == VERDICT_BUILD
+    assert verdicts["depressed|long"] == VERDICT_AVOID
+
+
+def test_underpowered_cell_is_insufficient_not_no_edge() -> None:
+    thin = AuditCell(label="elevated|short", supp_r=[0.5] * 5, kept_r=[0.0] * 5)
+    assert dict(evaluate_premium_states([thin]))["elevated|short"] != VERDICT_NO_EDGE
+    assert (
+        dict(evaluate_premium_states([thin]))["elevated|short"] == VERDICT_INSUFFICIENT
+    )
+
+
+def test_evaluate_premium_states_on_empty_cells_returns_empty_list() -> None:
+    assert evaluate_premium_states([]) == []
+
+
+def test_evaluate_premium_states_rejects_an_unrecognized_state_label() -> None:
+    bogus = AuditCell(label="not_a_real_state|long", supp_r=[0.5] * 40)
+    try:
+        evaluate_premium_states([bogus])
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected ValueError for an unrecognized state token")
