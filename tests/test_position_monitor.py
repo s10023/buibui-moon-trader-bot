@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from monitor.position_lib import (
+    _DISPLAY_HEADERS,
     _fetch_all_tpsl_prices,
     color_risk_usd,
     color_sl_size,
@@ -18,8 +19,12 @@ from monitor.position_lib import (
     get_stop_loss_for_symbol,
     get_wallet_balance,
     normalize_conditional_orders,
+    uncovered_position_qty,
 )
 from tests.conftest import SAMPLE_COIN_ORDER, SAMPLE_COINS_CONFIG, strip_ansi
+
+# Resolved by name so the tests survive a column reorder.
+_SL_PRICE_COL = _DISPLAY_HEADERS.index("SL Price")
 
 
 class TestColorize:
@@ -263,6 +268,8 @@ def _algo_sl_row(
     position_side: str = "SHORT",
     order_type: str = "STOP_MARKET",
     algo_status: str = "NEW",
+    quantity: str = "0.015",
+    close_position: bool = False,
 ) -> dict[str, Any]:
     """A /fapi/v1/openAlgoOrders row exactly as the live API returns it."""
     return {
@@ -274,7 +281,7 @@ def _algo_sl_row(
         "side": "BUY",
         "positionSide": position_side,
         "timeInForce": "GTE_GTC",
-        "quantity": "0.015",
+        "quantity": quantity,
         "algoStatus": algo_status,
         "actualOrderId": "",
         "actualQty": "0.0",
@@ -282,7 +289,7 @@ def _algo_sl_row(
         "price": "0.0",
         "icebergQuantity": None,
         "workingType": "CONTRACT_PRICE",
-        "closePosition": False,
+        "closePosition": close_position,
         "priceProtect": False,
         "reduceOnly": True,
         "createTime": 1785420891478,
@@ -306,6 +313,8 @@ class TestConditionalAlgoOrders:
                 "type": "STOP_MARKET",
                 "stopPrice": "66303.0",
                 "positionSide": "SHORT",
+                "origQty": "0.015",
+                "closePosition": False,
             }
         ]
 
@@ -371,8 +380,15 @@ class TestConditionalAlgoOrders:
 
         mock_client.futures_get_open_orders.side_effect = fake_orders
         prices = _fetch_all_tpsl_prices(mock_client)
-        assert prices[("BTCUSDT", "SHORT")] == {"sl": 66303.0, "tp": 60000.0}
-        assert prices[("ETHUSDT", "SHORT")] == {"sl": None, "tp": 1977.9}
+        btc = prices[("BTCUSDT", "SHORT")]
+        eth = prices[("ETHUSDT", "SHORT")]
+        assert (btc["sl"], btc["tp"]) == (66303.0, 60000.0)
+        assert (eth["sl"], eth["tp"]) == (None, 1977.9)
+        # the matched rows ride along so callers can measure stop coverage
+        assert {o["type"] for o in btc["orders"]} == {
+            "STOP_MARKET",
+            "TAKE_PROFIT_MARKET",
+        }
 
     def test_fetch_open_positions_shows_conditional_sl(
         self,
@@ -386,7 +402,9 @@ class TestConditionalAlgoOrders:
 
         def fake_orders(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
             if kwargs.get("conditional"):
-                return [_algo_sl_row(trigger_price="111000.0")]
+                # quantity matches the 0.135 BTCUSDT position, so this test stays
+                # about the SL price and does not trip the naked-tail flag
+                return [_algo_sl_row(trigger_price="111000.0", quantity="0.135")]
             return []
 
         mock_client.futures_get_open_orders.side_effect = fake_orders
@@ -394,7 +412,7 @@ class TestConditionalAlgoOrders:
             mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER
         )
         btc_row = next(r for r in positions if r[0] == "BTCUSDT")
-        assert btc_row[10] == f"{111000.0:.5f}"
+        assert btc_row[_SL_PRICE_COL] == f"{111000.0:.5f}"
         assert total_risk > 0
 
 
@@ -640,3 +658,100 @@ class TestPositionBugFixes:
         assert available == 450.30, (
             f"Available balance should equal API availableBalance (450.30), got {available}"
         )
+
+
+class TestNakedTailDetector:
+    """J2 — warn when open stops do not cover the whole position.
+
+    Backed by a live incident on 2026-08-04: a phone-placed trail re-armed only the
+    ORIGINAL entry quantity on three symbols, so the later adds' auto-stops were
+    cancelled and never replaced, leaving part of each position unprotected for four
+    hours. Nothing in the UI showed it.
+    """
+
+    def test_normalize_carries_quantity_and_close_position(self) -> None:
+        [row] = normalize_conditional_orders([_algo_sl_row(quantity="0.004")])
+        assert row["origQty"] == "0.004"
+        assert row["closePosition"] is False
+
+    def test_no_naked_tail_when_stop_covers_whole_position(self) -> None:
+        orders = normalize_conditional_orders([_algo_sl_row(quantity="0.010")])
+        assert uncovered_position_qty(orders, 0.010, "SHORT") == pytest.approx(0.0)
+
+    def test_naked_tail_when_stop_covers_only_the_original_entry(self) -> None:
+        # the 2026-08-04 shape: entry 0.010 stopped, a 0.0005 add left naked
+        orders = normalize_conditional_orders([_algo_sl_row(quantity="0.010")])
+        assert uncovered_position_qty(orders, 0.0105, "SHORT") == pytest.approx(0.0005)
+
+    def test_no_naked_tail_when_stop_uses_close_position(self) -> None:
+        # closePosition stops carry quantity "0" yet protect the entire position
+        orders = normalize_conditional_orders(
+            [_algo_sl_row(quantity="0", close_position=True)]
+        )
+        assert uncovered_position_qty(orders, 0.0105, "SHORT") == pytest.approx(0.0)
+
+    def test_stop_quantities_sum_across_multiple_orders(self) -> None:
+        orders = normalize_conditional_orders(
+            [_algo_sl_row(quantity="0.005"), _algo_sl_row(quantity="0.005")]
+        )
+        assert uncovered_position_qty(orders, 0.010, "SHORT") == pytest.approx(0.0)
+
+    def test_take_profit_does_not_count_as_protection(self) -> None:
+        orders = normalize_conditional_orders(
+            [_algo_sl_row(quantity="0.010", order_type="TAKE_PROFIT_MARKET")]
+        )
+        assert uncovered_position_qty(orders, 0.010, "SHORT") == pytest.approx(0.010)
+
+    def test_opposite_side_stop_ignored_in_hedge_mode(self) -> None:
+        orders = normalize_conditional_orders(
+            [_algo_sl_row(quantity="0.010", position_side="LONG")]
+        )
+        assert uncovered_position_qty(orders, 0.010, "SHORT") == pytest.approx(0.010)
+
+    def test_overshooting_stop_never_reports_negative_exposure(self) -> None:
+        orders = normalize_conditional_orders([_algo_sl_row(quantity="0.020")])
+        assert uncovered_position_qty(orders, 0.010, "SHORT") == pytest.approx(0.0)
+
+    def test_partially_covered_position_is_flagged_in_its_row(
+        self,
+        mock_positions_data: list[dict[str, Any]],
+        mock_futures_balance: list[dict[str, Any]],
+    ) -> None:
+        # BTCUSDT SHORT is 0.135; arm a stop for only 0.100 -> 0.035 unprotected.
+        mock_client = MagicMock()
+        mock_client.futures_position_information.return_value = mock_positions_data
+        mock_client.futures_account_balance.return_value = mock_futures_balance
+        mock_client.futures_get_open_orders.side_effect = lambda **kw: (
+            [_algo_sl_row(quantity="0.100")] if kw.get("conditional") else []
+        )
+
+        positions, _, _, _, _ = fetch_open_positions(
+            mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER
+        )
+
+        btc = next(r for r in positions if r[0] == "BTCUSDT")
+        assert "⚠" in strip_ansi(str(btc[_SL_PRICE_COL]))
+
+    def test_position_with_unknown_stop_coverage_is_not_flagged(
+        self,
+        mock_positions_data: list[dict[str, Any]],
+        mock_futures_balance: list[dict[str, Any]],
+    ) -> None:
+        """Positive control: absent order data must not render as a naked tail.
+
+        Without this, a blanket flag would satisfy the test above while producing an
+        alarm on every position — which trains the operator to ignore the warning.
+        """
+        mock_client = MagicMock()
+        mock_client.futures_position_information.return_value = mock_positions_data
+        mock_client.futures_account_balance.return_value = mock_futures_balance
+        mock_client.futures_get_open_orders.side_effect = lambda **kw: (
+            [_algo_sl_row(quantity="0.100")] if kw.get("conditional") else []
+        )
+
+        positions, _, _, _, _ = fetch_open_positions(
+            mock_client, SAMPLE_COINS_CONFIG, SAMPLE_COIN_ORDER
+        )
+
+        eth = next(r for r in positions if r[0] == "ETHUSDT")
+        assert "⚠" not in strip_ansi(str(eth[_SL_PRICE_COL]))
