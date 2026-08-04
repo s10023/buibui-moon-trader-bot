@@ -312,27 +312,36 @@ For each surface in the config, do the following:
   CLAUDE.md does. Grep the skill tree for the changed artifact's name — a
   renamed flag or a moved module leaves a skill quietly instructing the next
   session to run something that no longer exists.
-- **markdownlint cannot see these files.** `.claude` is in the ignore globs
-  of `.markdownlint-cli2.jsonc` in both this repo and the wifey fork, so
-  `make lint-md` skips the whole tree — and the exclusion still wins even if
-  you pass an explicit path from the repo root. Run it from *outside* the
-  repo, and **pass `--config` explicitly**:
+- **`make lint-md` DOES cover this tree — just run it.** No special recipe, no
+  `cd /tmp`, no explicit `--config`. `.markdownlint-cli2.jsonc` excludes
+  `.claude` wholesale and then **re-includes** the two committed subtrees:
 
-  ```bash
-  cd /tmp && npx markdownlint-cli2 --fix \
-    --config "$HOME/repo/<repo>/.markdownlint.json" \
-    "$HOME/repo/<repo>/.claude/skills/<name>/SKILL.md"
+  ```jsonc
+  "!.claude",
+  ".claude/skills/*/SKILL.md",
+  ".claude/context/*.md",
+  "!.claude/skills/humanizer",
   ```
 
-  Both halves matter. Without leaving the repo the ignore glob drops the
-  file; without `--config` you silently lint against markdownlint's
-  *defaults* rather than the repo's rules, so `MD013` (line length) fires on
-  every prose line while a real violation hides in the noise. Dropping
-  `--fix` is fine for a check-only pass.
+  The `humanizer` re-exclusion is deliberate — `.claude/skills/` also holds
+  symlinks to installed external skills, which are not ours to lint and would
+  make `make lint-md` permanently red on a machine that has them. `.gitignore`
+  encodes the same intent.
 
-  This tree has never been linted. Two `MD038`s survived months of sweeps,
-  and the first real run of the recipe above turned up 16 more in this file
-  alone.
+  **Corrected 2026-08-04h (PR #550).** This bullet previously asserted the exact
+  opposite — that `.claude` was excluded outright, that `make lint-md` skipped
+  the whole tree, and that you had to run `markdownlint-cli2` from outside the
+  repo with an explicit `--config`. That was true before the re-includes landed
+  and false afterwards, and it survived because nobody re-tested the claim. It
+  had two costs: sessions ran an obsolete workaround, and — worse — believed
+  skill files were **ungated** when every commit touching one is in fact linted
+  by both `make lint-md` and the `markdownlint-cli2` pre-commit hook.
+
+  Verified empirically rather than by reading the config: injecting `MD012` +
+  `MD038` + `MD040` into a `SKILL.md` and running `npx markdownlint-cli2` from
+  the repo root reported all three (`Linting: 183 files`), then reverted clean.
+  **If you ever doubt whether a path is gated, inject a violation and look —
+  reading the glob list is how this bullet got it wrong for months.**
 
 ---
 
