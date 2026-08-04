@@ -20,10 +20,36 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: aquasecurity/trivy-action@master
+
+      # The two scanners are split on purpose: they answer different questions
+      # and so earn different exit codes. A single `scan-type: fs` step runs both
+      # under one code, which forced the whole scan to be decorative
+      # (`exit-code: '0'`) to avoid the CVE failure mode described below.
+
+      # A committed secret is a property of THIS diff, is always the author's to
+      # fix, and is fixable in the same PR -- so it gates. This is the failure
+      # mode that actually matters here: `.env` and `config/coins.json` are
+      # gitignored, and an `git add -f` under `docs/plans/` is a known live risk.
+      - name: Trivy secret scan (gates)
+        uses: aquasecurity/trivy-action@master
         with:
           scan-type: fs
           scan-ref: .
+          scanners: secret
+          exit-code: '1'
+
+      # A dependency CVE is a property of the OUTSIDE WORLD -- it appears without
+      # anyone touching this repo, so gating on it turns whichever unrelated PR
+      # happens to be open red and forces a poetry bump at an arbitrary moment.
+      # Advisory: it reports, you fix on your own schedule. `if: always()` so the
+      # report still appears when the secret gate above has failed.
+      - name: Trivy vulnerability scan (advisory)
+        if: always()
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
           severity: CRITICAL,HIGH
-          exit-code: '0'
           ignore-unfixed: true
+          exit-code: '0'
