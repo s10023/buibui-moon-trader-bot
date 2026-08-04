@@ -122,3 +122,23 @@ def test_expand_to_days_mutation_guard() -> None:
 def test_carry_family_key_separates_the_two_axes() -> None:
     assert carry_family_key(f"{RUN_GE3}|market") == ("run", "market")
     assert carry_family_key(f"{YEN_STRONG}|market") == ("magnitude", "market")
+
+
+def test_vol_normalise_is_causal_and_dimensionless() -> None:
+    """r_t / sigma_{t-1}: today's return may never touch today's vol estimate."""
+    from tools.carry_unwind_audit import VOL_WINDOW, vol_normalise
+
+    rng = np.random.default_rng(3)
+    r = pd.Series(rng.normal(0.0, 0.03, 200))
+    z = vol_normalise(r)
+
+    assert z.iloc[:VOL_WINDOW].isna().all()  # warm-up stays NaN
+    assert 0.7 < float(z.dropna().std(ddof=1)) < 1.5  # dimensionless, ~1
+
+    # Causality: perturbing ONLY the last return must not move any earlier z.
+    bumped = r.copy()
+    bumped.iloc[-1] = bumped.iloc[-1] + 10.0
+    z2 = vol_normalise(bumped)
+    pd.testing.assert_series_equal(z.iloc[:-1], z2.iloc[:-1])
+    # POSITIVE CONTROL: the perturbation genuinely moved the final value.
+    assert float(z2.iloc[-1]) != float(z.iloc[-1])
