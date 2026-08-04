@@ -98,17 +98,25 @@ re-litigating settled research, and a guard rail behind a pointer is not a guard
 **The binding constraint, confirmed five times** (exits, trend-weight, combine, carry,
 reversal): the system needs a second *strong* edge, and the cheap price-only free-data
 levers are exhausted. A new sleeve must carry genuinely new information. Separately,
-**conditioning axes are 5-for-5-plus-one-amended** (regime/session/combo/direction and
-H14's Coinbase premium are clean NOs; H8's M1 axes are the amendment) — the diagnosis
-has moved off conditioning and onto the signal book. **H8 AMENDED 2026-08-04 (code fix
-PR #546, verdict `docs/audits/2026-07-24-h8-m1-indicator-conditioning.md`): its original
-NO was produced by a build in which AVOID could essentially never fire and the
-pre-committed MinTRL leg was missing. The re-run finds 25 backtest AVOID cells, 17
-long-side, where the published table had zero — price *location* gates BOTH directions
-(one continuation effect whose long half was unreportable). This is NOT a sixth
-conditioning win: 7 of the 25 are exact binary-axis mirrors of a BUILD cell, the
-price-location axes are ~1 effective finding not 25, and live is not independent of the
-backtest. Indicator *character* remains a NO.**
+**conditioning axes are 6-for-6-plus-one-amended** (regime/session/combo/direction,
+H14's Coinbase premium, and H15's USD/JPY carry-unwind are clean NOs; H8's M1 axes are
+the amendment) — the diagnosis has moved off conditioning and onto the signal book.
+**H15 (2026-08-04, verdict `docs/audits/2026-08-04-h15-usdjpy-carry-unwind.md`): NO-EDGE
+/ INSUFFICIENT on every cell in every panel. The primary forward panel (BTCUSDT
+vol-normalised daily return, n=200–2055, well powered) cleared neither the significance
+nor the effect-size leg on any cell — a powered null, not an underpowered one. H15 is
+the second cross-asset axis tested, after H14 (a genuinely different data source, not a
+re-slice of price/order-flow already held); both came back clean NOs, which sharpens the
+standing conclusion — the binding constraint is unchanged and the next edge needs
+genuinely new data, not a cleverer re-slice of what's already held.** **H8 AMENDED
+2026-08-04 (code fix PR #546, verdict
+`docs/audits/2026-07-24-h8-m1-indicator-conditioning.md`): its original NO was produced
+by a build in which AVOID could essentially never fire and the pre-committed MinTRL leg
+was missing. The re-run finds 25 backtest AVOID cells, 17 long-side, where the published
+table had zero — price *location* gates BOTH directions (one continuation effect whose
+long half was unreportable). This is NOT a sixth conditioning win: 7 of the 25 are exact
+binary-axis mirrors of a BUILD cell, the price-location axes are ~1 effective finding not
+25, and live is not independent of the backtest. Indicator *character* remains a NO.**
 
 **CRITICAL — `analytics/store/_common.py::_upsert`** uses explicit `conn.register` /
 `conn.unregister` in try/finally. Never switch to the implicit replacement scan (it
@@ -132,6 +140,18 @@ what the data says. This shipped in H8 and H14 and stood for weeks in H8
 cost when you do it: folding to magnitude shrinks trial dispersion in a
 mixed-sign family, so the gate becomes marginally **more permissive** than the
 signed form — bias runs toward more passes, never fewer.
+
+**CRITICAL — an audit gate's effect-size floor `bar` is expressed in the units of
+the observation, and nothing in its name or docstring says so.** H15
+(`docs/audits/2026-08-04-h15-usdjpy-carry-unwind.md`) is the worked example: H14's
+`bar = 0.05` meant 0.05R because its observation was per-day mean trade R. Applying
+that same numeral to a raw BTC daily-return panel (std 3.23%/day) would have demanded
+a 5%-per-day mean shift to clear the gate — ~70× the unconditional mean, making every
+verdict structurally unreachable. That is the H8 missing-gate-leg defect class in a
+new location: a threshold that looks portable because it is a bare number, but
+silently changes meaning across panels. H15 avoided it by vol-normalising the forward
+panel (`return_t / causal trailing-30d vol`) so `bar` means the same sigma-units
+quantity in both the forward and ledger panels.
 
 **A pre-committed gate leg that the code never implements is invisible.** H8's
 spec §7 required `n >= MinTRL(0.95)`; the code never had it, the verdict doc
