@@ -193,9 +193,43 @@ and inflate effective n; that is the standard mechanism by which a cross-asset s
 manufactures significance. Conditioning non-overlapping daily returns on a state tag
 avoids it entirely and preserves the H14 §6 precedent.
 
+### Units — the forward panel is vol-normalised, and this is load-bearing
+
+`audit_guard.evaluate_audit_cells` gates on an effect-size floor `bar` expressed **in
+the units of the observation**. H14's unit was per-day mean R, so its `bar = 0.05`
+meant 0.05R. A raw BTC log return is not on that scale: measured over the audit
+window, the daily log return has **std 3.23%/day** and an unconditional mean of
+**+0.072%/day**, so `bar = 0.05` would demand a **5% per-day** mean shift — roughly 70×
+the unconditional mean, and unreachable by any state. Applying H14's numeral directly
+would reproduce the H8 defect in a new location: a verdict that cannot fire regardless
+of the data.
+
+**The forward panel's observation is therefore `return_t / sigma_{t-1}`**, where
+`sigma` is a **causal** trailing 30-day realized volatility of daily log returns. This
+is the same normalisation R already applies to trades, so both panels become
+commensurate and `bar` means the same thing in each. Measured: the normalised series
+has std 1.157, the excess over 1.0 being the expected fat tails and volatility
+clustering.
+
+**Pre-registered: `BAR_VOL = 0.02` sigma-units** for the forward panel — equivalent to
+a 0.065%/day mean shift, or a **0.38 annualised Sharpe** difference. Rationale: it is
+the smallest effect that would actually change a sizing decision. For scale, the XS
+deploy core runs +1.375 Sharpe and BTC buy-and-hold +0.426 over this window. The
+0.05-sigma alternative implies a 0.96 Sharpe shift, which sits above nearly every
+regime effect documented in liquid markets and would be near-unreachable in practice.
+
+The **ledger panel keeps `bar = 0.05` in R-units**, unchanged from H14, because its
+observation is already an R multiple.
+
+> **Amendment record.** `BAR_VOL` and the vol-normalisation were added on 2026-08-04
+> *after* the spec's first approval, when reading `audit_guard`'s signature revealed
+> the unit mismatch. Still pre-registered: no conditional outcome had been computed,
+> and the only measurements taken were the outcome series' *unconditional* mean and
+> dispersion, which fix a unit without revealing an effect.
+
 | Panel | Series | Standing |
 | --- | --- | --- |
-| **Primary** | BTCUSDT daily log return, UTC day — **n = 2,523**, 2019-09-08 → 2026-08-04 (measured) | decides the verdict |
+| **Primary** | BTCUSDT daily log return **÷ causal trailing 30d vol**, UTC day — **n = 2,523**, 2019-09-08 → 2026-08-04 (measured) | decides the verdict |
 | Secondary | Equal-weight 25-perp universe daily return | printed; **carries survivorship** — the universe was selected in 2026 and applied back to 2019 — so it decides nothing |
 | Secondary | Trade-ledger split (backtest + live), per-UTC-day mean R | gated identically, but **inherits the frozen 22-detector family** whose pooled live avg_r is already −0.085R |
 | Descriptive | Per-state realized vol, downside semideviation, worst single day | **reported, never gated** |
@@ -216,7 +250,7 @@ A cell earns **BUILD** or **AVOID** only by clearing **all seven** legs:
 | # | Leg | Threshold |
 | --- | --- | --- |
 | 1 | Sample size | n ≥ 30 tagged days (`MIN_N`) |
-| 2 | Effect | block-bootstrap 95% CI on the state-vs-complement mean-return difference excludes 0 |
+| 2 | Effect | block-bootstrap 95% CI on the cell's mean clears the ±`bar` floor — `BAR_VOL = 0.02` sigma-units (forward panel) or `0.05` R (ledger panel), per §6 |
 | 3 | Multiplicity | Holm-adjusted p < 0.05 within the axis family |
 | 4 | Track record | **n ≥ MinTRL(0.95)** |
 | 5 | Deflation | DSR ≥ 0.95 over the axis sub-family |
@@ -239,9 +273,16 @@ Sharpe collapses toward 0; MinTRL of one is `inf`.
 **The thesis predicts AVOID** — yen strength implies *worse* crypto returns — so the
 negative-direction verdict is the one this audit most expects to reach. Gating it on
 unfolded metrics would make that verdict **structurally unreachable**: the audit would
-report "no negative effect found" regardless of what the data says. This exact defect
-shipped in H8 and H14 and stood for weeks in H8, where a reliably-negative cell scored
-DSR 0.0000 against 0.9980 for its mirror-image positive cell.
+report "no negative effect found" regardless of what the data says. This defect
+shipped in **H8** and stood for weeks there, where a reliably-negative cell scored DSR
+0.0000 against 0.9980 for its mirror-image positive cell (fixed in PR #546).
+
+**H14 already carries the fix**, deliberately and with the reasoning recorded in its
+docstrings — `venue_premium.py:401` folds MinTRL via `abs(sharpe)`, and `:278-284`
+folds both target and trial Sharpes for DSR. H15 therefore **inherits correct
+behaviour** through the §9 extraction rather than introducing it. The rule is restated
+here because the extraction moves this code, and a behaviour-preserving move is
+exactly the operation during which a subtle guarantee is most easily dropped.
 
 **Rule:** for any negative-direction cell, fold **both** the target Sharpe and the
 trial Sharpes to `abs()` before computing DSR and MinTRL.
