@@ -98,12 +98,17 @@ re-litigating settled research, and a guard rail behind a pointer is not a guard
 **The binding constraint, confirmed five times** (exits, trend-weight, combine, carry,
 reversal): the system needs a second *strong* edge, and the cheap price-only free-data
 levers are exhausted. A new sleeve must carry genuinely new information. Separately,
-**conditioning axes are 0-for-6** (regime/session/combo/direction, H8's M1 axes, H14's
-Coinbase premium) — the diagnosis has moved off conditioning and onto the signal book.
-**Caveat (2026-08-04, PR #546): H8's NO was produced by a build in which AVOID could
-essentially never fire and the pre-committed MinTRL leg was missing. Its BUILD findings
-stand; its "no negative-direction edge" half is being re-run. Treat the count as
-5-for-5-plus-one-pending until the amendment lands.**
+**conditioning axes are 5-for-5-plus-one-amended** (regime/session/combo/direction and
+H14's Coinbase premium are clean NOs; H8's M1 axes are the amendment) — the diagnosis
+has moved off conditioning and onto the signal book. **H8 AMENDED 2026-08-04 (code fix
+PR #546, verdict `docs/audits/2026-07-24-h8-m1-indicator-conditioning.md`): its original
+NO was produced by a build in which AVOID could essentially never fire and the
+pre-committed MinTRL leg was missing. The re-run finds 25 backtest AVOID cells, 17
+long-side, where the published table had zero — price *location* gates BOTH directions
+(one continuation effect whose long half was unreportable). This is NOT a sixth
+conditioning win: 7 of the 25 are exact binary-axis mirrors of a BUILD cell, the
+price-location axes are ~1 effective finding not 25, and live is not independent of the
+backtest. Indicator *character* remains a NO.**
 
 **CRITICAL — `analytics/store/_common.py::_upsert`** uses explicit `conn.register` /
 `conn.unregister` in try/finally. Never switch to the implicit replacement scan (it
