@@ -221,7 +221,7 @@ lost, not a second finding to act on. Two things temper it further:
 1. **It is a replication-arm hit, not a primary one.** `prem_adj` — the
    peg-neutral, primary series — shows **no** corresponding effect on the
    same live cell (`change/rising/short`: n=59, mean_r = −0.080, CI
-   [−0.283, +0.233], adj_p = 1.000, NO-EDGE). If the raw-index hit were
+   [−0.300, +0.157], adj_p = 1.000, NO-EDGE). If the raw-index hit were
    really "US demand," the peg-neutral version should show at least a
    directional echo. It does not, which is closer to spec §8 branch 3's
    framing ("peg stress, not US demand") than to branch 1 — except branch 3
