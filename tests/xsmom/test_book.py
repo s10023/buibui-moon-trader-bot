@@ -70,23 +70,49 @@ def test_xs_leverage_sign_long_strong_short_weak() -> None:
     assert last["WEAK"] < 0.0
 
 
-def test_xs_leverage_is_causal_no_lookahead() -> None:
+def _assert_leverage_is_causal(cfg: ForecastConfig) -> None:
+    """Perturb one middle bar and prove `leverage[:k+1]` cannot see it.
+
+    **The perturbed instrument MUST be FLAT.** STRONG/WEAK are the monotone ramps
+    that saturate the EWMAC +-20 cap (see `_closes`), so bumping their close moves
+    the same-day forecast by EXACTLY 0.0 — row `k` then cannot discriminate, and
+    the frame assertion below holds *even with the causal `.shift(1)` in
+    `xs_leverage` deleted*. That is a guard which cannot fail for its stated
+    reason, and it is what this test used to be: measured at `k=250`, a 1.5x bump
+    gave same-day deltas of 0.000000 for STRONG versus 7.413995 for FLAT. FLAT is
+    sub-cap, so its perturbation genuinely reaches row `k` and removing the shift
+    turns this test RED — which the design doc requires of it.
+    """
     from analytics.xsmom.book import xs_leverage
 
     closes = _closes()
-    base = xs_leverage(closes, ForecastConfig())
+    base = xs_leverage(closes, cfg)
 
-    # Perturb a MIDDLE bar of ONE instrument. Leverage at index k is sized from
-    # demeaned forecasts through k-1, so close[k] must not affect leverage[:k+1]
-    # for ANY column (the cross-sectional demean couples instruments).
     k = 250
     bumped = {s: c.copy() for s, c in closes.items()}
-    bumped["STRONG"].iloc[k] *= 1.5
-    after = xs_leverage(bumped, ForecastConfig())
+    bumped["FLAT"].iloc[k] *= 1.5
+    after = xs_leverage(bumped, cfg)
 
+    # Leverage at k is sized from demeaned forecasts through k-1, so close[k] must
+    # not affect leverage[:k+1] for ANY column (the demean couples instruments).
     pd.testing.assert_frame_equal(
         base.iloc[: k + 1], after.iloc[: k + 1], check_names=False
     )
+
+    # Positive control — the perturbation must actually be live, and must land on
+    # the very next row. Without this the assertion above could pass simply
+    # because the bump changed nothing anywhere, which is precisely how this
+    # guard was vacuous. NaN would satisfy a bare `!=`, so require finite first.
+    delta = np.abs(after.iloc[k + 1].to_numpy() - base.iloc[k + 1].to_numpy())
+    assert np.isfinite(delta).all(), "row k+1 must be warmed up for the control"
+    assert delta.max() > 1e-9, (
+        "perturbation never propagated to k+1 — the causality assertion above "
+        "is vacuous and would pass with the causal shift removed"
+    )
+
+
+def test_xs_leverage_is_causal_no_lookahead() -> None:
+    _assert_leverage_is_causal(ForecastConfig())
 
 
 def _fundings(closes: dict[str, pd.Series]) -> dict[str, pd.Series]:
@@ -163,20 +189,10 @@ def test_xs_leverage_dollar_neutral_active_set_with_staggered_history() -> None:
 
 
 def test_xs_leverage_dollar_neutral_is_causal_no_lookahead() -> None:
-    from analytics.xsmom.book import xs_leverage
-
-    closes = _closes()
-    cfg = ForecastConfig(xs_dollar_neutral=True)
-    base = xs_leverage(closes, cfg)
-    k = 250
-    bumped = {s: c.copy() for s, c in closes.items()}
-    bumped["STRONG"].iloc[k] *= 1.5
-    after = xs_leverage(bumped, cfg)
-    # Row k itself is included (`: k + 1`): leverage at k is sized from demeaned
-    # forecasts through k-1 (the `.shift(1)`), so close[k] cannot affect it.
-    pd.testing.assert_frame_equal(
-        base.iloc[: k + 1], after.iloc[: k + 1], check_names=False
-    )
+    # Same guard on the re-centered path: the dollar-neutral subtraction is a
+    # same-day op on already-shifted leverage, so it must not reintroduce
+    # look-ahead. Row k itself is included (`: k + 1`).
+    _assert_leverage_is_causal(ForecastConfig(xs_dollar_neutral=True))
 
 
 def test_injected_forecast_equals_internal_path() -> None:
