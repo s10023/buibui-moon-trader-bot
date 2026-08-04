@@ -38,6 +38,12 @@ make test-cov       # same suite + coverage report (on demand; not a gate)
 
 For Markdown changes: `make lint-md`.
 
+**`make lint-py` also rewrites Markdown.** It runs `ruff format .`, and ruff formats
+python code fences *inside `.md` files* — so any plan or spec doc carrying a python
+fence is reformatted on every Python task, showing up as unrelated churn in the diff.
+When a doc with python fences is in play, land that reformat once up front rather than
+letting each task hand-revert it.
+
 For UI / API changes: `make web-build` (production bundle) or `make web-dev` (Vite dev server).
 
 For routine DB refresh after backtest/strategy changes: `make db-update` (= `db-update-backtest` → `db-update-recalibrate` → `regression-update`).
@@ -182,6 +188,7 @@ Each Makefile `buibui-*` target wraps the equivalent CLI invocation.
 - Run: `make test` or `poetry run pytest tests/ -q`
 - **Coverage** is not part of `make test` and nothing gates on it (no codecov, no `fail_under`) — run `make test-cov` on demand
 - **Regression tests**: `make test-regression` — compares backtest pipeline output to golden JSON files in `tests/fixtures/`; skips if fixture parquets are absent; run `make regression-update` to regenerate golden files after intentional changes
+- **Never diagnose golden drift from a bare `pytest tests/`.** `pyproject.toml` sets a global `timeout = 30`, and the three `test_regression.py` golden backtests take ~97s — so a bare run reports them as *timeout failures* that look exactly like real drift. `make test-regression` is the gate and passes `--timeout=300`; `make test` doesn't run them at all (`--ignore=tests/test_regression.py`). This burned two separate reviewers on false alarms in a single session
 
 ## Dependencies
 
