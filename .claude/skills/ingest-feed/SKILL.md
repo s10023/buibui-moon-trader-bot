@@ -121,6 +121,20 @@ out of this command.
 Per candidate: ingested (→ which streams) / skipped / deferred. Include the mark
 summary line ("marked N video(s)") as evidence the ledger write happened.
 
+**Carry `/ingest-video`'s 7a summaries and 7b board view into this report — do not drop
+them on the way out.** They are the half of the batch an operator actually reads to learn
+what was said, and a run that reports only "N routed / M dropped" has thrown that away
+while looking complete. The board view in particular is the only record of what the batch
+said *collectively*: who is positioned which way, which levels several pundits name
+independently, and where they read the same structure to opposite conclusions.
+
+**Also say what the round cost and what it produced against the binding constraint.** One
+line: videos × approximate tokens, and whether any routed item is a genuinely new *data*
+axis rather than another setup or mechanic. The pipelines are the system's only generative
+input, but **filed-to-tested conversion is the number that decides whether they are worth
+their cost** — a round that files a fifth untested axis is not the same result as a round
+that files the first testable one, and the report should not read as though it were.
+
 ## Guardrails
 
 - **The historical defect this design exists to avoid (wifey PR #68, watermark-on-send;
