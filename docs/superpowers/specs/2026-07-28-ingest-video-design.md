@@ -139,8 +139,11 @@ The `/ingest-x` fields are unchanged. Four are added:
 | `vision_confidence` | `high` / `medium` / `low` — low when pass 2 could not corroborate visually. Distinct from `confidence` (the pundit's verbatim hedging phrase, unchanged from `/ingest-x`) — `confidence` is retained on video rows but always written empty, since this pipeline does not extract hedging language from a video |
 | `raw_quote_en` | English translation; `raw_quote` stays in the original language |
 
-Where pass 2 reads a number off the chart that contradicts the transcript, the chart wins and the
-item records `corrected_from`.
+Where pass 2 reads a **drawn** number off the chart that contradicts the transcript, the chart
+wins and the item records `corrected_from`. **Amended 2026-08-04:** the chart wins only on a
+drawn level, annotation or printed readout — never on a value inferred from where the live price
+ticker happens to sit, since a pundit is scored on the level they *stated*. `corrected_from`
+carries chart-vs-transcript corrections only; a symbol normalisation is not one.
 
 ### Stream C line (`docs/plans/pundit-calls.jsonl`)
 
@@ -249,7 +252,7 @@ claim passes the human digest. Three cheap layers instead of one expensive one:
 | No captions and no ASR available | Skipped with a health note naming the reason |
 | Audio > Groq's 25 MB cap | Chunked. Low-bitrate opus keeps roughly three hours under the cap |
 | No chart on screen | Pass 2 returns `chart_present: false`; the note records it, so you learn which channels are worth frames |
-| Transcript contradicts chart | Chart wins; item records `corrected_from` — treated as evidence, not silently overwritten |
+| Transcript contradicts chart | Chart wins **on a drawn value**; item records `corrected_from` — treated as evidence, not silently overwritten. A ticker-inferred reading is not a correction (amended 2026-08-04) |
 
 ## Testing
 

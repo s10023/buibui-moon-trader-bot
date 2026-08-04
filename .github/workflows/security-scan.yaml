@@ -30,8 +30,14 @@ jobs:
       # fix, and is fixable in the same PR -- so it gates. This is the failure
       # mode that actually matters here: `.env` and `config/coins.json` are
       # gitignored, and an `git add -f` under `docs/plans/` is a known live risk.
+      # Pinned to a release tag, not @master: this is the workflow whose whole
+      # job is to catch a supply-chain problem, and a mutable ref means the
+      # scanner itself is unreviewed code that can change under us between two
+      # runs of the same commit. A tag matches the convention every other action
+      # here uses (checkout@v7, markdownlint-cli2-action@v24.1.0); a full SHA
+      # would be stricter still if this repo ever standardises on that.
       - name: Trivy secret scan (gates)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -45,7 +51,7 @@ jobs:
       # report still appears when the secret gate above has failed.
       - name: Trivy vulnerability scan (advisory)
         if: always()
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
