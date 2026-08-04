@@ -100,6 +100,10 @@ reversal): the system needs a second *strong* edge, and the cheap price-only fre
 levers are exhausted. A new sleeve must carry genuinely new information. Separately,
 **conditioning axes are 0-for-6** (regime/session/combo/direction, H8's M1 axes, H14's
 Coinbase premium) — the diagnosis has moved off conditioning and onto the signal book.
+**Caveat (2026-08-04, PR #546): H8's NO was produced by a build in which AVOID could
+essentially never fire and the pre-committed MinTRL leg was missing. Its BUILD findings
+stand; its "no negative-direction edge" half is being re-run. Treat the count as
+5-for-5-plus-one-pending until the amendment lands.**
 
 **CRITICAL — `analytics/store/_common.py::_upsert`** uses explicit `conn.register` /
 `conn.unregister` in try/finally. Never switch to the implicit replacement scan (it
