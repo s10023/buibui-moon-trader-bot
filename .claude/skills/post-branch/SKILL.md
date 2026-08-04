@@ -62,8 +62,8 @@ surfaces:
 
   - id: context_docs
     path_glob: ".claude/context/*.md"
-    purpose: Long-form module API references (analytics.md, signals.md, web.md)
-    scope: any_referencing_changed_artifact
+    purpose: Long-form module references (analytics, research-sleeves, tools, signals, web, execution)
+    scope: any_referencing_changed_artifact + new_module_presence   # see below
 
   - id: skill_docs
     path_glob: ".claude/skills/*/SKILL.md"
@@ -248,8 +248,37 @@ For each surface in the config, do the following:
 
 ### `.claude/context/*.md`
 
-- Module API references (analytics.md, signals.md, web.md) match the
-  current package layout. These are the most refactor-sensitive docs.
+- Module references match the current package layout. These are the most
+  refactor-sensitive docs.
+
+- **`any_referencing_changed_artifact` is BLIND TO OMISSION — this is how
+  `analytics.md` rotted for months.** That scope greps the doc tree for the
+  changed artifact's name. When a PR *adds* a package, grepping for `xsmom`
+  finds zero hits, so the sweep concludes "no change needed" — when the
+  correct conclusion is the exact opposite: the doc is missing a module.
+  A scope that can only detect drift in things the doc already mentions can
+  never detect the module it has never heard of. Same defect shape as
+  markdownlint's `!.claude` glob: the check reported green because it could
+  not see the files.
+
+  **So for context docs, run a presence check, not only a mention grep.** For
+  every package directory added or renamed in this PR, confirm the matching
+  context doc gained an entry. Cheap version:
+
+  ```bash
+  # every top-level package vs. what the context docs actually document
+  for d in */; do d=${d%/}
+    case $d in tests|docs|config|scripts|__pycache__|.*) continue;; esac
+    grep -rqs "$d" .claude/context/ || echo "UNDOCUMENTED: $d"; done
+  ```
+
+- **CLAUDE.md must not re-absorb this content.** The 2026-08-04 split left
+  CLAUDE.md holding a package index plus verdicts, and the context docs
+  holding the detail. `analytics.md` went stale in the first place *because*
+  CLAUDE.md carried a duplicate that was auto-loaded and therefore visibly
+  wrong, so it got maintained while the context file silently diverged. Two
+  sources of truth, one of them invisible, always rots the invisible one. If
+  a PR adds module detail to CLAUDE.md's Project Structure, move it.
 
 ### `.claude/skills/*/SKILL.md`
 

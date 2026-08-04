@@ -68,3 +68,11 @@ Build: `make web-build` → `web/ui/dist/` served by FastAPI StaticFiles.
 
 - Shows active config name chip when server has a config loaded
 - Chart + Stats default symbol: first config symbol → coins.json fallback
+
+---
+
+## Package map (moved from CLAUDE.md 2026-08-04)
+
+- `web/` — web layer (Phase 4 + 5). See `.claude/context/web.md` for full API + UI reference.
+  - `api/` — FastAPI: routers (config, ohlcv, fib, signals, backtest, positions, prices, stream, stats, zones, live_outcomes, brief); `GET /api/active-config`, `GET /api/zones`, `GET /api/backtest/analysis`, `GET /api/live-outcomes` (cross-symbol signal_alert_outcomes roll-up, optional `symbol` scope, never cached) + `GET /api/live-outcomes/open` (unresolved alerts marked to live price, the only live-outcomes route with a `get_client` dependency), `GET /api/brief` (read-only deterministic daily market-brief bundle); stats live fields via `_inject_live_fields()`
+  - `ui/` — Svelte 5 + Vite; pages: Chart, Backtest, SignalFeed, Positions, Prices, Stats, Brief; build: `make web-build` (**not** a type gate — always pair with `make web-check`). `src/lib/cone.ts` holds the pure cone math (`coneX`/`coneY`/`bandPath`/`linePath`/`overlayPath`/`toPrice`/`fmtNorm`/`fmtPrice`) shared by `PathCone.svelte` (daily, 24 steps) and `WeeklyCone.svelte` (weekly, 168 steps) — period length and the open/normalizer are parameters, so the two cones cannot disagree on the price a band represents
