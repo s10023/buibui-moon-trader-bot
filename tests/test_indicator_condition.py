@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from analytics.brief.types import (
     BbState,
@@ -15,6 +16,7 @@ from analytics.brief.types import (
 from analytics.indicator_condition import (
     _AXES,
     IndicatorConditionConfig,
+    _family_dsr,
     _map_verdict,
     axis_states,
     build_condition_cells,
@@ -29,7 +31,14 @@ def test_map_disable_positive_lift_is_build() -> None:
     # audit_guard DISABLE == with-state slice reliably POSITIVE -> BUILD.
     assert (
         _map_verdict(
-            "DISABLE", lift=0.20, lift_lo=0.05, lift_hi=0.35, dsr=0.97, pbo=0.2, cfg=CFG
+            "DISABLE",
+            n_supp=120,
+            lift=0.20,
+            lift_lo=0.05,
+            lift_hi=0.35,
+            dsr=0.97,
+            pbo=0.2,
+            cfg=CFG,
         )
         == "BUILD"
     )
@@ -39,6 +48,7 @@ def test_map_enable_negative_lift_is_avoid() -> None:
     assert (
         _map_verdict(
             "ENABLE",
+            n_supp=120,
             lift=-0.20,
             lift_lo=-0.35,
             lift_hi=-0.05,
@@ -54,7 +64,14 @@ def test_map_disable_is_never_avoid() -> None:
     # Guardrail: the intuitive-but-wrong DISABLE->AVOID map must be impossible.
     assert (
         _map_verdict(
-            "DISABLE", lift=0.20, lift_lo=0.05, lift_hi=0.35, dsr=0.97, pbo=0.2, cfg=CFG
+            "DISABLE",
+            n_supp=120,
+            lift=0.20,
+            lift_lo=0.05,
+            lift_hi=0.35,
+            dsr=0.97,
+            pbo=0.2,
+            cfg=CFG,
         )
         != "AVOID"
     )
@@ -64,7 +81,14 @@ def test_map_family_fail_is_no_edge() -> None:
     # DSR/PBO family gate not cleared -> NO-EDGE even with a clean lift.
     assert (
         _map_verdict(
-            "DISABLE", lift=0.20, lift_lo=0.05, lift_hi=0.35, dsr=0.80, pbo=0.2, cfg=CFG
+            "DISABLE",
+            n_supp=120,
+            lift=0.20,
+            lift_lo=0.05,
+            lift_hi=0.35,
+            dsr=0.80,
+            pbo=0.2,
+            cfg=CFG,
         )
         == "NO-EDGE"
     )
@@ -74,6 +98,7 @@ def test_map_concentrate_is_no_edge() -> None:
     assert (
         _map_verdict(
             "CONCENTRATE",
+            n_supp=120,
             lift=0.20,
             lift_lo=0.05,
             lift_hi=0.35,
@@ -85,10 +110,12 @@ def test_map_concentrate_is_no_edge() -> None:
     )
 
 
-def test_map_insufficient_passthrough() -> None:
+def test_map_insufficient_underpowered_stays_insufficient() -> None:
+    # n below the per-cell floor -> genuinely not enough data.
     assert (
         _map_verdict(
             "INSUFFICIENT",
+            n_supp=CFG.min_n - 1,
             lift=0.0,
             lift_lo=0.0,
             lift_hi=0.0,
@@ -97,6 +124,26 @@ def test_map_insufficient_passthrough() -> None:
             cfg=CFG,
         )
         == "INSUFFICIENT"
+    )
+
+
+def test_map_insufficient_but_powered_is_no_edge() -> None:
+    # audit_guard returns ONE INSUFFICIENT for two different situations:
+    # "n < min_n" and "powered, but the CI/Holm gate never cleared". Collapsing
+    # them makes an all-NO-EDGE outcome structurally unreachable and reports a
+    # tested-null cell as if it had never been tested.
+    assert (
+        _map_verdict(
+            "INSUFFICIENT",
+            n_supp=CFG.min_n * 4,
+            lift=0.01,
+            lift_lo=-0.20,
+            lift_hi=0.22,
+            dsr=None,
+            pbo=None,
+            cfg=CFG,
+        )
+        == "NO-EDGE"
     )
 
 
@@ -267,3 +314,108 @@ def test_evaluate_builds_on_strong_positive_state() -> None:
     ]
     assert bull and bull[0].verdict == "BUILD"
     assert bull[0].lift > 0.4
+
+
+def test_family_dsr_is_direction_agnostic() -> None:
+    """A reliably-NEGATIVE cell must earn the same family DSR as its
+    mirror-image positive cell.
+
+    ``deflated_sharpe_ratio`` asks for confidence that the true Sharpe beats a
+    POSITIVE expected-max-of-N benchmark, so a raw negative Sharpe deflates to
+    ~0 no matter how reliable the negative effect is. Since AVOID requires
+    ``dsr >= dsr_floor``, feeding it the signed Sharpe made the AVOID verdict
+    structurally near-unreachable: measured 0.0000 for the negative cell
+    against 0.9980 for its mirror. Folding every Sharpe to its magnitude asks
+    the direction-agnostic question that matters here -- is this cell's
+    extremity, whichever way it points, still credible after N trials.
+    """
+    neg = np.full(80, -0.5)
+    neg[::2] = -1.2
+    pos = -neg
+    family = [neg, pos]
+    dsr_neg = _family_dsr(neg, family)
+    dsr_pos = _family_dsr(pos, family)
+    assert dsr_neg == pytest.approx(dsr_pos)
+    assert dsr_neg >= CFG.dsr_floor
+
+
+def test_evaluate_powered_null_is_no_edge_with_a_real_lift() -> None:
+    """A powered cell that simply shows no effect must read NO-EDGE, and must
+    carry its ACTUAL measured lift and family statistics.
+
+    Before the fix, ``evaluate_conditions`` short-circuited every INSUFFICIENT
+    decision -- including powered ones -- and emitted a fabricated
+    ``lift = 0.0`` with ``lift_ci = [0.0, 0.0]`` and ``dsr = pbo = None``. So
+    the published table showed a zero lift these cells do not have, and was
+    indistinguishable from a cell that was never tested.
+    """
+    rng = np.random.default_rng(7)
+    n = 300
+    df = pd.DataFrame(
+        {
+            "direction": ["long"] * (2 * n),
+            "strategy": ["s"] * (2 * n),
+            # Both slices drawn from the SAME null distribution -> powered, but
+            # no effect to find.
+            "ema_stack": (["bullish"] * n) + (["bearish"] * n),
+            "pnl_r": list(rng.normal(0.0, 1.0, n)) + list(rng.normal(0.0, 1.0, n)),
+            **{a: ["x"] * (2 * n) for a in _OTHER_AXES},
+        }
+    )
+    cells = build_condition_cells(df, axes=("ema_stack",))
+    verdicts = evaluate_conditions(cells, CFG)
+    bull = next(v for v in verdicts if v.state == "bullish" and v.direction == "long")
+    assert bull.n_with >= CFG.min_n  # genuinely powered
+    assert bull.verdict == "NO-EDGE"  # tested, no effect -- NOT "INSUFFICIENT"
+    assert bull.lift_lo < bull.lift < bull.lift_hi  # a real CI, not [0, 0]
+    assert bull.dsr is not None and bull.pbo is not None
+
+
+def test_evaluate_underpowered_stays_insufficient() -> None:
+    """The other half of the split must not regress: a cell below ``min_n``
+    is still INSUFFICIENT, and still carries no fabricated statistics."""
+    rng = np.random.default_rng(11)
+    n_small, n_big = 5, 300
+    df = pd.DataFrame(
+        {
+            "direction": ["long"] * (n_small + n_big),
+            "strategy": ["s"] * (n_small + n_big),
+            "ema_stack": (["bullish"] * n_small) + (["bearish"] * n_big),
+            "pnl_r": list(rng.normal(0.0, 1.0, n_small))
+            + list(rng.normal(0.0, 1.0, n_big)),
+            **{a: ["x"] * (n_small + n_big) for a in _OTHER_AXES},
+        }
+    )
+    cells = build_condition_cells(df, axes=("ema_stack",))
+    verdicts = evaluate_conditions(cells, CFG)
+    bull = next(v for v in verdicts if v.state == "bullish" and v.direction == "long")
+    assert bull.n_with < CFG.min_n
+    assert bull.verdict == "INSUFFICIENT"
+    assert bull.dsr is None and bull.pbo is None
+
+
+def test_evaluate_avoid_is_reachable_end_to_end() -> None:
+    """The point of the whole fix: a reliably-negative powered state must be
+    able to reach AVOID.
+
+    H8's published NO was therefore real for BUILD but largely untested for
+    AVOID -- it could report "this state is good" or nothing, but essentially
+    never "avoid this state". This test fails on the pre-fix code.
+    """
+    rng = np.random.default_rng(3)
+    n = 400
+    df = pd.DataFrame(
+        {
+            "direction": ["long"] * (2 * n),
+            "strategy": ["s"] * (2 * n),
+            # 'bullish' trades average -0.5R against +0.1R elsewhere.
+            "ema_stack": (["bullish"] * n) + (["bearish"] * n),
+            "pnl_r": list(rng.normal(-0.5, 0.3, n)) + list(rng.normal(0.1, 0.3, n)),
+            **{a: ["x"] * (2 * n) for a in _OTHER_AXES},
+        }
+    )
+    cells = build_condition_cells(df, axes=("ema_stack",))
+    verdicts = evaluate_conditions(cells, CFG)
+    bull = next(v for v in verdicts if v.state == "bullish" and v.direction == "long")
+    assert bull.verdict == "AVOID"
+    assert bull.lift < 0 and bull.lift_hi < 0
