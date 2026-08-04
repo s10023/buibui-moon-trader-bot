@@ -22,7 +22,11 @@ from analytics.backtest.engine import _compute_atr14
 from analytics.brief.indicators import build_indicator_state
 from analytics.brief.types import IndicatorState
 from analytics.regime import classify_series
-from analytics.research_guards import cscv_pbo, deflated_sharpe_ratio
+from analytics.research_guards import (
+    cscv_pbo,
+    deflated_sharpe_ratio,
+    min_track_record_length,
+)
 
 # Minimum pre-entry bar count on each timeframe before we trust M1 state
 # enough to tag a trade. This is a coarse floor (some sub-blocks, e.g.
@@ -56,11 +60,14 @@ class IndicatorConditionConfig:
     seed: int = 12345
     dsr_floor: float = 0.95
     pbo_ceil: float = 0.5
+    mintrl_confidence: float = 0.95  # design doc §7: n >= MinTRL(0.95)
 
 
 def _map_verdict(
     decision: str,
     *,
+    n_supp: int,
+    n_ok: bool,
     lift: float,
     lift_lo: float,
     lift_hi: float,
@@ -77,18 +84,35 @@ def _map_verdict(
     Do not "fix" this to the intuitive DISABLE->AVOID / ENABLE->BUILD map — it
     inverts every result (this bit ST9; see docs/superpowers/specs/
     2026-07-24-h8-m1-indicator-conditioning-design.md §2).
+
+    **INSUFFICIENT is two different things.** ``audit_guard`` returns one
+    ``INSUFFICIENT`` decision from two branches: ``n < min_n`` (genuinely
+    underpowered, ``analytics/audit_guard.py``'s early ``continue``) and
+    "powered, but the CI/Holm gate never cleared" (its bare ``else``).
+    Collapsing them reports a tested-null cell as if it had never been tested.
+    Split on ``n_supp``: only a cell below ``cfg.min_n`` is truly
+    INSUFFICIENT; a powered null is NO-EDGE. Mirrors the same fix in
+    ``analytics/venue_premium.py`` (H14).
+
+    **``n_ok`` is the design doc §7 MinTRL leg** (``n >= MinTRL(0.95)`` on the
+    with-state slice). It was pre-registered in the spec — twice, at §1 and
+    §7 — but was never implemented, so every previously published BUILD cell
+    cleared a gate that was missing a pre-committed condition. A cell failing
+    it is NO-EDGE: the effect may be real, but the slice is too short for the
+    claimed Sharpe to be distinguishable from luck at 95% confidence.
     """
     if decision == "INSUFFICIENT":
-        return "INSUFFICIENT"
+        return "INSUFFICIENT" if n_supp < cfg.min_n else "NO-EDGE"
     family_ok = (
         dsr is not None
         and pbo is not None
         and dsr >= cfg.dsr_floor
         and pbo <= cfg.pbo_ceil
     )
-    if decision == "DISABLE" and lift > 0 and lift_lo > 0 and family_ok:
+    gate_ok = family_ok and n_ok
+    if decision == "DISABLE" and lift > 0 and lift_lo > 0 and gate_ok:
         return "BUILD"
-    if decision == "ENABLE" and lift < 0 and lift_hi < 0 and family_ok:
+    if decision == "ENABLE" and lift < 0 and lift_hi < 0 and gate_ok:
         return "AVOID"
     return "NO-EDGE"
 
@@ -275,6 +299,7 @@ class ConditionVerdict:
     lift_hi: float
     dsr: float | None
     pbo: float | None
+    mintrl: float | None = None  # design doc §7 leg; None when not evaluated
 
 
 def _lift_ci(
@@ -345,11 +370,31 @@ def _family_pbo(arrays: list[npt.NDArray[np.float64]]) -> float | None:
 def _family_dsr(
     target_r: npt.NDArray[np.float64], family_arrays: list[npt.NDArray[np.float64]]
 ) -> float:
-    trial_srs = [_cell_sharpe(a) for a in family_arrays if a.shape[0] >= 2]
+    """Deflated Sharpe of ``target_r`` against its (axis, direction) family.
+
+    H8 families mix DISABLE-bound cells (positive Sharpe) with ENABLE-bound
+    ones (negative Sharpe) — ``bullish`` and ``bearish`` share the
+    ``(ema_stack, long)`` family. ``deflated_sharpe_ratio`` measures confidence
+    that the TRUE Sharpe exceeds a POSITIVE expected-max-of-N benchmark, so a
+    raw negative Sharpe deflates to ~0 however reliable the negative effect is.
+    Since AVOID requires ``dsr >= cfg.dsr_floor``, the signed form made AVOID
+    structurally near-unreachable: a reliably-negative cell measured 0.0000
+    against 0.9980 for its mirror-image positive cell. Using the MAGNITUDE of
+    every Sharpe asks the direction-agnostic question that actually applies —
+    is this cell's *extremity*, whichever way it points, still credible after
+    accounting for having tested N states. Mirrors ``analytics/venue_premium``.
+
+    Disclosed consequence: folding to magnitude shrinks trial dispersion in a
+    mixed-sign family, so this gate is marginally MORE permissive than the
+    signed form. Bias runs toward more passes, never fewer.
+    """
+    trial_srs = [abs(_cell_sharpe(a)) for a in family_arrays if a.shape[0] >= 2]
     if not trial_srs:
-        trial_srs = [_cell_sharpe(target_r)]
+        trial_srs = [abs(_cell_sharpe(target_r))]
     return deflated_sharpe_ratio(
-        _cell_sharpe(target_r), max(int(target_r.shape[0]), 1), trial_srs=trial_srs
+        abs(_cell_sharpe(target_r)),
+        max(int(target_r.shape[0]), 1),
+        trial_srs=trial_srs,
     )
 
 
@@ -388,7 +433,16 @@ def evaluate_conditions(
         n_with, n_without = c.with_r.shape[0], c.without_r.shape[0]
         avg_with = float(c.with_r.mean()) if n_with else float("nan")
         avg_without = float(c.without_r.mean()) if n_without else float("nan")
-        if cv.decision == "INSUFFICIENT":
+        # Only a genuinely UNDERPOWERED cell short-circuits. A powered cell
+        # whose CI/Holm gate merely failed to clear is a tested null: it falls
+        # through so its real lift, CI and family stats are computed, and
+        # _map_verdict resolves it to NO-EDGE. Short-circuiting both (the
+        # pre-fix behaviour) published a fabricated lift of exactly 0.0 with a
+        # [0.0, 0.0] CI for cells that do have a measured lift, and made them
+        # indistinguishable from cells that were never tested at all. The
+        # n_with < 2 arm mirrors audit_guard's own eligibility test, which
+        # needs 2 points before it can compute a Sharpe.
+        if cv.decision == "INSUFFICIENT" and (n_with < cfg.min_n or n_with < 2):
             out.append(
                 ConditionVerdict(
                     axis=c.axis,
@@ -399,9 +453,9 @@ def evaluate_conditions(
                     n_without=n_without,
                     avg_r_with=avg_with,
                     avg_r_without=avg_without,
-                    lift=0.0,
-                    lift_lo=0.0,
-                    lift_hi=0.0,
+                    lift=float("nan"),
+                    lift_lo=float("nan"),
+                    lift_hi=float("nan"),
                     dsr=None,
                     pbo=None,
                 )
@@ -412,8 +466,19 @@ def evaluate_conditions(
         family_arrays = [cells[j].with_r for j in family_idx]
         dsr = _family_dsr(c.with_r, family_arrays)
         pbo = _family_pbo(family_arrays)
+        # Design doc §7's MinTRL leg. Magnitude Sharpe for the same reason
+        # _family_dsr uses it: MinTRL of a negative Sharpe against target 0 is
+        # inf, which would make the AVOID branch unreachable all over again.
+        mintrl = min_track_record_length(
+            abs(_cell_sharpe(c.with_r)),
+            target_sr=0.0,
+            confidence=cfg.mintrl_confidence,
+        )
+        n_ok = float(n_with) >= mintrl
         verdict = _map_verdict(
             cv.decision,
+            n_supp=n_with,
+            n_ok=n_ok,
             lift=lift,
             lift_lo=lift_lo,
             lift_hi=lift_hi,
@@ -436,6 +501,7 @@ def evaluate_conditions(
                 lift_hi=lift_hi,
                 dsr=dsr,
                 pbo=pbo,
+                mintrl=mintrl,
             )
         )
     return out
