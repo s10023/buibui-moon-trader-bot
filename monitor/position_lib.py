@@ -146,9 +146,41 @@ def normalize_conditional_orders(
                 "type": order_type,
                 "stopPrice": o.get("triggerPrice"),
                 "positionSide": o.get("positionSide", "BOTH"),
+                # algo rows spell the size `quantity`; classic rows use `origQty`.
+                # Both are needed by uncovered_position_qty, so normalise to classic.
+                "origQty": o.get("quantity"),
+                "closePosition": o.get("closePosition", False),
             }
         )
     return normalized
+
+
+def uncovered_position_qty(
+    orders: list[dict[str, Any]],
+    position_qty: float,
+    position_side: str = "BOTH",
+) -> float:
+    """Return the position quantity with no working stop behind it (a "naked tail").
+
+    Backed by a live incident on 2026-08-04: a phone-placed trail re-armed only the
+    ORIGINAL entry quantity across three symbols, so the later adds' auto-attached
+    stops were cancelled and never replaced. That left 4.5% / 2.5% / 2.5% of each
+    position with no stop for four hours — silent, and invisible in the UI.
+
+    Take-profit orders are not protection and never count. A ``closePosition`` stop
+    covers the whole position no matter what its quantity field says, so one of those
+    means zero exposure. Accepts classic and normalised-algo rows alike.
+    """
+    covered = 0.0
+    for o in orders:
+        if o.get("type") not in _SL_ORDER_TYPES:
+            continue
+        if not _position_side_matches(o.get("positionSide", "BOTH"), position_side):
+            continue
+        if o.get("closePosition"):
+            return 0.0
+        covered += abs(float(o.get("origQty") or 0))
+    return max(0.0, abs(position_qty) - covered)
 
 
 def _fetch_conditional_orders(
@@ -217,11 +249,16 @@ def get_stop_loss_for_symbol(
 
 def _fetch_all_tpsl_prices(
     client: Client,
-) -> dict[tuple[str, str], dict[str, float | None]]:
-    """Fetch all open orders and return {(symbol, positionSide): {"sl": price, "tp": price}}.
+) -> dict[tuple[str, str], dict[str, Any]]:
+    """Fetch all open orders as {(symbol, positionSide): {"sl", "tp", "orders"}}.
 
     Keying by (symbol, positionSide) supports hedge mode where LONG and SHORT
     positions on the same symbol have independent SL/TP orders.
+
+    ``orders`` carries the matched rows so a caller can measure stop COVERAGE and
+    not merely the trigger price. ``None`` there means coverage is unknown, and an
+    unknown must never render as unprotected — a warning on every position is one
+    the operator learns to ignore.
     """
     try:
         all_orders: list[dict[str, Any]] = list(client.futures_get_open_orders())
@@ -237,18 +274,18 @@ def _fetch_all_tpsl_prices(
         key = (o.get("symbol", ""), o.get("positionSide", "BOTH"))
         orders_by_key.setdefault(key, []).append(o)
 
-    result: dict[tuple[str, str], dict[str, float | None]] = {}
+    result: dict[tuple[str, str], dict[str, Any]] = {}
     for (sym, side), orders in orders_by_key.items():
         sl = _find_sl_in_orders(orders, side)
         tp = _find_tp_in_orders(orders, side)
         if sl is not None or tp is not None:
-            result[(sym, side)] = {"sl": sl, "tp": tp}
+            result[(sym, side)] = {"sl": sl, "tp": tp, "orders": orders}
     return result
 
 
 def _build_position_row(
     pos: dict[str, Any],
-    tpsl_prices: dict[tuple[str, str], dict[str, float | None]],
+    tpsl_prices: dict[tuple[str, str], dict[str, Any]],
     wallet_balance: float,
 ) -> tuple[list[Any], float]:
     """Build a single display row for one open position. Returns (row, sl_risk_usd)."""
@@ -271,6 +308,7 @@ def _build_position_row(
     tpsl = tpsl_prices.get((symbol, position_side)) or tpsl_prices.get((symbol, "BOTH"))
     actual_sl = tpsl["sl"] if tpsl else None
     actual_tp = tpsl["tp"] if tpsl else None
+    stop_orders = tpsl.get("orders") if tpsl else None
 
     if actual_sl:
         if side_text == "SHORT":
@@ -286,6 +324,17 @@ def _build_position_row(
         actual_sl_str = "-"
         sl_size_str = "-"
         sl_usd_str = "-"
+
+    # J2 naked tail — part of the position has no stop behind it. On 2026-08-04 a
+    # phone-placed trail re-armed only the original entry quantity on three symbols,
+    # leaving the adds unprotected for four hours with nothing on screen to show it.
+    # Only flagged where coverage is genuinely known (see _fetch_all_tpsl_prices);
+    # the 1e-6 floor is float noise, not a tolerance for real uncovered size.
+    if stop_orders is not None:
+        naked_qty = uncovered_position_qty(stop_orders, amt, position_side)
+        if naked_qty > abs(amt) * 1e-6:
+            naked_pct = naked_qty / abs(amt) * 100
+            actual_sl_str = f"{_RED}⚠ {actual_sl_str} ({naked_pct:.1f}% naked){_RESET}"
 
     liq_price_raw = float(pos.get("liquidationPrice") or 0)
     liq_price: float | None = liq_price_raw if liq_price_raw > 0 else None
@@ -380,7 +429,9 @@ def fetch_open_positions(
             continue
         sl = get_stop_loss_for_symbol(client, sym, pos_side)
         if sl is not None:
-            tpsl_prices[(sym, pos_side)] = {"sl": sl, "tp": None}
+            # orders=None: this fallback recovers the price only, so stop coverage
+            # is unknown here and the naked-tail check must stay silent.
+            tpsl_prices[(sym, pos_side)] = {"sl": sl, "tp": None, "orders": None}
 
     # Sum unrealized PnL from positions — crossUnPnl is 0 for isolated margin.
     unrealized_pnl = sum(float(p.get("unRealizedProfit", 0)) for p in open_positions)

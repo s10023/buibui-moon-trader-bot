@@ -426,6 +426,15 @@ Append `:asc` or `:desc` to control the sort direction (defaults to `desc`).
 > The old limitation ("Position TP/SL is not exposed through any public REST
 > API") no longer applies: TP/SL set via the position card or at order opening
 > now shows in the monitor.
+>
+> **Naked tails.** The monitor checks stop *coverage*, not only price.
+> When the working stops on a position side sum to less than the position,
+> `SL Price` renders `⚠ <price> (N% naked)`. This catches a trailing stop
+> re-armed for only part of a position — the failure that left three positions
+> partly unstopped for four hours on 2026-08-04. A `closePosition` stop counts
+> as full cover whatever its quantity says, take-profit orders never count as
+> protection, and the flag stays silent wherever coverage cannot be determined
+> (a warning that fires on every row is one you learn to ignore).
 
 ### Analytics — Backfill Historical Data
 
