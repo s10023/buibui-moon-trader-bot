@@ -85,83 +85,43 @@ Includes max USD-per-trade cap and wallet-level risk protection.
 
 ## Directory Structure
 
+Top-level orientation only. **The per-module reference lives in `.claude/context/` —
+this section deliberately does not duplicate it.** It used to, and the duplicate rotted:
+before 2026-08-04 this tree was missing ten of eleven packages and still described
+`data_store.py`, `signal_lib.py`, `stats_lib.py` and `backtest_lib.py` as the real
+engines, when all four have been thin re-export shims since the Phase-2 package split.
+
 ```text
 buibui-moon-trader-bot/
-├── buibui.py                        # CLI entry point (argparse)
-├── monitor/
-│   ├── price_monitor.py             # Price monitor thin wrapper (creates client, calls lib)
-│   ├── price_lib.py                 # Pure price monitor business logic
-│   ├── position_monitor.py          # Position monitor thin wrapper
-│   ├── position_lib.py              # Pure position monitor business logic
-│   ├── live_price.py                # WebSocket + Rich live mode for price monitor
-│   └── live_position.py             # WebSocket + Rich live mode for position monitor
-├── analytics/
-│   ├── analytics_runner.py          # Analytics thin wrapper (creates client, opens DB, calls libs)
-│   ├── backtest_runner.py           # Backtest thin wrapper (opens DB, loads data, calls libs)
-│   ├── backtest_lib.py              # Pure backtest engine: Trade, BacktestResult, run_backtest
-│   ├── data_fetcher.py              # Pure Binance Futures API → DataFrames (klines, funding, OI)
-│   ├── data_store.py                # Pure DuckDB read/write (schema, upsert, query helpers); tables: ohlcv, funding_rates, open_interest, signals, signal_alert_outcomes, backtest_runs, backtest_trades, backtest_cache, stats_cache
-│   ├── data_sync.py                 # Backfill + incremental sync orchestration
-│   ├── strategies/                  # Per-detector strategy package (22 active strategies + STRATEGY_REGISTRY + DETECTOR_REGISTRY)
-│   ├── signal_config.py             # Pure config loader: SignalWatchConfig, BacktestFilterConfig, BiasConfig, ComboConfig; TOML extends support
-│   ├── signal_lib.py                # Pure scan lib: scan_symbol(), run_scan_cycle(); injects StatsContext into alerts
-│   ├── signal_runner.py             # Signal daemon thin wrapper (creates client, opens DB, polls)
-│   ├── signal_test_runner.py        # Historical replay: no DB writes, no cooldown; --at / --lookback
-│   ├── stats_lib.py                 # Pure stats lib: compute_p1p2_daily, compute_hourly_extremes, compute_adr, compute_dow_patterns, compute_session_breakdown, compute_weekly_p1p2, compute_all → StatsBundle
-│   ├── backtest_config.py           # BacktestSweepConfig + load_backtest_config() for TOML sweep mode
-│   ├── param_sweep.py               # WFO sweep lib: run_param_sweep (→ ParamSweepReport w/ commit gate) / run_strategy_audit; parallelized via ProcessPoolExecutor
-│   ├── sweep_guard.py               # P0a-2 commit gate: refuse swept tp_r unless DSR>=0.95 & PBO<=0.5 & n>=MinTRL (consumes research_guards)
-│   ├── audit_guard.py               # P0a-2 sub-PR 2: audit-tool ENABLE/DISABLE/CONCENTRATE verdicts via bootstrap CI + Holm haircut (consumes research_guards)
-│   ├── digest_lib.py                # 12 pre-canned SQL queries; run_digest; DigestScope; powers buibui digest
-│   ├── cme_gap_lib.py               # CME gap detection + alert warning helper
-│   ├── zones_lib.py                 # Structural zone extraction (geometry only): FVG, OB, EQH/EQL, BOS, Fib, OTE, swing points
-│   ├── recalibrate_lib.py           # Compute + write star ratings to DB or source (+ DSR overfit annotation)
-│   ├── recalibrate_runner.py        # Recalibrate thin wrapper
-│   ├── perf_timer.py                # timed(label) context manager
-│   └── regime.py                    # Regime classifier (trend/range/high_vol/unknown); §6 of v2 redesign; Phase 2 live gate (soft mode)
-├── signals/
-│   ├── registry.py                  # SignalPlugin TypedDict + SIGNAL_REGISTRY (20 actionable strategies; seasonality/funding_reversion/fibonacci_retracement excluded)
-│   ├── cooldown_store.py            # Two-layer dedup: candle watermark + cooldown timer
-│   └── alert_formatter.py           # SignalEvent, StatsContext, ConfluenceData; 6-section alert layout; W1–W8 candle warnings
-├── web/
-│   ├── api/
-│   │   ├── main.py                  # FastAPI app: lifespan, CORS, health, router mounts, StaticFiles
-│   │   ├── deps.py                  # Dependency factories: get_db, get_client, require_token, require_token_sse
-│   │   ├── models/                  # Pydantic request/response models
-│   │   └── routers/                 # Route handlers: config, ohlcv, fib, signals, backtest, positions, prices, stream, stats, zones
-│   └── ui/                          # Svelte 5 + Vite frontend (Phase 5)
-│       ├── package.json
-│       ├── vite.config.ts           # Vite config — proxies /api to :8000 in dev
-│       ├── tsconfig.json
-│       ├── index.html
-│       └── src/
-│           ├── api.ts               # Typed API client + SSE helper
-│           ├── stores/              # Svelte stores: config, strategies, prices, positions
-│           ├── pages/               # Chart, Backtest, SignalFeed, Positions, Prices, Stats
-│           └── components/          # Nav, CandleChart, BacktestResult, PriceRow, PositionRow, …
-├── utils/
-│   ├── binance_client.py            # Binance client creation, time sync, config loading
-│   ├── config_validation.py         # Validates coins.json schema
-│   ├── telegram.py                  # Telegram bot messaging
-│   ├── live_store.py                # Shared in-memory store for live WebSocket data
-│   └── live_loop.py                 # Shared Rich live display loop logic
-├── config/
-│   ├── coins.json.example           # Coin list, SL%, leverage per symbol
-│   └── signal_watch.toml            # Default signal watch config (timeframes, telegram, min_sl_pct)
-├── .env.example                     # Environment variable template
-├── .github/
-│   └── workflows/
-│       ├── lint.yaml                # CI: lint, format, typecheck, regression, frontend
-│       ├── docker-build.yaml        # CI: Docker image build
-│       ├── security-scan.yaml       # CI: Trivy filesystem scan (report-only)
-│       └── signal-watch.yaml        # Cron: hourly signal daemon on OKX data
-├── Makefile                         # Dev & run commands
-├── Dockerfile                       # Container setup
-├── pyproject.toml                   # Poetry dependencies
-└── README.md
+├── buibui.py            # CLI entry shim → cli.main:main
+├── cli/                 # argparse subcommands (monitor, signal, analytics, backtest, …)
+├── analytics/           # DuckDB data layer: store, strategies, backtest, signal, stats,
+│                        #   brief, exits, research guards — plus the research sleeves
+│                        #   (forecast, xsmom, combine, carry, xsrev)
+├── signals/             # Alerting + dedup daemon (detection itself lives in analytics/)
+├── card/                # F2 AI trade card
+├── portfolio/           # P1 paper-portfolio sizing + replay
+├── trade/               # Execution layer: XS live wiring, routing, risk overlay
+├── monitor/             # Live price / position monitors
+├── web/                 # FastAPI backend (api/) + Svelte 5 UI (ui/)
+├── tools/               # One-shot analysis + audit scripts
+├── utils/               # Shared clients, Telegram, config validation
+├── deploy/              # 24/7 VPS deploy kit (systemd timers)
+├── migrations/          # One-off DB schema migrations
+├── config/              # coins.json (gitignored), universe.toml, strategy_params.toml
+└── tests/               # pytest suite
 ```
 
----
+| Area | Deep reference |
+| --- | --- |
+| `analytics/` core | `.claude/context/analytics.md` |
+| Research sleeves + their verdicts | `.claude/context/research-sleeves.md` |
+| `signals/` · `card/` · `portfolio/` | `.claude/context/signals.md` |
+| `web/` | `.claude/context/web.md` |
+| `trade/` · `deploy/` · `monitor/` · `utils/` · `cli/` | `.claude/context/execution.md` |
+| `tools/` | `.claude/context/tools.md` |
+
+`CLAUDE.md` carries the package index and the sleeve verdicts.
 
 ## Stats Dashboard
 
