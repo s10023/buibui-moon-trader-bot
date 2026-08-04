@@ -1409,12 +1409,24 @@ goldens — which is the drift the suite exists to catch.
 ### `docker-build.yaml` — Docker build check
 
 Builds the Docker image when the `Dockerfile`, `docker-compose.yml`, or the dependency manifests
-change, catching build breakage early. Docs-only PRs skip it.
+change, catching build breakage early. The filter sits on the **trigger**, not on the steps, so an
+unaffected PR never starts the workflow. An earlier step-level filter still spun up a runner to
+check out the repo and evaluate the filter before skipping — "docs-only PRs skip it" read as "costs
+nothing" while it was quietly costing a runner on every docs PR.
 
 ### `security-scan.yaml` — Trivy filesystem scan
 
-Scans the tree for CRITICAL and HIGH vulnerabilities on push and PR to `main`. It reports only —
-`exit-code: '0'` means a finding never fails the build.
+Two Trivy passes over the tree on push and PR to `main`. They are split because the scanners answer
+different questions and so earn different exit codes:
+
+| Pass | Exit code | Why |
+| --- | --- | --- |
+| `secret` | `'1'` — **fails the build** | A committed key is a property of *this diff*, always the author's to fix, and fixable in the same PR |
+| `vuln` (CRITICAL/HIGH, `ignore-unfixed`) | `'0'` — reports only | A CVE appears because the outside world changed, not because the repo did; gating would redden whichever unrelated PR happened to be open |
+
+The advisory pass carries `if: always()`, so its report still appears when the secret gate has
+failed. Before the split, one `scan-type: fs` step covered both scanners under a single
+`exit-code: '0'`, which forced the whole scan to be decorative to avoid the CVE failure mode.
 
 ### `signal-watch.yaml` — hourly signal daemon (OKX)
 
