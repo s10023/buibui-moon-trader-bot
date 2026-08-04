@@ -154,6 +154,32 @@ instructing readers to run exactly that command. One targeted grep for the
 new rule's subject caught it. Cost: one grep. Value: the PR's own claim
 stops being contradicted by the file new contributors read first.
 
+**Claim-falsification exception — the mirror image, and the one this skill
+kept missing.** The rule above catches a doc that contradicts a rule the PR
+*adds*. It does **not** catch a doc that asserts something the PR has just
+made **false**. That is a different search: instead of grepping for the new
+rule's subject, ask *"what did any doc previously claim about the thing I
+just changed?"* — then verify each claim still holds.
+
+Two instances, both caught only by luck:
+
+- PR #542 split the Trivy scan so secrets gate the build. `README.md:1416`
+  still asserted "`exit-code: '0'` means a finding never fails the build" —
+  false the moment the PR pushed.
+- PR #546 implemented H8's MinTRL leg. `.claude/context/analytics.md`
+  described that same leg as an **H14-specific addition**, which it never
+  was, and `CLAUDE.md` counted H8's verdict toward "conditioning axes are
+  0-for-6" when that verdict came from a build whose AVOID branch could not
+  fire.
+
+Cheap procedure: for each behaviour the PR changes, grep the doc surfaces for
+that behaviour's *name* **and** for the **verdict or guarantee** attached to
+it (`exit-code`, `never fails`, "0-for-", "H14-specific", the audit's own
+verdict string). A claim about a result is as perishable as a claim about a
+flag — and research verdicts are the most expensive kind to leave stale,
+because CLAUDE.md's whole purpose there is to stop the next session
+re-litigating settled work.
+
 **Strong refactor signals** — these almost always trigger user-facing doc
 edits because they change paths users / docs reference:
 

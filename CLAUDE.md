@@ -109,8 +109,32 @@ stand; its "no negative-direction edge" half is being re-run. Treat the count as
 `conn.unregister` in try/finally. Never switch to the implicit replacement scan (it
 causes malloc heap corruption) and never drop the try/finally.
 
-**`DEFAULT_DB_PATH` lives in `analytics/store/schema.py`** (re-exported via
-`analytics.data_store`) — import from either, never redefine it in a runner.
+**`DEFAULT_DB_PATH` lives in `analytics/store/_common.py`** (re-exported from
+`analytics.store` and `analytics.data_store`) — import from a re-export, never
+redefine it in a runner. It is **not** in `schema.py`; this entry said so until
+2026-08-04 and the wrong path fails as an `ImportError` on first use.
+
+**CRITICAL — `deflated_sharpe_ratio` and `min_track_record_length` are
+DIRECTIONAL.** Both answer "is this *positive* performance credible": DSR of a
+raw negative Sharpe collapses to ~0, and MinTRL of one is `inf`. So **any audit
+with a negative-direction verdict** (AVOID / CONFIRMED-BAD / REVERTING) **gated
+on either metric must fold the Sharpe to `abs()`** — target *and* trial values.
+Skipping this does not fail loudly; it makes that verdict **structurally
+unreachable**, so the audit silently reports "no negative effect found" no matter
+what the data says. This shipped in H8 and H14 and stood for weeks in H8
+(`analytics/indicator_condition.py`, PR #546: a reliably-negative cell scored DSR
+**0.0000** against **0.9980** for its mirror-image positive cell). Disclose the
+cost when you do it: folding to magnitude shrinks trial dispersion in a
+mixed-sign family, so the gate becomes marginally **more permissive** than the
+signed form — bias runs toward more passes, never fewer.
+
+**A pre-committed gate leg that the code never implements is invisible.** H8's
+spec §7 required `n >= MinTRL(0.95)`; the code never had it, the verdict doc
+never mentioned it, and every published BUILD cell cleared a gate missing a
+pre-registered condition. Greps cannot find this class of defect — only reading
+each spec against its implementation can. **1 of 44 spec docs has been
+reconciled** (H8); `p3-cross-sectional-momentum-sleeve-design.md` (the deploy
+core) is the highest-stakes one still unchecked.
 
 ## Code Style
 
