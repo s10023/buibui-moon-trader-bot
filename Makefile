@@ -352,6 +352,10 @@ buibui-weekly-path-audit:  ## H10: read-only partial-path predictiveness audit (
 buibui-indicator-condition-audit:  ## H8: read-only M1 indicator-state conditioning audit (SOURCE=/MIN_N= optional)
 	PYTHONPATH=. poetry run python tools/indicator_condition_audit.py $(if $(SOURCE),--source $(SOURCE),) $(if $(MIN_N),--min-n $(MIN_N),)
 
+.PHONY: buibui-premium-state-audit
+buibui-premium-state-audit:  ## H14: read-only Coinbase-premium market-state audit
+	PYTHONPATH=. poetry run python tools/premium_state_audit.py $(ARGS)
+
 ## Routine DB update: run all-config backtests + recalibrate + regression update
 db-update-backtest:
 	@echo "📊 Running backtest for all 3 signal_watch configs (SINCE=2025-09-12)..."
