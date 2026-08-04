@@ -17,7 +17,7 @@ Use when working on the Stats page or its backend — adding new stat cards, fix
 
 ## Architecture
 
-```
+```text
 analytics/stats_lib.py          ← pure computation (DuckDB queries, returns StatsBundle)
 web/api/routers/stats.py        ← GET /api/stats/{symbol}?days=180 (cached in stats_cache table)
 web/api/models/                 ← Pydantic response models (if any)
@@ -30,7 +30,7 @@ web/ui/src/api.ts               ← getStats(symbol, days) typed client
 ### Cached in StatsBundle (`compute_all` → `stats_cache` table)
 
 | Card | stats_lib fn | Data key | Notes |
-|------|-------------|----------|-------|
+| ------ | ------------- | ---------- | ------- |
 | P1/P2 Daily | `compute_p1p2_daily` | `p1p2` | overall + per-DOW bars; `p1_strong_pct` = fraction where P1-direction wick < 20% range; Low First = green, High First = red |
 | Average Daily Range | `compute_adr` | `adr` | ADR(14), ADR(30), today_range_pct, today_consumed_pct (÷ ADR14), today_move_up |
 | Hourly Extreme Distribution | `compute_hourly_extremes` | `hourly_extremes` | 24 bars, MYT; `peak_high/low_hour_by_dow` per-DOW MODE |
@@ -43,7 +43,7 @@ web/ui/src/api.ts               ← getStats(symbol, days) typed client
 ### Live — never cached (injected after cache hit via `_inject_live_fields()`)
 
 | Card | stats_lib fn | Notes |
-|------|-------------|-------|
+| ------ | ------------- | ------- |
 | Today Path overlay | `compute_today_path(conn, symbol)` | Today's in-progress hourly path (×ADR14) overlaid on the Daily Path Cone bands via `_inject_live_fields()`; fresh every request |
 | P1 Wick Rank | `compute_weekly_wick_percentile(conn, symbol, adr_14, days)` | Current week's P1 wick exceedance vs historical P1 wicks; "P1 not yet set" when only one weekly extreme has formed; fresh every request |
 | Weekly Current State | `compute_weekly_current_state(conn, symbol, adr_14, days)` | Live banner: current DOW, move% from weekly open, distance bucket, conditioned low/high-still-ahead probabilities |
@@ -64,6 +64,7 @@ web/ui/src/api.ts               ← getStats(symbol, days) typed client
 Decide: is the card **cacheable** (uses only historical OHLCV, same answer all day) or **live** (depends on today's candle position)?
 
 **Cacheable card:**
+
 1. Add `compute_<name>(conn, df)` to `stats_lib.py` → return typed dataclass
 2. Add to `StatsBundle` + call from `compute_all`
 3. Add field to `StatsResponse` in the API model
@@ -72,6 +73,7 @@ Decide: is the card **cacheable** (uses only historical OHLCV, same answer all d
 6. Add test in `tests/` using `duckdb.connect(":memory:")`
 
 **Live card:**
+
 1. Add `compute_<name>(conn, symbol, adr_14, days)` to `stats_lib.py` (takes conn directly, not df)
 2. Add to `_inject_live_fields()` in `web/api/routers/stats.py` — called after cache hit/miss
 3. Everything else same as above (step 3–6)

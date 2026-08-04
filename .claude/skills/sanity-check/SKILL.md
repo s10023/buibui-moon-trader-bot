@@ -38,13 +38,16 @@ This is the most important section. Wiring bugs cause silent failures (missing s
 Check all of the following:
 
 ### Strategy registry completeness
+
 Every strategy must appear in ALL of these locations or it silently breaks:
+
 - `analytics/strategies/_registry.py` — `STRATEGY_REGISTRY` entry (21)
 - `analytics/strategies/_registry.py` — `DETECTOR_REGISTRY` entry (19; excludes `seasonality`, `smt_divergence`, and legacy `fibonacci_retracement` — `smt_divergence` has an explicit branch in `backtest_runner.py`)
 - `signals/registry.py` — `SIGNAL_REGISTRY` entry (20; all except `seasonality` and legacy `fibonacci_retracement`)
 - `tests/` — at least one test for the detector function
 
 Run this to get the cross-reference (imports the registries directly — robust to dict vs list shape):
+
 ```bash
 poetry run python -c "
 from analytics.strategies._registry import STRATEGY_REGISTRY, DETECTOR_REGISTRY
@@ -62,20 +65,24 @@ print('STRATEGY-SIGNAL  :', sorted(strat-sig))   # expect: seasonality (not acti
 Compare the two lists. Flag any strategy in STRATEGY_REGISTRY but not DETECTOR_REGISTRY (or vice versa), and any in DETECTOR_REGISTRY but not SIGNAL_REGISTRY.
 
 ### Config wiring
+
 - Does every `[strategy_params.X]` key in `config/signal_watch.toml` correspond to a real strategy name in `STRATEGY_REGISTRY`?
 - Does `backtest_config.py:BacktestSweepConfig` include all flags exposed by `buibui.py` CLI?
 - Does `signal_config.py:SignalWatchConfig` include all fields read from the `[backtest]` section of signal_watch.toml?
 
 ### API router completeness
+
 - Every router in `web/api/routers/` must be imported and registered in `web/api/main.py`
 - Every Pydantic model in `web/api/models/` must be used by at least one router
 
 ### Data pipeline
+
 - `data_sync.py` syncs OHLCV — confirm it's wired into `analytics_runner.py` and `signal_runner.py`
 - `upsert_signals` in `analytics/store/signals.py` (re-exported via `data_store.py`) — confirm it's called from `analytics/signal/scanner.py:run_scan_cycle()` (`signal_lib.py` is now a 4-line shim)
 - `upsert_backtest_run` / `upsert_backtest_trades` — confirm called from `backtest_runner.py` when `SAVE=1`
 
 ### Thin wrapper / pure lib boundary
+
 - `*_runner.py` files must NOT contain business logic — only: create client, open DB, call lib, close
 - `*_lib.py` files must NOT import `binance_client`, make network calls, or open DB connections at module level
 
@@ -86,6 +93,7 @@ Compare the two lists. Flag any strategy in STRATEGY_REGISTRY but not DETECTOR_R
 Check these in parallel:
 
 ### README.md
+
 - Does `## Usage` reflect all current `buibui` subcommands? Verified set:
   `monitor`, `signal`, `analytics`, `backtest`, `digest`, `param-sweep`,
   `param-audit`, `recalibrate`, `web`. Note `signal` and `monitor` are
@@ -95,17 +103,22 @@ Check these in parallel:
 - Are any sections referencing removed features?
 
 ### CLAUDE.md
+
 - Does `## Project Structure` match actual files on disk?
 - Does `## Agent Skills` table list all skills currently in `.claude/skills/`?
 
 Check with:
+
 ```bash
 ls .claude/skills/*/SKILL.md
 ```
+
 Compare against the table in `CLAUDE.md` — flag any skill directory with no entry in the table, or any table entry with no corresponding `SKILL.md`.
 
 ### MEMORY.md
+
 Path: `~/.claude-personal/projects/-home-kng-repo-buibui-moon-trader-bot/memory/MEMORY.md`
+
 - Is **Current State** up to date with recent changes?
 - Are completed items marked ✅ in the To-Do List?
 - Are any open questions resolved that should be cleared?
@@ -119,7 +132,7 @@ Each skill in `~/.claude/skills/` documents a workflow. Skills can go stale when
 For each skill, verify the **key claims** are still true:
 
 | Skill | What to verify |
-|-------|---------------|
+| ------- | --------------- |
 | `atr-sweep` | `--atr-sl-values` CLI flag exists in `cli/backtest.py`; `format_atr_sl_sweep_table` exported from `analytics/backtest/` (re-exported via `backtest_lib.py` shim) |
 | `volume-sweep` | `volume_suppress` field in `BacktestSweepConfig`; `effective_volume_suppress(strategy)` on `BacktestSweepConfig` |
 | `backtest-findings` | Min-trades thresholds still match `recalibrate_lib.py` defaults |
@@ -156,7 +169,7 @@ grep -rn "TODO\|FIXME" --include="*.py" . | grep -v ".venv"
 Report results as a table with one row per check:
 
 | # | Dimension | Check | Status | Action needed |
-|---|-----------|-------|--------|---------------|
+| --- | ----------- | ------- | -------- | --------------- |
 | 1 | CI | lint-py | ✅ | — |
 | 2 | CI | typecheck | ✅ | — |
 | 3 | CI | test | ✅ | — |
@@ -174,5 +187,6 @@ Report results as a table with one row per check:
 | 15 | Arch | Dead code / duplicates | ✅/❌ | ... |
 
 At the end:
+
 - List all ❌ items with concrete next steps
 - Update MEMORY.md: add today's sanity check date and any open findings

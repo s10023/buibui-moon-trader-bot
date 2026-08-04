@@ -26,7 +26,7 @@ allowed-tools: "*"
 
 ## Signal flow
 
-```
+```text
 candle close
   → data_sync.py (incremental OHLCV fetch)
   → signal_lib.scan_symbol() (run detectors per strategy)
@@ -183,7 +183,7 @@ duckdb analytics.db "SELECT * FROM signals ORDER BY ts DESC LIMIT 20"
 ## Config files
 
 | File | Description |
-|------|-------------|
+| ------ | ------------- |
 | `config/signal_watch.toml` | Tue–Thu (`day_filter = "tue_thu"`); curated strategy list |
 | `config/signal_watch_weekdays.toml` | Mon + Fri only (`day_filter = "mon_fri"`) |
 | `config/signal_watch_all.toml` | Sat + Sun only (`day_filter = "weekend"`) |
@@ -193,7 +193,7 @@ The three configs partition the calendar without overlap. When `buibui signal wa
 ## Key implementation files
 
 | File | Role |
-|------|------|
+| ------ | ------ |
 | `analytics/signal/scanner.py` | `scan_symbol()`, `run_scan_cycle()` — core detection loop (`signal_lib.py` is a 4-line re-export shim) |
 | `analytics/signal_runner.py` | Thin wrapper: creates client, opens DB, poll loop |
 | `analytics/signal_config.py` | `SignalWatchConfig`, `BacktestFilterConfig`, `load_signal_config()` |

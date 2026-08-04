@@ -7,7 +7,16 @@
         "!node_modules",
         "!web/ui/node_modules",
         "!web/ui/dist",
+        // `.claude` stays excluded wholesale, then the two committed subtrees are
+        // re-included. Do NOT simply drop the exclusion: `.claude/skills/` also
+        // holds SYMLINKS to installed external skills (humanizer), which are not
+        // ours to lint and would make `make lint-md` permanently red on a machine
+        // that has them. `.gitignore` encodes the same intent (`.claude/*` plus
+        // re-includes) — these globs mirror it deliberately.
         "!.claude",
+        ".claude/skills/*/SKILL.md",
+        ".claude/context/*.md",
+        "!.claude/skills/humanizer",
         "!.agents",
         "!.superpowers",
         "!.github/pull_request_template.md",
