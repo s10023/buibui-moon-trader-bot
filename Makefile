@@ -356,6 +356,10 @@ buibui-indicator-condition-audit:  ## H8: read-only M1 indicator-state condition
 buibui-premium-state-audit:  ## H14: read-only Coinbase-premium market-state audit
 	PYTHONPATH=. poetry run python tools/premium_state_audit.py $(ARGS)
 
+.PHONY: buibui-carry-unwind-audit
+buibui-carry-unwind-audit:  ## H15: read-only USD/JPY carry-unwind state audit
+	PYTHONPATH=. poetry run python tools/carry_unwind_audit.py $(ARGS)
+
 ## Routine DB update: run all-config backtests + recalibrate + regression update
 db-update-backtest:
 	@echo "📊 Running backtest for all 3 signal_watch configs (SINCE=2025-09-12)..."

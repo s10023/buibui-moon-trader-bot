@@ -556,6 +556,21 @@ axis built from a **different venue's** order flow rather than a re-slice of the
 same OHLCV — verdict `docs/audits/2026-08-04-h14-coinbase-premium-state-tag.md`
 (NO-EDGE on all 10 pre-registered cells).
 
+`make buibui-carry-unwind-audit` (`tools/carry_unwind_audit.py`) is a read-only
+audit that tags every UTC day with a **USD/JPY yen-strength** state — a run
+counter of consecutive down weeks and a causal 4-week magnitude z-score, derived
+from keyless Yahoo daily bars — and runs two panels through the same pre-committed
+gate: BTCUSDT's daily return normalised by its causal trailing 30-day volatility
+(primary), and the trade ledger (secondary). The second conditioning axis built
+from **genuinely new data** rather than a re-slice of held OHLCV, after H14 —
+verdict `docs/audits/2026-08-04-h15-usdjpy-carry-unwind.md` (NO-EDGE on every
+cell in every panel, and well powered: forward-panel cells run n=200–2,055).
+
+Bar units are not portable between those two panels: the gate's effect-size floor
+is expressed in the units of the observation, so the forward panel uses
+`BAR_VOL = 0.02` sigma-units while the ledger panel keeps `0.05` R. Reusing one
+numeral across both would make a verdict structurally unreachable.
+
 **Single-combo options:**
 
 - `--symbol BTCUSDT` — primary symbol
