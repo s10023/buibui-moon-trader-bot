@@ -96,6 +96,22 @@ if pgrep -x chrome >/dev/null 2>&1 || pgrep -x google-chrome >/dev/null 2>&1; th
   echo "Close Chrome completely, then re-run."
 fi
 
+# An agent-browser daemon that is ALREADY UP silently ignores --profile and
+# --executable-path (it prints "daemon already running" and keeps its old
+# options), so the run proceeds on a throwaway /tmp profile — i.e. LOGGED OUT.
+# That fails quietly in the worst way: BTC is free, so it captures one good panel
+# and reports ETH/SOL as "gated", which is indistinguishable from a genuinely
+# expired login. Tear the daemon down first, then PROVE the profile took.
+agent-browser close --all >/dev/null 2>&1
+sleep 3
+
+if "${AB[@]}" open "about:blank" 2>&1 | grep -q "ignored: daemon already running"; then
+  echo "FATAL: agent-browser daemon would not restart, so --profile was ignored."
+  echo "       The run would be logged out and only BTC would succeed."
+  echo "       Kill it by hand (pkill -f agent-browser-linux) and re-run."
+  exit 1
+fi
+
 for coin in BTC ETH SOL; do
   capture "$coin" "https://www.coinglass.com/pro/futures/LiquidationHeatMap?coin=${coin}"
 done
