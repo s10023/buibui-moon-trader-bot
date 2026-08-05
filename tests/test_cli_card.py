@@ -6,7 +6,8 @@ import argparse
 from typing import Any
 from unittest.mock import MagicMock
 
-from cli.card import BinanceAccountProvider, add_card_subparser
+import cli.card as cli_card
+from cli.card import BinanceAccountProvider, _account_provider_for, add_card_subparser
 
 
 def _parse(argv: list[str]) -> argparse.Namespace:
@@ -43,6 +44,44 @@ class TestParser:
         )
         assert args.direction == "short"
         assert args.dry_run is True
+
+
+class TestAccountProviderFor:
+    """`--as-of` must not mix today's live account into a past-dated state.
+
+    Binance serves only CURRENT positions and equity, so the account block is
+    unpinnable by construction — the one input `--as-of` can never freeze.
+    Omitting it is what makes a pinned run honest about its own limits.
+    """
+
+    def test_as_of_omits_the_live_account(self, monkeypatch: Any) -> None:
+        monkeypatch.setattr(
+            cli_card, "_build_account_provider", lambda: object(), raising=True
+        )
+        provider, reason = _account_provider_for(
+            _parse(["card", "BTCUSDT", "--as-of", "2026-07-11T00:00:00Z"])
+        )
+        assert provider is None
+        assert reason is not None and "--as-of" in reason
+
+    def test_dry_run_omits_the_live_account(self, monkeypatch: Any) -> None:
+        monkeypatch.setattr(
+            cli_card, "_build_account_provider", lambda: object(), raising=True
+        )
+        provider, reason = _account_provider_for(
+            _parse(["card", "BTCUSDT", "--dry-run"])
+        )
+        assert provider is None
+        assert reason is not None and "--dry-run" in reason
+
+    def test_live_run_builds_the_provider(self, monkeypatch: Any) -> None:
+        sentinel = object()
+        monkeypatch.setattr(
+            cli_card, "_build_account_provider", lambda: sentinel, raising=True
+        )
+        provider, reason = _account_provider_for(_parse(["card", "BTCUSDT"]))
+        assert provider is sentinel
+        assert reason is None
 
 
 class TestBinanceAccountProvider:

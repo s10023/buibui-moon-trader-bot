@@ -49,12 +49,17 @@ def build_weekly_state(
     if cone.total_weeks == 0 or "all" not in cone.combos:
         return None, ["weekly cone: no complete weeks in population"]
 
-    # M1: `points[-1]` is the FORMING bar — hour (elapsed_h + 1) — since
-    # `current.points` includes the still-open hour, whereas `elapsed_h`
-    # counts only fully-closed bars. It is ranked below (via `idx`) against
-    # the last COMPLETED hour's band (elapsed_h), one step behind. Harmless
-    # in practice (adjacent-hour bands move slowly) but worth flagging since
-    # the head line labels this value as being at "h{elapsed_h}".
+    # `points[-1]` is the last CLOSED hour — hour `elapsed_h` — because
+    # compute_current_week_path admits only bars closed at its anchor, so
+    # len(points) == elapsed_h. It is ranked below (via `idx`) against that
+    # same hour's band, so the value and its band name the same moment and
+    # the head line's "h{elapsed_h}" label is exact.
+    #
+    # Until 2026-08-05 `points` carried the still-forming bar instead. That
+    # put this one step AHEAD of its band, and — because the DB overwrites
+    # the open bar's OHLC on every sync — made it drift under a fixed
+    # `--as-of` anchor (measured: norm_now 0.1696 -> 0.1485, high_hour
+    # 61 -> 51, at one anchor over 17 min).
     norm_now = current.points[-1]
     if norm_now > 0:
         direction = "bull"
@@ -78,8 +83,8 @@ def build_weekly_state(
     if not all_combo.bands:
         return None, ["weekly cone: population has no bands"]
 
-    # bands[elapsed_h - 1] is the LAST COMPLETED hour's band (see M1 comment
-    # above on norm_now) — one step behind the forming-bar value it ranks.
+    # bands[elapsed_h - 1] is hour `elapsed_h`'s band — the same hour that
+    # points[-1] now reports (see the norm_now comment above).
     idx = min(max(current.elapsed_h - 1, 0), len(all_combo.bands) - 1)
     pct_uncond = _percentile_of(all_combo.bands[idx], norm_now)
     pct_cond = (

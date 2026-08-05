@@ -104,6 +104,23 @@ def _build_account_provider() -> AccountProvider | None:
         return None
 
 
+def _account_provider_for(
+    args: argparse.Namespace,
+) -> tuple[AccountProvider | None, str | None]:
+    """(provider, skip_reason) — None reason means the provider was built.
+
+    The live account is the one card input `--as-of` can NEVER pin: Binance
+    serves only current positions and equity, so a past-dated run would splice
+    today's account into a state claiming to be from the anchor. Omit it and
+    say so, rather than pinning `now_ms` and quietly leaving this live.
+    """
+    if args.dry_run:
+        return None, "no provider (--dry-run)"
+    if args.as_of:
+        return None, "omitted under --as-of (a live account cannot be pinned)"
+    return _build_account_provider(), None
+
+
 def _fetch_qty_step(symbol: str) -> float | None:
     """Symbol LOT_SIZE step, or None when the exchange is unreachable.
 
@@ -130,7 +147,7 @@ def run_card_cmd(args: argparse.Namespace) -> None:
         SizingConfig.from_toml(cfg.sizing_toml) if cfg.sizing_toml else SizingConfig()
     )
     now_ms = parse_as_of_ms(args.as_of) if args.as_of else int(time.time() * 1000)
-    provider = None if args.dry_run else _build_account_provider()
+    provider, skip_reason = _account_provider_for(args)
     conn = duckdb.connect(str(args.db), read_only=True)
     try:
         state = snapshot_market_state(
@@ -140,6 +157,7 @@ def run_card_cmd(args: argparse.Namespace) -> None:
             sizing,
             now_ms=now_ms,
             account_provider=provider,
+            account_skip_reason=skip_reason,
             direction_hint=args.direction,
         )
     finally:
@@ -193,7 +211,12 @@ def add_card_subparser(
         "--as-of",
         dest="as_of",
         default=None,
-        help="ISO8601 anchor for reproducible inputs (default: now)",
+        help=(
+            "ISO8601 anchor: composes state as of this moment, admitting only "
+            "bars that had CLOSED by then and omitting the live account "
+            "(unpinnable). The LLM itself is still nondeterministic, so a "
+            "pinned run reproduces the INPUTS, not the card. (default: now)"
+        ),
     )
     p.add_argument("--db", default=str(DEFAULT_DB_PATH), help="DuckDB path")
     p.add_argument("--config", default=None, help="TOML with a [card] block")

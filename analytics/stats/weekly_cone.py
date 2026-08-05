@@ -59,10 +59,14 @@ class WeeklyConeBundle:
 
 @dataclass
 class CurrentWeekPath:
-    """The forming week's normalized partial path — live, never cached."""
+    """The forming week's normalized partial path — live, never cached.
 
-    points: list[float]  # normalized hourly closes (forming bar last)
-    elapsed_h: int  # completed hourly bars this week (0–168)
+    CLOSED bars only, so `len(points) == elapsed_h` and the path is a function
+    of the anchor rather than of when it was computed.
+    """
+
+    points: list[float]  # normalized hourly closes, last CLOSED bar last
+    elapsed_h: int  # completed hourly bars this week (0–168) == len(points)
     awr14_current: float
     week_open: float
 
@@ -267,7 +271,13 @@ def compute_current_week_path(
     _, awr14_current = _build_records(by_week, current_week)
     if awr14_current is None:
         return None
-    bars = by_week.get(current_week, [])
+    # CLOSED bars only. The DB stores the still-open bar (fetch_klines passes
+    # Binance's raw klines through untouched) and overwrites its OHLC on every
+    # sync, so admitting it would make `points[-1]` mean "whenever analytics
+    # sync last ran" — neither the anchor nor a bar close. That is look-ahead
+    # under a pinned --as-of and plain instability live, where two briefs
+    # minutes apart could disagree on the week's high/low hour.
+    bars = [b for b in by_week.get(current_week, []) if b[0] + _HOUR_MS <= now]
     if not bars:
         return None
     week_open = bars[0][1]
@@ -275,10 +285,9 @@ def compute_current_week_path(
         return None
     denom = week_open * awr14_current
     points = [(b[4] - week_open) / denom for b in bars]
-    elapsed = sum(1 for b in bars if b[0] + _HOUR_MS <= now)
     return CurrentWeekPath(
         points=points,
-        elapsed_h=min(elapsed, WEEK_BARS),
+        elapsed_h=min(len(bars), WEEK_BARS),
         awr14_current=awr14_current,
         week_open=week_open,
     )
