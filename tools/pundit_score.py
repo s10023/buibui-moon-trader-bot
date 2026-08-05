@@ -36,6 +36,7 @@ import pandas as pd
 from analytics.backtest.engine import _compute_atr14
 from analytics.pundit_authors import normalize_author
 from analytics.pundit_direction import normalize_direction
+from analytics.pundit_horizon import normalize_horizon
 from analytics.store import DEFAULT_DB_PATH
 from analytics.store.market_data import get_ohlcv
 
@@ -166,7 +167,13 @@ def load_ledger(path: Path) -> tuple[list[LedgerCall], list[str]]:
                 entry=str(obj.get("entry", "") or ""),
                 stop=str(obj.get("stop", "") or ""),
                 target=str(obj.get("target", "") or ""),
-                horizon=str(obj.get("horizon", "unspecified") or "unspecified"),
+                # Same handler, same outcome as `direction` above: a present
+                # but unrecognised horizon becomes a per-line warning instead
+                # of silently buying `window_ms`'s 14-day fallback. A MISSING
+                # one is still "unspecified" — that is a real horizon, not a
+                # violation, which is why this is not a copy of the direction
+                # guard (analytics/pundit_horizon.py explains the difference).
+                horizon=normalize_horizon(obj.get("horizon")),
                 confidence=str(obj.get("confidence", "") or ""),
                 raw_quote=str(obj.get("raw_quote", "") or ""),
                 entry_px=_opt_float(obj, "entry_px"),
@@ -410,7 +417,18 @@ def load_overrides(path: Path) -> dict[str, Override]:
 
 
 def window_ms(horizon: str) -> int:
-    """Pre-committed horizon window (spec §Windows); unknown values -> unspecified."""
+    """Pre-committed horizon window (spec §Windows).
+
+    The ``.get`` fallback is now **unreachable for anything ``load_ledger``
+    produced** — ``normalize_horizon`` rejects an unrecognised value at the
+    read boundary, where the raw field is still visible and a typo is still
+    distinguishable from an honest ``unspecified``. It is kept as
+    defence-in-depth for direct callers, not as the guard: by the time a
+    string arrives here there is no way to tell those two cases apart, which
+    is exactly why this line silently mis-scored calls before #560's sibling
+    fix. ``tests/test_pundit_horizon.py`` binds ``WINDOWS_MS``'s keys to
+    ``VALID_HORIZONS`` so the two cannot drift apart.
+    """
     return WINDOWS_MS.get(horizon, WINDOWS_MS["unspecified"])
 
 

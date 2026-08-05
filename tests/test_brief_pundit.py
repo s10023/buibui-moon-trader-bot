@@ -261,3 +261,41 @@ def test_board_folds_direction_case_rather_than_dropping_it(tmp_path: Path) -> N
     board = build_board(cfg)
     assert [c.direction for c in board.recent_calls] == ["short"]
     assert board.ledger_skipped == 0
+
+
+def test_board_skips_horizon_outside_the_enum(tmp_path: Path) -> None:
+    """A row the scorer refuses must not render as if it were tracked.
+
+    The board only *prints* horizon, so no wrong number is possible on this
+    surface — but the scorer skips an unrecognised one permanently, unlike a
+    merely unresolved recent call, so showing it implies a track-record
+    contribution that will never arrive.
+    """
+    good = _call("alice", "BTCUSDT", 1)
+    bad = json.dumps(json.loads(_call("bob", "BTCUSDT", 1)) | {"horizon": "scalp"})
+    cfg = _cfg(tmp_path)
+    cfg.ledger_path.write_text(good + "\n" + bad + "\n")
+    board = build_board(cfg)
+    assert [c.author for c in board.recent_calls] == ["alice"]
+    assert board.ledger_total == 2 and board.ledger_skipped == 1
+
+
+def test_board_keeps_an_absent_horizon_and_still_renders_it_as_empty(
+    tmp_path: Path,
+) -> None:
+    """Positive control, and a guard on the display semantics.
+
+    Absence is legitimate, so the row survives. It must also still carry
+    ``""`` rather than the canonical ``"unspecified"`` — ``render.py`` prints
+    the field only when truthy, so storing the normalised value would grow a
+    ``· unspecified`` suffix on every previously-silent row. That would be a
+    visible board change smuggled in by a validation fix.
+    """
+    row = json.loads(_call("alice", "BTCUSDT", 1))
+    row.pop("horizon", None)
+    cfg = _cfg(tmp_path)
+    cfg.ledger_path.write_text(json.dumps(row) + "\n")
+    board = build_board(cfg)
+    assert [c.author for c in board.recent_calls] == ["alice"]
+    assert [c.horizon for c in board.recent_calls] == [""]
+    assert board.ledger_skipped == 0

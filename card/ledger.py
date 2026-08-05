@@ -14,8 +14,11 @@ def pundit_row(final: FinalCard) -> dict[str, str]:
     """Pundit-scorer-compatible row (the loader's exact 12 free-text keys).
 
     horizon uses the scorer's shortest pre-committed WINDOWS_MS key
-    ("intraday" = 48h); unknown keys silently fall back to "unspecified",
-    so never invent new ones.
+    ("intraday" = 48h). Unknown keys no longer fall back silently — since
+    the horizon guard landed, ``analytics.pundit_horizon`` rejects any value
+    outside the enum at both ledger read boundaries, so inventing one here
+    costs the whole row rather than mis-scoring it. Still never invent one:
+    a loud loss is an improvement on a quiet wrong number, not a licence.
     """
     card = final.card
     ts = datetime.fromtimestamp(final.as_of_ms / 1000, tz=UTC)

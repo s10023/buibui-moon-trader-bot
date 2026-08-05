@@ -167,6 +167,51 @@ class TestLoaders:
         assert [c.direction for c in calls] == ["short"]
         assert warnings == []
 
+    def test_load_ledger_skips_horizon_outside_the_enum(self, tmp_path: Path) -> None:
+        """An unrecognised horizon must be SKIPPED, never silently re-windowed.
+
+        ``window_ms`` was ``WINDOWS_MS.get(horizon, WINDOWS_MS["unspecified"])``,
+        so a typo bought the 14-day window instead of intraday's 48h or
+        swing's 30d — a different WIN/LOSS/NOT_TRIGGERED verdict for the same
+        call, with nothing raising.
+        """
+        bad_line = self._good_line() | {"horizon": "scalp"}
+        p = tmp_path / "calls.jsonl"
+        p.write_text(
+            json.dumps(self._good_line()) + "\n" + json.dumps(bad_line) + "\n",
+            encoding="utf-8",
+        )
+        calls, warnings = load_ledger(p)
+        assert [c.horizon for c in calls] == ["swing"]
+        assert len(warnings) == 1 and "line 2" in warnings[0]
+        assert "scalp" in warnings[0]
+
+    def test_load_ledger_keeps_a_missing_horizon_as_unspecified(
+        self, tmp_path: Path
+    ) -> None:
+        """THE difference from the direction guard — absence is legitimate here.
+
+        ``unspecified`` is a member of the enum, not a fallback for it: a
+        pundit who states no timeframe has still made a scoreable call. Four
+        of the 174 live rows say so explicitly, and rejecting absence would
+        drop them.
+        """
+        line = {k: v for k, v in self._good_line().items() if k != "horizon"}
+        p = tmp_path / "calls.jsonl"
+        p.write_text(json.dumps(line) + "\n", encoding="utf-8")
+        calls, warnings = load_ledger(p)
+        assert [c.horizon for c in calls] == ["unspecified"]
+        assert warnings == []
+
+    def test_load_ledger_accepts_horizon_case_variants(self, tmp_path: Path) -> None:
+        """Positive control: the guard must not be satisfied by dropping rows."""
+        line = self._good_line() | {"horizon": " Intraday "}
+        p = tmp_path / "calls.jsonl"
+        p.write_text(json.dumps(line) + "\n", encoding="utf-8")
+        calls, warnings = load_ledger(p)
+        assert [c.horizon for c in calls] == ["intraday"]
+        assert warnings == []
+
     def test_load_overrides_and_missing_file(self, tmp_path: Path) -> None:
         p = tmp_path / "overrides.jsonl"
         p.write_text(

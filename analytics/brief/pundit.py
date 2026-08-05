@@ -20,6 +20,7 @@ from analytics.brief.types import (
 )
 from analytics.pundit_authors import normalize_author
 from analytics.pundit_direction import normalize_direction
+from analytics.pundit_horizon import normalize_horizon
 
 _DAY_MS = 86_400_000
 _MAX_PRIORS_ROWS = 8  # render constant per spec, not config
@@ -162,6 +163,20 @@ def build_board(cfg: BriefConfig) -> PunditBoard:
             # previous falsy check is subsumed, not dropped.
             try:
                 direction = normalize_direction(str(raw.get("direction") or ""))
+            except ValueError:
+                skipped += 1
+                continue
+            # Validated, deliberately NOT stored. The board only *prints*
+            # horizon (render.py appends it verbatim) and never computes on
+            # it, so no wrong number is possible here — but the scorer skips
+            # an unrecognised one **permanently**, unlike a merely unresolved
+            # recent call, and rendering it would imply a tracked call that
+            # will never be tracked. Storing the normalised value instead
+            # would be a silent display change: absence canonicalises to
+            # "unspecified", which is truthy, so every row that shows no
+            # horizon today would grow a "· unspecified" suffix.
+            try:
+                normalize_horizon(raw.get("horizon"))
             except ValueError:
                 skipped += 1
                 continue
