@@ -6,6 +6,15 @@ emits a pre-committed BUILD/AVOID/NO-EDGE/INSUFFICIENT verdict per
 
 audit_guard is SIGN-INVERTED: DISABLE == reliably positive (-> BUILD),
 ENABLE == reliably negative (-> AVOID). Do not "fix" this to the intuitive map.
+
+The gate STATISTICS live in ``analytics/state_audit.py`` and are shared with
+H14/H15 — ``cell_sharpe``, ``family_pbo``, ``family_dsr``, ``mintrl_n_ok``.
+This module held its own copies until they were consolidated; that copy was
+the one the directional-DSR defect shipped in (PR #546), so a fourth
+re-implementation is the specific thing to avoid here. What stays local is
+H8's own pre-registration: ``_map_verdict`` (the with-vs-without lift legs)
+and ``_lift_ci``. See ``state_audit``'s module docstring for why the verdict
+maps are deliberately NOT merged.
 """
 
 from __future__ import annotations
@@ -22,11 +31,7 @@ from analytics.backtest.engine import _compute_atr14
 from analytics.brief.indicators import build_indicator_state
 from analytics.brief.types import IndicatorState
 from analytics.regime import classify_series
-from analytics.research_guards import (
-    cscv_pbo,
-    deflated_sharpe_ratio,
-    min_track_record_length,
-)
+from analytics.state_audit import family_dsr, family_pbo, mintrl_n_ok
 
 # Minimum pre-entry bar count on each timeframe before we trust M1 state
 # enough to tag a trade. This is a coarse floor (some sub-blocks, e.g.
@@ -100,6 +105,17 @@ def _map_verdict(
     cleared a gate that was missing a pre-committed condition. A cell failing
     it is NO-EDGE: the effect may be real, but the slice is too short for the
     claimed Sharpe to be distinguishable from luck at 95% confidence.
+
+    **Deliberately NOT merged into ``analytics.state_audit.map_verdict``.**
+    The gate *statistics* are shared with H14/H15 (module docstring), but this
+    map is H8's own pre-registration: it carries the two-sample
+    with-vs-without lift legs and reads its thresholds off ``cfg``, where the
+    shared map carries an early/late stability leg instead. A single
+    parameterised map would let an edit to H14/H15's gate silently move H8's
+    pre-committed one.
+
+    A ``CONCENTRATE`` decision has no branch here and falls through to the
+    trailing NO-EDGE — the same outcome the shared map reaches explicitly.
     """
     if decision == "INSUFFICIENT":
         return "INSUFFICIENT" if n_supp < cfg.min_n else "NO-EDGE"
@@ -326,78 +342,6 @@ def _lift_ci(
     return lift, float(lo), float(hi)
 
 
-def _cell_sharpe(arr: npt.NDArray[np.float64]) -> float:
-    if arr.shape[0] < 2:
-        return 0.0
-    sd = float(np.std(arr, ddof=1))
-    if sd == 0.0:
-        return 0.0
-    return float(np.mean(arr)) / sd
-
-
-# Family-DSR/PBO construction for the H8 axis-state family. Unlike a
-# swept-parameter family (analytics/sl_horizon.py's k-grid, which re-scores
-# the SAME signals under each arm -> a natural paired T x N matrix), H8's
-# states are DISJOINT trade populations with no shared row index. This folds
-# each state's own return sequence (row order, a time proxy) into
-# _PBO_PERIODS equal chunks, giving a shared T axis cscv_pbo can split.
-_PBO_PERIODS = 20
-_PBO_SPLITS = 4
-
-
-def _family_pbo(arrays: list[npt.NDArray[np.float64]]) -> float | None:
-    """PBO across an (axis, direction) family's states. ``None`` when fewer
-    than 2 states clear the period floor (mirrors sl_horizon.py's graceful
-    "PBO skipped" branch — a cell can still be BUILD/AVOID-eligible on DSR
-    alone only if DSR's own multiplicity check also degrades gracefully, but
-    _map_verdict requires BOTH dsr and pbo non-None, so a family of size 1
-    can never gate — by design, there is nothing to overfit to.
-    """
-    usable = [a for a in arrays if a.shape[0] >= _PBO_PERIODS]
-    if len(usable) < 2:
-        return None
-    cols: list[npt.NDArray[np.float64]] = []
-    for a in usable:
-        n_use = (a.shape[0] // _PBO_PERIODS) * _PBO_PERIODS
-        cols.append(a[:n_use].reshape(_PBO_PERIODS, -1).mean(axis=1))
-    matrix = np.column_stack(cols)
-    try:
-        return float(cscv_pbo(matrix, n_splits=_PBO_SPLITS).pbo)
-    except ValueError:
-        return None
-
-
-def _family_dsr(
-    target_r: npt.NDArray[np.float64], family_arrays: list[npt.NDArray[np.float64]]
-) -> float:
-    """Deflated Sharpe of ``target_r`` against its (axis, direction) family.
-
-    H8 families mix DISABLE-bound cells (positive Sharpe) with ENABLE-bound
-    ones (negative Sharpe) — ``bullish`` and ``bearish`` share the
-    ``(ema_stack, long)`` family. ``deflated_sharpe_ratio`` measures confidence
-    that the TRUE Sharpe exceeds a POSITIVE expected-max-of-N benchmark, so a
-    raw negative Sharpe deflates to ~0 however reliable the negative effect is.
-    Since AVOID requires ``dsr >= cfg.dsr_floor``, the signed form made AVOID
-    structurally near-unreachable: a reliably-negative cell measured 0.0000
-    against 0.9980 for its mirror-image positive cell. Using the MAGNITUDE of
-    every Sharpe asks the direction-agnostic question that actually applies —
-    is this cell's *extremity*, whichever way it points, still credible after
-    accounting for having tested N states. Mirrors ``analytics/venue_premium``.
-
-    Disclosed consequence: folding to magnitude shrinks trial dispersion in a
-    mixed-sign family, so this gate is marginally MORE permissive than the
-    signed form. Bias runs toward more passes, never fewer.
-    """
-    trial_srs = [abs(_cell_sharpe(a)) for a in family_arrays if a.shape[0] >= 2]
-    if not trial_srs:
-        trial_srs = [abs(_cell_sharpe(target_r))]
-    return deflated_sharpe_ratio(
-        abs(_cell_sharpe(target_r)),
-        max(int(target_r.shape[0]), 1),
-        trial_srs=trial_srs,
-    )
-
-
 def evaluate_conditions(
     cells: list[_RawCell], cfg: IndicatorConditionConfig
 ) -> list[ConditionVerdict]:
@@ -464,17 +408,11 @@ def evaluate_conditions(
         lift, lift_lo, lift_hi = _lift_ci(c.with_r, c.without_r, cfg)
         family_idx = by_family[(c.axis, c.direction)]
         family_arrays = [cells[j].with_r for j in family_idx]
-        dsr = _family_dsr(c.with_r, family_arrays)
-        pbo = _family_pbo(family_arrays)
-        # Design doc §7's MinTRL leg. Magnitude Sharpe for the same reason
-        # _family_dsr uses it: MinTRL of a negative Sharpe against target 0 is
-        # inf, which would make the AVOID branch unreachable all over again.
-        mintrl = min_track_record_length(
-            abs(_cell_sharpe(c.with_r)),
-            target_sr=0.0,
-            confidence=cfg.mintrl_confidence,
-        )
-        n_ok = float(n_with) >= mintrl
+        dsr = family_dsr(c.with_r, family_arrays)
+        pbo = family_pbo(family_arrays)
+        # Design doc §7's MinTRL leg. The magnitude fold that keeps the AVOID
+        # branch reachable at all lives inside mintrl_n_ok — see its docstring.
+        mintrl, n_ok = mintrl_n_ok(c.with_r, n_with, confidence=cfg.mintrl_confidence)
         verdict = _map_verdict(
             cv.decision,
             n_supp=n_with,

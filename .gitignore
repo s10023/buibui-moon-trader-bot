@@ -8,6 +8,7 @@ __pycache__/
 config/coins.json
 # Personal YouTube follow list for /ingest-feed (example is committed)
 config/youtube_channels.toml
+config/pundit_roster.toml
 
 # But don't ignore other files in config/
 !config/

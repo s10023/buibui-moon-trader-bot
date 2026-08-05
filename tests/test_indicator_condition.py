@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from analytics.brief.types import (
     BbState,
@@ -16,7 +15,6 @@ from analytics.brief.types import (
 from analytics.indicator_condition import (
     _AXES,
     IndicatorConditionConfig,
-    _family_dsr,
     _map_verdict,
     axis_states,
     build_condition_cells,
@@ -321,29 +319,6 @@ def test_evaluate_builds_on_strong_positive_state() -> None:
     ]
     assert bull and bull[0].verdict == "BUILD"
     assert bull[0].lift > 0.4
-
-
-def test_family_dsr_is_direction_agnostic() -> None:
-    """A reliably-NEGATIVE cell must earn the same family DSR as its
-    mirror-image positive cell.
-
-    ``deflated_sharpe_ratio`` asks for confidence that the true Sharpe beats a
-    POSITIVE expected-max-of-N benchmark, so a raw negative Sharpe deflates to
-    ~0 no matter how reliable the negative effect is. Since AVOID requires
-    ``dsr >= dsr_floor``, feeding it the signed Sharpe made the AVOID verdict
-    structurally near-unreachable: measured 0.0000 for the negative cell
-    against 0.9980 for its mirror. Folding every Sharpe to its magnitude asks
-    the direction-agnostic question that matters here -- is this cell's
-    extremity, whichever way it points, still credible after N trials.
-    """
-    neg = np.full(80, -0.5)
-    neg[::2] = -1.2
-    pos = -neg
-    family = [neg, pos]
-    dsr_neg = _family_dsr(neg, family)
-    dsr_pos = _family_dsr(pos, family)
-    assert dsr_neg == pytest.approx(dsr_pos)
-    assert dsr_neg >= CFG.dsr_floor
 
 
 def test_evaluate_powered_null_is_no_edge_with_a_real_lift() -> None:
