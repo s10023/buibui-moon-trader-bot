@@ -56,15 +56,22 @@ def resolve_call_ts(
     stated_date_only: bool = False,
     stated_ts_raw: str = "",
     max_lead_h: int = STATED_TS_MAX_LEAD_H,
+    relay: bool = False,
 ) -> CallTime:
-    """Stated time if it survives every bound, else publish time."""
+    """Stated time if it survives every bound, else publish time.
+
+    `relay` labels the FALLBACK only. A relayed call was made before the video that
+    reports it, so a relay that falls back to publish carries an unknown, one-sided
+    lag; `publish_relay` keeps that population filterable in the ledger instead of
+    indistinguishable from a first-hand row.
+    """
     publish = _parse(publish_ts_utc)
     if publish is None or publish.tzinfo is None:
         raise ValueError(f"publish_ts_utc is not ISO-8601: {publish_ts_utc!r}")
 
     fallback = CallTime(
         call_ts_utc=publish_ts_utc,
-        call_ts_source="publish",
+        call_ts_source="publish_relay" if relay else "publish",
         publish_ts_utc=publish_ts_utc,
         stated_ts_raw=stated_ts_raw,
     )
@@ -114,6 +121,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--stated-raw", default="", help="verbatim quote, for audit")
     parser.add_argument("--ingested", default=None, help="ISO-8601 ingest timestamp")
+    parser.add_argument(
+        "--relay",
+        action="store_true",
+        help="the call was relayed by this speaker, not made by them; labels a "
+        "publish-time fallback publish_relay",
+    )
     args = parser.parse_args(argv)
 
     call = resolve_call_ts(
@@ -121,6 +134,7 @@ def main(argv: list[str] | None = None) -> int:
         stated_ts_utc=args.stated,
         stated_date_only=args.date_only,
         stated_ts_raw=args.stated_raw,
+        relay=args.relay,
     )
     payload: dict[str, object] = dict(asdict(call))
     if args.ingested:
