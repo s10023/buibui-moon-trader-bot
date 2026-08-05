@@ -1,0 +1,71 @@
+# Curated name -> handle roster for RELAY attribution.
+# Copy to config/pundit_roster.toml (gitignored — a source list is personal,
+# and this repo's visibility oscillates public).
+#
+# Why this file exists
+# --------------------
+# Aggregator channels relay OTHER traders' calls. Routing those under the host's
+# own handle credits him with other people's calls and manufactures a phantom
+# pundit with a fake track record while starving the real ones of rows.
+# `tools/pundit_score.py` groups on `author` and needs ZERO changes to work,
+# which is exactly why a wrong `author` is cheap to write and expensive to
+# detect: nothing crashes, the numbers are just wrong. Kolunite ingestion is
+# paused until attribution ships (measured economics: R1 = 1 routed row from 25
+# candidates for ~225k tokens; R7 = 0 rows from 5 kept, all relays).
+#
+# READ THIS BEFORE ADDING AN ENTRY
+# --------------------------------
+# A roster is an ASSERTION WE MAKE, not a fact the pipeline derives. A wrong
+# entry silently attributes real calls to the wrong trader and no downstream
+# check can see it — strictly worse than dropping the relay, which is the
+# current behaviour. So every entry carries its `evidence` and `confidence`, and
+# an unverified guess belongs in [[ambiguous]], never in [[pundit]].
+#
+# Three distinct failure modes this schema exists to separate:
+#
+#   1. FRAGMENTATION — one person, many spellings. Usually ASR: 三马哥 /
+#      三码哥 / 萨玛哥 are one man; 军长 and BTC君掌 are homophones (jūnzhǎng);
+#      舒琴 arrives mangled as 输情 / 瞬间. -> `aliases`.
+#   2. COLLISION — one string, several people. 陈志峰 runs THREE traders
+#      together. A vision pass once "corrected" it to a single name off a title
+#      card, confidently resolving three people into one. -> [[ambiguous]].
+#   3. DECORATION — a leading '@' or stray whitespace is not identity. Handled
+#      mechanically in `analytics/pundit_authors.py`, NOT here.
+#
+# `handle` is stored in the form `normalize_author()` produces — no leading '@' —
+# because that is the key the scorer groups on. Keep `url` alongside it: it is
+# the only field a future reader can actually re-verify.
+
+schema_version = 1
+
+# ---------------------------------------------------------------------------
+# Confirmed mappings.
+# confidence:  high     = corroborated in-repo (e.g. we ingest them first-hand)
+#              operator = supplied by the operator, not independently checked
+# ---------------------------------------------------------------------------
+
+[[pundit]]
+handle = "Traderfengge"
+url = "https://x.com/Traderfengge"
+aliases = ["峰哥", "风哥"]
+confidence = "high"
+evidence = "ingested first-hand as its own channel; relay match recorded in docs/plans/video-notes/2026-08-03-kolunitevip-_xNV7scZVNU.md"
+
+[[pundit]]
+handle = "sanmage88"
+url = "https://x.com/sanmage88"
+aliases = ["三马哥", "三码哥", "萨玛哥"]   # ASR variants of one name
+confidence = "operator"
+evidence = "operator-supplied 2026-08-05"
+
+# ---------------------------------------------------------------------------
+# Strings that must NEVER be auto-attributed. Presence here is a positive
+# instruction to drop the relay, not an absence of data — so a future session
+# does not "helpfully" resolve one.
+# ---------------------------------------------------------------------------
+
+[[ambiguous]]
+text = "陈志峰"
+variants = ["陈智峰", "陈志锋", "陈哥"]
+action = "never_auto_attribute"
+reason = "runs THREE traders together; only the last is identified (峰哥 = Traderfengge). Splitting requires the audio, not the string. The vision pass previously 'corrected' it to 陈智峰 off a title card — a confident merge of three people into one, with honest `vision_confidence: low` but the wrong SHAPE of correction."
