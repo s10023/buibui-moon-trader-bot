@@ -122,6 +122,51 @@ class TestLoaders:
         assert calls[0].author == "A"
         assert len(warnings) == 1 and "line 2" in warnings[0]
 
+    def test_load_ledger_skips_direction_outside_the_enum(self, tmp_path: Path) -> None:
+        """A fourth direction value must be SKIPPED, never scored.
+
+        ``score_call`` computes ``dirsign = 1.0 if direction == "long" else
+        -1.0``, so before this guard *any* unknown value fell through to the
+        short branch with nothing raising. Measured 2026-08-05: pass 2 emitted
+        ``"range"`` for a range-trade plan, which would have booked a
+        deliberately non-directional call as bearish.
+        """
+        bad_line = self._good_line() | {"direction": "range"}
+        p = tmp_path / "calls.jsonl"
+        p.write_text(
+            json.dumps(self._good_line()) + "\n" + json.dumps(bad_line) + "\n",
+            encoding="utf-8",
+        )
+        calls, warnings = load_ledger(p)
+        assert [c.direction for c in calls] == ["long"]
+        assert len(warnings) == 1 and "line 2" in warnings[0]
+        assert "range" in warnings[0]
+
+    def test_load_ledger_skips_missing_direction(self, tmp_path: Path) -> None:
+        """A missing direction is the same bug as an unknown one.
+
+        It arrives as ``""`` and is not ``"long"``, so it also scored as a
+        SHORT. Absence must not read as a bearish call.
+        """
+        bad_line = {k: v for k, v in self._good_line().items() if k != "direction"}
+        p = tmp_path / "calls.jsonl"
+        p.write_text(
+            json.dumps(self._good_line()) + "\n" + json.dumps(bad_line) + "\n",
+            encoding="utf-8",
+        )
+        calls, warnings = load_ledger(p)
+        assert [c.direction for c in calls] == ["long"]
+        assert len(warnings) == 1 and "line 2" in warnings[0]
+
+    def test_load_ledger_accepts_direction_case_variants(self, tmp_path: Path) -> None:
+        """Casing is decoration, not a fourth value — fold it, don't drop it."""
+        line = self._good_line() | {"direction": "SHORT"}
+        p = tmp_path / "calls.jsonl"
+        p.write_text(json.dumps(line) + "\n", encoding="utf-8")
+        calls, warnings = load_ledger(p)
+        assert [c.direction for c in calls] == ["short"]
+        assert warnings == []
+
     def test_load_overrides_and_missing_file(self, tmp_path: Path) -> None:
         p = tmp_path / "overrides.jsonl"
         p.write_text(

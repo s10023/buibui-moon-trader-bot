@@ -230,3 +230,34 @@ def test_board_non_numeric_n_degrades_gracefully(tmp_path: Path) -> None:
     assert board.priors_status == "unreadable"
     assert len(board.recent_calls) == 1
     assert board.recent_calls[0].prior is None
+
+
+def test_board_skips_direction_outside_the_enum(tmp_path: Path) -> None:
+    """A fourth direction value must not reach the board.
+
+    The board renders ``direction`` verbatim and the scorer books any
+    non-``long`` value as a SHORT, so an unvalidated ``"range"`` is a wrong
+    number on both surfaces. The falsy check here caught a *missing*
+    direction but passed any truthy string straight through.
+    """
+    good = _call("alice", "BTCUSDT", 1)
+    bad = json.dumps(json.loads(_call("bob", "BTCUSDT", 1)) | {"direction": "range"})
+    cfg = _cfg(tmp_path)
+    cfg.ledger_path.write_text(good + "\n" + bad + "\n")
+    board = build_board(cfg)
+    assert [c.author for c in board.recent_calls] == ["alice"]
+    assert board.ledger_total == 2 and board.ledger_skipped == 1
+
+
+def test_board_folds_direction_case_rather_than_dropping_it(tmp_path: Path) -> None:
+    """Positive control for the guard above — a valid row still gets through.
+
+    Without this, the skip assertion is satisfied by a board that drops
+    everything, which is indistinguishable from a correct guard.
+    """
+    row = json.dumps(json.loads(_call("alice", "BTCUSDT", 1)) | {"direction": "SHORT"})
+    cfg = _cfg(tmp_path)
+    cfg.ledger_path.write_text(row + "\n")
+    board = build_board(cfg)
+    assert [c.direction for c in board.recent_calls] == ["short"]
+    assert board.ledger_skipped == 0

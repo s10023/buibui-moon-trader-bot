@@ -19,6 +19,7 @@ from analytics.brief.types import (
     PunditFamilyPrior,
 )
 from analytics.pundit_authors import normalize_author
+from analytics.pundit_direction import normalize_direction
 
 _DAY_MS = 86_400_000
 _MAX_PRIORS_ROWS = 8  # render constant per spec, not config
@@ -151,8 +152,17 @@ def build_board(cfg: BriefConfig) -> PunditBoard:
             ts_ms = _parse_iso_ms(str(raw.get("call_ts_utc", "")))
             author = raw.get("author")
             symbol = raw.get("symbol")
-            direction = raw.get("direction")
-            if ts_ms is None or not author or not symbol or not direction:
+            if ts_ms is None or not author or not symbol:
+                skipped += 1
+                continue
+            # Same enum the scorer enforces — validating one side only would
+            # leave the board rendering values the scorer refuses, the mirror
+            # of the author-key split this module already guards against. An
+            # empty/missing direction still lands here as a ValueError, so the
+            # previous falsy check is subsumed, not dropped.
+            try:
+                direction = normalize_direction(str(raw.get("direction") or ""))
+            except ValueError:
                 skipped += 1
                 continue
             age = (cfg.as_of_ms - ts_ms) // _DAY_MS
@@ -165,7 +175,7 @@ def build_board(cfg: BriefConfig) -> PunditBoard:
                 PunditCallRow(
                     author=author_key,
                     symbol=str(symbol),
-                    direction=str(direction),
+                    direction=direction,
                     entry=_truncate(str(raw.get("entry") or "")),
                     target=_truncate(str(raw.get("target") or "")),
                     horizon=str(raw.get("horizon") or ""),
