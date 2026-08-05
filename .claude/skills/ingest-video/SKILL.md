@@ -208,6 +208,7 @@ it to return ONLY this JSON:
   "candidates": [
     {"ts": 252.0, "content_type": "setup|claim|mechanic", "specificity": 1-5,
      "is_relay": false, "originating_author": "@ThisChannel",
+     "item_stated_ts_utc": null,
      "is_intro_recap": false, "retrospective": false, "gist": "..."}
   ]
 }
@@ -219,6 +220,18 @@ or be `null` — never a bare local time.** `tools/video_calltime.py` rejects a 
 emits `2026-07-14T08:00:00` with no offset gets the same downstream result as emitting
 nothing, just less honestly. Instruct the subagent: state the offset whenever the
 speaker's timezone is inferable from context, otherwise emit `null` — never guess UTC.
+
+**`item_stated_ts_utc` is per-candidate and exists for RELAYS — ask for it explicitly or
+you will not get it.** A relayed call was made before the roundup reporting it, and the
+speaker usually says when: 「昨天下午」, 「今早」, 「上周五」. Instruct the subagent to
+carry any such phrase into that field (same offset rule; `null` when the timezone is not
+inferable). Step 4b feeds it to `video_calltime.py --relay --stated`; without it the row
+falls back to `publish_relay`, which is honest but can be badly wrong. Measured on
+`JcMq-lyHIt4` (2026-08-05): the host said 公有财 gave his view 「昨天下午」 at ts 322.6,
+pass 1 returned no per-item time, and the routed row landed ~half a day late. **Do not
+fix this downstream** — the orchestrator resolving 「昨天下午」 into a timestamp is
+exactly the date arithmetic `video_calltime.py` exists to prevent. It has to come from
+the pass that can read the sentence.
 
 **Filter for ATTRIBUTION and SUBJECT BEFORE applying the cap — not after.** The cap is a
 budget for items this repo can actually use, so spending a slot on one it will drop at
@@ -573,6 +586,15 @@ Rules for the subagent:
   is scored on the level they **stated**. (Observed failure: a stated 61,000 pivot was
   proposed as 61,600–61,800 because the ticker sat at a drawn arc's right anchor — ~700
   points onto a level the speaker never said.)
+- **`direction` must be exactly one of `long` / `short` / `neutral` / `null` — a fifth
+  value is silently scored as a SHORT.** `tools/pundit_score.py:501` special-cases only
+  the literal string `neutral` (returning UNSCORED); `:540` is then
+  `dirsign = 1.0 if call.direction == "long" else -1.0`, so **anything unrecognised falls
+  through to the short branch**. Measured on `JcMq-lyHIt4` (2026-08-05): pass 2 emitted
+  `direction: "range"` for a range-trade plan, which would have booked a deliberately
+  non-directional call as a bearish one. Nothing raises — not the writer, not the scorer,
+  not the digest. A range/chop/two-sided plan is `neutral`; map it there and say so in
+  `setup_type`. Check this value before writing any Stream C row.
 - **`corrected_from` carries chart-vs-transcript corrections ONLY.** A symbol
   normalisation (`BTCUSD` → `BTCUSDT`, so the scorer resolves against perp bars) is not
   one: normalise `symbol` and leave `corrected_from` empty. Same reason `confidence` and
