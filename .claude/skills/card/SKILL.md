@@ -109,17 +109,19 @@ Per card:
    fresh). Flag invented or mispriced clusters. card-v3 caps external
    liquidity at ONE confluence input — more than one is a rubric violation.
 3. **Sizing** — the post-pass is deterministic (P1 sizing reuse); check
-   entry/SL/TP/size are internally consistent in R terms. **Quantity must be
-   LOT_SIZE-rounded.** Raw floats (`0.03898939488459157` BTC,
-   `23.148148148148184` SOL — both real, 2026-08-04) are not orderable, and the
-   stated `risk $25.00` is only true *before* rounding, so the card understates
-   its own risk. `trade/routing.py` already implements this for the XS executor
-   and the card's post-pass does not reuse it — flag every unrounded quantity.
-4. **`valid_until_utc` must be in the future.** The field is model-emitted and
-   unchecked, so a card can arrive already expired: the SOL long generated
-   2026-08-04T14:13Z carried `valid until 2026-08-04T13:20:00Z`, **53 minutes
-   in the past**. That one was NO TRADE so nothing was lost, but a TRADE card
-   can carry it. Compare against the card's own generation time, not "now".
+   entry/SL/TP/size are internally consistent in R terms. **LOT_SIZE rounding
+   is now ENFORCED in code** — the post-pass floors the quantity to the
+   symbol's exchange step and restates `risk_usd`/`risk_frac` from the
+   *rounded* size, so the printed risk is the risk actually taken. An
+   unrounded quantity should now appear only alongside the explicit warning
+   "quantity is not LOT_SIZE-rounded (exchange filters unavailable)" — if you
+   see a raw float **without** that warning, that is a regression, not the old
+   defect. A risk budget below one lot is a VETO, not a silent zero.
+4. **`valid_until_utc` is now a VETO when it does not postdate the card's own
+   generation time** (or is unparseable). Checked against `generated_at_ms`,
+   not wall-clock now, so re-reading an old card does not retroactively void
+   it. Historical case: a SOL long generated 2026-08-04T14:13Z carried
+   `valid until 13:20:00Z`, 53 minutes in the past.
 5. **Style bar** — prose should read human (`/humanizer` bar): no inflated
    symbolism, rule-of-three padding, or negative parallelisms.
 
@@ -130,8 +132,15 @@ Cross-card:
 
 Report to the operator: one line per card (symbol · direction · verdict ·
 confluence inputs · flags), then the flags explained in prose. File real
-rubric defects as card-v4 candidates in the digest — the LOT_SIZE rounding and
-`valid_until_utc` defects above are the two currently open.
+rubric defects as card-v4 candidates in the digest. **The LOT_SIZE-rounding
+and `valid_until_utc` defects are CLOSED** — both are enforced in the
+deterministic post-pass, mutation-verified. Do not re-file them; do flag a
+recurrence, which would now be a regression.
+
+**A card verdict is one draw, not a measurement.** Measured 2026-08-05: two
+baseline runs on a byte-identical `state_digest` returned **opposite
+directions**. Never treat a single card, or a single-card difference between
+two configs, as evidence about anything. → memory `[[card-reproducibility-verdict]]`
 
 ## Ledger
 

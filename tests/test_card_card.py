@@ -126,7 +126,13 @@ def _state_for_post(
     )
 
 
-def _post(card_obj: dict[str, Any], state: MarketState) -> FinalCard:
+def _post(
+    card_obj: dict[str, Any],
+    state: MarketState,
+    *,
+    qty_step: float | None = None,
+    generated_at_ms: int = 1,
+) -> FinalCard:
     card = parse_trade_card(json.dumps(card_obj))
     return post_pass(
         card,
@@ -135,7 +141,8 @@ def _post(card_obj: dict[str, Any], state: MarketState) -> FinalCard:
         CardConfig(),
         digest="d" * 64,
         model="sonnet",
-        generated_at_ms=1,
+        generated_at_ms=generated_at_ms,
+        qty_step=qty_step,
     )
 
 
@@ -353,3 +360,59 @@ class TestPostPass:
         assert final.size_units is None
         assert final.risk_usd is None
         assert final.rr_tp1 is None
+
+
+class TestLotSizeRounding:
+    """A quantity that is not a LOT_SIZE multiple is not orderable, and the
+    risk it claims is only true before rounding (card-v4 defect, 5/5 live)."""
+
+    def test_quantity_rounds_down_to_qty_step(self) -> None:
+        # 25 USD risk / |100-98| = 12.5 raw units; step 1.0 must floor it to 12.
+        final = _post(_trade_obj(), _state_for_post(), qty_step=1.0)
+        assert final.size_units == 12.0
+
+    def test_stated_risk_is_true_after_rounding(self) -> None:
+        # The bug: risk stayed at the pre-rounding 25.0 while 12 units at
+        # $2 risk/unit only actually risk 24.0.
+        final = _post(_trade_obj(), _state_for_post(), qty_step=1.0)
+        assert final.risk_usd == 24.0
+        assert final.notional_usd == 1200.0
+        # risk_frac must agree with risk_usd, not stay at the pre-rounding r_adm
+        assert final.risk_frac == pytest.approx(0.0024)
+
+    def test_quantity_rounding_to_zero_vetoes(self) -> None:
+        # 12.5 raw units against a 100-unit step floors to 0 — unsubmittable.
+        final = _post(_trade_obj(), _state_for_post(), qty_step=100.0)
+        assert final.verdict == "VETOED"
+        assert any("qty_step" in r for r in final.veto_reasons)
+        assert final.size_units is None
+
+    def test_absent_qty_step_warns_rather_than_silently_unrounded(self) -> None:
+        final = _post(_trade_obj(), _state_for_post())
+        assert final.size_units == 12.5
+        assert any("not LOT_SIZE-rounded" in w for w in final.warnings)
+
+
+class TestValidUntilExpiry:
+    """A card generated after its own valid_until is expired on arrival
+    (observed 2026-08-04: emitted 14:13Z, valid until 13:20Z)."""
+
+    _GEN_MS = 1_760_000_000_000  # 2025-10-09T09:33:20Z
+
+    def test_already_expired_valid_until_vetoes(self) -> None:
+        obj = _trade_obj(valid_until_utc="2020-01-01T00:00:00Z")
+        final = _post(obj, _state_for_post(), generated_at_ms=self._GEN_MS)
+        assert final.verdict == "VETOED"
+        assert any("valid_until_utc" in r for r in final.veto_reasons)
+
+    def test_future_valid_until_does_not_veto(self) -> None:
+        obj = _trade_obj(valid_until_utc="2099-01-01T00:00:00Z")
+        final = _post(obj, _state_for_post(), generated_at_ms=self._GEN_MS)
+        assert final.verdict == "TRADE"
+        assert final.veto_reasons == []
+
+    def test_unparseable_valid_until_vetoes(self) -> None:
+        obj = _trade_obj(valid_until_utc="whenever")
+        final = _post(obj, _state_for_post(), generated_at_ms=self._GEN_MS)
+        assert final.verdict == "VETOED"
+        assert any("valid_until_utc" in r for r in final.veto_reasons)

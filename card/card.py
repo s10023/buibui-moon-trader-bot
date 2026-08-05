@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from card.config import CardConfig
@@ -19,6 +20,7 @@ from portfolio.sizing import (
     position_size,
     regime_multiplier,
     risk_per_unit,
+    round_down_to_step,
 )
 
 _VERDICTS = ("TRADE", "NO_TRADE")
@@ -168,6 +170,17 @@ class FinalCard:
         return asdict(self)
 
 
+def _parse_iso_ms(text: str) -> int | None:
+    """ISO-8601 (incl. trailing 'Z') to epoch ms; None when unparseable."""
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return int(parsed.timestamp() * 1000)
+
+
 def post_pass(
     card: TradeCard,
     state: MarketState,
@@ -178,6 +191,7 @@ def post_pass(
     model: str,
     generated_at_ms: int,
     cost_usd_notional: float | None = None,
+    qty_step: float | None = None,
 ) -> FinalCard:
     """The LLM proposes prices; this code decides money and rules (D6).
 
@@ -185,6 +199,12 @@ def post_pass(
     time); open risk is approximated as one r_base per open position (the
     account rows carry no SL, so true open risk is unknowable) — surfaced as
     a warning, never silent.
+
+    `qty_step` is the symbol's exchange LOT_SIZE step. When supplied the
+    quantity is floored to it and risk is restated from the ROUNDED size, so
+    the printed risk is the risk actually taken. When absent (no exchange
+    reachable) the raw quantity is kept and a warning says so — the card must
+    still render degraded rather than fail.
     """
     warnings: list[str] = []
     veto: list[str] = []
@@ -256,6 +276,21 @@ def post_pass(
                 f"but rated {f.stars}★ / {f.avg_r:.3f}R in backtest"
             )
 
+        # (g) valid_until_utc must postdate the card's own generation time.
+        # The field is model-emitted and was unchecked: a SOL card generated
+        # 2026-08-04T14:13Z carried "valid until 13:20Z" — expired on arrival.
+        # Compared against generated_at_ms, not wall-clock now, so the rule is
+        # a property of the card rather than of when it is re-read.
+        if card.valid_until_utc is not None:
+            expiry_ms = _parse_iso_ms(card.valid_until_utc)
+            if expiry_ms is None:
+                veto.append(f"valid_until_utc {card.valid_until_utc!r} is unparseable")
+            elif expiry_ms <= generated_at_ms:
+                veto.append(
+                    f"valid_until_utc {card.valid_until_utc} is not after the "
+                    "card's own generation time (expired on arrival)"
+                )
+
         # sizing (P1 reuse) — only when nothing vetoed
         if not veto:
             regime = panel.regime_1d if panel is not None else None
@@ -290,6 +325,25 @@ def post_pass(
                 risk_frac = r_adm
                 risk_usd = sizing.capital * r_adm
                 size_units = position_size(risk_usd, entry, sl)
+                if qty_step is not None and qty_step > 0.0:
+                    size_units = round_down_to_step(size_units, qty_step)
+                    if size_units <= 0.0:
+                        veto.append(
+                            f"size floors to zero at qty_step {qty_step} — "
+                            "risk budget is below one lot"
+                        )
+                    else:
+                        # Restate risk from the rounded size: the pre-rounding
+                        # figure overstates what is actually being risked.
+                        risk_usd = size_units * risk_per_unit(entry, sl)
+                        risk_frac = (
+                            risk_usd / sizing.capital if sizing.capital > 0 else r_adm
+                        )
+                else:
+                    warnings.append(
+                        "quantity is not LOT_SIZE-rounded (exchange filters "
+                        "unavailable) — size and risk are pre-rounding"
+                    )
                 notional_usd = size_units * entry
 
     verdict = "VETOED" if veto else card.verdict
