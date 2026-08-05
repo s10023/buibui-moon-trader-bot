@@ -69,8 +69,28 @@ this plan.
 | `tests/test_yt_feed.py` | cap loads and surfaces in the hint command | 5 |
 | `config/youtube_channels.toml.example` | document `item_cap` | 5 |
 
-**Task → PR mapping** (spec §7): Task 1 = PR A · Task 2 = PR B · Task 3 = PR C ·
-Tasks 4–6 = PR D. **Only PR D routes anything.**
+**Task → PR mapping** (spec §7): ~~Task 1 = PR A · Task 2 = PR B · Task 3 = PR C ·
+Tasks 4–6 = PR D.~~ **SUPERSEDED 2026-08-05 by operator decision: one plan = ONE PR.**
+Task 1 had already shipped as #557 when the rule was set; Tasks 2–6 landed together.
+Measured reason: `lint.yaml` and `security-scan.yaml` fire on `push` to `main` only plus
+`pull_request`, so branch pushes with no open PR are free while every push to an OPEN PR
+re-runs the whole set. The split was ~8+ full CI runs against 2, and the blast-radius
+isolation it was buying is available for free from separate commits. **Only Task 6
+changes what routes** — state that in the commit and the PR body, not by splitting.
+
+**Corrections found while executing (the literal snippets below are NOT all correct):**
+
+- Task 1's expected counts said 16 then 17; the bodies define **15 then 16**. Every other
+  task's stated count is therefore unverified — enumerate node IDs, do not trust them.
+- Task 4's Step-5 mutation predicted two failures; only **one** fails, because
+  `_comparable_entries` derives `wanted_author` from its own parameter independently of
+  what `semantic_scope` returns. A second mutation on the filter itself is required to
+  prove the author scoping is not inert.
+- Task 5's Step-3 loader snippet is `item_cap = (int(...),)` — a **1-tuple** against an
+  `int` field — and its Step-1 tests reference `tmp_path` without taking it as a
+  parameter and call a `_write_config` helper that does not exist. Shipped instead as
+  `item_cap: int = ITEM_CAP` imported from `tools/video_marks.py`, which `yt_feed.py`
+  already imports `FRAME_CAP` from, rather than a literal `5` repeated in three places.
 
 ---
 
