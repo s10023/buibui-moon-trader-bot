@@ -13,6 +13,7 @@ from tools.route_dedup import (
     PUNDIT_SINK,
     THESIS_SINK,
     RoutedItem,
+    _comparable_entries,
     append_routed,
     find_similar,
     find_source_duplicate_pairs,
@@ -734,3 +735,53 @@ def test_check_with_a_missing_sink_file_reports_no_candidates(
     )
     assert rc == 0
     assert json.loads(capsys.readouterr().out)["candidates"] == []
+
+
+def test_author_scope_is_reported_when_an_author_is_supplied() -> None:
+    assert (
+        semantic_scope("docs/plans/pundit-calls.jsonl", "abc123", author="Traderfengge")
+        == "same-author"
+    )
+
+
+def test_source_scope_is_unchanged_when_no_author_is_supplied() -> None:
+    assert semantic_scope("docs/plans/pundit-calls.jsonl", "abc123") == "same-source"
+
+
+def test_same_author_across_two_sources_is_comparable() -> None:
+    """One author's one call, arriving twice: once first-hand, once relayed."""
+    sink_text = (
+        '{"url": "https://youtu.be/AAA", "author": "Traderfengge", '
+        '"symbol": "BTCUSDT", "direction": "long", "entry": "64000"}\n'
+        '{"url": "https://youtu.be/BBB", "author": "someone_else", '
+        '"symbol": "BTCUSDT", "direction": "long", "entry": "64000"}\n'
+    )
+    got = _comparable_entries(
+        "docs/plans/pundit-calls.jsonl", sink_text, "CCC", author="Traderfengge"
+    )
+    assert len(got) == 1
+    assert "64000" in got[0][0]
+
+
+def test_different_authors_are_NOT_compared_so_the_exemption_survives() -> None:
+    """Two pundits agreeing is two observations, not a duplicate. This is the test
+    that fails if author scoping is applied too broadly."""
+    sink_text = (
+        '{"url": "https://youtu.be/AAA", "author": "someone_else", '
+        '"symbol": "BTCUSDT", "direction": "long", "entry": "64000"}\n'
+    )
+    got = _comparable_entries(
+        "docs/plans/pundit-calls.jsonl", sink_text, "CCC", author="Traderfengge"
+    )
+    assert got == []
+
+
+def test_author_matching_normalises_the_at_sign_on_both_sides() -> None:
+    sink_text = (
+        '{"url": "https://youtu.be/AAA", "author": "@Traderfengge", '
+        '"symbol": "BTCUSDT", "direction": "long", "entry": "64000"}\n'
+    )
+    got = _comparable_entries(
+        "docs/plans/pundit-calls.jsonl", sink_text, "CCC", author="Traderfengge"
+    )
+    assert len(got) == 1
