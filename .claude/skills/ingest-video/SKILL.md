@@ -232,14 +232,17 @@ routing wastes the slot silently. Instruct the subagent, in this order:
    typed as a `mechanic` and routed to Stream B with nothing objecting. Only an operator
    reading the digest caught it. The flag is what makes that visible instead of silent.
 
-2. **Drop RELAYED `setup` candidates — the call must be the speaker's own.** Set
-   `is_relay: true` whenever the speaker is reading out, reacting to, or summarising a
-   call made by **someone else** (「X老师给了一个多单」, a screenshot of another
-   analyst's Discord/Telegram post, an on-screen name card introducing a third party),
-   and put that person's name in `originating_author`. Set `is_relay: false` and
-   `originating_author` to the channel's own handle only for the speaker's own calls.
-   **`claim` and `mechanic` candidates are exempt** — an idea is portable regardless of
-   who first said it, and Streams A/B do not score anyone.
+2. **Relayed `setup` candidates are kept ONLY if the roster resolves the originating
+   name.** Set `is_relay: true` whenever the speaker is reading out, reacting to, or
+   summarising a call made by **someone else** (「X老师给了一个多单」, a screenshot of
+   another analyst's Discord/Telegram post, an on-screen name card introducing a third
+   party), and put that person's name **verbatim** in `originating_author` — do not
+   normalise, correct or "fix" it, because the raw string is what the roster's alias
+   lists are built from and a helpful correction destroys the evidence that grows them.
+   Set `is_relay: false` and `originating_author` to the channel's own handle only for
+   the speaker's own calls. **`claim` and `mechanic` candidates are exempt** — an idea is
+   portable regardless of who first said it, and Streams A/B do not score anyone.
+   Resolution happens in step 4; anything that does not resolve to `mapped` drops.
 3. **Drop non-crypto `setup` candidates.** A setup on SPX, gold, DXY, oil or a
    single equity routes to wifey (step 2b's subject rule), never to `pundit-calls.jsonl`
    here — our scorer resolves against 24/7 perp bars it has no data for.
@@ -280,23 +283,41 @@ the double-count would also have been invisible to any author-level grouping.
 `tools/route_dedup.py`'s Stream C semantic pass is scoped to `same-source` and
 **structurally cannot** catch a relay against the original author's own row.
 
-**Do not "solve" this by writing `originating_author` into the Stream C `author` field.**
+**Do not write the RAW extracted `originating_author` into the Stream C `author` field.**
 Relayed names fragment (`输情`/`瞬间` and `舒琴` are one person; ASR mangles CJK names) and
-collide (`陈志峰` turned out to be three traders run together). Attributing on an
-unnormalised extracted name manufactures phantom pundits with fake track records while
-starving the real ones of rows. Routing relays needs a curated name→handle roster first;
-until that is WIRED, **drop them here and preserve them in the note.**
+collide (`陈志峰` is three traders run together). Attributing on an unnormalised extracted
+name manufactures phantom pundits with fake track records while starving the real ones of
+rows.
 
-**The roster file now exists — do not rebuild it from scratch.** Gitignored
+**The roster-RESOLVED canonical handle is different, and it is what belongs in `author`.**
+`tools/pundit_score.py` groups on `author` (`:155`, via `normalize_author`), so writing the
+resolved handle there is what makes the scorer credit the right person with **zero**
+changes to it. Adding a parallel `originating_author` ledger column instead leaves every
+relay scoring under the channel — the exact bug this is meant to fix, wearing the
+appearance of a fix. Resolution comes from `tools/pundit_roster.py`; anything it does not
+resolve to `MAPPED` sets `unattributable=True` and drops.
+
+A routed relay row carries: `author` = the resolved handle · `relayed_by` = the relaying
+channel's handle · `attribution` = `"relay"` · `attribution_confidence` = the roster
+entry's `confidence`. A first-hand row sets `attribution: "first-hand"` and omits
+`relayed_by`. `source` keeps its current meaning (the medium) and is never overloaded to
+carry the relaying channel. `load_ledger` reads per-key with `obj.get(...)`, so these new
+keys are backward-compatible and cost the scorer nothing.
+
+**The roster is WIRED — do not rebuild it from scratch.** Gitignored
 `config/pundit_roster.toml` (schema + rationale in the committed
 `config/pundit_roster.toml.example`) holds the confirmed name→handle mappings, an
 `[[unmapped]]` list of names still being chased, and `[[ambiguous]]` entries marked
-`never_auto_attribute` for strings like `陈志峰` that are several people. **Nothing
-consumes it yet**, so the drop-and-preserve rule above is unchanged — routing still
-needs an `originating_author` field plus a lookup at route time. The file is a data
-artifact, not a shipped feature; treat its `confidence = "operator"` entries as
-unverified assertions, because a wrong mapping attributes real calls to the wrong
-trader and no downstream check can see it.
+`never_auto_attribute` for strings like `陈志峰` that are several people.
+`tools/pundit_roster.py` reads it at step 4a and returns one of four outcomes; only
+`mapped` routes. **A relay whose name does not resolve still drops** — the rule changed
+from drop-every-relay to drop-what-cannot-be-attributed.
+
+**Treat `confidence = "operator"` entries as unverified assertions.** A roster entry is
+an assertion we make, not a fact the pipeline derives, and a wrong mapping attributes
+real calls to the wrong trader with **no downstream check able to see it** — strictly
+worse than dropping the relay. When an operator-confidence mapping carries a routed row,
+say so in the digest so the approver can weigh it.
 
 ### 4. Resolve the call time deterministically — never in the prompt
 
@@ -329,7 +350,7 @@ Output (JSON to stdout):
 ```json
 {
   "call_ts_utc": "...",
-  "call_ts_source": "stated|publish",
+  "call_ts_source": "stated|publish|publish_relay",
   "publish_ts_utc": "...",
   "stated_ts_raw": "...",
   "backlog": false
@@ -339,6 +360,71 @@ Output (JSON to stdout):
 Use these five fields **verbatim** in the digest, the ledger line, and the note. Never
 have a subagent or the orchestrator derive `call_ts_utc` by date arithmetic — that is
 exactly the look-ahead defect this tool exists to prevent (see Guardrails).
+
+#### 4a. Resolve a relayed call's ORIGINATING AUTHOR
+
+For every `setup` candidate with `is_relay: true`, resolve the verbatim
+`originating_author` through the roster:
+
+```bash
+PYTHONPATH=. poetry run python tools/pundit_roster.py "<originating_author>"
+```
+
+Four outcomes, and each has exactly one action:
+
+- `mapped` — **route it.** `author` = the returned `handle` · `relayed_by` = this
+  channel's handle · `attribution` = `"relay"` · `attribution_confidence` = the returned
+  `confidence`. Treat `confidence: "operator"` as an unverified assertion and say so in
+  the digest.
+- `ambiguous` — **surface it in the digest for manual attribution**, listing `members`.
+  The operator assigns it from the audio or declines. Default if unactioned: **drop**.
+  This is a positive instruction, not missing data: `陈志峰` is three traders, and the
+  members being individually identified still does not say which one spoke a given line.
+- `unmapped` / `unknown` — set `unattributable=True` so `route_target` drops it, and
+  **list the name in the digest's UNRESOLVED NAMES section**. They stay distinct so the
+  digest can tell "a name we are already chasing" from "a name we have never seen".
+
+**Never resolve by eye.** `波浪` and `柳玉东` are one person with no shared characters,
+`军长`/`君掌` are homophones, and `波浪理论` is Elliott Wave Theory — a phrase, not a
+person. Only the roster's explicit alias list gets these right, which is why the resolver
+matches on exact equality and nothing else.
+
+#### 4b. Resolve a relayed call's TIME separately from the video's
+
+A relayed call was made **before** the roundup that reports it, so the video-level
+`call_ts_utc` is wrong for it — that is the `retrospective` defect applied to 100% of
+relays, and it is signed rather than self-cancelling: the scorer replays forward from
+`call_ts`, so a relay of a call that already hit target scores as a non-hit, while one
+that already stopped out can catch a later recovery.
+
+When pass 1 returned a per-candidate stated time, run `video_calltime.py` again for that
+item with `--relay`; when it did not, run it with `--relay` and no `--stated` so the row
+is labelled `publish_relay`:
+
+```bash
+PYTHONPATH=. poetry run python tools/video_calltime.py \
+  --publish <meta.publish_ts_utc> --relay [--stated <item stated_ts_utc>]
+```
+
+`--relay` labels the **fallback only** — a stated time that survives every bound is still
+the better answer, and still comes back as `stated`.
+
+#### 4c. Check a relay against its ORIGINATING author's own rows
+
+The Stream C dedup pass is `same-source` scoped, so it structurally cannot compare a
+relay against the original author's own first-hand row — and ingesting both the
+aggregator and the originating channels makes that collision routine rather than
+theoretical. Pass the resolved handle so the check widens from one source to one author:
+
+```bash
+PYTHONPATH=. poetry run python tools/route_dedup.py check \
+  --source-id <video id> --item-ts <t> --sink docs/plans/pundit-calls.jsonl \
+  --text "<the call>" --author <resolved handle>
+```
+
+`semantic_scope` comes back `same-author` instead of `same-source`. The across-source
+exemption is unchanged for **different** authors — two pundits making the same call are
+two genuine observations, not a duplicate.
 
 ### 5. Select and extract frames
 
@@ -557,6 +643,26 @@ Below the table, per video: the dropped candidates with their reasons, the `char
 flag, and `backlog` when `true`. List any shape-1 / shape-2 videos separately with their
 skip reason. **Write nothing yet.**
 
+**A relayed row shows `author` = the RESOLVED handle, and `relayed_by` beside it**, plus
+`attribution_confidence`. A row reading `author: <the channel>` with `attribution: relay`
+is the exact bug this pipeline was paused for — flag it rather than routing it.
+
+**7d — UNRESOLVED NAMES (mandatory — never omit, never abbreviate).**
+
+List every `originating_author` that did not resolve to `mapped`, with the video and
+timestamp it came from and the **verbatim** string, grouped as `ambiguous` (awaiting a
+manual call, listing `members`) vs `unmapped`/`unknown`.
+
+**This is the only mechanism by which the roster grows.** Round 7 measured 2 of 5
+originating names ASR-mangled — `输情`/`瞬间` → `舒琴`, recovered only from a Discord
+channel title visible in a frame. New mangles arrive every round, miss the exact-alias
+lookup by construction, and drop. If they are not listed here they are lost silently, and
+the roster stops improving while continuing to look like it works.
+
+Print the section **even when it is empty**, as `UNRESOLVED NAMES: none`. An omitted
+section and a clean round are indistinguishable to the reader, and only one of them is
+good news.
+
 **Why summaries come first (2026-08-04, operator).** Part of the reason this pipeline
 exists is to **receive what is in a video without watching it**. The routing streams do
 not serve that goal by themselves — they capture only what can be *scored or tested*, so
@@ -690,8 +796,17 @@ URL).
 **Stream C line** (`pundit-calls.jsonl`, one JSON line, extends the `/ingest-x` schema):
 
 ```json
-{"source":"youtube","author":"<handle>","url":"<url, with the deep link above for youtube>","ts":252.0,"call_ts_utc":"<resolved call time>","call_ts_source":"stated|publish","publish_ts_utc":"<publish time>","stated_ts_raw":"<verbatim quote or empty>","ingested_ts_utc":"<now>","backlog":false,"symbol":"...","direction":"...","entry":"...","stop":"...","target":"...","horizon":"...","confidence":"","vision_confidence":"high|medium|low","raw_quote":"<original language>","raw_quote_en":"<english>","corrected_from":"<transcript's original value, or empty>"}
+{"source":"youtube","author":"<handle>","attribution":"first-hand|relay","relayed_by":"<relaying channel handle, relay rows only>","attribution_confidence":"<roster confidence, relay rows only>","url":"<url, with the deep link above for youtube>","ts":252.0,"call_ts_utc":"<resolved call time>","call_ts_source":"stated|publish|publish_relay","publish_ts_utc":"<publish time>","stated_ts_raw":"<verbatim quote or empty>","ingested_ts_utc":"<now>","backlog":false,"symbol":"...","direction":"...","entry":"...","stop":"...","target":"...","horizon":"...","confidence":"","vision_confidence":"high|medium|low","raw_quote":"<original language>","raw_quote_en":"<english>","corrected_from":"<transcript's original value, or empty>"}
 ```
+
+**`author` is the person who MADE the call, never the channel that reported it.** On a
+first-hand row those are the same and `attribution` is `"first-hand"` with `relayed_by`
+omitted. On a relay, `author` is the roster-resolved handle from step 4a and `relayed_by`
+is this channel — `tools/pundit_score.py` groups on `author` (`:155`), so this is what
+makes the scorer credit the right person with **zero** changes to it. `source` keeps its
+meaning below (the medium) and is never overloaded to carry the relaying channel.
+`load_ledger` reads per-key with `obj.get(...)`, so the three new keys are
+backward-compatible and every pre-existing row keeps scoring exactly as before.
 
 `source` is `youtube` or `x-video` (from `meta.source`, verbatim — `tools/video_fetch.py`
 already resolves this). **`confidence` is always written as an empty string for a video

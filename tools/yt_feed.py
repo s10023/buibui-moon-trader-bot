@@ -27,7 +27,7 @@ from typing import Any, Protocol
 import requests
 from dotenv import load_dotenv
 
-from tools.video_marks import FRAME_CAP
+from tools.video_marks import FRAME_CAP, ITEM_CAP
 
 _API_BASE = "https://www.googleapis.com/youtube/v3"
 _PAGE_SIZE = 50
@@ -65,6 +65,14 @@ class ChannelConfig:
     # anything new; a `setup` extracted from that window is a past call wearing
     # today's timestamp. See `intro_recap_s` in the .example for the full rationale.
     intro_recap_s: int = 0
+    # Max items /ingest-video keeps from ONE video of this channel, before ranking.
+    # Imported from tools/video_marks.py rather than written as a literal, so the
+    # default cannot drift from the constant it is supposed to mirror. An aggregator
+    # that relays eight traders per upload needs more than a single-voice channel
+    # does; specificity ranking has mis-ordered twice (relays over host-own,
+    # retrospectives over forward calls), so a too-small cap on a roundup does not
+    # merely trim the tail — it silently discards the payload.
+    item_cap: int = ITEM_CAP
 
 
 @dataclass(frozen=True)
@@ -101,6 +109,7 @@ def load_feed_config(path: Path) -> FeedConfig:
                 lang=str(raw.get("lang", "")),
                 handle=str(raw.get("handle", "")),
                 intro_recap_s=int(raw.get("intro_recap_s", 0)),
+                item_cap=int(raw.get("item_cap", ITEM_CAP)),
             )
         )
     return FeedConfig(
@@ -764,6 +773,7 @@ def main(
                     "name": match.name if match else "",
                     "handle": match.handle if match else "",
                     "intro_recap_s": match.intro_recap_s if match else 0,
+                    "item_cap": match.item_cap if match else ITEM_CAP,
                 },
                 ensure_ascii=False,
             )

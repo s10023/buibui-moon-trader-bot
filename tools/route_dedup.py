@@ -24,6 +24,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from analytics.pundit_authors import normalize_author
+
 # The three routing targets, byte-identical to what `tools/x_route.route_target`
 # returns — a drift guard in the test suite pins them together.
 THESIS_SINK = "docs/plans/thesis-inbox.md"
@@ -371,29 +373,46 @@ def split_entries(sink: str, text: str) -> list[str]:
     return [text[a:b].strip() for a, b in zip(starts, bounds, strict=True)]
 
 
-def semantic_scope(sink: str, source_id: str | None) -> str:
+def semantic_scope(sink: str, source_id: str | None, author: str | None = None) -> str:
     """What `find_similar` will actually compare against — `check` reports this so a
-    digest can never read an empty candidate list as "checked and clean"."""
+    digest can never read an empty candidate list as "checked and clean".
+
+    `author` scoping exists for relays: the same author's same call can arrive from two
+    different sources (their own upload, and an aggregator relaying them), which
+    source scoping structurally cannot see. The across-source exemption survives for
+    DIFFERENT authors — two pundits agreeing is two observations, not a duplicate.
+    """
     if sink in SEMANTIC_SINKS:
         return "all-entries"
-    # Scoping to one source needs entries that persist their own URL, which today
-    # means the JSONL sink. Anything else is unscopeable, so nothing is compared.
-    return "same-source" if source_id and sink.endswith(".jsonl") else "none"
+    # Scoping needs entries that persist their own URL/author, which today means the
+    # JSONL sink. Anything else is unscopeable, so nothing is compared.
+    if not sink.endswith(".jsonl"):
+        return "none"
+    if author:
+        return "same-author"
+    return "same-source" if source_id else "none"
 
 
 def _comparable_entries(
-    sink: str, sink_text: str, source_id: str | None
+    sink: str, sink_text: str, source_id: str | None, author: str | None = None
 ) -> list[tuple[str, str]]:
     """`(text to score, excerpt)` per in-scope entry."""
-    if semantic_scope(sink, source_id) == "none":
+    scope = semantic_scope(sink, source_id, author)
+    if scope == "none":
         return []
     entries = split_entries(sink, sink_text)
     if sink in SEMANTIC_SINKS:
         return [(e, e) for e in entries]
+    wanted_author = normalize_author(author) if author else None
     scoped: list[tuple[str, str]] = []
     for entry in entries:
         row = _parse_jsonl_entry(entry)
-        if row is None or parse_source_id(str(row.get("url") or "")) != source_id:
+        if row is None:
+            continue
+        if wanted_author is not None:
+            if normalize_author(str(row.get("author") or "")) != wanted_author:
+                continue
+        elif parse_source_id(str(row.get("url") or "")) != source_id:
             continue
         content = pundit_content_text(row)
         scoped.append((content, content))
@@ -408,6 +427,7 @@ def find_similar(
     top_n: int = 3,
     min_score: float = _MIN_SCORE,
     source_id: str | None = None,
+    author: str | None = None,
 ) -> list[DedupCandidate]:
     """Entries in `sink_text` that look like they already say what `claim` says.
 
@@ -422,9 +442,14 @@ def find_similar(
     is how an entry leg and a target leg of a single position became two ledger rows
     on 2026-07-31. Same-source entries are scored on their content fields only; see
     `_PUNDIT_CONTENT_FIELDS` for why the raw line cannot be used.
+
+    Supplying `author` widens the comparison from one source to one AUTHOR, across
+    sources — the relay case, where the same person's same call arrives once from their
+    own upload and once from an aggregator relaying them. The across-source exemption
+    above is unaffected for different authors, which is exactly what it was protecting.
     """
     hits: list[DedupCandidate] = []
-    for text, excerpt in _comparable_entries(sink, sink_text, source_id):
+    for text, excerpt in _comparable_entries(sink, sink_text, source_id, author):
         score, shared_levels, shared_terms = _score(claim, text)
         if score >= min_score:
             hits.append(
@@ -488,9 +513,14 @@ def _cmd_check(args: argparse.Namespace) -> int:
     sink_path = Path(args.sink_path or args.sink)
     text = sink_path.read_text(encoding="utf-8") if sink_path.exists() else ""
     candidates = find_similar(
-        args.text, args.sink, text, top_n=args.top_n, source_id=args.source_id
+        args.text,
+        args.sink,
+        text,
+        top_n=args.top_n,
+        source_id=args.source_id,
+        author=args.author,
     )
-    scope = semantic_scope(args.sink, args.source_id)
+    scope = semantic_scope(args.sink, args.source_id, args.author)
     print(
         json.dumps(
             {
@@ -631,6 +661,13 @@ def main(argv: list[str] | None = None) -> int:
                 "--sink-path", default="", help="read the sink here instead of --sink"
             )
             p.add_argument("--top-n", type=int, default=3)
+            p.add_argument(
+                "--author",
+                default=None,
+                help="widen the Stream C comparison from one source to this AUTHOR, "
+                "across sources — pass the roster-resolved handle when checking a "
+                "relay, so it is compared against that author's own first-hand rows",
+            )
 
     p_pairs = sub.add_parser(
         "pairs",

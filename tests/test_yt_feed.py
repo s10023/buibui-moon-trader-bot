@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from tools.video_marks import ITEM_CAP
 from tools.yt_feed import (
     ChannelConfig,
     FeedConfig,
@@ -108,6 +109,32 @@ class TestLoadFeedConfig:
         assert ch.title_include == ()
         assert ch.lang == ""
         assert ch.name == "UCabcdefghijklmnopqrstu"
+
+    def test_item_cap_defaults_to_the_global_constant(self, tmp_path: Path) -> None:
+        cfg = load_feed_config(
+            self._write(tmp_path, '[[channel]]\nid = "UCabcdefghijklmnopqrstu"\n')
+        )
+        assert cfg.channels[0].item_cap == ITEM_CAP
+
+    def test_item_cap_is_read_from_the_channel_block(self, tmp_path: Path) -> None:
+        cfg = load_feed_config(
+            self._write(
+                tmp_path,
+                '[[channel]]\nid = "UCabcdefghijklmnopqrstu"\nitem_cap = 12\n',
+            )
+        )
+        assert cfg.channels[0].item_cap == 12
+
+    def test_item_cap_is_an_int_not_a_tuple(self, tmp_path: Path) -> None:
+        """The plan's literal loader snippet was `(int(...),)` — a 1-tuple. mypy
+        catches it, but only if someone runs mypy; this fails loudly either way."""
+        cfg = load_feed_config(
+            self._write(
+                tmp_path,
+                '[[channel]]\nid = "UCabcdefghijklmnopqrstu"\nitem_cap = 12\n',
+            )
+        )
+        assert isinstance(cfg.channels[0].item_cap, int)
 
     def test_missing_file_aborts(self, tmp_path: Path) -> None:
         with pytest.raises(SystemExit):
