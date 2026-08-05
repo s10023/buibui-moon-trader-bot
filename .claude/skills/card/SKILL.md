@@ -42,7 +42,7 @@ If a batch ever times out again, override per-run with no repo change —
 path. This is what unblocked the 2026-08-04 batch:
 
 ```bash
-poetry run python buibui.py card BTCUSDT --direction short --config /path/to/card.toml
+make buibui-card SYMBOL=BTCUSDT DIRECTION=short CONFIG=/path/to/card.toml
 ```
 
 ### The 8× lever, measured — opt-in, NOT the default
@@ -153,7 +153,7 @@ rubric defects as card-v4 candidates in the digest — the LOT_SIZE rounding and
 | Reproducible inputs | `... AS_OF=2026-07-16T02:00:00Z` |
 | Free state smoke | `... DRY=1` |
 | Cohort-safe exploration | `poetry run python buibui.py card SYM --no-ledger` |
-| Override the timeout, no repo change | `... card SYM --config /path/to/card.toml` (`[card]` block) |
+| Timeout / reasoning knobs, no repo change | `make buibui-card SYMBOL=BTCUSDT CONFIG=/path/to/card.toml` |
 | Collect batch rows | `tail -n <N> docs/plans/ai-cards.jsonl` |
 | Score the AI cohorts | `make buibui-pundit-score` |
 
