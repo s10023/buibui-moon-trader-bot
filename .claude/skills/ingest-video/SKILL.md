@@ -285,7 +285,18 @@ Relayed names fragment (`输情`/`瞬间` and `舒琴` are one person; ASR mangl
 collide (`陈志峰` turned out to be three traders run together). Attributing on an
 unnormalised extracted name manufactures phantom pundits with fake track records while
 starving the real ones of rows. Routing relays needs a curated name→handle roster first;
-until that exists, **drop them here and preserve them in the note.**
+until that is WIRED, **drop them here and preserve them in the note.**
+
+**The roster file now exists — do not rebuild it from scratch.** Gitignored
+`config/pundit_roster.toml` (schema + rationale in the committed
+`config/pundit_roster.toml.example`) holds the confirmed name→handle mappings, an
+`[[unmapped]]` list of names still being chased, and `[[ambiguous]]` entries marked
+`never_auto_attribute` for strings like `陈志峰` that are several people. **Nothing
+consumes it yet**, so the drop-and-preserve rule above is unchanged — routing still
+needs an `originating_author` field plus a lookup at route time. The file is a data
+artifact, not a shipped feature; treat its `confidence = "operator"` entries as
+unverified assertions, because a wrong mapping attributes real calls to the wrong
+trader and no downstream check can see it.
 
 ### 4. Resolve the call time deterministically — never in the prompt
 
