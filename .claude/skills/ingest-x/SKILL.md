@@ -62,9 +62,9 @@ pasted, then run the flow once over the whole set.
    ```json
    {
      "symbol": "BTCUSDT | null",
-     "direction": "long | short | neutral | null",
+     "direction": "EXACTLY ONE OF: long | short | neutral | null — no other value",
      "entry": "...", "stop": "...", "target": "...",
-     "horizon": "intraday | swing | unspecified",
+     "horizon": "EXACTLY ONE OF: intraday | swing | unspecified — no other value",
      "setup_type": "free text",
      "raw_quote": "the sentence(s) the call/claim came from",
      "chart_read": "what the chart shows (levels, structure, annotations)",
@@ -77,6 +77,39 @@ pasted, then run the flow once over the whole set.
 
    `verdict` applies only when `content_type = claim`; for `setup`/`mechanic` set it
    to `NOVEL` as a non-blocking default (routing uses `content_type` for those).
+
+   **`direction` and `horizon` are closed enums, and a value outside them costs you
+   the whole row.** Both are now enforced in code at both ledger read boundaries —
+   `analytics/pundit_direction.py` and `analytics/pundit_horizon.py` — so the scorer
+   and the Brief's pundit board each skip the line with a warning rather than
+   mis-booking it. That is an improvement on what came before, but it is still a
+   **loss**: the call is never scored, and nothing tells you at write time.
+
+   - **`direction`** — anything unrecognised used to fall through to
+     `dirsign = 1.0 if direction == "long" else -1.0` and book as a **SHORT**.
+     Measured on `/ingest-video` 2026-08-05: a range-trade plan was emitted as
+     `direction: "range"`, which would have scored a deliberately non-directional
+     call as bearish. A range / chop / two-sided plan is **`neutral`** — map it there
+     and say why in `setup_type`. A *missing* direction is rejected on the same
+     grounds; it arrived as `""`, which is also not `"long"`, so absence scored as a
+     short too.
+   - **`horizon`** — an unrecognised value used to take the 14-day `unspecified`
+     window instead of intraday's 48h or swing's 30d, changing the
+     WIN / LOSS / NOT_TRIGGERED verdict for the same call. **Absence is fine here and
+     is NOT the same as direction**: `unspecified` is a real member of the enum, so
+     omit the field or write `unspecified` when no timeframe was stated. What is
+     rejected is a plausible-looking near-miss — `daily`, `1h`, `short-term`,
+     `position`, `scalp`.
+
+   Casing and surrounding whitespace are folded on both (`SHORT` → `short`), so only
+   genuinely new values are rejected. **The schema's `null` for `direction` is not a
+   contradiction:** a `claim` or `mechanic` legitimately has no direction and those
+   never route to Stream C. `null` is invalid only on a row that reaches the ledger.
+   Check both values before writing any Stream C row.
+
+   This rule exists because `/ingest-video` carried it and this skill did not, though
+   both write the same Stream C rows from the same item schema — a gap found by
+   hand-grepping the skill tree, not by any gate.
 
    **`is_retrospective` = the post describes a call whose outcome was already known
    when it was posted** — an archive repost, a past trade recapped, a chart annotated
@@ -170,7 +203,9 @@ pasted, then run the flow once over the whole set.
    talked-out-of-it setup is rarer on X and a mis-set flag silently deletes a real call.
 
    **Stream C line** (`pundit-calls.jsonl`, one line, matches the parent spec's
-   pundit-call schema):
+   pundit-call schema). **Re-check `direction` and `horizon` against their enums
+   here** — this is the last point before the row becomes ledger evidence, and both
+   are silently unrecoverable once written:
 
    ```json
    {"source":"twitter","author":"<handle>","url":"<url>","call_ts_utc":"<post_ts_utc>","symbol":"<symbol>","direction":"<direction>","entry":"<entry>","stop":"<stop>","target":"<target>","horizon":"<horizon>","confidence":"<verbatim hedging or empty>","raw_quote":"<raw_quote>"}

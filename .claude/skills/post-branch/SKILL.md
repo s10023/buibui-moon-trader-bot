@@ -312,6 +312,51 @@ For each surface in the config, do the following:
   CLAUDE.md does. Grep the skill tree for the changed artifact's name — a
   renamed flag or a moved module leaves a skill quietly instructing the next
   session to run something that no longer exists.
+
+- **THIRD INSTANCE of the omission blind spot: a rule a SIBLING skill lacks.**
+  The two cases above catch drift in what a doc already says, and a package a
+  doc has never heard of. Neither catches **two skills that write the same
+  artifact where only one carries the rule governing it.** Measured: #559 added
+  a `direction`-enum rule to `/ingest-video`; `/ingest-x` writes the *same*
+  Stream C rows to the *same* `pundit-calls.jsonl` from the *same* item schema
+  and had **no such rule at all**. Nothing flagged it. It was found by hand-
+  grepping the skill tree, which is luck plus a person — the same non-rule that
+  `/ingest-x`'s own `is_retrospective` guard exists to replace.
+
+  **So when a PR adds or changes a RULE in one skill, check its siblings.**
+  Identify the artifact the rule governs, find every skill that writes it, and
+  report which ones lack the rule:
+
+  ```bash
+  # ART = the artifact the changed rule governs; LOCUS = where it is enforced
+  ART=pundit-calls.jsonl
+  LOCUS=pundit_direction
+  grep -rls "$ART" .claude/skills/*/SKILL.md | while read -r s; do
+    grep -qw "$LOCUS" "$s" || echo "SIBLING WRITES $ART BUT LACKS THE RULE: $s"
+  done
+  ```
+
+  **Grep for the enforcement locus, NOT the field name** — this is the whole
+  trick, and getting it wrong makes the check vacuous. Searching `-w direction`
+  returns **4 hits** in `main`'s `/ingest-x` (it names the field in its schema,
+  its digest table, and its Stream C line) and would have reported green on the
+  exact gap it was meant to catch. A skill that carries a rule cites *where the
+  rule is enforced*; one that merely handles the field does not. Use `-w`:
+  substring matching silently conflates `pundit_direction` with a longer name,
+  the same trap that made skill-fix 7p's own filed fix wrong.
+
+  **A hit is a candidate, not a finding — it over-reports by design.** The grep
+  cannot tell "writes this artifact" from "mentions this artifact", so confirm
+  with one read before proposing anything. Run against this tree it returns two
+  known-benign hits, and **neither is a bug to fix**: `/ingest-feed` names the
+  file only to say it does *not* write it (the writes live inside
+  `/ingest-video`'s flow), and this skill names it as the worked example above.
+  Tightening the grep to exclude them would re-create the omission blindness
+  this bullet exists to fix — a check that can only see what it already expects.
+  Prefer two false positives you dismiss in ten seconds over one silent miss.
+
+  Verified by counterfactual, not by assertion: replayed against `main`, the
+  recipe emits `WOULD HAVE FLAGGED: ingest-x/SKILL.md`.
 - **`make lint-md` DOES cover this tree — just run it.** No special recipe, no
   `cd /tmp`, no explicit `--config`. `.markdownlint-cli2.jsonc` excludes
   `.claude` wholesale and then **re-includes** the two committed subtrees:
