@@ -97,6 +97,11 @@ class TestMarketState:
 
 
 _NOW_MS = 1_760_000_000_000
+# A 1h bar that has CLOSED at _NOW_MS. Fires are admitted on their bar's close,
+# so a fixture seeded inside the still-forming bar (_NOW_MS - 1_000_000) is
+# invisible to _fires_block BY DESIGN — name it rather than open-code the
+# offset, so a future fixture cannot reintroduce the look-ahead by accident.
+_CLOSED_1H_OPEN_MS = _NOW_MS - 3_600_000 - 1_000_000
 
 
 def _fake_bundle(symbol: str) -> BriefBundle:
@@ -164,7 +169,7 @@ class TestSnapshotMarketState:
         conn.execute(
             "INSERT INTO signals (symbol, timeframe, strategy, open_time, "
             "direction, entry_price, sl_price, reason, confidence, fired_at) "
-            f"VALUES ('BTCUSDT', '1h', 'fvg', {_NOW_MS - 1_000_000}, 'long', "
+            f"VALUES ('BTCUSDT', '1h', 'fvg', {_CLOSED_1H_OPEN_MS}, 'long', "
             "100.0, 99.0, 'r', 3, 0)"
         )
         conn.execute(
@@ -206,6 +211,97 @@ class TestSnapshotMarketState:
         assert state.account is not None
         assert state.account.daily_r == -2.0
         assert state.account.positions[0].side == "short"
+
+    def _snapshot(self, conn: duckdb.DuckDBPyConnection) -> MarketState:
+        return snapshot_market_state(
+            conn,
+            "BTCUSDT",
+            CardConfig(),
+            SizingConfig(),
+            now_ms=_NOW_MS,
+            account_provider=None,
+            brief_fn=lambda _conn, cfg: _fake_bundle(cfg.symbols[0]),
+            targets_fn=lambda *a, **k: None,
+        )
+
+    def test_account_skip_reason_surfaces_in_health(self) -> None:
+        """A caller that deliberately withholds the provider says WHY.
+
+        `--as-of` cannot pin the live account, so a pinned run omits it — and
+        the state has to record that, or a reader cannot tell an intentional
+        omission from a credentials failure.
+        """
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        state = snapshot_market_state(
+            conn,
+            "BTCUSDT",
+            CardConfig(),
+            SizingConfig(),
+            now_ms=_NOW_MS,
+            account_provider=None,
+            account_skip_reason="omitted under --as-of",
+            brief_fn=lambda _conn, cfg: _fake_bundle(cfg.symbols[0]),
+            targets_fn=lambda *a, **k: None,
+        )
+        assert state.account is None
+        assert "account: omitted under --as-of" in state.health
+
+    def test_account_skip_reason_defaults_to_the_degraded_note(self) -> None:
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        state = self._snapshot(conn)
+        assert "account: no provider (degraded)" in state.health
+
+    def test_fires_exclude_a_bar_that_closes_after_the_anchor(self) -> None:
+        """A fire is admitted on its bar's CLOSE, not its open — else look-ahead.
+
+        Filtering by open_time lets in a bar that was still forming at the
+        anchor, so a card dated T cites a signal only knowable after T.
+        """
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        rows = [
+            # closed at _NOW_MS - 1_000_000: legitimately visible.
+            ("closed_bar", _CLOSED_1H_OPEN_MS),
+            # opened 16.7 min before the anchor, closes 43.3 min AFTER it.
+            ("open_bar", _NOW_MS - 1_000_000),
+        ]
+        for strategy, open_time in rows:
+            conn.execute(
+                "INSERT INTO signals (symbol, timeframe, strategy, open_time, "
+                "direction, entry_price, sl_price, reason, confidence, "
+                f"fired_at) VALUES ('BTCUSDT', '1h', '{strategy}', {open_time}, "
+                "'long', 100.0, 99.0, 'r', 3, 0)"
+            )
+        state = self._snapshot(conn)
+        assert [f.strategy for f in state.recent_fires] == ["closed_bar"]
+
+    def test_state_digest_stable_across_a_candle_close(self) -> None:
+        """A FIXED anchor survives the bar closing and its signal landing.
+
+        The live defect was exactly this: the row was absent at 12:58Z and
+        present at 13:15Z at one pinned anchor, because the daemon writes the
+        signal only after the bar closes.
+        """
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        conn.execute(
+            "INSERT INTO signals (symbol, timeframe, strategy, open_time, "
+            "direction, entry_price, sl_price, reason, confidence, fired_at) "
+            f"VALUES ('BTCUSDT', '1h', 'fvg', {_CLOSED_1H_OPEN_MS}, "
+            "'long', 100.0, 99.0, 'r', 3, 0)"
+        )
+        before = state_digest(self._snapshot(conn))
+
+        # The daemon closes the 16.7-min-old bar and persists its signal.
+        conn.execute(
+            "INSERT INTO signals (symbol, timeframe, strategy, open_time, "
+            "direction, entry_price, sl_price, reason, confidence, fired_at) "
+            f"VALUES ('BTCUSDT', '1h', 'eqh_eql', {_NOW_MS - 1_000_000}, "
+            f"'short', 100.0, 101.0, 'r', 3, {_NOW_MS + 2_600_000})"
+        )
+        assert state_digest(self._snapshot(conn)) == before
 
     def test_no_provider_degrades_with_note(self) -> None:
         conn = duckdb.connect(":memory:")
@@ -298,7 +394,7 @@ class TestFiresBlock:
         conn.execute(
             "INSERT INTO signals (symbol, timeframe, strategy, open_time, "
             "direction, entry_price, sl_price, reason, confidence, fired_at) "
-            f"VALUES ('BTCUSDT', '1h', 'fvg', {_NOW_MS - 1_000_000}, 'long', "
+            f"VALUES ('BTCUSDT', '1h', 'fvg', {_CLOSED_1H_OPEN_MS}, 'long', "
             "100.0, 99.0, 'r', 3, 0)"
         )
         # only a 'combined' rating exists — no ('fvg','1h','long') row
@@ -323,7 +419,7 @@ def _insert_fire(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute(
         "INSERT INTO signals (symbol, timeframe, strategy, open_time, "
         "direction, entry_price, sl_price, reason, confidence, fired_at) "
-        f"VALUES ('BTCUSDT', '1h', 'fvg', {_NOW_MS - 1_000_000}, 'long', "
+        f"VALUES ('BTCUSDT', '1h', 'fvg', {_CLOSED_1H_OPEN_MS}, 'long', "
         "100.0, 99.0, 'r', 3, 0)"
     )
 

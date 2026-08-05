@@ -159,12 +159,25 @@ two configs, as evidence about anything. → memory `[[card-reproducibility-verd
 | ---- | ------- |
 | Single card (background) | `make buibui-card SYMBOL=BTCUSDT` |
 | Directional | `make buibui-card SYMBOL=ETHUSDT DIRECTION=short` |
-| Reproducible inputs | `... AS_OF=2026-07-16T02:00:00Z` |
+| Reproducible INPUTS (never the card) | `... AS_OF=2026-07-16T02:00:00Z` |
 | Free state smoke | `... DRY=1` |
 | Cohort-safe exploration | `poetry run python buibui.py card SYM --no-ledger` |
 | Timeout / reasoning knobs, no repo change | `make buibui-card SYMBOL=BTCUSDT CONFIG=/path/to/card.toml` |
 | Collect batch rows | `tail -n <N> docs/plans/ai-cards.jsonl` |
 | Score the AI cohorts | `make buibui-pundit-score` |
+
+**`AS_OF` pins the INPUTS, not the verdict.** It composes state as of that
+moment — admitting only bars that had **closed** by then, and omitting the live
+account, which cannot be pinned because Binance serves only current positions
+and equity (the state carries an `account:` health note saying so). The model
+stays nondeterministic regardless: two runs on a byte-identical `state_digest`
+have returned **opposite directions**, so a pinned anchor makes a comparison
+*possible*, never conclusive at n=1. → memory `[[card-reproducibility-verdict]]`
+
+Until 2026-08-05 `--as-of` pinned `now_ms` alone and its help text still claimed
+"reproducible inputs": `recent_fires` was filtered by bar **open**, so a bar
+still forming at the anchor was admitted the moment the daemon wrote its row —
+look-ahead, not merely drift.
 
 ## Common mistakes
 

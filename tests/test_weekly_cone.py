@@ -177,8 +177,67 @@ def test_current_week_path_partial(conn: duckdb.DuckDBPyConnection) -> None:
     assert path.week_open == 100.0
     assert path.awr14_current == pytest.approx(0.02)
     # _NOW is 12:30 Wed = hour 60 of the week forming; 60 bars have closed.
+    # points holds exactly those 60 — the 61st is still open at the anchor.
     assert path.elapsed_h == 60
-    assert len(path.points) == 61
+    assert len(path.points) == 60
+
+
+def test_current_week_path_excludes_the_forming_bar(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """`points` holds only bars CLOSED at `now`, so len(points) == elapsed_h.
+
+    The DB stores the still-open bar (fetch_klines passes Binance's raw klines
+    through untouched), and its close is overwritten on every sync. Admitting
+    it makes `points[-1]` mean "whenever analytics sync last ran" — neither the
+    anchor nor a bar close.
+    """
+    _seed_warmup(conn, _CURRENT_WEEK - timedelta(weeks=14), n=14)
+    _insert_week(conn, _CURRENT_WEEK, k=0.2, n_bars=61)
+    # Give the forming bar (index 60, opens 12:00, closes 13:00 > _NOW) a close
+    # no other bar has, so its presence is visible in the values, not just len.
+    conn.execute(
+        "UPDATE ohlcv SET close = 123.0 WHERE symbol = ? AND timeframe = '1h' "
+        "AND open_time = ?",
+        [_SYMBOL, int(datetime(2026, 3, 4, 12, tzinfo=UTC).timestamp() * 1000)],
+    )
+    path = compute_current_week_path(conn, _SYMBOL, now_ms=_NOW_MS)
+    assert path is not None
+    assert path.elapsed_h == 60
+    assert len(path.points) == 60
+    # k=0.2 -> every closed bar normalizes to k / 2 = 0.1; 123.0 would be 11.5.
+    assert path.points[-1] == pytest.approx(0.1)
+
+
+def test_current_week_path_stable_across_a_candle_close(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """A FIXED anchor survives a candle closing underneath it.
+
+    Composing twice inside one bar proves nothing (the cap-saturated-fixture
+    trap): the drift this guards only appears when the forming bar finalises
+    and a new one arrives, which is exactly what the second half simulates.
+    """
+    _seed_warmup(conn, _CURRENT_WEEK - timedelta(weeks=14), n=14)
+    _insert_week(conn, _CURRENT_WEEK, k=0.2, n_bars=61)
+    before = compute_current_week_path(conn, _SYMBOL, now_ms=_NOW_MS)
+
+    # The 12:00 bar closes at 13:00 with a final close unlike its partial one,
+    # and the 13:00 bar opens. Both are strictly after the anchor.
+    hour_12 = int(datetime(2026, 3, 4, 12, tzinfo=UTC).timestamp() * 1000)
+    conn.execute(
+        "UPDATE ohlcv SET close = 100.45 WHERE symbol = ? AND timeframe = '1h' "
+        "AND open_time = ?",
+        [_SYMBOL, hour_12],
+    )
+    _insert_ohlcv_rows(
+        conn,
+        1,
+        [_SYMBOL, "1h", hour_12 + 3_600_000, 100.0, 100.5, 99.5, 100.4, 100.0, 50.0],
+    )
+    after = compute_current_week_path(conn, _SYMBOL, now_ms=_NOW_MS)
+
+    assert before == after
 
 
 def test_current_week_path_none_without_awr(conn: duckdb.DuckDBPyConnection) -> None:

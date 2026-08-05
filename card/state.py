@@ -165,8 +165,14 @@ def _fires_block(
     }
     fires: list[RecentFire] = []
     for tf in cfg.fires_timeframes:
-        span_ms = parse_timeframe_secs(tf) * 1000 * cfg.fires_lookback_bars
-        df = get_signals_history(conn, symbol, tf, now_ms - span_ms, now_ms)
+        tf_ms = parse_timeframe_secs(tf) * 1000
+        span_ms = tf_ms * cfg.fires_lookback_bars
+        # The end bound is a bar CLOSE, not a bar open: `signals` rows are keyed
+        # by open_time and the daemon writes one only after the bar closes, so
+        # bounding at now_ms admits a bar still forming at the anchor — a card
+        # dated T citing a fire only knowable after T. Look-ahead, not just
+        # irreproducibility.
+        df = get_signals_history(conn, symbol, tf, now_ms - span_ms, now_ms - tf_ms)
         for row in df.to_dict("records"):
             r = ratings.get((str(row["strategy"]), tf, str(row["direction"])))
             if r is None:
@@ -206,6 +212,7 @@ def snapshot_market_state(
     *,
     now_ms: int,
     account_provider: AccountProvider | None,
+    account_skip_reason: str | None = None,
     direction_hint: str | None = None,
     brief_fn: BriefFn = compute_brief,
     targets_fn: TargetsFn = replay_targets,
@@ -250,7 +257,11 @@ def snapshot_market_state(
 
     account: AccountState | None = None
     if account_provider is None:
-        health.append("account: no provider (degraded)")
+        # `account_skip_reason` distinguishes a DELIBERATE omission (a pinned
+        # --as-of run, which cannot freeze a live account) from a credentials
+        # or network failure. Both leave account=None, and a reader with only
+        # the generic note cannot tell which happened.
+        health.append(f"account: {account_skip_reason or 'no provider (degraded)'}")
     else:
         try:
             day_start = now_ms - (now_ms % DAY_MS)
