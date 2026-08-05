@@ -42,7 +42,7 @@ A tactical crypto trading bot designed for fast, risk-managed, and confident ent
   mmt_SOLUSDT.png                        # no timestamp at all — capture time = file mtime
   ```
 
-- `buibui card SYMBOL` — AI trade card (F2): feeds the brief panel, pundit board, XS target, recent fires, and live account into an LLM (`claude -p`, subscription auth) with a fixed rubric, then deterministically sizes and rule-checks the result in code (VETOED on violation). Advisory only, no order routing. Every call logs to `docs/plans/ai-cards.jsonl`. `--dry-run` prints the state + prompt with no LLM call. `make buibui-card SYMBOL=BTCUSDT [DIRECTION=] [AS_OF=] [DRY=1]`.
+- `buibui card SYMBOL` — AI trade card (F2): feeds the brief panel, pundit board, XS target, recent fires, and live account into an LLM (`claude -p`, subscription auth) with a fixed rubric, then deterministically sizes and rule-checks the result in code (VETOED on violation). Advisory only, no order routing. Every call logs to `docs/plans/ai-cards.jsonl`. `--dry-run` prints the state + prompt with no LLM call. `make buibui-card SYMBOL=BTCUSDT [DIRECTION=] [AS_OF=] [DRY=1] [CONFIG=]`.
 
 - `/ingest-video` *(Claude Code skill)* — turn a pasted YouTube or X video URL, including
   Chinese-language video, into routed research items. Fetches metadata + transcript

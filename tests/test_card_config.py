@@ -16,7 +16,9 @@ class TestCardConfig:
         assert cfg.claude_bin == "claude"
         assert cfg.claude_config_dir == "~/.claude-personal"
         assert cfg.model == "sonnet"
-        assert cfg.timeout_s == 180.0
+        assert cfg.timeout_s == 480.0
+        assert cfg.max_thinking_tokens is None
+        assert cfg.restrict_tools is False
         assert cfg.min_rr == 1.0
         assert cfg.daily_loss_limit_r == -2.0
         assert cfg.entry_band_pct == 5.0
@@ -52,6 +54,59 @@ class TestCardConfig:
         0 stays available as an explicit opt-in, not as the default.
         """
         assert CardConfig().live_window_days > 0
+
+    def test_timeout_s_default_clears_measured_generation_time(self) -> None:
+        """The default timeout must exceed real card generation, not the doc's guess.
+
+        Six real cards on 2026-08-04 took 271 / 349 / 299 / 291 s. The default was
+        180.0, i.e. below the FASTEST of them, so both attempts timed out
+        (`LLMClient.generate` retries once) and every card in the batch returned
+        nothing while burning ~6 min. Nothing failed loudly: the operator saw empty
+        output, not a timeout, and the cause was a stale "60-90 s+" figure in the
+        /card skill that the constant had been set from.
+
+        349 s is the measured worst case. Anything at or below it re-arms the
+        outage, so this asserts headroom over that observation rather than pinning
+        the literal default — a slower model or a longer prompt may justify raising
+        it again, but never lowering it back under the evidence.
+        """
+        assert CardConfig().timeout_s > 349.0
+
+    def test_reasoning_knobs_are_opt_in_at_the_config_layer(self) -> None:
+        """The OPERATOR-facing default must stay "unchanged", not just the client's.
+
+        `max_thinking_tokens=0` + `restrict_tools=True` made one measured card
+        8.0x faster (245.6 s -> 30.7 s, 21,705 -> 2,040 output tokens) with every
+        spot-checked citation still exact — but on n=1, and the verdict moved
+        against baseline. Until that is validated on a real batch these stay off.
+
+        This test exists because the equivalent assertion in test_card_client.py
+        does NOT cover this: it builds ClaudeCliClient directly, so it reads the
+        client's own field default. There are TWO declarations of each knob, and
+        flipping this one alone changes real behaviour while that test stays
+        green — verified by mutation on 2026-08-05.
+        """
+        cfg = CardConfig()
+        assert cfg.max_thinking_tokens is None
+        assert cfg.restrict_tools is False
+
+    def test_reasoning_knobs_settable_from_toml(self, tmp_path: Path) -> None:
+        """The opt-in path must actually work — it is the whole point of the knob."""
+        toml = tmp_path / "card.toml"
+        toml.write_text("[card]\nmax_thinking_tokens = 0\nrestrict_tools = true\n")
+        cfg = CardConfig.from_toml(toml)
+        assert cfg.max_thinking_tokens == 0
+        assert cfg.restrict_tools is True
+
+    def test_timeout_s_overridable_from_toml(self, tmp_path: Path) -> None:
+        """`--config` with a [card] block is the no-repo-change escape hatch.
+
+        This is what unblocked the 2026-08-04 batch before the default was fixed,
+        so it is load-bearing operator knowledge, not an incidental feature.
+        """
+        toml = tmp_path / "card.toml"
+        toml.write_text("[card]\ntimeout_s = 600.0\n")
+        assert CardConfig.from_toml(toml).timeout_s == 600.0
 
     def test_live_window_days_zero_still_selectable(self, tmp_path: Path) -> None:
         """0 must remain reachable — it is the all-time escape hatch."""
