@@ -35,6 +35,7 @@ import pandas as pd
 
 from analytics.backtest.engine import _compute_atr14
 from analytics.pundit_authors import normalize_author
+from analytics.pundit_direction import normalize_direction
 from analytics.store import DEFAULT_DB_PATH
 from analytics.store.market_data import get_ohlcv
 
@@ -156,7 +157,12 @@ def load_ledger(path: Path) -> tuple[list[LedgerCall], list[str]]:
                 url=str(obj.get("url", "")),
                 call_ts_utc=str(obj["call_ts_utc"]),
                 symbol=str(obj["symbol"]),
-                direction=str(obj.get("direction", "")).lower(),
+                # Raises on anything outside the enum, which the existing
+                # handler below turns into a per-line warning. Before this,
+                # score_call's `dirsign = 1.0 if direction == "long" else
+                # -1.0` booked every unknown value — and every MISSING one —
+                # as a SHORT, silently.
+                direction=normalize_direction(str(obj.get("direction", ""))),
                 entry=str(obj.get("entry", "") or ""),
                 stop=str(obj.get("stop", "") or ""),
                 target=str(obj.get("target", "") or ""),
