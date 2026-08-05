@@ -11,6 +11,9 @@ when it lands in `project_todo_master.md`, and do not reuse `R1`/`R7`, which alr
 
 **Unblocks:** Kolunite社区 (`UCbZIP3-hbPOuaeHM0pWeM0w`), paused since round 7.
 
+**Plan:** `docs/superpowers/plans/2026-08-05-relay-attribution.md` — six tasks mapped onto
+the four PRs in §7, with literal test bodies and a mutation proof per task.
+
 ## 1. Problem
 
 `tools/pundit_score.py` groups on `author` (`:155`, via `normalize_author`), and `author`
