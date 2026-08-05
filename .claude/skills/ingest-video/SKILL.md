@@ -280,12 +280,26 @@ the double-count would also have been invisible to any author-level grouping.
 `tools/route_dedup.py`'s Stream C semantic pass is scoped to `same-source` and
 **structurally cannot** catch a relay against the original author's own row.
 
-**Do not "solve" this by writing `originating_author` into the Stream C `author` field.**
+**Do not write the RAW extracted `originating_author` into the Stream C `author` field.**
 Relayed names fragment (`输情`/`瞬间` and `舒琴` are one person; ASR mangles CJK names) and
-collide (`陈志峰` turned out to be three traders run together). Attributing on an
-unnormalised extracted name manufactures phantom pundits with fake track records while
-starving the real ones of rows. Routing relays needs a curated name→handle roster first;
-until that is WIRED, **drop them here and preserve them in the note.**
+collide (`陈志峰` is three traders run together). Attributing on an unnormalised extracted
+name manufactures phantom pundits with fake track records while starving the real ones of
+rows.
+
+**The roster-RESOLVED canonical handle is different, and it is what belongs in `author`.**
+`tools/pundit_score.py` groups on `author` (`:155`, via `normalize_author`), so writing the
+resolved handle there is what makes the scorer credit the right person with **zero**
+changes to it. Adding a parallel `originating_author` ledger column instead leaves every
+relay scoring under the channel — the exact bug this is meant to fix, wearing the
+appearance of a fix. Resolution comes from `tools/pundit_roster.py`; anything it does not
+resolve to `MAPPED` sets `unattributable=True` and drops.
+
+A routed relay row carries: `author` = the resolved handle · `relayed_by` = the relaying
+channel's handle · `attribution` = `"relay"` · `attribution_confidence` = the roster
+entry's `confidence`. A first-hand row sets `attribution: "first-hand"` and omits
+`relayed_by`. `source` keeps its current meaning (the medium) and is never overloaded to
+carry the relaying channel. `load_ledger` reads per-key with `obj.get(...)`, so these new
+keys are backward-compatible and cost the scorer nothing.
 
 **The roster file now exists — do not rebuild it from scratch.** Gitignored
 `config/pundit_roster.toml` (schema + rationale in the committed

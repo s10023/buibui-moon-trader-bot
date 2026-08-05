@@ -15,12 +15,14 @@ def route_target(
     *,
     retrospective: bool = False,
     rejected: bool = False,
+    unattributable: bool = False,
 ) -> str | None:
     """The sink for one ingested item, or None to drop it.
 
-    Both suppressors apply to `setup` only — a mechanic or a claim has no entry to
-    decline, and both skills already pin the flags to false there, so honouring them
-    outside `setup` would let one mis-set field silently delete a routable item.
+    Every suppressor applies to `setup` only — a mechanic or a claim has no entry to
+    decline and scores nobody, and both skills already pin the flags to false there, so
+    honouring them outside `setup` would let one mis-set field silently delete a
+    routable item.
 
     They default to False so every existing caller keeps its behaviour; a source that
     cannot express the distinction (an X post today) simply never sets them.
@@ -31,9 +33,14 @@ def route_target(
     - `rejected` — the speaker walked through the trade and then argued AGAINST taking
       it. Routing it scores the author on a trade they declined. This shipped once
       (2026-07-31 round 3) and was caught only by the human reading the digest.
+    - `unattributable` — the speaker relayed someone else's call and the roster could
+      not resolve that person to a canonical handle (unknown name, unmapped name, or a
+      string marked never_auto_attribute). Routing it would credit the relaying channel
+      with a call they did not make, and `tools/pundit_score.py` groups on `author`, so
+      no downstream check can see the error.
     """
     if content_type == "setup":
-        if retrospective or rejected:
+        if retrospective or rejected or unattributable:
             return None
         return "docs/plans/pundit-calls.jsonl"
     if content_type == "mechanic":

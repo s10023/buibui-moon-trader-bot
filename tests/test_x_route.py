@@ -59,3 +59,25 @@ def test_suppressors_do_not_apply_outside_setup(
         route_target(content_type, "NOVEL", retrospective=True, rejected=True)
         == expected
     )
+
+
+def test_unattributable_drops_a_setup() -> None:
+    assert route_target("setup", "", unattributable=True) is None
+
+
+def test_unattributable_leaves_a_mechanic_alone() -> None:
+    """Setup-only, like retrospective and rejected: a mechanic scores nobody, so one
+    mis-set flag must not be able to delete a routable item."""
+    assert route_target("mechanic", "", unattributable=True) == (
+        "docs/plans/mechanics-backlog.md"
+    )
+
+
+def test_unattributable_leaves_a_novel_claim_alone() -> None:
+    assert route_target("claim", "NOVEL", unattributable=True) == (
+        "docs/plans/thesis-inbox.md"
+    )
+
+
+def test_unattributable_defaults_false_so_existing_callers_are_unchanged() -> None:
+    assert route_target("setup", "") == "docs/plans/pundit-calls.jsonl"
