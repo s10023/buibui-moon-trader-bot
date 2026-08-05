@@ -556,7 +556,7 @@ SoT, or memory file. Instruct it to return ONLY this JSON:
       "symbol": "BTCUSDT | null",
       "direction": "long | short | neutral | null",
       "entry": "...", "stop": "...", "target": "...",
-      "horizon": "intraday | swing | unspecified",
+      "horizon": "EXACTLY ONE OF: intraday | swing | unspecified — no other value",
       "setup_type": "free text",
       "raw_quote": "the sentence(s) the call/claim came from, ORIGINAL language",
       "raw_quote_en": "English translation of raw_quote",
@@ -604,6 +604,16 @@ Rules for the subagent:
   only invalid on a row that reaches the ledger. A range/chop/two-sided plan is
   `neutral`; map it there and say so in `setup_type`. Check this value before writing
   any Stream C row.
+- **`horizon` is the same closed-enum rule, with one deliberate difference: absence
+  is legitimate.** An unrecognised value used to take `window_ms`'s 14-day
+  `unspecified` window instead of intraday's 48h or swing's 30d — a different
+  WIN / LOSS / NOT_TRIGGERED verdict for the same call, with nothing raising.
+  `analytics/pundit_horizon.py` now rejects it at both read boundaries, so the row
+  is skipped rather than mis-windowed. But `unspecified` is a real member of the
+  enum, not a fallback for it: a pundit who states no timeframe has still made a
+  scoreable call, so **omit the field or write `unspecified`** — do not invent a
+  value to fill it. What gets rejected is the plausible near-miss: `daily`, `1h`,
+  `short-term`, `position`, `scalp`. Casing is folded, as with `direction`.
 - **`corrected_from` carries chart-vs-transcript corrections ONLY.** A symbol
   normalisation (`BTCUSD` → `BTCUSDT`, so the scorer resolves against perp bars) is not
   one: normalise `symbol` and leave `corrected_from` empty. Same reason `confidence` and
