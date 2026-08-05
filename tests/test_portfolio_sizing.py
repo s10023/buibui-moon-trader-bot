@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from portfolio.sizing import SizingConfig
+from portfolio.sizing import SizingConfig, round_down_to_step
 
 
 def test_sizing_config_defaults() -> None:
@@ -145,3 +145,20 @@ def test_apply_caps_skip_floor() -> None:
         )
         == 0.0
     )
+
+
+class TestRoundDownToStep:
+    """Shared LOT_SIZE helper — trade/routing.py and the card post-pass must
+    round identically, so there is exactly one implementation."""
+
+    def test_floors_to_step_multiple(self) -> None:
+        assert round_down_to_step(0.0571951498512928, 0.001) == pytest.approx(0.057)
+
+    def test_exact_multiple_is_unchanged(self) -> None:
+        assert round_down_to_step(12.5, 0.5) == pytest.approx(12.5)
+
+    def test_below_one_step_floors_to_zero(self) -> None:
+        assert round_down_to_step(0.4, 1.0) == 0.0
+
+    def test_non_positive_step_is_passthrough(self) -> None:
+        assert round_down_to_step(1.234, 0.0) == 1.234

@@ -104,6 +104,26 @@ def _build_account_provider() -> AccountProvider | None:
         return None
 
 
+def _fetch_qty_step(symbol: str) -> float | None:
+    """Symbol LOT_SIZE step, or None when the exchange is unreachable.
+
+    Reuses the executor's filter parsing rather than re-reading exchangeInfo,
+    so the card and the XS router round to the same step. `mode="dry_run"`
+    because the card places no orders — this is a pure read.
+    """
+    try:
+        from trade.binance_futures import BinanceFuturesAdapter
+        from utils.binance_client import create_client
+
+        adapter = BinanceFuturesAdapter(create_client(), mode="dry_run")
+        filt = adapter.get_filters([symbol]).get(symbol)
+    except Exception:
+        return None
+    if filt is None or filt.qty_step <= 0:
+        return None
+    return float(filt.qty_step)
+
+
 def run_card_cmd(args: argparse.Namespace) -> None:
     cfg = CardConfig.from_toml(args.config) if args.config else CardConfig()
     sizing = (
@@ -141,7 +161,12 @@ def run_card_cmd(args: argparse.Namespace) -> None:
     )
     try:
         final = generate_card(
-            state, cfg, sizing, client, generated_at_ms=int(time.time() * 1000)
+            state,
+            cfg,
+            sizing,
+            client,
+            generated_at_ms=int(time.time() * 1000),
+            qty_step=_fetch_qty_step(args.symbol),
         )
     except CardError as exc:
         print(f"card generation failed: {exc}", file=sys.stderr)

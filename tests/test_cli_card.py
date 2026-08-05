@@ -185,3 +185,65 @@ class TestCardErrorExit:
         assert exc_info.value.code == 1
         # a clean stderr message, not a raw traceback
         assert "llm exploded" in capsys.readouterr().err
+
+
+class TestQtyStepWiring:
+    """#559's lesson: a value plumbed everywhere except its consumer is not
+    plumbed. The cap there was read by `hint` and discarded by the flow; this
+    asserts the CLI actually hands qty_step to generate_card."""
+
+    def test_cli_passes_fetched_qty_step_to_generate_card(
+        self, tmp_path: Any, monkeypatch: Any
+    ) -> None:
+        import argparse
+
+        import duckdb
+        import pytest
+
+        from analytics.store.schema import init_schema
+        from card.errors import CardError
+        from cli import card as card_mod
+
+        db = tmp_path / "t.db"
+        conn = duckdb.connect(str(db))
+        init_schema(conn)
+        conn.close()
+
+        seen: dict[str, Any] = {}
+
+        def _capture(*_a: Any, **kw: Any) -> Any:
+            seen.update(kw)
+            raise CardError("stop after capture")
+
+        monkeypatch.setattr(card_mod, "generate_card", _capture)
+        monkeypatch.setattr(card_mod, "_build_account_provider", lambda: None)
+        monkeypatch.setattr(card_mod, "_fetch_qty_step", lambda _sym: 0.001)
+
+        args = argparse.Namespace(
+            symbol="BTCUSDT",
+            direction=None,
+            as_of="2026-07-11T00:00:00Z",
+            db=str(db),
+            config=None,
+            json=False,
+            dry_run=False,
+            no_ledger=True,
+        )
+        with pytest.raises(SystemExit):
+            card_mod.run_card_cmd(args)
+        assert seen["qty_step"] == 0.001
+
+    def test_fetch_qty_step_degrades_to_none_when_client_unavailable(
+        self, monkeypatch: Any
+    ) -> None:
+        # Keys/network absent must degrade to None, never raise — the card
+        # still renders, warned, rather than failing. No real network call:
+        # create_client is replaced before _fetch_qty_step reaches it.
+        import utils.binance_client as bc
+        from cli.card import _fetch_qty_step
+
+        def _no_client(*_a: Any, **_k: Any) -> Any:
+            raise RuntimeError("no credentials")
+
+        monkeypatch.setattr(bc, "create_client", _no_client)
+        assert _fetch_qty_step("BTCUSDT") is None

@@ -80,6 +80,18 @@ def position_size(risk_capital: float, entry: float, stop: float) -> float:
     return risk_capital / rpu if rpu > 0.0 else 0.0
 
 
+def round_down_to_step(qty: float, step: float) -> float:
+    """Floor |qty| to a multiple of an exchange LOT_SIZE step.
+
+    Shared by the XS executor's order router and the card post-pass so both
+    round identically. Returns the magnitude — callers re-apply any sign. A
+    non-positive step means "unknown filter" and passes through unchanged.
+    """
+    if step <= 0:
+        return qty
+    return math.floor(abs(qty) / step) * step
+
+
 def vol_governor(realized_vol_annual: float, cfg: SizingConfig) -> float:
     """g_vol = clamp(target / realized, [g_vol_min, g_vol_max]).
 

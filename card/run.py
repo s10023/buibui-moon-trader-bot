@@ -18,6 +18,7 @@ def generate_card(
     client: LLMClient,
     *,
     generated_at_ms: int,
+    qty_step: float | None = None,
 ) -> FinalCard:
     """One card, end to end. Raises CardError/CardValidationError on failure
     (nothing is written on failure — the CLI only persists a returned card)."""
@@ -43,4 +44,5 @@ def generate_card(
         model=response.model or cfg.model,
         generated_at_ms=generated_at_ms,
         cost_usd_notional=response.cost_usd_notional,
+        qty_step=qty_step,
     )
