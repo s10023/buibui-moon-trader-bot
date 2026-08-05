@@ -164,24 +164,37 @@ context. `Explore` is documented as reading *excerpts*, so state explicitly that
 - `meta.publish_ts_utc`, `meta.author`, `meta.lang` — **context only**, for resolving a
   relative stated date ("last Monday") and inferring a speaker's timezone from channel
   locale. It must NOT compute a final call time itself — that happens in code, step 4.
-- the channel's `intro_recap_s`, when it has one (see below) — a number, not a rule to
+- the channel's `intro_recap_s` and `item_cap` (see below) — numbers, not rules to
   re-derive
 - the inline classification rubric (below)
 
-**First, ask the config whether this channel opens with a recap block:**
+**First, ask the config for this channel's two per-video knobs:**
 
 ```bash
 PYTHONPATH=. poetry run python tools/yt_feed.py hint --author "<meta.author>"
 ```
 
 Pure local config read, no API key, no network. Returns
-`{"matched": …, "intro_recap_s": N, …}`; `matched: false` or `intro_recap_s: 0` means no
-rule and nothing changes. Run it per video — a batch can span channels.
+`{"matched": …, "intro_recap_s": N, "item_cap": N, …}`. Run it per video — a batch can
+span channels. Both knobs degrade quietly to a default: `matched: false` or
+`intro_recap_s: 0` means no recap rule and nothing changes, and `item_cap` falls back to
+`video_marks.ITEM_CAP` (5).
+
+**`item_cap` is applied by the pass-1 PROMPT, not by code — so a value fetched here and
+not passed on does nothing.** Carry it into rule 5 below as a literal. This shipped
+broken: #558 added the key to `config/youtube_channels.toml`, `tools/yt_feed.py`, its
+tests and `.claude/context/tools.md`, but left this document saying the cap was always
+5 — so on the first run after it merged, `hint` returned `@KoluniteVIP`'s `item_cap: 12`
+and the flow discarded it. A cap plumbed everywhere except its one consumer is not
+plumbed.
 
 Note this keys on `meta.author` (an @handle), which matches neither the `UC…` id the poll
 path uses nor a CJK display `name` — that is why `config/youtube_channels.toml` carries a
-`handle` field. **A channel with `intro_recap_s` set but no `handle` will silently never
-match.**
+`handle` field. **A channel with no `handle` never matches, and then BOTH knobs silently
+take their defaults** — measured on `@KoluniteVIP` (2026-08-05): no `handle`, no
+`item_cap`, `hint` returned `matched: false`, and the cap sat at 5 on a channel that
+relays ~8 traders per upload. Neither degradation raises anything; the run just quietly
+keeps less.
 
 It must NOT read any repo, SoT, or memory file — the rubric is self-contained. Instruct
 it to return ONLY this JSON:
@@ -195,6 +208,7 @@ it to return ONLY this JSON:
   "candidates": [
     {"ts": 252.0, "content_type": "setup|claim|mechanic", "specificity": 1-5,
      "is_relay": false, "originating_author": "@ThisChannel",
+     "item_stated_ts_utc": null,
      "is_intro_recap": false, "retrospective": false, "gist": "..."}
   ]
 }
@@ -206,6 +220,18 @@ or be `null` — never a bare local time.** `tools/video_calltime.py` rejects a 
 emits `2026-07-14T08:00:00` with no offset gets the same downstream result as emitting
 nothing, just less honestly. Instruct the subagent: state the offset whenever the
 speaker's timezone is inferable from context, otherwise emit `null` — never guess UTC.
+
+**`item_stated_ts_utc` is per-candidate and exists for RELAYS — ask for it explicitly or
+you will not get it.** A relayed call was made before the roundup reporting it, and the
+speaker usually says when: 「昨天下午」, 「今早」, 「上周五」. Instruct the subagent to
+carry any such phrase into that field (same offset rule; `null` when the timezone is not
+inferable). Step 4b feeds it to `video_calltime.py --relay --stated`; without it the row
+falls back to `publish_relay`, which is honest but can be badly wrong. Measured on
+`JcMq-lyHIt4` (2026-08-05): the host said 公有财 gave his view 「昨天下午」 at ts 322.6,
+pass 1 returned no per-item time, and the routed row landed ~half a day late. **Do not
+fix this downstream** — the orchestrator resolving 「昨天下午」 into a timestamp is
+exactly the date arithmetic `video_calltime.py` exists to prevent. It has to come from
+the pass that can read the sentence.
 
 **Filter for ATTRIBUTION and SUBJECT BEFORE applying the cap — not after.** The cap is a
 budget for items this repo can actually use, so spending a slot on one it will drop at
@@ -249,13 +275,17 @@ routing wastes the slot silently. Instruct the subagent, in this order:
 4. **`mechanic` candidates stay eligible regardless of symbol.** A risk-management or
    execution technique demonstrated on SPX is just as portable as one on BTC; the
    instrument is incidental to a mechanic in a way it never is to a setup.
-5. **Then** rank what remains by `specificity` descending and keep the top `ITEM_CAP` (5 —
-   `tools/video_marks.py::ITEM_CAP`).
+5. **Then** rank what remains by `specificity` descending and keep the top `item_cap` —
+   **the number `hint` returned for THIS channel**, written into the prompt as a literal.
+   It is not a constant: it defaults to `tools/video_marks.py::ITEM_CAP` (5) and is raised
+   per channel for aggregators that relay several traders per upload. Never let the
+   subagent infer it, and never hard-code 5 here.
 
 Report every dropped candidate with a one-line reason, distinguishing the four causes —
 `intro-recap window (ts < intro_recap_s), a prior call not today's` vs
 `relayed call by 陈哥, not the speaker's own` vs `non-crypto setup (SPX), routes to wifey`
-vs `specificity 2, below the top-5 cutoff` — for the digest and the note. **Filtered items
+vs `specificity 2, below the top-12 cutoff (this channel's item_cap)` — for the digest
+and the note. **Filtered items
 belong in the note too:** they are the record that the video contained something this repo
 deliberately declined, not something it failed to see. Relayed calls in particular must be
 preserved verbatim in the note with their `originating_author`, so a future attribution
@@ -556,6 +586,15 @@ Rules for the subagent:
   is scored on the level they **stated**. (Observed failure: a stated 61,000 pivot was
   proposed as 61,600–61,800 because the ticker sat at a drawn arc's right anchor — ~700
   points onto a level the speaker never said.)
+- **`direction` must be exactly one of `long` / `short` / `neutral` / `null` — a fifth
+  value is silently scored as a SHORT.** `tools/pundit_score.py:501` special-cases only
+  the literal string `neutral` (returning UNSCORED); `:540` is then
+  `dirsign = 1.0 if call.direction == "long" else -1.0`, so **anything unrecognised falls
+  through to the short branch**. Measured on `JcMq-lyHIt4` (2026-08-05): pass 2 emitted
+  `direction: "range"` for a range-trade plan, which would have booked a deliberately
+  non-directional call as a bearish one. Nothing raises — not the writer, not the scorer,
+  not the digest. A range/chop/two-sided plan is `neutral`; map it there and say so in
+  `setup_type`. Check this value before writing any Stream C row.
 - **`corrected_from` carries chart-vs-transcript corrections ONLY.** A symbol
   normalisation (`BTCUSD` → `BTCUSDT`, so the scorer resolves against perp bars) is not
   one: normalise `symbol` and leave `corrected_from` empty. Same reason `confidence` and
@@ -956,5 +995,9 @@ is frozen. A claim that just restates one of these candlestick/structure pattern
   Neither may read any repo, SoT, or memory file; the rubric above is the only context
   either needs beyond the video's own transcript/frames.
 - `FRAME_CAP` (15) and `ITEM_CAP` (5) are a-priori constants in
-  `tools/video_marks.py`. Raising either is a visible, deliberate change to the design
-  spec's constants table — not a silent tuning knob inside a subagent prompt.
+  `tools/video_marks.py`. Raising either **globally** is a visible, deliberate change to
+  the design spec's constants table — not a silent tuning knob inside a subagent prompt.
+  A per-channel `item_cap` in `config/youtube_channels.toml` is the sanctioned exception
+  and is not the thing that rule guards against: it is committed config, it is reported by
+  `hint`, and step 3 passes it through explicitly. The failure mode it introduces is the
+  opposite one — a cap that is configured, fetched, and then never reaches the prompt.
