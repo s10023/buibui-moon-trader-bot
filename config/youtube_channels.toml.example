@@ -16,6 +16,8 @@
 #   min_duration_s drop shorter uploads.
 #   lang           hint only.
 #   intro_recap_s  seconds of opening recap/teaser that are NOT a fresh call. 0 = off.
+#   item_cap       max items /ingest-video keeps from ONE video of this channel
+#                  (default = tools/video_marks.py::ITEM_CAP, currently 5).
 #
 # On `intro_recap_s` — why it exists, so nobody deletes it as noise:
 # some channels open EVERY upload by replaying prior positions ("在開始視頻之前還是回顧
@@ -25,6 +27,14 @@
 # Set it to the timestamp where genuinely new content starts; err high, since the cost of
 # a few seconds of over-trimming is one lost candidate, while the cost of under-trimming
 # is a corrupted ledger row that nothing downstream can detect.
+#
+# On `item_cap` — raise it for AGGREGATOR channels that relay several traders per upload.
+# The default was sized for a single-voice channel; a roundup relaying eight people will
+# silently lose most of them to the cap. And the survivors are not necessarily the best
+# ones: the cap keeps the top `item_cap` by `specificity`, which has mis-ranked in two
+# measured rounds — promoting relays over the host's own calls in round 1, and
+# retrospectives over forward calls in round 2. So on a roundup the cap does not trim a
+# tail, it discards payload.
 
 [feed]
 cold_start_days = 14   # bounds the daily poll only; old videos stay reachable via `backfill`
@@ -49,3 +59,16 @@ intro_recap_s = 0
 # min_duration_s = 180
 # lang = "zh"
 # intro_recap_s = 75
+
+# Example of an AGGREGATOR channel that relays several traders per upload, so the
+# default cap would drop most of the payload. Relayed calls only route at all once the
+# roster (config/pundit_roster.toml) resolves the originating name to a handle.
+# [[channel]]
+# id = "UCxxxxxxxxxxxxxxxxxxxxxx"
+# name = "example roundup channel"
+# handle = "@exampleroundup"
+# title_include = []
+# title_exclude = ["#shorts"]
+# min_duration_s = 180
+# lang = "zh"
+# item_cap = 12
