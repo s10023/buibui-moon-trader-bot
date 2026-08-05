@@ -18,6 +18,7 @@ from analytics.brief.types import (
     PunditCallRow,
     PunditFamilyPrior,
 )
+from analytics.pundit_authors import normalize_author
 
 _DAY_MS = 86_400_000
 _MAX_PRIORS_ROWS = 8  # render constant per spec, not config
@@ -76,8 +77,21 @@ def _load_priors(
             if not isinstance(cell, dict):
                 continue
             n = int(cell.get("n", 0))
-            authors[str(name)] = PunditAuthorPrior(
-                author=str(name),
+            # Keys are normalised on load, not just on write, so a priors file
+            # generated BEFORE the scorer normalised still joins to the ledger
+            # instead of silently missing every '@'-prefixed author until the
+            # next `make buibui-pundit-score`.
+            key = normalize_author(str(name))
+            prior_existing = authors.get(key)
+            if prior_existing is not None and prior_existing.n >= n:
+                # A pre-fix file can hold BOTH halves of one split author.
+                # Merging their rates would need the underlying rows, which are
+                # not in this file, so keep the better-supported half and let
+                # the regen produce the true combined figure. Deterministic by
+                # n, never by dict order.
+                continue
+            authors[key] = PunditAuthorPrior(
+                author=key,
                 n=n,
                 hit_rate=_opt_float(cell.get("hit_rate")),
                 avg_r=_opt_float(cell.get("avg_r")),
@@ -144,9 +158,12 @@ def build_board(cfg: BriefConfig) -> PunditBoard:
             age = (cfg.as_of_ms - ts_ms) // _DAY_MS
             if age < 0 or age > cfg.recent_call_days:
                 continue  # future-dated or too old — excluded, not skipped
+            # Same normalisation the scorer applies when it writes the priors
+            # JSON — this is the join key, so the two must not drift apart.
+            author_key = normalize_author(str(author))
             calls.append(
                 PunditCallRow(
-                    author=str(author),
+                    author=author_key,
                     symbol=str(symbol),
                     direction=str(direction),
                     entry=_truncate(str(raw.get("entry") or "")),
@@ -154,7 +171,7 @@ def build_board(cfg: BriefConfig) -> PunditBoard:
                     horizon=str(raw.get("horizon") or ""),
                     age_days=int(age),
                     on_panel=str(symbol) in cfg.symbols,
-                    prior=authors_by_name.get(str(author)),
+                    prior=authors_by_name.get(author_key),
                 )
             )
     calls.sort(key=lambda c: c.age_days)  # newest first; ties keep file order

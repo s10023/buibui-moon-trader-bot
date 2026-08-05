@@ -34,6 +34,7 @@ import numpy as np
 import pandas as pd
 
 from analytics.backtest.engine import _compute_atr14
+from analytics.pundit_authors import normalize_author
 from analytics.store import DEFAULT_DB_PATH
 from analytics.store.market_data import get_ohlcv
 
@@ -146,7 +147,12 @@ def load_ledger(path: Path) -> tuple[list[LedgerCall], list[str]]:
             call = LedgerCall(
                 line_no=line_no,
                 source=str(obj.get("source", "")),
-                author=str(obj.get("author", "")),
+                # Normalised at READ, so a ledger written with a mixed '@'
+                # convention still groups as one person. Must stay in step
+                # with analytics/brief/pundit.py, which joins its rows to the
+                # priors JSON this scorer writes — normalising one side only
+                # would turn a split track record into a failed lookup.
+                author=normalize_author(str(obj.get("author", ""))),
                 url=str(obj.get("url", "")),
                 call_ts_utc=str(obj["call_ts_utc"]),
                 symbol=str(obj["symbol"]),
