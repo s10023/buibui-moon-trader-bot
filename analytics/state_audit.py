@@ -7,10 +7,26 @@ verdict map. The directional-DSR defect shipped in H8
 (``analytics/indicator_condition.py``) precisely because this class of logic
 was duplicated per audit; consolidating to one module is the fix.
 
+**H8 now shares the statistics from here too** (``cell_sharpe``,
+``family_pbo``, ``family_dsr``, ``mintrl_n_ok``), so the copy the defect
+actually shipped in no longer exists.
+
+**Where the line is drawn, and why it is not further along.** Shared here:
+the *statistics* — Sharpe, the family PBO fold, the deflated Sharpe, and the
+MinTRL magnitude fold. These answer questions with one correct answer, so a
+second implementation is only ever a second place for the same defect. NOT
+shared: each audit's **verdict map**, which is its own pre-registration.
+H8's ``_map_verdict`` carries a two-sample with-vs-without lift CI and reads
+its thresholds off an ``IndicatorConditionConfig``; ``map_verdict`` here
+carries the early/late stability leg instead. Collapsing the two into one
+parameterised function would let a future edit to one audit's gate silently
+move another audit's *pre-committed* gate — the opposite of what a
+pre-registration is for. Statistics converge; gates stay per-spec.
+
 PURE: no DB, no network, no file IO. No H14- or H15-specific vocabulary
 lives here — series construction, state labels, and family-key grouping stay
 in the calling module (``venue_premium.py`` for H14, ``fx_carry.py`` for
-H15).
+H15, ``indicator_condition.py`` for H8).
 """
 
 from __future__ import annotations
@@ -155,10 +171,13 @@ def cell_sharpe(arr: npt.NDArray[np.float64]) -> float:
 def family_pbo(arrays: list[npt.NDArray[np.float64]]) -> float | None:
     """PBO across an (axis, direction) family's states.
 
-    H14's states are DISJOINT day-populations with no shared row index
-    (unlike a swept-parameter family with a natural paired T x N matrix), so
-    — mirroring H8 — each state's own day-ordered return sequence is folded
-    into ``_PBO_PERIODS`` equal chunks to give ``cscv_pbo`` a shared T axis.
+    These states are DISJOINT populations with no shared row index —
+    day-populations for H14/H15, trade-populations for H8. A swept-parameter
+    family is the opposite case and needs none of this: ``analytics/
+    sl_horizon.py``'s k-grid re-scores the SAME signals under each arm, so it
+    already has a natural paired T x N matrix. Lacking one, each state's own
+    ordered return sequence (its row order, a time proxy) is folded into
+    ``_PBO_PERIODS`` equal chunks to give ``cscv_pbo`` a shared T axis.
     ``None`` when fewer than 2 states in the family clear the period floor
     (nothing to overfit to with a single trial).
     """
@@ -201,6 +220,41 @@ def family_dsr(
         max(int(target_r.shape[0]), 1),
         trial_srs=trial_srs,
     )
+
+
+def mintrl_n_ok(
+    arr: npt.NDArray[np.float64],
+    n_obs: int,
+    *,
+    confidence: float = MINTRL_CONFIDENCE,
+) -> tuple[float, bool]:
+    """``(MinTRL, n_obs >= MinTRL)`` for one cell's own observation array.
+
+    **The magnitude fold is the entire point of this helper.**
+    ``min_track_record_length`` answers "how many observations before this
+    *positive* Sharpe is credible", so it returns ``inf`` for a negative one.
+    Fed a signed Sharpe it therefore makes the AVOID / negative-direction
+    branch of any gate that uses it **structurally unreachable** — the audit
+    then reports "no negative effect found" no matter what the data says, and
+    fails silently rather than loudly. That is the same directional defect
+    that shipped in H8's ``_family_dsr`` (PR #546) wearing a different hat,
+    which is why the fold lives in ONE function instead of being re-typed at
+    each call site (CLAUDE.md's DIRECTIONAL-metrics rule).
+
+    Disclosed consequence, same as ``family_dsr``: folding to magnitude makes
+    this leg marginally MORE permissive than the signed form. Bias runs toward
+    more passes, never fewer.
+
+    ``n_obs`` is passed explicitly rather than read off ``arr`` because callers
+    already hold it (``audit_guard``'s ``CellVerdict.n_supp``). The two are
+    equal by construction — ``audit_guard`` sets ``n_supp = supp.shape[0]`` —
+    and keeping the parameter makes that equality checkable at each call site
+    instead of quietly assumed here.
+    """
+    mintrl = min_track_record_length(
+        abs(cell_sharpe(arr)), target_sr=0.0, confidence=confidence
+    )
+    return mintrl, float(n_obs) >= mintrl
 
 
 def sign_agrees_early_late(values: list[float]) -> bool:
@@ -318,11 +372,7 @@ def evaluate_states(
             continue
 
         supp = np.asarray(cell.supp_r, dtype=np.float64)
-        sharpe = cell_sharpe(supp)
-        mintrl = min_track_record_length(
-            abs(sharpe), target_sr=0.0, confidence=MINTRL_CONFIDENCE
-        )
-        n_days_ok = float(cv.n_supp) >= mintrl
+        _mintrl, n_days_ok = mintrl_n_ok(supp, cv.n_supp)
 
         family_idx = by_family[family_key(cell.label)]
         family_arrays = [
