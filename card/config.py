@@ -13,7 +13,39 @@ class CardConfig:
     claude_bin: str = "claude"
     claude_config_dir: str = "~/.claude-personal"
     model: str = "sonnet"
-    timeout_s: float = 180.0
+    # Measured 2026-08-04 across six real cards: 271 / 349 / 299 / 291 s wall, mean
+    # 4.9 min. The previous 180.0 sat BELOW that floor, so both attempts timed out
+    # (`LLMClient.generate` retries once) and every card returned nothing after
+    # burning ~6 min. It looked generous only because the /card skill quoted a stale
+    # "60-90 s+" measured 2026-07-16 — the doc rotted, and the constant was set from
+    # the doc. 480 clears the measured worst case (349 s) with tail headroom.
+    #
+    # This is a ceiling, not a target: ~97% of generated output tokens never reach
+    # the card (23,116 output tokens for a 2,365-char card), and THAT is the real
+    # fix. Raising the ceiling stops the failure; it does not make a card fast.
+    # Overridable per-run from a [card] TOML block via `--config`.
+    timeout_s: float = 480.0
+    # Extended-thinking budget for the `claude -p` call, as MAX_THINKING_TOKENS.
+    # None leaves the env var unset, i.e. the CLI default — this is deliberately
+    # the shipped behaviour so a card's reasoning does not change without the
+    # operator asking for it.
+    #
+    # Measured 2026-08-05 on one real BTCUSDT short prompt, thinking is the
+    # ENTIRE latency story and the toolset is not:
+    #   baseline                      245.6 s | 21,705 out | 4 turns
+    #   + tools off, MCP stripped     254.6 s | 23,645 out | 1 turn
+    #   + MAX_THINKING_TOKENS=0        30.7 s |  2,040 out | 8.0x faster
+    # The card at 0 stayed good on that sample — 8 substantive reasons and 8/8
+    # spot-checked citations exact, no invented numbers. But it is ONE sample and
+    # the verdict differed from baseline (NO_TRADE vs TRADE), which this test
+    # design cannot separate from ordinary model variance. So: opt-in, and
+    # validate on a real batch before anyone changes this default.
+    max_thinking_tokens: int | None = None
+    # Lock the CLI down to zero tools (+ --strict-mcp-config). Pure determinism
+    # and cost win in the same measurement — turns 4 -> 1 and input tokens
+    # ~200K -> ~25.7K — with no latency change either way. Default off only
+    # because it rides with the thinking change above; enable both together.
+    restrict_tools: bool = False
     min_rr: float = 1.0
     daily_loss_limit_r: float = -2.0
     entry_band_pct: float = 5.0

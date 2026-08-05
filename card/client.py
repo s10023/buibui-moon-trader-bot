@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import tempfile
 from collections.abc import Callable
@@ -35,8 +36,56 @@ def _default_runner(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[st
     return subprocess.run(*args, **kwargs)  # noqa: S603
 
 
+_FENCE_RE = re.compile(r"```(?:json)?[ \t]*\r?\n(.*?)```", re.DOTALL)
+
+# Every tool the CLI may expose. Disallowing the lot (with --strict-mcp-config)
+# removes the model's ability to wander mid-card: measured 2026-08-05, the
+# unrestricted call took 4 turns and read ~200K input tokens, the locked-down one
+# took 1 turn and ~25.7K. ToolSearch belongs here for a specific reason — it was
+# the ONE tool left reachable in the first experiment, the model called it, and
+# then apologised for it in a preamble that broke JSON parsing outright.
+_ALL_TOOLS = (
+    "Agent",
+    "Bash",
+    "BashOutput",
+    "Edit",
+    "ExitPlanMode",
+    "Glob",
+    "Grep",
+    "KillShell",
+    "MultiEdit",
+    "NotebookEdit",
+    "Read",
+    "Skill",
+    "SlashCommand",
+    "Task",
+    "TodoWrite",
+    "ToolSearch",
+    "WebFetch",
+    "WebSearch",
+    "Write",
+)
+
+
 def _strip_fences(text: str) -> str:
+    """Return the card JSON from the model's reply.
+
+    This used to strip a fence ONLY when the reply *started* with one, so any
+    preamble ahead of the fence took the whole card down with it. That is not
+    hypothetical: measured 2026-08-05, a run prefixed "That tool search wasn't
+    needed — disregard, I don't need any deferred tools for this analysis." to a
+    complete, schema-valid card, and the card was lost to a JSONDecodeError. The
+    model is under no contract to stay silent, so tolerate a preamble instead of
+    requiring its absence.
+
+    Prefers the first fenced block anywhere in the reply, then falls back to the
+    historical opening-fence strip (which also covers an unterminated fence), then
+    to the trimmed text.
+    """
     t = text.strip()
+    m = _FENCE_RE.search(t)
+    if m:
+        return m.group(1).strip()
     if t.startswith("```"):
         first_nl = t.find("\n")
         t = t[first_nl + 1 :] if first_nl != -1 else ""
@@ -60,6 +109,8 @@ class ClaudeCliClient:
     timeout_s: float
     config_dir: str
     runner: RunnerFn | None = None
+    max_thinking_tokens: int | None = None
+    restrict_tools: bool = False
 
     def generate(self, prompt: str) -> LLMResponse:
         last_exc: CardError | None = None
@@ -80,8 +131,12 @@ class ClaudeCliClient:
             "--output-format",
             "json",
         ]
+        if self.restrict_tools:
+            cmd += ["--strict-mcp-config", "--disallowed-tools", *_ALL_TOOLS]
         env = {k: v for k, v in os.environ.items() if k not in _STRIP_ENV}
         env["CLAUDE_CONFIG_DIR"] = str(Path(self.config_dir).expanduser())
+        if self.max_thinking_tokens is not None:
+            env["MAX_THINKING_TOKENS"] = str(self.max_thinking_tokens)
         with tempfile.TemporaryDirectory() as tmp:
             try:
                 proc = run(

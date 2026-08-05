@@ -136,6 +136,8 @@ def run_card_cmd(args: argparse.Namespace) -> None:
         model=cfg.model,
         timeout_s=cfg.timeout_s,
         config_dir=cfg.claude_config_dir,
+        max_thinking_tokens=cfg.max_thinking_tokens,
+        restrict_tools=cfg.restrict_tools,
     )
     try:
         final = generate_card(
