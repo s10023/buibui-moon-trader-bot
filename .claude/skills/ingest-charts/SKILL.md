@@ -1,8 +1,9 @@
 ---
 name: ingest-charts
 description: >
-  Ingest operator-dropped Coinglass / MMT heatmap + liquidation-map
-  screenshots from docs/plans/chart-drops/ into verified external-context
+  Ingest Coinglass / MMT heatmap + liquidation-map screenshots (dropped by
+  hand, or captured by tools/coinglass_capture.sh) from
+  docs/plans/chart-drops/ into verified external-context
   JSON for the daily Brief (M3). Scans via tools/chart_drops.py (sha256
   dedup ledger), vision-extracts each image in a per-image sonnet subagent
   (image bytes never enter main context), presents ONE consolidated review
@@ -18,6 +19,17 @@ description: >
 Advisory data path only. Never write a stream file before the operator
 approves. Never `git add` anything here — `docs/plans/` and `.cache/` are
 gitignored.
+
+**Drops arrive two ways, and the split matters.** `tools/coinglass_capture.sh`
+captures the **Liquidation Heatmap 24h** row (BTC/ETH/SOL) unattended; the
+**Liquidation Map 1d** row is still hand-captured (ST15 is half done — the map
+route 404s on `?coin=` and walls even on BTC logged-out). So a scan that shows
+only three heatmaps means the set is **incomplete, not ready**.
+
+**Do not ingest a partial daily set.** The daily check asserts external-context
+*recency*, so a single fresh drop turns that line green while every uncovered
+panel silently goes stale — the coverage hazard filed against ST15. A complete
+set is 6 panels: Heatmap 24h + Map 1d per symbol.
 
 ## 1. Scan
 
