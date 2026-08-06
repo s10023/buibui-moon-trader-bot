@@ -27,7 +27,12 @@ import pandas as pd
 
 from analytics.forecast import (
     ForecastConfig,
+    book_day_attribution,
+    effective_independent_series,
     evaluate,
+    instrument_day_attribution,
+    load_daily_bars,
+    regime_labels,
     replay_trials,
     replay_universe,
     replay_weight_schemes,
@@ -118,6 +123,49 @@ def build_weight_study(
     return df
 
 
+def build_regime_attribution(
+    conn: duckdb.DuckDBPyConnection,
+    symbols: list[str],
+) -> pd.DataFrame:
+    """Per-regime attribution of the trend sleeve (P2 §6), both views, both lags.
+
+    Columns: view (instrument-day | book-day), lag, regime, n_obs, share,
+    mean_bps, sharpe_annual, t_stat.
+
+    ``lag=1`` is the evidential read — the label is knowable at the prior close,
+    so it cannot encode the return it explains. ``lag=0`` is contemporaneous and
+    descriptive only; it is rendered so the circularity can be measured against
+    the lag-1 row rather than asserted.
+    """
+    cfg = ForecastConfig()
+    result = replay_universe(conn, cfg, symbols=symbols)
+    bars = load_daily_bars(conn, symbols)
+
+    rows: list[dict[str, object]] = []
+    for lag in (1, 0):
+        labels = regime_labels(bars, lag=lag)
+        views = {
+            "instrument-day": instrument_day_attribution(result, labels, cfg),
+            "book-day": book_day_attribution(result, labels, cfg),
+        }
+        for view, cells in views.items():
+            for c in cells:
+                rows.append(
+                    {
+                        "view": view,
+                        "lag": lag,
+                        "regime": c.regime,
+                        "n_obs": c.n_obs,
+                        "share": c.share,
+                        "mean_bps": c.mean_return * 10_000.0,
+                        "sharpe_annual": c.sharpe_annual,
+                        "t_corr": c.t_stat,
+                        "t_naive": c.t_stat_naive,
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
 def _per_speed_sharpes(
     conn: duckdb.DuckDBPyConnection, symbols: list[str]
 ) -> pd.DataFrame:
@@ -154,6 +202,11 @@ def main() -> None:
         action="store_true",
         help="run the forecast-weight study (DSR/PBO-gated) and exit",
     )
+    parser.add_argument(
+        "--regime",
+        action="store_true",
+        help="run the P2 §6 per-regime attribution and exit",
+    )
     args = parser.parse_args()
 
     conn = duckdb.connect(str(args.db), read_only=True)
@@ -161,6 +214,25 @@ def main() -> None:
 
     universe = load_universe()
     majors = [s.strip().upper() for s in args.majors.split(",") if s.strip()]
+
+    if args.regime:
+        result = replay_universe(conn, ForecastConfig(), symbols=universe)
+        n_eff, deflator = effective_independent_series(result.per_instrument_net)
+        df = build_regime_attribution(conn, universe)
+        _print_df("P2 §6 per-regime attribution (universe)", df)
+        print(
+            f"\ncross-section: {len(result.per_instrument_net)} instruments -> "
+            f"{n_eff:.2f} effective independent series; instrument-day t-stats are "
+            f"deflated {deflator:.2f}x (t_corr = t_naive / {deflator:.2f}). "
+            "Book-day rows are already aggregated, so they are undeflated."
+        )
+        print(
+            "lag=1 is the evidential read (label knowable at the prior close); "
+            "lag=0 is contemporaneous and DESCRIPTIVE ONLY — classify_series reads "
+            "the bar's own high/low/close, so a lag-0 cell partly knows its own "
+            "return. Read n_obs and t_corr before any cell drives a verdict."
+        )
+        return
 
     if args.weight_study:
         df = build_weight_study(conn, universe)
