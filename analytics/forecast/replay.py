@@ -59,6 +59,35 @@ def load_daily_inputs(
     return closes, fundings
 
 
+def load_daily_bars(
+    conn: duckdb.DuckDBPyConnection,
+    symbols: list[str],
+) -> dict[str, pd.DataFrame]:
+    """Return day-indexed OHLCV frames per symbol, for regime classification.
+
+    ``load_daily_inputs`` keeps only the close; ``analytics.regime`` needs
+    high/low as well for the Wilder ATR. The index convention is identical
+    (UTC-midnight normalised, duplicates dropped keeping the last, sorted) so
+    labels line up with the book's per-instrument returns without a re-align.
+    Symbols with no OHLCV are silently skipped, as in ``load_daily_inputs``.
+    """
+    bars: dict[str, pd.DataFrame] = {}
+    for sym in symbols:
+        raw = get_ohlcv(conn, sym, "1d", _FAR_PAST, _FAR_FUTURE)
+        if raw.empty:
+            continue
+        idx = pd.to_datetime(raw["open_time"], unit="ms", utc=True).dt.normalize()
+        df = pd.DataFrame(
+            {
+                col: raw[col].to_numpy(dtype=float)
+                for col in ("open", "high", "low", "close")
+            },
+            index=idx,
+        )
+        bars[sym] = df[~df.index.duplicated(keep="last")].sort_index()
+    return bars
+
+
 def replay_universe(
     conn: duckdb.DuckDBPyConnection,
     cfg: ForecastConfig,

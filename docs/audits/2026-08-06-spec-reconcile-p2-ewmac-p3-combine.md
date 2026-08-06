@@ -158,8 +158,14 @@ amended by #551, plus the two here). Updated in `CLAUDE.md`.
 
 ## Follow-ups filed (none fixed on this branch)
 
-1. **Run per-regime attribution on the EWMAC sleeve** (P2 §6, unimplemented). The
-   one finding here that could move a verdict.
+1. ~~**Run per-regime attribution on the EWMAC sleeve** (P2 §6, unimplemented). The
+   one finding here that could move a verdict.~~ **DONE 2026-08-06 (PR #567) —
+   verdict `docs/audits/2026-08-06-p2-ewmac-regime-attribution.md`: NO.** The
+   concentration does not survive a cross-section t-stat correction (25 perps
+   carry ~2.92 effective independent series), there is no dose-response, and an
+   optimistically-gated book gains +0.102 Sharpe on a CI of [−0.459, +0.715].
+   EWMAC stays shelved; the regime-conditional escape hatch is now closed by
+   measurement rather than assumed by phrasing. **Do not re-run this.**
 2. **Amend P2 §1/§6** to state the three-leg gate and describe MinTRL as a
    reported stamp.
 3. **Add positive controls** to the four causality guards above.

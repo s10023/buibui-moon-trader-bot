@@ -7,7 +7,11 @@ from analytics.forecast.config import ForecastConfig
 from analytics.forecast.weights import candidate_schemes
 from analytics.store import init_schema
 from analytics.store.market_data import upsert_ohlcv
-from tools.forecast_audit import build_report_row, build_weight_study
+from tools.forecast_audit import (
+    build_regime_attribution,
+    build_report_row,
+    build_weight_study,
+)
 
 _DAY = 86_400_000
 
@@ -38,6 +42,27 @@ def test_build_report_row_returns_dict() -> None:
     row = build_report_row(conn, "label", symbols=["AAAUSDT"], slippage_bps=2.0)
     assert row["label"] == "label"
     assert "sharpe" in row and "max_dd" in row and "pbo" in row
+
+
+def test_build_regime_attribution_returns_both_views_and_lags() -> None:
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    _seed(conn, "AAAUSDT", 320)
+    df = build_regime_attribution(conn, symbols=["AAAUSDT"])
+    for col in (
+        "view",
+        "lag",
+        "regime",
+        "n_obs",
+        "share",
+        "mean_bps",
+        "sharpe_annual",
+        "t_corr",
+        "t_naive",
+    ):
+        assert col in df.columns
+    assert set(df["view"]) == {"instrument-day", "book-day"}
+    assert set(df["lag"]) == {0, 1}
 
 
 def test_build_weight_study_returns_table() -> None:

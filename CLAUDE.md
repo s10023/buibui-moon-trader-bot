@@ -90,10 +90,34 @@ re-litigating settled research, and a guard rail behind a pointer is not a guard
 | Sleeve | Verdict |
 | --- | --- |
 | `xsmom/` cross-sectional momentum | **+1.375 Sharpe, DSR 0.997, PBO 0.295 — CLEARS the gate. THE DEPLOY CORE.** Alpha not beta; persistent (2021 was a losing year); capacity-green at operator scale |
-| `forecast/` EWMAC trend | +0.36 — structurally real but FAILS the gate (CI includes 0). **SHELVED** as a diversifier candidate |
+| `forecast/` EWMAC trend | +0.36 — structurally real but FAILS the gate (CI includes 0). **SHELVED**, and the regime-conditional escape hatch is now CLOSED by measurement (2026-08-06, below) |
 | `combine/` trend×XS | +1.145, clears the gate but is **Sharpe-dominated by XS-solo**. A validated socket awaiting a comparably strong second edge |
 | `carry/` funding carry | +0.03, FAILS, not cost-robust past 8bps. **SHELVED** |
 | `xsrev/` XS reversal | **−2.9, negative even at ZERO cost. SHELVED** — the additivity thesis is falsified, momentum continues down to 2–7d |
+
+**P2 §6 per-regime attribution — RUN 2026-08-06, verdict NO** (verdict
+`docs/audits/2026-08-06-p2-ewmac-regime-attribution.md`, tool
+`forecast_audit.py --regime`). EWMAC's trend Sharpe does **not** demonstrably
+concentrate in trend regimes. Raw split looks like a win (instrument-day Sharpe
++0.094 unconditional → +0.244 in trend, complement −0.332) and **all of it dissolves
+under the cross-section correction below**; there is **no dose-response** (Sharpe flat
+across a 16× range of slope thresholds); the book-day view shows nothing (high_vol
++0.431 ≈ trend +0.372, both t<1); and an *optimistically* built regime-gated book
+(no re-entry cost charged) gains +0.102 Sharpe on a difference CI of [−0.459, +0.715].
+**Do not rebuild this as a gated variant.** The shelving rationale had rested on this
+unrun check — it is now run.
+
+**CRITICAL — pooling symbol-days across this universe inflates every t-stat ~2.92×.**
+Mean pairwise correlation of per-instrument net returns is **0.315**, so 25 perps carry
+the noise reduction of **2.92 effective independent series, not 25**. A naive t over
+41,571 pooled symbol-days reads t=2.21 on a cell whose corrected value is **+0.757** —
+significant-looking noise. This is the same defect family as the H15 `bar`-units trap
+and H8's missing gate leg: **a number that looks portable and silently changes meaning
+with the panel.** `analytics.forecast.effective_independent_series` computes the
+deflator; `RegimeCell.t_stat` is already deflated and `t_stat_naive` is kept beside it
+so the adjustment is auditable. **Any audit that slices this universe per-symbol
+inherits this — including the XS sleeve's per-symbol cuts.** Book-day (already
+aggregated) rows must NOT be deflated again.
 
 **The binding constraint, confirmed five times** (exits, trend-weight, combine, carry,
 reversal): the system needs a second *strong* edge, and the cheap price-only free-data
