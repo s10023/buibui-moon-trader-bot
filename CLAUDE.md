@@ -127,6 +127,21 @@ causes malloc heap corruption) and never drop the try/finally.
 redefine it in a runner. It is **not** in `schema.py`; this entry said so until
 2026-08-04 and the wrong path fails as an `ImportError` on first use.
 
+**CRITICAL — `portfolio/sizing.py::round_down_to_step` snaps before it floors, and
+the snap is load-bearing. Do NOT "simplify" it back to `floor(q/step)*step`.** That
+naive form is float-fragile: `0.29 / 0.01` computes as `28.999999999999996`, floors to
+28, and returns `0.28` — a **full lot step** lost on a mathematically exact multiple.
+The call site that makes it bite is `trade/routing.py`, whose
+`delta_qty = target_qty - current` is a *difference of two step multiples* and so is an
+exact multiple every time: **25–27% of router deltas** were shaved at steps 0.001/0.01/0.1
+(step 1.0 is immune — integers are exact). Worse, a delta of exactly one lot floored to
+**zero** 27–65% of the time, which `routing.py:117` turns into `skip:noop` — the order is
+never sent and the position never converges. Fixed 2026-08-06. **The tolerance is capped
+below a half step on purpose**; widening it would round a genuine sub-step remainder UP
+past an exchange filter, flipping the helper from fail-safe to fail-open. **Test by
+enumerating the input class, never by spot-checking** — the pre-fix spot-checks
+(`0.0571951498512928`, `12.5`) all passed while the defect stood.
+
 **CRITICAL — `deflated_sharpe_ratio` and `min_track_record_length` are
 DIRECTIONAL.** Both answer "is this *positive* performance credible": DSR of a
 raw negative Sharpe collapses to ~0, and MinTRL of one is `inf`. So **any audit
