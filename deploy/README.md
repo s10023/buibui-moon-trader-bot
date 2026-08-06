@@ -14,6 +14,61 @@ Full design + rationale: `docs/superpowers/specs/2026-06-25-vps-deployment-desig
 > important control is the **Binance API key config** (Step 4): withdrawals disabled +
 > IP-restricted. Do that before ever switching `EXEC_MODE=live`.
 
+## Laptop install (user-scope timer) — the CURRENT live deployment
+
+The VPS is deferred; signal-watch actually runs today as a **systemd user timer on
+the laptop**. Those units are committed at `deploy/systemd/user/` — copies of what is
+installed, kept in the repo because `~/.config/systemd/user/` is outside every git
+tree and a reclone would otherwise lose them silently.
+
+```bash
+cp deploy/systemd/user/buibui-signal-watch.{service,timer} ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now buibui-signal-watch.timer
+sudo loginctl enable-linger "$USER"   # keep the timer running while logged out
+systemctl --user list-timers 'buibui-*'
+```
+
+They hardcode `/home/kng/repo/buibui-moon-trader-bot` exactly as the VPS units
+hardcode `/opt/buibui`; `sed -i "s#/home/kng#$HOME#g"` them on a different machine.
+
+How they differ from the VPS pair, and why:
+
+| Difference | Why |
+| --- | --- |
+| `--catch-up` on the `ExecStart` | A laptop *creates* gaps. Without it a suspend costs ledger evidence, not just a late scan. Backfilled candles are persisted but never alerted. |
+| `OnCalendar=*:01/15` (not `*:0/15`) | Fires one minute after the 15m close so the exchange has published the closed bar. |
+| Explicit `Environment=PATH=...` | User units get a minimal PATH that cannot find linuxbrew's `poetry` — which `run-job.sh` needs on its **failure** path, so without it the alert about a broken run would itself break. |
+| `SyslogIdentifier=buibui-signal-watch` | journald otherwise tags lines with the executable name (`run-job.sh`), losing unit attribution — `journalctl --user -u ...` returns nothing while the lines sit under another identity. |
+| **No `After=/Wants=network-online.target`** | Deliberate, not an omission — see below. |
+
+### The resume-from-suspend race (why the network gate lives in `run-job.sh`)
+
+`Persistent=true` runs the fire it missed the **instant** the user manager resumes —
+before NetworkManager has re-associated. Measured 2026-08-06: an ~18-second window
+in which nothing resolved took out all three network legs at once — the healthchecks
+`/start` ping, the job (`rc=1`, DNS `NameResolutionError` on `api.binance.com`), and
+the `/fail` ping. The dead-man's-switch saw *no* ping rather than a failed one, and
+the operator got a Telegram that read like a broken bot instead of a laptop opening
+its lid.
+
+Ordering on `network-online.target` cannot fix it. That target **does not exist in
+the systemd user manager**, and even in system scope it is a *boot-time* barrier that
+stays active across suspend and never re-arms on resume — so the VPS units carry the
+same latent race and are immune only because a VPS never suspends.
+
+So the gate sits in `deploy/run-job.sh`, ahead of the healthchecks pings, where a
+unit-level dependency never reached. It waits for the resolver to answer, then runs.
+It is bounded and outcome-preserving: a genuine outage still fails exactly as before,
+just `NET_WAIT_SECS` later — the gate only ever changes **timing**, never the exit
+code, so it cannot mask a real network failure.
+
+| Env | Default | Purpose |
+| --- | --- | --- |
+| `NET_WAIT_SECS` | `60` | Total wait budget. `0` = probe once, never wait. |
+| `NET_WAIT_INTERVAL` | `2` | Seconds between probes. |
+| `NET_WAIT_HOSTS` | `api.telegram.org` | Space-separated; the first host to resolve wins. Telegram is the default because it is the one host every job needs — it is the failure-reporting channel. |
+
 ## Step 0 — Provision the VPS
 
 **Primary: Oracle Cloud Always-Free**, ARM Ampere A1, Ubuntu 24.04. Region **Malaysia
