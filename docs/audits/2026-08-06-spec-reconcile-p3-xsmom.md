@@ -21,12 +21,25 @@ implements the correct invariant instead.
 **Counter: 6 of 46 spec docs reconciled — and the counter was wrong again, 3 for
 3.** #566 set it to "5 of 46" listing **"xsmom"** among the reconciled, while the
 same document named `p3-cross-sectional-momentum-sleeve-design.md` as "the
-highest-stakes one **still unchecked**". Both cannot be true. That entry most
-likely referred to #549's causality-leg fix — which checked **one leg**, not the
-spec — but it is unrecoverable, so it is recorded rather than silently
-re-counted. The lesson is procedural: **name the FILE, not the sleeve.** "xsmom"
-is ambiguous across seven spec docs bearing that name; today's reconcile covers
-exactly one of them, the 2026-06-16 sleeve design.
+highest-stakes one **still unchecked**". Both cannot be true.
+
+**Resolved: the ambiguous entry was PR #549, a PARTIAL reconcile of this very
+spec.** #549's own record states it was found "while spec-vs-code reconciling the
+deploy core", naming this file. It checked **one leg** — §Causality — found the
+guard vacuous, and fixed it. It never walked the remaining legs. So both claims
+in #566 were half-right: the spec *had* been touched by a reconcile, and it *had*
+not been reconciled. Counting a one-leg check as a whole spec is what made the
+number wrong.
+
+Two procedural lessons:
+
+- **Name the FILE, not the sleeve.** "xsmom" is ambiguous across **seven** spec
+  docs bearing that name. Today's reconcile covers exactly one, the 2026-06-16
+  sleeve design.
+- **A partial reconcile is not a reconcile.** If a session checks one leg, record
+  it as one leg. The counter has no notion of partial credit, so a partial entry
+  silently becomes a full one — which is precisely how the deploy core came to be
+  listed as done while it was simultaneously the top of the to-do list.
 
 ## Finding 1 — the pre-registered causality test cannot be satisfied by correct code
 

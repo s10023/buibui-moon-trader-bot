@@ -211,11 +211,15 @@ nothing to reconcile still costs someone a look to confirm that, and an
 3.** It read "1 of 44" while the handoff said "3 of 44" and the corpus was 46;
 PR #566 corrected it to 5 of 46 while listing **"xsmom"** as reconciled *and*
 naming `p3-cross-sectional-momentum-sleeve-design.md` as "the highest-stakes one
-still unchecked" — two claims in one paragraph that cannot both be true. That
-entry most likely meant #549's causality-leg fix, which checked **one leg**, not
-the spec. It is unrecoverable, so it is recorded rather than silently re-counted.
-**Treat this number as a claim to verify, never as a fact to quote** — and when
-you reconcile a spec, name the file, not the sleeve.
+still unchecked" — two claims in one paragraph that cannot both be true.
+**Resolved 2026-08-06: that entry was PR #549, a PARTIAL reconcile of this very
+spec** — it checked one leg (§Causality), found the guard vacuous, fixed it, and
+never walked the rest. Both of #566's claims were half-right.
+**Treat this number as a claim to verify, never as a fact to quote.** Two rules
+follow: **name the FILE, not the sleeve** ("xsmom" is ambiguous across SEVEN spec
+docs), and **a partial reconcile is not a reconcile** — the counter has no notion
+of partial credit, so a one-leg entry silently becomes a whole-spec one, which is
+exactly how the deploy core was listed as done while topping the to-do list.
 
 **The deploy core is now reconciled and came back CLEAN** (2026-08-06): every
 pre-registered gate leg and all 7 construction steps are implemented as written —

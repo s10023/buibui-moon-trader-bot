@@ -169,5 +169,9 @@ amended by #551, plus the two here). Updated in `CLAUDE.md`.
 2. **Amend P2 §1/§6** to state the three-leg gate and describe MinTRL as a
    reported stamp.
 3. **Add positive controls** to the four causality guards above.
-4. Next specs by stakes: `p3-cross-sectional-momentum-sleeve-design` (the deploy
-   core, still unreconciled), then H9 warning-value and ST1 reference-level.
+4. Next specs by stakes: ~~`p3-cross-sectional-momentum-sleeve-design` (the deploy
+   core, still unreconciled)~~ **DONE 2026-08-06 (PR #568) — verdict
+   `docs/audits/2026-08-06-spec-reconcile-p3-xsmom.md`: the implementation is
+   CLEAN** (no missing gate leg; the H8/P2 failure mode did not recur), and its
+   one defect is in the SPEC — §Causality's pre-registered test is unsatisfiable
+   as literally written. Then H9 warning-value and ST1 reference-level.
