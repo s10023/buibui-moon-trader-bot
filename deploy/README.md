@@ -229,7 +229,7 @@ poetry run python buibui.py analytics backfill --timeframes 15m 1h 4h
 | --- | --- |
 | `DATA_SOURCE` | `binance` on the box (not geo-blocked in SG/MY) |
 | `EXEC_MODE` | `dry_run` → `testnet` → `live` for the XS timer |
-| `EXEC_CAPITAL` | optional fixed sizing capital for a testnet A/B (omit for live) |
+| `EXEC_CAPITAL` | optional fixed sizing capital for a testnet A/B (omit for live). `run-xsmom.sh` passes it as `--capital`, so **every** run of a soak configured this way is capital-pinned — a pinned run is a hypothetical and never moves the stored `peak_equity` high-water mark (it is still *compared* against it, so the drawdown halt still applies). Before that guard existed, one pinned run permanently poisoned the peak; see the `--capital` note in `.claude/context/execution.md` |
 | `EXEC_EXTRA_ARGS` | optional executor flags, e.g. `--vol-target 0.10` |
 | `BINANCE_TESTNET_API_KEY` / `_SECRET` | Futures **testnet** keys (soak) |
 | `HEALTHCHECKS_URL_SIGNAL` / `_XSMOM` | healthchecks.io ping URLs (Step 5) |
