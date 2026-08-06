@@ -1,7 +1,9 @@
-# Design: `/card` capital resolution + SL-vs-invalidation coherence
+# Design: `/card` capital resolution (+ the SL-vs-invalidation check, dropped)
 
 **Date:** 2026-08-06
-**Status:** Approved — implementation pending
+**Status:** Approved — implementation pending. **Scope reduced 2026-08-06** to
+Components 1 and 2; Component 3 was dropped before implementation when a source check
+falsified its premise (see that section — it is kept, not deleted).
 **Supersedes:** the Task 2b bullets in `docs/plans/next-conversation-prompt.md` (gitignored)
 
 ## Problem
@@ -66,6 +68,8 @@ measures the wrong quantity.
   risk.
 - Auto-trading, or any change to `r_base`, the overlay, or the XS executor.
 - The `/card` vs signal-watch DuckDB lock contention (separate item).
+- Any SL-vs-invalidation rule, and any change to `card/prompt.py` or `PROMPT_VERSION`
+  (Component 3, dropped below). The prompt therefore stays at `card-v3`.
 
 ## Component 1 — shared capital resolution
 
@@ -110,54 +114,43 @@ poisoned high-water mark undiagnosable.
 Both fields are `None` on a VETOED or NO_TRADE card, matching the existing convention
 that `size_units` / `risk_usd` / `rr_tp1` are cleared when nothing is sized.
 
-## Component 3 — `invalidation_level` and the SL coherence rules
+## Component 3 — SL-vs-invalidation check: CONSIDERED AND DROPPED
 
-### Schema
+An `invalidation_level` field plus two veto rules (coherence, then stop-placement with a
+`sl_invalidation_tol_frac = 0.25` allowance) was designed, approved, and then **dropped
+before implementation** when its premise failed a source check. Recorded here rather
+than deleted, so the question is not reopened from the same wrong starting point.
 
-`TradeCard` gains `invalidation_level: float | None`, emitted by the model beside the
-existing free-text `invalidation`. `_SCHEMA` and the rubric in `card/prompt.py` gain the
-field, and `PROMPT_VERSION` moves `card-v3` → `card-v4`.
+**The premise was that a stop sitting beyond the stated invalidation level is a
+defect. It is not — it is what the rubric asks for.** `card/prompt.py:65-67` already
+instructs: *"TRADE only when a limit entry at a structural level, **a structural SL
+beyond it**, and TP1/TP2/TP3 at mapped liquidity give planned RR(tp1) >= 1."*
 
-**Required for a TRADE verdict**, enforced in `validate_card_obj` alongside the existing
-`_PRICE_KEYS` checks. An optional field the model may omit yields a check that silently
-never fires — the pre-committed-gate-leg vacuity that CLAUDE.md records as having
-shipped undetected in H8. Making it a validation error means a non-compliant model fails
-loudly instead.
+The worked example confirms it rather than contradicting it. Its prose reads *"breaks
+below PDL 63847 **and fails to reclaim it**"* — a two-part condition, break **plus** no
+reclaim. A stop 297 points below the level is exactly what implements the
+"fails to reclaim" allowance; a stop at the level would be hit by any wick that
+subsequently reclaims, which is the outcome the prose explicitly excludes.
 
-Parsing a price out of the free-text prose was considered and rejected: the prose is
-model-authored, so a regex would silently miss or misread levels, producing exactly the
-"check that can pass while the thing it guards fails" failure mode.
+Consequences had it shipped:
 
-### Rule 1 — coherence
+- **Rule 1 would have vetoed the motivating card itself.** Entry `63847` is the PDL and
+  the invalidation level, so `invalidation_level < entry` fails and every such
+  entry-at-the-level trade is rejected — a check firing on correct input.
+- **Rule 2 would have penalised the reclaim buffer**, which is the mechanism that makes
+  a structural entry survivable.
+- The `0.25` tolerance had **no measurement behind it**. It was invented to make the
+  rule expressible, which is the `bar`-units failure in a new location: a bare number
+  that looks portable and silently means something different per symbol and per setup.
 
-For a long, `invalidation_level` must be strictly below `entry`; for a short, strictly
-above. Otherwise no stop can satisfy both the existing side rule (`sl < entry` for a
-long) and Rule 2, so the card is internally contradictory. **VETO.**
+**What would be needed to revive it:** a definition of "the stop is unreasonably far past
+the level" derived from real cards, not from one example. The cheap first move is to read
+`entry` / `sl` / `invalidation` off the rows already in `docs/plans/ai-cards.jsonl` and
+ask whether any stop is genuinely indefensible. Until that measurement exists there is no
+rule to implement, and a veto without it would cost good cards.
 
-This is the rule the worked example actually trips: entry `63847` *is* the invalidation
-level (both are the PDL), so the trade is entered exactly where its own thesis dies.
-
-### Rule 2 — stop placement
-
-For a long, `sl` must not fall below `invalidation_level` by more than
-`tol × (entry − invalidation_level)`; mirrored for a short. **VETO** on breach.
-
-Stated as the exact inequality each rule vetoes on, so no implementation has to infer
-the boundary:
-
-```text
-long:   veto iff  sl < invalidation_level - tol * (entry - invalidation_level)
-short:  veto iff  sl > invalidation_level + tol * (invalidation_level - entry)
-```
-
-New `CardConfig.sl_invalidation_tol_frac: float = 0.25`. A buffer past a level is
-legitimate practice against wick hunts, so the allowance scales with the trade's own
-structural distance rather than being an arbitrary absolute that means different things
-on BTC and SOL. This is the `bar`-units lesson from H15 applied at design time.
-
-Rule 1 runs first; when it vetoes, Rule 2 is not evaluated, because a negative
-`entry − invalidation_level` would make the tolerance negative and the comparison
-meaningless.
+This does not touch Components 1 and 2: the capital defect is measured, carries a named
+safety consequence, and shares none of this reasoning.
 
 ## Testing
 
@@ -175,10 +168,6 @@ than asserting an invariant that already held.
 **`post_pass`:** `risk_usd` / `risk_frac` computed against live equity; `capital_used`
 and `capital_source` recorded on a TRADE and `None` on a VETO; the config-fallback
 warning present when the account is absent.
-
-**Invalidation rules:** Rule 1 veto (long with level ≥ entry, short with level ≤ entry);
-Rule 2 veto (stop beyond tolerance); a within-tolerance stop passing; both directions
-for each. Schema: a TRADE omitting `invalidation_level` is a validation error.
 
 **Regression goldens:** `make test-regression` is expected **unmoved** — the card is not
 in the backtest pipeline — and this is to be verified by running it, not assumed. Run it
