@@ -80,6 +80,25 @@ def position_size(risk_capital: float, entry: float, stop: float) -> float:
     return risk_capital / rpu if rpu > 0.0 else 0.0
 
 
+def resolve_capital(cfg: SizingConfig, equity_usd: float | None) -> tuple[float, bool]:
+    """Capital to size against, plus whether it came from live equity.
+
+    Live account equity wins whenever it is a usable number; `cfg.capital` is the
+    fallback for every other case. Returns the source as a flag rather than
+    logging, so this stays pure and each caller decides how to surface it.
+
+    The fallback covers `None` (no account: a pinned `--as-of` run omits it by
+    design, and a credentials or network failure leaves it absent too) and every
+    degenerate float. Non-finite and non-positive values must NOT propagate: a
+    `0.0` sizes every card to zero and reads downstream as a lot-size veto, and a
+    `NaN` poisons `risk_usd`, `risk_frac` and `notional_usd` without raising.
+    Smallness is not degeneracy — a genuinely tiny account is honoured.
+    """
+    if equity_usd is not None and math.isfinite(equity_usd) and equity_usd > 0.0:
+        return float(equity_usd), True
+    return cfg.capital, False
+
+
 _STEP_SNAP_REL_TOL = 1e-9
 """Quotient-space window for treating a float as an exact step multiple.
 
