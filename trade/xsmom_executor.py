@@ -140,12 +140,28 @@ def run_once(
             except Exception as exc:  # per-order isolation
                 failed.append((intent, str(exc)))
 
-    new_peak = max(prior_peak, equity)
+    # A `capital_override` run is a HYPOTHETICAL — it sizes the book off a fixed
+    # capital instead of the account, which is all it is documented to do. Letting
+    # it ratchet the real high-water mark turns a throwaway A/B into a mutation of
+    # a safety control, and the ratchet never decays: on 2026-08-06 a single
+    # `--capital 5000` against an account whose true equity was 1201.33 left
+    # peak 5000.00 / floor 3750.00 standing — 3.1x the real equity — which would
+    # have gone on halting the book even if the account tripled. Only a run that
+    # measured real equity may move the peak.
+    #
+    # The A/B does NOT get its own state file, deliberately: `kill_switch` lives
+    # here too, and a kill switch that did not apply to capital-pinned runs would
+    # be a worse hole than the one this closes.
+    new_peak = prior_peak if capital_override is not None else max(prior_peak, equity)
     state["peak_equity"] = new_peak
     state["last_run"] = {
         "ts": now.isoformat(),
         "next_period_date": book.next_period_date,
         "mode": adapter.mode,
+        # Recorded because `last_run` keeps only the LAST run: without this, a pin
+        # that poisons the peak leaves no trace on disk and the incident is not
+        # diagnosable after the fact (it was not, on 2026-08-06).
+        "capital_override": capital_override,
         "submitted": len(submitted),
         "skipped": len(plan.skipped),
         "failed": len(failed),

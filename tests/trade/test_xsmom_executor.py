@@ -217,6 +217,105 @@ def test_peak_equity_is_monotonic(tmp_path: Path) -> None:
     assert load_state(p)["peak_equity"] == 12_000.0  # not lowered to 10k
 
 
+def test_capital_override_does_not_ratchet_peak_equity(tmp_path: Path) -> None:
+    """A hypothetical sizing run must not write the REAL risk state.
+
+    Measured 2026-08-06: a one-off `--capital 5000` against an account whose
+    true equity was 1201.33 ratcheted `peak_equity` 2350.80 -> 5000.00
+    *permanently*, leaving a floor of 3750.00 — 3.1x the real equity — that
+    would have gone on halting even if the account tripled. `--capital` is
+    documented purely as a sizing knob ("size the book off this fixed capital
+    instead of live account equity"), so mutating the drawdown high-water mark
+    is an undocumented side effect on a safety control.
+    """
+    p = tmp_path / "s.json"
+    save_state(p, {"peak_equity": 2350.80, "kill_switch": False, "last_run": {}})
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    syms = _seed(conn)
+    adapter = _FakeAdapter(equity=1201.33, positions={}, marks={})
+    run_once(
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
+        _limits(),
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
+        state_path=p,
+        now=pd.Timestamp("2022-02-05", tz="UTC"),
+        capital_override=5_000.0,
+    )
+    assert load_state(p)["peak_equity"] == 2350.80
+
+
+def test_live_equity_still_ratchets_peak_equity(tmp_path: Path) -> None:
+    """Positive control for the test above — the ratchet must still WORK.
+
+    Without this, `new_peak = prior_peak` unconditionally (i.e. deleting the
+    high-water mark entirely) would satisfy the override test while silently
+    disabling the drawdown guard on real runs.
+    """
+    p = tmp_path / "s.json"
+    save_state(p, {"peak_equity": 2350.80, "kill_switch": False, "last_run": {}})
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    syms = _seed(conn)
+    adapter = _FakeAdapter(equity=5_000.0, positions={}, marks={})
+    run_once(
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
+        _limits(),
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
+        state_path=p,
+        now=pd.Timestamp("2022-02-05", tz="UTC"),
+    )
+    assert load_state(p)["peak_equity"] == 5_000.0
+
+
+def test_last_run_records_whether_capital_was_pinned(tmp_path: Path) -> None:
+    """The corrupting run left NO audit trail — `last_run` records only the last
+    run, so a capital pin that poisons the peak is unrecoverable from disk.
+    Recording the pin is what makes the next such incident diagnosable.
+    """
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    syms = _seed(conn)
+    kw: dict[str, Any] = {
+        "no_trade_band_frac": 0.0,
+        "exchange_leverage": 5,
+        "now": pd.Timestamp("2022-02-05", tz="UTC"),
+    }
+
+    pinned = tmp_path / "pinned.json"
+    run_once(
+        conn,
+        _FakeAdapter(equity=1201.33, positions={}, marks={}),
+        ForecastConfig(),
+        syms,
+        _limits(),
+        state_path=pinned,
+        capital_override=2_000.0,
+        **kw,
+    )
+    assert load_state(pinned)["last_run"]["capital_override"] == 2_000.0
+
+    live = tmp_path / "live.json"
+    run_once(
+        conn,
+        _FakeAdapter(equity=1201.33, positions={}, marks={}),
+        ForecastConfig(),
+        syms,
+        _limits(),
+        state_path=live,
+        **kw,
+    )
+    assert load_state(live)["last_run"]["capital_override"] is None
+
+
 def test_run_once_closes_off_universe_position(tmp_path: Path) -> None:
     conn = duckdb.connect(":memory:")
     init_schema(conn)

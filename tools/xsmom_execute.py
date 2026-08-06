@@ -258,7 +258,10 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Size the book off this fixed capital instead of live account equity. "
             "Use on testnet (set to your real account's equity) for a "
-            "capital-matched A/B; live mode should omit it and use real equity."
+            "capital-matched A/B; live mode should omit it and use real equity. "
+            "A pinned run does NOT move the stored peak-equity high-water mark "
+            "(it is a hypothetical, and the ratchet is permanent), but it IS "
+            "compared against the existing peak, so the drawdown halt still applies."
         ),
     )
     parser.add_argument("--i-understand-live", action="store_true")
