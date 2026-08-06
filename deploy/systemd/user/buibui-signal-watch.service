@@ -1,0 +1,50 @@
+[Unit]
+# One signal-watch scan cycle. NOT a daemon — Type=oneshot, driven by the .timer
+# beside this file. Config is auto-picked by UTC weekday, so this unit must never
+# pin --config (that would break the Mon/Fri · Tue-Thu · Sat/Sun partition).
+Description=buibui signal-watch (one scan cycle, closed candles, catch-up on)
+Documentation=file:///home/kng/repo/buibui-moon-trader-bot/CLAUDE.md
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/kng/repo/buibui-moon-trader-bot
+
+# run-job.sh reads HEALTHCHECKS_URL_SIGNAL and the TELEGRAM_* creds from the
+# PROCESS env, before any Python runs — so the app's own load_dotenv() is too late
+# for them and this file must be sourced here. Verified systemd-parseable: plain
+# KEY=value, no quotes, no `export`. The leading `-` keeps a missing .env from
+# failing the unit (e.g. a fresh clone before setup).
+EnvironmentFile=-/home/kng/repo/buibui-moon-trader-bot/.env
+Environment=DATA_SOURCE=binance
+
+# run-job.sh shells out to `poetry` on its FAILURE path only, and user units get a
+# minimal PATH that would not find linuxbrew's copy — so the alert about a broken
+# run would itself break. Explicit PATH instead of editing the committed script.
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
+
+# Without this, journald tags output with the EXECUTABLE name — which became
+# "run-job.sh" the moment the wrapper was introduced — and the entries lose their
+# unit attribution, so `journalctl -u` returns NOTHING while the lines sit in the
+# journal under a different identity. Measured: 120 orphaned lines (2 runs x the
+# 60-line tail). A stable identifier makes `journalctl --user -t
+# buibui-signal-watch` authoritative, and keeps journald's own rotation instead of
+# growing an unmanaged logfile.
+SyslogIdentifier=buibui-signal-watch
+
+# run-job.sh = healthchecks dead-man's-switch (/start, then success or /fail) plus a
+# Telegram of the log tail on failure; it preserves the wrapped exit code.
+# The venv interpreter is named directly rather than via `poetry run` — one less
+# moving part on a minimal PATH.
+#
+# --catch-up is load-bearing on a laptop and is the one deviation from
+# deploy/run-signal.sh, which omits it. Without it, every gap this machine
+# creates is lost ledger evidence rather than merely a late scan. Backfilled
+# candles are persisted + watermarked but never sent to Telegram.
+ExecStart=/home/kng/repo/buibui-moon-trader-bot/deploy/run-job.sh signal-watch HEALTHCHECKS_URL_SIGNAL -- /home/kng/repo/buibui-moon-trader-bot/.venv/bin/python buibui.py signal watch --once --telegram --catch-up
+
+# A catch-up replay across 4 timeframes can run long; the default oneshot timeout
+# would kill it mid-scan. Bounded well under the 15-minute fire interval.
+# NOTE: a kill here takes run-job.sh with it, so no /fail ping is sent — that case
+# surfaces on healthchecks as a LATE check after the 6h grace, not as a failure.
+TimeoutStartSec=900
+Nice=10

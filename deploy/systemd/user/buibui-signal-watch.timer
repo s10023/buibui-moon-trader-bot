@@ -1,0 +1,17 @@
+[Unit]
+Description=Run buibui signal-watch every 15 minutes (matched to the 15m timeframe)
+
+[Timer]
+# :01, :16, :31, :46 — one minute AFTER the 15m candle close rather than exactly
+# on it, so the exchange has published the closed bar. deploy/systemd uses a bare
+# *:0/15; the offset is strictly safer and costs nothing.
+OnCalendar=*:01/15
+
+# The whole point on a laptop: after suspend/shutdown, systemd runs the fire it
+# missed once on resume (not once per missed slot). Combined with --catch-up in
+# the .service, an offline stretch costs alerts but not ledger evidence.
+Persistent=true
+RandomizedDelaySec=20
+
+[Install]
+WantedBy=timers.target

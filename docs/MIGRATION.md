@@ -98,13 +98,16 @@ Check out the working branch on the new box — as of 2026-08-06 it sits on
 | `~/binance-history-local/` | ST14 raw Binance exports, 4.2 years. Re-fetching costs rate-limited async-export calls |
 | `~/.ssh/` | keys **and** `config` — the `github.com-personal` alias lives here |
 | `~/.config/gh/` | `gh` auth for both accounts |
-| `~/.config/systemd/user/buibui-signal-watch.{service,timer}` | the 15-min signal-watch timer |
+| `~/.zshrc` | shell config |
+
+**No longer must-copy:** `~/.config/systemd/user/buibui-signal-watch.{service,timer}` are
+committed at `deploy/systemd/user/` as of 2026-08-06 and arrive with the clone. Copy them
+only to preserve a machine-specific edit; otherwise install from the repo (§4 step 5).
 
 The unit sources `.env` via `EnvironmentFile=`, and the healthchecks.io ping URL lives
 there as `HEALTHCHECKS_URL_SIGNAL`. Moving `.env` therefore carries the dead-man's-switch
 across intact — **do not create a second check** on the new machine, or the old one goes
 permanently red and the new one starts with no history.
-| `~/.zshrc` | shell config |
 
 `~/.claude/` is the **work** Claude CLI config — move it only if the new machine is also
 the work machine.
@@ -129,10 +132,14 @@ Copying `.cache/` alone would move ~600M of pure regenerable bulk.
    `ssh -T git@github.com-personal`.
 3. Clone all three over that alias, then drop the gitignored files back in.
 4. `poetry install --no-root` in each Python repo.
-5. Re-enable the timer — **units alone are not enough**, linger is what lets it run with
-   no login session:
+5. Re-enable the timer. The units ship with the repo, so install them from there first —
+   a fresh clone has nothing in `~/.config/systemd/user/` and `enable` would silently
+   enable nothing. Then linger, which is what lets it run with no login session
+   (**units alone are not enough**):
 
    ```bash
+   cp deploy/systemd/user/buibui-signal-watch.{service,timer} ~/.config/systemd/user/
+   sed -i "s#/home/kng#$HOME#g" ~/.config/systemd/user/buibui-signal-watch.service
    systemctl --user daemon-reload
    systemctl --user enable --now buibui-signal-watch.timer
    loginctl enable-linger "$USER"
