@@ -157,9 +157,24 @@ quantity in both the forward and ledger panels.
 spec §7 required `n >= MinTRL(0.95)`; the code never had it, the verdict doc
 never mentioned it, and every published BUILD cell cleared a gate missing a
 pre-registered condition. Greps cannot find this class of defect — only reading
-each spec against its implementation can. **1 of 44 spec docs has been
-reconciled** (H8); `p3-cross-sectional-momentum-sleeve-design.md` (the deploy
-core) is the highest-stakes one still unchecked.
+each spec against its implementation can. **5 of 46 spec docs have been
+reconciled** (H8, xsmom, the ingest-video design doc, + P2-EWMAC and
+P3-trend×XS-combine on 2026-08-06 — verdict
+`docs/audits/2026-08-06-spec-reconcile-p2-ewmac-p3-combine.md`).
+**The denominator is the FULL corpus of 46**, decided 2026-08-06: a spec with
+nothing to reconcile still costs someone a look to confirm that, and an
+"implemented-only" denominator needs a per-spec judgement call nothing records.
+`p3-cross-sectional-momentum-sleeve-design.md` (the deploy core) is the
+highest-stakes one still unchecked.
+
+**The published gate is THREE legs, not four — `DSR ≥ 0.95 ∧ PBO ≤ 0.5 ∧
+boot_lo > 0`.** All five sleeves implement exactly this; `min_trl` is computed
+and printed as a stamp but gates nothing. **P2's spec §1/§6 say "MinTRL gated"
+and are wrong** — and the deploy core would not clear a MinTRL leg (needs ~7035
+obs to confirm Sharpe > 1.0 at 95%, has ~2475), which its own audit discloses
+honestly at `2026-06-16-p3-xsmom-sleeve.md:105`. Keep the three-leg gate; MinTRL
+against a non-zero target asks "can I confirm Sharpe ≥ 1", a far harder question
+than "is there an edge". Do not quote the four-leg form.
 
 ## Code Style
 
