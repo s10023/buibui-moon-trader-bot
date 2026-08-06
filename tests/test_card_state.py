@@ -207,10 +207,77 @@ class TestSnapshotMarketState:
         assert len(state.recent_fires) == 1
         assert state.recent_fires[0].stars == 4
         assert state.recent_fires[0].dsr == pytest.approx(0.96)
-        # account: daily_r = -50 / (10_000 * 0.0025) = -2.0
+        # account: daily_r = -50 / (9_000 * 0.0025) = -2.2222, resolved off the
+        # provider's live equity rather than the 10_000.0 config constant.
         assert state.account is not None
-        assert state.account.daily_r == -2.0
+        assert state.account.daily_r == pytest.approx(-2.2222222222, abs=1e-9)
         assert state.account.positions[0].side == "short"
+
+    def test_daily_r_scales_off_live_equity_not_the_config_constant(self) -> None:
+        """Positive control: this pnl breaches the breaker at real equity only.
+
+        -6.0 USD against equity 1201.33 (R unit 3.0033) is -1.998R and breaches
+        daily_loss_limit_r -2.0 once rounded off; against the 10_000.0 constant
+        (R unit 25.00) the same day is -0.24R and passes. Asserting BOTH halves
+        is what proves the stimulus is live rather than that an invariant
+        happened to hold anyway.
+        """
+
+        class TinyEquityProvider:
+            def positions(self) -> list:
+                return []
+
+            def daily_pnl_usd(self, start_ms: int, end_ms: int) -> float:
+                return -6.0
+
+            def equity_usd(self) -> float | None:
+                return 1201.33
+
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        state = snapshot_market_state(
+            conn,
+            "BTCUSDT",
+            CardConfig(),
+            SizingConfig(),
+            now_ms=_NOW_MS,
+            account_provider=TinyEquityProvider(),
+            brief_fn=lambda _conn, cfg: _fake_bundle(cfg.symbols[0]),
+            targets_fn=lambda *a, **k: None,
+        )
+
+        assert state.account is not None
+        assert state.account.daily_r == pytest.approx(-6.0 / (1201.33 * 0.0025))
+        assert state.account.daily_r < -1.99
+        # the shipped behaviour would have been nowhere near the breaker
+        assert pytest.approx(-0.24) == -6.0 / (10_000.0 * 0.0025)
+
+    def test_daily_r_falls_back_to_config_capital_without_equity(self) -> None:
+        class NoEquityProvider:
+            def positions(self) -> list:
+                return []
+
+            def daily_pnl_usd(self, start_ms: int, end_ms: int) -> float:
+                return -6.0
+
+            def equity_usd(self) -> float | None:
+                return None
+
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        state = snapshot_market_state(
+            conn,
+            "BTCUSDT",
+            CardConfig(),
+            SizingConfig(),
+            now_ms=_NOW_MS,
+            account_provider=NoEquityProvider(),
+            brief_fn=lambda _conn, cfg: _fake_bundle(cfg.symbols[0]),
+            targets_fn=lambda *a, **k: None,
+        )
+
+        assert state.account is not None
+        assert state.account.daily_r == pytest.approx(-0.24)
 
     def _snapshot(self, conn: duckdb.DuckDBPyConnection) -> MarketState:
         return snapshot_market_state(

@@ -23,7 +23,7 @@ from analytics.store.signals import get_signals_history
 from analytics.xsmom.live import target_book_to_dict
 from analytics.xsmom.replay import replay_targets
 from card.config import CardConfig
-from portfolio.sizing import SizingConfig
+from portfolio.sizing import SizingConfig, resolve_capital
 
 DAY_MS = 86_400_000
 
@@ -42,7 +42,8 @@ class OpenPosition:
 class AccountState:
     positions: list[OpenPosition]
     daily_pnl_usd: float
-    daily_r: float  # daily_pnl_usd / (capital * r_base)
+    # daily_pnl_usd / (resolved capital * r_base); see portfolio.sizing.resolve_capital
+    daily_r: float
     equity_usd: float | None
 
 
@@ -266,11 +267,16 @@ def snapshot_market_state(
         try:
             day_start = now_ms - (now_ms % DAY_MS)
             pnl = account_provider.daily_pnl_usd(day_start, now_ms)
+            equity = account_provider.equity_usd()
+            capital, _used_live = resolve_capital(sizing, equity)
+            # Guard the divisor rather than trusting it: r_base is operator-set
+            # and a zero here would kill state building outright.
+            r_unit = capital * sizing.r_base
             account = AccountState(
                 positions=account_provider.positions(),
                 daily_pnl_usd=pnl,
-                daily_r=pnl / (sizing.capital * sizing.r_base),
-                equity_usd=account_provider.equity_usd(),
+                daily_r=pnl / r_unit if r_unit > 0.0 else 0.0,
+                equity_usd=equity,
             )
         except Exception as exc:
             health.append(f"account: {exc}")
