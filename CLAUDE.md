@@ -196,15 +196,36 @@ quantity in both the forward and ledger panels.
 spec §7 required `n >= MinTRL(0.95)`; the code never had it, the verdict doc
 never mentioned it, and every published BUILD cell cleared a gate missing a
 pre-registered condition. Greps cannot find this class of defect — only reading
-each spec against its implementation can. **5 of 46 spec docs have been
-reconciled** (H8, xsmom, the ingest-video design doc, + P2-EWMAC and
-P3-trend×XS-combine on 2026-08-06 — verdict
-`docs/audits/2026-08-06-spec-reconcile-p2-ewmac-p3-combine.md`).
+each spec against its implementation can. **6 of 46 spec docs have been
+reconciled** (H8 · the ingest-video design doc · P2-EWMAC + P3-trend×XS-combine
+on 2026-08-06, verdict
+`docs/audits/2026-08-06-spec-reconcile-p2-ewmac-p3-combine.md` ·
+**P3-XS-momentum — the deploy core — on 2026-08-06, verdict
+`docs/audits/2026-08-06-spec-reconcile-p3-xsmom.md`** · plus one ambiguous
+earlier entry, below).
 **The denominator is the FULL corpus of 46**, decided 2026-08-06: a spec with
 nothing to reconcile still costs someone a look to confirm that, and an
 "implemented-only" denominator needs a per-spec judgement call nothing records.
-`p3-cross-sectional-momentum-sleeve-design.md` (the deploy core) is the
-highest-stakes one still unchecked.
+
+**This counter has been wrong every single time anyone has checked it — 3 for
+3.** It read "1 of 44" while the handoff said "3 of 44" and the corpus was 46;
+PR #566 corrected it to 5 of 46 while listing **"xsmom"** as reconciled *and*
+naming `p3-cross-sectional-momentum-sleeve-design.md` as "the highest-stakes one
+still unchecked" — two claims in one paragraph that cannot both be true. That
+entry most likely meant #549's causality-leg fix, which checked **one leg**, not
+the spec. It is unrecoverable, so it is recorded rather than silently re-counted.
+**Treat this number as a claim to verify, never as a fact to quote** — and when
+you reconcile a spec, name the file, not the sleeve.
+
+**The deploy core is now reconciled and came back CLEAN** (2026-08-06): every
+pre-registered gate leg and all 7 construction steps are implemented as written —
+the H8/P2 failure mode did **not** recur on the sleeve that carries capital. Its
+one defect runs the other way: **§Causality's pre-registered test is
+unsatisfiable as literally written** (it asserts no book return changes on days
+`< d+1`, but the day-`d` return is `leverage_d × r_d` and `r_d` depends on
+`close_d` by construction — measured Δ 0.924 at day `k`, 0.000 before it). The
+code asserts on the **position** instead, which holds to machine zero. **Fix the
+spec, not the code**, and do not "repair" working P&L to satisfy that wording.
 
 **The published gate is THREE legs, not four — `DSR ≥ 0.95 ∧ PBO ≤ 0.5 ∧
 boot_lo > 0`.** All five sleeves implement exactly this; `min_trl` is computed
