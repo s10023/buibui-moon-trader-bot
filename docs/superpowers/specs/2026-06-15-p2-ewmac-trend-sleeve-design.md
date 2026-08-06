@@ -13,9 +13,11 @@ across the **N3 25-perp universe** on **1d bars** through a
 and produce the **gate G2 verdict**.
 
 **Success metric (G2):** trend-sleeve **OOS Sharpe ≥ ~1 on the universe** (not the
-3 majors), costs in, **DSR / PBO / bootstrap-CI / MinTRL** gated. If marginal on
-majors but positive on breadth → proceed (breadth is the mechanism). The number,
-its guard stamps, and the decision are written down in a dated audit doc.
+3 majors), costs in, cleared against the **three-leg gate: `DSR ≥ 0.95 ∧ PBO ≤ 0.5
+∧ bootstrap-CI lower bound > 0`**. **MinTRL is computed and reported as a stamp, not
+a gate leg** — see the amendment note in §6. If marginal on majors but positive on
+breadth → proceed (breadth is the mechanism). The number, its guard stamps, and the
+decision are written down in a dated audit doc.
 
 This is **read-only research**. No live daemon, no Telegram, no schema change, no
 engine/`_scan_forward` change. The existing backtest pipeline and its golden
@@ -197,7 +199,8 @@ future leakage). The guard stack still reports honestly:
   OOS.
 - **Block / stationary bootstrap CI** on portfolio Sharpe — is the lower bound > 0?
   > 1?
-- **MinTRL** — is the track record long enough to trust Sharpe ≥ 1?
+- **MinTRL** — is the track record long enough to trust Sharpe ≥ 1? **Reported as a
+  stamp; it gates nothing.** See the amendment below.
 - **Cost sensitivity sweep** — 0 / 2 / 8 / 16 bps per unit turnover (trend's whole
   claim is cost-robustness; recent 150-pair study stays > 2.0 Sharpe at 8 bps).
 - **Attribution** — per-instrument and **per-regime** (via `classify_series`): does
@@ -209,6 +212,27 @@ future leakage). The guard stack still reports honestly:
 Verdict written to **`docs/audits/2026-06-15-p2-ewmac-trend-g2.md`** (adjust date
 to ship date): the portfolio numbers, guard stamps, cost table, attribution, the H2
 result, and an explicit G2 PASS / MARGINAL / FAIL decision with reasoning.
+
+**Amendment 2026-08-06 — the gate is THREE legs, and MinTRL is not one of them.**
+§1 and this section originally described the gate as "DSR / PBO / bootstrap-CI /
+MinTRL **gated**". That was never true of the code. All five research sleeves
+implement exactly **`DSR ≥ 0.95 ∧ PBO ≤ 0.5 ∧ boot_lo > 0`**; `min_trl` is computed
+and printed beside the verdict and gates nothing. **The spec was wrong, not the
+code — so the spec is what changed here.**
+
+Keeping the three-leg form is a decision, not an oversight. MinTRL against a
+non-zero target asks *"can I confirm Sharpe ≥ 1?"*, a far harder question than
+*"is there an edge at all?"* — and **the deploy core would not clear it**:
+XS-momentum needs ~7035 observations to confirm Sharpe > 1.0 at 95% and has ~2475,
+disclosed in its own audit at `docs/audits/2026-06-16-p3-xsmom-sleeve.md:105`.
+Adding the leg retroactively would fail the one sleeve that carries capital, on a
+question the gate was never asking.
+
+**Do not quote the four-leg form.** Filed as follow-up 2 of the #566 reconcile
+(`docs/audits/2026-08-06-spec-reconcile-p2-ewmac-p3-combine.md`) and fixed here.
+Related, and easy to conflate: `deflated_sharpe_ratio` and `min_track_record_length`
+are both **directional** — any audit with a negative-direction verdict must fold the
+Sharpe to `abs()` or the verdict becomes structurally unreachable (see CLAUDE.md).
 
 ## 7. Out of scope (YAGNI / deferred to later sub-projects)
 

@@ -5,13 +5,15 @@ description: >
   the doc surfaces (CLAUDE.md, README.md, MEMORY.md, Makefile, docker-compose.yml,
   .claude/context/*.md, .claude/skills/*/SKILL.md)
   and propose targeted edits where they've drifted, then run a pre-merge
-  readiness check and offer a fresh-conversation handoff prompt. Use IMMEDIATELY
-  after `gh pr create` succeeds, BEFORE reporting the PR URL back to the user.
-  Skip for pure refactors, bug fixes covered by tests, dependency bumps, and
-  lint-only commits — the behaviour gate (Step 1) decides. Confirm every edit
-  before writing; never force-push without explicit OK. Also triggers on the
-  user saying "/post-branch", "wrap up the branch", "docs check",
-  "pre-merge check", or "next conversation prompt".
+  readiness check and offer a fresh-conversation handoff prompt. SPLIT around
+  `gh pr create`: run Steps 1-5 and 7 BEFORE creating the PR so doc fixes ship in
+  the initial push, then Steps 6 and 10a/10c after it exists. Invoke it on every
+  branch — if `gh pr create` has already run, start it immediately, before
+  reporting the PR URL back to the user. Skip for pure refactors, bug fixes
+  covered by tests, dependency bumps, and lint-only commits — the behaviour gate
+  (Step 1) decides. Confirm every edit before writing; never force-push without
+  explicit OK. Also triggers on the user saying "/post-branch", "wrap up the
+  branch", "docs check", "pre-merge check", or "next conversation prompt".
 allowed-tools: Bash, Read, Edit, Write
 ---
 
@@ -24,8 +26,41 @@ sometimes silently. This skill walks a fixed list of doc surfaces, diffs
 each one against the PR's actual behaviour, surfaces the drift, and proposes
 edits the user can approve.
 
-It runs **after** the PR exists. Its job is not to gatekeep the PR but to
-catch doc drift before merge — when fixing it is still cheap.
+Its job is not to gatekeep the PR but to catch doc drift before merge — when
+fixing it is still cheap.
+
+## When each step runs — the skill SPLITS around `gh pr create`
+
+This file used to say "It runs **after** the PR exists." That was wrong, and it
+cost a full redundant CI run every time it was followed (see below).
+
+| When | Steps | Why they belong there |
+| --- | --- | --- |
+| **BEFORE `gh pr create`** | 1–5, then 7 | They are **commit-producing**. Walking the docs first means the fixes land in the branch's initial push, so the PR opens complete. |
+| **AFTER the PR exists** | 6, then 10a/10c | Step 6 edits the PR body and 10a/10c report + hand off. They need a PR number and produce **no commits**. |
+| Either | 8, 9, 10b | Rebase (8) and output formatting (9) are situational; 10b writes a gitignored file, so it is free either way. |
+
+**Do not "simplify" this into a blanket rule in either direction.** A blanket
+"after" is what caused the defect; a blanket "before" is equally wrong, because
+Steps 6/10a/10c cannot run until the PR exists.
+
+**The measurement behind the split:** on #557 the walk ran after creation, found
+a real `context/tools.md` omission, and the fix-push re-ran the entire suite via
+`pull_request: synchronize` — ~3000 tests plus a 93s regression job, for one
+paragraph. On #558 the walk ran first and the doc commit shipped in the initial
+push: one CI run, not two. On #568 the old wording was followed again and cost
+another redundant run.
+
+**If `gh pr create` has already run**, do not skip the walk — run the whole thing
+now and accept the extra CI run. A stale doc costs more than one CI cycle.
+
+**The `PostToolUse` hook is a backstop, not the trigger.** It fires on
+`gh pr create`, which is necessarily *after* — there is no hook event for "about
+to open a PR", which is exactly why the ordering rule has to live in prose here
+and in `CLAUDE.md`. Two caveats worth knowing: the hook lives in gitignored
+`.claude/settings.json` so it does not survive a reclone, and it matches the
+**whole command string**, so a `grep` or heredoc merely *containing*
+`gh pr create` will fire it spuriously.
 
 ---
 

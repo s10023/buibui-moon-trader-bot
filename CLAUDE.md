@@ -228,13 +228,19 @@ one defect runs the other way: **§Causality's pre-registered test is
 unsatisfiable as literally written** (it asserts no book return changes on days
 `< d+1`, but the day-`d` return is `leverage_d × r_d` and `r_d` depends on
 `close_d` by construction — measured Δ 0.924 at day `k`, 0.000 before it). The
-code asserts on the **position** instead, which holds to machine zero. **Fix the
-spec, not the code**, and do not "repair" working P&L to satisfy that wording.
+code asserts on the **position** instead, which holds to machine zero.
+**AMENDED IN THE SPEC 2026-08-06** — §Causality now asserts on the position across
+all columns and records why the old wording was unsatisfiable. Never "repair"
+working P&L to satisfy that old wording; a book return that did not respond to its
+own bar's close would be the real bug. (§Verdict criterion 4 was amended in the same
+pass: "`corr_to_trend` near zero" was cleared at **+0.37** and is restated as the
+disqualifier it always was in practice — no verdict changes.)
 
 **The published gate is THREE legs, not four — `DSR ≥ 0.95 ∧ PBO ≤ 0.5 ∧
 boot_lo > 0`.** All five sleeves implement exactly this; `min_trl` is computed
-and printed as a stamp but gates nothing. **P2's spec §1/§6 say "MinTRL gated"
-and are wrong** — and the deploy core would not clear a MinTRL leg (needs ~7035
+and printed as a stamp but gates nothing. **P2's spec §1/§6 said "MinTRL gated"
+and were wrong — AMENDED 2026-08-06** to state the three-leg gate and describe
+MinTRL as a reported stamp — and the deploy core would not clear a MinTRL leg (needs ~7035
 obs to confirm Sharpe > 1.0 at 95%, has ~2475), which its own audit discloses
 honestly at `2026-06-16-p3-xsmom-sleeve.md:105`. Keep the three-leg gate; MinTRL
 against a non-zero target asks "can I confirm Sharpe ≥ 1", a far harder question
@@ -318,13 +324,24 @@ it is authoritative. Only the rules that the injected list cannot carry live bel
 - Commit messages use conventional commits: `feat:`, `fix:`, `test:`, `docs:`, `build:`, `chore:`
 - Branch naming: `feat/`, `fix/`, `docs/`, `chore/`
 - Do not commit `.env`, `config/coins.json`, or IDE-specific files
-- **After `gh pr create` succeeds, invoke `/post-branch` before reporting the PR
-  URL back to the user.** Not optional and not conditional — the skill's own Step 1
-  behaviour gate decides whether a docs sweep is warranted, so invoking it on a pure
-  refactor costs one cheap check. This line exists because the skills table's generic
-  "use them proactively" demonstrably was not enough: on 2026-08-03 `/post-branch`
-  fired **zero times across three PRs** (#524, #525, #526) on the main thread, by the
-  same agent that had spent that session repairing the skill. A `PostToolUse` hook on
-  `Bash` in `.claude/settings.json` backs this up with a harness-emitted reminder — but
-  that file is gitignored (like `guard-destructive.py`), so on a fresh clone **this
-  paragraph is the only enforcement that survives**. Re-add the hook if you reclone.
+- **Invoke `/post-branch` on every branch, and SPLIT it around `gh pr create`.**
+  Steps 1–5 and 7 (behaviour gate → changed artifacts → doc walk → surface checks →
+  MEMORY.md → commit and push) are **commit-producing and run BEFORE** `gh pr create`,
+  so the doc fixes ship in the initial push. Steps 6 and 10a/10c (PR body, handoff)
+  need the PR to exist and run **after**; they produce no commits. Step 10b writes a
+  gitignored file and is free either way. **A blanket "before" would be as wrong as the
+  blanket "after" this line used to carry** — 6/10a/10c cannot run pre-PR.
+  Invoking it is not optional and not conditional: the skill's own Step 1 behaviour
+  gate decides whether a docs sweep is warranted, so invoking it on a pure refactor
+  costs one cheap check.
+  **Why the split is load-bearing:** running the doc walk after PR creation pushes a
+  fix onto an open PR, and every such push re-runs all CI (`pull_request: synchronize`)
+  — ~3000 tests plus a 93s regression job for one paragraph. Measured on #557, avoided
+  on #558 by walking first, and hit again on #568 while this very line still said
+  "after".
+  This paragraph is also the **only enforcement that survives a fresh clone**: the
+  `PostToolUse` hook on `Bash` that backstops it lives in gitignored
+  `.claude/settings.json` (like `guard-destructive.py`). Keep that hook — there is no
+  hook event for "about to open a PR", which is why prose has to carry the rule — but
+  know it fires *after* creation and **matches the whole command string**, so a `grep`
+  or heredoc merely *containing* `gh pr create` triggers it. Re-add it if you reclone.
