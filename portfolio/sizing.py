@@ -80,16 +80,45 @@ def position_size(risk_capital: float, entry: float, stop: float) -> float:
     return risk_capital / rpu if rpu > 0.0 else 0.0
 
 
+_STEP_SNAP_REL_TOL = 1e-9
+"""Quotient-space window for treating a float as an exact step multiple.
+
+~1e6x the few-ULP error a division or subtraction actually accumulates, and
+capped below at a half step by `_STEP_SNAP_MAX_TOL`, so the snap can only ever
+recover float noise — never a real remainder.
+"""
+
+_STEP_SNAP_MAX_TOL = 1e-6
+"""Hard cap on the snap window, in quotient units.
+
+Without it the relative tolerance grows with the quotient and would reach a half
+step around `qty / step ~ 5e8`, silently flipping this helper from fail-safe to
+fail-open on very large positions.
+"""
+
+
 def round_down_to_step(qty: float, step: float) -> float:
     """Floor |qty| to a multiple of an exchange LOT_SIZE step.
 
     Shared by the XS executor's order router and the card post-pass so both
     round identically. Returns the magnitude — callers re-apply any sign. A
     non-positive step means "unknown filter" and passes through unchanged.
+
+    A plain `floor(abs(qty) / step)` is float-fragile: `0.29 / 0.01` computes as
+    `28.999999999999996`, floors to 28, and returns `0.28` — a FULL step lost on
+    a mathematically exact multiple. That bites hardest in `trade/routing.py`,
+    whose `target_qty - current` is a difference of two step multiples and so is
+    an exact multiple every time. So snap to the nearest multiple when the
+    quotient is within float noise of one, and floor otherwise.
     """
     if step <= 0:
         return qty
-    return math.floor(abs(qty) / step) * step
+    quotient = abs(qty) / step
+    nearest = round(quotient)
+    tolerance = min(_STEP_SNAP_REL_TOL * max(1.0, quotient), _STEP_SNAP_MAX_TOL)
+    if abs(quotient - nearest) <= tolerance:
+        return nearest * step
+    return math.floor(quotient) * step
 
 
 def vol_governor(realized_vol_annual: float, cfg: SizingConfig) -> float:
