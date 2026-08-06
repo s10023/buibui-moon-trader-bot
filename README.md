@@ -815,6 +815,12 @@ Three output versions:
 Runs a polling daemon that scans closed candles every N seconds and sends Telegram alerts
 when a strategy fires. Requires `analytics backfill` to have been run first.
 
+> **Scheduled deployments should run `signal watch --once` on a timer, not this looping
+> form.** Running both at the same time gives two writers racing `signal_state.json` and
+> duplicate Telegram alerts. Unit files live in `deploy/systemd/`; see
+> [`docs/MIGRATION.md`](docs/MIGRATION.md) for re-establishing a timer on a new machine
+> (`loginctl enable-linger` is required, or user timers stop at logout).
+
 ```bash
 poetry run python buibui.py signal watch
 ```
