@@ -121,6 +121,9 @@ Per card:
    available, else the configured `[portfolio] capital` — and every card records
    `capital_used`/`capital_source`; check the size line's percentage names a
    real capital figure (close to actual account equity), not `10,000.00`.
+   Real capital is smaller than the old constant (~$1,200 vs $10,000 measured),
+   so the sub-lot veto is now common, not a corner case — expect BTCUSDT
+   VETOes on stops wider than roughly 2.7% at that equity, not a bug.
 4. **`valid_until_utc` is now a VETO when it does not postdate the card's own
    generation time** (or is unparseable). Checked against `generated_at_ms`,
    not wall-clock now, so re-reading an old card does not retroactively void

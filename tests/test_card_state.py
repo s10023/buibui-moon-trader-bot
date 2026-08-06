@@ -249,8 +249,11 @@ class TestSnapshotMarketState:
         assert state.account is not None
         assert state.account.daily_r == pytest.approx(-7.0 / (1201.33 * 0.0025))
         assert state.account.daily_r <= -2.0
-        # the shipped behaviour would have been nowhere near the breaker
-        assert pytest.approx(-0.28) == -7.0 / (10_000.0 * 0.0025)
+        # the shipped behaviour would have been nowhere near the breaker:
+        # -7.0 / (10_000.0 * 0.0025) = -0.28R, well clear of -2.0. This is
+        # arithmetic on literals, not the system under test — it documents
+        # the contrast, not a check of anything. The two asserts above are
+        # the real positive control.
 
     def test_daily_r_falls_back_to_config_capital_without_equity(self) -> None:
         class NoEquityProvider:
@@ -284,8 +287,12 @@ class TestSnapshotMarketState:
 
         daily_r=0.0 reads as "no loss" to the breaker at card.py:249, so a
         silent 0.0 would be indistinguishable from a genuinely flat day. This
-        pins that the health note is what keeps a misconfigured
-        [portfolio] capital/r_base from looking safe.
+        pins that the health note exists — but the note only reaches the
+        state JSON, the LLM prompt, and `--dry-run` output: `render_card`
+        never prints `state.health` and `FinalCard` has no `health` field, so
+        a misconfigured [portfolio] capital/r_base looking safe on the
+        RENDERED card or the ledger is not something this note prevents
+        (filed as a follow-up, not yet done).
         """
 
         class NoEquityProvider:

@@ -244,6 +244,12 @@ def snapshot_market_state(
 
     xs: dict[str, Any] | None = None
     try:
+        # Deliberately `sizing.capital`, not `resolve_capital(sizing, equity)`
+        # — a third consumer of the capital constant, beside sizing (card.py)
+        # and the circuit breaker (below). The XS target row is sized on the
+        # sleeve's own pinned capital, not the card's live equity, and when
+        # a dated snapshot exists under `docs/plans/xsmom_targets/` it is read
+        # verbatim (see `_xs_block`), bypassing this argument entirely.
         xs = _xs_block(
             conn, symbol, sizing.capital, now_ms, cfg.targets_dir, targets_fn
         )
@@ -277,8 +283,14 @@ def snapshot_market_state(
             else:
                 # Fail-open on the value but never on the SIGNAL: 0.0 reads as
                 # "no loss" to the breaker at card.py:249, so a silent 0.0 would
-                # be indistinguishable from a flat day. The note is what keeps a
-                # misconfigured [portfolio] capital/r_base from looking safe.
+                # be indistinguishable from a flat day. `render_card` never
+                # prints `state.health` and `FinalCard` has no `health` field,
+                # so this note reaches the state JSON, the LLM prompt
+                # (`prompt.py`) and `--dry-run` output — never the rendered
+                # card or the `ai-cards.jsonl` ledger. Surfacing it as a card
+                # warning too is a filed follow-up, not yet done. Within that
+                # reach, it is what keeps a misconfigured [portfolio]
+                # capital/r_base from looking safe.
                 daily_r = 0.0
                 health.append(
                     "daily_r unavailable: non-positive risk unit "

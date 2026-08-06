@@ -181,7 +181,26 @@ each result stated plainly.
 
 ## Operational note
 
-Behaviour changes for anyone running `/card` against a funded account: printed risk will
-rise to the true figure. That is the point of the change, but it means a card generated
-after this lands is not comparable to one generated before it at the same `risk_frac`.
-The `capital_source` field in the ledger is what makes the two distinguishable.
+Behaviour changes for anyone running `/card` against a funded account, and the
+direction is the OPPOSITE of what an earlier draft of this note said. Printed `risk_usd`
+FALLS — e.g. `$25.00` -> `$3.00` at equity `1201.33` — because the constant it was
+computed against (`10_000.0`) was too LARGE, not too small. What was overstated in
+dollar terms is corrected downward; what changes for the better is that `risk_frac`
+becomes truthful (a real fraction of the account) rather than a fraction of a number
+nobody holds.
+
+The practical consequence: positions shrink roughly 8x, so **the sub-lot veto
+(`card/card.py:346`, "size floors to zero at qty_step ... — risk budget is below one
+lot") goes from a corner case to a common one.** At equity `1201.33` with `r_base`
+0.25% the risk budget is `$3.00`; for BTCUSDT at the `0.001` LOT_SIZE step, any stop
+wider than roughly **2.7%** now VETOes on that budget (verified: a 3% stop yields
+`0.000910` units against the `0.001` step — below one lot). This is the same capital
+wall the XS sleeve documents at ~$1,000 minimum capital (see
+`project_xsmom_live_prerequisites` in memory), now reached via the card path instead
+of the executor path.
+
+A card generated after this lands is therefore not comparable to one generated before
+it at the same `risk_frac` — nor, in the common case, will it even reach a `TRADE`
+verdict where the earlier one did. The `capital_source` field in the ledger
+(`"live_equity"` | `"config"`) is what distinguishes pre- and post-change rows when
+reading `docs/plans/ai-cards.jsonl` after the fact.

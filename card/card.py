@@ -203,6 +203,17 @@ def post_pass(
     account rows carry no SL, so true open risk is unknowable) — surfaced as
     a warning, never silent.
 
+    Capital is resolved via `portfolio.sizing.resolve_capital(sizing, equity)`
+    — live account equity when it is a finite, positive number, else the
+    configured `sizing.capital` constant — and is used for BOTH the risk-in-
+    dollars sizing below and (upstream, in `state.py`) the daily-loss circuit
+    breaker's R unit, so a single resolved figure drives both. `capital_used`
+    / `capital_source` are recorded on the returned `FinalCard` (`None` on a
+    VETO) precisely because `risk_frac` is only interpretable alongside the
+    capital that produced it — see the LOT_SIZE-rounding note below for why
+    the SAME resolved capital must be reused for the post-rounding restatement
+    too, not re-read from `sizing.capital`.
+
     `qty_step` is the symbol's exchange LOT_SIZE step. When supplied the
     quantity is floored to it and risk is restated from the ROUNDED size, so
     the printed risk is the risk actually taken. When absent (no exchange
