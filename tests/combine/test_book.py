@@ -106,6 +106,34 @@ def test_combine_is_causal_no_lookahead() -> None:
     np.testing.assert_array_equal(base.idm[: k + 1], after.idm[: k + 1])
     np.testing.assert_array_equal(base.governor[: k + 1], after.governor[: k + 1])
 
+    # Positive controls — every assertion above is a "did NOT change" claim, and
+    # such a claim is equally satisfied by "the invariant holds" and by "the
+    # stimulus never reached the code". That second reading is how the xsmom
+    # causality guard was vacuous (see tests/xsmom/test_book.py), so pin the
+    # perturbation as live. NaN would satisfy a bare `!=`; require finite first.
+    # 1. The day-k return must move — the comment above ASSERTS this in prose,
+    #    which is not a test. Measured delta: 3.6 (the +5.0 bump, scaled).
+    assert np.isfinite(base.portfolio_return[k]) and np.isfinite(
+        after.portfolio_return[k]
+    )
+    assert abs(after.portfolio_return[k] - base.portfolio_return[k]) > 1e-9, (
+        "perturbation never reached portfolio_return[k] — combine_books is not "
+        "reading the field this test bumps, so every assertion above is vacuous"
+    )
+    # 2. Both sizing quantities must move on the FIRST row they may legally see
+    #    it. Measured deltas: idm 6.3e-02, governor 5.1e-01.
+    for name, base_arr, after_arr in (
+        ("idm", base.idm, after.idm),
+        ("governor", base.governor, after.governor),
+    ):
+        assert np.isfinite(base_arr[k + 1]) and np.isfinite(after_arr[k + 1]), (
+            f"{name}[k+1] must be warmed up for the control to mean anything"
+        )
+        assert abs(after_arr[k + 1] - base_arr[k + 1]) > 1e-9, (
+            f"perturbation never propagated to {name}[k+1] — the causality "
+            f"assertion on {name} is vacuous and would pass with its shift removed"
+        )
+
 
 def test_combine_aligns_mismatched_indices() -> None:
     idx_a = pd.date_range("2021-01-01", periods=500, freq="D")

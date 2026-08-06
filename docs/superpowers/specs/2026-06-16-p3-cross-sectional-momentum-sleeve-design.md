@@ -148,10 +148,31 @@ Symmetric with the trend sleeve's 5-trial family:
 
 The position held during day `d` is sized only from information through close of
 `d-1`. The cross-sectional demean is a same-day reduction over causal forecasts;
-the `.shift(1)` is applied **after** demeaning, **before** sizing. Tests:
-strengthened middle-bar perturbation — perturb a single instrument's close on day
-`d` and assert no book return on day `< d+1` changes (RED without the shift,
-GREEN with it). This is the package's most important test.
+the `.shift(1)` is applied **after** demeaning, **before** sizing.
+
+**Test (amended 2026-08-06 — the original wording was unsatisfiable).** Perturb a
+single instrument's close on day `d` and assert that **no position (`xs_leverage`)
+on any day `≤ d` changes, for any instrument** — the demean couples the whole
+cross-section, so the assertion must span every column, not just the perturbed one.
+RED without the shift, GREEN with it. This is the package's most important test.
+
+**Why the original wording could never pass, and why the code is right.** It read
+"assert no **book return** on day `< d+1` changes". But the day-`d` book return is
+`leverage_d × r_d`, and `r_d` depends on `close_d` **by construction** — so
+perturbing `close_d` *must* move the day-`d` return. Measured in the #568 reconcile:
+Δ **0.924** at day `k`, **0.000** on every earlier day, **0.000** on leverage. The
+implementation asserts on the **position**, which holds to machine zero, and is
+therefore the correct reading of the invariant. **Never "repair" the P&L to satisfy
+the old wording** — a book return that did *not* respond to its own bar's close
+would be the actual bug.
+
+**The guard must also carry a positive control**, and does
+(`tests/xsmom/test_book.py`). It was added after this very guard was found
+**vacuous** in #549: the fixture was cap-saturated, so the perturbation never
+reached the rows under assertion and the test passed *with the shift removed*. A
+"did not change" assertion is equally satisfied by "the invariant holds" and by
+"the stimulus never arrived", so it needs a companion assertion that the stimulus
+was live on the first row it may legally reach.
 
 ## Verdict (G3-style) — what "success" means
 
@@ -160,13 +181,32 @@ The sleeve is worth carrying into the IDM combine (Task 2) if it is:
 1. **Positive** headline Sharpe (net of costs),
 2. **Cost-robust** (still positive at 8–16 bps/leg in the cost-sensitivity table),
 3. **DSR/PBO-survivable** over the 5-trial family, **and**
-4. **Diversifying** — `corr_to_trend` near zero (a modest-Sharpe XS sleeve that is
-   uncorrelated with trend is a real combine win even if it fails the ≥~1 bar
-   standalone).
+4. **Diversifying** — `corr_to_trend` is **not high**. This is a *disqualifier*,
+   not a target (amended 2026-08-06 — see below). A modest-Sharpe XS sleeve that is
+   materially uncorrelated with trend is a real combine win even if it fails the
+   ≥~1 bar standalone.
 
 An honest negative (XS edge is also weak, or merely a re-labelled trend with high
 `corr_to_trend`) is a valid, publishable result — demote, don't hide. The verdict
 doc lands at `docs/audits/2026-06-16-p3-xsmom-sleeve.md`.
+
+**Amendment 2026-08-06 — criterion 4 was written as a target and applied as a
+disqualifier.** The original wording was "`corr_to_trend` **near zero**", and the
+criterion was cleared at an accepted **+0.37** — which is not near zero on any
+reading. The decision itself is defensible: the paragraph directly above frames the
+failure mode as "merely a re-labelled trend with **high** `corr_to_trend`", and
++0.37 is not high. But the pre-registered wording and the accepted value did not
+match, and a pre-registered bar that gets reinterpreted after seeing the number is
+no longer pre-registered. Restated above as the disqualifier it always was in
+practice. **No verdict changes** — the sleeve still clears.
+
+**Open, and deliberately left undecided here:** criterion 4 — and the four-criteria
+G3 verdict as a whole — reaches the operator only as a **prose line** at
+`xsmom_audit.py:203`. There is no coded `xs_gate_verdict` beside the existing
+`combine_gate_verdict`. Either code it or mark it explicitly advisory; the present
+state is neither, which is the same **"gate that lives only in prose"** defect class
+as H8's never-implemented MinTRL leg and the pundit `n ≥ 30` gate that exists solely
+in a module docstring.
 
 ## Out of scope (explicit, deferred)
 
