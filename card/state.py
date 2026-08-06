@@ -272,10 +272,23 @@ def snapshot_market_state(
             # Guard the divisor rather than trusting it: r_base is operator-set
             # and a zero here would kill state building outright.
             r_unit = capital * sizing.r_base
+            if r_unit > 0.0:
+                daily_r = pnl / r_unit
+            else:
+                # Fail-open on the value but never on the SIGNAL: 0.0 reads as
+                # "no loss" to the breaker at card.py:249, so a silent 0.0 would
+                # be indistinguishable from a flat day. The note is what keeps a
+                # misconfigured [portfolio] capital/r_base from looking safe.
+                daily_r = 0.0
+                health.append(
+                    "daily_r unavailable: non-positive risk unit "
+                    "(capital x r_base) — the daily-loss circuit breaker "
+                    "cannot fire this run"
+                )
             account = AccountState(
                 positions=account_provider.positions(),
                 daily_pnl_usd=pnl,
-                daily_r=pnl / r_unit if r_unit > 0.0 else 0.0,
+                daily_r=daily_r,
                 equity_usd=equity,
             )
         except Exception as exc:

@@ -216,11 +216,11 @@ class TestSnapshotMarketState:
     def test_daily_r_scales_off_live_equity_not_the_config_constant(self) -> None:
         """Positive control: this pnl breaches the breaker at real equity only.
 
-        -6.0 USD against equity 1201.33 (R unit 3.0033) is -1.998R and breaches
-        daily_loss_limit_r -2.0 once rounded off; against the 10_000.0 constant
-        (R unit 25.00) the same day is -0.24R and passes. Asserting BOTH halves
-        is what proves the stimulus is live rather than that an invariant
-        happened to hold anyway.
+        -7.0 USD against equity 1201.33 (R unit 3.0033) is -2.331R and
+        genuinely breaches daily_loss_limit_r -2.0; against the 10_000.0
+        constant (R unit 25.00) the same day is -0.28R and passes. Asserting
+        BOTH halves is what proves the stimulus is live rather than that an
+        invariant happened to hold anyway.
         """
 
         class TinyEquityProvider:
@@ -228,7 +228,7 @@ class TestSnapshotMarketState:
                 return []
 
             def daily_pnl_usd(self, start_ms: int, end_ms: int) -> float:
-                return -6.0
+                return -7.0
 
             def equity_usd(self) -> float | None:
                 return 1201.33
@@ -247,10 +247,10 @@ class TestSnapshotMarketState:
         )
 
         assert state.account is not None
-        assert state.account.daily_r == pytest.approx(-6.0 / (1201.33 * 0.0025))
-        assert state.account.daily_r < -1.99
+        assert state.account.daily_r == pytest.approx(-7.0 / (1201.33 * 0.0025))
+        assert state.account.daily_r <= -2.0
         # the shipped behaviour would have been nowhere near the breaker
-        assert pytest.approx(-0.24) == -6.0 / (10_000.0 * 0.0025)
+        assert pytest.approx(-0.28) == -7.0 / (10_000.0 * 0.0025)
 
     def test_daily_r_falls_back_to_config_capital_without_equity(self) -> None:
         class NoEquityProvider:
@@ -258,7 +258,7 @@ class TestSnapshotMarketState:
                 return []
 
             def daily_pnl_usd(self, start_ms: int, end_ms: int) -> float:
-                return -6.0
+                return -7.0
 
             def equity_usd(self) -> float | None:
                 return None
@@ -277,7 +277,46 @@ class TestSnapshotMarketState:
         )
 
         assert state.account is not None
-        assert state.account.daily_r == pytest.approx(-0.24)
+        assert state.account.daily_r == pytest.approx(-0.28)
+
+    def test_daily_r_degenerate_risk_unit_surfaces_a_health_note(self) -> None:
+        """A non-positive risk unit fails open on the VALUE but not the SIGNAL.
+
+        daily_r=0.0 reads as "no loss" to the breaker at card.py:249, so a
+        silent 0.0 would be indistinguishable from a genuinely flat day. This
+        pins that the health note is what keeps a misconfigured
+        [portfolio] capital/r_base from looking safe.
+        """
+
+        class NoEquityProvider:
+            def positions(self) -> list:
+                return []
+
+            def daily_pnl_usd(self, start_ms: int, end_ms: int) -> float:
+                return -7.0
+
+            def equity_usd(self) -> float | None:
+                return None
+
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        state = snapshot_market_state(
+            conn,
+            "BTCUSDT",
+            CardConfig(),
+            SizingConfig(capital=0.0),
+            now_ms=_NOW_MS,
+            account_provider=NoEquityProvider(),
+            brief_fn=lambda _conn, cfg: _fake_bundle(cfg.symbols[0]),
+            targets_fn=lambda *a, **k: None,
+        )
+
+        assert state.account is not None
+        assert state.account.daily_r == 0.0
+        assert any(
+            n.startswith("daily_r unavailable: non-positive risk unit")
+            for n in state.health
+        )
 
     def _snapshot(self, conn: duckdb.DuckDBPyConnection) -> MarketState:
         return snapshot_market_state(
