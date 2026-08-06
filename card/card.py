@@ -19,6 +19,7 @@ from portfolio.sizing import (
     effective_risk_fraction,
     position_size,
     regime_multiplier,
+    resolve_capital,
     risk_per_unit,
     round_down_to_step,
 )
@@ -157,6 +158,8 @@ class FinalCard:
     notional_usd: float | None
     risk_usd: float | None
     risk_frac: float | None
+    capital_used: float | None
+    capital_source: str | None
     rr_tp1: float | None
     warnings: list[str]
     veto_reasons: list[str]
@@ -212,6 +215,8 @@ def post_pass(
     notional_usd: float | None = None
     risk_usd: float | None = None
     risk_frac: float | None = None
+    capital_used: float | None = None
+    capital_source: str | None = None
     rr_tp1: float | None = None
 
     if card.verdict == "TRADE":
@@ -322,8 +327,18 @@ def post_pass(
             if r_adm <= 0.0:
                 veto.append("no risk headroom under concurrent/cluster caps")
             else:
+                equity = state.account.equity_usd if state.account is not None else None
+                capital, used_live = resolve_capital(sizing, equity)
+                capital_used = capital
+                capital_source = "live_equity" if used_live else "config"
+                if not used_live:
+                    warnings.append(
+                        f"sized off configured capital ${capital:,.2f} — account "
+                        "equity unavailable, so the risk fraction is against a "
+                        "constant, not the account"
+                    )
                 risk_frac = r_adm
-                risk_usd = sizing.capital * r_adm
+                risk_usd = capital * r_adm
                 size_units = position_size(risk_usd, entry, sl)
                 if qty_step is not None and qty_step > 0.0:
                     size_units = round_down_to_step(size_units, qty_step)
@@ -336,9 +351,7 @@ def post_pass(
                         # Restate risk from the rounded size: the pre-rounding
                         # figure overstates what is actually being risked.
                         risk_usd = size_units * risk_per_unit(entry, sl)
-                        risk_frac = (
-                            risk_usd / sizing.capital if sizing.capital > 0 else r_adm
-                        )
+                        risk_frac = risk_usd / capital if capital > 0 else r_adm
                 else:
                     warnings.append(
                         "quantity is not LOT_SIZE-rounded (exchange filters "
@@ -349,6 +362,7 @@ def post_pass(
     verdict = "VETOED" if veto else card.verdict
     if veto:
         size_units = notional_usd = risk_usd = risk_frac = rr_tp1 = None
+        capital_used = capital_source = None
     return FinalCard(
         symbol=state.symbol,
         as_of_ms=state.now_ms,
@@ -358,6 +372,8 @@ def post_pass(
         notional_usd=notional_usd,
         risk_usd=risk_usd,
         risk_frac=risk_frac,
+        capital_used=capital_used,
+        capital_source=capital_source,
         rr_tp1=rr_tp1,
         warnings=warnings,
         veto_reasons=veto,

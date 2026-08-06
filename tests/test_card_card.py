@@ -307,7 +307,7 @@ class TestPostPass:
             ],
         )
         final = _post(_trade_obj(), state)
-        assert not [w for w in final.warnings if "live" in w]
+        assert not [w for w in final.warnings if "live record contradicts" in w]
 
     def test_cluster_cap_consumes_headroom(self) -> None:
         # ETHUSDT open long is in the majors cluster with BTCUSDT:
@@ -331,6 +331,32 @@ class TestPostPass:
         final = _post(_trade_obj(), _state_for_post(account=account))
         assert final.verdict == "TRADE"
         assert any("approximated" in w for w in final.warnings)
+
+    def test_sizes_off_live_equity_when_present(self) -> None:
+        account = AccountState(
+            positions=[], daily_pnl_usd=0.0, daily_r=0.0, equity_usd=1201.33
+        )
+        final = _post(_trade_obj(), _state_for_post(account=account))
+        assert final.verdict == "TRADE"
+        # r_base 0.25% of 1201.33 = 3.0033 USD; |entry-sl| = 2 -> 1.50 units
+        assert final.risk_usd == pytest.approx(3.003325)
+        assert final.size_units == pytest.approx(1.5016625)
+        assert final.capital_used == pytest.approx(1201.33)
+        assert final.capital_source == "live_equity"
+
+    def test_falls_back_to_config_capital_and_warns(self) -> None:
+        final = _post(_trade_obj(), _state_for_post())
+        assert final.risk_usd == 25.0
+        assert final.capital_used == pytest.approx(10_000.0)
+        assert final.capital_source == "config"
+        assert any("configured capital" in w for w in final.warnings)
+
+    def test_vetoed_card_clears_capital_fields(self) -> None:
+        # min_rr veto: tp1 too close to entry for the 2.0 risk-per-unit.
+        final = _post(_trade_obj(tp1=100.5), _state_for_post())
+        assert final.verdict == "VETOED"
+        assert final.capital_used is None
+        assert final.capital_source is None
 
     def test_zero_headroom_vetoes(self) -> None:
         # 4 open ETHUSDT longs in the majors cluster with BTCUSDT: each is

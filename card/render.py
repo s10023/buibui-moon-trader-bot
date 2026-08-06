@@ -25,10 +25,15 @@ def render_card(final: FinalCard) -> str:
         and final.notional_usd is not None
         and final.risk_usd is not None
     ):
+        capital_note = (
+            f" of {final.capital_used:,.2f} {final.capital_source}"
+            if final.capital_used is not None and final.capital_source is not None
+            else ""
+        )
         lines.append(
             f"size: {final.size_units} units · notional "
             f"${final.notional_usd:.2f} · risk ${final.risk_usd:.2f} "
-            f"({(final.risk_frac or 0.0) * 100:.2f}% of capital)"
+            f"({(final.risk_frac or 0.0) * 100:.2f}%{capital_note})"
         )
     lines.append(f"confluence {card.confluence_score}/9")
     lines.append("reasoning:")
