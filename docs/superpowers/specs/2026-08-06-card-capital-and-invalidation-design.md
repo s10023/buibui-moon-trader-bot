@@ -189,8 +189,8 @@ dollar terms is corrected downward; what changes for the better is that `risk_fr
 becomes truthful (a real fraction of the account) rather than a fraction of a number
 nobody holds.
 
-The practical consequence: positions shrink roughly 8x, so **the sub-lot veto
-(`card/card.py:346`, "size floors to zero at qty_step ... — risk budget is below one
+The practical consequence: positions shrink roughly 8x, so **the sub-lot veto in
+`card/card.py` ("size floors to zero at qty_step ... — risk budget is below one
 lot") goes from a corner case to a common one.** At equity `1201.33` with `r_base`
 0.25% the risk budget is `$3.00`; for BTCUSDT at the `0.001` LOT_SIZE step, any stop
 wider than roughly **2.7%** now VETOes on that budget (verified: a 3% stop yields

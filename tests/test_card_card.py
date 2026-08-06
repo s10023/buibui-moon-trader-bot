@@ -353,10 +353,10 @@ class TestPostPass:
 
     def test_vetoed_card_clears_capital_fields(self) -> None:
         # min_rr veto: tp1 too close to entry for the 2.0 risk-per-unit. This
-        # veto fires at card.py:246, BEFORE the sizing block ever assigns
-        # capital_used/capital_source (card.py:332-333) — so this only checks
+        # veto fires in the `rr_tp1 < cfg.min_rr` check, BEFORE the sizing
+        # block ever assigns capital_used/capital_source — so this only checks
         # the two fields against their dataclass initialiser (both already
-        # None), never against the clearing line at card.py:365. Kept because
+        # None), never against the `if veto:` clearing line. Kept because
         # it still documents the NO_TRADE-ish path; the real defence of the
         # clearing line is TestLotSizeRounding.test_quantity_rounding_to_zero_vetoes,
         # the only veto reachable AFTER capital_used is assigned.
@@ -416,11 +416,11 @@ class TestLotSizeRounding:
     def test_quantity_rounding_to_zero_vetoes(self) -> None:
         # 12.5 raw units against a 100-unit step floors to 0 — unsubmittable.
         # This is the ONLY veto reachable after capital_used/capital_source
-        # are assigned (card.py:332-333, inside the `if not veto:` sizing
-        # block) — every other veto in this module fires earlier and never
-        # reaches that assignment, so this is the real defence of the
-        # clearing line at card.py:365. Deleting that line leaves this test
-        # failing (verified by mutation).
+        # are assigned (they are set inside the `if not veto:` sizing block)
+        # — every other veto in this module fires earlier and never reaches
+        # that assignment, so this is the real defence of the `if veto:`
+        # clearing line. Deleting that line leaves this test failing
+        # (verified by mutation).
         final = _post(_trade_obj(), _state_for_post(), qty_step=100.0)
         assert final.verdict == "VETOED"
         assert any("qty_step" in r for r in final.veto_reasons)
