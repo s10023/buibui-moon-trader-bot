@@ -93,3 +93,17 @@ def test_causal_idm_series_is_causal_no_lookahead() -> None:
     )
     # IDM at day t uses corr through t-1; a change at 400 cannot move IDM[:401]
     pd.testing.assert_series_equal(base.iloc[:401], after.iloc[:401], check_names=False)
+
+    # Positive control — the perturbation must actually be LIVE at the first row
+    # it is allowed to reach. Without this, the assertion above is equally
+    # satisfied by "the invariant holds" and by "the stimulus never reached the
+    # code at all", which is precisely how the xsmom causality guard was vacuous
+    # (see tests/xsmom/test_book.py). NaN would satisfy a bare `!=`, so require
+    # finite first. Measured delta at the time of writing: 6.1e-03, uncapped.
+    assert np.isfinite(base.iloc[401]) and np.isfinite(after.iloc[401]), (
+        "IDM[401] must be warmed up for the control to mean anything"
+    )
+    assert abs(after.iloc[401] - base.iloc[401]) > 1e-9, (
+        "perturbation never propagated to IDM[401] — the causality assertion "
+        "above is vacuous and would pass with the causal shift removed"
+    )

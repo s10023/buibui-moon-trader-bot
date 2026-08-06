@@ -42,6 +42,25 @@ def test_position_is_causal_no_lookahead() -> None:
         check_names=False,
     )
 
+    # Positive control — the assertion above is a "did NOT change" claim, which
+    # is equally satisfied by "the invariant holds" and by "the bump never
+    # reached the sizing". The latter is how the xsmom causality guard was
+    # vacuous (see tests/xsmom/test_book.py), and this fixture is exactly the
+    # shape that invites it: `_trend_close` is a PERFECTLY LINEAR ramp, whose
+    # near-zero realised vol drives leverage to ~187x. That was measured, not
+    # assumed — the bump injects vol and collapses leverage to ~0.17 at k+1
+    # (delta ~1.9e+02), so the stimulus is live and nothing is cap-saturated.
+    # NaN would satisfy a bare `!=`, so require finite first.
+    lev_base = float(base["leverage"].iloc[k + 1])
+    lev_after = float(after["leverage"].iloc[k + 1])
+    assert np.isfinite(lev_base) and np.isfinite(lev_after), (
+        "leverage[k+1] must be warmed up for the control to mean anything"
+    )
+    assert abs(lev_after - lev_base) > 1e-9, (
+        "perturbation never propagated to leverage[k+1] — the causality "
+        "assertion above is vacuous and would pass with the causal shift removed"
+    )
+
 
 def test_funding_sign_long_pays_short_receives() -> None:
     close = _trend_close()

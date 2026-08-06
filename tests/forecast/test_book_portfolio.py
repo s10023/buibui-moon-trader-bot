@@ -60,6 +60,25 @@ def test_governor_is_causal() -> None:
         base.governor[: k + 1], after.governor[: k + 1], equal_nan=True
     )
 
+    # Positive control — the assertion above only says the governor did NOT
+    # change, which is equally satisfied by "the invariant holds" and by "the
+    # bump never reached the vol estimate". The latter is how the xsmom
+    # causality guard was vacuous (see tests/xsmom/test_book.py). NaN would
+    # satisfy a bare `!=`, so require finite first.
+    # Note on direction: base.governor[k+1] sits AT g_max, so only a DOWNWARD
+    # move is observable here — which is the physical one (a 3x price bump is a
+    # vol spike, and the governor cuts leverage). Measured delta: 1.0, g_max to
+    # g_min. If this fixture is ever changed so the base row is mid-band, the
+    # control still holds; if it is changed so the base sits at g_min, it will
+    # need re-measuring rather than a widened tolerance.
+    assert np.isfinite(base.governor[k + 1]) and np.isfinite(after.governor[k + 1]), (
+        "governor[k+1] must be warmed up for the control to mean anything"
+    )
+    assert abs(after.governor[k + 1] - base.governor[k + 1]) > 1e-9, (
+        "perturbation never propagated to governor[k+1] — the causality "
+        "assertion above is vacuous and would pass with the causal shift removed"
+    )
+
 
 def test_inactive_instrument_excluded_from_mean() -> None:
     # BBB starts late (NaNs before its listing) -> early days driven by AAA only
