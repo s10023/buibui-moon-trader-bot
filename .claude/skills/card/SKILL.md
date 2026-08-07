@@ -121,6 +121,27 @@ Per card:
    available, else the configured `[portfolio] capital` — and every card records
    `capital_used`/`capital_source`; check the size line's percentage names a
    real capital figure (close to actual account equity), not `10,000.00`.
+
+   **A NO_TRADE or VETOED card cannot answer this, and that is a trap.** There
+   is no size line, and the row carries `capital_used: None` /
+   `capital_source: None` — indistinguishable from a capital bug. So **never
+   verify the capital path by running a card**: the verdict is the model's to
+   choose, and roughly half the outcome space silently fails to answer. Verify
+   it deterministically instead — free, no quota, no ledger row:
+
+   ```bash
+   poetry run python -c "
+   import argparse
+   from cli.card import _account_provider_for
+   from portfolio.sizing import SizingConfig, resolve_capital
+   p, reason = _account_provider_for(argparse.Namespace(dry_run=False, as_of=None))
+   cap, live = resolve_capital(SizingConfig(), p.equity_usd() if p else None)
+   print(cap, 'live_equity' if live else 'config', reason)
+   "
+   ```
+
+   **`DRY=1` cannot do this either** — it returns `account: null` by design
+   (`no provider (--dry-run)`), so it proves nothing about the live path.
    Real capital is smaller than the old constant (~$1,200 vs $10,000 measured),
    so the sub-lot veto is now common, not a corner case — expect BTCUSDT
    VETOes on stops wider than roughly 2.7% at that equity, not a bug.

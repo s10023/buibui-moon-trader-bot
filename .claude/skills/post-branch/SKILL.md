@@ -589,9 +589,43 @@ paste into the next conversation. Same shape as `/pr-summary` —
 If the user accepts, write to **`docs/plans/next-conversation-prompt.md`** —
 gitignored, but inside the repo and therefore durable. **Not `/tmp`:** the
 user deletes conversations, and a handoff that evaporates on reboot defeats
-the point. Overwrite the existing file rather than starting a new one; it is
+the point. Keep updating that same file rather than starting a new one; it is
 a standing document whose whole value is being current, and keeping it so is
-a final step of every task, not only of this skill. Structure:
+a final step of every task, not only of this skill.
+
+**Update it with targeted `Edit`s. NEVER `Write` the whole file.** Its back
+half carries standing content — Standing findings, the skill-fix queue, open
+questions — that the template below does not reproduce, so a wholesale
+overwrite silently destroys it. This is not theoretical: it is why the
+"Standing blocks" subsection exists two paragraphs down, and it was
+re-confirmed on 2026-08-06j and again on 2026-08-07 when a 449-line prune ran
+entirely as `Edit`s and every standing block survived.
+
+**PRUNE it on every task, not only when it gets big** (operator instruction,
+2026-08-07). Merged PRs, completed tasks and resolved incidents do NOT belong
+here once they land — the file is read in full at the start of every session,
+so its cost is paid on every conversation. Left alone it reached **1622
+lines**, roughly a quarter of it narration of work already merged and recorded
+elsewhere. The test is not "old vs new", it is **"does this change what the
+next session DOES"**:
+
+- **Delete outright:** merged-PR narration, resolved incidents, superseded
+  dated readings (keep the newest only), "kept for provenance" blocks, and any
+  closed-task write-up whose verdict already lives in CLAUDE.md, a
+  `docs/audits/` verdict, or a memory file.
+- **Condense to one line + pointer:** a closed task whose VERDICT still binds
+  ("do not rebuild X", "do not re-run Y"). The verdict survives; the story of
+  reaching it does not.
+- **Keep:** the daily operator check, Standing findings, the skill-fix queue,
+  open questions.
+
+**Read a closed section before deleting it — open items hide inside sections
+headed "DONE".** Measured on 2026-08-07: an uncoded `xs_gate_verdict` item sat
+inside a block titled "DONE 2026-08-06d. Do NOT redo", and a live card-validity
+finding sat inside a closed `/card` task. Deleting on the header alone loses
+both. Prune by MOVING to the durable home, never by deleting outright.
+
+Structure:
 
 ```markdown
 # Next conversation — <one-line context>
