@@ -16,6 +16,7 @@
         "!.claude",
         ".claude/skills/*/SKILL.md",
         ".claude/context/*.md",
+        ".claude/agents/*.md",
         "!.claude/skills/humanizer",
         "!.agents",
         "!.superpowers",

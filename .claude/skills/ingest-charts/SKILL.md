@@ -5,7 +5,7 @@ description: >
   hand, or captured by tools/coinglass_capture.sh) from
   docs/plans/chart-drops/ into verified external-context
   JSON for the daily Brief (M3). Scans via tools/chart_drops.py (sha256
-  dedup ledger), vision-extracts each image in a per-image sonnet subagent
+  dedup ledger), vision-extracts each image in a per-image chart-extract subagent
   (image bytes never enter main context), presents ONE consolidated review
   digest for the whole batch, and writes docs/plans/external-context/*.json
   ONLY after the operator approves — verified:true is the only on-disk
@@ -78,18 +78,39 @@ After the scan, state the pending set against the 6-panel daily protocol
 (Heatmap 24h + Map 1d for each of BTC/ETH/SOL): which are covered, which are
 missing. **Report over-coverage as readily as under-coverage.** The 2026-08-04L
 batch was 15 panels against a protocol of 6, and nothing said so — extra panels
-are not free, since each costs a vision dispatch (45K–103K tokens) and a 1w
-heatmap band is structural context, not a same-day actionable level.
+are not free, since each costs a vision dispatch (**~29K–30K tokens per image,
+post-7j; the 45K–103K was an early wide estimate for pre-`chart-extract` general-purpose cost; precise mean ~49K**)
+and a 1w heatmap band is structural context, not a same-day actionable level.
 
 This matters because the daily check asserts **recency, not coverage**: one
 fresh drop greens the line while five panels rot. Naming the gap here is the
 only thing standing in for the check ST15 still owes.
 
-## 2. Extract (one sonnet subagent per pending image)
+## 2. Extract (one chart-extract subagent per pending image)
 
-Dispatch each image to a **sonnet** subagent (Agent tool). The prompt is
-self-contained — no repo/SoT reads. Template (fill `<path>`, `<source>`,
-`<symbol>`):
+Dispatch each image to the **`chart-extract`** subagent (Agent tool,
+`subagent_type: "chart-extract"`, defined at `.claude/agents/chart-extract.md`).
+The prompt is self-contained — no repo/SoT reads. Template (fill `<path>`,
+`<source>`, `<symbol>`):
+
+**Naming the agent type is half the fix.** This line said only "a **sonnet**
+subagent" until 2026-08-07, naming no type at all — so the costliest parameter of
+the dispatch was left to whoever happened to run the skill, and the practical
+default was a general-purpose agent at a measured **~49K tokens per image**
+against a ~1.4–2.1K image. `chart-extract` pins `model: sonnet` and
+`tools: Read`, which removes ~20 tool schemas and structurally prevents the
+file-writing an extraction agent did on an earlier run.
+
+**If `chart-extract` does not resolve** (fresh clone before the `.gitignore`
+re-include propagates, or a harness without project agents), fall back to a
+general-purpose sonnet agent **and say so prominently in the review digest** —
+name the fallback and the cost. **Never fall back silently:** the output is
+byte-identical either way, so an unannounced fallback restores the full cost
+while looking exactly like success. **Check `subagent_tokens` in the completion
+notification to catch it: `chart-extract` returns ~29-30K, a general-purpose fallback
+~49K.** If a dispatch comes back near 49K, the fallback was taken silently — say so in
+the digest. Do NOT substitute the stock `Explore` agent, and do NOT batch several
+images into one agent.
 
 ```text
 Read the image file at <path> (one Coinglass/MMT chart screenshot) and
