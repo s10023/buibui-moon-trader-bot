@@ -11,13 +11,39 @@ Detailed reference for `signals/`. Load this when working on alert formatting, c
 ## cooldown_store.py
 
 - Two-layer dedup:
-  1. Candle watermark per `(symbol, tf, strategy)` — prevents re-firing same candle
+  1. Candle watermark per `(symbol, tf, strategy, UTC weekday of the candle)` —
+     prevents re-firing same candle
   2. Cooldown timer per `(symbol, strategy, direction)` — time-based suppression
 - JSON-persisted to `signal_state.json`
-- `last_marked(symbol, tf, strategy) -> int | None` — the raw watermark, or `None`
-  if this key has never fired. Backs the catch-up cold-start guard;
-  `is_new_candle` cannot serve that role because it answers `True` both for a
-  genuinely missed candle and for a key with no history.
+- `last_marked(symbol, tf, strategy, open_time) -> int | None` — the raw
+  watermark for that candle's weekday scope, or `None` if the scope has never
+  fired. Backs the catch-up cold-start guard; `is_new_candle` cannot serve that
+  role because it answers `True` both for a genuinely missed candle and for a
+  key with no history. It takes `open_time` so the guard resolves the **same**
+  scope it protects.
+- **Why the key carries a weekday (SoT N8, fixed 2026-08-07).** The three
+  signal-watch configs partition the week with zero overlap — `{Mon,Fri}` /
+  `{Tue,Wed,Thu}` / `{Sat,Sun}` — and the picker chooses by *today's* UTC
+  weekday while `day_filter` gates on each *candle's* weekday, so a candle is
+  only scannable on a day whose config admits it. With a flat 3-part key the
+  watermark is one strictly monotonic number: miss Monday, and Tuesday's own
+  fires drag it past Monday, so by Friday — the next day admitting Monday — the
+  candle sits below the watermark and is refused forever, logged only at
+  `debug`. A day self-heals iff the **next** day runs the **same** config
+  (Tue→Wed, Wed→Thu, Sat→Sun); Mon/Thu/Fri/Sun each *end* a block and were
+  permanently lossy. Because the loss bit only keys that fired in between, it
+  preferentially deleted the highest-activity cells — day-of-week **shaped**
+  bias on an axis that is itself a live conditioning gate, i.e. a skewed sample
+  rather than a thinner one.
+  **Scoping by CONFIG would not have worked:** Mon and Fri share `mon_fri`, so a
+  Friday fire would still bury Monday. The scope must be the weekday.
+- **Legacy state is seeded, not discarded.** `_migrate` expands any 3-part key
+  into all seven weekday scopes at the same value, so day-one behaviour is
+  identical to pre-fix. Discarding instead would leave every key cold and the
+  cold-start guard would clamp each to the latest candle — a week of degraded
+  catch-up for no gain. Idempotent, so it is safe on every load. Verified
+  against the real 176-key file: 176 → 1232 scopes, every legacy watermark still
+  suppressing its own candle.
 - **Watermark-on-send** (ported from wifey #68): the watermark is stamped only
   after a *successful* live Telegram dispatch, not unconditionally at scan time.
   Previously a run without `--telegram` consumed the candle and the next real
@@ -42,8 +68,20 @@ Off by default; the default path stays byte-identical (one candle group).
   Older recovered candles are persisted + watermarked silently.
 - **Cold-start guard:** a key with no watermark is restricted to the latest
   candle, so a fresh `signal_state.json` cannot burst 200 candles on first run.
-- **Bounds:** recovery depth is capped by the 200-candle `_SCAN_WINDOW` —
-  ~8 days on 1h, ~33 on 4h, ~200 on 1d.
+- **Bounds:** recovery depth is capped by `scan_window(tf)`, which is **200 bars
+  for every timeframe except 15m, where it is 600** — ~6.25 days on 15m, ~8 on
+  1h, ~33 on 4h, ~200 on 1d.
+  **The window is the REACH of catch-up, not just a performance knob**, and that
+  is why 15m is widened (2026-08-07). N8 recovery gaps run 3 days (Fri→Mon) to 6
+  (Sun→next Sat); at a flat 200 bars 15m reached only **2.1 days**, short of even
+  the shortest gap, so no 15m boundary candle could ever be replayed no matter
+  how the watermark was keyed. 15m is **64.4% of the live ledger** (2,846 of
+  4,422 rows), so fixing the watermark alone would have addressed 35.6% of the
+  affected volume while presenting as a complete fix.
+  Measured cost of the widening: 46ms → 107ms per symbol (2.31×), and only
+  BTC/ETH/SOL carry 15m, so ~+0.2s against a ~20s median cycle in a 900s budget.
+  **Other timeframes are deliberately not widened** — they already clear 6 days,
+  and unneeded width is data loaded every cycle for nothing.
 - **Caveat (load-bearing):** regime / HTF-EMA / ADR / DOW bias and
   `confidence_ratings` are evaluated **as-of-now** and applied to historical
   candles. Fine for a few missed days; a backfill reaching past a ratings

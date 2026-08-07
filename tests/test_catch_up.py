@@ -232,12 +232,12 @@ class TestLastMarked:
 
     def test_returns_none_when_never_marked(self, tmp_path: Any) -> None:
         store = CooldownStore(str(tmp_path / "state.json"))
-        assert store.last_marked("BTCUSDT", "1h", "fvg") is None
+        assert store.last_marked("BTCUSDT", "1h", "fvg", 1_000) is None
 
     def test_returns_the_marked_open_time(self, tmp_path: Any) -> None:
         store = CooldownStore(str(tmp_path / "state.json"))
         store.mark_candle("BTCUSDT", "1h", "fvg", 1_000)
-        assert store.last_marked("BTCUSDT", "1h", "fvg") == 1_000
+        assert store.last_marked("BTCUSDT", "1h", "fvg", 1_000) == 1_000
 
     def test_is_scoped_per_symbol_timeframe_and_strategy(self, tmp_path: Any) -> None:
         """A watermark on one key must not make a sibling key look warm.
@@ -247,9 +247,9 @@ class TestLastMarked:
         """
         store = CooldownStore(str(tmp_path / "state.json"))
         store.mark_candle("BTCUSDT", "1h", "fvg", 1_000)
-        assert store.last_marked("ETHUSDT", "1h", "fvg") is None
-        assert store.last_marked("BTCUSDT", "4h", "fvg") is None
-        assert store.last_marked("BTCUSDT", "1h", "bos") is None
+        assert store.last_marked("ETHUSDT", "1h", "fvg", 1_000) is None
+        assert store.last_marked("BTCUSDT", "4h", "fvg", 1_000) is None
+        assert store.last_marked("BTCUSDT", "1h", "bos", 1_000) is None
 
 
 def _multi_candle_signals(open_time_ms: int) -> pd.DataFrame:

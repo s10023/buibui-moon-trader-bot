@@ -38,8 +38,8 @@ from analytics.data_store import (
 )
 from analytics.regime import Regime, classify_series
 from analytics.signal._common import (
-    _SCAN_WINDOW,
     _bt_mem_cache,
+    scan_window,
 )
 from analytics.signal.atr_floor import _apply_atr_floor
 from analytics.signal.bt_cache import _backtest_summary, _compute_backtest
@@ -480,16 +480,13 @@ def run_scan_cycle(
         _sec = secondary_dfs.get(_sec_key) if needs_secondary else None
         _funding = funding_map.get(_sym)
         _gap = get_recent_cme_gap(_ohlcv)
-        # Slice to _SCAN_WINDOW for detectors — they only need recent candles
-        # (max lookback = 100). Full window stays in ohlcv_map for Phase 3 backtest.
-        _ohlcv_scan = (
-            _ohlcv.iloc[-_SCAN_WINDOW:] if len(_ohlcv) > _SCAN_WINDOW else _ohlcv
-        )
-        _sec_scan = (
-            _sec.iloc[-_SCAN_WINDOW:]
-            if _sec is not None and len(_sec) > _SCAN_WINDOW
-            else _sec
-        )
+        # Slice to the per-timeframe window for detectors — they only need recent
+        # candles (max lookback = 100). Full window stays in ohlcv_map for Phase 3.
+        # The width is sized by catch-up REACH, not lookback: it is the ceiling on
+        # how far back an N8 boundary day can be replayed. See `scan_window`.
+        _win = scan_window(_tf)
+        _ohlcv_scan = _ohlcv.iloc[-_win:] if len(_ohlcv) > _win else _ohlcv
+        _sec_scan = _sec.iloc[-_win:] if _sec is not None and len(_sec) > _win else _sec
         _events = scan_symbol(
             ohlcv_df=_ohlcv_scan,
             symbol=_sym,
@@ -557,7 +554,7 @@ def run_scan_cycle(
             e
             for e in _events
             if e.open_time == _latest_closed
-            or store.last_marked(_sym, _tf, e.strategy) is not None
+            or store.last_marked(_sym, _tf, e.strategy, e.open_time) is not None
         ]
         _by_candle: dict[int, list[SignalEvent]] = {}
         for _e in _kept:
