@@ -88,6 +88,37 @@ better.
 
 ## Pre-flight (once, before the first card)
 
+- **Check the circuit breaker FIRST — it is account-level, so one breach
+  blocks the ENTIRE batch, not one symbol.** `card.py:265` vetoes on
+  `state.account.daily_r <= cfg.daily_loss_limit_r`, which `state.py:282`
+  computes account-wide as `daily_pnl_usd / (capital × r_base)` — nothing
+  there is symbol-scoped, and `prompt.py:80` tells the model to answer
+  NO_TRADE on it as well. The check is free and takes seconds; skipping it
+  costs ~4.9 min of quota per foregone card.
+
+  ```bash
+  poetry run python -c "
+  import argparse, time
+  from cli.card import _account_provider_for
+  from portfolio.sizing import SizingConfig, resolve_capital
+  from card.config import CardConfig
+  p, _ = _account_provider_for(argparse.Namespace(dry_run=False, as_of=None))
+  sc, cfg = SizingConfig(), CardConfig()
+  cap, _live = resolve_capital(sc, p.equity_usd() if p else None)
+  now = int(time.time() * 1000)
+  pnl = p.daily_pnl_usd(now - now % 86_400_000, now)
+  print(f'daily_r {pnl / (cap * sc.r_base):.2f} vs limit {cfg.daily_loss_limit_r}')
+  "
+  ```
+
+  Breached ⇒ every card in the batch returns NO_TRADE. Report it and ask
+  before spending the batch; `daily_r` resets at 00:00 UTC. **Measured
+  2026-08-07: R is `capital × r_base` = $1,111 × 0.0025 = $2.78, so a
+  −$12.96 day read −4.66R against a −2.0R limit** — at operator-scale equity
+  a ~1% down day locks out the whole UTC day. That is the capital-resolution
+  fix biting (pre-fix, R was $25 and a genuine −2R day scored −0.24R and
+  sailed through), not a bug to route around. This pre-flight exists because
+  a 3-symbol batch on 2026-08-07 spent a full card to discover it.
 - Sync OHLCV if it is staler than the newest external snapshot
   (`ls -lt docs/plans/external-context/ | head`):
   `poetry run python buibui.py analytics sync --timeframes 1h 4h 1d` —
@@ -218,3 +249,4 @@ look-ahead, not merely drift.
 | Treating a TRADE card as an order | Advisory only; the operator trades manually |
 | Budgeting ~1 min per card | Mean is 4.9 min; six ≈ 30 min. Plan the batch around it |
 | Reading an empty card as "no setup" | An empty result is a TIMEOUT, not a verdict — check `timeout_s` |
+| Spending a batch with the breaker already breached | Run the pre-flight `daily_r` check — it is account-level, so it blocks every symbol |
