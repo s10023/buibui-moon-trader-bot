@@ -110,6 +110,21 @@ class TestLoadFeedConfig:
         assert ch.lang == ""
         assert ch.name == "UCabcdefghijklmnopqrstu"
 
+    def test_paused_defaults_false_and_is_read_from_the_channel_block(
+        self, tmp_path: Path
+    ) -> None:
+        default = load_feed_config(
+            self._write(tmp_path, '[[channel]]\nid = "UCabcdefghijklmnopqrstu"\n')
+        )
+        assert default.channels[0].paused is False
+        explicit = load_feed_config(
+            self._write(
+                tmp_path,
+                '[[channel]]\nid = "UCabcdefghijklmnopqrstu"\npaused = true\n',
+            )
+        )
+        assert explicit.channels[0].paused is True
+
     def test_item_cap_defaults_to_the_global_constant(self, tmp_path: Path) -> None:
         cfg = load_feed_config(
             self._write(tmp_path, '[[channel]]\nid = "UCabcdefghijklmnopqrstu"\n')
@@ -917,6 +932,100 @@ class TestMainPoll:
         )
         # read-only invariant: poll wrote NOTHING
         assert not state_path.exists()
+
+    def test_paused_channel_is_not_polled_but_is_reported(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        # Two channels, one paused. The live one must still poll normally, and
+        # the paused one must appear in the output -- silently omitting it would
+        # make "paused" indistinguishable from "broken", the same confusion the
+        # backfill-to-diagnose rule exists to resolve.
+        monkeypatch.setenv("YOUTUBE_API_KEY", "K")
+        cfg = write_config(
+            tmp_path,
+            '[[channel]]\nid = "UCzzzzzzzzzzzzzzzzzzzzz"\nname = "Paused"\n'
+            "paused = true\n",
+        )
+        items = {
+            "items": [
+                playlist_item("ggggggggggg", "BTC weekly", "2026-07-31T02:00:00Z")
+            ]
+        }
+        get = FakeGet(
+            {
+                "playlistItems": [FakeResp(200, items)],
+                "videos": [
+                    FakeResp(200, {"items": [video_item("ggggggggggg", "PT21M")]})
+                ],
+            }
+        )
+        rc = main(
+            [
+                "poll",
+                "--config",
+                str(cfg),
+                "--state",
+                str(tmp_path / "s.json"),
+                "--json",
+            ],
+            get=get,
+            now=NOW,
+        )
+        assert rc == 0
+        payload = json.loads(capsys.readouterr().out)
+        polled = [c["channel_id"] for c in payload["channels"]]
+        assert polled == ["UCabcdefghijklmnopqrstu"]  # paused one never polled
+        assert payload["paused"] == [
+            {"channel_id": "UCzzzzzzzzzzzzzzzzzzzzz", "channel_name": "Paused"}
+        ]
+        # and it cost no API calls at all
+        assert all("UCzzzzzzzzzzzzzzzzzzzzz" not in str(c) for c in get.calls)
+
+    def test_paused_channel_is_still_reachable_by_backfill(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        # The negative control that keeps the scope honest: `backfill` is the
+        # diagnostic that tells a genuinely quiet channel from a broken one, so
+        # pausing must NOT take it away. If this ever starts raising
+        # "not in config", the pause filter has leaked out of the poll branch.
+        monkeypatch.setenv("YOUTUBE_API_KEY", "K")
+        cfg = write_config(
+            tmp_path,
+            '[[channel]]\nid = "UCzzzzzzzzzzzzzzzzzzzzz"\nname = "Paused"\n'
+            "paused = true\n",
+        )
+        get = FakeGet(
+            {
+                "playlistItems": [FakeResp(200, {"items": []})],
+                "videos": [FakeResp(200, {"items": []})],
+            }
+        )
+        rc = main(
+            [
+                "backfill",
+                "UCzzzzzzzzzzzzzzzzzzzzz",
+                "--config",
+                str(cfg),
+                "--state",
+                str(tmp_path / "s.json"),
+                "--json",
+            ],
+            get=get,
+            now=NOW,
+        )
+        assert rc == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert [c["channel_id"] for c in payload["channels"]] == [
+            "UCzzzzzzzzzzzzzzzzzzzzz"
+        ]
+        # backfill reports no `paused` block -- the key is poll-only
+        assert payload["paused"] == []
 
     def test_backfill_requires_channel_in_config(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

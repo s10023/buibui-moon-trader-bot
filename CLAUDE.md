@@ -11,7 +11,7 @@ This file provides instructions for Claude Code when working in this repository.
 - `make lint-py` ✓ (ruff format + lint)
 - `make typecheck` ✓ (mypy strict)
 - `make test` green
-- `make test-regression` goldens unmoved — unless the change is *intentionally* behavioural, in which case regenerate and note it.
+- `make test-regression` goldens unmoved — **required only when the diff touches the backtest surface**: `analytics/backtest/`, `analytics/strategies/`, `analytics/signal_config.py`, `config/*signal_watch*.toml`, `config/strategy_params.toml`, `tests/fixtures/`, or `poetry.lock`. Outside that set it is ~95s of wall clock for a chain the diff cannot reach — it was paid twice in one session for a `tools/video_marks.py` change. Say which branch you took. When it does apply and a golden moves, that is a *decision* (regenerate or not), which is exactly why it stays local instead of being left to CI — learning it ~7 min later on an open PR is strictly worse.
 
 **Anti-drift.** Before any multi-step task, restate the goal + its success metric in one line. If a step stops serving that metric, stop and ask rather than drift. Require avg_r × (regime × session × combo) evidence before killing a strategy — demote, don't delete.
 
@@ -69,8 +69,19 @@ Each Makefile `buibui-*` target wraps the equivalent CLI invocation — except
 `analytics.db` + the JSONL ledgers; `WEEKLY=1` adds the parquet export, `DRY=1` reports
 only). **`analytics.db` is gitignored and single-copy, and the committed
 `live_signal.duckdb` is NOT a backup — its `signal_alert_outcomes` table has 0 rows.**
-A systemd user timer runs the snapshot twice daily; `deploy/README.md` has install,
-retention, restore and log commands.
+A systemd user timer runs the snapshot twice daily. The **off-machine** leg is
+`deploy/backup-offsite.sh` (`rclone sync` of `$BUIBUI_BACKUP_ROOT`), installed separately
+because `rclone config` is interactive: it **exits 1 while `BUIBUI_BACKUP_REMOTE` is
+unset**, so an enabled-but-unconfigured timer complains daily instead of looking green
+while no off-machine copy exists. It uses `sync`, so remote retention tracks local
+retention — and therefore **mirrors deletions**, which is why it refuses to run when no
+`MANIFEST.json` exists under the backup root rather than syncing an empty tree over the
+remote. A fifth timer, `buibui-daily-check`, pushes `docs/plans/daily_check.py
+--exit-on-tier2` to Telegram once daily; that flag exists because tier-2 lines
+(chart-drops, external-context) do not set exit 1 on their own, so without it the push
+would be silent on exactly the staleness it was built to catch. A hand-run check is
+unaffected and still exits 1 only on tier 1. `deploy/README.md` has install, retention,
+restore and log commands.
 
 ## Project Structure
 

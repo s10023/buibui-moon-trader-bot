@@ -494,6 +494,20 @@ after verification so a crash cannot leave a plausible-looking bad backup. A sys
 user timer runs it twice daily — see `deploy/README.md` for install, retention, restore,
 and log commands.
 
+That is the **local** leg only: every copy it writes shares the laptop's disk, so it
+survives a fat-finger delete and not a dead drive. The off-machine leg is separate:
+
+```bash
+./deploy/backup-offsite.sh --dry-run     # rclone sync of BUIBUI_BACKUP_ROOT to a remote
+```
+
+It needs `rclone config` (interactive) and `BUIBUI_BACKUP_REMOTE` in `.env` first, and
+**exits 1 until that is set** so an enabled timer complains rather than looking green
+while nothing is being copied. It uses `sync`, so remote retention follows local
+retention — and therefore mirrors deletions, which is why it refuses to run when the
+backup root contains no `MANIFEST.json` instead of syncing an empty tree over your only
+remote copy.
+
 ### Backtest Trading Strategies
 
 Backtest runs in two modes: **single-combo** (one symbol + strategy) or **sweep** (all combinations ranked by avg R).
@@ -1124,7 +1138,10 @@ A JSON REST API and SSE streaming backend for the Phase 5 Svelte frontend (or an
 # Start the API server (default: http://127.0.0.1:8000)
 poetry run python buibui.py web
 
-# Pass a signal-watch TOML so the UI auto-populates defaults from it
+# Pass a signal-watch TOML so the UI auto-populates defaults from it.
+# Omitted, it auto-picks today's config by UTC weekday exactly like
+# `buibui signal watch` — so the UI reports the config the daemon is running,
+# instead of serving /api/active-config empty and reading as "no config".
 poetry run python buibui.py web --config config/signal_watch.toml
 
 # Custom host/port with auto-reload for development

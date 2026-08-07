@@ -28,11 +28,21 @@ tree and a reclone would otherwise lose them silently.
 | `buibui-signal-watch` | `*:01/15` — every 15 min | same | One scan cycle, closed candles, `--catch-up` | **Permanent evidence loss.** The SoT-N8 watermark drags past an un-scanned candle and never revisits it. |
 | `buibui-xsmom-daily` | `00:20`, `02:20`, `06:20` | 08:20, 10:20, 14:20 | Universe 1d sync → executor **dry-run** | **Nothing.** The sync is incremental and the executor recomputes; yesterday's bars are still there tomorrow. |
 | `buibui-backup` | `07:40`, `12:40` | 15:40, 20:40 | Verified `analytics.db` snapshot + ledgers → `~/backups/buibui` | Nothing *immediately* — but it is the only copy of unreconstructible evidence, so exposure compounds. |
+| `buibui-backup-offsite` | `13:25` | 21:25 | `rclone sync` of `~/backups/buibui` → a remote | **Everything, on one hardware event.** Every local copy shares the laptop's disk. |
+| `buibui-daily-check` | `09:10` | 17:10 | `daily_check.py --exit-on-tier2` → Telegram on any red | Nothing directly; it is the *notifier* for all of the above. Without it a red waits for a session to notice. |
 
 The asymmetry in that last column is the whole design. signal-watch must be punctual;
-the other two only need to happen *eventually*, which is why they fire repeatedly and
-cheaply rather than once precisely. All three carry `Persistent=true`, so a fire missed
+the others only need to happen *eventually*, which is why they fire repeatedly and
+cheaply rather than once precisely. All carry `Persistent=true`, so a fire missed
 while suspended runs **once** on resume — not once per missed slot.
+
+`buibui-daily-check` fires **once** daily, at an hour the operator can act on. That is a
+deliberate constraint, not a default: a nudge that arrives while he is asleep is one he
+learns to ignore, which is the same failure the tier markers exist to prevent. It passes
+`--exit-on-tier2` because tier-2 lines (chart-drops, external-context) do **not** set
+exit 1 on their own — without the flag the push would be silent on precisely the
+staleness that motivated wanting a nudge. The interactive contract is unchanged: a
+hand-run `daily_check.py` still exits 1 only on tier 1.
 
 Every non-signal-watch schedule avoids `:01/:16/:31/:46`. signal-watch takes an
 exclusive DuckDB lock there, and on duckdb 1.5.5 a second **process** is refused even
@@ -45,11 +55,36 @@ anything, it just forces the other job onto a slower fallback or a retry.
 cp deploy/systemd/user/buibui-signal-watch.{service,timer} ~/.config/systemd/user/
 cp deploy/systemd/user/buibui-xsmom-daily.{service,timer}  ~/.config/systemd/user/
 cp deploy/systemd/user/buibui-backup.{service,timer}        ~/.config/systemd/user/
+cp deploy/systemd/user/buibui-daily-check.{service,timer}   ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now buibui-signal-watch.timer buibui-xsmom-daily.timer buibui-backup.timer
+systemctl --user enable --now buibui-signal-watch.timer buibui-xsmom-daily.timer \
+    buibui-backup.timer buibui-daily-check.timer
 sudo loginctl enable-linger "$USER"   # keep timers running while logged out
 systemctl --user list-timers 'buibui-*'
 ```
+
+#### Off-machine backup — configure BEFORE enabling
+
+`buibui-backup-offsite` is installed separately because it needs a credential that
+cannot be scripted. Its script **exits 1 when `BUIBUI_BACKUP_REMOTE` is unset**, on
+purpose: an enabled-but-unconfigured timer must complain daily rather than look green
+while protecting nothing.
+
+```bash
+brew install rclone                    # or your package manager
+rclone config                          # interactive: pick a provider, authenticate
+echo 'BUIBUI_BACKUP_REMOTE=<remote>:<path>' >> .env
+./deploy/backup-offsite.sh --dry-run   # confirm it lists the snapshot tree
+cp deploy/systemd/user/buibui-backup-offsite.{service,timer} ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now buibui-backup-offsite.timer
+```
+
+It runs `rclone sync`, not `copy`, so remote retention matches local retention instead
+of growing forever. The consequence to respect: **`sync` mirrors deletions.** A bug that
+emptied `~/backups/buibui` would empty the remote on the next fire, so the script
+refuses to run when it finds no `MANIFEST.json` under the backup root — an empty source
+is treated as a fault, never as "nothing to do". Do not remove that check.
 
 Verify a unit parses **before** trusting it — `systemctl start` will happily report a
 typo'd directive as a runtime failure, while `verify` names the line:

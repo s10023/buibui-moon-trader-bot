@@ -1,0 +1,23 @@
+[Unit]
+Description=Run the buibui daily operator check once daily and push it to Telegram
+
+[Timer]
+# 09:10 UTC = 17:10 MYT. ONCE daily, and deliberately at an hour the operator
+# can act on: a nudge that fires while he is asleep is one he learns to ignore,
+# which is the same failure the tier markers exist to prevent. Not per-cycle --
+# the tier-2 lines it reports (chart-drops, external-context) move on a scale of
+# days, so a 15-minute cadence would be pure noise.
+#
+# :10 keeps it clear of the signal-watch timer at :01/:16/:31/:46, which holds
+# an exclusive DuckDB lock; overlapping would force this onto its byte-copy
+# fallback for no reason. It also sits well after the 07:40 UTC backup fire, so
+# the "local backup Nd old" line reads today's snapshot rather than yesterday's.
+OnCalendar=*-*-* 09:10:00 UTC
+
+# The whole point on a laptop: after suspend/shutdown systemd runs the missed
+# fire once on resume, rather than skipping the day entirely.
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
