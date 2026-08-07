@@ -36,6 +36,8 @@ def _final(verdict: str = "TRADE") -> FinalCard:
         notional_usd=1250.0,
         risk_usd=25.0,
         risk_frac=0.0025,
+        capital_used=10_000.0,
+        capital_source="config",
         rr_tp1=1.5,
         warnings=[],
         veto_reasons=[] if verdict != "VETOED" else ["x"],

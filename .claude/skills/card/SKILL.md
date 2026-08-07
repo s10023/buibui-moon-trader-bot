@@ -116,7 +116,14 @@ Per card:
    unrounded quantity should now appear only alongside the explicit warning
    "quantity is not LOT_SIZE-rounded (exchange filters unavailable)" — if you
    see a raw float **without** that warning, that is a regression, not the old
-   defect. A risk budget below one lot is a VETO, not a silent zero.
+   defect. A risk budget below one lot is a VETO, not a silent zero. Capital is
+   resolved via `portfolio.sizing.resolve_capital` — live account equity when
+   available, else the configured `[portfolio] capital` — and every card records
+   `capital_used`/`capital_source`; check the size line's percentage names a
+   real capital figure (close to actual account equity), not `10,000.00`.
+   Real capital is smaller than the old constant (~$1,200 vs $10,000 measured),
+   so the sub-lot veto is now common, not a corner case — expect BTCUSDT
+   VETOes on stops wider than roughly 2.7% at that equity, not a bug.
 4. **`valid_until_utc` is now a VETO when it does not postdate the card's own
    generation time** (or is unparseable). Checked against `generated_at_ms`,
    not wall-clock now, so re-reading an old card does not retroactively void

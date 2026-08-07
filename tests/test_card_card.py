@@ -307,7 +307,7 @@ class TestPostPass:
             ],
         )
         final = _post(_trade_obj(), state)
-        assert not [w for w in final.warnings if "live" in w]
+        assert not [w for w in final.warnings if "live record contradicts" in w]
 
     def test_cluster_cap_consumes_headroom(self) -> None:
         # ETHUSDT open long is in the majors cluster with BTCUSDT:
@@ -331,6 +331,39 @@ class TestPostPass:
         final = _post(_trade_obj(), _state_for_post(account=account))
         assert final.verdict == "TRADE"
         assert any("approximated" in w for w in final.warnings)
+
+    def test_sizes_off_live_equity_when_present(self) -> None:
+        account = AccountState(
+            positions=[], daily_pnl_usd=0.0, daily_r=0.0, equity_usd=1201.33
+        )
+        final = _post(_trade_obj(), _state_for_post(account=account))
+        assert final.verdict == "TRADE"
+        # r_base 0.25% of 1201.33 = 3.0033 USD; |entry-sl| = 2 -> 1.50 units
+        assert final.risk_usd == pytest.approx(3.003325)
+        assert final.size_units == pytest.approx(1.5016625)
+        assert final.capital_used == pytest.approx(1201.33)
+        assert final.capital_source == "live_equity"
+
+    def test_falls_back_to_config_capital_and_warns(self) -> None:
+        final = _post(_trade_obj(), _state_for_post())
+        assert final.risk_usd == 25.0
+        assert final.capital_used == pytest.approx(10_000.0)
+        assert final.capital_source == "config"
+        assert any("configured capital" in w for w in final.warnings)
+
+    def test_vetoed_card_clears_capital_fields(self) -> None:
+        # min_rr veto: tp1 too close to entry for the 2.0 risk-per-unit. This
+        # veto fires in the `rr_tp1 < cfg.min_rr` check, BEFORE the sizing
+        # block ever assigns capital_used/capital_source — so this only checks
+        # the two fields against their dataclass initialiser (both already
+        # None), never against the `if veto:` clearing line. Kept because
+        # it still documents the NO_TRADE-ish path; the real defence of the
+        # clearing line is TestLotSizeRounding.test_quantity_rounding_to_zero_vetoes,
+        # the only veto reachable AFTER capital_used is assigned.
+        final = _post(_trade_obj(tp1=100.5), _state_for_post())
+        assert final.verdict == "VETOED"
+        assert final.capital_used is None
+        assert final.capital_source is None
 
     def test_zero_headroom_vetoes(self) -> None:
         # 4 open ETHUSDT longs in the majors cluster with BTCUSDT: each is
@@ -382,15 +415,41 @@ class TestLotSizeRounding:
 
     def test_quantity_rounding_to_zero_vetoes(self) -> None:
         # 12.5 raw units against a 100-unit step floors to 0 — unsubmittable.
+        # This is the ONLY veto reachable after capital_used/capital_source
+        # are assigned (they are set inside the `if not veto:` sizing block)
+        # — every other veto in this module fires earlier and never reaches
+        # that assignment, so this is the real defence of the `if veto:`
+        # clearing line. Deleting that line leaves this test failing
+        # (verified by mutation).
         final = _post(_trade_obj(), _state_for_post(), qty_step=100.0)
         assert final.verdict == "VETOED"
         assert any("qty_step" in r for r in final.veto_reasons)
         assert final.size_units is None
+        assert final.capital_used is None
+        assert final.capital_source is None
 
     def test_absent_qty_step_warns_rather_than_silently_unrounded(self) -> None:
         final = _post(_trade_obj(), _state_for_post())
         assert final.size_units == 12.5
         assert any("not LOT_SIZE-rounded" in w for w in final.warnings)
+
+    def test_rounded_risk_frac_uses_resolved_capital_not_the_config_constant(
+        self,
+    ) -> None:
+        """The rounding branch restates risk_frac; it must divide by the SAME
+        capital that produced risk_usd. With account=None (as every other
+        qty_step test has it) resolved capital equals sizing.capital and a
+        mutation to the constant is invisible — live equity is what separates
+        them."""
+        account = AccountState(
+            positions=[], daily_pnl_usd=0.0, daily_r=0.0, equity_usd=1201.33
+        )
+        final = _post(_trade_obj(), _state_for_post(account=account), qty_step=1.0)
+        assert final.verdict == "TRADE"
+        assert final.capital_used == pytest.approx(1201.33)
+        assert final.size_units == 1.0  # floored from 1.5016625
+        assert final.risk_usd == pytest.approx(2.0)  # 1.0 unit x |100-98|
+        assert final.risk_frac == pytest.approx(2.0 / 1201.33)
 
 
 class TestValidUntilExpiry:

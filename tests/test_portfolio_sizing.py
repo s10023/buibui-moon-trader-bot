@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from portfolio.sizing import SizingConfig, round_down_to_step
+from portfolio.sizing import SizingConfig, resolve_capital, round_down_to_step
 
 
 def test_sizing_config_defaults() -> None:
@@ -249,3 +249,38 @@ class TestRoundDownToStepFloatShaving:
                     assert got == pytest.approx(i * step, abs=step * 1e-6), (
                         f"wrong floor: step={step} i={i} frac={frac} q={q!r} -> {got!r}"
                     )
+
+
+class TestResolveCapital:
+    def test_live_equity_wins_over_config(self) -> None:
+        cfg = SizingConfig(capital=10_000.0)
+        capital, used_live = resolve_capital(cfg, 1201.33)
+        assert capital == pytest.approx(1201.33)
+        assert used_live is True
+
+    def test_none_equity_falls_back_to_config(self) -> None:
+        cfg = SizingConfig(capital=10_000.0)
+        capital, used_live = resolve_capital(cfg, None)
+        assert capital == pytest.approx(10_000.0)
+        assert used_live is False
+
+    @pytest.mark.parametrize(
+        "equity",
+        [0.0, -1.0, -1201.33, float("nan"), float("inf"), float("-inf")],
+    )
+    def test_degenerate_equity_falls_back_to_config(self, equity: float) -> None:
+        # Enumerate the input class rather than spot-check it: a zero would size
+        # every card to nothing and read as a lot-size veto, and a NaN would
+        # poison risk_usd / risk_frac / notional_usd without ever raising.
+        cfg = SizingConfig(capital=10_000.0)
+        capital, used_live = resolve_capital(cfg, equity)
+        assert capital == pytest.approx(10_000.0)
+        assert used_live is False
+
+    def test_tiny_positive_equity_is_honoured(self) -> None:
+        # The fallback triggers on invalid, never on merely small: a $50 account
+        # is a real account and must not silently size as if it held $10,000.
+        cfg = SizingConfig(capital=10_000.0)
+        capital, used_live = resolve_capital(cfg, 50.0)
+        assert capital == pytest.approx(50.0)
+        assert used_live is True

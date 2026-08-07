@@ -36,6 +36,8 @@ def _final(verdict: str, **card_overrides: Any) -> FinalCard:
         notional_usd=1250.0 if verdict == "TRADE" else None,
         risk_usd=25.0 if verdict == "TRADE" else None,
         risk_frac=0.0025 if verdict == "TRADE" else None,
+        capital_used=10_000.0 if verdict == "TRADE" else None,
+        capital_source="config" if verdict == "TRADE" else None,
         rr_tp1=1.5 if verdict != "NO_TRADE" else None,
         warnings=["open risk approximated as one r_base per open position"],
         veto_reasons=["SL must be below entry for a long"]
@@ -95,3 +97,18 @@ class TestRender:
         out = render_card(final)  # must not raise
         assert "▲ TRADE" in out
         assert "units" not in out
+
+
+def test_render_states_the_capital_behind_the_risk() -> None:
+    final = dataclasses.replace(
+        _final("TRADE"), capital_used=1201.33, capital_source="live_equity"
+    )
+    out = render_card(final)
+    assert "of 1,201.33 live_equity" in out
+
+
+def test_render_omits_the_capital_note_when_absent() -> None:
+    final = dataclasses.replace(_final("TRADE"), capital_used=None, capital_source=None)
+    out = render_card(final)
+    assert "% of capital" not in out
+    assert "risk $25.00 (0.25%)" in out
