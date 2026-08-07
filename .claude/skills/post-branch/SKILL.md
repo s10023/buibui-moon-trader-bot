@@ -111,6 +111,11 @@ behavior_signal_globs:
   - "buibui.py"
   - "cli/**/*.py"
   - "Makefile"
+  - "deploy/**"                     # scripts + systemd units ARE operator-facing
+                                    # behaviour. Added 2026-08-07j: #582 shipped a
+                                    # backup script and two timers while this list
+                                    # had no deploy entry at all, so the gate saw
+                                    # no signal from the PR's largest change.
   - "docker-compose.yml"
   - ".github/workflows/**/*.yaml"   # NOT *.yml — every workflow here uses .yaml,
                                     # so the old .yml glob never once matched
@@ -349,6 +354,41 @@ For each surface in the config, do the following:
   **If you re-verify this, pick a probe that can still fail.** `state_audit`
   itself no longer discriminates now that it IS documented — a discrimination
   test needs a fixture capable of failing.
+
+- **FOURTH INSTANCE — a new FILE inside a directory the doc already covers.** The
+  presence check above iterates top-level *packages* (`for d in */`), so it passes
+  the moment `deploy/` is mentioned anywhere — while every individual script inside
+  it goes unchecked. The mention-grep is no help either: grepping `backup-offsite`
+  finds zero hits and reads as "no change needed", when the correct reading is
+  "the doc has never heard of this file". **Both checks report green on a directory
+  whose contents have changed.**
+
+  Measured on #582: it added `deploy/backup-offsite.sh` plus two unit files, and
+  `execution.md` — whose `deploy/` entry enumerates *every other script by name* —
+  was not flagged by anything. It was caught only because a separate claim-
+  falsification grep happened to hit the same paragraph.
+
+  **So diff the directory, not just the package list.** For every directory a
+  context doc enumerates by filename, check that files this PR added are named:
+
+  ```bash
+  # files added by this branch, in directories the context docs enumerate
+  git diff --name-only --diff-filter=A main...HEAD | while read -r f; do
+    grep -rqsw "$(basename "$f")" .claude/context/ || echo "UNDOCUMENTED FILE: $f"; done
+  ```
+
+  Same `-w` rule and same over-reporting tradeoff as above: not every added file
+  belongs in a context doc (tests never do), so treat a hit as a candidate to
+  dismiss in seconds, not a defect. The asymmetry is the point — a false positive
+  costs a glance, a silent miss ships a doc that enumerates six of seven scripts
+  and reads as complete.
+
+- **Makefile check, second half.** Step 4's Makefile bullet says "every `buibui.py`
+  subcommand has a `make buibui-<name>` target" — but the repo also wraps
+  **scripts** (`buibui-backup` → `deploy/backup-analytics.sh`), and #582 added a
+  sibling script with no target because the stated rule only covers subcommands.
+  Also check: every `deploy/*.sh` an operator runs by hand should have a wrapper,
+  or none of them should.
 
 - **CLAUDE.md must not re-absorb this content.** The 2026-08-04 split left
   CLAUDE.md holding a package index plus verdicts, and the context docs
