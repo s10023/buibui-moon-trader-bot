@@ -336,6 +336,30 @@ it is authoritative. Only the rules that the injected list cannot carry live bel
   the full dataset with no out-of-sample split, so never take a `tp_r` from it.
 - **Never `&&`-chain `/card` runs** — one background exec per card.
 
+### Subagent definitions — `.claude/agents/<name>.md`
+
+A **skill** is a workflow you invoke; an **agent** is who a skill dispatches work TO.
+Definitions live in `.claude/agents/<name>.md` (frontmatter `name` / `description` /
+`model` / `tools`), addressed as `subagent_type: "<name>"`.
+
+**The reason is measured, not stylistic.** An unnamed general-purpose dispatch carries
+the full default system prompt plus ~20 tool schemas — **~19.7K tokens of pure overhead
+per dispatch** (measured 19,543–19,761 across a same-input 6-image A/B, 2026-08-07).
+`chart-extract` (`model: sonnet`, `tools: Read`) cut `/ingest-charts` **−39.9%**
+(296,456 → 178,123) with quality neutral-to-better. The saving is *constant per
+dispatch*, so **payoff scales with dispatch count, not task size** — porting to
+`/ingest-video` (2/video) and `/ingest-x` is skill-fix **7v**.
+
+- **A new `.claude/` subtree needs re-includes in BOTH `.gitignore` and
+  `.markdownlint-cli2.jsonc`**, or the file dies on a clone *and* ships unlinted.
+  `.gitignore:15` is `.claude/*`; the lint config excludes `.claude` wholesale. Both
+  re-include named subtrees only, and the lint config's own comment says they mirror
+  each other deliberately.
+- **`tools:` is a structural guarantee; prose is not.** `tools: Read` is why an
+  extractor *cannot* write files — a general-purpose one did. But the "bare JSON, no
+  fence" rule still broke 1-in-6 despite an explicit directive. **A system-prompt
+  directive is not a parser** — keep tolerating malformed output at the consuming end.
+
 ## Git Conventions
 
 - Commit messages use conventional commits: `feat:`, `fix:`, `test:`, `docs:`, `build:`, `chore:`
