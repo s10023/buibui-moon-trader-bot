@@ -77,7 +77,7 @@ Use this when the user invokes the skill **without** pasting trade details.
    | `entry_ts_utc` | first `entry` leg `ts_utc` (→ `YYYY-MM-DD HH:MM`); `entry_ts_myt` = UTC + 8h |
    | `entry_price` | `avg_entry` (list each `add` leg in **## Execution**) |
    | `exit_ts_utc` / `exit_price` | `closed_ts_utc` / `avg_exit` (blank while `status: open`) |
-   | `sl_price` / `sl_type` | `exchange_sl` when present → `sl_type: hard`; **soft/mental stop stays a blank** |
+   | `sl_price` / `sl_type` | `initial_sl` (the stop in force AT ENTRY) → `sl_type: hard`; **soft/mental stop stays a blank**. `exchange_sl` is the LAST working stop — use it only for the trailed-R note, never as the R basis |
    | `tp_eventual` | `exchange_tp` when present (else blank) |
 
    Put `$ PnL`, fees, and funding (`realized_pnl_usd` / `fees_usd` / `funding_usd`) into the
@@ -115,11 +115,33 @@ fetch can't reconstruct:
 ## R / SL scoring convention
 
 Score `r_realized` against the **stop that was actually working in the market** — the **soft**
-stop if one was set (the real invalidation), not the wide hard catastrophe stop. The fetched
-`exchange_sl` is the placed hard/exchange stop; the soft stop is a human input, so `r_realized`
-is computed once the user supplies the invalidation. When ambiguous, note both in **## Outcome**
-(e.g. "+3R on soft stop / +0.65R on hard 2%") and confirm with the user. Keep the convention
-consistent across all entries. (Default chosen 2026-05-25 — soft-stop basis.)
+stop if one was set (the real invalidation), not the wide hard catastrophe stop. The soft stop
+is a human input, so `r_realized` is computed once the user supplies the invalidation. When
+ambiguous, note both in **## Outcome** (e.g. "+3R on soft stop / +0.65R on hard 2%") and
+confirm with the user. Keep the convention consistent across all entries. (Default chosen
+2026-05-25 — soft-stop basis.)
+
+**Trailed stops are the majority case, and they need a rule of their own.** A hard stop is
+rarely one number: the exchange auto-attaches one at entry (`source: auto`) and the operator
+then moves it, usually from a phone (`source: phone`). Scoring against wherever the stop
+finally sat flatters or wrecks the R at random — the two bases differed by **4.7x** on the
+2026-08-04 basket.
+
+**The rule: score against the stop in force AT ENTRY (`initial_sl`), and note the trailed R
+beside it.** `journal_fetch.py` gives you both plus the full `sl_history`
+(`ts` / `trigger_price` / `qty` / `status` / `source`, oldest first), and the table's `SL`
+column renders `98.00→104.00` when a trail happened and a single number when it did not.
+
+Two things `sl_history` answers that fills alone cannot: **who** moved the stop (`source`), and
+**how the position ended** — `status` is `EXPIRED`/`FINISHED` on a stop that fired versus
+`CANCELED` on one pulled for a manual exit. A trade whose last stop reads `CANCELED` was closed
+by hand, not stopped out, however much the P&L looks like a stop-out.
+
+**Consecutive rows at the SAME price are re-arms, not trail steps.** Adding to a position
+cancels the working stop and re-places it for the new size, so one stop level can appear three
+or four times. Count *distinct prices* when describing the trail. Measured on the 2026-08-04
+basket: 5 BTCUSDT rows, but only two levels (65,265.70 → 64,240.00), and the R gap between
+them was **4.70x** (+0.336R at entry basis vs +1.578R trailed) — 5.15x on ETH, 3.21x on SOL.
 
 ## Filling in an outcome (trade closed)
 

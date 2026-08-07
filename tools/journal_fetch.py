@@ -18,8 +18,9 @@ import argparse
 import contextlib
 import json
 import re
+import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,47 @@ _DEFAULT_JOURNAL_DIR = Path("docs/plans/journal")
 _SL_ORDER_TYPES = ("STOP_MARKET", "STOP")
 _TP_ORDER_TYPES = ("TAKE_PROFIT_MARKET", "TAKE_PROFIT")
 _ZERO_TOL = 1e-9
+
+
+_ALGO_MAX_INTERVAL_MS = 7 * 86_400_000
+"""Binance caps /fapi/v1/allAlgoOrders at a 7-day interval.
+
+Measured live 2026-08-07, and HOW you hit the cap decides what you get:
+an explicit `startTime`+`endTime` wider than this fails loudly with `-4165`
+("Maximum time interval is 7 days"), but a `startTime` with NO `endTime` is
+silently clamped to `[startTime, startTime+7d]`. A 30-day lookback in that
+second form returned a ~6-day slice from the START of the window — dropping
+every recent stop — with `limit` nowhere near reached, so nothing in the
+response looked truncated. Same trap `futures_account_trades` already carries.
+"""
+
+_ALGO_SOURCE_PREFIXES = (("stToAg", "auto"), ("ios", "phone"))
+"""`clientAlgoId` prefixes, verified against live rows.
+
+`stToAg_OTO_*` is the stop Binance auto-attaches to an entry; `ios_*` is a
+phone-placed one, i.e. a manual trail. Anything else is some other manual
+route. This is the only field that says WHO moved a stop.
+"""
+
+
+@dataclass(frozen=True)
+class StopRecord:
+    """One stop-loss order in a position's lifetime."""
+
+    ts_ms: int
+    trigger_price: float
+    qty: float | None
+    status: str
+    source: str
+
+    def to_json_dict(self) -> dict[str, Any]:
+        return {
+            "ts": _iso_utc(self.ts_ms),
+            "trigger_price": self.trigger_price,
+            "qty": self.qty,
+            "status": self.status,
+            "source": self.source,
+        }
 
 
 @dataclass(frozen=True)
@@ -60,6 +102,8 @@ class TradeCandidate:
     funding_usd: float = 0.0
     exchange_sl: float | None = None
     exchange_tp: float | None = None
+    initial_sl: float | None = None
+    sl_history: list[StopRecord] = field(default_factory=list)
     mark_price: float | None = None
     already_journaled: bool = False
     index: int = 0
@@ -97,6 +141,11 @@ class TradeCandidate:
             "funding_usd": self.funding_usd,
             "exchange_sl": self.exchange_sl,
             "exchange_tp": self.exchange_tp,
+            # Both ends on purpose: the R basis differs by up to 4.7x between
+            # them, and the settled journal rule scores against the stop in
+            # force AT ENTRY while noting the trailed R beside it.
+            "initial_sl": self.initial_sl,
+            "sl_history": [r.to_json_dict() for r in self.sl_history],
             "already_journaled": self.already_journaled,
             "suggested_filename": self.suggested_filename,
         }
@@ -284,6 +333,146 @@ def attach_exchange_stops(
     candidate.exchange_tp = tp
 
 
+def _algo_source(client_algo_id: str) -> str:
+    """Who placed this stop: `auto` (exchange-attached), `phone`, or `manual`."""
+    head = str(client_algo_id or "").split("_", 1)[0]
+    for prefix, label in _ALGO_SOURCE_PREFIXES:
+        if head == prefix:
+            return label
+    return "manual"
+
+
+def fetch_algo_orders(
+    client: Any, symbol: str, now_ms: int, lookback_days: int
+) -> list[dict[str, Any]]:
+    """Every algo (conditional) order for `symbol` over the lookback, paged.
+
+    python-binance 1.0.37 has no named wrapper for `/fapi/v1/allAlgoOrders`, so
+    this calls the signed endpoint directly. Windows are tiled at
+    `_ALGO_MAX_INTERVAL_MS` with an EXPLICIT `endTime` — see that constant for
+    why the obvious `startTime`-only form loses data silently.
+
+    A window that fails is skipped rather than fatal: partial stop history is
+    strictly better than none, and this whole feature is enrichment on top of
+    fills that already stand on their own.
+    """
+    # Deduped by algoId because consecutive windows SHARE their boundary
+    # instant: `endTime` is inclusive, so a stop armed exactly on a boundary
+    # comes back in both windows and would otherwise be counted as two
+    # separate trail steps at the same price.
+    seen: set[Any] = set()
+    out: list[dict[str, Any]] = []
+    start = now_ms - lookback_days * 86_400_000
+    while start < now_ms:
+        end = min(start + _ALGO_MAX_INTERVAL_MS, now_ms)
+        try:
+            rows = client._request_futures_api(
+                "get",
+                "allAlgoOrders",
+                True,
+                data={
+                    "symbol": symbol,
+                    "startTime": start,
+                    "endTime": end,
+                    "limit": 200,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 - degrade, never abort the fetch
+            print(
+                f"warning: algo-order history unavailable for {symbol} "
+                f"[{_iso_utc(start)}..{_iso_utc(end)}]: {exc}",
+                file=sys.stderr,
+            )
+        else:
+            if isinstance(rows, dict):
+                rows = rows.get("orders", [])
+            for row in rows or []:
+                key = row.get("algoId") or (
+                    row.get("clientAlgoId"),
+                    row.get("createTime"),
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append(row)
+        start = end
+    return out
+
+
+def stop_records_from_algo_orders(
+    orders: list[dict[str, Any]],
+    symbol: str,
+    position_side: str,
+    opened_ms: int,
+    closed_ms: int | None,
+) -> list[StopRecord]:
+    """Stop orders belonging to one position, oldest first.
+
+    Windowed to the position's own lifetime because a symbol traded repeatedly
+    carries the previous trade's stops in the same response. `createTime` is
+    the ordering key: it is when the stop was ARMED, which is what makes the
+    sequence a trail. Algo rows spell the trigger `triggerPrice` and the size
+    `quantity` (classic rows use `stopPrice`/`origQty`), and both arrive as
+    strings.
+
+    Statuses are kept verbatim rather than collapsed to a boolean — the live
+    vocabulary is `CANCELED` / `EXPIRED` / `FINISHED`, and which one ended a
+    position is exactly how a stop-out is told apart from a manual exit.
+    """
+    records: list[StopRecord] = []
+    for o in orders:
+        if o.get("symbol") != symbol:
+            continue
+        if o.get("orderType") not in _SL_ORDER_TYPES:
+            continue
+        if not _position_side_matches(
+            str(o.get("positionSide", "BOTH")), position_side
+        ):
+            continue
+        created = int(o.get("createTime", 0) or 0)
+        if created < opened_ms or (closed_ms is not None and created > closed_ms):
+            continue
+        trigger = float(o.get("triggerPrice", 0) or 0)
+        if trigger <= 0:
+            continue
+        raw_qty = o.get("quantity")
+        records.append(
+            StopRecord(
+                ts_ms=created,
+                trigger_price=trigger,
+                qty=float(raw_qty) if raw_qty is not None else None,
+                status=str(o.get("algoStatus", "")),
+                source=_algo_source(str(o.get("clientAlgoId", ""))),
+            )
+        )
+    records.sort(key=lambda r: r.ts_ms)
+    return records
+
+
+def attach_stop_history(
+    candidate: TradeCandidate, orders: list[dict[str, Any]]
+) -> None:
+    """Fill `sl_history`, `initial_sl` and `exchange_sl` from algo-order rows.
+
+    `exchange_sl` was `None` for every CLOSED round-trip before this: only
+    `openAlgoOrders` was wired, and a closed position has no resting orders
+    left. An empty history leaves all three fields untouched, so a symbol with
+    no conditional orders behaves exactly as it did.
+    """
+    records = stop_records_from_algo_orders(
+        orders,
+        candidate.symbol,
+        candidate.position_side,
+        candidate.opened_ms,
+        candidate.closed_ms,
+    )
+    if not records:
+        return
+    candidate.sl_history = records
+    candidate.initial_sl = records[0].trigger_price
+    candidate.exchange_sl = records[-1].trigger_price
+
+
 def _position_side_matches(order_side: str, position_side: str) -> bool:
     if position_side == "BOTH" or order_side == "BOTH":
         return True
@@ -401,6 +590,17 @@ def fetch_candidates(
         if not cands:
             continue
         merge_open_position(cands, positions)
+        # Stop HISTORY first, then the resting-order override below. A closed
+        # round-trip has no resting orders at all — which is why `exchange_sl`
+        # was None for every one of them — so history is its only source. For
+        # an OPEN position the resting order is authoritative for "the stop
+        # right now", and its absence genuinely means nothing is protecting
+        # the position, so it must be allowed to win even when it is None.
+        algo_orders = fetch_algo_orders(
+            client, sym, now_ms=_now_ms(), lookback_days=days
+        )
+        for c in cands:
+            attach_stop_history(c, algo_orders)
         for c in cands:
             if c.status == "open":
                 sl, tp = _stops_from_orders(open_orders, sym, c.position_side)
@@ -425,6 +625,21 @@ def fetch_candidates(
 
 def _fmt(x: float | None, prec: int = 2) -> str:
     return "—" if x is None else f"{x:,.{prec}f}"
+
+
+def _sl_cell(candidate: TradeCandidate) -> str:
+    """Render the SL column, showing both ends when the stop was trailed.
+
+    One number would hide the move, and the move is the point: the R basis
+    differs by up to 4.7x between the stop at entry and the last working one.
+    """
+    last = _fmt(candidate.exchange_sl)
+    first = candidate.initial_sl
+    if first is None or candidate.exchange_sl is None:
+        return last
+    if abs(first - candidate.exchange_sl) < _ZERO_TOL:
+        return last
+    return f"{_fmt(first)}→{last}"
 
 
 def _print_table(candidates: list[TradeCandidate]) -> None:
@@ -452,7 +667,7 @@ def _print_table(candidates: list[TradeCandidate]) -> None:
                 _fmt(c.realized_pnl_usd),
                 _fmt(c.fees_usd),
                 _fmt(c.funding_usd),
-                _fmt(c.exchange_sl),
+                _sl_cell(c),
                 "✓" if c.already_journaled else "",
             ]
         )
