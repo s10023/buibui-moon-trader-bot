@@ -16,6 +16,22 @@ from typing import Any
 _MAJORS = ("BTCUSDT", "ETHUSDT", "SOLUSDT")
 
 
+def _require_number(name: str, value: object, *, allow_zero: bool) -> None:
+    """Reject a degenerate operator-set number, naming the field and the value.
+
+    `bool` is excluded before the numeric check on purpose: it is an `int`
+    subclass, so `capital = true` in TOML clears both `isfinite` and `> 0` as
+    1.0 and would size the whole book against one dollar.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"[portfolio] {name} must be a number, got {value!r}")
+    if not math.isfinite(value):
+        raise ValueError(f"[portfolio] {name} must be finite, got {value!r}")
+    if value < 0.0 or (value == 0.0 and not allow_zero):
+        bound = "non-negative" if allow_zero else "positive"
+        raise ValueError(f"[portfolio] {name} must be {bound}, got {value!r}")
+
+
 @dataclass(frozen=True)
 class SizingConfig:
     capital: float = 10_000.0
@@ -31,6 +47,45 @@ class SizingConfig:
     skip_floor_frac: float = 0.1
     annualization_days: float = 365.0
     clusters: tuple[tuple[str, ...], ...] = (_MAJORS,)
+
+    def __post_init__(self) -> None:
+        """Fail loudly at construction on any degenerate numeric field.
+
+        Every field below is operator-set — the `[portfolio]` TOML table, or
+        `cli/portfolio.py`'s `--capital` / `--vol-target` flags — and each fails
+        SILENTLY rather than loudly downstream. `capital = -5.0` is the worked
+        example: `round_down_to_step` returns the magnitude by contract and the
+        sign is never re-applied, so a negative capital produces a positive,
+        entirely plausible TRADE card. A `nan` propagates through `risk_usd`,
+        `risk_frac` and `notional_usd` without raising, and only surfaces
+        *after* the paid-for LLM call.
+
+        `dataclasses.replace` re-runs this, so the CLI override path and
+        `from_toml` are both covered by construction rather than by their own
+        checks. Smallness is never degeneracy — a $50 account is a real
+        account, the same contract `resolve_capital` keeps for live equity.
+        """
+        for name in ("capital", "r_base", "vol_target_annual", "annualization_days"):
+            _require_number(name, getattr(self, name), allow_zero=False)
+        _require_number("vol_window_days", self.vol_window_days, allow_zero=False)
+        for name in (
+            "g_vol_min",
+            "g_vol_max",
+            "r_open_max",
+            "r_cluster_max",
+            "high_vol_risk_mult",
+            "skip_floor_frac",
+        ):
+            # Zero is a real setting here: no allowance, no halving, no floor.
+            _require_number(name, getattr(self, name), allow_zero=True)
+        if self.g_vol_min > self.g_vol_max:
+            # `vol_governor`'s clamp absorbs an inverted pair without raising:
+            # min(max(g, g_vol_min), g_vol_max) returns g_vol_max for EVERY
+            # input, so the governor silently stops governing.
+            raise ValueError(
+                f"[portfolio] g_vol_min ({self.g_vol_min}) must not exceed "
+                f"g_vol_max ({self.g_vol_max})"
+            )
 
     @classmethod
     def from_toml(cls, path: str | Path) -> SizingConfig:

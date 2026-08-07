@@ -724,6 +724,13 @@ make buibui-portfolio-replay CAPITAL=25000 VOL_TARGET=0.30
 make buibui-portfolio-replay CONFIG=config/strategy_params.toml   # optional [portfolio] block
 ```
 
+`SizingConfig` validates every numeric field at construction, so a degenerate
+`CAPITAL=` / `VOL_TARGET=` override or `[portfolio]` key raises immediately instead of
+producing a plausible-looking report. Capital, per-trade risk, vol-target and the
+annualization factor must be finite and positive; the caps and vol-governor bounds must
+be finite and non-negative, with `g_vol_min <= g_vol_max`. Smallness is not degeneracy —
+a genuinely tiny account is honoured, the same rule the card's live-equity path follows.
+
 Two equity-curve bases are reported in parallel: **fixed-notional / constant-R** (the
 headline Sharpe) and **compounding** (the vol-governor's feedback basis). The vol governor
 is causal (reads only trailing realized vol strictly before each entry). Baseline verdict:
