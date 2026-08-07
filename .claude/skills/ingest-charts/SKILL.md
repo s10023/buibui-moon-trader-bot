@@ -45,9 +45,12 @@ PYTHONPATH=. poetry run python tools/chart_drops.py scan
   from (e.g. Coinglass's per-exchange liq-map view); omit it when the panel
   is exchange-aggregated or the exchange is unknown. Do NOT guess. Continue
   with `pending`. Echo these copy-paste examples with the rename request:
-  `coinglass_BTCUSDT_20260715-0930.jpeg` (heatmap) ·
-  `coinglass_BTCUSDT_20260715-0931.jpeg` (map — bump the minute so names
-  differ) · `coinglass-hyperliquid_BTCUSDT_20260716-1040.png` (map scoped
+  `coinglass_BTCUSDT_20260715-0930.jpeg` ·
+  `coinglass_BTCUSDT_20260715-0931.jpeg` (bump the minute so two panels of
+  the same symbol get distinct names — the order carries NO panel meaning,
+  and the operator's real captures have run map-then-heatmap, the reverse
+  of any order you might read into this pair) ·
+  `coinglass-hyperliquid_BTCUSDT_20260716-1040.png` (map scoped
   to the Hyperliquid venue) · `mmt_ETHUSDT.png` (no timestamp = file
   mtime). Panel type never goes in the name — the extraction detects
   heatmap vs map.
@@ -135,6 +138,54 @@ recent price). Ask the operator per image: **approve / correct / drop**.
 Corrections are applied to the cluster list / fields before writing and
 summarized in the snapshot's `notes` field. NOTHING is written before this
 gate.
+
+### Verifying the spot hint — that flag has no procedure without this
+
+The flag above names a comparison the skill never told you how to make, which
+left it decorative. It is not decorative: on 2026-08-07 it caught a BTC heatmap
+whose axis-read spot was **+1.3% wrong** (65,600 against a live 64,781). Two
+checks, free one first.
+
+**Check 1 — same-symbol cross-panel agreement. No network.** The daily protocol
+gives every symbol BOTH panels, and they read spot by different means: a
+`liq_map` usually prints it (`spot_source: "printed"`, high confidence) while a
+`liq_heatmap` interpolates off the axis (`spot_source: "axis"`, approximate).
+Disagreement is self-diagnosing and the `axis` side is the suspect one. In that
+08-07 batch BTC was 1.3% apart while ETH was 0.05% and SOL 0.2% — **the outlier
+identified itself before anything external was fetched.**
+
+**Check 2 — confirm against live price**, which settles who was right:
+
+```bash
+curl -s "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
+```
+
+A printed hint should sit within the capture lag (~0.2% over 20 min). Treat >1%
+on an `axis` read as wrong until shown otherwise.
+
+**When a hint IS wrong, do NOT reflexively drop the panel — check whether the
+CLUSTERS moved with it.** That is the whole decision, and it goes both ways:
+
+- Bands shifted by roughly the same error ⇒ the axis mapping itself is off and
+  every price in the panel is contaminated. Drop it.
+- Bands still agree with the other panel's ⇒ the hint is an isolated
+  axis-label slip. **Keep the clusters, null the hint**, and say so in `notes`.
+
+08-07's BTC heatmap was the second case: its bands sat ~150pts from the map's,
+not ~820. Dropping it would have discarded 8 good clusters over one bad number.
+Null `spot_price_hint` **and** `spot_source` rather than substituting live
+price — the snapshot records what the panel showed, not what was true.
+
+**Do not expect the loader to catch this for you.** `analytics/brief/external.py`
+has a `spot_hint_deviation` guard, but `_SPOT_DEVIATION_FRAC = 0.10` — it fires
+only past **10%**, which is a wrong-*symbol* detector (ETH prices on a BTC
+panel), not a wrong-*axis-read* one. The 08-07 error was 1.3% and would have
+passed it silently in either direction. **The cross-panel check above is the only
+thing that catches this error class**, which is why it is a step and not a nicety.
+Note also that nulling a hint sets `hint is not None` false and therefore
+suppresses that guard entirely — harmless at 1.3%, but say what you nulled and
+why in `notes`, because after the write the prose is the only surviving record
+that the panel was ever suspect.
 
 ## 4. Write (approved images only)
 
