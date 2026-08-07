@@ -1,0 +1,43 @@
+[Unit]
+# Off-machine leg of the backup: rclone $BUIBUI_BACKUP_ROOT to a remote.
+# Type=oneshot, driven by the .timer beside this file.
+#
+# The local buibui-backup unit protects against fat-finger deletes and tool
+# bugs; every copy it writes is still on the same disk. This unit is the leg
+# that survives losing the laptop.
+#
+# DO NOT `enable` THIS UNTIL BUIBUI_BACKUP_REMOTE IS SET -- the script exits 1
+# when it is missing, on purpose, so an unconfigured-but-enabled timer complains
+# every day instead of looking green while protecting nothing.
+Description=buibui off-machine backup (rclone sync of the local snapshot tree)
+Documentation=file:///home/kng/repo/buibui-moon-trader-bot/deploy/backup-offsite.sh
+
+# Ordering only -- NOT Requires=. A failed local snapshot must not suppress the
+# off-site sync of the snapshots that already succeeded.
+After=buibui-backup.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/kng/repo/buibui-moon-trader-bot
+
+# BUIBUI_BACKUP_REMOTE and the Telegram creds are read from the process env
+# before anything else runs. Leading `-` keeps a missing .env from failing the
+# unit (the script then reports the unset remote itself, which is the clearer
+# message).
+EnvironmentFile=-/home/kng/repo/buibui-moon-trader-bot/.env
+
+# rclone lives in linuxbrew, and run-job.sh shells out to `poetry` on its
+# failure path; user units get a minimal PATH that would find neither.
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
+
+# Mandatory once ExecStart is wrapped, or journald tags output with the
+# executable name and `journalctl -u` reads nothing.
+SyslogIdentifier=buibui-backup-offsite
+
+ExecStart=/home/kng/repo/buibui-moon-trader-bot/deploy/run-job.sh backup-offsite HEALTHCHECKS_URL_BACKUP_OFFSITE -- /home/kng/repo/buibui-moon-trader-bot/deploy/backup-offsite.sh
+
+# Generous: the first sync uploads the whole retention tree (~2-3GB at 14 daily
+# + 8 weekly) over a home uplink. Later runs move one new snapshot.
+TimeoutStartSec=10800
+Nice=19
+IOSchedulingClass=idle

@@ -86,6 +86,17 @@ are ever marked:
 - **defer** (the default for anything not named) — NO mark; it simply reappears next
   poll/backfill
 
+**When a whole channel keeps re-presenting a backlog the operator is not ready for,
+neither `skip` nor `defer` is the right tool** — `skip` burns the watermark permanently
+and `defer` re-asks forever (a 13-video backlog re-asked on every single poll). Set
+`paused = true` on that channel in `config/youtube_channels.toml` instead. It suppresses
+`poll` only: `backfill` still reaches the channel, which matters because `backfill` is
+the diagnostic that tells a genuinely quiet channel from a broken one, and a hand-pasted
+URL still resolves the row so `item_cap` / `intro_recap_s` keep applying. Paused
+channels are **printed on every poll** rather than silently omitted, for the same
+reason — an invisible pause is indistinguishable from a broken feed. Unpause by
+deleting the line; nothing was lost.
+
 ### 4. Run the ingest batch
 
 Execute the `/ingest-video` flow (`.claude/skills/ingest-video/SKILL.md`), steps 1–9,

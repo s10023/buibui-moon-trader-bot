@@ -3,9 +3,20 @@
 Read-only sibling of ``tools/journal_fetch.py`` / the audit drivers: resolves every
 ``docs/plans/pundit-calls.jsonl`` call (free-text levels) against 1h/1d OHLCV and
 reports hit-rate + R proxies per author x setup-family x direction, plus a
-machine-readable ``docs/plans/pundit-priors.json`` sidecar. Descriptive priors only —
-no ENABLE/BUILD verdicts (audit_guard gates come later, only if a cell earns n>=30).
-Never writes to the DB; no schema change.
+machine-readable ``docs/plans/pundit-priors.json`` sidecar. Never writes to the DB;
+no schema change.
+
+**There is NO implemented gate here, and this docstring used to imply one.** It read
+"audit_guard gates come later, only if a cell earns n>=30", which a reader
+reasonably took for a live threshold; in fact the only implemented construct is
+``--min-n`` (default 5) and it is display-only — it renders a ``⚠`` marker and
+changes no output. So nothing whatsoever happened when a cell crossed 30. That is
+the H8 defect class inverted (a gate that exists only in prose), and it stayed
+benign only because nothing depends on it.
+
+``AUDIT_ELIGIBLE_N`` below does not restore the gate — deciding what a pundit prior
+should GATE is a research question, not a scoring one. It only makes the crossing
+visible, so the decision arrives as a printed line rather than as silence.
 
 Spec: docs/superpowers/specs/2026-07-04-pundit-ledger-scorer-design.md
 
@@ -49,6 +60,11 @@ WINDOWS_MS: dict[str, int] = {
 }
 SANITY_LO = 0.2
 SANITY_HI = 5.0
+# Observation count at which a cell becomes worth putting through a real
+# audit_guard gate. This GATES NOTHING -- it is a notice threshold only, and it
+# must stay that way until someone decides what a pundit prior should gate.
+# Its whole job is to stop the crossing happening in silence.
+AUDIT_ELIGIBLE_N = 30
 
 _UNSPECIFIED_MARKERS = {"", "unspecified", "none", "n/a", "not specified"}
 _ZONE_RE = re.compile(
@@ -724,10 +740,22 @@ def _cell_table(cells: dict[str, CellStats], label: str, min_n: int) -> list[str
     return lines
 
 
+def audit_eligible_cells(
+    cells: dict[str, CellStats], threshold: int = AUDIT_ELIGIBLE_N
+) -> list[str]:
+    """Cell keys that have reached `threshold` observations, sorted by key.
+
+    Pure, and deliberately returns keys rather than a verdict: reaching the
+    threshold says the cell is worth auditing, never that it is good or bad.
+    """
+    return sorted(k for k, c in cells.items() if c.n >= threshold)
+
+
 def render_report(
     scored: list[ScoredCall], warnings: list[str], as_of_iso: str, min_n: int
 ) -> str:
     """Full markdown report: roll-ups + per-call audit trail (spec §Outputs)."""
+    author_cells = aggregate(scored, lambda sc: sc.call.author)
     lines = [
         "# Pundit-ledger scorecard",
         "",
@@ -739,8 +767,18 @@ def render_report(
         lines.append(f"- WARNING: {w}")
     if warnings:
         lines.append("")
+    eligible = audit_eligible_cells(author_cells)
+    if eligible:
+        lines += [
+            f"- NOTE: {len(eligible)} author cell(s) have reached "
+            f"n≥{AUDIT_ELIGIBLE_N} — {', '.join(eligible)}. No gate is "
+            "implemented here and none fires; this line exists so the "
+            "threshold is not crossed in silence. Deciding what a pundit "
+            "prior should gate is an open call.",
+            "",
+        ]
     lines += ["## Per author", ""]
-    lines += _cell_table(aggregate(scored, lambda sc: sc.call.author), "author", min_n)
+    lines += _cell_table(author_cells, "author", min_n)
     lines += ["", "## Per setup-family × direction", ""]
     lines += _cell_table(
         aggregate(scored, lambda sc: f"{sc.family}/{sc.call.direction}"),

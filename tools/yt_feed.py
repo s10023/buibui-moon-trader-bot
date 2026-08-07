@@ -73,6 +73,15 @@ class ChannelConfig:
     # retrospectives over forward calls), so a too-small cap on a roundup does not
     # merely trim the tail — it silently discards the payload.
     item_cap: int = ITEM_CAP
+    # Suppress this channel from `poll` without destroying its state. The only
+    # other ways to quiet a channel were `mark --skipped` (permanent — it burns
+    # the watermark) and deferring, which re-presents the same candidates every
+    # poll; a 13-video backlog therefore re-asked the operator forever.
+    # Deliberately scoped to `poll` ONLY: `backfill` still reaches a paused
+    # channel (it is the diagnostic that distinguishes a quiet channel from a
+    # broken one) and `find_channel_for_author` still resolves it, so a
+    # hand-pasted URL keeps its item_cap / intro_recap_s.
+    paused: bool = False
 
 
 @dataclass(frozen=True)
@@ -110,6 +119,7 @@ def load_feed_config(path: Path) -> FeedConfig:
                 handle=str(raw.get("handle", "")),
                 intro_recap_s=int(raw.get("intro_recap_s", 0)),
                 item_cap=int(raw.get("item_cap", ITEM_CAP)),
+                paused=bool(raw.get("paused", False)),
             )
         )
     return FeedConfig(
@@ -638,10 +648,18 @@ def resolve_handle(get: HttpGet, api_key: str, handle: str) -> str:
     )
 
 
-def _results_to_dict(results: list[ChannelResult], now: datetime) -> dict[str, Any]:
+def _results_to_dict(
+    results: list[ChannelResult],
+    now: datetime,
+    paused: tuple[ChannelConfig, ...] = (),
+) -> dict[str, Any]:
     return {
         "generated_utc": now.isoformat(),
         "candidates": [asdict(c) for r in results for c in r.candidates],
+        # Reported, never omitted: a silently-dropped channel is
+        # indistinguishable from a broken one, which is the exact confusion the
+        # `backfill`-to-diagnose rule exists to resolve.
+        "paused": [{"channel_id": c.id, "channel_name": c.name} for c in paused],
         "channels": [
             {
                 "channel_id": r.channel_id,
@@ -655,8 +673,12 @@ def _results_to_dict(results: list[ChannelResult], now: datetime) -> dict[str, A
     }
 
 
-def _format_human(results: list[ChannelResult]) -> str:
+def _format_human(
+    results: list[ChannelResult], paused: tuple[ChannelConfig, ...] = ()
+) -> str:
     lines: list[str] = []
+    for pc in paused:
+        lines.append(f"# PAUSED {pc.name} ({pc.id}) — not polled (paused = true)")
     for r in results:
         drops = ", ".join(f"{k}={v}" for k, v in r.excluded.items() if v)
         lines.append(
@@ -794,7 +816,9 @@ def main(
 
     cfg = load_feed_config(args.config)
     state = load_state(args.state)
+    paused: tuple[ChannelConfig, ...] = ()
     if args.cmd == "poll":
+        paused = tuple(ch for ch in cfg.channels if ch.paused)
         results = [
             poll_channel(
                 ch,
@@ -805,8 +829,9 @@ def main(
                 cold_start_days=cfg.cold_start_days,
             )
             for ch in cfg.channels
+            if not ch.paused
         ]
-    else:  # backfill
+    else:  # backfill — deliberately reaches paused channels too
         by_id = {ch.id: ch for ch in cfg.channels}
         channel = by_id.get(args.channel_id)
         if channel is None:
@@ -830,9 +855,9 @@ def main(
         ]
 
     print(
-        json.dumps(_results_to_dict(results, now_dt), indent=2)
+        json.dumps(_results_to_dict(results, now_dt, paused), indent=2)
         if args.as_json
-        else _format_human(results)
+        else _format_human(results, paused)
     )
     return 1 if any(r.errors for r in results) else 0
 

@@ -18,6 +18,7 @@
 #   intro_recap_s  seconds of opening recap/teaser that are NOT a fresh call. 0 = off.
 #   item_cap       max items /ingest-video keeps from ONE video of this channel
 #                  (default = tools/video_marks.py::ITEM_CAP, currently 5).
+#   paused         true = skip this channel in `poll`. Default false.
 #
 # On `intro_recap_s` — why it exists, so nobody deletes it as noise:
 # some channels open EVERY upload by replaying prior positions ("在開始視頻之前還是回顧
@@ -35,6 +36,15 @@
 # measured rounds — promoting relays over the host's own calls in round 1, and
 # retrospectives over forward calls in round 2. So on a roundup the cap does not trim a
 # tail, it discards payload.
+#
+# On `paused` — the non-destructive way to quiet a channel you are not ready to ingest.
+# Without it the only options were `mark --skipped`, which burns the watermark PERMANENTLY,
+# or deferring, which re-presents the identical candidates at every poll (a 13-video
+# backlog re-asked the operator on every run, forever). `paused` suppresses ONLY `poll`:
+# `backfill` still reaches the channel — it is the diagnostic that tells a genuinely quiet
+# channel apart from a broken one — and a hand-pasted URL still resolves this row, so
+# item_cap / intro_recap_s keep applying. Paused channels are PRINTED on every poll rather
+# than silently omitted, for the same reason.
 
 [feed]
 cold_start_days = 14   # bounds the daily poll only; old videos stay reachable via `backfill`

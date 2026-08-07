@@ -1,0 +1,23 @@
+[Unit]
+Description=Sync the buibui backup tree off-machine once daily
+
+[Timer]
+# 13:25 UTC = 21:25 MYT, i.e. ~45 min after the 12:40 local-backup fire, so the
+# day's snapshot exists before this uploads. Once daily, not twice: the local
+# leg runs twice to raise the odds of capturing a day on a laptop that is often
+# off, whereas this only has to move whatever the local leg has already
+# verified.
+#
+# :25 stays clear of signal-watch at :01/:16/:31/:46. This unit takes no DuckDB
+# lock at all -- it reads finished snapshot files -- but keeping every timer off
+# the quarter hour means one rule to remember instead of a per-unit exception.
+OnCalendar=*-*-* 13:25:00 UTC
+
+Persistent=true
+# Wider than the other timers: this one saturates the uplink, so a fire landing
+# exactly on resume-from-suspend competes with everything else the laptop is
+# reconnecting.
+RandomizedDelaySec=900
+
+[Install]
+WantedBy=timers.target

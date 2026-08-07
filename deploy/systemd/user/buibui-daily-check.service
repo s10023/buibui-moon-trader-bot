@@ -1,0 +1,46 @@
+[Unit]
+# Pushes the daily operator check to Telegram. Type=oneshot, driven by the
+# .timer beside this file.
+#
+# There is no new checking logic here: daily_check.py already covers every
+# accumulator (signal-watch, xsmom sync + exec, backup, external-context,
+# chart-drops, pundit-priors), and run-job.sh already Telegrams the log tail on
+# a non-zero exit. This unit is only the missing PUSH -- previously the check
+# ran only when a session remembered to run it.
+#
+# --exit-on-tier2 is the load-bearing flag. Without it the push would stay
+# silent on chart-drops and external-context, which are tier 2 -- i.e. silent on
+# exactly the staleness that motivated wanting a nudge at all.
+#
+# NOTE: docs/plans/ is gitignored, so the ExecStart target is NOT in the repo and
+# does not survive a fresh clone. That is a property of where the check lives,
+# not of this unit; if the file is ever promoted to tools/, update this path.
+Description=buibui daily operator check (Telegram push, tier-1 + tier-2)
+Documentation=file:///home/kng/repo/buibui-moon-trader-bot/docs/plans/daily_check.py
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/kng/repo/buibui-moon-trader-bot
+
+# Telegram creds must be in the PROCESS env before any Python starts -- the
+# app's own load_dotenv() runs too late for run-job.sh's failure path. Leading
+# `-` keeps a missing .env from failing the unit.
+EnvironmentFile=-/home/kng/repo/buibui-moon-trader-bot/.env
+
+# run-job.sh shells out to `poetry` on its failure path; user units get a
+# minimal PATH that would not find linuxbrew's copy, so the alert about a broken
+# run would itself break.
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
+
+# Mandatory once ExecStart is wrapped: without it journald tags output with the
+# executable name (run-job.sh), unit attribution is lost, and `journalctl -u`
+# reads nothing while the lines sit in the journal under another identity.
+SyslogIdentifier=buibui-daily-check
+
+ExecStart=/home/kng/repo/buibui-moon-trader-bot/deploy/run-job.sh daily-check HEALTHCHECKS_URL_DAILY_CHECK -- /home/linuxbrew/.linuxbrew/bin/poetry run python docs/plans/daily_check.py --exit-on-tier2
+
+# The check reads analytics.db. On a lock conflict it falls back to a byte-copy
+# of a ~320MB file, so the ceiling covers that path rather than the 3s happy one.
+TimeoutStartSec=600
+Nice=15
+IOSchedulingClass=idle
