@@ -74,6 +74,8 @@ Not on any remote and not regenerable. Sizes are 2026-08-06 snapshots.
 | `.claude/settings.json`, `.claude/settings.local.json` | **the hooks** — `guard-destructive.py` and the `/post-branch` backstop. Gitignored, so a reclone silently loses both |
 | `.claude/hooks/` | the hook scripts themselves |
 | `web/ui/.env.local` | frontend env |
+| `~/.gitconfig` + `~/.gitconfig-personal` | **the commit-identity override, and losing it re-opens a live leak.** The global identity is the work address; the `includeIf "hasconfig:remote.*.url:git@github.com-personal:*/**"` block is what keeps it out of this repo's commits. A migrated box without it publishes the work email on the first commit after cloning — into a repo whose visibility oscillates public. Copy both, then **verify with a positive control**, not by reading the file: clone or init a repo with a personal remote and no local config, and check `git config user.email` resolves to the gmail. The `*/**` glob is load-bearing — a bare `**` does not cross the `/` in `owner/repo.git`, so a mistyped pattern installs cleanly and matches nothing |
+| `~/.config/systemd/user/buibui-*` + `loginctl enable-linger` | the five timers. Unit files are committed under `deploy/systemd/user/`, but the *installed copies*, their enabled state, and linger are machine state — a migration that skips these leaves every accumulator silently dark, which is the failure mode `daily_check.py` exists to catch |
 
 ### buibui-wifey-wall-street-bot
 

@@ -325,6 +325,10 @@ buibui-xsmom-daily:  ## P3: daily XS workflow — sync universe 1d, then executo
 buibui-backup:  ## Verified local snapshot of analytics.db + ledgers (WEEKLY=1 also exports parquet; DRY=1 reports only)
 	./deploy/backup-analytics.sh $(if $(DRY),--dry-run,) $(if $(WEEKLY),--weekly,)
 
+.PHONY: buibui-backup-offsite
+buibui-backup-offsite:  ## Off-machine leg: rclone sync of BUIBUI_BACKUP_ROOT to BUIBUI_BACKUP_REMOTE (DRY=1 reports only)
+	./deploy/backup-offsite.sh $(if $(DRY),--dry-run,)
+
 .PHONY: buibui-combine-audit
 buibui-combine-audit:  ## P3: read-only trend×XS IDM combine-layer audit over the N3 universe
 	PYTHONPATH=. poetry run python tools/combine_audit.py
