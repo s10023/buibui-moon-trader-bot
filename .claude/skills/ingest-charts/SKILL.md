@@ -87,9 +87,26 @@ only thing standing in for the check ST15 still owes.
 
 ## 2. Extract (one sonnet subagent per pending image)
 
-Dispatch each image to a **sonnet** subagent (Agent tool). The prompt is
-self-contained — no repo/SoT reads. Template (fill `<path>`, `<source>`,
-`<symbol>`):
+Dispatch each image to the **`chart-extract`** subagent (Agent tool,
+`subagent_type: "chart-extract"`, defined at `.claude/agents/chart-extract.md`).
+The prompt is self-contained — no repo/SoT reads. Template (fill `<path>`,
+`<source>`, `<symbol>`):
+
+**Naming the agent type is half the fix.** This line said only "a **sonnet**
+subagent" until 2026-08-07, naming no type at all — so the costliest parameter of
+the dispatch was left to whoever happened to run the skill, and the practical
+default was a general-purpose agent at a measured **~49K tokens per image**
+against a ~1.4–2.1K image. `chart-extract` pins `model: sonnet` and
+`tools: Read`, which removes ~20 tool schemas and structurally prevents the
+file-writing an extraction agent did on an earlier run.
+
+**If `chart-extract` does not resolve** (fresh clone before the `.gitignore`
+re-include propagates, or a harness without project agents), fall back to a
+general-purpose sonnet agent **and say so prominently in the review digest** —
+name the fallback and the cost. **Never fall back silently:** the output is
+byte-identical either way, so an unannounced fallback restores the full cost
+while looking exactly like success. Do NOT substitute the stock `Explore` agent,
+and do NOT batch several images into one agent.
 
 ```text
 Read the image file at <path> (one Coinglass/MMT chart screenshot) and
