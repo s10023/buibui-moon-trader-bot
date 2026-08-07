@@ -53,6 +53,15 @@ Use this when the user invokes the skill **without** pasting trade details.
    open positions). Each candidate already carries `already_journaled` so the user doesn't
    double-log.
 
+   **`--days` has a hard ceiling around 83 that the tool cannot tell you about.**
+   `journal_fetch.py` reads fills from `/fapi/v1/userTrades`, which Binance retains for
+   only ~83 days; past that the endpoint returns fewer rows **with no error and no
+   warning**, so `--days 200` silently yields ~83 days of trades and looks like a quiet
+   stretch of not trading. If a trade is older than that, fills are gone — the P&L is
+   still recoverable from `/fapi/v1/income` (~210 days) or the `income/asyn` export (back
+   to inception), but neither carries maker/taker or per-fill detail. Full retention map
+   and its traps → `.claude/context/tools.md`, under `journal_fetch.py`.
+
 2. **Present** a compact numbered list: `#`, symbol, direction, status, `avg_entry → avg_exit`,
    `$ PnL`, and an "already journaled" marker. (Running the tool without `--json` prints this
    table directly.)
