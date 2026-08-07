@@ -52,6 +52,36 @@ PYTHONPATH=. poetry run python tools/chart_drops.py scan
   mtime). Panel type never goes in the name — the extraction detects
   heatmap vs map.
 
+### Provenance — a drop is not assumed to be the operator's own screenshot
+
+This skill was written around "the operator screenshotted his own Coinglass
+session", and every other source read as second-hand by default. That is wrong
+in one common direction:
+
+- **A non-screenshot source is legitimate when it is FIRST-PARTY** — an image
+  posted by Coinglass or MMT themselves (e.g. the `@coinglass_com` daily
+  heatmap that ST15 automates) is the *same* publisher as the operator's own
+  screen, just delivered differently. Treat it as a provenance step **up** from
+  a relayed or re-hosted image, not down. Second-hand means *someone else's
+  screenshot of* a panel, and that is what deserves suspicion.
+- **Record unusual provenance in the snapshot's `notes`.** It survives into the
+  Brief's External block, so a later reader can weigh a level whose origin was
+  not the usual capture path. Do not put it in `source` — that field is the
+  publisher (`coinglass`|`mmt`) and is parsed from the filename.
+
+### Say which panels the batch covers — including OVER-coverage
+
+After the scan, state the pending set against the 6-panel daily protocol
+(Heatmap 24h + Map 1d for each of BTC/ETH/SOL): which are covered, which are
+missing. **Report over-coverage as readily as under-coverage.** The 2026-08-04L
+batch was 15 panels against a protocol of 6, and nothing said so — extra panels
+are not free, since each costs a vision dispatch (45K–103K tokens) and a 1w
+heatmap band is structural context, not a same-day actionable level.
+
+This matters because the daily check asserts **recency, not coverage**: one
+fresh drop greens the line while five panels rot. Naming the gap here is the
+only thing standing in for the check ST15 still owes.
+
 ## 2. Extract (one sonnet subagent per pending image)
 
 Dispatch each image to a **sonnet** subagent (Agent tool). The prompt is
@@ -113,10 +143,24 @@ For each approved image build the final snapshot dict:
 - `schema` "external-levels-v1"; `source`+`symbol` from the filename;
   `venue` from the filename's dash-suffixed source token via
   `PendingDrop.venue` (optional; null/absent = unspecified — most drops
-  have no venue); `panel`/`window`/`scope`/`spot_price_hint`/`clusters`
-  from the extraction after operator corrections; `captured_at_ms` from
-  the scan output; `ingested_at_ms` = now (ms); `verified` true; `notes` =
-  correction summary or "".
+  have no venue); `panel`/`window`/`scope`/`spot_price_hint`/`spot_source`/
+  `clusters` from the extraction after operator corrections;
+  `captured_at_ms` from the scan output; `ingested_at_ms` = now (ms);
+  `verified` true; `notes` = correction summary or "".
+
+  **`spot_source` is optional and carries the extractor's `"printed"` /
+  `"axis"` / `null` verbatim — do not invent it and do not drop it.** Step 2
+  asked for this field from the beginning, but until 2026-08-07
+  `validate_snapshot_dict` rejected unknown top-level keys outright, so it had
+  nowhere to land and every write silently discarded it. It is now an
+  `_OPTIONAL_KEYS` member alongside `venue`. **Any other field step 2 returns
+  that is not named here is still rejected** — `status`, `skip_reason`,
+  `symbol_mismatch` and `confidence` are review-gate signals, not snapshot
+  content, so they stay out of the dict.
+
+  **Same trap one level down:** cluster dicts are symmetric-difference checked
+  against exactly `{price_lo, price_hi, kind, intensity, label}`, so an extra
+  key on a cluster fails the whole snapshot rather than being ignored.
 
 Save it to a scratchpad temp file, then:
 

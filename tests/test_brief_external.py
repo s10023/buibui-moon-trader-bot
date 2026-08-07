@@ -163,6 +163,36 @@ def test_venue_must_be_nonempty_string_or_null() -> None:
         assert any("venue" in p for p in validate_snapshot_dict(data))
 
 
+def test_spot_source_absent_null_and_allowed_values_all_valid() -> None:
+    # Absent must stay valid: every snapshot written before 2026-08-07 lacks
+    # the key, and this is a read-time validator over already-written files.
+    assert validate_snapshot_dict(_valid_snapshot()) == []
+    for good in (None, "printed", "axis"):
+        data = _valid_snapshot()
+        data["spot_source"] = good
+        assert validate_snapshot_dict(data) == []
+
+
+def test_spot_source_rejects_values_outside_the_enum() -> None:
+    # The extractor is an LLM emitting free text into a typed field, so the
+    # enum is only enforced where something reads it -- here.
+    for bad in ("guessed", "", 7, "PRINTED"):
+        data = _valid_snapshot()
+        data["spot_source"] = bad
+        assert any("spot_source" in p for p in validate_snapshot_dict(data))
+
+
+def test_unknown_top_level_keys_are_still_rejected() -> None:
+    # The negative control for the two tests above: widening _OPTIONAL_KEYS
+    # must admit exactly `spot_source`, not open the schema generally. Without
+    # this, "spot_source is accepted" would also pass on a validator that had
+    # stopped checking unknown keys at all.
+    data = _valid_snapshot()
+    data["symbol_mismatch"] = False
+    problems = validate_snapshot_dict(data)
+    assert any("unknown keys" in p and "symbol_mismatch" in p for p in problems)
+
+
 def _load(
     tmp_path: Path,
     *,

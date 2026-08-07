@@ -330,8 +330,25 @@ For each surface in the config, do the following:
   # every top-level package vs. what the context docs actually document
   for d in */; do d=${d%/}
     case $d in tests|docs|config|scripts|__pycache__|.*) continue;; esac
-    grep -rqs "$d" .claude/context/ || echo "UNDOCUMENTED: $d"; done
+    grep -rqsw "$d" .claude/context/ || echo "UNDOCUMENTED: $d"; done
   ```
+
+  **The `-w` is load-bearing — do not drop it back to a bare substring match.**
+  Without it this check has the exact blind spot it was written to fix, in the
+  other direction: grepping `state_audit` returns hits in three files and reads
+  as "documented", but every hit is inside **`premium_state_audit`** — the
+  actual module `analytics/state_audit.py` has zero coverage and is skipped.
+  **A false-positive presence check is worse than none, because it reports
+  covered.** `-w` works here for a non-obvious reason: `_` is a
+  word-constituent character, so `state_audit` has no word boundary inside
+  `premium_state_audit` yet still matches `analytics/state_audit.py`, where `/`
+  and `.` are boundaries. Proven by injection against the real docs tree —
+  `dicator_condition`, `tate_audit`, `enue_premium`, `udit_guard` all report
+  COVERED under a bare `grep` and MISSING under `-w`, 4 for 4.
+
+  **If you re-verify this, pick a probe that can still fail.** `state_audit`
+  itself no longer discriminates now that it IS documented — a discrimination
+  test needs a fixture capable of failing.
 
 - **CLAUDE.md must not re-absorb this content.** The 2026-08-04 split left
   CLAUDE.md holding a package index plus verdicts, and the context docs
@@ -431,10 +448,24 @@ Regardless of the behaviour gate, **always update MEMORY.md's "Current
 State"** at the end of every session. This is project policy (CLAUDE.md
 "Session Memory Protocol"):
 
-- Set "Last session" entry to today's date + branch name + one-line summary
-- Move the previous "Last session" entry to "Previous session"
+- **Rewrite the "Latest" bullet** to today's date + a one-line summary of what
+  changed. "Latest" is **at most 2 lines**; every other Current State bullet is
+  exactly 1 line.
+- **Current State holds at most 6 bullets.** If yours would be the 7th, first
+  roll the oldest bullet **verbatim** into
+  `memory/project_session_log_<month>.md`. Prune by MOVING, never by deleting —
+  session logs have no size limit; that is what they are for.
 - Convert any relative dates ("Thursday") to absolute (`2026-05-01`)
 - Update / remove "Open questions / pending decisions" as appropriate
+
+**There is no "Previous session" bullet, and there has not been one for
+months.** This step used to say *"Set 'Last session' … move the previous to
+'Previous session'"*, which described a protocol MEMORY.md does not implement,
+so every run silently worked around it by hand — filed as skill-fix `7h` after
+it bit three consecutive sessions. **A step that is wrong every run and correct
+never is worse than no step.** The authority is CLAUDE.md's "Session Memory
+Protocol"; if the two ever disagree again, CLAUDE.md wins and this text is the
+one to fix.
 
 This step runs even when the behaviour gate skipped the user-facing doc
 walk, because MEMORY.md tracks **what changed in the session**, not just
@@ -677,32 +708,51 @@ ranking.>
 <…>
 ```
 
-### Standing blocks — carry forward, never regenerate
+### Standing blocks — EDIT IN PLACE, never regenerate
 
-This file is **overwritten** each run, so anything not in the template above is
-silently deleted. Some blocks are standing operational content that belongs to
-the project, not to this PR. **Before writing, read the existing
-`next-conversation-prompt.md` and carry these forward verbatim**, refreshing
-only their dated "state at" lines:
+**Do not `Write` this file. Apply targeted `Edit`s to the dated sections** — the
+state-at line, the PR table, "just shipped", the task list — and append new
+findings. That is the same rule Step 5 states for every other doc, and it is
+stated separately here because the template above is *not* the whole file:
+anything not in it that a `Write` touches is silently deleted, and this file
+carries standing operational content that belongs to the project, not to this
+PR.
 
-- **The daily operator check** (`make buibui-xsmom-daily`,
-  `CATCH_UP=1 make buibui-signal-watch`) — there is no cron
-  (`[[live-system-dark-since-2026-06-24]]`), so the handoff is the only thing
-  that surfaces it. Keep it as the FIRST section, above the PR table.
-- **Standing findings** — the accumulated gotcha list. Append to it; do not
-  replace it with only this PR's findings.
+**Reading the template as a regenerate instruction is the failure mode.** Taken
+that way it says: rebuild from a template that omits most of the file, then
+manually re-add the rest — which is a step one tired session will skip. Editing
+in place makes verbatim preservation the *default* instead of a manual chore.
+
+Blocks that outlive any one PR — refresh only their dated lines:
+
+- **The daily operator check.** `poetry run python docs/plans/daily_check.py`,
+  run unprompted every session, reds relayed verbatim. Keep it the FIRST
+  section, above the PR table. **Do NOT reinstate the old hand-run commands
+  here** (`make buibui-xsmom-daily`, `CATCH_UP=1 make buibui-signal-watch`) —
+  both are owned by systemd timers since #579, and hand-running
+  `make buibui-signal-watch` is the *looping* form, which races the timer for
+  `signal_state.json` and duplicates Telegram. Force a run with
+  `systemctl --user start <name>.service`.
 - **Skill-fix queue** and **open questions** — these outlive any one PR.
+- **The lessons corpus** — as of 2026-08-07 this no longer lives in the handoff.
+  It grew append-only to 347 lines that reduced to two principles restated
+  sixteen times. It now lives in memory, read on trigger:
+  `reference_shell_and_tooling_gotchas.md`,
+  `feedback_filed_artifact_is_a_hypothesis.md`,
+  `project_xsmom_causality_test_vacuous.md`. **File a new finding into whichever
+  of those it belongs to, not into the handoff** — and if it is a restatement of
+  one already there, add it as a one-line example rather than a new bullet.
 
-This exists because on 2026-08-03 the operator had to ask "why didn't you
-remind me to run the xsmom daily?". The reminder was real but lived only in a
-dense memory bullet, and once added to the handoff it would have been erased by
-the very next run of this skill. A template that overwrites is a template that
-must name what survives.
+This subsection exists because on 2026-08-03 the operator had to ask "why didn't
+you remind me to run the xsmom daily?". The reminder was real but lived only in
+a dense memory bullet, and once added to the handoff it would have been erased
+by the very next run of this skill.
 
 Source the content from:
 
-1. **MEMORY.md "Next focus" section** — the top 1–3 entries are usually the
-   right candidates. Convert any relative dates to absolute.
+1. **MEMORY.md "Current State"** — the top bullets are usually the right
+   candidates. (There is no "Next focus" section; this said so until
+   2026-08-07.) Convert any relative dates to absolute.
 2. **This PR's findings** — if the PR closed an option or unblocked one,
    say so plainly so the next session doesn't re-ask.
 3. **Open questions / pending decisions** — pull anything that becomes
