@@ -177,7 +177,8 @@ Expected: markdownlint reports an **MD012** error naming `.claude/agents/chart-e
 Then revert the injection and confirm clean:
 
 ```bash
-git checkout .claude/agents/chart-extract.md 2>/dev/null || true   # untracked: re-write it from Step 4 instead
+# untracked file, so `git checkout` is a no-op that always "succeeds" while doing
+# nothing -- re-write .claude/agents/chart-extract.md from Step 4's content instead:
 make lint-md 2>&1 | tail -3
 ```
 
@@ -419,19 +420,24 @@ that was ~49K flat.
 **Verdict: KEEP, and the pre-registered phase-2 trigger fired — but on the wrong panel type.**
 
 Cost is unambiguous: **−118,333 tokens per batch (−39.9%)**, with tight variance and no
-panel worse than −39.2%. Quality is neutral-to-better in aggregate: total clusters
-identical at 52, and confidence improved net (ETH heatmap `med` → `high`, nothing
-regressed).
+panel worse than −39.2%. Quality is neutral-to-better in aggregate: confidence improved
+net (ETH heatmap `med` → `high`, nothing regressed). **"Total clusters identical at 52" is
+an OFFSETTING ACCIDENT, not evidence of no regression** — the floor was pre-registered
+**per panel**, not in aggregate, and BTC (10→8) and ETH (6→8) moved ±2 in opposite
+directions to produce that identical total.
 
 The pre-registered floor was "no panel's confidence or cluster count is below its
 baseline." **BTC liq_map went 10 → 8, so that floor is tripped and the trigger fires as
 written.** Honouring the pre-registration rather than arguing past it: the trigger is
 real. But it points somewhere phase 2 does not go — phase 2 was designed as a *heatmap*
-crop path, and every heatmap held or improved. The regression is on a **map**, and it is
-a change in *granularity*, not detection: the new BTC map merges near-price bands
-(63,579–64,029, 450 wide) where the baseline split them (63,700–63,850, 150 wide), while
-also reaching further out (it adds 10x tails at ~58,000 and ~71,000 the baseline missed).
-Fewer, wider, longer-range bands — not missed liquidity.
+crop path, and every heatmap held or improved. **HYPOTHESIS, not established fact: the
+regression is a change in *granularity*, not detection.** In BTC's case the new map
+merges near-price bands (63,579–64,029, 450 wide) where the baseline split them
+(63,700–63,850, 150 wide), while also reaching further out (it adds 10x tails at
+~58,000 and ~71,000 the baseline missed) — fewer, wider, longer-range bands, not missed
+liquidity. **But ETH liq_map moved the opposite way in the same run (6 → 8, same panel
+type), which the granularity story does not explain — a noise reading is at least as
+live as a granularity shift**, and that question is left open, not resolved here.
 
 **So: keep the change, and file the map-granularity question as its own item rather than
 folding it into phase 2, which would not address it.** Cluster count is a crude quality

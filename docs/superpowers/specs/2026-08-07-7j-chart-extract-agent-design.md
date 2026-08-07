@@ -1,6 +1,7 @@
 # 7j — a dedicated `chart-extract` subagent for `/ingest-charts`
 
-**Date:** 2026-08-07 · **Skill-fix:** 7j · **Status:** design approved, not yet implemented
+**Date:** 2026-08-07 · **Skill-fix:** 7j · **Status:** implemented and measured
+2026-08-07k, −39.9% tokens (see the plan's Results section)
 
 ## Goal and success metric
 
@@ -102,6 +103,10 @@ needs any other tool.
 change is untracked and does not survive a reclone** — the same loss that already
 applies to `.claude/hooks/` and `.claude/settings.json`. This would be the third
 instance of that defect, so the re-include is part of the change, not a follow-up.
+
+**A fourth file, `.markdownlint-cli2.jsonc`, needs the matching re-include** — its
+own comment says it mirrors `.gitignore` deliberately, so skipping it would ship
+committed markdown that nothing lints.
 
 ### 3. `.claude/skills/ingest-charts/SKILL.md` step 2
 
