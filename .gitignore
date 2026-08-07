@@ -17,6 +17,7 @@ config/pundit_roster.toml
 !.claude/skills/*.md
 !.claude/context
 !.claude/context/*.md
+!.claude/agents
 .idea/
 
 # Local planning docs — personal notes, not for public repo
