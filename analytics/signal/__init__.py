@@ -36,6 +36,7 @@ from analytics.signal._common import (
     _fmt_hold,
     _reset_bt_cache,
     parse_timeframe_secs,
+    scan_window,
     secs_until_next_boundary,
 )
 from analytics.signal.bt_cache import _backtest_summary, _compute_backtest
@@ -81,6 +82,7 @@ __all__ = [
     "StrategyOverride",
     "_CANDLE_CLOSE_BUFFER_SECS",
     "_SCAN_WINDOW",
+    "scan_window",
     "_backtest_run_id",
     "_backtest_summary",
     "_bt_mem_cache",

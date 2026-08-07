@@ -18,7 +18,13 @@ allowed-tools: "*"
 1. **Sync candles**: fetches latest OHLCV from Binance Futures, stores in `analytics.db`
 2. **Detect signals**: runs all configured strategies via `analytics/strategies` detectors
 3. **Dedup**: two-layer cooldown in `signals/cooldown_store.py`:
-   - Candle watermark per `(symbol, tf, strategy)` — never re-alerts same candle
+   - Candle watermark per `(symbol, tf, strategy, UTC weekday of the candle)` — never
+     re-alerts same candle. **The weekday scope is the SoT-N8 fix (2026-08-07):** the
+     three configs partition the week with no overlap, so a candle is only scannable on
+     a day whose config admits its weekday. With a flat key, a fire on a later weekday
+     dragged the single monotonic watermark past a missed boundary day and it could
+     never be replayed. Scoping by *config* would not work — Mon and Fri share
+     `mon_fri`. Legacy 3-part state is seeded into all seven scopes on load.
    - Cooldown timer per `(symbol, strategy, direction)` — default 1h between alerts
 4. **Backtest filter**: runs mini-backtest per signal; suppresses if avg_r below threshold (hard mode)
 5. **Telegram**: sends formatted alert via `utils/telegram.py`

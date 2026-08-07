@@ -57,7 +57,10 @@ class TestJsonPersistence:
         store.mark_candle("BTCUSDT", "1h", "fvg", 1_000)
         data = json.loads(path.read_text())
         assert "watermarks" in data
-        assert data["watermarks"]["BTCUSDT:1h:fvg"] == 1_000
+        # The key carries the candle's UTC weekday since the SoT-N8 fix, so that
+        # a missed boundary day is not buried by a later weekday's watermark.
+        # 1_000 ms is 1970-01-01, a Thursday (weekday 3).
+        assert data["watermarks"]["BTCUSDT:1h:fvg:3"] == 1_000
 
     def test_missing_file_starts_empty(self, tmp_path: Any) -> None:
         store = CooldownStore(str(tmp_path / "nonexistent.json"))

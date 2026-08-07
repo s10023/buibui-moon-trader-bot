@@ -121,6 +121,7 @@ finishes** and exits non-zero if it failed — so it is a real test, not fire-an
 | `journalctl -u` is empty but the job clearly ran | use `-t` instead | Missing/renamed `SyslogIdentifier=`. |
 | Job fails only on resume from suspend | `run-job.sh` DNS gate | See the resume-from-suspend race below. |
 | `IOException ... Conflicting lock` | `systemctl --user list-timers` | Overlapped a signal-watch fire. Reschedule off `:01/:16/:31/:46` — **never** stop the daemon to clear it; it is the OOS ledger writer. |
+| Timer shows `NEXT = -` and looks broken | `systemctl --user show <t>.timer -p NextElapseUSecRealtime` | **Usually nothing is wrong.** `list-timers` blanks NEXT while the triggered `Type=oneshot` service is still *running*; the schedule reappears when it finishes. Confirm with `is-active <name>.service` before diagnosing — a running job and a dead timer look identical in that column. |
 
 ### The backup job specifically
 

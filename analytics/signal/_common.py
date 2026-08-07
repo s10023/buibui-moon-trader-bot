@@ -20,6 +20,38 @@ _CANDLE_CLOSE_BUFFER_SECS = 10
 # The full OHLCV window is preserved in ohlcv_map for _compute_backtest in Phase 3.
 _SCAN_WINDOW = 200
 
+# --- per-timeframe override (SoT N8) -----------------------------------------
+# The window is not only a performance knob — it is the REACH of `--catch-up`,
+# and therefore the hard ceiling on N8 boundary recovery.
+#
+# The three configs partition the week with no overlap, so a candle is only
+# scannable on a day whose config admits its weekday. The wait between a missed
+# day and its next scannable day runs 3 days (Fri→Mon) to 6 days (Sun→next Sat).
+# A candle that ages out of the window in the meantime can never be replayed, no
+# matter how the watermark is keyed.
+#
+# At a flat 200 bars: 1h reaches 8.3d, 4h 33d, 1d 200d — all clear of the 6-day
+# worst case. **15m reaches 2.1 days**, short of even the 3-day minimum, so every
+# 15m boundary candle was structurally unrecoverable. 15m is 64.4% of the live
+# ledger (2,846 of 4,422 rows), so scoping the watermark without this would have
+# fixed 35.6% of the affected volume while presenting as a complete fix.
+#
+# 600 bars = 6.25 days, just past the worst gap. Measured cost 2026-08-07:
+# 46ms→107ms per symbol (2.31×), and only BTC/ETH/SOL carry 15m at all, so the
+# whole-cycle delta is ~0.2s against a ~20s median cycle in a 900s budget.
+# Other timeframes are deliberately NOT widened — they already reach, and width
+# they do not need is data loaded every cycle for nothing.
+_SCAN_WINDOW_BY_TF: dict[str, int] = {"15m": 600}
+
+
+def scan_window(timeframe: str) -> int:
+    """Bars to slice for detectors on this timeframe.
+
+    Sized by catch-up REACH, not by detector lookback — see above.
+    """
+    return _SCAN_WINDOW_BY_TF.get(timeframe, _SCAN_WINDOW)
+
+
 # Two-layer backtest cache: L1 (module dict, fast) backed by L2 (DuckDB, survives restarts).
 # Keys are 24-char hex strings from _make_bt_cache_key(run_id, last_candle_ts).
 _bt_mem_cache: dict[str, BacktestResult | BacktestSnapshot | None] = {}
