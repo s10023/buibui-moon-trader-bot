@@ -359,6 +359,74 @@ class TestPollChannel:
         assert result.candidates == []
         assert any("quotaExceeded" in e for e in result.errors)
 
+    def _since_page(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Two candidates straddling a --since of 2026-07-30, both above the
+        cold-start floor (NOW-14d = 2026-07-17) so only --since can separate
+        them."""
+        page = {
+            "items": [
+                playlist_item("oldoldold00", "before since", "2026-07-29T01:00:00Z"),
+                playlist_item("newnewnew00", "after since", "2026-07-30T03:00:00Z"),
+            ]
+        }
+        videos = {
+            "items": [
+                video_item("oldoldold00", "PT21M"),
+                video_item("newnewnew00", "PT21M"),
+            ]
+        }
+        return page, videos
+
+    def test_poll_since_narrows_the_floor(self) -> None:
+        page, videos = self._since_page()
+        get = FakeGet(
+            {"playlistItems": [FakeResp(200, page)], "videos": [FakeResp(200, videos)]}
+        )
+        result = poll_channel(
+            self._channel(),
+            dict(FRESH_STATE),
+            now=NOW,
+            get=get,
+            api_key="K",
+            cold_start_days=14,
+            since=datetime(2026, 7, 30, tzinfo=UTC),
+        )
+        assert [c.video_id for c in result.candidates] == ["newnewnew00"]
+        assert result.excluded["below_floor"] == 1
+        assert result.floor_ts_utc == "2026-07-30T00:00:00+00:00"
+
+    def test_poll_since_cannot_widen_past_the_persisted_floor(self) -> None:
+        """A --since EARLIER than the floor must not resurface declined videos.
+
+        Discriminates against `floor = since or floor_for(...)`: under that
+        form the 07-29 video is admitted and this fails. The 07-29 item sits
+        above the requested 2026-06-01 but below the persisted 07-30 floor,
+        so only the max() keeps it excluded.
+        """
+        page, videos = self._since_page()
+        state: dict[str, Any] = {
+            "version": 1,
+            "channels": {
+                "UCabcdefghijklmnopqrstu": {"floor_ts_utc": "2026-07-30T00:00:00+00:00"}
+            },
+            "videos": {},
+        }
+        get = FakeGet(
+            {"playlistItems": [FakeResp(200, page)], "videos": [FakeResp(200, videos)]}
+        )
+        result = poll_channel(
+            self._channel(),
+            state,
+            now=NOW,
+            get=get,
+            api_key="K",
+            cold_start_days=14,
+            since=datetime(2026, 6, 1, tzinfo=UTC),
+        )
+        assert [c.video_id for c in result.candidates] == ["newnewnew00"]
+        assert result.excluded["below_floor"] == 1
+        assert result.floor_ts_utc == "2026-07-30T00:00:00+00:00"
+
     def test_duration_batching_chunks_at_50(self) -> None:
         survivors: list[dict[str, Any]] = [
             {

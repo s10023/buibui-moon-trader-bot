@@ -257,6 +257,19 @@ def floor_for(
     return now - timedelta(days=cold_start_days)
 
 
+def _parse_since(raw: str | None) -> datetime | None:
+    """Shared `--since` parser for `poll` and `backfill`.
+
+    A bare date parses tz-naive, and comparing that to the tz-aware floor
+    raises TypeError — so naive input is pinned to UTC, matching every other
+    timestamp in this module.
+    """
+    if not raw:
+        return None
+    parsed = datetime.fromisoformat(raw)
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
+
+
 class HttpResponse(Protocol):
     status_code: int
     text: str
@@ -454,9 +467,18 @@ def poll_channel(
     get: HttpGet,
     api_key: str,
     cold_start_days: int,
+    since: datetime | None = None,
 ) -> ChannelResult:
-    """Daily-feed scan of one channel. Strictly read-only — writes nothing."""
+    """Daily-feed scan of one channel. Strictly read-only — writes nothing.
+
+    `since` can only NARROW the candidacy floor, never widen it: the floor is
+    the watermark recording what the operator has already seen, so honouring
+    an earlier `--since` would resurface declined videos. Reaching genuinely
+    below the floor is `backfill`'s job, which ignores it by design.
+    """
     floor = floor_for(channel.id, state, now, cold_start_days)
+    if since is not None and since > floor:
+        floor = since
     excluded = dict.fromkeys(_EXCLUDE_REASONS, 0)
     result = ChannelResult(
         channel.id, channel.name, floor.isoformat(), [], excluded, []
@@ -712,6 +734,12 @@ def main(
     p_poll = sub.add_parser(
         "poll", help="list new uploads across the configured channels"
     )
+    p_poll.add_argument(
+        "--since",
+        default=None,
+        help="ISO date/ts; NARROWS the floor only (an earlier value is ignored — "
+        "use `backfill` to reach below it)",
+    )
     p_back = sub.add_parser(
         "backfill", help="page a channel's deep back-catalogue (floor ignored)"
     )
@@ -819,6 +847,7 @@ def main(
     paused: tuple[ChannelConfig, ...] = ()
     if args.cmd == "poll":
         paused = tuple(ch for ch in cfg.channels if ch.paused)
+        poll_since = _parse_since(args.since)
         results = [
             poll_channel(
                 ch,
@@ -827,6 +856,7 @@ def main(
                 get=get,
                 api_key=api_key,
                 cold_start_days=cfg.cold_start_days,
+                since=poll_since,
             )
             for ch in cfg.channels
             if not ch.paused
@@ -839,9 +869,7 @@ def main(
                 f"channel {args.channel_id} not in config {args.config} — add it first "
                 "(filters live in config)"
             )
-        since = datetime.fromisoformat(args.since) if args.since else None
-        if since is not None and since.tzinfo is None:
-            since = since.replace(tzinfo=UTC)
+        since = _parse_since(args.since)
         results = [
             backfill_channel(
                 channel,

@@ -14,8 +14,14 @@ happens inside the `/ingest-video` flow behind its single approval gate.
 ### 1. Poll (or backfill)
 
 ```bash
-PYTHONPATH=. poetry run python tools/yt_feed.py poll --json
+PYTHONPATH=. poetry run python tools/yt_feed.py poll --json [--since 2026-08-01]
 ```
+
+`--since` on `poll` **only narrows** the per-channel floor — an earlier value is
+ignored, by design. The floor is the watermark of what the operator has already
+seen, so honouring an earlier `--since` would resurface declined videos. Use it to
+trim a catch-up poll after a quiet week, never to reach backwards; reaching below
+the floor is `backfill`'s job, which ignores it deliberately.
 
 For a back-catalogue request ("backfill Cowen", "ingest the old videos"), find the
 channel's `UC…` id in `config/youtube_channels.toml` and run instead:
