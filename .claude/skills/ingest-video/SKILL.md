@@ -208,7 +208,7 @@ it to return ONLY this JSON:
   "candidates": [
     {"ts": 252.0, "content_type": "setup|claim|mechanic", "specificity": 1-5,
      "is_relay": false, "originating_author": "@ThisChannel",
-     "item_stated_ts_utc": null,
+     "item_stated_ts_utc": null, "item_stated_ts_raw": "",
      "is_intro_recap": false, "retrospective": false, "gist": "..."}
   ]
 }
@@ -232,6 +232,33 @@ pass 1 returned no per-item time, and the routed row landed ~half a day late. **
 fix this downstream** — the orchestrator resolving 「昨天下午」 into a timestamp is
 exactly the date arithmetic `video_calltime.py` exists to prevent. It has to come from
 the pass that can read the sentence.
+
+**`item_stated_ts_raw` is the verbatim phrase behind `item_stated_ts_utc`, and it is
+mandatory whenever that field is non-null.** Ask for the quote in the speaker's own
+language, unedited — never a translation or a normalisation. On a relay, pass THAT string
+to step 4's `--stated-raw`, not the video-level `stated_ts_raw`; the two describe
+different sentences and only the per-item one belongs on the row.
+
+**Why: without it a wrong shift is invisible, and the shifts are wrong about a third of
+the time.** Measured 2026-08-07 on `CqsZUQPpEX4` — pass 1 attached 「今早起床之后」 to
+三马哥's call, but ts 238.11 says 「三马哥**昨晚**让大家比特币做空」: the short was called
+LAST NIGHT, and 「今早起床之后」 (ts 251.09) introduces his *morning commentary* on the
+level ladder. Stamping 今早 dates the call **~12h late**, and because BTC fell overnight
+that systematically understates a short. Two other phrases in the same video (约翰
+「昨晚7点」, 苏醒 「昨晚6点半」) were correct — so this is **1 in 3, not a one-off**. The
+only thing that caught it was reading the transcript against the extraction, which does
+not scale; with the raw quote on the row a reviewer sees it from the ledger.
+
+**A stated time can also be internally CONTRADICTORY, and pass 1 will silently "fix" it.**
+`QyZbF_PhbmE` says 「现在是北京时间**7月5号,周五**早上9点57分」 — July 5 2026 is a
+**Sunday**, while 周五 matches the publish date. Pass 1 emitted a reconciled Aug 7
+timestamp, i.e. exactly the model date arithmetic this pipeline forbids, which would have
+stamped `stated` on a row whose own quote contradicts it. `video_calltime.py` fail-safes
+correctly here — fed the literal July 5, the 33-day lead exceeds `STATED_TS_MAX_LEAD_H`
+(168h) and it falls back to publish on its own — **so the tool is not the gap.** The gap
+is that nothing forced the raw quote onto the row where a human would see the conflict.
+**When the quote and the resolved timestamp disagree, emit the quote and let the tool
+decide; never reconcile them in the prompt.**
 
 **Filter for ATTRIBUTION and SUBJECT BEFORE applying the cap — not after.** The cap is a
 budget for items this repo can actually use, so spending a slot on one it will drop at
@@ -406,6 +433,15 @@ Four outcomes, and each has exactly one action:
   channel's handle · `attribution` = `"relay"` · `attribution_confidence` = the returned
   `confidence`. Treat `confidence: "operator"` as an unverified assertion and say so in
   the digest.
+  **Write `relayed_by` verbatim as the `handle` in `config/youtube_channels.toml`,
+  leading `@` included** — e.g. `"@KoluniteVIP"`, never `"KoluniteVIP"`. Both forms are
+  already in the ledger (the 2026-08-06 rows carry `@`, the earlier `JcMq-lyHIt4` batch
+  does not) because this line used to say only "this channel's handle" and left the `@`
+  to taste. Harmless so far — `pundit_score.py` groups on `author`, not on this field —
+  but the moment anything does `GROUP BY relayed_by` the channel splits into two records,
+  which is #555's split-track-record failure in a second column. `normalize_author`
+  strips the `@` but deliberately does **not** fold case, so it cannot rescue a
+  divergence that is only about the prefix on a field nothing normalises.
 - `ambiguous` — **surface it in the digest for manual attribution**, listing `members`.
   The operator assigns it from the audio or declines. Default if unactioned: **drop**.
   This is a positive instruction, not missing data: `陈志峰` is three traders, and the

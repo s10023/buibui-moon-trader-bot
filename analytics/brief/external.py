@@ -22,6 +22,7 @@ ALLOWED_PANELS = ("liq_heatmap", "book_heatmap", "liq_map")
 ALLOWED_KINDS = ("liq", "book")
 ALLOWED_INTENSITIES = ("high", "med", "low")
 ALLOWED_SCOPES = ("pair", "agg")
+ALLOWED_SPOT_SOURCES = ("printed", "axis")
 _SPOT_DEVIATION_FRAC = 0.10
 _MS_PER_HOUR = 3_600_000
 
@@ -40,7 +41,15 @@ _REQUIRED_KEYS = {
     "notes",
 }
 _CLUSTER_KEYS = {"price_lo", "price_hi", "kind", "intensity", "label"}
-_OPTIONAL_KEYS = {"venue"}  # additive 2026-07-16; absent == null == unspecified
+# Additive, absent == null == unspecified. `venue` 2026-07-16; `spot_source`
+# 2026-08-07 -- the `/ingest-charts` extractor had been asked for `spot_source`
+# all along (SKILL.md step 2) while this validator rejected unknown top-level
+# keys outright, so the field had nowhere to land and was silently dropped at
+# the write step. It records HOW the extractor read spot: "printed" off a label
+# on the chart, or "axis" inferred from the price scale. That is provenance a
+# trust guard can use, and it is free -- vision already computed it, so
+# discarding it would mean re-running vision to recover it.
+_OPTIONAL_KEYS = {"venue", "spot_source"}
 
 
 def _is_num(value: object) -> bool:
@@ -105,6 +114,9 @@ def validate_snapshot_dict(data: object) -> list[str]:
     venue = data.get("venue")
     if venue is not None and (not isinstance(venue, str) or not venue):
         problems.append("venue: not a non-empty string or null")
+    spot_source = data.get("spot_source")
+    if spot_source is not None and spot_source not in ALLOWED_SPOT_SOURCES:
+        problems.append(f"spot_source {spot_source!r} not in {ALLOWED_SPOT_SOURCES}")
     for key in ("captured_at_ms", "ingested_at_ms"):
         value = data[key]
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:

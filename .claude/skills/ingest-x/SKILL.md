@@ -211,6 +211,22 @@ pasted, then run the flow once over the whole set.
    {"source":"twitter","author":"<handle>","url":"<url>","call_ts_utc":"<post_ts_utc>","symbol":"<symbol>","direction":"<direction>","entry":"<entry>","stop":"<stop>","target":"<target>","horizon":"<horizon>","confidence":"<verbatim hedging or empty>","raw_quote":"<raw_quote>"}
    ```
 
+   **`author` is whoever MADE the call, not whoever posted the tweet you fetched.**
+   This is the same rule `/ingest-video` states for relays, and it bites here through
+   quote-tweets: when `is_quote` is true and the call lives in `quoted_text` rather
+   than in the poster's own `text`, credit **`quoted_author`**. Crediting the quoter
+   assigns a real call to the wrong trader, and `pundit_score.py` groups on `author`,
+   so the wrong person's track record moves with **nothing downstream able to notice**.
+
+   **Latent, not hypothetical-and-harmless:** an audit on 2026-08-03f found 28/28
+   routed quote-tweets correctly attributed — but all 28 were self-quotes (27) or a
+   reply-quote (1), i.e. cases where quoter and quoted are the same person and the
+   rule cannot be observed to fire. **The first genuine third-party quote-tweet is the
+   first test this has ever had**, so do not read that 28/28 as coverage.
+
+   When quoter and quoted differ, say so in the digest line so the approver sees which
+   name the row will carry before it is written.
+
 ## Inline classification rubric (self-contained — paste into the subagent prompt)
 
 > A distilled snapshot of the SoT's Frozen / Closed / Parked state so the subagent

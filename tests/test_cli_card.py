@@ -122,8 +122,31 @@ class TestBinanceAccountProvider:
         assert provider.daily_pnl_usd(0, 1) == -41.0
 
     def test_equity_reads_usdt(self) -> None:
+        # No `crossUnPnl` on the payload -> degrade to wallet balance, never None.
         provider = BinanceAccountProvider(self._client())
         assert provider.equity_usd() == 9000.0
+
+    def test_equity_adds_unrealised_pnl(self) -> None:
+        # Margin balance, not wallet balance: a position open in profit must
+        # raise equity, because `resolve_capital` turns this number into both
+        # the sizing capital and the `daily_r` unit.
+        client = self._client()
+        client.futures_account_balance.return_value = [
+            {"asset": "BNB", "balance": "1.0", "crossUnPnl": "0.0"},
+            {"asset": "USDT", "balance": "9000.0", "crossUnPnl": "250.5"},
+        ]
+        assert BinanceAccountProvider(client).equity_usd() == 9250.5
+
+    def test_equity_subtracts_underwater_unrealised_pnl(self) -> None:
+        # The mirror case, and the one that matters for risk: an underwater
+        # position must LOWER equity, or the card sizes off money it has
+        # already lost. A wallet-only read returns 9000.0 for both this and
+        # the test above -- which is why one direction alone cannot discriminate.
+        client = self._client()
+        client.futures_account_balance.return_value = [
+            {"asset": "USDT", "balance": "9000.0", "crossUnPnl": "-1200.0"},
+        ]
+        assert BinanceAccountProvider(client).equity_usd() == 7800.0
 
     def test_daily_pnl_paginates_past_1000_row_cap(self) -> None:
         # A high-churn day exceeds the 1000-row cap; a single unpaginated

@@ -85,10 +85,39 @@ class BinanceAccountProvider:
         return float(total)
 
     def equity_usd(self) -> float | None:
+        """Margin balance = wallet balance + cross unrealised PnL.
+
+        **Not the bare `balance` field**, which is wallet-only and so
+        under-reports equity while an open position is in profit (and
+        over-reports while it is underwater). Every consumer treats this as
+        equity: ``portfolio.sizing.resolve_capital`` turns it into the sizing
+        capital *and* into the ``daily_r`` unit, so a wallet-only read
+        mis-sizes every trade and mis-scales the daily circuit breaker
+        together, in the same direction — the same coupled failure the
+        ``10_000.0`` capital constant caused before #573.
+
+        ``crossUnPnl`` is absent from some payloads, so a missing field
+        degrades to wallet balance rather than to ``None``.
+
+        **Deliberately equals what the live trading path already computes.**
+        ``trade/binance_futures.py::get_equity`` reads
+        ``futures_account()["totalMarginBalance"]``, which is exactly
+        wallet + unrealised PnL — so the card and the XS executor now agree on
+        what "equity" means, and Binance's own field name is the authority for
+        that definition. The two are kept as separate calls on purpose:
+        ``futures_account()`` is the heavier endpoint and the card already
+        holds a ``futures_account_balance()`` response. They coincide for a
+        USDT-margined account; ``totalMarginBalance`` is account-wide across
+        assets, this sum is USDT-only. **If you ever change one, change both**
+        — a card sizing off a different equity than the executor is the kind of
+        divergence that only shows up in a post-mortem.
+        """
         try:
             for b in self._client.futures_account_balance():
                 if b.get("asset") == "USDT":
-                    return float(b.get("balance", 0) or 0)
+                    wallet = float(b.get("balance", 0) or 0)
+                    unrealised = float(b.get("crossUnPnl", 0) or 0)
+                    return wallet + unrealised
         except Exception:
             return None
         return None
