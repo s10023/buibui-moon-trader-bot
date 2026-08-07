@@ -5,7 +5,7 @@ description: >
   hand, or captured by tools/coinglass_capture.sh) from
   docs/plans/chart-drops/ into verified external-context
   JSON for the daily Brief (M3). Scans via tools/chart_drops.py (sha256
-  dedup ledger), vision-extracts each image in a per-image sonnet subagent
+  dedup ledger), vision-extracts each image in a per-image chart-extract subagent
   (image bytes never enter main context), presents ONE consolidated review
   digest for the whole batch, and writes docs/plans/external-context/*.json
   ONLY after the operator approves — verified:true is the only on-disk
@@ -79,7 +79,7 @@ After the scan, state the pending set against the 6-panel daily protocol
 missing. **Report over-coverage as readily as under-coverage.** The 2026-08-04L
 batch was 15 panels against a protocol of 6, and nothing said so — extra panels
 are not free, since each costs a vision dispatch (**~29K–30K tokens per image,
-post-7j; the 45K–103K figure was the pre-`chart-extract` general-purpose cost**)
+post-7j; the 45K–103K was an early wide estimate for pre-`chart-extract` general-purpose cost; precise mean ~49K**)
 and a 1w heatmap band is structural context, not a same-day actionable level.
 
 This matters because the daily check asserts **recency, not coverage**: one
