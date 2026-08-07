@@ -1,0 +1,34 @@
+[Unit]
+# Daily XS workflow: incremental universe 1d sync, then the executor.
+# Type=oneshot, driven by the .timer beside this file.
+#
+# SAFE TO AUTOMATE because the executor is DRY-RUN by default -- EXEC_MODE is
+# unset here, and deploy/run-xsmom.sh defaults it to dry_run, so this submits no
+# orders. Setting EXEC_MODE=live in .env would change that; do not do so until
+# the sub-account and peak-reset blockers are cleared.
+#
+# Nor can it re-poison the drawdown peak: that came from a `--capital 5000`
+# override ratcheting the high-water mark. A plain run reads real equity, which
+# is below the recorded peak, so nothing ratchets.
+Description=buibui XS daily (universe 1d sync + executor dry-run)
+Documentation=file:///home/kng/repo/buibui-moon-trader-bot/deploy/run-xsmom.sh
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/kng/repo/buibui-moon-trader-bot
+
+EnvironmentFile=-/home/kng/repo/buibui-moon-trader-bot/.env
+Environment=DATA_SOURCE=binance
+
+# run-xsmom.sh invokes `poetry run`, so poetry itself must be resolvable -- a
+# user unit's default PATH would not find the linuxbrew copy. This is load-bearing
+# for the JOB here, not only for run-job.sh's failure path.
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
+
+SyslogIdentifier=buibui-xsmom-daily
+
+ExecStart=/home/kng/repo/buibui-moon-trader-bot/deploy/run-job.sh xsmom HEALTHCHECKS_URL_XSMOM -- /home/kng/repo/buibui-moon-trader-bot/deploy/run-xsmom.sh
+
+# A cold universe sync across 25 perps can run long on a slow link.
+TimeoutStartSec=1800
+Nice=10

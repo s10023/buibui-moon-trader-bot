@@ -1,0 +1,31 @@
+[Unit]
+Description=Run the buibui XS daily workflow (three attempts per day)
+
+[Timer]
+# 00:20 / 02:20 / 06:20 UTC = 08:20 / 10:20 / 14:20 MYT.
+#
+# THREE fires, not one, and the reason is a measured property of this job rather
+# than caution: unlike signal-watch, xsmom-daily has NO evidence-loss failure
+# mode. signal-watch missing a candle is permanent (the SoT N8 watermark drags
+# past it and it is never revisited). Here the sync is incremental and the
+# executor is a dry-run recompute -- yesterday's 1d bars are still on the
+# exchange at 10:20, at 14:20, tomorrow. Late costs nothing, so a repeated cheap
+# attempt is strictly better than one punctual one.
+#
+# What the extra fires actually buy: cover for waking with no wifi. run-job.sh
+# waits up to NET_WAIT_SECS (60) for DNS on resume, but past that it runs and
+# fails, and a single-fire timer would then not retry until tomorrow. A rerun on
+# an already-synced day is ~25 API calls that return nothing.
+#
+# :20 avoids the signal-watch DuckDB lock at :01/:16/:31/:46.
+OnCalendar=*-*-* 00:20:00 UTC
+OnCalendar=*-*-* 02:20:00 UTC
+OnCalendar=*-*-* 06:20:00 UTC
+
+# Missed fires run once on resume from suspend -- the case the operator asked
+# about (laptop opened ~09:30 MYT, after the 08:20 fire).
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

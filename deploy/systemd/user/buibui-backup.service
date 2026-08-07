@@ -1,0 +1,41 @@
+[Unit]
+# Verified local snapshot of analytics.db + the JSONL ledgers. Type=oneshot,
+# driven by the .timer beside this file.
+#
+# This is the LIKELY-failure leg only (fat-finger delete, bad script, tool bug).
+# It does NOT survive disk death or a lost laptop -- that needs an rclone of
+# $BUIBUI_BACKUP_ROOT to a remote, which is deliberately left as a separate step.
+Description=buibui local backup (verified analytics.db snapshot + ledgers)
+Documentation=file:///home/kng/repo/buibui-moon-trader-bot/deploy/backup-analytics.sh
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/kng/repo/buibui-moon-trader-bot
+
+# Telegram creds are read from the PROCESS env by run-job.sh before any Python
+# runs, so the app's own load_dotenv() is too late for them. Leading `-` keeps a
+# missing .env from failing the unit.
+EnvironmentFile=-/home/kng/repo/buibui-moon-trader-bot/.env
+
+# run-job.sh shells out to `poetry` on its FAILURE path, and user units get a
+# minimal PATH that would not find linuxbrew's copy -- so the alert about a
+# broken run would itself break.
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
+
+# Without this, journald tags output with the EXECUTABLE name (run-job.sh) and
+# the entries lose unit attribution -- `journalctl -u` then reads NOTHING while
+# the lines sit in the journal under a different identity. Measured on
+# signal-watch: 120 orphaned lines.
+SyslogIdentifier=buibui-backup
+
+# --weekly-if-due, not a Sunday timer: on a laptop that is frequently off, a
+# fixed weekday silently skips the parquet export forever. The script asks
+# whether the newest export is >=7 days old instead.
+ExecStart=/home/kng/repo/buibui-moon-trader-bot/deploy/run-job.sh backup HEALTHCHECKS_URL_BACKUP -- /home/kng/repo/buibui-moon-trader-bot/deploy/backup-analytics.sh --weekly-if-due
+
+# Measured 5s for snapshot + parquet export on the real 320MB file. The generous
+# ceiling covers the lock-retry path: BUIBUI_LOCK_RETRIES x BUIBUI_LOCK_SLEEP
+# defaults to 10 x 30s = 5 minutes of waiting out the signal-watch writer.
+TimeoutStartSec=900
+Nice=15
+IOSchedulingClass=idle

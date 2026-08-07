@@ -478,6 +478,22 @@ Options:
 
 Data is stored in `analytics.db` (auto-created in CWD).
 
+**`analytics.db` is gitignored and single-copy — back it up.** It holds the live
+outcome ledger, which is *not* reconstructible: exchanges do not re-serve historical
+signal fires, and restarting collection yields a differently-biased sample rather than
+an equivalent one. The committed `live_signal.duckdb` is **not** a substitute — it ships
+the schema with an empty `signal_alert_outcomes` table.
+
+```bash
+./deploy/backup-analytics.sh --dry-run   # see what would be captured
+./deploy/backup-analytics.sh --weekly    # verified snapshot + portable parquet export
+```
+
+Snapshots land in `~/backups/buibui` (`BUIBUI_BACKUP_ROOT`), staged and renamed only
+after verification so a crash cannot leave a plausible-looking bad backup. A systemd
+user timer runs it twice daily — see `deploy/README.md` for install, retention, restore,
+and log commands.
+
 ### Backtest Trading Strategies
 
 Backtest runs in two modes: **single-combo** (one symbol + strategy) or **sweep** (all combinations ranked by avg R).
