@@ -14,31 +14,168 @@ Full design + rationale: `docs/superpowers/specs/2026-06-25-vps-deployment-desig
 > important control is the **Binance API key config** (Step 4): withdrawals disabled +
 > IP-restricted. Do that before ever switching `EXEC_MODE=live`.
 
-## Laptop install (user-scope timer) — the CURRENT live deployment
+## Laptop install (user-scope timers) — the CURRENT live deployment
 
-The VPS is deferred; signal-watch actually runs today as a **systemd user timer on
+The VPS is deferred; the automation actually runs today as **systemd user timers on
 the laptop**. Those units are committed at `deploy/systemd/user/` — copies of what is
 installed, kept in the repo because `~/.config/systemd/user/` is outside every git
 tree and a reclone would otherwise lose them silently.
 
+### What runs, and when
+
+| Timer | Fires (UTC) | Fires (MYT) | What it does | Missing a run costs |
+| --- | --- | --- | --- | --- |
+| `buibui-signal-watch` | `*:01/15` — every 15 min | same | One scan cycle, closed candles, `--catch-up` | **Permanent evidence loss.** The SoT-N8 watermark drags past an un-scanned candle and never revisits it. |
+| `buibui-xsmom-daily` | `00:20`, `02:20`, `06:20` | 08:20, 10:20, 14:20 | Universe 1d sync → executor **dry-run** | **Nothing.** The sync is incremental and the executor recomputes; yesterday's bars are still there tomorrow. |
+| `buibui-backup` | `07:40`, `12:40` | 15:40, 20:40 | Verified `analytics.db` snapshot + ledgers → `~/backups/buibui` | Nothing *immediately* — but it is the only copy of unreconstructible evidence, so exposure compounds. |
+
+The asymmetry in that last column is the whole design. signal-watch must be punctual;
+the other two only need to happen *eventually*, which is why they fire repeatedly and
+cheaply rather than once precisely. All three carry `Persistent=true`, so a fire missed
+while suspended runs **once** on resume — not once per missed slot.
+
+Every non-signal-watch schedule avoids `:01/:16/:31/:46`. signal-watch takes an
+exclusive DuckDB lock there, and on duckdb 1.5.5 a second **process** is refused even
+with `read_only=True` — only reader-vs-reader shares. Overlapping does not corrupt
+anything, it just forces the other job onto a slower fallback or a retry.
+
+### Install
+
 ```bash
 cp deploy/systemd/user/buibui-signal-watch.{service,timer} ~/.config/systemd/user/
+cp deploy/systemd/user/buibui-xsmom-daily.{service,timer}  ~/.config/systemd/user/
+cp deploy/systemd/user/buibui-backup.{service,timer}        ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now buibui-signal-watch.timer
-sudo loginctl enable-linger "$USER"   # keep the timer running while logged out
+systemctl --user enable --now buibui-signal-watch.timer buibui-xsmom-daily.timer buibui-backup.timer
+sudo loginctl enable-linger "$USER"   # keep timers running while logged out
 systemctl --user list-timers 'buibui-*'
+```
+
+Verify a unit parses **before** trusting it — `systemctl start` will happily report a
+typo'd directive as a runtime failure, while `verify` names the line:
+
+```bash
+systemd-analyze --user verify ~/.config/systemd/user/buibui-backup.timer   # silence == clean
 ```
 
 They hardcode `/home/kng/repo/buibui-moon-trader-bot` exactly as the VPS units
 hardcode `/opt/buibui`; `sed -i "s#/home/kng#$HOME#g"` them on a different machine.
 
-How they differ from the VPS pair, and why:
+### Where the logs are, and how to read them
+
+There is **no logfile**. Everything goes to the systemd journal, which handles its own
+rotation — deliberately, so nothing grows an unmanaged file on a laptop.
+
+```bash
+# what a job actually printed  <- START HERE, this is the useful one
+journalctl --user -t buibui-backup -n 50 --no-pager
+journalctl --user -t buibui-xsmom-daily -n 50 --no-pager
+journalctl --user -t buibui-signal-watch -n 50 --no-pager
+
+# follow live
+journalctl --user -t buibui-signal-watch -f
+
+# narrow by time
+journalctl --user -t buibui-xsmom-daily --since "today" --no-pager
+journalctl --user -t buibui-backup --since "3 days ago" --no-pager
+
+# systemd's own view: did the unit start, succeed, how long did it take
+journalctl --user -u buibui-backup.service -n 20 --no-pager
+systemctl --user status buibui-backup.service
+```
+
+**`-t` (identifier), not `-u` (unit), is the one to reach for**, and the distinction is
+load-bearing rather than stylistic. Every `ExecStart` is wrapped in `run-job.sh`, so
+journald tags the output with the *executable* name unless `SyslogIdentifier=` overrides
+it. Each unit sets one. `-u` shows systemd's lifecycle lines (Starting / Finished /
+Failed); `-t` shows what the job printed. When these two disagree, believe `-t`.
+
+This is not theoretical: before `SyslogIdentifier=` was added, `journalctl -u` returned
+**zero lines** while 120 lines of real output sat in the journal under a different
+identity — and `daily_check.py::_runs_24h`, which counts runs that way, would have read
+zero forever.
+
+```bash
+# scheduling: when did each last fire, when does it fire next
+systemctl --user list-timers 'buibui-*' --no-pager
+
+# was the last run a success? (Result=success / ExecMainStatus=0)
+systemctl --user show buibui-xsmom-daily.service -p Result -p ExecMainStatus
+
+# run one right now, out of schedule
+systemctl --user start buibui-backup.service
+
+# kill switch, per job
+systemctl --user disable --now buibui-xsmom-daily.timer
+```
+
+Note `systemctl --user start <name>.service` **blocks until a `Type=oneshot` job
+finishes** and exits non-zero if it failed — so it is a real test, not fire-and-forget.
+
+### When something breaks
+
+| Symptom | Where to look | Usual cause |
+| --- | --- | --- |
+| Telegram says a job FAILED | `journalctl --user -t <id> --since "1 hour ago"` | The message carries only the last 25 log lines; the journal has the rest. |
+| Timer shows no `LAST` | `systemctl --user list-timers` | Never fired since install, or linger is off (`loginctl show-user "$USER" -p Linger`). |
+| `journalctl -u` is empty but the job clearly ran | use `-t` instead | Missing/renamed `SyslogIdentifier=`. |
+| Job fails only on resume from suspend | `run-job.sh` DNS gate | See the resume-from-suspend race below. |
+| `IOException ... Conflicting lock` | `systemctl --user list-timers` | Overlapped a signal-watch fire. Reschedule off `:01/:16/:31/:46` — **never** stop the daemon to clear it; it is the OOS ledger writer. |
+
+### The backup job specifically
+
+`deploy/backup-analytics.sh` writes verified snapshots to `~/backups/buibui`
+(override with `BUIBUI_BACKUP_ROOT`).
+
+```bash
+./deploy/backup-analytics.sh --dry-run     # report only, writes nothing
+./deploy/backup-analytics.sh               # daily .db snapshot
+./deploy/backup-analytics.sh --weekly      # force the parquet export too
+./deploy/backup-analytics.sh --weekly-if-due   # export only if the newest is >=7d old (what the timer uses)
+```
+
+| Env | Default | Purpose |
+| --- | --- | --- |
+| `BUIBUI_BACKUP_ROOT` | `~/backups/buibui` | Destination. Point this at a mounted drive to get the off-machine leg. |
+| `BUIBUI_KEEP_DAILY` | `14` | Daily snapshots retained (~258MB each). |
+| `BUIBUI_KEEP_WEEKLY` | `8` | Parquet exports retained (~111MB each). |
+| `BUIBUI_LOCK_RETRIES` / `BUIBUI_LOCK_SLEEP` | `10` / `30` | How long to wait out the signal-watch lock before the byte-copy fallback. |
+
+Three properties worth knowing before trusting it:
+
+- **It is `COPY FROM DATABASE`, not `cp`.** Measured on the real 320MB file: 4.6s and
+  258MB out, versus 0.6s and 320MB for a byte copy. The extra 4s buys a
+  transactionally consistent read; the smaller file is free (it repacks dead space).
+  Byte copy survives only as the fallback, because it takes no lock.
+- **Snapshots are staged and renamed, never written in place.** A crash mid-run leaves
+  a `.staging-*` directory, swept on the next run — never a plausible-looking bad
+  snapshot at the real path. This was added *because* a laptop crash on 2026-08-07 left
+  a 100MB directory that DuckDB opened without error and reported **zero tables**: the
+  same failure that makes the committed `live_signal.duckdb` useless as a backup.
+- **`MANIFEST.json` is written last.** Its presence is what makes a snapshot
+  trustworthy, which is why `daily_check.py` reds on a directory that lacks one rather
+  than merely on an old date.
+
+Restoring is a copy — the snapshot is a normal DuckDB file:
+
+```bash
+cp ~/backups/buibui/daily/<DATE>/analytics.db ./analytics.db          # from the .db snapshot
+# or, format-independent, from parquet:
+poetry run python -c "import duckdb; duckdb.connect('analytics.db').execute(\"IMPORT DATABASE '$HOME/backups/buibui/weekly/<DATE>/parquet'\")"
+```
+
+**This is the local leg only.** It defeats accidental deletion, a bad script, or a tool
+bug. It does **not** survive disk failure or a lost laptop — that needs an `rclone` of
+`$BUIBUI_BACKUP_ROOT` to a remote, which is deliberately a separate step.
+
+How the laptop units differ from the VPS pair, and why (the first two rows are
+signal-watch-specific; the rest apply to all three):
 
 | Difference | Why |
 | --- | --- |
 | `--catch-up` on the `ExecStart` | A laptop *creates* gaps. Without it a suspend costs ledger evidence, not just a late scan. Backfilled candles are persisted but never alerted. |
 | `OnCalendar=*:01/15` (not `*:0/15`) | Fires one minute after the 15m close so the exchange has published the closed bar. |
-| Explicit `Environment=PATH=...` | User units get a minimal PATH that cannot find linuxbrew's `poetry` — which `run-job.sh` needs on its **failure** path, so without it the alert about a broken run would itself break. |
+| Explicit `Environment=PATH=...` | User units get a minimal PATH that cannot find linuxbrew's `poetry`. `run-job.sh` needs it on its **failure** path, so without it the alert about a broken run would itself break — and `run-xsmom.sh` needs it for the **job itself**, since that script shells out to `poetry run`. |
 | `SyslogIdentifier=buibui-signal-watch` | journald otherwise tags lines with the executable name (`run-job.sh`), losing unit attribution — `journalctl --user -u ...` returns nothing while the lines sit under another identity. |
 | **No `After=/Wants=network-online.target`** | Deliberate, not an omission — see below. |
 

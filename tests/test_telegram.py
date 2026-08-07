@@ -162,3 +162,83 @@ class TestSendTelegramMessage:
         assert any(
             "400" in r.message and "Special chars" in r.message for r in caplog.records
         )
+
+    @patch("utils.telegram.time.sleep")
+    @patch("utils.telegram.requests.post")
+    def test_400_retries_without_parse_mode(
+        self, mock_post: Any, mock_sleep: Any
+    ) -> None:
+        """A 400 drops parse_mode so the retry can deliver as plain text.
+
+        Regression for a real 2026-08-07 failure: run-job.sh Telegrams the log
+        tail when a job dies, and a Python traceback contains
+        `line 33, in <module>` -- which Telegram's HTML parser reads as an
+        unclosed tag and rejects with 400. Retrying the identical payload can
+        never succeed, so the alert that reports a crash failed on every crash
+        that produced a traceback.
+        """
+        bad_response = MagicMock()
+        bad_response.status_code = 400
+        http_err = req.HTTPError("400 Bad Request")
+        http_err.response = bad_response
+        mock_post.return_value.raise_for_status.side_effect = http_err
+
+        send_telegram_message("Traceback in <module>", bot_token=TOKEN, chat_id=CHAT)
+
+        # First attempt carries the formatting; every later one must not.
+        assert mock_post.call_count == 3
+        first = mock_post.call_args_list[0][1]["data"]
+        assert first["parse_mode"] == "HTML"
+        for later in mock_post.call_args_list[1:]:
+            assert "parse_mode" not in later[1]["data"]
+
+    @patch("utils.telegram.time.sleep")
+    @patch("utils.telegram.requests.post")
+    def test_non_400_keeps_parse_mode(self, mock_post: Any, mock_sleep: Any) -> None:
+        """A 500 is transient -- formatting must survive so the retry is faithful.
+
+        Negative control for the test above: without this, dropping parse_mode
+        unconditionally would also pass, and the fix would silently degrade every
+        formatted alert on any transient server error.
+        """
+        bad_response = MagicMock()
+        bad_response.status_code = 500
+        http_err = req.HTTPError("500 Server Error")
+        http_err.response = bad_response
+        mock_post.return_value.raise_for_status.side_effect = http_err
+
+        send_telegram_message("<b>still bold</b>", bot_token=TOKEN, chat_id=CHAT)
+
+        assert mock_post.call_count == 3
+        for c in mock_post.call_args_list:
+            assert c[1]["data"]["parse_mode"] == "HTML"
+
+    @patch("utils.telegram.time.sleep")
+    @patch("utils.telegram.requests.post")
+    def test_bot_token_never_reaches_the_log(
+        self, mock_post: Any, mock_sleep: Any, caplog: Any
+    ) -> None:
+        """The final error must not carry the bot token.
+
+        requests puts the full request URL in HTTPError.__str__, and that URL
+        embeds the bot token -- so logging the bare exception wrote a live
+        credential into the systemd journal on every exhausted send. Observed
+        2026-08-07.
+        """
+        import logging
+
+        leaky = req.HTTPError(
+            f"400 Client Error for url: https://api.telegram.org/bot{TOKEN}/sendMessage"
+        )
+        leaky.response = MagicMock()
+        leaky.response.status_code = 400
+        mock_post.return_value.raise_for_status.side_effect = leaky
+
+        with caplog.at_level(logging.WARNING, logger="root"):
+            send_telegram_message("boom", bot_token=TOKEN, chat_id=CHAT)
+
+        # getMessage() applies args exactly once; `record.message % record.args`
+        # double-formats an already-rendered message and raises TypeError.
+        joined = " ".join(r.getMessage() for r in caplog.records)
+        assert TOKEN not in joined, "bot token leaked into the log"
+        assert "REDACTED" in joined

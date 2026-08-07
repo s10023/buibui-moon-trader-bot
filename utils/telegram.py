@@ -13,8 +13,28 @@ def _get_env_credentials() -> tuple[str | None, str | None]:
     return os.getenv("TELEGRAM_BOT_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
 
 
-def _log_http_failure(err: requests.HTTPError, attempt: int, text: str) -> None:
-    status = err.response.status_code if err.response is not None else None
+def _redact(value: object, bot_token: str | None) -> str:
+    """Strip the bot token out of anything headed for a log.
+
+    `requests` embeds the full request URL in `HTTPError.__str__`, and that URL
+    carries the bot token -- so logging the bare exception wrote a live
+    credential into the systemd journal on every exhausted send. Observed
+    2026-08-07 while wiring the backup/xsmom timers.
+    """
+    text = str(value)
+    if bot_token:
+        text = text.replace(bot_token, "<REDACTED>")
+    return text
+
+
+def _status_of(err: requests.HTTPError) -> int | None:
+    return err.response.status_code if err.response is not None else None
+
+
+def _log_http_failure(
+    err: requests.HTTPError, attempt: int, text: str, bot_token: str | None = None
+) -> None:
+    status = _status_of(err)
     if status == 400:
         preview = text[:200].replace("\n", " ")
         logging.warning(
@@ -29,7 +49,7 @@ def _log_http_failure(err: requests.HTTPError, attempt: int, text: str) -> None:
             status,
             attempt,
             _MAX_RETRIES,
-            err,
+            _redact(err, bot_token),
         )
 
 
@@ -48,22 +68,49 @@ def send_telegram_message(
         return
 
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True,
-    }
+
+    # The payload is rebuilt per attempt rather than mutated in place. Sharing one
+    # dict across retries means `requests` (and any test double) holds a reference
+    # to it, so dropping parse_mode below would retroactively rewrite what the
+    # earlier attempts appear to have sent -- state that has already left the
+    # function changing under it.
+    use_parse_mode = True
+
+    def _payload() -> dict[str, object]:
+        body: dict[str, object] = {
+            "chat_id": chat_id,
+            "text": text,
+            "disable_web_page_preview": True,
+        }
+        if use_parse_mode:
+            body["parse_mode"] = "HTML"
+        return body
 
     last_exc: Exception | None = None
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
-            response = requests.post(url, data=payload, timeout=10)
+            response = requests.post(url, data=_payload(), timeout=10)
             response.raise_for_status()
             return
         except requests.HTTPError as e:
             last_exc = e
-            _log_http_failure(e, attempt, text)
+            _log_http_failure(e, attempt, text, bot_token)
+            # A 400 from sendMessage is a REJECTED PAYLOAD, not a transient
+            # error -- resending the identical body can never succeed. In
+            # practice the trigger is almost always parse_mode: a Python
+            # traceback carries `line 33, in <module>`, which Telegram's HTML
+            # parser reads as an unclosed tag. That made the failure alert fail
+            # on precisely the crashes it exists to report (observed 2026-08-07,
+            # run-job.sh Telegramming an xsmom traceback).
+            #
+            # Dropping the formatting costs bold/italic in the retry and gains
+            # delivery. Scoped to 400 on purpose: a 500 IS transient, so the
+            # retry there must stay faithful to the original payload.
+            if _status_of(e) == 400 and use_parse_mode:
+                use_parse_mode = False
+                logging.warning(
+                    "Telegram 400 -- retrying as plain text (parse_mode dropped)"
+                )
         except Exception as e:
             last_exc = e
             logging.warning(
@@ -81,5 +128,5 @@ def send_telegram_message(
     logging.error(
         "\u274c Failed to send Telegram message after %d attempts: %s",
         _MAX_RETRIES,
-        last_exc,
+        _redact(last_exc, bot_token),
     )

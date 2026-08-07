@@ -11,6 +11,18 @@ cd "$(dirname "$0")/.."
 
 export DATA_SOURCE="${DATA_SOURCE:-binance}"
 
+# `tools/xsmom_execute.py` imports the `analytics` package by name, and running a
+# script from tools/ puts tools/ on sys.path -- not the repo root. The Makefile
+# target sets PYTHONPATH=. for exactly this reason; this script did not, so the
+# EXECUTOR half of the daily workflow failed with
+# `ModuleNotFoundError: No module named 'analytics'` while the sync half above
+# succeeded (buibui.py is a root-level entry point and needs no help).
+#
+# The split failure is why this went unnoticed: the job did real work, wrote real
+# bars, and only then died. Found 2026-08-07 the first time this script was run
+# under systemd rather than by hand.
+export PYTHONPATH="${PYTHONPATH:-$PWD}"
+
 # The XS book runs on 1d only — sync that timeframe before sizing the book.
 poetry run python buibui.py analytics sync --universe --timeframes 1d
 

@@ -1,0 +1,24 @@
+[Unit]
+Description=Run the buibui local backup twice daily
+
+[Timer]
+# 07:40 and 12:40 UTC = 15:40 and 20:40 MYT -- both inside normal waking hours
+# for the operator, so a laptop that is only on in the evening still gets a
+# snapshot. Two fires is not redundancy theatre: a same-day rerun refreshes the
+# same dated directory (5s, atomic rename), so the second fire costs almost
+# nothing and roughly doubles the odds of capturing any given day.
+#
+# :40 is deliberately off the quarter hour. The signal-watch timer fires at
+# :01/:16/:31/:46 and takes an exclusive DuckDB lock; on 1.5.5 a second PROCESS
+# is refused even read-only, so overlapping would push every run onto the
+# byte-copy fallback.
+OnCalendar=*-*-* 07:40:00 UTC
+OnCalendar=*-*-* 12:40:00 UTC
+
+# The whole point on a laptop: after suspend/shutdown, systemd runs the fire it
+# missed once on resume (not once per missed slot).
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target
