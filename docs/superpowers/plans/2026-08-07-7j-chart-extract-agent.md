@@ -115,7 +115,10 @@ If exit is still 0, the re-include matched nothing — do not proceed, and do no
 
 - [ ] **Step 4: Write the agent definition**
 
-Write `.claude/agents/chart-extract.md`:
+Write `.claude/agents/chart-extract.md`. **The `# chart-extract` H1 below is required, not
+decorative** — this draft originally omitted it, and prose directly after frontmatter fails
+`MD041/first-line-heading`, which would make this task's own "`make lint-md` must pass" gate
+unsatisfiable. Corrected 2026-08-07k after the implementer hit it:
 
 ```markdown
 ---
@@ -124,6 +127,8 @@ description: Reads exactly ONE Coinglass/MMT chart screenshot and returns a sing
 model: sonnet
 tools: Read
 ---
+
+# chart-extract
 
 You extract structured data from a single chart screenshot.
 
@@ -394,16 +399,54 @@ git commit -m "docs(plan): record the 7j chart-extract A/B result"
 
 ## Results — filled in by Task 3
 
+Measured 2026-08-07k. Same six images (sha256 confirmed identical), same rubric prompt
+verbatim, dispatched outside the skill. Only the agent type changed.
+
 | panel | baseline tokens | new tokens | Δ | baseline conf | new conf | baseline clusters | new clusters |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| BTC liq_map | 48,995 | | | high | | 10 | |
-| BTC liq_heatmap | 49,829 | | | med | | 8 | |
-| ETH liq_map | 48,995 | | | high | | 6 | |
-| ETH liq_heatmap | 49,825 | | | med | | 8 | |
-| SOL liq_map | 48,994 | | | high | | 10 | |
-| SOL liq_heatmap | 49,818 | | | med | | 10 | |
-| **total** | **296,456** | | | | | **52** | |
+| BTC liq_map | 48,995 | 29,234 | **−40.3%** | high | high | 10 | 8 |
+| BTC liq_heatmap | 49,829 | 30,286 | **−39.2%** | med | med | 8 | 8 |
+| ETH liq_map | 48,995 | 29,237 | **−40.3%** | high | high | 6 | 8 |
+| ETH liq_heatmap | 49,825 | 30,066 | **−39.7%** | med | **high** | 8 | 8 |
+| SOL liq_map | 48,994 | 29,234 | **−40.3%** | high | high | 10 | 10 |
+| SOL liq_heatmap | 49,818 | 30,066 | **−39.7%** | med | med | 10 | 10 |
+| **total** | **296,456** | **178,123** | **−39.9%** | 3 high / 3 med | **4 high / 2 med** | **52** | **52** |
 
-**Verdict:** *(KEEP / KEEP + open phase 2 / REVERT)*
+All six were single-call (`tool_uses: 1`), as in the baseline. Per-panel cost is now
+near-constant by panel type — ~29.2K for a map, ~30.1K for a heatmap — against a baseline
+that was ~49K flat.
 
-**Notes:** *(anything that would change how the next batch is run)*
+**Verdict: KEEP, and the pre-registered phase-2 trigger fired — but on the wrong panel type.**
+
+Cost is unambiguous: **−118,333 tokens per batch (−39.9%)**, with tight variance and no
+panel worse than −39.2%. Quality is neutral-to-better in aggregate: total clusters
+identical at 52, and confidence improved net (ETH heatmap `med` → `high`, nothing
+regressed).
+
+The pre-registered floor was "no panel's confidence or cluster count is below its
+baseline." **BTC liq_map went 10 → 8, so that floor is tripped and the trigger fires as
+written.** Honouring the pre-registration rather than arguing past it: the trigger is
+real. But it points somewhere phase 2 does not go — phase 2 was designed as a *heatmap*
+crop path, and every heatmap held or improved. The regression is on a **map**, and it is
+a change in *granularity*, not detection: the new BTC map merges near-price bands
+(63,579–64,029, 450 wide) where the baseline split them (63,700–63,850, 150 wide), while
+also reaching further out (it adds 10x tails at ~58,000 and ~71,000 the baseline missed).
+Fewer, wider, longer-range bands — not missed liquidity.
+
+**So: keep the change, and file the map-granularity question as its own item rather than
+folding it into phase 2, which would not address it.** Cluster count is a crude quality
+proxy and this is the run that showed it — a coarser clustering of the same liquidity
+scores as a regression under it.
+
+**Notes for the next batch:**
+
+- **The bare-JSON contract still breaks at the same rate.** One of six returned a fenced
+  block (ETH heatmap), against one of six in the baseline (SOL heatmap). The agent
+  definition's explicit rule 1 did **not** eliminate it — a directive in a system prompt
+  is not a parser. Step 3's review gate must keep tolerating a fence; do not assume the
+  agent file fixed this.
+- **The BTC heatmap's axis spot read is reproducibly wrong**, independently of agent type:
+  65,600 in the baseline, 65,550 now, against a live 64,781 (~+1.2% both times). This is a
+  property of the panel, not the extractor, and it corroborates the cross-panel check
+  added to `/ingest-charts` step 3 the same day.
+- `tools: Read` held: no agent attempted a write, and none read a second image.
