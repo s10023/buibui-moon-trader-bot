@@ -45,6 +45,7 @@ from analytics.audit_guard import (  # noqa: E402
     DECISION_CONCENTRATE,
     DECISION_INSUFFICIENT,
     AuditCell,
+    CellVerdict,
     evaluate_audit_cells,
 )
 from analytics.research_guards import min_track_record_length  # noqa: E402
@@ -285,11 +286,19 @@ def _build_cells(
     return build_state_cells(daily_level) + build_state_cells(daily_change)
 
 
-def _cell_diagnostics(cells: list[AuditCell]) -> dict[str, dict[str, float | None]]:
-    """DSR / PBO / MinTRL per cell — recomputed with the exact private
-    helpers ``evaluate_premium_states`` calls internally, so these numbers
-    are provably what the verdict was actually decided from, not a parallel
-    calculation that could silently drift from it.
+def _cell_diagnostics(
+    cells: list[AuditCell], cell_verdicts: list[CellVerdict]
+) -> dict[str, dict[str, float | None]]:
+    """DSR / PBO / MinTRL per cell — reported against the exact verdicts the
+    decision was made from, not a parallel calculation that could silently
+    drift from it.
+
+    ``cell_verdicts`` is passed IN rather than recomputed. It used to call
+    ``evaluate_audit_cells(cells, bar=BAR, ...)`` itself, with arguments
+    identical to the call its own caller had just made on the same list — a
+    duplicated bootstrap whose result could only ever match. Threading the
+    caller's verdicts through *strengthens* the guarantee in the paragraph
+    above from "same inputs, so same answer" to "literally the same object".
 
     ``None`` for INSUFFICIENT/CONCENTRATE cells, mirroring
     ``evaluate_premium_states``'s own short-circuit for those two decisions
@@ -297,7 +306,6 @@ def _cell_diagnostics(cells: list[AuditCell]) -> dict[str, dict[str, float | Non
     """
     if not cells:
         return {}
-    cell_verdicts = evaluate_audit_cells(cells, bar=BAR, alpha=ALPHA, min_n=MIN_N)
     by_family: dict[tuple[str, str], list[int]] = {}
     for i, c in enumerate(cells):
         by_family.setdefault(_cell_family_key(c.label), []).append(i)
@@ -348,7 +356,7 @@ def _build_rows(
         return []
     cell_verdicts = evaluate_audit_cells(cells, bar=BAR, alpha=ALPHA, min_n=MIN_N)
     verdict_by_label = dict(evaluate_premium_states(cells))
-    diagnostics = _cell_diagnostics(cells)
+    diagnostics = _cell_diagnostics(cells, cell_verdicts)
     per_trade = _per_trade_index(trades, levels, changes)
 
     rows: list[_Row] = []

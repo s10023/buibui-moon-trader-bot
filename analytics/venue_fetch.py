@@ -23,8 +23,19 @@ Getter = Callable[[str], Any]
 
 
 def http_get_json(url: str) -> Any:
-    """Default real-network getter. Never used in tests."""
-    req = urllib.request.Request(url, headers={"User-Agent": "buibui-research/1.0"})
+    """Default real-network getter. Never used in tests.
+
+    Both lines below carry `noqa: S310` (audit-url-open-for-permitted-schemes).
+    `S` is not in this repo's ruff `select`, so neither suppression fires today
+    — but the pair is what makes them *correct* if it is ever enabled. The
+    `Request(...)` construction is flagged in its own right, and until
+    2026-08-07 only the `urlopen` line was marked: a suppression that read as
+    deliberate and considered while leaving the actual diagnostic site bare.
+    Verified with `ruff check --select S310`: 1 error before, 0 after.
+    """
+    req = urllib.request.Request(  # noqa: S310
+        url, headers={"User-Agent": "buibui-research/1.0"}
+    )
     with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
         return json.load(resp)
 

@@ -41,6 +41,7 @@ from analytics.audit_guard import (  # noqa: E402
     DECISION_CONCENTRATE,
     DECISION_INSUFFICIENT,
     AuditCell,
+    CellVerdict,
     evaluate_audit_cells,
 )
 from analytics.fx_carry import (  # noqa: E402
@@ -329,15 +330,19 @@ def _magnitude_balance_report(weekly: pd.DataFrame, btc: pd.DataFrame) -> str:
 
 
 def _cell_diagnostics(
-    cells: list[AuditCell], *, bar: float
+    cells: list[AuditCell], cell_verdicts: list[CellVerdict]
 ) -> dict[str, dict[str, float | None]]:
-    """DSR / PBO / MinTRL per cell, recomputed with the exact private helpers
-    ``evaluate_states`` calls internally, so these numbers are provably what
-    the verdict was actually decided from.
+    """DSR / PBO / MinTRL per cell, reported against the exact verdicts the
+    decision was made from.
+
+    ``cell_verdicts`` is passed IN rather than recomputed: this used to call
+    ``evaluate_audit_cells`` with arguments identical to the call its own
+    caller had just made on the same list, so the duplicated bootstrap could
+    only ever reproduce the same answer. Threading the caller's verdicts
+    through upgrades the guarantee from "same inputs" to "same object".
     """
     if not cells:
         return {}
-    cell_verdicts = evaluate_audit_cells(cells, bar=bar, alpha=ALPHA, min_n=MIN_N)
     by_family: dict[tuple[str, str], list[int]] = {}
     for i, c in enumerate(cells):
         by_family.setdefault(carry_family_key(c.label), []).append(i)
@@ -384,7 +389,7 @@ def _build_rows(cells: list[AuditCell], *, bar: float) -> list[_Row]:
         return []
     cell_verdicts = evaluate_audit_cells(cells, bar=bar, alpha=ALPHA, min_n=MIN_N)
     verdict_by_label = dict(evaluate_states(cells, carry_family_key, bar=bar))
-    diagnostics = _cell_diagnostics(cells, bar=bar)
+    diagnostics = _cell_diagnostics(cells, cell_verdicts)
 
     rows: list[_Row] = []
     for cell, cv in zip(cells, cell_verdicts, strict=True):
