@@ -1,6 +1,8 @@
 """Tests for portfolio.sizing — SizingConfig defaults/from_toml + pure sizing math."""
 
+from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -284,3 +286,118 @@ class TestResolveCapital:
         capital, used_live = resolve_capital(cfg, 50.0)
         assert capital == pytest.approx(50.0)
         assert used_live is True
+
+
+class TestSizingConfigGuard:
+    """`SizingConfig` rejects degenerate operator input at CONSTRUCTION.
+
+    Every numeric field here is operator-set — via the `[portfolio]` TOML table
+    or `cli/portfolio.py`'s `--capital` / `--vol-target` flags — and each has a
+    silent failure mode rather than a loud one. `capital = -5.0` is the worked
+    example: `round_down_to_step` returns the magnitude by contract and the
+    sign is never re-applied, so a negative capital yields a POSITIVE, entirely
+    plausible TRADE card. A `nan` is worse in a different way: it propagates
+    through `risk_usd` / `risk_frac` / `notional_usd` without raising, and the
+    one place it does raise is *after* the paid-for LLM call.
+
+    Enumerate the input class rather than spot-checking it — the same rule the
+    LOT_SIZE shaving defect was missed by.
+    """
+
+    # Strictly positive: a zero is as wrong as a negative. `capital = 0` sizes
+    # every trade to nothing and reads downstream as a lot-size veto; `r_base`
+    # and `vol_target_annual` are divisors or scale factors whose zero silently
+    # nulls the whole sizing layer instead of failing.
+    POSITIVE = ("capital", "r_base", "vol_target_annual", "annualization_days")
+    # Zero is a meaningful setting: "no allowance" / "no halving" / "no floor".
+    NON_NEGATIVE = (
+        "g_vol_min",
+        "g_vol_max",
+        "r_open_max",
+        "r_cluster_max",
+        "high_vol_risk_mult",
+        "skip_floor_frac",
+    )
+    DEGENERATE = (float("nan"), float("inf"), float("-inf"))
+
+    @pytest.mark.parametrize("field", POSITIVE)
+    @pytest.mark.parametrize("value", (0.0, -1.0, *DEGENERATE))
+    def test_positive_field_rejects_degenerate_value(
+        self, field: str, value: float
+    ) -> None:
+        kwargs: dict[str, Any] = {field: value}
+        with pytest.raises(ValueError, match=field):
+            SizingConfig(**kwargs)
+
+    @pytest.mark.parametrize("field", NON_NEGATIVE)
+    @pytest.mark.parametrize("value", (-1.0, *DEGENERATE))
+    def test_non_negative_field_rejects_degenerate_value(
+        self, field: str, value: float
+    ) -> None:
+        kwargs: dict[str, Any] = {field: value}
+        with pytest.raises(ValueError, match=field):
+            SizingConfig(**kwargs)
+
+    @pytest.mark.parametrize("field", NON_NEGATIVE)
+    def test_non_negative_field_accepts_zero(self, field: str) -> None:
+        # Positive control for the class above: without this, a guard that
+        # rejected EVERYTHING would pass every rejection test.
+        #
+        # `g_vol_max=0.0` needs `g_vol_min` lowered with it — against the
+        # default 0.5 it is a genuinely inverted pair and SHOULD be rejected,
+        # which is the ordering invariant doing its job, not a zero being
+        # refused.
+        kwargs: dict[str, Any] = {field: 0.0}
+        if field == "g_vol_max":
+            kwargs["g_vol_min"] = 0.0
+        assert getattr(SizingConfig(**kwargs), field) == 0.0
+
+    @pytest.mark.parametrize("value", (0, -1, float("nan"), float("inf")))
+    def test_vol_window_days_rejects_degenerate_value(self, value: float) -> None:
+        # Typed `int`, but TOML is not type-checked at runtime, so a float
+        # reaches the field unchallenged unless the guard rejects it.
+        kwargs: dict[str, Any] = {"vol_window_days": value}
+        with pytest.raises(ValueError, match="vol_window_days"):
+            SizingConfig(**kwargs)
+
+    def test_vol_governor_bounds_must_be_ordered(self) -> None:
+        # min > max is silently absorbed by `vol_governor`'s clamp:
+        # min(max(g, g_vol_min), g_vol_max) returns g_vol_max for EVERY input,
+        # so the governor stops governing and nothing raises.
+        with pytest.raises(ValueError, match="g_vol_min"):
+            SizingConfig(g_vol_min=1.5, g_vol_max=0.5)
+
+    def test_equal_vol_governor_bounds_are_allowed(self) -> None:
+        # A pinned governor is a legitimate setting, not a misconfiguration.
+        assert SizingConfig(g_vol_min=1.0, g_vol_max=1.0).g_vol_min == 1.0
+
+    @pytest.mark.parametrize("field", (*POSITIVE, *NON_NEGATIVE))
+    def test_numeric_field_rejects_bool(self, field: str) -> None:
+        # `capital = true` in TOML passes both `isfinite` and `> 0` as 1.0 and
+        # would size the whole book against $1. Same defect family as a bare
+        # threshold whose units silently change: it type-checks and is wrong.
+        kwargs: dict[str, Any] = {field: True}
+        with pytest.raises(ValueError, match=field):
+            SizingConfig(**kwargs)
+
+    def test_tiny_positive_capital_is_honoured(self) -> None:
+        # Smallness is not degeneracy — the same contract `resolve_capital`
+        # already keeps for live equity. A $50 account is a real account.
+        assert SizingConfig(capital=50.0).capital == 50.0
+
+    def test_defaults_construct(self) -> None:
+        # The guard must not reject the shipped defaults.
+        assert SizingConfig().capital == 10_000.0
+
+    def test_dataclasses_replace_is_guarded(self) -> None:
+        # This is the live CLI path: `cli/portfolio.py:20` builds the override
+        # with `replace(cfg, capital=float(args.capital))`, so `--capital -5`
+        # must fail loudly at the flag rather than print a plausible report.
+        with pytest.raises(ValueError, match="capital"):
+            replace(SizingConfig(), capital=-5.0)
+
+    def test_from_toml_is_guarded(self, tmp_path: Path) -> None:
+        p = tmp_path / "bad.toml"
+        p.write_text("[portfolio]\ncapital = -5000\n")
+        with pytest.raises(ValueError, match="capital"):
+            SizingConfig.from_toml(p)

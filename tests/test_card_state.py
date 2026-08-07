@@ -293,6 +293,14 @@ class TestSnapshotMarketState:
         a misconfigured [portfolio] capital/r_base looking safe on the
         RENDERED card or the ledger is not something this note prevents
         (filed as a follow-up, not yet done).
+
+        The fixture is a denormal, not the `capital=0.0` it used to be, and
+        the swap is the whole point: `SizingConfig.__post_init__` now rejects
+        a zero capital at construction, so the old fixture could no longer
+        reach this branch. A denormal still can — 5e-324 is positive and
+        finite, clears the guard, and `capital * r_base` UNDERFLOWS to exactly
+        0.0. So the guard narrows this path without closing it, and this note
+        is still load-bearing rather than dead defence.
         """
 
         class NoEquityProvider:
@@ -311,7 +319,7 @@ class TestSnapshotMarketState:
             conn,
             "BTCUSDT",
             CardConfig(),
-            SizingConfig(capital=0.0),
+            SizingConfig(capital=5e-324),
             now_ms=_NOW_MS,
             account_provider=NoEquityProvider(),
             brief_fn=lambda _conn, cfg: _fake_bundle(cfg.symbols[0]),
