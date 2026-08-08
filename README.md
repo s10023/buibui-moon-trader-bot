@@ -506,7 +506,9 @@ It needs `rclone config` (interactive) and `BUIBUI_BACKUP_REMOTE` in `.env` firs
 while nothing is being copied. It uses `sync`, so remote retention follows local
 retention — and therefore mirrors deletions, which is why it refuses to run when the
 backup root contains no `MANIFEST.json` instead of syncing an empty tree over your only
-remote copy.
+remote copy. The step-by-step setup — measured space requirement, provider choice, and
+the one provider flag that is load-bearing rather than tidiness — is in
+`deploy/README.md` under "Off-machine backup".
 
 ### Backtest Trading Strategies
 

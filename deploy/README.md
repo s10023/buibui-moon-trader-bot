@@ -70,15 +70,92 @@ cannot be scripted. Its script **exits 1 when `BUIBUI_BACKUP_REMOTE` is unset**,
 purpose: an enabled-but-unconfigured timer must complain daily rather than look green
 while protecting nothing.
 
+##### How much remote space — measured 2026-08-08, not estimated
+
+| tier | per snapshot | retention | at steady state |
+| --- | --- | --- | --- |
+| `daily/` | 259 MiB (`analytics.db`, compacted) | 14 (`BUIBUI_KEEP_DAILY`) | 3.55 GiB |
+| `weekly/` | 111 MiB (parquet export) | 8 (`BUIBUI_KEEP_WEEKLY`) | 888 MiB |
+| | | | **≈ 4.4 GiB** |
+
+Each tier fills on its own clock, so a fresh install sits far below that for ~2 months
+(630 MiB on 2026-08-08, at 2 daily + 1 weekly snapshots). **The total is bounded, not
+accumulating** — `prune()` caps the snapshot count and `sync` mirrors those deletions to
+the remote. What does creep is the snapshot itself: the DB grew **512 KiB** between the
+08-07 and 08-08 snapshots (one day of universe OHLCV + outcomes), so the whole retained
+window grows roughly **4 GiB/year**.
+
+**Do not size the remote off `ls -l analytics.db`.** The snapshot is *smaller* than the
+live DB — 259 MiB against 320 MiB — because `COPY FROM DATABASE` compacts out free space.
+
+**14 near-identical 259 MiB copies of a DB that changes 512 KiB/day is ~99.8%
+redundant.** The local leg already covers the likely failure (fat-finger, bad script,
+tool bug); this leg exists for disk loss, which needs the newest good snapshot plus
+enough depth to outlast corruption nobody noticed. `BUIBUI_KEEP_DAILY=7` halves the
+daily tier to 1.77 GiB (total ~2.7 GiB) and costs only depth that was unlikely to be
+used.
+
+##### Provider — Google Drive on a dedicated account (decided 2026-08-08)
+
+15 GB free is the largest tier needing **no payment method at all**, which is the
+property that matters for an unattended job growing ~4 GiB/year. Backblaze B2's 10 GB
+free tier is real but sits on a *billing* account: cross the line through retention
+drift and you are billed rather than blocked. Use an account **separate from the GitHub
+identity** so a backup-credential compromise cannot reach personal storage — the same
+reasoning as the `~/.gitconfig` remote-keyed identity split.
+
 ```bash
-brew install rclone                    # or your package manager
-rclone config                          # interactive: pick a provider, authenticate
-echo 'BUIBUI_BACKUP_REMOTE=<remote>:<path>' >> .env
-./deploy/backup-offsite.sh --dry-run   # confirm it lists the snapshot tree
+# 1. Install rclone
+brew install rclone                       # or: sudo dnf install rclone
+
+# 2. Create your OWN OAuth client ID first (~10 min, free). rclone's built-in
+#    Google client ID is shared by every rclone user and heavily rate-limited, so
+#    the first ~4 GiB push crawls without one.
+#      console.cloud.google.com -> new project -> enable "Google Drive API"
+#      -> OAuth consent screen: External; add the backup address as a Test user
+#      -> Credentials -> Create OAuth client ID -> application type "Desktop app"
+#    Keep the client_id + client_secret for step 3.
+
+# 3. rclone config: n(ew) -> name it `gdrive` -> storage `drive`
+#      client_id / client_secret : paste from step 2
+#      scope                     : 1   (full access)
+#      root_folder_id, service_account_file : blank
+#      Edit advanced config      : n
+#      Use web browser to authenticate : y  (sign in as the BACKUP account)
+#      Configure as a Shared Drive     : n
+#    Scope 1, not 3: `drive.file` can only touch files rclone itself created, so a
+#    recreated config loses the ability to prune what the old one uploaded -- and
+#    `sync` must be able to delete in order to mirror retention.
+
+# 4. Prove the remote answers before wiring it in
+rclone about gdrive:                      # should print the 15 GB quota
+rclone mkdir gdrive:buibui-backups
+
+# 5. Wire it in. BOTH of the first two lines matter -- see the trash note below.
+echo 'BUIBUI_BACKUP_REMOTE=gdrive:buibui-backups' >> .env
+echo 'BUIBUI_RCLONE_FLAGS=--drive-use-trash=false' >> .env
+echo 'BUIBUI_KEEP_DAILY=7' >> .env         # optional; see the redundancy note above
+
+# 6. Dry-run BEFORE the timer exists
+./deploy/backup-offsite.sh --dry-run       # must list the snapshot tree, exit 0
+
+# 7. First real sync by hand -- this is the slow one (~4 GiB)
+./deploy/backup-offsite.sh
+
+# 8. Only now install the timer
 cp deploy/systemd/user/buibui-backup-offsite.{service,timer} ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now buibui-backup-offsite.timer
+systemctl --user list-timers 'buibui-*'    # expect FIVE timers
 ```
+
+**⚠ `--drive-use-trash=false` is load-bearing on Google Drive, not a tidiness flag.**
+rclone's Drive backend defaults to moving deletions to Trash, Trash counts against the
+15 GB quota, and Drive only auto-empties it after 30 days. Retention prunes one 259 MiB
+snapshot per day, so the default parks up to **~7.6 GiB of dead snapshots** in Trash on
+top of ~4.4 GiB live — quietly eating most of the quota while `rclone about` still reads
+healthy. The `BUIBUI_RCLONE_FLAGS` hook (`backup-offsite.sh:98`) exists for exactly this
+class of provider-specific flag.
 
 It runs `rclone sync`, not `copy`, so remote retention matches local retention instead
 of growing forever. The consequence to respect: **`sync` mirrors deletions.** A bug that
