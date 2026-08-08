@@ -817,13 +817,53 @@ class TestAttributionFilterCLI:
             build_parser().parse_args(["--min-attribution-confidence", "verified"])
 
     def test_filtered_run_refuses_to_overwrite_the_published_priors(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        tmp_path: Path,
     ) -> None:
         # Same defect shape as the `--capital` drawdown-peak poisoning: an
         # exploratory knob silently replacing a durable artifact the Brief
         # reads. Refuse, do not warn - a warning arrives after the write.
+        #
+        # `--ledger` is passed explicitly even though the refusal fires before
+        # any read: the default is gitignored `docs/plans/pundit-calls.jsonl`,
+        # which exists on a dev box and NOT in CI. The first version of this
+        # test relied on the default and passed locally while failing in CI --
+        # a hermeticity bug that only a machine without the file can see.
+        ledger = tmp_path / "calls.jsonl"
+        ledger.write_text("", encoding="utf-8")
         monkeypatch.setattr(
-            sys, "argv", ["pundit_score", "--min-attribution-confidence", "high"]
+            sys,
+            "argv",
+            [
+                "pundit_score",
+                "--min-attribution-confidence",
+                "high",
+                "--ledger",
+                str(ledger),
+            ],
+        )
+        assert main() == 2
+        assert "refusing to overwrite" in capsys.readouterr().err
+
+    def test_the_refusal_precedes_any_file_read(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # Pins the ordering directly: with a ledger path that does not exist,
+        # the refusal must still be what happens -- exit 2, not a
+        # FileNotFoundError. Fails fast on a bad flag pair, and keeps the guard
+        # reachable on a machine that has no ledger at all.
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "pundit_score",
+                "--min-attribution-confidence",
+                "high",
+                "--ledger",
+                "/nonexistent/does-not-exist.jsonl",
+            ],
         )
         assert main() == 2
         assert "refusing to overwrite" in capsys.readouterr().err

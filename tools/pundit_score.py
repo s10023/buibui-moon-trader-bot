@@ -978,25 +978,31 @@ def main() -> int:
     as_of_ms = int(as_of_dt.timestamp() * 1000)
     as_of_iso = as_of_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    calls, warnings = load_ledger(args.ledger)
     floor = args.min_attribution_confidence
+    # Argument validation, so it runs BEFORE any file is touched. A filtered run
+    # is a WHAT-IF, and the default --json path is the file the Brief's pundit
+    # board reads; letting an analysis knob overwrite a published control is the
+    # exact shape of the `--capital` drawdown-peak poisoning — one exploratory
+    # flag, a durable artifact silently replaced, nothing saying which run
+    # produced it. Refuse rather than warn: by the time anyone reads a warning
+    # the file is already gone.
+    #
+    # Ordering is load-bearing twice over. It fails fast on a bad flag pair
+    # instead of after parsing the ledger and opening the DB, and it keeps the
+    # check reachable without a ledger at all — CI caught the original order,
+    # where a test exercising this path died on the gitignored default ledger
+    # before ever reaching the refusal.
+    if floor != "any" and args.json == DEFAULT_PRIORS_PATH:
+        print(
+            f"refusing to overwrite the published priors {DEFAULT_PRIORS_PATH} "
+            f"with a run filtered at --min-attribution-confidence {floor}; "
+            f"pass an explicit --json PATH for what-if runs",
+            file=sys.stderr,
+        )
+        return 2
+
+    calls, warnings = load_ledger(args.ledger)
     if floor != "any":
-        # A filtered run is a WHAT-IF, and the default --json path is the file
-        # the Brief's pundit board reads. Letting an analysis knob overwrite a
-        # published control is the exact shape of the `--capital` drawdown-peak
-        # poisoning: one exploratory flag, a durable artifact silently
-        # replaced, and nothing on the surface saying which run produced it.
-        # Refuse rather than warn — by the time anyone reads a warning the file
-        # is already gone.
-        if args.json == DEFAULT_PRIORS_PATH:
-            print(
-                f"refusing to overwrite the published priors "
-                f"{DEFAULT_PRIORS_PATH} with a run filtered at "
-                f"--min-attribution-confidence {floor}; pass an explicit "
-                f"--json PATH for what-if runs",
-                file=sys.stderr,
-            )
-            return 2
         kept = [
             c
             for c in calls
