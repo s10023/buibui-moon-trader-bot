@@ -66,9 +66,21 @@ For routine DB refresh after backtest/strategy changes: `make db-update` (= `db-
 
 Each Makefile `buibui-*` target wraps the equivalent CLI invocation — except
 `buibui-backup`, which wraps `deploy/backup-analytics.sh` (verified local snapshot of
-`analytics.db` + the JSONL ledgers; `WEEKLY=1` adds the parquet export, `DRY=1` reports
-only). **`analytics.db` is gitignored and single-copy, and the committed
-`live_signal.duckdb` is NOT a backup — its `signal_alert_outcomes` table has 0 rows.**
+`analytics.db` + the ledger files in `LEDGERS` + the directories in `LEDGER_DIRS`;
+`WEEKLY=1` adds the parquet export, `DRY=1` reports only). **`analytics.db` is gitignored
+and single-copy, and the committed `live_signal.duckdb` is NOT a backup — its
+`signal_alert_outcomes` table has 0 rows.** **Everything in both arrays is likewise
+gitignored and single-copy, so those two arrays ARE the only copy** — which is why an
+audit on 2026-08-08 expanded them from 4 entries to 10 files + 3 directories. The
+originals covered Stream C and nothing else; the entire ingest pipeline's state was
+uncovered. The three watermark/dedup ledgers (`yt-feed-state.json`,
+`routed-ledger.json`, `.cache/chart-drops/processed.json`) are the subtle ones: losing
+one destroys no past data but silently changes future behaviour — consumed videos
+re-present, re-ingests double-write, handled chart drops re-ingest. **`processed.json`
+lives under `.cache/`, the one directory every cleanup treats as disposable**, so a
+plain `rm -rf .cache/` resets chart dedup with no other trace. Add to `LEDGER_DIRS`, not
+`LEDGERS`, for a directory: the file loop is `[ -f ]`-guarded and skips a directory
+silently, which is how these went uncovered in the first place.
 A systemd user timer runs the snapshot twice daily. The **off-machine** leg is
 `deploy/backup-offsite.sh` (`rclone sync` of `$BUIBUI_BACKUP_ROOT`), installed separately
 because `rclone config` is interactive: it **exits 1 while `BUIBUI_BACKUP_REMOTE` is

@@ -62,11 +62,38 @@ LOCK_RETRIES="${BUIBUI_LOCK_RETRIES:-10}"
 LOCK_SLEEP="${BUIBUI_LOCK_SLEEP:-30}"
 
 DB="$REPO/analytics.db"
+# Every entry here is gitignored AND single-copy, so this list IS the only copy.
+# Expanded 2026-08-08 after an audit found six such artifacts uncovered: the three
+# original ledgers were backed up while the ENTIRE ingest pipeline's state was not.
+# The three watermark/dedup ledgers are the expensive ones — none holds research
+# content, but losing any one silently changes future behaviour rather than losing
+# past data:
+#   yt-feed-state.json  lost => every already-consumed video re-presents as new
+#   routed-ledger.json  lost => re-ingests double-write into the streams
+#   processed.json      lost => every chart drop ever handled re-ingests
+# processed.json is the sharpest: it is the ONLY record that a chart was handled,
+# and it lives under .cache/ — the one directory every cleanup treats as
+# disposable. A plain `rm -rf .cache/` resets chart dedup with no other trace.
 LEDGERS=(
     "docs/plans/pundit-calls.jsonl"
     "docs/plans/ai-cards.jsonl"
     "docs/plans/pundit-overrides.jsonl"
     "config/youtube_channels.toml"
+    "docs/plans/thesis-inbox.md"
+    "docs/plans/mechanics-backlog.md"
+    "docs/plans/yt-feed-state.json"
+    "docs/plans/routed-ledger.json"
+    "docs/plans/pundit-priors.json"
+    ".cache/chart-drops/processed.json"
+)
+
+# Directories copied wholesale. Kept separate from LEDGERS because the copy loop
+# below is `[ -f ]`-guarded on purpose — a directory silently failed that test and
+# was skipped without a word, which is how these went uncovered.
+LEDGER_DIRS=(
+    "docs/plans/video-notes"
+    "docs/plans/journal"
+    "docs/plans/external-context"
 )
 
 # The venv interpreter is named directly rather than via `poetry run` -- one less
@@ -138,7 +165,18 @@ if [ "$dry_run" -eq 1 ]; then
     [ "$want_weekly" -eq 1 ] && log "  weekly ->  $weekly_dir (parquet)"
     log "  retention  ${KEEP_DAILY} daily / ${KEEP_WEEKLY} weekly"
     for f in "${LEDGERS[@]}"; do
-        [ -f "$REPO/$f" ] && log "  ledger     $f ($(du -h "$REPO/$f" | cut -f1))"
+        if [ -f "$REPO/$f" ]; then
+            log "  ledger     $f ($(du -h "$REPO/$f" | cut -f1))"
+        else
+            log "  ledger     $f -- ABSENT, will be skipped"
+        fi
+    done
+    for d in "${LEDGER_DIRS[@]}"; do
+        if [ -d "$REPO/$d" ]; then
+            log "  dir        $d ($(du -sh "$REPO/$d" | cut -f1), $(find "$REPO/$d" -type f | wc -l) files)"
+        else
+            log "  dir        $d -- ABSENT, will be skipped"
+        fi
     done
     exit 0
 fi
@@ -256,6 +294,18 @@ for f in "${LEDGERS[@]}"; do
     if [ -f "$REPO/$f" ]; then
         mkdir -p "$daily_dir/$(dirname "$f")"
         cp "$REPO/$f" "$daily_dir/$f"
+    fi
+done
+
+# --- ledger directories -------------------------------------------------------
+# `cp -R "$src/."` copies the CONTENTS into an existing dir, so a repeated run
+# cannot nest video-notes/video-notes. -p preserves mtimes, which the notes' own
+# date-based filenames do not encode (the ingest date is in the name, the edit
+# time is not).
+for d in "${LEDGER_DIRS[@]}"; do
+    if [ -d "$REPO/$d" ]; then
+        mkdir -p "$daily_dir/$d"
+        cp -Rp "$REPO/$d/." "$daily_dir/$d/"
     fi
 done
 
