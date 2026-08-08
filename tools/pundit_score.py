@@ -26,7 +26,15 @@ Usage::
         [--ledger docs/plans/pundit-calls.jsonl] \
         [--overrides docs/plans/pundit-overrides.jsonl] \
         [--db analytics.db] [--as-of 2026-07-04T00:00:00Z] \
-        [--json docs/plans/pundit-priors.json] [--min-n 5]
+        [--json docs/plans/pundit-priors.json] [--min-n 5] \
+        [--min-attribution-confidence any|operator|high]
+
+``--min-attribution-confidence`` is the read half of relay attribution. The
+ingest skills have written ``attribution`` / ``attribution_confidence`` on every
+row since that feature shipped and nothing here ever read them, so a handle the
+roster *asserted* scored at the same trust as one who spoke for himself. It
+defaults to ``any`` — no published number moves — and a filtered run refuses to
+overwrite ``DEFAULT_PRIORS_PATH``.
 """
 
 from __future__ import annotations
@@ -45,6 +53,11 @@ import numpy as np
 import pandas as pd
 
 from analytics.backtest.engine import _compute_atr14
+from analytics.pundit_attribution import (
+    meets_confidence,
+    normalize_attribution,
+    normalize_attribution_confidence,
+)
 from analytics.pundit_authors import normalize_author
 from analytics.pundit_direction import normalize_direction
 from analytics.pundit_horizon import normalize_horizon
@@ -65,6 +78,11 @@ SANITY_HI = 5.0
 # must stay that way until someone decides what a pundit prior should gate.
 # Its whole job is to stop the crossing happening in silence.
 AUDIT_ELIGIBLE_N = 30
+
+DEFAULT_PRIORS_PATH = Path("docs/plans/pundit-priors.json")
+"""The PUBLISHED priors file. `analytics/brief/pundit.py` reads it for the
+Brief's pundit board, so whatever lands here is what the operator sees for
+days — which is why a filtered run refuses to write to it (see `main`)."""
 
 _UNSPECIFIED_MARKERS = {"", "unspecified", "none", "n/a", "not specified"}
 _ZONE_RE = re.compile(
@@ -123,6 +141,12 @@ class LedgerCall:
     entry_px: float | None = None
     stop_px: float | None = None
     target_px: float | None = None
+    # How `author` was determined, and how much the roster mapping behind it
+    # is worth. Defaulted so the 170 pre-feature rows parse unchanged; see
+    # analytics/pundit_attribution.py for why absence reads as first-hand and
+    # what stops that being fail-open.
+    attribution: str = "first-hand"
+    attribution_confidence: str = ""
 
     @property
     def call_ts_ms(self) -> int:
@@ -162,6 +186,12 @@ def load_ledger(path: Path) -> tuple[list[LedgerCall], list[str]]:
             if not isinstance(obj, dict):
                 warnings.append(f"ledger line {line_no}: skipped (not a JSON object)")
                 continue
+            # `relayed_by` is the cross-check that stops an omitted
+            # `attribution` buying full trust with silence, so it has to be
+            # resolved before the row is built, not alongside it.
+            attribution = normalize_attribution(
+                obj.get("attribution"), relayed_by=obj.get("relayed_by")
+            )
             call = LedgerCall(
                 line_no=line_no,
                 source=str(obj.get("source", "")),
@@ -195,6 +225,14 @@ def load_ledger(path: Path) -> tuple[list[LedgerCall], list[str]]:
                 entry_px=_opt_float(obj, "entry_px"),
                 stop_px=_opt_float(obj, "stop_px"),
                 target_px=_opt_float(obj, "target_px"),
+                # Read, finally. These two were written by the ingest skills
+                # from the day relay attribution shipped and dropped on the
+                # floor here, so every roster-asserted author scored at the
+                # same trust as one who spoke for himself.
+                attribution=attribution,
+                attribution_confidence=normalize_attribution_confidence(
+                    obj.get("attribution_confidence"), attribution=attribution
+                ),
             )
             _ = call.call_ts_ms  # eager-parse call_ts_utc now (raise here, not later)
             calls.append(call)
@@ -751,6 +789,37 @@ def audit_eligible_cells(
     return sorted(k for k, c in cells.items() if c.n >= threshold)
 
 
+def relay_dependent_authors(scored: list[ScoredCall]) -> dict[str, int]:
+    """Authors whose track record rests ENTIRELY on unverified relay mappings.
+
+    Returns ``{author: row_count}`` for authors with at least one row and no
+    row that is either first-hand or relayed at ``high`` confidence — i.e. the
+    authors who would cease to exist if the roster entry behind them were
+    revoked. Sibling of :func:`audit_eligible_cells` in both shape and intent:
+    pure, returns facts rather than a verdict, and exists so the condition is
+    not crossed in silence.
+
+    **Wholly, not partly, on purpose.** An author with even one first-hand row
+    is a person we have independently heard from; a wrong roster entry would
+    corrupt part of their record but not invent them. The failure mode worth a
+    report line is the *phantom* — measured at eleven authors of 1–4 rows each
+    on the 2026-08-08 ledger, every one at ``operator`` confidence.
+    ``Traderfengge`` (n=31, hit-rate 0) is deliberately NOT among them: its
+    record is entirely first-hand, so the open question about that cell is
+    about the pundit, not about our attribution of him.
+    """
+    totals: dict[str, int] = {}
+    corroborated: set[str] = set()
+    for sc in scored:
+        author = sc.call.author
+        totals[author] = totals.get(author, 0) + 1
+        if meets_confidence(
+            sc.call.attribution, sc.call.attribution_confidence, "high"
+        ):
+            corroborated.add(author)
+    return {a: n for a, n in sorted(totals.items()) if a not in corroborated}
+
+
 def render_report(
     scored: list[ScoredCall], warnings: list[str], as_of_iso: str, min_n: int
 ) -> str:
@@ -775,6 +844,18 @@ def render_report(
             "implemented here and none fires; this line exists so the "
             "threshold is not crossed in silence. Deciding what a pundit "
             "prior should gate is an open call.",
+            "",
+        ]
+    relay_only = relay_dependent_authors(scored)
+    if relay_only:
+        detail = ", ".join(f"{a} (n={n})" for a, n in relay_only.items())
+        lines += [
+            f"- NOTE: {len(relay_only)} author(s) rest ENTIRELY on unverified "
+            f"relay attribution — {detail}. Each exists only because "
+            "`config/pundit_roster.toml` maps a spoken name to a handle at "
+            "below-`high` confidence; revoke the roster entry and the track "
+            "record goes with it. Re-run with "
+            "`--min-attribution-confidence high` to score without them.",
             "",
         ]
     lines += ["## Per author", ""]
@@ -870,8 +951,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--db", type=Path, default=Path(DEFAULT_DB_PATH))
     p.add_argument("--as-of", dest="as_of", default=None, help="ISO UTC; default: now")
-    p.add_argument("--json", type=Path, default=Path("docs/plans/pundit-priors.json"))
+    p.add_argument("--json", type=Path, default=DEFAULT_PRIORS_PATH)
     p.add_argument("--min-n", dest="min_n", type=int, default=5)
+    p.add_argument(
+        "--min-attribution-confidence",
+        dest="min_attribution_confidence",
+        choices=("any", "operator", "high"),
+        default="any",
+        help=(
+            "Drop relay-attributed calls below this roster confidence. "
+            "First-hand calls always pass. Default 'any' keeps every row, so "
+            "the published priors do not move unless you ask them to; 'high' "
+            "answers 'what does the ledger say if I trust only corroborated "
+            "mappings?'"
+        ),
+    )
     return p
 
 
@@ -885,6 +979,39 @@ def main() -> int:
     as_of_iso = as_of_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     calls, warnings = load_ledger(args.ledger)
+    floor = args.min_attribution_confidence
+    if floor != "any":
+        # A filtered run is a WHAT-IF, and the default --json path is the file
+        # the Brief's pundit board reads. Letting an analysis knob overwrite a
+        # published control is the exact shape of the `--capital` drawdown-peak
+        # poisoning: one exploratory flag, a durable artifact silently
+        # replaced, and nothing on the surface saying which run produced it.
+        # Refuse rather than warn — by the time anyone reads a warning the file
+        # is already gone.
+        if args.json == DEFAULT_PRIORS_PATH:
+            print(
+                f"refusing to overwrite the published priors "
+                f"{DEFAULT_PRIORS_PATH} with a run filtered at "
+                f"--min-attribution-confidence {floor}; pass an explicit "
+                f"--json PATH for what-if runs",
+                file=sys.stderr,
+            )
+            return 2
+        kept = [
+            c
+            for c in calls
+            if meets_confidence(c.attribution, c.attribution_confidence, floor)
+        ]
+        # A warning, not a silent trim: dropping rows moves every published
+        # number in this run, and a reader who did not type the flag must not
+        # have to infer that from a smaller `calls:` count.
+        warnings.append(
+            f"--min-attribution-confidence {floor}: dropped "
+            f"{len(calls) - len(kept)} of {len(calls)} calls below that "
+            "roster confidence; priors in this run are NOT comparable to a "
+            "default run"
+        )
+        calls = kept
     overrides = load_overrides(args.overrides)
     with duckdb.connect(str(args.db), read_only=True) as conn:
         data = load_ohlcv_for_calls(conn, calls, as_of_ms)

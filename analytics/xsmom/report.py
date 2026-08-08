@@ -21,6 +21,7 @@ from analytics.research_guards import (
     cscv_pbo,
     deflated_sharpe_ratio,
     min_track_record_length,
+    passes_gate,
 )
 from analytics.xsmom.book import XSBookResult, equity_curve
 from analytics.xsmom.execution import CapacityRun
@@ -142,6 +143,27 @@ def evaluate_xs(
     )
 
 
+def xs_gate_verdict(report: XSReport) -> bool:
+    """The headline gate: DSR ≥ 0.95 ∧ PBO ≤ 0.5 ∧ boot_lo > 0.
+
+    The symmetric twin of
+    :func:`analytics.combine.report.combine_gate_verdict`, which existed while
+    this did not — so the sleeve that actually carries capital was the one
+    whose G3 verdict reached the operator only as English prose in
+    ``tools/xsmom_audit.py``, for a human to apply by eye against remembered
+    thresholds. Neither coded nor labelled advisory is the worst of the three
+    states, which is why this is a function and not a comment.
+
+    **Deliberately excludes ``corr_to_trend`` and ``min_trl``.** Both are
+    reported stamps, not legs — see
+    :mod:`analytics.research_guards.gate`. Adding ``corr_to_trend`` as a pass
+    condition would fail this sleeve at its measured +0.37 and contradict the
+    2026-08-06 spec amendment; adding ``min_trl`` would fail it on ~2475
+    observations against the ~7035 needed to confirm Sharpe > 1.0.
+    """
+    return passes_gate(report.dsr, report.pbo, report.boot_lo)
+
+
 def evaluate_xs_capacity(
     capacity_runs: dict[float, CapacityRun],
     cfg: ForecastConfig,
@@ -172,7 +194,10 @@ def evaluate_xs_capacity(
                 "boot_lo": rep.boot_lo,
                 "boot_hi": rep.boot_hi,
                 "min_trl": rep.min_trl,
-                "gate": bool(rep.dsr >= 0.95 and rep.pbo <= 0.5 and rep.boot_lo > 0.0),
+                # Was a fourth hand-inlined copy of the three thresholds, and
+                # the only one with no explicit NaN-PBO guard — it failed a
+                # NaN closed only by IEEE comparison semantics, not by intent.
+                "gate": xs_gate_verdict(rep),
             }
         )
     return pd.DataFrame(rows)

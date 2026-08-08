@@ -37,6 +37,7 @@ from analytics.xsmom import (
     replay_xs_trials,
     run_xs_backtest,
     subperiod_sharpe,
+    xs_gate_verdict,
 )
 
 _MAJORS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
@@ -74,6 +75,11 @@ def build_xs_report_row(
         "min_trl": rep.min_trl,
         "corr_to_trend": rep.corr_to_trend,
         "trend_sharpe": rep.trend_sharpe,
+        # The coded three-leg verdict, beside the stamps it deliberately does
+        # NOT consume (min_trl, corr_to_trend). Until this column existed the
+        # G3 read was prose only, leaving the reader to apply remembered
+        # thresholds to three float columns by eye.
+        "gate": xs_gate_verdict(rep),
     }
 
 
@@ -200,10 +206,18 @@ def main() -> None:
     _print_df("Per-speed XS Sharpe", _per_speed_xs_sharpes(conn, universe))
 
     print(
-        "\nG3 read: is the XS sleeve positive, cost-robust, DSR/PBO-survivable, AND "
-        "low-correlated to trend (corr_to_trend near 0)? A modest-Sharpe XS sleeve "
-        "uncorrelated with trend is a real combine win (P3 IDM layer). Read "
-        "corr_to_trend + boot_lo + pbo alongside the headline before calling it."
+        "\nG3 read: the `gate` column above IS the verdict — the published "
+        "three-leg gate, DSR >= 0.95 AND PBO <= 0.5 AND boot_lo > 0, coded in "
+        "analytics.xsmom.report.xs_gate_verdict. It is not four legs: min_trl "
+        "and corr_to_trend are printed as STAMPS and gate nothing.\n"
+        "  min_trl asks the harder question 'can I confirm Sharpe > 1.0?' — "
+        "this sleeve needs ~7035 obs and has ~2475, disclosed in its own "
+        "audit; gating on it would fail the deploy core.\n"
+        "  corr_to_trend is a DISQUALIFIER read by a human, not a pass "
+        "condition: the sleeve cleared at +0.37 and P3 spec criterion 4 was "
+        "amended 2026-08-06 to say so. A modest-Sharpe XS sleeve uncorrelated "
+        "with trend is still a real combine win (P3 IDM layer), so read it — "
+        "just don't expect `gate` to have read it for you."
     )
 
 

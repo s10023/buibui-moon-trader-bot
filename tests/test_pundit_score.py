@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
 import duckdb
 import pandas as pd
+import pytest
 
 from analytics.store.market_data import upsert_ohlcv
 from analytics.store.schema import init_schema
@@ -26,7 +28,9 @@ from tools.pundit_score import (
     load_ledger,
     load_ohlcv_for_calls,
     load_overrides,
+    main,
     parse_level_field,
+    relay_dependent_authors,
     render_report,
     resolve_levels,
     score_call,
@@ -657,3 +661,197 @@ class TestDbAndCli:
     def test_parse_as_of(self) -> None:
         args = build_parser().parse_args(["--as-of", "2026-07-04T00:00:00Z"])
         assert args.as_of == "2026-07-04T00:00:00Z"
+
+
+class TestAttributionWiring:
+    """The read half of relay attribution — see analytics/pundit_attribution.py.
+
+    Both ledger fields were written by the ingest skills from the day the
+    feature shipped and dropped on the floor at this boundary, so a handle the
+    roster *asserted* scored at identical trust to one who spoke for himself.
+    """
+
+    def _relay_line(self, **kw: object) -> dict[str, object]:
+        line: dict[str, object] = {
+            "source": "youtube",
+            "author": "sanmage88",
+            "url": "https://youtu.be/abc",
+            "call_ts_utc": "2026-06-20T10:00:00Z",
+            "symbol": "BTCUSDT",
+            "direction": "long",
+            "entry": "58,000",
+            "stop": "57,000",
+            "target": "60,000",
+            "horizon": "swing",
+            "confidence": "",
+            "raw_quote": "",
+            "attribution": "relay",
+            "relayed_by": "@KoluniteVIP",
+            "attribution_confidence": "operator",
+        }
+        line.update(kw)
+        return line
+
+    def test_load_ledger_reads_both_fields(self, tmp_path: Path) -> None:
+        p = tmp_path / "calls.jsonl"
+        p.write_text(json.dumps(self._relay_line()) + "\n", encoding="utf-8")
+        calls, warnings = load_ledger(p)
+        assert warnings == []
+        assert calls[0].attribution == "relay"
+        assert calls[0].attribution_confidence == "operator"
+
+    def test_a_pre_feature_row_defaults_to_trusted_first_hand(
+        self, tmp_path: Path
+    ) -> None:
+        # 170 of the 203 live rows carry neither field. They must keep scoring
+        # exactly as before, or this commit silently moves published priors.
+        line = self._relay_line()
+        for key in ("attribution", "relayed_by", "attribution_confidence"):
+            del line[key]
+        p = tmp_path / "calls.jsonl"
+        p.write_text(json.dumps(line) + "\n", encoding="utf-8")
+        calls, warnings = load_ledger(p)
+        assert warnings == []
+        assert calls[0].attribution == "first-hand"
+        assert calls[0].attribution_confidence == ""
+
+    def test_relayed_by_alone_marks_the_row_relay(self, tmp_path: Path) -> None:
+        # The fail-safe, exercised through the real read boundary: omitting
+        # `attribution` on a genuine relay row must not buy full trust.
+        line = self._relay_line()
+        del line["attribution"]
+        p = tmp_path / "calls.jsonl"
+        p.write_text(json.dumps(line) + "\n", encoding="utf-8")
+        calls, _ = load_ledger(p)
+        assert calls[0].attribution == "relay"
+        assert calls[0].attribution_confidence == "operator"
+
+    def test_an_out_of_enum_attribution_warns_rather_than_crashes(
+        self, tmp_path: Path
+    ) -> None:
+        p = tmp_path / "calls.jsonl"
+        p.write_text(
+            json.dumps(self._relay_line(attribution="secondhand")) + "\n",
+            encoding="utf-8",
+        )
+        calls, warnings = load_ledger(p)
+        assert calls == []
+        assert len(warnings) == 1 and "secondhand" in warnings[0]
+
+    def test_an_out_of_enum_confidence_warns_rather_than_crashes(
+        self, tmp_path: Path
+    ) -> None:
+        p = tmp_path / "calls.jsonl"
+        p.write_text(
+            json.dumps(self._relay_line(attribution_confidence="verified")) + "\n",
+            encoding="utf-8",
+        )
+        calls, warnings = load_ledger(p)
+        assert calls == []
+        assert len(warnings) == 1 and "verified" in warnings[0]
+
+
+class TestRelayDependentAuthors:
+    def _sc(self, author: str, attribution: str, conf: str) -> ScoredCall:
+        return ScoredCall(
+            call=_call(
+                author=author,
+                attribution=attribution,
+                attribution_confidence=conf,
+            ),
+            levels=None,
+            family="other",
+            state="UNSCORED",
+        )
+
+    def test_flags_an_author_whose_every_row_is_operator_relay(self) -> None:
+        # The live shape: eleven authors of 1-4 rows each, none with a
+        # first-hand row, all at "operator". Revoke the entry, they vanish.
+        scored = [
+            self._sc("phantom", "relay", "operator"),
+            self._sc("phantom", "relay", "operator"),
+        ]
+        assert relay_dependent_authors(scored) == {"phantom": 2}
+
+    def test_ignores_an_author_with_any_first_hand_row(self) -> None:
+        # Partly, not wholly: a wrong roster entry would corrupt part of this
+        # record but could not invent the person.
+        scored = [
+            self._sc("mixed", "relay", "operator"),
+            self._sc("mixed", "first-hand", ""),
+        ]
+        assert relay_dependent_authors(scored) == {}
+
+    def test_ignores_an_author_relayed_at_high_confidence(self) -> None:
+        scored = [self._sc("corroborated", "relay", "high")]
+        assert relay_dependent_authors(scored) == {}
+
+    def test_unknown_confidence_counts_as_unverified(self) -> None:
+        # Absent confidence ranks BELOW operator, so it must not escape the net.
+        scored = [self._sc("silent", "relay", "")]
+        assert relay_dependent_authors(scored) == {"silent": 1}
+
+    def test_empty_ledger_yields_nothing(self) -> None:
+        assert relay_dependent_authors([]) == {}
+
+    def test_report_names_the_authors_and_the_escape_hatch(self) -> None:
+        scored = [self._sc("phantom", "relay", "operator")]
+        out = render_report(scored, [], "2026-08-08T00:00:00Z", 5)
+        assert "phantom (n=1)" in out
+        assert "--min-attribution-confidence high" in out
+
+    def test_report_stays_silent_when_nothing_is_relay_dependent(self) -> None:
+        out = render_report(_scored_fixture(), [], "2026-08-08T00:00:00Z", 5)
+        assert "relay attribution" not in out
+
+
+class TestAttributionFilterCLI:
+    def test_default_floor_is_any(self) -> None:
+        # The whole point: this commit moves no published number on its own.
+        assert build_parser().parse_args([]).min_attribution_confidence == "any"
+
+    def test_floor_is_restricted_to_the_known_levels(self) -> None:
+        args = build_parser().parse_args(["--min-attribution-confidence", "high"])
+        assert args.min_attribution_confidence == "high"
+        with pytest.raises(SystemExit):
+            build_parser().parse_args(["--min-attribution-confidence", "verified"])
+
+    def test_filtered_run_refuses_to_overwrite_the_published_priors(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # Same defect shape as the `--capital` drawdown-peak poisoning: an
+        # exploratory knob silently replacing a durable artifact the Brief
+        # reads. Refuse, do not warn - a warning arrives after the write.
+        monkeypatch.setattr(
+            sys, "argv", ["pundit_score", "--min-attribution-confidence", "high"]
+        )
+        assert main() == 2
+        assert "refusing to overwrite" in capsys.readouterr().err
+
+    def test_an_explicit_json_path_is_allowed_to_filter(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        # The refusal must be about the DESTINATION, not about filtering, or
+        # the flag would be unusable for the what-if it exists to answer.
+        ledger = tmp_path / "calls.jsonl"
+        ledger.write_text("", encoding="utf-8")
+        db = tmp_path / "empty.db"
+        with duckdb.connect(str(db)) as conn:
+            init_schema(conn)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "pundit_score",
+                "--min-attribution-confidence",
+                "high",
+                "--ledger",
+                str(ledger),
+                "--json",
+                str(tmp_path / "what-if.json"),
+                "--db",
+                str(db),
+            ],
+        )
+        assert main() == 0
+        assert (tmp_path / "what-if.json").exists()

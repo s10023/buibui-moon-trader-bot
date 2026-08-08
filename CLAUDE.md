@@ -255,7 +255,17 @@ disqualifier it always was in practice — no verdict changes.)
 
 **The published gate is THREE legs, not four — `DSR ≥ 0.95 ∧ PBO ≤ 0.5 ∧
 boot_lo > 0`.** All five sleeves implement exactly this; `min_trl` is computed
-and printed as a stamp but gates nothing. **P2's spec §1/§6 said "MinTRL gated"
+and printed as a stamp but gates nothing. **It is now ONE function —
+`analytics.research_guards.passes_gate` (2026-08-08) — so the rule below is
+structural rather than remembered.** Both `combine_gate_verdict` and the new
+`xs_gate_verdict` delegate to it, and the thresholds live only there; they were
+previously private to `analytics/combine/report.py`, which is why a fourth
+hand-inlined copy had already appeared in `xsmom`'s capacity table. If you need
+a gate verdict, call it — do not restate `0.95` / `0.5` anywhere.
+`corr_to_trend` is likewise NOT a leg: the deploy core cleared at **+0.37**, and
+P3 §Verdict criterion 4 was amended 2026-08-06 to the human-read disqualifier it
+always was, so coding it as a pass condition would fail the sleeve that carries
+capital. **P2's spec §1/§6 said "MinTRL gated"
 and were wrong — AMENDED 2026-08-06** to state the three-leg gate and describe
 MinTRL as a reported stamp — and the deploy core would not clear a MinTRL leg (needs ~7035
 obs to confirm Sharpe > 1.0 at 95%, has ~2475), which its own audit discloses
