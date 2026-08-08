@@ -21,11 +21,9 @@ from analytics.research_guards import (
     cscv_pbo,
     deflated_sharpe_ratio,
     min_track_record_length,
+    passes_gate,
 )
 from portfolio import metrics
-
-_GATE_DSR = 0.95
-_GATE_PBO = 0.5
 
 
 def _per_period_sharpe(r: npt.NDArray[np.float64]) -> float:
@@ -175,7 +173,10 @@ def evaluate_combined(
 
 
 def combine_gate_verdict(report: CombineReport) -> bool:
-    """The headline gate: DSR ≥ 0.95 ∧ PBO ≤ 0.5 ∧ boot_lo > 0."""
-    if math.isnan(report.pbo):
-        return False
-    return report.dsr >= _GATE_DSR and report.pbo <= _GATE_PBO and report.boot_lo > 0.0
+    """The headline gate: DSR ≥ 0.95 ∧ PBO ≤ 0.5 ∧ boot_lo > 0.
+
+    Thin adapter over :func:`analytics.research_guards.passes_gate`, which is
+    now the single definition — see its docstring for why the gate is three
+    legs and not four. Sibling: :func:`analytics.xsmom.report.xs_gate_verdict`.
+    """
+    return passes_gate(report.dsr, report.pbo, report.boot_lo)

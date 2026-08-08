@@ -42,7 +42,12 @@ from analytics.xsmom.replay import (
     replay_xs_capacity,
     replay_xs_trials,
 )
-from analytics.xsmom.report import XSReport, evaluate_xs, evaluate_xs_capacity
+from analytics.xsmom.report import (
+    XSReport,
+    evaluate_xs,
+    evaluate_xs_capacity,
+    xs_gate_verdict,
+)
 
 __all__ = [
     "BetaAttribution",
@@ -77,5 +82,6 @@ __all__ = [
     "turnover_cost_rate",
     "xs_demeaned_forecasts",
     "xs_forecasts",
+    "xs_gate_verdict",
     "xs_leverage",
 ]

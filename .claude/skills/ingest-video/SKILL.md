@@ -741,6 +741,21 @@ skip reason. **Write nothing yet.**
 `attribution_confidence`. A row reading `author: <the channel>` with `attribution: relay`
 is the exact bug this pipeline was paused for — flag it rather than routing it.
 
+**Both fields are VALIDATED ON READ since 2026-08-08** (`analytics/pundit_attribution.py`,
+consumed by `tools/pundit_score.py`), so they are no longer free text the scorer ignores:
+
+- `attribution` ∈ {`first-hand`, `relay`} · `attribution_confidence` ∈ {`high`,
+  `operator`}, matching `config/pundit_roster.toml`'s own vocabulary. **A present but
+  out-of-enum value makes the scorer skip the row with a warning** — the call is lost
+  permanently, same cost as a bad `direction` or `horizon`. Write the roster's value
+  verbatim; do not invent `verified`, `medium` or `low`.
+- **Omitting `attribution` on a relay row no longer buys full trust**: `relayed_by` is
+  cross-checked and forces `relay`. But omitting `relayed_by` *too* silently books the
+  row as first-hand, so keep writing both.
+- A missing `attribution_confidence` on a relay row does not fail — it ranks *below*
+  `operator` and is caught by `--min-attribution-confidence`. It still costs the row its
+  standing, so write it.
+
 **7d — UNRESOLVED NAMES (mandatory — never omit, never abbreviate).**
 
 List every `originating_author` that did not resolve to `mapped`, with the video and
