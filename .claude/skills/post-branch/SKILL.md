@@ -513,6 +513,45 @@ behaviour-visible changes.
 
 ---
 
+## Step 5b — SoT reconcile (always, and it is NOT covered by Step 5)
+
+**Ask one question: does this branch close, change, or contradict a row in the
+SoT** (`~/.claude-personal/projects/-home-kng-repo-buibui-moon-trader-bot/memory/project_todo_master.md`)?
+If yes, reconcile it **now, in this same session** — move the row to **Closed**
+with a one-line verdict, per that file's own rule ("Move items there with a
+one-line verdict; never delete"). Like MEMORY.md it lives outside the repo, so
+it is **never committed** and costs no CI.
+
+Cheap way to find the row — search for the item ID and the PR number:
+
+```bash
+SOT=~/.claude-personal/projects/-home-kng-repo-buibui-moon-trader-bot/memory/project_todo_master.md
+grep -n 'N8\|ST15\|#580' "$SOT"     # the IDs and PRs this branch touched
+grep -n 'OPEN\|not yet\|unfixed' "$SOT" | grep -i "$TOPIC"
+```
+
+**Why this step exists, and why it is separate from Step 5.** Nothing auto-updates
+the SoT — the session-memory wiring (CLAUDE.md "Session Memory Protocol", this
+skill's Step 5, `/sanity-check`, `/backtest-findings`) all touches **MEMORY.md**,
+not the SoT. **The SoT predicted this failure in its own "How to use this file"
+section** — *"Consider adding an SoT-reconcile step to `post-branch` if drift
+recurs."* Drift recurred repeatedly and nobody acted on the trigger, so the step
+is now here.
+
+**The failure it prevents is misinformation, not clutter.** Found 2026-08-09: N8
+still sat in "Ongoing watches" as an **OPEN defect with ~1,900 characters of live
+diagnosis two days after PR #580 closed it**, and the N6 row beside it still
+pointed at "the OPEN N8 row" and still quoted a `_SCAN_WINDOW=200` that #580 had
+changed to 600 for 15m. A session picking up work from the SoT would have
+re-opened a solved problem and coded against a stale constant. Same shape as
+ST13 (listed open twice after being done) and H14's "3 deferred minors".
+
+**A stale row is worse than a missing one**, because it reads as current
+evidence. If you are unsure whether a row is still true, do not leave it —
+either verify it against the code or mark it unverified with today's date.
+
+---
+
 ## Step 6 — Update the PR body
 
 Once edits are approved and applied (or the gate decided no edits were
@@ -607,6 +646,7 @@ PR #<num> behaviour gate: <walked | skipped (pure refactor)>
 CLAUDE.md          — updated: <what> | no change needed: <reason>
 README.md          — updated: <what> | no change needed: <reason>
 MEMORY.md          — updated: Current State + <other>  (never committed)
+SoT reconcile      — <row> moved to Closed | no SoT row affected  (never committed)
 Makefile           — no change needed: no new CLI commands
 docker-compose.yml — no change needed: no new processes
 .claude/context/*  — updated: analytics.md (store/ paths) | no change needed

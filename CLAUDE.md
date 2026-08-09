@@ -388,8 +388,9 @@ dispatch*, so **payoff scales with dispatch count, not task size** — porting t
 - Branch naming: `feat/`, `fix/`, `docs/`, `chore/`
 - Do not commit `.env`, `config/coins.json`, or IDE-specific files
 - **Invoke `/post-branch` on every branch, and SPLIT it around `gh pr create`.**
-  Steps 1–5 and 7 (behaviour gate → changed artifacts → doc walk → surface checks →
-  MEMORY.md → commit and push) are **commit-producing and run BEFORE** `gh pr create`,
+  Steps 1–5b and 7 (behaviour gate → changed artifacts → doc walk → surface checks →
+  MEMORY.md → **SoT reconcile** → commit and push) are **commit-producing and run
+  BEFORE** `gh pr create`,
   so the doc fixes ship in the initial push. Steps 6 and 10a/10c (PR body, handoff)
   need the PR to exist and run **after**; they produce no commits. Step 10b writes a
   gitignored file and is free either way. **A blanket "before" would be as wrong as the
