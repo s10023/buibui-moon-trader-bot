@@ -683,7 +683,9 @@ Run a short status sweep and report any blockers in one line each:
 ```bash
 git status --short                                      # working tree clean?
 git log @{u}..HEAD --oneline 2>/dev/null || true        # unpushed commits?
-gh pr view <PR#> --json mergeable,mergeStateStatus,reviewDecision,statusCheckRollup
+gh pr view <PR#> --json mergeable,mergeStateStatus,reviewDecision,statusCheckRollup \
+  --jq '{mergeable,mergeStateStatus,reviewDecision,
+         checks: [.statusCheckRollup[] | {name, conclusion, startedAt, completedAt}]}'
 ```
 
 Flag, do not fix:
@@ -693,6 +695,20 @@ Flag, do not fix:
 - `mergeable: CONFLICTING` or `mergeStateStatus: DIRTY`
 - Failing required checks in `statusCheckRollup`
 - `reviewDecision: CHANGES_REQUESTED`
+
+**⚠ Before reporting ANY failing check, compute its runtime from
+`startedAt`/`completedAt` — that is why they are in the `--jq` above.**
+
+**A check that fails in under ~10 seconds never ran. That is a BILLING signal, never a
+code one.** When the GitHub Actions allowance is exhausted, every job fails in **2–5
+seconds with zero steps executed**, which renders identically to a real test failure. A
+real `lint-typecheck-test` on this repo takes **~4m18s**.
+
+Report it as such — *"4 checks failed in 2–3s each: GHA billing, not code"* — and point at
+the standing workaround (flip the repo public for the open-PR window, private again on
+merge; confirm with the operator every time). **Never open a debugging session on that
+shape.** Observed on #589 and #590; on #590 it rendered as four `FAILURE`s while
+`make lint-py` / `typecheck` / `test` / `lint-md` were all green locally.
 
 Output one line per item. If everything is green, say so explicitly:
 `pre-merge: clean — ready when you are.`
@@ -741,6 +757,22 @@ headed "DONE".** Measured on 2026-08-07: an uncoded `xs_gate_verdict` item sat
 inside a block titled "DONE 2026-08-06d. Do NOT redo", and a live card-validity
 finding sat inside a closed `/card` task. Deleting on the header alone loses
 both. Prune by MOVING to the durable home, never by deleting outright.
+
+**Two structural rules, operator instruction 2026-08-08d. They live here rather than
+behind a pointer because a guard rail behind a pointer is not a guard rail:**
+
+- **At most ONE "Just shipped" section, superseded on each merge — never accumulated.**
+  Do not add a section per PR. Before writing the new one, move the outgoing one's
+  binding verdict to its durable home (CLAUDE.md, a `docs/audits/` verdict, or a memory
+  file) and delete the rest. The pile had reached **six** such sections before the
+  operator asked.
+- **Resolve an "Open work" row by DELETING it, never by striking it through.** A struck
+  row still costs a read and still reads as state. Move any verdict that still binds
+  first, then delete the row. Four struck rows had accumulated by the same date.
+
+**Also check the file's own budget while you are in it** — `daily_check.py` carries a
+handoff-size line, and the fix for an over-budget file is to **move the next standing
+block to a memory topic file**, not to trim prose. The fat is structural, not narrative.
 
 Structure:
 
