@@ -87,15 +87,45 @@ end_ts="$(date -u +%FT%TZ)"
 
 tail -n 60 "$log"
 
+# Bold headline + a <pre> body, with the body HTML-ESCAPED.
+#
+# The escaping is a bug fix, not cosmetics. utils/telegram.py sends parse_mode=HTML
+# and documents the consequence: a traceback carries `line 33, in <module>`, which
+# Telegram's HTML parser reads as an unclosed tag and rejects with a 400 -- so the
+# failure alert failed on precisely the crashes it exists to report (observed
+# 2026-08-07 on an xsmom traceback). That fallback still exists and still works;
+# escaping means it no longer has to, and the message keeps its formatting.
+#
+# <pre> also preserves COLUMN ALIGNMENT. The daily-check report is aligned ASCII,
+# and Telegram's proportional font destroys it into unreadable ragged text.
+#
+# Telegram hard-caps a message at 4096 chars and rejects the whole send past it,
+# so the body is capped well under that -- an over-long alert fails exactly like
+# no alert.
+tg_send() { # $1 = headline, $2 = body
+    HEAD="$1" BODY="$2" poetry run python -c \
+        'import html, os; from utils.telegram import send_telegram_message as s; s("<b>" + html.escape(os.environ["HEAD"]) + "</b>\n<pre>" + html.escape(os.environ["BODY"]) + "</pre>")' \
+        || true
+}
+
 if [ "$rc" -eq 0 ]; then
     hc_ping ""
+    # TELEGRAM_ALWAYS=1 turns "silence = healthy" into a POSITIVE heartbeat.
+    #
+    # Why this is not merely nice-to-have: with failure-only push, a dead timer
+    # and a green day are indistinguishable on the operator's phone, and the
+    # delivery path is therefore only ever exercised on a red day -- the one day
+    # you need it to already work. A daily success message makes silence
+    # falsifiable. Opt-in per job, because the 15-minute signal-watch would
+    # otherwise send 96 messages a day.
+    if [ -n "${TELEGRAM_ALWAYS:-}" ]; then
+        tg_send "buibui [$label] ok — $start_ts → $end_ts" \
+            "$(tail -n 60 "$log" | tail -c 3400)"
+    fi
 else
     hc_ping "/fail"
-    msg="$(printf 'buibui [%s] FAILED rc=%s\n%s -> %s\n\n%s' \
-        "$label" "$rc" "$start_ts" "$end_ts" "$(tail -n 25 "$log")")"
-    MSG="$msg" poetry run python -c \
-        'import os; from utils.telegram import send_telegram_message as s; s(os.environ["MSG"])' \
-        || true
+    tg_send "buibui [$label] FAILED rc=$rc — $start_ts → $end_ts" \
+        "$(tail -n 25 "$log" | tail -c 3400)"
 fi
 
 exit "$rc"

@@ -31,6 +31,12 @@ EnvironmentFile=-/home/kng/repo/buibui-moon-trader-bot/.env
 # minimal PATH that would not find linuxbrew's copy, so the alert about a broken
 # run would itself break.
 Environment=PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
+# Push the report EVERY day, not only on a red. This is the one job where the
+# whole point is that a human reads the output, and failure-only push made a dead
+# timer indistinguishable from a healthy day -- see run-job.sh's TELEGRAM_ALWAYS
+# comment. It is opt-in per job precisely so the 15-minute signal-watch does not
+# inherit it.
+Environment=TELEGRAM_ALWAYS=1
 
 # Mandatory once ExecStart is wrapped: without it journald tags output with the
 # executable name (run-job.sh), unit attribution is lost, and `journalctl -u`

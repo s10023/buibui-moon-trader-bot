@@ -190,3 +190,14 @@ At the end:
 
 - List all ❌ items with concrete next steps
 - Update MEMORY.md: add today's sanity check date and any open findings
+- **Stamp the cadence marker — final step, not optional:**
+
+  ```bash
+  date -u +%FT%TZ > docs/plans/task-marks/sanity-check
+  ```
+
+  `daily_check.py` reads this to decide whether the weekly cadence is overdue.
+  **Skipping the stamp is indistinguishable from never running the check** — a
+  missing marker reads as overdue by design, so the only cost of forgetting is a
+  false alarm, and the only cost of stamping without running is a real alarm
+  suppressed. Stamp *after* the work, never before.

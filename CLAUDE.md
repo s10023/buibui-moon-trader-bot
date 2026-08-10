@@ -89,11 +89,19 @@ while no off-machine copy exists. It uses `sync`, so remote retention tracks loc
 retention — and therefore **mirrors deletions**, which is why it refuses to run when no
 `MANIFEST.json` exists under the backup root rather than syncing an empty tree over the
 remote. A fifth timer, `buibui-daily-check`, pushes `docs/plans/daily_check.py
---exit-on-tier2` to Telegram once daily; that flag exists because tier-2 lines
-(chart-drops, external-context) do not set exit 1 on their own, so without it the push
-would be silent on exactly the staleness it was built to catch. A hand-run check is
-unaffected and still exits 1 only on tier 1. `deploy/README.md` has install, retention,
-restore and log commands.
+--exit-on-tier2` to Telegram **once daily** (09:10 UTC; the 15-minute cadence belongs to
+signal-watch, which does *not* push); that flag exists because tier-2 lines (chart-drops,
+external-context) do not set exit 1 on their own. A hand-run check is unaffected and
+still exits 1 only on tier 1. **Since 2026-08-10 it also carries `TELEGRAM_ALWAYS=1`, so
+the report arrives EVERY day, green or red.** The old failure-only contract ("silence =
+healthy") was unfalsifiable: a dead timer and a healthy day looked identical on the
+phone, and the delivery path was only ever exercised on a red day. `TELEGRAM_ALWAYS` is
+**opt-in per job** in `run-job.sh` precisely so the 15-minute signal-watch does not
+inherit it and send 96 messages a day. Both push paths now HTML-escape the body and wrap
+it in `<pre>` — that is a bug fix, not cosmetics: `utils/telegram.py` sends
+`parse_mode=HTML`, and an unescaped traceback (`line 33, in <module>`) was rejected 400,
+so the failure alert failed on exactly the crashes it exists to report. `deploy/README.md`
+has install, retention, restore and log commands.
 
 ## Project Structure
 
