@@ -44,6 +44,22 @@ exit 1 on their own — without the flag the push would be silent on precisely t
 staleness that motivated wanting a nudge. The interactive contract is unchanged: a
 hand-run `daily_check.py` still exits 1 only on tier 1.
 
+**It also sets `TELEGRAM_ALWAYS=1` (2026-08-10), so the report arrives every day —
+green or red.** `run-job.sh` otherwise pushes only on `rc != 0`, and that contract
+("silence = healthy") is **unfalsifiable**: a dead timer and a healthy day are
+indistinguishable on the phone, and the delivery path is then exercised for the first
+time on the day you most need it working. The flag is **opt-in per job** — set it on a
+job a human is meant to read, never on `signal-watch`, which would send 96 messages a
+day. To silence the heartbeat again, drop the `Environment=TELEGRAM_ALWAYS=1` line and
+`systemctl --user daemon-reload`.
+
+Both push paths HTML-escape the body and wrap it in `<pre>`. That is a **bug fix**: the
+sender uses `parse_mode=HTML`, so an unescaped traceback (`line 33, in <module>`) was
+rejected with a 400 and the failure alert died on exactly the crashes it exists to
+report. `<pre>` additionally preserves the report's column alignment, which Telegram's
+proportional font otherwise destroys. Bodies are capped at 3400 chars — Telegram rejects
+a message over 4096 outright, so an over-long alert fails exactly like no alert.
+
 Every non-signal-watch schedule avoids `:01/:16/:31/:46`. signal-watch takes an
 exclusive DuckDB lock there, and on duckdb 1.5.5 a second **process** is refused even
 with `read_only=True` — only reader-vs-reader shares. Overlapping does not corrupt

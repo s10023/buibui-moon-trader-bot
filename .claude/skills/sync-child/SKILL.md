@@ -106,3 +106,11 @@ judgment in the fresh-session port).
   PORT section.
 - This skill recommends only. The actual port happens in a fresh session with
   the report's detail block + the wifey PR pasted in.
+- **Stamp the cadence marker as the final step** (after the report is written):
+
+  ```bash
+  date -u +%FT%TZ > docs/plans/task-marks/sync-child
+  ```
+
+  `daily_check.py` reads it to decide whether the weekly fork catch-up is
+  overdue. A missing marker reads as overdue by design. Stamp *after* the work.

@@ -168,6 +168,47 @@ User-facing signals — **walk the docs** if any are present:
 - New external dependency or system requirement
 - Behaviour change to an existing public command
 - New long-running daemon or one-shot tool (docker-compose)
+- **Anything on the notification-decision list below**
+
+### Notification surface — decide it, never default to it
+
+**Telegram is an operator-facing output surface and belongs in this gate**, but it
+was not in the surface list, so the decision was made by whoever happened to think
+of it. Result, audited 2026-08-10: the executor could submit live orders silently,
+the drawdown halt could latch and clear silently, and the daily check pushed
+*nothing on a green day* — which made a dead timer indistinguishable from a healthy
+one.
+
+**Trigger — this PR needs an explicit notification decision if it adds or changes
+any of:**
+
+1. A **scheduled job** (timer/cron). Silence becomes ambiguous the moment nobody is
+   watching a terminal.
+2. An **irreversible or money-moving action** — order submitted, position closed,
+   capital committed.
+3. A **latching state transition** — a halt engaging or clearing, a gate flipping.
+   The *transition* is the event, not the state.
+4. A **failure path visible only in a log** the operator does not read.
+5. A **periodic summary a human is meant to act on.**
+
+**Record one of four verdicts, and never leave it implicit:**
+
+| verdict | when |
+| --- | --- |
+| `always` | a human must act on every occurrence, or the channel needs a heartbeat |
+| `on-change` | only transitions matter; steady state is noise |
+| `on-failure-only` | the default `run-job.sh` behaviour — correct for jobs nobody reads when healthy |
+| `never` | **must state why**, in one line |
+
+**The generalisable rule, and the reason the daily check changed:** *a channel whose
+only signal is failure is unfalsifiable.* You cannot tell "healthy" from "broken"
+without a positive heartbeat, and the delivery path then gets exercised for the
+first time on the day you most need it working. If a job is `on-failure-only`,
+confirm something else proves it is alive.
+
+**Volume is the counterweight** — `TELEGRAM_ALWAYS=1` is opt-in per job precisely
+because the 15-minute signal-watch would otherwise send 96 messages a day. Cheap
+test: multiply by the schedule before choosing `always`.
 
 Skip signals — **stop here** (after MEMORY.md update) if the PR is purely:
 
