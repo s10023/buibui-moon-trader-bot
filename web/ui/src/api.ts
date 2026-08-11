@@ -708,6 +708,7 @@ export interface BriefSeasonalityStrip {
   dow: string;
   bull_pct: number | null;
   avg_range_pct: number | null;
+  median_range_pct: number | null;
   sample_days: number | null;
   high_session: string | null;
   high_session_pct: number | null;

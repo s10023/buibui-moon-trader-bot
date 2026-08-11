@@ -12,6 +12,11 @@
   --text:          #cdd9e5;
   --text-dim:      #8faabe;
   --muted:         #506070;
+  /* --muted measures 2.81:1 on --bg-panel, below the 4.5:1 AA floor. It is kept
+     as-is because seven tabs use it for chrome, but it must not carry body
+     text. --text-soft is the readable middle rung (5.88:1) that body copy and
+     small labels use instead; the Brief tab is converted, the rest are not. */
+  --text-soft:     #7d94a8;
 
   --green:         #26d472;
   --green-dim:     #0a3020;
@@ -23,6 +28,17 @@
   --accent-bright: #00ffcc;
 
   --font-mono: "IBM Plex Mono", "JetBrains Mono", "Fira Code", Consolas, monospace;
+
+  /* Type scale. One face, four voices — a terminal has no second typeface, so
+     hierarchy comes from size, weight, case and tracking instead. Sizes were
+     previously ad-hoc between 9 and 12.5px with no rung meaning anything, which
+     is why the Brief read as undifferentiated text. */
+  --fs-eyebrow: 9.5px;   /* block labels: uppercase, tracked, 700 */
+  --fs-micro:   10px;    /* chips, units, tags */
+  --fs-annot:   11px;    /* annotation beside data */
+  --fs-data:    12.5px;  /* the data itself */
+  --fs-lead:    15px;    /* one per card: the ticker and its price */
+  --ls-eyebrow: 0.14em;
 
   --nav-h: 48px;
 }
