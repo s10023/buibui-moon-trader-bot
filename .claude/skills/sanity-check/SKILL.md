@@ -94,26 +94,41 @@ Check these in parallel:
 
 ### README.md
 
-- Does `## Usage` reflect all current `buibui` subcommands? Verified set:
-  `monitor`, `signal`, `analytics`, `backtest`, `digest`, `param-sweep`,
-  `param-audit`, `recalibrate`, `web`. Note `signal` and `monitor` are
-  parent groups (`buibui signal watch`, `buibui signal test`,
-  `buibui monitor price`, `buibui monitor position`).
+- Does `## Usage` reflect all current `buibui` subcommands? **Do not trust a list written
+  here — generate it, because this one was stale for months** (it omitted `brief`, `card`
+  and `portfolio` until 2026-08-11):
+
+  ```bash
+  poetry run python buibui.py --help | sed -n '/{/,/}/p' | head -3
+  ```
+
+  As of 2026-08-11 that prints 12: `monitor`, `signal`, `analytics`, `backtest`, `brief`,
+  `card`, `digest`, `param-sweep`, `param-audit`, `portfolio`, `recalibrate`, `web`.
+  `signal`, `monitor` and `portfolio` are parent groups (`buibui signal watch`,
+  `buibui monitor price`, `buibui portfolio replay`).
+  **Known gap, not yet fixed: `README.md` documents only 3 of the 12.**
 - Does `## Directory Structure` list all current top-level modules?
 - Are any sections referencing removed features?
 
 ### CLAUDE.md
 
 - Does `## Project Structure` match actual files on disk?
-- Does `## Agent Skills` table list all skills currently in `.claude/skills/`?
+- **Do NOT compare skills against a table in `CLAUDE.md` — there isn't one, deliberately.**
+  `CLAUDE.md`'s `## Agent Skills` section says so explicitly: the harness injects every
+  skill's name and description into each session, so a duplicate table there could only
+  ever drift *behind* the real thing. This check asked for that comparison until
+  2026-08-11 and was unrunnable as written.
 
-Check with:
+  What is still worth checking:
 
-```bash
-ls .claude/skills/*/SKILL.md
-```
+  ```bash
+  ls .claude/skills/*/SKILL.md
+  ```
 
-Compare against the table in `CLAUDE.md` — flag any skill directory with no entry in the table, or any table entry with no corresponding `SKILL.md`.
+  Confirm each directory holds a `SKILL.md` with frontmatter, and that the rules
+  `CLAUDE.md` *does* carry about skills (the `/frontend-design` pairing, the cadence
+  reminders, `/wfo-sweep` as the trusted `tp_r` path, never `&&`-chaining `/card`) still
+  match the skills they describe.
 
 ### MEMORY.md
 

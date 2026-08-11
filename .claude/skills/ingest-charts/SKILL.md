@@ -81,6 +81,9 @@ batch was 15 panels against a protocol of 6, and nothing said so — extra panel
 are not free, since each costs a vision dispatch (**~29K–30K tokens per image,
 post-7j; the 45K–103K was an early wide estimate for pre-`chart-extract` general-purpose cost; precise mean ~49K**)
 and a 1w heatmap band is structural context, not a same-day actionable level.
+**The per-image figure is MEASURED, not estimated: a full 6-panel batch on 2026-08-11 ran
+32–33K per dispatch (mean 32.7K, ~196K total).** Earlier text here said ~29–30K; that band
+was low. Cost a batch at ~33K/image.
 
 This matters because the daily check asserts **recency, not coverage**: one
 fresh drop greens the line while five panels rot. Naming the gap here is the
@@ -107,9 +110,10 @@ general-purpose sonnet agent **and say so prominently in the review digest** —
 name the fallback and the cost. **Never fall back silently:** the output is
 byte-identical either way, so an unannounced fallback restores the full cost
 while looking exactly like success. **Check `subagent_tokens` in the completion
-notification to catch it: `chart-extract` returns ~29-30K, a general-purpose fallback
-~49K.** If a dispatch comes back near 49K, the fallback was taken silently — say so in
-the digest. Do NOT substitute the stock `Explore` agent, and do NOT batch several
+notification to catch it: `chart-extract` returns ~32-33K (measured 2026-08-11 across a
+full 6-panel batch), a general-purpose fallback ~49K.** The two bands are far enough apart
+that one dispatch settles it; if a dispatch comes back near 49K, the fallback was taken
+silently — say so in the digest. Do NOT substitute the stock `Explore` agent, and do NOT batch several
 images into one agent.
 
 ```text
