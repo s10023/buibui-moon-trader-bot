@@ -510,14 +510,14 @@ toml = ["tomli ; python_full_version <= \"3.11.0a6\""]
 
 [[package]]
 name = "dateparser"
-version = "1.4.1"
+version = "1.4.2"
 description = "Date parsing library designed to parse dates from HTML pages"
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "dateparser-1.4.1-py3-none-any.whl", hash = "sha256:f25d4e051a84be27a35bd297e3e1dc59ff78373701b89be352ba80372d22d0d0"},
-    {file = "dateparser-1.4.1.tar.gz", hash = "sha256:f265df13c0380e2e07543ba74b67c0681aaa1096981ffcd35227e1aa0cb81c7c"},
+    {file = "dateparser-1.4.2-py3-none-any.whl", hash = "sha256:752f3d49d477cf7f60a7a9c8bcb19c882496ede0e377d5a3d80014cdfeca7050"},
+    {file = "dateparser-1.4.2.tar.gz", hash = "sha256:bed2a3fd9bad8f2fb2d72b57748bada260b3a9349a264c22ffc23c3249d7049a"},
 ]
 
 [package.dependencies]
@@ -1511,14 +1511,14 @@ files = [
 
 [[package]]
 name = "platformdirs"
-version = "4.11.0"
+version = "4.11.2"
 description = "A small Python package for determining appropriate platform-specific dirs, e.g. a `user data dir`."
 optional = false
 python-versions = ">=3.10"
 groups = ["main", "dev"]
 files = [
-    {file = "platformdirs-4.11.0-py3-none-any.whl", hash = "sha256:360ccded2b7fce0af0ff80cc8f5942a1c5d99b0e856033acb030bfc634709e74"},
-    {file = "platformdirs-4.11.0.tar.gz", hash = "sha256:0555d18370482847566ffabcaa53ad7c6c1c29f195989ae1ed634a05f76ea1e0"},
+    {file = "platformdirs-4.11.2-py3-none-any.whl", hash = "sha256:7f89089b6ea71bda7962953edcf784b2e2d9d285b40ad88be2bb75c6e9d82ab4"},
+    {file = "platformdirs-4.11.2.tar.gz", hash = "sha256:3a2ae5fca3520a01ab1be8b45613537f52ddf5b5f6f53d88233892dfbf0cd82d"},
 ]
 
 [[package]]
@@ -3056,4 +3056,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<3.14"
-content-hash = "474dce708a00a94785ddf196891498ae5e5370e03d08ee04c30a052aa2bbdc7e"
+content-hash = "399971c88e53dfb9028707ec067152eeef17c71049b11f488360d9295789394b"
