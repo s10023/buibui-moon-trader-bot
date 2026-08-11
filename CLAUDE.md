@@ -244,19 +244,26 @@ quantity in both the forward and ledger panels.
 spec §7 required `n >= MinTRL(0.95)`; the code never had it, the verdict doc
 never mentioned it, and every published BUILD cell cleared a gate missing a
 pre-registered condition. Greps cannot find this class of defect — only reading
-each spec against its implementation can. **6 of 46 spec docs have been
-reconciled** (H8 · the ingest-video design doc · P2-EWMAC + P3-trend×XS-combine
-on 2026-08-06, verdict
-`docs/audits/2026-08-06-spec-reconcile-p2-ewmac-p3-combine.md` ·
-**P3-XS-momentum — the deploy core — on 2026-08-06, verdict
-`docs/audits/2026-08-06-spec-reconcile-p3-xsmom.md`** · plus one ambiguous
-earlier entry, below).
-**The denominator is the FULL corpus of 46**, decided 2026-08-06: a spec with
-nothing to reconcile still costs someone a look to confirm that, and an
+each spec against its implementation can. **STOP HAND-MAINTAINING THIS COUNT —
+read `docs/superpowers/specs/INDEX.md`, which derives it from disk** (generated
+by `make docs-index`, kept honest by `tests/test_docs_index.py`). A spec counts
+as reconciled there when a *spec-reconcile audit* names its filename.
+**The denominator is the FULL corpus**, decided 2026-08-06: a spec with nothing
+to reconcile still costs someone a look to confirm that, and an
 "implemented-only" denominator needs a per-spec judgement call nothing records.
 
-**This counter has been wrong every single time anyone has checked it — 3 for
-3.** It read "1 of 44" while the handoff said "3 of 44" and the corpus was 46;
+**The derived floor on 2026-08-11 was 3 of 50, against the "6 of 46" this file
+carried — BOTH numbers wrong, denominator included.** Four specs had landed
+since the 46 was written, and of the six claimed, only P2-EWMAC,
+P3-trend×XS-combine and P3-XS-momentum have an audit that records the reconcile
+(`docs/audits/2026-08-06-spec-reconcile-*.md`). **H8 and the ingest-video design
+doc were reconciled but nothing wrote it down**, so no tool can see them — which
+is the actual lesson: a reconcile that produces no audit did not happen as far as
+the next session is concerned. Treat the index as a **floor**; it cannot see a
+partial reconcile as partial either.
+
+**This counter has been wrong every single time anyone has checked it — 4 for
+4.** It read "1 of 44" while the handoff said "3 of 44" and the corpus was 46;
 PR #566 corrected it to 5 of 46 while listing **"xsmom"** as reconciled *and*
 naming `p3-cross-sectional-momentum-sleeve-design.md` as "the highest-stakes one
 still unchecked" — two claims in one paragraph that cannot both be true.
