@@ -30,6 +30,7 @@ from analytics.data_store import (
     prune_backtest_cache,
 )
 from analytics.data_sync import backfill, sync
+from analytics.db_retry import connect_with_retry
 from analytics.signal.outcome_backfill import backfill_outcomes
 from analytics.signal_config import (
     BacktestFilterConfig,
@@ -179,16 +180,16 @@ def run_signal_watch(
 
     prev_handler = signal.signal(signal.SIGINT, _handle_sigint)
     try:
-        with duckdb.connect(str(db_path)) as init_conn:
+        with connect_with_retry(db_path) as init_conn:
             init_schema(init_conn)
 
-        with duckdb.connect(str(db_path)) as prune_conn:
+        with connect_with_retry(db_path) as prune_conn:
             prune_backtest_cache(prune_conn)
 
         # Load same-TF co-firing combo lookup from DB once at startup (D10 step 3).
         # combo_lookup is keyed by (symbol, tf, frozenset({a, b})) → best avg_r row.
         # Empty dict disables the co-fire check (no combo runs saved yet).
-        with duckdb.connect(str(db_path)) as cl_conn:
+        with connect_with_retry(db_path) as cl_conn:
             combo_lookup = get_combo_lookup(cl_conn)
         if combo_lookup:
             logger.info("Loaded combo lookup: %d pairs", len(combo_lookup))
@@ -197,7 +198,7 @@ def run_signal_watch(
 
         # Load cross-TF combo lookup from DB once at startup (D10 step 4).
         # cross_tf_lookup is keyed by (symbol, tf_htf, tf_ltf, strat_htf, strat_ltf).
-        with duckdb.connect(str(db_path)) as ct_conn:
+        with connect_with_retry(db_path) as ct_conn:
             cross_tf_lookup = get_cross_tf_combo_lookup(ct_conn)
         if cross_tf_lookup:
             logger.info("Loaded cross-TF lookup: %d pairs", len(cross_tf_lookup))
@@ -209,7 +210,7 @@ def run_signal_watch(
         confidence_override: dict[str, dict[str, int]] = {}
         directional_confidence_override: dict[str, dict[str, dict[str, int]]] = {}
         if config_name:
-            with duckdb.connect(str(db_path)) as cr_conn:
+            with connect_with_retry(db_path) as cr_conn:
                 confidence_override = get_confidence_ratings(cr_conn, config_name)
                 directional_confidence_override = get_directional_confidence_ratings(
                     cr_conn, config_name
@@ -233,7 +234,7 @@ def run_signal_watch(
             now_probe_ms = int(time.time() * 1000)
             start_probe_ms = now_probe_ms - _DEFAULT_BACKFILL_DAYS * 24 * 3600 * 1000
             seen_secondaries: set[str] = set()
-            with duckdb.connect(str(db_path)) as probe_conn:
+            with connect_with_retry(db_path) as probe_conn:
                 for sym in resolved_symbols:
                     sec = secondary_map_arg.get(sym)
                     if sec and sec not in seen_secondaries:
@@ -267,7 +268,7 @@ def run_signal_watch(
             # Reload combo lookups periodically so newly saved backtest runs are
             # picked up without requiring a daemon restart.
             if _cycle_count > 1 and _cycle_count % _COMBO_REFRESH_CYCLES == 0:
-                with duckdb.connect(str(db_path)) as _cl_conn:
+                with connect_with_retry(db_path) as _cl_conn:
                     fresh = get_combo_lookup(_cl_conn)
                 if len(fresh) != len(combo_lookup):
                     logger.info(
@@ -276,7 +277,7 @@ def run_signal_watch(
                         len(fresh),
                     )
                     combo_lookup = fresh
-                with duckdb.connect(str(db_path)) as _ct_conn:
+                with connect_with_retry(db_path) as _ct_conn:
                     fresh_ct = get_cross_tf_combo_lookup(_ct_conn)
                 if len(fresh_ct) != len(cross_tf_lookup):
                     logger.info(
@@ -289,7 +290,7 @@ def run_signal_watch(
             # Open a short-lived connection for this cycle only.
             # Closing before the sleep window releases the write lock so the
             # web API's read-only connections can access the DB between cycles.
-            with duckdb.connect(str(db_path)) as conn:
+            with connect_with_retry(db_path) as conn:
                 # Sync each symbol+timeframe; fall back to backfill for new symbols
                 now_ms = int(time.time() * 1000)
                 backfill_start_ms = now_ms - _DEFAULT_BACKFILL_DAYS * 24 * 3600 * 1000
