@@ -140,7 +140,17 @@ _PRIORS_TWO_EACH = json.dumps(
         "generated_at": "2024-02-01T00:00:00Z",
         "policy": {"min_n_marker": 5},
         "authors": {
-            "alice": {"n": 12, "hit_rate": 0.58, "avg_r": 0.34, "avg_atr_r": 1.2},
+            # alice carries r_coverage, bob does NOT — deliberately asymmetric so
+            # the suffix and the pre-2026-08-11 fallback are both exercised. A
+            # fixture where every author had coverage would assert nothing about
+            # a priors file written before the field existed.
+            "alice": {
+                "n": 12,
+                "hit_rate": 0.58,
+                "avg_r": 0.34,
+                "avg_atr_r": 1.2,
+                "r_coverage": 0.5,
+            },
             "bob": {"n": 9, "hit_rate": 0.44, "avg_r": -0.11, "avg_atr_r": 0.8},
         },
         "families": {
@@ -162,15 +172,17 @@ def test_render_authors_and_families_blocks(tmp_path: Path) -> None:
     # Both blocks render.
     assert "Top authors (by n):" in out
     assert "Top families (by n):" in out
-    # Authors: full n / hit_rate / avg_r / avg_atr_r set, signed avg_r + atr_r.
-    assert "  alice  n=12 · 58% · +0.34R · +1.2 ATR-R" in out
-    assert "  bob  n=9 · 44% · -0.11R · +0.8 ATR-R" in out
+    # ATR-R leads avg R (2026-08-11): ATR-R is the COMPLETE sample, where avg R
+    # is computed only over calls that stated a stop. alice's avg R carries its
+    # coverage; bob's priors predate the field, so his renders bare.
+    assert "  alice  n=12 · 58% · +1.2 ATR-R · +0.34R (50% cov)" in out
+    assert "  bob  n=9 · 44% · +0.8 ATR-R · -0.11R" in out
     # Sorted by n desc: alice (12) before bob (9).
     assert out.index("  alice  n=12") < out.index("  bob  n=9")
     # Families now show avg_r too.
-    assert "  breakout/long  n=20 · 55% · +0.22R · +1.1 ATR-R" in out
+    assert "  breakout/long  n=20 · 55% · +1.1 ATR-R · +0.22R" in out
     # None family avg_r renders the placeholder, never the literal "None".
-    assert "  reclaim/short  n=14 · 50% · —R · +0.9 ATR-R" in out
+    assert "  reclaim/short  n=14 · 50% · +0.9 ATR-R · —R" in out
     assert "None" not in out
 
 

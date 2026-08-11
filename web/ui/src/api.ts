@@ -916,6 +916,9 @@ export interface BriefAuthorPrior {
   avg_r: number | null;
   avg_atr_r: number | null;
   flagged: boolean;
+  // Share of resolved calls behind avg_r. Optional: a priors file written
+  // before 2026-08-11 has no coverage, and the API omits the key entirely.
+  r_coverage?: number | null;
 }
 
 // The family prior carries both avg_r and avg_atr_r, matching the author prior
@@ -928,6 +931,7 @@ export interface BriefFamilyPrior {
   avg_r: number | null;
   avg_atr_r: number | null;
   flagged: boolean;
+  r_coverage?: number | null;
 }
 
 export interface BriefCallRow {
