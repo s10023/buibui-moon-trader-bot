@@ -1038,7 +1038,7 @@ Note in the commit body that `make test-regression` was not run and why: this di
 
 **Interfaces:**
 
-- Consumes: `analytics.cvd.fetch.spot_symbol_for`, `analytics.cvd.imbalance.divergence`, `analytics.cvd.forecast.{DEFAULT_SPANS, cvd_forecast_matrix, cvd_forecast}`, `analytics.store.spot_data.get_spot_ohlcv`, `analytics.store.market_data.get_ohlcv`, `analytics.forecast.replay.load_daily_inputs`, `analytics.universe.load_universe`, `analytics.xsmom.book.run_xs_backtest`, `analytics.forecast.book.run_forecast_backtest`
+- Consumes: `analytics.cvd.fetch.spot_symbol_for`, `analytics.cvd.imbalance.divergence`, `analytics.cvd.forecast.{DEFAULT_SPANS, cvd_forecast_matrix}`, `analytics.store.spot_data.get_spot_ohlcv`, `analytics.store.market_data.get_ohlcv`, `analytics.forecast.replay.load_daily_inputs`, `analytics.universe.load_universe`, `analytics.xsmom.book.run_xs_backtest`, `analytics.forecast.book.run_forecast_backtest`
 - Produces:
   - `cvd_universe(symbols: list[str] | None = None) -> list[str]`
   - `load_divergences(conn: duckdb.DuckDBPyConnection, symbols: list[str]) -> dict[str, pd.Series]`
@@ -1192,11 +1192,7 @@ import numpy as np
 import pandas as pd
 
 from analytics.cvd.fetch import spot_symbol_for
-from analytics.cvd.forecast import (
-    DEFAULT_SPANS,
-    cvd_forecast,
-    cvd_forecast_matrix,
-)
+from analytics.cvd.forecast import DEFAULT_SPANS, cvd_forecast_matrix
 from analytics.cvd.imbalance import divergence
 from analytics.forecast.book import ForecastBookResult, run_forecast_backtest
 from analytics.forecast.config import ForecastConfig
@@ -1328,11 +1324,17 @@ def replay_cvd_ts_trials(
     closes, fundings, xs = _inputs(conn, symbols)
     trials: dict[str, np.ndarray] = {}
     for span in spans:
-        single = {
-            sym: cvd_forecast(x, span, cfg.vol_span, cfg.cap) for sym, x in xs.items()
-        }
+        # Built through the SAME function as the XS single-span trials
+        # (`_ts_forecasts` -> `_matrix` -> `cvd_combined_forecast`), so the FDM
+        # and cap are applied identically in both shapes. Calling `cvd_forecast`
+        # directly here would skip the FDM on the TS side only, and then any
+        # measured difference between the two shapes would be partly a forecast
+        # difference rather than purely a book difference — which is the one
+        # comparison this study exists to make. It also matches the house
+        # pattern: `replay_xs_trials` runs its single-speed trials through
+        # `combine_forecasts`, which applies the FDM to a one-element family too.
         trials[f"span{span}"] = run_forecast_backtest(
-            closes, fundings, cfg, forecasts=single
+            closes, fundings, cfg, forecasts=_ts_forecasts(xs, cfg, (span,))
         ).portfolio_return
     trials["combined"] = run_forecast_backtest(
         closes, fundings, cfg, forecasts=_ts_forecasts(xs, cfg, spans)
