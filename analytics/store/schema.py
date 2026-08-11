@@ -54,6 +54,19 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
         )
     """)
     conn.execute("""
+        CREATE TABLE IF NOT EXISTS spot_ohlcv (
+            symbol           TEXT   NOT NULL,
+            open_time        BIGINT NOT NULL,
+            open             DOUBLE NOT NULL,
+            high             DOUBLE NOT NULL,
+            low              DOUBLE NOT NULL,
+            close            DOUBLE NOT NULL,
+            volume           DOUBLE NOT NULL,
+            taker_buy_volume DOUBLE,
+            PRIMARY KEY (symbol, open_time)
+        )
+    """)
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS symbol_lifecycle (
             symbol            TEXT   PRIMARY KEY,
             status            TEXT   NOT NULL,
