@@ -38,6 +38,10 @@ make test-cov       # same suite + coverage report (on demand; not a gate)
 
 For Markdown changes: `make lint-md`.
 
+After adding a doc to `docs/audits/` or `docs/superpowers/specs/`: `make docs-index`
+(both `INDEX.md` files are generated, and `tests/test_docs_index.py` fails until they
+are current).
+
 **`make lint-py` also rewrites Markdown.** It runs `ruff format .`, and ruff formats
 python code fences *inside `.md` files* — so any plan or spec doc carrying a python
 fence is reformatted on every Python task, showing up as unrelated churn in the diff.
