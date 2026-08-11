@@ -107,8 +107,11 @@ def _print_report(label: str, report: CVDReport) -> None:
     print(f"  MinTRL            {report.min_trl:.0f}")
     print(f"  corr_to_xsmom     {report.corr_to_xsmom:+.3f}")
     print(f"  xsmom Sharpe/23   {report.xsmom_sharpe:+.3f}")
-    if report.folded_to_magnitude:
-        print("  NOTE: Sharpes folded to magnitude (negative-direction rule).")
+    if report.inverted:
+        print(
+            "  NOTE: returns inverted (testing the pre-registered sign "
+            "convention's inverse, negative-direction rule)."
+        )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -121,9 +124,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     rn = sub.add_parser("run", help="run both book shapes and print the gate")
     rn.add_argument(
-        "--fold-to-magnitude",
+        "--invert",
         action="store_true",
-        help="negative-direction rule: fold target AND trial Sharpes to abs()",
+        help=(
+            "negative-direction rule: test the pre-registered sign "
+            "convention's inverse by negating portfolio + trial returns "
+            "before any metric is computed (not a Sharpe fold)"
+        ),
     )
     return parser
 
@@ -140,25 +147,31 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     with duckdb.connect(str(args.db), read_only=True) as conn:
-        bench = replay_xsmom_benchmark(conn, cfg).portfolio_return
+        bench = replay_xsmom_benchmark(conn, cfg)
+        cvd_xs = replay_cvd_xs(conn, cfg)
         _print_report(
             "Shape A - cross-sectional",
             evaluate_cvd(
-                replay_cvd_xs(conn, cfg).portfolio_return,
+                cvd_xs.portfolio_return,
                 cfg,
                 replay_cvd_xs_trials(conn, cfg),
-                bench,
-                fold_to_magnitude=args.fold_to_magnitude,
+                bench.portfolio_return,
+                portfolio_index=cvd_xs.daily_index,
+                xsmom_index=bench.daily_index,
+                invert=args.invert,
             ),
         )
+        cvd_ts = replay_cvd_ts(conn, cfg)
         _print_report(
             "Shape B - time-series",
             evaluate_cvd(
-                replay_cvd_ts(conn, cfg).portfolio_return,
+                cvd_ts.portfolio_return,
                 cfg,
                 replay_cvd_ts_trials(conn, cfg),
-                bench,
-                fold_to_magnitude=args.fold_to_magnitude,
+                bench.portfolio_return,
+                portfolio_index=cvd_ts.daily_index,
+                xsmom_index=bench.daily_index,
+                invert=args.invert,
             ),
         )
     print("\n10 trials declared before any result: 5 per shape x 2 shapes.")

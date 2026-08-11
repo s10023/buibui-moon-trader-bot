@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -5,6 +8,9 @@ import pytest
 from analytics.cvd.imbalance import divergence, taker_imbalance
 
 DAY = 86_400_000
+
+_FIXTURE_DIR = Path(__file__).resolve().parent.parent / "fixtures"
+_COMPLETENESS_FIXTURE = _FIXTURE_DIR / "cvd_daily_completeness_btcusdt_spot.json"
 
 
 def test_all_buyers_is_plus_one_all_sellers_is_minus_one() -> None:
@@ -49,12 +55,22 @@ def test_divergence_drops_days_present_on_only_one_venue() -> None:
     assert len(out) == 1
 
 
-def test_daily_bars_are_information_complete_for_daily_cvd() -> None:
-    """Spec section 3: aggregating intraday taker flow to a day is an IDENTITY.
+def test_daily_aggregation_is_an_algebraic_identity_not_an_empirical_claim() -> None:
+    """ALGEBRAIC identity only: sum_i(2*tbv_i - vol_i) == 2*sum_i(tbv_i) -
+    sum_i(vol_i), true by linearity of summation for ANY input and therefore
+    incapable of failing.
 
-    sum_i(2*tbv_i - vol_i) == 2*sum_i(tbv_i) - sum_i(vol_i). This is the test
-    that lets a future session trust the cheap daily ingestion path instead of
-    re-deriving it. Pure arithmetic — no network.
+    This does NOT test spec section 3's actual claim, which is empirical: does
+    Binance's own 1d kline field 9 (taker_buy_base_asset_volume) equal the sum
+    of that day's 15m field 9s? Defining "daily" values as the sum of
+    "intraday" ones (as this test does) makes the assertion below a
+    restatement of arithmetic, not a check against real data — it cannot fail
+    for any input, including a hypothetical Binance that aggregates
+    differently. FINDING 3 named this a tautology; the real claim is now
+    tested empirically in
+    ``test_binance_1d_taker_buy_volume_matches_the_sum_of_its_15m_bars``
+    against a captured real sample. Kept here, renamed, because it is still a
+    genuine (if narrower) regression guard on ``taker_imbalance``'s algebra.
     """
     rng = np.random.default_rng(11)
     intraday_vol = rng.uniform(1.0, 100.0, size=96)
@@ -69,6 +85,54 @@ def test_daily_bars_are_information_complete_for_daily_cvd() -> None:
 
     imb_daily = taker_imbalance(pd.Series([day_vol]), pd.Series([day_tbv])).iloc[0]
     assert imb_daily == pytest.approx(from_daily / day_vol)
+
+
+def test_binance_1d_taker_buy_volume_matches_the_sum_of_its_15m_bars() -> None:
+    """EMPIRICAL claim, spec sections 3 and 10: does Binance's own 1d kline
+    field 9 (taker_buy_base_asset_volume) equal the sum of that day's 15m
+    field 9s? Loads a captured real sample — BTCUSDT SPOT,
+    2024-01-01..2024-01-08, one symbol-week, fetched via a single one-shot
+    network call and committed as a fixture (``payload["source"]`` records
+    the endpoint) — rather than re-deriving daily values from the intraday
+    rows, so a genuine mismatch in Binance's own aggregation would show up
+    here. This test itself makes no network call.
+
+    Measured residual (2026-08-11, this exact fixture): both `volume` and
+    `taker_buy_volume` sums matched the 1d kline's own fields to float64
+    bit-exactness (0.0) on all 7 days — see the final-fix report. The
+    tolerances below are generous float-accumulation slack, not a fit to the
+    measured value.
+    """
+    payload = json.loads(_COMPLETENESS_FIXTURE.read_text())
+    bars_15m: list[list[float]] = payload["bars_15m"]  # [open_time, vol, tbv]
+    bars_1d: list[list[float]] = payload["bars_1d"]
+    assert len(bars_1d) == 7
+    assert len(bars_15m) == 7 * 96
+
+    by_day: dict[int, list[tuple[float, float]]] = {}
+    for open_time, vol, tbv in bars_15m:
+        by_day.setdefault(int(open_time) // DAY, []).append((vol, tbv))
+
+    max_vol_resid = 0.0
+    max_tbv_resid = 0.0
+    max_imb_resid = 0.0
+    for open_time_1d, vol_1d, tbv_1d in bars_1d:
+        day = int(open_time_1d) // DAY
+        rows = by_day[day]
+        assert len(rows) == 96, f"day {day} has {len(rows)} 15m bars, expected 96"
+        agg_vol = sum(v for v, _ in rows)
+        agg_tbv = sum(b for _, b in rows)
+
+        max_vol_resid = max(max_vol_resid, abs(agg_vol - vol_1d))
+        max_tbv_resid = max(max_tbv_resid, abs(agg_tbv - tbv_1d))
+
+        imb_1d = taker_imbalance(pd.Series([vol_1d]), pd.Series([tbv_1d])).iloc[0]
+        imb_agg = taker_imbalance(pd.Series([agg_vol]), pd.Series([agg_tbv])).iloc[0]
+        max_imb_resid = max(max_imb_resid, abs(imb_1d - imb_agg))
+
+    assert max_vol_resid < 1e-6
+    assert max_tbv_resid < 1e-6
+    assert max_imb_resid < 1e-9
 
 
 def test_off_midnight_open_time_still_normalizes_to_utc_midnight() -> None:

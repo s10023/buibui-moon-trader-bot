@@ -42,7 +42,7 @@ class CVDReport:
     min_trl: float
     corr_to_xsmom: float
     xsmom_sharpe: float
-    folded_to_magnitude: bool
+    inverted: bool
 
 
 def _per_period_sharpe(r: npt.NDArray[np.float64]) -> float:
@@ -58,11 +58,34 @@ def _ann_sharpe(r: npt.NDArray[np.float64], ann: float) -> float:
     return _per_period_sharpe(r) * ann
 
 
-def _aligned_corr(a: npt.NDArray[np.float64], b: npt.NDArray[np.float64]) -> float:
-    n = min(len(a), len(b))
-    if n < 2:
+def _aligned_corr(
+    a: npt.NDArray[np.float64],
+    a_index: pd.DatetimeIndex,
+    b: npt.NDArray[np.float64],
+    b_index: pd.DatetimeIndex,
+) -> float:
+    """Correlate two return series on their SHARED DATES, never their positions.
+
+    The CVD cross-sectional book adopts the forecast matrix's index (spot ∩
+    perp dates — always a subset); the XS-momentum benchmark adopts the
+    closes' union. Whenever the spot leg's history ends earlier than the perp
+    leg's (e.g. a Monday backfill, a Tuesday re-run), the two arrays are the
+    same length by coincidence but represent different calendar windows — a
+    positional ``[-n:]`` tail slice then compares day *d* of one book against
+    day *d+k* of the other, and the error runs toward manufacturing a
+    decorrelation reading exactly where the study is decisive (the
+    ``corr_to_xsmom`` restatement-vs-second-edge stamp). Building a
+    ``pd.Series`` on each and inner-joining fixes this: a legitimately short
+    spot history still yields a usable stamp over whatever days really
+    overlap, rather than raising.
+    """
+    sa = pd.Series(a, index=a_index)
+    sb = pd.Series(b, index=b_index)
+    sa, sb = sa.align(sb, join="inner")
+    if len(sa) < 2:
         return float("nan")
-    x, y = a[-n:], b[-n:]
+    x = sa.to_numpy(dtype=np.float64)
+    y = sb.to_numpy(dtype=np.float64)
     if float(np.std(x)) == 0.0 or float(np.std(y)) == 0.0:
         return float("nan")
     return float(np.corrcoef(x, y)[0, 1])
@@ -74,33 +97,46 @@ def evaluate_cvd(
     trial_returns: dict[str, npt.NDArray[np.float64]],
     xsmom_returns: npt.NDArray[np.float64],
     *,
-    fold_to_magnitude: bool = False,
+    portfolio_index: pd.DatetimeIndex,
+    xsmom_index: pd.DatetimeIndex,
+    invert: bool = False,
 ) -> CVDReport:
     """All D1 metrics + research-guard stamps + the decorrelation read.
 
     ``trial_returns`` is the declared multiple-testing family (per-span sleeves
-    + combined). ``fold_to_magnitude`` implements the spec's negative-direction
-    rule: DSR and MinTRL are directional, so a negative-direction verdict gated
-    on either is structurally unreachable unless the target AND every trial
-    Sharpe fold to ``abs()``. Folding shrinks trial dispersion in a mixed-sign
-    family, so the gate becomes marginally MORE permissive — bias runs toward
-    more passes, never fewer.
+    + combined). ``portfolio_index``/``xsmom_index`` are the two books' daily
+    indices (``XSBookResult.daily_index`` / ``ForecastBookResult.daily_index``)
+    — required so ``corr_to_xsmom`` aligns the two return series by DATE, not
+    by array position (see ``_aligned_corr``).
+
+    ``invert`` implements the spec's negative-direction rule (§8): an honest
+    finding that runs opposite to the pre-registered sign is a SIGN FLIP, not
+    a magnitude fold. Negating ``portfolio_return`` and every trial's returns
+    up front — before any metric is derived — moves DSR, PBO, and boot_lo
+    coherently, because every one of them is then computed from the same
+    mirrored series. The predecessor implementation folded only the Sharpes
+    fed to DSR (`abs(sr_d)`, `abs(trial_srs)`) while `boot_lo` kept coming
+    from the raw, unfolded returns — so DSR could cross the gate while
+    `boot_lo` stayed negative, making a negative verdict structurally
+    unreachable through that leg instead of the one the rule was written to
+    fix. `abs()` per-trial also shrinks trial dispersion in a mixed-sign
+    family for no principled reason; negation does not, because it is not a
+    fold — it is evaluating the mirror-image book.
     """
-    r = np.asarray(portfolio_return, dtype=np.float64)
+    sign = -1.0 if invert else 1.0
+    r = sign * np.asarray(portfolio_return, dtype=np.float64)
+    trial_returns = {
+        k: sign * np.asarray(v, dtype=np.float64) for k, v in trial_returns.items()
+    }
     curve = (1.0 + pd.Series(r)).cumprod()
     ann = math.sqrt(cfg.annualization_days)
 
     sr_d = _per_period_sharpe(r)
-    trial_srs = [_per_period_sharpe(np.asarray(v)) for v in trial_returns.values()]
-    if fold_to_magnitude:
-        sr_d = abs(sr_d)
-        trial_srs = [abs(s) for s in trial_srs]
+    trial_srs = [_per_period_sharpe(v) for v in trial_returns.values()]
 
     min_len = min((len(v) for v in trial_returns.values()), default=0)
     if min_len >= 28 and len(trial_returns) >= 2:
-        mat = np.column_stack(
-            [np.asarray(v)[-min_len:] for v in trial_returns.values()]
-        )
+        mat = np.column_stack([v[-min_len:] for v in trial_returns.values()])
         pbo = cscv_pbo(mat).pbo
     else:
         pbo = float("nan")
@@ -132,9 +168,9 @@ def evaluate_cvd(
         boot_lo=boot_lo,
         boot_hi=boot_hi,
         min_trl=min_trl,
-        corr_to_xsmom=_aligned_corr(r, xsm),
+        corr_to_xsmom=_aligned_corr(r, portfolio_index, xsm, xsmom_index),
         xsmom_sharpe=metrics.sharpe(xsm_curve) if len(xsm) >= 2 else 0.0,
-        folded_to_magnitude=fold_to_magnitude,
+        inverted=invert,
     )
 
 
