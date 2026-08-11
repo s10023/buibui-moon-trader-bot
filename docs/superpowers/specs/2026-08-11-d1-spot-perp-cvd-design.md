@@ -326,8 +326,8 @@ rebuilds it — the fate of `carry/` and `xsrev/`.
 ### The negative-direction rule
 
 If the honest finding is that the measured edge runs **opposite** to §4's pre-registered
-sign, that is an inverted finding, and reporting it requires folding the Sharpe to
-`abs()` for **both** the target and the trial values before computing DSR.
+sign, that is an inverted finding. Reporting it requires **negating the book's returns
+and every trial's returns**, then running the unchanged three-leg gate.
 
 `deflated_sharpe_ratio` and `min_track_record_length` are **directional** — they answer
 "is this *positive* performance credible". DSR of a raw negative Sharpe collapses to
@@ -336,9 +336,29 @@ unreachable**: the study would report "no effect found" no matter what the data 
 This shipped in H8 and H14 and stood for weeks in H8, where a reliably-negative cell
 scored DSR 0.0000 against 0.9980 for its mirror-image positive cell.
 
-**Disclose the cost when doing it:** folding to magnitude shrinks trial dispersion in a
-mixed-sign family, so the gate becomes marginally *more permissive* than the signed
-form. The bias runs toward more passes, never fewer.
+> **AMENDED 2026-08-11, after the first run, and the amendment is disclosed here rather
+> than quietly applied.** This section originally said to fold the Sharpe to `abs()` for
+> the target and trial values. **That wording was wrong in two ways, and the code that
+> faithfully implemented it reproduced the very defect the section exists to prevent.**
+>
+> 1. **It only reached two of the three legs.** DSR and MinTRL were computed from folded
+>    Sharpes while `boot_lo` was still computed from the raw, unfolded returns. Measured
+>    on a reliably negative book: folding lifted DSR 0.0000 → 0.9879 and PBO passed,
+>    while `boot_lo` stayed at **−3.0069**, so the gate returned False regardless of the
+>    data. The H8/H14 defect had simply moved from the DSR leg to the bootstrap leg.
+>    Negating returns gives DSR 0.9879, PBO 0.2558, `boot_lo` **+0.9512** — all three
+>    legs coherent, and the branch finally reachable.
+> 2. **`abs()` per trial is not a sign flip.** On a mixed-sign family it shrinks trial
+>    dispersion arbitrarily rather than reflecting the book, which is a different
+>    operation from the one the rule intends.
+>
+> **This amendment did not change the 2026-08-11 verdict**: that run never used the
+> flag, both shapes were evaluated under the pre-registered sign, and both FAILED. The
+> fix makes a broken rule usable for future runs; it did not rescue or alter this one.
+>
+> The old wording's disclosure — that folding to magnitude shrinks trial dispersion in a
+> mixed-sign family and so biases the gate toward more passes — is **retained as the
+> reason the fold was rejected**, not as a cost to be accepted.
 
 ## 9. Architecture
 
