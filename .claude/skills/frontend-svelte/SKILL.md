@@ -180,6 +180,15 @@ closing `</style>` tag many lines below.
 - `make web-build` — succeeds (this is what CI runs)
 - Manually click through the changed page in `make web-dev` — golden path +
   one error case
+- **If you cannot view it yourself, ASK THE OPERATOR FOR A SCREENSHOT before
+  committing — and never write "verified" for a visual change on the strength of
+  build + tests.** Without this the step silently evaporates in a session with no
+  browser tooling instead of escalating, which is the worst of both: the checklist
+  reads complete and nothing looked at the page. Measured on #593: three real
+  defects (pundit text truncated, `Asia`+`lo` rendered as `Asialo`, a hanging grid
+  indent) survived mypy strict on 525 files, 3,387 tests, a clean `make web-build`,
+  `svelte-check` 0 errors **and** a field-by-field live API read — and the operator
+  found all three in one screenshot. A green gate is blind to rendering.
 - If a new endpoint was added: confirm it appears in the FastAPI auto-docs
   (`/docs`)
 

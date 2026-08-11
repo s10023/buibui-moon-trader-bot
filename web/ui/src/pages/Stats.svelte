@@ -113,6 +113,20 @@
   }
 
   const formatPct = (v: number) => (v * 100).toFixed(1) + "%";
+  // Paired mean/median values only. At 1dp the pair that motivates showing both
+  // collapses: ADR(14) 1.93% and 1.87% BOTH render "1.9%", so the median reads as
+  // redundant exactly when it is telling you the distribution is tight. Kept
+  // separate from formatPct so the P1/P2, session and weekly cards do not move.
+  const formatPct2 = (v: number) => (v * 100).toFixed(2) + "%";
+
+  // Standard errors below which a DOW return is rendered as "no direction".
+  // Bonferroni for the SEVEN weekdays shown at once: alpha 0.05 / 7 = 0.00714,
+  // two-sided, so the tail is 0.00357 and z = 2.69. An uncorrected 1.96-2.00 bar
+  // is wrong for this card because the reader scans all seven cells and reacts to
+  // whichever is largest, which is exactly the multiple-comparison setup.
+  // Conservative by a hair when a weekday is missing (fewer than 7 rows); that
+  // errs toward calling something noise, which is the safe direction here.
+  const DOW_NOISE_SE = 2.69;
   const fmtHour = (h: number) => String(h).padStart(2, "0") + ":00";
 
   async function loadStats(): Promise<void> {
@@ -294,13 +308,31 @@
           </div>
         {/if}
         <div class="adr-rows">
+          <!-- Mean and median together: daily range is right-skewed, so a mean
+               well above the median says the average rests on a few violent
+               days. Each value sits in its own element and .adr-vals spaces them
+               with `gap`, never with whitespace — Svelte collapses whitespace
+               between an expression and an adjacent element, which is how
+               "Asia"+"lo" shipped as "Asialo" on the Brief tab. -->
           <div class="adr-row">
             <span class="adr-label">ADR(14) <span class="adr-sublabel">2-week</span></span>
-            <span class="val-accent">{formatPct(stats.adr.adr_14)}</span>
+            <span class="adr-vals">
+              <span class="val-accent">{formatPct2(stats.adr.adr_14)}</span>
+              <span class="adr-unit">avg</span>
+              <span class="adr-unit">/</span>
+              <span class="val-accent">{formatPct2(stats.adr.adr_14_median)}</span>
+              <span class="adr-unit">med</span>
+            </span>
           </div>
           <div class="adr-row">
             <span class="adr-label">ADR(30) <span class="adr-sublabel">monthly</span></span>
-            <span class="val-accent">{formatPct(stats.adr.adr_30)}</span>
+            <span class="adr-vals">
+              <span class="val-accent">{formatPct2(stats.adr.adr_30)}</span>
+              <span class="adr-unit">avg</span>
+              <span class="adr-unit">/</span>
+              <span class="val-accent">{formatPct2(stats.adr.adr_30_median)}</span>
+              <span class="adr-unit">med</span>
+            </span>
           </div>
           {#if stats.adr.today_range_pct !== null}
             <div class="adr-row">
@@ -393,8 +425,10 @@
             <tr>
               <th>Day</th>
               <th>Avg Range</th>
+              <th title="Median (high-low)/open for this weekday. Read beside Avg Range: a mean well above the median means one violent day is carrying the average, not that the day is typically wide.">Med Range</th>
               <th>Direction</th>
-              <th>Avg Return</th>
+              <th title="Mean (close-open)/open for this weekday. DIMMED when the mean is inside 2.69 standard errors of zero — Bonferroni-corrected for reading all seven weekdays at once. At this sample size that is usually every weekday. Dimmed means 'no direction', not 'small direction'; a coloured cell is worth a second look, not evidence of an edge.">Avg Return</th>
+              <th title="Median (close-open)/open. Robust to the single crash day that can flip a weekday's mean negative on its own.">Med Return</th>
               <th title="Strong high: close in bottom 20% of range — high strongly rejected, likely to hold">Str H</th>
               <th title="Strong low: close in top 20% of range — low strongly rejected, likely to hold">Str L</th>
               <th title="Number of that weekday in the lookback window">N</th>
@@ -404,6 +438,27 @@
             {#each stats.dow_patterns as row}
               {@const ret = row.avg_return_pct}
               {@const isPos = ret >= 0}
+              <!-- A mean inside its own error bar is not a small direction, it is
+                   no direction. Rendering it green or red gave noise the same
+                   visual weight as the range column, which is real signal — and the
+                   weekend/DOW axis has already FAILED the three-leg gate
+                   (DSR 0.672), so the colour implied an edge that was measured and
+                   rejected. null stderr (n<2) dims too: unknown is not significant.
+
+                   The bar is BONFERRONI-CORRECTED (see DOW_NOISE_SE above), because
+                   you do not read one weekday — you scan all seven at once. An
+                   uncorrected 2 SE bar left Thursday coloured at 2.46 SE on
+                   BTCUSDT/365d, and across seven cells a 2.46 SE reading is close to
+                   what chance alone produces. The correction dims it for a reason
+                   rather than for the look; picking a cutoff BECAUSE it hides a cell
+                   would be the data-snooping this repo keeps auditing out.
+
+                   Still a DISPLAY threshold, not a significance test. Nothing gates
+                   on it, and a coloured cell is not evidence of an edge — the
+                   weekend/DOW axis failed the three-leg gate at DSR 0.672 when it
+                   was tested properly. -->
+              {@const se = row.return_stderr_pct}
+              {@const retIsNoise = se === null || Math.abs(ret) < DOW_NOISE_SE * se}
               <tr class:today-row={row.dow === todayDOW}>
                 <td class="dow-name">{row.dow}</td>
                 <td>
@@ -411,9 +466,14 @@
                     <div class="range-mini">
                       <div class="range-mini-fill" style="width: {(row.avg_range_pct / maxDOWRange * 100).toFixed(0)}%"></div>
                     </div>
-                    <span>{formatPct(row.avg_range_pct)}</span>
+                    <span>{formatPct2(row.avg_range_pct)}</span>
                   </div>
                 </td>
+                <!-- No mini-bar here on purpose: two bars side by side read as a
+                     comparison between the columns rather than each against the
+                     week, and the median's job is to be compared with the mean in
+                     the same ROW. -->
+                <td class="med-range-cell">{formatPct2(row.median_range_pct)}</td>
                 <td>
                   <div class="bias-cell">
                     <div class="bias-split">
@@ -425,8 +485,21 @@
                     </span>
                   </div>
                 </td>
-                <td class:val-green={isPos} class:val-red={!isPos}>
+                <td
+                  class:val-green={isPos && !retIsNoise}
+                  class:val-red={!isPos && !retIsNoise}
+                  class:val-noise={retIsNoise}
+                  title={se === null
+                    ? "Too few samples to estimate an error bar"
+                    : `±${(se * 100).toFixed(2)}% SE (n=${row.sample_days}), ${(Math.abs(ret) / se).toFixed(2)} SE from zero — ${retIsNoise ? `inside the ${DOW_NOISE_SE} bar, treat as no direction` : `outside the ${DOW_NOISE_SE} bar`}`}
+                >
                   {isPos ? "+" : ""}{(ret * 100).toFixed(1)}%
+                </td>
+                <td
+                  class:val-noise={retIsNoise}
+                  class:val-muted={!retIsNoise}
+                >
+                  {row.median_return_pct >= 0 ? "+" : ""}{(row.median_return_pct * 100).toFixed(1)}%
                 </td>
                 <td class="strong-cell" class:strong-hi={row.strong_high_pct >= 0.6} class:strong-lo-dim={row.strong_high_pct < 0.4}>
                   {(row.strong_high_pct * 100).toFixed(0)}%
@@ -1042,6 +1115,33 @@
     color: var(--muted);
     font-style: normal;
     margin-left: 4px;
+  }
+
+  /* `gap` rather than whitespace, so the values cannot run together if Svelte
+     collapses the text nodes between them. */
+  .adr-vals {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+  }
+
+  .adr-unit {
+    font-size: 9px;
+    color: var(--muted);
+  }
+
+  /* Dimmer than Avg Range so the mean stays the primary read and the median is
+     the reference you glance at, not a second headline competing with it. */
+  .med-range-cell {
+    color: var(--text-dim);
+  }
+
+  /* Deliberately the SAME grey for a dimmed + and a dimmed − : the sign of a
+     value inside its own error bar carries no information, so colouring it would
+     re-introduce exactly the false read this is here to remove. */
+  .val-noise {
+    color: var(--muted);
+    opacity: 0.75;
   }
 
   .adr-gauge-track {

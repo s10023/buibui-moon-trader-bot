@@ -740,10 +740,24 @@ Flag, do not fix:
 **⚠ Before reporting ANY failing check, compute its runtime from
 `startedAt`/`completedAt` — that is why they are in the `--jq` above.**
 
-**A check that fails in under ~10 seconds never ran. That is a BILLING signal, never a
-code one.** When the GitHub Actions allowance is exhausted, every job fails in **2–5
-seconds with zero steps executed**, which renders identically to a real test failure. A
-real `lint-typecheck-test` on this repo takes **~4m18s**.
+**The discriminator is the STEP LIST, not a duration.** When the GitHub Actions
+allowance is exhausted, every job fails in 2–5 seconds with **zero steps executed**,
+which renders identically to a real test failure. Pull the steps and look:
+
+```bash
+gh run view <id> --json jobs --jq '.jobs[] | {name, steps: [.steps[] | {name, conclusion}]}'
+```
+
+`steps: []` is billing. A populated step list is a real run, whatever the clock says.
+
+**⚠ Do NOT use a flat "under ~10 seconds never ran" rule — it is wrong in both
+directions, and this skill carried it until 2026-08-11.** Trivy died at *exactly* 10s
+against a real 22s baseline, so the constant cleared a check that genuinely failed;
+and a fast *green* can be legitimate path-filtering (#592: 8s against a 3m45s norm).
+The dangerous half is the green one — a fast red gets investigated, a fast green gets
+merged. **When you do compare durations, compare a check against ITS OWN normal
+runtime, never against a shared constant**: `lint-typecheck-test` runs ~4m18s here,
+Regression ~2m41s, Trivy ~22s. Three checks, three different "too fast".
 
 Report it as such — *"4 checks failed in 2–3s each: GHA billing, not code"* — and point at
 the standing workaround (flip the repo public for the open-PR window, private again on
