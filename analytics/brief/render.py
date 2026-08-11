@@ -479,8 +479,24 @@ def _hit_str(value: float | None) -> str:
     return fmt_frac(value) if value is not None else "—"
 
 
-def _avg_r_str(value: float | None) -> str:
-    return f"{value:+.2f}R" if value is not None else "—R"
+def _avg_r_str(value: float | None, coverage: float | None = None) -> str:
+    """`avg_r` with its own denominator attached.
+
+    R needs the pundit's stated stop, and a stopped-out LOSS always has one
+    while a target-scored WIN often does not — so this mean is computed over a
+    loss-enriched subset of the resolved calls. Printing the coverage beside it
+    is what stops it being read as the whole cell, and what stops two authors
+    with different coverage being compared as if they were alike.
+    """
+    if coverage is None:
+        return "—R" if value is None else f"{value:+.2f}R"
+    # Coverage is shown even when avg_r is None, because 0% coverage is exactly
+    # WHY the dash is there — dropping it leaves an unexplained placeholder. The
+    # web board already rendered it this way; keeping the two in step matters
+    # more than brevity, since the Brief's numbers are mirrored across the CLI
+    # and the tab and a silent divergence is how they start disagreeing.
+    head = "—R" if value is None else f"{value:+.2f}R"
+    return f"{head} ({coverage:.0%} cov)"
 
 
 def _atr_r_str(value: float | None) -> str:
@@ -488,23 +504,29 @@ def _atr_r_str(value: float | None) -> str:
 
 
 def _stats_str(
-    hit_rate: float | None, avg_r: float | None, avg_atr_r: float | None
+    hit_rate: float | None,
+    avg_r: float | None,
+    avg_atr_r: float | None,
+    r_coverage: float | None = None,
 ) -> str:
-    return f"{_hit_str(hit_rate)} · {_avg_r_str(avg_r)} · {_atr_r_str(avg_atr_r)}"
+    """ATR-R leads: it is the complete sample, where avg R is stop-conditional."""
+    return (
+        f"{_hit_str(hit_rate)} · {_atr_r_str(avg_atr_r)} · "
+        f"{_avg_r_str(avg_r, r_coverage)}"
+    )
 
 
 def _author_board_line(a: PunditAuthorPrior) -> str:
     flag = " ⚠" if a.flagged else ""
-    return (
-        f"  {a.author}  n={a.n}{flag} · {_stats_str(a.hit_rate, a.avg_r, a.avg_atr_r)}"
-    )
+    stats = _stats_str(a.hit_rate, a.avg_r, a.avg_atr_r, a.r_coverage)
+    return f"  {a.author}  n={a.n}{flag} · {stats}"
 
 
 def _family_board_line(f: PunditFamilyPrior) -> str:
     flag = " ⚠" if f.flagged else ""
     return (
         f"  {f.family}/{f.direction}  n={f.n}{flag} · "
-        f"{_stats_str(f.hit_rate, f.avg_r, f.avg_atr_r)}"
+        f"{_stats_str(f.hit_rate, f.avg_r, f.avg_atr_r, f.r_coverage)}"
     )
 
 

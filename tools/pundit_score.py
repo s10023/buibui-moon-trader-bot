@@ -792,6 +792,22 @@ class CellStats:
     def avg_atr_r(self) -> float | None:
         return self.atr_r_sum / self.atr_r_n if self.atr_r_n else None
 
+    @property
+    def r_coverage(self) -> float | None:
+        """Share of RESOLVED calls that `avg_r` was actually computed over.
+
+        Load-bearing, not decoration. ``r`` needs a stated stop (see
+        ``score_call``: ``if risk is not None and risk > 0``), and a call that
+        stopped out necessarily has one while a win scored against a target
+        often does not. Measured over the live ledger 2026-08-11: WIN r-coverage
+        **43%** against LOSS **79%**, so ``avg_r`` describes a loss-enriched
+        subsample while ``n`` describes the whole cell. Publishing this ratio is
+        what stops the two being read as the same population — the censored
+        ledger mean is −0.4532 (t≈−2.66, "significantly negative") where the
+        complete ``atr_r`` sample is −0.1900 (t=−0.779, not significant).
+        """
+        return self.r_n / self.resolved if self.resolved else None
+
 
 def aggregate(
     scored: list[ScoredCall], key_fn: Callable[[ScoredCall], str]
@@ -815,17 +831,22 @@ def _fmt_ts(ts_ms: int | None) -> str:
 def _cell_table(cells: dict[str, CellStats], label: str, min_n: int) -> list[str]:
     lines = [
         f"| {label} | n | trig | open | resolved | wins | losses "
-        "| hit% | avg R | avg ATR-R | |",
+        "| hit% | avg ATR-R | avg R (cov) | |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for key in sorted(cells):
         c = cells[key]
         hit = f"{100 * c.hit_rate:.0f}%" if c.hit_rate is not None else "—"
         mark = f"⚠ n<{min_n}" if c.n < min_n else ""
+        # avg R carries its own denominator: it is computed only over calls that
+        # stated a stop, and those skew toward losses. Without "(r_n/resolved)"
+        # beside it the reader pairs it with `n` and compares across authors
+        # whose coverage differs.
+        avg_r_cell = f"{_fmt(c.avg_r)} ({c.r_n}/{c.resolved})"
         lines.append(
             f"| {key} | {c.n} | {c.triggered} | {c.open_} | {c.resolved} "
             f"| {c.wins} | {c.resolved - c.wins} "
-            f"| {hit} | {_fmt(c.avg_r)} | {_fmt(c.avg_atr_r)} | {mark} |"
+            f"| {hit} | {_fmt(c.avg_atr_r)} | {avg_r_cell} | {mark} |"
         )
     return lines
 
@@ -937,6 +958,13 @@ def render_report(
 
 
 def _cell_dict(c: CellStats) -> dict[str, object]:
+    """Cell as JSON. ``avg_atr_r`` leads because it is the COMPLETE sample.
+
+    ``avg_r`` keeps its key (consumers read it, and a pundit's own stated risk
+    is a real question) but now ships with ``r_n`` / ``r_coverage`` beside it so
+    its denominator is visible at the point of reading. Never compare ``avg_r``
+    across authors without checking coverage first — see ``CellStats.r_coverage``.
+    """
     return {
         "n": c.n,
         "triggered": c.triggered,
@@ -944,8 +972,11 @@ def _cell_dict(c: CellStats) -> dict[str, object]:
         "resolved": c.resolved,
         "wins": c.wins,
         "hit_rate": c.hit_rate,
-        "avg_r": c.avg_r,
         "avg_atr_r": c.avg_atr_r,
+        "atr_r_n": c.atr_r_n,
+        "avg_r": c.avg_r,
+        "r_n": c.r_n,
+        "r_coverage": c.r_coverage,
     }
 
 

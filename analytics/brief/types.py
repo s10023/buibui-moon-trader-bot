@@ -281,6 +281,11 @@ class PunditAuthorPrior:
     avg_r: float | None
     avg_atr_r: float | None
     flagged: bool
+    # Share of RESOLVED calls `avg_r` was computed over. `avg_r` needs a stated
+    # stop and winners disproportionately lack one, so without this the reader
+    # pairs `avg_r` with `n` and compares authors whose coverage differs.
+    # Defaults to None so a priors JSON written before 2026-08-11 still loads.
+    r_coverage: float | None = None
 
 
 @dataclass(frozen=True)
@@ -292,6 +297,7 @@ class PunditFamilyPrior:
     avg_r: float | None
     avg_atr_r: float | None
     flagged: bool
+    r_coverage: float | None = None
 
 
 @dataclass(frozen=True)

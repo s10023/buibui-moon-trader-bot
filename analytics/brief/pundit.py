@@ -108,6 +108,7 @@ def _load_priors(
                 avg_r=_opt_float(cell.get("avg_r")),
                 avg_atr_r=_opt_float(cell.get("avg_atr_r")),
                 flagged=n < min_n,
+                r_coverage=_opt_float(cell.get("r_coverage")),
             )
         families: list[PunditFamilyPrior] = []
         if isinstance(families_raw, dict):
@@ -127,6 +128,7 @@ def _load_priors(
                             avg_r=_opt_float(cell.get("avg_r")),
                             avg_atr_r=_opt_float(cell.get("avg_atr_r")),
                             flagged=n < min_n,
+                            r_coverage=_opt_float(cell.get("r_coverage")),
                         )
                     )
         families.sort(key=lambda f: -f.n)

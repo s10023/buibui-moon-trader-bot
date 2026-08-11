@@ -218,6 +218,11 @@ class PunditAuthorPriorModel(BaseModel):
     avg_r: float | None
     avg_atr_r: float | None
     flagged: bool
+    # Share of RESOLVED calls behind `avg_r`. Declared explicitly because
+    # pydantic drops undeclared extras, so omitting it here would silently
+    # strip the denominator on its way to the UI and leave the web board
+    # showing the same uncontextualised avg_r this field exists to qualify.
+    r_coverage: float | None = None
 
 
 class PunditFamilyPriorModel(BaseModel):
@@ -228,6 +233,7 @@ class PunditFamilyPriorModel(BaseModel):
     avg_r: float | None
     avg_atr_r: float | None
     flagged: bool
+    r_coverage: float | None = None
 
 
 class PunditCallRowModel(BaseModel):

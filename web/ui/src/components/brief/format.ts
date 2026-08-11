@@ -32,6 +32,15 @@ export const fmtPct = (v: number | null): string =>
 export const fmtR = (v: number | null): string =>
   v === null ? "—" : (v >= 0 ? "+" : "") + v.toFixed(2);
 
+// Share of resolved calls that avg R was actually computed over. R needs the
+// pundit's stated stop, and a stopped-out loss always has one while a
+// target-scored win often does not — so avg R describes a loss-enriched subset.
+// Shown beside it so two authors with different coverage are not read as alike.
+// Empty (not "—") when absent: a priors file written before 2026-08-11 has no
+// coverage, and a dash there would read as "zero coverage".
+export const fmtCoverage = (v: number | null | undefined): string =>
+  v === null || v === undefined ? "" : `${Math.round(v * 100)}%`;
+
 export const signed = (x: number, dp: number): string => (x >= 0 ? "+" : "") + x.toFixed(dp);
 
 export const hourTag = (h: number | null): string => (h === null ? "—" : `h${h}`);

@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { BriefPunditBoard } from "../../api";
   import Card from "./Card.svelte";
-  import { fmtPct, fmtR } from "./format";
+  import { fmtCoverage, fmtPct, fmtR } from "./format";
 
   type Props = { pundit: BriefPunditBoard };
   let { pundit }: Props = $props();
@@ -78,7 +78,7 @@
       <h4 class="block-title">By author</h4>
       <table>
         <thead>
-          <tr><th>author</th><th>n</th><th>hit</th><th>avg R</th><th>ATR-R</th></tr>
+          <tr><th>author</th><th>n</th><th>hit</th><th>ATR-R</th><th>avg R</th></tr>
         </thead>
         <tbody>
           {#each pundit.authors as a}
@@ -86,10 +86,16 @@
               <td>{a.author}</td>
               <td class="num dim">{a.n}</td>
               <td class="num">{fmtPct(a.hit_rate)}</td>
-              <td class="num" class:pos={(a.avg_r ?? 0) > 0} class:neg={(a.avg_r ?? 0) < 0}>
-                {fmtR(a.avg_r)}
+              <td
+                class="num"
+                class:pos={(a.avg_atr_r ?? 0) > 0}
+                class:neg={(a.avg_atr_r ?? 0) < 0}
+              >
+                {fmtR(a.avg_atr_r)}
               </td>
-              <td class="num dim">{fmtR(a.avg_atr_r)}</td>
+              <td class="num dim">
+                {fmtR(a.avg_r)}<span class="cov">{fmtCoverage(a.r_coverage)}</span>
+              </td>
             </tr>
           {:else}
             <tr><td colspan="5" class="dim">no authors scored yet</td></tr>
@@ -102,7 +108,7 @@
       <h4 class="block-title">By family</h4>
       <table>
         <thead>
-          <tr><th>family</th><th>dir</th><th>n</th><th>hit</th><th>avg R</th><th>ATR-R</th></tr>
+          <tr><th>family</th><th>dir</th><th>n</th><th>hit</th><th>ATR-R</th><th>avg R</th></tr>
         </thead>
         <tbody>
           {#each pundit.families as f}
@@ -113,10 +119,16 @@
               </td>
               <td class="num dim">{f.n}</td>
               <td class="num">{fmtPct(f.hit_rate)}</td>
-              <td class="num" class:pos={(f.avg_r ?? 0) > 0} class:neg={(f.avg_r ?? 0) < 0}>
-                {fmtR(f.avg_r)}
+              <td
+                class="num"
+                class:pos={(f.avg_atr_r ?? 0) > 0}
+                class:neg={(f.avg_atr_r ?? 0) < 0}
+              >
+                {fmtR(f.avg_atr_r)}
               </td>
-              <td class="num dim">{fmtR(f.avg_atr_r)}</td>
+              <td class="num dim">
+                {fmtR(f.avg_r)}<span class="cov">{fmtCoverage(f.r_coverage)}</span>
+              </td>
             </tr>
           {:else}
             <tr><td colspan="6" class="dim">no families scored yet</td></tr>
@@ -257,6 +269,12 @@
   .flagged-row td:first-child { box-shadow: inset 2px 0 0 var(--yellow); }
 
   .dim { color: var(--text-soft); }
+  /* Coverage rides with avg R and must never outweigh it. */
+  .cov {
+    margin-left: 0.35em;
+    font-size: 0.85em;
+    color: var(--text-soft);
+  }
   .num { font-variant-numeric: tabular-nums; text-align: right; }
   .pos { color: var(--green); }
   .neg { color: var(--red); }
