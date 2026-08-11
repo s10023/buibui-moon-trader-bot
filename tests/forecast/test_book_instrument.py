@@ -7,6 +7,7 @@ import pandas as pd
 
 from analytics.forecast.book import instrument_returns
 from analytics.forecast.config import ForecastConfig
+from analytics.forecast.ewmac import combine_forecasts
 
 
 def _trend_close(n: int = 500) -> pd.Series:
@@ -100,3 +101,36 @@ def test_weighted_combine_has_no_lookahead() -> None:
         pert["leverage"].iloc[:300],
         check_names=False,
     )
+
+
+def test_injected_forecast_matching_internal_is_byte_identical() -> None:
+    """None and an explicitly-passed identical forecast must agree exactly."""
+    idx = pd.date_range("2020-01-01", periods=400, freq="D", tz="UTC")
+    rng = np.random.default_rng(5)
+    close = pd.Series(100.0 * np.exp(np.cumsum(rng.normal(0, 0.02, 400))), index=idx)
+    funding = pd.Series(0.0, index=idx)
+    cfg = ForecastConfig()
+
+    internal = combine_forecasts(
+        close, cfg.speeds, cfg.fdm, cfg.vol_span, cfg.cap, weights=cfg.weights
+    )
+    baseline = instrument_returns(close, funding, cfg)
+    injected = instrument_returns(close, funding, cfg, forecast=internal)
+    pd.testing.assert_frame_equal(baseline, injected)
+
+
+def test_injected_forecast_is_shifted_by_the_book_not_the_caller() -> None:
+    """A constant forecast must produce leverage from day 1 of vol warm-up,
+    shifted one day — proving the book applies the shift to injected series
+    exactly as it does to internal ones."""
+    idx = pd.date_range("2020-01-01", periods=400, freq="D", tz="UTC")
+    rng = np.random.default_rng(6)
+    close = pd.Series(100.0 * np.exp(np.cumsum(rng.normal(0, 0.02, 400))), index=idx)
+    funding = pd.Series(0.0, index=idx)
+    cfg = ForecastConfig()
+
+    spiky = pd.Series(0.0, index=idx)
+    spiky.iloc[200] = 10.0
+    out = instrument_returns(close, funding, cfg, forecast=spiky)
+    assert out["leverage"].iloc[200] == 0.0
+    assert out["leverage"].iloc[201] != 0.0

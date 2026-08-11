@@ -92,3 +92,33 @@ def test_inactive_instrument_excluded_from_mean() -> None:
     # active count rises once BBB warms up
     assert res.active_count[50] <= 1
     assert res.active_count[-1] == 2
+
+
+def test_run_forecast_backtest_injection_defaults_to_byte_identical() -> None:
+    idx = pd.date_range("2020-01-01", periods=400, freq="D", tz="UTC")
+    rng = np.random.default_rng(7)
+    closes = {
+        sym: pd.Series(100.0 * np.exp(np.cumsum(rng.normal(0, 0.02, 400))), index=idx)
+        for sym in ("AAA", "BBB")
+    }
+    fundings = {sym: pd.Series(0.0, index=idx) for sym in closes}
+    cfg = ForecastConfig()
+
+    baseline = run_forecast_backtest(closes, fundings, cfg)
+    explicit = run_forecast_backtest(closes, fundings, cfg, forecasts=None)
+    np.testing.assert_array_equal(baseline.portfolio_return, explicit.portfolio_return)
+
+
+def test_run_forecast_backtest_uses_the_injected_matrix() -> None:
+    idx = pd.date_range("2020-01-01", periods=400, freq="D", tz="UTC")
+    rng = np.random.default_rng(8)
+    closes = {
+        sym: pd.Series(100.0 * np.exp(np.cumsum(rng.normal(0, 0.02, 400))), index=idx)
+        for sym in ("AAA", "BBB")
+    }
+    fundings = {sym: pd.Series(0.0, index=idx) for sym in closes}
+    cfg = ForecastConfig()
+
+    flat = {sym: pd.Series(0.0, index=idx) for sym in closes}
+    out = run_forecast_backtest(closes, fundings, cfg, forecasts=flat)
+    assert np.allclose(out.portfolio_return, 0.0)
