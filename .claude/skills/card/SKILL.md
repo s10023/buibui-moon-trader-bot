@@ -112,7 +112,21 @@ better.
   ```
 
   Breached ⇒ every card in the batch returns NO_TRADE. Report it and ask
-  before spending the batch; `daily_r` resets at 00:00 UTC. **Measured
+  before spending the batch; `daily_r` resets at 00:00 UTC.
+
+  **⚠ A clean NO_TRADE batch does NOT verify the breaker — do not report it as
+  if it did.** `card/card.py:233` gates the ENTIRE code-side veto block,
+  including the breaker check at `:265`, behind `if card.verdict == "TRADE":`,
+  while `card/prompt.py` separately instructs the model to answer NO_TRADE on a
+  breach. So the model complies on its own and the deterministic leg never
+  runs: measured 2026-08-11 on the first live firing, all three cards rendered
+  a `gate:` line sourced from the model's own `no_trade_reason` while carrying
+  **`veto_reasons: []`** in `ai-cards.jsonl`. The short-circuit is correct — a
+  NO_TRADE needs no veto — but what you observed is the PROMPT working, not the
+  code net. Exercising the code leg needs a card that returns TRADE while the
+  breaker is tripped, which the prompt is designed to prevent. Same trap shape
+  as the capital one in rubric item 3 below, and the same tell: an empty field
+  that reads as either "nothing to report" or "nothing checked". **Measured
   2026-08-07: R is `capital × r_base` = $1,111 × 0.0025 = $2.78, so a
   −$12.96 day read −4.66R against a −2.0R limit** — at operator-scale equity
   a ~1% down day locks out the whole UTC day. That is the capital-resolution
