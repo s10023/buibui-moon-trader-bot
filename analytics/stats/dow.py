@@ -13,6 +13,11 @@ class DOWRow:
 
     dow: str  # "Mon" … "Sun"
     avg_range_pct: float
+    # Median sits beside the mean rather than replacing it: daily range is
+    # right-skewed, so a single liquidation day can drag a DOW's mean well above
+    # any range that day typically prints. Reading both is how you tell "Tuesday
+    # is wide" from "one Tuesday was wide".
+    median_range_pct: float
     bull_pct: float  # % days close > open
     sample_days: int
     avg_return_pct: float = 0.0  # avg (close-open)/open — directional return
@@ -58,6 +63,7 @@ def compute_dow_patterns(
         SELECT
             dow,
             AVG((day_high - day_low) / day_open) AS avg_range_pct,
+            MEDIAN((day_high - day_low) / day_open) AS median_range_pct,
             SUM(CASE WHEN day_close > day_open THEN 1 ELSE 0 END)::DOUBLE / COUNT(*) AS bull_pct,
             COUNT(*) AS sample_days,
             AVG((day_close - day_open) / day_open) AS avg_return_pct,
@@ -83,11 +89,21 @@ def compute_dow_patterns(
         raise ValueError(f"No OHLCV data for {symbol}")
 
     dow_map: dict[str, DOWRow] = {}
-    for dow_full, avg_range, bull_pct, n, avg_return, strong_high, strong_low in rows:
+    for (
+        dow_full,
+        avg_range,
+        median_range,
+        bull_pct,
+        n,
+        avg_return,
+        strong_high,
+        strong_low,
+    ) in rows:
         short = _DOW_SHORT.get(str(dow_full), str(dow_full)[:3])
         dow_map[short] = DOWRow(
             dow=short,
             avg_range_pct=float(avg_range),
+            median_range_pct=float(median_range),
             bull_pct=float(bull_pct),
             sample_days=int(n),
             avg_return_pct=float(avg_return),

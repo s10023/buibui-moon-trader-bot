@@ -58,6 +58,7 @@ def build_strip(
 
     bull_pct: float | None = None
     avg_range_pct: float | None = None
+    median_range_pct: float | None = None
     sample_days: int | None = None
     try:
         dow_res = compute_dow_patterns(conn, symbol, stats_days, end_ms=stats_end_ms)
@@ -65,6 +66,7 @@ def build_strip(
         if row is not None:
             bull_pct = _round(row.bull_pct)
             avg_range_pct = _round(row.avg_range_pct)
+            median_range_pct = _round(row.median_range_pct)
             sample_days = row.sample_days
     except ValueError:
         pass
@@ -111,6 +113,7 @@ def build_strip(
         dow=dow,
         bull_pct=bull_pct,
         avg_range_pct=avg_range_pct,
+        median_range_pct=median_range_pct,
         sample_days=sample_days,
         high_session=high_session,
         high_session_pct=high_session_pct,

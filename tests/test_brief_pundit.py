@@ -4,7 +4,9 @@ import json
 from pathlib import Path
 
 from analytics.brief.config import BriefConfig
-from analytics.brief.pundit import build_board
+from analytics.brief.pundit import build_board, truncate_call_text
+from analytics.brief.render import _call_line
+from analytics.brief.types import PunditCallRow
 
 AS_OF = 1_704_067_200_000  # 2024-01-01 00:00 UTC
 DAY_MS = 86_400_000
@@ -97,7 +99,16 @@ def test_board_happy_path(tmp_path: Path) -> None:
     assert board.recent_calls[1].on_panel is False
     assert board.recent_calls[0].prior is not None
     assert board.recent_calls[0].prior.flagged is False  # n=6 >= 5
-    assert len(board.recent_calls[0].entry) <= 60
+    # The board carries the FULL text. It used to be clipped to 60 chars here,
+    # which meant the API and the Brief tab received text already destroyed —
+    # the operator's "can't read the full texts" was a data problem wearing a
+    # CSS problem's clothes. Clipping now belongs to the markdown renderer,
+    # which is the only surface with a line-width constraint (see
+    # test_call_line_truncates_for_the_markdown_one_liner below).
+    assert board.recent_calls[0].entry == (
+        "zone 100-101 on a reclaim of the level with confirmation and volume"
+    )
+    assert "…" not in board.recent_calls[0].entry
     assert board.authors[0].author == "alice"  # sorted by n desc
     bob = next(a for a in board.authors if a.author == "bob")
     assert bob.flagged is True  # n=2 < 5
@@ -299,3 +310,44 @@ def test_board_keeps_an_absent_horizon_and_still_renders_it_as_empty(
     assert [c.author for c in board.recent_calls] == ["alice"]
     assert [c.horizon for c in board.recent_calls] == [""]
     assert board.ledger_skipped == 0
+
+
+class TestCallTextTruncation:
+    """Truncation belongs to the markdown renderer, not the shared board.
+
+    Regression guard for 2026-08-11: `build_board` clipped entry/target to 60
+    characters, so `GET /api/brief` and the Brief tab served text that had
+    already lost its tail ("upside continuation above 6…"). The markdown brief
+    prints one line per call and genuinely needs the clip; nothing else does.
+    """
+
+    LONG = "zone 100-101 on a reclaim of the level with confirmation and volume"
+
+    def test_truncate_helper_clips_only_past_the_limit(self) -> None:
+        assert truncate_call_text("short") == "short"
+        out = truncate_call_text(self.LONG)
+        assert len(out) == 60
+        assert out.endswith("…")
+
+    def test_call_line_truncates_for_the_markdown_one_liner(self) -> None:
+        call = PunditCallRow(
+            author="alice",
+            symbol="BTCUSDT",
+            direction="long",
+            entry=self.LONG,
+            target=self.LONG,
+            horizon="intraday",
+            age_days=1,
+            on_panel=True,
+            prior=None,
+        )
+        line = _call_line(call)
+        # Both halves clipped, and the untruncated text must not appear.
+        assert line.count("…") == 2
+        assert self.LONG not in line
+
+    def test_board_and_renderer_disagree_on_purpose(self) -> None:
+        # The exact invariant the old code violated: the data keeps everything,
+        # the renderer is the only place that loses any of it.
+        assert "…" not in self.LONG
+        assert "…" in truncate_call_text(self.LONG)

@@ -30,6 +30,7 @@ class SeasonalityStrip:
     dow: str
     bull_pct: float | None
     avg_range_pct: float | None
+    median_range_pct: float | None
     sample_days: int | None
     high_session: str | None
     high_session_pct: float | None

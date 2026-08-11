@@ -5,6 +5,7 @@ from __future__ import annotations
 import pandas as pd
 
 from analytics.brief._common import TF_MS
+from analytics.brief.pundit import truncate_call_text
 from analytics.brief.types import (
     BbState,
     BriefBundle,
@@ -75,9 +76,16 @@ def _strip_lines(strip: SeasonalityStrip | None) -> list[str]:
         return ["Day/Week seasonality: n/a"]
     parts: list[str] = []
     if strip.bull_pct is not None and strip.avg_range_pct is not None:
+        # Mean and median are printed together because daily range is
+        # right-skewed; a mean well above the median says the DOW's reputation
+        # rests on a handful of outlier days, which is a different trade than a
+        # genuinely wide day.
+        range_str = f"range {strip.avg_range_pct * 100:.1f}% avg"
+        if strip.median_range_pct is not None:
+            range_str += f" / {strip.median_range_pct * 100:.1f}% med"
         parts.append(
-            f"{strip.dow}: bull {fmt_frac(strip.bull_pct)} · avg range "
-            f"{strip.avg_range_pct * 100:.1f}% (n={strip.sample_days})"
+            f"{strip.dow}: bull {fmt_frac(strip.bull_pct)} · {range_str} "
+            f"(n={strip.sample_days})"
         )
     if (
         strip.high_session is not None
@@ -455,11 +463,15 @@ def _author_str(prior: PunditAuthorPrior) -> str:
 def _call_line(call: PunditCallRow) -> str:
     marker = "● " if call.on_panel else "  "
     prior = f" {_author_str(call.prior)}" if call.prior is not None else ""
-    target = f' → "{call.target}"' if call.target else ""
+    # Clipped HERE, not in the board: this one-line-per-call format is the only
+    # surface with a line-width constraint. The API and the Brief tab carry the
+    # full text.
+    entry = truncate_call_text(call.entry)
+    target = f' → "{truncate_call_text(call.target)}"' if call.target else ""
     horizon = f" · {call.horizon}" if call.horizon else ""
     return (
         f"{marker}{call.author}{prior} {call.symbol} {call.direction} — "
-        f'"{call.entry}"{target}{horizon} · {call.age_days}d'
+        f'"{entry}"{target}{horizon} · {call.age_days}d'
     )
 
 

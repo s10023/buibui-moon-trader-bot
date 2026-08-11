@@ -1184,7 +1184,12 @@ SSE stream endpoints accept `?token=<API_TOKEN>` query param instead (browser `E
 
 **Notes:**
 
-- The web server opens the DB in **read-only** mode. The signal daemon holds the write lock.
+- The web server serves requests from a **read-only** connection (`web/api/deps.py`),
+  which returns 503 rather than crashing when the DB is busy. It does still take a
+  **write** lock in two places — app startup and the stats cache refresh — so "the web
+  server is read-only" is not a safe assumption when diagnosing a lock conflict. Writers
+  (`analytics_runner`, the signal daemon) contend for a single DuckDB write lock;
+  `analytics.db_retry.connect_with_retry` waits one out instead of failing the job.
 - Requires `analytics backfill` to have been run first for OHLCV/signals/backtest endpoints.
 - In production, the API server serves the built Svelte UI from `web/ui/dist/` as static files.
 
