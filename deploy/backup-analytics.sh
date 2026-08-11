@@ -98,6 +98,11 @@ LEDGERS=(
     "docs/plans/ai-cards.jsonl"
     "docs/plans/pundit-overrides.jsonl"
     "config/youtube_channels.toml"
+    # Gitignored, single-copy, and NOT reconstructible: 16 author entries whose
+    # alias mappings are accumulated operator rulings. The committed
+    # pundit_roster.toml.example carries 2 schema-demo entries and is not a
+    # backup. Losing this drops every relay as unattributable.
+    "config/pundit_roster.toml"
     "docs/plans/thesis-inbox.md"
     "docs/plans/mechanics-backlog.md"
     "docs/plans/yt-feed-state.json"
