@@ -77,9 +77,15 @@
   /* Above and below are the axis of this block, so they get the same colour
      language as the ladder — a reader moving between the two blocks should not
      have to relearn which side is which. */
+  /* `minmax(0, 1fr)`, NOT `1fr`. A bare `1fr` is `minmax(auto, 1fr)`, and that
+     `auto` floor resolves to the column's MIN-CONTENT width — which, with the
+     `white-space: nowrap` that used to sit on `.cluster`, was the entire
+     unbreakable cluster string. The column therefore grew past the card and the
+     text ran off the panel instead of wrapping. Both halves were required: the
+     nowrap made min-content enormous, the `1fr` let it win. */
   .side {
     display: grid;
-    grid-template-columns: 42px 1fr;
+    grid-template-columns: 42px minmax(0, 1fr);
     gap: 8px;
     align-items: baseline;
   }
@@ -94,7 +100,16 @@
   .side-tag.below { color: color-mix(in srgb, var(--green) 78%, var(--text-soft)); }
 
   .clusters { color: var(--text-dim); font-size: var(--fs-micro); }
-  .cluster { white-space: nowrap; }
+
+  /* A cluster is a price range followed by a full prose label ("100x-heavy
+     short-liq cluster, hugs current price from above"), so it MUST be allowed
+     to wrap. `nowrap` here was presumably meant to keep `76.30–76.80` intact;
+     the cost was the whole label becoming one unbreakable box. Wrapping happens
+     at spaces only (`overflow-wrap` stays at its default), so the range still
+     survives intact in every practical case — the sole break opportunity inside
+     it is after the en dash, against text that previously left the card
+     entirely. */
+  .cluster { white-space: normal; }
   .sep { color: var(--muted); margin: 0 4px; }
   .none { color: var(--muted); font-size: var(--fs-micro); }
 </style>

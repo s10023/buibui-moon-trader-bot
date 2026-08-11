@@ -161,6 +161,18 @@ _PRIORS_TWO_EACH = json.dumps(
             "reclaim": {
                 "short": {"n": 14, "hit_rate": 0.5, "avg_r": None, "avg_atr_r": 0.9}
             },
+            # avg_r null WITH coverage: the live shape (accumulation_zone reads
+            # `— 0%` on the board). 0% coverage is exactly WHY avg_r is absent,
+            # so the dash must keep its explanation instead of standing bare.
+            "accumulation": {
+                "long": {
+                    "n": 12,
+                    "hit_rate": 0.0,
+                    "avg_r": None,
+                    "avg_atr_r": -1.82,
+                    "r_coverage": 0.0,
+                }
+            },
         },
     }
 )
@@ -182,7 +194,12 @@ def test_render_authors_and_families_blocks(tmp_path: Path) -> None:
     # Families now show avg_r too.
     assert "  breakout/long  n=20 · 55% · +1.1 ATR-R · +0.22R" in out
     # None family avg_r renders the placeholder, never the literal "None".
-    assert "  reclaim/short  n=14 · 50% · +0.9 ATR-R · —R" in out
+    # No coverage recorded (pre-2026-08-11 priors) → bare placeholder.
+    assert "  reclaim/short  n=14 · 50% · +0.9 ATR-R · —R\n" in out
+    # Coverage recorded and zero → the placeholder keeps its reason. This is the
+    # live `accumulation_zone` shape, and it is what the web board renders, so a
+    # bare "—R" here would put the CLI and the tab out of step.
+    assert "  accumulation/long  n=12 · 0% · -1.8 ATR-R · —R (0% cov)" in out
     assert "None" not in out
 
 

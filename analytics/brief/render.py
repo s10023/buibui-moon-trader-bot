@@ -488,11 +488,15 @@ def _avg_r_str(value: float | None, coverage: float | None = None) -> str:
     is what stops it being read as the whole cell, and what stops two authors
     with different coverage being compared as if they were alike.
     """
-    if value is None:
-        return "—R"
     if coverage is None:
-        return f"{value:+.2f}R"
-    return f"{value:+.2f}R ({coverage:.0%} cov)"
+        return "—R" if value is None else f"{value:+.2f}R"
+    # Coverage is shown even when avg_r is None, because 0% coverage is exactly
+    # WHY the dash is there — dropping it leaves an unexplained placeholder. The
+    # web board already rendered it this way; keeping the two in step matters
+    # more than brevity, since the Brief's numbers are mirrored across the CLI
+    # and the tab and a silent divergence is how they start disagreeing.
+    head = "—R" if value is None else f"{value:+.2f}R"
+    return f"{head} ({coverage:.0%} cov)"
 
 
 def _atr_r_str(value: float | None) -> str:
