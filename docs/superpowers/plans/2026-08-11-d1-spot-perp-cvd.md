@@ -1682,7 +1682,7 @@ git commit -m "feat(cvd): three-leg gate report with the corr_to_xsmom stamp"
 - Consumes: everything from Tasks 1-7
 - Produces:
   - `build_parser() -> argparse.ArgumentParser`
-  - `backfill(conn, *, symbols, start_ms, get, sleep) -> dict[str, int]`
+  - `backfill(conn, *, symbols, start_ms, get, sleep, trading=None) -> dict[str, int]`
   - `main(argv: list[str] | None = None) -> int`
 
 Two subcommands: `backfill` (the only write path — `upsert_spot_ohlcv`, nothing else) and `run` (read-only; prints both shapes' reports).
@@ -1714,6 +1714,9 @@ def test_parser_exposes_backfill_and_run() -> None:
     assert parser.parse_args(["run"]).command == "run"
 
 
+TRADING = frozenset({"BTCUSDT", "ETHUSDT", "PEPEUSDT"})
+
+
 def test_backfill_writes_only_spot_ohlcv() -> None:
     conn = duckdb.connect(":memory:")
     init_schema(conn)
@@ -1724,7 +1727,12 @@ def test_backfill_writes_only_spot_ohlcv() -> None:
         return [_kline(0)] if "startTime=0" in url else []
 
     counts = backfill(
-        conn, symbols=["BTCUSDT"], start_ms=0, get=fake_get, sleep=lambda _s: None
+        conn,
+        symbols=["BTCUSDT"],
+        start_ms=0,
+        get=fake_get,
+        sleep=lambda _s: None,
+        trading=TRADING,
     )
     assert counts == {"BTCUSDT": 1}
     assert len(get_spot_ohlcv(conn, "BTCUSDT", 0, DAY)) == 1
@@ -1741,7 +1749,12 @@ def test_backfill_skips_perp_only_symbols_without_calling_the_api() -> None:
         return []
 
     counts = backfill(
-        conn, symbols=["HYPEUSDT"], start_ms=0, get=fake_get, sleep=lambda _s: None
+        conn,
+        symbols=["HYPEUSDT"],
+        start_ms=0,
+        get=fake_get,
+        sleep=lambda _s: None,
+        trading=TRADING,
     )
     assert counts == {}
     assert calls == []
@@ -1757,9 +1770,62 @@ def test_backfill_maps_the_1000pepe_symbol_on_the_request() -> None:
         return []
 
     backfill(
-        conn, symbols=["1000PEPEUSDT"], start_ms=0, get=fake_get, sleep=lambda _s: None
+        conn,
+        symbols=["1000PEPEUSDT"],
+        start_ms=0,
+        get=fake_get,
+        sleep=lambda _s: None,
+        trading=TRADING,
     )
     assert "symbol=PEPEUSDT" in calls[0]
+
+
+def test_backfill_skips_a_symbol_whose_spot_market_is_halted() -> None:
+    """Kline availability is NOT proof a pair is live.
+
+    Probed 2026-08-11: TONUSDT returns HTTP 200 daily klines while its spot
+    exchangeInfo status is BREAK. Without the TRADING filter, a halted market's
+    bars enter the panel and are indistinguishable from real data. The fake
+    getter below deliberately SERVES klines for TONUSDT — so this test fails
+    against a backfill that filters only on `spot_symbol_for`.
+    """
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    calls: list[str] = []
+
+    def fake_get(url: str) -> Any:
+        calls.append(url)
+        return [_kline(0)] if "startTime=0" in url else []
+
+    counts = backfill(
+        conn,
+        symbols=["TONUSDT"],
+        start_ms=0,
+        get=fake_get,
+        sleep=lambda _s: None,
+        trading=TRADING,
+    )
+    assert counts == {}
+    assert calls == []
+    assert len(get_spot_ohlcv(conn, "TONUSDT", 0, DAY)) == 0
+
+
+def test_backfill_fetches_the_trading_set_when_not_supplied() -> None:
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    calls: list[str] = []
+
+    def fake_get(url: str) -> Any:
+        calls.append(url)
+        if "exchangeInfo" in url:
+            return {"symbols": [{"symbol": "BTCUSDT", "status": "TRADING"}]}
+        return [_kline(0)] if "startTime=0" in url else []
+
+    counts = backfill(
+        conn, symbols=["BTCUSDT"], start_ms=0, get=fake_get, sleep=lambda _s: None
+    )
+    assert counts == {"BTCUSDT": 1}
+    assert any("exchangeInfo" in u for u in calls)
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1792,7 +1858,11 @@ from typing import Any
 import duckdb
 import pandas as pd
 
-from analytics.cvd.fetch import fetch_spot_ohlcv_daily, spot_symbol_for
+from analytics.cvd.fetch import (
+    fetch_spot_ohlcv_daily,
+    fetch_trading_spot_symbols,
+    spot_symbol_for,
+)
 from analytics.cvd.replay import (
     cvd_universe,
     replay_cvd_ts,
@@ -1818,12 +1888,25 @@ def backfill(
     start_ms: int,
     get: Getter = http_get_json,
     sleep: Callable[[float], None] = time.sleep,
+    trading: frozenset[str] | None = None,
 ) -> dict[str, int]:
-    """Fetch and upsert daily spot bars. Returns rows written per perp symbol."""
+    """Fetch and upsert daily spot bars. Returns rows written per perp symbol.
+
+    ``trading`` is the set of spot symbols whose exchangeInfo status is TRADING;
+    ``None`` fetches it. **Filtering on it is load-bearing, not defensive.**
+    Kline availability is NOT proof a pair is live: probed 2026-08-11, TONUSDT
+    returns HTTP 200 daily klines while its spot status is ``BREAK``. Without
+    this filter a halted market's bars enter the panel and look like data.
+    """
+    live = fetch_trading_spot_symbols(get=get) if trading is None else trading
     written: dict[str, int] = {}
+    skipped_not_trading: list[str] = []
     for sym in symbols:
         spot_sym = spot_symbol_for(sym)
         if spot_sym is None:
+            continue
+        if spot_sym not in live:
+            skipped_not_trading.append(sym)
             continue
         df = fetch_spot_ohlcv_daily(spot_sym, start_ms, get=get)
         if df.empty:
@@ -1847,6 +1930,8 @@ def backfill(
         )
         written[sym] = len(df)
         sleep(0.25)
+    if skipped_not_trading:
+        print(f"[backfill] skipped, spot not TRADING: {', '.join(skipped_not_trading)}")
     return written
 
 
@@ -1929,7 +2014,7 @@ if __name__ == "__main__":
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `poetry run pytest tests/cvd/test_audit_cli.py -v`
-Expected: 4 passed
+Expected: 6 passed
 
 - [ ] **Step 5: Run the full gates and commit**
 
@@ -1972,7 +2057,7 @@ make buibui-backup
 poetry run python -m tools.cvd_audit backfill
 ```
 
-Expected: ~57k rows across 23 symbols (23 x ~2,500 daily bars). If a symbol reports 0 rows, check its spot pair with `fetch_trading_spot_symbols` before assuming a bug — `TONUSDT` is the known case.
+Expected: **~55k rows across 22 symbols**, plus a printed `skipped, spot not TRADING: TONUSDT` line. Probed 2026-08-11: TONUSDT's spot status is `BREAK` while its klines still return HTTP 200, so the TRADING filter excludes it — that skip line is the expected, correct outcome, not a failure. If a *different* symbol reports 0 rows, check its spot pair before assuming a bug. Record the actual admitted-symbol count in the verdict; the spec's "23" was written before this probe and the real number is whatever the filter admits on the day.
 
 - [ ] **Step 4: Run the gate**
 
