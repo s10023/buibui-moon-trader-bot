@@ -247,8 +247,18 @@ DAY = 86_400_000
 def _kline(open_time: int, close: float, vol: float, tbv: float) -> list[Any]:
     """A Binance kline row. Field 5 is volume, field 9 is taker buy base volume."""
     return [
-        open_time, "100.0", "110.0", "90.0", str(close), str(vol),
-        open_time + DAY - 1, "0", 0, str(tbv), "0", "0",
+        open_time,
+        "100.0",
+        "110.0",
+        "90.0",
+        str(close),
+        str(vol),
+        open_time + DAY - 1,
+        "0",
+        0,
+        str(tbv),
+        "0",
+        "0",
     ]
 
 
@@ -273,7 +283,13 @@ def test_fetch_returns_volume_and_taker_buy_columns() -> None:
     get = _FakeGet([[_kline(0, 101.0, 10.0, 6.0)]])
     df = fetch_spot_ohlcv_daily("BTCUSDT", 0, get=get)
     assert list(df.columns) == [
-        "open_time", "open", "high", "low", "close", "volume", "taker_buy_volume",
+        "open_time",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "taker_buy_volume",
     ]
     assert df["volume"].iloc[0] == 10.0
     assert df["taker_buy_volume"].iloc[0] == 6.0
@@ -493,8 +509,8 @@ def _frame(times: list[int], vol: list[float], tbv: list[float]) -> pd.DataFrame
 
 
 def test_divergence_is_spot_minus_perp_on_the_inner_join() -> None:
-    spot = _frame([0, DAY], [10.0, 10.0], [10.0, 5.0])   # imb = +1.0, 0.0
-    perp = _frame([0, DAY], [10.0, 10.0], [0.0, 5.0])    # imb = -1.0, 0.0
+    spot = _frame([0, DAY], [10.0, 10.0], [10.0, 5.0])  # imb = +1.0, 0.0
+    perp = _frame([0, DAY], [10.0, 10.0], [0.0, 5.0])  # imb = -1.0, 0.0
     out = divergence(spot, perp)
     assert list(out) == [2.0, 0.0]
 
@@ -561,9 +577,7 @@ import numpy as np
 import pandas as pd
 
 
-def taker_imbalance(
-    volume: pd.Series, taker_buy_volume: pd.Series
-) -> pd.Series:
+def taker_imbalance(volume: pd.Series, taker_buy_volume: pd.Series) -> pd.Series:
     """Signed taker-flow share in [-1, +1]. Zero-volume days are NaN."""
     vol = volume.astype(float)
     tbv = taker_buy_volume.astype(float)
@@ -897,9 +911,7 @@ def test_run_forecast_backtest_injection_defaults_to_byte_identical() -> None:
     idx = pd.date_range("2020-01-01", periods=400, freq="D", tz="UTC")
     rng = np.random.default_rng(7)
     closes = {
-        sym: pd.Series(
-            100.0 * np.exp(np.cumsum(rng.normal(0, 0.02, 400))), index=idx
-        )
+        sym: pd.Series(100.0 * np.exp(np.cumsum(rng.normal(0, 0.02, 400))), index=idx)
         for sym in ("AAA", "BBB")
     }
     fundings = {sym: pd.Series(0.0, index=idx) for sym in closes}
@@ -907,18 +919,14 @@ def test_run_forecast_backtest_injection_defaults_to_byte_identical() -> None:
 
     baseline = run_forecast_backtest(closes, fundings, cfg)
     explicit = run_forecast_backtest(closes, fundings, cfg, forecasts=None)
-    np.testing.assert_array_equal(
-        baseline.portfolio_return, explicit.portfolio_return
-    )
+    np.testing.assert_array_equal(baseline.portfolio_return, explicit.portfolio_return)
 
 
 def test_run_forecast_backtest_uses_the_injected_matrix() -> None:
     idx = pd.date_range("2020-01-01", periods=400, freq="D", tz="UTC")
     rng = np.random.default_rng(8)
     closes = {
-        sym: pd.Series(
-            100.0 * np.exp(np.cumsum(rng.normal(0, 0.02, 400))), index=idx
-        )
+        sym: pd.Series(100.0 * np.exp(np.cumsum(rng.normal(0, 0.02, 400))), index=idx)
         for sym in ("AAA", "BBB")
     }
     fundings = {sym: pd.Series(0.0, index=idx) for sym in closes}
@@ -1076,9 +1084,14 @@ def _seed(conn: duckdb.DuckDBPyConnection, symbols: list[str], n: int = 500) -> 
             conn,
             pd.DataFrame(
                 {
-                    "symbol": sym, "timeframe": "1d", "open_time": times,
-                    "open": close, "high": close * 1.01, "low": close * 0.99,
-                    "close": close, "volume": vol,
+                    "symbol": sym,
+                    "timeframe": "1d",
+                    "open_time": times,
+                    "open": close,
+                    "high": close * 1.01,
+                    "low": close * 0.99,
+                    "close": close,
+                    "volume": vol,
                     "taker_buy_volume": vol * rng.uniform(0.3, 0.7, n),
                 }
             ),
@@ -1088,9 +1101,13 @@ def _seed(conn: duckdb.DuckDBPyConnection, symbols: list[str], n: int = 500) -> 
             conn,
             pd.DataFrame(
                 {
-                    "symbol": sym, "open_time": times,
-                    "open": close, "high": close * 1.01, "low": close * 0.99,
-                    "close": close, "volume": svol,
+                    "symbol": sym,
+                    "open_time": times,
+                    "open": close,
+                    "high": close * 1.01,
+                    "low": close * 0.99,
+                    "close": close,
+                    "volume": svol,
                     "taker_buy_volume": svol * rng.uniform(0.3, 0.7, n),
                 }
             ),
@@ -1125,7 +1142,9 @@ def test_load_divergences_skips_a_symbol_with_no_spot_rows() -> None:
 
 def test_xs_replay_produces_a_finite_return_series() -> None:
     conn = _conn(["BTCUSDT", "ETHUSDT", "SOLUSDT"])
-    result = replay_cvd_xs(conn, ForecastConfig(), symbols=["BTCUSDT", "ETHUSDT", "SOLUSDT"])
+    result = replay_cvd_xs(
+        conn, ForecastConfig(), symbols=["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+    )
     assert len(result.portfolio_return) > 0
     assert np.isfinite(result.portfolio_return).all()
 
@@ -1310,8 +1329,7 @@ def replay_cvd_ts_trials(
     trials: dict[str, np.ndarray] = {}
     for span in spans:
         single = {
-            sym: cvd_forecast(x, span, cfg.vol_span, cfg.cap)
-            for sym, x in xs.items()
+            sym: cvd_forecast(x, span, cfg.vol_span, cfg.cap) for sym, x in xs.items()
         }
         trials[f"span{span}"] = run_forecast_backtest(
             closes, fundings, cfg, forecasts=single
@@ -1389,9 +1407,9 @@ def _returns(mean: float, n: int = 800, seed: int = 2) -> np.ndarray:
 
 
 def _trials(mean: float) -> dict[str, np.ndarray]:
-    return {
-        f"span{s}": _returns(mean, seed=s) for s in (8, 16, 32, 64)
-    } | {"combined": _returns(mean, seed=99)}
+    return {f"span{s}": _returns(mean, seed=s) for s in (8, 16, 32, 64)} | {
+        "combined": _returns(mean, seed=99)
+    }
 
 
 def test_report_carries_n_obs_and_the_correlation_stamp() -> None:
@@ -1423,9 +1441,18 @@ def test_corr_to_xsmom_handles_a_length_mismatch_by_aligning_tails() -> None:
 
 def test_gate_delegates_and_never_restates_thresholds() -> None:
     passing = CVDReport(
-        sharpe_annual=1.5, max_dd=-0.1, annual_return=0.3, annual_vol=0.2,
-        n_obs=800, dsr=0.99, pbo=0.2, boot_lo=0.4, boot_hi=2.0,
-        min_trl=100.0, corr_to_xsmom=0.1, xsmom_sharpe=1.3,
+        sharpe_annual=1.5,
+        max_dd=-0.1,
+        annual_return=0.3,
+        annual_vol=0.2,
+        n_obs=800,
+        dsr=0.99,
+        pbo=0.2,
+        boot_lo=0.4,
+        boot_hi=2.0,
+        min_trl=100.0,
+        corr_to_xsmom=0.1,
+        xsmom_sharpe=1.3,
         folded_to_magnitude=False,
     )
     assert cvd_gate_verdict(passing) is True
@@ -1437,9 +1464,18 @@ def test_gate_delegates_and_never_restates_thresholds() -> None:
 def test_nan_pbo_fails_the_gate() -> None:
     """A single-config run yields NaN PBO, which must not read as a pass."""
     rep = CVDReport(
-        sharpe_annual=1.5, max_dd=-0.1, annual_return=0.3, annual_vol=0.2,
-        n_obs=800, dsr=0.99, pbo=float("nan"), boot_lo=0.4, boot_hi=2.0,
-        min_trl=100.0, corr_to_xsmom=0.1, xsmom_sharpe=1.3,
+        sharpe_annual=1.5,
+        max_dd=-0.1,
+        annual_return=0.3,
+        annual_vol=0.2,
+        n_obs=800,
+        dsr=0.99,
+        pbo=float("nan"),
+        boot_lo=0.4,
+        boot_hi=2.0,
+        min_trl=100.0,
+        corr_to_xsmom=0.1,
+        xsmom_sharpe=1.3,
         folded_to_magnitude=False,
     )
     assert cvd_gate_verdict(rep) is False
@@ -1526,9 +1562,7 @@ def _ann_sharpe(r: npt.NDArray[np.float64], ann: float) -> float:
     return _per_period_sharpe(r) * ann
 
 
-def _aligned_corr(
-    a: npt.NDArray[np.float64], b: npt.NDArray[np.float64]
-) -> float:
+def _aligned_corr(a: npt.NDArray[np.float64], b: npt.NDArray[np.float64]) -> float:
     n = min(len(a), len(b))
     if n < 2:
         return float("nan")
@@ -1568,7 +1602,9 @@ def evaluate_cvd(
 
     min_len = min((len(v) for v in trial_returns.values()), default=0)
     if min_len >= 28 and len(trial_returns) >= 2:
-        mat = np.column_stack([np.asarray(v)[-min_len:] for v in trial_returns.values()])
+        mat = np.column_stack(
+            [np.asarray(v)[-min_len:] for v in trial_returns.values()]
+        )
         pbo = cscv_pbo(mat).pbo
     else:
         pbo = float("nan")
@@ -1798,8 +1834,14 @@ def backfill(
             conn,
             df[
                 [
-                    "symbol", "open_time", "open", "high", "low",
-                    "close", "volume", "taker_buy_volume",
+                    "symbol",
+                    "open_time",
+                    "open",
+                    "high",
+                    "low",
+                    "close",
+                    "volume",
+                    "taker_buy_volume",
                 ]
             ],
         )
