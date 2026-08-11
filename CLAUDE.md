@@ -71,9 +71,19 @@ Each Makefile `buibui-*` target wraps the equivalent CLI invocation — except
 and single-copy, and the committed `live_signal.duckdb` is NOT a backup — its
 `signal_alert_outcomes` table has 0 rows.** **Everything in both arrays is likewise
 gitignored and single-copy, so those two arrays ARE the only copy** — which is why an
-audit on 2026-08-08 expanded them from 4 entries to 10 files + 3 directories. The
-originals covered Stream C and nothing else; the entire ingest pipeline's state was
-uncovered. The three watermark/dedup ledgers (`yt-feed-state.json`,
+audit on 2026-08-08 expanded them from 4 entries to 10 files + 3 directories, **and a
+second on 2026-08-11 to 17 files + 7 directories.** The originals covered Stream C and
+nothing else; the entire ingest pipeline's state was uncovered. **The recurrence is the
+real lesson: an allowlist over a single-copy tree defaults to UNCOVERED, so a new
+artifact is invisible until someone diffs the backup against the live tree — which is
+how BOTH audits found their gap, and the only way to find the next one.** Cost never
+kept anything out: the 2026-08-11 additions total ~300KB against a 264MB snapshot.
+They were `daily_check.py` (the health-check system itself),
+`next-conversation-prompt.md` (the handoff), `regime-log.jsonl` (append-only and
+unreconstructible — it holds the first regime turn this system ever dated) and
+`task-marks/`, which is the same watermark class as the three below: a missing marker
+reads as OVERDUE, so losing it re-presents every weekly cadence at once. The three
+watermark/dedup ledgers (`yt-feed-state.json`,
 `routed-ledger.json`, `.cache/chart-drops/processed.json`) are the subtle ones: losing
 one destroys no past data but silently changes future behaviour — consumed videos
 re-present, re-ingests double-write, handled chart drops re-ingest. **`processed.json`

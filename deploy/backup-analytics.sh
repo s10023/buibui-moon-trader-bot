@@ -74,6 +74,25 @@ DB="$REPO/analytics.db"
 # processed.json is the sharpest: it is the ONLY record that a chart was handled,
 # and it lives under .cache/ — the one directory every cleanup treats as
 # disposable. A plain `rm -rf .cache/` resets chart dedup with no other trace.
+#
+# Expanded AGAIN 2026-08-11 — the second time this allowlist has been found short,
+# which is the point worth carrying: an allowlist over a single-copy tree defaults to
+# UNCOVERED, so every new artifact is invisible until someone diffs the backup against
+# the live tree. Found by exactly that diff. Everything added below totals ~300KB
+# against a 264MB snapshot, so cost was never what kept them out — nobody looked.
+#   next-conversation-prompt.md  the handoff; its own header calls itself standing
+#                                content no template covers
+#   daily_check.py               the health-check system ITSELF. Its docstring notes a
+#                                reclone loses it; a disk failure did too
+#   regime-log.jsonl             append-only and UNRECONSTRUCTIBLE — holds the
+#                                2026-08-03 turn, the first this system ever dated
+#   x-scraper-research.md        named in the handoff as the durable home for the
+#                                settled X-acquisition research
+#   st15-…-recipe.md             written explicitly "so the next session does not
+#                                re-derive any of it"
+# Deliberately NOT covered, so the next audit does not re-find them as misses:
+# __pycache__ (build artifact), coverage-2026-08-03.txt (regenerate with make
+# test-cov), wifey-handoff-prompt-2026-06-10.md (belongs to the sister fork).
 LEDGERS=(
     "docs/plans/pundit-calls.jsonl"
     "docs/plans/ai-cards.jsonl"
@@ -85,15 +104,32 @@ LEDGERS=(
     "docs/plans/routed-ledger.json"
     "docs/plans/pundit-priors.json"
     ".cache/chart-drops/processed.json"
+    "docs/plans/next-conversation-prompt.md"
+    "docs/plans/daily_check.py"
+    "docs/plans/regime-log.jsonl"
+    "docs/plans/x-scraper-research.md"
+    "docs/plans/x-coverage.md"
+    "docs/plans/st15-coinglass-capture-recipe.md"
+    "docs/plans/st14-pnl-self-audit-2026-08-06.md"
 )
 
 # Directories copied wholesale. Kept separate from LEDGERS because the copy loop
 # below is `[ -f ]`-guarded on purpose — a directory silently failed that test and
 # was skipped without a word, which is how these went uncovered.
+#
+# task-marks is the 2026-08-11 addition that matters most here: it is the same
+# watermark class as yt-feed-state.json above — losing it destroys no past data but
+# silently changes future behaviour, because a missing marker reads as OVERDUE, so
+# every weekly cadence would re-present at once. scratch/ holds live research scripts
+# the handoff points at by path (ensemble_monotonicity.py).
 LEDGER_DIRS=(
     "docs/plans/video-notes"
     "docs/plans/journal"
     "docs/plans/external-context"
+    "docs/plans/task-marks"
+    "docs/plans/scratch"
+    "docs/plans/chart-drops"
+    "docs/plans/xsmom_targets"
 )
 
 # The venv interpreter is named directly rather than via `poetry run` -- one less
