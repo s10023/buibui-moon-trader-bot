@@ -171,6 +171,23 @@ so the adjustment is auditable. **Any audit that slices this universe per-symbol
 inherits this — including the XS sleeve's per-symbol cuts.** Book-day (already
 aggregated) rows must NOT be deflated again.
 
+**Ensemble/confluence scoring — FAILS the gate (2026-08-11, verdict
+`docs/audits/2026-08-11-ensemble-walkforward.md`, spec
+`docs/superpowers/specs/2026-08-11-ensemble-walkforward-design.md`).** "Combine the
+failed hypotheses into a confidence score" is a natural idea, it will recur, and it has
+now been run: DSR **0.7030** against 0.95. PBO (0.235) and boot_lo (+0.053) both pass,
+so this is not a null — the effect simply cannot be separated from the best of 16
+searched constructions. **The decisive number is a sign flip: the target cell is
++0.1546 R/day and its trailing-window twin is −0.1723 — same axes, same sizing map,
+only the window differs**, so the effect belongs to the expanding-window fit rather
+than to the score. **The 2026-08-08 half-split headline (+0.310 top bucket) was
+look-ahead**: it split on `fired_at_ms`, which admits alerts fired-but-unresolved
+(median lag 23h, tail 310h), and under a causal refit keyed on
+`outcome_filled_at_ms` that bucket reads **+0.0130**. Do NOT wire it into
+`portfolio/sizing.py`. The one clean re-entry is the single pre-registered
+construction re-tested on book-days accruing after 2026-08-11 — re-running the same
+16 cells on a longer ledger is not independent evidence.
+
 **The binding constraint, confirmed five times** (exits, trend-weight, combine, carry,
 reversal): the system needs a second *strong* edge, and the cheap price-only free-data
 levers are exhausted. A new sleeve must carry genuinely new information. Separately,
