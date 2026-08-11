@@ -46,8 +46,12 @@ class CVDReport:
 
 
 def _per_period_sharpe(r: npt.NDArray[np.float64]) -> float:
-    sd = float(np.std(r, ddof=1)) if len(r) > 1 else 0.0
-    return float(np.mean(r)) / sd if sd else 0.0
+    if len(r) < 2:
+        return 0.0
+    sd = float(np.std(r, ddof=1))
+    if sd < 1e-12:
+        return 0.0
+    return float(np.mean(r) / sd)
 
 
 def _ann_sharpe(r: npt.NDArray[np.float64], ann: float) -> float:
