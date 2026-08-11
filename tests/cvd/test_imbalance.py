@@ -69,3 +69,42 @@ def test_daily_bars_are_information_complete_for_daily_cvd() -> None:
 
     imb_daily = taker_imbalance(pd.Series([day_vol]), pd.Series([day_tbv])).iloc[0]
     assert imb_daily == pytest.approx(from_daily / day_vol)
+
+
+def test_off_midnight_open_time_still_normalizes_to_utc_midnight() -> None:
+    """Alignment with load_daily_inputs must hold by construction, not by luck.
+
+    load_daily_inputs (analytics/forecast/replay.py) normalizes its index with
+    .dt.normalize(). If divergence ever skips that step, an off-midnight
+    open_time (e.g. an intraday bar, or a future non-Binance venue) produces an
+    index entry the forecast-matrix union treats as a DISTINCT day from the real
+    one, silently doubling rows and filling the panel with NaN.
+    """
+    noon = 12 * 3600 * 1000  # 12:00 UTC on day 0 — deliberately off-midnight
+    out = divergence(_frame([noon], [10.0], [6.0]), _frame([noon], [10.0], [4.0]))
+    assert out.index[0] == pd.Timestamp("1970-01-01", tz="UTC")
+
+
+def test_divergence_collapses_same_day_duplicates_keeping_last_and_sorts() -> None:
+    """Normalizing can newly collapse two distinct open_times onto one day.
+
+    Mirrors load_daily_inputs' three-step idiom: normalize, then
+    ``duplicated(keep="last")``, then ``sort_index()``. Two day-0 rows (03:00
+    and 20:00 UTC) carry deliberately DIFFERENT divergence values so the test
+    proves the LATER row survives, not merely that some row does; a day-1 row
+    that sorts before day-0 in the input order proves the final ascending sort.
+    """
+    day0_early = 3 * 3600 * 1000  # 03:00 UTC day 0 -> divergence +1.0, discarded
+    day0_late = 20 * 3600 * 1000  # 20:00 UTC day 0 -> divergence -1.0, kept
+    day1 = DAY + 5 * 3600 * 1000  # 05:00 UTC day 1, listed out of order below
+
+    times = [day1, day0_early, day0_late]
+    spot = _frame(times, [10.0, 10.0, 10.0], [10.0, 10.0, 0.0])
+    perp = _frame(times, [10.0, 10.0, 10.0], [10.0, 5.0, 5.0])
+    out = divergence(spot, perp)
+
+    assert list(out.index) == [
+        pd.Timestamp("1970-01-01", tz="UTC"),
+        pd.Timestamp("1970-01-02", tz="UTC"),
+    ]
+    assert list(out) == [-1.0, 0.0]

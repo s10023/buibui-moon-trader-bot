@@ -28,8 +28,11 @@ def divergence(spot: pd.DataFrame, perp: pd.DataFrame) -> pd.Series:
     """``imb_spot - imb_perp`` on the days both venues have a bar.
 
     Positive = spot takers were more aggressive buyers than perp takers, which
-    the spec pre-registers as the LONG direction. Index is UTC-midnight
-    Timestamps so it aligns with ``load_daily_inputs``' close index.
+    the spec pre-registers as the LONG direction. The index is built with the
+    same normalize -> dedup(keep last) -> sort idiom as ``load_daily_inputs``
+    (``analytics/forecast/replay.py``), so the two Series are guaranteed
+    UTC-midnight-aligned by construction rather than by an assumption that
+    every venue's ``open_time`` happens to already be midnight-aligned.
     """
     cols = ["open_time", "volume", "taker_buy_volume"]
     merged = spot[cols].merge(perp[cols], on="open_time", suffixes=("_s", "_p"))
@@ -37,5 +40,6 @@ def divergence(spot: pd.DataFrame, perp: pd.DataFrame) -> pd.Series:
         return pd.Series(dtype="float64", index=pd.DatetimeIndex([], tz="UTC"))
     imb_s = taker_imbalance(merged["volume_s"], merged["taker_buy_volume_s"])
     imb_p = taker_imbalance(merged["volume_p"], merged["taker_buy_volume_p"])
-    idx = pd.to_datetime(merged["open_time"], unit="ms", utc=True)
-    return pd.Series((imb_s - imb_p).to_numpy(), index=pd.DatetimeIndex(idx))
+    idx = pd.to_datetime(merged["open_time"], unit="ms", utc=True).dt.normalize()
+    out = pd.Series((imb_s - imb_p).to_numpy(), index=pd.DatetimeIndex(idx))
+    return out[~out.index.duplicated(keep="last")].sort_index()
