@@ -19,14 +19,16 @@
   {@const m = monthly}
   <div class="period">
     <span class="p-tag">Month</span>
-    <span class="p-lead num" class:pos={m.mtd_return_pct > 0} class:neg={m.mtd_return_pct < 0}>
-      {signed(m.mtd_return_pct, 1)}%
-    </span>
-    <span class="p-rest">
-      {m.pct_of_months === null ? "—" : `p${Math.round(m.pct_of_months)}`} of {m.n_months} months
-      <span class="sep">·</span> range pos
-      {m.range_position === null ? "—" : m.range_position.toFixed(2)}
-      <span class="sep">·</span> {Math.round(m.mtd_elapsed_frac * 100)}% elapsed
+    <span class="p-body">
+      <span class="p-lead num" class:pos={m.mtd_return_pct > 0} class:neg={m.mtd_return_pct < 0}
+        >{signed(m.mtd_return_pct, 1)}%</span
+      >
+      <span class="p-rest">
+        {m.pct_of_months === null ? "—" : `p${Math.round(m.pct_of_months)}`} of {m.n_months} months
+        <span class="sep">·</span> range pos
+        {m.range_position === null ? "—" : m.range_position.toFixed(2)}
+        <span class="sep">·</span> {Math.round(m.mtd_elapsed_frac * 100)}% elapsed
+      </span>
     </span>
   </div>
 {/if}
@@ -35,10 +37,12 @@
   {@const w = weekly}
   <div class="period">
     <span class="p-tag">Week</span>
-    <span class="p-lead num">{signed(w.norm_now, 2)}×AWR</span>
-    <span class="p-rest">
-      {w.path_direction} path <span class="sep">·</span> h{w.elapsed_h}/{w.total_bars}
-      ({weekHourLabel(w)})
+    <span class="p-body">
+      <span class="p-lead num">{signed(w.norm_now, 2)}×AWR</span>
+      <span class="p-rest">
+        {w.path_direction} path <span class="sep">·</span> h{w.elapsed_h}/{w.total_bars}
+        ({weekHourLabel(w)})
+      </span>
     </span>
   </div>
   <!--
@@ -67,12 +71,21 @@
 {/if}
 
 <style>
+  /* Two columns, not three. With a separate column for the lead value, a
+     wrapping third column hung its continuation lines under that column's left
+     edge — so "32% elapsed" broke with "elapsed" indented past the number above
+     it. Letting lead and rest flow inline in one cell wraps under the value,
+     which is where the eye expects it. */
   .period {
     display: grid;
-    grid-template-columns: 46px auto 1fr;
+    grid-template-columns: 46px 1fr;
     align-items: baseline;
     gap: 8px;
     font-variant-numeric: tabular-nums;
+  }
+
+  .period > .p-body {
+    display: block;
   }
 
   .period + .period { margin-top: 4px; }
@@ -89,6 +102,7 @@
     font-size: var(--fs-data);
     font-weight: 600;
     color: var(--text);
+    margin-right: 5px;
   }
 
   .p-rest { color: var(--text-dim); }
@@ -96,6 +110,7 @@
   .p-sub {
     margin-top: 3px;
     padding-left: 54px;
+    text-indent: -6px;
     color: var(--text-soft);
     font-size: var(--fs-micro);
   }

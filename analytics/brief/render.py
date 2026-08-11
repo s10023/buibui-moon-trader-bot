@@ -5,6 +5,7 @@ from __future__ import annotations
 import pandas as pd
 
 from analytics.brief._common import TF_MS
+from analytics.brief.pundit import truncate_call_text
 from analytics.brief.types import (
     BbState,
     BriefBundle,
@@ -462,11 +463,15 @@ def _author_str(prior: PunditAuthorPrior) -> str:
 def _call_line(call: PunditCallRow) -> str:
     marker = "● " if call.on_panel else "  "
     prior = f" {_author_str(call.prior)}" if call.prior is not None else ""
-    target = f' → "{call.target}"' if call.target else ""
+    # Clipped HERE, not in the board: this one-line-per-call format is the only
+    # surface with a line-width constraint. The API and the Brief tab carry the
+    # full text.
+    entry = truncate_call_text(call.entry)
+    target = f' → "{truncate_call_text(call.target)}"' if call.target else ""
     horizon = f" · {call.horizon}" if call.horizon else ""
     return (
         f"{marker}{call.author}{prior} {call.symbol} {call.direction} — "
-        f'"{call.entry}"{target}{horizon} · {call.age_days}d'
+        f'"{entry}"{target}{horizon} · {call.age_days}d'
     )
 
 

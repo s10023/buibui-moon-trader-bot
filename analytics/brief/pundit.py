@@ -43,7 +43,16 @@ def _parse_iso_ms(value: str) -> int | None:
     return int(dt.timestamp() * 1000)
 
 
-def _truncate(text: str) -> str:
+def truncate_call_text(text: str) -> str:
+    """Clip a call's entry/target for the MARKDOWN brief's one-line-per-call format.
+
+    Lives here beside the ledger read, but is applied by `render.py` only. It used
+    to be applied in `build_board`, i.e. to the shared `PunditBoard` every surface
+    consumes — so the API and the Brief tab received text already destroyed at 60
+    characters ("...upside continuation above 6…"), and no amount of CSS could
+    show what was no longer there. A terminal's line-width constraint is not the
+    web UI's constraint; keep it at the renderer that actually has it.
+    """
     return text if len(text) <= _TEXT_TRUNC else text[: _TEXT_TRUNC - 1] + "…"
 
 
@@ -191,8 +200,9 @@ def build_board(cfg: BriefConfig) -> PunditBoard:
                     author=author_key,
                     symbol=str(symbol),
                     direction=direction,
-                    entry=_truncate(str(raw.get("entry") or "")),
-                    target=_truncate(str(raw.get("target") or "")),
+                    # Full text: the markdown renderer clips its own one-liner.
+                    entry=str(raw.get("entry") or ""),
+                    target=str(raw.get("target") or ""),
                     horizon=str(raw.get("horizon") or ""),
                     age_days=int(age),
                     on_panel=str(symbol) in cfg.symbols,
