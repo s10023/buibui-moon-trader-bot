@@ -114,7 +114,7 @@ re-litigating settled research, and a guard rail behind a pointer is not a guard
 | --- | --- | --- |
 | `buibui.py` · `cli/` | Thin CLI entry shim delegating to `cli.main:main`; argparse subcommand package (`monitor` / `signal` / `analytics` / `backtest` / `digest` / `param` / `recalibrate` / `web`) | — |
 | `analytics/` | Analytics data layer (DuckDB): `store/`, `strategies/`, `backtest/`, `signal/`, `stats/`, `brief/`, `exits/`, `research_guards/` + the audit libs | `context/analytics.md` |
-| `analytics/{forecast,xsmom,combine,carry,xsrev}/` | The P2/P3 research sleeves — **verdicts below** | `context/research-sleeves.md` |
+| `analytics/{forecast,xsmom,combine,carry,xsrev,cvd}/` | The P2/P3 research sleeves — **verdicts below** | `context/research-sleeves.md` |
 | `signals/` · `card/` · `portfolio/` | Alerting + dedup daemon; F2 AI trade card; P1 paper-portfolio sizing | `context/signals.md` |
 | `web/` | FastAPI backend + Svelte 5 / Vite UI | `context/web.md` |
 | `trade/` · `deploy/` · `monitor/` · `utils/` | Execution layer (XS live wiring + overlay), 24/7 VPS deploy kit, live price/position monitors, shared utils | `context/execution.md` |
