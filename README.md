@@ -97,7 +97,7 @@ buibui-moon-trader-bot/
 ├── cli/                 # argparse subcommands (monitor, signal, analytics, backtest, …)
 ├── analytics/           # DuckDB data layer: store, strategies, backtest, signal, stats,
 │                        #   brief, exits, research guards — plus the research sleeves
-│                        #   (forecast, xsmom, combine, carry, xsrev)
+│                        #   (forecast, xsmom, combine, carry, xsrev, cvd)
 ├── signals/             # Alerting + dedup daemon (detection itself lives in analytics/)
 ├── card/                # F2 AI trade card
 ├── portfolio/           # P1 paper-portfolio sizing + replay

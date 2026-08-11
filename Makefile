@@ -296,6 +296,14 @@ buibui-forecast-regime:  ## P2 §6: read-only per-regime attribution (read t_cor
 buibui-xsmom-audit:  ## P3: read-only cross-sectional momentum sleeve audit over the N3 universe
 	PYTHONPATH=. poetry run python tools/xsmom_audit.py
 
+.PHONY: buibui-cvd-backfill
+buibui-cvd-backfill:  ## D1: fetch Binance SPOT daily bars into spot_ohlcv (WRITES; run OFF the quarter-hour)
+	PYTHONPATH=. poetry run python -m tools.cvd_audit backfill $(ARGS)
+
+.PHONY: buibui-cvd-audit
+buibui-cvd-audit:  ## D1: read-only spot-perp CVD sleeve audit — both book shapes + the three-leg gate
+	PYTHONPATH=. poetry run python -m tools.cvd_audit run $(ARGS)
+
 .PHONY: buibui-xsrev-audit
 buibui-xsrev-audit:  ## P3: read-only cross-sectional reversal sleeve audit over the N3 universe
 	PYTHONPATH=. poetry run python tools/xsrev_audit.py

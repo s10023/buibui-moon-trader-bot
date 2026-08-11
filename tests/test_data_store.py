@@ -81,6 +81,7 @@ class TestInitSchema:
             "funding_rates",
             "open_interest",
             "venue_spot_daily",
+            "spot_ohlcv",
             "symbol_lifecycle",
             "signals",
             "signal_alert_outcomes",

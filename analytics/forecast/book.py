@@ -21,20 +21,32 @@ def instrument_returns(
     close: pd.Series,
     funding_daily: pd.Series,
     cfg: ForecastConfig,
+    *,
+    forecast: pd.Series | None = None,
 ) -> pd.DataFrame:
     """Causal subsystem returns for one instrument.
 
     Columns: leverage, gross, turnover_cost, funding_cost, net (indexed like
     `close`). `funding_daily` is the day's summed funding rate aligned to the
-    close index (0.0 where missing).
+    close index (0.0 where missing). ``forecast`` (default ``None``) injects a
+    sibling sleeve's raw, UN-shifted forecast in place of the EWMAC path — the
+    time-series twin of ``run_xs_backtest(forecasts=...)``. ``None`` is
+    byte-identical to the EWMAC path. The ``.shift(1)`` below applies to an
+    injected series exactly as it does to an internal one, so callers must not
+    pre-shift.
     """
-    forecast = combine_forecasts(
-        close, cfg.speeds, cfg.fdm, cfg.vol_span, cfg.cap, weights=cfg.weights
-    ).shift(1)
+    raw = (
+        combine_forecasts(
+            close, cfg.speeds, cfg.fdm, cfg.vol_span, cfg.cap, weights=cfg.weights
+        )
+        if forecast is None
+        else forecast.reindex(close.index)
+    )
+    forecast_shifted = raw.shift(1)
     # ew_return_vol is already causal (.shift(1) baked in) — no extra shift
     vol_ann = ew_return_vol(close, cfg.vol_span).mul(np.sqrt(cfg.annualization_days))
 
-    leverage = (forecast / 10.0) * (cfg.vol_target_annual / vol_ann)
+    leverage = (forecast_shifted / 10.0) * (cfg.vol_target_annual / vol_ann)
     leverage = leverage.replace([np.inf, -np.inf], np.nan)
 
     r = close.pct_change()
@@ -73,8 +85,15 @@ def run_forecast_backtest(
     closes: dict[str, pd.Series],
     fundings: dict[str, pd.Series],
     cfg: ForecastConfig,
+    *,
+    forecasts: dict[str, pd.Series] | None = None,
 ) -> ForecastBookResult:
-    """Aggregate per-instrument subsystem returns + causal vol governor."""
+    """Aggregate per-instrument subsystem returns + causal vol governor.
+
+    ``forecasts`` (default ``None``) injects a sibling sleeve's raw, un-shifted
+    per-instrument forecasts in place of the EWMAC path; ``None`` is
+    byte-identical. A symbol absent from the dict falls back to EWMAC.
+    """
     union = pd.DatetimeIndex([])
     for s in closes.values():
         union = union.union(pd.DatetimeIndex(s.index))
@@ -84,7 +103,8 @@ def run_forecast_backtest(
     net_cols: list[pd.Series] = []
     for sym, close in closes.items():
         fund = fundings.get(sym, pd.Series(0.0, index=close.index))
-        out = instrument_returns(close, fund, cfg)
+        injected = None if forecasts is None else forecasts.get(sym)
+        out = instrument_returns(close, fund, cfg, forecast=injected)
         net = out["net"].reindex(union)
         per_net[sym] = net
         net_cols.append(net)

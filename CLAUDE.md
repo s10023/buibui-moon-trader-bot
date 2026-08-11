@@ -114,7 +114,7 @@ re-litigating settled research, and a guard rail behind a pointer is not a guard
 | --- | --- | --- |
 | `buibui.py` · `cli/` | Thin CLI entry shim delegating to `cli.main:main`; argparse subcommand package (`monitor` / `signal` / `analytics` / `backtest` / `digest` / `param` / `recalibrate` / `web`) | — |
 | `analytics/` | Analytics data layer (DuckDB): `store/`, `strategies/`, `backtest/`, `signal/`, `stats/`, `brief/`, `exits/`, `research_guards/` + the audit libs | `context/analytics.md` |
-| `analytics/{forecast,xsmom,combine,carry,xsrev}/` | The P2/P3 research sleeves — **verdicts below** | `context/research-sleeves.md` |
+| `analytics/{forecast,xsmom,combine,carry,xsrev,cvd}/` | The P2/P3 research sleeves — **verdicts below** | `context/research-sleeves.md` |
 | `signals/` · `card/` · `portfolio/` | Alerting + dedup daemon; F2 AI trade card; P1 paper-portfolio sizing | `context/signals.md` |
 | `web/` | FastAPI backend + Svelte 5 / Vite UI | `context/web.md` |
 | `trade/` · `deploy/` · `monitor/` · `utils/` | Execution layer (XS live wiring + overlay), 24/7 VPS deploy kit, live price/position monitors, shared utils | `context/execution.md` |
@@ -131,6 +131,7 @@ re-litigating settled research, and a guard rail behind a pointer is not a guard
 | `combine/` trend×XS | +1.145, clears the gate but is **Sharpe-dominated by XS-solo**. A validated socket awaiting a comparably strong second edge |
 | `carry/` funding carry | +0.03, FAILS, not cost-robust past 8bps. **SHELVED** |
 | `xsrev/` XS reversal | **−2.9, negative even at ZERO cost. SHELVED** — the additivity thesis is falsified, momentum continues down to 2–7d |
+| `cvd/` spot-perp CVD divergence | **ALL 10 pre-registered trials FAIL. SHELVED** (2026-08-11, verdict `docs/audits/2026-08-11-d1-spot-perp-cvd.md`). XS −0.147 (PBO **0.849**, overfit); TS +0.183 with PBO passing at 0.316 but DSR 0.532 and boot_lo −0.642. Best single trial TS span8 +0.304, still short. **The informative part: `corr_to_xsmom` is −0.04/−0.08, so it WAS decorrelated from the deploy core — the failure is missing signal, not redundancy.** Panel 22, not 23 (TONUSDT spot is `BREAK`). **Daily-bar completeness is now MEASURED — residual exactly 0.0 against real 15m klines — so do not re-open the resolution question.** The one live re-entry point is intraday *sequencing*, which a daily design cannot see |
 
 **P2 §6 per-regime attribution — RUN 2026-08-06, verdict NO** (verdict
 `docs/audits/2026-08-06-p2-ewmac-regime-attribution.md`, tool
