@@ -43,12 +43,17 @@ web/ui/src/
 │   ├── BacktestResult.svelte
 │   ├── CandleChart.svelte    ← lightweight-charts wrapper
 │   ├── ErrorBanner.svelte
+│   ├── LiveOutcomes.svelte
 │   ├── LoadingSpinner.svelte
 │   ├── Nav.svelte
+│   ├── PathCone.svelte
 │   ├── PositionRow.svelte
-│   └── PriceRow.svelte
+│   ├── PriceRow.svelte
+│   ├── WeeklyCone.svelte
+│   └── brief/                ← per-page component set; see below
 ├── pages/              one file per top-level tab
 │   ├── Backtest.svelte
+│   ├── Brief.svelte
 │   ├── Chart.svelte
 │   ├── Positions.svelte
 │   ├── Prices.svelte
@@ -102,6 +107,24 @@ missing event types).
    start and update on user actions or polling.
 5. Use existing components (`LoadingSpinner`, `ErrorBanner`) for loading and
    error states — don't reinvent them.
+
+## Per-page component sets — `components/<page>/`
+
+A page whose cards outgrow one file gets its own subdirectory rather than
+dumping a dozen components into the flat `components/` tree. `components/brief/`
+is the worked example, and it carries two rules learned the hard way:
+
+- **Svelte scopes `<style>` per component**, so extracting markup out of a page
+  leaves its CSS behind. Shared frames belong in a primitive (`Card.svelte`,
+  `Block.svelte`) that owns the style, not copy-pasted into each child.
+- **Shared formatters go in one `format.ts`**, never re-declared per component —
+  the Brief's numbers are mirrored by a Python renderer, so duplicated
+  formatting is how the tab and the CLI start disagreeing on the same value.
+
+Do not put a literal `<style>` or `<script>` tag inside a comment in a `.svelte`
+file: the parser reads it out of the script block and reports the script as left
+open, which surfaces as a confusing `element_unclosed` error pointing at the
+closing `</style>` tag many lines below.
 
 ## Adding a new component
 
