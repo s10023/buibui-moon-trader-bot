@@ -75,9 +75,16 @@ def _strip_lines(strip: SeasonalityStrip | None) -> list[str]:
         return ["Day/Week seasonality: n/a"]
     parts: list[str] = []
     if strip.bull_pct is not None and strip.avg_range_pct is not None:
+        # Mean and median are printed together because daily range is
+        # right-skewed; a mean well above the median says the DOW's reputation
+        # rests on a handful of outlier days, which is a different trade than a
+        # genuinely wide day.
+        range_str = f"range {strip.avg_range_pct * 100:.1f}% avg"
+        if strip.median_range_pct is not None:
+            range_str += f" / {strip.median_range_pct * 100:.1f}% med"
         parts.append(
-            f"{strip.dow}: bull {fmt_frac(strip.bull_pct)} · avg range "
-            f"{strip.avg_range_pct * 100:.1f}% (n={strip.sample_days})"
+            f"{strip.dow}: bull {fmt_frac(strip.bull_pct)} · {range_str} "
+            f"(n={strip.sample_days})"
         )
     if (
         strip.high_session is not None

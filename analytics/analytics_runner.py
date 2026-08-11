@@ -18,6 +18,7 @@ from analytics.data_sync import (
     sync_funding_rates,
     sync_open_interest,
 )
+from analytics.db_retry import connect_with_retry
 from utils.binance_client import create_client, load_coins_config
 
 
@@ -40,7 +41,11 @@ def _open_session(
     except Exception as e:
         logging.error("Failed to create Binance client: %s", e)
         sys.exit(1)
-    conn: duckdb.DuckDBPyConnection = duckdb.connect(str(db_path))
+    # Waits out a concurrent writer rather than dying on it. These runners are
+    # unattended systemd timers that catch up simultaneously after a resume from
+    # suspend, which is how the 2026-08-11 xsmom sync lost a day to a
+    # `Conflicting lock` nine seconds after signal-watch's own catch-up fired.
+    conn: duckdb.DuckDBPyConnection = connect_with_retry(db_path)
     try:
         init_schema(conn)
         yield client, conn
