@@ -133,34 +133,34 @@ def main(argv: list[str] | None = None) -> int:
     cfg = ForecastConfig()
 
     if args.command == "backfill":
-        conn = duckdb.connect(str(args.db))
-        init_schema(conn)
-        counts = backfill(conn, symbols=cvd_universe(), start_ms=args.start_ms)
+        with duckdb.connect(str(args.db)) as conn:
+            init_schema(conn)
+            counts = backfill(conn, symbols=cvd_universe(), start_ms=args.start_ms)
         print(f"[backfill] {sum(counts.values())} rows across {len(counts)} symbols")
         return 0
 
-    conn = duckdb.connect(str(args.db), read_only=True)
-    bench = replay_xsmom_benchmark(conn, cfg).portfolio_return
-    _print_report(
-        "Shape A - cross-sectional",
-        evaluate_cvd(
-            replay_cvd_xs(conn, cfg).portfolio_return,
-            cfg,
-            replay_cvd_xs_trials(conn, cfg),
-            bench,
-            fold_to_magnitude=args.fold_to_magnitude,
-        ),
-    )
-    _print_report(
-        "Shape B - time-series",
-        evaluate_cvd(
-            replay_cvd_ts(conn, cfg).portfolio_return,
-            cfg,
-            replay_cvd_ts_trials(conn, cfg),
-            bench,
-            fold_to_magnitude=args.fold_to_magnitude,
-        ),
-    )
+    with duckdb.connect(str(args.db), read_only=True) as conn:
+        bench = replay_xsmom_benchmark(conn, cfg).portfolio_return
+        _print_report(
+            "Shape A - cross-sectional",
+            evaluate_cvd(
+                replay_cvd_xs(conn, cfg).portfolio_return,
+                cfg,
+                replay_cvd_xs_trials(conn, cfg),
+                bench,
+                fold_to_magnitude=args.fold_to_magnitude,
+            ),
+        )
+        _print_report(
+            "Shape B - time-series",
+            evaluate_cvd(
+                replay_cvd_ts(conn, cfg).portfolio_return,
+                cfg,
+                replay_cvd_ts_trials(conn, cfg),
+                bench,
+                fold_to_magnitude=args.fold_to_magnitude,
+            ),
+        )
     print("\n10 trials declared before any result: 5 per shape x 2 shapes.")
     return 0
 

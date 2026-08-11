@@ -85,6 +85,38 @@ def test_backfill_maps_the_1000pepe_symbol_on_the_request() -> None:
     assert "symbol=PEPEUSDT" in calls[0]
 
 
+def test_backfill_stores_1000pepe_rows_under_the_perp_symbol() -> None:
+    """The request carries the SPOT name; the stored row carries the PERP name.
+
+    `test_backfill_maps_the_1000pepe_symbol_on_the_request` above never reaches
+    the write path (its fake getter returns `[]` unconditionally), so it cannot
+    catch a regression that stores under `spot_sym` instead of `sym`. This one
+    serves klines so the write happens, then asserts on both sides: the row
+    exists under the perp symbol, and does NOT exist under the spot symbol —
+    the second assertion is the one that actually fails against that
+    regression.
+    """
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    calls: list[str] = []
+
+    def fake_get(url: str) -> Any:
+        calls.append(url)
+        return [_kline(0)] if "startTime=0" in url else []
+
+    backfill(
+        conn,
+        symbols=["1000PEPEUSDT"],
+        start_ms=0,
+        get=fake_get,
+        sleep=lambda _s: None,
+        trading=frozenset({"PEPEUSDT"}),
+    )
+    assert "symbol=PEPEUSDT" in calls[0]
+    assert len(get_spot_ohlcv(conn, "1000PEPEUSDT", 0, DAY)) == 1
+    assert len(get_spot_ohlcv(conn, "PEPEUSDT", 0, DAY)) == 0
+
+
 def test_backfill_skips_a_symbol_whose_spot_market_is_halted() -> None:
     """Kline availability is NOT proof a pair is live.
 
