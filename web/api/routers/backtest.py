@@ -195,6 +195,7 @@ def run_backtest_endpoint(
         0,
         secondary_symbol,
         volume_suppress=None,
+        writer="ui",
     )
     upsert_backtest_trades(db, result, run_id)
     return _result_to_response(result)

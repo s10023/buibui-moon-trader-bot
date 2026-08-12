@@ -16,6 +16,7 @@ from analytics.recalibrate_lib import (
     compute_dsr_ratings,
     compute_recalibrated_ratings,
     format_recalibration_report,
+    get_backtest_win_rates,
     prune_stale_ratings,
     win_rate_to_stars,
     write_confidence_to_db,
@@ -1045,3 +1046,123 @@ class TestComputeDsrRatings:
         conn.close()
         assert "bos" in result
         assert "fvg" not in result
+
+
+# ---------------------------------------------------------------------------
+
+
+def _insert_run(
+    conn: duckdb.DuckDBPyConnection,
+    run_id: str,
+    strategy: str,
+    tf: str,
+    run_at_ms: int,
+    sweep_id: str | None,
+    avg_r: float,
+    closed_trades: int = 100,
+) -> None:
+    """Insert one backtest_runs row with only the fields these tests read."""
+    conn.execute(
+        "INSERT INTO backtest_runs VALUES "
+        "(?, ?, ?, ?, 0, 1, 90, 0.02, 2.0, 0.0005, 'off', 1, NULL, ?, ?, ?, ?, ?, ?, "
+        "?, 1.0, ?, ?, "
+        "NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+        [
+            run_id,
+            "BTCUSDT",
+            tf,
+            strategy,
+            closed_trades,
+            closed_trades,
+            closed_trades // 2,
+            closed_trades - closed_trades // 2,
+            0.5,
+            avg_r,
+            avg_r * closed_trades,
+            run_at_ms,
+            sweep_id,
+        ],
+    )
+
+
+class TestSweepRowsWinOverRecency:
+    """A swept row must outrank a newer live-gate row.
+
+    Writer identity alone is not enough. Both selection sites kept "the latest run
+    per (strategy, timeframe, symbol)" by `run_at_ms`, so once the two writers stop
+    COLLIDING they simply coexist — and the 15-minute daemon's row is always the
+    newest. That converts a destructive overwrite into a silent preference, leaving
+    53% of rated cells still sourced from the live gate rather than the deliberate
+    sweep. The sweep row is the validated evidence; recency is not the tiebreak.
+    """
+
+    def _conn(self) -> duckdb.DuckDBPyConnection:
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        return conn
+
+    def test_win_rates_prefer_the_sweep_row(self) -> None:
+        conn = self._conn()
+        _insert_run(conn, "sweep1", "bos", "15m", 1_000, "sweep-abc", avg_r=0.40)
+        _insert_run(conn, "live1", "bos", "15m", 9_999, None, avg_r=-0.90)
+
+        df = get_backtest_win_rates(conn, day_filter="off")
+        row = df[(df["strategy"] == "bos") & (df["timeframe"] == "15m")].iloc[0]
+        assert row["avg_r"] == pytest.approx(0.40), (
+            "the newer live-gate row won; sweep provenance was ignored"
+        )
+
+    def test_latest_sweep_wins_among_sweeps(self) -> None:
+        conn = self._conn()
+        _insert_run(conn, "old", "bos", "15m", 1_000, "sweep-old", avg_r=0.10)
+        _insert_run(conn, "new", "bos", "15m", 2_000, "sweep-new", avg_r=0.60)
+
+        df = get_backtest_win_rates(conn, day_filter="off")
+        row = df[(df["strategy"] == "bos") & (df["timeframe"] == "15m")].iloc[0]
+        assert row["avg_r"] == pytest.approx(0.60)
+
+    def test_live_row_still_used_when_no_sweep_exists(self) -> None:
+        conn = self._conn()
+        _insert_run(conn, "live1", "bos", "15m", 9_999, None, avg_r=-0.90)
+
+        df = get_backtest_win_rates(conn, day_filter="off")
+        row = df[(df["strategy"] == "bos") & (df["timeframe"] == "15m")].iloc[0]
+        assert row["avg_r"] == pytest.approx(-0.90), (
+            "a cell with only live-gate rows must still be rated, not dropped"
+        )
+
+    def test_dsr_pools_trades_from_the_sweep_row(self) -> None:
+        conn = self._conn()
+        _insert_run(conn, "sweep1", "bos", "15m", 1_000, "sweep-abc", avg_r=0.40)
+        _insert_run(conn, "live1", "bos", "15m", 9_999, None, avg_r=-0.90)
+        # 40 trades under the sweep run, none under the live run. The pnl_r values
+        # must VARY: `_sharpe` returns None at zero dispersion, so a constant-R
+        # fixture would make this test pass-by-degeneracy and assert nothing.
+        conn.executemany(
+            "INSERT INTO backtest_trades (trade_id, run_id, symbol, timeframe, "
+            "strategy, direction, signal_time, entry_time, entry_price, sl_price, "
+            "tp_price, outcome, pnl_r) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                [
+                    f"t{i}",
+                    "sweep1",
+                    "BTCUSDT",
+                    "15m",
+                    "bos",
+                    "long",
+                    1_000 + i,
+                    1_000 + i,
+                    100.0,
+                    98.0,
+                    104.0,
+                    "tp" if i % 3 else "sl",
+                    0.5 if i % 3 else -1.0,
+                ]
+                for i in range(40)
+            ],
+        )
+        out = compute_dsr_ratings(conn, day_filter="off")
+        assert out.get("bos", {}).get("15m", {}).get("combined") is not None, (
+            "DSR read the live row's run_id and found no trades to pool"
+        )

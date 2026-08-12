@@ -1113,6 +1113,7 @@ def run_backtest_cmd(
                 day_filter="off",
                 smt_trend_filter=1,
                 secondary_symbol=secondary_symbol,
+                writer="single",
             )
             upsert_backtest_trades(conn, bt_result, run_id)
             print(f"\n  Results saved to DB (run_id={run_id})")

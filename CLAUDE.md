@@ -249,6 +249,31 @@ causes malloc heap corruption) and never drop the try/finally.
 redefine it in a runner. It is **not** in `schema.py`; this entry said so until
 2026-08-04 and the wrong path fails as an `ImportError` on first use.
 
+**CRITICAL — `_backtest_run_id`'s `writer` argument is load-bearing, and `"sweep"`
+is the UNSUFFIXED default ON PURPOSE. Do NOT "simplify" it to always append the
+suffix.** The hash covers only backtest *parameters* and `upsert_backtest_run` issues
+`INSERT OR REPLACE`, so before 2026-08-12 the live signal-watch gate silently
+**replaced** swept rows whenever its resolved `sl_pct`/`tp_r` matched a swept cell's —
+i.e. the *chosen* cell, the one that matters. Measured: **415 rows overwritten, 331
+whose stored aggregate disagreed with their own trades** (`smt_divergence/15m` read 8
+against **1070** stored), and **53% of rated `tue_thu` cells** owned by the daemon
+rather than the deliberate sweep. Keeping `"sweep"` unsuffixed is what preserves
+historical sweep run_ids *and* the `backtest_cache` (its keys derive from `run_id` —
+`analytics/signal/_common.py`); making it symmetric would orphan every historical row
+and cold-start the live cache for no benefit. **The fix is TWO halves and the first
+alone is cosmetic:** writer identity stops the two writers *colliding*, but both
+selection sites (`get_backtest_win_rates`, `compute_dsr_ratings`) previously took the
+*latest* run, and the daemon's row is newest every 15 minutes — so they now rank
+`(sweep_id IS NOT NULL, run_at_ms)`. **Those two must keep mirroring each other**, or
+DSR and the rated `avg_r` describe different trades. Contrary to what the incident
+report predicted, this moves **no goldens** — `run_id` is in no fixture and
+`tests/test_regression.py` never touches the DB (verified, 3 passed). Separately:
+**`MIN_DSR_TRADES` gates COUNT, not DISPERSION** — `_sharpe` rejects only `sd == 0.0`
+exactly, so `bos/1d/long` (36 trades all ≈ −1.0076R, sd 0.0022, **Sharpe −461**)
+clears the floor and inflates the trial-family variance **0.0348 → 1729.89**. A/B'd
+against a dispersion floor, production DSR did **not** move, so it is a latent
+fragility and **not** a cause of the star-ratings null.
+
 **CRITICAL — `portfolio/sizing.py::round_down_to_step` snaps before it floors, and
 the snap is load-bearing. Do NOT "simplify" it back to `floor(q/step)*step`.** That
 naive form is float-fragile: `0.29 / 0.01` computes as `28.999999999999996`, floors to
