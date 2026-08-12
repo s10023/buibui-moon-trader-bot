@@ -470,9 +470,11 @@ it is authoritative. Only the rules that the injected list cannot carry live bel
 - **Always load `/frontend-design` before any Svelte / CSS / UI change**, and pair it
   with `/frontend-svelte`.
 - **Cadence reminders** the descriptions don't convey: `/sanity-check` weekly or after
-  any large refactor · `/db-update` after any detector, strategy or config change ·
-  `/recalibrate` after any `make buibui-backtest SAVE=1` · `/journal-trade` whenever a
-  manual trade closes · `/ingest-feed` daily.
+  any large refactor · `/decay-review` weekly · `/db-update` after any detector, strategy
+  or config change · `/recalibrate` after any `make buibui-backtest SAVE=1` ·
+  `/journal-trade` whenever a manual trade closes · `/ingest-feed` daily.
+  The first three are **marker-tracked** in `docs/plans/task-marks/`, stamped by whoever
+  runs them; a missing marker reads as overdue on purpose, and nothing auto-runs.
 - **`/wfo-sweep` is the trusted production path for `tp_r`.** `/config-refresh` runs on
   the full dataset with no out-of-sample split, so never take a `tp_r` from it.
 - **Never `&&`-chain `/card` runs** — one background exec per card.

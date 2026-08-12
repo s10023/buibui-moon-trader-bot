@@ -122,8 +122,9 @@ to a warning written for exactly them → `docs/plans/scratch/decay-review-2026-
 Note what that implies about the sample above: `fib_golden_zone/4h` is rated 5★ off
 **34 trades**, which is the shape that lands in Unscoreable, not a validated edge.
 
-Re-run that analysis with **`make buibui-decay-review`** (`tools/decay_review.py`,
-read-only). It also answers the question the stored `dsr` column cannot — **whether
+Re-run that analysis with **`/decay-review`**, which wraps `make buibui-decay-review`
+(`tools/decay_review.py`, read-only) and carries the reading traps plus the report and
+marker steps. It also answers the question the stored `dsr` column cannot — **whether
 DSR ≥ 0.95 is reachable at all** under this trial family, measured at each cell's own
 `n`, so a gate nothing can clear is reported as an artifact rather than as 66 failures.
 
