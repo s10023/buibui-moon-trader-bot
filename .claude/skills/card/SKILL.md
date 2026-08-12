@@ -12,7 +12,7 @@ allowed-tools: Bash, Read
 # Card — Trade-Card Runner + Digest
 
 `buibui card SYMBOL` composes a MarketState (brief panel + pundit board + XS
-target + recent fires + live account), asks `claude -p` for a card-v3 trade
+target + recent fires + live account), asks `claude -p` for a card-v4 trade
 card, then a deterministic post-pass sizes the trade and enforces hard rules
 in code. Advisory-only — it routes no orders. This skill wraps it: run one
 card or a batch, collect the results, and digest them.
@@ -153,6 +153,15 @@ Per card:
    in a verified snapshot (`docs/plans/external-context/*.json`, same symbol,
    fresh). Flag invented or mispriced clusters. card-v3 caps external
    liquidity at ONE confluence input — more than one is a rubric violation.
+   **card-v4: a cluster is a BAND.** Its edges reproduce to only ~16% on a
+   same-input re-extraction (mean drift 20–43% of band width, measured
+   2026-08-12), so a card placing an entry/SL/TP exactly on a cluster edge is
+   a rubric violation even when the number is real. Intensity IS reliable.
+2b. **Pundit citations** — from card-v4 the board carries **no per-author
+   `avg_r`**; a card quoting one is reading a field that no longer exists, and
+   a card quoting `avg_atr_r` as though it were R has confused ATR units for
+   stop units. Several authors reading an identical −1.0 was the tell that
+   killed the old field.
 3. **Sizing** — the post-pass is deterministic (P1 sizing reuse); check
    entry/SL/TP/size are internally consistent in R terms. **LOT_SIZE rounding
    is now ENFORCED in code** — the post-pass floors the quantity to the

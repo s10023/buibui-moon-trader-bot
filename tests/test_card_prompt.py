@@ -26,7 +26,20 @@ def _state(hint: str | None = None) -> MarketState:
 
 class TestPrompt:
     def test_version_constant(self) -> None:
-        assert PROMPT_VERSION == "card-v3"
+        assert PROMPT_VERSION == "card-v4"
+
+    def test_rubric_names_the_pundit_metric_and_its_units(self) -> None:
+        """card-v4: `avg_atr_r` is in ATR units, and there is no pundit R.
+
+        The card previously received BOTH `avg_r` and `avg_atr_r` on the board
+        with rubric 3a explaining an identically-named field that belongs to
+        recent_fires, and cited the censored one. The field is now stripped in
+        `card/state.py`; this states what the survivor means, so the model
+        cannot read an ATR figure as an R figure.
+        """
+        assert "avg_atr_r" in RUBRIC
+        assert "ATR" in RUBRIC
+        assert "no per-author R" in RUBRIC
 
     def test_rubric_live_record_beats_backtest_star(self) -> None:
         """card-v3: the live ledger overrides the backtest star on conflict.
@@ -45,6 +58,16 @@ class TestPrompt:
         assert "spot_hint_deviation" in RUBRIC
         assert "at most ONE agreeing input" in RUBRIC
         assert "stop-hunt warning" in RUBRIC
+
+    def test_rubric_treats_a_cluster_as_a_band_not_a_level(self) -> None:
+        """card-v4: extraction reproduces band EDGES to only ~16% exactly.
+
+        Measured 2026-08-12 over a same-input A/B — mean edge drift is 20-43%
+        of band width while intensity agreed 19/19. Without this the model
+        places a TP on a cluster edge as though the number were exact.
+        """
+        assert "BAND, not a level" in RUBRIC
+        assert "never place an entry, SL or TP on a cluster edge" in RUBRIC
 
     def test_rubric_style_block(self) -> None:
         # card-v2: humanizer style directive covers all generated prose
