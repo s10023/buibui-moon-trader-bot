@@ -22,6 +22,7 @@ class TestParser:
         args = _parse(["card", "BTCUSDT"])
         assert args.symbol == "BTCUSDT"
         assert args.direction is None
+        assert args.horizon is None
         assert args.as_of is None
         assert args.dry_run is False
         assert args.no_ledger is False
@@ -35,6 +36,8 @@ class TestParser:
                 "ETHUSDT",
                 "--direction",
                 "short",
+                "--horizon",
+                "swing",
                 "--as-of",
                 "2026-07-11T00:00:00Z",
                 "--dry-run",
@@ -43,6 +46,7 @@ class TestParser:
             ]
         )
         assert args.direction == "short"
+        assert args.horizon == "swing"
         assert args.dry_run is True
 
 
@@ -195,6 +199,7 @@ class TestDryRun:
         args = argparse.Namespace(
             symbol="BTCUSDT",
             direction=None,
+            horizon=None,
             as_of="2026-07-11T00:00:00Z",
             db=str(db),
             config=None,
@@ -206,6 +211,31 @@ class TestDryRun:
         out = capsys.readouterr().out
         assert '"symbol": "BTCUSDT"' in out
         assert "MARKET STATE JSON" in out  # the prompt was printed
+
+    def test_horizon_flag_reaches_the_prompt(self, capsys: Any, tmp_path: Any) -> None:
+        """--horizon must survive into the built prompt, not just parse."""
+        import duckdb
+
+        from analytics.store.schema import init_schema
+        from cli.card import run_card_cmd
+
+        db = tmp_path / "t.db"
+        conn = duckdb.connect(str(db))
+        init_schema(conn)
+        conn.close()
+        args = argparse.Namespace(
+            symbol="BTCUSDT",
+            direction=None,
+            horizon="swing",
+            as_of="2026-07-11T00:00:00Z",
+            db=str(db),
+            config=None,
+            json=False,
+            dry_run=True,
+            no_ledger=False,
+        )
+        run_card_cmd(args)
+        assert "30 days" in capsys.readouterr().out
 
 
 class TestCardErrorExit:
@@ -235,6 +265,7 @@ class TestCardErrorExit:
         args = argparse.Namespace(
             symbol="BTCUSDT",
             direction=None,
+            horizon=None,
             as_of="2026-07-11T00:00:00Z",
             db=str(db),
             config=None,
@@ -284,6 +315,7 @@ class TestQtyStepWiring:
         args = argparse.Namespace(
             symbol="BTCUSDT",
             direction=None,
+            horizon=None,
             as_of="2026-07-11T00:00:00Z",
             db=str(db),
             config=None,

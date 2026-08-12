@@ -7,6 +7,21 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
+CARD_HORIZONS: tuple[str, ...] = ("intraday", "swing")
+"""Card horizons — a strict subset of ``VALID_HORIZONS``.
+
+``unspecified`` is excluded: it scores on 14 days, and a card always knows
+its horizon because the operator picks it. A test binds this to
+``WINDOWS_MS`` so a member added without a window cannot fall through.
+"""
+
+_HORIZON_FIRES_TIMEFRAMES: dict[str, tuple[str, ...]] = {
+    "intraday": ("1h", "4h", "1d"),
+    # Swing DROPS 1h; never add 1w — no detector runs there, so it would scan
+    # an empty population and read as "no fires".
+    "swing": ("4h", "1d"),
+}
+
 
 @dataclass(frozen=True)
 class CardConfig:
@@ -50,7 +65,13 @@ class CardConfig:
     daily_loss_limit_r: float = -2.0
     entry_band_pct: float = 5.0
     fires_lookback_bars: int = 4
-    fires_timeframes: tuple[str, ...] = ("1h", "4h", "1d")
+    # Selects the scoring window the ledger row is resolved against:
+    # intraday = 48h, swing = 30d. Was hardcoded "intraday" in ledger.py, so
+    # swing-paced cards were scored on the wrong clock and booked wrong.
+    horizon: str = "intraday"
+    # None => derive from `horizon`; an explicit value wins. Read it through
+    # `resolved_fires_timeframes`, never directly.
+    fires_timeframes: tuple[str, ...] | None = None
     ratings_config: str = "signal_watch"
     # Lookback for the per-fire live record. 0 = all time, which maximises n.
     # Caveat: `outcome_r` only became net of costs on 2026-06-11 (PR #432) and
@@ -73,6 +94,22 @@ class CardConfig:
     pundit_calls_path: str = "docs/plans/pundit-calls.jsonl"
     priors_path: str = "docs/plans/pundit-priors.json"
     targets_dir: str = "docs/plans/xsmom_targets"
+
+    def __post_init__(self) -> None:
+        # ValueError, not CardValidationError: that type is for LLM-output
+        # schema failures and takes a list. `from_toml` already raises
+        # ValueError, so config errors stay one type.
+        if self.horizon not in CARD_HORIZONS:
+            raise ValueError(
+                f"[card] horizon {self.horizon!r} is not one of {list(CARD_HORIZONS)}"
+            )
+
+    @property
+    def resolved_fires_timeframes(self) -> tuple[str, ...]:
+        """Explicit `fires_timeframes`, else the horizon's default."""
+        if self.fires_timeframes is not None:
+            return self.fires_timeframes
+        return _HORIZON_FIRES_TIMEFRAMES[self.horizon]
 
     @classmethod
     def from_toml(cls, path: str | Path) -> CardConfig:

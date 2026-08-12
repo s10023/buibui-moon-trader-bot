@@ -214,7 +214,7 @@ def _fires_block(
         ).cells
     }
     fires: list[RecentFire] = []
-    for tf in cfg.fires_timeframes:
+    for tf in cfg.resolved_fires_timeframes:
         tf_ms = parse_timeframe_secs(tf) * 1000
         span_ms = tf_ms * cfg.fires_lookback_bars
         # The end bound is a bar CLOSE, not a bar open: `signals` rows are keyed

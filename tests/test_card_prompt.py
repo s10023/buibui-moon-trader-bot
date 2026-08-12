@@ -108,3 +108,38 @@ class TestPrompt:
         assert '"book" bands' in RUBRIC
         assert "higher intensity and lower age_hours" in RUBRIC
         assert "spot_hint_deviation true" in RUBRIC
+
+    def test_horizon_block_states_the_scoring_window(self) -> None:
+        """The model must be told the window its call is scored against.
+
+        Without this the rubric asks for `expected_hold` "e.g. 6h, 2d" with
+        no way to know which is wanted, so the hold is a free choice while
+        the scorer's window is not — the mismatch ST12 exists to close.
+        """
+        intraday = build_prompt(_state(), CardConfig())
+        swing = build_prompt(_state(), CardConfig(horizon="swing"))
+        assert "48 hours" in intraday
+        assert "30 days" in swing
+        assert intraday != swing
+
+    def test_swing_block_discounts_short_window_liquidity(self) -> None:
+        """A 24h heatmap is not evidence about a 30-day hold.
+
+        The capture set is currently ALL 24h/1d, and `load_external_state`
+        does not filter on `window` at all, so a swing card is handed
+        intraday liquidity either way. Filtering it out would empty the
+        block and read as "no external data" (the dead-cell shape), so the
+        honest fix until the capture set carries 1w is to tell the model the
+        window and let it discount. `window` already reaches the payload.
+        """
+        swing = build_prompt(_state(), CardConfig(horizon="swing"))
+        assert "window" in swing
+
+    def test_horizon_block_is_appended_not_baked_into_the_rubric(self) -> None:
+        """RUBRIC stays byte-stable; horizon rides beside it like the hint.
+
+        Baking it in would make the rubric a function of config, which
+        breaks the byte-stability contract the version pin rests on.
+        """
+        assert "48 hours" not in RUBRIC
+        assert "30 days" not in RUBRIC
