@@ -103,9 +103,33 @@ after, no markdown fences):
 {_SCHEMA}"""
 
 
+_HORIZON_BLOCKS: dict[str, str] = {
+    "intraday": (
+        "Horizon: INTRADAY. This call is scored against a 48 hours window "
+        "from now, so expected_hold must fit inside it and valid_until_utc "
+        "must not outrun it. Size the entry band to current structure."
+    ),
+    "swing": (
+        "Horizon: SWING. This call is scored against a 30 days window from "
+        "now, so expected_hold belongs in days and a hold of a few hours is "
+        "the wrong plan. Anchor entry, SL and TPs to 4h/1d structure rather "
+        "than to the current session, and widen the entry band accordingly. "
+        "Discount short-window liquidity: each external snapshot carries a "
+        "window field, and a 24h heatmap describes liquidity that will be "
+        "consumed long before this call resolves, so weight a longer-window "
+        "snapshot higher and say so when you cite one."
+    ),
+}
+
+
 def build_prompt(state: MarketState, cfg: CardConfig) -> str:
-    """Rubric (byte-stable) + optional operator hint + sorted state JSON."""
-    parts = [RUBRIC]
+    """Rubric (byte-stable) + horizon block + optional hint + state JSON.
+
+    The horizon rides BESIDE the rubric rather than inside it: RUBRIC is a
+    module constant whose byte-stability the version pin rests on, and
+    making it a function of config would break that contract.
+    """
+    parts = [RUBRIC, _HORIZON_BLOCKS[cfg.horizon]]
     if state.direction_hint:
         parts.append(
             f"The operator is considering a {state.direction_hint}; evaluate "

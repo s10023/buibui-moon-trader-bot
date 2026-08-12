@@ -49,10 +49,11 @@ def _final(verdict: str = "TRADE") -> FinalCard:
     )
 
 
-def _cfg(tmp_path: Path) -> CardConfig:
+def _cfg(tmp_path: Path, horizon: str = "intraday") -> CardConfig:
     return CardConfig(
         cards_path=str(tmp_path / "ai-cards.jsonl"),
         pundit_calls_path=str(tmp_path / "pundit-calls.jsonl"),
+        horizon=horizon,
     )
 
 
@@ -93,8 +94,33 @@ class TestLedger:
         assert call.stop == "98.0"
         assert call.target == "103.0"
 
+    def test_swing_card_is_scored_on_the_swing_window(self, tmp_path: Path) -> None:
+        """The whole point of ST12: a swing card must not be scored on 48h.
+
+        Before the flag, `pundit_row` hardcoded "intraday", so a card that
+        reasoned at swing pace was resolved against a 48-hour window and
+        silently booked wrong. Assert the written key AND that the scorer
+        resolves it to the 30-day window, so this cannot pass on a key the
+        scorer does not honour.
+        """
+        from tools.pundit_score import WINDOWS_MS, load_ledger, window_ms
+
+        cfg = _cfg(tmp_path, horizon="swing")
+        append_ledgers(_final("TRADE"), cfg)
+        calls, warnings = load_ledger(Path(cfg.pundit_calls_path))
+        assert warnings == []
+        assert calls[0].horizon == "swing"
+        assert window_ms(calls[0].horizon) == WINDOWS_MS["swing"]
+        assert window_ms(calls[0].horizon) != WINDOWS_MS["intraday"]
+
+    def test_intraday_remains_the_default(self, tmp_path: Path) -> None:
+        cfg = _cfg(tmp_path)
+        append_ledgers(_final("TRADE"), cfg)
+        row = json.loads(Path(cfg.pundit_calls_path).read_text().strip())
+        assert row["horizon"] == "intraday"
+
     def test_url_unique_per_generation(self, tmp_path: Path) -> None:
-        a = pundit_row(_final("TRADE"))
+        a = pundit_row(_final("TRADE"), "intraday")
         b = dict(a)
         assert a["url"] == "ai-card://1760000100000-BTCUSDT"
         assert a["raw_quote"] == "ref_close 100 above POC 99"
@@ -103,9 +129,10 @@ class TestLedger:
     def test_url_differs_across_generations(self) -> None:
         import dataclasses
 
-        a = pundit_row(_final("TRADE"))
+        a = pundit_row(_final("TRADE"), "intraday")
         b = pundit_row(
-            dataclasses.replace(_final("TRADE"), generated_at_ms=1_760_000_200_000)
+            dataclasses.replace(_final("TRADE"), generated_at_ms=1_760_000_200_000),
+            "intraday",
         )
         assert a["url"] != b["url"]  # generated_at_ms makes each call distinct
         assert b["url"] == "ai-card://1760000200000-BTCUSDT"

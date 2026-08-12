@@ -10,15 +10,17 @@ from card.card import FinalCard
 from card.config import CardConfig
 
 
-def pundit_row(final: FinalCard) -> dict[str, str]:
+def pundit_row(final: FinalCard, horizon: str) -> dict[str, str]:
     """Pundit-scorer-compatible row (the loader's exact 12 free-text keys).
 
-    horizon uses the scorer's shortest pre-committed WINDOWS_MS key
-    ("intraday" = 48h). Unknown keys no longer fall back silently — since
-    the horizon guard landed, ``analytics.pundit_horizon`` rejects any value
-    outside the enum at both ledger read boundaries, so inventing one here
-    costs the whole row rather than mis-scoring it. Still never invent one:
-    a loud loss is an improvement on a quiet wrong number, not a licence.
+    ``horizon`` is required and has no default on purpose: it was hardcoded
+    ``"intraday"`` (48h), so swing cards were scored on the wrong window, and
+    a default would re-create that the first time a caller forgot it.
+    ``CardConfig`` constrains it to ``CARD_HORIZONS``.
+
+    ``analytics.pundit_horizon`` rejects an out-of-enum value at both read
+    boundaries, so inventing one costs the whole row rather than mis-scoring
+    it. Still never invent one.
     """
     card = final.card
     ts = datetime.fromtimestamp(final.as_of_ms / 1000, tz=UTC)
@@ -32,7 +34,7 @@ def pundit_row(final: FinalCard) -> dict[str, str]:
         "entry": str(card.entry),
         "stop": str(card.sl),
         "target": str(card.tp1),
-        "horizon": "intraday",
+        "horizon": horizon,
         "confidence": str(card.confluence_score),
         "raw_quote": card.reasoning[0] if card.reasoning else "",
     }
@@ -51,6 +53,6 @@ def append_ledgers(final: FinalCard, cfg: CardConfig) -> list[Path]:
     written = [cards_path]
     if final.verdict == "TRADE":
         calls_path = Path(cfg.pundit_calls_path)
-        _append_line(calls_path, dict(pundit_row(final)))
+        _append_line(calls_path, dict(pundit_row(final, cfg.horizon)))
         written.append(calls_path)
     return written

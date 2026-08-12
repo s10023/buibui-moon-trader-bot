@@ -237,10 +237,18 @@ two configs, as evidence about anything. → memory `[[card-reproducibility-verd
 
 ## Quick reference
 
+**`HORIZON=swing` changes how the card is SCORED.** The ledger row resolves against
+`WINDOWS_MS[horizon]` — 48h vs 30d — so the wrong one books a good call wrong. It also
+drops 1h from the fires scan and re-anchors the rubric to 4h/1d. ⚠ **External liquidity
+is NOT horizon-filtered**: every fresh capture is a 24h heatmap or 1d liq map, so a swing
+card is handed intraday liquidity and only *told* to discount it. Fix the capture set
+before adding a filter — filtering today empties the block and reads as "no data".
+
 | Want | Command |
 | ---- | ------- |
 | Single card (background) | `make buibui-card SYMBOL=BTCUSDT` |
 | Directional | `make buibui-card SYMBOL=ETHUSDT DIRECTION=short` |
+| Swing rather than intraday | `make buibui-card SYMBOL=BTCUSDT HORIZON=swing` |
 | Reproducible INPUTS (never the card) | `... AS_OF=2026-07-16T02:00:00Z` |
 | Free state smoke | `... DRY=1` |
 | Cohort-safe exploration | `poetry run python buibui.py card SYM --no-ledger` |

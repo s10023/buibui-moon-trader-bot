@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from card.config import CardConfig
+from card.config import CARD_HORIZONS, CardConfig
 from card.errors import CardError, CardValidationError
 
 
@@ -23,7 +23,9 @@ class TestCardConfig:
         assert cfg.daily_loss_limit_r == -2.0
         assert cfg.entry_band_pct == 5.0
         assert cfg.fires_lookback_bars == 4
-        assert cfg.fires_timeframes == ("1h", "4h", "1d")
+        assert cfg.horizon == "intraday"
+        assert cfg.fires_timeframes is None  # unset => derived from horizon
+        assert cfg.resolved_fires_timeframes == ("1h", "4h", "1d")
         assert cfg.ratings_config == "signal_watch"
         assert cfg.live_window_days == 60
         assert cfg.sizing_toml is None
@@ -42,6 +44,57 @@ class TestCardConfig:
         assert cfg.min_rr == 1.5
         assert cfg.fires_timeframes == ("4h", "1d")
         assert cfg.claude_bin == "claude"  # untouched default
+
+    def test_swing_drops_1h_and_never_reaches_for_1w(self) -> None:
+        """Swing widens the fire scan by DROPPING 1h, not by adding 1w.
+
+        No detector runs on 1w (`analytics/signal_config.py` declares no 1w
+        cell), so a 1w citation would scan an empty population and read as
+        "no fires" rather than as a missing timeframe — the dead-cell shape.
+        """
+        cfg = CardConfig(horizon="swing")
+        assert cfg.resolved_fires_timeframes == ("4h", "1d")
+        assert "1h" not in cfg.resolved_fires_timeframes
+        assert "1w" not in cfg.resolved_fires_timeframes
+
+    def test_explicit_fires_timeframes_beats_the_horizon_default(self) -> None:
+        cfg = CardConfig(horizon="swing", fires_timeframes=("1h",))
+        assert cfg.resolved_fires_timeframes == ("1h",)
+
+    def test_unknown_horizon_raises(self) -> None:
+        with pytest.raises(ValueError, match="horizon"):
+            CardConfig(horizon="scalp")
+
+    def test_unspecified_is_not_a_card_horizon(self) -> None:
+        """`unspecified` is a valid LEDGER horizon but never a card's own.
+
+        It scores on `WINDOWS_MS["unspecified"]` = 14 days, which is neither
+        of the two windows a card can mean. A card always knows its horizon
+        because the operator picked it, so accepting the key here would only
+        ever mis-score.
+        """
+        with pytest.raises(ValueError, match="horizon"):
+            CardConfig(horizon="unspecified")
+
+    def test_card_horizons_are_a_subset_of_the_scorer_enum(self) -> None:
+        """Binds CARD_HORIZONS to the scorer, the way test_pundit_horizon does.
+
+        A card horizon with no `WINDOWS_MS` entry would fall through to
+        unspecified's 14 days silently — the exact bug `pundit_horizon`
+        exists to prevent, re-created one layer up.
+        """
+        from analytics.pundit_horizon import VALID_HORIZONS
+        from tools.pundit_score import WINDOWS_MS
+
+        assert set(CARD_HORIZONS) <= set(VALID_HORIZONS)
+        assert set(CARD_HORIZONS) <= set(WINDOWS_MS)
+
+    def test_from_toml_accepts_horizon(self, tmp_path: Path) -> None:
+        toml = tmp_path / "card.toml"
+        toml.write_text('[card]\nhorizon = "swing"\n')
+        cfg = CardConfig.from_toml(toml)
+        assert cfg.horizon == "swing"
+        assert cfg.resolved_fires_timeframes == ("4h", "1d")
 
     def test_live_window_days_default_excludes_most_gross_cost_rows(self) -> None:
         """The live-record window must not default to all-time.

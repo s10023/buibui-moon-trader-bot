@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import sys
 import time
@@ -13,7 +14,7 @@ import duckdb
 from analytics.brief._common import parse_as_of_ms
 from analytics.data_store import DEFAULT_DB_PATH
 from card.client import ClaudeCliClient
-from card.config import CardConfig
+from card.config import CARD_HORIZONS, CardConfig
 from card.errors import CardError
 from card.ledger import append_ledgers
 from card.prompt import build_prompt
@@ -172,6 +173,8 @@ def _fetch_qty_step(symbol: str) -> float | None:
 
 def run_card_cmd(args: argparse.Namespace) -> None:
     cfg = CardConfig.from_toml(args.config) if args.config else CardConfig()
+    if args.horizon is not None:
+        cfg = dataclasses.replace(cfg, horizon=args.horizon)
     sizing = (
         SizingConfig.from_toml(cfg.sizing_toml) if cfg.sizing_toml else SizingConfig()
     )
@@ -236,6 +239,17 @@ def add_card_subparser(
     )
     p.add_argument("symbol", help="e.g. BTCUSDT")
     p.add_argument("--direction", choices=["long", "short"], default=None)
+    p.add_argument(
+        "--horizon",
+        choices=list(CARD_HORIZONS),
+        default=None,
+        help=(
+            "trade horizon, which selects the SCORING window the card is "
+            "later resolved against: intraday = 48h, swing = 30d. swing also "
+            "drops 1h from the recent-fires scan and re-anchors the rubric to "
+            "4h/1d structure. (default: the config's horizon, itself intraday)"
+        ),
+    )
     p.add_argument(
         "--as-of",
         dest="as_of",
