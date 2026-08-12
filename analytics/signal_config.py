@@ -610,6 +610,42 @@ class SignalWatchConfig:
         return self.atr_sl_floor
 
 
+def declared_cells(
+    cfg: SignalWatchConfig, direction: str | None = None
+) -> list[tuple[str, str]]:
+    """(strategy, timeframe) pairs this config will scan, in declaration order.
+
+    A strategy listed in ``strategy_timeframes`` is restricted to those
+    timeframes; every other strategy runs on the config's full ``timeframes``
+    list. Directional narrowing (``strategy_timeframes_long`` /
+    ``strategy_timeframes_short``) intersects on top of that, which is why
+    ``direction`` is a parameter here and is NOT in the sister repo's version of
+    this helper: all three of our configs narrow per direction, and
+    ``confidence_ratings`` is keyed per direction, so a direction-blind answer
+    silently under-reports. Pass ``None`` for the base (direction-agnostic) set.
+
+    Resolution is delegated to :meth:`SignalWatchConfig.effective_strategy_timeframes`
+    rather than reimplemented, so this cannot drift from what
+    ``analytics.signal.scanner`` applies per candle — which is the only thing
+    that makes this the authoritative answer to "what does this config scan?".
+
+    Lives here rather than beside either consumer because they ask the question
+    from opposite ends and must not drift apart: ``tools/dead_surface_check.py``
+    asks which declared cells produce nothing, and it asks which rated cells are
+    no longer declared. A forked definition would let a cell be dead under one
+    and healthy under the other.
+    """
+    cells: list[tuple[str, str]] = []
+    for strategy in cfg.strategies or []:
+        timeframes = cfg.effective_strategy_timeframes(strategy, direction)
+        if timeframes is None:
+            timeframes = cfg.timeframes
+        for tf in timeframes:
+            if (strategy, tf) not in cells:
+                cells.append((strategy, tf))
+    return cells
+
+
 def load_signal_config(path: str | Path) -> SignalWatchConfig:
     """Load SignalWatchConfig from a TOML file.
 

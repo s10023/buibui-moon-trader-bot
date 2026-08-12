@@ -1,0 +1,385 @@
+"""Tests for tools/dead_surface_check.py — declaration vs output, both directions.
+
+Full DB isolation: every test builds its own `:memory:` DuckDB and never touches
+the real `analytics.db` (CLAUDE.md > Testing).
+"""
+
+import duckdb
+import pytest
+
+from analytics.signal_config import SignalWatchConfig, declared_cells
+from tools import dead_surface_check
+from tools.dead_surface_check import (
+    DeadCell,
+    direction_key,
+    find_dead_cells,
+    find_orphan_ratings,
+    unexpected,
+    union_declared,
+)
+
+
+def _conn_with_runs(
+    rows: list[tuple[str, str, str, int]],
+) -> duckdb.DuckDBPyConnection:
+    """In-memory `backtest_runs` holding (strategy, timeframe, day_filter, total_signals)."""
+    conn = duckdb.connect(":memory:")
+    conn.execute(
+        "CREATE TABLE backtest_runs ("
+        "  strategy TEXT, timeframe TEXT, day_filter TEXT, total_signals INTEGER"
+        ")"
+    )
+    for row in rows:
+        conn.execute("INSERT INTO backtest_runs VALUES (?, ?, ?, ?)", list(row))
+    return conn
+
+
+def _conn_with_ratings(
+    rows: list[tuple[str, str, str, str, int, float | None]],
+) -> duckdb.DuckDBPyConnection:
+    """In-memory `confidence_ratings` holding (config, strategy, tf, direction, stars, avg_r)."""
+    conn = duckdb.connect(":memory:")
+    conn.execute(
+        "CREATE TABLE confidence_ratings ("
+        "  config_name TEXT, strategy TEXT, tf TEXT, direction TEXT,"
+        "  stars INTEGER, avg_r DOUBLE"
+        ")"
+    )
+    for row in rows:
+        conn.execute(
+            "INSERT INTO confidence_ratings VALUES (?, ?, ?, ?, ?, ?)", list(row)
+        )
+    return conn
+
+
+class TestDeclaredCells:
+    def test_expands_every_strategy_over_every_timeframe(self) -> None:
+        cfg = SignalWatchConfig(strategies=["a", "b"], timeframes=["4h", "1d"])
+        assert declared_cells(cfg) == [
+            ("a", "4h"),
+            ("a", "1d"),
+            ("b", "4h"),
+            ("b", "1d"),
+        ]
+
+    def test_strategy_timeframes_restricts_that_strategy_only(self) -> None:
+        cfg = SignalWatchConfig(
+            strategies=["orb", "bos"],
+            timeframes=["4h", "1d"],
+            strategy_timeframes={"orb": ["4h"]},
+        )
+        assert declared_cells(cfg) == [("orb", "4h"), ("bos", "4h"), ("bos", "1d")]
+
+    def test_no_strategies_declares_nothing(self) -> None:
+        assert declared_cells(SignalWatchConfig(timeframes=["4h"])) == []
+
+    def test_duplicates_collapse(self) -> None:
+        cfg = SignalWatchConfig(strategies=["a"], timeframes=["4h", "4h"])
+        assert declared_cells(cfg) == [("a", "4h")]
+
+
+class TestDeclaredCellsDirectional:
+    """The divergence from the sister repo: all three configs narrow per direction.
+
+    A direction-blind answer calls a cell declared when only the *other* side
+    declares it, which silently under-reports orphans — and `confidence_ratings`
+    is keyed per direction, so the under-report is exactly where it costs.
+    """
+
+    def test_directional_list_intersects_the_base_list(self) -> None:
+        cfg = SignalWatchConfig(
+            strategies=["bos"],
+            timeframes=["15m", "1h", "4h"],
+            strategy_timeframes={"bos": ["1h", "4h"]},
+            strategy_timeframes_short={"bos": ["4h"]},
+        )
+        assert declared_cells(cfg, "long") == [("bos", "1h"), ("bos", "4h")]
+        assert declared_cells(cfg, "short") == [("bos", "4h")]
+        assert declared_cells(cfg, None) == [("bos", "1h"), ("bos", "4h")]
+
+    def test_directional_list_without_a_base_entry_stands_alone(self) -> None:
+        cfg = SignalWatchConfig(
+            strategies=["fvg"],
+            timeframes=["15m", "1h"],
+            strategy_timeframes_long={"fvg": ["1h"]},
+        )
+        assert declared_cells(cfg, "long") == [("fvg", "1h")]
+        assert declared_cells(cfg, "short") == [("fvg", "15m"), ("fvg", "1h")]
+
+    def test_disjoint_intersection_declares_nothing_for_that_side(self) -> None:
+        cfg = SignalWatchConfig(
+            strategies=["doji"],
+            timeframes=["1h", "4h"],
+            strategy_timeframes={"doji": ["1h"]},
+            strategy_timeframes_short={"doji": ["4h"]},
+        )
+        assert declared_cells(cfg, "short") == []
+
+
+class TestDirectionKey:
+    def test_long_and_short_map_to_themselves(self) -> None:
+        assert direction_key("long") == "long"
+        assert direction_key("short") == "short"
+
+    def test_legacy_combined_falls_back_to_the_base_declaration(self) -> None:
+        """The direction migration backfilled existing rows as `combined`."""
+        assert direction_key("combined") is None
+
+
+class TestFindDeadCells:
+    def test_cell_with_signals_is_alive(self) -> None:
+        conn = _conn_with_runs([("bos", "4h", "tue_thu", 12)])
+        cfg = SignalWatchConfig(
+            strategies=["bos"], timeframes=["4h"], day_filter="tue_thu"
+        )
+        assert find_dead_cells(conn, cfg, "c.toml") == []
+
+    def test_runs_exist_but_zero_signals_is_dead(self) -> None:
+        """Rows exist, so the surface *looks* covered."""
+        conn = _conn_with_runs(
+            [("doji", "1d", "tue_thu", 0), ("doji", "1d", "tue_thu", 0)]
+        )
+        cfg = SignalWatchConfig(
+            strategies=["doji"], timeframes=["1d"], day_filter="tue_thu"
+        )
+        dead = find_dead_cells(conn, cfg, "c.toml")
+        assert len(dead) == 1
+        assert dead[0].strategy == "doji"
+        assert "never fired" in dead[0].reason
+        assert "2 runs" in dead[0].reason
+
+    def test_no_runs_at_all_is_dead(self) -> None:
+        conn = _conn_with_runs([])
+        cfg = SignalWatchConfig(strategies=["bos"], timeframes=["4h"], day_filter="off")
+        dead = find_dead_cells(conn, cfg, "c.toml")
+        assert len(dead) == 1
+        assert "never backtested" in dead[0].reason
+
+    def test_day_filter_scopes_the_lookup(self) -> None:
+        """A cell alive under `weekend` must not count as alive under `tue_thu`."""
+        conn = _conn_with_runs([("ema", "1d", "weekend", 40)])
+        alive = SignalWatchConfig(
+            strategies=["ema"], timeframes=["1d"], day_filter="weekend"
+        )
+        dead_cfg = SignalWatchConfig(
+            strategies=["ema"], timeframes=["1d"], day_filter="tue_thu"
+        )
+        assert find_dead_cells(conn, alive, "c.toml") == []
+        assert len(find_dead_cells(conn, dead_cfg, "c.toml")) == 1
+
+    def test_reports_only_the_dead_cells_of_a_mixed_config(self) -> None:
+        conn = _conn_with_runs(
+            [
+                ("bos", "4h", "off", 30),
+                ("doji", "4h", "off", 0),
+                ("ema", "4h", "off", 7),
+            ]
+        )
+        cfg = SignalWatchConfig(
+            strategies=["bos", "doji", "ema"], timeframes=["4h"], day_filter="off"
+        )
+        dead = find_dead_cells(conn, cfg, "c.toml")
+        assert [c.strategy for c in dead] == ["doji"]
+
+
+class TestAllowlist:
+    """Exercises the filtering mechanism, NOT whatever the allowlist happens to hold.
+
+    Pinning shipped contents couples a test to data designed to change; the
+    mechanism is patched here and the shipped list gets its own assertion.
+    """
+
+    @pytest.fixture
+    def cell(self) -> DeadCell:
+        return DeadCell("c.toml", "tue_thu", "doji", "1d", "detector never fired")
+
+    @pytest.fixture
+    def _allowlisted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            dead_surface_check,
+            "_KNOWN_DEAD_CELLS",
+            frozenset({("tue_thu", "doji", "1d")}),
+        )
+
+    def test_known_cell_is_not_unexpected(
+        self, cell: DeadCell, _allowlisted: None
+    ) -> None:
+        assert unexpected([cell]) == []
+
+    def test_same_cell_under_another_day_filter_is_unexpected(
+        self, _allowlisted: None
+    ) -> None:
+        """The allowlist is keyed on day_filter — a cell dead elsewhere still fails."""
+        other = DeadCell("c.toml", "off", "doji", "1d", "detector never fired")
+        assert unexpected([other]) == [other]
+
+    def test_new_dead_cell_is_reported(self, _allowlisted: None) -> None:
+        fresh = DeadCell("c.toml", "tue_thu", "bos", "4h", "detector never fired")
+        assert unexpected([fresh]) == [fresh]
+
+    def test_key_is_the_allowlist_tuple(self, cell: DeadCell) -> None:
+        assert cell.key == ("tue_thu", "doji", "1d")
+
+    def test_empty_allowlist_reports_everything(self, cell: DeadCell) -> None:
+        assert unexpected([cell]) == [cell]
+
+    def test_shipped_allowlist_is_empty(self) -> None:
+        """It may only ever SHRINK. Growing it should require deleting this test."""
+        assert frozenset() == dead_surface_check._KNOWN_DEAD_CELLS
+
+
+class TestFindOrphanRatings:
+    """The inverse of a dead cell: rated but undeclared.
+
+    A dead cell surfaces as a zero and reads as absence; an orphan surfaces as a
+    *number* and reads as evidence, which is why orphans survive unnoticed.
+    """
+
+    def test_rating_for_an_undeclared_strategy_is_an_orphan(self) -> None:
+        conn = _conn_with_ratings(
+            [("signal_watch", "fib_golden_zone", "15m", "combined", 5, 1.8)]
+        )
+        cfg = SignalWatchConfig(strategies=["bos"], timeframes=["15m"])
+        orphans = find_orphan_ratings(conn, cfg, "signal_watch")
+        assert [(o.strategy, o.timeframe) for o in orphans] == [
+            ("fib_golden_zone", "15m")
+        ]
+
+    def test_declared_cell_is_not_an_orphan(self) -> None:
+        conn = _conn_with_ratings([("signal_watch", "bos", "4h", "combined", 3, 0.1)])
+        cfg = SignalWatchConfig(strategies=["bos"], timeframes=["4h"])
+        assert find_orphan_ratings(conn, cfg, "signal_watch") == []
+
+    def test_undeclared_timeframe_of_a_declared_strategy_is_an_orphan(self) -> None:
+        conn = _conn_with_ratings(
+            [
+                ("signal_watch", "bos", "1d", "combined", 2, 0.05),
+                ("signal_watch", "bos", "4h", "combined", 1, -0.3174),
+            ]
+        )
+        cfg = SignalWatchConfig(
+            strategies=["bos"],
+            timeframes=["4h", "1d"],
+            strategy_timeframes={"bos": ["1d"]},
+        )
+        orphans = find_orphan_ratings(conn, cfg, "signal_watch")
+        assert [(o.strategy, o.timeframe) for o in orphans] == [("bos", "4h")]
+
+    def test_every_direction_of_an_orphan_cell_is_reported(self) -> None:
+        conn = _conn_with_ratings(
+            [
+                ("signal_watch", "gone", "4h", "combined", 3, 0.4),
+                ("signal_watch", "gone", "4h", "long", 4, 0.8),
+                ("signal_watch", "gone", "4h", "short", 1, -0.2),
+            ]
+        )
+        cfg = SignalWatchConfig(strategies=["bos"], timeframes=["4h"])
+        orphans = find_orphan_ratings(conn, cfg, "signal_watch")
+        assert sorted(o.direction for o in orphans) == ["combined", "long", "short"]
+
+    def test_scoped_to_the_named_config(self) -> None:
+        """Called with the TOML *stem*, which is what the column stores."""
+        conn = _conn_with_ratings(
+            [("signal_watch_weekdays", "gone", "4h", "combined", 3, 0.4)]
+        )
+        cfg = SignalWatchConfig(strategies=["bos"], timeframes=["4h"])
+        assert find_orphan_ratings(conn, cfg, "signal_watch") == []
+
+    def test_null_avg_r_is_carried_not_crashed(self) -> None:
+        conn = _conn_with_ratings([("signal_watch", "gone", "4h", "combined", 3, None)])
+        cfg = SignalWatchConfig(strategies=["bos"], timeframes=["4h"])
+        orphans = find_orphan_ratings(conn, cfg, "signal_watch")
+        assert orphans[0].avg_r is None
+        assert "—" in str(orphans[0])
+
+    def test_worst_offender_sorts_first(self) -> None:
+        """Reported stars-desc so the most prominently displayed orphan leads."""
+        conn = _conn_with_ratings(
+            [
+                ("signal_watch", "quiet", "4h", "combined", 1, -0.5),
+                ("signal_watch", "loud", "4h", "combined", 5, 1.2),
+            ]
+        )
+        cfg = SignalWatchConfig(strategies=["bos"], timeframes=["4h"])
+        orphans = find_orphan_ratings(conn, cfg, "signal_watch")
+        assert [o.strategy for o in orphans] == ["loud", "quiet"]
+
+
+class TestOrphanRatingsAreDirectionAware:
+    """A rating is judged against its OWN side's declaration, not the base list."""
+
+    def test_short_rating_of_a_long_only_cell_is_an_orphan(self) -> None:
+        conn = _conn_with_ratings(
+            [
+                ("signal_watch", "bos", "4h", "long", 4, 0.6),
+                ("signal_watch", "bos", "4h", "short", 4, 0.6),
+            ]
+        )
+        cfg = SignalWatchConfig(
+            strategies=["bos"],
+            timeframes=["4h"],
+            strategy_timeframes_short={"bos": ["1d"]},
+        )
+        orphans = find_orphan_ratings(conn, cfg, "signal_watch")
+        assert [(o.strategy, o.direction) for o in orphans] == [("bos", "short")]
+
+    def test_combined_rating_is_judged_against_the_base_declaration(self) -> None:
+        """A `combined` row survives a directional narrowing the base list keeps."""
+        conn = _conn_with_ratings([("signal_watch", "bos", "4h", "combined", 4, 0.6)])
+        cfg = SignalWatchConfig(
+            strategies=["bos"],
+            timeframes=["4h"],
+            strategy_timeframes_short={"bos": ["1d"]},
+        )
+        assert find_orphan_ratings(conn, cfg, "signal_watch") == []
+
+
+class TestOrphanTiers:
+    """Our three configs partition the calendar, so `undeclared HERE` has two causes."""
+
+    def test_cell_another_config_declares_is_tiered_as_such(self) -> None:
+        conn = _conn_with_ratings([("signal_watch", "doji", "1d", "combined", 5, 1.8)])
+        cfg = SignalWatchConfig(strategies=["bos"], timeframes=["1d"])
+        weekend = SignalWatchConfig(strategies=["doji"], timeframes=["1d"])
+        orphans = find_orphan_ratings(
+            conn, cfg, "signal_watch", union_declared({"all.toml": weekend})
+        )
+        assert len(orphans) == 1
+        assert orphans[0].declared_elsewhere is True
+        assert orphans[0].tier == "declared by another config"
+
+    def test_cell_no_config_declares_is_the_harder_tier(self) -> None:
+        conn = _conn_with_ratings([("signal_watch", "doji", "1d", "combined", 5, 1.8)])
+        cfg = SignalWatchConfig(strategies=["bos"], timeframes=["1d"])
+        other = SignalWatchConfig(strategies=["bos"], timeframes=["1d"])
+        orphans = find_orphan_ratings(
+            conn, cfg, "signal_watch", union_declared({"all.toml": other})
+        )
+        assert orphans[0].declared_elsewhere is False
+        assert orphans[0].tier == "undeclared anywhere"
+        assert "undeclared anywhere" in str(orphans[0])
+
+    def test_omitting_elsewhere_reports_every_orphan_as_undeclared(self) -> None:
+        conn = _conn_with_ratings([("signal_watch", "doji", "1d", "combined", 5, 1.8)])
+        cfg = SignalWatchConfig(strategies=["bos"], timeframes=["1d"])
+        assert (
+            find_orphan_ratings(conn, cfg, "signal_watch")[0].declared_elsewhere
+            is False
+        )
+
+    def test_union_declared_merges_every_config_per_direction(self) -> None:
+        a = SignalWatchConfig(
+            strategies=["bos"], timeframes=["4h"], strategy_timeframes_short={"bos": []}
+        )
+        b = SignalWatchConfig(strategies=["doji"], timeframes=["1d"])
+        merged = union_declared({"a.toml": a, "b.toml": b})
+        assert merged[None] == {("bos", "4h"), ("doji", "1d")}
+        assert merged["long"] == {("bos", "4h"), ("doji", "1d")}
+        assert merged["short"] == {("doji", "1d")}
+
+
+class TestMainExitCodes:
+    """Report-only by default is the whole reason this can land on a dirty population."""
+
+    def test_missing_db_is_a_bad_invocation(self) -> None:
+        assert dead_surface_check.main(["--db", "/nonexistent/analytics.db"]) == 1
