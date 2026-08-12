@@ -191,6 +191,32 @@ look-ahead**: it split on `fired_at_ms`, which admits alerts fired-but-unresolve
 construction re-tested on book-days accruing after 2026-08-11 — re-running the same
 16 cells on a longer ledger is not independent evidence.
 
+**Multi-regime detector validation — NO detectable regime dependence (2026-08-12,
+verdict `docs/audits/2026-08-12-multi-regime-validation.md`, spec
+`docs/superpowers/specs/2026-08-12-multi-regime-validation-design.md`).** "Our
+results are only good because of this regime" is a natural worry, it will recur,
+and it has now been run. 3 of 4 pre-registered 15m cells are **powered** nulls
+(MDE ±0.152R to ±0.506R); the one nominal hit (`eqh_eql`/15m/short, Δ +0.158R,
+t=+2.33) **fails the 4-test Bonferroni |t| ≥ 2.498**. The decisive number is
+exploratory but plain: the 2021–22 15m book reads median **−0.0431R** against the
+2025–26 corpus's **−0.0474R**, so **the book is equally unprofitable in a bull leg,
+a bear leg and now — its weakness is structural, not a regime artifact.**
+
+Three things that surfaced there and generalise. **(1) The entire BACKTEST corpus
+was one regime** — `backtest_trades` held only 2025-09-12 → 2026-07-07, so star
+ratings, the decay review's 66 cells and `min_avg_r` were all fitted inside a
+10-month window; a historical study must GENERATE its legs, not query them.
+**(2) TRIAL COUNT dominates n and it is not close** — a 21× range of n moves the
+DSR bar 10%, while 1 → 320 trials moves it 21× (+0.049R → +1.035R against a corpus
+best of +1.196R), so **a per-cell scan is structurally unreachable** and designs
+must be built around trial count, never sample size. **(3) `backtest_trades`
+carries a ~5.29× duplication factor** (857,740 rows → 162,263 distinct) from
+repeated runs — dedup on `(symbol, timeframe, strategy, direction, entry_time)` or
+every n inflates ~5× and every t ~2.3×. Also note the 15m panel's 3 symbols are a
+**strength**: n_eff is 1.97 for 14 perps against 1.42 for three, so its deflator is
+1.628× vs 3.331× — breadth buys almost nothing when the cross-section is nearly one
+asset. **Do not reuse the filed 25-symbol 2.92× on any of these panels.**
+
 **The binding constraint, confirmed five times** (exits, trend-weight, combine, carry,
 reversal): the system needs a second *strong* edge, and the cheap price-only free-data
 levers are exhausted. A new sleeve must carry genuinely new information. Separately,
