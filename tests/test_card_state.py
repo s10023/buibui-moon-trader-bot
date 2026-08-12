@@ -12,7 +12,10 @@ import pytest
 from analytics.brief.types import (
     BriefBundle,
     HealthReport,
+    PunditAuthorPrior,
     PunditBoard,
+    PunditCallRow,
+    PunditFamilyPrior,
     error_panel,
 )
 from analytics.store.confidence import get_confidence_rating_rows
@@ -94,6 +97,120 @@ class TestMarketState:
         assert state_digest(a) == state_digest(b)
         assert state_digest(a) != state_digest(c)
         assert len(state_digest(a)) == 64
+
+
+def _prior(author: str) -> PunditAuthorPrior:
+    return PunditAuthorPrior(
+        author=author,
+        n=35,
+        hit_rate=0.11,
+        avg_r=-1.0,
+        avg_atr_r=-0.334,
+        flagged=False,
+        r_coverage=0.778,
+    )
+
+
+def _board_with_stats() -> PunditBoard:
+    """A board carrying `avg_r` in all THREE places it can hide."""
+    return PunditBoard(
+        priors_status="ok",
+        priors_age_days=0,
+        min_n_marker=30,
+        ledger_status="ok",
+        ledger_total=235,
+        ledger_skipped=0,
+        recent_calls=[
+            PunditCallRow(
+                author="traderfengge",
+                symbol="BTCUSDT",
+                direction="short",
+                entry="64000",
+                target="62000",
+                horizon="intraday",
+                age_days=1,
+                on_panel=True,
+                prior=_prior("traderfengge"),
+            )
+        ],
+        authors=[_prior("traderfengge")],
+        families=[
+            PunditFamilyPrior(
+                family="sweep_reclaim",
+                direction="long",
+                n=18,
+                hit_rate=0.857,
+                avg_r=2.367,
+                avg_atr_r=1.104,
+                flagged=False,
+                r_coverage=0.5,
+            )
+        ],
+    )
+
+
+class TestPunditAvgRStrippedFromCardPayload:
+    """The card must not see the winner-censored per-author `avg_r`.
+
+    Three authors compressed to an identical -1.0 on 2026-08-12 while their
+    complete-sample `avg_atr_r` read -0.334 / -0.502 / -1.331, and all three
+    cards in that batch cited the censored number.
+    """
+
+    def _payload(self) -> dict:
+        return _minimal_state(
+            pundit=_board_with_stats(),
+            recent_fires=[
+                RecentFire(
+                    strategy="fvg",
+                    tf="4h",
+                    direction="long",
+                    open_time=1,
+                    entry_price=100.0,
+                    stars=3,
+                    avg_r=0.12,
+                    win_rate=0.5,
+                    dsr=0.9,
+                    live_n=7,
+                    live_avg_r=-0.31,
+                )
+            ],
+        ).to_dict()
+
+    def test_avg_r_gone_from_every_pundit_cell(self) -> None:
+        board = self._payload()["pundit"]
+        cells = [
+            board["authors"][0],
+            board["families"][0],
+            board["recent_calls"][0]["prior"],
+        ]
+        for cell in cells:
+            assert "avg_r" not in cell
+            # r_coverage exists ONLY to qualify avg_r, so it goes too.
+            assert "r_coverage" not in cell
+
+    def test_avg_atr_r_survives_in_every_pundit_cell(self) -> None:
+        """Stripping must not take the clean metric with it."""
+        board = self._payload()["pundit"]
+        assert board["authors"][0]["avg_atr_r"] == pytest.approx(-0.334)
+        assert board["families"][0]["avg_atr_r"] == pytest.approx(1.104)
+        assert board["recent_calls"][0]["prior"]["avg_atr_r"] == pytest.approx(-0.334)
+        assert board["authors"][0]["n"] == 35
+        assert board["authors"][0]["hit_rate"] == pytest.approx(0.11)
+
+    def test_recent_fires_avg_r_is_untouched(self) -> None:
+        """THE discrimination test — without it the strip could be global.
+
+        `recent_fires.avg_r` is a DIFFERENT metric that shares the name: the
+        backtest star figure over simulated trades that all have stops. It is
+        not censored, and rubric 3a depends on it.
+        """
+        payload = self._payload()
+        assert payload["recent_fires"][0]["avg_r"] == pytest.approx(0.12)
+        assert payload["recent_fires"][0]["live_avg_r"] == pytest.approx(-0.31)
+
+    def test_absent_board_is_not_an_error(self) -> None:
+        assert _minimal_state(pundit=None).to_dict()["pundit"] is None
 
 
 _NOW_MS = 1_760_000_000_000

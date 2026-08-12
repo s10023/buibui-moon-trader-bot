@@ -154,6 +154,36 @@ Return exactly:
  "confidence":"high"|"med"|"low"}
 ```
 
+### ⚠ A cluster is a BAND, never a LEVEL — measured, not asserted
+
+**Same-input A/B, 2026-08-12** (3 × 1d liq_map panels re-extracted from the
+byte-identical images; report
+`docs/plans/scratch/7w-map-cluster-same-input-2026-08-12.md`):
+
+| what | reproduces on identical input? |
+| --- | --- |
+| `panel` · `window` · `scope` · `spot_price_hint` · `spot_source` | **3/3 identical** |
+| intensity of a matched band | **19/19 — perfect** |
+| existence of a `high` band near spot | never lost |
+| **exact band edges** | **3/19 = 16%**; mean drift **20–43% of band width** |
+| **which faint tail makes the cut** | near-arbitrary |
+| **how adjacent bands segment** | merge/split freely |
+
+**So a cluster supports "heavy liquidation interest around X ± the band width"
+and nothing finer. Anything that thresholds or ranks on an exact edge is
+reading noise at the third digit.** This is why M4 caps mapped liquidity at ONE
+confluence input — the cap is a precision statement, not a modesty one.
+
+**Two traps that follow.** Do NOT use cluster COUNT as a quality metric: two of
+the three panels returned an *unchanged* count while 20% and 12.5% of their
+clusters had no counterpart at all, so count is nearly blind to the churn that
+matters. And when comparing two extractions, match bands by **overlap**, not by
+greedy best-IoU — a merge of two adjacent bands reports as one vanished band
+under IoU, which reads alarmingly like a `high` cluster disappearing near spot.
+
+A future extraction-quality A/B scores **band agreement and intensity**, never
+cluster count.
+
 ## 3. Review digest (ONE for the whole batch — the human-verify gate)
 
 Present a table per image: file · source · symbol · panel · window · scope ·

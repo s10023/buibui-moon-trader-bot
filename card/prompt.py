@@ -7,7 +7,11 @@ import json
 from card.config import CardConfig
 from card.state import MarketState
 
-PROMPT_VERSION = "card-v3"
+# card-v4 (2026-08-12): the pundit board no longer carries a per-author `avg_r`
+# (see `card/state.py::_strip_censored_pundit_stats`) and rubric 3b names
+# `avg_atr_r` and its units. Bumped because the model sees a different payload
+# AND a different instruction — cards are comparable only within one version.
+PROMPT_VERSION = "card-v4"
 
 _SCHEMA = """{
   "verdict": "TRADE" or "NO_TRADE",
@@ -46,7 +50,10 @@ and one sitting just beyond your SL is a stop-hunt warning; "book" bands \
 are resting orders - treat them as support/resistance. Skip any external \
 snapshot with spot_hint_deviation true; when snapshots disagree, trust \
 higher intensity and lower age_hours. Prefer unswept levels as targets, \
-swept-and-reclaimed as entries.
+swept-and-reclaimed as entries. A cluster is a BAND, not a level: its edges \
+reproduce to roughly a quarter of its own width, so cite the range and never \
+place an entry, SL or TP on a cluster edge as though it were exact. Cluster \
+intensity is reliable; a faint low-intensity cluster far from spot is not.
 3. Confluence scan: score 0-9 how many independent inputs agree — zone/level \
 geometry, indicator states, session tendency, recent_fires (see 3a), pundit \
 priors (only authors/families with flagged=false), external liquidity (all \
@@ -62,6 +69,13 @@ reasoning bullet citing both numbers. When live_avg_r is positive at \
 live_n >= 10 but stars are low, count it as a genuine agreeing input. \
 Treat live_n < 10 or null live_n as no live evidence either way — do not \
 read a null as a bad record. Live gaps smaller than 0.15R are noise.
+3b. Reading pundit priors: avg_atr_r is that author's mean outcome in ATR \
+(volatility) units, NOT in R — -0.33 means a third of an average true range, \
+not a third of a stop, so never compare it against an R figure elsewhere in \
+this JSON. Pair it with n and hit_rate. The board carries no per-author R \
+number ON PURPOSE: R needs a stated stop, winning calls disproportionately \
+lack one, so an R mean over pundit calls silently drops winners and is not \
+comparable between authors.
 4. Decision: TRADE only when a limit entry at a structural level, a \
 structural SL beyond it, and TP1/TP2/TP3 at mapped liquidity give planned \
 RR(tp1) >= 1. Otherwise NO_TRADE naming the failed gate in no_trade_reason.

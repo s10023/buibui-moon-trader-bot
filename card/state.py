@@ -75,6 +75,49 @@ class RecentFire:
     live_avg_r: float | None
 
 
+# `avg_r` on the pundit board is computed on a winner-dropped subsample: R needs
+# a stated stop (`levels.stop_px`) and winning calls disproportionately lack one,
+# so WIN coverage runs 43% against LOSS 79%. The bias is not a uniform shift — on
+# 2026-08-12 three different authors compressed to an identical -1.0 while their
+# complete-sample `avg_atr_r` read -0.334 / -0.502 / -1.331, so a consumer that
+# ranks on it gets the ORDER wrong, not merely the level. All three cards in that
+# batch cited the censored number: BOTH fields already reached the prompt and
+# nothing named either authoritative.
+#
+# Stripping here rather than from `PunditBoard` is deliberate. The Brief renderer
+# and the web board DO show `avg_r`, correctly paired with its denominator, and a
+# pundit's own stated risk is a real question. Only the card loses the field,
+# because only the card has no reader to weigh it against the coverage. See
+# `analytics/brief/render.py::_avg_r_str` for the presentation-side treatment.
+_CENSORED_PUNDIT_KEYS = ("avg_r", "r_coverage")
+
+
+def _strip_censored_pundit_stats(payload: dict[str, Any]) -> None:
+    """Drop the censored `avg_r` from every pundit cell, in place.
+
+    Scoped to the pundit board ONLY. `recent_fires` carries an unrelated
+    `avg_r` that shares the name — the backtest star figure over simulated
+    trades, which all have stops, so it is not censored and rubric 3a depends
+    on it. `r_coverage` goes with `avg_r` because it exists solely to qualify
+    it, and a denominator for an absent number is noise.
+    """
+    board = payload.get("pundit")
+    if not isinstance(board, dict):
+        return
+    cells: list[Any] = []
+    cells.extend(board.get("authors") or [])
+    cells.extend(board.get("families") or [])
+    for call in board.get("recent_calls") or []:
+        # Each recent call carries its author's prior inline — the third place
+        # `avg_r` hides, and the one a top-level-only strip would miss.
+        if isinstance(call, dict) and isinstance(call.get("prior"), dict):
+            cells.append(call["prior"])
+    for cell in cells:
+        if isinstance(cell, dict):
+            for key in _CENSORED_PUNDIT_KEYS:
+                cell.pop(key, None)
+
+
 @dataclass(frozen=True)
 class MarketState:
     symbol: str
@@ -89,8 +132,14 @@ class MarketState:
     health: list[str]
 
     def to_dict(self) -> dict[str, Any]:
-        """JSON-safe dict (nested dataclasses flattened by asdict)."""
-        return asdict(self)
+        """JSON-safe dict (nested dataclasses flattened by asdict).
+
+        Also what `state_digest` hashes, so digests are comparable only within
+        one payload shape — a field added or dropped here moves every digest.
+        """
+        payload = asdict(self)
+        _strip_censored_pundit_stats(payload)
+        return payload
 
 
 def state_digest(state: MarketState) -> str:
