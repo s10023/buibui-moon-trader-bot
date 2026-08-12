@@ -4,13 +4,13 @@
 `make docs-index-check` (and `tests/test_docs_index.py`) fails when this file
 drifts from the corpus.
 
-**51 specs on disk.** Reconcile status is **derived** — a spec counts as
+**52 specs on disk.** Reconcile status is **derived** — a spec counts as
 reconciled when an audit that names its filename also discusses reconciling, so
 the count is recomputed from disk rather than carried in prose. That is the
 counter CLAUDE.md has had wrong every time it was checked.
 
-- **Reconciled (derived): 3 of 51.**
-- Referenced by no audit at all: 36.
+- **Reconciled (derived): 3 of 52.**
+- Referenced by no audit at all: 37.
 
 **Two caveats before quoting these numbers.** A *partial* reconcile is
 indistinguishable from a whole-spec one here, and this table cannot see one that
@@ -19,6 +19,7 @@ and the reconcile column as a floor.
 
 | Date | Spec | Reconciled by | Also referenced by | File |
 | --- | --- | --- | --- | --- |
+| 2026-08-12 | Multi-regime detector validation — pre-registered design | — | — | [2026-08-12-multi-regime-validation-design.md](2026-08-12-multi-regime-validation-design.md) |
 | 2026-08-11 | Ensemble walk-forward — pre-registered design | — | 2026-08-11-ensemble-walkforward.md | [2026-08-11-ensemble-walkforward-design.md](2026-08-11-ensemble-walkforward-design.md) |
 | 2026-08-11 | D1 — Spot-perp CVD divergence sleeve (design + pre-committed gate) | — | 2026-08-11-d1-spot-perp-cvd.md | [2026-08-11-d1-spot-perp-cvd-design.md](2026-08-11-d1-spot-perp-cvd-design.md) |
 | 2026-08-10 | X thread walk — recover a self-thread from its tail | — | — | [2026-08-10-x-thread-walk-design.md](2026-08-10-x-thread-walk-design.md) |
