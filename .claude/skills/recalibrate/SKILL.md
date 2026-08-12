@@ -100,7 +100,27 @@ Strategy Recalibration Report
   ...
 
   Dry-run mode — no changes applied. Use --apply to write to confidence_ratings table.
+
+  ⚠ Suspect (★≥4 but DSR<0.95, likely overfit): engulfing/4h (DSR 0.32)
+  ⚠ Unscoreable (★≥4 but DSR undefined — under 30 scoreable trades, so the
+    overfit check above never ran on these 3 cell(s); absent from Suspect is
+    NOT clean): cvd_divergence/1h, fib_golden_zone/4h, inside_bar/1d
 ```
+
+**Read the last two lines together, and read them before trusting any star.**
+Stars come from `avg_r` alone; the Deflated Sharpe beside them is what says
+whether that `avg_r` survives the number of things that were tried to find it.
+The two lines partition the ★≥4 cells into *measured and failing* (Suspect) and
+*never measured* (Unscoreable, `dsr = None` because the cell has fewer than
+`MIN_DSR_TRADES = 30` scoreable trades).
+
+**A cell in neither list is the only one that has actually passed.** The
+Unscoreable line exists because those cells used to print nothing at all, so an
+unrun check was indistinguishable from a clean one — the first-ever decay review
+(2026-08-11) found **42 of 66 rated cells, including 21 of the 30 5★**, invisible
+to a warning written for exactly them → `docs/plans/scratch/decay-review-2026-08-11.md`.
+Note what that implies about the sample above: `fib_golden_zone/4h` is rated 5★ off
+**34 trades**, which is the shape that lands in Unscoreable, not a validated edge.
 
 ## Implementation files
 
