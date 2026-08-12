@@ -55,6 +55,44 @@ def _build_run_filter(
     return sql, params
 
 
+def select_rated_run_ids(
+    conn: duckdb.DuckDBPyConnection,
+    day_filter: str | None = None,
+    adr_suppress_threshold: float | None = None,
+) -> list[str]:
+    """Return one ``backtest_runs.run_id`` per (strategy, timeframe, symbol).
+
+    **Sweep first, then recency**: a row carrying a ``sweep_id`` outranks any
+    non-sweep row and ``run_at_ms`` only breaks ties within a class. That ordering
+    is load-bearing — the live signal-watch gate writes a fresh row every 15
+    minutes, so plain recency hands the deliberate sweep's cell to the daemon
+    (measured: 53% of rated ``tue_thu`` cells). See ``_backtest_run_id``'s
+    ``writer`` argument.
+
+    Exists so the ranking has **one** implementation rather than a copy per
+    caller. It previously lived inline in :func:`compute_dsr_ratings`, and the
+    weekly decay review's out-of-tree copy had already drifted back to
+    recency-only — reading a different run population than the gate it audits.
+    Any new consumer must call this, not re-derive it.
+    """
+    filter_sql, params = _build_run_filter(day_filter, adr_suppress_threshold)
+    run_rows = conn.execute(
+        f"SELECT run_id, strategy, timeframe, symbol, run_at_ms, sweep_id "
+        f"FROM backtest_runs "
+        f"WHERE closed_trades > 0{filter_sql}",
+        params,
+    ).fetchall()
+
+    best: dict[tuple[str, str, str], tuple[int, int, str]] = {}
+    for run_id, strategy, tf, symbol, run_at_ms, sweep_id in run_rows:
+        key = (str(strategy), str(tf), str(symbol))
+        rank = (1 if sweep_id is not None else 0, int(run_at_ms))
+        cur = best.get(key)
+        if cur is None or rank > (cur[0], cur[1]):
+            best[key] = (rank[0], rank[1], str(run_id))
+    return [v[2] for v in best.values()]
+
+
 def get_backtest_win_rates(
     conn: duckdb.DuckDBPyConnection,
     day_filter: str | None = None,
@@ -338,27 +376,9 @@ def compute_dsr_ratings(
     ``min_trades`` scoreable trades are annotated ``None`` (too noisy to deflate
     reliably, and excluded from the family); ``{}`` when there are no runs or trades.
     """
-    filter_sql, params = _build_run_filter(day_filter, adr_suppress_threshold)
-    run_rows = conn.execute(
-        f"SELECT run_id, strategy, timeframe, symbol, run_at_ms, sweep_id "
-        f"FROM backtest_runs "
-        f"WHERE closed_trades > 0{filter_sql}",
-        params,
-    ).fetchall()
-    if not run_rows:
+    run_ids = select_rated_run_ids(conn, day_filter, adr_suppress_threshold)
+    if not run_ids:
         return {}
-
-    # Pick one run per (strategy, timeframe, symbol) — sweep first, then recency.
-    # This MUST mirror get_backtest_win_rates or DSR and the rated avg_r describe
-    # different trades, which is the exact split #603's Unscoreable line exposed.
-    latest: dict[tuple[str, str, str], tuple[int, int, str]] = {}
-    for run_id, strategy, tf, symbol, run_at_ms, sweep_id in run_rows:
-        key = (str(strategy), str(tf), str(symbol))
-        rank = (1 if sweep_id is not None else 0, int(run_at_ms))
-        cur = latest.get(key)
-        if cur is None or rank > (cur[0], cur[1]):
-            latest[key] = (rank[0], rank[1], str(run_id))
-    run_ids = [v[2] for v in latest.values()]
 
     placeholders = ",".join("?" * len(run_ids))
     trade_rows = conn.execute(
