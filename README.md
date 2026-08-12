@@ -603,6 +603,19 @@ is expressed in the units of the observation, so the forward panel uses
 `BAR_VOL = 0.02` sigma-units while the ledger panel keeps `0.05` R. Reusing one
 numeral across both would make a verdict structurally unreachable.
 
+`make buibui-dead-surface-check` (`tools/dead_surface_check.py`) is a read-only
+check for cells where declaration and output disagree, in both directions.
+*Dead cells* are declared by a `signal_watch*.toml` but the detector has never
+fired across the whole history — a declaration the system cannot honour, costing
+detector work every scan cycle and returning nothing. *Orphaned ratings* are the
+inverse: `confidence_ratings` rows for cells no config declares any more, which
+`recalibrate` keeps refreshing because it rebuilds from historical
+`backtest_runs` and has no notion of what the configs currently declare. Orphans
+are inert at runtime (both read sites are keyed lookups, so a cell nothing scans
+is never queried) but they inflate any population counted off that table. The
+check is direction-aware, tiers orphans by whether *any* config still declares
+them, and is report-only unless given `STRICT=1`. It never prunes.
+
 **Single-combo options:**
 
 - `--symbol BTCUSDT` — primary symbol
