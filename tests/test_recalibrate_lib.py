@@ -437,6 +437,59 @@ class TestFormatRecalibrationReport:
         )
         assert "Suspect" not in report
 
+    def test_reports_high_star_null_dsr_as_unscoreable(self) -> None:
+        # A ★≥4 cell whose DSR is None has too few scoreable trades to deflate, so
+        # the overfit check could not run on it. Omitting it silently reads as
+        # "checked and clean" — the 2026-08-11 decay review found 42 of 66 rated
+        # cells (21 of 30 5★) invisible to a warning written for exactly them.
+        old: dict[str, dict[str, int] | int] = {"fvg": 3}
+        new: dict[str, dict[str, int]] = {"fvg": {"1h": 5}}
+        win_rates = pd.DataFrame(
+            columns=["strategy", "timeframe", "total_trades", "win_rate", "avg_r"]
+        )
+        dsr_ratings: dict[str, dict[str, dict[str, float | None]]] = {
+            "fvg": {"1h": {"combined": None, "long": None, "short": None}}
+        }
+        report = format_recalibration_report(
+            old, new, win_rates, dsr_ratings=dsr_ratings
+        )
+        assert "Unscoreable" in report
+        assert "fvg/1h" in report.split("Unscoreable", 1)[1]
+
+    def test_unscoreable_cell_is_not_called_suspect(self) -> None:
+        # Absence of evidence is not evidence of overfit: a None-DSR cell must not
+        # be folded into the Suspect list, which asserts a measured DSR < threshold.
+        old: dict[str, dict[str, int] | int] = {"fvg": 3}
+        new: dict[str, dict[str, int]] = {"fvg": {"1h": 5}}
+        win_rates = pd.DataFrame(
+            columns=["strategy", "timeframe", "total_trades", "win_rate", "avg_r"]
+        )
+        dsr_ratings: dict[str, dict[str, dict[str, float | None]]] = {
+            "fvg": {"1h": {"combined": None, "long": None, "short": None}}
+        }
+        report = format_recalibration_report(
+            old, new, win_rates, dsr_ratings=dsr_ratings
+        )
+        # Assert on the Suspect *line*, not the bare word — the Unscoreable line
+        # legitimately cross-references it to say that absence there means nothing.
+        assert "⚠ Suspect" not in report
+
+    def test_does_not_report_low_star_null_dsr(self) -> None:
+        # Only high-conviction (★≥4) cells make a claim worth checking; a 3★ cell
+        # with no DSR is unremarkable and would drown the line in noise.
+        old: dict[str, dict[str, int] | int] = {"fvg": 3}
+        new: dict[str, dict[str, int]] = {"fvg": {"1h": 3}}
+        win_rates = pd.DataFrame(
+            columns=["strategy", "timeframe", "total_trades", "win_rate", "avg_r"]
+        )
+        dsr_ratings: dict[str, dict[str, dict[str, float | None]]] = {
+            "fvg": {"1h": {"combined": None, "long": None, "short": None}}
+        }
+        report = format_recalibration_report(
+            old, new, win_rates, dsr_ratings=dsr_ratings
+        )
+        assert "Unscoreable" not in report
+
 
 # ---------------------------------------------------------------------------
 # write_confidence_to_source — patches indicators_lib.py source in-place

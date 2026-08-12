@@ -75,8 +75,11 @@ Each Makefile `buibui-*` target wraps the equivalent CLI invocation — except
 and single-copy, and the committed `live_signal.duckdb` is NOT a backup — its
 `signal_alert_outcomes` table has 0 rows.** **Everything in both arrays is likewise
 gitignored and single-copy, so those two arrays ARE the only copy** — which is why an
-audit on 2026-08-08 expanded them from 4 entries to 10 files + 3 directories, **and a
-second on 2026-08-11 to 17 files + 7 directories.** The originals covered Stream C and
+audit on 2026-08-08 expanded them from 4 entries to 10 files + 3 directories, a
+second on 2026-08-11 to 17 files + 7 directories, **and a THIRD on 2026-08-12 to 18
+files** — `config/pundit_roster.toml`, whose 16 author entries are accumulated operator
+alias rulings that no re-derivation recovers without re-watching every video (the
+committed `.example` carries 2 schema-demo entries and is not a backup). The originals covered Stream C and
 nothing else; the entire ingest pipeline's state was uncovered. **The recurrence is the
 real lesson: an allowlist over a single-copy tree defaults to UNCOVERED, so a new
 artifact is invisible until someone diffs the backup against the live tree — which is

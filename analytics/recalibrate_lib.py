@@ -408,7 +408,12 @@ def format_recalibration_report(
     When directional_ratings is provided, appends a directional breakdown section.
     When dsr_ratings is provided, appends a "Suspect" line listing high-conviction
     (★≥4) cells whose combined Deflated Sharpe is below DSR_SUSPECT_THRESHOLD —
-    likely overfit despite a high star rating.
+    likely overfit despite a high star rating — and an "Unscoreable" line listing
+    ★≥4 cells whose DSR is None (under MIN_DSR_TRADES scoreable trades, so no
+    deflation was possible). The second line exists because omitting those cells
+    made an unrun check look like a passed one: the 2026-08-11 decay review found
+    42 of 66 rated cells — 21 of the 30 5★ — silently absent from a warning
+    written for exactly them. Absence from "Suspect" is not a clean bill.
     """
     star = lambda n: "★" * n + "☆" * (5 - n)  # noqa: E731
 
@@ -509,16 +514,28 @@ def format_recalibration_report(
 
     if dsr_ratings:
         suspect: list[str] = []
+        unscoreable: list[str] = []
         for strat in sorted(new_ratings):
             for tf in sorted(new_ratings[strat]):
                 stars = new_ratings[strat][tf]
+                if stars < 4:
+                    continue
                 dsr = dsr_ratings.get(strat, {}).get(tf, {}).get("combined")
-                if stars >= 4 and dsr is not None and dsr < DSR_SUSPECT_THRESHOLD:
+                if dsr is None:
+                    unscoreable.append(f"{strat}/{tf}")
+                elif dsr < DSR_SUSPECT_THRESHOLD:
                     suspect.append(f"{strat}/{tf} (DSR {dsr:.2f})")
         if suspect:
             lines.append(
                 f"\n  ⚠ Suspect (★≥4 but DSR<{DSR_SUSPECT_THRESHOLD:.2f}, likely "
                 f"overfit): {', '.join(suspect)}"
+            )
+        if unscoreable:
+            lines.append(
+                f"\n  ⚠ Unscoreable (★≥4 but DSR undefined — under {MIN_DSR_TRADES} "
+                f"scoreable trades, so the overfit check above never ran on these "
+                f"{len(unscoreable)} cell(s); absent from Suspect is NOT clean): "
+                f"{', '.join(unscoreable)}"
             )
 
     return "\n".join(lines)
