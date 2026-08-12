@@ -265,7 +265,14 @@ alone is cosmetic:** writer identity stops the two writers *colliding*, but both
 selection sites (`get_backtest_win_rates`, `compute_dsr_ratings`) previously took the
 *latest* run, and the daemon's row is newest every 15 minutes — so they now rank
 `(sweep_id IS NOT NULL, run_at_ms)`. **Those two must keep mirroring each other**, or
-DSR and the rated `avg_r` describe different trades. Contrary to what the incident
+DSR and the rated `avg_r` describe different trades. **The trade-level half of that
+ranking is now ONE function — `recalibrate_lib.select_rated_run_ids` (2026-08-12) — so
+call it, never re-derive it.** `compute_dsr_ratings` and `tools/decay_review.py` both
+do; `get_backtest_win_rates` keeps its own pandas path over a different query
+(aggregates, not run_ids) and so is still a hand-mirror. The extraction was forced by a
+live drift: the decay review's then-gitignored driver had reverted to recency-only and
+was auditing the daemon's rows instead of the sweeps → [[scratch-dir-is-for-output-not-code]].
+Contrary to what the incident
 report predicted, this moves **no goldens** — `run_id` is in no fixture and
 `tests/test_regression.py` never touches the DB (verified, 3 passed). Separately:
 **`MIN_DSR_TRADES` gates COUNT, not DISPERSION** — `_sharpe` rejects only `sd == 0.0`
