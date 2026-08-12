@@ -63,8 +63,10 @@ def get_backtest_win_rates(
     """Query backtest_runs grouped by (strategy, tf), return win_rate, avg_r, total_trades.
 
     Groups across all symbols for each (strategy, timeframe) combination.
-    Only the latest run per (strategy, timeframe, symbol) is used — older runs
-    from previous param sweeps are excluded to avoid polluting the ratings.
+    One run per (strategy, timeframe, symbol) is used, ranked **sweep-first, then
+    recency**: a row carrying a ``sweep_id`` outranks any non-sweep row, and
+    ``run_at_ms`` only breaks ties within a class. Older sweeps are still excluded.
+    A cell with no sweep row is rated from whatever rows it has.
     Only includes rows where closed_trades > 0.
     If day_filter is provided, only runs saved with that day_filter value are used.
     adr_suppress_threshold: when None (default) uses only runs with no ADR gate
@@ -80,7 +82,7 @@ def get_backtest_win_rates(
     cursor = conn.execute(
         f"SELECT strategy, timeframe, symbol, run_at_ms, closed_trades, win_count, avg_r, "
         f"long_closed_trades, long_win_count, long_avg_r, "
-        f"short_closed_trades, short_win_count, short_avg_r "
+        f"short_closed_trades, short_win_count, short_avg_r, sweep_id "
         f"FROM backtest_runs "
         f"WHERE closed_trades > 0{filter_sql}",
         params,
@@ -119,10 +121,20 @@ def get_backtest_win_rates(
             "short_closed_trades",
             "short_win_count",
             "short_avg_r",
+            "sweep_id",
         ],
     )
-    # Keep only the latest run per (strategy, timeframe, symbol)
-    raw = raw.sort_values("run_at_ms", ascending=False).drop_duplicates(
+    # Keep one run per (strategy, timeframe, symbol): a SWEEP row outranks any
+    # non-sweep row, and recency only breaks ties within a class.
+    #
+    # Recency alone was the bug. The live gate writes every 15 minutes, so its row
+    # is essentially always the newest — 53% of rated `tue_thu` cells were sourced
+    # from the daemon's short-window backtest rather than the deliberate, validated
+    # sweep. Writer identity stops the two COLLIDING; without this they merely
+    # coexist and the daemon still wins. A cell with no sweep row is still rated
+    # from what it has.
+    raw["_is_sweep"] = raw["sweep_id"].notna()
+    raw = raw.sort_values(["_is_sweep", "run_at_ms"], ascending=False).drop_duplicates(
         subset=["strategy", "timeframe", "symbol"]
     )
     # Aggregate across symbols
@@ -328,22 +340,25 @@ def compute_dsr_ratings(
     """
     filter_sql, params = _build_run_filter(day_filter, adr_suppress_threshold)
     run_rows = conn.execute(
-        f"SELECT run_id, strategy, timeframe, symbol, run_at_ms FROM backtest_runs "
+        f"SELECT run_id, strategy, timeframe, symbol, run_at_ms, sweep_id "
+        f"FROM backtest_runs "
         f"WHERE closed_trades > 0{filter_sql}",
         params,
     ).fetchall()
     if not run_rows:
         return {}
 
-    # Keep only the latest run per (strategy, timeframe, symbol) — mirrors
-    # get_backtest_win_rates so DSR and the rated avg_r read the same trades.
-    latest: dict[tuple[str, str, str], tuple[int, str]] = {}
-    for run_id, strategy, tf, symbol, run_at_ms in run_rows:
+    # Pick one run per (strategy, timeframe, symbol) — sweep first, then recency.
+    # This MUST mirror get_backtest_win_rates or DSR and the rated avg_r describe
+    # different trades, which is the exact split #603's Unscoreable line exposed.
+    latest: dict[tuple[str, str, str], tuple[int, int, str]] = {}
+    for run_id, strategy, tf, symbol, run_at_ms, sweep_id in run_rows:
         key = (str(strategy), str(tf), str(symbol))
+        rank = (1 if sweep_id is not None else 0, int(run_at_ms))
         cur = latest.get(key)
-        if cur is None or int(run_at_ms) > cur[0]:
-            latest[key] = (int(run_at_ms), str(run_id))
-    run_ids = [v[1] for v in latest.values()]
+        if cur is None or rank > (cur[0], cur[1]):
+            latest[key] = (rank[0], rank[1], str(run_id))
+    run_ids = [v[2] for v in latest.values()]
 
     placeholders = ",".join("?" * len(run_ids))
     trade_rows = conn.execute(

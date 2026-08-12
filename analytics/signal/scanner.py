@@ -1201,6 +1201,10 @@ def run_scan_cycle(
                         strategy_params, strategy, backtest_cfg.volume_suppress
                     )
                     or None,
+                    # Namespace this row to the live gate. Without it the daemon's
+                    # run_id equals the sweep's whenever the resolved params match,
+                    # and INSERT OR REPLACE destroys the swept row.
+                    writer="live",
                 )
             except Exception:
                 logger.exception(

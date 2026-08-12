@@ -29,11 +29,28 @@ def _backtest_run_id(
     volume_suppress_short: bool | None = None,
     adr_exempt: bool = False,
     atr_sl_floor: bool = False,
+    writer: str = "sweep",
 ) -> str:
     """Return a deterministic 16-char hex ID for a backtest param combination.
 
     Optional suffixes are appended only when set so existing run_ids are
     unchanged (None = flag not applied, same hash as before these columns).
+
+    ``writer`` namespaces the ID by **who wrote the row**, and it is load-bearing
+    rather than cosmetic. This hash covers only backtest *parameters*, and
+    :func:`upsert_backtest_run` issues ``INSERT OR REPLACE`` — so when the live
+    signal-watch gate resolved the same ``sl_pct``/``tp_r`` as a swept cell (i.e.
+    the *chosen* cell, the one that matters), the 15-minute daemon silently
+    replaced the swept row. Measured 2026-08-12: **415 rows overwritten, 331 whose
+    stored aggregate disagreed with their own trades** (`smt_divergence/15m` read 8
+    trades against 1070 stored), and **53% of rated `tue_thu` cells** owned by the
+    live gate instead of the deliberate sweep.
+
+    ``"sweep"`` is the **unsuffixed default on purpose**: sweep rows are the
+    validated evidence, and ``backtest_cache`` keys derive from ``run_id``
+    (``analytics/signal/_common.py``). Keeping the default hash byte-identical
+    means historical sweep rows stay addressable and the live cache is not
+    invalidated — only the other writers move to their own namespaces.
     """
     key = f"{symbol}|{timeframe}|{strategy}|{days}|{sl_pct}|{tp_r}|{fee_pct}|{day_filter}|{smt_trend_filter}|{secondary_symbol}"
     if adr_suppress_threshold is not None:
@@ -56,6 +73,8 @@ def _backtest_run_id(
         key += "|adr_exempt"
     if atr_sl_floor:
         key += "|atr_floor"
+    if writer != "sweep":
+        key += f"|writer:{writer}"
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
@@ -74,11 +93,17 @@ def upsert_backtest_run(
     sweep_id: str | None = None,
     adr_suppress_threshold: float | None = None,
     volume_suppress: bool | None = None,
+    writer: str = "sweep",
 ) -> str:
     """Insert or replace a backtest aggregate result row.
 
     result must be a BacktestResult instance.
     Returns the run_id so the caller can link backtest_trades rows.
+
+    ``writer`` identifies the caller so two writers cannot collide on one row —
+    see :func:`_backtest_run_id`. Pass ``"live"`` from the signal-watch gate,
+    ``"single"`` from a single-combo run and ``"ui"`` from the web API; the sweep
+    keeps the default.
     """
     run_id = _backtest_run_id(
         result.symbol,
@@ -93,6 +118,7 @@ def upsert_backtest_run(
         secondary_symbol,
         adr_suppress_threshold,
         volume_suppress,
+        writer=writer,
     )
     row: dict[str, Any] = {
         "run_id": run_id,

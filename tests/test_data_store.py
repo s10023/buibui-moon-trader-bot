@@ -983,3 +983,71 @@ class TestBacktestCache:
         assert snap is not None
         assert bool(snap.closed_trades)
         assert not bool(snap.short_closed_trades)
+
+
+class TestBacktestRunWriterIdentity:
+    """The live gate and a sweep must not share a run_id.
+
+    `_backtest_run_id` hashed only backtest *parameters*, and `upsert_backtest_run`
+    issues `INSERT OR REPLACE`. So whenever the live gate's resolved sl_pct/tp_r
+    matched a swept cell's — i.e. the CHOSEN cell, the one that matters — the
+    15-minute daemon replaced the swept row: 415 rows overwritten, 331 whose
+    aggregate disagreed with their own trades, and 53% of rated `tue_thu` cells
+    owned by the live gate. See docs/audits/2026-08-12-multi-regime-validation.md's
+    sibling report and PR #604 (which contained it via save_results=false but
+    healed nothing).
+    """
+
+    def test_writer_changes_the_run_id(self) -> None:
+        base = _backtest_run_id(
+            "BTCUSDT", "4h", "bos", 90, 0.02, 2.0, 0.0, "off", 1, None
+        )
+        live = _backtest_run_id(
+            "BTCUSDT", "4h", "bos", 90, 0.02, 2.0, 0.0, "off", 1, None, writer="live"
+        )
+        assert base != live
+
+    def test_each_writer_gets_a_distinct_namespace(self) -> None:
+        ids = {
+            w: _backtest_run_id(
+                "BTCUSDT", "4h", "bos", 90, 0.02, 2.0, 0.0, "off", 1, None, writer=w
+            )
+            for w in ("sweep", "live", "single", "ui")
+        }
+        assert len(set(ids.values())) == 4, ids
+
+    def test_default_writer_preserves_historical_run_ids(self) -> None:
+        """The default namespace is unsuffixed ON PURPOSE.
+
+        Sweep rows are the validated evidence and `backtest_cache` keys derive from
+        run_id, so keeping the default hash byte-identical means existing sweep rows
+        stay addressable and the live cache is not invalidated. These two literals
+        were captured from `main` before the writer parameter existed; if they move,
+        this change has silently orphaned every historical row.
+        """
+        assert (
+            _backtest_run_id("BTCUSDT", "4h", "bos", 90, 0.02, 2.0, 0.0, "off", 1, None)
+            == "5f39a1eee6b6365f"
+        )
+        assert (
+            _backtest_run_id(
+                "BTCUSDT", "15m", "eqh_eql", 365, 0.02, 2.0, 0.05, "tue_thu", 1, None
+            )
+            == "04c7fd503c00779f"
+        )
+
+    def test_live_writer_does_not_replace_a_sweep_row(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        result = _FakeResult("BTCUSDT", "4h", "bos")
+        sweep_params = {**_BT_PARAMS, "sweep_id": "sweep-abc"}
+        sweep_id = upsert_backtest_run(conn, result, **sweep_params)
+        live_id = upsert_backtest_run(conn, result, **_BT_PARAMS, writer="live")
+
+        assert sweep_id != live_id
+        assert _one(conn, "SELECT COUNT(*) FROM backtest_runs")[0] == 2
+        surviving = conn.execute(
+            "SELECT sweep_id FROM backtest_runs WHERE run_id = ?", [sweep_id]
+        ).fetchone()
+        assert surviving is not None
+        assert surviving[0] == "sweep-abc", "the live gate destroyed the swept row"
