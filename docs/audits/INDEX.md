@@ -4,13 +4,14 @@
 `make docs-index-check` (and `tests/test_docs_index.py`) fails when this file
 drifts from the corpus.
 
-**39 audits.** A verdict line is shown only where one could be read
-out of a Verdict heading as prose — that is **22 of 39**.
+**40 audits.** A verdict line is shown only where one could be read
+out of a Verdict heading as prose — that is **23 of 40**.
 An em dash means the doc states its verdict in a table, a blockquote or the body,
 **not** that it lacks one; open the file. Nothing here is keyword-guessed.
 
 | Date | Audit | Verdict (as written) | File |
 | --- | --- | --- | --- |
+| 2026-08-12 | Multi-regime detector validation — verdict: NO detectable regime dependence | Three of the four cells are powered nulls with tight bounds. The fourth is a nominal hit that does not survive multiplicity. | [2026-08-12-multi-regime-validation.md](2026-08-12-multi-regime-validation.md) |
 | 2026-08-11 | Ensemble / confluence score — walk-forward | `passes_gate(DSR, PBO, boot_lo) -> False`. | [2026-08-11-ensemble-walkforward.md](2026-08-11-ensemble-walkforward.md) |
 | 2026-08-11 | D1 — Spot-perp CVD divergence sleeve | Venue-split order flow, as constructed here, is not a second edge. It is also not the *wrong-signed* edge — see "Direction"… | [2026-08-11-d1-spot-perp-cvd.md](2026-08-11-d1-spot-perp-cvd.md) |
 | 2026-08-06 | Spec reconcile — P3 cross-sectional momentum sleeve (the deploy core) | This is the third spec reconciled and the highest-stakes one: xsmom is the only sleeve carrying real capital (+1.375 Sharpe, DSR… | [2026-08-06-spec-reconcile-p3-xsmom.md](2026-08-06-spec-reconcile-p3-xsmom.md) |
