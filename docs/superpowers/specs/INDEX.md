@@ -9,8 +9,8 @@ reconciled when an audit that names its filename also discusses reconciling, so
 the count is recomputed from disk rather than carried in prose. That is the
 counter CLAUDE.md has had wrong every time it was checked.
 
-- **Reconciled (derived): 3 of 52.**
-- Referenced by no audit at all: 36.
+- **Reconciled (derived): 4 of 52.**
+- Referenced by no audit at all: 35.
 
 **Two caveats before quoting these numbers.** A *partial* reconcile is
 indistinguishable from a whole-spec one here, and this table cannot see one that
@@ -45,7 +45,7 @@ and the reconcile column as a floor.
 | 2026-07-10 | M2 Session Layer — Design | — | — | [2026-07-10-m2-session-layer-design.md](2026-07-10-m2-session-layer-design.md) |
 | 2026-07-09 | M1 Indicator-State Layer — Design | — | — | [2026-07-09-m1-indicator-state-design.md](2026-07-09-m1-indicator-state-design.md) |
 | 2026-07-08 | M0 Brief Fixes — sweep-flag correctness, fresh as-of price, legend | — | — | [2026-07-08-m0-brief-fixes-design.md](2026-07-08-m0-brief-fixes-design.md) |
-| 2026-07-08 | F2 AI Trade Card v1 — Design | — | — | [2026-07-08-f2-trade-card-design.md](2026-07-08-f2-trade-card-design.md) |
+| 2026-07-08 | F2 AI Trade Card v1 — Design | 2026-08-12-spec-reconcile-f2-trade-card.md | — | [2026-07-08-f2-trade-card-design.md](2026-07-08-f2-trade-card-design.md) |
 | 2026-07-04 | Pundit-Ledger Scorer — Design | — | — | [2026-07-04-pundit-ledger-scorer-design.md](2026-07-04-pundit-ledger-scorer-design.md) |
 | 2026-07-04 | Daily Market Brief — Design | — | — | [2026-07-04-daily-market-brief-design.md](2026-07-04-daily-market-brief-design.md) |
 | 2026-06-30 | X-post ingest — iteration 1 (design) | — | — | [2026-06-30-x-post-ingest-design.md](2026-06-30-x-post-ingest-design.md) |
