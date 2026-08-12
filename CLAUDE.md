@@ -341,8 +341,19 @@ P3-trend×XS-combine and P3-XS-momentum have an audit that records the reconcile
 (`docs/audits/2026-08-06-spec-reconcile-*.md`). **H8 and the ingest-video design
 doc were reconciled but nothing wrote it down**, so no tool can see them — which
 is the actual lesson: a reconcile that produces no audit did not happen as far as
-the next session is concerned. Treat the index as a **floor**; it cannot see a
-partial reconcile as partial either.
+the next session is concerned. It cannot see a partial reconcile as partial either.
+
+**⚠ "Treat the index as a FLOOR" was WRONG, and is corrected here (2026-08-12,
+`docs/audits/2026-08-12-spec-reconcile-f2-trade-card.md`): the counter also
+OVER-counts.** The derivation is "an audit that names a spec's filename and
+discusses reconciling", and **it cannot tell a citation from a disclaimer** — an
+audit that names a sibling spec *in order to say it was NOT walked* credits it.
+Measured: naming two siblings moved the count 3 → 6 of 52; removing the filenames
+settled it at the correct 4. So **never write a spec's filename in an audit except
+to claim you walked it** — refer to it by date and title instead. And do not call
+this number a floor: a floor assumes the error runs one way, and this one runs
+both. The stronger sentence below is the correct one — treat it as a claim to
+verify.
 
 **This counter has been wrong every single time anyone has checked it — 4 for
 4.** It read "1 of 44" while the handoff said "3 of 44" and the corpus was 46;
