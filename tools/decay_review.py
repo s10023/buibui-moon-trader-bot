@@ -48,7 +48,13 @@ from analytics.research_guards import (
     expected_max_sharpe,
     probabilistic_sharpe_ratio,
 )
+from analytics.signal_config import load_signal_config
 from analytics.store import DEFAULT_DB_PATH
+from tools.dead_surface_check import (
+    DEFAULT_CONFIGS,
+    declared_by_direction,
+    direction_key,
+)
 
 GATE = 0.95
 SCOPES = ("combined", "long", "short")
@@ -214,38 +220,68 @@ def render_scope(report: ScopeReport) -> list[str]:
 
 
 def stored_rating_lines(conn: duckdb.DuckDBPyConnection) -> list[str]:
-    """Summarise what the live gate actually reads from ``confidence_ratings``."""
+    """Summarise what the live gate actually reads from ``confidence_ratings``.
+
+    Reports the ★>=4 population **twice**: as stored, and restricted to cells
+    some config still declares. ``recalibrate`` rebuilds ratings from historical
+    ``backtest_runs`` with no notion of what the configs currently declare, so a
+    cell dropped from a config keeps its stars indefinitely. Those rows are inert
+    at runtime — both read sites are keyed lookups — but they inflate any
+    population counted here, and this population is published.
+    ``tools/dead_surface_check.py`` enumerates them.
+    """
+    configs = {Path(path).stem: load_signal_config(path) for path in DEFAULT_CONFIGS}
+    declared = {stem: declared_by_direction(cfg) for stem, cfg in configs.items()}
+
+    def is_declared(config_name: str, strategy: str, tf: str, direction: str) -> bool:
+        per_direction = declared.get(config_name)
+        if per_direction is None:  # a config this tool does not know about
+            return True
+        return (strategy, tf) in per_direction[direction_key(direction)]
+
     rows = conn.execute(
-        """
-        SELECT config_name, stars,
-               count(*)                                    AS cells,
-               sum(CASE WHEN dsr IS NULL THEN 1 ELSE 0 END) AS unscoreable,
-               sum(CASE WHEN dsr < 0.95 THEN 1 ELSE 0 END)  AS suspect,
-               sum(CASE WHEN dsr >= 0.95 THEN 1 ELSE 0 END) AS clean
-        FROM confidence_ratings WHERE stars >= 4
-        GROUP BY 1, 2 ORDER BY 1, 2 DESC
-        """
+        "SELECT config_name, stars, strategy, tf, direction, dsr "
+        "FROM confidence_ratings WHERE stars >= 4 ORDER BY config_name, stars DESC"
     ).fetchall()
+
+    groups: dict[tuple[str, int], list[int]] = defaultdict(lambda: [0, 0, 0, 0, 0])
+    for config_name, stars, strategy, tf, direction, dsr in rows:
+        live = is_declared(str(config_name), str(strategy), str(tf), str(direction))
+        counts = groups[(str(config_name), int(stars))]
+        counts[0] += 1
+        counts[1] += 1 if dsr is None else 0
+        counts[2] += 1 if dsr is not None and dsr < GATE else 0
+        counts[3] += 1 if dsr is not None and dsr >= GATE else 0
+        counts[4] += 1 if live else 0
+
     lines = [
-        f"{'config':24} {'*':>2} {'cells':>6} {'unscoreable':>12} "
+        f"{'config':24} {'*':>2} {'cells':>6} {'declared':>9} {'unscoreable':>12} "
         f"{'suspect':>8} {'clean':>6}"
     ]
-    lines.extend(
-        f"{r[0]:24} {r[1]:>2} {r[2]:>6} {r[3]:>12} {r[4]:>8} {r[5]:>6}" for r in rows
-    )
-
-    total = conn.execute(
-        """
-        SELECT count(*), sum(CASE WHEN dsr IS NULL THEN 1 ELSE 0 END),
-               sum(CASE WHEN dsr >= 0.95 THEN 1 ELSE 0 END)
-        FROM confidence_ratings WHERE stars >= 4
-        """
-    ).fetchone()
-    if total is not None:
+    for (config_name, stars), c in sorted(
+        groups.items(), key=lambda kv: (kv[0][0], -kv[0][1])
+    ):
         lines.append(
-            f"\nTOTAL *>=4: {total[0]} cells | {total[1]} unscoreable "
-            f"(<{MIN_DSR_TRADES} trades) | {total[2]} clearing DSR {GATE}"
+            f"{config_name:24} {stars:>2} {c[0]:>6} {c[4]:>9} {c[1]:>12} "
+            f"{c[2]:>8} {c[3]:>6}"
         )
+
+    total = len(rows)
+    unscoreable = sum(1 for r in rows if r[5] is None)
+    clean = sum(1 for r in rows if r[5] is not None and r[5] >= GATE)
+    live_rows = [
+        r for r in rows if is_declared(str(r[0]), str(r[2]), str(r[3]), str(r[4]))
+    ]
+    live_clean = sum(1 for r in live_rows if r[5] is not None and r[5] >= GATE)
+    lines.append(
+        f"\nTOTAL *>=4: {total} cells | {unscoreable} unscoreable "
+        f"(<{MIN_DSR_TRADES} trades) | {clean} clearing DSR {GATE}"
+    )
+    lines.append(
+        f"  of which DECLARED by some config: {len(live_rows)} cells | "
+        f"{live_clean} clearing DSR {GATE}  "
+        f"({total - len(live_rows)} orphaned, see tools/dead_surface_check.py)"
+    )
     return lines
 
 
