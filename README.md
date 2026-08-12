@@ -1349,11 +1349,20 @@ print(get_win_rate_by_strategy(conn))
 Only includes combos with ≥ 20 closed trades. Use this to compare against the
 current editorial star ratings in `SIGNAL_REGISTRY` and adjust `confidence` values.
 
-**TOML opt-in** — add to `config/signal_watch.toml`:
+**TOML opt-OUT, and currently DISABLED.** This was documented as an "opt-in" that you
+add to `config/signal_watch.toml`, which was wrong in a way that mattered: the loader
+defaults it to **`True`** (`analytics/signal_config.py:251`, `:680`), so the live daemon
+persisted a `backtest_runs` row every 15-minute cycle whether or not any config named it.
 
-```toml
-save_results = true
-```
+It is now explicitly **`save_results = false`** in the `[backtest]` section of the shared
+base `config/strategy_params.toml`, as containment for a writer collision: the live gate
+and the sweep compute the *same* `run_id` for the chosen cell (`_backtest_run_id` hashes
+only params, no writer identity) and `upsert_backtest_run` is `INSERT OR REPLACE`, so the
+daemon was silently overwriting swept rows. Read
+`docs/plans/scratch/backtest-runs-writer-collision-2026-08-12.md` before re-enabling.
+
+**Sweeps are unaffected** — `make buibui-backtest SAVE=1` takes the flag from the `--save`
+CLI argument (`cli/backtest.py`), not from this TOML key, and still persists normally.
 
 **Web frontend:**
 
