@@ -156,6 +156,22 @@ min_trades_1d  = 2
 min_avg_r = 0.0
 slippage_bps = 2.0      # per-leg slippage (4 bps round-trip); honest-cost model (P0b)
 
+# CONTAINMENT 2026-08-12 — do not flip back to true without reading the report at
+# docs/plans/scratch/backtest-runs-writer-collision-2026-08-12.md.
+# `_backtest_run_id` hashes only backtest PARAMS and carries no writer identity, and
+# `upsert_backtest_run` is INSERT OR REPLACE. The live gate (scanner.py:1185, every 15
+# min) and the sweep (backtest_runner.py:729) therefore compute the SAME run_id for the
+# chosen cell — so the daemon was silently overwriting swept rows, nulling `sweep_id`
+# and leaving the aggregate inconsistent with its own backtest_trades (measured: 415
+# overwritten run_ids, 331 with a mismatched trade count, and 53% of rated tue_thu cells
+# owned by the live gate rather than by the sweep that was meant to be rated).
+# This key is read ONLY by the signal-watch loader (signal_config.py:680, default True).
+# Sweeps are unaffected — they take save_results from the `--save` CLI flag
+# (cli/backtest.py:76/96/160), so `make buibui-backtest SAVE=1` still persists normally.
+# This is containment, not the fix: the durable fix is writer identity in the run_id
+# hash, which moves every run_id and needs a regression + db-update decision.
+save_results = false
+
 # Per-strategy flags consistent across all three main configs.
 # Only non-tp_r fields are here — tp_r values are calibrated per day_filter in each config.
 # Strategies not listed here have no per-strategy flag override (loader default applies).
