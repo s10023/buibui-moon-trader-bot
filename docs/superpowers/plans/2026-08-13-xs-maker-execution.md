@@ -815,12 +815,19 @@ def test_cancel_is_scoped_to_managed_symbols(tmp_path: Path) -> None:
     assert adapter.cancelled == ["AAAUSDT"]
 
 
-def test_limit_buy_rests_at_the_bid(tmp_path: Path) -> None:
+def test_limit_rests_at_the_touch_rounded_passively(tmp_path: Path) -> None:
+    """Quotes are deliberately NOT tick-exact, so the floor/ceil branch runs.
+
+    `_FakeAdapter.get_filters` uses tick 0.01. A tick-exact quote like 99.98
+    would hit round_to_tick's snap branch BEFORE the side is read, so the test
+    would pass even if the BUY/SELL direction were inverted — the end-to-end
+    version of the vacuous assertion that failed task 1's first review.
+    """
     conn = duckdb.connect(":memory:")
     init_schema(conn)
     syms = _seed(conn)
     adapter = _FakeAdapter(equity=10_000.0, positions={}, marks={})
-    adapter.book_tops = {s: (99.98, 100.02) for s in syms}
+    adapter.book_tops = {s: (99.9847, 100.0231) for s in syms}
     res = run_once(
         conn,
         adapter,
@@ -833,10 +840,14 @@ def test_limit_buy_rests_at_the_bid(tmp_path: Path) -> None:
         now=pd.Timestamp("2022-02-05", tz="UTC"),
     )
     assert res.submitted, "expected at least one order"
+    seen_limit = False
     for intent, price in zip(adapter.submitted, adapter.submitted_prices, strict=True):
         if intent.order_type != "LIMIT":
             continue
-        assert price == (99.98 if intent.side == "BUY" else 100.02)
+        seen_limit = True
+        # BUY floors 99.9847 -> 99.98; SELL ceils 100.0231 -> 100.03.
+        assert price == pytest.approx(99.98 if intent.side == "BUY" else 100.03)
+    assert seen_limit, "no LIMIT order submitted — the assertion above never ran"
 
 
 def test_limit_leg_fails_cleanly_when_book_top_missing(tmp_path: Path) -> None:
