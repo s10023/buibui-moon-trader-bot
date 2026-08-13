@@ -20,6 +20,7 @@ import pandas as pd
 from analytics.forecast.config import ForecastConfig
 from analytics.xsmom.live import TargetBook
 from analytics.xsmom.replay import replay_targets
+from portfolio.sizing import round_to_tick
 from trade.overlay import AccountState, OverlayVerdict, RiskLimits, evaluate_overlay
 from trade.routing import ExchangeFilters, OrderIntent, OrderPlan, build_order_plan
 
@@ -32,7 +33,12 @@ class _Adapter(Protocol):
     def get_marks(self, symbols: list[str]) -> dict[str, float]: ...
     def get_filters(self, symbols: list[str]) -> dict[str, ExchangeFilters]: ...
     def ensure_account_config(self, symbols: list[str], *, leverage: int) -> None: ...
-    def submit_market(self, intent: OrderIntent) -> dict[str, Any]: ...
+    def get_book_tops(self, symbols: list[str]) -> dict[str, tuple[float, float]]: ...
+    def get_open_order_symbols(self) -> set[str]: ...
+    def cancel_open_orders(self, symbol: str) -> None: ...
+    def submit(
+        self, intent: OrderIntent, price: float | None = None
+    ) -> dict[str, Any]: ...
 
 
 @dataclass(frozen=True)
@@ -94,10 +100,29 @@ def run_once(
     book = replay_targets(conn, cfg, equity, symbols=symbols, now=now)
     data_age = _data_age_hours(book.as_of_date, now)
 
+    # Cancel stale resting orders BEFORE the planning read. A resting order is
+    # not a position, so yesterday's unfilled order would otherwise sit on the
+    # book while today's plan submits another one — an overshoot in which both
+    # orders are individually correct. Scoped to symbols this executor manages
+    # (symbols | positions): the operator's own orders on other symbols must
+    # survive. Any open-order symbol still in the current universe is managed
+    # with no lookup; a position read is only needed to resolve a symbol that
+    # has DROPPED OUT of the universe (still held vs. a stray unmanaged order).
+    open_syms = adapter.get_open_order_symbols()
+    if open_syms:
+        universe = set(symbols)
+        to_cancel = open_syms & universe
+        dropped = open_syms - universe
+        if dropped:
+            to_cancel |= dropped & set(adapter.get_positions())
+        for sym in sorted(to_cancel):
+            adapter.cancel_open_orders(sym)
+
     positions = adapter.get_positions()
     all_symbols = sorted(set(symbols) | set(positions))
     marks = adapter.get_marks(all_symbols)
     filters = adapter.get_filters(all_symbols)
+    book_tops = adapter.get_book_tops(all_symbols)
     # Fail-safe: a held position with a missing/zero mark would under-count
     # current gross and wrongly trip the looser cold-start turnover cap. When
     # we cannot price the whole held book, pass None so the overlay falls back
@@ -135,10 +160,25 @@ def run_once(
         adapter.ensure_account_config(symbols, leverage=exchange_leverage)
         for intent in plan.intents:
             try:
-                adapter.submit_market(intent)
+                price: float | None = None
+                if intent.order_type == "LIMIT":
+                    top = book_tops.get(intent.symbol)
+                    if top is None:
+                        raise RuntimeError(f"skip:no_book_top {intent.symbol}")
+                    bid, ask = top
+                    raw = bid if intent.side == "BUY" else ask
+                    tick = filters[intent.symbol].price_tick
+                    price = round_to_tick(raw, tick, intent.side)
+                adapter.submit(intent, price)
                 submitted.append(intent)
             except Exception as exc:  # per-order isolation
-                failed.append((intent, str(exc)))
+                # Carry the price into the failure text. A GTX rejection means
+                # the limit would have crossed, and price-beside-side is what
+                # tells you the tick rounding went the wrong way — a rejection
+                # RATE above noise is decision 4's diagnostic, and it is
+                # unreadable without the price.
+                detail = str(exc) if price is None else f"{exc} (price={price})"
+                failed.append((intent, detail))
 
     # A `capital_override` run is a HYPOTHETICAL — it sizes the book off a fixed
     # capital instead of the account, which is all it is documented to do. Letting
