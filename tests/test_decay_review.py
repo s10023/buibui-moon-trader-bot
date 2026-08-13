@@ -20,6 +20,7 @@ import pytest
 from analytics.recalibrate_lib import select_rated_run_ids
 from analytics.store.schema import init_schema
 from tools.decay_review import (
+    DEFAULT_CONFIGS,
     GATE,
     CellHeadroom,
     ScopeReport,
@@ -27,6 +28,8 @@ from tools.decay_review import (
     pools_by_scope,
     render_scope,
     required_sharpe,
+    resolve_config_scopes,
+    scopes_to_review,
 )
 
 # Every NOT NULL column the production schema declares but this test does not
@@ -321,3 +324,78 @@ class TestAnalyseScope:
         assert all(
             c.required == required_sharpe(report.sr0, c.n_obs) for c in report.cells
         )
+
+
+class TestConfigScopeResolution:
+    """Regression cover for the dead-pool defect found 2026-08-13.
+
+    `--adr-suppress-threshold` defaulted to None, which `select_rated_run_ids`
+    turns into `adr_suppress_threshold IS NULL`. All three live configs save
+    under 0.75 / 0.65 / 0.70, so the default selected only pre-May runs — a pool
+    whose trades ended 2026-04-09. Every decay review to that date, the 08-11
+    first run included, audited it. The verdict direction survived (0 cells clear
+    either way), which is exactly why nobody caught it.
+    """
+
+    def test_live_configs_resolve_to_their_real_day_filter_and_adr_pairs(
+        self,
+    ) -> None:
+        scopes = resolve_config_scopes(DEFAULT_CONFIGS)
+        assert {(s.day_filter, s.adr_suppress_threshold) for s in scopes} == {
+            ("tue_thu", 0.75),
+            ("mon_fri", 0.65),
+            ("weekend", 0.70),
+        }
+
+    def test_no_live_scope_resolves_a_null_adr_threshold(self) -> None:
+        """The defect itself: a None threshold selects the dead pre-May pool."""
+        for scope in resolve_config_scopes(DEFAULT_CONFIGS):
+            assert scope.adr_suppress_threshold is not None, (
+                f"{scope.name} resolved a NULL ADR threshold — that selects runs "
+                "saved with no ADR gate, which no live config uses"
+            )
+
+    def test_scope_carries_the_config_name_for_reporting(self) -> None:
+        assert {s.name for s in resolve_config_scopes(DEFAULT_CONFIGS)} == {
+            "signal_watch",
+            "signal_watch_weekdays",
+            "signal_watch_all",
+        }
+
+
+class TestScopesToReview:
+    """What the tool audits for a given invocation.
+
+    The defect was in the DEFAULT path, not the flags — `make
+    buibui-decay-review` takes no arguments and `SKILL.md` documents it that
+    way, so a correct-but-optional flag would have fixed nothing.
+    """
+
+    def test_bare_invocation_audits_every_live_config(self) -> None:
+        scopes = scopes_to_review(config=None, day_filter=None, adr=None)
+        assert {(s.day_filter, s.adr_suppress_threshold) for s in scopes} == {
+            ("tue_thu", 0.75),
+            ("mon_fri", 0.65),
+            ("weekend", 0.70),
+        }
+
+    def test_config_flag_resolves_both_halves_from_that_config(self) -> None:
+        scopes = scopes_to_review(
+            config="config/signal_watch_weekdays.toml", day_filter=None, adr=None
+        )
+        assert len(scopes) == 1
+        assert scopes[0].day_filter == "mon_fri"
+        assert scopes[0].adr_suppress_threshold == 0.65
+
+    def test_explicit_flags_are_honoured_verbatim_for_ad_hoc_scoping(self) -> None:
+        scopes = scopes_to_review(config=None, day_filter="tue_thu", adr=0.80)
+        assert len(scopes) == 1
+        assert scopes[0].day_filter == "tue_thu"
+        assert scopes[0].adr_suppress_threshold == 0.80
+
+    def test_a_bare_day_filter_no_longer_silently_nulls_the_adr_threshold(
+        self,
+    ) -> None:
+        """`--day-filter tue_thu` alone used to select the dead pre-May pool."""
+        with pytest.raises(SystemExit):
+            scopes_to_review(config=None, day_filter="tue_thu", adr=None)

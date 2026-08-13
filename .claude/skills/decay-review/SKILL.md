@@ -30,12 +30,23 @@ date -u +%FT%TZ > docs/plans/task-marks/decay-review
 ## Leg 1 — DSR-suspect list + gate reachability
 
 ```bash
-make buibui-decay-review                      # all scopes
-make buibui-decay-review DAY_FILTER=tue_thu   # scope to one bucket
+make buibui-decay-review                              # every live config — the default
+make buibui-decay-review CONFIG=config/signal_watch.toml   # one config
+make buibui-decay-review DB=/path/to/copy.db          # off the :01/16/31/46 lock
 ```
 
 Read-only. Rebuilds the exact pools `compute_dsr_ratings` uses via the shared
 `recalibrate_lib.select_rated_run_ids` — never a local copy of the ranking.
+
+**Scope resolution: `day_filter` and `adr_suppress_threshold` travel TOGETHER.**
+The bare invocation resolves both from each of the three live configs
+(0.75 / 0.65 / 0.70), mirroring `recalibrate_runner`. `DAY_FILTER=` alone now
+**exits 1** rather than running: it leaves the threshold at `None`, which
+`select_rated_run_ids` renders as `adr_suppress_threshold IS NULL` — a pool no
+live config writes, frozen since 2026-04-09. **That was the default until
+2026-08-13, so every review before then, including the 08-11 first run, audited
+it.** The verdict direction survived (0 cells clear either way), which is exactly
+why it went unnoticed; every *named cell* was wrong.
 
 **Three reading traps. All three have already produced a wrong reading once.**
 
