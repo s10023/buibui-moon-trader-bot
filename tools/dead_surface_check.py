@@ -16,10 +16,13 @@ rebuilds ``confidence_ratings`` from historical ``backtest_runs`` and has no
 notion of what the config currently declares, while the upsert only ever
 inserts-or-replaces. A cell dropped from a config therefore keeps its stars and
 collects a *fresh timestamp on a stale value* at every refresh.
-``prune_stale_ratings`` exists but prunes only on **day_filter** mismatch — it
-has no declaration check at all. Note the asymmetry with a dead cell: a dead
-cell shows up as a zero and reads as absence, whereas an orphan shows up as a
-*number* and reads as evidence.
+``prune_stale_ratings`` prunes only on **day_filter** mismatch and has no
+declaration check; ``prune_undeclared_ratings`` (2026-08-13) is the one that
+removes these, and recalibrate calls it. Note the asymmetry with a dead cell: a
+dead cell shows up as a zero and reads as absence, whereas an orphan shows up as
+a *number* and reads as evidence — and orphans do **not** go stale, because
+recalibrate keeps refreshing their timestamps (measured 2026-08-13: same newest
+``updated_at`` as clean rows), so nothing about one looks wrong.
 
 Three deliberate divergences from the sister repo's version, each forced by a
 real difference here:
@@ -36,14 +39,21 @@ real difference here:
    and only the ``undeclared anywhere`` tier means nothing scans it at all.
 3. **Report-only by default; ``--strict`` is what exits non-zero.** The sister
    repo landed this with an empty finding set, so failing by default cost it
-   nothing. Here the population is large and *already published*, and the
-   pending ``/db-update`` heal re-runs recalibrate and will move it. Failing by
+   nothing. Here the population is large and *already published*. Failing by
    default would just be red. Land the measurement first, wire ``--strict``
    into CI once the population is clean.
 
-**This is a measurement tool. It does not prune.** Deleting rows is a live-table
-change against a table the signal daemon reads, and the heal will rewrite this
-population anyway.
+**This is a measurement tool. It does not prune** — ``recalibrate --apply
+--config <toml>`` does, via ``prune_undeclared_ratings``.
+
+**⚠ This module's own directive was WRONG for a day and the correction is the
+lesson.** It printed *"Do NOT prune by hand — `/db-update` re-runs recalibrate
+and moves this set"* on every run. The full chain ran on 2026-08-13 and orphans
+went **206 → 206**: recalibrate upserted declared cells and never deleted
+undeclared ones, so they were structurally immune to the chain the message
+named. A directive a tool prints on *every run* is believed far more readily
+than a line in a doc, and grep cannot find this class of defect — only running
+the thing it promises and measuring the result.
 
 Usage:
     make buibui-dead-surface-check
@@ -66,6 +76,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:  # pragma: no cover - import bootstrap
     sys.path.insert(0, str(REPO_ROOT))
 
+from analytics.recalibrate_lib import rating_direction_key  # noqa: E402
 from analytics.signal_config import (  # noqa: E402
     SignalWatchConfig,
     declared_cells,
@@ -157,11 +168,13 @@ def declared_by_direction(
 def direction_key(direction: str) -> str | None:
     """Map a stored ``confidence_ratings.direction`` onto a declaration key.
 
-    Anything that is not ``long``/``short`` — notably the legacy ``combined``
-    rows the direction migration backfilled — describes the cell irrespective of
-    direction, so it is judged against the base declaration.
+    Delegates to :func:`analytics.recalibrate_lib.rating_direction_key` rather
+    than restating the rule. The pruner there and this checker must agree
+    exactly: a fork would let a cell read as declared to one and undeclared to
+    the other, i.e. a silent deletion of a live rating. Kept as a named
+    re-export because this module's tests and docstrings refer to it.
     """
-    return direction if direction in ("long", "short") else None
+    return rating_direction_key(direction)
 
 
 def find_orphan_ratings(
@@ -340,7 +353,9 @@ def main(argv: list[str] | None = None) -> int:
             "cell nothing scans is never queried. The damage is to AGGREGATES: any\n"
             "population counted off `confidence_ratings` (the decay review's ★>=4 list\n"
             "among them) includes cells no daemon will ever scan.\n"
-            "Do NOT prune by hand — `/db-update` re-runs recalibrate and moves this set."
+            "`recalibrate --apply --config <toml>` now prunes these; a run that reports\n"
+            "no prune while this list is non-empty means the share guard refused —\n"
+            "read its message, it is a resolver tripwire, not a policy knob."
         )
     if not failing and not all_orphans:
         n_known = len(all_dead)

@@ -67,6 +67,14 @@ why it went unnoticed; every *named cell* was wrong.
 Cells no config declares any more are orphans (`tools/dead_surface_check.py`) and are
 not part of the live gate. Reporting only the stored number overstates the population.
 
+**⚠ The gap between the two closes on the next `recalibrate --apply`** (2026-08-13):
+`prune_undeclared_ratings` now deletes orphan rows, where previously nothing did and
+a full `/db-update` left the set at 206 → 206. So a stored-vs-declared gap is no
+longer permanent — a *reappearing* one means a config shed cells since the last
+recalibrate, and a *large* one means the prune's share guard refused. Do not read
+either as the old standing condition. The first prune moves the ★≥4 population from
+66 to 58, so a week-over-week delta that straddles it is measuring the prune, not decay.
+
 **Expected result, so you are not surprised into a finding:** 0 cells clear DSR 0.95,
 in every scope, and `REACHABLE: NO`. That is the standing verdict, not news. The
 week-over-week *delta* is the deliverable.

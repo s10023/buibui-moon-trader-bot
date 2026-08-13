@@ -13,6 +13,7 @@ import duckdb
 import pandas as pd
 
 from analytics.research_guards import deflated_sharpe_ratio
+from analytics.signal_config import SignalWatchConfig, declared_cells
 
 # A 5★ cell whose Deflated Sharpe falls below this is overfit-suspect (spec §3;
 # matches the sweep commit-gate threshold in analytics/sweep_guard.py).
@@ -603,6 +604,119 @@ def prune_stale_ratings(
             [config_name, day_filter],
         )
     return n_stale
+
+
+# Share of one config's rating rows that ``prune_undeclared_ratings`` may delete
+# before it refuses. **This is a tripwire on the resolver, not a policy knob.**
+# The failure mode worth catching is a declaration resolver that under-reports
+# what a config declares — the 2026-08-12 measurement read ``strategy_timeframes``
+# with no fallback to ``cfg.timeframes`` and inflated the orphan count 117 → 194.
+# Such a bug always presents as *mass* deletion, so a share ceiling converts the
+# one catastrophic-and-silent outcome into a loud one.
+DEFAULT_PRUNE_MAX_SHARE = 0.5
+
+# Below this many rating rows the share ceiling is not applied at all. The
+# ceiling is *evidence about a resolver*, and a 1-of-1 or 3-of-4 table carries
+# none — it would fire on every small or freshly-seeded config while catching no
+# real bug. A production config carries 130-180 rows, so this never binds there.
+DEFAULT_PRUNE_MIN_ROWS = 20
+
+
+class PruneThresholdExceeded(RuntimeError):
+    """Raised when an undeclared-rating prune would remove an implausible share.
+
+    Carries the counts so the caller can print them; nothing has been deleted
+    when this is raised.
+    """
+
+    def __init__(
+        self, config_name: str, n_undeclared: int, n_total: int, max_share: float
+    ) -> None:
+        self.config_name = config_name
+        self.n_undeclared = n_undeclared
+        self.n_total = n_total
+        self.max_share = max_share
+        super().__init__(
+            f"refusing to prune {n_undeclared} of {n_total} rating row(s) for "
+            f"'{config_name}' ({n_undeclared / n_total:.0%} > "
+            f"{max_share:.0%} ceiling). Nothing was deleted. Either the config "
+            f"genuinely shed this many cells — re-run with a raised ceiling "
+            f"after eyeballing `tools/dead_surface_check.py` — or the "
+            f"declaration resolver is under-reporting, which is the bug this "
+            f"guard exists to catch."
+        )
+
+
+def rating_direction_key(direction: str) -> str | None:
+    """Map a stored ``confidence_ratings.direction`` onto a declaration key.
+
+    ``long``/``short`` narrow per direction; anything else — notably the legacy
+    ``combined`` rows the direction migration backfilled — describes the cell
+    irrespective of direction and is judged against the base declaration.
+
+    Lives here, beside the code that WRITES ``confidence_ratings``, so the
+    reader in ``tools/dead_surface_check.py`` and the pruner below cannot fork
+    into two hand-mirrored copies. That has already happened once in this
+    codebase (``get_backtest_win_rates`` vs ``compute_dsr_ratings``), and a fork
+    here would let a cell read as declared to the checker and undeclared to the
+    pruner — i.e. a silent deletion of a live rating.
+    """
+    return direction if direction in ("long", "short") else None
+
+
+def prune_undeclared_ratings(
+    conn: duckdb.DuckDBPyConnection,
+    config_name: str,
+    cfg: SignalWatchConfig,
+    max_share: float = DEFAULT_PRUNE_MAX_SHARE,
+    min_rows: int = DEFAULT_PRUNE_MIN_ROWS,
+) -> int:
+    """Delete this config's rating rows for cells it no longer declares.
+
+    ``recalibrate`` rebuilds ratings from historical ``backtest_runs`` with no
+    notion of what the configs currently declare, and writes with an upsert — so
+    a cell dropped from a config keeps its stars *and collects a fresh timestamp
+    on a stale value at every refresh*. Measured 2026-08-13: orphan rows carried
+    the same newest ``updated_at`` as clean rows, so nothing about one looks
+    wrong. Nothing else in the pipeline removes them; ``prune_stale_ratings``
+    matches on ``day_filter`` only and has no declaration check.
+
+    Scoping needs no notion of "declared by another config": ratings are keyed
+    by ``config_name``, so a row for a cell *this* config does not declare is
+    dead weight for *this* daemon regardless of what the others declare — and
+    each of those carries its own row for the cell.
+
+    Raises :class:`PruneThresholdExceeded` without deleting anything when the
+    undeclared share exceeds ``max_share``. Returns the number of rows removed.
+    """
+    rows = conn.execute(
+        "SELECT strategy, tf, direction FROM confidence_ratings WHERE config_name = ?",
+        [config_name],
+    ).fetchall()
+    if not rows:
+        return 0
+
+    declared: dict[str | None, set[tuple[str, str]]] = {
+        key: set(declared_cells(cfg, key)) for key in (None, "long", "short")
+    }
+    undeclared = [
+        (str(strategy), str(tf), str(direction))
+        for strategy, tf, direction in rows
+        if (str(strategy), str(tf))
+        not in declared[rating_direction_key(str(direction))]
+    ]
+    if not undeclared:
+        return 0
+
+    if len(rows) >= min_rows and len(undeclared) / len(rows) > max_share:
+        raise PruneThresholdExceeded(config_name, len(undeclared), len(rows), max_share)
+
+    conn.executemany(
+        "DELETE FROM confidence_ratings "
+        "WHERE config_name = ? AND strategy = ? AND tf = ? AND direction = ?",
+        [[config_name, s, tf, d] for s, tf, d in undeclared],
+    )
+    return len(undeclared)
 
 
 def _slice_dsr_map(

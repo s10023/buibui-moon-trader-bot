@@ -11,15 +11,18 @@ import duckdb
 from analytics.data_store import DEFAULT_DB_PATH, init_schema
 from analytics.db_retry import connect_with_retry
 from analytics.recalibrate_lib import (
+    PruneThresholdExceeded,
     compute_directional_ratings,
     compute_dsr_ratings,
     compute_recalibrated_ratings,
     format_recalibration_report,
     get_backtest_win_rates,
     prune_stale_ratings,
+    prune_undeclared_ratings,
     write_confidence_to_db,
     write_confidence_to_source,
 )
+from analytics.signal_config import SignalWatchConfig
 from analytics.strategies import STRATEGY_REGISTRY
 
 _REGISTRY_PATH = Path(__file__).parent / "strategies" / "_registry.py"
@@ -41,6 +44,7 @@ def run(
     config_path: str | None = getattr(args, "config", None)
     day_filter: str | None = getattr(args, "day_filter", None)
     config_name: str | None = None
+    watch_cfg: SignalWatchConfig | None = None
 
     adr_suppress_threshold: float | None = None
 
@@ -111,6 +115,25 @@ def run(
                             f"  Pruned {n_stale} stale rating row(s) "
                             f"with mismatched day_filter."
                         )
+                if watch_cfg is not None:
+                    # Ratings for cells this config no longer declares. Nothing
+                    # else removes them: the upsert only inserts-or-replaces, so
+                    # a dropped cell keeps its stars and collects a fresh
+                    # timestamp on a stale value at every refresh. Inert at
+                    # runtime (both read sites are keyed lookups) but it
+                    # corrupts any population counted off confidence_ratings.
+                    try:
+                        n_undeclared = prune_undeclared_ratings(
+                            conn, config_name, watch_cfg
+                        )
+                    except PruneThresholdExceeded as exc:
+                        print(f"\n  ⚠ SKIPPED undeclared-rating prune: {exc}")
+                    else:
+                        if n_undeclared:
+                            print(
+                                f"  Pruned {n_undeclared} rating row(s) for cells "
+                                f"'{config_name}' no longer declares."
+                            )
                 print(
                     f"\n  Written to confidence_ratings table for config '{config_name}'."
                 )

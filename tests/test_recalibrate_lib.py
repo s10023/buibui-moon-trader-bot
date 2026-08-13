@@ -12,16 +12,19 @@ from analytics.data_store import (
     init_schema,
 )
 from analytics.recalibrate_lib import (
+    PruneThresholdExceeded,
     compute_directional_ratings,
     compute_dsr_ratings,
     compute_recalibrated_ratings,
     format_recalibration_report,
     get_backtest_win_rates,
     prune_stale_ratings,
+    prune_undeclared_ratings,
     win_rate_to_stars,
     write_confidence_to_db,
     write_confidence_to_source,
 )
+from analytics.signal_config import SignalWatchConfig
 
 # ---------------------------------------------------------------------------
 # win_rate_to_stars — boundary values
@@ -872,6 +875,217 @@ class TestPruneStaleRatings:
         result = self._count(conn, "signal_watch_weekdays")
         assert result.get(None) == 1
         assert "weekdays" not in result
+
+
+class TestPruneUndeclaredRatings:
+    """prune_undeclared_ratings deletes rows for cells the config no longer declares.
+
+    **Fixture discipline is the whole point of this class.** Every expected
+    survivor below is hand-enumerated from the config literal; nothing here
+    calls ``declared_cells`` to build its expectation. Asserting that the prune
+    agrees with the resolver it is implemented on top of would pass no matter
+    how wrong both are — the exact defect that let #614's critical bug survive
+    three review rounds.
+
+    ``test_keeps_strategy_absent_from_strategy_timeframes`` is the load-bearing
+    one: a strategy listed in ``strategies`` but omitted from
+    ``strategy_timeframes`` runs on *all* configured timeframes. Reading only
+    ``strategy_timeframes`` is what inflated the 2026-08-12 orphan measurement
+    117 → 194; the same bug HERE would delete 77 live ratings.
+    """
+
+    def _conn(self) -> duckdb.DuckDBPyConnection:
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        return conn
+
+    def _seed(
+        self,
+        conn: duckdb.DuckDBPyConnection,
+        config_name: str,
+        strategy: str,
+        tf: str,
+        direction: str = "combined",
+    ) -> None:
+        empty_wr: pd.DataFrame = pd.DataFrame(
+            columns=["strategy", "timeframe", "avg_r", "win_rate"]
+        )
+        write_confidence_to_db(
+            conn,
+            config_name,
+            {strategy: {tf: 3}},
+            empty_wr,
+            day_filter="tue_thu",
+            directional_ratings=(
+                None if direction == "combined" else {strategy: {tf: {direction: 3}}}
+            ),
+        )
+
+    def _cells(
+        self, conn: duckdb.DuckDBPyConnection, config_name: str
+    ) -> set[tuple[str, str, str]]:
+        rows = conn.execute(
+            "SELECT strategy, tf, direction FROM confidence_ratings "
+            "WHERE config_name = ?",
+            [config_name],
+        ).fetchall()
+        return {(str(r[0]), str(r[1]), str(r[2])) for r in rows}
+
+    def test_returns_zero_when_every_rated_cell_is_declared(self) -> None:
+        cfg = SignalWatchConfig(
+            strategies=["fvg"], timeframes=["1h"], day_filter="tue_thu"
+        )
+        conn = self._conn()
+        self._seed(conn, "signal_watch", "fvg", "1h")
+        n = prune_undeclared_ratings(conn, "signal_watch", cfg)
+        assert n == 0
+        assert ("fvg", "1h", "combined") in self._cells(conn, "signal_watch")
+
+    def test_removes_row_for_cell_the_config_no_longer_declares(self) -> None:
+        cfg = SignalWatchConfig(
+            strategies=["fvg"], timeframes=["1h"], day_filter="tue_thu"
+        )
+        conn = self._conn()
+        self._seed(conn, "signal_watch", "fvg", "1h")
+        self._seed(conn, "signal_watch", "orb", "1d")
+        n = prune_undeclared_ratings(conn, "signal_watch", cfg)
+        assert n == 1
+        assert self._cells(conn, "signal_watch") == {("fvg", "1h", "combined")}
+
+    def test_keeps_strategy_absent_from_strategy_timeframes(self) -> None:
+        """A strategy omitted from strategy_timeframes runs on ALL timeframes.
+
+        This is the 2026-08-12 measurement bug as a deletion. ``bos`` is not in
+        ``strategy_timeframes``, so it is declared on 15m AND 1h; both ratings
+        must survive. A resolver that reads only ``strategy_timeframes`` sees
+        ``bos`` as declared nowhere and deletes both.
+        """
+        cfg = SignalWatchConfig(
+            strategies=["fvg", "bos"],
+            timeframes=["15m", "1h"],
+            strategy_timeframes={"fvg": ["1h"]},
+            day_filter="tue_thu",
+        )
+        conn = self._conn()
+        # Hand-enumerated declared set: fvg×1h (narrowed), bos×15m, bos×1h.
+        self._seed(conn, "signal_watch", "fvg", "1h")
+        self._seed(conn, "signal_watch", "bos", "15m")
+        self._seed(conn, "signal_watch", "bos", "1h")
+        # Undeclared: fvg×15m is excluded by the narrowing.
+        self._seed(conn, "signal_watch", "fvg", "15m")
+        n = prune_undeclared_ratings(conn, "signal_watch", cfg)
+        assert n == 1
+        assert self._cells(conn, "signal_watch") == {
+            ("fvg", "1h", "combined"),
+            ("bos", "15m", "combined"),
+            ("bos", "1h", "combined"),
+        }
+
+    def test_respects_directional_narrowing(self) -> None:
+        """A long-only narrowing makes the SHORT rating for that cell an orphan."""
+        cfg = SignalWatchConfig(
+            strategies=["fvg"],
+            timeframes=["1h"],
+            strategy_timeframes={"fvg": ["1h"]},
+            strategy_timeframes_short={"fvg": []},
+            day_filter="tue_thu",
+        )
+        conn = self._conn()
+        self._seed(conn, "signal_watch", "fvg", "1h", direction="long")
+        self._seed(conn, "signal_watch", "fvg", "1h", direction="short")
+        n = prune_undeclared_ratings(conn, "signal_watch", cfg)
+        # Only the short row goes. `write_confidence_to_db` also emits a
+        # `combined` row per call, and that one is direction-agnostic — judged
+        # against the base declaration, which still declares fvg x 1h.
+        assert n == 1
+        assert self._cells(conn, "signal_watch") == {
+            ("fvg", "1h", "long"),
+            ("fvg", "1h", "combined"),
+        }
+
+    def test_legacy_combined_row_judged_against_base_declaration(self) -> None:
+        """A ``combined`` row is direction-agnostic → judged on the base set."""
+        cfg = SignalWatchConfig(
+            strategies=["fvg"],
+            timeframes=["1h"],
+            strategy_timeframes={"fvg": ["1h"]},
+            strategy_timeframes_short={"fvg": []},
+            day_filter="tue_thu",
+        )
+        conn = self._conn()
+        self._seed(conn, "signal_watch", "fvg", "1h", direction="combined")
+        n = prune_undeclared_ratings(conn, "signal_watch", cfg)
+        assert n == 0
+        assert self._cells(conn, "signal_watch") == {("fvg", "1h", "combined")}
+
+    def test_does_not_touch_other_configs(self) -> None:
+        cfg = SignalWatchConfig(
+            strategies=["fvg"], timeframes=["1h"], day_filter="tue_thu"
+        )
+        conn = self._conn()
+        self._seed(conn, "signal_watch", "orb", "1d")
+        self._seed(conn, "signal_watch_all", "orb", "1d")
+        n = prune_undeclared_ratings(conn, "signal_watch", cfg)
+        assert n == 1
+        assert self._cells(conn, "signal_watch") == set()
+        assert self._cells(conn, "signal_watch_all") == {("orb", "1d", "combined")}
+
+    def _seed_wide(
+        self, conn: duckdb.DuckDBPyConnection, n_undeclared: int
+    ) -> SignalWatchConfig:
+        """One declared cell plus ``n_undeclared`` undeclared ones.
+
+        Sized past the guard's minimum-rows floor on purpose: the share ceiling
+        is evidence about a resolver, and a 3-of-4 table is not evidence.
+        """
+        cfg = SignalWatchConfig(
+            strategies=["fvg"], timeframes=["1h"], day_filter="tue_thu"
+        )
+        self._seed(conn, "signal_watch", "fvg", "1h")
+        for i in range(n_undeclared):
+            self._seed(conn, "signal_watch", f"ghost_{i}", "1d")
+        return cfg
+
+    def test_aborts_without_deleting_when_share_exceeds_threshold(self) -> None:
+        """A resolver bug shows up as mass deletion — fail loudly, delete nothing."""
+        conn = self._conn()
+        cfg = self._seed_wide(conn, n_undeclared=24)
+        with pytest.raises(PruneThresholdExceeded) as exc:
+            prune_undeclared_ratings(conn, "signal_watch", cfg)
+        assert exc.value.n_undeclared == 24
+        assert exc.value.n_total == 25
+        # Nothing deleted — the whole point of the guard.
+        assert len(self._cells(conn, "signal_watch")) == 25
+
+    def test_threshold_can_be_raised_to_allow_a_known_large_prune(self) -> None:
+        conn = self._conn()
+        cfg = self._seed_wide(conn, n_undeclared=24)
+        n = prune_undeclared_ratings(conn, "signal_watch", cfg, max_share=1.0)
+        assert n == 24
+        assert self._cells(conn, "signal_watch") == {("fvg", "1h", "combined")}
+
+    def test_small_table_does_not_trip_the_share_guard(self) -> None:
+        """The ceiling is evidence about a resolver; a tiny table carries none.
+
+        Without a minimum-rows floor the guard fires on a 1-of-1 table, which
+        would make the prune unusable on any small or freshly-seeded config
+        while catching no real bug — a production config carries 130-180 rows.
+        """
+        cfg = SignalWatchConfig(
+            strategies=["fvg"], timeframes=["1h"], day_filter="tue_thu"
+        )
+        conn = self._conn()
+        self._seed(conn, "signal_watch", "orb", "1d")
+        assert prune_undeclared_ratings(conn, "signal_watch", cfg) == 1
+        assert self._cells(conn, "signal_watch") == set()
+
+    def test_empty_table_is_not_a_threshold_breach(self) -> None:
+        """0 of 0 must not read as 100% deleted and trip the guard."""
+        cfg = SignalWatchConfig(
+            strategies=["fvg"], timeframes=["1h"], day_filter="tue_thu"
+        )
+        conn = self._conn()
+        assert prune_undeclared_ratings(conn, "signal_watch", cfg) == 0
 
 
 # ---------------------------------------------------------------------------
