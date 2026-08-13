@@ -9,14 +9,16 @@ mechanics, never on realised savings**, because the saving can only be measured 
 `trade/binance_futures.py:104` hardcodes `type="MARKET"`. Every order the XS sleeve will
 ever send is a taker fill, by construction.
 
-ST14's account audit (2026-08-06, full 4.2-year history, 154,648 fills) measured the same
-defect on the operator's discretionary book:
+ST14's account audit (2026-08-06, full 4.2-year history) measured the same defect on the
+operator's discretionary book. **Figures below are ratios by design — the absolute balances
+stay in the gitignored writeup** (`docs/plans/st14-pnl-self-audit-2026-08-06.md`), with raw
+exports outside any git repo:
 
 - **Zero maker fills out of 3,390 sampled** — every entry and exit a market order.
-- **Commission was 29,069 of a 70,633 net loss — 41%.**
-- The same trades executed passively ≈ **17,400 saved, ~25% of the lifetime loss, with no
-  change to what was traded.** ST14's own words: *the one unambiguous, no-strategy-decision
-  fix.*
+- **Commission was 41% of the net loss.**
+- The same trades executed passively would have recovered ≈ **25% of the lifetime loss,
+  with no change to what was traded.** ST14's own words: *the one unambiguous,
+  no-strategy-decision fix.*
 
 That evidence is about the discretionary book, not this sleeve — but the sleeve inherits
 the identical defect from the same code path, and it inherits it **before** it trades, so
