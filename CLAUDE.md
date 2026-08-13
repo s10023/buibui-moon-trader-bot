@@ -304,6 +304,34 @@ past an exchange filter, flipping the helper from fail-safe to fail-open. **Test
 enumerating the input class, never by spot-checking** — the pre-fix spot-checks
 (`0.0571951498512928`, `12.5`) all passed while the defect stood.
 
+**CRITICAL — XS order submission is maker on risk-increasing legs, taker on
+risk-reducing ones, BY DESIGN — do not "finish the job" and make closes maker
+too.** `trade/routing.py` sets `order_type = MARKET if reduce_only else LIMIT`;
+`trade/binance_futures.py::submit(intent, price=None)` sends the LIMIT leg
+post-only (`timeInForce="GTX"`) or a MARKET order per that field —
+`submit_market` no longer exists. LIMIT legs price at the book touch via
+`portfolio/sizing.py::round_to_tick` (BUY floors, SELL ceils, so the resting
+price never crosses and a GTX order is accepted rather than rejected or
+instant-filled). The split is intentional, not partial rollout: an unfilled
+OPEN is bounded opportunity cost the next daily rebalance re-plans; an
+unfilled CLOSE is open directional risk the book has already decided to shed,
+so risk-reducing orders always take. Separately, `trade/xsmom_executor.py::run_once`
+cancels every stale managed resting order (`get_open_order_symbols` /
+`cancel_open_orders`) BEFORE the positions read that planning uses — a
+**correctness precondition** of the fire-and-forget daily cadence, not
+tidy-up: a resting order is not a position, so yesterday's unfilled limit
+would otherwise sit on the book while today's plan submits a second order on
+top of it, an overshoot where both orders are individually correct and
+neither shows up in `get_positions()`. The cancel runs BEFORE
+`evaluate_overlay`, so a kill-switched or drawdown-halted run still clears its
+own resting orders. **The backtest cost model is unchanged on purpose** —
+`analytics/xsmom/execution.py::ExecutionCostConfig.fee_pct` stays `0.0005`
+(taker), not the ~2bps maker rate: maker fill rate is unmeasurable before live
+capital, and charging taker keeps the sleeve's gate verdict a floor that live
+execution can only beat, never a claim that depends on fills landing
+passively. Do NOT re-tune it to the maker rate on the strength of an
+unmeasured fill rate.
+
 **CRITICAL — `deflated_sharpe_ratio` and `min_track_record_length` are
 DIRECTIONAL.** Both answer "is this *positive* performance credible": DSR of a
 raw negative Sharpe collapses to ~0, and MinTRL of one is `inf`. So **any audit
