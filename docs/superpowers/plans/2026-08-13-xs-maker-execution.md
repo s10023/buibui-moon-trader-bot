@@ -894,7 +894,35 @@ def test_cancel_failure_aborts_before_submitting(tmp_path: Path) -> None:
             now=pd.Timestamp("2022-02-05", tz="UTC"),
         )
     assert adapter.submitted == []
+
+
+def test_fake_adapter_does_not_drift_from_the_real_one() -> None:
+    """Pin `_FakeAdapter`'s surface to the `_Adapter` Protocol.
+
+    Added after the `submit_market` -> `submit` rename: it broke the live path
+    in `tools/xsmom_execute.py` and NOTHING at runtime noticed. Every executor
+    test drives `_FakeAdapter`, which is duck-typed, so mypy was the only
+    signal that the real adapter no longer satisfied the Protocol. A fake that
+    can silently diverge from the thing it stands in for makes every test
+    using it weaker than it looks.
+    """
+    from trade.binance_futures import BinanceFuturesAdapter
+    from trade.xsmom_executor import _Adapter
+
+    required = {
+        name
+        for name, value in vars(_Adapter).items()
+        if callable(value) and not name.startswith("_")
+    }
+    assert required, "derived an empty Protocol surface — the check would be vacuous"
+    for name in sorted(required):
+        assert hasattr(_FakeAdapter, name), f"_FakeAdapter is missing {name}"
+        assert hasattr(BinanceFuturesAdapter, name), f"real adapter is missing {name}"
 ```
+
+⚠ Note the `assert required` line: without it, a change to how the Protocol stores its
+members would silently yield an empty set and the loop would pass while checking nothing.
+That is the same vacuous-check failure this branch has already hit three times.
 
 ⚠ The existing `test_run_once_isolates_per_order_failure` (`:177`) drives failure through
 `fail_symbol`, which the new `submit` preserves — do not change that test.
