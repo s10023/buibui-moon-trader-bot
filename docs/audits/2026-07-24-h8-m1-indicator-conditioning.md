@@ -261,21 +261,35 @@ poetry run python tools/indicator_condition_audit.py --source live
 
 ---
 
-## ⚠ AMENDED 2026-08-13 — verdict labels PENDING RE-RUN
+## ⚠ AMENDED 2026-08-13 — RE-RUN COMPLETE, every `NO-EDGE` below is WITHDRAWN
 
 The `NO-EDGE` labels in this document were produced by a verdict map that treated
 `n >= min_n` as evidence of statistical power. **A sample-size floor is not power**
 — it cannot distinguish "the effect is smaller than the bar" from "the CI is
 several times the bar and we cannot tell" — so `NO-EDGE` was reachable for any cell
-that merely had enough rows.
+that merely had enough rows. Corrected in code on 2026-08-13: a powered null now
+requires the bootstrap CI to sit strictly inside ±`bar`
+(`audit_guard.CellVerdict.powered_null`). Everything else is `INSUFFICIENT`.
 
-Corrected in code on 2026-08-13: a powered null now requires the bootstrap CI to
-sit strictly inside ±`bar` (`audit_guard.CellVerdict.powered_null`). Everything
-else is `INSUFFICIENT`.
+**Re-run 2026-08-13 (SoT ST26) — verdict:
+`docs/audits/2026-08-13-st26-powered-null-rerun.md`. 104 of this document's 143
+`NO-EDGE` cells move to `INSUFFICIENT` on the criterion alone:**
 
-**This audit has NOT been re-run against the corrected map.** Where H14's ten
-primary cells were re-run, **all ten moved `NO-EDGE` -> `INSUFFICIENT`**, so treat
-every `NO-EDGE` below as unverified until this is re-run. **Positive verdicts
-(BUILD / AVOID / REVERSE / SUPPRESS-CANDIDATE / PREDICTIVE / REVERTING) are
-unaffected** — the correction only ever weakens a negative claim, never promotes a
-cell. Rationale: `docs/audits/2026-08-13-h19-equity-btc-axis-power.md`.
+| panel | filed NO-EDGE | survive | moved by criterion | median CI width |
+| --- | --- | --- | --- | --- |
+| 1d | 47 | 5 | 42 | **13.6× bar** |
+| 4h | 31 | 7 | 22 | 5.2× bar |
+| 1h | 29 | 15 | 16 | 2.6× bar |
+| live | 36 | 10 | 24 | 4.9× bar |
+
+**The 25 backtest AVOID cells, the BUILD cells and every positive finding stand** —
+1d AVOID (1, long-side) and 1h AVOID (13, 8 long-side) are identical to filed. The
+counts that did move on the positive side are DATA, not criterion: 4h AVOID 11 → 13,
+1h BUILD 12 → 10, live AVOID 10 → 11, because live alerts accrue and the 2026-08-13
+`/db-update` heal re-ran every backtest.
+
+**⚠ The "Gate-grade cell counts" section below contains the defect in its own
+justification.** Its sentence *"`INSUFFICIENT = 0` everywhere: at `min_n = 30` every
+pooled cell is powered, so defect 2's fix changes no cell in this table"* concluded
+the fix was inert by defining "powered" as `n >= min_n` — the equation the fix exists
+to break. Read that paragraph as withdrawn, not as context.
