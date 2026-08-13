@@ -372,7 +372,20 @@ CI to have ruled one out.** Three separate test fixtures asserted "powered" whil
 their own CIs were 1.3–15× the bar, so **reading a test is not enough: assert the
 containment, and pair it with a positive control.** ⚠ **Quote the TEST's n, not the
 impressive one** — H14 propagated as NO-EDGE "over 849,445 trades" while the test
-ran on 44–190 **days**. ⚠ H8/H9/H10 verdicts are **NOT yet re-run** under the fix.
+ran on 44–190 **days**. **H8/H9/H10 were RE-RUN 2026-08-13 (ST26, verdict
+`docs/audits/2026-08-13-st26-powered-null-rerun.md`): of 170 filed NO-EDGE/COSMETIC
+cells only 41 survive, 126 moving on the criterion alone — H9 lost ALL 12 COSMETIC,
+H10 kept 4. No verdict direction reversed.** Two results generalise. **H10's `h96` was
+filed NO-EDGE while carrying Holm p=0.000, DSR 0.972 and PBO 0.013 — it clears all
+three gate legs**, so the defect stamped "no effect" onto the family's STRONGEST
+positive; its corrected INSUFFICIENT means *real but unsized against the bar*, not
+*ruled out*, and the two point at opposite next actions. And **H8's filed text talked
+itself out of the fix** ("at `min_n = 30` every pooled cell is powered, so defect 2's
+fix changes no cell") — the defect stated as a reassurance, which is why review missed
+it. ⚠ **A FIFTH site is still open: `analytics/sl_horizon.py` emits
+`NO-DIFFERENCE`/`CONFIRMED-BAD` the same way** (ST9 carries 29 such verdicts with **no
+CI at all**), and `powered_null` does NOT drop in — it is best-of-k selection, so the
+honest predicate is one-sided (`all arms' ci_hi < bar`). See SoT ST27.
 
 **CRITICAL — an audit gate's effect-size floor `bar` is expressed in the units of
 the observation, and nothing in its name or docstring says so.** H15
