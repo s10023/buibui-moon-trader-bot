@@ -221,14 +221,20 @@ asset. **Do not reuse the filed 25-symbol 2.92× on any of these panels.**
 reversal): the system needs a second *strong* edge, and the cheap price-only free-data
 levers are exhausted. A new sleeve must carry genuinely new information. Separately,
 **conditioning axes are 6-for-6-plus-one-amended** (regime/session/combo/direction,
-H14's Coinbase premium, and H15's USD/JPY carry-unwind are clean NOs; H8's M1 axes are
+H14's Coinbase premium, and H15's USD/JPY carry-unwind found NO edge; H8's M1 axes are
 the amendment) — the diagnosis has moved off conditioning and onto the signal book.
+⚠ **Read "found no edge" as "no effect was FOUND", never as "an effect was RULED OUT"**
+— see the powered-null rule below; under CI containment those cells are INSUFFICIENT.
 **H15 (2026-08-04, verdict `docs/audits/2026-08-04-h15-usdjpy-carry-unwind.md`): NO-EDGE
 / INSUFFICIENT on every cell in every panel. The primary forward panel (BTCUSDT
-vol-normalised daily return, n=200–2055, well powered) cleared neither the significance
-nor the effect-size leg on any cell — a powered null, not an underpowered one. H15 is
+vol-normalised daily return, n=200–2055) cleared neither the significance nor the
+effect-size leg on any cell. ⚠ **It was filed as "a powered null, not an underpowered
+one" and that claim is WITHDRAWN** — it rested on `n >> MIN_N`, a sample-size floor, and
+the corrected criterion flips the primary panel to INSUFFICIENT (same wording, same
+defect, in H14). **The NO direction stands; the "no more-data door" corollary does
+NOT** — more data could still resolve these cells. H15 is
 the second cross-asset axis tested, after H14 (a genuinely different data source, not a
-re-slice of price/order-flow already held); both came back clean NOs, which sharpens the
+re-slice of price/order-flow already held); both found no edge, which sharpens the
 standing conclusion — the binding constraint is unchanged and the next edge needs
 genuinely new data, not a cleverer re-slice of what's already held.** **H8 AMENDED
 2026-08-04 (code fix PR #546, verdict
