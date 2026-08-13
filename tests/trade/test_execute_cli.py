@@ -133,6 +133,47 @@ def test_format_result_shows_inband_leg_and_leverage() -> None:
     assert "+0.50" in out and "-0.30" in out  # signed leverage column
 
 
+def test_format_result_shows_order_type_for_actionable_rows() -> None:
+    """Dry-run is the only mode the daily timer runs and the operator's only
+    pre-testnet check, so the maker/taker split must be visible in it — a
+    LIMIT open and a MARKET close must render distinctly."""
+    intents = [
+        OrderIntent("AAAUSDT", "BUY", 1.0, False, 5000.0, "open", "LIMIT"),
+        OrderIntent("ZZZUSDT", "SELL", 5.0, True, -500.0, "close", "MARKET"),
+    ]
+    out = format_result(
+        _result(
+            True,
+            intents,
+            book_positions=[TargetPosition("AAAUSDT", "long", 0.50, 5000.0, 3.2)],
+            positions={"ZZZUSDT": 5.0},
+            marks={"AAAUSDT": 100.0, "ZZZUSDT": 100.0},
+        )
+    )
+    assert "open LIMIT" in out
+    assert "close MARKET" in out
+
+
+def test_format_result_skip_reason_omits_order_type() -> None:
+    """A skipped intent's `order_type` defaults to MARKET regardless of what
+    it would have been — `routing.py`'s skip branches never pass it through
+    — so folding it into a skip label would print an unearned, misleading
+    MARKET on what may well have been a LIMIT-eligible open."""
+    legs = [TargetPosition("BBBUSDT", "short", -0.10, -1000.0, -1.0)]
+    skipped = [OrderIntent("BBBUSDT", "SELL", 0.0, True, 10.0, "skip:min_qty")]
+    out = format_result(
+        _result(
+            True,
+            [],
+            book_positions=legs,
+            skipped=skipped,
+            marks={"BBBUSDT": 50.0},
+        )
+    )
+    assert "skip:min_qty" in out
+    assert "skip:min_qty MARKET" not in out
+
+
 def test_format_result_renders_close_only_row() -> None:
     out = format_result(
         _result(

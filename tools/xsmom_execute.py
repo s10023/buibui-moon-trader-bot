@@ -56,8 +56,26 @@ def _fmt_price(mark: float | None) -> str:
     return f"{mark:.5f}"
 
 
-def _action_label(reason: str) -> str:
-    return "hold (band)" if reason == "skip:band" else reason
+def _action_label(order: OrderIntent | None, *, default: str = "—") -> str:
+    """Action text for the dry-run plan table.
+
+    The order type is folded in for actionable rows (`open LIMIT` /
+    `close MARKET` / `rebalance LIMIT`) — dry-run is the only mode the daily
+    timer runs and the operator's only pre-testnet check, so the maker/taker
+    split must be visible here, not just in the code. Skipped intents are
+    excluded from the fold: `routing.py`'s skip branches never pass
+    `order_type` through, so it silently defaults to `"MARKET"` on every
+    skip regardless of what the order would actually have been — folding it
+    in there would print an unearned, misleading MARKET on a LIMIT-eligible
+    open that just happened to land in-band.
+    """
+    if order is None:
+        return default
+    if order.reason == "skip:band":
+        return "hold (band)"
+    if order.reason.startswith("skip:"):
+        return order.reason
+    return f"{order.reason} {order.order_type}"
 
 
 @dataclass(frozen=True)
@@ -99,7 +117,7 @@ def _assemble_rows(res: ExecutionResult) -> list[_Row]:
                 delta=order.delta_notional if order else 0.0,
                 mark=mark,
                 forecast=p.forecast,
-                action=_action_label(order.reason) if order else "—",
+                action=_action_label(order),
             )
         )
 
@@ -119,7 +137,7 @@ def _assemble_rows(res: ExecutionResult) -> list[_Row]:
                 delta=order.delta_notional if order else 0.0,
                 mark=mark,
                 forecast=None,
-                action=_action_label(order.reason) if order else "close",
+                action=_action_label(order, default="close"),
             )
         )
 

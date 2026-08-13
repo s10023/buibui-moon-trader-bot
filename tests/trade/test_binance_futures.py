@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from portfolio.sizing import round_to_tick
 from trade.binance_futures import BinanceFuturesAdapter
 from trade.routing import OrderIntent
 
@@ -130,6 +131,29 @@ def test_submit_limit_sends_gtx_post_only() -> None:
     assert kwargs["timeInForce"] == "GTX"  # post-only: reject rather than cross
     assert kwargs["price"] == 99.98
     assert kwargs["quantity"] == 2.0
+
+
+def test_submit_limit_price_from_realistic_quote_is_not_over_precise() -> None:
+    """The assertion that actually models the wire: python-binance serialises
+    `params["price"]` with a bare `str()`, so any float error `round_to_tick`
+    leaves behind goes straight onto the wire and Binance rejects it (-1111).
+
+    The quote is parsed the same way `get_book_tops` parses a real one
+    (`float(r["bidPrice"])`), not built as `mult * tick` — see
+    `round_to_tick`'s own test suite for why that distinction is load-bearing.
+    Pre-fix this price is `45817.600000000006`; post-fix `45817.6`.
+    """
+    client = MagicMock()
+    adapter = BinanceFuturesAdapter(client, mode="live")
+    price = round_to_tick(float("45817.6"), 0.1, "BUY")
+    intent = OrderIntent("BTCUSDT", "BUY", 0.01, False, 458.176, "open", "LIMIT")
+    adapter.submit(intent, price=price)
+    kwargs = client.futures_create_order.call_args.kwargs
+    sent = str(kwargs["price"])
+    decimals = len(sent.split(".")[1]) if "." in sent else 0
+    assert decimals <= 1, (
+        f"price {sent!r} carries more precision than the 0.1 tick allows"
+    )
 
 
 def test_submit_market_omits_price_and_tif() -> None:

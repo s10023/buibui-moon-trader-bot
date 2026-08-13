@@ -61,14 +61,12 @@ class _FakeAdapter:
         self.cancelled: list[str] = []
         self.book_tops: dict[str, tuple[float, float]] = {}
         self.submitted_prices: list[float | None] = []
-        self.calls: list[str] = []  # ordering probe
         self.cancel_raises = False
 
     def get_equity(self) -> float:
         return self._equity
 
     def get_positions(self) -> dict[str, float]:
-        self.calls.append("positions")
         return dict(self._positions)
 
     def get_marks(self, symbols: list[str]) -> dict[str, float]:
@@ -88,13 +86,12 @@ class _FakeAdapter:
     def cancel_open_orders(self, symbol: str) -> None:
         if self.cancel_raises:
             raise RuntimeError("cancel failed")
-        self.calls.append(f"cancel:{symbol}")
         self.cancelled.append(symbol)
         # The resting order being cancelled may have partially filled moments
         # before the cancel landed. Mutating positions here lets a test prove
         # the PLANNING read is built from post-cancel state rather than a
-        # stale pre-cancel snapshot — the money-relevant invariant. A string
-        # appearing earlier in `self.calls` is not: it can't tell a genuinely
+        # stale pre-cancel snapshot — the money-relevant invariant. An
+        # ordering probe over a call log is not: it can't tell a genuinely
         # unnecessary pre-cancel read (skipped by the executor's lazy managed-
         # set computation) apart from a bug that reused one.
         self._positions[symbol] = self._positions.get(symbol, 0.0) + 2.0
@@ -170,6 +167,13 @@ def test_run_once_overlay_breach_submits_nothing(tmp_path: Path) -> None:
     init_schema(conn)
     syms = _seed(conn)
     adapter = _FakeAdapter(equity=10_000.0, positions={}, marks={})
+    # Give every symbol a real quote so `res.submitted == []` below is caused
+    # by the overlay gate alone — not doubly-caused by the LIMIT legs also
+    # failing for want of a book top. If a future refactor ever let the
+    # overlay gate pass by mistake, submissions with a real quote in hand
+    # would actually go through and this test would fail loudly; with no
+    # quotes it would stay green for the wrong reason.
+    adapter.book_tops = dict.fromkeys(syms, (99.98, 100.02))
     res = run_once(
         conn,
         adapter,
@@ -380,6 +384,11 @@ def test_run_once_closes_off_universe_position(tmp_path: Path) -> None:
     )
     closes = [i for i in res.submitted if i.symbol == "ZZZUSDT"]
     assert len(closes) == 1 and closes[0].reduce_only is True
+    assert closes[0].order_type == "MARKET"
+    # The MARKET path is checked for reduce_only above but never for price —
+    # a LIMIT price bug that leaked into a MARKET submit would go unnoticed.
+    idx = res.submitted.index(closes[0])
+    assert adapter.submitted_prices[idx] is None
 
 
 def test_cold_start_build_passes_overlay(tmp_path: Path) -> None:
@@ -514,8 +523,8 @@ def test_cancels_stale_orders_before_reading_positions(tmp_path: Path) -> None:
     """A partially-filled resting order is still moving the position while it
     sits there, so the plan must be built from the POST-cancel position.
 
-    Behavioural, not string-order, on purpose: an ordering probe over
-    `self.calls` can't tell "cancel precedes the *planning* read" apart from
+    Behavioural, not string-order, on purpose: an ordering probe can't tell
+    "cancel precedes the *planning* read" apart from
     "cancel precedes *every* read" — and the executor deliberately contains a
     pre-cancel read for symbols that dropped out of the universe (see
     `test_cancel_reaches_a_dropped_but_still_held_symbol`), so that stronger

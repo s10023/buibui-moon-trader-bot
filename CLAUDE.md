@@ -311,20 +311,30 @@ too.** `trade/routing.py` sets `order_type = MARKET if reduce_only else LIMIT`;
 post-only (`timeInForce="GTX"`) or a MARKET order per that field —
 `submit_market` no longer exists. LIMIT legs price at the book touch via
 `portfolio/sizing.py::round_to_tick` (BUY floors, SELL ceils, so the resting
-price never crosses and a GTX order is accepted rather than rejected or
-instant-filled). The split is intentional, not partial rollout: an unfilled
-OPEN is bounded opportunity cost the next daily rebalance re-plans; an
-unfilled CLOSE is open directional risk the book has already decided to shed,
-so risk-reducing orders always take. Separately, `trade/xsmom_executor.py::run_once`
-cancels every stale managed resting order (`get_open_order_symbols` /
-`cancel_open_orders`) BEFORE the positions read that planning uses — a
-**correctness precondition** of the fire-and-forget daily cadence, not
-tidy-up: a resting order is not a position, so yesterday's unfilled limit
-would otherwise sit on the book while today's plan submits a second order on
-top of it, an overshoot where both orders are individually correct and
-neither shows up in `get_positions()`. The cancel runs BEFORE
-`evaluate_overlay`, so a kill-switched or drawdown-halted run still clears its
-own resting orders. **The backtest cost model is unchanged on purpose** —
+price never crosses and a GTX order is accepted rather than rejected — GTX
+never instant-fills; crossing is the ONLY failure mode it has). The split is
+intentional, not partial rollout: an unfilled OPEN is bounded opportunity
+cost the next daily rebalance re-plans; an unfilled CLOSE is open directional
+risk the book has already decided to shed, so risk-reducing orders always
+take. Separately, `trade/xsmom_executor.py::run_once` cancels every stale
+managed resting order (`get_open_order_symbols` / `cancel_open_orders`)
+BEFORE the positions read that planning uses — a **correctness precondition**
+of the fire-and-forget daily cadence, not tidy-up: a resting order is not a
+position, so yesterday's unfilled limit would otherwise sit on the book while
+today's plan submits a second order on top of it, an overshoot where both
+orders are individually correct and neither shows up in `get_positions()`.
+The cancel runs BEFORE `evaluate_overlay`, so a kill-switched or
+drawdown-halted run still clears its own resting orders. **The managed-set
+scoping (`symbols ∪ positions`) protects only symbols OUTSIDE that set — an
+operator's hand-placed order on an unmanaged symbol survives. Inside it,
+`cancel_open_orders` calls `futures_cancel_all_open_orders(symbol=...)`,
+which is symbol-WIDE: nothing tags which resting order is the executor's, so
+it cancels the operator's own orders on any managed symbol too.**
+`config/universe.toml` leads with BTCUSDT/ETHUSDT/SOLUSDT — exactly where a
+discretionary book is most likely to sit — so this is a second, independent
+reason (beside `trade/routing.py:69` closing non-book positions) the
+dedicated sub-account is a hard blocker, not a nice-to-have. **The backtest
+cost model is unchanged on purpose** —
 `analytics/xsmom/execution.py::ExecutionCostConfig.fee_pct` stays `0.0005`
 (taker), not the ~2bps maker rate: maker fill rate is unmeasurable before live
 capital, and charging taker keeps the sleeve's gate verdict a floor that live

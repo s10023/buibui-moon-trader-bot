@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 import tomllib
 from dataclasses import dataclass, replace
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -195,6 +196,19 @@ def round_down_to_step(qty: float, step: float) -> float:
     return math.floor(quotient) * step
 
 
+def _tick_decimals(tick: float) -> int:
+    """Decimal places implied by a PRICE_FILTER tick.
+
+    Via `Decimal(str(tick))` because the float's own repr is unreliable at
+    small ticks — `str(0.00001)` is `'1e-05'`; `Decimal` reads the exponent
+    exactly. `.normalize()` strips the trailing-zero artifact of `str()` on a
+    whole-number tick (`str(1.0)` is `'1.0'`, not `'1'`), so a 1.0 tick reads
+    0 decimals, not 1.
+    """
+    exponent = Decimal(str(tick)).normalize().as_tuple().exponent
+    return max(0, -int(exponent))
+
+
 def round_to_tick(price: float, tick: float, side: str) -> float:
     """Round a limit price to the symbol's PRICE_FILTER tick, passively.
 
@@ -208,17 +222,38 @@ def round_to_tick(price: float, tick: float, side: str) -> float:
     `floor(price / tick)` loses a full tick on exactly that input
     (`0.29 / 0.01` -> `28.999999999999996`). A non-positive tick means "unknown
     filter" and passes through unchanged.
+
+    The return value is then quantised to the tick's own decimal precision
+    (`_tick_decimals`) — not just the arithmetic direction. `nearest * tick` /
+    `floor(quotient) * tick` / `ceil(quotient) * tick` all carry float error
+    (`floor(45817.6 / 0.1) * 0.1 == 45817.600000000006`), and the adapter puts
+    that float straight into `params["price"]`, which python-binance
+    serialises with a bare `str()` — so the error goes on the wire and Binance
+    rejects it (-1111, precision beyond PRICE_FILTER).
+
+    Quantising cannot itself cross the touch: in exact decimal arithmetic,
+    `floor(quotient) * tick` (or `ceil`/`nearest`) is an integer times a
+    `_tick_decimals(tick)`-place number, so it is ALREADY representable in
+    that many decimal places — its only float error is the ~1e-10-relative
+    noise of one multiplication, many orders of magnitude below the
+    half-a-unit-at-that-decimal-place threshold `round()` rounds against.
+    `round(value, decimals)` therefore recovers the exact intended decimal,
+    never the next tick over, so a BUY that floored still floors and a SELL
+    that ceiled still ceils.
     """
+    if side not in ("BUY", "SELL"):
+        raise ValueError(f"side must be 'BUY' or 'SELL', got {side!r}")
     if tick <= 0:
         return price
     quotient = price / tick
     nearest = round(quotient)
     tolerance = min(_STEP_SNAP_REL_TOL * max(1.0, quotient), _STEP_SNAP_MAX_TOL)
+    decimals = _tick_decimals(tick)
     if abs(quotient - nearest) <= tolerance:
-        return nearest * tick
+        return round(nearest * tick, decimals)
     if side == "BUY":
-        return math.floor(quotient) * tick
-    return math.ceil(quotient) * tick
+        return round(math.floor(quotient) * tick, decimals)
+    return round(math.ceil(quotient) * tick, decimals)
 
 
 def vol_governor(realized_vol_annual: float, cfg: SizingConfig) -> float:

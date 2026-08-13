@@ -146,12 +146,19 @@ Same constraint the testnet rehearsal plan already carries for P&L.
 Recorded per the standing rule: a spec records what was decided, almost never what was
 *considered* — and when the build misbehaves, the fix is usually a rejected alternative.
 
+**AMENDED 2026-08-13 (whole-branch review):** decisions 2 and 4 originally claimed the
+executor logs submitted-vs-filled and that a maker fill rate is measurable. Neither is
+true — `last_run.submitted` (`xsmom_executor.py`) is a count of orders the API
+**accepted**, not filled, overwritten every run: no order IDs, no per-symbol record, no
+fill state. Corrected below in place. Fill tracking is a **prerequisite** for either
+reversal trigger, not a built capability — a separate slice, out of this spec's scope.
+
 | # | decision | alternatives rejected | why | what would REVERSE it |
 | --- | --- | --- | --- | --- |
 | 1 | Treat as **architectural**, not a bounded flag | bounded — "just change the order type" | post-only adds a state the system has never had: an order that does not fill. That changes the contract `routing.py`'s delta convergence depends on | nothing — this one is spent. Recorded so a future reader knows the bounded reading was considered |
-| 2 | **Fire and forget** on unfilled orders | (a) post, wait N min, cancel remainder, cross with MARKET; (b) post-only hard, never cross | the sleeve rebalances daily and has no urgency — the property that makes maker viable at all. `build_order_plan` re-derives from live positions, so an unfilled leg self-corrects | **tracking error.** If realised gross exposure drifts persistently below target — or a symbol goes >2 consecutive runs unfilled — switch to (a). The executor logs submitted-vs-filled per run so this is measurable, not a hunch |
+| 2 | **Fire and forget** on unfilled orders | (a) post, wait N min, cancel remainder, cross with MARKET; (b) post-only hard, never cross | the sleeve rebalances daily and has no urgency — the property that makes maker viable at all. `build_order_plan` re-derives from live positions, so an unfilled leg self-corrects | **tracking error.** If realised gross exposure drifts persistently below target — or a symbol goes >2 consecutive runs unfilled — switch to (a). **Not measurable today**: the executor logs an accepted-order count, not fills — no order IDs, no fill state. Fill tracking is a prerequisite for detecting this trigger at all |
 | 3 | **MARKET on `reduce_only`**, maker on opens/rebalances | (a) maker on everything; (b) maker on everything except full closes, trims stay maker | asymmetry: an unfilled *open* is bounded opportunity cost; an unfilled *close* is open directional risk the book has already decided against | if closes turn out to be a large share of order volume, their forfeited saving may outweigh the risk — revisit at (b). Measure: reduce-only share of total order notional per run. Below ~15% this decision is not worth re-opening |
-| 4 | **Join the touch** (BUY at bid, SELL at ask) | (a) price off the mark; (b) touch minus a passive offset | (a) sits between bid and ask so it frequently crosses and gets GTX-rejected — cheapest to build, worst behaviour. (b) trades a couple of bps for materially lower fill rate, which decision 2 makes expensive | **maker fill rate measured LIVE** (not testnet). Persistently high fill rate ⇒ try (b) to capture more spread. Persistently low ⇒ decision 2 is the thing to change, not this |
+| 4 | **Join the touch** (BUY at bid, SELL at ask) | (a) price off the mark; (b) touch minus a passive offset | (a) sits between bid and ask so it frequently crosses and gets GTX-rejected — cheapest to build, worst behaviour. (b) trades a couple of bps for materially lower fill rate, which decision 2 makes expensive | **maker fill rate measured LIVE** (not testnet) — **not possible today**, same missing fill tracking as decision 2. Once built: persistently high fill rate ⇒ try (b) to capture more spread; persistently low ⇒ decision 2 is the thing to change, not this |
 | 5 | Backtest cost model **unchanged** at 5 bps taker | re-tune `fee_pct` to the 2 bps maker rate | keeps the gate verdict a floor. Inflating a backtest on an unmeasured fill rate is the failure mode this repo has filed repeatedly | a live maker fill rate stable over a meaningful sample. Even then, prefer leaving the model conservative and taking the saving as realised upside |
 
 | 6 | **Two position reads per run**: discover open-order symbols → cancel → *then* read the positions used for planning | (a) one read, cancel after; (b) cancel every open order in the account without intersecting the managed set | §4 requires cancelling before the planning read, but the managed symbol set (`symbols ∪ positions`) needs a position read to compute — a genuine ordering cycle. Breaking it with a cheap throwaway read is the smallest fix. (b) was rejected as too wide a blast radius: it would cancel an operator's hand-placed order on an unmanaged symbol, the same hazard that already forces a dedicated sub-account | if the extra read ever costs latency that matters, or if the sub-account becomes strictly enforced so no unmanaged orders can exist, collapse to (b) and drop a read |
@@ -165,6 +172,8 @@ unreachable as written. Fixed in the plan and the handoff on 2026-08-13.
 ## What this does not answer
 
 - The live maker fill rate. Unknowable before live capital; it is the input decisions 2 and
-  4 both hinge on, which is why both name it as their reversal trigger.
+  4 both hinge on, which is why both name it as their reversal trigger. **Neither trigger
+  is derivable even once live, though: the executor has no fill tracking (see the 2026-08-13
+  amendment above) — building it is a prerequisite, not merely a wait for live capital.**
 - Whether the XS sleeve's own rebalances are large enough to move the touch. At ~$1,130
   equity they are not, but this becomes real if capital grows.

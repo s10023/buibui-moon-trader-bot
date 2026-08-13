@@ -457,3 +457,58 @@ def test_round_to_tick_exact_multiple_is_returned_unchanged() -> None:
 def test_round_to_tick_non_positive_tick_passes_through() -> None:
     assert round_to_tick(123.456, 0.0, "BUY") == 123.456
     assert round_to_tick(123.456, -1.0, "SELL") == 123.456
+
+
+def test_round_to_tick_invalid_side_raises() -> None:
+    """A side that is neither BUY nor SELL must fail loudly, not fall through
+    to the SELL (ceil) branch silently — the pre-fix behaviour."""
+    with pytest.raises(ValueError, match="BUY.*SELL"):
+        round_to_tick(100.0, 0.1, "HOLD")
+
+
+@pytest.mark.parametrize(
+    ("price_str", "tick", "decimals"),
+    [
+        ("45817.6", 0.1, 1),
+        ("0.29", 0.01, 2),
+        ("2412.75", 0.01, 2),
+        ("0.014623", 0.00001, 5),
+    ],
+)
+def test_round_to_tick_realistic_quote_is_not_over_precise(
+    price_str: str, tick: float, decimals: int
+) -> None:
+    """Regression for the wire-precision defect. `trade/binance_futures.py`
+    puts `round_to_tick`'s return value straight into `params["price"]`, and
+    python-binance serialises it with a bare `str()` — so ANY float error
+    beyond the tick's own decimal places goes onto the wire and Binance
+    rejects it (-1111, precision beyond PRICE_FILTER).
+
+    THE INPUT IS THE POINT: it is parsed from a decimal string literal —
+    `float("45817.6")` — the same construction `get_book_tops` uses on a real
+    quote (`float(r["bidPrice"])`). `test_round_to_tick_enumerated_never_crosses`
+    above builds its fixture as `mult * tick`, the implementation's own
+    arithmetic, so that fixture's input and the (pre-fix, broken)
+    implementation's output are the same wrong float bit for bit and its
+    crossing assertion is trivially satisfied — it cannot fail. `float("45817.6")`
+    is a genuinely different float from any `mult * 0.1` product, so a
+    regression to the bare `nearest * tick` / `floor(quotient) * tick` return
+    is actually caught here: pre-fix, `round_to_tick(float("45817.6"), 0.1,
+    "BUY")` returns `45817.600000000006` (17 significant digits on the wire,
+    and itself ABOVE the input — a BUY that crosses); post-fix it returns
+    exactly `45817.6`.
+    """
+    price = float(price_str)
+    for side in ("BUY", "SELL"):
+        result = round_to_tick(price, tick, side)
+        if side == "BUY":
+            assert result <= price + 1e-9, f"BUY crossed: {price} -> {result}"
+        else:
+            assert result >= price - 1e-9, f"SELL crossed: {price} -> {result}"
+        text = str(result)
+        got_decimals = len(text.split(".")[1]) if "." in text else 0
+        assert got_decimals <= decimals, (
+            f"{side} {price} @ tick {tick} -> {result!r} carries "
+            f"{got_decimals} decimal places, more than the tick's {decimals} — "
+            "Binance would reject this as -1111"
+        )
