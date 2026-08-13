@@ -1,7 +1,8 @@
 """Binance USDT-M Futures I/O adapter for the XS-solo executor.
 
 Thin, injectable wrapper over a `python-binance` Client. Read methods always
-hit the API; write methods (`ensure_account_config`, `submit_market`) are
+hit the API — this includes `dry_run`, so a dry run sees real exchange state;
+write methods (`ensure_account_config`, `submit`, `cancel_open_orders`) are
 no-op-and-log when `mode == "dry_run"`. The client is constructed by the CLI
 (mainnet for dry_run/live, testnet client for testnet) and injected here, so
 this class is unit-testable with a MagicMock.
@@ -51,18 +52,21 @@ class BinanceFuturesAdapter:
         for s in info["symbols"]:
             if s["symbol"] not in wanted:
                 continue
-            step = min_qty = min_notional = 0.0
+            step = min_qty = min_notional = price_tick = 0.0
             for f in s["filters"]:
                 if f["filterType"] == "LOT_SIZE":
                     step = float(f["stepSize"])
                     min_qty = float(f["minQty"])
                 elif f["filterType"] == "MIN_NOTIONAL":
                     min_notional = float(f["notional"])
+                elif f["filterType"] == "PRICE_FILTER":
+                    price_tick = float(f["tickSize"])
             out[s["symbol"]] = ExchangeFilters(
                 symbol=s["symbol"],
                 qty_step=step,
                 min_qty=min_qty,
                 min_notional=min_notional,
+                price_tick=price_tick,
             )
         return out
 
@@ -72,6 +76,38 @@ class BinanceFuturesAdapter:
         return {
             r["symbol"]: float(r["markPrice"]) for r in rows if r["symbol"] in wanted
         }
+
+    def get_book_tops(self, symbols: list[str]) -> dict[str, tuple[float, float]]:
+        """Best bid/ask per symbol, for post-only limit placement.
+
+        Mirrors `get_marks`: one batch call for the whole universe. A
+        non-positive quote on either side is dropped rather than returned as
+        zero — a limit priced off a zero would be rejected or, worse, filled
+        somewhere absurd.
+        """
+        rows = self.client.futures_orderbook_ticker()
+        wanted = set(symbols)
+        out: dict[str, tuple[float, float]] = {}
+        for r in rows:
+            if r["symbol"] not in wanted:
+                continue
+            bid = float(r["bidPrice"])
+            ask = float(r["askPrice"])
+            if bid > 0.0 and ask > 0.0:
+                out[r["symbol"]] = (bid, ask)
+        return out
+
+    def get_open_order_symbols(self) -> set[str]:
+        """Symbols carrying a resting order right now.
+
+        Read with no symbol argument so it covers symbols that have since left
+        the target book — the case with no position to reveal it. Not
+        dry-run-guarded, unlike `cancel_open_orders`: it's a plain read with
+        no mutation risk, and a dry run needs to see real resting orders to
+        surface the stale-order condition `cancel_open_orders` exists to fix.
+        """
+        rows = self.client.futures_get_open_orders()
+        return {r["symbol"] for r in rows}
 
     # ----- writes -----
     def ensure_account_config(self, symbols: list[str], *, leverage: int) -> None:
@@ -89,7 +125,16 @@ class BinanceFuturesAdapter:
                     raise
             self.client.futures_change_leverage(symbol=sym, leverage=leverage)
 
-    def submit_market(self, intent: OrderIntent) -> dict[str, Any]:
+    def submit(self, intent: OrderIntent, price: float | None = None) -> dict[str, Any]:
+        """Submit one order. LIMIT orders are post-only (GTX).
+
+        GTX makes the exchange REJECT an order that would cross instead of
+        letting it take. That is the point — a crossed "maker" order is just a
+        taker fill with extra steps — but it means a wrong-side tick rounding
+        fails as a rejection, not a bad fill. See `round_to_tick`.
+        """
+        if intent.order_type == "LIMIT" and price is None:
+            raise ValueError(f"LIMIT order requires a price: {intent.symbol}")
         if self.mode == "dry_run":
             return {
                 "dryRun": True,
@@ -97,11 +142,22 @@ class BinanceFuturesAdapter:
                 "side": intent.side,
                 "qty": intent.qty,
                 "reduceOnly": intent.reduce_only,
+                "orderType": intent.order_type,
+                "price": price,
             }
-        return self.client.futures_create_order(  # type: ignore[no-any-return]
-            symbol=intent.symbol,
-            side=intent.side,
-            type="MARKET",
-            quantity=intent.qty,
-            reduceOnly=intent.reduce_only,
-        )
+        params: dict[str, Any] = {
+            "symbol": intent.symbol,
+            "side": intent.side,
+            "type": intent.order_type,
+            "quantity": intent.qty,
+            "reduceOnly": intent.reduce_only,
+        }
+        if intent.order_type == "LIMIT":
+            params["price"] = price
+            params["timeInForce"] = "GTX"
+        return self.client.futures_create_order(**params)  # type: ignore[no-any-return]
+
+    def cancel_open_orders(self, symbol: str) -> None:
+        if self.mode == "dry_run":
+            return
+        self.client.futures_cancel_all_open_orders(symbol=symbol)

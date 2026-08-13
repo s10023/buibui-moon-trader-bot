@@ -6,6 +6,7 @@ from typing import Any
 import duckdb
 import numpy as np
 import pandas as pd
+import pytest
 
 from analytics.forecast.config import ForecastConfig
 from analytics.store.market_data import upsert_ohlcv
@@ -56,6 +57,11 @@ class _FakeAdapter:
         self.submitted: list[OrderIntent] = []
         self.config_calls = 0
         self.fail_symbol: str | None = None
+        self.open_order_symbols: set[str] = set()
+        self.cancelled: list[str] = []
+        self.book_tops: dict[str, tuple[float, float]] = {}
+        self.submitted_prices: list[float | None] = []
+        self.cancel_raises = False
 
     def get_equity(self) -> float:
         return self._equity
@@ -69,15 +75,37 @@ class _FakeAdapter:
     def get_filters(self, symbols: list[str]):  # type: ignore[no-untyped-def]
         from trade.routing import ExchangeFilters
 
-        return {s: ExchangeFilters(s, 0.001, 0.001, 5.0) for s in symbols}
+        return {s: ExchangeFilters(s, 0.001, 0.001, 5.0, 0.01) for s in symbols}
 
     def ensure_account_config(self, symbols: list[str], *, leverage: int) -> None:
         self.config_calls += 1
 
-    def submit_market(self, intent: OrderIntent) -> dict[str, object]:
+    def get_open_order_symbols(self) -> set[str]:
+        return set(self.open_order_symbols)
+
+    def cancel_open_orders(self, symbol: str) -> None:
+        if self.cancel_raises:
+            raise RuntimeError("cancel failed")
+        self.cancelled.append(symbol)
+        # The resting order being cancelled may have partially filled moments
+        # before the cancel landed. Mutating positions here lets a test prove
+        # the PLANNING read is built from post-cancel state rather than a
+        # stale pre-cancel snapshot — the money-relevant invariant. An
+        # ordering probe over a call log is not: it can't tell a genuinely
+        # unnecessary pre-cancel read (skipped by the executor's lazy managed-
+        # set computation) apart from a bug that reused one.
+        self._positions[symbol] = self._positions.get(symbol, 0.0) + 2.0
+
+    def get_book_tops(self, symbols: list[str]) -> dict[str, tuple[float, float]]:
+        return {s: self.book_tops[s] for s in symbols if s in self.book_tops}
+
+    def submit(
+        self, intent: OrderIntent, price: float | None = None
+    ) -> dict[str, object]:
         if self.fail_symbol in (intent.symbol, "*"):  # "*" fails every order
             raise RuntimeError("rejected")
         self.submitted.append(intent)
+        self.submitted_prices.append(price)
         return {"ok": True}
 
 
@@ -111,6 +139,10 @@ def test_run_once_happy_path_submits(tmp_path: Path) -> None:
     init_schema(conn)
     syms = _seed(conn)
     adapter = _FakeAdapter(equity=10_000.0, positions={}, marks={})
+    # Cold-start opens route through LIMIT pricing (this task's own wiring), so
+    # a quote is required for the submit to succeed; the prior submit_market
+    # path ignored order_type entirely and never needed one.
+    adapter.book_tops = dict.fromkeys(syms, (99.98, 100.02))
     state_path = tmp_path / "execution_state_dry_run.json"
     res = run_once(
         conn,
@@ -135,6 +167,13 @@ def test_run_once_overlay_breach_submits_nothing(tmp_path: Path) -> None:
     init_schema(conn)
     syms = _seed(conn)
     adapter = _FakeAdapter(equity=10_000.0, positions={}, marks={})
+    # Give every symbol a real quote so `res.submitted == []` below is caused
+    # by the overlay gate alone — not doubly-caused by the LIMIT legs also
+    # failing for want of a book top. If a future refactor ever let the
+    # overlay gate pass by mistake, submissions with a real quote in hand
+    # would actually go through and this test would fail loudly; with no
+    # quotes it would stay green for the wrong reason.
+    adapter.book_tops = dict.fromkeys(syms, (99.98, 100.02))
     res = run_once(
         conn,
         adapter,
@@ -175,11 +214,19 @@ def test_run_once_threads_marks_and_positions(tmp_path: Path) -> None:
 
 
 def test_run_once_isolates_per_order_failure(tmp_path: Path) -> None:
+    """Every order reaches `adapter.submit` and is REJECTED there — not
+    short-circuited earlier by a missing book top. Without `book_tops`, every
+    LIMIT intent would fail at `skip:no_book_top` before `submit` is ever
+    called, silently degrading this into a duplicate of
+    `test_limit_leg_fails_cleanly_when_book_top_missing` that no longer
+    exercises submit-rejection isolation or the price-in-failure-detail path.
+    """
     conn = duckdb.connect(":memory:")
     init_schema(conn)
     syms = _seed(conn)
     adapter = _FakeAdapter(equity=10_000.0, positions={}, marks={})
     adapter.fail_symbol = "*"  # every submit raises
+    adapter.book_tops = dict.fromkeys(syms, (99.9847, 100.0231))
     res = run_once(
         conn,
         adapter,
@@ -194,6 +241,8 @@ def test_run_once_isolates_per_order_failure(tmp_path: Path) -> None:
     assert len(res.plan.intents) >= 1  # there is something to submit
     assert res.submitted == []  # every order failed
     assert len(res.failed) == len(res.plan.intents)  # all captured, no crash
+    assert all("rejected" in r for _, r in res.failed)  # submit was reached
+    assert all("price=" in r for _, r in res.failed)  # diagnostic carries price
 
 
 def test_peak_equity_is_monotonic(tmp_path: Path) -> None:
@@ -335,6 +384,11 @@ def test_run_once_closes_off_universe_position(tmp_path: Path) -> None:
     )
     closes = [i for i in res.submitted if i.symbol == "ZZZUSDT"]
     assert len(closes) == 1 and closes[0].reduce_only is True
+    assert closes[0].order_type == "MARKET"
+    # The MARKET path is checked for reduce_only above but never for price —
+    # a LIMIT price bug that leaked into a MARKET submit would go unnoticed.
+    idx = res.submitted.index(closes[0])
+    assert adapter.submitted_prices[idx] is None
 
 
 def test_cold_start_build_passes_overlay(tmp_path: Path) -> None:
@@ -463,3 +517,197 @@ def test_missing_mark_forces_steady_state_cap(tmp_path: Path) -> None:
     assert res.verdict.allowed is False and any(
         "turnover" in a.lower() for a in res.verdict.aborts
     )
+
+
+def test_cancels_stale_orders_before_reading_positions(tmp_path: Path) -> None:
+    """A partially-filled resting order is still moving the position while it
+    sits there, so the plan must be built from the POST-cancel position.
+
+    Behavioural, not string-order, on purpose: an ordering probe can't tell
+    "cancel precedes the *planning* read" apart from
+    "cancel precedes *every* read" — and the executor deliberately contains a
+    pre-cancel read for symbols that dropped out of the universe (see
+    `test_cancel_reaches_a_dropped_but_still_held_symbol`), so that stronger
+    claim is false. `_FakeAdapter.cancel_open_orders` simulates the resting
+    order filling by +2.0 the instant it's cancelled; if planning read a
+    stale pre-cancel snapshot, `res.positions["AAAUSDT"]` would come back 0.0
+    instead of 2.0.
+    """
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    syms = _seed(conn)
+    adapter = _FakeAdapter(
+        equity=10_000.0, positions={}, marks=dict.fromkeys(syms, 100.0)
+    )
+    adapter.open_order_symbols = {"AAAUSDT"}
+    adapter.book_tops = dict.fromkeys(syms, (99.98, 100.02))
+    res = run_once(
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
+        _limits(),
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
+        state_path=tmp_path / "s.json",
+        now=pd.Timestamp("2022-02-05", tz="UTC"),
+    )
+    assert adapter.cancelled == ["AAAUSDT"]  # the cancel actually ran
+    assert res.positions["AAAUSDT"] == 2.0
+
+
+def test_cancel_is_scoped_to_managed_symbols(tmp_path: Path) -> None:
+    """ZZZUSDT is neither in the book nor held, so an operator's own order on it
+    must survive. The router already closes non-book POSITIONS — which is why a
+    dedicated sub-account is required — but do not widen that to orders."""
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    syms = _seed(conn)
+    adapter = _FakeAdapter(equity=10_000.0, positions={}, marks={})
+    adapter.open_order_symbols = {"AAAUSDT", "ZZZUSDT"}
+    adapter.book_tops = dict.fromkeys(syms, (99.98, 100.02))
+    run_once(
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
+        _limits(),
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
+        state_path=tmp_path / "s.json",
+        now=pd.Timestamp("2022-02-05", tz="UTC"),
+    )
+    assert adapter.cancelled == ["AAAUSDT"]
+
+
+def test_cancel_reaches_a_dropped_but_still_held_symbol(tmp_path: Path) -> None:
+    """ZZZUSDT left the universe but is still HELD, so its stale order must
+    still be cancelled — the higher-stakes direction of the managed-set
+    boundary. The router already sends a MARKET close for a held off-universe
+    position; an uncancelled resting order sitting beside that close is
+    exactly the overshoot this task exists to prevent, on a closing order.
+    """
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    syms = _seed(conn)
+    adapter = _FakeAdapter(
+        equity=10_000.0, positions={"ZZZUSDT": 1.0}, marks={"ZZZUSDT": 100.0}
+    )
+    adapter.open_order_symbols = {"ZZZUSDT"}
+    run_once(
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
+        _limits(),
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
+        state_path=tmp_path / "s.json",
+        now=pd.Timestamp("2022-02-05", tz="UTC"),
+    )
+    assert adapter.cancelled == ["ZZZUSDT"]
+
+
+def test_limit_rests_at_the_touch_rounded_passively(tmp_path: Path) -> None:
+    """Quotes are deliberately NOT tick-exact, so the floor/ceil branch runs.
+
+    `_FakeAdapter.get_filters` uses tick 0.01. A tick-exact quote like 99.98
+    would hit round_to_tick's snap branch BEFORE the side is read, so the test
+    would pass even if the BUY/SELL direction were inverted — the end-to-end
+    version of the vacuous assertion that failed task 1's first review.
+    """
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    syms = _seed(conn)
+    adapter = _FakeAdapter(equity=10_000.0, positions={}, marks={})
+    adapter.book_tops = dict.fromkeys(syms, (99.9847, 100.0231))
+    res = run_once(
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
+        _limits(),
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
+        state_path=tmp_path / "s.json",
+        now=pd.Timestamp("2022-02-05", tz="UTC"),
+    )
+    assert res.submitted, "expected at least one order"
+    seen_limit = False
+    for intent, price in zip(adapter.submitted, adapter.submitted_prices, strict=True):
+        if intent.order_type != "LIMIT":
+            continue
+        seen_limit = True
+        # BUY floors 99.9847 -> 99.98; SELL ceils 100.0231 -> 100.03.
+        assert price == pytest.approx(99.98 if intent.side == "BUY" else 100.03)
+    assert seen_limit, "no LIMIT order submitted — the assertion above never ran"
+
+
+def test_limit_leg_fails_cleanly_when_book_top_missing(tmp_path: Path) -> None:
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    syms = _seed(conn)
+    adapter = _FakeAdapter(equity=10_000.0, positions={}, marks={})
+    adapter.book_tops = {}  # no quotes at all
+    res = run_once(
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
+        _limits(),
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
+        state_path=tmp_path / "s.json",
+        now=pd.Timestamp("2022-02-05", tz="UTC"),
+    )
+    assert res.submitted == []
+    assert res.failed, "a missing book top must be recorded, never silently skipped"
+    assert all("no_book_top" in reason for _, reason in res.failed)
+
+
+def test_cancel_failure_aborts_before_submitting(tmp_path: Path) -> None:
+    """Planning against un-cancelled orders is the overshoot this exists to stop,
+    so a failed cancel must abort the run rather than degrade to planning."""
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    syms = _seed(conn)
+    adapter = _FakeAdapter(equity=10_000.0, positions={}, marks={})
+    adapter.open_order_symbols = {"AAAUSDT"}
+    adapter.cancel_raises = True
+    with pytest.raises(RuntimeError, match="cancel failed"):
+        run_once(
+            conn,
+            adapter,
+            ForecastConfig(),
+            syms,
+            _limits(),
+            no_trade_band_frac=0.0,
+            exchange_leverage=5,
+            state_path=tmp_path / "s.json",
+            now=pd.Timestamp("2022-02-05", tz="UTC"),
+        )
+    assert adapter.submitted == []
+
+
+def test_fake_adapter_does_not_drift_from_the_real_one() -> None:
+    """Pin `_FakeAdapter`'s surface to the `_Adapter` Protocol.
+
+    Added after the `submit_market` -> `submit` rename: it broke the live path
+    in `tools/xsmom_execute.py` and NOTHING at runtime noticed. Every executor
+    test drives `_FakeAdapter`, which is duck-typed, so mypy was the only
+    signal that the real adapter no longer satisfied the Protocol. A fake that
+    can silently diverge from the thing it stands in for makes every test
+    using it weaker than it looks.
+    """
+    from trade.binance_futures import BinanceFuturesAdapter
+    from trade.xsmom_executor import _Adapter
+
+    required = {
+        name
+        for name, value in vars(_Adapter).items()
+        if callable(value) and not name.startswith("_")
+    }
+    assert required, "derived an empty Protocol surface — the check would be vacuous"
+    for name in sorted(required):
+        assert hasattr(_FakeAdapter, name), f"_FakeAdapter is missing {name}"
+        assert hasattr(BinanceFuturesAdapter, name), f"real adapter is missing {name}"

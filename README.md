@@ -816,9 +816,10 @@ make buibui-xsmom-execute MODE=testnet  # submit on Binance Futures testnet (val
 - `make buibui-xsmom-daily` — convenience wrapper: `buibui-universe-sync` then
   `buibui-xsmom-execute` (dry-run). The recommended daily command.
 - **Dry-run is the default** — it sizes the book off live account equity, reconciles
-  against current exchange positions into a market-order plan (LOT_SIZE rounding,
-  no-trade band, min-notional skips), runs the overlay, and prints the plan **without
-  submitting anything**.
+  against current exchange positions into an order plan (LOT_SIZE rounding, no-trade
+  band, min-notional skips; risk-increasing legs price as a post-only LIMIT at the
+  book touch, risk-reducing legs stay MARKET), runs the overlay, and prints the plan
+  **without submitting anything**.
 - The **risk overlay** (fail-closed, blocks the whole plan on any breach): kill-switch,
   drawdown halt, gross-leverage cap, per-instrument notional cap, per-run turnover guard,
   data-staleness guard. Toggle the kill-switch with `--kill` / `--resume`. Overlay defaults

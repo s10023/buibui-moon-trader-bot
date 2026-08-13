@@ -22,6 +22,7 @@ class ExchangeFilters:
     qty_step: float
     min_qty: float
     min_notional: float
+    price_tick: float = 0.0  # PRICE_FILTER tickSize; 0.0 == unknown
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,7 @@ class OrderIntent:
     reduce_only: bool
     delta_notional: float
     reason: str  # "open" | "rebalance" | "close" | "skip:<why>"
+    order_type: str = "MARKET"  # "LIMIT" (post-only) | "MARKET"
 
 
 @dataclass(frozen=True)
@@ -112,6 +114,10 @@ def build_order_plan(
             and abs(target_qty) < abs(current)
         )
         reduce_only = is_close or same_side_trim
+        # Risk-reducing orders TAKE, risk-increasing orders MAKE. An unfilled
+        # open is bounded opportunity cost that the next rebalance re-plans; an
+        # unfilled close leaves directional risk the book has already rejected.
+        order_type = "MARKET" if reduce_only else "LIMIT"
         reason = "close" if is_close else ("rebalance" if current != 0.0 else "open")
 
         if order_qty == 0.0:
@@ -147,7 +153,9 @@ def build_order_plan(
             continue
 
         intents.append(
-            OrderIntent(sym, side, order_qty, reduce_only, delta_notional, reason)
+            OrderIntent(
+                sym, side, order_qty, reduce_only, delta_notional, reason, order_type
+            )
         )
 
     return OrderPlan(
