@@ -313,10 +313,10 @@ def test_opens_are_limit_and_closes_are_market() -> None:
     rebalance. An unfilled CLOSE is open directional risk the book has already
     decided against — that asymmetry is the whole reason for the split.
     """
-    book = _book([_pos("AAAUSDT", 0.1)])         # $1000 target, a new long
+    book = _book([_pos("AAAUSDT", 0.1)])  # $1000 target, a new long
     plan = build_order_plan(
         book,
-        current_positions={"BBBUSDT": 2.0},      # held, not in book -> close
+        current_positions={"BBBUSDT": 2.0},  # held, not in book -> close
         marks={"AAAUSDT": 100.0, "BBBUSDT": 100.0},
         filters={"AAAUSDT": _filters("AAAUSDT"), "BBBUSDT": _filters("BBBUSDT")},
         no_trade_band_frac=0.0,
@@ -331,10 +331,10 @@ def test_opens_are_limit_and_closes_are_market() -> None:
 
 def test_same_side_trim_is_market() -> None:
     """A trim reduces an existing position, so it is risk-reducing too."""
-    book = _book([_pos("AAAUSDT", 0.05)])        # $500 target vs $1000 held
+    book = _book([_pos("AAAUSDT", 0.05)])  # $500 target vs $1000 held
     plan = build_order_plan(
         book,
-        current_positions={"AAAUSDT": 10.0},     # 10 units at mark 100 = $1000
+        current_positions={"AAAUSDT": 10.0},  # 10 units at mark 100 = $1000
         marks={"AAAUSDT": 100.0},
         filters={"AAAUSDT": _filters("AAAUSDT")},
         no_trade_band_frac=0.0,
@@ -379,11 +379,9 @@ In `build_order_plan`, immediately after `reduce_only` is computed at line 114:
 and pass it on the appended intent only (skipped intents keep the default):
 
 ```python
-        intents.append(
-            OrderIntent(
-                sym, side, order_qty, reduce_only, delta_notional, reason, order_type
-            )
-        )
+intents.append(
+    OrderIntent(sym, side, order_qty, reduce_only, delta_notional, reason, order_type)
+)
 ```
 
 - [ ] **Step 4: Run to verify it passes**
@@ -506,7 +504,7 @@ def test_submit_limit_sends_gtx_post_only() -> None:
     adapter.submit(intent, price=99.98)
     kwargs = client.futures_create_order.call_args.kwargs
     assert kwargs["type"] == "LIMIT"
-    assert kwargs["timeInForce"] == "GTX"   # post-only: reject rather than cross
+    assert kwargs["timeInForce"] == "GTX"  # post-only: reject rather than cross
     assert kwargs["price"] == 99.98
     assert kwargs["quantity"] == 2.0
 
@@ -664,21 +662,22 @@ Expected: FAIL — attributes do not exist.
 - [ ] **Step 3: Implement**
 
 ```python
-    def get_open_order_symbols(self) -> set[str]:
-        """Symbols carrying a resting order right now.
+def get_open_order_symbols(self) -> set[str]:
+    """Symbols carrying a resting order right now.
 
-        Read with no symbol argument so it covers symbols that have since left
-        the target book — the case with no position to reveal it.
-        """
-        if self.mode == "dry_run":
-            return set()
-        rows = self.client.futures_get_open_orders()
-        return {r["symbol"] for r in rows}
+    Read with no symbol argument so it covers symbols that have since left
+    the target book — the case with no position to reveal it.
+    """
+    if self.mode == "dry_run":
+        return set()
+    rows = self.client.futures_get_open_orders()
+    return {r["symbol"] for r in rows}
 
-    def cancel_open_orders(self, symbol: str) -> None:
-        if self.mode == "dry_run":
-            return
-        self.client.futures_cancel_all_open_orders(symbol=symbol)
+
+def cancel_open_orders(self, symbol: str) -> None:
+    if self.mode == "dry_run":
+        return
+    self.client.futures_cancel_all_open_orders(symbol=symbol)
 ```
 
 - [ ] **Step 4: Run to verify it passes**
@@ -715,37 +714,38 @@ First extend the file's hand-written `_FakeAdapter` (`tests/trade/test_xsmom_exe
 — this file does NOT use MagicMock). Add to `__init__`:
 
 ```python
-        self.open_order_symbols: set[str] = set()
-        self.cancelled: list[str] = []
-        self.book_tops: dict[str, tuple[float, float]] = {}
-        self.submitted_prices: list[float | None] = []
-        self.calls: list[str] = []          # ordering probe
-        self.cancel_raises = False
+self.open_order_symbols: set[str] = set()
+self.cancelled: list[str] = []
+self.book_tops: dict[str, tuple[float, float]] = {}
+self.submitted_prices: list[float | None] = []
+self.calls: list[str] = []  # ordering probe
+self.cancel_raises = False
 ```
 
 and the new methods, replacing `submit_market` (`:77-81`) with `submit`:
 
 ```python
-    def get_open_order_symbols(self) -> set[str]:
-        return set(self.open_order_symbols)
+def get_open_order_symbols(self) -> set[str]:
+    return set(self.open_order_symbols)
 
-    def cancel_open_orders(self, symbol: str) -> None:
-        if self.cancel_raises:
-            raise RuntimeError("cancel failed")
-        self.calls.append(f"cancel:{symbol}")
-        self.cancelled.append(symbol)
 
-    def get_book_tops(self, symbols: list[str]) -> dict[str, tuple[float, float]]:
-        return {s: self.book_tops[s] for s in symbols if s in self.book_tops}
+def cancel_open_orders(self, symbol: str) -> None:
+    if self.cancel_raises:
+        raise RuntimeError("cancel failed")
+    self.calls.append(f"cancel:{symbol}")
+    self.cancelled.append(symbol)
 
-    def submit(
-        self, intent: OrderIntent, price: float | None = None
-    ) -> dict[str, object]:
-        if self.fail_symbol in (intent.symbol, "*"):  # "*" fails every order
-            raise RuntimeError("rejected")
-        self.submitted.append(intent)
-        self.submitted_prices.append(price)
-        return {"ok": True}
+
+def get_book_tops(self, symbols: list[str]) -> dict[str, tuple[float, float]]:
+    return {s: self.book_tops[s] for s in symbols if s in self.book_tops}
+
+
+def submit(self, intent: OrderIntent, price: float | None = None) -> dict[str, object]:
+    if self.fail_symbol in (intent.symbol, "*"):  # "*" fails every order
+        raise RuntimeError("rejected")
+    self.submitted.append(intent)
+    self.submitted_prices.append(price)
+    return {"ok": True}
 ```
 
 and record ordering in the existing `get_positions` (`:63`):
@@ -778,8 +778,13 @@ def test_cancels_stale_orders_before_reading_positions(tmp_path: Path) -> None:
     adapter.open_order_symbols = {"AAAUSDT"}
     adapter.book_tops = {s: (99.98, 100.02) for s in syms}
     run_once(
-        conn, adapter, ForecastConfig(), syms, _limits(),
-        no_trade_band_frac=0.0, exchange_leverage=5,
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
+        _limits(),
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
         state_path=tmp_path / "s.json",
         now=pd.Timestamp("2022-02-05", tz="UTC"),
     )
@@ -797,8 +802,13 @@ def test_cancel_is_scoped_to_managed_symbols(tmp_path: Path) -> None:
     adapter.open_order_symbols = {"AAAUSDT", "ZZZUSDT"}
     adapter.book_tops = {s: (99.98, 100.02) for s in syms}
     run_once(
-        conn, adapter, ForecastConfig(), syms, _limits(),
-        no_trade_band_frac=0.0, exchange_leverage=5,
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
+        _limits(),
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
         state_path=tmp_path / "s.json",
         now=pd.Timestamp("2022-02-05", tz="UTC"),
     )
@@ -812,8 +822,13 @@ def test_limit_buy_rests_at_the_bid(tmp_path: Path) -> None:
     adapter = _FakeAdapter(equity=10_000.0, positions={}, marks={})
     adapter.book_tops = {s: (99.98, 100.02) for s in syms}
     res = run_once(
-        conn, adapter, ForecastConfig(), syms, _limits(),
-        no_trade_band_frac=0.0, exchange_leverage=5,
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
+        _limits(),
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
         state_path=tmp_path / "s.json",
         now=pd.Timestamp("2022-02-05", tz="UTC"),
     )
@@ -831,8 +846,13 @@ def test_limit_leg_fails_cleanly_when_book_top_missing(tmp_path: Path) -> None:
     adapter = _FakeAdapter(equity=10_000.0, positions={}, marks={})
     adapter.book_tops = {}  # no quotes at all
     res = run_once(
-        conn, adapter, ForecastConfig(), syms, _limits(),
-        no_trade_band_frac=0.0, exchange_leverage=5,
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
+        _limits(),
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
         state_path=tmp_path / "s.json",
         now=pd.Timestamp("2022-02-05", tz="UTC"),
     )
@@ -852,8 +872,13 @@ def test_cancel_failure_aborts_before_submitting(tmp_path: Path) -> None:
     adapter.cancel_raises = True
     with pytest.raises(RuntimeError, match="cancel failed"):
         run_once(
-            conn, adapter, ForecastConfig(), syms, _limits(),
-            no_trade_band_frac=0.0, exchange_leverage=5,
+            conn,
+            adapter,
+            ForecastConfig(),
+            syms,
+            _limits(),
+            no_trade_band_frac=0.0,
+            exchange_leverage=5,
             state_path=tmp_path / "s.json",
             now=pd.Timestamp("2022-02-05", tz="UTC"),
         )
