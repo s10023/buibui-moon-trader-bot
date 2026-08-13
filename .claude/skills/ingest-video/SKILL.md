@@ -579,8 +579,24 @@ that would have triggered on a sweep that never happened). **A/B it on ONE video
 switching it** — do not assume the saving transfers. Give it: the `frame_paths` list (it Reads each one —
 vision), the `transcript_path` from step 1 (**the path** — it Reads that file for context
 on what was said; do not paste `segments`), the kept items from step 3
-(`ts`, `content_type`, `gist`), and the item schema below. It must NOT read any repo,
-SoT, or memory file. Instruct it to return ONLY this JSON:
+(`ts`, `content_type`, `gist`), and the item schema below. Instruct it not to read any
+repo, SoT, or memory file.
+
+**⚠ That bounds what the agent READS; it does not make the agent context-free — and this
+doc used to claim "self-contained" as though it did.** Measured 2026-08-12g: pass 2 cited
+`project_economic_calendar_gap`, `project_conditional_edge_test`,
+`project_reference_level_triggers` and the xsrev verdict **without reading a file**. Three
+of those four are nowhere in `CLAUDE.md` and only in `MEMORY.md`, so "it inherits
+`CLAUDE.md`" does not explain the leak and **a dedicated agent type would not close it**.
+
+This matters even though those notes were accurate: the rubric is deliberately a *distilled
+snapshot* so the extractor classifies against a frozen prior, and an agent silently seeing
+the live SoT is a different experiment from the documented one. **Settle the vector before
+building anything** — dispatch one throwaway subagent of each type (`general-purpose`,
+`Explore`, a `tools:`-restricted custom agent) and ask each what project context it can see
+without reading a file.
+
+Instruct it to return ONLY this JSON:
 
 ```json
 {
@@ -813,6 +829,21 @@ PYTHONPATH=. poetry run python tools/route_dedup.py check \
   earlier rows, never another author's), or `none`. Report it; never let an empty
   `candidates` list read as "checked against everything and clean".
 
+**⚠ On Stream B, read an empty `candidates` list as "nothing scored above threshold",
+never as "not a duplicate" — and no flag fixes this.** Measured 2026-08-12g:
+`zaWgINlnNcQ` ts 575.23 (@KoluniteVIP) is a near-verbatim restatement of
+`mechanics-backlog.md:632` — same channel, same author, same mechanic, 4 days apart — and
+**its own check returned `candidates: []`**. It surfaced only because an unrelated item's
+check ranked that entry at 3.088.
+
+**Scope was never the problem, which is why no fix is offered here.** Stream A/B are
+`SEMANTIC_SINKS`, so `semantic_scope` already returns `all-entries` — the entire file. The
+restatement was *already in scope* and still ranked below an unrelated item, making this a
+**lexical ranking** limit. **Do not reach for `--author`: it is inert on Stream A/B** —
+both `semantic_scope` (`tools/route_dedup.py:385`) and `_comparable_entries` (`:404`)
+return before `author` is read. It is a Stream C affordance only (step 4c). The digest's
+human gate is doing the real work here.
+
 **Then run the intra-video pass, once per video that has two or more Stream-C-bound
 items.** `check` cannot catch these: every check runs *before* the approval that writes
 anything, so when a video's items are checked none of them are on disk yet — two legs of
@@ -907,6 +938,23 @@ URL).
 ```json
 {"source":"youtube","author":"<handle>","attribution":"first-hand|relay","relayed_by":"<relaying channel handle, relay rows only>","attribution_confidence":"<roster confidence, relay rows only>","url":"<url, with the deep link above for youtube>","ts":252.0,"call_ts_utc":"<resolved call time>","call_ts_source":"stated|publish|publish_relay","publish_ts_utc":"<publish time>","stated_ts_raw":"<verbatim quote or empty>","ingested_ts_utc":"<now>","backlog":false,"symbol":"...","direction":"...","entry":"...","stop":"...","target":"...","horizon":"...","confidence":"","vision_confidence":"high|medium|low","raw_quote":"<original language>","raw_quote_en":"<english>","corrected_from":"<transcript's original value, or empty>"}
 ```
+
+**⚠ `target` and `entry` are MACHINE-PARSED — the format is a contract, not prose.**
+`tools/pundit_score.py` takes ONE number from the string, and **a hyphenated range anywhere
+in it beats a `/`-separated ladder and resolves to the range's LOW end.** Write `target` as
+a bare `/`-separated ladder — `67,000 / 70,362.23 / 82,000` — with ranges in `raw_quote`
+instead. **A clarifying parenthetical re-breaks it**: the constraint is on the whole field,
+not its leading number. `entry` degrades gently (a `60.0K-61.2K` box parses to the 60,600
+midpoint — fine for a zone, wrong for a target).
+
+Round 10: `@Traderfengge` aimed 67,000 and parsed **70,362.23**, `@KoluniteVIP` aimed
+64,600 and parsed **68,000**. The error only ever pushes the target further away, turning a
+reachable call into a near-permanent OPEN and **understating that author's hit rate** — so
+it reads as "these pundits are bad" rather than as a bug.
+
+**Run `make buibui-pundit-score` as the last action of the round** — reading the row back
+does not show you the parse, and at round-end every row is still OPEN, so a bad parse is
+free to fix then and invisible later.
 
 **`author` is the person who MADE the call, never the channel that reported it.** On a
 first-hand row those are the same and `attribution` is `"first-hand"` with `relayed_by`

@@ -253,6 +253,11 @@ For each approved image build the final snapshot dict:
   `clusters` from the extraction after operator corrections;
   `captured_at_ms` from the scan output; `ingested_at_ms` = now (ms);
   `verified` true; `notes` = correction summary or "".
+- **`spot_price_hint` is the anchor consumers judge the clusters against** —
+  which is why the null-don't-substitute rule above is a rule. A consumer
+  comparing clusters to the live mark instead reads ordinary drift as an
+  extraction sign-flip; `/card` digest step 2 carries the mirror, after a
+  false alarm on 2026-08-07l.
 
   **`spot_source` is optional and carries the extractor's `"printed"` /
   `"axis"` / `null` verbatim — do not invent it and do not drop it.** Step 2

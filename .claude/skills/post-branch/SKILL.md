@@ -429,7 +429,13 @@ For each surface in the config, do the following:
   **scripts** (`buibui-backup` → `deploy/backup-analytics.sh`), and #582 added a
   sibling script with no target because the stated rule only covers subcommands.
   Also check: every `deploy/*.sh` an operator runs by hand should have a wrapper,
-  or none of them should.
+  or none of them should. **And `tools/*.py`, which is where most hand-run scripts
+  actually live** (~30 of them; the audit tools nearly all carry a
+  `make buibui-*-audit` wrapper). The convention there is genuinely mixed —
+  `docs_index.py` is wrapped, `combo_health.py` is not — so this bullet should
+  prompt a judgement, not assert a rule. Found 2026-08-12d while promoting
+  `tools/decay_review.py` (#607): the convention had to be inferred by grepping
+  siblings, which is exactly the "a person plus luck" non-rule this step replaces.
 
 - **CLAUDE.md must not re-absorb this content.** The 2026-08-04 split left
   CLAUDE.md holding a package index plus verdicts, and the context docs
