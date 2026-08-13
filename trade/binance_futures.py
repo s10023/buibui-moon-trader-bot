@@ -51,18 +51,21 @@ class BinanceFuturesAdapter:
         for s in info["symbols"]:
             if s["symbol"] not in wanted:
                 continue
-            step = min_qty = min_notional = 0.0
+            step = min_qty = min_notional = price_tick = 0.0
             for f in s["filters"]:
                 if f["filterType"] == "LOT_SIZE":
                     step = float(f["stepSize"])
                     min_qty = float(f["minQty"])
                 elif f["filterType"] == "MIN_NOTIONAL":
                     min_notional = float(f["notional"])
+                elif f["filterType"] == "PRICE_FILTER":
+                    price_tick = float(f["tickSize"])
             out[s["symbol"]] = ExchangeFilters(
                 symbol=s["symbol"],
                 qty_step=step,
                 min_qty=min_qty,
                 min_notional=min_notional,
+                price_tick=price_tick,
             )
         return out
 

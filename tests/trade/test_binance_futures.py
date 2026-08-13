@@ -56,6 +56,41 @@ def test_get_filters_extracts_lot_and_notional() -> None:
     assert f.qty_step == 0.001 and f.min_qty == 0.001 and f.min_notional == 5.0
 
 
+def test_get_filters_extracts_price_tick() -> None:
+    client = MagicMock()
+    client.futures_exchange_info.return_value = {
+        "symbols": [
+            {
+                "symbol": "AAAUSDT",
+                "filters": [
+                    {"filterType": "LOT_SIZE", "stepSize": "0.001", "minQty": "0.001"},
+                    {"filterType": "MIN_NOTIONAL", "notional": "5"},
+                    {"filterType": "PRICE_FILTER", "tickSize": "0.01"},
+                ],
+            },
+        ]
+    }
+    adapter = BinanceFuturesAdapter(client, mode="dry_run")
+    assert adapter.get_filters(["AAAUSDT"])["AAAUSDT"].price_tick == 0.01
+
+
+def test_get_filters_missing_price_filter_leaves_tick_zero() -> None:
+    """A zero tick means 'unknown filter' and round_to_tick passes through."""
+    client = MagicMock()
+    client.futures_exchange_info.return_value = {
+        "symbols": [
+            {
+                "symbol": "AAAUSDT",
+                "filters": [
+                    {"filterType": "LOT_SIZE", "stepSize": "0.001", "minQty": "0.001"},
+                ],
+            },
+        ]
+    }
+    adapter = BinanceFuturesAdapter(client, mode="dry_run")
+    assert adapter.get_filters(["AAAUSDT"])["AAAUSDT"].price_tick == 0.0
+
+
 def test_get_marks_parses_prices() -> None:
     client = MagicMock()
     client.futures_mark_price.return_value = [

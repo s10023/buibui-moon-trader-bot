@@ -22,6 +22,7 @@ class ExchangeFilters:
     qty_step: float
     min_qty: float
     min_notional: float
+    price_tick: float = 0.0  # PRICE_FILTER tickSize; 0.0 == unknown
 
 
 @dataclass(frozen=True)
