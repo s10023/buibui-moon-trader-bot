@@ -48,6 +48,7 @@ def _final(verdict: str, **card_overrides: Any) -> FinalCard:
         model="sonnet",
         generated_at_ms=1,
         cost_usd_notional=0.0123,
+        horizon="intraday",
     )
 
 
