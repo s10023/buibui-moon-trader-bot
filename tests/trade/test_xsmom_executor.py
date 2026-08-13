@@ -90,6 +90,14 @@ class _FakeAdapter:
             raise RuntimeError("cancel failed")
         self.calls.append(f"cancel:{symbol}")
         self.cancelled.append(symbol)
+        # The resting order being cancelled may have partially filled moments
+        # before the cancel landed. Mutating positions here lets a test prove
+        # the PLANNING read is built from post-cancel state rather than a
+        # stale pre-cancel snapshot — the money-relevant invariant. A string
+        # appearing earlier in `self.calls` is not: it can't tell a genuinely
+        # unnecessary pre-cancel read (skipped by the executor's lazy managed-
+        # set computation) apart from a bug that reused one.
+        self._positions[symbol] = self._positions.get(symbol, 0.0) + 2.0
 
     def get_book_tops(self, symbols: list[str]) -> dict[str, tuple[float, float]]:
         return {s: self.book_tops[s] for s in symbols if s in self.book_tops}
@@ -202,11 +210,19 @@ def test_run_once_threads_marks_and_positions(tmp_path: Path) -> None:
 
 
 def test_run_once_isolates_per_order_failure(tmp_path: Path) -> None:
+    """Every order reaches `adapter.submit` and is REJECTED there — not
+    short-circuited earlier by a missing book top. Without `book_tops`, every
+    LIMIT intent would fail at `skip:no_book_top` before `submit` is ever
+    called, silently degrading this into a duplicate of
+    `test_limit_leg_fails_cleanly_when_book_top_missing` that no longer
+    exercises submit-rejection isolation or the price-in-failure-detail path.
+    """
     conn = duckdb.connect(":memory:")
     init_schema(conn)
     syms = _seed(conn)
     adapter = _FakeAdapter(equity=10_000.0, positions={}, marks={})
     adapter.fail_symbol = "*"  # every submit raises
+    adapter.book_tops = dict.fromkeys(syms, (99.9847, 100.0231))
     res = run_once(
         conn,
         adapter,
@@ -221,6 +237,8 @@ def test_run_once_isolates_per_order_failure(tmp_path: Path) -> None:
     assert len(res.plan.intents) >= 1  # there is something to submit
     assert res.submitted == []  # every order failed
     assert len(res.failed) == len(res.plan.intents)  # all captured, no crash
+    assert all("rejected" in r for _, r in res.failed)  # submit was reached
+    assert all("price=" in r for _, r in res.failed)  # diagnostic carries price
 
 
 def test_peak_equity_is_monotonic(tmp_path: Path) -> None:
@@ -494,14 +512,27 @@ def test_missing_mark_forces_steady_state_cap(tmp_path: Path) -> None:
 
 def test_cancels_stale_orders_before_reading_positions(tmp_path: Path) -> None:
     """A partially-filled resting order is still moving the position while it
-    sits there, so the planning read must come AFTER the cancel."""
+    sits there, so the plan must be built from the POST-cancel position.
+
+    Behavioural, not string-order, on purpose: an ordering probe over
+    `self.calls` can't tell "cancel precedes the *planning* read" apart from
+    "cancel precedes *every* read" — and the executor deliberately contains a
+    pre-cancel read for symbols that dropped out of the universe (see
+    `test_cancel_reaches_a_dropped_but_still_held_symbol`), so that stronger
+    claim is false. `_FakeAdapter.cancel_open_orders` simulates the resting
+    order filling by +2.0 the instant it's cancelled; if planning read a
+    stale pre-cancel snapshot, `res.positions["AAAUSDT"]` would come back 0.0
+    instead of 2.0.
+    """
     conn = duckdb.connect(":memory:")
     init_schema(conn)
     syms = _seed(conn)
-    adapter = _FakeAdapter(equity=10_000.0, positions={}, marks={})
+    adapter = _FakeAdapter(
+        equity=10_000.0, positions={}, marks=dict.fromkeys(syms, 100.0)
+    )
     adapter.open_order_symbols = {"AAAUSDT"}
     adapter.book_tops = dict.fromkeys(syms, (99.98, 100.02))
-    run_once(
+    res = run_once(
         conn,
         adapter,
         ForecastConfig(),
@@ -512,7 +543,8 @@ def test_cancels_stale_orders_before_reading_positions(tmp_path: Path) -> None:
         state_path=tmp_path / "s.json",
         now=pd.Timestamp("2022-02-05", tz="UTC"),
     )
-    assert adapter.calls.index("cancel:AAAUSDT") < adapter.calls.index("positions")
+    assert adapter.cancelled == ["AAAUSDT"]  # the cancel actually ran
+    assert res.positions["AAAUSDT"] == 2.0
 
 
 def test_cancel_is_scoped_to_managed_symbols(tmp_path: Path) -> None:
@@ -537,6 +569,34 @@ def test_cancel_is_scoped_to_managed_symbols(tmp_path: Path) -> None:
         now=pd.Timestamp("2022-02-05", tz="UTC"),
     )
     assert adapter.cancelled == ["AAAUSDT"]
+
+
+def test_cancel_reaches_a_dropped_but_still_held_symbol(tmp_path: Path) -> None:
+    """ZZZUSDT left the universe but is still HELD, so its stale order must
+    still be cancelled — the higher-stakes direction of the managed-set
+    boundary. The router already sends a MARKET close for a held off-universe
+    position; an uncancelled resting order sitting beside that close is
+    exactly the overshoot this task exists to prevent, on a closing order.
+    """
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    syms = _seed(conn)
+    adapter = _FakeAdapter(
+        equity=10_000.0, positions={"ZZZUSDT": 1.0}, marks={"ZZZUSDT": 100.0}
+    )
+    adapter.open_order_symbols = {"ZZZUSDT"}
+    run_once(
+        conn,
+        adapter,
+        ForecastConfig(),
+        syms,
+        _limits(),
+        no_trade_band_frac=0.0,
+        exchange_leverage=5,
+        state_path=tmp_path / "s.json",
+        now=pd.Timestamp("2022-02-05", tz="UTC"),
+    )
+    assert adapter.cancelled == ["ZZZUSDT"]
 
 
 def test_limit_rests_at_the_touch_rounded_passively(tmp_path: Path) -> None:

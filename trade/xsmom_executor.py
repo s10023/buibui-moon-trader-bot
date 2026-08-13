@@ -108,6 +108,9 @@ def run_once(
     # survive. Any open-order symbol still in the current universe is managed
     # with no lookup; a position read is only needed to resolve a symbol that
     # has DROPPED OUT of the universe (still held vs. a stray unmanaged order).
+    # Runs BEFORE `evaluate_overlay` deliberately: a kill-switched or
+    # drawdown-halted run still clears its own managed resting orders rather
+    # than leaving them able to fill while the book is halted.
     open_syms = adapter.get_open_order_symbols()
     if open_syms:
         universe = set(symbols)
