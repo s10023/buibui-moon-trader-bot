@@ -221,14 +221,20 @@ asset. **Do not reuse the filed 25-symbol 2.92× on any of these panels.**
 reversal): the system needs a second *strong* edge, and the cheap price-only free-data
 levers are exhausted. A new sleeve must carry genuinely new information. Separately,
 **conditioning axes are 6-for-6-plus-one-amended** (regime/session/combo/direction,
-H14's Coinbase premium, and H15's USD/JPY carry-unwind are clean NOs; H8's M1 axes are
+H14's Coinbase premium, and H15's USD/JPY carry-unwind found NO edge; H8's M1 axes are
 the amendment) — the diagnosis has moved off conditioning and onto the signal book.
+⚠ **Read "found no edge" as "no effect was FOUND", never as "an effect was RULED OUT"**
+— see the powered-null rule below; under CI containment those cells are INSUFFICIENT.
 **H15 (2026-08-04, verdict `docs/audits/2026-08-04-h15-usdjpy-carry-unwind.md`): NO-EDGE
 / INSUFFICIENT on every cell in every panel. The primary forward panel (BTCUSDT
-vol-normalised daily return, n=200–2055, well powered) cleared neither the significance
-nor the effect-size leg on any cell — a powered null, not an underpowered one. H15 is
+vol-normalised daily return, n=200–2055) cleared neither the significance nor the
+effect-size leg on any cell. ⚠ **It was filed as "a powered null, not an underpowered
+one" and that claim is WITHDRAWN** — it rested on `n >> MIN_N`, a sample-size floor, and
+the corrected criterion flips the primary panel to INSUFFICIENT (same wording, same
+defect, in H14). **The NO direction stands; the "no more-data door" corollary does
+NOT** — more data could still resolve these cells. H15 is
 the second cross-asset axis tested, after H14 (a genuinely different data source, not a
-re-slice of price/order-flow already held); both came back clean NOs, which sharpens the
+re-slice of price/order-flow already held); both found no edge, which sharpens the
 standing conclusion — the binding constraint is unchanged and the next edge needs
 genuinely new data, not a cleverer re-slice of what's already held.** **H8 AMENDED
 2026-08-04 (code fix PR #546, verdict
@@ -372,7 +378,20 @@ CI to have ruled one out.** Three separate test fixtures asserted "powered" whil
 their own CIs were 1.3–15× the bar, so **reading a test is not enough: assert the
 containment, and pair it with a positive control.** ⚠ **Quote the TEST's n, not the
 impressive one** — H14 propagated as NO-EDGE "over 849,445 trades" while the test
-ran on 44–190 **days**. ⚠ H8/H9/H10 verdicts are **NOT yet re-run** under the fix.
+ran on 44–190 **days**. **H8/H9/H10 were RE-RUN 2026-08-13 (ST26, verdict
+`docs/audits/2026-08-13-st26-powered-null-rerun.md`): of 170 filed NO-EDGE/COSMETIC
+cells only 41 survive, 126 moving on the criterion alone — H9 lost ALL 12 COSMETIC,
+H10 kept 4. No verdict direction reversed.** Two results generalise. **H10's `h96` was
+filed NO-EDGE while carrying Holm p=0.000, DSR 0.972 and PBO 0.013 — it clears all
+three gate legs**, so the defect stamped "no effect" onto the family's STRONGEST
+positive; its corrected INSUFFICIENT means *real but unsized against the bar*, not
+*ruled out*, and the two point at opposite next actions. And **H8's filed text talked
+itself out of the fix** ("at `min_n = 30` every pooled cell is powered, so defect 2's
+fix changes no cell") — the defect stated as a reassurance, which is why review missed
+it. ⚠ **A FIFTH site is still open: `analytics/sl_horizon.py` emits
+`NO-DIFFERENCE`/`CONFIRMED-BAD` the same way** (ST9 carries 29 such verdicts with **no
+CI at all**), and `powered_null` does NOT drop in — it is best-of-k selection, so the
+honest predicate is one-sided (`all arms' ci_hi < bar`). See SoT ST27.
 
 **CRITICAL — an audit gate's effect-size floor `bar` is expressed in the units of
 the observation, and nothing in its name or docstring says so.** H15

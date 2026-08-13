@@ -122,21 +122,28 @@ thrown away. Filed to the hypothesis inbox, **low priority**, correctly scoped:
 
 ---
 
-## ⚠ AMENDED 2026-08-13 — verdict labels PENDING RE-RUN
+## ⚠ AMENDED 2026-08-13 — RE-RUN COMPLETE, 11 of 15 `NO-EDGE` WITHDRAWN
 
 The `NO-EDGE` labels in this document were produced by a verdict map that treated
 `n >= min_n` as evidence of statistical power. **A sample-size floor is not power**
 — it cannot distinguish "the effect is smaller than the bar" from "the CI is
-several times the bar and we cannot tell" — so `NO-EDGE` was reachable for any cell
-that merely had enough rows.
+several times the bar and we cannot tell". Corrected in code on 2026-08-13: a
+powered null now requires the bootstrap CI to sit strictly inside ±`bar`
+(`audit_guard.CellVerdict.powered_null`).
 
-Corrected in code on 2026-08-13: a powered null now requires the bootstrap CI to
-sit strictly inside ±`bar` (`audit_guard.CellVerdict.powered_null`). Everything
-else is `INSUFFICIENT`.
+**Re-run 2026-08-13 (SoT ST26) — verdict:
+`docs/audits/2026-08-13-st26-powered-null-rerun.md`.** 11 of 15 cells move to
+`INSUFFICIENT`; median CI width among movers **1.6× bar**. **Four survive as genuine
+powered nulls** — universe h24 and h48, majors h120, BTC-only h120 — making H10 the
+only one of the three re-run audits with any survivors.
 
-**This audit has NOT been re-run against the corrected map.** Where H14's ten
-primary cells were re-run, **all ten moved `NO-EDGE` -> `INSUFFICIENT`**, so treat
-every `NO-EDGE` below as unverified until this is re-run. **Positive verdicts
-(BUILD / AVOID / REVERSE / SUPPRESS-CANDIDATE / PREDICTIVE / REVERTING) are
-unaffected** — the correction only ever weakens a negative claim, never promotes a
-cell. Rationale: `docs/audits/2026-08-13-h19-equity-btc-axis-power.md`.
+**⚠ THE `h96` ROW BELOW IS THE IMPORTANT CORRECTION.** It is filed as `NO-EDGE` while
+carrying Holm p = **0.000**, CI **[0.032, 0.082]** entirely above zero, DSR **0.972**
+and PBO **0.013** — it clears all three legs of the published research gate. The old
+criterion stamped "no effect worth acting on" onto the strongest positive result in
+the family.
+
+Its corrected label is `INSUFFICIENT`, and the reason matters: the CI straddles the
+0.05 actionability bar, so **the effect is real and its size against the bar is
+unresolved**. That is not the same statement as "we ruled an effect out", and the two
+point at opposite next actions. Anyone re-opening H10 should start here.

@@ -189,21 +189,28 @@ Pre-committed semantics: the warned slice is the would-be-suppressed slice of a 
 
 ---
 
-## ⚠ AMENDED 2026-08-13 — verdict labels PENDING RE-RUN
+## ⚠ AMENDED 2026-08-13 — RE-RUN COMPLETE, ALL 12 `COSMETIC` VERDICTS WITHDRAWN
 
-The `NO-EDGE` labels in this document were produced by a verdict map that treated
-`n >= min_n` as evidence of statistical power. **A sample-size floor is not power**
-— it cannot distinguish "the effect is smaller than the bar" from "the CI is
-several times the bar and we cannot tell" — so `NO-EDGE` was reachable for any cell
-that merely had enough rows.
+**This audit's negative label is `COSMETIC`, not `NO-EDGE`** — the banner filed here
+on 2026-08-13 was boilerplate copied across three documents and named the wrong
+label. `COSMETIC` was produced by a verdict map that treated "both cohorts ≥
+`min_n`" as evidence of statistical power. **A sample-size floor is not power** — it
+cannot distinguish "the effect is smaller than the bar" from "the CI is several
+times the bar and we cannot tell". Corrected in code on 2026-08-13: a powered null
+now requires the bootstrap CI to sit strictly inside ±`bar`
+(`audit_guard.CellVerdict.powered_null`).
 
-Corrected in code on 2026-08-13: a powered null now requires the bootstrap CI to
-sit strictly inside ±`bar` (`audit_guard.CellVerdict.powered_null`). Everything
-else is `INSUFFICIENT`.
+**Re-run 2026-08-13 (SoT ST26) — verdict:
+`docs/audits/2026-08-13-st26-powered-null-rerun.md`. NOT ONE of the 12 `COSMETIC`
+cells survives** — 11 move to `INSUFFICIENT` on the criterion alone, and the 12th
+(`w1_marubozu` long) was promoted to `SUPPRESS-CANDIDATE` by data accrued since July.
+Median CI width among the movers is **3.9× the bar**, the widest **9.9×**.
 
-**This audit has NOT been re-run against the corrected map.** Where H14's ten
-primary cells were re-run, **all ten moved `NO-EDGE` -> `INSUFFICIENT`**, so treat
-every `NO-EDGE` below as unverified until this is re-run. **Positive verdicts
-(BUILD / AVOID / REVERSE / SUPPRESS-CANDIDATE / PREDICTIVE / REVERTING) are
-unaffected** — the correction only ever weakens a negative claim, never promotes a
-cell. Rationale: `docs/audits/2026-08-13-h19-equity-btc-axis-power.md`.
+`COSMETIC` is a positive claim that a warning does not matter. Every cell below that
+carried it had an interval far too wide to support that claim; read them as untested,
+not as tested-and-clear. The narrowest miss is `w2_equal_levels` short at CI
+[+0.019, +0.062], which fails containment only because its upper edge sits 0.012
+above the 0.05 bar.
+
+**`w6_consecutive` short REVERSE stands, and every `SUPPRESS-CANDIDATE` stands** —
+the correction only ever weakens a negative claim, never promotes a cell.

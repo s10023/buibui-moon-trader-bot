@@ -4,13 +4,14 @@
 `make docs-index-check` (and `tests/test_docs_index.py`) fails when this file
 drifts from the corpus.
 
-**42 audits.** A verdict line is shown only where one could be read
-out of a Verdict heading as prose — that is **26 of 42**.
+**43 audits.** A verdict line is shown only where one could be read
+out of a Verdict heading as prose — that is **27 of 43**.
 An em dash means the doc states its verdict in a table, a blockquote or the body,
 **not** that it lacks one; open the file. Nothing here is keyword-guessed.
 
 | Date | Audit | Verdict (as written) | File |
 | --- | --- | --- | --- |
+| 2026-08-13 | ST26 — H8 / H9 / H10 re-run under the corrected powered-null criterion | every negative claim in all three audits was overstated. Of 170 filed | [2026-08-13-st26-powered-null-rerun.md](2026-08-13-st26-powered-null-rerun.md) |
 | 2026-08-13 | H19 — equity→BTC transmission: POWER PRICED, NO-GO | PARK. Do not design it. Priced before any design, per | [2026-08-13-h19-equity-btc-axis-power.md](2026-08-13-h19-equity-btc-axis-power.md) |
 | 2026-08-12 | Spec reconcile — F2 AI Trade Card v1 | the IMPLEMENTATION reconciles CLEAN — every pre-registered element is present, | [2026-08-12-spec-reconcile-f2-trade-card.md](2026-08-12-spec-reconcile-f2-trade-card.md) |
 | 2026-08-12 | Multi-regime detector validation — verdict: NO detectable regime dependence | Three of the four cells are powered nulls with tight bounds. The fourth is a nominal hit that does not survive multiplicity. | [2026-08-12-multi-regime-validation.md](2026-08-12-multi-regime-validation.md) |
@@ -25,7 +26,7 @@ An em dash means the doc states its verdict in a table, a blockquote or the body
 | 2026-07-24 | H8 — M1 Indicator-State Conditioning Audit | `bar = ±0.05R`, `alpha = 0.05`, `min_n = 30`, `n_boot = 2000`, seed 12345. Run one tier at a time (`--timeframes`): pooling tiers… | [2026-07-24-h8-m1-indicator-conditioning.md](2026-07-24-h8-m1-indicator-conditioning.md) |
 | 2026-07-23 | H10 — Partial-path predictiveness | NO-EDGE across all 15 gated cells → ST6 and ST7 close (spec §8). | [2026-07-23-h10-partial-path-predictiveness.md](2026-07-23-h10-partial-path-predictiveness.md) |
 | 2026-07-21 | ST9 / H11 — SL-horizon audit | — | [2026-07-21-st9-sl-horizon.md](2026-07-21-st9-sl-horizon.md) |
-| 2026-07-17 | H9 warning-value audit | The `NO-EDGE` labels in this document were produced by a verdict map that treated `n >= min_n` as evidence of statistical power.… | [2026-07-17-h9-warning-value.md](2026-07-17-h9-warning-value.md) |
+| 2026-07-17 | H9 warning-value audit | `COSMETIC` is a positive claim that a warning does not matter. Every cell below that carried it had an interval far too wide to… | [2026-07-17-h9-warning-value.md](2026-07-17-h9-warning-value.md) |
 | 2026-06-26 | Structural level-hold touch-decay kill-test | First-touch beats repeat-touch (time-split-robust, Holm, CI>bar) on: bos/short, eqh_eql/short, fvg/long → escalate to the… | [2026-06-26-structural-level-hold-touch-decay.md](2026-06-26-structural-level-hold-touch-decay.md) |
 | 2026-06-26 | Faithful per-strategy structural entry-sim harness | BUILD holds independently on every requested timeframe (1d) — see the per-tf breakdown below for each tf's own cells. | [2026-06-26-structural-entry-sim-harness.md](2026-06-26-structural-entry-sim-harness.md) |
 | 2026-06-24 | Reference-level proximity audit | Live near-level cohort does not clear the de-biased gate — do not build. | [2026-06-24-reference-level-proximity.md](2026-06-24-reference-level-proximity.md) |
