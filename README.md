@@ -614,7 +614,10 @@ inverse: `confidence_ratings` rows for cells no config declares any more, which
 are inert at runtime (both read sites are keyed lookups, so a cell nothing scans
 is never queried) but they inflate any population counted off that table. The
 check is direction-aware, tiers orphans by whether *any* config still declares
-them, and is report-only unless given `STRICT=1`. It never prunes.
+them, and is report-only unless given `STRICT=1`. It never prunes — `recalibrate
+--apply --config` does that (below). Note that orphans do **not** go stale:
+recalibrate keeps refreshing their timestamps, so an orphan is a stale value
+wearing a fresh one and nothing about the row looks wrong.
 
 **Single-combo options:**
 
@@ -709,6 +712,14 @@ poetry run python buibui.py recalibrate --min-trades 20 --apply
 signal watch loads these at startup so each TOML config uses its own calibrated stars.
 When the active config's `day_filter` changes between runs, recalibrate's stale-row
 pruner removes ratings written under the previous scope so the daemon never reads zombies.
+
+A second pruner removes rows for cells the config **no longer declares**. Without it
+nothing ever did: the upsert only inserts-or-replaces, so a dropped cell kept its stars
+forever (measured 2026-08-13 — a full `/db-update` left the orphan set at 206 → 206). It
+is guarded by a share ceiling: if more than half of one config's rating rows would be
+deleted, it **refuses and deletes nothing**, because a declaration resolver that
+under-reports presents as mass deletion. That guard is a tripwire on the resolver, not a
+policy knob — raise it only after reading `make buibui-dead-surface-check` output.
 
 **Day-filter scopes.** The three production configs partition the calendar:
 
