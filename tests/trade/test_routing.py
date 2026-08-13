@@ -5,10 +5,18 @@ from trade.routing import ExchangeFilters, build_order_plan
 
 
 def _filters(
-    sym: str, step: float = 0.001, min_qty: float = 0.001, min_notional: float = 5.0
+    sym: str,
+    step: float = 0.001,
+    min_qty: float = 0.001,
+    min_notional: float = 5.0,
+    price_tick: float = 0.01,
 ) -> ExchangeFilters:
     return ExchangeFilters(
-        symbol=sym, qty_step=step, min_qty=min_qty, min_notional=min_notional
+        symbol=sym,
+        qty_step=step,
+        min_qty=min_qty,
+        min_notional=min_notional,
+        price_tick=price_tick,
     )
 
 
@@ -218,3 +226,43 @@ def test_order_qty_equal_min_qty_passes() -> None:
     )
     assert len(plan.intents) == 1
     assert abs(plan.intents[0].qty - 0.1) < 1e-9
+
+
+def test_opens_are_limit_and_closes_are_market() -> None:
+    """Risk-increasing orders make; risk-reducing orders take.
+
+    An unfilled OPEN is bounded opportunity cost and self-corrects on the next
+    rebalance. An unfilled CLOSE is open directional risk the book has already
+    decided against — that asymmetry is the whole reason for the split.
+    """
+    book = _book([_pos("AAAUSDT", 0.1)])  # $1000 target, a new long
+    plan = build_order_plan(
+        book,
+        current_positions={"BBBUSDT": 2.0},  # held, not in book -> close
+        marks={"AAAUSDT": 100.0, "BBBUSDT": 100.0},
+        filters={"AAAUSDT": _filters("AAAUSDT"), "BBBUSDT": _filters("BBBUSDT")},
+        no_trade_band_frac=0.0,
+        capital=10_000.0,
+    )
+    by_symbol = {i.symbol: i for i in plan.intents}
+    assert by_symbol["AAAUSDT"].order_type == "LIMIT"
+    assert by_symbol["AAAUSDT"].reduce_only is False
+    assert by_symbol["BBBUSDT"].order_type == "MARKET"
+    assert by_symbol["BBBUSDT"].reduce_only is True
+
+
+def test_same_side_trim_is_market() -> None:
+    """A trim reduces an existing position, so it is risk-reducing too."""
+    book = _book([_pos("AAAUSDT", 0.05)])  # $500 target vs $1000 held
+    plan = build_order_plan(
+        book,
+        current_positions={"AAAUSDT": 10.0},  # 10 units at mark 100 = $1000
+        marks={"AAAUSDT": 100.0},
+        filters={"AAAUSDT": _filters("AAAUSDT")},
+        no_trade_band_frac=0.0,
+        capital=10_000.0,
+    )
+    intent = plan.intents[0]
+    assert intent.side == "SELL"
+    assert intent.reduce_only is True
+    assert intent.order_type == "MARKET"
