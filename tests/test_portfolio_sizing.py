@@ -409,7 +409,18 @@ class TestSizingConfigGuard:
 
 
 def test_round_to_tick_enumerated_never_crosses() -> None:
-    """BUY must never round up, SELL must never round down — at any tick."""
+    """BUY must never round up, SELL must never round down — at any tick.
+
+    The one-sided bounds alone are not enough: a degenerate `return price`
+    (or a BUY branch hardcoded to `0.0`) satisfies `buy <= price` /
+    `sell >= price` on every iteration without ever rounding anything. The
+    equality checks below pin the actual floor/ceil DIRECTION for every
+    non-zero offset, where the expected value is unambiguous
+    (`exact` for BUY, `exact + tick` for SELL). The zero-offset case is left
+    to the one-sided bounds only, because there `buy == sell == exact` (the
+    snap branch fires before `side` is even read) and the `exact + tick`
+    expectation would not hold.
+    """
     for tick in (0.0001, 0.01, 0.1, 1.0, 2.5):
         for mult in range(1, 400):
             exact = mult * tick
@@ -419,6 +430,14 @@ def test_round_to_tick_enumerated_never_crosses() -> None:
                 sell = round_to_tick(price, tick, "SELL")
                 assert buy <= price + 1e-12, f"BUY crossed: {price} {tick} -> {buy}"
                 assert sell >= price - 1e-12, f"SELL crossed: {price} {tick} -> {sell}"
+                if offset != 0.0:
+                    assert buy == pytest.approx(exact), (
+                        f"BUY did not floor to the tick: {price} {tick} -> {buy}, expected {exact}"
+                    )
+                    assert sell == pytest.approx(exact + tick), (
+                        f"SELL did not ceil to the tick: {price} {tick} -> {sell}, "
+                        f"expected {exact + tick}"
+                    )
 
 
 def test_round_to_tick_exact_multiple_is_returned_unchanged() -> None:
