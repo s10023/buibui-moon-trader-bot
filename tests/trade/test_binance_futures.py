@@ -101,6 +101,29 @@ def test_get_marks_parses_prices() -> None:
     assert adapter.get_marks(["AAAUSDT"]) == {"AAAUSDT": 100.0}
 
 
+def test_get_book_tops_returns_bid_ask_for_wanted_symbols() -> None:
+    client = MagicMock()
+    client.futures_orderbook_ticker.return_value = [
+        {"symbol": "AAAUSDT", "bidPrice": "99.98", "askPrice": "100.02"},
+        {"symbol": "BBBUSDT", "bidPrice": "10.1", "askPrice": "10.2"},
+        {"symbol": "ZZZUSDT", "bidPrice": "1.0", "askPrice": "1.1"},
+    ]
+    adapter = BinanceFuturesAdapter(client, mode="dry_run")
+    tops = adapter.get_book_tops(["AAAUSDT", "BBBUSDT"])
+    assert tops == {"AAAUSDT": (99.98, 100.02), "BBBUSDT": (10.1, 10.2)}
+
+
+def test_get_book_tops_drops_non_positive_quotes() -> None:
+    """A zero or missing side is unusable — the caller must skip that symbol."""
+    client = MagicMock()
+    client.futures_orderbook_ticker.return_value = [
+        {"symbol": "AAAUSDT", "bidPrice": "0", "askPrice": "100.02"},
+        {"symbol": "BBBUSDT", "bidPrice": "10.1", "askPrice": "10.2"},
+    ]
+    adapter = BinanceFuturesAdapter(client, mode="dry_run")
+    assert adapter.get_book_tops(["AAAUSDT", "BBBUSDT"]) == {"BBBUSDT": (10.1, 10.2)}
+
+
 def test_submit_market_is_noop_in_dry_run() -> None:
     client = MagicMock()
     adapter = BinanceFuturesAdapter(client, mode="dry_run")

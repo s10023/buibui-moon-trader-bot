@@ -76,6 +76,26 @@ class BinanceFuturesAdapter:
             r["symbol"]: float(r["markPrice"]) for r in rows if r["symbol"] in wanted
         }
 
+    def get_book_tops(self, symbols: list[str]) -> dict[str, tuple[float, float]]:
+        """Best bid/ask per symbol, for post-only limit placement.
+
+        Mirrors `get_marks`: one batch call for the whole universe. A
+        non-positive quote on either side is dropped rather than returned as
+        zero — a limit priced off a zero would be rejected or, worse, filled
+        somewhere absurd.
+        """
+        rows = self.client.futures_orderbook_ticker()
+        wanted = set(symbols)
+        out: dict[str, tuple[float, float]] = {}
+        for r in rows:
+            if r["symbol"] not in wanted:
+                continue
+            bid = float(r["bidPrice"])
+            ask = float(r["askPrice"])
+            if bid > 0.0 and ask > 0.0:
+                out[r["symbol"]] = (bid, ask)
+        return out
+
     # ----- writes -----
     def ensure_account_config(self, symbols: list[str], *, leverage: int) -> None:
         if self.mode == "dry_run":
