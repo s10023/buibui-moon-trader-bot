@@ -1,7 +1,8 @@
 """Binance USDT-M Futures I/O adapter for the XS-solo executor.
 
-Thin, injectable wrapper over a `python-binance` Client. Read methods always
-hit the API; write methods (`ensure_account_config`, `submit`) are
+Thin, injectable wrapper over a `python-binance` Client. Read methods hit the
+API, except `get_open_order_symbols`, which shares the write methods' guard;
+write methods (`ensure_account_config`, `submit`, `cancel_open_orders`) are
 no-op-and-log when `mode == "dry_run"`. The client is constructed by the CLI
 (mainnet for dry_run/live, testnet client for testnet) and injected here, so
 this class is unit-testable with a MagicMock.
