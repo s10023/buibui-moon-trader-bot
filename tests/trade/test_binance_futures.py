@@ -15,10 +15,6 @@ class _APIError(Exception):
         self.code = code
 
 
-def _intent() -> OrderIntent:
-    return OrderIntent("AAAUSDT", "BUY", 2.0, False, 200.0, "open")
-
-
 def test_get_positions_parses_signed_amt() -> None:
     client = MagicMock()
     client.futures_position_information.return_value = [
@@ -124,26 +120,47 @@ def test_get_book_tops_drops_non_positive_quotes() -> None:
     assert adapter.get_book_tops(["AAAUSDT", "BBBUSDT"]) == {"BBBUSDT": (10.1, 10.2)}
 
 
-def test_submit_market_is_noop_in_dry_run() -> None:
+def test_submit_limit_sends_gtx_post_only() -> None:
     client = MagicMock()
-    adapter = BinanceFuturesAdapter(client, mode="dry_run")
-    res = adapter.submit_market(_intent())
-    assert res["dryRun"] is True
+    adapter = BinanceFuturesAdapter(client, mode="live")
+    intent = OrderIntent("AAAUSDT", "BUY", 2.0, False, 200.0, "open", "LIMIT")
+    adapter.submit(intent, price=99.98)
+    kwargs = client.futures_create_order.call_args.kwargs
+    assert kwargs["type"] == "LIMIT"
+    assert kwargs["timeInForce"] == "GTX"  # post-only: reject rather than cross
+    assert kwargs["price"] == 99.98
+    assert kwargs["quantity"] == 2.0
+
+
+def test_submit_market_omits_price_and_tif() -> None:
+    client = MagicMock()
+    adapter = BinanceFuturesAdapter(client, mode="live")
+    intent = OrderIntent("AAAUSDT", "SELL", 2.0, True, -200.0, "close", "MARKET")
+    adapter.submit(intent)
+    kwargs = client.futures_create_order.call_args.kwargs
+    assert kwargs["type"] == "MARKET"
+    assert "price" not in kwargs and "timeInForce" not in kwargs
+    assert kwargs["reduceOnly"] is True
+
+
+def test_submit_limit_without_price_raises() -> None:
+    """A LIMIT with no price is a caller bug — fail loudly, never silently market."""
+    client = MagicMock()
+    adapter = BinanceFuturesAdapter(client, mode="live")
+    intent = OrderIntent("AAAUSDT", "BUY", 2.0, False, 200.0, "open", "LIMIT")
+    with pytest.raises(ValueError, match="LIMIT order requires a price"):
+        adapter.submit(intent, price=None)
     client.futures_create_order.assert_not_called()
 
 
-def test_submit_market_calls_create_order_on_testnet() -> None:
+def test_submit_dry_run_reports_type_and_price_without_calling() -> None:
     client = MagicMock()
-    client.futures_create_order.return_value = {"orderId": 1}
-    adapter = BinanceFuturesAdapter(client, mode="testnet")
-    adapter.submit_market(_intent())
-    client.futures_create_order.assert_called_once_with(
-        symbol="AAAUSDT",
-        side="BUY",
-        type="MARKET",
-        quantity=2.0,
-        reduceOnly=False,
-    )
+    adapter = BinanceFuturesAdapter(client, mode="dry_run")
+    intent = OrderIntent("AAAUSDT", "BUY", 2.0, False, 200.0, "open", "LIMIT")
+    out = adapter.submit(intent, price=99.98)
+    assert out["dryRun"] is True
+    assert out["orderType"] == "LIMIT" and out["price"] == 99.98
+    client.futures_create_order.assert_not_called()
 
 
 def test_ensure_account_config_raises_on_hedge_mode() -> None:

@@ -1,7 +1,7 @@
 """Binance USDT-M Futures I/O adapter for the XS-solo executor.
 
 Thin, injectable wrapper over a `python-binance` Client. Read methods always
-hit the API; write methods (`ensure_account_config`, `submit_market`) are
+hit the API; write methods (`ensure_account_config`, `submit`) are
 no-op-and-log when `mode == "dry_run"`. The client is constructed by the CLI
 (mainnet for dry_run/live, testnet client for testnet) and injected here, so
 this class is unit-testable with a MagicMock.
@@ -112,7 +112,16 @@ class BinanceFuturesAdapter:
                     raise
             self.client.futures_change_leverage(symbol=sym, leverage=leverage)
 
-    def submit_market(self, intent: OrderIntent) -> dict[str, Any]:
+    def submit(self, intent: OrderIntent, price: float | None = None) -> dict[str, Any]:
+        """Submit one order. LIMIT orders are post-only (GTX).
+
+        GTX makes the exchange REJECT an order that would cross instead of
+        letting it take. That is the point — a crossed "maker" order is just a
+        taker fill with extra steps — but it means a wrong-side tick rounding
+        fails as a rejection, not a bad fill. See `round_to_tick`.
+        """
+        if intent.order_type == "LIMIT" and price is None:
+            raise ValueError(f"LIMIT order requires a price: {intent.symbol}")
         if self.mode == "dry_run":
             return {
                 "dryRun": True,
@@ -120,11 +129,17 @@ class BinanceFuturesAdapter:
                 "side": intent.side,
                 "qty": intent.qty,
                 "reduceOnly": intent.reduce_only,
+                "orderType": intent.order_type,
+                "price": price,
             }
-        return self.client.futures_create_order(  # type: ignore[no-any-return]
-            symbol=intent.symbol,
-            side=intent.side,
-            type="MARKET",
-            quantity=intent.qty,
-            reduceOnly=intent.reduce_only,
-        )
+        params: dict[str, Any] = {
+            "symbol": intent.symbol,
+            "side": intent.side,
+            "type": intent.order_type,
+            "quantity": intent.qty,
+            "reduceOnly": intent.reduce_only,
+        }
+        if intent.order_type == "LIMIT":
+            params["price"] = price
+            params["timeInForce"] = "GTX"
+        return self.client.futures_create_order(**params)  # type: ignore[no-any-return]
