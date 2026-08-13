@@ -96,6 +96,17 @@ class BinanceFuturesAdapter:
                 out[r["symbol"]] = (bid, ask)
         return out
 
+    def get_open_order_symbols(self) -> set[str]:
+        """Symbols carrying a resting order right now.
+
+        Read with no symbol argument so it covers symbols that have since left
+        the target book — the case with no position to reveal it.
+        """
+        if self.mode == "dry_run":
+            return set()
+        rows = self.client.futures_get_open_orders()
+        return {r["symbol"] for r in rows}
+
     # ----- writes -----
     def ensure_account_config(self, symbols: list[str], *, leverage: int) -> None:
         if self.mode == "dry_run":
@@ -143,3 +154,8 @@ class BinanceFuturesAdapter:
             params["price"] = price
             params["timeInForce"] = "GTX"
         return self.client.futures_create_order(**params)  # type: ignore[no-any-return]
+
+    def cancel_open_orders(self, symbol: str) -> None:
+        if self.mode == "dry_run":
+            return
+        self.client.futures_cancel_all_open_orders(symbol=symbol)

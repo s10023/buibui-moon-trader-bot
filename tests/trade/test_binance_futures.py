@@ -189,3 +189,35 @@ def test_ensure_account_config_noop_in_dry_run() -> None:
     adapter.ensure_account_config(["AAAUSDT"], leverage=5)
     client.futures_get_position_mode.assert_not_called()
     client.futures_change_leverage.assert_not_called()
+
+
+def test_get_open_order_symbols_dedups() -> None:
+    client = MagicMock()
+    client.futures_get_open_orders.return_value = [
+        {"symbol": "AAAUSDT", "orderId": 1},
+        {"symbol": "AAAUSDT", "orderId": 2},
+        {"symbol": "BBBUSDT", "orderId": 3},
+    ]
+    adapter = BinanceFuturesAdapter(client, mode="live")
+    assert adapter.get_open_order_symbols() == {"AAAUSDT", "BBBUSDT"}
+
+
+def test_get_open_order_symbols_dry_run_returns_empty_without_calling() -> None:
+    client = MagicMock()
+    adapter = BinanceFuturesAdapter(client, mode="dry_run")
+    assert adapter.get_open_order_symbols() == set()
+    client.futures_get_open_orders.assert_not_called()
+
+
+def test_cancel_open_orders_calls_per_symbol() -> None:
+    client = MagicMock()
+    adapter = BinanceFuturesAdapter(client, mode="live")
+    adapter.cancel_open_orders("AAAUSDT")
+    client.futures_cancel_all_open_orders.assert_called_once_with(symbol="AAAUSDT")
+
+
+def test_cancel_open_orders_dry_run_is_a_noop() -> None:
+    client = MagicMock()
+    adapter = BinanceFuturesAdapter(client, mode="dry_run")
+    adapter.cancel_open_orders("AAAUSDT")
+    client.futures_cancel_all_open_orders.assert_not_called()
