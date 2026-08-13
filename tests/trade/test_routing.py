@@ -266,3 +266,34 @@ def test_same_side_trim_is_market() -> None:
     assert intent.side == "SELL"
     assert intent.reduce_only is True
     assert intent.order_type == "MARKET"
+
+
+def test_short_open_is_limit_and_short_trim_is_market() -> None:
+    """order_type is keyed on reduce_only, not on side.
+
+    Every case above with reduce_only False also happens to be a BUY, and every
+    case with reduce_only True also happens to be a SELL — so a mutant deriving
+    order_type from `side == "SELL"` instead of `reduce_only` would pass them
+    all. These two short-side cases decouple the axes: opening a short is a
+    SELL that must still be LIMIT, and trimming a short is a BUY that must
+    still be MARKET.
+    """
+    book = _book([_pos("AAAUSDT", -0.1), _pos("BBBUSDT", -0.05)])
+    plan = build_order_plan(
+        book,
+        # BBBUSDT: short 10 units held, target short 5 -> trim (reduce_only, BUY)
+        current_positions={"BBBUSDT": -10.0},
+        marks={"AAAUSDT": 100.0, "BBBUSDT": 100.0},
+        filters={"AAAUSDT": _filters("AAAUSDT"), "BBBUSDT": _filters("BBBUSDT")},
+        no_trade_band_frac=0.0,
+        capital=10_000.0,
+    )
+    by_symbol = {i.symbol: i for i in plan.intents}
+    # New short from flat: SELL, not reduce_only -> LIMIT.
+    assert by_symbol["AAAUSDT"].side == "SELL"
+    assert by_symbol["AAAUSDT"].reduce_only is False
+    assert by_symbol["AAAUSDT"].order_type == "LIMIT"
+    # Trim of an existing short: BUY, reduce_only -> MARKET.
+    assert by_symbol["BBBUSDT"].side == "BUY"
+    assert by_symbol["BBBUSDT"].reduce_only is True
+    assert by_symbol["BBBUSDT"].order_type == "MARKET"
