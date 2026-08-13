@@ -202,11 +202,17 @@ def test_get_open_order_symbols_dedups() -> None:
     assert adapter.get_open_order_symbols() == {"AAAUSDT", "BBBUSDT"}
 
 
-def test_get_open_order_symbols_dry_run_returns_empty_without_calling() -> None:
+def test_get_open_order_symbols_dry_run_hits_the_api() -> None:
+    """Not dry-run-guarded: a dry run must see real resting orders, since
+    that's the exact condition `cancel_open_orders` exists to handle."""
     client = MagicMock()
+    client.futures_get_open_orders.return_value = [
+        {"symbol": "AAAUSDT", "orderId": 1},
+        {"symbol": "BBBUSDT", "orderId": 2},
+    ]
     adapter = BinanceFuturesAdapter(client, mode="dry_run")
-    assert adapter.get_open_order_symbols() == set()
-    client.futures_get_open_orders.assert_not_called()
+    assert adapter.get_open_order_symbols() == {"AAAUSDT", "BBBUSDT"}
+    client.futures_get_open_orders.assert_called_once()
 
 
 def test_cancel_open_orders_calls_per_symbol() -> None:

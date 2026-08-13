@@ -1,7 +1,7 @@
 """Binance USDT-M Futures I/O adapter for the XS-solo executor.
 
-Thin, injectable wrapper over a `python-binance` Client. Read methods hit the
-API, except `get_open_order_symbols`, which shares the write methods' guard;
+Thin, injectable wrapper over a `python-binance` Client. Read methods always
+hit the API — this includes `dry_run`, so a dry run sees real exchange state;
 write methods (`ensure_account_config`, `submit`, `cancel_open_orders`) are
 no-op-and-log when `mode == "dry_run"`. The client is constructed by the CLI
 (mainnet for dry_run/live, testnet client for testnet) and injected here, so
@@ -101,10 +101,11 @@ class BinanceFuturesAdapter:
         """Symbols carrying a resting order right now.
 
         Read with no symbol argument so it covers symbols that have since left
-        the target book — the case with no position to reveal it.
+        the target book — the case with no position to reveal it. Not
+        dry-run-guarded, unlike `cancel_open_orders`: it's a plain read with
+        no mutation risk, and a dry run needs to see real resting orders to
+        surface the stale-order condition `cancel_open_orders` exists to fix.
         """
-        if self.mode == "dry_run":
-            return set()
         rows = self.client.futures_get_open_orders()
         return {r["symbol"] for r in rows}
 
