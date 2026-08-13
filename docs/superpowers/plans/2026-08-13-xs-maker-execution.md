@@ -282,6 +282,29 @@ The maker/taker policy, decided in the pure planner so it is testable with no cl
 
 Add to `tests/trade/test_routing.py`:
 
+First extend the file's existing `_filters` helper (`tests/trade/test_routing.py:7-13`) with
+a tick, so these tests do not introduce a second construction style:
+
+```python
+def _filters(
+    sym: str,
+    step: float = 0.001,
+    min_qty: float = 0.001,
+    min_notional: float = 5.0,
+    price_tick: float = 0.01,
+) -> ExchangeFilters:
+    return ExchangeFilters(
+        symbol=sym,
+        qty_step=step,
+        min_qty=min_qty,
+        min_notional=min_notional,
+        price_tick=price_tick,
+    )
+```
+
+Then the tests, using the file's `_book` / `_pos` helpers (`:16-36`) — note `_pos` takes
+**leverage**, and notional is `lev * capital`:
+
 ```python
 def test_opens_are_limit_and_closes_are_market() -> None:
     """Risk-increasing orders make; risk-reducing orders take.
@@ -290,16 +313,12 @@ def test_opens_are_limit_and_closes_are_market() -> None:
     rebalance. An unfilled CLOSE is open directional risk the book has already
     decided against — that asymmetry is the whole reason for the split.
     """
-    book = _book([("AAAUSDT", 1000.0)])          # wants a new long
-    filters = {
-        "AAAUSDT": ExchangeFilters("AAAUSDT", 0.001, 0.001, 5.0, 0.01),
-        "BBBUSDT": ExchangeFilters("BBBUSDT", 0.001, 0.001, 5.0, 0.01),
-    }
+    book = _book([_pos("AAAUSDT", 0.1)])         # $1000 target, a new long
     plan = build_order_plan(
         book,
-        {"BBBUSDT": 2.0},                        # held, not in book -> close
-        {"AAAUSDT": 100.0, "BBBUSDT": 100.0},
-        filters,
+        current_positions={"BBBUSDT": 2.0},      # held, not in book -> close
+        marks={"AAAUSDT": 100.0, "BBBUSDT": 100.0},
+        filters={"AAAUSDT": _filters("AAAUSDT"), "BBBUSDT": _filters("BBBUSDT")},
         no_trade_band_frac=0.0,
         capital=10_000.0,
     )
@@ -312,23 +331,20 @@ def test_opens_are_limit_and_closes_are_market() -> None:
 
 def test_same_side_trim_is_market() -> None:
     """A trim reduces an existing position, so it is risk-reducing too."""
-    book = _book([("AAAUSDT", 500.0)])           # wants less than it holds
-    filters = {"AAAUSDT": ExchangeFilters("AAAUSDT", 0.001, 0.001, 5.0, 0.01)}
+    book = _book([_pos("AAAUSDT", 0.05)])        # $500 target vs $1000 held
     plan = build_order_plan(
         book,
-        {"AAAUSDT": 10.0},                       # holds 1000 notional at mark 100
-        {"AAAUSDT": 100.0},
-        filters,
+        current_positions={"AAAUSDT": 10.0},     # 10 units at mark 100 = $1000
+        marks={"AAAUSDT": 100.0},
+        filters={"AAAUSDT": _filters("AAAUSDT")},
         no_trade_band_frac=0.0,
         capital=10_000.0,
     )
     intent = plan.intents[0]
+    assert intent.side == "SELL"
     assert intent.reduce_only is True
     assert intent.order_type == "MARKET"
 ```
-
-Reuse the file's existing `_book` helper. If it takes a different shape, match it — do not
-introduce a second book builder.
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -744,6 +760,9 @@ and record ordering in the existing `get_positions` (`:63`):
 a tick so limit pricing is exercised: `ExchangeFilters(s, 0.001, 0.001, 5.0, 0.01)`.
 
 - [ ] **Step 1: Write the failing tests**
+
+⚠ `tests/trade/test_xsmom_executor.py` does **not** import pytest — add `import pytest` to
+its imports (after `import pandas as pd` at `:8`), or `pytest.raises` below is a NameError.
 
 Follow the call shape of `test_run_once_happy_path_submits` (`:109-130`) exactly — same
 `_seed(conn)`, same `now=pd.Timestamp("2022-02-05", tz="UTC")`.
