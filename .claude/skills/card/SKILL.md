@@ -157,6 +157,12 @@ Per card:
    same-input re-extraction (mean drift 20–43% of band width, measured
    2026-08-12), so a card placing an entry/SL/TP exactly on a cluster edge is
    a rubric violation even when the number is real. Intensity IS reliable.
+   **Judge a cluster's SIDE against the snapshot's own `spot_price_hint`,
+   never `ref_close` or the live mark** — every cluster is positioned relative
+   to the price at capture, so ordinary drift since looks exactly like an
+   extraction sign-flip. False alarm 2026-08-07l: BTC short-liq clusters at
+   64830–64980 read as inverted against `ref_close` 64996.1, and were correct
+   against the hint of 64630 (price +0.57% in 3.8h).
 2b. **Pundit citations** — from card-v4 the board carries **no per-author
    `avg_r`**; a card quoting one is reading a field that no longer exists, and
    a card quoting `avg_atr_r` as though it were R has confused ATR units for

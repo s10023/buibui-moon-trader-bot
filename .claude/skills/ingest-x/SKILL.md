@@ -245,6 +245,22 @@ pasted, then run the flow once over the whole set.
    {"source":"twitter","author":"<handle>","url":"<url>","call_ts_utc":"<post_ts_utc>","symbol":"<symbol>","direction":"<direction>","entry":"<entry>","stop":"<stop>","target":"<target>","horizon":"<horizon>","confidence":"<verbatim hedging or empty>","raw_quote":"<raw_quote>"}
    ```
 
+   **⚠ `target` and `entry` are MACHINE-PARSED — the format is a contract, not prose.**
+   `tools/pundit_score.py` takes ONE number from the string, and **a hyphenated range
+   anywhere in it beats a `/`-separated ladder and resolves to the range's LOW end.**
+   Write `target` as a bare `/`-separated ladder — `67,000 / 70,362.23 / 82,000` — with
+   ranges in `raw_quote` instead. **A clarifying parenthetical re-breaks it**: the
+   constraint is on the whole field, not its leading number. `entry` degrades gently (a
+   `60.0K-61.2K` box parses to the 60,600 midpoint — fine for a zone, wrong for a
+   target). The error only ever pushes the target further away, **understating that
+   author's hit rate**, so it reads as "these pundits are bad" rather than as a bug.
+   Same rule as `/ingest-video` step 8 — both skills write this file, one parser scores
+   both.
+
+   **Run `make buibui-pundit-score` as the last action of the round** — reading the row
+   back does not show you the parse, and at round-end every row is still OPEN, so a bad
+   parse is free to fix then and invisible later.
+
    **`author` is whoever MADE the call, not whoever posted the tweet you fetched.**
    This is the same rule `/ingest-video` states for relays, and it bites here through
    quote-tweets: when `is_quote` is true and the call lives in `quoted_text` rather
