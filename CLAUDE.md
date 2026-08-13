@@ -356,6 +356,24 @@ cost when you do it: folding to magnitude shrinks trial dispersion in a
 mixed-sign family, so the gate becomes marginally **more permissive** than the
 signed form — bias runs toward more passes, never fewer.
 
+**CRITICAL — a POWERED NULL is CI CONTAINMENT (`ci_lo > -bar and ci_hi < bar`),
+never `n >= min_n`. Use `audit_guard.CellVerdict.powered_null`; never re-derive it
+from a sample-size floor.** A floor says a test *ran*, never that it could have
+*seen* anything. Four modules inferred the former from the latter until 2026-08-13
+— `state_audit.py` (H14/H15), `indicator_condition.py` (H8), `warning_audit.py`
+(H9, as COSMETIC), `weekly_path.py` (H10) — each fixing the real problem that
+collapsing `INSUFFICIENT` makes NO-EDGE *unreachable*, but with a criterion that
+made it **always reachable** instead. Measured on H14's published table: **0 of 10
+NO-EDGE cells had a CI excluding the bar, median CI half-width 5.5× the bar, 8 of
+10 point estimates EXCEEDED it**; on the corrected criterion all 10 read
+INSUFFICIENT, and H15's primary panel flips the same way. **A NO-EDGE / COSMETIC
+verdict is a positive claim that no effect worth acting on exists — it needs the
+CI to have ruled one out.** Three separate test fixtures asserted "powered" while
+their own CIs were 1.3–15× the bar, so **reading a test is not enough: assert the
+containment, and pair it with a positive control.** ⚠ **Quote the TEST's n, not the
+impressive one** — H14 propagated as NO-EDGE "over 849,445 trades" while the test
+ran on 44–190 **days**. ⚠ H8/H9/H10 verdicts are **NOT yet re-run** under the fix.
+
 **CRITICAL — an audit gate's effect-size floor `bar` is expressed in the units of
 the observation, and nothing in its name or docstring says so.** H15
 (`docs/audits/2026-08-04-h15-usdjpy-carry-unwind.md`) is the worked example: H14's

@@ -266,3 +266,26 @@ task and was run.
 - `tools/carry_unwind_audit.py` — read-only CLI runner / report driver
 - `docs/superpowers/specs/2026-08-04-h15-usdjpy-carry-unwind-design.md`
 - `docs/superpowers/plans/2026-08-04-h15-usdjpy-carry-unwind.md`
+
+---
+
+## ⚠ AMENDED 2026-08-13 — the "powered null" claim is withdrawn
+
+The "Powered null, not an underpowered one" section above justifies power solely by
+*"every cell cleared `MIN_N` by a wide margin (smallest cell n=200, more than 6x the
+floor)"*. **`MIN_N` is a sample-size floor and was never compared to the effect size
+this audit was gating on.** At n=2,055 the minimum detectable effect is ~2.4x the
+0.02 sigma-unit bar, so an effect sitting exactly at the economic bar was
+indistinguishable from zero here.
+
+Corrected in code 2026-08-13 (a powered null now requires the CI strictly inside
+±`bar`) and **re-run: every primary forward-panel cell now reads INSUFFICIENT.**
+
+**The NO-EDGE conclusion still stands on other grounds** — no cell was significant,
+and the two axes disagreed in SIGN, which is independent evidence against the
+thesis. **What is withdrawn is the sentence that the axis is "genuinely closed, not
+merely untested for lack of data"**, and with it the claim that no
+"come-back-with-more-data door" is left open. The door is open; the panel simply
+cannot resolve a tradeable effect at any n it will realistically reach — which is
+the same practical conclusion by an honest route, and is quantified for the sibling
+equity axis in `docs/audits/2026-08-13-h19-equity-btc-axis-power.md`.

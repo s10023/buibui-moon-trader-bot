@@ -30,7 +30,7 @@ def test_map_disable_positive_lift_is_build() -> None:
     assert (
         _map_verdict(
             "DISABLE",
-            n_supp=120,
+            powered_null=False,
             n_ok=True,
             lift=0.20,
             lift_lo=0.05,
@@ -47,7 +47,7 @@ def test_map_enable_negative_lift_is_avoid() -> None:
     assert (
         _map_verdict(
             "ENABLE",
-            n_supp=120,
+            powered_null=False,
             n_ok=True,
             lift=-0.20,
             lift_lo=-0.35,
@@ -65,7 +65,7 @@ def test_map_disable_is_never_avoid() -> None:
     assert (
         _map_verdict(
             "DISABLE",
-            n_supp=120,
+            powered_null=False,
             n_ok=True,
             lift=0.20,
             lift_lo=0.05,
@@ -83,7 +83,7 @@ def test_map_family_fail_is_no_edge() -> None:
     assert (
         _map_verdict(
             "DISABLE",
-            n_supp=120,
+            powered_null=False,
             n_ok=True,
             lift=0.20,
             lift_lo=0.05,
@@ -100,7 +100,7 @@ def test_map_concentrate_is_no_edge() -> None:
     assert (
         _map_verdict(
             "CONCENTRATE",
-            n_supp=120,
+            powered_null=False,
             n_ok=True,
             lift=0.20,
             lift_lo=0.05,
@@ -114,11 +114,12 @@ def test_map_concentrate_is_no_edge() -> None:
 
 
 def test_map_insufficient_underpowered_stays_insufficient() -> None:
-    # n below the per-cell floor -> genuinely not enough data.
+    # The CI did not rule out an effect at the bar -> not enough data, whatever
+    # n says. Renamed criterion 2026-08-13: was `n_supp < cfg.min_n`.
     assert (
         _map_verdict(
             "INSUFFICIENT",
-            n_supp=CFG.min_n - 1,
+            powered_null=False,
             n_ok=False,
             lift=0.0,
             lift_lo=0.0,
@@ -133,17 +134,22 @@ def test_map_insufficient_underpowered_stays_insufficient() -> None:
 
 def test_map_insufficient_but_powered_is_no_edge() -> None:
     # audit_guard returns ONE INSUFFICIENT for two different situations:
-    # "n < min_n" and "powered, but the CI/Holm gate never cleared". Collapsing
-    # them makes an all-NO-EDGE outcome structurally unreachable and reports a
-    # tested-null cell as if it had never been tested.
+    # "n < min_n" and "the CI/Holm gate never cleared". Collapsing them makes
+    # an all-NO-EDGE outcome structurally unreachable and reports a tested-null
+    # cell as if it had never been tested.
+    #
+    # ⚠ 2026-08-13: the trigger was `n_supp >= cfg.min_n * 4` and this very
+    # test passed a lift CI of [-0.20, +0.22] -- FOUR TIMES the 0.05 bar --
+    # while calling the cell "powered". A sample-size floor cannot see that.
+    # The CI below is now genuinely inside the bar.
     assert (
         _map_verdict(
             "INSUFFICIENT",
-            n_supp=CFG.min_n * 4,
+            powered_null=True,
             n_ok=True,
             lift=0.01,
-            lift_lo=-0.20,
-            lift_hi=0.22,
+            lift_lo=-0.02,
+            lift_hi=0.03,
             dsr=None,
             pbo=None,
             cfg=CFG,
@@ -330,6 +336,12 @@ def test_evaluate_powered_null_is_no_edge_with_a_real_lift() -> None:
     ``lift = 0.0`` with ``lift_ci = [0.0, 0.0]`` and ``dsr = pbo = None``. So
     the published table showed a zero lift these cells do not have, and was
     indistinguishable from a cell that was never tested.
+
+    ⚠ **The noise scale is load-bearing (2026-08-13).** This fixture drew
+    ``sd = 1.0`` at n=300, whose CI half-width is ~0.11 -- more than TWICE the
+    0.05 bar -- so the cell it called "genuinely powered" had ruled out
+    nothing. It passed only because the criterion was ``n >= min_n``. Powered
+    means the CI FITS INSIDE the bar, which at n=300 needs sd ~0.1.
     """
     rng = np.random.default_rng(7)
     n = 300
@@ -340,14 +352,16 @@ def test_evaluate_powered_null_is_no_edge_with_a_real_lift() -> None:
             # Both slices drawn from the SAME null distribution -> powered, but
             # no effect to find.
             "ema_stack": (["bullish"] * n) + (["bearish"] * n),
-            "pnl_r": list(rng.normal(0.0, 1.0, n)) + list(rng.normal(0.0, 1.0, n)),
+            "pnl_r": list(rng.normal(0.0, 0.1, n)) + list(rng.normal(0.0, 0.1, n)),
             **{a: ["x"] * (2 * n) for a in _OTHER_AXES},
         }
     )
     cells = build_condition_cells(df, axes=("ema_stack",))
     verdicts = evaluate_conditions(cells, CFG)
     bull = next(v for v in verdicts if v.state == "bullish" and v.direction == "long")
-    assert bull.n_with >= CFG.min_n  # genuinely powered
+    # Positive control: assert the CI actually excludes an effect at the bar.
+    # `n_with >= min_n` is NOT that assertion and never was.
+    assert bull.lift_lo > -CFG.bar and bull.lift_hi < CFG.bar
     assert bull.verdict == "NO-EDGE"  # tested, no effect -- NOT "INSUFFICIENT"
     assert bull.lift_lo < bull.lift < bull.lift_hi  # a real CI, not [0, 0]
     assert bull.dsr is not None and bull.pbo is not None
@@ -413,7 +427,7 @@ def test_map_mintrl_fail_is_no_edge() -> None:
     assert (
         _map_verdict(
             "DISABLE",
-            n_supp=120,
+            powered_null=False,
             n_ok=False,
             lift=0.20,
             lift_lo=0.05,
@@ -432,7 +446,7 @@ def test_map_mintrl_fail_blocks_avoid_too() -> None:
     assert (
         _map_verdict(
             "ENABLE",
-            n_supp=120,
+            powered_null=False,
             n_ok=False,
             lift=-0.20,
             lift_lo=-0.35,

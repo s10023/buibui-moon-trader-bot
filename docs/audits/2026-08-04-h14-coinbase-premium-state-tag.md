@@ -450,3 +450,38 @@ plainly rather than silently skipping it.
 - `tools/premium_state_audit.py` — read-only DB front door / report driver
 - `docs/superpowers/specs/2026-08-04-h14-coinbase-premium-state-tag-design.md`
 - `docs/superpowers/plans/2026-08-04-h14-coinbase-premium-state-tag.md`
+
+---
+
+## ⚠ AMENDED 2026-08-13 — every NO-EDGE cell here is now INSUFFICIENT
+
+The verdict map above split `audit_guard`'s single `INSUFFICIENT` decision on
+`n_supp >= MIN_N`, glossed as *"powered, but clears neither side"*. **That is a
+sample-size floor, not power.** The gate this audit actually applies is a bootstrap
+CI that must clear ±0.05R, so a genuinely powered null needs the CI to sit
+*inside* ±0.05 — the condition that rules a tradeable effect out. Against the
+published table:
+
+- **0 of 10 cells had a CI excluding the bar.** Every one was consistent with an
+  effect exactly the size this audit was hunting.
+- **Median CI half-width 0.274R = 5.5x the bar** (range 4.0x-8.2x).
+- **8 of 10 point estimates EXCEEDED the bar**, up to 0.270R = 5.4x.
+  `change/falling/long` read -0.226R at n=148 days and printed NO-EDGE.
+
+Corrected in code 2026-08-13 (`audit_guard.CellVerdict.powered_null`) and **re-run:
+all ten primary `prem_adj` cells now read INSUFFICIENT.**
+
+**The verdict DIRECTION still stands, on other grounds** — nothing was significant,
+the peg-confound decomposition is unaffected, and the long/short sign symmetry
+inside one state (`level/depressed` -0.227 long vs +0.244 short) is the signature
+of the **direction** axis, already the one OOS-robust axis here, rather than of a
+premium mechanism. **What does not stand is "NO-EDGE on 10 cells => the axis is
+closed."** The honest reading is that this panel could not resolve an effect worth
+trading, so the axis is *undecidable at available n*, not proven dead.
+
+⚠ **Also correct the propagated n.** This audit is quoted elsewhere as NO-EDGE
+"over 849,445 trades"; the test ran on **44-190 day-observations**, as the body of
+this document says. Quote the test's n.
+
+Rationale and the full arithmetic:
+`docs/audits/2026-08-13-h19-equity-btc-axis-power.md`.

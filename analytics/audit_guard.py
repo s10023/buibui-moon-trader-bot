@@ -77,6 +77,17 @@ class CellVerdict:
     adj_pvalue: float | None
     n_tests: int
     reasons: list[str]
+    powered_null: bool = False
+    """True iff the CI lies strictly INSIDE ±``bar`` — i.e. an effect worth
+    acting on has been ruled out, not merely left uncalled.
+
+    **This is the only honest test for a powered null, and ``n >= min_n`` is
+    not a substitute for it.** A sample-size floor cannot distinguish "the
+    effect is smaller than the bar" from "the CI is five times the bar and we
+    cannot tell", and four consumers of this module inferred the former from
+    the latter until 2026-08-13. Defaults ``False``: a cell that was never
+    tested (``n < min_n``, no CI) has established nothing.
+    """
 
 
 def _mean(arr: npt.NDArray[np.float64]) -> float:
@@ -226,6 +237,7 @@ def evaluate_audit_cells(
                 adj_p,
                 n_tests,
                 reasons,
+                powered_null=ci_lo > -bar and ci_hi < bar,
             )
         )
     return out

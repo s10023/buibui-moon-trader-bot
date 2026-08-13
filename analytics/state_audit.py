@@ -279,7 +279,7 @@ def sign_agrees_early_late(values: list[float]) -> bool:
 def map_verdict(
     decision: str,
     *,
-    n_supp: int,
+    powered_null: bool,
     n_days_ok: bool,
     dsr: float | None,
     pbo: float | None,
@@ -297,12 +297,22 @@ def map_verdict(
 
     **INSUFFICIENT is two different things (amendments.md A1).**
     ``audit_guard`` returns one ``INSUFFICIENT`` decision for both "n <
-    min_n" (genuinely underpowered) and "powered but the CI/Holm gate never
-    cleared" (``analytics/audit_guard.py``'s bare ``else`` branch).
-    Collapsing them makes the spec's most likely outcome — all cells
-    NO-EDGE (spec Sec.8 branch 2) — unreachable. Split on ``n_supp``: only a
-    cell with fewer than ``MIN_N`` day-observations is truly INSUFFICIENT; a
-    powered null cell is NO-EDGE.
+    min_n" (genuinely underpowered) and "the CI/Holm gate never cleared"
+    (``analytics/audit_guard.py``'s bare ``else`` branch). Collapsing them
+    makes the spec's most likely outcome — all cells NO-EDGE (spec Sec.8
+    branch 2) — unreachable, so the two must be split.
+
+    **⚠ CORRECTED 2026-08-13 — the split criterion was ``n_supp >= MIN_N``
+    and that is a SAMPLE-SIZE FLOOR, not power.** It cannot distinguish "the
+    effect is smaller than the bar" from "the CI is five times the bar and we
+    cannot tell", so it made NO-EDGE *always* reachable — the mirror of the
+    H8 defect it was written to avoid. Measured on H14's own published table:
+    **0 of 10 NO-EDGE cells had a CI excluding the bar, the median CI
+    half-width was 5.5x the bar, and 8 of 10 point estimates EXCEEDED the
+    bar.** The honest criterion is containment — ``audit_guard`` now computes
+    it as ``CellVerdict.powered_null`` (CI strictly inside ±``bar``). Do not
+    reintroduce an ``n``-based split here; ``n`` says a test ran, never that
+    it could have seen anything.
 
     **The full pre-committed gate (amendments.md A3 / spec Sec.7).** A
     BUILD/AVOID additionally requires ``n_days_ok`` (n >= MinTRL(0.95)),
@@ -311,7 +321,7 @@ def map_verdict(
     NO-EDGE — never silently promoted to BUILD/AVOID.
     """
     if decision == DECISION_INSUFFICIENT:
-        return VERDICT_INSUFFICIENT if n_supp < MIN_N else VERDICT_NO_EDGE
+        return VERDICT_NO_EDGE if powered_null else VERDICT_INSUFFICIENT
     if decision == DECISION_CONCENTRATE:
         return VERDICT_NO_EDGE
     family_ok = (
@@ -361,7 +371,7 @@ def evaluate_states(
                     cell.label,
                     map_verdict(
                         cv.decision,
-                        n_supp=cv.n_supp,
+                        powered_null=cv.powered_null,
                         n_days_ok=False,
                         dsr=None,
                         pbo=None,
@@ -383,7 +393,7 @@ def evaluate_states(
                 cell.label,
                 map_verdict(
                     cv.decision,
-                    n_supp=cv.n_supp,
+                    powered_null=cv.powered_null,
                     n_days_ok=n_days_ok,
                     dsr=family_dsr(supp, family_arrays),
                     pbo=family_pbo(family_arrays),

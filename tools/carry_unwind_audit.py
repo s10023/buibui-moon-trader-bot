@@ -654,8 +654,10 @@ def main() -> int:
         "family DSR>=0.95, family PBO<=0.5, early/late sign agreement) -- "
         "audit_guard DISABLE, sign-inverted. AVOID = reliably NEGATIVE and "
         "clears the same gate -- audit_guard ENABLE (thesis-confirming). "
-        "NO-EDGE = well-powered but clears neither side. INSUFFICIENT = "
-        f"n < {MIN_N}. The forward panel (BTCUSDT vol-normalised return) is "
+        "NO-EDGE = the CI RULED OUT an effect at the bar and clears neither "
+        "side. INSUFFICIENT = everything else, INCLUDING a cell with "
+        f"n >> {MIN_N} whose CI is too wide to decide. "
+        "The forward panel (BTCUSDT vol-normalised return) is "
         "PRIMARY/gate-deciding; the ledger panel is secondary and inherits "
         "the frozen 22-detector family."
     )
