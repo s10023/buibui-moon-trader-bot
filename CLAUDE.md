@@ -267,8 +267,16 @@ selection sites (`get_backtest_win_rates`, `compute_dsr_ratings`) previously too
 `(sweep_id IS NOT NULL, run_at_ms)`. **Those two must keep mirroring each other**, or
 DSR and the rated `avg_r` describe different trades. **The trade-level half of that
 ranking is now ONE function — `recalibrate_lib.select_rated_run_ids` (2026-08-12) — so
-call it, never re-derive it.** `compute_dsr_ratings` and `tools/decay_review.py` both
-do; `get_backtest_win_rates` keeps its own pandas path over a different query
+call it, never re-derive it. ⚠ AND CALL IT WITH BOTH SCOPE ARGUMENTS — `day_filter` and
+`adr_suppress_threshold` travel together.** Passing only the first leaves the second
+`None`, which the filter renders as `adr_suppress_threshold IS NULL`: runs saved with no
+ADR gate, which **no live config writes** (they use 0.75 / 0.65 / 0.70), so you get a
+pre-May pool frozen at 2026-04-09. That was `tools/decay_review.py`'s *default* until
+2026-08-13, so **every decay review before then — the 08-11 first run included — audited
+it**. The verdict direction survived (0 cells clear either way), which is exactly why it
+stood; every *named cell* was wrong. Resolve both from the config, as
+`recalibrate_runner` does. `compute_dsr_ratings` and `tools/decay_review.py` both call
+the shared function; `get_backtest_win_rates` keeps its own pandas path over a different query
 (aggregates, not run_ids) and so is still a hand-mirror. The extraction was forced by a
 live drift: the decay review's then-gitignored driver had reverted to recency-only and
 was auditing the daemon's rows instead of the sweeps → [[scratch-dir-is-for-output-not-code]].

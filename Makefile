@@ -369,7 +369,9 @@ buibui-pundit-score:  ## score the pundit-call ledger vs OHLCV -> priors (sync u
 .PHONY: buibui-decay-review
 buibui-decay-review:  ## Weekly: read-only DSR-suspect list + gate reachability over rated cells
 	PYTHONPATH=. poetry run python tools/decay_review.py \
+		$(if $(CONFIG),--config $(CONFIG),) \
 		$(if $(DAY_FILTER),--day-filter $(DAY_FILTER),) \
+		$(if $(ADR),--adr-suppress-threshold $(ADR),) \
 		$(if $(DB),--db $(DB),)
 
 .PHONY: buibui-dead-surface-check

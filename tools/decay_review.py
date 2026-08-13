@@ -25,10 +25,19 @@ Two reading traps this tool cannot fix, both live:
 * Absence from the suspect list is **not** a clean bill. Only a cell in neither
   the suspect nor the unscoreable list has passed anything.
 
+**Scope resolution is a third trap, fixed 2026-08-13.** ``day_filter`` and
+``adr_suppress_threshold`` must travel together: a bare ``--day-filter`` leaves
+the threshold at ``None``, which :func:`select_rated_run_ids` renders as
+``adr_suppress_threshold IS NULL`` — a pool no live config writes (they use
+0.75 / 0.65 / 0.70), frozen since 2026-04-09. That was the *default*, so every
+review before the fix audited it; the verdict direction survived (0 cells clear
+either way), which is why it went unnoticed. A bare run now resolves both halves
+from every live config, and ``--day-filter`` alone exits non-zero.
+
 Usage::
 
     PYTHONPATH=. poetry run python tools/decay_review.py
-    PYTHONPATH=. poetry run python tools/decay_review.py --day-filter tue_thu
+    PYTHONPATH=. poetry run python tools/decay_review.py --config config/signal_watch.toml
 """
 
 from __future__ import annotations
@@ -36,7 +45,7 @@ from __future__ import annotations
 import argparse
 import statistics
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -58,6 +67,40 @@ from tools.dead_surface_check import (
 
 GATE = 0.95
 SCOPES = ("combined", "long", "short")
+
+
+@dataclass(frozen=True)
+class ConfigScope:
+    """One live config's `(day_filter, adr_suppress_threshold)` selection pair.
+
+    Both halves are load-bearing and must travel together. Passing a
+    `day_filter` alone leaves `adr_suppress_threshold` at `None`, which
+    :func:`select_rated_run_ids` renders as `adr_suppress_threshold IS NULL` —
+    selecting runs saved with **no** ADR gate. No live config saves that way
+    (they use 0.75 / 0.65 / 0.70), so that pool is pre-May and frozen.
+    """
+
+    name: str
+    day_filter: str | None
+    adr_suppress_threshold: float | None
+
+
+def resolve_config_scopes(configs: Sequence[str]) -> list[ConfigScope]:
+    """Resolve each config to the selection pair `recalibrate` reads it with.
+
+    Mirrors :mod:`analytics.recalibrate_runner`, which sets both fields from a
+    single `--config`. Deriving them here from the same source is what keeps the
+    review auditing the population the live gate actually rates.
+    """
+    return [
+        ConfigScope(
+            name=Path(path).stem,
+            day_filter=cfg.day_filter,
+            adr_suppress_threshold=cfg.bias.adr_suppress_threshold,
+        )
+        for path, cfg in ((p, load_signal_config(p)) for p in configs)
+    ]
+
 
 Pools = dict[tuple[str, str], list[float]]
 
@@ -106,6 +149,35 @@ class ScopeReport:
     def reachable(self) -> bool:
         """True when at least one cell clears the bar computed at its own n."""
         return self.closest.headroom >= 0.0
+
+
+def scopes_to_review(
+    config: str | None,
+    day_filter: str | None,
+    adr: float | None,
+    configs: Sequence[str] = DEFAULT_CONFIGS,
+) -> list[ConfigScope]:
+    """Decide which selection pairs this invocation audits.
+
+    A bare invocation audits **every live config**, because that is the
+    population the gate rates and the only invocation `SKILL.md` documents. The
+    previous default left both halves at `None` and silently audited runs saved
+    with no ADR gate — a pre-May pool, frozen since 2026-04-09.
+    """
+    if config is not None:
+        return resolve_config_scopes([config])
+    if day_filter is None and adr is None:
+        return resolve_config_scopes(configs)
+    if adr is None:
+        raise SystemExit(
+            "--day-filter without --adr-suppress-threshold selects runs saved with "
+            "NO ADR gate (adr_suppress_threshold IS NULL). No live config saves "
+            "that way — signal_watch 0.75, weekdays 0.65, all 0.70 — so that pool "
+            "is pre-May and frozen. Pass --config, or supply both flags."
+        )
+    return [
+        ConfigScope(name="ad-hoc", day_filter=day_filter, adr_suppress_threshold=adr)
+    ]
 
 
 def pools_by_scope(
@@ -289,29 +361,47 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH, help="DuckDB path")
     parser.add_argument(
-        "--day-filter", default=None, help="Scope runs to one day_filter bucket"
+        "--config",
+        default=None,
+        help="Audit one config, resolving day_filter AND adr threshold from it",
+    )
+    parser.add_argument(
+        "--day-filter",
+        default=None,
+        help="Ad-hoc day_filter scope; requires --adr-suppress-threshold",
     )
     parser.add_argument(
         "--adr-suppress-threshold",
         type=float,
         default=None,
-        help="Scope runs to one ADR-suppression threshold",
+        help="Ad-hoc ADR-suppression scope",
     )
     args = parser.parse_args()
 
+    config_scopes = scopes_to_review(
+        args.config, args.day_filter, args.adr_suppress_threshold
+    )
+
     conn = duckdb.connect(str(args.db), read_only=True)
     try:
-        scopes = pools_by_scope(conn, args.day_filter, args.adr_suppress_threshold)
-
         print("=" * 78)
         print("LEG 1 - DSR-suspect list + gate reachability")
         print("=" * 78)
-        for scope in SCOPES:
-            report = analyse_scope(scope, scopes[scope])
-            if report is None:
-                print(f"\n--- scope: {scope}: family too small to deflate")
-                continue
-            print("\n".join(render_scope(report)))
+        for cfg_scope in config_scopes:
+            print(
+                f"\n### {cfg_scope.name} "
+                f"(day_filter={cfg_scope.day_filter}, "
+                f"adr={cfg_scope.adr_suppress_threshold})"
+            )
+            scopes = pools_by_scope(
+                conn, cfg_scope.day_filter, cfg_scope.adr_suppress_threshold
+            )
+            for scope in SCOPES:
+                report = analyse_scope(scope, scopes[scope])
+                if report is None:
+                    print(f"\n--- scope: {scope}: family too small to deflate")
+                    continue
+                print("\n".join(render_scope(report)))
 
         print()
         print("=" * 78)
