@@ -195,6 +195,32 @@ def round_down_to_step(qty: float, step: float) -> float:
     return math.floor(quotient) * step
 
 
+def round_to_tick(price: float, tick: float, side: str) -> float:
+    """Round a limit price to the symbol's PRICE_FILTER tick, passively.
+
+    Side-dependent by necessity: a BUY resting above the tick it asked for, or a
+    SELL below it, CROSSES the spread — and a post-only (GTX) order that would
+    cross is rejected outright by the exchange, so the leg silently does not
+    trade. BUY therefore floors, SELL ceils.
+
+    Shares `round_down_to_step`'s snap-before-round for the same reason: the
+    exchange's own bid/ask is already an exact tick multiple, and a plain
+    `floor(price / tick)` loses a full tick on exactly that input
+    (`0.29 / 0.01` -> `28.999999999999996`). A non-positive tick means "unknown
+    filter" and passes through unchanged.
+    """
+    if tick <= 0:
+        return price
+    quotient = price / tick
+    nearest = round(quotient)
+    tolerance = min(_STEP_SNAP_REL_TOL * max(1.0, quotient), _STEP_SNAP_MAX_TOL)
+    if abs(quotient - nearest) <= tolerance:
+        return nearest * tick
+    if side == "BUY":
+        return math.floor(quotient) * tick
+    return math.ceil(quotient) * tick
+
+
 def vol_governor(realized_vol_annual: float, cfg: SizingConfig) -> float:
     """g_vol = clamp(target / realized, [g_vol_min, g_vol_max]).
 

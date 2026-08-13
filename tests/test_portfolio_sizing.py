@@ -6,7 +6,12 @@ from typing import Any
 
 import pytest
 
-from portfolio.sizing import SizingConfig, resolve_capital, round_down_to_step
+from portfolio.sizing import (
+    SizingConfig,
+    resolve_capital,
+    round_down_to_step,
+    round_to_tick,
+)
 
 
 def test_sizing_config_defaults() -> None:
@@ -401,3 +406,35 @@ class TestSizingConfigGuard:
         p.write_text("[portfolio]\ncapital = -5000\n")
         with pytest.raises(ValueError, match="capital"):
             SizingConfig.from_toml(p)
+
+
+def test_round_to_tick_enumerated_never_crosses() -> None:
+    """BUY must never round up, SELL must never round down — at any tick."""
+    for tick in (0.0001, 0.01, 0.1, 1.0, 2.5):
+        for mult in range(1, 400):
+            exact = mult * tick
+            for offset in (0.0, tick * 0.3, tick * 0.7, tick * 0.999):
+                price = exact + offset
+                buy = round_to_tick(price, tick, "BUY")
+                sell = round_to_tick(price, tick, "SELL")
+                assert buy <= price + 1e-12, f"BUY crossed: {price} {tick} -> {buy}"
+                assert sell >= price - 1e-12, f"SELL crossed: {price} {tick} -> {sell}"
+
+
+def test_round_to_tick_exact_multiple_is_returned_unchanged() -> None:
+    """The case that matters most: an exchange bid/ask is ALREADY a tick multiple.
+
+    A naive floor(price / tick) * tick loses a full tick here — 0.29 / 0.01
+    computes as 28.999999999999996. That is the same defect round_down_to_step
+    documents, and at the touch it would push the order a tick away from the
+    queue position we asked for.
+    """
+    assert round_to_tick(0.29, 0.01, "BUY") == pytest.approx(0.29)
+    assert round_to_tick(0.29, 0.01, "SELL") == pytest.approx(0.29)
+    assert round_to_tick(3000.0, 0.01, "BUY") == pytest.approx(3000.0)
+    assert round_to_tick(117.3, 0.1, "SELL") == pytest.approx(117.3)
+
+
+def test_round_to_tick_non_positive_tick_passes_through() -> None:
+    assert round_to_tick(123.456, 0.0, "BUY") == 123.456
+    assert round_to_tick(123.456, -1.0, "SELL") == 123.456
