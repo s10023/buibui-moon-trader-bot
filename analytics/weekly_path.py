@@ -230,11 +230,17 @@ def evaluate_hours(
         early, late = _halves(values)
         reasons = list(cell.reasons)
 
+        # NO-EDGE is a positive claim that no effect worth acting on exists,
+        # so it needs `powered_null` (audit_guard: CI strictly inside ±bar).
+        # It keyed off `n >= cfg.min_n` until 2026-08-13 — a sample-size
+        # floor, which cannot tell a ruled-out effect from an unresolved one
+        # and so made NO-EDGE always reachable. Corrected across H8/H9/H14
+        # in the same pass.
         if cell.decision == DECISION_DISABLE:
             verdict = VERDICT_PREDICTIVE
         elif cell.decision == DECISION_ENABLE:
             verdict = VERDICT_REVERTING
-        elif n >= cfg.min_n:
+        elif cell.powered_null:
             verdict = VERDICT_NO_EDGE
         else:
             verdict = VERDICT_INSUFFICIENT

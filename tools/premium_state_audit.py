@@ -537,9 +537,11 @@ def main() -> int:
         "mean R is reliably POSITIVE and clears the family gate (DSR>=0.95, "
         "PBO<=0.5, n_days>=MinTRL(0.95), early/late sign agreement) -- "
         "audit_guard DISABLE, sign-inverted. AVOID = reliably NEGATIVE and "
-        "clears the same gate -- audit_guard ENABLE. NO-EDGE = well-powered "
-        "but does not clear it (or CONCENTRATE). INSUFFICIENT = n_days < "
-        f"{MIN_N}. backtest_trades = primary/gate-deciding; "
+        "clears the same gate -- audit_guard ENABLE. NO-EDGE = the CI RULED OUT "
+        "an effect at the bar (CI strictly inside +/-bar) but no gate-grade "
+        "effect, or CONCENTRATE. INSUFFICIENT = everything else, INCLUDING a "
+        f"cell with n_days >> {MIN_N} whose CI is simply too wide to decide. "
+        "backtest_trades = primary/gate-deciding; "
         "signal_alert_outcomes (live) = corroboration only."
     )
     print(

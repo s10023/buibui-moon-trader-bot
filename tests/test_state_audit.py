@@ -17,7 +17,6 @@ from analytics.audit_guard import (
 )
 from analytics.state_audit import (
     DSR_FLOOR,
-    MIN_N,
     VERDICT_AVOID,
     VERDICT_BUILD,
     VERDICT_INSUFFICIENT,
@@ -39,7 +38,7 @@ def _family_key(label: str) -> tuple[str, str]:
 def test_map_verdict_inverts_audit_guard_sign() -> None:
     """DISABLE means the slice is reliably POSITIVE -> BUILD. Do not 'fix' this."""
     kw: dict[str, Any] = {
-        "n_supp": 100,
+        "powered_null": False,
         "n_days_ok": True,
         "dsr": 0.99,
         "pbo": 0.1,
@@ -50,8 +49,15 @@ def test_map_verdict_inverts_audit_guard_sign() -> None:
     assert map_verdict(DECISION_CONCENTRATE, **kw) == VERDICT_NO_EDGE
 
 
-def test_map_verdict_splits_insufficient_on_n() -> None:
-    """Underpowered is INSUFFICIENT; powered-but-null is NO-EDGE."""
+def test_map_verdict_splits_insufficient_on_ci_containment_not_n() -> None:
+    """Only a CI that RULED OUT an effect at the bar is NO-EDGE.
+
+    Supersedes the ``n_supp >= MIN_N`` split (2026-08-13). That criterion is a
+    sample-size floor, not power: H14 published 10 NO-EDGE cells whose CIs were
+    a median 5.5x the bar, i.e. every one of them was consistent with an effect
+    exactly the size it was hunting. ``n`` is deliberately held ABOVE the floor
+    in both cases below, so a size-based rule cannot tell them apart.
+    """
     kw: dict[str, Any] = {
         "n_days_ok": False,
         "dsr": None,
@@ -59,10 +65,12 @@ def test_map_verdict_splits_insufficient_on_n() -> None:
         "stable": False,
     }
     assert (
-        map_verdict(DECISION_INSUFFICIENT, n_supp=MIN_N - 1, **kw)
+        map_verdict(DECISION_INSUFFICIENT, powered_null=False, **kw)
         == VERDICT_INSUFFICIENT
     )
-    assert map_verdict(DECISION_INSUFFICIENT, n_supp=MIN_N + 1, **kw) == VERDICT_NO_EDGE
+    assert (
+        map_verdict(DECISION_INSUFFICIENT, powered_null=True, **kw) == VERDICT_NO_EDGE
+    )
 
 
 def test_sign_agrees_early_late() -> None:

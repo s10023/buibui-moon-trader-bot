@@ -586,7 +586,10 @@ collapses to one observation per UTC day, and emits the same BUILD / AVOID /
 NO-EDGE / INSUFFICIENT verdict per (state × direction). The first conditioning
 axis built from a **different venue's** order flow rather than a re-slice of the
 same OHLCV — verdict `docs/audits/2026-08-04-h14-coinbase-premium-state-tag.md`
-(NO-EDGE on all 10 pre-registered cells).
+(NO-EDGE on all 10 pre-registered cells; **amended 2026-08-13 — all ten now read
+INSUFFICIENT**, because the old verdict map treated `n >= min_n` as power and none
+of the ten CIs actually excluded an effect at the bar. The direction of the finding
+stands; "the axis is closed" does not).
 
 `make buibui-carry-unwind-audit` (`tools/carry_unwind_audit.py`) is a read-only
 audit that tags every UTC day with a **USD/JPY yen-strength** state — a run
@@ -595,8 +598,12 @@ from keyless Yahoo daily bars — and runs two panels through the same pre-commi
 gate: BTCUSDT's daily return normalised by its causal trailing 30-day volatility
 (primary), and the trade ledger (secondary). The second conditioning axis built
 from **genuinely new data** rather than a re-slice of held OHLCV, after H14 —
-verdict `docs/audits/2026-08-04-h15-usdjpy-carry-unwind.md` (NO-EDGE on every
-cell in every panel, and well powered: forward-panel cells run n=200–2,055).
+verdict `docs/audits/2026-08-04-h15-usdjpy-carry-unwind.md` (NO-EDGE on every cell
+in every panel; ⚠ **the "well powered" claim is withdrawn 2026-08-13** — it rested on
+n=200–2,055 clearing `MIN_N`, which is a sample-size floor rather than power, and at
+n=2,055 the MDE is ~2.4× the bar. On the corrected map every primary cell reads
+INSUFFICIENT. The NO-EDGE conclusion still stands on the sign disagreement between
+the two axes).
 
 Bar units are not portable between those two panels: the gate's effect-size floor
 is expressed in the units of the observation, so the forward panel uses

@@ -258,3 +258,24 @@ only**.
 poetry run python tools/indicator_condition_audit.py --source backtest --timeframes 4h
 poetry run python tools/indicator_condition_audit.py --source live
 ```
+
+---
+
+## ⚠ AMENDED 2026-08-13 — verdict labels PENDING RE-RUN
+
+The `NO-EDGE` labels in this document were produced by a verdict map that treated
+`n >= min_n` as evidence of statistical power. **A sample-size floor is not power**
+— it cannot distinguish "the effect is smaller than the bar" from "the CI is
+several times the bar and we cannot tell" — so `NO-EDGE` was reachable for any cell
+that merely had enough rows.
+
+Corrected in code on 2026-08-13: a powered null now requires the bootstrap CI to
+sit strictly inside ±`bar` (`audit_guard.CellVerdict.powered_null`). Everything
+else is `INSUFFICIENT`.
+
+**This audit has NOT been re-run against the corrected map.** Where H14's ten
+primary cells were re-run, **all ten moved `NO-EDGE` -> `INSUFFICIENT`**, so treat
+every `NO-EDGE` below as unverified until this is re-run. **Positive verdicts
+(BUILD / AVOID / REVERSE / SUPPRESS-CANDIDATE / PREDICTIVE / REVERTING) are
+unaffected** — the correction only ever weakens a negative claim, never promotes a
+cell. Rationale: `docs/audits/2026-08-13-h19-equity-btc-axis-power.md`.

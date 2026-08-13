@@ -259,7 +259,7 @@ def test_sign_agrees_early_late_false_on_too_short_a_sequence() -> None:
 def _verdict(
     decision: str,
     *,
-    n_supp: int = 40,
+    powered_null: bool = True,
     n_days_ok: bool = True,
     dsr: float | None = 0.97,
     pbo: float | None = 0.2,
@@ -269,7 +269,12 @@ def _verdict(
     keyword — each test overrides exactly the one input it means to fail.
     """
     return map_verdict(
-        decision, n_supp=n_supp, n_days_ok=n_days_ok, dsr=dsr, pbo=pbo, stable=stable
+        decision,
+        powered_null=powered_null,
+        n_days_ok=n_days_ok,
+        dsr=dsr,
+        pbo=pbo,
+        stable=stable,
     )
 
 
@@ -295,11 +300,13 @@ def test_map_concentrate_is_always_no_edge() -> None:
     assert _verdict(DECISION_CONCENTRATE) == VERDICT_NO_EDGE
 
 
-def test_map_insufficient_below_min_n_is_insufficient() -> None:
+def test_map_insufficient_without_ci_containment_is_insufficient() -> None:
+    # Renamed 2026-08-13: the trigger is a CI that did NOT rule out an effect
+    # at the bar, which includes -- but is not limited to -- n below the floor.
     assert (
         _verdict(
             DECISION_INSUFFICIENT,
-            n_supp=5,
+            powered_null=False,
             n_days_ok=False,
             dsr=None,
             pbo=None,
@@ -311,10 +318,14 @@ def test_map_insufficient_below_min_n_is_insufficient() -> None:
 
 def test_map_insufficient_powered_null_is_no_edge_not_insufficient() -> None:
     # amendments.md A1: audit_guard's INSUFFICIENT conflates "n < min_n"
-    # (genuinely underpowered) with "powered but the CI/Holm gate never
-    # cleared" (a real, powered NO). A POWERED (n >= MIN_N=30) null cell must
-    # map to NO-EDGE — collapsing it into INSUFFICIENT makes the spec's most
-    # likely outcome (spec Sec.8 branch 2: all cells NO-EDGE) unreachable.
+    # (genuinely underpowered) with "the CI/Holm gate never cleared". A cell
+    # whose CI RULED OUT an effect at the bar must map to NO-EDGE — collapsing
+    # it into INSUFFICIENT makes the spec's most likely outcome (spec Sec.8
+    # branch 2: all cells NO-EDGE) unreachable.
+    #
+    # ⚠ The trigger was `n >= MIN_N` until 2026-08-13, which is a sample-size
+    # floor and not power: it made NO-EDGE ALWAYS reachable instead, and H14
+    # published 10 such cells whose CIs were a median 5.5x the bar.
     assert (
         _verdict(
             DECISION_INSUFFICIENT, n_days_ok=False, dsr=None, pbo=None, stable=False

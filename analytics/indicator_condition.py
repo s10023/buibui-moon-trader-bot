@@ -71,7 +71,7 @@ class IndicatorConditionConfig:
 def _map_verdict(
     decision: str,
     *,
-    n_supp: int,
+    powered_null: bool,
     n_ok: bool,
     lift: float,
     lift_lo: float,
@@ -92,12 +92,18 @@ def _map_verdict(
 
     **INSUFFICIENT is two different things.** ``audit_guard`` returns one
     ``INSUFFICIENT`` decision from two branches: ``n < min_n`` (genuinely
-    underpowered, ``analytics/audit_guard.py``'s early ``continue``) and
-    "powered, but the CI/Holm gate never cleared" (its bare ``else``).
-    Collapsing them reports a tested-null cell as if it had never been tested.
-    Split on ``n_supp``: only a cell below ``cfg.min_n`` is truly
-    INSUFFICIENT; a powered null is NO-EDGE. Mirrors the same fix in
-    ``analytics/venue_premium.py`` (H14).
+    underpowered, ``analytics/audit_guard.py``'s early ``continue``) and "the
+    CI/Holm gate never cleared" (its bare ``else``). Collapsing them reports a
+    tested-null cell as if it had never been tested, so the two are split.
+
+    **⚠ CORRECTED 2026-08-13 — the split was ``n_supp >= cfg.min_n``, a
+    SAMPLE-SIZE FLOOR rather than power.** It cannot tell "the effect is
+    smaller than the bar" from "the CI is several times the bar and we cannot
+    tell", so it made NO-EDGE *always* reachable — the mirror of the very
+    defect this function's MinTRL note below records. The honest criterion is
+    CI containment, computed once in ``audit_guard`` as
+    ``CellVerdict.powered_null``. Same correction applied to H14's
+    ``analytics/state_audit.py``. Do not reintroduce an ``n``-based split.
 
     **``n_ok`` is the design doc §7 MinTRL leg** (``n >= MinTRL(0.95)`` on the
     with-state slice). It was pre-registered in the spec — twice, at §1 and
@@ -118,7 +124,7 @@ def _map_verdict(
     trailing NO-EDGE — the same outcome the shared map reaches explicitly.
     """
     if decision == "INSUFFICIENT":
-        return "INSUFFICIENT" if n_supp < cfg.min_n else "NO-EDGE"
+        return "NO-EDGE" if powered_null else "INSUFFICIENT"
     family_ok = (
         dsr is not None
         and pbo is not None
@@ -415,7 +421,7 @@ def evaluate_conditions(
         mintrl, n_ok = mintrl_n_ok(c.with_r, n_with, confidence=cfg.mintrl_confidence)
         verdict = _map_verdict(
             cv.decision,
-            n_supp=n_with,
+            powered_null=cv.powered_null,
             n_ok=n_ok,
             lift=lift,
             lift_lo=lift_lo,

@@ -253,8 +253,10 @@ def format_report(
         "(audit_guard DISABLE + lift CI excludes 0 + DSR/PBO family gate + "
         "n >= MinTRL(0.95)). "
         "AVOID = the with-state slice is reliably negative and worse "
-        "(audit_guard ENABLE). NO-EDGE = well-powered, no gate-grade effect. "
-        "INSUFFICIENT = n < min_n. backtest_trades = primary substrate "
+        "(audit_guard ENABLE). NO-EDGE = the CI RULED OUT an effect at the bar, "
+        "no gate-grade effect. INSUFFICIENT = everything else, INCLUDING a "
+        "cell with n >> min_n whose CI is too wide to decide. "
+        "backtest_trades = primary substrate "
         "(gate-deciding); signal_alert_outcomes (live) = corroboration only."
     )
     lines.append("")

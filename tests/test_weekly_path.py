@@ -257,8 +257,16 @@ def test_negative_effect_maps_to_REVERTING() -> None:
 
 
 def test_no_effect_reads_NO_EDGE_when_well_powered() -> None:
-    verdicts = {v.hour: v for v in wp.evaluate_hours(_synthetic(0.0), wp.PathConfig())}
-    assert verdicts[24].verdict == wp.VERDICT_NO_EDGE
+    """Positive control on "well powered": the CI must actually exclude an
+    effect at the bar. Three sibling fixtures (H8, H9, and H14's published
+    table) asserted "powered" on a sample-size floor alone and were not.
+    """
+    cfg = wp.PathConfig()
+    verdicts = {v.hour: v for v in wp.evaluate_hours(_synthetic(0.0), cfg)}
+    v24 = verdicts[24]
+    assert v24.ci_lo is not None and v24.ci_hi is not None
+    assert v24.ci_lo > -cfg.bar and v24.ci_hi < cfg.bar
+    assert v24.verdict == wp.VERDICT_NO_EDGE
 
 
 def test_thin_population_reads_INSUFFICIENT() -> None:
