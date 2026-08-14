@@ -293,6 +293,17 @@ cp ~/backups/buibui/daily/<DATE>/analytics.db ./analytics.db          # from the
 poetry run python -c "import duckdb; duckdb.connect('analytics.db').execute(\"IMPORT DATABASE '$HOME/backups/buibui/weekly/<DATE>/parquet'\")"
 ```
 
+Ledgers restore the same way — they sit at their repo-relative paths inside the snapshot.
+**`_external/` is the exception and does NOT restore into the repo**: those files came from
+outside it and must go back where they came from, or the tool that reads them will not see
+them.
+
+```bash
+cp ~/backups/buibui/daily/<DATE>/docs/plans/pundit-calls.jsonl docs/plans/     # in-repo ledger
+cp ~/backups/buibui/daily/<DATE>/_external/claude-personal/history.jsonl \
+   ~/.claude-personal/history.jsonl                                            # OUT of repo
+```
+
 **This is the local leg only.** It defeats accidental deletion, a bad script, or a tool
 bug. It does **not** survive disk failure or a lost laptop — that needs an `rclone` of
 `$BUIBUI_BACKUP_ROOT` to a remote, which is deliberately a separate step.
