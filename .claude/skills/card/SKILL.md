@@ -235,12 +235,22 @@ two configs, as evidence about anything. → memory `[[card-reproducibility-verd
 - Every non-DRY card appends to gitignored `docs/plans/ai-cards.jsonl` —
   `tail -n <batch size>` to collect a batch.
 - TRADE cards dual-write a pundit-calls row (author `buibui_card`), scored
-  by `make buibui-pundit-score`; card-v1 vs card-v2 cohorts accrue
-  automatically.
+  by `make buibui-pundit-score`. **The scorer prints ONE `buibui_card` row
+  pooling every cohort — it does NOT split by `prompt_version`.** The versions
+  accrue in `ai-cards.jsonl` and nothing surfaces them, so a v3-vs-v4 read
+  needs a hand join on `generated_at_ms` + `symbol`. Measured 2026-08-14:
+  card-v3 is 8 resolved at 38% / −0.17R, **card-v4 is 2 resolved with 7 open**,
+  so no version comparison is available yet.
 - Both ledgers carry `horizon`, read from one stamp on the card — so a batch
-  splits intraday vs swing straight from `tail`. Rows written before
-  2026-08-14 have no `horizon` key; treat their cohort as unknown, not
-  intraday.
+  splits intraday vs swing straight from `tail`. **#619 (`f52ebae`) added the
+  field and backfilled every historical row**, so nothing is unstamped. Of the
+  43 rows as of 2026-08-14, **31 carry a horizon recovered from their
+  pundit-call url and 12 carry a defaulted `intraday`** — all 12 defaulted rows
+  are NO_TRADE, which never reach the pundit ledger and are never scored, so
+  every scored row's horizon is genuine.
+- **Swing has never resolved.** The window is 30d, so the first swing cards
+  (2026-08-13) score around 2026-09-12. Any swing verdict before then is
+  unmeasured, not neutral.
 - Exploration runs that must not pollute the cohorts: call the CLI directly
   with `--no-ledger` (the make target has no such variable):
   `poetry run python buibui.py card SYM --no-ledger`.
