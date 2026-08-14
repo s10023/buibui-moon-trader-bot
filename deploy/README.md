@@ -302,7 +302,18 @@ them.
 cp ~/backups/buibui/daily/<DATE>/docs/plans/pundit-calls.jsonl docs/plans/     # in-repo ledger
 cp ~/backups/buibui/daily/<DATE>/_external/claude-personal/history.jsonl \
    ~/.claude-personal/history.jsonl                                            # OUT of repo
+
+# the cross-session memory trees -- all projects, or one:
+cp -Rp ~/backups/buibui/daily/<DATE>/_external/claude-personal/projects/. \
+   ~/.claude-personal/projects/
 ```
+
+**The memory trees are the highest-value thing in the snapshot and the easiest to restore
+wrongly.** Each lands at `_external/claude-personal/projects/<project-slug>/memory/`, and
+the slug matters: restoring one tree into the wrong project silently gives that project
+another repo's rulings. Copy the whole `projects/.` as above, or name one slug explicitly —
+never `cp` a bare `memory/` directory, which is exactly the collapse the backup script's
+`_ext_dir_tail` exists to prevent.
 
 **This is the local leg only.** It defeats accidental deletion, a bad script, or a tool
 bug. It does **not** survive disk failure or a lost laptop — that needs an `rclone` of
