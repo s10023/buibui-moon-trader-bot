@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import sys
 from collections.abc import Sequence
 
 from analytics.audit_guard import powered_null
@@ -66,6 +67,12 @@ def effective_n(n_obs: int, n_series: int | None, n_eff: float | None) -> int:
         raise ValueError("--n-series and --n-eff must be supplied together")
     if n_series < 1 or n_eff <= 0.0:
         raise ValueError("--n-series must be >= 1 and --n-eff must be > 0")
+    if n_eff > n_series:
+        raise ValueError(
+            f"n_eff ({n_eff}) cannot exceed n_series ({n_series}): the deflator "
+            "counts effective independent series among n_series, so n_eff <= "
+            "n_series always. Check the argument order."
+        )
     return max(2, int(n_obs * n_eff / n_series))
 
 
@@ -110,8 +117,9 @@ def price(args: argparse.Namespace) -> list[str]:
     else:
         out.append(f"  required Sharpe   {sr:.6f}")
         if args.sd is not None:
+            unit_noun = args.units.replace("per_", "").replace("_", " ")
             out.append(
-                f"  required effect   {sr * args.sd:+.4f} per {args.units.replace('per_', '')}"
+                f"  required effect   {sr * args.sd:+.4f} per {unit_noun}"
                 f"  (sd {args.sd})"
             )
         if args.corpus_best is not None:
@@ -144,7 +152,12 @@ def price(args: argparse.Namespace) -> list[str]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
-    for line in price(args):
+    try:
+        lines = price(args)
+    except ValueError as exc:
+        print(f"distil_power: {exc}", file=sys.stderr)
+        return 2
+    for line in lines:
         print(line)
     return 0
 
