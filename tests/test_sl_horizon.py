@@ -24,6 +24,7 @@ from analytics.sl_horizon import (
     counterfactual_levels,
     describe_horizon,
     evaluate_sl_grid,
+    negative_claim_licensed,
     resolve_arm,
     window_for_signal,
 )
@@ -541,12 +542,111 @@ def test_confirmed_bad_when_no_arm_helps_and_baseline_is_negative() -> None:
     wide = _paired(400, -0.2, {"atr_1": 0.0})
     got = evaluate_sl_grid(wide, arms=["atr_1"], cfg=SLGridConfig())
     assert got[0].decision == DECISION_CONFIRMED_BAD
+    # ST27 positive control: assert the CONTAINMENT, not just the label. A test
+    # that checks only the decision passes just as happily against the old
+    # criterion, which is how this defect class survived review four times.
+    assert got[0].ci_hi is not None and got[0].ci_hi < SLGridConfig().bar
 
 
 def test_no_difference_when_no_arm_helps_but_baseline_is_positive() -> None:
     wide = _paired(400, 0.3, {"atr_1": 0.0})
     got = evaluate_sl_grid(wide, arms=["atr_1"], cfg=SLGridConfig())
     assert got[0].decision == DECISION_NO_DIFFERENCE
+    assert got[0].ci_hi is not None and got[0].ci_hi < SLGridConfig().bar
+
+
+# --- ST27: a negative claim needs a CI that rules an effect out ----------------
+
+
+@pytest.mark.parametrize(
+    ("n", "noise", "baseline"),
+    [(50, 1.0, -0.2), (40, 0.5, -0.2), (60, 0.8, -0.2), (50, 1.0, 0.3)],
+)
+def test_underpowered_grid_is_insufficient_not_a_negative_claim(
+    n: int, noise: float, baseline: float
+) -> None:
+    """No arm cleared the bar, but the CI cannot rule one out — so: INSUFFICIENT.
+
+    This is the ST27 defect. Every one of these cells read CONFIRMED-BAD (or
+    NO-DIFFERENCE on a positive baseline) before the fix, purely because no arm
+    cleared ``+bar``. Enumerated across the input class rather than spot-checked:
+    the pre-fix spot-checks all passed while the defect stood.
+    """
+    wide = _paired(n, baseline, {"atr_1": 0.0}, noise=noise)
+    got = evaluate_sl_grid(wide, arms=["atr_1"], cfg=SLGridConfig())
+    assert got[0].decision == DECISION_INSUFFICIENT
+    # The reason the claim is withheld must be legible and must be the CI.
+    assert got[0].ci_hi is not None and got[0].ci_hi >= SLGridConfig().bar
+    assert any("NOT powered" in r for r in got[0].reasons)
+
+
+def test_negative_claim_reports_the_witness_arm_that_licenses_it() -> None:
+    """A CONFIRMED-BAD row carries the CI of the arm that came closest.
+
+    The filed ST9 table reported all 29 negative verdicts with em-dashes in the
+    CI columns, so no reader could check them. The widest upper bound IS the
+    predicate, so that arm is the one a reader needs.
+    """
+    wide = _paired(400, -0.2, {"atr_0.5": -0.30, "atr_1": 0.0, "atr_3": -0.60})
+    arms = ["atr_0.5", "atr_1", "atr_3"]
+    got = evaluate_sl_grid(wide, arms=arms, cfg=SLGridConfig())[0]
+
+    assert got.decision == DECISION_CONFIRMED_BAD
+    assert got.best_k == pytest.approx(1.0)  # atr_1, the least-bad arm
+    assert got.ci_lo is not None and got.ci_hi is not None
+    assert got.best_lift is not None
+    # dsr/pbo stay unset on this branch: no Sharpe is computed, which is why
+    # CLAUDE.md's directional abs() fold never bites here.
+    assert got.dsr is None and got.pbo is None
+
+
+def test_gates_failure_is_insufficient_not_no_difference() -> None:
+    """Cleared +bar, failed PBO — "cannot rule out overfit" is not "no difference".
+
+    Five arms with an identical lift make the best-arm ranking pure noise, so PBO
+    blows past its ceiling while the paired lift CI sits entirely above the bar.
+    """
+    arms = ["atr_0.5", "atr_1", "atr_1.5", "atr_2", "atr_3"]
+    wide = _paired(400, -0.2, dict.fromkeys(arms, 0.20), noise=0.4)
+    got = evaluate_sl_grid(wide, arms=arms, cfg=SLGridConfig())[0]
+
+    assert got.decision == DECISION_INSUFFICIENT
+    # The lift is REAL: its CI excludes zero and clears the bar. That is exactly
+    # what makes NO-DIFFERENCE the wrong label.
+    assert got.ci_lo is not None and got.ci_lo > SLGridConfig().bar
+    assert got.pbo is not None and got.pbo > 0.5
+    assert any("cleared the bar" in r for r in got.reasons)
+
+
+def test_gate_failure_reason_names_only_the_gate_that_failed() -> None:
+    arms = ["atr_0.5", "atr_1", "atr_1.5", "atr_2", "atr_3"]
+    wide = _paired(400, -0.2, dict.fromkeys(arms, 0.20), noise=0.4)
+    got = evaluate_sl_grid(wide, arms=arms, cfg=SLGridConfig())[0]
+
+    reason = next(r for r in got.reasons if "overfit gates failed" in r)
+    assert "pbo=" in reason
+    assert "dsr=" not in reason  # DSR passed; saying otherwise is a false claim
+
+
+@pytest.mark.parametrize(
+    ("ci_his", "expected"),
+    [
+        ([0.01, 0.02], True),  # every arm contained
+        ([0.01, 0.049], True),  # just inside
+        ([0.01, 0.05], False),  # exactly at the bar is not below it
+        ([0.01, 0.20], False),  # one arm reaches past the bar
+        ([-0.90, -0.10], True),  # arms that reliably LOSE support the claim
+        ([0.01, None], False),  # an untested arm rules nothing out
+        ([None], False),
+        ([], False),  # no arms tested
+        ([0.01, float("nan")], False),
+        ([0.01, float("inf")], False),
+    ],
+)
+def test_negative_claim_licensed_enumerates_the_input_class(
+    ci_his: list[float | None], expected: bool
+) -> None:
+    assert negative_claim_licensed(ci_his, bar=0.05) is expected
 
 
 def test_ties_break_toward_the_larger_k() -> None:
