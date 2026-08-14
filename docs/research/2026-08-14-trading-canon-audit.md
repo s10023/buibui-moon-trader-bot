@@ -33,6 +33,21 @@ implementation of quoting logic on the exact exchanges we trade.
 This is the highest expected-value item in the whole audit, because the effect size is already
 measured rather than hoped for, and the fix does not need a new edge.
 
+**A proposed second measurement was checked and did not survive.** A peer session offered the
+AI-card ledger as independent corroboration — n=29 calls, 16 resolved, `avg_r` −0.11 against
+`avg_atr_r` **+0.22** — read as "the direction calls are right and the stop/target geometry
+hands it back". The scorer says otherwise. `tools/pundit_score.py:733-736` computes both from
+the **same numerator**: `r = dirsign·(exit−fill)/risk` and `atr_r = dirsign·(exit−fill)/atr`,
+with `risk = |fill − stop| > 0`. **Every trade therefore carries the same sign in both units,
+always.** Opposite *average* signs can only come from (a) different subsamples — `r` is `None`
+with no stated stop, `atr_r` is `None` with no ATR — or (b) weighting, since narrow-stop trades
+carry large |R| and dominate `avg_r`. And a −1.00R loss is what a stop-out *is* by construction,
+so "loses 1.49 ATR but costs a full 1.00R" states only that the stop was 1.49 ATR wide.
+
+This is the standing warning in `CLAUDE.md` — any live-ledger comparison across cells of
+differing stop width inherits a bias, not merely a level shift — arriving in a new place. §1a
+still rests on **one** measurement, not two.
+
 ### 1b. There is no canonical crypto trading *book* — the live literature is papers
 
 Verified by search, and it is a real finding rather than a gap in the search. The crypto
@@ -63,6 +78,13 @@ Caveat that bounds the design: Deribit liquidity is BTC/ETH only, so this can se
 **regime/state gate or a TS signal**, never as a cross-sectional factor over the 25-perp
 universe. Pre-register it as one hypothesis before touching code
 ([[price-the-power-before-designing]]).
+
+**Free and available is the cheap half of the bar.** H14 (Coinbase premium) and H15 (USD/JPY
+carry unwind) were both genuinely new data sources rather than re-slices of held price and
+order-flow, and both came back with no edge — the conditioning scoreboard reads
+6-for-6-plus-one-amended. A new axis still has to clear the three-leg gate,
+`DSR ≥ 0.95 ∧ PBO ≤ 0.5 ∧ boot_lo > 0`. Novel data is necessary here, not sufficient, and §1c
+claims only that this door is cheap to open — never that anything is behind it.
 
 ---
 
