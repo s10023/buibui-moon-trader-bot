@@ -40,7 +40,7 @@ from statistics import NormalDist
 
 import duckdb
 
-from analytics.research_guards import GATE_DSR, expected_max_sharpe
+from analytics.research_guards import GATE_DSR, expected_max_sharpe, required_sharpe
 from analytics.store import DEFAULT_DB_PATH
 
 NORM = NormalDist()
@@ -58,11 +58,17 @@ LEG_DAYS = 365
 def required_sr(n_obs: int, sr0: float, skew: float, kurt: float) -> float | None:
     """Smallest per-trade Sharpe clearing ``DSR >= GATE_DSR`` at ``n_obs``, given ``sr0``.
 
-    Solves ``z = (sr - sr0) * sqrt(n-1) / sqrt(1 - skew*sr + ((kurt-1)/4)*sr^2)``
-    for ``z = Z_GATE`` by bisection — the variance term makes it non-linear in
-    ``sr``. Returns ``None`` when the gate is unreachable at any Sharpe, which
-    is a finding rather than an error: a bar no cell can clear reports
-    "everything is suspect" as an artifact.
+    Delegates to :func:`analytics.research_guards.required_sharpe`, which
+    inverts the production ``probabilistic_sharpe_ratio`` rather than a
+    hand-derived closed form. Returns ``None`` when the gate is unreachable
+    at any Sharpe, which is a finding rather than an error: a bar no cell can
+    clear reports "everything is suspect" as an artifact.
+
+    Keeps the pre-promotion ``sr0 + 5.0`` unreachable-window guard: measured
+    disagreement (n_obs=3, sr0 in {1.0, 2.0}) shows the promoted search's
+    wider ``1e6`` window finds a finite answer beyond the old boundary, so
+    the old boundary is preserved here rather than silently widening the
+    reported values.
     """
     if n_obs < 2:
         return None
@@ -73,16 +79,10 @@ def required_sr(n_obs: int, sr0: float, skew: float, kurt: float) -> float | Non
             return float("inf")
         return (sr - sr0) * math.sqrt(n_obs - 1) / math.sqrt(var)
 
-    lo, hi = sr0, sr0 + 5.0
-    if z_of(hi) < Z_GATE:
+    if z_of(sr0 + 5.0) < Z_GATE:
         return None
-    for _ in range(200):
-        mid = (lo + hi) / 2.0
-        if z_of(mid) < Z_GATE:
-            lo = mid
-        else:
-            hi = mid
-    return hi
+    got = required_sharpe(n_obs, benchmark_sr=sr0, skew=skew, kurtosis=kurt)
+    return None if math.isinf(got) else got
 
 
 def main() -> None:

@@ -57,10 +57,8 @@ import pandas as pd
 from analytics.audit_guard import powered_null
 from analytics.eras import EraBoundary, load_boundaries, split_by_era
 from analytics.forecast.attribution import effective_independent_series
-from analytics.research_guards import deflated_sharpe_ratio
-
-#: The gate leg this study would have to clear. Three legs, never four.
-GATE_DSR = 0.95
+from analytics.research_guards import GATE_DSR as GATE_DSR
+from analytics.research_guards import required_sharpe
 
 #: Economic bars for the containment test, in R per alert. 0.05R is the filed
 #: precedent from the H14/H15 cross-asset panels; 0.10R is carried beside it
@@ -180,54 +178,6 @@ def era_sharpes(
             continue
         out.append(st.mean(vals) / sd)
     return out
-
-
-def required_sharpe(
-    n_obs: int,
-    *,
-    n_trials: int,
-    sr_variance: float,
-    skew: float = 0.0,
-    kurtosis: float = 3.0,
-    target: float = GATE_DSR,
-) -> float:
-    """Smallest per-alert Sharpe whose DSR reaches ``target`` at this ``n_obs``.
-
-    Numerically inverted rather than solved: ``deflated_sharpe_ratio`` is the
-    production function, so inverting *it* keeps the bar and the gate in agreement
-    by construction. A closed form re-derived by hand is how a spec and a driver
-    come to disagree.
-    """
-    lo, hi = 0.0, 1.0
-    for _ in range(200):
-        got = deflated_sharpe_ratio(
-            hi,
-            n_obs,
-            n_trials=n_trials,
-            sr_variance=sr_variance,
-            skew=skew,
-            kurtosis=kurtosis,
-        )
-        if got >= target:
-            break
-        lo, hi = hi, hi * 2.0
-        if hi > 1e6:
-            return math.inf
-    for _ in range(200):
-        mid = (lo + hi) / 2.0
-        got = deflated_sharpe_ratio(
-            mid,
-            n_obs,
-            n_trials=n_trials,
-            sr_variance=sr_variance,
-            skew=skew,
-            kurtosis=kurtosis,
-        )
-        if got >= target:
-            hi = mid
-        else:
-            lo = mid
-    return hi
 
 
 def containment_half_width(n_obs: int, sd: float) -> float:
