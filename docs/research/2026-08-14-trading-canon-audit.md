@@ -296,19 +296,37 @@ auction/PFOF choice — both make cost too *high*, so tightening them can only p
 never rescue one. Harris and Cartea stay worth reading; the urgency does not transfer.
 
 **§1c's options axis is NOT richer for equities — it is narrower.** The brief claimed "full
-listed chains, VIX term structure and skew, all with long free history". On the free stack that
-is wrong: `yfinance` exposes only *current* expirations via `option_chain()`, with no historical
-chain endpoint, so **no historical skew and no historical surface — a skew signal cannot be
-backtested on free equity data at all.** What is genuinely free with long daily history is the
-VIX complex as index series (`^VIX`, `^VIX3M`, `^VIX9D`, `^VVIX`; CBOE's `^SKEW` is a further
-candidate, unverified). That is real term structure, but it is a handful of daily series rather
-than a surface.
+listed chains, VIX term structure and skew, all with long free history". `yfinance` exposes only
+*current* expirations via `option_chain()`, with no historical chain endpoint, so there is **no
+per-strike skew and no historical surface** on the free stack.
 
-Which **inverts the comparison in §1c**: Deribit's free API serves per-instrument mark IV — an
-actual surface — since 2019-10-01, so *crypto* has the richer free option data and equities the
-one-dimensional version. The door in §1c is still open and still the cheapest new axis; it is
-just narrower on the equity side than first written, and the power calculation is
-correspondingly less favourable.
+Index-level series are a different matter, and here wifey's own correction was itself too
+strong. Measured on `yfinance` 1.5.2, `period="max"`:
+
+| Ticker | Rows | From | To |
+| --- | ---: | --- | --- |
+| `^VIX` | 9,223 | 1990-01-02 | 2026-08-14 |
+| `^SKEW` | 9,147 | 1990-01-02 | 2026-08-13 |
+| `^VVIX` | 4,925 | 2007-01-03 | 2026-08-13 |
+| `^VIX3M` | 5,032 | 2006-07-17 | **2026-07-17** |
+| `^VIX6M` | 4,664 | 2008-01-02 | **2026-07-17** |
+| `^VIX9D` | 3,907 | 2011-01-03 | **2026-07-17** |
+
+So an index-level skew history *is* free, back to 1990 — "skew cannot be backtested on free
+equity data" is wrong in the other direction. `^VIX6M` exists too; neither of us had listed it.
+
+⚠ **The term structure is stale on the free feed.** `^VIX3M`, `^VIX9D` and `^VIX6M` all stop
+dead at 2026-07-17 while `^VIX`, `^VVIX` and `^SKEW` stay current — exactly the three
+term-structure tickers and no others, so not a random outage. **One probe on one day; re-check
+before building on it.** If it holds, term structure is *backtestable but not live*: a live
+`VIX3M/VIX` signal would silently run ~28 days stale, which is precisely the silent-surface
+defect class where emptiness and staleness both read as coverage. Any use needs a **freshness
+assertion, not a fetch**.
+
+The inversion still holds on substance — per-instrument mark IV is a surface, `^SKEW` is one
+number a day — so *crypto* has the richer free option data. The door in §1c stays open and
+stays the cheapest new axis; it is narrower on the equity side than first written, and for the
+term-structure half it is currently backtest-only.
 
 ---
 
