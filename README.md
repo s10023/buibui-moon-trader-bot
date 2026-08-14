@@ -564,7 +564,10 @@ Six candle-pattern strategies above (`engulfing`, `pin_bar`, `inside_bar`,
 (`--sl-pct` default) at every timeframe. `make buibui-sl-horizon-audit`
 (`tools/sl_horizon_audit.py`) is a read-only audit that re-resolves those same
 signals under an ATR-scaled counterfactual stop grid — verdict:
-`docs/audits/2026-07-21-st9-sl-horizon.md`.
+`docs/audits/2026-07-21-st9-sl-horizon.md`, **corrected 2026-08-14 by
+`docs/audits/2026-08-14-st27-sl-horizon-powered-null.md`** (its negative verdicts were
+emitted from failure to clear the bar rather than from a CI; 22 of 30 do not survive the
+corrected one-sided criterion, and the surviving `CONFIRMED-BAD` is 15m only).
 
 `make buibui-weekly-path-audit` (`tools/weekly_path_audit.py`) is a read-only
 audit that tests whether a week's AWR-normalized partial path at hour `h`

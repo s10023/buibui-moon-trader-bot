@@ -4,13 +4,14 @@
 `make docs-index-check` (and `tests/test_docs_index.py`) fails when this file
 drifts from the corpus.
 
-**43 audits.** A verdict line is shown only where one could be read
-out of a Verdict heading as prose — that is **27 of 43**.
+**44 audits.** A verdict line is shown only where one could be read
+out of a Verdict heading as prose — that is **28 of 44**.
 An em dash means the doc states its verdict in a table, a blockquote or the body,
 **not** that it lacks one; open the file. Nothing here is keyword-guessed.
 
 | Date | Audit | Verdict (as written) | File |
 | --- | --- | --- | --- |
+| 2026-08-14 | ST27 — `sl_horizon.py` re-run under a one-sided powered-null criterion | 22 of 30 negative claims in the ST9 audit were unsupported. 8 survive. | [2026-08-14-st27-sl-horizon-powered-null.md](2026-08-14-st27-sl-horizon-powered-null.md) |
 | 2026-08-13 | ST26 — H8 / H9 / H10 re-run under the corrected powered-null criterion | every negative claim in all three audits was overstated. Of 170 filed | [2026-08-13-st26-powered-null-rerun.md](2026-08-13-st26-powered-null-rerun.md) |
 | 2026-08-13 | H19 — equity→BTC transmission: POWER PRICED, NO-GO | PARK. Do not design it. Priced before any design, per | [2026-08-13-h19-equity-btc-axis-power.md](2026-08-13-h19-equity-btc-axis-power.md) |
 | 2026-08-12 | Spec reconcile — F2 AI Trade Card v1 | the IMPLEMENTATION reconciles CLEAN — every pre-registered element is present, | [2026-08-12-spec-reconcile-f2-trade-card.md](2026-08-12-spec-reconcile-f2-trade-card.md) |

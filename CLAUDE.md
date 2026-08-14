@@ -388,10 +388,25 @@ positive; its corrected INSUFFICIENT means *real but unsized against the bar*, n
 *ruled out*, and the two point at opposite next actions. And **H8's filed text talked
 itself out of the fix** ("at `min_n = 30` every pooled cell is powered, so defect 2's
 fix changes no cell") — the defect stated as a reassurance, which is why review missed
-it. ⚠ **A FIFTH site is still open: `analytics/sl_horizon.py` emits
-`NO-DIFFERENCE`/`CONFIRMED-BAD` the same way** (ST9 carries 29 such verdicts with **no
-CI at all**), and `powered_null` does NOT drop in — it is best-of-k selection, so the
-honest predicate is one-sided (`all arms' ci_hi < bar`). See SoT ST27.
+it. **The FIFTH site is FIXED (ST27, 2026-08-14, verdict
+`docs/audits/2026-08-14-st27-sl-horizon-powered-null.md`): `analytics/sl_horizon.py`
+emitted `NO-DIFFERENCE`/`CONFIRMED-BAD` from failure to clear the bar — a DIFFERENT
+mistake from the other four's sample-size floor, with the same shape, so no grep for
+`min_n` would have found it.** `powered_null` does **not** drop in: this is best-of-k
+selection, so the predicate is one-sided — `negative_claim_licensed`, `all arms'
+ci_hi < bar`. **Call it; do not restate the rule.** Two properties look like omissions
+and are not: it needs **no Holm adjustment** (to assert wrongly, the one genuinely
+bar-clearing arm must have its own CI miss — single-interval coverage, ≤2.5%, however
+many arms are swept) and it **requires no significance**, since demanding a significant
+effect before concluding no effect exceeds the bar is backwards. Re-run: **22 of 30
+negative claims fall, 8 survive**, no direction reverses. ⚠ **It moved the flat-2%
+answer: live `CONFIRMED-BAD` now holds at 15m ONLY** — every live 1h/4h cell is
+INSUFFICIENT, so "ATR-widening is CONFIRMED-BAD at 15m/1h/4h" is wrong at 1h/4h, and the
+2026-08-07 "gradient vs ST9" tension dissolves (ST9 never had the power to call those
+TFs). Read that as *untested*, never as *widening works* — the fidelity gate still
+fails and ST9 stays unaccepted. Its second site is worth remembering on its own: an arm
+that CLEARED the bar but failed DSR/PBO was labelled `NO-DIFFERENCE`, and the `reasons`
+string stated the truth while the decision field contradicted it.
 
 **CRITICAL — an audit gate's effect-size floor `bar` is expressed in the units of
 the observation, and nothing in its name or docstring says so.** H15

@@ -339,9 +339,42 @@ _DSR_FLOOR = 0.95
 _PBO_CEILING = 0.5
 
 
+def negative_claim_licensed(ci_his: Iterable[float | None], *, bar: float) -> bool:
+    """True iff "no arm beats baseline by ≥ ``bar``" is supported by the data.
+
+    **The ST27 analogue of ``audit_guard.CellVerdict.powered_null``, and it is
+    deliberately a different predicate.** ``powered_null`` is two-sided
+    containment (``ci_lo > -bar and ci_hi < bar``) because it sizes ONE cell's
+    effect against the bar in both directions. This is a best-of-k arm sweep, and
+    the only negative claim on offer is one-sided — *no arm beats baseline* — so
+    the honest test is that **every** arm's upper CI bound sits below ``+bar``. An
+    arm's lower bound is irrelevant here: an arm that reliably LOSES to baseline
+    is not evidence against the claim, it is evidence for it.
+
+    Returns ``False`` when any arm has no CI (untested) and when the arm list is
+    empty. **Failing to clear the bar is not the same as being ruled out** — a
+    cell whose widest upper bound still reaches ``+bar`` has established nothing,
+    which is the whole defect this function exists to make unrepresentable.
+    """
+    his = list(ci_his)
+    if not his:
+        return False
+    return all(h is not None and np.isfinite(h) and h < bar for h in his)
+
+
 @dataclass(frozen=True)
 class SLVerdict:
-    """Pre-committed verdict for one (strategy × TF) cell."""
+    """Pre-committed verdict for one (strategy × TF) cell.
+
+    ``best_k`` / ``best_lift`` / ``ci_lo`` / ``ci_hi`` / ``adj_pvalue`` describe
+    **the arm the decision rests on**, which differs by branch: for ``SUSPECT``
+    it is the winning arm (largest mean lift among those clearing ``+bar``); for
+    ``CONFIRMED-BAD`` / ``NO-DIFFERENCE`` it is the *witness* arm — the one with
+    the widest upper CI bound, i.e. the arm that came closest to beating the
+    baseline. Reporting the witness is what makes a negative claim auditable: it
+    is the single number that licenses "and none of the others did either".
+    ``reasons`` always names the arm, so the attribution is never implicit.
+    """
 
     strategy: str
     tf: str
@@ -385,6 +418,15 @@ def evaluate_sl_grid(
     One ``evaluate_audit_cells`` call covers every (strategy × TF × k) cell in
     the run, so the Holm family is shared across the whole substrate — one family
     per substrate, never pooled across substrates.
+
+    **Only two of the four decisions are negative claims, and neither is reachable
+    from absence of evidence (ST27).** ``CONFIRMED-BAD`` / ``NO-DIFFERENCE`` need
+    :func:`negative_claim_licensed` — every arm's upper CI bound below ``+bar`` —
+    and fall to ``INSUFFICIENT`` without it. ``INSUFFICIENT`` therefore carries
+    three distinct meanings, separated by ``reasons``: ``n`` below the floor, a
+    grid that failed to rule an arm in, and a grid whose winner cleared ``+bar``
+    but failed the DSR/PBO overfit gates. All three say *untested*; none says *no
+    effect*.
     """
     if paired.empty:
         return []
@@ -446,15 +488,56 @@ def evaluate_sl_grid(
         # (ci_hi <= -bar). We want arms that BEAT baseline, i.e. positive lift,
         # so we filter on "DISABLE". enable_concentrate=False guarantees a
         # positive cell never resolves to CONCENTRATE, so DISABLE is unambiguous.
-        candidates = [(arm, cv) for arm, cv in by_group[gi] if cv.decision == "DISABLE"]
+        arm_verdicts = by_group[gi]
+        candidates = [(arm, cv) for arm, cv in arm_verdicts if cv.decision == "DISABLE"]
 
         if not candidates:
-            decision = (
-                DECISION_CONFIRMED_BAD
-                if baseline_avg <= 0.0
-                else DECISION_NO_DIFFERENCE
+            # ST27. "No arm cleared the bar" is absence of evidence; CONFIRMED-BAD
+            # and NO-DIFFERENCE are both positive claims that no ATR stop rescues
+            # this cell. Emitting either from the failure to clear is the same
+            # defect #617 fixed in four other modules — so the claim is licensed
+            # only when every arm's upper CI bound sits below +bar, and the cell
+            # falls to INSUFFICIENT otherwise.
+            #
+            # The witness is the arm with the widest upper bound: the max over
+            # ci_hi IS the predicate, so that arm is the one number a reader needs
+            # to check the claim. Ties break toward the larger k, matching the
+            # SUSPECT branch. dsr/pbo stay None here on purpose — no Sharpe is
+            # computed, which is exactly why CLAUDE.md's directional abs() fold
+            # never bites on this branch.
+            witness_arm, witness_cv = max(
+                arm_verdicts,
+                key=lambda pair: (
+                    pair[1].ci_hi if pair[1].ci_hi is not None else -float("inf"),
+                    _k_from_arm(pair[0]),
+                ),
+            )
+            licensed = negative_claim_licensed(
+                (cv.ci_hi for _, cv in arm_verdicts), bar=cfg.bar
+            )
+            widest = (
+                "none (untested)"
+                if witness_cv.ci_hi is None
+                else f"{witness_cv.ci_hi:.4f}"
             )
             reasons.append("no arm cleared the +bar CI test")
+            if licensed:
+                decision = (
+                    DECISION_CONFIRMED_BAD
+                    if baseline_avg <= 0.0
+                    else DECISION_NO_DIFFERENCE
+                )
+                reasons.append(
+                    f"powered: widest upper CI {widest} ({witness_arm}) "
+                    f"< bar={cfg.bar:.2f}, so no arm beats baseline by the bar"
+                )
+            else:
+                decision = DECISION_INSUFFICIENT
+                reasons.append(
+                    f"NOT powered: widest upper CI {widest} ({witness_arm}) "
+                    f"reaches bar={cfg.bar:.2f} — an arm that beats baseline is "
+                    f"not ruled out"
+                )
             reasons.append(f"baseline avg_r={baseline_avg:.4f}")
             out.append(
                 SLVerdict(
@@ -463,11 +546,11 @@ def evaluate_sl_grid(
                     decision=decision,
                     n=n,
                     baseline_avg_r=baseline_avg,
-                    best_k=None,
-                    best_lift=None,
-                    ci_lo=None,
-                    ci_hi=None,
-                    adj_pvalue=None,
+                    best_k=_k_from_arm(witness_arm),
+                    best_lift=witness_cv.supp_avg,
+                    ci_lo=witness_cv.ci_lo,
+                    ci_hi=witness_cv.ci_hi,
+                    adj_pvalue=witness_cv.adj_pvalue,
                     dsr=None,
                     pbo=None,
                     reasons=reasons,
@@ -497,11 +580,22 @@ def evaluate_sl_grid(
             pbo = float(cscv_pbo(matrix).pbo)
 
         gates_ok = dsr >= _DSR_FLOOR and (pbo is None or pbo <= _PBO_CEILING)
-        decision = DECISION_SUSPECT if gates_ok else DECISION_NO_DIFFERENCE
+        # ST27. Reaching here means an arm's paired lift CI cleared +bar AND was
+        # Holm-significant, so a real effect is on the table. Failing DSR/PBO says
+        # "I cannot rule out that this is the best of k arms by chance" — which is
+        # INSUFFICIENT, never NO-DIFFERENCE. The old label stamped absence of an
+        # effect onto a cell whose own CI excludes zero, and the reasons string
+        # below stated the truth while the decision field contradicted it.
+        decision = DECISION_SUSPECT if gates_ok else DECISION_INSUFFICIENT
         if not gates_ok:
+            # Name only the gate that actually failed. The old template asserted
+            # both ("dsr=1.000 < 0.95 or pbo=0.92 > 0.5"), so half of every such
+            # reason string was a false statement about the run.
+            failed = [f"dsr={dsr:.3f} < {_DSR_FLOOR}"] if dsr < _DSR_FLOOR else []
+            if pbo is not None and pbo > _PBO_CEILING:
+                failed.append(f"pbo={pbo:.3f} > {_PBO_CEILING}")
             reasons.append(
-                f"lift cleared the bar but overfit gates failed "
-                f"(dsr={dsr:.3f} < {_DSR_FLOOR} or pbo={pbo} > {_PBO_CEILING})"
+                f"lift cleared the bar but overfit gates failed ({', '.join(failed)})"
             )
 
         out.append(

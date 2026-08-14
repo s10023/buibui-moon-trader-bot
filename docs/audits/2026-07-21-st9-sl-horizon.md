@@ -1,5 +1,14 @@
 # ST9 / H11 — SL-horizon audit
 
+> ⚠ **SUPERSEDED IN PART (ST27, 2026-08-14) — the 29 negative verdicts below are
+> UNTESTED, not tested-and-clear.** Every `CONFIRMED-BAD` / `NO-DIFFERENCE` in the tables
+> was emitted from *failure to clear the bar* rather than from a CI that ruled an effect
+> out, which is why their CI columns are em-dashes. On a corrected one-sided criterion,
+> 22 of the 30 equivalent claims do not survive — including **every live 1h and 4h cell**.
+> The three `SUSPECT` cells and the disposition below are unaffected. Tables are left as
+> the dated record of this run. See
+> [`2026-08-14-st27-sl-horizon-powered-null.md`](2026-08-14-st27-sl-horizon-powered-null.md).
+
 Read-only. Live `signal_alert_outcomes` GATES the verdict;
 `backtest_trades` corroborates. One Holm family per substrate.
 
