@@ -319,12 +319,77 @@ session, and repo-level config can switch them off — repo beats account.**
 Actionable: if any repo treats those flat files as fallbacks, they are a silent no-op. It
 also means "the same skill exists in four places" was never the risk it read as.
 
+## 8b. A blocking string-matcher fights documentation exactly where the asset matters
+
+`guard-destructive.py` matches the **whole command string**, so it blocks writing a heredoc,
+commit body or doc that merely *quotes* a destructive command. It misfired twice on this
+session's own verification payloads, **and both were reported as "the guard working" until
+the wifey session challenged it.**
+
+**fpl measured the collision across its 53 markdown files, and the result inverts:**
+
+| rule | collisions in fpl docs |
+| --- | --- |
+| the 4 generic rules (`rm -rf`, `reset --hard`, `clean -fd`, DROP/TRUNCATE) | **0** |
+| the 2 fpl-specific rules fpl itself proposed | **2 of 2**, one inside a loaded skill |
+
+**The generalisation is fpl's and it is the sharpest thing in this audit:** *a guard's
+false-positive rate is not a property of the guard — it is a property of how well the repo
+documents its own dangers.* The commands most worth guarding are the commands most worth
+writing down, so collisions concentrate on the highest-value rules. fpl scores 0 on the
+generic rules only because it never had reason to document `rm -rf`.
+
+**And this kills the anchoring "fix".** Anchoring the verb to a command position does not
+help: `npx @google/clasp push --force` inside a fenced code block *is* at a command position.
+The distinguishing feature is not syntax — it is whether the string sits in a `tool_input` or
+in a file being written, which a Bash matcher cannot see.
+
+**Decision (operator, 2026-08-14g): keep the guard broad and blocking; treat the
+heredoc collision as the price.** For a *blocking* guard the asymmetry runs one way — a
+blocked heredoc costs one rephrase, a missed `bash -c "rm -rf /"` costs the repo, and
+`xargs` and `find -exec` evade an anchor too. The corollary, also fpl's: **accept coverage
+gaps rather than loosen the matcher** — decline to add rules whose strings live in prose,
+and protect those assets at a different layer (fpl's snapshot is guarded by a code-level
+`priorSnapshotStrength_` refusal, which is a lock at the right layer instead of a string
+match at the wrong one).
+
+**A ported blocklist is not ported protection:** it encodes the *source* repo's asset
+inventory. 3 of buibui's 7 rules are dead in fpl (no `.db`/`.duckdb`, no `clean-db` target,
+and the commented rule names buibui's daemon).
+
 ## 9. Methodology — the frame travels further than the figures
 
 Both peers were asked to treat this audit as a lead and verify. Both did, and **the thing
 that needed correcting was the framing, not the numbers.** D1's figures were right; its
 sentence *"main's CI signal is now dead"* was not, and that sentence is what a reader
 inherits. Wifey named it explicitly: *verify the frame, not just the figures.*
+
+**The pattern generalises, and wifey named it after three instances in one day:** a
+diagnosis can be **right in mechanism and wrong in attribution**, and it survives because
+the observation is consistent with the explanation and nobody checks the *other* mechanism
+that would produce the same observation. Instances: "main's CI is dead" (real jobs, wrong
+frame); fpl's shed-yield claim (real technique, wrong size); and the `gh` denial diagnosis
+below. **This is 5c's shape 1 — *demand the query that rules the OTHER mechanisms out* —
+showing up in workflow archaeology rather than in a backtest, so shape 1 is not limited to
+quantitative claims.**
+
+**Worked example, and the elimination was run.** buibui writes
+`export GH_TOKEN=$(...); gh pr view ...` and is often denied; wifey writes
+`GH_TOKEN=$(...) gh pr view ...` and is not. Proposed mechanism: the `export` form is two
+commands joined by `;`, so the matcher reads `export`, which is not allowlisted. **Wifey
+supplied the competing mechanism — wifey simply has a complete `gh` allowlist, so neither
+form would prompt there — and named the discriminating test:** diff buibui's
+`permissions.allow` against wifey's six verbs. **Run: buibui has all six, `Bash(gh auth *)`
+included**, so the missing-allowlist explanation is eliminated for buibui and the
+compound-command mechanism survives. It is still not *proven* — that needs a deliberate
+denial nobody has spent operator attention on.
+
+⚠ **A related claim that cannot be settled from artifacts: "wifey never gets denied".**
+Wifey's operator deletes conversations after each task, and the transcript archive is empty,
+so there is no corpus to grep. Wifey observed ~25 undenied `gh` calls in one session — a
+real observation with a small denominator that is *consistent with* the claim and does not
+test it. (Wifey's stronger reading, that no wifey transcripts exist at all, was a
+wrong-root error: they are under `~/.claude-personal/projects/`, not `~/.claude/`.)
 
 Two corrections to fpl's section came the same way: *"no `.claude/settings.json` at all"* was
 right in conclusion (no hooks) and wrong in premise (`settings.local.json` exists, and
