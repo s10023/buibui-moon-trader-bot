@@ -263,12 +263,32 @@ sources"*, *"playerByWebName is gone from every .gs source"*.
 > then heeds it*; the test fails the build regardless of who wrote the code or whether
 > anyone read anything.
 
-So the shed rule becomes: **if a paragraph can be mechanised as a grep, make it a test and
-DELETE the paragraph** — deletion candidate, not relocation candidate. That reframes both
-fpl's 1,593 lines and buibui's remaining 563. fpl learned it expensively: a reconciliation
-tool printed `FAILED` for five days unseen because it only ran by hand. Their standing
-memory is **"a self-check outside CI is not a check"** — which is buibui's own gitignored
-`test_context_guard.py` problem, stated better.
+So the shed rule becomes: **if a paragraph can be mechanised as a grep, make it a test —
+then delete only the part the test can hold.** fpl learned the underlying point expensively:
+a reconciliation tool printed `FAILED` for five days unseen because it only ran by hand.
+Their standing memory is **"a self-check outside CI is not a check"** — which is buibui's own
+gitignored `test_context_guard.py` problem, stated better.
+
+**⚠ TWO CAVEATS, both from fpl MEASURING its own file after proposing the rule — the rule
+survives, the yield expectation does not.**
+
+**(a) A test holds the RULE; it cannot hold the REASON, and the reason is load-bearing.**
+fpl's `playerByWebName` block is 7 lines: one is the rule, six are why (a name map silently
+resolved the wrong player, so one account scored a different footballer with xP 0 while every
+other sheet computed the right one). The test stops the code returning; **the narrative is
+what stops someone reintroducing it deliberately.** Delete the rule, keep the reason.
+
+**(b) The yield is REPO-DEPENDENT, and assuming otherwise deletes the wrong content.**
+Measured on fpl's 1,593 lines: blocks citing a test at all are **69 lines, 4.3%** — an upper
+bound, since most of those lines are narrative rather than rule. Dated verification records
+are a further **3.8%**; the union is ~8%. **fpl's file is design-dense, not footgun-dense** —
+its largest single section is 177 lines (11%) defining which account is control and which is
+treatment in a two-account A/B experiment, a policy that must be true *before* anyone touches
+a file, so neither a test nor an edit-time card can carry it.
+
+buibui shed 15.3% because buibui's `CLAUDE.md` *was* footgun-dense. **Measure the citable
+slice before promising a shed target: the mechanism tells you the technique, never the size
+of the opportunity.** wifey, already suite-layer, likely sits nearer fpl than buibui.
 
 **wifey's `/post-branch` has two steps buibui's lacks**, and one has a track record:
 **Step 5c, a claims audit, has caught a false quantitative claim on NINE consecutive PRs**,
