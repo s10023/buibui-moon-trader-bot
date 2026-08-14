@@ -342,7 +342,7 @@ _PBO_CEILING = 0.5
 def negative_claim_licensed(ci_his: Iterable[float | None], *, bar: float) -> bool:
     """True iff "no arm beats baseline by ≥ ``bar``" is supported by the data.
 
-    **The ST27 analogue of ``audit_guard.CellVerdict.powered_null``, and it is
+    **The ST27 analogue of :func:`analytics.audit_guard.powered_null`, and it is
     deliberately a different predicate.** ``powered_null`` is two-sided
     containment (``ci_lo > -bar and ci_hi < bar``) because it sizes ONE cell's
     effect against the bar in both directions. This is a best-of-k arm sweep, and

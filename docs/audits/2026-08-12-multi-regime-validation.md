@@ -3,8 +3,22 @@
 **Date:** 2026-08-12.
 **Spec:** `docs/superpowers/specs/2026-08-12-multi-regime-validation-design.md`
 (written before the study ran, after the power was priced).
-**Drivers:** `docs/plans/scratch/multi_regime_{coverage,power,deflator,study}.py`
-— gitignored, on disk, re-runnable, covered by `LEDGER_DIRS`.
+**Drivers:** `tools/multi_regime_{power,deflator,study}.py` (promoted out of
+`docs/plans/scratch/` 2026-08-14) and `docs/plans/scratch/multi_regime_coverage.py`.
+
+> ⚠ **CORRECTED 2026-08-14 (ST28) — the three "powered null" labels below are
+> WITHDRAWN and read INSUFFICIENT.** The study declared a powered null from
+> `|Δ| < MDE`, and since `MDE = 2.802 × SE` that is a significance test wearing a
+> power label: a criterion computed from the data's own noise can report that an
+> effect was not *seen*, never that one was *ruled out*. Under the corrected
+> criterion (`analytics.audit_guard.powered_null` — CI containment inside
+> ±0.05R) **0 of 3 survive**; CI half-widths are 2.1× / 3.8× / 7.1× the bar.
+> **The verdict direction is unchanged** — no cell was significant then and none
+> is now — but the claim weakens from *ruled out* to *not ruled out*. This is the
+> sixth site of the family closed at five others by ST26/ST27, and it looks
+> different again from all five. Tables below are left as the dated record with
+> the corrected column added. Verdict:
+> `docs/audits/2026-08-14-st28-multi-regime-powered-null.md`.
 
 ## Verdict
 
@@ -13,8 +27,11 @@ four tests performed.** The signal book is not regime-flattered: it performs abo
 as poorly in a 2021 bull leg and a 2022 bear leg as it does in the 2025–26 window
 every star rating was fitted on.
 
-Three of the four cells are **powered nulls** with tight bounds. The fourth is a
-nominal hit that does not survive multiplicity.
+Three of the four cells were filed as **powered nulls** with tight bounds; that
+label is withdrawn (see the correction above) and reads **INSUFFICIENT** — the
+bounds are 2.1–7.1× the effect-size bar, so no effect worth acting on was ruled
+out. The fourth is a nominal hit that does not survive multiplicity. **The
+headline NO stands on the absence of a surviving hit, which is untouched.**
 
 ## What had to be built first
 
@@ -57,12 +74,17 @@ Ranked 5–8, recorded and **not** tested: `hammer_hanging_man`/short (+0.0514),
 `sqrt(1/n_bull + 1/n_bear)`, then multiplied by the recomputed 15m deflator
 **×1.628** (3 symbols, n_eff 1.13–1.42).
 
-| cell | bull | bear | Δ | SE | t | MDE | verdict |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `cvd_divergence`/short | +0.1406 | +0.1076 | +0.0331 | 0.1805 | +0.18 | ±0.506 | powered null |
-| `eqh_eql`/short | +0.2031 | +0.0454 | **+0.1577** | 0.0676 | **+2.33** | ±0.189 | nominal hit |
-| `engulfing`/short | +0.0734 | +0.0751 | −0.0017 | 0.0544 | −0.03 | ±0.152 | powered null |
-| `fib_golden_zone`/long | +0.0329 | +0.1148 | −0.0819 | 0.0971 | −0.84 | ±0.272 | powered null |
+| cell | bull | bear | Δ | SE | t | MDE | filed verdict | **corrected (95% CI vs ±0.05R)** |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `cvd_divergence`/short | +0.1406 | +0.1076 | +0.0331 | 0.1805 | +0.18 | ±0.506 | powered null | **INSUFFICIENT** — [−0.321, +0.387], 7.1× the bar |
+| `eqh_eql`/short | +0.2031 | +0.0454 | **+0.1577** | 0.0676 | **+2.33** | ±0.189 | nominal hit | nominal hit, dies on multiplicity (unchanged) |
+| `engulfing`/short | +0.0734 | +0.0751 | −0.0017 | 0.0544 | −0.03 | ±0.152 | powered null | **INSUFFICIENT** — [−0.108, +0.105], 2.1× the bar |
+| `fib_golden_zone`/long | +0.0329 | +0.1148 | −0.0819 | 0.0971 | −0.84 | ±0.272 | powered null | **INSUFFICIENT** — [−0.272, +0.108], 3.8× the bar |
+
+**MDE is a scale stamp, not a criterion.** It is a function of `SE` alone, so it
+says how large an effect would have been visible and never whether a small one
+was ruled out. The `MDE` column is retained for scale; the verdict column is what
+changed.
 
 ## The nominal hit does not survive multiplicity
 
@@ -103,6 +125,10 @@ regime-flattered" as an explanation for the negative live ledger.
   chosen because it is the best *powered*, not because it generalises.
 - **Nothing on 1h/4h/1d.** Not run; their MDEs (+0.368R / +0.723R / +1.841R)
   would not have decided anything at 4h or 1d in any case.
+- **⚠ Nothing on 15m either, at the size that matters.** Added 2026-08-14: the
+  three withdrawn cells leave regime dependence up to ±0.11R–±0.39R untested on
+  the panel this study called its best-powered. That is 2–8× the bar, so an
+  effect worth acting on could sit inside every one of them.
 - **Nothing about 2023–24 or 2025–26 as legs.** Two legs only; more legs multiply
   trials, which the spec's §3 shows is the binding cost.
 - **No causal claim.** This measures persistence, not mechanism.
@@ -110,10 +136,15 @@ regime-flattered" as an explanation for the negative live ledger.
 ## Consequences
 
 1. **Do not re-open "the detectors might work in a different regime."** Measured
-   across a bull and a bear leg on the best-powered panel: they do not differ,
-   and the level is the same mediocre one.
+   across a bull and a bear leg on the best-powered panel: no cell differs
+   significantly, and the level is the same mediocre one. ⚠ **Corrected
+   2026-08-14 — this consequence now rests on the exploratory level comparison
+   below, not on the four gated cells**, whose corrected verdicts rule nothing
+   out. It is a weaker foundation than filed, and it is the one that survives.
 2. **The one live re-entry** is `eqh_eql`/15m/short re-tested on 2023–24 as a
    single pre-registered trial. Re-running the same four cells on a longer
    window is not independent evidence.
 3. **The binding constraint is unchanged** — the next edge needs genuinely new
-   data. This is one more axis that came back a clean, powered NO.
+   data. This is one more axis that came back a NO. ⚠ **Not a "clean, powered"
+   one** (corrected 2026-08-14): the NO rests on no cell surviving multiplicity,
+   which is a failure to detect, not a demonstration that nothing is there.
