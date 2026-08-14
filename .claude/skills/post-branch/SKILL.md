@@ -413,10 +413,25 @@ For each surface in the config, do the following:
   context doc enumerates by filename, check that files this PR added are named:
 
   ```bash
-  # files added by this branch, in directories the context docs enumerate
-  git diff --name-only --diff-filter=A main...HEAD | while read -r f; do
+  # files added by this branch, in directories the context docs enumerate.
+  # THREE sources, not one: committed adds, staged adds, still-untracked files --
+  # this walk runs PRE-COMMIT by design, so `main...HEAD` alone sees nothing.
+  { git diff --name-only --diff-filter=A main...HEAD
+    git diff --name-only --diff-filter=A --cached
+    git ls-files --others --exclude-standard; } | sort -u | while read -r f; do
     grep -rqsw "$(basename "$f")" .claude/context/ || echo "UNDOCUMENTED FILE: $f"; done
   ```
+
+  **⚠ The single-source form FALSE-GREENS, and it did on 2026-08-14d.**
+  `--diff-filter=A main...HEAD` cannot see a file that is not committed yet, and
+  Steps 1–5b run before the commit — so the check reported clean on three genuinely
+  undocumented files. **A probe that cannot fail at the moment it runs is worse than
+  no probe**, because it launders the gap as verified.
+
+  **One blind spot survives even the three-source form: gitignored additions.**
+  `--exclude-standard` drops them, and dropping the flag floods the output with
+  `analytics.db` and `.venv` — so files under `.claude/hooks/` and `docs/plans/` need
+  a deliberate look. That is exactly what the 08-14d miss was.
 
   Same `-w` rule and same over-reporting tradeoff as above: not every added file
   belongs in a context doc (tests never do), so treat a hit as a candidate to

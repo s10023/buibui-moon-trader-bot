@@ -21,6 +21,19 @@ This file provides instructions for Claude Code when working in this repository.
 
 **Guardrail.** A PreToolUse hook (`.claude/hooks/guard-destructive.py`) blocks catastrophic Bash (rm -rf, git reset --hard, force-push, DB wipes). If blocked, do not work around it silently — surface it.
 
+**⚠ SEVERAL FOOTGUNS BELOW NOW LIVE IN A HOOK, NOT IN THIS FILE.**
+`.claude/hooks/context-guard.py` + `context-map.json` deliver a card at the moment a
+guarded file is edited, which is what let those paragraphs leave the always-loaded tier
+(`_upsert`, `round_down_to_step`, the XS maker/taker split, backtest run selection, the
+powered-null criterion, `bar` units, DSR/MinTRL directionality). **Both files are
+gitignored, so a reclone keeps the knowledge but loses the DELIVERY** — every shed rule
+still has a tracked home in `.claude/context/*.md` (verified), but nothing will hand it
+to you at the moment of the edit. Restore the hook
+before editing `analytics/`, `trade/` or `portfolio/`, and re-run
+`python3 .claude/hooks/test_context_guard.py` (31 cases; the only gate a hook has).
+**A card's globs must cover every file its rule bites on** — `backtest-run-id` shipped
+covering 2 of 7 and was widened on 2026-08-14e.
+
 ## Project Overview
 
 Buibui Moon Trader Bot — a crypto trading bot for Binance Futures. Live price + position monitoring, an analytics/backtest stack (DuckDB), a 20-strategy signal engine with Telegram alerts, and a FastAPI + Svelte web UI. Python 3.11+, managed with Poetry.
@@ -252,198 +265,72 @@ long half was unreportable). This is NOT a sixth conditioning win: 7 of the 25 a
 binary-axis mirrors of a BUILD cell, the price-location axes are ~1 effective finding not
 25, and live is not independent of the backtest. Indicator *character* remains a NO.**
 
-**CRITICAL — `analytics/store/_common.py::_upsert`** uses explicit `conn.register` /
-`conn.unregister` in try/finally. Never switch to the implicit replacement scan (it
-causes malloc heap corruption) and never drop the try/finally.
-
 **`DEFAULT_DB_PATH` lives in `analytics/store/_common.py`** (re-exported from
 `analytics.store` and `analytics.data_store`) — import from a re-export, never
-redefine it in a runner. It is **not** in `schema.py`; this entry said so until
-2026-08-04 and the wrong path fails as an `ImportError` on first use.
+redefine it in a runner. It is **not** in `schema.py`, and the wrong path fails as an
+`ImportError` on first use. It stays here because the trap bites while writing a runner
+*anywhere*, which no edit-time card can see; `_upsert`'s register/unregister rule left
+for the `store-upsert` card.
 
-**CRITICAL — `_backtest_run_id`'s `writer` argument is load-bearing, and `"sweep"`
-is the UNSUFFIXED default ON PURPOSE. Do NOT "simplify" it to always append the
-suffix.** The hash covers only backtest *parameters* and `upsert_backtest_run` issues
-`INSERT OR REPLACE`, so before 2026-08-12 the live signal-watch gate silently
-**replaced** swept rows whenever its resolved `sl_pct`/`tp_r` matched a swept cell's —
-i.e. the *chosen* cell, the one that matters. Measured: **415 rows overwritten, 331
-whose stored aggregate disagreed with their own trades** (`smt_divergence/15m` read 8
-against **1070** stored), and **53% of rated `tue_thu` cells** owned by the daemon
-rather than the deliberate sweep. Keeping `"sweep"` unsuffixed is what preserves
-historical sweep run_ids *and* the `backtest_cache` (its keys derive from `run_id` —
-`analytics/signal/_common.py`); making it symmetric would orphan every historical row
-and cold-start the live cache for no benefit. **The fix is TWO halves and the first
-alone is cosmetic:** writer identity stops the two writers *colliding*, but both
-selection sites (`get_backtest_win_rates`, `compute_dsr_ratings`) previously took the
-*latest* run, and the daemon's row is newest every 15 minutes — so they now rank
-`(sweep_id IS NOT NULL, run_at_ms)`. **Those two must keep mirroring each other**, or
-DSR and the rated `avg_r` describe different trades. **The trade-level half of that
-ranking is now ONE function — `recalibrate_lib.select_rated_run_ids` (2026-08-12) — so
-call it, never re-derive it. ⚠ AND CALL IT WITH BOTH SCOPE ARGUMENTS — `day_filter` and
-`adr_suppress_threshold` travel together.** Passing only the first leaves the second
-`None`, which the filter renders as `adr_suppress_threshold IS NULL`: runs saved with no
-ADR gate, which **no live config writes** (they use 0.75 / 0.65 / 0.70), so you get a
-pre-May pool frozen at 2026-04-09. That was `tools/decay_review.py`'s *default* until
-2026-08-13, so **every decay review before then — the 08-11 first run included — audited
-it**. The verdict direction survived (0 cells clear either way), which is exactly why it
-stood; every *named cell* was wrong. Resolve both from the config, as
-`recalibrate_runner` does. `compute_dsr_ratings` and `tools/decay_review.py` both call
-the shared function; `get_backtest_win_rates` keeps its own pandas path over a different query
-(aggregates, not run_ids) and so is still a hand-mirror. The extraction was forced by a
-live drift: the decay review's then-gitignored driver had reverted to recency-only and
-was auditing the daemon's rows instead of the sweeps → [[scratch-dir-is-for-output-not-code]].
-Contrary to what the incident
-report predicted, this moves **no goldens** — `run_id` is in no fixture and
-`tests/test_regression.py` never touches the DB (verified, 3 passed). Separately:
+**Backtest run selection** — the `writer` argument, the `(sweep_id IS NOT NULL,
+run_at_ms)` ranking that both selection sites must keep mirroring, and
+`recalibrate_lib.select_rated_run_ids`'s two scope arguments all ride the
+`backtest-run-id` card. **Two verdicts outlive the mechanism.** Before 2026-08-12 the
+live gate silently replaced swept rows: **415 overwritten, 331 whose stored aggregate
+disagreed with their own trades**, and **53% of rated `tue_thu` cells owned by the
+daemon rather than the deliberate sweep**. And **every decay review before 2026-08-13 —
+the 08-11 first run included — audited a pool frozen at 2026-04-09**; the verdict
+direction survived (0 cells clear either way), which is exactly why it stood, but every
+*named cell* was wrong. The drift began in a gitignored driver
+→ [[scratch-dir-is-for-output-not-code]].
+
 **`MIN_DSR_TRADES` gates COUNT, not DISPERSION** — `_sharpe` rejects only `sd == 0.0`
 exactly, so `bos/1d/long` (36 trades all ≈ −1.0076R, sd 0.0022, **Sharpe −461**)
 clears the floor and inflates the trial-family variance **0.0348 → 1729.89**. A/B'd
 against a dispersion floor, production DSR did **not** move, so it is a latent
 fragility and **not** a cause of the star-ratings null.
 
-**CRITICAL — `portfolio/sizing.py::round_down_to_step` snaps before it floors, and
-the snap is load-bearing. Do NOT "simplify" it back to `floor(q/step)*step`.** That
-naive form is float-fragile: `0.29 / 0.01` computes as `28.999999999999996`, floors to
-28, and returns `0.28` — a **full lot step** lost on a mathematically exact multiple.
-The call site that makes it bite is `trade/routing.py`, whose
-`delta_qty = target_qty - current` is a *difference of two step multiples* and so is an
-exact multiple every time: **25–27% of router deltas** were shaved at steps 0.001/0.01/0.1
-(step 1.0 is immune — integers are exact). Worse, a delta of exactly one lot floored to
-**zero** 27–65% of the time, which `routing.py:117` turns into `skip:noop` — the order is
-never sent and the position never converges. Fixed 2026-08-06. **The tolerance is capped
-below a half step on purpose**; widening it would round a genuine sub-step remainder UP
-past an exchange filter, flipping the helper from fail-safe to fail-open. **Test by
-enumerating the input class, never by spot-checking** — the pre-fix spot-checks
-(`0.0571951498512928`, `12.5`) all passed while the defect stood.
+**Lot-size rounding** — `portfolio/sizing.py::round_down_to_step` snaps before it
+floors, and why that snap is load-bearing rides the `sizing-round-down` card.
 
-**CRITICAL — XS order submission is maker on risk-increasing legs, taker on
-risk-reducing ones, BY DESIGN — do not "finish the job" and make closes maker
-too.** `trade/routing.py` sets `order_type = MARKET if reduce_only else LIMIT`;
-`trade/binance_futures.py::submit(intent, price=None)` sends the LIMIT leg
-post-only (`timeInForce="GTX"`) or a MARKET order per that field —
-`submit_market` no longer exists. LIMIT legs price at the book touch via
-`portfolio/sizing.py::round_to_tick` (BUY floors, SELL ceils, so the resting
-price never crosses and a GTX order is accepted rather than rejected — GTX
-never instant-fills; crossing is the ONLY failure mode it has). The split is
-intentional, not partial rollout: an unfilled OPEN is bounded opportunity
-cost the next daily rebalance re-plans; an unfilled CLOSE is open directional
-risk the book has already decided to shed, so risk-reducing orders always
-take. Separately, `trade/xsmom_executor.py::run_once` cancels every stale
-managed resting order (`get_open_order_symbols` / `cancel_open_orders`)
-BEFORE the positions read that planning uses — a **correctness precondition**
-of the fire-and-forget daily cadence, not tidy-up: a resting order is not a
-position, so yesterday's unfilled limit would otherwise sit on the book while
-today's plan submits a second order on top of it, an overshoot where both
-orders are individually correct and neither shows up in `get_positions()`.
-The cancel runs BEFORE `evaluate_overlay`, so a kill-switched or
-drawdown-halted run still clears its own resting orders. **The managed-set
-scoping (`symbols ∪ positions`) protects only symbols OUTSIDE that set — an
-operator's hand-placed order on an unmanaged symbol survives. Inside it,
-`cancel_open_orders` calls `futures_cancel_all_open_orders(symbol=...)`,
-which is symbol-WIDE: nothing tags which resting order is the executor's, so
-it cancels the operator's own orders on any managed symbol too.**
-`config/universe.toml` leads with BTCUSDT/ETHUSDT/SOLUSDT — exactly where a
-discretionary book is most likely to sit — so this is a second, independent
-reason (beside `trade/routing.py:69` closing non-book positions) the
-dedicated sub-account is a hard blocker, not a nice-to-have. **The backtest
-cost model is unchanged on purpose** —
-`analytics/xsmom/execution.py::ExecutionCostConfig.fee_pct` stays `0.0005`
-(taker), not the ~2bps maker rate: maker fill rate is unmeasurable before live
-capital, and charging taker keeps the sleeve's gate verdict a floor that live
-execution can only beat, never a claim that depends on fills landing
-passively. Do NOT re-tune it to the maker rate on the strength of an
-unmeasured fill rate.
+**XS execution** — the maker/taker split, the GTX book-touch pricing, the
+cancel-before-plan precondition and the taker `fee_pct` that keeps the sleeve's gate
+verdict a floor all ride the `xs-execution` card. **The deployment consequence stays
+here: a dedicated sub-account is a hard blocker, not a nice-to-have.** Two independent
+reasons — `trade/routing.py:69` closes non-book positions, and inside the managed set
+`cancel_open_orders` is symbol-WIDE, so it also cancels the operator's own resting
+orders on BTCUSDT/ETHUSDT/SOLUSDT, exactly where a discretionary book sits and exactly
+what `config/universe.toml` leads with. Deep ref: `.claude/context/execution.md`.
 
-**CRITICAL — `deflated_sharpe_ratio` and `min_track_record_length` are
-DIRECTIONAL.** Both answer "is this *positive* performance credible": DSR of a
-raw negative Sharpe collapses to ~0, and MinTRL of one is `inf`. So **any audit
-with a negative-direction verdict** (AVOID / CONFIRMED-BAD / REVERTING) **gated
-on either metric must fold the Sharpe to `abs()`** — target *and* trial values.
-Skipping this does not fail loudly; it makes that verdict **structurally
-unreachable**, so the audit silently reports "no negative effect found" no matter
-what the data says. This shipped in H8 and H14 and stood for weeks in H8
-(`analytics/indicator_condition.py`, PR #546: a reliably-negative cell scored DSR
-**0.0000** against **0.9980** for its mirror-image positive cell). Disclose the
-cost when you do it: folding to magnitude shrinks trial dispersion in a
-mixed-sign family, so the gate becomes marginally **more permissive** than the
-signed form — bias runs toward more passes, never fewer.
+**When you fold Sharpe to `abs()` for a negative-direction verdict, disclose the
+cost** — folding shrinks trial dispersion in a mixed-sign family, so the gate becomes
+marginally **more permissive** than the signed form; bias runs toward more passes,
+never fewer. (*Why* DSR and MinTRL must be folded at all rides the `audit-verdict`
+card; it shipped broken in H8 and H14 and stood for weeks in H8, PR #546.)
 
-**CRITICAL — a POWERED NULL is CI CONTAINMENT (`ci_lo > -bar and ci_hi < bar`),
-never anything computed from the data's own noise. CALL
-`analytics.audit_guard.powered_null` (extracted 2026-08-14 so it stops being
-re-derived); never restate the comparison inline.** A sample-size floor says a
-test *ran*, never that it could have *seen* anything — and neither does a
-threshold, an MDE, or a p-value. Four modules inferred the former from the latter until 2026-08-13
-— `state_audit.py` (H14/H15), `indicator_condition.py` (H8), `warning_audit.py`
-(H9, as COSMETIC), `weekly_path.py` (H10) — each fixing the real problem that
-collapsing `INSUFFICIENT` makes NO-EDGE *unreachable*, but with a criterion that
-made it **always reachable** instead. Measured on H14's published table: **0 of 10
-NO-EDGE cells had a CI excluding the bar, median CI half-width 5.5× the bar, 8 of
-10 point estimates EXCEEDED it**; on the corrected criterion all 10 read
-INSUFFICIENT, and H15's primary panel flips the same way. **A NO-EDGE / COSMETIC
-verdict is a positive claim that no effect worth acting on exists — it needs the
-CI to have ruled one out.** Three separate test fixtures asserted "powered" while
-their own CIs were 1.3–15× the bar, so **reading a test is not enough: assert the
-containment, and pair it with a positive control.** ⚠ **Quote the TEST's n, not the
-impressive one** — H14 propagated as NO-EDGE "over 849,445 trades" while the test
-ran on 44–190 **days**. **H8/H9/H10 were RE-RUN 2026-08-13 (ST26, verdict
-`docs/audits/2026-08-13-st26-powered-null-rerun.md`): of 170 filed NO-EDGE/COSMETIC
-cells only 41 survive, 126 moving on the criterion alone — H9 lost ALL 12 COSMETIC,
-H10 kept 4. No verdict direction reversed.** Two results generalise. **H10's `h96` was
-filed NO-EDGE while carrying Holm p=0.000, DSR 0.972 and PBO 0.013 — it clears all
-three gate legs**, so the defect stamped "no effect" onto the family's STRONGEST
-positive; its corrected INSUFFICIENT means *real but unsized against the bar*, not
-*ruled out*, and the two point at opposite next actions. And **H8's filed text talked
-itself out of the fix** ("at `min_n = 30` every pooled cell is powered, so defect 2's
-fix changes no cell") — the defect stated as a reassurance, which is why review missed
-it. **The FIFTH site is FIXED (ST27, 2026-08-14, verdict
-`docs/audits/2026-08-14-st27-sl-horizon-powered-null.md`): `analytics/sl_horizon.py`
-emitted `NO-DIFFERENCE`/`CONFIRMED-BAD` from failure to clear the bar — a DIFFERENT
-mistake from the other four's sample-size floor, with the same shape, so no grep for
-`min_n` would have found it.** `powered_null` does **not** drop in: this is best-of-k
-selection, so the predicate is one-sided — `negative_claim_licensed`, `all arms'
-ci_hi < bar`. **Call it; do not restate the rule.** Two properties look like omissions
-and are not: it needs **no Holm adjustment** (to assert wrongly, the one genuinely
-bar-clearing arm must have its own CI miss — single-interval coverage, ≤2.5%, however
-many arms are swept) and it **requires no significance**, since demanding a significant
-effect before concluding no effect exceeds the bar is backwards. Re-run: **22 of 30
-negative claims fall, 8 survive**, no direction reverses. ⚠ **It moved the flat-2%
-answer: live `CONFIRMED-BAD` now holds at 15m ONLY** — every live 1h/4h cell is
-INSUFFICIENT, so "ATR-widening is CONFIRMED-BAD at 15m/1h/4h" is wrong at 1h/4h, and the
-2026-08-07 "gradient vs ST9" tension dissolves (ST9 never had the power to call those
-TFs). Read that as *untested*, never as *widening works* — the fidelity gate still
-fails and ST9 stays unaccepted. Its second site is worth remembering on its own: an arm
-that CLEARED the bar but failed DSR/PBO was labelled `NO-DIFFERENCE`, and the `reasons`
-string stated the truth while the decision field contradicted it.
-**⚠ THE FAMILY WAS DECLARED CLOSED AT 5/5 AND A SIXTH SITE WAS FOUND THE SAME DAY**
-(ST28, 2026-08-14, verdict `docs/audits/2026-08-14-st28-multi-regime-powered-null.md`):
-the multi-regime study declared a powered null from **`|Δ| < MDE`** on a hardcoded
-`tf in ("15m","1h")` whitelist — and `MDE = 2.802 × SE`, so that is a significance test
-wearing a power label. **0 of its 3 filed powered nulls survive**; no direction reverses.
-Three things generalise. **(1) It was in GITIGNORED scratch code, so no gate, grep or
-review surface could reach it** — it was found only by promoting that code into `tools/`
-→ [[scratch-dir-is-for-output-not-code]]. **(2) Each site spells the mistake
-differently** — sample-size floor ×4, failure-to-clear ×1, noise-derived MDE ×1 — so
-**stop grepping for the pattern and look for the CLAIM: any place that emits "no effect"
-is a candidate, whatever arithmetic produced it.** The criterion now lives in exactly one
-function, so a seventh site must be a new refusal to call it, not a new way to spell it.
-**(3) The spec and its driver disagreed on DETECTION and neither noticed** — spec
-`|t| ≥ 2.802`, code `|t| ≥ 1.96`; under its own spec the cell reported as a nominal hit
-was never a hit. That is the H8 missing-gate-leg class inverted: not a leg the code
-skipped, but one it implemented *differently*, which no gate catches because both halves
-are internally consistent.
+**Powered nulls — the METHOD rides the `audit-verdict` card and its claim trigger; the
+VERDICTS stay here.** The family reached **six sites**, each spelling the arithmetic
+differently (sample-size floor ×4, failure-to-clear ×1, noise-derived MDE ×1), so
+**look for the CLAIM, never grep for the pattern, and assume a seventh** — the criterion
+now lives in exactly one function, so a seventh site must be a new refusal to call it,
+not a new way to spell it. Re-runs, none of which reversed a verdict direction: **ST26**
+(H8/H9/H10) left **41 of 170** filed NO-EDGE/COSMETIC cells standing, H9 losing all 12
+and H10 keeping 4; **ST27** dropped **22 of 30** negative claims; **ST28** killed all 3.
+Verdicts: `docs/audits/2026-08-13-st26-powered-null-rerun.md`,
+`docs/audits/2026-08-14-st27-sl-horizon-powered-null.md`,
+`docs/audits/2026-08-14-st28-multi-regime-powered-null.md`.
 
-**CRITICAL — an audit gate's effect-size floor `bar` is expressed in the units of
-the observation, and nothing in its name or docstring says so.** H15
-(`docs/audits/2026-08-04-h15-usdjpy-carry-unwind.md`) is the worked example: H14's
-`bar = 0.05` meant 0.05R because its observation was per-day mean trade R. Applying
-that same numeral to a raw BTC daily-return panel (std 3.23%/day) would have demanded
-a 5%-per-day mean shift to clear the gate — ~70× the unconditional mean, making every
-verdict structurally unreachable. That is the H8 missing-gate-leg defect class in a
-new location: a threshold that looks portable because it is a bare number, but
-silently changes meaning across panels. H15 avoided it by vol-normalising the forward
-panel (`return_t / causal trailing-30d vol`) so `bar` means the same sigma-units
-quantity in both the forward and ledger panels.
+**Three readings that bind.** (1) **The live flat-2% answer moved: `CONFIRMED-BAD` holds
+at 15m ONLY** — every 1h/4h cell is INSUFFICIENT, so read those TFs as *untested*, never
+as *widening works*; the fidelity gate still fails and ST9 stays unaccepted. (2) H10's
+`h96` was filed NO-EDGE while carrying Holm p=0.000, DSR 0.972 and PBO 0.013 — it clears
+all three gate legs, so a corrected INSUFFICIENT means *real but unsized against the
+bar*, not *ruled out*, and the two point at opposite next actions. (3) ST28's sixth site
+sat in **gitignored scratch code**, unreachable by every gate, grep and review surface
+this repo has → [[scratch-dir-is-for-output-not-code]] — and **its spec and its driver
+disagreed on DETECTION** (spec `|t| ≥ 2.802`, code `|t| ≥ 1.96`), the H8
+missing-gate-leg class inverted: not a leg the code skipped but one it implemented
+*differently*, which no gate catches because both halves are internally consistent.
 
 **A pre-committed gate leg that the code never implements is invisible.** H8's
 spec §7 required `n >= MinTRL(0.95)`; the code never had it, the verdict doc
