@@ -19,6 +19,7 @@ from analytics.research_guards.gate import GATE_DSR, GATE_PBO, passes_gate
 from analytics.research_guards.haircut import HaircutResult, haircut_sharpe
 from analytics.research_guards.mintrl import min_track_record_length
 from analytics.research_guards.pbo import PBOResult, cscv_pbo
+from analytics.research_guards.power import required_sharpe
 from analytics.research_guards.psr import probabilistic_sharpe_ratio
 
 __all__ = [
@@ -36,4 +37,5 @@ __all__ = [
     "min_track_record_length",
     "passes_gate",
     "probabilistic_sharpe_ratio",
+    "required_sharpe",
 ]
