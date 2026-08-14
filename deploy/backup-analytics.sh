@@ -156,6 +156,40 @@ EXTERNAL_LEDGERS=(
     "$HOME/.claude-personal/history.jsonl:claude-personal/history.jsonl"
 )
 
+# Out-of-repo DIRECTORIES, as "absolute-source-glob:path-under-the-snapshot".
+#
+# ⚠ A THIRD ARRAY, and the reason is the same one that created LEDGER_DIRS: the
+# EXTERNAL_LEDGERS loop is `[ -f ]`-guarded, so a directory fails that test and is
+# skipped SILENTLY. That mechanism has now produced a gap twice; do not "simplify" a
+# directory into the file array.
+#
+# The one entry is every project's memory tree -- the cross-session knowledge base:
+# research verdicts, do-not-re-litigate rulings, operator corrections. Measured
+# 2026-08-14: 333 files / 2,554 KB across 7 projects, `~/.claude-personal` is not a git
+# repository, and nothing under it was in any snapshot except the history.jsonl added
+# hours earlier the same day. So the single most valuable artifact on the machine had
+# zero copies.
+#
+# Found by the fpl session over cross-session messaging, which is the point: this repo's
+# own commit that morning said the allowlist "was implicitly scoped to the REPO, so
+# nothing outside it could ever be found by diffing the backup against the live tree" --
+# and then added exactly one out-of-repo file and stopped looking.
+#
+# Deliberately a GLOB rather than seven named paths. The sister fork's backup is a
+# denylist over a wholesale copy for exactly this reason, and after four expansion
+# audits here its shape is the one with the better record: a new project's memory tree
+# is covered the day it appears, with nobody needing to notice.
+EXTERNAL_LEDGER_DIRS=(
+    "$HOME/.claude-personal/projects/*/memory:claude-personal/projects"
+)
+
+# The last two path components identify a matched directory -- `<project-slug>/memory`.
+# The basename alone would collapse all seven trees onto one `memory/` and silently keep
+# only the last one copied, which is a data-losing bug in a backup script.
+_ext_dir_tail() {
+    printf '%s/%s' "$(basename "$(dirname "$1")")" "$(basename "$1")"
+}
+
 # The venv interpreter is named directly rather than via `poetry run` -- one less
 # moving part on the minimal PATH a systemd user unit gets.
 PY="$REPO/.venv/bin/python"
@@ -245,6 +279,22 @@ if [ "$dry_run" -eq 1 ]; then
         else
             log "  external   $rel -- ABSENT at $src, will be skipped"
         fi
+    done
+    for spec in "${EXTERNAL_LEDGER_DIRS[@]}"; do
+        pattern="${spec%%:*}"; rel="${spec#*:}"
+        matched=0
+        # Unquoted on purpose -- this is where the glob expands.
+        for src in $pattern; do
+            [ -d "$src" ] || continue
+            # Skip EMPTY trees. Content-based, not a name denylist: every headless
+            # `-tmp-*` card run leaves a bare memory/ dir and 66 of those have existed at
+            # once, so a name filter would have to guess while this cannot drop anything
+            # that holds a byte. -print -quit stops at the first hit.
+            [ -n "$(find "$src" -type f -print -quit)" ] || continue
+            matched=$((matched + 1))
+            log "  ext-dir    $rel/$(_ext_dir_tail "$src") ($(du -sh "$src" | cut -f1), $(find "$src" -type f | wc -l) files)"
+        done
+        [ "$matched" -eq 0 ] && log "  ext-dir    $rel -- NO MATCH for $pattern, will be skipped"
     done
     exit 0
 fi
@@ -387,6 +437,20 @@ for spec in "${EXTERNAL_LEDGERS[@]}"; do
         mkdir -p "$daily_dir/_external/$(dirname "$rel")"
         cp -p "$src" "$daily_dir/_external/$rel"
     fi
+done
+
+for spec in "${EXTERNAL_LEDGER_DIRS[@]}"; do
+    pattern="${spec%%:*}"; rel="${spec#*:}"
+    # Unquoted on purpose -- this is where the glob expands. A pattern that matches
+    # nothing expands to itself, which the -d test then rejects, so a missing tree is a
+    # skip rather than a failure (same contract as the file loop above).
+    for src in $pattern; do
+        [ -d "$src" ] || continue
+        [ -n "$(find "$src" -type f -print -quit)" ] || continue
+        dest="$daily_dir/_external/$rel/$(_ext_dir_tail "$src")"
+        mkdir -p "$dest"
+        cp -Rp "$src/." "$dest/"
+    done
 done
 
 # --- manifest -----------------------------------------------------------------

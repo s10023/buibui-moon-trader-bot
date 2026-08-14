@@ -99,12 +99,25 @@ array, `EXTERNAL_LEDGERS` (`src:dest` pairs, landing under `_external/` in the s
 the `LEDGERS` loop is `"$REPO/$f"`-relative and would resolve an absolute path to
 nonsense). It is the account-level prompt log, the only record of a session that survives
 transcript cleanup, and therefore the census `budget.py` checks its own coverage against.
+**A FIFTH, hours later the same day, added a fourth array `EXTERNAL_LEDGER_DIRS`** — every
+`~/.claude-personal/projects/*/memory` tree, **333 files / 2.5MB across 7 projects, in no
+git remote and in no snapshot**: the cross-session knowledge base itself, zero copies.
+**A fourth array was required rather than an entry in the third — the `EXTERNAL_LEDGERS`
+loop is `[ -f ]`-guarded, so a directory fails that test and is skipped SILENTLY, the
+identical mechanism that made `LEDGER_DIRS` necessary and now its third occurrence. Never
+put a directory in a file array.**
 **The recurrence is the
 real lesson: an allowlist over a single-copy tree defaults to UNCOVERED, so a new
 artifact is invisible until someone diffs the backup against the live tree — which is
 how BOTH audits found their gap, and the only way to find the next one. The fourth
 sharpens it: the allowlist was also implicitly scoped to the REPO, so nothing outside it
-could ever be found by that diff.** Cost never
+could ever be found by that diff. THE FIFTH IS A REBUKE TO THE FOURTH — that sentence was
+committed in the morning, and the same session then added one out-of-repo file and stopped
+looking; the gap was found hours later by the fpl session over cross-session messaging,
+not by anything in this repo. So the fifth entry is a GLOB on purpose: the sister fork's
+backup is a denylist over a wholesale copy for exactly this reason, and across five audits
+that shape has the better record — a new project's tree is covered the day it appears,
+with nobody needing to notice.** Cost never
 kept anything out: the 2026-08-11 additions total ~300KB against a 264MB snapshot.
 They were `daily_check.py` (the health-check system itself),
 `next-conversation-prompt.md` (the handoff), `regime-log.jsonl` (append-only and
