@@ -113,7 +113,8 @@ The thing the skill actually **runs**. A hand walk is not the walk.
 ```text
 tools/distil_power.py --units {per_trade|per_alert|per_book_day}
                       --n-obs N --n-trials K --sr-variance V
-                      [--n-eff E] [--bar R] [--corpus-best R]
+                      [--n-series S --n-eff E] [--sd SD] [--bar R]
+                      [--corpus-best R] [--skew S] [--kurtosis K]
 ```
 
 Prints the required Sharpe and the required effect size in the declared units, beside the
@@ -126,8 +127,17 @@ that looked portable and silently changed meaning with the panel — the H15 `ba
 the 25-symbol 2.92× deflator being reused on panels whose true deflator is 1.628× or 3.331×.
 An undeclared unit is how that recurs.
 
-`--n-eff` applies the correlation deflator. Omitting it on a pooled multi-symbol panel is a
-declared error, not a default.
+`--n-series` and `--n-eff` apply the correlation deflator and **must be supplied together** —
+one alone is a declared error, not a default, and so is omitting both on a pooled multi-symbol
+panel. `n_eff > n_series` is rejected: the deflator counts effective independent series *among*
+`n_series`, so the reverse is always an argument-order mistake, and left unguarded it makes the
+bar EASIER while still printing "deflated by".
+
+⚠ **The guard cannot catch the subtler error, only a cross-check can.** Pairing a filed `n_eff`
+with the wrong `n_series` passes every validation and silently misprices the bar — it happened
+in this skill's own first worked example, inflating it 2.16×. The check that catches it:
+`n_eff × t_deflator²` must recover `n_series`, and `n_obs / t_deflator²` must recover the
+effective n the source tool printed.
 
 ### 3.3 `.claude/skills/research-distil/SKILL.md` — the workflow
 
@@ -145,7 +155,7 @@ Reject anything matching a filed verdict. The SKILL.md carries the closed list i
 gate cannot silently drift when memory is not loaded) and cites
 `project_do_not_relitigate.md` as the authority:
 
-meta-labelling and ensemble/confluence scoring (DSR 0.7030) · exit tuning as a P&L lever ·
+ensemble/confluence scoring mapped to sizing (DSR 0.7030) · exit tuning as a P&L lever ·
 weekend/DOW removal (DSR 0.672) · HTF agreement · reference-level proximity · conditioning axes
 (regime/session/combo/direction, Coinbase premium, USD/JPY carry) · XS reversal · EWMAC regime
 attribution · spot-perp CVD · `sl_pct` sweeping.
