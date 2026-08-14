@@ -77,7 +77,8 @@ most-replicated crypto anomaly in the literature — that is independent corrobo
 have. Second, this literature is a source of **pre-registered hypotheses with published effect
 sizes**, which is exactly the shape our DSR maths demands: per
 `2026-08-12-multi-regime-validation.md`, trial count dominates n (1→320 trials moves the bar
-+0.049R→+1.035R against a corpus best of +1.196R), so one hypothesis carrying a prior beats a
++0.049R→+1.035R against a corpus best of +1.196R — illustrative; that tool is not reproducible
+run-to-run — re-derive before relying on it), so one hypothesis carrying a prior beats a
 scan every time.
 
 ### 1c. The cheapest untested *new* data axis is options/vol, and it is free
@@ -86,7 +87,9 @@ Standing conclusion in `CLAUDE.md`: conditioning axes are 6-for-6 no-edge, the p
 free-data levers are exhausted, and a new sleeve needs genuinely new information. The memory
 index says the three remaining axes are PAID. **That is not true of options.** Deribit's public
 API serves DVOL (30-day annualised IV index) since **2021-04-01** and per-instrument mark IV
-since **2019-10-01**, keyless.
+since **2019-10-01**, keyless. ⚠ Both start dates are **vendor-documented, not verified against
+the live API by this audit** — the status stamp above covers only §3's repo figures. Confirm
+against the API before either date drives recommendation 3.
 
 Implied vol, term structure and 25-delta skew are a genuinely different information source —
 forward-looking and positioning-derived, not a re-slice of the price/order-flow we already hold.
@@ -266,7 +269,8 @@ end up maintaining a fork.
 
 `docs/plans/thesis-inbox.md` opens with: *"the bottleneck is testing capacity, not idea
 capture."* And `2026-08-12-multi-regime-validation.md` measured that **trial count dominates
-n** — 1→320 trials moves the DSR bar from +0.049R to +1.035R against a corpus best of +1.196R.
+n** — 1→320 trials moves the DSR bar from +0.049R to +1.035R against a corpus best of +1.196R
+(illustrative; that tool is not reproducible run-to-run — re-derive before relying on it).
 
 Therefore the obvious design is actively harmful. A skill that reads three books and emits
 forty hypotheses into `thesis-inbox.md` does not help us — it inflates the trial family and

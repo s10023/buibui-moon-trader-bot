@@ -65,11 +65,10 @@ def required_sr(n_obs: int, sr0: float, skew: float, kurt: float) -> float | Non
     clear reports "everything is suspect" as an artifact.
 
     Keeps the pre-promotion ``sr0 + 5.0`` unreachable-window guard: measured
-    disagreement (n_obs=3, sr0 in {1.0, 2.0}; see
-    ``.superpowers/sdd/2026-08-14-research-distil/task-3-report.md``) shows
-    the promoted search's wider ``1e6`` window finds a finite answer beyond
-    the old boundary, so the old boundary is preserved here rather than
-    silently widening the reported values.
+    disagreement (n_obs=3, sr0 in {1.0, 2.0}) shows the promoted search's
+    wider ``1e6`` window finds a finite answer beyond the old boundary, so
+    the old boundary is preserved here rather than silently widening the
+    reported values.
     """
     if n_obs < 2:
         return None

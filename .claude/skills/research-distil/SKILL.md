@@ -99,7 +99,7 @@ trading book will suggest most of these. Authority: `project_do_not_relitigate.m
 
 | Closed | Verdict |
 | --- | --- |
-| Meta-labelling / ensemble / confluence scoring | FAILS, DSR 0.7030 |
+| Ensemble / confluence scoring mapped to sizing | FAILS, DSR 0.7030 — `2026-08-11-ensemble-walkforward.md` |
 | Exit tuning as a P&L lever | ANSWERED; time-stop curve monotone negative |
 | Weekend / day-of-week removal | FAILS, DSR 0.672; effective n is 21 book-days |
 | HTF agreement as a filter | INVERTED — it is a counter-trend book |
@@ -111,7 +111,14 @@ trading book will suggest most of these. Authority: `project_do_not_relitigate.m
 | Spot-perp CVD divergence | All 10 pre-registered trials FAIL |
 | `sl_pct` / flat-2% stop sweeping | Already swept; ATR-widening CONFIRMED-BAD at 15m |
 
-Rejection text must name the verdict document. ⚠ Read a filed "no edge" as
+Rejection text must name the verdict document.
+
+⚠ **Meta-labelling in general is NOT on this list.** What was tested was one construction: a
+16-cell confidence score mapped to position sizing. A proposal that uses a second model to
+filter signals by a *different* construction is not covered by that verdict — send it to G2
+and G3 rather than rejecting it here. Over-wide G1 rows are how a gate stops being a gate.
+
+⚠ Read a filed "no edge" as
 "no effect was FOUND", never "an effect was RULED OUT" — several were re-run and
 came back INSUFFICIENT rather than negative. That does not reopen them here; it
 governs how the rejection is worded.
@@ -142,6 +149,9 @@ PYTHONPATH=. poetry run python tools/distil_power.py \
   [--skew S] [--kurtosis K]
 ```
 
+`1.196` is illustrative — that figure comes from `tools/multi_regime_power.py`, which is not
+reproducible run-to-run; re-derive the real corpus best before relying on it.
+
 `PYTHONPATH=.` is required — the bare invocation fails with `ModuleNotFoundError`.
 
 `--units` is mandatory with no default. Two filed defects came from numbers that
@@ -154,18 +164,29 @@ together; one alone is a declared error.
 Worked example, live ledger scope:
 
 ```text
+distil_power - G3 power gate
   units             per_alert
   n_obs (declared)  4,918
-  effective n       576  (deflated by n_eff 1.64 / 14 series)
+  effective n       2,688  (deflated by n_eff 1.64 / 3 series)
   trial family      1 trials, sr_variance 0.0
-  required Sharpe   0.068676
-  required effect   +0.0796 per alert  (sd 1.1595)
+  gate target       DSR >= 0.95
+
+  required Sharpe   0.031740
+  required effect   +0.0368 per alert  (sd 1.1595)
   corpus best       +1.1960
   VERDICT           REACHABLE
+
   null bar          +/-0.05
-  CI half-width     0.0947  (best case, point estimate exactly 0)
-  powered null      NOT LICENSABLE
+  CI half-width     0.0438  (best case, point estimate exactly 0)
+  powered null      LICENSABLE  (analytics.audit_guard.powered_null)
 ```
+
+The `n_series` here is **3, not the symbol count** — it is the number of series the filed
+`n_eff` was estimated over. Cross-check it: `n_eff × t_deflator²` must recover `n_series`,
+and `n_obs / t_deflator²` must recover the effective n the source tool printed. An earlier
+draft of this example paired this `n_eff` with `n_series 14` and inflated the bar 2.16×,
+which is the very error the paragraph above warns about — the guard cannot catch it, only
+the cross-check can.
 
 Three outcomes:
 

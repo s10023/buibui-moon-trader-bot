@@ -564,6 +564,10 @@ System dependencies, not Poetry-managed:
 When changes affect project structure, CLI commands, features, or behavior, update
 `README.md` to stay in sync.
 
+`docs/research/` holds standalone research reports (book/repo/canon audits). It is **not**
+covered by `make docs-index` (`tools/docs_index.py` indexes `docs/audits/` and
+`docs/superpowers/specs/` only), so adding a file there needs no `make docs-index` run.
+
 ## Session Memory Protocol
 
 At the end of every session where anything changed, update the **Current State** section in

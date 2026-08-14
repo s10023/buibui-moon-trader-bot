@@ -19,7 +19,8 @@ Two filed measurements make the naive design actively harmful:
   capacity, not idea capture."*
 - `docs/audits/2026-08-12-multi-regime-validation.md` measured that **trial count dominates n,
   and it is not close**: a 21× range of n moves the DSR bar ~10%, while 1 → 320 trials moves it
-  21× (+0.049R → +1.035R against a corpus best of +1.196R).
+  21× (+0.049R → +1.035R against a corpus best of +1.196R — illustrative; that tool is not
+  reproducible run-to-run — re-derive before relying on it).
 
 A skill that reads three books and emits forty hypotheses therefore does not accelerate
 research — it inflates the trial family until every cell is unreachable. **The job is to
@@ -225,16 +226,28 @@ The skill must refuse to:
 - `required_sharpe` is monotone increasing in `n_trials` and decreasing in `n_obs`.
 - It returns `math.inf` rather than a large finite number when unreachable.
 - **The equivalence pin:** the 16-cell grid measured during design
-  (`n_obs ∈ {200, 1000, 4000, 20000}` × `n_trials ∈ {1, 16, 44, 320}`, `sr_variance ∈ {0.0,
-  0.05}`) is committed as a table of expected values. Both delegating call sites must reproduce
-  it. This is what turns today's 0.0000% agreement from an observation into an invariant.
+  (`n_obs ∈ {200, 1000, 4000, 20000}` × `n_trials ∈ {1, 16, 44, 320}`, with `sr_variance` fixed
+  at `0.0` when `n_trials=1` and `0.05` otherwise — a 4×4 grid, not a free cross-product with
+  `sr_variance`) is committed as a table of expected values. Both delegating call sites must
+  reproduce it. This is what turns today's 0.0000% agreement from an observation into an
+  invariant.
 - Known-value checks pinned to the pre-promotion outputs of both existing tools.
 
-**The real proof the refactor is safe:** run `tools/era_power_price.py` and
-`tools/multi_regime_power.py`, capture both reports, promote the math, re-run, and diff. The
-reports must be **byte-identical**. A refactor that moves a research number is not a refactor —
-and since the two implementations already agree exactly, any diff at all is a bug in the
-promotion rather than a discovered defect.
+**The real proof the refactor is safe** — **AMENDED during execution.** As written this leg
+required both `tools/era_power_price.py` and `tools/multi_regime_power.py` to reproduce
+byte-identical reports across the promotion. `era_power_price` passed: its report is
+byte-identical, 2,849 bytes, before and after. `multi_regime_power` cannot satisfy this as
+written — it is **nondeterministic run-to-run**, independent of the promotion: two runs of
+identical code returned pooled `mean_r` −0.0705 vs −0.0824 at fixed `n=165,409`, because
+`any_value(pnl_r)` picks an arbitrary row per dedup key. A byte-identical check on that tool
+would fail on unrelated grounds and prove nothing about the refactor.
+
+For `multi_regime_power`, the byte-identical leg is replaced by a **function-level equivalence
+check**: old `required_sr` vs new `required_sharpe` (via the `benchmark_sr` path) across a
+288-cell grid spanning the real panel sizes (152 / 1,038 / 3,447 / 4,038) and real skew/kurtosis
+pairs the tool actually uses — 288 agreed, 0 mismatched — plus the algebraic equivalence
+argument in §3.1 (both invert the same production PSR formula). Recorded here so a later reader
+does not read the missing byte-diff as a skipped leg.
 
 **Gate chain:** `make lint-py`, `make typecheck`, `make test`. The diff touches
 `analytics/research_guards/`, `tools/` and `tests/` — **not** the backtest surface
