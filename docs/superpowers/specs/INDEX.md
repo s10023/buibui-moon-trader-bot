@@ -20,7 +20,7 @@ and the reconcile column as a floor.
 | Date | Spec | Reconciled by | Also referenced by | File |
 | --- | --- | --- | --- | --- |
 | 2026-08-13 | XS maker execution — design | — | — | [2026-08-13-xs-maker-execution-design.md](2026-08-13-xs-maker-execution-design.md) |
-| 2026-08-12 | Multi-regime detector validation — pre-registered design | — | 2026-08-12-multi-regime-validation.md | [2026-08-12-multi-regime-validation-design.md](2026-08-12-multi-regime-validation-design.md) |
+| 2026-08-12 | Multi-regime detector validation — pre-registered design | — | 2026-08-12-multi-regime-validation.md, 2026-08-14-st28-multi-regime-powered-null.md | [2026-08-12-multi-regime-validation-design.md](2026-08-12-multi-regime-validation-design.md) |
 | 2026-08-11 | Ensemble walk-forward — pre-registered design | — | 2026-08-11-ensemble-walkforward.md | [2026-08-11-ensemble-walkforward-design.md](2026-08-11-ensemble-walkforward-design.md) |
 | 2026-08-11 | D1 — Spot-perp CVD divergence sleeve (design + pre-committed gate) | — | 2026-08-11-d1-spot-perp-cvd.md | [2026-08-11-d1-spot-perp-cvd-design.md](2026-08-11-d1-spot-perp-cvd-design.md) |
 | 2026-08-10 | X thread walk — recover a self-thread from its tail | — | — | [2026-08-10-x-thread-walk-design.md](2026-08-10-x-thread-walk-design.md) |

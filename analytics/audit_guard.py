@@ -81,13 +81,43 @@ class CellVerdict:
     """True iff the CI lies strictly INSIDE ±``bar`` — i.e. an effect worth
     acting on has been ruled out, not merely left uncalled.
 
-    **This is the only honest test for a powered null, and ``n >= min_n`` is
-    not a substitute for it.** A sample-size floor cannot distinguish "the
-    effect is smaller than the bar" from "the CI is five times the bar and we
-    cannot tell", and four consumers of this module inferred the former from
-    the latter until 2026-08-13. Defaults ``False``: a cell that was never
+    Computed by :func:`powered_null`, which is the single definition — call it
+    rather than restating ``ci_lo > -bar and ci_hi < bar`` anywhere. A
+    sample-size floor cannot distinguish "the effect is smaller than the bar"
+    from "the CI is five times the bar and we cannot tell", and six audits
+    inferred the former from something that was not power; that function's
+    docstring lists the shapes. Defaults ``False``: a cell that was never
     tested (``n < min_n``, no CI) has established nothing.
     """
+
+
+def powered_null(ci_lo: float | None, ci_hi: float | None, *, bar: float) -> bool:
+    """True iff a two-sided CI lies strictly INSIDE ``±bar``.
+
+    **The one honest test for a powered null, extracted 2026-08-14 so it stops
+    being re-derived.** Six audits have now inferred power from something that
+    is not power: four from a sample-size floor (``n >= min_n``), one from
+    failure to clear the bar (ST27), and one — ``multi_regime_study`` — from
+    ``|Δ| < MDE``, which since ``MDE = 2.802 × SE`` is a significance test
+    wearing a power label. All six share a shape: a criterion computed from the
+    data's own noise can report that an effect was *not seen*, never that one
+    was *ruled out*. Only the bar carries the notion of "worth acting on", so
+    only a CI sized against the bar can license a negative claim.
+
+    Returns ``False`` for a missing or non-finite bound: a cell that was never
+    tested has established nothing. That default is load-bearing — the failure
+    the callers care about is a null claimed too easily, so the untested case
+    must fall to ``INSUFFICIENT``, never to ``powered``.
+
+    For a best-of-k arm sweep the predicate is one-sided instead; see
+    :func:`analytics.sl_horizon.negative_claim_licensed`, which documents why
+    the two must stay distinct.
+    """
+    if ci_lo is None or ci_hi is None:
+        return False
+    if not (math.isfinite(ci_lo) and math.isfinite(ci_hi)):
+        return False
+    return ci_lo > -bar and ci_hi < bar
 
 
 def _mean(arr: npt.NDArray[np.float64]) -> float:
@@ -237,7 +267,7 @@ def evaluate_audit_cells(
                 adj_p,
                 n_tests,
                 reasons,
-                powered_null=ci_lo > -bar and ci_hi < bar,
+                powered_null=powered_null(ci_lo, ci_hi, bar=bar),
             )
         )
     return out

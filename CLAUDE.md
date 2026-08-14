@@ -195,9 +195,15 @@ construction re-tested on book-days accruing after 2026-08-11 — re-running the
 verdict `docs/audits/2026-08-12-multi-regime-validation.md`, spec
 `docs/superpowers/specs/2026-08-12-multi-regime-validation-design.md`).** "Our
 results are only good because of this regime" is a natural worry, it will recur,
-and it has now been run. 3 of 4 pre-registered 15m cells are **powered** nulls
-(MDE ±0.152R to ±0.506R); the one nominal hit (`eqh_eql`/15m/short, Δ +0.158R,
-t=+2.33) **fails the 4-test Bonferroni |t| ≥ 2.498**. The decisive number is
+and it has now been run. The one nominal hit (`eqh_eql`/15m/short, Δ +0.158R,
+t=+2.33) **fails the 4-test Bonferroni |t| ≥ 2.498**, and that is what the NO
+rests on. ⚠ **The other 3 of 4 cells were filed as "powered nulls" and are
+INSUFFICIENT — corrected 2026-08-14, ST28, the SIXTH site of the powered-null
+family** (verdict `docs/audits/2026-08-14-st28-multi-regime-powered-null.md`):
+the study declared power from `|Δ| < MDE`, which since `MDE = 2.802 × SE` is a
+significance test wearing a power label. **0 of 3 survive CI containment**, half
+-widths 2.1×/3.8×/7.1× the bar. So regime dependence up to ±0.11R–±0.39R is
+UNTESTED on the panel this study called its best-powered. The decisive number is
 exploratory but plain: the 2021–22 15m book reads median **−0.0431R** against the
 2025–26 corpus's **−0.0474R**, so **the book is equally unprofitable in a bull leg,
 a bear leg and now — its weakness is structural, not a regime artifact.**
@@ -363,9 +369,11 @@ mixed-sign family, so the gate becomes marginally **more permissive** than the
 signed form — bias runs toward more passes, never fewer.
 
 **CRITICAL — a POWERED NULL is CI CONTAINMENT (`ci_lo > -bar and ci_hi < bar`),
-never `n >= min_n`. Use `audit_guard.CellVerdict.powered_null`; never re-derive it
-from a sample-size floor.** A floor says a test *ran*, never that it could have
-*seen* anything. Four modules inferred the former from the latter until 2026-08-13
+never anything computed from the data's own noise. CALL
+`analytics.audit_guard.powered_null` (extracted 2026-08-14 so it stops being
+re-derived); never restate the comparison inline.** A sample-size floor says a
+test *ran*, never that it could have *seen* anything — and neither does a
+threshold, an MDE, or a p-value. Four modules inferred the former from the latter until 2026-08-13
 — `state_audit.py` (H14/H15), `indicator_condition.py` (H8), `warning_audit.py`
 (H9, as COSMETIC), `weekly_path.py` (H10) — each fixing the real problem that
 collapsing `INSUFFICIENT` makes NO-EDGE *unreachable*, but with a criterion that
@@ -407,6 +415,23 @@ TFs). Read that as *untested*, never as *widening works* — the fidelity gate s
 fails and ST9 stays unaccepted. Its second site is worth remembering on its own: an arm
 that CLEARED the bar but failed DSR/PBO was labelled `NO-DIFFERENCE`, and the `reasons`
 string stated the truth while the decision field contradicted it.
+**⚠ THE FAMILY WAS DECLARED CLOSED AT 5/5 AND A SIXTH SITE WAS FOUND THE SAME DAY**
+(ST28, 2026-08-14, verdict `docs/audits/2026-08-14-st28-multi-regime-powered-null.md`):
+the multi-regime study declared a powered null from **`|Δ| < MDE`** on a hardcoded
+`tf in ("15m","1h")` whitelist — and `MDE = 2.802 × SE`, so that is a significance test
+wearing a power label. **0 of its 3 filed powered nulls survive**; no direction reverses.
+Three things generalise. **(1) It was in GITIGNORED scratch code, so no gate, grep or
+review surface could reach it** — it was found only by promoting that code into `tools/`
+→ [[scratch-dir-is-for-output-not-code]]. **(2) Each site spells the mistake
+differently** — sample-size floor ×4, failure-to-clear ×1, noise-derived MDE ×1 — so
+**stop grepping for the pattern and look for the CLAIM: any place that emits "no effect"
+is a candidate, whatever arithmetic produced it.** The criterion now lives in exactly one
+function, so a seventh site must be a new refusal to call it, not a new way to spell it.
+**(3) The spec and its driver disagreed on DETECTION and neither noticed** — spec
+`|t| ≥ 2.802`, code `|t| ≥ 1.96`; under its own spec the cell reported as a nominal hit
+was never a hit. That is the H8 missing-gate-leg class inverted: not a leg the code
+skipped, but one it implemented *differently*, which no gate catches because both halves
+are internally consistent.
 
 **CRITICAL — an audit gate's effect-size floor `bar` is expressed in the units of
 the observation, and nothing in its name or docstring says so.** H15
