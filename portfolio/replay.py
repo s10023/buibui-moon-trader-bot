@@ -23,6 +23,67 @@ from portfolio.sizing import SizingConfig
 
 _DAY = 86_400_000
 
+# `outcome_r` CHANGES BASIS partway through this ledger, at e5d92bb (#432,
+# 2026-06-11) "live-ledger cost parity (net_R)". Rows resolved before it are
+# GROSS; rows resolved after are NET of modelled costs. The backfill only scores
+# rows whose outcome is still NULL, so the old half keeps the gross basis
+# permanently — the table holds both bases and always will. Replaying the mixture
+# averages the paper book across an accounting change, which is a second and
+# independent defect on top of the era straddle `buibui portfolio replay` already
+# reports.
+#
+# The drag is deterministic in columns this table already stores, so the old half
+# restates EXACTLY. This is arithmetic, not an estimate, and nothing is rewritten
+# on disk — the ledger keeps both bases so the finding stays checkable.
+#
+# ⚠ The costs are MODELLED, not realised: the raw component of a stop-out is still
+# exactly -1.0, i.e. the DECLARED risk. So neither half expresses gap risk — a gap
+# through the stop books like a clean touch — and every figure here, restated or
+# not, is an optimistic bound whose error runs one way.
+#
+# ⚠ SPLIT ON `outcome_filled_at_ms`, NEVER `candle_ts_ms`. What matters is which
+# resolver version SCORED the row. Candle time smears the step across the
+# resolution lag (median 23h, tail 310h) and manufactures a phantom boundary two
+# months early — that misreading cost one session before it was caught.
+#
+# Both constants verified two independent ways on 2026-08-14: back-solving from
+# all 940 post-parity loss rows returns exactly 7.000 bps on 663 of them (mean
+# 6.929, sd 0.561), and `config/strategy_params.toml` carries `fee_pct = 0.0005`
+# plus `slippage_bps = 2.0` — the same 7 bps by a disjoint path. Restating moves
+# the pooled ledger figure from -0.1303R to -0.1665R (n=4,907, 0 unrestatable).
+_COST_PARITY_MS = 1_781_149_644_000  # e5d92bb, 2026-06-11T03:47:24Z
+_DEFAULT_FEE_PCT = 0.000_5  # config/strategy_params.toml: fee_pct
+_DEFAULT_SLIPPAGE_PCT = 0.000_2  # config/strategy_params.toml: slippage_bps = 2.0
+
+
+def restate_gross_r(
+    realized_r: float,
+    entry_price: float,
+    sl_price: float,
+    *,
+    fee_pct: float = _DEFAULT_FEE_PCT,
+    slippage_pct: float = _DEFAULT_SLIPPAGE_PCT,
+) -> float:
+    """Put a pre-parity (gross) `outcome_r` onto the post-parity net basis.
+
+    Mirrors `analytics.signal.outcome_backfill._net_outcome_r`: the same
+    ``2 * (fee + slippage) * entry / risk`` drag the resolver has applied since
+    e5d92bb. Because the drag scales with ``entry / risk`` it is *inversely*
+    proportional to stop width, so narrow-stop detectors pay far more of it in R
+    — which is why any live-ledger comparison between cells of differing stop
+    width inherits a bias from this, not just a level shift.
+
+    Funding is deliberately not restated: the resolver defaults ``funding_r`` to
+    0.0 and the ledger stores no funding column, so a pre-parity row cannot carry
+    one. A zero-risk row is returned unchanged (costs in R are undefined when
+    nothing is risked — same convention as the resolver).
+    """
+    risk = abs(entry_price - sl_price)
+    if risk <= 0.0:
+        return realized_r
+    return realized_r - 2.0 * (fee_pct + slippage_pct) * entry_price / risk
+
+
 _RESOLVED_SQL = (
     "SELECT signal_id, symbol, tf, strategy, direction, candle_ts_ms, "
     "       outcome_filled_at_ms, entry_price, sl_price, outcome, outcome_r "
@@ -113,7 +174,12 @@ def book_from_trades(
     return book.run(trades)
 
 
-def replay_ledger(conn: duckdb.DuckDBPyConnection, cfg: SizingConfig) -> BookResult:
+def replay_ledger(
+    conn: duckdb.DuckDBPyConnection,
+    cfg: SizingConfig,
+    *,
+    restate_cost_basis: bool = True,
+) -> BookResult:
     """Replay resolved signal outcomes through the paper book.
 
     Parameters
@@ -123,6 +189,11 @@ def replay_ledger(conn: duckdb.DuckDBPyConnection, cfg: SizingConfig) -> BookRes
     cfg:
         Sizing configuration controlling risk fractions, vol governor, and
         whether high-vol regime halving is applied.
+    restate_cost_basis:
+        When True (default), rows resolved before `_COST_PARITY_MS` are put onto
+        the post-parity net basis via `restate_gross_r`, so the whole replay runs
+        on ONE accounting basis. Pass False only to reproduce a pre-2026-08-14
+        figure; it replays a mixture and the result is not a like-for-like series.
 
     Returns
     -------
@@ -132,6 +203,18 @@ def replay_ledger(conn: duckdb.DuckDBPyConnection, cfg: SizingConfig) -> BookRes
     rows = conn.execute(_RESOLVED_SQL).fetchall()
     if not rows:
         return _empty_result(cfg)
+
+    def _r(row: tuple[object, ...]) -> float:
+        # Restate on the RESOLUTION clock (r[6] = outcome_filled_at_ms), never the
+        # candle clock — see the note above `_COST_PARITY_MS`.
+        raw = float(row[10])  # type: ignore[arg-type]
+        if not restate_cost_basis or int(row[6]) >= _COST_PARITY_MS:  # type: ignore[call-overload]
+            return raw
+        return restate_gross_r(
+            raw,
+            float(row[7]),  # type: ignore[arg-type]
+            float(row[8]),  # type: ignore[arg-type]
+        )
 
     trades = [
         LedgerTrade(
@@ -145,7 +228,7 @@ def replay_ledger(conn: duckdb.DuckDBPyConnection, cfg: SizingConfig) -> BookRes
             entry_price=float(r[7]),
             sl_price=float(r[8]),
             outcome=str(r[9]),
-            realized_r=float(r[10]),
+            realized_r=_r(r),
         )
         for r in rows
     ]

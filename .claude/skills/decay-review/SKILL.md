@@ -100,12 +100,20 @@ attribution extremes to the star rating **of the same cell** — that join is th
 of the leg, because it puts [[star-ratings-no-live-signal]] into *sized P&L* rather
 than per-alert R.
 
-Two traps:
+Three traps:
 
 - **Capital basis is the configured `[portfolio] capital`, not live equity** unless
   you override it. Absolute dollars are therefore not the account's dollars.
 - **Positive rows are mostly n≤3. Do not read them as edges.** Sort by n before
   reading any avg_r.
+- ⚠ **Do NOT compare this leg against a decay review run before 2026-08-14.** Since
+  PR #628 the replay restates the pre-`e5d92bb` half of the ledger onto the net-of-cost
+  basis, so every figure here shifts down by roughly the cost drag (~0.098R per losing
+  row, and *more* for narrow-stop cells because drag scales as `entry / risk`). **That
+  shift is an accounting correction, not decay** — reading it as decay is the one
+  misdiagnosis this leg is least equipped to catch, since a uniform downward move across
+  all sleeves is exactly what real decay would look like. Older reports are on the mixed
+  basis; re-run rather than compare, or pass `restate_cost_basis=False` to reproduce one.
 
 ## Leg 3 — live-ledger delta
 
