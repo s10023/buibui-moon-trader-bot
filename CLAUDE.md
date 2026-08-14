@@ -591,9 +591,13 @@ cannot carry live here:
 - **Cadence** the descriptions don't convey: `/sanity-check` weekly or after any large
   refactor · `/decay-review` weekly · `/db-update` after any detector, strategy or config
   change · `/recalibrate` after any `make buibui-backtest SAVE=1` · `/journal-trade` whenever
-  a manual trade closes · `/ingest-feed` daily. The first three are marker-tracked in
-  `docs/plans/task-marks/`, stamped by whoever runs them; a missing marker reads as overdue
-  on purpose, and nothing auto-runs.
+  a manual trade closes · `/ingest-feed` daily · `/research-distil` after any book, repo or
+  paper ingest. The first three are marker-tracked in `docs/plans/task-marks/`, stamped by
+  whoever runs them; a missing marker reads as overdue on purpose, and nothing auto-runs.
+- **`/research-distil` emits at most THREE hypotheses per run, and that cap is the point.**
+  The intake's own header says the bottleneck is testing capacity, not idea capture, and
+  trial count dominates n — so a skill that turns a book into forty hypotheses pushes every
+  cell out of reach. "Unreachable, do not build" is a successful output, not a failure.
 - **Take `tp_r` only from `/wfo-sweep`**, the trusted production path. `/config-refresh` runs
   on the full dataset with no out-of-sample split.
 - **Run one `/card` per background exec** — never `&&`-chain them.
