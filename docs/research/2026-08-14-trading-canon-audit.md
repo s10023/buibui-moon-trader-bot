@@ -36,17 +36,33 @@ measured rather than hoped for, and the fix does not need a new edge.
 **A proposed second measurement was checked and did not survive.** A peer session offered the
 AI-card ledger as independent corroboration — n=29 calls, 16 resolved, `avg_r` −0.11 against
 `avg_atr_r` **+0.22** — read as "the direction calls are right and the stop/target geometry
-hands it back". The scorer says otherwise. `tools/pundit_score.py:733-736` computes both from
-the **same numerator**: `r = dirsign·(exit−fill)/risk` and `atr_r = dirsign·(exit−fill)/atr`,
-with `risk = |fill − stop| > 0`. **Every trade therefore carries the same sign in both units,
-always.** Opposite *average* signs can only come from (a) different subsamples — `r` is `None`
-with no stated stop, `atr_r` is `None` with no ATR — or (b) weighting, since narrow-stop trades
-carry large |R| and dominate `avg_r`. And a −1.00R loss is what a stop-out *is* by construction,
-so "loses 1.49 ATR but costs a full 1.00R" states only that the stop was 1.49 ATR wide.
+hands it back". The scorer says otherwise, and for a stronger reason than sign agreement.
+
+`tools/pundit_score.py:725-736` computes `r` in **three branches**, only one of which shares a
+numerator with `atr_r`:
+
+| Exit | `r` | Carries move size? |
+| --- | --- | --- |
+| Stop-out | `-1.0`, hardcoded | No |
+| Target hit | `abs(target_px − fill_px) / risk` | No — set by where the target sat |
+| Expiry | `dirsign·(exit_px − fill_px) / risk` | Yes |
+
+`atr_r` is always `dirsign·(exit_px − fill_px) / atr`. So **for every resolved WIN/LOSS row, `r`
+is a barrier-outcome indicator carrying no independent information about how far price moved.**
+`avg_r` against `avg_atr_r` is one barrier outcome measured on two rulers — the comparison
+cannot express "the direction was right", because the direction's magnitude is not in `r` at
+all. (Signs still agree in all three branches, which is the weaker version of this point.)
+
+The composition was then measured rather than inferred: coverage is **16/16**, so no subsample
+effect exists — the operative mechanism is weighting. **Losers' stops averaged 1.54 ATR,
+winners' 2.29 ATR**, and that is doubly confounded: a wider stop both survives noise longer
+*and* mechanically yields a smaller |R| per unit of ATR.
 
 This is the standing warning in `CLAUDE.md` — any live-ledger comparison across cells of
-differing stop width inherits a bias, not merely a level shift — arriving in a new place. §1a
-still rests on **one** measurement, not two.
+differing stop width inherits a bias, not merely a level shift — arriving in a new place. The
+trap worth carrying: the failure was **not** that n=16 is underpowered. The estimator does not
+measure the quantity, so more data would never have fixed it, and reaching for "n is small" is
+what let the claim travel. §1a still rests on **one** measurement, not two.
 
 ### 1b. There is no canonical crypto trading *book* — the live literature is papers
 
