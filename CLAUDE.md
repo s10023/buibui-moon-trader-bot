@@ -93,10 +93,18 @@ second on 2026-08-11 to 17 files + 7 directories, **and a THIRD on 2026-08-12 to
 files** — `config/pundit_roster.toml`, whose 16 author entries are accumulated operator
 alias rulings that no re-derivation recovers without re-watching every video (the
 committed `.example` carries 2 schema-demo entries and is not a backup). The originals covered Stream C and
-nothing else; the entire ingest pipeline's state was uncovered. **The recurrence is the
+nothing else; the entire ingest pipeline's state was uncovered. **A FOURTH on 2026-08-14
+added the first entry OUTSIDE the repo** — `~/.claude-personal/history.jsonl` via a third
+array, `EXTERNAL_LEDGERS` (`src:dest` pairs, landing under `_external/` in the snapshot;
+the `LEDGERS` loop is `"$REPO/$f"`-relative and would resolve an absolute path to
+nonsense). It is the account-level prompt log, the only record of a session that survives
+transcript cleanup, and therefore the census `budget.py` checks its own coverage against.
+**The recurrence is the
 real lesson: an allowlist over a single-copy tree defaults to UNCOVERED, so a new
 artifact is invisible until someone diffs the backup against the live tree — which is
-how BOTH audits found their gap, and the only way to find the next one.** Cost never
+how BOTH audits found their gap, and the only way to find the next one. The fourth
+sharpens it: the allowlist was also implicitly scoped to the REPO, so nothing outside it
+could ever be found by that diff.** Cost never
 kept anything out: the 2026-08-11 additions total ~300KB against a 264MB snapshot.
 They were `daily_check.py` (the health-check system itself),
 `next-conversation-prompt.md` (the handoff), `regime-log.jsonl` (append-only and
