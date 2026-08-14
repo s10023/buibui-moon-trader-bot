@@ -9,6 +9,7 @@ from pathlib import Path
 import duckdb
 
 from analytics.data_store import DEFAULT_DB_PATH
+from analytics.eras import load_boundaries
 from portfolio.replay import replay_ledger
 from portfolio.report import format_report
 from portfolio.sizing import SizingConfig
@@ -20,10 +21,14 @@ def run_portfolio_replay(args: argparse.Namespace) -> None:
         cfg = replace(cfg, capital=float(args.capital))
     if args.vol_target is not None:
         cfg = replace(cfg, vol_target_annual=float(args.vol_target))
+    # `ledger` scope only: the replay reads live fires, so a backtest re-run or a
+    # ratings prune does not segment this sample. Resolved before the DB is opened
+    # so a git failure fails loudly instead of silently skipping the check.
+    boundaries = load_boundaries(scopes=("ledger",))
     conn = duckdb.connect(str(args.db), read_only=True)
     try:
         res = replay_ledger(conn, cfg)
-        print(format_report(res, cfg))
+        print(format_report(res, cfg, boundaries))
     finally:
         conn.close()
 

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import numpy as np
 import pandas as pd
 
+from analytics.eras import EraBoundary, straddle_report
 from portfolio import metrics
 from portfolio.book import BookResult
 from portfolio.sizing import SizingConfig
@@ -18,7 +21,39 @@ def _fmt(x: float) -> str:
     return f"{x:+.2f}"
 
 
-def format_report(res: BookResult, cfg: SizingConfig) -> str:
+def _era_lines(res: BookResult, boundaries: Sequence[EraBoundary] | None) -> list[str]:
+    """Era check for the replayed ledger, or an explicit statement that it did not run.
+
+    ``boundaries=None`` prints NOT RUN rather than nothing. A silently-skipped check
+    reads exactly like a passed one, which is the failure this whole module family
+    exists to prevent — so the absence has to be visible in the output.
+
+    The era key here is the trade's ENTRY time, and that is correct for a ledger
+    sample specifically: an alert fired under whatever code was live at that moment.
+    Do not copy this to a backtest sample, where entry time is simulated market time
+    (see ``analytics.eras``).
+
+    ``SizedTrade`` stores ``entry_idx`` — a position in ``daily_index`` — not a
+    timestamp, so the index is resolved here rather than assumed.
+    """
+    if boundaries is None:
+        return [
+            "  era check: NOT RUN — no boundaries supplied, so this report makes no "
+            "claim about whether the sample spans a rule change."
+        ]
+    entries = [
+        int(res.daily_index[t.entry_idx])
+        for t in res.sized
+        if 0 <= t.entry_idx < len(res.daily_index)
+    ]
+    return straddle_report(boundaries, entries)
+
+
+def format_report(
+    res: BookResult,
+    cfg: SizingConfig,
+    boundaries: Sequence[EraBoundary] | None = None,
+) -> str:
     if not res.sized:
         return "P1 paper portfolio: no resolved ledger rows to replay."
     fixed = cfg.capital + res.pnl_fixed
@@ -33,6 +68,7 @@ def format_report(res: BookResult, cfg: SizingConfig) -> str:
         f"trades sized={len(res.sized)}  skipped={len(res.skipped)}  "
         f"days={len(res.daily_index)}  capital={cfg.capital:,.0f}"
     )
+    lines.extend(_era_lines(res, boundaries))
     lines.append("")
     lines.append("-- HEADLINE: fixed-notional / constant-R --")
     lines.append(f"  Sharpe        {metrics.sharpe(fixed_curve, ppy):+.2f}")

@@ -48,6 +48,16 @@ live config writes, frozen since 2026-04-09. **That was the default until
 it.** The verdict direction survived (0 cells clear either way), which is exactly
 why it went unnoticed; every *named cell* was wrong.
 
+**Each config scope now opens with an ERA CHECK** (`analytics.eras`, added
+2026-08-14d). It names how many behaviour-changing commits the rated pool spans and
+how large its largest single-era sub-sample is. First reading: **56 boundaries, only
+55% of runs post-dating the newest** — so roughly half the pool feeding the star
+ratings was produced by older code or config, and every Sharpe below it is an
+average ACROSS rule changes rather than a measurement of the current book. Read it
+before the cells, not after. It is advisory by design (every sample here straddles
+something, so a hard failure would be switched off within a week), and it keys on
+`backtest_runs.run_at_ms` — **never `entry_time`, which is simulated market time**.
+
 **Three reading traps. All three have already produced a wrong reading once.**
 
 1. **Absence from the Suspect list is NOT a clean bill.** Only a cell in *neither*
