@@ -1,0 +1,60 @@
+# Era boundaries git cannot see.
+#
+# Read `analytics/eras.py` first. Everything derivable from commit history is
+# ALREADY derived there — do not restate a config edit, a strategy change or a
+# signal-path change here, because the commit is a better record than this file
+# will ever be. What belongs here is the class git is blind to: a DB mutation, a
+# re-run that rewrote stored rows, or a data gap that made a window
+# unrepresentative of the book that was nominally running.
+#
+# Every entry needs `id`, `date` (YYYY-MM-DD, UTC), `scope`, `label` and `why`;
+# the loader RAISES on a missing field rather than skipping the entry, because a
+# silently-dropped boundary reports a sample as cleaner than it is.
+#
+# `scope` names the population the event invalidates:
+#   backtest — rows in `backtest_trades` / `backtest_runs`
+#   ledger   — rows in the live outcome ledger (`signal_alert_outcomes`)
+#   ratings  — `confidence_ratings`, i.e. what the live gate reads
+#
+# Keep this list SHORT and verifiable. An entry nobody can check is worse than an
+# absent one: it makes the registry look complete while carrying a guess.
+
+[[boundary]]
+id = "orphan-prune-615"
+date = "2026-08-13"
+scope = "ratings"
+label = "orphan prune (#615) deleted 206 undeclared confidence_ratings rows"
+why = """
+`prune_undeclared_ratings` removed every rated cell no live config declares:
+table 493 -> 287, stored ★>=4 55 -> 47 (stored now equals declared). The prune
+DELETED ONLY — no kept row changed stars — but a decay review whose window spans
+this date is measuring THE PRUNE, not decay, because the rated population itself
+changed size mid-sample.
+"""
+
+[[boundary]]
+id = "db-update-collision-heal"
+date = "2026-08-13"
+scope = "backtest"
+label = "/db-update re-ran every backtest, healing the backtest_runs writer collision"
+why = """
+Before #606 the 15-minute live gate silently replaced swept `backtest_runs` rows
+whenever its resolved sl_pct/tp_r hash-collided with a swept cell. The 2026-08-13
+`/db-update` cleared the residue: daemon-owned rows in the rated population 17 ->
+0, daemon rows 437 -> 158, newest sweep row 2026-07-07 -> 2026-08-13. So rows
+written before this date and rows written after are not the same population, and
+`backtest_trades` is NOT a fixed corpus across it.
+"""
+
+[[boundary]]
+id = "universe-1d-gap-resync"
+date = "2026-07-23"
+scope = "backtest"
+label = "universe 1d OHLCV resynced after a silent gap (22 of 25 symbols stale)"
+why = """
+Found dark on 2026-07-23: 22 of the 25 universe symbols had no 1d bar after
+2026-07-05, because `analytics sync`'s default `1h 4h` never refreshes 1d, while
+BTC/ETH/SOL stayed current. Any cross-sectional work over 2026-07-05 -> 07-23
+therefore ran on a 3-name majors cross-section rather than the universe, whatever
+the config said. Resynced 25/25 on 2026-07-23.
+"""

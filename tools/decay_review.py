@@ -51,6 +51,7 @@ from pathlib import Path
 
 import duckdb
 
+from analytics.eras import load_boundaries, straddle_report
 from analytics.recalibrate_lib import MIN_DSR_TRADES, _sharpe, select_rated_run_ids
 from analytics.research_guards import (
     deflated_sharpe_ratio,
@@ -203,6 +204,36 @@ def pools_by_scope(
         if direction in ("long", "short"):
             out[str(direction)][cell].append(float(pnl_r))
     return out
+
+
+def sample_run_times(
+    conn: duckdb.DuckDBPyConnection,
+    day_filter: str | None = None,
+    adr_suppress_threshold: float | None = None,
+) -> list[int]:
+    """`run_at_ms` of every run this scope scores — the era key for a BACKTEST sample.
+
+    ⚠ **Not `entry_time`, and the difference is a category error, not a refinement.**
+    A backtest row's `entry_time` is *simulated market time*: a run executed today
+    over 2025-09 bars stamps 2025-09 on rows produced by today's code. Every trade in
+    one run shares one code version, so the era a backtest row belongs to is fixed by
+    **when the run was saved**. Keying on `entry_time` instead silently compares bar
+    timestamps against code-change dates — it reported 64% of this sample as
+    "pre-dating the first boundary" purely because the OHLCV is older than the repo.
+
+    The live outcome ledger is the opposite case: an alert fired under whatever code
+    was live at that moment, so there the fire time IS the era key.
+    """
+    run_ids = select_rated_run_ids(conn, day_filter, adr_suppress_threshold)
+    if not run_ids:
+        return []
+    placeholders = ",".join("?" * len(run_ids))
+    rows = conn.execute(
+        f"SELECT run_at_ms FROM backtest_runs "
+        f"WHERE run_id IN ({placeholders}) AND run_at_ms IS NOT NULL",
+        run_ids,
+    ).fetchall()
+    return [int(row[0]) for row in rows]
 
 
 def required_sharpe(sr0: float, n_obs: int) -> float:
@@ -382,6 +413,14 @@ def main() -> None:
         args.config, args.day_filter, args.adr_suppress_threshold
     )
 
+    # Resolved before the DB is opened so a git failure fails fast and loudly —
+    # a review that silently skipped the era check would read as one that passed it.
+    # Kept apart on purpose: leg 1 scores backtest RUNS, so a ratings-population
+    # change does not segment it, and pooling the two scopes made a prune look like
+    # the opener of the largest backtest sub-sample.
+    boundaries = load_boundaries(scopes=("backtest",))
+    ratings_boundaries = load_boundaries(scopes=("ratings",))
+
     conn = duckdb.connect(str(args.db), read_only=True)
     try:
         print("=" * 78)
@@ -392,6 +431,18 @@ def main() -> None:
                 f"\n### {cfg_scope.name} "
                 f"(day_filter={cfg_scope.day_filter}, "
                 f"adr={cfg_scope.adr_suppress_threshold})"
+            )
+            print(
+                "\n".join(
+                    straddle_report(
+                        boundaries,
+                        sample_run_times(
+                            conn,
+                            cfg_scope.day_filter,
+                            cfg_scope.adr_suppress_threshold,
+                        ),
+                    )
+                )
             )
             scopes = pools_by_scope(
                 conn, cfg_scope.day_filter, cfg_scope.adr_suppress_threshold
@@ -407,6 +458,8 @@ def main() -> None:
         print("=" * 78)
         print("Stored ratings - what the live gate actually reads")
         print("=" * 78)
+        for boundary in ratings_boundaries:
+            print(f"  ⚠ rated population changed: {boundary.describe()}")
         print("\n".join(stored_rating_lines(conn)))
     finally:
         conn.close()
