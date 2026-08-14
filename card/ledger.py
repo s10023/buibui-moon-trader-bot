@@ -10,13 +10,15 @@ from card.card import FinalCard
 from card.config import CardConfig
 
 
-def pundit_row(final: FinalCard, horizon: str) -> dict[str, str]:
+def pundit_row(final: FinalCard) -> dict[str, str]:
     """Pundit-scorer-compatible row (the loader's exact 12 free-text keys).
 
-    ``horizon`` is required and has no default on purpose: it was hardcoded
-    ``"intraday"`` (48h), so swing cards were scored on the wrong window, and
-    a default would re-create that the first time a caller forgot it.
-    ``CardConfig`` constrains it to ``CARD_HORIZONS``.
+    The horizon is read off ``final``, not taken as an argument: it was
+    hardcoded ``"intraday"`` (48h), so swing cards were scored on the wrong
+    window. Reading the card's own stamp is strictly stronger than a required
+    argument — there is no second value to keep in sync, so this row and
+    ``ai-cards.jsonl`` cannot disagree about which window applies.
+    ``CardConfig`` constrains it to ``CARD_HORIZONS`` before it is stamped.
 
     ``analytics.pundit_horizon`` rejects an out-of-enum value at both read
     boundaries, so inventing one costs the whole row rather than mis-scoring
@@ -34,7 +36,7 @@ def pundit_row(final: FinalCard, horizon: str) -> dict[str, str]:
         "entry": str(card.entry),
         "stop": str(card.sl),
         "target": str(card.tp1),
-        "horizon": horizon,
+        "horizon": final.horizon,
         "confidence": str(card.confluence_score),
         "raw_quote": card.reasoning[0] if card.reasoning else "",
     }
@@ -53,6 +55,6 @@ def append_ledgers(final: FinalCard, cfg: CardConfig) -> list[Path]:
     written = [cards_path]
     if final.verdict == "TRADE":
         calls_path = Path(cfg.pundit_calls_path)
-        _append_line(calls_path, dict(pundit_row(final, cfg.horizon)))
+        _append_line(calls_path, dict(pundit_row(final)))
         written.append(calls_path)
     return written

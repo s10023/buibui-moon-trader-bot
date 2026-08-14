@@ -168,6 +168,14 @@ class FinalCard:
     model: str
     generated_at_ms: int
     cost_usd_notional: float | None
+    horizon: str
+    """Scoring window this card is booked against ("intraday" | "swing").
+
+    Stamped here rather than re-read from the config at each ledger write:
+    `ai-cards.jsonl` and `pundit-calls.jsonl` then agree by construction. It
+    is required and has no default for the same reason `pundit_row`'s used to
+    be — a default is how the hardcoded "intraday" survived unnoticed.
+    """
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -393,4 +401,5 @@ def post_pass(
         model=model,
         generated_at_ms=generated_at_ms,
         cost_usd_notional=cost_usd_notional,
+        horizon=cfg.horizon,
     )

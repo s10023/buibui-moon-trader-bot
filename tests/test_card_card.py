@@ -132,18 +132,46 @@ def _post(
     *,
     qty_step: float | None = None,
     generated_at_ms: int = 1,
+    cfg: CardConfig | None = None,
 ) -> FinalCard:
     card = parse_trade_card(json.dumps(card_obj))
     return post_pass(
         card,
         state,
         SizingConfig(),
-        CardConfig(),
+        cfg or CardConfig(),
         digest="d" * 64,
         model="sonnet",
         generated_at_ms=generated_at_ms,
         qty_step=qty_step,
     )
+
+
+class TestHorizonStamp:
+    """`post_pass` is where the operator's `--horizon` becomes part of the
+    record. Stamping it here (rather than re-reading the config at each
+    ledger write) is what lets both ledgers agree by construction."""
+
+    def test_stamps_the_configured_horizon(self) -> None:
+        for horizon in ("intraday", "swing"):
+            final = _post(
+                _trade_obj(), _state_for_post(), cfg=CardConfig(horizon=horizon)
+            )
+            assert final.horizon == horizon
+
+    def test_stamp_survives_a_veto(self) -> None:
+        """A veto blanks sizing; it must not blank the cohort key, or the
+        VETOED rows drop out of any intraday-vs-swing comparison."""
+        obj = _trade_obj(valid_until_utc="2020-01-01T00:00:00Z")
+        final = _post(
+            obj,
+            _state_for_post(),
+            generated_at_ms=1_760_000_000_000,
+            cfg=CardConfig(horizon="swing"),
+        )
+        assert final.verdict == "VETOED"
+        assert final.risk_usd is None  # the veto really did blank sizing
+        assert final.horizon == "swing"
 
 
 class TestPostPass:

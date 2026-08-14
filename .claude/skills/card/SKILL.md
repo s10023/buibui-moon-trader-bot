@@ -237,6 +237,10 @@ two configs, as evidence about anything. → memory `[[card-reproducibility-verd
 - TRADE cards dual-write a pundit-calls row (author `buibui_card`), scored
   by `make buibui-pundit-score`; card-v1 vs card-v2 cohorts accrue
   automatically.
+- Both ledgers carry `horizon`, read from one stamp on the card — so a batch
+  splits intraday vs swing straight from `tail`. Rows written before
+  2026-08-14 have no `horizon` key; treat their cohort as unknown, not
+  intraday.
 - Exploration runs that must not pollute the cohorts: call the CLI directly
   with `--no-ledger` (the make target has no such variable):
   `poetry run python buibui.py card SYM --no-ledger`.
