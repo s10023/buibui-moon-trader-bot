@@ -272,14 +272,43 @@ unchanged. Re-running the research there would burn a second quota to reach the 
 and the two answers would then drift apart.
 
 **What to send wifey:** this file's absolute path plus a short delta brief covering only what
-differs — §2.4 is wifey's core section rather than a footnote; equity execution economics are a
-different problem (no funding, no perps, but PFOF, locates, the borrow market and a hard close);
-§1c's options axis is *more* available for equities, not less; and §1b's crypto factor papers
+differs — §2.4 is wifey's core section rather than a footnote, and §1b's crypto factor papers
 swap for the equity factor literature, where wifey's XS momentum book has a far deeper
-replication base to draw on.
+replication base (and a correspondingly worse crowding/decay prior).
 
 Both repos are on this machine, so a path is sufficient — this is not the cross-repo pipe that
 `project_cross_repo_noncrypto_handoff.md` says DON'T BUILD. It is one message with one path.
+
+### Two corrections from wifey, applied
+
+The brief was sent and came back with two corrections. Both are recorded here because they
+change what the delta says, and the second narrows a claim in §1c's framing.
+
+**§1a does NOT port, and it is not wifey's highest-EV item.** The finding is real in buibui
+because there are 3,390 realised fills to interrogate. **wifey has zero** — `trade/` is empty in
+both files, the Binance opener was dropped at fork time and nothing replaced it. More to the
+point, wifey already shipped the answer as an assumption:
+`analytics/backtest/cost_model.py` decomposes the equity stack — half-spread bucketed by
+trailing dollar ADV (20/8/3/1 bps, unknown ADV falling to the widest bucket), sqrt-law impact
+charged per leg, flat 1%/yr short borrow, and **commission at 0.0 bps**. Our dominant channel is
+structurally zero there. Its residuals — flat rather than per-symbol borrow, and an unmodelled
+auction/PFOF choice — both make cost too *high*, so tightening them can only push verdicts down,
+never rescue one. Harris and Cartea stay worth reading; the urgency does not transfer.
+
+**§1c's options axis is NOT richer for equities — it is narrower.** The brief claimed "full
+listed chains, VIX term structure and skew, all with long free history". On the free stack that
+is wrong: `yfinance` exposes only *current* expirations via `option_chain()`, with no historical
+chain endpoint, so **no historical skew and no historical surface — a skew signal cannot be
+backtested on free equity data at all.** What is genuinely free with long daily history is the
+VIX complex as index series (`^VIX`, `^VIX3M`, `^VIX9D`, `^VVIX`; CBOE's `^SKEW` is a further
+candidate, unverified). That is real term structure, but it is a handful of daily series rather
+than a surface.
+
+Which **inverts the comparison in §1c**: Deribit's free API serves per-instrument mark IV — an
+actual surface — since 2019-10-01, so *crypto* has the richer free option data and equities the
+one-dimensional version. The door in §1c is still open and still the cheapest new axis; it is
+just narrower on the equity side than first written, and the power calculation is
+correspondingly less favourable.
 
 ---
 

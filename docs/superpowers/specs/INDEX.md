@@ -4,13 +4,13 @@
 `make docs-index-check` (and `tests/test_docs_index.py`) fails when this file
 drifts from the corpus.
 
-**53 specs on disk.** Reconcile status is **derived** — a spec counts as
+**54 specs on disk.** Reconcile status is **derived** — a spec counts as
 reconciled when an audit that names its filename also discusses reconciling, so
 the count is recomputed from disk rather than carried in prose. That is the
 counter CLAUDE.md has had wrong every time it was checked.
 
-- **Reconciled (derived): 4 of 53.**
-- Referenced by no audit at all: 36.
+- **Reconciled (derived): 4 of 54.**
+- Referenced by no audit at all: 37.
 
 **Two caveats before quoting these numbers.** A *partial* reconcile is
 indistinguishable from a whole-spec one here, and this table cannot see one that
@@ -19,6 +19,7 @@ and the reconcile column as a floor.
 
 | Date | Spec | Reconciled by | Also referenced by | File |
 | --- | --- | --- | --- | --- |
+| 2026-08-14 | `/research-distil` — design | — | — | [2026-08-14-research-distil-design.md](2026-08-14-research-distil-design.md) |
 | 2026-08-13 | XS maker execution — design | — | — | [2026-08-13-xs-maker-execution-design.md](2026-08-13-xs-maker-execution-design.md) |
 | 2026-08-12 | Multi-regime detector validation — pre-registered design | — | 2026-08-12-multi-regime-validation.md, 2026-08-14-st28-multi-regime-powered-null.md | [2026-08-12-multi-regime-validation-design.md](2026-08-12-multi-regime-validation-design.md) |
 | 2026-08-11 | Ensemble walk-forward — pre-registered design | — | 2026-08-11-ensemble-walkforward.md | [2026-08-11-ensemble-walkforward-design.md](2026-08-11-ensemble-walkforward-design.md) |
