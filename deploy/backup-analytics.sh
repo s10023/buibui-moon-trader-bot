@@ -137,6 +137,25 @@ LEDGER_DIRS=(
     "docs/plans/xsmom_targets"
 )
 
+# Files OUTSIDE the repo, as "absolute-source:path-under-the-snapshot". Kept separate
+# from LEDGERS because that loop is "$REPO/$f"-relative and would silently resolve an
+# absolute path to nonsense.
+#
+# history.jsonl is the account-level prompt log: sessionId + project + timestamp per
+# prompt, for every personal repo. It is the ONLY record of a session that survives
+# transcript cleanup, which makes it the independent census the spend tracker checks
+# its own coverage against (budget.py --census). Measured 2026-08-14: it showed 35
+# buibui sessions in W33 where the spend ledger had ever seen 4, and 52 in W32 where
+# the ledger had no entry at all -- the evidence that those weeks are floors. Losing it
+# does not lose money already spent, it loses the ability to know what was missed.
+#
+# It is single-copy and gitignored-by-location (it is not in the repo at all), so the
+# allowlist-defaults-to-UNCOVERED rule that produced the 08-08 / 08-11 / 08-12 audits
+# applies to it exactly. This is the fourth such addition.
+EXTERNAL_LEDGERS=(
+    "$HOME/.claude-personal/history.jsonl:claude-personal/history.jsonl"
+)
+
 # The venv interpreter is named directly rather than via `poetry run` -- one less
 # moving part on the minimal PATH a systemd user unit gets.
 PY="$REPO/.venv/bin/python"
@@ -217,6 +236,14 @@ if [ "$dry_run" -eq 1 ]; then
             log "  dir        $d ($(du -sh "$REPO/$d" | cut -f1), $(find "$REPO/$d" -type f | wc -l) files)"
         else
             log "  dir        $d -- ABSENT, will be skipped"
+        fi
+    done
+    for spec in "${EXTERNAL_LEDGERS[@]}"; do
+        src="${spec%%:*}"; rel="${spec#*:}"
+        if [ -f "$src" ]; then
+            log "  external   $rel <- $src ($(du -h "$src" | cut -f1))"
+        else
+            log "  external   $rel -- ABSENT at $src, will be skipped"
         fi
     done
     exit 0
@@ -347,6 +374,18 @@ for d in "${LEDGER_DIRS[@]}"; do
     if [ -d "$REPO/$d" ]; then
         mkdir -p "$daily_dir/$d"
         cp -Rp "$REPO/$d/." "$daily_dir/$d/"
+    fi
+done
+
+# --- external ledgers ---------------------------------------------------------
+# Absent is not fatal: these live outside the repo, so a fresh clone or a different
+# box legitimately has none of them, and a missing one must not fail a backup whose
+# actual crown jewels are already verified above.
+for spec in "${EXTERNAL_LEDGERS[@]}"; do
+    src="${spec%%:*}"; rel="${spec#*:}"
+    if [ -f "$src" ]; then
+        mkdir -p "$daily_dir/_external/$(dirname "$rel")"
+        cp -p "$src" "$daily_dir/_external/$rel"
     fi
 done
 
