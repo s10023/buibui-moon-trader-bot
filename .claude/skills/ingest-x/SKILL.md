@@ -21,7 +21,10 @@ allowed-tools: Bash, Read, Write, Edit, Task
 # Ingest X post(s)
 
 Spec: `docs/superpowers/specs/2026-06-30-x-post-ingest-design.md`
-(iteration-2 batch/cooldown/cache/sonnet: `docs/superpowers/plans/2026-07-01-x-ingest-iter2.md`).
+(iteration-2 batch/cooldown/cache/sonnet: `docs/superpowers/plans/2026-07-01-x-ingest-iter2.md`;
+upward thread walk: `docs/superpowers/specs/2026-08-10-x-thread-walk-design.md`;
+graph resolution — quoted-post promotion, `--resolve`, truncation/edit flags:
+`docs/superpowers/specs/2026-08-15-x-ingest-graph-resolution.md`).
 
 Handles **one or many** URLs in a single invocation. Collect every URL the user
 pasted, then run the flow once over the whole set.
@@ -362,6 +365,12 @@ is frozen. A claim that just restates one of these candlestick/structure pattern
   detector list is frozen.
 - Never auto-write a stream file before the user approves the digest — one approval
   covers the whole batch.
-- Iteration 2: text + still images + quoted-tweet surfacing. No video, no
-  thread-walking, no reply bodies, no scraping. Syndication + manual-paste are the
-  only two fetch paths.
+- No scraping, no login, no paid API — the public syndication endpoint
+  (`cdn.syndication.twimg.com/tweet-result`) and manual-paste are the only two
+  fetch paths.
+- Traversal is upward-only: the endpoint exposes no replies/children field, so
+  a thread can only be recovered from its LAST post — see the operator rule
+  in step 1. A bookmarked parent yields nothing below it.
+- Long-form post bodies are detectable (`text_truncated`) but not recoverable
+  from this endpoint — `note_tweet` proves a longer body exists and hands
+  back only an opaque ID stub, never the text.
