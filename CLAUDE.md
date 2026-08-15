@@ -257,13 +257,21 @@ deletions — which is why it refuses to run when no `MANIFEST.json` exists unde
 root rather than syncing an empty tree over the remote.
 
 **`sync` mirrors deletions INTO the destination too**, so three guards stand between a
-mistyped remote and data this repo does not own: rclone's `root_folder_id`, pinned on the
-remote so it cannot address anything above the backup folder; a rejection of any remote
-with no path component, since a bare `remote:` is the whole drive; and a rejection of a
-destination holding entries the local root does not have. **Only the last two are tracked
-code** — `root_folder_id` lives in `rclone.conf` and `rclone config delete` drops it, so
-prefer `rclone config reconnect <remote>:` when rotating a credential, and re-pin it
-whenever the remote is rebuilt.
+mistyped remote and an UNRELATED folder on the same drive: rclone's `root_folder_id`,
+pinned on the remote so it cannot address anything above the backup folder; a rejection of
+any remote with no path component, since a bare `remote:` is the whole drive; and a
+rejection of a destination holding entries the local root does not have. **Only the last
+two are tracked code** — `root_folder_id` lives in `rclone.conf` and `rclone config delete`
+drops it, so prefer `rclone config reconnect <remote>:` when rotating a credential, and
+re-pin it whenever the remote is rebuilt.
+
+⚠ **Guard 3 compares TOP-LEVEL entries only, so it does NOT protect against a SIBLING
+REPO** — measured 2026-08-15, a wifey-shaped root aimed at this repo's destination passed
+the guard and dry-ran `Skipped delete` on real snapshots, because both trees are `daily/` +
+`weekly/`. **Two repos on one drive is a confinement question, not a guard question: give
+each its own remote with its own `root_folder_id`**, which makes the collision unreachable
+rather than detectable. A sibling path under one shared root leaves operator care as the
+only control.
 
 **`buibui-daily-check`** pushes `docs/plans/daily_check.py --exit-on-tier2` to Telegram once
 daily at 09:10 UTC. That flag exists because tier-2 lines (chart-drops, external-context) do
