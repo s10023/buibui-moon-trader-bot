@@ -673,3 +673,48 @@ def test_main_thread_human_shows_recovered_count(tmp_path: Path, capsys: Any) ->
     )
     assert rc == 0
     assert "thread: 3 posts" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# Task 1: payload-honesty fields — text_truncated, edited (real captured payloads)
+# ---------------------------------------------------------------------------
+
+_PAYLOAD_DIR = Path(__file__).parent / "data" / "x_payloads"
+
+
+def _payload(name: str) -> str:
+    return (_PAYLOAD_DIR / f"{name}.json").read_text()
+
+
+def test_longform_post_flags_text_truncated() -> None:
+    get = make_get(FakeResp(200, _payload("truncated_longform")))
+    post = fetch_x_post("https://x.com/a/status/2080609907561124004", get=get)
+    assert isinstance(post, XPost)
+    assert post.text_truncated is True
+
+
+def test_complete_post_with_image_does_not_flag_truncated() -> None:
+    """Regression for spec 3.1.
+
+    display_text_range[1] < len(text) is True for THIS post too, because the
+    trailing t.co media link sits outside the display range. A range-based
+    implementation passes the test above and fails this one.
+    """
+    get = make_get(FakeResp(200, _payload("complete_with_image")))
+    post = fetch_x_post("https://x.com/a/status/2077667306172236028", get=get)
+    assert isinstance(post, XPost)
+    assert post.text_truncated is False
+
+
+def test_edited_post_flags_edited() -> None:
+    get = make_get(FakeResp(200, _payload("edited_post")))
+    post = fetch_x_post("https://x.com/a/status/2077667306172236028", get=get)
+    assert isinstance(post, XPost)
+    assert post.edited is True
+
+
+def test_unedited_post_does_not_flag_edited() -> None:
+    get = make_get(FakeResp(200, _payload("complete_with_image")))
+    post = fetch_x_post("https://x.com/a/status/2077667306172236028", get=get)
+    assert isinstance(post, XPost)
+    assert post.edited is False

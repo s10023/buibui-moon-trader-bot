@@ -1,0 +1,352 @@
+{
+  "__typename": "Tweet",
+  "favorite_count": 21,
+  "lang": "en",
+  "possibly_sensitive": false,
+  "created_at": "2026-07-22T10:35:06.000Z",
+  "display_text_range": [
+    0,
+    277
+  ],
+  "entities": {
+    "media": [
+      {
+        "display_url": "pic.x.com/DHRO6Pyela",
+        "expanded_url": "https://x.com/sergio_tesla_/status/2079877893694320817/photo/1",
+        "indices": [
+          278,
+          301
+        ],
+        "url": "https://t.co/DHRO6Pyela"
+      }
+    ],
+    "symbols": [
+      {
+        "indices": [
+          0,
+          4
+        ],
+        "text": "BTC"
+      }
+    ]
+  },
+  "id_str": "2079877893694320817",
+  "text": "$BTC\n\nFollow-up on my June 5 post. Daily RSI had dropped below 20 for only the 7th time since 2019, and I wrote that some relief over the following 2/3 months made sense, but a full-blown V-shape reversal was generally not in the cards.\n\nWe now have the first real numbers.\n\n30 https://t.co/DHRO6Pyela",
+  "user": {
+    "id_str": "1605550917893382145",
+    "name": "Sergio Tesla",
+    "screen_name": "sergio_tesla_",
+    "is_blue_verified": true,
+    "profile_image_shape": "Circle",
+    "verified": false,
+    "profile_image_url_https": "https://pbs.twimg.com/profile_images/1713523596998385664/ljl6CdlW_normal.jpg"
+  },
+  "edit_control": {
+    "edit_tweet_ids": [
+      "2079877893694320817"
+    ],
+    "editable_until_msecs": "1784720106000",
+    "edits_remaining": "5",
+    "is_edit_eligible": true
+  },
+  "mediaDetails": [
+    {
+      "display_url": "pic.x.com/DHRO6Pyela",
+      "expanded_url": "https://x.com/sergio_tesla_/status/2079877893694320817/photo/1",
+      "ext_media_availability": {
+        "status": "Available"
+      },
+      "indices": [
+        278,
+        301
+      ],
+      "media_url_https": "https://pbs.twimg.com/media/HN0yyafXAAEA7G0.jpg",
+      "original_info": {
+        "focus_rects": [
+          {
+            "h": 874,
+            "w": 1560,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "h": 1424,
+            "w": 1424,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "h": 1424,
+            "w": 1249,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "h": 1424,
+            "w": 712,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "h": 1424,
+            "w": 1560,
+            "x": 0,
+            "y": 0
+          }
+        ],
+        "height": 1424,
+        "width": 1560
+      },
+      "sizes": {
+        "large": {
+          "h": 1424,
+          "resize": "fit",
+          "w": 1560
+        },
+        "medium": {
+          "h": 1095,
+          "resize": "fit",
+          "w": 1200
+        },
+        "small": {
+          "h": 621,
+          "resize": "fit",
+          "w": 680
+        },
+        "thumb": {
+          "h": 150,
+          "resize": "crop",
+          "w": 150
+        }
+      },
+      "type": "photo",
+      "url": "https://t.co/DHRO6Pyela"
+    }
+  ],
+  "photos": [
+    {
+      "backgroundColor": {
+        "red": 204,
+        "green": 214,
+        "blue": 221
+      },
+      "cropCandidates": [
+        {
+          "h": 874,
+          "w": 1560,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "h": 1424,
+          "w": 1424,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "h": 1424,
+          "w": 1249,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "h": 1424,
+          "w": 712,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "h": 1424,
+          "w": 1560,
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "expandedUrl": "https://x.com/sergio_tesla_/status/2079877893694320817/photo/1",
+      "url": "https://pbs.twimg.com/media/HN0yyafXAAEA7G0.jpg",
+      "width": 1560,
+      "height": 1424
+    }
+  ],
+  "conversation_count": 0,
+  "news_action_type": "conversation",
+  "quoted_tweet": {
+    "favorite_count": 78,
+    "lang": "en",
+    "possibly_sensitive": false,
+    "reply_count": 4,
+    "retweet_count": 10,
+    "created_at": "2026-06-05T13:21:38.000Z",
+    "display_text_range": [
+      0,
+      276
+    ],
+    "entities": {
+      "media": [
+        {
+          "display_url": "pic.x.com/uLK9HkFZdV",
+          "expanded_url": "https://x.com/sergio_tesla_/status/2062887573790359920/photo/1",
+          "indices": [
+            277,
+            300
+          ],
+          "url": "https://t.co/uLK9HkFZdV"
+        }
+      ],
+      "symbols": [
+        {
+          "indices": [
+            0,
+            4
+          ],
+          "text": "BTC"
+        }
+      ]
+    },
+    "id_str": "2062887573790359920",
+    "text": "$BTC\n\nDaily RSI is below 20 again. Since 2019, it happened only 6 times before that RSI went to 20 or lower. \n\nI collected 30d, 60d, and 90d returns for every time RSI dropped this low.\n\nThe most noticeable thing for me is not necessarily the green, but the magnitude. \n\nWhile https://t.co/uLK9HkFZdV",
+    "user": {
+      "id_str": "1605550917893382145",
+      "name": "Sergio Tesla",
+      "screen_name": "sergio_tesla_",
+      "is_blue_verified": true,
+      "profile_image_shape": "Circle",
+      "verified": false,
+      "profile_image_url_https": "https://pbs.twimg.com/profile_images/1713523596998385664/ljl6CdlW_normal.jpg"
+    },
+    "edit_control": {
+      "edit_tweet_ids": [
+        "2062887573790359920"
+      ],
+      "editable_until_msecs": "1780669298000",
+      "edits_remaining": "5",
+      "is_edit_eligible": false
+    },
+    "mediaDetails": [
+      {
+        "display_url": "pic.x.com/uLK9HkFZdV",
+        "expanded_url": "https://x.com/sergio_tesla_/status/2062887573790359920/photo/1",
+        "ext_media_availability": {
+          "status": "Available"
+        },
+        "indices": [
+          277,
+          300
+        ],
+        "media_url_https": "https://pbs.twimg.com/media/HKDV2n2WUAAsRK4.jpg",
+        "original_info": {
+          "focus_rects": [
+            {
+              "h": 918,
+              "w": 1640,
+              "x": 0,
+              "y": 0
+            },
+            {
+              "h": 1168,
+              "w": 1168,
+              "x": 472,
+              "y": 0
+            },
+            {
+              "h": 1168,
+              "w": 1025,
+              "x": 615,
+              "y": 0
+            },
+            {
+              "h": 1168,
+              "w": 584,
+              "x": 978,
+              "y": 0
+            },
+            {
+              "h": 1168,
+              "w": 1640,
+              "x": 0,
+              "y": 0
+            }
+          ],
+          "height": 1168,
+          "width": 1640
+        },
+        "sizes": {
+          "large": {
+            "h": 1168,
+            "resize": "fit",
+            "w": 1640
+          },
+          "medium": {
+            "h": 855,
+            "resize": "fit",
+            "w": 1200
+          },
+          "small": {
+            "h": 484,
+            "resize": "fit",
+            "w": 680
+          },
+          "thumb": {
+            "h": 150,
+            "resize": "crop",
+            "w": 150
+          }
+        },
+        "type": "photo",
+        "url": "https://t.co/uLK9HkFZdV"
+      }
+    ],
+    "photos": [
+      {
+        "backgroundColor": {
+          "red": 204,
+          "green": 214,
+          "blue": 221
+        },
+        "cropCandidates": [
+          {
+            "h": 918,
+            "w": 1640,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "h": 1168,
+            "w": 1168,
+            "x": 472,
+            "y": 0
+          },
+          {
+            "h": 1168,
+            "w": 1025,
+            "x": 615,
+            "y": 0
+          },
+          {
+            "h": 1168,
+            "w": 584,
+            "x": 978,
+            "y": 0
+          },
+          {
+            "h": 1168,
+            "w": 1640,
+            "x": 0,
+            "y": 0
+          }
+        ],
+        "expandedUrl": "https://x.com/sergio_tesla_/status/2062887573790359920/photo/1",
+        "url": "https://pbs.twimg.com/media/HKDV2n2WUAAsRK4.jpg",
+        "width": 1640,
+        "height": 1168
+      }
+    ],
+    "isEdited": false,
+    "isStaleEdit": false
+  },
+  "isEdited": false,
+  "isStaleEdit": false,
+  "note_tweet": {
+    "id": "Tm90ZVR3ZWV0UmVzdWx0czoyMDc5ODc3ODkzNTcyNzQzMTY4"
+  }
+}

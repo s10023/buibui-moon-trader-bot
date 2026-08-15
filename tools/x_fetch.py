@@ -64,6 +64,12 @@ class XPost:
     is_quote: bool
     quoted_text: str = ""  # nested quoted_tweet body, best-effort
     quoted_author: str = ""  # nested quoted_tweet @handle, best-effort
+    # Payload-honesty fields. Spec 2026-08-15 section 3.1: display_text_range is
+    # NOT usable — it flags every post carrying media, because the trailing t.co
+    # link sits outside the range. note_tweet is the only reliable signal, and it
+    # holds an ID stub, never the body: the long text is detectable, not fetchable.
+    text_truncated: bool = False
+    edited: bool = False  # text may differ from what was posted at call time
     # Thread fields. Defaults are load-bearing: _load_cached does XPost(**raw) and
     # every cache entry written before these existed lacks the keys.
     in_reply_to_id: str = ""  # the post this one replies to, "" at the root
@@ -119,6 +125,8 @@ def fetch_x_post(url: str, *, get: HttpGet = _requests_get) -> XPost | Unavailab
         is_quote=data.get("quoted_tweet") is not None,
         quoted_text=quoted.get("text", "") if isinstance(quoted, dict) else "",
         quoted_author=quoted_user.get("screen_name", ""),
+        text_truncated=bool(data.get("note_tweet")),
+        edited=bool(data.get("isEdited") or data.get("isStaleEdit")),
         in_reply_to_id=str(data.get("in_reply_to_status_id_str") or ""),
         in_reply_to_author=str(data.get("in_reply_to_screen_name") or ""),
         conversation_count=int(data.get("conversation_count") or 0),
