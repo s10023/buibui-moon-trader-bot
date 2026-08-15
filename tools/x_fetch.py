@@ -27,7 +27,9 @@ _SYNDICATION_URL = "https://cdn.syndication.twimg.com/tweet-result"
 _TOKEN = "a"  # any non-empty value works; the endpoint does not validate it
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 _ID_RE = re.compile(r"(?:twitter|x)\.com/[^/]+/status/(\d+)")
-# Bumped whenever an XPost field's meaning changes. Starts at 2, not 1: entries
+# Bumped whenever an XPost field is ADDED or an existing field's meaning changes
+# — the defect this exists to prevent was caused by an addition, not a meaning
+# change. Starts at 2, not 1: entries
 # written before this constant existed carry no version key at all, and an
 # absent key must read as stale exactly like a mismatched one (ruling R8) —
 # _load_cached treats both as a cache MISS so the post is re-fetched instead

@@ -87,7 +87,10 @@ backfill of the 13.
 
 **Defaults are load-bearing, not style.** `_load_cached` builds `XPost(**raw)` from the
 cache JSON, so **167 existing entries lack these keys** and would raise `TypeError` on
-every read if any field were required. Defaults make old entries load unchanged.
+every read if any field were required. **Update (Task 4b, 2026-08-15):** defaults alone
+no longer make an old entry load unchanged — `_CACHE_SCHEMA` now treats a missing schema
+stamp as a cache MISS, so a pre-change entry re-fetches instead of loading with these
+fields silently defaulted.
 
 The reverse direction is already safe: `_load_cached` catches `TypeError`
 (`x_fetch.py:155`) and treats it as a miss, so a *newer* cache read by *older* code
@@ -181,7 +184,7 @@ Every leg below is a test that must exist. Repo convention: injected `get`, no n
 | 5 | `test_walk_broken_chain_returns_partial` | A tombstoned middle hop degrades, never raises |
 | 6 | `test_walk_reuses_cached_ancestor_without_network` | Per-id cache **read** reuse holds (see §3 amendment) |
 | 7 | `test_walk_sleeps_between_network_hops_only` | Cooldown discipline matches `fetch_x_batch` |
-| 8 | `test_pre_change_cache_entry_still_loads` — build `XPost(**raw)` from a dict **missing all four new keys** | The 167-entry backward-compat guard |
+| 8 | `test_pre_change_cache_entry_is_now_a_miss` — build `XPost(**raw)` from a dict **missing all four new keys and any `cache_schema` stamp** | **Update (Task 4b):** inverted — asserts `_load_cached(...) is None`. A pre-change entry must now MISS and re-fetch, not load with the new fields defaulted; see `_CACHE_SCHEMA` in `tools/x_fetch.py` |
 | 9 | `test_main_thread_flag_emits_chain` | `--thread` returns the chain as JSON |
 | 10 | `test_main_thread_human_shows_recovered_count` | The recovered count is printed — §4 review visibility |
 

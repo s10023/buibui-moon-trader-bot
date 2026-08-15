@@ -28,56 +28,69 @@ pasted, then run the flow once over the whole set.
 
 ## Flow
 
-1. **Fetch the whole batch in ONE call.** The tool fetches each post once (text +
-   chart paths), with a randomized cooldown *between network fetches* and a
-   per-id dedup cache (a re-fetched URL returns `"cached": true` with no network,
-   no sleep). Always use `--batch` so the output shape, cache, and downloaded
-   chart paths are uniform even for a single URL:
+1. **Resolve the whole evidence graph in ONE call, per URL.** The tool walks the
+   reply chain upward, resolves every quoted post to `--max-quote-depth`
+   (default 2), and downloads images for **every** post it reaches — bookmarked,
+   chain parents, and quoted — with a randomized cooldown *between network
+   fetches* and a per-id dedup cache (a cached id costs zero network on re-run):
 
    ```bash
-   PYTHONPATH=. poetry run python tools/x_fetch.py <url1> <url2> … --batch --json
+   PYTHONPATH=. poetry run python tools/x_fetch.py <url1> <url2> … --resolve --json
    ```
 
-   Output is a JSON **array**; per element: `url`, `cached`, `photo_paths`
-   (local chart files, already downloaded — do NOT re-fetch), and either `post`
-   (`author`, `author_name`, `post_ts_utc`, `text`, `photo_urls`, `video_present`,
-   `is_thread`, `is_quote`, `quoted_text`, `quoted_author`) or `unavailable`
-   (reason). For any `unavailable` element (protected/deleted/age-gated), tell the
-   user and ask them to paste that post's text + drop a screenshot; continue that
-   one from step 2 with the pasted text + image. Do NOT run the old `python -c`
-   download one-liner — `photo_paths` already holds the local files.
+   Pass every pasted URL on one command line. Output is one JSON object per URL
+   on stdout, `{"posts": [...], "notes": [...]}`. Each post in `posts` carries
+   the flat post fields (`author`, `author_name`, `post_ts_utc`, `text`,
+   `photo_urls`, `video_present`, `is_quote`, `quoted_text`, `quoted_author`,
+   `quoted_id`, `quoted_photo_urls`, `text_truncated`, `edited`, …) plus:
 
-   **1a. `is_thread: true` ⇒ recover the rest of the thread before extracting.**
-   A single post from a thread is a fragment, and extracting from a fragment is how
-   **13 of 167 cached posts** were classified without their context. Run:
+   - `role` — `"bookmarked"` (the URL you passed) / `"chain_parent"`
+     (recovered upward from it) / `"quoted"` (pulled in because something in
+     the bundle quoted it).
+   - `depth` — `0` for the reply chain, `+1` per quote hop.
+   - `referred_by` — the status id that pulled this post in; `""` for the
+     bookmarked post.
+   - `photo_paths` — **local** downloaded chart files, already on disk for
+     **every** post regardless of role — do NOT re-fetch. There is no second
+     pass to run: `--resolve` already downloaded everything in this one call,
+     and re-running `--batch` over the recovered parents would just
+     double-download them.
+   - `quoted_photo_paths` — local files for that post's own embedded
+     quoted-tweet image, if it has one.
 
-   ```bash
-   PYTHONPATH=. poetry run python tools/x_fetch.py <url> --thread --json
-   ```
+   For any URL that comes back `UNAVAILABLE: <url>` on stderr
+   (protected/deleted/age-gated), tell the user and ask them to paste that
+   post's text + drop a screenshot; continue that one from step 2 with the
+   pasted text + image.
 
-   It returns `{"posts": [...root → leaf...], "notes": [...]}`, each post carrying
-   `thread_pos` (0 = root), `in_reply_to_id`, `in_reply_to_author` and
-   `conversation_count`. Feed the **whole chain** to the step-2 subagent as one
-   author's argument, in order, and **keep the per-post `post_ts_utc`** — a thread
-   spans time, so the call time is the timestamp of the post the item came from, or
-   the **leaf** if it cannot be attributed (the conservative choice; it gives the call
-   the shortest forward window).
+   **⚠ OPERATOR RULE — bookmark the LAST post of a thread, never the parent.**
+   The endpoint exposes the reply-to chain but has no replies/children field,
+   so a thread can only be recovered **upward**. A bookmarked parent yields
+   nothing below it — unchanged by this call collapsing to one step.
 
-   **⚠ OPERATOR RULE — bookmark the LAST post of a thread, never the parent.** The
-   endpoint exposes the reply-to chain but has no replies/children field, so a thread
-   can only be recovered **upward**. A bookmarked parent yields nothing below it.
+   Traps — always check all three:
 
-   Two traps: **`conversation_count` is NOT thread length** (it counts everyone's
-   replies to the conversation — a 2-post thread routinely reads 9); and always read
-   `notes` — a walk that stopped early on an author change, a hop cap or a deleted
-   middle post says so there, and a truncated chain otherwise reads as a complete one.
+   - **`conversation_count` is NOT thread length** (it counts everyone's
+     replies to the conversation — a 2-post thread routinely reads 9).
+   - **Always read `notes`** — every stop, cap, cycle and skip the walk hit is
+     recorded there verbatim (author change, hop cap, `max_quote_depth`
+     reached, a deleted/unavailable post, an already-visited id). A bundle
+     that stopped early otherwise reads as a complete one.
+   - **New: `text_truncated: true` means that post is missing a long-form
+     tail no keyless path can fetch.** The endpoint's `note_tweet` proves a
+     longer body exists but hands back only an opaque ID stub, never the
+     text. Say so to the step-2 extractor for that post — name it in
+     `chart_read` or `gap_note` — rather than letting it extrapolate the
+     missing tail from what little text it has.
 
-   **1b. `video_present: true` ⇒ hand off to `/ingest-video`, don't make the operator
-   re-paste.** `tools/video_fetch.py` already matches X status URLs
-   (`_X_RE`, `parse_video_url` → `("x", <status_id>)`) and the Groq whisper fallback
-   covers caption-less X video, so the same URL runs there unchanged. Say plainly that
-   you are handing it off, and carry over any chain recovered in 1a. Do **not** attempt
-   the vision pass here — this skill has no frame extraction.
+   **`video_present: true`** on the bookmarked post or a `chain_parent` ⇒ hand
+   off that post's own URL to `/ingest-video`, don't make the operator
+   re-paste. `tools/video_fetch.py` already matches X status URLs
+   (`_X_RE`, `parse_video_url` → `("x", <status_id>)`) and the Groq whisper
+   fallback covers caption-less X video, so the same URL runs there unchanged.
+   Say plainly that you are handing it off, and carry over the rest of the
+   resolved bundle. Do **not** attempt the vision pass here — this skill has
+   no frame extraction.
 
 2. **Extract via a subagent — one per post, pinned to sonnet.** For each post,
    dispatch a subagent (Task tool) **with `model: "sonnet"`** (do not inherit Opus)
@@ -88,26 +101,45 @@ pasted, then run the flow once over the whole set.
    overhead, not payload** (6 varied posts landed inside a ±2% band), so the
    dispatch type is the lever and image size is not. Give it: the post
    `text` (and `quoted_text` prefixed `"[quoting @<quoted_author>]"` when present),
-   the `photo_paths`, the schema below, and the **inline rubric** in the next
-   section. Instruct it to Read each image (vision) and return ONLY this JSON — it
-   must NOT read any repo/SoT/memory file (the rubric below is self-contained; that
-   is the whole point — one image Read, no 7K-token SoT re-read):
+   the `photo_paths`, whether this post's `text_truncated` is `true`, the schema
+   below, and the **inline rubric** in the next section. Instruct it to Read each
+   image (vision) and return ONLY this JSON — it must NOT read any repo/SoT/memory
+   file (the rubric below is self-contained; that is the whole point — one image
+   Read, no 7K-token SoT re-read):
 
    ```json
    {
      "symbol": "BTCUSDT | null",
      "direction": "EXACTLY ONE OF: long | short | neutral | null — no other value",
-     "entry": "...", "stop": "...", "target": "...",
+     "entry": "BARE NUMBER — no commentary, no parentheticals, no hyphenated ranges — or \"\" if not stated",
+     "stop": "BARE NUMBER — no commentary, no parentheticals, no hyphenated ranges — or \"\" if not stated",
+     "target": "BARE NUMBER — no commentary, no parentheticals, no hyphenated ranges — or \"\" if not stated",
      "horizon": "EXACTLY ONE OF: intraday | swing | unspecified — no other value",
      "setup_type": "free text",
      "raw_quote": "the sentence(s) the call/claim came from",
-     "chart_read": "what the chart shows (levels, structure, annotations)",
+     "chart_read": "what the chart shows (levels, structure, annotations); name it here if this post is text_truncated",
      "content_type": "claim | setup | mechanic",
      "verdict": "NOVEL | ALREADY-TESTED | FROZEN-CATEGORY | NOT-FALSIFIABLE",
      "is_retrospective": "true | false",
-     "gap_note": "one line: implied primitive + does the system already have/test/freeze it?"
+     "gap_note": "one line: implied primitive + does the system already have/test/freeze it? name it here instead if chart_read doesn't apply"
    }
    ```
+
+   **⚠ `entry` / `stop` / `target` are MACHINE-PARSED — write each as a BARE
+   NUMBER, no commentary, no parentheticals, no hyphenated ranges.** Exactly one
+   number is taken from each field downstream (`tools/pundit_score.py`); a
+   hyphenated range anywhere in the string beats a `/`-separated ladder and
+   resolves to the range's LOW end. If the post does not state a value, use
+   `""`. This is the same contract step 4 states where the row is *written* —
+   stating it here, where the values are *produced*, is the fix: on 2026-08-15
+   the extractor returned prose with parentheticals for all three fields, and
+   it was harmless only because `direction: neutral` short-circuited before the
+   parse ever ran.
+
+   **Name any `text_truncated: true` post explicitly, in that post's
+   `chart_read` or `gap_note`** — e.g. "text cuts off mid-sentence, no
+   long-form body recoverable" — so a partial reading is visible in the digest
+   rather than inferred after the fact.
 
    `verdict` applies only when `content_type = claim`; for `setup`/`mechanic` set it
    to `NOVEL` as a non-blocking default (routing uses `content_type` for those).
@@ -164,9 +196,15 @@ pasted, then run the flow once over the whole set.
 
 3. **ONE consolidated review digest** for the whole batch. Print a single table —
    one row per post: author · `post_ts_utc` · symbol/direction · `content_type` ·
-   `verdict` · proposed routing · `gap_note`; note `quoted_text` / `video_present` /
-   `is_thread` / `cached` where set. Show each `chart_read` and the full extraction
-   JSON below the table. Write NOTHING yet.
+   `verdict` · proposed routing · **truncated?** · **edited?** · `gap_note`; note
+   `quoted_text` / `video_present` / `is_thread` / `role` where set. Same
+   principle as `is_retrospective` below: the operator decides, but only about
+   what they can see, and `truncated?` / `edited?` are exactly that on every
+   row, not just the ones the extractor happened to flag in prose. **A `quoted`
+   post appears as its own row**, showing its `referred_by` (the status id
+   that pulled it in), so attribution is visible before approval rather than
+   buried inside its referrer's row. Show each `chart_read` and the full
+   extraction JSON below the table. Write NOTHING yet.
 
    **Surface `is_retrospective: true` in its own column, on EVERY row — including
    `claim` and `mechanic` rows that still route.** The drop in step 4 is

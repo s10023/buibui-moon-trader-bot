@@ -1,6 +1,6 @@
 # X ingest — graph resolution and truncation honesty
 
-**Date:** 2026-08-15 · **Status:** proposed, not implemented
+**Date:** 2026-08-15 · **Status:** implemented
 **Extends:** the 2026-08-10 X thread-walk design (upward reply walking, `notes`, `max_hops`)
 **Related:** `.claude/skills/ingest-x/SKILL.md`, `.claude/skills/ingest-video/SKILL.md`
 (same Stream A/B/C sinks), `tools/x_fetch.py`
