@@ -338,12 +338,21 @@ buibui-xsmom-daily:  ## P3: daily XS workflow — sync universe 1d, then executo
 	$(MAKE) buibui-universe-sync
 	$(MAKE) buibui-xsmom-execute
 
+# Both backup targets LOAD .env, mirroring the systemd units' `EnvironmentFile=`.
+# Without it the hand-run and the scheduled run diverge, in two different ways:
+# `backup-offsite` hard-fails on an unset BUIBUI_BACKUP_REMOTE, and `backup`
+# SILENTLY applies default retention while the timer honours BUIBUI_KEEP_DAILY /
+# BUIBUI_KEEP_WEEKLY from .env -- the quieter and worse of the two. Found by the
+# wifey fork 2026-08-15 after porting this target; it went unnoticed here only
+# because every hand-run so far passed the vars inline.
 .PHONY: buibui-backup
 buibui-backup:  ## Verified local snapshot of analytics.db + ledgers (WEEKLY=1 also exports parquet; DRY=1 reports only)
+	@set -a; if [ -f .env ]; then . ./.env; fi; set +a; \
 	./deploy/backup-analytics.sh $(if $(DRY),--dry-run,) $(if $(WEEKLY),--weekly,)
 
 .PHONY: buibui-backup-offsite
 buibui-backup-offsite:  ## Off-machine leg: rclone sync of BUIBUI_BACKUP_ROOT to BUIBUI_BACKUP_REMOTE (DRY=1 reports only)
+	@set -a; if [ -f .env ]; then . ./.env; fi; set +a; \
 	./deploy/backup-offsite.sh $(if $(DRY),--dry-run,)
 
 .PHONY: buibui-combine-audit
