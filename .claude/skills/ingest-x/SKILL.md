@@ -289,11 +289,12 @@ pasted, then run the flow once over the whole set.
      `all-entries` (Streams A and B) or `same-source` (Stream C — only rows from this
      same status id, never another author's). Report it; never let an empty
      `candidates` list read as "checked against everything and clean". On Stream C the
-     same-source scope stays near-inert **while one bundle routes one item** — the
-     identity layer is what protects this sink. It stops being inert the moment you
-     route a SECOND row out of one bundle (an operator call on a genuine third-party
-     quote), and that row must carry its **own** post's id, or the identity layer
-     drops it as a duplicate of its own sibling.
+     same-source scope stays **near-inert**, because every routed row carries a
+     distinct source id — `_comparable_entries` compares only rows whose id matches,
+     so two rows out of one bundle are never compared with each other, and every
+     check runs before any write anyway. **The identity layer, not this pass, is what
+     protects this sink** — which is why the `--source-id` rule in step 4 is the one
+     that matters here.
 
 4. **Route on a single approval.** After the user approves the batch, for each item
    compute the destination with
@@ -338,9 +339,9 @@ pasted, then run the flow once over the whole set.
    Stream C's near-duplicate exemption is **across sources only**: two pundits making
    the same call are two real observations and `tools/pundit_score.py` scores both
    authors, so collapsing those would delete signal. Within one `source_id` the pass
-   does run — that matters for `/ingest-video`, where one video yields several items,
-   and it matters here the moment a bundle yields two. Stream C still gets the exact
-   `already_routed` block.
+   does run — that matters for `/ingest-video`, where one video yields several items
+   under a single id. Here each routed row carries its own post's id, so the pass stays
+   near-inert and the exact `already_routed` block is the protection that fires.
 
    `route_target`'s other keyword flag, `rejected=`, drops a `setup` the author walked
    through and then argued **against** taking. This pipeline does not extract it, so it
