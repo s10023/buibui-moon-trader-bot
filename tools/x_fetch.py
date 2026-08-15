@@ -64,6 +64,10 @@ class XPost:
     is_quote: bool
     quoted_text: str = ""  # nested quoted_tweet body, best-effort
     quoted_author: str = ""  # nested quoted_tweet @handle, best-effort
+    quoted_id: str = ""  # quoted_tweet.id_str — the traversal edge for resolve()
+    quoted_photo_urls: tuple[
+        str, ...
+    ] = ()  # quoted_tweet.photos, present but unread until now
     # Payload-honesty fields. Spec 2026-08-15 section 3.1: display_text_range is
     # NOT usable — it flags every post carrying media, because the trailing t.co
     # link sits outside the range. note_tweet is the only reliable signal, and it
@@ -112,6 +116,15 @@ def fetch_x_post(url: str, *, get: HttpGet = _requests_get) -> XPost | Unavailab
     user = data.get("user") or {}
     quoted = data.get("quoted_tweet") or {}
     quoted_user = quoted.get("user") or {} if isinstance(quoted, dict) else {}
+    quoted_photos = (
+        tuple(
+            _orig(p["url"])
+            for p in (quoted.get("photos") or [])
+            if isinstance(p, dict) and p.get("url")
+        )
+        if isinstance(quoted, dict)
+        else ()
+    )
     return XPost(
         source="twitter",
         author=user.get("screen_name", ""),
@@ -125,6 +138,8 @@ def fetch_x_post(url: str, *, get: HttpGet = _requests_get) -> XPost | Unavailab
         is_quote=data.get("quoted_tweet") is not None,
         quoted_text=quoted.get("text", "") if isinstance(quoted, dict) else "",
         quoted_author=quoted_user.get("screen_name", ""),
+        quoted_id=str(quoted.get("id_str") or "") if isinstance(quoted, dict) else "",
+        quoted_photo_urls=quoted_photos,
         text_truncated=bool(data.get("note_tweet")),
         edited=bool(data.get("isEdited") or data.get("isStaleEdit")),
         in_reply_to_id=str(data.get("in_reply_to_status_id_str") or ""),
@@ -133,12 +148,12 @@ def fetch_x_post(url: str, *, get: HttpGet = _requests_get) -> XPost | Unavailab
     )
 
 
-def download_photos(
-    post: XPost, dest_dir: Path, *, get: HttpGet = _requests_get
+def _download_urls(
+    urls: tuple[str, ...], dest_dir: Path, *, get: HttpGet = _requests_get
 ) -> list[Path]:
     dest_dir.mkdir(parents=True, exist_ok=True)
     paths: list[Path] = []
-    for i, photo_url in enumerate(post.photo_urls):
+    for i, photo_url in enumerate(urls):
         resp = get(photo_url, headers={"User-Agent": _UA})
         if resp.status_code != 200:
             continue
@@ -148,11 +163,26 @@ def download_photos(
     return paths
 
 
+def download_photos(
+    post: XPost, dest_dir: Path, *, get: HttpGet = _requests_get
+) -> list[Path]:
+    return _download_urls(post.photo_urls, dest_dir, get=get)
+
+
+def download_quoted_photos(
+    post: XPost, dest_dir: Path, *, get: HttpGet = _requests_get
+) -> list[Path]:
+    """The quoted post's charts. Its images ride in the SAME payload as the
+    containing post, so this costs no extra request — they were simply unread."""
+    return _download_urls(post.quoted_photo_urls, dest_dir, get=get)
+
+
 @dataclass(frozen=True)
 class BatchResult:
     url: str
     post: XPost | Unavailable
     photo_paths: list[str] = field(default_factory=list)
+    quoted_photo_paths: list[str] = field(default_factory=list)
     cached: bool = False
 
 
@@ -236,7 +266,9 @@ def _cache_path(cache_dir: Path, tweet_id: str) -> Path:
     return cache_dir / f"{tweet_id}.json"
 
 
-def _load_cached(cache_dir: Path, tweet_id: str) -> tuple[XPost, list[str]] | None:
+def _load_cached(
+    cache_dir: Path, tweet_id: str
+) -> tuple[XPost, list[str], list[str]] | None:
     path = _cache_path(cache_dir, tweet_id)
     if not path.exists():
         return None
@@ -244,18 +276,28 @@ def _load_cached(cache_dir: Path, tweet_id: str) -> tuple[XPost, list[str]] | No
         data = json.loads(path.read_text())
         raw = dict(data["post"])
         raw["photo_urls"] = tuple(raw.get("photo_urls", ()))
-        return XPost(**raw), list(data.get("photo_paths", []))
+        raw["quoted_photo_urls"] = tuple(raw.get("quoted_photo_urls", ()))
+        return (
+            XPost(**raw),
+            list(data.get("photo_paths", [])),
+            list(data.get("quoted_photo_paths", [])),
+        )
     except (json.JSONDecodeError, KeyError, TypeError):
         return None  # corrupt cache ⇒ treat as a miss, re-fetch
 
 
 def _write_cache(
-    cache_dir: Path, tweet_id: str, post: XPost, photo_paths: list[str]
+    cache_dir: Path,
+    tweet_id: str,
+    post: XPost,
+    photo_paths: list[str],
+    quoted_photo_paths: list[str],
 ) -> None:
     cache_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "post": asdict(post),
         "photo_paths": photo_paths,
+        "quoted_photo_paths": quoted_photo_paths,
         "fetched_at_utc": datetime.now(UTC).isoformat(),
     }
     _cache_path(cache_dir, tweet_id).write_text(json.dumps(payload, indent=2))
@@ -289,10 +331,14 @@ def fetch_x_batch(
         if not force:
             cached = _load_cached(cache_dir, tweet_id)
             if cached is not None:
-                post, photo_paths = cached
+                post, photo_paths, quoted_photo_paths = cached
                 results.append(
                     BatchResult(
-                        url=url, post=post, photo_paths=photo_paths, cached=True
+                        url=url,
+                        post=post,
+                        photo_paths=photo_paths,
+                        quoted_photo_paths=quoted_photo_paths,
+                        cached=True,
                     )
                 )
                 continue
@@ -306,10 +352,20 @@ def fetch_x_batch(
         photo_paths = [
             str(p) for p in download_photos(post_or_err, media_root / tweet_id, get=get)
         ]
-        _write_cache(cache_dir, tweet_id, post_or_err, photo_paths)
+        quoted_photo_paths = [
+            str(p)
+            for p in download_quoted_photos(
+                post_or_err, media_root / f"{tweet_id}_quoted", get=get
+            )
+        ]
+        _write_cache(cache_dir, tweet_id, post_or_err, photo_paths, quoted_photo_paths)
         results.append(
             BatchResult(
-                url=url, post=post_or_err, photo_paths=photo_paths, cached=False
+                url=url,
+                post=post_or_err,
+                photo_paths=photo_paths,
+                quoted_photo_paths=quoted_photo_paths,
+                cached=False,
             )
         )
     return results
@@ -333,6 +389,7 @@ def _result_to_dict(result: BatchResult) -> dict[str, object]:
         "url": result.url,
         "cached": result.cached,
         "photo_paths": result.photo_paths,
+        "quoted_photo_paths": result.quoted_photo_paths,
     }
     if isinstance(result.post, Unavailable):
         return {**base, "post": None, "unavailable": result.post.reason}

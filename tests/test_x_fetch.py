@@ -20,6 +20,7 @@ from tools.x_fetch import (
     _load_cached,
     _orig,
     download_photos,
+    download_quoted_photos,
     fetch_x_batch,
     fetch_x_post,
     main,
@@ -645,7 +646,7 @@ def test_pre_change_cache_entry_still_loads(tmp_path: Path) -> None:
     (cache_dir / "1.json").write_text(json.dumps(legacy))
     loaded = _load_cached(cache_dir, "1")
     assert loaded is not None
-    post, _ = loaded
+    post, _, _ = loaded
     assert post.text == "legacy"
     assert post.in_reply_to_id == ""
     assert post.in_reply_to_author == ""
@@ -718,3 +719,68 @@ def test_unedited_post_does_not_flag_edited() -> None:
     post = fetch_x_post("https://x.com/a/status/2077667306172236028", get=get)
     assert isinstance(post, XPost)
     assert post.edited is False
+
+
+# ---------------------------------------------------------------------------
+# Task 2: quoted-post images and id
+# ---------------------------------------------------------------------------
+
+
+def test_quoted_tweet_photos_and_id_are_parsed() -> None:
+    get = make_get(FakeResp(200, _payload("quote_with_image")))
+    post = fetch_x_post("https://x.com/a/status/2079877893694320817", get=get)
+    assert isinstance(post, XPost)
+    assert post.quoted_id == "2062887573790359920"
+    assert len(post.quoted_photo_urls) == 1
+    assert post.quoted_photo_urls[0].endswith("?name=orig")
+
+
+def test_quoted_photos_download_to_a_separate_dir(tmp_path: Path) -> None:
+    post = XPost(
+        source="twitter",
+        author="a",
+        author_name="A",
+        url="https://x.com/a/status/1",
+        post_ts_utc="",
+        text="t",
+        photo_urls=("https://pbs.twimg.com/media/PARENT.jpg?name=orig",),
+        video_present=False,
+        is_thread=False,
+        is_quote=True,
+        quoted_photo_urls=("https://pbs.twimg.com/media/QUOTED.jpg?name=orig",),
+    )
+    get = make_get(FakeResp(200, content=b"bytes"))
+    parent = download_photos(post, tmp_path / "1", get=get)
+    quoted = download_quoted_photos(post, tmp_path / "1_quoted", get=get)
+    assert [p.name for p in parent] == ["0.jpg"]
+    assert [p.name for p in quoted] == ["0.jpg"]
+    assert parent[0] != quoted[0]
+
+
+def test_batch_downloads_quoted_photos_and_caches_them(tmp_path: Path) -> None:
+    def routed_get(url: str, *, headers: dict[str, str]) -> FakeResp:
+        if "syndication" in url:
+            return FakeResp(200, _payload("quote_with_image"))
+        return FakeResp(200, content=b"img")
+
+    results = fetch_x_batch(
+        ["https://x.com/a/status/2079877893694320817"],
+        cache_dir=tmp_path / "posts",
+        media_root=tmp_path / "media",
+        get=routed_get,
+        sleep=lambda _s: None,
+        rng=random.Random(0),
+    )
+    assert len(results[0].quoted_photo_paths) == 1
+    assert "_quoted" in results[0].quoted_photo_paths[0]
+    # and the cache round-trips it
+    again = fetch_x_batch(
+        ["https://x.com/a/status/2079877893694320817"],
+        cache_dir=tmp_path / "posts",
+        media_root=tmp_path / "media",
+        get=routed_get,
+        sleep=lambda _s: None,
+        rng=random.Random(0),
+    )
+    assert again[0].cached is True
+    assert again[0].quoted_photo_paths == results[0].quoted_photo_paths
