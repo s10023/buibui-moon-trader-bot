@@ -25,6 +25,7 @@ from tools.x_fetch import (
     fetch_x_post,
     main,
     parse_tweet_id,
+    resolve,
     walk_thread,
 )
 
@@ -465,11 +466,13 @@ def _thread_meta(
     reply_to: str | None = None,
     reply_to_author: str | None = None,
     conv: int = 0,
+    photos: list[str] | None = None,
+    quoted_id: str | None = None,
 ) -> str:
     payload = dict(
         _CRYPTIC,
         text=text,
-        photos=[],
+        photos=[{"url": u} for u in (photos or [])],
         mediaDetails=[],
         id_str=tid,
         user={"name": author.upper(), "screen_name": author},
@@ -479,6 +482,13 @@ def _thread_meta(
         payload["in_reply_to_status_id_str"] = reply_to
         payload["in_reply_to_screen_name"] = reply_to_author or author
         payload["parent"] = {"id_str": reply_to, "text": "parent body"}
+    if quoted_id is not None:
+        payload["quoted_tweet"] = {
+            "id_str": quoted_id,
+            "text": f"quoted {quoted_id}",
+            "user": {"screen_name": "q", "name": "Q"},
+            "photos": [],
+        }
     return json.dumps(payload)
 
 
@@ -784,3 +794,130 @@ def test_batch_downloads_quoted_photos_and_caches_them(tmp_path: Path) -> None:
     )
     assert again[0].cached is True
     assert again[0].quoted_photo_paths == results[0].quoted_photo_paths
+
+
+# ---------------------------------------------------------------------------
+# Task 3: resolve() — the bundle
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_returns_chain_with_roles_and_photos(tmp_path: Path) -> None:
+    """A 2-post self-thread: the bookmarked leaf plus its parent, both with images."""
+    leaf = _thread_meta(
+        text="leaf",
+        tid="200",
+        reply_to="100",
+        author="a",
+        photos=["https://pbs.twimg.com/media/LEAF.jpg"],
+    )
+    root = _thread_meta(
+        text="root",
+        tid="100",
+        reply_to=None,
+        author="a",
+        photos=["https://pbs.twimg.com/media/ROOT.jpg"],
+    )
+    bodies = {"200": leaf, "100": root}
+
+    def routed_get(url: str, *, headers: dict[str, str]) -> FakeResp:
+        if "syndication" in url:
+            tid = re.search(r"id=(\d+)", url).group(1)  # type: ignore[union-attr]
+            return FakeResp(200, bodies[tid])
+        return FakeResp(200, content=b"img")
+
+    bundle = resolve(
+        "https://x.com/a/status/200",
+        cache_dir=tmp_path / "posts",
+        media_root=tmp_path / "media",
+        get=routed_get,
+        sleep=lambda _s: None,
+        rng=random.Random(0),
+    )
+    assert [rp.role for rp in bundle.posts] == ["chain_parent", "bookmarked"]
+    # every post in the bundle carries LOCAL paths — not just the bookmarked one
+    assert all(rp.photo_paths for rp in bundle.posts)
+
+
+def test_resolve_pulls_in_quoted_post(tmp_path: Path) -> None:
+    main_post = _thread_meta(
+        text="main", tid="200", reply_to=None, author="a", quoted_id="900"
+    )
+    quoted = _thread_meta(text="quoted", tid="900", reply_to=None, author="b")
+    bodies = {"200": main_post, "900": quoted}
+
+    def routed_get(url: str, *, headers: dict[str, str]) -> FakeResp:
+        if "syndication" in url:
+            tid = re.search(r"id=(\d+)", url).group(1)  # type: ignore[union-attr]
+            return FakeResp(200, bodies[tid])
+        return FakeResp(200, content=b"img")
+
+    bundle = resolve(
+        "https://x.com/a/status/200",
+        cache_dir=tmp_path / "posts",
+        media_root=tmp_path / "media",
+        get=routed_get,
+        sleep=lambda _s: None,
+        rng=random.Random(0),
+    )
+    roles = {rp.post.author: rp.role for rp in bundle.posts}
+    assert roles == {"a": "bookmarked", "b": "quoted"}
+    quoted_rp = next(rp for rp in bundle.posts if rp.role == "quoted")
+    assert quoted_rp.referred_by == "200"
+    assert quoted_rp.depth == 1
+
+
+def test_resolve_terminates_on_a_quote_cycle(tmp_path: Path) -> None:
+    a = _thread_meta(text="a", tid="200", reply_to=None, author="a", quoted_id="900")
+    b = _thread_meta(text="b", tid="900", reply_to=None, author="b", quoted_id="200")
+    bodies = {"200": a, "900": b}
+
+    def routed_get(url: str, *, headers: dict[str, str]) -> FakeResp:
+        if "syndication" in url:
+            tid = re.search(r"id=(\d+)", url).group(1)  # type: ignore[union-attr]
+            return FakeResp(200, bodies[tid])
+        return FakeResp(200, content=b"img")
+
+    bundle = resolve(
+        "https://x.com/a/status/200",
+        cache_dir=tmp_path / "posts",
+        media_root=tmp_path / "media",
+        get=routed_get,
+        sleep=lambda _s: None,
+        rng=random.Random(0),
+    )
+    ids = [rp.post.url.rsplit("/", 1)[-1] for rp in bundle.posts]
+    assert sorted(ids) == ["200", "900"]  # each exactly once
+    assert any("already in bundle" in n for n in bundle.notes)
+
+
+def test_resolve_respects_max_quote_depth(tmp_path: Path) -> None:
+    chain = {
+        "200": _thread_meta(
+            text="a", tid="200", reply_to=None, author="a", quoted_id="300"
+        ),
+        "300": _thread_meta(
+            text="b", tid="300", reply_to=None, author="b", quoted_id="400"
+        ),
+        "400": _thread_meta(
+            text="c", tid="400", reply_to=None, author="c", quoted_id="500"
+        ),
+        "500": _thread_meta(text="d", tid="500", reply_to=None, author="d"),
+    }
+
+    def routed_get(url: str, *, headers: dict[str, str]) -> FakeResp:
+        if "syndication" in url:
+            tid = re.search(r"id=(\d+)", url).group(1)  # type: ignore[union-attr]
+            return FakeResp(200, chain[tid])
+        return FakeResp(200, content=b"img")
+
+    bundle = resolve(
+        "https://x.com/a/status/200",
+        max_quote_depth=2,
+        cache_dir=tmp_path / "posts",
+        media_root=tmp_path / "media",
+        get=routed_get,
+        sleep=lambda _s: None,
+        rng=random.Random(0),
+    )
+    assert [rp.post.author for rp in bundle.posts] == ["a", "b", "c"]
+    assert any("max_quote_depth" in n for n in bundle.notes)

@@ -192,6 +192,9 @@ class ThreadChain:
 
     posts: list[XPost] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    photo_paths: dict[str, list[str]] = field(
+        default_factory=dict
+    )  # tweet id -> local files
 
 
 def walk_thread(
@@ -199,6 +202,8 @@ def walk_thread(
     *,
     max_hops: int = 25,
     cache_dir: Path = Path(".cache/x-posts"),
+    download: bool = False,
+    media_root: Path = Path(".cache/x-media"),
     min_delay: float = 4.0,
     max_delay: float = 12.0,
     get: HttpGet = _requests_get,
@@ -216,13 +221,18 @@ def walk_thread(
     stop except reaching the root records a note; a truncated chain that reported
     nothing would read as a complete one. Never raises on a broken chain.
 
-    Reads the per-id cache so an ancestor already ingested costs no network. Does
-    not WRITE it: cache entries carry ``photo_paths``, and writing one here with
-    no photos would make a later ingest of that post skip its chart download.
+    Reads the per-id cache so an ancestor already ingested costs no network. With
+    ``download=False`` (the default) it does not WRITE the cache: cache entries
+    carry ``photo_paths``, and writing one here with no photos would make a later
+    ingest of that post skip its chart download. With ``download=True`` it fetches
+    each hop's own and quoted-post images before writing the cache entry, so the
+    entry is complete precisely because the photos were downloaded first — the
+    same reasoning, satisfied rather than bypassed.
     """
     rng = rng or random.Random()
     walked: list[XPost] = []
     notes: list[str] = []
+    photo_paths: dict[str, list[str]] = {}
     did_network = False
     next_url: str | None = url
     while next_url is not None:
@@ -236,6 +246,8 @@ def walk_thread(
         cached = _load_cached(cache_dir, tweet_id)
         if cached is not None:
             post = cached[0]
+            if download:
+                photo_paths[tweet_id] = cached[1]
         else:
             if did_network:
                 sleep(rng.uniform(min_delay, max_delay))
@@ -245,6 +257,19 @@ def walk_thread(
                 notes.append(f"stopped at {tweet_id}: {fetched.reason}")
                 break
             post = fetched
+            if download:
+                own = [
+                    str(p)
+                    for p in download_photos(post, media_root / tweet_id, get=get)
+                ]
+                quoted_own = [
+                    str(p)
+                    for p in download_quoted_photos(
+                        post, media_root / f"{tweet_id}_quoted", get=get
+                    )
+                ]
+                _write_cache(cache_dir, tweet_id, post, own, quoted_own)
+                photo_paths[tweet_id] = own
         walked.append(post)
         if not post.in_reply_to_id:
             break  # root reached — the normal stop, no note
@@ -259,6 +284,7 @@ def walk_thread(
     return ThreadChain(
         posts=[replace(p, thread_pos=i) for i, p in enumerate(walked)],
         notes=notes,
+        photo_paths=photo_paths,
     )
 
 
@@ -369,6 +395,126 @@ def fetch_x_batch(
             )
         )
     return results
+
+
+@dataclass(frozen=True)
+class ResolvedPost:
+    post: XPost
+    role: str  # "bookmarked" | "chain_parent" | "quoted"
+    depth: int  # 0 for the chain, +1 per quote hop
+    referred_by: str  # status id that pulled this in; "" for the bookmarked post
+    photo_paths: list[str] = field(default_factory=list)
+    quoted_photo_paths: list[str] = field(default_factory=list)
+
+
+@dataclass
+class Bundle:
+    posts: list[ResolvedPost] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+
+def resolve(
+    url: str,
+    *,
+    max_quote_depth: int = 2,
+    max_hops: int = 25,
+    cache_dir: Path = Path(".cache/x-posts"),
+    media_root: Path = Path(".cache/x-media"),
+    min_delay: float = 4.0,
+    max_delay: float = 12.0,
+    get: HttpGet = _requests_get,
+    sleep: Callable[[float], None] = time.sleep,
+    rng: random.Random | None = None,
+) -> Bundle:
+    """Resolve a post's whole evidence graph into one flat bundle.
+
+    Walks the reply chain UPWARD (the endpoint has no children field, so a
+    thread is only recoverable from its last post), then resolves every quoted
+    post breadth-first to ``max_quote_depth``, downloading images for each.
+
+    ``visited`` is mandatory rather than defensive: a quote cycle is
+    constructible, and self-quoting authors make near-cycles routine. Every
+    bound that bites appends to ``notes`` — a truncated bundle that read as a
+    complete one is the defect this function exists to remove.
+    """
+    rng = rng or random.Random()
+    bookmarked_id = parse_tweet_id(url)
+    chain = walk_thread(
+        url,
+        max_hops=max_hops,
+        cache_dir=cache_dir,
+        media_root=media_root,
+        download=True,
+        min_delay=min_delay,
+        max_delay=max_delay,
+        get=get,
+        sleep=sleep,
+        rng=rng,
+    )
+    bundle = Bundle(notes=list(chain.notes))
+    visited: set[str] = set()
+    queue: list[tuple[str, str, int]] = []  # (quoted id, referrer id, depth)
+
+    for post in chain.posts:
+        tid = parse_tweet_id(post.url)
+        visited.add(tid)
+        bundle.posts.append(
+            ResolvedPost(
+                post=post,
+                role="bookmarked" if tid == bookmarked_id else "chain_parent",
+                depth=0,
+                referred_by="",
+                photo_paths=chain.photo_paths.get(tid, []),
+            )
+        )
+        if post.quoted_id:
+            queue.append((post.quoted_id, tid, 1))
+
+    while queue:
+        quoted_id, referrer, depth = queue.pop(0)
+        if quoted_id in visited:
+            bundle.notes.append(
+                f"skipped {quoted_id}: already in bundle (quoted by {referrer})"
+            )
+            continue
+        if depth > max_quote_depth:
+            bundle.notes.append(
+                f"skipped {quoted_id}: max_quote_depth={max_quote_depth} reached — "
+                "quoted context beyond this depth was NOT fetched"
+            )
+            continue
+        visited.add(quoted_id)
+        quoted_url = f"https://x.com/i/status/{quoted_id}"
+        result = fetch_x_batch(
+            [quoted_url],
+            cache_dir=cache_dir,
+            media_root=media_root,
+            min_delay=min_delay,
+            max_delay=max_delay,
+            get=get,
+            sleep=sleep,
+            rng=rng,
+        )[0]
+        if isinstance(result.post, Unavailable):
+            bundle.notes.append(
+                f"quoted {quoted_id} unavailable: {result.post.reason} — "
+                "its text may still be on the referrer as quoted_text"
+            )
+            continue
+        bundle.posts.append(
+            ResolvedPost(
+                post=result.post,
+                role="quoted",
+                depth=depth,
+                referred_by=referrer,
+                photo_paths=result.photo_paths,
+                quoted_photo_paths=result.quoted_photo_paths,
+            )
+        )
+        if result.post.quoted_id:
+            queue.append((result.post.quoted_id, quoted_id, depth + 1))
+
+    return bundle
 
 
 def _format_human(post: XPost) -> str:
