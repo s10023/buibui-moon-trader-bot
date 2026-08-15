@@ -799,8 +799,11 @@ def test_main_thread_flag_emits_chain(tmp_path: Path, capsys: Any) -> None:
     )
     assert rc == 0
     out = json.loads(capsys.readouterr().out)
-    assert [p["text"] for p in out["posts"]] == ["root", "mid", "leaf"]
-    assert out["notes"] == []
+    # one array element per input URL, keyed by that URL — N inputs, N outputs,
+    # parseable in one `json.loads` however many URLs were passed
+    assert [e["url"] for e in out] == [_url("3")]
+    assert [p["text"] for p in out[0]["posts"]] == ["root", "mid", "leaf"]
+    assert out[0]["notes"] == []
 
 
 def test_main_thread_human_shows_recovered_count(tmp_path: Path, capsys: Any) -> None:
@@ -1154,7 +1157,10 @@ def test_main_resolve_json_emits_bundle(
         sleep=lambda _s: None,
     )
     assert rc == 0
-    payload = json.loads(capsys.readouterr().out)
+    emitted = json.loads(capsys.readouterr().out)
+    assert isinstance(emitted, list) and len(emitted) == 1
+    payload = emitted[0]
+    assert payload["url"] == "https://x.com/a/status/200"
     post = payload["posts"][0]
     # Task 5 documents this JSON shape as an operator-facing contract — a
     # renamed or typo'd key must fail here rather than reach the docs.
@@ -1165,6 +1171,118 @@ def test_main_resolve_json_emits_bundle(
     assert post["quoted_photo_paths"] == []
     assert post["text_truncated"] is False  # a flat XPost field rides along
     assert "notes" in payload
+
+
+def test_main_resolve_prints_the_unavailability_reason(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Final-review Minor 4. An empty bundle used to `continue` before its notes
+    printed, so `stopped at 200: HTTP 404` never reached the operator — while the
+    skill asks them to tell protected from deleted from age-gated."""
+    rc = main(
+        [
+            "https://x.com/a/status/200",
+            "--resolve",
+            "--cache-dir",
+            str(tmp_path / "posts"),
+            "--media-root",
+            str(tmp_path / "media"),
+        ],
+        get=make_routed_get({"200": FakeResp(404)}),
+        sleep=lambda _s: None,
+    )
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "UNAVAILABLE" in err
+    assert "stopped at 200" in err and "404" in err
+
+
+def test_main_thread_prints_the_unavailability_reason(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Same defect on the sibling path — fixed on both, per Minor 4."""
+    rc = main(
+        [
+            "https://x.com/a/status/200",
+            "--thread",
+            "--cache-dir",
+            str(tmp_path / "posts"),
+        ],
+        get=make_routed_get({"200": FakeResp(404)}),
+        sleep=lambda _s: None,
+    )
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "stopped at 200" in err and "404" in err
+
+
+def test_main_thread_honours_max_hops(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Final-review Important 3. `--max-hops` shipped accepted-and-ignored on the
+    `--thread` path (`args.max_hops` was never forwarded), so a 2-hop request
+    returned the whole chain with empty notes. The absence of this test is what
+    let that ship."""
+    metas = {
+        str(i): FakeResp(200, _thread_meta(str(i), "a", f"p{i}", reply_to=str(i - 1)))
+        for i in range(2, 9)
+    }
+    metas["1"] = FakeResp(200, _thread_meta("1", "a", "p1"))
+    rc = main(
+        [
+            _url("8"),
+            "--thread",
+            "--json",
+            "--max-hops",
+            "2",
+            "--cache-dir",
+            str(tmp_path / "posts"),
+            "--min-delay",
+            "0",
+            "--max-delay",
+            "0",
+        ],
+        get=make_routed_get(metas),
+        sleep=lambda _s: None,
+    )
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert len(out[0]["posts"]) == 2
+    assert any("max_hops" in n for n in out[0]["notes"])
+
+
+def test_main_thread_force_refetches_despite_cache(tmp_path: Path) -> None:
+    """`--force` was accepted and ignored on the `--thread` path too — the same
+    defect as `--resolve --force`, in the same argparse block."""
+    cache_dir = tmp_path / "posts"
+    fetch_x_batch(
+        [_url("1")],
+        cache_dir=cache_dir,
+        media_root=tmp_path / "media",
+        get=make_routed_get({"1": FakeResp(200, _thread_meta("1", "a", "old"))}),
+        sleep=RecordingSleep(),
+        rng=random.Random(0),
+    )
+    calls: list[str] = []
+    rc = main(
+        [
+            _url("1"),
+            "--thread",
+            "--force",
+            "--cache-dir",
+            str(cache_dir),
+            "--min-delay",
+            "0",
+            "--max-delay",
+            "0",
+        ],
+        get=make_routed_get(
+            {"1": FakeResp(200, _thread_meta("1", "a", "new"))}, calls=calls
+        ),
+        sleep=lambda _s: None,
+    )
+    assert rc == 0
+    assert _ids(calls) == ["1"]  # the cache did not answer it
 
 
 def test_main_resolve_human_notes_go_to_stderr(
@@ -1208,3 +1326,405 @@ def test_main_resolve_human_notes_go_to_stderr(
     assert "[bookmarked d0]" in captured.out
     assert "! quoted 900 unavailable" in captured.err
     assert "! quoted 900 unavailable" not in captured.out
+
+
+# ---------------------------------------------------------------------------
+# Final review fix wave — Important 2-5, Minors 1-4
+# ---------------------------------------------------------------------------
+
+
+def _bodies_get(
+    bodies: dict[str, str],
+    *,
+    photo_status: dict[str, int] | None = None,
+    calls: list[str] | None = None,
+) -> Callable[..., FakeResp]:
+    """Routes syndication by id and photo GETs by url, with per-url status
+    control so a partial media failure is expressible."""
+
+    def _get(url: str, *, headers: dict[str, str]) -> FakeResp:
+        if calls is not None:
+            calls.append(url)
+        if "syndication" in url:
+            match = re.search(r"id=(\d+)", url)
+            tid = match.group(1) if match else ""
+            body = bodies.get(tid)
+            return FakeResp(200, body) if body is not None else FakeResp(404)
+        status = (photo_status or {}).get(url.split("?", 1)[0], 200)
+        return FakeResp(status, content=b"img") if status == 200 else FakeResp(status)
+
+    return _get
+
+
+def test_resolve_notes_a_quoted_post_whose_own_chain_is_unwalked(
+    tmp_path: Path,
+) -> None:
+    """Important 2. 200 quotes 900, and 900 is itself a reply to 800. The walk
+    stops there — spec 5 now reads that row as ⚠, and the bundle must SAY so
+    rather than reading as complete."""
+    bodies = {
+        "200": _thread_meta("200", "a", "main", quoted_id="900"),
+        "900": _thread_meta("900", "b", "quoted leaf", reply_to="800"),
+    }
+    bundle = resolve(
+        "https://x.com/a/status/200",
+        cache_dir=tmp_path / "posts",
+        media_root=tmp_path / "media",
+        get=_bodies_get(bodies),
+        sleep=lambda _s: None,
+        rng=random.Random(0),
+    )
+    assert [parse_tweet_id(rp.post.url) for rp in bundle.posts] == ["200", "900"]
+    assert any("900" in n and "800" in n and "NOT walked" in n for n in bundle.notes), (
+        bundle.notes
+    )
+
+
+def test_resolve_notes_a_quote_with_no_resolvable_id(tmp_path: Path) -> None:
+    """Important 2. A tombstoned `quoted_tweet` yields is_quote=True with an empty
+    quoted_id: nothing queues it and, before this fix, nothing noted it — the quote
+    vanished entirely."""
+    payload = json.dumps(
+        dict(
+            _CRYPTIC,
+            text="main",
+            photos=[],
+            mediaDetails=[],
+            id_str="200",
+            user={"screen_name": "a", "name": "A"},
+            quoted_tweet={"text": "", "user": {}},
+        )
+    )
+    bundle = resolve(
+        "https://x.com/a/status/200",
+        cache_dir=tmp_path / "posts",
+        media_root=tmp_path / "media",
+        get=_bodies_get({"200": payload}),
+        sleep=lambda _s: None,
+        rng=random.Random(0),
+    )
+    assert len(bundle.posts) == 1
+    assert any("200" in n and "no id" in n for n in bundle.notes), bundle.notes
+
+
+def test_resolve_force_refetches_despite_cache(tmp_path: Path) -> None:
+    """Important 3. `resolve` took no `force`, so `--resolve --force` performed 0
+    network calls and returned stale cached text — with the cache now authoritative
+    (schema versioning) and `edited: true` being exactly the case you want to
+    re-fetch, `rm -rf .cache/x-posts` was the only escape hatch."""
+    cache_dir, media_root = tmp_path / "posts", tmp_path / "media"
+    resolve(
+        "https://x.com/a/status/200",
+        cache_dir=cache_dir,
+        media_root=media_root,
+        get=_bodies_get({"200": _thread_meta("200", "a", "old")}),
+        sleep=lambda _s: None,
+        rng=random.Random(0),
+    )
+    calls: list[str] = []
+    bundle = resolve(
+        "https://x.com/a/status/200",
+        force=True,
+        cache_dir=cache_dir,
+        media_root=media_root,
+        get=_bodies_get({"200": _thread_meta("200", "a", "new")}, calls=calls),
+        sleep=lambda _s: None,
+        rng=random.Random(0),
+    )
+    assert _ids(calls) == ["200"]
+    assert bundle.posts[0].post.text == "new"
+
+
+def test_resolve_force_refetches_a_quoted_post_too(tmp_path: Path) -> None:
+    """`force` must reach the quote hop as well, not just the chain walk —
+    otherwise the flag is half-wired and the stale half is invisible."""
+    cache_dir, media_root = tmp_path / "posts", tmp_path / "media"
+    bodies = {
+        "200": _thread_meta("200", "a", "main", quoted_id="900"),
+        "900": _thread_meta("900", "b", "old quote"),
+    }
+    resolve(
+        "https://x.com/a/status/200",
+        cache_dir=cache_dir,
+        media_root=media_root,
+        get=_bodies_get(bodies),
+        sleep=lambda _s: None,
+        rng=random.Random(0),
+    )
+    calls: list[str] = []
+    bundle = resolve(
+        "https://x.com/a/status/200",
+        force=True,
+        cache_dir=cache_dir,
+        media_root=media_root,
+        get=_bodies_get(
+            {**bodies, "900": _thread_meta("900", "b", "new quote")}, calls=calls
+        ),
+        sleep=lambda _s: None,
+        rng=random.Random(0),
+    )
+    assert _ids(calls) == ["200", "900"]
+    quoted = next(rp for rp in bundle.posts if rp.role == "quoted")
+    assert quoted.post.text == "new quote"
+
+
+def test_resolve_notes_a_failed_image_download(tmp_path: Path) -> None:
+    """Important 5. One of two photo GETs fails: before this fix the bundle
+    carried one path, emitted no note, and the entry cached as complete — so the
+    lost chart never retried and nothing said it was lost."""
+    cache_dir, media_root = tmp_path / "posts", tmp_path / "media"
+    bodies = {
+        "200": _thread_meta(
+            "200",
+            "a",
+            "two charts",
+            photos=[
+                "https://pbs.twimg.com/media/A.jpg",
+                "https://pbs.twimg.com/media/B.jpg",
+            ],
+        )
+    }
+    get = _bodies_get(bodies, photo_status={"https://pbs.twimg.com/media/B.jpg": 429})
+    bundle = resolve(
+        "https://x.com/a/status/200",
+        cache_dir=cache_dir,
+        media_root=media_root,
+        get=get,
+        sleep=lambda _s: None,
+        rng=random.Random(0),
+    )
+    assert len(bundle.posts[0].photo_paths) == 1
+    assert any("1 of 2 images failed" in n for n in bundle.notes), bundle.notes
+
+    # and the shortfall stays visible on the cached re-run, where the retry never
+    # happens at all
+    again = resolve(
+        "https://x.com/a/status/200",
+        cache_dir=cache_dir,
+        media_root=media_root,
+        get=get,
+        sleep=lambda _s: None,
+        rng=random.Random(0),
+    )
+    assert any("1 of 2 images failed" in n for n in again.notes), again.notes
+
+
+def test_resolve_notes_a_failed_quoted_image_download(tmp_path: Path) -> None:
+    """The same shortfall on the quote hop's own fetch — `fetch_x_batch` is where
+    those images are downloaded, so the note has to originate there and be carried
+    into the bundle."""
+    bodies = {
+        "200": _thread_meta("200", "a", "main", quoted_id="900"),
+        "900": _thread_meta(
+            "900", "b", "quoted", photos=["https://pbs.twimg.com/media/Q.jpg"]
+        ),
+    }
+    bundle = resolve(
+        "https://x.com/a/status/200",
+        cache_dir=tmp_path / "posts",
+        media_root=tmp_path / "media",
+        get=_bodies_get(
+            bodies, photo_status={"https://pbs.twimg.com/media/Q.jpg": 429}
+        ),
+        sleep=lambda _s: None,
+        rng=random.Random(0),
+    )
+    assert any("1 of 1 images failed" in n and "900" in n for n in bundle.notes), (
+        bundle.notes
+    )
+
+
+def test_resolve_gives_a_quoted_post_its_canonical_url(tmp_path: Path) -> None:
+    """Minor 1. A quote hop addresses the post as x.com/i/status/<id> because it
+    has no handle until the payload answers. The bundle — and the cache entry a
+    later canonical fetch reads — must carry the real one: this is a pipeline about
+    attribution."""
+    cache_dir = tmp_path / "posts"
+    bodies = {
+        "200": _thread_meta("200", "a", "main", quoted_id="900"),
+        "900": _thread_meta("900", "bee", "quoted"),
+    }
+    bundle = resolve(
+        "https://x.com/a/status/200",
+        cache_dir=cache_dir,
+        media_root=tmp_path / "media",
+        get=_bodies_get(bodies),
+        sleep=lambda _s: None,
+        rng=random.Random(0),
+    )
+    quoted = next(rp for rp in bundle.posts if rp.role == "quoted")
+    assert quoted.post.url == "https://x.com/bee/status/900"
+    cached = _load_cached(cache_dir, "900")
+    assert cached is not None and cached[0].url == "https://x.com/bee/status/900"
+
+
+def test_resolve_downloads_a_shared_quoted_image_once(tmp_path: Path) -> None:
+    """Minor 2. The referrer's embedded copy of its quoted post's photos and the
+    quoted post's own photos are the SAME image. Downloading both cost 2 GETs for
+    1 url and put the same chart under two ResolvedPosts, so two vision subagents
+    read it and the digest could double-count it."""
+    shared = "https://pbs.twimg.com/media/SHARED.jpg"
+    bodies = {
+        "200": _thread_meta(
+            "200", "a", "main", quoted_id="900", quoted_photos=[shared]
+        ),
+        "900": _thread_meta("900", "b", "quoted", photos=[shared]),
+    }
+    calls: list[str] = []
+    bundle = resolve(
+        "https://x.com/a/status/200",
+        cache_dir=tmp_path / "posts",
+        media_root=tmp_path / "media",
+        get=_bodies_get(bodies, calls=calls),
+        sleep=lambda _s: None,
+        rng=random.Random(0),
+    )
+    assert len([c for c in calls if "SHARED" in c]) == 1
+    quoted = next(rp for rp in bundle.posts if rp.role == "quoted")
+    bookmarked = next(rp for rp in bundle.posts if rp.role == "bookmarked")
+    assert len(quoted.photo_paths) == 1  # it lives with the post that owns it
+    assert bookmarked.quoted_photo_paths == []  # and is not listed twice
+
+
+def test_resolve_keeps_an_embedded_quote_image_the_quoted_post_lacks(
+    tmp_path: Path,
+) -> None:
+    """The Minor 2 de-duplication is keyed on the image URLS matching. When they
+    do not — the embedded copy carries a chart the quoted post's own payload does
+    not — dropping it would delete the only copy of that evidence."""
+    bodies = {
+        "200": _thread_meta(
+            "200",
+            "a",
+            "main",
+            quoted_id="900",
+            quoted_photos=["https://pbs.twimg.com/media/EMBEDDED.jpg"],
+        ),
+        "900": _thread_meta("900", "b", "quoted"),
+    }
+    bundle = resolve(
+        "https://x.com/a/status/200",
+        cache_dir=tmp_path / "posts",
+        media_root=tmp_path / "media",
+        get=_bodies_get(bodies),
+        sleep=lambda _s: None,
+        rng=random.Random(0),
+    )
+    bookmarked = next(rp for rp in bundle.posts if rp.role == "bookmarked")
+    assert bookmarked.quoted_photo_paths
+
+
+def test_no_empty_quoted_dir_for_a_post_without_a_quote(tmp_path: Path) -> None:
+    """Minor 3. `download_quoted_photos` ran unconditionally, so every post
+    created an empty `{id}_quoted/`."""
+    media_root = tmp_path / "media"
+    fetch_x_batch(
+        [_url("5")],
+        cache_dir=tmp_path / "posts",
+        media_root=media_root,
+        get=make_routed_get({"5": FakeResp(200, _meta("no quote here"))}),
+        sleep=RecordingSleep(),
+        rng=random.Random(0),
+    )
+    assert not (media_root / "5_quoted").exists()
+
+
+def test_main_resolve_json_multi_url_emits_one_array(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Important 4. Two URLs produced two concatenated top-level JSON objects and
+    `json.loads` rejected the lot with `Extra data:` — while SKILL.md step 1
+    mandates exactly this invocation with every pasted URL."""
+    bodies = {
+        "200": _thread_meta("200", "a", "first"),
+        "300": _thread_meta("300", "b", "second"),
+    }
+    rc = main(
+        [
+            "https://x.com/a/status/200",
+            "https://x.com/b/status/300",
+            "--resolve",
+            "--json",
+            "--cache-dir",
+            str(tmp_path / "posts"),
+            "--media-root",
+            str(tmp_path / "media"),
+            "--min-delay",
+            "0",
+            "--max-delay",
+            "0",
+        ],
+        get=_bodies_get(bodies),
+        sleep=lambda _s: None,
+    )
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert isinstance(out, list) and len(out) == 2
+    assert out[0]["url"] == "https://x.com/a/status/200"
+    assert out[1]["url"] == "https://x.com/b/status/300"
+    assert out[0]["posts"][0]["text"] == "first"
+    assert out[1]["posts"][0]["text"] == "second"
+
+
+def test_main_resolve_json_keeps_an_unavailable_url_in_the_array(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Important 4's correlation half: an unavailable URL printed nothing, so N
+    inputs yielded N-1 outputs with no key tying a bundle back to its input."""
+    rc = main(
+        [
+            "https://x.com/a/status/200",
+            "https://x.com/b/status/300",
+            "--resolve",
+            "--json",
+            "--cache-dir",
+            str(tmp_path / "posts"),
+            "--media-root",
+            str(tmp_path / "media"),
+            "--min-delay",
+            "0",
+            "--max-delay",
+            "0",
+        ],
+        get=_bodies_get({"200": _thread_meta("200", "a", "first")}),
+        sleep=lambda _s: None,
+    )
+    assert rc == 1
+    out = json.loads(capsys.readouterr().out)
+    assert [e["url"] for e in out] == [
+        "https://x.com/a/status/200",
+        "https://x.com/b/status/300",
+    ]
+    assert out[1]["posts"] == []
+    assert any("300" in n for n in out[1]["notes"])
+
+
+def test_main_resolve_force_reaches_the_network(tmp_path: Path) -> None:
+    """Important 3, at the CLI boundary: `--resolve --force` performed 0 network
+    calls."""
+    cache_dir, media_root = tmp_path / "posts", tmp_path / "media"
+    args = [
+        "https://x.com/a/status/200",
+        "--resolve",
+        "--cache-dir",
+        str(cache_dir),
+        "--media-root",
+        str(media_root),
+        "--min-delay",
+        "0",
+        "--max-delay",
+        "0",
+    ]
+    main(
+        args,
+        get=_bodies_get({"200": _thread_meta("200", "a", "old")}),
+        sleep=lambda _s: None,
+    )
+    calls: list[str] = []
+    rc = main(
+        [*args, "--force"],
+        get=_bodies_get({"200": _thread_meta("200", "a", "new")}, calls=calls),
+        sleep=lambda _s: None,
+    )
+    assert rc == 0
+    assert _ids(calls) == ["200"]
