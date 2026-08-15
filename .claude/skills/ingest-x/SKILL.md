@@ -7,8 +7,8 @@ description: >
   bounded depth, images downloaded for all of them, and text it could not
   recover flagged rather than silently dropped — with NO login/scraping via
   the public syndication endpoint (tools/x_fetch.py) and a randomized cooldown
-  + dedup cache so re-runs hit zero network. Reads each chart with vision in a
-  per-post subagent, classifies it (content-type gate -> the parent pipeline's
+  + dedup cache so re-runs hit zero network. Reads every chart with vision in
+  ONE subagent per bundle, classifies it (content-type gate -> the parent pipeline's
   4-bucket verdict taxonomy), and routes it (after ONE human review gate for
   the whole batch) into one of three streams: A hypotheses ->
   docs/plans/thesis-inbox.md, B mechanics -> docs/plans/mechanics-backlog.md,
@@ -43,8 +43,13 @@ pasted, then run the flow once over the whole set.
    PYTHONPATH=. poetry run python tools/x_fetch.py <url1> <url2> … --resolve --json
    ```
 
-   Pass every pasted URL on one command line. Output is one JSON object per URL
-   on stdout, `{"posts": [...], "notes": [...]}`. Each post in `posts` carries
+   Pass every pasted URL on one command line. Output is **one JSON array** on
+   stdout — one element per pasted URL, in the order you passed them:
+   `{"url": <the URL you passed>, "posts": [...], "notes": [...]}`. An
+   unavailable URL still gets an element, with `posts: []` and the reason in its
+   `notes`, so **N inputs always give N outputs** and every bundle is tied back
+   to its own input. (Emitting one top-level object per URL is what this used to
+   do, and `json.loads` rejects two of those concatenated.) Each post in `posts` carries
    the flat post fields (`author`, `author_name`, `post_ts_utc`, `text`,
    `photo_urls`, `video_present`, `is_quote`, `quoted_text`, `quoted_author`,
    `quoted_id`, `quoted_photo_urls`, `text_truncated`, `edited`, …) plus:
@@ -66,7 +71,17 @@ pasted, then run the flow once over the whole set.
    For any URL that comes back `UNAVAILABLE: <url>` on stderr
    (protected/deleted/age-gated), tell the user and ask them to paste that
    post's text + drop a screenshot; continue that one from step 2 with the
-   pasted text + image.
+   pasted text + image. The `! stopped at <id>: …` line printed beneath it is
+   the **why** — `HTTP 404` reads differently from `post unavailable
+   (protected/deleted/age-gated)`, and that is the distinction the ask to the
+   user turns on. It is also in that element's `notes`.
+
+   **`--force` ignores the dedup cache** on every hop of the graph — the chain
+   walk and each quoted post. Use it when a post is flagged `edited: true` (the
+   cached text is then not the text that was posted), and when `notes` reports an
+   image that failed to download: a cache entry is authoritative for every field,
+   so nothing else re-fetches it. Everything else should run cached — that is
+   what keeps a re-run at zero network.
 
    **⚠ OPERATOR RULE — bookmark the LAST post of a thread, never the parent.**
    The endpoint exposes the reply-to chain but has no replies/children field,
@@ -80,7 +95,14 @@ pasted, then run the flow once over the whole set.
    - **Always read `notes`** — every stop, cap, cycle and skip the walk hit is
      recorded there verbatim (author change, hop cap, `max_quote_depth`
      reached, a deleted/unavailable post, an already-visited id). A bundle
-     that stopped early otherwise reads as a complete one.
+     that stopped early otherwise reads as a complete one. Three entries are
+     easy to skim past and change what the evidence IS: **a quoted post that is
+     itself a reply** (its own chain is deliberately not walked — bounded, but
+     the argument above it is missing), **a quote whose payload carries no id**
+     (nothing to resolve; only the referrer's truncated `quoted_text` survives),
+     and **`N of M images failed to download`** — that chart is not on disk, the
+     entry cached anyway, and only `--force` retries it. Say so in the digest;
+     never let the extractor read a missing chart as a post without one.
    - **New: `text_truncated: true` means that post is missing a long-form
      tail no keyless path can fetch.** The endpoint's `note_tweet` proves a
      longer body exists but hands back only an opaque ID stub, never the
@@ -97,20 +119,24 @@ pasted, then run the flow once over the whole set.
    resolved bundle. Do **not** attempt the vision pass here — this skill has
    no frame extraction.
 
-2. **Extract via a subagent — one per post, pinned to sonnet.** For each post,
-   dispatch a subagent (Task tool) **with `model: "sonnet"`** (do not inherit Opus)
-   and **`subagent_type: "Explore"`** — measured **3.6× cheaper** than
-   `general-purpose` at identical quality on exactly this task (24,187 vs 87,975
-   tokens, 2026-08-03 A/B on a real 2-post batch), the likely mechanism being that
-   it does not inherit full project context. Cost here is **fixed per-subagent
-   overhead, not payload** (6 varied posts landed inside a ±2% band), so the
-   dispatch type is the lever and image size is not. Give it: the post
-   `text` (and `quoted_text` prefixed `"[quoting @<quoted_author>]"` when present),
-   the `photo_paths`, whether this post's `text_truncated` is `true`, the schema
-   below, and the **inline rubric** in the next section. Instruct it to Read each
-   image (vision) and return ONLY this JSON — it must NOT read any repo/SoT/memory
-   file (the rubric below is self-contained; that is the whole point — one image
-   Read, no 7K-token SoT re-read):
+2. **Extract via a subagent — ONE per resolved bundle, pinned to sonnet.** One
+   pasted URL → one dispatch → one item. Dispatch a subagent (Task tool) **with
+   `model: "sonnet"`** (do not inherit Opus) and **`subagent_type: "Explore"`** —
+   measured **3.6× cheaper** than `general-purpose` at identical quality on exactly
+   this task (24,187 vs 87,975 tokens, 2026-08-03 A/B on a real 2-post batch), the
+   likely mechanism being that it does not inherit full project context. Cost here
+   is **fixed per-subagent overhead, not payload** (6 varied posts landed inside a
+   ±2% band), so the dispatch type is the lever, and bundle size is not.
+
+   Give it **every post in the bundle, in `posts` order** (chain root → leaf, each
+   quoted post after its referrer), and for each one: `role`, `depth`, `@author`,
+   `post_ts_utc`, `text` (with `quoted_text` prefixed
+   `"[quoting @<quoted_author>]"` when that quoted post could NOT be resolved into
+   the bundle), `photo_paths`, `quoted_photo_paths`, and whether that post's
+   `text_truncated` is `true`. Plus the schema below and the **inline rubric** in
+   the next section. Instruct it to Read each image (vision) and return ONLY this
+   JSON — it must NOT read any repo/SoT/memory file (the rubric below is
+   self-contained; that is the whole point — image Reads, no 7K-token SoT re-read):
 
    ```json
    {
@@ -122,13 +148,33 @@ pasted, then run the flow once over the whole set.
      "horizon": "EXACTLY ONE OF: intraday | swing | unspecified — no other value",
      "setup_type": "free text",
      "raw_quote": "the sentence(s) the call/claim came from",
-     "chart_read": "what the chart shows (levels, structure, annotations); name it here if this post is text_truncated",
+     "chart_read": "what the charts show (levels, structure, annotations), across the bundle; name any text_truncated post or missing image here",
      "content_type": "claim | setup | mechanic",
      "verdict": "NOVEL | ALREADY-TESTED | FROZEN-CATEGORY | NOT-FALSIFIABLE",
      "is_retrospective": "true | false",
      "gap_note": "one line: implied primitive + does the system already have/test/freeze it? name it here instead if chart_read doesn't apply"
    }
    ```
+
+   **⚠ NEVER dispatch one post of a chain on its own.** A single post from a
+   thread is a **fragment**, and extracting from a fragment is how **13 of 167
+   cached posts** were classified without their context. The chain is one author's
+   argument by construction — the upward walk stops the moment the author changes —
+   so feed the **whole chain** to one subagent, in order, as one argument, and let
+   it emit one item. **That is why the dispatch is per BUNDLE and not per post:**
+   a per-post dispatch turns "also pass the siblings" into a prompt-content rule,
+   and this repo has already lost that rule once by rewriting the step around it.
+   One dispatch per bundle makes the fragment case *unreachable* rather than
+   *forbidden*. Spec §10 Q1 (2026-08-15) records the same decision for quoted
+   posts: they are context inside this item, not items of their own.
+
+   **`role` and `depth` are weights, not decoration** (spec §7). `bookmarked` is
+   the post the operator chose and `chain_parent` the same author's earlier
+   argument — both `depth: 0`, both their own words, and both drive the item. A
+   `quoted` post at `depth ≥ 1` is context the author **cited**, is frequently
+   someone else's words, and is over-collected on purpose at depth 2: it qualifies
+   the item, it never drives it alone. Tell the extractor to name in `raw_quote`
+   which post the call came from — step 4 needs that to date and attribute the row.
 
    **⚠ `entry` / `stop` / `target` are MACHINE-PARSED — write each as a BARE
    NUMBER, no commentary, no parentheticals, no hyphenated ranges.** Exactly one
@@ -141,10 +187,11 @@ pasted, then run the flow once over the whole set.
    it was harmless only because `direction: neutral` short-circuited before the
    parse ever ran.
 
-   **Name any `text_truncated: true` post explicitly, in that post's
-   `chart_read` or `gap_note`** — e.g. "text cuts off mid-sentence, no
-   long-form body recoverable" — so a partial reading is visible in the digest
-   rather than inferred after the fact.
+   **Name every `text_truncated: true` post explicitly — by `role` and author —
+   in the item's `chart_read` or `gap_note`** — e.g. "chain_parent @x cuts off
+   mid-sentence, no long-form body recoverable" — so a partial reading is visible
+   in the digest rather than inferred after the fact. Same for any image the
+   bundle's `notes` said failed to download.
 
    `verdict` applies only when `content_type = claim`; for `setup`/`mechanic` set it
    to `NOVEL` as a non-blocking default (routing uses `content_type` for those).
@@ -199,17 +246,22 @@ pasted, then run the flow once over the whole set.
    entry/stop/target and no hand-written warning scores its author on a call whose
    outcome was already known.
 
-3. **ONE consolidated review digest** for the whole batch. Print a single table —
-   one row per post: author · `post_ts_utc` · symbol/direction · `content_type` ·
-   `verdict` · proposed routing · **truncated?** · **edited?** · `gap_note`; note
-   `quoted_text` / `video_present` / `is_thread` / `role` where set. Same
-   principle as `is_retrospective` below: the operator decides, but only about
-   what they can see, and `truncated?` / `edited?` are exactly that on every
-   row, not just the ones the extractor happened to flag in prose. **A `quoted`
-   post appears as its own row**, showing its `referred_by` (the status id
-   that pulled it in), so attribution is visible before approval rather than
-   buried inside its referrer's row. Show each `chart_read` and the full
-   extraction JSON below the table. Write NOTHING yet.
+3. **ONE consolidated review digest** for the whole batch. Print a single table,
+   **one row per routable item — which is one row per pasted URL**: author (the
+   one being credited) · `call_ts_utc` · symbol/direction · `content_type` ·
+   `verdict` · proposed routing · **`is_retrospective`** · `gap_note`.
+
+   Under each row, list that bundle's posts as **evidence lines**: `role` ·
+   `depth` · `@author` · `post_ts_utc` · **truncated?** · **edited?** · image
+   count, plus `referred_by` on every `quoted` post and `video_present` /
+   `quoted_text` where set. Truncation and editing are per-POST facts, which is
+   why they live there rather than only on the item row — same principle as
+   `is_retrospective` below: the operator decides, but only about what they can
+   see, and on every post rather than the ones the extractor happened to mention
+   in prose. **A `quoted` post is evidence under its referrer, not a routing row
+   of its own** (spec §10 Q1) — but name its author on that line, because when
+   quoter and quoted differ, that name is the one the row will carry. Show each
+   `chart_read` and the full extraction JSON below the table. Write NOTHING yet.
 
    **Surface `is_retrospective: true` in its own column, on EVERY row — including
    `claim` and `mechanic` rows that still route.** The drop in step 4 is
@@ -219,33 +271,36 @@ pasted, then run the flow once over the whole set.
    yours to see and decide on, and it is precisely the hole `/ingest-feed` shipped
    #535 for. A `true` on a routing row is a prompt to the reviewer, not a block.
 
-   **Run the dedup check before printing the digest**, once per non-dropped post, so
+   **Run the dedup check before printing the digest**, once per non-dropped item, so
    its result appears *in* the digest rather than after approval:
 
    ```bash
    PYTHONPATH=. poetry run python tools/route_dedup.py check \
-     --source-id <status id> --item-ts 0 --sink <route_target output> \
-     --text "<the gist being routed>"
+     --source-id <status id of the post the item came from> --item-ts 0 \
+     --sink <route_target output> --text "<the gist being routed>"
    ```
 
    - `already_routed: true` → **do not append.** Show the row as "already routed",
      and route nothing for it in step 4. This is exact and needs no judgement.
    - `candidates` non-empty → **not a block.** Print each candidate's `excerpt` and
-     `shared_levels` under that post's row and let the user decide: new row,
+     `shared_levels` under that item's row and let the user decide: new row,
      corroboration line on the existing entry, or drop.
    - `semantic_scope` says what the near-duplicate pass compared against:
      `all-entries` (Streams A and B) or `same-source` (Stream C — only rows from this
      same status id, never another author's). Report it; never let an empty
      `candidates` list read as "checked against everything and clean". On Stream C the
-     same-source scope is near-inert here, since one X post routes one item — the
-     identity layer is what protects this sink.
+     same-source scope stays near-inert **while one bundle routes one item** — the
+     identity layer is what protects this sink. It stops being inert the moment you
+     route a SECOND row out of one bundle (an operator call on a genuine third-party
+     quote), and that row must carry its **own** post's id, or the identity layer
+     drops it as a duplicate of its own sibling.
 
-4. **Route on a single approval.** After the user approves the batch, for each post
+4. **Route on a single approval.** After the user approves the batch, for each item
    compute the destination with
    `tools/x_route.py::route_target(content_type, verdict, retrospective=<is_retrospective>)`
    (returns the sink path or `None` for a drop) and append per this table. Pass the
    extracted `is_retrospective` through — never re-judge it here. Report a
-   one-line result per post (routed → which file, or dropped → verdict).
+   one-line result per item (routed → which file, or dropped → verdict).
 
    | content_type | verdict | Append to |
    | --- | --- | --- |
@@ -260,18 +315,32 @@ pasted, then run the flow once over the whole set.
 
    ```bash
    PYTHONPATH=. poetry run python tools/route_dedup.py mark \
-     --source-id <status id> --item-ts 0 --sink <sink path>
+     --source-id <status id of the post the item came from> --item-ts 0 \
+     --sink <sink path>
    ```
+
+   **⚠ `--source-id` is THAT post's own status id — the `ResolvedPost` you are
+   crediting — never the pasted URL's id by reflex.** `route_dedup._key` is
+   `(source_id, round(item_ts), sink)` and this skill hardcodes `--item-ts 0`, so
+   two rows sharing a source id and a sink collapse to one: the second reads
+   `already_routed: true` and step 3 says **do not append**. One bundle now holds
+   several posts, so reusing the bookmarked post's id for a second row silently
+   drops exactly the chain-parent or quoted call this whole flow exists to recover.
+   `route_dedup._key`'s own docstring is the same warning from the video side:
+   "Never `source_id` alone — one video legitimately yields several items." When the
+   post you are crediting IS the URL you pasted — the usual case — the two ids are
+   identical and nothing changes.
 
    `mark` runs **after** the write, never before. Marking at check time would let an
    abandoned review consume the id and dedup away the real append later — the
-   wifey-#68 watermark-on-send defect class. Never mark a dropped post.
+   wifey-#68 watermark-on-send defect class. Never mark a dropped item.
 
    Stream C's near-duplicate exemption is **across sources only**: two pundits making
    the same call are two real observations and `tools/pundit_score.py` scores both
    authors, so collapsing those would delete signal. Within one `source_id` the pass
-   does run — that matters for `/ingest-video`, where one video yields several items;
-   here one post yields one. Stream C still gets the exact `already_routed` block.
+   does run — that matters for `/ingest-video`, where one video yields several items,
+   and it matters here the moment a bundle yields two. Stream C still gets the exact
+   `already_routed` block.
 
    `route_target`'s other keyword flag, `rejected=`, drops a `setup` the author walked
    through and then argued **against** taking. This pipeline does not extract it, so it
@@ -287,6 +356,15 @@ pasted, then run the flow once over the whole set.
    ```json
    {"source":"twitter","author":"<handle>","url":"<url>","call_ts_utc":"<post_ts_utc>","symbol":"<symbol>","direction":"<direction>","entry":"<entry>","stop":"<stop>","target":"<target>","horizon":"<horizon>","confidence":"<verbatim hedging or empty>","raw_quote":"<raw_quote>"}
    ```
+
+   **⚠ `call_ts_utc` and `url` come from the POST the call came from, not from the
+   bundle.** Every post keeps its own `post_ts_utc` for this reason: a thread spans
+   time, so the call time is the timestamp of the post the item came from, or the
+   **leaf** — the last post, the one you were told to bookmark — if it cannot be
+   attributed to one. The leaf is the conservative choice because it gives the call
+   the **shortest** forward window. `call_ts_utc` is scoring input for
+   `tools/pundit_score.py`: dating a call to the root of a three-day thread hands
+   that author three extra days to be right, and nothing downstream can see it.
 
    **⚠ `target` and `entry` are MACHINE-PARSED — the format is a contract, not prose.**
    `tools/pundit_score.py` takes ONE number from the string, and **a hyphenated range

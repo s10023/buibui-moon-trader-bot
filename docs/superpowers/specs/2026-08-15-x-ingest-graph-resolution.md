@@ -186,7 +186,7 @@ Two fixes already identified in the 2026-08-15 session land here too:
 | Quoted post text | ⚠ truncated, unflagged | ✅ flagged |
 | Quoted post images | ❌ | ✅ |
 | Quoted post is itself a quote | ❌ | ✅ to depth 2 |
-| Quoted post is a thread leaf | ❌ | ✅ walked |
+| Quoted post is a thread leaf | ❌ | ⚠ **noted, NOT walked** |
 | Quoted post by a third party | text only, prose rule | ✅ full post + images |
 | Reply chain | ✅ (separate command) | ✅ (automatic) |
 | Chain parents' images | ⚠ URLs only, manual pass | ✅ downloaded |
@@ -198,6 +198,13 @@ Two fixes already identified in the 2026-08-15 session land here too:
 
 Three rows stay ❌. They are endpoint limits, and the operator rule ("bookmark the LAST post")
 is the only control for the first of them.
+
+One row is ⚠ rather than ✅, corrected 2026-08-15 after the final review ran it: a quoted post
+that is itself a reply has its **own** chain left unwalked. Walking it would be a second upward
+walk per quote hop, multiplying the request amplification §7 already flags, so `resolve` appends
+a note naming the parent id it did not follow. **The bound is a choice; the silence was the
+defect** — the same row also used to lose a quote whose payload carried no `id_str` with no note
+at all, which is now stated too.
 
 ## 6. Testing and acceptance
 
@@ -263,16 +270,26 @@ digests immediately and touches no traversal; **B** (quoted media) uses data alr
 | `max_quote_depth = 2` | Depth 1 misses quote-of-quote; depth 3+ amplifies requests for context increasingly far from the argument | A measured case where depth-3 context changed a verdict |
 | Keep upward-only traversal | The endpoint exposes no children field | An endpoint or keyless path exposing replies |
 | One `resolve` over `--batch` + `--thread` | The two-pass flow was undocumented and silently lossy | If `resolve`'s request amplification proved painful enough to want manual control back |
+| One extraction per resolved BUNDLE, not per post | Extracting from a thread fragment is measured: **13 of 167** cached posts classified without their context. A per-post dispatch makes "also give it the siblings" a prompt-content rule, and that rule was already lost once; one dispatch per bundle makes the fragment case unreachable rather than forbidden | A bundle whose posts routinely carry independent calls — in practice, a real third-party quote with its own call (§10 Q1) |
+| A quoted post that is itself a reply: note it, do not walk it | A second upward walk per quote hop multiplies §7's request amplification, for context two edges from the argument | A measured case where the quoted post's own parent changed a verdict |
 | Captured fixtures, not authored dicts | An authored fixture omitting a field cannot fail that field's guard | Nothing — this is a standing repo rule |
 | No downward walk, keep the operator rule | Endpoint limit | As above |
 
 ## 10. Open questions
 
-1. **Should a third-party quoted post route as its own item?** Today one post yields one item
-   and the quoted post is context. If a quoted third-party post carries its own call, the
-   author attribution rule says credit them — but nothing decides whether that is one row or
-   two. Unresolved because the corpus contains **zero** genuine third-party quotes; deferring
-   until one exists is deliberate, since inventing the rule now means inventing the test too.
+1. ~~**Should a third-party quoted post route as its own item?**~~ **RESOLVED 2026-08-15 — no,
+   it is context.** One resolved bundle routes **one** item; the quoted post reaches the
+   extractor as marked context (`role: quoted`, `depth ≥ 1`) with its images, and the third
+   party is carried by **attribution** — when the call lives in the quoted post the item credits
+   `quoted_author`, the rule §4.2 says this change finally gives data to stand on. Decided
+   rather than left open because `SKILL.md` had already answered it affirmatively by giving a
+   quoted post its own digest row and routing per row: an executable artifact silently
+   contradicting its own spec is worse than either answer. The original deferral's reasoning
+   survives as the **exception**, not the rule — the corpus still contains **zero** genuine
+   third-party quotes, so a second routed row stays an operator judgement on a real case, and
+   it MUST carry that post's own status id as `--source-id` or the identity layer drops it as a
+   duplicate of its sibling. Reverses on a real third-party quote carrying its own distinct
+   call, which is also the first thing that could test it.
 2. **Should `edited: true` block Stream C?** A call whose text changed after the timestamp is
    weak ledger evidence. Blocking is safe but loses real calls; flagging is honest but relies
    on the reviewer. Leaning flag-only, consistent with how `is_retrospective` handles routing
