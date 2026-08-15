@@ -1018,7 +1018,7 @@ def test_resolve_degrades_on_unavailable_quoted_post(tmp_path: Path) -> None:
 
 
 def test_main_resolve_json_emits_bundle(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     body = _thread_meta(text="only", tid="200", reply_to=None, author="a")
 
@@ -1046,6 +1046,56 @@ def test_main_resolve_json_emits_bundle(
     )
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["posts"][0]["role"] == "bookmarked"
-    assert payload["posts"][0]["depth"] == 0
+    post = payload["posts"][0]
+    # Task 5 documents this JSON shape as an operator-facing contract — a
+    # renamed or typo'd key must fail here rather than reach the docs.
+    assert post["role"] == "bookmarked"
+    assert post["depth"] == 0
+    assert post["referred_by"] == ""
+    assert post["photo_paths"] == []
+    assert post["quoted_photo_paths"] == []
+    assert post["text_truncated"] is False  # a flat XPost field rides along
     assert "notes" in payload
+
+
+def test_main_resolve_human_notes_go_to_stderr(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Mirrors test_main_thread_human_shows_recovered_count. `--thread` sends
+    its notes to stderr while post lines stay on stdout; `--resolve` must match
+    that split so an operator piping stdout doesn't silently lose notes from
+    one flag but not the other."""
+    main_post = _thread_meta(
+        text="main", tid="200", reply_to=None, author="a", quoted_id="900"
+    )
+
+    def routed_get(url: str, *, headers: dict[str, str]) -> FakeResp:
+        if "syndication" in url:
+            match = re.search(r"id=(\d+)", url)
+            tid = match.group(1) if match else ""
+            if tid == "200":
+                return FakeResp(200, main_post)
+            return FakeResp(404)  # the quoted post is gone
+        return FakeResp(200, content=b"img")
+
+    rc = main(
+        [
+            "https://x.com/a/status/200",
+            "--resolve",
+            "--cache-dir",
+            str(tmp_path / "posts"),
+            "--media-root",
+            str(tmp_path / "media"),
+            "--min-delay",
+            "0",
+            "--max-delay",
+            "0",
+        ],
+        get=routed_get,
+        sleep=lambda _s: None,
+    )
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "[bookmarked d0]" in captured.out
+    assert "! quoted 900 unavailable" in captured.err
+    assert "! quoted 900 unavailable" not in captured.out

@@ -653,7 +653,7 @@ def main(
                 for rp in bundle.posts:
                     print(f"[{rp.role} d{rp.depth}] {_format_human(rp.post)}")
                 for note in bundle.notes:
-                    print(f"  ! {note}")
+                    print(f"  ! {note}", file=sys.stderr)
         return rc
 
     if args.thread:
