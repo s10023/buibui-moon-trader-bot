@@ -583,6 +583,23 @@ def main(
         help="walk the self-thread upward from this post (pass the LAST post)",
     )
     parser.add_argument(
+        "--resolve",
+        action="store_true",
+        help="resolve the whole evidence graph: reply chain + quoted posts + all media",
+    )
+    parser.add_argument(
+        "--max-quote-depth",
+        type=int,
+        default=2,
+        help="how many quote hops to follow (default 2)",
+    )
+    parser.add_argument(
+        "--max-hops",
+        type=int,
+        default=25,
+        help="max reply-chain hops to walk upward (default 25)",
+    )
+    parser.add_argument(
         "--min-delay", type=float, default=4.0, help="min cooldown seconds"
     )
     parser.add_argument(
@@ -593,6 +610,51 @@ def main(
         "--media-root", default=".cache/x-media", help="downloaded-chart dir"
     )
     args = parser.parse_args(argv)
+
+    if args.resolve:
+        rc = 0
+        for url in args.urls:
+            bundle = resolve(
+                url,
+                max_quote_depth=args.max_quote_depth,
+                max_hops=args.max_hops,
+                cache_dir=Path(args.cache_dir),
+                media_root=Path(args.media_root),
+                min_delay=args.min_delay,
+                max_delay=args.max_delay,
+                get=get,
+                sleep=sleep,
+            )
+            if not bundle.posts:
+                print(f"UNAVAILABLE: {url}", file=sys.stderr)
+                rc = 1
+                continue
+            if args.json:
+                print(
+                    json.dumps(
+                        {
+                            "posts": [
+                                {
+                                    **asdict(rp.post),
+                                    "role": rp.role,
+                                    "depth": rp.depth,
+                                    "referred_by": rp.referred_by,
+                                    "photo_paths": rp.photo_paths,
+                                    "quoted_photo_paths": rp.quoted_photo_paths,
+                                }
+                                for rp in bundle.posts
+                            ],
+                            "notes": bundle.notes,
+                        },
+                        indent=2,
+                    )
+                )
+            else:
+                for rp in bundle.posts:
+                    print(f"[{rp.role} d{rp.depth}] {_format_human(rp.post)}")
+                for note in bundle.notes:
+                    print(f"  ! {note}")
+        return rc
 
     if args.thread:
         rc = 0

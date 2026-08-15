@@ -1010,3 +1010,42 @@ def test_resolve_degrades_on_unavailable_quoted_post(tmp_path: Path) -> None:
     )
     assert [rp.role for rp in bundle.posts] == ["bookmarked"]  # 900 never made it in
     assert any("900" in n and "unavailable" in n for n in bundle.notes)
+
+
+# ---------------------------------------------------------------------------
+# Task 4: `--resolve` CLI
+# ---------------------------------------------------------------------------
+
+
+def test_main_resolve_json_emits_bundle(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    body = _thread_meta(text="only", tid="200", reply_to=None, author="a")
+
+    def routed_get(url: str, *, headers: dict[str, str]) -> FakeResp:
+        if "syndication" in url:
+            return FakeResp(200, body)
+        return FakeResp(200, content=b"img")
+
+    rc = main(
+        [
+            "https://x.com/a/status/200",
+            "--resolve",
+            "--json",
+            "--cache-dir",
+            str(tmp_path / "posts"),
+            "--media-root",
+            str(tmp_path / "media"),
+            "--min-delay",
+            "0",
+            "--max-delay",
+            "0",
+        ],
+        get=routed_get,
+        sleep=lambda _s: None,
+    )
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["posts"][0]["role"] == "bookmarked"
+    assert payload["posts"][0]["depth"] == 0
+    assert "notes" in payload
