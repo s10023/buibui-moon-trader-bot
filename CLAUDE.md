@@ -249,6 +249,14 @@ is not a backup — its `signal_alert_outcomes` table has 0 rows.
   re-derivation recovers without re-watching every video. The committed `.example` carries 2
   schema-demo entries and is not a backup.
 
+⚠ **`rclone config create` / `update` PRINT the whole remote — `client_secret`,
+`access_token`, `refresh_token` — to stdout on SUCCESS, unprompted and unflagged. Append
+`>/dev/null` at every call site, docs included**, because people copy from docs. Two live
+tokens leaked into transcripts on 2026-08-15 this way, the second *after* both repos had
+written up the first: the mitigation was prose ("never paste the output"), and a rule that
+needs a human to notice output they did not ask for is not a control. The safe
+verifications are `rclone lsf <remote>:` and `rclone about <remote>:`.
+
 **Off-machine leg:** `deploy/backup-offsite.sh` (`rclone sync` of `$BUIBUI_BACKUP_ROOT`),
 installed separately because `rclone config` is interactive. It **exits 1 while
 `BUIBUI_BACKUP_REMOTE` is unset**, so an enabled-but-unconfigured timer complains daily

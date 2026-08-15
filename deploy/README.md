@@ -143,7 +143,25 @@ brew install rclone                       # or: sudo dnf install rclone
 #      -> Credentials -> Create OAuth client ID -> application type "Desktop app"
 #    Keep the client_id + client_secret for step 3.
 
-# 3. rclone config: n(ew) -> name it `gdrive` -> storage `drive`
+# 3. rclone config -- OR the non-interactive one-liner, which is fewer prompts
+#    to get wrong. EITHER WAY, NOTE THE REDIRECT AND DO NOT DROP IT:
+#
+#      rclone config create gdrive drive \
+#        client_id=<ID> client_secret=<SECRET> scope=drive >/dev/null
+#
+#    ⚠ `rclone config create` PRINTS THE WHOLE REMOTE ON SUCCESS -- client_secret,
+#    access_token and refresh_token -- unprompted, with no warning and no flag
+#    needed. That is a live credential on your terminal, one copy-paste from a
+#    chat log or a ticket. `>/dev/null` is the control. "Remember not to paste
+#    it" is NOT: it failed twice in one day (2026-08-15), the second time within
+#    one command of being written down, because the burden was on a human to
+#    notice output they did not ask for.
+#
+#    The interactive wizard prints the same block at the end and cannot be
+#    redirected without hiding its prompts -- so if you use it, CLEAR YOUR
+#    SCROLLBACK afterwards rather than trusting yourself to scroll past.
+#
+#    Wizard answers: n(ew) -> name it `gdrive` -> storage `drive`
 #      client_id / client_secret : paste from step 2
 #      scope                     : 1   (full access)
 #      root_folder_id, service_account_file : blank
@@ -163,7 +181,7 @@ rclone mkdir gdrive:buibui-backups
 #    folder id, pin it, then PROVE it -- `lsf` must show the folder's contents
 #    (empty on a fresh install), never the drive root.
 rclone lsf gdrive: --dirs-only --format ip | grep buibui-backups
-rclone config update gdrive root_folder_id=<ID> --non-interactive
+rclone config update gdrive root_folder_id=<ID> --non-interactive >/dev/null
 rclone lsf gdrive:                         # empty == confined. Assume nothing.
 
 # 6. Wire it in. BOTH of the first two lines matter -- see the trash note below.
