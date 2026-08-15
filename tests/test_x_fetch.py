@@ -13,12 +13,14 @@ from typing import Any
 import pytest
 
 from tools.x_fetch import (
+    _CACHE_SCHEMA,
     BatchResult,
     Unavailable,
     XPost,
     _format_human,
     _load_cached,
     _orig,
+    _write_cache,
     download_photos,
     download_quoted_photos,
     fetch_x_batch,
@@ -650,8 +652,15 @@ def test_walk_sleeps_between_network_hops_only(tmp_path: Path) -> None:
     assert len(sleeper.calls) == 2  # 3 network fetches, none before the first
 
 
-def test_pre_change_cache_entry_still_loads(tmp_path: Path) -> None:
-    """The 167 cache entries written before the thread fields existed must load."""
+def test_pre_change_cache_entry_is_now_a_miss(tmp_path: Path) -> None:
+    """INVERTED (Task 4b / ruling R8): before schema versioning, a legacy entry —
+    written before the thread fields existed — still loaded, with every field the
+    entry predates silently defaulted (that was the whole point of this test, at
+    the time). Measured 2026-08-15: that is exactly what made 183 of 183 real
+    cache entries answer "no quote" / "not truncated" for posts whose live
+    payload said otherwise, indistinguishable from posts that genuinely had
+    neither. An entry with no ``cache_schema`` key must now be a MISS so the
+    post is re-fetched instead of answered wrong."""
     cache_dir = tmp_path / "posts"
     cache_dir.mkdir(parents=True)
     legacy = {
@@ -672,14 +681,114 @@ def test_pre_change_cache_entry_still_loads(tmp_path: Path) -> None:
         "photo_paths": [],
     }
     (cache_dir / "1.json").write_text(json.dumps(legacy))
+    assert _load_cached(cache_dir, "1") is None
+
+
+def test_stale_cache_schema_version_is_a_miss(tmp_path: Path) -> None:
+    """A version key that IS present but does not match the current schema (e.g.
+    a future re-versioning) must also read as a miss, not just an absent key."""
+    cache_dir = tmp_path / "posts"
+    cache_dir.mkdir(parents=True)
+    stale = {
+        "cache_schema": _CACHE_SCHEMA - 1,
+        "post": {
+            "source": "twitter",
+            "author": "a",
+            "author_name": "A",
+            "url": _url("1"),
+            "post_ts_utc": "2026-08-01T00:00:00.000Z",
+            "text": "stale",
+            "photo_urls": [],
+            "video_present": False,
+            "is_thread": False,
+            "is_quote": False,
+        },
+        "photo_paths": [],
+    }
+    (cache_dir / "1.json").write_text(json.dumps(stale))
+    assert _load_cached(cache_dir, "1") is None
+
+
+def test_write_then_load_cached_round_trips_all_components(tmp_path: Path) -> None:
+    """The schema stamp must not break the happy path: a freshly written entry
+    loads back with post + photo_paths + quoted_photo_paths intact."""
+    cache_dir = tmp_path / "posts"
+    post = XPost(
+        source="twitter",
+        author="a",
+        author_name="A",
+        url=_url("1"),
+        post_ts_utc="2026-08-01T00:00:00.000Z",
+        text="fresh",
+        photo_urls=("https://pbs.twimg.com/media/A.jpg?name=orig",),
+        video_present=False,
+        is_thread=False,
+        is_quote=True,
+        quoted_id="999",
+        quoted_photo_urls=("https://pbs.twimg.com/media/Q.jpg?name=orig",),
+    )
+    _write_cache(cache_dir, "1", post, ["media/1/0.jpg"], ["media/1_quoted/0.jpg"])
     loaded = _load_cached(cache_dir, "1")
     assert loaded is not None
-    post, _, _ = loaded
-    assert post.text == "legacy"
-    assert post.in_reply_to_id == ""
-    assert post.in_reply_to_author == ""
-    assert post.conversation_count == 0
-    assert post.thread_pos == 0
+    loaded_post, photo_paths, quoted_photo_paths = loaded
+    assert loaded_post == post
+    assert photo_paths == ["media/1/0.jpg"]
+    assert quoted_photo_paths == ["media/1_quoted/0.jpg"]
+
+
+def test_batch_refetches_schema_stale_entry_and_recovers_the_quote(
+    tmp_path: Path,
+) -> None:
+    """Pins the actual user-visible defect (ruling R8): a schema-stale cache
+    entry for a post whose live payload HAS a quoted post must not be served —
+    the batch must re-fetch, and the returned post's quoted_id must be
+    non-empty. Before Task 4b this returned the stale entry with
+    quoted_id == "", indistinguishable from a post with no quote at all."""
+    cache_dir, media_root = tmp_path / "posts", tmp_path / "media"
+    cache_dir.mkdir(parents=True)
+    stale = {
+        "post": {
+            "source": "twitter",
+            "author": "a",
+            "author_name": "A",
+            "url": _url("9"),
+            "post_ts_utc": "2026-08-01T00:00:00.000Z",
+            "text": "old text, pre quoted_id field",
+            "photo_urls": [],
+            "video_present": False,
+            "is_thread": False,
+            "is_quote": False,
+        },
+        "photo_paths": [],
+    }
+    (cache_dir / "9.json").write_text(json.dumps(stale))
+
+    live_payload = json.dumps(
+        dict(
+            _CRYPTIC,
+            text="new text, has a quote",
+            photos=[],
+            mediaDetails=[],
+            quoted_tweet={
+                "id_str": "999888777",
+                "text": "the original call",
+                "user": {"screen_name": "og_caller", "name": "OG"},
+            },
+        )
+    )
+    calls: list[str] = []
+    results = fetch_x_batch(
+        [_url("9")],
+        cache_dir=cache_dir,
+        media_root=media_root,
+        get=make_routed_get({"9": FakeResp(200, live_payload)}, calls=calls),
+        sleep=RecordingSleep(),
+        rng=random.Random(0),
+    )
+    assert calls  # the stale entry did NOT satisfy the read — network was hit
+    assert results[0].cached is False
+    assert isinstance(results[0].post, XPost)
+    assert results[0].post.quoted_id == "999888777"
 
 
 def test_main_thread_flag_emits_chain(tmp_path: Path, capsys: Any) -> None:

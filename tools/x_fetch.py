@@ -27,6 +27,12 @@ _SYNDICATION_URL = "https://cdn.syndication.twimg.com/tweet-result"
 _TOKEN = "a"  # any non-empty value works; the endpoint does not validate it
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 _ID_RE = re.compile(r"(?:twitter|x)\.com/[^/]+/status/(\d+)")
+# Bumped whenever an XPost field's meaning changes. Starts at 2, not 1: entries
+# written before this constant existed carry no version key at all, and an
+# absent key must read as stale exactly like a mismatched one (ruling R8) —
+# _load_cached treats both as a cache MISS so the post is re-fetched instead
+# of silently answered with new fields defaulted false/empty.
+_CACHE_SCHEMA = 2
 
 
 class HttpResponse(Protocol):
@@ -74,8 +80,12 @@ class XPost:
     # holds an ID stub, never the body: the long text is detectable, not fetchable.
     text_truncated: bool = False
     edited: bool = False  # text may differ from what was posted at call time
-    # Thread fields. Defaults are load-bearing: _load_cached does XPost(**raw) and
-    # every cache entry written before these existed lacks the keys.
+    # Thread fields. The defaults let a caller build an XPost without stating
+    # every field (e.g. thread_pos, which walk_thread sets via replace() after
+    # construction) — they no longer protect a stale cache entry. That is
+    # _CACHE_SCHEMA's job: a cache entry predating these fields fails the
+    # version check and is re-fetched, rather than loading here with the
+    # fields silently defaulted.
     in_reply_to_id: str = ""  # the post this one replies to, "" at the root
     in_reply_to_author: str = ""  # @handle replied to; == author on a self-thread
     conversation_count: int = 0  # replies to the CONVERSATION, never thread length
@@ -308,6 +318,10 @@ def _load_cached(
     try:
         data = json.loads(path.read_text())
         raw = dict(data["post"])
+        # Absent or stale version (ruling R8) ⇒ miss, re-fetch rather than load
+        # with newer fields silently defaulted.
+        if data.get("cache_schema") != _CACHE_SCHEMA:
+            return None
         raw["photo_urls"] = tuple(raw.get("photo_urls", ()))
         raw["quoted_photo_urls"] = tuple(raw.get("quoted_photo_urls", ()))
         return (
@@ -328,6 +342,7 @@ def _write_cache(
 ) -> None:
     cache_dir.mkdir(parents=True, exist_ok=True)
     payload = {
+        "cache_schema": _CACHE_SCHEMA,
         "post": asdict(post),
         "photo_paths": photo_paths,
         "quoted_photo_paths": quoted_photo_paths,
