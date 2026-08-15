@@ -154,7 +154,7 @@ In `tools/x_fetch.py`, after the `quoted_author` line (`:66`) and before the `# 
 
 In the `return XPost(...)` block (`tools/x_fetch.py:109-125`), after `quoted_author=...`:
 
-```python
+```text
         text_truncated=bool(data.get("note_tweet")),
         edited=bool(data.get("isEdited") or data.get("isStaleEdit")),
 ```
@@ -168,7 +168,7 @@ Expected: PASS, all pre-existing tests included (the defaults keep cache round-t
 
 Temporarily replace the `text_truncated` expression with the tempting wrong one:
 
-```python
+```text
         text_truncated=bool((data.get("display_text_range") or [0, 0])[1] < len(data.get("text", ""))),
 ```
 
@@ -271,7 +271,7 @@ Expected: FAIL — `TypeError: XPost.__init__() got an unexpected keyword argume
 
 After `quoted_author` (`:66`):
 
-```python
+```text
     quoted_id: str = ""  # quoted_tweet.id_str — the traversal edge for resolve()
     quoted_photo_urls: tuple[str, ...] = ()  # quoted_tweet.photos, present but unread until now
 ```
@@ -294,7 +294,7 @@ Replace the `quoted`/`quoted_user` block (`:107-108`) and extend the return. Aft
 
 and in the `return XPost(...)`:
 
-```python
+```text
         quoted_id=str(quoted.get("id_str") or "") if isinstance(quoted, dict) else "",
         quoted_photo_urls=quoted_photos,
 ```
@@ -467,11 +467,17 @@ git commit -m "feat(x-fetch): parse and download quoted-post images and id"
 def test_resolve_returns_chain_with_roles_and_photos(tmp_path: Path) -> None:
     """A 2-post self-thread: the bookmarked leaf plus its parent, both with images."""
     leaf = _thread_meta(
-        text="leaf", tid="200", reply_to="100", author="a",
+        text="leaf",
+        tid="200",
+        reply_to="100",
+        author="a",
         photos=["https://pbs.twimg.com/media/LEAF.jpg"],
     )
     root = _thread_meta(
-        text="root", tid="100", reply_to=None, author="a",
+        text="root",
+        tid="100",
+        reply_to=None,
+        author="a",
         photos=["https://pbs.twimg.com/media/ROOT.jpg"],
     )
     bodies = {"200": leaf, "100": root}
@@ -496,7 +502,9 @@ def test_resolve_returns_chain_with_roles_and_photos(tmp_path: Path) -> None:
 
 
 def test_resolve_pulls_in_quoted_post(tmp_path: Path) -> None:
-    main_post = _thread_meta(text="main", tid="200", reply_to=None, author="a", quoted_id="900")
+    main_post = _thread_meta(
+        text="main", tid="200", reply_to=None, author="a", quoted_id="900"
+    )
     quoted = _thread_meta(text="quoted", tid="900", reply_to=None, author="b")
     bodies = {"200": main_post, "900": quoted}
 
@@ -547,9 +555,15 @@ def test_resolve_terminates_on_a_quote_cycle(tmp_path: Path) -> None:
 
 def test_resolve_respects_max_quote_depth(tmp_path: Path) -> None:
     chain = {
-        "200": _thread_meta(text="a", tid="200", reply_to=None, author="a", quoted_id="300"),
-        "300": _thread_meta(text="b", tid="300", reply_to=None, author="b", quoted_id="400"),
-        "400": _thread_meta(text="c", tid="400", reply_to=None, author="c", quoted_id="500"),
+        "200": _thread_meta(
+            text="a", tid="200", reply_to=None, author="a", quoted_id="300"
+        ),
+        "300": _thread_meta(
+            text="b", tid="300", reply_to=None, author="b", quoted_id="400"
+        ),
+        "400": _thread_meta(
+            text="c", tid="400", reply_to=None, author="c", quoted_id="500"
+        ),
         "500": _thread_meta(text="d", tid="500", reply_to=None, author="d"),
     }
 
@@ -626,12 +640,14 @@ class ThreadChain:
 
     posts: list[XPost] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
-    photo_paths: dict[str, list[str]] = field(default_factory=dict)  # tweet id -> local files
+    photo_paths: dict[str, list[str]] = field(
+        default_factory=dict
+    )  # tweet id -> local files
 ```
 
 `walk_thread` gains two keyword arguments:
 
-```python
+```text
     download: bool = False,
     media_root: Path = Path(".cache/x-media"),
 ```

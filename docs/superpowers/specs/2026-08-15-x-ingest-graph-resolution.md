@@ -101,8 +101,8 @@ phase B beyond the missing images.
 ### 4.1 New fields on `XPost` (phase A)
 
 ```python
-text_truncated: bool = False   # bool(note_tweet) — see §3.1, the range check is unusable
-edited: bool = False           # isEdited or isStaleEdit
+text_truncated: bool = False  # bool(note_tweet) — see §3.1, the range check is unusable
+edited: bool = False  # isEdited or isStaleEdit
 ```
 
 `text_truncated` reads `note_tweet` **only**. §3.1 measures why: the intuitive
