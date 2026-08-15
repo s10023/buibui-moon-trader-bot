@@ -1,0 +1,508 @@
+{
+  "__typename": "Tweet",
+  "favorite_count": 7,
+  "in_reply_to_screen_name": "sergio_tesla_",
+  "in_reply_to_status_id_str": "2077666667690180951",
+  "in_reply_to_user_id_str": "1605550917893382145",
+  "lang": "en",
+  "possibly_sensitive": false,
+  "created_at": "2026-07-16T08:11:01.000Z",
+  "display_text_range": [
+    0,
+    208
+  ],
+  "entities": {
+    "media": [
+      {
+        "display_url": "pic.x.com/L7pdxgK1jx",
+        "expanded_url": "https://x.com/sergio_tesla_/status/2077667306172236028/photo/1",
+        "indices": [
+          209,
+          232
+        ],
+        "url": "https://t.co/L7pdxgK1jx"
+      }
+    ]
+  },
+  "id_str": "2077667306172236028",
+  "text": "The above is for the next 10 days following a CPI print, but even for the next 5 days following a CPI print, the result is the same.\n\n99% of CPI prints put in a low further below open within the first 5 days. https://t.co/L7pdxgK1jx",
+  "user": {
+    "id_str": "1605550917893382145",
+    "name": "Sergio Tesla",
+    "screen_name": "sergio_tesla_",
+    "is_blue_verified": true,
+    "profile_image_shape": "Circle",
+    "verified": false,
+    "profile_image_url_https": "https://pbs.twimg.com/profile_images/1713523596998385664/ljl6CdlW_normal.jpg"
+  },
+  "edit_control": {
+    "edit_tweet_ids": [
+      "2077667306172236028"
+    ],
+    "editable_until_msecs": "1784193061000",
+    "edits_remaining": "5",
+    "is_edit_eligible": false
+  },
+  "mediaDetails": [
+    {
+      "display_url": "pic.x.com/L7pdxgK1jx",
+      "expanded_url": "https://x.com/sergio_tesla_/status/2077667306172236028/photo/1",
+      "ext_media_availability": {
+        "status": "Available"
+      },
+      "indices": [
+        209,
+        232
+      ],
+      "media_url_https": "https://pbs.twimg.com/media/HNVbJL0XUAAHGzA.jpg",
+      "original_info": {
+        "focus_rects": [
+          {
+            "h": 1824,
+            "w": 3257,
+            "x": 583,
+            "y": 0
+          },
+          {
+            "h": 1824,
+            "w": 1824,
+            "x": 1872,
+            "y": 0
+          },
+          {
+            "h": 1824,
+            "w": 1600,
+            "x": 1984,
+            "y": 0
+          },
+          {
+            "h": 1824,
+            "w": 912,
+            "x": 2328,
+            "y": 0
+          },
+          {
+            "h": 1824,
+            "w": 3840,
+            "x": 0,
+            "y": 0
+          }
+        ],
+        "height": 1824,
+        "width": 3840
+      },
+      "sizes": {
+        "large": {
+          "h": 973,
+          "resize": "fit",
+          "w": 2048
+        },
+        "medium": {
+          "h": 570,
+          "resize": "fit",
+          "w": 1200
+        },
+        "small": {
+          "h": 323,
+          "resize": "fit",
+          "w": 680
+        },
+        "thumb": {
+          "h": 150,
+          "resize": "crop",
+          "w": 150
+        }
+      },
+      "type": "photo",
+      "url": "https://t.co/L7pdxgK1jx"
+    }
+  ],
+  "photos": [
+    {
+      "backgroundColor": {
+        "red": 204,
+        "green": 214,
+        "blue": 221
+      },
+      "cropCandidates": [
+        {
+          "h": 1824,
+          "w": 3257,
+          "x": 583,
+          "y": 0
+        },
+        {
+          "h": 1824,
+          "w": 1824,
+          "x": 1872,
+          "y": 0
+        },
+        {
+          "h": 1824,
+          "w": 1600,
+          "x": 1984,
+          "y": 0
+        },
+        {
+          "h": 1824,
+          "w": 912,
+          "x": 2328,
+          "y": 0
+        },
+        {
+          "h": 1824,
+          "w": 3840,
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "expandedUrl": "https://x.com/sergio_tesla_/status/2077667306172236028/photo/1",
+      "url": "https://pbs.twimg.com/media/HNVbJL0XUAAHGzA.jpg",
+      "width": 3840,
+      "height": 1824
+    }
+  ],
+  "conversation_count": 1,
+  "news_action_type": "conversation",
+  "parent": {
+    "favorite_count": 33,
+    "lang": "en",
+    "possibly_sensitive": false,
+    "reply_count": 4,
+    "retweet_count": 2,
+    "created_at": "2026-07-16T08:08:29.000Z",
+    "display_text_range": [
+      0,
+      221
+    ],
+    "entities": {
+      "media": [
+        {
+          "display_url": "pic.x.com/4eWG7I24O6",
+          "expanded_url": "https://x.com/sergio_tesla_/status/2077666667690180951/photo/1",
+          "indices": [
+            222,
+            245
+          ],
+          "url": "https://t.co/4eWG7I24O6"
+        }
+      ],
+      "symbols": [
+        {
+          "indices": [
+            0,
+            4
+          ],
+          "text": "BTC"
+        }
+      ]
+    },
+    "id_str": "2077666667690180951",
+    "text": "$BTC\n\nPrice pumped straight out of CPI up to current prices, leaving behind an improbable low.\n\n99% of CPI events put in a low further below the open.\n\nThis means that more often than not, the low at 62.6k will get taken. https://t.co/4eWG7I24O6",
+    "user": {
+      "id_str": "1605550917893382145",
+      "name": "Sergio Tesla",
+      "screen_name": "sergio_tesla_",
+      "is_blue_verified": true,
+      "profile_image_shape": "Circle",
+      "verified": false,
+      "profile_image_url_https": "https://pbs.twimg.com/profile_images/1713523596998385664/ljl6CdlW_normal.jpg"
+    },
+    "edit_control": {
+      "edit_tweet_ids": [
+        "2077666667690180951"
+      ],
+      "editable_until_msecs": "1784192909000",
+      "edits_remaining": "5",
+      "is_edit_eligible": false
+    },
+    "mediaDetails": [
+      {
+        "display_url": "pic.x.com/4eWG7I24O6",
+        "expanded_url": "https://x.com/sergio_tesla_/status/2077666667690180951/photo/1",
+        "ext_media_availability": {
+          "status": "Available"
+        },
+        "indices": [
+          222,
+          245
+        ],
+        "media_url_https": "https://pbs.twimg.com/media/HNVatAhXQAAoedb.jpg",
+        "original_info": {
+          "focus_rects": [
+            {
+              "h": 1824,
+              "w": 3257,
+              "x": 583,
+              "y": 0
+            },
+            {
+              "h": 1824,
+              "w": 1824,
+              "x": 1872,
+              "y": 0
+            },
+            {
+              "h": 1824,
+              "w": 1600,
+              "x": 1984,
+              "y": 0
+            },
+            {
+              "h": 1824,
+              "w": 912,
+              "x": 2328,
+              "y": 0
+            },
+            {
+              "h": 1824,
+              "w": 3840,
+              "x": 0,
+              "y": 0
+            }
+          ],
+          "height": 1824,
+          "width": 3840
+        },
+        "sizes": {
+          "large": {
+            "h": 973,
+            "resize": "fit",
+            "w": 2048
+          },
+          "medium": {
+            "h": 570,
+            "resize": "fit",
+            "w": 1200
+          },
+          "small": {
+            "h": 323,
+            "resize": "fit",
+            "w": 680
+          },
+          "thumb": {
+            "h": 150,
+            "resize": "crop",
+            "w": 150
+          }
+        },
+        "type": "photo",
+        "url": "https://t.co/4eWG7I24O6"
+      }
+    ],
+    "photos": [
+      {
+        "backgroundColor": {
+          "red": 204,
+          "green": 214,
+          "blue": 221
+        },
+        "cropCandidates": [
+          {
+            "h": 1824,
+            "w": 3257,
+            "x": 583,
+            "y": 0
+          },
+          {
+            "h": 1824,
+            "w": 1824,
+            "x": 1872,
+            "y": 0
+          },
+          {
+            "h": 1824,
+            "w": 1600,
+            "x": 1984,
+            "y": 0
+          },
+          {
+            "h": 1824,
+            "w": 912,
+            "x": 2328,
+            "y": 0
+          },
+          {
+            "h": 1824,
+            "w": 3840,
+            "x": 0,
+            "y": 0
+          }
+        ],
+        "expandedUrl": "https://x.com/sergio_tesla_/status/2077666667690180951/photo/1",
+        "url": "https://pbs.twimg.com/media/HNVatAhXQAAoedb.jpg",
+        "width": 3840,
+        "height": 1824
+      }
+    ],
+    "quoted_tweet": {
+      "__typename": "Tweet",
+      "favorite_count": 23,
+      "lang": "en",
+      "possibly_sensitive": false,
+      "reply_count": 5,
+      "retweet_count": 2,
+      "created_at": "2026-07-15T11:03:31.000Z",
+      "display_text_range": [
+        0,
+        276
+      ],
+      "entities": {
+        "media": [
+          {
+            "display_url": "pic.x.com/uI9d3JZm50",
+            "expanded_url": "https://x.com/sergio_tesla_/status/2077348329847996644/photo/1",
+            "indices": [
+              277,
+              300
+            ],
+            "url": "https://t.co/uI9d3JZm50"
+          }
+        ],
+        "symbols": [
+          {
+            "indices": [
+              0,
+              4
+            ],
+            "text": "BTC"
+          }
+        ]
+      },
+      "id_str": "2077348329847996644",
+      "text": "$BTC\n\nThe most interesting part about CPI releases is that the direction for the next 10-14 days is historically determined very early.\n\nHere's why.\n\nWe're going to answer this using two simple questions:\n- if the direction is bullish, when does the low usually form?\n- if the https://t.co/uI9d3JZm50",
+      "user": {
+        "id_str": "1605550917893382145",
+        "name": "Sergio Tesla",
+        "screen_name": "sergio_tesla_",
+        "is_blue_verified": true,
+        "profile_image_shape": "Circle",
+        "verified": false,
+        "profile_image_url_https": "https://pbs.twimg.com/profile_images/1713523596998385664/ljl6CdlW_normal.jpg"
+      },
+      "mediaDetails": [
+        {
+          "display_url": "pic.x.com/uI9d3JZm50",
+          "expanded_url": "https://x.com/sergio_tesla_/status/2077348329847996644/photo/1",
+          "ext_media_availability": {
+            "status": "Available"
+          },
+          "indices": [
+            277,
+            300
+          ],
+          "media_url_https": "https://pbs.twimg.com/media/HNQ3zktWMAA80ZG.jpg",
+          "original_info": {
+            "focus_rects": [
+              {
+                "h": 1824,
+                "w": 3257,
+                "x": 583,
+                "y": 0
+              },
+              {
+                "h": 1824,
+                "w": 1824,
+                "x": 1872,
+                "y": 0
+              },
+              {
+                "h": 1824,
+                "w": 1600,
+                "x": 1984,
+                "y": 0
+              },
+              {
+                "h": 1824,
+                "w": 912,
+                "x": 2328,
+                "y": 0
+              },
+              {
+                "h": 1824,
+                "w": 3840,
+                "x": 0,
+                "y": 0
+              }
+            ],
+            "height": 1824,
+            "width": 3840
+          },
+          "sizes": {
+            "large": {
+              "h": 973,
+              "resize": "fit",
+              "w": 2048
+            },
+            "medium": {
+              "h": 570,
+              "resize": "fit",
+              "w": 1200
+            },
+            "small": {
+              "h": 323,
+              "resize": "fit",
+              "w": 680
+            },
+            "thumb": {
+              "h": 150,
+              "resize": "crop",
+              "w": 150
+            }
+          },
+          "type": "photo",
+          "url": "https://t.co/uI9d3JZm50"
+        }
+      ],
+      "photos": [
+        {
+          "backgroundColor": {
+            "red": 204,
+            "green": 214,
+            "blue": 221
+          },
+          "cropCandidates": [
+            {
+              "h": 1824,
+              "w": 3257,
+              "x": 583,
+              "y": 0
+            },
+            {
+              "h": 1824,
+              "w": 1824,
+              "x": 1872,
+              "y": 0
+            },
+            {
+              "h": 1824,
+              "w": 1600,
+              "x": 1984,
+              "y": 0
+            },
+            {
+              "h": 1824,
+              "w": 912,
+              "x": 2328,
+              "y": 0
+            },
+            {
+              "h": 1824,
+              "w": 3840,
+              "x": 0,
+              "y": 0
+            }
+          ],
+          "expandedUrl": "https://x.com/sergio_tesla_/status/2077348329847996644/photo/1",
+          "url": "https://pbs.twimg.com/media/HNQ3zktWMAA80ZG.jpg",
+          "width": 3840,
+          "height": 1824
+        }
+      ]
+    },
+    "isEdited": false,
+    "isStaleEdit": false
+  },
+  "isEdited": false,
+  "isStaleEdit": false
+}

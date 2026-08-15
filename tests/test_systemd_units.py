@@ -27,6 +27,7 @@ Two deliberate design choices:
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -154,6 +155,37 @@ def test_onfailure_names_a_unit_that_exists(unit: Path) -> None:
             )
 
 
+def _is_gitignored(rel: str) -> bool:
+    """True when git ignores ``rel``.
+
+    This check exists to catch a RENAMED TRACKED FILE — a unit that starts and
+    then fails at runtime because the script moved. Gitignored paths are a
+    different thing entirely: `.env`, `.venv/bin/python` and the operator
+    tooling under `docs/plans/` are supplied by the environment and are absent
+    from every clean checkout, CI included. Asserting those exist tests the
+    machine, not the units.
+
+    Asked of git rather than kept as a hardcoded exemption list, because a list
+    drifts silently the moment a new gitignored path lands in a unit — which is
+    exactly how this reached CI: three such paths, and the suite only ever
+    surfaced the first, one failure at a time.
+
+    A missing or broken `git` raises rather than skipping. The repo is a git
+    checkout by construction, and a test that goes quiet when its tool is absent
+    is green without having run — the same silent-surface class this file exists
+    to close.
+    """
+    proc = subprocess.run(
+        ["git", "check-ignore", "-q", "--", rel], cwd=REPO, capture_output=True
+    )
+    if proc.returncode not in (0, 1):
+        raise RuntimeError(
+            f"git check-ignore failed on {rel!r} (rc={proc.returncode}): "
+            f"{proc.stderr.decode(errors='replace').strip()}"
+        )
+    return proc.returncode == 0
+
+
 @pytest.mark.parametrize("unit", UNITS, ids=lambda p: p.name)
 def test_in_repo_paths_resolve(unit: Path) -> None:
     """Every hardcoded repo path a unit references must still exist.
@@ -167,9 +199,26 @@ def test_in_repo_paths_resolve(unit: Path) -> None:
         if key not in ("ExecStart", "EnvironmentFile", "WorkingDirectory"):
             continue
         for token in value.split():
-            # EnvironmentFile=-/path means "optional"; the dash is not the path.
-            token = token.lstrip("-") if key == "EnvironmentFile" else token
+            # `EnvironmentFile=-/path` means OPTIONAL: systemd starts the unit
+            # whether or not the file is there, so asserting it exists
+            # contradicts the unit's own declaration. A MANDATORY
+            # EnvironmentFile (no dash) still has to resolve.
+            if key == "EnvironmentFile" and token.startswith("-"):
+                continue
             if not token.startswith(HARDCODED_ROOT):
                 continue
             rel = token[len(HARDCODED_ROOT) :].lstrip("/")
+            if not rel:
+                continue  # the repo root itself, e.g. `WorkingDirectory=`
+            if _is_gitignored(rel):
+                # A MANDATORY EnvironmentFile pointing at a gitignored path is a
+                # real defect rather than an environment fact: systemd refuses to
+                # start the unit when it is missing, so a fresh machine gets a
+                # dead timer. `ExecStart` is different — `.venv/bin/python` is
+                # built by `poetry install`, and depending on it is the design.
+                assert key != "EnvironmentFile", (
+                    f"{unit.name}: mandatory EnvironmentFile points at gitignored "
+                    f"{rel} — prefix it with '-' to make it optional, or track it"
+                )
+                continue
             assert (REPO / rel).exists(), f"{unit.name}: {key} points at missing {rel}"
