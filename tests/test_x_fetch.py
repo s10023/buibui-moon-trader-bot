@@ -468,6 +468,7 @@ def _thread_meta(
     conv: int = 0,
     photos: list[str] | None = None,
     quoted_id: str | None = None,
+    quoted_photos: list[str] | None = None,
 ) -> str:
     payload = dict(
         _CRYPTIC,
@@ -487,7 +488,7 @@ def _thread_meta(
             "id_str": quoted_id,
             "text": f"quoted {quoted_id}",
             "user": {"screen_name": "q", "name": "Q"},
-            "photos": [],
+            "photos": [{"url": u} for u in (quoted_photos or [])],
         }
     return json.dumps(payload)
 
@@ -538,6 +539,23 @@ def test_walk_stops_at_root(tmp_path: Path) -> None:
     assert [p.text for p in chain.posts] == ["solo"]
     assert _ids(calls) == ["1"]
     assert chain.notes == []
+
+
+def test_walk_thread_default_does_not_write_cache(tmp_path: Path) -> None:
+    """download=False (the default) must never create the cache dir: cache entries
+    carry photo_paths, and a photo-less entry would make a later ingest skip that
+    post's chart download. This is a structural guarantee, not a behaviour to
+    infer from absence of assertions — a stray future _write_cache call on this
+    path must fail a test, not just go unnoticed."""
+    cache_dir = tmp_path / "posts"
+    walk_thread(
+        _url("1"),
+        cache_dir=cache_dir,
+        get=make_routed_get({"1": FakeResp(200, _thread_meta("1", "a", "solo"))}),
+        sleep=RecordingSleep(),
+        rng=random.Random(0),
+    )
+    assert not cache_dir.exists()
 
 
 def test_walk_stops_when_author_changes(tmp_path: Path) -> None:
@@ -840,7 +858,14 @@ def test_resolve_returns_chain_with_roles_and_photos(tmp_path: Path) -> None:
 
 def test_resolve_pulls_in_quoted_post(tmp_path: Path) -> None:
     main_post = _thread_meta(
-        text="main", tid="200", reply_to=None, author="a", quoted_id="900"
+        text="main",
+        tid="200",
+        reply_to=None,
+        author="a",
+        quoted_id="900",
+        # the chain post's OWN embedded quoted-tweet image — carried in the SAME
+        # payload as post 200, distinct from post 900's own separately-fetched photos
+        quoted_photos=["https://pbs.twimg.com/media/EMBEDDED.jpg"],
     )
     quoted = _thread_meta(text="quoted", tid="900", reply_to=None, author="b")
     bodies = {"200": main_post, "900": quoted}
@@ -864,6 +889,9 @@ def test_resolve_pulls_in_quoted_post(tmp_path: Path) -> None:
     quoted_rp = next(rp for rp in bundle.posts if rp.role == "quoted")
     assert quoted_rp.referred_by == "200"
     assert quoted_rp.depth == 1
+    # the CHAIN post's own embedded quote image must not be dropped on the floor
+    bookmarked_rp = next(rp for rp in bundle.posts if rp.role == "bookmarked")
+    assert bookmarked_rp.quoted_photo_paths
 
 
 def test_resolve_terminates_on_a_quote_cycle(tmp_path: Path) -> None:
@@ -921,3 +949,64 @@ def test_resolve_respects_max_quote_depth(tmp_path: Path) -> None:
     )
     assert [rp.post.author for rp in bundle.posts] == ["a", "b", "c"]
     assert any("max_quote_depth" in n for n in bundle.notes)
+
+
+def test_resolve_delays_between_quote_hops(tmp_path: Path) -> None:
+    """Each quote hop is its own fetch_x_batch call; without delay_first every hop
+    after the first looks like an ungated first fetch to that function and the
+    randomized cooldown is silently skipped."""
+    chain = {
+        "200": _thread_meta(
+            text="a", tid="200", reply_to=None, author="a", quoted_id="300"
+        ),
+        "300": _thread_meta(
+            text="b", tid="300", reply_to=None, author="b", quoted_id="400"
+        ),
+        "400": _thread_meta(text="c", tid="400", reply_to=None, author="c"),
+    }
+
+    def routed_get(url: str, *, headers: dict[str, str]) -> FakeResp:
+        if "syndication" in url:
+            tid = re.search(r"id=(\d+)", url).group(1)  # type: ignore[union-attr]
+            return FakeResp(200, chain[tid])
+        return FakeResp(200, content=b"img")
+
+    sleep = RecordingSleep()
+    resolve(
+        "https://x.com/a/status/200",
+        cache_dir=tmp_path / "posts",
+        media_root=tmp_path / "media",
+        get=routed_get,
+        sleep=sleep,
+        rng=random.Random(0),
+    )
+    # today (pre-fix) this reads 0: both quote-hop fetches look like a fresh
+    # "first fetch" to fetch_x_batch and skip the cooldown entirely
+    assert len(sleep.calls) == 2
+
+
+def test_resolve_degrades_on_unavailable_quoted_post(tmp_path: Path) -> None:
+    """Spec §7: an unavailable quoted post degrades (note appended, bundle still
+    returned) rather than aborting the whole resolve() call."""
+    main_post = _thread_meta(
+        text="main", tid="200", reply_to=None, author="a", quoted_id="900"
+    )
+
+    def routed_get(url: str, *, headers: dict[str, str]) -> FakeResp:
+        if "syndication" in url:
+            tid = re.search(r"id=(\d+)", url).group(1)  # type: ignore[union-attr]
+            if tid == "200":
+                return FakeResp(200, main_post)
+            return FakeResp(404)  # the quoted post is gone
+        return FakeResp(200, content=b"img")
+
+    bundle = resolve(
+        "https://x.com/a/status/200",
+        cache_dir=tmp_path / "posts",
+        media_root=tmp_path / "media",
+        get=routed_get,
+        sleep=lambda _s: None,
+        rng=random.Random(0),
+    )
+    assert [rp.role for rp in bundle.posts] == ["bookmarked"]  # 900 never made it in
+    assert any("900" in n and "unavailable" in n for n in bundle.notes)

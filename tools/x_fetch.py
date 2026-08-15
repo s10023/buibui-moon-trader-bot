@@ -195,6 +195,9 @@ class ThreadChain:
     photo_paths: dict[str, list[str]] = field(
         default_factory=dict
     )  # tweet id -> local files
+    quoted_photo_paths: dict[str, list[str]] = field(
+        default_factory=dict
+    )  # tweet id -> local files of ITS OWN embedded quoted post
 
 
 def walk_thread(
@@ -233,6 +236,7 @@ def walk_thread(
     walked: list[XPost] = []
     notes: list[str] = []
     photo_paths: dict[str, list[str]] = {}
+    quoted_photo_paths: dict[str, list[str]] = {}
     did_network = False
     next_url: str | None = url
     while next_url is not None:
@@ -248,6 +252,7 @@ def walk_thread(
             post = cached[0]
             if download:
                 photo_paths[tweet_id] = cached[1]
+                quoted_photo_paths[tweet_id] = cached[2]
         else:
             if did_network:
                 sleep(rng.uniform(min_delay, max_delay))
@@ -270,6 +275,7 @@ def walk_thread(
                 ]
                 _write_cache(cache_dir, tweet_id, post, own, quoted_own)
                 photo_paths[tweet_id] = own
+                quoted_photo_paths[tweet_id] = quoted_own
         walked.append(post)
         if not post.in_reply_to_id:
             break  # root reached — the normal stop, no note
@@ -285,6 +291,7 @@ def walk_thread(
         posts=[replace(p, thread_pos=i) for i, p in enumerate(walked)],
         notes=notes,
         photo_paths=photo_paths,
+        quoted_photo_paths=quoted_photo_paths,
     )
 
 
@@ -337,14 +344,20 @@ def fetch_x_batch(
     min_delay: float = 4.0,
     max_delay: float = 12.0,
     force: bool = False,
+    delay_first: bool = False,
     get: HttpGet = _requests_get,
     sleep: Callable[[float], None] = time.sleep,
     rng: random.Random | None = None,
 ) -> list[BatchResult]:
     """Fetch several posts once each, with a randomized cooldown between *network*
     fetches and a per-id dedup cache (re-runs hit zero network). Cache hits add no
-    pause; the first network fetch is never delayed. ``sleep``/``rng``/``get`` are
-    injected for deterministic tests. Downloads charts once (no double-fetch)."""
+    pause; the first network fetch is never delayed — UNLESS ``delay_first=True``,
+    for a caller that issues one call per post (``resolve``'s per-quote-hop
+    fetches): from this function's point of view each such call's first fetch
+    looks ungated, so without the flag the randomized cooldown between requests
+    that Spec 2026-08-15 §7 mandates is silently skipped on every hop after the
+    first. ``sleep``/``rng``/``get`` are injected for deterministic tests.
+    Downloads charts once (no double-fetch)."""
     rng = rng or random.Random()
     results: list[BatchResult] = []
     did_network = False
@@ -368,7 +381,7 @@ def fetch_x_batch(
                     )
                 )
                 continue
-        if did_network:
+        if did_network or delay_first:
             sleep(rng.uniform(min_delay, max_delay))
         did_network = True
         post_or_err = fetch_x_post(url, get=get)
@@ -436,6 +449,11 @@ def resolve(
     constructible, and self-quoting authors make near-cycles routine. Every
     bound that bites appends to ``notes`` — a truncated bundle that read as a
     complete one is the defect this function exists to remove.
+
+    Each quote hop is its own ``fetch_x_batch`` call, so ``delay_first=True`` is
+    passed there — otherwise every hop after the first looks like an ungated
+    first fetch to that function and the randomized cooldown (Spec 2026-08-15
+    §7's mitigation for request amplification) is silently skipped.
     """
     rng = rng or random.Random()
     bookmarked_id = parse_tweet_id(url)
@@ -465,6 +483,7 @@ def resolve(
                 depth=0,
                 referred_by="",
                 photo_paths=chain.photo_paths.get(tid, []),
+                quoted_photo_paths=chain.quoted_photo_paths.get(tid, []),
             )
         )
         if post.quoted_id:
@@ -491,6 +510,7 @@ def resolve(
             media_root=media_root,
             min_delay=min_delay,
             max_delay=max_delay,
+            delay_first=True,  # each hop is its own fetch_x_batch call — see docstring
             get=get,
             sleep=sleep,
             rng=rng,
