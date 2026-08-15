@@ -227,7 +227,7 @@ def _media_notes(
         if missing > 0:
             notes.append(
                 f"{missing} of {len(urls)} {kind} failed to download for "
-                f"{tweet_id} — that chart is NOT on disk; re-run with --force to retry"
+                f"{tweet_id} — NOT on disk; re-run with --force to retry"
             )
     return notes
 
@@ -248,10 +248,12 @@ class ReusableMedia:
     practice the referrer's embedded copy of its quoted post's photos.
 
     Used only when ``urls`` matches the fetched post's own ``photo_urls``
-    exactly, so an embedded copy carrying a different (or shorter) set still
-    downloads. Without this, one chart cost two GETs and landed twice, and
-    `fetch_x_batch`'s own docstring promise — "downloads charts once" — was false
-    on exactly the path this branch added.
+    exactly AND every one of them reached disk. Without this, one chart cost two
+    GETs and landed twice, and `fetch_x_batch`'s own docstring promise —
+    "downloads charts once" — was false on exactly the path this branch added.
+    An INCOMPLETE copy is deliberately not reused: reusing it would turn one
+    failed GET on the referrer into a permanent loss on both posts, where a fresh
+    download is a free retry.
     """
 
     urls: tuple[str, ...]
@@ -479,7 +481,12 @@ def fetch_x_batch(
         if isinstance(post_or_err, Unavailable):
             results.append(BatchResult(url=url, post=post_or_err))
             continue
-        if reuse is not None and reuse.paths and reuse.urls == post_or_err.photo_urls:
+        if (
+            reuse is not None
+            and reuse.paths
+            and len(reuse.paths) == len(reuse.urls)  # never reuse a partial copy
+            and reuse.urls == post_or_err.photo_urls
+        ):
             photo_paths = list(reuse.paths)  # already on disk — see ReusableMedia
         else:
             photo_paths = [

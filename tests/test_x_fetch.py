@@ -1614,6 +1614,41 @@ def test_resolve_keeps_an_embedded_quote_image_the_quoted_post_lacks(
     assert bookmarked.quoted_photo_paths
 
 
+def test_resolve_does_not_reuse_a_partial_embedded_copy(tmp_path: Path) -> None:
+    """The Minor 2 reuse is skipped when the referrer's embedded copy is
+    INCOMPLETE. Reusing a short list would turn one failed GET on the referrer
+    into a permanent loss on the quoted post too, where the fresh download it
+    would have done is a free retry."""
+    urls = ["https://pbs.twimg.com/media/A.jpg", "https://pbs.twimg.com/media/B.jpg"]
+    bodies = {
+        "200": _thread_meta("200", "a", "main", quoted_id="900", quoted_photos=urls),
+        "900": _thread_meta("900", "b", "quoted", photos=urls),
+    }
+    seen_b = {"n": 0}
+
+    def flaky_get(url: str, *, headers: dict[str, str]) -> FakeResp:
+        if "syndication" in url:
+            match = re.search(r"id=(\d+)", url)
+            return FakeResp(200, bodies[match.group(1) if match else ""])
+        if "B.jpg" in url:
+            seen_b["n"] += 1
+            if seen_b["n"] == 1:  # fails once, on the referrer's embedded copy
+                return FakeResp(429)
+        return FakeResp(200, content=b"img")
+
+    bundle = resolve(
+        "https://x.com/a/status/200",
+        cache_dir=tmp_path / "posts",
+        media_root=tmp_path / "media",
+        get=flaky_get,
+        sleep=lambda _s: None,
+        rng=random.Random(0),
+    )
+    quoted = next(rp for rp in bundle.posts if rp.role == "quoted")
+    assert len(quoted.photo_paths) == 2  # downloaded fresh, so B was recovered
+    assert any("1 of 2 quoted-post images failed" in n for n in bundle.notes)
+
+
 def test_no_empty_quoted_dir_for_a_post_without_a_quote(tmp_path: Path) -> None:
     """Minor 3. `download_quoted_photos` ran unconditionally, so every post
     created an empty `{id}_quoted/`."""
