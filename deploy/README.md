@@ -248,8 +248,22 @@ typo'd directive as a runtime failure, while `verify` names the line:
 systemd-analyze --user verify ~/.config/systemd/user/buibui-backup.timer   # silence == clean
 ```
 
+**That rule is now a gate, not advice — `tests/test_systemd_units.py` runs in `make test`.**
+It stayed prose for months and caught nothing, which is the point: the wifey fork shipped
+`OnFailure=` under `[Service]`, where systemd logs *"Unknown key … ignoring"* and starts the
+unit anyway, so the alert was inert and `systemctl start` looked perfectly healthy. The test
+parses the units itself rather than shelling out to `systemd-analyze`, because that binary is
+not guaranteed on a CI runner and a test that skips when its tool is missing is green without
+ever having run.
+
+Three checks: no `[Unit]`-only directive under `[Service]` (and vice versa), `OnFailure` must
+name a unit that exists, and every hardcoded in-repo path must resolve — **including the ones
+in `ExecStart`'s arguments**, since the wrapper form puts the real script after `--`.
+
 They hardcode `/home/kng/repo/buibui-moon-trader-bot` exactly as the VPS units
 hardcode `/opt/buibui`; `sed -i "s#/home/kng#$HOME#g"` them on a different machine.
+**That rename is what the path check guards** — it is the one edit most likely to leave a
+unit that starts cleanly and then fails at runtime.
 
 ### Where the logs are, and how to read them
 
