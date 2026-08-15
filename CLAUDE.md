@@ -256,6 +256,15 @@ rather than looking green while no off-machine copy exists. It uses `sync`, so i
 deletions — which is why it refuses to run when no `MANIFEST.json` exists under the backup
 root rather than syncing an empty tree over the remote.
 
+**`sync` mirrors deletions INTO the destination too**, so three guards stand between a
+mistyped remote and data this repo does not own: rclone's `root_folder_id`, pinned on the
+remote so it cannot address anything above the backup folder; a rejection of any remote
+with no path component, since a bare `remote:` is the whole drive; and a rejection of a
+destination holding entries the local root does not have. **Only the last two are tracked
+code** — `root_folder_id` lives in `rclone.conf` and `rclone config delete` drops it, so
+prefer `rclone config reconnect <remote>:` when rotating a credential, and re-pin it
+whenever the remote is rebuilt.
+
 **`buibui-daily-check`** pushes `docs/plans/daily_check.py --exit-on-tier2` to Telegram once
 daily at 09:10 UTC. That flag exists because tier-2 lines (chart-drops, external-context) do
 not set exit 1 on their own; a hand-run check still exits 1 only on tier 1.

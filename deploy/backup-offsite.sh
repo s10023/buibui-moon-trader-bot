@@ -32,11 +32,33 @@
 #      BUIBUI_BACKUP_ROOT    (default ~/backups/buibui -- same default as the local leg)
 #      BUIBUI_RCLONE_FLAGS   (optional extra flags, e.g. --bwlimit 2M)
 #
+# WHAT STOPS THIS TOUCHING ANYTHING ELSE ON THE DRIVE
+# ---------------------------------------------------
+# Three guards, deliberately at different layers, because the backup may share a
+# drive with data this repo does not own and cannot restore:
+#   1. rclone's own `root_folder_id`, pinned on the remote, so rclone resolves
+#      every path relative to the backup folder and cannot address anything
+#      above it. Strongest, but it lives in rclone.conf and is LOST when the
+#      config is recreated -- which is what rotating a credential does.
+#   2. a rejection here of any remote without a path component: a bare
+#      `remote:` is the whole drive, and sync mirrors deletions into it.
+#   3. a rejection here of a destination holding entries the local root does
+#      not have, which catches a well-formed remote aimed somewhere unintended.
+# Guards 2 and 3 are tracked code and survive a reclone; guard 1 does not. Keep
+# all three -- each covers a failure the others do not see.
+#
 # ONE-TIME SETUP, which is interactive and therefore not automatable here:
 #   1. install rclone            (e.g. `brew install rclone`)
 #   2. rclone config             (OAuth / key entry for your provider)
-#   3. put BUIBUI_BACKUP_REMOTE=<remote>:<path> in .env
-#   4. only THEN enable the timer:
+#   3. confine the remote to the backup folder -- REDO THIS AFTER ANY
+#      `rclone config delete` / recreate, which silently drops it:
+#        rclone mkdir <remote>:<folder>
+#        rclone lsf <remote>: --dirs-only --format ip | grep <folder>
+#        rclone config update <remote> root_folder_id=<ID> --non-interactive
+#      Verify: `rclone lsf <remote>:` lists the folder's CONTENTS, not the
+#      drive root. That check is the whole proof; run it, do not assume it.
+#   4. put BUIBUI_BACKUP_REMOTE=<remote>:<path> in .env
+#   5. only THEN enable the timer:
 #      systemctl --user enable --now buibui-backup-offsite.timer
 
 set -uo pipefail
@@ -64,6 +86,36 @@ if [ -z "$REMOTE" ]; then
     exit 1
 fi
 
+# The remote must name a PATH inside the drive, never a bare `remote:`.
+#
+# `sync` mirrors deletions into its destination, so a destination of `gdrive:`
+# IS the whole drive -- one missing path component turns "back up" into "delete
+# everything that is not a snapshot". That is a single-character typo away, and
+# when the backup lands on a drive holding anything else, the blast radius is
+# data this repo does not own and cannot restore.
+#
+# rclone's own `root_folder_id` confines the remote far more strongly, and it is
+# set. It is NOT sufficient on its own: it lives in rclone.conf, and recreating
+# the config drops it -- which is exactly what rotating a leaked token does. This
+# check is tracked code, so it survives both a reclone and a config rebuild.
+case "$REMOTE" in
+    *:*) : ;;
+    *)
+        echo "ERROR: BUIBUI_BACKUP_REMOTE='$REMOTE' is not a remote." >&2
+        echo "  Expected <remote>:<path>, e.g. gdrive:buibui-backups." >&2
+        echo "  Without a colon rclone writes to a LOCAL directory, so there" >&2
+        echo "  would be no off-machine copy while this job looked green." >&2
+        exit 1
+        ;;
+esac
+if [ -z "${REMOTE#*:}" ]; then
+    echo "ERROR: BUIBUI_BACKUP_REMOTE='$REMOTE' has no path component." >&2
+    echo "  A bare 'remote:' is the ENTIRE drive, and sync MIRRORS DELETIONS," >&2
+    echo "  so this would delete every file on it that is not a local snapshot." >&2
+    echo "  Use e.g. '${REMOTE}buibui-backups'." >&2
+    exit 1
+fi
+
 if ! command -v rclone >/dev/null 2>&1; then
     echo "ERROR: rclone is not installed, so no off-machine copy exists." >&2
     echo "  Install it (brew install rclone), then \`rclone config\`." >&2
@@ -84,6 +136,34 @@ manifests=$(find "$BACKUP_ROOT" -name MANIFEST.json -type f 2>/dev/null | wc -l)
 if [ "$manifests" -eq 0 ]; then
     echo "ERROR: no MANIFEST.json under $BACKUP_ROOT -- refusing to sync." >&2
     echo "  Syncing now would mirror the empty tree and DELETE the remote copies." >&2
+    exit 1
+fi
+
+# Never sync INTO data this script did not put there.
+#
+# The two checks above catch a MALFORMED remote. This one catches a well-formed
+# remote pointing somewhere unintended -- a real folder that simply is not ours.
+# `sync` would delete everything in it that has no local counterpart, and on a
+# drive shared with anything else that is unrecoverable.
+#
+# The allowed set is derived from the local root rather than hardcoded to
+# daily/weekly, so a new tier added by backup-analytics.sh does not read as an
+# intruder here. An absent or empty destination lists nothing and passes, which
+# is what makes the first-ever sync work.
+unexpected=""
+while IFS= read -r entry; do
+    [ -z "$entry" ] && continue
+    entry="${entry%/}"
+    [ -e "$BACKUP_ROOT/$entry" ] || unexpected="${unexpected}  ${entry}
+"
+done <<EOF
+$(rclone lsf "$REMOTE" 2>/dev/null)
+EOF
+if [ -n "$unexpected" ]; then
+    echo "ERROR: $REMOTE holds entries this script did not create:" >&2
+    printf '%s' "$unexpected" >&2
+    echo "  Refusing to sync -- sync MIRRORS DELETIONS and would remove them." >&2
+    echo "  Check BUIBUI_BACKUP_REMOTE points where you think it does." >&2
     exit 1
 fi
 
