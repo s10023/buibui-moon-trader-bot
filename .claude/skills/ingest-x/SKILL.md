@@ -2,17 +2,19 @@
 name: ingest-x
 description: >
   Ingest one OR MORE X/Twitter post URLs into the research pipeline in a single
-  call. Fetches each post's text + chart image with NO login/scraping via the
-  public syndication endpoint (tools/x_fetch.py) — batched with a randomized
-  cooldown + a dedup cache so re-runs hit zero network — reads each chart with
-  vision in a per-post subagent, classifies it (content-type gate -> the parent
-  pipeline's 4-bucket verdict taxonomy), and routes it (after ONE human review
-  gate for the whole batch) into one of three streams: A hypotheses ->
+  call. Resolves each post's whole evidence graph in one call — reply chain
+  walked upward to its root, every quoted post resolved as its own post to a
+  bounded depth, images downloaded for all of them, and text it could not
+  recover flagged rather than silently dropped — with NO login/scraping via
+  the public syndication endpoint (tools/x_fetch.py) and a randomized cooldown
+  + dedup cache so re-runs hit zero network. Reads each chart with vision in a
+  per-post subagent, classifies it (content-type gate -> the parent pipeline's
+  4-bucket verdict taxonomy), and routes it (after ONE human review gate for
+  the whole batch) into one of three streams: A hypotheses ->
   docs/plans/thesis-inbox.md, B mechanics -> docs/plans/mechanics-backlog.md,
-  C daily setups -> docs/plans/pundit-calls.jsonl. Iteration 2 = text + still
-  images + quoted-tweet; a post in a thread is recovered upward to its root
-  (bookmark the LAST post), and video is handed off to /ingest-video rather than
-  skipped. Invoke when the user says
+  C daily setups -> docs/plans/pundit-calls.jsonl. A post in a thread is
+  recovered upward to its root (bookmark the LAST post), and video is handed
+  off to /ingest-video rather than skipped. Invoke when the user says
   "/ingest-x", pastes one or more x.com / twitter.com status URLs, or says
   "ingest this/these X post(s)".
 allowed-tools: Bash, Read, Write, Edit, Task
