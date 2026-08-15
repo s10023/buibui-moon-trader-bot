@@ -120,6 +120,17 @@ drift and you are billed rather than blocked. Use an account **separate from the
 identity** so a backup-credential compromise cannot reach personal storage — the same
 reasoning as the `~/.gitconfig` remote-keyed identity split.
 
+**⚠ This machine does NOT follow that last sentence, and the deviation is recorded rather
+than hidden.** As of 2026-08-15 the remote is the operator's personal 100 GB account
+(dedicated-account signup was blocked on Google's phone verification), so isolation comes
+from the folder confinement in step 5 plus the two script guards, not from account
+separation. What that buys and what it does not: rclone cannot address anything above the
+backup folder, but the OAuth token still carries `scope=drive` and would grant full access
+to the whole account if it leaked. **Narrowing to `drive.file` is not the fix** — it can
+only touch files it created, so a rebuilt config loses the ability to prune what the old
+one uploaded, and `sync` must be able to delete for retention to work at all. Switching to
+a dedicated account later costs one `rclone config reconnect` and one re-sync.
+
 ```bash
 # 1. Install rclone
 brew install rclone                       # or: sudo dnf install rclone
@@ -144,21 +155,31 @@ brew install rclone                       # or: sudo dnf install rclone
 #    `sync` must be able to delete in order to mirror retention.
 
 # 4. Prove the remote answers before wiring it in
-rclone about gdrive:                      # should print the 15 GB quota
+rclone about gdrive:                      # should print the quota
 rclone mkdir gdrive:buibui-backups
 
-# 5. Wire it in. BOTH of the first two lines matter -- see the trash note below.
-echo 'BUIBUI_BACKUP_REMOTE=gdrive:buibui-backups' >> .env
+# 5. CONFINE the remote to that folder. `sync` mirrors deletions, so this is
+#    what stops a mistyped path reaching anything else on the drive. Read the
+#    folder id, pin it, then PROVE it -- `lsf` must show the folder's contents
+#    (empty on a fresh install), never the drive root.
+rclone lsf gdrive: --dirs-only --format ip | grep buibui-backups
+rclone config update gdrive root_folder_id=<ID> --non-interactive
+rclone lsf gdrive:                         # empty == confined. Assume nothing.
+
+# 6. Wire it in. BOTH of the first two lines matter -- see the trash note below.
+#    The path is RELATIVE to the confined root now, so it is `snapshots`, not
+#    `buibui-backups` (which would nest a second copy of the name).
+echo 'BUIBUI_BACKUP_REMOTE=gdrive:snapshots' >> .env
 echo 'BUIBUI_RCLONE_FLAGS=--drive-use-trash=false' >> .env
 echo 'BUIBUI_KEEP_DAILY=7' >> .env         # optional; see the redundancy note above
 
-# 6. Dry-run BEFORE the timer exists
+# 7. Dry-run BEFORE the timer exists
 ./deploy/backup-offsite.sh --dry-run       # must list the snapshot tree, exit 0
 
-# 7. First real sync by hand -- this is the slow one (~4 GiB)
+# 8. First real sync by hand -- this is the slow one (~2-4 GiB)
 ./deploy/backup-offsite.sh
 
-# 8. Only now install the timer
+# 9. Only now install the timer
 cp deploy/systemd/user/buibui-backup-offsite.{service,timer} ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now buibui-backup-offsite.timer
@@ -178,6 +199,15 @@ of growing forever. The consequence to respect: **`sync` mirrors deletions.** A 
 emptied `~/backups/buibui` would empty the remote on the next fire, so the script
 refuses to run when it finds no `MANIFEST.json` under the backup root — an empty source
 is treated as a fault, never as "nothing to do". Do not remove that check.
+
+Deletions mirror into the **destination** just as readily, so two more checks sit beside
+it: the script rejects a remote with no path component (a bare `remote:` is the whole
+drive), and rejects a destination holding entries the local root does not have. Both are
+tracked code and survive a reclone, which `root_folder_id` does not — that is the whole
+reason they duplicate its protection rather than trusting it. All three are pinned by
+`tests/test_backup_offsite_guards.py`; there is no shellcheck here, so those tests are the
+only gate this script has. They were mutation-tested at merge: disabling either guard
+fails exactly its own test and nothing else.
 
 Verify a unit parses **before** trusting it — `systemctl start` will happily report a
 typo'd directive as a runtime failure, while `verify` names the line:
