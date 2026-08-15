@@ -167,8 +167,13 @@ def test_in_repo_paths_resolve(unit: Path) -> None:
         if key not in ("ExecStart", "EnvironmentFile", "WorkingDirectory"):
             continue
         for token in value.split():
-            # EnvironmentFile=-/path means "optional"; the dash is not the path.
-            token = token.lstrip("-") if key == "EnvironmentFile" else token
+            # `EnvironmentFile=-/path` means OPTIONAL: systemd starts the unit
+            # whether or not the file is there. Asserting it exists contradicts
+            # the unit's own declaration, and every one of ours points at `.env`
+            # — gitignored, so absent in any clean checkout, CI included. A
+            # MANDATORY EnvironmentFile (no dash) still has to resolve.
+            if key == "EnvironmentFile" and token.startswith("-"):
+                continue
             if not token.startswith(HARDCODED_ROOT):
                 continue
             rel = token[len(HARDCODED_ROOT) :].lstrip("/")
