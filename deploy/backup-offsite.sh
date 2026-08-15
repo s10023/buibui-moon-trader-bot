@@ -59,9 +59,19 @@
 #      `rclone config delete` / recreate, which silently drops it:
 #        rclone mkdir <remote>:<folder>
 #        rclone lsf <remote>: --dirs-only --format ip | grep <folder>
-#        rclone config update <remote> root_folder_id=<ID> --non-interactive
+#        rclone config update <remote> root_folder_id=<ID> --non-interactive >/dev/null
 #      Verify: `rclone lsf <remote>:` lists the folder's CONTENTS, not the
 #      drive root. That check is the whole proof; run it, do not assume it.
+#
+#      ⚠ THE `>/dev/null` IS A SECURITY CONTROL, NOT TIDINESS. `rclone config
+#      create` and `update` PRINT THE WHOLE REMOTE ON SUCCESS -- client_secret,
+#      access_token, refresh_token -- unprompted and unflagged. Two live tokens
+#      leaked into transcripts on 2026-08-15 this way, the second AFTER both
+#      repos had written up the first. The prose rule ("never paste the output")
+#      is what failed, because the tool emits the secret without being asked and
+#      the burden was on a human to notice. Keep the redirect at every call
+#      site, in docs too: people copy from docs, so a doc showing the bare
+#      command IS the vulnerability.
 #   4. put BUIBUI_BACKUP_REMOTE=<remote>:<path> in .env
 #   5. only THEN enable the timer:
 #      systemctl --user enable --now buibui-backup-offsite.timer
