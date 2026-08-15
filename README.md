@@ -509,7 +509,10 @@ backup root contains no `MANIFEST.json` instead of syncing an empty tree over yo
 remote copy. It mirrors deletions into the **destination** just as readily, so it also
 refuses a remote with no path component (a bare `remote:` is the entire drive) and a
 destination holding entries your local root does not have — and the remote itself is
-pinned to the backup folder via rclone's `root_folder_id`. The step-by-step setup —
+pinned to the backup folder via rclone's `root_folder_id`. ⚠ That second check compares
+**top-level entries only**, so it catches an unrelated folder but *not* a sibling repo
+whose tree is the same shape; two repos sharing one drive each need their own remote and
+their own `root_folder_id`. The step-by-step setup —
 measured space requirement, provider choice, the confinement step, and the one provider
 flag that is load-bearing rather than tidiness — is in
 `deploy/README.md` under "Off-machine backup".

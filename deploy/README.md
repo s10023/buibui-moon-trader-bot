@@ -209,6 +209,20 @@ reason they duplicate its protection rather than trusting it. All three are pinn
 only gate this script has. They were mutation-tested at merge: disabling either guard
 fails exactly its own test and nothing else.
 
+⚠ **The destination check compares TOP-LEVEL entries only — do not read it as protection
+against another repo.** Measured 2026-08-15: the wifey fork's tree is also `daily/` +
+`weekly/`, so a wifey-shaped root aimed at this repo's destination passed the guard and
+dry-ran `Skipped delete` over real snapshots. It catches an unrelated folder; it cannot
+tell a same-shaped sibling from your own data.
+
+**Two repos on one drive is a confinement problem, not a guard problem.** Give each its own
+remote with its own `root_folder_id` — rclone cannot navigate above a pinned root, so the
+collision becomes unreachable rather than merely detectable. A sibling *path* under one
+shared root does not do this: everything on that remote resolves inside the same confined
+folder, so one typo still reaches the other repo's backup. Create the second remote
+UNPINNED first (it needs to see the drive root to make its own folder), then pin it — `..`
+cannot escape an existing pin, which is the point of one.
+
 Verify a unit parses **before** trusting it — `systemctl start` will happily report a
 typo'd directive as a runtime failure, while `verify` names the line:
 

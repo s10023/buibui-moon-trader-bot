@@ -43,9 +43,14 @@
 #   2. a rejection here of any remote without a path component: a bare
 #      `remote:` is the whole drive, and sync mirrors deletions into it.
 #   3. a rejection here of a destination holding entries the local root does
-#      not have, which catches a well-formed remote aimed somewhere unintended.
+#      not have, which catches a well-formed remote aimed at an UNRELATED
+#      folder. It compares top level only, so it does NOT catch a sibling repo
+#      whose tree is the same shape -- see the measured limit at that check.
 # Guards 2 and 3 are tracked code and survive a reclone; guard 1 does not. Keep
 # all three -- each covers a failure the others do not see.
+#
+# Sharing one drive with another repo is therefore a CONFINEMENT question, not a
+# guard question: give each repo its own remote with its own `root_folder_id`.
 #
 # ONE-TIME SETUP, which is interactive and therefore not automatable here:
 #   1. install rclone            (e.g. `brew install rclone`)
@@ -150,6 +155,20 @@ fi
 # daily/weekly, so a new tier added by backup-analytics.sh does not read as an
 # intruder here. An absent or empty destination lists nothing and passes, which
 # is what makes the first-ever sync work.
+#
+# ⚠ KNOWN LIMIT, MEASURED 2026-08-15 -- do not oversell this guard. It compares
+# TOP-LEVEL entries only, so it cannot distinguish a SIBLING REPO's backup from
+# our own: the wifey fork's tree is also `daily/` + `weekly/`, and a dry-run of a
+# wifey-shaped root aimed at this repo's destination passed the guard and emitted
+# `Skipped delete` on real snapshots. It catches an UNRELATED folder (`Photos/`,
+# `resume.pdf`); it does not catch a same-shaped one.
+#
+# The fix for that case is NOT a second path under one confined root -- that
+# leaves operator care as the only control. It is a second remote with its OWN
+# `root_folder_id`, which makes the collision unreachable rather than detectable,
+# since rclone cannot navigate above a pinned root. A marker file at the
+# destination was considered and rejected: it would DETECT what a separate
+# confined root PREVENTS.
 unexpected=""
 while IFS= read -r entry; do
     [ -z "$entry" ] && continue

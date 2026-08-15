@@ -168,6 +168,35 @@ def test_destination_matching_local_root_is_allowed(
     assert "sync" in calls
 
 
+def test_same_shaped_sibling_destination_is_NOT_blocked(
+    backup_root: Path, fake_rclone: Path, tmp_path: Path
+) -> None:
+    """Documents a KNOWN LIMIT rather than asserting a protection.
+
+    The intruder check compares TOP-LEVEL entries only, so a sibling repo whose
+    tree is also `daily/` + `weekly/` is indistinguishable from our own data and
+    the sync proceeds. Measured against the live remote on 2026-08-15: a
+    wifey-shaped root aimed at this repo's destination dry-ran `Skipped delete`
+    over real snapshots.
+
+    This test exists so the limit cannot drift away from the docs that state it.
+    If someone strengthens the guard, this test fails and CLAUDE.md, README.md,
+    deploy/README.md and .claude/context/execution.md all need updating with it.
+
+    The real fix is confinement, not detection: a separate remote with its own
+    `root_folder_id` makes the collision unreachable.
+    """
+    rc, _, calls = run_script(
+        backup_root,
+        fake_rclone,
+        tmp_path,
+        "gdrive:someone-elses-snapshots",
+        lsf_output="daily/\nweekly/\n",
+    )
+    assert rc == 0
+    assert "sync" in calls  # NOT a desirable outcome -- a recorded one
+
+
 def test_missing_manifest_is_rejected(
     backup_root: Path, fake_rclone: Path, tmp_path: Path
 ) -> None:
