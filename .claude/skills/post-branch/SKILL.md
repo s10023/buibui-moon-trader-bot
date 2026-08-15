@@ -106,6 +106,11 @@ surfaces:
     scope: any_referencing_changed_artifact
     lint: manual   # see below
 
+  - id: gitignored_ops
+    paths: ["docs/plans/daily_check.py", ".claude/hooks/*", ".claude/settings.json"]
+    purpose: Operator-facing surfaces that ship NO code — monitoring, guards, harness config
+    scope: any_behaviour_this_pr_adds_that_nothing_else_monitors   # see Step 4
+
 # Files that, if changed, almost always require a doc walk:
 behavior_signal_globs:
   - "buibui.py"
@@ -542,6 +547,31 @@ For each surface in the config, do the following:
   **If you ever doubt whether a path is gated, inject a violation and look —
   reading the glob list is how this bullet got it wrong for months.**
 
+### Gitignored operator tooling — `docs/plans/daily_check.py`, `.claude/hooks/*`
+
+**FIFTH INSTANCE of the omission blind spot, and the first that is invisible to every
+check above.** The three-source added-file check drops gitignored paths
+(`--exclude-standard`), the package presence check iterates tracked directories, and the
+mention-grep only sees what a doc already names. So this class is unreachable by any
+mechanical probe in this skill — which makes it the one that needs a prompt.
+
+**Ask one question: does this PR add behaviour that nothing else monitors?** If yes,
+`daily_check.py` probably owes it a line. Its own docstring carries a four-part inclusion
+rule — rots silently, named consequence, one cheap field, one action clears it — so apply
+that rule rather than inventing a threshold. Measured on #631: the PR shipped an off-site
+backup leg whose failure mode is literal silence (`run-job.sh` Telegrams a non-zero exit,
+and a timer that never fires has no exit code), and nothing in this skill prompted the
+check that caught it.
+
+**Then say so in the PR body, explicitly.** These files ship no code: an edit here reaches
+neither a reclone, nor CI, nor a fork. A PR that quietly relies on a gitignored monitor
+reads as covered and is not. One line — *"⚠ `daily_check.py` gained X but is gitignored, so
+it is not in this diff"* — is the whole fix, and it is also what tells the sibling repo that
+it has to write its own.
+
+Hooks are the same class: gitignored, no CI, and `test_context_guard.py` covers only
+`context-guard` — both BLOCKING guards are unpinned.
+
 ---
 
 ## Step 5 — MEMORY.md update (always)
@@ -713,6 +743,7 @@ Makefile           — no change needed: no new CLI commands
 docker-compose.yml — no change needed: no new processes
 .claude/context/*  — updated: analytics.md (store/ paths) | no change needed
 .claude/skills/*   — updated: <skill> | no change needed: <reason>
+gitignored ops     — daily_check.py line added (NOT in the diff) | no change needed: <reason>
 PR summary         — written to /tmp/pr-<branch>.md   (slashes flattened to -)
 PR body            — appended "Documentation updates" section
 pre-merge          — clean | <blocker> (see Step 10a)

@@ -41,6 +41,45 @@ items.
 - Wifey clone lives at `~/repo/buibui-wifey-wall-street-bot` — only needed if you
   want to read a PR's file contents locally; PR metadata comes from `gh -R`.
 
+## What this scan CANNOT see — read before reporting "nothing net-new"
+
+This skill keys on **merged PRs**. Anything that never became one is invisible, and the
+scan's silence reads as coverage. Four shapes, all observed:
+
+1. **A verdict or a retraction.** "We tested X, it failed" produces no PR. The most
+   valuable thing a fork learns is often the thing it decided *not* to build.
+2. **A design rationale.** Why a rule exists lives in prose, and prose that landed inside
+   an otherwise-`SKIP — docs/config` PR is excluded by the classifier twice over.
+3. **A measurement.** A number someone derived and filed leaves no diff.
+4. **An UNMERGED PR — the worst of them**, because it correlates with importance rather
+   than against it. On 2026-08-15 PR #631 was simultaneously the most consequential thing
+   in this repo and a zero-hit on wifey's mirror scan; it crossed only because a session
+   sent a message by hand. **The channel that worked was the one with no mechanism behind
+   it.** When a scan returns little, check open PRs and the peer's handoff before
+   concluding the fork is quiet.
+
+**Ship this line verbatim in any port report:**
+
+> Port the rule, re-derive the reason. A rationale is a claim about THIS repo's costs,
+> coverage and constraints — verify it here before writing it down, even when the rule
+> itself transfers unchanged.
+
+It is not boilerplate. Measured 2026-08-15: of the guidance sent across on the off-site
+backup work, the *rules* transferred intact while two *reasons* did not — the fork had no
+`backup-offsite.sh` at all, so "you likely need this" was simply false, and the
+personal-vs-dedicated account caveat had no account model to attach to. A rule copied with
+a reason that does not hold here is worse than no rule, because the wrong reason is what a
+future session will reason FROM.
+
+### When you message the fork directly
+
+**Lead with the MERGED item, not the open PR.** The open one is louder and usually the
+thing you just finished, which makes it the easy opener and the wrong one — the fork can
+act on merged work today and can only file an open PR as a watch item. Measured on the
+same exchange: `/research-distil` had merged and was the ping wifey had been waiting on for
+a day; it went out in a subordinate clause under an open PR that turned out not to be
+portable at all.
+
 ## Classification rules
 
 | Bucket | Rule |
