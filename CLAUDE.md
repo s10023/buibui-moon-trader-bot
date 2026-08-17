@@ -20,7 +20,10 @@ a result.
   `tests/fixtures/`, or `poetry.lock`. Say which branch you took. Outside that set it is
   ~95s of wall clock for a chain the diff cannot reach. When it does apply and a golden
   moves, that is a *decision* — regenerate or not — which is why it stays local rather than
-  being left to CI.
+  being left to CI. **It is a separate gate rather than a slower one: `make test` passes
+  `--ignore=tests/test_regression.py`, so a green `make test` says NOTHING about the
+  goldens** — skipping this line inside the backtest surface leaves them unchecked, not
+  checked-later.
 
 **Anti-drift.** Before any multi-step task, restate the goal and its success metric in one
 line. If a step stops serving that metric, stop and ask. Require avg_r × (regime × session ×

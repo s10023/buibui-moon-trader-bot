@@ -333,6 +333,14 @@ the wifey session challenged it.**
 | the 4 generic rules (`rm -rf`, `reset --hard`, `clean -fd`, DROP/TRUNCATE) | **0** |
 | the 2 fpl-specific rules fpl itself proposed | **2 of 2**, one inside a loaded skill |
 
+⚠ **Correction (2026-08-17): that 0 is a markdown-only measurement, and markdown is not the
+whole exposed surface.** The scan covered fpl's 53 `.md` files. A **commit message is a
+command payload** — it reaches the matcher as `git commit -m "…"` — so a commit body
+describing a `rm -rf` fix collides where a doc describing the same fix would not have been
+counted. The generic rules' true collision count is therefore non-zero on any repo that
+writes about what it guards, which is exactly the population the paragraph below identifies.
+The direction of the finding is unchanged; its floor is not 0.
+
 **The generalisation is fpl's and it is the sharpest thing in this audit:** *a guard's
 false-positive rate is not a property of the guard — it is a property of how well the repo
 documents its own dangers.* The commands most worth guarding are the commands most worth
@@ -383,6 +391,17 @@ form would prompt there — and named the discriminating test:** diff buibui's
 included**, so the missing-allowlist explanation is eliminated for buibui and the
 compound-command mechanism survives. It is still not *proven* — that needs a deliberate
 denial nobody has spent operator attention on.
+
+⚠ **Correction (2026-08-17): this worked example cannot test the hypothesis it is offered
+for, and the section about framing should not have shipped one that reads as if it does.**
+The comparison needs both repos writing both forms; **wifey has 0 instances of the `export`
+form**, so wifey is silent on it rather than a control. What the elimination actually
+established is narrower — buibui's denials are not explained by a missing allowlist — and the
+compound-command mechanism survives by *elimination alone*, on a single-repo observation. The
+independent confirmation arrived later and from the allowlist's own semantics rather than
+from this comparison: the allowlist matches a command's **first word**, so `export …; gh …`
+presents `export`. That is why PR #639 spells the inline `GH_TOKEN=$(…) gh …` prefix
+everywhere and why the `export` form is not merely stylistically discouraged.
 
 ⚠ **A related claim that cannot be settled from artifacts: "wifey never gets denied".**
 Wifey's operator deletes conversations after each task, and the transcript archive is empty,
