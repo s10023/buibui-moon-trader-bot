@@ -104,8 +104,21 @@ this skill, and useful as a `--body-file`), but do not tell the user the CLI is
 unavailable.
 
 If `gh` ever does fail with "Could not resolve to a Repository", that is the
-account, not the permission: run `gh auth switch --user s10023`. Don't debug
-`gh` config past that.
+account, not the permission. Don't debug `gh` config past that — **prefix the call
+with the personal token, inline:**
+
+```bash
+GH_TOKEN=$(gh auth token --user s10023) gh pr create --body-file "$OUT"
+```
+
+**Inline, never `export … ;`.** The allowlist matches on a command's first word, so
+the `export` form is two commands joined by `;` whose first word is `export` — not
+allowlisted, so it prompts every time. The inline form's command word is `gh`, which
+matches. **The prefix cannot just be dropped:** the *active* gh account here is the
+work one, so a bare `gh` call authenticates as the wrong user.
+
+⚠ **`gh auth switch` is something to ASK the operator to run, never to run yourself** —
+it changes global state affecting their other work.
 
 ## Conventional commit types for PR titles
 

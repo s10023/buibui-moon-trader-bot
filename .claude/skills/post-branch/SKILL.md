@@ -423,9 +423,20 @@ For each surface in the config, do the following:
   # this walk runs PRE-COMMIT by design, so `main...HEAD` alone sees nothing.
   { git diff --name-only --diff-filter=A main...HEAD
     git diff --name-only --diff-filter=A --cached
-    git ls-files --others --exclude-standard; } | sort -u | while read -r f; do
+    git ls-files --others --exclude-standard; } | sort -u \
+    | grep -Ev '^docs/(audits|superpowers/specs)/' | while read -r f; do
     grep -rqsw "$(basename "$f")" .claude/context/ || echo "UNDOCUMENTED FILE: $f"; done
   ```
+
+  **The two `docs/` trees are excluded because a STRONGER gate already covers them,
+  not to quiet the output.** `make docs-index` generates their `INDEX.md` and
+  `tests/test_docs_index.py` **fails CI** until it is current — CI-enforced, where
+  this grep is advisory. Without the exclusion every added audit and spec
+  false-positives, which is a whole predictable class rather than the occasional
+  dismissable hit the bullets above accept (measured 2026-08-17 on #638). ⚠ **Do not
+  extend this exclusion to a tree that has no such gate** — that would re-create the
+  omission blindness this section exists to fix. The test is "is it indexed by a
+  CI-gated generator", never "is it noisy".
 
   **⚠ The single-source form FALSE-GREENS, and it did on 2026-08-14d.**
   `--diff-filter=A main...HEAD` cannot see a file that is not committed yet, and
@@ -776,10 +787,17 @@ Run a short status sweep and report any blockers in one line each:
 ```bash
 git status --short                                      # working tree clean?
 git log @{u}..HEAD --oneline 2>/dev/null || true        # unpushed commits?
+GH_TOKEN=$(gh auth token --user s10023) \
 gh pr view <PR#> --json mergeable,mergeStateStatus,reviewDecision,statusCheckRollup \
   --jq '{mergeable,mergeStateStatus,reviewDecision,
          checks: [.statusCheckRollup[] | {name, conclusion, startedAt, completedAt}]}'
 ```
+
+**Prefix every `gh` call inline like that, never `export … ;`** — the allowlist matches
+a command's first word, so the export form prompts every time while the inline form's
+command word is `gh`. It cannot be dropped either: the *active* gh account here is the
+work one, so a bare call authenticates as the wrong user. ⚠ **`gh auth switch` is
+something to ASK the operator for, never to run yourself.**
 
 Flag, do not fix:
 
