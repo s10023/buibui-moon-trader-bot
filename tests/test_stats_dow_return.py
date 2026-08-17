@@ -37,12 +37,25 @@ def _monday_rows(returns: list[float]) -> pd.DataFrame:
 
     12:00 UTC keeps the bar on the same calendar DATE under both UTC and the
     Asia/Kuala_Lumpur session timezone DuckDB uses here.
+
+    The anchor must land in the PAST. `compute_dow_patterns` ends its window at
+    now, so a future bar is dropped silently -- and index 0 is the crash row
+    every test in this file is built around, so losing it leaves seven identical
+    quiet rows: stddev 0, mean == median, and the failures read like a maths bug
+    in the SQL rather than a missing fixture row. It bites only when run on a
+    Monday before 12:00 UTC (anchor == today), which is why CI never saw it and
+    a local `make test` on 2026-08-17 03:19 UTC did.
     """
-    now = datetime.now(tz=UTC).replace(hour=12, minute=0, second=0, microsecond=0)
+    real_now = datetime.now(tz=UTC)
+    now = real_now.replace(hour=12, minute=0, second=0, microsecond=0)
     monday = now - timedelta(days=(now.weekday()) % 7)
+    if monday >= real_now:
+        monday -= timedelta(weeks=1)
     rows = []
+    timestamps: list[int] = []
     for i, ret in enumerate(returns):
         ts = int((monday - timedelta(weeks=i)).timestamp() * 1000)
+        timestamps.append(ts)
         close = 100.0 * (1.0 + ret)
         rows.append(
             {
@@ -57,6 +70,14 @@ def _monday_rows(returns: list[float]) -> pd.DataFrame:
                 "taker_buy_volume": 500.0,
             }
         )
+    # Pin the invariant rather than trusting the branch above: a future bar is
+    # dropped by the query with no error, so without this the next regression is
+    # again invisible until someone runs the suite in the wrong hour.
+    assert timestamps, "fixture built no rows"
+    assert max(timestamps) < int(real_now.timestamp() * 1000), (
+        "fixture anchor is in the future -- compute_dow_patterns would silently "
+        "drop the newest bar, which is the crash row these tests depend on"
+    )
     return pd.DataFrame(rows)
 
 
