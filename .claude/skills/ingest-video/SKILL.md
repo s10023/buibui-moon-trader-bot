@@ -141,7 +141,7 @@ every note on both sides.
 
 Route by **subject, never by repo priority.** Our scorer assumes 24/7 perp bars, so a macro
 call scored here resolves against the wrong bars, and wifey's ETF proxies mean **oil fails
-quietly** (USO sits in roughly the same $70-85 band as WTI without tracking it). Neither
+quietly** (USO sits in roughly the same USD 70-85 band as WTI without tracking it). Neither
 repo is a safe default for the other's subject.
 
 Confirmed live on 2026-08-02 (`/ingest-feed` round 6): 4 of 9 Cowen candidates were already
@@ -979,8 +979,13 @@ One file per video (not per item) at
 `docs/plans/`. `<date>` is the ingest date (UTC, `YYYY-MM-DD`).
 
 ```bash
-slug() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed -E 's/^-+|-+$//g' | cut -c1-40; }
-note_path="docs/plans/video-notes/$(date -u +%F)-$(slug "$AUTHOR")-$VIDEO_ID.md"
+# Inlined rather than wrapped in a slug() helper on purpose: a dollar-sign
+# positional parameter in a SKILL.md body is substituted by the harness with the
+# matching invocation arg when the skill is called WITH args, which silently
+# rewrites the snippet. Named variables are safe; positionals are not. This
+# comment deliberately spells that out in words rather than showing the literal.
+author_slug=$(printf '%s' "$AUTHOR" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed -E 's/^-+|-+$//g' | cut -c1-40)
+note_path="docs/plans/video-notes/$(date -u +%F)-$author_slug-$VIDEO_ID.md"
 ```
 
 **`video_id`, not a title slug — this is the rule, not a collision fallback.** `slug()`

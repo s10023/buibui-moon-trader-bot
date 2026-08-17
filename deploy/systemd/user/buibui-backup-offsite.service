@@ -26,8 +26,12 @@ WorkingDirectory=/home/kng/repo/buibui-moon-trader-bot
 # message).
 EnvironmentFile=-/home/kng/repo/buibui-moon-trader-bot/.env
 
-# rclone lives in linuxbrew, and run-job.sh shells out to `poetry` on its
-# failure path; user units get a minimal PATH that would find neither.
+# User units get a minimal PATH, and this unit needs binaries from two different
+# installs: run-job.sh shells out to `poetry` on its failure path (linuxbrew
+# here), and `rclone` is whatever the machine has. Do NOT assume rclone is a
+# linuxbrew build -- on this machine it is the distro package at /usr/bin/rclone,
+# and the unit works only because /usr/bin is in the list below. A fork whose
+# rclone came from a package manager pointing anywhere else must add that prefix.
 Environment=PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
 
 # Mandatory once ExecStart is wrapped, or journald tags output with the

@@ -230,5 +230,9 @@ When the user asks to add a new strategy:
 6. Add `SignalPlugin` entry to `signals/registry.py` (skip for non-actionable strategies).
 7. Write at least 2 tests: one that fires a signal, one edge case that produces no signal.
 8. Run `make lint-py && make typecheck && make test` (must end clean).
-9. Run quick backtest: `buibui backtest --symbol BTCUSDT --strategy <name> --interval 1h`.
-10. If positive results, add to `config/signal_watch.toml` strategies list.
+9. Run `make test-regression`. **A new strategy is ON the backtest surface, and
+   `make test` passes `--ignore=tests/test_regression.py` — so a green `make test`
+   says NOTHING about the goldens.** A moved golden is a *decision* (regenerate or
+   not), which is why this stays local rather than being left to CI.
+10. Run quick backtest: `buibui backtest --symbol BTCUSDT --strategy <name> --interval 1h`.
+11. If positive results, add to `config/signal_watch.toml` strategies list.

@@ -113,6 +113,10 @@ make buibui-backtest CONFIG=config/signal_watch.toml
 
 # 5. Run quality gates
 make lint-py && make typecheck && make test
+# strategy_params.toml is ON the backtest surface, and `make test` passes
+# --ignore=tests/test_regression.py -- so it says NOTHING about the goldens.
+# A moved golden is a DECISION (regenerate or not), hence local, not CI.
+make test-regression
 ```
 
 ## Implementation files

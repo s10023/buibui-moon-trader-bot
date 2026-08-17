@@ -127,10 +127,10 @@ better.
   breaker is tripped, which the prompt is designed to prevent. Same trap shape
   as the capital one in rubric item 3 below, and the same tell: an empty field
   that reads as either "nothing to report" or "nothing checked". **Measured
-  2026-08-07: R is `capital × r_base` = $1,111 × 0.0025 = $2.78, so a
-  −$12.96 day read −4.66R against a −2.0R limit** — at operator-scale equity
+  2026-08-07: R is `capital × r_base` = USD 1,111 × 0.0025 = USD 2.78, so a
+  −USD 12.96 day read −4.66R against a −2.0R limit** — at operator-scale equity
   a ~1% down day locks out the whole UTC day. That is the capital-resolution
-  fix biting (pre-fix, R was $25 and a genuine −2R day scored −0.24R and
+  fix biting (pre-fix, R was USD 25 and a genuine −2R day scored −0.24R and
   sailed through), not a bug to route around. This pre-flight exists because
   a 3-symbol batch on 2026-08-07 spent a full card to discover it.
 - Sync OHLCV if it is staler than the newest external snapshot
@@ -202,7 +202,7 @@ Per card:
 
    **`DRY=1` cannot do this either** — it returns `account: null` by design
    (`no provider (--dry-run)`), so it proves nothing about the live path.
-   Real capital is smaller than the old constant (~$1,200 vs $10,000 measured),
+   Real capital is smaller than the old constant (~USD 1,200 vs USD 10,000 measured),
    so the sub-lot veto is now common, not a corner case — expect BTCUSDT
    VETOes on stops wider than roughly 2.7% at that equity, not a bug.
 4. **`valid_until_utc` is now a VETO when it does not postdate the card's own
