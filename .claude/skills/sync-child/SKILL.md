@@ -36,8 +36,12 @@ items.
   has an `upstream` remote pointing here, and `gh repo view` resolves to
   `s10023/buibui-moon-trader-bot`. A bare `gh pr view 69` silently reads *this*
   repo's #69. **Every wifey query MUST pass `-R s10023/buibui-wifey-wall-street-bot`.**
-- `gh` must be on the `s10023` account (`gh auth switch --user s10023` if you hit
-  "could not resolve repo" / GraphQL errors).
+- `gh` must resolve as the `s10023` account. **Prefix each call inline —
+  `GH_TOKEN=$(gh auth token --user s10023) gh -R ...`** — never `export ... ;` (the
+  allowlist matches a command's first word, so the export form prompts every time)
+  and never bare (the *active* account here is the work one).
+  ⚠ **`gh auth switch` is something to ASK the operator to run, never to run
+  yourself** — it changes global state affecting their other work.
 - Wifey clone lives at `~/repo/buibui-wifey-wall-street-bot` — only needed if you
   want to read a PR's file contents locally; PR metadata comes from `gh -R`.
 
