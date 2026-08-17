@@ -78,6 +78,23 @@ After adding a doc to `docs/audits/` or `docs/superpowers/specs/`, run `make doc
 both `INDEX.md` files are generated and `tests/test_docs_index.py` fails until they are
 current.
 
+**A new audit must state its verdict as PROSE under a Verdict heading**, or CI fails
+(`TestEveryNewAuditExposesItsVerdict`). A table, blockquote or `**Date:**` line under the
+heading is deliberately rejected — each renders as a plausible-but-wrong verdict. **This is
+not a style rule: an unparseable verdict is invisible to the check that asks whether anyone
+OWNS it.** 17 pre-2026-08-17 audits are grandfathered in a frozen set that can only shrink.
+
+**An audit whose verdict is ACTIONABLE needs a SoT row naming its filename** — the
+`daily_check.py` tier-2 `audit verdicts` line reds until one exists, and a row recording
+*where it was already satisfied* clears it just as well as building the thing. It exists
+because `2026-06-26-structural-entry-sim-harness.md` returned **BUILD** — the only BUILD in
+47 audits — and sat unbuilt for seven weeks in plain sight in a generated, test-enforced
+index. **The class: a research chain made of audits has an owner at every link except the
+last**, because each link's owner is the next audit and the terminal recommendation is
+production code. ⚠ Naming an *audit* file in the SoT is safe; the opposite direction — a
+*spec* filename inside an audit — is what the spec-reconcile counter derives from, and
+`docs_index.py` never reads the SoT, so the two cannot collide.
+
 **`make lint-py` also rewrites Markdown.** It runs `ruff format .`, which formats python
 code fences *inside `.md` files*, so any plan or spec doc carrying a python fence is
 reformatted on every Python task and shows up as unrelated churn. When such a doc is in
