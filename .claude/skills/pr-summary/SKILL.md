@@ -103,6 +103,17 @@ reason. Still write the file at the flattened `/tmp/pr-<branch>.md` (it is the d
 this skill, and useful as a `--body-file`), but do not tell the user the CLI is
 unavailable.
 
+⚠ **"That was stale" is TOO STRONG — the collaborator error still occurs, for a
+different reason, and the fix is to RETRY (2026-08-17, #639).** `gh pr create` run
+immediately after `gh repo edit --visibility public` failed with
+`GraphQL: must be a collaborator (createPullRequest)`; the identical command
+succeeded seconds later with nothing changed. **Diagnose before believing either the
+error or this doc** — under the personal token, `gh api user` returned `s10023` and
+`gh repo view` returned `PUBLIC`, so auth and visibility were both already correct.
+GitHub re-evaluates permissions asynchronously after a visibility flip. **Retry once
+before touching auth**; a `git push` succeeding proves nothing here, since the remote
+is an SSH alias and never exercises the token.
+
 If `gh` ever does fail with "Could not resolve to a Repository", that is the
 account, not the permission. Don't debug `gh` config past that — **prefix the call
 with the personal token, inline:**
