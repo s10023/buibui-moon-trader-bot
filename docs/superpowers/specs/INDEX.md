@@ -4,13 +4,13 @@
 `make docs-index-check` (and `tests/test_docs_index.py`) fails when this file
 drifts from the corpus.
 
-**55 specs on disk.** Reconcile status is **derived** — a spec counts as
+**56 specs on disk.** Reconcile status is **derived** — a spec counts as
 reconciled when an audit that names its filename also discusses reconciling, so
 the count is recomputed from disk rather than carried in prose. That is the
 counter CLAUDE.md has had wrong every time it was checked.
 
-- **Reconciled (derived): 4 of 55.**
-- Referenced by no audit at all: 38.
+- **Reconciled (derived): 4 of 56.**
+- Referenced by no audit at all: 39.
 
 **Two caveats before quoting these numbers.** A *partial* reconcile is
 indistinguishable from a whole-spec one here, and this table cannot see one that
@@ -19,6 +19,7 @@ and the reconcile column as a floor.
 
 | Date | Spec | Reconciled by | Also referenced by | File |
 | --- | --- | --- | --- | --- |
+| 2026-08-17 | Give-back / heat-and-run — pre-registration | — | — | [2026-08-17-giveback-heat-and-run-prereg.md](2026-08-17-giveback-heat-and-run-prereg.md) |
 | 2026-08-15 | X ingest — graph resolution and truncation honesty | — | — | [2026-08-15-x-ingest-graph-resolution.md](2026-08-15-x-ingest-graph-resolution.md) |
 | 2026-08-14 | `/research-distil` — design | — | — | [2026-08-14-research-distil-design.md](2026-08-14-research-distil-design.md) |
 | 2026-08-13 | XS maker execution — design | — | — | [2026-08-13-xs-maker-execution-design.md](2026-08-13-xs-maker-execution-design.md) |
