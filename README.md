@@ -1279,6 +1279,12 @@ make docs-index     # Regenerate the audit + spec indexes
 edit the docs, then run `make docs-index`. `tests/test_docs_index.py` fails when
 a new audit or spec lands unindexed, so the indexes cannot drift silently.
 
+It also fails when **a new audit states no verdict a machine can read**. Put the
+verdict in prose under a `## Headline verdict:` heading — a table, blockquote or
+`**Date:**` line under that heading is rejected on purpose, because each renders
+as a plausible-but-wrong verdict. This is not style: an unreadable verdict is
+invisible to the daily check that asks whether anyone has picked the finding up.
+
 **Install/Update dependencies:**
 
 ```bash

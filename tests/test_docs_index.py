@@ -295,3 +295,88 @@ class TestTitleTrailingLabel:
         assert title_from_markdown(
             "# D1 — Spot-perp CVD divergence sleeve: VERDICT\n"
         ) == ("D1 — Spot-perp CVD divergence sleeve")
+
+
+# Frozen 2026-08-17. Audits written before the parseable-verdict rule existed;
+# each states its verdict in a table, a blockquote or the body, where
+# `verdict_from_markdown` cannot read it. **This set may only SHRINK** — the
+# ratchet below fails if an entry is fixed or deleted without being removed
+# here, so it cannot quietly re-admit blindness.
+#
+# They are grandfathered rather than retrofitted on purpose: sixteen of the
+# seventeen predate 2026-07 and their consequences have already shipped, so
+# rewriting their verdict sections would be churn against settled decisions
+# with a real chance of misstating one.
+VERDICT_RATCHET_GRANDFATHERED = frozenset(
+    {
+        "2026-05-17-adr-exempt.md",
+        "2026-05-17-adr-suppress-threshold.md",
+        "2026-05-17-volume-spike-boost.md",
+        "2026-05-18-bucket-c-dying-cells.md",
+        "2026-05-18-bucket-c-toml.md",
+        "2026-05-21-adr-exempt-mon-fri-weekend.md",
+        "2026-05-21-volume-suppress-mon-fri-weekend.md",
+        "2026-06-03-direction-axis-hard-flip.md",
+        "2026-06-04-prune-to-core-draft.md",
+        "2026-06-12-universe-backfill-coverage.md",
+        "2026-06-14-p1-portfolio-baseline.md",
+        "2026-06-15-exit-policy-ab-v1.md",
+        "2026-06-17-p3-xsmom-beta-neutral-persistence.md",
+        "2026-06-20-p3-xsmom-capacity.md",
+        "2026-07-21-st9-sl-horizon.md",
+        "2026-08-06-spec-reconcile-p2-ewmac-p3-combine.md",
+        "2026-08-14-workflow-enforcement-audit.md",
+    }
+)
+
+
+class TestEveryNewAuditExposesItsVerdict:
+    """A new audit must state its verdict where a machine can read it.
+
+    This exists because of a measured seven-week miss. The 2026-06-26
+    entry-sim harness returned **BUILD** — the only BUILD in the corpus — and
+    nothing ever built the detector, because the verdict lived in an audit and
+    the follow-up lived nowhere: it was never a to-do row, and its owning
+    hypothesis row (H3) still pointed forward at the harness that had already
+    run. `daily_check.py`'s "actionable audit verdicts" line closes that loop by
+    joining the generated index against the SoT — but it can only see audits
+    whose verdict *parses*, so seventeen were invisible to it. This ratchet
+    stops that blind spot growing.
+
+    It deliberately asserts nothing about verdict CONTENT. "Is this verdict
+    acted on" needs the SoT, which lives outside the repo; the only property
+    ownable here is that the verdict is legible at all.
+    """
+
+    def test_a_new_audit_states_a_parseable_verdict(self) -> None:
+        rows = collect_audits(REPO_ROOT / "docs/audits")
+        unreadable = sorted(
+            r.filename
+            for r in rows
+            if r.verdict is None and r.filename not in VERDICT_RATCHET_GRANDFATHERED
+        )
+        assert not unreadable, (
+            "these audits state no verdict a machine can read, so "
+            "daily_check.py's actionable-verdict line is blind to them: "
+            f"{unreadable}. Add a '## Headline verdict: ...' section stating the "
+            "verdict as PROSE (a table, blockquote or **Date:** line under the "
+            "heading is deliberately rejected — see TestVerdictFromMarkdown)."
+        )
+
+    def test_the_grandfather_set_can_only_shrink(self) -> None:
+        rows = {r.filename: r for r in collect_audits(REPO_ROOT / "docs/audits")}
+        deleted = sorted(VERDICT_RATCHET_GRANDFATHERED - rows.keys())
+        assert not deleted, (
+            f"grandfathered audits no longer exist: {deleted}. "
+            "Remove them from VERDICT_RATCHET_GRANDFATHERED."
+        )
+        fixed = sorted(
+            f
+            for f in VERDICT_RATCHET_GRANDFATHERED
+            if rows[f].verdict is not None  # now readable — the exemption is spent
+        )
+        assert not fixed, (
+            f"these audits now state a parseable verdict: {fixed}. "
+            "Remove them from VERDICT_RATCHET_GRANDFATHERED — a stale exemption "
+            "silently re-admits the blind spot it was granted for."
+        )
