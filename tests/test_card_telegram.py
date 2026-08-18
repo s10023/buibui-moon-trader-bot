@@ -7,7 +7,6 @@ import json
 from typing import Any
 
 from card.card import FinalCard, parse_trade_card
-from card.render import render_card
 from card.telegram import card_telegram_body
 
 
@@ -54,23 +53,52 @@ def _final(verdict: str, **card_overrides: Any) -> FinalCard:
 
 
 class TestBody:
-    def test_headline_is_bold_and_sits_outside_the_pre_block(self) -> None:
+    """The medium, not the terminal, decides the layout.
+
+    Telegram gives `<pre>` no soft wrapping, so a prose paragraph inside one
+    forces horizontal scrolling in a small monospace font. The card carries two
+    content types with opposite needs — aligned numbers that require `<pre>`,
+    and reasoning prose that is unreadable inside it — so the body splits them.
+    """
+
+    def test_headline_carries_verdict_symbol_and_direction(self) -> None:
         body = card_telegram_body(_final("TRADE"))
         headline = body.split("\n", 1)[0]
-        assert headline.startswith("<b>")
-        assert headline.endswith("</b>")
-        assert "BTCUSDT" in headline
+        assert headline.startswith("<b>") and headline.endswith("</b>")
         assert "TRADE" in headline
-        assert "<pre>" not in headline
+        assert "BTCUSDT" in headline
+        # the badge is imported from the signal alerts, not restated here, so
+        # the two operator-facing renderers cannot drift apart
+        assert "LONG 🟢" in headline
 
-    def test_card_body_is_wrapped_in_pre(self) -> None:
-        # The card renders as aligned ASCII. Without <pre>, Telegram collapses
-        # the runs of spaces and the columns stop lining up on the phone.
+    def test_short_carries_the_red_badge(self) -> None:
+        body = card_telegram_body(
+            _final("TRADE", direction="short", sl=102.0, tp1=97.0, tp2=95.0, tp3=92.0)
+        )
+        assert "SHORT 🔴" in body.split("\n", 1)[0]
+
+    def test_numbers_are_inside_the_pre_block(self) -> None:
         body = card_telegram_body(_final("TRADE"))
-        assert "<pre>" in body
-        assert body.endswith("</pre>")
-        assert "entry 100.0" in body
-        assert "confluence 6/9" in body
+        pre = body[body.index("<pre>") : body.index("</pre>")]
+        assert "ENTRY" in pre and "STOP" in pre
+        for token in ("100.0", "98.0", "103.0", "12.5"):
+            assert token in pre, token
+
+    def test_reasoning_prose_is_outside_every_pre_block(self) -> None:
+        # The whole point of the layout: prose must be free to soft-wrap.
+        final = _final("TRADE")
+        body = card_telegram_body(final)
+        pre_blocks = []
+        rest = body
+        while "<pre>" in rest:
+            head = rest.index("<pre>")
+            tail = rest.index("</pre>")
+            pre_blocks.append(rest[head:tail])
+            rest = rest[tail + len("</pre>") :]
+        for bullet in final.card.reasoning:
+            assert bullet in body
+            for block in pre_blocks:
+                assert bullet not in block
 
     def test_html_special_characters_are_escaped(self) -> None:
         # utils.telegram sends parse_mode=HTML, and an unescaped `<...>` is
@@ -87,6 +115,16 @@ class TestBody:
         assert "&amp;" in body
         assert "<module>" not in body
 
+    def test_quotes_are_left_alone(self) -> None:
+        # Telegram decodes only &lt; &gt; &amp;. An escaped apostrophe would
+        # render literally as &#x27; on the phone, and quotes need escaping in
+        # attributes, not in text content.
+        body = card_telegram_body(
+            _final("TRADE", reasoning=["regime is 'range'", "b 2", "c 3", "d 4", "e 5"])
+        )
+        assert "'range'" in body
+        assert "&#x27;" not in body
+
     def test_vetoed_card_carries_its_veto_reason(self) -> None:
         # A veto is how the daily breaker trip and the sub-lot capital wall
         # become visible on the phone, so VETOED must push like any other.
@@ -94,11 +132,24 @@ class TestBody:
         assert "VETOED" in body
         assert "SL must be below entry for a long" in body
 
-    def test_every_rendered_line_survives_into_the_message(self) -> None:
-        final = _final("NO_TRADE")
-        body = card_telegram_body(final)
-        for line in render_card(final).splitlines():
-            assert line in body
+    def test_no_trade_card_carries_the_gate_reason_and_no_price_block(self) -> None:
+        body = card_telegram_body(_final("NO_TRADE"))
+        assert "regime conflict" in body
+        assert "ENTRY" not in body
+
+    def test_an_over_long_card_is_trimmed_under_the_telegram_limit(self) -> None:
+        # Telegram rejects a body over 4096 chars outright, so an unusually
+        # verbose card must lose reasoning rather than the whole message.
+        body = card_telegram_body(
+            _final("TRADE", reasoning=["x" * 1200 for _ in range(5)])
+        )
+        assert len(body) <= 4096
+        assert "trimmed" in body
+
+    def test_valid_until_is_shortened_for_reading(self) -> None:
+        body = card_telegram_body(_final("TRADE"))
+        assert "11 Jul 12:00 UTC" in body
+        assert "2026-07-11T12:00:00Z" not in body
 
 
 def _cli_args(db: str, **overrides: Any) -> argparse.Namespace:
