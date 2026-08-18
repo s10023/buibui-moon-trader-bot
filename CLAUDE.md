@@ -435,6 +435,19 @@ Three things from that study generalise:
    rows → 162,263 distinct). Dedup on `(symbol, timeframe, strategy, direction,
    entry_time)`, or every n inflates ~5× and every t ~2.3×.
 
+**Give-back is REAL, and exit tuning stays CLOSED anyway**
+(`docs/audits/2026-08-18-st17-giveback-heat-and-run.md`). Of the 1,790 live rows reaching
++1R, **28.9% finish at or below zero**; median give-back **+0.8131R** on a CI of
+[+0.7153, +0.9455], median capture **0.554**. ⚠ **This does NOT re-open exit tuning as a
+P&L lever** — the 2026-08-07 whole-book time-stop sweep is monotone in hold time and
+negative at EVERY setting, so banking the give-back earlier was already tested and lost; a
+large give-back is not evidence against that answer. ⚠ **The timeframe gradient (capture
++0.633 at 15m → −0.423 at 1d, stop width held constant) is the flat-2%-SL defect
+resurfacing, not a new axis** — the stop is 2.000% at the median on EVERY tf while median
+bars held runs 96/24/10/2, so a 1d trade is resolved in two bars by a stop tiny against a
+daily range. Any trail/breakeven rule is a NEW construction inheriting the full three-leg
+gate under its own pre-registration.
+
 **The binding constraint, confirmed five times** (exits, trend-weight, combine, carry,
 reversal): the system needs a second *strong* edge, and the cheap price-only free-data
 levers are exhausted. A new sleeve must carry genuinely new information. **Conditioning axes

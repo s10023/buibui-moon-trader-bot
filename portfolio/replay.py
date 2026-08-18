@@ -84,6 +84,30 @@ def restate_gross_r(
     return realized_r - 2.0 * (fee_pct + slippage_pct) * entry_price / risk
 
 
+def restate_on_resolution_clock(
+    realized_r: float,
+    entry_price: float,
+    sl_price: float,
+    outcome_filled_at_ms: int,
+    *,
+    fee_pct: float = _DEFAULT_FEE_PCT,
+    slippage_pct: float = _DEFAULT_SLIPPAGE_PCT,
+) -> float:
+    """Put one ledger row onto the post-parity net basis, splitting on the RESOLUTION clock.
+
+    The split MUST be on ``outcome_filled_at_ms``, never ``candle_ts_ms``: candle
+    time smears the basis step across the resolution lag and manufactures a
+    phantom era two months early. Extracted 2026-08-18 so `replay_ledger` and
+    every later ledger study apply ONE rule rather than two spellings of it —
+    the powered-null family reached six sites by being spelled six ways.
+    """
+    if outcome_filled_at_ms >= _COST_PARITY_MS:
+        return realized_r
+    return restate_gross_r(
+        realized_r, entry_price, sl_price, fee_pct=fee_pct, slippage_pct=slippage_pct
+    )
+
+
 _RESOLVED_SQL = (
     "SELECT signal_id, symbol, tf, strategy, direction, candle_ts_ms, "
     "       outcome_filled_at_ms, entry_price, sl_price, outcome, outcome_r "
@@ -208,12 +232,13 @@ def replay_ledger(
         # Restate on the RESOLUTION clock (r[6] = outcome_filled_at_ms), never the
         # candle clock — see the note above `_COST_PARITY_MS`.
         raw = float(row[10])  # type: ignore[arg-type]
-        if not restate_cost_basis or int(row[6]) >= _COST_PARITY_MS:  # type: ignore[call-overload]
+        if not restate_cost_basis:
             return raw
-        return restate_gross_r(
+        return restate_on_resolution_clock(
             raw,
             float(row[7]),  # type: ignore[arg-type]
             float(row[8]),  # type: ignore[arg-type]
+            int(row[6]),  # type: ignore[call-overload]
         )
 
     trades = [
