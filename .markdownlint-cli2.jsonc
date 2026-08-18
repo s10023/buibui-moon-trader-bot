@@ -18,6 +18,12 @@
         ".claude/context/*.md",
         ".claude/agents/*.md",
         "!.claude/skills/humanizer",
+        // `.cache/` is gitignored scratch. It holds whole COPIES of the repo — a
+        // clean-tree export for a Trivy scan leaves one behind — so without this
+        // the linter walks a second copy of every doc and the pre-commit hook
+        // blocks every commit on a file nobody edited. Same intent as `!docs/plans`
+        // below: `.gitignore` ignores it, so the linter should too.
+        "!.cache",
         "!.agents",
         "!.superpowers",
         "!.github/pull_request_template.md",
