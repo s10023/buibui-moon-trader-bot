@@ -60,6 +60,7 @@ def extract_fvg_zones(
                     "zone_low": gap_bot,
                     "zone_high": gap_top,
                     "start_ms": int(open_times[i - 1]),
+                    "confirm_ms": int(open_times[i + 1]),
                     "close_ms": close_ms,
                     "active": active,
                 }
@@ -85,6 +86,7 @@ def extract_fvg_zones(
                     "zone_low": gap_bot,
                     "zone_high": gap_top,
                     "start_ms": int(open_times[i - 1]),
+                    "confirm_ms": int(open_times[i + 1]),
                     "close_ms": close_ms_bear,
                     "active": active_bear,
                 }
@@ -147,6 +149,7 @@ def extract_order_block_zones(
                     "zone_low": ob_zone_bot,
                     "zone_high": ob_zone_top,
                     "start_ms": int(open_times[i]),
+                    "confirm_ms": int(open_times[i + 1]),
                     "close_ms": ob_close_ms,
                     "active": ob_active,
                 }
@@ -170,6 +173,7 @@ def extract_order_block_zones(
                     "zone_low": ob_zone_bot,
                     "zone_high": ob_zone_top,
                     "start_ms": int(open_times[i]),
+                    "confirm_ms": int(open_times[i + 1]),
                     "close_ms": ob_close_ms_bull,
                     "active": ob_active_bull,
                 }
@@ -245,6 +249,7 @@ def extract_eqh_eql_zones(
                         "direction": "bear",
                         "price": pool_price,
                         "start_ms": int(open_times[idx_j]),
+                        "confirm_ms": int(open_times[idx_k + swing_n]),
                         "close_ms": close_ms,
                         "label": "EQH",
                         "active": active,
@@ -281,6 +286,7 @@ def extract_eqh_eql_zones(
                         "direction": "bull",
                         "price": pool_price,
                         "start_ms": int(open_times[idx_j]),
+                        "confirm_ms": int(open_times[idx_k + swing_n]),
                         "close_ms": close_ms_eql,
                         "label": "EQL",
                         "active": active_eql,
@@ -341,6 +347,7 @@ def extract_bos_zones(
                     "direction": "bear",
                     "price": float(highs[i]),
                     "start_ms": int(open_times[i]),
+                    "confirm_ms": int(open_times[i + swing_lookback]),
                     "close_ms": close_ms,
                     "label": "R",
                     "active": active,
@@ -363,6 +370,7 @@ def extract_bos_zones(
                     "direction": "bull",
                     "price": float(lows[i]),
                     "start_ms": int(open_times[i]),
+                    "confirm_ms": int(open_times[i + swing_lookback]),
                     "close_ms": close_ms_s,
                     "label": "S",
                     "active": active_s,
@@ -449,6 +457,7 @@ def extract_fib_golden_zones(
             "zone_low": zone_low,
             "zone_high": zone_high,
             "start_ms": start_ms,
+            "confirm_ms": int(open_times[n - 1]),
             "active": True,
         }
     ]
@@ -503,6 +512,7 @@ def extract_ote_zones(
             "zone_low": zone_low,
             "zone_high": zone_high,
             "start_ms": start_ms,
+            "confirm_ms": int(open_times[n - 1]),
             "active": True,
         }
     ]

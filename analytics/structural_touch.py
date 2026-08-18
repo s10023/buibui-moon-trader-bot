@@ -44,6 +44,12 @@ class Zone:
     `bias` is the expected reaction direction on a touch: ``long`` for
     demand/support zones (price should bounce up), ``short`` for supply/
     resistance zones. Bounds and `start_ms` are fixed at formation (causal).
+
+    `confirm_ms` is the open_time of the earliest bar at which the zone is
+    knowable from CLOSED bars only, which is strictly later than `start_ms` for
+    every zone type (a gap needs its third candle, a swing needs its lookback,
+    an EQH pool needs its second swing). Defaults to 0 so a legacy caller keeps
+    the old formation-time semantics rather than crashing.
     """
 
     zone_type: str
@@ -53,6 +59,7 @@ class Zone:
     start_ms: int
     symbol: str = ""
     tf: str = ""
+    confirm_ms: int = 0
 
 
 @dataclass(frozen=True)
@@ -69,15 +76,31 @@ def index_touches(
     bars: pd.DataFrame,
     *,
     min_gap_bars: int = 1,
+    respect_confirmation: bool = True,
+    require_outside_first: bool = True,
 ) -> list[Touch]:
-    """Index the touches of `zone` over `bars` (only bars after formation).
+    """Index the touches of `zone` over `bars` that a live detector could take.
 
     A *touch* is an outside-to-inside transition: a bar whose ``[low, high]``
     range intersects the zone band, preceded by at least ``min_gap_bars`` bars
-    outside the band (the very first eligible inside bar always counts).
-    Contiguous inside bars are the same touch. Only bars with
-    ``open_time > zone.start_ms`` are eligible (a level is touched after it
-    forms — causal).
+    outside the band. Contiguous inside bars are the same touch, and only bars
+    with ``open_time > zone.start_ms`` are eligible.
+
+    Two switches carry the causality correction (both default on; both off
+    reproduces the pre-2026-08-18 population exactly):
+
+    * ``respect_confirmation`` — a bar is eligible only from ``zone.confirm_ms``
+      onward. Inclusive of that bar: the zone is known at its close and the
+      engine enters at the next bar's open.
+    * ``require_outside_first`` — the first touch must be a genuine RETURN from
+      outside the band. Without it, a band whose edge is defined by its own
+      confirmation bar (fvg, ob) reports a mechanically-guaranteed touch there,
+      which is momentum continuation rather than a touch of a level.
+
+    On the first eligible bar the return rule necessarily dominates, so an
+    already-inside zone yields no touch until price leaves the band and comes
+    back. `touch_index` restarts at 1 from the first eligible touch — the first
+    touch a live detector can see IS its first touch.
     """
     open_time = bars["open_time"].to_numpy(dtype="int64")
     high = bars["high"].to_numpy(dtype=float)
@@ -85,9 +108,12 @@ def index_touches(
 
     touches: list[Touch] = []
     prev_inside = False
-    outside_run = min_gap_bars  # so the first eligible inside bar qualifies
+    # legacy start (== min_gap_bars) lets the first eligible inside bar qualify
+    outside_run = 0 if require_outside_first else min_gap_bars
     for i in range(len(bars)):
         if open_time[i] <= zone.start_ms:
+            continue
+        if respect_confirmation and open_time[i] < zone.confirm_ms:
             continue
         inside = low[i] <= zone.zone_high and high[i] >= zone.zone_low
         if inside and not prev_inside and outside_run >= min_gap_bars:
@@ -138,6 +164,7 @@ def _zone_from_dict(
         start_ms=int(z["start_ms"]),
         symbol=symbol,
         tf=tf,
+        confirm_ms=int(z.get("confirm_ms", z["start_ms"])),
     )
 
 
@@ -300,6 +327,8 @@ def build_touch_table(
     fib_step: int = 1,
     hold_thr: float = 1.0,
     adv_thr: float = 1.0,
+    respect_confirmation: bool = True,
+    require_outside_first: bool = True,
 ) -> pd.DataFrame:
     """One row per (symbol, tf, zone_type, zone, touch) with forward excursion.
 
@@ -326,7 +355,13 @@ def build_touch_table(
             )
             for z in zones:
                 zid = f"{symbol}:{tf}:{zt}:{z.start_ms}:{round(z.zone_low, 8)}"
-                for t in index_touches(z, bars, min_gap_bars=min_gap_bars):
+                for t in index_touches(
+                    z,
+                    bars,
+                    min_gap_bars=min_gap_bars,
+                    respect_confirmation=respect_confirmation,
+                    require_outside_first=require_outside_first,
+                ):
                     a = float(atr.iloc[t.bar_idx]) if t.bar_idx < len(atr) else med
                     if not np.isfinite(a) or a <= 0.0:
                         a = med
