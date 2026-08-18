@@ -661,8 +661,19 @@ respond to its own bar's close would be the real bug.
 Managed via Poetry (`poetry install --no-root`). Never edit `poetry.lock` by hand — use
 `poetry add` / `poetry remove`.
 
-- Runtime: `duckdb`, `pandas`, `pyarrow`, `yt-dlp`, `yt-dlp-ejs`
+- Runtime: `duckdb`, `pandas`, `pyarrow`, `yt-dlp` (**a NIGHTLY pin — see below**), `yt-dlp-ejs`
 - Dev: ruff, mypy, pytest, pytest-mock, pre-commit, type stubs, pandas-stubs
+
+⚠ **`yt-dlp` is pinned to a NIGHTLY pre-release on purpose** (`>=2026.8.18.122307.dev0`, with
+`allow-prereleases = true`). Stable `2026.7.4` resolves ONLY the `android_vr` player client for
+YouTube, and that client's media URLs return **HTTP 403 on every download**; `player_client` =
+`web`/`tv`/`web_safari`/`mweb`/`ios` return **no formats at all**, so there is no flag workaround
+on stable. The nightly uses `visionos` and works. **One failure, three symptoms:** captions, the
+Groq whisper fallback and frame extraction ALL sit downstream of the media leg, so a 403 there
+presents as a dead vision pass rather than as a download problem (that is SoT ST41, which cost a
+whole ingest round before anyone looked at the dependency). **The pin WILL go stale** — YouTube
+breaks yt-dlp every few weeks; re-bump, and return to a stable constraint once one carries the
+fix.
 
 System dependencies, not Poetry-managed:
 
@@ -675,7 +686,10 @@ System dependencies, not Poetry-managed:
   JavaScript runtime" and drops to a fallback client; without `yt-dlp-ejs` it reports
   "Signature solving failed" / "n challenge solving failed". Captions still resolve either
   way, so the failure looks like one unlucky video while every media download can 403 —
-  which costs `/ingest-video` the whole vision pass.
+  which costs `/ingest-video` the whole vision pass. ⚠ **Both halves being PRESENT does
+  not rule the 403 out** — on 2026-08-18 `node` v22.23.1 and `yt-dlp-ejs` were installed
+  and every media download still 403’d, because the cause was the yt-dlp build itself.
+  Check the version before re-checking these two.
 - **`agent-browser`** (npm global) — backs `tools/coinglass_capture.sh`, the ST15
   half-automation of the `/ingest-charts` daily capture set. Absent ⇒ that script fails
   outright; hand-captured drops are unaffected. **Its daemon is sticky**: once running it

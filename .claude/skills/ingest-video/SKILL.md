@@ -101,7 +101,7 @@ transcript at all; without it, `unavailable` reports that explicitly (see shape 
 | Shape | `meta` | `unavailable` | Meaning | Action |
 | --- | --- | --- | --- | --- |
 | 1 | `null` | `"<reason>"` | The video itself is unreachable (bad URL, deleted, private, yt-dlp failure). Nothing else is known. | Tell the user by URL, drop it from the batch, continue with the rest. |
-| 2 | `{...}` | `"<reason>"` | Metadata resolved fine, but no transcript could be produced — either "no captions available and no GROQ_API_KEY configured", or a Groq failure (HTTP error, audio extraction, chunking). | Because `meta` is populated, name the video (`meta.author`, `meta.title`) in the health note, and say **which of the two reasons** it was. Skip it from pass 1 onward — there is no transcript to feed. |
+| 2 | `{...}` | `"<reason>"` | Metadata resolved fine, but no transcript could be produced — one of THREE reasons — "no captions available and no GROQ_API_KEY configured", a Groq failure (HTTP error, audio extraction, chunking), or **media download blocked** (`unable to download video data: HTTP Error 403`), which is neither of the first two and used to be mis-filed as one of them. | Because `meta` is populated, name the video (`meta.author`, `meta.title`) in the health note, and say **which of the three reasons** it was. ⚠ **A media-download block is ENVIRONMENTAL and batch-wide** — it kills captions, the whisper fallback AND frame extraction together, so do not keep batching: check the yt-dlp pin (see step 5) before spending subagent tokens on a round that cannot produce frames. Skip it from pass 1 onward — there is no transcript to feed. |
 | 3 | `{...}` | `null` | Fully usable. | Proceed. |
 
 Only shape-3 videos continue through the rest of this flow.
@@ -546,7 +546,16 @@ already retried the download-and-seek internally (3 attempts, short backoff) —
 exhaust it: round 4 hit two that survived the retry and **both cleared on a single manual
 re-run**, one of them on the video carrying that batch's only complete
 entry+stop+target row. So **re-run the step once by hand**, and take the health note only
-if it comes back empty again. Do NOT record
+if it comes back empty again.
+⚠ **A 403 here has TWO classes, and the hand re-run separates them — that is what it is
+FOR.** Round 4's were transient. The 2026-08-18 class (SoT ST41) was **persistent and
+version-caused**: stable yt-dlp resolved only the `android_vr` player client, whose media
+URLs 403 unconditionally, so no retry count and no hand re-run cleared it — 0 frames on
+4-for-4 videos. **A 403 that survives the hand re-run is a DEPENDENCY defect, not an
+unlucky video.** Stop re-running and check `yt-dlp --version` against the pin in
+`pyproject.toml`; diagnose with a plain `yt-dlp -f 251 <url>`, **never
+`--download-sections`**, which hands the URL to ffmpeg, carries no client context, and
+403s even when a plain download succeeds. Do NOT record
 `chart_present: false` for that case; that flag is reserved for step 6, where frames
 WERE produced and pass 2 actually looked at them and found no chart.
 
