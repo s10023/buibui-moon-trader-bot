@@ -281,12 +281,13 @@ buibui-brief:  ## Daily market brief (read-only; SYMBOLS=/AS_OF= optional)
 		$(if $(AS_OF),--as-of $(AS_OF),)
 
 .PHONY: buibui-card
-buibui-card:  ## AI trade card (SYMBOL= required; DIRECTION=/HORIZON=/AS_OF=/DRY=1/CONFIG= optional)
+buibui-card:  ## AI trade card (SYMBOL= required; DIRECTION=/HORIZON=/AS_OF=/DRY=1/TG=1/CONFIG= optional)
 	@poetry run python buibui.py card $(SYMBOL) \
 		$(if $(DIRECTION),--direction $(DIRECTION),) \
 		$(if $(HORIZON),--horizon $(HORIZON),) \
 		$(if $(AS_OF),--as-of $(AS_OF),) \
 		$(if $(CONFIG),--config $(CONFIG),) \
+		$(if $(TG),--telegram,) \
 		$(if $(DRY),--dry-run,)
 
 .PHONY: buibui-forecast-audit

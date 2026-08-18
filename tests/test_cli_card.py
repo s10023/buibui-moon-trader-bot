@@ -27,6 +27,7 @@ class TestParser:
         assert args.dry_run is False
         assert args.no_ledger is False
         assert args.json is False
+        assert args.telegram is False
         assert callable(args.func)
 
     def test_flags(self) -> None:
@@ -43,11 +44,13 @@ class TestParser:
                 "--dry-run",
                 "--no-ledger",
                 "--json",
+                "--telegram",
             ]
         )
         assert args.direction == "short"
         assert args.horizon == "swing"
         assert args.dry_run is True
+        assert args.telegram is True
 
 
 class TestAccountProviderFor:
