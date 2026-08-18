@@ -81,6 +81,10 @@ Found while validating the join against the invariant "a win touched its TP, so 
 
 Small, but it is a live-ledger accounting defect rather than a study artifact, and it runs one way. Not fixed here — it belongs to the alert/resolver path, not to a descriptive study.
 
+**RESOLVED 2026-08-18 (SoT ST39), after this audit filed it.** The cause was neither hypothesis this section left open: both fields are written in the same call, and the disagreement is structural. `_resolve_outcome_sl_tp` prefers the detector's structural TP, which the requested `tp_r` never fed, while the caller stored `tp_r` as `rr_ratio` — so the mismatches sit entirely in the two structural-TP emitters (`ema`, `fib_golden_zone`) and the direction is unanimous because a nearby structural level is almost always closer than a 3–5R target. `signals/alert_formatter.py` had derived the realised ratio correctly since it was written, so the alert and the ledger had silently disagreed; all three sites now share `analytics.signal._common.realised_rr`.
+
+The 29 rows were restated via `tools/restate_rr_ratio.py` (8 wins, **-9.1591R**), moving the pooled ledger **-0.127514 → -0.129263 R/row**. **This audit's own figures are unaffected:** the give-back study computes MFE from OHLCV and never reads `rr_ratio`, the 8 restated rows are all wins so the "28.9% finish at or below zero" count cannot move, and 8 rows of 1,790 do not shift the reported medians. The restatement DOES repair the invariant this section used to find the defect — `MFE_R >= rr_ratio` now holds on all 247 wins, because `exits/mfe_mae.py` clamps win MFE to that same column.
+
 ## Limits stated up front
 
 - **Costs are modelled, not realised.** Raw stays exactly −1.0 = declared risk, so no figure here expresses gap risk and each is an optimistic bound whose error runs one way.

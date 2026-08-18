@@ -32,6 +32,7 @@ from pathlib import Path
 
 import duckdb
 
+from analytics.signal._common import realised_rr
 from analytics.signal.outcome_backfill import backfill_outcomes
 from analytics.signal.resolvers import _resolve_sl_pct, _resolve_tp_r
 from analytics.signal.scanner import _resolve_outcome_sl_tp
@@ -84,7 +85,13 @@ def reconstruct_null_outcomes(
             tp_r=eff_tp_r,
         )
         counts["reconstructed"] += 1
-        updates.append((ev_sl, ev_tp, eff_tp_r, str(signal_id)))
+        ev_rr = realised_rr(
+            entry=float(entry_price),
+            sl_price=ev_sl,
+            tp_price=ev_tp,
+            fallback=eff_tp_r,
+        )
+        updates.append((ev_sl, ev_tp, ev_rr, str(signal_id)))
 
     if apply and updates:
         conn.executemany(

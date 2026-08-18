@@ -497,6 +497,14 @@ star-ratings null.
 **Lot-size rounding** — `portfolio/sizing.py::round_down_to_step` snaps before it floors;
 why that snap is load-bearing rides the `sizing-round-down` card.
 
+**R:R comes from `analytics.signal._common.realised_rr`, never from the requested `tp_r`.**
+Three sites need it — the ledger writer, the outcome resolver and `alert_formatter.py` — so
+import it rather than re-deriving. A structural TP is the detector's own level, which `tp_r`
+never fed, so storing the request describes a target the row does not carry: that shipped as
+ST39 (29 live rows, unanimously over-crediting wins) **while a test asserted the wrong value
+as correct**, which is why the gates were green throughout. Deep ref
+`.claude/context/analytics.md`; the migration is `tools/restate_rr_ratio.py`.
+
 **XS execution** — the maker/taker split, GTX book-touch pricing, the cancel-before-plan
 precondition and the taker `fee_pct` that keeps the sleeve's gate verdict a floor all ride
 the `xs-execution` card (deep ref `.claude/context/execution.md`). **The deployment
