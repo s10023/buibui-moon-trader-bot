@@ -678,6 +678,15 @@ cannot carry live here:
   The intake's own header says the bottleneck is testing capacity, not idea capture, and
   trial count dominates n — so a skill that turns a book into forty hypotheses pushes every
   cell out of reach. "Unreachable, do not build" is a successful output, not a failure.
+- **Does a skill upgrade force a RE-INGEST of the old corpus? Ask what the defect changed.**
+  A defect that changed **coverage** — what got dropped, capped or never fetched — requires
+  one, because the missing rows are unrecoverable from the per-item notes. A defect that
+  changed only **presentation, attribution or routing** of material already captured does
+  not: the evidence is still on disk and a cheaper repair exists. Measured both ways —
+  `/ingest-video`'s item-cap left 29 items unrecoverable, while the roster fix repaired
+  attribution and `mechanics-backlog` roughly doubled with **no LLM call**. This lives here
+  rather than in the four ingest skills because a rule spelled four ways drifts, which is
+  how the powered-null family reached six sites.
 - **Take `tp_r` only from `/wfo-sweep`**, the trusted production path. `/config-refresh` runs
   on the full dataset with no out-of-sample split.
 - **Run one `/card` per background exec** — never `&&`-chain them.
