@@ -2101,7 +2101,11 @@ class TestSignalOutcomePersistence:
         ).fetchone()
         assert row is not None
         assert row[0] == pytest.approx(120.5)  # structural TP wins
-        assert row[1] == pytest.approx(2.0)  # rr_ratio = eff_alert_tp_r
+        # SoT ST39: the structural TP is NOT derived from the requested tp_r, so
+        # rr_ratio must describe the TP actually stored. entry 104, sl 98 -> risk 6,
+        # tp 120.5 -> 16.5/6 = 2.75R. This assertion previously read 2.0 (the
+        # requested tp_r), which is how the defect survived with test coverage.
+        assert row[1] == pytest.approx(2.75)
 
     def test_outcome_row_uses_pct_fallback_when_no_structural_sl(
         self, tmp_path: Any

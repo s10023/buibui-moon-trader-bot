@@ -39,6 +39,7 @@ from analytics.data_store import (
 from analytics.regime import Regime, classify_series
 from analytics.signal._common import (
     _bt_mem_cache,
+    realised_rr,
     scan_window,
 )
 from analytics.signal.atr_floor import _apply_atr_floor
@@ -1033,7 +1034,12 @@ def run_scan_cycle(
                             "entry_price": entry,
                             "sl_price": ev_sl,
                             "tp_price": ev_tp,
-                            "rr_ratio": eff_alert_tp_r,
+                            "rr_ratio": realised_rr(
+                                entry=entry,
+                                sl_price=ev_sl,
+                                tp_price=ev_tp,
+                                fallback=eff_alert_tp_r,
+                            ),
                             "confidence_at_fire": e.confidence,
                             "tags": e.reason,
                         },

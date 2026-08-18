@@ -13,7 +13,11 @@ mirroring the backtest engine semantics in `analytics/backtest/engine.py`:
 Same-bar TP+SL resolves to "loss" (conservative, matches the engine).
 
 Outcomes:
-  - "win"     — TP hit first. outcome_r = +rr_ratio − costs
+  - "win"     — TP hit first. outcome_r = +R implied by `tp_price` − costs.
+                The stored `rr_ratio` is NOT used: a structural TP is not
+                derived from the requested tp_r, so paying the stored ratio
+                credits the target the alert asked for rather than the one it
+                hit (SoT ST39). `rr_ratio` is the fallback for a zero-risk row.
   - "loss"    — SL hit first or same-bar tie. outcome_r = -1.0 − costs
   - "expired" — exceeded `max_hold_bars` without hitting either.
                 outcome_r = mark-to-market at the last in-window bar − costs.
@@ -36,7 +40,7 @@ import numpy as np
 import pandas as pd
 
 from analytics.data_store import get_funding_rates, get_ohlcv
-from analytics.signal._common import parse_timeframe_secs
+from analytics.signal._common import parse_timeframe_secs, realised_rr
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +159,10 @@ def _scan_forward(
         return "loss", _net(-1.0, exit_ts), exit_ts
     if tp_first < len(t):
         exit_ts = int(t[tp_first])
-        return "win", _net(float(rr_ratio), exit_ts), exit_ts
+        win_r = realised_rr(
+            entry=entry, sl_price=sl_price, tp_price=tp_price, fallback=float(rr_ratio)
+        )
+        return "win", _net(win_r, exit_ts), exit_ts
 
     # Neither hit within the window so far.
     if len(window) < max_hold_bars:

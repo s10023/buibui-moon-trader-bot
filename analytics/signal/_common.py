@@ -89,3 +89,19 @@ def secs_until_next_boundary(timeframes: list[str]) -> tuple[float, float]:
         next_wakeups.append(next_close + _CANDLE_CLOSE_BUFFER_SECS)
     wake_ts = min(next_wakeups)
     return max(0.0, wake_ts - now), wake_ts
+
+
+def realised_rr(
+    *, entry: float, sl_price: float, tp_price: float, fallback: float
+) -> float:
+    """R multiple the stored `tp_price` actually pays against the stored risk.
+
+    SoT ST39. The requested `tp_r` only equals this when the TP was derived from
+    it; a structural TP is taken from the detector's own level, so storing the
+    request leaves `rr_ratio` describing a target the row does not carry. Both
+    the ledger writer and the resolver read this so they cannot disagree.
+    """
+    risk = abs(entry - sl_price)
+    if risk <= 0.0:
+        return fallback
+    return abs(tp_price - entry) / risk

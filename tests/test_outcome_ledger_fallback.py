@@ -371,3 +371,49 @@ class TestStructuralUnchanged:
         assert math.isclose(row["sl_price"], 103.0)
         assert math.isclose(row["tp_price"], 94.0)
         assert math.isclose(row["rr_ratio"], 2.0)
+
+
+class TestStructuralTpRatioIsRealised:
+    """SoT ST39: `rr_ratio` must describe the TP actually stored, not the tp_r asked for.
+
+    When a valid structural TP is taken it does NOT come from `sl_dist * tp_r`, so
+    persisting the requested multiple leaves the row self-inconsistent — and the
+    resolver pays a win `+rr_ratio`, over-crediting it. Measured on the live ledger:
+    29 of 5,304 rows disagree, 29/29 with the stored ratio the larger one.
+    """
+
+    def test_long_structural_tp_records_realised_ratio(self, tmp_path: Any) -> None:
+        # entry 100, structural sl 96 -> sl_dist 4; tp_r 2.0 would give 108, but the
+        # structural TP 106 wins -> realised ratio is (106-100)/4 = 1.5, not 2.0.
+        event = SignalEvent(
+            symbol="BTCUSDT",
+            timeframe="1h",
+            strategy="bos",
+            direction="long",
+            reason="test",
+            open_time=_HOUR,
+            price=100.0,
+            sl_price=96.0,
+            tp_price=106.0,
+        )
+        row = _run_cycle_with_event(event, tmp_path)
+        assert math.isclose(row["tp_price"], 106.0)
+        assert math.isclose(row["rr_ratio"], 1.5)
+
+    def test_short_structural_tp_records_realised_ratio(self, tmp_path: Any) -> None:
+        # entry 100, structural sl 103 -> sl_dist 3; tp_r 2.0 would give 94, but the
+        # structural TP 97 wins -> realised ratio is (100-97)/3 = 1.0, not 2.0.
+        event = SignalEvent(
+            symbol="BTCUSDT",
+            timeframe="1h",
+            strategy="bos",
+            direction="short",
+            reason="test",
+            open_time=_HOUR,
+            price=100.0,
+            sl_price=103.0,
+            tp_price=97.0,
+        )
+        row = _run_cycle_with_event(event, tmp_path)
+        assert math.isclose(row["tp_price"], 97.0)
+        assert math.isclose(row["rr_ratio"], 1.0)

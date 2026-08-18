@@ -642,3 +642,83 @@ class TestStillFormingFinalBar:
         )
         assert counts["win"] == 1
         assert _fetch_one(conn, "sig1")[0] == "win"
+
+
+class TestWinPaysTheStoredTarget:
+    """SoT ST39: a win pays the R its own `tp_price` implies, not the stored `rr_ratio`.
+
+    The touch test already uses `tp_price`; paying `rr_ratio` credits the target the
+    alert ASKED for rather than the one it HIT. On the live ledger the two disagree on
+    29 of 5,304 rows, unanimously stored-larger, over-crediting 8 wins by 9.16R.
+    """
+
+    def test_win_pays_ratio_implied_by_tp_price(self) -> None:
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        # risk 5, tp 110 -> implied 2.0R, but the row carries a stale rr_ratio of 4.0.
+        _insert_signal(conn, candle_ts_ms=0, entry=100.0, sl=95.0, tp=110.0, rr=4.0)
+        _insert_ohlcv(
+            conn,
+            "BTCUSDT",
+            "1h",
+            [
+                {"open_time": _HOUR, "high": 102.0, "low": 99.0, "close": 101.0},
+                {"open_time": 2 * _HOUR, "high": 111.0, "low": 100.0, "close": 110.5},
+            ],
+        )
+
+        counts = backfill_outcomes(conn, now_ms=3 * _HOUR)
+        assert counts["win"] == 1
+        outcome, outcome_r, _ = _fetch_one(conn, "sig1")
+        assert outcome == "win"
+        assert outcome_r == pytest.approx(2.0)
+
+    def test_short_win_pays_ratio_implied_by_tp_price(self) -> None:
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        # risk 4, tp 94 -> implied 1.5R, stored rr_ratio 3.0.
+        _insert_signal(
+            conn,
+            direction="short",
+            candle_ts_ms=0,
+            entry=100.0,
+            sl=104.0,
+            tp=94.0,
+            rr=3.0,
+        )
+        _insert_ohlcv(
+            conn,
+            "BTCUSDT",
+            "1h",
+            [
+                {"open_time": _HOUR, "high": 101.0, "low": 98.0, "close": 99.0},
+                {"open_time": 2 * _HOUR, "high": 100.0, "low": 93.0, "close": 94.5},
+            ],
+        )
+
+        counts = backfill_outcomes(conn, now_ms=3 * _HOUR)
+        assert counts["win"] == 1
+        outcome, outcome_r, _ = _fetch_one(conn, "sig1")
+        assert outcome == "win"
+        assert outcome_r == pytest.approx(1.5)
+
+    def test_zero_risk_row_falls_back_to_stored_ratio(self) -> None:
+        """entry == sl leaves the implied ratio undefined; keep the row scoreable
+        on its stored value rather than dividing by zero."""
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        _insert_signal(conn, candle_ts_ms=0, entry=100.0, sl=100.0, tp=110.0, rr=2.0)
+        _insert_ohlcv(
+            conn,
+            "BTCUSDT",
+            "1h",
+            [
+                {"open_time": _HOUR, "high": 111.0, "low": 100.5, "close": 110.5},
+            ],
+        )
+
+        counts = backfill_outcomes(conn, now_ms=2 * _HOUR)
+        assert counts["win"] == 1
+        outcome, outcome_r, _ = _fetch_one(conn, "sig1")
+        assert outcome == "win"
+        assert outcome_r == pytest.approx(2.0)

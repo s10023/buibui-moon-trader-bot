@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from analytics.signal._common import realised_rr
 from analytics.signal.types import ConfluenceData, SignalEvent, StatsContext
 
 __all__ = [
@@ -467,7 +468,11 @@ def format_confluence_alert(
         tp_price = structural_tp if structural_tp > 0 else price - sl_dist * tp_r
 
     sl_pct_display = abs(sl_dist / price) * 100
-    actual_r = abs(tp_price - price) / sl_dist if sl_dist > 0 else tp_r
+    # Shared with the outcome-ledger writer and the resolver so the R the alert
+    # shows and the R the ledger stores cannot drift (SoT ST39).
+    actual_r = realised_rr(
+        entry=price, sl_price=sl_price, tp_price=tp_price, fallback=tp_r
+    )
     tp_pct_display = abs(tp_price - price) / price * 100
 
     # --- Section 1: Header ---
