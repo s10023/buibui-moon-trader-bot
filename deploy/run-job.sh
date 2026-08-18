@@ -102,8 +102,21 @@ tail -n 60 "$log"
 # Telegram hard-caps a message at 4096 chars and rejects the whole send past it,
 # so the body is capped well under that -- an over-long alert fails exactly like
 # no alert.
+#
+# <pre> is also why the body must be FOLDED here. It preserves alignment by never
+# soft-wrapping, so one over-wide line drags the entire report sideways on a phone
+# (measured 2026-08-18: a single 164-char daily-check line did exactly that). The
+# fold runs BEFORE the byte cap deliberately -- folding inserts a newline every
+# TG_FOLD_WIDTH columns, so capping first would add those newlines on top of the
+# budget the cap exists to hold. Both legs live in tg_send rather than at the call
+# sites so the success and failure paths cannot drift apart.
+TG_FOLD_WIDTH=46   # phone-readable column inside Telegram's <pre> monospace
+TG_BODY_CAP=3400   # bytes, kept well under Telegram's 4096 hard cap
+
 tg_send() { # $1 = headline, $2 = body
-    HEAD="$1" BODY="$2" poetry run python -c \
+    local body
+    body="$(printf '%s\n' "$2" | fold -w "$TG_FOLD_WIDTH" -s | tail -c "$TG_BODY_CAP")"
+    HEAD="$1" BODY="$body" poetry run python -c \
         'import html, os; from utils.telegram import send_telegram_message as s; s("<b>" + html.escape(os.environ["HEAD"]) + "</b>\n<pre>" + html.escape(os.environ["BODY"]) + "</pre>")' \
         || true
 }
@@ -120,12 +133,12 @@ if [ "$rc" -eq 0 ]; then
     # otherwise send 96 messages a day.
     if [ -n "${TELEGRAM_ALWAYS:-}" ]; then
         tg_send "buibui [$label] ok — $start_ts → $end_ts" \
-            "$(tail -n 60 "$log" | tail -c 3400)"
+            "$(tail -n 60 "$log")"
     fi
 else
     hc_ping "/fail"
     tg_send "buibui [$label] FAILED rc=$rc — $start_ts → $end_ts" \
-        "$(tail -n 25 "$log" | tail -c 3400)"
+        "$(tail -n 25 "$log")"
 fi
 
 exit "$rc"

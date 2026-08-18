@@ -327,6 +327,11 @@ not set exit 1 on their own; a hand-run check still exits 1 only on tier 1.
 - **Both push paths HTML-escape the body and wrap it in `<pre>`.** `utils/telegram.py` sends
   `parse_mode=HTML`, and an unescaped traceback (`line 33, in <module>`) is rejected 400 —
   so the failure alert failed on exactly the crashes it exists to report.
+- **`tg_send` FOLDS the body to 46 columns, and folds BEFORE the 3400-byte cap.** `<pre>`
+  preserves alignment by never soft-wrapping, so one over-wide line drags the whole report
+  sideways on a phone. Folding after the cap would instead add its newlines on top of the
+  budget the cap exists to hold. Both legs live in `tg_send` rather than at the call sites,
+  so the success and failure paths cannot drift apart.
 
 Install / retention / restore → `deploy/README.md`.
 
@@ -673,7 +678,9 @@ Groq whisper fallback and frame extraction ALL sit downstream of the media leg, 
 presents as a dead vision pass rather than as a download problem (that is SoT ST41, which cost a
 whole ingest round before anyone looked at the dependency). **The pin WILL go stale** — YouTube
 breaks yt-dlp every few weeks; re-bump, and return to a stable constraint once one carries the
-fix.
+fix. **The daily check now WATCHES the pin** — `tools/media_probe.py` fetches a 19-second
+canary through production's own download call and reds tier 2 when the media leg dies, so the
+next break surfaces on the phone rather than as a degraded ingest round found by hand.
 
 System dependencies, not Poetry-managed:
 

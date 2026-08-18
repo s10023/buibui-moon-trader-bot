@@ -552,8 +552,11 @@ FOR.** Round 4's were transient. The 2026-08-18 class (SoT ST41) was **persisten
 version-caused**: stable yt-dlp resolved only the `android_vr` player client, whose media
 URLs 403 unconditionally, so no retry count and no hand re-run cleared it — 0 frames on
 4-for-4 videos. **A 403 that survives the hand re-run is a DEPENDENCY defect, not an
-unlucky video.** Stop re-running and check `yt-dlp --version` against the pin in
-`pyproject.toml`; diagnose with a plain `yt-dlp -f 251 <url>`, **never
+unlucky video.** Stop re-running and run the canary —
+`poetry run python -c 'from tools.media_probe import probe_media_leg; print(probe_media_leg().detail)'`
+— which fetches a 19-second video through production's own download call and prints the
+installed version beside the outcome; it is the same probe `daily_check.py` reds on. Then
+check that version against the pin in `pyproject.toml`; diagnose with a plain `yt-dlp -f 251 <url>`, **never
 `--download-sections`**, which hands the URL to ffmpeg, carries no client context, and
 403s even when a plain download succeeds. Do NOT record
 `chart_present: false` for that case; that flag is reserved for step 6, where frames
