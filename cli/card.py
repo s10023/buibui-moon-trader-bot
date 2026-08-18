@@ -21,7 +21,9 @@ from card.prompt import build_prompt
 from card.render import render_card
 from card.run import generate_card
 from card.state import AccountProvider, OpenPosition, snapshot_market_state
+from card.telegram import card_telegram_body
 from portfolio.sizing import SizingConfig
+from utils.telegram import send_telegram_message
 
 _INCOME_TYPES = {"REALIZED_PNL", "COMMISSION", "FUNDING_FEE"}
 _INCOME_PAGE_LIMIT = 1000
@@ -228,6 +230,10 @@ def run_card_cmd(args: argparse.Namespace) -> None:
     if not args.no_ledger:
         for path in append_ledgers(final, cfg):
             print(f"ledger: {path}")
+    # After the ledger on purpose: the push is best-effort (send_telegram_message
+    # logs and returns rather than raising), so persistence never waits on it.
+    if args.telegram:
+        send_telegram_message(card_telegram_body(final))
 
 
 def add_card_subparser(
@@ -275,5 +281,14 @@ def add_card_subparser(
         dest="no_ledger",
         action="store_true",
         help="skip ledger persistence (exploration)",
+    )
+    p.add_argument(
+        "--telegram",
+        action="store_true",
+        help=(
+            "also push the rendered card to Telegram (every verdict, VETOED "
+            "included). Opt-in per run so an exploratory or batch card does "
+            "not reach the phone; --dry-run never pushes"
+        ),
     )
     p.set_defaults(func=run_card_cmd)

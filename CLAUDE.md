@@ -192,7 +192,7 @@ target + recent fires + live account into a MarketState, sends the card-v4 rubri
 temp cwd), then a deterministic post-pass sizes the trade and enforces hard rules in code
 (VETOED on violation, including a `valid_until_utc` that is unparseable or does not postdate
 the card's own `generated_at_ms`). Wrapped by
-`make buibui-card SYMBOL=BTCUSDT [DIRECTION=] [HORIZON=] [AS_OF=] [DRY=1] [CONFIG=]`.
+`make buibui-card SYMBOL=BTCUSDT [DIRECTION=] [HORIZON=] [AS_OF=] [DRY=1] [TG=1] [CONFIG=]`.
 
 - **Sizing.** Quantity is floored to the symbol's exchange LOT_SIZE step via
   `portfolio.sizing.round_down_to_step` — shared with `trade/routing.py` so card and XS
@@ -235,7 +235,13 @@ the card's own `generated_at_ms`). Wrapped by
   the AI with no scorer changes. `analytics/brief/pundit.py` excludes `source:"ai-card"`
   rows and drops `buibui_card` from the priors authors list, so the card is never an
   external pundit to itself.
-- `--dry-run` prints state + prompt with no LLM call.
+- `--telegram` (`TG=1`) also pushes the rendered card to Telegram — **every verdict,
+  VETOED included**, since a veto is how the daily-R breaker trip and the sub-lot capital
+  wall become visible on the phone. Opt-in per run, mirroring `run-job.sh`'s per-job
+  `TELEGRAM_ALWAYS=1`, so a batch of exploratory cards does not reach the phone unasked.
+  `card/telegram.py` HTML-escapes the body and wraps it in `<pre>` — both halves are
+  load-bearing and are the same shape `deploy/run-job.sh` uses.
+- `--dry-run` prints state + prompt with no LLM call (and so never pushes).
 
 ### `make buibui-backup`
 
@@ -658,8 +664,8 @@ cannot carry live here:
 - **Cadence** the descriptions don't convey: `/sanity-check` weekly or after any large
   refactor · `/decay-review` weekly · `/db-update` after any detector, strategy or config
   change · `/recalibrate` after any `make buibui-backtest SAVE=1` · `/journal-trade` whenever
-  a manual trade closes · `/ingest-feed` daily · `/research-distil` after any book, repo or
-  paper ingest. The first three are marker-tracked in `docs/plans/task-marks/`, stamped by
+  a manual trade closes · `/ingest-charts` + `/ingest-feed` + `/card` daily (operator,
+  2026-08-17) · `/research-distil` after any book, repo or paper ingest. The first three are marker-tracked in `docs/plans/task-marks/`, stamped by
   whoever runs them; a missing marker reads as overdue on purpose, and nothing auto-runs.
 - **`/research-distil` emits at most THREE hypotheses per run, and that cap is the point.**
   The intake's own header says the bottleneck is testing capacity, not idea capture, and
