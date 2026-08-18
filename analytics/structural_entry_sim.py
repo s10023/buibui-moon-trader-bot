@@ -262,15 +262,27 @@ def extract_zone_touches(
     band_atr_frac: float = 0.25,
     min_gap_bars: int = 1,
     fib_step: int = 5,
+    respect_confirmation: bool = True,
+    require_outside_first: bool = True,
 ) -> list[tuple[Zone, list[Touch]]]:
-    """All zones of ``zone_type`` paired with their indexed touches (causal)."""
+    """All zones of ``zone_type`` paired with their indexed touches.
+
+    Causality switches are forwarded to :func:`index_touches`; both off
+    reproduces the pre-2026-08-18 formation-time population.
+    """
     step = fib_step if zone_type == "fib" else 1
     zones = extract_zones(
         bars, zone_type, band_atr_frac=band_atr_frac, step=step, symbol=symbol, tf=tf
     )
     out: list[tuple[Zone, list[Touch]]] = []
     for zone in zones:
-        touches = index_touches(zone, bars, min_gap_bars=min_gap_bars)
+        touches = index_touches(
+            zone,
+            bars,
+            min_gap_bars=min_gap_bars,
+            respect_confirmation=respect_confirmation,
+            require_outside_first=require_outside_first,
+        )
         if touches:
             out.append((zone, touches))
     return out
@@ -292,6 +304,8 @@ def simulate_cell(
     fib_step: int = 5,
     atr_floor_frac: float = 0.5,
     atr_mult: float = 1.0,
+    respect_confirmation: bool = True,
+    require_outside_first: bool = True,
     zone_touches: Sequence[tuple[Zone, list[Touch]]] | None = None,
 ) -> pd.DataFrame:
     """Per-touch realized-R rows for one (symbol, tf, zone_type, tp_r, sl_model).
@@ -309,6 +323,8 @@ def simulate_cell(
             band_atr_frac=band_atr_frac,
             min_gap_bars=min_gap_bars,
             fib_step=fib_step,
+            respect_confirmation=respect_confirmation,
+            require_outside_first=require_outside_first,
         )
     if not zone_touches:
         return empty
@@ -364,6 +380,8 @@ def build_realized_table(
     fib_step: int = 5,
     atr_floor_frac: float = 0.5,
     atr_mult: float = 1.0,
+    respect_confirmation: bool = True,
+    require_outside_first: bool = True,
 ) -> pd.DataFrame:
     """Concatenated per-touch realized-R rows over the full symbol × tf × cell grid.
 
@@ -382,6 +400,8 @@ def build_realized_table(
                 band_atr_frac=band_atr_frac,
                 min_gap_bars=min_gap_bars,
                 fib_step=fib_step,
+                respect_confirmation=respect_confirmation,
+                require_outside_first=require_outside_first,
             )
             if not zt:
                 continue

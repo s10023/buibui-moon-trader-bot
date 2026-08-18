@@ -252,6 +252,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--alpha", type=float, default=0.05)
     p.add_argument("--n-boot", type=int, default=10_000)
     p.add_argument("--seed", type=int, default=12345)
+    p.add_argument(
+        "--legacy-touch-geometry",
+        action="store_true",
+        help=(
+            "index touches from zone FORMATION (pre-2026-08-18 behaviour) instead "
+            "of from the bar the zone becomes knowable. Reproduces the filed run; "
+            "not tradable."
+        ),
+    )
     p.add_argument("--out", type=Path, default=DEFAULT_OUT)
     return p
 
@@ -278,6 +287,8 @@ def main() -> int:
             band_atr_frac=args.band_atr_frac,
             min_gap_bars=args.min_gap_bars,
             fib_step=args.fib_step,
+            respect_confirmation=not args.legacy_touch_geometry,
+            require_outside_first=not args.legacy_touch_geometry,
         )
         parts.append(part)
         print(

@@ -72,6 +72,8 @@ def test_touch_excursion_long_measures_forward_atr_excursion() -> None:
 
 
 def test_index_touches_counts_first_and_repeat_touches() -> None:
+    # LEGACY path (both causality switches off) — still exercised because the
+    # 2026-08-18 correction re-runs it to reproduce the original population.
     # Zone band [100, 110] formed at idx 0. Only bars after start_ms count.
     # idx1 inside -> touch 1; idx2 inside (contiguous) -> same touch;
     # idx3 outside (the gap); idx4 inside -> touch 2.
@@ -86,14 +88,21 @@ def test_index_touches_counts_first_and_repeat_touches() -> None:
         zone_high=110.0,
         start_ms=int(bars["open_time"].iloc[0]),
     )
-    touches = index_touches(zone, bars, min_gap_bars=1)
+    touches = index_touches(
+        zone,
+        bars,
+        min_gap_bars=1,
+        respect_confirmation=False,
+        require_outside_first=False,
+    )
     assert [t.touch_index for t in touches] == [1, 2]
     assert [t.bar_idx for t in touches] == [1, 4]
 
 
 def test_index_touches_requires_min_gap_outside_bars() -> None:
-    # Same inside/outside pattern, but a single outside bar is NOT enough to
-    # separate touches when min_gap_bars=2 -> the idx4 re-entry is suppressed.
+    # LEGACY path, as above. Same inside/outside pattern, but a single outside
+    # bar is NOT enough to separate touches when min_gap_bars=2 -> the idx4
+    # re-entry is suppressed.
     bars = _bars(
         highs=[200, 105, 108, 125, 107],
         lows=[195, 101, 102, 120, 103],
@@ -105,7 +114,34 @@ def test_index_touches_requires_min_gap_outside_bars() -> None:
         zone_high=110.0,
         start_ms=int(bars["open_time"].iloc[0]),
     )
-    touches = index_touches(zone, bars, min_gap_bars=2)
+    touches = index_touches(
+        zone,
+        bars,
+        min_gap_bars=2,
+        respect_confirmation=False,
+        require_outside_first=False,
+    )
+    assert [t.touch_index for t in touches] == [1]
+
+
+def test_index_touches_default_suppresses_an_immediate_inside_bar() -> None:
+    """The same fixture under the CAUSAL defaults: bar 1 is inside the moment
+    the zone forms, which is not a return to a level, so only bar 4 counts."""
+    bars = _bars(
+        highs=[200, 105, 108, 125, 107],
+        lows=[195, 101, 102, 120, 103],
+    )
+    zone = Zone(
+        zone_type="fvg",
+        bias="long",
+        zone_low=100.0,
+        zone_high=110.0,
+        start_ms=int(bars["open_time"].iloc[0]),
+    )
+
+    touches = index_touches(zone, bars, min_gap_bars=1)
+
+    assert [t.bar_idx for t in touches] == [4]
     assert [t.touch_index for t in touches] == [1]
 
 
@@ -325,3 +361,118 @@ def test_evaluate_touch_decay_insufficient_when_thin() -> None:
     )[0]
     assert v.decision == "INSUFFICIENT"
     assert v.n_first == 10
+
+
+def _confirmation_bars() -> pd.DataFrame:
+    """9 bars alternating outside/inside a [100, 102] band.
+
+    inside at bars 1, 3, 6, 8 — bars 1 and 3 fall before the zone is knowable.
+    """
+    out_hi, out_lo = 99.0, 98.0
+    in_hi, in_lo = 101.0, 100.5
+    pattern = [False, True, False, True, False, False, True, False, True]
+    highs = [in_hi if inside else out_hi for inside in pattern]
+    lows = [in_lo if inside else out_lo for inside in pattern]
+    return _bars(highs, lows, start_ms=0, step_ms=1_000)
+
+
+def _zone(*, confirm_ms: int) -> Zone:
+    return Zone(
+        zone_type="fvg",
+        bias="long",
+        zone_low=100.0,
+        zone_high=102.0,
+        start_ms=-1,
+        confirm_ms=confirm_ms,
+    )
+
+
+def test_index_touches_skips_touches_before_the_zone_is_knowable() -> None:
+    """The audit's defect: bars 1 and 3 touch a band that cannot yet be known."""
+    bars = _confirmation_bars()
+    touches = index_touches(_zone(confirm_ms=5_000), bars)
+
+    assert [t.bar_idx for t in touches] == [6, 8]
+    # numbering restarts — the first touch a live detector can see IS touch 1
+    assert [t.touch_index for t in touches] == [1, 2]
+
+
+def test_index_touches_legacy_flags_reproduce_the_original_numbering() -> None:
+    """Both switches off must reproduce the pre-correction population exactly."""
+    bars = _confirmation_bars()
+    touches = index_touches(
+        _zone(confirm_ms=5_000),
+        bars,
+        respect_confirmation=False,
+        require_outside_first=False,
+    )
+
+    assert [t.bar_idx for t in touches] == [1, 3, 6, 8]
+    assert [t.touch_index for t in touches] == [1, 2, 3, 4]
+
+
+def test_index_touches_requires_a_return_from_outside_the_band() -> None:
+    """A band whose edge is defined by its own confirmation bar touches it
+    mechanically; that is continuation, not a return to a level."""
+    highs = [101.0, 101.0, 99.0, 101.0]
+    lows = [100.5, 100.5, 98.0, 100.5]
+    bars = _bars(highs, lows, start_ms=0, step_ms=1_000)
+
+    touches = index_touches(_zone(confirm_ms=0), bars)
+
+    assert [t.bar_idx for t in touches] == [3]
+    assert [t.touch_index for t in touches] == [1]
+
+
+def test_index_touches_eligibility_includes_the_confirmation_bar() -> None:
+    """Eligibility is ``>= confirm_ms``: the zone is known at that bar's close and
+    entry is next-bar-open. Shown with the return rule off, which is what
+    otherwise masks the boundary on the first eligible bar.
+    """
+    highs = [99.0, 101.0]
+    lows = [98.0, 100.5]
+    bars = _bars(highs, lows, start_ms=0, step_ms=1_000)
+
+    touches = index_touches(_zone(confirm_ms=1_000), bars, require_outside_first=False)
+
+    assert [t.bar_idx for t in touches] == [1]
+
+
+def test_index_touches_excludes_pre_confirmation_touches_on_their_own() -> None:
+    """Confirmation is an independent switch: pre-knowable touches stay out even
+    with the return rule off."""
+    bars = _confirmation_bars()
+
+    touches = index_touches(_zone(confirm_ms=5_000), bars, require_outside_first=False)
+
+    assert [t.bar_idx for t in touches] == [6, 8]
+
+
+def test_zone_from_dict_reads_confirm_ms_and_falls_back_to_start_ms() -> None:
+    base = {
+        "zone_type": "fvg",
+        "direction": "bull",
+        "zone_low": 100.0,
+        "zone_high": 102.0,
+        "start_ms": 1_000,
+    }
+    assert _zone_from_dict(base, 1.0, band_atr_frac=0.25).confirm_ms == 1_000
+    withc = {**base, "confirm_ms": 3_000}
+    assert _zone_from_dict(withc, 1.0, band_atr_frac=0.25).confirm_ms == 3_000
+
+
+def test_build_touch_table_forwards_the_legacy_geometry_switches() -> None:
+    """The touch-decay audit must stay able to reproduce its filed population."""
+    bars = _touched_fvg_then_pad()
+    frames = {("BTCUSDT", "1h"): bars}
+
+    causal = build_touch_table(frames, ["fvg"], window=3)
+    legacy = build_touch_table(
+        frames,
+        ["fvg"],
+        window=3,
+        respect_confirmation=False,
+        require_outside_first=False,
+    )
+
+    assert len(legacy) > len(causal)

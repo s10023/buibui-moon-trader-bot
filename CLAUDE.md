@@ -89,7 +89,9 @@ OWNS it.** 17 pre-2026-08-17 audits are grandfathered in a frozen set that can o
 *where it was already satisfied* clears it just as well as building the thing. It exists
 because `2026-06-26-structural-entry-sim-harness.md` returned **BUILD** — the only BUILD in
 47 audits — and sat unbuilt for seven weeks in plain sight in a generated, test-enforced
-index. **The class: a research chain made of audits has an owner at every link except the
+index. (That BUILD was **withdrawn 2026-08-18** as a look-ahead artifact; the ownership
+lesson stands, and the seven-week delay is now also the reason the defect went unfound.)
+**The class: a research chain made of audits has an owner at every link except the
 last**, because each link's owner is the next audit and the terminal recommendation is
 production code. ⚠ Naming an *audit* file in the SoT is safe; the opposite direction — a
 *spec* filename inside an audit — is what the spec-reconcile counter derives from, and
@@ -346,6 +348,22 @@ pointer is not a guard rail.
 | `cvd/` spot-perp CVD divergence | **ALL 10 pre-registered trials FAIL. SHELVED** (`docs/audits/2026-08-11-d1-spot-perp-cvd.md`). XS −0.147, PBO **0.849**; TS +0.183, PBO 0.316 but DSR 0.532 and boot_lo −0.642. `corr_to_xsmom` is −0.04/−0.08, so it WAS decorrelated from the deploy core: **the failure is missing signal, not redundancy**. Daily-bar completeness is MEASURED (residual exactly 0.0), so the resolution question is closed. The one live re-entry is intraday *sequencing*, which a daily design cannot see |
 
 ### Standing research verdicts
+
+**Structural first-touch entries — NO, and the BUILD is WITHDRAWN**
+(`docs/audits/2026-08-18-structural-touch-confirmation-causality.md`, superseding the
+2026-06-26 entry-sim harness). Under confirmation causality all six (zone_type × direction)
+cells return NO-EDGE at 1d and **all six flip sign** — fvg/long +0.540R → **−0.056**,
+eqh_eql/long +0.407 → **−0.163**, bos/long +0.218 → **−0.156** — five with bootstrap CIs
+excluding zero on the negative side, so this is confirmed-bad rather than a powered null.
+**The +0.5R was a selection effect, not an edge:** every zone type is *defined* by a
+condition on the bars after its formation bar, so a trade entered inside that window carries
+a stop the zone's own definition guarantees is unreachable (FVG one bar — `low[i+1]` IS the
+band's top edge; BOS five — no high in `i+1…i+5` exceeds the swing). A same-data
+legacy-geometry control reproduces the filed table within 0.011R, so the flip is the geometry
+alone. **Do not rebuild a `structural_touch` detector.** ⚠ The parent touch-decay audit
+shares `index_touches` and is **superseded but unrecomputed** — treat its excursion result as
+unverified. ⚠ The one live re-entry is a *different* hypothesis: whether impulse continuation
+pays when entered legally at `i+2`.
 
 **EWMAC per-regime attribution — NO** (`docs/audits/2026-08-06-p2-ewmac-regime-attribution.md`,
 tool `forecast_audit.py --regime`). Trend Sharpe does not demonstrably concentrate in trend

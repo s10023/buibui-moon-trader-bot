@@ -4,13 +4,14 @@
 `make docs-index-check` (and `tests/test_docs_index.py`) fails when this file
 drifts from the corpus.
 
-**47 audits.** A verdict line is shown only where one could be read
-out of a Verdict heading as prose — that is **30 of 47**.
+**48 audits.** A verdict line is shown only where one could be read
+out of a Verdict heading as prose — that is **31 of 48**.
 An em dash means the doc states its verdict in a table, a blockquote or the body,
 **not** that it lacks one; open the file. Nothing here is keyword-guessed.
 
 | Date | Audit | Verdict (as written) | File |
 | --- | --- | --- | --- |
+| 2026-08-18 | Structural entry-sim under confirmation causality — the ST31 correction | No powered cell on any requested tf (1d) clears the de-biased BUILD bar — XS-solo stays the deploy core. | [2026-08-18-structural-touch-confirmation-causality.md](2026-08-18-structural-touch-confirmation-causality.md) |
 | 2026-08-14 | Workflow enforcement audit — what is actually enforced, where, and by what | — | [2026-08-14-workflow-enforcement-audit.md](2026-08-14-workflow-enforcement-audit.md) |
 | 2026-08-14 | ST28 — the powered-null family has a sixth site, in the multi-regime study | corrected: `docs/audits/2026-08-12-multi-regime-validation.md`. | [2026-08-14-st28-multi-regime-powered-null.md](2026-08-14-st28-multi-regime-powered-null.md) |
 | 2026-08-14 | ST27 — `sl_horizon.py` re-run under a one-sided powered-null criterion | 22 of 30 negative claims in the ST9 audit were unsupported. 8 survive. | [2026-08-14-st27-sl-horizon-powered-null.md](2026-08-14-st27-sl-horizon-powered-null.md) |

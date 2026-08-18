@@ -422,8 +422,9 @@ is frozen. A claim that just restates one of these candlestick/structure pattern
 - Reference-level proximity (PDH/PDL, weekly/monthly H/L, DO/WO/MO opens): audited
   NO-EDGE / underpowered-positive; revisit only when the live long-near-level cell
   ~doubles (n≥100).
-- Structural first-touch entries (FVG / OB / EQH-EQL / BOS): audited BUILD on 1d but
-  **live-OOS-gated** — a `structural_touch` detector is justified, not yet built.
+- Structural first-touch entries (FVG / OB / EQH-EQL / BOS): the 2026-06-26 BUILD was
+  **WITHDRAWN 2026-08-18** — NO-EDGE on all six cells under confirmation causality, all six
+  flipping sign. Do not file it as a live opener.
 - Funding **carry** sleeve: audited, FAILS the gate → shelved.
 - Absolute **trend** (EWMAC): real but sub-gate (+0.36) → shelved as a diversifier.
 - Cross-sectional **XS momentum**: the gate-clearing **deploy core** (+1.375) — not novel.
