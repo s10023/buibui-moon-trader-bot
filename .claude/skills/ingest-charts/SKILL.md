@@ -78,12 +78,11 @@ After the scan, state the pending set against the 6-panel daily protocol
 (Heatmap 24h + Map 1d for each of BTC/ETH/SOL): which are covered, which are
 missing. **Report over-coverage as readily as under-coverage.** The 2026-08-04L
 batch was 15 panels against a protocol of 6, and nothing said so — extra panels
-are not free, since each costs a vision dispatch (**~29K–30K tokens per image,
-post-7j; the 45K–103K was an early wide estimate for pre-`chart-extract` general-purpose cost; precise mean ~49K**)
-and a 1w heatmap band is structural context, not a same-day actionable level.
-**The per-image figure is MEASURED, not estimated: a full 6-panel batch on 2026-08-11 ran
-32–33K per dispatch (mean 32.7K, ~196K total).** Earlier text here said ~29–30K; that band
-was low. Cost a batch at ~33K/image.
+are not free, since each costs a vision dispatch (~33–36K tokens per image) and a
+1w heatmap band is structural context, not a same-day actionable level.
+**The per-image figure is MEASURED, not estimated: two full 6-panel batches ran
+mean 32.7K (2026-08-11, ~196K total) and mean 36.4K (2026-08-18, ~218K total).**
+Cost a batch at ~36K/image — the earlier ~29–30K and ~33K figures were both low.
 
 This matters because the daily check asserts **recency, not coverage**: one
 fresh drop greens the line while five panels rot. Naming the gap here is the
@@ -110,8 +109,8 @@ general-purpose sonnet agent **and say so prominently in the review digest** —
 name the fallback and the cost. **Never fall back silently:** the output is
 byte-identical either way, so an unannounced fallback restores the full cost
 while looking exactly like success. **Check `subagent_tokens` in the completion
-notification to catch it: `chart-extract` returns ~32-33K (measured 2026-08-11 across a
-full 6-panel batch), a general-purpose fallback ~49K.** The two bands are far enough apart
+notification to catch it: `chart-extract` returns ~33–36K (measured across two full
+6-panel batches, means 32.7K and 36.4K), a general-purpose fallback ~49K.** The two bands are far enough apart
 that one dispatch settles it; if a dispatch comes back near 49K, the fallback was taken
 silently — say so in the digest. Do NOT substitute the stock `Explore` agent, and do NOT batch several
 images into one agent.
@@ -135,7 +134,9 @@ Rules:
 - intensity: high = brightest/tallest, med = clear, low = faint but real.
 - liq_map: cluster the tallest bar groups per side of current price; when
   one leverage tier dominates a cluster, note it in label (e.g.
-  "100x-heavy").
+  "100x-heavy"). Bars ABOVE current price are SHORT liquidations, bars BELOW
+  are LONG ones — a short is liquidated when price RISES. Any label naming a
+  side must get this round the right way.
 - window: the selected timeframe button if visible ("12h","24h","48h",
   "3d","1w","1d",...), else null.
 - scope: "pair" for a single-exchange pair view (e.g. Binance BTCUSDT),
