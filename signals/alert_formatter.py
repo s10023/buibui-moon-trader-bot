@@ -15,6 +15,12 @@ __all__ = [
     "format_signal_alert",
 ]
 
+# The long/short badge, shared with card/telegram.py so the two operator-facing
+# renderers cannot drift apart. Keyed defensively: an unknown direction keeps the
+# label rather than raising inside the alert path.
+DIRECTION_LABELS = {"long": "LONG 🟢", "short": "SHORT 🔴"}
+
+
 _MYT = timezone(timedelta(hours=8))
 _ET = ZoneInfo("America/New_York")
 
@@ -441,7 +447,7 @@ def format_confluence_alert(
     first = events[0]
     direction = first.direction
     price = first.price
-    direction_label = "LONG 🟢" if direction == "long" else "SHORT 🔴"
+    direction_label = DIRECTION_LABELS[direction]
 
     signal_dt = datetime.fromtimestamp(first.open_time / 1000, tz=_MYT)
     session = _get_session_label(signal_dt)

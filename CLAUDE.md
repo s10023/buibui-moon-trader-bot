@@ -239,8 +239,15 @@ the card's own `generated_at_ms`). Wrapped by
   VETOED included**, since a veto is how the daily-R breaker trip and the sub-lot capital
   wall become visible on the phone. Opt-in per run, mirroring `run-job.sh`'s per-job
   `TELEGRAM_ALWAYS=1`, so a batch of exploratory cards does not reach the phone unasked.
-  `card/telegram.py` HTML-escapes the body and wraps it in `<pre>` — both halves are
-  load-bearing and are the same shape `deploy/run-job.sh` uses.
+  `card/telegram.py` gives the MEDIUM its own layout rather than reusing `render_card`:
+  aligned numbers inside `<pre>` (Telegram collapses space runs, so the columns need it),
+  reasoning prose OUTSIDE it (`<pre>` never soft-wraps, so a paragraph in one forces
+  horizontal scroll on a phone and buries the four numbers you act on). Escaping is
+  `quote=False` — **Telegram decodes only `&lt;` `&gt;` `&amp;`, so an escaped apostrophe
+  renders literally as `&#x27;`**. A 4096-char guard drops reasoning bullets rather than
+  losing the whole message. The long/short badge comes from
+  `signals.alert_formatter.DIRECTION_LABELS` (`LONG 🟢` / `SHORT 🔴`) — **imported, not
+  restated**, so the two operator-facing renderers cannot drift.
 - `--dry-run` prints state + prompt with no LLM call (and so never pushes).
 
 ### `make buibui-backup`

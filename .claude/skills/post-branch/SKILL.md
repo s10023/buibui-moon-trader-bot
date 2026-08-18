@@ -425,8 +425,37 @@ For each surface in the config, do the following:
     git diff --name-only --diff-filter=A --cached
     git ls-files --others --exclude-standard; } | sort -u \
     | grep -Ev '^docs/(audits|superpowers/specs)/' | while read -r f; do
-    grep -rqsw "$(basename "$f")" .claude/context/ || echo "UNDOCUMENTED FILE: $f"; done
+    b=$(basename "$f")
+    grep -rqsw "$f" .claude/context/ && continue          # PATH named: documented
+    if ! grep -rqsw "$b" .claude/context/; then echo "UNDOCUMENTED FILE: $f"; continue; fi
+    # basename hit -- but is the doc talking about THIS file? Another file sharing
+    # the basename makes the hit unreliable, so hand it to a human rather than
+    # silently crediting it.
+    if [ -n "$(git ls-files "*/$b" "$b" | grep -vx "$f")" ]; then
+      echo "AMBIGUOUS basename (verify by hand): $f"
+    fi
+  done
   ```
+
+  **SIXTH INSTANCE, and it is the `-w` trap one level up: a basename that collides
+  ACROSS PACKAGES.** The single-`basename` form above this fix greps `telegram.py`,
+  which matches the long-documented `utils/telegram.py`, and therefore reported the
+  newly added **`card/telegram.py` as COVERED** while `signals.md` -- whose `card/`
+  entry enumerates every other module in the package by name -- had never heard of it.
+  Measured 2026-08-18 on #643, and caught only because someone read the doc.
+
+  **`-w` cannot fix this and neither can any tightening of the pattern**, because the
+  string genuinely appears: the ambiguity is real, so the only honest output is to say
+  so. Hence three outcomes rather than two -- path named (credit it), no hit at all
+  (report it), basename hit with a colliding sibling (**ask a human**). Verified by
+  counterfactual on that branch, not by assertion: the old form printed nothing for
+  `card/telegram.py`, the new form printed `AMBIGUOUS`.
+
+  Noise ceiling, measured on the same tree: **47 of 906 tracked files share a basename**,
+  concentrated in the per-sleeve pattern (`report.py`, `replay.py`, `config.py`, 6-8 each),
+  so a PR adding a whole sleeve draws a few AMBIGUOUS lines. That is the intended trade --
+  the same asymmetry the bullets above state, since a false positive costs a glance and a
+  silent miss ships a doc that enumerates six of seven modules and reads as complete.
 
   **The two `docs/` trees are excluded because a STRONGER gate already covers them,
   not to quiet the output.** `make docs-index` generates their `INDEX.md` and
