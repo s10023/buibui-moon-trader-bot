@@ -11,7 +11,7 @@ DEV_PORT ?= 5173
 PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*" -not -path "./.venv/*")
 DOCKER_IMAGE = buibui-bot
 
-.PHONY: lint lint-md lint-md-fix docs-index docs-index-check lint-py-check lint-py typecheck test test-cov test-regression regression-update poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-analytics-backfill buibui-analytics-sync universe-backfill buibui-backtest buibui-combo-backtest buibui-cross-tf-backtest buibui-signal-watch buibui-param-audit buibui-param-sweep buibui-recalibrate buibui-digest buibui-web web-install web-dev web-build web-preview web-full clean-db clean export-live-db buibui-portfolio-replay buibui-forecast-audit buibui-forecast-weight-study buibui-forecast-regime buibui-xsmom-audit buibui-combine-audit buibui-carry-audit buibui-xsmom-capacity-audit buibui-xsmom-targets buibui-xsmom-execute buibui-universe-sync buibui-xsmom-daily buibui-structural-touch-audit buibui-structural-entry-sim-audit buibui-warning-value-audit buibui-sl-horizon-audit buibui-weekly-path-audit buibui-indicator-condition-audit buibui-xsrev-audit buibui-decay-review buibui-dead-surface-check
+.PHONY: lint lint-md lint-md-fix docs-index docs-index-check lint-py-check lint-py typecheck test test-cov test-regression regression-update poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-analytics-backfill buibui-analytics-sync universe-backfill buibui-backtest buibui-combo-backtest buibui-cross-tf-backtest buibui-signal-watch buibui-param-audit buibui-param-sweep buibui-recalibrate buibui-digest buibui-web web-install web-dev web-build web-preview web-full clean-db clean export-live-db buibui-portfolio-replay buibui-forecast-audit buibui-forecast-weight-study buibui-forecast-regime buibui-xsmom-audit buibui-combine-audit buibui-carry-audit buibui-xsmom-capacity-audit buibui-xsmom-targets buibui-xsmom-execute buibui-universe-sync buibui-xsmom-daily buibui-structural-touch-audit buibui-structural-entry-sim-audit buibui-warning-value-audit buibui-sl-horizon-audit buibui-weekly-path-audit buibui-indicator-condition-audit buibui-xsrev-audit buibui-decay-review buibui-dead-surface-check buibui-giveback-study
 
 lint: lint-md lint-py
 
@@ -393,6 +393,13 @@ buibui-dead-surface-check:  ## Read-only: declared-but-silent cells + rated-but-
 .PHONY: buibui-warning-value-audit
 buibui-warning-value-audit:  ## H9: read-only W1-W8 warning-value audit (backtest primary, live corroboration)
 	PYTHONPATH=. poetry run python tools/warning_value_audit.py
+
+.PHONY: buibui-giveback-study
+buibui-giveback-study:  ## ST17: read-only give-back / heat-and-run study over the live ledger
+	PYTHONPATH=. poetry run python tools/giveback_study.py \
+		$(if $(X),--x $(X),) \
+		$(if $(BOOT),--boot $(BOOT),) \
+		$(if $(DB),--db $(DB),)
 
 .PHONY: buibui-sl-horizon-audit
 buibui-sl-horizon-audit:  ## ST9/H11: read-only SL-horizon audit (flat 2% vs ATR-scaled stops)
