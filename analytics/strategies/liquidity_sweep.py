@@ -66,8 +66,11 @@ def detect_liquidity_sweep(
     open_times = df["open_time"].to_numpy(dtype=int)
 
     # Precompute pivot highs/lows with a centred window (uses swing_n candles
-    # on each side to confirm the pivot — acceptable lookahead for structural
-    # levels; consistent with detect_eqh_eql).
+    # on each side to confirm the pivot). The window reads forward, so a pivot
+    # at index p is only KNOWABLE at p + swing_n — every lookup below is
+    # therefore bounded to pivots confirmed as of the signal bar. Referencing an
+    # unconfirmed pivot was a measured lookahead: 23.3% of 4h signals and 42.1%
+    # of 1d signals changed under truncation before this bound was added.
     roll_max = (
         pd.Series(highs).rolling(win, center=True, min_periods=1).max().to_numpy()
     )
@@ -84,8 +87,12 @@ def detect_liquidity_sweep(
         sig_c = closes[sig_i]
         sig_t = open_times[sig_i]
 
+        # A pivot at index p is confirmed only at p + swing_n, so the newest
+        # pivot usable at sig_i is the last one at or before sig_i - swing_n.
+        conf_i = sig_i - swing_n
+
         # --- Short: fakeout above pivot swing high ---
-        hi_sh = int(np.searchsorted(sh_idx, sig_i))
+        hi_sh = int(np.searchsorted(sh_idx, conf_i, side="right"))
         lo_sh = int(np.searchsorted(sh_idx, ws))
         if hi_sh > lo_sh:
             pivot_sh_i = int(sh_idx[hi_sh - 1])
@@ -150,7 +157,7 @@ def detect_liquidity_sweep(
                         )
 
         # --- Long: fakeout below pivot swing low ---
-        hi_sl2 = int(np.searchsorted(sl_idx, sig_i))
+        hi_sl2 = int(np.searchsorted(sl_idx, conf_i, side="right"))
         lo_sl2 = int(np.searchsorted(sl_idx, ws))
         if hi_sl2 > lo_sl2:
             pivot_sl_i = int(sl_idx[hi_sl2 - 1])

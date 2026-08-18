@@ -18,6 +18,7 @@ import pytest
 from analytics.eras import (
     BACKTEST_PATHS,
     DEFAULT_ERAS_PATH,
+    LEDGER_PATHS,
     SCOPES,
     EraBoundary,
     declared_boundaries,
@@ -98,6 +99,33 @@ def test_git_boundaries_asks_git_for_the_behaviour_paths() -> None:
     assert seen["args"][0] == "log"
     assert "--name-only" in seen["args"]
     for path in BACKTEST_PATHS:
+        assert path in seen["args"], f"{path} was not queried"
+
+
+def test_ledger_paths_cover_the_detectors() -> None:
+    """A detector edit changes ledger CONTENT, not just backtest rows.
+
+    Regression guard for the `bos` causality fix (2026-08-18): re-stamping a
+    signal from the swing bar to its confirmation bar moved `candle_ts_ms` and
+    the alert's quoted entry price, both of which are stored in
+    `signal_alert_outcomes`. Before that fix this set excluded
+    `analytics/strategies`, so such a change tagged a backtest era and left the
+    ledger looking continuous across it.
+    """
+    assert "analytics/strategies" in LEDGER_PATHS
+
+
+def test_ledger_boundaries_query_the_ledger_paths() -> None:
+    """The ledger scope must actually ask git about every LEDGER_PATHS entry."""
+    seen: dict[str, list[str]] = {}
+
+    def runner(args: Sequence[str], *, cwd: Path) -> str:
+        seen["args"] = list(args)
+        return ""
+
+    git_boundaries(runner=runner, scope="ledger", paths=LEDGER_PATHS)
+
+    for path in LEDGER_PATHS:
         assert path in seen["args"], f"{path} was not queried"
 
 
