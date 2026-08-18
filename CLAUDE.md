@@ -492,7 +492,40 @@ why it stood, but every *named cell* was wrong. The drift began in a gitignored 
 exactly, so `bos/1d/long` (36 trades all ≈ −1.0076R, sd 0.0022, **Sharpe −461**) clears the
 floor and inflates trial-family variance **0.0348 → 1729.89**. A/B'd against a dispersion
 floor, production DSR did not move — a latent fragility rather than a cause of the
-star-ratings null.
+star-ratings null. ⚠ **That cell's numbers PRE-DATE the 2026-08-18 `bos` causality fix** and
+were produced by a detector that stamped every signal at a bar it could not yet know about;
+no config declares `bos` on `1d`, so nothing has re-run them. The *mechanism* stands — the
+dispersion floor is still absent — but treat the named cell as unverified.
+
+**Detectors must be CAUSAL, and `tests/test_lookahead.py` is the gate.** It feeds each
+`DETECTOR_REGISTRY` entry the series truncated at `t` and asserts the signals emitted *at*
+`t` are byte-identical to the full-series run. Two controls, and both are load-bearing: an
+injected peeking detector that MUST be flagged (teeth) and an injected causal one that must
+NOT be (specificity) — a harness with only the first cannot tell "clean" from "blind", which
+is how the xsmom causality guard passed under mutation. Truncation points below
+`_MIN_HISTORY_BARS = 200` (production's `scan_window`) are reported UNTESTED rather than
+passing, because a detector refusing to run inside its own warmup is not a lookahead. **A
+cell that skips is untested, not clean** — `eqh_eql` emits ONE signal on the 1d fixture, so
+its pass there is worth nothing on its own. Found two leaks on first run: `bos` at **100%**
+of signals (it stamped at the swing bar, whose `center=True` window reads `i+1…i+5`) and
+`liquidity_sweep` at 23–42% (it referenced pivots from the same window before they were
+confirmed, and its own comment called that "acceptable lookahead … consistent with
+`detect_eqh_eql`" — the consistency half was false as measured). Both fixed 2026-08-18.
+**The cost of the `bos` leak was +0.35R/trade** at fixed data with gates off, and it flipped
+the sign at 15m/1h/4h; with live-parity gates on it also cut `bos` trade count ~80%, because
+the gates had been reading context five bars stale. `weekdays bos/4h/short` fell **★4
++0.7435 → ★2 +0.0449**, and an isolation run (old code, current data) attributed **−0.6986
+of −0.6986 to the fix and −0.0000 to the data** — the best-rated `bos` cell in the book was
+almost entirely the leak.
+
+**`make regression-update` is NOT data-neutral — it refreshes the fixtures first.** It runs
+`scripts/extract_regression_fixture.py`, which re-exports the OHLCV parquets from the LIVE
+`analytics.db`, and only then regenerates the goldens. So "regenerate the goldens" silently
+bundles however much data has accrued since the last run (measured 2026-08-18: 15m
+28,662 → 32,694 rows, ~42 days) and reads the DB while the 15-minute timer owns it. **To
+isolate a code change in the golden diff, run `pytest tests/test_regression.py
+--update-golden` directly** and leave the parquets pinned; use the full target when a data
+refresh is what you actually want.
 
 **Lot-size rounding** — `portfolio/sizing.py::round_down_to_step` snaps before it floors;
 why that snap is load-bearing rides the `sizing-round-down` card.

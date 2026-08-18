@@ -86,10 +86,21 @@ BACKTEST_PATHS = (
 )
 
 #: Paths whose history changes what reaches the live outcome ledger — i.e. what the
-#: OOS evidence base contains, independently of what the strategies do.
+#: OOS evidence base contains.
+#:
+#: `analytics/strategies` is here as well as in BACKTEST_PATHS, and the overlap is
+#: deliberate. This set once excluded it, on the reasoning that a detector change
+#: only moves backtest rows. The `bos` causality fix (2026-08-18) is the
+#: counterexample: re-stamping a signal from the swing bar to its confirmation bar
+#: changed the ledger's `candle_ts_ms`, changed the alert's quoted entry price —
+#: the live alert quotes the close of the STAMPED bar, so it had been quoting a
+#: price five bars stale — and cut `bos` alert volume by roughly 80% once the
+#: gates began evaluating at the decision bar. All three are ledger CONTENT.
+#: A detector edit is a ledger event whenever it changes what is emitted or when.
 LEDGER_PATHS = (
     "signals",
     "analytics/signal",
+    "analytics/strategies",
     "cli/signal.py",
 )
 

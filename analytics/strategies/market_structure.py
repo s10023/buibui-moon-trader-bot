@@ -59,7 +59,16 @@ def detect_market_structure(
     trend: str = "unknown"
 
     for row_idx, price, typ in swings:
-        open_time = int(df.iloc[row_idx]["open_time"])
+        # A swing at `row_idx` is not CONFIRMED until `swing_lookback` bars
+        # later: the centred window above reads that many bars forward, so bar
+        # `row_idx`'s swing status is unknowable at its own open_time. Stamp the
+        # signal at the confirmation bar instead, which makes the emission
+        # causal and — because the live alert quotes the close of the stamped
+        # bar — stops live quoting an entry price `swing_lookback` bars stale.
+        # `min_periods=window` above means the last `swing_lookback` bars can
+        # never be swings, so this index is always in range; min() is belt.
+        conf_idx = min(row_idx + swing_lookback, n - 1)
+        open_time = int(df.iloc[conf_idx]["open_time"])
 
         if typ == "H":
             if last_sh is not None and price > last_sh:
