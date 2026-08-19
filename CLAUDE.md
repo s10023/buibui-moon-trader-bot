@@ -805,6 +805,15 @@ cannot carry live here:
   on the full dataset with no out-of-sample split.
 - **Run one `/card` per background exec** — never `&&`-chain them.
 
+**Vendored skills are COMMITTED, hash-pinned, and NOT ours to edit.** `.agents/skills/<name>/`
+holds the real directory, `.claude/skills/<name>` is a *relative* symlink into it, and
+`skills-lock.json` pins each by hash — all three tracked, because a pin nobody can verify is
+not a pin. A local edit to a vendored copy is **silently overwritten** on the next refresh:
+fix upstream and re-vendor. ⚠ `computedHash` is **not** a plain sha256 and the algorithm is
+recorded nowhere, so the pin cannot be verified from this repo — do not "correct" it by hand.
+Rule, and what is still owed (refresh CI): `.claude/rules/vendored-skills.md`, delivered at
+edit time by the `vendored-skills` context card.
+
 ### Subagent definitions — `.claude/agents/<name>.md`
 
 A **skill** is a workflow you invoke; an **agent** is who a skill dispatches work TO.
@@ -817,10 +826,12 @@ system prompt plus ~20 tool schemas — **~19.7K tokens of overhead per dispatch
 178,123) with quality neutral-to-better. The saving is *constant per dispatch*, so **payoff
 scales with dispatch count, not task size**.
 
-- **A new `.claude/` subtree needs re-includes in BOTH `.gitignore` and
-  `.markdownlint-cli2.jsonc`**, or the file dies on a clone *and* ships unlinted.
-  `.gitignore:15` is `.claude/*` and the lint config excludes `.claude` wholesale; both
-  re-include named subtrees only, and they mirror each other deliberately.
+- **A new `.claude/` subtree now ships TRACKED but UNLINTED.** Since 2026-08-19 `.gitignore`
+  tracks `.claude/` by default, so the dies-on-a-clone half of this trap is closed — but
+  `.markdownlint-cli2.jsonc` still excludes `.claude` wholesale and re-includes named
+  subtrees only, so **add the new subtree there**. ⚠ **The two configs deliberately no
+  longer mirror each other**: the vendored tree is committed *and* unlinted, because we
+  version an upstream copy without owning its style.
 - **`tools:` is a structural guarantee; prose is not.** `tools: Read` is why an extractor
   *cannot* write files — a general-purpose one did. But the "bare JSON, no fence" rule still
   broke 1-in-6 despite an explicit directive, so **keep tolerating malformed output at the
