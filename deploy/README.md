@@ -382,7 +382,23 @@ cp ~/backups/buibui/daily/<DATE>/_external/claude-personal/history.jsonl \
 # the cross-session memory trees -- all projects, or one:
 cp -Rp ~/backups/buibui/daily/<DATE>/_external/claude-personal/projects/. \
    ~/.claude-personal/projects/
+
+# account-level tooling, skills and instructions (2026-08-19). Note the doubled
+# path component: these land under `_external/claude-personal/.claude-personal/`
+# because `_ext_dir_tail` always contributes the source's last TWO components.
+# Ugly, restorable, and NOT to be "fixed" by collapsing to a basename -- that is
+# precisely the collapse the function exists to prevent.
+cp -Rp ~/backups/buibui/daily/<DATE>/_external/claude-personal/.claude-personal/. \
+   ~/.claude-personal/
+cp ~/backups/buibui/daily/<DATE>/_external/claude-personal/CLAUDE.md \
+   ~/.claude-personal/CLAUDE.md
 ```
+
+**`~/.claude-personal/tools/budget-history.json` is the one file here a rebuild cannot
+recover.** `budget.py`
+is blind to a deleted session unless it ran first, so that rollup holds weeks the
+transcripts no longer cover — restore it before running the tracker again, or those weeks
+are gone for good.
 
 **The memory trees are the highest-value thing in the snapshot and the easiest to restore
 wrongly.** Each lands at `_external/claude-personal/projects/<project-slug>/memory/`, and
