@@ -8,8 +8,14 @@ it was never run against something that should fail.
 
 from __future__ import annotations
 
+import dataclasses
+import os
+import subprocess
+import sys
 from collections.abc import Sequence
 from pathlib import Path
+
+import pytest
 
 from tools.post_branch_checks import (
     Runner,
@@ -461,10 +467,12 @@ class TestSurfaceListsComeFromConfig:
         assert config_leg[0].skipped is None
 
     def test_the_view_is_not_a_hardcoded_copy(self, tmp_path: Path) -> None:
-        """Drop a role from a fixture config; the derived tuple must shrink.
+        """Drop a role from a fixture config; ``agents_config``'s own view must shrink.
 
-        A module that kept its literal tuple passes the three tests above and
-        fails this one.
+        This exercises ``agents_config.load`` / ``paths_with_role`` only — it
+        says nothing about whether ``post_branch_checks`` itself reads that
+        view rather than a surviving literal tuple. That property is
+        ``test_the_accessor_is_derived_not_literal``, below.
         """
         from tools import agents_config
 
@@ -476,4 +484,48 @@ class TestSurfaceListsComeFromConfig:
         shrunk = agents_config.load(tmp_path)
         assert len(shrunk.paths_with_role("anchor")) < len(
             agents_config.load(Path.cwd()).paths_with_role("anchor")
+        )
+
+    def test_the_accessor_is_derived_not_literal(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutate the config the module reads; the accessor must move with it.
+
+        A surviving hardcoded tuple passes every other test in this class and
+        fails this one — it is the mutation control the other tests are not.
+        """
+        from tools import agents_config, post_branch_checks
+
+        real = agents_config.load(Path.cwd())
+        shrunk = dataclasses.replace(real, surfaces=real.surfaces[:1])
+        monkeypatch.setattr(post_branch_checks, "load_agents_config", lambda: shrunk)
+        post_branch_checks._cfg.cache_clear()
+        try:
+            assert len(post_branch_checks.anchor_files()) < len(
+                real.paths_with_role("anchor")
+            )
+        finally:
+            post_branch_checks._cfg.cache_clear()
+
+    def test_importing_the_module_does_not_read_the_config(
+        self, tmp_path: Path
+    ) -> None:
+        """The deferred read, mutation-tested.
+
+        A module-level ``_CFG = load()`` crashes on import when no config is
+        present — and this module is imported by the CI-gating sweep, so that
+        crash replaces a readable finding with a traceback. Running the
+        import from a directory with no config is the only way to tell the
+        two apart; every in-process test in this file passes against both.
+        """
+        result = subprocess.run(
+            [sys.executable, "-c", "import tools.post_branch_checks"],
+            cwd=tmp_path,
+            env={**os.environ, "PYTHONPATH": str(Path.cwd())},
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode == 0, (
+            f"importing the module read the config eagerly: {result.stderr}"
         )
