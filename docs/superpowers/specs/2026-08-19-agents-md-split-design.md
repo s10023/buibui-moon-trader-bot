@@ -63,11 +63,24 @@ split by audience.
 
 Roughly 740 lines to `AGENTS.md`, 195 to `CLAUDE.md`.
 
-⚠ **The import mechanism is the one unverified assumption.** If this harness auto-loads a root
-`AGENTS.md` on its own, then `@AGENTS.md` inside `CLAUDE.md` loads it twice and doubles the boot
-cost — the exact inverse of the intent. `~/repo/template-repo` ships this pattern, which is
-evidence it is safe there and not a measurement here. **Settle it before the PR opens**;
-the fallback is a plain cross-reference in place of the import.
+**The import is required, and carries no double-load risk — SETTLED 2026-08-19 by measurement,
+not by reading.** Two bare temp dirs, each holding a distinct canary phrase:
+
+| Probe | Setup | Result |
+| --- | --- | --- |
+| A | `AGENTS.md` alone, no `CLAUDE.md` | `NONE` — the canary never reached context |
+| B | `CLAUDE.md` containing only `@AGENTS.md` | the canary, returned verbatim |
+
+The docs give the mechanism behind that: Claude Code walks up the directory tree checking each
+level for **`CLAUDE.md` and `CLAUDE.local.md` only**. A root `AGENTS.md` is never auto-discovered,
+and the docs name `@AGENTS.md` as the supported alternative to symlinking `CLAUDE.md` at it. So
+the import is not an optional nicety — **without it `AGENTS.md` is invisible**, which is the
+failure this probe existed to rule out in the other direction.
+
+⚠ **This is a fact about the current build, so it can change under us.** Re-verify with the
+`InstructionsLoaded` hook, which logs which instruction files load and why, or by reading
+`/context`'s **Memory files** list. A future build that auto-discovers `AGENTS.md` would turn
+the import into the double-load this section was written to prevent.
 
 ### 2. `docs/agents/surfaces.toml`
 
@@ -159,7 +172,7 @@ mechanism.
 
 | Failure | How it shows | Control |
 | --- | --- | --- |
-| Harness double-loads `AGENTS.md` | Boot cost roughly doubles | Settle the import question before the PR; fallback is a cross-reference |
+| A future build auto-discovers `AGENTS.md`, so the import double-loads it | Boot cost roughly doubles | Measured absent on this build; re-verify via the `InstructionsLoaded` hook or `/context` |
 | Config unreadable in CI | Checkers silently report clean | Loader raises; callers render FINDING, never SKIP — mutation-tested |
 | A checker keeps a private copy of the list | Config and enforcement drift apart again | Mutation test: dropping a role must shrink the derived tuple |
 | Sections land in the wrong file | A harness rule becomes unreadable to Claude, or a project fact invisible to other agents | The audience table above is the acceptance criterion; prose is moved, never rewritten |
@@ -189,7 +202,7 @@ this file lands.
 | Config and seam only; skills stay repo-specific this PR | The fork becoming ready to receive a shared skill, which is what makes de-repo-ifying pay |
 | Boot cost held constant; no prose demoted | A measurement showing the always-loaded tier is causing skipped reads, which would outweigh *a guard rail behind a pointer is not a guard rail* |
 | One `[[surface]]` list with `roles`, not four lists | A role needing per-role attributes beyond a path, at which point the views stop being views |
-| `@AGENTS.md` import over a plain cross-reference | Evidence the harness auto-loads `AGENTS.md`, making the import a double-load |
+| `@AGENTS.md` import over a plain cross-reference | A build that auto-discovers `AGENTS.md`, making the import a double-load. Measured absent 2026-08-19 — a cross-reference would leave the file unloaded entirely |
 
 ## What this does not answer
 
