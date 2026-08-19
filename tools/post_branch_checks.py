@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
-from tools.agents_config import AgentsConfig, ConfigError
+from tools.agents_config import AgentsConfig, Budgets, ConfigError
 from tools.agents_config import load as load_agents_config
 from tools.stale_anchors import default_resolver, describe, scan
 
@@ -645,20 +645,27 @@ def _check_md_atx(changed_md: Sequence[str]) -> list[Finding]:
     return findings
 
 
-def _check_memory_cap() -> list[Finding]:
+def _check_memory_cap(budgets: Budgets | None = None) -> list[Finding]:
+    b = budgets or _cfg().budgets
     if not MEMORY.exists():
         return []
     text = MEMORY.read_text(encoding="utf-8")
     n = current_state_bullets(text)
     size = len(text.encode("utf-8"))
     findings = []
-    if n > 6:
+    if n > b.memory_state_bullets:
         findings.append(
-            Finding("memory-cap", f"Current State has {n} bullets (cap 6) — roll one")
+            Finding(
+                "memory-cap",
+                f"Current State has {n} bullets (cap {b.memory_state_bullets}) — roll one",
+            )
         )
-    if size > 17_408:
+    if size > b.memory_bytes_cap:
         findings.append(
-            Finding("memory-cap", f"MEMORY.md is {size:,} bytes (~17KB soft cap)")
+            Finding(
+                "memory-cap",
+                f"MEMORY.md is {size:,} bytes (cap {b.memory_bytes_cap:,})",
+            )
         )
     return findings
 
@@ -691,17 +698,39 @@ def _check_stale_anchors() -> list[Finding]:
     return findings
 
 
-def _check_handoff_size(handoff: str) -> list[Finding]:
+def _check_handoff_size(handoff: str, budgets: Budgets | None = None) -> list[Finding]:
+    """Size the handoff against the configured budget.
+
+    The previous implementation compared a ``Line count: **N**`` stamp against
+    the real count and carried no threshold at all. The stamp was later deleted
+    without deleting this leg, so it returned ``[]`` on every input — a check
+    that cannot fire is dismissal, silently. The budget now comes from
+    ``docs/agents/surfaces.toml``, shared with the daily check's ratchet, so the
+    two cannot disagree about the number.
+    """
+    b = budgets or _cfg().budgets
     if not handoff:
-        return []
-    lines = len(handoff.splitlines())
-    m = re.search(r"^Line count: \*\*(\d+)\*\*", handoff, re.MULTILINE)
-    if m and int(m.group(1)) != lines:
         return [
             Finding(
                 "handoff-size",
-                f"stamp claims {m.group(1)} lines, file has {lines} — "
-                "rewrite the stamp LAST",
+                "handoff is absent — rewrite it; sessions get deleted without it",
+            )
+        ]
+    lines = len(handoff.splitlines())
+    if lines >= b.handoff_ceiling:
+        return [
+            Finding(
+                "handoff-size",
+                f"{lines} lines, at/past the {b.handoff_ceiling} regression ceiling "
+                f"(budget {b.handoff_lines}) — MOVE a block to a memory topic file",
+            )
+        ]
+    if lines > b.handoff_lines:
+        return [
+            Finding(
+                "handoff-size",
+                f"{lines} lines vs a budget {b.handoff_lines} "
+                f"(red at {b.handoff_ceiling}) — move a standing block out",
             )
         ]
     return []

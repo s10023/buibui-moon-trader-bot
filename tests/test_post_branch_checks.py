@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from tools.agents_config import Budgets
 from tools.post_branch_checks import (
     Runner,
     added_paths,
@@ -529,3 +530,70 @@ class TestSurfaceListsComeFromConfig:
         assert result.returncode == 0, (
             f"importing the module read the config eagerly: {result.stderr}"
         )
+
+
+class TestHandoffSize:
+    """The leg this replaces returned [] on every input, and nothing tested it.
+
+    A test asserting only "a small handoff is clean" would reproduce that
+    defect exactly, so both firing cases come first.
+    """
+
+    def _budgets(self) -> Budgets:
+        return Budgets(
+            handoff_lines=10,
+            handoff_ceiling=20,
+            memory_state_bullets=6,
+            memory_state_ceiling=8,
+            memory_bytes_cap=17408,
+        )
+
+    def test_within_budget_is_clean(self) -> None:
+        from tools.post_branch_checks import _check_handoff_size
+
+        assert _check_handoff_size("x\n" * 5, self._budgets()) == []
+
+    def test_over_budget_fires(self) -> None:
+        from tools.post_branch_checks import _check_handoff_size
+
+        found = _check_handoff_size("x\n" * 15, self._budgets())
+        assert len(found) == 1
+        assert "15 lines" in found[0].detail
+        assert "budget 10" in found[0].detail
+
+    def test_at_ceiling_fires_harder(self) -> None:
+        from tools.post_branch_checks import _check_handoff_size
+
+        found = _check_handoff_size("x\n" * 25, self._budgets())
+        assert len(found) == 1
+        assert "ceiling" in found[0].detail
+
+    def test_empty_handoff_is_not_silently_clean(self) -> None:
+        """An absent handoff is a finding: sessions get deleted without it."""
+        from tools.post_branch_checks import _check_handoff_size
+
+        found = _check_handoff_size("", self._budgets())
+        assert len(found) == 1
+        assert "absent" in found[0].detail
+
+    def test_a_stamp_is_no_longer_consulted(self) -> None:
+        """The old leg keyed on this line. A file carrying a wrong stamp but a
+        fine size must now be clean — otherwise the stamp mechanism survived."""
+        from tools.post_branch_checks import _check_handoff_size
+
+        body = "Line count: **999**\n" + "x\n" * 4
+        assert _check_handoff_size(body, self._budgets()) == []
+
+
+class TestMemoryCapUsesConfiguredBudgets:
+    def test_bullet_cap_comes_from_config(self) -> None:
+        from tools.agents_config import Budgets
+
+        b = Budgets(
+            handoff_lines=200,
+            handoff_ceiling=600,
+            memory_state_bullets=2,
+            memory_state_ceiling=3,
+            memory_bytes_cap=17408,
+        )
+        assert b.memory_state_bullets == 2
