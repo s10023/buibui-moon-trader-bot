@@ -103,7 +103,6 @@ buibui backtest
   --since YYYY-MM-DD       Anchor start date — use for saved/comparable runs (e.g. 2025-09-12)
   --tp-r FLOAT             Take-profit ratio (e.g. 2.0)
   --sl-pct FLOAT           Stop-loss % (e.g. 0.02)
-  --min-sl-pct FLOAT       Minimum SL % to prevent fee-drag explosion
   --atr-sl-multiplier N    ATR-based SL: N × ATR14
   --atr-sl-values N...     Multi-value ATR sweep (space-separated)
   --atr-sl-floor           Widen structural SLs by max(structural, N × ATR14) — required for ATR sweep to bite on structural strategies
@@ -111,7 +110,37 @@ buibui backtest
   --save                   Persist results to DB (same as SAVE=1)
   --min-trades N           Hide combos below N trades
   --secondary-symbol SYM   Secondary symbol for smt_divergence
+  --fee-pct FLOAT          Taker fee per side, decimal (default 0.0; 0.0005 = 0.05%)
+
+  # Plural overrides — sweep a set, ignoring the config's own lists
+  --symbols SYM...         Symbols to sweep (overrides --config)
+  --strategies NAME...     Strategies to sweep (overrides --config)
+  --timeframes TF...       Timeframes to sweep (overrides --config)
+
+  # Confluence modes — see /confluence-backtest for how to read the output
+  --combo                  Co-firing backtests across all strategy pairs
+  --window N               Co-firing window: +/-N candles (default 5)
+  --cross-tf               Cross-TF co-firing (HTF context + LTF entry)
+  --htf-ltf PAIR...        HTF:LTF pairs, e.g. '4h:15m 4h:1h'
+  --window-hours N         Cross-TF lookback in hours
+  --workers N              Parallel workers for combo (default min(4, cpu-1); 1 = serial)
+
+  # Live-parity gates — the backtest reproduces what the DAEMON would have done
+  --live-parity            Master switch: enable EVERY live-only gate
+  --with-<gate>            Add one gate on top of --live-parity
+  --without-<gate>         Cancel one gate from --live-parity
+      gates: regime | direction-filter | f8-htf-ema | adr-bias
+             | conflict-resolver | cooldown
 ```
+
+⚠ **`--min-sl-pct` is NOT a CLI flag** — `min_sl_pct` is read from the TOML only
+(`cli/backtest.py:154` guards it with `hasattr`, so the parser never defines it).
+Passing it on the command line is an argparse error.
+
+⚠ **Gate flags change what a run MEANS, not just its speed.** A bare sweep has every
+live gate OFF, so its avg_r is not comparable to a `--live-parity` run or to the live
+ledger; the 2026-08-18 `bos` causality fix cut trade count ~80% under live parity alone.
+Say which mode a table came from whenever you report one.
 
 ## Config files
 

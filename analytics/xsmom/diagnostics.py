@@ -14,6 +14,8 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
+from analytics.research_guards import per_period_sharpe
+
 
 def equal_weight_market_return(closes: dict[str, pd.Series]) -> pd.Series:
     """Active-set mean of per-instrument daily returns (the 'alt market').
@@ -41,12 +43,16 @@ class BetaAttribution:
 
 
 def _ann_sharpe(r: npt.NDArray[np.float64], ann_days: float) -> float:
-    if len(r) < 2:
-        return 0.0
-    sd = float(np.std(r, ddof=1))
-    if sd < 1e-12:
-        return 0.0
-    return float(np.mean(r) / sd) * math.sqrt(ann_days)
+    """Annualised Sharpe from RAW days — note the argument, not just the name.
+
+    Deliberately not replaced by :func:`analytics.research_guards.ann_sharpe`:
+    that one takes an ``ann_factor`` already square-rooted by its caller, while
+    this takes ``ann_days`` and roots it here. The two share a name and a shape
+    and differ by a ``sqrt``, so swapping one for the other changes every
+    number it touches and nothing fails. The per-period half is shared; the
+    convention stays visible at this boundary.
+    """
+    return per_period_sharpe(r) * math.sqrt(ann_days)
 
 
 def beta_attribution(

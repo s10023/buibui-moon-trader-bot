@@ -17,6 +17,19 @@ This check covers five dimensions: CI hygiene, wiring audit, documentation sync,
 
 ---
 
+⚠ **QUOTE EVERY `grep --include` GLOB — the shell here is zsh.** `grep -rn "x" --include=*.py .`
+dies with `no matches found: --include=*.py` before grep ever runs, and a check whose grep
+never ran looks *exactly* like a check that passed clean. This produced two silent empty
+results on 2026-08-19 and would have shipped as "wiring clean". Write `--include="*.py"`,
+and treat any empty grep result in this file as unproven until you have seen it match
+something you know exists.
+
+⚠ **Exclude `.cache/` from every repo-wide grep.** A `.cache/cleantree.*/` copy of the whole
+tree can exist (CI reproduction runs leave one), so counts silently double and every finding
+appears twice.
+
+---
+
 ## 1. CI checks (run first — block on failures)
 
 ```bash
@@ -106,7 +119,23 @@ Check these in parallel:
   `card`, `digest`, `param-sweep`, `param-audit`, `portfolio`, `recalibrate`, `web`.
   `signal`, `monitor` and `portfolio` are parent groups (`buibui signal watch`,
   `buibui monitor price`, `buibui portfolio replay`).
-  **Known gap, not yet fixed: `README.md` documents only 3 of the 12.**
+  **Count it, do not eyeball it** — README invokes the CLI as
+  `poetry run python buibui.py <cmd>` for most subcommands but reaches `brief`, `card`
+  and `digest` only through their `make buibui-*` wrappers, so a grep for
+  `buibui <cmd>` finds 3 and reads like a catastrophe:
+
+  ```bash
+  for c in monitor signal analytics backtest brief card digest param-sweep \
+           param-audit portfolio recalibrate web; do
+    printf "  %-12s cli:%s make:%s\n" "$c" \
+      "$(grep -c "buibui\.py $c" README.md)" "$(grep -c "make buibui-$c" README.md)"
+  done
+  ```
+
+  **Measured 2026-08-19: 10 of 12 covered. The gap is `param-sweep` and `param-audit`** —
+  zero mentions of either form anywhere in README, though both are in CLAUDE.md,
+  `.claude/context/analytics.md` and four skills, so they are not undocumented
+  project-wide.
 - Does `## Directory Structure` list all current top-level modules?
 - Are any sections referencing removed features?
 
@@ -153,7 +182,7 @@ For each skill, verify the **key claims** are still true:
 | `backtest-findings` | Min-trades thresholds still match `recalibrate_lib.py` defaults |
 | `recalibrate` | `buibui recalibrate` subcommand wired in `buibui.py`; `--config` + `--apply` flags present; `confidence_ratings` DB table exists |
 | `new-strategy` | 4-file checklist still accurate; `DETECTOR_REGISTRY` is still the single source of truth |
-| `signal-watch` | `buibui signal watch` subcommand exists; TOML field names match `signal_config.py`; `min_avg_r` (not `filter_threshold`) in `[backtest]` section |
+| `signal-watch` | `buibui signal watch` subcommand exists; TOML field names match `signal_config.py`; `min_avg_r` (not `filter_threshold`) in the `[backtest]` section — **of the inherited base `config/strategy_params.toml`, NOT of the three day configs**, which carry no `[backtest]` section at all and reach it via `extends` |
 | `pr-summary` | Template sections match what's in the skill body |
 | `backtest-run` | All CLI flags listed match what `buibui backtest --help` outputs |
 | `stats-dashboard` | Card count matches actual Stats.svelte; live vs cached split still accurate |
