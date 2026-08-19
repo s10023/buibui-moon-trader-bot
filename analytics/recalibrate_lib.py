@@ -176,22 +176,59 @@ def get_backtest_win_rates(
     raw = raw.sort_values(["_is_sweep", "run_at_ms"], ascending=False).drop_duplicates(
         subset=["strategy", "timeframe", "symbol"]
     )
+    # Weight each symbol's avg_r by its own trade count before aggregating.
+    #
+    # An unweighted mean gives a 3-trade symbol the same say as a 300-trade one,
+    # and `win_rate_to_stars` has a boundary at exactly 0.0 (avg_r < 0 -> 1 star).
+    # `win_rate` below was already trade-weighted (sum of wins / sum of trades);
+    # only the R columns were not, so the two halves of the same row disagreed
+    # about what a symbol was worth.
+    #
+    # Measured 2026-08-19 in the three PRODUCTION scopes -- each config's own
+    # day_filter + adr_suppress_threshold, i.e. the rows whose stars actually get
+    # written -- over 555 cells (combined + long + short): median gap 0.0138R,
+    # p90 0.2636R, max 1.2749R, with 39 cells crossing the sign and 60 changing
+    # star rating (fvg/1d +0.2397 -> -0.4878, i.e. 3 stars -> 1).
+    #
+    # Scope is what makes this visible: a scope-free call (no day_filter, which
+    # also restricts to adr IS NULL) reads 0 sign flips over 70 cells. Measure
+    # this in the production scope or it looks like a rounding change.
+    #
+    # A row whose avg_r is NULL carries zero weight in BOTH numerator and
+    # denominator: it must not drag the mean toward 0.0, and it must not inflate
+    # the divisor either.
+    for r_col, n_col in (
+        ("avg_r", "closed_trades"),
+        ("long_avg_r", "long_closed_trades"),
+        ("short_avg_r", "short_closed_trades"),
+    ):
+        n = pd.to_numeric(raw[n_col], errors="coerce").fillna(0.0)
+        r = pd.to_numeric(raw[r_col], errors="coerce")
+        raw[f"_{r_col}_rw"] = (r * n).fillna(0.0)
+        raw[f"_{r_col}_rn"] = n.where(r.notna(), 0.0)
+
     # Aggregate across symbols
     agg = (
         raw.groupby(["strategy", "timeframe"], sort=True)
         .agg(
             total_trades=("closed_trades", "sum"),
             win_count_sum=("win_count", "sum"),
-            avg_r=("avg_r", "mean"),
+            avg_r_rw=("_avg_r_rw", "sum"),
+            avg_r_rn=("_avg_r_rn", "sum"),
             long_total_trades=("long_closed_trades", "sum"),
             long_win_count_sum=("long_win_count", "sum"),
-            long_avg_r=("long_avg_r", "mean"),
+            long_avg_r_rw=("_long_avg_r_rw", "sum"),
+            long_avg_r_rn=("_long_avg_r_rn", "sum"),
             short_total_trades=("short_closed_trades", "sum"),
             short_win_count_sum=("short_win_count", "sum"),
-            short_avg_r=("short_avg_r", "mean"),
+            short_avg_r_rw=("_short_avg_r_rw", "sum"),
+            short_avg_r_rn=("_short_avg_r_rn", "sum"),
         )
         .reset_index()
     )
+    # Zero weight means no data at all -> NaN, matching the old all-NaN mean.
+    for r_col in ("avg_r", "long_avg_r", "short_avg_r"):
+        agg[r_col] = agg[f"{r_col}_rw"] / agg[f"{r_col}_rn"].replace(0.0, float("nan"))
     agg["win_rate"] = (agg["win_count_sum"] / agg["total_trades"]).round(4)
     agg["avg_r"] = agg["avg_r"].round(4)
     agg["total_trades"] = agg["total_trades"].astype(int)

@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from analytics.backtest_lib import BacktestResult, Trade
+from analytics.signal.scanner import passes_ev_gate
 from analytics.signal_config import BacktestFilterConfig
 from analytics.signal_lib import _backtest_summary, _compute_backtest
 
@@ -371,60 +372,150 @@ def _make_result_with_avg_r(
 
 
 class TestEvGate:
-    """Verify the avg_r EV gate passes low-WR profitable strategies and blocks losers."""
+    """The live EV gate: ``passes_ev_gate`` decides whether to SUPPRESS a signal.
 
-    def _cfg(self, min_trades: int = 5, min_avg_r: float = 0.0) -> BacktestFilterConfig:
+    These tests call the production function. The previous version of this class
+    re-implemented the gate inline in each test (``avg_r = result.long_avg_r;
+    assert avg_r >= cfg.min_avg_r``), so it asserted properties of
+    ``BacktestResult`` and never the decision the daemon actually makes — which
+    is why the total-vs-directional trade-count defect was invisible to it.
+    """
+
+    def _cfg(
+        self,
+        min_trades: int = 5,
+        min_avg_r: float = 0.0,
+        min_avg_r_long: float | None = None,
+        min_avg_r_short: float | None = None,
+    ) -> BacktestFilterConfig:
         return BacktestFilterConfig(
-            mode="hard", days=90, min_trades=min_trades, min_avg_r=min_avg_r
+            mode="hard",
+            days=90,
+            min_trades=min_trades,
+            min_avg_r=min_avg_r,
+            min_avg_r_long=min_avg_r_long,
+            min_avg_r_short=min_avg_r_short,
         )
+
+    # -- the count check is DIRECTIONAL ------------------------------------
+
+    def test_thin_directional_sample_is_not_suppressed(self) -> None:
+        """The defect: 5 long trades must not be judged because 25 TOTAL exist.
+
+        ``min_trades`` is calibrated on the directional bucket
+        (``signal_config.py``: "Thresholds apply to the directional bucket
+        (long or short), not total closed trades"). Counting the total lets the
+        count check pass on a directional sample too thin to decide from, and
+        the gate then suppresses on that noise.
+        """
+        result = _make_result_with_avg_r(
+            long_wins=1, long_losses=4, short_wins=10, short_losses=10, tp_r=2.0
+        )
+        assert len(result.closed_trades) == 25
+        assert len(result.long_closed_trades) == 5
+        assert result.long_avg_r is not None and result.long_avg_r < 0.0
+
+        cfg = self._cfg(min_trades=10, min_avg_r=0.0)
+        assert passes_ev_gate(result, "long", cfg, "4h") is True
+
+    def test_sufficient_directional_sample_with_negative_avg_r_is_suppressed(
+        self,
+    ) -> None:
+        """Positive control for the test above: enough LONG trades → decide."""
+        result = _make_result_with_avg_r(
+            long_wins=4, long_losses=16, short_wins=0, short_losses=0, tp_r=2.0
+        )
+        assert len(result.long_closed_trades) == 20
+        assert result.long_avg_r is not None and result.long_avg_r < 0.0
+
+        cfg = self._cfg(min_trades=10, min_avg_r=0.0)
+        assert passes_ev_gate(result, "long", cfg, "4h") is False
+
+    def test_short_count_ignores_a_large_long_bucket(self) -> None:
+        """A thin SHORT sample is not rescued by a fat LONG one."""
+        result = _make_result_with_avg_r(
+            long_wins=10, long_losses=10, short_wins=1, short_losses=4, tp_r=2.0
+        )
+        assert len(result.short_closed_trades) == 5
+        assert result.short_avg_r is not None and result.short_avg_r < 0.0
+
+        cfg = self._cfg(min_trades=10, min_avg_r=0.0)
+        assert passes_ev_gate(result, "short", cfg, "4h") is True
+
+    def test_per_tf_min_trades_is_honoured(self) -> None:
+        """``effective_min_trades(tf)`` overrides the global floor per timeframe."""
+        result = _make_result_with_avg_r(
+            long_wins=1, long_losses=9, short_wins=0, short_losses=0, tp_r=2.0
+        )
+        assert len(result.long_closed_trades) == 10
+        assert result.long_avg_r is not None and result.long_avg_r < 0.0
+
+        cfg = self._cfg(min_trades=5, min_avg_r=0.0)
+        cfg.min_trades_per_tf = {"15m": 20}
+        # 15m demands 20 directional trades → 10 is too thin → pass
+        assert passes_ev_gate(result, "long", cfg, "15m") is True
+        # 4h falls back to the global 5 → 10 is enough → suppress
+        assert passes_ev_gate(result, "long", cfg, "4h") is False
+
+    # -- the avg_r decision -------------------------------------------------
 
     def test_low_winrate_positive_avg_r_passes(self) -> None:
         """25% WR at 4R is still +EV — must NOT be suppressed."""
-
-        # 25% win rate, tp_r=4 → avg_r = 0.25*4 - 0.75*1 = +0.25 (positive EV)
         result = _make_result_with_avg_r(
             long_wins=5, long_losses=15, short_wins=0, short_losses=0, tp_r=4.0
         )
+        assert result.long_avg_r is not None and result.long_avg_r > 0.0
         cfg = self._cfg(min_trades=5, min_avg_r=0.0)
-        assert result.long_avg_r is not None
-        assert result.long_avg_r > 0.0, "25% WR × 4R should be positive EV"
-
-        # Simulate the gate check directly
-        avg_r = result.long_avg_r
-        assert avg_r >= cfg.min_avg_r
-
-    def test_negative_avg_r_blocked(self) -> None:
-        """Strategy with negative avg_r must be suppressed."""
-        result = _make_result_with_avg_r(
-            long_wins=2, long_losses=10, short_wins=0, short_losses=0, tp_r=2.0
-        )
-        cfg = self._cfg(min_trades=5, min_avg_r=0.0)
-        avg_r = result.long_avg_r
-        assert avg_r is not None
-        assert avg_r < 0.0, "Low WR × low R should be negative EV"
-        assert avg_r < cfg.min_avg_r
+        assert passes_ev_gate(result, "long", cfg, "4h") is True
 
     def test_short_direction_uses_short_avg_r(self) -> None:
-        """Gate uses short_avg_r for SHORT signals, not long_avg_r."""
-        # Long trades are losers, short trades are winners
+        """Gate reads the SHORT bucket for a short signal, not the long one."""
         result = _make_result_with_avg_r(
-            long_wins=1, long_losses=10, short_wins=5, short_losses=1, tp_r=2.0
+            long_wins=1, long_losses=19, short_wins=15, short_losses=5, tp_r=2.0
         )
         assert result.long_avg_r is not None and result.long_avg_r < 0.0
         assert result.short_avg_r is not None and result.short_avg_r > 0.0
 
-    def test_none_result_always_passes(self) -> None:
-        """No backtest data → signal must not be suppressed."""
-        # result is None → gate passes regardless of min_avg_r
-        result = None
-        passes = result is None
-        assert passes
+        cfg = self._cfg(min_trades=5, min_avg_r=0.0)
+        assert passes_ev_gate(result, "short", cfg, "4h") is True
+        assert passes_ev_gate(result, "long", cfg, "4h") is False
 
-    def test_insufficient_trades_passes(self) -> None:
-        """Below min_trades threshold → gate passes (insufficient data)."""
+    def test_directional_threshold_override(self) -> None:
+        """``min_avg_r_long`` overrides ``min_avg_r`` for long signals only."""
         result = _make_result_with_avg_r(
-            long_wins=1, long_losses=3, short_wins=0, short_losses=0, tp_r=2.0
+            long_wins=5, long_losses=15, short_wins=5, short_losses=15, tp_r=4.0
         )
-        cfg = self._cfg(min_trades=20, min_avg_r=0.0)
-        passes = len(result.closed_trades) < cfg.effective_min_trades("4h")
-        assert passes  # 4 trades < 20 threshold
+        assert result.long_avg_r is not None
+        assert 0.0 < result.long_avg_r < 0.5
+
+        cfg = self._cfg(min_trades=5, min_avg_r=0.0, min_avg_r_long=0.5)
+        assert passes_ev_gate(result, "long", cfg, "4h") is False
+        assert passes_ev_gate(result, "short", cfg, "4h") is True
+
+    # -- fail-open paths ----------------------------------------------------
+
+    def test_none_result_always_passes(self) -> None:
+        """No backtest data → never suppress."""
+        cfg = self._cfg(min_trades=5, min_avg_r=0.0)
+        assert passes_ev_gate(None, "long", cfg, "4h") is True
+
+    def test_absent_directional_avg_r_passes(self) -> None:
+        """A bucket with trades but no R values must not suppress."""
+        result = _make_result_with_avg_r(
+            long_wins=0, long_losses=0, short_wins=10, short_losses=10, tp_r=2.0
+        )
+        assert result.long_avg_r is None
+        cfg = self._cfg(min_trades=0, min_avg_r=0.0)
+        assert passes_ev_gate(result, "long", cfg, "4h") is True
+
+    def test_direction_blind_signal_uses_the_total_bucket(self) -> None:
+        """A signal that is neither long nor short still reads the combined stats."""
+        result = _make_result_with_avg_r(
+            long_wins=1, long_losses=9, short_wins=1, short_losses=9, tp_r=2.0
+        )
+        assert len(result.closed_trades) == 20
+        assert result.avg_r < 0.0
+
+        cfg = self._cfg(min_trades=15, min_avg_r=0.0)
+        # 20 total ≥ 15 → decide, and the combined avg_r is negative
+        assert passes_ev_gate(result, "neutral", cfg, "4h") is False
