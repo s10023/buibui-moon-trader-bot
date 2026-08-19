@@ -148,9 +148,7 @@ def test_missing_required_key_raises(tmp_path: Path) -> None:
 def test_a_role_bearing_surface_must_have_a_concrete_path(tmp_path: Path) -> None:
     """Globs are for the skill's human-facing table. A role feeds a checker that
     opens the path, so a glob there would read as a missing file."""
-    body = MINIMAL.replace(
-        'path = "README.md"', 'path_glob = ".claude/context/*.md"'
-    )
+    body = MINIMAL.replace('path = "README.md"', 'path_glob = ".claude/context/*.md"')
     with pytest.raises(ConfigError, match="concrete path"):
         load(_write(tmp_path, body))
 
@@ -335,7 +333,9 @@ def _surface(raw: dict[str, Any]) -> Surface:
             roles=tuple(str(r) for r in raw.get("roles", ())),
         )
     except KeyError as exc:
-        raise ConfigError(f"{CONFIG}: surface is missing a required key: {exc}") from exc
+        raise ConfigError(
+            f"{CONFIG}: surface is missing a required key: {exc}"
+        ) from exc
     if surface.roles and not surface.path:
         raise ConfigError(
             f"{CONFIG}: surface {surface.id!r} carries roles but no concrete path — "
@@ -435,7 +435,9 @@ class TestSurfaceListsComeFromConfig:
         from tools import agents_config, post_branch_checks
 
         cfg = agents_config.load(Path.cwd())
-        assert post_branch_checks.enumerating_docs() == cfg.paths_with_role("enumerating")
+        assert post_branch_checks.enumerating_docs() == cfg.paths_with_role(
+            "enumerating"
+        )
 
     def test_negative_claim_paths_matches_the_config_view(self) -> None:
         from tools import agents_config, post_branch_checks
