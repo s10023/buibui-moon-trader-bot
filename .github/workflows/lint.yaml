@@ -55,6 +55,16 @@ jobs:
         if: steps.changes.outputs.skills == 'true'
         run: ./.github/scripts/update-skills.sh
 
+      # Deliberately UNCONDITIONAL and deliberately in THIS job. The natural
+      # home looks like lint-typecheck-test, but that job sits behind a
+      # `**/*.py` paths filter — so on a docs-only PR, which is exactly the
+      # change this check guards against, it would never run at all. A guard
+      # placed behind a filter is absent precisely on the diffs it exists to
+      # catch. This job installs no dependencies, so the legs needing project
+      # imports report SKIPPED here and the pure-text ones still gate.
+      - name: Doc-drift sanity checks
+        run: python3 tools/sanity_checks.py
+
   lint-typecheck-test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
