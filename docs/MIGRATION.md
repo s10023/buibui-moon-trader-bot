@@ -129,7 +129,7 @@ Copying `.cache/` alone would move ~600M of pure regenerable bulk.
 ## 4. Setup on the NEW laptop
 
 1. Install: Python 3.11+, Poetry, Node, `ffmpeg`, `agent-browser` (npm global). See
-   `README.md` and the Dependencies section of `CLAUDE.md`.
+   `README.md` and the Dependencies section of `AGENTS.md`.
 2. Restore `~/.ssh` (mode `700` dir / `600` keys) and confirm the personal alias:
    `ssh -T git@github.com-personal`.
 3. Clone all three over that alias, then drop the gitignored files back in.

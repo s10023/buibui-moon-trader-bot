@@ -1,0 +1,105 @@
+# Repo-specific facts that generic tooling and skills read.
+#
+# This file exists because the doc-surface list had four hardcoded copies — three
+# constants in tools/post_branch_checks.py, one in tools/sanity_checks.py, and a
+# YAML block inside .claude/skills/post-branch/SKILL.md whose own header says it
+# is the only part to edit when porting. Four copies of one list is how the
+# workflow skills drifted 89% from the sister fork's while both believed they
+# were synced.
+#
+# Adding a surface here adds it to every consumer at once. That is the point.
+
+[repo]
+flip_target = "s10023/buibui-moon-trader-bot"
+gh_user = "s10023"
+
+# Consumed by tools/post_branch_checks.py and docs/plans/daily_check.py. The two
+# disagreed about nothing only by luck: both spelled 200/600 independently.
+[budgets]
+handoff_lines = 200
+handoff_ceiling = 600
+memory_state_bullets = 6
+memory_state_ceiling = 8
+memory_bytes_cap = 17408
+
+# roles: each is read back through `AgentsConfig.paths_with_role()` by exactly one
+# accessor, and those accessors are FUNCTIONS, not module constants — a constant
+# would read the config at import time, which the checkers' subprocess tests forbid.
+#
+#   anchor         -> post_branch_checks.anchor_files()        (dead-section citations)
+#   enumerating    -> post_branch_checks.enumerating_docs()    (does a new file appear anywhere?)
+#   negative_claim -> post_branch_checks.negative_claim_paths()
+#   sanity         -> sanity_checks.sanity_surfaces()          (CI-gating drift sweep)
+#
+# A surface carrying any role needs a concrete `path`: the checker opens it.
+# `path_glob` entries are for the human-facing table only.
+#
+# Order below is declaration order, and declaration order is what
+# `paths_with_role()` returns — it matched the hardcoded tuples it replaced exactly,
+# so the repoint was a no-op rather than a silent scope change wearing one's costume.
+
+[[surface]]
+id = "agents_md"
+path = "AGENTS.md"
+purpose = "Agent-neutral project context: structure, commands, verdicts, conventions"
+roles = ["anchor", "enumerating", "negative_claim", "sanity"]
+
+[[surface]]
+id = "claude_md"
+path = "CLAUDE.md"
+purpose = "Claude Code harness specifics: skills, subagents, hooks, memory protocol"
+roles = ["anchor", "enumerating", "negative_claim", "sanity"]
+
+[[surface]]
+id = "readme"
+path = "README.md"
+purpose = "User-facing project overview (CLI subcommands, install, quickstart)"
+roles = ["anchor", "enumerating", "negative_claim", "sanity"]
+
+[[surface]]
+id = "system_overview"
+path = "docs/system-overview.md"
+purpose = "Architecture narrative"
+roles = ["anchor", "sanity"]
+
+[[surface]]
+id = "handoff"
+path = "docs/plans/next-conversation-prompt.md"
+purpose = "Gitignored session state; budgets above apply to it"
+roles = ["anchor"]
+
+[[surface]]
+id = "context_docs"
+path = ".claude/context"
+path_glob = ".claude/context/*.md"
+purpose = "Long-form module references (analytics, research-sleeves, tools, signals, web, execution)"
+roles = ["enumerating"]
+
+[[surface]]
+id = "deploy_readme"
+path = "deploy/README.md"
+purpose = "Install, retention and restore for the VPS deploy kit"
+roles = ["enumerating"]
+
+[[surface]]
+id = "makefile"
+path = "Makefile"
+purpose = "Every buibui.py subcommand should have a buibui-* wrapper"
+roles = ["negative_claim"]
+
+[[surface]]
+id = "docker_compose"
+path = "docker-compose.yml"
+purpose = "Long-running services and one-shot tools"
+roles = ["negative_claim"]
+
+[[surface]]
+id = "claude_harness"
+path = ".claude"
+purpose = "The harness tree — hooks, rules, skills and context — swept for absence-language"
+roles = ["negative_claim"]
+
+[[surface]]
+id = "skill_docs"
+path_glob = ".claude/skills/*/SKILL.md"
+purpose = "Workflow instructions naming tools, flags and paths — they drift like CLAUDE.md does"

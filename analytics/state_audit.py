@@ -239,7 +239,7 @@ def mintrl_n_ok(
     fails silently rather than loudly. That is the same directional defect
     that shipped in H8's ``_family_dsr`` (PR #546) wearing a different hat,
     which is why the fold lives in ONE function instead of being re-typed at
-    each call site (CLAUDE.md's DIRECTIONAL-metrics rule).
+    each call site (AGENTS.md's DIRECTIONAL-metrics rule).
 
     Disclosed consequence, same as ``family_dsr``: folding to magnitude makes
     this leg marginally MORE permissive than the signed form. Bias runs toward

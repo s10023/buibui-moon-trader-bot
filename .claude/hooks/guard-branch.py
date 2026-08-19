@@ -12,7 +12,7 @@ WHY THIS EXISTS ON Edit/Write RATHER THAN Bash
 
 WHY IT IS NOT A "TASK START" HOOK
     There is no hook event for "about to start a task". The same gap is already
-    documented in CLAUDE.md for `gh pr create`. The first mutation of the
+    documented in AGENTS.md for `gh pr create`. The first mutation of the
     working tree is the closest observable proxy, so that is what this watches.
 
 WHY IT IS ADVISORY, NOT BLOCKING
@@ -149,7 +149,7 @@ def main() -> int:
         f"git checkout -b <feat|fix|docs|chore>/<short-name>. "
         f"If editing {branch} directly is intended (hotfix, or the operator asked), "
         f"say so and continue. Advisory only — never blocking. "
-        f"Rationale: CLAUDE.md > Git Conventions."
+        f"Rationale: AGENTS.md > Git Conventions."
     )
     print(
         json.dumps(

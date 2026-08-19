@@ -41,9 +41,26 @@ import sys
 import tomllib
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
+# Runnable as a bare script, not only through the Make target. CI invokes this as
+# `python3 tools/sanity_checks.py` with no PYTHONPATH, which puts `tools/` on
+# sys.path rather than the repo root — so the `tools.*` imports below would raise
+# ModuleNotFoundError and the step would fail on an import, not on a finding.
+# The Make target sets PYTHONPATH=., so a green local run cannot catch that.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from tools.agents_config import AgentsConfig, ConfigError  # noqa: E402
+from tools.agents_config import load as load_agents_config  # noqa: E402
+
 Runner = Callable[[Sequence[str]], str]
+
+
+@lru_cache(maxsize=1)
+def _cfg() -> AgentsConfig:
+    return load_agents_config()
+
 
 #: Current-state doc surfaces. The dated trees (`docs/audits`, `docs/redesign`,
 #: `docs/superpowers`, `docs/plans`) are deliberately absent: a past-tense claim
@@ -51,7 +68,11 @@ Runner = Callable[[Sequence[str]], str]
 #: — `.claude`-only scope is how `docs/system-overview.md` kept saying "Binance
 #: Futures" for three months across four post-fork commits.
 SURFACE_ROOTS = (".claude",)
-SURFACE_FILES = ("CLAUDE.md", "README.md", "docs/system-overview.md")
+
+
+def sanity_surfaces() -> tuple[str, ...]:
+    return _cfg().paths_with_role("sanity")
+
 
 #: These two files quote the anti-patterns in order to hunt for them, so their
 #: own text is not evidence of drift.
@@ -207,7 +228,7 @@ def surface_paths() -> list[Path]:
     paths: list[Path] = []
     for root in SURFACE_ROOTS:
         paths += sorted(Path(root).rglob("*.md"))
-    paths += [Path(p) for p in SURFACE_FILES]
+    paths += [Path(p) for p in sanity_surfaces()]
     return [
         p
         for p in paths
@@ -450,8 +471,24 @@ def _load_code_facts() -> tuple[set[str], set[str]] | None:
     return set(STRATEGY_REGISTRY), set(_BARS_PER_DAY)
 
 
-def gather(runner: Runner = _run) -> list[CheckResult]:
-    """Run every check against the working tree. Order matches the skill."""
+def gather(
+    runner: Runner = _run,
+    load_config: Callable[[], object] = _cfg,
+) -> list[CheckResult]:
+    """Run every check against the working tree. Order matches the skill.
+
+    A missing or malformed `docs/agents/surfaces.toml` must render as a
+    FINDING, never a traceback — this module gates CI, and an uncaught
+    `ConfigError` would replace a readable finding with a crash. Returning
+    early is deliberate too: with no surface list, every surface-keyed leg
+    below would sweep nothing and report clean, which is the false all-clear
+    this early return exists to prevent.
+    """
+    try:
+        load_config()
+    except ConfigError as exc:
+        return [CheckResult("agents-config", [Finding("agents-config", str(exc))])]
+
     surfaces = _read_surfaces()
     facts = _load_code_facts()
     no_deps = "project dependencies are not installed"

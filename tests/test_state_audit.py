@@ -86,7 +86,7 @@ def test_cell_sharpe_zero_dispersion_is_zero() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# The DIRECTIONAL-metric guards. Both legs of CLAUDE.md's directional rule are #
+# The DIRECTIONAL-metric guards. Both legs of AGENTS.md's directional rule are #
 # covered here because both implementations now live here — H8, H14 and H15    #
 # share them. `test_family_dsr_is_direction_agnostic` moved from               #
 # tests/test_indicator_condition.py with the code it guards; it is the         #

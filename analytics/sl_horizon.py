@@ -503,7 +503,7 @@ def evaluate_sl_grid(
             # ci_hi IS the predicate, so that arm is the one number a reader needs
             # to check the claim. Ties break toward the larger k, matching the
             # SUSPECT branch. dsr/pbo stay None here on purpose — no Sharpe is
-            # computed, which is exactly why CLAUDE.md's directional abs() fold
+            # computed, which is exactly why AGENTS.md's directional abs() fold
             # never bites on this branch.
             witness_arm, witness_cv = max(
                 arm_verdicts,

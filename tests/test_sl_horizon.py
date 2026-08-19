@@ -596,7 +596,7 @@ def test_negative_claim_reports_the_witness_arm_that_licenses_it() -> None:
     assert got.ci_lo is not None and got.ci_hi is not None
     assert got.best_lift is not None
     # dsr/pbo stay unset on this branch: no Sharpe is computed, which is why
-    # CLAUDE.md's directional abs() fold never bites here.
+    # AGENTS.md's directional abs() fold never bites here.
     assert got.dsr is None and got.pbo is None
 
 

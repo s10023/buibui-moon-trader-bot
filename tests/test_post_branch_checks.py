@@ -8,8 +8,16 @@ it was never run against something that should fail.
 
 from __future__ import annotations
 
+import dataclasses
+import os
+import subprocess
+import sys
 from collections.abc import Sequence
+from pathlib import Path
 
+import pytest
+
+from tools.agents_config import Budgets
 from tools.post_branch_checks import (
     Runner,
     added_paths,
@@ -116,7 +124,7 @@ class TestCheckNewTargets:
         assert "zzz-nope" in found[0].detail
 
     def test_buibui_prefix_is_stripped_before_probing(self) -> None:
-        """CLAUDE.md documents subcommands; the wrapper rule covers the rest."""
+        """AGENTS.md documents subcommands; the wrapper rule covers the rest."""
         assert (
             check_new_targets("+buibui-param-audit: x\n", "`param-audit` runs WFO")
             == []
@@ -406,3 +414,208 @@ class TestSensitiveTermsCoversCommitMessages:
             return "docs: tidy the tables\n" if "--format=%B%n%s" in argv else ""
 
         assert sensitive_terms_result(runner, terms=["acmecorp"]).findings == []
+
+
+class TestSurfaceListsComeFromConfig:
+    """The mutation control for the repoint.
+
+    Asserting the tuples merely *contain* the right paths passes just as well
+    against a surviving hardcoded copy. These assert they are DERIVED.
+    """
+
+    def test_anchor_files_matches_the_config_view(self) -> None:
+        from tools import agents_config, post_branch_checks
+
+        cfg = agents_config.load(Path.cwd())
+        assert post_branch_checks.anchor_files() == cfg.paths_with_role("anchor")
+
+    def test_enumerating_docs_matches_the_config_view(self) -> None:
+        from tools import agents_config, post_branch_checks
+
+        cfg = agents_config.load(Path.cwd())
+        assert post_branch_checks.enumerating_docs() == cfg.paths_with_role(
+            "enumerating"
+        )
+
+    def test_negative_claim_paths_matches_the_config_view(self) -> None:
+        from tools import agents_config, post_branch_checks
+
+        cfg = agents_config.load(Path.cwd())
+        assert post_branch_checks.negative_claim_paths() == cfg.paths_with_role(
+            "negative_claim"
+        )
+
+    def test_a_config_failure_renders_as_a_finding_not_a_crash(self) -> None:
+        """The whole reason the read is deferred to call time.
+
+        An import-time load would crash the runner, and a swallowed one would
+        print `0 findings, exit 0` — the SKIP-looks-like-PASS failure this repo
+        has shipped twice. It must be neither.
+        """
+        from tools import post_branch_checks
+        from tools.agents_config import ConfigError
+
+        def stub(argv: Sequence[str]) -> str:
+            return ""
+
+        def boom() -> None:
+            raise ConfigError("docs/agents/surfaces.toml is missing")
+
+        results = post_branch_checks.gather(stub, load_config=boom)
+        config_leg = [r for r in results if r.name == "agents-config"]
+        assert len(config_leg) == 1
+        assert config_leg[0].findings, "a missing config must FIRE, not skip"
+        assert config_leg[0].skipped is None
+
+    def test_the_view_is_not_a_hardcoded_copy(self, tmp_path: Path) -> None:
+        """Drop a role from a fixture config; ``agents_config``'s own view must shrink.
+
+        This exercises ``agents_config.load`` / ``paths_with_role`` only — it
+        says nothing about whether ``post_branch_checks`` itself reads that
+        view rather than a surviving literal tuple. That property is
+        ``test_the_accessor_is_derived_not_literal``, below.
+        """
+        from tools import agents_config
+
+        (tmp_path / "docs" / "agents").mkdir(parents=True)
+        real = (Path.cwd() / agents_config.CONFIG).read_text(encoding="utf-8")
+        (tmp_path / agents_config.CONFIG).write_text(
+            real.replace('"anchor", ', "", 1), encoding="utf-8"
+        )
+        shrunk = agents_config.load(tmp_path)
+        assert len(shrunk.paths_with_role("anchor")) < len(
+            agents_config.load(Path.cwd()).paths_with_role("anchor")
+        )
+
+    def test_the_accessor_is_derived_not_literal(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutate the config the module reads; the accessor must move with it.
+
+        A surviving hardcoded tuple passes every other test in this class and
+        fails this one — it is the mutation control the other tests are not.
+        """
+        from tools import agents_config, post_branch_checks
+
+        real = agents_config.load(Path.cwd())
+        shrunk = dataclasses.replace(real, surfaces=real.surfaces[:1])
+        monkeypatch.setattr(post_branch_checks, "load_agents_config", lambda: shrunk)
+        post_branch_checks._cfg.cache_clear()
+        try:
+            assert len(post_branch_checks.anchor_files()) < len(
+                real.paths_with_role("anchor")
+            )
+        finally:
+            post_branch_checks._cfg.cache_clear()
+
+    def test_importing_the_module_does_not_read_the_config(
+        self, tmp_path: Path
+    ) -> None:
+        """The deferred read, mutation-tested.
+
+        A module-level ``_CFG = load()`` crashes on import when no config is
+        present — and this module is imported by the CI-gating sweep, so that
+        crash replaces a readable finding with a traceback. Running the
+        import from a directory with no config is the only way to tell the
+        two apart; every in-process test in this file passes against both.
+        """
+        result = subprocess.run(
+            [sys.executable, "-c", "import tools.post_branch_checks"],
+            cwd=tmp_path,
+            env={**os.environ, "PYTHONPATH": str(Path.cwd())},
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode == 0, (
+            f"importing the module read the config eagerly: {result.stderr}"
+        )
+
+
+class TestHandoffSize:
+    """The leg this replaces returned [] on every input, and nothing tested it.
+
+    A test asserting only "a small handoff is clean" would reproduce that
+    defect exactly, so both firing cases come first.
+    """
+
+    def _budgets(self) -> Budgets:
+        return Budgets(
+            handoff_lines=10,
+            handoff_ceiling=20,
+            memory_state_bullets=6,
+            memory_state_ceiling=8,
+            memory_bytes_cap=17408,
+        )
+
+    def test_within_budget_is_clean(self) -> None:
+        from tools.post_branch_checks import _check_handoff_size
+
+        assert _check_handoff_size("x\n" * 5, self._budgets()) == []
+
+    def test_over_budget_fires(self) -> None:
+        from tools.post_branch_checks import _check_handoff_size
+
+        found = _check_handoff_size("x\n" * 15, self._budgets())
+        assert len(found) == 1
+        assert "15 lines" in found[0].detail
+        assert "budget 10" in found[0].detail
+
+    def test_at_ceiling_fires_harder(self) -> None:
+        from tools.post_branch_checks import _check_handoff_size
+
+        found = _check_handoff_size("x\n" * 25, self._budgets())
+        assert len(found) == 1
+        assert "ceiling" in found[0].detail
+
+    def test_empty_handoff_is_not_silently_clean(self) -> None:
+        """An absent handoff is a finding: sessions get deleted without it."""
+        from tools.post_branch_checks import _check_handoff_size
+
+        found = _check_handoff_size("", self._budgets())
+        assert len(found) == 1
+        assert "absent" in found[0].detail
+
+    def test_a_stamp_is_no_longer_consulted(self) -> None:
+        """The old leg keyed on this line. A file carrying a wrong stamp but a
+        fine size must now be clean — otherwise the stamp mechanism survived."""
+        from tools.post_branch_checks import _check_handoff_size
+
+        body = "Line count: **999**\n" + "x\n" * 4
+        assert _check_handoff_size(body, self._budgets()) == []
+
+
+class TestMemoryCapUsesConfiguredBudgets:
+    def test_bullet_cap_comes_from_config(self) -> None:
+        from tools.agents_config import Budgets
+
+        b = Budgets(
+            handoff_lines=200,
+            handoff_ceiling=600,
+            memory_state_bullets=2,
+            memory_state_ceiling=3,
+            memory_bytes_cap=17408,
+        )
+        assert b.memory_state_bullets == 2
+
+
+def test_runs_as_a_bare_script_with_no_pythonpath() -> None:
+    """CI invokes this as `python3 tools/post_branch_checks.py` with NO PYTHONPATH.
+
+    The Make target sets `PYTHONPATH=.`, so a green `make post-branch-checks` says
+    nothing about the invocation CI actually uses. That divergence shipped a red
+    CI on a branch whose every local gate was green: adding a `tools.*` import to
+    a script that had none put `tools/` on sys.path instead of the repo root, and
+    the step failed on an import rather than on a finding.
+    """
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    result = subprocess.run(
+        [sys.executable, "tools/post_branch_checks.py"],
+        cwd=Path(__file__).resolve().parent.parent,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert "ModuleNotFoundError" not in result.stderr, result.stderr
+    assert "Traceback" not in result.stderr, result.stderr

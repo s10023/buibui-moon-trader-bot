@@ -1,12 +1,13 @@
 # Research Sleeves Reference — `analytics/{forecast,xsmom,combine,carry,xsrev,cvd}/`
 
-Moved out of CLAUDE.md on 2026-08-04 to cut the auto-loaded context floor
-(~28k -> ~5k tokens per session). **CLAUDE.md keeps the package index and the
-verdicts; this file holds the detail.** If a package's PURPOSE or VERDICT changes,
-update CLAUDE.md too — the index is the only path a session has to this file.
+Moved out of the always-loaded tier on 2026-08-04 to cut the auto-loaded context
+floor (~28k -> ~5k tokens per session). **`AGENTS.md` keeps the package index and
+the verdicts; this file holds the detail.** If a package's PURPOSE or VERDICT
+changes, update `AGENTS.md` too — the index is the only path a session has to this
+file.
 
 Every sleeve below has a **pre-committed, de-biased verdict**. Read the verdict in
-CLAUDE.md before proposing work here: **four of the six are SHELVED on evidence**
+`AGENTS.md` before proposing work here: **four of the six are SHELVED on evidence**
 (`forecast/`, `carry/`, `xsrev/`, `cvd/`), and rebuilding one is the single most
 likely way to waste a session.
 

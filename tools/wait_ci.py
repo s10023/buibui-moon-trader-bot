@@ -10,7 +10,7 @@ Two gates, one tool:
   then looks red for billing reasons rather than code ones.
 
 The branch mode existed only as hand-rolled shell at exactly the step with a
-documented trap, and CLAUDE.md's rule is that *a hand walk is not the walk*. One
+documented trap, and AGENTS.md's rule is that *a hand walk is not the walk*. One
 hand-rolled version reported ``jobs=0`` against a live ``total_count=2`` because
 it swallowed a `gh` failure into "empty means zero".
 

@@ -7,7 +7,8 @@
     "2600 chars); state the TRAP and what to do instead, never the feature; and",
     "name the deep reference rather than reproducing it. Globs are fnmatch over",
     "the repo-relative posix path, so `*` crosses directory separators.",
-    "OWNERSHIP: a rule that lives here should not also live in CLAUDE.md -- two",
+    "OWNERSHIP: a rule that lives here should not also live in AGENTS.md or",
+    "CLAUDE.md -- two",
     "copies of a number is the ST23 defect this hook exists to end. Move it, do",
     "not copy it."
   ],

@@ -1,7 +1,7 @@
 """Run every mechanical check `/post-branch` used to carry as copy-by-hand bash.
 
 The skill embedded 16 shell blocks in prose. A session had to notice each one,
-copy it, and run it — which is the failure CLAUDE.md names as *a hand walk is
+copy it, and run it — which is the failure AGENTS.md names as *a hand walk is
 not the walk*, and it is why the same defects kept recurring: prose cannot
 enforce. Every check that can run without judgement lives here instead, so the
 skill's instruction is "run this, triage the hits" rather than sixteen
@@ -34,9 +34,19 @@ import subprocess  # noqa: S404 - git plumbing, fixed argv, no shell
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
-from tools.stale_anchors import default_resolver, describe, scan
+# Runnable as a bare script, not only through the Make target. CI invokes this as
+# `python3 tools/post_branch_checks.py` with no PYTHONPATH, which puts `tools/` on
+# sys.path rather than the repo root — so the `tools.*` imports below would raise
+# ModuleNotFoundError and the step would fail on an import, not on a finding.
+# The Make target sets PYTHONPATH=., so a green local run cannot catch that.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from tools.agents_config import AgentsConfig, Budgets, ConfigError  # noqa: E402
+from tools.agents_config import load as load_agents_config  # noqa: E402
+from tools.stale_anchors import default_resolver, describe, scan  # noqa: E402
 
 Runner = Callable[[Sequence[str]], str]
 
@@ -52,18 +62,23 @@ MEMORY = Path.home() / (
 )
 MEMORY_DIR = MEMORY.parent
 
+
+@lru_cache(maxsize=1)
+def _cfg() -> AgentsConfig:
+    return load_agents_config()
+
+
 #: Current-state doc surfaces swept for dead anchor citations. Deliberately the
 #: same shape as `sanity_checks.SURFACE_ROOTS` — the dated trees are excluded by
 #: `stale_anchors.is_dated_path`, because a citation in a dated record was
 #: correct when written. Hand-sweeping this class found 2 such correct
 #: citations against 4 live ones, so the exclusion is load-bearing.
 ANCHOR_ROOTS = (".claude",)
-ANCHOR_FILES = (
-    "CLAUDE.md",
-    "README.md",
-    "docs/system-overview.md",
-    "docs/plans/next-conversation-prompt.md",
-)
+
+
+def anchor_files() -> tuple[str, ...]:
+    return _cfg().paths_with_role("anchor")
+
 
 #: Basenames that identify a *role* rather than a file. Probing these by name
 #: matches unrelated prose, so the parent directory is the real identity.
@@ -71,11 +86,14 @@ SHARED_CONSTANT_BASENAMES = frozenset(
     {"SKILL.md", "README.md", "__init__.py", "INDEX.md", "index.ts", "main.py"}
 )
 
+
 #: Docs that enumerate files by name. A new operator-facing file should appear
 #: in at least one of them. The Makefile is deliberately absent: a build rule is
 #: not documentation, and including it would let a file mentioned in no prose
 #: report COVERED.
-ENUMERATING_DOCS = ("CLAUDE.md", "README.md", ".claude/context", "deploy/README.md")
+def enumerating_docs() -> tuple[str, ...]:
+    return _cfg().paths_with_role("enumerating")
+
 
 CONTEXT_DOCS = (".claude/context",)
 
@@ -92,13 +110,10 @@ NEGATIVE_CLAIM_RE = re.compile(
     re.IGNORECASE,
 )
 
-NEGATIVE_CLAIM_PATHS = (
-    "CLAUDE.md",
-    "README.md",
-    "Makefile",
-    "docker-compose.yml",
-    ".claude",
-)
+
+def negative_claim_paths() -> tuple[str, ...]:
+    return _cfg().paths_with_role("negative_claim")
+
 
 _BACKTICKED = re.compile(r"`([^`\n]+)`")
 _HYPOTHESIS = re.compile(r"\bH-\d{3}\b")
@@ -367,7 +382,7 @@ def check_new_modules(added: Sequence[str], context_blob: str) -> list[Finding]:
 def check_new_targets(diff: str, doc_blob: str) -> list[Finding]:
     """Every added Make target should be documented.
 
-    ``buibui-`` is stripped because CLAUDE.md documents the *subcommands* and
+    ``buibui-`` is stripped because AGENTS.md documents the *subcommands* and
     states that each ``buibui-*`` target wraps one; without the strip every
     wrapper reports undocumented, which is noise, and noise gets a check
     ignored.
@@ -406,7 +421,7 @@ def check_negative_claims(
     """
     added = "\n".join(line for line in diff.splitlines() if line.startswith("+"))
     haystack = added + "\n" + diff_names
-    out = runner(["git", "grep", "-nI", "-e", "x", "--", *NEGATIVE_CLAIM_PATHS])
+    out = runner(["git", "grep", "-nI", "-e", "x", "--", *negative_claim_paths()])
     findings: list[Finding] = []
     suppressed = 0
     for line in out.splitlines():
@@ -443,8 +458,19 @@ def _negative_claims_result(runner: Runner, diff: str, diff_names: str) -> Check
     return CheckResult("negative-claims", findings, note=note)
 
 
-def gather(runner: Runner = _run) -> list[CheckResult]:
+def gather(
+    runner: Runner = _run,
+    load_config: Callable[[], object] = _cfg,
+) -> list[CheckResult]:
     """Run every check against the working tree. Order matches the skill."""
+    # Returning early is deliberate: with no surface list, every downstream leg
+    # would sweep nothing and report clean, which is the false all-clear this
+    # early return exists to prevent.
+    try:
+        load_config()
+    except ConfigError as exc:
+        return [CheckResult("agents-config", [Finding("agents-config", str(exc))])]
+
     diff = runner(["git", "diff", "main", "--"])
     diff_names = runner(["git", "diff", "main", "--name-only"])
     makefile_diff = runner(["git", "diff", "main", "--", "Makefile"])
@@ -458,7 +484,7 @@ def gather(runner: Runner = _run) -> list[CheckResult]:
     )
 
     handoff = HANDOFF.read_text(encoding="utf-8") if HANDOFF.exists() else ""
-    doc_blob = _read_all(ENUMERATING_DOCS)
+    doc_blob = _read_all(enumerating_docs())
     context_blob = _read_all(CONTEXT_DOCS)
 
     results = [
@@ -626,20 +652,27 @@ def _check_md_atx(changed_md: Sequence[str]) -> list[Finding]:
     return findings
 
 
-def _check_memory_cap() -> list[Finding]:
+def _check_memory_cap(budgets: Budgets | None = None) -> list[Finding]:
+    b = budgets or _cfg().budgets
     if not MEMORY.exists():
         return []
     text = MEMORY.read_text(encoding="utf-8")
     n = current_state_bullets(text)
     size = len(text.encode("utf-8"))
     findings = []
-    if n > 6:
+    if n > b.memory_state_bullets:
         findings.append(
-            Finding("memory-cap", f"Current State has {n} bullets (cap 6) — roll one")
+            Finding(
+                "memory-cap",
+                f"Current State has {n} bullets (cap {b.memory_state_bullets}) — roll one",
+            )
         )
-    if size > 17_408:
+    if size > b.memory_bytes_cap:
         findings.append(
-            Finding("memory-cap", f"MEMORY.md is {size:,} bytes (~17KB soft cap)")
+            Finding(
+                "memory-cap",
+                f"MEMORY.md is {size:,} bytes (cap {b.memory_bytes_cap:,})",
+            )
         )
     return findings
 
@@ -655,7 +688,7 @@ def _check_stale_anchors() -> list[Finding]:
     """
     repo_root = Path.cwd()
     sources = [p for root in ANCHOR_ROOTS for p in sorted(Path(root).rglob("*.md"))]
-    sources += [Path(f) for f in ANCHOR_FILES if Path(f).is_file()]
+    sources += [Path(f) for f in anchor_files() if Path(f).is_file()]
     resolve = default_resolver(repo_root, MEMORY_DIR if MEMORY_DIR.is_dir() else None)
 
     findings = [
@@ -672,17 +705,39 @@ def _check_stale_anchors() -> list[Finding]:
     return findings
 
 
-def _check_handoff_size(handoff: str) -> list[Finding]:
+def _check_handoff_size(handoff: str, budgets: Budgets | None = None) -> list[Finding]:
+    """Size the handoff against the configured budget.
+
+    The previous implementation compared a ``Line count: **N**`` stamp against
+    the real count and carried no threshold at all. The stamp was later deleted
+    without deleting this leg, so it returned ``[]`` on every input — a check
+    that cannot fire is dismissal, silently. The budget now comes from
+    ``docs/agents/surfaces.toml``, shared with the daily check's ratchet, so the
+    two cannot disagree about the number.
+    """
+    b = budgets or _cfg().budgets
     if not handoff:
-        return []
-    lines = len(handoff.splitlines())
-    m = re.search(r"^Line count: \*\*(\d+)\*\*", handoff, re.MULTILINE)
-    if m and int(m.group(1)) != lines:
         return [
             Finding(
                 "handoff-size",
-                f"stamp claims {m.group(1)} lines, file has {lines} — "
-                "rewrite the stamp LAST",
+                "handoff is absent — rewrite it; sessions get deleted without it",
+            )
+        ]
+    lines = len(handoff.splitlines())
+    if lines >= b.handoff_ceiling:
+        return [
+            Finding(
+                "handoff-size",
+                f"{lines} lines, at/past the {b.handoff_ceiling} regression ceiling "
+                f"(budget {b.handoff_lines}) — MOVE a block to a memory topic file",
+            )
+        ]
+    if lines > b.handoff_lines:
+        return [
+            Finding(
+                "handoff-size",
+                f"{lines} lines vs a budget {b.handoff_lines} "
+                f"(red at {b.handoff_ceiling}) — move a standing block out",
             )
         ]
     return []

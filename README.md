@@ -127,7 +127,7 @@ buibui-moon-trader-bot/
 | `trade/` · `deploy/` · `monitor/` · `utils/` · `cli/` | `.claude/context/execution.md` |
 | `tools/` | `.claude/context/tools.md` |
 
-`CLAUDE.md` carries the package index and the sleeve verdicts.
+`AGENTS.md` carries the package index and the sleeve verdicts.
 
 ## Stats Dashboard
 

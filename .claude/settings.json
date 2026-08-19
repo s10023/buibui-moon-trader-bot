@@ -10,7 +10,7 @@
           },
           {
             "type": "command",
-            "command": "jq -r '.tool_input.command // empty' | head -1 | grep -qE '(^|[;&|()]|&&)[[:space:]]*gh[[:space:]]+pr[[:space:]]+create' && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"post-branch reminder: you are ABOUT TO run gh pr create. Invoke the /post-branch skill FIRST, while the branch is still local-only, so its doc fixes ship in the initial push and its Documentation-updates section goes into the PR body at creation. Steps 1-5b and 7 are commit-producing and belong HERE; only 6 and 10a/10c run after the PR exists. A hand walk is NOT the walk - run the three-source added-file check itself (committed adds, staged adds, untracked), because its whole value is catching the file you forgot existed. Advisory only - never blocking. Rationale: CLAUDE.md > Git Conventions; ported from wifey 2026-08-14g.\"}}' || true"
+            "command": "jq -r '.tool_input.command // empty' | head -1 | grep -qE '(^|[;&|()]|&&)[[:space:]]*gh[[:space:]]+pr[[:space:]]+create' && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"post-branch reminder: you are ABOUT TO run gh pr create. Invoke the /post-branch skill FIRST, while the branch is still local-only, so its doc fixes ship in the initial push and its Documentation-updates section goes into the PR body at creation. Steps 1-5b and 7 are commit-producing and belong HERE; only 6 and 10a/10c run after the PR exists. A hand walk is NOT the walk - run the three-source added-file check itself (committed adds, staged adds, untracked), because its whole value is catching the file you forgot existed. Advisory only - never blocking. Rationale: AGENTS.md > Git Conventions; ported from wifey 2026-08-14g.\"}}' || true"
           }
         ]
       },
@@ -34,7 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.command // empty' | head -1 | grep -qE '(^|[;&|()]|&&)[[:space:]]*gh[[:space:]]+pr[[:space:]]+create' && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"post-branch reminder: gh pr create just ran. Invoke the /post-branch skill NOW, before reporting the PR URL to the user. Its own Step 1 behaviour gate decides whether a docs sweep is warranted, so this is cheap even on a pure refactor. Advisory only - never blocking. Rationale: CLAUDE.md > Git Conventions.\"}}' || true"
+            "command": "jq -r '.tool_input.command // empty' | head -1 | grep -qE '(^|[;&|()]|&&)[[:space:]]*gh[[:space:]]+pr[[:space:]]+create' && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"post-branch reminder: gh pr create just ran. Invoke the /post-branch skill NOW, before reporting the PR URL to the user. Its own Step 1 behaviour gate decides whether a docs sweep is warranted, so this is cheap even on a pure refactor. Advisory only - never blocking. Rationale: AGENTS.md > Git Conventions.\"}}' || true"
           }
         ]
       }
