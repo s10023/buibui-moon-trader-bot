@@ -213,3 +213,84 @@ class TestKnownHoles:
     def test_anchor_before_its_target_is_invisible(self) -> None:
         """Only target-then-anchor is read. "phase 6 of `/post-branch`" is not."""
         assert citations("phase 6 of `/post-branch` covers it\n", "a.md") == []
+
+
+class TestDecimalNumbersAreNotSectionDeclarations:
+    """`**4.9 min**` is a duration, not a declaration of section 4.
+
+    The damage is not the spurious anchor itself — it is that ANY declaration
+    disables the ordered-list fallback in :func:`declared_anchors`, so one
+    decimal number anywhere in a document blinds the check to every genuine
+    ordered-list anchor that document declares. `/card` carried exactly this:
+    `**4.9 min**` was its only "declaration", which is why a correct citation
+    of its digest rubric's item 2 reported dead.
+    """
+
+    def test_decimal_number_declares_nothing(self) -> None:
+        assert declared_anchors("**4.9 min** per card.") == set()
+
+    def test_ordered_list_still_harvested_beside_a_decimal(self) -> None:
+        doc = "**4.9 min** per card.\n\n1. First thing\n2. Second thing\n"
+        assert ("step", "2") in declared_anchors(doc)
+
+    def test_a_real_untyped_heading_still_declares(self) -> None:
+        assert ("section", "4") in declared_anchors("## 4. Digest rubric\n")
+
+
+class TestAnchorOwnedByAPrecedingItemId:
+    """`P2 §6` cites the P2 spec, not whichever .md filename sits nearest.
+
+    The repo's item-ID namespace (ST/H/N/P/G/M/F/D/T/L/W + digits) is a
+    stronger claim of ownership than proximity is, and both live instances of
+    this class named a spec section while sitting beside an audit filename.
+    """
+
+    def test_item_id_before_the_anchor_suppresses(self) -> None:
+        line = "verdict `docs/audits/a.md` (the P2 §6 check pre-registered)"
+        assert citations(line, "s.md") == []
+
+    def test_bold_wrapped_item_id_also_suppresses(self) -> None:
+        line = "see `docs/audits/a.md`. Runs the **P2 §6 per-regime attribution**"
+        assert citations(line, "s.md") == []
+
+    def test_a_bare_section_citation_is_still_reported(self) -> None:
+        line = "see `docs/audits/a.md` §6 for the table"
+        assert [c.label for c in citations(line, "s.md")] == ["6"]
+
+
+class TestForeignRepoQualifier:
+    """`wifey's /post-branch Step 5c` names another tree's document.
+
+    This tree cannot check it, and resolving it against the local skill of the
+    same name reports a dead anchor for a citation that is correct where it
+    points. The live instance's own next sentence read "buibui has no such
+    step", so the text was never claiming a local anchor.
+    """
+
+    def test_possessive_fork_qualifier_suppresses(self) -> None:
+        line = "**wifey's `/post-branch` Step 5c (claims audit) has caught it.**"
+        assert citations(line, "s.md") == []
+
+    def test_the_same_citation_unqualified_is_reported(self) -> None:
+        line = "**`/post-branch` Step 5c (claims audit) has caught it.**"
+        assert [c.label for c in citations(line, "s.md")] == ["5c"]
+
+
+class TestQuotedSpanSuppression:
+    """Ported verbatim from the wifey fork (`e2a590e`); do not re-derive.
+
+    The old adjacent-character form had a false positive (a quotation wrapping
+    target-plus-anchor as one phrase) and a false negative (`_QUOTES` is a
+    `str`, so `"" in _QUOTES` is True and an anchor ending the line was dropped
+    in silence). The false-negative fixture must put a quote character
+    IMMEDIATELY before the anchor with the anchor ending the line — a space
+    there passes against both implementations.
+    """
+
+    def test_phrase_quotation_is_a_mention_not_a_citation(self) -> None:
+        line = 'the rule says "wifey\'s /post-branch Step 5c" is the port'
+        assert citations(line, "s.md") == []
+
+    def test_anchor_ending_the_line_is_still_reported(self) -> None:
+        line = "see `docs/audits/a.md` §6"
+        assert [c.label for c in citations(line, "s.md")] == ["6"]

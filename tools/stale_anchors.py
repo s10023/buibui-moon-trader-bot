@@ -68,7 +68,11 @@ _HEAD_TYPED = re.compile(rf"^(step|phase)[ \t]+({_LABEL})\b", re.I)
 #: Tight on purpose: the label must lead and be closed by a separator, so
 #: ``**Fix: stamp last**`` declares nothing. Over-generating here would be a
 #: false NEGATIVE — a dead citation matching a coincidental bold line.
-_HEAD_UNTYPED = re.compile(rf"^§?({_LABEL})[ \t]*[.)—–-]")
+#: The trailing ``(?!\d)`` is load-bearing far beyond its own hit: ``**4.9 min**``
+#: parsed as "section 4", and because ANY declaration disables the ordered-list
+#: fallback below, one decimal number blinded the check to every genuine
+#: ordered-list anchor in the same document. `/card` was exactly this.
+_HEAD_UNTYPED = re.compile(rf"^§?({_LABEL})[ \t]*[.)—–-](?!\d)")
 
 #: Target references this check can resolve to a file on disk.
 _TARGET = re.compile(
@@ -84,6 +88,21 @@ _ANCHOR = re.compile(
 )
 
 _SENTENCE_BREAK = re.compile(r"[.!?][ \t\n]")
+
+#: An item ID from the SoT namespace (ST/H/N/P/G/M/F/D/T/L/W + digits) sitting
+#: immediately before a `§` anchor OWNS it: ``P2 §6`` cites the P2 spec's
+#: section 6, not whichever `.md` filename happens to sit nearest. Ownership is
+#: a stronger claim than proximity, and both live instances of this class named
+#: a spec section while standing beside an audit filename.
+_ITEM_ID_OWNER = re.compile(r"(?:^|[^A-Za-z0-9])([A-Z]{1,2}\d{1,3}[a-z]?)$")
+
+#: Trees whose documents this repo cites but cannot check. Resolving
+#: ``wifey's /post-branch Step 5c`` against the LOCAL skill of the same name
+#: reports a dead anchor for a citation that is correct where it points.
+FOREIGN_TREES = ("wifey", "street-bot", "template-repo", "vor-stream")
+_FOREIGN_QUALIFIER = re.compile(
+    r"\b(?:" + "|".join(FOREIGN_TREES) + r")(?:'s|\u2019s)?[\s`*_]*$", re.I
+)
 
 #: ``CLAUDE.md still cited "§4a"`` is a *report* of a dead anchor, not a live
 #: citation of one. Quoting is the one reliable tell. MEMORY.md's own bullet
@@ -166,11 +185,42 @@ def anchor_matches(kind: str, label: str, declared: Iterable[tuple[str, str]]) -
     return False
 
 
+def _quoted_spans(line: str) -> list[tuple[int, int]]:
+    """Half-open ranges covered by a CLOSED quotation on this line.
+
+    An unterminated quotation yields no span, so its contents read as *used*
+    rather than *mentioned*. That direction is deliberate: reporting a citation
+    that turned out to be a mention costs a glance, while suppressing a real one
+    is invisible, and this leg's whole value is catching what nothing else can.
+    """
+    spans: list[tuple[int, int]] = []
+    open_at: int | None = None
+    closer = ""
+    for i, ch in enumerate(line):
+        if open_at is None:
+            if ch == "\u201c":
+                open_at, closer = i, "\u201d"
+            elif ch == '"':
+                open_at, closer = i, '"'
+        elif ch == closer:
+            spans.append((open_at, i))
+            open_at, closer = None, ""
+    return spans
+
+
 def _is_quoted(line: str, begin: int, end: int) -> bool:
-    """Is this anchor wrapped in quotation marks, i.e. mentioned rather than used?"""
-    before = line[begin - 1] if begin else ""
-    after = line[end] if end < len(line) else ""
-    return before in _QUOTES and after in _QUOTES
+    """Is this anchor inside a quotation, i.e. mentioned rather than used?"""
+    return any(start < begin and end <= stop for start, stop in _quoted_spans(line))
+
+
+def _owned_by_item_id(line: str, begin: int) -> bool:
+    """Does an item ID immediately before the anchor claim it? (``P2 §6``)"""
+    return _ITEM_ID_OWNER.search(line[:begin].rstrip()) is not None
+
+
+def _names_a_foreign_tree(line: str, start: int) -> bool:
+    """Is this target qualified as another repo's? (``wifey's /post-branch``)"""
+    return _FOREIGN_QUALIFIER.search(line[:start]) is not None
 
 
 def _anchor_after(line: str, start: int) -> tuple[str, str, int] | None:
@@ -181,6 +231,8 @@ def _anchor_after(line: str, start: int) -> tuple[str, str, int] | None:
         if _is_quoted(line, begin, end):
             continue
         if m.group("slabel"):
+            if _owned_by_item_id(line, begin):
+                continue
             return UNTYPED, m.group("slabel").lower(), begin
         if m.start() > TYPED_WINDOW or _SENTENCE_BREAK.search(window[: m.start()]):
             continue
@@ -194,6 +246,8 @@ def citations(text: str, source: str) -> list[Citation]:
     for lineno, line in enumerate(text.splitlines(), start=1):
         targets = list(_TARGET.finditer(line))
         for i, t in enumerate(targets):
+            if _names_a_foreign_tree(line, t.start()):
+                continue
             raw = t.group("wiki") or t.group("skill") or t.group("doc")
             limit = targets[i + 1].start() if i + 1 < len(targets) else len(line)
             hit = _anchor_after(line, t.end())
