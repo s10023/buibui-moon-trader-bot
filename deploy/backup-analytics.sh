@@ -155,9 +155,22 @@ LEDGER_DIRS=(
 #
 # It is single-copy and gitignored-by-location (it is not in the repo at all), so the
 # allowlist-defaults-to-UNCOVERED rule that produced the 08-08 / 08-11 / 08-12 audits
-# applies to it exactly. This is the fourth such addition.
+# applies to it exactly. This is the fourth such addition; see the fifth below.
+#
+# CLAUDE.md is the ACCOUNT-LEVEL instruction file -- it governs every repo, it is loaded
+# into every session in all of them, and it lives in no git remote. settings.json is the
+# account-level harness config. Both are small, hand-authored and single-copy.
+#
+# ⚠ DELIBERATELY NOT COPIED, and do not "complete the set" by adding them:
+# `.credentials.json` is a live auth token and `.claude.json` (81 KB) can carry MCP
+# server config with secrets in it. The off-site leg rclone-syncs this whole snapshot
+# root to a cloud drive, so anything added here is COPIED TO A THIRD PARTY. That is the
+# same failure shape as the 2026-08-15 rclone token leak: the damage is done at copy
+# time, and noticing afterwards does not undo it.
 EXTERNAL_LEDGERS=(
     "$HOME/.claude-personal/history.jsonl:claude-personal/history.jsonl"
+    "$HOME/.claude-personal/CLAUDE.md:claude-personal/CLAUDE.md"
+    "$HOME/.claude-personal/settings.json:claude-personal/settings.json"
 )
 
 # Out-of-repo DIRECTORIES, as "absolute-source-glob:path-under-the-snapshot".
@@ -183,8 +196,31 @@ EXTERNAL_LEDGERS=(
 # denylist over a wholesale copy for exactly this reason, and after four expansion
 # audits here its shape is the one with the better record: a new project's memory tree
 # is covered the day it appears, with nobody needing to notice.
+#
+# THE FIFTH ADDITION (2026-08-19), and it is the paragraph above coming true again:
+# "added exactly one out-of-repo file and stopped looking". `~/.claude-personal/tools/`
+# holds `budget.py` -- the ONLY instrument for a limit billed per ACCOUNT -- and, far
+# more importantly, `budget-history.json`, its durable rollup. That file is the one
+# artifact here that a rebuild cannot recover: the tracker is blind to a deleted session
+# unless it ran first, so the rollup holds weeks the transcripts no longer cover.
+#
+# `skills/` and `commands/` are the same class: hand-built account-level skills, in no
+# git remote, some expensive to rebuild (`carver-futures` is 32 chapters / 55K words
+# distilled from a copyrighted book that is not in any repo and cannot be re-derived
+# cheaply). Found while wiring budget.py into the daily check -- i.e. by accident again,
+# which is exactly what the glob-over-allowlist rule exists to stop needing.
+#
+# NOT copied, deliberately, and all of it large-and-regenerable rather than precious:
+# `plugins/` (244 MB, reinstallable), `projects/` (213 MB of transcripts -- its `memory`
+# subtree is the entry above and IS the valuable part), `file-history/` (180 MB),
+# `transcript-archive/` (82 MB), `context-mode/` (71 MB, a re-indexable knowledge base),
+# `books/` (60 MB of re-obtainable source material), and the caches. The three trees
+# added here total ~4 MB.
 EXTERNAL_LEDGER_DIRS=(
     "$HOME/.claude-personal/projects/*/memory:claude-personal/projects"
+    "$HOME/.claude-personal/tools:claude-personal"
+    "$HOME/.claude-personal/skills:claude-personal"
+    "$HOME/.claude-personal/commands:claude-personal"
 )
 
 # The last two path components identify a matched directory -- `<project-slug>/memory`.

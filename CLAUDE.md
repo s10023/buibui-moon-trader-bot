@@ -304,10 +304,15 @@ is not a backup — its `signal_alert_outcomes` table has 0 rows.
   same gap twice.
 - **The `EXTERNAL_*` arrays take `src:dest` pairs** and land under `_external/` in the
   snapshot; the `LEDGERS` loop is `"$REPO/$f"`-relative and resolves an absolute path to
-  nonsense. They cover `~/.claude-personal/history.jsonl` (the account-level prompt log,
+  nonsense. They cover `~/.claude-personal/`: `history.jsonl` (the account-level prompt log,
   the only record of a session that survives transcript cleanup, and what `budget.py`
-  checks its own coverage against) and every `~/.claude-personal/projects/*/memory` tree
-  (the cross-session knowledge base, 333 files / 2.5MB across 7 projects, in no git remote).
+  checks its own coverage against), every `projects/*/memory` tree (the cross-session
+  knowledge base, in no git remote), the account-level `CLAUDE.md` + `settings.json`, and
+  since 2026-08-19 `tools/` + `skills/` + `commands/`. **`tools/budget-history.json` is the
+  irreplaceable one** — the tracker is blind to a deleted session unless it ran first, so
+  that rollup holds weeks no transcript can rebuild. ⚠ **`.credentials.json` and
+  `.claude.json` are deliberately EXCLUDED: the off-site leg rclone-syncs this root to a
+  cloud drive, so anything added here is copied to a third party.**
 - **Watermark and dedup ledgers are the subtle entries** (`yt-feed-state.json`,
   `routed-ledger.json`, `.cache/chart-drops/processed.json`, `task-marks/`): losing one
   destroys no past data but silently changes future behaviour — consumed videos re-present,
