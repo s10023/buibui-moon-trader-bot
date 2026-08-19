@@ -80,7 +80,11 @@ remembered to copy them. Deep reference `.claude/context/tools.md`. Three rules 
   correct CI run. Confirm the legs RUN once locally after touching it.
 - **`wait_ci.py`'s exit codes are invisible through `make`** (GNU make collapses any recipe
   failure to its own exit 2). Read the printed banner, or call the script directly.
-- Both need `PYTHONPATH=.`; the Make targets set it.
+- **Both bootstrap their own `sys.path`, so a bare `python3 tools/<name>.py` works.** CI
+  runs `sanity_checks.py` exactly that way, with **no** `PYTHONPATH`, while the Make targets
+  set it — so a green `make sanity-checks` proves nothing about CI's invocation. That gap
+  shipped a red CI on 2026-08-19 with every local gate green. Each suite now runs the bare
+  form as a test.
 
 After adding a doc to `docs/audits/` or `docs/superpowers/specs/`, run `make docs-index` —
 both `INDEX.md` files are generated and `tests/test_docs_index.py` fails until they are

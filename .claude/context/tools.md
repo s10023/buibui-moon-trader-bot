@@ -70,7 +70,11 @@ shell blocks. The rule they exist to satisfy: *a self-check outside CI is not a 
   handoff-symbols · new-files · new-modules · new-targets · negative-claims · doc-indexes ·
   md-atx · memory-cap · handoff-size · stale-anchors · sensitive-terms`. **Advisory**
   (`--exit-zero`): a finding is a candidate to dismiss in seconds, never an automatic edit.
-  Needs `PYTHONPATH=.` — it imports `tools.stale_anchors`.
+  Bootstraps its own `sys.path`, so a bare `python3 tools/post_branch_checks.py` works
+  despite importing `tools.stale_anchors` and `tools.agents_config`; the Make target still
+  sets `PYTHONPATH=.`. ⚠ `sanity_checks.py` is the one CI runs bare, and adding a `tools.*`
+  import to it without the bootstrap fails the step on an IMPORT, not a finding — invisible
+  to `make sanity-checks`, which sets the path. A test in each suite runs the bare form.
 - `tools/sanity_checks.py` — `make sanity-checks`. Seven legs: `fork-drift ·
   parent-leakage · missing-paths · context-coverage · router-wiring · config-strategies ·
   cli-documented`. **Gates**, and runs in CI. Legs needing project imports degrade to

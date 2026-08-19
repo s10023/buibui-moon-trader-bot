@@ -447,3 +447,25 @@ def test_working_tree_is_clean() -> None:
     results = gather()
     findings = [f.detail for r in results for f in r.findings]
     assert findings == []
+
+
+def test_runs_as_a_bare_script_with_no_pythonpath() -> None:
+    """CI invokes this as `python3 tools/sanity_checks.py` with NO PYTHONPATH.
+
+    The Make target sets `PYTHONPATH=.`, so a green `make sanity-checks` says
+    nothing about the invocation CI actually uses. That divergence shipped a red
+    CI on a branch whose every local gate was green: adding a `tools.*` import to
+    a script that had none put `tools/` on sys.path instead of the repo root, and
+    the step failed on an import rather than on a finding.
+    """
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    result = subprocess.run(
+        [sys.executable, "tools/sanity_checks.py"],
+        cwd=Path(__file__).resolve().parent.parent,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert "ModuleNotFoundError" not in result.stderr, result.stderr
+    assert "Traceback" not in result.stderr, result.stderr

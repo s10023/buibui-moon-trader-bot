@@ -44,8 +44,15 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
-from tools.agents_config import AgentsConfig, ConfigError
-from tools.agents_config import load as load_agents_config
+# Runnable as a bare script, not only through the Make target. CI invokes this as
+# `python3 tools/sanity_checks.py` with no PYTHONPATH, which puts `tools/` on
+# sys.path rather than the repo root — so the `tools.*` imports below would raise
+# ModuleNotFoundError and the step would fail on an import, not on a finding.
+# The Make target sets PYTHONPATH=., so a green local run cannot catch that.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from tools.agents_config import AgentsConfig, ConfigError  # noqa: E402
+from tools.agents_config import load as load_agents_config  # noqa: E402
 
 Runner = Callable[[Sequence[str]], str]
 
