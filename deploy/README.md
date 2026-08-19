@@ -394,7 +394,8 @@ cp ~/backups/buibui/daily/<DATE>/_external/claude-personal/CLAUDE.md \
    ~/.claude-personal/CLAUDE.md
 ```
 
-**`tools/budget-history.json` is the one file here a rebuild cannot recover.** `budget.py`
+**`~/.claude-personal/tools/budget-history.json` is the one file here a rebuild cannot
+recover.** `budget.py`
 is blind to a deleted session unless it ran first, so that rollup holds weeks the
 transcripts no longer cover — restore it before running the tracker again, or those weeks
 are gone for good.

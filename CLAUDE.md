@@ -308,7 +308,7 @@ is not a backup — its `signal_alert_outcomes` table has 0 rows.
   the only record of a session that survives transcript cleanup, and what `budget.py`
   checks its own coverage against), every `projects/*/memory` tree (the cross-session
   knowledge base, in no git remote), the account-level `CLAUDE.md` + `settings.json`, and
-  since 2026-08-19 `tools/` + `skills/` + `commands/`. **`tools/budget-history.json` is the
+  since 2026-08-19 `tools/` + `skills/` + `commands/`. **The tracker's own rollup is the
   irreplaceable one** — the tracker is blind to a deleted session unless it ran first, so
   that rollup holds weeks no transcript can rebuild. ⚠ **`.credentials.json` and
   `.claude.json` are deliberately EXCLUDED: the off-site leg rclone-syncs this root to a
