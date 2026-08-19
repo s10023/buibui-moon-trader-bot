@@ -9,6 +9,7 @@ it was never run against something that should fail.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 
 from tools.post_branch_checks import (
     Runner,
@@ -406,3 +407,73 @@ class TestSensitiveTermsCoversCommitMessages:
             return "docs: tidy the tables\n" if "--format=%B%n%s" in argv else ""
 
         assert sensitive_terms_result(runner, terms=["acmecorp"]).findings == []
+
+
+class TestSurfaceListsComeFromConfig:
+    """The mutation control for the repoint.
+
+    Asserting the tuples merely *contain* the right paths passes just as well
+    against a surviving hardcoded copy. These assert they are DERIVED.
+    """
+
+    def test_anchor_files_matches_the_config_view(self) -> None:
+        from tools import agents_config, post_branch_checks
+
+        cfg = agents_config.load(Path.cwd())
+        assert post_branch_checks.anchor_files() == cfg.paths_with_role("anchor")
+
+    def test_enumerating_docs_matches_the_config_view(self) -> None:
+        from tools import agents_config, post_branch_checks
+
+        cfg = agents_config.load(Path.cwd())
+        assert post_branch_checks.enumerating_docs() == cfg.paths_with_role(
+            "enumerating"
+        )
+
+    def test_negative_claim_paths_matches_the_config_view(self) -> None:
+        from tools import agents_config, post_branch_checks
+
+        cfg = agents_config.load(Path.cwd())
+        assert post_branch_checks.negative_claim_paths() == cfg.paths_with_role(
+            "negative_claim"
+        )
+
+    def test_a_config_failure_renders_as_a_finding_not_a_crash(self) -> None:
+        """The whole reason the read is deferred to call time.
+
+        An import-time load would crash the runner, and a swallowed one would
+        print `0 findings, exit 0` — the SKIP-looks-like-PASS failure this repo
+        has shipped twice. It must be neither.
+        """
+        from tools import post_branch_checks
+        from tools.agents_config import ConfigError
+
+        def stub(argv: Sequence[str]) -> str:
+            return ""
+
+        def boom() -> None:
+            raise ConfigError("docs/agents/surfaces.toml is missing")
+
+        results = post_branch_checks.gather(stub, load_config=boom)
+        config_leg = [r for r in results if r.name == "agents-config"]
+        assert len(config_leg) == 1
+        assert config_leg[0].findings, "a missing config must FIRE, not skip"
+        assert config_leg[0].skipped is None
+
+    def test_the_view_is_not_a_hardcoded_copy(self, tmp_path: Path) -> None:
+        """Drop a role from a fixture config; the derived tuple must shrink.
+
+        A module that kept its literal tuple passes the three tests above and
+        fails this one.
+        """
+        from tools import agents_config
+
+        (tmp_path / "docs" / "agents").mkdir(parents=True)
+        real = (Path.cwd() / agents_config.CONFIG).read_text(encoding="utf-8")
+        (tmp_path / agents_config.CONFIG).write_text(
+            real.replace('"anchor", ', "", 1), encoding="utf-8"
+        )
+        shrunk = agents_config.load(tmp_path)
+        assert len(shrunk.paths_with_role("anchor")) < len(
+            agents_config.load(Path.cwd()).paths_with_role("anchor")
+        )
