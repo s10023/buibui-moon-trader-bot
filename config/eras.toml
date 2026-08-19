@@ -58,3 +58,45 @@ BTC/ETH/SOL stayed current. Any cross-sectional work over 2026-07-05 -> 07-23
 therefore ran on a 3-name majors cross-section rather than the universe, whatever
 the config said. Resynced 25/25 on 2026-07-23.
 """
+
+[[boundary]]
+id = "trade-weighted-avg-r-recalibrate"
+date = "2026-08-19"
+scope = "ratings"
+label = "recalibrate on #662's trade-weighted avg_r rewrote all 288 confidence_ratings rows"
+why = """
+#662 (`5c8a7d4`) changed how `recalibrate_lib` aggregates across symbols: an
+equal-weighted mean of per-symbol avg_r became a TRADE-weighted one. The stored
+table was not re-rated by that merge, so the rewrite happened here, on
+2026-08-19, against the same backtest pool. Measured across all three live
+configs: 288 rows rewritten in place (0 added, 0 dropped), 50 star values moved,
+26 avg_r sign flips, stored star>=4 43 -> 47 (4 leave, 8 enter).
+
+Rows read by the live gate before and after this date are therefore not the same
+population -- pre-boundary stars are symbol-equal-weighted, post-boundary stars
+are trade-weighted -- even though no row was added or removed and the underlying
+backtest corpus is unchanged. Any decay review or star-vs-outcome study whose
+window spans this date is measuring the reweighting, not decay. In particular the
+star-ratings-have-no-live-signal result (corr -0.011, n=4,609) was measured on
+pre-boundary stars and does not carry across it.
+"""
+
+[[boundary]]
+id = "bos-causality-recalibrate"
+date = "2026-08-18"
+scope = "ratings"
+label = "recalibrate after the bos/liquidity_sweep causality fix (#652) re-rated the stored table"
+why = """
+`d5fba6c` (#652) made `bos` and `liquidity_sweep` causal, which changed the
+backtest rows those detectors produce; the recalibrate that followed rewrote
+`confidence_ratings` at 2026-08-18 13:44 UTC. Measured from the daily backup
+snapshots either side of it: 287 -> 288 rows, stored star>=4 47 -> 43. The
+worked example is the cell AGENTS.md quotes for the fix --
+`signal_watch_weekdays bos/4h/short` went 4 stars +0.7435 to 2 stars +0.0449.
+
+Filed retroactively on 2026-08-19. It was found by a stored star>=4 count that
+disagreed with the 2026-08-17 decay review (43 against a filed 47) and was
+recoverable only because the backups either side of it still existed -- which is
+the argument for declaring a ratings rewrite when it happens rather than
+reconstructing it later.
+"""
