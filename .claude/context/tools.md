@@ -53,6 +53,19 @@ halves of `/post-branch` and `/sanity-check`, which both skills carried as copy-
 shell blocks. The rule they exist to satisfy: *a self-check outside CI is not a check*, and
 *a hand walk is not the walk*.
 
+- `tools/agents_config.py` — the loader for `docs/agents/surfaces.toml`, the single source
+  for the doc-surface list that `post_branch_checks.py`, `sanity_checks.py` and gitignored
+  `daily_check.py` all read. `load()` returns an `AgentsConfig` carrying the `[budgets]`
+  table (handoff/memory-state thresholds) and a `Surface` tuple; `paths_with_role()` derives
+  the four role views each consumer needs — `anchor` (dead-section citations),
+  `enumerating` (does a new file appear anywhere?), `negative_claim`, and `sanity` (the
+  CI-gating drift sweep). ⚠ **Both checker modules read it through an `lru_cache` accessor,
+  never at module scope** — an import-time read would crash `post_branch_checks` and the
+  CI-gating `sanity_checks` with a traceback instead of reporting a finding, and each ships
+  a subprocess test (`test_importing_the_module_does_not_read_the_config`) that fails if the
+  read moves back to import time. **`ConfigError` is deliberately fatal** — a missing or
+  malformed config must render as a FINDING in every caller; degrading it to a SKIP would
+  print a false all-clear with no surface list behind it.
 - `tools/post_branch_checks.py` — `make post-branch-checks`. Eleven legs: `queue-items ·
   handoff-symbols · new-files · new-modules · new-targets · negative-claims · doc-indexes ·
   md-atx · memory-cap · handoff-size · stale-anchors`. **Advisory** (`--exit-zero`): a

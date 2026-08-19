@@ -366,6 +366,7 @@ pointer is not a guard rail.
 | `tools/` | One-shot analysis + audit scripts; not part of the daemon or CLI surface | `context/tools.md` |
 | `tests/` | pytest suite; tests import from lib modules and pass mock dependencies directly | — |
 | `config/` | `coins.json` (gitignored), `universe.toml`, `strategy_params.toml` (shared base inherited via `extends`), `eras.toml` (era boundaries git cannot see) | `context/analytics.md` |
+| `docs/agents/` | `surfaces.toml`, the repo-specific doc-surface list + budget thresholds the checkers and skills read | `context/tools.md` |
 
 ### Sleeve verdicts — do NOT rebuild a shelved sleeve
 
@@ -498,13 +499,13 @@ redefining it in a runner. It is not in `schema.py`, and the wrong path fails as
 
 **Backtest run selection** — the `writer` argument, the `(sweep_id IS NOT NULL, run_at_ms)`
 ranking both selection sites must keep mirroring, and `recalibrate_lib.select_rated_run_ids`'s
-two scope arguments all ride the `backtest-run-id` card. Two verdicts outlive the mechanism:
-before 2026-08-12 the live gate silently replaced swept rows (**415 overwritten, 331 whose
-stored aggregate disagreed with their own trades**, and **53% of rated `tue_thu` cells owned
-by the daemon** rather than the deliberate sweep); and **every decay review before
-2026-08-13 audited a pool frozen at 2026-04-09** — the verdict direction survived, which is
-why it stood, but every *named cell* was wrong. The drift began in a gitignored driver
-→ [[scratch-dir-is-for-output-not-code]].
+two scope arguments all ride the `backtest-run-id` card (how a card gets delivered:
+`CLAUDE.md`). Two verdicts outlive the mechanism: before 2026-08-12 the live gate silently
+replaced swept rows (**415 overwritten, 331 whose stored aggregate disagreed with their own
+trades**, and **53% of rated `tue_thu` cells owned by the daemon** rather than the
+deliberate sweep); and **every decay review before 2026-08-13 audited a pool frozen at
+2026-04-09** — the verdict direction survived, which is why it stood, but every *named cell*
+was wrong. The drift began in a gitignored driver → [[scratch-dir-is-for-output-not-code]].
 
 **`MIN_DSR_TRADES` gates COUNT, not DISPERSION.** `_sharpe` rejects only `sd == 0.0`
 exactly, so `bos/1d/long` (36 trades all ≈ −1.0076R, sd 0.0022, **Sharpe −461**) clears the
