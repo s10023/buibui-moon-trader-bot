@@ -135,6 +135,10 @@ LEDGER_DIRS=(
     "docs/plans/scratch"
     "docs/plans/chart-drops"
     "docs/plans/xsmom_targets"
+    # The gitignored enforcement layer: hooks, settings, and the pre-flip
+    # sensitive-terms list. All single-copy, all dead on a reclone, and the
+    # term list is what stops `sensitive-terms` degrading to NOT CONFIGURED.
+    ".claude"
 )
 
 # Files OUTSIDE the repo, as "absolute-source:path-under-the-snapshot". Kept separate

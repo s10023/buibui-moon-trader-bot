@@ -807,6 +807,12 @@ say so and move on.
 
 ### Then decide the visibility flip — BEFORE `gh pr create`
 
+**Gate it on `sensitive-terms` first.** Phase 0's sweep carries the leg; read it before
+flipping, because the flip publishes the whole history and nothing downstream can take that
+back. `NOT CONFIGURED` means the gitignored term list is missing (reclone, fresh machine) —
+restore it from the backup rather than flipping past it. A hit on the branch's own commits is
+a STOP: scrubbing in a follow-up commit does not unexpose the blob.
+
 Pushing costs no CI; the meter starts at `gh pr create`. So this is the last free
 moment, and it is the one decision in the whole skill that must be put to the
 user every single time.

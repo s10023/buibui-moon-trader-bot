@@ -863,6 +863,20 @@ GH_TOKEN=$(gh auth token --user s10023) gh repo edit s10023/buibui-moon-trader-b
 - **A docs-only PR does not need the flip** — the path-filtered checks execute zero steps on
   a `.md`-only diff, and `make lint-md` reproduces CI's markdownlint locally.
 
+⚠ **The flip publishes the ENTIRE HISTORY, not `HEAD`.** Scrubbing a name in a later commit
+does NOT unexpose it, and `git grep` on the working tree agrees with every other review
+surface while a deleted blob stays reachable. **The pre-flip gate is the `sensitive-terms`
+leg of `make post-branch-checks`**, reading a term list from gitignored
+`.claude/sensitive-terms.txt` (now in the backup's `LEDGER_DIRS`). A missing list reports
+**NOT CONFIGURED as a FINDING, never a SKIP** — before a flip, "did not run" and "passed"
+must not look alike. **A secret scan is NOT an exposure scan: only the operator can classify
+an employer, client or work-repo name, so ASK rather than clearing one yourself** — that
+mistake shipped on 2026-08-19 from a scan that checked keys, tokens, emails and paths, saw
+two work-repo names, and cleared them. **Baseline ACCEPTED the same day:** two such names sit
+in three deleted spec docs from 2026-04-25/05-07 and every flip since has republished them;
+the ruling is accept-and-document, which is why the gate scopes to the tracked tree and the
+branch's own commits rather than re-reporting main. → memory `public_repo_exposure_audit.md`
+
 Ported from the wifey fork 2026-08-19, where both halves of the pair are gated in
 `/post-branch` (flip-forward before `gh pr create`, flip-back after the merge run).
 

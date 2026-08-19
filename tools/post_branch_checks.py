@@ -41,6 +41,12 @@ from tools.stale_anchors import default_resolver, describe, scan
 Runner = Callable[[Sequence[str]], str]
 
 HANDOFF = Path("docs/plans/next-conversation-prompt.md")
+
+#: Names that must never enter a tracked file — employer, clients, work repos.
+#: **Gitignored on purpose: a tracked list of the words you are hiding is the
+#: leak it exists to prevent.** It therefore dies on a reclone, like the hooks,
+#: which is why an absent list is a FINDING rather than a SKIP.
+SENSITIVE_TERMS = Path(".claude/sensitive-terms.txt")
 MEMORY = Path.home() / (
     ".claude-personal/projects/-home-kng-repo-buibui-moon-trader-bot/memory/MEMORY.md"
 )
@@ -471,8 +477,106 @@ def gather(runner: Runner = _run) -> list[CheckResult]:
         CheckResult("memory-cap", _check_memory_cap()),
         CheckResult("handoff-size", _check_handoff_size(handoff)),
         CheckResult("stale-anchors", _check_stale_anchors()),
+        sensitive_terms_result(runner),
     ]
     return results
+
+
+def load_sensitive_terms(text: str) -> list[str]:
+    """Non-empty, non-comment lines, lowercased."""
+    out = []
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0].strip().lower()
+        if line:
+            out.append(line)
+    return out
+
+
+def mask_term(term: str) -> str:
+    """Enough to identify, not enough to re-state.
+
+    This output is read in a terminal and pasted into handoffs and PR bodies,
+    which are themselves tracked or backed up. Printing the term in full would
+    reproduce the leak inside the report about the leak — the same shape as the
+    ``gh pr create`` hook firing on its own documentation.
+    """
+    return f"{term[:3]}\u2026" if len(term) > 3 else "\u2026"
+
+
+def sensitive_terms_result(
+    runner: Runner, terms: Sequence[str] | None = None
+) -> CheckResult:
+    """Pre-flip gate: would making this repo public expose a work identifier?
+
+    Three questions, because they fail differently. The tracked tree answers
+    "is it visible now"; the branch's commit CONTENT answers "am I adding one";
+    and the commit MESSAGES answer the one that no file edit can ever undo. A
+    flip republishes the entire history, so deleting the file later does not
+    unexpose the blob — and a message cannot be deleted at all short of a
+    rewrite. The message leg exists because this gate's own scrub commit named
+    a term in its subject and the first version read clean.
+
+    main's pre-existing occurrences are deliberately NOT re-reported: the
+    operator accepted that baseline on 2026-08-19, and a check that is never
+    clean trains dismissal.
+    """
+    if terms is None:
+        terms = (
+            load_sensitive_terms(SENSITIVE_TERMS.read_text(encoding="utf-8"))
+            if SENSITIVE_TERMS.exists()
+            else []
+        )
+    if not terms:
+        return CheckResult(
+            "sensitive-terms",
+            [
+                Finding(
+                    "sensitive-terms",
+                    f"NOT CONFIGURED — no {SENSITIVE_TERMS}; this gate is not "
+                    "running, which is NOT the same as passing",
+                )
+            ],
+        )
+
+    findings: list[Finding] = []
+    for term in terms:
+        tracked = runner(["git", "grep", "-il", term, "--", "."]).split()
+        if tracked:
+            shown = ", ".join(tracked[:3]) + (" …" if len(tracked) > 3 else "")
+            findings.append(
+                Finding(
+                    "sensitive-terms",
+                    f"{mask_term(term)} in {len(tracked)} tracked file(s): {shown}",
+                )
+            )
+        messages = runner(["git", "log", "main..HEAD", "--format=%B%n%s"])
+        if term in messages.lower():
+            findings.append(
+                Finding(
+                    "sensitive-terms",
+                    f"{mask_term(term)} in a commit MESSAGE on this branch — no "
+                    "file deletion reaches a message; only a history rewrite does",
+                )
+            )
+        introduced = runner(["git", "log", "--oneline", "main..HEAD", "-S", term])
+        if introduced.strip():
+            n = len(introduced.strip().splitlines())
+            findings.append(
+                Finding(
+                    "sensitive-terms",
+                    f"{mask_term(term)} introduced by {n} commit(s) on this branch "
+                    "— a flip republishes the whole history, so scrubbing it in a "
+                    "later commit will NOT unexpose it",
+                )
+            )
+
+    note = None
+    if not findings:
+        note = (
+            f"{len(terms)} term(s) checked against the tracked tree and this "
+            "branch's commits; main's accepted historical baseline is not re-reported"
+        )
+    return CheckResult("sensitive-terms", findings, note=note)
 
 
 def _read_all(paths: Sequence[str]) -> str:

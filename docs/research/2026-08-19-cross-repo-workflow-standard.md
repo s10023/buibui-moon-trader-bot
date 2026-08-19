@@ -8,8 +8,8 @@
 > Owner: SoT **ST44**.
 >
 > **The two benchmark repos are anonymised as `reference-A` (a large multi-stack service) and
-> `reference-B` (a scaffold repo) on purpose — they are work repositories and their names do
-> not belong in a repo that goes public during every merge window. Do not "restore" them.**
+> `reference-B` (a scaffold repo) on purpose — one is a work repository, and a repo that goes
+> public during every merge window is no place for its name. Do not "restore" them.**
 
 Date: 2026-08-19. Sources: local file reads only. Peer session
 `buibui-wifey-wall-street-bot-ec` supplied the wifey-side self-report; four of its claims

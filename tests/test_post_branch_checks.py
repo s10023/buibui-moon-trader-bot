@@ -22,8 +22,11 @@ from tools.post_branch_checks import (
     check_queue_items,
     current_state_bullets,
     extract_tokens,
+    load_sensitive_terms,
+    mask_term,
     numbered_items,
     probe_names,
+    sensitive_terms_result,
 )
 
 # CLAUDE.md's real sentence — the one that made every skill report COVERED.
@@ -315,3 +318,91 @@ class TestCheckNegativeClaims:
         )
         assert findings == []
         assert suppressed == 0
+
+
+class TestSensitiveTermList:
+    """Parsing the gitignored term list."""
+
+    def test_comments_blanks_and_case_are_normalised(self) -> None:
+        raw = "# employer names\nAcmeCorp\n\n  widgetco  # former client\n"
+        assert load_sensitive_terms(raw) == ["acmecorp", "widgetco"]
+
+    def test_an_empty_list_is_empty_not_a_blank_term(self) -> None:
+        assert load_sensitive_terms("# nothing yet\n\n") == []
+
+    def test_mask_identifies_without_restating(self) -> None:
+        """This output gets pasted into handoffs; a full term would re-leak it."""
+        masked = mask_term("acmecorp")
+        assert masked != "acmecorp"
+        assert "acmecorp" not in masked
+        assert masked.startswith("acm")
+
+
+class TestSensitiveTermsGate:
+    """The pre-flip gate itself.
+
+    It exists because `git grep` on the working tree said clean for four months
+    while three deleted spec docs kept two work-repo names reachable in history,
+    and a visibility flip republishes the whole history, not just HEAD.
+    """
+
+    def test_a_missing_list_is_a_FINDING_not_a_skip(self) -> None:
+        """The list is gitignored, so it dies on a reclone.
+
+        Before a flip, "the gate did not run" and "the gate passed" must not
+        look the same — a SKIP renders beside ten `clean` lines and reads as one.
+        """
+        result = sensitive_terms_result(lambda argv: "", terms=[])
+        assert result.skipped is None
+        assert len(result.findings) == 1
+        assert "NOT CONFIGURED" in result.findings[0].detail
+
+    def test_a_term_in_a_tracked_file_is_reported_masked(self) -> None:
+        def runner(argv: Sequence[str]) -> str:
+            return "docs/notes.md\n" if "grep" in argv else ""
+
+        findings = sensitive_terms_result(runner, terms=["acmecorp"]).findings
+        assert len(findings) == 1
+        assert "docs/notes.md" in findings[0].detail
+        assert "acmecorp" not in findings[0].detail
+
+    def test_a_term_introduced_by_a_branch_commit_is_reported(self) -> None:
+        def runner(argv: Sequence[str]) -> str:
+            return "abc1234 add the thing\n" if "log" in argv else ""
+
+        findings = sensitive_terms_result(runner, terms=["acmecorp"]).findings
+        assert len(findings) == 1
+        assert "history" in findings[0].detail
+
+    def test_clean_states_what_was_and_was_not_checked(self) -> None:
+        result = sensitive_terms_result(lambda argv: "", terms=["acmecorp"])
+        assert result.findings == []
+        assert result.note is not None and "baseline" in result.note
+
+
+class TestSensitiveTermsCoversCommitMessages:
+    """A commit MESSAGE is a surface no file deletion reaches.
+
+    Found by scanning for real: three commits in this repo's history name a
+    work repo in their subject line, and the gate's own scrub commit did too —
+    it read clean while its message carried the term. Deleting the file never
+    removes it; only a history rewrite does, which is exactly why it has to be
+    caught BEFORE the flip rather than triaged after.
+    """
+
+    def test_a_term_in_a_branch_commit_message_is_reported(self) -> None:
+        def runner(argv: Sequence[str]) -> str:
+            if "--format=%B%n%s" in argv:
+                return "docs: drop the acmecorp comparison table\n"
+            return ""
+
+        findings = sensitive_terms_result(runner, terms=["acmecorp"]).findings
+        assert len(findings) == 1
+        assert "MESSAGE" in findings[0].detail
+        assert "acmecorp" not in findings[0].detail
+
+    def test_a_clean_message_log_reports_nothing(self) -> None:
+        def runner(argv: Sequence[str]) -> str:
+            return "docs: tidy the tables\n" if "--format=%B%n%s" in argv else ""
+
+        assert sensitive_terms_result(runner, terms=["acmecorp"]).findings == []
