@@ -26,7 +26,7 @@ lost the DELIVERY, and no CI surface could reach them. Wired in `.claude/setting
   session lands on `main`. Deduped per `(session, branch)` via a `/tmp` marker, fail-open.
 - `context-guard.py` + `context-map.json` — advisory `PreToolUse` on edits: delivers a
   footgun card the moment a guarded file is edited. **This is what let those rules leave
-  CLAUDE.md's always-loaded tier.** 12 cards; a card's globs must cover every file its rule
+  the always-loaded tier.** 12 cards; a card's globs must cover every file its rule
   bites on.
 - `test_context_guard.py` — the gate, **35 cases**, stdlib-only. Runs in CI's
   dependency-free `markdownlint` job. Every card needs a MUTATION case proving the glob is
@@ -66,11 +66,11 @@ shell blocks. The rule they exist to satisfy: *a self-check outside CI is not a 
   read moves back to import time. **`ConfigError` is deliberately fatal** — a missing or
   malformed config must render as a FINDING in every caller; degrading it to a SKIP would
   print a false all-clear with no surface list behind it.
-- `tools/post_branch_checks.py` — `make post-branch-checks`. Eleven legs: `queue-items ·
+- `tools/post_branch_checks.py` — `make post-branch-checks`. Twelve legs: `queue-items ·
   handoff-symbols · new-files · new-modules · new-targets · negative-claims · doc-indexes ·
-  md-atx · memory-cap · handoff-size · stale-anchors`. **Advisory** (`--exit-zero`): a
-  finding is a candidate to dismiss in seconds, never an automatic edit. Needs
-  `PYTHONPATH=.` — it imports `tools.stale_anchors`.
+  md-atx · memory-cap · handoff-size · stale-anchors · sensitive-terms`. **Advisory**
+  (`--exit-zero`): a finding is a candidate to dismiss in seconds, never an automatic edit.
+  Needs `PYTHONPATH=.` — it imports `tools.stale_anchors`.
 - `tools/sanity_checks.py` — `make sanity-checks`. Seven legs: `fork-drift ·
   parent-leakage · missing-paths · context-coverage · router-wiring · config-strategies ·
   cli-documented`. **Gates**, and runs in CI. Legs needing project imports degrade to
