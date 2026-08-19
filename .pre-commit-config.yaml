@@ -14,6 +14,15 @@ repos:
         # checkout bandwidth is free; LFS bandwidth is metered even on public repos).
         exclude: '^live_signal\.duckdb$'
       - id: check-merge-conflict
+      # A private key committed here would be published by the next visibility
+      # flip, which republishes the WHOLE history — scrubbing the tip would not
+      # unexpose it. gitleaks below overlaps but is pattern-scored; this one is
+      # a flat structural check and costs nothing.
+      - id: detect-private-key
+      # CRLF in a shell script under deploy/ fails on the VPS with an
+      # unreadable "bad interpreter" error.
+      - id: mixed-line-ending
+        args: ['--fix=lf']
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.5

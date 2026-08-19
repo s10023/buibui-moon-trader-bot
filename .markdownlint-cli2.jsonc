@@ -7,16 +7,19 @@
         "!node_modules",
         "!web/ui/node_modules",
         "!web/ui/dist",
-        // `.claude` stays excluded wholesale, then the two committed subtrees are
+        // `.claude` stays excluded wholesale, then the committed subtrees are
         // re-included. Do NOT simply drop the exclusion: `.claude/skills/` also
-        // holds SYMLINKS to installed external skills (humanizer), which are not
-        // ours to lint and would make `make lint-md` permanently red on a machine
-        // that has them. `.gitignore` encodes the same intent (`.claude/*` plus
-        // re-includes) — these globs mirror it deliberately.
+        // holds SYMLINKS to VENDORED external skills (humanizer), which are not
+        // ours to lint and would make `make lint-md` permanently red.
+        // These globs NO LONGER mirror `.gitignore`, which since 2026-08-19
+        // tracks `.claude/` by default. The vendored tree is now COMMITTED but
+        // still UNLINTED — deliberate, and the one place the two configs differ:
+        // we version an upstream copy without owning its style.
         "!.claude",
         ".claude/skills/*/SKILL.md",
         ".claude/context/*.md",
         ".claude/agents/*.md",
+        ".claude/rules/*.md",
         "!.claude/skills/humanizer",
         // `.cache/` is gitignored scratch. It holds whole COPIES of the repo — a
         // clean-tree export for a Trivy scan leaves one behind — so without this

@@ -5,6 +5,10 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Let a bad release get yanked before it reaches a PR here. Applies to the
+    # whole ecosystem; security updates ignore the cooldown by design.
+    cooldown:
+      default-days: 7
     allow:
       - dependency-type: "direct"
     open-pull-requests-limit: 5
@@ -18,4 +22,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Let a bad release get yanked before it reaches a PR here. Applies to the
+    # whole ecosystem; security updates ignore the cooldown by design.
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 3

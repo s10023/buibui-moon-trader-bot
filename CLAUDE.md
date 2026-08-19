@@ -67,11 +67,12 @@ working around it silently.
 `context-map.json` deliver a card at the moment a guarded file is edited, which is what let
 those rules leave the always-loaded tier (`_upsert`, `round_down_to_step`, the XS
 maker/taker split, backtest run selection, the powered-null criterion, `bar` units,
-DSR/MinTRL directionality). **Both files are gitignored, so a reclone keeps the knowledge
-and loses the DELIVERY** — every shed rule has a tracked home in `.claude/context/*.md`, but
-nothing hands it to you at edit time. Restore the hook before editing `analytics/`, `trade/`
-or `portfolio/`, and re-run `python3 .claude/hooks/test_context_guard.py` (31 cases, the
-only gate a hook has). **A card's globs must cover every file its rule bites on.**
+DSR/MinTRL directionality). **Both files are COMMITTED since 2026-08-19** — they were
+gitignored, so a reclone kept the knowledge and lost the DELIVERY. `test_context_guard.py`
+(35 cases) now runs in CI's dependency-free `markdownlint` job, so the hooks finally have a
+gate that reports to somebody. Re-run it after any hook or card edit. **A card's globs must
+cover every file its rule bites on**, and every card needs a MUTATION case proving the glob
+is scoped rather than blanket.
 
 ## Project Overview
 
@@ -831,6 +832,21 @@ scales with dispatch count, not task size**.
 - Branch naming: `feat/`, `fix/`, `docs/`, `chore/`
 - Never commit `.env`, `config/coins.json`, or IDE files
 
+### PR titles
+
+**Squash-merge makes the PR title the permanent commit message**, so it is the line every
+future `git log`, blame and bisect reads. Name the MECHANISM you changed, not the symptom
+you noticed.
+
+| Anti-pattern | Instead |
+| --- | --- |
+| the symptom (`fix: alerts look wrong`) | the mechanism (`fix: R:R read the requested tp_r, not the realised fill`) |
+| the file (`fix: update sizing.py`) | the behaviour (`fix: floor size to LOT_SIZE before restating risk_usd`) |
+| a refactor verb on a real fix (`refactor: tidy the detector`) | say it fixed something (`fix: stamp bos at its confirmation bar`) — a `refactor:` title hides a behaviour change from anyone bisecting |
+| vague `improve` / `update` / `various` | the one thing that changed; if there are genuinely several, the PR is too big |
+
+A title needing "and" twice is usually two PRs.
+
 ### CI quota — the visibility flip
 
 **This is a private repo on the free tier and Actions minutes are a hard budget.** Public
@@ -895,9 +911,9 @@ check.
 an open PR, and every such push re-runs all CI (`pull_request: synchronize`) — ~3000 tests
 plus a 93s regression job for one paragraph.
 
-This paragraph is also **the only enforcement that survives a fresh clone**: the `PostToolUse`
-hook on `Bash` that backstops it lives in gitignored `.claude/settings.json`, like
-`guard-destructive.py`. Keep that hook — there is no hook event for "about to open a PR",
-which is why prose has to carry the rule — but know it fires *after* creation and **matches
-the whole command string**, so a `grep` or heredoc merely *containing* `gh pr create`
-triggers it. Re-add it if you reclone.
+`.claude/settings.json` backstops this paragraph with a hook pair on `Bash`, and both now
+**survive a fresh clone** (they were gitignored until 2026-08-19). The `PreToolUse` leg
+fires *before* `gh pr create`, which is the useful one; the `PostToolUse` leg fires after,
+as a catch. Both anchor on `head -1` plus `(^|[;&|()]|&&)[[:space:]]*gh[[:space:]]+pr`
+`[[:space:]]+create`, so a `grep` or heredoc merely *containing* the string no longer
+self-triggers. Both are advisory and neither blocks.
