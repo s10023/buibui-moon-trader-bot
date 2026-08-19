@@ -18,25 +18,15 @@ import pandas as pd
 from analytics.carry.book import CarryBookResult, equity_curve
 from analytics.carry.config import CarryConfig
 from analytics.research_guards import (
+    ann_sharpe,
     block_bootstrap_ci,
     cscv_pbo,
     deflated_sharpe_ratio,
     min_track_record_length,
+    passes_gate,
+    per_period_sharpe,
 )
 from portfolio import metrics
-
-
-def _per_period_sharpe(r: npt.NDArray[np.float64]) -> float:
-    if len(r) < 2:
-        return 0.0
-    sd = float(np.std(r, ddof=1))
-    if sd < 1e-12:
-        return 0.0
-    return float(np.mean(r) / sd)
-
-
-def _ann_sharpe(r: npt.NDArray[np.float64], ann: float) -> float:
-    return _per_period_sharpe(r) * ann
 
 
 def _aligned_corr(a: npt.NDArray[np.float64], b: npt.NDArray[np.float64]) -> float:
@@ -100,8 +90,8 @@ def evaluate_carry(
     curve = equity_curve(result)
     ann = math.sqrt(cfg.annualization_days)
 
-    sr_d = _per_period_sharpe(r)
-    trial_srs = [_per_period_sharpe(v) for v in trial_returns.values()]
+    sr_d = per_period_sharpe(r)
+    trial_srs = [per_period_sharpe(v) for v in trial_returns.values()]
 
     min_len = min((len(v) for v in trial_returns.values()), default=0)
     if min_len >= 28 and len(trial_returns) >= 2:
@@ -113,7 +103,7 @@ def evaluate_carry(
     if sr_d != 0.0:
 
         def _stat_fn(x: npt.NDArray[np.float64]) -> float:
-            return _ann_sharpe(x, ann)
+            return ann_sharpe(x, ann)
 
         boot = block_bootstrap_ci(r, stat_fn=_stat_fn, seed=7)
         boot_lo, boot_hi = boot.lo, boot.hi
@@ -144,5 +134,13 @@ def evaluate_carry(
 
 
 def carry_gate_verdict(report: CarryReport) -> bool:
-    """The de-biased gate: DSR >= 0.95 AND PBO <= 0.5 AND bootstrap CI lower bound > 0."""
-    return report.dsr >= 0.95 and report.pbo <= 0.5 and report.boot_lo > 0.0
+    """The headline gate: DSR >= 0.95 AND PBO <= 0.5 AND boot_lo > 0.
+
+    Delegates to :func:`analytics.research_guards.passes_gate`; the thresholds
+    live only there. This was the last sleeve restating them inline — xsmom,
+    combine and cvd had all been migrated — and the two forms agreed
+    numerically, which is exactly why nothing caught it: agreement by
+    coincidence reads identically to agreement by construction until the day
+    the shared constants move.
+    """
+    return passes_gate(report.dsr, report.pbo, report.boot_lo)

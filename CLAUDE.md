@@ -562,7 +562,12 @@ MinTRL must be folded at all rides the `audit-verdict` card.)
 **The published gate is THREE legs: `DSR ≥ 0.95 ∧ PBO ≤ 0.5 ∧ boot_lo > 0`.** All five
 sleeves implement exactly this. It is **one function** —
 `analytics.research_guards.passes_gate` — so call it rather than restating `0.95` / `0.5`
-anywhere; both `combine_gate_verdict` and `xs_gate_verdict` delegate to it. `min_trl` is
+anywhere; **all four coded verdicts delegate to it** (`xs_`, `combine_`, `cvd_`,
+`carry_gate_verdict`). ⚠ Naming only two of them is how `carry_gate_verdict` kept an inline
+restatement until 2026-08-19: the two forms agreed on every input, so **agreement by
+coincidence read exactly like agreement by construction** and no test could fail.
+`tests/test_research_guards_gate.py::TestEverySleeveDelegates` now asks all four the same
+questions. `min_trl` is
 computed and printed as a stamp but gates nothing: MinTRL against a non-zero target asks
 "can I confirm Sharpe ≥ 1", a far harder question than "is there an edge", and the deploy
 core would not clear it (needs ~7035 obs, has ~2475), as its own audit discloses at

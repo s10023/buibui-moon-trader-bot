@@ -21,7 +21,7 @@ Use when working on the Stats page or its backend — adding new stat cards, fix
 analytics/stats_lib.py          ← pure computation (DuckDB queries, returns StatsBundle)
 web/api/routers/stats.py        ← GET /api/stats/{symbol}?days=180 (cached in stats_cache table)
 web/api/models/                 ← Pydantic response models (if any)
-web/ui/src/pages/Stats.svelte   ← 10-card grid UI
+web/ui/src/pages/Stats.svelte   ← 11-card grid UI
 web/ui/src/api.ts               ← getStats(symbol, days) typed client
 ```
 

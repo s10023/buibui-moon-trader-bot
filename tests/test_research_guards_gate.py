@@ -10,11 +10,23 @@ from __future__ import annotations
 
 import math
 
+from analytics.carry.report import CarryReport, carry_gate_verdict
 from analytics.combine.report import CombineReport, combine_gate_verdict
+from analytics.cvd.report import CVDReport, cvd_gate_verdict
 from analytics.research_guards import GATE_DSR, GATE_PBO, passes_gate
 from analytics.xsmom.report import XSReport, xs_gate_verdict
 
 PASS = {"dsr": 0.99, "pbo": 0.30, "boot_lo": 0.10}
+
+# (dsr, pbo, boot_lo) — one clear case plus one failure per leg, and the two
+# published boundaries. Shared so every sleeve is asked the same questions.
+_GATE_CASES = (
+    (0.99, 0.30, 0.10),
+    (0.94, 0.30, 0.10),
+    (0.99, 0.60, 0.10),
+    (0.99, 0.30, -0.01),
+    (0.95, 0.50, 1e-9),
+)
 
 
 class TestPassesGate:
@@ -144,13 +156,81 @@ class TestCombineStillAgrees:
     def test_both_sleeves_agree_on_identical_gate_inputs(self) -> None:
         # The whole reason for one shared definition. If these ever diverge,
         # a sleeve has grown a private threshold again.
-        for dsr, pbo, boot_lo in (
-            (0.99, 0.30, 0.10),
-            (0.94, 0.30, 0.10),
-            (0.99, 0.60, 0.10),
-            (0.99, 0.30, -0.01),
-            (0.95, 0.50, 1e-9),
-        ):
+        for dsr, pbo, boot_lo in _GATE_CASES:
             assert xs_gate_verdict(_xs(dsr=dsr, pbo=pbo, boot_lo=boot_lo)) is (
                 combine_gate_verdict(_combine(dsr=dsr, pbo=pbo, boot_lo=boot_lo))
             )
+
+
+def _carry(**kw: float) -> CarryReport:
+    base: dict[str, float] = {
+        "sharpe_annual": 0.03,
+        "sortino_annual": 0.05,
+        "max_dd": -0.3,
+        "calmar": 0.1,
+        "annual_return": 0.01,
+        "annual_vol": 0.2,
+        "dsr": 0.20,
+        "pbo": 0.70,
+        "boot_lo": -0.20,
+        "boot_hi": 0.30,
+        "min_trl": 1e6,
+        "corr_to_xs": 0.05,
+        "xs_sharpe": 1.375,
+        "corr_to_trend": 0.10,
+        "trend_sharpe": 0.36,
+    }
+    base.update(kw)
+    return CarryReport(n_obs=2475, **base)
+
+
+def _cvd(**kw: float) -> CVDReport:
+    base: dict[str, float] = {
+        "sharpe_annual": -0.147,
+        "max_dd": -0.4,
+        "annual_return": -0.05,
+        "annual_vol": 0.2,
+        "dsr": 0.532,
+        "pbo": 0.849,
+        "boot_lo": -0.642,
+        "boot_hi": 0.10,
+        "min_trl": 1e6,
+        "corr_to_xsmom": -0.04,
+        "xsmom_sharpe": 1.375,
+    }
+    base.update(kw)
+    return CVDReport(n_obs=2475, inverted=False, **base)
+
+
+class TestEverySleeveDelegates:
+    """All four coded verdicts, against one shared truth.
+
+    ``carry_gate_verdict`` restated ``0.95`` / ``0.5`` inline until 2026-08-19
+    while its three siblings delegated. The two forms agreed on every input, so
+    no test could have failed — which is the point: this class pins agreement
+    by CONSTRUCTION, so the next move of ``GATE_DSR`` / ``GATE_PBO`` cannot
+    leave one sleeve behind quietly.
+    """
+
+    def test_all_four_sleeves_agree_with_passes_gate(self) -> None:
+        for dsr, pbo, boot_lo in _GATE_CASES:
+            want = passes_gate(dsr=dsr, pbo=pbo, boot_lo=boot_lo)
+            assert xs_gate_verdict(_xs(dsr=dsr, pbo=pbo, boot_lo=boot_lo)) is want
+            assert (
+                combine_gate_verdict(_combine(dsr=dsr, pbo=pbo, boot_lo=boot_lo))
+                is want
+            )
+            assert carry_gate_verdict(_carry(dsr=dsr, pbo=pbo, boot_lo=boot_lo)) is want
+            assert cvd_gate_verdict(_cvd(dsr=dsr, pbo=pbo, boot_lo=boot_lo)) is want
+
+    def test_carry_verdict_is_unchanged_by_the_delegation(self) -> None:
+        # The shelved verdict itself: +0.03 Sharpe, fails all three legs.
+        assert carry_gate_verdict(_carry()) is False
+        assert carry_gate_verdict(_carry(dsr=0.99, pbo=0.30, boot_lo=0.10)) is True
+        assert carry_gate_verdict(_carry(dsr=0.99, pbo=0.30, boot_lo=0.0)) is False
+        assert carry_gate_verdict(_carry(dsr=0.99, pbo=math.nan, boot_lo=0.10)) is False
+
+    def test_the_shelved_sleeves_still_read_shelved(self) -> None:
+        # cvd: DSR 0.532, PBO 0.849, boot_lo -0.642 — three failing legs.
+        assert cvd_gate_verdict(_cvd()) is False
+        assert carry_gate_verdict(_carry()) is False

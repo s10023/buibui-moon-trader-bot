@@ -27,8 +27,6 @@ import math
 from pathlib import Path
 
 import duckdb
-import numpy as np
-import numpy.typing as npt
 import pandas as pd
 
 from analytics.carry import (
@@ -39,6 +37,7 @@ from analytics.carry import (
     replay_carry_trials,
 )
 from analytics.forecast import ForecastConfig, replay_universe
+from analytics.research_guards import ann_sharpe
 from analytics.store import DEFAULT_DB_PATH
 from analytics.universe import load_universe
 from analytics.xsmom import replay_xs
@@ -53,11 +52,6 @@ def _cfg(
     return CarryConfig(
         sleeve_cfg=sleeve, cross_sectional=cross_sectional, carry_scalar=scalar
     )
-
-
-def _sharpe(r: npt.NDArray[np.float64], ann: float) -> float:
-    sd = float(np.std(r, ddof=1)) if len(r) > 1 else 0.0
-    return (float(np.mean(r)) / sd * ann) if sd > 1e-12 else 0.0
 
 
 def build_report_row(
@@ -103,7 +97,7 @@ def _per_span_sharpe(
     cfg = _cfg(2.0, cross_sectional=cross_sectional)
     ann = math.sqrt(cfg.annualization_days)
     trials = replay_carry_trials(conn, cfg, symbols=symbols)
-    rows = [{"trial": name, "sharpe": _sharpe(r, ann)} for name, r in trials.items()]
+    rows = [{"trial": name, "sharpe": ann_sharpe(r, ann)} for name, r in trials.items()]
     return pd.DataFrame(rows)
 
 
