@@ -5,14 +5,17 @@ description: >
   the doc surfaces (CLAUDE.md, README.md, MEMORY.md, Makefile, docker-compose.yml,
   .claude/context/*.md, .claude/skills/*/SKILL.md)
   and propose targeted edits where they've drifted, then run a pre-merge
-  readiness check and offer a fresh-conversation handoff prompt. SPLIT around
-  `gh pr create`: run Steps 1-5 and 7 BEFORE creating the PR so doc fixes ship in
-  the initial push, then Steps 6 and 10a/10c after it exists. Invoke it on every
-  branch — if `gh pr create` has already run, start it immediately, before
-  reporting the PR URL back to the user. Skip for pure refactors, bug fixes
-  covered by tests, dependency bumps, and lint-only commits — the behaviour gate
-  (Step 1) decides. Confirm every edit before writing; never force-push without
-  explicit OK. Also triggers on the user saying "/post-branch", "wrap up the
+  readiness check and offer a fresh-conversation handoff prompt. RUN THE PHASE
+  TABLE, not the step numbers — the Step N headings are bodies, ordered
+  differently from the run order. Phase 0 is `make post-branch-checks`, the
+  mechanical sweep, and it is not optional. The phases SPLIT around
+  `gh pr create`: phases 0-4 run BEFORE it so doc fixes ship in the initial push
+  and the visibility flip is decided while CI is still free, then phases 5-6
+  after it exists. Invoke it on every branch — if `gh pr create` has already run,
+  start it immediately, before reporting the PR URL back to the user. Skip for
+  pure refactors, bug fixes covered by tests, dependency bumps, and lint-only
+  commits — the phase-1 behaviour gate decides. Confirm every edit before
+  writing; never force-push without explicit OK. Also triggers on the user saying "/post-branch", "wrap up the
   branch", "docs check", "pre-merge check", or "next conversation prompt".
 allowed-tools: Bash, Read, Edit, Write
 ---
@@ -29,16 +32,40 @@ edits the user can approve.
 Its job is not to gatekeep the PR but to catch doc drift before merge — when
 fixing it is still cheap.
 
-## When each step runs — the skill SPLITS around `gh pr create`
+## Running order — PHASES, not step numbers
 
-This file used to say "It runs **after** the PR exists." That was wrong, and it
-cost a full redundant CI run every time it was followed (see below).
+⚠ **Run the phases in the order below. The `Step N` headings further down are
+ordered differently and are NOT the run order** — they are the bodies each phase
+executes. This is the defect wifey's copy fixed first: numbering steps in one
+order and running them in another means the numbering silently stops being
+guidance. Read the phase table; treat the step headings as a table of contents.
 
-| When | Steps | Why they belong there |
-| --- | --- | --- |
-| **BEFORE `gh pr create`** | 1–5, then 7 | They are **commit-producing**. Walking the docs first means the fixes land in the branch's initial push, so the PR opens complete. |
-| **AFTER the PR exists** | 6, then 10a/10c | Step 6 edits the PR body and 10a/10c report + hand off. They need a PR number and produce **no commits**. |
-| Either | 8, 9, 10b | Rebase (8) and output formatting (9) are situational; 10b writes a gitignored file, so it is free either way. |
+| Phase | What | Step bodies | Costs CI? |
+| --- | --- | --- | --- |
+| **0** | **`make post-branch-checks`** — the mechanical sweep. Run it FIRST; its hits feed every later phase | — | no |
+| **1** | Behaviour gate: is this PR user-facing? | 1 | no |
+| **2** | Identify changed artifacts, walk each doc surface | 2, 3, 4 | no |
+| **3** | Always-run regardless of the gate: MEMORY.md, SoT reconcile | 5, 5b | no |
+| **4** | Commit and push, **decide the visibility flip**, then `gh pr create` | 7 | **one run** |
+| **5** | PR body | 6 | no |
+| **6** | Pre-merge check, handoff, re-verify PR state **last** | 10a, 10b, 10c | no |
+
+Phases 0 and 3 run **regardless** of the phase-1 gate: MEMORY.md and the SoT live
+outside the repo and the handoff is gitignored, so none of them ever costs CI.
+Steps 8 (rebase) and 9 (output format) are situational and belong wherever they
+are needed.
+
+⚠ **Watch for a phase whose output depends on a fact a LATER phase creates.**
+Phase 3 writes a MEMORY.md bullet naming `#NNN`, which does not exist until phase
+4 — write the bullet with the number omitted and let phase 6's re-verify fill it
+from the same `gh` query that rewrites the handoff. Do not reorder phase 3 after
+phase 4 to "fix" this: MEMORY.md must be written even when no PR is ever opened.
+
+**Phase 0 is not optional and it is not a summary of the rest.** A hand walk is
+not the walk: these eleven legs were copy-by-hand shell blocks in this file until
+2026-08-19, which means they ran only when a session remembered to copy them, and
+two of them had shipped broken. A green sweep is *not* a green branch — it covers
+none of the judgement in phases 1–6.
 
 **Do not "simplify" this into a blanket rule in either direction.** A blanket
 "after" is what caused the defect; a blanket "before" is equally wrong, because
@@ -142,6 +169,38 @@ behavior_skip_globs:
 The `behavior_signal_globs` and `behavior_skip_globs` are heuristics, not
 absolute rules. A move that adds a new public symbol *is* user-facing even
 under `analytics/**`. Always read the diff before deciding.
+
+---
+
+## Phase 0 body — the mechanical sweep
+
+```bash
+make post-branch-checks
+```
+
+Eleven legs, all advisory (`--exit-zero`). Triage each hit; a false positive costs
+a glance, a silent miss ships a doc that reads as complete.
+
+| Leg | Asks |
+| --- | --- |
+| `queue-items` | Does this branch **close** a task the handoff still lists as to-do? |
+| `handoff-symbols` | Does the handoff claim something about a symbol or file this branch touched? |
+| `new-files` | Does every added non-Python operator file reach an enumerating doc? |
+| `new-modules` | Does every added module reach `.claude/context/`? |
+| `new-targets` | Is every added Make target documented? (`buibui-` is stripped — CLAUDE.md documents the subcommands) |
+| `negative-claims` | Does a doc assert the absence of something this branch just added? |
+| `doc-indexes` | Are the generated `INDEX.md` files current? |
+| `md-atx` | Did a wrapped `#123` become an accidental MD018 heading? |
+| `memory-cap` | Is MEMORY.md over its size / bullet cap? |
+| `handoff-size` | Does the handoff's line-count stamp match the file? |
+| `stale-anchors` | Does any `§N` / `Step N` citation point at an anchor that no longer exists — **repo and memory tree**? |
+
+**What it deliberately does NOT cover:** whether a doc is *correct*, whether the
+behaviour gate should pass, or whether a claim is true. Those are phases 1–6.
+
+⚠ **`stale-anchors` is the leg with no substitute.** A section number is not a
+symbol, so no symbol-keyed check can see this class; and on its first run here 4
+of 7 hits sat in the memory tree, which no repo-scoped check can reach at all.
 
 ---
 
@@ -746,6 +805,24 @@ say so and move on.
   user approval. Never `--force`.
 - Never push to `main` from this skill. Ever.
 
+### Then decide the visibility flip — BEFORE `gh pr create`
+
+Pushing costs no CI; the meter starts at `gh pr create`. So this is the last free
+moment, and it is the one decision in the whole skill that must be put to the
+user every single time.
+
+⚠ **Confirm the flip with the user on every occasion.** CLAUDE.md > CI quota
+makes the **mechanics** standing authorisation and the **timing** not, because
+the public window publishes this repo's whole history for its duration and only
+the operator knows whether now is a good moment. Ask the unsettled half; never
+re-ask the settled one.
+
+- **A docs-only diff skips the flip** — the path-filtered checks execute zero
+  steps on a `.md`-only change. Phase 1 has already read the diff, so this is
+  already known by the time you get here.
+- **Phase 6 closes the other half of the pair** — the flip BACK, gated on
+  `make wait-ci-main`. Do not treat the flip as done when the PR opens.
+
 ---
 
 ## Step 8 — Rebase handling (only when needed)
@@ -811,7 +888,18 @@ both in here so the user doesn't have to ask each time.
 
 ### 10a — Pre-merge readiness check
 
-Run a short status sweep and report any blockers in one line each:
+Prefer the tool over a hand-rolled waiter:
+
+```bash
+make wait-ci PR=<n>     # resolves the SHA and prints steps= per job
+```
+
+⚠ **`wait_ci.py`'s exit codes do not survive `make`** — GNU make collapses any
+recipe failure to its own exit 2, so read the printed banner (3 = Actions
+allowance exhausted, `steps=0`, a **billing** failure never a code one; 1 = real
+failure; 4 = green but the step counts were unreadable, which is not a pass).
+
+Then run a short status sweep and report any blockers in one line each:
 
 ```bash
 git status --short                                      # working tree clean?
@@ -1062,8 +1150,17 @@ a dead path.
 
 ## Safety rails (always)
 
-- **Confirm every edit.** This skill is a proposer, not an applier. The
-  user always gets a chance to say no.
+- **Confirm every edit — scoped by `~/.claude-personal/CLAUDE.md` > Session
+  hygiene, which this rail defers to rather than restates.** That file is the
+  one definition: *write the handoff and the memory index unprompted; confirm
+  every other edit, including untracked single-copy data like ledgers and
+  journals.* So this skill is a proposer for tracked doc surfaces and for the
+  gitignored ledgers under `docs/plans/`, and an applier for exactly two
+  surfaces — the handoff and MEMORY.md.
+  ⚠ **Do not restate the rule here.** A restated copy is what let the rail and
+  the standing "write it unprompted" protocol contradict each other, which was
+  resolved toward asking and manufactured a round-trip per task. Cite, don't
+  duplicate.
 - **Don't rename or move files.** Path churn breaks others' in-flight
   work. If a doc lives at the wrong path, propose the edit in place and
   flag the path issue separately for the user to triage.

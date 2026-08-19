@@ -8,6 +8,41 @@ update CLAUDE.md too — the index is the only path a session has to this file.
 One-shot analysis and audit scripts. **Not part of the daemon or CLI surface** — each
 is run directly, and most are read-only over `analytics.db`.
 
+## Workflow checkers — the exception to "one-shot analysis"
+
+Four modules ported byte-for-byte from the wifey fork on 2026-08-19 and adapted. Unlike
+everything below, these are **not** analysis over `analytics.db` — they are the mechanical
+halves of `/post-branch` and `/sanity-check`, which both skills carried as copy-by-hand
+shell blocks. The rule they exist to satisfy: *a self-check outside CI is not a check*, and
+*a hand walk is not the walk*.
+
+- `tools/post_branch_checks.py` — `make post-branch-checks`. Eleven legs: `queue-items ·
+  handoff-symbols · new-files · new-modules · new-targets · negative-claims · doc-indexes ·
+  md-atx · memory-cap · handoff-size · stale-anchors`. **Advisory** (`--exit-zero`): a
+  finding is a candidate to dismiss in seconds, never an automatic edit. Needs
+  `PYTHONPATH=.` — it imports `tools.stale_anchors`.
+- `tools/sanity_checks.py` — `make sanity-checks`. Seven legs: `fork-drift ·
+  parent-leakage · missing-paths · context-coverage · router-wiring · config-strategies ·
+  cli-documented`. **Gates**, and runs in CI. Legs needing project imports degrade to
+  SKIPPED rather than failing, so the sweep is CI-portable.
+  ⚠ **A SKIP is not a PASS.** The port initially read a wifey-only symbol
+  (`analytics.data_fetcher._INTERVAL_CONFIG`); three legs reported SKIPPED and looked
+  exactly like a correct CI run. Confirm the legs actually RUN once locally after any
+  change here.
+- `tools/stale_anchors.py` — dead cross-document `§N` / `Step N` citations. Sweeps the repo
+  **and the memory tree**; a section number is not a symbol, so no symbol-keyed check can
+  see this class at all. 4 of the 7 hits on first run were in `memory/`.
+- `tools/wait_ci.py` — `make wait-ci PR=<n>` / `make wait-ci-main`. Exit **3** =
+  Actions-allowance `steps=0` (billing, never debug it), **1** = genuine failure, **4** =
+  green but step counts unreadable. ⚠ **GNU make collapses any recipe failure to exit 2**,
+  so through `make` you see none of these — branch on the printed banner, or call the
+  script directly.
+
+Two fixes were made to the originals during the port and are owed back to wifey:
+`PATH_REF_RE` now requires a real file extension (a `module.symbol` citation was parsing as
+a path and reporting MISSING for a live function — 3 of 3 first-run hits), and `SYMBOL_RE`'s
+capture is stripped of a trailing ellipsis (`--symbols SYM...` is an argparse metavar).
+
 - `tools/` — one-shot analysis scripts (not part of the daemon/CLI surface):
   - `strategy_edge_audit.py` — Phase 0 strategy edge audit; aggregates `backtest_trades` by (strategy × tf × regime × session) + combo uplift; deterministic KILL/DEMOTE/KEEP rule. Run via `PYTHONPATH=. poetry run python tools/strategy_edge_audit.py`. See `docs/redesign/buibui-redesign-phase0.md`. Verdict statistics across the tool suite (`gate_audit.py`, `adr_threshold_audit.py`) now route through `analytics/audit_guard.py` (bootstrap CI + Holm haircut) — see `--alpha` / `--n-boot` / `--seed` flags.
   - `live_outcomes_report.py` — read-only spot-check of `signal_alert_outcomes` after the T2 backfill worker runs; reports the resolved/open mix, per-(strategy, tf, direction) win rate + avg_r, and per-strategy aggregate. Stop-gap until a Stats UI card lands. Run via `PYTHONPATH=. poetry run python tools/live_outcomes_report.py [--days N] [--min-n N]`.

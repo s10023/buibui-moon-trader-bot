@@ -44,6 +44,12 @@ A tactical crypto trading bot designed for fast, risk-managed, and confident ent
 
 - `buibui card SYMBOL` — AI trade card (F2): feeds the brief panel, pundit board, XS target, recent fires, and live account into an LLM (`claude -p`, subscription auth) with a fixed rubric, then deterministically sizes and rule-checks the result in code (VETOED on violation). Sizing uses **live account equity** when it is available, falling back to the configured `[portfolio] capital`; each card records which it used. Because real equity is far below the old $10k default, the sub-lot veto is common — a BTCUSDT stop wider than roughly 2.7% at ~$1,200 equity leaves a risk budget under one LOT_SIZE step and is rejected. Advisory only, no order routing. Every call logs to `docs/plans/ai-cards.jsonl`. `--dry-run` prints the state + prompt with no LLM call. `--telegram` additionally pushes the rendered card to Telegram (opt-in per run; every verdict, VETOED included). `--horizon intraday|swing` sets the horizon the card reasons at and the scoring window its ledger row is resolved against (48h vs 30d). `make buibui-card SYMBOL=BTCUSDT [DIRECTION=] [HORIZON=] [AS_OF=] [DRY=1] [TG=1] [CONFIG=]`.
 
+- `buibui param-audit | param-sweep` — walk-forward optimization (WFO) parameter tools.
+  `param-audit` reports how each strategy × timeframe's current parameters hold up
+  out-of-sample; `param-sweep` searches the grid and prints the per-cell winners. Wrapped by
+  `make buibui-param-audit` / `make buibui-param-sweep`. `/wfo-sweep` is the trusted
+  production path for committing the resulting `tp_r` values to TOML.
+
 - `/ingest-video` *(Claude Code skill)* — turn a pasted YouTube or X video URL, including
   Chinese-language video, into routed research items. Fetches metadata + transcript
   (`tools/video_fetch.py`: yt-dlp captions, Groq `whisper-large-v3` fallback for

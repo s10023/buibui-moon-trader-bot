@@ -25,6 +25,23 @@ a result.
   goldens** — skipping this line inside the backtest surface leaves them unchecked, not
   checked-later.
 
+**Background anything measured in MINUTES; foreground anything measured in SECONDS.**
+Background: `make test` (~145s), `make test-regression` (~93s), `make wait-ci`,
+`make wait-ci-main`, any CI poll. Foreground: `make lint-py`, `make typecheck`,
+`make lint-md` — seconds each, and their failures should stop the next edit. The line is
+minutes-vs-seconds, **not** tests-vs-not-tests. Use `run_in_background: true`; the harness
+re-invokes on exit, so there is nothing to poll and no wakeup to schedule.
+
+⚠ **The one hard constraint: never edit anything under the Python tree while a run is in
+flight.** Both run against the working tree and pytest imports modules at collection, so a
+green run against a tree that no longer exists is worse than no run — it is a false
+"verified". Safe to overlap: MEMORY.md and memory topic files, anything under gitignored
+`docs/plans/`, drafting a PR body under `/tmp`, reading code.
+
+This rule lived only in memory until 2026-08-19 and was skipped that day for exactly that
+reason — memory is a rung below always-loaded prose, so there was nothing in context to
+skip *from*. Detail: memory `feedback_background_test_runs.md`.
+
 **Anti-drift.** Before any multi-step task, restate the goal and its success metric in one
 line. If a step stops serving that metric, stop and ask. Require avg_r × (regime × session ×
 combo) evidence before killing a strategy — demote, don't delete.
@@ -72,7 +89,23 @@ make test-cov       # + coverage (on demand; not a gate)
 make lint-md        # Markdown
 make web-build      # production bundle   (make web-dev for the Vite dev server)
 make db-update      # db-update-backtest -> db-update-recalibrate -> regression-update
+
+make status            # repo shape: file counts, CLAUDE.md KB, MEMORY.md KB + bullet count
+make post-branch-checks  # the mechanical half of /post-branch (11 legs, ADVISORY)
+make sanity-checks       # the mechanical half of /sanity-check (7 legs, GATES, runs in CI)
+make wait-ci PR=<n>      # wait on a PR's checks    (make wait-ci-main for main's push run)
 ```
+
+**`make post-branch-checks` and `make sanity-checks` ARE the walk — a hand walk is not.**
+They replace the shell blocks those two skills used to carry, which ran only when a session
+remembered to copy them. Deep reference `.claude/context/tools.md`. Three rules ride them:
+
+- **A SKIP is not a PASS.** `sanity_checks.py` degrades legs that need project imports to
+  SKIPPED so the sweep stays CI-portable — which means a broken import looks exactly like a
+  correct CI run. Confirm the legs RUN once locally after touching it.
+- **`wait_ci.py`'s exit codes are invisible through `make`** (GNU make collapses any recipe
+  failure to its own exit 2). Read the printed banner, or call the script directly.
+- Both need `PYTHONPATH=.`; the Make targets set it.
 
 After adding a doc to `docs/audits/` or `docs/superpowers/specs/`, run `make docs-index` —
 both `INDEX.md` files are generated and `tests/test_docs_index.py` fails until they are
@@ -797,6 +830,41 @@ scales with dispatch count, not task size**.
 - Conventional commits: `feat:`, `fix:`, `test:`, `docs:`, `build:`, `chore:`
 - Branch naming: `feat/`, `fix/`, `docs/`, `chore/`
 - Never commit `.env`, `config/coins.json`, or IDE files
+
+### CI quota — the visibility flip
+
+**This is a private repo on the free tier and Actions minutes are a hard budget.** Public
+repos get unlimited free standard-runner minutes, which is the only way to get real CI here.
+So: **flip the repo public before opening a PR, and back to private once it merges.**
+
+⚠ **Confirm the flip with the user each time.** Standing authorisation covers the
+**mechanics**, never the **timing** — the window publishes this repo's whole history for its
+duration, and only the operator knows whether now is a good moment. Separating the two is
+what keeps the ask useful rather than nagging: never re-ask a settled question, always ask
+the unsettled one.
+
+```bash
+GH_TOKEN=$(gh auth token --user s10023) gh repo edit s10023/buibui-moon-trader-bot \
+  --visibility public --accept-visibility-change-consequences
+# ...open PR, let CI run, merge...
+GH_TOKEN=$(gh auth token --user s10023) gh repo edit s10023/buibui-moon-trader-bot \
+  --visibility private --accept-visibility-change-consequences
+```
+
+- **Pushing a branch costs no CI** — `push:` triggers only on `main` and `pull_request:`
+  only on a PR. Commit and push freely; the meter starts at `gh pr create`.
+- **Wait for main's own push run before flipping back.** Merging starts a fresh run on
+  `main`, and flipping to private kills jobs *created after* the flip, leaving main red for
+  billing reasons rather than code ones. **Run `make wait-ci-main`** rather than
+  hand-rolling a waiter — it gates on a job-count floor, not on "nothing pending", because
+  the status check is vacuously true while a chained job does not yet exist.
+- **A merge-run failure at ~3s with `steps=0` and `visibility=PRIVATE` is billing.** Verify
+  duration, visibility and step count, then merge. Never debug it.
+- **A docs-only PR does not need the flip** — the path-filtered checks execute zero steps on
+  a `.md`-only diff, and `make lint-md` reproduces CI's markdownlint locally.
+
+Ported from the wifey fork 2026-08-19, where both halves of the pair are gated in
+`/post-branch` (flip-forward before `gh pr create`, flip-back after the merge run).
 
 **Invoke `/post-branch` on every branch, and SPLIT it around `gh pr create`.** Steps 1–5b
 and 7 (behaviour gate → changed artifacts → doc walk → surface checks → MEMORY.md → SoT
