@@ -13,6 +13,10 @@ suite, and therefore CI, the moment a doc surface drifts.
 from __future__ import annotations
 
 import argparse
+import dataclasses
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -308,6 +312,93 @@ class TestCliDocumented:
 
     def test_documented_subcommands_are_clean(self) -> None:
         assert check_cli_documented(["backtest"], "the `buibui backtest` command") == []
+
+
+class TestSurfaceFilesComeFromConfig:
+    """The mutation control for the repoint.
+
+    Asserting the tuple merely *contains* the right paths passes just as well
+    against a surviving hardcoded copy. These assert it is DERIVED.
+    """
+
+    def test_sanity_surfaces_matches_the_config_view(self) -> None:
+        from tools import agents_config, sanity_checks
+
+        cfg = agents_config.load(Path.cwd())
+        assert sanity_checks.sanity_surfaces() == cfg.paths_with_role("sanity")
+
+    def test_config_failure_is_not_swallowed(self, tmp_path: Path) -> None:
+        """A missing config must raise, never yield an empty sweep.
+
+        An empty surface list makes the drift sweep vacuously clean — the
+        failure this repo has shipped twice.
+        """
+        from tools import agents_config
+
+        with pytest.raises(agents_config.ConfigError):
+            agents_config.load(tmp_path)
+
+    def test_a_config_failure_renders_as_a_finding_not_a_crash(self) -> None:
+        """The whole reason the read is deferred to call time.
+
+        An import-time load would crash the runner, and a swallowed one would
+        print `0 findings, exit 0` — the SKIP-looks-like-PASS failure this repo
+        has shipped twice. It must be neither.
+        """
+        from tools.agents_config import ConfigError
+
+        def boom() -> None:
+            raise ConfigError("docs/agents/surfaces.toml is missing")
+
+        results = gather(load_config=boom)
+        config_leg = [r for r in results if r.name == "agents-config"]
+        assert len(config_leg) == 1
+        assert config_leg[0].findings, "a missing config must FIRE, not skip"
+        assert config_leg[0].skipped is None
+
+    def test_the_accessor_is_derived_not_literal(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutate the config the module reads; the accessor must move with it.
+
+        A surviving hardcoded tuple passes every other test in this class and
+        fails this one — it is the mutation control the other tests are not.
+        """
+        from tools import agents_config, sanity_checks
+
+        real = agents_config.load(Path.cwd())
+        shrunk = dataclasses.replace(real, surfaces=real.surfaces[:1])
+        monkeypatch.setattr(sanity_checks, "load_agents_config", lambda: shrunk)
+        sanity_checks._cfg.cache_clear()
+        try:
+            assert len(sanity_checks.sanity_surfaces()) < len(
+                real.paths_with_role("sanity")
+            )
+        finally:
+            sanity_checks._cfg.cache_clear()
+
+    def test_importing_the_module_does_not_read_the_config(
+        self, tmp_path: Path
+    ) -> None:
+        """The deferred read, mutation-tested.
+
+        A module-level read crashes on import when no config is present, and
+        this module gates CI — so that crash replaces a readable finding with a
+        traceback. Running the import from a config-less directory is the only
+        way to tell deferred from eager; every in-process test passes against
+        both.
+        """
+        result = subprocess.run(
+            [sys.executable, "-c", "import tools.sanity_checks"],
+            cwd=tmp_path,
+            env={**os.environ, "PYTHONPATH": str(Path.cwd())},
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode == 0, (
+            f"importing the module read the config eagerly: {result.stderr}"
+        )
 
 
 class TestHelpers:
