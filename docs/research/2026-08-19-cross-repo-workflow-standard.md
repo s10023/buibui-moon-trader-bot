@@ -1,4 +1,4 @@
-# Cross-repo workflow standard — buibui × wifey, benchmarked against template-repo + vor-stream
+# Cross-repo workflow standard — buibui × wifey, benchmarked against two reference repos
 
 > **Tracked on purpose (moved here from gitignored `docs/plans/scratch/` on 2026-08-19).**
 > `/sync-parent` and `/sync-child` scan MERGED PRs, so a gitignored document is invisible to
@@ -6,6 +6,10 @@
 > repos should adopt while sitting in the one tier that could never reach the other one.
 > `docs/research/` is outside `make docs-index`, so adding a file here needs no index run.
 > Owner: SoT **ST44**.
+>
+> **The two benchmark repos are anonymised as `reference-A` (a large multi-stack service) and
+> `reference-B` (a scaffold repo) on purpose — they are work repositories and their names do
+> not belong in a repo that goes public during every merge window. Do not "restore" them.**
 
 Date: 2026-08-19. Sources: local file reads only. Peer session
 `buibui-wifey-wall-street-bot-ec` supplied the wifey-side self-report; four of its claims
@@ -47,10 +51,10 @@ Always-loaded budget, before a single user word:
 | wifey `MEMORY.md` | 16.1 |
 | **buibui total** | **71.9 KB (~18K tokens)** |
 | **wifey total** | **70.2 KB (~17.5K tokens)** |
-| *vor-stream `CLAUDE.md`, for scale* | *29.6 — Go + Django + Angular + SDK* |
-| *template-repo `AGENTS.md`* | *0.9* |
+| *reference-A `CLAUDE.md`, for scale* | *29.6 — a much larger multi-stack service* |
+| *reference-B `AGENTS.md`* | *0.9* |
 
-vor-stream carries **41% of our always-loaded weight for a far larger system**, because it
+reference-A carries **41% of our always-loaded weight for a far larger system**, because it
 pushes repo-specific variance into on-demand `docs/agents/*.md` and enforcement into
 pre-commit and CI. We carry ~18K tokens of undifferentiated prose with no severity
 hierarchy, so no individual rule has salience.
@@ -288,7 +292,7 @@ Rules sit at the wrong rung. Ranked by what survives:
 | Rung | Survives reclone | Fires without being remembered | Our use |
 | --- | --- | --- | --- |
 | 1 CI | ✅ | ✅ | thin — wifey has 1 doc-drift gate, buibui 0 |
-| 2 pre-commit | ✅ | ✅ | near-identical, thinner than template-repo |
+| 2 pre-commit | ✅ | ✅ | near-identical, thinner than reference-B |
 | 3 Makefile + checker script | ✅ | ❌ must be invoked | **wifey only** |
 | 4 Claude Code hook | ❌ **gitignored in both** | ✅ | **buibui only** |
 | 5 skill | ✅ | ❌ must be invoked | both, 8–89% drifted |
@@ -414,7 +418,7 @@ one cheap append behind reality."**
 **Commit the enforcement layer.** Both `.gitignore` files are `.claude/*` with narrow
 negations, so `settings.json` and every hook are untracked and die on reclone — buibui's
 four hooks and wifey's two. Both repos' remedy is a prose note asking a human to remember;
-a human remembering is the enforcement layer for the enforcement layer. `template-repo`
+a human remembering is the enforcement layer for the enforcement layer. `reference-B`
 inverts it and says so:
 
 > "The vendored skill trees … and the shared `.claude/settings.json` are deliberately
@@ -484,7 +488,7 @@ counts.)*
 
 Ranked by value here, not by their importance there.
 
-1. **`docs/agents/*.md` — repo-specific config that generic skills READ.** vor-stream keeps
+1. **`docs/agents/*.md` — repo-specific config that generic skills READ.** reference-A keeps
    `issue-tracker.md`, `domain.md`, `triage-labels.md`; the skills stay generic and the repo
    carries the variance. **This is the structural fix for the 89% drift**: `post-branch` and
    `sanity-check` become one shared skill plus a per-repo config naming the flip target, the
@@ -500,10 +504,10 @@ Ranked by value here, not by their importance there.
    explicit clause telling it to skip what the gates already catch and never to re-poll a
    still-running check. Neither trading repo has any automated review.
 5. **Thicker pre-commit** — `detect-private-key`, `mixed-line-ending`, `--unsafe` yaml. Both
-   our configs are near-identical to each other and thinner than template-repo's.
+   our configs are near-identical to each other and thinner than reference-B's.
 6. **Dependabot cooldown: 7 days**, plus grouped pre-commit bumps — lets bad releases get
    yanked first.
-7. **PR-title guidance table** (vor-stream): mechanism-instead-of-symptom, file-instead-of-
+7. **PR-title guidance table** (reference-A): mechanism-instead-of-symptom, file-instead-of-
    feature, refactor-verb-for-a-real-fix, vague improve/update. Squash-merge makes the PR
    title the permanent commit message and the changelog line.
 8. **uv over Poetry.** Genuine but the largest and least urgent change; both repos are on

@@ -99,7 +99,7 @@ _ITEM_ID_OWNER = re.compile(r"(?:^|[^A-Za-z0-9])([A-Z]{1,2}\d{1,3}[a-z]?)$")
 #: Trees whose documents this repo cites but cannot check. Resolving
 #: ``wifey's /post-branch Step 5c`` against the LOCAL skill of the same name
 #: reports a dead anchor for a citation that is correct where it points.
-FOREIGN_TREES = ("wifey", "street-bot", "template-repo", "vor-stream")
+FOREIGN_TREES = ("wifey", "street-bot")
 _FOREIGN_QUALIFIER = re.compile(
     r"\b(?:" + "|".join(FOREIGN_TREES) + r")(?:'s|\u2019s)?[\s`*_]*$", re.I
 )
