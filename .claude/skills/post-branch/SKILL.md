@@ -1150,8 +1150,17 @@ a dead path.
 
 ## Safety rails (always)
 
-- **Confirm every edit.** This skill is a proposer, not an applier. The
-  user always gets a chance to say no.
+- **Confirm every edit — scoped by `~/.claude-personal/CLAUDE.md` > Session
+  hygiene, which this rail defers to rather than restates.** That file is the
+  one definition: *write the handoff and the memory index unprompted; confirm
+  every other edit, including untracked single-copy data like ledgers and
+  journals.* So this skill is a proposer for tracked doc surfaces and for the
+  gitignored ledgers under `docs/plans/`, and an applier for exactly two
+  surfaces — the handoff and MEMORY.md.
+  ⚠ **Do not restate the rule here.** A restated copy is what let the rail and
+  the standing "write it unprompted" protocol contradict each other, which was
+  resolved toward asking and manufactured a round-trip per task. Cite, don't
+  duplicate.
 - **Don't rename or move files.** Path churn breaks others' in-flight
   work. If a doc lives at the wrong path, propose the edit in place and
   flag the path issue separately for the user to triage.

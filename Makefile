@@ -14,12 +14,21 @@ MEMORY = $(HOME)/.claude-personal/projects/-home-kng-repo-buibui-moon-trader-bot
 
 .PHONY: status wait-ci wait-ci-main post-branch-checks sanity-checks lint lint-md lint-md-fix docs-index docs-index-check lint-py-check lint-py typecheck test test-cov test-regression regression-update poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-analytics-backfill buibui-analytics-sync universe-backfill buibui-backtest buibui-combo-backtest buibui-cross-tf-backtest buibui-signal-watch buibui-param-audit buibui-param-sweep buibui-recalibrate buibui-digest buibui-web web-install web-dev web-build web-preview web-full clean-db clean export-live-db buibui-portfolio-replay buibui-forecast-audit buibui-forecast-weight-study buibui-forecast-regime buibui-xsmom-audit buibui-combine-audit buibui-carry-audit buibui-xsmom-capacity-audit buibui-xsmom-targets buibui-xsmom-execute buibui-universe-sync buibui-xsmom-daily buibui-structural-touch-audit buibui-structural-entry-sim-audit buibui-warning-value-audit buibui-sl-horizon-audit buibui-weekly-path-audit buibui-indicator-condition-audit buibui-xsrev-audit buibui-decay-review buibui-dead-surface-check buibui-giveback-study
 
-# ⚠ The Current-State bullet count STOPS at the next `## ` heading. The ported
-# original ran `awk '/^## Current State/,0'` to EOF, which is correct only where
-# Current State is the file's LAST section (true in wifey, false here — our
-# `## Reference Index` follows it, and the count read 10 against a true 6).
-# Size is `wc -c`, never `du -k`: disk blocks overstate by up to 4KB. Both
-# errors push toward needless rolling, which is the expensive direction.
+# ⚠ The bullet count CALLS the gate's own `current_state_bullets`, and that is
+# dedup rather than a correction. The ported original re-derived it as an awk
+# range to EOF, which over-counted wherever a section follows Current State
+# (10 against a true 6 here; correct in wifey only because Current State is its
+# last section). Two implementations of one quantity, and the wrong one was the
+# half a HUMAN reads when deciding whether to roll.
+#
+# Both defects found in this path so far — that awk range, and a `du -k` byte
+# count wifey fixed to `wc -c` — were in the REPORTING surface, and both erred
+# HIGH. The gate (`post_branch_checks._check_memory_cap`) has been correct both
+# times. An over-measuring reporter in front of an under-demanding gate produces
+# premature rolling the gate never asked for, and rolling early keeps you under
+# cap, so it renders as good hygiene. Nothing is positioned to notice
+# over-compliance — which is why the report must call the gate's code, not
+# mirror it. (Diagnosis: wifey session, 2026-08-19.)
 status:
 	@echo "📊 Repo shape ($$(date -u +%Y-%m-%d))"
 	@printf '  tests collected   %s  (incl. regression that `make test` ignores)\n' "$$(poetry run pytest tests/ --collect-only -q 2>/dev/null | tail -1 | grep -oE '^[0-9]+' || echo '?')"
@@ -27,7 +36,7 @@ status:
 	@printf '  markdown files    %s\n' "$$(npx markdownlint-cli2 2>&1 | grep -oE 'Linting: [0-9]+' | grep -oE '[0-9]+' || echo '?')"
 	@printf '  CLAUDE.md         %s KB\n' "$$(wc -c < CLAUDE.md | awk '{printf "%.1f", $$1/1024}')"
 	@printf '  handoff           %s lines\n' "$$(wc -l < docs/plans/next-conversation-prompt.md 2>/dev/null || echo 0)"
-	@printf '  MEMORY.md         %s KB, %s Current State bullets\n' "$$(wc -c < $(MEMORY) | awk '{printf "%.1f", $$1/1024}')" "$$(awk '/^## Current State/{f=1;next} /^## /{f=0} f' $(MEMORY) | grep -c '^- ')"
+	@printf '  MEMORY.md         %s KB, %s Current State bullets\n' "$$(wc -c < $(MEMORY) | awk '{printf "%.1f", $$1/1024}')" "$$(PYTHONPATH=. poetry run python -c 'import pathlib,sys; from tools.post_branch_checks import current_state_bullets; print(current_state_bullets(pathlib.Path(sys.argv[1]).read_text()))' $(MEMORY))"
 	@printf '  audits            %s\n' "$$(ls docs/audits/*.md | grep -vc INDEX)"
 	@printf '  skills            %s\n' "$$(ls -d .claude/skills/*/ | wc -l)"
 	@printf '  context docs      %s\n' "$$(ls .claude/context/*.md | wc -l)"
