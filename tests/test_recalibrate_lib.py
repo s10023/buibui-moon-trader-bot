@@ -1380,3 +1380,197 @@ class TestSweepRowsWinOverRecency:
         assert out.get("bos", {}).get("15m", {}).get("combined") is not None, (
             "DSR read the live row's run_id and found no trades to pool"
         )
+
+
+# ---------------------------------------------------------------------------
+# get_backtest_win_rates — avg_r must be TRADE-WEIGHTED across symbols
+# ---------------------------------------------------------------------------
+
+
+def _insert_weighted_run(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    run_id: str,
+    symbol: str,
+    timeframe: str,
+    strategy: str,
+    closed_trades: int,
+    win_count: int,
+    avg_r: float,
+    long_closed_trades: int = 0,
+    long_win_count: int = 0,
+    long_avg_r: float | None = None,
+    short_closed_trades: int = 0,
+    short_win_count: int = 0,
+    short_avg_r: float | None = None,
+) -> None:
+    """Insert one backtest_runs row by NAME, so column order cannot silently drift."""
+    conn.execute(
+        "INSERT INTO backtest_runs (run_id, symbol, timeframe, strategy, "
+        "data_start_ms, data_end_ms, days, sl_pct, tp_r, fee_pct, day_filter, "
+        "smt_trend_filter, secondary_symbol, total_signals, closed_trades, "
+        "win_count, loss_count, win_rate, avg_r, total_r, max_drawdown_r, "
+        "run_at_ms, sweep_id, long_closed_trades, long_win_count, long_avg_r, "
+        "short_closed_trades, short_win_count, short_avg_r) VALUES "
+        "(?, ?, ?, ?, 0, 1, 90, 0.02, 2.0, 0.0005, 'off', 1, NULL, ?, ?, ?, ?, "
+        "?, ?, ?, 0.0, 1000, NULL, ?, ?, ?, ?, ?, ?)",
+        [
+            run_id,
+            symbol,
+            timeframe,
+            strategy,
+            closed_trades,
+            closed_trades,
+            win_count,
+            closed_trades - win_count,
+            (win_count / closed_trades) if closed_trades else 0.0,
+            avg_r,
+            avg_r * closed_trades,
+            long_closed_trades,
+            long_win_count,
+            long_avg_r,
+            short_closed_trades,
+            short_win_count,
+            short_avg_r,
+        ],
+    )
+
+
+class TestAvgRIsTradeWeighted:
+    """``avg_r`` aggregates across symbols weighted by trade count.
+
+    An unweighted ``.mean()`` gives a 3-trade symbol the same say as a 300-trade
+    one. The star map has a boundary at exactly 0.0 (``avg_r < 0 -> 1 star``), so
+    on real data this flipped whole cells across the sign — ``fvg/1d`` read
+    +0.3539 unweighted against -0.3819 trade-weighted. ``win_rate`` in this same
+    aggregation was already weighted (sum of wins / sum of trades); only the R
+    columns were not.
+    """
+
+    def _make_conn(self) -> duckdb.DuckDBPyConnection:
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        return conn
+
+    def test_combined_avg_r_is_weighted_by_trade_count(self) -> None:
+        conn = self._make_conn()
+        # 100 trades at -0.5R and 4 trades at +2.0R.
+        # unweighted mean = (-0.5 + 2.0) / 2   = +0.75  (positive → 4 stars)
+        # weighted mean = (-50 + 8) / 104      = -0.4038 (negative → 1 star)
+        _insert_weighted_run(
+            conn,
+            run_id="w1",
+            symbol="BTCUSDT",
+            timeframe="1d",
+            strategy="fvg",
+            closed_trades=100,
+            win_count=30,
+            avg_r=-0.5,
+        )
+        _insert_weighted_run(
+            conn,
+            run_id="w2",
+            symbol="ETHUSDT",
+            timeframe="1d",
+            strategy="fvg",
+            closed_trades=4,
+            win_count=3,
+            avg_r=2.0,
+        )
+        df = get_backtest_win_rates(conn)
+        conn.close()
+
+        row = df[(df["strategy"] == "fvg") & (df["timeframe"] == "1d")].iloc[0]
+        assert row["total_trades"] == 104
+        assert row["avg_r"] == pytest.approx(-0.4038, abs=1e-4)
+
+    def test_directional_avg_r_is_weighted_by_directional_trade_count(self) -> None:
+        """Long/short columns weight by their OWN counts, not the combined one."""
+        conn = self._make_conn()
+        _insert_weighted_run(
+            conn,
+            run_id="d1",
+            symbol="BTCUSDT",
+            timeframe="1h",
+            strategy="bos",
+            closed_trades=100,
+            win_count=40,
+            avg_r=0.1,
+            long_closed_trades=90,
+            long_win_count=36,
+            long_avg_r=-0.4,
+            short_closed_trades=10,
+            short_win_count=4,
+            short_avg_r=0.9,
+        )
+        _insert_weighted_run(
+            conn,
+            run_id="d2",
+            symbol="ETHUSDT",
+            timeframe="1h",
+            strategy="bos",
+            closed_trades=20,
+            win_count=8,
+            avg_r=0.2,
+            long_closed_trades=10,
+            long_win_count=4,
+            long_avg_r=0.8,
+            short_closed_trades=10,
+            short_win_count=4,
+            short_avg_r=0.9,
+        )
+        df = get_backtest_win_rates(conn)
+        conn.close()
+
+        row = df[(df["strategy"] == "bos") & (df["timeframe"] == "1h")].iloc[0]
+        # long: (90*-0.4 + 10*0.8) / 100 = -0.28   (unweighted would be +0.20)
+        assert row["long_avg_r"] == pytest.approx(-0.28, abs=1e-4)
+        # short: both symbols agree at 0.9, so weighting cannot change it —
+        # a control proving the long result above is weighting, not arithmetic drift
+        assert row["short_avg_r"] == pytest.approx(0.9, abs=1e-4)
+
+    def test_symbol_with_no_directional_trades_does_not_drag_the_mean(self) -> None:
+        """A NULL directional avg_r carries zero weight rather than counting as 0.0."""
+        conn = self._make_conn()
+        _insert_weighted_run(
+            conn,
+            run_id="n1",
+            symbol="BTCUSDT",
+            timeframe="4h",
+            strategy="fvg",
+            closed_trades=50,
+            win_count=25,
+            avg_r=0.5,
+            long_closed_trades=50,
+            long_win_count=25,
+            long_avg_r=0.5,
+            short_closed_trades=0,
+            short_win_count=0,
+            short_avg_r=None,
+        )
+        _insert_weighted_run(
+            conn,
+            run_id="n2",
+            symbol="ETHUSDT",
+            timeframe="4h",
+            strategy="fvg",
+            closed_trades=10,
+            win_count=2,
+            avg_r=-0.6,
+            long_closed_trades=0,
+            long_win_count=0,
+            long_avg_r=None,
+            short_closed_trades=10,
+            short_win_count=2,
+            short_avg_r=-0.6,
+        )
+        df = get_backtest_win_rates(conn)
+        conn.close()
+
+        row = df[(df["strategy"] == "fvg") & (df["timeframe"] == "4h")].iloc[0]
+        # Only BTCUSDT has long trades → the long mean is exactly its own
+        assert row["long_avg_r"] == pytest.approx(0.5, abs=1e-4)
+        # Only ETHUSDT has short trades → likewise
+        assert row["short_avg_r"] == pytest.approx(-0.6, abs=1e-4)
+        # combined: (50*0.5 + 10*-0.6) / 60 = 0.3167
+        assert row["avg_r"] == pytest.approx(0.3167, abs=1e-4)

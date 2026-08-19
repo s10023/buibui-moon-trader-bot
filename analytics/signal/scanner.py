@@ -79,6 +79,57 @@ from signals.registry import SIGNAL_REGISTRY
 logger = logging.getLogger(__name__)
 
 
+def passes_ev_gate(
+    result: "BacktestResult | BacktestSnapshot | None",
+    direction: str,
+    backtest_cfg: BacktestFilterConfig,
+    tf: str,
+) -> bool:
+    """The live EV gate. ``False`` suppresses the signal.
+
+    The trade-count check reads the SAME bucket the avg_r decision reads. That
+    pairing is the point: ``min_trades`` is calibrated on the directional bucket
+    (see ``BacktestFilterConfig.min_trades_per_tf``, "Thresholds apply to the
+    directional bucket (long or short), not total closed trades"). Counting the
+    total instead let the count check clear on ``long + short`` and the gate then
+    made a real suppression decision from a directional sample thinner than the
+    threshold requires — total >= directional, so the error ran one way, toward
+    suppressing on noise.
+
+    Fails OPEN throughout: no result, too thin a sample, or no R data all return
+    ``True``. Suppression needs positive evidence of negative expectancy.
+    """
+    if result is None:
+        return True  # no data — don't suppress
+
+    if direction == "long":
+        closed = result.long_closed_trades
+        avg_r = result.long_avg_r
+        threshold = (
+            backtest_cfg.min_avg_r_long
+            if backtest_cfg.min_avg_r_long is not None
+            else backtest_cfg.min_avg_r
+        )
+    elif direction == "short":
+        closed = result.short_closed_trades
+        avg_r = result.short_avg_r
+        threshold = (
+            backtest_cfg.min_avg_r_short
+            if backtest_cfg.min_avg_r_short is not None
+            else backtest_cfg.min_avg_r
+        )
+    else:
+        closed = result.closed_trades
+        avg_r = result.avg_r
+        threshold = backtest_cfg.min_avg_r
+
+    if len(closed) < backtest_cfg.effective_min_trades(tf):
+        return True  # not enough trades in this bucket — noise
+    if avg_r is None:
+        return True  # no directional data — don't suppress
+    return avg_r >= threshold
+
+
 def _resolve_outcome_sl_tp(
     *,
     direction: str,
@@ -751,33 +802,12 @@ def run_scan_cycle(
             if backtest_cfg.mode == "hard":
 
                 def _passes_ev_gate(e: SignalEvent) -> bool:
-                    result = bt_results.get(e.strategy)  # noqa: B023 — called inline below
-                    if result is None:
-                        return True  # no data — don't suppress
-                    if len(result.closed_trades) < backtest_cfg.effective_min_trades(
-                        tf  # noqa: B023 — called inline below
-                    ):
-                        return True  # not enough trades — noise
-                    if e.direction == "long":
-                        avg_r = result.long_avg_r
-                        threshold = (
-                            backtest_cfg.min_avg_r_long
-                            if backtest_cfg.min_avg_r_long is not None
-                            else backtest_cfg.min_avg_r
-                        )
-                    elif e.direction == "short":
-                        avg_r = result.short_avg_r
-                        threshold = (
-                            backtest_cfg.min_avg_r_short
-                            if backtest_cfg.min_avg_r_short is not None
-                            else backtest_cfg.min_avg_r
-                        )
-                    else:
-                        avg_r = result.avg_r
-                        threshold = backtest_cfg.min_avg_r
-                    if avg_r is None:
-                        return True  # no directional data — don't suppress
-                    return avg_r >= threshold
+                    return passes_ev_gate(
+                        bt_results.get(e.strategy),  # noqa: B023 — called inline below
+                        e.direction,
+                        backtest_cfg,  # noqa: B023 — called inline below
+                        tf,  # noqa: B023 — called inline below
+                    )
 
                 passing_events = [e for e in passing_events if _passes_ev_gate(e)]
                 if not passing_events:
