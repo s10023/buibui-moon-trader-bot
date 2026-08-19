@@ -70,6 +70,16 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_ERAS_PATH = REPO_ROOT / "config" / "eras.toml"
 
 #: Sample populations a boundary can invalidate.
+#:
+#: `ratings` is DECLARED-ONLY on purpose, and it is the one scope with no git path
+#: set. Reading that as an oversight is the natural mistake: `recalibrate_lib.py`
+#: sits in neither BACKTEST_PATHS nor LEDGER_PATHS, so a commit that changes how
+#: stars are computed marks no boundary. But the commit is not the event — stored
+#: `confidence_ratings` rows only change when somebody RUNS `recalibrate --apply`,
+#: which can be weeks later or never, so a git-derived boundary would date the era
+#: to the wrong day and would fire for a code change nobody applied. #662
+#: (2026-08-19) is the worked example: the merge changed the aggregation and moved
+#: nothing, and the 288 rows were rewritten by hand four commits later.
 SCOPES = ("backtest", "ledger", "ratings")
 
 #: Paths whose history marks a change in what the backtest book does. This is the

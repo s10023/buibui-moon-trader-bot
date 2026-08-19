@@ -307,3 +307,24 @@ def test_report_truncates_a_long_boundary_list() -> None:
 
     assert sum(1 for line in lines if line.strip().startswith("·")) == 4  # 3 + "more"
     assert any("and 15 more" in line for line in lines)
+
+
+def test_ratings_scope_is_declared_only_and_never_asks_git() -> None:
+    """`ratings` has no git path set, and that is a decision rather than a gap.
+
+    Stored `confidence_ratings` rows change when somebody RUNS
+    `recalibrate --apply`, not when the code that computes stars is committed —
+    the two can be weeks apart, as #662 (merged 2026-08-19, applied four commits
+    later) was. A git-derived ratings boundary would date the era to the merge
+    and would fire for a recalibration nobody ran, so the scope is served from
+    `config/eras.toml` alone. The runner raises to prove no git call is made.
+    """
+
+    def runner(args: Sequence[str], *, cwd: Path) -> str:
+        raise AssertionError(f"the ratings scope must not shell out to git: {args}")
+
+    found = load_boundaries(scopes=("ratings",), runner=runner)
+
+    assert found, "the declared registry carries at least one ratings boundary"
+    assert {b.source for b in found} == {"declared"}
+    assert {b.scope for b in found} == {"ratings"}
