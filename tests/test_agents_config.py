@@ -100,3 +100,34 @@ def test_the_real_repo_config_loads() -> None:
     cfg = load(Path.cwd())
     assert cfg.paths_with_role("anchor")
     assert cfg.budgets.handoff_lines > 0
+
+
+def test_the_committed_config_reproduces_the_four_live_tuples() -> None:
+    """The config's charter: these four views must equal what the checkers
+    hardcode today, or the repoint that follows is a silent scope change
+    rather than the no-op refactor it is presented as."""
+    cfg = load(Path.cwd())
+    assert cfg.paths_with_role("anchor") == (
+        "CLAUDE.md",
+        "README.md",
+        "docs/system-overview.md",
+        "docs/plans/next-conversation-prompt.md",
+    )
+    assert cfg.paths_with_role("enumerating") == (
+        "CLAUDE.md",
+        "README.md",
+        ".claude/context",
+        "deploy/README.md",
+    )
+    assert cfg.paths_with_role("negative_claim") == (
+        "CLAUDE.md",
+        "README.md",
+        "Makefile",
+        "docker-compose.yml",
+        ".claude",
+    )
+    assert cfg.paths_with_role("sanity") == (
+        "CLAUDE.md",
+        "README.md",
+        "docs/system-overview.md",
+    )

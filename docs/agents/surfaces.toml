@@ -30,6 +30,10 @@ memory_bytes_cap = 17408
 #
 # A surface carrying any role needs a concrete `path`: the checker opens it.
 # `path_glob` entries are for the human-facing table only.
+#
+# Order below is declaration order, and declaration order is what
+# `paths_with_role()` returns — it must match the live hardcoded tuples exactly,
+# or the later repoint is a silent scope change wearing a no-op costume.
 
 [[surface]]
 id = "claude_md"
@@ -56,6 +60,13 @@ purpose = "Gitignored session state; budgets above apply to it"
 roles = ["anchor"]
 
 [[surface]]
+id = "context_docs"
+path = ".claude/context"
+path_glob = ".claude/context/*.md"
+purpose = "Long-form module references (analytics, research-sleeves, tools, signals, web, execution)"
+roles = ["enumerating"]
+
+[[surface]]
 id = "deploy_readme"
 path = "deploy/README.md"
 purpose = "Install, retention and restore for the VPS deploy kit"
@@ -74,9 +85,10 @@ purpose = "Long-running services and one-shot tools"
 roles = ["negative_claim"]
 
 [[surface]]
-id = "context_docs"
-path_glob = ".claude/context/*.md"
-purpose = "Long-form module references (analytics, research-sleeves, tools, signals, web, execution)"
+id = "claude_harness"
+path = ".claude"
+purpose = "The harness tree — hooks, rules, skills and context — swept for absence-language"
+roles = ["negative_claim"]
 
 [[surface]]
 id = "skill_docs"
