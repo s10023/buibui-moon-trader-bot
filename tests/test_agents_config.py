@@ -108,18 +108,21 @@ def test_the_committed_config_reproduces_the_four_live_tuples() -> None:
     rather than the no-op refactor it is presented as."""
     cfg = load(Path.cwd())
     assert cfg.paths_with_role("anchor") == (
+        "AGENTS.md",
         "CLAUDE.md",
         "README.md",
         "docs/system-overview.md",
         "docs/plans/next-conversation-prompt.md",
     )
     assert cfg.paths_with_role("enumerating") == (
+        "AGENTS.md",
         "CLAUDE.md",
         "README.md",
         ".claude/context",
         "deploy/README.md",
     )
     assert cfg.paths_with_role("negative_claim") == (
+        "AGENTS.md",
         "CLAUDE.md",
         "README.md",
         "Makefile",
@@ -127,6 +130,7 @@ def test_the_committed_config_reproduces_the_four_live_tuples() -> None:
         ".claude",
     )
     assert cfg.paths_with_role("sanity") == (
+        "AGENTS.md",
         "CLAUDE.md",
         "README.md",
         "docs/system-overview.md",

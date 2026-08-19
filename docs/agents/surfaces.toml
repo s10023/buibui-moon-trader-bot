@@ -36,9 +36,15 @@ memory_bytes_cap = 17408
 # or the later repoint is a silent scope change wearing a no-op costume.
 
 [[surface]]
+id = "agents_md"
+path = "AGENTS.md"
+purpose = "Agent-neutral project context: structure, commands, verdicts, conventions"
+roles = ["anchor", "enumerating", "negative_claim", "sanity"]
+
+[[surface]]
 id = "claude_md"
 path = "CLAUDE.md"
-purpose = "Authoritative project context for Claude Code"
+purpose = "Claude Code harness specifics: skills, subagents, hooks, memory protocol"
 roles = ["anchor", "enumerating", "negative_claim", "sanity"]
 
 [[surface]]
