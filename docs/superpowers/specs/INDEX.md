@@ -4,13 +4,13 @@
 `make docs-index-check` (and `tests/test_docs_index.py`) fails when this file
 drifts from the corpus.
 
-**57 specs on disk.** Reconcile status is **derived** — a spec counts as
+**58 specs on disk.** Reconcile status is **derived** — a spec counts as
 reconciled when an audit that names its filename also discusses reconciling, so
 the count is recomputed from disk rather than carried in prose. That is the
 counter CLAUDE.md has had wrong every time it was checked.
 
-- **Reconciled (derived): 4 of 57.**
-- Referenced by no audit at all: 40.
+- **Reconciled (derived): 4 of 58.**
+- Referenced by no audit at all: 41.
 
 **Two caveats before quoting these numbers.** A *partial* reconcile is
 indistinguishable from a whole-spec one here, and this table cannot see one that
@@ -19,6 +19,7 @@ and the reconcile column as a floor.
 
 | Date | Spec | Reconciled by | Also referenced by | File |
 | --- | --- | --- | --- | --- |
+| 2026-08-19 | `AGENTS.md` split + `docs/agents/` config — design | — | — | [2026-08-19-agents-md-split-design.md](2026-08-19-agents-md-split-design.md) |
 | 2026-08-18 | Structural touch geometry — confirmation causality | — | — | [2026-08-18-structural-touch-confirmation-causality.md](2026-08-18-structural-touch-confirmation-causality.md) |
 | 2026-08-17 | Give-back / heat-and-run — pre-registration | — | — | [2026-08-17-giveback-heat-and-run-prereg.md](2026-08-17-giveback-heat-and-run-prereg.md) |
 | 2026-08-15 | X ingest — graph resolution and truncation honesty | — | — | [2026-08-15-x-ingest-graph-resolution.md](2026-08-15-x-ingest-graph-resolution.md) |
