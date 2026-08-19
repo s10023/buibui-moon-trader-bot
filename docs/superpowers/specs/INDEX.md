@@ -7,7 +7,7 @@ drifts from the corpus.
 **58 specs on disk.** Reconcile status is **derived** — a spec counts as
 reconciled when an audit that names its filename also discusses reconciling, so
 the count is recomputed from disk rather than carried in prose. That is the
-counter CLAUDE.md has had wrong every time it was checked.
+counter AGENTS.md has had wrong every time it was checked.
 
 - **Reconciled (derived): 4 of 58.**
 - Referenced by no audit at all: 41.

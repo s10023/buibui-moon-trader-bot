@@ -180,7 +180,7 @@ def test_same_shaped_sibling_destination_is_NOT_blocked(
     over real snapshots.
 
     This test exists so the limit cannot drift away from the docs that state it.
-    If someone strengthens the guard, this test fails and CLAUDE.md, README.md,
+    If someone strengthens the guard, this test fails and AGENTS.md, README.md,
     deploy/README.md and .claude/context/execution.md all need updating with it.
 
     The real fix is confinement, not detection: a separate remote with its own

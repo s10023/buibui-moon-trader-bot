@@ -22,18 +22,21 @@ memory_state_bullets = 6
 memory_state_ceiling = 8
 memory_bytes_cap = 17408
 
-# roles:
-#   anchor         -> post_branch_checks.ANCHOR_FILES     (dead-section citations)
-#   enumerating    -> post_branch_checks.ENUMERATING_DOCS (does a new file appear anywhere?)
-#   negative_claim -> post_branch_checks.NEGATIVE_CLAIM_PATHS
-#   sanity         -> sanity_checks.SURFACE_FILES         (CI-gating drift sweep)
+# roles: each is read back through `AgentsConfig.paths_with_role()` by exactly one
+# accessor, and those accessors are FUNCTIONS, not module constants — a constant
+# would read the config at import time, which the checkers' subprocess tests forbid.
+#
+#   anchor         -> post_branch_checks.anchor_files()        (dead-section citations)
+#   enumerating    -> post_branch_checks.enumerating_docs()    (does a new file appear anywhere?)
+#   negative_claim -> post_branch_checks.negative_claim_paths()
+#   sanity         -> sanity_checks.sanity_surfaces()          (CI-gating drift sweep)
 #
 # A surface carrying any role needs a concrete `path`: the checker opens it.
 # `path_glob` entries are for the human-facing table only.
 #
 # Order below is declaration order, and declaration order is what
-# `paths_with_role()` returns — it must match the live hardcoded tuples exactly,
-# or the later repoint is a silent scope change wearing a no-op costume.
+# `paths_with_role()` returns — it matched the hardcoded tuples it replaced exactly,
+# so the repoint was a no-op rather than a silent scope change wearing one's costume.
 
 [[surface]]
 id = "agents_md"

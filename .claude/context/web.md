@@ -81,7 +81,7 @@ Build: `make web-build` → `web/ui/dist/` served by FastAPI StaticFiles.
 
 ---
 
-## Package map (moved from CLAUDE.md 2026-08-04)
+## Package map (moved out of the always-loaded tier 2026-08-04; index in `AGENTS.md`)
 
 - `web/` — web layer (Phase 4 + 5). See `.claude/context/web.md` for full API + UI reference.
   - `api/` — FastAPI: routers (config, ohlcv, fib, signals, backtest, positions, prices, stream, stats, zones, live_outcomes, brief); `GET /api/active-config`, `GET /api/zones`, `GET /api/backtest/analysis`, `GET /api/live-outcomes` (cross-symbol signal_alert_outcomes roll-up, optional `symbol` scope, never cached) + `GET /api/live-outcomes/open` (unresolved alerts marked to live price, the only live-outcomes route with a `get_client` dependency), `GET /api/brief` (read-only deterministic daily market-brief bundle); stats live fields via `_inject_live_fields()`

@@ -51,7 +51,7 @@ class TestPerPeriodSharpe:
         # THE distinction the 1e-12 floor makes, and it runs the opposite way
         # to what the name suggests: it rejects only a near-exactly-flat series,
         # so tightly clustered returns still yield a finite, enormous Sharpe.
-        # Shaped after the bos/1d/long case in CLAUDE.md (36 trades around
+        # Shaped after the bos/1d/long case in AGENTS.md (36 trades around
         # -1.0076R at sd 0.0022) — but note that case belongs to
         # recalibrate_lib._sharpe, a different function on a different guard
         # (sd == 0.0) feeding star ratings. Pinned here because a future

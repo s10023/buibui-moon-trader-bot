@@ -133,15 +133,19 @@ Check these in parallel:
   ```
 
   **Measured 2026-08-19: 10 of 12 covered. The gap is `param-sweep` and `param-audit`** —
-  zero mentions of either form anywhere in README, though both are in CLAUDE.md,
+  zero mentions of either form anywhere in README, though both are in AGENTS.md,
   `.claude/context/analytics.md` and four skills, so they are not undocumented
   project-wide.
 - Does `## Directory Structure` list all current top-level modules?
 - Are any sections referencing removed features?
 
-### CLAUDE.md
+### AGENTS.md
 
 - Does `## Project Structure` match actual files on disk?
+- Do the `## Key Commands` / `## CLI` sections still resolve?
+
+### CLAUDE.md
+
 - **Do NOT compare skills against a table in `CLAUDE.md` — there isn't one, deliberately.**
   `CLAUDE.md`'s `## Agent Skills` section says so explicitly: the harness injects every
   skill's name and description into each session, so a duplicate table there could only
@@ -224,7 +228,7 @@ Report results as a table with one row per check:
 | 8 | Wiring | API router registration | ✅/❌ | ... |
 | 9 | Wiring | Thin wrapper boundary | ✅/❌ | ... |
 | 10 | Docs | README subcommands | ✅/❌ | ... |
-| 11 | Docs | CLAUDE.md structure | ✅/❌ | ... |
+| 11 | Docs | AGENTS.md structure | ✅/❌ | ... |
 | 12 | Docs | MEMORY.md current state | ✅/❌ | ... |
 | 13 | Skills | Skill files vs CLAUDE.md table | ✅/❌ | ... |
 | 14 | Skills | Stale claims audit | ✅/❌ | ... |

@@ -1,7 +1,7 @@
 """Generate browsable indexes for the audit and spec corpora (ST18 first move).
 
 `docs/audits/` (38 verdicts) and `docs/superpowers/specs/` (50 specs) had grown
-to ~90 documents that **nothing indexed**. That is the reason CLAUDE.md's
+to ~90 documents that **nothing indexed**. That is the reason AGENTS.md's
 spec-reconcile counter has been wrong every single time anyone has checked it:
 with no surface listing what exists, even the denominator drifts — it read
 "46" while 50 spec files were on disk.
@@ -19,7 +19,7 @@ source of confident-sounding wrong claims:
   when a *spec-reconcile audit* — one that says so in its filename or its H1 —
   references the spec's filename, so the count is recomputed from disk on every
   run rather than carried in prose. When this disagrees with a number written in
-  CLAUDE.md, the disagreement is the finding — do not "fix" it by editing the
+  AGENTS.md, the disagreement is the finding — do not "fix" it by editing the
   generator. **The looser "reconcile appears anywhere in the audit body" rule was
   tried first and produced a false positive on its first run**: an audit whose
   body carries a `## Reconciliation` section about reconciling two *findings*, not
@@ -303,7 +303,7 @@ def render_spec_index(rows: list[SpecRow]) -> str:
         f"**{len(rows)} specs on disk.** Reconcile status is **derived** — a spec counts as",
         "reconciled when an audit that names its filename also discusses reconciling, so",
         "the count is recomputed from disk rather than carried in prose. That is the",
-        "counter CLAUDE.md has had wrong every time it was checked.",
+        "counter AGENTS.md has had wrong every time it was checked.",
         "",
         f"- **Reconciled (derived): {len(reconciled)} of {len(rows)}.**",
         f"- Referenced by no audit at all: {len(unreferenced)}.",

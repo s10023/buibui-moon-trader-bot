@@ -65,8 +65,8 @@ make lint-md        # Markdown
 make web-build      # production bundle   (make web-dev for the Vite dev server)
 make db-update      # db-update-backtest -> db-update-recalibrate -> regression-update
 
-make status            # repo shape: file counts, CLAUDE.md KB, MEMORY.md KB + bullet count
-make post-branch-checks  # the mechanical half of /post-branch (11 legs, ADVISORY)
+make status            # repo shape: file counts, always-loaded KB, MEMORY.md KB + bullets
+make post-branch-checks  # the mechanical half of /post-branch (12 legs, ADVISORY)
 make sanity-checks       # the mechanical half of /sanity-check (7 legs, GATES, runs in CI)
 make wait-ci PR=<n>      # wait on a PR's checks    (make wait-ci-main for main's push run)
 ```

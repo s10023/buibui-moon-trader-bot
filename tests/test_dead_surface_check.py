@@ -1,7 +1,7 @@
 """Tests for tools/dead_surface_check.py — declaration vs output, both directions.
 
 Full DB isolation: every test builds its own `:memory:` DuckDB and never touches
-the real `analytics.db` (CLAUDE.md > Testing).
+the real `analytics.db` (AGENTS.md > Testing).
 """
 
 import duckdb

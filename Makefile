@@ -14,6 +14,13 @@ MEMORY = $(HOME)/.claude-personal/projects/-home-kng-repo-buibui-moon-trader-bot
 
 .PHONY: status wait-ci wait-ci-main post-branch-checks sanity-checks lint lint-md lint-md-fix docs-index docs-index-check lint-py-check lint-py typecheck test test-cov test-regression regression-update poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-analytics-backfill buibui-analytics-sync universe-backfill buibui-backtest buibui-combo-backtest buibui-cross-tf-backtest buibui-signal-watch buibui-param-audit buibui-param-sweep buibui-recalibrate buibui-digest buibui-web web-install web-dev web-build web-preview web-full clean-db clean export-live-db buibui-portfolio-replay buibui-forecast-audit buibui-forecast-weight-study buibui-forecast-regime buibui-xsmom-audit buibui-combine-audit buibui-carry-audit buibui-xsmom-capacity-audit buibui-xsmom-targets buibui-xsmom-execute buibui-universe-sync buibui-xsmom-daily buibui-structural-touch-audit buibui-structural-entry-sim-audit buibui-warning-value-audit buibui-sl-horizon-audit buibui-weekly-path-audit buibui-indicator-condition-audit buibui-xsrev-audit buibui-decay-review buibui-dead-surface-check buibui-giveback-study
 
+# ⚠ The always-loaded gauge sums BOTH files. Until the 2026-08-19 AGENTS.md split
+# it printed `CLAUDE.md` alone, which was the whole tier; afterwards that same
+# number read ~4KB against ~40KB actually loaded, because `CLAUDE.md` is now a
+# thin harness residue that imports `AGENTS.md`. Same failure class as the two
+# below -- a reporting surface drifting from what it claims to measure -- except
+# this one erred LOW, which reads as headroom nobody has.
+#
 # ⚠ The bullet count CALLS the gate's own `current_state_bullets`, and that is
 # dedup rather than a correction. The ported original re-derived it as an awk
 # range to EOF, which over-counted wherever a section follows Current State
@@ -34,7 +41,7 @@ status:
 	@printf '  tests collected   %s  (incl. regression that `make test` ignores)\n' "$$(poetry run pytest tests/ --collect-only -q 2>/dev/null | tail -1 | grep -oE '^[0-9]+' || echo '?')"
 	@printf '  python files      %s\n' "$$(git ls-files '*.py' | wc -l)"
 	@printf '  markdown files    %s\n' "$$(npx markdownlint-cli2 2>&1 | grep -oE 'Linting: [0-9]+' | grep -oE '[0-9]+' || echo '?')"
-	@printf '  CLAUDE.md         %s KB\n' "$$(wc -c < CLAUDE.md | awk '{printf "%.1f", $$1/1024}')"
+	@printf '  always-loaded     %s KB  (AGENTS.md %s + CLAUDE.md %s -- CLAUDE.md imports AGENTS.md, so BOTH load every session)\n' "$$(cat AGENTS.md CLAUDE.md | wc -c | awk '{printf "%.1f", $$1/1024}')" "$$(wc -c < AGENTS.md | awk '{printf "%.1f", $$1/1024}')" "$$(wc -c < CLAUDE.md | awk '{printf "%.1f", $$1/1024}')"
 	@printf '  handoff           %s lines\n' "$$(wc -l < docs/plans/next-conversation-prompt.md 2>/dev/null || echo 0)"
 	@printf '  MEMORY.md         %s KB, %s Current State bullets\n' "$$(wc -c < $(MEMORY) | awk '{printf "%.1f", $$1/1024}')" "$$(PYTHONPATH=. poetry run python -c 'import pathlib,sys; from tools.post_branch_checks import current_state_bullets; print(current_state_bullets(pathlib.Path(sys.argv[1]).read_text()))' $(MEMORY))"
 	@printf '  audits            %s\n' "$$(ls docs/audits/*.md | grep -vc INDEX)"

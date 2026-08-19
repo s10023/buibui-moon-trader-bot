@@ -124,7 +124,7 @@ class TestCheckNewTargets:
         assert "zzz-nope" in found[0].detail
 
     def test_buibui_prefix_is_stripped_before_probing(self) -> None:
-        """CLAUDE.md documents subcommands; the wrapper rule covers the rest."""
+        """AGENTS.md documents subcommands; the wrapper rule covers the rest."""
         assert (
             check_new_targets("+buibui-param-audit: x\n", "`param-audit` runs WFO")
             == []

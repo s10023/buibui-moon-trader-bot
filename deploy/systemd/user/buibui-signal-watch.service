@@ -3,7 +3,7 @@
 # beside this file. Config is auto-picked by UTC weekday, so this unit must never
 # pin --config (that would break the Mon/Fri · Tue-Thu · Sat/Sun partition).
 Description=buibui signal-watch (one scan cycle, closed candles, catch-up on)
-Documentation=file:///home/kng/repo/buibui-moon-trader-bot/CLAUDE.md
+Documentation=file:///home/kng/repo/buibui-moon-trader-bot/AGENTS.md
 
 [Service]
 Type=oneshot

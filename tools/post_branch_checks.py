@@ -1,7 +1,7 @@
 """Run every mechanical check `/post-branch` used to carry as copy-by-hand bash.
 
 The skill embedded 16 shell blocks in prose. A session had to notice each one,
-copy it, and run it — which is the failure CLAUDE.md names as *a hand walk is
+copy it, and run it — which is the failure AGENTS.md names as *a hand walk is
 not the walk*, and it is why the same defects kept recurring: prose cannot
 enforce. Every check that can run without judgement lives here instead, so the
 skill's instruction is "run this, triage the hits" rather than sixteen
@@ -375,7 +375,7 @@ def check_new_modules(added: Sequence[str], context_blob: str) -> list[Finding]:
 def check_new_targets(diff: str, doc_blob: str) -> list[Finding]:
     """Every added Make target should be documented.
 
-    ``buibui-`` is stripped because CLAUDE.md documents the *subcommands* and
+    ``buibui-`` is stripped because AGENTS.md documents the *subcommands* and
     states that each ``buibui-*`` target wraps one; without the strip every
     wrapper reports undocumented, which is noise, and noise gets a check
     ignored.

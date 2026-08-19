@@ -39,7 +39,7 @@ def per_period_sharpe(r: npt.NDArray[np.float64]) -> float:
     There is no dispersion floor here, and adding one would be a behaviour
     change needing its own evidence.
 
-    ⚠ **The ``bos/1d/long`` Sharpe -461 case in CLAUDE.md is NOT this
+    ⚠ **The ``bos/1d/long`` Sharpe -461 case in AGENTS.md is NOT this
     function.** That belongs to ``analytics.recalibrate_lib._sharpe``, which
     guards on ``sd == 0.0`` exactly and returns ``None``; it feeds star ratings,
     not the sleeve gate. The two share a weakness and share no code — do not

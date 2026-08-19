@@ -2,7 +2,7 @@
 name: post-branch
 description: >
   Post-branch docs sweep + handoff — diff the branch's behaviour changes against
-  the doc surfaces (CLAUDE.md, README.md, MEMORY.md, Makefile, docker-compose.yml,
+  the doc surfaces (AGENTS.md, CLAUDE.md, README.md, MEMORY.md, Makefile, docker-compose.yml,
   .claude/context/*.md, .claude/skills/*/SKILL.md)
   and propose targeted edits where they've drifted, then run a pre-merge
   readiness check and offer a fresh-conversation handoff prompt. RUN THE PHASE
@@ -84,8 +84,9 @@ now and accept the extra CI run. A stale doc costs more than one CI cycle.
 **The `PostToolUse` hook is a backstop, not the trigger.** It fires on
 `gh pr create`, which is necessarily *after* — there is no hook event for "about
 to open a PR", which is exactly why the ordering rule has to live in prose here
-and in `CLAUDE.md`. Two caveats worth knowing: the hook lives in gitignored
-`.claude/settings.json` so it does not survive a reclone, and it matches the
+and in `AGENTS.md`. Two caveats worth knowing: the hook lives in
+`.claude/settings.json`, tracked since 2026-08-19 so it now DOES survive a
+reclone (it did not before), and it matches the
 **whole command string**, so a `grep` or heredoc merely *containing*
 `gh pr create` will fire it spuriously.
 
@@ -93,51 +94,16 @@ and in `CLAUDE.md`. Two caveats worth knowing: the hook lives in gitignored
 
 ## Doc-surface configuration
 
-Each entry is a class of doc that might need updating when behaviour
-changes. **When porting this skill to another repo, edit only this block —
-the rest of the workflow stays the same.**
+The doc-surface list lives in `docs/agents/surfaces.toml`, not here. **When porting this skill
+to another repo, that file is the only thing to write** — the workflow below is repo-agnostic.
+`tools/post_branch_checks.py` and `tools/sanity_checks.py` read the same file, so the list the
+skill describes and the list the checkers sweep cannot drift apart.
+
+Two surfaces this skill walks are deliberately NOT in that file, because no checker opens them:
+account-level `MEMORY.md` (Step 5, always updated) and the gitignored operator tooling
+`docs/plans/daily_check.py` / `.claude/hooks/*` / `.claude/settings.json` (Step 4).
 
 ```yaml
-surfaces:
-  - id: claude_md
-    path: CLAUDE.md
-    purpose: Authoritative project context for Claude Code (project structure, key commands, code style, agent skills)
-
-  - id: readme
-    path: README.md
-    purpose: User-facing project overview (CLI subcommands, install, quickstart)
-
-  - id: memory_md
-    path: ~/.claude-personal/projects/-home-kng-repo-buibui-moon-trader-bot/memory/MEMORY.md
-    purpose: Cross-session memory; "Current State" section MUST be updated every session
-    always_update: true   # see Step 5
-
-  - id: makefile
-    path: Makefile
-    purpose: Make targets — every `buibui.py` subcommand should have a `buibui-*` wrapper
-    scope: any_referencing_changed_artifact
-
-  - id: docker_compose
-    path: docker-compose.yml
-    purpose: Long-running services (daemons → restart:unless-stopped) and one-shot tools (profiles:[tools])
-    scope: any_referencing_changed_artifact
-
-  - id: context_docs
-    path_glob: ".claude/context/*.md"
-    purpose: Long-form module references (analytics, research-sleeves, tools, signals, web, execution)
-    scope: any_referencing_changed_artifact + new_module_presence   # see below
-
-  - id: skill_docs
-    path_glob: ".claude/skills/*/SKILL.md"
-    purpose: Workflow instructions that name tools, flags and file paths — they drift exactly like CLAUDE.md does
-    scope: any_referencing_changed_artifact
-    lint: manual   # see below
-
-  - id: gitignored_ops
-    paths: ["docs/plans/daily_check.py", ".claude/hooks/*", ".claude/settings.json"]
-    purpose: Operator-facing surfaces that ship NO code — monitoring, guards, harness config
-    scope: any_behaviour_this_pr_adds_that_nothing_else_monitors   # see Step 4
-
 # Files that, if changed, almost always require a doc walk:
 behavior_signal_globs:
   - "buibui.py"
@@ -187,7 +153,7 @@ a glance, a silent miss ships a doc that reads as complete.
 | `handoff-symbols` | Does the handoff claim something about a symbol or file this branch touched? |
 | `new-files` | Does every added non-Python operator file reach an enumerating doc? |
 | `new-modules` | Does every added module reach `.claude/context/`? |
-| `new-targets` | Is every added Make target documented? (`buibui-` is stripped — CLAUDE.md documents the subcommands) |
+| `new-targets` | Is every added Make target documented? (`buibui-` is stripped — AGENTS.md documents the subcommands) |
 | `negative-claims` | Does a doc assert the absence of something this branch just added? |
 | `doc-indexes` | Are the generated `INDEX.md` files current? |
 | `md-atx` | Did a wrapped `#123` become an accidental MD018 heading? |
@@ -322,13 +288,13 @@ that behaviour's *name* **and** for the **verdict or guarantee** attached to
 it (`exit-code`, `never fails`, "0-for-", "H14-specific", the audit's own
 verdict string). A claim about a result is as perishable as a claim about a
 flag — and research verdicts are the most expensive kind to leave stale,
-because CLAUDE.md's whole purpose there is to stop the next session
+because AGENTS.md's whole purpose there is to stop the next session
 re-litigating settled work.
 
 **Strong refactor signals** — these almost always trigger user-facing doc
 edits because they change paths users / docs reference:
 
-- A module listed in CLAUDE.md's "Project Structure" was renamed, moved, or
+- A module listed in AGENTS.md's "Project Structure" was renamed, moved, or
   reduced to a re-export shim (the path users `import` from is now stale)
 - The CLI subcommand surface changed (`buibui --help` differs)
 - A new `make buibui-*` target lands
@@ -342,7 +308,7 @@ to walk the docs, or is this internal-only?"*
 
 From the diff, build a concrete list the doc walk will key off:
 
-- Each new/renamed/deleted **file** (especially modules listed in CLAUDE.md
+- Each new/renamed/deleted **file** (especially modules listed in AGENTS.md
   Project Structure)
 - Each new **CLI flag/subcommand** in `buibui.py` / `cli/`
 - Each new **Make target** (lines added like `^[a-z_-]+:` in `Makefile`)
@@ -378,7 +344,7 @@ For each surface in the config, do the following:
 4. **Propose the edit.** Show the user a unified-diff-style proposal:
 
    ```diff
-   # CLAUDE.md (line 47)
+   # AGENTS.md (line 47)
    - - `data_store.py` — DB schema, upsert/query helpers, `confidence_ratings`, …
    + - `store/` — package: `schema.py`, `signals.py`, `backtest_runs.py`,
    +   `backtest_cache.py`, `confidence.py`, `combos.py`, `stats_cache.py`.
@@ -394,13 +360,17 @@ For each surface in the config, do the following:
 
 ## Step 4 — Surface-specific checks
 
-### CLAUDE.md
+### AGENTS.md
 
 - "Project Structure" section: every module listed should match its real
   current home. If a `*.py` file is now a shim, rename or annotate to
   point at the package that holds the real code.
 - "Key Commands" / "CLI" sections: every subcommand should still resolve.
-- "Agent Skills" table: skills added/removed since last sweep are listed.
+
+### CLAUDE.md
+
+- "Agent Skills": skills added/removed since last sweep are reflected in the
+  rules that section carries. There is deliberately NO skills table to diff.
 
 ### README.md
 
@@ -556,13 +526,13 @@ For each surface in the config, do the following:
   `tools/decay_review.py` (#607): the convention had to be inferred by grepping
   siblings, which is exactly the "a person plus luck" non-rule this step replaces.
 
-- **CLAUDE.md must not re-absorb this content.** The 2026-08-04 split left
-  CLAUDE.md holding a package index plus verdicts, and the context docs
-  holding the detail. `analytics.md` went stale in the first place *because*
-  CLAUDE.md carried a duplicate that was auto-loaded and therefore visibly
+- **AGENTS.md must not re-absorb this content.** The 2026-08-04 split left
+  the always-loaded tier holding a package index plus verdicts, and the context
+  docs holding the detail. `analytics.md` went stale in the first place *because*
+  the always-loaded copy was a duplicate that was auto-loaded and therefore visibly
   wrong, so it got maintained while the context file silently diverged. Two
   sources of truth, one of them invisible, always rots the invisible one. If
-  a PR adds module detail to CLAUDE.md's Project Structure, move it.
+  a PR adds module detail to AGENTS.md's Project Structure, move it.
 
 ### `.claude/skills/*/SKILL.md`
 
@@ -752,7 +722,7 @@ reviewers see the doc reasoning:
 ```markdown
 ## Documentation updates
 
-- `CLAUDE.md`: rewrote Project Structure entry for `analytics/store/` after
+- `AGENTS.md`: rewrote Project Structure entry for `analytics/store/` after
   data_store.py reduced to a re-export shim
 - `README.md`: no change needed (no CLI surface change)
 - `MEMORY.md`: Current State updated with strat-2 summary
@@ -817,7 +787,7 @@ Pushing costs no CI; the meter starts at `gh pr create`. So this is the last fre
 moment, and it is the one decision in the whole skill that must be put to the
 user every single time.
 
-⚠ **Confirm the flip with the user on every occasion.** CLAUDE.md > CI quota
+⚠ **Confirm the flip with the user on every occasion.** AGENTS.md > CI quota
 makes the **mechanics** standing authorisation and the **timing** not, because
 the public window publishes this repo's whole history for its duration and only
 the operator knows whether now is a good moment. Ask the unsettled half; never
@@ -858,6 +828,7 @@ Output a per-surface report so the user has a clear summary:
 ```text
 PR #<num> behaviour gate: <walked | skipped (pure refactor)>
 
+AGENTS.md          — updated: <what> | no change needed: <reason>
 CLAUDE.md          — updated: <what> | no change needed: <reason>
 README.md          — updated: <what> | no change needed: <reason>
 MEMORY.md          — updated: Current State + <other>  (never committed)
@@ -992,7 +963,7 @@ next session DOES"**:
 
 - **Delete outright:** merged-PR narration, resolved incidents, superseded
   dated readings (keep the newest only), "kept for provenance" blocks, and any
-  closed-task write-up whose verdict already lives in CLAUDE.md, a
+  closed-task write-up whose verdict already lives in AGENTS.md, a
   `docs/audits/` verdict, or a memory file.
 - **Condense to one line + pointer:** a closed task whose VERDICT still binds
   ("do not rebuild X", "do not re-run Y"). The verdict survives; the story of
@@ -1011,7 +982,7 @@ behind a pointer because a guard rail behind a pointer is not a guard rail:**
 
 - **At most ONE "Just shipped" section, superseded on each merge — never accumulated.**
   Do not add a section per PR. Before writing the new one, move the outgoing one's
-  binding verdict to its durable home (CLAUDE.md, a `docs/audits/` verdict, or a memory
+  binding verdict to its durable home (AGENTS.md, a `docs/audits/` verdict, or a memory
   file) and delete the rest. The pile had reached **six** such sections before the
   operator asked.
 - **Resolve an "Open work" row by DELETING it, never by striking it through.** A struck
