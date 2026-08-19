@@ -8,6 +8,42 @@ update CLAUDE.md too — the index is the only path a session has to this file.
 One-shot analysis and audit scripts. **Not part of the daemon or CLI surface** — each
 is run directly, and most are read-only over `analytics.db`.
 
+## Hooks — `.claude/hooks/`
+
+**Committed since 2026-08-19.** They were gitignored, so a reclone kept the knowledge and
+lost the DELIVERY, and no CI surface could reach them. Wired in `.claude/settings.json`
+(also tracked), which addresses them via `$CLAUDE_PROJECT_DIR` so they resolve on any clone.
+
+- `guard-destructive.py` — **BLOCKING** `PreToolUse` on `Bash`. Refuses recursive force
+  deletes, `git reset --hard`, force-push and DB wipes. Surface a block rather than working
+  around it. ⚠ **It matches the WHOLE command string**, so a heredoc or `grep` merely
+  *containing* a banned phrase is blocked too — measured 2026-08-19 writing this very
+  paragraph. The `gh pr create` hooks in `settings.json` fixed the same defect by anchoring
+  on `head -1`; this guard has not been given that treatment, and doing so needs care
+  because a real destructive command can legitimately sit past line 1.
+- `guard-branch.py` — advisory `PreToolUse` on edits: warns when the first tracked edit of a
+  session lands on `main`. Deduped per `(session, branch)` via a `/tmp` marker, fail-open.
+- `context-guard.py` + `context-map.json` — advisory `PreToolUse` on edits: delivers a
+  footgun card the moment a guarded file is edited. **This is what let those rules leave
+  CLAUDE.md's always-loaded tier.** 12 cards; a card's globs must cover every file its rule
+  bites on.
+- `test_context_guard.py` — the gate, **35 cases**, stdlib-only. Runs in CI's
+  dependency-free `markdownlint` job. Every card needs a MUTATION case proving the glob is
+  scoped rather than blanket.
+
+Vendored skills sit beside the hooks in the same committed-but-not-ours class:
+`.agents/skills/<name>/SKILL.md` is the real upstream copy, `.claude/skills/<name>` is a
+relative symlink into it, and `skills-lock.json` pins it by hash. Tracked, and deliberately
+excluded from `make lint-md` — we version an upstream copy without owning its style. Rule,
+refresh policy and the unverifiable-pin caveat: `.claude/rules/vendored-skills.md`.
+Currently vendored: **`humanizer`** from `blader/humanizer` —
+`.agents/skills/humanizer/SKILL.md` with `.claude/skills/humanizer` symlinked to it.
+
+⚠ **The two BLOCKING guards are still untested** — `test_context_guard.py` covers
+`context-guard` alone, so the guards that can actually stop a command are the ones with no
+suite. ⚠ **mypy skips dot-directories silently**, so `.claude/hooks` is named explicitly in
+both the `typecheck` Make target and CI's mypy step; keep the two in step.
+
 ## Workflow checkers — the exception to "one-shot analysis"
 
 Four modules ported byte-for-byte from the wifey fork on 2026-08-19 and adapted. Unlike

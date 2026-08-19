@@ -65,6 +65,14 @@ jobs:
       - name: Doc-drift sanity checks
         run: python3 tools/sanity_checks.py
 
+      # Stdlib-only, so it rides this dependency-free job. Unconditional for the
+      # same reason as the step above: a guard behind a paths filter is absent on
+      # some diff that reaches it. This step is only REACHABLE because
+      # .claude/hooks/ is now committed -- while it was gitignored the suite could
+      # run by hand and report failure to nobody, for days.
+      - name: Context-guard hook suite
+        run: python3 .claude/hooks/test_context_guard.py
+
   lint-typecheck-test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -116,9 +124,12 @@ jobs:
         if: steps.changes.outputs.python == 'true'
         run: poetry run ruff format --check .
 
+      # `.claude/hooks` is named explicitly: mypy skips dot-directories, so the
+      # hooks would be linted by ruff and never typechecked. Mirrors the
+      # `typecheck` Make target — keep the two in step.
       - name: Type check
         if: steps.changes.outputs.python == 'true'
-        run: poetry run mypy .
+        run: poetry run mypy . .claude/hooks
 
       # Deliberately no --cov. Nothing in this repo consumes coverage: there is
       # no codecov/coveralls step, no fail_under gate, and coverage.xml was only

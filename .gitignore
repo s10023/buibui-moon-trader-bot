@@ -13,12 +13,25 @@ config/pundit_roster.toml
 
 # But don't ignore other files in config/
 !config/
-.claude/*
-!.claude/skills
-!.claude/skills/*.md
-!.claude/context
-!.claude/context/*.md
-!.claude/agents
+# .claude/ is COMMITTED on purpose. The hooks, settings and context cards ARE the
+# enforcement layer: a reclone that loses them keeps the knowledge and loses the
+# DELIVERY, and no CI surface can reach a gitignored hook. Ignore only what is
+# per-machine or genuinely secret -- everything else here is tracked by default.
+.claude/settings.local.json
+# The pre-flip exposure gate's OWN term list. This repo flips public per PR, so
+# committing the list would publish exactly what it exists to keep out.
+.claude/sensitive-terms.txt
+# Claude Code runtime state. Moved here from .git/info/exclude, which no clone carries.
+.claude/worktrees/
+.claude/checkpoints/
+.claude/mailbox/
+.claude/routines/.state/
+.claude/scheduled_tasks.json
+.claude/scheduled_tasks.lock
+.claude/agent-registry.json
+.claude/agent-memory-local
+.claude/first-run
+.claude/assistant-daemon-state.json
 .idea/
 
 # Local planning docs — personal notes, not for public repo
@@ -38,9 +51,9 @@ web/ui/dist/
 web/ui/.env.local
 web/ui/.vite/
 
-# Skills system
-skills-lock.json
-.agents/
+# Skills system: the vendored skill and its hash pin are DELIBERATELY COMMITTED.
+# A pin nobody can verify is not a pin, and the .claude/skills/* symlink into
+# .agents/ is relative, so it resolves on any clone.
 
 # X-post ingest (and research-ingestion) caches
 .cache/

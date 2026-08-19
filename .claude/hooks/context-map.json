@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "_readme": [
+    "Card map for .claude/hooks/context-guard.py. Data only -- no logic here.",
+    "A card fires when the file about to be edited matches one of its globs.",
+    "Rules: keep each `text` to 2-4 sentences (the hook caps total injection at",
+    "2600 chars); state the TRAP and what to do instead, never the feature; and",
+    "name the deep reference rather than reproducing it. Globs are fnmatch over",
+    "the repo-relative posix path, so `*` crosses directory separators.",
+    "OWNERSHIP: a rule that lives here should not also live in CLAUDE.md -- two",
+    "copies of a number is the ST23 defect this hook exists to end. Move it, do",
+    "not copy it."
+  ],
+  "cards": [
+    {
+      "id": "store-upsert",
+      "globs": [
+        "analytics/store/_common.py"
+      ],
+      "text": "analytics/store/_common.py: `_upsert` uses explicit conn.register / conn.unregister in try/finally. NEVER switch to the implicit replacement scan (it causes malloc heap corruption) and never drop the try/finally. DEFAULT_DB_PATH also lives HERE, not in schema.py -- import it from a re-export, never redefine it in a runner. Deep ref: .claude/context/analytics.md"
+    },
+    {
+      "id": "sizing-round-down",
+      "globs": [
+        "portfolio/sizing.py"
+      ],
+      "text": "portfolio/sizing.py: `round_down_to_step` SNAPS before it floors and the snap is load-bearing -- do not simplify it back to floor(q/step)*step, which is float-fragile (0.29/0.01 computes as 28.999999999999996) and shaved 25-27% of router deltas, flooring a one-lot delta to ZERO 27-65% of the time. The tolerance is capped below a half step ON PURPOSE; widening it flips the helper from fail-safe to fail-open past an exchange filter. Test by ENUMERATING the input class -- the pre-fix spot-checks all passed while the defect stood."
+    },
+    {
+      "id": "xs-execution",
+      "globs": [
+        "trade/routing.py",
+        "trade/binance_futures.py",
+        "trade/xsmom_executor.py"
+      ],
+      "text": "trade/: order type is maker on risk-increasing legs, taker on risk-reducing ones, BY DESIGN -- do not 'finish the job' and make closes maker. LIMIT legs go post-only (GTX) priced at the book touch so they never cross. `xsmom_executor.run_once` cancels stale resting orders BEFORE the positions read that planning uses: a correctness precondition of the daily cadence, not tidy-up. Inside the managed set `cancel_open_orders` is symbol-WIDE, so it also kills the operator's own orders. Backtest fee_pct stays 0.0005 (taker) on purpose -- maker fill rate is unmeasurable before live capital. Deep ref: .claude/context/execution.md"
+    },
+    {
+      "id": "backtest-run-id",
+      "globs": [
+        "analytics/backtest/*.py",
+        "analytics/recalibrate_lib.py",
+        "analytics/recalibrate_runner.py",
+        "analytics/signal/*.py",
+        "analytics/store/backtest_runs.py",
+        "analytics/store/confidence.py",
+        "tools/decay_review.py"
+      ],
+      "text": "backtest run selection: `_backtest_run_id`'s `writer` argument is load-bearing and \"sweep\" is the UNSUFFIXED default ON PURPOSE -- making it symmetric would orphan every historical sweep row and cold-start backtest_cache. Writer identity alone is COSMETIC: both selection sites must keep mirroring the ranking `(sweep_id IS NOT NULL, run_at_ms)`, or DSR and the rated avg_r describe different trades. Call `recalibrate_lib.select_rated_run_ids` WITH BOTH SCOPE ARGS -- day_filter and adr_suppress_threshold travel together, and passing only the first renders as `adr_suppress_threshold IS NULL`, a pool no live config writes, frozen at 2026-04-09."
+    },
+    {
+      "id": "audit-verdict",
+      "globs": [
+        "analytics/audit_guard.py",
+        "analytics/sl_horizon.py",
+        "analytics/indicator_condition.py",
+        "analytics/warning_audit.py",
+        "analytics/weekly_path.py",
+        "analytics/state_audit.py",
+        "analytics/research_guards/*.py",
+        "tools/*.py"
+      ],
+      "text": "audit surface -- three rules govern every verdict this file can emit. (1) A POWERED NULL is CI CONTAINMENT: call `analytics.audit_guard.powered_null`, never restate the comparison inline. (2) DSR and MinTRL are DIRECTIONAL -- a negative-direction verdict gated on either must fold Sharpe to abs() for target AND trial values, or that verdict is structurally unreachable and the audit reports 'no negative effect found' whatever the data says. (3) `bar` is expressed in the UNITS OF THE OBSERVATION and nothing in its name says so -- a bare number silently changes meaning across panels. The published gate is THREE legs via `research_guards.passes_gate` (DSR >= 0.95, PBO <= 0.5, boot_lo > 0); MinTRL is a printed stamp that gates nothing."
+    },
+    {
+      "id": "signal-config",
+      "globs": [
+        "config/*signal_watch*.toml",
+        "config/strategy_params.toml"
+      ],
+      "text": "config/: the laptop timers run the WORKING TREE, so an edit here goes live at the next :01/16/31/46 regardless of PR state. This path is in the regression trigger set -- `make test-regression` is required, and a moved golden is a DECISION (regenerate or not), not a failure. Read the `day_filter`, never the filename: signal_watch_all.toml is weekend-ONLY and signal_watch_weekdays.toml means Mon AND Fri, not Mon-through-Fri."
+    },
+    {
+      "id": "strategies",
+      "globs": [
+        "analytics/strategies/*.py",
+        "signals/registry.py"
+      ],
+      "text": "strategy surface: a new detector needs FOUR edits (analytics/strategies/<name>.py, _registry.py, signals/registry.py, tests) -- missing any one fails silently or 500s the UI; see /new-strategy. Any strategy change invalidates stored backtests, so rerun `make buibui-backtest SAVE=1` then /recalibrate. This path is in the regression trigger set. Detectors are FROZEN as a research decision -- demote, never delete, and require avg_r x (regime x session x combo) evidence before killing one."
+    },
+    {
+      "id": "signal-daemon",
+      "globs": [
+        "signals/*.py",
+        "cli/signal.py"
+      ],
+      "text": "signal daemon: the dedup watermark is keyed `symbol:tf:strategy:UTC-weekday` (SoT N8) and legacy 3-part state is seeded into all seven scopes on load, never discarded. Backfilled candles are persisted and watermarked but MUST NOT reach Telegram -- a signal that old is not tradeable. Recovery depth is `scan_window(tf)`: 200 bars everywhere except 15m at 600, and that is catch-up's REACH, not a perf knob. Deep ref: .claude/context/signals.md"
+    },
+    {
+      "id": "telegram-render",
+      "globs": [
+        "signals/alert_formatter.py",
+        "utils/telegram.py",
+        "deploy/run-job.sh"
+      ],
+      "text": "push surface: the sender is parse_mode=HTML, so escaping is MANDATORY rather than cosmetic -- an unescaped traceback (`line 33, in <module>`) was rejected 400, so the failure alert failed on exactly the crashes it exists to report. TELEGRAM_ALWAYS is opt-in per job on purpose, so the 15-minute signal-watch does not inherit it and send 96 messages a day. Green gates are blind to rendering: ask the operator for a screenshot before claiming a visual change works."
+    },
+    {
+      "id": "web-ui",
+      "globs": [
+        "web/ui/*"
+      ],
+      "text": "web/ui/: load /frontend-design FIRST, then pair it with /frontend-svelte. `make web-build` is NOT a type gate. Nothing in CI can see rendering, so ask the operator for a screenshot before claiming a visual change works. Deep ref: .claude/context/web.md"
+    },
+    {
+      "id": "card",
+      "globs": [
+        "card/*.py"
+      ],
+      "text": "card/: the pundit board's per-author `avg_r` is STRIPPED from the payload on purpose -- it is computed on a winner-dropped subsample and gets the ORDER wrong; use `avg_atr_r`. The rubric string is VERSIONED, so changing its text is a card-v5 bump, not a fix. `--as-of` pins the INPUTS and omits the live account by design. Sizing resolves capital live-account-first, and every card must record capital_used / capital_source -- a bare risk_frac is uninterpretable after the fact."
+    },
+    {
+      "id": "vendored-skills",
+      "globs": [
+        ".agents/skills/*",
+        "skills-lock.json",
+        ".claude/skills/humanizer*"
+      ],
+      "text": "VENDORED SKILL -- your local edit is SILENTLY OVERWRITTEN on the next refresh. .agents/skills/ holds the real directories, .claude/skills/ symlinks into it, and skills-lock.json pins each one by hash. All three are COMMITTED on purpose: a pin nobody can verify is not a pin. Fix upstream (humanizer -> blader/humanizer) and re-vendor; never hand-patch the vendored copy. skills-lock.json's computedHash is NOT a plain sha256 of SKILL.md -- do not 'correct' it by hand. Deep ref: .claude/rules/vendored-skills.md"
+    }
+  ],
+  "claim": {
+    "id": "negative-claim",
+    "tokens": [
+      "no edge",
+      "noedge",
+      "powered null",
+      "confirmed bad",
+      "no difference",
+      "cosmetic",
+      "no effect",
+      "ruled out",
+      "no detectable"
+    ],
+    "text": "NEGATIVE CLAIM DETECTED in what you are about to write. A verdict of 'no effect worth acting on' is a POSITIVE claim and needs the CI to have ruled one out: a powered null is CI CONTAINMENT (ci_lo > -bar and ci_hi < bar) -- call `analytics.audit_guard.powered_null` and do not restate the comparison inline. A sample-size floor, an MDE, a p-value, or a failure to clear the bar are NOT power; six sites in this repo asserted power from one of those, each spelling the arithmetic differently, which is why the CLAIM is watched here and not the pattern. For a best-of-k sweep the predicate is one-sided instead (`negative_claim_licensed`). If the verdict direction is negative and gated on DSR or MinTRL, fold Sharpe to abs() or it is unreachable. Quote the TEST's n, not the impressive one."
+  }
+}

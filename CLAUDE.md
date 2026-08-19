@@ -67,11 +67,12 @@ working around it silently.
 `context-map.json` deliver a card at the moment a guarded file is edited, which is what let
 those rules leave the always-loaded tier (`_upsert`, `round_down_to_step`, the XS
 maker/taker split, backtest run selection, the powered-null criterion, `bar` units,
-DSR/MinTRL directionality). **Both files are gitignored, so a reclone keeps the knowledge
-and loses the DELIVERY** — every shed rule has a tracked home in `.claude/context/*.md`, but
-nothing hands it to you at edit time. Restore the hook before editing `analytics/`, `trade/`
-or `portfolio/`, and re-run `python3 .claude/hooks/test_context_guard.py` (31 cases, the
-only gate a hook has). **A card's globs must cover every file its rule bites on.**
+DSR/MinTRL directionality). **Both files are COMMITTED since 2026-08-19** — they were
+gitignored, so a reclone kept the knowledge and lost the DELIVERY. `test_context_guard.py`
+(35 cases) now runs in CI's dependency-free `markdownlint` job, so the hooks finally have a
+gate that reports to somebody. Re-run it after any hook or card edit. **A card's globs must
+cover every file its rule bites on**, and every card needs a MUTATION case proving the glob
+is scoped rather than blanket.
 
 ## Project Overview
 
@@ -804,6 +805,15 @@ cannot carry live here:
   on the full dataset with no out-of-sample split.
 - **Run one `/card` per background exec** — never `&&`-chain them.
 
+**Vendored skills are COMMITTED, hash-pinned, and NOT ours to edit.** `.agents/skills/<name>/`
+holds the real directory, `.claude/skills/<name>` is a *relative* symlink into it, and
+`skills-lock.json` pins each by hash — all three tracked, because a pin nobody can verify is
+not a pin. A local edit to a vendored copy is **silently overwritten** on the next refresh:
+fix upstream and re-vendor. ⚠ `computedHash` is **not** a plain sha256 and the algorithm is
+recorded nowhere, so the pin cannot be verified from this repo — do not "correct" it by hand.
+Rule, and what is still owed (refresh CI): `.claude/rules/vendored-skills.md`, delivered at
+edit time by the `vendored-skills` context card.
+
 ### Subagent definitions — `.claude/agents/<name>.md`
 
 A **skill** is a workflow you invoke; an **agent** is who a skill dispatches work TO.
@@ -816,10 +826,12 @@ system prompt plus ~20 tool schemas — **~19.7K tokens of overhead per dispatch
 178,123) with quality neutral-to-better. The saving is *constant per dispatch*, so **payoff
 scales with dispatch count, not task size**.
 
-- **A new `.claude/` subtree needs re-includes in BOTH `.gitignore` and
-  `.markdownlint-cli2.jsonc`**, or the file dies on a clone *and* ships unlinted.
-  `.gitignore:15` is `.claude/*` and the lint config excludes `.claude` wholesale; both
-  re-include named subtrees only, and they mirror each other deliberately.
+- **A new `.claude/` subtree now ships TRACKED but UNLINTED.** Since 2026-08-19 `.gitignore`
+  tracks `.claude/` by default, so the dies-on-a-clone half of this trap is closed — but
+  `.markdownlint-cli2.jsonc` still excludes `.claude` wholesale and re-includes named
+  subtrees only, so **add the new subtree there**. ⚠ **The two configs deliberately no
+  longer mirror each other**: the vendored tree is committed *and* unlinted, because we
+  version an upstream copy without owning its style.
 - **`tools:` is a structural guarantee; prose is not.** `tools: Read` is why an extractor
   *cannot* write files — a general-purpose one did. But the "bare JSON, no fence" rule still
   broke 1-in-6 despite an explicit directive, so **keep tolerating malformed output at the
@@ -830,6 +842,21 @@ scales with dispatch count, not task size**.
 - Conventional commits: `feat:`, `fix:`, `test:`, `docs:`, `build:`, `chore:`
 - Branch naming: `feat/`, `fix/`, `docs/`, `chore/`
 - Never commit `.env`, `config/coins.json`, or IDE files
+
+### PR titles
+
+**Squash-merge makes the PR title the permanent commit message**, so it is the line every
+future `git log`, blame and bisect reads. Name the MECHANISM you changed, not the symptom
+you noticed.
+
+| Anti-pattern | Instead |
+| --- | --- |
+| the symptom (`fix: alerts look wrong`) | the mechanism (`fix: R:R read the requested tp_r, not the realised fill`) |
+| the file (`fix: update sizing.py`) | the behaviour (`fix: floor size to LOT_SIZE before restating risk_usd`) |
+| a refactor verb on a real fix (`refactor: tidy the detector`) | say it fixed something (`fix: stamp bos at its confirmation bar`) — a `refactor:` title hides a behaviour change from anyone bisecting |
+| vague `improve` / `update` / `various` | the one thing that changed; if there are genuinely several, the PR is too big |
+
+A title needing "and" twice is usually two PRs.
 
 ### CI quota — the visibility flip
 
@@ -895,9 +922,9 @@ check.
 an open PR, and every such push re-runs all CI (`pull_request: synchronize`) — ~3000 tests
 plus a 93s regression job for one paragraph.
 
-This paragraph is also **the only enforcement that survives a fresh clone**: the `PostToolUse`
-hook on `Bash` that backstops it lives in gitignored `.claude/settings.json`, like
-`guard-destructive.py`. Keep that hook — there is no hook event for "about to open a PR",
-which is why prose has to carry the rule — but know it fires *after* creation and **matches
-the whole command string**, so a `grep` or heredoc merely *containing* `gh pr create`
-triggers it. Re-add it if you reclone.
+`.claude/settings.json` backstops this paragraph with a hook pair on `Bash`, and both now
+**survive a fresh clone** (they were gitignored until 2026-08-19). The `PreToolUse` leg
+fires *before* `gh pr create`, which is the useful one; the `PostToolUse` leg fires after,
+as a catch. Both anchor on `head -1` plus `(^|[;&|()]|&&)[[:space:]]*gh[[:space:]]+pr`
+`[[:space:]]+create`, so a `grep` or heredoc merely *containing* the string no longer
+self-triggers. Both are advisory and neither blocks.
