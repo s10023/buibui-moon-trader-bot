@@ -399,6 +399,42 @@ pasted, then run the flow once over the whole set.
    When quoter and quoted differ, say so in the digest line so the approver sees which
    name the row will carry before it is written.
 
+5. **Write the per-bundle note — for DROPPED bundles too.** One file per resolved
+   bundle (not per item) at
+   `docs/plans/x-notes/<date>-<author-slug>-<status_id>.md`, already gitignored via
+   `docs/plans/`. `<date>` is the ingest date (UTC, `YYYY-MM-DD`); `<status_id>` is
+   the BOOKMARKED post's id, the same one that names the bundle everywhere else.
+
+   ```bash
+   author_slug=$(printf '%s' "$AUTHOR" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed -E 's/^-+|-+$//g' | cut -c1-40)
+   note_path="docs/plans/x-notes/$(date -u +%F)-$author_slug-$STATUS_ID.md"
+   ```
+
+   **`status_id`, not a text slug — this is the rule, not a collision fallback.** An X
+   post has no title at all, so any slug is derived from body text: a CJK-only or
+   emoji-only post slugifies to the empty string and every note from that account
+   collapses onto one path, silently overwriting all but the last. `/ingest-video`
+   learned this as an 8-way collision on a single `<date>-tiabtc-btc.md` (its step 9);
+   here the failure is not an edge case but the default for a whole class of post.
+
+   Carry `status_id:` in the FRONTMATTER, not only in the filename, so the note is
+   greppable the way `/ingest-video`'s `video_id:` is — that grep is what lets a later
+   run see this bundle was already ingested.
+
+   Body: the extraction JSON as returned, the routing decision per item (sink path, or
+   dropped plus the verdict), and the drop reason in the author's own terms.
+
+   **Why this exists, and why it is not optional.** A routed item leaves a ledger row,
+   but a DROPPED bundle currently leaves ZERO trace anywhere — not in
+   `routed-ledger.json` (`mark` never runs on a drop, deliberately), not in a sink
+   file, not in the digest once the session ends. So the same post can be re-ingested
+   and re-judged indefinitely, and a verdict nobody can find is a verdict nobody can
+   challenge. `/ingest-video` has written this note since #522; this pipeline routes
+   the same items into the same sinks and did not, which is the sibling-skill omission
+   class `/post-branch` step 4 exists to catch.
+
+   It costs no extra tokens: every field is already in hand at digest time.
+
 ## Inline classification rubric (self-contained — paste into the subagent prompt)
 
 > A distilled snapshot of the SoT's Frozen / Closed / Parked state so the subagent

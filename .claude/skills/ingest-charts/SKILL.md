@@ -78,11 +78,16 @@ After the scan, state the pending set against the 6-panel daily protocol
 (Heatmap 24h + Map 1d for each of BTC/ETH/SOL): which are covered, which are
 missing. **Report over-coverage as readily as under-coverage.** The 2026-08-04L
 batch was 15 panels against a protocol of 6, and nothing said so — extra panels
-are not free, since each costs a vision dispatch (~33–36K tokens per image) and a
-1w heatmap band is structural context, not a same-day actionable level.
-**The per-image figure is MEASURED, not estimated: two full 6-panel batches ran
-mean 32.7K (2026-08-11, ~196K total) and mean 36.4K (2026-08-18, ~218K total).**
-Cost a batch at ~36K/image — the earlier ~29–30K and ~33K figures were both low.
+are not free, since each costs a vision dispatch (~44K tokens per image at the most
+recent reading) and a 1w heatmap band is structural context, not a same-day
+actionable level.
+**The per-image figure is MEASURED, and it DRIFTS UPWARD — three full 6-panel
+batches ran mean 32.7K (2026-08-11, ~196K total), 36.4K (2026-08-18, ~218K) and
+43.6K (2026-08-19, range 41.9–50.0K).** Cost a batch at the LATEST entry in that
+series, never at a figure quoted elsewhere in this file: every estimate written here
+has been low within a fortnight, four times running. **Append the new mean on every
+run** — the series is not history, it is the calibration the fallback check below
+reads.
 
 This matters because the daily check asserts **recency, not coverage**: one
 fresh drop greens the line while five panels rot. Naming the gap here is the
@@ -108,12 +113,29 @@ re-include propagates, or a harness without project agents), fall back to a
 general-purpose sonnet agent **and say so prominently in the review digest** —
 name the fallback and the cost. **Never fall back silently:** the output is
 byte-identical either way, so an unannounced fallback restores the full cost
-while looking exactly like success. **Check `subagent_tokens` in the completion
-notification to catch it: `chart-extract` returns ~33–36K (measured across two full
-6-panel batches, means 32.7K and 36.4K), a general-purpose fallback ~49K.** The two bands are far enough apart
-that one dispatch settles it; if a dispatch comes back near 49K, the fallback was taken
-silently — say so in the digest. Do NOT substitute the stock `Explore` agent, and do NOT batch several
-images into one agent.
+while looking exactly like success. **Catch it by comparing this batch's mean `subagent_tokens` against the LAST RECORDED
+MEAN in the series above — a STEP, not a band.** Drift between batches is smooth
+(32.7K → 36.4K → 43.6K over eight days); a silent fallback is a jump, measured at ~1.5×
+its same-era `chart-extract` cost (49K against 32.7K, 2026-08-07). So: a batch mean
+within roughly 1.2× of the previous entry is drift, and one at 1.4× or above is the
+fallback. Say which reading you got in the digest, and append the new mean either way.
+
+⚠ **Do NOT reinstate an ABSOLUTE band — it was tried and it FAILED (2026-08-19).** The
+rule read `chart-extract` ~33–36K against a ~49K fallback; a legitimate batch then
+measured 41.9–50.0K, **overlapping the fallback band outright**, so a correct dispatch
+read as a silent fallback. A fixed number cannot survive a cost that drifts, and the
+last four estimates in this file all went stale inside two weeks.
+
+⚠ **And do NOT compare panels WITHIN one batch.** The fallback fires when
+`chart-extract` fails to RESOLVE, which is a per-session property: every panel falls
+back together, so a within-batch outlier check can never fire. It looks like a tighter
+test and is a vacuous one. **The one measured fallback pair is 2026-08-07 and the
+general-purpose figure has NOT been re-measured since**, so treat the 1.5× as a
+single-pair estimate rather than a calibrated threshold; re-measure it the next time a
+fallback is genuinely taken.
+
+Do NOT substitute the stock `Explore` agent, and do NOT batch several images into one
+agent.
 
 ```text
 Read the image file at <path> (one Coinglass/MMT chart screenshot) and
