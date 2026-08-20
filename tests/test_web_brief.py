@@ -10,12 +10,14 @@ from fastapi.testclient import TestClient
 
 from analytics.brief.types import (
     BriefBundle,
+    CycleState,
     HealthReport,
     MonthlyContext,
     PunditBoard,
     SymbolPanel,
     WeeklyState,
     bundle_to_dict,
+    error_panel,
 )
 from tests._brief_fixtures import START_MS, make_conn, seed_symbol
 from web.api.deps import get_db, require_token
@@ -271,6 +273,7 @@ def test_brief_response_carries_populated_weekly_and_monthly() -> None:
     # shows up here would ship the API/UI half-wired while the CLI/markdown
     # renderer (which reads the dataclass directly) looked complete.
     bundle = BriefBundle(
+        cycle=None,  # ST54 bear score is irrelevant to this test
         as_of_ms=AS_OF_MS,
         day_ahead="Fri 2024-03-01",
         session_clock=None,
@@ -302,3 +305,48 @@ def test_brief_response_carries_populated_weekly_and_monthly() -> None:
     assert panel.monthly.mtd_return_pct == 4.2
     assert panel.monthly.n_months == 84
     assert panel.monthly.range_position == 0.8
+
+
+def test_brief_response_carries_a_populated_cycle_block() -> None:
+    # Same drop class as the weekly/monthly test above, one level up: `cycle`
+    # is a BUNDLE field, so BriefResponse itself must declare it. Without the
+    # model the CLI renders the bear score and `GET /api/brief` silently omits
+    # it, which is the "ships CLI-only" failure .claude/context/analytics.md
+    # records against the M5 blocks.
+    bundle = BriefBundle(
+        as_of_ms=AS_OF_MS,
+        day_ahead="Fri 2024-03-01",
+        session_clock=None,
+        cycle=CycleState(
+            score=3,
+            total=6,
+            below=("50W SMA", "50W EMA", "200D EMA"),
+            close=69_600.0,
+            trigger_name="21W EMA",
+            trigger_price=68_767.0,
+            trigger_dist_pct=-1.1968,
+            days_at_score=9,
+        ),
+        panels=[error_panel("BTCUSDT", "boom")],
+        pundit=PunditBoard(
+            priors_status="absent",
+            priors_age_days=None,
+            min_n_marker=None,
+            ledger_status="absent",
+            ledger_total=0,
+            ledger_skipped=0,
+            recent_calls=[],
+            authors=[],
+            families=[],
+        ),
+        health=HealthReport(rows=[], notes=[], data_ok=True),
+    )
+    response = BriefResponse(**bundle_to_dict(bundle))
+
+    assert response.cycle is not None, "the bear score was dropped by the model"
+    assert response.cycle.score == 3
+    assert response.cycle.total == 6
+    assert response.cycle.trigger_name == "21W EMA"
+    assert response.cycle.days_at_score == 9
+    # `below` is a tuple on the dataclass; it must survive as a list.
+    assert list(response.cycle.below) == ["50W SMA", "50W EMA", "200D EMA"]

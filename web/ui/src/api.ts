@@ -971,11 +971,25 @@ export interface BriefHealthReport {
   data_ok: boolean;
 }
 
+// ST54 bear score: bundle-level, read from BTC regardless of the panel symbols.
+// Display only — n_eff is ~3 distinct bear markets, so it must never gate or size.
+export interface BriefCycleState {
+  score: number;
+  total: number;
+  below: string[];
+  close: number;
+  trigger_name: string | null;
+  trigger_price: number | null;
+  trigger_dist_pct: number | null;
+  days_at_score: number | null;
+}
+
 export interface BriefResponse {
   as_of_ms: number;
   day_ahead: string;
   panels: BriefSymbolPanel[];
   session_clock: BriefSessionClock | null;
+  cycle: BriefCycleState | null;
   pundit: BriefPunditBoard;
   health: BriefHealthReport;
 }

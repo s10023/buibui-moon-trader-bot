@@ -15,6 +15,7 @@ from analytics.brief._common import (
     day_ahead_label,
 )
 from analytics.brief.config import BriefConfig
+from analytics.brief.cycle import CYCLE_FETCH_DAYS, build_cycle_state
 from analytics.brief.external import load_external_state
 from analytics.brief.health import build_health
 from analytics.brief.indicators import build_indicator_state
@@ -23,7 +24,13 @@ from analytics.brief.monthly import build_monthly_context
 from analytics.brief.pundit import build_board
 from analytics.brief.seasonality import build_strip
 from analytics.brief.sessions import build_session_state
-from analytics.brief.types import BriefBundle, SessionClock, SymbolPanel, error_panel
+from analytics.brief.types import (
+    BriefBundle,
+    CycleState,
+    SessionClock,
+    SymbolPanel,
+    error_panel,
+)
 from analytics.brief.weekly import build_weekly_state
 from analytics.brief.zones import build_zone_rows
 from analytics.regime import classify_series
@@ -44,6 +51,9 @@ _H1_FETCH_DAYS = 62  # 60d volume profile + monthly AVWAP + 2d margin
 # the shared window used by ATR/regime/indicators/level-building.
 _MONTHLY_FETCH_DAYS = 365 * 8
 _MIN_DAILY_BARS = 15  # ATR14 + one reference bar
+#: The bear score is a MARKET read, so it always comes from BTC regardless of
+#: which symbols the brief was asked for -- a SOL brief still reads BTC's cycle.
+_CYCLE_SYMBOL = "BTCUSDT"
 _REF_1H_MAX_LAG_MS = 2 * TF_MS["1h"]
 
 
@@ -201,6 +211,33 @@ def _compute_panel(
     )
 
 
+def _cycle_state(
+    conn: duckdb.DuckDBPyConnection, cfg: BriefConfig, notes: list[str]
+) -> CycleState | None:
+    """ST54 bear score — bundle-level, from BTC, and never per-symbol.
+
+    Failure is isolated the same way a panel's is: the brief renders without a
+    cycle line rather than dying, and the reason lands in HEALTH.
+    """
+    try:
+        raw = get_ohlcv(
+            conn,
+            _CYCLE_SYMBOL,
+            "1d",
+            cfg.as_of_ms - CYCLE_FETCH_DAYS * DAY_MS,
+            cfg.as_of_ms,
+        )
+        state, cycle_notes = build_cycle_state(
+            completed_bars(raw, "1d", cfg.as_of_ms), cfg.as_of_ms
+        )
+    except Exception as exc:  # isolation contract, as for panels
+        logger.warning("brief: cycle failed: %s", exc)
+        notes.append(f"cycle failed ({exc})")
+        return None
+    notes.extend(cycle_notes)
+    return state
+
+
 def compute_brief(
     conn: duckdb.DuckDBPyConnection,
     cfg: BriefConfig,
@@ -215,10 +252,12 @@ def compute_brief(
         except Exception as exc:  # per-symbol isolation is the contract
             logger.warning("brief: panel failed for %s: %s", symbol, exc)
             panels.append(error_panel(symbol, str(exc)))
+    cycle = _cycle_state(conn, cfg, panel_notes)
     return BriefBundle(
         as_of_ms=cfg.as_of_ms,
         day_ahead=day_ahead_label(cfg.as_of_ms),
         session_clock=_session_clock(cfg.as_of_ms),
+        cycle=cycle,
         panels=panels,
         pundit=build_board(cfg),
         health=build_health(conn, cfg, [*(extra_notes or []), *panel_notes]),

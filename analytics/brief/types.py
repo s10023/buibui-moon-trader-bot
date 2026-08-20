@@ -342,10 +342,30 @@ class HealthReport:
 
 
 @dataclass(frozen=True)
+class CycleState:
+    """ST54 — the bundle-level bear score. A NUMBER, never a gate.
+
+    `score` counts how many of the six long-horizon averages BTC's daily close
+    sits below. ⚠ It is only ever reported out of all six: `total` travels with
+    it so the renderer cannot silently print a score computed from four.
+    """
+
+    score: int  # 0..total
+    total: int  # 6 — carried, never restated at the render site
+    below: tuple[str, ...]  # the averages price sits below, in _CYCLE_MAS order
+    close: float  # the completed daily close the score was computed from
+    trigger_name: str | None  # nearest average BELOW price; None at 0 and total
+    trigger_price: float | None
+    trigger_dist_pct: float | None  # signed; negative because it sits below
+    days_at_score: int | None
+
+
+@dataclass(frozen=True)
 class BriefBundle:
     as_of_ms: int
     day_ahead: str  # e.g. "Fri 2026-07-04"
     session_clock: SessionClock | None
+    cycle: CycleState | None  # bundle-level (BTC), not per-symbol
     panels: list[SymbolPanel]
     pundit: PunditBoard
     health: HealthReport

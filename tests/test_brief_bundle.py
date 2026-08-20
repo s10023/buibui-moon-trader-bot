@@ -63,10 +63,16 @@ def test_compute_brief_extra_notes_flow_to_health() -> None:
     # the PRIOR month — the current month has zero completed bars, and the
     # M5 monthly block (Task 5) degrades to its own note too, appended after
     # the weekly one — see analytics/brief/monthly.py.
+    # The ST54 bear score needs 50 CLOSED weeks; 60 seeded days cannot reach
+    # any of the six averages, so it degrades to a note naming every one of
+    # them rather than reporting a score computed from a subset. A partial
+    # score would be a different statistic wearing the same label.
     assert bundle.health.notes == [
         "fallback",
         "BTCUSDT: weekly cone: no forming-week path (short history?)",
         "BTCUSDT: monthly context: no bars in the current month",
+        "cycle: not enough history for "
+        "50W SMA, 50W EMA, 200D EMA, 200D SMA, 20W SMA, 21W EMA",
     ]
 
 

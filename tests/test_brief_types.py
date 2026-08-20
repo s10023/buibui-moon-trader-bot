@@ -14,6 +14,7 @@ from analytics.brief._common import (
 from analytics.brief.config import FALLBACK_SYMBOLS, BriefConfig
 from analytics.brief.types import (
     BriefBundle,
+    CycleState,
     HealthReport,
     PunditBoard,
     SessionRecapRow,
@@ -68,6 +69,19 @@ def test_bundle_to_dict_json_safe() -> None:
         as_of_ms=AS_OF,
         day_ahead="Mon 2024-01-01",
         session_clock=None,
+        # A real CycleState rather than None: `below` is a TUPLE, and this test
+        # exists to prove the bundle survives json.dumps, so the new field has
+        # to be present in the shape that could break it.
+        cycle=CycleState(
+            score=3,
+            total=6,
+            below=("50W SMA", "50W EMA", "200D EMA"),
+            close=69_600.0,
+            trigger_name="21W EMA",
+            trigger_price=68_767.0,
+            trigger_dist_pct=-1.1968,
+            days_at_score=9,
+        ),
         panels=[error_panel("BTCUSDT", "boom")],
         pundit=PunditBoard(
             priors_status="absent",

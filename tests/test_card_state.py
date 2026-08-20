@@ -223,6 +223,7 @@ _CLOSED_1H_OPEN_MS = _NOW_MS - 3_600_000 - 1_000_000
 
 def _fake_bundle(symbol: str) -> BriefBundle:
     return BriefBundle(
+        cycle=None,  # ST54 bear score is irrelevant to this test
         as_of_ms=_NOW_MS,
         day_ahead="Fri 2026-07-10",
         session_clock=None,

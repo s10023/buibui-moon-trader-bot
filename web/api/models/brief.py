@@ -273,10 +273,29 @@ class HealthReportModel(BaseModel):
     data_ok: bool
 
 
+class CycleStateModel(BaseModel):
+    """ST54 bear score. Bundle-level, from BTC — not a per-panel field.
+
+    ⚠ Declared here for the same reason WeeklyStateModel is: pydantic v2 drops
+    undeclared keys silently, so without this the CLI renders the score and the
+    API omits it, shipping the feature half-wired.
+    """
+
+    score: int
+    total: int
+    below: list[str]
+    close: float
+    trigger_name: str | None
+    trigger_price: float | None
+    trigger_dist_pct: float | None
+    days_at_score: int | None
+
+
 class BriefResponse(BaseModel):
     as_of_ms: int
     day_ahead: str
     panels: list[SymbolPanelModel]
     session_clock: SessionClockModel | None
+    cycle: CycleStateModel | None
     pundit: PunditBoardModel
     health: HealthReportModel
