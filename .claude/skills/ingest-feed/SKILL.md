@@ -1,6 +1,6 @@
 ---
 name: ingest-feed
-description: Poll the configured YouTube channel follow list for new uploads (tools/yt_feed.py — read-only Data API polling + explicit-outcome ledger) and feed the picked videos into the existing /ingest-video batch flow, marking consumption ONLY after the review gate routes the batch. Also drives deep back-catalogue ingestion per channel via the backfill subcommand. Invoke when the user says "/ingest-feed", "what's new on youtube", "poll the channels", "backfill <channel>", or "ingest the old videos from <channel>".
+description: Poll the configured YouTube channel follow list for new uploads (tools/yt_feed.py — read-only Data API polling + explicit-outcome ledger) and feed the picked videos into the existing /ingest-video batch flow, marking consumption ONLY after the review gate routes the batch. Also drives deep back-catalogue ingestion per channel via the backfill subcommand, and curated `PL…` playlists — where the Stream B framework material lives, invisible to poll and backfill because both page only the uploads mirror — in resumable tranches via `playlists` + `backfill --playlist`. Invoke when the user says "/ingest-feed", "what's new on youtube", "poll the channels", "backfill <channel>", "what playlists does <channel> have", or "ingest the old videos from <channel>".
 ---
 
 # Ingest feed (YouTube channel auto-feed)
@@ -30,6 +30,25 @@ channel's `UC…` id in `config/youtube_channels.toml` and run instead:
 PYTHONPATH=. poetry run python tools/yt_feed.py backfill <UC…> --json \
   [--since 2026-01-01] [--max-videos 200]
 ```
+
+For a CURATED playlist — the education / framework material, which is Stream B — the
+uploads mirror is the wrong surface entirely: `poll` and `backfill` page `UU…` only, so a
+channel's hand-curated `PL…` playlists are invisible to both. List them first, then page
+one in tranches:
+
+```bash
+PYTHONPATH=. poetry run python tools/yt_feed.py playlists <UC…>          # 1 quota unit
+PYTHONPATH=. poetry run python tools/yt_feed.py backfill <UC…> --json \
+  --playlist <PL…> [--max-videos 20]
+```
+
+**Size the tranche, do not raise it.** One education playlist runs to 50+ videos ≈ 1.5M
+tokens, so the whole thing at once is the same as not offering it. The cursor in
+`yt-feed-state.json` carries progress across days — `playlists` prints it as
+`<examined>/<itemCount>` — and the next run resumes there. A curated playlist is in its
+author's order, not chronological, so **the cursor is the only thing standing between a
+tranche and re-examining the same head every run**; `--since` filters candidates but must
+never be used to page.
 
 Save the JSON output to a scratchpad file — step 4 needs it for `--candidates-json`.
 Exit 1 means at least one channel errored; report the errors and continue with the
@@ -122,6 +141,13 @@ PYTHONPATH=. poetry run python tools/yt_feed.py mark \
 and simply re-presents next poll/backfill, same as a deferred candidate. Do this in the
 same turn as routing: the gap between routing and mark is the one failure window (see
 Guardrails).
+
+**The playlist cursor rides the same flag.** A `--playlist` backfill payload carries a
+`playlists` array, and `--candidates-json` derives `--playlist-seen` from it exactly as it
+derives `--channel-seen` below — so a tranche advances only when its batch was actually
+routed. ⚠ **The cursor advances (`max`), unlike a channel floor, which is static
+(`setdefault`)**: it is progress, not a watermark, and it never moves backwards, so
+replaying an older payload cannot re-present videos already decided.
 
 **You no longer pass `--channel-seen` by hand.** The poll payload's `channels` array
 already carries both fields it wanted, so `--candidates-json` now derives the pairs —
