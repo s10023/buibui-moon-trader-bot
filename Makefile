@@ -395,8 +395,10 @@ buibui-xsmom-targets:  ## P3: read-only daily XS target positions (run buibui-an
 	PYTHONPATH=. poetry run python tools/xsmom_targets.py
 
 .PHONY: buibui-xsmom-execute
-buibui-xsmom-execute:  ## P3: XS-solo order-routing executor (dry-run by default; MODE=testnet to submit)
-	PYTHONPATH=. poetry run python tools/xsmom_execute.py $(if $(MODE),--mode $(MODE),)
+buibui-xsmom-execute:  ## P3: XS-solo executor (dry-run; MODE=testnet to submit; SET_PEAK=+PEAK_REASON= corrects the drawdown mark)
+	PYTHONPATH=. poetry run python tools/xsmom_execute.py $(if $(MODE),--mode $(MODE),) \
+		$(if $(SET_PEAK),--set-peak $(SET_PEAK),) \
+		$(if $(PEAK_REASON),--peak-reason "$(PEAK_REASON)",)
 
 .PHONY: buibui-universe-sync
 buibui-universe-sync:  ## P3: incremental 1d sync of the full research universe (XS book input)

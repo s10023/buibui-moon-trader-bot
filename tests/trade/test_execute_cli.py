@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from typing import Any
+
+import pytest
+
 from analytics.xsmom.live import TargetBook, TargetPosition
-from tools.xsmom_execute import check_live_gate, format_result
+from tools.xsmom_execute import check_live_gate, correct_peak_equity, format_result
 from trade.overlay import OverlayVerdict
 from trade.routing import OrderIntent, OrderPlan
 from trade.xsmom_executor import ExecutionResult
@@ -201,3 +206,123 @@ def test_format_result_blocked_still_shows_book_table() -> None:
     assert "AAAUSDT" in out  # table still rendered when blocked
     assert "blocked" in out.lower()  # banner present
     assert "gross leverage" in out  # abort reason shown
+
+
+# --- `--set-peak`: the audited correction of a poisoned high-water mark -------
+#
+# Context: on 2026-08-06 a one-off `--capital 5000` run ratcheted `peak_equity`
+# 2350.80 -> 5000.00 against an account that never passed 1201.33. The ratchet
+# fix (`new_peak = prior_peak if capital_override is not None`) stopped new
+# poisoning but heals nothing already on disk, and the state file sat wrong for
+# 14 days. A hand-edit would repeat the original incident's defect -- that one
+# was UNRECOVERABLE precisely because nothing recorded which invocation did it.
+
+
+def _state(peak: float = 5000.0) -> dict[str, Any]:
+    return {
+        "peak_equity": peak,
+        "kill_switch": False,
+        "last_run": {
+            "ts": "2026-08-20T02:21:18+00:00",
+            "submitted": 0,
+            "mode": "dry_run",
+        },
+    }
+
+
+_NOW = datetime(2026, 8, 20, 5, 30, tzinfo=UTC)
+
+
+def test_set_peak_lowers_the_stored_high_water_mark() -> None:
+    state, _ = correct_peak_equity(
+        _state(),
+        2350.80,
+        "heal the 08-06 --capital 5000 poisoning",
+        now=_NOW,
+        drawdown_frac=0.25,
+    )
+    assert state["peak_equity"] == 2350.80
+
+
+def test_set_peak_records_an_audit_trail_naming_from_to_and_reason() -> None:
+    state, _ = correct_peak_equity(
+        _state(),
+        2350.80,
+        "heal the 08-06 --capital 5000 poisoning",
+        now=_NOW,
+        drawdown_frac=0.25,
+    )
+    trail = state["last_run"]["peak_correction"]
+    assert trail["from"] == 5000.0
+    assert trail["to"] == 2350.80
+    assert trail["reason"] == "heal the 08-06 --capital 5000 poisoning"
+    assert trail["ts"] == _NOW.isoformat()
+
+
+def test_set_peak_summary_names_both_the_old_and_new_floor() -> None:
+    # The floor is what the operator actually acts on -- the peak is only its
+    # anchor -- so a summary that prints the peak alone buries the consequence.
+    _, summary = correct_peak_equity(
+        _state(),
+        2350.80,
+        "heal",
+        now=_NOW,
+        drawdown_frac=0.25,
+    )
+    assert "5000.00" in summary and "2350.80" in summary
+    assert "3750.00" in summary and "1763.10" in summary
+
+
+def test_set_peak_refuses_to_RAISE_the_peak() -> None:
+    # Raising is the ratchet's job and it already does it from real equity. A
+    # CLI that could raise the mark is the 08-06 footgun rebuilt by hand.
+    with pytest.raises(ValueError, match="(?i)lower"):
+        correct_peak_equity(
+            _state(2350.80),
+            5000.0,
+            "nope",
+            now=_NOW,
+            drawdown_frac=0.25,
+        )
+
+
+def test_set_peak_refuses_an_equal_peak() -> None:
+    with pytest.raises(ValueError, match="(?i)lower"):
+        correct_peak_equity(
+            _state(2350.80),
+            2350.80,
+            "nope",
+            now=_NOW,
+            drawdown_frac=0.25,
+        )
+
+
+def test_set_peak_refuses_a_non_positive_peak() -> None:
+    # peak 0 makes floor 0, and `equity < 0` is never true -- it would disable
+    # the drawdown breaker outright while looking like a correction.
+    with pytest.raises(ValueError, match="positive"):
+        correct_peak_equity(_state(), 0.0, "nope", now=_NOW, drawdown_frac=0.25)
+
+
+def test_set_peak_requires_a_reason() -> None:
+    with pytest.raises(ValueError, match="reason"):
+        correct_peak_equity(_state(), 2350.80, "  ", now=_NOW, drawdown_frac=0.25)
+
+
+def test_set_peak_touches_neither_the_kill_switch_nor_the_prior_run_record() -> None:
+    before = _state()
+    before["kill_switch"] = True
+    state, _ = correct_peak_equity(
+        before,
+        2350.80,
+        "heal",
+        now=_NOW,
+        drawdown_frac=0.25,
+    )
+    # The invariants...
+    assert state["kill_switch"] is True
+    assert state["last_run"]["submitted"] == 0
+    assert state["last_run"]["ts"] == "2026-08-20T02:21:18+00:00"
+    # ...paired with a positive control, or the three above are satisfied just
+    # as well by a function that did nothing at all.
+    assert state["peak_equity"] == 2350.80

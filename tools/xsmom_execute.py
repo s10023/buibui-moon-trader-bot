@@ -22,7 +22,9 @@ import math
 import os
 import shutil
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import duckdb
 from rich import box
@@ -44,6 +46,63 @@ from trade.xsmom_executor import (
 )
 
 _DEFAULT_STATE_DIR = Path("docs/plans/xsmom_targets")
+
+
+def correct_peak_equity(
+    state: dict[str, Any],
+    new_peak: float,
+    reason: str,
+    *,
+    now: datetime,
+    drawdown_frac: float,
+) -> tuple[dict[str, Any], str]:
+    """Lower the stored drawdown high-water mark, with an audit trail.
+
+    `peak_equity` is a permanent ratchet, and that is right: a peak that decayed
+    would let a losing book forget its own drawdown and resume. But the ratchet
+    has no way to un-write a value that was never real -- on 2026-08-06 a one-off
+    `--capital 5000` run lifted it 2350.80 -> 5000.00 against an account that
+    never passed 1201.33, and the fix that stopped further poisoning heals
+    nothing already on disk.
+
+    So the correction is deliberate, one-way and recorded. ONE-WAY because
+    raising the mark is the ratchet's own job and it already does it from real
+    equity -- a CLI that could raise it is the 2026-08-06 footgun rebuilt by
+    hand. RECORDED because that incident was undiagnosable after the fact: the
+    state file kept only `last_run`, and the invocation that did it was never
+    recoverable.
+    """
+    if not reason.strip():
+        raise ValueError("a peak correction needs a reason -- it is the audit trail")
+    if new_peak <= 0:
+        raise ValueError(
+            f"peak must be positive, got {new_peak:.2f}: a zero peak puts the floor "
+            "at 0, and `equity < 0` is never true, so the breaker would be OFF "
+            "while looking corrected"
+        )
+    old_peak = float(state["peak_equity"])
+    if new_peak >= old_peak:
+        raise ValueError(
+            f"peak may only be corrected LOWER ({new_peak:.2f} >= {old_peak:.2f}). "
+            "Raising the high-water mark is the ratchet's job and it does it from "
+            "real equity on the next unpinned run."
+        )
+
+    state["peak_equity"] = new_peak
+    state.setdefault("last_run", {})["peak_correction"] = {
+        "from": old_peak,
+        "to": new_peak,
+        "reason": reason,
+        "ts": now.isoformat(),
+    }
+    old_floor = old_peak * (1.0 - drawdown_frac)
+    new_floor = new_peak * (1.0 - drawdown_frac)
+    summary = (
+        f"peak_equity {old_peak:.2f} -> {new_peak:.2f}\n"
+        f"  floor {old_floor:.2f} -> {new_floor:.2f}\n"
+        f"  reason: {reason}"
+    )
+    return state, summary
 
 
 def _fmt_price(mark: float | None) -> str:
@@ -284,6 +343,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--i-understand-live", action="store_true")
     parser.add_argument("--kill", action="store_true")
+    parser.add_argument(
+        "--set-peak",
+        type=float,
+        default=None,
+        help=(
+            "Correct the stored drawdown high-water mark DOWNWARD and exit. "
+            "For un-writing a peak that was never real (a pinned `--capital` "
+            "run before the 2026-08-06 ratchet fix, or a re-base after a "
+            "capital withdrawal). Requires --peak-reason. Never raises: the "
+            "ratchet already does that from live equity."
+        ),
+    )
+    parser.add_argument(
+        "--peak-reason",
+        default="",
+        help="Why the peak is being corrected. Recorded in last_run.",
+    )
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--state-dir", type=Path, default=_DEFAULT_STATE_DIR)
     return parser
@@ -293,6 +369,22 @@ def main() -> None:
     args = build_parser().parse_args()
 
     state_path = args.state_dir / f"execution_state_{args.mode}.json"
+
+    if args.set_peak is not None:
+        state = load_state(state_path)
+        try:
+            state, summary = correct_peak_equity(
+                state,
+                args.set_peak,
+                args.peak_reason,
+                now=datetime.now(UTC),
+                drawdown_frac=args.max_drawdown_frac,
+            )
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        save_state(state_path, state)
+        print(f"{summary}\n  ({state_path})")
+        return
 
     if args.kill or args.resume:
         state = load_state(state_path)
