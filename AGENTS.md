@@ -15,7 +15,7 @@ a result.
 
 - `make lint-py` ✓ (ruff format + lint)
 - `make typecheck` ✓ (mypy strict)
-- `make test` green — **or `make preflight`**, which runs the same pytest invocation against a fresh clone at `/post-branch` Step 7 and supersedes it. Run one, never both — measured 2026-08-20 on 4205 tests: **300.1s against `make test`'s 294.9s, +1.8%**, so hermeticity is bought for five seconds.
+- `make test` green — and at the **branch's final gate only**, `make preflight` supersedes it, running the same pytest invocation against a fresh clone at `/post-branch` Step 7. Measured 2026-08-20 on 4205 tests: **300.1s against `make test`'s 294.9s, +1.8%**, so hermeticity costs five seconds. ⚠ **It replaces only that last run, never the mid-work ones** — a clone cannot see uncommitted code, which is exactly why it refuses on a dirty tree, so `make test` remains the tool while you are still working.
 - `make test-regression` goldens unmoved — **required only when the diff touches the
   backtest surface**: `analytics/backtest/`, `analytics/strategies/`,
   `analytics/signal_config.py`, `config/*signal_watch*.toml`, `config/strategy_params.toml`,

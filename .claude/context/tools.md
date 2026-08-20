@@ -87,8 +87,9 @@ shell blocks. The rule they exist to satisfy: *a self-check outside CI is not a 
   with `--no-hardlinks` (plain `--local` fails `Invalid cross-device link` onto `/tmp`
   here), runs `poetry install --no-root` in the clone (**6.69s** warm) and then the same
   pytest invocation `make test` uses. Run at `/post-branch` Step 7, after the doc commits
-  and before `gh pr create`; it **replaces** that branch's `make test` rather than adding
-  to it. **Refuses on a dirty tree** — a clone sees committed state only, so running it
+  and before `gh pr create`; it **replaces that branch's FINAL `make test`, and only
+  that one** — mid-work runs still need `make test`, because a clone cannot see
+  uncommitted code. **Refuses on a dirty tree** — a clone sees committed state only, so running it
   dirty would test stale HEAD and report green, which is the invisible pass it exists to
   kill. Exit **2** = REFUSED (dirty), **3** = INFRA (clone/install died), **1** = the suite
   genuinely failed; ⚠ make collapses all three, so read the banner. Imports nothing from

@@ -788,8 +788,14 @@ sweep, say — tests stale HEAD and reports green while the doc commits this
 phase just produced go untested. The script refuses outright on a dirty tree
 rather than reporting that green.
 
-**It replaces this branch's local `make test`, it does not add to it** — measured 2026-08-20 on 4205 tests: **300.1s against `make test`'s 294.9s, +1.8%**,
-so the hermetic form costs five seconds. Only this one is hermetic. It clones to a temp dir with
+**It replaces this branch's FINAL `make test`, and only that one** — measured
+2026-08-20 on 4205 tests: **300.1s against `make test`'s 294.9s, +1.8%**, so the
+hermetic form costs five seconds.
+
+⚠ **Do not read "replacement" as "stop running `make test` while you work."** A
+clone cannot see uncommitted code — the same property that makes this correct at
+Step 7 makes it useless mid-branch, and it refuses on a dirty tree rather than
+pretending otherwise. `make test` stays the tool until the work is committed. It clones to a temp dir with
 `--no-hardlinks` (plain `--local` fails `Invalid cross-device link` onto `/tmp`
 here), runs `poetry install --no-root` in the clone (**6.69s** against a warm
 cache), then the same pytest invocation `make test` uses.
