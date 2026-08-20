@@ -79,7 +79,12 @@ and gets read as a claim about what was checked, so a hopeful tick is a false st
 even when the run later goes green. This bit on 2026-08-03: `make test-regression` was
 pre-ticked while still executing.
 
-- [x] `make test` — <N> passed
+**Name the gate you actually ran.** At a branch's final gate `make preflight` REPLACES
+`make test` (`AGENTS.md`, Definition of Done), so a session that ran the pre-flight and
+ticked the `make test` line has asserted a command it deliberately did not run — the same
+false claim as a hopeful tick, arriving by a different route.
+
+- [x] `make test` — <N> passed  *(or `make preflight` — <N> passed on a clean clone)*
 - [x] `make lint-py` — ruff clean
 - [x] `make typecheck` — mypy clean
 - [x] `make lint-md` — markdownlint clean (only if MD files changed)

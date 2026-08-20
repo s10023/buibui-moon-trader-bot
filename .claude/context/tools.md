@@ -104,7 +104,12 @@ shell blocks. The rule they exist to satisfy: *a self-check outside CI is not a 
   Actions-allowance `steps=0` (billing, never debug it), **1** = genuine failure, **4** =
   green but step counts unreadable. ⚠ **GNU make collapses any recipe failure to exit 2**,
   so through `make` you see none of these — branch on the printed banner, or call the
-  script directly.
+  script directly. **The banner prints `steps=EXECUTED/DECLARED`** (ST50(f), 2026-08-20):
+  a `dorny/paths-filter` job declares its whole step list on every diff and skips the body,
+  so the declared count alone reads backwards — #670's docs-only PR declared 14 and executed
+  5, and a bare `steps=14` says "the heavy leg ran on a docs diff". `?/N` means the executed
+  half was unobservable; a bare `?` means neither was. Billing is unaffected: an exhausted
+  allowance declares nothing, so `0` declared still settles it.
 
 Two fixes were made to the originals during the port and are owed back to wifey:
 `PATH_REF_RE` now requires a real file extension (a `module.symbol` citation was parsing as
