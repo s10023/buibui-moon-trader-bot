@@ -88,7 +88,9 @@ remembered to copy them. Deep reference `.claude/context/tools.md`. Three rules 
   correct CI run. Confirm the legs RUN once locally after touching it.
 - **`wait_ci.py`'s exit codes are invisible through `make`** (GNU make collapses any recipe
   failure to its own exit 2). Read the printed banner, or call the script directly.
-- **Both bootstrap their own `sys.path`, so a bare `python3 tools/<name>.py` works.** CI
+- **All three bootstrap their own `sys.path`, so a bare `python3 tools/<name>.py` works** —
+  `distil_power.py` joined them 2026-08-20 (ST59), having been the one tool a gate MANDATES
+  running that died on the obvious invocation. CI
   runs `sanity_checks.py` exactly that way, with **no** `PYTHONPATH`, while the Make targets
   set it — so a green `make sanity-checks` proves nothing about CI's invocation. That gap
   shipped a red CI on 2026-08-19 with every local gate green. Each suite now runs the bare
@@ -796,9 +798,16 @@ verdicts came out of wiring them up, and the second is the one that mattered:
   wrote no file, and the video fell through to Groq ASR **while an author-written track sat
   there unrequested**. Measured across the ingested corpus: **17 of 89 notes were built from
   ASR that way**, all on zh channels — exactly where ASR is weakest and `raw_quote` accuracy is
-  load-bearing. `_sub_langs` now widens the request with the codes the metadata call SAID
-  exist. The other 11 genuinely had no captions, so the ASR fallback itself is sound; it was
-  being reached for the wrong reason. ⚠ **Those 17 notes are a COVERAGE defect and their
+  load-bearing. The other 11 genuinely had no captions, so the ASR fallback itself is sound;
+  it was being reached for the wrong reason. ⚠ **The widening then REGRESSED in the opposite
+  direction and was re-fixed 2026-08-20**: on a channel whose `meta.lang` is a REGIONAL
+  variant (`en-US`) matching no caption code, it requested the whole auto-translate matrix —
+  measured **157** codes on `9avrSmPczP4`, which YouTube answers `HTTP 429` partway through,
+  so whichever file survived the rate limit decided the language and an Afar machine
+  translation was ingested as `auto_captions`. `_sub_langs` now resolves a regional lang to
+  its base track (`en-US` → `en`) and **caps** the request, and `_select_caption_track`
+  REFUSES a track unrelated to a known `meta.lang` rather than taking the alphabetically
+  first one — ASR in the real language beats a machine translation into another. ⚠ **Those 17 notes are a COVERAGE defect and their
   `raw_quote`s are unverified** — a re-ingest is the only repair, per `CLAUDE.md`'s rule.
 - **Caption provenance is now recorded** (`transcript_source`: `manual_captions` /
   `auto_captions` / `asr_whisper` / `captions_unknown`). It could not be recovered downstream
