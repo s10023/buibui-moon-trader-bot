@@ -1097,9 +1097,14 @@ def main(
         print(resolve_handle(get, api_key, args.handle), end="")
         return 0
 
-    cfg = load_feed_config(args.config)
     state = load_state(args.state)
 
+    # Deliberately AHEAD of load_feed_config: `playlists` takes a raw UC id and reads
+    # nothing from the channel config, while `config/youtube_channels.toml` is gitignored
+    # and therefore absent on a fresh clone and in CI. Loading it here would SystemExit on
+    # a file this subcommand never uses -- which is exactly what shipped, and what CI caught
+    # while every local run passed on a machine that happens to have the config. Mirrors the
+    # `hint` subcommand's placement ahead of the API-key gate for the same class of reason.
     if args.cmd == "playlists":
         found = list_channel_playlists(get, api_key, args.channel_id, state)
         if args.as_json:
@@ -1113,6 +1118,7 @@ def main(
             print(f"# {len(found)} playlist(s)")
         return 0
 
+    cfg = load_feed_config(args.config)
     paused: tuple[ChannelConfig, ...] = ()
     if args.cmd == "poll":
         paused = tuple(ch for ch in cfg.channels if ch.paused)

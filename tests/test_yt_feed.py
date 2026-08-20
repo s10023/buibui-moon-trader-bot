@@ -1711,6 +1711,42 @@ class TestMainPlaylistWiring:
         assert "PLaaaaaaaaaaaaaaa1" in out
         assert "0/52 examined" in out
 
+    def test_playlists_needs_no_channel_config(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        tmp_path: Path,
+    ) -> None:
+        """`config/youtube_channels.toml` is GITIGNORED — absent on a fresh clone and in CI.
+
+        `playlists` takes a raw UC id and reads nothing from it, so loading it would
+        SystemExit on a file the subcommand never uses. That shipped, and CI caught it while
+        every local run passed on a machine that happens to have the config.
+
+        ⚠ **The obvious fix — pass a fixture `--config` — would have HIDDEN this.** The test
+        would go green while the CLI stayed broken for anyone without operator data. So this
+        test asserts the ABSENCE of the dependency, which means pointing `--config` at a path
+        that does not exist and requiring success anyway.
+        """
+        monkeypatch.setenv("YOUTUBE_API_KEY", "K")
+        get = FakeGet({"playlists": [FakeResp(200, {"items": []})]})
+
+        rc = main(
+            [
+                "playlists",
+                "UCabcdefghijklmnopqrstu",
+                "--config",
+                str(tmp_path / "does-not-exist.toml"),
+                "--state",
+                str(tmp_path / "s.json"),
+            ],
+            get=get,
+            now=NOW,
+        )
+
+        assert rc == 0
+        assert "0 playlist(s)" in capsys.readouterr().out
+
     def test_backfill_rejects_a_playlist_id_that_is_not_one(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
