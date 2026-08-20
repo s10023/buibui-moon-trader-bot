@@ -92,7 +92,9 @@ shell blocks. The rule they exist to satisfy: *a self-check outside CI is not a 
   dirty would test stale HEAD and report green, which is the invisible pass it exists to
   kill. Exit **2** = REFUSED (dirty), **3** = INFRA (clone/install died), **1** = the suite
   genuinely failed; ⚠ make collapses all three, so read the banner. Imports nothing from
-  `tools.*`, so it needs no `sys.path` bootstrap and no `PYTHONPATH`. ⚠ Blind to an
+  `tools.*`, so it needs no `sys.path` bootstrap and no `PYTHONPATH`. Unlike `make test`
+  it never locks the working tree — the clone is of committed state, so an edit made
+  mid-run cannot reach it. ⚠ Blind to an
   *absolute* `$HOME` default (identical in a clone) and to any CLI branch no test reaches.
 - `tools/stale_anchors.py` — dead cross-document `§N` / `Step N` citations. Sweeps the repo
   **and the memory tree**; a section number is not a symbol, so no symbol-keyed check can

@@ -788,8 +788,8 @@ sweep, say — tests stale HEAD and reports green while the doc commits this
 phase just produced go untested. The script refuses outright on a dirty tree
 rather than reporting that green.
 
-**It replaces this branch's local `make test`, it does not add to it.** Both
-cost ~4.5 min; only this one is hermetic. It clones to a temp dir with
+**It replaces this branch's local `make test`, it does not add to it** — measured 2026-08-20 on 4205 tests: **300.1s against `make test`'s 294.9s, +1.8%**,
+so the hermetic form costs five seconds. Only this one is hermetic. It clones to a temp dir with
 `--no-hardlinks` (plain `--local` fails `Invalid cross-device link` onto `/tmp`
 here), runs `poetry install --no-root` in the clone (**6.69s** against a warm
 cache), then the same pytest invocation `make test` uses.

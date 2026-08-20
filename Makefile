@@ -64,7 +64,7 @@ sanity-checks:
 # The clean-clone pre-flight (ST45). Run it in /post-branch phase 4, AFTER the
 # doc commits and BEFORE `gh pr create` — a clone sees COMMITTED state only, so
 # running it earlier tests stale HEAD and reports green. It REPLACES that
-# branch's `make test`; both cost ~4.5 min and only this one is hermetic.
+# branch's `make test`: 300.1s against its 294.9s (+1.8%), and only this is hermetic.
 # ⚠ make collapses the recipe's exit code, so read the printed banner: REFUSED
 # (dirty tree) and INFRA (clone/install died) are NOT suite failures.
 preflight:
