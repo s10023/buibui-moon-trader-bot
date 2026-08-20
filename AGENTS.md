@@ -615,7 +615,12 @@ the sign at 15m/1h/4h; with live-parity gates on it also cut `bos` trade count ~
 the gates had been reading context five bars stale. `weekdays bos/4h/short` fell **★4
 +0.7435 → ★2 +0.0449**, and an isolation run (old code, current data) attributed **−0.6986
 of −0.6986 to the fix and −0.0000 to the data** — the best-rated `bos` cell in the book was
-almost entirely the leak.
+almost entirely the leak. ⚠ **Those star ratings are AS OF the 2026-08-18 fix measurement and
+have since drifted** — the 2026-08-19 21:37 recalibrate reads that cell at **★1 −0.0658**, and
+`weekdays bos/1h/long` at −0.7485 rather than the filed −0.7113. **Do not "correct" the pair
+above to today's numbers:** it is a dated before/after attribution of one code change, and
+overwriting the *after* with a later, more-data reading destroys the comparison while looking
+like an update. Quote it with its date, and re-read `confidence_ratings` for a current value.
 
 **`make regression-update` is NOT data-neutral — it refreshes the fixtures first.** It runs
 `scripts/extract_regression_fixture.py`, which re-exports the OHLCV parquets from the LIVE
