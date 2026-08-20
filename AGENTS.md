@@ -814,8 +814,9 @@ GH_TOKEN=$(gh auth token --user s10023) gh repo edit s10023/buibui-moon-trader-b
   never the file extension.** The heavy leg (`lint-typecheck-test`: ruff + mypy + the suite)
   sits behind `dorny/paths-filter` on `**/*.py`, `pyproject.toml`, `poetry.lock` and
   `lint.yaml`, so a `deploy/*.sh`, `.claude/**` or `docs/` diff skips it entirely;
-  `.claude/skills/**` adds the SKILL.md frontmatter validator, and `Dockerfile` /
-  `docker-compose.yml` add the image build. There is no shellcheck and no deploy-aware job.
+  `.claude/skills/**` adds the SKILL.md frontmatter validator, `web/ui/**` the frontend
+  check, and `Dockerfile` / `docker-compose.yml` the image build. There is no shellcheck
+  and no deploy-aware job.
   ⚠ **But nothing rides entirely free, and "docs-only" is the trap**: `security-scan`
   (Trivy) carries no paths filter, and the `markdownlint` job runs `sanity_checks.py` and
   `test_context_guard.py` UNCONDITIONALLY — so skipping the flip on a docs PR skips the
