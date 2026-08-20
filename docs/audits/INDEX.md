@@ -4,13 +4,14 @@
 `make docs-index-check` (and `tests/test_docs_index.py`) fails when this file
 drifts from the corpus.
 
-**49 audits.** A verdict line is shown only where one could be read
-out of a Verdict heading as prose — that is **32 of 49**.
+**50 audits.** A verdict line is shown only where one could be read
+out of a Verdict heading as prose — that is **33 of 50**.
 An em dash means the doc states its verdict in a table, a blockquote or the body,
 **not** that it lacks one; open the file. Nothing here is keyword-guessed.
 
 | Date | Audit | Verdict (as written) | File |
 | --- | --- | --- | --- |
+| 2026-08-20 | ST56 — `wick_fill` wick-anchor: power pricing and pre-registration | BUILD the one pre-registered construction. The power gate CLEARS on the generated | [2026-08-20-st56-wick-fill-anchor-power.md](2026-08-20-st56-wick-fill-anchor-power.md) |
 | 2026-08-18 | Structural entry-sim under confirmation causality — the ST31 correction | No powered cell on any requested tf (1d) clears the de-biased BUILD bar — XS-solo stays the deploy core. | [2026-08-18-structural-touch-confirmation-causality.md](2026-08-18-structural-touch-confirmation-causality.md) |
 | 2026-08-18 | ST17 — give-back / heat-and-run on the live outcome ledger | the book gives back a median 0.81R of open profit and keeps 55% of its peak, and 28.9% of trades that reach +1R finish at or… | [2026-08-18-st17-giveback-heat-and-run.md](2026-08-18-st17-giveback-heat-and-run.md) |
 | 2026-08-14 | Workflow enforcement audit — what is actually enforced, where, and by what | — | [2026-08-14-workflow-enforcement-audit.md](2026-08-14-workflow-enforcement-audit.md) |
