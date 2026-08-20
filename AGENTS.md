@@ -134,7 +134,21 @@ play, land that reformat once up front.
 - `buibui digest` — pre-canned analytics queries
 - `buibui param-audit | param-sweep` — WFO parameter tools
 - `buibui recalibrate` — refresh star ratings
-- `buibui brief` — daily market brief (levels/zones/regime/seasonality/pundit board)
+- `buibui brief` — daily market brief (levels/zones/regime/seasonality/pundit board), plus
+  a bundle-level **bear score** read from BTC — how many of {50W SMA, 50W EMA, 200D EMA,
+  200D SMA, 20W SMA, 21W EMA} the daily close sits below, 0-6, with the nearest average
+  below price as the trigger. ⛔ **It is a NUMBER and must never gate, size or suppress
+  anything**: ST53 measured the effect as a CLIFF at 6 (-3.25% mean, n=73 dates, Welch
+  t=-4.76) but those dates span ~3 distinct bear markets, so **n_eff ≈ 3**. The renderer
+  carries a "display only, never a gate" marker and a test pins it. ⚠ **The four WEEKLY
+  averages are resampled from 1d, never read from the `1w` table** — those bars have been
+  stale since 2026-06-08 on all 25 symbols, so reading them would silently freeze four of
+  the six. The resample drops the in-progress week, and a week's average takes effect only
+  from the following Monday; both halves are mutation-guarded, because with only the first
+  the historical path behind `days_at_score` stayed unguarded (measured: 8 of 8 tests
+  passed with the effective-date shift removed). A partial score is never reported — if any
+  one average lacks history the whole block degrades to a health note, since a "3" out of
+  four averages is a different statistic wearing the same label.
 - `buibui web` — start FastAPI backend
 
 Each Makefile `buibui-*` target wraps the equivalent CLI invocation, except `buibui-backup`.

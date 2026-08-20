@@ -10,6 +10,7 @@ from analytics.brief.types import (
     BbState,
     BriefBundle,
     CandleHit,
+    CycleState,
     EmaState,
     ExternalClusterRow,
     ExternalSnapshot,
@@ -590,6 +591,35 @@ def _health_lines(bundle: BriefBundle) -> list[str]:
     return lines
 
 
+def _cycle_line(cycle: CycleState | None) -> str | None:
+    """ST54 bear score. ⚠ Rendered as a NUMBER — never as a gate or a signal.
+
+    The trailing marker is not decoration. ST53 measured the effect over n=73
+    dates spanning roughly three distinct bear markets, so n_eff is ~3, and the
+    marker is the one thing standing between a displayed score and someone
+    sizing off it.
+    """
+    if cycle is None:
+        return None
+    bits = [
+        f"── CYCLE ── BTC bear score {cycle.score}/{cycle.total}",
+        f"close {fmt_price(cycle.close)}",
+    ]
+    if cycle.below:
+        bits.append("below " + ", ".join(cycle.below))
+    if cycle.trigger_name is not None and cycle.trigger_price is not None:
+        dist = (
+            ""
+            if cycle.trigger_dist_pct is None
+            else f" ({cycle.trigger_dist_pct:+.2f}%)"
+        )
+        bits.append(f"next {cycle.trigger_name} {fmt_price(cycle.trigger_price)}{dist}")
+    if cycle.days_at_score is not None:
+        bits.append(f"{cycle.days_at_score}d at this score")
+    bits.append("display only, never a gate")
+    return " · ".join(bits)
+
+
 def render_markdown(bundle: BriefBundle) -> str:
     as_of = pd.Timestamp(bundle.as_of_ms, unit="ms", tz="UTC").strftime(
         "%Y-%m-%d %H:%M"
@@ -601,6 +631,9 @@ def render_markdown(bundle: BriefBundle) -> str:
     clock = _clock_line(bundle.session_clock, bundle.as_of_ms)
     if clock is not None:
         lines.append(clock)
+    cycle = _cycle_line(bundle.cycle)
+    if cycle is not None:
+        lines.append(cycle)
     lines.append("")
     for panel in bundle.panels:
         lines.extend(_panel_lines(panel))
