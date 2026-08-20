@@ -835,13 +835,30 @@ GH_TOKEN=$(gh auth token --user s10023) gh repo edit s10023/buibui-moon-trader-b
   --visibility private --accept-visibility-change-consequences
 ```
 
+⚠ **THE OPERATOR RUNS BOTH COMMANDS — a session cannot.** `gh repo edit --visibility` is
+blocked by the permission classifier in BOTH directions, so hand the command over and WAIT
+rather than discovering it mid-chain (#669: it surfaced with the branch pushed and the PR
+body already written). Confirm with `gh repo view … --json visibility` — a read, not
+blocked. Never assume the flip happened because you printed the command.
+
 - **Pushing a branch costs no CI** — `push:` triggers only on `main` and `pull_request:`
   only on a PR. Commit and push freely; the meter starts at `gh pr create`.
-- **Wait for main's own push run before flipping back.** Merging starts a fresh run on
-  `main`, and flipping to private kills jobs *created after* the flip, leaving main red for
-  billing reasons rather than code ones. **Run `make wait-ci-main`** rather than
-  hand-rolling a waiter — it gates on a job-count floor, not on "nothing pending", because
-  the status check is vacuously true while a chained job does not yet exist.
+- **Never flip back while ANY run on `main` is `in_progress`** — not "wait until the jobs
+  exist". Flipping kills jobs *created after* it, and a chained job is not created until its
+  dependency finishes: `lint.yaml:157`'s `regression` job declares `needs:
+  lint-typecheck-test`, so a main run sits in_progress with three jobs created and
+  "Regression tests" not yet existing. Flip there and main reds for billing. **Run
+  `make wait-ci-main`** rather than hand-rolling a waiter — it gates on a job-count floor
+  for exactly this reason. ⚠ **But it watches ONE workflow**: the floor is `CI`'s, while
+  the flip hits every workflow, so one starting after CI settles is invisible to it —
+  latent on #669, where `Dependency Graph` was in_progress at the flip and did not bite.
+  `gh run list --branch main --limit 5 --json workflowName,status` closes it in one call.
+- **What makes a SHARED window safe is concurrency, not the rule.** `cancel-in-progress` is
+  `${{ github.event_name == 'pull_request' }}` — false on push — so main runs QUEUE and a
+  second merge's CI cannot start until the first finishes, chained job and all. The group is
+  keyed on `${{ github.workflow }}`, so that protection is **per workflow** too, which is the
+  same scope gap as the waiter above. ⚠ **A repo without this has none of it — check the
+  wifey fork rather than assuming it inherits.**
 - **A merge-run failure at ~3s with `steps=0` and `visibility=PRIVATE` is billing.** Verify
   duration, visibility and step count, then merge. Never debug it.
 - **What decides the flip is which jobs execute real steps on THIS diff — state the filter,
