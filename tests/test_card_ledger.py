@@ -22,6 +22,7 @@ def _final(verdict: str = "TRADE", horizon: str = "intraday") -> FinalCard:
         "tp3": 108.0,
         "confluence_score": 6,
         "reasoning": ["ref_close 100 above POC 99", "b", "c", "d", "e"],
+        "steelman": ["htf 1", "underweighted 2", "catalyst 3", "other 4"],
         "invalidation": "close below 97",
         "expected_hold": "12h",
         "valid_until_utc": "2026-07-11T12:00:00Z",
@@ -59,6 +60,24 @@ def _cfg(tmp_path: Path, horizon: str = "intraday") -> CardConfig:
 
 
 class TestLedger:
+    def test_steelman_reaches_the_cards_ledger(self, tmp_path: Path) -> None:
+        """card-v5: the disconfirmation is auditable after the fact.
+
+        `FinalCard.to_dict` is `asdict`, so this rides for free — which is
+        exactly why it needs pinning: nothing else would notice the field
+        being dropped from `TradeCard`, and the ledger is the only record
+        that the step ran at all.
+        """
+        cfg = _cfg(tmp_path)
+        append_ledgers(_final("TRADE"), cfg)
+        row = json.loads(Path(cfg.cards_path).read_text().strip())
+        assert row["card"]["steelman"] == [
+            "htf 1",
+            "underweighted 2",
+            "catalyst 3",
+            "other 4",
+        ]
+
     def test_trade_dual_writes(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
         paths = append_ledgers(_final("TRADE"), cfg)

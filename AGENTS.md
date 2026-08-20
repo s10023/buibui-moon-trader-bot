@@ -199,7 +199,7 @@ at −0.0881).
 ### `buibui card SYMBOL`
 
 AI trade card (F2). Composes brief panel (M1 indicators + M2 sessions) + pundit board + XS
-target + recent fires + live account into a MarketState, sends the card-v4 rubric to
+target + recent fires + live account into a MarketState, sends the card-v5 rubric to
 `claude -p` (subscription auth, keys stripped, `CLAUDE_CONFIG_DIR=~/.claude-personal`, bare
 temp cwd), then a deterministic post-pass sizes the trade and enforces hard rules in code
 (VETOED on violation, including a `valid_until_utc` that is unparseable or does not postdate
@@ -237,6 +237,17 @@ the card's own `generated_at_ms`). Wrapped by
   the clean metric alongside would not have fixed it — both fields reached the prompt.
   Rubric 3b names `avg_atr_r`'s ATR units, and §2 states a liq cluster is a BAND whose edges
   reproduce to only ~16%, never a level.
+- **card-v5 (2026-08-20) adds a four-angle steelman at step 4, BEFORE the decision** (htf
+  counter · underweighted confluence · catalyst risk · the other trader), as a required
+  `steelman` field: exactly four non-empty bullets on a TRADE, absent on a NO_TRADE. The
+  count is PINNED so a skipped angle fails validation rather than reading as a card that
+  argued all four, and the rubric keeps the source's own non-goal — it is not there to talk
+  the card out of the trade, it is so the other side never surprises you. **Deliberately
+  absent from the Telegram card**, where four more prose bullets against the 4096-char guard
+  re-open the readability defect the medium-specific layout fixed; a test pins the omission.
+  v5 also bars a JSON field path from generated prose (`range_state.pos 0.4955`): the number
+  stays, the path goes. `ai-cards.jsonl` carries a v4/v5 break, and nothing in the tree reads
+  that file, so it costs no consumer.
 - **M4 external liquidity** (heatmap / liq-map clusters) enters as mapped liquidity with
   trust guards, capped at ONE confluence input. ⚠ **It is not horizon-filtered** —
   snapshots carry a `window` and the model is told to discount a short one, but

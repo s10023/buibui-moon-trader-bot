@@ -26,7 +26,7 @@ def _state(hint: str | None = None) -> MarketState:
 
 class TestPrompt:
     def test_version_constant(self) -> None:
-        assert PROMPT_VERSION == "card-v4"
+        assert PROMPT_VERSION == "card-v5"
 
     def test_rubric_names_the_pundit_metric_and_its_units(self) -> None:
         """card-v4: `avg_atr_r` is in ATR units, and there is no pundit R.
@@ -71,9 +71,58 @@ class TestPrompt:
 
     def test_rubric_style_block(self) -> None:
         # card-v2: humanizer style directive covers all generated prose
-        assert "Style (applies to reasoning, invalidation" in RUBRIC
+        # card-v5: the steelman is generated prose too, so it joins the scope
+        assert "Style (applies to reasoning, steelman, invalidation" in RUBRIC
         assert "No hedge words (might/could/perhaps)" in RUBRIC
         assert "no em dashes" in RUBRIC
+
+    def test_rubric_demands_a_four_angle_steelman(self) -> None:
+        """card-v5 (ST35): the one artifact from this author judged on merit.
+
+        Approved 2026-08-17, filed to ride the card-v4 bump, then dropped
+        when v4 shipped without it. The four angles are named in the rubric
+        because a free-form "consider the other side" is what the model
+        already does badly.
+        """
+        assert "Steelman" in RUBRIC
+        assert "HTF counter" in RUBRIC
+        assert "underweighted confluence" in RUBRIC
+        assert "catalyst risk" in RUBRIC
+        assert "the other trader" in RUBRIC
+        assert '"steelman"' in RUBRIC
+
+    def test_steelman_is_not_a_veto_machine(self) -> None:
+        """The source's own non-goal, and the half that makes it work.
+
+        @TraderMorin, 2026-07-25 (x.com/TraderMorin/status/2080948672439656799):
+        "your job is not to convince me out of the trade... it's so the other
+        side never surprises you." Without it, a disconfirmation step pointed
+        at an already-negative book drifts into a reason to decline, and the
+        card is a second opinion rather than a gate.
+        """
+        assert "not to talk yourself out of the trade" in RUBRIC
+
+    def test_steelman_step_runs_before_the_decision(self) -> None:
+        """A counter-case argued after the verdict is a caption, not a step.
+
+        The point of ST35's angle set is that it CHANGES the answer, which
+        only holds if the model works through it before choosing a verdict.
+        """
+        assert RUBRIC.index("4. Steelman") < RUBRIC.index("5. Decision")
+
+    def test_rubric_bans_json_field_paths_in_generated_prose(self) -> None:
+        """ST30(c): the bullets read as JSON dumps, and that is the RUBRIC.
+
+        The operator's phone card carried `range_state.pos 0.4955` because
+        v4 asked for field-path citations. The number is what keeps the
+        model honest, so it stays; the path is what makes it unreadable, so
+        it goes. A worked pair rather than a rule alone, because "write
+        plainly" did not survive contact with a JSON payload.
+        """
+        assert "Never write a JSON field path" in RUBRIC
+        assert "range_state.pos 0.4955" in RUBRIC
+        # the anti-invention requirement must SURVIVE the register change
+        assert "citing a concrete number" in RUBRIC
 
     def test_rubric_prefix_is_byte_stable(self) -> None:
         cfg = CardConfig()

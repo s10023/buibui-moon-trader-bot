@@ -25,6 +25,7 @@ def _trade_obj(**overrides: Any) -> dict[str, Any]:
         "tp3": 108.0,
         "confluence_score": 6,
         "reasoning": ["a 1", "b 2", "c 3", "d 4", "e 5"],
+        "steelman": ["htf 1", "underweighted 2", "catalyst 3", "other 4"],
         "invalidation": "close below 97",
         "expected_hold": "12h",
         "valid_until_utc": "2026-07-11T12:00:00Z",
@@ -98,6 +99,46 @@ class TestValidation:
         assert any("tp1" in e for e in validate_card_obj(inf_obj))
         with pytest.raises(CardValidationError):
             parse_trade_card(json.dumps(inf_obj))
+
+    def test_trade_rejects_a_steelman_that_is_not_four_angles(self) -> None:
+        """card-v5: the four angles are fixed, so a dropped one must fail.
+
+        The steelman exists to add a reasoning step the card lacked. A free
+        count makes a silently-skipped angle indistinguishable from a card
+        that argued all four, which is the failure this field exists to make
+        visible.
+        """
+        assert validate_card_obj(_trade_obj(steelman=["a", "b", "c"]))
+        assert validate_card_obj(_trade_obj(steelman=["a", "b", "c", "d", "e"]))
+        assert validate_card_obj(_trade_obj(steelman=None))
+
+    def test_trade_rejects_a_blank_steelman_angle(self) -> None:
+        # an empty string is a skipped angle wearing the right shape
+        assert validate_card_obj(_trade_obj(steelman=["a", "b", "c", "   "]))
+
+    def test_steelman_parses_into_the_card(self) -> None:
+        card = parse_trade_card(json.dumps(_trade_obj()))
+        assert card.steelman == ["htf 1", "underweighted 2", "catalyst 3", "other 4"]
+
+    def test_no_trade_may_omit_the_steelman(self) -> None:
+        """A declined trade has nothing to argue against, so it is optional.
+
+        Requiring it there would buy a fourth-angle paragraph on every card
+        the model already rejected, against a testing-capacity bottleneck.
+        """
+        obj = _trade_obj(
+            verdict="NO_TRADE",
+            direction=None,
+            entry=None,
+            sl=None,
+            tp1=None,
+            tp2=None,
+            tp3=None,
+            no_trade_reason="regime conflict",
+        )
+        del obj["steelman"]
+        assert not validate_card_obj(obj)
+        assert parse_trade_card(json.dumps(obj)).steelman == []
 
 
 def _state_for_post(

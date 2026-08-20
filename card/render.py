@@ -38,6 +38,9 @@ def render_card(final: FinalCard) -> str:
     lines.append(f"confluence {card.confluence_score}/9")
     lines.append("reasoning:")
     lines.extend(f"  - {b}" for b in card.reasoning)
+    if card.steelman:
+        lines.append("steelman:")
+        lines.extend(f"  - {b}" for b in card.steelman)
     if card.invalidation:
         lines.append(f"invalidation: {card.invalidation}")
     if card.expected_hold or card.valid_until_utc:
