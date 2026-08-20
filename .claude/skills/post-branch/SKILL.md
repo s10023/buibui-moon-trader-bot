@@ -50,6 +50,12 @@ guidance. Read the phase table; treat the step headings as a table of contents.
 | **5** | PR body | 6 | no |
 | **6** | Pre-merge check, handoff, re-verify PR state **last** | 10a, 10b, 10c | no |
 
+⚠ **CITE THE STEP, NOT THE PHASE, from any doc outside this file.** Phases 1-6 exist only
+as rows in the table above — they declare no headings — so `tools/stale_anchors.py`
+correctly flags "post-branch phase 4" in another doc as a dead anchor, and a reader
+following it finds no such section. That cost a peer session two rounds on #667. Inside
+this file the phase names are the run order and stay; outside it, name `Step 7`.
+
 Phases 0 and 3 run **regardless** of the phase-1 gate: MEMORY.md and the SoT live
 outside the repo and the handoff is gitignored, so none of them ever costs CI.
 Steps 8 (rebase) and 9 (output format) are situational and belong wherever they
