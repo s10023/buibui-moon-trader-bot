@@ -85,9 +85,22 @@ otherwise). Per element:
 
 - `url` — the URL actually requested at this position
 - `cached` — bool; `true` = zero network, served from `.cache/video/<id>/`
-- `meta` — `{source, video_id, author, title, publish_ts_utc, duration_s, lang, url}`,
-  or `null` when the video itself was unreachable
+- `meta` — `{source, video_id, author, title, publish_ts_utc, duration_s, lang, url,
+  chapters, caption_langs_manual, caption_langs_auto}`, or `null` when the video itself
+  was unreachable. `chapters` is `[{start_s, end_s, title}, …]` — author-declared segment
+  boundaries, `[]` on roughly half the corpus. The two `caption_langs_*` lists are the
+  ONLY provenance signal: `manual` is author-written, `auto` is YouTube ASR, and both
+  land on disk under the same `sub.<code>.vtt` name.
 - `segments` — `[{ts_s, text, lang}, …]` (empty when there is no transcript)
+- `transcript_source` — `manual_captions` | `auto_captions` | `asr_whisper` |
+  `captions_unknown` | `""`. **Carry it into the note frontmatter (step 9) verbatim.**
+  It is not decoration: every item, `raw_quote` and call-time derives from this text, and
+  an `asr_whisper` transcript is a materially weaker source than an author-written one —
+  worst on the zh channels, where ASR is weakest and `raw_quote` accuracy is load-bearing.
+  Treat a `raw_quote` lifted from an ASR transcript as **quoted-with-uncertainty**: if a
+  number in it is decision-changing, say so in the digest rather than presenting it as
+  the author's exact words. `captions_unknown` means the metadata call described no
+  caption mappings (an old cache entry) — that is "we did not ask", NOT "it was ASR".
 - `frame_paths` — **always `[]` at this stage.** This CLI fetches metadata + transcript
   only; frames are extracted later (step 5), from a separate Python call, only for the
   moments pass 1 decides are worth a frame. Don't expect frames here — that is not a bug.
@@ -180,6 +193,25 @@ span channels. Both knobs degrade quietly to a default: `matched: false` or
 `intro_recap_s: 0` means no recap rule and nothing changes, and `item_cap` falls back to
 `video_marks.ITEM_CAP` (5).
 
+⚠ **`intro_recap_s` is a per-CHANNEL constant and the video's own chapters beat it.**
+Compute the per-video window from step 1's `meta.chapters`:
+
+```bash
+PYTHONPATH=. poetry run python -c "
+import json,sys
+from tools.video_fetch import Chapter, recap_window_s
+ch = tuple(Chapter(**c) for c in json.load(sys.stdin))
+print(recap_window_s(ch))
+" <<< '<meta.chapters as JSON>'
+```
+
+A **positive** result REPLACES `intro_recap_s` for that video, in both directions — a
+shorter chapter window must narrow the trim too, or the override is just a bigger
+constant. **`0.0` means fall back to `intro_recap_s`** (no leading recap chapter, or no
+chapters at all — about half the corpus). Measured on `4Dkw1jz04lY`: @GiantCutie-K's
+configured 120s against a recap chapter that actually runs to 186s, i.e. 66s of recap
+that the constant reads as fresh content.
+
 **`item_cap` is applied by the pass-1 PROMPT, not by code — so a value fetched here and
 not passed on does nothing.** Carry it into rule 5 below as a literal. This shipped
 broken: #558 added the key to `config/youtube_channels.toml`, `tools/yt_feed.py`, its
@@ -264,9 +296,10 @@ decide; never reconcile them in the prompt.**
 budget for items this repo can actually use, so spending a slot on one it will drop at
 routing wastes the slot silently. Instruct the subagent, in this order:
 
-1. **Drop `setup` candidates inside the channel's intro-recap window — they are past
-   calls.** If `intro_recap_s` came back non-zero, set `is_intro_recap: true` on every
-   candidate with `ts < intro_recap_s`. For a `setup`, ALSO set `retrospective: true`,
+1. **Drop `setup` candidates inside the intro-recap window — they are past
+   calls.** Use the chapter-derived window from step 3 when it is positive, and
+   `intro_recap_s` otherwise; if that window is non-zero, set `is_intro_recap: true` on
+   every candidate with `ts < window`. For a `setup`, ALSO set `retrospective: true`,
    which is what makes `route_target` drop it. For a `claim` or `mechanic`, set only
    `is_intro_recap` and keep the candidate — an idea stays portable regardless of when in
    the video it was said — but the digest must show the flag so the human can decline it.
@@ -1017,7 +1050,10 @@ Contents:
 
 - YAML frontmatter: `source`, `video_id`, `url`, `author`, `title`, `duration_s`, `lang`,
   `publish_ts_utc`, `call_ts_utc`, `call_ts_source`, `stated_ts_raw`, `ingested_ts_utc`,
-  `backlog`, `chart_present`
+  `backlog`, `chart_present`, `transcript_source`
+  ⚠ **`transcript_source` is written from step 1's JSON, never narrated from memory.**
+  Before this it was neither: provenance appeared on 2 of 89 notes, as a model-authored
+  `lang: "zh (whisper)"` string, so the corpus could not be filtered by source at all.
 - the pass-1 `summary`
 - an items table: `ts` · `content_type` · `retrospective` · `rejected` · `verdict` ·
   routing outcome · `vision_confidence` · `frame_path`

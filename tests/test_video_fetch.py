@@ -6,7 +6,7 @@ import json
 import random
 import subprocess
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -14,10 +14,19 @@ import pytest
 
 from tools.video_fetch import (
     GROQ_MAX_BYTES,
+    SOURCE_ASR,
+    SOURCE_AUTO,
+    SOURCE_CAPTIONS_UNKNOWN,
+    SOURCE_MANUAL,
+    BatchResult,
+    Chapter,
+    TranscriptResult,
     Unavailable,
     VideoMeta,
     _load_cached,
     _result_to_dict,
+    _sub_langs,
+    _write_cache,
     extract_frames,
     fetch_meta,
     fetch_transcript,
@@ -25,6 +34,7 @@ from tools.video_fetch import (
     main,
     parse_video_url,
     parse_vtt,
+    recap_window_s,
     split_audio,
 )
 from tools.video_marks import FrameMark, TranscriptSegment
@@ -224,8 +234,9 @@ def test_fetch_transcript_prefers_captions(tmp_path: Path) -> None:
         (tmp_path / "sub.zh.vtt").write_text(VTT)
         return FakeProc(0, "")
 
-    segments = fetch_transcript(_meta(), run=_run, work_dir=tmp_path)
-    assert isinstance(segments, list)
+    result = fetch_transcript(_meta(), run=_run, work_dir=tmp_path)
+    assert isinstance(result, TranscriptResult)
+    segments = result.segments
     assert segments[1].text == "我在这里做多"
     assert not any("whisper" in " ".join(c) for c in captured)
 
@@ -251,8 +262,9 @@ def test_fetch_transcript_prefers_matching_lang_over_alphabetical(
         (tmp_path / "sub.zh.vtt").write_text(VTT)
         return FakeProc(0, "")
 
-    segments = fetch_transcript(_meta(), run=_run, work_dir=tmp_path)
-    assert isinstance(segments, list)
+    result = fetch_transcript(_meta(), run=_run, work_dir=tmp_path)
+    assert isinstance(result, TranscriptResult)
+    segments = result.segments
     assert segments[1].text == "我在这里做多"
     assert all(s.lang == "zh" for s in segments)
 
@@ -262,8 +274,9 @@ def test_fetch_transcript_matches_lang_prefixed_variant(tmp_path: Path) -> None:
         (tmp_path / "sub.zh-Hans.vtt").write_text(VTT)
         return FakeProc(0, "")
 
-    segments = fetch_transcript(_meta(), run=_run, work_dir=tmp_path)
-    assert isinstance(segments, list)
+    result = fetch_transcript(_meta(), run=_run, work_dir=tmp_path)
+    assert isinstance(result, TranscriptResult)
+    segments = result.segments
     assert segments and all(s.lang == "zh-Hans" for s in segments)
 
 
@@ -274,8 +287,9 @@ def test_fetch_transcript_falls_back_to_english_without_mislabeling(
         (tmp_path / "sub.en.vtt").write_text(_EN_VTT)
         return FakeProc(0, "")
 
-    segments = fetch_transcript(_meta(), run=_run, work_dir=tmp_path)
-    assert isinstance(segments, list)
+    result = fetch_transcript(_meta(), run=_run, work_dir=tmp_path)
+    assert isinstance(result, TranscriptResult)
+    segments = result.segments
     assert segments and all(s.lang == "en" for s in segments)
 
 
@@ -419,10 +433,14 @@ def test_fetch_transcript_groq_skips_malformed_segments_without_raising(
     ) -> FakeHttpResp:
         return FakeHttpResp(200, payload)
 
-    segments = fetch_transcript(
+    result = fetch_transcript(
         _meta(), run=_run, get=_get, groq_key="fake-key", work_dir=tmp_path
     )
-    assert segments == [TranscriptSegment(ts_s=1.0, text="good segment", lang="en")]
+    assert isinstance(result, TranscriptResult)
+    assert result.segments == [
+        TranscriptSegment(ts_s=1.0, text="good segment", lang="en")
+    ]
+    assert result.source == SOURCE_ASR
 
 
 # ---------------------------------------------------------------------------
@@ -1001,3 +1019,295 @@ def test_every_ytdlp_call_site_enables_an_installed_js_runtime(
     ytdlp = [cmd for cmd in calls if cmd[0] == "yt-dlp"]
     assert {_ytdlp_kind(cmd) for cmd in ytdlp} == {"meta", "captions", "audio", "media"}
     assert [cmd for cmd in ytdlp if not _enables_js_runtime(cmd)] == []
+
+
+# ---------------------------------------------------------------------------
+# ST46 — `--dump-json` already returns `chapters`, `subtitles` and
+# `automatic_captions` on the call `fetch_meta` ALREADY MAKES, so using them
+# costs parsing, not quota. Measured 2026-08-20 on three ingested videos:
+#   4Dkw1jz04lY  language=None  subtitles=[zh-Hant]  chapters=2 (first: 策略回顧及概述 0->186s)
+#   f6cUsj7u8nY  language=None  subtitles=[zh]       chapters=4 (no recap chapter)
+#   3iHFAoxunzA  language=None  subtitles=[]         chapters=0
+# The first line is the defect: with `language` absent, `meta.lang` is "" and the
+# old `_sub_langs` asked for `en` alone, so yt-dlp answered "There are no subtitles
+# for the requested languages" and a video with an AUTHOR-WRITTEN zh-Hant track fell
+# through to ASR — worst exactly where ASR is weakest.
+# ---------------------------------------------------------------------------
+
+CHAPTER_JSON = json.dumps(
+    {
+        **json.loads(YTDLP_JSON),
+        "language": None,
+        "chapters": [
+            {"start_time": 0, "title": "策略回顧及概述", "end_time": 186},
+            {"start_time": 186, "title": "BTC技術分析", "end_time": 519},
+        ],
+        "subtitles": {"zh-Hant": [{"ext": "vtt"}]},
+        "automatic_captions": {"zh-Hant": [{"ext": "vtt"}], "en": [{"ext": "vtt"}]},
+    }
+)
+
+
+def test_fetch_meta_parses_chapters() -> None:
+    meta = fetch_meta(YT_URL, run=make_run(FakeProc(0, CHAPTER_JSON)))
+    assert isinstance(meta, VideoMeta)
+    assert [c.title for c in meta.chapters] == ["策略回顧及概述", "BTC技術分析"]
+    assert meta.chapters[0].start_s == 0.0
+    assert meta.chapters[0].end_s == 186.0
+
+
+def test_fetch_meta_chapters_empty_when_absent() -> None:
+    meta = fetch_meta(YT_URL, run=make_run(FakeProc(0, YTDLP_JSON)))
+    assert isinstance(meta, VideoMeta)
+    assert meta.chapters == ()
+
+
+def test_fetch_meta_skips_malformed_chapters_without_raising() -> None:
+    """A chapter missing its times is dropped; the good ones still land.
+
+    yt-dlp's chapter list is author-supplied, so a partial entry is a live
+    possibility and must not cost the whole fetch.
+    """
+    payload = json.dumps(
+        {
+            **json.loads(YTDLP_JSON),
+            "chapters": [
+                {"title": "no times"},
+                {"start_time": 10, "end_time": 20, "title": "good"},
+                "not even a dict",
+                {"start_time": "x", "end_time": 30, "title": "bad times"},
+            ],
+        }
+    )
+    meta = fetch_meta(YT_URL, run=make_run(FakeProc(0, payload)))
+    assert isinstance(meta, VideoMeta)
+    assert [c.title for c in meta.chapters] == ["good"]
+
+
+def test_fetch_meta_records_caption_provenance_sets() -> None:
+    """`subtitles` is author-written, `automatic_captions` is ASR. Nothing
+    downstream could tell them apart before this — both land as `sub.<code>.vtt`."""
+    meta = fetch_meta(YT_URL, run=make_run(FakeProc(0, CHAPTER_JSON)))
+    assert isinstance(meta, VideoMeta)
+    assert meta.caption_langs_manual == ("zh-Hant",)
+    assert meta.caption_langs_auto == ("en", "zh-Hant")
+
+
+def test_recap_window_reads_the_leading_recap_chapter() -> None:
+    meta = fetch_meta(YT_URL, run=make_run(FakeProc(0, CHAPTER_JSON)))
+    assert isinstance(meta, VideoMeta)
+    # The channel constant for @GiantCutie-K is 120s; this video's own recap runs
+    # to 186s, so the per-channel number under-trims by 66s on this upload.
+    assert recap_window_s(meta.chapters) == 186.0
+
+
+def test_recap_window_zero_when_no_chapter_looks_like_a_recap() -> None:
+    payload = json.dumps(
+        {
+            **json.loads(YTDLP_JSON),
+            "chapters": [{"start_time": 0, "end_time": 300, "title": "認識市場結構"}],
+        }
+    )
+    meta = fetch_meta(YT_URL, run=make_run(FakeProc(0, payload)))
+    assert isinstance(meta, VideoMeta)
+    assert recap_window_s(meta.chapters) == 0.0
+
+
+def test_recap_window_zero_without_chapters() -> None:
+    """Degrade to the per-channel constant rather than trimming nothing-or-everything."""
+    assert recap_window_s(()) == 0.0
+
+
+def test_recap_window_only_counts_a_LEADING_recap_chapter() -> None:
+    """A mid-video 'recap' is a different thing and must not swallow real content."""
+    payload = json.dumps(
+        {
+            **json.loads(YTDLP_JSON),
+            "chapters": [
+                {"start_time": 0, "end_time": 100, "title": "BTC技術分析"},
+                {"start_time": 100, "end_time": 200, "title": "回顧"},
+            ],
+        }
+    )
+    meta = fetch_meta(YT_URL, run=make_run(FakeProc(0, payload)))
+    assert isinstance(meta, VideoMeta)
+    assert recap_window_s(meta.chapters) == 0.0
+
+
+def _meta_no_lang() -> VideoMeta:
+    """The measured real shape: yt-dlp returns `language: null`, but the metadata
+    call still names an author-written zh-Hant track and an ASR one."""
+    return VideoMeta(
+        source="youtube",
+        video_id="4Dkw1jz04lY",
+        author="@GiantCutie-K",
+        title="BTC",
+        publish_ts_utc="2026-08-17T00:00:00+00:00",
+        duration_s=519.0,
+        lang="",
+        url=YT_URL,
+        caption_langs_manual=("zh-Hant",),
+        caption_langs_auto=("en", "zh-Hant"),
+    )
+
+
+def test_sub_langs_asks_for_the_track_that_exists_when_language_is_null(
+    tmp_path: Path,
+) -> None:
+    """THE ST46 defect. Before this, `meta.lang == ""` produced `--sub-langs en`
+    alone, yt-dlp answered "There are no subtitles for the requested languages",
+    and a video with a human-written zh-Hant transcript fell through to ASR."""
+    captured: list[list[str]] = []
+
+    def _run(cmd: list[str]) -> FakeProc:
+        captured.append(cmd)
+        (tmp_path / "sub.zh-Hant.vtt").write_text(VTT)
+        return FakeProc(0, "")
+
+    result = fetch_transcript(_meta_no_lang(), run=_run, work_dir=tmp_path)
+    sub_langs = captured[0][captured[0].index("--sub-langs") + 1]
+    assert "zh-Hant" in sub_langs.split(",")
+    assert sub_langs != "en"
+    assert isinstance(result, TranscriptResult)
+    assert result.source == SOURCE_MANUAL
+    assert result.lang == "zh-Hant"
+
+
+def test_sub_langs_unchanged_when_language_is_present() -> None:
+    """Regression guard: the widening must not disturb the case that already worked."""
+    assert _sub_langs(_meta()) == "zh,zh-orig,en"
+
+
+def test_sub_langs_offers_author_written_codes_before_asr_ones() -> None:
+    assert _sub_langs(_meta_no_lang()).split(",")[0] == "zh-Hant"
+
+
+def test_transcript_source_is_auto_when_only_an_asr_track_matches(
+    tmp_path: Path,
+) -> None:
+    meta = replace(
+        _meta_no_lang(), caption_langs_manual=(), caption_langs_auto=("zh-Hant",)
+    )
+
+    def _run(cmd: list[str]) -> FakeProc:
+        (tmp_path / "sub.zh-Hant.vtt").write_text(VTT)
+        return FakeProc(0, "")
+
+    result = fetch_transcript(meta, run=_run, work_dir=tmp_path)
+    assert isinstance(result, TranscriptResult)
+    assert result.source == SOURCE_AUTO
+
+
+def test_transcript_source_unknown_is_not_folded_into_auto(tmp_path: Path) -> None:
+    """An old cache entry names no caption mappings. "we did not ask" and "we asked
+    and it was ASR" are different claims, so they get different values."""
+
+    def _run(cmd: list[str]) -> FakeProc:
+        (tmp_path / "sub.zh.vtt").write_text(VTT)
+        return FakeProc(0, "")
+
+    result = fetch_transcript(_meta(), run=_run, work_dir=tmp_path)
+    assert isinstance(result, TranscriptResult)
+    assert result.source == SOURCE_CAPTIONS_UNKNOWN
+    assert result.source != SOURCE_AUTO
+
+
+def test_result_to_dict_carries_transcript_source_and_chapters() -> None:
+    """The skill writes the note from this JSON, so provenance has to reach it."""
+    meta = fetch_meta(YT_URL, run=make_run(FakeProc(0, CHAPTER_JSON)))
+    assert isinstance(meta, VideoMeta)
+    out = _result_to_dict(
+        BatchResult(url=YT_URL, meta=meta, transcript_source=SOURCE_MANUAL)
+    )
+    assert out["transcript_source"] == SOURCE_MANUAL
+    meta_out = out["meta"]
+    assert isinstance(meta_out, dict)
+    assert meta_out["chapters"][0]["title"] == "策略回顧及概述"
+    # asdict keeps tuples as tuples; json.dumps writes either as a JSON array.
+    assert meta_out["caption_langs_manual"] == ("zh-Hant",)
+    assert json.loads(json.dumps(out, ensure_ascii=False))["meta"][
+        "caption_langs_manual"
+    ] == ["zh-Hant"]
+
+
+def test_cache_round_trip_rehydrates_chapters_as_objects(tmp_path: Path) -> None:
+    """`asdict` flattens chapters to dicts and `VideoMeta(**raw)` would store them AS-IS.
+
+    A frozen dataclass does no coercion, so the field would claim `tuple[Chapter, ...]`
+    while holding `list[dict]`, and `recap_window_s` would die on `chapter.title` at the
+    first cache hit. mypy cannot see it — `**` builds the lie at runtime.
+    """
+    meta = fetch_meta(YT_URL, run=make_run(FakeProc(0, CHAPTER_JSON)))
+    assert isinstance(meta, VideoMeta)
+    _write_cache(
+        tmp_path,
+        BatchResult(url=YT_URL, meta=meta, transcript_source=SOURCE_MANUAL),
+        meta,
+    )
+    got = _load_cached(tmp_path, meta.video_id)
+    assert got is not None
+    assert isinstance(got.meta, VideoMeta)
+    assert all(isinstance(c, Chapter) for c in got.meta.chapters)
+    assert got.meta.caption_langs_manual == ("zh-Hant",)
+    # The consumer that would have blown up on raw dicts.
+    assert recap_window_s(got.meta.chapters) == 186.0
+
+
+def test_cache_round_trip_preserves_transcript_source(tmp_path: Path) -> None:
+    meta = fetch_meta(YT_URL, run=make_run(FakeProc(0, CHAPTER_JSON)))
+    assert isinstance(meta, VideoMeta)
+    _write_cache(
+        tmp_path,
+        BatchResult(url=YT_URL, meta=meta, transcript_source=SOURCE_ASR),
+        meta,
+    )
+    got = _load_cached(tmp_path, meta.video_id)
+    assert got is not None
+    assert got.transcript_source == SOURCE_ASR
+
+
+def test_pre_st46_cache_entry_still_loads_and_claims_no_provenance(
+    tmp_path: Path,
+) -> None:
+    """Every cache entry written before ST46 lacks all four keys. It must load, and it
+    must NOT claim a source it never measured."""
+    path = tmp_path / "oldvid" / "asset.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "url": YT_URL,
+                "meta": {
+                    "source": "youtube",
+                    "video_id": "oldvid",
+                    "author": "@a",
+                    "title": "t",
+                    "publish_ts_utc": "2026-07-01T00:00:00+00:00",
+                    "duration_s": 10.0,
+                    "lang": "",
+                    "url": YT_URL,
+                },
+                "segments": [],
+                "frame_paths": [],
+            }
+        )
+    )
+    got = _load_cached(tmp_path, "oldvid")
+    assert got is not None
+    assert isinstance(got.meta, VideoMeta)
+    assert got.meta.chapters == ()
+    assert got.transcript_source == ""
+
+
+def test_cache_round_trip_covers_every_video_meta_field(tmp_path: Path) -> None:
+    """`_meta_from_cache` lists VideoMeta's fields by hand, so it can drift behind the
+    dataclass. Pin it against the real field list: a new field that is not carried
+    through fails HERE rather than silently reading back as its default forever."""
+    meta = fetch_meta(YT_URL, run=make_run(FakeProc(0, CHAPTER_JSON)))
+    assert isinstance(meta, VideoMeta)
+    _write_cache(tmp_path, BatchResult(url=YT_URL, meta=meta), meta)
+    got = _load_cached(tmp_path, meta.video_id)
+    assert got is not None
+    assert isinstance(got.meta, VideoMeta)
+    for f in fields(VideoMeta):
+        assert getattr(got.meta, f.name) == getattr(meta, f.name), f.name
