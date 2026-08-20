@@ -6,6 +6,13 @@
 specific to Claude Code's harness — its tools, its model tiers, its hooks, its skills and its
 memory tree.
 
+⚠ **`@AGENTS.md` is a LIVE IMPORT, not a citation. Deleting that line — or fencing it in
+backticks, or moving it inside a code block — silently unloads ~830 lines of repo
+instructions.** There is no error and nothing looks different, so the session goes on working
+against harness defaults it cannot see it lost: every verdict, footgun and gate in `AGENTS.md`
+simply stops being in context. Nothing in CI reads this file, so no gate catches it either.
+If the path must change, change it in place and re-verify the import still resolves.
+
 **Token efficiency.** Skills are dormant until invoked. Use the context-mode `ctx_*` tools
 for any command or output over ~20 lines. `/compact` at logical boundaries rather than
 waiting for autocompaction. Delegate heavy reads to a subagent when the saved main-context

@@ -129,6 +129,11 @@ LEDGERS=(
 # the handoff points at by path (ensemble_monotonicity.py).
 LEDGER_DIRS=(
     "docs/plans/video-notes"
+    # Added with /ingest-x's per-bundle note (2026-08-20). A note directory is the
+    # ONLY record a DROPPED bundle leaves, so an uncovered one loses the verdicts
+    # rather than merely the copies. Listed here the day the writer shipped, not
+    # after an audit finds it -- that gap has now been found five times.
+    "docs/plans/x-notes"
     "docs/plans/journal"
     "docs/plans/external-context"
     "docs/plans/task-marks"
