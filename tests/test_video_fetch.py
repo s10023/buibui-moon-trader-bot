@@ -25,6 +25,7 @@ from tools.video_fetch import (
     VideoMeta,
     _load_cached,
     _result_to_dict,
+    _select_caption_track,
     _sub_langs,
     _write_cache,
     extract_frames,
@@ -1311,3 +1312,103 @@ def test_cache_round_trip_covers_every_video_meta_field(tmp_path: Path) -> None:
     assert isinstance(got.meta, VideoMeta)
     for f in fields(VideoMeta):
         assert getattr(got.meta, f.name) == getattr(meta, f.name), f.name
+
+
+# ---------------------------------------------------------------------------
+# The `en-US` regression in ST46's own widening, measured 2026-08-20 on
+# 9avrSmPczP4 (@benjaminjcowen). yt-dlp reports `language: "en-US"`, ZERO
+# author-written tracks and **157** auto-caption codes led by `ab`, `aa`, `af`;
+# `en` sits at index 32 and `en-US` does not exist at all. So the widening
+# asked for the WHOLE 157-code translate matrix, and re-running that request
+# live returns `Downloading subtitles: ab, aa, en` followed by
+# `HTTP Error 429: Too Many Requests` — whichever file lands is then whatever
+# survived the rate limit. The ingested transcript was a machine translation
+# into Afar, recorded as `auto_captions` with the language silently hidden.
+#
+# Two independent properties are needed, because either one alone still ships a
+# wrong-language transcript: resolve a REGIONAL `meta.lang` down to the base
+# track that exists, and never request the matrix in the first place.
+# ---------------------------------------------------------------------------
+
+# The head of the real 157-code list, plus the two codes that matter.
+_TRANSLATE_MATRIX = (
+    "ab",
+    "aa",
+    "af",
+    "ak",
+    "sq",
+    "am",
+    "ar",
+    "hy",
+    "en",
+    "en-orig",
+    "zh-Hans",
+)
+
+
+def _meta_regional_lang() -> VideoMeta:
+    return VideoMeta(
+        source="youtube",
+        video_id="9avrSmPczP4",
+        author="@benjaminjcowen",
+        title="Bitcoin",
+        publish_ts_utc="2026-08-19T00:00:00+00:00",
+        duration_s=1200.0,
+        lang="en-US",
+        url=YT_URL,
+        caption_langs_manual=(),
+        caption_langs_auto=_TRANSLATE_MATRIX,
+    )
+
+
+def test_sub_langs_resolves_a_regional_language_to_its_base_track() -> None:
+    """`en-US` matches no caption code; `en` and `en-orig` both exist."""
+    requested = _sub_langs(_meta_regional_lang()).split(",")
+    assert requested[0] == "en"
+    assert "aa" not in requested
+    assert "ab" not in requested
+
+
+def test_sub_langs_never_requests_the_whole_translate_matrix() -> None:
+    """The 429 guard. 157 requested codes is what turned one video into a
+    partial download whose surviving file decided the transcript's language."""
+    requested = _sub_langs(_meta_regional_lang()).split(",")
+    assert len(requested) <= 4, requested
+
+
+def test_select_caption_track_prefers_the_base_language_over_english(
+    tmp_path: Path,
+) -> None:
+    """A `pt-BR` upload with `pt` and `en` tracks must not be read in English."""
+    for code in ("en", "pt"):
+        (tmp_path / f"sub.{code}.vtt").write_text(VTT)
+    chosen = _select_caption_track(sorted(tmp_path.glob("sub*.vtt")), "pt-BR")
+    assert chosen is not None
+    assert chosen.name == "sub.pt.vtt"
+
+
+def test_select_caption_track_prefers_an_original_track_to_an_alphabetical_guess(
+    tmp_path: Path,
+) -> None:
+    """`vtts[0]` is alphabetical, which is how `aa` beat the original track."""
+    for code in ("aa", "en-orig"):
+        (tmp_path / f"sub.{code}.vtt").write_text(VTT)
+    chosen = _select_caption_track(sorted(tmp_path.glob("sub*.vtt")), "de-AT")
+    assert chosen is not None
+    assert chosen.name == "sub.en-orig.vtt"
+
+
+def test_fetch_transcript_refuses_a_track_unrelated_to_a_KNOWN_language(
+    tmp_path: Path,
+) -> None:
+    """The measured outcome: only `sub.aa.vtt` survived the 429, and an Afar
+    machine translation was ingested as the video's transcript. ASR in the real
+    language beats a machine translation into an unrelated one, so this must
+    fall through rather than return a transcript."""
+
+    def _run(cmd: list[str]) -> FakeProc:
+        (tmp_path / "sub.aa.vtt").write_text(VTT)
+        return FakeProc(0, "")
+
+    result = fetch_transcript(_meta_regional_lang(), run=_run, work_dir=tmp_path)
+    assert isinstance(result, Unavailable)
