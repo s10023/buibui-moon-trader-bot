@@ -21,6 +21,7 @@ def _final(verdict: str, **card_overrides: Any) -> FinalCard:
         "tp3": 108.0 if verdict != "NO_TRADE" else None,
         "confluence_score": 6,
         "reasoning": ["a 1", "b 2", "c 3", "d 4", "e 5"],
+        "steelman": ["htf 1", "underweighted 2", "catalyst 3", "other 4"],
         "invalidation": "close below 97",
         "expected_hold": "12h",
         "valid_until_utc": "2026-07-11T12:00:00Z",
@@ -53,6 +54,18 @@ def _final(verdict: str, **card_overrides: Any) -> FinalCard:
 
 
 class TestRender:
+    def test_steelman_block_follows_the_reasoning(self) -> None:
+        """The counter-case reads after the case, never before it."""
+        out = render_card(_final("TRADE"))
+        assert "steelman:" in out
+        assert out.index("steelman:") > out.index("reasoning:")
+        assert "  - catalyst 3" in out
+
+    def test_no_steelman_block_when_the_card_carries_none(self) -> None:
+        """A NO_TRADE card may omit it, and an empty header is noise."""
+        out = render_card(_final("NO_TRADE", steelman=[]))
+        assert "steelman:" not in out
+
     def test_trade_card_layout(self) -> None:
         out = render_card(_final("TRADE"))
         assert "▲ TRADE" in out

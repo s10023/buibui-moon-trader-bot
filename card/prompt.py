@@ -7,11 +7,19 @@ import json
 from card.config import CardConfig
 from card.state import MarketState
 
+# card-v5 (2026-08-20): the rubric gains a four-angle steelman that runs
+# BEFORE the decision (ST35), and the generated prose is barred from citing
+# JSON field paths (ST30(c) — the operator's phone card read as a JSON dump
+# because v4 asked for field-path citations). Bumped because the model sees a
+# different instruction AND must emit a new required field: `ai-cards.jsonl`
+# therefore carries a v4/v5 break, and pooled `buibui_card` pundit scoring
+# straddles two rubrics exactly as it did across v3 -> v4.
+#
 # card-v4 (2026-08-12): the pundit board no longer carries a per-author `avg_r`
 # (see `card/state.py::_strip_censored_pundit_stats`) and rubric 3b names
 # `avg_atr_r` and its units. Bumped because the model sees a different payload
 # AND a different instruction — cards are comparable only within one version.
-PROMPT_VERSION = "card-v4"
+PROMPT_VERSION = "card-v5"
 
 _SCHEMA = """{
   "verdict": "TRADE" or "NO_TRADE",
@@ -23,6 +31,7 @@ _SCHEMA = """{
   "tp3": number | null,
   "confluence_score": integer 0-9,
   "reasoning": ["5 to 8 bullets, each citing a concrete number from the input"],
+  "steelman": ["exactly 4 bullets in this order: htf counter, underweighted confluence, catalyst risk, the other trader; omit on NO_TRADE"],
   "invalidation": "what price/structure event kills the idea",
   "expected_hold": "e.g. 6h, 2d",
   "valid_until_utc": "ISO-8601 timestamp",
@@ -76,17 +85,38 @@ this JSON. Pair it with n and hit_rate. The board carries no per-author R \
 number ON PURPOSE: R needs a stated stop, winning calls disproportionately \
 lack one, so an R mean over pundit calls silently drops winners and is not \
 comparable between authors.
-4. Decision: TRADE only when a limit entry at a structural level, a \
+4. Steelman: before you decide, argue AGAINST the trade you are about to \
+propose, along exactly these four angles and in this order: htf counter, \
+underweighted confluence, catalyst risk, the other trader. (a) HTF counter: \
+what the higher timeframe says against this side. (b) Underweighted \
+confluence: the input you scored lowest that argues the other way. (c) \
+Catalyst risk: a scheduled or structural event landing inside expected_hold. \
+(d) The other trader: the trade someone on the opposite side is taking here, \
+and where their stop sits. One bullet per angle, each citing a number from \
+the input, emitted as the four "steelman" bullets in that order. When an \
+angle has no case, say so and say why. Never pad an angle, and never let one \
+become a restatement of your own thesis. The purpose is not to talk \
+yourself out of the trade, it is that the other side never surprises you, \
+so an angle that lands can leave the verdict unchanged. A NO_TRADE card \
+omits this field.
+5. Decision: TRADE only when a limit entry at a structural level, a \
 structural SL beyond it, and TP1/TP2/TP3 at mapped liquidity give planned \
-RR(tp1) >= 1. Otherwise NO_TRADE naming the failed gate in no_trade_reason.
-5. Reasoning log: 5-8 bullets, each citing a concrete number from the input \
+RR(tp1) >= 1. Otherwise NO_TRADE naming the failed gate in no_trade_reason. \
+The steelman informs this call: when an angle lands, it must either change \
+the plan or be answered in the reasoning log.
+6. Reasoning log: 5-8 bullets, each citing a concrete number from the input \
 JSON.
 
-Style (applies to reasoning, invalidation, no_trade_reason): plain, \
-direct English in the active voice. No hedge words (might/could/perhaps), \
-no em dashes, no three-item rhetorical lists, no promotional adjectives, \
-no filler openers such as "Notably" or "Importantly". Short declarative \
-sentences.
+Style (applies to reasoning, steelman, invalidation, no_trade_reason): \
+plain, direct English in the active voice. No hedge words \
+(might/could/perhaps), no em dashes, no three-item rhetorical lists, no \
+promotional adjectives, no filler openers such as "Notably" or \
+"Importantly". Short declarative sentences. Write for someone reading a \
+phone at speed: name the thing in words, then give its number. Never write \
+a JSON field path: say "price sits mid-range on the daily, 50% of the \
+range" rather than "range_state.pos 0.4955", and "the daily EMA stack is \
+bearish" rather than "indicators.ema.stack is 'bearish'". The number stays; \
+the path goes.
 
 Hard rules (also enforced in code after you answer — violations are vetoed):
 - Never propose a trade against an existing open position on this symbol \

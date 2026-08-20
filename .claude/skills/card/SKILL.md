@@ -12,7 +12,7 @@ allowed-tools: Bash, Read
 # Card — Trade-Card Runner + Digest
 
 `buibui card SYMBOL` composes a MarketState (brief panel + pundit board + XS
-target + recent fires + live account), asks `claude -p` for a card-v4 trade
+target + recent fires + live account), asks `claude -p` for a card-v5 trade
 card, then a deterministic post-pass sizes the trade and enforces hard rules
 in code. Advisory-only — it routes no orders. This skill wraps it: run one
 card or a batch, collect the results, and digest them.
@@ -171,6 +171,17 @@ Per card:
    a card quoting `avg_atr_r` as though it were R has confused ATR units for
    stop units. Several authors reading an identical −1.0 was the tell that
    killed the old field.
+2c. **Steelman quality (card-v5)** — read all four angles. Code counts them
+   (exactly four non-empty bullets on a TRADE, `_STEELMAN_ANGLES`); only you
+   can see whether they ARGUE. Three defects to flag: an angle that restates
+   the card's own thesis in the negative, "no case" on all four (the source's
+   own warning — a padded steelman is worse than none, since it reads as a
+   card that was challenged), and a steelman that lands hard while the verdict
+   and reasoning log never answer it, which rubric step 5 requires. ⚠ **A
+   steelman is NOT a reason to expect more NO_TRADEs** — the rubric's stated
+   non-goal is that it exists so the other side never surprises you, not to
+   talk the card out of the trade, so a v5 cohort skewing toward NO_TRADE is
+   itself a defect to report rather than the feature working.
 3. **Sizing** — the post-pass is deterministic (P1 sizing reuse); check
    entry/SL/TP/size are internally consistent in R terms. **LOT_SIZE rounding
    is now ENFORCED in code** — the post-pass floors the quantity to the
@@ -223,7 +234,7 @@ Cross-card:
 
 Report to the operator: one line per card (symbol · direction · verdict ·
 confluence inputs · flags), then the flags explained in prose. File real
-rubric defects as card-v4 candidates in the digest. **The LOT_SIZE-rounding
+rubric defects as card-v5 candidates in the digest. **The LOT_SIZE-rounding
 and `valid_until_utc` defects are CLOSED** — both are enforced in the
 deterministic post-pass, mutation-verified. Do not re-file them; do flag a
 recurrence, which would now be a regression.
@@ -243,7 +254,10 @@ two configs, as evidence about anything. → memory `[[card-reproducibility-verd
   accrue in `ai-cards.jsonl` and nothing surfaces them, so a v3-vs-v4 read
   needs a hand join on `generated_at_ms` + `symbol`. Measured 2026-08-14:
   card-v3 is 8 resolved at 38% / −0.17R, **card-v4 is 2 resolved with 7 open**,
-  so no version comparison is available yet.
+  so no version comparison is available yet. **card-v5 (2026-08-20) starts a
+  THIRD pool rather than extending v4's** — it changed both the instruction and
+  the emitted schema, so v4 rows do not carry a `steelman` at all and pooling
+  the two answers no question about either.
 - Both ledgers carry `horizon`, read from one stamp on the card — so a batch
   splits intraday vs swing straight from `tail`. **#619 (`f52ebae`) added the
   field and backfilled every historical row**, so nothing is unstamped. Of the

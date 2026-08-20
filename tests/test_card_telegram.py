@@ -21,6 +21,7 @@ def _final(verdict: str, **card_overrides: Any) -> FinalCard:
         "tp3": 108.0 if verdict != "NO_TRADE" else None,
         "confluence_score": 6,
         "reasoning": ["a 1", "b 2", "c 3", "d 4", "e 5"],
+        "steelman": ["htf zz1", "underweighted zz2", "catalyst zz3", "other zz4"],
         "invalidation": "close below 97",
         "expected_hold": "12h",
         "valid_until_utc": "2026-07-11T12:00:00Z",
@@ -60,6 +61,20 @@ class TestBody:
     content types with opposite needs — aligned numbers that require `<pre>`,
     and reasoning prose that is unreadable inside it — so the body splits them.
     """
+
+    def test_phone_card_omits_the_steelman(self) -> None:
+        """card-v5 deliberately keeps the steelman OFF the phone.
+
+        ST30(c) was the operator finding the four numbers they act on buried
+        under prose; four more argument bullets against a 4096-char guard
+        re-opens exactly that. The steelman lives in the terminal render and
+        `ai-cards.jsonl`. This is a decision, so it is pinned as a test
+        rather than left for the next edit to quietly reverse.
+        """
+        body = card_telegram_body(_final("TRADE"))
+        assert "steelman" not in body.lower()
+        for angle in ("zz1", "zz2", "zz3", "zz4"):
+            assert angle not in body
 
     def test_headline_carries_verdict_symbol_and_direction(self) -> None:
         body = card_telegram_body(_final("TRADE"))

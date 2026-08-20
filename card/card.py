@@ -36,6 +36,12 @@ _PRICE_KEYS = ("entry", "sl", "tp1", "tp2", "tp3")
 _LIVE_MIN_N = 10
 _LIVE_NOISE_R = 0.15
 
+# The card-v5 steelman is a FIXED four (htf counter, underweighted confluence,
+# catalyst risk, the other trader). The count is pinned rather than bounded so
+# a silently-skipped angle fails validation instead of reading as a card that
+# argued all four.
+_STEELMAN_ANGLES = 4
+
 
 @dataclass(frozen=True)
 class TradeCard:
@@ -48,6 +54,14 @@ class TradeCard:
     tp3: float | None
     confluence_score: int
     reasoning: list[str]
+    steelman: list[str]
+    """The four-angle counter-case, empty on a NO_TRADE card.
+
+    Required and without a default for the same reason `FinalCard.horizon`
+    is: ST35 was approved, filed to ride the next version bump, and then
+    dropped on the floor when that version shipped. A field the code can
+    forget to populate is the same failure with a schema.
+    """
     invalidation: str | None
     expected_hold: str | None
     valid_until_utc: str | None
@@ -108,6 +122,15 @@ def validate_card_obj(obj: object) -> list[str]:
                 errors.append(f"TRADE requires positive numeric {key}")
         if not isinstance(obj.get("valid_until_utc"), str):
             errors.append("TRADE requires valid_until_utc (ISO-8601 string)")
+        steelman = obj.get("steelman")
+        if (
+            not isinstance(steelman, list)
+            or len(steelman) != _STEELMAN_ANGLES
+            or not all(isinstance(b, str) and b.strip() for b in steelman)
+        ):
+            errors.append(
+                f"TRADE requires steelman: exactly {_STEELMAN_ANGLES} non-empty strings"
+            )
     if verdict == "NO_TRADE" and not isinstance(obj.get("no_trade_reason"), str):
         errors.append("NO_TRADE requires no_trade_reason")
     return errors
@@ -131,6 +154,10 @@ def parse_trade_card(text: str) -> TradeCard:
         v = obj.get(key)
         return v if isinstance(v, str) else None
 
+    def _bullets(key: str) -> list[str]:
+        v = obj.get(key)
+        return [str(b) for b in v] if isinstance(v, list) else []
+
     return TradeCard(
         verdict=str(obj["verdict"]),
         direction=_s("direction"),
@@ -141,6 +168,7 @@ def parse_trade_card(text: str) -> TradeCard:
         tp3=_f("tp3"),
         confluence_score=int(obj["confluence_score"]),
         reasoning=[str(b) for b in obj["reasoning"]],
+        steelman=_bullets("steelman"),
         invalidation=_s("invalidation"),
         expected_hold=_s("expected_hold"),
         valid_until_utc=_s("valid_until_utc"),
