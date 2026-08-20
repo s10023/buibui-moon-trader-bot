@@ -46,7 +46,7 @@ guidance. Read the phase table; treat the step headings as a table of contents.
 | **1** | Behaviour gate: is this PR user-facing? | 1 | no |
 | **2** | Identify changed artifacts, walk each doc surface | 2, 3, 4 | no |
 | **3** | Always-run regardless of the gate: MEMORY.md, SoT reconcile | 5, 5b | no |
-| **4** | Commit and push, **decide the visibility flip**, then `gh pr create` | 7 | **one run** |
+| **4** | Commit and push, run **`make preflight`** (clean-clone gate — it REPLACES this branch's `make test`), **decide the visibility flip**, then `gh pr create` | 7 | **one run** |
 | **5** | PR body | 6 | no |
 | **6** | Pre-merge check, handoff, re-verify PR state **last** | 10a, 10b, 10c | no |
 
@@ -775,6 +775,38 @@ say so and move on.
 - If a rebase happened, use `--force-with-lease` and **only** with explicit
   user approval. Never `--force`.
 - Never push to `main` from this skill. Ever.
+
+### Then run the clean-clone pre-flight — it REPLACES `make test`
+
+```bash
+make preflight
+```
+
+**Order is load-bearing: this runs AFTER the commit above, never before.** A
+clone only ever sees *committed* state, so running it earlier — in phase 0's
+sweep, say — tests stale HEAD and reports green while the doc commits this
+phase just produced go untested. The script refuses outright on a dirty tree
+rather than reporting that green.
+
+**It replaces this branch's local `make test`, it does not add to it.** Both
+cost ~4.5 min; only this one is hermetic. It clones to a temp dir with
+`--no-hardlinks` (plain `--local` fails `Invalid cross-device link` onto `/tmp`
+here), runs `poetry install --no-root` in the clone (**6.69s** against a warm
+cache), then the same pytest invocation `make test` uses.
+
+**Why it exists here rather than as another CI job: CI already IS this gate** —
+a clean checkout, which is why it caught #666. The gap is TIMING. On a private
+repo, detection after a push costs a metered cycle, a red PR and a visibility
+flip just to read the failure. This is the last moment that is still free.
+
+⚠ **Read the banner, not the exit code** — make collapses any recipe failure to
+its own exit 2. `REFUSED` means the tree was dirty and nothing ran; `INFRA`
+means the clone or install died; only `FAILED` is a real finding.
+
+⚠ **Two things it does NOT cover**, so do not read a pass as a clean bill: an
+*absolute* default (`$HOME/...`) survives a clone untouched — `EXTERNAL_LEDGERS`
+in `deploy/backup-analytics.sh` is that shape — and it only sees code some test
+actually exercises, never an untested CLI branch.
 
 ### Then decide the visibility flip — BEFORE `gh pr create`
 

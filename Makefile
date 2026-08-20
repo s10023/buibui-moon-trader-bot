@@ -12,7 +12,7 @@ PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*" -not -path "./.
 DOCKER_IMAGE = buibui-bot
 MEMORY = $(HOME)/.claude-personal/projects/-home-kng-repo-buibui-moon-trader-bot/memory/MEMORY.md
 
-.PHONY: status wait-ci wait-ci-main post-branch-checks sanity-checks lint lint-md lint-md-fix docs-index docs-index-check lint-py-check lint-py typecheck test test-cov test-regression regression-update poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-analytics-backfill buibui-analytics-sync universe-backfill buibui-backtest buibui-combo-backtest buibui-cross-tf-backtest buibui-signal-watch buibui-param-audit buibui-param-sweep buibui-recalibrate buibui-digest buibui-web web-install web-dev web-build web-preview web-full clean-db clean export-live-db buibui-portfolio-replay buibui-forecast-audit buibui-forecast-weight-study buibui-forecast-regime buibui-xsmom-audit buibui-combine-audit buibui-carry-audit buibui-xsmom-capacity-audit buibui-xsmom-targets buibui-xsmom-execute buibui-universe-sync buibui-xsmom-daily buibui-structural-touch-audit buibui-structural-entry-sim-audit buibui-warning-value-audit buibui-sl-horizon-audit buibui-weekly-path-audit buibui-indicator-condition-audit buibui-xsrev-audit buibui-decay-review buibui-dead-surface-check buibui-giveback-study
+.PHONY: status wait-ci wait-ci-main post-branch-checks sanity-checks preflight lint lint-md lint-md-fix docs-index docs-index-check lint-py-check lint-py typecheck test test-cov test-regression regression-update poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-analytics-backfill buibui-analytics-sync universe-backfill buibui-backtest buibui-combo-backtest buibui-cross-tf-backtest buibui-signal-watch buibui-param-audit buibui-param-sweep buibui-recalibrate buibui-digest buibui-web web-install web-dev web-build web-preview web-full clean-db clean export-live-db buibui-portfolio-replay buibui-forecast-audit buibui-forecast-weight-study buibui-forecast-regime buibui-xsmom-audit buibui-combine-audit buibui-carry-audit buibui-xsmom-capacity-audit buibui-xsmom-targets buibui-xsmom-execute buibui-universe-sync buibui-xsmom-daily buibui-structural-touch-audit buibui-structural-entry-sim-audit buibui-warning-value-audit buibui-sl-horizon-audit buibui-weekly-path-audit buibui-indicator-condition-audit buibui-xsrev-audit buibui-decay-review buibui-dead-surface-check buibui-giveback-study
 
 # ⚠ The always-loaded gauge sums BOTH files. Until the 2026-08-19 AGENTS.md split
 # it printed `CLAUDE.md` alone, which was the whole tier; afterwards that same
@@ -60,6 +60,16 @@ post-branch-checks:
 sanity-checks:
 	@echo "🔍 Running the mechanical /sanity-check sweep..."
 	@PYTHONPATH=. poetry run python tools/sanity_checks.py
+
+# The clean-clone pre-flight (ST45). Run it in /post-branch phase 4, AFTER the
+# doc commits and BEFORE `gh pr create` — a clone sees COMMITTED state only, so
+# running it earlier tests stale HEAD and reports green. It REPLACES that
+# branch's `make test`; both cost ~4.5 min and only this one is hermetic.
+# ⚠ make collapses the recipe's exit code, so read the printed banner: REFUSED
+# (dirty tree) and INFRA (clone/install died) are NOT suite failures.
+preflight:
+	@echo "🧪 Running the clean-clone pre-flight..."
+	@python3 tools/clone_preflight.py
 
 # ⚠ GNU make collapses any recipe failure to exit 2, so wait_ci.py's exit-code
 # taxonomy (3 = Actions-allowance steps=0, 1 = real failure, 4 = unreadable

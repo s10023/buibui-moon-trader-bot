@@ -15,7 +15,7 @@ a result.
 
 - `make lint-py` ✓ (ruff format + lint)
 - `make typecheck` ✓ (mypy strict)
-- `make test` green
+- `make test` green — **or `make preflight`**, which runs the same pytest invocation against a fresh clone at `/post-branch` Step 7 and supersedes it. Run one, never both: they cost ~4.5 min each and only the clone is hermetic.
 - `make test-regression` goldens unmoved — **required only when the diff touches the
   backtest surface**: `analytics/backtest/`, `analytics/strategies/`,
   `analytics/signal_config.py`, `config/*signal_watch*.toml`, `config/strategy_params.toml`,
@@ -69,6 +69,7 @@ make status            # repo shape: file counts, always-loaded KB, MEMORY.md KB
 make post-branch-checks  # the mechanical half of /post-branch (12 legs, ADVISORY)
 make sanity-checks       # the mechanical half of /sanity-check (7 legs, GATES, runs in CI)
 make wait-ci PR=<n>      # wait on a PR's checks    (make wait-ci-main for main's push run)
+make preflight           # ST45 clean-clone gate; /post-branch Step 7, REPLACES make test
 ```
 
 **`make post-branch-checks` and `make sanity-checks` ARE the walk — a hand walk is not.**
@@ -851,6 +852,17 @@ free either way.
 Invoking it is neither optional nor conditional — the skill's own Step 1 behaviour gate
 decides whether a docs sweep is warranted, so invoking it on a pure refactor costs one cheap
 check.
+
+**Step 7 also runs `make preflight`** — clone the branch's committed HEAD with
+`--no-hardlinks`, `poetry install --no-root` (6.69s warm), and the suite. It is the third
+answer to a gitignored path that exists on the dev box and nowhere else (#586, #666), and the
+first one that is a mechanism rather than prose: the standing rule "pass every path
+explicitly" would NOT have caught #666, because the defect was **production code loading a
+config it never reads**, so a fixture `--config` goes green while the CLI stays broken on a
+clean clone. **CI already is this gate — the gap it closes is TIMING**, since detection after
+a push costs a metered cycle, a red PR and a visibility flip just to read the failure. ⚠ It
+does not catch an *absolute* `$HOME` default (identical in the clone — `EXTERNAL_LEDGERS` in
+`deploy/backup-analytics.sh` is that shape), nor any CLI branch no test reaches.
 
 **Why the split is load-bearing:** running the doc walk after PR creation pushes a fix onto
 an open PR, and every such push re-runs all CI (`pull_request: synchronize`) — ~3000 tests
