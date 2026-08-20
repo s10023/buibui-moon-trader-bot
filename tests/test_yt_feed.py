@@ -15,10 +15,12 @@ from tools.yt_feed import (
     FeedConfig,
     _resolve_durations,
     backfill_channel,
+    backfill_playlist,
     channel_hint,
     estimate_tokens,
     floor_for,
     is_intro_recap,
+    list_channel_playlists,
     load_feed_config,
     load_state,
     main,
@@ -163,7 +165,7 @@ class TestLoadFeedConfig:
 class TestState:
     def test_missing_file_returns_fresh(self, tmp_path: Path) -> None:
         state = load_state(tmp_path / "yt-feed-state.json")
-        assert state == {"version": 1, "channels": {}, "videos": {}}
+        assert state == {"version": 1, "channels": {}, "videos": {}, "playlists": {}}
 
     def test_malformed_json_aborts(self, tmp_path: Path) -> None:
         p = tmp_path / "s.json"
@@ -1320,3 +1322,450 @@ class TestResolveEmitsNewKeys:
         block = resolve_handle(get, "K", "somehandle")
         assert 'handle = "@somehandle"' in block
         assert "intro_recap_s = 0" in block
+
+
+class TestChannelPlaylists:
+    """ST40: a channel's curated playlists were invisible — only `UU…` was ever paged.
+
+    `uploads_playlist_id()` builds the uploads mirror and nothing called
+    `playlists.list`, so hand-curated `PL…` playlists could not be discovered at
+    all. They are where the educational / framework material lives, which is
+    Stream B — the stream that has never been tested — while Stream C author picks
+    are measured-dead. The plumbing already existed: `_fetch_playlist_page` takes
+    an arbitrary playlist id and was merely only ever called with the mirror.
+    """
+
+    def _pages(self) -> dict[str, list[FakeResp]]:
+        page1 = {
+            "items": [
+                {
+                    "id": "PLaaaaaaaaaaaaaaa1",
+                    "snippet": {"title": "Order Flow 101"},
+                    "contentDetails": {"itemCount": 52},
+                }
+            ],
+            "nextPageToken": "P2",
+        }
+        page2 = {
+            "items": [
+                {
+                    "id": "PLaaaaaaaaaaaaaaa2",
+                    "snippet": {"title": "Weekly recaps"},
+                    "contentDetails": {"itemCount": 7},
+                }
+            ]
+        }
+        return {"playlists": [FakeResp(200, page1), FakeResp(200, page2)]}
+
+    def test_enumerates_the_playlists_endpoint_keyed_on_channel(self) -> None:
+        get = FakeGet(self._pages())
+
+        found = list_channel_playlists(
+            get, "K", "UCabcdefghijklmnopqrstu", dict(FRESH_STATE)
+        )
+
+        url, params = get.calls[0]
+        assert url.endswith("/playlists")
+        assert params["channelId"] == "UCabcdefghijklmnopqrstu"
+        assert [p.playlist_id for p in found] == [
+            "PLaaaaaaaaaaaaaaa1",
+            "PLaaaaaaaaaaaaaaa2",
+        ]
+
+    def test_never_touches_playlistitems(self) -> None:
+        """Enumeration is 1 quota unit per page; listing CONTENTS is a separate ask."""
+        get = FakeGet(self._pages())
+
+        list_channel_playlists(get, "K", "UCabcdefghijklmnopqrstu", dict(FRESH_STATE))
+
+        assert not [c for c in get.calls if c[0].endswith("playlistItems")]
+
+    def test_reports_the_tranche_cursor_from_state(self) -> None:
+        state = {
+            **FRESH_STATE,
+            "playlists": {"PLaaaaaaaaaaaaaaa1": {"examined": 20}},
+        }
+
+        found = list_channel_playlists(
+            get_ := FakeGet(self._pages()), "K", "UCx", state
+        )
+        assert get_.calls
+
+        by_id = {p.playlist_id: p for p in found}
+        assert (
+            by_id["PLaaaaaaaaaaaaaaa1"].examined,
+            by_id["PLaaaaaaaaaaaaaaa1"].item_count,
+        ) == (20, 52)
+        assert by_id["PLaaaaaaaaaaaaaaa2"].examined == 0
+
+
+class TestBackfillPlaylist:
+    """One TRANCHE of a curated playlist, on the SAME video ledger as the uploads path."""
+
+    def _items(self, n: int, start: int = 1) -> list[dict[str, Any]]:
+        return [
+            playlist_item(f"bbbbbbbbb{i:02d}", f"lesson {i}", "2026-07-30T00:00:00Z")
+            for i in range(start, start + n)
+        ]
+
+    def _routes(
+        self, items: list[dict[str, Any]], token: str | None = None
+    ) -> dict[str, list[FakeResp]]:
+        page: dict[str, Any] = {"items": items}
+        if token is not None:
+            page["nextPageToken"] = token
+        return {
+            "playlistItems": [FakeResp(200, page)],
+            "videos": [
+                FakeResp(
+                    200,
+                    {
+                        "items": [
+                            video_item(i["contentDetails"]["videoId"], "PT30M")
+                            for i in items
+                        ]
+                    },
+                )
+            ],
+        }
+
+    def test_pages_the_named_playlist_not_the_uploads_mirror(self) -> None:
+        """The whole defect in one assertion."""
+        get = FakeGet(self._routes(self._items(2)))
+
+        backfill_playlist(
+            make_channel(),
+            "PLcuratedxxxxxxxx",
+            dict(FRESH_STATE),
+            now=NOW,
+            get=get,
+            api_key="K",
+            since=None,
+            max_videos=10,
+        )
+
+        playlist_calls = [c for c in get.calls if c[0].endswith("playlistItems")]
+        assert playlist_calls[0][1]["playlistId"] == "PLcuratedxxxxxxxx"
+        assert not any("UU" in c[1].get("playlistId", "") for c in playlist_calls)
+
+    def test_a_second_tranche_resumes_where_the_first_stopped(self) -> None:
+        """Constraint 1: 50+ videos is ~1.5M tokens, so a whole playlist at once is
+        the same as not offering it. A curated playlist is in its author's order,
+        so there is no chronological watermark to lean on — only this cursor."""
+        state: dict[str, Any] = {**FRESH_STATE, "playlists": {"PLx": {"examined": 2}}}
+        get = FakeGet(self._routes(self._items(4)))
+
+        result = backfill_playlist(
+            make_channel(),
+            "PLx",
+            state,
+            now=NOW,
+            get=get,
+            api_key="K",
+            since=None,
+            max_videos=10,
+        )
+
+        assert [c.video_id for c in result.candidates] == ["bbbbbbbbb03", "bbbbbbbbb04"]
+        assert result.playlist is not None
+        assert (result.playlist.examined_before, result.playlist.examined_after) == (
+            2,
+            4,
+        )
+
+    def test_the_cursor_stops_at_the_first_entry_this_run_never_read(self) -> None:
+        """The subtle one: advancing by the whole PAGE would step the next tranche
+        past videos this run never looked at, and the cursor only moves forward —
+        so those videos would never be offered again."""
+        get = FakeGet(self._routes(self._items(5), token="P2"))
+
+        result = backfill_playlist(
+            make_channel(),
+            "PLx",
+            dict(FRESH_STATE),
+            now=NOW,
+            get=get,
+            api_key="K",
+            since=None,
+            max_videos=2,
+        )
+
+        assert len(result.candidates) == 2
+        assert result.playlist is not None
+        assert result.playlist.examined_after == 2  # NOT 5, the page length
+        assert result.playlist.exhausted is False
+
+    def test_exhausted_when_the_playlist_ends(self) -> None:
+        get = FakeGet(self._routes(self._items(2)))
+
+        result = backfill_playlist(
+            make_channel(),
+            "PLx",
+            dict(FRESH_STATE),
+            now=NOW,
+            get=get,
+            api_key="K",
+            since=None,
+            max_videos=10,
+        )
+
+        assert result.playlist is not None
+        assert result.playlist.exhausted is True
+
+    def test_the_video_ledger_is_shared_with_the_uploads_path(self) -> None:
+        """Constraint 2: playlists CONTAIN uploads, so a separate namespace would
+        re-present videos already decided — the re-ask problem `paused` had to fix."""
+        state: dict[str, Any] = {
+            **FRESH_STATE,
+            "videos": {"bbbbbbbbb01": {"status": "ingested"}},
+        }
+        get = FakeGet(self._routes(self._items(2)))
+
+        result = backfill_playlist(
+            make_channel(),
+            "PLx",
+            state,
+            now=NOW,
+            get=get,
+            api_key="K",
+            since=None,
+            max_videos=10,
+        )
+
+        assert [c.video_id for c in result.candidates] == ["bbbbbbbbb02"]
+        assert result.excluded["ledgered"] == 1
+
+    def test_api_error_is_reported_not_raised(self) -> None:
+        get = FakeGet({"playlistItems": [FakeResp(404, {})]})
+
+        result = backfill_playlist(
+            make_channel(),
+            "PLx",
+            dict(FRESH_STATE),
+            now=NOW,
+            get=get,
+            api_key="K",
+            since=None,
+            max_videos=10,
+        )
+
+        assert result.errors and result.candidates == []
+
+
+class TestPlaylistCursorIsWrittenOnlyByMark:
+    """`mark` stays the ONLY state writer; the cursor advances, unlike a channel floor."""
+
+    def test_playlist_seen_advances_the_cursor(self, tmp_path: Path) -> None:
+        path = tmp_path / "state.json"
+
+        run_mark(
+            path,
+            ingested=[],
+            skipped=[],
+            channel_seen=[],
+            playlist_seen=["PLxxxxxxxxxxxx=30"],
+            candidates_json=None,
+            now=NOW,
+        )
+
+        assert load_state(path)["playlists"]["PLxxxxxxxxxxxx"]["examined"] == 30
+
+    def test_the_cursor_never_moves_backwards(self, tmp_path: Path) -> None:
+        """A channel floor is STATIC (setdefault); a tranche cursor is PROGRESS (max).
+        Replaying an older payload must not re-present videos already decided."""
+        path = tmp_path / "state.json"
+        run_mark(
+            path,
+            ingested=[],
+            skipped=[],
+            channel_seen=[],
+            playlist_seen=["PLxxxxxxxxxxxx=30"],
+            candidates_json=None,
+            now=NOW,
+        )
+
+        run_mark(
+            path,
+            ingested=[],
+            skipped=[],
+            channel_seen=[],
+            playlist_seen=["PLxxxxxxxxxxxx=10"],
+            candidates_json=None,
+            now=NOW,
+        )
+
+        assert load_state(path)["playlists"]["PLxxxxxxxxxxxx"]["examined"] == 30
+
+    def test_the_cursor_is_derived_from_the_backfill_payload(
+        self, tmp_path: Path
+    ) -> None:
+        path = tmp_path / "state.json"
+        payload = tmp_path / "cands.json"
+        payload.write_text(
+            json.dumps(
+                {
+                    "candidates": [],
+                    "playlists": [
+                        {
+                            "playlist_id": "PLxxxxxxxxxxxx",
+                            "examined_after": 12,
+                            "examined_before": 0,
+                            "exhausted": False,
+                            "title": "",
+                        }
+                    ],
+                }
+            )
+        )
+
+        run_mark(
+            path,
+            ingested=[],
+            skipped=[],
+            channel_seen=[],
+            playlist_seen=[],
+            candidates_json=payload,
+            now=NOW,
+        )
+
+        assert load_state(path)["playlists"]["PLxxxxxxxxxxxx"]["examined"] == 12
+
+    def test_a_malformed_pair_is_rejected(self, tmp_path: Path) -> None:
+        with pytest.raises(SystemExit):
+            run_mark(
+                tmp_path / "s.json",
+                ingested=[],
+                skipped=[],
+                channel_seen=[],
+                playlist_seen=["not-a-playlist=3"],
+                candidates_json=None,
+                now=NOW,
+            )
+
+    def test_a_non_numeric_cursor_is_rejected(self, tmp_path: Path) -> None:
+        with pytest.raises(SystemExit):
+            run_mark(
+                tmp_path / "s.json",
+                ingested=[],
+                skipped=[],
+                channel_seen=[],
+                playlist_seen=["PLxxxxxxxxxxxx=soon"],
+                candidates_json=None,
+                now=NOW,
+            )
+
+    def test_a_pre_st40_state_file_gains_the_key_without_a_reset(
+        self, tmp_path: Path
+    ) -> None:
+        """A version bump would make every existing file "unrecognized", and that
+        refusal exists to stop a reset that re-queues everything ever ingested."""
+        path = tmp_path / "state.json"
+        path.write_text(json.dumps({"version": 1, "channels": {}, "videos": {"z": {}}}))
+
+        state = load_state(path)
+
+        assert state["playlists"] == {}
+        assert state["videos"] == {"z": {}}
+
+
+class TestMainPlaylistWiring:
+    def test_playlists_subcommand_prints_each_playlist(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        tmp_path: Path,
+    ) -> None:
+        monkeypatch.setenv("YOUTUBE_API_KEY", "K")
+        get = FakeGet(
+            {
+                "playlists": [
+                    FakeResp(
+                        200,
+                        {
+                            "items": [
+                                {
+                                    "id": "PLaaaaaaaaaaaaaaa1",
+                                    "snippet": {"title": "Order Flow 101"},
+                                    "contentDetails": {"itemCount": 52},
+                                }
+                            ]
+                        },
+                    )
+                ]
+            }
+        )
+
+        rc = main(
+            [
+                "playlists",
+                "UCabcdefghijklmnopqrstu",
+                "--state",
+                str(tmp_path / "s.json"),
+            ],
+            get=get,
+            now=NOW,
+        )
+
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "PLaaaaaaaaaaaaaaa1" in out
+        assert "0/52 examined" in out
+
+    def test_playlists_needs_no_channel_config(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        tmp_path: Path,
+    ) -> None:
+        """`config/youtube_channels.toml` is GITIGNORED — absent on a fresh clone and in CI.
+
+        `playlists` takes a raw UC id and reads nothing from it, so loading it would
+        SystemExit on a file the subcommand never uses. That shipped, and CI caught it while
+        every local run passed on a machine that happens to have the config.
+
+        ⚠ **The obvious fix — pass a fixture `--config` — would have HIDDEN this.** The test
+        would go green while the CLI stayed broken for anyone without operator data. So this
+        test asserts the ABSENCE of the dependency, which means pointing `--config` at a path
+        that does not exist and requiring success anyway.
+        """
+        monkeypatch.setenv("YOUTUBE_API_KEY", "K")
+        get = FakeGet({"playlists": [FakeResp(200, {"items": []})]})
+
+        rc = main(
+            [
+                "playlists",
+                "UCabcdefghijklmnopqrstu",
+                "--config",
+                str(tmp_path / "does-not-exist.toml"),
+                "--state",
+                str(tmp_path / "s.json"),
+            ],
+            get=get,
+            now=NOW,
+        )
+
+        assert rc == 0
+        assert "0 playlist(s)" in capsys.readouterr().out
+
+    def test_backfill_rejects_a_playlist_id_that_is_not_one(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("YOUTUBE_API_KEY", "K")
+        cfg = tmp_path / "channels.toml"
+        cfg.write_text('[[channel]]\nid = "UCabcdefghijklmnopqrstu"\nname = "Test"\n')
+
+        with pytest.raises(SystemExit):
+            main(
+                [
+                    "backfill",
+                    "UCabcdefghijklmnopqrstu",
+                    "--playlist",
+                    "https://youtube.com/playlist?list=PLx",
+                    "--config",
+                    str(cfg),
+                    "--state",
+                    str(tmp_path / "s.json"),
+                ],
+                get=FakeGet({}),
+                now=NOW,
+            )

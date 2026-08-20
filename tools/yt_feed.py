@@ -19,6 +19,7 @@ import os
 import re
 import sys
 import tomllib
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -43,6 +44,10 @@ DEFAULT_STATE_PATH = Path("docs/plans/yt-feed-state.json")
 _VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 # YouTube channel ids are always 24 chars: "UC" + 22 of [A-Za-z0-9_-]
 _CHANNEL_ID_RE = re.compile(r"^UC[A-Za-z0-9_-]{22}$")
+# Curated playlists are `PL…`; the auto-generated mirrors are `UU…` (uploads),
+# `FL…` (favourites), `LL…` (liked). All are accepted so a `UU` id pasted by hand
+# reaches the same tranche machinery as a curated one.
+_PLAYLIST_ID_RE = re.compile(r"^(?:PL|UU|FL|LL|OL)[A-Za-z0-9_-]{10,}$")
 _ISO_DUR_RE = re.compile(
     r"^P(?:(?P<d>\d+)D)?(?:T(?:(?P<h>\d+)H)?(?:(?P<m>\d+)M)?(?:(?P<s>\d+)S)?)?$"
 )
@@ -212,7 +217,7 @@ def title_excluded(title: str, channel: ChannelConfig) -> bool:
 
 
 def _fresh_state() -> dict[str, Any]:
-    return {"version": _STATE_VERSION, "channels": {}, "videos": {}}
+    return {"version": _STATE_VERSION, "channels": {}, "videos": {}, "playlists": {}}
 
 
 def load_state(path: Path) -> dict[str, Any]:
@@ -234,6 +239,11 @@ def load_state(path: Path) -> dict[str, Any]:
         raise SystemExit(
             f"unrecognized state shape/version in {path} — refusing to silently reset"
         )
+    # `playlists` post-dates the other three keys, so a state file written before
+    # ST40 legitimately has none. Injected rather than version-bumped: a bump would
+    # make every existing file "unrecognized", and the refusal above exists to stop
+    # a reset that re-queues everything ever ingested.
+    state.setdefault("playlists", {})
     return state
 
 
@@ -311,6 +321,28 @@ class Candidate:
     lang_hint: str
 
 
+@dataclass(frozen=True)
+class PlaylistInfo:
+    """One playlist owned by a channel, as `playlists.list` reports it."""
+
+    playlist_id: str
+    channel_id: str
+    title: str
+    item_count: int
+    examined: int
+
+
+@dataclass(frozen=True)
+class PlaylistProgress:
+    """How far into a playlist this run reached — the tranche cursor `mark` persists."""
+
+    playlist_id: str
+    title: str
+    examined_before: int
+    examined_after: int
+    exhausted: bool
+
+
 @dataclass
 class ChannelResult:
     channel_id: str
@@ -319,6 +351,8 @@ class ChannelResult:
     candidates: list[Candidate] = field(default_factory=list)
     excluded: dict[str, int] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
+    # Set only by the playlist path; `mark --playlist-seen` persists it.
+    playlist: PlaylistProgress | None = None
 
 
 def _api_error_reason(body: str) -> str:
@@ -353,6 +387,128 @@ def _fetch_playlist_page(
     if page_token is not None:
         params["pageToken"] = page_token
     return _api_get(get, api_key, "playlistItems", params)
+
+
+def _fetch_channel_playlists_page(
+    get: HttpGet, api_key: str, channel_id: str, page_token: str | None
+) -> dict[str, Any]:
+    params = {
+        "part": "snippet,contentDetails",
+        "channelId": channel_id,
+        "maxResults": str(_PAGE_SIZE),
+    }
+    if page_token is not None:
+        params["pageToken"] = page_token
+    return _api_get(get, api_key, "playlists", params)
+
+
+def list_channel_playlists(
+    get: HttpGet, api_key: str, channel_id: str, state: dict[str, Any]
+) -> list[PlaylistInfo]:
+    """A channel's PUBLIC curated playlists, with this ledger's tranche cursor.
+
+    The uploads mirror (`UU…`) is what `poll` and `backfill` already page, and it
+    is not returned here — `playlists.list` does not report the auto-generated
+    mirrors at all, which is precisely why they were the only thing reachable.
+
+    1 quota unit per page against 10,000/day, so cost is not a consideration.
+    """
+    found: list[PlaylistInfo] = []
+    token: str | None = None
+    while True:
+        page = _fetch_channel_playlists_page(get, api_key, channel_id, token)
+        items = page.get("items", [])
+        if not items:
+            break
+        for item in items:
+            pid = str(item.get("id", ""))
+            if not pid:
+                continue
+            found.append(
+                PlaylistInfo(
+                    playlist_id=pid,
+                    channel_id=channel_id,
+                    title=str(item.get("snippet", {}).get("title", "")),
+                    item_count=int(item.get("contentDetails", {}).get("itemCount", 0)),
+                    examined=playlist_cursor(pid, state),
+                )
+            )
+        token = page.get("nextPageToken")
+        if token is None:
+            break
+    return found
+
+
+def playlist_cursor(playlist_id: str, state: dict[str, Any]) -> int:
+    """Leading entries of this playlist already examined by an earlier tranche."""
+    entry = state.get("playlists", {}).get(playlist_id)
+    return int(entry["examined"]) if entry else 0
+
+
+def _collect_playlist_items(
+    get: HttpGet,
+    api_key: str,
+    playlist_id: str,
+    *,
+    since: datetime | None,
+    max_videos: int,
+    skip: int = 0,
+    on_404: Callable[[], str] | None = None,
+) -> tuple[list[dict[str, Any]], int, bool]:
+    """Page a playlist. Returns (entries kept, entries CONSUMED, playlist exhausted).
+
+    "Consumed" is the tranche cursor, and it counts only entries this run either
+    skipped or kept — never a page's unread tail. Advancing it by the whole page
+    would step the next tranche PAST videos this one never looked at, and because
+    the cursor only moves forward those videos would never be offered again.
+
+    `since` stops paging early, which is only sound on a chronological playlist:
+    an uploads mirror is newest-first, a curated one is in whatever order its
+    author chose. The playlist path therefore passes None here and filters on
+    `since` in `_scan_items` instead.
+    """
+    collected: list[dict[str, Any]] = []
+    examined = 0
+    token: str | None = None
+    exhausted = False
+    while True:
+        try:
+            page = _fetch_playlist_page(get, api_key, playlist_id, token)
+        except FeedApiError as exc:
+            if token is None and on_404 is not None and "404" in str(exc):
+                playlist_id = on_404()
+                page = _fetch_playlist_page(get, api_key, playlist_id, token)
+            else:
+                raise
+        items = page.get("items", [])
+        if not items:
+            # guards a malformed API page (nextPageToken present but zero
+            # items) from paging forever with no progress
+            exhausted = True
+            break
+        drop = min(len(items), max(0, skip - examined))
+        examined += drop
+        remaining = items[drop:]
+        taken = remaining[: max(0, max_videos - len(collected))]
+        collected.extend(taken)
+        examined += len(taken)
+        if len(collected) >= max_videos:
+            # The cap can land mid-page, which is exactly why `examined` counts
+            # `taken` rather than the page: the cursor must stop at the first entry
+            # this run never read, not at the end of the page it stopped inside.
+            break
+        token = page.get("nextPageToken")
+        if token is None:
+            exhausted = True
+            break
+        last_pub_raw = items[-1].get("contentDetails", {}).get("videoPublishedAt")
+        if (
+            since is not None
+            and last_pub_raw is not None
+            and datetime.fromisoformat(last_pub_raw) < since
+        ):
+            break
+    return collected, examined, exhausted
 
 
 def _resolve_uploads_id(get: HttpGet, api_key: str, channel_id: str) -> str:
@@ -525,40 +681,79 @@ def backfill_channel(
     """
     excluded = dict.fromkeys(_EXCLUDE_REASONS, 0)
     result = ChannelResult(channel.id, channel.name, "", [], excluded, [])
-    collected: list[dict[str, Any]] = []
-    token: str | None = None
     try:
-        uploads = uploads_playlist_id(channel.id)
-        while True:
-            try:
-                page = _fetch_playlist_page(get, api_key, uploads, token)
-            except FeedApiError as exc:
-                if token is None and "404" in str(exc):
-                    uploads = _resolve_uploads_id(get, api_key, channel.id)
-                    page = _fetch_playlist_page(get, api_key, uploads, token)
-                else:
-                    raise
-            items = page.get("items", [])
-            if not items:
-                # guards a malformed API page (nextPageToken present but zero
-                # items) from paging forever with no progress
-                break
-            collected.extend(items[: max_videos - len(collected)])
-            token = page.get("nextPageToken")
-            last_pub_raw = (
-                items[-1].get("contentDetails", {}).get("videoPublishedAt")
-                if items
-                else None
-            )
-            past_since = (
-                since is not None
-                and last_pub_raw is not None
-                and datetime.fromisoformat(last_pub_raw) < since
-            )
-            if token is None or len(collected) >= max_videos or past_since:
-                break
+        collected, _examined, _exhausted = _collect_playlist_items(
+            get,
+            api_key,
+            uploads_playlist_id(channel.id),
+            since=since,
+            max_videos=max_videos,
+            on_404=lambda: _resolve_uploads_id(get, api_key, channel.id),
+        )
         survivors = _scan_items(
             channel, collected, ledger=state["videos"], floor=since, excluded=excluded
+        )
+        result.candidates = _resolve_durations(
+            get, api_key, survivors, channel, now, excluded
+        )
+    except FeedApiError as exc:
+        result.errors.append(str(exc))
+    return result
+
+
+def backfill_playlist(
+    channel: ChannelConfig,
+    playlist_id: str,
+    state: dict[str, Any],
+    *,
+    now: datetime,
+    get: HttpGet,
+    api_key: str,
+    since: datetime | None,
+    max_videos: int,
+) -> ChannelResult:
+    """One TRANCHE of a curated playlist: floor ignored, ledger respected, read-only.
+
+    Two constraints decide whether this is usable at all, and both are structural
+    rather than stylistic:
+
+    1. **It must be tranche-able.** A single education playlist runs to 50+ videos
+       ≈ 1.5M tokens, so presenting the whole thing at once is the same as not
+       offering it. `max_videos` bounds one run and the cursor in `state` carries
+       progress across days — the cursor is the only reason the head of a curated
+       playlist is not re-examined every run, because a curated playlist is in its
+       author's order and carries no chronological watermark to lean on.
+    2. **The video ledger stays SHARED with the uploads path.** Playlists contain
+       uploads, so a separate namespace would re-present videos already ingested —
+       exactly the re-ask problem `paused = true` had to be invented for. The
+       ledger passed to `_scan_items` is the same `state["videos"]`, so a video
+       reached both ways is excluded once, whichever path saw it first.
+    """
+    excluded = dict.fromkeys(_EXCLUDE_REASONS, 0)
+    result = ChannelResult(channel.id, channel.name, "", [], excluded, [])
+    before = playlist_cursor(playlist_id, state)
+    try:
+        collected, examined, exhausted = _collect_playlist_items(
+            get,
+            api_key,
+            playlist_id,
+            since=None,  # curated order is not chronological — see the pager
+            max_videos=max_videos,
+            skip=before,
+        )
+        result.playlist = PlaylistProgress(
+            playlist_id=playlist_id,
+            title="",
+            examined_before=before,
+            examined_after=examined,
+            exhausted=exhausted,
+        )
+        survivors = _scan_items(
+            channel,
+            collected,
+            ledger=state["videos"],
+            floor=since,
+            excluded=excluded,
         )
         result.candidates = _resolve_durations(
             get, api_key, survivors, channel, now, excluded
@@ -574,7 +769,8 @@ def run_mark(
     ingested: list[str],
     skipped: list[str],
     channel_seen: list[str],
-    candidates_json: Path | None,
+    playlist_seen: list[str] | None = None,
+    candidates_json: Path | None = None,
     now: datetime,
 ) -> int:
     """The ONLY state writer. Every entry is an explicit outcome (spec §3)."""
@@ -586,6 +782,7 @@ def run_mark(
     state = load_state(state_path)
     meta: dict[str, dict[str, str]] = {}
     derived_seen: list[str] = []
+    derived_playlists: list[str] = []
     if candidates_json is not None:
         payload = json.loads(candidates_json.read_text(encoding="utf-8"))
         for cand in payload.get("candidates", []):
@@ -606,6 +803,14 @@ def run_mark(
             floor_raw = chan.get("floor_ts_utc")
             if cid_raw and floor_raw:
                 derived_seen.append(f"{cid_raw}={floor_raw}")
+        # Same derivation for a playlist tranche: the backfill payload already
+        # carries the cursor, so /ingest-feed persists it with the mark it was
+        # already making rather than a second remembered flag.
+        for pl in payload.get("playlists", []):
+            pid_raw = pl.get("playlist_id")
+            after = pl.get("examined_after")
+            if pid_raw and after is not None:
+                derived_playlists.append(f"{pid_raw}={after}")
     count = 0
     for status, ids in (("ingested", ingested), ("skipped", skipped)):
         for vid in ids:
@@ -642,6 +847,19 @@ def run_mark(
         state["channels"].setdefault(
             cid, {"added_ts_utc": now.isoformat(), "floor_ts_utc": floor_raw}
         )
+    for pair in [*(playlist_seen or []), *derived_playlists]:
+        pid, sep, raw = pair.partition("=")
+        if sep != "=" or not _PLAYLIST_ID_RE.match(pid) or not raw.isdigit():
+            raise SystemExit(f"bad --playlist-seen (want PL…=<int>): {pair!r}")
+        # MAX, not setdefault: unlike a channel floor — which is static, and whose
+        # whole purpose is to never move — a playlist cursor is PROGRESS. It must
+        # advance to carry a tranche across days, and it must never go backwards,
+        # or a re-run of an older payload would re-present videos already decided.
+        entry = state["playlists"].get(pid, {})
+        state["playlists"][pid] = {
+            "examined": max(int(entry.get("examined", 0)), int(raw)),
+            "updated_ts_utc": now.isoformat(),
+        }
     save_state(state_path, state)
     return count
 
@@ -682,6 +900,9 @@ def _results_to_dict(
         # indistinguishable from a broken one, which is the exact confusion the
         # `backfill`-to-diagnose rule exists to resolve.
         "paused": [{"channel_id": c.id, "channel_name": c.name} for c in paused],
+        # Emitted so `mark --candidates-json` can persist the tranche cursor
+        # without the operator repeating it; absent on every non-playlist run.
+        "playlists": [asdict(r.playlist) for r in results if r.playlist],
         "channels": [
             {
                 "channel_id": r.channel_id,
@@ -707,6 +928,17 @@ def _format_human(
             f"# {r.channel_name} ({r.channel_id})"
             + (f" — excluded: {drops}" if drops else "")
         )
+        if r.playlist is not None:
+            pl = r.playlist
+            reach = (
+                "playlist exhausted"
+                if pl.exhausted
+                else f"resume at {pl.examined_after}"
+            )
+            lines.append(
+                f"# playlist {pl.playlist_id} — entries "
+                f"{pl.examined_before}..{pl.examined_after} this tranche, {reach}"
+            )
         for e in r.errors:
             lines.append(f"  ERROR: {e}")
         for c in r.candidates:
@@ -748,6 +980,12 @@ def main(
         "--since", default=None, help="ISO date/ts; stop at older uploads"
     )
     p_back.add_argument(
+        "--playlist",
+        default=None,
+        help="PL… id: page THAT playlist in tranches instead of the uploads mirror "
+        "(cursor persists via `mark --playlist-seen`)",
+    )
+    p_back.add_argument(
         "--max-videos",
         type=int,
         default=_DEFAULT_BACKFILL_MAX,
@@ -771,11 +1009,27 @@ def main(
         help="UC…=<floor iso ts> — persists a channel entry (setdefault only)",
     )
     p_mark.add_argument(
+        "--playlist-seen",
+        action="append",
+        default=[],
+        help="PL…=<int> — advances a playlist tranche cursor (max, never backwards)",
+    )
+    p_mark.add_argument(
         "--candidates-json",
         type=Path,
         default=None,
         help="poll/backfill --json output; enriches ledger rows",
     )
+
+    p_list = sub.add_parser(
+        "playlists",
+        help="a channel's curated playlists — invisible to poll/backfill, which "
+        "only ever page the uploads mirror",
+    )
+    p_list.add_argument("channel_id", help="UC… id; need not be in the config")
+    p_list.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+    p_list.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
+    p_list.add_argument("--json", action="store_true", dest="as_json")
 
     p_res = sub.add_parser(
         "resolve", help="handle → ready-to-paste [[channel]] TOML block"
@@ -801,6 +1055,7 @@ def main(
             ingested=args.ingested,
             skipped=args.skipped,
             channel_seen=args.channel_seen,
+            playlist_seen=args.playlist_seen,
             candidates_json=args.candidates_json,
             now=now_dt,
         )
@@ -842,8 +1097,28 @@ def main(
         print(resolve_handle(get, api_key, args.handle), end="")
         return 0
 
-    cfg = load_feed_config(args.config)
     state = load_state(args.state)
+
+    # Deliberately AHEAD of load_feed_config: `playlists` takes a raw UC id and reads
+    # nothing from the channel config, while `config/youtube_channels.toml` is gitignored
+    # and therefore absent on a fresh clone and in CI. Loading it here would SystemExit on
+    # a file this subcommand never uses -- which is exactly what shipped, and what CI caught
+    # while every local run passed on a machine that happens to have the config. Mirrors the
+    # `hint` subcommand's placement ahead of the API-key gate for the same class of reason.
+    if args.cmd == "playlists":
+        found = list_channel_playlists(get, api_key, args.channel_id, state)
+        if args.as_json:
+            print(
+                json.dumps([asdict(pl) for pl in found], indent=2, ensure_ascii=False)
+            )
+        else:
+            for pl in found:
+                done = f"{pl.examined}/{pl.item_count} examined"
+                print(f"  {pl.playlist_id}  {done:>18}  {pl.title}")
+            print(f"# {len(found)} playlist(s)")
+        return 0
+
+    cfg = load_feed_config(args.config)
     paused: tuple[ChannelConfig, ...] = ()
     if args.cmd == "poll":
         paused = tuple(ch for ch in cfg.channels if ch.paused)
@@ -870,17 +1145,33 @@ def main(
                 "(filters live in config)"
             )
         since = _parse_since(args.since)
-        results = [
-            backfill_channel(
-                channel,
-                state,
-                now=now_dt,
-                get=get,
-                api_key=api_key,
-                since=since,
-                max_videos=args.max_videos,
-            )
-        ]
+        if args.playlist:
+            if not _PLAYLIST_ID_RE.match(args.playlist):
+                raise SystemExit(f"not a playlist id: {args.playlist!r}")
+            results = [
+                backfill_playlist(
+                    channel,
+                    args.playlist,
+                    state,
+                    now=now_dt,
+                    get=get,
+                    api_key=api_key,
+                    since=since,
+                    max_videos=args.max_videos,
+                )
+            ]
+        else:
+            results = [
+                backfill_channel(
+                    channel,
+                    state,
+                    now=now_dt,
+                    get=get,
+                    api_key=api_key,
+                    since=since,
+                    max_videos=args.max_videos,
+                )
+            ]
 
     print(
         json.dumps(_results_to_dict(results, now_dt, paused), indent=2)

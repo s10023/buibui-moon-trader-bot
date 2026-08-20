@@ -62,61 +62,61 @@ LOCK_RETRIES="${BUIBUI_LOCK_RETRIES:-10}"
 LOCK_SLEEP="${BUIBUI_LOCK_SLEEP:-30}"
 
 DB="$REPO/analytics.db"
-# Every entry here is gitignored AND single-copy, so this list IS the only copy.
-# Expanded 2026-08-08 after an audit found six such artifacts uncovered: the three
-# original ledgers were backed up while the ENTIRE ingest pipeline's state was not.
-# The three watermark/dedup ledgers are the expensive ones — none holds research
-# content, but losing any one silently changes future behaviour rather than losing
-# past data:
+
+# A GLOB over docs/plans/, not an allowlist of its files.
+#
+# Every top-level file there is gitignored and single-copy, so this list IS the only
+# copy -- and an allowlist over such a tree defaults to UNCOVERED. That default has
+# now been found short THREE times (2026-08-08 six artifacts, 2026-08-11 five more,
+# 2026-08-20 two more: `test_daily_check_verdict_join.py`, a hand-run gate living
+# beside the health check, and an `ai-cards.jsonl.bak-*` taken by hand before a
+# schema change). Each round added the files someone happened to notice; none
+# changed the default that made them invisible. A glob covers the next artifact the
+# day it appears, with nobody needing to notice.
+#
+# Cost was never the reason anything stayed out: the whole tree is ~1MB against a
+# 264MB snapshot. The glob therefore also sweeps in the two files a 2026-08-11 note
+# excluded on regenerability grounds -- `coverage-*.txt` and the sister fork's
+# `wifey-handoff-prompt-*.md`, 23KB together. Deciding per file cost more attention
+# than the bytes ever did.
+#
+# The classes that make this load-bearing, none of which holds research content:
 #   yt-feed-state.json  lost => every already-consumed video re-presents as new
 #   routed-ledger.json  lost => re-ingests double-write into the streams
-#   processed.json      lost => every chart drop ever handled re-ingests
-# processed.json is the sharpest: it is the ONLY record that a chart was handled,
-# and it lives under .cache/ — the one directory every cleanup treats as
-# disposable. A plain `rm -rf .cache/` resets chart dedup with no other trace.
+#   daily_check.py      the health-check system ITSELF, gitignored, dead on a reclone
+#   regime-log.jsonl    append-only and UNRECONSTRUCTIBLE
+# Losing a watermark destroys no past data -- it silently changes future behaviour,
+# which is why they are the expensive ones rather than the obvious ones.
 #
-# Expanded AGAIN 2026-08-11 — the second time this allowlist has been found short,
-# which is the point worth carrying: an allowlist over a single-copy tree defaults to
-# UNCOVERED, so every new artifact is invisible until someone diffs the backup against
-# the live tree. Found by exactly that diff. Everything added below totals ~300KB
-# against a 264MB snapshot, so cost was never what kept them out — nobody looked.
-#   next-conversation-prompt.md  the handoff; its own header calls itself standing
-#                                content no template covers
-#   daily_check.py               the health-check system ITSELF. Its docstring notes a
-#                                reclone loses it; a disk failure did too
-#   regime-log.jsonl             append-only and UNRECONSTRUCTIBLE — holds the
-#                                2026-08-03 turn, the first this system ever dated
-#   x-scraper-research.md        named in the handoff as the durable home for the
-#                                settled X-acquisition research
-#   st15-…-recipe.md             written explicitly "so the next session does not
-#                                re-derive any of it"
-# Deliberately NOT covered, so the next audit does not re-find them as misses:
-# __pycache__ (build artifact), coverage-2026-08-03.txt (regenerate with make
-# test-cov), wifey-handoff-prompt-2026-06-10.md (belongs to the sister fork).
+# `__pycache__` is a directory, which the `-f` test below rejects; the subdirectories
+# that DO carry content are in LEDGER_DIRS.
 LEDGERS=(
-    "docs/plans/pundit-calls.jsonl"
-    "docs/plans/ai-cards.jsonl"
-    "docs/plans/pundit-overrides.jsonl"
+    "docs/plans/*"
     "config/youtube_channels.toml"
     # Gitignored, single-copy, and NOT reconstructible: 16 author entries whose
     # alias mappings are accumulated operator rulings. The committed
     # pundit_roster.toml.example carries 2 schema-demo entries and is not a
     # backup. Losing this drops every relay as unattributable.
     "config/pundit_roster.toml"
-    "docs/plans/thesis-inbox.md"
-    "docs/plans/mechanics-backlog.md"
-    "docs/plans/yt-feed-state.json"
-    "docs/plans/routed-ledger.json"
-    "docs/plans/pundit-priors.json"
+    # The sharpest entry in the file: the ONLY record that a chart drop was handled,
+    # and it lives under .cache/ -- the one directory every cleanup treats as
+    # disposable. A plain recursive delete of .cache/ resets chart dedup with no
+    # other trace.
     ".cache/chart-drops/processed.json"
-    "docs/plans/next-conversation-prompt.md"
-    "docs/plans/daily_check.py"
-    "docs/plans/regime-log.jsonl"
-    "docs/plans/x-scraper-research.md"
-    "docs/plans/x-coverage.md"
-    "docs/plans/st15-coinglass-capture-recipe.md"
-    "docs/plans/st14-pnl-self-audit-2026-08-06.md"
 )
+
+# Expand one LEDGERS entry, which may be a literal path OR a glob, to the
+# repo-relative files it matches. Prints nothing when it matches none.
+_ledger_matches() {
+    local pattern="$1" f
+    # Unquoted on purpose -- this is where the glob expands. A pattern that matches
+    # nothing expands to itself, which the -f test then rejects, so a missing file is
+    # a skip rather than a failure (same contract as the external-dir loop below).
+    for f in $REPO/$pattern; do
+        [ -f "$f" ] || continue
+        printf '%s\n' "${f#"$REPO"/}"
+    done
+}
 
 # Directories copied wholesale. Kept separate from LEDGERS because the copy loop
 # below is `[ -f ]`-guarded on purpose — a directory silently failed that test and
@@ -303,12 +303,13 @@ if [ "$dry_run" -eq 1 ]; then
     log "  daily  ->  $final_dir (staged, then renamed on verify)"
     [ "$want_weekly" -eq 1 ] && log "  weekly ->  $weekly_dir (parquet)"
     log "  retention  ${KEEP_DAILY} daily / ${KEEP_WEEKLY} weekly"
-    for f in "${LEDGERS[@]}"; do
-        if [ -f "$REPO/$f" ]; then
+    for pattern in "${LEDGERS[@]}"; do
+        matched=0
+        while IFS= read -r f; do
+            matched=$((matched + 1))
             log "  ledger     $f ($(du -h "$REPO/$f" | cut -f1))"
-        else
-            log "  ledger     $f -- ABSENT, will be skipped"
-        fi
+        done < <(_ledger_matches "$pattern")
+        [ "$matched" -eq 0 ] && log "  ledger     $pattern -- NO MATCH, will be skipped"
     done
     for d in "${LEDGER_DIRS[@]}"; do
         if [ -d "$REPO/$d" ]; then
@@ -453,11 +454,11 @@ outcomes="$(printf '%s' "$verify_json" | "$PY" -c \
 [ "$outcomes" = "0" ] && die "snapshot has 0 signal_alert_outcomes rows -- that is the live_signal.duckdb failure, not a backup"
 
 # --- ledgers ------------------------------------------------------------------
-for f in "${LEDGERS[@]}"; do
-    if [ -f "$REPO/$f" ]; then
+for pattern in "${LEDGERS[@]}"; do
+    while IFS= read -r f; do
         mkdir -p "$daily_dir/$(dirname "$f")"
         cp "$REPO/$f" "$daily_dir/$f"
-    fi
+    done < <(_ledger_matches "$pattern")
 done
 
 # --- ledger directories -------------------------------------------------------

@@ -276,8 +276,9 @@ the card's own `generated_at_ms`). Wrapped by
 ### `make buibui-backup`
 
 Wraps `deploy/backup-analytics.sh` — a verified local snapshot of `analytics.db` plus the
-ledger files and directories named in `LEDGERS`, `LEDGER_DIRS`, `EXTERNAL_LEDGERS` and
-`EXTERNAL_LEDGER_DIRS`. `WEEKLY=1` adds the parquet export, `DRY=1` reports only. A systemd
+ledger files and directories reached by `LEDGERS`, `LEDGER_DIRS`, `EXTERNAL_LEDGERS` and
+`EXTERNAL_LEDGER_DIRS`. **`LEDGERS` is a GLOB over `docs/plans/*` since 2026-08-20**, plus
+three explicit entries outside that tree; the other three arrays remain enumerated. `WEEKLY=1` adds the parquet export, `DRY=1` reports only. A systemd
 user timer runs it twice daily.
 
 **Everything covered is gitignored and single-copy, so those four arrays ARE the only
@@ -288,6 +289,12 @@ is not a backup — its `signal_alert_outcomes` table has 0 rows.
   tree defaults to UNCOVERED, so a new artifact stays invisible until someone diffs the
   backup against the live tree. Five audits each found a gap the previous one missed — a
   glob covers a new project's tree the day it appears, with nobody needing to notice.
+  **`LEDGERS` finally took its own advice on 2026-08-20**, after a sixth diff found two
+  more (a hand-run gate script beside the health check, and a hand-taken `.bak` of a
+  covered ledger): it is now `docs/plans/*`, and `tests/test_backup_ledger_glob.py` asserts
+  a file **named nowhere in the script** still lands in the snapshot. Both loops over the
+  array — the dry-run report and the real copy — must expand the glob, or the report
+  promises coverage the copy does not deliver; a test pins each independently.
 - **Put a directory in `LEDGER_DIRS` / `EXTERNAL_LEDGER_DIRS`, never a file array.** The
   file loops are `[ -f ]`-guarded and skip a directory SILENTLY. This has now caused the
   same gap twice.
@@ -803,8 +810,19 @@ GH_TOKEN=$(gh auth token --user s10023) gh repo edit s10023/buibui-moon-trader-b
   the status check is vacuously true while a chained job does not yet exist.
 - **A merge-run failure at ~3s with `steps=0` and `visibility=PRIVATE` is billing.** Verify
   duration, visibility and step count, then merge. Never debug it.
-- **A docs-only PR does not need the flip** — the path-filtered checks execute zero steps on
-  a `.md`-only diff, and `make lint-md` reproduces CI's markdownlint locally.
+- **What decides the flip is which jobs execute real steps on THIS diff — state the filter,
+  never the file extension.** The heavy leg (`lint-typecheck-test`: ruff + mypy + the suite)
+  sits behind `dorny/paths-filter` on `**/*.py`, `pyproject.toml`, `poetry.lock` and
+  `lint.yaml`, so a `deploy/*.sh`, `.claude/**` or `docs/` diff skips it entirely;
+  `.claude/skills/**` adds the SKILL.md frontmatter validator, `web/ui/**` the frontend
+  check, and `Dockerfile` / `docker-compose.yml` the image build. There is no shellcheck
+  and no deploy-aware job.
+  ⚠ **But nothing rides entirely free, and "docs-only" is the trap**: `security-scan`
+  (Trivy) carries no paths filter, and the `markdownlint` job runs `sanity_checks.py` and
+  `test_context_guard.py` UNCONDITIONALLY — so skipping the flip on a docs PR skips the
+  doc-drift gate, the one check that diff most needs. `make lint-md` reproduces
+  markdownlint locally and `make sanity-checks` the doc-drift legs; nothing local
+  reproduces Trivy.
 
 ⚠ **The flip publishes the ENTIRE HISTORY, not `HEAD`.** Scrubbing a name in a later commit
 does NOT unexpose it, and `git grep` on the working tree agrees with every other review
