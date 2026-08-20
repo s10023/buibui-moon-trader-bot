@@ -824,8 +824,9 @@ actually exercises, never an untested CLI branch.
 
 **Gate it on `sensitive-terms` first.** Phase 0's sweep carries the leg; read it before
 flipping, because the flip publishes the whole history and nothing downstream can take that
-back. `NOT CONFIGURED` means the gitignored term list is missing (reclone, fresh machine) —
-restore it from the backup rather than flipping past it. A hit on the branch's own commits is
+back. `NOT CONFIGURED` means the gitignored term list is missing (reclone, fresh machine, **or a
+WORKTREE** — a tracked-files-only checkout never receives a gitignored file, so this leg fires
+on every worktree run) — restore or copy it in rather than flipping past it. A hit on the branch's own commits is
 a STOP: scrubbing in a follow-up commit does not unexpose the blob.
 
 Pushing costs no CI; the meter starts at `gh pr create`. So this is the last free
@@ -863,10 +864,22 @@ re-ask the settled one.
   on the `CI` workflow's job-count floor, so a *different* workflow starting after CI settles
   is invisible to it — the same vacuous-check shape as the chained-job defect, one layer up.
   Observed on #669: `Dependency Graph` began at 05:55:45Z, after CI had settled, and was
-  `in_progress` at the moment of the flip back. **It did NOT bite** — that workflow completed
-  success with 5 real steps, and has run green on a private repo three times — so this is a
-  LATENT gap, not a demonstrated failure; do not file it as a near-miss. Before flipping back,
-  `gh run list --branch main --limit 5 --json workflowName,status` costs one call and closes it.
+  `in_progress` at the moment of the flip back. It did not bite there — but **do NOT file this
+  as latent.** On #670 the late workflow was `security-scan` (Trivy), which consumes Actions
+  minutes, so flipping mid-run kills it and reds main for billing. The risk is *which*
+  workflow starts late, never whether the listing was honest.
+  ⚠ **And one call does NOT close it — the rule is check → flip → RE-VERIFY.** A listing
+  cannot see a workflow that does not yet EXIST: on #670 and again on #672 the pre-flip
+  `gh run list` read clean on every workflow, the operator flipped, and `Dependency Graph`
+  was created on the merge SHA *after* the check. That is the same vacuous-check shape a
+  third time, each one layer further out — a chained job does not exist until its dependency
+  ends · the waiter watches one workflow and cannot see a sibling · a listing of all
+  workflows cannot see one not yet created. **A check is only ever true about the scope it
+  looked at, at the moment it looked**, so re-run it after the operator confirms the flip:
+
+  ```bash
+  gh run list --branch main --limit 5 --json workflowName,status
+  ```
 
 ---
 
@@ -937,13 +950,19 @@ both in here so the user doesn't have to ask each time.
 Prefer the tool over a hand-rolled waiter:
 
 ```bash
-make wait-ci PR=<n>     # resolves the SHA and prints steps= per job
+make wait-ci PR=<n>     # resolves the SHA, prints steps=EXECUTED/DECLARED per job
 ```
 
 ⚠ **`wait_ci.py`'s exit codes do not survive `make`** — GNU make collapses any
 recipe failure to its own exit 2, so read the printed banner (3 = Actions
 allowance exhausted, `steps=0`, a **billing** failure never a code one; 1 = real
 failure; 4 = green but the step counts were unreadable, which is not a pass).
+
+⚠ **Read the EXECUTED half, not the declared one.** A paths-filtered job declares
+its full step list on every diff and skips the body, so `steps=5/14` is a docs diff
+correctly skipping the heavy leg — while the bare `14` this banner used to print
+read as the opposite (ST50(f), measured on #670). Billing is unchanged: an
+exhausted allowance declares nothing.
 
 Then run a short status sweep and report any blockers in one line each:
 

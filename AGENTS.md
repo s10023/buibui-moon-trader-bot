@@ -522,12 +522,30 @@ is derived from the stop distance, so both levels sit closer to entry and it hit
 bars against production's **4,007**, a 10.7× asymmetry in exposure to the very rule being applied.
 ⚠ **This binds on any comparison where one arm is systematically tighter and ambiguity is resolved
 from OHLC alone** — the flat-2% family, ATR-widening and ST17's capture gradient are all that shape,
-so read a stop-width verdict resolved this way as unproven rather than settled. ⚠ **More data cannot
+so read a stop-width verdict resolved this way as unproven rather than settled; **how badly depends
+on which way the bias runs, which the next paragraph settles per study.** ⚠ **More data cannot
 fix it**: 73.9% of `wick_fill` fires are 15m and `analytics.db` holds nothing below 15m, so only the
 26.1% at 1h and above is resolvable with held data. ⚠ **ST56 never tested the FALLBACK path** — entry
 at the next bar's open leaves the wick on the correct side 336,697 of 337,294 times, so the flat
 fallback never fires and the result speaks to the `min_sl_pct` FLOOR only. **Do not read it as
 evidence the wick anchor works, or that it does not.**
+
+**Which way the tie-break bias RUNS decides whether it is conservative or dangerous — name the
+DIRECTION per study, never just its presence** (ST57, measured 2026-08-20 by reading the code, not
+by re-running anything). This repo resolves every same-bar SL/TP tie ADVERSE-FIRST at three sites —
+`analytics/backtest/engine.py:1073`, `analytics/exits/replay.py:12`, `analytics/exits/mfe_mae.py:17`
+— so every `avg_r`, `win_rate` and star rating carries a uniform PESSIMISTIC bias: harmless within
+one stop width, biased ACROSS widths, which bites because the flat-2% defect pins 78% of the ledger
+at one width while other detectors sit elsewhere. **`analytics/giveback.py` is the exception and the
+model to copy — it COUNTS `intrabar_ambiguous` (28 rows, 1.6%) instead of resolving it.** The tighter
+arm eats more ambiguous bars, so adverse-first penalises the NARROW arm hardest and the bias
+therefore FAVOURS widening. ⇒ **ST9/H11 ATR-widening (`analytics/sl_horizon.py` → `replay_exits`,
+comparing `k ∈ 0.5…3.0`, a 6× width range) is EXONERATED: it returned CONFIRMED-BAD at 15m against
+the thumb on the scale, so that verdict is conservative and stands STRENGTHENED.** ⚠ **The exposure
+is FORWARD-looking, and it is why this paragraph exists: 1h and 4h are INSUFFICIENT — untested, not
+cleared — so a re-run there returning "widening WORKS" lands in exactly the direction the bias
+pushes and must not be believed without intrabar resolution, while a NULL there needs no such
+discount.**
 
 **The binding constraint, confirmed five times** (exits, trend-weight, combine, carry,
 reversal): the system needs a second *strong* edge, and the cheap price-only free-data
@@ -885,6 +903,16 @@ blocked. Never assume the flip happened because you printed the command.
   the flip hits every workflow, so one starting after CI settles is invisible to it —
   latent on #669, where `Dependency Graph` was in_progress at the flip and did not bite.
   `gh run list --branch main --limit 5 --json workflowName,status` closes it in one call.
+  ⚠ **That call is NECESSARY BUT NOT SUFFICIENT, so the rule is check → flip → RE-VERIFY.** A
+  listing cannot see a workflow that does not yet EXIST: on #670 and again on #672 the pre-flip
+  listing read clean on every workflow, the operator flipped, and `Dependency Graph` was then
+  created on the merge SHA *after* the check. **Same vacuous-check shape three times, each one
+  layer further out** — a chained job does not exist until its dependency ends · `wait-ci-main`
+  watches ONE workflow and cannot see a sibling · a listing of ALL workflows cannot see one not
+  yet created. **The pattern to carry: a check is only ever true about the scope it looked at, at
+  the moment it looked.** Both observations were benign because `Dependency Graph` runs green on a
+  private repo and burns no allowance — read that as luck about WHICH workflow started late, never
+  as safety of the check, since `security-scan` (Trivy) in that slot consumes minutes and dies.
 - **What makes a SHARED window safe is concurrency, not the rule.** `cancel-in-progress` is
   `${{ github.event_name == 'pull_request' }}` — false on push — so main runs QUEUE and a
   second merge's CI cannot start until the first finishes, chained job and all. The group is
@@ -892,7 +920,13 @@ blocked. Never assume the flip happened because you printed the command.
   same scope gap as the waiter above. ⚠ **A repo without this has none of it — check the
   wifey fork rather than assuming it inherits.**
 - **A merge-run failure at ~3s with `steps=0` and `visibility=PRIVATE` is billing.** Verify
-  duration, visibility and step count, then merge. Never debug it.
+  duration, visibility and step count, then merge. Never debug it. ⚠ **`wait_ci.py` reports
+  `steps` as EXECUTED/DECLARED, and only the executed half means anything to a reader.** A
+  paths-filtered job declares its whole step list on every diff and skips the body, so the
+  DECLARED count reads backwards: #670's docs-only PR declared 14 steps in
+  `lint-typecheck-test` and executed 5, which as a bare `steps=14` says "the heavy leg ran on
+  a docs diff" and contradicts the filter list below — the banner was wrong, not this file.
+  The billing test is unaffected, since an exhausted allowance declares nothing.
 - **What decides the flip is which jobs execute real steps on THIS diff — state the filter,
   never the file extension.** The heavy leg (`lint-typecheck-test`: ruff + mypy + the suite)
   sits behind `dorny/paths-filter` on `**/*.py`, `pyproject.toml`, `poetry.lock` and
@@ -920,6 +954,15 @@ two work-repo names, and cleared them. **Baseline ACCEPTED the same day:** two s
 in three deleted spec docs from 2026-04-25/05-07 and every flip since has republished them;
 the ruling is accept-and-document, which is why the gate scopes to the tracked tree and the
 branch's own commits rather than re-reporting main. → memory `public_repo_exposure_audit.md`
+
+⚠ **Run `make post-branch-checks` from a WORKTREE and this gate reports NOT CONFIGURED every
+time.** A worktree is a tracked-files-only checkout and `.claude/sensitive-terms.txt` is
+gitignored, so the list simply is not there — the finding is honest, but it fires on the setup
+rather than on the branch, and a session that learns to expect it stops reading it. **Copy the
+list into the worktree before the pre-flip check** (`git check-ignore` confirms it still cannot
+enter a commit). Measured by the peer on `feat/st45-clone-preflight`. This lives here, beside
+the gate it defeats, rather than with the worktree notes — the rule that matters is the one
+about "did not run" and "passed" not looking alike, and it is stated one paragraph up.
 
 Ported from the wifey fork 2026-08-19, where both halves of the pair are gated in
 `/post-branch` (flip-forward before `gh pr create`, flip-back after the merge run).

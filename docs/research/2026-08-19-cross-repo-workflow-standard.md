@@ -93,10 +93,17 @@ The operator interrupted the port to say: *"always run tests or wait tests/CI in
 background."* I had just run `make test` in the foreground.
 
 The rule exists. It is `memory/feedback_background_test_runs.md`, it carries the measured
-numbers (`make test` ~145s, `make test-regression` ~93s, ~4 min per branch minimum) and the
+numbers (`make test` ~295s, `make test-regression` ~93s, ~5 min per branch minimum) and the
 hard constraint (never edit the Python tree mid-run — a green run against a tree that no
 longer exists is a false "verified"). wifey carries the same rule as
 `feedback_run_slow_tests_in_background`.
+
+> **Corrected 2026-08-20 (ST48a).** `make test` read ~145s when this was written and is now
+> ~295s — two independent readings on one box, 294.9s and 300.1s over 4205 tests. The figure
+> is corrected in place rather than annotated-and-left **because this document is one the
+> wifey fork ports from**, so a stale number here propagates to a second repo: it is a live
+> claim wearing a dated doc's clothes. ⚠ **`make test-regression`'s ~93s was NOT re-measured
+> and must not inherit this correction.**
 
 **It is memory-only in both repos.** `grep -i background CLAUDE.md` in buibui returns two
 unrelated lines. So it sits at rung 7 — *below* prose — which means it was never in context
