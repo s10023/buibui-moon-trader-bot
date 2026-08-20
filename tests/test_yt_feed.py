@@ -1769,3 +1769,38 @@ class TestMainPlaylistWiring:
                 get=FakeGet({}),
                 now=NOW,
             )
+
+
+class TestChapterDerivedRecapWindow:
+    """ST46(1): a video's own chapters beat the hand-tuned per-channel constant.
+
+    `intro_recap_s` is fitted per CHANNEL from a sample of uploads, so it is wrong on
+    any upload that opens differently. Measured on 4Dkw1jz04lY: @GiantCutie-K's
+    configured 120s against a recap chapter that actually runs to 186s.
+    """
+
+    def test_chapter_window_overrides_a_too_short_channel_constant(self) -> None:
+        ch = make_channel(intro_recap_s=120)
+        assert is_intro_recap(150.0, ch) is False
+        assert is_intro_recap(150.0, ch, recap_end_s=186.0) is True
+
+    def test_chapter_window_overrides_a_too_long_channel_constant(self) -> None:
+        """The override must cut BOTH ways, or it is just a bigger constant."""
+        ch = make_channel(intro_recap_s=120)
+        assert is_intro_recap(60.0, ch) is True
+        assert is_intro_recap(60.0, ch, recap_end_s=30.0) is False
+
+    def test_falls_back_to_the_channel_constant_without_chapters(self) -> None:
+        """~50% of the measured corpus has no chapters at all, so this is the
+        common path rather than the edge case."""
+        ch = make_channel(intro_recap_s=120)
+        assert is_intro_recap(60.0, ch, recap_end_s=0.0) is True
+        assert is_intro_recap(130.0, ch, recap_end_s=0.0) is False
+
+    def test_chapters_trim_even_for_an_unconfigured_channel(self) -> None:
+        """A video's own chapters need no channel row to be authoritative."""
+        assert is_intro_recap(60.0, None, recap_end_s=186.0) is True
+        assert is_intro_recap(200.0, None, recap_end_s=186.0) is False
+
+    def test_no_channel_and_no_chapters_still_flags_nothing(self) -> None:
+        assert is_intro_recap(0.0, None) is False

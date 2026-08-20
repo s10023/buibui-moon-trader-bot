@@ -19,7 +19,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import requests
 from dotenv import load_dotenv
@@ -60,6 +60,87 @@ _YT_DLP: tuple[str, ...] = ("yt-dlp", "--js-runtimes", "node")
 
 
 @dataclass(frozen=True)
+class Chapter:
+    """One author-declared segment of a video, from yt-dlp's `chapters`."""
+
+    start_s: float
+    end_s: float
+    title: str
+
+
+# Titles a leading chapter uses when it recaps prior calls rather than opening new
+# content. Matched case-insensitively as substrings, across the languages actually
+# present in the follow list (en + zh-Hans/zh-Hant).
+_RECAP_TITLE_HINTS: tuple[str, ...] = (
+    "recap",
+    "review",
+    "intro",
+    "last week",
+    "previous",
+    "回顧",
+    "回顾",
+    "概述",
+    "前情",
+    "上回",
+    "复盘",
+    "復盤",
+)
+
+
+def recap_window_s(chapters: tuple[Chapter, ...]) -> float:
+    """End of the LEADING run of recap-shaped chapters, or 0.0 when there is none.
+
+    This is the per-VIDEO answer to the question `intro_recap_s` answers per CHANNEL.
+    The constant is hand-tuned from a sample and is wrong on any upload that opens
+    differently — measured on 4Dkw1jz04lY, where @GiantCutie-K's configured 120s
+    under-trims a recap chapter that actually runs to 186s.
+
+    ⚠ Only a LEADING recap counts. A mid-video "回顧" is a different thing, and
+    treating it as an intro would swallow the real content before it. Returning 0.0
+    is the honest "no answer here", which leaves the channel constant in charge —
+    chapters are present on only ~50% of the corpus (14 of 28 measured), so degrading
+    rather than overriding is the common path, not the edge case.
+    """
+    end = 0.0
+    for chapter in chapters:
+        title = chapter.title.casefold()
+        if not any(hint.casefold() in title for hint in _RECAP_TITLE_HINTS):
+            break
+        end = max(end, chapter.end_s)
+    return end
+
+
+def _parse_chapters(raw: object) -> tuple[Chapter, ...]:
+    """yt-dlp `chapters` -> Chapter tuple, dropping anything malformed.
+
+    The list is author-supplied, so a partial entry is a live possibility; one bad
+    chapter must not cost the whole fetch.
+    """
+    if not isinstance(raw, list):
+        return ()
+    out: list[Chapter] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            start = float(entry["start_time"])
+            end = float(entry["end_time"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        out.append(
+            Chapter(start_s=start, end_s=end, title=str(entry.get("title") or ""))
+        )
+    return tuple(out)
+
+
+def _caption_langs(raw: object) -> tuple[str, ...]:
+    """Language codes from a yt-dlp `subtitles` / `automatic_captions` mapping."""
+    if not isinstance(raw, dict):
+        return ()
+    return tuple(sorted(str(code) for code in raw))
+
+
+@dataclass(frozen=True)
 class VideoMeta:
     source: str
     video_id: str
@@ -69,6 +150,12 @@ class VideoMeta:
     duration_s: float
     lang: str
     url: str
+    chapters: tuple[Chapter, ...] = ()
+    # `subtitles` is author-written, `automatic_captions` is YouTube ASR. Both land
+    # on disk as `sub.<code>.vtt`, so the filename cannot tell them apart — these two
+    # fields are the ONLY provenance signal, and they come free with the metadata call.
+    caption_langs_manual: tuple[str, ...] = ()
+    caption_langs_auto: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -156,6 +243,9 @@ def fetch_meta(url: str, *, run: RunProc = _subprocess_run) -> VideoMeta | Unava
         duration_s=duration,
         lang=str(data.get("language") or ""),
         url=url,
+        chapters=_parse_chapters(data.get("chapters")),
+        caption_langs_manual=_caption_langs(data.get("subtitles")),
+        caption_langs_auto=_caption_langs(data.get("automatic_captions")),
     )
 
 
@@ -265,6 +355,67 @@ def _select_caption_track(vtts: list[Path], lang: str) -> Path | None:
     return vtts[0]
 
 
+# Where a transcript's text came from. Recorded because every item, `raw_quote` and
+# call-time derives from that text, and an ASR transcript is a materially weaker
+# source than an author-written one — worst on the zh channels, where ASR is weakest
+# and `raw_quote` accuracy is load-bearing.
+SOURCE_MANUAL = "manual_captions"
+SOURCE_AUTO = "auto_captions"
+SOURCE_ASR = "asr_whisper"
+# A caption track whose provenance the metadata call did not describe — an old cache
+# entry, or a `--dump-json` payload with neither mapping. Deliberately NOT folded into
+# `auto`: "we did not ask" and "we asked and it was ASR" are different claims.
+SOURCE_CAPTIONS_UNKNOWN = "captions_unknown"
+
+
+@dataclass(frozen=True)
+class TranscriptResult:
+    segments: list[TranscriptSegment]
+    source: str
+    lang: str
+
+
+def _sub_langs(meta: VideoMeta) -> str:
+    """The `--sub-langs` request list, widened by the tracks yt-dlp SAID exist.
+
+    ⚠ This is the ST46 defect fix. yt-dlp returns `language: null` on a large slice of
+    the follow list — measured null on 28 of 28 at-risk videos — so `meta.lang` is ""
+    and the old expression asked for `en` ALONE. On a Chinese upload yt-dlp then
+    answered "There are no subtitles for the requested languages", wrote no file, and
+    the video fell through to Groq ASR **while an author-written zh-Hant track sat
+    there unrequested**. Measured across the ingested corpus: 17 of 89 notes were
+    built from ASR that way. The 11 others genuinely had no captions, so the ASR
+    fallback itself is sound — it was being reached for the wrong reason.
+
+    `caption_langs_*` come from the SAME `--dump-json` call `fetch_meta` already
+    makes, so this costs no extra request. Author-written codes are offered before
+    ASR ones; yt-dlp picks manual over auto for a given code anyway, but ordering
+    makes the intent explicit rather than incidental.
+    """
+    wanted: list[str] = []
+    if meta.lang:
+        wanted += [meta.lang, f"{meta.lang}-orig"]
+    for code in (*meta.caption_langs_manual, *meta.caption_langs_auto):
+        if code not in wanted:
+            wanted.append(code)
+    if "en" not in wanted:
+        wanted.append("en")
+    return ",".join(wanted)
+
+
+def _caption_source(meta: VideoMeta, lang_code: str) -> str:
+    """Author-written vs ASR for the CHOSEN track.
+
+    A code can appear in both mappings (measured on 4Dkw1jz04lY, where `zh-Hant` is in
+    each). yt-dlp writes the manual track in that case, so manual wins the tie here too.
+    """
+    if lang_code in meta.caption_langs_manual:
+        return SOURCE_MANUAL
+    if lang_code in meta.caption_langs_auto:
+        return SOURCE_AUTO
+    return SOURCE_CAPTIONS_UNKNOWN
+
+
 def fetch_transcript(
     meta: VideoMeta,
     *,
@@ -272,7 +423,7 @@ def fetch_transcript(
     get: HttpPost | None = None,
     groq_key: str | None = None,
     work_dir: Path = Path(".cache/video"),
-) -> list[TranscriptSegment] | Unavailable:
+) -> TranscriptResult | Unavailable:
     """Existing captions in any language first; Groq whisper-large-v3 only when absent.
 
     Requests a targeted `--sub-langs` list (never "all" — see `_select_caption_track`)
@@ -280,9 +431,13 @@ def fetch_transcript(
     `meta.lang` blindly: a video with no `meta.lang` track available may legitimately
     fall back to English captions, and mislabeling that fallback as `meta.lang` would
     silently corrupt `raw_quote`'s language guarantee.
+
+    Returns the provenance alongside the segments rather than leaving a caller to
+    re-derive it: re-deriving would mean a second copy of `_select_caption_track`'s
+    preference order, and two sites that must mirror each other drift silently.
     """
     work_dir.mkdir(parents=True, exist_ok=True)
-    sub_langs = f"{meta.lang},{meta.lang}-orig,en" if meta.lang else "en"
+    sub_langs = _sub_langs(meta)
     run(
         [
             *_YT_DLP,
@@ -303,11 +458,20 @@ def fetch_transcript(
     if chosen is not None:
         match = _SUB_FILENAME_RE.match(chosen.name)
         lang_code = match.group(1) if match else (meta.lang or "en")
-        return parse_vtt(chosen.read_text(encoding="utf-8"), lang=lang_code)
+        return TranscriptResult(
+            segments=parse_vtt(chosen.read_text(encoding="utf-8"), lang=lang_code),
+            source=_caption_source(meta, lang_code),
+            lang=lang_code,
+        )
     if groq_key is None or get is None:
         return Unavailable("no captions available and no GROQ_API_KEY configured")
-    return _transcribe_groq(
-        meta, run=run, get=get, groq_key=groq_key, work_dir=work_dir
+    asr = _transcribe_groq(meta, run=run, get=get, groq_key=groq_key, work_dir=work_dir)
+    if isinstance(asr, Unavailable):
+        return asr
+    return TranscriptResult(
+        segments=asr,
+        source=SOURCE_ASR,
+        lang=asr[0].lang if asr else (meta.lang or ""),
     )
 
 
@@ -537,10 +701,44 @@ class BatchResult:
     # Non-empty only when `meta` holds a real VideoMeta but the transcript itself
     # could not be produced — distinct from `meta` being Unavailable (video unreachable).
     transcript_error: str = ""
+    # One of SOURCE_* — how the text was obtained. "" only when there is no transcript.
+    transcript_source: str = ""
 
 
 def _cache_file(cache_dir: Path, video_id: str) -> Path:
     return cache_dir / video_id / "asset.json"
+
+
+def _meta_from_cache(raw: dict[str, Any]) -> VideoMeta:
+    """Rehydrate VideoMeta from `asdict` output.
+
+    Written out field by field ON PURPOSE. `VideoMeta(**raw)` would store `chapters` as
+    the plain `list[dict]` `asdict` produced — a frozen dataclass does no coercion, so the
+    field would claim `tuple[Chapter, ...]` while holding dicts, and `recap_window_s` would
+    die on `chapter.title` at the first cache hit. **mypy cannot see that**: `**` builds the
+    lie at runtime. A missing key raises, which `_load_cached` already treats as a cache
+    miss — the right answer for an entry we cannot trust.
+
+    `tests/test_video_fetch.py::test_cache_round_trip_covers_every_video_meta_field` pins
+    this against VideoMeta's own field list, so adding a field there fails loudly here
+    rather than silently dropping it from every cached read.
+    """
+    chapters = raw.get("chapters") or ()
+    return VideoMeta(
+        source=str(raw["source"]),
+        video_id=str(raw["video_id"]),
+        author=str(raw["author"]),
+        title=str(raw["title"]),
+        publish_ts_utc=str(raw["publish_ts_utc"]),
+        duration_s=float(raw["duration_s"]),
+        lang=str(raw["lang"]),
+        url=str(raw["url"]),
+        chapters=tuple(c if isinstance(c, Chapter) else Chapter(**c) for c in chapters),
+        caption_langs_manual=tuple(
+            str(c) for c in raw.get("caption_langs_manual") or ()
+        ),
+        caption_langs_auto=tuple(str(c) for c in raw.get("caption_langs_auto") or ()),
+    )
 
 
 def _load_cached(cache_dir: Path, video_id: str) -> BatchResult | None:
@@ -556,10 +754,14 @@ def _load_cached(cache_dir: Path, video_id: str) -> BatchResult | None:
         frame_paths = [p for p in data.get("frame_paths", []) if Path(p).exists()]
         return BatchResult(
             url=data["url"],
-            meta=VideoMeta(**data["meta"]),
+            meta=_meta_from_cache(data["meta"]),
             segments=[TranscriptSegment(**s) for s in data["segments"]],
             frame_paths=frame_paths,
             cached=True,
+            # Absent on every entry written before ST46. "" then means "this cache
+            # predates provenance", which is exactly what SOURCE_CAPTIONS_UNKNOWN says
+            # downstream — do NOT default it to a real source.
+            transcript_source=data.get("transcript_source", ""),
         )
     except (json.JSONDecodeError, KeyError, TypeError):
         return None  # corrupt cache ⇒ treat as a miss, re-fetch
@@ -575,6 +777,7 @@ def _write_cache(cache_dir: Path, result: BatchResult, meta: VideoMeta) -> None:
                 "meta": asdict(meta),
                 "segments": [asdict(s) for s in result.segments],
                 "frame_paths": result.frame_paths,
+                "transcript_source": result.transcript_source,
                 "fetched_at_utc": datetime.now(UTC).isoformat(),
             },
             indent=2,
@@ -621,19 +824,24 @@ def fetch_video_batch(
             if isinstance(meta, Unavailable):
                 results.append(BatchResult(url=url, meta=meta))
                 continue
-            segments = fetch_transcript(
+            transcript = fetch_transcript(
                 meta,
                 run=run,
                 get=get,
                 groq_key=groq_key,
                 work_dir=cache_dir / video_id,
             )
-            if isinstance(segments, Unavailable):
+            if isinstance(transcript, Unavailable):
                 results.append(
-                    BatchResult(url=url, meta=meta, transcript_error=segments.reason)
+                    BatchResult(url=url, meta=meta, transcript_error=transcript.reason)
                 )
                 continue
-            result = BatchResult(url=url, meta=meta, segments=segments)
+            result = BatchResult(
+                url=url,
+                meta=meta,
+                segments=transcript.segments,
+                transcript_source=transcript.source,
+            )
             _write_cache(cache_dir, result, meta)
             results.append(result)
         except (OSError, subprocess.SubprocessError) as exc:
@@ -652,6 +860,7 @@ def _result_to_dict(result: BatchResult) -> dict[str, object]:
         "url": result.url,
         "cached": result.cached,
         "frame_paths": result.frame_paths,
+        "transcript_source": result.transcript_source,
     }
     if isinstance(result.meta, Unavailable):
         return {**base, "meta": None, "segments": [], "unavailable": result.meta.reason}

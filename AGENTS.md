@@ -723,6 +723,32 @@ fix. **The daily check now WATCHES the pin** — `tools/media_probe.py` fetches 
 canary through production's own download call and reds tier 2 when the media leg dies, so the
 next break surfaces on the phone rather than as a degraded ingest round found by hand.
 
+⚠ **`--dump-json` already returns `chapters`, `subtitles` and `automatic_captions` on the call
+`fetch_meta` ALREADY MAKES, so using them costs PARSING, not quota** (ST46, 2026-08-20). Two
+verdicts came out of wiring them up, and the second is the one that mattered:
+
+- **yt-dlp returns `language: null` on a large slice of the follow list — measured null on 28
+  of 28 at-risk videos.** `meta.lang` was then `""`, so `fetch_transcript` asked for
+  `--sub-langs en` ALONE; yt-dlp answered "There are no subtitles for the requested languages",
+  wrote no file, and the video fell through to Groq ASR **while an author-written track sat
+  there unrequested**. Measured across the ingested corpus: **17 of 89 notes were built from
+  ASR that way**, all on zh channels — exactly where ASR is weakest and `raw_quote` accuracy is
+  load-bearing. `_sub_langs` now widens the request with the codes the metadata call SAID
+  exist. The other 11 genuinely had no captions, so the ASR fallback itself is sound; it was
+  being reached for the wrong reason. ⚠ **Those 17 notes are a COVERAGE defect and their
+  `raw_quote`s are unverified** — a re-ingest is the only repair, per `CLAUDE.md`'s rule.
+- **Caption provenance is now recorded** (`transcript_source`: `manual_captions` /
+  `auto_captions` / `asr_whisper` / `captions_unknown`). It could not be recovered downstream
+  because `--write-subs` and `--write-auto-subs` both land as `sub.<code>.vtt`; the two
+  `--dump-json` mappings are the only signal. Before this it was **model-narrated on 2 of 89
+  notes**. `captions_unknown` is deliberately not folded into `auto` — "we did not ask" and "we
+  asked and it was ASR" are different claims.
+- **`recap_window_s` reads the video's own leading recap chapter** and OVERRIDES the per-channel
+  `intro_recap_s`, in both directions. Measured on `4Dkw1jz04lY`: @GiantCutie-K's configured
+  120s against a recap chapter running to 186s, so 66s of recap read as fresh content. Only a
+  LEADING recap counts — a mid-video 回顧 is a different thing — and chapters are absent on
+  ~50% of the corpus, so degrading to the constant is the common path, not the edge case.
+
 System dependencies, not Poetry-managed:
 
 - **`ffmpeg`** — `/ingest-video` frame extraction + audio chunking. Absent ⇒ every frame grab
