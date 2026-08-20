@@ -325,14 +325,31 @@ def parse_vtt(text: str, lang: str) -> list[TranscriptSegment]:
 _SUB_FILENAME_RE = re.compile(r"^sub\.(.+)\.vtt$")
 
 
+# A caption request longer than this cannot be a targeted one: it is a
+# translate matrix, which YouTube answers with HTTP 429 partway through.
+_MAX_SUB_LANGS = 6
+
+
+def _base_lang(code: str) -> str:
+    """`en-US` -> `en`. YouTube lists regional variants that no caption code
+    matches, while the base language is usually right there in the list."""
+    return code.split("-")[0] if code else ""
+
+
 def _select_caption_track(vtts: list[Path], lang: str) -> Path | None:
     """Pick the right track out of yt-dlp's `--sub-langs` results.
 
-    `--sub-langs all` used to be requested here, which returns the original track
-    plus roughly a hundred machine translations; picking `sorted(...)[0]` then chose
-    alphabetically ("af" beats "zh"). Preference order now: exact `lang` match, then
-    `lang-orig`, then any code that starts with `lang` (handles `zh-Hans`), then
-    `en`, then whatever is left — deterministic over the (already sorted) glob order.
+    Preference order: exact `lang`, then `lang-orig`, then the BASE language
+    (`pt-BR` -> `pt`), then any code sharing that base (`zh` -> `zh-Hans`), then
+    `en`, then whatever carries YouTube's `-orig` suffix, which marks the track
+    the video was actually spoken in.
+
+    Two last-resort rules, both measured. `sorted(...)[0]` used to close this
+    function, and alphabetical order is how `aa` (Afar) beat every other
+    candidate on 9avrSmPczP4. So a blind pick now happens ONLY when nothing
+    knows the language: with a KNOWN `lang` and no related track, this returns
+    None and the caller falls through to ASR, because ASR in the real language
+    beats a machine translation into an unrelated one.
     """
     if not vtts:
         return None
@@ -341,17 +358,21 @@ def _select_caption_track(vtts: list[Path], lang: str) -> Path | None:
         match = _SUB_FILENAME_RE.match(path.name)
         if match:
             by_code[match.group(1)] = path
+    base = _base_lang(lang)
     if lang:
-        if lang in by_code:
-            return by_code[lang]
-        orig_key = f"{lang}-orig"
-        if orig_key in by_code:
-            return by_code[orig_key]
+        for key in (lang, f"{lang}-orig", base, f"{base}-orig"):
+            if key in by_code:
+                return by_code[key]
         for code, path in by_code.items():
-            if code.startswith(lang):
+            if _base_lang(code) == base:
                 return path
     if "en" in by_code:
         return by_code["en"]
+    for code, path in by_code.items():
+        if code.endswith("-orig"):
+            return path
+    if lang:
+        return None
     return vtts[0]
 
 
@@ -376,31 +397,59 @@ class TranscriptResult:
 
 
 def _sub_langs(meta: VideoMeta) -> str:
-    """The `--sub-langs` request list, widened by the tracks yt-dlp SAID exist.
+    """The `--sub-langs` request list: the tracks that exist, narrowest first.
 
-    ⚠ This is the ST46 defect fix. yt-dlp returns `language: null` on a large slice of
-    the follow list — measured null on 28 of 28 at-risk videos — so `meta.lang` is ""
-    and the old expression asked for `en` ALONE. On a Chinese upload yt-dlp then
-    answered "There are no subtitles for the requested languages", wrote no file, and
-    the video fell through to Groq ASR **while an author-written zh-Hant track sat
-    there unrequested**. Measured across the ingested corpus: 17 of 89 notes were
-    built from ASR that way. The 11 others genuinely had no captions, so the ASR
-    fallback itself is sound — it was being reached for the wrong reason.
+    ⚠ This is ST46's widening fix PLUS the regression it shipped. ST46 widened
+    the request with the codes `--dump-json` said exist, because yt-dlp returns
+    `language: null` on a large slice of the follow list and asking for `en`
+    alone sent 17 of 89 zh notes to ASR while an author-written track sat
+    unrequested. `caption_langs_*` come from that same metadata call, so
+    reading them costs no extra request.
 
-    `caption_langs_*` come from the SAME `--dump-json` call `fetch_meta` already
-    makes, so this costs no extra request. Author-written codes are offered before
-    ASR ones; yt-dlp picks manual over auto for a given code anyway, but ordering
-    makes the intent explicit rather than incidental.
+    The regression: on a channel whose `meta.lang` is a REGIONAL variant with a
+    full auto-translate matrix, the widening asked for the matrix. Measured
+    2026-08-20 on 9avrSmPczP4 — `language: "en-US"`, no author-written track,
+    **157** auto codes led by `ab`/`aa`/`af`, `en` at index 32 and `en-US`
+    absent entirely. Re-running that request live answers
+    `Downloading subtitles: ab, aa, en` then `HTTP Error 429: Too Many
+    Requests`, so the transcript's language was decided by which file survived
+    the rate limit: an Afar machine translation, recorded as `auto_captions`.
+
+    Hence two rules. A regional `lang` resolves down to the base track that
+    exists (`en-US` -> `en`), and the list is capped, so no video can request a
+    translate matrix again. The cap only ever trims the widening tail — the
+    resolved language and the author-written tracks are added first.
     """
+    known = (*meta.caption_langs_manual, *meta.caption_langs_auto)
     wanted: list[str] = []
-    if meta.lang:
-        wanted += [meta.lang, f"{meta.lang}-orig"]
-    for code in (*meta.caption_langs_manual, *meta.caption_langs_auto):
-        if code not in wanted:
+
+    def _add(code: str) -> None:
+        if code and code not in wanted:
             wanted.append(code)
-    if "en" not in wanted:
-        wanted.append("en")
-    return ",".join(wanted)
+
+    base = _base_lang(meta.lang)
+    if meta.lang:
+        # With no metadata to check against, the declared language is the only
+        # signal there is; when there IS a list, an unlisted code is a request
+        # for nothing and must not push the real track down the queue.
+        if not known or meta.lang in known:
+            _add(meta.lang)
+            _add(f"{meta.lang}-orig")
+        for code in (base, f"{base}-orig"):
+            if code in known:
+                _add(code)
+    for code in meta.caption_langs_manual:
+        _add(code)
+    if not wanted:
+        # No usable language signal: `-orig` marks the spoken track, so it is a
+        # better guess than the head of an alphabetical list.
+        for code in known:
+            if code.endswith("-orig"):
+                _add(code)
+        for code in known:
+            _add(code)
+    _add("en")
+    return ",".join(wanted[:_MAX_SUB_LANGS])
 
 
 def _caption_source(meta: VideoMeta, lang_code: str) -> str:
