@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -237,3 +239,37 @@ def test_single_flag_deflator_error_exits_cleanly(
     assert "supplied together" in captured.err
     assert "Traceback" not in captured.err
     assert "Traceback" not in captured.out
+
+
+def test_runs_as_a_bare_script_with_no_pythonpath() -> None:
+    """ST59. `/research-distil`'s G3 gate REQUIRES running this tool and forbids
+    estimating, so the one tool a session is obliged to run must not die on the
+    obvious invocation. A bare `python3 tools/distil_power.py` puts `tools/` on
+    sys.path rather than the repo root, and the `analytics.*` imports then raise
+    ModuleNotFoundError; the Make target sets `PYTHONPATH=.` and hides it. A
+    session that hits the traceback and estimates instead has silently defeated
+    the gate. Its two siblings self-bootstrap for the same reason.
+    """
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    result = subprocess.run(
+        [
+            sys.executable,
+            "tools/distil_power.py",
+            "--units",
+            "per_trade",
+            "--n-obs",
+            "1000",
+            "--n-trials",
+            "16",
+            "--sr-variance",
+            "0.05",
+        ],
+        cwd=Path(__file__).resolve().parent.parent,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert "ModuleNotFoundError" not in result.stderr, result.stderr
+    assert "Traceback" not in result.stderr, result.stderr
+    assert result.returncode == 0, result.stderr

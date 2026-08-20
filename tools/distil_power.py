@@ -25,9 +25,20 @@ import argparse
 import math
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
-from analytics.audit_guard import powered_null
-from analytics.research_guards import GATE_DSR, required_sharpe
+# Runnable as a bare script, not only through the Make target. `/research-distil`'s
+# G3 gate MANDATES running this tool and forbids estimating it, so the one tool a
+# session is obliged to run must not die on the obvious invocation: a bare
+# `python3 tools/distil_power.py` puts `tools/` on sys.path rather than the repo
+# root, and the `analytics.*` imports below then raise ModuleNotFoundError. The Make
+# target sets PYTHONPATH=., so a green target says nothing about the bare form, and
+# a session that hits the traceback and estimates instead has defeated the gate
+# silently. `sanity_checks.py:52` and `post_branch_checks.py:45` do the same.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from analytics.audit_guard import powered_null  # noqa: E402
+from analytics.research_guards import GATE_DSR, required_sharpe  # noqa: E402
 
 Z_95 = 1.959963984540054
 
