@@ -511,6 +511,24 @@ bars held runs 96/24/10/2, so a 1d trade is resolved in two bars by a stop tiny 
 daily range. Any trail/breakeven rule is a NEW construction inheriting the full three-leg
 gate under its own pre-registration.
 
+**A paired stop-geometry comparison is owned by its INTRABAR TIE-BREAK, not by its geometry**
+(`docs/audits/2026-08-20-st56-wick-fill-anchor-result.md`, ST56). Testing `wick_fill`'s own wick
+extreme against the geometry that discards it returned **INDETERMINATE at n=336,669** — not an
+underpowered null. Resolving an ambiguous bar as the loss gives **−0.1072R** on [−0.1121, −0.1020];
+resolving it as the win gives **+0.2386R** on [+0.2332, +0.2441]. Both CIs are tight, both exclude
+zero, in opposite directions, and flipping the rule moves the difference **0.3458R — three times the
+effect either reading claims**. The cause is structural: the wick arm's stop is tighter, the target
+is derived from the stop distance, so both levels sit closer to entry and it hits **42,814** ambiguous
+bars against production's **4,007**, a 10.7× asymmetry in exposure to the very rule being applied.
+⚠ **This binds on any comparison where one arm is systematically tighter and ambiguity is resolved
+from OHLC alone** — the flat-2% family, ATR-widening and ST17's capture gradient are all that shape,
+so read a stop-width verdict resolved this way as unproven rather than settled. ⚠ **More data cannot
+fix it**: 73.9% of `wick_fill` fires are 15m and `analytics.db` holds nothing below 15m, so only the
+26.1% at 1h and above is resolvable with held data. ⚠ **ST56 never tested the FALLBACK path** — entry
+at the next bar's open leaves the wick on the correct side 336,697 of 337,294 times, so the flat
+fallback never fires and the result speaks to the `min_sl_pct` FLOOR only. **Do not read it as
+evidence the wick anchor works, or that it does not.**
+
 **The binding constraint, confirmed five times** (exits, trend-weight, combine, carry,
 reversal): the system needs a second *strong* edge, and the cheap price-only free-data
 levers are exhausted. A new sleeve must carry genuinely new information. **Conditioning axes
