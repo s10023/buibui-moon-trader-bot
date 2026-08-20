@@ -83,6 +83,20 @@ shell blocks. The rule they exist to satisfy: *a self-check outside CI is not a 
   (`analytics.data_fetcher._INTERVAL_CONFIG`); three legs reported SKIPPED and looked
   exactly like a correct CI run. Confirm the legs actually RUN once locally after any
   change here.
+- `tools/clone_preflight.py` — `make preflight`. Clones the branch's **committed** HEAD
+  with `--no-hardlinks` (plain `--local` fails `Invalid cross-device link` onto `/tmp`
+  here), runs `poetry install --no-root` in the clone (**6.69s** warm) and then the same
+  pytest invocation `make test` uses. Run at `/post-branch` Step 7, after the doc commits
+  and before `gh pr create`; it **replaces that branch's FINAL `make test`, and only
+  that one** — mid-work runs still need `make test`, because a clone cannot see
+  uncommitted code. **Refuses on a dirty tree** — a clone sees committed state only, so running it
+  dirty would test stale HEAD and report green, which is the invisible pass it exists to
+  kill. Exit **2** = REFUSED (dirty), **3** = INFRA (clone/install died), **1** = the suite
+  genuinely failed; ⚠ make collapses all three, so read the banner. Imports nothing from
+  `tools.*`, so it needs no `sys.path` bootstrap and no `PYTHONPATH`. Unlike `make test`
+  it never locks the working tree — the clone is of committed state, so an edit made
+  mid-run cannot reach it. ⚠ Blind to an
+  *absolute* `$HOME` default (identical in a clone) and to any CLI branch no test reaches.
 - `tools/stale_anchors.py` — dead cross-document `§N` / `Step N` citations. Sweeps the repo
   **and the memory tree**; a section number is not a symbol, so no symbol-keyed check can
   see this class at all. 4 of the 7 hits on first run were in `memory/`.

@@ -15,7 +15,7 @@ a result.
 
 - `make lint-py` ✓ (ruff format + lint)
 - `make typecheck` ✓ (mypy strict)
-- `make test` green
+- `make test` green — and at the **branch's final gate only**, `make preflight` supersedes it, running the same pytest invocation against a fresh clone at `/post-branch` Step 7. Measured 2026-08-20 on 4205 tests: **300.1s against `make test`'s 294.9s, +1.8%**, so hermeticity costs five seconds. ⚠ **It replaces only that last run, never the mid-work ones** — a clone cannot see uncommitted code, which is exactly why it refuses on a dirty tree, so `make test` remains the tool while you are still working.
 - `make test-regression` goldens unmoved — **required only when the diff touches the
   backtest surface**: `analytics/backtest/`, `analytics/strategies/`,
   `analytics/signal_config.py`, `config/*signal_watch*.toml`, `config/strategy_params.toml`,
@@ -28,7 +28,7 @@ a result.
   checked-later.
 
 **Background anything measured in MINUTES; foreground anything measured in SECONDS.**
-Background: `make test` (~145s), `make test-regression` (~93s), `make wait-ci`,
+Background: `make test` (~4m55s — re-measured 2026-08-20; the long-quoted ~145s is stale by ~2x), `make test-regression` (~93s, NOT re-measured), `make wait-ci`,
 `make wait-ci-main`, any CI poll. Foreground: `make lint-py`, `make typecheck`,
 `make lint-md` — seconds each, and their failures should stop the next edit. The line is
 minutes-vs-seconds, **not** tests-vs-not-tests. Use `run_in_background: true`; the harness
@@ -39,6 +39,13 @@ flight.** Both run against the working tree and pytest imports modules at collec
 green run against a tree that no longer exists is worse than no run — it is a false
 "verified". Safe to overlap: MEMORY.md and memory topic files, anything under gitignored
 `docs/plans/`, drafting a PR body under `/tmp`, reading code.
+
+**`make preflight` is the one exception, and it is structural rather than a dispensation.**
+It takes a clone of *committed* state in its first second and runs everything inside that
+clone, so a later working-tree edit cannot reach the run at all — there is no window in
+which a green result describes a tree that no longer exists. That is a second reason to
+prefer it over `make test` on a branch, beyond hermeticity: it hands the working tree back
+immediately.
 
 This rule lived only in memory until 2026-08-19 and was skipped that day for exactly that
 reason — memory is a rung below always-loaded prose, so there was nothing in context to
@@ -69,6 +76,7 @@ make status            # repo shape: file counts, always-loaded KB, MEMORY.md KB
 make post-branch-checks  # the mechanical half of /post-branch (12 legs, ADVISORY)
 make sanity-checks       # the mechanical half of /sanity-check (7 legs, GATES, runs in CI)
 make wait-ci PR=<n>      # wait on a PR's checks    (make wait-ci-main for main's push run)
+make preflight           # ST45 clean-clone gate; /post-branch Step 7, REPLACES make test
 ```
 
 **`make post-branch-checks` and `make sanity-checks` ARE the walk — a hand walk is not.**
@@ -877,6 +885,17 @@ free either way.
 Invoking it is neither optional nor conditional — the skill's own Step 1 behaviour gate
 decides whether a docs sweep is warranted, so invoking it on a pure refactor costs one cheap
 check.
+
+**Step 7 also runs `make preflight`** — clone the branch's committed HEAD with
+`--no-hardlinks`, `poetry install --no-root` (6.69s warm), and the suite. It is the third
+answer to a gitignored path that exists on the dev box and nowhere else (#586, #666), and the
+first one that is a mechanism rather than prose: the standing rule "pass every path
+explicitly" would NOT have caught #666, because the defect was **production code loading a
+config it never reads**, so a fixture `--config` goes green while the CLI stays broken on a
+clean clone. **CI already is this gate — the gap it closes is TIMING**, since detection after
+a push costs a metered cycle, a red PR and a visibility flip just to read the failure. ⚠ It
+does not catch an *absolute* `$HOME` default (identical in the clone — `EXTERNAL_LEDGERS` in
+`deploy/backup-analytics.sh` is that shape), nor any CLI branch no test reaches.
 
 **Why the split is load-bearing:** running the doc walk after PR creation pushes a fix onto
 an open PR, and every such push re-runs all CI (`pull_request: synchronize`) — ~3000 tests
