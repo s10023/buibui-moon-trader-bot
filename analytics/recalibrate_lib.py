@@ -756,6 +756,121 @@ def prune_undeclared_ratings(
     return len(undeclared)
 
 
+class UnratedPruneThresholdExceeded(RuntimeError):
+    """Raised when an unrated-rating prune would remove an implausible share.
+
+    Deliberately NOT :class:`PruneThresholdExceeded`. That exception carries a
+    field named ``n_undeclared`` and remediation advice pointing at the
+    declaration resolver, and neither describes this pruner — reusing it would
+    hand the reader a confidently wrong diagnosis at the one moment they are
+    reading an alarm.
+
+    The failure this guard catches is a **collapsed pool**: measured
+    2026-08-20, omitting ``adr_suppress_threshold`` from
+    ``get_backtest_win_rates`` returns 0 rows for two of the three configs, so
+    every cell falls below its trade floor, the pass rates nothing, and an
+    unguarded delete removes every live rating for that config in one silent
+    pass. The daemon then logs "No confidence ratings found" at INFO on its
+    next restart and nothing else anywhere reports a problem.
+
+    Nothing has been deleted when this is raised.
+    """
+
+    def __init__(
+        self, config_name: str, n_unrated: int, n_total: int, max_share: float
+    ) -> None:
+        self.config_name = config_name
+        self.n_unrated = n_unrated
+        self.n_total = n_total
+        self.max_share = max_share
+        super().__init__(
+            f"refusing to prune {n_unrated} of {n_total} rating row(s) for "
+            f"'{config_name}' ({n_unrated / n_total:.0%} > "
+            f"{max_share:.0%} ceiling). Nothing was deleted. Either the pool "
+            f"genuinely shed this many cells — re-run with a raised ceiling "
+            f"after eyeballing the recalibration report above — or the rating "
+            f"pass was scoped wrongly and read an empty pool, which is the bug "
+            f"this guard exists to catch: check that day_filter and "
+            f"adr_suppress_threshold match the config."
+        )
+
+
+def prune_unrated_ratings(
+    conn: duckdb.DuckDBPyConnection,
+    config_name: str,
+    ratings: dict[str, dict[str, int]],
+    directional_ratings: dict[str, dict[str, dict[str, int]]] | None,
+    max_share: float = DEFAULT_PRUNE_MAX_SHARE,
+    min_rows: int = DEFAULT_PRUNE_MIN_ROWS,
+) -> int:
+    """Delete this config's rating rows the CURRENT pass produced no rating for.
+
+    ``compute_recalibrated_ratings`` omits a strategy under ``min_trades`` and
+    ``compute_directional_ratings`` omits a direction under its own floor — but
+    **omission is an upsert with no delete counterpart**, so a cell that stays
+    *declared* while falling below the floor keeps its last rating forever.
+    Neither existing pruner reaches it: ``prune_stale_ratings`` matches on
+    ``day_filter`` and ``prune_undeclared_ratings`` on declaration, and such a
+    cell is current on both. Measured 2026-08-20 (ST58): 24 of 288 rows frozen,
+    oldest stamped 2026-04-02, 24 of 24 still declared.
+
+    This is not cosmetic. ``analytics/signal/gates.py`` drops the
+    lower-confidence side when both directions fire on one candle, so a frozen
+    star can silence the correct direction — measured worst case, a
+    ``weekdays ema/4h/long`` frozen at 4 stars against a fresh 1-star short on
+    a cell whose current pool reads avg_r -1.02.
+
+    Call this **once per config**, over the union of all three directions, with
+    the two dicts the pass just wrote. Never call it from inside
+    ``upsert_confidence_ratings``, which runs once per direction: a pass that
+    saw only ``long`` would delete every ``combined`` and ``short`` row.
+
+    The key is three-part. ``direction`` must be in it, because a cell can have
+    a freshly rated ``long`` and an unrated ``short`` in the same pass — a
+    ``(strategy, tf)`` key would keep both or drop both.
+
+    Raises :class:`UnratedPruneThresholdExceeded` without deleting anything when
+    the unrated share exceeds ``max_share``. Returns the number of rows removed.
+    """
+    rows = conn.execute(
+        "SELECT strategy, tf, direction FROM confidence_ratings WHERE config_name = ?",
+        [config_name],
+    ).fetchall()
+    if not rows:
+        return 0
+
+    keep: set[tuple[str, str, str]] = set()
+    for strategy, tf_map in ratings.items():
+        for tf in tf_map:
+            keep.add((strategy, tf, "combined"))
+    for strategy, dir_tf_map in (directional_ratings or {}).items():
+        for tf, stars_map in dir_tf_map.items():
+            # Iterate what the dict actually holds: a pass can rate one
+            # direction and omit the other, which is the ST58 shape itself.
+            for direction in stars_map:
+                keep.add((strategy, tf, direction))
+
+    unrated = [
+        (str(strategy), str(tf), str(direction))
+        for strategy, tf, direction in rows
+        if (str(strategy), str(tf), str(direction)) not in keep
+    ]
+    if not unrated:
+        return 0
+
+    if len(rows) >= min_rows and len(unrated) / len(rows) > max_share:
+        raise UnratedPruneThresholdExceeded(
+            config_name, len(unrated), len(rows), max_share
+        )
+
+    conn.executemany(
+        "DELETE FROM confidence_ratings "
+        "WHERE config_name = ? AND strategy = ? AND tf = ? AND direction = ?",
+        [[config_name, s, tf, d] for s, tf, d in unrated],
+    )
+    return len(unrated)
+
+
 def _slice_dsr_map(
     dsr_ratings: dict[str, dict[str, dict[str, float | None]]] | None,
     direction: str,

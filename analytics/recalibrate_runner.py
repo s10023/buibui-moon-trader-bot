@@ -12,6 +12,7 @@ from analytics.data_store import DEFAULT_DB_PATH, init_schema
 from analytics.db_retry import connect_with_retry
 from analytics.recalibrate_lib import (
     PruneThresholdExceeded,
+    UnratedPruneThresholdExceeded,
     compute_directional_ratings,
     compute_dsr_ratings,
     compute_recalibrated_ratings,
@@ -19,6 +20,7 @@ from analytics.recalibrate_lib import (
     get_backtest_win_rates,
     prune_stale_ratings,
     prune_undeclared_ratings,
+    prune_unrated_ratings,
     write_confidence_to_db,
     write_confidence_to_source,
 )
@@ -134,6 +136,28 @@ def run(
                                 f"  Pruned {n_undeclared} rating row(s) for cells "
                                 f"'{config_name}' no longer declares."
                             )
+                # Ratings this pass produced no value for. Omission from
+                # compute_*_ratings (a cell under min_trades) is an upsert with
+                # no delete counterpart, so a cell that stays DECLARED while
+                # falling below the floor keeps its last stars forever — 24 of
+                # 288 rows measured frozen 2026-08-20, oldest 2026-04-02.
+                # Live-reachable, not cosmetic: the conflict resolver drops the
+                # lower-confidence side on a two-direction co-fire, so a frozen
+                # star can silence the correct direction. Runs LAST of the three
+                # pruners, so the stale and undeclared rows are attributed to
+                # their own pruner rather than inflating this one's share.
+                try:
+                    n_unrated = prune_unrated_ratings(
+                        conn, config_name, new_ratings, dir_ratings
+                    )
+                except UnratedPruneThresholdExceeded as exc:
+                    print(f"\n  ⚠ SKIPPED unrated-rating prune: {exc}")
+                else:
+                    if n_unrated:
+                        print(
+                            f"  Pruned {n_unrated} rating row(s) for cells "
+                            f"'{config_name}' no longer rated by this pass."
+                        )
                 print(
                     f"\n  Written to confidence_ratings table for config '{config_name}'."
                 )
