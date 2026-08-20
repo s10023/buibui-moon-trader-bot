@@ -826,6 +826,22 @@ Pushing costs no CI; the meter starts at `gh pr create`. So this is the last fre
 moment, and it is the one decision in the whole skill that must be put to the
 user every single time.
 
+⚠ **THE FLIP IS OPERATOR-RUN — you cannot perform it.** `gh repo edit --visibility` is
+blocked by the permission classifier, and it is blocked in BOTH directions, so the flip back
+in phase 6 is the operator's too. Do not discover this mid-chain: on #669 it surfaced with
+the branch already pushed and the PR body already written, costing a round trip. **Order:
+finish the PR body FIRST, then hand over the exact command and WAIT for confirmation, then
+`gh pr create`** — an unconfirmed flip plus a created PR is a billing-red for nothing.
+
+```bash
+# hand this to the operator; they run it with a leading `!` in the prompt
+GH_TOKEN=$(gh auth token --user s10023) gh repo edit s10023/buibui-moon-trader-bot \
+  --visibility public --accept-visibility-change-consequences
+```
+
+**Confirm it landed before creating the PR** — `gh repo view … --json visibility` is a read
+and is not blocked. Never assume the flip happened because you printed the command.
+
 ⚠ **Confirm the flip with the user on every occasion.** AGENTS.md > CI quota
 makes the **mechanics** standing authorisation and the **timing** not, because
 the public window publishes this repo's whole history for its duration and only
@@ -837,6 +853,14 @@ re-ask the settled one.
   already known by the time you get here.
 - **Phase 6 closes the other half of the pair** — the flip BACK, gated on
   `make wait-ci-main`. Do not treat the flip as done when the PR opens.
+- ⚠ **`make wait-ci-main` settles on ONE workflow; the flip affects ALL of them.** It gates
+  on the `CI` workflow's job-count floor, so a *different* workflow starting after CI settles
+  is invisible to it — the same vacuous-check shape as the chained-job defect, one layer up.
+  Observed on #669: `Dependency Graph` began at 05:55:45Z, after CI had settled, and was
+  `in_progress` at the moment of the flip back. **It did NOT bite** — that workflow completed
+  success with 5 real steps, and has run green on a private repo three times — so this is a
+  LATENT gap, not a demonstrated failure; do not file it as a near-miss. Before flipping back,
+  `gh run list --branch main --limit 5 --json workflowName,status` costs one call and closes it.
 
 ---
 
