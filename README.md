@@ -856,7 +856,11 @@ make buibui-xsmom-execute MODE=testnet  # submit on Binance Futures testnet (val
   **without submitting anything**.
 - The **risk overlay** (fail-closed, blocks the whole plan on any breach): kill-switch,
   drawdown halt, gross-leverage cap, per-instrument notional cap, per-run turnover guard,
-  data-staleness guard. Toggle the kill-switch with `--kill` / `--resume`. Overlay defaults
+  data-staleness guard. Toggle the kill-switch with `--kill` / `--resume`. Correct a drawdown
+  high-water mark that was never real with `--set-peak <value> --peak-reason "<why>"` — one-way
+  (it refuses to RAISE the mark, which is the ratchet's job from live equity, and refuses a
+  non-positive peak, which would put the floor at 0 and read as corrected while the breaker is
+  OFF), and it never lifts a halt the corrected floor still justifies. Overlay defaults
   are calibrated to the real book envelope: `--vol-target 0.20` (validated; deploy first
   live cycles at `0.10`), `--max-gross-leverage 4.5`, `--min-active-positions 15` (breadth
   guard — aborts on a thin/degenerate cross-section), auto cold-start turnover allowance
