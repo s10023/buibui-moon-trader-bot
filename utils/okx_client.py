@@ -7,6 +7,10 @@ the existing backfill / sync code works unchanged when ``DATA_SOURCE=okx``.
 OKX public market data is keyless (verified reachable from US GH runners; Bybit and
 Binance are geo-blocked). Funding / OI are intentionally NOT implemented — no live
 detector needs them on this path.
+
+``taker_buy_volume`` is written NULL rather than fabricated: OKX publishes no
+taker-buy split, and ``ohlcv``'s PK has no venue component, so a fabricated value
+overwrites the real Binance reading indistinguishably (SoT ST60).
 """
 
 from __future__ import annotations
@@ -22,9 +26,15 @@ def _okx_row_to_binance(okx: list[str]) -> list[Any]:
 
     OKX: ``[ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm]`` (strings).
     Binance mapper reads ``k[0]=open_time``, ``k[1..5]=OHLCV``, ``k[9]=taker_buy_volume``.
-    OKX has no taker-buy split, so ``taker_buy_volume = volume / 2`` (neutral CVD delta).
+
+    OKX publishes no taker-buy split, so index 9 is ``None`` and lands as SQL NULL.
+    It used to be ``volume / 2``, which was indistinguishable from a real Binance
+    reading: ``ohlcv``'s PK carries no venue, ``upsert_ohlcv`` REPLACES on conflict,
+    and OHLC/volume agree closely across venues, so an OKX run silently overwrote the
+    one field CVD reads. A NULL cannot be mistaken for a measurement — the row is
+    still overwritten, but visibly, and ``cvd_divergence`` already drops NULLs and
+    returns no signals rather than reading a fabricated flat series.
     """
-    volume = float(okx[5])
     return [
         int(okx[0]),  # 0 open_time (ms)
         okx[1],  # 1 open
@@ -35,7 +45,7 @@ def _okx_row_to_binance(okx: list[str]) -> list[Any]:
         "0",  # 6 close_time (unused)
         "0",  # 7 quote_volume (unused)
         0,  # 8 trades (unused)
-        str(volume / 2),  # 9 taker_buy_volume (neutral)
+        None,  # 9 taker_buy_volume — OKX has no split; NULL, never a fabrication
     ]
 
 
@@ -143,7 +153,9 @@ def _rows_to_ohlcv_df(
                 "low": float(r[3]),
                 "close": float(r[4]),
                 "volume": float(r[5]),
-                "taker_buy_volume": float(r[9]),
+                # NaN in a float64 column lands as SQL NULL through _upsert's
+                # DuckDB scan, and keeps the dtype identical to the Binance path.
+                "taker_buy_volume": float("nan") if r[9] is None else float(r[9]),
             }
             for r in rows
         ],

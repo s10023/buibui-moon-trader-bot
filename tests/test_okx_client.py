@@ -2,6 +2,8 @@
 
 from typing import Any
 
+import duckdb
+import pandas as pd
 import pytest
 
 from utils.okx_client import (
@@ -37,11 +39,14 @@ class _FakeSession:
         return _FakeResp({"code": "0", "msg": "", "data": data})
 
 
+_NOW = 1_755_000_000_000  # 2025-08-12, far outside the fixtures' recency window
+
+
 def _candle(ts: int, confirm: str = "1") -> list[str]:
     return [str(ts), "1", "2", "0.5", "1.5", "100", "x", "y", confirm]
 
 
-def test_okx_row_to_binance_maps_and_sets_neutral_taker_volume() -> None:
+def test_okx_row_to_binance_writes_null_taker_volume() -> None:
     # OKX row: ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm
     okx = [
         "1726128000000",
@@ -61,8 +66,11 @@ def test_okx_row_to_binance_maps_and_sets_neutral_taker_volume() -> None:
     assert row[3] == "59800.0"  # low
     assert row[4] == "60250.0"  # close
     assert row[5] == "1234.5"  # volume
-    # index 9 = taker_buy_volume = volume / 2 (neutral CVD)
-    assert float(row[9]) == 1234.5 / 2
+    # index 9 = taker_buy_volume. OKX publishes no taker-buy split, so this is
+    # None -> SQL NULL. It must NOT be volume / 2: `ohlcv`'s PK has no venue
+    # component and upsert REPLACES on conflict, so a fabricated number is
+    # indistinguishable from the Binance reading it overwrites (SoT ST60).
+    assert row[9] is None
     assert len(row) == 10
 
 
@@ -107,7 +115,8 @@ def test_futures_klines_filters_by_start_sorts_ascending_drops_unconfirmed() -> 
     assert list(df["open_time"]) == [2000]
     assert df["symbol"].iloc[0] == "BTCUSDT"
     assert df["timeframe"].iloc[0] == "1h"  # stored as the Binance tf, not OKX bar
-    assert float(df["taker_buy_volume"].iloc[0]) == 100 / 2
+    # NaN in the frame -> NULL in the DB; never the old fabricated volume / 2.
+    assert pd.isna(df["taker_buy_volume"].iloc[0])
 
 
 def test_futures_klines_paginates_until_start_reached() -> None:
@@ -118,3 +127,65 @@ def test_futures_klines_paginates_until_start_reached() -> None:
     assert list(df["open_time"]) == [1000, 2000, 3000]
     # second call must carry an `after` cursor = oldest ts of page 1
     assert session.calls[1]["after"] == "2000"
+
+
+class TestNullTakerVolumeIsNotAFabrication:
+    """ST60 (a): an OKX overwrite is now VISIBLE rather than plausible.
+
+    NULL does not stop the row being replaced — `ohlcv`'s PK still has no venue
+    component — it stops the replacement passing for a measurement. These pin the
+    two consequences that decide whether NULL is safe to ship on the live path.
+    The third (the `cvd_divergence` detector degrading to no signals rather than
+    reading a fabricated flat series) is pinned in `tests/test_strategies.py`,
+    where the fixture can be shown to fire before the column is nulled.
+    """
+
+    def _okx_frame(self) -> pd.DataFrame:
+        session = _FakeSession([[_candle(3000), _candle(2000), _candle(1000)], []])
+        client = OKXClient(session=session)
+        return client.futures_klines("BTCUSDT", "1h", start_time=1000, limit=1000)
+
+    def test_reaches_duckdb_as_sql_null(self) -> None:
+        """The claim is SQL NULL, not float NaN — the two are distinct in DuckDB."""
+        from analytics.store import init_schema, upsert_ohlcv
+
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        upsert_ohlcv(conn, self._okx_frame())
+        row = conn.execute(
+            "SELECT count(*) FILTER (WHERE taker_buy_volume IS NULL), count(*) "
+            "FROM ohlcv"
+        ).fetchone()
+        assert row is not None
+        assert (row[0], row[1]) == (3, 3)
+
+    def _flagged(self, frame: pd.DataFrame) -> list[Any]:
+        from analytics.store import init_schema, upsert_ohlcv
+        from analytics.store.market_data import (
+            FABRICATED_CVD_SQL,
+            suspect_neutral_cvd,
+        )
+
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        upsert_ohlcv(conn, frame)
+        rows = [
+            (str(r[0]), str(r[1]), int(r[2]))
+            for r in conn.execute(FABRICATED_CVD_SQL).fetchall()
+        ]
+        return list(suspect_neutral_cvd(rows, now_ms=_NOW))
+
+    def test_the_fabricated_cvd_detector_finds_nothing_to_flag(self) -> None:
+        """#676's tier-1 line must stay quiet — there is no fabrication to detect."""
+        assert self._flagged(self._okx_frame()) == []
+
+    def test_but_the_old_fabrication_on_the_same_bars_is_flagged(self) -> None:
+        """The mutation control: without it the assertion above passes vacuously.
+
+        Same three bars, same prices — only the NULL restored to the old
+        `volume / 2`. This is what the adapter used to emit, and it must trip
+        #676's adjacent-run signature.
+        """
+        fabricated = self._okx_frame()
+        fabricated["taker_buy_volume"] = fabricated["volume"] / 2.0
+        assert self._flagged(fabricated) != []

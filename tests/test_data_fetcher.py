@@ -3,6 +3,7 @@
 from typing import Any
 from unittest.mock import MagicMock
 
+import pandas as pd
 import pytest
 
 from analytics.data_fetcher import (
@@ -186,7 +187,9 @@ class TestFetchKlinesOKXPassthrough:
         df = fetch_klines(client, "BTCUSDT", "1h", 1000)
         assert list(df.columns) == OHLCV_COLUMNS
         assert df["open_time"].iloc[0] == 1000
-        assert float(df["taker_buy_volume"].iloc[0]) == 100 / 2
+        # OKX publishes no taker-buy split, so the passthrough carries NaN ->
+        # SQL NULL rather than a fabricated volume / 2 (SoT ST60).
+        assert pd.isna(df["taker_buy_volume"].iloc[0])
 
 
 _EXCHANGE_INFO_RAW: dict[str, Any] = {
