@@ -1,5 +1,9 @@
 """Venue-keyed ohlcv: order parsing, view generation, and read behaviour."""
 
+import os
+import time
+from typing import Any
+
 import duckdb
 import pytest
 
@@ -277,3 +281,438 @@ class TestUnmigratedDatabaseGuard:
             ).fetchall()
         }
         assert infoschema == {"ohlcv"}, "the view IS visible in information_schema"
+
+
+# --- the one-shot migration tool (tools/migrate_ohlcv_venue.py) -------------------
+
+_LEGACY_DDL = (
+    "CREATE TABLE ohlcv (symbol TEXT NOT NULL, timeframe TEXT NOT NULL, "
+    "open_time BIGINT NOT NULL, open DOUBLE NOT NULL, high DOUBLE NOT NULL, "
+    "low DOUBLE NOT NULL, close DOUBLE NOT NULL, volume DOUBLE NOT NULL, "
+    "taker_buy_volume DOUBLE, PRIMARY KEY (symbol, timeframe, open_time))"
+)
+
+_OHLCV_ALL_DDL = (
+    "CREATE TABLE ohlcv_all (venue TEXT NOT NULL, symbol TEXT NOT NULL, "
+    "timeframe TEXT NOT NULL, open_time BIGINT NOT NULL, open DOUBLE NOT NULL, "
+    "high DOUBLE NOT NULL, low DOUBLE NOT NULL, close DOUBLE NOT NULL, "
+    "volume DOUBLE NOT NULL, taker_buy_volume DOUBLE, "
+    "PRIMARY KEY (venue, symbol, timeframe, open_time))"
+)
+
+_DB_META_DDL = (
+    "CREATE TABLE db_meta (key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (key))"
+)
+
+
+def _legacy_db(tmp_path: Any, rows: int = 5) -> Any:
+    """A pre-ST60(b) database: `ohlcv` is a TABLE, and nothing else exists."""
+    path = tmp_path / "legacy.duckdb"
+    conn = duckdb.connect(str(path))
+    conn.execute(_LEGACY_DDL)
+    for i in range(1, rows + 1):
+        conn.execute(
+            "INSERT INTO ohlcv VALUES ('BTCUSDT','1h',?,10,11,9,?,100,50)",
+            [i, 10.0 + i],
+        )
+    conn.close()
+    return path
+
+
+def _half_initialised_db(tmp_path: Any, rows: int = 5) -> Any:
+    """The REAL production state on 2026-08-21: legacy `ohlcv` + EMPTY leftovers.
+
+    `init_schema` created `ohlcv_all` and `db_meta` (both IF NOT EXISTS) before the
+    `CREATE OR REPLACE VIEW` that fails against a legacy `ohlcv` table, and the
+    15-minute timer ran that repeatedly. Built by hand rather than by calling
+    `init_schema`, which now raises before creating anything.
+    """
+    path = _legacy_db(tmp_path, rows)
+    conn = duckdb.connect(str(path))
+    conn.execute(_OHLCV_ALL_DDL)
+    conn.execute(_DB_META_DDL)
+    conn.close()
+    return path
+
+
+def _table_names(path: Any) -> set[str]:
+    conn = duckdb.connect(str(path), read_only=True)
+    try:
+        return {
+            r[0]
+            for r in conn.execute("SELECT table_name FROM duckdb_tables()").fetchall()
+        }
+    finally:
+        conn.close()
+
+
+def _count(path: Any, relation: str) -> int:
+    conn = duckdb.connect(str(path), read_only=True)
+    try:
+        row = conn.execute(f"SELECT COUNT(*) FROM {relation}").fetchone()
+        return int(row[0]) if row else -1
+    finally:
+        conn.close()
+
+
+def _write_manifest(
+    root: Any, stamp: str = "2026-08-21", age_hours: float = 0.0
+) -> Any:
+    """Write a snapshot manifest shaped like deploy/backup-analytics.sh's."""
+    snapshot = root / "daily" / stamp
+    snapshot.mkdir(parents=True, exist_ok=True)
+    manifest = snapshot / "MANIFEST.json"
+    manifest.write_text('{"captured_at_utc": "x", "row_counts": {}}')
+    when = time.time() - age_hours * 3600.0
+    os.utime(manifest, (when, when))
+    return manifest
+
+
+class TestBackupFreshness:
+    def test_missing_root_reads_none(self, tmp_path: Any) -> None:
+        from tools.migrate_ohlcv_venue import newest_backup_age_hours
+
+        assert newest_backup_age_hours(tmp_path / "nope") is None
+
+    def test_root_without_manifests_reads_none(self, tmp_path: Any) -> None:
+        from tools.migrate_ohlcv_venue import newest_backup_age_hours
+
+        (tmp_path / "daily" / "2026-08-21").mkdir(parents=True)
+        assert newest_backup_age_hours(tmp_path) is None
+
+    def test_fresh_manifest_reads_near_zero(self, tmp_path: Any) -> None:
+        from tools.migrate_ohlcv_venue import newest_backup_age_hours
+
+        _write_manifest(tmp_path)
+        age = newest_backup_age_hours(tmp_path)
+        assert age is not None and age < 0.1
+
+    def test_the_newest_manifest_wins(self, tmp_path: Any) -> None:
+        # A stale snapshot sitting beside a fresh one must not veto the fresh one.
+        from tools.migrate_ohlcv_venue import newest_backup_age_hours
+
+        _write_manifest(tmp_path, stamp="2026-08-01", age_hours=480.0)
+        _write_manifest(tmp_path, stamp="2026-08-21", age_hours=2.0)
+        age = newest_backup_age_hours(tmp_path)
+        assert age is not None and 1.9 < age < 2.1
+
+
+class TestMigration:
+    @pytest.fixture(autouse=True)
+    def _isolated_backup_root(self, tmp_path: Any, monkeypatch: Any) -> None:
+        # No test may ever read the operator's real ~/backups/buibui tree.
+        monkeypatch.setenv("BUIBUI_BACKUP_ROOT", str(tmp_path / "backups"))
+
+    def test_migrates_every_row_under_binance(self, tmp_path: Any) -> None:
+        from tools.migrate_ohlcv_venue import migrate
+
+        path = _legacy_db(tmp_path)
+        before, after = migrate(path, force=True)
+        assert (before, after) == (5, 5)
+
+        conn = duckdb.connect(str(path), read_only=True)
+        assert conn.execute("SELECT DISTINCT venue FROM ohlcv_all").fetchall() == [
+            ("binance",)
+        ]
+        conn.close()
+        tables = _table_names(path)
+        assert "ohlcv" not in tables and "ohlcv_all" in tables
+
+    def test_reads_through_the_view_are_unchanged_by_migrating(
+        self, tmp_path: Any
+    ) -> None:
+        from tools.migrate_ohlcv_venue import migrate
+
+        path = _legacy_db(tmp_path)
+        conn = duckdb.connect(str(path))
+        before_rows = conn.execute(
+            "SELECT symbol, timeframe, open_time, open, high, low, close, volume, "
+            "taker_buy_volume FROM ohlcv ORDER BY open_time"
+        ).fetchall()
+        conn.close()
+
+        migrate(path, force=True)
+
+        conn = duckdb.connect(str(path), read_only=True)
+        after_rows = conn.execute(
+            "SELECT symbol, timeframe, open_time, open, high, low, close, volume, "
+            "taker_buy_volume FROM ohlcv ORDER BY open_time"
+        ).fetchall()
+        conn.close()
+        assert after_rows == before_rows
+
+    def test_half_initialised_database_migrates(self, tmp_path: Any) -> None:
+        # The real 2026-08-21 production state: legacy `ohlcv` with rows, plus an
+        # EMPTY `ohlcv_all` and an EMPTY `db_meta` left by failed init_schema runs.
+        from tools.migrate_ohlcv_venue import migrate
+
+        path = _half_initialised_db(tmp_path)
+        conn = duckdb.connect(str(path))
+        before_rows = conn.execute(
+            "SELECT symbol, timeframe, open_time, close FROM ohlcv ORDER BY open_time"
+        ).fetchall()
+        conn.close()
+
+        before, after = migrate(path, force=True)
+        assert (before, after) == (5, 5)
+
+        conn = duckdb.connect(str(path), read_only=True)
+        assert (
+            conn.execute(
+                "SELECT symbol, timeframe, open_time, close FROM ohlcv "
+                "ORDER BY open_time"
+            ).fetchall()
+            == before_rows
+        )
+        assert conn.execute("SELECT DISTINCT venue FROM ohlcv_all").fetchall() == [
+            ("binance",)
+        ]
+        conn.close()
+        assert "ohlcv" not in _table_names(path)
+
+    def test_refuses_when_ohlcv_all_already_holds_rows(self, tmp_path: Any) -> None:
+        # Nobody designed this state: a legacy table AND a populated venue table.
+        # Refuse, and change nothing -- either side could be the real data.
+        from tools.migrate_ohlcv_venue import PopulatedVenueTableError, migrate
+
+        path = _half_initialised_db(tmp_path)
+        conn = duckdb.connect(str(path))
+        conn.execute(
+            "INSERT INTO ohlcv_all VALUES ('okx','ETHUSDT','1h',9,1,1,1,1,1,NULL)"
+        )
+        conn.close()
+
+        with pytest.raises(PopulatedVenueTableError, match="ohlcv_all"):
+            migrate(path, force=True)
+
+        assert _table_names(path) == {"ohlcv", "ohlcv_all", "db_meta"}
+        assert _count(path, "ohlcv") == 5
+        assert _count(path, "ohlcv_all") == 1
+
+    def test_second_run_is_a_no_op(self, tmp_path: Any) -> None:
+        from tools.migrate_ohlcv_venue import AlreadyMigratedError, migrate
+
+        path = _legacy_db(tmp_path)
+        migrate(path, force=True)
+        with pytest.raises(AlreadyMigratedError):
+            migrate(path, force=True)
+        # ...and the migrated database is intact.
+        assert _count(path, "ohlcv_all") == 5
+
+    def test_refuses_without_a_fresh_backup(
+        self, tmp_path: Any, monkeypatch: Any
+    ) -> None:
+        from tools.migrate_ohlcv_venue import StaleBackupError, migrate
+
+        path = _legacy_db(tmp_path)
+        monkeypatch.setenv("BUIBUI_BACKUP_ROOT", str(tmp_path / "no-backups"))
+        with pytest.raises(StaleBackupError, match="backup"):
+            migrate(path, force=False)
+        # and the database is untouched
+        tables = _table_names(path)
+        assert "ohlcv" in tables and "ohlcv_all" not in tables
+        assert _count(path, "ohlcv") == 5
+
+    def test_refuses_a_stale_backup(self, tmp_path: Any, monkeypatch: Any) -> None:
+        from tools.migrate_ohlcv_venue import StaleBackupError, migrate
+
+        path = _legacy_db(tmp_path)
+        root = tmp_path / "backups"
+        _write_manifest(root, age_hours=48.0)
+        monkeypatch.setenv("BUIBUI_BACKUP_ROOT", str(root))
+        with pytest.raises(StaleBackupError, match="48"):
+            migrate(path, force=False)
+        assert "ohlcv" in _table_names(path)
+
+    def test_a_fresh_backup_permits_the_migration(
+        self, tmp_path: Any, monkeypatch: Any
+    ) -> None:
+        from tools.migrate_ohlcv_venue import migrate
+
+        path = _legacy_db(tmp_path)
+        root = tmp_path / "backups"
+        _write_manifest(root, age_hours=1.0)
+        monkeypatch.setenv("BUIBUI_BACKUP_ROOT", str(root))
+        assert migrate(path, force=False) == (5, 5)
+
+    def test_stamps_the_read_venue_order(self, tmp_path: Any) -> None:
+        from tools.migrate_ohlcv_venue import migrate
+
+        path = _legacy_db(tmp_path)
+        migrate(path, force=True)
+        conn = duckdb.connect(str(path), read_only=True)
+        try:
+            # The db_meta ROW, not just read_venue_order(): that helper returns the
+            # default when the key is absent, so asserting on it alone passes with
+            # the stamp removed entirely (measured -- it did).
+            assert conn.execute(
+                "SELECT value FROM db_meta WHERE key = 'read_venue_order'"
+            ).fetchone() == (DEFAULT_VENUE,)
+            assert read_venue_order(conn) == [DEFAULT_VENUE]
+        finally:
+            conn.close()
+
+    def test_a_row_count_mismatch_rolls_everything_back(
+        self, tmp_path: Any, monkeypatch: Any
+    ) -> None:
+        # Fault injection: a copy that silently drops rows. The real copy cannot do
+        # this (one venue, no key collisions), so the guard is unreachable without
+        # breaking it on purpose -- which is exactly what makes it worth pinning.
+        import tools.migrate_ohlcv_venue as mod
+
+        monkeypatch.setattr(mod, "_COPY_SQL", mod._COPY_SQL + " WHERE open_time <= 3")
+        path = _legacy_db(tmp_path)
+        with pytest.raises(mod.RowCountMismatchError, match="5"):
+            mod.migrate(path, force=True)
+
+        tables = _table_names(path)
+        assert "ohlcv" in tables and "ohlcv_all" not in tables
+        assert _count(path, "ohlcv") == 5
+
+    def test_a_failure_after_the_legacy_table_is_gone_changes_nothing(
+        self, tmp_path: Any, monkeypatch: Any
+    ) -> None:
+        # The dangerous window: the legacy table has been dropped and the view is
+        # not built yet. DuckDB DDL is transactional, so the rollback must restore
+        # BOTH the legacy table and the empty `ohlcv_all` leftover this run removed.
+        import tools.migrate_ohlcv_venue as mod
+
+        def _boom(order: list[str]) -> str:
+            raise RuntimeError("injected failure while building the view")
+
+        monkeypatch.setattr(mod, "ohlcv_view_sql", _boom)
+        path = _half_initialised_db(tmp_path)
+        with pytest.raises(RuntimeError, match="injected failure"):
+            mod.migrate(path, force=True)
+
+        assert _table_names(path) == {"ohlcv", "ohlcv_all", "db_meta"}
+        assert _count(path, "ohlcv") == 5
+        assert _count(path, "ohlcv_all") == 0
+
+    def test_refuses_a_missing_database_without_creating_it(
+        self, tmp_path: Any
+    ) -> None:
+        # duckdb.connect() CREATES an empty database at any path it is given, so a
+        # typo'd path must be refused before the connect, not after.
+        from tools.migrate_ohlcv_venue import MissingDatabaseError, migrate
+
+        path = tmp_path / "typo.duckdb"
+        with pytest.raises(MissingDatabaseError):
+            migrate(path, force=True)
+        assert not path.exists()
+
+    def test_an_empty_database_is_refused_not_migrated(self, tmp_path: Any) -> None:
+        from tools.migrate_ohlcv_venue import AlreadyMigratedError, migrate
+
+        path = tmp_path / "empty.duckdb"
+        duckdb.connect(str(path)).close()
+        with pytest.raises(AlreadyMigratedError):
+            migrate(path, force=True)
+
+    def test_the_migrated_database_serves_init_schema_and_a_write(
+        self, tmp_path: Any
+    ) -> None:
+        # The live consequence: the daemon must start against the migrated file.
+        import pandas as pd
+
+        from analytics.store.market_data import upsert_ohlcv
+        from analytics.store.schema import init_schema
+        from tools.migrate_ohlcv_venue import migrate
+
+        path = _legacy_db(tmp_path)
+        migrate(path, force=True)
+
+        conn = duckdb.connect(str(path))
+        try:
+            init_schema(conn)  # must not raise UnmigratedDatabaseError any more
+            upsert_ohlcv(
+                conn,
+                pd.DataFrame(
+                    [
+                        {
+                            "symbol": "BTCUSDT",
+                            "timeframe": "1h",
+                            "open_time": 99,
+                            "open": 1.0,
+                            "high": 2.0,
+                            "low": 0.5,
+                            "close": 1.5,
+                            "volume": 10.0,
+                            "taker_buy_volume": 5.0,
+                        }
+                    ]
+                ),
+                venue="okx",
+            )
+            # The okx bar lands in ohlcv_all but NOT in the binance-pinned view.
+            assert conn.execute("SELECT COUNT(*) FROM ohlcv_all").fetchone() == (6,)
+            assert conn.execute("SELECT COUNT(*) FROM ohlcv").fetchone() == (5,)
+        finally:
+            conn.close()
+
+    def test_main_migrates_and_warns_loudly_on_force(
+        self, tmp_path: Any, monkeypatch: Any, capsys: Any
+    ) -> None:
+        import tools.migrate_ohlcv_venue as mod
+
+        path = _legacy_db(tmp_path)
+        monkeypatch.setattr(
+            "sys.argv", ["migrate_ohlcv_venue.py", str(path), "--force"]
+        )
+        assert mod.main() == 0
+        captured = capsys.readouterr()
+        assert "5" in captured.out
+        assert "FORCE" in captured.err.upper()
+
+    def test_main_reports_a_refusal_and_exits_nonzero(
+        self, tmp_path: Any, monkeypatch: Any, capsys: Any
+    ) -> None:
+        import tools.migrate_ohlcv_venue as mod
+
+        path = _legacy_db(tmp_path)
+        monkeypatch.setenv("BUIBUI_BACKUP_ROOT", str(tmp_path / "no-backups"))
+        monkeypatch.setattr("sys.argv", ["migrate_ohlcv_venue.py", str(path)])
+        assert mod.main() == 1
+        assert "backup" in capsys.readouterr().err.lower()
+        assert "ohlcv" in _table_names(path)
+
+    def test_refuses_a_legacy_table_carrying_an_unexpected_column(
+        self, tmp_path: Any
+    ) -> None:
+        # The copy names its columns, so an extra one would be silently discarded --
+        # a data loss that no row count could detect. Refuse instead.
+        from tools.migrate_ohlcv_venue import LegacySchemaError, migrate
+
+        path = tmp_path / "extra.duckdb"
+        conn = duckdb.connect(str(path))
+        conn.execute(_LEGACY_DDL)
+        conn.execute("ALTER TABLE ohlcv ADD COLUMN quote_volume DOUBLE")
+        conn.execute(
+            "INSERT INTO ohlcv VALUES ('BTCUSDT','1h',1,10,11,9,10.5,100,50,999)"
+        )
+        conn.close()
+
+        with pytest.raises(LegacySchemaError, match="quote_volume"):
+            migrate(path, force=True)
+
+        assert _table_names(path) == {"ohlcv"}
+        assert _count(path, "ohlcv") == 1
+
+    def test_refuses_a_legacy_table_missing_a_column(self, tmp_path: Any) -> None:
+        from tools.migrate_ohlcv_venue import LegacySchemaError, migrate
+
+        path = tmp_path / "short.duckdb"
+        conn = duckdb.connect(str(path))
+        conn.execute(
+            "CREATE TABLE ohlcv (symbol TEXT NOT NULL, timeframe TEXT NOT NULL, "
+            "open_time BIGINT NOT NULL, open DOUBLE NOT NULL, high DOUBLE NOT NULL, "
+            "low DOUBLE NOT NULL, close DOUBLE NOT NULL, volume DOUBLE NOT NULL, "
+            "PRIMARY KEY (symbol, timeframe, open_time))"
+        )
+        conn.execute("INSERT INTO ohlcv VALUES ('BTCUSDT','1h',1,10,11,9,10.5,100)")
+        conn.close()
+
+        with pytest.raises(LegacySchemaError, match="taker_buy_volume"):
+            migrate(path, force=True)
+
+        assert _table_names(path) == {"ohlcv"}
