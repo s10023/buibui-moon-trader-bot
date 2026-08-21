@@ -874,8 +874,9 @@ re-ask the settled one.
   was created on the merge SHA *after* the check. That is the same vacuous-check shape at a
   THIRD NESTED LAYER (a count of layers, not of sightings) — a chained job does not exist
   until its dependency ends · the waiter watches one workflow and cannot see a sibling · a
-  listing of all workflows cannot see one not yet created. ⚠ **It recurred on the flip-back
-  for #674 and again for #675**, and every sighting was caught by the post-flip re-verify and
+  listing of all workflows cannot see one not yet created. ⚠ **It has now recurred on the flip-back
+  for #674, #675 and #678 — five sightings**, the last created at 07:07:09Z on `a306410` and
+  still `queued` at the moment of the flip; every one was caught by the post-flip re-verify and
   by nothing else — a pre-flip check cannot see a run that does not yet exist, so **the
   re-verify is the ONLY step that catches this class**, never a belt-and-braces extra.
   **A check is only ever true about the scope it looked at, at the moment it looked**, so

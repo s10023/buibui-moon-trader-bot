@@ -958,9 +958,10 @@ blocked. Never assume the flip happened because you printed the command.
   `wait-ci-main` watches ONE workflow and cannot see a sibling · a listing of ALL workflows cannot
   see one not yet created. **The pattern to carry: a check is only ever true about the scope it
   looked at, at the moment it looked.** ⚠ **The outermost layer is not a twice-seen curiosity: it
-  recurred on the flip-back for #674 and again for #675** (`Dependency Graph` created 02:25:33Z on
-  `7a0eeef`, minutes after a clean pre-flip listing). **Every sighting was caught by the post-flip
-  re-verify and by nothing else**, because a pre-flip check cannot see a run that does not yet
+  has now recurred on the flip-back for #674, #675 and #678 — FIVE sightings** (`Dependency Graph`
+  created 02:25:33Z on `7a0eeef`, and 07:07:09Z on `a306410` where it was still `queued` at the
+  moment of the flip; each minutes after a clean pre-flip listing). **Every sighting was caught by
+  the post-flip re-verify and by nothing else**, because a pre-flip check cannot see a run that does not yet
   exist — so the re-verify is the ONLY step in the sequence that can catch this class, never a
   belt-and-braces extra. Every sighting was also benign because `Dependency Graph` runs green on a
   private repo and burns no allowance — read that as luck about WHICH workflow started late, never
