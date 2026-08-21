@@ -1988,6 +1988,43 @@ class TestCvdDivergence:
         result = detect_cvd_divergence(df, lookback=self._LOOKBACK)
         assert result.empty
 
+    def test_null_taker_volume_silences_a_fixture_that_otherwise_fires(self) -> None:
+        """An all-NULL taker column silences a fixture that otherwise fires.
+
+        This is the precondition ST60 (a) rests on: the OKX adapter now writes
+        NULL, so on that path this detector must go quiet rather than read a
+        fabricated flat CVD series.
+
+        `test_returns_empty_when_taker_buy_volume_all_null` above cannot show
+        that — its price series is flat and could never diverge, so it passes
+        with the early return deleted. This one fires first, then nulls only the
+        taker column, so the assertion cannot pass vacuously.
+
+        ⚠ Measured by mutation 2026-08-21: deleting the `isna().all()` early
+        return does NOT break this test. The behaviour is carried independently
+        by the `dropna` on the next line, which empties the frame past the
+        min-rows floor. Two paths deliver it; do not read a green run here as
+        proof that either one specifically is live.
+        """
+        n = 30
+        highs = [100.0] * n
+        lows = [95.0] * n
+        tbvs = [50.0] * n
+        for i in range(8, 13):
+            highs[i] = 110.0
+            tbvs[i] = 80.0
+        for i in range(20, 25):
+            highs[i] = 120.0
+            tbvs[i] = 30.0
+        df = self._make_cvd_df(highs, lows, tbvs)
+
+        fires = detect_cvd_divergence(df, lookback=self._LOOKBACK, cvd_lookback=n)
+        assert not fires.empty, "fixture must fire, or the null case proves nothing"
+
+        df["taker_buy_volume"] = float("nan")
+        silenced = detect_cvd_divergence(df, lookback=self._LOOKBACK, cvd_lookback=n)
+        assert silenced.empty
+
     def test_returns_empty_when_column_missing(self) -> None:
         rows = [
             _candle(_BASE_TIME + i * self._MS, 100, 110, 90, 100) for i in range(10)
