@@ -206,3 +206,74 @@ class TestVenueCollision:
         conn = duckdb.connect(":memory:")
         init_schema(conn)
         assert read_venue_order(conn) == ["binance"]
+
+
+class TestUnmigratedDatabaseGuard:
+    def _legacy_conn(self) -> duckdb.DuckDBPyConnection:
+        conn = duckdb.connect(":memory:")
+        conn.execute(
+            "CREATE TABLE ohlcv (symbol TEXT NOT NULL, timeframe TEXT NOT NULL, "
+            "open_time BIGINT NOT NULL, open DOUBLE, high DOUBLE, low DOUBLE, "
+            "close DOUBLE, volume DOUBLE, taker_buy_volume DOUBLE, "
+            "PRIMARY KEY (symbol, timeframe, open_time))"
+        )
+        return conn
+
+    def test_legacy_table_raises_and_names_the_tool(self) -> None:
+        from analytics.store.schema import UnmigratedDatabaseError, init_schema
+
+        conn = self._legacy_conn()
+        with pytest.raises(UnmigratedDatabaseError) as excinfo:
+            init_schema(conn)
+        assert "tools/migrate_ohlcv_venue.py" in str(excinfo.value)
+
+    def test_half_initialised_db_still_raises(self) -> None:
+        # This is the state a FAILED init_schema run leaves behind on the real
+        # analytics.db: `ohlcv` is still a legacy TABLE, but the CREATE TABLE IF NOT
+        # EXISTS statements for `ohlcv_all` and `db_meta` already succeeded before
+        # execution reached the CREATE OR REPLACE VIEW that raised. So after the
+        # first failed run, BOTH `ohlcv` and `ohlcv_all` are present — a guard keyed
+        # on "ohlcv_all absent" (the brief's original condition) stays silent here
+        # and lets the same raw duckdb.CatalogException through on retry. The guard
+        # must key on `ohlcv` alone.
+        conn = self._legacy_conn()
+        conn.execute(
+            "CREATE TABLE ohlcv_all (venue TEXT NOT NULL, symbol TEXT NOT NULL, "
+            "timeframe TEXT NOT NULL, open_time BIGINT NOT NULL, open DOUBLE, "
+            "high DOUBLE, low DOUBLE, close DOUBLE, volume DOUBLE, "
+            "taker_buy_volume DOUBLE, "
+            "PRIMARY KEY (venue, symbol, timeframe, open_time))"
+        )
+        conn.execute(
+            "CREATE TABLE db_meta (key TEXT NOT NULL, value TEXT NOT NULL, "
+            "PRIMARY KEY (key))"
+        )
+
+        from analytics.store.schema import UnmigratedDatabaseError, init_schema
+
+        with pytest.raises(UnmigratedDatabaseError) as excinfo:
+            init_schema(conn)
+        assert "tools/migrate_ohlcv_venue.py" in str(excinfo.value)
+
+    def test_guard_reads_duckdb_tables_not_information_schema(self) -> None:
+        # A VIEW appears in information_schema.columns but NOT in duckdb_tables().
+        # Keying the guard on information_schema would make a MIGRATED database look
+        # unmigrated forever, so this pins the discriminator itself.
+        from analytics.store import init_schema
+
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        init_schema(conn)  # second call on a migrated DB must be a no-op, not a raise
+
+        tables = {
+            r[0]
+            for r in conn.execute("SELECT table_name FROM duckdb_tables()").fetchall()
+        }
+        assert "ohlcv" not in tables, "ohlcv must be a view, not a table"
+        infoschema = {
+            r[0]
+            for r in conn.execute(
+                "SELECT table_name FROM information_schema.columns WHERE table_name='ohlcv'"
+            ).fetchall()
+        }
+        assert infoschema == {"ohlcv"}, "the view IS visible in information_schema"

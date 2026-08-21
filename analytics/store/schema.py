@@ -5,8 +5,30 @@ import duckdb
 from analytics.store.venue import ohlcv_view_sql, read_venue_order
 
 
+class UnmigratedDatabaseError(RuntimeError):
+    """Raised when a database still has the pre-ST60(b) `ohlcv` TABLE."""
+
+
 def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
     """Create all tables if they do not exist."""
+    tables = {
+        row[0]
+        for row in conn.execute("SELECT table_name FROM duckdb_tables()").fetchall()
+    }
+    if "ohlcv" in tables:
+        # duckdb_tables() lists TABLES only, never views — after a real migration
+        # `ohlcv` is a view and never appears here. Do NOT also require
+        # "ohlcv_all" not in tables: init_schema creates ohlcv_all and db_meta
+        # (both CREATE TABLE IF NOT EXISTS) *before* it reaches the CREATE OR
+        # REPLACE VIEW that fails on a legacy table, so a failed run leaves both
+        # tables present. Keying on ohlcv_all's absence would silently pass that
+        # half-initialised state straight through to the same raw
+        # duckdb.CatalogException this guard exists to replace.
+        raise UnmigratedDatabaseError(
+            "This database predates the ohlcv venue key: `ohlcv` is still a TABLE. "
+            "Take a backup, then run `poetry run python tools/migrate_ohlcv_venue.py`. "
+            "Nothing has been modified."
+        )
     conn.execute("""
         CREATE TABLE IF NOT EXISTS ohlcv_all (
             venue            TEXT   NOT NULL,
