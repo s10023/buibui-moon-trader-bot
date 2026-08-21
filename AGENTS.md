@@ -467,7 +467,9 @@ mis-assigned. **This line read 1.628× / 3.331× until 2026-08-21, which are rea
 figures from the OTHER regime's panels** (`2026-08-12-multi-regime-validation-design.md`:
 3 symbols at n_eff 1.13 → 1.628×, 15 at n_eff 1.35 → 3.331×) — so the defect was bull-panel
 n_eff crossed with bear-panel deflators, and crosswise at that. **Never carry a deflator
-between panels; re-derive it.** At k=25 n_eff 2.92 and deflator 2.926 coincide to three
+between panels — run `effective_independent_series` rather than quoting one**, which is what
+`docs/audits/2026-08-20-st56-wick-fill-anchor-power.md` concluded when it caught this clause
+failing to reproduce. At k=25 n_eff 2.92 and deflator 2.926 coincide to three
 digits, which is exactly why the conflation is invisible at the worked example above.
 
 **Ensemble / confluence scoring — FAILS the gate**
