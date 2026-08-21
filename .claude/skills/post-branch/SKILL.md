@@ -871,11 +871,15 @@ re-ask the settled one.
   ⚠ **And one call does NOT close it — the rule is check → flip → RE-VERIFY.** A listing
   cannot see a workflow that does not yet EXIST: on #670 and again on #672 the pre-flip
   `gh run list` read clean on every workflow, the operator flipped, and `Dependency Graph`
-  was created on the merge SHA *after* the check. That is the same vacuous-check shape a
-  third time, each one layer further out — a chained job does not exist until its dependency
-  ends · the waiter watches one workflow and cannot see a sibling · a listing of all
-  workflows cannot see one not yet created. **A check is only ever true about the scope it
-  looked at, at the moment it looked**, so re-run it after the operator confirms the flip:
+  was created on the merge SHA *after* the check. That is the same vacuous-check shape at a
+  THIRD NESTED LAYER (a count of layers, not of sightings) — a chained job does not exist
+  until its dependency ends · the waiter watches one workflow and cannot see a sibling · a
+  listing of all workflows cannot see one not yet created. ⚠ **It recurred on the flip-back
+  for #674 and again for #675**, and every sighting was caught by the post-flip re-verify and
+  by nothing else — a pre-flip check cannot see a run that does not yet exist, so **the
+  re-verify is the ONLY step that catches this class**, never a belt-and-braces extra.
+  **A check is only ever true about the scope it looked at, at the moment it looked**, so
+  re-run it after the operator confirms the flip:
 
   ```bash
   gh run list --branch main --limit 5 --json workflowName,status

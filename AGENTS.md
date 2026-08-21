@@ -460,8 +460,17 @@ is already deflated, with `t_stat_naive` kept beside it so the adjustment is aud
 **Any audit slicing this universe per-symbol inherits this, the XS sleeve's cuts included.**
 Book-day rows are already aggregated and must NOT be deflated again. **The 25-symbol 2.92×
 does not transfer** — n_eff is 1.97 for 14 perps and 1.42 for three, giving deflators of
-1.628× and 3.331×, so breadth buys almost nothing when the cross-section is nearly one
-asset.
+**2.668×** and **1.452×**, so breadth buys almost nothing when the cross-section is nearly
+one asset. ⚠ **The deflator is `sqrt(k / n_eff)`, never n_eff itself** — check any pair with
+`n_eff × deflator² == k`, and note it RISES with k, so a pair that falls as k rises is
+mis-assigned. **This line read 1.628× / 3.331× until 2026-08-21, which are real published
+figures from the OTHER regime's panels** (`2026-08-12-multi-regime-validation-design.md`:
+3 symbols at n_eff 1.13 → 1.628×, 15 at n_eff 1.35 → 3.331×) — so the defect was bull-panel
+n_eff crossed with bear-panel deflators, and crosswise at that. **Never carry a deflator
+between panels — run `effective_independent_series` rather than quoting one**, which is what
+`docs/audits/2026-08-20-st56-wick-fill-anchor-power.md` concluded when it caught this clause
+failing to reproduce. At k=25 n_eff 2.92 and deflator 2.926 coincide to three
+digits, which is exactly why the conflation is invisible at the worked example above.
 
 **Ensemble / confluence scoring — FAILS the gate**
 (`docs/audits/2026-08-11-ensemble-walkforward.md`). "Combine the failed hypotheses into a
@@ -938,11 +947,16 @@ blocked. Never assume the flip happened because you printed the command.
   ⚠ **That call is NECESSARY BUT NOT SUFFICIENT, so the rule is check → flip → RE-VERIFY.** A
   listing cannot see a workflow that does not yet EXIST: on #670 and again on #672 the pre-flip
   listing read clean on every workflow, the operator flipped, and `Dependency Graph` was then
-  created on the merge SHA *after* the check. **Same vacuous-check shape three times, each one
-  layer further out** — a chained job does not exist until its dependency ends · `wait-ci-main`
-  watches ONE workflow and cannot see a sibling · a listing of ALL workflows cannot see one not
-  yet created. **The pattern to carry: a check is only ever true about the scope it looked at, at
-  the moment it looked.** Both observations were benign because `Dependency Graph` runs green on a
+  created on the merge SHA *after* the check. **Same vacuous-check shape at THREE NESTED LAYERS**
+  (a count of layers, not of sightings) — a chained job does not exist until its dependency ends ·
+  `wait-ci-main` watches ONE workflow and cannot see a sibling · a listing of ALL workflows cannot
+  see one not yet created. **The pattern to carry: a check is only ever true about the scope it
+  looked at, at the moment it looked.** ⚠ **The outermost layer is not a twice-seen curiosity: it
+  recurred on the flip-back for #674 and again for #675** (`Dependency Graph` created 02:25:33Z on
+  `7a0eeef`, minutes after a clean pre-flip listing). **Every sighting was caught by the post-flip
+  re-verify and by nothing else**, because a pre-flip check cannot see a run that does not yet
+  exist — so the re-verify is the ONLY step in the sequence that can catch this class, never a
+  belt-and-braces extra. Every sighting was also benign because `Dependency Graph` runs green on a
   private repo and burns no allowance — read that as luck about WHICH workflow started late, never
   as safety of the check, since `security-scan` (Trivy) in that slot consumes minutes and dies.
 - **What makes a SHARED window safe is concurrency, not the rule.** `cancel-in-progress` is
