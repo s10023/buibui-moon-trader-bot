@@ -13,6 +13,7 @@ from analytics.data_store import (
 )
 from analytics.recalibrate_lib import (
     PruneThresholdExceeded,
+    UnratedPruneThresholdExceeded,
     compute_directional_ratings,
     compute_dsr_ratings,
     compute_recalibrated_ratings,
@@ -20,6 +21,7 @@ from analytics.recalibrate_lib import (
     get_backtest_win_rates,
     prune_stale_ratings,
     prune_undeclared_ratings,
+    prune_unrated_ratings,
     win_rate_to_stars,
     write_confidence_to_db,
     write_confidence_to_source,
@@ -1086,6 +1088,239 @@ class TestPruneUndeclaredRatings:
         )
         conn = self._conn()
         assert prune_undeclared_ratings(conn, "signal_watch", cfg) == 0
+
+
+class TestPruneUnratedRatings:
+    """prune_unrated_ratings deletes rows the CURRENT pass produced no rating for.
+
+    ST58: omission from ``compute_recalibrated_ratings`` /
+    ``compute_directional_ratings`` has no delete counterpart, so a cell that
+    stays *declared* while falling below its trade floor keeps its last rating
+    forever. Measured 2026-08-20: 24 of 288 rows frozen, oldest stamped
+    2026-04-02, and 24 of 24 still declared — so neither existing pruner can
+    reach them. A frozen star is live-reachable: the conflict resolver drops
+    the lower-confidence side when both directions fire on one candle.
+
+    **Fixture discipline, inherited from TestPruneUndeclaredRatings.** Every
+    expected survivor set below is hand-enumerated as a literal. Do not build an
+    expectation by calling the same key-construction the implementation uses —
+    that passes no matter how wrong both are.
+
+    ``_seed`` writes a ``combined`` row for every key in ``ratings``
+    *unconditionally* (write_confidence_to_db does this before the directional
+    loop), so seeding "a long row" produces two rows. Every expectation here
+    accounts for that; getting it wrong is the easiest way to write a
+    spec-conformant test that asserts the wrong thing.
+    """
+
+    def _conn(self) -> duckdb.DuckDBPyConnection:
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        return conn
+
+    def _empty_wr(self) -> pd.DataFrame:
+        return pd.DataFrame(columns=["strategy", "timeframe", "avg_r", "win_rate"])
+
+    def _seed(
+        self,
+        conn: duckdb.DuckDBPyConnection,
+        config_name: str,
+        ratings: dict[str, dict[str, int]],
+        directional: dict[str, dict[str, dict[str, int]]] | None = None,
+        day_filter: str = "tue_thu",
+    ) -> None:
+        """Put rows in the table as a PRIOR pass would have left them."""
+        write_confidence_to_db(
+            conn,
+            config_name,
+            ratings,
+            self._empty_wr(),
+            day_filter=day_filter,
+            directional_ratings=directional,
+        )
+
+    def _cells(
+        self, conn: duckdb.DuckDBPyConnection, config_name: str
+    ) -> set[tuple[str, str, str]]:
+        rows = conn.execute(
+            "SELECT strategy, tf, direction FROM confidence_ratings "
+            "WHERE config_name = ?",
+            [config_name],
+        ).fetchall()
+        return {(str(r[0]), str(r[1]), str(r[2])) for r in rows}
+
+    def test_deletes_only_cells_this_pass_did_not_rate(self) -> None:
+        """ANTI-VACUITY: the fixture holds both a survivor and a victim.
+
+        Mutation that must fail this: replace the predicate with an
+        unconditional ``DELETE ... WHERE config_name = ?``. Both halves of the
+        assertion are load-bearing — ``n == 2`` alone stays green under a
+        mutation that deletes the wrong two rows.
+        """
+        conn = self._conn()
+        self._seed(
+            conn,
+            "signal_watch",
+            {
+                "fvg": {"1h": 3},
+                "bos": {"4h": 2},
+                "smt_divergence": {"1h": 5},
+                "engulfing": {"1d": 5},
+            },
+        )
+        # This pass rated only fvg/1h and bos/4h; the other two fell below
+        # min_trades and were omitted — ST58 exactly.
+        n = prune_unrated_ratings(
+            conn, "signal_watch", {"fvg": {"1h": 3}, "bos": {"4h": 2}}, None
+        )
+        assert n == 2
+        assert self._cells(conn, "signal_watch") == {
+            ("fvg", "1h", "combined"),
+            ("bos", "4h", "combined"),
+        }
+        conn.close()
+
+    def test_does_not_touch_other_configs(self) -> None:
+        """Two mutations must fail this: dropping the config_name filter from
+        the SELECT (n goes to 3) and from the DELETE (the sibling config loses
+        its fvg/1h row).
+
+        The second is why the other config must hold **the same cell**. Seeding
+        it with a disjoint strategy makes this case vacuous — a DELETE with no
+        config_name filter then matches nothing over there by luck of the
+        naming, and the test passes while the bug ships. Overlap is also the
+        production shape: all three signal_watch configs declare fvg/1h.
+        """
+        conn = self._conn()
+        self._seed(conn, "signal_watch", {"fvg": {"1h": 3}})
+        self._seed(conn, "signal_watch_all", {"fvg": {"1h": 4}, "orb": {"1d": 4}})
+        n = prune_unrated_ratings(conn, "signal_watch", {}, None)
+        assert n == 1
+        assert self._cells(conn, "signal_watch") == set()
+        assert self._cells(conn, "signal_watch_all") == {
+            ("fvg", "1h", "combined"),
+            ("orb", "1d", "combined"),
+        }
+        conn.close()
+
+    def test_key_is_three_part_so_one_direction_can_be_unrated(self) -> None:
+        """The mutation here REPRODUCES ST58 itself.
+
+        Build the survivor key as ``(strategy, tf)`` instead of
+        ``(strategy, tf, direction)`` and the frozen short row survives with
+        n == 0. That two-part key cannot express "rated long, not short", which
+        is the state ``signal_watch cvd_divergence/1h`` is actually in today:
+        long recomputed fresh, short frozen at ★5 since 2026-05-15.
+        """
+        conn = self._conn()
+        self._seed(
+            conn,
+            "signal_watch",
+            {"cvd_divergence": {"1h": 3}},
+            {"cvd_divergence": {"1h": {"long": 3, "short": 5}}},
+        )
+        # Fixture precondition, asserted so a helper change cannot gut the case.
+        assert self._cells(conn, "signal_watch") == {
+            ("cvd_divergence", "1h", "combined"),
+            ("cvd_divergence", "1h", "long"),
+            ("cvd_divergence", "1h", "short"),
+        }
+        n = prune_unrated_ratings(
+            conn,
+            "signal_watch",
+            {"cvd_divergence": {"1h": 3}},
+            {"cvd_divergence": {"1h": {"long": 3}}},  # short omitted this pass
+        )
+        assert n == 1
+        assert self._cells(conn, "signal_watch") == {
+            ("cvd_divergence", "1h", "combined"),
+            ("cvd_divergence", "1h", "long"),
+        }
+        conn.close()
+
+    def test_aborts_without_deleting_when_share_exceeds_threshold(self) -> None:
+        """ANTI-CATASTROPHE: a mis-scoped pool must not silently wipe a config.
+
+        Measured failure mode: omitting ``adr_suppress_threshold`` from
+        ``get_backtest_win_rates`` returns a 0-row pool for two of the three
+        configs, ``compute_*_ratings`` then returns ``{}``, and an unguarded
+        delete removes every live rating in one pass while the daemon merely
+        logs "No confidence ratings found" at its next restart.
+
+        Mutation: remove the share-ceiling check. ``pytest.raises`` fails first;
+        if someone then drops the ``raises``, the final count assertion catches
+        it at 0. Keep both.
+        """
+        conn = self._conn()
+        self._seed(conn, "signal_watch", {f"ghost_{i}": {"1h": 3} for i in range(30)})
+        assert len(self._cells(conn, "signal_watch")) == 30
+        with pytest.raises(UnratedPruneThresholdExceeded) as exc:
+            prune_unrated_ratings(conn, "signal_watch", {}, None)
+        assert exc.value.n_unrated == 30
+        assert exc.value.n_total == 30
+        assert len(self._cells(conn, "signal_watch")) == 30
+        conn.close()
+
+    def test_threshold_can_be_raised_to_allow_a_known_large_prune(self) -> None:
+        """Without this, a future edit could satisfy the case above by making
+        the pruner never delete anything at all."""
+        conn = self._conn()
+        self._seed(conn, "signal_watch", {f"ghost_{i}": {"1h": 3} for i in range(30)})
+        n = prune_unrated_ratings(conn, "signal_watch", {}, None, max_share=1.0)
+        assert n == 30
+        assert self._cells(conn, "signal_watch") == set()
+        conn.close()
+
+    def test_small_table_does_not_trip_the_share_guard(self) -> None:
+        """Mutation: invert the min_rows guard (``<`` for ``>=``) and this
+        raises instead of deleting. The ceiling is evidence about a resolver
+        and a 4-row table carries none."""
+        conn = self._conn()
+        self._seed(
+            conn,
+            "signal_watch",
+            {"fvg": {"1h": 3}, "bos": {"4h": 2}, "orb": {"15m": 1}, "doji": {"1d": 1}},
+        )
+        n = prune_unrated_ratings(conn, "signal_watch", {}, None)
+        assert n == 4
+        assert self._cells(conn, "signal_watch") == set()
+        conn.close()
+
+    def test_empty_table_is_not_a_threshold_breach(self) -> None:
+        """0 of 0 must not read as 100% deleted and trip the guard."""
+        conn = self._conn()
+        assert prune_unrated_ratings(conn, "signal_watch", {}, None) == 0
+        conn.close()
+
+    def test_composes_with_stale_and_undeclared_pruners(self) -> None:
+        """Drift guard, not a mutation case: the three predicates are
+        orthogonal and all three must keep running.
+
+        Assert the TUPLE, not just the survivor set. Running the unrated prune
+        first would count the stale and undeclared rows as unrated too — they
+        are — which makes the runner's three printed counts lie and inflates
+        the share the ceiling is measured against.
+        """
+        cfg = SignalWatchConfig(
+            strategies=["fvg", "bos"], timeframes=["1h", "4h"], day_filter="tue_thu"
+        )
+        conn = self._conn()
+        self._seed(conn, "signal_watch", {"fvg": {"1h": 3}})  # live, re-rated below
+        self._seed(conn, "signal_watch", {"bos": {"4h": 2}})  # declared, not re-rated
+        self._seed(conn, "signal_watch", {"orb": {"1d": 4}})  # undeclared
+        self._seed(
+            conn, "signal_watch", {"doji": {"1h": 1}}, day_filter="weekend"
+        )  # stale day_filter
+
+        n_stale = prune_stale_ratings(conn, "signal_watch", "tue_thu")
+        n_undeclared = prune_undeclared_ratings(conn, "signal_watch", cfg)
+        n_unrated = prune_unrated_ratings(
+            conn, "signal_watch", {"fvg": {"1h": 3}}, None
+        )
+
+        assert (n_stale, n_undeclared, n_unrated) == (1, 1, 1)
+        assert self._cells(conn, "signal_watch") == {("fvg", "1h", "combined")}
+        conn.close()
 
 
 # ---------------------------------------------------------------------------

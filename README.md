@@ -744,6 +744,18 @@ deleted, it **refuses and deletes nothing**, because a declaration resolver that
 under-reports presents as mass deletion. That guard is a tripwire on the resolver, not a
 policy knob — raise it only after reading `make buibui-dead-surface-check` output.
 
+A third pruner removes rows **the pass that just ran produced no rating for**. Omission is
+not deletion: `compute_recalibrated_ratings` skips a strategy under `--min-trades` and the
+directional pass skips a direction under its own floor, so a cell that stayed *declared*
+while falling below the floor kept its last stars forever — measured 2026-08-20 at 24 of 288
+rows, the oldest stamped 2026-04-02, and **all 24 still declared**, which is why neither of
+the other two pruners could reach them. This is not cosmetic the way an orphan is: a declared
+cell is still scanned, and the live conflict resolver drops the lower-confidence side when
+both directions fire on one candle, so a frozen star can silence the correct direction. It
+carries its own share ceiling and refuses the same way — a mis-scoped pool (a missing
+`adr_suppress_threshold` returns zero rows for two of the three configs) rates nothing, and
+an unguarded delete would then wipe a whole config in one silent pass.
+
 **Day-filter scopes.** The three production configs partition the calendar:
 
 | Config | `day_filter` | Days |
