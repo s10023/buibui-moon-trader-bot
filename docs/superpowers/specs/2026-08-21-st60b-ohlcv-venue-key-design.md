@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-21 · **Status:** approved, unbuilt · **Scope:** `analytics/store/`,
 `analytics/data_sync.py`, `utils/binance_client.py`, `tools/export_live_db.py`, one migration
-tool, 22 test insert sites · **Source:** SoT ST60(b) — the prevention half of the
+tool, ~61 test call sites · **Source:** SoT ST60(b) — the prevention half of the
 OKX-overwrite defect whose *detection* half shipped in #676 and whose *NULL* half shipped
 in #678
 
@@ -117,6 +117,13 @@ for it (§2 non-goal).
 statements in `tests/`** and the remaining three are comments — one test docstring, two in
 `tools/export_live_db.py`. There is no second production path to keep in step.
 
+**`venue` is required rather than defaulted, and that costs ~39 further test edits.** Beyond
+the 22 raw inserts there are **39 `upsert_ohlcv(...)` call sites in `tests/`**, every one of
+which a required argument breaks — ~61 edits in total, all mechanical. A default of
+`"binance"` would leave all 39 untouched and is the obvious economy, but it re-introduces a
+silent default on the exact writer whose silent behaviour *is* ST60: an OKX run that forgot
+to plumb the venue would tag its bars `binance` and overwrite Binance history again. See D7.
+
 `_upsert`'s body is sealed (heap-corruption note in `analytics/store/_common.py`) and is not
 touched; only the table name and the column list change at the call site.
 
@@ -191,9 +198,11 @@ about reach until a mutation proves it, and reach is not scope. At minimum: dele
 view's venue predicate must fail the collision test, and re-keying the `init_schema` guard
 back onto `information_schema` must fail the refusal test.
 
-The 22 `INSERT INTO ohlcv` statements in `tests/` move to `ohlcv_all` with a venue literal.
-Most are positional `VALUES (...)`, so they break under *any* approach that adds a column —
-unavoidable churn rather than a cost of the view.
+Two mechanical sweeps, ~61 edits: the 22 `INSERT INTO ohlcv` statements in `tests/` move to
+`ohlcv_all` with a venue literal (most are positional `VALUES (...)`, so they break under
+*any* approach that adds a column — unavoidable churn rather than a cost of the view), and
+the 39 `upsert_ohlcv(...)` call sites each gain `venue="binance"` (a cost of D7, not of the
+view).
 
 ## 9. What this does NOT do
 
@@ -218,3 +227,4 @@ unavoidable churn rather than a cost of the view.
 | D4 · Migration is an explicit tool that `init_schema` refuses without | Migrate inside `init_schema`, as the existing `taker_buy_volume` ALTER guard does | That guard adds a nullable column; this rebuilds a 2M-row table on a single-copy gitignored DB owned by a 15-minute timer. Automatic is right for the cheap case and wrong for this one | The table shrinks enough, or DuckDB gains an in-place primary-key alter, that the rebuild stops being a rebuild |
 | D5 · Prevention only, no comparison surface | Venue-aware read API + disagreement flagging | Operator call 2026-08-21. Retention alone satisfies the "flagged pair" argument; the consumers are a shelved sleeve and one 1h detector | A second venue's data starts feeding a live decision — then disagreement needs to be surfaced, not merely retained |
 | D6 · Architectural path, spec first | Bounded — a short in-chat design | Chosen before the CI mixed-read problem was found, and that problem would have been discovered mid-implementation under the bounded path. Recorded because the classification was the right call for the wrong reason | — |
+| D7 · `venue` is a REQUIRED keyword argument on `upsert_ohlcv` | `venue: str = "binance"`, which would leave all 39 test call sites untouched | A silent default on this writer is the defect: an OKX run that forgot to plumb the venue would tag its bars `binance` and overwrite Binance history exactly as today. ~39 mechanical test edits is the price of not rebuilding ST60 inside its own fix | A second production writer appears for which an explicit venue is genuinely unknowable — then the default returns *with* a loud resolution step, never bare |
