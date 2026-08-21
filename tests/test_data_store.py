@@ -78,6 +78,8 @@ class TestInitSchema:
         tables = {r[0] for r in conn.execute("SHOW TABLES").fetchall()}
         assert {
             "ohlcv",
+            "ohlcv_all",
+            "db_meta",
             "funding_rates",
             "open_interest",
             "venue_spot_daily",
@@ -143,16 +145,20 @@ class TestInitSchema:
 
 class TestUpsertOhlcv:
     def test_inserts_rows(self, conn: duckdb.DuckDBPyConnection) -> None:
-        upsert_ohlcv(conn, pd.DataFrame([_OHLCV_ROW]))
+        upsert_ohlcv(conn, pd.DataFrame([_OHLCV_ROW]), venue="binance")
         assert _one(conn, "SELECT COUNT(*) FROM ohlcv")[0] == 1
 
     def test_replaces_on_conflict(self, conn: duckdb.DuckDBPyConnection) -> None:
-        upsert_ohlcv(conn, pd.DataFrame([_OHLCV_ROW]))
-        upsert_ohlcv(conn, pd.DataFrame([{**_OHLCV_ROW, "close": 99999.0}]))
+        upsert_ohlcv(conn, pd.DataFrame([_OHLCV_ROW]), venue="binance")
+        upsert_ohlcv(
+            conn, pd.DataFrame([{**_OHLCV_ROW, "close": 99999.0}]), venue="binance"
+        )
         assert _one(conn, "SELECT close FROM ohlcv")[0] == 99999.0
 
     def test_empty_dataframe_is_noop(self, conn: duckdb.DuckDBPyConnection) -> None:
-        upsert_ohlcv(conn, pd.DataFrame(columns=list(_OHLCV_ROW.keys())))
+        upsert_ohlcv(
+            conn, pd.DataFrame(columns=list(_OHLCV_ROW.keys())), venue="binance"
+        )
         assert _one(conn, "SELECT COUNT(*) FROM ohlcv")[0] == 0
 
 
@@ -200,13 +206,13 @@ class TestUpsertOpenInterest:
 
 class TestGetOhlcv:
     def test_returns_rows_in_range(self, conn: duckdb.DuckDBPyConnection) -> None:
-        upsert_ohlcv(conn, pd.DataFrame([_OHLCV_ROW]))
+        upsert_ohlcv(conn, pd.DataFrame([_OHLCV_ROW]), venue="binance")
         result = get_ohlcv(conn, "BTCUSDT", "1h", 0, 2_000_000_000_000)
         assert len(result) == 1
         assert result.iloc[0]["close"] == 30500.0
 
     def test_excludes_rows_outside_range(self, conn: duckdb.DuckDBPyConnection) -> None:
-        upsert_ohlcv(conn, pd.DataFrame([_OHLCV_ROW]))
+        upsert_ohlcv(conn, pd.DataFrame([_OHLCV_ROW]), venue="binance")
         result = get_ohlcv(conn, "BTCUSDT", "1h", 0, 1_000_000_000)
         assert result.empty
 
@@ -219,7 +225,7 @@ class TestGetOhlcv:
 
 class TestTakerBuyVolume:
     def test_persists_taker_buy_volume(self, conn: duckdb.DuckDBPyConnection) -> None:
-        upsert_ohlcv(conn, pd.DataFrame([_OHLCV_ROW]))
+        upsert_ohlcv(conn, pd.DataFrame([_OHLCV_ROW]), venue="binance")
         row = conn.execute("SELECT taker_buy_volume FROM ohlcv").fetchone()
         assert row is not None
         assert row[0] == 55.0
@@ -228,35 +234,15 @@ class TestTakerBuyVolume:
         self, conn: duckdb.DuckDBPyConnection
     ) -> None:
         row = {**_OHLCV_ROW, "taker_buy_volume": None}
-        upsert_ohlcv(conn, pd.DataFrame([row]))
+        upsert_ohlcv(conn, pd.DataFrame([row]), venue="binance")
         result = conn.execute("SELECT taker_buy_volume FROM ohlcv").fetchone()
         assert result is not None
         assert result[0] is None
 
-    def test_migration_adds_column_to_existing_db(self) -> None:
-        c = duckdb.connect(":memory:")
-        c.execute("""
-            CREATE TABLE ohlcv (
-                symbol TEXT NOT NULL, timeframe TEXT NOT NULL,
-                open_time BIGINT NOT NULL, open DOUBLE NOT NULL,
-                high DOUBLE NOT NULL, low DOUBLE NOT NULL,
-                close DOUBLE NOT NULL, volume DOUBLE NOT NULL,
-                PRIMARY KEY (symbol, timeframe, open_time)
-            )
-        """)
-        init_schema(c)
-        cols = {
-            r[0]
-            for r in c.execute(
-                "SELECT column_name FROM information_schema.columns WHERE table_name = 'ohlcv'"
-            ).fetchall()
-        }
-        assert "taker_buy_volume" in cols
-
     def test_get_ohlcv_returns_taker_buy_volume_column(
         self, conn: duckdb.DuckDBPyConnection
     ) -> None:
-        upsert_ohlcv(conn, pd.DataFrame([_OHLCV_ROW]))
+        upsert_ohlcv(conn, pd.DataFrame([_OHLCV_ROW]), venue="binance")
         result = get_ohlcv(conn, "BTCUSDT", "1h", 0, 2_000_000_000_000)
         assert "taker_buy_volume" in result.columns
         assert result.iloc[0]["taker_buy_volume"] == 55.0
@@ -839,7 +825,7 @@ class TestGetLatestOpenTime:
             {**_OHLCV_ROW, "open_time": 1_700_000_000_000},
             {**_OHLCV_ROW, "open_time": 1_700_003_600_000},
         ]
-        upsert_ohlcv(conn, pd.DataFrame(rows))
+        upsert_ohlcv(conn, pd.DataFrame(rows), venue="binance")
         assert get_latest_open_time(conn, "BTCUSDT", "1h") == 1_700_003_600_000
 
 

@@ -44,6 +44,7 @@ def _seed(conn: duckdb.DuckDBPyConnection, symbols: list[str], n: int = 500) -> 
                     "taker_buy_volume": vol * rng.uniform(0.3, 0.7, n),
                 }
             ),
+            venue="binance",
         )
         svol = rng.uniform(50.0, 150.0, n)
         upsert_spot_ohlcv(

@@ -156,7 +156,7 @@ def test_bundle_uses_1h_ref_price_and_flags_source() -> None:
 def test_bundle_falls_back_without_1h_and_notes_it() -> None:
     conn = make_conn()
     seed_symbol(conn, "BTCUSDT")
-    conn.execute("DELETE FROM ohlcv WHERE timeframe = '1h'")
+    conn.execute("DELETE FROM ohlcv_all WHERE venue = 'binance' AND timeframe = '1h'")
     bundle = compute_brief(conn, _cfg(("BTCUSDT",)))
     panel = bundle.panels[0]
     assert panel.ref_price_source == "1d_close"

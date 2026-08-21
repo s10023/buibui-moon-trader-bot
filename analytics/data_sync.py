@@ -66,7 +66,7 @@ def backfill(
         )
         if df.empty:
             break
-        upsert_ohlcv(conn, df)
+        upsert_ohlcv(conn, df, venue="binance")
         total += len(df)
         logging.info(
             "backfill %s %s: stored %d rows (total %d)",

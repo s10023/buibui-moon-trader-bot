@@ -157,3 +157,52 @@ class TestReadVenueOrder:
             "SELECT open_time, close FROM ohlcv ORDER BY open_time"
         ).fetchall()
         assert got_after == [(1, 10.5), (2, 99.0)]
+
+
+class TestVenueCollision:
+    """The whole point of ST60(b). Read this test first."""
+
+    def test_okx_write_cannot_overwrite_a_binance_bar(self) -> None:
+        import pandas as pd
+
+        from analytics.store import init_schema, upsert_ohlcv
+
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        bar = {
+            "symbol": "BTCUSDT",
+            "timeframe": "1h",
+            "open_time": 1,
+            "open": 10.0,
+            "high": 11.0,
+            "low": 9.0,
+            "close": 10.5,
+            "volume": 100.0,
+            "taker_buy_volume": 50.0,
+        }
+        upsert_ohlcv(conn, pd.DataFrame([bar]), venue="binance")
+        upsert_ohlcv(
+            conn,
+            pd.DataFrame([{**bar, "close": 99.0, "taker_buy_volume": None}]),
+            venue="okx",
+        )
+
+        both = conn.execute(
+            "SELECT venue, close FROM ohlcv_all ORDER BY venue"
+        ).fetchall()
+        assert both == [("binance", 10.5), ("okx", 99.0)], "both venues must survive"
+
+        through_view = conn.execute(
+            "SELECT close, taker_buy_volume FROM ohlcv"
+        ).fetchall()
+        assert through_view == [(10.5, 50.0)], (
+            "reads stay on Binance, taker split intact"
+        )
+
+    def test_fresh_schema_defaults_to_binance_only(self) -> None:
+        from analytics.store import init_schema
+        from analytics.store.venue import read_venue_order
+
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        assert read_venue_order(conn) == ["binance"]

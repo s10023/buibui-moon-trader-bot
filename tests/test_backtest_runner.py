@@ -473,7 +473,7 @@ class TestCollectSweepResultsPlumbing:
 
         # Seed OHLCV so the cell is not skipped.
         ohlcv_df = _make_ohlcv_df("BTCUSDT", "1h", n=20)
-        upsert_ohlcv(conn, ohlcv_df)
+        upsert_ohlcv(conn, ohlcv_df, venue="binance")
 
         # Seed a funding row so the builder returns a non-empty Series.
         upsert_funding_rates(

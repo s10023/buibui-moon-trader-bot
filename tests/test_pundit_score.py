@@ -731,10 +731,10 @@ class TestDbAndCli:
         init_schema(conn)
         df = _candles([(100, 110, 90, 105)] * 30)
         df["taker_buy_volume"] = 0.5  # upsert_ohlcv requires the full 9-column list
-        upsert_ohlcv(conn, df)
+        upsert_ohlcv(conn, df, venue="binance")
         d1 = df.copy()
         d1["timeframe"] = "1d"
-        upsert_ohlcv(conn, d1)
+        upsert_ohlcv(conn, d1, venue="binance")
         calls = [_call()]
         data = load_ohlcv_for_calls(conn, calls, FAR)
         assert not data[("BTCUSDT", "1h")].empty

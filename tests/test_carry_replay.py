@@ -21,7 +21,7 @@ def _seed(conn: duckdb.DuckDBPyConnection, n: int = 300) -> list[str]:
             price *= float(np.exp(rng.normal(0.0, 0.02)))
             t = i * day_ms
             conn.execute(
-                "INSERT INTO ohlcv VALUES (?, '1d', ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO ohlcv_all VALUES ('binance', ?, '1d', ?, ?, ?, ?, ?, ?, ?)",
                 [sym, t, price, price, price, price, 1000.0, 500.0],
             )
             for j in range(3):  # 3 funding rows per day

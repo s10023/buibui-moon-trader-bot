@@ -38,7 +38,7 @@ def _insert_ohlcv(
         ]
     )
     conn.register("_o", df)
-    conn.execute("INSERT INTO ohlcv SELECT * FROM _o")
+    conn.execute("INSERT INTO ohlcv_all SELECT 'binance', * FROM _o")
     conn.unregister("_o")
 
 

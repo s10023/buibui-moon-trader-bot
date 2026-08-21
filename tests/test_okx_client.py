@@ -151,7 +151,7 @@ class TestNullTakerVolumeIsNotAFabrication:
 
         conn = duckdb.connect(":memory:")
         init_schema(conn)
-        upsert_ohlcv(conn, self._okx_frame())
+        upsert_ohlcv(conn, self._okx_frame(), venue="binance")
         row = conn.execute(
             "SELECT count(*) FILTER (WHERE taker_buy_volume IS NULL), count(*) "
             "FROM ohlcv"
@@ -168,7 +168,7 @@ class TestNullTakerVolumeIsNotAFabrication:
 
         conn = duckdb.connect(":memory:")
         init_schema(conn)
-        upsert_ohlcv(conn, frame)
+        upsert_ohlcv(conn, frame, venue="binance")
         rows = [
             (str(r[0]), str(r[1]), int(r[2]))
             for r in conn.execute(FABRICATED_CVD_SQL).fetchall()

@@ -2,11 +2,14 @@
 
 import duckdb
 
+from analytics.store.venue import ohlcv_view_sql, read_venue_order
+
 
 def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
     """Create all tables if they do not exist."""
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS ohlcv (
+        CREATE TABLE IF NOT EXISTS ohlcv_all (
+            venue            TEXT   NOT NULL,
             symbol           TEXT   NOT NULL,
             timeframe        TEXT   NOT NULL,
             open_time        BIGINT NOT NULL,
@@ -16,18 +19,17 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
             close            DOUBLE NOT NULL,
             volume           DOUBLE NOT NULL,
             taker_buy_volume DOUBLE,
-            PRIMARY KEY (symbol, timeframe, open_time)
+            PRIMARY KEY (venue, symbol, timeframe, open_time)
         )
     """)
-    # Migration guard: add column to existing DBs that were created before this field.
-    existing = {
-        row[0]
-        for row in conn.execute(
-            "SELECT column_name FROM information_schema.columns WHERE table_name = 'ohlcv'"
-        ).fetchall()
-    }
-    if "taker_buy_volume" not in existing:
-        conn.execute("ALTER TABLE ohlcv ADD COLUMN taker_buy_volume DOUBLE")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS db_meta (
+            key   TEXT NOT NULL,
+            value TEXT NOT NULL,
+            PRIMARY KEY (key)
+        )
+    """)
+    conn.execute(ohlcv_view_sql(read_venue_order(conn)))
     conn.execute("""
         CREATE TABLE IF NOT EXISTS funding_rates (
             symbol       TEXT   NOT NULL,

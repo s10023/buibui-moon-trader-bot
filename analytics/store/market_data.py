@@ -10,18 +10,26 @@ import pandas as pd
 from analytics.store._common import _upsert
 
 
-def upsert_ohlcv(conn: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> None:
-    """Insert or replace OHLCV rows.
+def upsert_ohlcv(
+    conn: duckdb.DuckDBPyConnection, df: pd.DataFrame, *, venue: str
+) -> None:
+    """Insert or replace OHLCV rows for one venue.
 
     df must have columns: symbol, timeframe, open_time, open, high, low, close, volume,
-    taker_buy_volume.
-    Conflicts on (symbol, timeframe, open_time) are replaced.
+    taker_buy_volume. Conflicts on (venue, symbol, timeframe, open_time) are replaced,
+    so a write for one venue can never touch another's bars.
+
+    `venue` is required rather than defaulted on purpose: this whole table shape exists
+    because a silent default destroyed data once already.
     """
+    if df.empty:
+        return
     _upsert(
         conn,
-        df,
-        "ohlcv",
-        "symbol, timeframe, open_time, open, high, low, close, volume, taker_buy_volume",
+        df.assign(venue=venue),
+        "ohlcv_all",
+        "venue, symbol, timeframe, open_time, open, high, low, close, volume, "
+        "taker_buy_volume",
     )
 
 

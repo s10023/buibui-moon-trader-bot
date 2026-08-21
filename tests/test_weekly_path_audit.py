@@ -21,11 +21,22 @@ def _seed(conn: duckdb.DuckDBPyConnection, symbol: str, n_weeks: int) -> None:
             ts = int((start + timedelta(weeks=w, hours=b)).timestamp() * 1000)
             price *= 1.0005 if (w + b) % 3 else 0.9995
             rows.append(
-                (symbol, "1h", ts, price, price * 1.01, price * 0.99, price, 1.0, 0.5)
+                (
+                    "binance",
+                    symbol,
+                    "1h",
+                    ts,
+                    price,
+                    price * 1.01,
+                    price * 0.99,
+                    price,
+                    1.0,
+                    0.5,
+                )
             )
     conn.executemany(
-        "INSERT INTO ohlcv (symbol, timeframe, open_time, open, high, low, close, "
-        "volume, taker_buy_volume) VALUES (?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO ohlcv_all (venue, symbol, timeframe, open_time, open, high, low, "
+        "close, volume, taker_buy_volume) VALUES (?,?,?,?,?,?,?,?,?,?)",
         rows,
     )
 

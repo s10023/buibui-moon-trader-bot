@@ -113,7 +113,7 @@ class TestBackfill:
 class TestSync:
     def test_fetches_from_latest_open_time(self) -> None:
         conn = _make_conn()
-        upsert_ohlcv(conn, _make_df([1_000_000]))
+        upsert_ohlcv(conn, _make_df([1_000_000]), venue="binance")
         captured: list[int] = []
 
         def capture(c: Any, cl: Any, sym: Any, tf: Any, start: int, **kw: Any) -> int:
@@ -131,7 +131,7 @@ class TestSync:
 
     def test_returns_zero_when_no_new_data(self) -> None:
         conn = _make_conn()
-        upsert_ohlcv(conn, _make_df([1_000_000]))
+        upsert_ohlcv(conn, _make_df([1_000_000]), venue="binance")
         empty_df = pd.DataFrame(columns=OHLCV_COLUMNS)
         with patch("analytics.data_sync.fetch_klines", return_value=empty_df):
             total = sync(conn, object(), "BTCUSDT", "1h", sleep_fn=lambda _: None)

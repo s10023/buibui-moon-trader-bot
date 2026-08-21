@@ -75,7 +75,7 @@ def seed_symbol(
                     bc,
                 )
             )
-    upsert_ohlcv(conn, pd.DataFrame(rows))
+    upsert_ohlcv(conn, pd.DataFrame(rows), venue="binance")
 
 
 def _row(

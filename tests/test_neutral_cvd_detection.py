@@ -48,7 +48,7 @@ class TestTheSql:
     def _rows(self, bars: list[dict[str, object]]) -> list[tuple[str, str, int]]:
         conn = duckdb.connect(":memory:")
         init_schema(conn)
-        upsert_ohlcv(conn, pd.DataFrame(bars))
+        upsert_ohlcv(conn, pd.DataFrame(bars), venue="binance")
         return [
             (r[0], r[1], int(r[2])) for r in conn.execute(FABRICATED_CVD_SQL).fetchall()
         ]
