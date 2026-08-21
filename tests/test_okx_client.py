@@ -151,10 +151,14 @@ class TestNullTakerVolumeIsNotAFabrication:
 
         conn = duckdb.connect(":memory:")
         init_schema(conn)
-        upsert_ohlcv(conn, self._okx_frame(), venue="binance")
+        # Write as the real OKX write path will (venue="okx" from Task 5 onward) and
+        # assert against the base table directly, rather than the `ohlcv` view --
+        # the view defaults to binance-only, which would filter these rows out and
+        # make the assertion pass for the wrong reason.
+        upsert_ohlcv(conn, self._okx_frame(), venue="okx")
         row = conn.execute(
             "SELECT count(*) FILTER (WHERE taker_buy_volume IS NULL), count(*) "
-            "FROM ohlcv"
+            "FROM ohlcv_all WHERE venue = 'okx'"
         ).fetchone()
         assert row is not None
         assert (row[0], row[1]) == (3, 3)
@@ -165,10 +169,17 @@ class TestNullTakerVolumeIsNotAFabrication:
             FABRICATED_CVD_SQL,
             suspect_neutral_cvd,
         )
+        from analytics.store.venue import set_read_venue_order
 
         conn = duckdb.connect(":memory:")
         init_schema(conn)
-        upsert_ohlcv(conn, frame, venue="binance")
+        # FABRICATED_CVD_SQL still reads FROM the `ohlcv` view at this commit --
+        # Task 4 is what points it at ohlcv_all directly. Prefer okx in the read
+        # order so a real OKX-venue write (matching what Task 5 makes production
+        # do) is actually visible to the detector, rather than silently dropped by
+        # the binance-only default and passing this test for the wrong reason.
+        set_read_venue_order(conn, ["okx", "binance"])
+        upsert_ohlcv(conn, frame, venue="okx")
         rows = [
             (str(r[0]), str(r[1]), int(r[2]))
             for r in conn.execute(FABRICATED_CVD_SQL).fetchall()
