@@ -260,14 +260,16 @@ and fires Telegram alerts — no always-on host required.
   `make db-update` is unaffected.
 - **Required repo secrets:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
 - **Caveat — `cvd_divergence`:** OKX candles lack taker-buy volume, so OKX-synced rows
-  set `taker_buy_volume = volume / 2` (neutral CVD delta). Committed Binance history
-  keeps real taker volume; only the newest OKX candles are neutral, so `cvd_divergence`
-  degrades gracefully (it won't fire a false directional signal) rather than crashing.
-  ⚠ **That safety is the runner's ephemeral DB, not a property of the adapter.** `ohlcv`'s
+  set `taker_buy_volume = NULL` — never a fabricated `volume / 2`, which is what the
+  adapter wrote until 2026-08-21. Committed Binance history keeps real taker volume;
+  `cvd_divergence` drops NULL rows and returns no signals, rather than crashing or firing
+  on a fabricated flat series.
+  ⚠ **NULL makes the overwrite VISIBLE; it does not prevent it.** `ohlcv`'s
   primary key is `(symbol, timeframe, open_time)` with no venue column and `upsert_ohlcv`
   replaces on conflict, so an OKX row does not land beside the Binance row for the same
-  slot — it overwrites it, and silently, because OHLC and volume agree closely across
-  venues and the only field that moves is the one CVD reads. **Never point
+  slot — it overwrites it, and until that change it did so silently, because OHLC and
+  volume agree closely across venues and the only field that moved was the one CVD reads.
+  **Never point
   `DATA_SOURCE=okx` at your real `analytics.db`.** If it happens, the rows are
   recoverable by re-backfilling from Binance and `daily_check.py`'s tier-1
   `fabricated CVD bars` line is what tells you to.
