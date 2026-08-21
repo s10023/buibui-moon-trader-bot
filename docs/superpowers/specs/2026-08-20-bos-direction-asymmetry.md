@@ -65,7 +65,10 @@ live-parity-gated means. (Ungated means give 0.030413; both are reported in §5.
 
 Run with `tools/distil_power.py` (`PYTHONPATH=.`; it does not bootstrap `sys.path`).
 Deflator `--n-series 3 --n-eff 1.42` — three perps carry 1.42 effective independent series,
-a **3.331×** deflator. The 25-symbol 2.92× does **not** transfer and must not be reused here.
+a **1.452×** deflator (`sqrt(3 / 1.42)`; §5's runs reproduce at effective n 42 from n_obs 89).
+The 25-symbol 2.92× does **not** transfer and must not be reused here — **nor does the
+15-symbol bear panel's 3.331×, which this line named until 2026-08-21** while every number in
+§5 was computed at 1.452×. The table below is unaffected; only this label was wrong.
 `sd = 1.4162` R/trade, bar ±0.10R, corpus best +1.196R.
 
 | run | n_obs | eff n | trials | required effect | verdict |
@@ -130,6 +133,6 @@ negative, the best being +0.0253 on n=238. The +0.42 appears only after gating c
 | 1 | Trial family is 18, not 2 | A `bos` direction split declared **before** any cell is inspected, tested only on trades accruing after that declaration. That family is legitimately 2 — and still needs ~5.6 years to fill. |
 | 2 | Primary population is the live-parity-gated one (n=89), not the ungated rows (n=531) | The claim being priced is a *tradeable* short-only book. If the proposal changes to an ungated research signal, run B becomes primary and the bar drops to +0.6119. |
 | 3 | Verdict is UNREACHABLE rather than INSUFFICIENT | A trial family credibly reduced to ≤3 **and** an effect above the corresponding floor (+0.7317R at 3 trials). Both are needed; either alone leaves this standing. |
-| 4 | Correlation deflator is 3.331× | A change to the rated symbol set. `n_eff` is a property of the panel: 1.42 for three perps, 1.97 for fourteen, 2.92 for twenty-five. Re-derive with `analytics.forecast.effective_independent_series`; never carry this one over. |
+| 4 | Correlation deflator is 1.452× | A change to the rated symbol set. `n_eff` is a property of the panel: 1.42 for three perps, 1.97 for fourteen, 2.92 for twenty-five. Re-derive with `analytics.forecast.effective_independent_series`; never carry this one over. |
 | 5 | Does not inherit the ST56 tie-break indeterminacy | Any variant that widens or tightens one arm relative to the other — ATR-scaled stops, a per-direction `min_sl_pct`, a structural target. That variant inherits it in full and is unprovable from OHLC alone. |
 | 6 | `bos` direction is closed as a *sized* question | It is not closed as a *descriptive* one. Reporting the split costs no trial count and carries no gate, the same way a give-back or expiry statistic does. |
