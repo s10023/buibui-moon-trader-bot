@@ -579,6 +579,24 @@ redefining it in a runner. It is not in `schema.py`, and the wrong path fails as
 `ImportError` on first use. This stays here because the trap bites while writing a runner
 *anywhere*, which no edit-time card can see.
 
+**`ohlcv` has NO venue column, so `DATA_SOURCE=okx` OVERWRITES Binance bars rather than
+landing beside them.** The PK is `(symbol, timeframe, open_time)` (`analytics/store/schema.py:19`)
+and `upsert_ohlcv` REPLACES on conflict, while the OKX adapter fabricates
+`taker_buy_volume = volume / 2` because OKX publishes no taker-buy split
+(`utils/okx_client.py:25`). Both flow through the same `fetch_klines` → `upsert_ohlcv` path,
+so an OKX run against the real DB replaces the one field CVD reads — **silently, because OHLC
+and volume agree closely across venues and nothing else moves.** Only
+`.github/workflows/signal-watch.yaml` sets it today, against an ephemeral DB, and both deploy
+wrappers default to `binance`; ⚠ **but OKX is the fallback reached for exactly when Binance is
+unavailable, which is the moment the env var meets the real DB.** Rows stay recoverable by
+re-backfilling from Binance, so the binding gap is NOTICING: `daily_check.py`'s tier-1
+`fabricated CVD bars` line calls `suspect_neutral_cvd`, which flags a run of 2+ ADJACENT
+exact-neutral bars or any bar inside 90 days — both zero-baseline on the live DB, where all 7
+coincidental bars are isolated and the newest is 2024-02-25. ⚠ **Detection is not prevention.**
+`venue_spot_daily` already declares `PRIMARY KEY (venue, symbol, open_time)` (`schema.py:53`),
+which is the shape that makes the collision unreachable; that migration touches the backtest
+surface and is the open half (SoT ST60).
+
 **Backtest run selection** — the `writer` argument, the `(sweep_id IS NOT NULL, run_at_ms)`
 ranking both selection sites must keep mirroring, and `recalibrate_lib.select_rated_run_ids`'s
 two scope arguments all ride the `backtest-run-id` card (how a card gets delivered:
