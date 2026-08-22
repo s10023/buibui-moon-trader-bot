@@ -53,6 +53,17 @@ def create_data_client() -> Any:
     return create_client()
 
 
+def resolve_venue() -> str:
+    """Return the venue name for the active DATA_SOURCE.
+
+    Mirrors create_data_client()'s dispatch exactly -- anything unrecognised is
+    Binance -- so the stored venue tag can never disagree with the client that
+    fetched the bars.
+    """
+    source = os.environ.get("DATA_SOURCE", "binance").lower()
+    return "okx" if source == "okx" else "binance"
+
+
 def load_coins_config(path: Path | str = _DEFAULT_COINS_PATH) -> dict[str, Any]:
     """Load and validate coins.json, return config dict."""
     with open(path) as f:
