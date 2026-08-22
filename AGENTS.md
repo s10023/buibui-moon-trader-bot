@@ -588,29 +588,37 @@ redefining it in a runner. It is not in `schema.py`, and the wrong path fails as
 `ImportError` on first use. This stays here because the trap bites while writing a runner
 *anywhere*, which no edit-time card can see.
 
-**`ohlcv` has NO venue column, so `DATA_SOURCE=okx` OVERWRITES Binance bars rather than
-landing beside them.** The PK is `(symbol, timeframe, open_time)` (`analytics/store/schema.py:19`)
-and `upsert_ohlcv` REPLACES on conflict. Both flow through the same `fetch_klines` →
-`upsert_ohlcv` path, so an OKX run against the real DB replaces the one field CVD reads —
-**and until 2026-08-21 it did so silently, because OHLC and volume agree closely across venues
-and nothing else moved.** ⚠ **The adapter no longer FABRICATES that field: it writes
-`taker_buy_volume = NULL`** (`utils/okx_client.py`, SoT ST60(a)). **That does not stop the
-overwrite — it stops the overwrite passing for a measurement**, which is the half that made it
-silent: the old `volume / 2` was indistinguishable from a real Binance reading, while a NULL is
-visible to every consumer. `cvd_divergence` is live on 1h in all three watch configs and returns
-no signals on an all-NULL column rather than reading a fabricated flat series. Only
-`.github/workflows/signal-watch.yaml` sets it today, against an ephemeral DB, and both deploy
-wrappers default to `binance`; ⚠ **but OKX is the fallback reached for exactly when Binance is
-unavailable, which is the moment the env var meets the real DB.** Rows stay recoverable by
-re-backfilling from Binance, so the binding gap is NOTICING: `daily_check.py`'s tier-1
-`fabricated CVD bars` line calls `suspect_neutral_cvd`, which flags a run of 2+ ADJACENT
-exact-neutral bars or any bar inside 90 days — both zero-baseline on the live DB, where all 7
-coincidental bars are isolated and the newest is 2024-02-25. ⚠ **That line now guards HISTORY
-and any regression, not the live adapter** — there is no longer a fabrication for it to catch on
-the OKX path. **Prevention proper is still open:** `venue_spot_daily` already declares
-`PRIMARY KEY (venue, symbol, open_time)` (`schema.py:53`), which is the shape that makes the
-collision unreachable rather than merely visible; that migration touches the backtest surface and
-is the open half (SoT ST60(b)).
+**`ohlcv` is a VIEW; `ohlcv_all` is the table, and `venue` is in its PRIMARY KEY.** Writes go
+through `upsert_ohlcv(conn, df, *, venue=...)` — required and keyword-only, because a silent
+default on this writer is the defect the whole design removes. Reads keep using `ohlcv` unchanged;
+it resolves ONE row per `(symbol, timeframe, open_time)` from a preference order stored in
+`db_meta.read_venue_order` (`binance` locally, `okx,binance` on the committed slim DB, so the CI
+signal-watch keeps its deliberately MIXED series — Binance history underneath, OKX's synced tail on
+top). **A `DATA_SOURCE=okx` run can no longer overwrite Binance bars.** Deep ref:
+`docs/superpowers/specs/2026-08-21-st60b-ohlcv-venue-key-design.md`.
+
+Four things still bite:
+
+- **Any database created before this must be migrated ONCE** — `tools/migrate_ohlcv_venue.py`,
+  which refuses without a backup under 24h old. `init_schema` raises `UnmigratedDatabaseError`
+  until then. ⚠ **A FAILED `init_schema` leaves an empty `ohlcv_all` and `db_meta` behind**, so
+  "is this migrated?" keys on whether `ohlcv` is still a TABLE (`duckdb_tables()` lists tables,
+  never views) and **never on `ohlcv_all` existing**. Two guards were first written the other way
+  and both were wrong — one refused to fire, the other refused to run.
+- ⚠ **The laptop timers run the WORKING TREE**, so landing a schema change on a branch takes the
+  live daemon down within 15 minutes. Migrate before landing it, or stop the timer first.
+- **`FABRICATED_CVD_SQL` scans `ohlcv_all`, not the view** — it guards history across every venue,
+  and the view would blind it. It is `SELECT DISTINCT` on purpose: two venues at one bar-time
+  otherwise satisfy `neutral_cvd_runs`' adjacency test at **delta 0** and manufacture a false
+  2-bar "run", flagging an isolated bar the 90-day signature would have ignored.
+- **A caller that hardcodes its client must pass `venue=` explicitly.** `resolve_venue()` reads
+  `DATA_SOURCE`, which is correct only for callers that pick their client the same way
+  (`create_data_client()`). `analytics_runner.py` uses `create_client()` unconditionally and so
+  pins `venue="binance"` at both call sites.
+
+**The containment is the point, and it was demonstrated on a bug introduced during the build:** a
+mislabelled write now costs VISIBILITY — the rows land beside the real ones, invisible to the
+default view, recoverable by re-backfilling — where before it cost DATA.
 
 **Backtest run selection** — the `writer` argument, the `(sweep_id IS NOT NULL, run_at_ms)`
 ranking both selection sites must keep mirroring, and `recalibrate_lib.select_rated_run_ids`'s

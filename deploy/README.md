@@ -449,6 +449,37 @@ code, so it cannot mask a real network failure.
 | `NET_WAIT_INTERVAL` | `2` | Seconds between probes. |
 | `NET_WAIT_HOSTS` | `api.telegram.org` | Space-separated; the first host to resolve wins. Telegram is the default because it is the one host every job needs — it is the failure-reporting channel. |
 
+## Schema migrations — a one-time operator step, never automatic
+
+A **fresh** database needs nothing: `init_schema` builds the current shape on first connect. An
+**existing** database created before a schema change must be migrated by hand, once, and
+`init_schema` REFUSES to run against it until that happens rather than half-applying anything.
+
+Current migration: **`tools/migrate_ohlcv_venue.py`** (ST60(b), 2026-08-21). It moves `ohlcv` into
+a venue-keyed `ohlcv_all` and replaces `ohlcv` with a view, so an OKX run can no longer overwrite
+Binance bars.
+
+```bash
+systemctl --user stop buibui-signal-watch.timer   # the 15-min timer OWNS analytics.db
+make buibui-backup                                # the tool REFUSES without a snapshot <24h old
+poetry run python tools/migrate_ohlcv_venue.py    # ~3s for 2M rows
+systemctl --user start buibui-signal-watch.timer
+```
+
+Three things that are easy to get wrong:
+
+- ⚠ **Stop the timer first.** DuckDB is single-writer; the tool refuses cleanly on a lock, but the
+  daemon will be failing every 15 minutes in the meantime anyway.
+- ⚠ **The timers run the WORKING TREE.** Landing a schema change on a branch therefore takes the
+  live daemon down within 15 minutes — it took ~1h of alert coverage on 2026-08-21. **Migrate
+  before landing the schema, or stop the timer as the first step of the branch.**
+- ⚠ **The database file GROWS.** DuckDB does not reclaim space on drop, so expect roughly double
+  the `ohlcv` data size. Irrelevant on the laptop (446 GB free); check headroom on the VPS.
+
+Every refusal leaves the database recoverable — the tool does its state checks *inside* the same
+transaction as its writes, so "refuse" and "fail mid-flight" are the same code path to the file.
+Read the message rather than the exit code: a safe refusal and a crash both exit 1 today.
+
 ## Step 0 — Provision the VPS
 
 **Primary: Oracle Cloud Always-Free**, ARM Ampere A1, Ubuntu 24.04. Region **Malaysia

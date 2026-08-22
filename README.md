@@ -246,7 +246,7 @@ and fires Telegram alerts — no always-on host required.
   `DATA_SOURCE=okx` to select the keyless `utils/okx_client.py` adapter; the daemon
   entry point is `buibui signal watch --once` (single scan cycle, then exit).
 - **Calibration is committed, not recomputed.** `make export-live-db` writes a slim
-  `live_signal.duckdb` (~7 MB: `ohlcv` + `confidence_ratings` + combo tables, **no**
+  `live_signal.duckdb` (~7 MB: `ohlcv_all` + `confidence_ratings` + combo tables, **no**
   `backtest_trades`) by reading your local Binance `analytics.db` **read-only**. It is
   committed in **plain git** (public-repo checkout bandwidth is free; Git LFS bandwidth
   is metered even on public repos). Re-run `make export-live-db` and commit it whenever
@@ -264,15 +264,17 @@ and fires Telegram alerts — no always-on host required.
   adapter wrote until 2026-08-21. Committed Binance history keeps real taker volume;
   `cvd_divergence` drops NULL rows and returns no signals, rather than crashing or firing
   on a fabricated flat series.
-  ⚠ **NULL makes the overwrite VISIBLE; it does not prevent it.** `ohlcv`'s
-  primary key is `(symbol, timeframe, open_time)` with no venue column and `upsert_ohlcv`
-  replaces on conflict, so an OKX row does not land beside the Binance row for the same
-  slot — it overwrites it, and until that change it did so silently, because OHLC and
-  volume agree closely across venues and the only field that moved was the one CVD reads.
-  **Never point
-  `DATA_SOURCE=okx` at your real `analytics.db`.** If it happens, the rows are
-  recoverable by re-backfilling from Binance and `daily_check.py`'s tier-1
-  `fabricated CVD bars` line is what tells you to.
+  ✅ **The overwrite is now PREVENTED, not merely visible (2026-08-21).** `ohlcv` is a
+  view over `ohlcv_all`, whose primary key is `(venue, symbol, timeframe, open_time)`, so
+  an OKX row lands **beside** the Binance row for the same slot instead of replacing it.
+  Reads resolve one row per slot from `db_meta.read_venue_order` — `binance` on your local
+  DB, `okx,binance` on the committed slim DB so the runner keeps its intended mixed series
+  (Binance history underneath, the OKX tail on top). Pointing `DATA_SOURCE=okx` at your
+  real `analytics.db` is no longer destructive: those rows are simply invisible to the
+  default view, and re-backfilling from Binance restores the intended reading.
+  ⚠ **A database created before that change must be migrated once** —
+  `tools/migrate_ohlcv_venue.py`, after a backup; `init_schema` refuses to run until then
+  rather than half-applying anything. See `deploy/README.md` § *Schema migrations*.
 
 ### Maintenance — re-export cadence
 

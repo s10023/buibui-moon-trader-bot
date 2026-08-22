@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-21 · **Status:** approved, unbuilt · **Scope:** `analytics/store/`,
 `analytics/data_sync.py`, `utils/binance_client.py`, `tools/export_live_db.py`, one migration
-tool, ~61 test call sites · **Source:** SoT ST60(b) — the prevention half of the
+tool, and every test that writes OHLCV (~40 files) · **Source:** SoT ST60(b) — the prevention half of the
 OKX-overwrite defect whose *detection* half shipped in #676 and whose *NULL* half shipped
 in #678
 
@@ -117,9 +117,13 @@ for it (§2 non-goal).
 statements in `tests/`** and the remaining three are comments — one test docstring, two in
 `tools/export_live_db.py`. There is no second production path to keep in step.
 
-**`venue` is required rather than defaulted, and that costs ~39 further test edits.** Beyond
-the 22 raw inserts there are **39 `upsert_ohlcv(...)` call sites in `tests/`**, every one of
-which a required argument breaks — ~61 edits in total, all mechanical. A default of
+**`venue` is required rather than defaulted, and the test churn was UNDERCOUNTED THREE TIMES.**
+Filed first as 22 sites, then ~61, and both were low. The mechanism, so the next reader does not
+make it a fourth time: a `grep` for `INSERT INTO ohlcv` misses `UPDATE` and `DELETE` statements
+entirely (4 of those existed), and a `sed` matching `upsert_ohlcv\((conn, [^()]*)\)` cannot match a
+second argument that itself contains parentheses — which is most of them (`pd.DataFrame(...)`), so
+it reached only ~9 of 39. **Trust the greps and the full suite over any filed count**, including
+this sentence. A default of
 `"binance"` would leave all 39 untouched and is the obvious economy, but it re-introduces a
 silent default on the exact writer whose silent behaviour *is* ST60: an OKX run that forgot
 to plumb the venue would tag its bars `binance` and overwrite Binance history again. See D7.
@@ -138,6 +142,17 @@ the client object** — a mock has no venue, and inferring one would make the ta
 
 `analytics.db` is single-copy and gitignored, and the 15-minute timer owns it. A rebuild of a
 2M-row table must not happen silently underneath whichever process connects first.
+
+⚠ **A database awaiting migration does NOT hold the old `ohlcv` table and nothing else, and
+assuming otherwise broke two guards before it was caught.** `init_schema` runs
+`CREATE TABLE IF NOT EXISTS ohlcv_all` and `... db_meta` **successfully** before reaching the
+`CREATE OR REPLACE VIEW` that fails, so **every failed run leaves two EMPTY tables behind**. On
+2026-08-21 the live daemon did that every 15 minutes for about an hour. Measured state afterwards:
+`ohlcv` a TABLE with 2,003,409 rows, `ohlcv_all` present with **0 rows**, `db_meta` present with 0
+rows. Consequently: **"is this migrated?" keys on whether `ohlcv` is still a TABLE** —
+`duckdb_tables()` lists tables only, never views — **and never on `ohlcv_all`'s existence.** An
+empty leftover `ohlcv_all` is expected and is dropped and rebuilt; a POPULATED one alongside a
+legacy `ohlcv` is an undesigned state and refuses without mutating anything.
 
 **`tools/migrate_ohlcv_venue.py`**, run once by the operator:
 
@@ -228,3 +243,5 @@ view).
 | D5 · Prevention only, no comparison surface | Venue-aware read API + disagreement flagging | Operator call 2026-08-21. Retention alone satisfies the "flagged pair" argument; the consumers are a shelved sleeve and one 1h detector | A second venue's data starts feeding a live decision — then disagreement needs to be surfaced, not merely retained |
 | D6 · Architectural path, spec first | Bounded — a short in-chat design | Chosen before the CI mixed-read problem was found, and that problem would have been discovered mid-implementation under the bounded path. Recorded because the classification was the right call for the wrong reason | — |
 | D7 · `venue` is a REQUIRED keyword argument on `upsert_ohlcv` | `venue: str = "binance"`, which would leave all 39 test call sites untouched | A silent default on this writer is the defect: an OKX run that forgot to plumb the venue would tag its bars `binance` and overwrite Binance history exactly as today. ~39 mechanical test edits is the price of not rebuilding ST60 inside its own fix | A second production writer appears for which an explicit venue is genuinely unknowable — then the default returns *with* a loud resolution step, never bare |
+| D8 · The migration's state machine keys on `ohlcv` being a TABLE | Keying "already migrated" on `ohlcv_all`'s existence, as the plan originally specified | `ohlcv_all` is created by any failed `init_schema` run, so that condition would have refused the one database the tool exists for. `duckdb_tables()` excludes views, which makes "is `ohlcv` still a table" exactly the question being asked | DuckDB starts listing views in `duckdb_tables()`, or a state appears where `ohlcv` is neither a table nor a view |
+| D9 · The venue split is CONTAINMENT, not just prevention — and this was demonstrated on a bug we introduced ourselves | — | R12 found that `buibui analytics backfill` uses the Binance client unconditionally while inheriting an env-derived venue tag, so a stray `DATA_SOURCE=okx` would mislabel real Binance history. **Under the old single-key schema that would have OVERWRITTEN the Binance rows; under this one the mislabelled rows land BESIDE them and are merely invisible to the default view, recoverable by re-backfilling.** The class of bug is degraded from data-loss to visibility-loss, which is the whole thesis of the change | A consumer starts reading `ohlcv_all` directly without a venue predicate — then a mislabel becomes visible corruption again rather than an invisible row |

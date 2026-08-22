@@ -16,6 +16,28 @@ the single production writer and gains a required `venue` argument.
 
 **Spec:** `docs/superpowers/specs/2026-08-21-st60b-ohlcv-venue-key-design.md`
 
+> ## ⚠ THIS PLAN CONTAINS TWO CONDITIONS THAT SHIPPED WRONG — corrected 2026-08-21, read before reusing
+>
+> Both were written against the assumption that a database awaiting migration holds the old `ohlcv`
+> TABLE **and nothing else**. That assumption is false, and the live database disproved it: a failed
+> `init_schema` runs `CREATE TABLE IF NOT EXISTS ohlcv_all` and `... db_meta` **successfully** before
+> reaching the `CREATE OR REPLACE VIEW` that fails, so every failed run leaves two EMPTY tables
+> behind. The operator's 15-minute daemon did that repeatedly and took itself down for ~1h.
+>
+> - **Task 3's guard (line ~661)** — `if "ohlcv" in tables and "ohlcv_all" not in tables:` would NOT
+>   FIRE, because both names are present after the first failure. **Shipped condition:
+>   `if "ohlcv" in tables:` alone.** `duckdb_tables()` lists tables only, never views, so after a
+>   real migration `ohlcv` never appears there; `ohlcv_all`'s presence is irrelevant to the question.
+> - **Task 6's refusal (line ~1101)** — `if "ohlcv_all" in tables: raise AlreadyMigratedError` would
+>   REFUSE the real database, the one the tool exists for. **Shipped logic: "already migrated" keys
+>   on `ohlcv` NOT being a TABLE.** An EMPTY leftover `ohlcv_all` is expected and is dropped and
+>   rebuilt; a POPULATED one is an undesigned state and refuses without mutating.
+>
+> The code blocks below are left as written on purpose — this plan is the record of what was
+> intended, and the corrections are the more useful artifact. **Read the shipped code, not these
+> two blocks.** Detail: `analytics/store/schema.py`, `tools/migrate_ohlcv_venue.py`, and the SDD
+> ledger's LIVE INCIDENT section.
+
 ## Global Constraints
 
 - **Definition of Done per task:** `make lint-py` ✓, `make typecheck` ✓, `make test` green.
@@ -658,6 +680,7 @@ And as the first statement inside `init_schema`:
     tables = {
         row[0] for row in conn.execute("SELECT table_name FROM duckdb_tables()").fetchall()
     }
+    # ⚠ WRONG AS WRITTEN — shipped as `if "ohlcv" in tables:` alone. See the banner at the top.
     if "ohlcv" in tables and "ohlcv_all" not in tables:
         raise UnmigratedDatabaseError(
             "This database predates the ohlcv venue key: `ohlcv` is still a TABLE. "
@@ -1098,6 +1121,8 @@ def migrate(db_path: Path, *, force: bool = False) -> tuple[int, int]:
             r[0]
             for r in conn.execute("SELECT table_name FROM duckdb_tables()").fetchall()
         }
+        # ⚠ WRONG AS WRITTEN — this refuses the real database. "Already migrated" keys on
+        # `ohlcv` NOT being a table; an empty leftover `ohlcv_all` is expected. See the banner.
         if "ohlcv_all" in tables:
             raise AlreadyMigratedError(
                 f"{db_path} already has ohlcv_all -- nothing to do."
@@ -1287,6 +1312,81 @@ Expected: PASS, all cases.
 ```bash
 git add tools/export_live_db.py tests/test_export_live_db.py
 git commit -m "feat: export ohlcv_all and stamp the slim DB's venue read order"
+```
+
+---
+
+### Task 7b: Regenerate and commit `live_signal.duckdb`
+
+**Added 2026-08-21 after the Task 6 review, which found this gap. It is a MERGE BLOCKER and was
+missing from the original plan.**
+
+The committed `live_signal.duckdb` is still legacy-shaped: `ohlcv` is a TABLE inside it. So
+`.github/workflows/signal-watch.yaml:54` copies it to `analytics.db`, `init_schema` raises
+`UnmigratedDatabaseError`, and **the hourly OKX workflow is red on this branch.** Task 7 fixes the
+exporter *code*; nothing regenerates the artifact.
+
+**Files:**
+
+- Modify: `live_signal.duckdb` (committed binary, ~16.5 MB)
+
+**Ordering is forced and cannot be rearranged:** the exporter reads the real `analytics.db`, so the
+operator's migration must already have happened, and Task 7's code fix must already be in the tree.
+
+- [ ] **Step 1: Confirm the preconditions**
+
+Run: `git log --oneline -1` (Task 7 landed) and check `ohlcv` is a view in the live DB:
+`poetry run python -c "import duckdb; c=duckdb.connect('analytics.db', read_only=True); print('ohlcv' in {r[0] for r in c.execute('SELECT table_name FROM duckdb_tables()').fetchall()})"`
+
+Expected: `False` — `ohlcv` is a view, i.e. the DB is migrated.
+
+- [ ] **Step 2: Take the timer window — OPERATOR ACTION**
+
+`make export-live-db` opens the live DB read-only, and DuckDB refuses that while the 15-minute
+daemon holds the write lock. Ask the operator to run:
+
+```bash
+systemctl --user stop buibui-signal-watch.timer
+```
+
+Do not stop it on their behalf without asking — it is their live system, and a stopped timer is a
+**silent** outage.
+
+- [ ] **Step 3: Regenerate**
+
+Run: `make export-live-db`
+
+Expected: `Exported live_signal.duckdb (N MB): {'ohlcv_all': …, 'confidence_ratings': …, …}` with a
+non-zero `ohlcv_all` count.
+
+- [ ] **Step 4: Verify the artifact is venue-shaped and stamped**
+
+```bash
+poetry run python -c "
+import duckdb
+c = duckdb.connect('live_signal.duckdb', read_only=True)
+print('tables:', sorted(r[0] for r in c.execute('SELECT table_name FROM duckdb_tables()').fetchall()))
+print('order :', c.execute(\"SELECT value FROM db_meta WHERE key='read_venue_order'\").fetchall())
+print('rows  :', c.execute('SELECT count(*) FROM ohlcv_all').fetchone()[0])
+"
+```
+
+Expected: `ohlcv` absent from the table list (it is a view), `ohlcv_all` present with rows, and the
+stored order `okx,binance`.
+
+- [ ] **Step 5: Restart the timer — OPERATOR ACTION**
+
+```bash
+systemctl --user start buibui-signal-watch.timer
+```
+
+Then confirm one cycle succeeds before moving on — "started" is not "working".
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add live_signal.duckdb
+git commit -m "chore: regenerate live_signal.duckdb with the venue-keyed schema"
 ```
 
 ---
