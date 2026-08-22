@@ -1,26 +1,12 @@
 """Tests for tools/export_live_db.py — read-only slim live-DB export."""
 
 from pathlib import Path
+from typing import Any
 
 import duckdb
-import pytest
 
 from analytics.store.schema import init_schema
 from tools.export_live_db import LIVE_TABLES, export_live_db
-
-# ST60(b) Task 2 rekeys `ohlcv` as a view over `ohlcv_all`; `export_live_db` itself
-# still writes to a literal "ohlcv" table (`LIVE_TABLES`, the copy-loop branch), which
-# is now a view and refuses INSERT. That migration is Task 7's scope, not Task 2's —
-# see `.superpowers/sdd/2026-08-21-st60b-ohlcv-venue-key/task-7-brief.md`. Marked
-# strict so Task 7 is forced to remove these once it lands, matching the
-# `_KNOWN_LOOKAHEAD_DETECTORS` convention in `tests/test_lookahead.py`.
-_EXPORTER_NOT_YET_VENUE_AWARE = pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "tools/export_live_db.py still does INSERT INTO ohlcv, which is now a view "
-        "(ohlcv_all is the real table). Fixed in ST60(b) Task 7."
-    ),
-)
 
 
 def _make_source(path: Path) -> None:
@@ -47,7 +33,6 @@ def _make_source(path: Path) -> None:
     con.close()
 
 
-@_EXPORTER_NOT_YET_VENUE_AWARE
 def test_export_copies_live_table_data(tmp_path: Path) -> None:
     src = tmp_path / "analytics.db"
     out = tmp_path / "live_signal.duckdb"
@@ -72,11 +57,10 @@ def test_export_copies_live_table_data(tmp_path: Path) -> None:
     assert bt == (0,)
 
 
-@_EXPORTER_NOT_YET_VENUE_AWARE
 def test_exported_ohlcv_supports_insert_or_replace(tmp_path: Path) -> None:
-    """Regression: the daemon's incremental sync does INSERT OR REPLACE INTO ohlcv,
-    which DuckDB only allows when the table keeps its PRIMARY KEY. A CTAS export
-    would drop the PK and raise BinderException on the first live sync."""
+    """Regression: the daemon's incremental sync does INSERT OR REPLACE INTO
+    ohlcv_all, which DuckDB only allows when the table keeps its PRIMARY KEY. A CTAS
+    export would drop the PK and raise BinderException on the first live sync."""
     src = tmp_path / "analytics.db"
     out = tmp_path / "live_signal.duckdb"
     _make_source(src)
@@ -96,7 +80,6 @@ def test_exported_ohlcv_supports_insert_or_replace(tmp_path: Path) -> None:
     assert row == (99,)
 
 
-@_EXPORTER_NOT_YET_VENUE_AWARE
 def test_export_does_not_mutate_source(tmp_path: Path) -> None:
     src = tmp_path / "analytics.db"
     out = tmp_path / "live_signal.duckdb"
@@ -113,7 +96,6 @@ def test_export_does_not_mutate_source(tmp_path: Path) -> None:
     assert row is not None and row[0] == 1
 
 
-@_EXPORTER_NOT_YET_VENUE_AWARE
 def test_export_scopes_ohlcv_to_symbols_and_floor(tmp_path: Path) -> None:
     """Universe/deep-history rows must never reach the committed slim DB."""
     src = tmp_path / "analytics.db"
@@ -151,3 +133,35 @@ def test_export_scopes_ohlcv_to_symbols_and_floor(tmp_path: Path) -> None:
     con.close()
     assert rows == [("BTCUSDT", recent)]
     assert cr == (1,)
+
+
+def test_exported_db_prefers_okx_then_binance(tmp_path: Any) -> None:
+    """The slim DB exists to be EXTENDED by an OKX run, so its read order says so."""
+    import duckdb
+
+    from analytics.store import init_schema
+    from analytics.store.venue import read_venue_order
+    from tools.export_live_db import export_live_db
+
+    src = tmp_path / "src.duckdb"
+    conn = duckdb.connect(str(src))
+    init_schema(conn)
+    conn.execute(
+        "INSERT INTO ohlcv_all VALUES "
+        "('binance', 'BTCUSDT', '1h', 1, 10, 11, 9, 10.5, 100, 50)"
+    )
+    conn.close()
+
+    out = tmp_path / "out.duckdb"
+    export_live_db(src=src, out=out, ohlcv_symbols=["BTCUSDT"], now_ms=86_400_000)
+
+    conn = duckdb.connect(str(out))
+    assert read_venue_order(conn) == ["okx", "binance"]
+    assert conn.execute("SELECT venue FROM ohlcv_all").fetchall() == [("binance",)]
+    # An OKX bar synced later must shadow the seeded Binance bar for reads, without
+    # destroying it -- this is exactly what the CI cycle does.
+    conn.execute(
+        "INSERT INTO ohlcv_all VALUES ('okx', 'BTCUSDT', '1h', 1, 10, 11, 9, 77.0, 100, NULL)"
+    )
+    assert conn.execute("SELECT close FROM ohlcv").fetchall() == [(77.0,)]
+    assert conn.execute("SELECT COUNT(*) FROM ohlcv_all").fetchone() == (2,)
