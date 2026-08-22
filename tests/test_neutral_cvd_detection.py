@@ -1,9 +1,12 @@
 """Tests for the fabricated-CVD detector in analytics/store/market_data.py.
 
-The hazard: `ohlcv`'s primary key has no venue component and `upsert_ohlcv` replaces
-on conflict, so a `DATA_SOURCE=okx` run overwrites Binance bars with a fabricated
-`taker_buy_volume = volume / 2`. These tests pin the two signatures that separate a
-fabricated block from the 7 coincidental bars measured on the live DB.
+The hazard: the OKX adapter used to fabricate `taker_buy_volume = volume / 2` because
+OKX publishes no taker-buy split (`utils/okx_client.py`, fixed by #678, which writes
+NULL instead). `ohlcv_all` keys on `venue` (460fd17, ST60(b)), so an OKX write lands
+BESIDE the Binance bar rather than replacing it -- the scan's job is finding any
+pre-#678 fabrication still sitting in history, across every venue. These tests pin the
+two signatures that separate a fabricated block from the 7 coincidental bars measured
+on the live DB.
 """
 
 import duckdb
@@ -169,4 +172,30 @@ def test_fabricated_cvd_scan_sees_non_binance_rows() -> None:
     flagged = conn.execute(FABRICATED_CVD_SQL).fetchall()
     assert flagged == [("BTCUSDT", "1h", 1)], (
         "the check guards history across venues; the binance-only view would miss this"
+    )
+
+
+def test_two_venues_at_the_same_bar_collapse_to_one_row() -> None:
+    """A duplicate (symbol, timeframe, open_time) across venues must not fake a run.
+
+    Without DISTINCT, two rows sharing one open_time sort adjacently and satisfy the
+    adjacency test at delta 0, so an isolated >90-day-old bar fabricated under two
+    venues would trip `run.bars >= 2` and be flagged as a "run" it is not.
+    """
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    conn.execute(
+        "INSERT INTO ohlcv_all VALUES "
+        f"('binance', 'BTCUSDT', '1h', {_OLD}, 10, 11, 9, 10.5, 100, 50), "
+        f"('okx', 'BTCUSDT', '1h', {_OLD}, 10, 11, 9, 10.5, 100, 50)"
+    )
+    rows = [
+        (str(r[0]), str(r[1]), int(r[2]))
+        for r in conn.execute(FABRICATED_CVD_SQL).fetchall()
+    ]
+    assert rows == [("BTCUSDT", "1h", _OLD)], (
+        "two venues fabricating the same bar-time must collapse to ONE row"
+    )
+    assert suspect_neutral_cvd(rows, now_ms=_NOW) == [], (
+        "one isolated old bar-time must not be flaggable as a 2-bar run"
     )

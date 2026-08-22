@@ -146,9 +146,14 @@ def get_latest_open_time(
 # physical table, not the `ohlcv` view: the view exposes one venue's bars, while this
 # check guards HISTORY and regressions across all of them. #678 stopped the OKX
 # adapter fabricating `taker_buy_volume = volume / 2`; this finds any that predate it.
+# DISTINCT is load-bearing, not tidy: two venues fabricating the SAME bar-time would
+# otherwise emit two identical (symbol, timeframe, open_time) rows, and
+# `neutral_cvd_runs` below reads a delta-0 pair as ADJACENT -- turning one isolated,
+# possibly ancient bar into a manufactured 2-bar "run" that trips `suspect_neutral_cvd`
+# independent of recency. A bar-time is one bar-time however many venues fabricated it.
 
 FABRICATED_CVD_SQL = """
-    SELECT symbol, timeframe, open_time
+    SELECT DISTINCT symbol, timeframe, open_time
     FROM ohlcv_all
     WHERE volume > 0 AND taker_buy_volume = volume / 2.0
     ORDER BY symbol, timeframe, open_time
