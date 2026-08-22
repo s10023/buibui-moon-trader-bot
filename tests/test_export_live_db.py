@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 import duckdb
 
@@ -81,12 +82,24 @@ def test_exported_ohlcv_supports_insert_or_replace(tmp_path: Path) -> None:
 
 
 def test_export_does_not_mutate_source(tmp_path: Path) -> None:
+    """The source connection is opened read_only=True -- not merely a code path that
+    happens never to write. Patching duckdb.connect (while letting the real call
+    through via `wraps`) makes that flag itself the assertion: drop `read_only=True`
+    from the export's `duckdb.connect(str(src), ...)` call and this goes red, where
+    the mtime/row-count checks below would not have noticed."""
     src = tmp_path / "analytics.db"
     out = tmp_path / "live_signal.duckdb"
     _make_source(src)
     before = src.stat().st_mtime_ns
 
-    export_live_db(src, out, ohlcv_symbols=["BTCUSDT"], now_ms=1_000)
+    with mock.patch(
+        "tools.export_live_db.duckdb.connect", wraps=duckdb.connect
+    ) as mock_connect:
+        export_live_db(src, out, ohlcv_symbols=["BTCUSDT"], now_ms=1_000)
+
+    src_calls = [c for c in mock_connect.call_args_list if c.args[:1] == (str(src),)]
+    assert len(src_calls) == 1
+    assert src_calls[0].kwargs.get("read_only") is True
 
     # source untouched (read-only access); mtime unchanged
     assert src.stat().st_mtime_ns == before
@@ -137,11 +150,7 @@ def test_export_scopes_ohlcv_to_symbols_and_floor(tmp_path: Path) -> None:
 
 def test_exported_db_prefers_okx_then_binance(tmp_path: Any) -> None:
     """The slim DB exists to be EXTENDED by an OKX run, so its read order says so."""
-    import duckdb
-
-    from analytics.store import init_schema
     from analytics.store.venue import read_venue_order
-    from tools.export_live_db import export_live_db
 
     src = tmp_path / "src.duckdb"
     conn = duckdb.connect(str(src))
