@@ -156,3 +156,17 @@ class TestSuspectClassification:
             ("SUIUSDT", "1h", 1_708_902_000_000),
         ]
         assert suspect_neutral_cvd(live, now_ms=1_755_000_000_000) == []
+
+
+def test_fabricated_cvd_scan_sees_non_binance_rows() -> None:
+    """A fabricated bar parked under a non-default venue must still be flagged."""
+    conn = duckdb.connect(":memory:")
+    init_schema(conn)
+    conn.execute(
+        "INSERT INTO ohlcv_all VALUES "
+        "('okx', 'BTCUSDT', '1h', 1, 10, 11, 9, 10.5, 100, 50)"
+    )
+    flagged = conn.execute(FABRICATED_CVD_SQL).fetchall()
+    assert flagged == [("BTCUSDT", "1h", 1)], (
+        "the check guards history across venues; the binance-only view would miss this"
+    )

@@ -132,12 +132,16 @@ def test_futures_klines_paginates_until_start_reached() -> None:
 class TestNullTakerVolumeIsNotAFabrication:
     """ST60 (a): an OKX overwrite is now VISIBLE rather than plausible.
 
-    NULL does not stop the row being replaced — `ohlcv`'s PK still has no venue
-    component — it stops the replacement passing for a measurement. These pin the
-    two consequences that decide whether NULL is safe to ship on the live path.
-    The third (the `cvd_divergence` detector degrading to no signals rather than
-    reading a fabricated flat series) is pinned in `tests/test_strategies.py`,
-    where the fixture can be shown to fire before the column is nulled.
+    NULL does not make the OKX adapter's synthetic taker-buy value real — it stops
+    that value passing for a measurement. (`ohlcv_all` keys on `venue` since
+    460fd17, so an OKX write lands BESIDE the Binance row rather than replacing it;
+    that overwrite hazard is closed. NULL's remaining job is keeping OKX's own rows
+    honest, which matters once Task 4 points the tier-1 scan across every venue.)
+    These pin the two consequences that decide whether NULL is safe to ship on the
+    live path. The third (the `cvd_divergence` detector degrading to no signals
+    rather than reading a fabricated flat series) is pinned in
+    `tests/test_strategies.py`, where the fixture can be shown to fire before the
+    column is nulled.
     """
 
     def _okx_frame(self) -> pd.DataFrame:
@@ -169,16 +173,12 @@ class TestNullTakerVolumeIsNotAFabrication:
             FABRICATED_CVD_SQL,
             suspect_neutral_cvd,
         )
-        from analytics.store.venue import set_read_venue_order
 
         conn = duckdb.connect(":memory:")
         init_schema(conn)
-        # FABRICATED_CVD_SQL still reads FROM the `ohlcv` view at this commit --
-        # Task 4 is what points it at ohlcv_all directly. Prefer okx in the read
-        # order so a real OKX-venue write (matching what Task 5 makes production
-        # do) is actually visible to the detector, rather than silently dropped by
-        # the binance-only default and passing this test for the wrong reason.
-        set_read_venue_order(conn, ["okx", "binance"])
+        # FABRICATED_CVD_SQL reads `ohlcv_all` directly (Task 4), so an OKX-venue
+        # write is visible to it regardless of the `ohlcv` read-view's preference
+        # order -- no `set_read_venue_order` call is needed here.
         upsert_ohlcv(conn, frame, venue="okx")
         rows = [
             (str(r[0]), str(r[1]), int(r[2]))

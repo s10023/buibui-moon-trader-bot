@@ -141,23 +141,15 @@ def get_latest_open_time(
 
 
 # ---------------------------------------------------------------- fabricated CVD
-# `upsert_ohlcv` above REPLACES on conflict and the `ohlcv` primary key carries NO
-# venue component (`schema.py`), while the OKX adapter fabricates
-# `taker_buy_volume = volume / 2` because OKX publishes no taker-buy split
-# (`utils/okx_client.py`). So a `DATA_SOURCE=okx` run against the real DB does not
-# land BESIDE the Binance bars, it overwrites them -- and silently, because OHLC and
-# volume agree closely across venues and the only field that changes is the one CVD
-# is computed from. The rows stay recoverable by re-backfilling from Binance, so the
-# binding gap is DETECTION: nothing marks them and no other gate reads them.
-#
-# `venue_spot_daily` in the same schema file already declares
-# `PRIMARY KEY (venue, symbol, open_time)`, which is the shape that would make the
-# collision unreachable rather than merely detectable. That migration touches the
-# backtest surface and is deliberately NOT what this code does.
+# `ohlcv_all` carries `venue` in its PRIMARY KEY, so an OKX write lands BESIDE the
+# Binance bar rather than replacing it (ST60(b)). This scan therefore reads the
+# physical table, not the `ohlcv` view: the view exposes one venue's bars, while this
+# check guards HISTORY and regressions across all of them. #678 stopped the OKX
+# adapter fabricating `taker_buy_volume = volume / 2`; this finds any that predate it.
 
 FABRICATED_CVD_SQL = """
     SELECT symbol, timeframe, open_time
-    FROM ohlcv
+    FROM ohlcv_all
     WHERE volume > 0 AND taker_buy_volume = volume / 2.0
     ORDER BY symbol, timeframe, open_time
 """
