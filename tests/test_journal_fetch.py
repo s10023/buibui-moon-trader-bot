@@ -640,6 +640,20 @@ class TestFetchCandidatesWiresStopHistory:
     round-trip came back with `exchange_sl: null`.
     """
 
+    @pytest.fixture(autouse=True)
+    def _pin_the_clock(self, monkeypatch: Any) -> None:
+        """Pin `fetch_candidates`' clock to the fixture epoch.
+
+        These fills are built at fixed offsets from the module's `_NOW` constant, but
+        `fetch_candidates` computes its cutoff from the REAL clock, so each test quietly
+        expired once wall-clock drifted more than `days` past the fixture. That is not a
+        hypothetical: `test_algo_history_failure_does_not_break_the_fetch` uses a 7-day
+        window and started failing on 2026-08-21 while its 30-day siblings kept passing —
+        a staggered time bomb rather than one break. Pinning the clock makes every test in
+        the class deterministic instead of merely giving the next one a longer fuse.
+        """
+        monkeypatch.setattr("tools.journal_fetch._now_ms", lambda: _NOW)
+
     def _client(self, algo_rows: list[dict[str, Any]]) -> Any:
         client = MagicMock()
         client.futures_account_trades.return_value = [
