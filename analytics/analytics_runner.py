@@ -95,7 +95,13 @@ def run_backfill(
             try:
                 for timeframe in timeframes:
                     logging.info("Backfilling %s %s ...", symbol, timeframe)
-                    total = backfill(conn, client, symbol, timeframe, since_ms)
+                    # client is always create_client() (real Binance), regardless
+                    # of DATA_SOURCE -- say so explicitly rather than letting
+                    # backfill() fall back to resolve_venue(), which would mistag
+                    # these rows if a stray DATA_SOURCE=okx leaked into this shell.
+                    total = backfill(
+                        conn, client, symbol, timeframe, since_ms, venue="binance"
+                    )
                     logging.info(
                         "Backfill complete: %s %s — %d rows", symbol, timeframe, total
                     )
@@ -122,7 +128,9 @@ def run_sync(
                 for timeframe in timeframes:
                     logging.info("Syncing %s %s ...", symbol, timeframe)
                     try:
-                        total = sync(conn, client, symbol, timeframe)
+                        # Same reasoning as the backfill() call above: this
+                        # runner's client is unconditionally Binance.
+                        total = sync(conn, client, symbol, timeframe, venue="binance")
                         logging.info(
                             "Sync complete: %s %s — %d new rows",
                             symbol,
