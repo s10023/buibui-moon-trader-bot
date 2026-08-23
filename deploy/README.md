@@ -490,13 +490,21 @@ supported operator lever** to change an *existing* database's read order today �
 hardcodes the default — so the fix is two lines of Python against the live one:
 
 ```bash
+systemctl --user stop buibui-signal-watch.timer   # DuckDB is single-writer; see below
 poetry run python -c "
 import duckdb
 from analytics.store.venue import set_read_venue_order
 conn = duckdb.connect('analytics.db')
 set_read_venue_order(conn, ['okx', 'binance'])
 "
+systemctl --user start buibui-signal-watch.timer
 ```
+
+⚠ **Stop the timer first**, unlike the read-only export above: this opens the DB for WRITING, so a
+mid-cycle collision costs the daemon that scan rather than just refusing your command. The window
+is real — a cycle runs longer than the ~50s the `Finished` timestamps suggest, and an export
+attempted 85s after a fire still hit `Could not set lock … PID nnn` on 2026-08-23. **Wait on the
+condition (`systemctl --user is-active` reading `inactive`), never on a clock.**
 
 `set_read_venue_order` rebuilds the `ohlcv` view inside that same call, so reads switch over
 immediately — no restart needed. Put `binance` back the same way once Binance is reachable
