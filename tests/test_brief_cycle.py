@@ -4,8 +4,12 @@ The score is a NUMBER, never a gate: n_eff is ~3 distinct bear markets, so
 nothing here may size, gate or suppress anything. These tests pin the shape
 and the no-look-ahead property, not a trading claim.
 
-⚠ The four WEEKLY MAs are resampled from 1d on purpose — `analytics.db`'s
-`1w` bars have been stale since 2026-06-08 on all 25 symbols (ST53).
+⚠ The four WEEKLY MAs are resampled from 1d on purpose, and since ST61a
+(2026-08-23) the reason is LOOK-AHEAD alone. `analytics.db`'s `1w` bars were
+stale from 2026-06-08 (ST53) until that fix put every timeframe on the routine
+sync; what survives is that `sync` stores the FORMING bar deliberately and no
+`is_closed` column distinguishes it, so the newest `1w` row is an in-progress
+week for up to seven days.
 """
 
 from __future__ import annotations

@@ -400,12 +400,21 @@ buibui-xsmom-execute:  ## P3: XS-solo executor (dry-run; MODE=testnet to submit;
 		$(if $(SET_PEAK),--set-peak $(SET_PEAK),) \
 		$(if $(PEAK_REASON),--peak-reason "$(PEAK_REASON)",)
 
+# ALL FOUR timeframes, not just the 1d the XS book reads (ST61a, 2026-08-23).
+# The routine refresh is split between this target and the signal-watch timer,
+# and until now the union had holes: signal-watch covers coins.json majors on
+# 15m/1h/4h, this covered the 25-symbol universe on 1d, and NOTHING covered the
+# universe on 1h/4h/1w. Measured before the fix: 22 of 25 symbols frozen 17.9d
+# on 1h, 61.2d on 4h and 76.2d on 1w, every one of them TRADING. `run_sync`
+# warns and continues on a (symbol, timeframe) with no rows, so widening this
+# cannot fail a symbol that legitimately lacks a series.
 .PHONY: buibui-universe-sync
-buibui-universe-sync:  ## P3: incremental 1d sync of the full research universe (XS book input)
-	PYTHONPATH=. poetry run python buibui.py analytics sync --universe --timeframes 1d
+buibui-universe-sync:  ## P3: incremental sync of the research universe, all timeframes (XS book input)
+	PYTHONPATH=. poetry run python buibui.py analytics sync --universe \
+		--timeframes $(or $(TIMEFRAMES),1h 4h 1d 1w)
 
 .PHONY: buibui-xsmom-daily
-buibui-xsmom-daily:  ## P3: daily XS workflow — sync universe 1d, then executor dry-run
+buibui-xsmom-daily:  ## P3: daily XS workflow — sync the universe, then executor dry-run
 	$(MAKE) buibui-universe-sync
 	$(MAKE) buibui-xsmom-execute
 
