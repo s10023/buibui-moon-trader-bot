@@ -187,12 +187,72 @@ class TestUniverseSyncCoverage:
     ST61a's root cause was not a broken sync — it was a sync pointed at one
     timeframe while the universe held four. Pinned here because the next person
     to touch this line has no way to see that 1h/4h/1w depend on it.
+
+    ST61b widened this from the Makefile to EVERY caller. Pinning the Makefile
+    alone reproduced the original bug one layer up: ST61a fixed the target a
+    human runs, `deploy/run-xsmom.sh` kept `--timeframes 1d`, and that script is
+    the only universe sync anything SCHEDULES — so this test passed while the
+    1h/4h/1w gaps re-opened at the rate they had closed. Coverage is the UNION
+    of the callers, so the test has to be too.
     """
+
+    # Every executable surface that runs the routine universe sync. A third
+    # caller must be added here deliberately — `test_no_universe_sync_caller_is
+    # _unlisted` fails until it is, which is what stops the next one landing
+    # 1d-only and unwatched.
+    CALLERS = ("Makefile", "deploy/run-xsmom.sh")
+
+    UNIVERSE_TIMEFRAMES = ("1h", "4h", "1d", "1w")
+
+    @staticmethod
+    def _sync_invocation(path: str) -> str:
+        """The universe-sync command, line continuations folded into one line."""
+        text = (REPO_ROOT / path).read_text().replace("\\\n", " ")
+        line = next(ln for ln in text.splitlines() if "analytics sync --universe" in ln)
+        return line
 
     def test_universe_sync_covers_every_timeframe_the_universe_holds(self) -> None:
         makefile = (REPO_ROOT / "Makefile").read_text()
         recipe = makefile.split("buibui-universe-sync:")[1].split("\n.PHONY")[0]
 
         assert "--universe" in recipe
-        for timeframe in ("1h", "4h", "1d", "1w"):
+        for timeframe in self.UNIVERSE_TIMEFRAMES:
             assert timeframe in recipe, f"universe sync no longer covers {timeframe}"
+
+    def test_every_universe_sync_caller_covers_every_timeframe(self) -> None:
+        """The SCHEDULED caller is the one that matters, and it is not the Makefile.
+
+        `deploy/run-xsmom.sh` is what `buibui-xsmom-daily.timer` runs, on the
+        laptop and on the VPS. Nothing schedules the Make target at all.
+        """
+        for caller in self.CALLERS:
+            invocation = self._sync_invocation(caller)
+            for timeframe in self.UNIVERSE_TIMEFRAMES:
+                assert timeframe in invocation, (
+                    f"{caller} syncs the universe without {timeframe} — "
+                    f"the 1h/4h/1w gaps re-open through this caller"
+                )
+
+    def test_no_universe_sync_caller_is_unlisted(self) -> None:
+        """A new caller must join CALLERS, not sync the universe unwatched.
+
+        Scoped to the executable surfaces on purpose: prose in `docs/` and
+        `.claude/` names the command constantly and none of it runs.
+        """
+        surfaces = [REPO_ROOT / "Makefile", REPO_ROOT / "docker-compose.yml"]
+        surfaces += sorted(REPO_ROOT.glob("deploy/**/*.sh"))
+        surfaces += sorted(REPO_ROOT.glob("deploy/**/*.service"))
+        surfaces += sorted(REPO_ROOT.glob(".github/workflows/*.yaml"))
+        surfaces += sorted(REPO_ROOT.glob(".github/workflows/*.yml"))
+
+        found = {
+            str(path.relative_to(REPO_ROOT))
+            for path in surfaces
+            if path.is_file() and "analytics sync --universe" in path.read_text()
+        }
+
+        assert found == set(self.CALLERS), (
+            f"universe-sync callers changed: {sorted(found)} != "
+            f"{sorted(self.CALLERS)} — add it to CALLERS so its timeframes "
+            f"are pinned too"
+        )

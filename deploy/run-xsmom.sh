@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Daily XS workflow: refresh the universe 1d bars, then run the executor.
+# Daily XS workflow: refresh the universe bars (1h/4h/1d/1w), then run the executor.
 # Invoked by the buibui-xsmom systemd timer via run-job.sh.
 #
 # Driven by env (systemd EnvironmentFile=/opt/buibui/.env):
@@ -23,8 +23,13 @@ export DATA_SOURCE="${DATA_SOURCE:-binance}"
 # under systemd rather than by hand.
 export PYTHONPATH="${PYTHONPATH:-$PWD}"
 
-# The XS book runs on 1d only — sync that timeframe before sizing the book.
-poetry run python buibui.py analytics sync --universe --timeframes 1d
+# The XS book sizes on 1d, but this is the ONLY universe sync anything SCHEDULES
+# — the Make target `buibui-universe-sync` is hand-run — so its timeframe list is
+# the universe's whole routine coverage, not just this job's input. Syncing 1d
+# alone here is what froze 22 of 25 symbols for 11 weeks on 1h/4h/1w (ST61a); the
+# fix landed on the Make target and this line kept the bug (ST61b).
+# Pinned by tests/test_ohlcv_freshness.py::TestUniverseSyncCoverage.
+poetry run python buibui.py analytics sync --universe --timeframes 1h 4h 1d 1w
 
 args=(--mode "${EXEC_MODE:-dry_run}")
 if [ -n "${EXEC_CAPITAL:-}" ]; then

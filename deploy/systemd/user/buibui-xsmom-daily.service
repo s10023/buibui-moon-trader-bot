@@ -1,5 +1,5 @@
 [Unit]
-# Daily XS workflow: incremental universe 1d sync, then the executor.
+# Daily XS workflow: incremental universe sync (1h/4h/1d/1w), then the executor.
 # Type=oneshot, driven by the .timer beside this file.
 #
 # SAFE TO AUTOMATE because the executor is DRY-RUN by default -- EXEC_MODE is
@@ -10,7 +10,7 @@
 # Nor can it re-poison the drawdown peak: that came from a `--capital 5000`
 # override ratcheting the high-water mark. A plain run reads real equity, which
 # is below the recorded peak, so nothing ratchets.
-Description=buibui XS daily (universe 1d sync + executor dry-run)
+Description=buibui XS daily (universe sync + executor dry-run)
 Documentation=file:///home/kng/repo/buibui-moon-trader-bot/deploy/run-xsmom.sh
 
 [Service]

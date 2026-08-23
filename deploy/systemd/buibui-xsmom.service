@@ -1,5 +1,5 @@
 [Unit]
-Description=buibui XS executor (universe 1d sync + order routing)
+Description=buibui XS executor (universe sync + order routing)
 After=network-online.target
 Wants=network-online.target
 
