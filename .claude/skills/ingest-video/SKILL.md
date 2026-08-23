@@ -597,9 +597,31 @@ WERE produced and pass 2 actually looked at them and found no chart.
 
 ### 6. Pass 2 — vision subagent, one per video, pinned to sonnet
 
-Dispatch whenever `frame_paths` from step 5 is non-empty — independent of whether step 3
-found any candidates (see note above). When `frame_paths` is empty, which health note
-you write depends on step 5's `marks` distinction:
+**Non-empty `frame_paths` is the PRECONDITION, not the trigger — decide by CONTENT.**
+Measured 2026-08-23 on the 5-video Cowen batch: vision was **644K of 905K subagent tokens
+(71%)**, 106–156K per video against pass 1's 31–75K, and the whole batch overran its
+`est_tokens` by 5.8×. Dispatching it on every video with frames is what makes a batch of
+five unaffordable.
+
+- **Run pass 2** when the kept items turn on numbers read off a chart — price levels,
+  entries/stops/targets, a metric's band or threshold, an on-screen indicator value, or any
+  claim whose meaning depends on what the chart shows. This is where the pipeline's value
+  lives (round 5: 11 chart corrections, one a level 2.2% off; the Cowen batch: digit-checking
+  ASR against the chart).
+- **Skip pass 2** for narrative, talking-head or purely definitional content — a mechanic
+  stated in prose, a framework walkthrough, an opinion segment. Mark every kept item
+  `vision_confidence: "low"`, keep `frame_path` pointing at the nearest mark so a later
+  re-check is cheap, and write the health note "vision skipped (narrative content)".
+  ⚠ **Do NOT set `chart_present: false`** — the frames exist and nobody looked at them,
+  which is the same distinction step 5's download-failure branch turns on below.
+- **When in doubt on a mixed video, run it.** The failure mode this rule guards is *cost*,
+  and a wrong skip on a numbers video costs correctness — the asymmetry is not close.
+
+On a multi-video batch, apply this per video rather than to the batch. Three videos with
+selective vision is the shape that fits the budget; five with unconditional vision is not.
+
+When `frame_paths` is empty, which health note you write depends on step 5's `marks`
+distinction:
 
 - `marks` was also empty (a zero-duration video — rare): skip pass 2, treat every kept
   item from pass 1 as `vision_confidence: "low"`, `frame_path: null`, and record

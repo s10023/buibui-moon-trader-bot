@@ -117,11 +117,18 @@ Three traps:
 
 ## Leg 3 — live-ledger delta
 
-**HELD.** This is the only leg the recording-bias suspension ever covered: the live
-sample was 35% complete with a session-skewed run-hour distribution, which is a
-*biased* base, not merely a thin one. It unholds on the soak verdict — check the
-handoff's opener list before assuming it is still held, and do not substitute
-runs/24h for the trailing weekday-coverage metric the verdict actually reads.
+**LIVE since 2026-08-13**, when the soak verdict passed 7/7 and lifted the recording-bias
+hold (the live sample had been 35% complete with a session-skewed run-hour distribution — a
+*biased* base, not merely a thin one). Key on `outcome_filled_at_ms`, never `candle_ts_ms`:
+fired-keyed overstates a 7-day window by 0.114R.
+
+Run the **row-level diff** against the previous snapshot — restatements vs new resolutions —
+not the byte-identical check, which conflates the two.
+
+⚠ **The newest half-month bucket is structurally the worst-looking one and is not a reading
+until its expired share falls.** Three consecutive reports flagged it as decay and were wrong
+each time; measured 2026-08-23, the 2026-08-b bucket improved **+0.157R** as it filled from
+236 to 745 rows and its expired share fell 0.767 → 0.409.
 
 ## Report + close out
 

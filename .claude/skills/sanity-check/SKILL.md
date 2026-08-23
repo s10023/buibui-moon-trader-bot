@@ -132,10 +132,10 @@ Check these in parallel:
   done
   ```
 
-  **Measured 2026-08-19: 10 of 12 covered. The gap is `param-sweep` and `param-audit`** —
-  zero mentions of either form anywhere in README, though both are in AGENTS.md,
-  `.claude/context/analytics.md` and four skills, so they are not undocumented
-  project-wide.
+  **Measured 2026-08-23: 12 of 12 covered** — `brief`, `card`, `digest`, `param-sweep` and
+  `param-audit` reach README only through their `make buibui-*` wrappers, which is why the
+  `buibui.py <cmd>` half of the loop reads 0 for each. Run both halves; a zero in one
+  column is not a gap.
 - Does `## Directory Structure` list all current top-level modules?
 - Are any sections referencing removed features?
 
