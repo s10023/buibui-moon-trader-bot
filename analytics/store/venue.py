@@ -11,39 +11,52 @@ import re
 
 import duckdb
 
+from analytics.data_fetcher import OHLCV_COLUMNS as _DATA_FETCHER_OHLCV_COLUMNS
+
 DEFAULT_VENUE: str = "binance"
 READ_VENUE_ORDER_KEY: str = "read_venue_order"
 
-OHLCV_COLUMNS: str = (
-    "symbol, timeframe, open_time, open, high, low, close, volume, taker_buy_volume"
-)
+# Derived from analytics.data_fetcher.OHLCV_COLUMNS (the pre-existing `list[str]`
+# form used by the fetch path) rather than restated, so the two can never drift out
+# of column order relative to each other. tools/migrate_ohlcv_venue.py derives its
+# legacy-schema guard from this string form; analytics/data_fetcher.py's list form
+# is what tests/test_analytics_runner.py imports.
+OHLCV_COLUMNS: str = ", ".join(_DATA_FETCHER_OHLCV_COLUMNS)
 
 # Venue names are interpolated into generated SQL (DuckDB cannot parameterise a view
 # body), so this pattern is a security boundary rather than a naming preference.
-_VENUE_RE = re.compile(r"^[a-z0-9_]+$")
+# `fullmatch` (not `match` + `$`) is deliberate: `$` matches immediately before a
+# trailing "\n", so `match(r"^[a-z0-9_]+$")` accepts "binance\n".
+_VENUE_RE = re.compile(r"[a-z0-9_]+")
+
+
+def _validate_venue_order(order: list[str], raw: str) -> None:
+    """Shared validation for both entry points into generated SQL.
+
+    `parse_venue_order` and `ohlcv_view_sql` are independent entry points into
+    generated SQL — DuckDB cannot parameterise a view body, so both must reject the
+    same inputs or one becomes a weaker validator than the other by accident.
+    """
+    if not order:
+        raise ValueError("venue order is empty")
+    for venue in order:
+        if not _VENUE_RE.fullmatch(venue):
+            raise ValueError(f"invalid venue name: {venue!r}")
+    if len(set(order)) != len(order):
+        raise ValueError(f"duplicate venue in order: {raw!r}")
 
 
 def parse_venue_order(raw: str) -> list[str]:
     """Parse a comma-separated preference list into normalised venue names."""
     order = [part.strip().lower() for part in raw.split(",")]
     order = [part for part in order if part]
-    if not order:
-        raise ValueError("venue order is empty")
-    for venue in order:
-        if not _VENUE_RE.match(venue):
-            raise ValueError(f"invalid venue name: {venue!r}")
-    if len(set(order)) != len(order):
-        raise ValueError(f"duplicate venue in order: {raw!r}")
+    _validate_venue_order(order, raw)
     return order
 
 
 def ohlcv_view_sql(order: list[str]) -> str:
     """Return the CREATE OR REPLACE VIEW statement for the `ohlcv` read path."""
-    if not order:
-        raise ValueError("venue order is empty")
-    for venue in order:
-        if not _VENUE_RE.match(venue):
-            raise ValueError(f"invalid venue name: {venue!r}")
+    _validate_venue_order(order, ",".join(order))
     if len(order) == 1:
         # A plain filter, deliberately: the single-venue production case must not pay
         # for a window function it can never need.

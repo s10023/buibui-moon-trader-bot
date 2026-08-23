@@ -480,6 +480,28 @@ Every refusal leaves the database recoverable — the tool does its state checks
 transaction as its writes, so "refuse" and "fail mid-flight" are the same code path to the file.
 Read the message rather than the exit code: a safe refusal and a crash both exit 1 today.
 
+### Recovering from a stuck local `DATA_SOURCE=okx` run
+
+`get_latest_open_time` deliberately reads the `ohlcv` view, so on the default (`binance`-only)
+read order an OKX run resumes from a Binance tail its own writes can never advance — it
+re-downloads the whole growing gap every cycle instead of merely stalling. There is **no
+supported operator lever** to change an *existing* database's read order today —
+`export_live_db.py --read-venue-order` writes a *new* database, and the migration tool
+hardcodes the default — so the fix is two lines of Python against the live one:
+
+```bash
+poetry run python -c "
+import duckdb
+from analytics.store.venue import set_read_venue_order
+conn = duckdb.connect('analytics.db')
+set_read_venue_order(conn, ['okx', 'binance'])
+"
+```
+
+`set_read_venue_order` rebuilds the `ohlcv` view inside that same call, so reads switch over
+immediately — no restart needed. Put `binance` back the same way once Binance is reachable
+again; nothing does it for you.
+
 ## Step 0 — Provision the VPS
 
 **Primary: Oracle Cloud Always-Free**, ARM Ampere A1, Ubuntu 24.04. Region **Malaysia

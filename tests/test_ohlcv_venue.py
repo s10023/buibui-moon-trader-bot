@@ -7,13 +7,26 @@ from typing import Any
 import duckdb
 import pytest
 
+from analytics import data_fetcher
 from analytics.store.venue import (
     DEFAULT_VENUE,
+    OHLCV_COLUMNS,
     ohlcv_view_sql,
     parse_venue_order,
     read_venue_order,
     set_read_venue_order,
 )
+
+
+class TestOhlcvColumnsAgree:
+    def test_venue_form_is_derived_from_data_fetcher_form(self) -> None:
+        # Two public constants, same name, different types, same nine columns that
+        # must stay in the same order: analytics.data_fetcher.OHLCV_COLUMNS
+        # (list[str], pre-existing) and analytics.store.venue.OHLCV_COLUMNS (str,
+        # this migration). tools/migrate_ohlcv_venue.py derives its legacy-schema
+        # guard from the venue.py form; tests/test_analytics_runner.py imports the
+        # data_fetcher form. Nothing else pins them together.
+        assert ", ".join(data_fetcher.OHLCV_COLUMNS) == OHLCV_COLUMNS
 
 
 class TestParseVenueOrder:
@@ -102,6 +115,34 @@ class TestOhlcvViewSql:
     def test_empty_order_is_rejected(self) -> None:
         with pytest.raises(ValueError, match="empty"):
             ohlcv_view_sql([])
+
+    def test_injection_is_rejected_single_venue(self) -> None:
+        # `ohlcv_view_sql` is a second, independent entry point into generated SQL —
+        # DuckDB cannot parameterise a view body, so this validation loop is not
+        # covered merely by `parse_venue_order` having its own guard.
+        with pytest.raises(ValueError, match="invalid venue"):
+            ohlcv_view_sql(["binance'; DELETE FROM ohlcv_all; --"])
+
+    def test_injection_is_rejected_multi_venue(self) -> None:
+        # The multi-venue path interpolates a `CASE` arm per venue as well as the
+        # `IN` list, so it needs its own coverage of the injection guard.
+        with pytest.raises(ValueError, match="invalid venue"):
+            ohlcv_view_sql(["binance", "okx'; DELETE FROM ohlcv_all; --"])
+
+    def test_duplicate_venue_is_rejected(self) -> None:
+        # Without this, ["binance", "binance"] silently built a CASE with an
+        # unreachable arm rather than failing.
+        with pytest.raises(ValueError, match="duplicate"):
+            ohlcv_view_sql(["binance", "binance"])
+
+    def test_trailing_newline_is_rejected(self) -> None:
+        # `$` in the old `^[a-z0-9_]+$` pattern matches immediately before a
+        # trailing "\n", so `re.match` (rather than `fullmatch`) would silently
+        # accept "binance\n" here — `ohlcv_view_sql` does not strip its input the
+        # way `parse_venue_order` does, so this is the path that actually exercises
+        # the hole.
+        with pytest.raises(ValueError, match="invalid venue"):
+            ohlcv_view_sql(["binance\n"])
 
 
 class TestReadVenueOrder:

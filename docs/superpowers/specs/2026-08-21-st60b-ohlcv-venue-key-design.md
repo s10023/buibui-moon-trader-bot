@@ -1,6 +1,6 @@
 # `ohlcv` venue key — ST60(b) design
 
-**Date:** 2026-08-21 · **Status:** approved, unbuilt · **Scope:** `analytics/store/`,
+**Date:** 2026-08-21 · **Status:** built, `feat/st60b-ohlcv-venue-key` · **Scope:** `analytics/store/`,
 `analytics/data_sync.py`, `utils/binance_client.py`, `tools/export_live_db.py`, one migration
 tool, and every test that writes OHLCV (~40 files) · **Source:** SoT ST60(b) — the prevention half of the
 OKX-overwrite defect whose *detection* half shipped in #676 and whose *NULL* half shipped
@@ -57,11 +57,17 @@ CREATE TABLE IF NOT EXISTS db_meta (
     value TEXT NOT NULL,
     PRIMARY KEY (key)
 );
--- seeded once: ('read_venue_order', 'binance')
+-- no row is ever inserted for 'read_venue_order' by init_schema; the default lives in
+-- code, not data — see below.
 ```
 
 `db_meta.read_venue_order` is a comma-separated preference list stored **in the database**,
-never read from the process environment. `init_schema` GENERATES the view from it:
+never read from the process environment. `init_schema` GENERATES the view from it. No row
+seeds `db_meta` for a fresh database: `read_venue_order`'s own `row is None` branch returns
+`[DEFAULT_VENUE]` ("binance") when the key is absent, so the default is implicit in code
+rather than an inserted row — `db_meta` only gains a `read_venue_order` row once something
+calls `set_read_venue_order` explicitly. Behaviour is identical either way; this is a note
+for whoever next reads `init_schema` and is tempted to "fix" it by adding a seed insert.
 
 ```sql
 -- stored order 'binance' (the real analytics.db)
@@ -222,9 +228,15 @@ view).
 ## 9. What this does NOT do
 
 - **It does not stop a local `DATA_SOURCE=okx` run writing OKX rows.** It makes them inert —
-  reads ignore them, Binance bars survive, and the visible symptom is bars failing to
-  advance. That is a strictly better failure than today's silent destruction, but it is not
-  an error message.
+  reads ignore them and Binance bars survive — but the visible symptom is worse than a
+  stalled view. `get_latest_open_time` (`analytics/store/market_data.py`) deliberately reads
+  the view, and `sync()`'s resume point comes from it, so on a `binance`-ordered database an
+  OKX run resumes from a Binance tail that its own writes can never advance: `backfill`
+  re-downloads the **entire growing gap** between that stale tail and now on **every cycle**,
+  and re-writes a full duplicate OKX series that nothing reads. That is strictly better than
+  today's silent overwrite of Binance bars, but it is not an error message, and it is an
+  unbounded per-cycle refetch rather than a one-time stall. Recovery: see `deploy/README.md`
+  § *Schema migrations*.
 - **`spot_ohlcv` stays venue-blind.** Out of scope; no caller mixes venues into it today.
 - **Perf is measured only synthetically.** On a 2M-row table with the real 600-bar slice
   shape: plain table 2.62 ms, single-venue view 4.03 ms, preference view 5.48 ms per read.
