@@ -6,7 +6,7 @@ timers replace the unreliable GitHub Actions cron:
 | Timer | Cadence | Runs |
 | --- | --- | --- |
 | `buibui-signal-watch` | every 15 min | `signal watch --once --telegram` (Binance-direct) |
-| `buibui-xsmom` | daily 00:10 UTC | universe 1d sync → XS executor (`dry_run`→`testnet`→`live`) |
+| `buibui-xsmom` | daily 00:10 UTC | universe sync 1h/4h/1d/1w → XS executor (`dry_run`→`testnet`→`live`) |
 
 Full design + rationale: `docs/superpowers/specs/2026-06-25-vps-deployment-design.md`.
 
@@ -26,7 +26,7 @@ tree and a reclone would otherwise lose them silently.
 | Timer | Fires (UTC) | Fires (MYT) | What it does | Missing a run costs |
 | --- | --- | --- | --- | --- |
 | `buibui-signal-watch` | `*:01/15` — every 15 min | same | One scan cycle, closed candles, `--catch-up` | **Permanent evidence loss.** The SoT-N8 watermark drags past an un-scanned candle and never revisits it. |
-| `buibui-xsmom-daily` | `00:20`, `02:20`, `06:20` | 08:20, 10:20, 14:20 | Universe 1d sync → executor **dry-run** | **Nothing.** The sync is incremental and the executor recomputes; yesterday's bars are still there tomorrow. |
+| `buibui-xsmom-daily` | `00:20`, `02:20`, `06:20` | 08:20, 10:20, 14:20 | Universe sync 1h/4h/1d/1w → executor **dry-run** | **Nothing.** The sync is incremental and the executor recomputes; yesterday's bars are still there tomorrow. |
 | `buibui-backup` | `07:40`, `12:40` | 15:40, 20:40 | Verified `analytics.db` snapshot + ledgers → `~/backups/buibui` | Nothing *immediately* — but it is the only copy of unreconstructible evidence, so exposure compounds. |
 | `buibui-backup-offsite` | `13:25` | 21:25 | `rclone sync` of `~/backups/buibui` → a remote | **Everything, on one hardware event.** Every local copy shares the laptop's disk. |
 | `buibui-daily-check` | `09:10` | 17:10 | `daily_check.py --exit-on-tier2` → Telegram on any red | Nothing directly; it is the *notifier* for all of the above. Without it a red waits for a session to notice. |
@@ -658,8 +658,10 @@ Seed `analytics.db` once (public mainnet market data, no key needed); the timers
 it fresh thereafter:
 
 ```bash
-# universe 1d for the XS book (needs >=288 days of history)
-poetry run python buibui.py analytics backfill --universe --timeframes 1d
+# universe, all four timeframes — 1d is the XS book's input (needs >=288 days of
+# history); 1h/4h/1w are seeded here because the xsmom timer REFRESHES them and a
+# sync cannot maintain a series that was never seeded (ST61a/ST61b)
+poetry run python buibui.py analytics backfill --universe --timeframes 1h 4h 1d 1w
 # coins.json symbols across the live signal timeframes
 poetry run python buibui.py analytics backfill --timeframes 15m 1h 4h
 ```
