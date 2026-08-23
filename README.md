@@ -847,13 +847,16 @@ from the latest causal EWMAC forecast stored in `analytics.db`. Saves a gitignor
 to `docs/plans/xsmom_targets/<date>.json`. Read-only — no order routing.
 
 ```bash
-make buibui-universe-sync               # sync universe 1d OHLCV (required — XS runs on 1d only)
+make buibui-universe-sync               # sync universe OHLCV, all timeframes (XS reads 1d)
 make buibui-xsmom-targets               # print today's target table + save snapshot
 ```
 
-- `make buibui-universe-sync` — `analytics sync --universe --timeframes 1d`. **Must run
-  before targets/executor**: the XS book runs on 1d bars only, but `analytics sync`'s default
-  timeframes (`1h 4h`) never refresh 1d, silently degenerating the book to majors-only.
+- `make buibui-universe-sync` — `analytics sync --universe --timeframes 1h 4h 1d 1w`
+  (override with `TIMEFRAMES=`). **Must run before targets/executor**: the XS book runs on 1d
+  bars only, and `analytics sync`'s default timeframes (`1h 4h`) never refresh 1d, which
+  silently degenerates the book to majors-only. ⚠ **It covers all four timeframes, not just
+  1d, since 2026-08-23 (ST61a)** — nothing else refreshes the universe's 1h/4h/1w, and when
+  this target named 1d alone they sat frozen for up to 76 days with every check green.
 - `make buibui-xsmom-targets` — read-only daily XS target-position generator. Accepts `--vol-target` (default 0.20) for parity with the executor.
   (`tools/xsmom_targets.py`): today's governor-scaled target positions
   (side · leverage · $notional at ~$10k) + a gitignored snapshot. No order routing.
@@ -865,8 +868,8 @@ The pure routing/overlay logic and the injectable Binance adapter live under `tr
 `analytics/xsmom/` stays pure/read-only.
 
 ```bash
-make buibui-universe-sync               # sync universe 1d OHLCV first (see above)
-make buibui-xsmom-daily                 # universe 1d sync + executor dry-run (one command)
+make buibui-universe-sync               # sync universe OHLCV first (see above)
+make buibui-xsmom-daily                 # universe sync + executor dry-run (one command)
 make buibui-xsmom-execute               # DRY-RUN: print the order plan, submit nothing
 make buibui-xsmom-execute MODE=testnet  # submit on Binance Futures testnet (validation)
 ```

@@ -143,9 +143,13 @@ play, land that reformat once up front.
   anything**: ST53 measured the effect as a CLIFF at 6 (-3.25% mean, n=73 dates, Welch
   t=-4.76) but those dates span ~3 distinct bear markets, so **n_eff ≈ 3**. The renderer
   carries a "display only, never a gate" marker and a test pins it. ⚠ **The four WEEKLY
-  averages are resampled from 1d, never read from the `1w` table** — those bars have been
-  stale since 2026-06-08 on all 25 symbols, so reading them would silently freeze four of
-  the six. The resample drops the in-progress week, and a week's average takes effect only
+  averages are resampled from 1d, never read from the `1w` table, and the reason is
+  LOOK-AHEAD rather than staleness.** Those bars were stale from 2026-06-08 until ST61a put
+  every timeframe on the routine sync (2026-08-23), so the old second reason is gone — but
+  the first is stronger: `sync` stores the FORMING bar on purpose and `ohlcv_all` has no
+  `is_closed` column, so the newest `1w` row is an in-progress week for up to seven days
+  and nothing in the schema says so. **Do not "simplify" this to read `1w` now that it is
+  fresh.** The resample drops the in-progress week, and a week's average takes effect only
   from the following Monday; both halves are mutation-guarded, because with only the first
   the historical path behind `days_at_score` stayed unguarded (measured: 8 of 8 tests
   passed with the effective-date shift removed). A partial score is never reported — if any
@@ -616,6 +620,23 @@ Four things still bite:
   (`create_data_client()`). `analytics_runner.py` uses `create_client()` unconditionally and so
   pins `venue="binance"` at both call sites.
 
+**The routine OHLCV refresh is SPLIT across two callers, and only their UNION is coverage.**
+signal-watch's 15-minute timer syncs the `coins.json` majors on 15m/1h/4h; `make
+buibui-universe-sync` syncs the 25-symbol universe on 1h/4h/1d/1w. Until 2026-08-23 the second
+ran `--timeframes 1d` **alone**, so nothing at all covered the universe on 1h/4h/1w: measured at
+the fix, **22 of 25 symbols were frozen 17.9d on 1h, 61.2d on 4h and 76.2d on 1w, every one of
+them TRADING**, while every check stayed green — the tier-1 coverage line asks only about 1d,
+the shape of the 2026-07-23 failure it was written for. ⚠ **Widening a detector or a study onto
+a timeframe is therefore not enough; check the series is actually being REFRESHED.**
+`tools/ohlcv_freshness.py` now watches every `(symbol, timeframe)` and reds tier 2 in the daily
+check. Two properties of it are load-bearing: staleness is measured in **BAR units**, never
+hours (three days is healthy on 1w and 72 bars behind on 1h, so one wall-clock threshold has to
+pick a timeframe to be wrong about), and the tolerance is **2 bars** because `sync` stores the
+FORMING bar on purpose — a healthy series always trails by under one, and `ohlcv_all` has no
+`is_closed` column to tell the two apart. It scans the **view**, the opposite choice to
+`FABRICATED_CVD_SQL`: that one guards history across venues, this one asks whether what
+consumers READ is fresh.
+
 **The containment is the point, and it was demonstrated on a bug introduced during the build:** a
 mislabelled write now costs VISIBILITY — the rows land beside the real ones, invisible to the
 default view, recoverable by re-backfilling — where before it cost DATA.
@@ -966,9 +987,9 @@ blocked. Never assume the flip happened because you printed the command.
   `wait-ci-main` watches ONE workflow and cannot see a sibling · a listing of ALL workflows cannot
   see one not yet created. **The pattern to carry: a check is only ever true about the scope it
   looked at, at the moment it looked.** ⚠ **The outermost layer is not a twice-seen curiosity: it
-  has now recurred on the flip-back for #674, #675 and #678 — FIVE sightings** (`Dependency Graph`
-  created 02:25:33Z on `7a0eeef`, and 07:07:09Z on `a306410` where it was still `queued` at the
-  moment of the flip; each minutes after a clean pre-flip listing). **Every sighting was caught by
+  has now recurred on the flip-back for #674, #675, #678 and #680 — SIX sightings** (`Dependency
+  Graph` created 02:25:33Z on `7a0eeef`, 07:07:09Z on `a306410` where it was still `queued` at the
+  moment of the flip, and 04:29:40Z on 2026-08-23; each minutes after a clean pre-flip listing). **Every sighting was caught by
   the post-flip re-verify and by nothing else**, because a pre-flip check cannot see a run that does not yet
   exist — so the re-verify is the ONLY step in the sequence that can catch this class, never a
   belt-and-braces extra. Every sighting was also benign because `Dependency Graph` runs green on a

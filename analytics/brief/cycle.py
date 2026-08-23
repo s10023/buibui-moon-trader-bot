@@ -9,13 +9,20 @@ daily close sits below, 0-6. Evidence is SoT ST53: the effect is a **CLIFF at
 That is why this module only ever produces a number to display: nothing here
 may gate, size or suppress anything, and no caller should make it do so.
 
-⚠ **The four WEEKLY averages are resampled from 1d on purpose.** `analytics.db`
-holds a `1w` table, but those bars have been stale since 2026-06-08 on all 25
-symbols (ST53's side finding), so reading them would silently freeze four of the
-six averages. The resample drops the in-progress week, which IS the
-no-look-ahead property — `tests/test_brief_cycle.py` pins it with an injected
+⚠ **The four WEEKLY averages are resampled from 1d on purpose, and the reason is
+LOOK-AHEAD, not staleness.** The resample drops the in-progress week, which IS
+the no-look-ahead property — `tests/test_brief_cycle.py` pins it with an injected
 leaky resampler as the specificity control, because a guard with only a
 "nothing changed" assertion cannot tell clean from blind.
+
+⚠ **Do not "simplify" this to read the `1w` table now that it is fresh.** Those
+bars were stale since 2026-06-08 (ST53's side finding) until ST61a put every
+timeframe on the routine sync on 2026-08-23, so the old second reason is gone —
+but the first one is stronger than ever: `sync` stores the FORMING bar on
+purpose and `ohlcv_all` carries no `is_closed` column, so the newest `1w` row is
+an in-progress week for up to seven days and nothing in the schema says so.
+Reading it would hand this module exactly the look-ahead the resample exists to
+remove.
 """
 
 from __future__ import annotations
