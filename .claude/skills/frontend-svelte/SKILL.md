@@ -208,4 +208,4 @@ closing `</style>` tag many lines below.
 ## Related
 
 - `/frontend-design` — visual / UX direction. Load before any styling work.
-- `/stats-dashboard` — Stats page architecture and `stats_lib.py` contract.
+- `/stats-dashboard` — Stats page architecture and the `analytics/stats/` contract (`stats_lib.py` is a re-export shim).
