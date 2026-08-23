@@ -54,7 +54,7 @@ def _seed(conn: duckdb.DuckDBPyConnection) -> None:
                 "taker_buy_volume": 500.0,
             }
         )
-    upsert_ohlcv(conn, pd.DataFrame(rows))
+    upsert_ohlcv(conn, pd.DataFrame(rows), venue="binance")
 
 
 def _conn() -> duckdb.DuckDBPyConnection:
@@ -125,6 +125,7 @@ def test_median_survives_a_short_history() -> None:
                 }
             ]
         ),
+        venue="binance",
     )
     res = compute_adr(conn, SYM)
     assert res.adr_14 == pytest.approx(0.02)

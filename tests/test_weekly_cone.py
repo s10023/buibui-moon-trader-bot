@@ -43,10 +43,10 @@ def _insert_ohlcv_rows(
     thousands of hourly bars, which made this file alone a quarter of the
     suite's runtime.
     """
-    values = ",".join(["(?,?,?,?,?,?,?,?,?)"] * n_rows)
+    values = ",".join(["('binance',?,?,?,?,?,?,?,?,?)"] * n_rows)
     conn.execute(
-        "INSERT OR REPLACE INTO ohlcv "
-        "(symbol, timeframe, open_time, open, high, low, close, volume, "
+        "INSERT OR REPLACE INTO ohlcv_all "
+        "(venue, symbol, timeframe, open_time, open, high, low, close, volume, "
         f"taker_buy_volume) VALUES {values}",
         params,
     )
@@ -197,8 +197,8 @@ def test_current_week_path_excludes_the_forming_bar(
     # Give the forming bar (index 60, opens 12:00, closes 13:00 > _NOW) a close
     # no other bar has, so its presence is visible in the values, not just len.
     conn.execute(
-        "UPDATE ohlcv SET close = 123.0 WHERE symbol = ? AND timeframe = '1h' "
-        "AND open_time = ?",
+        "UPDATE ohlcv_all SET close = 123.0 WHERE venue = 'binance' AND symbol = ? "
+        "AND timeframe = '1h' AND open_time = ?",
         [_SYMBOL, int(datetime(2026, 3, 4, 12, tzinfo=UTC).timestamp() * 1000)],
     )
     path = compute_current_week_path(conn, _SYMBOL, now_ms=_NOW_MS)
@@ -226,8 +226,8 @@ def test_current_week_path_stable_across_a_candle_close(
     # and the 13:00 bar opens. Both are strictly after the anchor.
     hour_12 = int(datetime(2026, 3, 4, 12, tzinfo=UTC).timestamp() * 1000)
     conn.execute(
-        "UPDATE ohlcv SET close = 100.45 WHERE symbol = ? AND timeframe = '1h' "
-        "AND open_time = ?",
+        "UPDATE ohlcv_all SET close = 100.45 WHERE venue = 'binance' AND symbol = ? "
+        "AND timeframe = '1h' AND open_time = ?",
         [_SYMBOL, hour_12],
     )
     _insert_ohlcv_rows(

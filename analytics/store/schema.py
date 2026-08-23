@@ -2,11 +2,36 @@
 
 import duckdb
 
+from analytics.store.venue import ohlcv_view_sql, read_venue_order
+
+
+class UnmigratedDatabaseError(RuntimeError):
+    """Raised when a database still has the pre-ST60(b) `ohlcv` TABLE."""
+
 
 def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
     """Create all tables if they do not exist."""
+    tables = {
+        row[0]
+        for row in conn.execute("SELECT table_name FROM duckdb_tables()").fetchall()
+    }
+    if "ohlcv" in tables:
+        # duckdb_tables() lists TABLES only, never views — after a real migration
+        # `ohlcv` is a view and never appears here. Do NOT also require
+        # "ohlcv_all" not in tables: init_schema creates ohlcv_all and db_meta
+        # (both CREATE TABLE IF NOT EXISTS) *before* it reaches the CREATE OR
+        # REPLACE VIEW that fails on a legacy table, so a failed run leaves both
+        # tables present. Keying on ohlcv_all's absence would silently pass that
+        # half-initialised state straight through to the same raw
+        # duckdb.CatalogException this guard exists to replace.
+        raise UnmigratedDatabaseError(
+            "This database predates the ohlcv venue key: `ohlcv` is still a TABLE. "
+            "Take a backup, then run `poetry run python tools/migrate_ohlcv_venue.py`. "
+            "Nothing has been modified."
+        )
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS ohlcv (
+        CREATE TABLE IF NOT EXISTS ohlcv_all (
+            venue            TEXT   NOT NULL,
             symbol           TEXT   NOT NULL,
             timeframe        TEXT   NOT NULL,
             open_time        BIGINT NOT NULL,
@@ -16,18 +41,17 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
             close            DOUBLE NOT NULL,
             volume           DOUBLE NOT NULL,
             taker_buy_volume DOUBLE,
-            PRIMARY KEY (symbol, timeframe, open_time)
+            PRIMARY KEY (venue, symbol, timeframe, open_time)
         )
     """)
-    # Migration guard: add column to existing DBs that were created before this field.
-    existing = {
-        row[0]
-        for row in conn.execute(
-            "SELECT column_name FROM information_schema.columns WHERE table_name = 'ohlcv'"
-        ).fetchall()
-    }
-    if "taker_buy_volume" not in existing:
-        conn.execute("ALTER TABLE ohlcv ADD COLUMN taker_buy_volume DOUBLE")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS db_meta (
+            key   TEXT NOT NULL,
+            value TEXT NOT NULL,
+            PRIMARY KEY (key)
+        )
+    """)
+    conn.execute(ohlcv_view_sql(read_venue_order(conn)))
     conn.execute("""
         CREATE TABLE IF NOT EXISTS funding_rates (
             symbol       TEXT   NOT NULL,

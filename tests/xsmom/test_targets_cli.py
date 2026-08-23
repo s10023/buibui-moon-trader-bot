@@ -56,6 +56,7 @@ def _seed_db(path: str, n: int = 400) -> None:
                     "taker_buy_volume": 500.0,
                 }
             ),
+            venue="binance",
         )
     conn.close()
 

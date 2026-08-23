@@ -41,8 +41,10 @@ def _seed_ohlcv_1d(
     )
     conn.register("_o", df)
     conn.execute(
-        "INSERT INTO ohlcv (symbol, timeframe, open_time, open, high, low, close, volume, taker_buy_volume)"
-        " SELECT symbol, timeframe, open_time, open, high, low, close, volume, taker_buy_volume FROM _o"
+        "INSERT INTO ohlcv_all (venue, symbol, timeframe, open_time, open, high, low,"
+        " close, volume, taker_buy_volume)"
+        " SELECT 'binance', symbol, timeframe, open_time, open, high, low, close,"
+        " volume, taker_buy_volume FROM _o"
     )
     conn.unregister("_o")
 

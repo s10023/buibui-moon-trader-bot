@@ -34,7 +34,7 @@ def _seed(conn: duckdb.DuckDBPyConnection, n: int = 400) -> list[str]:
                 "taker_buy_volume": np.full(n, np.nan),
             }
         )
-        upsert_ohlcv(conn, rows)
+        upsert_ohlcv(conn, rows, venue="binance")
     return syms
 
 

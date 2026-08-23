@@ -26,7 +26,7 @@ def _make_row(open_time: int, close: float, volume: float) -> dict:
 
 def _seed_db(conn: duckdb.DuckDBPyConnection, rows: list[dict]) -> None:
     df = pd.DataFrame(rows)
-    upsert_ohlcv(conn, df)
+    upsert_ohlcv(conn, df, venue="binance")
 
 
 def test_warm_cache_replaces_stale_last_row() -> None:

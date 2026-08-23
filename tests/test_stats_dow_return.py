@@ -84,7 +84,7 @@ def _monday_rows(returns: list[float]) -> pd.DataFrame:
 def _mondays(returns: list[float]) -> duckdb.DuckDBPyConnection:
     conn = duckdb.connect(":memory:")
     init_schema(conn)
-    upsert_ohlcv(conn, _monday_rows(returns))
+    upsert_ohlcv(conn, _monday_rows(returns), venue="binance")
     return conn
 
 

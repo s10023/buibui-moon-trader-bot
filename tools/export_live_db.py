@@ -1,20 +1,27 @@
 """Export a slim live-signal DuckDB for the GitHub Actions signal-watch job.
 
-Copies ONLY the live-table DATA the daemon reads (ohlcv + calibration) from the
+Copies ONLY the live-table DATA the daemon reads (ohlcv_all + calibration) from the
 local Binance analytics.db into a fresh live_signal.duckdb, leaving the bulky
 backtest_trades / backtest_runs / backtest_cache empty. The full schema is created
 via init_schema() so every table keeps its PRIMARY KEY — a plain CTAS copy drops
-the PK, which breaks the daemon's `INSERT OR REPLACE INTO ohlcv` on the first sync.
-The ohlcv copy is scoped to coins.json symbols within a 400-day rolling window so
-universe/deep-history rows never reach the committed file.
+the PK, which breaks the daemon's `INSERT OR REPLACE INTO ohlcv_all` on the first
+sync.
+The ohlcv_all copy is scoped to coins.json symbols within a 400-day rolling window
+so universe/deep-history rows never reach the committed file.
+The output's `ohlcv` view is stamped to prefer OKX over Binance
+(`read_venue_order`, default "okx,binance") — the slim DB is seeded into an
+ephemeral CI database that a DATA_SOURCE=okx run then extends, and this order
+reproduces that mixed read exactly.
 The source is opened READ-ONLY and never mutated. Run after `make db-update` /
 recalibrate, then commit the output (plain git, not LFS — bandwidth is metered).
 
 Usage: PYTHONPATH=. poetry run python tools/export_live_db.py [SRC] [OUT]
+       [--read-venue-order ORDER]
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 import time
 from pathlib import Path
@@ -22,10 +29,11 @@ from pathlib import Path
 import duckdb
 
 from analytics.store.schema import init_schema
+from analytics.store.venue import parse_venue_order, set_read_venue_order
 from utils.binance_client import load_coins_config
 
 LIVE_TABLES: list[str] = [
-    "ohlcv",
+    "ohlcv_all",
     "confidence_ratings",
     "backtest_combos",
     "backtest_cross_tf_combos",
@@ -33,6 +41,12 @@ LIVE_TABLES: list[str] = [
 
 DEFAULT_SRC = Path("analytics.db")
 DEFAULT_OUT = Path("live_signal.duckdb")
+
+# The CI signal-watch job seeds an ephemeral DB from the committed export, then runs
+# DATA_SOURCE=okx syncs against it and reads a mixed series back — Binance history
+# underneath, OKX's fresh tail on top. Stamping this order on the output reproduces
+# that read exactly.
+DEFAULT_READ_VENUE_ORDER = "okx,binance"
 
 # The committed slim DB is checked out hourly by GH Actions — keep it scoped to
 # what the daemon actually reads: live (coins.json) symbols, rolling window.
@@ -63,6 +77,7 @@ def export_live_db(
     ohlcv_symbols: list[str] | None = None,
     ohlcv_floor_days: int = _OHLCV_FLOOR_DAYS,
     now_ms: int | None = None,
+    read_venue_order: str = DEFAULT_READ_VENUE_ORDER,
 ) -> None:
     if not src.exists():
         raise FileNotFoundError(f"source DB not found: {src}")
@@ -79,22 +94,27 @@ def export_live_db(
     try:
         # Create the full production schema first so every table carries its
         # PRIMARY KEY. CTAS (CREATE TABLE AS SELECT) would drop the PK, breaking
-        # the daemon's INSERT OR REPLACE INTO ohlcv (DuckDB needs a UNIQUE/PK for
-        # ON CONFLICT). Non-live tables are created empty.
+        # the daemon's INSERT OR REPLACE INTO ohlcv_all (DuckDB needs a UNIQUE/PK
+        # for ON CONFLICT). Non-live tables are created empty.
         init_schema(out_con)
         for table in LIVE_TABLES:
             if not _table_exists(src_con, table):
                 continue
-            if table == "ohlcv":
+            if table == "ohlcv_all":
                 placeholders = ", ".join("?" for _ in ohlcv_symbols)
                 df = src_con.execute(
-                    f"SELECT * FROM ohlcv WHERE symbol IN ({placeholders}) "
+                    f"SELECT * FROM ohlcv_all WHERE symbol IN ({placeholders}) "
                     "AND open_time >= ?",
                     [*ohlcv_symbols, floor_ms],
                 ).fetchdf()  # noqa: F841
             else:
                 df = src_con.execute(f'SELECT * FROM "{table}"').fetchdf()  # noqa: F841
             out_con.execute(f'INSERT INTO "{table}" BY NAME SELECT * FROM df')
+        # The slim DB is seeded into an ephemeral CI database that a DATA_SOURCE=okx
+        # run then extends. Preferring OKX and falling back to the Binance history
+        # underneath reproduces the pre-ST60(b) mixed read exactly -- without letting
+        # either venue overwrite the other.
+        set_read_venue_order(out_con, parse_venue_order(read_venue_order))
         rows = {
             t: _scalar(out_con, f'SELECT COUNT(*) FROM "{t}"', [])
             for t in LIVE_TABLES
@@ -108,7 +128,21 @@ def export_live_db(
     print(f"Exported {out} ({size_mb:.1f} MB): {rows}")
 
 
+def _parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("src", nargs="?", type=Path, default=DEFAULT_SRC)
+    parser.add_argument("out", nargs="?", type=Path, default=DEFAULT_OUT)
+    parser.add_argument(
+        "--read-venue-order",
+        default=DEFAULT_READ_VENUE_ORDER,
+        help=(
+            "Comma-separated venue preference order stamped on the output's "
+            f"ohlcv view (default: {DEFAULT_READ_VENUE_ORDER!r})"
+        ),
+    )
+    return parser.parse_args(argv)
+
+
 if __name__ == "__main__":
-    src = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_SRC
-    out = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_OUT
-    export_live_db(src, out)
+    args = _parse_args(sys.argv[1:])
+    export_live_db(args.src, args.out, read_venue_order=args.read_venue_order)

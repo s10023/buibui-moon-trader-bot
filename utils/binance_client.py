@@ -53,6 +53,23 @@ def create_data_client() -> Any:
     return create_client()
 
 
+def resolve_venue() -> str:
+    """Return the venue name for the active DATA_SOURCE.
+
+    Mirrors create_data_client()'s dispatch exactly -- anything unrecognised is
+    Binance -- so the tag matches the client **for a caller that also sources its
+    client via create_data_client()**.
+
+    That caveat is the whole of it: this is a property of the CALL GRAPH, not of
+    this function. A caller that hardcodes create_client() gets Binance data no
+    matter what DATA_SOURCE says, and must pass `venue=` explicitly rather than
+    inherit a guess from an env var it ignores -- which is exactly what
+    analytics_runner.py does, and why it has to.
+    """
+    source = os.environ.get("DATA_SOURCE", "binance").lower()
+    return "okx" if source == "okx" else "binance"
+
+
 def load_coins_config(path: Path | str = _DEFAULT_COINS_PATH) -> dict[str, Any]:
     """Load and validate coins.json, return config dict."""
     with open(path) as f:

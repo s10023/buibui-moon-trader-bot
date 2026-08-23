@@ -32,7 +32,7 @@ def _seed(conn: duckdb.DuckDBPyConnection, symbol: str, n: int, slope: float) ->
         }
         for i in range(n)
     ]
-    upsert_ohlcv(conn, pd.DataFrame(rows))
+    upsert_ohlcv(conn, pd.DataFrame(rows), venue="binance")
 
 
 def test_replay_weight_schemes_has_all_schemes() -> None:

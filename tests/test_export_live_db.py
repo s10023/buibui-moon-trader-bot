@@ -1,6 +1,8 @@
 """Tests for tools/export_live_db.py — read-only slim live-DB export."""
 
 from pathlib import Path
+from typing import Any
+from unittest import mock
 
 import duckdb
 
@@ -13,7 +15,8 @@ def _make_source(path: Path) -> None:
     con = duckdb.connect(str(path))
     init_schema(con)  # real production schema (PKs + all tables)
     con.execute(
-        "INSERT INTO ohlcv VALUES ('BTCUSDT', '1h', 1, 10, 11, 9, 10.5, 100, 50)"
+        "INSERT INTO ohlcv_all VALUES "
+        "('binance', 'BTCUSDT', '1h', 1, 10, 11, 9, 10.5, 100, 50)"
     )
     con.execute(
         "INSERT INTO confidence_ratings "
@@ -56,9 +59,9 @@ def test_export_copies_live_table_data(tmp_path: Path) -> None:
 
 
 def test_exported_ohlcv_supports_insert_or_replace(tmp_path: Path) -> None:
-    """Regression: the daemon's incremental sync does INSERT OR REPLACE INTO ohlcv,
-    which DuckDB only allows when the table keeps its PRIMARY KEY. A CTAS export
-    would drop the PK and raise BinderException on the first live sync."""
+    """Regression: the daemon's incremental sync does INSERT OR REPLACE INTO
+    ohlcv_all, which DuckDB only allows when the table keeps its PRIMARY KEY. A CTAS
+    export would drop the PK and raise BinderException on the first live sync."""
     src = tmp_path / "analytics.db"
     out = tmp_path / "live_signal.duckdb"
     _make_source(src)
@@ -68,8 +71,8 @@ def test_exported_ohlcv_supports_insert_or_replace(tmp_path: Path) -> None:
     con = duckdb.connect(str(out))
     # Same primary key as the seeded row → must REPLACE, not raise.
     con.execute(
-        "INSERT OR REPLACE INTO ohlcv VALUES "
-        "('BTCUSDT', '1h', 1, 99, 99, 99, 99, 999, 500)"
+        "INSERT OR REPLACE INTO ohlcv_all VALUES "
+        "('binance', 'BTCUSDT', '1h', 1, 99, 99, 99, 99, 999, 500)"
     )
     row = con.execute(
         "SELECT close FROM ohlcv WHERE symbol='BTCUSDT' AND timeframe='1h' AND open_time=1"
@@ -79,12 +82,24 @@ def test_exported_ohlcv_supports_insert_or_replace(tmp_path: Path) -> None:
 
 
 def test_export_does_not_mutate_source(tmp_path: Path) -> None:
+    """The source connection is opened read_only=True -- not merely a code path that
+    happens never to write. Patching duckdb.connect (while letting the real call
+    through via `wraps`) makes that flag itself the assertion: drop `read_only=True`
+    from the export's `duckdb.connect(str(src), ...)` call and this goes red, where
+    the mtime/row-count checks below would not have noticed."""
     src = tmp_path / "analytics.db"
     out = tmp_path / "live_signal.duckdb"
     _make_source(src)
     before = src.stat().st_mtime_ns
 
-    export_live_db(src, out, ohlcv_symbols=["BTCUSDT"], now_ms=1_000)
+    with mock.patch(
+        "tools.export_live_db.duckdb.connect", wraps=duckdb.connect
+    ) as mock_connect:
+        export_live_db(src, out, ohlcv_symbols=["BTCUSDT"], now_ms=1_000)
+
+    src_calls = [c for c in mock_connect.call_args_list if c.args[:1] == (str(src),)]
+    assert len(src_calls) == 1
+    assert src_calls[0].kwargs.get("read_only") is True
 
     # source untouched (read-only access); mtime unchanged
     assert src.stat().st_mtime_ns == before
@@ -102,17 +117,20 @@ def test_export_scopes_ohlcv_to_symbols_and_floor(tmp_path: Path) -> None:
     con = duckdb.connect(str(src))
     # Universe symbol — excluded by symbol scoping.
     con.execute(
-        "INSERT INTO ohlcv VALUES ('ZECUSDT', '1h', 1, 10, 11, 9, 10.5, 100, 50)"
+        "INSERT INTO ohlcv_all VALUES "
+        "('binance', 'ZECUSDT', '1h', 1, 10, 11, 9, 10.5, 100, 50)"
     )
     # Live symbol but ancient — excluded by the 400-day floor.
     con.execute(
-        "INSERT INTO ohlcv VALUES ('BTCUSDT', '1h', 2, 10, 11, 9, 10.5, 100, 50)"
+        "INSERT INTO ohlcv_all VALUES "
+        "('binance', 'BTCUSDT', '1h', 2, 10, 11, 9, 10.5, 100, 50)"
     )
     # Live symbol, recent — kept.
     now_ms = 500 * 86_400_000
     recent = now_ms - 86_400_000  # 1 day old, floor is 400 days
     con.execute(
-        "INSERT INTO ohlcv VALUES ('BTCUSDT', '1h', ?, 10, 11, 9, 10.5, 100, 50)",
+        "INSERT INTO ohlcv_all VALUES "
+        "('binance', 'BTCUSDT', '1h', ?, 10, 11, 9, 10.5, 100, 50)",
         [recent],
     )
     con.close()
@@ -128,3 +146,31 @@ def test_export_scopes_ohlcv_to_symbols_and_floor(tmp_path: Path) -> None:
     con.close()
     assert rows == [("BTCUSDT", recent)]
     assert cr == (1,)
+
+
+def test_exported_db_prefers_okx_then_binance(tmp_path: Any) -> None:
+    """The slim DB exists to be EXTENDED by an OKX run, so its read order says so."""
+    from analytics.store.venue import read_venue_order
+
+    src = tmp_path / "src.duckdb"
+    conn = duckdb.connect(str(src))
+    init_schema(conn)
+    conn.execute(
+        "INSERT INTO ohlcv_all VALUES "
+        "('binance', 'BTCUSDT', '1h', 1, 10, 11, 9, 10.5, 100, 50)"
+    )
+    conn.close()
+
+    out = tmp_path / "out.duckdb"
+    export_live_db(src=src, out=out, ohlcv_symbols=["BTCUSDT"], now_ms=86_400_000)
+
+    conn = duckdb.connect(str(out))
+    assert read_venue_order(conn) == ["okx", "binance"]
+    assert conn.execute("SELECT venue FROM ohlcv_all").fetchall() == [("binance",)]
+    # An OKX bar synced later must shadow the seeded Binance bar for reads, without
+    # destroying it -- this is exactly what the CI cycle does.
+    conn.execute(
+        "INSERT INTO ohlcv_all VALUES ('okx', 'BTCUSDT', '1h', 1, 10, 11, 9, 77.0, 100, NULL)"
+    )
+    assert conn.execute("SELECT close FROM ohlcv").fetchall() == [(77.0,)]
+    assert conn.execute("SELECT COUNT(*) FROM ohlcv_all").fetchone() == (2,)

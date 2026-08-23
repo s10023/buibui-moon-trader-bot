@@ -132,12 +132,16 @@ def test_futures_klines_paginates_until_start_reached() -> None:
 class TestNullTakerVolumeIsNotAFabrication:
     """ST60 (a): an OKX overwrite is now VISIBLE rather than plausible.
 
-    NULL does not stop the row being replaced — `ohlcv`'s PK still has no venue
-    component — it stops the replacement passing for a measurement. These pin the
-    two consequences that decide whether NULL is safe to ship on the live path.
-    The third (the `cvd_divergence` detector degrading to no signals rather than
-    reading a fabricated flat series) is pinned in `tests/test_strategies.py`,
-    where the fixture can be shown to fire before the column is nulled.
+    NULL does not make the OKX adapter's synthetic taker-buy value real — it stops
+    that value passing for a measurement. (`ohlcv_all` keys on `venue` since
+    460fd17, so an OKX write lands BESIDE the Binance row rather than replacing it;
+    that overwrite hazard is closed. NULL's remaining job is keeping OKX's own rows
+    honest, which matters once Task 4 points the tier-1 scan across every venue.)
+    These pin the two consequences that decide whether NULL is safe to ship on the
+    live path. The third (the `cvd_divergence` detector degrading to no signals
+    rather than reading a fabricated flat series) is pinned in
+    `tests/test_strategies.py`, where the fixture can be shown to fire before the
+    column is nulled.
     """
 
     def _okx_frame(self) -> pd.DataFrame:
@@ -151,10 +155,14 @@ class TestNullTakerVolumeIsNotAFabrication:
 
         conn = duckdb.connect(":memory:")
         init_schema(conn)
-        upsert_ohlcv(conn, self._okx_frame())
+        # Write as the real OKX write path will (venue="okx" from Task 5 onward) and
+        # assert against the base table directly, rather than the `ohlcv` view --
+        # the view defaults to binance-only, which would filter these rows out and
+        # make the assertion pass for the wrong reason.
+        upsert_ohlcv(conn, self._okx_frame(), venue="okx")
         row = conn.execute(
             "SELECT count(*) FILTER (WHERE taker_buy_volume IS NULL), count(*) "
-            "FROM ohlcv"
+            "FROM ohlcv_all WHERE venue = 'okx'"
         ).fetchone()
         assert row is not None
         assert (row[0], row[1]) == (3, 3)
@@ -168,7 +176,10 @@ class TestNullTakerVolumeIsNotAFabrication:
 
         conn = duckdb.connect(":memory:")
         init_schema(conn)
-        upsert_ohlcv(conn, frame)
+        # FABRICATED_CVD_SQL reads `ohlcv_all` directly (Task 4), so an OKX-venue
+        # write is visible to it regardless of the `ohlcv` read-view's preference
+        # order -- no `set_read_venue_order` call is needed here.
+        upsert_ohlcv(conn, frame, venue="okx")
         rows = [
             (str(r[0]), str(r[1]), int(r[2]))
             for r in conn.execute(FABRICATED_CVD_SQL).fetchall()

@@ -140,7 +140,8 @@ class TestRefreshSymbolLifecycle:
     def test_delisting_never_touches_ohlcv(self) -> None:
         conn = _make_conn()
         conn.execute(
-            "INSERT INTO ohlcv VALUES ('GONEUSDT', '1h', 1, 10, 11, 9, 10.5, 100, 50)"
+            "INSERT INTO ohlcv_all VALUES "
+            "('binance', 'GONEUSDT', '1h', 1, 10, 11, 9, 10.5, 100, 50)"
         )
         with patch(
             "analytics.data_sync.fetch_futures_symbol_info", return_value=_info_df([])

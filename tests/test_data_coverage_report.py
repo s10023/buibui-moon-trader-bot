@@ -24,7 +24,7 @@ def _seed_ohlcv(
 ) -> None:
     for t in open_times:
         conn.execute(
-            "INSERT INTO ohlcv VALUES (?, ?, ?, 10, 11, 9, 10.5, 100, 50)",
+            "INSERT INTO ohlcv_all VALUES ('binance', ?, ?, ?, 10, 11, 9, 10.5, 100, 50)",
             [symbol, tf, t],
         )
 

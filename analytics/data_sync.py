@@ -29,6 +29,7 @@ from analytics.data_store import (
     upsert_open_interest,
     upsert_symbol_lifecycle,
 )
+from utils.binance_client import resolve_venue
 
 # Binance funding rates are emitted every 8 hours.
 _FUNDING_RATE_INTERVAL_HOURS: int = 8
@@ -51,12 +52,18 @@ def backfill(
     timeframe: str,
     start_ms: int,
     sleep_fn: Callable[[float], None] | None = None,
+    venue: str | None = None,
 ) -> int:
     """Fetch full OHLCV history from start_ms to now and store it.
 
     Paginates in 1000-candle batches. Returns total rows upserted.
     Stops when the API returns fewer rows than the limit (end of history reached).
+
+    `venue` defaults to `resolve_venue()` (the active DATA_SOURCE) so stored rows are
+    always tagged with the venue that actually fetched them; pass it explicitly to
+    override.
     """
+    resolved_venue = venue if venue is not None else resolve_venue()
     _sleep = sleep_fn if sleep_fn is not None else time.sleep
     total = 0
     current_start = start_ms
@@ -66,7 +73,7 @@ def backfill(
         )
         if df.empty:
             break
-        upsert_ohlcv(conn, df)
+        upsert_ohlcv(conn, df, venue=resolved_venue)
         total += len(df)
         logging.info(
             "backfill %s %s: stored %d rows (total %d)",
@@ -173,6 +180,7 @@ def sync(
     symbol: str,
     timeframe: str,
     sleep_fn: Callable[[float], None] | None = None,
+    venue: str | None = None,
 ) -> int:
     """Fetch candles from the latest stored open_time onwards (inclusive).
 
@@ -184,11 +192,16 @@ def sync(
 
     Raises ValueError if no data exists for (symbol, timeframe) — run backfill first.
     Returns total rows upserted.
+
+    `venue` is forwarded to `backfill` unchanged (resolution happens there once, not
+    here as well) so there is a single resolution point for the whole sync path.
     """
     latest = get_latest_open_time(conn, symbol, timeframe)
     if latest is None:
         raise ValueError(f"No data found for {symbol}/{timeframe}. Run backfill first.")
-    return backfill(conn, client, symbol, timeframe, latest, sleep_fn=sleep_fn)
+    return backfill(
+        conn, client, symbol, timeframe, latest, sleep_fn=sleep_fn, venue=venue
+    )
 
 
 def refresh_symbol_lifecycle(

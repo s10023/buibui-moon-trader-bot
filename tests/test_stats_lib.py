@@ -99,9 +99,10 @@ def conn() -> duckdb.DuckDBPyConnection:
     rows = _make_candles()
     for row in rows:
         c.execute(
-            "INSERT OR REPLACE INTO ohlcv "
-            "(symbol, timeframe, open_time, open, high, low, close, volume, taker_buy_volume) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO ohlcv_all "
+            "(venue, symbol, timeframe, open_time, open, high, low, close, volume, "
+            "taker_buy_volume) "
+            "VALUES ('binance', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 row["symbol"],
                 row["timeframe"],
@@ -250,9 +251,10 @@ def _insert_candle(
     close: float = 40000.0,
 ) -> None:
     conn.execute(
-        "INSERT OR REPLACE INTO ohlcv "
-        "(symbol, timeframe, open_time, open, high, low, close, volume, taker_buy_volume) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO ohlcv_all "
+        "(venue, symbol, timeframe, open_time, open, high, low, close, volume, "
+        "taker_buy_volume) "
+        "VALUES ('binance', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [_SYMBOL, "1h", open_time_ms, open_, high, low, close, 100.0, 50.0],
     )
 

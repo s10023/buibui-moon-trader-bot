@@ -30,7 +30,7 @@ def _seed(conn: duckdb.DuckDBPyConnection, symbol: str, n: int) -> None:
                 "taker_buy_volume": 500.0,
             }
         )
-    upsert_ohlcv(conn, pd.DataFrame(rows))
+    upsert_ohlcv(conn, pd.DataFrame(rows), venue="binance")
     # funding 3x/day
     f = []
     for i in range(n * 3):

@@ -32,7 +32,7 @@ def _seed(conn: duckdb.DuckDBPyConnection, symbol: str, n: int) -> None:
         }
         for i in range(n)
     ]
-    upsert_ohlcv(conn, pd.DataFrame(rows))
+    upsert_ohlcv(conn, pd.DataFrame(rows), venue="binance")
 
 
 def test_replay_trials_has_per_speed_and_combined() -> None:

@@ -32,7 +32,7 @@ def _seed(conn: duckdb.DuckDBPyConnection, n: int = 400) -> list[str]:
                 "taker_buy_volume": 500.0,
             }
         )
-        upsert_ohlcv(conn, rows)
+        upsert_ohlcv(conn, rows, venue="binance")
     return syms
 
 
@@ -89,6 +89,7 @@ def test_replay_targets_drops_unclosed_trailing_bar() -> None:
                 "taker_buy_volume": [500.0],
             }
         ),
+        venue="binance",
     )
     # now = 6h into day 400 -> the day-400 bar (closes at day 401 00:00) is unclosed.
     now = pd.Timestamp(extra_open, unit="ms", tz="UTC") + pd.Timedelta(hours=6)

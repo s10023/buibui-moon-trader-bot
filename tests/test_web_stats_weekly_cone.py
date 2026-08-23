@@ -29,10 +29,10 @@ def _insert_ohlcv_rows(
     weeks of hourly bars per test, which is why it showed up as ~10s of pure
     setup.
     """
-    values = ",".join(["(?,?,?,?,?,?,?,?,?)"] * n_rows)
+    values = ",".join(["('binance',?,?,?,?,?,?,?,?,?)"] * n_rows)
     conn.execute(
-        "INSERT OR REPLACE INTO ohlcv "
-        "(symbol, timeframe, open_time, open, high, low, close, volume, "
+        "INSERT OR REPLACE INTO ohlcv_all "
+        "(venue, symbol, timeframe, open_time, open, high, low, close, volume, "
         f"taker_buy_volume) VALUES {values}",
         params,
     )

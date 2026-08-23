@@ -47,9 +47,9 @@ def _insert_day(
         else:
             high, low = max(100.5, close), min(99.5, close)
         conn.execute(
-            "INSERT OR REPLACE INTO ohlcv "
-            "(symbol, timeframe, open_time, open, high, low, close, volume, "
-            "taker_buy_volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO ohlcv_all "
+            "(venue, symbol, timeframe, open_time, open, high, low, close, volume, "
+            "taker_buy_volume) VALUES ('binance', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 _SYMBOL,
                 "1h",
@@ -202,8 +202,8 @@ def test_extreme_tie_earliest_hour_wins(conn: duckdb.DuckDBPyConnection) -> None
     # Give hour 6 (bar index 5) the same 99.0 low as bar 1 — a tie.
     base_ms = int(datetime(2026, 1, 19, tzinfo=UTC).timestamp() * 1000)
     conn.execute(
-        "UPDATE ohlcv SET low = 99.0 "
-        "WHERE symbol = ? AND timeframe = '1h' AND open_time = ?",
+        "UPDATE ohlcv_all SET low = 99.0 "
+        "WHERE venue = 'binance' AND symbol = ? AND timeframe = '1h' AND open_time = ?",
         [_SYMBOL, base_ms + 5 * 3_600_000],
     )
     cone = compute_path_cone(conn, _SYMBOL, now_ms=_NOW_MS)

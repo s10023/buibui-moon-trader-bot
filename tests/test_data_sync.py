@@ -113,7 +113,7 @@ class TestBackfill:
 class TestSync:
     def test_fetches_from_latest_open_time(self) -> None:
         conn = _make_conn()
-        upsert_ohlcv(conn, _make_df([1_000_000]))
+        upsert_ohlcv(conn, _make_df([1_000_000]), venue="binance")
         captured: list[int] = []
 
         def capture(c: Any, cl: Any, sym: Any, tf: Any, start: int, **kw: Any) -> int:
@@ -131,7 +131,7 @@ class TestSync:
 
     def test_returns_zero_when_no_new_data(self) -> None:
         conn = _make_conn()
-        upsert_ohlcv(conn, _make_df([1_000_000]))
+        upsert_ohlcv(conn, _make_df([1_000_000]), venue="binance")
         empty_df = pd.DataFrame(columns=OHLCV_COLUMNS)
         with patch("analytics.data_sync.fetch_klines", return_value=empty_df):
             total = sync(conn, object(), "BTCUSDT", "1h", sleep_fn=lambda _: None)
@@ -232,3 +232,46 @@ class TestBackfillFundingRates:
                 conn, object(), "BTCUSDT", 0, sleep_fn=lambda _: None
             )
         assert total == 0
+
+
+class TestVenueResolution:
+    def test_default_is_binance(self, monkeypatch: Any) -> None:
+        from utils.binance_client import resolve_venue
+
+        monkeypatch.delenv("DATA_SOURCE", raising=False)
+        assert resolve_venue() == "binance"
+
+    def test_okx_env_resolves_to_okx(self, monkeypatch: Any) -> None:
+        from utils.binance_client import resolve_venue
+
+        monkeypatch.setenv("DATA_SOURCE", "OKX")
+        assert resolve_venue() == "okx"
+
+    def test_unknown_source_falls_back_to_binance(self, monkeypatch: Any) -> None:
+        # Mirrors create_data_client(), which treats anything unrecognised as Binance.
+        from utils.binance_client import resolve_venue
+
+        monkeypatch.setenv("DATA_SOURCE", "kraken")
+        assert resolve_venue() == "binance"
+
+
+def test_backfill_tags_rows_with_the_resolved_venue(monkeypatch: Any) -> None:
+    """The env var must reach the stored row, not just the client choice.
+
+    Reuses the file's existing backfill fixtures (`_make_conn`, `_make_df`) and the
+    established `patch("analytics.data_sync.fetch_klines", ...)` pattern every other
+    TestBackfill case already uses, rather than mocking `client.futures_klines`.
+    """
+    monkeypatch.setenv("DATA_SOURCE", "okx")
+    conn = _make_conn()
+    df = _make_df([1_000, 2_000, 3_000])
+    with patch("analytics.data_sync.fetch_klines", return_value=df):
+        backfill(conn, object(), "BTCUSDT", "1h", 0, sleep_fn=lambda _: None)
+
+    venues = {
+        r[0] for r in conn.execute("SELECT DISTINCT venue FROM ohlcv_all").fetchall()
+    }
+    assert venues == {"okx"}
+    assert conn.execute("SELECT COUNT(*) FROM ohlcv").fetchone() == (0,), (
+        "a fresh DB reads binance-only, so OKX rows are stored but inert"
+    )
