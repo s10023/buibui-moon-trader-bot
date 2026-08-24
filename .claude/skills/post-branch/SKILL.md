@@ -185,6 +185,16 @@ phase 0, not when a leg fires**: if you are not the owner, discharge all three b
 prune, and do not treat `handoff-size` as a gate on your branch. It is advisory
 (`--exit-zero`) and it is measuring a file you have no write claim on.
 
+⚠ **In a WORKTREE the handoff is ABSENT, and `handoff-size` answers that with
+"handoff is absent — rewrite it".** `docs/plans/` is gitignored, so a
+tracked-files-only checkout simply has no copy. That message is right solo and
+actively wrong here: it points a non-owning session at creating a second copy of
+a single-copy file, which is the one outcome nobody wants. **Absent-because-worktree
+and absent-because-lost render identically** — the same shape as the sensitive-terms
+leg reporting NOT CONFIGURED from a worktree — so read the leg against where you are
+running before you act on it. `queue-items` and `handoff-symbols` SKIP on an absent
+handoff; only `handoff-size` fires.
+
 **Why reporting is the whole fix rather than a lesser one:** the handoff is
 gitignored and single-copy, so it has no remote and no merge. Two sessions pruning
 it concurrently do not conflict — the second write silently erases the first, and
