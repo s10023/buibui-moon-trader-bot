@@ -216,9 +216,15 @@ at −0.0881).
 
 - ⚠ **Split on `outcome_filled_at_ms`, never `candle_ts_ms`** — candle time smears the step
   across the resolution lag and manufactures a phantom era two months early.
-- ⚠ **Costs are MODELLED, not realised.** Raw stays exactly −1.0 = declared risk, so
-  **neither half expresses gap risk** and every figure is an optimistic bound whose error
-  runs one way.
+- ⚠ **Costs are MODELLED, not realised**, so every figure is an optimistic bound whose error
+  runs one way. Raw reads exactly −1.0 = declared risk on both halves — but since ST68 that is a
+  **MEASUREMENT, not a missing mechanism**: both books price a gapped fill through
+  `analytics/backtest/fills.py`, and **0 of 3,028 resolved rows have ever gapped** (100% join
+  coverage, closest approach **+0.0072R INSIDE** the level, p1 +0.045R, median +0.40R), because
+  crypto's 24/7 tape keeps the open continuous with the prior close. ⚠ **The wifey fork's
+  −0.2192 → −0.2553 does NOT transfer** — that is an equities artifact of overnight and weekend
+  gaps, and it is why the 172 EQUITY/COMMODITY perps on Binance's rail would need this
+  re-measured before any of them is traded.
 - ⚠ Drag `= 2(fee+slip)·entry/risk` scales inversely with stop width, so **any live-ledger
   comparison between cells of differing stop width inherits a bias, not just a level
   shift** (ST27's runs favourably — wider stops carry less drag, so CONFIRMED-BAD is

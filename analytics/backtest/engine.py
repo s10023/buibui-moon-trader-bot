@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import pandas as pd
 
+from analytics.backtest.fills import CrossedWhen, gap_fill_price
 from analytics.backtest.gates import _is_low_volume, _is_volume_spike
 from analytics.backtest.live_parity_config import LiveParityConfig
 
@@ -1058,6 +1059,7 @@ def run_backtest(
         # numpy nonzero (C loop) instead of a Python for-loop over ohlcv.iloc[i].
         h = highs_np[entry_idx:]
         lo = lows_np[entry_idx:]
+        op = opens_np[entry_idx:]
         t = ohlcv_times_np[entry_idx:]
 
         if direction == "long":
@@ -1071,13 +1073,32 @@ def run_backtest(
         tp_first = int(tp_idxs[0]) if len(tp_idxs) else len(t)
 
         # SL takes priority on a same-candle tie (mirrors the original sequential check).
+        # Exit price comes from `gap_fill_price`, not the level: a bar that OPENS
+        # beyond the level never filled there. Shared with the live outcome
+        # resolver so the two books cannot drift (ST68 / wifey #242).
+        sl_crossed_when: CrossedWhen = (
+            "at_or_below" if direction == "long" else "at_or_above"
+        )
+        tp_crossed_when: CrossedWhen = (
+            "at_or_above" if direction == "long" else "at_or_below"
+        )
         if sl_first <= tp_first and sl_first < len(t):
             trade.exit_time = int(t[sl_first])
-            trade.exit_price = sl_price
+            trade.exit_price = gap_fill_price(
+                entry=entry_price,
+                level=sl_price,
+                bar_open=float(op[sl_first]),
+                crossed_when=sl_crossed_when,
+            )
             trade.outcome = "loss"
         elif tp_first < len(t):
             trade.exit_time = int(t[tp_first])
-            trade.exit_price = tp_price
+            trade.exit_price = gap_fill_price(
+                entry=entry_price,
+                level=tp_price,
+                bar_open=float(op[tp_first]),
+                crossed_when=tp_crossed_when,
+            )
             trade.outcome = "win"
         # else: neither hit → trade remains open
 

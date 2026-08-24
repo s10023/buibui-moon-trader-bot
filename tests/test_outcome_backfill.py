@@ -26,7 +26,12 @@ def _insert_ohlcv(
                 "symbol": symbol,
                 "timeframe": tf,
                 "open_time": r["open_time"],
-                "open": r.get("open", r["close"]),
+                # Default to the bar's MIDPOINT, not its close. `open` was dead
+                # data here until ST68 gave it meaning, and close-as-open makes
+                # a bar that closes past its target read as GAPPED THROUGH —
+                # silently restating five wins that never gapped. Midpoint is
+                # non-gapping by construction; pass "open" explicitly to test one.
+                "open": r.get("open", (r["high"] + r["low"]) / 2),
                 "high": r["high"],
                 "low": r["low"],
                 "close": r["close"],
