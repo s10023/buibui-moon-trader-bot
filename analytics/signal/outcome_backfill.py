@@ -39,6 +39,7 @@ import duckdb
 import numpy as np
 import pandas as pd
 
+from analytics.backtest.fills import CrossedWhen, gap_fill_price
 from analytics.data_store import get_funding_rates, get_ohlcv
 from analytics.signal._common import parse_timeframe_secs, realised_rr
 
@@ -121,6 +122,7 @@ def _scan_forward(
     window = post.iloc[:max_hold_bars]
     h = window["high"].to_numpy()
     lo = window["low"].to_numpy()
+    op = window["open"].to_numpy()
     t = window["open_time"].to_numpy()
 
     if direction == "long":
@@ -154,14 +156,46 @@ def _scan_forward(
             funding_rates=funding_rates,
         )
 
+    # A bar that OPENS beyond a level filled THERE, so the declared −1R (and the
+    # booked target) understate what the exit actually paid. Same rule as the
+    # engine, imported from one place so the two books cannot drift (ST68).
+    sl_crossed: CrossedWhen = "at_or_below" if direction == "long" else "at_or_above"
+    tp_crossed: CrossedWhen = "at_or_above" if direction == "long" else "at_or_below"
+    risk = abs(entry - sl_price)
+
+    def _raw_from_fill(fill: float) -> float | None:
+        """R the fill actually paid, or None when the ordinary level was hit.
+
+        Returning None on the no-gap path keeps that path byte-identical
+        rather than recomputing it a second way.
+        """
+        if risk <= 0.0:
+            return None
+        return sign * (fill - entry) / risk
+
     if sl_first <= tp_first and sl_first < len(t):
         exit_ts = int(t[sl_first])
-        return "loss", _net(-1.0, exit_ts), exit_ts
+        fill = gap_fill_price(
+            entry=entry,
+            level=sl_price,
+            bar_open=float(op[sl_first]),
+            crossed_when=sl_crossed,
+        )
+        raw = -1.0 if fill == sl_price else (_raw_from_fill(fill) or -1.0)
+        return "loss", _net(raw, exit_ts), exit_ts
     if tp_first < len(t):
         exit_ts = int(t[tp_first])
         win_r = realised_rr(
             entry=entry, sl_price=sl_price, tp_price=tp_price, fallback=float(rr_ratio)
         )
+        fill = gap_fill_price(
+            entry=entry,
+            level=tp_price,
+            bar_open=float(op[tp_first]),
+            crossed_when=tp_crossed,
+        )
+        if fill != tp_price:
+            win_r = _raw_from_fill(fill) or win_r
         return "win", _net(win_r, exit_ts), exit_ts
 
     # Neither hit within the window so far.
