@@ -74,6 +74,7 @@ make db-update      # db-update-backtest -> db-update-recalibrate -> regression-
 
 make status            # repo shape: file counts, always-loaded KB, MEMORY.md KB + bullets
 make post-branch-checks  # the mechanical half of /post-branch (12 legs, ADVISORY)
+make post-branch-text FILE=<path>  # screen a PR title/body pre-flip (GATES; FILE=- is stdin)
 make sanity-checks       # the mechanical half of /sanity-check (7 legs, GATES, runs in CI)
 make wait-ci PR=<n>      # wait on a PR's checks    (make wait-ci-main for main's push run)
 make preflight           # ST45 clean-clone gate; /post-branch Step 7, REPLACES make test
@@ -1048,6 +1049,17 @@ two work-repo names, and cleared them. **Baseline ACCEPTED the same day:** two s
 in three deleted spec docs from 2026-04-25/05-07 and every flip since has republished them;
 the ruling is accept-and-document, which is why the gate scopes to the tracked tree and the
 branch's own commits rather than re-reporting main. → memory `public_repo_exposure_audit.md`
+
+⚠ **That leg does not read the PR title or body — `make post-branch-text FILE=<path>` does**
+(`FILE=-` reads stdin, so a title pipes straight in). Its three git legs ask the tracked tree,
+this branch's commit content and its commit messages; a composed body is none of the three, so
+the sweep reports `clean` on one naming every term — correctly, and uselessly. It is the fourth
+surface and **the only INDEXABLE one**: the flip publishes a repo, but a PR body is served,
+crawled and cached on its own. Screen it at `/post-branch` Step 7, before `gh pr create`, in
+the same breath as the flip decision. Unlike the sweep it **GATES** — ⚠ through `make` the exit
+code is make's own 2, never the tool's 1, so read the banner, as with `wait-ci` and `preflight`;
+an unreadable `FILE` also exits 2 rather than rendering as a clean one-check run. Findings are
+line numbers plus a masked term and never the matching line.
 
 ⚠ **Run `make post-branch-checks` from a WORKTREE and this gate reports NOT CONFIGURED every
 time.** A worktree is a tracked-files-only checkout and `.claude/sensitive-terms.txt` is

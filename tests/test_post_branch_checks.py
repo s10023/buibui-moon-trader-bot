@@ -9,6 +9,7 @@ it was never run against something that should fail.
 from __future__ import annotations
 
 import dataclasses
+import io
 import os
 import subprocess
 import sys
@@ -19,7 +20,10 @@ import pytest
 
 from tools.agents_config import Budgets
 from tools.post_branch_checks import (
+    NEGATIVE_CLAIM_EXEMPT,
+    NEGATIVE_CLAIM_RE,
     Runner,
+    _negative_claims_result,
     added_paths,
     bad_atx_lines,
     check_handoff_symbols,
@@ -31,10 +35,13 @@ from tools.post_branch_checks import (
     current_state_bullets,
     extract_tokens,
     load_sensitive_terms,
+    main,
     mask_term,
     numbered_items,
     probe_names,
+    scan_text_for_terms,
     sensitive_terms_result,
+    sensitive_text_result,
 )
 
 # CLAUDE.md's real sentence — the one that made every skill report COVERED.
@@ -276,7 +283,7 @@ class TestCheckNegativeClaims:
 
     def test_a_claim_the_branch_CONTRADICTS_is_reported(self) -> None:
         """Positive control: the branch adds the very thing the doc denies."""
-        findings, suppressed = check_negative_claims(
+        findings, suppressed, _exempted = check_negative_claims(
             self._runner(self.CLAIM),
             diff="+def pead_wiring() -> None:\n",
             diff_names="analytics/signal/pead_wiring.py",
@@ -286,7 +293,7 @@ class TestCheckNegativeClaims:
         assert suppressed == 0
 
     def test_a_claim_unrelated_to_the_diff_is_scoped_out_and_COUNTED(self) -> None:
-        findings, suppressed = check_negative_claims(
+        findings, suppressed, _exempted = check_negative_claims(
             self._runner(self.CLAIM),
             diff="+def something_else() -> None:\n",
             diff_names="analytics/other.py",
@@ -296,7 +303,7 @@ class TestCheckNegativeClaims:
 
     def test_a_claim_with_no_token_FAILS_OPEN(self) -> None:
         """Unscopable means unruled-out; a miss is the harm this check exists for."""
-        findings, suppressed = check_negative_claims(
+        findings, suppressed, _exempted = check_negative_claims(
             self._runner("docs/x.md:3:the exporter is not yet wired"),
             diff="+unrelated\n",
             diff_names="other.py",
@@ -307,7 +314,7 @@ class TestCheckNegativeClaims:
 
     def test_a_REMOVAL_does_not_report_the_claim(self) -> None:
         """Removing the named thing makes an absence claim MORE true, not less."""
-        findings, suppressed = check_negative_claims(
+        findings, suppressed, _exempted = check_negative_claims(
             self._runner(self.CLAIM),
             diff="-def pead_wiring() -> None:\n",
             diff_names="",
@@ -317,7 +324,7 @@ class TestCheckNegativeClaims:
 
     def test_the_skill_itself_is_still_exempt(self) -> None:
         """post-branch's own file documents the language and must not self-match."""
-        findings, suppressed = check_negative_claims(
+        findings, suppressed, _exempted = check_negative_claims(
             self._runner(
                 ".claude/skills/post-branch/SKILL.md:9:`pead_wiring` is not yet wired"
             ),
@@ -326,6 +333,155 @@ class TestCheckNegativeClaims:
         )
         assert findings == []
         assert suppressed == 0
+
+
+class TestNegativeClaimExempt:
+    """The allowlist that keeps the leg readable without making it a mute.
+
+    Measured here, not inherited: this branch added ONE Make target, which edits
+    the `.PHONY` line — and `buibui-portfolio-replay` on that line scoped in
+    `.claude/context/signals.md:135`, a 12,659-character paragraph carrying 130
+    tokens whose absence claim ("only the card has no reader to weigh it") is
+    about the pundit `avg_r` strip. Every branch that adds a target reproduces
+    it, so the finding is a false positive BY CONSTRUCTION rather than by luck.
+
+    ⚠ The tempting fix is the wrong one. Scoping on a window around the regex
+    match rather than the whole line looks like the real remedy on a 12 KB line;
+    the fork measured that it would have suppressed the leg's only true positive
+    on record, whose falsified sentence sat ~1,400 characters from the match.
+    The line stays the unit, and the narrowing is per `(path, token)`.
+    """
+
+    CLAIM = "docs/x.md:12:the `pead_wiring` module is not yet wired, `symbol` too"
+
+    @staticmethod
+    def _runner(out: str) -> Runner:
+        def run(argv: Sequence[str]) -> str:
+            return out
+
+        return run
+
+    def test_an_exempt_token_alone_is_counted_not_reported(self) -> None:
+        exempt = dict(NEGATIVE_CLAIM_EXEMPT)
+        exempt[("docs/x.md", "symbol")] = "test fixture"
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("tools.post_branch_checks.NEGATIVE_CLAIM_EXEMPT", exempt)
+            findings, suppressed, exempted = check_negative_claims(
+                self._runner(self.CLAIM),
+                diff="+def uses(symbol: str) -> None:\n",
+                diff_names="analytics/other.py",
+            )
+        assert findings == []
+        assert exempted == 1, "an exemption must stay countable, never vanish"
+        assert suppressed == 0
+
+    def test_ONE_unexempt_token_still_reports_the_whole_line(self) -> None:
+        """The property that stops the allowlist growing into a token filter."""
+        exempt = dict(NEGATIVE_CLAIM_EXEMPT)
+        exempt[("docs/x.md", "symbol")] = "test fixture"
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("tools.post_branch_checks.NEGATIVE_CLAIM_EXEMPT", exempt)
+            findings, _suppressed, exempted = check_negative_claims(
+                self._runner(self.CLAIM),
+                diff="+def pead_wiring(symbol: str) -> None:\n",
+                diff_names="analytics/signal/pead_wiring.py",
+            )
+        assert len(findings) == 1, "pead_wiring is not exempt, so the line reports"
+        assert exempted == 0
+
+    def test_the_exemption_is_keyed_on_the_PAIR_not_the_token(self) -> None:
+        """The same token in ANOTHER file is untouched — no cross-file hole.
+
+        Driven by the REAL table rather than a fixture token: a key-on-the-token
+        mutation is invisible to a test whose token no entry carries, which is
+        how this test passed while keyed-on-token silently worked.
+        """
+        if not NEGATIVE_CLAIM_EXEMPT:
+            pytest.skip("allowlist empty — a silent pass here would be vacuous")
+        for path, token in NEGATIVE_CLAIM_EXEMPT:
+            elsewhere = "docs/somewhere-else.md"
+            assert elsewhere != path
+            findings, _suppressed, exempted = check_negative_claims(
+                self._runner(f"{elsewhere}:3:`{token}` handling is not yet wired"),
+                diff=f"+touches {token}\n",
+                diff_names="analytics/other.py",
+            )
+            assert len(findings) == 1, f"{token} is exempt beyond {path}"
+            assert exempted == 0
+
+    def test_the_exempt_count_reaches_the_NOTE_rather_than_vanishing(self) -> None:
+        """An allowlist nobody can see is a mute, which is what this is not."""
+        exempt = dict(NEGATIVE_CLAIM_EXEMPT)
+        exempt[("docs/x.md", "symbol")] = "test fixture"
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("tools.post_branch_checks.NEGATIVE_CLAIM_EXEMPT", exempt)
+            result = _negative_claims_result(
+                self._runner(self.CLAIM),
+                diff="+def uses(symbol: str) -> None:\n",
+                diff_names="analytics/other.py",
+            )
+        assert result.findings == []
+        assert result.note is not None
+        assert "NEGATIVE_CLAIM_EXEMPT" in result.note
+
+    def test_every_entry_still_matches_a_REAL_claim_line(self) -> None:
+        """External referent: a dead entry fails HERE rather than sitting silent.
+
+        An allowlist nobody re-derives is how a mute survives the doc it was
+        written for. Each `(path, token)` must still name a token carried by a
+        line that actually trips the regex.
+        """
+        if not NEGATIVE_CLAIM_EXEMPT:
+            pytest.skip("allowlist empty — a silent pass here would be vacuous")
+        for (path, token), reason in NEGATIVE_CLAIM_EXEMPT.items():
+            text = Path(path).read_text(encoding="utf-8")
+            on_claim_lines = {
+                tok
+                for line in text.splitlines()
+                if NEGATIVE_CLAIM_RE.search(line)
+                for tok in extract_tokens(line)
+            }
+            assert token in on_claim_lines, (
+                f"{path}:{token} exempts a token no claim line carries any more — "
+                "delete the entry rather than leaving a mute behind"
+            )
+            assert reason.strip(), "every entry states why, inline"
+
+    def test_an_exempted_LINE_still_reports_via_any_other_token(self) -> None:
+        """The narrowing must not close the leg for the file it was written for.
+
+        Positive control paired with each exemption, and derived from the REAL
+        line rather than a fixture: scope the same line in by a token that is
+        NOT exempt and it must still report. Without this, "no finding" cannot
+        be told apart from "leg switched off for that document".
+        """
+        if not NEGATIVE_CLAIM_EXEMPT:
+            pytest.skip("allowlist empty — a silent pass here would be vacuous")
+        for path, token in NEGATIVE_CLAIM_EXEMPT:
+            claim_line, lineno = self._real_claim_line(path, token)
+            others = [
+                t
+                for t in extract_tokens(claim_line)
+                if (path, t) not in NEGATIVE_CLAIM_EXEMPT
+            ]
+            assert others, f"{path}:{token} is the line's only token — that is a mute"
+            findings, _suppressed, exempted = check_negative_claims(
+                self._runner(f"{path}:{lineno}:{claim_line}"),
+                diff=f"+touches {others[0]}\n",
+                diff_names="analytics/other.py",
+            )
+            assert len(findings) == 1, f"{path}:{lineno} went silent on {others[0]}"
+            assert exempted == 0
+
+    @staticmethod
+    def _real_claim_line(path: str, token: str) -> tuple[str, int]:
+        """The live line the entry was written against, located by content."""
+        for n, line in enumerate(
+            Path(path).read_text(encoding="utf-8").splitlines(), 1
+        ):
+            if NEGATIVE_CLAIM_RE.search(line) and token in extract_tokens(line):
+                return line, n
+        raise AssertionError(f"{path} carries no claim line naming {token}")
 
 
 class TestSensitiveTermList:
@@ -414,6 +570,157 @@ class TestSensitiveTermsCoversCommitMessages:
             return "docs: tidy the tables\n" if "--format=%B%n%s" in argv else ""
 
         assert sensitive_terms_result(runner, terms=["acmecorp"]).findings == []
+
+
+class TestSensitiveTextScan:
+    """The FOURTH exposure surface: a PR title/body, before it is posted.
+
+    The three git legs above ask about the tracked tree and this branch's
+    commits. A PR title and body are neither, so the gate reports `clean` on a
+    body naming every term — correctly, and uselessly. It is also the only
+    INDEXABLE one of the four: this repo flips public to run CI, and a posted
+    body is public the moment it lands.
+    """
+
+    TERM = "acmecorp"
+
+    def test_a_term_in_a_composed_body_FIRES(self) -> None:
+        """Positive control for the surface the git legs cannot reach."""
+        result = sensitive_text_result(
+            [("pr-body.md", f"## Summary\n\nPorted from {self.TERM}'s tooling.\n")],
+            terms=[self.TERM],
+        )
+        assert len(result.findings) == 1
+        assert "line(s) 3" in result.findings[0].detail
+
+    def test_the_term_is_NEVER_printed_unmasked(self) -> None:
+        """This report is itself pasted into handoffs, so it must not restate."""
+        result = sensitive_text_result(
+            [("pr-body.md", f"{self.TERM}\n")], terms=[self.TERM]
+        )
+        assert self.TERM not in result.findings[0].detail
+        assert "acm" in result.findings[0].detail
+
+    def test_the_matching_LINE_is_never_echoed(self) -> None:
+        """Line numbers only: quoting context re-exposes what masking withheld."""
+        result = sensitive_text_result(
+            [("pr-body.md", f"we vendored {self.TERM} internals here")],
+            terms=[self.TERM],
+        )
+        assert "vendored" not in result.findings[0].detail
+
+    def test_a_clean_body_is_clean_and_says_what_it_checked(self) -> None:
+        result = sensitive_text_result(
+            [("pr-body.md", "## Summary\n\nNothing to see.\n")], terms=[self.TERM]
+        )
+        assert result.findings == []
+        assert result.note is not None and "1 term(s)" in result.note
+
+    def test_an_absent_list_is_a_FINDING_here_too(self) -> None:
+        """`--text` must not become the one mode where NOT CONFIGURED reads as a pass."""
+        result = sensitive_text_result([("pr-body.md", "anything")], terms=[])
+        assert result.skipped is None
+        assert len(result.findings) == 1
+        assert "NOT CONFIGURED" in result.findings[0].detail
+
+    def test_case_is_ignored_and_every_hit_line_is_listed(self) -> None:
+        text = f"{self.TERM.upper()}\nfiller\nand {self.TERM.title()} again\n"
+        found = scan_text_for_terms("body", text, [self.TERM])
+        assert len(found) == 1
+        assert "line(s) 1, 3" in found[0].detail
+
+    def test_a_title_and_a_body_are_screened_in_ONE_run(self) -> None:
+        """Both halves post together, so both are screened together."""
+        result = sensitive_text_result(
+            [("title", f"fix: drop the {self.TERM} table"), ("body", "clean\n")],
+            terms=[self.TERM],
+        )
+        assert len(result.findings) == 1
+        assert "title" in result.findings[0].detail
+
+
+class TestSensitiveTextCli:
+    """`--text` end to end — the mode a session runs before `gh pr create`."""
+
+    TERM = "acmecorp"
+
+    @staticmethod
+    def _terms_file(tmp_path: Path) -> Path:
+        f = tmp_path / "terms.txt"
+        f.write_text(f"{TestSensitiveTextCli.TERM}\n", encoding="utf-8")
+        return f
+
+    def test_exit_1_on_a_hit_and_0_when_clean(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        dirty = tmp_path / "dirty.md"
+        dirty.write_text(f"ported from {self.TERM}\n", encoding="utf-8")
+        clean = tmp_path / "clean.md"
+        clean.write_text("nothing here\n", encoding="utf-8")
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(
+                "tools.post_branch_checks.SENSITIVE_TERMS", self._terms_file(tmp_path)
+            )
+            assert main(["--text", str(dirty)]) == 1
+            assert main(["--text", str(clean)]) == 0
+        assert self.TERM not in capsys.readouterr().out
+
+    def test_a_dash_reads_STDIN_so_a_title_pipes_straight_in(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """`FILE=-` is what the Make target documents; an undocumented-by-test
+        path is how a advertised mode rots."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(
+                "tools.post_branch_checks.SENSITIVE_TERMS", self._terms_file(tmp_path)
+            )
+            mp.setattr("sys.stdin", io.StringIO(f"fix: drop the {self.TERM} table\n"))
+            assert main(["--text", "-"]) == 1
+        out = capsys.readouterr().out
+        assert self.TERM not in out
+        # `in - at line(s) 1` reads as a dash in prose, and this line is what an
+        # operator triages seconds before a visibility flip.
+        assert "in stdin at line(s) 1" in out
+
+    def test_it_REFUSES_to_run_alongside_check(self, tmp_path: Path) -> None:
+        """Honouring one flag and dropping the other reports a pass unasked for."""
+        body = tmp_path / "b.md"
+        body.write_text("clean\n", encoding="utf-8")
+        assert main(["--text", str(body), "--check", "md-atx"]) == 2
+
+    def test_an_UNREADABLE_file_exits_2_and_never_renders_clean(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A read error must not render as a clean run of a one-check sweep."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(
+                "tools.post_branch_checks.SENSITIVE_TERMS", self._terms_file(tmp_path)
+            )
+            assert main(["--text", str(tmp_path / "nope.md")]) == 2
+        assert "clean" not in capsys.readouterr().out
+
+    def test_it_runs_with_NO_git_surface_at_all(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The sweep's other legs shell out to git; this mode must not.
+
+        A pre-`gh pr create` screen has to work on a body drafted anywhere —
+        including outside a repo — so a git call here is a latent failure.
+        """
+        body = tmp_path / "b.md"
+        body.write_text("nothing here\n", encoding="utf-8")
+
+        def explode(*args: object, **kwargs: object) -> None:
+            raise AssertionError("--text must not shell out")
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(
+                "tools.post_branch_checks.SENSITIVE_TERMS", self._terms_file(tmp_path)
+            )
+            mp.setattr("tools.post_branch_checks.subprocess.run", explode)
+            assert main(["--text", str(body)]) == 0
+        assert "clean" in capsys.readouterr().out
 
 
 class TestSurfaceListsComeFromConfig:

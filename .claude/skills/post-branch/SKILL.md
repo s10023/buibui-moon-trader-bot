@@ -166,7 +166,7 @@ a glance, a silent miss ships a doc that reads as complete.
 | `memory-cap` | Is MEMORY.md over its size / bullet cap? |
 | `handoff-size` | Does the handoff's line-count stamp match the file? |
 | `stale-anchors` | Does any `§N` / `Step N` citation point at an anchor that no longer exists — **repo and memory tree**? |
-| `sensitive-terms` | Would a public flip expose a work identifier? Asks three questions — tracked tree, commit CONTENT, commit MESSAGES. A missing term list is a FINDING, never a SKIP |
+| `sensitive-terms` | Would a public flip expose a work identifier? Asks three questions — tracked tree, commit CONTENT, commit MESSAGES. A missing term list is a FINDING, never a SKIP. ⚠ **It does NOT read the PR title/body** — that is the fourth surface, screened separately below |
 
 **What it deliberately does NOT cover:** whether a doc is *correct*, whether the
 behaviour gate should pass, or whether a claim is true. Those are phases 1–6.
@@ -828,6 +828,20 @@ back. `NOT CONFIGURED` means the gitignored term list is missing (reclone, fresh
 WORKTREE** — a tracked-files-only checkout never receives a gitignored file, so this leg fires
 on every worktree run) — restore or copy it in rather than flipping past it. A hit on the branch's own commits is
 a STOP: scrubbing in a follow-up commit does not unexpose the blob.
+
+**Then screen the PR title and body, which that leg cannot see.** They are neither the tree
+nor a commit, so the sweep reports `clean` on a body naming every term — and a PR body is the
+only INDEXABLE one of the four surfaces, served and crawled on its own:
+
+```bash
+make post-branch-text FILE=/tmp/pr-<branch>.md      # the body /pr-summary wrote
+printf '%s' "$TITLE" | make post-branch-text FILE=-  # the title, via stdin
+```
+
+It GATES rather than advising. ⚠ Through `make` the exit code is make's own **2**, never the
+tool's 1 — read the banner. An unreadable `FILE` is also 2, deliberately: it must not render
+as a clean one-check run. Findings print line numbers and a masked term, never the matching
+line. Run it on the FINAL text; an edited body does not unpublish the posted one.
 
 Pushing costs no CI; the meter starts at `gh pr create`. So this is the last free
 moment, and it is the one decision in the whole skill that must be put to the
