@@ -31,7 +31,8 @@ _MYT = timezone(timedelta(hours=8))
 _IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg")
 _NAME_RE = re.compile(
     r"^(?P<source>[a-z0-9]+)(?:-(?P<venue>[a-z0-9]+))?_(?P<symbol>[A-Z0-9]+)"
-    r"(?:_(?P<ts>\d{8}(?:-\d{4})?))?\.(?i:png|jpg|jpeg)$"
+    r"(?:_(?P<ts>\d{8}(?:-\d{4})?)(?:_(?P<label>[A-Za-z][A-Za-z0-9_]*))?)?"
+    r"\.(?i:png|jpg|jpeg)$"
 )
 
 
@@ -54,6 +55,29 @@ def parse_drop_filename(
     venue is an optional dash-suffixed token on the source segment (e.g.
     "coinglass-hyperliquid"); absent when the drop has no dash. Timestamp
     is the operator's wall clock — MYT (fixed UTC+8).
+
+    A trailing free-text label after the timestamp is ACCEPTED AND DISCARDED
+    (e.g. "coinglass_BTCUSDT_20260824_Map_1y_1705.png"). Its only job is to
+    make a burst capture nameable: the scheme's sole uniqueness mechanism was
+    the timestamp's minute, so five panels grabbed in the same minute could
+    not be given distinct names, and the operator's natural workaround —
+    appending the window — made all five unparseable instead.
+
+    ⚠ **The label is deliberately NOT a source of truth for `window`.** That
+    field is read off the chart by vision and corrected by the operator at the
+    review gate, and it is part of `load_external_state`'s dedup key, so a
+    filename that disagreed with the image would silently split or merge
+    snapshots. The filename stays authoritative for source/venue/symbol only;
+    the label carries no meaning and nothing downstream reads it. Callers that
+    need to tell two same-minute drops apart use ``PendingDrop.path``.
+
+    The label is allowed only AFTER a timestamp and must start with a letter.
+    The first rule is what preserves every existing rejection — a malformed
+    stamp ("..._2026.png") and a mis-separated symbol ("coinglass_BTC_USDT.png")
+    both stay unparseable because neither offers a valid 8-digit stamp for a
+    label to follow. The leading-letter rule leaks nothing on its own and is a
+    deliberate BACKSTOP for the day the first rule is relaxed; the measurement
+    behind that split is in ``test_label_requires_a_timestamp_and_a_leading_letter``.
     """
     match = _NAME_RE.match(name)
     if match is None or match.group("source") not in allowed_sources:

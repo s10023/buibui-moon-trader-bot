@@ -983,31 +983,29 @@ blocked. Never assume the flip happened because you printed the command.
   "Regression tests" not yet existing. Flip there and main reds for billing. **Run
   `make wait-ci-main`** rather than hand-rolling a waiter — it gates on a job-count floor
   for exactly this reason. ⚠ **But it watches ONE workflow**: the floor is `CI`'s, while
-  the flip hits every workflow, so one starting after CI settles is invisible to it —
-  latent on #669, where `Dependency Graph` was in_progress at the flip and did not bite.
+  the flip hits every workflow, so one starting after CI settles is invisible to it — it has
+  already gone latent once, with `Dependency Graph` in_progress at the flip and not biting.
   `gh run list --branch main --limit 5 --json workflowName,status` closes it in one call.
   ⚠ **That call is NECESSARY BUT NOT SUFFICIENT, so the rule is check → flip → RE-VERIFY.** A
-  listing cannot see a workflow that does not yet EXIST: on #670 and again on #672 the pre-flip
-  listing read clean on every workflow, the operator flipped, and `Dependency Graph` was then
-  created on the merge SHA *after* the check. **Same vacuous-check shape at THREE NESTED LAYERS**
-  (a count of layers, not of sightings) — a chained job does not exist until its dependency ends ·
-  `wait-ci-main` watches ONE workflow and cannot see a sibling · a listing of ALL workflows cannot
-  see one not yet created. **The pattern to carry: a check is only ever true about the scope it
-  looked at, at the moment it looked.** ⚠ **The outermost layer is not a twice-seen curiosity: it
-  has now recurred on the flip-back for #674, #675, #678, #680, #681 and #684 — EIGHT sightings**
-  (`Dependency Graph` created 02:25:33Z on `7a0eeef`, 07:07:09Z on `a306410` where it was still
-  `queued` at the moment of the flip, 04:29:40Z on 2026-08-23, 08:18:06Z on #681's merge, and
-  04:07:55Z on #684's `26c12c3` — each minutes after a clean pre-flip listing). **#681 and #684
-  were OBSERVED LIVE rather than reconstructed afterwards**, and #684 is the sharpest record of
-  the mechanism: the pre-flip listing showed `Dependency Graph`'s newest run at 03:52:28Z, i.e.
-  *older than the 04:01:14Z merge itself*, so the run for the merge SHA demonstrably did not exist
-  when the check ran; the flip to private went through; and the post-flip re-verify caught it
-  `in_progress` on the merge SHA. Both settled `success`, no allowance burnt. **Every sighting was caught by
-  the post-flip re-verify and by nothing else**, because a pre-flip check cannot see a run that does not yet
-  exist — so the re-verify is the ONLY step in the sequence that can catch this class, never a
-  belt-and-braces extra. Every sighting was also benign because `Dependency Graph` runs green on a
-  private repo and burns no allowance — read that as luck about WHICH workflow started late, never
-  as safety of the check, since `security-scan` (Trivy) in that slot consumes minutes and dies.
+  listing cannot see a workflow that does not yet EXIST: the pre-flip listing reads clean on
+  every workflow, the operator flips, and `Dependency Graph` is created on the merge SHA *after*
+  the check. **Same vacuous-check shape at THREE NESTED LAYERS** (a count of layers, not of
+  sightings) — a chained job does not exist until its dependency ends · `wait-ci-main` watches
+  ONE workflow and cannot see a sibling · a listing of ALL workflows cannot see one not yet
+  created. **The pattern to carry: a check is only ever true about the scope it looked at, at
+  the moment it looked.** ⚠ **The outermost layer is not a one-off curiosity — it recurs on the
+  flip-back, and every sighting so far was caught by the post-flip re-verify and by nothing
+  else**, because a pre-flip check cannot see a run that does not yet exist. That makes the
+  re-verify the ONLY step in the sequence able to catch this class, never a belt-and-braces
+  extra. ⚠ **The running count and its derivation live in ONE place — memory
+  `reference_dependency_graph_sighting_count.md`. Quote that file; state no number here.** This
+  file enumerated the sightings until 2026-08-24 while the handoff recorded later ones, and the
+  split is not a tidiness problem: a session that re-derived the count from the enumeration
+  here — the careful move — got the wrong answer, because the missing sightings were not in the
+  file it checked. Every sighting has also been benign because `Dependency Graph` runs green on
+  a private repo and burns no allowance — read that as luck about WHICH workflow started late,
+  never as safety of the check, since `security-scan` (Trivy) in that slot consumes minutes and
+  dies.
 - **What makes a SHARED window safe is concurrency, not the rule.** `cancel-in-progress` is
   `${{ github.event_name == 'pull_request' }}` — false on push — so main runs QUEUE and a
   second merge's CI cannot start until the first finishes, chained job and all. The group is

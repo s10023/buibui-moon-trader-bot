@@ -49,6 +49,74 @@ def test_parse_rejects_bad_names() -> None:
     assert parse_drop_filename("random.png") is None
 
 
+def test_parse_accepts_and_discards_a_trailing_label() -> None:
+    """The real 2026-08-24 burst capture parses, and the label is dropped."""
+    labelled = parse_drop_filename("coinglass_BTCUSDT_20260824_Map_1y_1705.png")
+    assert labelled == ("coinglass", None, "BTCUSDT", _myt_ms(2026, 8, 24))
+    # Byte-identical to the same drop with no label: the label carries no
+    # meaning, so it must not reach any field a consumer reads.
+    assert labelled == parse_drop_filename("coinglass_BTCUSDT_20260824.png")
+
+
+def test_all_five_same_minute_windows_parse_identically() -> None:
+    """Five panels grabbed in one minute all parse; `path` is what tells them apart.
+
+    `window` is vision-derived and is part of `load_external_state`'s dedup
+    key, so it must NOT be inferred from these labels.
+    """
+    parsed = [
+        parse_drop_filename(f"coinglass_BTCUSDT_20260824_Map_{w}_1705.png")
+        for w in ("7d", "30d", "90d", "180d", "1y")
+    ]
+    assert all(
+        p == ("coinglass", None, "BTCUSDT", _myt_ms(2026, 8, 24)) for p in parsed
+    )
+
+
+def test_label_requires_a_timestamp_and_a_leading_letter() -> None:
+    """The label must sit AFTER a timestamp and start with a letter.
+
+    ⚠ **The two restrictions are not equally load-bearing, and the measurement
+    says which is which.** Mutating the regex three ways (2026-08-24):
+
+    * drop the after-a-timestamp rule -> 2 of the 3 names below start parsing;
+    * drop the leading-letter rule alone -> **0 leak**, because a label can only
+      appear after a valid 8-digit stamp, so the leading-letter rule never gets
+      asked about "..._2026.png";
+    * drop BOTH -> all 3 leak.
+
+    So the after-a-timestamp rule carries every rejection today and the
+    leading-letter rule is a BACKSTOP: it is what keeps the malformed-stamp
+    rejection if the first rule is ever relaxed. Keep it, but do not claim a
+    test distinguishes it in isolation — none can while both stand.
+    """
+    # Undated drop: would parse as symbol=BTCUSDT + label=Map_1y and fall back
+    # to the file's mtime, silently inventing a capture time.
+    assert parse_drop_filename("coinglass_BTCUSDT_Map_1y.png") is None
+    # Malformed stamp: would be read as a label, same silent mtime fallback.
+    assert parse_drop_filename("coinglass_BTCUSDT_2026.png") is None
+    # Mis-separated symbol: would parse as symbol="BTC" + label="USDT" — the
+    # WRONG symbol, and symbol is authoritative for routing the snapshot.
+    assert parse_drop_filename("coinglass_BTC_USDT.png") is None
+
+
+def test_scan_lists_same_minute_burst_as_pending_not_unparseable(
+    tmp_path: Path,
+) -> None:
+    drop = tmp_path / "chart-drops"
+    drop.mkdir()
+    for i, w in enumerate(("7d", "30d", "90d", "180d", "1y")):
+        (drop / f"coinglass_BTCUSDT_20260824_Map_{w}_1705.png").write_bytes(
+            f"img-{i}".encode()
+        )
+    pending, unparseable = scan_drops(drop, tmp_path / "ledger.json")
+    assert unparseable == []
+    assert len(pending) == 5
+    # Distinct images => distinct hashes => five independent ingests.
+    assert len({p.sha256 for p in pending}) == 5
+    assert {p.symbol for p in pending} == {"BTCUSDT"}
+
+
 def test_parse_drop_filename_uppercase_extension() -> None:
     parsed = parse_drop_filename("coinglass_BTCUSDT_20260716-1040.PNG")
     assert parsed is not None
