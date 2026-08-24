@@ -39,9 +39,9 @@ PYTHONPATH=. poetry run python tools/chart_drops.py scan
 
 - `pending` empty and `unparseable` empty → report "no new drops" and stop.
 - `unparseable` non-empty → list the names and ask the operator to rename to
-  `<source>[-<venue>]_<SYMBOL>[_<YYYYMMDD[-HHMM]>].png|.jpg|.jpeg` (source ∈
-  coinglass|mmt, MYT timestamp). `venue` is an optional dash-suffixed token
-  on the source segment naming the specific exchange a panel's data comes
+  `<source>[-<venue>]_<SYMBOL>[_<YYYYMMDD[-HHMM]>[_<label>]].png|.jpg|.jpeg`
+  (source ∈ coinglass|mmt, MYT timestamp). `venue` is an optional dash-suffixed
+  token on the source segment naming the specific exchange a panel's data comes
   from (e.g. Coinglass's per-exchange liq-map view); omit it when the panel
   is exchange-aggregated or the exchange is unknown. Do NOT guess. Continue
   with `pending`. Echo these copy-paste examples with the rename request:
@@ -50,10 +50,25 @@ PYTHONPATH=. poetry run python tools/chart_drops.py scan
   the same symbol get distinct names — the order carries NO panel meaning,
   and the operator's real captures have run map-then-heatmap, the reverse
   of any order you might read into this pair) ·
+  `coinglass_BTCUSDT_20260824_Map_7d.png` ·
+  `coinglass_BTCUSDT_20260824_Map_1y.png` (a `<label>` after the timestamp —
+  free text, must start with a letter — so a BURST captured in one minute can
+  still be named; bumping the minute is otherwise the only disambiguator, which
+  is what left five same-minute liq-maps unnameable on 2026-08-24) ·
   `coinglass-hyperliquid_BTCUSDT_20260716-1040.png` (map scoped
   to the Hyperliquid venue) · `mmt_ETHUSDT.png` (no timestamp = file
   mtime). Panel type never goes in the name — the extraction detects
   heatmap vs map.
+
+  ⚠ **The label is parsed and DISCARDED, so tell the operator it is for their
+  eyes only.** Nothing downstream reads it, and it is deliberately NOT a source
+  of truth for `window`: that field is read off the chart by the extraction,
+  corrected at the review gate, and is part of `load_external_state`'s dedup key
+  (`analytics/brief/external.py`), so a name asserting `1y` over an image reading
+  `180d` would silently split or merge snapshots. Naming a file `_1y` does not
+  make its window 1y. **Never suggest a rename that encodes the window as though
+  it were data** — and when two drops differ only by label, they are separate
+  images with separate hashes, so each still gets its own extraction.
 
 ### Provenance — a drop is not assumed to be the operator's own screenshot
 
