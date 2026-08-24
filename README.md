@@ -606,6 +606,17 @@ value-area, price-action character, Monday-range) that held at its entry, then
 emits a BUILD / AVOID / NO-EDGE / INSUFFICIENT verdict per (indicator-state ×
 direction) — verdict `docs/audits/2026-07-24-h8-m1-indicator-conditioning.md`.
 
+`make buibui-occurrence-dump` (`tools/occurrence_dump.py`) is a read-only
+diagnostic that dumps one row per strategy fire together with the M1 indicator
+state that held at its entry, so the conditions separating good fires from bad
+are visible per strategy rather than pooled. It emits **no verdict**:
+conditioning axes are 6-for-6-plus-one-amended NO in this repo and the 1d
+timeframe alone yields 757 cells, so a gated search over them is unreachable by
+trial count — the tool prints that cell count rather than asserting the point.
+Scope with `TF=` for runtime (15m is ~4h); an unscoped run is still
+statistically sound, unlike the H8 audit below, because its summary groups by
+timeframe and shares no multiplicity family.
+
 `make buibui-premium-state-audit` (`tools/premium_state_audit.py`) is a read-only
 audit that tags every historical trade with the **Coinbase-premium** market state
 (US-spot demand measured against Binance, plus the USDT peg deviation it is

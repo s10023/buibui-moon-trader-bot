@@ -25,6 +25,17 @@ Substrate roles are inherited from H8 and are NOT re-decided here:
 only — thin, irregularly sampled, and the one-way GOLDEN-signal loop means live
 outcomes must never feed a live filter.
 
+⚠ Scope with ``--timeframes`` for RUNTIME, never for statistics. The 15m tier
+costs ~4h on this same tagging path (H8's measured figure), and an unscoped run
+outlives most timeouts while writing nothing, because the CSV lands only at the
+end. **Unlike ``indicator_condition_audit.py``, an unscoped run here is not
+statistically wrong** -- that driver must scope one tier at a time because
+``build_condition_cells`` is not tf-aware, so pooling tiers also enlarges the
+shared Holm family and changes every other tier's haircut. ``summarize`` groups
+by timeframe and there is no family here to enlarge, so the reason to scope is
+cost alone. Stating that matters in both directions: without it the next reader
+either over-scopes needlessly or assumes an unscoped dump is invalid.
+
 Run:
     PYTHONPATH=. poetry run python tools/occurrence_dump.py --out dump.csv
 (wrapped by ``make buibui-occurrence-dump``).
