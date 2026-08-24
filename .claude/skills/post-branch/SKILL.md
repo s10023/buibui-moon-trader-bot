@@ -164,7 +164,7 @@ a glance, a silent miss ships a doc that reads as complete.
 | `doc-indexes` | Are the generated `INDEX.md` files current? |
 | `md-atx` | Did a wrapped `#123` become an accidental MD018 heading? |
 | `memory-cap` | Is MEMORY.md over its size / bullet cap? |
-| `handoff-size` | Does the handoff's line-count stamp match the file? |
+| `handoff-size` | Does the handoff's line-count stamp match the file? (**owner-only** — see below) |
 | `stale-anchors` | Does any `§N` / `Step N` citation point at an anchor that no longer exists — **repo and memory tree**? |
 | `sensitive-terms` | Would a public flip expose a work identifier? Asks three questions — tracked tree, commit CONTENT, commit MESSAGES. A missing term list is a FINDING, never a SKIP. ⚠ **It does NOT read the PR title/body** — that is the fourth surface, screened separately below |
 
@@ -174,6 +174,23 @@ behaviour gate should pass, or whether a claim is true. Those are phases 1–6.
 ⚠ **`stale-anchors` is the leg with no substitute.** A section number is not a
 symbol, so no symbol-keyed check can see this class; and on its first run here 4
 of 7 hits sat in the memory tree, which no repo-scoped check can reach at all.
+
+⚠ **Three legs READ the handoff — `queue-items`, `handoff-symbols` and
+`handoff-size` — and the handoff has exactly ONE owning session.** Solo, that is
+you and there is nothing to decide. In a **parallel run it is one session and one
+only**, per the operator's one-owner-per-shared-gitignored-doc rule, and the other
+session must not write the file at all. So **establish ownership BEFORE running
+phase 0, not when a leg fires**: if you are not the owner, discharge all three by
+**reporting the finding to the owner** and record that you did — do not edit, do not
+prune, and do not treat `handoff-size` as a gate on your branch. It is advisory
+(`--exit-zero`) and it is measuring a file you have no write claim on.
+
+**Why reporting is the whole fix rather than a lesser one:** the handoff is
+gitignored and single-copy, so it has no remote and no merge. Two sessions pruning
+it concurrently do not conflict — the second write silently erases the first, and
+`Edit`-only discipline does not help, because the losing edit was already applied
+to a file the winner had read before it. The failure is invisible at the time and
+unrecoverable afterwards.
 
 ---
 
@@ -1041,7 +1058,15 @@ Output one line per item. If everything is green, say so explicitly:
 
 ### 10b — Fresh-conversation handoff prompt
 
-Offer (don't auto-write) to draft a self-contained prompt the user can
+**Precondition — do you OWN the handoff?** This step assumes the running session is
+the one that maintains `docs/plans/next-conversation-prompt.md`, which is true solo
+and false in a parallel run. If another session owns it, **skip 10b** and instead hand
+that session what it needs to fold in: this branch's PR number and state, what it
+closes, and any handoff row it makes stale. Say in your final report that 10b was
+skipped for ownership and to whom the content went — a skipped step and a forgotten
+one look identical next session, which is the whole reason the handoff exists.
+
+Otherwise: offer (don't auto-write) to draft a self-contained prompt the user can
 paste into the next conversation. Same shape as `/pr-summary` —
 **file-only output, never inline**.
 
