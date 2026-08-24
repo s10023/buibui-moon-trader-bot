@@ -30,7 +30,7 @@ from analytics.data_store import (
     prune_backtest_cache,
 )
 from analytics.data_sync import backfill, sync
-from analytics.db_retry import connect_with_retry
+from analytics.db_retry import connect_with_retry, is_lock_conflict
 from analytics.signal.outcome_backfill import backfill_outcomes
 from analytics.signal_config import (
     BacktestFilterConfig,
@@ -55,6 +55,54 @@ _DEFAULT_BACKFILL_DAYS = 90
 # Normal cycle: 2 rows (re-fetched+finalised last row + new partial candle).
 # >2 = daemon missed a cycle or a gap fill happened — rebuild from scratch.
 _CACHE_INVALIDATE_THRESHOLD = 2
+
+
+def _sync_watched_series(
+    *,
+    conn: duckdb.DuckDBPyConnection,
+    client: object,
+    symbols: list[str],
+    timeframes: list[str],
+    backfill_start_ms: int,
+    ohlcv_cache: dict[tuple[str, str], pd.DataFrame],
+) -> None:
+    """Refresh every watched (symbol, timeframe), backfilling a series we lack.
+
+    A `ValueError` means the series is new -- backfill it and drop its cache entry
+    so the next read is cold.
+
+    A `duckdb.IOException` is swallowed ONLY when it is a lock conflict. Anything
+    else propagates and kills the cycle, which is the point: the caller goes on to
+    scan, alert, write `signal_alert_outcomes` and advance the CooldownStore
+    watermark, and doing that against bars we failed to refresh puts stale rows
+    into the live ledger -- the OOS evidence base -- while `--catch-up` records
+    the real candles as already seen. Both production callers run `--once`
+    (`deploy/run-signal.sh`, `.github/workflows/signal-watch.yaml`), so nothing
+    retries within the process; failing loudly hands the retry to the next timer
+    firing, 15 minutes later, with `run-job.sh` reporting it.
+
+    The lock case is worth waiting out and is also the least likely to arrive
+    here: `conn` came from `connect_with_retry`, which has already spent its
+    budget, so this process holds the write lock.
+    """
+    for symbol in symbols:
+        for tf in timeframes:
+            try:
+                sync(conn, client, symbol, tf)
+            except ValueError:
+                logger.info("No data for %s/%s — running initial backfill", symbol, tf)
+                backfill(conn, client, symbol, tf, backfill_start_ms)
+                ohlcv_cache.pop((symbol, tf), None)  # force cold read
+            except duckdb.IOException as exc:
+                if not is_lock_conflict(exc):
+                    raise
+                logger.warning(
+                    "analytics.db was locked during sync of %s/%s; "
+                    "skipping it this cycle: %s",
+                    symbol,
+                    tf,
+                    exc,
+                )
 
 
 def _update_ohlcv_cache(
@@ -308,25 +356,14 @@ def run_signal_watch(
                     )
                 else:
                     cache_start_ms = backfill_start_ms
-                for symbol in resolved_symbols:
-                    for tf in resolved_timeframes:
-                        try:
-                            sync(conn, client, symbol, tf)
-                        except ValueError:
-                            logger.info(
-                                "No data for %s/%s — running initial backfill",
-                                symbol,
-                                tf,
-                            )
-                            backfill(conn, client, symbol, tf, backfill_start_ms)
-                            ohlcv_cache.pop((symbol, tf), None)  # force cold read
-                        except duckdb.IOException as exc:
-                            logger.warning(
-                                "DB sync failed for %s/%s (will retry): %s",
-                                symbol,
-                                tf,
-                                exc,
-                            )
+                _sync_watched_series(
+                    conn=conn,
+                    client=client,
+                    symbols=resolved_symbols,
+                    timeframes=resolved_timeframes,
+                    backfill_start_ms=backfill_start_ms,
+                    ohlcv_cache=ohlcv_cache,
+                )
 
                 # Incrementally refresh OHLCV cache for all primary + secondary symbols.
                 # Secondary symbols (SMT) share the same cache keyed by (symbol, tf).
