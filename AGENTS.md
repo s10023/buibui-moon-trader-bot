@@ -987,13 +987,15 @@ blocked. Never assume the flip happened because you printed the command.
   `wait-ci-main` watches ONE workflow and cannot see a sibling · a listing of ALL workflows cannot
   see one not yet created. **The pattern to carry: a check is only ever true about the scope it
   looked at, at the moment it looked.** ⚠ **The outermost layer is not a twice-seen curiosity: it
-  has now recurred on the flip-back for #674, #675, #678, #680 and #681 — SEVEN sightings**
+  has now recurred on the flip-back for #674, #675, #678, #680, #681 and #684 — EIGHT sightings**
   (`Dependency Graph` created 02:25:33Z on `7a0eeef`, 07:07:09Z on `a306410` where it was still
-  `queued` at the moment of the flip, 04:29:40Z on 2026-08-23, and 08:18:06Z on #681's merge —
-  each minutes after a clean pre-flip listing). **#681's is the first OBSERVED LIVE rather than
-  reconstructed afterwards**: the pre-flip listing read `completed` on every workflow, the
-  operator flipped to private, and the run was created `queued` after it — settled `success`,
-  no allowance burnt. **Every sighting was caught by
+  `queued` at the moment of the flip, 04:29:40Z on 2026-08-23, 08:18:06Z on #681's merge, and
+  04:07:55Z on #684's `26c12c3` — each minutes after a clean pre-flip listing). **#681 and #684
+  were OBSERVED LIVE rather than reconstructed afterwards**, and #684 is the sharpest record of
+  the mechanism: the pre-flip listing showed `Dependency Graph`'s newest run at 03:52:28Z, i.e.
+  *older than the 04:01:14Z merge itself*, so the run for the merge SHA demonstrably did not exist
+  when the check ran; the flip to private went through; and the post-flip re-verify caught it
+  `in_progress` on the merge SHA. Both settled `success`, no allowance burnt. **Every sighting was caught by
   the post-flip re-verify and by nothing else**, because a pre-flip check cannot see a run that does not yet
   exist — so the re-verify is the ONLY step in the sequence that can catch this class, never a
   belt-and-braces extra. Every sighting was also benign because `Dependency Graph` runs green on a
