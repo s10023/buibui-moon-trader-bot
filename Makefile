@@ -12,7 +12,7 @@ PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*" -not -path "./.
 DOCKER_IMAGE = buibui-bot
 MEMORY = $(HOME)/.claude-personal/projects/-home-kng-repo-buibui-moon-trader-bot/memory/MEMORY.md
 
-.PHONY: status wait-ci wait-ci-main post-branch-checks sanity-checks preflight lint lint-md lint-md-fix docs-index docs-index-check lint-py-check lint-py typecheck test test-cov test-regression regression-update poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-analytics-backfill buibui-analytics-sync universe-backfill buibui-backtest buibui-combo-backtest buibui-cross-tf-backtest buibui-signal-watch buibui-param-audit buibui-param-sweep buibui-recalibrate buibui-digest buibui-web web-install web-dev web-build web-preview web-full clean-db clean export-live-db buibui-portfolio-replay buibui-forecast-audit buibui-forecast-weight-study buibui-forecast-regime buibui-xsmom-audit buibui-combine-audit buibui-carry-audit buibui-xsmom-capacity-audit buibui-xsmom-targets buibui-xsmom-execute buibui-universe-sync buibui-xsmom-daily buibui-structural-touch-audit buibui-structural-entry-sim-audit buibui-warning-value-audit buibui-sl-horizon-audit buibui-weekly-path-audit buibui-indicator-condition-audit buibui-xsrev-audit buibui-decay-review buibui-dead-surface-check buibui-giveback-study buibui-occurrence-dump
+.PHONY: status wait-ci wait-ci-main post-branch-checks post-branch-text sanity-checks preflight lint lint-md lint-md-fix docs-index docs-index-check lint-py-check lint-py typecheck test test-cov test-regression regression-update poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-analytics-backfill buibui-analytics-sync universe-backfill buibui-backtest buibui-combo-backtest buibui-cross-tf-backtest buibui-signal-watch buibui-param-audit buibui-param-sweep buibui-recalibrate buibui-digest buibui-web web-install web-dev web-build web-preview web-full clean-db clean export-live-db buibui-portfolio-replay buibui-forecast-audit buibui-forecast-weight-study buibui-forecast-regime buibui-xsmom-audit buibui-combine-audit buibui-carry-audit buibui-xsmom-capacity-audit buibui-xsmom-targets buibui-xsmom-execute buibui-universe-sync buibui-xsmom-daily buibui-structural-touch-audit buibui-structural-entry-sim-audit buibui-warning-value-audit buibui-sl-horizon-audit buibui-weekly-path-audit buibui-indicator-condition-audit buibui-xsrev-audit buibui-decay-review buibui-dead-surface-check buibui-giveback-study buibui-occurrence-dump
 
 # ⚠ The always-loaded gauge sums BOTH files. Until the 2026-08-19 AGENTS.md split
 # it printed `CLAUDE.md` alone, which was the whole tier; afterwards that same
@@ -54,6 +54,18 @@ status:
 post-branch-checks:
 	@echo "🔍 Running the mechanical /post-branch sweep..."
 	@PYTHONPATH=. poetry run python tools/post_branch_checks.py --exit-zero
+
+# Screen a composed PR title/body for sensitive terms BEFORE `gh pr create`.
+# FILE=- reads stdin, so a title pipes straight in. Unlike the sweep above this
+# one GATES (exit 1 on a hit): a posted body is PUBLIC the moment it lands, and
+# editing it later does not unpublish it. The sweep's three git legs ask the
+# tracked tree and this branch's commits — a PR body is neither, so they report
+# clean on one naming every term. Run it at /post-branch Step 7, beside the flip.
+# ⚠ Through make the exit code is make's own 2, never the tool's 1 — read the
+# banner, as with wait-ci and preflight. An unreadable FILE also exits 2, which
+# is the point: it must not render as a clean single-check run.
+post-branch-text:
+	@PYTHONPATH=. poetry run python tools/post_branch_checks.py --text $(FILE)
 
 # The mechanical half of /sanity-check. GATES, unlike post-branch-checks, and
 # runs in CI's markdown job so a docs-only PR is covered.

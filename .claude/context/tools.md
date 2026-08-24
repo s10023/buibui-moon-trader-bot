@@ -75,6 +75,24 @@ shell blocks. The rule they exist to satisfy: *a self-check outside CI is not a 
   sets `PYTHONPATH=.`. ⚠ `sanity_checks.py` is the one CI runs bare, and adding a `tools.*`
   import to it without the bootstrap fails the step on an IMPORT, not a finding — invisible
   to `make sanity-checks`, which sets the path. A test in each suite runs the bare form.
+  `--text <file>` (`make post-branch-text FILE=<path>`, `FILE=-` reads stdin) is a
+  **fourth** surface for the `sensitive-terms` leg and the only INDEXABLE one: a composed
+  PR title/body, screened before `gh pr create` posts it. The other three legs ask the
+  tracked tree, this branch's commit content and its commit messages — a PR body is none
+  of them, so the sweep reports `clean` on a body naming every term, correctly and
+  uselessly. Unlike the sweep it **GATES** (exit 1 on a hit), it makes no git call at all,
+  and an unreadable file exits **2** rather than rendering as a clean one-check run. Output
+  is line numbers plus a masked term and **never the matching line** — the match sits
+  inside the prose being screened, so echoing it re-exposes what the mask withholds. An
+  absent term list is still `NOT CONFIGURED`, a FINDING, in this mode too.
+  `NEGATIVE_CLAIM_EXEMPT` narrows the `negative-claims` leg, keyed `(path, token)` with the
+  reason inline (the `sanity_checks.MISSING_PATH_EXEMPT` shape). A hit is dropped only when
+  **EVERY** matched token is exempt, so one unexempt token still reports the line — an
+  entry narrows a finding rather than deleting it — and the exempt count is printed in the
+  note rather than swallowed. ⚠ **Do not "fix" this by scoping to a window around the regex
+  match instead of the whole line**: the claim lines are 3–12 KB paragraphs, and the fork
+  measured that window suppressing its only true positive on record, whose falsified
+  sentence sat ~1,400 chars from the match. The line stays the unit.
 - `tools/sanity_checks.py` — `make sanity-checks`. Seven legs: `fork-drift ·
   parent-leakage · missing-paths · context-coverage · router-wiring · config-strategies ·
   cli-documented`. **Gates**, and runs in CI. Legs needing project imports degrade to
