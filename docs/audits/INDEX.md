@@ -4,13 +4,14 @@
 `make docs-index-check` (and `tests/test_docs_index.py`) fails when this file
 drifts from the corpus.
 
-**51 audits.** A verdict line is shown only where one could be read
-out of a Verdict heading as prose — that is **34 of 51**.
+**52 audits.** A verdict line is shown only where one could be read
+out of a Verdict heading as prose — that is **35 of 52**.
 An em dash means the doc states its verdict in a table, a blockquote or the body,
 **not** that it lacks one; open the file. Nothing here is keyword-guessed.
 
 | Date | Audit | Verdict (as written) | File |
 | --- | --- | --- | --- |
+| 2026-08-24 | ST63 — pricing the occurrence dump's gated variant | The gated variant of ST63 is UNREACHABLE, and this is now measured rather than inferred. A search over the occurrence dump's… | [2026-08-24-st63-occurrence-dump-power-pricing.md](2026-08-24-st63-occurrence-dump-power-pricing.md) |
 | 2026-08-20 | ST56 — wick-anchor construction: the result is INDETERMINATE | INDETERMINATE, and not for want of sample. The pre-registered construction cannot | [2026-08-20-st56-wick-fill-anchor-result.md](2026-08-20-st56-wick-fill-anchor-result.md) |
 | 2026-08-20 | ST56 — `wick_fill` wick-anchor: power pricing and pre-registration | BUILD the one pre-registered construction. The power gate CLEARS on the generated | [2026-08-20-st56-wick-fill-anchor-power.md](2026-08-20-st56-wick-fill-anchor-power.md) |
 | 2026-08-18 | Structural entry-sim under confirmation causality — the ST31 correction | No powered cell on any requested tf (1d) clears the de-biased BUILD bar — XS-solo stays the deploy core. | [2026-08-18-structural-touch-confirmation-causality.md](2026-08-18-structural-touch-confirmation-causality.md) |
