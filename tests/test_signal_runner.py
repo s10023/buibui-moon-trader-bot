@@ -1,10 +1,13 @@
-"""Tests for signal_runner._update_ohlcv_cache."""
+"""Tests for signal_runner._update_ohlcv_cache and _sync_watched_series."""
+
+from unittest.mock import MagicMock, patch
 
 import duckdb
 import pandas as pd
+import pytest
 
 from analytics.data_store import init_schema, upsert_ohlcv
-from analytics.signal_runner import _update_ohlcv_cache
+from analytics.signal_runner import _sync_watched_series, _update_ohlcv_cache
 
 _MS = 15 * 60 * 1000  # 15 minutes in ms
 _T0 = 1_700_000_000_000  # arbitrary base timestamp (ms)
@@ -123,3 +126,52 @@ def test_run_signal_watch_accepts_max_cycles() -> None:
     sig = inspect.signature(signal_runner.run_signal_watch)
     assert "max_cycles" in sig.parameters
     assert sig.parameters["max_cycles"].default is None
+
+
+class TestSyncWatchedSeriesNarrowsIOException:
+    """A non-lock IOException must NOT be swallowed by the per-symbol sync loop.
+
+    SoT ST70(a). The handler logged "will retry" and let the cycle continue, but
+    BOTH production callers run `--once` (`deploy/run-signal.sh` and
+    `.github/workflows/signal-watch.yaml`), so nothing retries: the cycle went on
+    to scan, alert, write `signal_alert_outcomes` and advance the CooldownStore
+    watermark against bars it had just failed to refresh. Under `--catch-up` that
+    watermark advance is permanent, so the stale rows enter the OOS ledger and the
+    real candles are never replayed.
+
+    A lock conflict is the one case worth swallowing, and it is also the least
+    likely to reach here: `conn` comes from `connect_with_retry`, which has already
+    spent its retry budget, so this process holds the write lock. `is_lock_conflict`
+    is what tells the two apart — see analytics/db_retry.py.
+    """
+
+    @staticmethod
+    def _call(sync_effect: object) -> list[tuple[str, str]]:
+        cache: dict[tuple[str, str], pd.DataFrame] = {}
+        backfilled: list[tuple[str, str]] = []
+        with (
+            patch("analytics.signal_runner.sync", side_effect=sync_effect),
+            patch(
+                "analytics.signal_runner.backfill",
+                side_effect=lambda c, cl, s, t, ms: backfilled.append((s, t)),
+            ),
+        ):
+            _sync_watched_series(
+                conn=MagicMock(),
+                client=MagicMock(),
+                symbols=["BTCUSDT"],
+                timeframes=["15m"],
+                backfill_start_ms=0,
+                ohlcv_cache=cache,
+            )
+        return backfilled
+
+    def test_lock_conflict_is_swallowed_so_the_cycle_can_continue(self) -> None:
+        self._call(duckdb.IOException("Conflicting lock is held in /x/analytics.db"))
+
+    def test_non_lock_ioexception_propagates(self) -> None:
+        with pytest.raises(duckdb.IOException, match="No such file"):
+            self._call(duckdb.IOException("IO Error: No such file or directory"))
+
+    def test_missing_series_still_falls_back_to_backfill(self) -> None:
+        assert self._call(ValueError("no data")) == [("BTCUSDT", "15m")]
