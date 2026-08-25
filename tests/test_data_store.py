@@ -677,10 +677,12 @@ class TestGetWinRateByStrategy:
             "BTCUSDT", "4h", "bos", 90, 0.02, 2.0, 0.0, "off", 1, None
         )
         conn.execute(
-            "INSERT INTO backtest_runs VALUES (?, 'BTCUSDT', '4h', 'bos', "
-            "1690000000000, 1700000000000, 90, 0.02, 2.0, 0.0, 'off', 1, NULL, "
-            "25, 25, 15, 10, 0.6, 0.5, 12.5, 3.0, 1700000001000, NULL, "
-            "NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+            "INSERT INTO backtest_runs (run_id, symbol, timeframe, strategy, "
+            "data_start_ms, data_end_ms, days, sl_pct, tp_r, fee_pct, day_filter, "
+            "smt_trend_filter, total_signals, closed_trades, win_count, loss_count, "
+            "win_rate, avg_r, total_r, max_drawdown_r, run_at_ms) VALUES "
+            "(?, 'BTCUSDT', '4h', 'bos', 1690000000000, 1700000000000, 90, 0.02, "
+            "2.0, 0.0, 'off', 1, 25, 25, 15, 10, 0.6, 0.5, 12.5, 3.0, 1700000001000)",
             [run_id],
         )
         df = get_win_rate_by_strategy(conn)
@@ -695,10 +697,12 @@ class TestGetWinRateByStrategy:
             "BTCUSDT", "4h", "fvg", 90, 0.02, 2.0, 0.0, "off", 1, None
         )
         conn.execute(
-            "INSERT INTO backtest_runs VALUES (?, 'BTCUSDT', '4h', 'fvg', "
-            "1690000000000, 1700000000000, 90, 0.02, 2.0, 0.0, 'off', 1, NULL, "
-            "5, 5, 3, 2, 0.6, 0.4, 2.0, 1.0, 1700000001000, NULL, "
-            "NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+            "INSERT INTO backtest_runs (run_id, symbol, timeframe, strategy, "
+            "data_start_ms, data_end_ms, days, sl_pct, tp_r, fee_pct, day_filter, "
+            "smt_trend_filter, total_signals, closed_trades, win_count, loss_count, "
+            "win_rate, avg_r, total_r, max_drawdown_r, run_at_ms) VALUES "
+            "(?, 'BTCUSDT', '4h', 'fvg', 1690000000000, 1700000000000, 90, 0.02, "
+            "2.0, 0.0, 'off', 1, 5, 5, 3, 2, 0.6, 0.4, 2.0, 1.0, 1700000001000)",
             [run_id],
         )
         df = get_win_rate_by_strategy(conn)
@@ -1037,3 +1041,222 @@ class TestBacktestRunWriterIdentity:
         ).fetchone()
         assert surviving is not None
         assert surviving[0] == "sweep-abc", "the live gate destroyed the swept row"
+
+
+class TestBacktestRunIdNamespacing:
+    """ST86: every axis that changes the engine's output must namespace the row.
+
+    ``upsert_backtest_run`` forwarded 11 of the 19 axes ``_backtest_run_id``
+    accepts and knew nothing about ``live_parity`` at all, so two runs that
+    differ only in a dropped axis hashed to ONE ``run_id`` and the
+    ``INSERT OR REPLACE`` destroyed one. That is the ``writer`` defect (415 rows
+    overwritten, 331 disagreeing with their own trades) recurring on axes nobody
+    namespaced.
+    """
+
+    def test_default_run_id_is_byte_identical(self) -> None:
+        """The pin: rows written before ST86 must stay addressable.
+
+        ``backtest_cache`` keys derive from ``run_id``, so a changed default
+        hash would orphan every historical sweep row and invalidate the live
+        cache. Literal hex rather than a self-comparison — only a constant
+        catches a change to the key *format*.
+        """
+        assert (
+            _backtest_run_id("BTCUSDT", "4h", "bos", 90, 0.02, 2.0, 0.0, "off", 1, None)
+            == "5f39a1eee6b6365f"
+        )
+
+    def test_live_parity_changes_the_run_id(self) -> None:
+        from analytics.backtest.live_parity_config import (
+            LiveParityConfig,
+            live_parity_key,
+        )
+
+        plain = _backtest_run_id(
+            "BTCUSDT", "4h", "bos", 90, 0.02, 2.0, 0.0, "off", 1, None
+        )
+        parity = _backtest_run_id(
+            "BTCUSDT",
+            "4h",
+            "bos",
+            90,
+            0.02,
+            2.0,
+            0.0,
+            "off",
+            1,
+            None,
+            live_parity=live_parity_key(LiveParityConfig(regime=True)),
+        )
+        assert parity != plain
+
+    def test_live_parity_gate_sets_are_distinguished(self) -> None:
+        """``--live-parity --without-cooldown`` is a different book to ``--live-parity``."""
+        from analytics.backtest.live_parity_config import (
+            LiveParityConfig,
+            live_parity_key,
+        )
+
+        all_on = live_parity_key(
+            LiveParityConfig(enabled=True, regime=True, cooldown=True)
+        )
+        no_cooldown = live_parity_key(LiveParityConfig(enabled=True, regime=True))
+        assert all_on != no_cooldown
+
+    def test_live_parity_off_is_indistinguishable_from_absent(self) -> None:
+        """A default-constructed config must not move the hash."""
+        from analytics.backtest.live_parity_config import (
+            LiveParityConfig,
+            live_parity_key,
+        )
+
+        assert live_parity_key(LiveParityConfig()) is None
+        assert live_parity_key(None) is None
+
+    def test_cooldown_bars_are_in_the_key(self) -> None:
+        from analytics.backtest.live_parity_config import (
+            LiveParityConfig,
+            live_parity_key,
+        )
+
+        a = live_parity_key(
+            LiveParityConfig(cooldown=True, cooldown_bars_per_tf={"15m": 3})
+        )
+        b = live_parity_key(
+            LiveParityConfig(cooldown=True, cooldown_bars_per_tf={"15m": 6})
+        )
+        assert a != b
+
+    def test_cooldown_bars_key_is_order_independent(self) -> None:
+        """Dict insertion order must not fork the hash for one identical config."""
+        from analytics.backtest.live_parity_config import (
+            LiveParityConfig,
+            live_parity_key,
+        )
+
+        a = live_parity_key(
+            LiveParityConfig(cooldown=True, cooldown_bars_per_tf={"15m": 3, "1h": 2})
+        )
+        b = live_parity_key(
+            LiveParityConfig(cooldown=True, cooldown_bars_per_tf={"1h": 2, "15m": 3})
+        )
+        assert a == b
+
+    @pytest.mark.parametrize(
+        ("axis", "value"),
+        [
+            ("min_sl_pct", 0.005),
+            ("atr_sl_multiplier", 1.5),
+            ("tp_r_long", 3.0),
+            ("tp_r_short", 1.5),
+            ("volume_suppress_long", True),
+            ("volume_suppress_short", True),
+            ("adr_exempt", True),
+            ("atr_sl_floor", True),
+        ],
+    )
+    def test_every_engine_axis_survives_the_upsert(
+        self, conn: duckdb.DuckDBPyConnection, axis: str, value: Any
+    ) -> None:
+        """Each axis reaches the stored row_id, so two runs cannot destroy each other.
+
+        These eight were accepted by ``_backtest_run_id`` and dropped by
+        ``upsert_backtest_run``, which is the only path that WRITES a row.
+        """
+        result = _FakeResult("BTCUSDT", "4h", "bos")
+        upsert_backtest_run(conn, result, **_BT_PARAMS)
+        upsert_backtest_run(conn, result, **_BT_PARAMS, **{axis: value})
+        assert _one(conn, "SELECT COUNT(*) FROM backtest_runs")[0] == 2
+
+    def test_live_parity_row_survives_beside_the_plain_run(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        from analytics.backtest.live_parity_config import LiveParityConfig
+
+        result = _FakeResult("BTCUSDT", "4h", "bos")
+        upsert_backtest_run(conn, result, **_BT_PARAMS)
+        upsert_backtest_run(
+            conn,
+            result,
+            **_BT_PARAMS,
+            live_parity=LiveParityConfig(enabled=True, regime=True),
+        )
+        assert _one(conn, "SELECT COUNT(*) FROM backtest_runs")[0] == 2
+
+    def test_provenance_is_readable_back(self, conn: duckdb.DuckDBPyConnection) -> None:
+        """ST79 asks whether a stored tp_r was measured under the live gates.
+
+        Namespacing alone cannot answer that — the axis has to be a COLUMN.
+        """
+        from analytics.backtest.live_parity_config import LiveParityConfig
+
+        result = _FakeResult("BTCUSDT", "4h", "bos")
+        upsert_backtest_run(
+            conn,
+            result,
+            **_BT_PARAMS,
+            live_parity=LiveParityConfig(enabled=True, regime=True),
+            adr_exempt=True,
+        )
+        row = _one(conn, "SELECT live_parity, adr_exempt FROM backtest_runs")
+        assert row[0] is not None and "regime" in row[0]
+        assert row[1] is True
+
+    def test_plain_run_stores_null_provenance(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        result = _FakeResult("BTCUSDT", "4h", "bos")
+        upsert_backtest_run(conn, result, **_BT_PARAMS)
+        row = _one(conn, "SELECT live_parity, adr_exempt FROM backtest_runs")
+        assert row[0] is None
+        assert row[1] is False
+
+
+class TestUpsertColumnMapping:
+    """The stored row must land in the columns it names, on ANY database.
+
+    ``INSERT ... SELECT`` maps positionally, and ``backtest_runs`` does not have
+    one column order: ``long_total_r`` / ``short_total_r`` / ``volume_suppress``
+    are created inline while ``adr_suppress_threshold`` / ``recovery_factor``
+    arrive through the ALTER migration. Measured 2026-08-25 on a fresh DB, an
+    ``adr_suppress_threshold`` of 0.8 was read back out of ``long_total_r``.
+    Production was correct — its order predates the CREATE — so this was
+    invisible everywhere a gate could see it: CI, every in-memory test DB and
+    every ``make preflight`` clone were the wrong half.
+    """
+
+    def test_five_migrated_columns_round_trip(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        result = _FakeResult("BTCUSDT", "4h", "bos")
+        params = dict(_BT_PARAMS)
+        params["adr_suppress_threshold"] = 0.8
+        params["volume_suppress"] = True
+        upsert_backtest_run(conn, result, **params)
+        row = _one(
+            conn,
+            "SELECT adr_suppress_threshold, volume_suppress, long_total_r, "
+            "short_total_r, recovery_factor FROM backtest_runs",
+        )
+        assert abs(float(row[0]) - 0.8) < 1e-6
+        assert row[1] is True
+        assert abs(float(row[2]) - result.long_total_r) < 1e-6
+        assert abs(float(row[3]) - result.short_total_r) < 1e-6
+        assert abs(float(row[4]) - result.recovery_factor) < 1e-6
+
+    def test_trade_rows_round_trip_by_name(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        result = _FakeResult("BTCUSDT", "4h", "bos")
+        run_id = upsert_backtest_run(conn, result, **_BT_PARAMS)
+        upsert_backtest_trades(conn, result, run_id)
+        row = _one(
+            conn,
+            "SELECT symbol, timeframe, strategy, direction, outcome "
+            "FROM backtest_trades ORDER BY signal_time LIMIT 1",
+        )
+        assert row[0] == "BTCUSDT"
+        assert row[1] == "4h"
+        assert row[2] == "bos"
+        assert row[3] in ("long", "short")

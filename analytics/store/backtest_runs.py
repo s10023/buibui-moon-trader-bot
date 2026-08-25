@@ -7,6 +7,30 @@ from typing import Any
 import duckdb
 import pandas as pd
 
+from analytics.backtest.live_parity_config import LiveParityConfig, live_parity_key
+
+
+def _insert_sql(table: str, row: dict[str, Any], view: str) -> str:
+    """Build an ``INSERT OR REPLACE`` that names its target columns.
+
+    ⚠ **Never insert into these tables positionally.** ``INSERT ... SELECT``
+    maps the select list onto the table's columns BY POSITION, and the column
+    order of ``backtest_runs`` differs between a live database and a fresh one:
+    ``long_total_r`` / ``short_total_r`` / ``volume_suppress`` are created inline
+    by ``init_schema`` while ``adr_suppress_threshold`` / ``recovery_factor``
+    arrive through the ALTER migration, so they land in creation order on a
+    fresh DB and in migration order on a database that predates the CREATE.
+
+    Measured 2026-08-25: on a fresh DB an ``adr_suppress_threshold`` of 0.8 was
+    read back out of ``long_total_r``, five columns wide — production was
+    correct and every reclone, in-memory test DB and ``make preflight`` clone
+    was silently wrong, which is why no gate ever went red on it. Naming the
+    columns makes the order irrelevant, and deriving both lists from one dict
+    means adding a column cannot reintroduce the skew.
+    """
+    cols = ", ".join(row)
+    return f"INSERT OR REPLACE INTO {table} ({cols}) SELECT {cols} FROM {view}"
+
 
 def _backtest_run_id(
     symbol: str,
@@ -29,6 +53,7 @@ def _backtest_run_id(
     volume_suppress_short: bool | None = None,
     adr_exempt: bool = False,
     atr_sl_floor: bool = False,
+    live_parity: str | None = None,
     writer: str = "sweep",
 ) -> str:
     """Return a deterministic 16-char hex ID for a backtest param combination.
@@ -51,6 +76,14 @@ def _backtest_run_id(
     (``analytics/signal/_common.py``). Keeping the default hash byte-identical
     means historical sweep rows stay addressable and the live cache is not
     invalidated — only the other writers move to their own namespaces.
+
+    ⚠ **A namespacing fix closes the axis it was written for and nothing else.**
+    ``writer`` fixed WHO wrote the row and left every engine axis unnamespaced:
+    until ST86 ``upsert_backtest_run`` forwarded 11 of these arguments and knew
+    nothing of ``live_parity``, so a ``tp_r`` retune or an ``atr_sl_multiplier``
+    sweep landing in the TOML silently overwrote the rows measured under the old
+    value. Every argument here changes what the engine produces, so **any new
+    engine knob must be added to this key in the same PR that adds it.**
     """
     key = f"{symbol}|{timeframe}|{strategy}|{days}|{sl_pct}|{tp_r}|{fee_pct}|{day_filter}|{smt_trend_filter}|{secondary_symbol}"
     if adr_suppress_threshold is not None:
@@ -73,6 +106,8 @@ def _backtest_run_id(
         key += "|adr_exempt"
     if atr_sl_floor:
         key += "|atr_floor"
+    if live_parity:
+        key += f"|lp:{live_parity}"
     if writer != "sweep":
         key += f"|writer:{writer}"
     return hashlib.sha256(key.encode()).hexdigest()[:16]
@@ -93,6 +128,15 @@ def upsert_backtest_run(
     sweep_id: str | None = None,
     adr_suppress_threshold: float | None = None,
     volume_suppress: bool | None = None,
+    min_sl_pct: float = 0.0,
+    atr_sl_multiplier: float | None = None,
+    tp_r_long: float | None = None,
+    tp_r_short: float | None = None,
+    volume_suppress_long: bool | None = None,
+    volume_suppress_short: bool | None = None,
+    adr_exempt: bool = False,
+    atr_sl_floor: bool = False,
+    live_parity: LiveParityConfig | None = None,
     writer: str = "sweep",
 ) -> str:
     """Insert or replace a backtest aggregate result row.
@@ -104,7 +148,15 @@ def upsert_backtest_run(
     see :func:`_backtest_run_id`. Pass ``"live"`` from the signal-watch gate,
     ``"single"`` from a single-combo run and ``"ui"`` from the web API; the sweep
     keeps the default.
+
+    Every engine axis is forwarded to the ID (ST86). ``live_parity`` and
+    ``adr_exempt`` are additionally STORED, because namespacing alone leaves a
+    row unable to say what it ran under: the parity question is exactly what a
+    stored ``tp_r``'s provenance turns on, and an ADR-exempt run is otherwise
+    indistinguishable from an unthresholded one, both landing at
+    ``adr_suppress_threshold IS NULL``.
     """
+    live_parity_str = live_parity_key(live_parity)
     run_id = _backtest_run_id(
         result.symbol,
         result.timeframe,
@@ -118,6 +170,15 @@ def upsert_backtest_run(
         secondary_symbol,
         adr_suppress_threshold,
         volume_suppress,
+        min_sl_pct,
+        atr_sl_multiplier,
+        tp_r_long,
+        tp_r_short,
+        volume_suppress_long,
+        volume_suppress_short,
+        adr_exempt,
+        atr_sl_floor,
+        live_parity_str,
         writer=writer,
     )
     row: dict[str, Any] = {
@@ -157,22 +218,13 @@ def upsert_backtest_run(
         "short_total_r": result.short_total_r,
         "recovery_factor": result.recovery_factor,
         "volume_suppress": volume_suppress,
+        "live_parity": live_parity_str,
+        "adr_exempt": adr_exempt,
     }
     df = pd.DataFrame([row])
     conn.register("_bt_run_upsert_df", df)
     try:
-        conn.execute(
-            "INSERT OR REPLACE INTO backtest_runs SELECT "
-            "run_id, symbol, timeframe, strategy, data_start_ms, data_end_ms, "
-            "days, sl_pct, tp_r, fee_pct, day_filter, smt_trend_filter, "
-            "secondary_symbol, total_signals, closed_trades, win_count, loss_count, "
-            "win_rate, avg_r, total_r, max_drawdown_r, run_at_ms, sweep_id, "
-            "long_closed_trades, long_win_count, long_win_rate, long_avg_r, "
-            "short_closed_trades, short_win_count, short_win_rate, short_avg_r, "
-            "adr_suppress_threshold, long_total_r, short_total_r, recovery_factor, "
-            "volume_suppress "
-            "FROM _bt_run_upsert_df"
-        )
+        conn.execute(_insert_sql("backtest_runs", row, "_bt_run_upsert_df"))
     finally:
         conn.unregister("_bt_run_upsert_df")
     return run_id
@@ -215,13 +267,7 @@ def upsert_backtest_trades(
     df = pd.DataFrame(rows)
     conn.register("_bt_trades_upsert_df", df)
     try:
-        conn.execute(
-            "INSERT OR REPLACE INTO backtest_trades SELECT "
-            "trade_id, run_id, symbol, timeframe, strategy, direction, "
-            "signal_time, entry_time, entry_price, sl_price, tp_price, "
-            "exit_time, exit_price, outcome, pnl_r, low_volume, volume_spike "
-            "FROM _bt_trades_upsert_df"
-        )
+        conn.execute(_insert_sql("backtest_trades", rows[0], "_bt_trades_upsert_df"))
     finally:
         conn.unregister("_bt_trades_upsert_df")
 
@@ -231,6 +277,11 @@ def list_backtest_runs(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
 
     Attaches calibrated star ratings from confidence_ratings by matching on
     (strategy, timeframe, day_filter) so each row shows the correct per-config stars.
+
+    ``live_parity`` and ``adr_exempt`` join the partition for the same reason
+    ``adr_suppress_threshold`` is already in it (ST86): once those runs stop
+    colliding on one ``run_id`` they coexist, and a partition blind to an axis
+    picks between two different books on recency alone.
     """
     return conn.execute(
         "SELECT b.run_id, b.symbol, b.timeframe, b.strategy, b.days, b.sl_pct, b.tp_r, "
@@ -238,10 +289,12 @@ def list_backtest_runs(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
         "b.avg_r, b.total_r, b.max_drawdown_r, b.recovery_factor, b.sweep_id, b.run_at_ms, "
         "b.long_closed_trades, b.long_win_count, b.long_win_rate, b.long_avg_r, b.long_total_r, "
         "b.short_closed_trades, b.short_win_count, b.short_win_rate, b.short_avg_r, b.short_total_r, "
-        "b.adr_suppress_threshold, cr.stars, cr_long.long_stars, cr_short.short_stars "
+        "b.adr_suppress_threshold, b.live_parity, b.adr_exempt, "
+        "cr.stars, cr_long.long_stars, cr_short.short_stars "
         "FROM ("
         "  SELECT *, ROW_NUMBER() OVER ("
-        "    PARTITION BY symbol, timeframe, strategy, day_filter, adr_suppress_threshold "
+        "    PARTITION BY symbol, timeframe, strategy, day_filter, "
+        "                 adr_suppress_threshold, live_parity, adr_exempt "
         "    ORDER BY run_at_ms DESC"
         "  ) AS rn FROM backtest_runs"
         ") b "
@@ -287,6 +340,7 @@ def get_win_rate_by_strategy(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
         FROM backtest_runs
         WHERE closed_trades >= 20
           AND adr_suppress_threshold IS NULL
+          AND live_parity IS NULL
         GROUP BY strategy
         ORDER BY win_rate_pct DESC
     """).df()

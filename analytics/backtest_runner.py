@@ -741,6 +741,15 @@ def _collect_sweep_results(
                 sweep_id=sweep_id,
                 adr_suppress_threshold=cfg.adr_suppress_threshold,
                 volume_suppress=cfg.effective_volume_suppress(strategy) or None,
+                # ST86: every axis handed to run_backtest above must also reach
+                # the row_id, or two sweeps run under different config collapse
+                # onto one row.
+                min_sl_pct=cfg.min_sl_pct,
+                atr_sl_multiplier=eff_atr_sl,
+                atr_sl_floor=cfg.atr_sl_floor,
+                volume_suppress_long=cfg.effective_volume_suppress_long(strategy),
+                volume_suppress_short=cfg.effective_volume_suppress_short(strategy),
+                live_parity=cfg.live_parity,
             )
             upsert_backtest_trades(conn, bt, run_id)
 
@@ -1113,6 +1122,10 @@ def run_backtest_cmd(
                 day_filter="off",
                 smt_trend_filter=1,
                 secondary_symbol=secondary_symbol,
+                min_sl_pct=min_sl_pct,
+                atr_sl_multiplier=atr_sl_multiplier,
+                atr_sl_floor=atr_sl_floor,
+                live_parity=live_parity,
                 writer="single",
             )
             upsert_backtest_trades(conn, bt_result, run_id)
