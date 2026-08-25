@@ -133,6 +133,48 @@ better.
   fix biting (pre-fix, R was USD 25 and a genuine −2R day scored −0.24R and
   sailed through), not a bug to route around. This pre-flight exists because
   a 3-symbol batch on 2026-08-07 spent a full card to discover it.
+- **Then price the SUB-LOT WALL — it is PER SYMBOL, so unlike the breaker it
+  forecloses individual cards rather than the batch.** The post-pass vetoes with
+  `size floors to zero at qty_step <step>` when the risk budget cannot buy one
+  lot, and the widest stop that still clears is
+  `risk_budget / (qty_step × price)`. Wider-stop horizons hit it first, so a
+  symbol can pass intraday and veto on swing at the same equity.
+
+  ```bash
+  poetry run python -c "
+  import argparse
+  from cli.card import _account_provider_for, _fetch_qty_step
+  from portfolio.sizing import SizingConfig, resolve_capital
+  import duckdb
+  from analytics.store import DEFAULT_DB_PATH
+  p, _ = _account_provider_for(argparse.Namespace(dry_run=False, as_of=None))
+  sc = SizingConfig()
+  cap, _live = resolve_capital(sc, p.equity_usd() if p else None)
+  risk = cap * sc.r_base
+  c = duckdb.connect(str(DEFAULT_DB_PATH), read_only=True)
+  print(f'capital {cap:.2f}  1R {risk:.2f} USD')
+  for sym in ('BTCUSDT', 'ETHUSDT', 'SOLUSDT'):   # the batch's symbols
+      step = _fetch_qty_step(sym)
+      px = c.execute(
+          \"SELECT close FROM ohlcv WHERE symbol=? AND timeframe='1h' \"
+          \"ORDER BY open_time DESC LIMIT 1\", [sym]).fetchone()[0]
+      if step:
+          print(f'{sym}: 1 lot = {step * px:.2f} USD -> max stop {risk / (step * px) * 100:.2f}%')
+      else:
+          print(f'{sym}: qty_step UNAVAILABLE (card degrades to an unrounded qty + warning)')
+  "
+  ```
+
+  **Measured 2026-08-25 at USD 450.40 equity (1R = USD 1.13): BTCUSDT vetoes on
+  any stop wider than 1.43%, against ETH 45.50% and SOL 114.08%** — the wall is
+  set by one lot's NOTIONAL, so it bites hardest on the highest-priced symbol
+  and is invisible on the cheap ones. It predicted that batch's BTCUSDT *swing*
+  veto exactly (stop 1.58%) while BTCUSDT *intraday* passed at 0.55%.
+  ⚠ **Report it, do not skip the card on it.** A sub-lot VETO still returns full
+  reasoning and a four-angle steelman, and it is the one routine way the
+  deterministic veto block is exercised at all — the breaker leg cannot be,
+  because the prompt answers NO_TRADE first and short-circuits it. Skip only if
+  the operator says so.
 - Sync OHLCV if it is staler than the newest external snapshot
   (`ls -lt docs/plans/external-context/ | head`):
   `poetry run python buibui.py analytics sync --timeframes 1h 4h 1d` —
@@ -156,6 +198,15 @@ Per card:
    in a verified snapshot (`docs/plans/external-context/*.json`, same symbol,
    fresh). Flag invented or mispriced clusters. card-v3 caps external
    liquidity at ONE confluence input — more than one is a rubric violation.
+   ⚠ **You cannot verify that cap from any artifact on disk.** `FinalCard`
+   emits a scalar `confluence_score` and no input list, so "how many inputs was
+   external liquidity" is answerable only by reading the prose, where a cluster
+   cited in two reasoning bullets is indistinguishable from one input used
+   twice. Measured 2026-08-25: all 6 cards in a batch touched external liquidity
+   in 2–3 bullets, which reads as either 6/6 breaching or a cap that means
+   something narrower — and nothing recorded can tell those apart. **Report the
+   ambiguity rather than filing 6 violations or clearing all 6.** The fix is an
+   emitted `confluence_inputs: [...]`; until it lands this leg is advisory.
    **card-v4: a cluster is a BAND.** Its edges reproduce to only ~16% on a
    same-input re-extraction (mean drift 20–43% of band width, measured
    2026-08-12), so a card placing an entry/SL/TP exactly on a cluster edge is
@@ -219,6 +270,13 @@ Per card:
    Real capital is smaller than the old constant (~USD 1,200 vs USD 10,000 measured),
    so the sub-lot veto is now common, not a corner case — expect BTCUSDT
    VETOes on stops wider than roughly 2.7% at that equity, not a bug.
+
+   ⚠ **A second, independent stop-width veto now exists: `min_rr` gates on RR
+   NET of round-trip cost.** A 2% stop pays 0.07R and a 0.5% stop 0.28R, so a
+   card can clear gross 1.10 and veto at 0.82 net. Both numbers print. It bites
+   the OPPOSITE way to the sub-lot wall above — that one vetoes WIDE stops, this
+   one TIGHT — so a card squeezed between them has no legal stop, and the answer
+   is a smaller symbol, never a re-run.
 4. **`valid_until_utc` is now a VETO when it does not postdate the card's own
    generation time** (or is unparseable). Checked against `generated_at_ms`,
    not wall-clock now, so re-reading an old card does not retroactively void

@@ -19,7 +19,7 @@ import numpy as np
 from analytics.data_store import get_ohlcv
 from analytics.regime import classify_series
 from portfolio.book import BookResult, LedgerTrade, PaperBook
-from portfolio.sizing import SizingConfig
+from portfolio.sizing import SizingConfig, round_trip_drag_r
 
 _DAY = 86_400_000
 
@@ -78,10 +78,9 @@ def restate_gross_r(
     one. A zero-risk row is returned unchanged (costs in R are undefined when
     nothing is risked — same convention as the resolver).
     """
-    risk = abs(entry_price - sl_price)
-    if risk <= 0.0:
-        return realized_r
-    return realized_r - 2.0 * (fee_pct + slippage_pct) * entry_price / risk
+    return realized_r - round_trip_drag_r(
+        entry_price, sl_price, fee_pct=fee_pct, slippage_pct=slippage_pct
+    )
 
 
 def restate_on_resolution_clock(

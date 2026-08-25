@@ -22,6 +22,7 @@ from portfolio.sizing import (
     resolve_capital,
     risk_per_unit,
     round_down_to_step,
+    round_trip_drag_r,
 )
 
 _VERDICTS = ("TRADE", "NO_TRADE")
@@ -189,6 +190,13 @@ class FinalCard:
     capital_used: float | None
     capital_source: str | None
     rr_tp1: float | None
+    rr_tp1_net: float | None
+    """RR at tp1 after round-trip fee + slippage — the number the floor gates on.
+
+    Gross is kept beside it so historical `ai-cards.jsonl` rows stay comparable
+    with new ones; `None` whenever gross is, since a net figure derived from an
+    invalid stop would read as computed rather than absent.
+    """
     warnings: list[str]
     veto_reasons: list[str]
     state_digest: str
@@ -265,6 +273,7 @@ def post_pass(
     capital_used: float | None = None
     capital_source: str | None = None
     rr_tp1: float | None = None
+    rr_tp1_net: float | None = None
 
     if card.verdict == "TRADE":
         # validation guarantees these are positive floats for TRADE
@@ -286,12 +295,27 @@ def post_pass(
         if tps and direction == "short" and tps[0] >= entry:
             veto.append("tp1 must be below entry for a short")
 
-        # (b) planned RR floor
+        # (b) planned RR floor, gated on the NET number (ST93).
+        # `min_rr` was a GROSS floor with no cost term, and the round-trip drag
+        # carries `entry / risk` — so it is *inversely* proportional to stop
+        # width and a tight-stop card cleared the hard rule while being
+        # negative-EV at its own first target. The bias ran ONE way: the floor
+        # only ever passed trades that should fail, hardest where stops were
+        # tightest. From the 2026-08-25 batch: RR 1.10 on a 0.85% stop pays
+        # 0.1647R and reads 0.94 net, where a 2% stop pays only 0.07. (The SoT
+        # row filed that card at ~0.96, which is ~6 bps — the rounded prose in
+        # `config.py`, not the constants.) Gating on net strictly tightens the
+        # old rule — net < gross
+        # always — so nothing that failed before starts passing.
         rpu = risk_per_unit(entry, sl)
         if rpu > 0.0 and card.tp1 is not None:
             rr_tp1 = abs(float(card.tp1) - entry) / rpu
-            if rr_tp1 < cfg.min_rr:
-                veto.append(f"rr_tp1 {rr_tp1:.2f} breaches min_rr {cfg.min_rr}")
+            rr_tp1_net = rr_tp1 - round_trip_drag_r(entry, sl)
+            if rr_tp1_net < cfg.min_rr:
+                veto.append(
+                    f"rr_tp1 {rr_tp1_net:.2f} net of cost ({rr_tp1:.2f} gross) "
+                    f"breaches min_rr {cfg.min_rr}"
+                )
 
         # (c) conflicting open position + (d) circuit breaker
         if state.account is not None:
@@ -409,6 +433,7 @@ def post_pass(
     verdict = "VETOED" if veto else card.verdict
     if veto:
         size_units = notional_usd = risk_usd = risk_frac = rr_tp1 = None
+        rr_tp1_net = None
         capital_used = capital_source = None
     return FinalCard(
         symbol=state.symbol,
@@ -422,6 +447,7 @@ def post_pass(
         capital_used=capital_used,
         capital_source=capital_source,
         rr_tp1=rr_tp1,
+        rr_tp1_net=rr_tp1_net,
         warnings=warnings,
         veto_reasons=veto,
         state_digest=digest,

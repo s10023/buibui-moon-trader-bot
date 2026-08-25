@@ -40,6 +40,7 @@ def _final(verdict: str, **card_overrides: Any) -> FinalCard:
         capital_used=10_000.0 if verdict == "TRADE" else None,
         capital_source="config" if verdict == "TRADE" else None,
         rr_tp1=1.5 if verdict != "NO_TRADE" else None,
+        rr_tp1_net=1.43 if verdict == "TRADE" else None,
         warnings=[],
         veto_reasons=["SL must be below entry for a long"]
         if verdict == "VETOED"
@@ -220,3 +221,12 @@ class TestCliWiring:
         card_mod, sent, db = _stub_cli(monkeypatch, tmp_path)
         card_mod.run_card_cmd(_cli_args(db, telegram=True))
         assert sent == [card_telegram_body(_final("TRADE"))]
+
+
+class TestNetRRReachesThePhone:
+    """The phone is where a card is acted on, so the honest RR has to be there
+    too — not only in the terminal render and the JSONL ledger."""
+
+    def test_stop_row_carries_the_net_number(self) -> None:
+        body = card_telegram_body(_final("TRADE"))
+        assert "RR 1.50 (net 1.43)" in body
