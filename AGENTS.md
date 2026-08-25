@@ -94,9 +94,15 @@ make wait-ci PR=<n>      # wait on a PR's checks    (make wait-ci-main for main'
 make preflight           # ST45 clean-clone gate; /post-branch Step 7, REPLACES make test
 ```
 
-**`make post-branch-checks` and `make sanity-checks` ARE the walk — a hand walk is not.**
-They replace the shell blocks those two skills used to carry, which ran only when a session
-remembered to copy them. Deep reference `.claude/context/tools.md`. Three rules ride them:
+**`make post-branch-checks` and `make sanity-checks` ARE the MECHANICAL walk — hand-walking
+their legs is not.** They replace the shell blocks those two skills used to carry, which ran
+only when a session remembered to copy them. ⚠ **Scoped on purpose: mechanical is not WHOLE.**
+A green sweep carries none of the judgement in `/post-branch`'s later steps, and this sentence
+said plain "ARE the walk" until 2026-08-25, when BOTH parallel sessions on one wave read it as
+licence to substitute the sweep for the skill — neither was careless, and both had the rule in
+context. The sweep now closes by naming the steps it does not cover (ST88), because the fix
+belongs on reachability rather than on another rule. Deep reference
+`.claude/context/tools.md`. Three rules ride them:
 
 - **A SKIP is not a PASS.** `sanity_checks.py` degrades legs that need project imports to
   SKIPPED so the sweep stays CI-portable — which means a broken import looks exactly like a

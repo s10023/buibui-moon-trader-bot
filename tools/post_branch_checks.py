@@ -32,6 +32,7 @@ import argparse
 import re
 import subprocess  # noqa: S404 - git plumbing, fixed argv, no shell
 import sys
+import textwrap
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -865,7 +866,62 @@ def _read_text_arg(path: str) -> str:
     return Path(path).read_text(encoding="utf-8")
 
 
-def render(results: Sequence[CheckResult]) -> tuple[list[str], int]:
+# What this sweep does NOT do, named so that passing it cannot FEEL like
+# passing the walk. Both parallel sessions on the 2026-08-25 wave hand-walked
+# the mechanical half and skipped `make preflight` and `/post-branch` itself —
+# neither was being careless, and both had the rule in context. The hand-walk
+# is the REACHABLE thing and the skill is not, so the fix belongs here rather
+# than on another rule.
+#
+# ⚠ These are STEP numbers on purpose. The skill's phases 1-6 are table rows
+# that declare no headings, so `tools/stale_anchors.py` correctly flags a
+# "post-branch phase 4" citation from any other file as a dead anchor.
+UNCOVERED_STEPS: tuple[tuple[str, str], ...] = (
+    ("Step 1", "behaviour gate — is this PR user-facing?"),
+    ("Steps 2-4", "walk each doc surface against the diff"),
+    ("Steps 5, 5b", "MEMORY.md + SoT reconcile — run even if Step 1 says no"),
+    (
+        "Step 7",
+        "`make preflight` (clean-clone gate; it REPLACES this branch's "
+        "`make test`) and the visibility-flip decision, both BEFORE "
+        "`gh pr create`",
+    ),
+    ("Step 6", "PR body"),
+    ("Steps 10a-10c", "pre-merge check, handoff, re-verify PR state last"),
+)
+
+
+def uncovered_notice() -> list[str]:
+    """The closing line: what a green sweep says nothing about.
+
+    A green sweep is not a green branch. It carries none of the judgement in
+    the steps below, and reading it as the walk is the exact substitution this
+    notice exists to interrupt.
+    """
+    out = [
+        "",
+        "  NOT COVERED by this sweep — /post-branch owns these:",
+    ]
+    width = max(len(label) for label, _ in UNCOVERED_STEPS)
+    # Wrapped rather than printed flat: one over-wide line drags the whole
+    # block sideways in a terminal, which is the readability defect the
+    # Telegram renderer folds to 46 columns to avoid.
+    indent = " " * (6 + width + 2)
+    for label, what in UNCOVERED_STEPS:
+        wrapped = textwrap.wrap(what, width=72 - width)
+        out.append(f"      {label:<{width}}  {wrapped[0]}")
+        out.extend(f"{indent}{line}" for line in wrapped[1:])
+    out += [
+        "",
+        "  This sweep is /post-branch's FIRST step, not a substitute for it.",
+        "  Invoke the skill — a hand walk is not the walk.",
+    ]
+    return out
+
+
+def render(
+    results: Sequence[CheckResult], *, show_uncovered: bool = True
+) -> tuple[list[str], int]:
     out = ["post_branch_checks — mechanical sweep", ""]
     total = 0
     for r in results:
@@ -889,6 +945,8 @@ def render(results: Sequence[CheckResult]) -> tuple[list[str], int]:
         "  automatic edit — a false positive costs a glance, a silent miss ships a",
         "  doc that reads as complete.",
     ]
+    if show_uncovered:
+        out += uncovered_notice()
     return out, total
 
 
@@ -929,7 +987,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         except OSError as exc:
             print(f"post_branch_checks: {exc}", file=sys.stderr)
             return 2
-        lines, total = render([sensitive_text_result(texts)])
+        # `--text` is a focused pre-flip screen of one composed string, not the
+        # branch walk — it runs alone and needs no git surface, so the step
+        # list would be noise at the one moment the operator is triaging
+        # seconds before a visibility flip.
+        lines, total = render([sensitive_text_result(texts)], show_uncovered=False)
         for line in lines:
             print(line)
         return 0 if (args.exit_zero or total == 0) else 1
