@@ -12,6 +12,7 @@ hold one contract.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,70 @@ ALLOWED_SCOPES = ("pair", "agg")
 ALLOWED_SPOT_SOURCES = ("printed", "axis")
 _SPOT_DEVIATION_FRAC = 0.10
 _MS_PER_HOUR = 3_600_000
+
+# ST74. `window` is dimension 5 of the dedup key below, so it decides whether two
+# captures SUPERSEDE each other or coexist. Vision reads it off the chart as free text and
+# returns "1 day" where another panel of the same thing returns "1d" -- two keys, two
+# surviving snapshots, both presented as if they were different windows.
+#
+# ⚠ Deliberately CONSERVATIVE: this collapses FORMAT variants of one value, never unit
+# EQUIVALENCES. "24h" and "1d" name the same span and are left distinct, because the
+# capture set really does grab both and merging them would silently drop one panel's read
+# -- the failure this fixes, in the opposite direction. Anything unrecognised passes
+# through case- and whitespace-folded, so it still dedups against itself and never merges
+# with something else.
+_WINDOW_RE = re.compile(r"^(?P<n>\d+)\s*(?P<unit>[a-z]+)$")
+_WINDOW_UNITS = {
+    "m": "m",
+    "min": "m",
+    "mins": "m",
+    "minute": "m",
+    "minutes": "m",
+    "h": "h",
+    "hr": "h",
+    "hrs": "h",
+    "hour": "h",
+    "hours": "h",
+    "d": "d",
+    "day": "d",
+    "days": "d",
+    "w": "w",
+    "wk": "w",
+    "wks": "w",
+    "week": "w",
+    "weeks": "w",
+    "mo": "mo",
+    "mon": "mo",
+    "month": "mo",
+    "months": "mo",
+    "y": "y",
+    "yr": "y",
+    "yrs": "y",
+    "year": "y",
+    "years": "y",
+}
+
+
+def normalize_window(window: object) -> str:
+    """Canonical dedup token for a free-text `window`. Never raises.
+
+    Bare "m" stays "m" and is NOT resolved to minutes or months: the two are genuinely
+    ambiguous in this corpus and guessing would merge unrelated snapshots, which is the
+    class of bug this function exists to prevent rather than to trade sideways.
+    """
+    if window is None:
+        return ""
+    folded = " ".join(str(window).strip().lower().split())
+    if not folded:
+        return ""
+    match = _WINDOW_RE.match(folded)
+    if match is None:
+        return folded
+    unit = _WINDOW_UNITS.get(match.group("unit"))
+    if unit is None:
+        return folded
+    return f"{int(match.group('n'))}{unit}"
+
 
 _REQUIRED_KEYS = {
     "schema",
@@ -195,7 +260,7 @@ def load_external_state(
 ) -> tuple[ExternalState | None, list[str]]:
     """(state, notes) for one symbol. Notes are UNPREFIXED (bundle adds it).
 
-    Latest fresh snapshot per (source, venue, scope, panel, window) —
+    Latest fresh snapshot per (source, venue, scope, panel, normalized window) —
     Binance-pair vs exchange-aggregated vs Hyperliquid snapshots of the
     same panel+window coexist rather than clobbering each other; absent
     dir or no files for this symbol -> (None, []) silently (feature is
@@ -238,7 +303,7 @@ def load_external_state(
             str(data.get("venue") or ""),
             str(data["scope"] or ""),
             str(data["panel"]),
-            str(data["window"] or ""),
+            normalize_window(data["window"]),
         )
         kept = fresh.get(key)
         if kept is None or captured > int(kept["captured_at_ms"]):
