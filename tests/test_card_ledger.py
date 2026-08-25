@@ -40,6 +40,7 @@ def _final(verdict: str = "TRADE", horizon: str = "intraday") -> FinalCard:
         capital_used=10_000.0,
         capital_source="config",
         rr_tp1=1.5,
+        rr_tp1_net=1.43,
         warnings=[],
         veto_reasons=[] if verdict != "VETOED" else ["x"],
         state_digest="d" * 64,

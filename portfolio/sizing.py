@@ -130,6 +130,44 @@ def risk_per_unit(entry: float, stop: float) -> float:
     return abs(entry - stop)
 
 
+# Round-trip cost constants. Measured and cross-verified two disjoint ways on
+# 2026-08-14: back-solving from all 940 post-parity loss rows returns exactly
+# 7.000 bps on 663 of them (mean 6.929, sd 0.561), and `config/strategy_params.toml`
+# carries `fee_pct = 0.0005` plus `slippage_bps = 2.0` — the same 7 bps.
+DEFAULT_FEE_PCT = 0.000_5
+DEFAULT_SLIPPAGE_PCT = 0.000_2
+
+
+def round_trip_drag_r(
+    entry: float,
+    stop: float,
+    *,
+    fee_pct: float = DEFAULT_FEE_PCT,
+    slippage_pct: float = DEFAULT_SLIPPAGE_PCT,
+) -> float:
+    """Round-trip fee + slippage cost of one trade, in R.
+
+    ``2 × (fee + slippage) × entry / |entry − stop|`` — the drag that
+    `analytics.backtest.engine.Trade.pnl_r` has subtracted since cost parity, and
+    that `analytics.signal.outcome_backfill._net_outcome_r` and
+    `portfolio.replay.restate_gross_r` each re-spell. It lives here so a fourth
+    consumer imports it instead of adding a fourth spelling — the failure mode the
+    powered-null family reached six sites by repeating.
+
+    Because the drag carries ``entry / risk`` it is *inversely* proportional to
+    stop width, so a narrow stop pays far more of it in R. That is what makes a
+    GROSS RR floor pass exactly the trades it should reject.
+
+    Funding is deliberately excluded: it depends on hold time, which a planned
+    trade does not have yet. A zero-risk trade returns 0.0 — costs in R are
+    undefined when nothing is risked, the resolver's own convention.
+    """
+    risk = abs(entry - stop)
+    if risk <= 0.0:
+        return 0.0
+    return 2.0 * (fee_pct + slippage_pct) * entry / risk
+
+
 def position_size(risk_capital: float, entry: float, stop: float) -> float:
     """Units = risk_capital / |entry − stop| (0.0 when risk is undefined)."""
     rpu = risk_per_unit(entry, stop)

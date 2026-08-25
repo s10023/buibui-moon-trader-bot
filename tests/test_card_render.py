@@ -40,6 +40,7 @@ def _final(verdict: str, **card_overrides: Any) -> FinalCard:
         capital_used=10_000.0 if verdict == "TRADE" else None,
         capital_source="config" if verdict == "TRADE" else None,
         rr_tp1=1.5 if verdict != "NO_TRADE" else None,
+        rr_tp1_net=1.43 if verdict == "TRADE" else None,
         warnings=["open risk approximated as one r_base per open position"],
         veto_reasons=["SL must be below entry for a long"]
         if verdict == "VETOED"
@@ -126,3 +127,18 @@ def test_render_omits_the_capital_note_when_absent() -> None:
     out = render_card(final)
     assert "% of capital" not in out
     assert "risk $25.00 (0.25%)" in out
+
+
+class TestNetRRIsVisible:
+    """ST93: the gross figure is the one that cleared a floor it should not have.
+    A corrected number that never reaches the operator's eye changes no decision
+    — the same reason the rendering-debt surfaces keep being found green."""
+
+    def test_rr_line_shows_net_beside_gross(self) -> None:
+        out = render_card(_final("TRADE"))
+        assert "RR(tp1) 1.50 (net 1.43)" in out
+
+    def test_no_net_suffix_when_the_net_number_is_absent(self) -> None:
+        """A veto nulls both, and '(net ?)' would read as a computed value."""
+        out = render_card(_final("VETOED"))
+        assert "(net" not in out

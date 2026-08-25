@@ -115,6 +115,11 @@ class Trade:
             raw_r = (self.exit_price - self.entry_price) / risk
         else:
             raw_r = (self.entry_price - self.exit_price) / risk
+        # This is the ORIGIN of the round-trip drag; `portfolio.sizing.
+        # round_trip_drag_r` is the shared spelling every other consumer now
+        # imports. It deliberately does NOT delegate: that helper combines the
+        # two rates before multiplying, which is not bit-identical to the split
+        # form below, and every golden in `tests/fixtures/` was generated here.
         fee_drag_r = 2.0 * self.fee_pct * self.entry_price / risk
         slippage_drag_r = 2.0 * self.slippage_pct * self.entry_price / risk
         return raw_r - fee_drag_r - slippage_drag_r - self.funding_r

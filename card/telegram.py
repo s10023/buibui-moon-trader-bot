@@ -56,6 +56,8 @@ def _number_rows(final: FinalCard) -> list[str]:
         # Values are printed as the card states them; rounding here would invent
         # precision the card never claimed.
         rr = f"   RR {final.rr_tp1:.2f}" if final.rr_tp1 is not None else ""
+        if rr and final.rr_tp1_net is not None:
+            rr = f"{rr} (net {final.rr_tp1_net:.2f})"
         rows.append(f"{'ENTRY':<{_LABEL}}{card.entry}")
         rows.append(f"{'STOP':<{_LABEL}}{card.sl}{rr}")
         for i, tp in enumerate((card.tp1, card.tp2, card.tp3), start=1):

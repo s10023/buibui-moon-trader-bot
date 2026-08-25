@@ -544,3 +544,42 @@ class TestValidUntilExpiry:
         final = _post(obj, _state_for_post(), generated_at_ms=self._GEN_MS)
         assert final.verdict == "VETOED"
         assert any("valid_until_utc" in r for r in final.veto_reasons)
+
+
+class TestNetRRFloor:
+    """ST93 — `min_rr` was a GROSS floor with no cost term, so a tight-stop card
+    cleared the hard rule while being negative-EV at its own first target. The
+    bias runs ONE way: it only ever passed trades that should fail, and it bit
+    hardest exactly where stops were tightest.
+    """
+
+    def test_gross_pass_net_fail_vetoes(self) -> None:
+        # 0.5% stop, gross RR 1.10 → drag 0.28R → net 0.82
+        final = _post(_trade_obj(sl=99.5, tp1=100.55), _state_for_post())
+        assert final.verdict == "VETOED"
+        assert any("min_rr" in r for r in final.veto_reasons)
+
+    def test_the_veto_names_the_net_number(self) -> None:
+        """A reason quoting the gross number would send the operator to look at
+        a figure that clears the floor it is being vetoed by."""
+        final = _post(_trade_obj(sl=99.5, tp1=100.55), _state_for_post())
+        reason = next(r for r in final.veto_reasons if "min_rr" in r)
+        assert "0.82" in reason
+
+    def test_same_tight_stop_clears_when_the_net_number_clears(self) -> None:
+        """Scoping proof: the veto is the NET floor, not a blanket rule on tight
+        stops. Same 0.5% stop, gross RR 1.40 → net 1.12."""
+        final = _post(_trade_obj(sl=99.5, tp1=100.70), _state_for_post())
+        assert final.verdict == "TRADE"
+
+    def test_both_numbers_are_emitted(self) -> None:
+        """Gross stays on the card: dropping it would make every historical
+        `rr_tp1` in `ai-cards.jsonl` incomparable to the new rows."""
+        final = _post(_trade_obj(), _state_for_post())  # 2% stop, gross 1.5
+        assert final.rr_tp1 == pytest.approx(1.5)
+        assert final.rr_tp1_net == pytest.approx(1.43)
+
+    def test_net_is_nulled_alongside_gross_on_an_invalid_stop(self) -> None:
+        final = _post(_trade_obj(sl=101.0), _state_for_post())
+        assert final.rr_tp1 is None
+        assert final.rr_tp1_net is None

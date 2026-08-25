@@ -42,6 +42,7 @@ import pandas as pd
 from analytics.backtest.fills import CrossedWhen, gap_fill_price
 from analytics.data_store import get_funding_rates, get_ohlcv
 from analytics.signal._common import parse_timeframe_secs, realised_rr
+from portfolio.sizing import round_trip_drag_r
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,9 @@ def _net_outcome_r(
     risk = abs(entry - sl_price)
     if risk <= 0.0:
         return raw_r
-    drag_r = 2.0 * (fee_pct + slippage_pct) * entry / risk
+    drag_r = round_trip_drag_r(
+        entry, sl_price, fee_pct=fee_pct, slippage_pct=slippage_pct
+    )
     funding_r = 0.0
     if funding_times is not None and funding_rates is not None:
         lo_i = int(np.searchsorted(funding_times, entry_ts, side="right"))

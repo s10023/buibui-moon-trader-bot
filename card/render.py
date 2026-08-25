@@ -16,6 +16,10 @@ def render_card(final: FinalCard) -> str:
         lines.append(f"  gate: {card.no_trade_reason}")
     if card.verdict == "TRADE":
         rr = f"{final.rr_tp1:.2f}" if final.rr_tp1 is not None else "?"
+        # The net figure is the one the floor gates on, so it has to be read
+        # beside the gross one rather than only reaching the JSONL ledger.
+        if final.rr_tp1_net is not None:
+            rr = f"{rr} (net {final.rr_tp1_net:.2f})"
         lines.append(
             f"{card.direction} · entry {card.entry} · SL {card.sl} · RR(tp1) {rr}"
         )

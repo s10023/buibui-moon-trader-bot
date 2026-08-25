@@ -512,3 +512,35 @@ def test_round_to_tick_realistic_quote_is_not_over_precise(
             f"{got_decimals} decimal places, more than the tick's {decimals} — "
             "Binance would reject this as -1111"
         )
+
+
+from portfolio.sizing import (  # noqa: E402
+    DEFAULT_FEE_PCT,
+    DEFAULT_SLIPPAGE_PCT,
+    round_trip_drag_r,
+)
+
+
+def test_round_trip_drag_r_matches_the_engine_arithmetic() -> None:
+    """2 × (fee + slippage) × entry / risk — one spelling for every cost site."""
+    # 2% stop at the repo's measured 7 bps round trip (fee 5 + slippage 2)
+    assert round_trip_drag_r(100.0, 98.0) == pytest.approx(0.07)
+    assert round_trip_drag_r(
+        100.0, 98.0, fee_pct=DEFAULT_FEE_PCT, slippage_pct=DEFAULT_SLIPPAGE_PCT
+    ) == pytest.approx(0.07)
+
+
+def test_round_trip_drag_r_is_inverse_in_stop_width() -> None:
+    """The drag concentrates on tight stops — halving the stop doubles the cost in R.
+
+    This is the whole reason a GROSS RR floor passes exactly the trades it
+    should reject, and why the bias runs one way.
+    """
+    wide = round_trip_drag_r(100.0, 98.0)  # 2.0% stop
+    tight = round_trip_drag_r(100.0, 99.0)  # 1.0% stop
+    assert tight == pytest.approx(2.0 * wide)
+
+
+def test_round_trip_drag_r_zero_risk_is_zero() -> None:
+    """Costs in R are undefined when nothing is risked — the resolver's convention."""
+    assert round_trip_drag_r(100.0, 100.0) == 0.0
