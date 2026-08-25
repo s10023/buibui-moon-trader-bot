@@ -270,6 +270,13 @@ Per card:
    Real capital is smaller than the old constant (~USD 1,200 vs USD 10,000 measured),
    so the sub-lot veto is now common, not a corner case — expect BTCUSDT
    VETOes on stops wider than roughly 2.7% at that equity, not a bug.
+
+   ⚠ **A second, independent stop-width veto now exists: `min_rr` gates on RR
+   NET of round-trip cost.** A 2% stop pays 0.07R and a 0.5% stop 0.28R, so a
+   card can clear gross 1.10 and veto at 0.82 net. Both numbers print. It bites
+   the OPPOSITE way to the sub-lot wall above — that one vetoes WIDE stops, this
+   one TIGHT — so a card squeezed between them has no legal stop, and the answer
+   is a smaller symbol, never a re-run.
 4. **`valid_until_utc` is now a VETO when it does not postdate the card's own
    generation time** (or is unparseable). Checked against `generated_at_ms`,
    not wall-clock now, so re-reading an old card does not retroactively void

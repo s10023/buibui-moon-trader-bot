@@ -274,6 +274,14 @@ the card's own `generated_at_ms`). Wrapped by
   router round identically — and `risk_usd` / `risk_frac` are restated from the ROUNDED
   size, so the printed risk is the risk actually taken. A sub-lot budget vetoes; an
   unreachable exchange degrades to an unrounded quantity **with** a warning.
+- **The `min_rr` floor is NET of cost.** `rr_tp1_net = rr_tp1 −
+  round_trip_drag_r(entry, sl)`, and the veto names both numbers. The drag carries
+  `entry / risk`, so it is *inversely* proportional to stop width — a 2% stop pays
+  0.07R, a 0.5% stop pays 0.28R. A gross floor therefore passed exactly the trades it
+  should reject, and the bias ran ONE way. Gating on net strictly tightens it: net <
+  gross always. `round_trip_drag_r` (`portfolio/sizing.py`) is the ONE spelling —
+  `Trade.pnl_r` is its origin and deliberately does NOT delegate, because it uses the
+  split form, which is not bit-identical in floating point and generated every golden.
 - **Capital.** `portfolio.sizing.resolve_capital` returns live account equity when
   available and the configured `[portfolio] capital` otherwise. Every card records
   `capital_used` / `capital_source`, because a bare `risk_frac` is uninterpretable after the
