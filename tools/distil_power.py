@@ -135,7 +135,30 @@ def price(args: argparse.Namespace) -> list[str]:
             )
         if args.corpus_best is not None:
             out.append(f"  corpus best       {args.corpus_best:+.4f}")
-            if args.sd is not None and sr * args.sd > args.corpus_best:
+            if args.sd is None:
+                # `--corpus-best` is denominated in EFFECT units and `sr` in
+                # Sharpe, so without `--sd` there is no conversion between them
+                # and the comparison the flag was passed FOR cannot run.
+                #
+                # Saying so in the verdict is the whole point. G3 MANDATES this
+                # tool, so a bare REACHABLE here is indistinguishable from one
+                # that actually cleared the corpus best -- did-not-compare reads
+                # as passed, which is the failure mode the gate exists to stop.
+                out.append(
+                    "  VERDICT           REACHABLE, but the corpus best was"
+                    " NOT COMPARED"
+                )
+                out.append(
+                    "                    --sd is required to convert the required"
+                )
+                out.append(
+                    "                    Sharpe into effect units. Without it this"
+                )
+                out.append(
+                    "                    run cannot say whether the bar exceeds the"
+                )
+                out.append("                    corpus best. Re-run with --sd.")
+            elif sr * args.sd > args.corpus_best:
                 out.append(
                     "  VERDICT           REACHABLE, but the bar EXCEEDS the corpus best"
                 )

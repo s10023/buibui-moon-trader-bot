@@ -273,3 +273,101 @@ def test_runs_as_a_bare_script_with_no_pythonpath() -> None:
     assert "ModuleNotFoundError" not in result.stderr, result.stderr
     assert "Traceback" not in result.stderr, result.stderr
     assert result.returncode == 0, result.stderr
+
+
+# --- ST76: `--corpus-best` without `--sd` ------------------------------------
+#
+# The comparison is only defined when `--sd` converts the required Sharpe into
+# effect units. Before ST76 the missing-`--sd` case fell through to the same
+# bare "VERDICT REACHABLE" line as a genuine pass, so a run that never compared
+# anything was indistinguishable from one that cleared the corpus best -- on a
+# tool the G3 gate MANDATES running.
+
+_BARE_REACHABLE = "  VERDICT           REACHABLE"
+
+
+def _verdict_lines(out: str) -> list[str]:
+    return [ln for ln in out.splitlines() if "VERDICT" in ln]
+
+
+def test_corpus_best_without_sd_never_reads_as_a_bare_reachable(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """did-not-compare must not render as passed."""
+    code = distil_power.main(
+        [
+            "--units",
+            "per_trade",
+            "--n-obs",
+            "4000",
+            "--n-trials",
+            "16",
+            "--sr-variance",
+            "0.05",
+            "--corpus-best",
+            "1.196",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    # The corpus best is still echoed -- it was passed, so it is reported.
+    assert "corpus best" in out
+    # ...but the verdict must NOT be the bare pass line.
+    assert _verdict_lines(out) == [
+        "  VERDICT           REACHABLE, but the corpus best was NOT COMPARED"
+    ]
+    assert _BARE_REACHABLE not in out.splitlines()
+    # It must name the missing input, not merely hedge.
+    assert "--sd" in out
+
+
+def test_corpus_best_with_sd_still_reads_bare_reachable_when_cleared(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The both-flags 'bar is within reach' verdict is unchanged by ST76."""
+    code = distil_power.main(
+        [
+            "--units",
+            "per_trade",
+            "--n-obs",
+            "40000",
+            "--n-trials",
+            "1",
+            "--sr-variance",
+            "0.01",
+            "--sd",
+            "1.2",
+            "--corpus-best",
+            "1.196",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert _verdict_lines(out) == [_BARE_REACHABLE]
+
+
+def test_corpus_best_with_sd_still_flags_a_bar_exceeding_it(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The both-flags 'bar EXCEEDS the corpus best' verdict is unchanged by ST76."""
+    code = distil_power.main(
+        [
+            "--units",
+            "per_trade",
+            "--n-obs",
+            "4000",
+            "--n-trials",
+            "320",
+            "--sr-variance",
+            "0.5",
+            "--sd",
+            "1.2",
+            "--corpus-best",
+            "0.001",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert _verdict_lines(out) == [
+        "  VERDICT           REACHABLE, but the bar EXCEEDS the corpus best"
+    ]
