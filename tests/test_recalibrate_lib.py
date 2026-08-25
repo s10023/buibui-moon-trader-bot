@@ -1,5 +1,6 @@
 """Tests for analytics/recalibrate_lib.py."""
 
+import statistics
 import textwrap
 from pathlib import Path
 
@@ -12,8 +13,10 @@ from analytics.data_store import (
     init_schema,
 )
 from analytics.recalibrate_lib import (
+    MIN_DSR_SD,
     PruneThresholdExceeded,
     UnratedPruneThresholdExceeded,
+    _sharpe,
     compute_directional_ratings,
     compute_dsr_ratings,
     compute_recalibrated_ratings,
@@ -1495,6 +1498,109 @@ class TestComputeDsrRatings:
         conn.close()
         assert "bos" in result
         assert "fvg" not in result
+
+
+# A degenerate cell in the `bos/1d/long` shape: 33 trades that all resolved at
+# ~ -1.0075R, sd ~ 0.0005. Its Sharpe is ~ -2000, which is not a signal — it is a
+# cell where every trade hit the same stop. See ST66 /
+# docs/audits/2026-08-24-st63-occurrence-dump-power-pricing.md.
+_DEGENERATE_STREAM = [("long", -1.007), ("long", -1.008)] * 16 + [("long", -1.0075)]
+
+
+class TestDsrDispersionFloor:
+    """MIN_DSR_SD gates dispersion beside MIN_DSR_TRADES' count floor.
+
+    Without it a cell whose trades all resolved at the same R clears the count
+    floor, earns a Sharpe in the hundreds, and joins the trial family that every
+    other cell is deflated against — measured at 1,766 cells, that moves the
+    family's sr_variance from 0.1022 to 9.79e26.
+    """
+
+    def _conn(self) -> duckdb.DuckDBPyConnection:
+        conn = duckdb.connect(":memory:")
+        init_schema(conn)
+        return conn
+
+    def _healthy_family(self, conn: duckdb.DuckDBPyConnection) -> None:
+        """Five dispersed 30-trade cells, so the trial family has real variance."""
+        for k, wins in enumerate([10, 12, 14, 16, 18]):
+            stream = [("long", 1.0)] * wins + [("long", -1.0)] * (30 - wins)
+            _seed_cell(conn, f"r{k + 2}", f"s{k}", "1h", stream)
+
+    # -- the floor itself ---------------------------------------------------
+
+    def test_degenerate_dispersion_has_no_sharpe(self) -> None:
+        returns = [r for _, r in _DEGENERATE_STREAM]
+        assert statistics.stdev(returns) < MIN_DSR_SD
+        assert _sharpe(returns) is None
+
+    def test_zero_dispersion_still_has_no_sharpe(self) -> None:
+        """The pre-ST66 behaviour is preserved, not replaced."""
+        assert _sharpe([-1.0] * 30) is None
+
+    def test_dispersed_returns_keep_their_sharpe(self) -> None:
+        """Specificity control — the floor must not be blanket.
+
+        Without this a `return None` would satisfy every other test here.
+        """
+        returns = [r for _, r in _POS_STREAM]
+        assert statistics.stdev(returns) > MIN_DSR_SD
+        sr = _sharpe(returns)
+        assert sr is not None
+        assert sr == pytest.approx(0.3476, abs=1e-3)
+
+    def test_floor_is_tunable_and_recovers_the_old_behaviour(self) -> None:
+        """Proves the parameter reaches, and documents what it changed."""
+        returns = [r for _, r in _DEGENERATE_STREAM]
+        sr = _sharpe(returns, min_sd=0.0)
+        assert sr is not None
+        assert sr < -1000  # the un-floored Sharpe this cell used to contribute
+
+    # -- what the floor is FOR: family poisoning ----------------------------
+
+    def test_degenerate_cell_does_not_poison_the_trial_family(self) -> None:
+        """A healthy cell's DSR must not move because a degenerate cell exists.
+
+        This is the whole point of the floor. Un-floored, the degenerate cell's
+        Sharpe (~ -2000) detonates the family variance every other cell is
+        deflated against.
+        """
+        clean = self._conn()
+        _seed_cell(clean, "r1", "fvg", "1h", _POS_STREAM)
+        self._healthy_family(clean)
+        dsr_clean = compute_dsr_ratings(clean)["fvg"]["1h"]["combined"]
+        clean.close()
+
+        poisoned = self._conn()
+        _seed_cell(poisoned, "r1", "fvg", "1h", _POS_STREAM)
+        self._healthy_family(poisoned)
+        _seed_cell(poisoned, "rdeg", "bos", "1d", _DEGENERATE_STREAM)
+        dsr_poisoned = compute_dsr_ratings(poisoned)["fvg"]["1h"]["combined"]
+        poisoned.close()
+
+        assert dsr_clean is not None and dsr_poisoned is not None
+        assert dsr_poisoned == pytest.approx(dsr_clean)
+
+    def test_the_degenerate_cell_is_itself_annotated_none(self) -> None:
+        """It is excluded from the family AND unscored — same as the count floor."""
+        conn = self._conn()
+        _seed_cell(conn, "r1", "fvg", "1h", _POS_STREAM)
+        self._healthy_family(conn)
+        _seed_cell(conn, "rdeg", "bos", "1d", _DEGENERATE_STREAM)
+        result = compute_dsr_ratings(conn)
+        conn.close()
+        assert result["bos"]["1d"]["combined"] is None
+        assert result["bos"]["1d"]["long"] is None
+
+    def test_min_sd_threads_through_compute_dsr_ratings(self) -> None:
+        """min_sd=0.0 restores the pre-ST66 result, so the fix is attributable."""
+        conn = self._conn()
+        _seed_cell(conn, "r1", "fvg", "1h", _POS_STREAM)
+        self._healthy_family(conn)
+        _seed_cell(conn, "rdeg", "bos", "1d", _DEGENERATE_STREAM)
+        result = compute_dsr_ratings(conn, min_sd=0.0)
+        conn.close()
+        assert result["bos"]["1d"]["combined"] is not None
 
 
 # ---------------------------------------------------------------------------

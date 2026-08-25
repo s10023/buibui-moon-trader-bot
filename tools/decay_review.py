@@ -17,13 +17,19 @@ rises, so comparing the best Sharpe against a bar computed at the *median* n mix
 two different bars and can report a gate as reachable while every cell fails it.
 The printed median-n bar is a scale stamp only — never a verdict.
 
-Two reading traps this tool cannot fix, both live:
+One reading trap this tool cannot fix:
 
-* ``MIN_DSR_TRADES`` gates **count, not dispersion** — ``_sharpe`` rejects only
-  ``sd == 0.0`` exactly, so a degenerate cell can clear the floor and inflate the
-  trial-family variance by orders of magnitude.
 * Absence from the suspect list is **not** a clean bill. Only a cell in neither
   the suspect nor the unscoreable list has passed anything.
+
+**The dispersion trap is CLOSED (ST66).** ``MIN_DSR_TRADES`` used to gate count
+alone, so a cell whose trades all resolved at the same R cleared the floor and
+joined the trial family carrying a Sharpe in the hundreds. ``MIN_DSR_SD`` now
+gates dispersion beside it, and this tool inherits the fix because it imports
+``_sharpe`` rather than re-deriving it. Measured on the ``off`` scope at the fix:
+one cell (``bos/1d`` long, n=36, sd 0.00218, Sharpe −461.3) was taking the
+long-scope family variance from **0.0181 to 3937.38** and zeroing all 18 scoreable
+long DSRs — so a cell reading 0.0000 here was reporting the artifact, not the cell.
 
 **Scope resolution is a third trap, fixed 2026-08-13.** ``day_filter`` and
 ``adr_suppress_threshold`` must travel together: a bare ``--day-filter`` leaves

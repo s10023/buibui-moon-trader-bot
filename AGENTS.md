@@ -665,14 +665,36 @@ deliberate sweep); and **every decay review before 2026-08-13 audited a pool fro
 2026-04-09** — the verdict direction survived, which is why it stood, but every *named cell*
 was wrong. The drift began in a gitignored driver → [[scratch-dir-is-for-output-not-code]].
 
-**`MIN_DSR_TRADES` gates COUNT, not DISPERSION.** `_sharpe` rejects only `sd == 0.0`
-exactly, so `bos/1d/long` (36 trades all ≈ −1.0076R, sd 0.0022, **Sharpe −461**) clears the
-floor and inflates trial-family variance **0.0348 → 1729.89**. A/B'd against a dispersion
-floor, production DSR did not move — a latent fragility rather than a cause of the
-star-ratings null. ⚠ **That cell's numbers PRE-DATE the 2026-08-18 `bos` causality fix** and
-were produced by a detector that stamped every signal at a bar it could not yet know about;
-no config declares `bos` on `1d`, so nothing has re-run them. The *mechanism* stands — the
-dispersion floor is still absent — but treat the named cell as unverified.
+**The DSR family needs TWO floors, and `MIN_DSR_TRADES` is only the count one.**
+`MIN_DSR_SD = 0.05` (ST66, `analytics/recalibrate_lib.py`) gates dispersion beside it: a cell
+whose trades all resolved at the same R clears a count floor, then earns a Sharpe in the
+hundreds because the denominator is ~0. That number is not a signal — it says every trade hit
+the same stop. Both floors exclude a cell from the trial family AND leave it unscored, and
+`_sharpe` still rejects `sd == 0.0` under `min_sd=0.0`, so passing `0.0` reproduces the
+pre-ST66 result exactly rather than dividing by zero. `tools/decay_review.py` imports
+`_sharpe`, so it inherits the floor; `tools/multi_regime_power.py` builds its OWN family and
+excludes the cell explicitly on purpose.
+
+⚠ **"A/B'd against a dispersion floor, production DSR did not move" is FALSIFIED — this file
+carried that line, and it was the reason the floor was left out.** Measured on the live DB at
+the fix (`day_filter=off`): one degenerate cell, `bos/1d` long, n=36, sd **0.00218**, Sharpe
+**−461.3**, took the long-scope family variance from **0.0181 to 3937.38 — a factor of
+217,405** and **zeroed all 18 scoreable long-scope DSRs**, `fib_golden_zone/4h/long` among
+them at a true **0.9164**. The `tue_thu` scope and both non-long scopes hold no degenerate cell
+and did not move at all, which is how a small-family A/B reads "no effect": **the defect is
+one cell wide and takes a whole direction scope with it.** Read a DSR of exactly 0.0000 in
+any pre-ST66 report as *possibly the artifact*, not the cell.
+
+**No rating and no gate flipped.** The recalibrate DSR annotates; the live signal gate never
+reads it, `compute_recalibrated_ratings` does not consume it, and every recovered value stays
+under `DSR_SUSPECT_THRESHOLD` (0.95), so the suspect list is unchanged. The consumer that did
+see it is `card/state.py` → `card/prompt.py`, where **`dsr < 0.95` reads as "weak"** — so the
+AI card was told every long cell was weak on the strength of one cell. ⚠ **That cell's numbers
+PRE-DATE the 2026-08-18 `bos` causality fix and nothing has re-run them** (no config declares
+`bos` on `1d`), which is why the live pool still reproduces the filed −461 to the digit; the
+ST63 occurrence dump re-derived the signature on post-fix data at −445 to −506, so the
+mechanism is verified in both eras. A stale, un-rerunnable cell poisoning the live family is
+an argument for the floor, not against it.
 
 **Detectors must be CAUSAL, and `tests/test_lookahead.py` is the gate.** It feeds each
 `DETECTOR_REGISTRY` entry the series truncated at `t` and asserts the signals emitted *at*

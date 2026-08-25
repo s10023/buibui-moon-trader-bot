@@ -26,6 +26,19 @@ DSR_SUSPECT_THRESHOLD = 0.95
 # every cell's DSR to ~0. Matches audit_guard.DEFAULT_MIN_N / sweep_guard's floor.
 MIN_DSR_TRADES = 30
 
+# Minimum per-trade R dispersion for a cell to receive a DSR and to join the
+# trial family. MIN_DSR_TRADES gates COUNT, and count alone is not enough: a cell
+# whose trades all resolved at the same R clears it, then earns a Sharpe in the
+# hundreds because the denominator is ~0. That Sharpe is not a signal — it says
+# every trade hit the same stop. Measured over ST63's 1,766-cell family, 105
+# cells (5.9%) sit under this floor and take the family's sr_variance from
+# 0.1022 to 9.79e26, twenty-seven orders of magnitude, which makes any DSR over
+# the raw family meaningless rather than merely noisy. The floor is insensitive
+# between 0.05 and 0.10 (both leave 702 cells), so the threshold is not doing the
+# work — excluding the degenerate tail is.
+# → docs/audits/2026-08-24-st63-occurrence-dump-power-pricing.md
+MIN_DSR_SD = 0.05
+
 
 def _build_run_filter(
     day_filter: str | None,
@@ -360,13 +373,18 @@ def compute_directional_ratings(
     return result
 
 
-def _sharpe(returns: list[float]) -> float | None:
-    """Per-trade Sharpe ``mean / stdev(ddof=1)``. None when undefined (<2 trades
-    or zero dispersion) — such a cell cannot be deflated and is annotated NULL."""
+def _sharpe(returns: list[float], *, min_sd: float = MIN_DSR_SD) -> float | None:
+    """Per-trade Sharpe ``mean / stdev(ddof=1)``.
+
+    None when undefined (<2 trades) or when dispersion is below ``min_sd`` — such
+    a cell cannot be deflated and is annotated NULL. ``min_sd=0.0`` still rejects
+    exactly-zero dispersion, because that Sharpe does not exist rather than being
+    untrustworthy; pass it to reproduce the pre-ST66 result.
+    """
     if len(returns) < 2:
         return None
     sd = statistics.stdev(returns)
-    if sd == 0.0:
+    if sd == 0.0 or sd < min_sd:
         return None
     return statistics.fmean(returns) / sd
 
@@ -374,18 +392,21 @@ def _sharpe(returns: list[float]) -> float | None:
 def _scope_dsr(
     pools: dict[tuple[str, str], list[float]],
     min_trades: int,
+    min_sd: float = MIN_DSR_SD,
 ) -> dict[tuple[str, str], float | None]:
     """Deflated Sharpe per cell, deflated against the family of all cells' Sharpes.
 
     The trial family (N + variance) is the per-recalibrate-pass cell set for one
     direction scope — an **N-FLOOR** on the true search effort (spec §5): the real
     N spans every sweep that ever produced these runs, so this DSR is *optimistic*.
-    Only cells with ``>= min_trades`` scoreable trades (and a defined Sharpe) join
-    the family and receive a DSR; smaller / degenerate cells are annotated None so
-    their noisy Sharpe cannot poison the deflation benchmark (see MIN_DSR_TRADES).
+    A cell joins the family and receives a DSR only if it clears BOTH floors:
+    ``>= min_trades`` scoreable trades and ``>= min_sd`` dispersion. Cells failing
+    either are annotated None so their noisy or degenerate Sharpe cannot poison the
+    deflation benchmark (see MIN_DSR_TRADES and MIN_DSR_SD — count and dispersion
+    are separate failure modes, and the count floor does not imply the other).
     """
     sharpes = {
-        key: (_sharpe(rets) if len(rets) >= min_trades else None)
+        key: (_sharpe(rets, min_sd=min_sd) if len(rets) >= min_trades else None)
         for key, rets in pools.items()
     }
     family = [s for s in sharpes.values() if s is not None]
@@ -404,6 +425,7 @@ def compute_dsr_ratings(
     day_filter: str | None = None,
     adr_suppress_threshold: float | None = None,
     min_trades: int = MIN_DSR_TRADES,
+    min_sd: float = MIN_DSR_SD,
 ) -> dict[str, dict[str, dict[str, float | None]]]:
     """Return ``{strategy: {tf: {"combined"|"long"|"short": dsr}}}`` from per-trade R.
 
@@ -411,8 +433,9 @@ def compute_dsr_ratings(
     set the star ratings use (identical day_filter / ADR scoping), computes each cell's
     Sharpe, and deflates it against the per-pass cell family (see :func:`_scope_dsr`).
     A high-star / low-DSR cell is overfit-suspect. Cells/directions with fewer than
-    ``min_trades`` scoreable trades are annotated ``None`` (too noisy to deflate
-    reliably, and excluded from the family); ``{}`` when there are no runs or trades.
+    ``min_trades`` scoreable trades, or under ``min_sd`` dispersion, are annotated
+    ``None`` (too noisy or too degenerate to deflate reliably, and excluded from the
+    family); ``{}`` when there are no runs or trades.
     """
     run_ids = select_rated_run_ids(conn, day_filter, adr_suppress_threshold)
     if not run_ids:
@@ -438,9 +461,9 @@ def compute_dsr_ratings(
         elif direction == "short":
             shorts[cell].append(float(pnl_r))
 
-    dsr_combined = _scope_dsr(combined, min_trades)
-    dsr_long = _scope_dsr(longs, min_trades)
-    dsr_short = _scope_dsr(shorts, min_trades)
+    dsr_combined = _scope_dsr(combined, min_trades, min_sd)
+    dsr_long = _scope_dsr(longs, min_trades, min_sd)
+    dsr_short = _scope_dsr(shorts, min_trades, min_sd)
 
     result: dict[str, dict[str, dict[str, float | None]]] = {}
     for strategy, tf in combined:

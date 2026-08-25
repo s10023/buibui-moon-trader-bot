@@ -61,6 +61,31 @@ floor beside the count floor. It was A/B'd against production before and did not
 DSR, which is why it was left out — but that test was run on a small family, and the effect
 scales with family size.
 
+> ⚠ **Correction, 2026-08-25 (ST66, the floor as built).** The recommendation above was right
+> and shipped as `recalibrate_lib.MIN_DSR_SD = 0.05`. **The reason given for the earlier
+> A/B's null is wrong**, and the difference matters for where anyone looks next.
+>
+> The effect does **not** scale with family size. Re-measured on the live DB, production DSR
+> *does* move: on `day_filter=off` the long-scope family variance goes **0.0181 → 3937.38, a
+> factor of 217,405**, and all **18** scoreable long-scope DSRs read 0.0000 instead of their
+> real values (`fib_golden_zone/4h/long` is truly **0.9164**). `tue_thu` and both non-long
+> scopes moved by exactly nothing.
+>
+> ⚠ That last "nothing" is **arithmetic, not a null** — it needs no power and licenses no
+> research verdict. Those scopes contain **zero** cells under the floor (counted, not
+> estimated), so the floor provably cannot reach them and their family variance is identical
+> to every digit. Do not read it as "the defect was tested there and found absent."
+>
+> The cause is **one cell**, not 1,766 of them: `bos/1d` long, n=36, sd 0.00218, Sharpe
+> **−461.3**. A single degenerate cell is sufficient, because it enters the variance
+> quadratically and the honest Sharpes are all ≲0.53. That is why a small-family A/B read
+> "no effect" — not because the family was small, but because **whether the defect bites is a
+> property of the SCOPE, and the poisoned scope was one of six.** A next A/B must therefore
+> split by direction scope and day_filter; a pooled one can miss it entirely again.
+>
+> The 5.9%-of-cells framing above still describes this dump's family correctly. It just is not
+> what decides the production impact.
+
 ## The `bos/1d/long` cell is now VERIFIED post-fix
 
 `AGENTS.md` names `bos/1d/long` (36 trades, all ≈ −1.0076R, sd 0.0022, Sharpe −461) as the worked
