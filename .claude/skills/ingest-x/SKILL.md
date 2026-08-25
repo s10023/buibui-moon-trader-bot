@@ -464,8 +464,18 @@ is frozen. A claim that just restates one of these candlestick/structure pattern
 - Funding **carry** sleeve: audited, FAILS the gate → shelved.
 - Absolute **trend** (EWMAC): real but sub-gate (+0.36) → shelved as a diversifier.
 - Cross-sectional **XS momentum**: the gate-clearing **deploy core** (+1.375) — not novel.
+- **Coinbase premium** (H14): NO-EDGE — a genuinely NEW data source that still
+  found nothing. New information buys a test, never an edge.
+- **USD/JPY carry-unwind** (H15): NO-EDGE / INSUFFICIENT on every cell in every
+  panel; the second new source in a row to come back empty.
+- Spot-perp **CVD divergence**: all 10 pre-registered trials FAIL → shelved
+  (XS −0.147, PBO 0.849; TS +0.183, DSR 0.532). Decorrelated from the deploy
+  core, so the failure is missing signal rather than redundancy.
 
-**Parked / data-blocked:**
+**Parked / data-blocked — a GROUPING, not a verdict.** The enum is exactly
+`NOVEL` / `ALREADY-TESTED` / `FROZEN-CATEGORY` / `NOT-FALSIFIABLE`. Each item below
+still emits one of those four, named inline. `PARKED` and `DATA-BLOCKED` are **not**
+verdict values — `route_target` raises `ValueError: unroutable` if you emit one.
 
 - Price-distribution "candle outcome cone": parked (operator tool, not an edge).
 - Liquidity/liquidation heatmap (magnet levels): `NOVEL` in principle but **data-blocked**

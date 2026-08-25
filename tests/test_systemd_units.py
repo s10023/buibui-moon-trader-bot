@@ -222,3 +222,62 @@ def test_in_repo_paths_resolve(unit: Path) -> None:
                 )
                 continue
             assert (REPO / rel).exists(), f"{unit.name}: {key} points at missing {rel}"
+
+
+# --- ST77: the daily-check soft-fail contract ---------------------------------
+
+
+def _env(unit: Path) -> dict[str, str]:
+    """The unit's `Environment=` assignments, as a dict."""
+    out: dict[str, str] = {}
+    for _section, key, value in parse(unit):
+        if key != "Environment":
+            continue
+        name, _, val = value.partition("=")
+        out[name.strip()] = val.strip()
+    return out
+
+
+def test_daily_check_declares_its_soft_fail_code() -> None:
+    """`--exit-on-tier2` is only half the contract; the wrapper needs the other.
+
+    daily_check.py exits 2 for "tier 1 clear, tier 2 red". Without
+    SOFT_FAIL_RC=2 here, deploy/run-job.sh reads that as a failed job:
+    heartbeat suppressed, healthchecks /fail pinged, push titled FAILED. A
+    routine tier-2 red then looks exactly like a dead timer on the phone, which
+    is the confusion this unit's own TELEGRAM_ALWAYS comment exists to remove.
+
+    The two directives are pinned TOGETHER because either alone is incoherent:
+    the flag without the code pages daily, and the code without the flag
+    declares a soft exit the job can never produce.
+    """
+    unit = UNIT_DIR / "buibui-daily-check.service"
+    assert unit.exists(), "the daily-check unit vanished — this test is vacuous"
+
+    exec_starts = [v for _s, k, v in parse(unit) if k == "ExecStart"]
+    assert any("--exit-on-tier2" in v for v in exec_starts), (
+        "daily-check no longer opts into tier-2 exits; drop SOFT_FAIL_RC too"
+    )
+    assert _env(unit).get("SOFT_FAIL_RC") == "2", (
+        "buibui-daily-check.service must declare SOFT_FAIL_RC=2 so run-job.sh "
+        "reads a tier-2 red as success-with-warnings rather than FAILED"
+    )
+
+
+def test_no_other_unit_declares_a_soft_fail_code() -> None:
+    """Opt-in, and provably so.
+
+    argparse exits 2 on a USAGE error, so a soft code on signal-watch, xsmom or
+    backup would turn a broken invocation into a heartbeat. This is the
+    specificity control for the test above: without it, a blanket rollout of
+    SOFT_FAIL_RC would pass unnoticed.
+    """
+    offenders = {
+        unit.name: _env(unit)["SOFT_FAIL_RC"]
+        for unit in UNITS
+        if unit.name != "buibui-daily-check.service" and "SOFT_FAIL_RC" in _env(unit)
+    }
+    assert not offenders, (
+        f"SOFT_FAIL_RC is opt-in per job and only daily-check exits 2 by "
+        f"design; remove it from {offenders}"
+    )

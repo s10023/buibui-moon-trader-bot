@@ -121,6 +121,30 @@ tg_send() { # $1 = headline, $2 = body
         || true
 }
 
+# --- soft-fail dispatch -------------------------------------------------------
+# SOFT_FAIL_RC names ONE exit code this job uses for "success, with warnings".
+#
+# Opt-in per job, for exactly the reason TELEGRAM_ALWAYS is: a bare exit code is
+# not self-describing. argparse exits 2 on a USAGE error, so reading 2 as soft
+# for EVERY job would turn a broken `signal watch` invocation into a heartbeat --
+# the precise failure this wrapper exists to make loud.
+#
+# Why it exists: buibui-daily-check runs `daily_check.py --exit-on-tier2`, which
+# returns non-zero on a routine tier-2 red (chart-drops, freshness). Under the
+# old two-branch dispatch that suppressed the heartbeat, pinged /fail and titled
+# the push FAILED -- so a dead timer and a routine tier-2 nudge were identical on
+# the operator's phone. That defeats the heartbeat doctrine set out above: the
+# whole point of TELEGRAM_ALWAYS is that silence stays falsifiable, and a daily
+# false FAILED trains the reader to ignore the channel just as effectively.
+#
+# Losing this setting is LOUD, not silent -- the job reverts to paging FAILED.
+# That is the fail-safe direction, the same one the task-marks rule takes when it
+# reads a MISSING marker as overdue.
+soft_rc="${SOFT_FAIL_RC:-}"
+# A non-numeric value disables the branch rather than erroring `test -eq`.
+# Disabling is the safe direction: it can only make a job louder, never quieter.
+case "$soft_rc" in ''|*[!0-9]*) soft_rc="" ;; esac
+
 if [ "$rc" -eq 0 ]; then
     hc_ping ""
     # TELEGRAM_ALWAYS=1 turns "silence = healthy" into a POSITIVE heartbeat.
@@ -135,6 +159,17 @@ if [ "$rc" -eq 0 ]; then
         tg_send "buibui [$label] ok — $start_ts → $end_ts" \
             "$(tail -n 60 "$log")"
     fi
+elif [ -n "$soft_rc" ] && [ "$rc" -eq "$soft_rc" ]; then
+    # Success-with-warnings. The run COMPLETED, so the dead-man's-switch must see
+    # a healthy ping -- /fail here would mean "this job is not running", which is
+    # false and is what made a tier-2 red indistinguishable from a dead timer.
+    hc_ping ""
+    # Pushed unconditionally, NOT behind TELEGRAM_ALWAYS: a job only reaches this
+    # branch by opting in via SOFT_FAIL_RC, and it opted in precisely because the
+    # warning is worth reading. Same 60-line tail as the ok path, because the
+    # warning detail sits at the END of the report.
+    tg_send "buibui [$label] ok, warnings rc=$rc — $start_ts → $end_ts" \
+        "$(tail -n 60 "$log")"
 else
     hc_ping "/fail"
     tg_send "buibui [$label] FAILED rc=$rc — $start_ts → $end_ts" \
