@@ -51,6 +51,25 @@ Environment=TELEGRAM_ALWAYS=1
 # broken invocation on the other timers.
 Environment=SOFT_FAIL_RC=2
 
+# ...and systemd has to be told the same thing, or the fix only reaches HALF the
+# surfaces. run-job.sh preserves the wrapped command's exit code, so a soft day
+# leaves the unit exiting 2 -- which systemd reads as a failure, records as
+# `status=2/INVALIDARGUMENT`, and parks in `systemctl --user list-units --failed`
+# until someone runs `reset-failed`. Measured 2026-08-25 by running this unit
+# against a deliberate tier-2 red: the phone said "ok, warnings" while systemd
+# said FAILED, which is the exact ambiguity SOFT_FAIL_RC exists to remove, moved
+# from one surface to another rather than fixed.
+#
+# Scoped to 2 on purpose, mirroring SOFT_FAIL_RC above: a blanket success rule
+# would swallow a genuine failure, and 2 is the only code this job uses for
+# "success, with warnings".
+#
+# Safe here because nothing keys on the failure state -- this unit declares no
+# OnFailure= and no Restart=. Check that again before copying this line to
+# another unit; the healthchecks /fail ping is run-job.sh's job and is unaffected,
+# since it never consults systemd's view.
+SuccessExitStatus=2
+
 # Mandatory once ExecStart is wrapped: without it journald tags output with the
 # executable name (run-job.sh), unit attribution is lost, and `journalctl -u`
 # reads nothing while the lines sit in the journal under another identity.

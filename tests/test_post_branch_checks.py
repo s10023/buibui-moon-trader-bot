@@ -895,6 +895,79 @@ class TestHandoffSize:
         assert _check_handoff_size(body, self._budgets()) == []
 
 
+class TestHandoffSizeSkipsOnlyWhenItKnowsWhyTheHandoffIsGone:
+    """ST75. A leg that reds on the SETUP rather than on the branch is a leg
+    that gets ignored, and a worktree has no gitignored handoff by
+    construction. But a blanket skip would make absent-because-worktree and
+    absent-because-nobody-wrote-one render alike in the other direction, which
+    is the failure this leg exists to catch. So the skip has to NAME its
+    reason, and every test below fixes one half of that against mutation.
+    """
+
+    def _budgets(self) -> Budgets:
+        return Budgets(
+            handoff_lines=10,
+            handoff_ceiling=20,
+            memory_state_bullets=6,
+            memory_state_ceiling=8,
+            memory_bytes_cap=17408,
+        )
+
+    def _runner(self, out: str) -> Runner:
+        return lambda argv: out
+
+    _WORKTREE = "/repo/.git/worktrees/wt\n/repo/.git\n"
+    _MAIN = "/repo/.git\n/repo/.git\n"
+
+    def test_absent_in_a_worktree_skips(self) -> None:
+        from tools.post_branch_checks import _handoff_size_result
+
+        r = _handoff_size_result("", self._runner(self._WORKTREE), self._budgets())
+        assert r.findings == []
+        assert r.skipped is not None
+        assert "worktree" in r.skipped
+
+    def test_absent_in_a_main_checkout_still_fires(self) -> None:
+        """The teeth. An unconditional skip passes every other test here."""
+        from tools.post_branch_checks import _handoff_size_result
+
+        r = _handoff_size_result("", self._runner(self._MAIN), self._budgets())
+        assert r.skipped is None
+        assert len(r.findings) == 1
+        assert "absent" in r.findings[0].detail
+
+    def test_a_worktree_does_not_excuse_an_oversized_handoff(self) -> None:
+        """Scope. The skip keys on ABSENCE, not on being in a worktree — a
+        worktree that does carry a handoff is sized like anywhere else."""
+        from tools.post_branch_checks import _handoff_size_result
+
+        r = _handoff_size_result(
+            "x\n" * 25, self._runner(self._WORKTREE), self._budgets()
+        )
+        assert r.skipped is None
+        assert len(r.findings) == 1
+        assert "ceiling" in r.findings[0].detail
+
+    def test_unreadable_git_output_leaves_the_finding_standing(self) -> None:
+        """Fail toward the finding: this call can only ever CLEAR a red, so an
+        answer it cannot parse must not be the one that clears it."""
+        from tools.post_branch_checks import _handoff_size_result
+
+        for out in ("", "not a path\n", "/repo/.git\n/a\n/b\n"):
+            r = _handoff_size_result("", self._runner(out), self._budgets())
+            assert r.skipped is None, out
+            assert len(r.findings) == 1, out
+
+    def test_worktree_detection_is_pure_and_compares_resolved_paths(self) -> None:
+        from tools.post_branch_checks import in_linked_worktree
+
+        assert in_linked_worktree(self._WORKTREE) is True
+        assert in_linked_worktree(self._MAIN) is False
+        # Same directory spelled two ways is the MAIN checkout, not a worktree.
+        assert in_linked_worktree("/repo/.git\n/repo/./.git\n") is False
+        assert in_linked_worktree("") is False
+
+
 class TestMemoryCapUsesConfiguredBudgets:
     def test_bullet_cap_comes_from_config(self) -> None:
         from tools.agents_config import Budgets

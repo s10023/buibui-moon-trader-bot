@@ -96,13 +96,14 @@ batch was 15 panels against a protocol of 6, and nothing said so — extra panel
 are not free, since each costs a vision dispatch (~44K tokens per image at the most
 recent reading) and a 1w heatmap band is structural context, not a same-day
 actionable level.
-**The per-image figure is MEASURED, and it DRIFTS UPWARD — four full 6-panel
+**The per-image figure is MEASURED, and it DRIFTS UPWARD — five full 6-panel
 batches ran mean 32.7K (2026-08-11, ~196K total), 36.4K (2026-08-18, ~218K),
-43.6K (2026-08-19, range 41.9–50.0K) and 50.8K (2026-08-20, range 48.6–55.7K).
-That is 55% in nine days**, so a stale baseline turns a correct dispatch into a
+43.6K (2026-08-19, range 41.9–50.0K), 50.8K (2026-08-20, range 48.6–55.7K) and
+58.3K (2026-08-25, ~350K total, range 56.7–64.5K).
+That is 78% in fourteen days**, so a stale baseline turns a correct dispatch into a
 false fallback alarm — which is exactly how the ABSOLUTE band failed below. Cost a batch at the LATEST entry in that
 series, never at a figure quoted elsewhere in this file: every estimate written here
-has been low within a fortnight, four times running. **Append the new mean on every
+has been low within a fortnight, five times running. **Append the new mean on every
 run** — the series is not history, it is the calibration the fallback check below
 reads.
 
@@ -132,9 +133,9 @@ name the fallback and the cost. **Never fall back silently:** the output is
 byte-identical either way, so an unannounced fallback restores the full cost
 while looking exactly like success. **Catch it by comparing this batch's mean `subagent_tokens` against the LAST RECORDED
 MEAN in the series above — a STEP, not a band.** Drift between batches is smooth
-(32.7K → 36.4K → 43.6K → 50.8K over nine days, the last step 1.17×); a silent
-fallback is a jump, measured at ~1.5×
-its same-era `chart-extract` cost (49K against 32.7K, 2026-08-07). So: a batch mean
+(32.7K → 36.4K → 43.6K → 50.8K → 58.3K over fourteen days, the last step 1.15×);
+a silent fallback is a jump, measured at ~1.5× its same-era
+`chart-extract` cost (49K against 32.7K, 2026-08-07). So: a batch mean
 within roughly 1.2× of the previous entry is drift, and one at 1.4× or above is the
 fallback. Say which reading you got in the digest, and append the new mean either way.
 

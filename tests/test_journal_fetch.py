@@ -29,6 +29,36 @@ from tools.journal_fetch import (
 
 # A fixed UTC instant: 2026-06-18T00:00:00Z in epoch ms.
 BASE_MS = 1_781_740_800_000
+_DAY_MS = 86_400_000
+# A fixed "now" so window arithmetic is deterministic — never wall-clock.
+_NOW = BASE_MS + 60 * _DAY_MS
+
+
+@pytest.fixture(autouse=True)
+def _pin_the_clock(monkeypatch: Any) -> None:
+    """Pin `journal_fetch`'s clock to the fixture epoch, for the WHOLE file.
+
+    Fixtures here sit at fixed offsets from `_NOW` while `fetch_candidates`
+    computes its cutoff from the REAL clock, so a test expires once wall-clock
+    drifts more than its own `days` window past the fixture. That is not
+    hypothetical: `test_algo_history_failure_does_not_break_the_fetch` uses a
+    7-day window and started failing on 2026-08-21 while its 30-day siblings
+    kept passing — a staggered fuse rather than one break.
+
+    `286305c` pinned the clock for one CLASS, which left the longest fuse
+    burning: `test_fetch_candidates_orchestrator_no_network` asks for
+    `days=3650` against fills at `BASE_MS`, so it comes due around 2036, for
+    whoever is on call then rather than for whoever wrote it.
+
+    Scope was MEASURED by shifting this clock rather than by reading the file.
+    At +3650d that test is the only failure here; at −30d and −400d nothing
+    breaks, so no test passes merely because a window is generously wide.
+
+    File-wide and autouse on purpose: per-test pinning is what produced the
+    staggered fuse, because it makes determinism something each new test has to
+    remember.
+    """
+    monkeypatch.setattr("tools.journal_fetch._now_ms", lambda: _NOW)
 
 
 def _fill(
@@ -361,10 +391,6 @@ def test_fetch_candidates_attaches_conditional_algo_sl() -> None:
 # J1 — stop-loss history from /fapi/v1/allAlgoOrders
 # ---------------------------------------------------------------------------
 
-_DAY_MS = 86_400_000
-# A fixed "now" so window arithmetic is deterministic — never wall-clock.
-_NOW = BASE_MS + 60 * _DAY_MS
-
 
 def _algo(
     trigger: str,
@@ -639,20 +665,6 @@ class TestFetchCandidatesWiresStopHistory:
     but the orchestrator only invoked it for OPEN candidates, so every closed
     round-trip came back with `exchange_sl: null`.
     """
-
-    @pytest.fixture(autouse=True)
-    def _pin_the_clock(self, monkeypatch: Any) -> None:
-        """Pin `fetch_candidates`' clock to the fixture epoch.
-
-        These fills are built at fixed offsets from the module's `_NOW` constant, but
-        `fetch_candidates` computes its cutoff from the REAL clock, so each test quietly
-        expired once wall-clock drifted more than `days` past the fixture. That is not a
-        hypothetical: `test_algo_history_failure_does_not_break_the_fetch` uses a 7-day
-        window and started failing on 2026-08-21 while its 30-day siblings kept passing —
-        a staggered time bomb rather than one break. Pinning the clock makes every test in
-        the class deterministic instead of merely giving the next one a longer fuse.
-        """
-        monkeypatch.setattr("tools.journal_fetch._now_ms", lambda: _NOW)
 
     def _client(self, algo_rows: list[dict[str, Any]]) -> Any:
         client = MagicMock()

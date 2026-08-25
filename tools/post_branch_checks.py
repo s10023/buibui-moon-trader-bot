@@ -549,7 +549,7 @@ def gather(
         CheckResult("doc-indexes", _check_doc_indexes()),
         CheckResult("md-atx", _check_md_atx(changed_md)),
         CheckResult("memory-cap", _check_memory_cap()),
-        CheckResult("handoff-size", _check_handoff_size(handoff)),
+        _handoff_size_result(handoff, runner),
         CheckResult("stale-anchors", _check_stale_anchors()),
         sensitive_terms_result(runner),
     ]
@@ -816,6 +816,24 @@ def _check_stale_anchors() -> list[Finding]:
     return findings
 
 
+def in_linked_worktree(rev_parse_output: str) -> bool:
+    """Is this a linked worktree rather than the repo's main checkout?
+
+    ``git rev-parse --git-dir --git-common-dir`` prints two lines. They are the
+    same path in a main checkout and differ in a linked worktree, where the
+    first points at ``<common>/worktrees/<name>``.
+
+    Unparseable output reads as NOT a worktree on purpose. The only caller uses
+    this to DOWNGRADE a finding to a skip, so an answer it cannot read must
+    leave the finding standing rather than silently clearing it.
+    """
+    lines = [ln.strip() for ln in rev_parse_output.splitlines() if ln.strip()]
+    if len(lines) != 2:
+        return False
+    git_dir, common = (Path(ln).resolve() for ln in lines)
+    return git_dir != common
+
+
 def _check_handoff_size(handoff: str, budgets: Budgets | None = None) -> list[Finding]:
     """Size the handoff against the configured budget.
 
@@ -852,6 +870,35 @@ def _check_handoff_size(handoff: str, budgets: Budgets | None = None) -> list[Fi
             )
         ]
     return []
+
+
+def _handoff_size_result(
+    handoff: str, runner: Runner = _run, budgets: Budgets | None = None
+) -> CheckResult:
+    """Size the handoff, or say WHY it could not be sized.
+
+    Absent-because-worktree and absent-because-nobody-wrote-one are different
+    claims, and rendering both as the same red is what teaches a reader to skip
+    the leg — the failure mode ``CheckResult.note`` was added to avoid. A linked
+    worktree is a tracked-files-only checkout and the handoff is gitignored, so
+    there its absence is structural and says nothing about the branch.
+
+    The skip is deliberately narrow: absence in a normal checkout stays a hard
+    finding, because there it means exactly what this leg exists to catch. That
+    is the ``sensitive-terms`` trade made the other way, and the asymmetry is
+    the reason — that gate guards an irreversible publish, so "did not run" must
+    never read as "passed"; this one guards a line budget, where firing on every
+    worktree run costs more than it catches.
+    """
+    if not handoff and in_linked_worktree(
+        runner(["git", "rev-parse", "--git-dir", "--git-common-dir"])
+    ):
+        return CheckResult(
+            "handoff-size",
+            skipped=f"no {HANDOFF} — linked worktree, gitignored files absent "
+            "by construction",
+        )
+    return CheckResult("handoff-size", _check_handoff_size(handoff, budgets))
 
 
 def _read_text_arg(path: str) -> str:
