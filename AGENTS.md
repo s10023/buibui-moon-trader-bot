@@ -17,9 +17,17 @@ a result.
 - `make typecheck` ✓ (mypy strict)
 - `make test` green — and at the **branch's final gate only**, `make preflight` supersedes it, running the same pytest invocation against a fresh clone at `/post-branch` Step 7. Measured 2026-08-20 on 4205 tests: **300.1s against `make test`'s 294.9s, +1.8%**, so hermeticity costs five seconds. ⚠ **It replaces only that last run, never the mid-work ones** — a clone cannot see uncommitted code, which is exactly why it refuses on a dirty tree, so `make test` remains the tool while you are still working.
 - `make test-regression` goldens unmoved — **required only when the diff touches the
-  backtest surface**: `analytics/backtest/`, `analytics/strategies/`,
-  `analytics/signal_config.py`, `config/*signal_watch*.toml`, `config/strategy_params.toml`,
-  `tests/fixtures/`, or `poetry.lock`. Say which branch you took. Outside that set it is
+  backtest surface**, which is **exactly CI's regression paths filter** (`lint.yaml:173-183`),
+  mirrored here: `analytics/**/*.py`, `pyproject.toml`, `poetry.lock`, `config/*.toml`,
+  `tests/test_regression.py`, `tests/fixtures/**.parquet`, `tests/fixtures/golden_*.json`,
+  `scripts/extract_regression_fixture.py`, `.github/workflows/lint.yaml`. Say which branch
+  you took. ⚠ **This list was a STRICT SUBSET of CI's until 2026-08-25 (ST89), and every
+  divergence ran one way — the local rule was the PERMISSIVE one.** It named three
+  `analytics/` subpaths where CI filters the whole package, so a diff elsewhere in
+  `analytics/` read as outside-the-surface locally while CI golden-checked it anyway; the
+  session then learned the goldens had moved **from a metered CI run on an open PR**, which
+  is the precise outcome the next sentence rejects. ⛔ Do NOT resolve a future divergence by
+  narrowing CI — mirror CI here instead. Outside that set it is
   ~95s of wall clock for a chain the diff cannot reach. When it does apply and a golden
   moves, that is a *decision* — regenerate or not — which is why it stays local rather than
   being left to CI. **It is a separate gate rather than a slower one: `make test` passes
@@ -691,9 +699,23 @@ a timeframe is therefore not enough; check the series is actually being REFRESHE
 `tools/ohlcv_freshness.py` now watches every `(symbol, timeframe)` and reds tier 2 in the daily
 check. Two properties of it are load-bearing: staleness is measured in **BAR units**, never
 hours (three days is healthy on 1w and 72 bars behind on 1h, so one wall-clock threshold has to
-pick a timeframe to be wrong about), and the tolerance is **2 bars** because `sync` stores the
-FORMING bar on purpose — a healthy series always trails by under one, and `ohlcv_all` has no
-`is_closed` column to tell the two apart. It scans the **view**, the opposite choice to
+pick a timeframe to be wrong about), and the tolerance is **per timeframe, set by the REFRESH
+CADENCE rather than the bar length** — `tolerance_bars_for` returns `2 + gap/bar`, where the flat
+2 absorbs the in-progress bar (`sync` stores the FORMING bar on purpose, and `ohlcv_all` has no
+`is_closed` column to tell the two apart) and the second term is one whole refresh cycle. That
+gives 20 bars on 1h, 6.5 on 4h, 2.75 on 1d, 3.0 on 15m. ⚠ **A flat 2 bars was WRONG for every
+universe series and the error was invisible because it never lied about a majors one** (ST90,
+2026-08-25): `buibui-xsmom-daily.timer` is the only thing scheduling a universe sync — 00:20 /
+02:20 / 06:20 UTC — so its worst gap is the **18-hour overnight hole**, which is 18 bars on 1h.
+Measured: 21 of 103 series flagged at 08:30 UTC purely because the 06:20 sync was two hours old,
+the line red **~19 hours of every 24** and therefore red at every 09:10 UTC scheduled run. **A
+permanently-red tier-2 line is worse than no line — it teaches its reader to skip it**, the same
+failure the delisted-symbol exclusion already exists to prevent, reached by a different route.
+⚠ **Widening a tolerance is the one change that can silently make a guard mute, so the teeth are
+re-asserted against the NEW default**: `tests/test_ohlcv_freshness.py` replays the ST61a freeze
+(1h 429.6 bars, 4h 367.2, 1w 10.9) and all three still fire. The majors take the universe cadence
+too, deliberately — a majors freeze means the 15-minute timer is dead, which tier 1's own
+`signal-watch` line watches. It scans the **view**, the opposite choice to
 `FABRICATED_CVD_SQL`: that one guards history across venues, this one asks whether what
 consumers READ is fresh.
 

@@ -34,9 +34,13 @@ from analytics.store import init_schema, upsert_ohlcv
 from tools.ohlcv_freshness import (
     BAR_MS,
     COVERAGE_SQL,
+    SCHEDULED_GAP_MS,
+    SIGNAL_WATCH_GAP_MS,
+    UNIVERSE_SYNC_GAP_MS,
     Series,
     series_from_rows,
     stale_series,
+    tolerance_bars_for,
 )
 
 # A fixed anchor so no test reads the wall clock. 2026-08-23 04:48:00 UTC — the
@@ -128,6 +132,185 @@ def test_an_unknown_timeframe_is_reported_rather_than_silently_skipped() -> None
 
     assert [s.timeframe for s in stale] == ["3d"]
     assert stale[0].age_bars is None
+
+
+# --- The tolerance must follow the SCHEDULER, not the bar length -----------------
+#
+# ST90, measured 2026-08-25. The flat 2-bar tolerance is right for a series
+# something refreshes every 15 minutes and wrong for one refreshed three times a
+# day. `buibui-xsmom-daily.timer` is the ONLY thing that schedules a universe
+# sync (00:20 / 02:20 / 06:20 UTC), so it leaves an 18-hour overnight hole — and
+# 18 hours is 18 bars on 1h. Measured at 08:26 UTC that day: 22 of 25 universe
+# symbols sat at 2.45 bars on 1h, over the flat tolerance, purely because the
+# 06:20 sync was two hours old. The line was therefore red ~19 hours of every 24
+# and green only just after a sync.
+#
+# A permanently-red tier-2 line is worse than no line: it teaches its reader to
+# skip it, which is the same failure mode `test_a_symbol_that_is_not_active_is_
+# never_flagged` above exists to prevent, arriving by a different route.
+#
+# The majors keep no tightness here because they never needed this check for it:
+# a majors freeze means the 15-minute signal-watch timer is dead, and tier 1's
+# own `signal-watch` line watches exactly that. This check's unique contribution
+# is the universe path.
+
+
+def test_normal_operation_between_scheduled_syncs_is_not_stale() -> None:
+    """Specificity, and THE ST90 defect: the measured 2026-08-25 08:26 UTC shape.
+
+    1h at 2.45 bars and 4h at 1.11 bars is a universe two hours past its 06:20
+    sync — the healthy state for a series refreshed three times a day. Under the
+    flat 2-bar tolerance the 1h row here reds, which is the bug.
+    """
+    rows = [_series("DOGEUSDT", "1h", 2.45), _series("DOGEUSDT", "4h", 1.11)]
+
+    assert stale_series(rows, now_ms=NOW_MS) == []
+
+
+def test_the_worst_point_of_the_refresh_cycle_is_not_stale() -> None:
+    """The overnight hole itself must be healthy, or the line reds every night.
+
+    18h after the 06:20 sync the newest 1h bar is 19 bars old (18 elapsed plus
+    the forming one). That is the loosest a correctly-refreshed series ever gets.
+    """
+    rows = [_series("DOGEUSDT", "1h", 19.0), _series("DOGEUSDT", "4h", 5.5)]
+
+    assert stale_series(rows, now_ms=NOW_MS) == []
+
+
+def test_the_st61a_freeze_is_still_flagged_under_the_wider_default() -> None:
+    """TEETH — the whole point of the module must survive the widening.
+
+    Widening a tolerance is the one change that can silently turn a guard mute,
+    so the original defect is re-asserted against the NEW default rather than
+    against the flat 2.0 the other teeth tests pass explicitly.
+    """
+    rows = [
+        _series("ADAUSDT", "1h", 17.9 * 24),  # 17.9 days = 429.6 bars
+        _series("ADAUSDT", "4h", 61.2 * 6),  # 61.2 days = 367.2 bars
+        _series("ADAUSDT", "1w", 76.2 / 7),  # 76.2 days = 10.9 bars
+    ]
+
+    stale = stale_series(rows, now_ms=NOW_MS)
+
+    assert sorted(s.timeframe for s in stale) == ["1h", "1w", "4h"]
+
+
+def test_tolerance_follows_the_scheduler_not_the_bar_length() -> None:
+    """A 1d series three bars behind is stale; a 1h series three bars behind is not.
+
+    Under a flat tolerance these two read identically. They are opposite states:
+    three 1h bars is 90 minutes inside one refresh cycle, three 1d bars is three
+    missed cycles.
+    """
+    rows = [_series("DOGEUSDT", "1h", 3.0), _series("DOGEUSDT", "1d", 3.0)]
+
+    stale = stale_series(rows, now_ms=NOW_MS)
+
+    assert [s.timeframe for s in stale] == ["1d"]
+
+
+def test_the_scheduled_gap_boundary_is_where_it_is_claimed_to_be() -> None:
+    """Pin both sides of the 1h boundary, so a later edit cannot drift it silently."""
+    assert stale_series([_series("A", "1h", 19.9)], now_ms=NOW_MS) == []
+    assert [
+        s.timeframe for s in stale_series([_series("A", "1h", 20.1)], now_ms=NOW_MS)
+    ] == ["1h"]
+
+
+def test_an_explicit_tolerance_still_overrides_the_schedule() -> None:
+    """The primitive is preserved: a caller asking for 2.0 bars gets 2.0 bars.
+
+    Every teeth test above passes `tolerance_bars=2.0` explicitly and must keep
+    measuring what it says it measures.
+    """
+    rows = [_series("DOGEUSDT", "1h", 2.45)]
+
+    assert [
+        s.timeframe for s in stale_series(rows, now_ms=NOW_MS, tolerance_bars=2.0)
+    ] == ["1h"]
+
+
+def test_the_derived_tolerances_are_the_ones_documented() -> None:
+    """The numbers AGENTS.md and the daily check quote, derived rather than typed.
+
+    `2 + gap/bar`: the flat 2 absorbs the forming bar plus slack, the second term
+    is one full refresh cycle. 1h lands at 20 bars because the overnight hole is
+    18 hours long — that arithmetic is the entire claim, so it is asserted here
+    rather than left to a reader to redo.
+    """
+    assert tolerance_bars_for("1h") == 20.0
+    assert tolerance_bars_for("4h") == 6.5
+    assert tolerance_bars_for("1d") == 2.75
+    assert tolerance_bars_for("15m") == 3.0
+    assert tolerance_bars_for("3d") is None
+
+
+def test_every_known_timeframe_declares_a_scheduled_gap() -> None:
+    """SKIP-is-not-a-PASS: a new timeframe must not fall back to a silent default.
+
+    `BAR_MS` and `SCHEDULED_GAP_MS` answer two halves of one question. If they
+    drift apart, a series gets a bar length and no cadence — and the safe-looking
+    fallback (the flat 2.0) is exactly the permanently-red state ST90 removed.
+    """
+    assert set(SCHEDULED_GAP_MS) == set(BAR_MS)
+
+
+class TestScheduledGapMatchesTheTimer:
+    """`UNIVERSE_SYNC_GAP_MS` is DERIVED from a file, so a gate has to say so.
+
+    ST90 widened the tolerance using a number read out of
+    `deploy/systemd/user/buibui-xsmom-daily.timer`. That makes the constant a
+    second definition of the sync schedule — and this repo has now shipped four
+    defects in one week whose whole shape was "two definitions of one thing, both
+    internally consistent, no gate can see the disagreement" (ST28's spec-vs-driver
+    threshold, `analytics.md`'s serial-correlation claim, ST89's two surface lists,
+    and ST90 itself). Adding a fifth while fixing the fourth is the trap.
+
+    So the timer file is parsed and the worst gap recomputed here. Change the
+    schedule without changing the constant and this fails, which is the only
+    reason the constant is allowed to exist as a literal.
+    """
+
+    @staticmethod
+    def _on_calendar_utc_seconds() -> list[int]:
+        """Seconds-past-midnight for each `OnCalendar=... HH:MM:SS UTC` line."""
+        timer = REPO_ROOT / "deploy" / "systemd" / "user" / "buibui-xsmom-daily.timer"
+        times: list[int] = []
+        for raw in timer.read_text().splitlines():
+            line = raw.strip()
+            if not line.startswith("OnCalendar="):
+                continue
+            # `OnCalendar=*-*-* 06:20:00 UTC` -> 06:20:00
+            parts = line.split()
+            assert parts[-1] == "UTC", f"non-UTC schedule line, unhandled: {line}"
+            hh, mm, ss = (int(x) for x in parts[-2].split(":"))
+            times.append(hh * 3600 + mm * 60 + ss)
+        return sorted(times)
+
+    def test_the_timer_declares_the_schedule_the_constant_assumes(self) -> None:
+        assert self._on_calendar_utc_seconds() == [
+            0 * 3600 + 20 * 60,
+            2 * 3600 + 20 * 60,
+            6 * 3600 + 20 * 60,
+        ]
+
+    def test_the_worst_gap_in_the_timer_is_the_constant(self) -> None:
+        """The wrap-around gap is the one that matters and the easy one to miss.
+
+        06:20 -> 00:20 is 18h; every in-day gap is 2h or 4h. A max over adjacent
+        pairs that forgets to wrap returns 4h and silently under-sizes the
+        tolerance by a factor of four and a half.
+        """
+        times = self._on_calendar_utc_seconds()
+        day = 24 * 3600
+        gaps = [(times[(i + 1) % len(times)] - t) % day for i, t in enumerate(times)]
+
+        assert max(gaps) * 1000 == UNIVERSE_SYNC_GAP_MS
+
+    def test_the_signal_watch_gap_is_one_bar_of_its_tightest_timeframe(self) -> None:
+        """The 15-minute timer refreshes 15m/1h/4h, so its gap is one 15m bar."""
+        assert BAR_MS["15m"] == SIGNAL_WATCH_GAP_MS
 
 
 class TestCoverageSql:

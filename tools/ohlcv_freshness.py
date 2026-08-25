@@ -50,6 +50,58 @@ BAR_MS: dict[str, int] = {
     "1w": 604_800_000,
 }
 
+# --- How often anything is SCHEDULED to refresh a series --------------------------
+#
+# ST90, 2026-08-25. Staleness in bar units answers "how far behind is this?" and
+# still cannot say whether that is WRONG, because the answer depends entirely on
+# how often something refreshes the series. Two schedulers exist:
+#
+#   `buibui-signal-watch.timer`   every 15 min   majors     15m / 1h / 4h
+#   `buibui-xsmom-daily.timer`    3x daily       universe   1h / 4h / 1d / 1w
+#
+# The universe timer fires at 00:20, 02:20 and 06:20 UTC, so its WORST gap is the
+# 18-hour overnight hole after the last run. On 1h that is 18 bars, which a flat
+# 2-bar tolerance reads as a fault every night: measured 2026-08-25, the line was
+# red ~19 hours of every 24 and green only in the short window after a sync.
+#
+# The majors take the universe cadence too, deliberately. Tightening them here
+# would buy nothing: a majors freeze means the 15-minute timer is dead, and tier
+# 1's own `signal-watch` line watches precisely that. Splitting the tolerance by
+# symbol would put a `coins.json` read — a gitignored file — inside this module's
+# only decision, to duplicate a check that already exists one tier up.
+SIGNAL_WATCH_GAP_MS: int = 900_000  # the 15-minute timer, the only 15m refresher
+UNIVERSE_SYNC_GAP_MS: int = 64_800_000  # 18h: 06:20 -> 00:20 UTC, the overnight hole
+
+SCHEDULED_GAP_MS: dict[str, int] = {
+    "15m": SIGNAL_WATCH_GAP_MS,
+    "1h": UNIVERSE_SYNC_GAP_MS,
+    "4h": UNIVERSE_SYNC_GAP_MS,
+    "1d": UNIVERSE_SYNC_GAP_MS,
+    "1w": UNIVERSE_SYNC_GAP_MS,
+}
+
+# The flat floor every series keeps: one forming bar plus a bar of slack. It is
+# what the tolerance WAS, and it stays the floor rather than becoming the whole
+# answer — see `tolerance_bars_for`.
+BASE_TOLERANCE_BARS: float = 2.0
+
+
+def tolerance_bars_for(
+    timeframe: str, *, base_tolerance_bars: float = BASE_TOLERANCE_BARS
+) -> float | None:
+    """Bars a correctly-refreshed `timeframe` series may trail before it is stale.
+
+    `base + gap/bar`: the base absorbs the in-progress bar, the second term one
+    whole refresh cycle. Returns None when either half is unknown, so a caller
+    can report "unmeasurable" rather than silently applying a tight default to a
+    series nothing here knows the cadence of.
+    """
+    bar_ms = BAR_MS.get(timeframe)
+    gap_ms = SCHEDULED_GAP_MS.get(timeframe)
+    if bar_ms is None or gap_ms is None:
+        return None
+    return base_tolerance_bars + gap_ms / bar_ms
+
 
 @dataclass(frozen=True)
 class Series:
@@ -79,10 +131,16 @@ def stale_series(
     rows: list[Series],
     *,
     now_ms: int,
-    tolerance_bars: float = 2.0,
+    tolerance_bars: float | None = None,
     ignore_symbols: frozenset[str] = frozenset(),
 ) -> list[Staleness]:
-    """Series trailing more than `tolerance_bars` behind `now_ms`, worst first.
+    """Series trailing further behind `now_ms` than their refresh cadence allows.
+
+    `tolerance_bars` defaults to the per-timeframe value from
+    `tolerance_bars_for` — a series is stale when it has missed a scheduled
+    refresh, not merely when it trails the current bar. Pass a float to apply one
+    flat tolerance to every row instead; that is the older, cadence-blind
+    behaviour and is kept because the teeth tests assert against it directly.
 
     A series absent from `rows` is never reported: you cannot be stale on a
     series you have never held, and 15m exists for three symbols BY DESIGN.
@@ -97,8 +155,18 @@ def stale_series(
         if bar_ms is None:
             out.append(Staleness(row.symbol, row.timeframe, row.newest_open_time, None))
             continue
+        limit = (
+            tolerance_bars
+            if tolerance_bars is not None
+            else tolerance_bars_for(row.timeframe)
+        )
+        if limit is None:
+            # A known bar length with no declared cadence: measurable, but nothing
+            # says what "on time" means. Report it rather than pick a default.
+            out.append(Staleness(row.symbol, row.timeframe, row.newest_open_time, None))
+            continue
         age_bars = (now_ms - row.newest_open_time) / bar_ms
-        if age_bars > tolerance_bars:
+        if age_bars > limit:
             out.append(
                 Staleness(row.symbol, row.timeframe, row.newest_open_time, age_bars)
             )
