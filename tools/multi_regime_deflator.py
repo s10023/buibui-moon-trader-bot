@@ -8,10 +8,16 @@ effective independent series). The multi-regime bull leg runs 14 symbols and the
 H15 portable-number trap in a new location**, a bare number that looks portable
 and silently changes meaning with the panel.
 
-The counter-intuitive result this tool exists to produce: the 15m panel's *three*
-symbols are a **strength**. n_eff is 1.97 for 14 perps against 1.42 for three, so
-the deflator is 1.628× vs 3.331× — breadth buys almost nothing when the
-cross-section is nearly one asset.
+The counter-intuitive result this tool exists to produce: breadth buys almost
+nothing once the cross-section is nearly one asset — 14 perps carry an n_eff of
+about 2, barely above the 3-symbol panel's. **Run the tool for the pair; do not
+quote one from prose, this docstring included.** A deflator is meaningless away
+from the panel it was computed on, and the arithmetic that catches a carried one
+is ``n_eff × deflator² == k`` — it must recover the symbol count, and the
+deflator RISES with k, so a pair that falls as k rises has been crossed between
+panels. This paragraph named 1.628× / 3.331× until 2026-08-25 and both failed
+that check (5.2 and 15.8 against 14 and 3): they are real published figures from
+the *other* study's panels, pasted onto this one's n_eff values.
 
 Also prices the paired regime-difference MDE, which is the statistic the
 validation needs (does a cell's edge PERSIST), as opposed to a per-leg DSR scan.

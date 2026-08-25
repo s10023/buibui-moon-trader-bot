@@ -98,7 +98,7 @@ Off by default; the default path stays byte-identical (one candle group).
 
 ### Alert layout (6 sections)
 
-1. Header — strategy/stars/reason
+1. Header — strategy/stars/reason (+ the detector's `context`)
 2. Entry — price/time/session
 3. Levels — SL/TP
 4. Warnings — all notes consolidated (silent unless triggered)
@@ -118,6 +118,7 @@ Off by default; the default path stays byte-identical (one candle group).
 ### Other
 
 - `format_signal_alert()` / `format_confluence_alert()` — both accept `ohlcv_df: pd.DataFrame | None` (signal candle = last row) + `cme_gap_warning: str | None`
+- **`_restate_context_tp` points a detector's baked `TP=` claim at the number the Levels block prints, and the Levels block is the one authority (SoT ST81).** Ten detectors render `TP=<n>` into `context` at DETECTION time, and three things recompute the traded target after that string exists: `analytics/signal/atr_floor.py::_apply_atr_floor` widens a tight structural SL and rebuilds TP from it, `_apply_min_sl_floor` widens SL again at render time, and **seven of those ten set no `tp_price` at all**, so §3 derives TP from `sl_dist × tp_r`. That last one diverged on EVERY fire with no floor involved — `fibonacci_retracement` advertised the swing high (`TP=130.00`) beside a Levels block reading `104.28`. Restating at render time rather than editing the ten detectors keeps one authority, so a detector added later cannot reintroduce it; stored `context` is never rewritten. ⚠ **Only the number moves** — `swing_high=…`, a trailing `(1.618 ext)` and everything else is the target's PROVENANCE and stays. ⚠ **This is a PRESENTATION fix, not a levels change:** whether a detector's structural target should flow into `tp_price` and become the traded TP is a separate behaviour question, untouched here.
 - `_adr_bar(consumed_pct)` — 10-char ASCII bar with `▓` overflow
 - `_format_stats_line(ctx, direction)` — direction-aware; line 1: `📐` bull%/P1/ADR; line 2: `🎯` TP window/weekly timing
 - Same-TF confluence renders `> ⚡⚡ CONFLUENCE`; cross-TF renders `> ⚡⚡ CONFLUENCE (4h → 15m)`

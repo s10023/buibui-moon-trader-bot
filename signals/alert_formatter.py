@@ -1,5 +1,6 @@
 """Signal event model and Telegram alert formatter."""
 
+import re
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -359,7 +360,39 @@ def _format_cofire_block(cofire: "ConfluenceData") -> str:
     return block
 
 
-def _format_header(events: list["SignalEvent"], direction_label: str) -> str:
+# A detector's own `TP=<price>` claim inside `context`. Anchored so it cannot match
+# the tail of another key (`swing_high=`, `OTP=`), and the number is captured with
+# optional thousands separators so a restated value round-trips.
+_TP_CLAIM_RE = re.compile(r"(?<![A-Za-z0-9_])TP=[\d,]+(?:\.\d+)?")
+
+
+def _restate_context_tp(context: str, tp_price: float) -> str:
+    """Point a detector's baked `TP=` claim at the TP the Levels block actually shows.
+
+    Ten detectors render `TP=<n>` into `context` at DETECTION time, and three
+    things recompute the traded target afterwards: `_apply_atr_floor` widens a
+    tight structural SL and rebuilds TP from it, `_apply_min_sl_floor` widens SL
+    again at render time, and seven of those ten set no `tp_price` at all, so the
+    Levels block derives TP from `sl_dist × tp_r`. A pre-rendered string cannot
+    see any of them, so the header advertised one target while the block below it
+    showed another (SoT ST81).
+
+    Restating here rather than in the detectors keeps ONE authority for the number
+    — the same `tp_price` the Levels block formats — so a detector added later
+    cannot reintroduce the divergence, and no stored `context` is rewritten.
+
+    Only the number moves: surrounding context (`swing_high=…`, a trailing
+    `(1.618 ext)`) is where the target's PROVENANCE lives, and dropping it would
+    trade one defect for a vaguer one.
+    """
+    if not context:
+        return context
+    return _TP_CLAIM_RE.sub(f"TP={tp_price:,.2f}", context)
+
+
+def _format_header(
+    events: list["SignalEvent"], direction_label: str, tp_price: float
+) -> str:
     """Section 1 header — single-strategy layout or stacked confluence layout."""
     first = events[0]
     if len(events) == 1:
@@ -372,7 +405,7 @@ def _format_header(events: list["SignalEvent"], direction_label: str) -> str:
             f"<code>{ev.reason}</code>\n"
         )
         if ev.context:
-            header += f"{ev.context}\n"
+            header += f"{_restate_context_tp(ev.context, tp_price)}\n"
         return header
 
     header = (
@@ -384,7 +417,9 @@ def _format_header(events: list["SignalEvent"], direction_label: str) -> str:
         conflict_tag = " ⚠️ conflict" if ev.conflict else ""
         line = f"• <code>{ev.strategy}</code>{stars} — <code>{ev.reason}</code>{conflict_tag}"
         if ev.context:
-            line += f"  ({ev.context})"
+            # One Levels block serves the whole stack, so every per-strategy claim
+            # in the list has to name that same target.
+            line += f"  ({_restate_context_tp(ev.context, tp_price)})"
         header += line + "\n"
     return header
 
@@ -476,7 +511,7 @@ def format_confluence_alert(
     tp_pct_display = abs(tp_price - price) / price * 100
 
     # --- Section 1: Header ---
-    header = _format_header(events, direction_label)
+    header = _format_header(events, direction_label, tp_price)
 
     # --- Section 2: Entry ---
     entry_line = f"{price:,.2f}  ·  {_fmt_time(first.open_time)} MYT\n"

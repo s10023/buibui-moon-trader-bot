@@ -1,5 +1,6 @@
 """Tests for _get_session_label in alert_formatter."""
 
+import re
 from datetime import UTC, datetime
 
 from signals.alert_formatter import (
@@ -7,6 +8,7 @@ from signals.alert_formatter import (
     StatsContext,
     _format_stats_line,
     _get_session_label,
+    format_confluence_alert,
     format_signal_alert,
 )
 
@@ -274,3 +276,162 @@ class TestLowVolumeWarning:
     def test_low_volume_false_no_warning(self) -> None:
         msg = format_signal_alert(self._make_event(low_volume=False))
         assert "⚠️ Low volume: weaker conviction" not in msg
+
+
+class TestHeaderTpAgreesWithLevelsBlock:
+    """ST81 — the header's baked `TP=` must not contradict the Levels block.
+
+    Detectors render `TP=<n>` into `context` at DETECTION time. Three things
+    downstream recompute the number the operator actually trades, all of them
+    after that string exists:
+
+      1. `analytics.signal.atr_floor._apply_atr_floor` widens a tight structural
+         SL and recomputes `tp_price` from it,
+      2. `_apply_min_sl_floor` here widens SL again at render time, and
+      3. seven of the ten detectors that bake a `TP=` string set no `tp_price`
+         at all, so the Levels block derives TP from `sl_dist × tp_r`.
+
+    None of the three can reach back into the pre-rendered string, so the header
+    advertised one target and the Levels block another.
+    """
+
+    _TS_MS = 1705312800000
+
+    @staticmethod
+    def _tps(msg: str) -> tuple[float, float]:
+        """(header TP=, Levels TP:) as floats."""
+        header = re.search(r"TP=([\d,]+\.\d+)", msg)
+        levels = re.search(r"^TP: ([\d,]+\.\d+)", msg, re.M)
+        assert header is not None and levels is not None, msg
+        return (
+            float(header.group(1).replace(",", "")),
+            float(levels.group(1).replace(",", "")),
+        )
+
+    def test_min_sl_floor_widening_does_not_strand_the_header(self) -> None:
+        """A render-time SL floor recomputes TP; the header must follow it."""
+        ev = SignalEvent(
+            symbol="BTCUSDT",
+            timeframe="15m",
+            strategy="engulfing",
+            direction="long",
+            reason="bullish_engulfing@100.00",
+            open_time=self._TS_MS,
+            price=100.0,
+            sl_price=98.0,
+            context="TP=104.00",
+        )
+        header, levels = self._tps(
+            format_signal_alert(ev, sl_pct=0.02, tp_r=2.0, min_sl_pct=0.05)
+        )
+        assert header == levels
+
+    def test_atr_floor_recomputed_tp_reaches_the_header(self) -> None:
+        """`_apply_atr_floor` mutates sl_price/tp_price in place after detection."""
+        ev = SignalEvent(
+            symbol="BTCUSDT",
+            timeframe="15m",
+            strategy="doji",
+            direction="long",
+            reason="doji@100.00",
+            open_time=self._TS_MS,
+            price=100.0,
+            sl_price=98.0,
+            context="TP=104.00",
+            tp_price=104.0,
+        )
+        ev.sl_price, ev.tp_price = 95.0, 110.0  # what the ATR floor does
+        header, levels = self._tps(format_signal_alert(ev, sl_pct=0.02, tp_r=2.0))
+        assert header == levels == 110.0
+
+    def test_detector_without_structural_tp_price(self) -> None:
+        """`fibonacci_retracement` advertises the swing high but sets no tp_price,
+        so the Levels block falls back to tp_r — divergence on EVERY fire, with
+        no floor involved. The swing levels stay; only the `TP=` claim is restated."""
+        ev = SignalEvent(
+            symbol="BTCUSDT",
+            timeframe="4h",
+            strategy="fibonacci_retracement",
+            direction="long",
+            reason="fib_golden_zone@100.00",
+            open_time=self._TS_MS,
+            price=100.0,
+            sl_price=97.86,
+            context="Fib: swing_low=90.00 swing_high=130.00 TP=130.00",
+        )
+        msg = format_signal_alert(ev, sl_pct=0.02, tp_r=2.0)
+        header, levels = self._tps(msg)
+        assert header == levels
+        assert "swing_high=130.00" in msg  # the structural level is NOT lost
+
+    def test_trailing_annotation_is_preserved(self) -> None:
+        """`fib_golden_zone` writes `TP=<n> (1.618 ext)` — restate the number,
+        keep the label that says where it came from."""
+        ev = SignalEvent(
+            symbol="BTCUSDT",
+            timeframe="1h",
+            strategy="fib_golden_zone",
+            direction="long",
+            reason="ote@100.00",
+            open_time=self._TS_MS,
+            price=100.0,
+            sl_price=98.0,
+            context="TP=104.00 (1.618 ext)",
+            tp_price=104.0,
+        )
+        ev.tp_price = 111.5  # ATR floor
+        msg = format_signal_alert(ev, sl_pct=0.02, tp_r=2.0)
+        assert "(1.618 ext)" in msg
+        assert self._tps(msg)[0] == self._tps(msg)[1] == 111.5
+
+    def test_context_without_a_tp_claim_is_untouched(self) -> None:
+        """Scope guard: only a `TP=` claim is restated, never other context."""
+        ev = SignalEvent(
+            symbol="BTCUSDT",
+            timeframe="1h",
+            strategy="bos",
+            direction="long",
+            reason="bos@100.00",
+            open_time=self._TS_MS,
+            price=100.0,
+            sl_price=98.0,
+            context="swing=130.00 depth=3",
+        )
+        msg = format_signal_alert(ev, sl_pct=0.02, tp_r=2.0)
+        assert "swing=130.00 depth=3" in msg
+
+    def test_confluence_layout_restates_every_events_tp(self) -> None:
+        """The Levels block shows ONE TP for the whole stack, so a per-event
+        `TP=` in the confluence list must not contradict it either."""
+        events = [
+            SignalEvent(
+                symbol="BTCUSDT",
+                timeframe="1h",
+                strategy="doji",
+                direction="long",
+                reason="doji@100",
+                open_time=self._TS_MS,
+                price=100.0,
+                sl_price=98.0,
+                context="TP=104.00",
+            ),
+            SignalEvent(
+                symbol="BTCUSDT",
+                timeframe="1h",
+                strategy="engulfing",
+                direction="long",
+                reason="eng@100",
+                open_time=self._TS_MS,
+                price=100.0,
+                sl_price=96.0,
+                context="TP=108.00",
+            ),
+        ]
+        msg = format_confluence_alert(events, sl_pct=0.02, tp_r=2.0)
+        levels_match = re.search(r"^TP: ([\d,]+\.\d+)", msg, re.M)
+        assert levels_match is not None, msg
+        levels = float(levels_match.group(1).replace(",", ""))
+        claims = {
+            float(m.replace(",", "")) for m in re.findall(r"TP=([\d,]+\.\d+)", msg)
+        }
+        assert claims == {levels}

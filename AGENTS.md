@@ -959,6 +959,14 @@ verdicts came out of wiring them up, and the second is the one that mattered:
   120s against a recap chapter running to 186s, so 66s of recap read as fresh content. Only a
   LEADING recap counts — a mid-video 回顧 is a different thing — and chapters are absent on
   ~50% of the corpus, so degrading to the constant is the common path, not the edge case.
+  ⚠ **Position is only half the test; the TITLE has to say recap, and `_RECAP_TITLE_HINTS` IS
+  that half.** A hint meaning merely "the video starts here" makes every such video's opening
+  a recap: `intro` was one until 2026-08-25 (ST85) and cost `VC4FdM78hI8` its first 26% — a
+  leading `Intro` chapter, 0-295s of 1128s, overrode a configured `intro_recap_s: 0`. An
+  introduction OPENS content, a recap REPLAYS prior calls, and the failure is silent and
+  one-directional: a false positive DROPS Stream C setups, the only stream carrying dated
+  calls, while a miss merely falls back to the channel constant. `review` and `概述` are the
+  same shape and unmeasured — read a sighting on either as this defect, not a new one.
 
 System dependencies, not Poetry-managed:
 
