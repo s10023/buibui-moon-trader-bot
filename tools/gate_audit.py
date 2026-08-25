@@ -59,6 +59,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from analytics import audit_guard  # noqa: E402
 from analytics.backtest_config import load_backtest_config  # noqa: E402
+from analytics.research_guards import utc_day_keys  # noqa: E402
 from analytics.signal.gates import _filter_signals_by_adr  # noqa: E402
 from analytics.signal_config import _day_filter_to_weekdays  # noqa: E402
 from analytics.store import DEFAULT_DB_PATH  # noqa: E402
@@ -314,6 +315,7 @@ def build_audit_table(
             audit_guard.AuditCell(
                 label=" × ".join(str(k) for k in key_tuple),
                 supp_r=supp["_pnl"].tolist(),
+                cluster_key=utc_day_keys(supp["signal_time"].tolist()),
                 kept_r=kept["_pnl"].tolist(),
             )
         )

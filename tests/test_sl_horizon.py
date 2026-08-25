@@ -514,7 +514,11 @@ def _paired(
         "tf": ["1h"] * n,
         "strategy": ["pin_bar"] * n,
         "direction": ["long"] * n,
-        "open_time": list(range(n)),
+        # One signal per UTC DAY. audit_guard prices the verdict on the cluster
+        # unit, so `range(n)` milliseconds would put all n rows in one day --
+        # one cluster, an infinite CI, and INSUFFICIENT everywhere. The spacing
+        # states what this fixture has always assumed: n independent draws.
+        "open_time": [i * 86_400_000 for i in range(n)],
         BASELINE_ARM: rng.normal(baseline, noise, n),
     }
     for arm, lift in lifts.items():

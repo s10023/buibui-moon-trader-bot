@@ -207,6 +207,19 @@ def _block(
     return df
 
 
+def _stamp_days(df: pd.DataFrame) -> pd.DataFrame:
+    """One row per UTC day, so the frame declares independent draws.
+
+    ``evaluate_warning_cells`` prices each verdict on its cluster unit, so a
+    frame whose rows share a timestamp is ONE cluster and correctly refuses a
+    verdict. Every fixture here has always meant "n independent observations";
+    this is where that assumption stops being implicit.
+    """
+    out = df.reset_index(drop=True)
+    out["ts_ms"] = [i * 86_400_000 for i in range(len(out))]
+    return out
+
+
 class TestEvaluateWarningCells:
     def test_taxonomy_mapping(self) -> None:
         rng = np.random.default_rng(7)
@@ -222,7 +235,7 @@ class TestEvaluateWarningCells:
                 _block(300, 0.05, None, rng),  # clean bulk
             ]
         ).reset_index(drop=True)
-        verdicts = evaluate_warning_cells(tagged, n_boot=500)
+        verdicts = evaluate_warning_cells(_stamp_days(tagged), n_boot=500)
         assert len(verdicts) == 12
         by: dict[tuple[str, str], WarningVerdict] = {
             (v.warning, v.direction): v for v in verdicts
@@ -243,7 +256,7 @@ class TestEvaluateWarningCells:
                 _block(300, 0.9, None, rng),
             ]
         ).reset_index(drop=True)
-        verdicts = evaluate_warning_cells(tagged, n_boot=500)
+        verdicts = evaluate_warning_cells(_stamp_days(tagged), n_boot=500)
         by = {(v.warning, v.direction): v for v in verdicts}
         v = by[("w8_inside_bar", "long")]
         assert v.raw_decision == "CONCENTRATE"
@@ -267,7 +280,7 @@ class TestEvaluateWarningCells:
             noisy[key] = key == "w7_doji"
         tagged = pd.concat([noisy, _block(300, 0.0, None, rng)]).reset_index(drop=True)
 
-        verdicts = evaluate_warning_cells(tagged, n_boot=500)
+        verdicts = evaluate_warning_cells(_stamp_days(tagged), n_boot=500)
         v = {(x.warning, x.direction): x for x in verdicts}[("w7_doji", "long")]
 
         assert v.n_warned >= 30 and v.n_clean >= 30  # a size rule cannot help
@@ -285,7 +298,7 @@ class TestEvaluateWarningCells:
                 _block(300, 0.05, None, rng),
             ]
         ).reset_index(drop=True)
-        verdicts = evaluate_warning_cells(tagged, n_boot=500)
+        verdicts = evaluate_warning_cells(_stamp_days(tagged), n_boot=500)
         tested = [v for v in verdicts if v.adj_pvalue is not None]
         # every tested cell reports the same family size
         assert len({v.n_tests for v in tested}) == 1

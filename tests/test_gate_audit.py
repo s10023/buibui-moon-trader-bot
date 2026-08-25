@@ -55,7 +55,21 @@ def _trade(
 
 
 def _frame(rows: list[dict[str, object]]) -> pd.DataFrame:
-    return pd.DataFrame(rows)
+    """Build the trade frame, spacing every row onto its own UTC day.
+
+    `audit_guard` prices a verdict on the cluster unit, and `_trade` defaults
+    `signal_time` to a single constant -- so without this every fixture is ONE
+    cluster and every verdict is correctly INSUFFICIENT.
+
+    The offset is a whole number of WEEKS, which is load-bearing: 7 days is 0
+    mod 7, so each row keeps the weekday its own `signal_time` chose and the
+    day-filter tests above (Mon-Sun spans) are untouched.
+    """
+    df = pd.DataFrame(rows)
+    if not df.empty and "signal_time" in df.columns:
+        week = 7 * _DAY_MS
+        df["signal_time"] = [int(t) + i * week for i, t in enumerate(df["signal_time"])]
+    return df
 
 
 # ---------------------------------------------------------------------------

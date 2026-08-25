@@ -364,10 +364,16 @@ def test_map_disable_missing_dsr_or_pbo_is_no_edge() -> None:
 def test_sign_inversion_is_mapped_the_right_way_round() -> None:
     # A reliably POSITIVE slice must come back as BUILD, not AVOID.
     good = AuditCell(
-        label="elevated|long", supp_r=[0.5] * 40 + [0.4] * 40, kept_r=[0.0] * 80
+        label="elevated|long",
+        supp_r=[0.5] * 40 + [0.4] * 40,
+        cluster_key=list(range(80)),
+        kept_r=[0.0] * 80,
     )
     bad = AuditCell(
-        label="depressed|long", supp_r=[-0.5] * 40 + [-0.4] * 40, kept_r=[0.0] * 80
+        label="depressed|long",
+        supp_r=[-0.5] * 40 + [-0.4] * 40,
+        cluster_key=list(range(80)),
+        kept_r=[0.0] * 80,
     )
     verdicts = dict(evaluate_premium_states([good, bad]))
     assert verdicts["elevated|long"] == VERDICT_BUILD
@@ -375,7 +381,12 @@ def test_sign_inversion_is_mapped_the_right_way_round() -> None:
 
 
 def test_underpowered_cell_is_insufficient_not_no_edge() -> None:
-    thin = AuditCell(label="elevated|short", supp_r=[0.5] * 5, kept_r=[0.0] * 5)
+    thin = AuditCell(
+        label="elevated|short",
+        supp_r=[0.5] * 5,
+        cluster_key=list(range(5)),
+        kept_r=[0.0] * 5,
+    )
     assert dict(evaluate_premium_states([thin]))["elevated|short"] != VERDICT_NO_EDGE
     assert (
         dict(evaluate_premium_states([thin]))["elevated|short"] == VERDICT_INSUFFICIENT
@@ -387,7 +398,9 @@ def test_evaluate_premium_states_on_empty_cells_returns_empty_list() -> None:
 
 
 def test_evaluate_premium_states_rejects_an_unrecognized_state_label() -> None:
-    bogus = AuditCell(label="not_a_real_state|long", supp_r=[0.5] * 40)
+    bogus = AuditCell(
+        label="not_a_real_state|long", supp_r=[0.5] * 40, cluster_key=list(range(40))
+    )
     try:
         evaluate_premium_states([bogus])
     except ValueError:

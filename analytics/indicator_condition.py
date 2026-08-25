@@ -31,6 +31,7 @@ from analytics.backtest.engine import _compute_atr14
 from analytics.brief.indicators import build_indicator_state
 from analytics.brief.types import IndicatorState
 from analytics.regime import classify_series
+from analytics.research_guards import utc_day_keys
 from analytics.state_audit import family_dsr, family_pbo, mintrl_n_ok
 
 # Minimum pre-entry bar count on each timeframe before we trust M1 state
@@ -266,6 +267,10 @@ class _RawCell:
     direction: str
     with_r: npt.NDArray[np.float64]
     without_r: npt.NDArray[np.float64]
+    with_days: list[int]
+    """UTC day per ``with_r`` row — the cluster unit ``audit_guard`` prices the
+    verdict on. Carried on the cell rather than re-derived downstream so the
+    split and its dependence key cannot drift apart."""
 
 
 def build_condition_cells(
@@ -293,6 +298,7 @@ def build_condition_cells(
             for state in states:
                 with_mask = dgrp[axis].astype(str) == state
                 with_r = dgrp.loc[with_mask, "pnl_r"].to_numpy(dtype=np.float64)
+                with_days = utc_day_keys(dgrp.loc[with_mask, "entry_time"].tolist())
                 without_r = dgrp.loc[~with_mask, "pnl_r"].to_numpy(dtype=np.float64)
                 cells.append(
                     _RawCell(
@@ -301,6 +307,7 @@ def build_condition_cells(
                         direction=str(direction),
                         with_r=with_r,
                         without_r=without_r,
+                        with_days=with_days,
                     )
                 )
     return cells
@@ -361,6 +368,7 @@ def evaluate_conditions(
         audit_guard.AuditCell(
             label=f"{c.axis}|{c.state}|{c.direction}",
             supp_r=c.with_r.tolist(),
+            cluster_key=c.with_days,
             kept_r=c.without_r.tolist(),
         )
         for c in cells

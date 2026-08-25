@@ -26,7 +26,7 @@ from analytics.audit_guard import AuditCell, CellVerdict, evaluate_audit_cells
 from analytics.backtest.engine import _compute_atr14
 from analytics.exits.policies import fixed as fixed_policy
 from analytics.exits.replay import replay_exits
-from analytics.research_guards import cscv_pbo, deflated_sharpe_ratio
+from analytics.research_guards import cscv_pbo, deflated_sharpe_ratio, utc_day_keys
 from analytics.signal.outcome_backfill import DEFAULT_MAX_HOLD_BARS
 
 # A-priori and fixed. Brackets the current effective ratio at 1h (~3.6), 4h
@@ -439,7 +439,13 @@ def evaluate_sl_grid(
     for gi, (_, grp) in enumerate(groups):
         for arm in arms:
             diff = (grp[arm] - grp[BASELINE_ARM]).to_numpy(dtype=np.float64)
-            cells.append(AuditCell(label=f"g{gi}|{arm}", supp_r=diff.tolist()))
+            cells.append(
+                AuditCell(
+                    label=f"g{gi}|{arm}",
+                    supp_r=diff.tolist(),
+                    cluster_key=utc_day_keys(grp["open_time"].tolist()),
+                )
+            )
             index.append((gi, arm))
 
     verdicts_flat = evaluate_audit_cells(
