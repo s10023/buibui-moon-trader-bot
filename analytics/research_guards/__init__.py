@@ -10,6 +10,12 @@ Eager re-exports so callers can do
 """
 
 from analytics.research_guards.bootstrap import BootstrapCI, block_bootstrap_ci
+from analytics.research_guards.cluster import (
+    ClusterStats,
+    cluster_bootstrap_ci,
+    cluster_stats,
+    utc_day_keys,
+)
 from analytics.research_guards.dsr import (
     EULER_MASCHERONI,
     deflated_sharpe_ratio,
@@ -28,10 +34,13 @@ __all__ = [
     "GATE_DSR",
     "GATE_PBO",
     "BootstrapCI",
+    "ClusterStats",
     "HaircutResult",
     "PBOResult",
     "ann_sharpe",
     "block_bootstrap_ci",
+    "cluster_bootstrap_ci",
+    "cluster_stats",
     "cscv_pbo",
     "deflated_sharpe_ratio",
     "expected_max_sharpe",
@@ -41,4 +50,5 @@ __all__ = [
     "per_period_sharpe",
     "probabilistic_sharpe_ratio",
     "required_sharpe",
+    "utc_day_keys",
 ]

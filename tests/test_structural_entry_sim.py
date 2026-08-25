@@ -332,7 +332,11 @@ def _cell_table(
             "sl_model": [sl_model] * n,
             "pnl_r": rows_r,
             "pnl_r_gross": rows_r,
-            "ts_ms": list(range(n)),
+            # One touch per UTC DAY. The verdict is priced on the cluster
+            # unit, so `range(n)` milliseconds is a SINGLE cluster and the
+            # cell correctly refuses to resolve. The spacing states what this
+            # fixture has always assumed: n independent draws.
+            "ts_ms": [i * 86_400_000 for i in range(n)],
         }
     )
 

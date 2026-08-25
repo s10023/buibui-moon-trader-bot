@@ -141,12 +141,22 @@ def build_state_cells(daily: pd.DataFrame) -> list[AuditCell]:
     for direction in sorted(daily["direction"].unique()):
         side = daily[daily["direction"] == direction]
         for state in sorted(side["state"].unique()):
-            inside = side.loc[side["state"] == state, "mean_r"]
+            inside_rows = side.loc[side["state"] == state]
+            inside = inside_rows["mean_r"]
             outside = side.loc[side["state"] != state, "mean_r"]
+            # ``collapse_to_daily`` already emits ONE row per (day, direction),
+            # so the day key makes every cluster a singleton and the design
+            # effect is exactly 1.0. That is not a no-op worth skipping: it is
+            # how AGENTS.md's "book-day rows are already aggregated and must NOT
+            # be deflated again" enforces itself instead of relying on a reader
+            # to remember it. Passing the real day also keeps the claim
+            # checkable — a future change that stops collapsing would start
+            # deflating here automatically.
             cells.append(
                 AuditCell(
                     label=f"{state}|{direction}",
                     supp_r=list(inside),
+                    cluster_key=[int(d) for d in inside_rows["day"]],
                     kept_r=list(outside),
                 )
             )

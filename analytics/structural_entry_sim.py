@@ -41,6 +41,7 @@ from analytics.research_guards import (
     cscv_pbo,
     deflated_sharpe_ratio,
     min_track_record_length,
+    utc_day_keys,
 )
 from analytics.structural_touch import (
     Touch,
@@ -499,20 +500,25 @@ def evaluate_build(
     )
 
     first_by_cell: dict[tuple[str, str], np.ndarray] = {}
+    first_keys_by_cell: dict[tuple[str, str], list[int]] = {}
     repeat_by_cell: dict[tuple[str, str], np.ndarray] = {}
     sub_by_cell: dict[tuple[str, str], pd.DataFrame] = {}
     for zt, d in cells:
         sub = head[(head["zone_type"] == zt) & (head["direction"] == d)]
         sub_by_cell[(zt, d)] = sub
-        first_by_cell[(zt, d)] = sub.loc[sub["touch_index"] == 1, "pnl_r"].to_numpy(
-            float
-        )
+        first_rows = sub.loc[sub["touch_index"] == 1]
+        first_by_cell[(zt, d)] = first_rows["pnl_r"].to_numpy(float)
+        first_keys_by_cell[(zt, d)] = utc_day_keys(first_rows["ts_ms"].tolist())
         repeat_by_cell[(zt, d)] = sub.loc[sub["touch_index"] >= 2, "pnl_r"].to_numpy(
             float
         )
 
     audit_cells = [
-        audit_guard.AuditCell(label=f"{zt}/{d}", supp_r=first_by_cell[(zt, d)].tolist())
+        audit_guard.AuditCell(
+            label=f"{zt}/{d}",
+            supp_r=first_by_cell[(zt, d)].tolist(),
+            cluster_key=first_keys_by_cell[(zt, d)],
+        )
         for zt, d in cells
     ]
     cvs = audit_guard.evaluate_audit_cells(

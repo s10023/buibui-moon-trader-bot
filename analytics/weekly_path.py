@@ -208,17 +208,27 @@ def evaluate_hours(
     Mapping ENABLE -> PREDICTIVE would invert every verdict.
     """
     series: dict[int, list[float]] = {}
+    weeks_by_hour: dict[int, list[date]] = {}
     for hour in cfg.hours:
-        series[hour] = [o.value for o in build_observations(weeks, hour, cfg)]
+        obs = build_observations(weeks, hour, cfg)
+        series[hour] = [o.value for o in obs]
+        weeks_by_hour[hour] = [o.week for o in obs]
 
-    cells = [AuditCell(label=f"h{h}", supp_r=series[h]) for h in cfg.hours]
+    # The cross-section is already collapsed to ONE observation per calendar
+    # week (spec §5.1), so the week key yields singleton clusters and a design
+    # effect of exactly 1.0 -- the same self-enforcing shape as
+    # ``state_audit``. The calendar week, not the UTC day, is this module's
+    # dependence unit, which is why it does not call ``utc_day_keys``.
+    cells = [
+        AuditCell(label=f"h{h}", supp_r=series[h], cluster_key=weeks_by_hour[h])
+        for h in cfg.hours
+    ]
     results = evaluate_audit_cells(
         cells,
         bar=cfg.bar,
         alpha=cfg.alpha,
         min_n=cfg.min_n,
         n_boot=cfg.n_boot,
-        boot_method="circular",
         seed=cfg.seed,
         enable_concentrate=False,
     )

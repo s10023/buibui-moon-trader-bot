@@ -48,6 +48,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from analytics import audit_guard  # noqa: E402
 from analytics.backtest_config import load_backtest_config  # noqa: E402
+from analytics.research_guards import utc_day_keys  # noqa: E402
 from analytics.store import DEFAULT_DB_PATH  # noqa: E402
 from tools.gate_audit import _resolve_config_run_ids, load_trades  # noqa: E402
 
@@ -187,7 +188,11 @@ def aggregate_sweep(
         supp = non_exempt[mask]
         kept = non_exempt[~mask]
         cells.append(
-            audit_guard.AuditCell(label=str(cand), supp_r=supp["_pnl"].tolist())
+            audit_guard.AuditCell(
+                label=str(cand),
+                supp_r=supp["_pnl"].tolist(),
+                cluster_key=utc_day_keys(supp["signal_time"].tolist()),
+            )
         )
         metas.append((cand, kept))
 
@@ -261,6 +266,7 @@ def per_strategy_sweep(
             audit_guard.AuditCell(
                 label=f"{strategy} × {tf} × {direction}",
                 supp_r=supp["_pnl"].tolist(),
+                cluster_key=utc_day_keys(supp["signal_time"].tolist()),
             )
         )
         metas.append((strategy, tf, direction, kept))

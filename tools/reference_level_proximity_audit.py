@@ -41,6 +41,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from analytics import audit_guard  # noqa: E402
 from analytics.reference_levels import LEVEL_NAMES, compute_levels_table  # noqa: E402
+from analytics.research_guards import utc_day_keys  # noqa: E402
 from analytics.store import DEFAULT_DB_PATH  # noqa: E402
 from analytics.store.market_data import get_ohlcv  # noqa: E402
 
@@ -319,20 +320,28 @@ def evaluate_primary(
     has_tags = not tagged.empty and "prim_sweep" in tagged.columns
 
     near_arrays: list[npt.NDArray[np.float64]] = []
+    near_keys: list[list[int]] = []
     far_arrays: list[npt.NDArray[np.float64]] = []
     for direction, _label in specs:
         if has_tags:
             d = tagged[tagged["direction"] == direction]
-            near_s = d[d["prim_sweep"] & d["prim_band"].isin(NEAR_BANDS)]["r"]
+            near_rows = d[d["prim_sweep"] & d["prim_band"].isin(NEAR_BANDS)]
+            near_s = near_rows["r"]
             far_s = d[d["near_band"] == ">1.0"]["r"]
             near_arrays.append(near_s.to_numpy(dtype=np.float64))
+            near_keys.append(utc_day_keys(near_rows["ts_ms"].tolist()))
             far_arrays.append(far_s.to_numpy(dtype=np.float64))
         else:
             near_arrays.append(np.empty(0, dtype=np.float64))
+            near_keys.append([])
             far_arrays.append(np.empty(0, dtype=np.float64))
 
     cells = [
-        audit_guard.AuditCell(label=specs[i][1], supp_r=near_arrays[i].tolist())
+        audit_guard.AuditCell(
+            label=specs[i][1],
+            supp_r=near_arrays[i].tolist(),
+            cluster_key=near_keys[i],
+        )
         for i in range(2)
     ]
     cell_verdicts = audit_guard.evaluate_audit_cells(

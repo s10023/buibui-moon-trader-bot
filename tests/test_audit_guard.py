@@ -3,12 +3,19 @@
 The engine replaces the crude ±0.05R bar in the audit tools with two gates that
 must BOTH hold for an ENABLE/DISABLE verdict:
 
-  1. a stationary/circular block-bootstrap CI on the suppressed slice's mean R
-     must clear the ±bar on the correct side, and
+  1. a CLUSTER bootstrap CI on the suppressed slice's mean R must clear the
+     ±bar on the correct side, and
   2. the Holm multiple-testing adjusted p-value (across the tested-cell family)
-     must be significant (< alpha).
+     must be significant (< alpha), on `n_eff = n / DEFF` rather than the
+     trade count.
 
-Cells below `min_n` are INSUFFICIENT and excluded from the haircut family.
+Cells below `min_n`, or carrying an unusable `cluster_key`, are INSUFFICIENT
+and excluded from the haircut family.
+
+Most fixtures here pass one distinct key per row. That is not boilerplate — it
+is the fixture DECLARING that its draws are independent, which is what these
+verdict tests have always assumed. `TestClustering` below is where the key
+carries real structure.
 """
 
 from __future__ import annotations
@@ -36,7 +43,12 @@ def _normal_cell(
 ) -> AuditCell:
     rng = np.random.default_rng(seed)
     supp = rng.normal(mean, std, n).tolist()
-    return AuditCell(label=label, supp_r=supp, kept_r=kept or [])
+    return AuditCell(
+        label=label,
+        supp_r=supp,
+        cluster_key=list(range(n)),
+        kept_r=kept or [],
+    )
 
 
 # Small n_boot keeps the suite fast; verdicts on well-separated slices are
@@ -147,12 +159,22 @@ class TestDegenerate:
     def test_zero_variance_deterministic_loss_enables(self) -> None:
         # 40 identical -1.0R trades: no sampling uncertainty → maximally
         # significant deterministic loss → ENABLE.
-        cell = AuditCell(label="z", supp_r=[-1.0] * 40, kept_r=[1.0] * 10)
+        cell = AuditCell(
+            label="z",
+            supp_r=[-1.0] * 40,
+            cluster_key=list(range(40)),
+            kept_r=[1.0] * 10,
+        )
         [v] = audit_guard.evaluate_audit_cells([cell], **_KW)  # type: ignore[arg-type]
         assert v.decision == DECISION_ENABLE
 
     def test_zero_variance_deterministic_win_disables(self) -> None:
-        cell = AuditCell(label="z", supp_r=[1.0] * 40, kept_r=[-1.0] * 10)
+        cell = AuditCell(
+            label="z",
+            supp_r=[1.0] * 40,
+            cluster_key=list(range(40)),
+            kept_r=[-1.0] * 10,
+        )
         [v] = audit_guard.evaluate_audit_cells([cell], **_KW)  # type: ignore[arg-type]
         assert v.decision == DECISION_DISABLE
 
@@ -180,8 +202,8 @@ def test_powered_null_requires_the_ci_inside_the_bar() -> None:
     # those averages to exactly 0, so the circular block bootstrap returns
     # CI [0, 0] however large x is, and the "wide" cell is not wide at all.
     # Same shape for both, differing only by a factor of 100 in scale.
-    tight = audit_guard.AuditCell("tight", [-0.01] * 25 + [0.01] * 25)
-    wide = audit_guard.AuditCell("wide", [-1.0] * 25 + [1.0] * 25)
+    tight = audit_guard.AuditCell("tight", [-0.01] * 25 + [0.01] * 25, list(range(50)))
+    wide = audit_guard.AuditCell("wide", [-1.0] * 25 + [1.0] * 25, list(range(50)))
 
     tv, wv = audit_guard.evaluate_audit_cells([tight, wide], bar=0.05)
 
@@ -203,8 +225,120 @@ def test_powered_null_requires_the_ci_inside_the_bar() -> None:
 def test_powered_null_is_false_when_the_cell_was_never_tested() -> None:
     """Below ``min_n`` no CI is computed, so containment is unknowable."""
     (v,) = audit_guard.evaluate_audit_cells(
-        [audit_guard.AuditCell("thin", [0.0] * 5)], bar=0.05, min_n=30
+        [audit_guard.AuditCell("thin", [0.0] * 5, list(range(5)))], bar=0.05, min_n=30
     )
     assert v.decision == audit_guard.DECISION_INSUFFICIENT
     assert v.ci_lo is None
     assert v.powered_null is False
+
+
+# --------------------------------------------------------------------------- #
+# The cluster key: both legs, fail closed, and reported
+# --------------------------------------------------------------------------- #
+
+
+def _day_clustered(
+    n_days: int, per_day: int, mean: float, spread: float, seed: int
+) -> AuditCell:
+    """A cell whose whole day moves together, with the array SYMBOL-BLOCKED so
+    same-day rows are maximally far apart — the shape `warning_audit.tag_trades`
+    builds and the one a block bootstrap structurally cannot reach.
+    """
+    rng = np.random.default_rng(seed)
+    vals: list[float] = []
+    keys: list[int] = []
+    for _slot in range(per_day):
+        for d in range(n_days):
+            rng_day = np.random.default_rng(seed * 1000 + d)
+            vals.append(mean + rng_day.normal(0.0, spread) + rng.normal(0.0, 0.01))
+            keys.append(d)
+    return AuditCell(label="clustered", supp_r=vals, cluster_key=keys)
+
+
+class TestClustering:
+    def test_a_clustered_cell_reports_its_real_sample_size(self) -> None:
+        cell = _day_clustered(30, 8, mean=0.4, spread=0.5, seed=3)
+        [v] = audit_guard.evaluate_audit_cells([cell], **_KW)  # type: ignore[arg-type]
+        assert v.n_supp == 240
+        assert v.n_clusters == 30
+        assert v.design_effect is not None and v.design_effect > 5.0
+
+    def test_deflation_is_what_stops_a_clustered_cell_resolving(self) -> None:
+        """The correction, isolated: SAME values, only the key changes.
+
+        Told the rows are independent the cell resolves; told the truth — that
+        240 rows are 30 days — it does not. Nothing else differs, so this is
+        the deflation and not a width knob.
+        """
+        # mean 0.10 against a day-to-day spread of 0.6: 200 rows clear the bar
+        # comfortably (CI [+0.149, +0.327], p 0.0000), 25 days do not
+        # (CI [-0.019, +0.493], p 0.067). That gap IS the defect.
+        cell = _day_clustered(25, 8, mean=0.10, spread=0.6, seed=3)
+        as_independent = AuditCell(
+            label="asserted-independent",
+            supp_r=cell.supp_r,
+            cluster_key=list(range(len(cell.supp_r))),
+        )
+        [honest] = audit_guard.evaluate_audit_cells([cell], **_KW)  # type: ignore[arg-type]
+        [naive] = audit_guard.evaluate_audit_cells([as_independent], **_KW)  # type: ignore[arg-type]
+
+        assert naive.decision == DECISION_DISABLE
+        assert honest.decision == DECISION_INSUFFICIENT
+        assert naive.design_effect == 1.0
+        assert honest.design_effect is not None and honest.design_effect > 5.0
+        # Both legs move, and the CI is the visible one.
+        assert honest.ci_hi is not None and naive.ci_hi is not None
+        assert honest.ci_lo is not None and naive.ci_lo is not None
+        assert (honest.ci_hi - honest.ci_lo) > (naive.ci_hi - naive.ci_lo)
+
+    def test_significance_leg_uses_n_eff_not_the_trade_count(self) -> None:
+        """The larger of the two channels. A cell with a modest Sharpe over
+        many correlated rows is significant on `n` and not on `n_eff`."""
+        cell = _day_clustered(40, 10, mean=0.15, spread=0.30, seed=8)
+        flat = AuditCell(
+            label="flat", supp_r=cell.supp_r, cluster_key=list(range(len(cell.supp_r)))
+        )
+        [honest] = audit_guard.evaluate_audit_cells([cell], **_KW)  # type: ignore[arg-type]
+        [naive] = audit_guard.evaluate_audit_cells([flat], **_KW)  # type: ignore[arg-type]
+        assert naive.adj_pvalue is not None and honest.adj_pvalue is not None
+        assert naive.adj_pvalue < 0.05
+        assert honest.adj_pvalue > naive.adj_pvalue
+
+    def test_a_mismatched_key_fails_closed_and_says_so(self) -> None:
+        bad = AuditCell(label="bad", supp_r=[0.5] * 40, cluster_key=[1, 2, 3])
+        [v] = audit_guard.evaluate_audit_cells([bad], **_KW)  # type: ignore[arg-type]
+        assert v.decision == DECISION_INSUFFICIENT
+        assert v.ci_lo is None and v.adj_pvalue is None
+        assert v.n_clusters is None and v.design_effect is None
+        assert "cluster_key length 3 != n_supp 40" in v.reasons[0]
+
+    def test_a_mismatched_key_leaves_the_holm_family(self) -> None:
+        """A cell that could not be tested must not inflate the haircut
+        denominator — the same rule `n < min_n` already obeys."""
+        good = _normal_cell(-0.6, 0.7, 80, seed=1, label="good")
+        bad = AuditCell(label="bad", supp_r=[0.5] * 40, cluster_key=[1])
+        verdicts = audit_guard.evaluate_audit_cells([good, bad], **_KW)  # type: ignore[arg-type]
+        assert [v.n_tests for v in verdicts] == [1, 1]
+
+    def test_an_untested_cell_reports_no_design_effect(self) -> None:
+        thin = AuditCell(label="thin", supp_r=[0.1] * 5, cluster_key=list(range(5)))
+        [v] = audit_guard.evaluate_audit_cells([thin], min_n=30, **_KW)  # type: ignore[arg-type]
+        assert v.decision == DECISION_INSUFFICIENT
+        assert v.n_clusters is None and v.design_effect is None
+
+    def test_already_daily_rows_are_not_deflated_twice(self) -> None:
+        """AGENTS.md's book-day rule, enforced by arithmetic rather than memory.
+
+        One row per day is a singleton cluster, so a consumer that has already
+        aggregated to book-days gets a design effect of exactly 1.0 and the
+        verdict it would have had before this change.
+        """
+        cell = AuditCell(
+            label="daily",
+            supp_r=np.random.default_rng(4).normal(-0.6, 0.7, 80).tolist(),
+            cluster_key=[20_000 + d for d in range(80)],
+        )
+        [v] = audit_guard.evaluate_audit_cells([cell], **_KW)  # type: ignore[arg-type]
+        assert v.design_effect == 1.0
+        assert v.n_clusters == 80
+        assert v.decision == DECISION_ENABLE

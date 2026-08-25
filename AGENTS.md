@@ -504,6 +504,32 @@ between panels — run `effective_independent_series` rather than quoting one**,
 failing to reproduce. At k=25 n_eff 2.92 and deflator 2.926 coincide to three
 digits, which is exactly why the conflation is invisible at the worked example above.
 
+**Day-CLUSTERING is this same correction computed a second way, so apply one or the other in
+any one place — never both** (ST80, `docs/audits/2026-08-25-st80-audit-guard-cluster-key.md`).
+`effective_independent_series` is `n_eff = k / (1 + (k−1)·ρ)`; a design effect on a
+fully-populated cross-section is `DEFF = 1 + (k−1)·ρ`, so `n_eff = k / DEFF` is the same line
+read twice — at ρ=0.315, k=25 that is DEFF 8.56 and 25/8.56 = **2.921**, the filed figure to
+three digits. **The rule is stronger than "do not conflate them": they are one phenomenon with
+two estimators, living in different modules.** The overlap buys a free property — the book-day
+rule above **enforces itself** under a day key, since one row per day is a singleton cluster,
+ICC 0, DEFF 1, so the deflation is a no-op rather than something a reader must remember.
+`analytics.research_guards.cluster` owns the design-effect route and
+`analytics.forecast.effective_independent_series` the series route.
+
+⚠ **`audit_guard` corrected NEITHER until 2026-08-25, and the CI leg was blind for a reason
+worth carrying: no trade query feeding an `AuditCell` has an `ORDER BY`.** Its block bootstrap
+resampled runs adjacent in DuckDB *storage* order, so a guard whose docstring claimed
+serial-correlation awareness was ordering on nothing — and same-day cross-symbol rows are not
+adjacent under any ordering. Measured on 125 cells / 166,384 distinct trades: trade-weighted
+DEFF **4.991** (median only 1.670 — the deflation concentrates in the 15m cells that are 64.4%
+of the ledger, so **the median is not the decision statistic**), and 70 of 125 cells read
+significant where 52 survive. `AuditCell.cluster_key` is now REQUIRED and fails closed. **No
+filed verdict moved: `powered_null` holds on 0 of 125 cells before and after.** ⚠ The unit is
+`utc_day_keys`, a documented **lower bound** on a 24/7 tape — DEFF rises 1.508 (12h) → 1.670
+(day) → 1.873 (2d) → 2.366 (1w) with no plateau — so read a design effect as a floor and a
+surviving verdict as conservative. **Do not unify it with the equities fork's
+`session_day_keys`**, which is exact there because RTH sits inside one UTC date.
+
 **Ensemble / confluence scoring — FAILS the gate**
 (`docs/audits/2026-08-11-ensemble-walkforward.md`). "Combine the failed hypotheses into a
 confidence score" is a natural idea and will recur. DSR **0.7030** against 0.95. PBO (0.235)

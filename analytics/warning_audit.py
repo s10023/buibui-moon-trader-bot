@@ -22,6 +22,7 @@ import numpy.typing as npt
 import pandas as pd
 
 from analytics import audit_guard
+from analytics.research_guards import utc_day_keys
 from signals.alert_formatter import (
     _has_consecutive_candles,
     _has_equal_levels,
@@ -210,15 +211,18 @@ def evaluate_warning_cells(
     """
     specs = [(w, d) for w in WARNING_KEYS for d in ("long", "short")]
     warned_arrays: list[npt.NDArray[np.float64]] = []
+    warned_keys: list[list[int]] = []
     clean_arrays: list[npt.NDArray[np.float64]] = []
     for w, d in specs:
         sub = tagged[tagged["direction"] == d]
         warned_arrays.append(sub.loc[sub[w], "r"].to_numpy(dtype=np.float64))
+        warned_keys.append(utc_day_keys(sub.loc[sub[w], "ts_ms"].tolist()))
         clean_arrays.append(sub.loc[~sub[w], "r"].to_numpy(dtype=np.float64))
     cells = [
         audit_guard.AuditCell(
             label=f"{w}/{d}",
             supp_r=warned_arrays[i].tolist(),
+            cluster_key=warned_keys[i],
             kept_r=clean_arrays[i].tolist(),
         )
         for i, (w, d) in enumerate(specs)

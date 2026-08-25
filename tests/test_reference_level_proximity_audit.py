@@ -228,6 +228,10 @@ def _cohort(
             "prim_band": [prim_band] * n,
             "prim_sweep": [prim_sweep] * n,
             "near_band": [near_band] * n,
+            # One entry per UTC DAY: the verdict is priced on the cluster unit,
+            # so a cohort sharing a timestamp is one cluster and resolves to
+            # INSUFFICIENT whatever its mean.
+            "ts_ms": [i * 86_400_000 for i in range(n)],
             "r": rng.normal(r_mean, 0.3, n),
         }
     )

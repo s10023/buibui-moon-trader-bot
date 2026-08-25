@@ -310,6 +310,11 @@ def test_evaluate_builds_on_strong_positive_state() -> None:
     df = pd.DataFrame(
         {
             "direction": ["long"] * (2 * n),
+            # One trade per UTC DAY: audit_guard prices the verdict on the
+            # cluster unit, so same-millisecond rows would collapse to one
+            # cluster. The spacing states this fixture's standing assumption
+            # that its draws are independent.
+            "entry_time": [i * 86_400_000 for i in range(2 * n)],
             "strategy": ["s"] * (2 * n),
             "ema_stack": (["bullish"] * n) + (["bearish"] * n),
             "pnl_r": list(with_r) + list(without_r),
@@ -348,6 +353,11 @@ def test_evaluate_powered_null_is_no_edge_with_a_real_lift() -> None:
     df = pd.DataFrame(
         {
             "direction": ["long"] * (2 * n),
+            # One trade per UTC DAY: audit_guard prices the verdict on the
+            # cluster unit, so same-millisecond rows would collapse to one
+            # cluster. The spacing states this fixture's standing assumption
+            # that its draws are independent.
+            "entry_time": [i * 86_400_000 for i in range(2 * n)],
             "strategy": ["s"] * (2 * n),
             # Both slices drawn from the SAME null distribution -> powered, but
             # no effect to find.
@@ -375,6 +385,11 @@ def test_evaluate_underpowered_stays_insufficient() -> None:
     df = pd.DataFrame(
         {
             "direction": ["long"] * (n_small + n_big),
+            # One trade per UTC DAY: audit_guard prices the verdict on the
+            # cluster unit, so same-millisecond rows would collapse to one
+            # cluster. The spacing states this fixture's standing assumption
+            # that its draws are independent.
+            "entry_time": [i * 86_400_000 for i in range(n_small + n_big)],
             "strategy": ["s"] * (n_small + n_big),
             "ema_stack": (["bullish"] * n_small) + (["bearish"] * n_big),
             "pnl_r": list(rng.normal(0.0, 1.0, n_small))
@@ -403,6 +418,11 @@ def test_evaluate_avoid_is_reachable_end_to_end() -> None:
     df = pd.DataFrame(
         {
             "direction": ["long"] * (2 * n),
+            # One trade per UTC DAY: audit_guard prices the verdict on the
+            # cluster unit, so same-millisecond rows would collapse to one
+            # cluster. The spacing states this fixture's standing assumption
+            # that its draws are independent.
+            "entry_time": [i * 86_400_000 for i in range(2 * n)],
             "strategy": ["s"] * (2 * n),
             # 'bullish' trades average -0.5R against +0.1R elsewhere.
             "ema_stack": (["bullish"] * n) + (["bearish"] * n),
@@ -468,6 +488,11 @@ def test_evaluate_reports_mintrl_on_resolved_cells() -> None:
     df = pd.DataFrame(
         {
             "direction": ["long"] * (2 * n),
+            # One trade per UTC DAY: audit_guard prices the verdict on the
+            # cluster unit, so same-millisecond rows would collapse to one
+            # cluster. The spacing states this fixture's standing assumption
+            # that its draws are independent.
+            "entry_time": [i * 86_400_000 for i in range(2 * n)],
             "strategy": ["s"] * (2 * n),
             "ema_stack": (["bullish"] * n) + (["bearish"] * n),
             "pnl_r": list(rng.normal(0.5, 0.3, n)) + list(rng.normal(-0.1, 0.3, n)),

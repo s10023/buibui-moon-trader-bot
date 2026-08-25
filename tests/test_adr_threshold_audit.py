@@ -43,6 +43,20 @@ def _noisy(mean: float, std: float, n: int, seed: int) -> list[float]:
     return [float(x) for x in np.random.default_rng(seed).normal(mean, std, n)]
 
 
+def _frame(rows: list[dict[str, Any]]) -> pd.DataFrame:
+    """Trade frame with one row per UTC DAY.
+
+    `audit_guard` prices a verdict on the cluster unit, so rows sharing a
+    timestamp are ONE cluster and resolve to INSUFFICIENT. `_row` carries no
+    time of its own, so the spacing is added here — it states the independence
+    every test in this file has always assumed.
+    """
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df["signal_time"] = [i * 86_400_000 for i in range(len(df))]
+    return df
+
+
 class TestAggregateSweep:
     def test_enable_when_extra_suppressed_are_losers(self) -> None:
         # 40 chasing trades at ratio 0.75 (inside [0.70, 0.80)) that are losers
@@ -51,20 +65,20 @@ class TestAggregateSweep:
         kept = [
             _row(pnl_r=v, chasing=False, ratio=0.10) for v in _noisy(0.1, 0.5, 40, 2)
         ]
-        df = pd.DataFrame(supp + kept)
+        df = _frame(supp + kept)
         out = adr.aggregate_sweep(df, [0.70], 0.80, set(), 30, 0.05, **_KW)
         assert out.iloc[0]["verdict"] == "ENABLE"
         assert out.iloc[0]["ci_hi"] <= -0.05
 
     def test_disable_when_extra_suppressed_are_winners(self) -> None:
         supp = [_row(pnl_r=v, ratio=0.75) for v in _noisy(0.6, 0.5, 40, 3)]
-        df = pd.DataFrame(supp)
+        df = _frame(supp)
         out = adr.aggregate_sweep(df, [0.70], 0.80, set(), 30, 0.05, **_KW)
         assert out.iloc[0]["verdict"] == "DISABLE"
 
     def test_insufficient_below_min_n(self) -> None:
         supp = [_row(pnl_r=v, ratio=0.75) for v in _noisy(-0.6, 0.5, 10, 4)]
-        df = pd.DataFrame(supp)
+        df = _frame(supp)
         out = adr.aggregate_sweep(df, [0.70], 0.80, set(), 30, 0.05, **_KW)
         assert out.iloc[0]["verdict"] == "INSUFFICIENT"
 
@@ -72,7 +86,7 @@ class TestAggregateSweep:
         supp = [
             _row(strategy="bos", pnl_r=v, ratio=0.75) for v in _noisy(-0.6, 0.5, 40, 5)
         ]
-        df = pd.DataFrame(supp)
+        df = _frame(supp)
         out = adr.aggregate_sweep(df, [0.70], 0.80, {"bos"}, 30, 0.05, **_KW)
         # bos is exempt → nothing suppressed → INSUFFICIENT.
         assert out.iloc[0]["n_supp"] == 0
@@ -89,13 +103,13 @@ class TestPerStrategySweep:
             _row(direction="short", pnl_r=v, ratio=0.75)
             for v in _noisy(0.6, 0.5, 40, 7)
         ]
-        df = pd.DataFrame(longs + shorts)
+        df = _frame(longs + shorts)
         out = adr.per_strategy_sweep(df, 0.70, 0.80, set(), 30, 0.05, **_KW)
         verdicts = dict(zip(out["direction"], out["verdict"], strict=True))
         assert verdicts["long"] == "ENABLE"
         assert verdicts["short"] == "DISABLE"
 
     def test_empty_when_all_exempt(self) -> None:
-        df = pd.DataFrame([_row(pnl_r=v) for v in _noisy(-0.6, 0.5, 40, 8)])
+        df = _frame([_row(pnl_r=v) for v in _noisy(-0.6, 0.5, 40, 8)])
         out = adr.per_strategy_sweep(df, 0.70, 0.80, {"bos"}, 30, 0.05, **_KW)
         assert out.empty

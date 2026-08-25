@@ -160,10 +160,16 @@ def test_evaluate_states_accepts_a_family_key() -> None:
     rng = np.random.default_rng(0)
     cells = [
         AuditCell(
-            label="a_hi|long", supp_r=list(rng.normal(0.4, 0.2, 80)), kept_r=[0.0] * 80
+            label="a_hi|long",
+            supp_r=list(rng.normal(0.4, 0.2, 80)),
+            cluster_key=list(range(80)),
+            kept_r=[0.0] * 80,
         ),
         AuditCell(
-            label="a_lo|long", supp_r=list(rng.normal(-0.4, 0.2, 80)), kept_r=[0.0] * 80
+            label="a_lo|long",
+            supp_r=list(rng.normal(-0.4, 0.2, 80)),
+            cluster_key=list(range(80)),
+            kept_r=[0.0] * 80,
         ),
     ]
     out = evaluate_states(cells, _family_key)
