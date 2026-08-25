@@ -38,6 +38,19 @@ Environment=PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
 # inherit it.
 Environment=TELEGRAM_ALWAYS=1
 
+# --exit-on-tier2 makes a ROUTINE tier-2 red (chart-drops, freshness) a non-zero
+# exit. Without this, run-job.sh reads that as a failed job: heartbeat
+# suppressed, healthchecks /fail pinged, push titled FAILED -- so a dead timer
+# and a tier-2 nudge looked identical on the phone, which is the exact confusion
+# TELEGRAM_ALWAYS above exists to remove.
+#
+# daily_check.py therefore exits 2 for "tier 1 clear, tier 2 red" and keeps 1 for
+# a real tier-1 failure; SOFT_FAIL_RC=2 is how this unit tells the wrapper which
+# code means that. It is opt-in per job because a bare 2 is not self-describing
+# -- argparse uses it for usage errors, so a blanket rule would mask a genuinely
+# broken invocation on the other timers.
+Environment=SOFT_FAIL_RC=2
+
 # Mandatory once ExecStart is wrapped: without it journald tags output with the
 # executable name (run-job.sh), unit attribution is lost, and `journalctl -u`
 # reads nothing while the lines sit in the journal under another identity.

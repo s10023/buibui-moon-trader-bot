@@ -53,7 +53,23 @@ job a human is meant to read, never on `signal-watch`, which would send 96 messa
 day. To silence the heartbeat again, drop the `Environment=TELEGRAM_ALWAYS=1` line and
 `systemctl --user daemon-reload`.
 
-Both push paths HTML-escape the body and wrap it in `<pre>`. That is a **bug fix**: the
+**It also sets `SOFT_FAIL_RC=2`, which is the other half of `--exit-on-tier2`.**
+`daily_check.py` exits **2** when tier 1 is clear and only tier 2 is red, and **1** on a
+real tier-1 failure. Without the declaration `run-job.sh` reads both as a failed job:
+heartbeat suppressed, `/fail` pinged, push titled FAILED — so a routine tier-2 red looked
+exactly like a **dead timer** on the phone, which is the confusion `TELEGRAM_ALWAYS`
+above exists to remove. A daily false FAILED trains the reader to ignore the channel just
+as effectively as silence does.
+
+`SOFT_FAIL_RC` names **one** exit code, **per job**, and that narrowness is the design:
+argparse exits 2 on a *usage error*, and this wrapper also runs signal-watch, xsmom and
+backup, so reading a bare 2 as soft everywhere would turn a broken invocation into a
+heartbeat — the exact failure the wrapper exists to make loud. Dropping the line reverts
+the job to paging FAILED, i.e. it fails **loud**, the same direction the task markers take
+when a missing marker reads as overdue. A non-numeric value disables the branch rather
+than erroring `test -eq`. Tier 1 wins when both tiers are red.
+
+All three push paths HTML-escape the body and wrap it in `<pre>`. That is a **bug fix**: the
 sender uses `parse_mode=HTML`, so an unescaped traceback (`line 33, in <module>`) was
 rejected with a 400 and the failure alert died on exactly the crashes it exists to
 report. `<pre>` additionally preserves the report's column alignment, which Telegram's

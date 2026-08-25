@@ -81,7 +81,8 @@ def _stub_path(
     _write_exec(
         stub_dir / "poetry",
         f'#!/bin/sh\nprintf "telegram\\n" >> "{log}"\n'
-        f'printf "%s" "$BODY" > "{_body_file(tmp_path)}"\nexit 0\n',
+        f'printf "%s" "$BODY" > "{_body_file(tmp_path)}"\n'
+        f'printf "%s" "$HEAD" > "{_head_file(tmp_path)}"\nexit 0\n',
     )
     job_out = tmp_path / "job-stdout.txt"
     job_out.write_text(job_stdout)
@@ -97,6 +98,15 @@ def _body_file(tmp_path: Path) -> Path:
     return tmp_path / "telegram-body.txt"
 
 
+def _head_file(tmp_path: Path) -> Path:
+    """Where the poetry stub parks the Telegram HEADLINE it was handed.
+
+    The soft-fail branch is defined by what it titles the push -- "ok, warnings"
+    rather than "FAILED" -- so the headline is the observable, not the body.
+    """
+    return tmp_path / "telegram-head.txt"
+
+
 def _run(
     tmp_path: Path,
     *,
@@ -104,6 +114,7 @@ def _run(
     job_rc: int = 0,
     net_wait_secs: str = "10",
     job_stdout: str = "",
+    extra_env: dict[str, str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     """Invoke the real wrapper against the stubs; return (proc, ordered calls)."""
     stub_dir, log = _stub_path(
@@ -116,6 +127,11 @@ def _run(
     # Busy-poll so the deadline is the only thing bounding the test's runtime.
     env["NET_WAIT_INTERVAL"] = "0"
     env["NET_WAIT_HOSTS"] = PROBE_HOST
+    # The wrapper's opt-ins are absent unless a test asks for them, so the
+    # default run keeps the pre-ST77 contract.
+    env.pop("SOFT_FAIL_RC", None)
+    env.pop("TELEGRAM_ALWAYS", None)
+    env.update(extra_env or {})
 
     proc = subprocess.run(
         [str(RUN_JOB), "testjob", "HC_TEST_URL", "--", str(stub_dir / "fake-job")],
@@ -230,3 +246,107 @@ def test_fold_precedes_the_byte_cap(tmp_path: Path) -> None:
         f"body is {len(body)} chars: the fold ran AFTER the cap, "
         "so its newlines were added on top of the budget"
     )
+
+
+# --- ST77: SOFT_FAIL_RC, success-with-warnings --------------------------------
+#
+# buibui-daily-check runs `daily_check.py --exit-on-tier2`, which returns
+# non-zero on a ROUTINE tier-2 red. Under the old two-branch dispatch that
+# suppressed the heartbeat, pinged /fail and titled the push FAILED -- so a dead
+# timer and a tier-2 nudge were indistinguishable on the operator's phone, which
+# is the very confusion TELEGRAM_ALWAYS exists to remove.
+#
+# The branch is OPT-IN because a bare exit code is not self-describing: argparse
+# exits 2 on a usage error, so softening 2 for every job would turn a broken
+# `signal watch` invocation into a heartbeat.
+
+
+def _pings(calls: list[str]) -> list[str]:
+    return [c for c in calls if c.startswith("curl")]
+
+
+def test_soft_fail_rc_keeps_the_heartbeat_and_never_pings_fail(
+    tmp_path: Path,
+) -> None:
+    """The declared soft code completes the run: heartbeat yes, /fail no."""
+    proc, calls = _run(
+        tmp_path, job_rc=2, extra_env={"SOFT_FAIL_RC": "2", "TELEGRAM_ALWAYS": "1"}
+    )
+
+    assert proc.returncode == 2, "the wrapped exit code must still be preserved"
+    pings = _pings(calls)
+    assert not any("/fail" in c for c in pings), (
+        f"a completed run must not ping /fail -- that means 'not running': {calls}"
+    )
+    # The bare-URL success ping is the heartbeat; /start is the other leg.
+    assert any("/start" not in c and "/fail" not in c for c in pings), (
+        f"no heartbeat ping on the soft-fail path: {calls}"
+    )
+    head = _head_file(tmp_path).read_text()
+    assert "FAILED" not in head, f"soft fail must not be titled FAILED: {head!r}"
+    assert "warnings" in head, f"soft fail must be titled as a warning: {head!r}"
+
+
+def test_soft_fail_is_opt_in_so_a_bare_rc2_still_fails(tmp_path: Path) -> None:
+    """Without SOFT_FAIL_RC, rc=2 stays a failure.
+
+    This is the guard that matters: argparse exits 2 on a USAGE error, so a
+    blanket "2 means soft" would mask a genuinely broken invocation on
+    signal-watch, xsmom or backup -- turning the loudest failure into a
+    heartbeat.
+    """
+    proc, calls = _run(tmp_path, job_rc=2)
+
+    assert proc.returncode == 2
+    assert any("/fail" in c for c in _pings(calls)), (
+        f"an undeclared rc=2 must still ping /fail: {calls}"
+    )
+    assert "FAILED" in _head_file(tmp_path).read_text()
+
+
+def test_soft_fail_rc_does_not_soften_any_other_code(tmp_path: Path) -> None:
+    """A tier-1 failure (rc=1) behaves exactly as it did before ST77."""
+    proc, calls = _run(tmp_path, job_rc=1, extra_env={"SOFT_FAIL_RC": "2"})
+
+    assert proc.returncode == 1
+    assert any("/fail" in c for c in _pings(calls)), (
+        f"rc=1 must still ping /fail even when 2 is declared soft: {calls}"
+    )
+    assert "FAILED" in _head_file(tmp_path).read_text()
+
+
+def test_soft_fail_push_is_not_gated_on_telegram_always(tmp_path: Path) -> None:
+    """A job opts into SOFT_FAIL_RC because the warning is worth reading.
+
+    Gating this push on TELEGRAM_ALWAYS would recreate the silent-warning state
+    the branch exists to end.
+    """
+    proc, _ = _run(tmp_path, job_rc=2, extra_env={"SOFT_FAIL_RC": "2"})
+
+    assert proc.returncode == 2
+    assert _head_file(tmp_path).exists(), "soft fail sent no Telegram at all"
+    assert "warnings" in _head_file(tmp_path).read_text()
+
+
+def test_non_numeric_soft_fail_rc_disables_the_branch(tmp_path: Path) -> None:
+    """A malformed value must fail SAFE -- louder, never quieter."""
+    proc, calls = _run(tmp_path, job_rc=2, extra_env={"SOFT_FAIL_RC": "two"})
+
+    assert proc.returncode == 2
+    assert any("/fail" in c for c in _pings(calls)), (
+        f"a malformed SOFT_FAIL_RC must not silence /fail: {calls}"
+    )
+    assert "FAILED" in _head_file(tmp_path).read_text()
+
+
+def test_clean_run_is_unaffected_by_a_declared_soft_code(tmp_path: Path) -> None:
+    """rc=0 keeps the plain 'ok' headline, not the warnings one."""
+    proc, calls = _run(
+        tmp_path, job_rc=0, extra_env={"SOFT_FAIL_RC": "2", "TELEGRAM_ALWAYS": "1"}
+    )
+
+    assert proc.returncode == 0
+    assert not any("/fail" in c for c in _pings(calls)), calls
+    head = _head_file(tmp_path).read_text()
+    assert "warnings" not in head, f"a clean run must not read as warnings: {head!r}"
+    assert "ok" in head
