@@ -217,9 +217,12 @@ def _seed_backtest_runs(conn: duckdb.DuckDBPyConnection) -> None:
         },
     ]
     conn.executemany(
-        "INSERT INTO backtest_runs VALUES "
-        "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-        "NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+        "INSERT INTO backtest_runs "
+        "(run_id, symbol, timeframe, strategy, data_start_ms, data_end_ms, days, "
+        "sl_pct, tp_r, fee_pct, day_filter, smt_trend_filter, secondary_symbol, "
+        "total_signals, closed_trades, win_count, loss_count, win_rate, avg_r, "
+        "total_r, max_drawdown_r, run_at_ms, sweep_id) VALUES "
+        "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
             [
                 r["run_id"],
@@ -727,8 +730,19 @@ class TestWriteConfidenceToDb:
 
 def _seed_directional_runs(conn: duckdb.DuckDBPyConnection) -> None:
     """Seed backtest_runs with directional long/short split data."""
+    # Named, not positional: backtest_runs does not have one column order (the
+    # comments below assumed the migration order, while a fresh DB creates
+    # volume_suppress inline and ALTERs the other two in after it).
     conn.execute(
-        "INSERT INTO backtest_runs VALUES "
+        "INSERT INTO backtest_runs "
+        "(run_id, symbol, timeframe, strategy, data_start_ms, data_end_ms, days, "
+        "sl_pct, tp_r, fee_pct, day_filter, smt_trend_filter, secondary_symbol, "
+        "total_signals, closed_trades, win_count, loss_count, win_rate, avg_r, "
+        "total_r, max_drawdown_r, run_at_ms, sweep_id, "
+        "long_closed_trades, long_win_count, long_win_rate, long_avg_r, "
+        "short_closed_trades, short_win_count, short_win_rate, short_avg_r, "
+        "long_total_r, short_total_r, adr_suppress_threshold, recovery_factor, "
+        "volume_suppress) VALUES "
         "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
         "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
@@ -767,9 +781,9 @@ def _seed_directional_runs(conn: duckdb.DuckDBPyConnection) -> None:
             -0.1,
             9.0,  # long_total_r
             -1.0,  # short_total_r
-            None,  # adr_suppress_threshold (added via ALTER TABLE)
-            None,  # recovery_factor (added via ALTER TABLE)
-            None,  # volume_suppress (added via ALTER TABLE, last column)
+            None,  # adr_suppress_threshold
+            None,  # recovery_factor
+            None,  # volume_suppress
         ],
     )
 
@@ -1618,10 +1632,13 @@ def _insert_run(
 ) -> None:
     """Insert one backtest_runs row with only the fields these tests read."""
     conn.execute(
-        "INSERT INTO backtest_runs VALUES "
-        "(?, ?, ?, ?, 0, 1, 90, 0.02, 2.0, 0.0005, 'off', 1, NULL, ?, ?, ?, ?, ?, ?, "
-        "?, 1.0, ?, ?, "
-        "NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+        "INSERT INTO backtest_runs "
+        "(run_id, symbol, timeframe, strategy, data_start_ms, data_end_ms, days, "
+        "sl_pct, tp_r, fee_pct, day_filter, smt_trend_filter, total_signals, "
+        "closed_trades, win_count, loss_count, win_rate, avg_r, total_r, "
+        "max_drawdown_r, run_at_ms, sweep_id) VALUES "
+        "(?, ?, ?, ?, 0, 1, 90, 0.02, 2.0, 0.0005, 'off', 1, ?, ?, ?, ?, ?, ?, "
+        "?, 1.0, ?, ?)",
         [
             run_id,
             "BTCUSDT",

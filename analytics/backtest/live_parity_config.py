@@ -40,3 +40,44 @@ class LiveParityConfig:
         one gate while the master switch stays on (the acceptance contract).
         """
         return bool(getattr(self, gate))
+
+
+_GATES: tuple[str, ...] = (
+    "adr_bias",
+    "conflict_resolver",
+    "cooldown",
+    "direction_filter",
+    "enabled",
+    "f8_htf_ema",
+    "regime",
+)
+
+
+def live_parity_key(cfg: LiveParityConfig | None) -> str | None:
+    """Return a canonical string for a parity config, or None when every gate is off.
+
+    ST86: the parity gates change which signals the engine keeps, so two runs
+    that differ only here are different books and must not share a ``run_id``.
+    ``None`` for a default-constructed config is load-bearing — it keeps the
+    hash of every pre-ST86 row byte-identical, so historical sweeps stay
+    addressable and the live ``backtest_cache`` is not invalidated.
+
+    Gate names are sorted and the cooldown map is rendered in sorted key order,
+    so one config has exactly one spelling regardless of construction order.
+    The string is stored verbatim in ``backtest_runs.live_parity``, which is
+    what lets a stored row answer *which* gates it ran under rather than only
+    that some were on.
+    """
+    if cfg is None:
+        return None
+    on = [g for g in _GATES if getattr(cfg, g)]
+    if not on:
+        return None
+    key = ",".join(on)
+    if cfg.cooldown_bars_per_tf:
+        bars = ",".join(
+            f"{tf}={cfg.cooldown_bars_per_tf[tf]}"
+            for tf in sorted(cfg.cooldown_bars_per_tf)
+        )
+        key += f"|cd:{bars}"
+    return key

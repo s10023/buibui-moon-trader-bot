@@ -1237,6 +1237,30 @@ def run_scan_cycle(
                         strategy_params, strategy, backtest_cfg.volume_suppress
                     )
                     or None,
+                    # ST86: the daemon resolves these per strategy/symbol/tf and
+                    # they change what the engine produces, so they must reach the
+                    # row_id too. Without them a tp_r or atr_sl_multiplier retune
+                    # landing in the TOML makes today's row collide with the one
+                    # measured under yesterday's value, and the older evidence is
+                    # destroyed rather than kept beside it.
+                    min_sl_pct=backtest_cfg.min_sl_pct,
+                    atr_sl_multiplier=_resolve_atr_sl_multiplier(
+                        strategy_params, strategy, sym, tf, atr_sl_multiplier
+                    ),
+                    atr_sl_floor=_resolve_atr_sl_floor(
+                        strategy_params, strategy, sym, tf, atr_sl_floor
+                    ),
+                    volume_suppress_long=_resolve_volume_suppress_long(
+                        strategy_params, strategy, tf
+                    )
+                    or None,
+                    volume_suppress_short=_resolve_volume_suppress_short(
+                        strategy_params, strategy, tf
+                    )
+                    or None,
+                    # direction=None resolves the strategy-wide value: this row is
+                    # per (symbol, tf, strategy) and has no single direction.
+                    adr_exempt=_is_adr_exempt(strategy_params, strategy, None, tf),
                     # Namespace this row to the live gate. Without it the daemon's
                     # run_id equals the sweep's whenever the resolved params match,
                     # and INSERT OR REPLACE destroys the swept row.

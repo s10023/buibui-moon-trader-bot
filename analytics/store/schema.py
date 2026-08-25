@@ -177,7 +177,9 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
             short_avg_r          DOUBLE,
             long_total_r         DOUBLE,
             short_total_r        DOUBLE,
-            volume_suppress      BOOLEAN
+            volume_suppress      BOOLEAN,
+            live_parity          TEXT,
+            adr_exempt           BOOLEAN
         )
     """)
     # Migration: add long/short split columns to existing DBs.
@@ -202,6 +204,13 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
         ("short_total_r", "DOUBLE"),
         ("recovery_factor", "DOUBLE"),
         ("volume_suppress", "BOOLEAN"),
+        # ST86: which live-parity gates the run used, and whether it was ADR
+        # exempt. Both are in the run_id too — these columns exist so a stored
+        # row can SAY what it ran under, which is what a tp_r's provenance
+        # turns on and what an exempt run needs to be told apart from an
+        # unthresholded one (both sit at adr_suppress_threshold IS NULL).
+        ("live_parity", "TEXT"),
+        ("adr_exempt", "BOOLEAN"),
     ]:
         if col not in existing_bt_cols:
             conn.execute(f"ALTER TABLE backtest_runs ADD COLUMN {col} {dtype}")

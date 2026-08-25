@@ -40,6 +40,20 @@ green run against a tree that no longer exists is worse than no run — it is a 
 "verified". Safe to overlap: MEMORY.md and memory topic files, anything under gitignored
 `docs/plans/`, drafting a PR body under `/tmp`, reading code.
 
+⚠ **With a SECOND SESSION in the same checkout the rule is wider than "while a run is in
+flight", and both of the usual framings are too narrow** (measured 2026-08-25, two parallel
+sessions). It bites at pytest **COLLECTION** — a half-saved module is imported and the whole
+run errors, not just the file being edited — and it bites during a **COMMIT**: `pre-commit`
+stashes **every unstaged file in the repo**, reverting the other session's in-progress work to
+HEAD on disk and restoring it seconds later. **The stash is the tool's, not git's, and it
+ignores the pathspec entirely** — so "I named my paths, so I cannot affect yours" is correct
+about git and wrong here, which is exactly why it survives scrutiny. The restore reports
+success either way; the patch survives at `~/.cache/pre-commit/patch<ts>-<pid>`. ⇒ **Any
+operation that reads or rewrites the tree AS A UNIT — suite, collection, commit, `git stash`,
+checkout — needs the other session quiet, and quiet must be DECLARED out loud, not assumed.**
+Two sessions in one directory also share ONE checkout and therefore one branch
+→ [[parallel-session-protocol]].
+
 **`make preflight` is the one exception, and it is structural rather than a dispensation.**
 It takes a clone of *committed* state in its first second and runs everything inside that
 clone, so a later working-tree edit cannot reach the run at all — there is no window in
@@ -664,6 +678,33 @@ trades**, and **53% of rated `tue_thu` cells owned by the daemon** rather than t
 deliberate sweep); and **every decay review before 2026-08-13 audited a pool frozen at
 2026-04-09** — the verdict direction survived, which is why it stood, but every *named cell*
 was wrong. The drift began in a gitignored driver → [[scratch-dir-is-for-output-not-code]].
+
+⚠ **A namespacing fix closes the axis it was written for and NOTHING else — and this one
+recurred (ST86, 2026-08-25).** `writer` fixed *who* wrote the row and left every engine axis
+open: `upsert_backtest_run`, the only path that WRITES, forwarded 11 of the 19 axes
+`_backtest_run_id` accepts and knew nothing of `live_parity`, so nine axes were unnamespaced.
+All nine come from the TOMLs, so **every `/wfo-sweep` or `/atr-sweep` retune silently
+overwrote the rows measured under the previous value.** ⇒ **Any new engine knob must join
+the run_id in the same PR that adds it**, and the read path must follow the write path — once
+rows stop colliding they COEXIST, so a partition or a rating scope blind to the axis picks
+between two different books on recency alone. ⚠ **The collision was UNMEASURABLE from the DB
+by construction** (the axis was never stored), so read the 1,301 rows whose aggregate
+disagrees with their own trades as *unattributable* — 578 of them are the benign
+sliding-window re-run.
+
+⚠ **NEVER insert into `backtest_runs` / `backtest_trades` positionally — `INSERT ... SELECT`
+maps by POSITION and this table has no single column order.** `long_total_r` /
+`short_total_r` / `volume_suppress` are created inline by `init_schema` while
+`adr_suppress_threshold` / `recovery_factor` arrive through the ALTER migration, so a fresh
+DB orders them differently from a database predating the CREATE. Measured 2026-08-25: on a
+fresh DB an `adr_suppress_threshold` of 0.8 was read back out of `long_total_r`, five columns
+wide. **Production was the CORRECT half and every reclone, in-memory test DB and
+`make preflight` clone was the wrong one** — which is why no gate ever reddened, and why the
+four positional INSERTs in the tests missed it (one carried comments naming the order it does
+not have). `_insert_sql` now names the columns, deriving both lists from one dict. **The
+general gap outlives the fix: `analytics.db` is gitignored and single-copy, so NO gate has
+ever run against production's schema — a clone-based gate can only ever exercise the fresh
+shape.**
 
 **The DSR family needs TWO floors, and `MIN_DSR_TRADES` is only the count one.**
 `MIN_DSR_SD = 0.05` (ST66, `analytics/recalibrate_lib.py`) gates dispersion beside it: a cell

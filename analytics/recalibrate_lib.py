@@ -44,7 +44,7 @@ def _build_run_filter(
     day_filter: str | None,
     adr_suppress_threshold: float | None,
 ) -> tuple[str, list[str | float]]:
-    """Build the shared backtest_runs WHERE-tail (day_filter + ADR scope).
+    """Build the shared backtest_runs WHERE-tail (day_filter + ADR + parity scope).
 
     Returns ``(sql_tail, params)`` where ``sql_tail`` is appended after
     ``WHERE closed_trades > 0``. Mirrors the exact scoping used by both the
@@ -52,6 +52,12 @@ def _build_run_filter(
     """
     sql = ""
     params: list[str | float] = []
+    # ST86: a live-parity run is a different book — it answers "how would this
+    # cell have scored under the live gates", not "how did it score". Excluding
+    # it by default keeps a `--live-parity --save` sweep out of the rating
+    # population, where a sweep_id plus a newer run_at_ms would let it outrank
+    # the deliberate sweep it was compared against.
+    sql += " AND (live_parity IS NULL)"
     if day_filter is not None:
         sql += " AND day_filter = ?"
         params.append(day_filter)
