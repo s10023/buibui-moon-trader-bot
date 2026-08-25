@@ -17,10 +17,13 @@ Two measurement traps it also surfaces, both live:
   (857,740 rows → 162,263 distinct). Dedup on
   ``(symbol, timeframe, strategy, direction, entry_time)`` or every ``n``
   inflates ~5× and every ``t`` ~2.3×.
-* ``MIN_DSR_TRADES`` gates **count, not dispersion**. One cell (``bos/1d/long``,
-  36 trades all ≈ −1.0076R, sd 0.0022) carries a per-trade Sharpe of −461 and
-  inflates the trial-family variance 0.0348 → 1729.89. It is excluded here, and
-  the exclusion is **disclosed rather than silent**.
+* One cell (``bos/1d/long``, 36 trades all ≈ −1.0076R, sd 0.0022) carries a
+  per-trade Sharpe of −461 and inflates this panel's trial-family variance
+  0.0348 → 1729.89. It is excluded here, and the exclusion is **disclosed rather
+  than silent**. Since ST66 ``recalibrate_lib.MIN_DSR_SD`` excludes it in
+  production too, so this is no longer a divergence between the two — but the
+  exclusion stays explicit here because this panel builds its own family and must
+  not inherit the floor by accident.
 
 Promoted out of ``docs/plans/scratch/`` 2026-08-14: it imports production code
 (``analytics.research_guards``), and an untracked consumer of a shared function
