@@ -70,6 +70,11 @@ shell blocks. The rule they exist to satisfy: *a self-check outside CI is not a 
   handoff-symbols · new-files · new-modules · new-targets · negative-claims · doc-indexes ·
   md-atx · memory-cap · handoff-size · stale-anchors · sensitive-terms`. **Advisory**
   (`--exit-zero`): a finding is a candidate to dismiss in seconds, never an automatic edit.
+  **Closes by naming the `/post-branch` steps it does NOT cover** (ST88), so passing the
+  mechanical half cannot read as passing the walk — the notice cites `Step N`, never a
+  phase number, since phases 1-6 declare no headings and `stale_anchors.py` correctly
+  flags a phase citation as a dead anchor. Suppressed under `--text`, which screens one
+  composed string seconds before a visibility flip and wants no step list.
   Bootstraps its own `sys.path`, so a bare `python3 tools/post_branch_checks.py` works
   despite importing `tools.stale_anchors` and `tools.agents_config`; the Make target still
   sets `PYTHONPATH=.`. ⚠ `sanity_checks.py` is the one CI runs bare, and adding a `tools.*`

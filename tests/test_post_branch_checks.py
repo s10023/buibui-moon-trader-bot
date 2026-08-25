@@ -22,6 +22,7 @@ from tools.agents_config import Budgets
 from tools.post_branch_checks import (
     NEGATIVE_CLAIM_EXEMPT,
     NEGATIVE_CLAIM_RE,
+    UNCOVERED_STEPS,
     Runner,
     _negative_claims_result,
     added_paths,
@@ -39,9 +40,11 @@ from tools.post_branch_checks import (
     mask_term,
     numbered_items,
     probe_names,
+    render,
     scan_text_for_terms,
     sensitive_terms_result,
     sensitive_text_result,
+    uncovered_notice,
 )
 
 # CLAUDE.md's real sentence — the one that made every skill report COVERED.
@@ -926,3 +929,74 @@ def test_runs_as_a_bare_script_with_no_pythonpath() -> None:
     )
     assert "ModuleNotFoundError" not in result.stderr, result.stderr
     assert "Traceback" not in result.stderr, result.stderr
+
+
+class TestUncoveredNotice:
+    """The sweep must name its own gaps, so passing it cannot FEEL like the walk.
+
+    Filed as ST88 after BOTH parallel sessions on the 2026-08-25 wave made the
+    same two misses: neither ran `make preflight` and neither invoked
+    `/post-branch`, both hand-walking the mechanical half. Neither was being
+    careless — the hand-walk is the reachable thing and the skill is not, so
+    this is a reachability fix rather than another rule.
+    """
+
+    def test_the_full_sweep_names_what_it_does_not_cover(self) -> None:
+        lines, _ = render([])
+        assert any("NOT COVERED by this sweep" in ln for ln in lines)
+
+    def test_it_names_make_preflight_the_specific_miss(self) -> None:
+        """`make preflight` SUPERSEDES `make test` at the branch's final gate.
+
+        A sweep that lists steps generically would not have interrupted the
+        miss it was filed for, so this is pinned by name and not by count.
+        """
+        body = "\n".join(uncovered_notice())
+        assert "make preflight" in body
+        assert "gh pr create" in body
+
+    def test_it_tells_the_reader_to_INVOKE_the_skill(self) -> None:
+        body = "\n".join(uncovered_notice())
+        assert "/post-branch" in body
+        assert "not a substitute" in body
+
+    def test_every_configured_step_reaches_the_output(self) -> None:
+        """Derived from UNCOVERED_STEPS, never a hardcoded second copy."""
+        body = "\n".join(uncovered_notice())
+        for label, what in UNCOVERED_STEPS:
+            assert label in body, f"{label} missing from the notice"
+            assert what.split("(")[0].strip()[:20] in body
+
+    def test_it_cites_STEPS_and_never_PHASE_anchors(self) -> None:
+        """MUTATION guard on the trap this fix could itself fall into.
+
+        The skill's phases 1-6 are table rows that declare no headings, so a
+        "post-branch phase 4" citation from any other file is a dead anchor —
+        `tools/stale_anchors.py` flags it, and it cost a peer session two
+        rounds on #667. Adding a phase number here would reintroduce exactly
+        that defect on the surface meant to prevent misses.
+        """
+        body = "\n".join(uncovered_notice()).lower()
+        assert "phase" not in body, "cite Step N, never a phase anchor"
+        assert "step" in body
+
+    def test_the_notice_is_ABSENT_from_text_mode(self, tmp_path: Path) -> None:
+        """`--text` screens one composed string seconds before a flip.
+
+        It runs alone, needs no git surface, and gates on its own — the step
+        list there is noise at the worst moment for noise.
+        """
+        p = tmp_path / "body.md"
+        p.write_text("A clean PR body with nothing sensitive in it.\n")
+        buf = io.StringIO()
+        stdout, sys.stdout = sys.stdout, buf
+        try:
+            main(["--text", str(p)])
+        finally:
+            sys.stdout = stdout
+        assert "NOT COVERED" not in buf.getvalue()
+
+    def test_a_SINGLE_check_still_names_the_gaps(self, tmp_path: Path) -> None:
+        """`--check` covers even less of the walk, so the notice matters more."""
+        lines, _ = render([], show_uncovered=True)
+        assert any("NOT COVERED" in ln for ln in lines)

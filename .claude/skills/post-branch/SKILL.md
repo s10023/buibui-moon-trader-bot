@@ -169,7 +169,11 @@ a glance, a silent miss ships a doc that reads as complete.
 | `sensitive-terms` | Would a public flip expose a work identifier? Asks three questions — tracked tree, commit CONTENT, commit MESSAGES. A missing term list is a FINDING, never a SKIP. ⚠ **It does NOT read the PR title/body** — that is the fourth surface, screened separately below |
 
 **What it deliberately does NOT cover:** whether a doc is *correct*, whether the
-behaviour gate should pass, or whether a claim is true. Those are phases 1–6.
+behaviour gate should pass, or whether a claim is true. Those are phases 1–6 —
+and since ST88 the sweep says so itself, closing with the `Step N` bodies it
+does not reach. That block states the gap where a session running the mechanical
+half will actually see it, which prose here cannot: both parallel sessions on
+2026-08-25 had this paragraph available and substituted anyway.
 
 ⚠ **`stale-anchors` is the leg with no substitute.** A section number is not a
 symbol, so no symbol-keyed check can see this class; and on its first run here 4
