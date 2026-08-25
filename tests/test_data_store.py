@@ -1260,3 +1260,59 @@ class TestUpsertColumnMapping:
         assert row[1] == "4h"
         assert row[2] == "bos"
         assert row[3] in ("long", "short")
+
+
+class TestListRunsPartitionAcrossTheMigration:
+    """The partition must survive the NULL→FALSE boundary the migration creates.
+
+    Every row written before ST86 has ``adr_exempt`` NULL, because the column was
+    added empty; every row written after stores FALSE. A window partition treats
+    NULL and FALSE as different groups, so a partition on the raw column returns
+    the SAME cell twice — once from each era — instead of the latest. Uniform
+    NULL today is exactly why no gate catches it: the defect only appears once
+    the data crosses the boundary.
+    """
+
+    def _legacy_row(self, conn: duckdb.DuckDBPyConnection, run_id: str) -> None:
+        """A pre-ST86 row: adr_exempt and live_parity never written, so NULL."""
+        conn.execute(
+            "INSERT INTO backtest_runs (run_id, symbol, timeframe, strategy, "
+            "data_start_ms, data_end_ms, days, sl_pct, tp_r, fee_pct, day_filter, "
+            "smt_trend_filter, total_signals, closed_trades, win_count, loss_count, "
+            "win_rate, avg_r, total_r, max_drawdown_r, run_at_ms) VALUES "
+            "(?, 'BTCUSDT', '4h', 'bos', 1690000000000, 1700000000000, 90, 0.02, "
+            "2.0, 0.0, 'off', 1, 20, 20, 12, 8, 0.6, 0.4, 8.0, 4.0, 1000)",
+            [run_id],
+        )
+
+    def test_one_row_per_cell_across_the_boundary(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        self._legacy_row(conn, "legacy-bos-4h")
+        # A post-ST86 write for the same cell: adr_exempt stores FALSE, not NULL.
+        upsert_backtest_run(conn, _FakeResult("BTCUSDT", "4h", "bos"), **_BT_PARAMS)
+        df = list_backtest_runs(conn)
+        assert len(df) == 1, (
+            "the same cell appeared once per adr_exempt era — a partition on the "
+            "raw column splits NULL from FALSE"
+        )
+
+    def test_a_parity_run_still_gets_its_own_row(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        """Tolerating NULL must not collapse the axis it was added to separate.
+
+        `live_parity` needs no COALESCE — a legacy row and a non-parity row are
+        both NULL and already share a partition — and a parity run is a different
+        book, so it must NOT be folded into the same one.
+        """
+        from analytics.backtest.live_parity_config import LiveParityConfig
+
+        self._legacy_row(conn, "legacy-bos-4h")
+        upsert_backtest_run(
+            conn,
+            _FakeResult("BTCUSDT", "4h", "bos"),
+            **_BT_PARAMS,
+            live_parity=LiveParityConfig(enabled=True, regime=True),
+        )
+        assert len(list_backtest_runs(conn)) == 2

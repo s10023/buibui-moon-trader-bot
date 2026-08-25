@@ -282,6 +282,16 @@ def list_backtest_runs(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     ``adr_suppress_threshold`` is already in it (ST86): once those runs stop
     colliding on one ``run_id`` they coexist, and a partition blind to an axis
     picks between two different books on recency alone.
+
+    ⚠ ``adr_exempt`` is COALESCEd because the migration creates a value boundary
+    the partition would otherwise read as a real axis: every row written before
+    ST86 has it NULL (the column was added empty) and every row after stores
+    FALSE, and a window partition treats those as different groups — so the raw
+    column returns each cell once per era instead of once. Uniform NULL today is
+    why no gate catches it; it appears only as post-migration rows accrue.
+    ``live_parity`` needs no such tolerance: a legacy row and a non-parity row
+    are both NULL and already share a partition, and a parity run is a different
+    book that MUST keep its own.
     """
     return conn.execute(
         "SELECT b.run_id, b.symbol, b.timeframe, b.strategy, b.days, b.sl_pct, b.tp_r, "
@@ -294,7 +304,8 @@ def list_backtest_runs(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
         "FROM ("
         "  SELECT *, ROW_NUMBER() OVER ("
         "    PARTITION BY symbol, timeframe, strategy, day_filter, "
-        "                 adr_suppress_threshold, live_parity, adr_exempt "
+        "                 adr_suppress_threshold, live_parity, "
+        "                 COALESCE(adr_exempt, FALSE) "
         "    ORDER BY run_at_ms DESC"
         "  ) AS rn FROM backtest_runs"
         ") b "
