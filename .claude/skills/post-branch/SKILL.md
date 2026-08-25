@@ -189,15 +189,22 @@ phase 0, not when a leg fires**: if you are not the owner, discharge all three b
 prune, and do not treat `handoff-size` as a gate on your branch. It is advisory
 (`--exit-zero`) and it is measuring a file you have no write claim on.
 
-⚠ **In a WORKTREE the handoff is ABSENT, and `handoff-size` answers that with
-"handoff is absent — rewrite it".** `docs/plans/` is gitignored, so a
-tracked-files-only checkout simply has no copy. That message is right solo and
-actively wrong here: it points a non-owning session at creating a second copy of
-a single-copy file, which is the one outcome nobody wants. **Absent-because-worktree
-and absent-because-lost render identically** — the same shape as the sensitive-terms
-leg reporting NOT CONFIGURED from a worktree — so read the leg against where you are
-running before you act on it. `queue-items` and `handoff-symbols` SKIP on an absent
-handoff; only `handoff-size` fires.
+⚠ **In a WORKTREE the handoff is ABSENT, and since 2026-08-25 (ST75) `handoff-size`
+SKIPS instead of firing** — `in_linked_worktree()` compares `git rev-parse --git-dir`
+against `--git-common-dir`, and the skip message NAMES the worktree. It previously
+answered "handoff is absent — rewrite it", which was right solo and actively wrong
+here: it pointed a non-owning session at creating a second copy of a single-copy file,
+the one outcome nobody wants.
+
+⚠ **The skip is NARROW, and absence in a normal checkout is still a hard finding.**
+A blanket skip would make absent-because-worktree and absent-because-lost render
+identically in the OTHER direction — "a SKIP is not a PASS" arriving from the far
+side. `queue-items` and `handoff-symbols` also skip on an absent handoff, but for a
+different and correct reason: they have nothing to check *against*, whereas this leg
+owns "does it exist at all". ⚠ **`sensitive-terms` still reports NOT CONFIGURED from
+a worktree and that is deliberate, not an oversight** — it guards an irreversible
+publish, where "did not run" must never read as "passed", so copy the term list in
+rather than expecting a skip.
 
 **Why reporting is the whole fix rather than a lesser one:** the handoff is
 gitignored and single-copy, so it has no remote and no merge. Two sessions pruning

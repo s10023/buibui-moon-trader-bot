@@ -61,6 +61,16 @@ exactly like a **dead timer** on the phone, which is the confusion `TELEGRAM_ALW
 above exists to remove. A daily false FAILED trains the reader to ignore the channel just
 as effectively as silence does.
 
+**The unit also declares `SuccessExitStatus=2`, because `SOFT_FAIL_RC` alone fixes only
+HALF the surfaces.** `run-job.sh` preserves the wrapped command's exit code, so a soft day
+still leaves the unit exiting 2 — which systemd records as `status=2/INVALIDARGUMENT` and
+parks in `systemctl --user list-units --failed` until someone runs `reset-failed`. Measured
+2026-08-25 by running this unit against a deliberate tier-2 red: the phone said "ok,
+warnings" while systemd said FAILED — the same ambiguity `SOFT_FAIL_RC` removes, moved from
+one surface to another rather than fixed. Safe here because this unit declares no
+`OnFailure=` and no `Restart=`; check that before copying the line to another unit. The
+healthchecks `/fail` ping is `run-job.sh`'s own and never consults systemd's view.
+
 `SOFT_FAIL_RC` names **one** exit code, **per job**, and that narrowness is the design:
 argparse exits 2 on a *usage error*, and this wrapper also runs signal-watch, xsmom and
 backup, so reading a bare 2 as soft everywhere would turn a broken invocation into a

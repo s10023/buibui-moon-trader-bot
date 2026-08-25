@@ -425,6 +425,11 @@ only control.
 daily at 09:10 UTC. That flag exists because tier-2 lines (chart-drops, external-context) do
 not set exit 1 on their own; a hand-run check still exits 1 only on tier 1.
 
+- **The soft exit needs BOTH `SOFT_FAIL_RC=2` and `SuccessExitStatus=2`.** `run-job.sh`
+  preserves the wrapped exit code, so declaring only the first leaves systemd recording a
+  routine tier-2 red as a FAILED unit — measured 2026-08-25, the phone reading "ok, warnings"
+  while `systemctl --user list-units --failed` held the job. ⇒ **Fixing one surface of a
+  two-surface ambiguity relocates it rather than closing it.**
 - **`TELEGRAM_ALWAYS=1` makes the report arrive EVERY day, green or red.** A failure-only
   contract is unfalsifiable: a dead timer and a healthy day look identical on the phone, and
   the delivery path is then only ever exercised on a red day. It stays **opt-in per job** in

@@ -70,6 +70,11 @@ shell blocks. The rule they exist to satisfy: *a self-check outside CI is not a 
   handoff-symbols · new-files · new-modules · new-targets · negative-claims · doc-indexes ·
   md-atx · memory-cap · handoff-size · stale-anchors · sensitive-terms`. **Advisory**
   (`--exit-zero`): a finding is a candidate to dismiss in seconds, never an automatic edit.
+  ⚠ **`handoff-size` SKIPS in a linked worktree** (ST75) — `in_linked_worktree` compares
+  `git rev-parse --git-dir` with `--git-common-dir`. The handoff is gitignored, so a
+  tracked-files-only checkout never has one and the leg used to red on the SETUP rather
+  than the branch. Narrow on purpose: absence in a NORMAL checkout is still a finding, and
+  unparseable git output reads as NOT a worktree, since that call can only ever clear a red.
   **Closes by naming the `/post-branch` steps it does NOT cover** (ST88), so passing the
   mechanical half cannot read as passing the walk — the notice cites `Step N`, never a
   phase number, since phases 1-6 declare no headings and `stale_anchors.py` correctly
