@@ -10,7 +10,11 @@ import pytest
 
 from analytics.brief.bundle import compute_brief
 from analytics.brief.config import BriefConfig
-from analytics.brief.external import load_external_state, validate_snapshot_dict
+from analytics.brief.external import (
+    load_external_state,
+    normalize_window,
+    validate_snapshot_dict,
+)
 from analytics.brief.types import (
     ExternalClusterRow,
     ExternalSnapshot,
@@ -495,3 +499,95 @@ def test_bundle_wires_external_block(tmp_path: Path) -> None:
     assert len(ext.snapshots[0].clusters_above) == 1
     assert len(ext.snapshots[0].clusters_below) == 1
     conn.close()
+
+
+class TestNormalizeWindow:
+    """ST74: `window` is a dedup key, so a format variant SPLITS one panel into two."""
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("1 day", "1d"),
+            ("1d", "1d"),
+            ("1D", "1d"),
+            (" 7 Days ", "7d"),
+            ("1  day", "1d"),
+            ("12 hours", "12h"),
+            ("1 year", "1y"),
+            ("3 months", "3mo"),
+            ("1 week", "1w"),
+            (None, ""),
+            ("", ""),
+        ],
+    )
+    def test_format_variants_collapse(self, raw: object, expected: str) -> None:
+        assert normalize_window(raw) == expected
+
+    def test_unit_equivalences_are_deliberately_left_distinct(self) -> None:
+        """24h and 1d name the same span. Merging them would DROP a real capture.
+
+        The capture set grabs both, so collapsing them is the same silent-loss bug as
+        the split this function fixes, pointed the other way.
+        """
+        assert normalize_window("24h") != normalize_window("1d")
+
+    def test_an_ambiguous_bare_m_is_not_guessed(self) -> None:
+        """Minutes or months -- resolving it either way could merge unrelated panels."""
+        assert normalize_window("1m") == "1m"
+
+    def test_an_unrecognised_window_still_dedups_against_itself(self) -> None:
+        """Pass-through is folded, so it never merges but never splits on case either."""
+        assert normalize_window("Weekly") == normalize_window("weekly") == "weekly"
+
+
+def test_window_format_variants_supersede_rather_than_stack(tmp_path: Path) -> None:
+    """The ST74 regression: same panel, same span, two spellings vision actually returns.
+
+    Before normalisation these produced two ExternalSnapshots presented as different
+    windows, so the older read survived beside the newer one instead of being replaced.
+    """
+    _write(
+        tmp_path,
+        "spelled.json",
+        _valid_snapshot(
+            panel="liq_map", window="1 day", captured_at_ms=AS_OF - 20 * HOUR_MS
+        ),
+    )
+    _write(
+        tmp_path,
+        "short.json",
+        _valid_snapshot(
+            panel="liq_map", window="1d", captured_at_ms=AS_OF - 2 * HOUR_MS
+        ),
+    )
+    state, _ = _load(tmp_path)
+    assert state is not None
+    maps = [s for s in state.snapshots if s.panel == "liq_map"]  # type: ignore[attr-defined]
+    assert len(maps) == 1, "a format variant must supersede, not coexist"
+    assert maps[0].age_hours == 2.0, "the newer capture must be the survivor"
+
+
+def test_a_genuinely_different_window_still_coexists(tmp_path: Path) -> None:
+    """Negative control: normalisation must not collapse the whole dimension.
+
+    Without this, 'variants collapse' would also pass on a key that had dropped `window`
+    altogether -- which is exactly the mechanism AGENTS.md wrongly claimed was in place.
+    """
+    _write(
+        tmp_path,
+        "d1.json",
+        _valid_snapshot(
+            panel="liq_map", window="1d", captured_at_ms=AS_OF - 2 * HOUR_MS
+        ),
+    )
+    _write(
+        tmp_path,
+        "d7.json",
+        _valid_snapshot(
+            panel="liq_map", window="7d", captured_at_ms=AS_OF - 3 * HOUR_MS
+        ),
+    )
+    state, _ = _load(tmp_path)
+    assert state is not None
+    maps = [s for s in state.snapshots if s.panel == "liq_map"]  # type: ignore[attr-defined]
+    assert len(maps) == 2

@@ -16,6 +16,14 @@ the suite; the rest guard the mechanics that make it work.
 Both the dry-run report and the real copy loop are exercised, because they are
 two separate loops over the same array and a glob that expanded in only one of
 them would report coverage it does not deliver.
+
+`TestSpendSessionIndex` covers ST78, which is the same failure one level out:
+`transcript-archive/` is excluded from this backup as "regenerable" when nothing
+regenerates a transcript, and `budget.py` scans it to turn a weekly spend total
+from a floor into an exact sum. The script now refreshes the DERIVED per-session
+index into the already-covered `tools/` tree instead, so the property under test
+is that the refresh happens BEFORE that tree is copied — a stale index would be
+copied happily and read as current.
 """
 
 from __future__ import annotations
@@ -68,13 +76,19 @@ def fake_repo(tmp_path: Path) -> Path:
     return repo
 
 
-def _run(repo: Path, tmp_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def _run(
+    repo: Path, tmp_path: Path, *args: str, home: Path | None = None
+) -> subprocess.CompletedProcess[str]:
     env = {
         **os.environ,
         "BUIBUI_BACKUP_ROOT": str(tmp_path / "backups"),
         "BUIBUI_LOCK_RETRIES": "1",
         "BUIBUI_LOCK_SLEEP": "0",
     }
+    # Every EXTERNAL_* path is spelled relative to $HOME, so overriding it is what
+    # isolates these tests from the operator's real ~/.claude-personal tree.
+    if home is not None:
+        env["HOME"] = str(home)
     return subprocess.run(  # noqa: S603
         [str(repo / "deploy" / "backup-analytics.sh"), *args],
         capture_output=True,
@@ -151,3 +165,105 @@ class TestLedgerGlobCoverage:
         assert r.returncode == 0, r.stdout + r.stderr
         snapshot = sorted((tmp_path / "backups" / "daily").iterdir())[-1]
         assert not (snapshot / "docs" / "plans" / "*").exists()
+
+
+STUB_BUDGET = """import sys
+from pathlib import Path
+
+# Stands in for the account-level tracker, which lives outside this repo. It writes the
+# same artifact at the same place; what is under test is the SCRIPT's wiring, not it.
+if "--export-index" in sys.argv:
+    out = Path(__file__).with_name("budget-session-index.jsonl")
+    out.write_text('{"week": "2026-08-25", "session": "abc", "units": 1.0}\\n')
+    print(f"{out}: 1 session row(s), 1 new this run")
+"""
+
+
+@pytest.fixture
+def fake_home(tmp_path: Path) -> Path:
+    """A $HOME whose `.claude-personal/tools/` holds a stub tracker."""
+    tools = tmp_path / "home" / ".claude-personal" / "tools"
+    tools.mkdir(parents=True)
+    (tools / "budget.py").write_text(STUB_BUDGET)
+    (tools / "budget-repos.json").write_text("{}\n")
+    return tmp_path / "home"
+
+
+class TestSpendSessionIndex:
+    """ST78: the derived index must be refreshed BEFORE `tools/` is copied."""
+
+    def test_the_index_is_refreshed_and_lands_in_the_snapshot(
+        self, fake_repo: Path, tmp_path: Path, fake_home: Path
+    ) -> None:
+        """The index does not exist before the run; the snapshot must still carry it."""
+        index = fake_home / ".claude-personal" / "tools" / "budget-session-index.jsonl"
+        assert not index.exists(), "fixture must not pre-create the artifact under test"
+
+        r = _run(fake_repo, tmp_path, home=fake_home)
+
+        assert r.returncode == 0, r.stdout + r.stderr
+        snapshots = sorted((tmp_path / "backups" / "daily").iterdir())
+        assert snapshots, "no snapshot was written"
+        copied = (
+            snapshots[-1]
+            / "_external"
+            / "claude-personal"
+            / ".claude-personal"
+            / "tools"
+            / "budget-session-index.jsonl"
+        )
+        assert copied.exists(), "the refreshed index was not copied into the snapshot"
+        assert "2026-08-25" in copied.read_text()
+
+    def test_a_stale_index_is_overwritten_before_the_copy(
+        self, fake_repo: Path, tmp_path: Path, fake_home: Path
+    ) -> None:
+        """The regression that matters: ordering. A pre-existing index must not survive.
+
+        If the refresh ran AFTER the copy — or not at all — the snapshot would carry the
+        stale bytes while reading as current, which is the whole failure ST78 describes.
+        """
+        index = fake_home / ".claude-personal" / "tools" / "budget-session-index.jsonl"
+        index.write_text('{"week": "STALE", "session": "old", "units": 0.0}\n')
+
+        r = _run(fake_repo, tmp_path, home=fake_home)
+
+        assert r.returncode == 0, r.stdout + r.stderr
+        snapshots = sorted((tmp_path / "backups" / "daily").iterdir())
+        copied = (
+            snapshots[-1]
+            / "_external"
+            / "claude-personal"
+            / ".claude-personal"
+            / "tools"
+            / "budget-session-index.jsonl"
+        )
+        assert "STALE" not in copied.read_text()
+        assert "2026-08-25" in copied.read_text()
+
+    def test_the_dry_run_reports_the_same_step(
+        self, fake_repo: Path, tmp_path: Path, fake_home: Path
+    ) -> None:
+        """Same two-loop discipline as the glob: the report must not omit a real step."""
+        r = _run(fake_repo, tmp_path, "--dry-run", home=fake_home)
+
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert "spend-idx" in r.stdout
+        assert "budget-session-index.jsonl" in r.stdout
+
+    def test_an_absent_tracker_does_not_fail_the_backup(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        """budget.py is account-level and legitimately absent on another box.
+
+        The crown jewels are verified before this step, so a missing optional tool must
+        never take the backup down with it.
+        """
+        bare_home = tmp_path / "bare-home"
+        bare_home.mkdir()
+
+        r = _run(fake_repo, tmp_path, home=bare_home)
+
+        assert r.returncode == 0, r.stdout + r.stderr
+        snapshots = sorted((tmp_path / "backups" / "daily").iterdir())
+        assert snapshots, "a missing optional tracker must not prevent the snapshot"

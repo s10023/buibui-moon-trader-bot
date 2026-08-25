@@ -215,12 +215,30 @@ EXTERNAL_LEDGERS=(
 # cheaply). Found while wiring budget.py into the daily check -- i.e. by accident again,
 # which is exactly what the glob-over-allowlist rule exists to stop needing.
 #
-# NOT copied, deliberately, and all of it large-and-regenerable rather than precious:
-# `plugins/` (244 MB, reinstallable), `projects/` (213 MB of transcripts -- its `memory`
-# subtree is the entry above and IS the valuable part), `file-history/` (180 MB),
-# `transcript-archive/` (82 MB), `context-mode/` (71 MB, a re-indexable knowledge base),
-# `books/` (60 MB of re-obtainable source material), and the caches. The three trees
-# added here total ~4 MB.
+# NOT copied, deliberately, and large-and-regenerable rather than precious: `plugins/`
+# (244 MB, reinstallable), `projects/` (213 MB of transcripts -- its `memory` subtree is
+# the entry above and IS the valuable part), `file-history/` (180 MB), `context-mode/`
+# (71 MB, a re-indexable knowledge base), `books/` (60 MB of re-obtainable source
+# material), and the caches. The three trees added here total ~4 MB.
+#
+# `transcript-archive/` (365 MB as of 2026-08-25) is ALSO not copied, but it does NOT
+# belong in that list and calling it "regenerable" was wrong -- ST78. Nothing regenerates
+# an archived transcript. It is where `claude-cleanup-conversations.sh` parks retired
+# sessions, and `budget.py` scans it to turn a weekly total from a floor into an exact
+# sum, so the 2026-08-14 archive-not-delete fix moved the spend record OUT of `projects/`
+# and INTO a tree this script already excluded. Nobody chose that; the exclusion predates
+# the fix, and every cleanup run grew the uncovered tree.
+#
+# It stays excluded for two reasons that have nothing to do with regenerability: 365 MB
+# against ~4 MB for everything else here, and the off-site leg rclone-syncs this root to
+# a cloud drive, so copying it would ship every prompt and response to a third party --
+# the same reason `.credentials.json` is excluded above.
+#
+# What is copied instead is the DERIVED index: `budget.py` maintains
+# `tools/budget-session-index.jsonl` (one row per session: week, bucket, session id,
+# units -- 32 KB for 202 sessions), refreshed below before `tools/` is copied. That
+# preserves what the archive was being kept FOR without preserving the conversations
+# themselves.
 EXTERNAL_LEDGER_DIRS=(
     "$HOME/.claude-personal/projects/*/memory:claude-personal/projects"
     "$HOME/.claude-personal/tools:claude-personal"
@@ -239,6 +257,14 @@ _ext_dir_tail() {
 # moving part on the minimal PATH a systemd user unit gets.
 PY="$REPO/.venv/bin/python"
 [ -x "$PY" ] || PY="python3"
+
+# ST78: the account-level spend tracker. Its derived index is the backed-up stand-in for
+# the excluded `transcript-archive/`; see the block above EXTERNAL_LEDGER_DIRS.
+BUDGET_PY="$HOME/.claude-personal/tools/budget.py"
+# Derived from the tool's own directory, never spelled a second time: the index is written
+# by budget.py and copied because it sits inside the already-covered `tools/` tree, so a
+# hardcoded second path could drift out of that tree and be silently uncopied.
+BUDGET_INDEX="$(dirname "$BUDGET_PY")/budget-session-index.jsonl"
 
 want_weekly=0
 dry_run=0
@@ -342,6 +368,18 @@ if [ "$dry_run" -eq 1 ]; then
         done
         [ "$matched" -eq 0 ] && log "  ext-dir    $rel -- NO MATCH for $pattern, will be skipped"
     done
+    # Reported here as well as done in the real path, for the same reason the glob is
+    # expanded in both loops: a report that omits a step the copy performs promises
+    # different coverage than it delivers.
+    if [ -f "$BUDGET_PY" ]; then
+        if [ -f "$BUDGET_INDEX" ]; then
+            log "  spend-idx  would refresh $BUDGET_INDEX ($(du -h "$BUDGET_INDEX" | cut -f1), $(wc -l < "$BUDGET_INDEX") sessions) before tools/ is copied"
+        else
+            log "  spend-idx  would CREATE $BUDGET_INDEX before tools/ is copied"
+        fi
+    else
+        log "  spend-idx  budget.py ABSENT at $BUDGET_PY -- index will not be refreshed"
+    fi
     exit 0
 fi
 
@@ -472,6 +510,18 @@ for d in "${LEDGER_DIRS[@]}"; do
         cp -Rp "$REPO/$d/." "$daily_dir/$d/"
     fi
 done
+
+# --- refresh the derived spend index before tools/ is copied -------------------
+# ST78: `tools/budget-session-index.jsonl` is the backed-up stand-in for the excluded
+# `transcript-archive/`. Refreshing it HERE rather than trusting the daily check to have
+# run is the point -- a backup that copies a stale index has the same did-not-run-looks-
+# like-passed shape the index exists to close. Best-effort: budget.py is account-level and
+# legitimately absent on another box, and it must never fail a backup whose crown jewels
+# are already verified above.
+if [ -f "$BUDGET_PY" ]; then
+    "$PY" "$BUDGET_PY" --export-index >/dev/null 2>&1 || \
+        log "  WARNING budget session index refresh FAILED -- tools/ copy may be stale"
+fi
 
 # --- external ledgers ---------------------------------------------------------
 # Absent is not fatal: these live outside the repo, so a fresh clone or a different

@@ -284,10 +284,17 @@ the card's own `generated_at_ms`). Wrapped by
   stays, the path goes. `ai-cards.jsonl` carries a v4/v5 break, and nothing in the tree reads
   that file, so it costs no consumer.
 - **M4 external liquidity** (heatmap / liq-map clusters) enters as mapped liquidity with
-  trust guards, capped at ONE confluence input. ⚠ **It is not horizon-filtered** —
-  snapshots carry a `window` and the model is told to discount a short one, but
-  `load_external_state` selects on source/age/rows only, and every fresh capture is 24h or
-  1d. **Fix the capture set before adding a filter**, or the block just empties.
+  trust guards, capped at ONE confluence input. ⚠ **It is not horizon-filtered**, and every
+  fresh capture is 24h or 1d, so **fix the capture set before adding a filter** or the block
+  just empties. ⚠ **`window` IS in `load_external_state`'s dedup key** — the tuple is
+  `(source, venue, scope, panel, window)` at `analytics/brief/external.py:236-242`, which is
+  the opposite of the "selects on source/age/rows only" this file claimed until 2026-08-25.
+  The conclusion survived the correction; the mechanism did not, and the difference bites:
+  a dedup DIMENSION means two windows are two SURVIVING snapshots rather than one filtered
+  out, so free-text variants (`"1 day"` vs `"1d"`) STACK instead of superseding — which is
+  ST74, and why that item and this correction are one change. **Selection proper is symbol,
+  schema, allowed source, not-in-the-future and `max_age_hours`; `window` never appears in
+  it.**
 - **Ledgers.** Every card appends to gitignored `docs/plans/ai-cards.jsonl`; TRADE cards
   dual-write a pundit-calls row (author `buibui_card`) so `make buibui-pundit-score` scores
   the AI with no scorer changes. `analytics/brief/pundit.py` excludes `source:"ai-card"`
