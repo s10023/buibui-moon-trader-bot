@@ -71,10 +71,23 @@ class Chapter:
 # Titles a leading chapter uses when it recaps prior calls rather than opening new
 # content. Matched case-insensitively as substrings, across the languages actually
 # present in the follow list (en + zh-Hans/zh-Hant).
+#
+# ⚠ This list IS the content test, so a hint that merely means "the video starts
+# here" belongs nowhere in it. `intro` was one and was removed 2026-08-25 (SoT
+# ST85): on VC4FdM78hI8 a leading chapter titled `Intro` running 0-295s of an
+# 1128s video overrode @benjamincowen's configured `intro_recap_s: 0` and marked
+# the first 26% of an educational video as a position recap. It also matched
+# `Introduction …` as a substring. An introduction OPENS content; a recap
+# REPLAYS prior calls, and only the second is what the window exists to trim.
+# A channel whose recap chapter really is titled `Intro` keeps its per-channel
+# constant, which is the designed fallback — where a false positive silently
+# drops Stream C setups, the only stream carrying dated calls.
+# ⚠ `review` and `概述` are the same shape and are UNMEASURED, kept because both
+# routinely do head a genuine recap; treat a sighting on either as this defect
+# again rather than as a new one.
 _RECAP_TITLE_HINTS: tuple[str, ...] = (
     "recap",
     "review",
-    "intro",
     "last week",
     "previous",
     "回顧",

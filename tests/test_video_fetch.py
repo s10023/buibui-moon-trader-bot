@@ -1135,6 +1135,55 @@ def test_recap_window_only_counts_a_LEADING_recap_chapter() -> None:
     assert recap_window_s(meta.chapters) == 0.0
 
 
+def _chapter_payload(*titled: tuple[float, float, str]) -> str:
+    return json.dumps(
+        {
+            **json.loads(YTDLP_JSON),
+            "chapters": [
+                {"start_time": a, "end_time": b, "title": t} for a, b, t in titled
+            ],
+        }
+    )
+
+
+def test_recap_window_ignores_a_plain_educational_intro() -> None:
+    """ST85 — measured on VC4FdM78hI8: a leading chapter titled `Intro` running
+    0-295s of an 1128s video overrode @benjamincowen's configured
+    `intro_recap_s: 0` and flagged the first 26% of an educational video as a
+    position recap. An introduction opens NEW content; a recap replays prior
+    calls. The window is a CONTENT test, and `intro` never satisfied it."""
+    meta = fetch_meta(
+        YT_URL, run=make_run(FakeProc(0, _chapter_payload((0, 295, "Intro"))))
+    )
+    assert isinstance(meta, VideoMeta)
+    assert recap_window_s(meta.chapters) == 0.0
+
+
+def test_recap_window_ignores_a_longer_introduction_title() -> None:
+    """The hint matched as a substring, so `Introduction …` carried the defect too."""
+    meta = fetch_meta(
+        YT_URL,
+        run=make_run(
+            FakeProc(0, _chapter_payload((0, 240, "Introduction to Market Structure")))
+        ),
+    )
+    assert isinstance(meta, VideoMeta)
+    assert recap_window_s(meta.chapters) == 0.0
+
+
+def test_recap_window_still_reads_an_intro_that_says_it_recaps() -> None:
+    """The narrowing must not cost the real case: a leading chapter that names a
+    recap still counts, whatever else its title says."""
+    meta = fetch_meta(
+        YT_URL,
+        run=make_run(
+            FakeProc(0, _chapter_payload((0, 300, "Intro & Recap of Last Week")))
+        ),
+    )
+    assert isinstance(meta, VideoMeta)
+    assert recap_window_s(meta.chapters) == 300.0
+
+
 def _meta_no_lang() -> VideoMeta:
     """The measured real shape: yt-dlp returns `language: null`, but the metadata
     call still names an author-written zh-Hant track and an ASR one."""
