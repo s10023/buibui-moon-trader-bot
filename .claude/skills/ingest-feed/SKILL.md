@@ -144,10 +144,26 @@ Guardrails).
 
 **The playlist cursor rides the same flag.** A `--playlist` backfill payload carries a
 `playlists` array, and `--candidates-json` derives `--playlist-seen` from it exactly as it
-derives `--channel-seen` below — so a tranche advances only when its batch was actually
-routed. ⚠ **The cursor advances (`max`), unlike a channel floor, which is static
-(`setdefault`)**: it is progress, not a watermark, and it never moves backwards, so
-replaying an older payload cannot re-present videos already decided.
+derives `--channel-seen` below.
+
+⚠ **"A tranche advances only when its batch was routed" is true about WHEN `mark` runs and
+FALSE about what the cursor COUNTS.** `examined_after` is `skipped + taken`, and `taken` is
+what the tranche **offered** — not what you routed. The next tranche SKIPS the cursor's
+leading entries, so a cursor advanced past an undecided candidate does not postpone that
+video, it makes **defer unreachable**: the entry is never paged again, and nothing records
+that it was owed a look. On a playlist that fits in one tranche that is every deferral.
+
+⇒ **The payload names its `offered` ids, and `mark` holds the WHOLE tranche at
+`examined_before` whenever any of them is missing from `--ingested`/`--skipped`.** Deferring
+therefore costs one re-paged page of quota next run, and no more: every already-decided entry
+is excluded a second time by the video ledger, so what re-presents is exactly the deferred
+set. A payload predating the `offered` field advances as before — it cannot answer the
+question, and freezing it would strand a tranche whose cursor the operator has no way to read.
+
+⚠ **The cursor advances (`max`), unlike a channel floor, which is static (`setdefault`)**: it
+is progress, not a watermark. An explicit `--playlist-seen` is MAX-ed against the derived
+value rather than winning outright — **the opposite of `--channel-seen` below** — so it can
+push a cursor forward but never rewind one.
 
 **You no longer pass `--channel-seen` by hand.** The poll payload's `channels` array
 already carries both fields it wanted, so `--candidates-json` now derives the pairs —

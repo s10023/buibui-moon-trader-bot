@@ -75,7 +75,11 @@ A tactical crypto trading bot designed for fast, risk-managed, and confident ent
   to the existing `/ingest-video` flow unchanged — every research-sink write still happens
   behind that skill's single approval gate. Consumption is stamped only by an explicit
   `mark` call after routing completes (never at fetch time), so an aborted run re-presents
-  the same videos next poll instead of silently losing them.
+  the same videos next poll instead of silently losing them. Curated `PL…` playlists need a
+  second mechanism for the same guarantee, because they are paged in tranches against a
+  cursor rather than tracked per video: `mark` holds the whole tranche whenever a video it
+  offered went undecided, so deferring one is a real outcome there too rather than a silent
+  drop.
 
 ---
 

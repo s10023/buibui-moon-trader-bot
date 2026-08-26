@@ -823,11 +823,31 @@ def run_mark(
         # Same derivation for a playlist tranche: the backfill payload already
         # carries the cursor, so /ingest-feed persists it with the mark it was
         # already making rather than a second remembered flag.
+        # A DEFERRED candidate has to survive its tranche, and the cursor alone
+        # cannot carry it: `examined_after` counts what the run OFFERED, not what
+        # it routed, and the next tranche SKIPS the cursor's leading entries. So
+        # advancing past an undecided candidate does not merely postpone it, it
+        # makes "defer" unreachable — the video is never paged again. Hold the
+        # whole tranche instead. Re-paging costs one page of quota, and every
+        # already-decided entry is excluded a second time by the video ledger,
+        # so the re-offer is exactly the deferred set.
+        decided = {*ingested, *skipped}
         for pl in payload.get("playlists", []):
             pid_raw = pl.get("playlist_id")
             after = pl.get("examined_after")
-            if pid_raw and after is not None:
-                derived_playlists.append(f"{pid_raw}={after}")
+            before = pl.get("examined_before")
+            offered = pl.get("offered")
+            if not pid_raw or after is None:
+                continue
+            # A payload predating `offered` cannot answer the question, so it
+            # keeps the old advance-always behaviour rather than silently
+            # freezing a cursor the operator would have no way to read.
+            held = (
+                offered is not None
+                and before is not None
+                and any(vid not in decided for vid in offered)
+            )
+            derived_playlists.append(f"{pid_raw}={before if held else after}")
     count = 0
     for status, ids in (("ingested", ingested), ("skipped", skipped)):
         for vid in ids:
@@ -919,7 +939,14 @@ def _results_to_dict(
         "paused": [{"channel_id": c.id, "channel_name": c.name} for c in paused],
         # Emitted so `mark --candidates-json` can persist the tranche cursor
         # without the operator repeating it; absent on every non-playlist run.
-        "playlists": [asdict(r.playlist) for r in results if r.playlist],
+        # `offered` rides along because the cursor alone cannot tell a DEFERRED
+        # candidate from a routed one — `mark` diffs it against the ids it was
+        # given to decide whether the tranche may advance at all.
+        "playlists": [
+            {**asdict(r.playlist), "offered": [c.video_id for c in r.candidates]}
+            for r in results
+            if r.playlist
+        ],
         "channels": [
             {
                 "channel_id": r.channel_id,

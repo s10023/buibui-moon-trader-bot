@@ -14,6 +14,7 @@ from tools.yt_feed import (
     ChannelConfig,
     FeedConfig,
     _resolve_durations,
+    _results_to_dict,
     backfill_channel,
     backfill_playlist,
     channel_hint,
@@ -1512,6 +1513,28 @@ class TestBackfillPlaylist:
         assert result.playlist is not None
         assert result.playlist.exhausted is True
 
+    def test_the_payload_names_what_the_tranche_OFFERED(self) -> None:
+        """`mark` cannot tell a deferred candidate from a routed one without this;
+        the cursor is a count, and a count cannot name who is still owed a look."""
+        get = FakeGet(self._routes(self._items(2)))
+
+        result = backfill_playlist(
+            make_channel(),
+            "PLx",
+            dict(FRESH_STATE),
+            now=NOW,
+            get=get,
+            api_key="K",
+            since=None,
+            max_videos=10,
+        )
+        payload = _results_to_dict([result], NOW)
+
+        assert payload["playlists"][0]["offered"] == [
+            "bbbbbbbbb01",
+            "bbbbbbbbb02",
+        ]
+
     def test_the_video_ledger_is_shared_with_the_uploads_path(self) -> None:
         """Constraint 2: playlists CONTAIN uploads, so a separate namespace would
         re-present videos already decided — the re-ask problem `paused` had to fix."""
@@ -1625,6 +1648,91 @@ class TestPlaylistCursorIsWrittenOnlyByMark:
             channel_seen=[],
             playlist_seen=[],
             candidates_json=payload,
+            now=NOW,
+        )
+
+        assert load_state(path)["playlists"]["PLxxxxxxxxxxxx"]["examined"] == 12
+
+    def _payload(self, tmp_path: Path, offered: list[str] | None, **extra: Any) -> Path:
+        entry: dict[str, Any] = {
+            "playlist_id": "PLxxxxxxxxxxxx",
+            "examined_after": 12,
+            "examined_before": 4,
+            "exhausted": False,
+            "title": "",
+            **extra,
+        }
+        if offered is not None:
+            entry["offered"] = offered
+        path = tmp_path / "cands.json"
+        path.write_text(json.dumps({"candidates": [], "playlists": [entry]}))
+        return path
+
+    def test_a_deferred_candidate_holds_the_whole_tranche(self, tmp_path: Path) -> None:
+        """THE defect: `examined_after` counts what the run OFFERED, and the next
+        tranche skips the cursor's leading entries — so advancing past an undecided
+        candidate does not postpone it, it makes `defer` unreachable."""
+        path = tmp_path / "state.json"
+
+        run_mark(
+            path,
+            ingested=["bbbbbbbbb01"],
+            skipped=[],
+            channel_seen=[],
+            playlist_seen=[],
+            candidates_json=self._payload(tmp_path, ["bbbbbbbbb01", "bbbbbbbbb02"]),
+            now=NOW,
+        )
+
+        # bbbbbbbbb02 was offered and never decided, so the cursor stays put
+        assert load_state(path)["playlists"]["PLxxxxxxxxxxxx"]["examined"] == 4
+
+    def test_a_fully_decided_tranche_advances(self, tmp_path: Path) -> None:
+        """Specificity control: without it, a cursor frozen for ANY reason would
+        read exactly like the hold above."""
+        path = tmp_path / "state.json"
+
+        run_mark(
+            path,
+            ingested=["bbbbbbbbb01"],
+            skipped=["bbbbbbbbb02"],
+            channel_seen=[],
+            playlist_seen=[],
+            candidates_json=self._payload(tmp_path, ["bbbbbbbbb01", "bbbbbbbbb02"]),
+            now=NOW,
+        )
+
+        assert load_state(path)["playlists"]["PLxxxxxxxxxxxx"]["examined"] == 12
+
+    def test_a_payload_predating_offered_still_advances(self, tmp_path: Path) -> None:
+        """An old payload cannot answer the question; freezing its cursor would
+        strand a tranche the operator has no way to read."""
+        path = tmp_path / "state.json"
+
+        run_mark(
+            path,
+            ingested=[],
+            skipped=[],
+            channel_seen=[],
+            playlist_seen=[],
+            candidates_json=self._payload(tmp_path, None),
+            now=NOW,
+        )
+
+        assert load_state(path)["playlists"]["PLxxxxxxxxxxxx"]["examined"] == 12
+
+    def test_an_empty_tranche_advances(self, tmp_path: Path) -> None:
+        """Every entry was excluded before it became a candidate — nothing is owed
+        a second look, so the tranche is genuinely spent."""
+        path = tmp_path / "state.json"
+
+        run_mark(
+            path,
+            ingested=[],
+            skipped=[],
+            channel_seen=[],
+            playlist_seen=[],
+            candidates_json=self._payload(tmp_path, []),
             now=NOW,
         )
 

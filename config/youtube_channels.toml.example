@@ -29,13 +29,22 @@
 # a few seconds of over-trimming is one lost candidate, while the cost of under-trimming
 # is a corrupted ledger row that nothing downstream can detect.
 #
-# On `item_cap` — raise it for AGGREGATOR channels that relay several traders per upload.
-# The default was sized for a single-voice channel; a roundup relaying eight people will
-# silently lose most of them to the cap. And the survivors are not necessarily the best
-# ones: the cap keeps the top `item_cap` by `specificity`, which has mis-ranked in two
-# measured rounds — promoting relays over the host's own calls in round 1, and
-# retrospectives over forward calls in round 2. So on a roundup the cap does not trim a
-# tail, it discards payload.
+# On `item_cap` — raise it on any channel DENSE in keepable items per video. Two distinct
+# shapes qualify, and reading only the first is what let the second go unnoticed:
+#   (1) AGGREGATOR channels relaying several traders per upload — a roundup relaying eight
+#       people silently loses most of them to the cap.
+#   (2) EDUCATION / teaching channels, even single-voice ones. Measured 2026-08-26 on
+#       @LuckyChartApe `5PAHaCiw__I`: 12 discarded candidates, SIX citing the cap, on a
+#       channel sitting at the default. A teaching video is denser in mechanics per minute
+#       than any roundup, because mechanics are the whole content rather than a by-product.
+# ⚠ "The default was sized for a single-voice channel" was this comment's own wording until
+# 2026-08-26, and it is what made (2) invisible: single-voice reads as "the default fits",
+# so nobody checked the DENSITY. Voice count is not the axis; keepable items per video is.
+# And the survivors are not necessarily the best ones: the cap keeps the top `item_cap` by
+# `specificity`, which has mis-ranked in two measured rounds — promoting relays over the
+# host's own calls in round 1, and retrospectives over forward calls in round 2. It also
+# scores GENERALITY as a defect, which is precisely backwards for a mechanic. So on a dense
+# channel the cap does not trim a tail, it discards payload.
 #
 # On `paused` — the non-destructive way to quiet a channel you are not ready to ingest.
 # Without it the only options were `mark --skipped`, which burns the watermark PERMANENTLY,
