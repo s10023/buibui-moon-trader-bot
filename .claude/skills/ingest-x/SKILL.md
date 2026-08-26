@@ -266,7 +266,13 @@ pasted, then run the flow once over the whole set.
      Measured on `/ingest-video` 2026-08-05: a range-trade plan was emitted as
      `direction: "range"`, which would have scored a deliberately non-directional
      call as bearish. A range / chop / two-sided plan is **`neutral`** — map it there
-     and say why in `setup_type`. A *missing* direction is rejected on the same
+     and say why in `entry`, **never `setup_type`** — that field is on the pass-2
+     item schema only, the Stream C line has no such key, and no row has ever
+     carried it (**0 of 328** at 2026-08-26), while `entry` reaches the ledger and
+     feeds `tag_family`. ⚠ Prose in
+     `entry` is safe on a `neutral` row ONLY: `score_call` returns UNSCORED before
+     `resolve_levels` parses it, so this licenses nothing where the machine-parsed
+     contract below applies. A *missing* direction is rejected on the same
      grounds; it arrived as `""`, which is also not `"long"`, so absence scored as a
      short too.
    - **`horizon`** — an unrecognised value used to take the 14-day `unspecified`
