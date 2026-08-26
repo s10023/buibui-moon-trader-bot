@@ -1089,7 +1089,11 @@ Contents:
 
 - YAML frontmatter: `source`, `video_id`, `url`, `author`, `title`, `duration_s`, `lang`,
   `publish_ts_utc`, `call_ts_utc`, `call_ts_source`, `stated_ts_raw`, `ingested_ts_utc`,
-  `backlog`, `chart_present`, `transcript_source`
+  `backlog`, `chart_present`, `transcript_source`, `route`
+  ⚠ **`route` is the sink path, or `dropped`** (comma-separated when one video routes to
+  several sinks). Step 10 reconciles this key, and it is absent from all 135 notes written
+  before 2026-08-26 — those are unreconcilable and read as `undeclared`, which is a
+  finding rather than a pass. Do not retrofit them; declare it from here on.
   ⚠ **`transcript_source` is written from step 1's JSON, never narrated from memory.**
   Before this it was neither: provenance appeared on 2 of 89 notes, as a model-authored
   `lang: "zh (whisper)"` string, so the corpus could not be filtered by source at all.
@@ -1121,6 +1125,33 @@ with NOTE.open("a") as fh:
     fh.write(f"\n## Transcript (as fetched, not proofread)\n\n{lines}\n")
 PY
 ```
+
+### 10. Reconcile the round before you report it — a GATE, not a summary
+
+```bash
+PYTHONPATH=. poetry run python tools/route_reconcile.py docs/plans/video-notes/<date>-*.md
+```
+
+Exit 1 means at least one declared route did not happen. Fix it and re-run before telling
+the operator the round landed.
+
+**Same gate, same tool, same verdicts as `/ingest-x` step 6 — read the verdict table
+there, and the tool's own docstring for the why.** It is one checker rather than three
+descriptions because a rule spelled three ways drifts, which is the failure this whole
+item comes from: step 8 records each route as it goes, per-item and unverified in
+aggregate, and on the 2026-08-25 X round 19 declared Stream C routes were never written
+and went unnoticed for two days. **A note's `route:` is a declaration and a ledger mark is
+a second declaration; only the sink is evidence.**
+
+⚠ **One video legitimately yields several items under one `video_id`**, so a note routing
+to several sinks lists them all in `route:` (comma-separated) — a partial declaration
+reconciles clean while hiding the missing half.
+
+⚠ **It checks SINKS, not counts, and this bites hardest here.** The reconciler asks
+whether the `video_id` reached each declared sink, never how many items did. A video
+routing three Stream C setups where only one landed still reads `ok`. It catches a stream
+skipped ENTIRELY — the 2026-08-25 shape — so on a multi-item video the per-item count in
+the step-9 items table is still yours to check by eye.
 
 ## Inline classification rubric (self-contained — paste into BOTH the pass-1 and pass-2 subagent prompts)
 

@@ -124,11 +124,17 @@ deleting the line; nothing was lost.
 
 ### 4. Run the ingest batch
 
-Execute the `/ingest-video` flow (`.claude/skills/ingest-video/SKILL.md`), steps 1–9,
+Execute the `/ingest-video` flow (`.claude/skills/ingest-video/SKILL.md`), steps 1–10,
 over the picked URLs. Follow that skill by reference — do not restate or fork it here.
 Its digest + single approval remain the only gate before any research-sink write.
 
-### 5. Mark — immediately after routing completes
+⚠ **Step 10 is the route reconciliation, and it GATES step 5 below.** `mark` burns the
+watermark, so marking a round whose declared routes never landed makes those videos
+un-re-presentable while their content is missing from the sinks — the two failure classes
+compounding. A video the reconciler reds is a video that did NOT complete routing, which
+step 5 already says to omit from `--ingested`.
+
+### 5. Mark — immediately after routing completes AND reconciles
 
 ```bash
 PYTHONPATH=. poetry run python tools/yt_feed.py mark \
