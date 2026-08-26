@@ -729,8 +729,13 @@ Rules for the subagent:
   as well. **The pass-2 item schema's `null` is not a contradiction:** a claim or
   mechanic legitimately has no direction, and those never route to Stream C. `null` is
   only invalid on a row that reaches the ledger. A range/chop/two-sided plan is
-  `neutral`; map it there and say so in `setup_type`. Check this value before writing
-  any Stream C row.
+  `neutral`; map it there and say why in `entry`, **never `setup_type`** — that field
+  is on the pass-2 item schema only, the Stream C line has no such key, and no row has
+  ever carried it (**0 of 328** at 2026-08-26), while `entry` reaches the ledger and
+  feeds `tag_family`. ⚠ Prose
+  in `entry` is safe on a `neutral` row ONLY: `score_call` returns UNSCORED before
+  `resolve_levels` parses it, so this licenses nothing where the machine-parsed
+  contract below applies. Check this value before writing any Stream C row.
 - **`horizon` is the same closed-enum rule, with one deliberate difference: absence
   is legitimate.** An unrecognised value used to take `window_ms`'s 14-day
   `unspecified` window instead of intraday's 48h or swing's 30d — a different
