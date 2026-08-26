@@ -486,6 +486,13 @@ pasted, then run the flow once over the whole set.
    Body: the extraction JSON as returned, the routing decision per item (sink path, or
    dropped plus the verdict), and the drop reason in the author's own terms.
 
+   **Carry `route:` in the FRONTMATTER as well** — the full sink path, or `dropped`.
+   Prose alone is not enough: step 6 reconciles this key, and the 2026-08-26 round wrote
+   the decision only as a `## Routing decision` section on 11 of its 18 notes. The
+   reconciler reads that prose form as a fallback, but only the frontmatter key is a
+   contract. One bundle routing several items to different sinks lists them
+   comma-separated.
+
    **Why this exists, and why it is not optional.** A routed item leaves a ledger row,
    but a DROPPED bundle currently leaves ZERO trace anywhere — not in
    `routed-ledger.json` (`mark` never runs on a drop, deliberately), not in a sink
@@ -496,6 +503,48 @@ pasted, then run the flow once over the whole set.
    class `/post-branch` step 4 exists to catch.
 
    It costs no extra tokens: every field is already in hand at digest time.
+
+6. **Reconcile the round before you report it. This is a GATE, not a summary.**
+
+   ```bash
+   PYTHONPATH=. poetry run python tools/route_reconcile.py docs/plans/x-notes/<date>-*.md
+   ```
+
+   Exit 1 means at least one declared route did not happen. **Fix it and re-run before
+   telling the operator the round landed** — do not report a round the reconciler reds.
+
+   **Why this is a separate step and not "be careful during step 4".** Step 4 records
+   each route as it goes, which is per-item and unverified in aggregate. On the
+   2026-08-25 round that was not enough: **19 Stream C setups were declared routed and
+   never written.** Streams A and B landed, the A/B `mark` calls ran at 11:34:14-16, the
+   notes were written at 11:35:43, and Stream C's append simply never ran. Nobody noticed
+   for two days, and `route_dedup seed` could not have repaired it — seed reconstructs
+   FROM the sink, and the sink was empty. **The notes were the only copy.**
+
+   **A note's `route:` is a DECLARATION, and a ledger mark is a SECOND declaration.**
+   Only the sink is evidence, which is why the tool reports `unperformed` even when the
+   mark is present rather than letting the mark reassure you. Re-running the mutation on
+   the repaired ledger reproduces exactly those 19.
+
+   Read the verdicts as follows — `cited` and `undeclared` are the two that look clean
+   and are not the same as `ok`:
+
+   | verdict | means |
+   | --- | --- |
+   | `ok` | the row is in the sink and the ledger is marked |
+   | `dropped` | declared dropped, absent from every sink |
+   | `cited` | declared dropped but the id appears in a PROSE sink — normally a corroboration line on an existing entry, which is legitimate; confirm it did not become an entry of its own |
+   | `unperformed` | **the 08-25 defect** — declared a sink, the row is not there |
+   | `unmarked` | landed but no ledger mark, so it is dedup-blind from here; the tool names a malformed mark if one exists rather than letting it read as never-marked |
+   | `phantom` | declared dropped but IS a live Stream C row — unreviewed content in the sink |
+   | `undeclared` | no `route:` key and no recognised prose verdict; nothing was checked, so this is a finding, never a pass |
+   | `unknown-sink` | the route names something that is not one of the three sinks (ST99's bare-filename shape) |
+
+   ⚠ **Stream C attribution is exact and the prose sinks are not.** A Stream C row carries
+   its own `url`; Streams A and B persist no per-entry source field, so an id inside an
+   entry may be its origin or a predecessor / successor / corroboration citation. That is
+   why a prose hit on a dropped item is `cited` rather than `phantom` — measured on the
+   08-26 round, 4 of 4 such hits were corroboration lines, one saying so verbatim.
 
 ## Inline classification rubric (self-contained — paste into the subagent prompt)
 
