@@ -19,18 +19,35 @@ import argparse
 import json
 import os
 import re
+import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from analytics.pundit_authors import normalize_author
+# A bare `python3 tools/route_dedup.py` puts `tools/` on sys.path rather than the repo
+# root, so the `analytics.*` import below dies with ModuleNotFoundError; only the Make
+# target and an explicit `PYTHONPATH=.` worked. Per ST101 the guarantee is
+# `test_bare_invocation_works`, not this line — and the bootstrap is scoped to tools
+# that actually import from the repo, since in one that does not it is dead code
+# masking the breakage the moment the first `analytics.*` import appears.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from analytics.pundit_authors import normalize_author  # noqa: E402
 
 # The three routing targets, byte-identical to what `tools/x_route.route_target`
 # returns — a drift guard in the test suite pins them together.
 THESIS_SINK = "docs/plans/thesis-inbox.md"
 MECHANICS_SINK = "docs/plans/mechanics-backlog.md"
 PUNDIT_SINK = "docs/plans/pundit-calls.jsonl"
+
+# The CLI's allowlist. `--sink` names a routing IDENTITY and `is_routed` keys on
+# `(source_id, item_ts, sink)`, so a value outside this tuple is dedup-BLIND rather
+# than merely odd — it can never match the row a later round looks for. `find_similar`
+# stays lenient on an unrecognised sink (unscopeable, not an error) because scoping
+# genuinely cannot apply there; that leniency is exactly why 30 bad rows were writable,
+# so the membership check belongs at the CLI boundary and nowhere else.
+KNOWN_SINKS = (THESIS_SINK, MECHANICS_SINK, PUNDIT_SINK)
 
 # Sinks where a near-duplicate is a defect between ANY two entries. Stream C is absent
 # on purpose — there it is a defect only within one source. See `find_similar`.
@@ -653,7 +670,15 @@ def main(argv: list[str] | None = None) -> int:
             required=True,
             help="offset within the video; 0 for a whole X post",
         )
-        p.add_argument("--sink", required=True, help="routing target from x_route")
+        p.add_argument(
+            "--sink",
+            required=True,
+            choices=KNOWN_SINKS,
+            metavar="SINK",
+            help="routing target from x_route — one of the three FULL paths in "
+            f"KNOWN_SINKS ({', '.join(KNOWN_SINKS)}); a bare filename is rejected "
+            "because it would key a ledger row nothing can match",
+        )
         p.add_argument("--ledger", default=str(DEFAULT_LEDGER))
         if name == "check":
             p.add_argument("--text", required=True, help="the claim being routed")

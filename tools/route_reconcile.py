@@ -41,6 +41,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.route_dedup import (  # noqa: E402
+    KNOWN_SINKS,
     MECHANICS_SINK,
     PUNDIT_SINK,
     THESIS_SINK,
@@ -49,7 +50,6 @@ from tools.route_dedup import (  # noqa: E402
     parse_source_id,
 )
 
-KNOWN_SINKS = (THESIS_SINK, MECHANICS_SINK, PUNDIT_SINK)
 DROPPED = "dropped"
 
 # Verdicts that mean the round is intact. Everything else is a finding, including the

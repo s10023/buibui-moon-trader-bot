@@ -975,8 +975,13 @@ result per item (routed → which file, or dropped → verdict).
 
 ```bash
 PYTHONPATH=. poetry run python tools/route_dedup.py mark \
-  --source-id <meta.video_id> --item-ts <item ts> --sink <sink path>
+  --source-id <meta.video_id> --item-ts <item ts> \
+  --sink <the FULL path route_target returned, e.g. docs/plans/pundit-calls.jsonl>
 ```
+
+⚠ **A bare filename is REJECTED since ST99** — `--sink` is one of three full paths,
+because `_key` includes it and a bare `mechanics-backlog.md` writes a row nothing can
+ever match. 26 rows went in that way before the check existed.
 
 `mark` runs **after** the write, never before. Marking at check time would let an
 abandoned review consume the id and dedup away the real append later — the wifey-#68
