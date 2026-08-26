@@ -9,7 +9,11 @@ __pycache__/
 config/coins.json
 # Personal YouTube follow list for /ingest-feed (example is committed)
 config/youtube_channels.toml
+# Relay attribution roster for /ingest-video (example is committed)
 config/pundit_roster.toml
+# X follow roster for /ingest-x discovery (example is committed). Backed up via
+# deploy/backup-analytics.sh LEDGERS -- an allowlist, so a new config file here
+# is NOT covered until it is added there too.
 config/x_authors.toml
 
 # But don't ignore other files in config/

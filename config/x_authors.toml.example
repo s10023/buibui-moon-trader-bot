@@ -1,0 +1,58 @@
+# X author roster for /ingest-x discovery.
+# Copy to config/x_authors.toml (gitignored — a follow list is personal, and this
+# repo's visibility oscillates public). Sibling of config/youtube_channels.toml.
+#
+# ⚠ NOTHING READS THIS FILE YET. No skill, tool or module parses it — `git grep
+# x_authors` returns only .gitignore and deploy/backup-analytics.sh. It is an
+# operator note that /ingest-x discovery is driven from BY HAND. Said plainly here
+# because a config file with no reader looks identical to one with a reader, and
+# the difference decides whether editing a field changes anything.
+#
+# It is still worth versioning and backing up: `intent` and `poll` are operator
+# RULINGS, re-derivable from nothing. Before this file the roster lived only as a
+# hand-typed `(from:a OR from:b OR ...)` string inside one gitignored scratch JSON,
+# so each discovery run retyped it from memory. A NEW config file is NOT backed up
+# automatically — LEDGERS is an allowlist outside docs/plans/, so add it there too.
+
+schema_version = 1
+
+# ---------------------------------------------------------------------------
+# `intent` IS THE LOAD-BEARING FIELD, and it is the one youtube_channels.toml has
+# no equivalent of. Score ingest PER STREAM, never in aggregate:
+#   - Stream B (mechanics) is the ONLY converting stream.
+#   - Stream A has not converted.
+#   - Stream C is dead as an author PICK and time-gated; breadth only.
+# A 280-char post carries a setup; it structurally cannot carry a framework.
+# ⇒ Poll methodology posters often and setup posters rarely, rather than polling
+# everyone at one cadence.
+#
+#   intent = "methodology" | "setups" | "both" | "unknown"
+#   poll   = "daily" | "weekly" | "off"
+#
+# ⚠ Leave `intent` as "unknown" rather than guessing it from a small tranche
+# sample. Set it from what you know of the account, or let Stream B yield decide.
+#
+# DECISION RULE, pre-registered so it is not fitted after the fact:
+#   0 Stream B items in >=15 bookmarks  ->  demote poll to "weekly"/"off".
+# NEVER demote on drop-RATE — measure the drop REASON. An author who posts
+# management of one running trade drops most items as `is_retrospective` and is
+# not uninformative; that column measures pipeline-fit, not author quality.
+# ---------------------------------------------------------------------------
+
+[[author]]
+handle = "example_methodology"
+intent = "methodology"
+poll = "daily"
+
+[[author]]
+handle = "example_setups"
+intent = "setups"
+poll = "weekly"
+
+# An author kept in the roster but out of the discovery query — `poll = "off"` is a
+# positive instruction, not an absence of data, so a future session does not
+# "helpfully" re-add them.
+[[author]]
+handle = "example_unrated"
+intent = "unknown"
+poll = "off"

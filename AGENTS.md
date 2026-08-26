@@ -356,7 +356,7 @@ the card's own `generated_at_ms`). Wrapped by
 Wraps `deploy/backup-analytics.sh` — a verified local snapshot of `analytics.db` plus the
 ledger files and directories reached by `LEDGERS`, `LEDGER_DIRS`, `EXTERNAL_LEDGERS` and
 `EXTERNAL_LEDGER_DIRS`. **`LEDGERS` is a GLOB over `docs/plans/*` since 2026-08-20**, plus
-three explicit entries outside that tree; the other three arrays remain enumerated. `WEEKLY=1` adds the parquet export, `DRY=1` reports only. A systemd
+four explicit entries outside that tree; the other three arrays remain enumerated. `WEEKLY=1` adds the parquet export, `DRY=1` reports only. A systemd
 user timer runs it twice daily.
 
 **Everything covered is gitignored and single-copy, so those four arrays ARE the only
