@@ -1,6 +1,6 @@
 """Report the posts in an `x_fetch --resolve --json` bundle set whose text is TRUNCATED.
 
-`/ingest-x` step 1b runs this and HALTS when it exits 1, so the operator can paste the
+`/ingest-x`'s truncation halt runs this and STOPS when it exits 1, so the operator can paste the
 long-form bodies before the extractor ever sees a cut-off post.
 
 Why a halt rather than a note: the syndication endpoint's `note_tweet` proves a longer

@@ -108,7 +108,7 @@ pasted, then run the flow once over the whole set.
      longer body exists but hands back only an opaque ID stub, never the
      text. Say so to the step-2 extractor for that post — name it in
      `chart_read` or `gap_note` — rather than letting it extrapolate the
-     missing tail from what little text it has. **Step 1b halts on this and
+     missing tail from what little text it has. **The TRUNCATION HALT below fires on this and
      offers the operator the paste that is the only repair — naming it in
      `gap_note` is the fallback for text they declined to supply, not the
      first response.**
@@ -122,7 +122,7 @@ pasted, then run the flow once over the whole set.
    resolved bundle. Do **not** attempt the vision pass here — this skill has
    no frame extraction.
 
-   **STEP 1b — halt on truncated text and let the operator repair it, BEFORE any
+   **TRUNCATION HALT — let the operator repair a cut-off body, BEFORE any
    extraction.** Keep step 1's JSON, then screen it:
 
    ```bash
@@ -476,7 +476,7 @@ pasted, then run the flow once over the whole set.
    run see this bundle was already ingested.
 
    Carry a `text_source:` map there too, one entry per post — `syndication` (full text
-   as fetched), `operator_paste` (the tail was supplied by hand at step 1b), or
+   as fetched), `operator_paste` (the tail was supplied by hand at the truncation halt), or
    `truncated_unrepaired` (truncated and NOT pasted). **Do not fold the third into the
    first.** "The text was complete" and "the text was cut and nobody fixed it" are
    different claims about the evidence, and only an explicit value tells a later reader
