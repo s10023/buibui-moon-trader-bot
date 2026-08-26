@@ -19,7 +19,7 @@ from card.state import MarketState
 # (see `card/state.py::_strip_censored_pundit_stats`) and rubric 3b names
 # `avg_atr_r` and its units. Bumped because the model sees a different payload
 # AND a different instruction — cards are comparable only within one version.
-PROMPT_VERSION = "card-v5"
+PROMPT_VERSION = "card-v6"
 
 _SCHEMA = """{
   "verdict": "TRADE" or "NO_TRADE",
