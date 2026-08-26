@@ -128,7 +128,8 @@ Execute the `/ingest-video` flow (`.claude/skills/ingest-video/SKILL.md`), steps
 over the picked URLs. Follow that skill by reference — do not restate or fork it here.
 Its digest + single approval remain the only gate before any research-sink write.
 
-⚠ **Step 10 is the route reconciliation, and it GATES step 5 below.** `mark` burns the
+⚠ **Step 10 is the route reconciliation (`tools/route_reconcile.py`), and it GATES step 5
+below.** `mark` burns the
 watermark, so marking a round whose declared routes never landed makes those videos
 un-re-presentable while their content is missing from the sinks — the two failure classes
 compounding. A video the reconciler reds is a video that did NOT complete routing, which
