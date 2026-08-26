@@ -6,7 +6,7 @@ import json
 import random
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
@@ -1763,3 +1763,110 @@ def test_main_resolve_force_reaches_the_network(tmp_path: Path) -> None:
     )
     assert rc == 0
     assert _ids(calls) == ["200"]
+
+
+# ---------------------------------------------------------------------------
+# ST102 — numeric account ids. Handles are mutable, ids are permanent.
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_persists_every_account_id_the_payload_carries() -> None:
+    """The payload carries user.id_str beside every screen_name, plus a
+    top-level in_reply_to_user_id_str. This parser dropped all three, so the
+    follow-list roster had to be rebuilt from a paid archive instead of
+    maintaining itself off calls already being made."""
+    payload = json.dumps(
+        dict(
+            _CRYPTIC,
+            user={"name": "HeycH", "screen_name": "cryptic_heych", "id_str": "111"},
+            in_reply_to_status_id_str="900",
+            in_reply_to_screen_name="someone_else",
+            in_reply_to_user_id_str="222",
+            quoted_tweet={
+                "id_str": "800",
+                "text": "the original call",
+                "user": {"screen_name": "og_caller", "name": "OG", "id_str": "333"},
+            },
+        )
+    )
+    post = fetch_x_post(_url("1"), get=make_get(FakeResp(200, payload)))
+    assert isinstance(post, XPost)
+    assert post.author_id == "111"
+    assert post.in_reply_to_author_id == "222"
+    assert post.quoted_author_id == "333"
+
+
+def test_absent_account_id_reads_empty_rather_than_invented() -> None:
+    """An id the payload does not carry stays empty. A follow-list diff keys on
+    account_id precisely because it survives a rename, so a value derived from
+    the handle there would corrupt the only field that can detect one."""
+    post = fetch_x_post(_url("1"), get=make_get(FakeResp(200, json.dumps(_CRYPTIC))))
+    assert isinstance(post, XPost)
+    assert post.author_id == ""
+    assert post.quoted_author_id == ""
+    assert post.in_reply_to_author_id == ""
+
+
+def test_account_ids_survive_the_cache_round_trip(tmp_path: Path) -> None:
+    """A cached read must carry the ids too — the cache is what a later roster
+    pass reads, and an id present only on the network path would resolve an
+    author once and lose him on every re-read."""
+    cache_dir, media_root = tmp_path / "posts", tmp_path / "media"
+    payload = json.dumps(
+        dict(
+            _CRYPTIC,
+            photos=[],
+            mediaDetails=[],
+            user={"name": "HeycH", "screen_name": "cryptic_heych", "id_str": "111"},
+        )
+    )
+    common: dict[str, Any] = {
+        "cache_dir": cache_dir,
+        "media_root": media_root,
+        "sleep": RecordingSleep(),
+        "rng": random.Random(0),
+    }
+    first = fetch_x_batch(
+        [_url("1")], get=make_routed_get({"1": FakeResp(200, payload)}), **common
+    )
+    assert isinstance(first[0].post, XPost) and first[0].post.author_id == "111"
+
+    calls: list[str] = []
+    second = fetch_x_batch([_url("1")], get=make_routed_get({}, calls=calls), **common)
+    assert not calls  # served from cache — no network
+    assert second[0].cached is True
+    assert isinstance(second[0].post, XPost)
+    assert second[0].post.author_id == "111"
+
+
+def test_xpost_field_set_is_pinned_to_the_cache_schema() -> None:
+    """The bump rule is PROSE on _CACHE_SCHEMA and prose is not a guarantee: a
+    field added without a bump is served from every pre-existing cache entry
+    silently defaulted, which is ruling R8's defect exactly. Adding or removing
+    a field here is meant to fail this test — bump _CACHE_SCHEMA in the same
+    edit, then update the set below."""
+    assert {f.name for f in fields(XPost)} == {
+        "source",
+        "author",
+        "author_name",
+        "url",
+        "post_ts_utc",
+        "text",
+        "photo_urls",
+        "video_present",
+        "is_thread",
+        "is_quote",
+        "quoted_text",
+        "quoted_author",
+        "quoted_id",
+        "quoted_photo_urls",
+        "text_truncated",
+        "edited",
+        "in_reply_to_id",
+        "in_reply_to_author",
+        "conversation_count",
+        "thread_pos",
+        "author_id",
+        "quoted_author_id",
+        "in_reply_to_author_id",
+    }

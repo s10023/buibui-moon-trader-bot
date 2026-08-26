@@ -832,9 +832,12 @@ sweep, say — tests stale HEAD and reports green while the doc commits this
 phase just produced go untested. The script refuses outright on a dirty tree
 rather than reporting that green.
 
-**It replaces this branch's FINAL `make test`, and only that one** — measured
-2026-08-20 on 4205 tests: **300.1s against `make test`'s 294.9s, +1.8%**, so the
-hermetic form costs five seconds.
+**It IS this branch's one full-suite run** — measured 2026-08-20 on 4205 tests:
+**300.1s against `make test`'s 294.9s, +1.8%**, so the hermetic form costs five
+seconds. ⚠ **Running `make test` first and then this is the same suite twice for
+nothing**, and it happened on 2026-08-26 to a session reading the old "supersedes
+the final `make test`" wording, which reads as an exception to a gate rather than
+as a replacement for it.
 
 ⚠ **Do not read "replacement" as "stop running `make test` while you work."** A
 clone cannot see uncommitted code — the same property that makes this correct at
