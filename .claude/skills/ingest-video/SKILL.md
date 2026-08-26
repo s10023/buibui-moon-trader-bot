@@ -610,10 +610,18 @@ five unaffordable.
   ASR against the chart).
 - **Skip pass 2** for narrative, talking-head or purely definitional content — a mechanic
   stated in prose, a framework walkthrough, an opinion segment. Mark every kept item
-  `vision_confidence: "low"`, keep `frame_path` pointing at the nearest mark so a later
-  re-check is cheap, and write the health note "vision skipped (narrative content)".
-  ⚠ **Do NOT set `chart_present: false`** — the frames exist and nobody looked at them,
-  which is the same distinction step 5's download-failure branch turns on below.
+  `vision_confidence: "low"`, keep `frame_path` set to the nearest path **from the
+  `frame_paths` list** so a later re-check is cheap (never one built from the item's own
+  `ts` — see the schema rule in step 7), and write the health note "vision skipped
+  (narrative content)".
+  ⚠ **Set `chart_present: null`. Do NOT set it `false`** — the frames exist and nobody
+  looked at them, which is the same distinction step 5's download-failure branch turns on
+  below. `null` is the only value that says *unexamined*: `false` claims a look that never
+  happened, `true` claims a chart nobody saw. **Nothing in the tree parses this field**, so
+  leaving it unpinned costs silent divergence between sessions rather than a crash — which
+  has already happened, 18 notes carrying `null` in two spellings. Use the one that says
+  why:
+  `chart_present: null   # vision skipped - nobody looked; NOT a claim that no chart exists`
 - **When in doubt on a mixed video, run it.** The failure mode this rule guards is *cost*,
   and a wrong skip on a numbers video costs correctness — the asymmetry is not close.
 
@@ -742,6 +750,15 @@ Rules for the subagent:
   nearest frame doesn't show what was said) gets `vision_confidence: "low"`. Reserve
   `"high"` for a frame that directly confirms the claim; `"medium"` for
   partial/ambiguous support.
+- **`frame_path` is COPIED from the supplied `frame_paths` list — never constructed from
+  the item's own `ts`.** `video_marks.select()` dedupes candidates inside a 45s window and
+  then caps the survivors at `FRAME_CAP` (15), so **there is usually no frame at an item's
+  own timestamp**; the correct value is the nearest path that was actually supplied, which
+  may sit tens of seconds away. Building `f_<ts>.jpg` out of `ts` yields a path that does
+  not exist, and nothing downstream opens the file — so the note ships a dead pointer that
+  only an existence check catches (measured 2026-08-25: two such paths in one tranche).
+  When no supplied path is near the item, write `null`: **a missing frame is a fact, an
+  invented path is a claim.**
 - `raw_quote` stays in the transcript's original language (Chinese stays Chinese);
   `raw_quote_en` is always English (identical to `raw_quote` when the source is already
   English).
