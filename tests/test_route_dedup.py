@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from tools.route_dedup import (
+    KNOWN_SINKS,
     MECHANICS_SINK,
     PUNDIT_SINK,
     THESIS_SINK,
@@ -28,6 +32,8 @@ from tools.route_dedup import (
     split_entries,
 )
 from tools.x_route import route_target
+
+REPO = Path(__file__).resolve().parent.parent
 
 
 def _item(
@@ -785,3 +791,112 @@ def test_author_matching_normalises_the_at_sign_on_both_sides() -> None:
         "docs/plans/pundit-calls.jsonl", sink_text, "CCC", author="Traderfengge"
     )
     assert len(got) == 1
+
+
+# ---------------------------------------------------------------------------
+# ST99 — `--sink` is an allowlist, and ST101 — the tool runs bare
+# ---------------------------------------------------------------------------
+
+
+class TestSinkIsValidatedAtTheCLIBoundary:
+    """`--sink` used to accept any string, and all 30 bad ledger rows went in that way.
+
+    `is_routed` keys on `(source_id, item_ts, sink)`, so a sink outside `KNOWN_SINKS`
+    is dedup-BLIND — the row is written and can never be found again. That includes 8
+    YouTube ids, so the video half of the round was blind too.
+    """
+
+    @staticmethod
+    def _args(sink: str, ledger: Path) -> list[str]:
+        return [
+            "mark",
+            "--source-id",
+            "1234567890",
+            "--item-ts",
+            "0",
+            "--sink",
+            sink,
+            "--ledger",
+            str(ledger),
+        ]
+
+    def test_a_bare_filename_is_rejected(self, tmp_path: Path) -> None:
+        """26 of the 30 bad rows were exactly this: `mechanics-backlog.md`."""
+        with pytest.raises(SystemExit) as exc:
+            main(self._args("mechanics-backlog.md", tmp_path / "l.json"))
+        assert exc.value.code == 2
+
+    def test_an_empty_sink_is_rejected(self, tmp_path: Path) -> None:
+        """The other 4: id and sink joined into one `--source-id`, leaving `--sink` empty."""
+        with pytest.raises(SystemExit) as exc:
+            main(self._args("", tmp_path / "l.json"))
+        assert exc.value.code == 2
+
+    def test_a_rejected_sink_writes_NOTHING(self, tmp_path: Path) -> None:
+        """The point of the gate: refuse before the ledger is touched, never after."""
+        ledger = tmp_path / "l.json"
+        with pytest.raises(SystemExit):
+            main(self._args("mechanics-backlog.md", ledger))
+        assert not ledger.exists()
+
+    @pytest.mark.parametrize("sink", [THESIS_SINK, MECHANICS_SINK, PUNDIT_SINK])
+    def test_every_real_sink_is_accepted(self, sink: str, tmp_path: Path) -> None:
+        ledger = tmp_path / "l.json"
+        assert main(self._args(sink, ledger)) == 0
+        assert is_routed(load_ledger(ledger), "1234567890", 0.0, sink)
+
+    def test_the_allowlist_is_exactly_what_x_route_can_return(self) -> None:
+        """Drift guard. `KNOWN_SINKS` is the CLI's gate and `route_target` is what
+        produces the value passed to it; if they ever disagree the gate rejects a
+        legitimate route."""
+        produced = {
+            route_target("setup", ""),
+            route_target("mechanic", ""),
+            route_target("claim", "NOVEL"),
+        }
+        assert produced == set(KNOWN_SINKS)
+
+    def test_the_LIBRARY_stays_lenient_so_the_gate_has_exactly_one_home(self) -> None:
+        """Scoped, not blanket. `find_similar` must keep returning [] on an unknown
+        sink — an unscopeable sink is genuinely not an error there, and duplicating
+        the check into the library is how a second spelling starts."""
+        assert find_similar("anything", "docs/plans/typo.md", "") == []
+        assert semantic_scope("docs/plans/typo.md", "vid1") == "none"
+
+    def test_route_reconcile_shares_the_ONE_definition(self) -> None:
+        """It restated the tuple locally until ST99. Two spellings that agree by
+        coincidence read exactly like two that agree by construction."""
+        from tools import route_reconcile
+
+        assert route_reconcile.KNOWN_SINKS is KNOWN_SINKS
+
+
+def test_bare_invocation_works(tmp_path: Path) -> None:
+    """`python3 tools/route_dedup.py` must run without PYTHONPATH=.
+
+    It imports `analytics.pundit_authors`, so a bare run put `tools/` on sys.path and
+    died on ModuleNotFoundError — the `distil_power.py` shape. Per ST101 the guarantee
+    is THIS test, not the bootstrap line.
+    """
+    ledger = tmp_path / "l.json"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "tools/route_dedup.py",
+            "mark",
+            "--source-id",
+            "1234567890",
+            "--item-ts",
+            "0",
+            "--sink",
+            PUNDIT_SINK,
+            "--ledger",
+            str(ledger),
+        ],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        env={k: v for k, v in os.environ.items() if k != "PYTHONPATH"},
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert ledger.exists()

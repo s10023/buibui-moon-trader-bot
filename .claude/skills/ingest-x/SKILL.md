@@ -371,8 +371,12 @@ pasted, then run the flow once over the whole set.
    ```bash
    PYTHONPATH=. poetry run python tools/route_dedup.py mark \
      --source-id <status id of the post the item came from> --item-ts 0 \
-     --sink <sink path>
+     --sink <the FULL path route_target returned, e.g. docs/plans/pundit-calls.jsonl>
    ```
+
+   ⚠ **A bare filename is REJECTED since ST99** — `--sink` is one of three full
+   paths, because `_key` includes it and a bare `mechanics-backlog.md` writes a row
+   nothing can ever match. 26 rows went in that way before the check existed.
 
    **⚠ `--source-id` is THAT post's own status id — the `ResolvedPost` you are
    crediting — never the pasted URL's id by reflex.** `route_dedup._key` is

@@ -117,13 +117,17 @@ belongs on reachability rather than on another rule. Deep reference
   correct CI run. Confirm the legs RUN once locally after touching it.
 - **`wait_ci.py`'s exit codes are invisible through `make`** (GNU make collapses any recipe
   failure to its own exit 2). Read the printed banner, or call the script directly.
-- **All three bootstrap their own `sys.path`, so a bare `python3 tools/<name>.py` works** —
-  `distil_power.py` joined them 2026-08-20 (ST59), having been the one tool a gate MANDATES
-  running that died on the obvious invocation. CI
-  runs `sanity_checks.py` exactly that way, with **no** `PYTHONPATH`, while the Make targets
-  set it — so a green `make sanity-checks` proves nothing about CI's invocation. That gap
-  shipped a red CI on 2026-08-19 with every local gate green. Each suite now runs the bare
-  form as a test.
+- **A tool that imports from the repo bootstraps its own `sys.path` so a bare
+  `python3 tools/<name>.py` works, and the GUARANTEE is a `test_bare_invocation_works`
+  test, never the bootstrap line.** CI runs `sanity_checks.py` exactly that way, with **no**
+  `PYTHONPATH`, while the Make targets set it — so a green `make sanity-checks` proves
+  nothing about CI's invocation. That gap shipped a red CI on 2026-08-19 with every local
+  gate green. ⛔ **Do not enumerate the tools here.** This bullet read "all three" and was
+  wrong by omission twice: `distil_power.py` joined 2026-08-20 (ST59), the one tool a gate
+  MANDATES running that died on the obvious invocation, then `route_dedup.py` and
+  `route_reconcile.py` by 2026-08-26. ⚠ **Scoped, not blanket** — a tool importing nothing
+  from the repo gets none (`tools/x_truncated.py`), where the line would be dead code
+  masking the breakage the moment the first `analytics.*` import appears.
 
 After adding a doc to `docs/audits/` or `docs/superpowers/specs/`, run `make docs-index` —
 both `INDEX.md` files are generated and `tests/test_docs_index.py` fails until they are
