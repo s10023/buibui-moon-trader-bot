@@ -12,7 +12,11 @@ from __future__ import annotations
 import pandas as pd
 
 from analytics.brief.types import SessionRecapRow, SessionState, SessionTendencyRow
-from analytics.session_windows import last_completed_windows
+from analytics.session_windows import (
+    last_completed_windows,
+    myt_date_str,
+    myt_day_offset,
+)
 from analytics.stats.session import SessionResult
 
 _HOUR_MS = 3_600_000
@@ -59,6 +63,10 @@ def _recap_rows(
             session=label,
             start_ms=start_ms,
             end_ms=end_ms,
+            # Anchored on the window's START: an NY window opens 22:00 MYT and
+            # closes 04:00 the next day, and it is named for the day it opened.
+            date_myt=myt_date_str(start_ms),
+            day_offset=myt_day_offset(start_ms, as_of_ms),
             open=o,
             high=h,
             low=lo,

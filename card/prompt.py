@@ -19,7 +19,7 @@ from card.state import MarketState
 # (see `card/state.py::_strip_censored_pundit_stats`) and rubric 3b names
 # `avg_atr_r` and its units. Bumped because the model sees a different payload
 # AND a different instruction — cards are comparable only within one version.
-PROMPT_VERSION = "card-v5"
+PROMPT_VERSION = "card-v6"
 
 _SCHEMA = """{
   "verdict": "TRADE" or "NO_TRADE",
@@ -48,8 +48,13 @@ Method (in order):
 indicator block (EMA stack + slope, range/run-length state, Monday-range \
 state, PA character, Bollinger %B / bandwidth / squeeze, anchored-VWAP \
 distances, volume-profile POC/VAH/VAL and vs_value) and the session block \
-(clock, last-3-session recap, tendencies). State the directional bias each \
-timeframe supports.
+(clock, last-3-session recap, tendencies). Every recap row is a CLOSED \
+window and carries date_myt plus day_offset (0 = today MYT, -1 = yesterday); \
+session_clock is the window in progress NOW and carries no OHLC. They \
+routinely share a label, so a recap row reading "London" at day_offset -1 is \
+YESTERDAY's London, not the one the clock is in -- cite the day whenever you \
+quote a recap number, and never describe a recap row as the current session. \
+State the directional bias each timeframe supports.
 2. Liquidity map: list the 3 nearest levels/zones ABOVE and BELOW from \
 panel.levels_above/below and panel.zones_above/below with their dist_atr, \
 timeframe, and swept flag. If panel.external is present, add its \

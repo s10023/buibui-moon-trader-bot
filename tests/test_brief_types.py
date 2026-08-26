@@ -115,6 +115,8 @@ def test_session_state_serialises() -> None:
                 session="Asia",
                 start_ms=0,
                 end_ms=6 * 3_600_000,
+                date_myt="1970-01-01",
+                day_offset=0,
                 open=1.0,
                 high=2.0,
                 low=0.5,

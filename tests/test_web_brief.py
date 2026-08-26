@@ -350,3 +350,36 @@ def test_brief_response_carries_a_populated_cycle_block() -> None:
     assert response.cycle.days_at_score == 9
     # `below` is a tuple on the dataclass; it must survive as a list.
     assert list(response.cycle.below) == ["50W SMA", "50W EMA", "200D EMA"]
+
+
+def test_brief_response_models_mirror_their_dataclasses() -> None:
+    """A field not declared on the response model is DROPPED, not an error.
+
+    FastAPI serialises through `response_model`, so a field added to a
+    brief dataclass and not mirrored in `web/api/models/brief.py` vanishes
+    from the API with nothing failing anywhere -- the same silent drop the
+    bear-score test above pins for one field, generalised to every pair
+    following the `X` / `XModel` naming convention.
+    """
+    import dataclasses
+
+    from analytics.brief import types as bt
+    from web.api.models import brief as bm
+
+    checked = 0
+    for name in dir(bm):
+        if not name.endswith("Model"):
+            continue
+        dataclass = getattr(bt, name[: -len("Model")], None)
+        if dataclass is None or not dataclasses.is_dataclass(dataclass):
+            continue
+        model = getattr(bm, name)
+        if not hasattr(model, "model_fields"):
+            continue
+        assert {f.name for f in dataclasses.fields(dataclass)} == set(
+            model.model_fields
+        ), f"{name} has drifted from {dataclass.__name__}"
+        checked += 1
+    # Guards the sweep itself: a rename that stops matching would otherwise
+    # make this test pass by checking nothing.
+    assert checked >= 25, f"the sweep matched only {checked} pair(s)"

@@ -3,6 +3,7 @@
 import pandas as pd
 
 from analytics.brief.sessions import build_session_state
+from analytics.session_windows import myt_date_str, myt_day_offset, session_at
 from analytics.stats.session import SessionResult, SessionRow
 
 H = 3_600_000
@@ -151,3 +152,72 @@ def test_zero_atr_drops_atr_fields() -> None:
     assert state is not None and state.recap is not None
     assert all(r.net_atr is None and r.range_atr is None for r in state.recap)
     assert state.recap[0].net_pct != 0.0  # pct never needs ATR
+
+
+# --- ST94: the recap row must say WHICH DAY it names --------------------
+# `session` is the row's only human-readable key, and the clock names the
+# same labels for the window in progress. A consumer that does no epoch
+# arithmetic -- the card model, which reads `asdict` output -- read a
+# closed row as the current session and quoted yesterday's London while
+# today's ran the other way. Every figure matched the panel byte for byte,
+# so the FRAME was wrong, not the numbers.
+
+
+def test_recap_rows_carry_the_MYT_day_they_name() -> None:
+    state, _ = build_session_state(
+        _h1_frame(list(range(30))), atr14=2.0, as_of_ms=AS_OF, tendency=_tendency()
+    )
+    assert state is not None and state.recap is not None
+    got = [(r.session, r.date_myt, r.day_offset) for r in state.recap]
+    assert got == [
+        ("London", "2024-01-01", -1),
+        ("NY", "2024-01-01", -1),
+        ("Asia", "2024-01-02", 0),
+    ]
+
+
+def test_day_offset_is_anchored_on_the_window_START_not_its_end() -> None:
+    """NY opens 22:00 MYT and closes 04:00 the NEXT MYT day.
+
+    It is named for the day it OPENED, so start and end disagree by one
+    day for that window and only that window. Anchoring on `end_ms` would
+    label yesterday's NY as today's -- the exact confusion ST94 is about,
+    reintroduced one field over.
+    """
+    state, _ = build_session_state(
+        _h1_frame(list(range(30))), atr14=2.0, as_of_ms=AS_OF, tendency=_tendency()
+    )
+    assert state is not None and state.recap is not None
+    ny = next(r for r in state.recap if r.session == "NY")
+    assert ny.day_offset == -1
+    assert ny.date_myt == myt_date_str(ny.start_ms) == "2024-01-01"
+    # The mutation this pins: the end lands on the NEXT MYT day.
+    assert myt_day_offset(ny.end_ms, AS_OF) == 0
+    assert myt_date_str(ny.end_ms) == "2024-01-02"
+
+
+def test_a_recap_row_sharing_the_clock_label_is_a_DIFFERENT_window() -> None:
+    as_of = START + 34 * H  # Tuesday 18:00 MYT -- mid-London
+    clock = session_at(as_of)
+    state, _ = build_session_state(
+        _h1_frame(list(range(34))), atr14=2.0, as_of_ms=as_of, tendency=_tendency()
+    )
+    assert state is not None and state.recap is not None
+    assert clock.label == "London"
+    twins = [r for r in state.recap if r.session == clock.label]
+    assert twins, "expected the recap to carry a row with the clock's own label"
+    # Same label, and the recap's is yesterday's while the clock's is today's.
+    assert all(r.day_offset == -1 for r in twins)
+    assert myt_date_str(clock.start_ms) == "2024-01-02"
+
+
+def test_today_and_yesterday_are_distinguishable_without_epoch_arithmetic() -> None:
+    """The whole point: `day_offset` alone separates the two."""
+    state, _ = build_session_state(
+        _h1_frame(list(range(30))), atr14=2.0, as_of_ms=AS_OF, tendency=_tendency()
+    )
+    assert state is not None and state.recap is not None
+    today = {r.session for r in state.recap if r.day_offset == 0}
+    prior = {r.session for r in state.recap if r.day_offset == -1}
+    assert today == {"Asia"}
+    assert prior == {"London", "NY"}

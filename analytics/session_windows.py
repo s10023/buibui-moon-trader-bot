@@ -17,6 +17,7 @@ concern.
 
 from __future__ import annotations
 
+import datetime as dt
 from dataclasses import dataclass
 
 MYT_OFFSET_MS = 8 * 3_600_000
@@ -60,6 +61,25 @@ def _window(day_start_ms: int, label: str, start_h: int, end_h: int) -> SessionW
         start_ms=day_start_ms + start_h * _HOUR_MS,
         end_ms=day_start_ms + end_h * _HOUR_MS,
     )
+
+
+def myt_date_str(as_of_ms: int) -> str:
+    """ISO ``YYYY-MM-DD`` of the MYT day containing ``as_of_ms``."""
+    stamp = dt.datetime(1970, 1, 1, tzinfo=dt.UTC) + dt.timedelta(
+        milliseconds=as_of_ms + MYT_OFFSET_MS
+    )
+    return stamp.strftime("%Y-%m-%d")
+
+
+def myt_day_offset(ms: int, as_of_ms: int) -> int:
+    """Whole MYT days from ``as_of_ms``'s day to ``ms``'s day.
+
+    ``0`` is the same MYT day, ``-1`` the day before. Both sides are
+    snapped to their MYT day start first, so this counts calendar days
+    rather than elapsed hours: 23:59 and 00:01 either side of a midnight
+    are one day apart, not zero.
+    """
+    return (_myt_day_start_ms(ms) - _myt_day_start_ms(as_of_ms)) // _DAY_MS
 
 
 def session_at(as_of_ms: int) -> CurrentSession:

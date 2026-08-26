@@ -4,6 +4,8 @@ from analytics.session_windows import (
     CurrentSession,
     SessionWindow,
     last_completed_windows,
+    myt_date_str,
+    myt_day_offset,
     session_at,
 )
 
@@ -108,3 +110,30 @@ def test_last_completed_n_larger() -> None:
     assert [w.label for w in wins] == ["NY", "Asia", "London", "NY", "Asia"]
     assert all(w.end_ms <= START + 30 * H for w in wins)
     assert wins == sorted(wins, key=lambda w: w.start_ms)
+
+
+def test_myt_date_str_names_the_MYT_day_not_the_UTC_one() -> None:
+    # START is 00:00 UTC, which is 08:00 MYT the SAME date. Nine hours
+    # earlier is still 2023-12-31 in UTC but has crossed into MYT's
+    # 2024-01-01 -- reading the UTC date would be off by one for eight
+    # hours of every day, and the recap's NY window lives in that band.
+    assert myt_date_str(START) == "2024-01-01"
+    assert myt_date_str(START - 4 * H) == "2024-01-01"  # 2023-12-31 20:00 UTC
+    assert myt_date_str(START - 9 * H) == "2023-12-31"  # 2023-12-31 23:00 MYT
+
+
+def test_myt_day_offset_counts_calendar_days_not_elapsed_hours() -> None:
+    midnight = START - 8 * H  # Mon 2024-01-01 00:00 MYT
+    # Two minutes apart, one MYT day apart.
+    assert myt_day_offset(midnight - 60_000, midnight + 60_000) == -1
+    assert myt_day_offset(midnight + 60_000, midnight + 60_000) == 0
+    # And it scales past a single day.
+    assert myt_day_offset(START, START + 3 * DAY) == -3
+    assert myt_day_offset(START + 3 * DAY, START) == 3
+
+
+def test_myt_day_offset_is_zero_across_a_whole_MYT_day() -> None:
+    day_start = START - 8 * H
+    for hour in range(24):
+        assert myt_day_offset(day_start + hour * H, day_start) == 0
+    assert myt_day_offset(day_start + 24 * H, day_start) == 1

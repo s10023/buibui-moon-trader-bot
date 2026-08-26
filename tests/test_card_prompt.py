@@ -26,7 +26,7 @@ def _state(hint: str | None = None) -> MarketState:
 
 class TestPrompt:
     def test_version_constant(self) -> None:
-        assert PROMPT_VERSION == "card-v5"
+        assert PROMPT_VERSION == "card-v6"
 
     def test_rubric_names_the_pundit_metric_and_its_units(self) -> None:
         """card-v4: `avg_atr_r` is in ATR units, and there is no pundit R.
