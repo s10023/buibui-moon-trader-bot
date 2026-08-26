@@ -37,7 +37,10 @@ _I_URL_RE = re.compile(r"(?:twitter|x)\.com/i/status/\d+")
 # absent key must read as stale exactly like a mismatched one (ruling R8) —
 # _load_cached treats both as a cache MISS so the post is re-fetched instead
 # of silently answered with new fields defaulted false/empty.
-_CACHE_SCHEMA = 2
+# 3 (ST102): the three account-id fields. Every entry written under 2 is now a
+# miss and is re-fetched on next touch — free and keyless, but paid at the
+# randomized cooldown, so a round re-reading old posts is slower once.
+_CACHE_SCHEMA = 3
 
 
 class HttpResponse(Protocol):
@@ -105,6 +108,20 @@ class XPost:
     in_reply_to_author: str = ""  # @handle replied to; == author on a self-thread
     conversation_count: int = 0  # replies to the CONVERSATION, never thread length
     thread_pos: int = 0  # 0 = root, ascending toward the leaf
+    # Numeric account ids (ST102), which the payload carries beside every
+    # screen_name and this parser dropped — so the follow-list roster had to be
+    # rebuilt from a paid archive instead of maintaining itself off calls
+    # already being made. HANDLES ARE MUTABLE, IDS ARE PERMANENT, which is what
+    # makes the id the diff key: a rename read on handles alone is
+    # indistinguishable from one unfollow plus one new follow, and
+    # tools/pundit_score.py groups on the handle, so it SPLITS that author's
+    # track record with nothing downstream able to notice. Empty means the
+    # payload carried no id, never that the author has none. They sit here
+    # rather than beside their handle siblings only because a defaulted field
+    # cannot precede a required one.
+    author_id: str = ""  # user.id_str
+    quoted_author_id: str = ""  # quoted_tweet.user.id_str
+    in_reply_to_author_id: str = ""  # in_reply_to_user_id_str
 
 
 @dataclass(frozen=True)
@@ -171,6 +188,9 @@ def fetch_x_post(url: str, *, get: HttpGet = _requests_get) -> XPost | Unavailab
         in_reply_to_id=str(data.get("in_reply_to_status_id_str") or ""),
         in_reply_to_author=str(data.get("in_reply_to_screen_name") or ""),
         conversation_count=int(data.get("conversation_count") or 0),
+        author_id=str(user.get("id_str") or ""),
+        quoted_author_id=str(quoted_user.get("id_str") or ""),
+        in_reply_to_author_id=str(data.get("in_reply_to_user_id_str") or ""),
     )
 
 

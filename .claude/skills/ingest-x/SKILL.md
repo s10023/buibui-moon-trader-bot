@@ -52,7 +52,11 @@ pasted, then run the flow once over the whole set.
    do, and `json.loads` rejects two of those concatenated.) Each post in `posts` carries
    the flat post fields (`author`, `author_name`, `post_ts_utc`, `text`,
    `photo_urls`, `video_present`, `is_quote`, `quoted_text`, `quoted_author`,
-   `quoted_id`, `quoted_photo_urls`, `text_truncated`, `edited`, …) plus:
+   `quoted_id`, `quoted_photo_urls`, `text_truncated`, `edited`, and the numeric
+   account ids `author_id` / `quoted_author_id` / `in_reply_to_author_id` — empty
+   when the payload carried none, and the only field that survives a handle
+   rename, so quote it rather than the handle when noting an author's identity …)
+   plus:
 
    - `role` — `"bookmarked"` (the URL you passed) / `"chain_parent"`
      (recovered upward from it) / `"quoted"` (pulled in because something in
