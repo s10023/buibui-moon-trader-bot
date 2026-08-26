@@ -98,6 +98,13 @@ LEDGERS=(
     # pundit_roster.toml.example carries 2 schema-demo entries and is not a
     # backup. Losing this drops every relay as unattributable.
     "config/pundit_roster.toml"
+    # The X follow roster. Gitignored and single-copy like its YouTube sibling, but
+    # WORSE to lose: a YouTube channel id is re-resolvable from a handle, while this
+    # file also carries the per-author `intent` and `poll` rulings, which are operator
+    # judgement and re-derivable from nothing. Before it existed the roster lived only
+    # as a hand-typed `(from:a OR from:b OR ...)` string inside one gitignored scratch
+    # JSON, so each discovery run retyped it from memory.
+    "config/x_authors.toml"
     # The sharpest entry in the file: the ONLY record that a chart drop was handled,
     # and it lives under .cache/ -- the one directory every cleanup treats as
     # disposable. A plain recursive delete of .cache/ resets chart dedup with no
