@@ -108,7 +108,10 @@ pasted, then run the flow once over the whole set.
      longer body exists but hands back only an opaque ID stub, never the
      text. Say so to the step-2 extractor for that post — name it in
      `chart_read` or `gap_note` — rather than letting it extrapolate the
-     missing tail from what little text it has.
+     missing tail from what little text it has. **Step 1b halts on this and
+     offers the operator the paste that is the only repair — naming it in
+     `gap_note` is the fallback for text they declined to supply, not the
+     first response.**
 
    **`video_present: true`** on the bookmarked post or a `chain_parent` ⇒ hand
    off that post's own URL to `/ingest-video`, don't make the operator
@@ -119,6 +122,44 @@ pasted, then run the flow once over the whole set.
    resolved bundle. Do **not** attempt the vision pass here — this skill has
    no frame extraction.
 
+   **STEP 1b — halt on truncated text and let the operator repair it, BEFORE any
+   extraction.** Keep step 1's JSON, then screen it:
+
+   ```bash
+   PYTHONPATH=. poetry run python tools/x_fetch.py <urls…> --resolve --json > /tmp/x-<date>.json
+   python3 tools/x_truncated.py /tmp/x-<date>.json
+   ```
+
+   **Exit 1 means STOP.** Show the operator the block verbatim — it leads with the
+   counts (`14 of 18 post(s) truncated across 5 of 7 bundle(s)`), stars the bookmarked
+   posts, flags a post that appears in two bundles, and closes with the distinct-URL
+   count. Ask them to paste the full bodies, then splice each pasted body over that
+   post's `text` when you compose the step-2 prompt. Exit 0 carries straight on; exit 2
+   means the JSON is unreadable — fix that, and never read it as "nothing truncated".
+
+   **Why a HALT and not a note.** The endpoint's `note_tweet` proves a longer body
+   exists and returns only an opaque ID stub, so **no re-fetch, no `--force` and no
+   re-ingest recovers the tail — only a human paste does.** Step 1's trap bullet records
+   the damage at the one moment it is still repairable, and then proceeds anyway.
+
+   ⚠ **Ask for TEXT ONLY — never ask the operator to paste images.** `--resolve` has
+   already downloaded every chart in the bundle to `.cache/x-media/` and step 2 reads
+   them from disk; `text_truncated` is about the body alone. Asking for images costs the
+   operator real effort for something already in hand, so say "text only" in the ask.
+
+   **A partial paste is fine and is the common case.** The starred bookmarked posts
+   drive their items; a depth-2 quoted post is context. Record what you got either way —
+   step 5's `text_source` is what makes a partial round auditable later.
+
+   **What the paste buys, measured 2026-08-26 on the astronomer_zero set: 6 of 7 pasted
+   posts changed the extracted item, and two changed its SIGN.** One tail ended `"the
+   hard SL … at 65.1k"` — truncated, `stop` was `""`, and a Stream C row with no stated
+   stop scores **no `avg_r` at all**, so truncation was quietly converting stop-stating
+   authors into stop-less ones. That bias is not random: it penalises exactly the authors
+   disciplined enough to put invalidation in the long-form body. Another cut off one
+   clause before `"I'm now not so bullish anymore"`, which would have filed a bullish
+   continuation for a post announcing a bias flip.
+
 2. **Extract via a subagent — ONE per resolved bundle, pinned to sonnet.** One
    pasted URL → one dispatch → one item. Dispatch a subagent (Task tool) **with
    `model: "sonnet"`** (do not inherit Opus) and **`subagent_type: "Explore"`** —
@@ -127,6 +168,19 @@ pasted, then run the flow once over the whole set.
    likely mechanism being that it does not inherit full project context. Cost here
    is **fixed per-subagent overhead, not payload** (6 varied posts landed inside a
    ±2% band), so the dispatch type is the lever, and bundle size is not.
+
+   **If subagent dispatch is unavailable, do the vision pass IN THE MAIN THREAD — do not
+   skip it, and do not extract from text alone.** A session can be barred from dispatching
+   (a harness policy, a classifier block), and the charts carry levels the text never
+   states, so a text-only extraction is the one outcome worse than paying main-thread
+   context. Read each `photo_paths` entry directly and produce the same item JSON.
+   **Record it**: put `main-thread vision (subagent dispatch withheld)` in the Stream C
+   row's `extraction_path` and say so in the note. That field already records this case on
+   a 2026-07-31 row (`main-thread vision (subagent dispatch blocked by classifier)`) and
+   across the 2026-08-26 round, so it is the established home for it rather than a new
+   field — and without it a later reader cannot tell a
+   main-thread extraction from a sonnet one, which matters because the two have different
+   cost and consistency profiles, not different authority.
 
    Give it **every post in the bundle, in `posts` order** (chain root → leaf, each
    quoted post after its referrer), and for each one: `role`, `depth`, `@author`,
@@ -420,6 +474,14 @@ pasted, then run the flow once over the whole set.
    Carry `status_id:` in the FRONTMATTER, not only in the filename, so the note is
    greppable the way `/ingest-video`'s `video_id:` is — that grep is what lets a later
    run see this bundle was already ingested.
+
+   Carry a `text_source:` map there too, one entry per post — `syndication` (full text
+   as fetched), `operator_paste` (the tail was supplied by hand at step 1b), or
+   `truncated_unrepaired` (truncated and NOT pasted). **Do not fold the third into the
+   first.** "The text was complete" and "the text was cut and nobody fixed it" are
+   different claims about the evidence, and only an explicit value tells a later reader
+   which one a `raw_quote` rests on — the same reason `/ingest-video` keeps
+   `captions_unknown` separate from `auto`.
 
    Body: the extraction JSON as returned, the routing decision per item (sink path, or
    dropped plus the verdict), and the drop reason in the author's own terms.
