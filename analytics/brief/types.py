@@ -132,6 +132,14 @@ class SessionRecapRow:
     session: str
     start_ms: int
     end_ms: int
+    # ST94: `session` is the row's only human-readable key, and the clock can
+    # name the SAME label for a window still in progress -- two "London"s, one
+    # closed and carrying these stats, one live and carrying none. Consumers
+    # that do not do epoch arithmetic (the card model reads `asdict` output)
+    # read the closed row as the current session. These two say which day the
+    # row names, so the frame travels with the numbers.
+    date_myt: str  # ISO YYYY-MM-DD of the window's MYT start day
+    day_offset: int  # MYT days from as_of: 0 = today, -1 = yesterday
     open: float
     high: float
     low: float

@@ -115,6 +115,8 @@ class SessionRecapRowModel(BaseModel):
     session: str
     start_ms: int
     end_ms: int
+    date_myt: str
+    day_offset: int
     open: float
     high: float
     low: float
