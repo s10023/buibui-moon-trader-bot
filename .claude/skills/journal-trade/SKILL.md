@@ -53,6 +53,14 @@ Use this when the user invokes the skill **without** pasting trade details.
    open positions). Each candidate already carries `already_journaled` so the user doesn't
    double-log.
 
+   ⚠ **`already_journaled` keys on `(symbol, direction, entry_date)` with NO time component**,
+   so a second trade on the same symbol, same direction and same UTC day reads as journaled the
+   moment the first one is filed — and then vanishes from the default listing. **On any day with
+   more than one wave per symbol+direction, pass `--include-journaled` or the rest stay
+   invisible.** Measured 2026-08-27: filing the 25-Aug 05:47 UTC BTC/ETH/SOL short hid the
+   03:17 UTC one. Filenames may carry a `-HHMM-` UTC prefix to disambiguate; the dedup key reads
+   frontmatter, not the filename, so a prefix does not fix this.
+
    **`--days` has a hard ceiling around 83 that the tool cannot tell you about.**
    `journal_fetch.py` reads fills from `/fapi/v1/userTrades`, which Binance retains for
    only ~83 days; past that the endpoint returns fewer rows **with no error and no
@@ -132,10 +140,29 @@ beside it.** `journal_fetch.py` gives you both plus the full `sl_history`
 (`ts` / `trigger_price` / `qty` / `status` / `source`, oldest first), and the table's `SL`
 column renders `98.00→104.00` when a trail happened and a single number when it did not.
 
-Two things `sl_history` answers that fills alone cannot: **who** moved the stop (`source`), and
-**how the position ended** — `status` is `EXPIRED`/`FINISHED` on a stop that fired versus
-`CANCELED` on one pulled for a manual exit. A trade whose last stop reads `CANCELED` was closed
-by hand, not stopped out, however much the P&L looks like a stop-out.
+`sl_history` answers one thing fills alone cannot: **who** moved the stop (`source`).
+
+⚠ **It does NOT reliably answer how the position ENDED, and `status` alone is not the test.**
+This file said `EXPIRED`/`FINISHED` meant the stop fired and `CANCELED` meant a manual exit.
+**Falsified 2026-08-27**: BTCUSDT 2026-08-20 16:55 UTC reads `EXPIRED` with an exit **2% away
+from its stop** — the order merely expired when the position went flat, 37 seconds after entry.
+Read that way it manufactures phantom stop-outs, which is how a −$1.82 scratch was first
+mis-filed as one.
+
+**The test is the exit PRICE, not the status: a stop fired iff `avg_exit` is within ~0.2% of the
+working stop** (use `exchange_sl`, falling back to `initial_sl`). Confirm with `status` in
+(`EXPIRED`, `FINISHED`) as a second condition, never as the first. ⚠ **The fill can land on
+EITHER side of the trigger** — Binance triggers on MARK price and fills at LAST, so a genuine
+stop-out can print *better* than its level (measured: −0.04% on one, +0.05% on another, both
+real). An exact-or-worse test misses half of them.
+
+⚠ **`sl_history` is built ONLY from `/fapi/v1/allAlgoOrders`.** A stop placed as a classic
+conditional order lands in `/fapi/v1/allOrders`, which the reconstructor reads for OPEN
+positions only — so it would be silently absent from a closed trade's history. Verified
+2026-08-27 that this account routes every stop through the algo endpoint (its classic history
+holds nothing but market fills), so the reconstruction is complete **for this account**; check
+before trusting it on another, and query both endpoints directly whenever the operator says a
+stop was moved and `sl_history` disagrees.
 
 **Consecutive rows at the SAME price are re-arms, not trail steps.** Adding to a position
 cancels the working stop and re-places it for the new size, so one stop level can appear three
