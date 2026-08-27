@@ -736,6 +736,17 @@ Rules for the subagent:
   in `entry` is safe on a `neutral` row ONLY: `score_call` returns UNSCORED before
   `resolve_levels` parses it, so this licenses nothing where the machine-parsed
   contract below applies. Check this value before writing any Stream C row.
+  **A same-author dedup match in the OPPOSITE direction at the same level is the range
+  case wearing two rows** (operator ruling 2026-08-27, S2): when the source frames both
+  legs as one plan — the level is a range edge, or the matched row fades what this item
+  targets — route ONE `neutral` row naming both legs in `entry`, never the two
+  contradictory directional rows, which mechanically hedge the author's own sample. A
+  genuine flip (the author revised the view) is a new directional row, not a conflict —
+  the discriminator is the source's own framing, so read it before routing. Exemplar:
+  `2026-08-08-tiabtc-ZSdvqtzmN0Y` ts 28.96 — a long to 68,000 against his filed short on
+  a fake-breakout above ~68,088, two legs of "range-bound 58-68k, drift to the top". That
+  item predates this rule and STAYS dropped: its outcome is now known, so routing it
+  retroactively would select on it.
 - **`horizon` is the same closed-enum rule, with one deliberate difference: absence
   is legitimate.** An unrecognised value used to take `window_ms`'s 14-day
   `unspecified` window instead of intraday's 48h or swing's 30d — a different

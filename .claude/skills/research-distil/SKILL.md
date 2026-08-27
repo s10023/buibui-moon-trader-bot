@@ -242,6 +242,15 @@ Both are gitignored, matching the streams `/ingest-x`, `/ingest-video` and
 `/ingest-charts` already write to. **This skill creates no new pipeline** —
 books and repos are a fourth source into the same intake.
 
+**This skill deliberately does NOT call `route_dedup mark`** (operator ruling
+2026-08-27, closing SoT ST103). The identity key is `(source_id, item_ts, sink)` and a
+distil row has no stable spelling for either half — a book is not a status id, and
+hypotheses are GENERATED, so a re-distil renumbers and rewords them and a recorded key
+would never match again. A mark here would record without ever protecting. The real
+guard is semantic and already in place: the novelty gate rejects filed verdicts, and
+restatements are fed back through the extractor prompt. Do not "complete" the ledger by
+minting a `book://` scheme — that is bookkeeping with no consumer.
+
 Each row carries: the claim, its source citation, all four gate results verbatim,
 the pasted `distil_power.py` output, and a **Decision Log** naming the observable
 that would reverse it.
