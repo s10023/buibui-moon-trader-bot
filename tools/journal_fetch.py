@@ -160,8 +160,17 @@ def _base_symbol(symbol: str) -> str:
 
 
 def _suggested_filename(candidate: TradeCandidate) -> str:
-    date = candidate.opened_ts_utc[:10]
-    return f"{date}-{_base_symbol(candidate.symbol)}-{candidate.direction}.md"
+    """`YYYY-MM-DD-HHMM-<symbol>-<direction>.md`, entry instant in UTC.
+
+    The `HHMM` is not decoration. Without it a second wave on the same symbol,
+    direction and UTC day proposes the filename the first one already owns, and
+    writing it OVERWRITES a gitignored, single-copy journal entry. The read path
+    (`mark_already_journaled`) stopped hiding that second wave on 2026-08-27, so
+    the write path had to stop colliding with it in the same change.
+    """
+    date, hhmm = candidate.opened_ts_utc[:10], candidate.opened_ts_utc[11:16]
+    stamp = f"{date}-{hhmm.replace(':', '')}"
+    return f"{stamp}-{_base_symbol(candidate.symbol)}-{candidate.direction}.md"
 
 
 def _is_zero(x: float) -> bool:
@@ -504,8 +513,49 @@ def _stops_from_orders(
     return sl, tp
 
 
-def _parse_journal_key(path: Path) -> tuple[str, str, str] | None:
-    """Return (symbol_upper, direction, entry_date) from a journal file's frontmatter."""
+_SAME_TRADE_WINDOW_MIN = 30
+"""How far a journal entry's stated entry time may sit from a candidate's open.
+
+A journal entry records `entry_ts_utc` as the first entry leg's timestamp, so a
+correctly-filled one agrees with `opened_ts_utc` to the minute. The window only
+absorbs a hand-rounded time and the basket-prefix skew (measured 8 min: a wave
+filed as `-0547-` whose BTC leg entered at 05:55). It is deliberately far below
+the 150-minute gap that produced the 2026-08-27 miss, and NARROW is the safe
+direction here: too wide hides a real trade (the defect), too narrow merely
+offers one twice, which is visible.
+"""
+
+_JournalKey = tuple[str, str, str, datetime | None]
+
+
+def _parse_entry_instant(text: str) -> datetime | None:
+    """The entry instant a journal file states, or None if it states none.
+
+    `entry_ts_utc` is canonical (the skill's own pre-fill table). The `id`'s
+    optional `-HHMM-` prefix is the fallback, because that is the spelling the
+    operator reaches for by hand when disambiguating two waves on one day.
+    """
+    stated = re.search(
+        r"^entry_ts_utc:\s*\"?(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2})",
+        text,
+        re.MULTILINE,
+    )
+    if stated:
+        day, hh, mm = stated.group(1), stated.group(2), stated.group(3)
+        with contextlib.suppress(ValueError):
+            return datetime.fromisoformat(f"{day}T{hh}:{mm}:00+00:00")
+    prefixed = re.search(
+        r"^id:\s*(\d{4}-\d{2}-\d{2})-(\d{2})(\d{2})-", text, re.MULTILINE
+    )
+    if prefixed:
+        day, hh, mm = prefixed.group(1), prefixed.group(2), prefixed.group(3)
+        with contextlib.suppress(ValueError):
+            return datetime.fromisoformat(f"{day}T{hh}:{mm}:00+00:00")
+    return None
+
+
+def _parse_journal_key(path: Path) -> _JournalKey | None:
+    """Return (symbol_upper, direction, entry_date, entry_instant|None)."""
     try:
         text = path.read_text()
     except OSError:
@@ -518,26 +568,52 @@ def _parse_journal_key(path: Path) -> tuple[str, str, str] | None:
         r"^id:\s*(\d{4}-\d{2}-\d{2})", text, re.MULTILINE
     ) or re.search(r"^entry_ts_utc:\s*\"?(\d{4}-\d{2}-\d{2})", text, re.MULTILINE)
     date = date_match.group(1) if date_match else path.stem[:10]
-    return sym.group(1).upper(), direction.group(1).lower(), date
+    return (
+        sym.group(1).upper(),
+        direction.group(1).lower(),
+        date,
+        _parse_entry_instant(text),
+    )
+
+
+def _opened_instant(candidate: TradeCandidate) -> datetime | None:
+    with contextlib.suppress(ValueError):
+        return datetime.fromisoformat(candidate.opened_ts_utc.replace("Z", "+00:00"))
+    return None
+
+
+def _is_same_trade(candidate: TradeCandidate, key: _JournalKey) -> bool:
+    symbol, direction, date, stated = key
+    if candidate.symbol.upper() != symbol or candidate.direction != direction:
+        return False
+    opened = _opened_instant(candidate)
+    if stated is None or opened is None:
+        # A journal entry that states no time can only be matched on the day, which
+        # is the pre-2026-08-27 behaviour and keeps legacy entries recognised.
+        return candidate.opened_ts_utc[:10] == date
+    return abs((opened - stated).total_seconds()) <= _SAME_TRADE_WINDOW_MIN * 60
 
 
 def mark_already_journaled(
     candidates: list[TradeCandidate], journal_dir: Path | None
 ) -> None:
-    """Flag candidates that already have a journal file (symbol + direction + date)."""
+    """Flag candidates that already have a journal file.
+
+    Keyed on symbol + direction + entry INSTANT (see `_SAME_TRADE_WINDOW_MIN`).
+    Until 2026-08-27 it keyed on the entry DATE alone, so the second wave of a day
+    read as journaled the moment the first was filed and then dropped out of the
+    default listing entirely — measured: filing the 25-Aug 05:47 UTC BTC/ETH/SOL
+    short hid the 03:17 UTC one, invisibly.
+    """
     if journal_dir is None or not journal_dir.exists():
         return
-    keys = {
+    keys = [
         key
         for path in journal_dir.glob("*.md")
         if path.name != "TEMPLATE.md" and (key := _parse_journal_key(path)) is not None
-    }
+    ]
     for c in candidates:
-        c.already_journaled = (
-            c.symbol.upper(),
-            c.direction,
-            c.opened_ts_utc[:10],
-        ) in keys
+        c.already_journaled = any(_is_same_trade(c, key) for key in keys)
 
 
 def _now_ms() -> int:

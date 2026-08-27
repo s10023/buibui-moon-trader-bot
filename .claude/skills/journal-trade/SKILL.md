@@ -35,7 +35,12 @@ detected-signal context) are fetched from the user's own account and pre-filled.
 
 - Directory: `docs/plans/journal/` — **gitignored** (personal financial data, never committed).
   Run `mkdir -p docs/plans/journal` if absent.
-- One markdown file per trade. Filename: `YYYY-MM-DD-<symbol>-<direction>.md` (date = entry date, **UTC**).
+- One markdown file per trade. Filename: `YYYY-MM-DD-HHMM-<symbol>-<direction>.md`
+  (entry instant, **UTC**) — `suggested_filename` emits it. **The `HHMM` is load-bearing:**
+  without it a second wave on the same symbol, direction and UTC day proposes the filename
+  the first one already owns, and writing it OVERWRITES a gitignored, single-copy entry.
+  Pre-2026-08-27 entries carry the date-only form and stay valid — the dedup key reads
+  frontmatter, not the filename.
 - `docs/plans/journal/TEMPLATE.md` holds the canonical template — read it if unsure of current fields.
 
 ## Default flow — API-assisted (fetch → pick → pre-fill)
@@ -53,13 +58,15 @@ Use this when the user invokes the skill **without** pasting trade details.
    open positions). Each candidate already carries `already_journaled` so the user doesn't
    double-log.
 
-   ⚠ **`already_journaled` keys on `(symbol, direction, entry_date)` with NO time component**,
-   so a second trade on the same symbol, same direction and same UTC day reads as journaled the
-   moment the first one is filed — and then vanishes from the default listing. **On any day with
-   more than one wave per symbol+direction, pass `--include-journaled` or the rest stay
-   invisible.** Measured 2026-08-27: filing the 25-Aug 05:47 UTC BTC/ETH/SOL short hid the
-   03:17 UTC one. Filenames may carry a `-HHMM-` UTC prefix to disambiguate; the dedup key reads
-   frontmatter, not the filename, so a prefix does not fix this.
+   **`already_journaled` keys on symbol + direction + entry INSTANT** (`entry_ts_utc`, falling
+   back to the id's `-HHMM-` prefix, matched within 30 minutes of the candidate's open). A
+   second wave on the same symbol, direction and UTC day is therefore its own trade and stays
+   listed. ⚠ **Until 2026-08-27 it keyed on the entry DATE alone**, so the second wave read as
+   journaled the moment the first was filed and then vanished — measured: filing the 25-Aug
+   05:47 UTC BTC/ETH/SOL short hid the 03:17 UTC one, invisibly. **A journal entry that states
+   no `entry_ts_utc` and no `-HHMM-` id can still only be matched on the day**, which is what
+   keeps the 23 legacy entries recognised — so fill `entry_ts_utc` on every new entry.
+   `--include-journaled` remains the way to re-read a trade already filed.
 
    **`--days` has a hard ceiling around 83 that the tool cannot tell you about.**
    `journal_fetch.py` reads fills from `/fapi/v1/userTrades`, which Binance retains for

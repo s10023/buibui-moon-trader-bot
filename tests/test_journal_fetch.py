@@ -207,43 +207,178 @@ def test_group_fills_open_position_merged_with_position_info() -> None:
     assert candidates[0].mark_price == 105.0
 
 
-def test_mark_already_journaled(tmp_path: Any) -> None:
-    journal = tmp_path / "journal"
-    journal.mkdir()
-    (journal / "2026-06-18-btc-short.md").write_text(
-        "---\nid: 2026-06-18-btc-short\nsymbol: BTCUSDT\ndirection: short\n"
-        'entry_ts_utc: "2026-06-18 00:57"\n---\n## Thesis\n'
+_HOUR_MS = 3_600_000
+
+
+def _entry(
+    path: Any, *, stem: str, symbol: str, direction: str, when: str | None
+) -> None:
+    """Write a minimal journal file; `when` None omits `entry_ts_utc` (legacy shape)."""
+    stated = f'entry_ts_utc: "{when}"\n' if when else ""
+    path.write_text(
+        f"---\nid: {stem}\nsymbol: {symbol}\ndirection: {direction}\n"
+        f"{stated}---\n## Thesis\n"
     )
 
-    # Matching candidate (BTCUSDT short opened 2026-06-18) -> journaled.
-    matched = group_fills(
-        "BTCUSDT",
+
+def _short(open_ms: int, symbol: str = "BTCUSDT") -> Any:
+    return group_fills(
+        symbol,
         [
-            _fill("SELL", "100", "0.01", BASE_MS + 1000),
-            _fill("BUY", "90", "0.01", BASE_MS + 2000, realized="0.1"),
+            _fill("SELL", "100", "0.01", open_ms),
+            _fill("BUY", "90", "0.01", open_ms + 60_000, realized="0.1"),
         ],
-    )
-    # Non-matching candidate (different direction).
-    other = group_fills(
-        "BTCUSDT",
+    )[0]
+
+
+def _long(open_ms: int, symbol: str = "BTCUSDT") -> Any:
+    return group_fills(
+        symbol,
         [
-            _fill("BUY", "100", "0.01", BASE_MS + 1000),
-            _fill("SELL", "110", "0.01", BASE_MS + 2000, realized="0.1"),
+            _fill("BUY", "100", "0.01", open_ms),
+            _fill("SELL", "110", "0.01", open_ms + 60_000, realized="0.1"),
         ],
-    )
+    )[0]
 
-    mark_already_journaled(matched + other, journal)
 
-    assert matched[0].already_journaled is True
-    assert other[0].already_journaled is False
+class TestAlreadyJournaledKeysOnTheEntryInstant:
+    """The key is symbol + direction + entry INSTANT, not the entry DATE.
+
+    Until 2026-08-27 it keyed on the date alone, so a second wave on the same
+    symbol/direction/day read as journaled the moment the first was filed and then
+    vanished from the default listing. Measured: filing the 25-Aug 05:47 UTC
+    BTC/ETH/SOL short hid the 03:17 UTC one.
+    """
+
+    def test_the_journaled_wave_is_flagged(self, tmp_path: Any) -> None:
+        journal = tmp_path / "journal"
+        journal.mkdir()
+        _entry(
+            journal / "2026-06-18-0547-btc-short.md",
+            stem="2026-06-18-0547-btc-short",
+            symbol="BTCUSDT",
+            direction="short",
+            when="2026-06-18 05:47",
+        )
+        c = _short(BASE_MS + 5 * _HOUR_MS + 47 * 60_000)
+        mark_already_journaled([c], journal)
+        assert c.already_journaled is True
+
+    def test_a_second_wave_the_same_day_is_not_hidden(self, tmp_path: Any) -> None:
+        """THE regression. Both waves are BTCUSDT shorts on one UTC day."""
+        journal = tmp_path / "journal"
+        journal.mkdir()
+        _entry(
+            journal / "2026-06-18-0547-btc-short.md",
+            stem="2026-06-18-0547-btc-short",
+            symbol="BTCUSDT",
+            direction="short",
+            when="2026-06-18 05:47",
+        )
+        earlier = _short(BASE_MS + 3 * _HOUR_MS + 17 * 60_000)  # 03:17, unjournaled
+        filed = _short(BASE_MS + 5 * _HOUR_MS + 47 * 60_000)  # 05:47, journaled
+
+        mark_already_journaled([earlier, filed], journal)
+
+        assert earlier.already_journaled is False
+        assert filed.already_journaled is True
+
+    def test_the_basket_prefix_skew_still_matches(self, tmp_path: Any) -> None:
+        """A wave filed as `-0547-` whose own leg entered at 05:55 is one trade."""
+        journal = tmp_path / "journal"
+        journal.mkdir()
+        _entry(
+            journal / "2026-06-18-0547-btc-short.md",
+            stem="2026-06-18-0547-btc-short",
+            symbol="BTCUSDT",
+            direction="short",
+            when="2026-06-18 05:55",
+        )
+        c = _short(BASE_MS + 5 * _HOUR_MS + 47 * 60_000)
+        mark_already_journaled([c], journal)
+        assert c.already_journaled is True
+
+    def test_the_window_is_narrow_not_wide(self, tmp_path: Any) -> None:
+        """Erring narrow offers a trade twice; erring wide HIDES one. Pin the direction."""
+        journal = tmp_path / "journal"
+        journal.mkdir()
+        _entry(
+            journal / "2026-06-18-0000-btc-short.md",
+            stem="2026-06-18-0000-btc-short",
+            symbol="BTCUSDT",
+            direction="short",
+            when="2026-06-18 00:00",
+        )
+        c = _short(BASE_MS + 31 * 60_000)  # 31 min later
+        mark_already_journaled([c], journal)
+        assert c.already_journaled is False
+
+    def test_the_id_hhmm_prefix_is_the_fallback(self, tmp_path: Any) -> None:
+        """No `entry_ts_utc`, but the id carries the operator's own `-HHMM-` prefix."""
+        journal = tmp_path / "journal"
+        journal.mkdir()
+        _entry(
+            journal / "2026-06-18-0547-btc-short.md",
+            stem="2026-06-18-0547-btc-short",
+            symbol="BTCUSDT",
+            direction="short",
+            when=None,
+        )
+        matched = _short(BASE_MS + 5 * _HOUR_MS + 47 * 60_000)
+        earlier = _short(BASE_MS + 3 * _HOUR_MS + 17 * 60_000)
+
+        mark_already_journaled([matched, earlier], journal)
+
+        assert matched.already_journaled is True
+        assert earlier.already_journaled is False
+
+    def test_a_legacy_entry_stating_no_time_still_matches_on_the_day(
+        self, tmp_path: Any
+    ) -> None:
+        """Back-compat: the 23 pre-2026-08-27 entries must stay recognised."""
+        journal = tmp_path / "journal"
+        journal.mkdir()
+        _entry(
+            journal / "2026-06-18-btc-short.md",
+            stem="2026-06-18-btc-short",
+            symbol="BTCUSDT",
+            direction="short",
+            when=None,
+        )
+        c = _short(BASE_MS + 5 * _HOUR_MS + 47 * 60_000)
+        mark_already_journaled([c], journal)
+        assert c.already_journaled is True
+
+    def test_direction_still_separates(self, tmp_path: Any) -> None:
+        journal = tmp_path / "journal"
+        journal.mkdir()
+        _entry(
+            journal / "2026-06-18-0000-btc-short.md",
+            stem="2026-06-18-0000-btc-short",
+            symbol="BTCUSDT",
+            direction="short",
+            when="2026-06-18 00:00",
+        )
+        c = _long(BASE_MS + 1000)
+        mark_already_journaled([c], journal)
+        assert c.already_journaled is False
 
 
 def test_iso_utc_and_suggested_filename() -> None:
     assert _iso_utc(BASE_MS) == "2026-06-18T00:00:00Z"
 
     c = group_fills("ETHUSDT", [_fill("SELL", "3000", "0.5", BASE_MS + 1000)])[0]
-    assert _suggested_filename(c) == "2026-06-18-eth-short.md"
-    assert c.suggested_filename == "2026-06-18-eth-short.md"
+    assert _suggested_filename(c) == "2026-06-18-0000-eth-short.md"
+    assert c.suggested_filename == "2026-06-18-0000-eth-short.md"
+
+
+def test_two_waves_the_same_day_get_different_filenames() -> None:
+    """The write half of the same defect: a collision here OVERWRITES an entry."""
+    first = _short(BASE_MS + 3 * _HOUR_MS + 17 * 60_000)
+    second = _short(BASE_MS + 5 * _HOUR_MS + 47 * 60_000)
+    assert _suggested_filename(first) == "2026-06-18-0317-btc-short.md"
+    assert _suggested_filename(second) == "2026-06-18-0547-btc-short.md"
+    assert _suggested_filename(first) != _suggested_filename(second)
 
 
 def test_attach_funding_sums_window_only() -> None:
