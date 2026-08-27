@@ -614,6 +614,12 @@ five unaffordable.
   `frame_paths` list** so a later re-check is cheap (never one built from the item's own
   `ts` — see the schema rule in step 7), and write the health note "vision skipped
   (narrative content)".
+  ⚠ **Only skip when the kept set contains NO `claim` items — `verdict` has no other
+  source.** It is emitted by pass 2 alone, and `route_target` REQUIRES it to route a
+  `claim` (NOVEL → thesis-inbox, anything else → drop), so a skipped video carrying claims
+  has unroutable items. Narrative content is usually claim-free, which is exactly why this
+  bites silently: check the kept set, never assume it from the content call. If a claim is
+  in there, either run pass 2 or the skip is not available.
   ⚠ **Set `chart_present: null`. Do NOT set it `false`** — the frames exist and nobody
   looked at them, which is the same distinction step 5's download-failure branch turns on
   below. `null` is the only value that says *unexamined*: `false` claims a look that never
@@ -670,6 +676,16 @@ the live SoT is a different experiment from the documented one. **Settle the vec
 building anything** — dispatch one throwaway subagent of each type (`general-purpose`,
 `Explore`, a `tools:`-restricted custom agent) and ask each what project context it can see
 without reading a file.
+
+**⚠ The item set is CLOSED — say so in the prompt, AND check the returned length.**
+`item_cap` is applied by the pass-1 prompt only, so nothing downstream bounds pass 2:
+measured 2026-08-27 on `Vg2mTFfT7S0`, it returned **11 items against an `item_cap` of 5**,
+inventing timestamps pass 1 never kept (an establishing shot, an attribution line, two
+tangent claims), and nothing caught it — the cap was restored by hand. Instruct it:
+*"Return EXACTLY the kept items you were given. Do not add, split, merge or discover new
+ones — the cap was already applied in pass 1."* Then assert `len(items) <= item_cap`
+yourself before the digest, because a prompt directive alone is not a guarantee: the
+`direction`-enum precedent broke **1 in 6** despite an explicit instruction.
 
 Instruct it to return ONLY this JSON:
 

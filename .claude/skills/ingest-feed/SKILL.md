@@ -50,6 +50,20 @@ author's order, not chronological, so **the cursor is the only thing standing be
 tranche and re-examining the same head every run**; `--since` filters candidates but must
 never be used to page.
 
+⚠ **Before offering a tranche, check `video-notes/` for a CLOSURE verdict naming that
+playlist, and refuse to offer it if one exists.** Step 2's re-presented-candidate guard
+greps by `video_id`, and a seam verdict is per-**playlist** — so that guard is structurally
+blind to it. Measured 2026-08-27: Parts 43-62 of one playlist were offered while a verdict
+filed three days earlier, in seven of that playlist's own notes, read *"THE SEAM IS CLOSED.
+Parts 1-62 are not queued and should not be."* It was caught only because the prior
+tranche's notes happened to be read to price the yield. Same shape as the `-w`
+presence-check family: a check keyed on the wrong unit reports green about a question it
+cannot see.
+
+```bash
+grep -rn "<PL…>" docs/plans/video-notes/   # then READ the hits for a closure verdict
+```
+
 Save the JSON output to a scratchpad file — step 4 needs it for `--candidates-json`.
 Exit 1 means at least one channel errored; report the errors and continue with the
 candidates that did resolve. Exit 2 = `YOUTUBE_API_KEY` missing from `.env`.
