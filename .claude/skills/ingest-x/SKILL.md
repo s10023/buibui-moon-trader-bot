@@ -274,7 +274,13 @@ pasted, then run the flow once over the whole set.
      `resolve_levels` parses it, so this licenses nothing where the machine-parsed
      contract below applies. A *missing* direction is rejected on the same
      grounds; it arrived as `""`, which is also not `"long"`, so absence scored as a
-     short too.
+     short too. **A same-author dedup match in the OPPOSITE direction at the same
+     level is the range case wearing two rows** (operator ruling 2026-08-27, S2):
+     when the source frames both legs as one plan, route ONE `neutral` row naming
+     both legs in `entry` — never the two contradictory directional rows, which
+     mechanically hedge the author's own sample. A genuine flip is a new directional
+     row, not a conflict; the discriminator is the source's own framing. Exemplar
+     and the retroactive-routing bar: `ingest-video/SKILL.md`'s copy of this rule.
    - **`horizon`** — an unrecognised value used to take the 14-day `unspecified`
      window instead of intraday's 48h or swing's 30d, changing the
      WIN / LOSS / NOT_TRIGGERED verdict for the same call. **Absence is fine here and
