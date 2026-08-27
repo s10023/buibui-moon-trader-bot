@@ -4,13 +4,13 @@
 `make docs-index-check` (and `tests/test_docs_index.py`) fails when this file
 drifts from the corpus.
 
-**60 specs on disk.** Reconcile status is **derived** — a spec counts as
+**61 specs on disk.** Reconcile status is **derived** — a spec counts as
 reconciled when an audit that names its filename also discusses reconciling, so
 the count is recomputed from disk rather than carried in prose. That is the
 counter AGENTS.md has had wrong every time it was checked.
 
-- **Reconciled (derived): 4 of 60.**
-- Referenced by no audit at all: 43.
+- **Reconciled (derived): 4 of 61.**
+- Referenced by no audit at all: 44.
 
 **Two caveats before quoting these numbers.** A *partial* reconcile is
 indistinguishable from a whole-spec one here, and this table cannot see one that
@@ -19,6 +19,7 @@ and the reconcile column as a floor.
 
 | Date | Spec | Reconciled by | Also referenced by | File |
 | --- | --- | --- | --- | --- |
+| 2026-08-27 | On-chain feed — decision spec | — | — | [2026-08-27-onchain-feed-decision.md](2026-08-27-onchain-feed-decision.md) |
 | 2026-08-21 | `ohlcv` venue key — ST60(b) design | — | — | [2026-08-21-st60b-ohlcv-venue-key-design.md](2026-08-21-st60b-ohlcv-venue-key-design.md) |
 | 2026-08-20 | `bos` LONG/SHORT direction asymmetry — pre-registration | — | — | [2026-08-20-bos-direction-asymmetry.md](2026-08-20-bos-direction-asymmetry.md) |
 | 2026-08-19 | `AGENTS.md` split + `docs/agents/` config — design | — | — | [2026-08-19-agents-md-split-design.md](2026-08-19-agents-md-split-design.md) |
