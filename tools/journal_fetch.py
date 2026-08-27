@@ -416,8 +416,11 @@ def stop_records_from_algo_orders(
     strings.
 
     Statuses are kept verbatim rather than collapsed to a boolean — the live
-    vocabulary is `CANCELED` / `EXPIRED` / `FINISHED`, and which one ended a
-    position is exactly how a stop-out is told apart from a manual exit.
+    vocabulary is `CANCELED` / `EXPIRED` / `FINISHED`. Status alone does NOT
+    say how a position ended: an algo stop reads `EXPIRED` when it merely
+    expired on the position going flat, measured 2026-08-20 with an exit 2%
+    away from its trigger. A stop fired iff the exit price sits within ~0.2%
+    of the working trigger; status is a second condition, never the first.
     """
     records: list[StopRecord] = []
     for o in orders:
