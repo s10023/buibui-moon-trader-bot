@@ -134,12 +134,22 @@ symbol stay independent (mirrors `position_lib._fetch_all_tpsl_prices`):
   "exchange_sl": 65737,              // null if no exchange stop order
   "exchange_tp": null,
   "already_journaled": false,        // matched against existing journal frontmatter
-  "suggested_filename": "2026-06-18-btc-short.md"
+  "suggested_filename": "2026-06-18-0057-btc-short.md"
 }
 ```
 
 `already_journaled` is computed by reading existing `docs/plans/journal/*.md` frontmatter and
-matching on symbol + direction + entry date so the user does not double-log.
+matching on symbol + direction + entry **instant** so the user does not double-log.
+
+> **AMENDED 2026-08-27 — as-designed this matched on the entry DATE, and that was wrong.**
+> A second wave on the same symbol, direction and UTC day read as journaled the moment the
+> first was filed, then dropped out of the default listing entirely: filing the 25-Aug
+> 05:47 UTC BTC/ETH/SOL short hid the 03:17 UTC one, invisibly. The key now carries the
+> entry instant (`entry_ts_utc`, falling back to the id's `-HHMM-` prefix) matched within
+> 30 minutes of the candidate's open, and an entry stating neither time still matches on
+> the day alone so legacy entries stay recognised. `suggested_filename` gained the same
+> `-HHMM-` in the same change — a date-only filename proposes the name the first entry
+> already owns, and writing it overwrites a gitignored, single-copy file.
 
 All timestamps emitted in **UTC** (Binance epoch ms → UTC ISO). The skill converts to MYT
 (UTC+8) for the MYT frontmatter fields.
