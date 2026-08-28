@@ -51,7 +51,10 @@ def _cand(symbol: str, direction: str, risk_usd: float = 2.5) -> CardCandidate:
         direction=direction,
         entry=100.0,
         sl=98.0,
-        qty=0.5,
+        # 1.5 units @ 100.0 = 150.0 notional, clearing _FILT.min_notional
+        # (100.0); 0.5 units used to sit below the floor and would newly
+        # veto guard (d) once the notional check landed.
+        qty=1.5,
         risk_usd=risk_usd,
         risk_frac=None,
         valid_until_ms=NOW_MS + 3_600_000,
@@ -164,8 +167,8 @@ def test_rounding_restates_risk_and_warns_when_moved() -> None:
     c = CardCandidate(
         symbol="BTCUSDT",
         direction="long",
-        entry=100.05,
-        sl=98.0,
+        entry=1000.05,
+        sl=980.0,
         qty=0.5015,
         risk_usd=1.0,
         risk_frac=None,
@@ -175,9 +178,32 @@ def test_rounding_restates_risk_and_warns_when_moved() -> None:
     )
     d = check_placement(c, _FILT, managed=False, xs_live_marker=False, now_ms=NOW_MS)
     assert d.qty == 0.501  # floored to LOT_SIZE step
-    assert d.price == 100.0  # long=BUY floors to tick, never crosses up
-    assert d.risk_usd == round(0.501 * (100.0 - 98.0), 8)  # restated from ROUNDED
+    assert d.price == 1000.0  # long=BUY floors to tick, never crosses up
+    assert d.risk_usd == round(0.501 * (1000.0 - 980.0), 8)  # restated from ROUNDED
+    assert d.risk_frac is None  # no risk_frac on the card -> nothing to restate
     assert d.warnings  # says the numbers moved
+
+
+def test_rounding_restates_risk_frac_proportionally() -> None:
+    c = CardCandidate(
+        symbol="BTCUSDT",
+        direction="long",
+        entry=1000.05,
+        sl=980.0,
+        qty=0.5015,
+        risk_usd=1.0,
+        risk_frac=0.01,
+        valid_until_ms=NOW_MS + 3_600_000,
+        generated_at_ms=NOW_MS,
+        state_digest="d",
+    )
+    d = check_placement(c, _FILT, managed=False, xs_live_marker=False, now_ms=NOW_MS)
+    assert d.risk_usd == round(0.501 * (1000.0 - 980.0), 8)
+    # proportional restatement: cand.risk_frac * (new_risk_usd / cand.risk_usd)
+    assert c.risk_frac is not None
+    assert c.risk_usd is not None
+    assert d.risk_usd is not None
+    assert d.risk_frac == c.risk_frac * (d.risk_usd / c.risk_usd)
 
 
 def test_sub_lot_quantity_vetoes() -> None:
@@ -193,3 +219,33 @@ def test_missing_filters_warns_and_keeps_raw_numbers() -> None:
     assert d.vetoes == []
     assert d.qty == c.qty and d.price == c.entry
     assert any("filters unavailable" in w for w in d.warnings)
+
+
+def test_min_notional_veto_when_below_floor() -> None:
+    c = _cand("BTCUSDT", "long")
+    # 0.5 units @ 100.0 = 50.0 notional, clears min_qty but sits below
+    # _FILT.min_notional (100.0) -- the old _cand() default before the bump.
+    small = CardCandidate(**{**c.__dict__, "qty": 0.5})
+    d = check_placement(
+        small, _FILT, managed=False, xs_live_marker=False, now_ms=NOW_MS
+    )
+    assert any("notional" in v for v in d.vetoes)
+
+
+def test_sub_lot_vetoes_when_positive_but_below_min_qty() -> None:
+    # min_qty (0.01) wider than qty_step (0.001) so a rounded qty can land
+    # strictly between zero and the floor -- exercising the `qty <
+    # filt.min_qty` half of the OR on its own, distinct from `qty <= 0.0`.
+    filt = ExchangeFilters(
+        symbol="BTCUSDT",
+        qty_step=0.001,
+        min_qty=0.01,
+        min_notional=0.0,
+        price_tick=0.1,
+    )
+    c = _cand("BTCUSDT", "long")
+    below_min = CardCandidate(**{**c.__dict__, "qty": 0.005})
+    d = check_placement(
+        below_min, filt, managed=False, xs_live_marker=False, now_ms=NOW_MS
+    )
+    assert any("sub-lot" in v for v in d.vetoes)

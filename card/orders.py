@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from card.card import _parse_iso_ms
-from portfolio.sizing import round_down_to_step, round_to_tick
+from portfolio.sizing import risk_per_unit, round_down_to_step, round_to_tick
 from trade.routing import ExchangeFilters
 
 DEFAULT_ORDERS_PATH = "docs/plans/card-orders.jsonl"
@@ -150,6 +150,7 @@ class PlacementDecision:
     qty: float
     price: float
     risk_usd: float | None
+    risk_frac: float | None
     vetoes: list[str]
     warnings: list[str]
 
@@ -189,7 +190,8 @@ def check_placement(
 
     # (d) exchange rounding, restated risk (the card's own sizing rule applied
     # at placement time)
-    qty, price, risk_usd = cand.qty, cand.entry, cand.risk_usd
+    qty, price = cand.qty, cand.entry
+    risk_usd, risk_frac = cand.risk_usd, cand.risk_frac
     if filt is None:
         warnings.append("exchange filters unavailable - placing unrounded numbers")
     else:
@@ -200,8 +202,26 @@ def check_placement(
             vetoes.append(
                 f"sub-lot after rounding: {cand.qty} -> {qty} against step {filt.qty_step}"
             )
+        elif qty * price < filt.min_notional:
+            notional = qty * price
+            vetoes.append(
+                f"below min notional: {qty} @ {price} = {notional:.2f} "
+                f"< {filt.min_notional}"
+            )
         else:
-            risk_usd = round(qty * abs(price - cand.sl), 8)
+            risk_usd = round(qty * risk_per_unit(price, cand.sl), 8)
+            # restate risk_frac proportionally — equivalent to re-dividing by
+            # capital without reconstructing it; None when there is nothing to
+            # scale (no risk_frac on the card, or the pre-rounding risk_usd is
+            # missing/zero).
+            if (
+                cand.risk_frac is not None
+                and cand.risk_usd is not None
+                and cand.risk_usd != 0.0
+            ):
+                risk_frac = cand.risk_frac * (risk_usd / cand.risk_usd)
+            else:
+                risk_frac = None
             if qty != cand.qty or price != cand.entry:
                 warnings.append(
                     f"rounded qty {cand.qty} -> {qty}, price {cand.entry} -> {price}; "
@@ -212,6 +232,7 @@ def check_placement(
         qty=qty,
         price=price,
         risk_usd=risk_usd,
+        risk_frac=risk_frac,
         vetoes=vetoes,
         warnings=warnings,
     )
