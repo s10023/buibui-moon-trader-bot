@@ -36,6 +36,13 @@ class CardCandidate:
     state_digest: str
 
 
+@dataclass(frozen=True)
+class AggregateRisk:
+    total_risk_usd: float
+    total_risk_frac: float | None  # None when equity is unknown
+    by_bet: list[tuple[str, str, float]]  # (symbol, direction, summed risk_usd)
+
+
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     """Parse a jsonl file, tolerating a torn tail line (append-only ledgers)."""
     if not path.exists():
@@ -101,3 +108,35 @@ def scan_candidates(
             )
         )
     return out
+
+
+def parse_selection(text: str, n: int) -> list[int] | None:
+    """'' -> [] (default none, never pre-selected); invalid input -> None."""
+    text = text.strip()
+    if not text:
+        return []
+    picks: list[int] = []
+    for tok in text.replace(",", " ").split():
+        if not tok.isdigit() or not (1 <= int(tok) <= n):
+            return None
+        idx = int(tok) - 1
+        if idx not in picks:
+            picks.append(idx)
+    return picks
+
+
+def aggregate_risk(
+    selected: list[CardCandidate], equity: float | None
+) -> AggregateRisk:
+    """Total + per-(symbol, direction) stacking — the view a flat list hides."""
+    total = sum(c.risk_usd or 0.0 for c in selected)
+    bets: dict[tuple[str, str], float] = {}
+    for c in selected:
+        key = (c.symbol, c.direction)
+        bets[key] = bets.get(key, 0.0) + (c.risk_usd or 0.0)
+    frac = (total / equity) if equity and equity > 0.0 else None
+    return AggregateRisk(
+        total_risk_usd=total,
+        total_risk_frac=frac,
+        by_bet=[(s, d, r) for (s, d), r in sorted(bets.items())],
+    )
