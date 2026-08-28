@@ -8,6 +8,8 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
+
 from card.orders import (
     CardCandidate,
     PlacementDecision,
@@ -81,26 +83,34 @@ def _decision(symbol: str = "BTCUSDT", direction: str = "long") -> PlacementDeci
     )
 
 
-def _post_only_rejection() -> APIError:
-    """Binance's -5022 rejection, built through whichever class Task 1 bound.
+def _api_error(code: int, msg: str) -> APIError:
+    """Build an APIError through whichever class trade.binance_futures binds.
 
     ``BinanceAPIException`` (python-binance 1.0.37, the installed version)
     takes ``(response, status_code, text)`` and parses ``text`` as JSON to
     set ``.code`` -- a one-argument message string raises ``TypeError``. The
     local shim (library absent entirely) takes a plain message instead. The
     ``.code`` assertion below means a future rebinding that stops setting it
-    fails this helper loudly rather than silently skipping the rejection
-    path it exists to exercise.
+    fails this helper loudly rather than silently skipping whichever path it
+    is used to exercise. Shared by both the -5022 (recorded) and non-5022
+    (propagated) placement tests so both paths construct the exception
+    identically -- a divergent construction would make the two tests prove
+    nothing about each other.
     """
-    text = json.dumps({"code": -5022, "msg": "Post Only order will be rejected"})
+    text = json.dumps({"code": code, "msg": msg})
     resp = SimpleNamespace(status_code=400, text=text)
     try:
         err: APIError = APIError(resp, 400, text)
     except TypeError:  # the local shim takes a plain message
-        err = APIError("Post Only order will be rejected")
-        err.code = -5022
-    assert getattr(err, "code", None) == -5022
+        err = APIError(msg)
+        err.code = code
+    assert getattr(err, "code", None) == code
     return err
+
+
+def _post_only_rejection() -> APIError:
+    """Binance's -5022 GTX rejection -- the ONE terminal_reason=gtx_rejected code."""
+    return _api_error(-5022, "Post Only order will be rejected")
 
 
 def test_scan_keeps_only_unexpired_trade_cards() -> None:
@@ -348,6 +358,42 @@ def test_gtx_rejection_is_recorded_not_raised(tmp_path: Path) -> None:
     assert row["terminal_reason"] == "gtx_rejected"
     # and the rejected card no longer re-presents: same anti-join key
     assert row["kind"] == "placement" and row["symbol"] == "BTCUSDT"
+
+
+def test_non_post_only_api_error_propagates_and_ledger_untouched(
+    tmp_path: Path,
+) -> None:
+    """A -5022 is recorded as gtx_rejected; every OTHER code must NOT be.
+
+    place_orders reads a -5022 as "price already through the level" and
+    writes that reassurance into the ledger. If the code comparison were
+    ever inverted, or the re-raise dropped, a real exchange failure -- here
+    -2019 "Margin is insufficient" -- would be recorded wearing the same
+    reassuring terminal_reason instead of surfacing to the operator. This
+    pins the OTHER half of that branch: built through the same _api_error
+    helper as the -5022 case, so both paths construct the exception
+    identically and neither test can pass by accident.
+    """
+    client = MagicMock()
+    client.futures_create_order.side_effect = _api_error(
+        -2019, "Margin is insufficient"
+    )
+    adapter = BinanceFuturesAdapter(client, mode="live")
+    ledger = tmp_path / "card-orders.jsonl"
+    with pytest.raises(APIError) as exc_info:
+        place_orders(
+            adapter,
+            [_decision()],
+            ledger_path=ledger,
+            dual_side=False,
+            marks={},
+            books={},
+            positions={},
+            equity=None,
+            now_ms=NOW_MS,
+        )
+    assert exc_info.value.code == -2019
+    assert not ledger.exists()  # a propagated error must not touch the ledger
 
 
 def test_vetoed_decisions_are_skipped_and_dry_run_writes_nothing(
