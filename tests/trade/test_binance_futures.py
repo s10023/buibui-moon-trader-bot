@@ -251,3 +251,41 @@ def test_cancel_open_orders_dry_run_is_a_noop() -> None:
     adapter = BinanceFuturesAdapter(client, mode="dry_run")
     adapter.cancel_open_orders("AAAUSDT")
     client.futures_cancel_all_open_orders.assert_not_called()
+
+
+def test_submit_limit_hedge_mode_sends_position_side_and_omits_reduce_only() -> None:
+    client = MagicMock()
+    adapter = BinanceFuturesAdapter(client, mode="live")
+    intent = OrderIntent(
+        "AAAUSDT", "BUY", 2.0, False, 200.0, "card", "LIMIT", position_side="LONG"
+    )
+    adapter.submit(intent, price=99.98)
+    kwargs = client.futures_create_order.call_args.kwargs
+    assert kwargs["positionSide"] == "LONG"
+    assert "reduceOnly" not in kwargs  # hedge mode rejects the parameter
+    assert kwargs["timeInForce"] == "GTX"
+
+
+def test_submit_one_way_shape_is_unchanged_when_position_side_absent() -> None:
+    client = MagicMock()
+    adapter = BinanceFuturesAdapter(client, mode="live")
+    intent = OrderIntent("AAAUSDT", "SELL", 2.0, False, -200.0, "open", "LIMIT")
+    adapter.submit(intent, price=99.98)
+    kwargs = client.futures_create_order.call_args.kwargs
+    assert kwargs["reduceOnly"] is False
+    assert "positionSide" not in kwargs
+
+
+def test_api_error_binds_to_the_client_library_not_the_local_shim() -> None:
+    """ST37 R2: the installed python-binance exposes `BinanceAPIException`,
+
+    not `APIError` — so the old bare `from binance.exceptions import APIError`
+    always raised ImportError and silently bound the local dead shim, which
+    meant every `except APIError` in this module could only ever catch that
+    shim, never a real exception the client raises. Pin the fix rather than
+    the exact class name, since the library's own spelling has already
+    varied by version.
+    """
+    import trade.binance_futures as mod
+
+    assert mod.APIError.__module__.startswith("binance")

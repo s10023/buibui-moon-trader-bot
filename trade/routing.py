@@ -32,8 +32,9 @@ class OrderIntent:
     qty: float
     reduce_only: bool
     delta_notional: float
-    reason: str  # "open" | "rebalance" | "close" | "skip:<why>"
+    reason: str  # "open" | "rebalance" | "close" | "skip:<why>" | "card"
     order_type: str = "MARKET"  # "LIMIT" (post-only) | "MARKET"
+    position_side: str | None = None  # "LONG" | "SHORT" on a hedge-mode account
 
 
 @dataclass(frozen=True)

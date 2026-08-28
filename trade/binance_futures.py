@@ -14,12 +14,18 @@ from typing import Any
 
 from trade.routing import ExchangeFilters, OrderIntent
 
-try:  # pragma: no cover - import shape depends on python-binance version
-    from binance.exceptions import APIError
-except Exception:  # pragma: no cover
+try:
+    # python-binance >=1.0 exposes `BinanceAPIException`, not `APIError` — the
+    # name has already varied by version, so bind to whichever one the
+    # installed client provides rather than pinning a single spelling.
+    from binance.exceptions import BinanceAPIException as APIError
+except ImportError:  # pragma: no cover - older/alternate client shape
+    try:
+        from binance.exceptions import APIError
+    except ImportError:  # pragma: no cover - library absent entirely
 
-    class APIError(Exception):  # type: ignore[no-redef]
-        code = 0
+        class APIError(Exception):  # type: ignore[no-redef]
+            code = 0
 
 
 _MARGIN_TYPE_UNCHANGED = -4046
@@ -144,14 +150,20 @@ class BinanceFuturesAdapter:
                 "reduceOnly": intent.reduce_only,
                 "orderType": intent.order_type,
                 "price": price,
+                "positionSide": intent.position_side,
             }
         params: dict[str, Any] = {
             "symbol": intent.symbol,
             "side": intent.side,
             "type": intent.order_type,
             "quantity": intent.qty,
-            "reduceOnly": intent.reduce_only,
         }
+        if intent.position_side is None:
+            params["reduceOnly"] = intent.reduce_only
+        else:
+            # Hedge-mode: positionSide carries the direction and the account
+            # REJECTS reduceOnly as a parameter (the side implies it).
+            params["positionSide"] = intent.position_side
         if intent.order_type == "LIMIT":
             params["price"] = price
             params["timeInForce"] = "GTX"
