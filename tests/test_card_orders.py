@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import MagicMock
 
 from card.orders import (
     CardCandidate,
+    PlacementDecision,
     aggregate_risk,
     check_placement,
     parse_selection,
+    place_orders,
+    read_jsonl,
     scan_candidates,
 )
+from trade.binance_futures import APIError, BinanceFuturesAdapter
 from trade.routing import ExchangeFilters
 
 NOW_MS = 1_756_000_000_000
@@ -61,6 +69,38 @@ def _cand(symbol: str, direction: str, risk_usd: float = 2.5) -> CardCandidate:
         generated_at_ms=NOW_MS - 60_000,
         state_digest="abc123",
     )
+
+
+def _decision(symbol: str = "BTCUSDT", direction: str = "long") -> PlacementDecision:
+    return check_placement(
+        _cand(symbol, direction),
+        _FILT,
+        managed=False,
+        xs_live_marker=False,
+        now_ms=NOW_MS,
+    )
+
+
+def _post_only_rejection() -> APIError:
+    """Binance's -5022 rejection, built through whichever class Task 1 bound.
+
+    ``BinanceAPIException`` (python-binance 1.0.37, the installed version)
+    takes ``(response, status_code, text)`` and parses ``text`` as JSON to
+    set ``.code`` -- a one-argument message string raises ``TypeError``. The
+    local shim (library absent entirely) takes a plain message instead. The
+    ``.code`` assertion below means a future rebinding that stops setting it
+    fails this helper loudly rather than silently skipping the rejection
+    path it exists to exercise.
+    """
+    text = json.dumps({"code": -5022, "msg": "Post Only order will be rejected"})
+    resp = SimpleNamespace(status_code=400, text=text)
+    try:
+        err: APIError = APIError(resp, 400, text)
+    except TypeError:  # the local shim takes a plain message
+        err = APIError("Post Only order will be rejected")
+        err.code = -5022
+    assert getattr(err, "code", None) == -5022
+    return err
 
 
 def test_scan_keeps_only_unexpired_trade_cards() -> None:
@@ -249,3 +289,109 @@ def test_sub_lot_vetoes_when_positive_but_below_min_qty() -> None:
         below_min, filt, managed=False, xs_live_marker=False, now_ms=NOW_MS
     )
     assert any("sub-lot" in v for v in d.vetoes)
+
+
+def test_place_orders_writes_placement_row_with_instrumentation(
+    tmp_path: Path,
+) -> None:
+    client = MagicMock()
+    client.futures_create_order.return_value = {"orderId": 42}
+    adapter = BinanceFuturesAdapter(client, mode="live")
+    ledger = tmp_path / "card-orders.jsonl"
+    rows = place_orders(
+        adapter,
+        [_decision()],
+        ledger_path=ledger,
+        dual_side=True,
+        marks={"BTCUSDT": 100.2},
+        books={"BTCUSDT": (100.1, 100.3)},
+        positions={"BTCUSDT": 0.25},
+        equity=550.0,
+        now_ms=NOW_MS,
+    )
+    assert len(rows) == 1
+    row = read_jsonl(ledger)[0]
+    assert row["kind"] == "placement" and row["order_id"] == 42
+    assert row["card_generated_at_ms"] == NOW_MS - 60_000
+    assert row["mark_at_placement"] == 100.2
+    assert row["bid_at_placement"] == 100.1 and row["ask_at_placement"] == 100.3
+    assert row["position_at_placement"] == 0.25
+    assert row["equity_at_placement"] == 550.0
+    assert row["position_mode"] == "hedge"
+    # R11: risk_frac rides alongside risk_usd, restated from the ROUNDED
+    # quantity same as check_placement -- otherwise the ledger holds a risk
+    # number whose meaning depends on a capital figure recorded nowhere here.
+    assert row["risk_frac"] == _decision().risk_frac
+    # hedge-mode wire shape came from Task 1
+    kwargs = client.futures_create_order.call_args.kwargs
+    assert kwargs["positionSide"] == "LONG" and "reduceOnly" not in kwargs
+
+
+def test_gtx_rejection_is_recorded_not_raised(tmp_path: Path) -> None:
+    client = MagicMock()
+    client.futures_create_order.side_effect = _post_only_rejection()
+    adapter = BinanceFuturesAdapter(client, mode="live")
+    ledger = tmp_path / "card-orders.jsonl"
+    rows = place_orders(
+        adapter,
+        [_decision()],
+        ledger_path=ledger,
+        dual_side=False,
+        marks={},
+        books={},
+        positions={},
+        equity=None,
+        now_ms=NOW_MS,
+    )
+    row = rows[0]
+    assert row["order_id"] is None
+    assert row["terminal_reason"] == "gtx_rejected"
+    # and the rejected card no longer re-presents: same anti-join key
+    assert row["kind"] == "placement" and row["symbol"] == "BTCUSDT"
+
+
+def test_vetoed_decisions_are_skipped_and_dry_run_writes_nothing(
+    tmp_path: Path,
+) -> None:
+    vetoed = check_placement(
+        _cand("BTCUSDT", "long"),
+        _FILT,
+        managed=True,
+        xs_live_marker=True,
+        now_ms=NOW_MS,
+    )
+    client = MagicMock()
+    adapter = BinanceFuturesAdapter(client, mode="live")
+    ledger = tmp_path / "card-orders.jsonl"
+    assert (
+        place_orders(
+            adapter,
+            [vetoed],
+            ledger_path=ledger,
+            dual_side=False,
+            marks={},
+            books={},
+            positions={},
+            equity=None,
+            now_ms=NOW_MS,
+        )
+        == []
+    )
+    client.futures_create_order.assert_not_called()
+
+    dry = BinanceFuturesAdapter(MagicMock(), mode="dry_run")
+    assert (
+        place_orders(
+            dry,
+            [_decision()],
+            ledger_path=ledger,
+            dual_side=False,
+            marks={},
+            books={},
+            positions={},
+            equity=None,
+            now_ms=NOW_MS,
+        )
+        == []
+    )
+    assert not ledger.exists()  # a dry run must not pollute the ledger

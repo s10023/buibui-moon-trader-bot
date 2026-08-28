@@ -14,8 +14,10 @@ from pathlib import Path
 from typing import Any
 
 from card.card import _parse_iso_ms
+from card.ledger import _append_line
 from portfolio.sizing import risk_per_unit, round_down_to_step, round_to_tick
-from trade.routing import ExchangeFilters
+from trade.binance_futures import APIError, BinanceFuturesAdapter
+from trade.routing import ExchangeFilters, OrderIntent
 
 DEFAULT_ORDERS_PATH = "docs/plans/card-orders.jsonl"
 # The XS executor writes execution_state_{mode}.json per mode; a live-mode run
@@ -236,3 +238,95 @@ def check_placement(
         vetoes=vetoes,
         warnings=warnings,
     )
+
+
+# Binance rejects a GTX order that would cross as an error rather than
+# resting it: "Due to the order could not be executed as maker, the Post
+# Only order will be rejected." Verified in Task 5 Step 1 (per Ruling R2)
+# against the installed python-binance 1.0.37, where trade/binance_futures.py
+# binds APIError to the real binance.exceptions.BinanceAPIException, which
+# sets .code from the parsed response body -- adjust here if a future
+# rebinding surfaces the rejection differently.
+_POST_ONLY_REJECT = -5022
+
+
+def place_orders(
+    adapter: BinanceFuturesAdapter,
+    decisions: list[PlacementDecision],
+    *,
+    ledger_path: Path,
+    dual_side: bool,
+    marks: dict[str, float],
+    books: dict[str, tuple[float, float]],
+    positions: dict[str, float],
+    equity: float | None,
+    now_ms: int,
+) -> list[dict[str, Any]]:
+    """Submit each un-vetoed decision as a GTX limit; append placement rows.
+
+    A GTX rejection is INFORMATION, not an error: price is already through the
+    structural level, so the setup is stale rather than the order broken. It
+    is recorded with order_id None + terminal_reason "gtx_rejected", which
+    also suppresses re-presentation via the scan's anti-join.
+    Dry-run placements return [] and write nothing.
+    """
+    written: list[dict[str, Any]] = []
+    for d in decisions:
+        if d.vetoes:
+            continue
+        cand = d.candidate
+        side = "BUY" if cand.direction == "long" else "SELL"
+        position_side = (
+            ("LONG" if cand.direction == "long" else "SHORT") if dual_side else None
+        )
+        intent = OrderIntent(
+            cand.symbol,
+            side,
+            d.qty,
+            False,
+            0.0,
+            "card",
+            "LIMIT",
+            position_side=position_side,
+        )
+        order_id: int | None = None
+        terminal_reason: str | None = None
+        try:
+            resp = adapter.submit(intent, price=d.price)
+        except APIError as exc:
+            if getattr(exc, "code", None) != _POST_ONLY_REJECT:
+                raise
+            terminal_reason = "gtx_rejected"
+        else:
+            if resp.get("dryRun"):
+                continue  # never pollute the ledger from a dry run
+            order_id = int(resp["orderId"])
+        top = books.get(cand.symbol)
+        bid = top[0] if top else None
+        ask = top[1] if top else None
+        row: dict[str, Any] = {
+            "kind": "placement",
+            "order_id": order_id,
+            "symbol": cand.symbol,
+            "direction": cand.direction,
+            "card_generated_at_ms": cand.generated_at_ms,
+            "state_digest": cand.state_digest,
+            "placed_at_ms": now_ms,
+            "limit_price": d.price,
+            "qty": d.qty,
+            "risk_usd": d.risk_usd,
+            "risk_frac": d.risk_frac,
+            "mark_at_placement": marks.get(cand.symbol),
+            "bid_at_placement": bid,
+            "ask_at_placement": ask,
+            "position_at_placement": positions.get(cand.symbol, 0.0),
+            "equity_at_placement": equity,
+            "position_mode": "hedge" if dual_side else "one_way",
+            "warnings": d.warnings,
+        }
+        if terminal_reason is not None:
+            row["terminal_reason"] = terminal_reason
+            row["terminal_at_ms"] = now_ms
+        _append_line(ledger_path, row)
+        written.append(row)
+    return written
