@@ -550,3 +550,75 @@ def test_refresh_skips_working_and_already_terminal_orders(tmp_path: Path) -> No
     client.futures_get_order.reset_mock()
     assert refresh_orders(client, ledger, marks={}, now_ms=NOW_MS) == []
     client.futures_get_order.assert_not_called()
+
+
+def test_refresh_maps_expired_in_match_to_expired(tmp_path: Path) -> None:
+    """R13: self-trade prevention's status must still terminalise the ledger.
+
+    This account rests a card order and an XS order on the same symbol --
+    exactly the collision check_placement's XS guard exists for, arriving by
+    a different route (self-trade prevention rather than cancel_open_orders).
+    """
+    ledger = _ledger_with_placement(tmp_path)
+    client = MagicMock()
+    client.futures_get_order.return_value = {
+        "status": "EXPIRED_IN_MATCH",
+        "avgPrice": "0",
+        "executedQty": "0",
+        "updateTime": NOW_MS + 1,
+    }
+    rows = refresh_orders(client, ledger, marks={}, now_ms=NOW_MS)
+    assert len(rows) == 1
+    assert rows[0]["reason"] == "expired"
+    assert rows[0]["status"] == "EXPIRED_IN_MATCH"
+
+
+def test_refresh_maps_unrecognised_status_to_other(tmp_path: Path) -> None:
+    """R13: inverted default -- an unmapped status is still written, under
+    reason "other", with the raw status preserved on the row rather than
+    silently retried forever."""
+    ledger = _ledger_with_placement(tmp_path)
+    client = MagicMock()
+    client.futures_get_order.return_value = {
+        "status": "SOME_NEW_STATUS",
+        "avgPrice": "0",
+        "executedQty": "0",
+        "updateTime": NOW_MS + 1,
+    }
+    rows = refresh_orders(client, ledger, marks={}, now_ms=NOW_MS)
+    assert len(rows) == 1
+    assert rows[0]["reason"] == "other"
+    assert rows[0]["status"] == "SOME_NEW_STATUS"
+
+
+def test_refresh_pending_cancel_still_writes_nothing(tmp_path: Path) -> None:
+    ledger = _ledger_with_placement(tmp_path)
+    client = MagicMock()
+    client.futures_get_order.return_value = {"status": "PENDING_CANCEL"}
+    assert refresh_orders(client, ledger, marks={}, now_ms=NOW_MS) == []
+
+
+def test_refresh_terminal_ids_updates_within_one_call(tmp_path: Path) -> None:
+    """R14 minor 1: two placement rows sharing one order_id must not each
+    produce a terminal row -- terminal_ids has to update as the loop writes,
+    not stay frozen from before the loop started."""
+    ledger = tmp_path / "card-orders.jsonl"
+    placement = {
+        "kind": "placement",
+        "order_id": 42,
+        "symbol": "BTCUSDT",
+        "card_generated_at_ms": NOW_MS - 60_000,
+        "state_digest": "abc123",
+    }
+    with ledger.open("w", encoding="utf-8") as f:
+        f.write(json.dumps(placement) + "\n")
+        f.write(json.dumps(placement) + "\n")
+    client = MagicMock()
+    client.futures_get_order.return_value = {
+        "status": "FILLED",
+        "avgPrice": "99.9",
+        "executedQty": "0.5",
+        "updateTime": NOW_MS + 1,
+    }
+    rows = refresh_orders(client, ledger, marks={}, now_ms=NOW_MS)
+    assert len(rows) == 1  # one terminal row per order_id, not one per placement row

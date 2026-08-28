@@ -332,7 +332,24 @@ def place_orders(
     return written
 
 
-_STATUS_REASON = {"FILLED": "filled", "CANCELED": "cancelled", "EXPIRED": "expired"}
+# Every OTHER status is treated as terminal (R13): a status Binance adds or
+# renames later must not silently fall into "still working" and get
+# re-polled forever -- the placement<->terminal join on order_id is this
+# feature's whole deliverable, and a hole in it is worse than a row filed
+# under reason "other". _WORKING_STATUSES is deliberately the SMALL,
+# enumerated set; _STATUS_REASON only prettifies the known cases into the
+# spec's vocabulary and is never consulted to decide terminal-ness.
+_WORKING_STATUSES = {"NEW", "PARTIALLY_FILLED", "PENDING_CANCEL"}
+_STATUS_REASON = {
+    "FILLED": "filled",
+    "CANCELED": "cancelled",
+    "EXPIRED": "expired",
+    # self-trade prevention's status: this account rests a card order and an
+    # XS order on the same symbol, which is the exact collision
+    # check_placement's XS guard exists for, arriving by a different route.
+    "EXPIRED_IN_MATCH": "expired",
+    "REJECTED": "rejected",
+}
 
 
 def refresh_orders(
@@ -347,6 +364,17 @@ def refresh_orders(
     Age-at-terminal and price-drift-at-cancel are derivable by joining the two
     row kinds on order_id - the whole of the max_order_age /
     hanging_orders_cancel_pct / order_refresh_tolerance claims (ST33).
+
+    Any status outside _WORKING_STATUSES is written as terminal even when
+    unrecognised (reason "other", raw status kept on the row) -- an unknown
+    status recorded early is visible and recoverable, where silently
+    retrying it forever is a permanent hole in the join above.
+
+    No try/except around futures_get_order: one failing poll aborts the rest
+    of this call's batch on purpose. Already-written rows persist and an
+    un-terminal order is simply retried on the next invocation, so the
+    ledger self-heals without one order's API error losing another order's
+    terminal row.
     """
     rows = read_jsonl(ledger_path)
     terminal_ids = {r.get("order_id") for r in rows if r.get("kind") == "terminal"}
@@ -357,20 +385,21 @@ def refresh_orders(
         if p["order_id"] in terminal_ids:
             continue
         order = client.futures_get_order(symbol=p["symbol"], orderId=p["order_id"])
-        reason = _STATUS_REASON.get(str(order.get("status")))
-        if reason is None:
-            continue  # NEW / PARTIALLY_FILLED: still working
+        status = str(order.get("status"))
+        if status in _WORKING_STATUSES:
+            continue
         row: dict[str, Any] = {
             "kind": "terminal",
             "order_id": p["order_id"],
             "symbol": p["symbol"],
             "terminal_at_ms": int(order.get("updateTime") or now_ms),
-            "status": str(order["status"]),
-            "reason": reason,
+            "status": status,
+            "reason": _STATUS_REASON.get(status, "other"),
             "avg_price": float(order.get("avgPrice") or 0.0),
             "executed_qty": float(order.get("executedQty") or 0.0),
             "mark_at_terminal": marks.get(str(p["symbol"])),
         }
         _append_line(ledger_path, row)
         written.append(row)
+        terminal_ids.add(p["order_id"])  # R14 minor 1: keep it live within this call
     return written
