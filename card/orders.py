@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any
 
 from card.card import _parse_iso_ms
+from portfolio.sizing import round_down_to_step, round_to_tick
+from trade.routing import ExchangeFilters
 
 DEFAULT_ORDERS_PATH = "docs/plans/card-orders.jsonl"
 # The XS executor writes execution_state_{mode}.json per mode; a live-mode run
@@ -139,4 +141,77 @@ def aggregate_risk(
         total_risk_usd=total,
         total_risk_frac=frac,
         by_bet=[(s, d, r) for (s, d), r in sorted(bets.items())],
+    )
+
+
+@dataclass(frozen=True)
+class PlacementDecision:
+    candidate: CardCandidate
+    qty: float
+    price: float
+    risk_usd: float | None
+    vetoes: list[str]
+    warnings: list[str]
+
+
+def check_placement(
+    cand: CardCandidate,
+    filt: ExchangeFilters | None,
+    *,
+    managed: bool,
+    xs_live_marker: bool,
+    now_ms: int,
+) -> PlacementDecision:
+    """Every hard rule in code, veto-style, each naming its numbers."""
+    vetoes: list[str] = []
+    warnings: list[str] = []
+
+    # (a) expiry at the PLACEMENT instant — the card veto only ever compared
+    # against generated_at_ms, and a card can expire while the operator thinks.
+    if cand.valid_until_ms <= now_ms:
+        vetoes.append(
+            f"card expired at placement ({(now_ms - cand.valid_until_ms) / 1000:.0f}s past valid_until)"
+        )
+
+    # (b) XS collision: cancel_open_orders is symbol-WIDE, so a live XS run
+    # cancels card orders on any managed symbol. Veto on managed AND live
+    # marker; always warn on managed so the hazard is heard before go-live.
+    if managed and xs_live_marker:
+        vetoes.append(
+            f"{cand.symbol} is in the XS managed set and a live XS execution "
+            "state exists - a live XS run cancels ALL open orders on this symbol"
+        )
+    elif managed:
+        warnings.append(
+            f"{cand.symbol} is in the XS managed set; a future live XS run "
+            "would cancel this order"
+        )
+
+    # (d) exchange rounding, restated risk (the card's own sizing rule applied
+    # at placement time)
+    qty, price, risk_usd = cand.qty, cand.entry, cand.risk_usd
+    if filt is None:
+        warnings.append("exchange filters unavailable - placing unrounded numbers")
+    else:
+        side = "BUY" if cand.direction == "long" else "SELL"
+        qty = round_down_to_step(cand.qty, filt.qty_step)
+        price = round_to_tick(cand.entry, filt.price_tick, side)
+        if qty <= 0.0 or qty < filt.min_qty:
+            vetoes.append(
+                f"sub-lot after rounding: {cand.qty} -> {qty} against step {filt.qty_step}"
+            )
+        else:
+            risk_usd = round(qty * abs(price - cand.sl), 8)
+            if qty != cand.qty or price != cand.entry:
+                warnings.append(
+                    f"rounded qty {cand.qty} -> {qty}, price {cand.entry} -> {price}; "
+                    f"risk restated to {risk_usd}"
+                )
+    return PlacementDecision(
+        candidate=cand,
+        qty=qty,
+        price=price,
+        risk_usd=risk_usd,
+        vetoes=vetoes,
+        warnings=warnings,
     )

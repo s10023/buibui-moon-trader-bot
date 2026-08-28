@@ -4,9 +4,24 @@ from __future__ import annotations
 
 from typing import Any
 
-from card.orders import CardCandidate, aggregate_risk, parse_selection, scan_candidates
+from card.orders import (
+    CardCandidate,
+    aggregate_risk,
+    check_placement,
+    parse_selection,
+    scan_candidates,
+)
+from trade.routing import ExchangeFilters
 
 NOW_MS = 1_756_000_000_000
+
+_FILT = ExchangeFilters(
+    symbol="BTCUSDT",
+    qty_step=0.001,
+    min_qty=0.001,
+    min_notional=100.0,
+    price_tick=0.1,
+)
 
 
 def _trade_row(
@@ -114,3 +129,67 @@ def test_aggregate_risk_stacks_same_symbol_and_side() -> None:
 def test_aggregate_risk_without_equity_suppresses_fraction() -> None:
     agg = aggregate_risk([_cand("BTCUSDT", "long")], equity=None)
     assert agg.total_risk_frac is None
+
+
+def test_xs_guard_four_quadrants() -> None:
+    c = _cand("BTCUSDT", "long")
+    # managed AND live marker -> VETO
+    d = check_placement(c, _FILT, managed=True, xs_live_marker=True, now_ms=NOW_MS)
+    assert any("XS" in v for v in d.vetoes)
+    # managed, no marker -> WARN only (heard before XS go-live)
+    d = check_placement(c, _FILT, managed=True, xs_live_marker=False, now_ms=NOW_MS)
+    assert d.vetoes == [] and any("XS managed set" in w for w in d.warnings)
+    # unmanaged: marker state is irrelevant either way
+    for marker in (True, False):
+        d = check_placement(
+            c, _FILT, managed=False, xs_live_marker=marker, now_ms=NOW_MS
+        )
+        assert d.vetoes == []
+        assert not any("XS" in w for w in d.warnings)
+
+
+def test_expiry_rechecked_at_placement_instant() -> None:
+    c = _cand("BTCUSDT", "long")
+    d = check_placement(
+        c,
+        _FILT,
+        managed=False,
+        xs_live_marker=False,
+        now_ms=c.valid_until_ms + 1,  # expired while the operator thought
+    )
+    assert any("expired" in v for v in d.vetoes)
+
+
+def test_rounding_restates_risk_and_warns_when_moved() -> None:
+    c = CardCandidate(
+        symbol="BTCUSDT",
+        direction="long",
+        entry=100.05,
+        sl=98.0,
+        qty=0.5015,
+        risk_usd=1.0,
+        risk_frac=None,
+        valid_until_ms=NOW_MS + 3_600_000,
+        generated_at_ms=NOW_MS,
+        state_digest="d",
+    )
+    d = check_placement(c, _FILT, managed=False, xs_live_marker=False, now_ms=NOW_MS)
+    assert d.qty == 0.501  # floored to LOT_SIZE step
+    assert d.price == 100.0  # long=BUY floors to tick, never crosses up
+    assert d.risk_usd == round(0.501 * (100.0 - 98.0), 8)  # restated from ROUNDED
+    assert d.warnings  # says the numbers moved
+
+
+def test_sub_lot_quantity_vetoes() -> None:
+    c = _cand("BTCUSDT", "long")
+    tiny = CardCandidate(**{**c.__dict__, "qty": 0.0004})
+    d = check_placement(tiny, _FILT, managed=False, xs_live_marker=False, now_ms=NOW_MS)
+    assert any("sub-lot" in v for v in d.vetoes)
+
+
+def test_missing_filters_warns_and_keeps_raw_numbers() -> None:
+    c = _cand("BTCUSDT", "long")
+    d = check_placement(c, None, managed=False, xs_live_marker=False, now_ms=NOW_MS)
+    assert d.vetoes == []
+    assert d.qty == c.qty and d.price == c.entry
+    assert any("filters unavailable" in w for w in d.warnings)
