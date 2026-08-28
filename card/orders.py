@@ -330,3 +330,47 @@ def place_orders(
         _append_line(ledger_path, row)
         written.append(row)
     return written
+
+
+_STATUS_REASON = {"FILLED": "filled", "CANCELED": "cancelled", "EXPIRED": "expired"}
+
+
+def refresh_orders(
+    client: Any,
+    ledger_path: Path,
+    *,
+    marks: dict[str, float],
+    now_ms: int,
+) -> list[dict[str, Any]]:
+    """Poll each open placement once; append a terminal row when it closed.
+
+    Age-at-terminal and price-drift-at-cancel are derivable by joining the two
+    row kinds on order_id - the whole of the max_order_age /
+    hanging_orders_cancel_pct / order_refresh_tolerance claims (ST33).
+    """
+    rows = read_jsonl(ledger_path)
+    terminal_ids = {r.get("order_id") for r in rows if r.get("kind") == "terminal"}
+    written: list[dict[str, Any]] = []
+    for p in rows:
+        if p.get("kind") != "placement" or not p.get("order_id"):
+            continue
+        if p["order_id"] in terminal_ids:
+            continue
+        order = client.futures_get_order(symbol=p["symbol"], orderId=p["order_id"])
+        reason = _STATUS_REASON.get(str(order.get("status")))
+        if reason is None:
+            continue  # NEW / PARTIALLY_FILLED: still working
+        row: dict[str, Any] = {
+            "kind": "terminal",
+            "order_id": p["order_id"],
+            "symbol": p["symbol"],
+            "terminal_at_ms": int(order.get("updateTime") or now_ms),
+            "status": str(order["status"]),
+            "reason": reason,
+            "avg_price": float(order.get("avgPrice") or 0.0),
+            "executed_qty": float(order.get("executedQty") or 0.0),
+            "mark_at_terminal": marks.get(str(p["symbol"])),
+        }
+        _append_line(ledger_path, row)
+        written.append(row)
+    return written

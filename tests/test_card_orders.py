@@ -18,6 +18,7 @@ from card.orders import (
     parse_selection,
     place_orders,
     read_jsonl,
+    refresh_orders,
     scan_candidates,
 )
 from trade.binance_futures import APIError, BinanceFuturesAdapter
@@ -441,3 +442,61 @@ def test_vetoed_decisions_are_skipped_and_dry_run_writes_nothing(
         == []
     )
     assert not ledger.exists()  # a dry run must not pollute the ledger
+
+
+def _ledger_with_placement(tmp_path: Path, order_id: int = 42) -> Path:
+    ledger = tmp_path / "card-orders.jsonl"
+    client = MagicMock()
+    client.futures_create_order.return_value = {"orderId": order_id}
+    adapter = BinanceFuturesAdapter(client, mode="live")
+    place_orders(
+        adapter,
+        [_decision()],
+        ledger_path=ledger,
+        dual_side=False,
+        marks={},
+        books={},
+        positions={},
+        equity=None,
+        now_ms=NOW_MS,
+    )
+    return ledger
+
+
+def test_refresh_writes_terminal_row_for_filled_order(tmp_path: Path) -> None:
+    ledger = _ledger_with_placement(tmp_path)
+    client = MagicMock()
+    client.futures_get_order.return_value = {
+        "status": "FILLED",
+        "avgPrice": "99.9",
+        "executedQty": "0.5",
+        "updateTime": NOW_MS + 60_000,
+    }
+    rows = refresh_orders(
+        client, ledger, marks={"BTCUSDT": 100.5}, now_ms=NOW_MS + 90_000
+    )
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["kind"] == "terminal" and r["order_id"] == 42
+    assert r["reason"] == "filled" and r["avg_price"] == 99.9
+    assert r["terminal_at_ms"] == NOW_MS + 60_000
+    assert r["mark_at_terminal"] == 100.5
+    client.futures_get_order.assert_called_once_with(symbol="BTCUSDT", orderId=42)
+
+
+def test_refresh_skips_working_and_already_terminal_orders(tmp_path: Path) -> None:
+    ledger = _ledger_with_placement(tmp_path)
+    client = MagicMock()
+    client.futures_get_order.return_value = {"status": "NEW"}
+    assert refresh_orders(client, ledger, marks={}, now_ms=NOW_MS) == []
+    # now close it, then a second refresh must not re-poll it
+    client.futures_get_order.return_value = {
+        "status": "CANCELED",
+        "avgPrice": "0",
+        "executedQty": "0",
+        "updateTime": NOW_MS + 1,
+    }
+    assert len(refresh_orders(client, ledger, marks={}, now_ms=NOW_MS)) == 1
+    client.futures_get_order.reset_mock()
+    assert refresh_orders(client, ledger, marks={}, now_ms=NOW_MS) == []
+    client.futures_get_order.assert_not_called()
