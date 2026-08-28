@@ -16,6 +16,7 @@ from card.orders import (
     aggregate_risk,
     check_placement,
     parse_selection,
+    pick_interactive,
     place_orders,
     read_jsonl,
     refresh_orders,
@@ -622,3 +623,86 @@ def test_refresh_terminal_ids_updates_within_one_call(tmp_path: Path) -> None:
     }
     rows = refresh_orders(client, ledger, marks={}, now_ms=NOW_MS)
     assert len(rows) == 1  # one terminal row per order_id, not one per placement row
+
+
+def test_parse_selection_non_ascii_digit_returns_none_not_raises() -> None:
+    """R14b: `"²".isdigit()` is True but `int("²")` raises ValueError -- the
+    unguarded `tok.isdigit()` check let a superscript digit reach `int()` and
+    raise instead of returning None as the contract promises. Reachable only
+    via `pick_interactive`'s re-prompt loop, which feeds raw operator input
+    straight into this function."""
+    assert parse_selection("²", 5) is None
+
+
+def test_pick_interactive_empty_input_selects_none() -> None:
+    lines = iter([""])
+    out: list[str] = []
+    picked = pick_interactive(
+        [_cand("BTCUSDT", "long")],
+        equity=1000.0,
+        input_fn=lambda _prompt: next(lines),
+        print_fn=out.append,
+    )
+    assert picked == []
+    assert any("ONE DRAW" in s for s in out)  # the hazard line is in the header
+
+
+def test_pick_interactive_confirm_gate_and_aggregate_echo() -> None:
+    lines = iter(["1 2", "y"])
+    out: list[str] = []
+    cands = [_cand("BTCUSDT", "short"), _cand("BTCUSDT", "short")]
+    picked = pick_interactive(
+        cands,
+        equity=1000.0,
+        input_fn=lambda _prompt: next(lines),
+        print_fn=out.append,
+    )
+    assert len(picked) == 2
+    assert any("BTCUSDT short" in s and "5.0" in s for s in out)  # stacked bet
+
+
+def test_pick_interactive_n_aborts() -> None:
+    lines = iter(["1", "n"])
+    picked = pick_interactive(
+        [_cand("BTCUSDT", "long")],
+        equity=None,
+        input_fn=lambda _prompt: next(lines),
+        print_fn=lambda _s: None,
+    )
+    assert picked == []
+
+
+def test_pick_interactive_reprompts_on_garbage() -> None:
+    lines = iter(["banana", "1", "y"])
+    picked = pick_interactive(
+        [_cand("BTCUSDT", "long")],
+        equity=None,
+        input_fn=lambda _prompt: next(lines),
+        print_fn=lambda _s: None,
+    )
+    assert len(picked) == 1
+
+
+def test_pick_interactive_reprompts_on_non_ascii_digit() -> None:
+    """R14b, end to end: a non-ASCII digit must re-prompt like any other
+    piece of garbage input, not crash the picklist with a ValueError."""
+    lines = iter(["²", "1", "y"])
+    picked = pick_interactive(
+        [_cand("BTCUSDT", "long")],
+        equity=None,
+        input_fn=lambda _prompt: next(lines),
+        print_fn=lambda _s: None,
+    )
+    assert len(picked) == 1
+
+
+def test_universe_symbols_reads_the_nested_universe_table() -> None:
+    """R1: the real `config/universe.toml` nests its list under `[universe]`
+    -- the top level carries no `symbols` key at all. A version that reads
+    the top level returns an empty set with no error, which silently
+    disables `check_placement`'s XS managed-set guard for every symbol."""
+    from cli.card_orders import _universe_symbols
+
+    symbols = _universe_symbols()
+    assert symbols  # non-empty: a version reading the wrong table passes silently
+    assert "BTCUSDT" in symbols

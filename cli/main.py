@@ -12,6 +12,7 @@ from cli import (
     backtest,
     brief,
     card,
+    card_orders,
     digest,
     monitor,
     param,
@@ -38,6 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
     backtest.add_backtest_subparser(subparsers)
     brief.add_brief_subparser(subparsers)
     card.add_card_subparser(subparsers)
+    card_orders.add_card_orders_subparsers(subparsers)
     digest.add_digest_subparser(subparsers)
     param.add_param_sweep_subparser(subparsers)
     param.add_param_audit_subparser(subparsers)

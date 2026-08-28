@@ -9,7 +9,9 @@ card by (symbol, generated_at_ms).
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -121,7 +123,7 @@ def parse_selection(text: str, n: int) -> list[int] | None:
         return []
     picks: list[int] = []
     for tok in text.replace(",", " ").split():
-        if not tok.isdigit() or not (1 <= int(tok) <= n):
+        if not (tok.isascii() and tok.isdigit()) or not (1 <= int(tok) <= n):
             return None
         idx = int(tok) - 1
         if idx not in picks:
@@ -144,6 +146,57 @@ def aggregate_risk(
         total_risk_frac=frac,
         by_bet=[(s, d, r) for (s, d), r in sorted(bets.items())],
     )
+
+
+_ONE_DRAW_LINE = (
+    "A card verdict is ONE DRAW - identical inputs have returned opposite "
+    "directions. Nothing is pre-selected; empty input places nothing."
+)
+
+
+def pick_interactive(
+    candidates: list[CardCandidate],
+    equity: float | None,
+    *,
+    input_fn: Callable[[str], str],
+    print_fn: Callable[[str], None],
+) -> list[CardCandidate]:
+    """Numbered table -> selection -> aggregate echo -> y/N confirm."""
+    print_fn(_ONE_DRAW_LINE)
+    print_fn(
+        f"{'#':>2}  {'symbol':<10} {'dir':<5} {'entry':>12} {'sl':>12} "
+        f"{'qty':>10} {'risk_usd':>9}  expires"
+    )
+    now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
+    for i, c in enumerate(candidates, 1):
+        mins = (c.valid_until_ms - now_ms) / 60_000
+        risk = f"{c.risk_usd:.2f}" if c.risk_usd is not None else "?"
+        print_fn(
+            f"{i:>2}  {c.symbol:<10} {c.direction:<5} {c.entry:>12} "
+            f"{c.sl:>12} {c.qty:>10} {risk:>9}  {mins:.0f}m"
+        )
+    while True:
+        picks = parse_selection(
+            input_fn("place which? (numbers, empty = none): "), len(candidates)
+        )
+        if picks is not None:
+            break
+        print_fn("unrecognised - numbers from the table, space or comma separated")
+    if not picks:
+        return []
+    selected = [candidates[i] for i in picks]
+    agg = aggregate_risk(selected, equity)
+    frac = (
+        f" = {agg.total_risk_frac * 100:.2f}% of equity" if agg.total_risk_frac else ""
+    )
+    print_fn(
+        f"AGGREGATE: {len(selected)} orders, total risk ${agg.total_risk_usd:.2f}{frac}"
+    )
+    for symbol, direction, risk_usd in agg.by_bet:
+        print_fn(f"  {symbol} {direction}: ${risk_usd:.2f}")
+    if input_fn("confirm placement? [y/N]: ").strip().lower() != "y":
+        return []
+    return selected
 
 
 @dataclass(frozen=True)
