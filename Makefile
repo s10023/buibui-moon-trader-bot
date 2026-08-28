@@ -12,7 +12,7 @@ PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*" -not -path "./.
 DOCKER_IMAGE = buibui-bot
 MEMORY = $(HOME)/.claude-personal/projects/-home-kng-repo-buibui-moon-trader-bot/memory/MEMORY.md
 
-.PHONY: status wait-ci wait-ci-main post-branch-checks post-branch-text sanity-checks preflight lint lint-md lint-md-fix docs-index docs-index-check lint-py-check lint-py typecheck test test-cov test-regression regression-update poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-analytics-backfill buibui-analytics-sync universe-backfill buibui-backtest buibui-combo-backtest buibui-cross-tf-backtest buibui-signal-watch buibui-param-audit buibui-param-sweep buibui-recalibrate buibui-digest buibui-web web-install web-dev web-build web-preview web-full clean-db clean export-live-db buibui-portfolio-replay buibui-forecast-audit buibui-forecast-weight-study buibui-forecast-regime buibui-xsmom-audit buibui-combine-audit buibui-carry-audit buibui-xsmom-capacity-audit buibui-xsmom-targets buibui-xsmom-execute buibui-universe-sync buibui-xsmom-daily buibui-structural-touch-audit buibui-structural-entry-sim-audit buibui-warning-value-audit buibui-sl-horizon-audit buibui-weekly-path-audit buibui-indicator-condition-audit buibui-xsrev-audit buibui-decay-review buibui-dead-surface-check buibui-giveback-study buibui-occurrence-dump
+.PHONY: status wait-ci wait-ci-main post-branch-checks post-branch-text sanity-checks preflight lint lint-md lint-md-fix docs-index docs-index-check lint-py-check lint-py typecheck test test-cov test-regression regression-update poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-analytics-backfill buibui-analytics-sync universe-backfill buibui-backtest buibui-combo-backtest buibui-cross-tf-backtest buibui-signal-watch buibui-param-audit buibui-param-sweep buibui-recalibrate buibui-digest buibui-web buibui-card-place buibui-card-orders web-install web-dev web-build web-preview web-full clean-db clean export-live-db buibui-portfolio-replay buibui-forecast-audit buibui-forecast-weight-study buibui-forecast-regime buibui-xsmom-audit buibui-combine-audit buibui-carry-audit buibui-xsmom-capacity-audit buibui-xsmom-targets buibui-xsmom-execute buibui-universe-sync buibui-xsmom-daily buibui-structural-touch-audit buibui-structural-entry-sim-audit buibui-warning-value-audit buibui-sl-horizon-audit buibui-weekly-path-audit buibui-indicator-condition-audit buibui-xsrev-audit buibui-decay-review buibui-dead-surface-check buibui-giveback-study buibui-occurrence-dump
 
 # ⚠ The always-loaded gauge sums BOTH files. Until the 2026-08-19 AGENTS.md split
 # it printed `CLAUDE.md` alone, which was the whole tier; afterwards that same
@@ -369,6 +369,14 @@ buibui-card:  ## AI trade card (SYMBOL= required; DIRECTION=/HORIZON=/AS_OF=/DRY
 		$(if $(CONFIG),--config $(CONFIG),) \
 		$(if $(TG),--telegram,) \
 		$(if $(DRY),--dry-run,)
+
+.PHONY: buibui-card-place
+buibui-card-place:  ## interactive GTX picklist over unexpired TRADE cards (DRY=1 previews)
+	@poetry run python buibui.py card-place $(if $(DRY),--dry-run,)
+
+.PHONY: buibui-card-orders
+buibui-card-orders:  ## list card order placements (REFRESH=1 polls terminal states)
+	@poetry run python buibui.py card-orders $(if $(REFRESH),--refresh,)
 
 .PHONY: buibui-forecast-audit
 buibui-forecast-audit:  ## P2: read-only EWMAC trend-sleeve G2 audit over the N3 universe

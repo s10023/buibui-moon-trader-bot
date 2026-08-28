@@ -167,7 +167,9 @@ from card.orders import CardCandidate, scan_candidates
 NOW_MS = 1_756_000_000_000
 
 
-def _trade_row(symbol: str = "BTCUSDT", gen_ms: int = NOW_MS - 60_000, **kw: Any) -> dict[str, Any]:
+def _trade_row(
+    symbol: str = "BTCUSDT", gen_ms: int = NOW_MS - 60_000, **kw: Any
+) -> dict[str, Any]:
     card = {
         "direction": kw.get("direction", "long"),
         "entry": kw.get("entry", 100.0),
@@ -202,11 +204,13 @@ def test_scan_keeps_only_unexpired_trade_cards() -> None:
 
 def test_scan_anti_joins_already_placed_cards() -> None:
     row = _trade_row()
-    placed = [{
-        "kind": "placement",
-        "symbol": "BTCUSDT",
-        "card_generated_at_ms": row["generated_at_ms"],
-    }]
+    placed = [
+        {
+            "kind": "placement",
+            "symbol": "BTCUSDT",
+            "card_generated_at_ms": row["generated_at_ms"],
+        }
+    ]
     assert scan_candidates([row], placed, NOW_MS) == []
     # a DIFFERENT card on the same symbol still presents
     other = _trade_row(gen_ms=row["generated_at_ms"] + 1)
@@ -383,9 +387,12 @@ def test_parse_selection_rejects_out_of_range_and_garbage() -> None:
 def test_aggregate_risk_stacks_same_symbol_and_side() -> None:
     # the 08-17e shape: six 0.25% choices that are three bets doubled
     cands = [
-        _cand("BTCUSDT", "short"), _cand("BTCUSDT", "short"),
-        _cand("ETHUSDT", "long"), _cand("ETHUSDT", "long"),
-        _cand("SOLUSDT", "short"), _cand("SOLUSDT", "short"),
+        _cand("BTCUSDT", "short"),
+        _cand("BTCUSDT", "short"),
+        _cand("ETHUSDT", "long"),
+        _cand("ETHUSDT", "long"),
+        _cand("SOLUSDT", "short"),
+        _cand("SOLUSDT", "short"),
     ]
     agg = aggregate_risk(cands, equity=1000.0)
     assert agg.total_risk_usd == 15.0  # 6 x 2.5
@@ -404,9 +411,16 @@ with the helper (add near `_trade_row`):
 ```python
 def _cand(symbol: str, direction: str, risk_usd: float = 2.5) -> CardCandidate:
     return CardCandidate(
-        symbol=symbol, direction=direction, entry=100.0, sl=98.0, qty=0.5,
-        risk_usd=risk_usd, risk_frac=None, valid_until_ms=NOW_MS + 3_600_000,
-        generated_at_ms=NOW_MS - 60_000, state_digest="abc123",
+        symbol=symbol,
+        direction=direction,
+        entry=100.0,
+        sl=98.0,
+        qty=0.5,
+        risk_usd=risk_usd,
+        risk_frac=None,
+        valid_until_ms=NOW_MS + 3_600_000,
+        generated_at_ms=NOW_MS - 60_000,
+        state_digest="abc123",
     )
 ```
 
@@ -495,8 +509,11 @@ from trade.routing import ExchangeFilters
 from card.orders import check_placement
 
 _FILT = ExchangeFilters(
-    symbol="BTCUSDT", qty_step=0.001, min_qty=0.001,
-    min_notional=100.0, price_tick=0.1,
+    symbol="BTCUSDT",
+    qty_step=0.001,
+    min_qty=0.001,
+    min_notional=100.0,
+    price_tick=0.1,
 )
 
 
@@ -510,7 +527,9 @@ def test_xs_guard_four_quadrants() -> None:
     assert d.vetoes == [] and any("XS managed set" in w for w in d.warnings)
     # unmanaged: marker state is irrelevant either way
     for marker in (True, False):
-        d = check_placement(c, _FILT, managed=False, xs_live_marker=marker, now_ms=NOW_MS)
+        d = check_placement(
+            c, _FILT, managed=False, xs_live_marker=marker, now_ms=NOW_MS
+        )
         assert d.vetoes == []
         assert not any("XS" in w for w in d.warnings)
 
@@ -518,7 +537,10 @@ def test_xs_guard_four_quadrants() -> None:
 def test_expiry_rechecked_at_placement_instant() -> None:
     c = _cand("BTCUSDT", "long")
     d = check_placement(
-        c, _FILT, managed=False, xs_live_marker=False,
+        c,
+        _FILT,
+        managed=False,
+        xs_live_marker=False,
         now_ms=c.valid_until_ms + 1,  # expired while the operator thought
     )
     assert any("expired" in v for v in d.vetoes)
@@ -526,15 +548,22 @@ def test_expiry_rechecked_at_placement_instant() -> None:
 
 def test_rounding_restates_risk_and_warns_when_moved() -> None:
     c = CardCandidate(
-        symbol="BTCUSDT", direction="long", entry=100.05, sl=98.0, qty=0.5015,
-        risk_usd=1.0, risk_frac=None, valid_until_ms=NOW_MS + 3_600_000,
-        generated_at_ms=NOW_MS, state_digest="d",
+        symbol="BTCUSDT",
+        direction="long",
+        entry=100.05,
+        sl=98.0,
+        qty=0.5015,
+        risk_usd=1.0,
+        risk_frac=None,
+        valid_until_ms=NOW_MS + 3_600_000,
+        generated_at_ms=NOW_MS,
+        state_digest="d",
     )
     d = check_placement(c, _FILT, managed=False, xs_live_marker=False, now_ms=NOW_MS)
-    assert d.qty == 0.501            # floored to LOT_SIZE step
-    assert d.price == 100.0          # long=BUY floors to tick, never crosses up
+    assert d.qty == 0.501  # floored to LOT_SIZE step
+    assert d.price == 100.0  # long=BUY floors to tick, never crosses up
     assert d.risk_usd == round(0.501 * (100.0 - 98.0), 8)  # restated from ROUNDED
-    assert d.warnings                # says the numbers moved
+    assert d.warnings  # says the numbers moved
 
 
 def test_sub_lot_quantity_vetoes() -> None:
@@ -628,8 +657,12 @@ def check_placement(
                     f"risk restated to {risk_usd}"
                 )
     return PlacementDecision(
-        candidate=cand, qty=qty, price=price, risk_usd=risk_usd,
-        vetoes=vetoes, warnings=warnings,
+        candidate=cand,
+        qty=qty,
+        price=price,
+        risk_usd=risk_usd,
+        vetoes=vetoes,
+        warnings=warnings,
     )
 ```
 
@@ -685,8 +718,11 @@ from card.orders import PlacementDecision, place_orders, read_jsonl
 
 def _decision(symbol: str = "BTCUSDT", direction: str = "long") -> PlacementDecision:
     return check_placement(
-        _cand(symbol, direction), _FILT,
-        managed=False, xs_live_marker=False, now_ms=NOW_MS,
+        _cand(symbol, direction),
+        _FILT,
+        managed=False,
+        xs_live_marker=False,
+        now_ms=NOW_MS,
     )
 
 
@@ -696,9 +732,15 @@ def test_place_orders_writes_placement_row_with_instrumentation(tmp_path: Path) 
     adapter = BinanceFuturesAdapter(client, mode="live")
     ledger = tmp_path / "card-orders.jsonl"
     rows = place_orders(
-        adapter, [_decision()], ledger_path=ledger, dual_side=True,
-        marks={"BTCUSDT": 100.2}, books={"BTCUSDT": (100.1, 100.3)},
-        positions={"BTCUSDT": 0.25}, equity=550.0, now_ms=NOW_MS,
+        adapter,
+        [_decision()],
+        ledger_path=ledger,
+        dual_side=True,
+        marks={"BTCUSDT": 100.2},
+        books={"BTCUSDT": (100.1, 100.3)},
+        positions={"BTCUSDT": 0.25},
+        equity=550.0,
+        now_ms=NOW_MS,
     )
     assert len(rows) == 1
     row = read_jsonl(ledger)[0]
@@ -724,8 +766,15 @@ def test_gtx_rejection_is_recorded_not_raised(tmp_path: Path) -> None:
     adapter = BinanceFuturesAdapter(client, mode="live")
     ledger = tmp_path / "card-orders.jsonl"
     rows = place_orders(
-        adapter, [_decision()], ledger_path=ledger, dual_side=False,
-        marks={}, books={}, positions={}, equity=None, now_ms=NOW_MS,
+        adapter,
+        [_decision()],
+        ledger_path=ledger,
+        dual_side=False,
+        marks={},
+        books={},
+        positions={},
+        equity=None,
+        now_ms=NOW_MS,
     )
     row = rows[0]
     assert row["order_id"] is None
@@ -734,25 +783,50 @@ def test_gtx_rejection_is_recorded_not_raised(tmp_path: Path) -> None:
     assert row["kind"] == "placement" and row["symbol"] == "BTCUSDT"
 
 
-def test_vetoed_decisions_are_skipped_and_dry_run_writes_nothing(tmp_path: Path) -> None:
+def test_vetoed_decisions_are_skipped_and_dry_run_writes_nothing(
+    tmp_path: Path,
+) -> None:
     vetoed = check_placement(
-        _cand("BTCUSDT", "long"), _FILT,
-        managed=True, xs_live_marker=True, now_ms=NOW_MS,
+        _cand("BTCUSDT", "long"),
+        _FILT,
+        managed=True,
+        xs_live_marker=True,
+        now_ms=NOW_MS,
     )
     client = MagicMock()
     adapter = BinanceFuturesAdapter(client, mode="live")
     ledger = tmp_path / "card-orders.jsonl"
-    assert place_orders(
-        adapter, [vetoed], ledger_path=ledger, dual_side=False,
-        marks={}, books={}, positions={}, equity=None, now_ms=NOW_MS,
-    ) == []
+    assert (
+        place_orders(
+            adapter,
+            [vetoed],
+            ledger_path=ledger,
+            dual_side=False,
+            marks={},
+            books={},
+            positions={},
+            equity=None,
+            now_ms=NOW_MS,
+        )
+        == []
+    )
     client.futures_create_order.assert_not_called()
 
     dry = BinanceFuturesAdapter(MagicMock(), mode="dry_run")
-    assert place_orders(
-        dry, [_decision()], ledger_path=ledger, dual_side=False,
-        marks={}, books={}, positions={}, equity=None, now_ms=NOW_MS,
-    ) == []
+    assert (
+        place_orders(
+            dry,
+            [_decision()],
+            ledger_path=ledger,
+            dual_side=False,
+            marks={},
+            books={},
+            positions={},
+            equity=None,
+            now_ms=NOW_MS,
+        )
+        == []
+    )
     assert not ledger.exists()  # a dry run must not pollute the ledger
 ```
 
@@ -805,7 +879,13 @@ def place_orders(
             ("LONG" if cand.direction == "long" else "SHORT") if dual_side else None
         )
         intent = OrderIntent(
-            cand.symbol, side, d.qty, False, 0.0, "card", "LIMIT",
+            cand.symbol,
+            side,
+            d.qty,
+            False,
+            0.0,
+            "card",
+            "LIMIT",
             position_side=position_side,
         )
         order_id: int | None = None
@@ -900,8 +980,15 @@ def _ledger_with_placement(tmp_path: Path, order_id: int = 42) -> Path:
     client.futures_create_order.return_value = {"orderId": order_id}
     adapter = BinanceFuturesAdapter(client, mode="live")
     place_orders(
-        adapter, [_decision()], ledger_path=ledger, dual_side=False,
-        marks={}, books={}, positions={}, equity=None, now_ms=NOW_MS,
+        adapter,
+        [_decision()],
+        ledger_path=ledger,
+        dual_side=False,
+        marks={},
+        books={},
+        positions={},
+        equity=None,
+        now_ms=NOW_MS,
     )
     return ledger
 
@@ -910,10 +997,14 @@ def test_refresh_writes_terminal_row_for_filled_order(tmp_path: Path) -> None:
     ledger = _ledger_with_placement(tmp_path)
     client = MagicMock()
     client.futures_get_order.return_value = {
-        "status": "FILLED", "avgPrice": "99.9", "executedQty": "0.5",
+        "status": "FILLED",
+        "avgPrice": "99.9",
+        "executedQty": "0.5",
         "updateTime": NOW_MS + 60_000,
     }
-    rows = refresh_orders(client, ledger, marks={"BTCUSDT": 100.5}, now_ms=NOW_MS + 90_000)
+    rows = refresh_orders(
+        client, ledger, marks={"BTCUSDT": 100.5}, now_ms=NOW_MS + 90_000
+    )
     assert len(rows) == 1
     r = rows[0]
     assert r["kind"] == "terminal" and r["order_id"] == 42
@@ -930,7 +1021,9 @@ def test_refresh_skips_working_and_already_terminal_orders(tmp_path: Path) -> No
     assert refresh_orders(client, ledger, marks={}, now_ms=NOW_MS) == []
     # now close it, then a second refresh must not re-poll it
     client.futures_get_order.return_value = {
-        "status": "CANCELED", "avgPrice": "0", "executedQty": "0",
+        "status": "CANCELED",
+        "avgPrice": "0",
+        "executedQty": "0",
         "updateTime": NOW_MS + 1,
     }
     assert len(refresh_orders(client, ledger, marks={}, now_ms=NOW_MS)) == 1
@@ -1033,8 +1126,10 @@ def test_pick_interactive_empty_input_selects_none() -> None:
     lines = iter([""])
     out: list[str] = []
     picked = pick_interactive(
-        [_cand("BTCUSDT", "long")], equity=1000.0,
-        input_fn=lambda _prompt: next(lines), print_fn=out.append,
+        [_cand("BTCUSDT", "long")],
+        equity=1000.0,
+        input_fn=lambda _prompt: next(lines),
+        print_fn=out.append,
     )
     assert picked == []
     assert any("ONE DRAW" in s for s in out)  # the hazard line is in the header
@@ -1045,8 +1140,10 @@ def test_pick_interactive_confirm_gate_and_aggregate_echo() -> None:
     out: list[str] = []
     cands = [_cand("BTCUSDT", "short"), _cand("BTCUSDT", "short")]
     picked = pick_interactive(
-        cands, equity=1000.0,
-        input_fn=lambda _prompt: next(lines), print_fn=out.append,
+        cands,
+        equity=1000.0,
+        input_fn=lambda _prompt: next(lines),
+        print_fn=out.append,
     )
     assert len(picked) == 2
     assert any("BTCUSDT short" in s and "5.0" in s for s in out)  # stacked bet
@@ -1055,8 +1152,10 @@ def test_pick_interactive_confirm_gate_and_aggregate_echo() -> None:
 def test_pick_interactive_n_aborts() -> None:
     lines = iter(["1", "n"])
     picked = pick_interactive(
-        [_cand("BTCUSDT", "long")], equity=None,
-        input_fn=lambda _prompt: next(lines), print_fn=lambda _s: None,
+        [_cand("BTCUSDT", "long")],
+        equity=None,
+        input_fn=lambda _prompt: next(lines),
+        print_fn=lambda _s: None,
     )
     assert picked == []
 
@@ -1064,8 +1163,10 @@ def test_pick_interactive_n_aborts() -> None:
 def test_pick_interactive_reprompts_on_garbage() -> None:
     lines = iter(["banana", "1", "y"])
     picked = pick_interactive(
-        [_cand("BTCUSDT", "long")], equity=None,
-        input_fn=lambda _prompt: next(lines), print_fn=lambda _s: None,
+        [_cand("BTCUSDT", "long")],
+        equity=None,
+        input_fn=lambda _prompt: next(lines),
+        print_fn=lambda _s: None,
     )
     assert len(picked) == 1
 ```
@@ -1096,17 +1197,22 @@ def pick_interactive(
 ) -> list[CardCandidate]:
     """Numbered table -> selection -> aggregate echo -> y/N confirm."""
     print_fn(_ONE_DRAW_LINE)
-    print_fn(f"{'#':>2}  {'symbol':<10} {'dir':<5} {'entry':>12} {'sl':>12} "
-             f"{'qty':>10} {'risk_usd':>9}  expires")
+    print_fn(
+        f"{'#':>2}  {'symbol':<10} {'dir':<5} {'entry':>12} {'sl':>12} "
+        f"{'qty':>10} {'risk_usd':>9}  expires"
+    )
     now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
     for i, c in enumerate(candidates, 1):
         mins = (c.valid_until_ms - now_ms) / 60_000
         risk = f"{c.risk_usd:.2f}" if c.risk_usd is not None else "?"
-        print_fn(f"{i:>2}  {c.symbol:<10} {c.direction:<5} {c.entry:>12} "
-                 f"{c.sl:>12} {c.qty:>10} {risk:>9}  {mins:.0f}m")
+        print_fn(
+            f"{i:>2}  {c.symbol:<10} {c.direction:<5} {c.entry:>12} "
+            f"{c.sl:>12} {c.qty:>10} {risk:>9}  {mins:.0f}m"
+        )
     while True:
-        picks = parse_selection(input_fn("place which? (numbers, empty = none): "),
-                                len(candidates))
+        picks = parse_selection(
+            input_fn("place which? (numbers, empty = none): "), len(candidates)
+        )
         if picks is not None:
             break
         print_fn("unrecognised - numbers from the table, space or comma separated")
@@ -1114,8 +1220,12 @@ def pick_interactive(
         return []
     selected = [candidates[i] for i in picks]
     agg = aggregate_risk(selected, equity)
-    frac = f" = {agg.total_risk_frac * 100:.2f}% of equity" if agg.total_risk_frac else ""
-    print_fn(f"AGGREGATE: {len(selected)} orders, total risk ${agg.total_risk_usd:.2f}{frac}")
+    frac = (
+        f" = {agg.total_risk_frac * 100:.2f}% of equity" if agg.total_risk_frac else ""
+    )
+    print_fn(
+        f"AGGREGATE: {len(selected)} orders, total risk ${agg.total_risk_usd:.2f}{frac}"
+    )
     for symbol, direction, risk_usd in agg.by_bet:
         print_fn(f"  {symbol} {direction}: ${risk_usd:.2f}")
     if input_fn("confirm placement? [y/N]: ").strip().lower() != "y":
@@ -1187,9 +1297,7 @@ def run_place(args: argparse.Namespace) -> None:
     except Exception:
         equity = None
         print("! equity unavailable - % figures suppressed")
-    selected = pick_interactive(
-        candidates, equity, input_fn=input, print_fn=print
-    )
+    selected = pick_interactive(candidates, equity, input_fn=input, print_fn=print)
     if not selected:
         print("nothing placed")
         return
@@ -1199,7 +1307,8 @@ def run_place(args: argparse.Namespace) -> None:
     dual_side = bool(client.futures_get_position_mode().get("dualSidePosition"))
     decisions = [
         check_placement(
-            c, filters.get(c.symbol),
+            c,
+            filters.get(c.symbol),
             managed=c.symbol in managed,
             xs_live_marker=XS_LIVE_MARKER.exists(),
             now_ms=_now_ms(),  # re-read: the operator may have thought a while
@@ -1212,7 +1321,8 @@ def run_place(args: argparse.Namespace) -> None:
         for w in d.warnings:
             print(f"warn {d.candidate.symbol}: {w}")
     rows = place_orders(
-        adapter, decisions,
+        adapter,
+        decisions,
         ledger_path=Path(args.ledger),
         dual_side=dual_side,
         marks=adapter.get_marks(symbols),
@@ -1223,11 +1333,15 @@ def run_place(args: argparse.Namespace) -> None:
     )
     for row in rows:
         if row.get("terminal_reason") == "gtx_rejected":
-            print(f"{row['symbol']}: GTX rejected - price already through the "
-                  "level, the setup is stale (recorded, not an error)")
+            print(
+                f"{row['symbol']}: GTX rejected - price already through the "
+                "level, the setup is stale (recorded, not an error)"
+            )
         else:
-            print(f"{row['symbol']}: placed order {row['order_id']} "
-                  f"@ {row['limit_price']} x {row['qty']}")
+            print(
+                f"{row['symbol']}: placed order {row['order_id']} "
+                f"@ {row['limit_price']} x {row['qty']}"
+            )
     if args.dry_run:
         print("dry run - nothing submitted, nothing recorded")
 
@@ -1239,9 +1353,9 @@ def run_orders(args: argparse.Namespace) -> None:
 
         client = create_client()
         rows = read_jsonl(ledger)
-        symbols = sorted({
-            str(r["symbol"]) for r in rows if r.get("kind") == "placement"
-        })
+        symbols = sorted(
+            {str(r["symbol"]) for r in rows if r.get("kind") == "placement"}
+        )
         adapter = BinanceFuturesAdapter(client, mode="dry_run")
         written = refresh_orders(
             client, ledger, marks=adapter.get_marks(symbols), now_ms=_now_ms()
@@ -1253,12 +1367,11 @@ def run_orders(args: argparse.Namespace) -> None:
         if p.get("kind") != "placement":
             continue
         t = terminal.get(p.get("order_id"))
-        state = (
-            p.get("terminal_reason")
-            or (t["reason"] if t else "working")
+        state = p.get("terminal_reason") or (t["reason"] if t else "working")
+        print(
+            f"{p['symbol']:<10} {p.get('direction', '?'):<5} "
+            f"{p['limit_price']:>12} x {p['qty']:<8} {state}"
         )
-        print(f"{p['symbol']:<10} {p.get('direction','?'):<5} "
-              f"{p['limit_price']:>12} x {p['qty']:<8} {state}")
 
 
 def add_card_orders_subparsers(
@@ -1271,7 +1384,9 @@ def add_card_orders_subparsers(
     place.add_argument("--cards-path", default=CardConfig().cards_path)
     place.add_argument("--ledger", default=DEFAULT_ORDERS_PATH)
     place.add_argument(
-        "--dry-run", dest="dry_run", action="store_true",
+        "--dry-run",
+        dest="dry_run",
+        action="store_true",
         help="walk the whole flow, submit nothing, record nothing",
     )
     place.set_defaults(func=run_place)

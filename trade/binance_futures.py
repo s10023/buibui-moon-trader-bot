@@ -14,12 +14,18 @@ from typing import Any
 
 from trade.routing import ExchangeFilters, OrderIntent
 
-try:  # pragma: no cover - import shape depends on python-binance version
-    from binance.exceptions import APIError
-except Exception:  # pragma: no cover
+try:
+    # python-binance >=1.0 exposes `BinanceAPIException`, not `APIError` — the
+    # name has already varied by version, so bind to whichever one the
+    # installed client provides rather than pinning a single spelling.
+    from binance.exceptions import BinanceAPIException as APIError
+except ImportError:  # pragma: no cover - older/alternate client shape
+    try:
+        from binance.exceptions import APIError
+    except ImportError:  # pragma: no cover - library absent entirely
 
-    class APIError(Exception):  # type: ignore[no-redef]
-        code = 0
+        class APIError(Exception):  # type: ignore[no-redef]
+            code = 0
 
 
 _MARGIN_TYPE_UNCHANGED = -4046
@@ -40,6 +46,32 @@ class BinanceFuturesAdapter:
             amt = float(r["positionAmt"])
             if amt != 0.0:
                 out[r["symbol"]] = amt
+        return out
+
+    def get_net_positions(self) -> dict[str, float]:
+        """Net `positionAmt` per symbol, SUMMED across position sides.
+
+        `get_positions` above keeps whichever row for a symbol arrives last,
+        which is correct on a one-way account (one row per symbol) and wrong
+        on a DUAL-SIDE one, where `futures_position_information` returns a
+        LONG row and a SHORT row per symbol: with both legs open it records
+        one leg as the whole position. This account has been hedge-mode for
+        its entire history, so the card order ledger's `position_at_placement`
+        reads from here instead.
+
+        Added beside `get_positions` rather than replacing it: the XS executor
+        depends on that method's exact shape, and additive cannot break it.
+        Summing means a fully hedged symbol reads 0.0 -- which is its true net
+        exposure, the number this field claims to record. Legs are not broken
+        out because the ledger field is a single float; a per-side record
+        would be a schema change, not a fix.
+        """
+        rows = self.client.futures_position_information()
+        out: dict[str, float] = {}
+        for r in rows:
+            amt = float(r["positionAmt"])
+            if amt != 0.0:
+                out[r["symbol"]] = out.get(r["symbol"], 0.0) + amt
         return out
 
     def get_equity(self) -> float:
@@ -144,14 +176,20 @@ class BinanceFuturesAdapter:
                 "reduceOnly": intent.reduce_only,
                 "orderType": intent.order_type,
                 "price": price,
+                "positionSide": intent.position_side,
             }
         params: dict[str, Any] = {
             "symbol": intent.symbol,
             "side": intent.side,
             "type": intent.order_type,
             "quantity": intent.qty,
-            "reduceOnly": intent.reduce_only,
         }
+        if intent.position_side is None:
+            params["reduceOnly"] = intent.reduce_only
+        else:
+            # Hedge-mode: positionSide carries the direction and the account
+            # REJECTS reduceOnly as a parameter (the side implies it).
+            params["positionSide"] = intent.position_side
         if intent.order_type == "LIMIT":
             params["price"] = price
             params["timeInForce"] = "GTX"

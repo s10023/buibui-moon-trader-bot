@@ -1,4 +1,4 @@
-"""AI trade-card package (F2): advisory cards, no order routing."""
+"""AI trade-card package (F2): advisory cards; card-place is the one exception that routes orders."""
 
 from card.card import FinalCard, TradeCard, parse_trade_card, post_pass
 from card.client import ClaudeCliClient, LLMClient, LLMResponse

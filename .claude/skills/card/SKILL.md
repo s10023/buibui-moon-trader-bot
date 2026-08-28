@@ -14,8 +14,10 @@ allowed-tools: Bash, Read
 `buibui card SYMBOL` composes a MarketState (brief panel + pundit board + XS
 target + recent fires + live account), asks `claude -p` for a card-v5 trade
 card, then a deterministic post-pass sizes the trade and enforces hard rules
-in code. Advisory-only — it routes no orders. This skill wraps it: run one
-card or a batch, collect the results, and digest them.
+in code. Advisory — the verdict is not a fill; `card-place` is the one
+deliberate exception that routes orders, behind its own picklist and confirm.
+This skill wraps `card`: run one card or a batch, collect the results, and
+digest them.
 
 Invocation grammar: `/card SYM[,SYM...] [long|short|both]`. Omitted
 direction = the card chooses; `both` = two runs per symbol.
@@ -297,6 +299,11 @@ and `valid_until_utc` defects are CLOSED** — both are enforced in the
 deterministic post-pass, mutation-verified. Do not re-file them; do flag a
 recurrence, which would now be a regression.
 
+**After the digest, offer `make buibui-card-place`** for any TRADE verdict in the
+batch — the one deliberate exception to advisory-only. It re-scans the batch's
+unexpired TRADE cards into its own picklist and places only what the operator
+selects, entry-only, GTX limit; never run it on their behalf.
+
 **A card verdict is one draw, not a measurement.** Measured 2026-08-05: two
 baseline runs on a byte-identical `state_digest` returned **opposite
 directions**. Never treat a single card, or a single-card difference between
@@ -373,7 +380,7 @@ look-ahead, not merely drift.
 | Verifying citations from memory | Read the snapshot JSONs on disk |
 | Batch on stale closes | `analytics sync` first (pre-flight) |
 | Using `DRY=1` as the real smoke | DRY skips the LLM — verdict/prose untested |
-| Treating a TRADE card as an order | Advisory only; the operator trades manually |
+| Treating a TRADE card as an order | Advisory only — `card-place` is the ONE deliberate exception, used only through its picklist |
 | Budgeting ~1 min per card | Mean is 4.9 min; six ≈ 30 min. Plan the batch around it |
 | Reading an empty card as "no setup" | An empty result is a TIMEOUT, not a verdict — check `timeout_s` |
 | Spending a batch with the breaker already breached | Run the pre-flight `daily_r` check — it is account-level, so it blocks every symbol |

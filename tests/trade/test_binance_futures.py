@@ -28,6 +28,29 @@ def test_get_positions_parses_signed_amt() -> None:
     assert pos == {"AAAUSDT": 1.5, "BBBUSDT": -2.0}  # zero dropped
 
 
+def test_get_net_positions_sums_both_hedge_legs() -> None:
+    """A dual-side account returns a LONG row AND a SHORT row per symbol.
+
+    `get_positions` keeps whichever arrives last, so with both legs open it
+    records one leg as the whole position -- which is what the card order
+    ledger's `position_at_placement` would have carried. Pinned as a
+    DIFFERENCE against `get_positions` on the same rows so a future edit
+    cannot quietly collapse the two methods back together.
+    """
+    client = MagicMock()
+    client.futures_position_information.return_value = [
+        {"symbol": "AAAUSDT", "positionSide": "LONG", "positionAmt": "1.5"},
+        {"symbol": "AAAUSDT", "positionSide": "SHORT", "positionAmt": "-0.5"},
+        {"symbol": "BBBUSDT", "positionSide": "LONG", "positionAmt": "2.0"},
+        {"symbol": "BBBUSDT", "positionSide": "SHORT", "positionAmt": "0"},
+        {"symbol": "CCCUSDT", "positionSide": "SHORT", "positionAmt": "0"},
+    ]
+    adapter = BinanceFuturesAdapter(client, mode="dry_run")
+    assert adapter.get_net_positions() == {"AAAUSDT": 1.0, "BBBUSDT": 2.0}
+    # the defect this exists to fix: last-row-wins reads AAAUSDT as -0.5
+    assert adapter.get_positions()["AAAUSDT"] == -0.5
+
+
 def test_get_equity_uses_total_margin_balance() -> None:
     client = MagicMock()
     client.futures_account.return_value = {"totalMarginBalance": "10250.5"}
@@ -251,3 +274,41 @@ def test_cancel_open_orders_dry_run_is_a_noop() -> None:
     adapter = BinanceFuturesAdapter(client, mode="dry_run")
     adapter.cancel_open_orders("AAAUSDT")
     client.futures_cancel_all_open_orders.assert_not_called()
+
+
+def test_submit_limit_hedge_mode_sends_position_side_and_omits_reduce_only() -> None:
+    client = MagicMock()
+    adapter = BinanceFuturesAdapter(client, mode="live")
+    intent = OrderIntent(
+        "AAAUSDT", "BUY", 2.0, False, 200.0, "card", "LIMIT", position_side="LONG"
+    )
+    adapter.submit(intent, price=99.98)
+    kwargs = client.futures_create_order.call_args.kwargs
+    assert kwargs["positionSide"] == "LONG"
+    assert "reduceOnly" not in kwargs  # hedge mode rejects the parameter
+    assert kwargs["timeInForce"] == "GTX"
+
+
+def test_submit_one_way_shape_is_unchanged_when_position_side_absent() -> None:
+    client = MagicMock()
+    adapter = BinanceFuturesAdapter(client, mode="live")
+    intent = OrderIntent("AAAUSDT", "SELL", 2.0, False, -200.0, "open", "LIMIT")
+    adapter.submit(intent, price=99.98)
+    kwargs = client.futures_create_order.call_args.kwargs
+    assert kwargs["reduceOnly"] is False
+    assert "positionSide" not in kwargs
+
+
+def test_api_error_binds_to_the_client_library_not_the_local_shim() -> None:
+    """ST37 R2: the installed python-binance exposes `BinanceAPIException`,
+
+    not `APIError` — so the old bare `from binance.exceptions import APIError`
+    always raised ImportError and silently bound the local dead shim, which
+    meant every `except APIError` in this module could only ever catch that
+    shim, never a real exception the client raises. Pin the fix rather than
+    the exact class name, since the library's own spelling has already
+    varied by version.
+    """
+    import trade.binance_futures as mod
+
+    assert mod.APIError.__module__.startswith("binance")

@@ -1,4 +1,4 @@
-"""Buibui CLI — `card` subcommand (AI trade card; advisory, routes no orders)."""
+"""Buibui CLI — `card` subcommand (AI trade card; advisory — card-place is the one exception that routes orders)."""
 
 from __future__ import annotations
 
@@ -241,7 +241,7 @@ def add_card_subparser(
 ) -> None:
     p = subparsers.add_parser(
         "card",
-        help="AI trade card for one symbol (advisory; routes no orders)",
+        help="AI trade card for one symbol (advisory; card-place places picked TRADE cards)",
     )
     p.add_argument("symbol", help="e.g. BTCUSDT")
     p.add_argument("--direction", choices=["long", "short"], default=None)

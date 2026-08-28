@@ -321,8 +321,8 @@ the card's own `generated_at_ms`). Wrapped by
   absent from the Telegram card**, where four more prose bullets against the 4096-char guard
   re-open the readability defect the medium-specific layout fixed; a test pins the omission.
   v5 also bars a JSON field path from generated prose (`range_state.pos 0.4955`): the number
-  stays, the path goes. `ai-cards.jsonl` carries a v4/v5 break, and nothing in the tree reads
-  that file, so it costs no consumer.
+  stays, the path goes. `ai-cards.jsonl` carries a v4/v5 break; `card-place`'s scan reads the
+  file back now and tolerates both shapes, because it only touches fields present since v4.
 - **M4 external liquidity** (heatmap / liq-map clusters) enters as mapped liquidity with
   trust guards, capped at ONE confluence input. ⚠ **It is not horizon-filtered**, and every
   fresh capture is 24h or 1d, so **fix the capture set before adding a filter** or the block
@@ -354,6 +354,12 @@ the card's own `generated_at_ms`). Wrapped by
   `signals.alert_formatter.DIRECTION_LABELS` (`LONG 🟢` / `SHORT 🔴`) — **imported, not
   restated**, so the two operator-facing renderers cannot drift.
 - `--dry-run` prints state + prompt with no LLM call (and so never pushes).
+- **`card-place` / `card-orders [--refresh]`** — the ONE deliberate exception to
+  advisory-only: a picklist places picked TRADE cards as post-only GTX limit ENTRIES
+  ONLY (no stop, no TP), polling fills into `docs/plans/card-orders.jsonl`. REFUSES a
+  `universe.toml` symbol once a live XS marker exists (`cancel_open_orders` is
+  symbol-wide); its header states the one-draw hazard — a TRADE verdict is one draw,
+  never a measurement.
 
 ### `make buibui-backup`
 

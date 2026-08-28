@@ -44,7 +44,14 @@ A tactical crypto trading bot designed for fast, risk-managed, and confident ent
   mmt_SOLUSDT.png                        # no timestamp at all — capture time = file mtime
   ```
 
-- `buibui card SYMBOL` — AI trade card (F2): feeds the brief panel, pundit board, XS target, recent fires, and live account into an LLM (`claude -p`, subscription auth) with a fixed rubric, then deterministically sizes and rule-checks the result in code (VETOED on violation). Sizing uses **live account equity** when it is available, falling back to the configured `[portfolio] capital`; each card records which it used. Because real equity is far below the old $10k default, the sub-lot veto is common — a BTCUSDT stop wider than roughly 2.7% at ~$1,200 equity leaves a risk budget under one LOT_SIZE step and is rejected. Advisory only, no order routing. Every call logs to `docs/plans/ai-cards.jsonl`. `--dry-run` prints the state + prompt with no LLM call. `--telegram` additionally pushes the rendered card to Telegram (opt-in per run; every verdict, VETOED included). `--horizon intraday|swing` sets the horizon the card reasons at and the scoring window its ledger row is resolved against (48h vs 30d). `make buibui-card SYMBOL=BTCUSDT [DIRECTION=] [HORIZON=] [AS_OF=] [DRY=1] [TG=1] [CONFIG=]`.
+- `buibui card SYMBOL` — AI trade card (F2): feeds the brief panel, pundit board, XS target, recent fires, and live account into an LLM (`claude -p`, subscription auth) with a fixed rubric, then deterministically sizes and rule-checks the result in code (VETOED on violation). Sizing uses **live account equity** when it is available, falling back to the configured `[portfolio] capital`; each card records which it used. Because real equity is far below the old $10k default, the sub-lot veto is common — a BTCUSDT stop wider than roughly 2.7% at ~$1,200 equity leaves a risk budget under one LOT_SIZE step and is rejected. Advisory only — `card-place` (below) is the one deliberate exception that routes orders. Every call logs to `docs/plans/ai-cards.jsonl`. `--dry-run` prints the state + prompt with no LLM call. `--telegram` additionally pushes the rendered card to Telegram (opt-in per run; every verdict, VETOED included). `--horizon intraday|swing` sets the horizon the card reasons at and the scoring window its ledger row is resolved against (48h vs 30d). `make buibui-card SYMBOL=BTCUSDT [DIRECTION=] [HORIZON=] [AS_OF=] [DRY=1] [TG=1] [CONFIG=]`.
+
+- `buibui card-place` / `buibui card-orders [--refresh]` — the one deliberate exception to
+  the card's advisory-only default: a picklist places selected unexpired TRADE cards as
+  post-only (GTX) limit ENTRIES only (no stop, no TP), and `--refresh` polls fills into
+  `docs/plans/card-orders.jsonl`. Refuses a symbol in `config/universe.toml` once a live XS
+  execution marker exists. Wrapped by `make buibui-card-place [DRY=1]` /
+  `make buibui-card-orders [REFRESH=1]`.
 
 - `buibui param-audit | param-sweep` — walk-forward optimization (WFO) parameter tools.
   `param-audit` reports how each strategy × timeframe's current parameters hold up
