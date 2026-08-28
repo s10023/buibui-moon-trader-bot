@@ -101,7 +101,7 @@ batches ran mean 32.7K (2026-08-11, ~196K total), 36.4K (2026-08-18, ~218K),
 43.6K (2026-08-19, range 41.9–50.0K), 50.8K (2026-08-20, range 48.6–55.7K),
 58.3K (2026-08-25, ~350K total, range 56.7–64.5K) and 58.6K (2026-08-28, ~351K
 total, range 57.5–63.8K).
-That is 78% in fourteen days, then FLAT across the last three** (1.005×) — so read
+That is 78% in fourteen days, then FLAT across the last three days** (1.005×) — so read
 the trend as "unpredictable", not as "always rising", and do not extrapolate a step
 that has stopped. A stale baseline still turns a correct dispatch into a
 false fallback alarm — which is exactly how the ABSOLUTE band failed below. Cost a batch at the LATEST entry in that
