@@ -106,6 +106,7 @@ class TradeCandidate:
     sl_history: list[StopRecord] = field(default_factory=list)
     mark_price: float | None = None
     already_journaled: bool = False
+    truncated: bool = False
     index: int = 0
     suggested_filename: str = ""
     opened_ms: int = 0
@@ -147,6 +148,9 @@ class TradeCandidate:
             "initial_sl": self.initial_sl,
             "sl_history": [r.to_json_dict() for r in self.sl_history],
             "already_journaled": self.already_journaled,
+            # True when the lookback opened mid-position, so the entry legs predate
+            # the window: avg_entry / qty_total describe the CLOSE only. Widen --days.
+            "truncated": self.truncated,
             "suggested_filename": self.suggested_filename,
         }
 
@@ -177,28 +181,68 @@ def _is_zero(x: float) -> bool:
     return abs(x) < _ZERO_TOL
 
 
+def _opens_position(side: str, position_side: str) -> bool:
+    """Does this fill INCREASE the position on its own book?
+
+    On a hedge-mode LONG book a BUY opens and a SELL reduces; on a SHORT book it is
+    the other way round. Reading every BUY as an open is what let a *cover* start a
+    phantom long. ``BOTH`` (one-way mode) keeps the BUY-opens reading, which is the
+    only one available there.
+    """
+    if position_side == "SHORT":
+        return side == "SELL"
+    return side == "BUY"
+
+
+def _direction_for(position_side: str, entry_legs: list[TradeLeg]) -> str:
+    """Direction of the book these legs belong to.
+
+    In hedge mode ``positionSide`` states it outright, and it is the only reading
+    that survives a lookback opening mid-position: on a SHORT book the first fill
+    in such a window is a BUY -- a COVER -- which the fill-side heuristic calls a
+    long. Measured 2026-08-27 on `--days 3`: all three of the account's same-day
+    shorts came back ``long`` and ``open`` against a flat account, with entry and
+    exit legs swapped and one round-trip split across two candidates.
+
+    One-way mode (``BOTH``) carries no such field, so the first entry leg's side
+    stays the signal; it is correct whenever the window opens flat.
+    """
+    if position_side in ("LONG", "SHORT"):
+        return position_side.lower()
+    if not entry_legs:
+        return "unknown"
+    return "long" if entry_legs[0].side == "BUY" else "short"
+
+
 def _build_candidate(
-    symbol: str, position_side: str, legs: list[TradeLeg], *, closed: bool
+    symbol: str,
+    position_side: str,
+    legs: list[TradeLeg],
+    *,
+    closed: bool,
+    truncated: bool = False,
 ) -> TradeCandidate:
     entry_legs = [leg for leg in legs if leg.role in ("entry", "add")]
     exit_legs = [leg for leg in legs if leg.role in ("partial_exit", "exit")]
-    qty_total = sum(leg.qty for leg in entry_legs)
-    avg_entry = (
-        sum(leg.price * leg.qty for leg in entry_legs) / qty_total if qty_total else 0.0
-    )
+    entry_qty = sum(leg.qty for leg in entry_legs)
     exit_qty = sum(leg.qty for leg in exit_legs)
+    # A truncated candidate has no entry legs at all -- its size is what it CLOSED.
+    qty_total = entry_qty if entry_qty else exit_qty
+    avg_entry = (
+        sum(leg.price * leg.qty for leg in entry_legs) / entry_qty if entry_qty else 0.0
+    )
     avg_exit = (
         sum(leg.price * leg.qty for leg in exit_legs) / exit_qty
         if closed and exit_qty
         else None
     )
-    direction = "long" if entry_legs[0].side == "BUY" else "short"
+    direction = _direction_for(position_side, entry_legs)
     opened_iso = legs[0].ts_utc
     closed_iso = legs[-1].ts_utc if closed else None
     candidate = TradeCandidate(
         symbol=symbol,
         direction=direction,
-        status="closed" if closed else "open",
+        status="truncated" if truncated else ("closed" if closed else "open"),
         position_side=position_side,
         opened_ts_utc=opened_iso,
         closed_ts_utc=closed_iso,
@@ -210,6 +254,7 @@ def _build_candidate(
         fees_usd=sum(leg.commission for leg in legs),
         opened_ms=_ms_from_iso(opened_iso),
         closed_ms=_ms_from_iso(closed_iso) if closed_iso else None,
+        truncated=truncated,
     )
     candidate.suggested_filename = _suggested_filename(candidate)
     return candidate
@@ -226,9 +271,18 @@ def group_fills(symbol: str, fills: list[dict[str, Any]]) -> list[TradeCandidate
     """Group one symbol's raw ``futures_account_trades`` fills into trade candidates.
 
     Pure (no network). Keyed by ``positionSide`` so hedge-mode LONG/SHORT on the same
-    symbol stay independent. Walks fills time-ascending tracking signed net qty
-    (BUY +qty / SELL -qty); a fill that crosses zero closes the current trade and
-    opens a new one with the remainder.
+    symbol stay independent. Walks fills time-ascending tracking net qty in the
+    direction of the book (see `_opens_position`); a fill that crosses zero closes
+    the current trade and opens a new one with the remainder.
+
+    ⚠ **The sign convention is BOOK-RELATIVE, not BUY-positive.** On a hedge-mode
+    SHORT book a SELL opens and a BUY reduces, so a lookback that opens
+    mid-position starts on a COVER. Treating that as an entry inverted the
+    direction, swapped the entry and exit legs, and merged the leading cover with
+    the NEXT trade -- measured 2026-08-27, where it split one +$22.81 SOL
+    round-trip into a +$9.57 "short" and a +$13.23 "long open" while the account
+    was flat. Such leading fills now become their own ``truncated`` candidate
+    rather than seeding a phantom one.
     """
     by_side: dict[str, list[dict[str, Any]]] = {}
     for f in fills:
@@ -237,17 +291,37 @@ def group_fills(symbol: str, fills: list[dict[str, Any]]) -> list[TradeCandidate
     candidates: list[TradeCandidate] = []
     for position_side, side_fills in by_side.items():
         ordered = sorted(side_fills, key=lambda f: int(f["time"]))
+        hedged = position_side in ("LONG", "SHORT")
         net = 0.0
         cur_legs: list[TradeLeg] = []
+        pre_window_legs: list[TradeLeg] = []
         for f in ordered:
             qty = float(f["qty"])
             price = float(f["price"])
             ts = _iso_utc(int(f["time"]))
             rpnl = float(f.get("realizedPnl", 0) or 0)
             comm = float(f.get("commission", 0) or 0)
-            signed = qty if f["side"] == "BUY" else -qty
+            signed = qty if _opens_position(str(f["side"]), position_side) else -qty
 
             if _is_zero(net):
+                if hedged and signed < 0:
+                    # Opened mid-position: this fill REDUCES a position whose entry
+                    # legs predate the window. Say so instead of inventing an entry.
+                    pre_window_legs.append(
+                        TradeLeg(ts, f["side"], price, qty, "exit", rpnl, comm)
+                    )
+                    continue
+                if pre_window_legs:
+                    candidates.append(
+                        _build_candidate(
+                            symbol,
+                            position_side,
+                            pre_window_legs,
+                            closed=True,
+                            truncated=True,
+                        )
+                    )
+                    pre_window_legs = []
                 cur_legs.append(
                     TradeLeg(ts, f["side"], price, qty, "entry", rpnl, comm)
                 )
@@ -290,6 +364,16 @@ def group_fills(symbol: str, fills: list[dict[str, Any]]) -> list[TradeCandidate
                 ]
                 net = new_net
 
+        if pre_window_legs:
+            candidates.append(
+                _build_candidate(
+                    symbol,
+                    position_side,
+                    pre_window_legs,
+                    closed=True,
+                    truncated=True,
+                )
+            )
         if cur_legs:
             candidates.append(
                 _build_candidate(symbol, position_side, cur_legs, closed=False)
@@ -742,7 +826,7 @@ def _print_table(candidates: list[TradeCandidate]) -> None:
                 c.symbol,
                 c.direction,
                 c.status,
-                f"{_fmt(c.avg_entry)}→{_fmt(c.avg_exit)}",
+                f"{'?' if c.truncated else _fmt(c.avg_entry)}→{_fmt(c.avg_exit)}",
                 _fmt(c.realized_pnl_usd),
                 _fmt(c.fees_usd),
                 _fmt(c.funding_usd),
@@ -761,6 +845,11 @@ def _print_table(candidates: list[TradeCandidate]) -> None:
     print("-+-".join("-" * w for w in widths))
     for r in rows:
         print(" | ".join(x.ljust(w) for x, w in zip(r, widths, strict=True)))
+    if any(c.truncated for c in candidates):
+        print(
+            "\ntruncated = the lookback opened mid-position, so the entry legs are "
+            "outside it.\n  Re-run with a wider --days to journal these."
+        )
 
 
 def main() -> None:

@@ -14,7 +14,9 @@ import pytest
 
 from tools.journal_fetch import (
     _algo_source,
+    _direction_for,
     _iso_utc,
+    _print_table,
     _sl_cell,
     _suggested_filename,
     attach_funding,
@@ -925,3 +927,167 @@ class TestSLColumnShowsTheTrail:
 
     def test_no_stop_renders_the_placeholder(self) -> None:
         assert _sl_cell(self._candidate()) == "—"
+
+
+class TestHedgeModeDirectionSurvivesAMidPositionWindow:
+    """A hedge-mode SHORT book read from a window that opened mid-position.
+
+    Measured live 2026-08-27 on `--days 3`: all three of the account's same-day
+    shorts came back `long` and `open` against a FLAT account, with the entry and
+    exit legs swapped, and SOL's single +$22.81 round-trip split into a +$9.57
+    "short" plus a +$13.23 "long open".
+
+    One cause, two halves. `_build_candidate` inferred direction from the first
+    leg's side, and `group_fills` signed every BUY positive — but on a SHORT book
+    a BUY is a COVER. A lookback that opens mid-position therefore starts on a
+    close, which the walk read as an entry and then merged with the NEXT trade.
+    """
+
+    @staticmethod
+    def _short_book_opening_on_a_cover() -> list[dict[str, Any]]:
+        return [
+            # A cover of a short opened BEFORE the window — its entry legs are
+            # not in this fill list at all.
+            _fill(
+                "BUY",
+                "100",
+                "0.05",
+                BASE_MS + 1000,
+                realized="5",
+                commission="0.05",
+                position_side="SHORT",
+            ),
+            # ...then a complete short round-trip that IS inside the window.
+            _fill("SELL", "200", "0.02", BASE_MS + 2000, position_side="SHORT"),
+            _fill("SELL", "198", "0.01", BASE_MS + 3000, position_side="SHORT"),
+            _fill(
+                "BUY",
+                "190",
+                "0.03",
+                BASE_MS + 4000,
+                realized="0.3",
+                commission="0.03",
+                position_side="SHORT",
+            ),
+        ]
+
+    def test_the_direction_is_short_not_long(self) -> None:
+        candidates = group_fills("BTCUSDT", self._short_book_opening_on_a_cover())
+
+        assert [c.direction for c in candidates] == ["short", "short"]
+
+    def test_the_leading_cover_does_not_seed_a_phantom_trade(self) -> None:
+        candidates = group_fills("BTCUSDT", self._short_book_opening_on_a_cover())
+
+        assert len(candidates) == 2
+        trunc = candidates[0]
+        assert trunc.status == "truncated"
+        assert trunc.truncated is True
+        assert [leg.role for leg in trunc.legs] == ["exit"]
+        # Its size is what it CLOSED — the entry legs are outside the window.
+        assert trunc.qty_total == pytest.approx(0.05)
+        assert trunc.avg_entry == 0.0
+        assert trunc.avg_exit == pytest.approx(100.0)
+
+    def test_the_real_round_trip_is_intact_and_not_merged(self) -> None:
+        real = group_fills("BTCUSDT", self._short_book_opening_on_a_cover())[1]
+
+        assert real.status == "closed"
+        assert real.truncated is False
+        # SELLs OPEN a short and the BUY closes it — the roles are not swapped.
+        assert [leg.role for leg in real.legs] == ["entry", "add", "exit"]
+        assert real.qty_total == pytest.approx(0.03)
+        assert real.avg_entry == pytest.approx((200 * 0.02 + 198 * 0.01) / 0.03)
+        assert real.avg_exit == pytest.approx(190.0)
+        # The pre-window cover's $5 must NOT land in this trade's P&L.
+        assert real.realized_pnl_usd == pytest.approx(0.3)
+
+    def test_a_short_book_opening_FLAT_is_unaffected(self) -> None:
+        """Specificity: the fix must not change the case that already worked."""
+        fills = [
+            _fill("SELL", "200", "0.02", BASE_MS + 1000, position_side="SHORT"),
+            _fill(
+                "BUY",
+                "190",
+                "0.02",
+                BASE_MS + 2000,
+                realized="0.2",
+                position_side="SHORT",
+            ),
+        ]
+
+        candidates = group_fills("BTCUSDT", fills)
+
+        assert len(candidates) == 1
+        assert candidates[0].direction == "short"
+        assert candidates[0].status == "closed"
+        assert candidates[0].truncated is False
+        assert [leg.role for leg in candidates[0].legs] == ["entry", "exit"]
+
+    def test_a_long_book_opening_on_a_sell_is_the_mirror_case(self) -> None:
+        fills = [
+            _fill(
+                "SELL",
+                "100",
+                "0.05",
+                BASE_MS + 1000,
+                realized="5",
+                position_side="LONG",
+            ),
+            _fill("BUY", "90", "0.02", BASE_MS + 2000, position_side="LONG"),
+            _fill(
+                "SELL",
+                "95",
+                "0.02",
+                BASE_MS + 3000,
+                realized="0.1",
+                position_side="LONG",
+            ),
+        ]
+
+        candidates = group_fills("BTCUSDT", fills)
+
+        assert [c.direction for c in candidates] == ["long", "long"]
+        assert [c.status for c in candidates] == ["truncated", "closed"]
+
+    def test_position_side_beats_the_fill_side_outright(self) -> None:
+        """`positionSide` is stated by the exchange; the fill side is inferred.
+
+        Where they disagree the exchange wins — that disagreement IS the bug.
+        """
+        assert _direction_for("SHORT", []) == "short"
+        assert _direction_for("LONG", []) == "long"
+
+    def test_one_way_mode_keeps_the_fill_side_heuristic(self) -> None:
+        """`BOTH` carries no positionSide, so the first entry leg is all there is."""
+        fills = [
+            _fill("SELL", "200", "0.02", BASE_MS + 1000),
+            _fill("BUY", "190", "0.02", BASE_MS + 2000, realized="0.2"),
+        ]
+
+        candidates = group_fills("BTCUSDT", fills)
+
+        assert len(candidates) == 1
+        assert candidates[0].direction == "short"
+        # No truncation bookkeeping in one-way mode: net is a SIGNED position
+        # there, so a leading close is indistinguishable from an opposite entry.
+        assert candidates[0].truncated is False
+
+    def test_truncated_reaches_the_json_payload(self) -> None:
+        candidates = group_fills("BTCUSDT", self._short_book_opening_on_a_cover())
+
+        assert candidates[0].to_json_dict()["truncated"] is True
+        assert candidates[1].to_json_dict()["truncated"] is False
+
+    def test_the_table_flags_a_truncated_row(self, capsys: Any) -> None:
+        candidates = group_fills("BTCUSDT", self._short_book_opening_on_a_cover())
+        for i, c in enumerate(candidates, 1):
+            c.index = i
+
+        _print_table(candidates)
+        out = capsys.readouterr().out
+
+        assert "truncated" in out
+        # The unknown entry renders as `?`, never as a plausible 0.00.
+        assert "?→100.00" in out
+        assert "0.00→100.00" not in out

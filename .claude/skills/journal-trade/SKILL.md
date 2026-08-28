@@ -68,6 +68,16 @@ Use this when the user invokes the skill **without** pasting trade details.
    keeps the 23 legacy entries recognised — so fill `entry_ts_utc` on every new entry.
    `--include-journaled` remains the way to re-read a trade already filed.
 
+   **This account is in HEDGE mode, so `positionSide` — not the fill side — states the
+   direction.** On a `SHORT` book a SELL opens and a BUY *covers*; on a `LONG` book it is the
+   other way round. `journal_fetch` reads it that way since 2026-08-27 (SoT ST109) and marks a
+   candidate **`truncated`** when the lookback opened mid-position, meaning its entry legs sit
+   outside the window — widen `--days` before journaling one. ⚠ **A `truncated` row's
+   `avg_entry` is not a price**, and the table prints `?` for it rather than `0.00`.
+   Before the fix, a window that sliced into an open short reported it as a **`long`**, **`open`**
+   trade with the entry and exit legs swapped and one round-trip split across two candidates —
+   so treat any pre-2026-08-27 listing you are re-reading with the same suspicion.
+
    **`--days` has a hard ceiling around 83 that the tool cannot tell you about.**
    `journal_fetch.py` reads fills from `/fapi/v1/userTrades`, which Binance retains for
    only ~83 days; past that the endpoint returns fewer rows **with no error and no
