@@ -323,6 +323,7 @@ def test_place_orders_writes_placement_row_with_instrumentation(
     assert len(rows) == 1
     row = read_jsonl(ledger)[0]
     assert row["kind"] == "placement" and row["order_id"] == 42
+    assert row["state_digest"] == "abc123"
     assert row["card_generated_at_ms"] == NOW_MS - 60_000
     assert row["mark_at_placement"] == 100.2
     assert row["bid_at_placement"] == 100.1 and row["ask_at_placement"] == 100.3
@@ -359,6 +360,7 @@ def test_gtx_rejection_is_recorded_not_raised(tmp_path: Path) -> None:
     assert row["terminal_reason"] == "gtx_rejected"
     # and the rejected card no longer re-presents: same anti-join key
     assert row["kind"] == "placement" and row["symbol"] == "BTCUSDT"
+    assert row["position_mode"] == "one_way"  # dual_side=False -> one-way wire shape
 
 
 def test_non_post_only_api_error_propagates_and_ledger_untouched(
@@ -442,6 +444,54 @@ def test_vetoed_decisions_are_skipped_and_dry_run_writes_nothing(
         == []
     )
     assert not ledger.exists()  # a dry run must not pollute the ledger
+
+
+def test_place_orders_short_one_way_wire_shape(tmp_path: Path) -> None:
+    """R12 gap 1: only the hedge/LONG path was asserted before this test."""
+    client = MagicMock()
+    client.futures_create_order.return_value = {"orderId": 43}
+    adapter = BinanceFuturesAdapter(client, mode="live")
+    ledger = tmp_path / "card-orders.jsonl"
+    rows = place_orders(
+        adapter,
+        [_decision(direction="short")],
+        ledger_path=ledger,
+        dual_side=False,
+        marks={},
+        books={},
+        positions={},
+        equity=None,
+        now_ms=NOW_MS,
+    )
+    assert len(rows) == 1
+    kwargs = client.futures_create_order.call_args.kwargs
+    assert kwargs["side"] == "SELL"
+    # one-way wire shape: reduceOnly present, positionSide absent
+    assert "reduceOnly" in kwargs
+    assert "positionSide" not in kwargs
+
+
+def test_place_orders_short_hedge_wire_shape(tmp_path: Path) -> None:
+    """R12 gap 1, second case: SHORT under dual_side=True."""
+    client = MagicMock()
+    client.futures_create_order.return_value = {"orderId": 44}
+    adapter = BinanceFuturesAdapter(client, mode="live")
+    ledger = tmp_path / "card-orders.jsonl"
+    rows = place_orders(
+        adapter,
+        [_decision(direction="short")],
+        ledger_path=ledger,
+        dual_side=True,
+        marks={},
+        books={},
+        positions={},
+        equity=None,
+        now_ms=NOW_MS,
+    )
+    assert len(rows) == 1
+    kwargs = client.futures_create_order.call_args.kwargs
+    assert kwargs["side"] == "SELL"
+    assert kwargs["positionSide"] == "SHORT"
 
 
 def _ledger_with_placement(tmp_path: Path, order_id: int = 42) -> Path:
