@@ -28,6 +28,29 @@ def test_get_positions_parses_signed_amt() -> None:
     assert pos == {"AAAUSDT": 1.5, "BBBUSDT": -2.0}  # zero dropped
 
 
+def test_get_net_positions_sums_both_hedge_legs() -> None:
+    """A dual-side account returns a LONG row AND a SHORT row per symbol.
+
+    `get_positions` keeps whichever arrives last, so with both legs open it
+    records one leg as the whole position -- which is what the card order
+    ledger's `position_at_placement` would have carried. Pinned as a
+    DIFFERENCE against `get_positions` on the same rows so a future edit
+    cannot quietly collapse the two methods back together.
+    """
+    client = MagicMock()
+    client.futures_position_information.return_value = [
+        {"symbol": "AAAUSDT", "positionSide": "LONG", "positionAmt": "1.5"},
+        {"symbol": "AAAUSDT", "positionSide": "SHORT", "positionAmt": "-0.5"},
+        {"symbol": "BBBUSDT", "positionSide": "LONG", "positionAmt": "2.0"},
+        {"symbol": "BBBUSDT", "positionSide": "SHORT", "positionAmt": "0"},
+        {"symbol": "CCCUSDT", "positionSide": "SHORT", "positionAmt": "0"},
+    ]
+    adapter = BinanceFuturesAdapter(client, mode="dry_run")
+    assert adapter.get_net_positions() == {"AAAUSDT": 1.0, "BBBUSDT": 2.0}
+    # the defect this exists to fix: last-row-wins reads AAAUSDT as -0.5
+    assert adapter.get_positions()["AAAUSDT"] == -0.5
+
+
 def test_get_equity_uses_total_margin_balance() -> None:
     client = MagicMock()
     client.futures_account.return_value = {"totalMarginBalance": "10250.5"}

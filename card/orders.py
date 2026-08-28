@@ -17,7 +17,12 @@ from typing import Any
 
 from card.card import _parse_iso_ms
 from card.ledger import _append_line
-from portfolio.sizing import risk_per_unit, round_down_to_step, round_to_tick
+from portfolio.sizing import (
+    _tick_decimals,
+    risk_per_unit,
+    round_down_to_step,
+    round_to_tick,
+)
 from trade.binance_futures import APIError, BinanceFuturesAdapter
 from trade.routing import ExchangeFilters, OrderIntent
 
@@ -47,13 +52,34 @@ class AggregateRisk:
     total_risk_usd: float
     total_risk_frac: float | None  # None when equity is unknown
     by_bet: list[tuple[str, str, float]]  # (symbol, direction, summed risk_usd)
+    # Rows whose risk_usd is None and so contribute 0.0 to the total above.
+    # The per-row view prints "?" for them, but the AGGREGATE line is what the
+    # y/N answers, and a total that silently omits them reads as complete.
+    unknown_risk_count: int = 0
 
 
-def read_jsonl(path: Path) -> list[dict[str, Any]]:
-    """Parse a jsonl file, tolerating a torn tail line (append-only ledgers)."""
+def read_jsonl_counted(path: Path) -> tuple[list[dict[str, Any]], int]:
+    """Parse a jsonl file, returning its rows AND the count of dropped lines.
+
+    A dropped line is not cosmetic here. A torn append (a crash mid-write)
+    leaves the file without a trailing newline, so the NEXT append
+    concatenates onto it and BOTH rows become one unparseable line -- losing a
+    complete placement row. The scan's anti-join on
+    (symbol, card_generated_at_ms) is the only thing stopping a card being
+    placed twice, so a silently dropped placement row re-presents that card in
+    the picklist and the operator places a DUPLICATE LIVE ORDER believing it
+    is new. The count exists so `run_place` can say so out loud.
+
+    Tolerating the line (rather than raising) is still right -- an unreadable
+    tail must not make the whole ledger unusable -- but the drop has to be
+    visible. Preventing the tear at the write end belongs in
+    `card.ledger._append_line`, which is shared with the ai-cards writer and
+    is tracked as a follow-up.
+    """
     if not path.exists():
-        return []
+        return [], 0
     out: list[dict[str, Any]] = []
+    dropped = 0
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line:
@@ -61,8 +87,14 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
         try:
             out.append(json.loads(line))
         except json.JSONDecodeError:
+            dropped += 1
             continue
-    return out
+    return out, dropped
+
+
+def read_jsonl(path: Path) -> list[dict[str, Any]]:
+    """Rows only, for callers with nothing to do about a dropped line."""
+    return read_jsonl_counted(path)[0]
 
 
 def scan_candidates(
@@ -145,6 +177,7 @@ def aggregate_risk(
         total_risk_usd=total,
         total_risk_frac=frac,
         by_bet=[(s, d, r) for (s, d), r in sorted(bets.items())],
+        unknown_risk_count=sum(1 for c in selected if c.risk_usd is None),
     )
 
 
@@ -200,8 +233,18 @@ def pick_interactive(
         if agg.total_risk_frac is not None
         else ""
     )
+    # A row with no risk_usd contributes 0.0 to the total, so the aggregate
+    # UNDERSTATES whenever one is selected. The per-row "?" is not enough --
+    # the y/N is answering this line, not that column.
+    unknown = (
+        f" ({agg.unknown_risk_count} of {len(selected)} with UNKNOWN risk_usd - "
+        "total understates)"
+        if agg.unknown_risk_count
+        else ""
+    )
     print_fn(
-        f"AGGREGATE: {len(selected)} orders, total risk ${agg.total_risk_usd:.2f}{frac}"
+        f"AGGREGATE: {len(selected)} orders, total risk "
+        f"${agg.total_risk_usd:.2f}{frac}{unknown}"
     )
     for symbol, direction, risk_usd in agg.by_bet:
         print_fn(f"  {symbol} {direction}: ${risk_usd:.2f}")
@@ -262,7 +305,23 @@ def check_placement(
         warnings.append("exchange filters unavailable - placing unrounded numbers")
     else:
         side = "BUY" if cand.direction == "long" else "SELL"
+        # Quantise to the step's own decimal precision, exactly as
+        # `round_to_tick` does for price and for the same reason:
+        # `round_down_to_step` returns `floor(quotient) * step`, which carries
+        # float error (`round_down_to_step(0.009, 0.001)` is
+        # 0.009000000000000001, and 0.8175 at that step is 0.8170000000000001).
+        # python-binance urlencodes params with a bare `str()`, so those 18
+        # decimals reach the wire and Binance rejects the order -1111,
+        # "precision is over the maximum defined for this asset". The price
+        # half was fixed inside `round_to_tick`; the quantity half is fixed
+        # HERE rather than inside `round_down_to_step`, which is shared with
+        # `trade/routing.py`'s XS router and whose wire shape this branch
+        # pinned byte-identical. A non-positive step means "unknown filter"
+        # and must pass through unrounded -- `_tick_decimals(0.0)` is 0, which
+        # would otherwise round a fractional quantity to a whole one.
         qty = round_down_to_step(cand.qty, filt.qty_step)
+        if filt.qty_step > 0.0:
+            qty = round(qty, _tick_decimals(filt.qty_step))
         price = round_to_tick(cand.entry, filt.price_tick, side)
         if qty <= 0.0 or qty < filt.min_qty:
             vetoes.append(
@@ -333,6 +392,18 @@ def place_orders(
     is recorded with order_id None + terminal_reason "gtx_rejected", which
     also suppresses re-presentation via the scan's anti-join.
     Dry-run placements return [] and write nothing.
+
+    A submit that fails with anything OTHER than an APIError -- a `requests`
+    timeout or connection reset, which python-binance raises as
+    BinanceRequestException / requests.Timeout rather than APIError -- may
+    still have been ACCEPTED by the exchange: the request reached it and the
+    response was lost. That order would be invisible to this ledger forever,
+    because `card-orders --refresh` only polls order ids it already holds. So
+    a row is written with order_id None + terminal_reason "submit_unknown",
+    the operator is told to check open orders by hand, and the error is then
+    re-raised unchanged. That row carries the anti-join key too, so the card
+    does not re-present while its true state is unknown -- resolving it is a
+    manual step, not a second automatic placement.
     """
     written: list[dict[str, Any]] = []
     for d in decisions:
@@ -355,12 +426,20 @@ def place_orders(
         )
         order_id: int | None = None
         terminal_reason: str | None = None
+        submit_error: BaseException | None = None
         try:
             resp = adapter.submit(intent, price=d.price)
         except APIError as exc:
+            # A non-5022 APIError is a real exchange refusal: the order does
+            # NOT exist, so it re-raises with the ledger untouched. Raising
+            # from inside this handler also keeps it away from the broad
+            # handler below, which must never record a refusal as "unknown".
             if getattr(exc, "code", None) != _POST_ONLY_REJECT:
                 raise
             terminal_reason = "gtx_rejected"
+        except Exception as exc:
+            terminal_reason = "submit_unknown"
+            submit_error = exc
         else:
             if resp.get("dryRun"):
                 continue  # never pollute the ledger from a dry run
@@ -393,6 +472,14 @@ def place_orders(
             row["terminal_at_ms"] = now_ms
         _append_line(ledger_path, row)
         written.append(row)
+        if submit_error is not None:
+            print(
+                f"! {cand.symbol}: submit outcome UNKNOWN ({submit_error!r}) - the "
+                "exchange may have ACCEPTED this order. Recorded as "
+                "submit_unknown; check open orders on the exchange MANUALLY "
+                "before re-running card-place."
+            )
+            raise submit_error
     return written
 
 
@@ -404,6 +491,9 @@ def place_orders(
 # enumerated set; _STATUS_REASON only prettifies the known cases into the
 # spec's vocabulary and is never consulted to decide terminal-ness.
 _WORKING_STATUSES = {"NEW", "PARTIALLY_FILLED", "PENDING_CANCEL"}
+# Binance's "Order does not exist": returned FOREVER for an order that was
+# cancelled or expired without filling and is now older than 7 days.
+_ORDER_NOT_FOUND = -2013
 _STATUS_REASON = {
     "FILLED": "filled",
     "CANCELED": "cancelled",
@@ -413,6 +503,11 @@ _STATUS_REASON = {
     # check_placement's XS guard exists for, arriving by a different route.
     "EXPIRED_IN_MATCH": "expired",
     "REJECTED": "rejected",
+    # SYNTHETIC, not a Binance status: written by this module when the poll
+    # comes back -2013. The order is gone and never filled, so the row is a
+    # fact rather than a guess -- but it is spelled out here so a reader
+    # never looks for "NOT_FOUND" in Binance's own status list.
+    "NOT_FOUND": "not_found",
 }
 
 
@@ -434,11 +529,20 @@ def refresh_orders(
     status recorded early is visible and recoverable, where silently
     retrying it forever is a permanent hole in the join above.
 
-    No try/except around futures_get_order: one failing poll aborts the rest
-    of this call's batch on purpose. Already-written rows persist and an
-    un-terminal order is simply retried on the next invocation, so the
-    ledger self-heals without one order's API error losing another order's
-    terminal row.
+    The poll is wrapped PER ORDER, because a batch-level abort is not
+    self-healing: Binance stops answering Query Order for an order that is
+    CANCELED or EXPIRED, was never filled, and is more than 7 days old -- the
+    exact shape of an unfilled GTX entry from a manually-run command -- and
+    then returns -2013 forever. Iterating in file order, one such row would
+    permanently block every LATER order from ever getting a terminal row,
+    and the placement<->terminal join is this feature's whole deliverable.
+
+    -2013 is therefore written as terminal with reason "not_found": the order
+    is provably gone and provably never filled, so that row is honest rather
+    than a guess. Any other poll failure (a timeout, a rate limit, a
+    credentials problem) warns and moves to the next order -- it says nothing
+    about that order's state, so it stays open and is retried on the next
+    invocation, which is where the self-healing actually lives.
     """
     rows = read_jsonl(ledger_path)
     terminal_ids = {r.get("order_id") for r in rows if r.get("kind") == "terminal"}
@@ -448,7 +552,21 @@ def refresh_orders(
             continue
         if p["order_id"] in terminal_ids:
             continue
-        order = client.futures_get_order(symbol=p["symbol"], orderId=p["order_id"])
+        try:
+            order = client.futures_get_order(symbol=p["symbol"], orderId=p["order_id"])
+        except Exception as exc:
+            if getattr(exc, "code", None) != _ORDER_NOT_FOUND:
+                print(
+                    f"! {p['symbol']} order {p['order_id']}: poll failed "
+                    f"({exc!r}) - left open, retried on the next --refresh"
+                )
+                continue
+            order = {
+                "status": "NOT_FOUND",
+                "updateTime": now_ms,
+                "avgPrice": 0.0,
+                "executedQty": 0.0,
+            }
         status = str(order.get("status"))
         if status in _WORKING_STATUSES:
             continue

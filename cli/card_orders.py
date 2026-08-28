@@ -20,6 +20,7 @@ from card.orders import (
     pick_interactive,
     place_orders,
     read_jsonl,
+    read_jsonl_counted,
     refresh_orders,
     scan_candidates,
 )
@@ -47,9 +48,20 @@ def run_place(args: argparse.Namespace) -> None:
     from utils.binance_client import create_client
 
     now_ms = _now_ms()
+    order_rows, dropped = read_jsonl_counted(Path(args.ledger))
+    if dropped:
+        # A dropped ledger line can be a lost PLACEMENT row, and the anti-join
+        # below is the only thing stopping a card being placed twice. Loud,
+        # before the picklist: an already-placed card may re-present here and
+        # look new.
+        print(
+            f"!! {dropped} unparseable line(s) in {args.ledger} - a lost "
+            "placement row means an ALREADY-PLACED card can re-present below. "
+            "Check the ledger tail before placing."
+        )
     candidates = scan_candidates(
         read_jsonl(Path(args.cards_path)),
-        read_jsonl(Path(args.ledger)),
+        order_rows,
         now_ms,
     )
     if not candidates:
@@ -68,6 +80,10 @@ def run_place(args: argparse.Namespace) -> None:
         return
     symbols = sorted({c.symbol for c in selected})
     filters = adapter.get_filters(symbols)
+    # Load-bearing ORDER: `_universe_symbols()` raises FileNotFoundError on a
+    # wrong cwd, so it fails loudly BEFORE `XS_LIVE_MARKER.exists()` is
+    # probed. That probe is a relative path too and would answer a silent
+    # False from the same wrong cwd, leaving the XS collision guard inert.
     managed = _universe_symbols()
     dual_side = bool(client.futures_get_position_mode().get("dualSidePosition"))
     decisions = [
@@ -92,7 +108,9 @@ def run_place(args: argparse.Namespace) -> None:
         dual_side=dual_side,
         marks=adapter.get_marks(symbols),
         books=adapter.get_book_tops(symbols),
-        positions=adapter.get_positions(),
+        # hedge-aware: this account is dual-side, where get_positions() keeps
+        # only the last leg it saw for a symbol
+        positions=adapter.get_net_positions(),
         equity=equity,
         now_ms=_now_ms(),
     )

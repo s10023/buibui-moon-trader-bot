@@ -48,6 +48,32 @@ class BinanceFuturesAdapter:
                 out[r["symbol"]] = amt
         return out
 
+    def get_net_positions(self) -> dict[str, float]:
+        """Net `positionAmt` per symbol, SUMMED across position sides.
+
+        `get_positions` above keeps whichever row for a symbol arrives last,
+        which is correct on a one-way account (one row per symbol) and wrong
+        on a DUAL-SIDE one, where `futures_position_information` returns a
+        LONG row and a SHORT row per symbol: with both legs open it records
+        one leg as the whole position. This account has been hedge-mode for
+        its entire history, so the card order ledger's `position_at_placement`
+        reads from here instead.
+
+        Added beside `get_positions` rather than replacing it: the XS executor
+        depends on that method's exact shape, and additive cannot break it.
+        Summing means a fully hedged symbol reads 0.0 -- which is its true net
+        exposure, the number this field claims to record. Legs are not broken
+        out because the ledger field is a single float; a per-side record
+        would be a schema change, not a fix.
+        """
+        rows = self.client.futures_position_information()
+        out: dict[str, float] = {}
+        for r in rows:
+            amt = float(r["positionAmt"])
+            if amt != 0.0:
+                out[r["symbol"]] = out.get(r["symbol"], 0.0) + amt
+        return out
+
     def get_equity(self) -> float:
         return float(self.client.futures_account()["totalMarginBalance"])
 

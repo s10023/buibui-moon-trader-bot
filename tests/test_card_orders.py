@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import argparse
 import json
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -19,6 +21,7 @@ from card.orders import (
     pick_interactive,
     place_orders,
     read_jsonl,
+    read_jsonl_counted,
     refresh_orders,
     scan_candidates,
 )
@@ -493,6 +496,8 @@ def test_place_orders_short_hedge_wire_shape(tmp_path: Path) -> None:
     kwargs = client.futures_create_order.call_args.kwargs
     assert kwargs["side"] == "SELL"
     assert kwargs["positionSide"] == "SHORT"
+    # symmetry with the hedge/LONG case: hedge mode REJECTS reduceOnly
+    assert "reduceOnly" not in kwargs
 
 
 def _ledger_with_placement(tmp_path: Path, order_id: int = 42) -> Path:
@@ -799,3 +804,342 @@ def test_pick_interactive_zero_risk_frac_still_shows_percentage() -> None:
         now_ms=NOW_MS,
     )
     assert any("AGGREGATE" in s and "% of equity" in s for s in out)
+
+
+# --- R18 fix wave -----------------------------------------------------------
+
+
+def _decimal_places(x: float) -> int:
+    """Decimal places in a float's own `str()` -- what reaches the wire."""
+    exponent = Decimal(str(x)).normalize().as_tuple().exponent
+    return max(0, -int(exponent))
+
+
+def _qty_filter(step: float) -> ExchangeFilters:
+    return ExchangeFilters(
+        symbol="BTCUSDT",
+        qty_step=step,
+        min_qty=step,
+        min_notional=5.0,
+        price_tick=0.1,
+    )
+
+
+@pytest.mark.parametrize(("raw_qty", "expected"), [(0.009, "0.009"), (0.8175, "0.817")])
+def test_rounded_qty_carries_no_float_noise_to_the_wire(
+    raw_qty: float, expected: str
+) -> None:
+    """R18 critical: the quantity must be quantised to the STEP's precision.
+
+    `round_down_to_step` returns `floor(quotient) * step`, which is a float
+    product and not a decimal: `round_down_to_step(0.009, 0.001)` is
+    0.009000000000000001 and `0.8175` is 0.8170000000000001. python-binance
+    urlencodes params with a bare `str()`, so 18 decimals reach the wire on a
+    3-decimal filter and Binance rejects the order -1111. Both inputs
+    reproduce that today, and 2 of 46 real TRADE rows in `ai-cards.jsonl` do.
+
+    Asserted on `str()` rather than on `==` alone because the string form IS
+    the wire form -- a numeric assertion invites a later `pytest.approx`,
+    which would pass on a float that still serialises wrong. Every other test
+    in this file is blind to this class: `MagicMock` accepts any float.
+    """
+    c = CardCandidate(
+        symbol="BTCUSDT",
+        direction="long",
+        entry=10_000.0,
+        sl=9_800.0,
+        qty=raw_qty,
+        risk_usd=1.0,
+        risk_frac=None,
+        valid_until_ms=NOW_MS + 3_600_000,
+        generated_at_ms=NOW_MS,
+        state_digest="d",
+    )
+    d = check_placement(
+        c, _qty_filter(0.001), managed=False, xs_live_marker=False, now_ms=NOW_MS
+    )
+    assert d.vetoes == []
+    assert str(d.qty) == expected
+    assert _decimal_places(d.qty) <= _decimal_places(0.001)
+
+
+def test_unknown_qty_step_passes_through_unrounded() -> None:
+    """A zero step means "filter unavailable" and must not be quantised.
+
+    `_tick_decimals(0.0)` is 0, so an unguarded `round(qty, decimals)` would
+    turn a fractional quantity into a whole one -- rounding a 1.5 lot UP to 2
+    and buying more than the card sized.
+    """
+    c = _cand("BTCUSDT", "long")  # qty 1.5
+    filt = ExchangeFilters(
+        symbol="BTCUSDT",
+        qty_step=0.0,
+        min_qty=0.0,
+        min_notional=0.0,
+        price_tick=0.1,
+    )
+    d = check_placement(c, filt, managed=False, xs_live_marker=False, now_ms=NOW_MS)
+    assert d.qty == 1.5
+
+
+def test_read_jsonl_counted_reports_a_torn_append(tmp_path: Path) -> None:
+    """R18 #2: a dropped line must be COUNTABLE, not merely tolerated.
+
+    A crash mid-write leaves no trailing newline, so the next append
+    concatenates onto it and both rows become one unparseable line -- losing a
+    whole placement row, which is what stops a card being placed twice.
+    """
+    ledger = tmp_path / "card-orders.jsonl"
+    good = {"kind": "placement", "order_id": 7, "symbol": "BTCUSDT"}
+    torn = json.dumps(good) + json.dumps(good)  # the concatenation, no newline
+    ledger.write_text(json.dumps(good) + "\n" + torn + "\n", encoding="utf-8")
+    rows, dropped = read_jsonl_counted(ledger)
+    assert len(rows) == 1 and dropped == 1
+    assert read_jsonl(ledger) == rows  # the rows-only signature still works
+    assert read_jsonl_counted(tmp_path / "absent.jsonl") == ([], 0)
+
+
+def _wire_run_place(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    ledger_text: str = "",
+) -> tuple[argparse.Namespace, list[dict[str, Any]]]:
+    """Run-place harness: real wiring, no network, `check_placement` spied on.
+
+    Only the leaf calls are replaced -- the client factory, the interactive
+    picklist and the submit -- so `run_place`'s own argument construction
+    (which is what R18 #4 says is untested) runs for real.
+    """
+    from cli import card_orders as cli_orders
+
+    cards = tmp_path / "ai-cards.jsonl"
+    cards.write_text(json.dumps(_trade_row()) + "\n", encoding="utf-8")
+    ledger = tmp_path / "card-orders.jsonl"
+    if ledger_text:
+        ledger.write_text(ledger_text, encoding="utf-8")
+    marker = tmp_path / "execution_state_live.json"
+    marker.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(cli_orders, "XS_LIVE_MARKER", marker)
+    monkeypatch.setattr(
+        "utils.binance_client.create_client", lambda *a, **k: MagicMock()
+    )
+    monkeypatch.setattr(
+        cli_orders, "pick_interactive", lambda cands, equity, **kw: cands
+    )
+    seen: list[dict[str, Any]] = []
+
+    def _spy(cand: CardCandidate, filt: Any, **kwargs: Any) -> PlacementDecision:
+        seen.append(kwargs)
+        return check_placement(cand, filt, **kwargs)
+
+    monkeypatch.setattr(cli_orders, "check_placement", _spy)
+    monkeypatch.setattr(cli_orders, "place_orders", lambda *a, **k: [])
+    args = argparse.Namespace(cards_path=str(cards), ledger=str(ledger), dry_run=True)
+    return args, seen
+
+
+def test_run_place_wires_the_xs_guard_arguments(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R18 #4: the XS guard's WIRING, not just its truth table.
+
+    `test_xs_guard_four_quadrants` passes `managed=` / `xs_live_marker=` as
+    literals and `test_universe_symbols_reads_the_nested_universe_table` tests
+    the parser alone, so a slip in `run_place` -- `managed=False`, or the
+    marker renamed under `docs/plans/` -- leaves the guard PERMANENTLY INERT
+    with every test still green. This is the guard the spec calls the
+    feature's original blocker: `cancel_open_orders` is symbol-WIDE, and
+    `config/universe.toml` leads with exactly the carded majors.
+
+    BTCUSDT is read from the real committed universe, so a symbol leaving that
+    file surfaces here rather than silently.
+    """
+    from cli.card_orders import run_place
+
+    args, seen = _wire_run_place(tmp_path, monkeypatch)
+    run_place(args)
+    assert len(seen) == 1
+    assert seen[0]["managed"] is True
+    assert seen[0]["xs_live_marker"] is True
+
+
+def test_run_place_warns_when_a_ledger_line_was_dropped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """R18 #2: a torn ledger re-presents an already-placed card -- say so.
+
+    The torn line here IS this card's placement row, concatenated with the
+    next one, so the anti-join misses and the card presents as new. The
+    operator must not learn that from a duplicate live order.
+    """
+    from cli.card_orders import run_place
+
+    placed = {
+        "kind": "placement",
+        "order_id": 7,
+        "symbol": "BTCUSDT",
+        "card_generated_at_ms": NOW_MS - 60_000,
+    }
+    torn = json.dumps(placed) + json.dumps(placed) + "\n"
+    args, seen = _wire_run_place(tmp_path, monkeypatch, ledger_text=torn)
+    run_place(args)
+    out = capsys.readouterr().out
+    assert "unparseable" in out and "ALREADY-PLACED" in out
+    assert len(seen) == 1  # and the card really did re-present
+
+
+def _ledger_with_two_placements(tmp_path: Path) -> Path:
+    ledger = tmp_path / "card-orders.jsonl"
+    with ledger.open("w", encoding="utf-8") as f:
+        for oid in (42, 43):
+            f.write(
+                json.dumps(
+                    {
+                        "kind": "placement",
+                        "order_id": oid,
+                        "symbol": "BTCUSDT",
+                        "card_generated_at_ms": NOW_MS - 60_000,
+                        "state_digest": "abc123",
+                    }
+                )
+                + "\n"
+            )
+    return ledger
+
+
+def _filled_order() -> dict[str, Any]:
+    return {
+        "status": "FILLED",
+        "avgPrice": "99.9",
+        "executedQty": "0.5",
+        "updateTime": NOW_MS + 5,
+    }
+
+
+def test_refresh_records_not_found_and_keeps_going(tmp_path: Path) -> None:
+    """R18 #3: -2013 is permanent, so it must not block every LATER order.
+
+    Binance stops answering Query Order for an order that was cancelled or
+    expired without filling and is over 7 days old -- the exact shape of an
+    unfilled GTX entry from a hand-run command. Iterating in file order, one
+    such row aborted the batch and permanently blocked every order behind it
+    from ever getting a terminal row.
+    """
+    ledger = _ledger_with_two_placements(tmp_path)
+    client = MagicMock()
+    client.futures_get_order.side_effect = [
+        _api_error(-2013, "Order does not exist."),
+        _filled_order(),
+    ]
+    rows = refresh_orders(client, ledger, marks={"BTCUSDT": 100.5}, now_ms=NOW_MS)
+    assert [r["order_id"] for r in rows] == [42, 43]
+    assert rows[0]["reason"] == "not_found" and rows[0]["status"] == "NOT_FOUND"
+    assert rows[0]["terminal_at_ms"] == NOW_MS  # no updateTime to read
+    assert rows[0]["avg_price"] == 0.0 and rows[0]["executed_qty"] == 0.0
+    assert rows[0]["mark_at_terminal"] == 100.5
+    assert rows[1]["reason"] == "filled"
+
+
+def test_refresh_poll_failure_warns_and_leaves_the_order_open(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """R18 #3, other half: a transient failure says NOTHING about the order.
+
+    So it warns, moves to the next order (the batch is not abandoned), leaves
+    no terminal row behind, and the next `--refresh` picks it up -- which is
+    where the docstring's self-healing claim actually lives.
+    """
+    ledger = _ledger_with_two_placements(tmp_path)
+    client = MagicMock()
+    client.futures_get_order.side_effect = [
+        ConnectionError("read timed out"),
+        _filled_order(),
+    ]
+    rows = refresh_orders(client, ledger, marks={}, now_ms=NOW_MS)
+    assert [r["order_id"] for r in rows] == [43]
+    assert "poll failed" in capsys.readouterr().out
+    client.futures_get_order.side_effect = None
+    client.futures_get_order.return_value = _filled_order()
+    again = refresh_orders(client, ledger, marks={}, now_ms=NOW_MS)
+    assert [r["order_id"] for r in again] == [42]  # retried, not lost
+
+
+def test_submit_timeout_records_submit_unknown_then_reraises(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """R18 #7: a timeout AFTER the exchange accepts leaves an orphan order.
+
+    `requests` timeouts raise BinanceRequestException / requests.Timeout, not
+    APIError, so they used to propagate past the APIError handler with no row
+    written -- and `card-orders --refresh` only polls ids it already holds, so
+    that order would be invisible to the ledger forever. The row makes it
+    visible; the re-raise keeps the failure loud.
+    """
+    client = MagicMock()
+    client.futures_create_order.side_effect = ConnectionError("read timed out")
+    adapter = BinanceFuturesAdapter(client, mode="live")
+    ledger = tmp_path / "card-orders.jsonl"
+    with pytest.raises(ConnectionError):
+        place_orders(
+            adapter,
+            [_decision()],
+            ledger_path=ledger,
+            dual_side=True,
+            marks={},
+            books={},
+            positions={},
+            equity=None,
+            now_ms=NOW_MS,
+        )
+    rows = read_jsonl(ledger)
+    assert len(rows) == 1
+    assert rows[0]["kind"] == "placement" and rows[0]["symbol"] == "BTCUSDT"
+    assert rows[0]["order_id"] is None
+    assert rows[0]["terminal_reason"] == "submit_unknown"
+    assert "MANUALLY" in capsys.readouterr().out
+
+
+def test_aggregate_names_the_rows_whose_risk_is_unknown() -> None:
+    """R18 #6: `sum(c.risk_usd or 0.0)` treats an unknown risk as $0.
+
+    The per-row view prints "?", but the AGGREGATE line is the figure the y/N
+    is answering, and a silently understated total reads as complete.
+    """
+    known = _cand("BTCUSDT", "long", risk_usd=2.5)
+    unknown = CardCandidate(
+        symbol="ETHUSDT",
+        direction="long",
+        entry=100.0,
+        sl=98.0,
+        qty=1.5,
+        risk_usd=None,
+        risk_frac=None,
+        valid_until_ms=NOW_MS + 3_600_000,
+        generated_at_ms=NOW_MS - 60_000,
+        state_digest="abc123",
+    )
+    assert aggregate_risk([known, unknown], 1000.0).unknown_risk_count == 1
+    assert aggregate_risk([known], 1000.0).unknown_risk_count == 0
+    out: list[str] = []
+    lines = iter(["1 2", "n"])
+    pick_interactive(
+        [known, unknown],
+        equity=1000.0,
+        input_fn=lambda _prompt: next(lines),
+        print_fn=out.append,
+        now_ms=NOW_MS,
+    )
+    agg = next(s for s in out if s.startswith("AGGREGATE"))
+    assert "1 of 2" in agg and "UNKNOWN" in agg
+    # and no noise on the all-known path
+    out.clear()
+    lines = iter(["1", "n"])
+    pick_interactive(
+        [known],
+        equity=1000.0,
+        input_fn=lambda _prompt: next(lines),
+        print_fn=out.append,
+        now_ms=NOW_MS,
+    )
+    assert "UNKNOWN" not in next(s for s in out if s.startswith("AGGREGATE"))
