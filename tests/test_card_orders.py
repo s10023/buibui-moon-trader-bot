@@ -706,3 +706,96 @@ def test_universe_symbols_reads_the_nested_universe_table() -> None:
     symbols = _universe_symbols()
     assert symbols  # non-empty: a version reading the wrong table passes silently
     assert "BTCUSDT" in symbols
+
+
+def test_pick_interactive_countdown_uses_injected_clock() -> None:
+    """R16: `now_ms` must be an injectable parameter, mirroring every other
+    function in this module -- the "expires" countdown is the one field the
+    operator actually reads before confirming a real-money placement, and it
+    is otherwise the only untestable-for-time surface in the file. The
+    candidate's default valid_until_ms is exactly NOW_MS + 3_600_000, one
+    hour ahead, so passing now_ms=NOW_MS produces an unambiguous "60m"."""
+    out: list[str] = []
+    pick_interactive(
+        [_cand("BTCUSDT", "long")],
+        equity=None,
+        input_fn=lambda _prompt: "",
+        print_fn=out.append,
+        now_ms=NOW_MS,
+    )
+    assert any("BTCUSDT" in s and "60m" in s for s in out)
+
+
+def test_pick_interactive_header_names_every_column_in_order() -> None:
+    """Minor 1 (R17): pins the spec-mandated column list on a money surface
+    -- a future edit dropping, say, the SL column would otherwise stay
+    invisible to every gate (this repo's own "green gates are blind to
+    rendering" lesson)."""
+    out: list[str] = []
+    pick_interactive(
+        [_cand("BTCUSDT", "long")],
+        equity=None,
+        input_fn=lambda _prompt: "",
+        print_fn=out.append,
+        now_ms=NOW_MS,
+    )
+    header = out[1]  # out[0] is the ONE DRAW hazard line
+    fields = ["symbol", "dir", "entry", "sl", "qty", "risk_usd", "expires"]
+    positions = [header.index(f) for f in fields]  # raises if any is missing
+    assert positions == sorted(positions)  # and in the spec's order
+
+
+def test_pick_interactive_shows_question_mark_when_risk_usd_missing() -> None:
+    """Minor 3 (R17): the risk_usd=None -> "?" fallback had no covering
+    candidate anywhere in this file."""
+    cand = CardCandidate(
+        symbol="BTCUSDT",
+        direction="long",
+        entry=100.0,
+        sl=98.0,
+        qty=1.5,
+        risk_usd=None,
+        risk_frac=None,
+        valid_until_ms=NOW_MS + 3_600_000,
+        generated_at_ms=NOW_MS - 60_000,
+        state_digest="abc123",
+    )
+    out: list[str] = []
+    pick_interactive(
+        [cand],
+        equity=None,
+        input_fn=lambda _prompt: "",
+        print_fn=out.append,
+        now_ms=NOW_MS,
+    )
+    row = out[2]
+    assert "?" in row
+
+
+def test_pick_interactive_zero_risk_frac_still_shows_percentage() -> None:
+    """Minor 2 (R17): `agg.total_risk_frac` of exactly 0.0 is a legitimate
+    value (equity known, risk zero) and must not be treated as falsy like
+    `None` is -- the old `if agg.total_risk_frac` dropped the "% of equity"
+    suffix for both cases alike."""
+    cand = CardCandidate(
+        symbol="BTCUSDT",
+        direction="long",
+        entry=100.0,
+        sl=98.0,
+        qty=1.5,
+        risk_usd=0.0,
+        risk_frac=None,
+        valid_until_ms=NOW_MS + 3_600_000,
+        generated_at_ms=NOW_MS - 60_000,
+        state_digest="abc123",
+    )
+    out: list[str] = []
+    lines = iter(["1", "y"])
+    pick_interactive(
+        [cand],
+        equity=1000.0,  # known equity + zero risk -> total_risk_frac == 0.0, not None
+        input_fn=lambda _prompt: next(lines),
+        print_fn=out.append,
+        now_ms=NOW_MS,
+    )
+    assert any("AGGREGATE" in s and "% of equity" in s for s in out)

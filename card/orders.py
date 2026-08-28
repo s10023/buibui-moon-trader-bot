@@ -160,14 +160,23 @@ def pick_interactive(
     *,
     input_fn: Callable[[str], str],
     print_fn: Callable[[str], None],
+    now_ms: int | None = None,
 ) -> list[CardCandidate]:
-    """Numbered table -> selection -> aggregate echo -> y/N confirm."""
+    """Numbered table -> selection -> aggregate echo -> y/N confirm.
+
+    `now_ms` mirrors the injection pattern every other function in this
+    module uses (`scan_candidates`, `check_placement`, `place_orders`,
+    `refresh_orders`) so the "expires" countdown -- the one field here the
+    operator reads before committing real money -- can be tested
+    deterministically. `None` (the CLI's call site) defaults to wall clock.
+    """
     print_fn(_ONE_DRAW_LINE)
     print_fn(
         f"{'#':>2}  {'symbol':<10} {'dir':<5} {'entry':>12} {'sl':>12} "
         f"{'qty':>10} {'risk_usd':>9}  expires"
     )
-    now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
+    if now_ms is None:
+        now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
     for i, c in enumerate(candidates, 1):
         mins = (c.valid_until_ms - now_ms) / 60_000
         risk = f"{c.risk_usd:.2f}" if c.risk_usd is not None else "?"
@@ -187,7 +196,9 @@ def pick_interactive(
     selected = [candidates[i] for i in picks]
     agg = aggregate_risk(selected, equity)
     frac = (
-        f" = {agg.total_risk_frac * 100:.2f}% of equity" if agg.total_risk_frac else ""
+        f" = {agg.total_risk_frac * 100:.2f}% of equity"
+        if agg.total_risk_frac is not None
+        else ""
     )
     print_fn(
         f"AGGREGATE: {len(selected)} orders, total risk ${agg.total_risk_usd:.2f}{frac}"
