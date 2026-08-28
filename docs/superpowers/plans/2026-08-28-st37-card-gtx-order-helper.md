@@ -1341,6 +1341,15 @@ git commit -m "feat: card-place and card-orders CLI with interactive GTX picklis
   `"AI trade card for one symbol (advisory; routes no orders)"` becomes
   `"AI trade card for one symbol (advisory; card-place places picked TRADE cards)"`.
 - Modify: `README.md` — add the two commands to the CLI list.
+- Modify: `.claude/context/signals.md` — its `card/` entry claims "nothing in the tree
+  reads that file back" about `ai-cards.jsonl` and closes with "Advisory only — no order
+  routing"; BOTH become false the moment `card/orders.py` lands. Update both, and add
+  `orders.py` to the module enumeration. (Caught by the `negative-claims` sweep leg on
+  the spec branch, 2026-08-28.)
+- Modify: `AGENTS.md` card section line "nothing in the tree reads that file, so it
+  costs no consumer" — `card-place` is now the consumer; the v4/v5 break note needs
+  re-wording to say the reader tolerates both shapes (the scan only touches fields
+  present since v4).
 
 **Interfaces:** none — prose only, but it MUST land in this same branch: the SoT row's
 own condition for changing the invariant is that skill + docs move with the code.
