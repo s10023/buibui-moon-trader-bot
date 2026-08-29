@@ -61,7 +61,7 @@ trend_day        = ["4h", "1d"]       # 15m mean_r=-0.082 suppressed
 fib_golden_zone  = ["4h", "1d"]       # 15m mean_r=-0.254, 1h mean_r=-0.195 suppressed
 eqh_eql          = ["1h", "1d"]              # Phase 1: 4h dropped (audit -0.217R, 33% positive); 15m already excluded
 smt_divergence   = ["15m", "1h", "1d"]       # Phase 1: 4h dropped (audit -0.307R, 25% positive)
-orb              = ["1h", "4h", "1d"]        # 15m mean_r=-0.163 suppressed
+orb              = ["1h", "4h"]              # 15m mean_r=-0.163 suppressed; 1d IMPOSSIBLE, not weak — the opening range needs >=range_candles+1 bars per UTC date and 1d has exactly 1, so orb_breakout.py:56-62 `continue`s on every date (51 runs, 0 signals, every day_filter)
 bos              = ["15m", "1h", "4h"]       # 1d mean_r=-0.785 suppressed; 4h mean_r=+0.223 re-enabled
 pin_bar          = ["15m", "4h", "1d"]       # 2026-06-04 DOW prune: 1h L -0.29(23)/S -0.63(16) tue_thu, neg both dirs (Group A)
 liquidity_sweep  = ["1d"]                    # 2026-05-17 T6 Phase A day-filter audit: 1h dropped (combined -0.48R, 31% WR, n=287; per-symbol BTC/ETH/SOL all -0.23 to -0.61R). F9 floor + atr_sl_multiplier_1h overrides retained below for future re-enable.
