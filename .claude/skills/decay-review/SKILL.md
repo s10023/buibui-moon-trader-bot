@@ -27,12 +27,32 @@ session to interpret. Stamp it only after the report is written:
 date -u +%FT%TZ > docs/plans/task-marks/decay-review
 ```
 
+## Step 0 — TAKE THE DB COPY FIRST, before any leg
+
+```bash
+cp analytics.db "$SCRATCH/decay.db"        # or use today's daily/<date>/analytics.db
+```
+
+⛔ **Not optional, and not a fallback for when a leg fails.** The 15-min signal-watch writer
+takes the **exclusive** DuckDB lock at `:01/16/31/46`, so a leg started at the wrong minute dies
+with `IOException: Conflicting lock is held ... by user kng` — and a review is 3+ legs over
+several minutes, so it *will* straddle a write window. Measured 2026-08-29: Legs 1 and 2 got
+through on the live DB and Leg 3 was refused mid-review, which is the worst outcome because it is
+silent about the real cost — **the legs then describe different instants and are no longer one
+reading.** The 08-23 review took one isolated copy at 09:06 UTC for exactly this reason and said
+so in its own header.
+
+⚠ **Do NOT `cp` while the writer holds the lock** — that risks a torn copy. Either copy between
+windows, or use the verified `daily/<date>/analytics.db` snapshot, which the backup script has
+already checked. A backup-to-backup comparison is *better* than live-vs-backup for Leg 3, because
+both ends are then verified snapshots taken the same way.
+
 ## Leg 1 — DSR-suspect list + gate reachability
 
 ```bash
-make buibui-decay-review                              # every live config — the default
+make buibui-decay-review DB="$SCRATCH/decay.db"            # against the Step 0 copy
+make buibui-decay-review                                   # live DB — only outside a write window
 make buibui-decay-review CONFIG=config/signal_watch.toml   # one config
-make buibui-decay-review DB=/path/to/copy.db          # off the :01/16/31/46 lock
 ```
 
 Read-only. Rebuilds the exact pools `compute_dsr_ratings` uses via the shared
@@ -94,6 +114,12 @@ week-over-week *delta* is the deliverable.
 ```bash
 make buibui-portfolio-replay          # CONFIG= / CAPITAL= / VOL_TARGET= override
 ```
+
+⚠ **The headline metrics are at the TOP, above a ~60-row attribution table — do not `tail` this.**
+Sharpe / Sortino / Calmar / max drawdown print immediately after the era check, then the
+per-strategy×tf×direction rows run to the bottom. Piping through `tail -45` looks reasonable and
+silently discards every number the leg exists to produce, costing a full re-run (measured
+2026-08-29). Redirect the whole thing to a file, or `grep -A12 'HEADLINE'`.
 
 Read-only replay of the live outcome ledger through the Carver sizing model. Join the
 attribution extremes to the star rating **of the same cell** — that join is the point
