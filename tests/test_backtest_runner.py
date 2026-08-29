@@ -15,6 +15,7 @@ from analytics.backtest_runner import (
     _apply_strategy_timeframes_directional_filter,
     _build_funding_series_by_symbol,
     _collect_sweep_results,
+    detect_signals_for_strategy,
     format_sweep_table,
 )
 from analytics.data_store import init_schema, upsert_funding_rates, upsert_ohlcv
@@ -545,3 +546,85 @@ class TestCollectSweepResultsPlumbing:
             "funding_series was None — not threaded through"
         )
         assert 1_700_000_000_000 in funding_series.index
+
+    def test_detector_params_reach_the_detector_call(self) -> None:
+        """ST104 P1: cfg.detector_params must reach detect_signals_for_strategy.
+
+        Proves the sweep/run entry function (`run_backtest_sweep` builds `cfg`;
+        `_collect_sweep_results` is its Phase-1 detect loop) threads the axis
+        all the way to the detector call site, not just that the run_id and
+        stored row know about it in isolation.
+        """
+        conn = _make_in_memory_conn()
+        ohlcv_df = _make_ohlcv_df("BTCUSDT", "15m", n=20)
+        upsert_ohlcv(conn, ohlcv_df, venue="binance")
+
+        start_ms = 0
+        end_ms = 9_999_999_999_999
+        retune_params = {"lookback": 400, "tolerance_pct": 0.00075, "swing_n": 2}
+
+        cfg = BacktestSweepConfig(
+            symbols=["BTCUSDT"],
+            timeframes=["15m"],
+            strategies=["eqh_eql"],
+            save_results=False,
+            detector_params=retune_params,
+        )
+
+        fake_signals = pd.DataFrame(
+            {
+                "open_time": [1_700_000_000_000],
+                "direction": ["long"],
+                "reason": ["eql_long"],
+                "sl_price": [99.0],
+                "context": [None],
+            }
+        )
+        fake_bt_result = BacktestResult(
+            symbol="BTCUSDT", timeframe="15m", strategy="eqh_eql"
+        )
+
+        with (
+            patch(
+                "analytics.backtest_runner.detect_signals_for_strategy",
+                return_value=fake_signals,
+            ) as mock_detect,
+            patch(
+                "analytics.backtest_runner.run_backtest",
+                return_value=fake_bt_result,
+            ),
+        ):
+            _collect_sweep_results(
+                conn,
+                cfg,
+                cfg.tp_r,
+                ["BTCUSDT"],
+                ["eqh_eql"],
+                start_ms,
+                end_ms,
+            )
+
+        assert mock_detect.called, "detect_signals_for_strategy was not called"
+        assert mock_detect.call_args.kwargs.get("detector_params") == retune_params
+
+    def test_detector_params_reach_the_real_eqh_eql_detector(self) -> None:
+        """Unmocked call: proves the kwarg names genuinely match the registered
+        detector's signature, which a mock (as above) cannot — a mock accepts
+        any kwarg silently, while the real `detect_eqh_eql` would raise
+        ``TypeError`` on a misspelled one.
+        """
+        conn = _make_in_memory_conn()
+        ohlcv = _make_ohlcv_df("BTCUSDT", "15m", n=20)
+
+        result = detect_signals_for_strategy(
+            conn,
+            ohlcv,
+            "BTCUSDT",
+            "15m",
+            "eqh_eql",
+            0,
+            9_999_999_999_999,
+            detector_params={"lookback": 3, "tolerance_pct": 0.01, "swing_n": 1},
+        )
+        assert result is not None
+        assert isinstance(result, pd.DataFrame)

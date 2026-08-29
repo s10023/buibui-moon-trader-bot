@@ -1,7 +1,9 @@
 """backtest_runs + backtest_trades upserts/queries."""
 
 import hashlib
+import json
 import time
+from collections.abc import Mapping
 from typing import Any
 
 import duckdb
@@ -32,6 +34,21 @@ def _insert_sql(table: str, row: dict[str, Any], view: str) -> str:
     return f"INSERT OR REPLACE INTO {table} ({cols}) SELECT {cols} FROM {view}"
 
 
+def _detector_params_suffix(params: Mapping[str, float | int]) -> str:
+    """Format sorted ``k=v`` pairs for the run_id key.
+
+    Rejects ``bool`` values — ``bool`` is an ``int`` subclass, so an unguarded
+    numeric check would silently accept ``True``/``False`` as ``1``/``0`` and
+    hash/store them with no trace they were ever boolean. Every detector
+    keyword this repo has (``lookback``, ``tolerance_pct``, ``swing_n``) is
+    genuinely numeric; a caller passing a flag here has the wrong axis.
+    """
+    for k, v in params.items():
+        if isinstance(v, bool):
+            raise TypeError(f"detector_params[{k!r}] must be int or float, not bool")
+    return ",".join(f"{k}={params[k]}" for k in sorted(params))
+
+
 def _backtest_run_id(
     symbol: str,
     timeframe: str,
@@ -54,6 +71,7 @@ def _backtest_run_id(
     adr_exempt: bool = False,
     atr_sl_floor: bool = False,
     live_parity: str | None = None,
+    detector_params: Mapping[str, float | int] | None = None,
     writer: str = "sweep",
 ) -> str:
     """Return a deterministic 16-char hex ID for a backtest param combination.
@@ -84,6 +102,12 @@ def _backtest_run_id(
     sweep landing in the TOML silently overwrote the rows measured under the old
     value. Every argument here changes what the engine produces, so **any new
     engine knob must be added to this key in the same PR that adds it.**
+
+    ``detector_params`` (ST104 P1) namespaces a detector-level retune (e.g.
+    eqh_eql's ``lookback``/``tolerance_pct``/``swing_n``) so it cannot collide
+    with the default-param row for the same symbol/tf/strategy/day_filter.
+    None or empty leaves the key — and therefore every historical run_id —
+    byte-identical, matching every other optional suffix here.
     """
     key = f"{symbol}|{timeframe}|{strategy}|{days}|{sl_pct}|{tp_r}|{fee_pct}|{day_filter}|{smt_trend_filter}|{secondary_symbol}"
     if adr_suppress_threshold is not None:
@@ -108,6 +132,8 @@ def _backtest_run_id(
         key += "|atr_floor"
     if live_parity:
         key += f"|lp:{live_parity}"
+    if detector_params:
+        key += f"|dp:{_detector_params_suffix(detector_params)}"
     if writer != "sweep":
         key += f"|writer:{writer}"
     return hashlib.sha256(key.encode()).hexdigest()[:16]
@@ -137,6 +163,7 @@ def upsert_backtest_run(
     adr_exempt: bool = False,
     atr_sl_floor: bool = False,
     live_parity: LiveParityConfig | None = None,
+    detector_params: Mapping[str, float | int] | None = None,
     writer: str = "sweep",
 ) -> str:
     """Insert or replace a backtest aggregate result row.
@@ -155,6 +182,13 @@ def upsert_backtest_run(
     stored ``tp_r``'s provenance turns on, and an ADR-exempt run is otherwise
     indistinguishable from an unthresholded one, both landing at
     ``adr_suppress_threshold IS NULL``.
+
+    ``detector_params`` (ST104 P1) is likewise both namespaced (via
+    ``_backtest_run_id``) and STORED, as JSON text with sorted keys, so a
+    retuned row can say what it ran under rather than only being addressable
+    by a different hash. The read path excludes non-null ``detector_params``
+    from rated/production selection (`analytics.recalibrate_lib._build_run_filter`)
+    so a study can never silently mix into the live ratings.
     """
     live_parity_str = live_parity_key(live_parity)
     run_id = _backtest_run_id(
@@ -179,6 +213,7 @@ def upsert_backtest_run(
         adr_exempt,
         atr_sl_floor,
         live_parity_str,
+        detector_params,
         writer=writer,
     )
     row: dict[str, Any] = {
@@ -220,6 +255,11 @@ def upsert_backtest_run(
         "volume_suppress": volume_suppress,
         "live_parity": live_parity_str,
         "adr_exempt": adr_exempt,
+        "detector_params": (
+            json.dumps({k: detector_params[k] for k in sorted(detector_params)})
+            if detector_params
+            else None
+        ),
     }
     df = pd.DataFrame([row])
     conn.register("_bt_run_upsert_df", df)
@@ -281,7 +321,12 @@ def list_backtest_runs(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     ``live_parity`` and ``adr_exempt`` join the partition for the same reason
     ``adr_suppress_threshold`` is already in it (ST86): once those runs stop
     colliding on one ``run_id`` they coexist, and a partition blind to an axis
-    picks between two different books on recency alone.
+    picks between two different books on recency alone. ``detector_params``
+    (ST104 P1) joins it for the identical reason: once namespaced, a retuned
+    study row and the default-param row for the same symbol/tf/strategy/
+    day_filter no longer collide on ``run_id`` — without this the newer of
+    the two would silently hide the other from this listing on recency
+    alone, exactly the failure this docstring already warns against.
 
     ⚠ ``adr_exempt`` is COALESCEd because the migration creates a value boundary
     the partition would otherwise read as a real axis: every row written before
@@ -289,9 +334,10 @@ def list_backtest_runs(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     FALSE, and a window partition treats those as different groups — so the raw
     column returns each cell once per era instead of once. Uniform NULL today is
     why no gate catches it; it appears only as post-migration rows accrue.
-    ``live_parity`` needs no such tolerance: a legacy row and a non-parity row
-    are both NULL and already share a partition, and a parity run is a different
-    book that MUST keep its own.
+    ``live_parity`` and ``detector_params`` need no such tolerance: a legacy
+    row and a non-parity/non-retuned row are both NULL and already share a
+    partition, and a parity or retuned run is a different book that MUST
+    keep its own.
     """
     return conn.execute(
         "SELECT b.run_id, b.symbol, b.timeframe, b.strategy, b.days, b.sl_pct, b.tp_r, "
@@ -299,12 +345,12 @@ def list_backtest_runs(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
         "b.avg_r, b.total_r, b.max_drawdown_r, b.recovery_factor, b.sweep_id, b.run_at_ms, "
         "b.long_closed_trades, b.long_win_count, b.long_win_rate, b.long_avg_r, b.long_total_r, "
         "b.short_closed_trades, b.short_win_count, b.short_win_rate, b.short_avg_r, b.short_total_r, "
-        "b.adr_suppress_threshold, b.live_parity, b.adr_exempt, "
+        "b.adr_suppress_threshold, b.live_parity, b.adr_exempt, b.detector_params, "
         "cr.stars, cr_long.long_stars, cr_short.short_stars "
         "FROM ("
         "  SELECT *, ROW_NUMBER() OVER ("
         "    PARTITION BY symbol, timeframe, strategy, day_filter, "
-        "                 adr_suppress_threshold, live_parity, "
+        "                 adr_suppress_threshold, live_parity, detector_params, "
         "                 COALESCE(adr_exempt, FALSE) "
         "    ORDER BY run_at_ms DESC"
         "  ) AS rn FROM backtest_runs"
@@ -352,6 +398,7 @@ def get_win_rate_by_strategy(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
         WHERE closed_trades >= 20
           AND adr_suppress_threshold IS NULL
           AND live_parity IS NULL
+          AND detector_params IS NULL
         GROUP BY strategy
         ORDER BY win_rate_pct DESC
     """).df()

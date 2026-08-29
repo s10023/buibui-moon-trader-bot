@@ -1154,6 +1154,7 @@ class TestBacktestRunIdNamespacing:
             ("volume_suppress_short", True),
             ("adr_exempt", True),
             ("atr_sl_floor", True),
+            ("detector_params", {"lookback": 400}),
         ],
     )
     def test_every_engine_axis_survives_the_upsert(
@@ -1161,8 +1162,10 @@ class TestBacktestRunIdNamespacing:
     ) -> None:
         """Each axis reaches the stored row_id, so two runs cannot destroy each other.
 
-        These eight were accepted by ``_backtest_run_id`` and dropped by
+        These nine were accepted by ``_backtest_run_id`` and dropped by
         ``upsert_backtest_run``, which is the only path that WRITES a row.
+        ``detector_params`` (ST104 P1) joined this list rather than being
+        exempted from it.
         """
         result = _FakeResult("BTCUSDT", "4h", "bos")
         upsert_backtest_run(conn, result, **_BT_PARAMS)
@@ -1211,6 +1214,175 @@ class TestBacktestRunIdNamespacing:
         row = _one(conn, "SELECT live_parity, adr_exempt FROM backtest_runs")
         assert row[0] is None
         assert row[1] is False
+
+
+class TestDetectorParamsRunId:
+    """ST104 P1: eqh_eql's lookback/tolerance_pct/swing_n must namespace the row_id.
+
+    Enables saved retune backtests that cannot collide with existing rows —
+    the precondition `docs/superpowers/specs/2026-08-29-st104-eqh-eql-retune-prereg.md`
+    names as blocking before any arm is run.
+    """
+
+    def test_hash_unchanged_when_unset(self) -> None:
+        """The pin: every historical run_id must survive this axis landing.
+
+        Same literal `_backtest_run_id` call and hash as
+        ``TestBacktestRunIdNamespacing.test_default_run_id_is_byte_identical``
+        — reproduced here so an explicit ``None``/``{}`` (not just the
+        implicit default) proves out too. Literal hex, not a self-comparison,
+        because only a constant catches a change to the key *format* itself.
+        """
+        assert (
+            _backtest_run_id("BTCUSDT", "4h", "bos", 90, 0.02, 2.0, 0.0, "off", 1, None)
+            == "5f39a1eee6b6365f"
+        )
+        assert (
+            _backtest_run_id(
+                "BTCUSDT",
+                "4h",
+                "bos",
+                90,
+                0.02,
+                2.0,
+                0.0,
+                "off",
+                1,
+                None,
+                detector_params=None,
+            )
+            == "5f39a1eee6b6365f"
+        )
+        assert (
+            _backtest_run_id(
+                "BTCUSDT",
+                "4h",
+                "bos",
+                90,
+                0.02,
+                2.0,
+                0.0,
+                "off",
+                1,
+                None,
+                detector_params={},
+            )
+            == "5f39a1eee6b6365f"
+        )
+
+    def test_hash_changes_when_set(self) -> None:
+        base = _backtest_run_id(
+            "BTCUSDT", "15m", "eqh_eql", 90, 0.02, 2.0, 0.0, "off", 1, None
+        )
+        retuned = _backtest_run_id(
+            "BTCUSDT",
+            "15m",
+            "eqh_eql",
+            90,
+            0.02,
+            2.0,
+            0.0,
+            "off",
+            1,
+            None,
+            detector_params={"lookback": 400},
+        )
+        assert base != retuned
+
+    def test_hash_is_order_independent_over_dict_insertion(self) -> None:
+        """Keys are sorted before hashing, so insertion order cannot fork it."""
+        a = _backtest_run_id(
+            "BTCUSDT",
+            "15m",
+            "eqh_eql",
+            90,
+            0.02,
+            2.0,
+            0.0,
+            "off",
+            1,
+            None,
+            detector_params={"lookback": 400, "tolerance_pct": 0.00075},
+        )
+        b = _backtest_run_id(
+            "BTCUSDT",
+            "15m",
+            "eqh_eql",
+            90,
+            0.02,
+            2.0,
+            0.0,
+            "off",
+            1,
+            None,
+            detector_params={"tolerance_pct": 0.00075, "lookback": 400},
+        )
+        assert a == b
+
+    def test_each_param_value_moves_the_hash(self) -> None:
+        base = _backtest_run_id(
+            "BTCUSDT",
+            "15m",
+            "eqh_eql",
+            90,
+            0.02,
+            2.0,
+            0.0,
+            "off",
+            1,
+            None,
+            detector_params={"lookback": 400},
+        )
+        different = _backtest_run_id(
+            "BTCUSDT",
+            "15m",
+            "eqh_eql",
+            90,
+            0.02,
+            2.0,
+            0.0,
+            "off",
+            1,
+            None,
+            detector_params={"lookback": 401},
+        )
+        assert base != different
+
+    def test_bool_value_is_rejected(self) -> None:
+        """``bool`` is an ``int`` subclass — an unguarded check would accept it silently."""
+        with pytest.raises(TypeError):
+            _backtest_run_id(
+                "BTCUSDT",
+                "15m",
+                "eqh_eql",
+                90,
+                0.02,
+                2.0,
+                0.0,
+                "off",
+                1,
+                None,
+                detector_params={"swing_n": True},
+            )
+
+    def test_stored_as_sorted_key_json_and_read_back_verbatim(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        result = _FakeResult("BTCUSDT", "15m", "eqh_eql")
+        upsert_backtest_run(
+            conn,
+            result,
+            **_BT_PARAMS,
+            detector_params={"swing_n": 2, "lookback": 400},
+        )
+        row = _one(conn, "SELECT detector_params FROM backtest_runs")
+        assert row[0] == '{"lookback": 400, "swing_n": 2}'
+
+    def test_null_when_unset(self, conn: duckdb.DuckDBPyConnection) -> None:
+        result = _FakeResult("BTCUSDT", "15m", "eqh_eql")
+        upsert_backtest_run(conn, result, **_BT_PARAMS)
+        row = _one(conn, "SELECT detector_params FROM backtest_runs")
+        assert row[0] is None
 
 
 class TestUpsertColumnMapping:
@@ -1314,5 +1486,24 @@ class TestListRunsPartitionAcrossTheMigration:
             _FakeResult("BTCUSDT", "4h", "bos"),
             **_BT_PARAMS,
             live_parity=LiveParityConfig(enabled=True, regime=True),
+        )
+        assert len(list_backtest_runs(conn)) == 2
+
+    def test_a_detector_params_run_still_gets_its_own_row(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        """ST104 P1: same failure mode as the parity row above, new axis.
+
+        `detector_params` joins the partition for the identical reason
+        `live_parity` does — a retuned study row and the default-param row
+        no longer collide on `run_id` once namespaced, so without this the
+        newer of the two silently hides the other from the listing.
+        """
+        upsert_backtest_run(conn, _FakeResult("BTCUSDT", "4h", "bos"), **_BT_PARAMS)
+        upsert_backtest_run(
+            conn,
+            _FakeResult("BTCUSDT", "4h", "bos"),
+            **_BT_PARAMS,
+            detector_params={"lookback": 400},
         )
         assert len(list_backtest_runs(conn)) == 2

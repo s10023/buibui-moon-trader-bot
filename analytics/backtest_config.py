@@ -7,6 +7,7 @@ No module-level side effects.
 """
 
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -229,6 +230,15 @@ class BacktestSweepConfig:
     # into the `confidence_ratings` table for the per-config avg_r tiebreaker.
     # None when the config is built programmatically without a TOML.
     config_name: str | None = None
+    # ST104 P1 — optional detector-level keyword overrides for the strategy
+    # being swept (e.g. eqh_eql's lookback / tolerance_pct / swing_n).
+    # Threaded straight to the detector call by `detect_signals_for_strategy`
+    # and into `_backtest_run_id` / the stored row via `upsert_backtest_run`.
+    # NOT TOML-loaded (no key here) — `load_backtest_config` always leaves this
+    # None, so every config built from a TOML file is unaffected. Set it by
+    # constructing `BacktestSweepConfig` programmatically, scoping `strategies`
+    # to the one strategy the params apply to.
+    detector_params: Mapping[str, float | int] | None = None
 
     def effective_min_trades(self, tf: str) -> int:
         return self.min_trades_per_tf.get(tf, self.min_trades)

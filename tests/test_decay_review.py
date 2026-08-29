@@ -91,21 +91,24 @@ def _add_run(
     tf: str = "15m",
     symbol: str = "BTCUSDT",
     closed_trades: int = 40,
+    detector_params: str | None = None,
 ) -> None:
-    _insert(
-        conn,
-        "backtest_runs",
-        {
-            "run_id": run_id,
-            "symbol": symbol,
-            "timeframe": tf,
-            "strategy": strategy,
-            "run_at_ms": run_at_ms,
-            "sweep_id": sweep_id,
-            "closed_trades": closed_trades,
-            **_RUN_DEFAULTS,
-        },
-    )
+    row: dict[str, object] = {
+        "run_id": run_id,
+        "symbol": symbol,
+        "timeframe": tf,
+        "strategy": strategy,
+        "run_at_ms": run_at_ms,
+        "sweep_id": sweep_id,
+        "closed_trades": closed_trades,
+        **_RUN_DEFAULTS,
+    }
+    # Omitted (not merely None) when unset, matching every other test row —
+    # DuckDB leaves the column NULL, which is what `AND detector_params IS
+    # NULL` in `_build_run_filter` (ST104 P1) already expects.
+    if detector_params is not None:
+        row["detector_params"] = detector_params
+    _insert(conn, "backtest_runs", row)
 
 
 def _add_trades(
@@ -174,6 +177,42 @@ class TestSweepFirstSelection:
     ) -> None:
         _add_run(conn, "empty", run_at_ms=1_000, sweep_id="s1", closed_trades=0)
         assert select_rated_run_ids(conn) == []
+
+
+class TestDetectorParamsExcludedFromRatedSelection:
+    """ST104 P1: a retuned study row must never silently join production ratings.
+
+    Mirrors ``live_parity``'s exclusion (ST86) exactly — a row saved under
+    non-default detector params answers "how would this cell have scored
+    under a retune", not "how did it score", so `_build_run_filter` (shared
+    by `select_rated_run_ids` and `get_backtest_win_rates`) drops it by
+    default even when it is the newest and only row for the cell.
+    """
+
+    def test_detector_params_row_is_excluded_even_as_the_only_row(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        _add_run(
+            conn,
+            "retune",
+            run_at_ms=1_000,
+            sweep_id="sweep-1",
+            detector_params='{"lookback": 400}',
+        )
+        assert select_rated_run_ids(conn) == []
+
+    def test_default_row_still_selected_beside_an_excluded_retune(
+        self, conn: duckdb.DuckDBPyConnection
+    ) -> None:
+        _add_run(conn, "default", run_at_ms=1_000, sweep_id="sweep-1")
+        _add_run(
+            conn,
+            "retune",
+            run_at_ms=9_999,
+            sweep_id="sweep-2",
+            detector_params='{"lookback": 400}',
+        )
+        assert select_rated_run_ids(conn) == ["default"]
 
 
 class TestPoolsReadThroughTheSelection:
