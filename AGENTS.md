@@ -858,6 +858,24 @@ isolate a code change in the golden diff, run `pytest tests/test_regression.py
 --update-golden` directly** and leave the parquets pinned; use the full target when a data
 refresh is what you actually want.
 
+**A programmatically built `BacktestSweepConfig` inherits ZERO cost AND ZERO stop
+floor, and neither default is neutral.** `fee_pct`, `slippage_pct` and `min_sl_pct`
+all default to `0.0`, so a sweep constructed in code — rather than through
+`load_backtest_config` — measures a book that pays nothing and floors nothing.
+That is not a weaker measurement, it is frequently the OPPOSITE one: round-trip
+drag is `2(fee+slip) × entry/risk`, so it is inversely proportional to stop width
+and therefore falls unevenly across arms that differ in stop geometry. Measured on
+ST104 (2026-08-29): at zero cost the `eqh_eql` CONTROL cleared the full three-leg
+gate on the 15m short cell this repo files as a loser (+0.0429R, DSR 0.992, PBO
+0.000, boot_lo +0.0043), and adding production's costs **reversed the ranking of
+all four arms** — the widest-stop arm went from worst to least-bad. Dropping
+`min_sl_pct` separately admitted structural stops under 0.1%, each paying over 1R
+of drag, which alone doubled the mean drag (0.215R → 0.427R). ⇒ **Read the three
+from `config/strategy_params.toml`** (`fee_pct` and `min_sl_pct` are top-level,
+`slippage_bps` sits under `[backtest]`) rather than restating them, and never
+report a gross figure from such a sweep as a result. ⚠ Costs stay MODELLED, not
+realised, so a costed figure is still an optimistic bound whose error runs one way.
+
 **Lot-size rounding** — `portfolio/sizing.py::round_down_to_step` snaps before it floors;
 why that snap is load-bearing rides the `sizing-round-down` card.
 
