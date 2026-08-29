@@ -113,6 +113,19 @@ tail -n 60 "$log"
 TG_FOLD_WIDTH=46   # phone-readable column inside Telegram's <pre> monospace
 TG_BODY_CAP=3400   # bytes, kept well under Telegram's 4096 hard cap
 
+# How many trailing log lines the ok / soft paths push. Opt-in per job via the
+# environment, for the same reason TELEGRAM_ALWAYS and SOFT_FAIL_RC are: the
+# right value is a property of the JOB, not of this wrapper.
+#
+# 60 suits a job whose interesting output is a traceback at the END. It is the
+# wrong control for a REPORT, whose priority runs top-down -- and both trims
+# here keep the BOTTOM, so an over-long report loses tier 1 and keeps tier 3.
+# daily_check.py --telegram emits 86 lines (33 aligned terminal lines restacked
+# into a 46-column layout), so at 60 it would have arrived decapitated: the
+# data-integrity tier silently gone, the info-only tier intact. It sets 120.
+# The byte cap above still bounds the message either way.
+TG_TAIL_LINES="${TG_TAIL_LINES:-60}"
+
 tg_send() { # $1 = headline, $2 = body
     local body
     body="$(printf '%s\n' "$2" | fold -w "$TG_FOLD_WIDTH" -s | tail -c "$TG_BODY_CAP")"
@@ -157,7 +170,7 @@ if [ "$rc" -eq 0 ]; then
     # otherwise send 96 messages a day.
     if [ -n "${TELEGRAM_ALWAYS:-}" ]; then
         tg_send "buibui [$label] ok — $start_ts → $end_ts" \
-            "$(tail -n 60 "$log")"
+            "$(tail -n "$TG_TAIL_LINES" "$log")"
     fi
 elif [ -n "$soft_rc" ] && [ "$rc" -eq "$soft_rc" ]; then
     # Success-with-warnings. The run COMPLETED, so the dead-man's-switch must see
@@ -166,10 +179,10 @@ elif [ -n "$soft_rc" ] && [ "$rc" -eq "$soft_rc" ]; then
     hc_ping ""
     # Pushed unconditionally, NOT behind TELEGRAM_ALWAYS: a job only reaches this
     # branch by opting in via SOFT_FAIL_RC, and it opted in precisely because the
-    # warning is worth reading. Same 60-line tail as the ok path, because the
+    # warning is worth reading. Same tail as the ok path, because the
     # warning detail sits at the END of the report.
     tg_send "buibui [$label] ok, warnings rc=$rc — $start_ts → $end_ts" \
-        "$(tail -n 60 "$log")"
+        "$(tail -n "$TG_TAIL_LINES" "$log")"
 else
     hc_ping "/fail"
     tg_send "buibui [$label] FAILED rc=$rc — $start_ts → $end_ts" \

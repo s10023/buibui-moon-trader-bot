@@ -29,7 +29,7 @@ tree and a reclone would otherwise lose them silently.
 | `buibui-xsmom-daily` | `00:20`, `02:20`, `06:20` | 08:20, 10:20, 14:20 | Universe sync 1h/4h/1d/1w → executor **dry-run** | **Nothing.** The sync is incremental and the executor recomputes; yesterday's bars are still there tomorrow. |
 | `buibui-backup` | `07:40`, `12:40` | 15:40, 20:40 | Verified `analytics.db` snapshot + ledgers → `~/backups/buibui` | Nothing *immediately* — but it is the only copy of unreconstructible evidence, so exposure compounds. |
 | `buibui-backup-offsite` | `13:25` | 21:25 | `rclone sync` of `~/backups/buibui` → a remote | **Everything, on one hardware event.** Every local copy shares the laptop's disk. |
-| `buibui-daily-check` | `09:10` | 17:10 | `daily_check.py --exit-on-tier2` → Telegram on any red | Nothing directly; it is the *notifier* for all of the above. Without it a red waits for a session to notice. |
+| `buibui-daily-check` | `09:10` | 17:10 | `daily_check.py --exit-on-tier2 --telegram` → Telegram on any red | Nothing directly; it is the *notifier* for all of the above. Without it a red waits for a session to notice. |
 
 The asymmetry in that last column is the whole design. signal-watch must be punctual;
 the others only need to happen *eventually*, which is why they fire repeatedly and
@@ -54,6 +54,17 @@ day. To silence the heartbeat again, drop the `Environment=TELEGRAM_ALWAYS=1` li
 `systemctl --user daemon-reload`.
 
 **It also sets `SOFT_FAIL_RC=2`, which is the other half of `--exit-on-tier2`.**
+
+**`--telegram` picks the phone LAYOUT, not a phone filter — the content is identical.**
+`run-job.sh` wraps every body in `<pre>` (which preserves alignment by never
+soft-wrapping) and therefore folds it at 46 columns first. The report's widest terminal
+line is 165 chars with its detail starting at column 30, so that fold shattered each row
+into 3-4 phone lines with continuations at column 0 — destroying the alignment `<pre>`
+was chosen to preserve, and turning 33 lines into 78. `--telegram` emits ≤46 columns so
+the fold becomes a no-op and `tg_send` keeps ONE fold+cap contract for every job.
+⚠ **The restacked report is 86 lines, and BOTH of `run-job.sh`'s trims keep the BOTTOM**
+— so the unit also sets `TG_TAIL_LINES=120`. At the wrapper's default 60 the push would
+arrive decapitated: tier 1 (data integrity) gone, tier 3 (info only) intact.
 `daily_check.py` exits **2** when tier 1 is clear and only tier 2 is red, and **1** on a
 real tier-1 failure. Without the declaration `run-job.sh` reads both as a failed job:
 heartbeat suppressed, `/fail` pinged, push titled FAILED — so a routine tier-2 red looked

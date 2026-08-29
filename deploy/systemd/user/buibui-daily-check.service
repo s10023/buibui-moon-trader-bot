@@ -51,6 +51,12 @@ Environment=TELEGRAM_ALWAYS=1
 # broken invocation on the other timers.
 Environment=SOFT_FAIL_RC=2
 
+# This report is 86 lines in --telegram layout and both of run-job.sh's trims
+# keep the BOTTOM, so the wrapper's default 60 would drop TIER 1 (data
+# integrity) and keep TIER 3 (info only) -- the exact inversion of what the
+# operator needs to see. The byte cap still bounds the message.
+Environment=TG_TAIL_LINES=120
+
 # ...and systemd has to be told the same thing, or the fix only reaches HALF the
 # surfaces. run-job.sh preserves the wrapped command's exit code, so a soft day
 # leaves the unit exiting 2 -- which systemd reads as a failure, records as
@@ -75,7 +81,7 @@ SuccessExitStatus=2
 # reads nothing while the lines sit in the journal under another identity.
 SyslogIdentifier=buibui-daily-check
 
-ExecStart=/home/kng/repo/buibui-moon-trader-bot/deploy/run-job.sh daily-check HEALTHCHECKS_URL_DAILY_CHECK -- /home/linuxbrew/.linuxbrew/bin/poetry run python docs/plans/daily_check.py --exit-on-tier2
+ExecStart=/home/kng/repo/buibui-moon-trader-bot/deploy/run-job.sh daily-check HEALTHCHECKS_URL_DAILY_CHECK -- /home/linuxbrew/.linuxbrew/bin/poetry run python docs/plans/daily_check.py --exit-on-tier2 --telegram
 
 # The check reads analytics.db. On a lock conflict it falls back to a byte-copy
 # of a ~320MB file, so the ceiling covers that path rather than the 3s happy one.
