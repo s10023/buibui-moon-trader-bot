@@ -439,8 +439,8 @@ each its own remote with its own `root_folder_id`**, which makes the collision u
 rather than detectable. A sibling path under one shared root leaves operator care as the
 only control.
 
-**`buibui-daily-check`** pushes `docs/plans/daily_check.py --exit-on-tier2` to Telegram once
-daily at 09:10 UTC. That flag exists because tier-2 lines (chart-drops, external-context) do
+**`buibui-daily-check`** pushes `docs/plans/daily_check.py --exit-on-tier2 --telegram` to
+Telegram once daily at 09:10 UTC. That flag exists because tier-2 lines (chart-drops, external-context) do
 not set exit 1 on their own; a hand-run check still exits 1 only on tier 1.
 
 - **The soft exit needs BOTH `SOFT_FAIL_RC=2` and `SuccessExitStatus=2`.** `run-job.sh`
@@ -460,6 +460,15 @@ not set exit 1 on their own; a hand-run check still exits 1 only on tier 1.
   sideways on a phone. Folding after the cap would instead add its newlines on top of the
   budget the cap exists to hold. Both legs live in `tg_send` rather than at the call sites,
   so the success and failure paths cannot drift apart.
+- **`--telegram` gives the report its own LAYOUT, and the fold is then a NO-OP.** That fold
+  is correct for arbitrary job output and wrong for an aligned one: this report's widest
+  terminal line is 165 chars with its detail column at 30, so folding shattered every row
+  into 3-4 phone lines with continuations at column 0 — destroying the alignment `<pre>`
+  exists to preserve, 33 lines arriving as 78. Emitting ≤46 columns at the SOURCE keeps
+  `tg_send`'s single contract rather than special-casing it there. ⚠ **The restacked report
+  is 86 lines and BOTH of `run-job.sh`'s trims keep the BOTTOM**, so the unit sets
+  `TG_TAIL_LINES=120` — opt-in per job, exactly like the two bullets above. At the
+  wrapper's default 60 the push arrives with tier 1 gone and tier 3 intact.
 
 Install / retention / restore → `deploy/README.md`.
 
