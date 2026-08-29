@@ -211,6 +211,13 @@ def init_schema(conn: duckdb.DuckDBPyConnection) -> None:
         # unthresholded one (both sit at adr_suppress_threshold IS NULL).
         ("live_parity", "TEXT"),
         ("adr_exempt", "BOOLEAN"),
+        # ST104 P1: sorted-key JSON text of a detector-level retune (e.g.
+        # eqh_eql's lookback/tolerance_pct/swing_n), stored so a row can say
+        # what it ran under. Also in the run_id (see _backtest_run_id) so a
+        # retuned study row can never collide with the default-param row for
+        # the same symbol/tf/strategy/day_filter. NULL on every pre-existing
+        # row and on every default-param run going forward.
+        ("detector_params", "TEXT"),
     ]:
         if col not in existing_bt_cols:
             conn.execute(f"ALTER TABLE backtest_runs ADD COLUMN {col} {dtype}")

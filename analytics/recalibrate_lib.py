@@ -58,6 +58,12 @@ def _build_run_filter(
     # population, where a sweep_id plus a newer run_at_ms would let it outrank
     # the deliberate sweep it was compared against.
     sql += " AND (live_parity IS NULL)"
+    # ST104 P1: a detector_params run is a different book too — it answers
+    # "how would this cell have scored under a retuned detector", not "how
+    # did it score". Excluding it by default keeps a pre-registered retune
+    # study (e.g. eqh_eql's lookback/tolerance_pct/swing_n) out of the rating
+    # population, the same way a live-parity run already is.
+    sql += " AND (detector_params IS NULL)"
     if day_filter is not None:
         sql += " AND day_filter = ?"
         params.append(day_filter)

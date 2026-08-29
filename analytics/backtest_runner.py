@@ -8,9 +8,10 @@ import logging
 import os
 import sys
 import uuid
+from collections.abc import Callable, Mapping
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import duckdb
 import pandas as pd
@@ -428,11 +429,22 @@ def detect_signals_for_strategy(
     smt_trend_filter: int = 1,
     liq_sweep_use_fib: bool = True,
     liq_sweep_fib_range_close: bool = False,
+    detector_params: Mapping[str, float | int] | None = None,
 ) -> pd.DataFrame | None:
     """Return signals DataFrame, or None when required data is absent.
 
     ohlcv must already be fetched and non-empty by the caller.
     Returns None only when secondary OHLCV data is missing.
+
+    ``detector_params`` (ST104 P1) is forwarded as keyword args to the
+    ``_SIMPLE_DETECTORS`` call ONLY — the ``smt_divergence`` and
+    ``liquidity_sweep`` branches above already have their own explicit
+    parameter lists, so this axis does not reach them. The caller is
+    responsible for scoping it to the strategy actually being swept; passing
+    it while sweeping multiple strategies whose detectors do not share a
+    signature raises ``TypeError`` from the unexpected keyword. ``None`` or
+    an empty mapping calls the detector exactly as before (``**{}`` is a
+    no-op), so default-param runs are byte-identical.
     """
     if strategy == "smt_divergence":
         if secondary_symbol is None:
@@ -449,7 +461,10 @@ def detect_signals_for_strategy(
             fib_require_range_close=liq_sweep_fib_range_close,
         )
 
-    return _SIMPLE_DETECTORS[strategy](ohlcv)
+    detector = _SIMPLE_DETECTORS[strategy]
+    if detector_params:
+        return cast(Callable[..., pd.DataFrame], detector)(ohlcv, **detector_params)
+    return detector(ohlcv)
 
 
 def _collect_signals_map(
@@ -518,6 +533,7 @@ def _collect_signals_map(
             smt_trend_filter=cfg.smt_trend_filter,
             liq_sweep_use_fib=cfg.liq_sweep_use_fib,
             liq_sweep_fib_range_close=cfg.liq_sweep_fib_range_close,
+            detector_params=cfg.detector_params,
         )
         if signals is None:
             skipped.append(
@@ -649,6 +665,7 @@ def _collect_sweep_results(
             smt_trend_filter=cfg.smt_trend_filter,
             liq_sweep_use_fib=cfg.liq_sweep_use_fib,
             liq_sweep_fib_range_close=cfg.liq_sweep_fib_range_close,
+            detector_params=cfg.detector_params,
         )
         if signals is None:
             skipped.append(
@@ -750,6 +767,11 @@ def _collect_sweep_results(
                 volume_suppress_long=cfg.effective_volume_suppress_long(strategy),
                 volume_suppress_short=cfg.effective_volume_suppress_short(strategy),
                 live_parity=cfg.live_parity,
+                # ST104 P1: joins the run_id and is stored on the row (see
+                # `_backtest_run_id` / `upsert_backtest_run`), so a retuned
+                # study can never collide with — or be rated alongside — a
+                # default-param run.
+                detector_params=cfg.detector_params,
             )
             upsert_backtest_trades(conn, bt, run_id)
 
