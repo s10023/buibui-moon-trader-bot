@@ -4,13 +4,13 @@
 `make docs-index-check` (and `tests/test_docs_index.py`) fails when this file
 drifts from the corpus.
 
-**62 specs on disk.** Reconcile status is **derived** — a spec counts as
+**66 specs on disk.** Reconcile status is **derived** — a spec counts as
 reconciled when an audit that names its filename also discusses reconciling, so
 the count is recomputed from disk rather than carried in prose. That is the
 counter AGENTS.md has had wrong every time it was checked.
 
-- **Reconciled (derived): 4 of 62.**
-- Referenced by no audit at all: 45.
+- **Reconciled (derived): 4 of 66.**
+- Referenced by no audit at all: 49.
 
 **Two caveats before quoting these numbers.** A *partial* reconcile is
 indistinguishable from a whole-spec one here, and this table cannot see one that
@@ -19,6 +19,10 @@ and the reconcile column as a floor.
 
 | Date | Spec | Reconciled by | Also referenced by | File |
 | --- | --- | --- | --- | --- |
+| 2026-08-29 | ST113 — task/skill completion push to Telegram (design) | — | — | [2026-08-29-st113-telegram-notify-design.md](2026-08-29-st113-telegram-notify-design.md) |
+| 2026-08-29 | ST106 — retrace/impulse volume ratio, split study (pre-registration) | — | — | [2026-08-29-st106-volume-ratio-split-prereg.md](2026-08-29-st106-volume-ratio-split-prereg.md) |
+| 2026-08-29 | ST105 — cross-symbol SMT divergence gate (pre-registration) | — | — | [2026-08-29-st105-smt-gate-prereg.md](2026-08-29-st105-smt-gate-prereg.md) |
+| 2026-08-29 | ST104 — `detect_eqh_eql` retune pre-registration (three knobs, three trials) | — | — | [2026-08-29-st104-eqh-eql-retune-prereg.md](2026-08-29-st104-eqh-eql-retune-prereg.md) |
 | 2026-08-28 | ST37 — post-card GTX limit-order helper (design) | — | — | [2026-08-28-st37-card-gtx-order-helper-design.md](2026-08-28-st37-card-gtx-order-helper-design.md) |
 | 2026-08-27 | On-chain feed — decision spec | — | — | [2026-08-27-onchain-feed-decision.md](2026-08-27-onchain-feed-decision.md) |
 | 2026-08-21 | `ohlcv` venue key — ST60(b) design | — | — | [2026-08-21-st60b-ohlcv-venue-key-design.md](2026-08-21-st60b-ohlcv-venue-key-design.md) |
