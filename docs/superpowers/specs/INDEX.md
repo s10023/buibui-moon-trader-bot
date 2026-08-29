@@ -10,7 +10,7 @@ the count is recomputed from disk rather than carried in prose. That is the
 counter AGENTS.md has had wrong every time it was checked.
 
 - **Reconciled (derived): 4 of 66.**
-- Referenced by no audit at all: 48.
+- Referenced by no audit at all: 47.
 
 **Two caveats before quoting these numbers.** A *partial* reconcile is
 indistinguishable from a whole-spec one here, and this table cannot see one that
@@ -20,7 +20,7 @@ and the reconcile column as a floor.
 | Date | Spec | Reconciled by | Also referenced by | File |
 | --- | --- | --- | --- | --- |
 | 2026-08-29 | ST113 — task/skill completion push to Telegram (design) | — | — | [2026-08-29-st113-telegram-notify-design.md](2026-08-29-st113-telegram-notify-design.md) |
-| 2026-08-29 | ST106 — retrace/impulse volume ratio, split study (pre-registration) | — | — | [2026-08-29-st106-volume-ratio-split-prereg.md](2026-08-29-st106-volume-ratio-split-prereg.md) |
+| 2026-08-29 | ST106 — retrace/impulse volume ratio, split study (pre-registration) | — | 2026-08-29-st106-volume-ratio-split-result.md | [2026-08-29-st106-volume-ratio-split-prereg.md](2026-08-29-st106-volume-ratio-split-prereg.md) |
 | 2026-08-29 | ST105 — cross-symbol SMT divergence gate (pre-registration) | — | — | [2026-08-29-st105-smt-gate-prereg.md](2026-08-29-st105-smt-gate-prereg.md) |
 | 2026-08-29 | ST104 — `detect_eqh_eql` retune pre-registration (three knobs, three trials) | — | 2026-08-29-st104-eqh-eql-retune-result.md | [2026-08-29-st104-eqh-eql-retune-prereg.md](2026-08-29-st104-eqh-eql-retune-prereg.md) |
 | 2026-08-28 | ST37 — post-card GTX limit-order helper (design) | — | — | [2026-08-28-st37-card-gtx-order-helper-design.md](2026-08-28-st37-card-gtx-order-helper-design.md) |
