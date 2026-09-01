@@ -60,6 +60,16 @@ PYTHONPATH=. poetry run python tools/chart_drops.py scan
   mtime). Panel type never goes in the name — the extraction detects
   heatmap vs map.
 
+  ⚠ **The time attaches to the date with a DASH, and the underscore form
+  BACKDATES the capture silently.** `..._20260827-1800.png` parses as 18:00
+  MYT; `..._20260827_HeatMap_1d_1800.png` parses as date-ONLY, so the capture
+  is stamped **midnight** and the rest is swallowed as free-text label and
+  discarded. Measured 2026-08-27 (ST112): six hand-named drops lost 18 of
+  their 48h freshness window, and **every gate read GREEN throughout** — the
+  daily check asserts RECENCY, and a backdated stamp IS recency, just wrong.
+  `tools/coinglass_capture.sh` builds the dash form from a real clock read;
+  only hand-naming reaches this.
+
   ⚠ **The label is parsed and DISCARDED, so tell the operator it is for their
   eyes only.** Nothing downstream reads it, and it is deliberately NOT a source
   of truth for `window`: that field is read off the chart by the extraction,
