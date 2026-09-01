@@ -95,6 +95,16 @@ shell blocks. The rule they exist to satisfy: *a self-check outside CI is not a 
   is line numbers plus a masked term and **never the matching line** — the match sits
   inside the prose being screened, so echoing it re-exposes what the mask withholds. An
   absent term list is still `NOT CONFIGURED`, a FINDING, in this mode too.
+  ⚠ **The `negative-claims` grep ENUMERATES (`-e .`); `NEGATIVE_CLAIM_RE` is the only
+  filter.** It shipped as `-e x` — the LETTER — so git dropped every line without one before
+  the regex ran: **1,757 of 13,615 corpus lines survived (12.9%), matching 1 real claim of 4**,
+  and every triage figure the leg produced was measured through that filter. Keep the rule to
+  ONE spelling; a content pattern here splits it between git and Python, which is how it broke.
+  **No test could see it — all six mock the runner's OUTPUT**, so `test_the_grep_ENUMERATES_…`
+  asserts on the **argv** instead. Copy that shape for any check whose work is done by a
+  subprocess it does not own. ⚠ **Consequence of the repair: two UNSCOPABLE claims
+  (`ingest-video/SKILL.md`, `sync-child/SKILL.md`) now fail open on EVERY branch, and the
+  exempt list cannot mute them — it is keyed on a token they do not have.**
   `NEGATIVE_CLAIM_EXEMPT` narrows the `negative-claims` leg, keyed `(path, token)` with the
   reason inline (the `sanity_checks.MISSING_PATH_EXEMPT` shape). A hit is dropped only when
   **EVERY** matched token is exempt, so one unexempt token still reports the line — an

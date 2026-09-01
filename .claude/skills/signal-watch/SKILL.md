@@ -146,7 +146,7 @@ suppress_directions = ["long", "short"]   # fib family: keep symmetric gate
 Hard-mode flip is deliberately OOS-gated — run `tools/htf_ema_gate_replay.py --oos-frac 0.3`
 to confirm OOS edge before changing `mode = "soft"` to `mode = "hard"`.
 
-**Note**: `filter_threshold` was renamed to `min_avg_r`. Update any old TOML that still has the old key.
+**Note**: `filter_threshold` was renamed to `min_avg_r`. Update any old TOML that still has the old key — since 2026-09-01 it is **ignored outright** rather than parsed into an inert field, so setting it gates nothing and reads back as nothing.
 
 ## Stopping the daemon
 

@@ -258,20 +258,44 @@ class TestBacktestFilterConfig:
         assert cfg.mode == "soft"
         assert cfg.days == 90
         assert cfg.min_trades == 12
-        assert cfg.filter_threshold == 0.45
+        assert cfg.min_avg_r == 0.0
 
     def test_load_from_toml(self, tmp_path: Any) -> None:
         from analytics.signal_config import load_signal_config
 
         p = tmp_path / "cfg.toml"
         p.write_text(
-            "[backtest]\nmode = 'hard'\ndays = 60\nmin_trades = 10\nfilter_threshold = 0.5\n"
+            "[backtest]\nmode = 'hard'\ndays = 60\nmin_trades = 10\nmin_avg_r = 0.5\n"
         )
         cfg = load_signal_config(p)
         assert cfg.backtest.mode == "hard"
         assert cfg.backtest.days == 60
         assert cfg.backtest.min_trades == 10
-        assert cfg.backtest.filter_threshold == 0.5
+        assert cfg.backtest.min_avg_r == 0.5
+
+    def test_the_dead_filter_threshold_field_is_GONE(self) -> None:
+        """`filter_threshold` was parsed, stored, and read by NOTHING.
+
+        It was the win-rate gate `min_avg_r` replaced. The field survived as
+        "kept for TOML back-compat", but back-compat needed no field: the loader
+        reads through `raw_bt.get(...)`, so an unknown key was already ignored.
+        What the field actually bought was a trap — a value settable in TOML,
+        readable back off the config object, and inert at runtime. Three tests
+        asserted it PARSED, which is the only thing it ever did.
+        """
+        assert not hasattr(BacktestFilterConfig(), "filter_threshold")
+
+    def test_a_legacy_toml_still_setting_it_loads_unchanged(
+        self, tmp_path: Any
+    ) -> None:
+        """Back-compat is a property of the LOADER, not of the field."""
+        from analytics.signal_config import load_signal_config
+
+        p = tmp_path / "cfg.toml"
+        p.write_text("[backtest]\nmode = 'hard'\nfilter_threshold = 0.5\n")
+        cfg = load_signal_config(p)
+        assert cfg.backtest.mode == "hard"
+        assert cfg.backtest.min_avg_r == 0.0  # the live gate, untouched by the dead key
 
     def test_missing_backtest_section_uses_defaults(self, tmp_path: Any) -> None:
         from analytics.signal_config import load_signal_config
