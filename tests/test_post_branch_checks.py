@@ -11,6 +11,7 @@ from __future__ import annotations
 import dataclasses
 import io
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Sequence
@@ -314,6 +315,39 @@ class TestCheckNegativeClaims:
         assert len(findings) == 1
         assert "no token to scope on" in findings[0].detail
         assert suppressed == 0
+
+    def test_the_grep_ENUMERATES_the_corpus_rather_than_FILTERING_it(self) -> None:
+        """The git grep pattern must drop no line — ``NEGATIVE_CLAIM_RE`` is the filter.
+
+        This leg shipped ``-e "x"`` — the LETTER — so git dropped every line
+        without an ``x`` before the regex ever ran. Measured on this tree at the
+        fix: **1,757 of 13,615 corpus lines survived (12.9%)**, and the leg
+        matched **1 real claim where 4 exist**.
+
+        No existing test could see it: every one of them mocks the runner's
+        OUTPUT, so the argv — the only place the defect lives — was never
+        asserted on. That is the shape to copy for any check whose real work is
+        done by a subprocess it does not own.
+        """
+        seen: list[Sequence[str]] = []
+
+        def run(argv: Sequence[str]) -> str:
+            seen.append(argv)
+            return ""
+
+        check_negative_claims(run, diff="", diff_names="")
+
+        assert seen, "the leg must actually invoke the runner"
+        argv = seen[0]
+        pattern = argv[argv.index("-e") + 1]
+
+        claim = "the `pead_wiring` module is not yet wired, so nothing reads it"
+        assert NEGATIVE_CLAIM_RE.search(claim), "fixture must be a real claim"
+        assert "x" not in claim, "fixture must lack the letter the bug filtered on"
+        assert re.search(pattern, claim), (
+            f"git grep -e {pattern!r} DROPS a real claim line before "
+            "NEGATIVE_CLAIM_RE can see it — the grep must enumerate, not filter"
+        )
 
     def test_a_REMOVAL_does_not_report_the_claim(self) -> None:
         """Removing the named thing makes an absence claim MORE true, not less."""

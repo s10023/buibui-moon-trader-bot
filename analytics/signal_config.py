@@ -220,7 +220,7 @@ class BacktestFilterConfig:
     """Configuration for the per-signal backtest filter."""
 
     # "soft": always fire alert, append win rate line
-    # "hard": suppress alert if win_rate < filter_threshold (and enough trades)
+    # "hard": suppress alert if directional avg_r < min_avg_r (and enough trades)
     # "off":  disable entirely
     mode: str = "soft"
     days: int = 90
@@ -238,9 +238,8 @@ class BacktestFilterConfig:
     # Signal rate is NOT uniform — higher TFs fire less frequently per candle.
     # To scale for a different lookback: new_value = base × (your_days / 200)
     min_trades_per_tf: dict[str, int] = field(default_factory=dict)
-    # hard mode only: suppress if win_rate < this (legacy — kept for TOML back-compat)
-    filter_threshold: float = 0.45
-    # hard mode only: suppress if directional avg_r < this (replaces win-rate gate)
+    # hard mode only: suppress if directional avg_r < this (replaced the win-rate
+    # gate; the old `filter_threshold` key is ignored, not parsed — see below)
     # 0.0 = must have positive EV; set lower to allow marginally negative strategies
     min_avg_r: float = 0.0
     # Optional direction-split thresholds. When set, these override min_avg_r for that
@@ -701,7 +700,9 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         since=str(raw_bt["since"]) if raw_bt.get("since") else None,
         min_trades=int(raw_bt.get("min_trades", 20)),
         min_trades_per_tf=bt_per_tf,
-        filter_threshold=float(raw_bt.get("filter_threshold", 0.45)),
+        # NB: a legacy `filter_threshold` key is deliberately NOT read. It named
+        # the win-rate gate `min_avg_r` replaced, and `raw_bt.get` ignores an
+        # unknown key, so back-compat needs no field to land in.
         min_avg_r=float(raw_bt.get("min_avg_r", 0.0)),
         min_avg_r_long=(
             float(raw_bt["min_avg_r_long"])

@@ -456,7 +456,13 @@ def check_negative_claims(
     """
     added = "\n".join(line for line in diff.splitlines() if line.startswith("+"))
     haystack = added + "\n" + diff_names
-    out = runner(["git", "grep", "-nI", "-e", "x", "--", *negative_claim_paths()])
+    # ``.`` ENUMERATES the corpus — every non-empty line — because
+    # ``NEGATIVE_CLAIM_RE`` below is the only filter this leg has. Passing a
+    # content pattern here splits the rule across two spellings, and that is
+    # exactly how it shipped broken: the pattern was ``x``, the LETTER, so git
+    # dropped every line without one before the regex ever ran. Measured at the
+    # fix: 1,757 of 13,615 lines survived (12.9%), matching 1 real claim of 4.
+    out = runner(["git", "grep", "-nI", "-e", ".", "--", *negative_claim_paths()])
     findings: list[Finding] = []
     suppressed = 0
     exempted = 0
