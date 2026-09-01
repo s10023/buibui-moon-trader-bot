@@ -15,9 +15,9 @@ allowed-tools: Bash, Read, Edit
 # Sync from child (wifey) fork
 
 Read-only catch-up tool, opposite direction to `sync-parent`. Surfaces wifey-fork
-PRs that introduced **net-new** work (not ported from here) and may be worth
-back-porting into this parent repo. **It never edits parent code** — a human
-ports in a fresh session.
+PRs that introduced **net-new** work — originating in the fork rather than in
+this repo — and may be worth back-porting into this parent repo. **It never edits
+parent code** — a human ports in a fresh session.
 
 The fork mostly ports *from* this repo, so the net-new surface is small and
 signal-dense. The job is to filter the noise and flag the few genuine net-new

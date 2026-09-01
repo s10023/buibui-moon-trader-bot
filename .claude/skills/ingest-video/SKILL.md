@@ -619,7 +619,7 @@ five unaffordable.
   `claim` (NOVEL → thesis-inbox, anything else → drop), so a skipped video carrying claims
   has unroutable items. Narrative content is usually claim-free, which is exactly why this
   bites silently: check the kept set, never assume it from the content call. If a claim is
-  in there, either run pass 2 or the skip is not available.
+  in there, run pass 2 — this skip does not apply.
   ⚠ **Set `chart_present: null`. Do NOT set it `false`** — the frames exist and nobody
   looked at them, which is the same distinction step 5's download-failure branch turns on
   below. `null` is the only value that says *unexamined*: `false` claims a look that never
