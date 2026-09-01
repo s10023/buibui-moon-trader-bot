@@ -7,6 +7,17 @@ import json
 from card.config import CardConfig
 from card.state import MarketState
 
+# card-v6 (2026-08-26, ST94): session recap rows are CLOSED windows while
+# `session_clock` names the one in progress, so the rubric must cite the day
+# with the number — `SessionRecapRow` gained `date_myt` and `day_offset`.
+# Bumped because the model sees a different payload AND a different
+# instruction. The EMITTED schema is unchanged from v5, so `card-place`'s scan
+# reads v6 rows unmodified; the break is in the payload, which is exactly why
+# a shape check cannot see it.
+# ⚠ Written 2026-09-01, five days after the bump landed with no entry at all.
+# The convention here is one block per version and nothing enforces it, so the
+# skill doc went on describing v5 while every card said v6.
+#
 # card-v5 (2026-08-20): the rubric gains a four-angle steelman that runs
 # BEFORE the decision (ST35), and the generated prose is barred from citing
 # JSON field paths (ST30(c) — the operator's phone card read as a JSON dump

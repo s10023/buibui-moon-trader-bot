@@ -93,16 +93,19 @@ After the scan, state the pending set against the 6-panel daily protocol
 (Heatmap 24h + Map 1d for each of BTC/ETH/SOL): which are covered, which are
 missing. **Report over-coverage as readily as under-coverage.** The 2026-08-04L
 batch was 15 panels against a protocol of 6, and nothing said so — extra panels
-are not free, since each costs a vision dispatch (~44K tokens per image at the most
-recent reading) and a 1w heatmap band is structural context, not a same-day
-actionable level.
-**The per-image figure is MEASURED, and it has DRIFTED UPWARD — six full 6-panel
+are not free, since each costs a vision dispatch — cost it at the LATEST entry in
+the series below, never at this sentence — and a 1w heatmap band is structural
+context, not a same-day actionable level.
+**The per-image figure is MEASURED, and it ROSE then PLATEAUED — seven full 6-panel
 batches ran mean 32.7K (2026-08-11, ~196K total), 36.4K (2026-08-18, ~218K),
 43.6K (2026-08-19, range 41.9–50.0K), 50.8K (2026-08-20, range 48.6–55.7K),
-58.3K (2026-08-25, ~350K total, range 56.7–64.5K) and 58.6K (2026-08-28, ~351K
-total, range 57.5–63.8K).
-That is 78% in fourteen days, then FLAT across the last three days** (1.005×) — so read
-the trend as "unpredictable", not as "always rising", and do not extrapolate a step
+58.3K (2026-08-25, ~350K total, range 56.7–64.5K), 58.6K (2026-08-28, ~351K
+total, range 57.5–63.8K) and 60.6K (2026-08-31, ~363K total, range 58.9–66.1K).
+That is 78% over the fourteen days to 08-25, and then a PLATEAU — three readings
+across the six days since sit inside 1.04× of each other.** Say the plateau out
+loud rather than the 78%: quoting the rise alone reads as a trend still running,
+which is the framing that makes a correct dispatch look like a fallback. Read the
+trend as "unpredictable" rather than "always rising", and do not extrapolate a step
 that has stopped. A stale baseline still turns a correct dispatch into a
 false fallback alarm — which is exactly how the ABSOLUTE band failed below. Cost a batch at the LATEST entry in that
 series, never at a figure quoted elsewhere in this file: every estimate written here
@@ -136,8 +139,8 @@ name the fallback and the cost. **Never fall back silently:** the output is
 byte-identical either way, so an unannounced fallback restores the full cost
 while looking exactly like success. **Catch it by comparing this batch's mean `subagent_tokens` against the LAST RECORDED
 MEAN in the series above — a STEP, not a band.** Drift between batches is smooth
-(32.7K → 36.4K → 43.6K → 50.8K → 58.3K → 58.6K over seventeen days, the last two
-steps 1.15× and 1.005×);
+(32.7K → 36.4K → 43.6K → 50.8K → 58.3K → 58.6K → 60.6K over twenty days, the last
+three steps 1.15×, 1.005× and 1.034×);
 a silent fallback is a jump, measured at ~1.5× its same-era
 `chart-extract` cost (49K against 32.7K, 2026-08-07). So: a batch mean
 within roughly 1.2× of the previous entry is drift, and one at 1.4× or above is the
@@ -235,10 +238,18 @@ cluster count.
 Present a table per image: file · source · symbol · panel · window · scope ·
 capture age · spot hint (+source) · clusters (band, kind, intensity, label)
 · flags (symbol_mismatch, skip_reason, low confidence, spot hint far from
-recent price). Ask the operator per image: **approve / correct / drop**.
-Corrections are applied to the cluster list / fields before writing and
-summarized in the snapshot's `notes` field. NOTHING is written before this
-gate.
+recent price, non-canonical `window`). Ask the operator per image:
+**approve / correct / drop**. Corrections are applied to the cluster list /
+fields before writing and summarized in the snapshot's `notes` field. NOTHING
+is written before this gate.
+
+**Flag a `window` outside the canonical set — `12h` `24h` `48h` `1d` `3d` `1w` —
+and normalise it HERE.** `window` is a DIMENSION of `load_external_state`'s dedup
+key rather than a filter on it, so `"1 day"` and `"1d"` are two surviving
+snapshots, not one superseding the other (ST74). A free-text variant therefore
+STACKS silently — nothing downstream rejects it, and the panel count quietly
+doubles while every panel still reads fresh. This gate is the only place it is
+cheap to fix: after the write the variant is part of the key.
 
 ### Verifying the spot hint — that flag has no procedure without this
 

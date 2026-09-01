@@ -266,7 +266,7 @@ at −0.0881).
 ### `buibui card SYMBOL`
 
 AI trade card (F2). Composes brief panel (M1 indicators + M2 sessions) + pundit board + XS
-target + recent fires + live account into a MarketState, sends the card-v5 rubric to
+target + recent fires + live account into a MarketState, sends the card-v6 rubric to
 `claude -p` (subscription auth, keys stripped, `CLAUDE_CONFIG_DIR=~/.claude-personal`, bare
 temp cwd), then a deterministic post-pass sizes the trade and enforces hard rules in code
 (VETOED on violation, including a `valid_until_utc` that is unparseable or does not postdate
@@ -323,6 +323,12 @@ the card's own `generated_at_ms`). Wrapped by
   v5 also bars a JSON field path from generated prose (`range_state.pos 0.4955`): the number
   stays, the path goes. `ai-cards.jsonl` carries a v4/v5 break; `card-place`'s scan reads the
   file back now and tolerates both shapes, because it only touches fields present since v4.
+- **card-v6 (2026-08-26, ST94) is CURRENT** — recap rows are closed windows, `session_clock`
+  is the live one, cite the day with the number. ⚠ **Its break is in the PAYLOAD, not the
+  emitted schema**, so `card-place` needed no change and no shape check could have caught
+  the bump: read `PROMPT_VERSION` in `card/prompt.py` rather than any prose here. It landed
+  with **no entry in that file's own per-version changelog**, and the `/card` skill went on
+  describing v5 for five days — the convention is enforced by nothing.
 - **M4 external liquidity** (heatmap / liq-map clusters) enters as mapped liquidity with
   trust guards, capped at ONE confluence input. ⚠ **It is not horizon-filtered**, and every
   fresh capture is 24h or 1d, so **fix the capture set before adding a filter** or the block

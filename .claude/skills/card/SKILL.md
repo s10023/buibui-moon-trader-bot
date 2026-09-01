@@ -12,7 +12,7 @@ allowed-tools: Bash, Read
 # Card — Trade-Card Runner + Digest
 
 `buibui card SYMBOL` composes a MarketState (brief panel + pundit board + XS
-target + recent fires + live account), asks `claude -p` for a card-v5 trade
+target + recent fires + live account), asks `claude -p` for a card-v6 trade
 card, then a deterministic post-pass sizes the trade and enforces hard rules
 in code. Advisory — the verdict is not a fill; `card-place` is the one
 deliberate exception that routes orders, behind its own picklist and confirm.
@@ -106,15 +106,32 @@ better.
   from card.config import CardConfig
   p, _ = _account_provider_for(argparse.Namespace(dry_run=False, as_of=None))
   sc, cfg = SizingConfig(), CardConfig()
-  cap, _live = resolve_capital(sc, p.equity_usd() if p else None)
-  now = int(time.time() * 1000)
-  pnl = p.daily_pnl_usd(now - now % 86_400_000, now)
+  if p is None:
+      raise SystemExit('NO LIVE PROVIDER - every card takes the config capital path')
+  try:
+      equity = p.equity_usd()
+      now = int(time.time() * 1000)
+      pnl = p.daily_pnl_usd(now - now % 86_400_000, now)
+  except Exception as exc:
+      raise SystemExit(f'LIVE ACCOUNT UNREACHABLE - {type(exc).__name__}: {exc}')
+  cap, live = resolve_capital(sc, equity)
+  src = 'live' if live else 'config'
+  print(f'capital {cap:.2f} ({src})')
   print(f'daily_r {pnl / (cap * sc.r_base):.2f} vs limit {cfg.daily_loss_limit_r}')
   "
   ```
 
   Breached ⇒ every card in the batch returns NO_TRADE. Report it and ask
   before spending the batch; `daily_r` resets at 00:00 UTC.
+
+  **⚠ The `try` is the point — both live calls raise when the account is
+  unreachable**, which a stale key IP allowlist does on its own schedule
+  (`-2015`, and an ISP re-lease is enough). Unwrapped, the traceback scrolls
+  the capital line off the top and the failure reads as a card-batch problem
+  rather than as auth being down — measured 2026-08-31. A `SystemExit` here is
+  NOT "do not card": it means every card will fall back to the CONFIG capital
+  figure, silently, so decide that deliberately rather than discovering it in
+  the digest.
 
   **⚠ A clean NO_TRADE batch does NOT verify the breaker — do not report it as
   if it did.** `card/card.py:233` gates the ENTIRE code-side veto block,
@@ -224,7 +241,7 @@ Per card:
    a card quoting `avg_atr_r` as though it were R has confused ATR units for
    stop units. Several authors reading an identical −1.0 was the tell that
    killed the old field.
-2c. **Steelman quality (card-v5)** — read all four angles. Code counts them
+2c. **Steelman quality (card-v5 onward)** — read all four angles. Code counts them
    (exactly four non-empty bullets on a TRADE, `_STEELMAN_ANGLES`); only you
    can see whether they ARGUE. Three defects to flag: an angle that restates
    the card's own thesis in the negative, "no case" on all four (the source's
@@ -233,7 +250,7 @@ Per card:
    and reasoning log never answer it, which rubric step 5 requires. ⚠ **A
    steelman is NOT a reason to expect more NO_TRADEs** — the rubric's stated
    non-goal is that it exists so the other side never surprises you, not to
-   talk the card out of the trade, so a v5 cohort skewing toward NO_TRADE is
+   talk the card out of the trade, so a cohort skewing toward NO_TRADE is
    itself a defect to report rather than the feature working.
 3. **Sizing** — the post-pass is deterministic (P1 sizing reuse); check
    entry/SL/TP/size are internally consistent in R terms. **LOT_SIZE rounding
@@ -294,7 +311,9 @@ Cross-card:
 
 Report to the operator: one line per card (symbol · direction · verdict ·
 confluence inputs · flags), then the flags explained in prose. File real
-rubric defects as card-v5 candidates in the digest. **The LOT_SIZE-rounding
+rubric defects as candidates for the NEXT rubric — read the current one from
+`PROMPT_VERSION` in `card/prompt.py` rather than from this sentence, which has
+been a version behind before. **The LOT_SIZE-rounding
 and `valid_until_utc` defects are CLOSED** — both are enforced in the
 deterministic post-pass, mutation-verified. Do not re-file them; do flag a
 recurrence, which would now be a regression.
@@ -303,6 +322,12 @@ recurrence, which would now be a regression.
 batch — the one deliberate exception to advisory-only. It re-scans the batch's
 unexpired TRADE cards into its own picklist and places only what the operator
 selects, entry-only, GTX limit; never run it on their behalf.
+
+**⚠ Read `capital_source` on the ROW before offering it.** The pre-flight above
+reads ONE moment; capital is resolved per card, so a batch spanning an auth
+outage carries both paths and a `config` row is sized off money the account does
+not have. Offer `card-place` only for rows whose `capital_source` says live, and
+name the ones you withheld.
 
 **A card verdict is one draw, not a measurement.** Measured 2026-08-05: two
 baseline runs on a byte-identical `state_digest` returned **opposite
@@ -319,10 +344,17 @@ two configs, as evidence about anything. → memory `[[card-reproducibility-verd
   accrue in `ai-cards.jsonl` and nothing surfaces them, so a v3-vs-v4 read
   needs a hand join on `generated_at_ms` + `symbol`. Measured 2026-08-14:
   card-v3 is 8 resolved at 38% / −0.17R, **card-v4 is 2 resolved with 7 open**,
-  so no version comparison is available yet. **card-v5 (2026-08-20) starts a
+  so no version comparison was available then. **card-v5 (2026-08-20) started a
   THIRD pool rather than extending v4's** — it changed both the instruction and
   the emitted schema, so v4 rows do not carry a `steelman` at all and pooling
-  the two answers no question about either.
+  the two answers no question about either. **card-v6 (2026-08-26, ST94) opened
+  a FOURTH**: recap rows are closed windows, `session_clock` is the live one,
+  cite the day with the number. Its emitted schema is UNCHANGED from v5 — the
+  break is in the payload and the instruction — so `card-place`'s scan reads v6
+  rows without a change. Ledger split as of 2026-09-01, 65 rows: v1 4 · v2 1 ·
+  v3 26 · v4 18 · v5 10 · **v6 6**. ⚠ **Every bump restarts the pool, so the
+  largest cohort is always a CLOSED one** — a version comparison needs the
+  bumping to stop for a while, which nothing plans to do.
 - Both ledgers carry `horizon`, read from one stamp on the card — so a batch
   splits intraday vs swing straight from `tail`. **#619 (`f52ebae`) added the
   field and backfilled every historical row**, so nothing is unstamped. Of the
