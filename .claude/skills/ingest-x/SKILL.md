@@ -394,6 +394,18 @@ pasted, then run the flow once over the whole set.
    paths, because `_key` includes it and a bare `mechanics-backlog.md` writes a row
    nothing can ever match. 26 rows went in that way before the check existed.
 
+   ⚠ **Write the `mark` calls out ONE PER LINE — never drive them from a shell
+   loop.** `--sink` is an argparse `choice`, so a variable that arrives empty is
+   rejected rather than defaulted, and the usual loop idiom (`for spec in "id path";
+   do set -- $spec; …`) **silently passes an empty `$2` under zsh**, which does not
+   word-split unquoted parameters the way bash does. Measured 2026-09-01: all four
+   marks in one round errored this way. That failure was loud and total, which is the
+   lucky case — a loop that marks SOME rows and not others leaves the round half
+   recorded, and the reconciler then reports `unmarked`: the row IS in the sink but is
+   dedup-blind from then on, so a later re-ingest of the same post appends a duplicate.
+   **The repair for `unmarked` is to re-run `mark`, never to re-append** — the row is
+   already there, and appending again is the defect the mark exists to prevent.
+
    **⚠ `--source-id` is THAT post's own status id — the `ResolvedPost` you are
    crediting — never the pasted URL's id by reflex.** `route_dedup._key` is
    `(source_id, round(item_ts), sink)` and this skill hardcodes `--item-ts 0`, so
@@ -602,6 +614,19 @@ is frozen. A claim that just restates one of these candlestick/structure pattern
 - Spot-perp **CVD divergence**: all 10 pre-registered trials FAIL → shelved
   (XS −0.147, PBO 0.849; TS +0.183, DSR 0.532). Decorrelated from the deploy
   core, so the failure is missing signal rather than redundancy.
+- **Indicator CHARACTER — RSI / Stoch RSI / MACD / TD Sequential / oscillator
+  readings, overbought-oversold magnitude, and momentum DIVERGENCE of every kind
+  (regular or hidden, bullish or bearish): H8 returned NO, and the amendment kept
+  character at NO** while adding price *location* as the half that gates. ⚠ **This
+  bullet exists because the frozen list above contains NO oscillator**, so an
+  RSI-divergence post reads as `NOVEL` to anyone classifying from the frozen list
+  alone — and it is one of the most common shapes in this corpus (2 of 5 bundles on
+  2026-09-01). The verdict is `ALREADY-TESTED`; reaching for `FROZEN-CATEGORY`
+  is the wrong route and will read as a rubric bug to the next person.
+- **Long-horizon MA rejection** (50W SMA and family) as a signal: measured as a
+  **CLIFF with n_eff ~3** — hand-tradeable, structurally unbuildable, already covered.
+- **Multi-timeframe / HTF agreement**: measured **INVERTED** — the live book is
+  counter-trend, so "HTF and LTF agree" is not the edge it appears to be.
 
 **Parked / data-blocked — a GROUPING, not a verdict.** The enum is exactly
 `NOVEL` / `ALREADY-TESTED` / `FROZEN-CATEGORY` / `NOT-FALSIFIABLE`. Each item below
