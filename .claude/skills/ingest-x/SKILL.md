@@ -173,11 +173,50 @@ pasted, then run the flow once over the whole set.
    is **fixed per-subagent overhead, not payload** (6 varied posts landed inside a
    ±2% band), so the dispatch type is the lever, and bundle size is not.
 
+   **Report this round's cost in the review digest and APPEND it to the series below, every
+   run.** Nothing else catches a silent agent-type fallback: the item JSON is byte-identical
+   either way, so an unannounced `general-purpose` dispatch — or an inherited Opus — restores
+   the full cost while looking exactly like success. Series:
+
+   | date | dispatches | mean | median | range | per image Read | reading |
+   | --- | --- | --- | --- | --- | --- | --- |
+   | 2026-08-26 | 10 | 27.7K | 24.9K | 22.4–41.3K | — | `Explore`, no fallback |
+
+   **Record `tokens / images_read` beside the mean, not the mean alone.** A bare mean tracks
+   bundle image count as much as it tracks agent type: both outliers in the baseline round are
+   fully explained by tool_uses — **41.3K at 12 image Reads and 39.5K at 6, against 22–25K at
+   1–3** — and X bundles carry 0–8 images where a chart batch is one per dispatch. So an
+   unnormalised 41.3K against a 27.7K baseline is **1.49×**, which under `/ingest-charts`'
+   ≥1.4×-is-a-fallback rule would fire on a perfectly clean round.
+
+   ⚠ **Do NOT reinstate an absolute band, and note this file argued FOR one until 2026-09-01.**
+   The reasoning was that cost here is fixed per-dispatch overhead rather than payload (6 varied
+   posts inside a ±2% band), so unlike charts there is no legitimate drift to confuse with a
+   step. **The ±2% was measured across posts at a FIXED image count and does not survive the
+   image-count spread the same round measured** — 22.4K to 41.3K is 1.85× inside one batch with
+   no fallback in it. Compare against the **LAST RECORDED ENTRY** instead.
+
+   The discriminator is the **~3.6×** step of the A/B above (24.2K → 88.0K), far wider than the
+   ~1.5× charts has to work with — so a per-image figure near 3× is `general-purpose`, one
+   within ~1.2× is the same dispatch type, and **anything between is image count until you have
+   ruled that out**. ⚠ **EXCLUDE revision dispatches from the mean** — a resumed agent re-run
+   after a truncation repair is a second dispatch on the same bundle (3 such in the baseline
+   round at 31.6K / 53.3K / 31.1K), so folding them in double-counts; if the truncation halt
+   keeps firing, give revision cost its own column. Expect the baseline to climb regardless:
+   the inline rubric below is pasted into every prompt and grows as verdicts are filed.
+
    **If subagent dispatch is unavailable, do the vision pass IN THE MAIN THREAD — do not
    skip it, and do not extract from text alone.** A session can be barred from dispatching
    (a harness policy, a classifier block), and the charts carry levels the text never
    states, so a text-only extraction is the one outcome worse than paying main-thread
    context. Read each `photo_paths` entry directly and produce the same item JSON.
+
+   ⚠ **A refusal can be PER-DISPATCH and non-sticky, so retry the bundle in-thread before
+   concluding dispatch is lost for the session.** Measured 2026-08-28: exactly **1 of 14**
+   dispatches in one round was refused while the other 13 ran normally. Read a single block
+   as evidence about that call, not about the harness — fall back to the main thread for
+   **that bundle only**, and keep dispatching the rest. Treating one refusal as a
+   session-wide bar pays main-thread context for a whole round that never needed it.
    **Record it**: put `main-thread vision (subagent dispatch withheld)` in the Stream C
    row's `extraction_path` and say so in the note. That field already records this case on
    a 2026-07-31 row (`main-thread vision (subagent dispatch blocked by classifier)`) and
@@ -331,7 +370,10 @@ pasted, then run the flow once over the whole set.
    in prose. **A `quoted` post is evidence under its referrer, not a routing row
    of its own** (spec §10 Q1) — but name its author on that line, because when
    quoter and quoted differ, that name is the one the row will carry. Show each
-   `chart_read` and the full extraction JSON below the table. Write NOTHING yet.
+   `chart_read` and the full extraction JSON below the table. **Close with this round's
+   `subagent_tokens` — mean, range, and per image Read — the previous series entry, and which
+   reading you got** (step 2). That comparison is the only fallback check there is, so the
+   digest is where it has to land. Write NOTHING yet.
 
    **Surface `is_retrospective: true` in its own column, on EVERY row — including
    `claim` and `mechanic` rows that still route.** The drop in step 4 is
@@ -393,6 +435,18 @@ pasted, then run the flow once over the whole set.
    ⚠ **A bare filename is REJECTED since ST99** — `--sink` is one of three full
    paths, because `_key` includes it and a bare `mechanics-backlog.md` writes a row
    nothing can ever match. 26 rows went in that way before the check existed.
+
+   ⚠ **Write the `mark` calls out ONE PER LINE — never drive them from a shell
+   loop.** `--sink` is an argparse `choice`, so a variable that arrives empty is
+   rejected rather than defaulted, and the usual loop idiom (`for spec in "id path";
+   do set -- $spec; …`) **silently passes an empty `$2` under zsh**, which does not
+   word-split unquoted parameters the way bash does. Measured 2026-09-01: all four
+   marks in one round errored this way. That failure was loud and total, which is the
+   lucky case — a loop that marks SOME rows and not others leaves the round half
+   recorded, and the reconciler then reports `unmarked`: the row IS in the sink but is
+   dedup-blind from then on, so a later re-ingest of the same post appends a duplicate.
+   **The repair for `unmarked` is to re-run `mark`, never to re-append** — the row is
+   already there, and appending again is the defect the mark exists to prevent.
 
    **⚠ `--source-id` is THAT post's own status id — the `ResolvedPost` you are
    crediting — never the pasted URL's id by reflex.** `route_dedup._key` is
@@ -602,6 +656,19 @@ is frozen. A claim that just restates one of these candlestick/structure pattern
 - Spot-perp **CVD divergence**: all 10 pre-registered trials FAIL → shelved
   (XS −0.147, PBO 0.849; TS +0.183, DSR 0.532). Decorrelated from the deploy
   core, so the failure is missing signal rather than redundancy.
+- **Indicator CHARACTER — RSI / Stoch RSI / MACD / TD Sequential / oscillator
+  readings, overbought-oversold magnitude, and momentum DIVERGENCE of every kind
+  (regular or hidden, bullish or bearish): H8 returned NO, and the amendment kept
+  character at NO** while adding price *location* as the half that gates. ⚠ **This
+  bullet exists because the frozen list above contains NO oscillator**, so an
+  RSI-divergence post reads as `NOVEL` to anyone classifying from the frozen list
+  alone — and it is one of the most common shapes in this corpus (2 of 5 bundles on
+  2026-09-01). The verdict is `ALREADY-TESTED`; reaching for `FROZEN-CATEGORY`
+  is the wrong route and will read as a rubric bug to the next person.
+- **Long-horizon MA rejection** (50W SMA and family) as a signal: measured as a
+  **CLIFF with n_eff ~3** — hand-tradeable, structurally unbuildable, already covered.
+- **Multi-timeframe / HTF agreement**: measured **INVERTED** — the live book is
+  counter-trend, so "HTF and LTF agree" is not the edge it appears to be.
 
 **Parked / data-blocked — a GROUPING, not a verdict.** The enum is exactly
 `NOVEL` / `ALREADY-TESTED` / `FROZEN-CATEGORY` / `NOT-FALSIFIABLE`. Each item below
