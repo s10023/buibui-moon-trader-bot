@@ -18,6 +18,26 @@ updates:
       runtime-dependencies:
         dependency-type: "production"
 
+  # web/ui is a SEPARATE npm project and was outside every ecosystem here until
+  # 2026-09-02. The cost was measured: HIGH advisory #41 (nanoid < 3.3.18, a
+  # transitive dev dep of postcss) sat OPEN for 19 days with no PR, while
+  # `automated-security-fixes` was enabled the whole time -- an alert Dependabot
+  # can see is not an alert it can act on, and only a manifest entry closes that.
+  - package-ecosystem: "npm"
+    directory: "/web/ui"
+    schedule:
+      interval: "weekly"
+    # Let a bad release get yanked before it reaches a PR here. Applies to the
+    # whole ecosystem; security updates ignore the cooldown by design.
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3
+    groups:
+      dev-dependencies:
+        dependency-type: "development"
+      runtime-dependencies:
+        dependency-type: "production"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
