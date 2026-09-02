@@ -328,7 +328,12 @@ the card's own `generated_at_ms`). Wrapped by
   emitted schema**, so `card-place` needed no change and no shape check could have caught
   the bump: read `PROMPT_VERSION` in `card/prompt.py` rather than any prose here. It landed
   with **no entry in that file's own per-version changelog**, and the `/card` skill went on
-  describing v5 for five days — the convention is enforced by nothing.
+  describing v5 for five days. ⚠ **That gap is now closed in BOTH directions, and this line
+  said "enforced by nothing" until 2026-09-02** — a bump with no changelog block fails
+  (#736), and a `RUBRIC` edit under an unchanged version fails against `_RUBRIC_DIGESTS`,
+  which pins the rubric's sha256 BY version. Two rubrics under one label is the same defect
+  the version constant exists to prevent, reached from the other side. A bump carrying a
+  byte-identical rubric stays legitimate — v6's own break was in the payload.
 - **M4 external liquidity** (heatmap / liq-map clusters) enters as mapped liquidity with
   trust guards, capped at ONE confluence input. ⚠ **It is not horizon-filtered**, and every
   fresh capture is 24h or 1d, so **fix the capture set before adding a filter** or the block

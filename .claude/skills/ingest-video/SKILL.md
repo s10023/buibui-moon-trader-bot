@@ -442,14 +442,24 @@ Output (JSON to stdout):
   "call_ts_utc": "...",
   "call_ts_source": "stated|publish|publish_relay",
   "publish_ts_utc": "...",
+  "stated_ts_utc": "... | null",
   "stated_ts_raw": "...",
   "backlog": false
 }
 ```
 
-Use these five fields **verbatim** in the digest, the ledger line, and the note. Never
+Use these six fields **verbatim** in the digest, the ledger line, and the note. Never
 have a subagent or the orchestrator derive `call_ts_utc` by date arithmetic — that is
 exactly the look-ahead defect this tool exists to prevent (see Guardrails).
+
+⚠ **`stated_ts_utc` is what the tool was GIVEN, echoed back including `null` — it is the
+input, never a second copy of the verdict** (ST70(b)). It is what makes a publish
+fallback say why it fell back: **40 of 108** live fallback rows carry a non-empty
+`stated_ts_raw`, which is contract-correct when pass 1 emitted `null` for an uninferable
+timezone and a real look-ahead rejection when it emitted a timestamp that then failed a
+bound. From the row alone those were indistinguishable. Do not "simplify" it away as
+redundant with `call_ts_utc`: on a date-only row the two deliberately differ, since the
+stated value resolves forward to end-of-day.
 
 #### 4a. Resolve a relayed call's ORIGINATING AUTHOR
 
@@ -729,6 +739,27 @@ Rules for the subagent:
   is scored on the level they **stated**. (Observed failure: a stated 61,000 pivot was
   proposed as 61,600–61,800 because the ticker sat at a drawn arc's right anchor — ~700
   points onto a level the speaker never said.)
+- **A level named as the CONDITION for entry IS the `entry`** — never "no numeric
+  trigger stated". Measured (2026-08-13d): @Traderfengge's ETH short triggers on a close
+  below the **1,800** double-bottom neckline, a number he names repeatedly; pass 2 wrote
+  `entry` as prose ending "(no numeric trigger price stated)". Left empty, the scorer
+  falls back to the call-time price and books him **in position on a trade he said he had
+  not taken**. `entry: "1,800"` flips the row to `awaiting trigger` and `entry_quality`
+  `fallback` → `ok`. A conditional plan has an entry; it just has not filled yet.
+- **A CONTINGENT stop-management instruction is NOT a `stop`.** Same batch, opposite
+  direction: 舒秦's "move stop to breakeven at 63,500 **if CPI prints bearish**" was
+  written as `stop: "63,500"` against `entry: "63,500"`, and entry == stop scores an
+  instant **0.00R LOSS** — a manufactured loser against the author. `stop` is the
+  INVALIDATION level and nothing else; the management instruction is already verbatim in
+  `raw_quote`, which is where it stays. ⚠ Not `setup_type` — that key is on the pass-2
+  item schema only and has never reached the ledger (0 of 328). **An empty `stop` is
+  legitimate** and must stay legitimate.
+  ⚠ **No numeric guard replaces this rule, and one was priced rather than assumed**
+  (2026-09-02, 356 live rows): an `entry` ∩ `stop` overlap fires on **13 of the 130** rows
+  carrying both, and nearly every one is the CORRECT structural shape — enter at the zone,
+  invalidate on that zone's own edge (`~57,850-58,000` against `below ~57,850`). The narrow
+  "single bare number, equal in both fields" variant fires on **0**. Both failures above are
+  semantic, so write-time judgement is the whole fix.
 - **`direction` must be exactly one of `long` / `short` / `neutral` — a fifth value now
   costs you the whole row.** `tools/pundit_score.py:501` special-cases only the literal
   string `neutral` (returning UNSCORED); `:540` is then
@@ -1057,7 +1088,7 @@ URL).
 **Stream C line** (`pundit-calls.jsonl`, one JSON line, extends the `/ingest-x` schema):
 
 ```json
-{"source":"youtube","author":"<handle>","attribution":"first-hand|relay","relayed_by":"<relaying channel handle, relay rows only>","attribution_confidence":"<roster confidence, relay rows only>","url":"<url, with the deep link above for youtube>","ts":252.0,"call_ts_utc":"<resolved call time>","call_ts_source":"stated|publish|publish_relay","publish_ts_utc":"<publish time>","stated_ts_raw":"<verbatim quote or empty>","ingested_ts_utc":"<now>","backlog":false,"symbol":"...","direction":"...","entry":"...","stop":"...","target":"...","horizon":"...","confidence":"","vision_confidence":"high|medium|low","raw_quote":"<original language>","raw_quote_en":"<english>","corrected_from":"<transcript's original value, or empty>"}
+{"source":"youtube","author":"<handle>","attribution":"first-hand|relay","relayed_by":"<relaying channel handle, relay rows only>","attribution_confidence":"<roster confidence, relay rows only>","url":"<url, with the deep link above for youtube>","ts":252.0,"call_ts_utc":"<resolved call time>","call_ts_source":"stated|publish|publish_relay","publish_ts_utc":"<publish time>","stated_ts_utc":"<the stated time step 4 was GIVEN, or null>","stated_ts_raw":"<verbatim quote or empty>","ingested_ts_utc":"<now>","backlog":false,"symbol":"...","direction":"...","entry":"...","stop":"...","target":"...","horizon":"...","confidence":"","vision_confidence":"high|medium|low","raw_quote":"<original language>","raw_quote_en":"<english>","corrected_from":"<transcript's original value, or empty>"}
 ```
 
 **⚠ `target` and `entry` are MACHINE-PARSED — the format is a contract, not prose.**
@@ -1125,7 +1156,8 @@ do not "fix" it by putting the title back.
 Contents:
 
 - YAML frontmatter: `source`, `video_id`, `url`, `author`, `title`, `duration_s`, `lang`,
-  `publish_ts_utc`, `call_ts_utc`, `call_ts_source`, `stated_ts_raw`, `ingested_ts_utc`,
+  `publish_ts_utc`, `call_ts_utc`, `call_ts_source`, `stated_ts_utc`, `stated_ts_raw`,
+  `ingested_ts_utc`,
   `backlog`, `chart_present`, `transcript_source`, `route`
   ⚠ **`route` is the sink path, or `dropped`** (comma-separated when one video routes to
   several sinks). Step 10 reconciles this key, and it is absent from all 135 notes written

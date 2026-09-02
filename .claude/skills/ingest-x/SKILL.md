@@ -284,6 +284,19 @@ pasted, then run the flow once over the whole set.
    it was harmless only because `direction: neutral` short-circuited before the
    parse ever ran.
 
+   **A level named as the CONDITION for entry IS the `entry`, and a CONTINGENT
+   stop-management instruction is NOT a `stop`.** Both were measured on the
+   sibling lane (`/ingest-video`, 2026-08-13d) and both corrupt the same ledger
+   this skill writes, so the rules are stated in both places rather than in
+   whichever one happened to hit them first. A conditional plan HAS an entry —
+   writing "no numeric trigger stated" leaves the field empty, the scorer falls
+   back to the call-time price, and the author is booked in position on a trade
+   they said they had not taken. And "move stop to breakeven at X if <event>" is
+   not a stop: written as one against an equal `entry` it scores an instant
+   **0.00R LOSS**, a manufactured loser. `stop` is the INVALIDATION level; the
+   management instruction is already verbatim in `raw_quote`. An empty `stop` is
+   legitimate and must stay legitimate.
+
    **Name every `text_truncated: true` post explicitly — by `role` and author —
    in the item's `chart_read` or `gap_note`** — e.g. "chain_parent @x cuts off
    mid-sentence, no long-form body recoverable" — so a partial reading is visible
