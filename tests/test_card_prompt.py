@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -14,9 +15,23 @@ from card.state import MarketState
 # One `# card-vN (<date>, <item>): ...` block per version, newest first.
 _CHANGELOG_BLOCK = re.compile(r"^# (card-v\d+) \(", re.MULTILINE)
 
+# sha256 of `RUBRIC` as each version shipped it. Add an entry when you bump;
+# never overwrite one in place -- that is the edit this pin exists to stop.
+_RUBRIC_DIGESTS = {
+    "card-v6": "388fc185c40e06fa294f9a3fe27d033302ffb11cb00364c434bb6e1471ed74df",
+}
+
 
 def _changelog_versions() -> list[str]:
     return _CHANGELOG_BLOCK.findall(Path(card.prompt.__file__).read_text())
+
+
+def _digest(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def _rubric_digest() -> str:
+    return _digest(RUBRIC)
 
 
 def _state(hint: str | None = None) -> MarketState:
@@ -237,3 +252,50 @@ class TestVersionChangelog:
         harness carries its injected peeking detector for.
         """
         assert "card-v99" not in _changelog_versions()
+
+
+class TestRubricIsPinnedToItsVersion:
+    """A RUBRIC edit under an unchanged `PROMPT_VERSION` must FAIL.
+
+    `TestVersionChangelog` (#736) gates the bump direction only: bump the
+    version without a changelog block and the suite reds. The sibling
+    direction was open — rewrite the rubric prose, keep every substring the
+    asserts above pin, and `card-v6` ships as two different rubrics with every
+    gate green. Cards are comparable only within one version, so two rubrics
+    under one label is the same defect the version constant exists to prevent,
+    reached from the other side.
+
+    The digest is keyed BY version, so a bump forces a new entry rather than
+    an edit to an existing one. Digests are deliberately NOT asserted distinct
+    across versions: card-v6's own break was in the PAYLOAD, so a bump with a
+    byte-identical rubric is legitimate.
+    """
+
+    def test_the_rubric_matches_the_digest_pinned_for_this_version(self) -> None:
+        assert PROMPT_VERSION in _RUBRIC_DIGESTS, (
+            f"{PROMPT_VERSION} has no pinned rubric digest -- add "
+            f"{_rubric_digest()!r} under {PROMPT_VERSION!r} in _RUBRIC_DIGESTS"
+        )
+        assert _rubric_digest() == _RUBRIC_DIGESTS[PROMPT_VERSION], (
+            f"RUBRIC changed under {PROMPT_VERSION!r}. A rubric edit is a "
+            f"version bump: raise PROMPT_VERSION, add its changelog block, and "
+            f"pin the new digest {_rubric_digest()!r} -- do not overwrite the "
+            f"digest in place"
+        )
+
+    def test_the_check_can_fail(self) -> None:
+        """Teeth: the digest must discriminate, not just exist.
+
+        One appended space is the smallest edit a prose rewrite can make; if
+        that hashes equal, the pin above passes against anything.
+        """
+        assert _digest(RUBRIC + " ") != _RUBRIC_DIGESTS[PROMPT_VERSION]
+
+    def test_the_digest_covers_the_emitted_schema(self) -> None:
+        """`_SCHEMA` is interpolated INTO the rubric, so it rides the same pin.
+
+        A new required field is exactly a bump — `ai-cards.jsonl` carries a
+        v4/v5 break for that reason — and the pin is worthless if the schema
+        can move underneath it.
+        """
+        assert _digest(RUBRIC.replace(card.prompt._SCHEMA, "{}")) != _digest(RUBRIC)
