@@ -3,10 +3,20 @@
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 
+import card.prompt
 from card.config import CardConfig
 from card.prompt import PROMPT_VERSION, RUBRIC, build_prompt
 from card.state import MarketState
+
+# One `# card-vN (<date>, <item>): ...` block per version, newest first.
+_CHANGELOG_BLOCK = re.compile(r"^# (card-v\d+) \(", re.MULTILINE)
+
+
+def _changelog_versions() -> list[str]:
+    return _CHANGELOG_BLOCK.findall(Path(card.prompt.__file__).read_text())
 
 
 def _state(hint: str | None = None) -> MarketState:
@@ -192,3 +202,38 @@ class TestPrompt:
         """
         assert "48 hours" not in RUBRIC
         assert "30 days" not in RUBRIC
+
+
+class TestVersionChangelog:
+    """`PROMPT_VERSION` must carry a changelog block, and nothing enforced that.
+
+    card-v6 landed at #702 with no block of its own, so `/card` and `AGENTS.md`
+    went on describing v5 for five days while every emitted card said v6.
+    `TestPrompt.test_version_constant` pins the version STRING and is blind to
+    this by construction — it asserts the constant equals itself, one line above
+    the comment convention nothing reads back.
+    """
+
+    def test_current_version_has_a_changelog_block(self) -> None:
+        versions = _changelog_versions()
+        assert PROMPT_VERSION in versions, (
+            f"{PROMPT_VERSION} has no `# {PROMPT_VERSION} (<date>, <item>): ...` "
+            f"block in card/prompt.py -- found {versions}"
+        )
+
+    def test_the_newest_block_is_the_current_version(self) -> None:
+        """Blocks run newest-first, so a bump documented lower is a bump misfiled."""
+        versions = _changelog_versions()
+        assert versions[0] == PROMPT_VERSION, (
+            f"the top changelog block is {versions[0]!r} but PROMPT_VERSION is "
+            f"{PROMPT_VERSION!r} -- add the new block above the previous one"
+        )
+
+    def test_the_check_can_fail(self) -> None:
+        """Teeth: the parse must report a blockless version as ABSENT.
+
+        Without this the two assertions above pass equally well against a regex
+        that matches anything, which is the same clean-vs-blind gap the lookahead
+        harness carries its injected peeking detector for.
+        """
+        assert "card-v99" not in _changelog_versions()

@@ -244,6 +244,12 @@ User-facing signals — **walk the docs** if any are present:
 - Behaviour change to an existing public command
 - New long-running daemon or one-shot tool (docker-compose)
 - **Anything on the notification-decision list below**
+- **Any change to the doc surfaces themselves** — `AGENTS.md`, `CLAUDE.md`, the
+  handoff, `MEMORY.md`, `.claude/context/*.md`. ⚠ **This gate reads FALSE on exactly
+  the PR class where the walk pays most**, because it asks whether behaviour changed
+  and the docs *are* the change. #629 shipped a 217-line handoff against
+  `daily_check.py`'s enforced 200 and a header restating a different budget instead of
+  pointing at the constant; the walk caught both and a hand read missed them.
 
 ### Notification surface — decide it, never default to it
 
@@ -586,6 +592,16 @@ For each surface in the config, do the following:
   prompt a judgement, not assert a rule. Found 2026-08-12d while promoting
   `tools/decay_review.py` (#607): the convention had to be inferred by grepping
   siblings, which is exactly the "a person plus luck" non-rule this step replaces.
+
+- **SIXTH INSTANCE of the omission blind spot: a GENERATED index that nothing reads
+  back.** Every check above asks whether the artifact is *correct*; none asks whether
+  anything *acts on* it. ⚠ **This is the inverse of the usual failure — the artifact
+  was right and unread, so a staleness gate cannot see it.** `docs/audits/INDEX.md`
+  was generated, CI-enforced and always current while it carried the only BUILD
+  verdict in 47 audits, unowned for seven weeks. **A generated index that nothing
+  consumes is a surface, not a check: ask what reads it, and whether an actionable
+  row can go unowned.** `docs/superpowers/specs/INDEX.md` has the same shape — whether
+  it has the same gap is unverified.
 
 - **AGENTS.md must not re-absorb this content.** The 2026-08-04 split left
   the always-loaded tier holding a package index plus verdicts, and the context
