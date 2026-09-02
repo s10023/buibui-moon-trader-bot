@@ -336,6 +336,22 @@ flag — and research verdicts are the most expensive kind to leave stale,
 because AGENTS.md's whole purpose there is to stop the next session
 re-litigating settled work.
 
+⚠ **The doc surfaces are not the whole corpus — grep the MEMORY TREE too when the claim is
+about a SERIES.** Measured on #729: a branch appended an entry to `/ingest-charts`' cost
+series and claimed that step was the first ever to go DOWN. The falsifying evidence — a full
+6-panel batch measured 37.1K two weeks earlier — sat in `project_skill_fix_queue.md` in the
+account-level memory tree, filed there as a defect instead of appended to the series. **No
+mechanical leg could have caught it**: `queue-items` and `handoff-symbols` read the handoff,
+every other leg is repo-scoped, and `stale-anchors` is the one leg reaching memory but it
+checks anchors rather than data.
+
+So when a branch appends to a series — costs, counts, timings, any running measurement — ask
+what else measured the SAME QUANTITY and never reached it. **A series' COMPLETENESS is the
+hypothesis, not just its values**, and a series that merely looks monotone is evidence of what
+somebody remembered to write down. The conclusion on #729 survived and its stated reason did
+not, which is the cheap outcome; the expensive one is a rule rewritten on a premise the corpus
+had already falsified.
+
 **Strong refactor signals** — these almost always trigger user-facing doc
 edits because they change paths users / docs reference:
 
@@ -860,6 +876,20 @@ means the clone or install died; only `FAILED` is a real finding.
 *absolute* default (`$HOME/...`) survives a clone untouched — `EXTERNAL_LEDGERS`
 in `deploy/backup-analytics.sh` is that shape — and it only sees code some test
 actually exercises, never an untested CLI branch.
+
+⚠ **Scope: run it when the diff can REACH the suite, and prove that with a check rather than a
+judgement.** The positive test is two greps — does the diff contain Python, and does any test
+read a changed path (`grep -rl <changed-path> tests/`)? If both answer no, the clone re-runs
+the whole suite to reproduce `main`'s own result; **say in the PR body which gate you ran
+instead and why**, naming the two greps. Measured on #730, a lockfile line plus a
+`.github/dependabot.yml` entry: zero Python, no test reading either file, 4762 tests that
+could not be affected.
+
+⛔ **The default stays RUN, and the discriminator must be that positive check — never "this
+looks harmless".** That judgement is exactly what #586 and #666 defeated, both of which were
+diffs nobody expected to reach anything. This scope line exists because a gate with no stated
+scope makes the correct call look like a deviation, which is how it gets dropped later on a
+diff that DID need it.
 
 ### Then decide the visibility flip — BEFORE `gh pr create`
 
