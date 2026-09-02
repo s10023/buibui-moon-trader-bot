@@ -23,9 +23,21 @@ BACKLOG_THRESHOLD_H = 24
 
 @dataclass(frozen=True)
 class CallTime:
+    """`stated_ts_utc` is echoed back VERBATIM, including `None` — ST70(b).
+
+    Without it a publish-fallback row cannot say WHY it fell back. Measured on
+    the live ledger: 40 of 108 fallback rows carry a non-empty `stated_ts_raw`
+    (`'拍摄26年7月17日'` — a date-only statement), which is contract-correct if
+    pass 1 emitted `None` for an uninferable timezone, and a defect if it
+    emitted a timestamp that then lost a bound here. The two are
+    indistinguishable from the row unless the input is stored beside the
+    verdict, so this field is the discriminator rather than a convenience.
+    """
+
     call_ts_utc: str
     call_ts_source: str
     publish_ts_utc: str
+    stated_ts_utc: str | None
     stated_ts_raw: str
 
 
@@ -73,6 +85,7 @@ def resolve_call_ts(
         call_ts_utc=publish_ts_utc,
         call_ts_source="publish_relay" if relay else "publish",
         publish_ts_utc=publish_ts_utc,
+        stated_ts_utc=stated_ts_utc,
         stated_ts_raw=stated_ts_raw,
     )
     if stated_ts_utc is None:
@@ -90,6 +103,7 @@ def resolve_call_ts(
         call_ts_utc=stated.isoformat(),
         call_ts_source="stated",
         publish_ts_utc=publish_ts_utc,
+        stated_ts_utc=stated_ts_utc,
         stated_ts_raw=stated_ts_raw,
     )
 

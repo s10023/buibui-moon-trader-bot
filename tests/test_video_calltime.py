@@ -19,7 +19,11 @@ PUB = "2026-07-28T14:00:00+00:00"
 def test_falls_back_to_publish_when_no_stated_time() -> None:
     got = resolve_call_ts(PUB)
     assert got == CallTime(
-        call_ts_utc=PUB, call_ts_source="publish", publish_ts_utc=PUB, stated_ts_raw=""
+        call_ts_utc=PUB,
+        call_ts_source="publish",
+        publish_ts_utc=PUB,
+        stated_ts_utc=None,
+        stated_ts_raw="",
     )
 
 
@@ -164,3 +168,58 @@ def test_relay_beyond_the_lead_bound_falls_back_to_publish_relay() -> None:
         relay=True,
     )
     assert got.call_ts_source == "publish_relay"
+
+
+def test_a_fallback_stores_the_stated_time_that_lost_a_bound() -> None:
+    """ST70(b): the fallback must say WHY it fell back.
+
+    A publish fallback with a non-empty `stated_ts_raw` has two causes -- pass 1
+    emitted `None` for an uninferable timezone (contract-correct), or it emitted
+    a timestamp that then failed a bound here (a real look-ahead rejection).
+    Storing the input is what separates them; 40 of 108 live fallback rows sit
+    in exactly this ambiguity.
+    """
+    got = resolve_call_ts(
+        PUB,
+        stated_ts_utc="2026-07-28T16:00:00+00:00",
+        stated_ts_raw="it's 4pm Monday",
+    )
+    assert got.call_ts_source == "publish"
+    assert got.stated_ts_utc == "2026-07-28T16:00:00+00:00"
+
+
+def test_an_uninferable_timezone_is_stored_as_none_not_as_empty() -> None:
+    """The other half of the discriminator, and it must not collapse to "".
+
+    `stated_ts_raw` uses "" for absent because it is a quote; `stated_ts_utc`
+    uses None because "" would read as a stated time that resolved to nothing.
+    """
+    got = resolve_call_ts(PUB, stated_ts_raw="拍摄26年7月17日")
+    assert got.call_ts_source == "publish"
+    assert got.stated_ts_utc is None
+    assert got.stated_ts_raw == "拍摄26年7月17日"
+
+
+def test_a_stated_row_stores_the_input_verbatim_not_the_resolved_value() -> None:
+    """A date-only row resolves to end-of-day, so the two fields differ.
+
+    Storing the resolved value instead would make the field a restatement of
+    `call_ts_utc` and settle nothing.
+    """
+    got = resolve_call_ts(
+        PUB, stated_ts_utc="2026-07-27T00:00:00+00:00", stated_date_only=True
+    )
+    assert got.call_ts_source == "stated"
+    assert got.stated_ts_utc == "2026-07-27T00:00:00+00:00"
+    assert got.call_ts_utc == "2026-07-27T23:59:59+00:00"
+
+
+def test_cli_emits_the_stated_input(capsys: pytest.CaptureFixture[str]) -> None:
+    """The CLI is what the skill copies into the ledger row, so it carries it."""
+    main(["--publish", PUB, "--stated", "2026-07-28T08:00:00+00:00"])
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["stated_ts_utc"] == "2026-07-28T08:00:00+00:00"
+
+    main(["--publish", PUB, "--stated-raw", "拍摄26年7月17日"])
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["stated_ts_utc"] is None
