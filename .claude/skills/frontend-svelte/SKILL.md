@@ -25,7 +25,7 @@ covers wiring and conventions, not aesthetics.
 | Svelte | 5 (uses runes — `$state`, `$derived`, `$effect`) |
 | Vite | 8 |
 | TypeScript | 5 |
-| `lightweight-charts` | 4.2 — only in `CandleChart.svelte` and `Chart.svelte` overlays |
+| `lightweight-charts` | 5.2 — used ONLY in `CandleChart.svelte`; `Chart.svelte`'s overlays are layered HTML divs, not chart series |
 | `svelte-check` | type checker (`make web-check`) |
 
 No CSS framework — plain CSS in `app.css` + per-component `<style>` blocks.
@@ -160,6 +160,13 @@ closing `</style>` tag many lines below.
   overlay logic in `pages/Chart.svelte`.
 - Series types in use: candlestick, line (EMA, BOS, EQH/EQL), markers (signal
   arrows). HTML divs are layered for FVG / OB / Fib / OTE rectangles.
+- **v5 API since ST117.** Create a series as `chart.addSeries(LineSeries, opts)` —
+  the v4 per-type factories (`addLineSeries`, `addCandlestickSeries`,
+  `addHistogramSeries`) are GONE, and the series definition is imported as a runtime
+  value, not a type. ⚠ **Markers are a PRIMITIVE, and this is the one that is not a
+  rename**: `createSeriesMarkers(series)` once, then `.setMarkers(...)` to update. v4's
+  `series.setMarkers()` REPLACED the set on every call, so porting it literally into a
+  reactive `$effect` attaches a new plugin per run instead of replacing the markers.
 - Every overlay zone carries a `close_ms` so it can be filtered when the
   user scrubs time.
 - See `/stats-dashboard` for the related Stats panel that complements the

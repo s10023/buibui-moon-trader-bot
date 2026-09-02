@@ -1,12 +1,17 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import {
+    CandlestickSeries,
     ColorType,
     createChart,
+    createSeriesMarkers,
+    HistogramSeries,
+    LineSeries,
     type CandlestickData,
     type HistogramData,
     type IChartApi,
     type ISeriesApi,
+    type ISeriesMarkersPluginApi,
     type LineData,
     type SeriesMarker,
     type Time,
@@ -93,6 +98,7 @@
   let container: HTMLDivElement;
   let chart: IChartApi;
   let candleSeries: ISeriesApi<"Candlestick">;
+  let seriesMarkers: ISeriesMarkersPluginApi<Time> | null = null;
   let volumeSeries: ISeriesApi<"Histogram">;
   let fundingSeries: ISeriesApi<"Histogram"> | null = null;
   let oiSeries: ISeriesApi<"Line"> | null = null;
@@ -306,7 +312,7 @@
     rangeLabelEndTimes = [];
 
     for (const { label, price, originTimeSec, color } of computeRangeLevels(candles)) {
-      const series = chart.addLineSeries({
+      const series = chart.addSeries(LineSeries, {
         color,
         lineWidth: 1,
         priceScaleId: "right",
@@ -611,7 +617,7 @@
         : (line.close_ms ? line.close_ms / 1000 : lastSec);
       const opacity = line.active ? 1 : 0.4;
 
-      const s = chart.addLineSeries({
+      const s = chart.addSeries(LineSeries, {
         color,
         lineWidth: 1,
         lineStyle,
@@ -696,7 +702,7 @@
       rightPriceScale: { borderColor: "#30363d" },
     });
 
-    candleSeries = chart.addCandlestickSeries({
+    candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: "#3fb950",
       downColor: "#f85149",
       borderUpColor: "#3fb950",
@@ -706,7 +712,13 @@
       priceScaleId: "right",
     });
 
-    volumeSeries = chart.addHistogramSeries({
+    // v5: markers are a series PRIMITIVE, attached once and then updated. v4's
+    // `series.setMarkers()` REPLACED the set on every call; `createSeriesMarkers`
+    // ATTACHES a new plugin, so calling it inside the effect below would stack one
+    // per signal change rather than replace the markers. Create here, update there.
+    seriesMarkers = createSeriesMarkers(candleSeries);
+
+    volumeSeries = chart.addSeries(HistogramSeries, {
       color: "#30363d",
       priceFormat: { type: "volume" },
       priceScaleId: "volume",
@@ -716,7 +728,7 @@
     });
 
     // Funding rate histogram — green/red bars below volume
-    fundingSeries = chart.addHistogramSeries({
+    fundingSeries = chart.addSeries(HistogramSeries, {
       color: "#3fb950",
       priceFormat: { type: "price", precision: 4, minMove: 0.0001 },
       priceScaleId: "funding",
@@ -726,7 +738,7 @@
     });
 
     // Open interest line — rightmost sub-panel
-    oiSeries = chart.addLineSeries({
+    oiSeries = chart.addSeries(LineSeries, {
       color: "#79c0ff",
       lineWidth: 1,
       priceFormat: { type: "volume" },
@@ -739,7 +751,7 @@
     });
 
     // EMA overlays — on main price scale
-    ema20Series = chart.addLineSeries({
+    ema20Series = chart.addSeries(LineSeries, {
       color: "#f0883e",
       lineWidth: 1,
       priceScaleId: "right",
@@ -749,7 +761,7 @@
       title: "EMA20",
     });
 
-    ema50Series = chart.addLineSeries({
+    ema50Series = chart.addSeries(LineSeries, {
       color: "#58a6ff",
       lineWidth: 1,
       priceScaleId: "right",
@@ -759,7 +771,7 @@
       title: "EMA50",
     });
 
-    ema200Series = chart.addLineSeries({
+    ema200Series = chart.addSeries(LineSeries, {
       color: "#bc8cff",
       lineWidth: 1,
       priceScaleId: "right",
@@ -770,7 +782,7 @@
     });
 
     // RSI sub-panel
-    rsiSeries = chart.addLineSeries({
+    rsiSeries = chart.addSeries(LineSeries, {
       color: "#e3b341",
       lineWidth: 1,
       priceFormat: { type: "price", precision: 2, minMove: 0.01 },
@@ -853,7 +865,7 @@
   // ── Signal markers effect ─────────────────────────────────────────────────────
 
   $effect(() => {
-    if (!candleSeries) return;
+    if (!candleSeries || !seriesMarkers) return;
     const markers: SeriesMarker<Time>[] = signals
       .map((s) => ({
         time: (s.open_time / 1000) as Time,
@@ -870,7 +882,7 @@
         size: 1,
       }))
       .sort((a, b) => (a.time as number) - (b.time as number));
-    candleSeries.setMarkers(markers);
+    seriesMarkers.setMarkers(markers);
   });
 
   // ── Funding rate effect ───────────────────────────────────────────────────────
