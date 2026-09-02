@@ -901,6 +901,15 @@ instead and why**, naming the two greps. Measured on #730, a lockfile line plus 
 `.github/dependabot.yml` entry: zero Python, no test reading either file, 4762 tests that
 could not be affected.
 
+⚠ **A `grep -rl` hit inside a COMMENT or DOCSTRING still counts as a RUN.** The check cannot
+tell a citation from a read, and it is only allowed to be wrong in the expensive direction.
+Measured on #736: a doc-only amend to `.claude/context/signals.md` hit
+`tests/test_post_branch_checks.py`, where the path appears in a docstring naming that file as
+a known false positive while the test itself runs on a synthetic fixture — so a 5-minute
+clean-clone run was spent on a diff that provably could not reach the suite. ⛔ **Do not fix
+that by narrowing the grep**: the spec-reconcile counter cannot tell a citation from a
+disclaimer either, and every narrowing there re-created the blindness it was meant to remove.
+
 ⛔ **The default stays RUN, and the discriminator must be that positive check — never "this
 looks harmless".** That judgement is exactly what #586 and #666 defeated, both of which were
 diffs nobody expected to reach anything. This scope line exists because a gate with no stated
