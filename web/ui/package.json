@@ -16,6 +16,6 @@
     "vite": "^8.0.16"
   },
   "dependencies": {
-    "lightweight-charts": "^4.2.0"
+    "lightweight-charts": "^5.2.1"
   }
 }
