@@ -1280,6 +1280,12 @@ clean clone. **CI already is this gate — the gap it closes is TIMING**, since 
 a push costs a metered cycle, a red PR and a visibility flip just to read the failure. ⚠ It
 does not catch an *absolute* `$HOME` default (identical in the clone — `EXTERNAL_LEDGERS` in
 `deploy/backup-analytics.sh` is that shape), nor any CLI branch no test reaches.
+⚠ **It is scoped to a diff that can REACH the suite, and the discriminator is a CHECK rather
+than a judgement:** does the diff contain Python, and does any test read a changed path
+(`grep -rl <path> tests/`)? Both no — a lockfile line, a `.github/` config entry — and the
+clone re-runs the whole suite to reproduce `main`'s own result, so name the gate you ran
+instead in the PR body. ⛔ **The default stays RUN** — "this looks harmless" is precisely the
+judgement #586 and #666 defeated.
 
 **Why the split is load-bearing:** running the doc walk after PR creation pushes a fix onto
 an open PR, and every such push re-runs all CI (`pull_request: synchronize`) — ~3000 tests
