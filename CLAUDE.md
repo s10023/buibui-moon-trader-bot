@@ -48,6 +48,18 @@ At the end of every session where anything changed, update the **Current State**
 waiting to be asked. Keep current: a one-line last-session summary, and open questions or
 pending decisions (or "none").
 
+⚠ **The SoT (`memory/project_todo_master.md`) carries the SAME unprompted obligation, and it
+is stated here because omitting it is what made it drift.** The end-of-session rules named
+`MEMORY.md` and the handoff; those two get written every session, while the surface declared
+SINGLE SOURCE OF TRUTH was written only when someone happened to think of it. That is the rule
+set working as written, not carelessness — which is why prose reminders elsewhere did not fix
+it. Reconcile the row this session touched **at closure time, as one line plus a pointer into
+[[todo-archive-closed]]** — never as a later sweep, since the 2026-08-26d sweep of 26 rows /
+~80KB only became necessary because nobody did it per-row. ⚠ **A row is not finalised while it
+says "PR pending"**: four rows read `✅ FIXED … (PR pending)` days after their PRs merged, and
+`daily_check.py`'s detector never examined them — it looks for rows marked OPEN, so the stale
+clause was invisible to it by construction.
+
 The index is read into context every session, so its cost is paid on every conversation:
 
 - **Current State holds at most 6 bullets.** Adding a 7th means first rolling the oldest,
