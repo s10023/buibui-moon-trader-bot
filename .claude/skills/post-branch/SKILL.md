@@ -650,6 +650,20 @@ For each surface in the config, do the following:
   substring matching silently conflates `pundit_direction` with a longer name,
   the same trap that made skill-fix 7p's own filed fix wrong.
 
+  ⚠ **A PROMPT-SIDE rule has NO enforcement locus, so the recipe degrades to the
+  artifact grep plus a READ — and that is the common case, not the edge one.** The
+  trick above works because `direction` is enforced in code at
+  `analytics/pundit_direction.py`, giving a string only a rule-carrying skill would
+  cite. A rule that lives entirely in the prompt ("a level named as the condition for
+  entry IS the entry") has no such string: every candidate spelling is either prose the
+  sibling would phrase differently or a field name it mentions anyway, which is the
+  vacuous case this bullet already warns about. So when the changed rule is prompt-side,
+  use `grep -rls "$ART" .claude/skills/*/SKILL.md` to get the candidate list and then
+  READ each hit for the rule's *substance* — the grep can only narrow the set, never
+  decide it. Measured 2026-09-02: `/ingest-x` carried neither of two Stream C entry/stop
+  rules `/ingest-video` had, and it was found by reading, with no locus available to
+  grep for.
+
   **A hit is a candidate, not a finding — it over-reports by design.** The grep
   cannot tell "writes this artifact" from "mentions this artifact", so confirm
   with one read before proposing anything. Run against this tree it returns two
