@@ -32,6 +32,22 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 3
+    # SCOPED TO npm ON PURPOSE -- pip and github-actions have been running for
+    # months and absorb majors fine. This directory had NEVER had version
+    # updates, so enabling it in #730 surfaced every deferred major at once:
+    # both first-run PRs went red on frontend-check. #732 was a real
+    # lightweight-charts v4->v5 migration (11 svelte-check errors; `addLineSeries`
+    # and `setMarkers` are gone), and #731 was not work at all -- the group put
+    # typescript ^7.0.2 beside svelte-check@4.7.6, whose peer range is
+    # ^5.0.0 || ^6.0.0, so `npm ci` died ERESOLVE before any build.
+    #
+    # This does NOT give back the security coverage the ecosystem was added for:
+    # security fixes are almost always patch-level (nanoid 3.3.16 -> 3.3.18 is
+    # exactly that shape), so minor/patch keeps flowing and only migrations stop
+    # arriving unannounced. A major here is a task to schedule, not a PR to merge.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       dev-dependencies:
         dependency-type: "development"
