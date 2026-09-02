@@ -146,6 +146,15 @@ it changes global state affecting their other work.
 - `build(scope):` — build system / dependencies
 - `chore(scope):` — maintenance (cleanup, config)
 
+## No derived number in the title
+
+**Line counts, file counts and sizes go under `## Stats`, never in the title.**
+Squash-merge makes the title the permanent commit message, so correcting a stale
+figure there means rewriting `main` — while the same figure in the body is one edit
+away from correct, and the title is the most quotable line in the whole PR. A later
+commit moves every derived number: wifey's #203 reads `822 lines / 61KB` against a
+true `873 / 65.8KB` because the branch grew after the summary was written.
+
 ## Task: write a PR summary
 
 When the user asks to write a PR summary or after finishing a branch:

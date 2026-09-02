@@ -166,6 +166,14 @@ Lead with what **moved** since the previous report in that directory. If nothing
 say so plainly — "unchanged" is the correct finding most weeks and is worth one line,
 not a rebuilt table.
 
+**Then reconcile the numbers this report just superseded.** Nothing else propagates
+a decay-review figure — it is written once and quoted forever — so grep the three
+always-paid surfaces (`MEMORY.md`, the handoff, the SoT) for the population figures
+this run replaced and update them in place. Measured 2026-08-13c: the report recorded
+★≥4 `66 → 55` stored and `58 → 47` declared while all three surfaces still carried
+`66 → 58` hours later, and a session verifying the prune spent a detour proving its own
+correct measurement right against a filed number that was one run stale.
+
 ## Footguns
 
 - **The driver is `tools/decay_review.py`.** `docs/plans/scratch/decay_review.py` is a
