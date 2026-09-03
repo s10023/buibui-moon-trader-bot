@@ -119,7 +119,10 @@ belongs on reachability rather than on another rule. Deep reference
   failure to its own exit 2). Read the printed banner, or call the script directly.
 - **A tool that imports from the repo bootstraps its own `sys.path` so a bare
   `python3 tools/<name>.py` works, and the GUARANTEE is a `test_bare_invocation_works`
-  test, never the bootstrap line.** CI runs `sanity_checks.py` exactly that way, with **no**
+  test, never the bootstrap line.** ⚠ **That bootstrap covers REPO imports and does
+  nothing for third-party deps** — a bare `python3` still has no `duckdb`, which is a
+  separate mechanism (`tools/venv_bootstrap.py`, a `sys.prefix`-guarded re-exec into
+  `.venv`) wired ONLY where that failure is silent rather than a loud traceback. CI runs `sanity_checks.py` exactly that way, with **no**
   `PYTHONPATH`, while the Make targets set it — so a green `make sanity-checks` proves
   nothing about CI's invocation. That gap shipped a red CI on 2026-08-19 with every local
   gate green. ⛔ **Do not enumerate the tools here.** This bullet read "all three" and was
