@@ -28,17 +28,27 @@ memory re-reads. Verify subagent and background work directly (`ps`, `journalctl
 
 **Shell hygiene is a HOOK too, because the prose was in context and lost twice in one
 session.** `.claude/hooks/guard-shell-hygiene.py` (advisory, `PreToolUse` on `Bash`, said
-ONCE PER RULE PER SESSION so it cannot train you to skip it) flags two habits that fake a
+ONCE PER RULE PER SESSION so it cannot train you to skip it) flags three habits that fake a
 verified result: a **hand-rolled waiter** (`until … pgrep`) for work the harness already
 re-invokes you on — its `pgrep` guard names a CLASS, so the next run of the same kind
-re-arms a fired waiter and it prints a STALE file as the fresh result — and a **gate piped
-into `tail`/`head`**, which returns the truncator's exit status and turns a red run green.
-Redirect and read the file instead. `test_guard_shell_hygiene.py` (27 cases, 4 mutation)
-runs in CI's dependency-free `markdownlint` job; re-run it after any edit to either.
+re-arms a fired waiter and it prints a STALE file as the fresh result — a **gate piped
+into `tail`/`head`**, which returns the truncator's exit status and turns a red run green —
+and a **DUPLICATE waiter**, which is rule 1's own blind spot: the SANCTIONED
+`make wait-ci PR=743` matches no hand-rolled shape, so two ran at once. Rule 3 therefore
+probes for a live process on the same TARGET rather than matching the command, and speaks
+once per target rather than once per session. Redirect and read the file instead.
+`test_guard_shell_hygiene.py` (50 cases, 9 mutation) runs in CI's dependency-free
+`markdownlint` job; re-run it after any edit to either. ⚠ **Scoping a guard to the SYMPTOM
+you noticed rather than to the CLASS is the recurring defect here** — mutation tests cannot
+reveal it, because they only probe rules that exist.
 
 **Guardrail.** A PreToolUse hook (`.claude/hooks/guard-destructive.py`) blocks catastrophic
-Bash (rm -rf, git reset --hard, force-push, DB wipes). If blocked, surface it rather than
-working around it silently.
+Bash (rm -rf, git reset --hard, force-push, DB wipes) **and `rclone config create|update`
+with no `>/dev/null`, which prints live tokens to stdout on SUCCESS** — prose had already
+failed at that twice, and `AGENTS.md` says so in its own words. If blocked, surface it
+rather than working around it silently. `test_guard_destructive.py` (33 cases, 4 mutation)
+gates it in the same CI job — added 2026-09-03, since the BLOCKING hook was the one of the
+three with no suite at all. Deep ref `.claude/context/tools.md`.
 
 **Footgun delivery lives in a hook, not in this file.** `.claude/hooks/context-guard.py` +
 `context-map.json` deliver a card at the moment a guarded file is edited, which is what let

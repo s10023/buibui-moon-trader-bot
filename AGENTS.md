@@ -429,6 +429,15 @@ written up the first: the mitigation was prose ("never paste the output"), and a
 needs a human to notice output they did not ask for is not a control. The safe
 verifications are `rclone lsf <remote>:` and `rclone about <remote>:`.
 
+⚡ **Since 2026-09-03 this paragraph is no longer the control — `guard-destructive.py`
+BLOCKS the unredirected form**, so the leaking call is unreachable rather than discouraged.
+Two properties of that rule are load-bearing and both are pinned by tests: `2>/dev/null`
+does NOT satisfy it (the secrets go to stdout), and it fires only where a command can
+actually START, so writing *about* it here is not blocked — unanchored it blocked its own
+commit message, and a blocking guard that stops honest work gets switched off. ⚠ **The
+prose stays because the hook covers ONE surface**: a call the operator makes in their own
+terminal, or any `rclone config` spelling the rule does not name, still needs the redirect.
+
 **Off-machine leg:** `deploy/backup-offsite.sh` (`rclone sync` of `$BUIBUI_BACKUP_ROOT`),
 installed separately because `rclone config` is interactive. It **exits 1 while
 `BUIBUI_BACKUP_REMOTE` is unset**, so an enabled-but-unconfigured timer complains daily

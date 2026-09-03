@@ -36,7 +36,24 @@ RULE 2 — a gate piped into a truncating reader (`make preflight | tail -8`).
     as exit 0 while three tier-1 legs had not run, a `make typecheck` failure that
     let `&&` proceed anyway, and a `make preflight` whose result was lost entirely.
 
-Each rule speaks ONCE PER SESSION. A hook that fires on every occurrence trains
+RULE 3 — a DUPLICATE waiter on a target something is already waiting on.
+    The gap rule 1 leaves open, found by the operator within the hour of it
+    shipping: rule 1 matches the hand-rolled shape (`until ... pgrep`), so the
+    SANCTIONED waiter walks straight through it. Two `make wait-ci PR=743` runs
+    were live at once that day — double the CI API calls, both re-invoking the
+    session on the same event. The mutation tests could not have revealed it,
+    because they only probe rules that exist; the hook had been scoped to the
+    SYMPTOM noticed rather than to the class.
+
+    So this rule cannot be a regex over the command. It extracts the waiter's
+    TARGET (`--pr 743`, `--branch main`) and asks pgrep whether one is already
+    live for it — the check the operator's rule states: *before launching any
+    waiter, check whether one is already running for the same target*. Unlike
+    rules 1-2 it speaks once per TARGET rather than once per session: it fires
+    only on a real live clash, so there is no honest use to go quiet about, and
+    a second clash on a second target is a second mistake.
+
+Rules 1 and 2 speak ONCE PER SESSION. A hook that fires on every occurrence trains
 its reader to skip it — the same failure the repo's always-red tier-2 line and
 its always-amber monitor workflow already demonstrate.
 """
@@ -47,6 +64,7 @@ import contextlib
 import hashlib
 import json
 import re
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -87,6 +105,87 @@ RULES: list[tuple[str, str, str]] = [
         '`make <gate> > /tmp/<name>.log 2>&1; echo "exit=$?"; tail -8 /tmp/<name>.log`.',
     ),
 ]
+
+
+# RULE 3 is two-stage: name the TARGET a proposed waiter would wait on, then ask
+# whether a process is already waiting on that same one. `make wait-ci PR=743`
+# and the direct `wait_ci.py --pr 743` are the same target by construction --
+# the Makefile recipe IS that script -- so both spellings are matched here and
+# only the script's own cmdline is ever probed.
+# ANCHORED at an interpreter actually running the script, because `pgrep -f`
+# matches the whole command line and a shell's argv CONTAINS the command it was
+# handed -- so an unanchored probe reads any command that merely MENTIONS the
+# target as a waiter running on it. Caught by this hook's own suite, live, while
+# it was being written. POSIX classes rather than `\S`, since pgrep compiles the
+# pattern as an ERE and the GNU shorthands are not guaranteed there.
+_RUNNING_SCRIPT = r"^[^ ]*python[0-9.]*[ ][^ ]*wait_ci\.py[ ]"
+_WAITER = re.compile(r"\bwait[-_]ci\b|\bwait_ci\.py\b")
+_WAITER_PR = re.compile(r"(?:\bPR\s*=\s*|--pr[ =])(\d+)")
+_WAITER_BRANCH = re.compile(r"wait[-_]ci-main\b|--branch[ =](\S+)")
+
+
+def _waiter_target(command: str) -> tuple[str, str] | None:
+    """(human label, pgrep pattern) for the CI waiter this command would start.
+
+    None when the command starts no waiter -- which is the common case, so this
+    returns before shelling out to anything.
+    """
+    if not _WAITER.search(command):
+        return None
+    pr = _WAITER_PR.search(command)
+    if pr:
+        n = pr.group(1)
+        # The trailing class stops `--pr 743` matching a live `--pr 7431`.
+        return f"PR #{n}", rf"{_RUNNING_SCRIPT}.*--pr[ =]{n}([^0-9]|$)"
+    branch = _WAITER_BRANCH.search(command)
+    if branch:
+        # `make wait-ci-main` names no branch on the command line; the recipe
+        # supplies `--branch main`, which is what the live process shows.
+        name = branch.group(1) or "main"
+        return (
+            f"branch {name}",
+            rf"{_RUNNING_SCRIPT}.*--branch[ =]{re.escape(name)}([^A-Za-z0-9_/-]|$)",
+        )
+    return None
+
+
+def _live_waiter_pids(pattern: str) -> list[str]:
+    """PIDs already waiting on this target. Empty on any doubt -- see below.
+
+    A false positive here would flag an honest first waiter, which is the one
+    failure this hook cannot afford, so a missing or unhappy `pgrep` stays
+    silent rather than guessing.
+    """
+    try:
+        found = subprocess.run(
+            ["pgrep", "-f", pattern],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [pid for pid in found.stdout.split() if pid.isdigit()]
+
+
+def _duplicate_waiter_note(command: str) -> tuple[str, str] | None:
+    """(dedup key, note) when a live waiter already covers this target."""
+    target = _waiter_target(command)
+    if target is None:
+        return None
+    label, pattern = target
+    pids = _live_waiter_pids(pattern)
+    if not pids:
+        return None
+    return (
+        f"waiter-dup:{label}",
+        f"a DUPLICATE waiter -- {label} already has a live waiter "
+        f"(pid {', '.join(pids)}). Two waiters on one target double the CI API "
+        "calls and both re-invoke you on the same event; the sanctioned waiter "
+        "walks straight through the hand-rolled-waiter rule, which is why this "
+        "one probes for a LIVE process instead of matching a shell pattern. "
+        "Read the running waiter's result, or kill it before starting another.",
+    )
 
 
 _HEREDOC = re.compile(
@@ -148,6 +247,10 @@ def main() -> int:
     for rule_id, pattern, note in RULES:
         if re.search(pattern, command) and not _already_spoken(session_id, rule_id):
             hits.append(note)
+
+    duplicate = _duplicate_waiter_note(command)
+    if duplicate is not None and not _already_spoken(session_id, duplicate[0]):
+        hits.append(duplicate[1])
 
     if not hits:
         return 0

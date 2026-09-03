@@ -729,8 +729,14 @@ reads as covered and is not. One line — *"⚠ `daily_check.py` gained X but is
 it is not in this diff"* — is the whole fix, and it is also what tells the sibling repo that
 it has to write its own.
 
-Hooks are the same class: gitignored, no CI, and `test_context_guard.py` covers only
-`context-guard` — both BLOCKING guards are unpinned.
+⚠ **Hooks are NO LONGER this class, and this paragraph said they were until 2026-09-03.**
+`.claude/` has been tracked since 2026-08-19, and all three hooks now carry a suite in CI's
+dependency-free `markdownlint` job — `test_context_guard.py` (35), `test_guard_shell_hygiene.py`
+(50) and `test_guard_destructive.py` (33), the last added because the BLOCKING guard was the
+one with nothing checking that it still blocks. So a hook change IS in the diff and IS gated;
+what remains in this class is `docs/plans/daily_check.py`, which is genuinely gitignored.
+⚠ **Read that as a reason to check the claim rather than to relax the step** — this bullet
+was itself the falsified claim its own section tells you to grep for.
 
 ---
 
