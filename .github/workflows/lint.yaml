@@ -73,6 +73,13 @@ jobs:
       - name: Context-guard hook suite
         run: python3 .claude/hooks/test_context_guard.py
 
+      # Unconditional for the same reason as the suite above: this job is the only
+      # dependency-free one, and a hook suite that runs only by hand reports failure
+      # to nobody. Bare `python3`, no PYTHONPATH -- the hook imports stdlib only, so
+      # this invocation is also the guarantee that it stays that way.
+      - name: Shell-hygiene hook suite
+        run: python3 .claude/hooks/test_guard_shell_hygiene.py
+
   lint-typecheck-test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
