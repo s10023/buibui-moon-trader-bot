@@ -972,8 +972,13 @@ def run_scan_cycle(
         # Note: the candle watermark is NOT stamped here. It is marked only after
         # a successful live dispatch (see the send block below), so a non-sending
         # / dry run never "consumes" a candle and dedups the real alert away.
-        # DB + outcome persistence stay unconditional — they are idempotent
-        # upserts and re-run harmlessly. (Ported from wifey #68.)
+        # DB + outcome persistence stay unconditional. ⚠ This comment claimed
+        # they "are idempotent upserts and re-run harmlessly" until 2026-09-03,
+        # and wifey #157 measured that false: the write was INSERT OR REPLACE
+        # over all 16 columns while this call site passes no outcome fields, so
+        # a re-detected candle blanked its own resolved outcome. The harmless
+        # half is now TRUE BY CONSTRUCTION rather than by assertion -- the
+        # upsert updates fire-time columns only (ST82, store/signals.py).
 
         # Persist passing signals to DB so the Signal Feed can read from DB
         # instead of re-scanning on every page load.
