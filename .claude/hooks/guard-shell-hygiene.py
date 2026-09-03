@@ -89,6 +89,28 @@ RULES: list[tuple[str, str, str]] = [
 ]
 
 
+_HEREDOC = re.compile(
+    r"<<-?\s*(['\"]?)(\w+)\1.*?^\s*\2\s*$",
+    re.DOTALL | re.MULTILINE,
+)
+
+
+def _strip_heredocs(command: str) -> str:
+    """Drop heredoc BODIES before matching -- they are data, not commands.
+
+    Found the moment this hook shipped: the commit message documenting these very
+    rules contained "until ... pgrep", so `git commit -F - <<'MSG' ... MSG` tripped
+    rule 1 on its own changelog. The repo already knew this class -- settings.json's
+    `gh pr create` reminder anchors on `head -1` precisely so "a grep or heredoc
+    merely containing the string no longer self-triggers".
+
+    Stripping the body rather than keeping only the first line is the stronger form
+    of that fix: `head -1` would also blind the hook to a waiter on line 3 of a
+    genuine multi-line script, which is exactly where one tends to be written.
+    """
+    return _HEREDOC.sub("<<STRIPPED", command)
+
+
 def _already_spoken(session_id: str, rule_id: str) -> bool:
     """One utterance per rule per session; True if we have spoken already.
 
@@ -118,6 +140,7 @@ def main() -> int:
     command = str(payload.get("tool_input", {}).get("command", ""))
     if not command:
         return 0
+    command = _strip_heredocs(command)
 
     session_id = str(payload.get("session_id", "nosession"))
 

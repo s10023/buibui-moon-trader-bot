@@ -161,6 +161,34 @@ check(
     must_be_silent=True,
 )
 
+check(
+    "a heredoc BODY mentioning the pattern is data, not a command",
+    run(
+        "git commit -q -F - <<'MSG'\n"
+        "feat: hook the waiter rule\n\n"
+        "RULE 1, hand-rolled waiter (`until ... pgrep`): polling is wasted.\n"
+        "Also never pipe `make preflight | tail -8`.\n"
+        "MSG",
+        session="h1",
+    ),
+    must_be_silent=True,
+)
+check(
+    "...but a REAL waiter after a heredoc still fires",
+    run(
+        "cat <<'EOF' > /tmp/x\nsome text\nEOF\nuntil ! pgrep -f make; do sleep 1; done",
+        session="h2",
+    ),
+    must_contain="hand-rolled waiter",
+)
+check(
+    "...and a waiter on line 3 of a multi-line script still fires (head -1 would miss it)",
+    run(
+        "cd /repo\necho starting\nuntil ! pgrep -f make; do sleep 1; done", session="h3"
+    ),
+    must_contain="hand-rolled waiter",
+)
+
 # --- 4. dedup: once per RULE per session, and per rule INDEPENDENTLY ---------
 check(
     "dedup: first utterance speaks",
