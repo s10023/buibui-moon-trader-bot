@@ -26,6 +26,16 @@ research. Every subagent brief carries goal + success metric + rubric inline, wi
 memory re-reads. Verify subagent and background work directly (`ps`, `journalctl`,
 `git status`) — self-reports can be stale.
 
+**Shell hygiene is a HOOK too, because the prose was in context and lost twice in one
+session.** `.claude/hooks/guard-shell-hygiene.py` (advisory, `PreToolUse` on `Bash`, said
+ONCE PER RULE PER SESSION so it cannot train you to skip it) flags two habits that fake a
+verified result: a **hand-rolled waiter** (`until … pgrep`) for work the harness already
+re-invokes you on — its `pgrep` guard names a CLASS, so the next run of the same kind
+re-arms a fired waiter and it prints a STALE file as the fresh result — and a **gate piped
+into `tail`/`head`**, which returns the truncator's exit status and turns a red run green.
+Redirect and read the file instead. `test_guard_shell_hygiene.py` (27 cases, 4 mutation)
+runs in CI's dependency-free `markdownlint` job; re-run it after any edit to either.
+
 **Guardrail.** A PreToolUse hook (`.claude/hooks/guard-destructive.py`) blocks catastrophic
 Bash (rm -rf, git reset --hard, force-push, DB wipes). If blocked, surface it rather than
 working around it silently.
