@@ -80,6 +80,12 @@ jobs:
       - name: Shell-hygiene hook suite
         run: python3 .claude/hooks/test_guard_shell_hygiene.py
 
+      # The BLOCKING guard, and the last of the three to get a suite -- until now
+      # nothing had ever checked that it still blocks, which is the one hook where
+      # a silent regression costs more than a missed note.
+      - name: Destructive-guard hook suite
+        run: python3 .claude/hooks/test_guard_destructive.py
+
   lint-typecheck-test:
     runs-on: ubuntu-latest
     timeout-minutes: 20

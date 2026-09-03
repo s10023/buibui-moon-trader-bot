@@ -13,10 +13,15 @@ the failure mode the once-per-session dedup already exists to avoid.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import shutil
 import subprocess
 import sys
+import tempfile
+import time
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -223,6 +228,180 @@ _both = run(
 check("both rules fire together", _both, must_contain="hand-rolled waiter")
 check("both rules fire together (second half)", _both, must_contain="TAIL")
 
+# --- 5b. rule 3: a DUPLICATE waiter on a target already being waited on ------
+# This rule cannot be a regex over the command: the waiter it catches is the
+# SANCTIONED one (`make wait-ci PR=743`), which walks straight through rule 1.
+# It has to probe for a LIVE process, so these cases start real ones.
+
+
+@contextlib.contextmanager
+def live_waiter(args: str) -> Iterator[None]:
+    """Run a REAL process whose cmdline looks like a live `wait_ci.py` run.
+
+    No injection seam in the hook: it shells out to pgrep for real, and these
+    cases give it something real to find. The readiness poll is not a
+    hand-rolled waiter for a background JOB -- it is a fixture confirming its
+    own precondition, and it FAILS the suite rather than passing blind.
+    """
+    workdir = Path(tempfile.mkdtemp(prefix="hygiene-waiter-"))
+    script = workdir / "wait_ci.py"
+    script.write_text("import time\ntime.sleep(120)\n")
+    proc = subprocess.Popen(
+        [sys.executable, str(script), *args.split()],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            seen = subprocess.run(
+                ["pgrep", "-f", f"wait_ci.py.*{args.split()[-1]}"],
+                capture_output=True,
+                text=True,
+            )
+            if str(proc.pid) in seen.stdout.split():
+                break
+            time.sleep(0.05)
+        else:
+            raise RuntimeError(f"fixture never became visible to pgrep: {args}")
+        yield
+    finally:
+        proc.kill()
+        proc.wait()
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+@contextlib.contextmanager
+def mention_only(text: str) -> Iterator[None]:
+    """Hold a process whose argv MENTIONS a waiter without being one.
+
+    `sh -c "<one command>"` EXECS that command, replacing its own argv -- a
+    fixture written that way reproduces nothing and its case passes vacuously
+    (this one did, on the first draft). Two commands keep the shell alive, and
+    the precondition is ASSERTED rather than assumed.
+    """
+    proc = subprocess.Popen(
+        ["sh", "-c", f"sleep 120; true  # {text}"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            seen = subprocess.run(
+                ["pgrep", "-f", "wait_ci.py"], capture_output=True, text=True
+            )
+            if str(proc.pid) in seen.stdout.split():
+                break
+            time.sleep(0.05)
+        else:
+            raise RuntimeError(f"mention fixture never became visible: {text}")
+        yield
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+if shutil.which("pgrep") is None:
+    check("SKIPPED: no pgrep on this platform", "", must_be_silent=True)
+else:
+    with live_waiter("--pr 743"):
+        check(
+            "a second `make wait-ci PR=743` while one is live fires",
+            run("make wait-ci PR=743", session="dw1"),
+            must_contain="already has a live waiter",
+        )
+        check(
+            "...and it names the target",
+            run("make wait-ci PR=743", session="dw2"),
+            must_contain="PR #743",
+        )
+        check(
+            "the direct script form is caught too",
+            run(
+                "PYTHONPATH=. poetry run python tools/wait_ci.py --pr 743",
+                session="dw3",
+            ),
+            must_contain="already has a live waiter",
+        )
+        check(
+            "a DIFFERENT PR is silent -- scoped to the target, not to waiters",
+            run("make wait-ci PR=744", session="dw4"),
+            must_be_silent=True,
+        )
+        check(
+            "a main-branch waiter is a different target -- silent",
+            run("make wait-ci-main", session="dw5"),
+            must_be_silent=True,
+        )
+        check(
+            "a heredoc BODY naming the live target is data, not a launch",
+            run(
+                "git commit -q -F - <<'MSG'\n"
+                "docs: record that make wait-ci PR=743 was run twice\n"
+                "MSG",
+                session="dw6",
+            ),
+            must_be_silent=True,
+        )
+        check(
+            "dedup: the same target speaks only once per session",
+            run("make wait-ci PR=743", session="dw1"),
+            must_be_silent=True,
+        )
+
+    with live_waiter("--branch main --min-jobs 5"):
+        check(
+            "a second `make wait-ci-main` while one is live fires",
+            run("make wait-ci-main", session="dw7"),
+            must_contain="branch main",
+        )
+        check(
+            "a PR waiter is silent while only a branch waiter is live",
+            run("make wait-ci PR=743", session="dw8"),
+            must_be_silent=True,
+        )
+
+    # REGRESSION -- caught by this suite while it was being written, and it is
+    # a live-fire false positive rather than a test artifact. `pgrep -f` matches
+    # the whole command line, and a shell's argv CONTAINS the command it was
+    # given, so an unanchored probe read any command that merely MENTIONS the
+    # target as a waiter running on it.
+    with mention_only("tools/wait_ci.py --pr 4242"):
+        check(
+            "a shell that merely MENTIONS the target is not a live waiter",
+            run("make wait-ci PR=4242", session="dw12"),
+            must_be_silent=True,
+        )
+
+    # Dedup is keyed per TARGET, not per session: a duplicate on a SECOND
+    # target must still speak. Rule 3 only ever fires on a real live clash, so
+    # the once-per-session policy that keeps rules 1-2 readable would here just
+    # hide the second occurrence of a rare, specific mistake.
+    with live_waiter("--pr 999"):
+        check(
+            "dedup: a SECOND target still speaks in a session that already fired",
+            run("make wait-ci PR=999", session="dw1"),
+            must_contain="PR #999",
+        )
+
+# no live waiter at all -> silence, whatever the command looks like
+check(
+    "the FIRST waiter on a target is silent -- this rule flags duplicates only",
+    run("make wait-ci PR=31337", session="dw9"),
+    must_be_silent=True,
+)
+check(
+    "wait-ci-main with nothing live is silent",
+    run("make wait-ci-main", session="dw10"),
+    must_be_silent=True,
+)
+check(
+    "a non-waiter command carrying a PR number is silent",
+    run("gh pr view 743 --json state", session="dw11"),
+    must_be_silent=True,
+)
+
 # --- 6. fail-open ------------------------------------------------------------
 _proc = subprocess.run(
     [sys.executable, str(HOOK)], input="not json at all", capture_output=True, text=True
@@ -236,9 +415,6 @@ check(
 )
 
 # --- 7. MUTATION: prove the regexes are what fired ---------------------------
-import shutil  # noqa: E402
-import tempfile  # noqa: E402
-
 _mut = Path(tempfile.mkdtemp(prefix="shell-hygiene-mut-"))
 try:
     # Drop `pgrep` from the waiter pattern -> rule 1 must go silent, rule 2 must not.
@@ -274,6 +450,73 @@ try:
         run("until ! pgrep -f x; do sleep 1; done", session="m4", hook=_m2),
         must_contain="hand-rolled waiter",
     )
+    # Rule 3's mutations must prove SCOPE, not merely reach: a rule that fires
+    # on any live wait_ci.py would pass every positive case above while flagging
+    # every honest first waiter -- the one failure this hook cannot afford.
+    if shutil.which("pgrep") is not None:
+        # The trailing digit class is what stops `--pr 743` matching a live
+        # `--pr 7431`. Unmutated: silent. Mutated: fires. That is the boundary
+        # doing the work, not the PR number appearing somewhere in the cmdline.
+        _m3 = _mut / "no-digit-boundary.py"
+        _m3.write_text(
+            HOOK.read_text().replace(r"--pr[ =]{n}([^0-9]|$)", r"--pr[ =]{n}")
+        )
+        with live_waiter("--pr 7431"):
+            check(
+                "a live --pr 7431 does NOT make --pr 743 a duplicate",
+                run("make wait-ci PR=743", session="m5"),
+                must_be_silent=True,
+            )
+            check(
+                "MUTATION: drop the digit boundary -> 743 now collides with 7431",
+                run("make wait-ci PR=743", session="m6", hook=_m3),
+                must_contain="already has a live waiter",
+            )
+
+        # ...and the anchor is what suppresses a mere mention. Drop it and the
+        # regression case above comes straight back, which is the difference
+        # between a probe for a PROCESS and a probe for a STRING.
+        _m5 = _mut / "unanchored.py"
+        _m5.write_text(
+            HOOK.read_text().replace(
+                r'_RUNNING_SCRIPT = r"^[^ ]*python[0-9.]*[ ][^ ]*wait_ci\.py[ ]"',
+                '_RUNNING_SCRIPT = r"wait_ci\\.py"',
+            )
+        )
+        with mention_only("tools/wait_ci.py --pr 4242"):
+            check(
+                "MUTATION: unanchor the probe -> a mere MENTION reads as a waiter",
+                run("make wait-ci PR=4242", session="m10", hook=_m5),
+                must_contain="already has a live waiter",
+            )
+
+        # Break PR target extraction -> the PR clash goes silent while the
+        # BRANCH clash is untouched, so the two targets are independent rather
+        # than one blanket "a waiter is running" match.
+        _m4 = _mut / "no-pr-target.py"
+        _m4.write_text(
+            HOOK.read_text().replace(
+                r'_WAITER_PR = re.compile(r"(?:\bPR\s*=\s*|--pr[ =])(\d+)")',
+                '_WAITER_PR = re.compile(r"(?:__never__)(\\d+)")',
+            )
+        )
+        with live_waiter("--pr 743"):
+            check(
+                "MUTATION: PR target extraction removed -> the PR clash is silent",
+                run("make wait-ci PR=743", session="m7", hook=_m4),
+                must_be_silent=True,
+            )
+            check(
+                "MUTATION: ...and rules 1-2 are UNAFFECTED (scoped, not blanket)",
+                run("make preflight | tail -1", session="m8", hook=_m4),
+                must_contain="TAIL",
+            )
+        with live_waiter("--branch main --min-jobs 5"):
+            check(
+                "MUTATION: ...and the BRANCH clash still fires (targets are independent)",
+                run("make wait-ci-main", session="m9", hook=_m4),
+                must_contain="branch main",
+            )
 finally:
     shutil.rmtree(_mut, ignore_errors=True)
 
