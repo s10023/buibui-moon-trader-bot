@@ -194,6 +194,40 @@ better.
   deterministic veto block is exercised at all — the breaker leg cannot be,
   because the prompt answers NO_TRADE first and short-circuits it. Skip only if
   the operator says so.
+- **Check the 15-minute signal-watch timer before EACH card — its write lock CRASHES
+  one.** `cli/card.py:185` opens `analytics.db` `read_only=True`, but DuckDB's lock is
+  process-wide single-writer, so while `buibui-signal-watch.service` holds it the card
+  dies with a bare `_duckdb.IOException: Could not set lock on file` and `make ... Error
+  1` — **no verdict, no ledger row, no Telegram push**. Measured 2026-09-02: the timer
+  fired 21:31:14 and a card launched ~40s later died on it.
+
+  ```bash
+  systemctl --user list-timers --no-pager | grep signal-watch
+  ```
+
+  **The exposure window is only the card's first ~3.4 s** (state composition; the LLM
+  call needs no DB), so a retry is cheap and nearly always succeeds. Confirm a launch
+  cleared it in ~12 s rather than waiting out the ~4.9 min:
+
+  ```bash
+  sleep 12; grep -q "IOException\|Traceback" <output> && echo LOCKED || echo "past DB open"
+  ```
+
+  A card takes ~4.9 min against a 15-min timer, so a 6-card batch spans two firings.
+  When the next firing is under ~2 min away, queue the card behind it —
+  `sleep N; make buibui-card ...` inside ONE background call. That is a sleep before a
+  single card, not the forbidden `&&`-chaining of two cards.
+  ⚠ **The collision runs BOTH ways and the other direction is worse, though it is
+  UNMEASURED:** a card holding its read handle across the LLM call would refuse the
+  timer's write and cost the LIVE daemon a scan. Prefer waiting for the timer to pass
+  over starting a card seconds ahead of it.
+- **A crashed card is not a verdict, and there are now THREE ways to get nothing.**
+  The lock above, a `timeout_s` below the real card time (the 2026-08-04 outage), and
+  subscription exhaustion — which surfaces as
+  `card generation failed: LLM call failed after retry: claude exited 1: SessionEnd hook
+  ... Hook cancelled`, seen 2026-09-02. None writes a ledger row, so re-running any of
+  them is cohort-clean. Read the output before recording a batch result: a traceback is
+  a crash, silence is a timeout, and neither is a NO_TRADE.
 - Sync OHLCV if it is staler than the newest external snapshot
   (`ls -lt docs/plans/external-context/ | head`):
   `poetry run python buibui.py analytics sync --timeframes 1h 4h 1d` —
@@ -414,5 +448,6 @@ look-ahead, not merely drift.
 | Using `DRY=1` as the real smoke | DRY skips the LLM — verdict/prose untested |
 | Treating a TRADE card as an order | Advisory only — `card-place` is the ONE deliberate exception, used only through its picklist |
 | Budgeting ~1 min per card | Mean is 4.9 min; six ≈ 30 min. Plan the batch around it |
-| Reading an empty card as "no setup" | An empty result is a TIMEOUT, not a verdict — check `timeout_s` |
+| Reading an empty card as "no setup" | Never a verdict. Traceback = crash (DB lock / exhausted subscription); silence = timeout, check `timeout_s` |
+| Racing a card against the signal-watch timer | Check `list-timers` first; retry on the lock, or queue behind it |
 | Spending a batch with the breaker already breached | Run the pre-flight `daily_r` check — it is account-level, so it blocks every symbol |
