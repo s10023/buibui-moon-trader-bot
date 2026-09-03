@@ -5,8 +5,11 @@ from typing import Any
 import duckdb
 import pandas as pd
 
-_OUTCOME_COLUMNS = [
-    "signal_id",
+# Split into the two facts a row carries, because they have DIFFERENT WRITERS and
+# the split is what stops one clobbering the other -- see upsert_signal_outcome.
+# The scanner writes fire-time facts every time it re-detects a candle;
+# analytics/signal/outcome_backfill.py resolves the outcome LATER, by UPDATE.
+_FIRE_COLUMNS = [
     "symbol",
     "tf",
     "strategy",
@@ -19,10 +22,9 @@ _OUTCOME_COLUMNS = [
     "rr_ratio",
     "confidence_at_fire",
     "tags",
-    "outcome",
-    "outcome_r",
-    "outcome_filled_at_ms",
 ]
+_RESOLVED_COLUMNS = ["outcome", "outcome_r", "outcome_filled_at_ms"]
+_OUTCOME_COLUMNS = ["signal_id", *_FIRE_COLUMNS, *_RESOLVED_COLUMNS]
 
 
 def upsert_signals(conn: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> None:
@@ -71,21 +73,48 @@ def get_signals_history(
 
 
 def upsert_signal_outcome(conn: duckdb.DuckDBPyConnection, row: dict[str, Any]) -> None:
-    """Insert or replace a single signal outcome row.
+    """Insert a signal row, or refresh its FIRE-TIME fields, never its outcome.
 
     The row dict must contain at minimum: signal_id, symbol, tf, strategy,
     direction, fired_at_ms.  All other fields are optional and default to NULL
     when omitted.
 
-    Conflicts on signal_id are replaced so that outcome / outcome_r /
-    outcome_filled_at_ms can be backfilled later without inserting duplicates.
+    ⚠ **A conflict updates only the columns the CALLER ACTUALLY SUPPLIED. An
+    outcome field absent from `row` is left exactly as it was** (ST82, ported
+    from wifey #157). This was `INSERT OR REPLACE` over all 16 columns until
+    2026-09-03, and its sole caller -- `analytics/signal/scanner.py` -- passes no
+    outcome fields at all, so `row.get()` handed them back as NULL: re-detecting
+    an already-resolved candle BLANKED its result. `--catch-up` persists replayed
+    closed candles, so that path is live rather than theoretical.
+
+    Keying on PRESENCE rather than on the column's name is what keeps this a
+    fix and not a trade: a caller that does pass an outcome still writes it, so
+    no existing contract narrows, and a caller that passes `outcome=None` still
+    blanks it -- an explicit request rather than an accident of `.get()`.
+
+    ⚠ **The old docstring justified the REPLACE by saying the outcome is
+    "backfilled later" through here. That was false, and checking it is what
+    sized this fix.** The resolver never calls this function; it writes
+    `SET outcome = ?, outcome_r = ?, outcome_filled_at_ms = ?` directly
+    (`outcome_backfill.py:344`). So the replace semantics protected nothing and
+    cost the blanking -- a claim that reads as a reason while being neither.
+
+    The column blanked hardest is the one that matters most: `AGENTS.md` requires
+    the cost-basis era split to be taken on `outcome_filled_at_ms` and never on
+    `candle_ts_ms`, so a silent restatement moves the boundary of the two-basis
+    ledger the OOS evidence base is drawn from.
     """
     values = [row.get(col) for col in _OUTCOME_COLUMNS]
+    placeholders = ", ".join("?" * len(_OUTCOME_COLUMNS))
+    # Fire-time columns always refresh; a resolved column only when the caller
+    # supplied it. Derived from the lists rather than spelled out, so a column
+    # added to the table cannot silently stop being refreshed -- or start
+    # clobbering an outcome.
+    refreshed = _FIRE_COLUMNS + [c for c in _RESOLVED_COLUMNS if c in row]
+    updates = ", ".join(f"{col} = excluded.{col}" for col in refreshed)
     conn.execute(
-        "INSERT OR REPLACE INTO signal_alert_outcomes "
-        "(signal_id, symbol, tf, strategy, direction, fired_at_ms, "
-        "candle_ts_ms, entry_price, sl_price, tp_price, rr_ratio, "
-        "confidence_at_fire, tags, outcome, outcome_r, outcome_filled_at_ms) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        f"INSERT INTO signal_alert_outcomes ({', '.join(_OUTCOME_COLUMNS)}) "
+        f"VALUES ({placeholders}) "
+        f"ON CONFLICT (signal_id) DO UPDATE SET {updates}",
         values,
     )
