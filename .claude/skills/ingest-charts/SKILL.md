@@ -307,6 +307,17 @@ reason is worth keeping straight: a fallback is a per-SESSION property so every
 panel falls back together, whereas spot accuracy is per-PANEL, so a batch sibling
 is a genuine control rather than a copy of the same draw.
 
+⚠ **Below 10% this review is the ONLY check, so the relative read is load-bearing
+rather than a refinement.** The loader's runtime guard is
+`_SPOT_DEVIATION_FRAC = 0.10` (`analytics/brief/external.py:27`) — **ten times the
+bar above** — so SOL's 0.82% would not have warned whether the hint was written or
+nulled. ⇒ Read "nulling the hint mutes `spot_hint_deviation`" as TRUE ABOUT THE
+MECHANISM AND EMPTY IN THIS RANGE: what nulling costs is the hint itself, never a
+warning that was never going to fire. The two thresholds are not in conflict and
+must not be "reconciled" — 1% screens a HUMAN read of an axis at ingest, 10%
+catches a wrong-symbol or wrong-axis panel at runtime, and a 1% runtime guard
+would fire on ordinary capture lag.
+
 **When a hint IS wrong, do NOT reflexively drop the panel — check whether the
 CLUSTERS moved with it.** That is the whole decision, and it goes both ways:
 
