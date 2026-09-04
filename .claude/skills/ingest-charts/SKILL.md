@@ -112,10 +112,10 @@ range 36.7–37.5K), 36.4K (2026-08-18, ~218K),
 43.6K (2026-08-19, range 41.9–50.0K), 50.8K (2026-08-20, range 48.6–55.7K),
 58.3K (2026-08-25, ~350K total, range 56.7–64.5K), 58.6K (2026-08-28, ~351K
 total, range 57.5–63.8K), 60.6K (2026-08-31, ~363K total, range 58.9–66.1K),
-59.9K (2026-09-01, ~359K total, range 59.0–63.0K) and 63.1K (2026-09-02, ~379K
-total, range 61.9–64.5K).
-That is 78% over the fourteen days to 08-25, and then a PLATEAU — five readings
-across the eight days since sit inside 1.06× of each other.** ⚠ **09-01's down-step
+59.9K (2026-09-01, ~359K total, range 59.0–63.0K), 63.1K (2026-09-02, ~379K
+total, range 61.9–64.5K) and 64.7K (2026-09-03, ~388K total, range 63.2–65.4K).
+That is 78% over the fourteen days to 08-25, and then a PLATEAU — six readings
+across the nine days since sit inside 1.06× of each other.** ⚠ **09-01's down-step
 is NOT the first — 08-13 → 08-18 fell 0.981×.** That batch was measured on time and
 filed in the skill-fix queue, but never appended here, so the series read as
 monotone for nineteen days while the data was not. Say the plateau out
@@ -156,7 +156,8 @@ byte-identical either way, so an unannounced fallback restores the full cost
 while looking exactly like success. **Catch it by comparing this batch's mean `subagent_tokens` against the LAST RECORDED
 MEAN in the series above — a STEP, not a band.** Drift between batches is smooth
 (32.7K → 37.1K → 36.4K → 43.6K → 50.8K → 58.3K → 58.6K → 60.6K → 59.9K → 63.1K
-over twenty-two days, the last four steps 1.005×, 1.034×, 0.988× and 1.054× — a
+→ 64.7K over twenty-three days, the last four steps 1.034×, 0.988×, 1.054× and
+1.025× — a
 step can go DOWN, twice now, so read the band as two-sided rather than a ceiling
 on a rising series);
 a silent fallback is a jump, measured at ~1.5× its same-era
@@ -292,6 +293,30 @@ curl -s "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
 
 A printed hint should sit within the capture lag (~0.2% over 20 min). Treat >1%
 on an `axis` read as wrong until shown otherwise.
+
+⚠ **That 1% is a FLOOR, not the test — a panel whose cross-panel gap is several
+times its batch siblings' is suspect at any absolute figure.** Measured
+2026-09-03: SOL's heatmap read 0.82% from live and 0.79% from its own map twin,
+passing the 1% bar, while BTC and ETH sat at 0.12% and 0.15% in the same batch —
+so the absolute rule cleared it and the RELATIVE read convicted it. This is the
+same defect the token-cost check above already learned and fixed: a fixed number
+cannot survive a quantity that drifts, and this one drifts with volatility, so
+0.82% is unremarkable for SOL on a wild day and damning on a quiet one. ⚠ The
+within-batch comparison that is vacuous for the cost check is VALID here, and the
+reason is worth keeping straight: a fallback is a per-SESSION property so every
+panel falls back together, whereas spot accuracy is per-PANEL, so a batch sibling
+is a genuine control rather than a copy of the same draw.
+
+⚠ **Below 10% this review is the ONLY check, so the relative read is load-bearing
+rather than a refinement.** The loader's runtime guard is
+`_SPOT_DEVIATION_FRAC = 0.10` (`analytics/brief/external.py:27`) — **ten times the
+bar above** — so SOL's 0.82% would not have warned whether the hint was written or
+nulled. ⇒ Read "nulling the hint mutes `spot_hint_deviation`" as TRUE ABOUT THE
+MECHANISM AND EMPTY IN THIS RANGE: what nulling costs is the hint itself, never a
+warning that was never going to fire. The two thresholds are not in conflict and
+must not be "reconciled" — 1% screens a HUMAN read of an axis at ingest, 10%
+catches a wrong-symbol or wrong-axis panel at runtime, and a 1% runtime guard
+would fire on ordinary capture lag.
 
 **When a hint IS wrong, do NOT reflexively drop the panel — check whether the
 CLUSTERS moved with it.** That is the whole decision, and it goes both ways:
