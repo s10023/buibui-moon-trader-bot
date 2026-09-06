@@ -71,9 +71,27 @@ candidates that did resolve. Exit 2 = `YOUTUBE_API_KEY` missing from `.env`.
 ### 2. Present the candidate table
 
 One row per candidate: channel · title · duration · age · `est_tokens` (a ±30%
-ranking-grade estimate — rank by it, don't budget by it). Below the table: each
-channel's exclusion summary (`below_floor` / `ledgered` / `title_filtered` /
+ranking-grade estimate — size the tranche with it, never budget by it). Below the table:
+each channel's exclusion summary (`below_floor` / `ledgered` / `title_filtered` /
 `too_short` / `live_or_upcoming` / `unavailable`) and any errors — never hide drops.
+
+**Rank by likely STREAM, not by `est_tokens` — that is a COST proxy and ranking on it
+inverts the round.** Streams are measured, and not close: **B is 2-for-2 into production, A
+is 0-for-3, and C is dead as an author pick and time-gated.** So order candidates B > A > C,
+break ties on recency, and use `est_tokens` only to decide how many fit. A candidate's stream
+is usually legible from the title: a framework / mechanic / "how I do X" upload is B, a
+thesis or cycle-claim upload is A, and a dated "today's BTC call" upload is C.
+
+⚠ **On a backlog dominated by daily-setup uploads, SAY SO rather than proposing the top N.**
+A 49-candidate poll where 39 rows are daily calls is not a large opportunity, it is one small
+one wearing a big number — and taking a tranche off the top of it is precisely the low-yield
+round the per-stream scoring exists to prevent. Name the ratio, then point at
+`playlists <UC…>` (**1 quota unit**), because a channel's curated `PL…` playlists are where
+the Stream B material actually lives and `poll` structurally cannot see them.
+
+⚠ **Stream is a PRIOR for ordering, never a filter.** Do not drop a C candidate for being C:
+the operator may want the freshest call sampled deliberately, and the exclusion rules above
+are the only thing licensed to remove a row from the table.
 
 Zero candidates → report that and stop.
 
