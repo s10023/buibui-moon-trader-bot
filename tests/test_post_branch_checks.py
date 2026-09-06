@@ -28,6 +28,8 @@ from tools.post_branch_checks import (
     _negative_claims_result,
     added_paths,
     bad_atx_lines,
+    changed_line_numbers,
+    check_amended_targets,
     check_handoff_symbols,
     check_negative_claims,
     check_new_files,
@@ -45,6 +47,7 @@ from tools.post_branch_checks import (
     scan_text_for_terms,
     sensitive_terms_result,
     sensitive_text_result,
+    targets_by_line,
     uncovered_notice,
 )
 
@@ -1107,3 +1110,102 @@ class TestUncoveredNotice:
         """`--check` covers even less of the walk, so the notice matters more."""
         lines, _ = render([], show_uncovered=True)
         assert any("NOT COVERED" in ln for ln in lines)
+
+
+#: A Makefile shaped like the real one at the moment #746 amended it. Line 1 is
+#: `.PHONY`, line 2 declares the target, lines 3-5 are its recipe, 7-8 a sibling.
+_MAKEFILE = (
+    ".PHONY: buibui-portfolio-replay\n"
+    "buibui-portfolio-replay:\n"
+    "\t@poetry run python buibui.py portfolio replay \\\n"
+    "\t\t$(if $(CONFIG),--config $(CONFIG),) \\\n"
+    "\t\t$(if $(DB),--db $(DB),)\n"
+    "\n"
+    "other-target:\n"
+    "\t@echo hi\n"
+)
+
+#: The #746 diff: the recipe gains one override line. No target is ADDED.
+_AMEND_DIFF = (
+    "@@ -2,3 +2,4 @@\n"
+    " buibui-portfolio-replay:\n"
+    "\t@poetry run python buibui.py portfolio replay \\\n"
+    "-\t\t$(if $(CONFIG),--config $(CONFIG),)\n"
+    "+\t\t$(if $(CONFIG),--config $(CONFIG),) \\\n"
+    "+\t\t$(if $(DB),--db $(DB),)\n"
+)
+
+_DOCS = {
+    "AGENTS.md": "Wrapped by `make buibui-portfolio-replay` (`CONFIG=` / `CAPITAL=`).",
+    "README.md": "make buibui-portfolio-replay CAPITAL=25000\n",
+    "unrelated.md": "nothing to see",
+}
+
+
+class TestChangedLineNumbers:
+    def test_added_lines_are_reported_in_new_file_coordinates(self) -> None:
+        assert changed_line_numbers("@@ -1,1 +1,2 @@\n a\n+b\n") == {2}
+
+    def test_a_deletion_blames_the_position_it_vacated(self) -> None:
+        """A pure deletion has NO new-file line number of its own.
+
+        Skipping it would make a recipe line REMOVED from a target invisible,
+        which is the same amendment this leg exists to catch, arriving as a
+        subtraction instead of an addition.
+        """
+        assert changed_line_numbers("@@ -1,2 +1,1 @@\n a\n-b\n") == {2}
+
+    def test_file_headers_are_not_mistaken_for_added_lines(self) -> None:
+        diff = "--- a/Makefile\n+++ b/Makefile\n@@ -1,1 +1,2 @@\n a\n+b\n"
+        assert changed_line_numbers(diff) == {2}
+
+
+class TestTargetsByLine:
+    def test_recipe_lines_map_to_their_target(self) -> None:
+        mapping = targets_by_line(_MAKEFILE)
+        assert mapping[2] == "buibui-portfolio-replay"
+        assert mapping[5] == "buibui-portfolio-replay"
+        assert mapping[7] == "other-target"
+
+    def test_phony_is_not_a_target_and_ends_attribution(self) -> None:
+        """`.PHONY:` names targets; it is not one, and it is not a recipe."""
+        assert targets_by_line(_MAKEFILE).get(1) is None
+
+
+class TestCheckAmendedTargets:
+    def test_the_746_shape_fires_and_names_every_doc_to_re_read(self) -> None:
+        """The regression this leg exists for.
+
+        #746 added `DB=` to an EXISTING target. `new-targets` only matches an
+        added `^\\+target:` line, so it read clean while AGENTS.md and README.md
+        both went one override short.
+        """
+        found = check_amended_targets(_AMEND_DIFF, _MAKEFILE, _DOCS)
+        assert len(found) == 1
+        assert "buibui-portfolio-replay" in found[0].detail
+        assert "AGENTS.md" in found[0].detail
+        assert "README.md" in found[0].detail
+        assert "unrelated.md" not in found[0].detail
+
+    def test_an_added_target_is_left_to_new_targets(self) -> None:
+        """No double-reporting: `new-targets` already owns the added case."""
+        diff = "@@ -6,0 +7,2 @@\n+other-target:\n+\t@echo hi\n"
+        assert check_amended_targets(diff, _MAKEFILE, _DOCS) == []
+
+    def test_a_target_no_doc_names_is_quiet(self) -> None:
+        """Nothing can be stale about a target no doc enumerates."""
+        diff = "@@ -7,2 +7,2 @@\n other-target:\n-\t@echo hi\n+\t@echo bye\n"
+        assert check_amended_targets(diff, _MAKEFILE, _DOCS) == []
+
+    def test_an_empty_diff_is_quiet(self) -> None:
+        assert check_amended_targets("", _MAKEFILE, _DOCS) == []
+
+    def test_a_non_recipe_line_is_not_attributed_to_a_target(self) -> None:
+        """Editing `.PHONY` is not amending the target's behaviour."""
+        diff = "@@ -1,1 +1,1 @@\n-.PHONY: buibui-portfolio-replay\n+.PHONY: x\n"
+        assert check_amended_targets(diff, _MAKEFILE, _DOCS) == []
+
+    def test_word_boundary_stops_a_substring_doc_hit(self) -> None:
+        """MUTATION: a longer target name must not credit a shorter one's docs."""
+        docs = {"AGENTS.md": "see `make buibui-portfolio-replay-extra` instead"}
+        assert check_amended_targets(_AMEND_DIFF, _MAKEFILE, docs) == []

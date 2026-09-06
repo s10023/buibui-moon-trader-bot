@@ -83,9 +83,10 @@ shell blocks. The rule they exist to satisfy: *a self-check outside CI is not a 
   read moves back to import time. **`ConfigError` is deliberately fatal** — a missing or
   malformed config must render as a FINDING in every caller; degrading it to a SKIP would
   print a false all-clear with no surface list behind it.
-- `tools/post_branch_checks.py` — `make post-branch-checks`. Twelve legs: `queue-items ·
-  handoff-symbols · new-files · new-modules · new-targets · negative-claims · doc-indexes ·
-  md-atx · memory-cap · handoff-size · stale-anchors · sensitive-terms`. **Advisory**
+- `tools/post_branch_checks.py` — `make post-branch-checks`. Thirteen legs: `queue-items ·
+  handoff-symbols · new-files · new-modules · new-targets · amended-targets ·
+  negative-claims · doc-indexes · md-atx · memory-cap · handoff-size · stale-anchors ·
+  sensitive-terms`. **Advisory**
   (`--exit-zero`): a finding is a candidate to dismiss in seconds, never an automatic edit.
   ⚠ **`handoff-size` SKIPS in a linked worktree** (ST75) — `in_linked_worktree` compares
   `git rev-parse --git-dir` with `--git-common-dir`. The handoff is gitignored, so a

@@ -68,7 +68,7 @@ from the same `gh` query that rewrites the handoff. Do not reorder phase 3 after
 phase 4 to "fix" this: MEMORY.md must be written even when no PR is ever opened.
 
 **Phase 0 is not optional and it is not a summary of the rest.** A hand walk is
-not the walk: these twelve legs were copy-by-hand shell blocks in this file until
+not the walk: twelve of these legs were copy-by-hand shell blocks in this file until
 2026-08-19, which means they ran only when a session remembered to copy them, and
 two of them had shipped broken. A green sweep is *not* a green branch — it covers
 none of the judgement in phases 1–6.
@@ -150,7 +150,7 @@ under `analytics/**`. Always read the diff before deciding.
 make post-branch-checks
 ```
 
-Twelve legs, all advisory (`--exit-zero`). Triage each hit; a false positive costs
+Thirteen legs, all advisory (`--exit-zero`). Triage each hit; a false positive costs
 a glance, a silent miss ships a doc that reads as complete.
 
 | Leg | Asks |
@@ -159,7 +159,8 @@ a glance, a silent miss ships a doc that reads as complete.
 | `handoff-symbols` | Does the handoff claim something about a symbol or file this branch touched? |
 | `new-files` | Does every added non-Python operator file reach an enumerating doc? |
 | `new-modules` | Does every added module reach `.claude/context/`? |
-| `new-targets` | Is every added Make target documented? (`buibui-` is stripped — AGENTS.md documents the subcommands) |
+| `new-targets` | Is every **added** Make target documented? (`buibui-` is stripped — AGENTS.md documents the subcommands) |
+| `amended-targets` | For a target whose recipe this branch **changed**, which docs enumerate it and need re-reading? Added 2026-09-06: `new-targets` matches an added `+target:` line only, so #746's `DB=` on an existing target read clean while `AGENTS.md` and `README.md` both went one override short. It reports the docs, never the diff — scoping it to `$(if …)` would scope to the symptom, and a changed default fails the same silent way |
 | `negative-claims` | Does a doc assert the absence of something this branch just added? |
 | `doc-indexes` | Are the generated `INDEX.md` files current? |
 | `md-atx` | Did a wrapped `#123` become an accidental MD018 heading? |

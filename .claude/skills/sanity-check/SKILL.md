@@ -115,27 +115,32 @@ Check these in parallel:
   poetry run python buibui.py --help | sed -n '/{/,/}/p' | head -3
   ```
 
-  As of 2026-08-11 that prints 12: `monitor`, `signal`, `analytics`, `backtest`, `brief`,
-  `card`, `digest`, `param-sweep`, `param-audit`, `portfolio`, `recalibrate`, `web`.
   `signal`, `monitor` and `portfolio` are parent groups (`buibui signal watch`,
   `buibui monitor price`, `buibui portfolio replay`).
+
+  ⛔ **No count is written here, deliberately — DERIVE the list, never restate it.**
+  This section carried *"As of 2026-08-11 that prints 12"* plus a loop over those twelve
+  names, three paragraphs after telling you not to trust a written list. By 2026-09-06 the
+  CLI printed **14** — `card-place` and `card-orders` landed with ST37 (#715) — and the loop
+  had never once checked either. **Bumping the number to 14 would only re-arm the trap on
+  the next subcommand**, which is why it is gone rather than corrected.
+
   **Count it, do not eyeball it** — README invokes the CLI as
-  `poetry run python buibui.py <cmd>` for most subcommands but reaches `brief`, `card`
-  and `digest` only through their `make buibui-*` wrappers, so a grep for
-  `buibui <cmd>` finds 3 and reads like a catastrophe:
+  `poetry run python buibui.py <cmd>` for most subcommands but reaches several only
+  through their `make buibui-*` wrappers, so the CLI half alone reads like a catastrophe:
 
   ```bash
-  for c in monitor signal analytics backtest brief card digest param-sweep \
-           param-audit portfolio recalibrate web; do
+  for c in $(poetry run python buibui.py --help 2>&1 \
+             | sed -n 's/.*{\([a-z,-]*\)}.*/\1/p' | head -1 | tr ',' ' '); do
     printf "  %-12s cli:%s make:%s\n" "$c" \
       "$(grep -c "buibui\.py $c" README.md)" "$(grep -c "make buibui-$c" README.md)"
   done
   ```
 
-  **Measured 2026-08-23: 12 of 12 covered** — `brief`, `card`, `digest`, `param-sweep` and
-  `param-audit` reach README only through their `make buibui-*` wrappers, which is why the
-  `buibui.py <cmd>` half of the loop reads 0 for each. Run both halves; a zero in one
-  column is not a gap.
+  **Measured 2026-09-06: 14 of 14 covered** — `brief`, `card`, `card-place`, `card-orders`,
+  `digest`, `param-sweep` and `param-audit` reach README only through their `make buibui-*`
+  wrappers, which is why the `buibui.py <cmd>` half reads 0 for each. Run both halves; a
+  zero in one column is not a gap.
 - Does `## Directory Structure` list all current top-level modules?
 - Are any sections referencing removed features?
 
@@ -184,7 +189,7 @@ For each skill, verify the **key claims** are still true:
 | `atr-sweep` | `--atr-sl-values` CLI flag exists in `cli/backtest.py`; `format_atr_sl_sweep_table` exported from `analytics/backtest/` (re-exported via `backtest_lib.py` shim) |
 | `volume-sweep` | `volume_suppress` field in `BacktestSweepConfig`; `effective_volume_suppress(strategy)` on `BacktestSweepConfig` |
 | `backtest-findings` | Min-trades thresholds still match `recalibrate_lib.py` defaults |
-| `recalibrate` | `buibui recalibrate` subcommand wired in `buibui.py`; `--config` + `--apply` flags present; `confidence_ratings` DB table exists |
+| `recalibrate` | `buibui recalibrate` subcommand wired in **`cli/main.py`** (`buibui.py` is a thin shim delegating to `cli.main:main` and has 0 hits — this row said `buibui.py` until 2026-09-06 and sent the grep to the wrong file); `--config` + `--apply` flags present; `confidence_ratings` DB table exists |
 | `new-strategy` | 4-file checklist still accurate; `DETECTOR_REGISTRY` is still the single source of truth |
 | `signal-watch` | `buibui signal watch` subcommand exists; TOML field names match `signal_config.py`; `min_avg_r` (not `filter_threshold`) in the `[backtest]` section — **of the inherited base `config/strategy_params.toml`, NOT of the three day configs**, which carry no `[backtest]` section at all and reach it via `extends` |
 | `pr-summary` | Template sections match what's in the skill body |

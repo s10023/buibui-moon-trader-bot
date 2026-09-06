@@ -33,7 +33,7 @@ import re
 import subprocess  # noqa: S404 - git plumbing, fixed argv, no shell
 import sys
 import textwrap
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -430,6 +430,117 @@ def check_new_targets(diff: str, doc_blob: str) -> list[Finding]:
     return findings
 
 
+#: A target declaration. Deliberately the same shape `check_new_targets` matches,
+#: minus the leading `+`, so the two legs cannot disagree about what a target is.
+TARGET_DECL_RE = re.compile(r"^([a-z][a-z0-9_.-]*):")
+
+
+def names_token(text: str, token: str) -> bool:
+    """True when ``text`` names ``token`` as a whole word, hyphens included.
+
+    ⚠ **`\\b` is NOT enough for a hyphenated name.** `-` is a non-word character,
+    so `\\bbuibui-portfolio-replay\\b` matches happily *inside*
+    `buibui-portfolio-replay-extra` — the `-w` trap the `/post-branch` skill
+    documents for `_`, arriving from the other side, because `_` is
+    word-constituent and `-` is not. Every Make target here is hyphenated, so the
+    plain form would credit a doc that names a DIFFERENT target.
+    """
+    return re.search(rf"(?<![\w-]){re.escape(token)}(?![\w-])", text) is not None
+
+
+def changed_line_numbers(diff: str) -> set[int]:
+    """New-file line numbers a unified diff touches.
+
+    A **deletion** carries no new-file line number of its own, so it is blamed on
+    the position it vacated. Skipping it would make a recipe line *removed* from a
+    target invisible to `check_amended_targets` — the same amendment, arriving as
+    a subtraction.
+    """
+    touched: set[int] = set()
+    new_ln = 0
+    for line in diff.splitlines():
+        if line.startswith("@@"):
+            m = re.search(r"\+(\d+)", line)
+            new_ln = int(m.group(1)) if m else 0
+            continue
+        if not new_ln or line.startswith(("+++", "---", "diff ", "index ")):
+            continue
+        if line.startswith("+"):
+            touched.add(new_ln)
+            new_ln += 1
+        elif line.startswith("-"):
+            touched.add(new_ln)
+        else:
+            new_ln += 1
+    return touched
+
+
+def targets_by_line(makefile_text: str) -> dict[int, str]:
+    """Map each 1-based Makefile line to the target whose recipe it sits in.
+
+    A declaration claims its own line and every line after it until something
+    un-indented ends the recipe. `.PHONY:` NAMES targets without being one, so it
+    fails `TARGET_DECL_RE` and, being un-indented, also clears the current target.
+    """
+    out: dict[int, str] = {}
+    current: str | None = None
+    for i, line in enumerate(makefile_text.splitlines(), 1):
+        m = TARGET_DECL_RE.match(line)
+        if m:
+            current = m.group(1)
+        elif line and not line[0].isspace():
+            current = None
+        if current:
+            out[i] = current
+    return out
+
+
+def check_amended_targets(
+    makefile_diff: str, makefile_text: str, docs: Mapping[str, str]
+) -> list[Finding]:
+    """Docs enumerating a target whose recipe this branch AMENDED.
+
+    `check_new_targets` asks whether an **added** target is documented. It is
+    structurally blind to an existing one that gains an override, changes a
+    default or renames a variable — the doc still names the target, so every
+    presence check passes while its enumeration goes one short. Measured on #746:
+    `buibui-portfolio-replay` gained `DB=` and both `AGENTS.md` and `README.md`
+    kept listing three overrides; nothing flagged either.
+
+    Deliberately does NOT parse what changed. Scoping to `$(if $(VAR),...)` would
+    scope to the symptom that happened to be noticed, which is the recurring
+    defect in this repo's guard design — a changed default has the same shape and
+    the same invisible failure. It reports the target and the docs to re-read, and
+    leaves the judgement to a human.
+    """
+    if not makefile_diff.strip():
+        return []
+    line_map = targets_by_line(makefile_text)
+    added = {
+        m.group(1)
+        for line in makefile_diff.splitlines()
+        if line.startswith("+") and (m := TARGET_DECL_RE.match(line[1:]))
+    }
+    touched = {
+        target
+        for ln in changed_line_numbers(makefile_diff)
+        if (target := line_map.get(ln))
+    }
+    findings = []
+    for target in sorted(touched - added):
+        naming = sorted(
+            path for path, text in docs.items() if names_token(text, target)
+        )
+        if naming:
+            findings.append(
+                Finding(
+                    "amended-targets",
+                    f"AMENDED: {target} — re-read {', '.join(naming)}",
+                )
+            )
+    return findings
+
+
 def check_negative_claims(
     runner: Runner, diff: str, diff_names: str
 ) -> tuple[list[Finding], int, int]:
@@ -540,6 +651,8 @@ def gather(
     handoff = HANDOFF.read_text(encoding="utf-8") if HANDOFF.exists() else ""
     doc_blob = _read_all(enumerating_docs())
     context_blob = _read_all(CONTEXT_DOCS)
+    makefile_text = Path("Makefile").read_text(encoding="utf-8", errors="replace")
+    enumerating_by_path = _read_each(enumerating_docs())
 
     results = [
         CheckResult("queue-items", check_queue_items(handoff, diff, diff_names))
@@ -551,6 +664,10 @@ def gather(
         CheckResult("new-files", check_new_files(added, doc_blob)),
         CheckResult("new-modules", check_new_modules(added, context_blob)),
         CheckResult("new-targets", check_new_targets(makefile_diff, doc_blob)),
+        CheckResult(
+            "amended-targets",
+            check_amended_targets(makefile_diff, makefile_text, enumerating_by_path),
+        ),
         _negative_claims_result(runner, diff, diff_names),
         CheckResult("doc-indexes", _check_doc_indexes()),
         CheckResult("md-atx", _check_md_atx(changed_md)),
@@ -734,6 +851,24 @@ def _read_all(paths: Sequence[str]) -> str:
         elif p.exists():
             chunks.append(p.read_text(encoding="utf-8", errors="replace"))
     return "\n".join(chunks)
+
+
+def _read_each(paths: Sequence[str]) -> dict[str, str]:
+    """`_read_all`, but keyed by path.
+
+    `amended-targets` reports WHICH doc to re-read, which a joined blob cannot
+    say. Directories expand the same way, so the two helpers cannot disagree
+    about what the enumerating corpus is.
+    """
+    out: dict[str, str] = {}
+    for raw in paths:
+        p = Path(raw)
+        if p.is_dir():
+            for f in sorted(p.rglob("*.md")):
+                out[str(f)] = f.read_text(encoding="utf-8", errors="replace")
+        elif p.exists():
+            out[str(p)] = p.read_text(encoding="utf-8", errors="replace")
+    return out
 
 
 def _check_doc_indexes() -> list[Finding]:
