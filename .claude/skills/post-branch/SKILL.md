@@ -774,7 +774,7 @@ behaviour-visible changes.
 
 ## Step 5b — SoT reconcile (always, and it is NOT covered by Step 5)
 
-**Ask one question: does this branch close, change, or contradict a row in the
+**Two questions. First: does this branch close, change, or contradict a row in the
 SoT** (`~/.claude-personal/projects/-home-kng-repo-buibui-moon-trader-bot/memory/project_todo_master.md`)?
 If yes, reconcile it **now, in this same session** — move the row to **Closed**
 with a one-line verdict, per that file's own rule ("Move items there with a
@@ -788,6 +788,28 @@ SOT=~/.claude-personal/projects/-home-kng-repo-buibui-moon-trader-bot/memory/pro
 grep -n 'N8\|ST15\|#580' "$SOT"     # the IDs and PRs this branch touched
 grep -n 'OPEN\|not yet\|unfixed' "$SOT" | grep -i "$TOPIC"
 ```
+
+### The second question: did this branch land a `docs/research/` doc that RECOMMENDS work?
+
+If yes, **file its own SoT row naming the filename, in this same session.** A research doc
+that recommends a book, a repo, an ingest or a build and files no row has no owner, and
+nothing anywhere will ever ask for one.
+
+`tools/docs_index.py` indexes `docs/audits/` and `docs/superpowers/specs/` **only**
+(`AUDIT_DIR` / `SPEC_DIR`, `:46-47`), so a `docs/research/` file sits outside the generated
+INDEX, outside `TestEveryNewAuditExposesItsVerdict`, and outside `daily_check.py`'s tier-2
+`audit verdicts` join. It is a directory no tool reads. Measured 2026-08-17e:
+`2026-08-14-trading-canon-audit.md` recommended **three books and a repo** and sat unowned for
+three days with every gate green — the reason ST33 was invisible was structural, not judgement.
+
+⚠ **This is prose enforcement, and it is chosen with its weakness in view.** The alternative
+was to add `docs/research/` to the docs-index surface, which would be machine-enforced but
+would import the verdict-prose rule and the frozen-set machinery into a directory
+`AGENTS.md` deliberately exempts — a real cost on every future research doc, to catch a case
+that arrives a few times a year. Operator ruling 2026-09-06: take the cheap narrow rule. So
+the honest caveat is that ST34 exists *because* prose enforcement already failed here once;
+if a second research doc lands unowned, that is the trigger to revisit the machine-enforced
+option, not a reason to restate this paragraph.
 
 **Why this step exists, and why it is separate from Step 5.** Nothing auto-updates
 the SoT — the session-memory wiring (CLAUDE.md "Session Memory Protocol", this
