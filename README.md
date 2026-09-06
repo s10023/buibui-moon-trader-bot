@@ -849,7 +849,13 @@ make buibui-portfolio-replay                       # equivalent
 # Overrides
 make buibui-portfolio-replay CAPITAL=25000 VOL_TARGET=0.30
 make buibui-portfolio-replay CONFIG=config/strategy_params.toml   # optional [portfolio] block
+make buibui-portfolio-replay DB=/path/to/snapshot.db              # read a copy, not the live DB
 ```
+
+Pass `DB=` whenever this runs as one leg of a multi-leg read. The 15-min signal-watch takes the
+exclusive DuckDB lock at `:01/16/31/46`, so legs run minutes apart against the live database
+describe different instants — `/decay-review` copies `analytics.db` once and points every leg at
+the copy.
 
 `SizingConfig` validates every numeric field at construction, so a degenerate
 `CAPITAL=` / `VOL_TARGET=` override or `[portfolio]` key raises immediately instead of

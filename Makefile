@@ -352,7 +352,8 @@ buibui-portfolio-replay:
 	@poetry run python buibui.py portfolio replay \
 		$(if $(CONFIG),--config $(CONFIG),) \
 		$(if $(CAPITAL),--capital $(CAPITAL),) \
-		$(if $(VOL_TARGET),--vol-target $(VOL_TARGET),)
+		$(if $(VOL_TARGET),--vol-target $(VOL_TARGET),) \
+		$(if $(DB),--db $(DB),)
 
 .PHONY: buibui-brief
 buibui-brief:  ## Daily market brief (read-only; SYMBOLS=/AS_OF= optional)

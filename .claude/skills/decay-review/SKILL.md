@@ -112,8 +112,16 @@ week-over-week *delta* is the deliverable.
 ## Leg 2 — per-sleeve attribution (P1 replay)
 
 ```bash
-make buibui-portfolio-replay          # CONFIG= / CAPITAL= / VOL_TARGET= override
+make buibui-portfolio-replay DB="$SCRATCH/decay.db"   # the Step 0 copy
+make buibui-portfolio-replay                          # live DB — only outside a write window
 ```
+
+⛔ **Pass `DB=`, or Step 0 was pointless.** `DB=` forwards to the CLI's `--db`; without it this
+leg silently reads the LIVE database while Leg 1 read the copy, so the two describe different
+instants and are no longer one reading — the exact failure Step 0 exists to prevent, reached
+from the other side. The target carried no `DB=` at all until 2026-09-06: the skill said
+"take the copy first" and then handed you a command that could not use it, so the 09-06 review
+had to bypass `make` to stay consistent.
 
 ⚠ **The headline metrics are at the TOP, above a ~60-row attribution table — do not `tail` this.**
 Sharpe / Sortino / Calmar / max drawdown print immediately after the era check, then the
@@ -126,12 +134,23 @@ attribution extremes to the star rating **of the same cell** — that join is th
 of the leg, because it puts [[star-ratings-no-live-signal]] into *sized P&L* rather
 than per-alert R.
 
-Three traps:
+Four traps:
 
 - **Capital basis is the configured `[portfolio] capital`, not live equity** unless
   you override it. Absolute dollars are therefore not the account's dollars.
 - **Positive rows are mostly n≤3. Do not read them as edges.** Sort by n before
   reading any avg_r.
+- ⚠ **This leg is NOT a pure accumulation — a cell's n can go DOWN between reviews.**
+  Carver sizing is portfolio-state-dependent, so adding later trades changes which
+  *earlier* ones get sized at all. Measured 2026-09-06: `pin_bar 15m short` went n=36 →
+  **35** while the ledger grew ~700 rows (`skipped` 5,964 → 6,648 against 402 sized).
+  **So a per-cell n delta is not ledger movement** — Leg 3's control is what says whether
+  the ledger moved, and that week it was 0/0/0. ⛔ **Do not build a "loss concentration"
+  narrative from one week's attribution tail either.** The two cells 08-29 named as the
+  concentration had rotated out entirely eight days later (`inside_bar 15m short` −114.56
+  → −29.08, `pin_bar 15m short` −106.86 → −2.87), replaced by a new worst cell at n=7.
+  At these n the tail rotates; only a cell that stays worst across **three** reports is
+  worth naming.
 - ⚠ **Do NOT compare this leg against a decay review run before 2026-08-14.** Since
   PR #628 the replay restates the pre-`e5d92bb` half of the ledger onto the net-of-cost
   basis, so every figure here shifts down by roughly the cost drag (~0.098R per losing
@@ -154,7 +173,18 @@ not the byte-identical check, which conflates the two.
 ⚠ **The newest half-month bucket is structurally the worst-looking one and is not a reading
 until its expired share falls.** Three consecutive reports flagged it as decay and were wrong
 each time; measured 2026-08-23, the 2026-08-b bucket improved **+0.157R** as it filled from
-236 to 745 rows and its expired share fell 0.767 → 0.409.
+236 to 745 rows and its expired share fell 0.767 → 0.409. Confirmed a fourth time 2026-09-06:
+2026-08-b matured 1,258 → 1,562 rows and **improved +0.0062**.
+
+⚠ **Compare POOLED and COHORT across reports; RECOMPUTE buckets from the snapshots.** The
+per-bucket rows of an older report are not safely comparable to a fresh run — measured
+2026-09-06 against the 08-29 table, pooled reproduced exactly (6,349 at −0.1385) and so did
+its new-cohort figure (510 at −0.2154), while individual buckets differed by **19–25 rows**
+(2026-03-b 791 vs 810, 2026-08-a 1,173 vs 1,198). That is a bucket-boundary/clock difference,
+not data: both ends of a single run are bucketed by the same code, so a run is internally
+consistent while cross-report bucket diffs are not. **Reproduce the previous report's headline
+figure off its own snapshots before quoting a week-over-week delta** — it costs one query and
+it is what makes the delta a finding rather than an artifact.
 
 ## Report + close out
 
