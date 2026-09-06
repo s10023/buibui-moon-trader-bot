@@ -236,7 +236,10 @@ committed slim `live_signal.duckdb` (`make export-live-db`). Local default is `b
 
 Replays the live outcome ledger through the Carver two-layer sizing model into a paper
 portfolio (read-only); prints Sharpe/Sortino/max-DD/attribution. Wrapped by
-`make buibui-portfolio-replay` (`CONFIG=` / `CAPITAL=` / `VOL_TARGET=`).
+`make buibui-portfolio-replay` (`CONFIG=` / `CAPITAL=` / `VOL_TARGET=` / `DB=`). ⚠ **`DB=` is what
+lets a multi-leg read point every leg at ONE snapshot** — the 15-min signal-watch holds the
+exclusive DuckDB lock at `:01/16/31/46`, so legs run minutes apart against the live DB describe
+different instants and are no longer one reading. `/decay-review` Step 0 is the caller that needs it.
 
 An **era check** names how many signal-path rule changes the replayed sample straddles (46
 at first reading, largest single-era sub-sample 32%), so read the headline as an average
