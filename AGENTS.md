@@ -1135,6 +1135,17 @@ When changes affect project structure, CLI commands, features, or behavior, upda
 covered by `make docs-index` (`tools/docs_index.py` indexes `docs/audits/` and
 `docs/superpowers/specs/` only), so adding a file there needs no `make docs-index` run.
 
+⚠ **That exemption is also why a research doc has no owner, so one rule rides on top: a
+`docs/research/` doc that RECOMMENDS work must file its own SoT row naming its filename, and
+`/post-branch` Step 5b asks for it.** Being outside the index also puts it outside
+`TestEveryNewAuditExposesItsVerdict` and outside `daily_check.py`'s tier-2 `audit verdicts`
+join — three surfaces, none of which will ever ask who owns it. Measured: the 2026-08-14
+trading-canon audit recommended three books and a repo and sat unowned for three days with
+every gate green. ⚠ **Prose-enforced by deliberate choice (operator, 2026-09-06)** — indexing
+the directory would tax every research doc with the verdict-prose and frozen-set machinery to
+catch a case that arrives a few times a year. A *second* unowned research doc is the trigger
+to revisit that, not a reason to restate this.
+
 ## Git Conventions
 
 - Conventional commits: `feat:`, `fix:`, `test:`, `docs:`, `build:`, `chore:`

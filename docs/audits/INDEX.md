@@ -4,13 +4,14 @@
 `make docs-index-check` (and `tests/test_docs_index.py`) fails when this file
 drifts from the corpus.
 
-**56 audits.** A verdict line is shown only where one could be read
-out of a Verdict heading as prose — that is **39 of 56**.
+**57 audits.** A verdict line is shown only where one could be read
+out of a Verdict heading as prose — that is **40 of 57**.
 An em dash means the doc states its verdict in a table, a blockquote or the body,
 **not** that it lacks one; open the file. Nothing here is keyword-guessed.
 
 | Date | Audit | Verdict (as written) | File |
 | --- | --- | --- | --- |
+| 2026-09-06 | ST110 — `detect_engulfing` recall relaxation: power pricing | REACHABLE, but only as a single pre-registered pooled test — a per-cell scan is not. At one trial the gate demands +0.0354R per… | [2026-09-06-st110-engulfing-recall-power.md](2026-09-06-st110-engulfing-recall-power.md) |
 | 2026-08-29 | ST106 — retrace/impulse volume ratio: UNREACHABLE, and the definition is wrong | The pre-registered split is UNREACHABLE and was not scored. Two of the pre-registration's own decision-log conditions fired… | [2026-08-29-st106-volume-ratio-split-result.md](2026-08-29-st106-volume-ratio-split-result.md) |
 | 2026-08-29 | ST104 — `detect_eqh_eql` retune, three pre-registered arms: result | all three arms FAIL. Net of modelled cost the `eqh_eql` book is | [2026-08-29-st104-eqh-eql-retune-result.md](2026-08-29-st104-eqh-eql-retune-result.md) |
 | 2026-08-25 | The audit bootstrap priced correlated trades as independent draws | Undeflated, this repo's own panel reads 70 of 125 cells significant where 52 survive. The fix makes the dependence unit a… | [2026-08-25-st80-audit-guard-cluster-key.md](2026-08-25-st80-audit-guard-cluster-key.md) |
