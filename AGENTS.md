@@ -15,19 +15,15 @@ a result.
 
 - `make lint-py` ✓ (ruff format + lint)
 - `make typecheck` ✓ (mypy strict)
-- **The full suite runs ONCE per branch, and `make preflight` IS that run** — a fresh clone of the branch's committed HEAD, the same pytest invocation, at `/post-branch` Step 7. Measured 2026-08-20 on 4205 tests: **300.1s against `make test`'s 294.9s, +1.8%**, so hermeticity costs five seconds and buys the gitignored-path class (#586, #666) that `make test` structurally cannot see. ⚠ **Do NOT run `make test` and then `make preflight` over the same code** — that is the same suite twice for nothing. This bullet used to list `make test` as the gate with preflight as an exception to it, and on 2026-08-26 a session reading it that way ran both, which is why the framing is inverted here rather than merely clarified. **While iterating, run the TARGETED files you touched** (seconds, and they catch your own breakage before a five-minute run does); `make test` earns its place only when you need a whole-suite answer about code that is NOT COMMITTED YET — a clone cannot see that, which is exactly why preflight refuses on a dirty tree.
+- **The full suite runs ONCE per branch, and `make preflight` IS that run** — a fresh clone of the branch's committed HEAD, the same pytest invocation, at `/post-branch` Step 7. Measured 2026-08-20 on 4205 tests: **300.1s against `make test`'s 294.9s, +1.8%**, so hermeticity costs five seconds and buys the gitignored-path class (#586, #666) that `make test` structurally cannot see. ⚠ **Do NOT run `make test` and then `make preflight` over the same code** — that is the same suite twice for nothing. **While iterating, run the TARGETED files you touched** (seconds, and they catch your own breakage before a five-minute run does); `make test` earns its place only when you need a whole-suite answer about code that is NOT COMMITTED YET — a clone cannot see that, which is exactly why preflight refuses on a dirty tree.
 - `make test-regression` goldens unmoved — **required only when the diff touches the
   backtest surface**, which is **exactly CI's regression paths filter** (`lint.yaml:173-183`),
   mirrored here: `analytics/**/*.py`, `pyproject.toml`, `poetry.lock`, `config/*.toml`,
   `tests/test_regression.py`, `tests/fixtures/**.parquet`, `tests/fixtures/golden_*.json`,
   `scripts/extract_regression_fixture.py`, `.github/workflows/lint.yaml`. Say which branch
-  you took. ⚠ **This list was a STRICT SUBSET of CI's until 2026-08-25 (ST89), and every
-  divergence ran one way — the local rule was the PERMISSIVE one.** It named three
-  `analytics/` subpaths where CI filters the whole package, so a diff elsewhere in
-  `analytics/` read as outside-the-surface locally while CI golden-checked it anyway; the
-  session then learned the goldens had moved **from a metered CI run on an open PR**, which
-  is the precise outcome the next sentence rejects. ⛔ Do NOT resolve a future divergence by
-  narrowing CI — mirror CI here instead. Outside that set it is
+  you took. ⛔ **Resolve any future divergence by mirroring CI here,
+  never by narrowing CI** — the local list was the permissive one until ST89, and the price of
+  that was learning the goldens had moved from a metered CI run on an open PR. Outside that set it is
   ~95s of wall clock for a chain the diff cannot reach. When it does apply and a golden
   moves, that is a *decision* — regenerate or not — which is why it stays local rather than
   being left to CI. **It is a separate gate rather than a slower one: `make test` passes
@@ -69,9 +65,7 @@ which a green result describes a tree that no longer exists. That is a second re
 prefer it over `make test` on a branch, beyond hermeticity: it hands the working tree back
 immediately.
 
-This rule lived only in memory until 2026-08-19 and was skipped that day for exactly that
-reason — memory is a rung below always-loaded prose, so there was nothing in context to
-skip *from*. Detail: memory `feedback_background_test_runs.md`.
+Detail: memory `feedback_background_test_runs.md`.
 
 **Anti-drift.** Before any multi-step task, restate the goal and its success metric in one
 line. If a step stops serving that metric, stop and ask. Require avg_r × (regime × session ×
@@ -105,11 +99,9 @@ make preflight           # ST45 clean-clone gate; /post-branch Step 7, REPLACES 
 **`make post-branch-checks` and `make sanity-checks` ARE the MECHANICAL walk — hand-walking
 their legs is not.** They replace the shell blocks those two skills used to carry, which ran
 only when a session remembered to copy them. ⚠ **Scoped on purpose: mechanical is not WHOLE.**
-A green sweep carries none of the judgement in `/post-branch`'s later steps, and this sentence
-said plain "ARE the walk" until 2026-08-25, when BOTH parallel sessions on one wave read it as
-licence to substitute the sweep for the skill — neither was careless, and both had the rule in
-context. The sweep now closes by naming the steps it does not cover (ST88), because the fix
-belongs on reachability rather than on another rule. Deep reference
+A green sweep carries none of the judgement in `/post-branch`'s later steps, — two parallel sessions once read
+"ARE the walk" as licence to substitute the sweep for the skill, so the sweep now closes by naming
+the steps it does not cover (ST88), the fix belonging on reachability rather than on another rule. Deep reference
 `.claude/context/tools.md`. Three rules ride them:
 
 - **A SKIP is not a PASS.** `sanity_checks.py` degrades legs that need project imports to
@@ -144,11 +136,10 @@ OWNS it.** 17 pre-2026-08-17 audits are grandfathered in a frozen set that can o
 
 **An audit whose verdict is ACTIONABLE needs a SoT row naming its filename** — the
 `daily_check.py` tier-2 `audit verdicts` line reds until one exists, and a row recording
-*where it was already satisfied* clears it just as well as building the thing. It exists
-because `2026-06-26-structural-entry-sim-harness.md` returned **BUILD** — the only BUILD in
-47 audits — and sat unbuilt for seven weeks in plain sight in a generated, test-enforced
-index. (That BUILD was **withdrawn 2026-08-18** as a look-ahead artifact; the ownership
-lesson stands, and the seven-week delay is now also the reason the defect went unfound.)
+*where it was already satisfied* clears it just as well as building the thing. It exists because the only BUILD in 47 audits
+(`2026-06-26-structural-entry-sim-harness.md`, since **withdrawn** as a look-ahead artifact) sat
+unbuilt for seven weeks in a generated, test-enforced index — and that delay is also why the
+defect went unfound.
 **The class: a research chain made of audits has an owner at every link except the
 last**, because each link's owner is the next audit and the terminal recommendation is
 production code. ⚠ Naming an *audit* file in the SoT is safe; the opposite direction — a
@@ -180,9 +171,7 @@ play, land that reformat once up front.
   t=-4.76) but those dates span ~3 distinct bear markets, so **n_eff ≈ 3**. The renderer
   carries a "display only, never a gate" marker and a test pins it. ⚠ **The four WEEKLY
   averages are resampled from 1d, never read from the `1w` table, and the reason is
-  LOOK-AHEAD rather than staleness.** Those bars were stale from 2026-06-08 until ST61a put
-  every timeframe on the routine sync (2026-08-23), so the old second reason is gone — but
-  the first is stronger: `sync` stores the FORMING bar on purpose and `ohlcv_all` has no
+  LOOK-AHEAD rather than staleness.**   `sync` stores the FORMING bar on purpose and `ohlcv_all` has no
   `is_closed` column, so the newest `1w` row is an in-progress week for up to seven days
   and nothing in the schema says so. **Do not "simplify" this to read `1w` now that it is
   fresh.** The resample drops the in-progress week, and a week's average takes effect only
@@ -318,11 +307,10 @@ the card's own `generated_at_ms`). Wrapped by
   the clean metric alongside would not have fixed it — both fields reached the prompt.
   Rubric 3b names `avg_atr_r`'s ATR units, and §2 states a liq cluster is a BAND whose edges
   reproduce to only ~16%, never a level.
-- **card-v5 (2026-08-20) adds a four-angle steelman at step 4, BEFORE the decision** (htf
+- **card-v5 adds a four-angle steelman at step 4, BEFORE the decision** (htf
   counter · underweighted confluence · catalyst risk · the other trader), as a required
-  `steelman` field: exactly four non-empty bullets on a TRADE, absent on a NO_TRADE. The
-  count is PINNED so a skipped angle fails validation rather than reading as a card that
-  argued all four, and the rubric keeps the source's own non-goal — it is not there to talk
+  `steelman` field: exactly four non-empty bullets on a TRADE, absent on a NO_TRADE. The count is
+  PINNED so a skipped angle fails validation rather than reading as a card that argued all four — it is not there to talk
   the card out of the trade, it is so the other side never surprises you. **Deliberately
   absent from the Telegram card**, where four more prose bullets against the 4096-char guard
   re-open the readability defect the medium-specific layout fixed; a test pins the omission.
@@ -334,11 +322,11 @@ the card's own `generated_at_ms`). Wrapped by
   emitted schema**, so `card-place` needed no change and no shape check could have caught
   the bump: read `PROMPT_VERSION` in `card/prompt.py` rather than any prose here. It landed
   with **no entry in that file's own per-version changelog**, and the `/card` skill went on
-  describing v5 for five days. ⚠ **That gap is now closed in BOTH directions, and this line
-  said "enforced by nothing" until 2026-09-02** — a bump with no changelog block fails
-  (#736), and a `RUBRIC` edit under an unchanged version fails against `_RUBRIC_DIGESTS`,
-  which pins the rubric's sha256 BY version. Two rubrics under one label is the same defect
-  the version constant exists to prevent, reached from the other side. A bump carrying a
+  describing v5 for five days. ⚠ **That gap is closed in BOTH
+  directions** — a bump with no changelog block fails (#736), and a `RUBRIC` edit under an
+  unchanged version fails against `_RUBRIC_DIGESTS`, which pins the rubric's sha256 BY version.
+  Two rubrics under one label is the same defect the version constant exists to prevent, reached
+  from the other side. A bump carrying a
   byte-identical rubric stays legitimate — v6's own break was in the payload.
 - **M4 external liquidity** (heatmap / liq-map clusters) enters as mapped liquidity with
   trust guards, capped at ONE confluence input. ⚠ **It is not horizon-filtered**, and every
@@ -394,9 +382,9 @@ is not a backup — its `signal_alert_outcomes` table has 0 rows.
   tree defaults to UNCOVERED, so a new artifact stays invisible until someone diffs the
   backup against the live tree. Five audits each found a gap the previous one missed — a
   glob covers a new project's tree the day it appears, with nobody needing to notice.
-  **`LEDGERS` finally took its own advice on 2026-08-20**, after a sixth diff found two
-  more (a hand-run gate script beside the health check, and a hand-taken `.bak` of a
-  covered ledger): it is now `docs/plans/*`, and `tests/test_backup_ledger_glob.py` asserts
+  **`LEDGERS` is now the glob `docs/plans/*`**, after a sixth diff
+  found two more gaps (a hand-run gate script beside the health check, and a hand-taken `.bak` of a
+  covered ledger): `tests/test_backup_ledger_glob.py` asserts
   a file **named nowhere in the script** still lands in the snapshot. Both loops over the
   array — the dry-run report and the real copy — must expand the glob, or the report
   promises coverage the copy does not deliver; a test pins each independently.
@@ -427,7 +415,7 @@ is not a backup — its `signal_alert_outcomes` table has 0 rows.
 ⚠ **`rclone config create` / `update` PRINT the whole remote — `client_secret`,
 `access_token`, `refresh_token` — to stdout on SUCCESS, unprompted and unflagged. Append
 `>/dev/null` at every call site, docs included**, because people copy from docs. Two live
-tokens leaked into transcripts on 2026-08-15 this way, the second *after* both repos had
+tokens leaked into transcripts this way, the second *after* both repos had
 written up the first: the mitigation was prose ("never paste the output"), and a rule that
 needs a human to notice output they did not ask for is not a control. The safe
 verifications are `rclone lsf <remote>:` and `rclone about <remote>:`.
@@ -1237,10 +1225,8 @@ blocked. Never assume the flip happened because you printed the command.
   re-verify the ONLY step in the sequence able to catch this class, never a belt-and-braces
   extra. ⚠ **The running count and its derivation live in ONE place — memory
   `reference_dependency_graph_sighting_count.md`. Quote that file; state no number here.** This
-  file enumerated the sightings until 2026-08-24 while the handoff recorded later ones, and the
-  split is not a tidiness problem: a session that re-derived the count from the enumeration
-  here — the careful move — got the wrong answer, because the missing sightings were not in the
-  file it checked. Every sighting has also been benign because `Dependency Graph` runs green on
+  session that re-derives the count from an enumeration elsewhere — the careful move —
+  gets the wrong answer, because the later sightings are not in the file it checked. Every sighting has also been benign because `Dependency Graph` runs green on
   a private repo and burns no allowance — read that as luck about WHICH workflow started late,
   never as safety of the check, since `security-scan` (Trivy) in that slot consumes minutes and
   dies.
