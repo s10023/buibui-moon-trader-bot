@@ -1084,6 +1084,25 @@ verdicts came out of wiring them up, and the second is the one that mattered:
   `--dump-json` mappings are the only signal. Before this it was **model-narrated on 2 of 89
   notes**. `captions_unknown` is deliberately not folded into `auto` — "we did not ask" and "we
   asked and it was ASR" are different claims.
+- ⛔ **A caption download that FAILS is not a video without captions, and until 2026-09-07 the
+  code could not tell the two apart** (ST121). `fetch_transcript` ran yt-dlp, **discarded the
+  result**, and globbed for `sub*.vtt`, so a transient HTTP 429 produced an empty list identical
+  to the one a caption-less video produces — and the ASR fallback then downgraded the note
+  permanently and silently. ⚠ **This is the third sighting in the ST46 family and the first that
+  is NOT about language selection, which is why two prior fixes did not cover it.** Measured on
+  `xCF8xZQcVfc`: `_sub_langs` asked for exactly `en,en-orig`, both tracks exist, and the same
+  call re-run by hand exits 0 and writes both — nothing in the selection path was broken.
+  `_download_captions` now retries once and returns a `missed` flag, and the fallback records
+  **`asr_whisper_captions_missed`**, which unlike plain `asr_whisper` is **recoverable by
+  re-running that video**. ⚠ **The discriminator is the METADATA, not the empty glob** —
+  `_sub_langs` always appends `en` as a last resort, so a caption-less video legitimately
+  requests a track that cannot land while yt-dlp still exits 0; a mutation dropping that guard
+  mislabels every caption-less video and is pinned by a test. ⚠ **The row's own prescribed
+  triage query could not run**: `caption_langs_*` reached the JSON but was never persisted to
+  note frontmatter, so the corpus held the ANSWER and none of the EVIDENCE. Now persisted —
+  and the answerable count was **5 `asr_whisper` notes of 146**, 3 of them genuinely
+  caption-less, so the scope was ~2 notes rather than the corpus-wide re-ingest the
+  coverage-defect rule would otherwise have demanded.
 - **`recap_window_s` reads the video's own leading recap chapter** and OVERRIDES the per-channel
   `intro_recap_s`, in both directions. Measured on `4Dkw1jz04lY`: @GiantCutie-K's configured
   120s against a recap chapter running to 186s, so 66s of recap read as fresh content. Only a

@@ -93,7 +93,8 @@ otherwise). Per element:
   land on disk under the same `sub.<code>.vtt` name.
 - `segments` — `[{ts_s, text, lang}, …]` (empty when there is no transcript)
 - `transcript_source` — `manual_captions` | `auto_captions` | `asr_whisper` |
-  `captions_unknown` | `""`. **Carry it into the note frontmatter (step 9) verbatim.**
+  `asr_whisper_captions_missed` | `captions_unknown` | `""`. **Carry it into the note
+  frontmatter (step 9) verbatim.**
   It is not decoration: every item, `raw_quote` and call-time derives from this text, and
   an `asr_whisper` transcript is a materially weaker source than an author-written one —
   worst on the zh channels, where ASR is weakest and `raw_quote` accuracy is load-bearing.
@@ -101,6 +102,13 @@ otherwise). Per element:
   number in it is decision-changing, say so in the digest rather than presenting it as
   the author's exact words. `captions_unknown` means the metadata call described no
   caption mappings (an old cache entry) — that is "we did not ask", NOT "it was ASR".
+  ⛔ **`asr_whisper_captions_missed` is the ST121 value and the one to act on: the
+  metadata LISTED caption tracks, the download (retried once) still landed none, and this
+  text is ASR standing in for a track that should have been used.** Unlike plain
+  `asr_whisper` it is **recoverable — re-run the fetch for that video** rather than
+  accepting the note, because the cause measured on `xCF8xZQcVfc` was a transient HTTP
+  429 and the same call succeeded on a later hand-run. Say so in the digest's health
+  notes; a note left at this value is a known-degraded `raw_quote` source.
 - `frame_paths` — **always `[]` at this stage.** This CLI fetches metadata + transcript
   only; frames are extracted later (step 5), from a separate Python call, only for the
   moments pass 1 decides are worth a frame. Don't expect frames here — that is not a bug.
@@ -1158,7 +1166,14 @@ Contents:
 - YAML frontmatter: `source`, `video_id`, `url`, `author`, `title`, `duration_s`, `lang`,
   `publish_ts_utc`, `call_ts_utc`, `call_ts_source`, `stated_ts_utc`, `stated_ts_raw`,
   `ingested_ts_utc`,
-  `backlog`, `chart_present`, `transcript_source`, `route`
+  `backlog`, `chart_present`, `transcript_source`, `caption_langs_manual`,
+  `caption_langs_auto`, `route`
+  ⚠ **The two `caption_langs_*` lists are written for AUDIT, not for the reader.**
+  ST121 asked for a one-query triage — "how many notes are ASR while captions existed?" —
+  and it could not run: the lists reached step 1's JSON but were never persisted, so the
+  corpus recorded the ANSWER (`transcript_source`) with none of the EVIDENCE, and 7 notes
+  carried them only as model-narrated prose. Copy them from step 1's `meta` verbatim; an
+  empty list is `[]` and is itself the finding that the video had no tracks.
   ⚠ **`route` is the sink path, or `dropped`** (comma-separated when one video routes to
   several sinks). Step 10 reconciles this key, and it is absent from all 135 notes written
   before 2026-08-26 — those are unreconcilable and read as `undeclared`, which is a
