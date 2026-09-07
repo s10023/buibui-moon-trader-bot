@@ -106,16 +106,17 @@ batch was 15 panels against a protocol of 6, and nothing said so — extra panel
 are not free, since each costs a vision dispatch — cost it at the LATEST entry in
 the series below, never at this sentence — and a 1w heatmap band is structural
 context, not a same-day actionable level.
-**The per-image figure is MEASURED, and it ROSE then PLATEAUED — ten full 6-panel
+**The per-image figure is MEASURED, and it ROSE then PLATEAUED — eleven full 6-panel
 batches ran mean 32.7K (2026-08-11, ~196K total), 37.1K (2026-08-13, ~223K total,
 range 36.7–37.5K), 36.4K (2026-08-18, ~218K),
 43.6K (2026-08-19, range 41.9–50.0K), 50.8K (2026-08-20, range 48.6–55.7K),
 58.3K (2026-08-25, ~350K total, range 56.7–64.5K), 58.6K (2026-08-28, ~351K
 total, range 57.5–63.8K), 60.6K (2026-08-31, ~363K total, range 58.9–66.1K),
 59.9K (2026-09-01, ~359K total, range 59.0–63.0K), 63.1K (2026-09-02, ~379K
-total, range 61.9–64.5K) and 64.7K (2026-09-03, ~388K total, range 63.2–65.4K).
-That is 78% over the fourteen days to 08-25, and then a PLATEAU — six readings
-across the nine days since sit inside 1.06× of each other.** ⚠ **09-01's down-step
+total, range 61.9–64.5K), 64.7K (2026-09-03, ~388K total, range 63.2–65.4K)
+and 65.4K (2026-09-07, ~392K total, range 64.1–67.0K).
+That is 78% over the fourteen days to 08-25, and then a PLATEAU — seven readings
+across the thirteen days since sit inside 1.12× of each other.** ⚠ **09-01's down-step
 is NOT the first — 08-13 → 08-18 fell 0.981×.** That batch was measured on time and
 filed in the skill-fix queue, but never appended here, so the series read as
 monotone for nineteen days while the data was not. Say the plateau out
@@ -156,8 +157,8 @@ byte-identical either way, so an unannounced fallback restores the full cost
 while looking exactly like success. **Catch it by comparing this batch's mean `subagent_tokens` against the LAST RECORDED
 MEAN in the series above — a STEP, not a band.** Drift between batches is smooth
 (32.7K → 37.1K → 36.4K → 43.6K → 50.8K → 58.3K → 58.6K → 60.6K → 59.9K → 63.1K
-→ 64.7K over twenty-three days, the last four steps 1.034×, 0.988×, 1.054× and
-1.025× — a
+→ 64.7K → 65.4K over twenty-seven days, the last four steps 1.054×, 1.025× and
+1.011× — a
 step can go DOWN, twice now, so read the band as two-sided rather than a ceiling
 on a rising series);
 a silent fallback is a jump, measured at ~1.5× its same-era
