@@ -1224,7 +1224,7 @@ blocked. Never assume the flip happened because you printed the command.
   else**, because a pre-flip check cannot see a run that does not yet exist. That makes the
   re-verify the ONLY step in the sequence able to catch this class, never a belt-and-braces
   extra. ⚠ **The running count and its derivation live in ONE place — memory
-  `reference_dependency_graph_sighting_count.md`. Quote that file; state no number here.** This
+  `reference_dependency_graph_sighting_count.md`. Quote that file; state no number here.** A
   session that re-derives the count from an enumeration elsewhere — the careful move —
   gets the wrong answer, because the later sightings are not in the file it checked. Every sighting has also been benign because `Dependency Graph` runs green on
   a private repo and burns no allowance — read that as luck about WHICH workflow started late,
