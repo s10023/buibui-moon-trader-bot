@@ -165,7 +165,14 @@ shell blocks. The rule they exist to satisfy: *a self-check outside CI is not a 
   so the declared count alone reads backwards — #670's docs-only PR declared 14 and executed
   5, and a bare `steps=14` says "the heavy leg ran on a docs diff". `?/N` means the executed
   half was unobservable; a bare `?` means neither was. Billing is unaffected: an exhausted
-  allowance declares nothing, so `0` declared still settles it.
+  allowance declares nothing, so `0` declared still settles it. ⚠ **A SKIPPED job
+  also declares nothing, and `0` does NOT settle it there** (ST125, 2026-09-08):
+  `Regression tests` declares `needs: lint-typecheck-test`, so a failed dependency
+  leaves it `skipped steps=0/0` — which this banner reported as BILLING, i.e. advising
+  a flip of a private repo to public in order to debug a test timeout. **Billing keys
+  on the CONCLUSION, not the count:** an exhausted allowance FAILS a job in 2-4s and
+  never skips one, so a billing-dead matrix still carries a FAILURE row with `steps=0`
+  and is still caught.
 
 Two fixes were made to the originals during the port and are owed back to wifey:
 `PATH_REF_RE` now requires a real file extension (a `module.symbol` citation was parsing as

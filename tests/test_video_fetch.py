@@ -829,10 +829,15 @@ def test_batch_cache_hit_does_no_network_and_no_sleep(tmp_path: Path) -> None:
 
 
 def test_batch_isolates_one_bad_video(tmp_path: Path) -> None:
+    # ST126 — `sleep=` injected because `fetch_video_batch`'s cooldown is REAL
+    # (`min_delay=4.0`, `max_delay=12.0`): without it this test slept 11.77s and its
+    # duration varied per run, which is the worst shape to sit under pytest's fixed
+    # global `timeout = 30`. The idiom is this file's own, three tests up.
     results = fetch_video_batch(
         ["https://youtu.be/BBBBBBBBBBB", YT_URL],
         cache_dir=tmp_path,
         run=make_ytdlp_run(fail_substr="BBBBBBBBBBB"),
+        sleep=lambda _: None,
     )
     assert isinstance(results[0].meta, Unavailable)
     assert isinstance(results[1].meta, VideoMeta)
@@ -853,7 +858,10 @@ def test_batch_survives_a_hung_subprocess_timeout(tmp_path: Path) -> None:
         return make_ytdlp_run()(cmd)
 
     results = fetch_video_batch(
-        ["https://youtu.be/CCCCCCCCCCC", YT_URL], cache_dir=tmp_path, run=_run
+        ["https://youtu.be/CCCCCCCCCCC", YT_URL],
+        cache_dir=tmp_path,
+        run=_run,
+        sleep=lambda _: None,  # ST126, as above — 9.07s of real cooldown
     )
     assert isinstance(results[0].meta, Unavailable)
     assert isinstance(results[1].meta, VideoMeta)
