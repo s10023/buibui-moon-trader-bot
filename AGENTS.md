@@ -1177,10 +1177,24 @@ A title needing "and" twice is usually two PRs.
 ### CI quota — the visibility flip
 
 **This is a private repo on the free tier and Actions minutes are a hard budget.** Public
-repos get unlimited free standard-runner minutes, which is the only way to get real CI here.
-So: **flip the repo public before opening a PR, and back to private once it merges.**
+repos get unlimited free standard-runner minutes, which is why the flip exists at all.
 
-⚠ **Confirm the flip with the user each time.** Standing authorisation covers the
+⛔ **The flip is CONDITIONAL, and it is NOT a per-PR ritual.** It buys minutes, so it is for
+when the month's free allowance is **EXHAUSTED**; while the allowance is live a PRIVATE PR
+runs the whole matrix for free and the flip buys nothing. This paragraph read as
+unconditional until 2026-09-08 and cost a session a re-asked question with two green private
+PRs already in hand — #752 and #753, 5/5 each, the heavy leg **16/16 executed** on the one
+carrying Python. ⚠ **Read the allowance as a MEASUREMENT rather than a memory, and note the
+error runs BOTH ways**: a remembered "exhausted" expired silently on the 1st, and a predicted
+billing red came back 5/5 green. **The billing tell is a merge-run failure at ~3s with
+`steps=0` and `visibility=PRIVATE`** — check duration, visibility and EXECUTED step count
+before concluding anything. Running state lives in memory `feedback_minimise_metered_usage.md`
+and nowhere else; do not restate a figure here.
+
+**When it IS exhausted: flip public before opening the PR, and back to private once it
+merges.**
+
+⚠ **When a flip is in play, confirm it with the user each time.** Standing authorisation covers the
 **mechanics**, never the **timing** — the window publishes this repo's whole history for its
 duration, and only the operator knows whether now is a good moment. Separating the two is
 what keeps the ask useful rather than nagging: never re-ask a settled question, always ask

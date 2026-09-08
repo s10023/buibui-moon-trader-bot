@@ -42,6 +42,26 @@ PYTHONPATH=. poetry run python tools/yt_feed.py backfill <UC…> --json \
   --playlist <PL…> [--max-videos 20]
 ```
 
+**To size the Stream B REACH GAP rather than one channel's, sweep the WHOLE follow list —
+one `playlists` call per `[[channel]]` in `config/youtube_channels.toml`.** At 1 unit each
+that is ~10 against a 10,000/day quota, so the sweep is free in practice and is the only
+thing that answers "how much Stream B exists that `poll` cannot see". Measured 2026-09-08:
+**49 playlists across 8 of 10 channels, 157 Stream B videos** — against which the same day's
+`poll` offered 49 candidates of which 39 were Stream C. ⚠ **Two channels returned ZERO
+playlists (TraderXO, Killa), and that is an ANSWER, not a failure** — for those the uploads
+mirror is the whole surface and no amount of `playlists` will ever reach further, so do not
+re-run the sweep against them expecting a different result. ⚠ **Most of what a general
+channel's playlists hold is NOT this repo's subject**: 329 of the same sweep's videos were
+equities / macro / metals, i.e. wifey's, so apply the subject rule from step 2 to a playlist
+listing exactly as you would to a candidate.
+
+⛔ **Check the seam verdict BY PLAYLIST before offering a tranche, and note the CURSOR cannot
+tell you** — the two disagree by construction. On 2026-09-08 `Bitcoin: The Beauty Of
+Mathematics` read `10/72 examined`, which looks like 62 videos still owed, while a verdict
+filed in nine of its own notes on 2026-08-24 reads *"Parts 1-62 are not queued and should not
+be."* A cursor records what was PAGED; a verdict records what was DECIDED, and only the
+second is binding.
+
 **Size the tranche, do not raise it.** One education playlist runs to 50+ videos ≈ 1.5M
 tokens, so the whole thing at once is the same as not offering it. The cursor in
 `yt-feed-state.json` carries progress across days — `playlists` prints it as
