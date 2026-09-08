@@ -1158,7 +1158,12 @@ which renders identically to a real test failure. Pull the steps and look:
 gh run view <id> --json jobs --jq '.jobs[] | {name, steps: [.steps[] | {name, conclusion}]}'
 ```
 
-`steps: []` is billing. A populated step list is a real run, whatever the clock says.
+`steps: []` on a **FAILED** job is billing. A populated step list is a real run,
+whatever the clock says. ⚠ **`steps: []` on a SKIPPED job is neither** — a failed
+`needs:` dependency or a job-level `if:` — and reading it as billing points at a public
+flip to debug someone else's failure. ST125, 2026-09-08: `wait_ci.py` did exactly that
+on main `b9ce0ef`, where `Regression tests` was skipped because `lint-typecheck-test`
+had failed on a timed-out test.
 
 **⚠ Do NOT use a flat "under ~10 seconds never ran" rule — it is wrong in both
 directions, and this skill carried it until 2026-08-11.** Trivy died at *exactly* 10s
