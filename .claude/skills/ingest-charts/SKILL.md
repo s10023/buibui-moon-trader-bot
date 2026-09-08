@@ -106,20 +106,31 @@ batch was 15 panels against a protocol of 6, and nothing said so — extra panel
 are not free, since each costs a vision dispatch — cost it at the LATEST entry in
 the series below, never at this sentence — and a 1w heatmap band is structural
 context, not a same-day actionable level.
-**The per-image figure is MEASURED, and it ROSE then PLATEAUED — eleven full 6-panel
+**The per-image figure is MEASURED, and it ROSE then PLATEAUED — thirteen full 6-panel
 batches ran mean 32.7K (2026-08-11, ~196K total), 37.1K (2026-08-13, ~223K total,
 range 36.7–37.5K), 36.4K (2026-08-18, ~218K),
 43.6K (2026-08-19, range 41.9–50.0K), 50.8K (2026-08-20, range 48.6–55.7K),
-58.3K (2026-08-25, ~350K total, range 56.7–64.5K), 58.6K (2026-08-28, ~351K
+58.3K (2026-08-25, ~350K total, range 56.7–64.5K), 57.9K (2026-08-27, ~348K
+total, range 57.6–58.3K), 58.6K (2026-08-28, ~351K
 total, range 57.5–63.8K), 60.6K (2026-08-31, ~363K total, range 58.9–66.1K),
 59.9K (2026-09-01, ~359K total, range 59.0–63.0K), 63.1K (2026-09-02, ~379K
 total, range 61.9–64.5K), 64.7K (2026-09-03, ~388K total, range 63.2–65.4K)
 and 65.4K (2026-09-07, ~392K total, range 64.1–67.0K).
-That is 78% over the fourteen days to 08-25, and then a PLATEAU — seven readings
-across the thirteen days since sit inside 1.12× of each other.** ⚠ **09-01's down-step
-is NOT the first — 08-13 → 08-18 fell 0.981×.** That batch was measured on time and
-filed in the skill-fix queue, but never appended here, so the series read as
-monotone for nineteen days while the data was not. Say the plateau out
+That is 78% over the fourteen days to 08-25, and then a PLATEAU — eight readings
+across the thirteen days since sit inside 1.13× of each other.** ⚠ **A step down is the
+NORM, not the exception: three of the twelve are down-steps — 08-13 → 08-18 at 0.981×,
+08-25 → 08-27 at 0.994× and 08-31 → 09-01 at 0.988×.** ⚠ **BOTH of the first two were
+measured on time and went missing from this series anyway, by DIFFERENT routes — which is
+why "append on every run" is stated as a rule and not a habit.** 08-18 was filed in the
+skill-fix queue and never appended here, so the series read as monotone for nineteen days
+while the data was not. 08-27 was appended under the WRONG DATE: one 2026-08-28 session
+handled TWO 6-panel batches — the re-stamped `20260827-1800` set whose capture time it was
+busy correcting (ST112) and the day's own `20260828-174x` set — and only the second reached
+this file. The first was recorded in the SoT instead, so for nine days the two surfaces
+looked like a **0.7K disagreement about one batch** and were left unreconciled on exactly
+that reading. ⇒ **They were both right.** ⛔ **Before appending, key the entry to the
+snapshot's CAPTURE date, never to the date you are running** — a corrective re-ingest is a
+different batch from today's, and this series is keyed by capture. Say the plateau out
 loud rather than the 78%: quoting the rise alone reads as a trend still running,
 which is the framing that makes a correct dispatch look like a fallback. Read the
 trend as "unpredictable" rather than "always rising", and do not extrapolate a step
@@ -156,10 +167,10 @@ name the fallback and the cost. **Never fall back silently:** the output is
 byte-identical either way, so an unannounced fallback restores the full cost
 while looking exactly like success. **Catch it by comparing this batch's mean `subagent_tokens` against the LAST RECORDED
 MEAN in the series above — a STEP, not a band.** Drift between batches is smooth
-(32.7K → 37.1K → 36.4K → 43.6K → 50.8K → 58.3K → 58.6K → 60.6K → 59.9K → 63.1K
-→ 64.7K → 65.4K over twenty-seven days, the last four steps 1.054×, 1.025× and
-1.011× — a
-step can go DOWN, twice now, so read the band as two-sided rather than a ceiling
+(32.7K → 37.1K → 36.4K → 43.6K → 50.8K → 58.3K → 57.9K → 58.6K → 60.6K → 59.9K
+→ 63.1K → 64.7K → 65.4K over twenty-seven days, the last three steps 1.054×, 1.025×
+and 1.011× — a
+step can go DOWN, three times now, so read the band as two-sided rather than a ceiling
 on a rising series);
 a silent fallback is a jump, measured at ~1.5× its same-era
 `chart-extract` cost (49K against 32.7K, 2026-08-07). So: a batch mean
