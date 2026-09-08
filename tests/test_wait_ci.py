@@ -150,6 +150,58 @@ class TestExecutedVersusDeclaredSteps:
         """Declared 0 is still BILLING — the fix must not move that test."""
         assert verdict([JobRow("lint", "FAILURE", 0, 0)])[0] == EXIT_BILLING
 
+
+class TestSkippedIsNotBilling:
+    """ST125: `steps=0` is billing only when the job FAILED.
+
+    Measured on main `b9ce0efa` (2026-09-08). `Regression tests` declares
+    `needs: lint-typecheck-test`; that dependency failed on a timed-out test, so
+    the job was never created and settled as SKIPPED with no steps. The banner
+    read it as billing and told the reader to flip a private repo public in order
+    to debug a test timeout — the most expensive possible wrong action.
+    """
+
+    def test_a_dependency_skip_is_not_billing(self) -> None:
+        """The observed shape: one real failure, one job skipped behind it."""
+        rows = [
+            JobRow("lint-typecheck-test", "FAILURE", 14, 12),
+            JobRow("Regression tests", "SKIPPED", 0, 0),
+        ]
+        code, lines = verdict(rows)
+        text = "\n".join(lines)
+        assert code == EXIT_FAILED
+        assert "BILLING" not in text
+        assert "SKIPPED, which is NOT billing" in text
+
+    def test_a_skipped_job_among_green_is_green(self) -> None:
+        """A job-level `if:` filter skips the whole job; that is not a failure."""
+        rows = [
+            JobRow("lint-typecheck-test", "SUCCESS", 14, 5),
+            JobRow("Regression tests", "SKIPPED", 0, 0),
+        ]
+        assert verdict(rows)[0] == EXIT_OK
+
+    def test_a_real_billing_matrix_is_still_caught(self) -> None:
+        """The MUTATION case — the one this fix could plausibly have blinded.
+
+        An exhausted allowance also leaves chained jobs SKIPPED, so the fix must
+        not read the whole matrix through them: the FAILURE row still declares
+        zero steps, and that is what settles it.
+        """
+        rows = [
+            JobRow("lint-typecheck-test", "FAILURE", 0, 0),
+            JobRow("Regression tests", "SKIPPED", 0, 0),
+        ]
+        code, lines = verdict(rows)
+        assert code == EXIT_BILLING
+        assert "BILLING" in "\n".join(lines)
+
+    def test_a_lowercase_conclusion_is_still_a_skip(self) -> None:
+        """`gh` returns lowercase, the REST API uppercase — both are one skip."""
+        assert verdict([JobRow("a", "SUCCESS", 9), JobRow("b", "skipped", 0, 0)])[
+            0
+        ] == (EXIT_OK)
+
     def test_unreadable_executed_count_never_prints_a_bare_declared(self) -> None:
         assert fmt_steps(JobRow("a", "SUCCESS", 12, None)) == "?/12"
 

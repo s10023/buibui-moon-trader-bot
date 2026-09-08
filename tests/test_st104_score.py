@@ -12,9 +12,11 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import numpy as np
+import pandas as pd
 import pytest
 
 from analytics.store import init_schema
@@ -33,6 +35,53 @@ from tools.st104_sweep import ARMS, STRATEGY, arm_params_json
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DAY_MS = 86_400_000
+
+
+_TRADE_COLS = (
+    "trade_id",
+    "run_id",
+    "symbol",
+    "timeframe",
+    "strategy",
+    "direction",
+    "signal_time",
+    "entry_time",
+    "entry_price",
+    "sl_price",
+    "tp_price",
+    "exit_time",
+    "exit_price",
+    "outcome",
+    "pnl_r",
+)
+
+
+def _insert_trades(conn: duckdb.DuckDBPyConnection, rows: list[list[Any]]) -> None:
+    """Load `rows` into `backtest_trades` as ONE columnar insert.
+
+    ST125 — the row-at-a-time form this replaces ran 3.35s at n=800, which reads as
+    a safe 9x margin under pytest's global `timeout = 30` and is not one: it timed
+    out on main the first time two merges landed 41 seconds apart and shared a
+    free-tier runner, and a timed-out test is indistinguishable from real drift (the
+    same cap AGENTS.md documents for the golden backtests). DuckDB is columnar, so
+    `executemany` is still a round trip per row and only bought 3x; a registered
+    frame buys 46x.
+
+    ⚠ The column list is named on BOTH sides on purpose. `INSERT ... SELECT *` maps
+    by POSITION, and `backtest_trades` has no single column order — `init_schema`
+    creates three columns inline that an ALTER migration appends on an older DB — so
+    the star form reads a value out of a column five places away on one shape and
+    not the other (AGENTS.md, measured 2026-08-25).
+    """
+    frame = pd.DataFrame(rows, columns=list(_TRADE_COLS))
+    cols = ", ".join(_TRADE_COLS)
+    conn.register("_seed_trades", frame)
+    try:
+        conn.execute(
+            f"INSERT INTO backtest_trades ({cols}) SELECT {cols} FROM _seed_trades"
+        )
+    finally:
+        conn.unregister("_seed_trades")
 
 
 def _seed(
@@ -82,14 +131,11 @@ def _seed(
         ],
     )
     rng = np.random.default_rng(7)
+    rows: list[list[Any]] = []
     for i in range(n):
         entry = 1_700_000_000_000 + (i % days) * DAY_MS + i * 1_000
         pnl = mean + (spread * float(rng.standard_normal()) if spread else 0.0)
-        conn.execute(
-            "INSERT INTO backtest_trades (trade_id, run_id, symbol, timeframe, "
-            "strategy, direction, signal_time, entry_time, entry_price, sl_price, "
-            "tp_price, exit_time, exit_price, outcome, pnl_r) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        rows.append(
             [
                 f"{run_id}-{i}",
                 run_id,
@@ -106,8 +152,9 @@ def _seed(
                 101.0,
                 "win" if pnl > 0 else "loss",
                 pnl,
-            ],
+            ]
         )
+    _insert_trades(conn, rows)
 
 
 class TestBar:

@@ -23,9 +23,19 @@ Every guard here is a recorded scar, so none of them is decoration:
   chained job does not yet exist: the count arrives as 3, then 5.
 * **An empty-string conclusion is PENDING.** A queued check returns `""`, not
   `null`, so a guard written against `null` never fires (#195).
-* **`steps == 0` is a BILLING failure, never a code one.** When the Actions
+* **`steps == 0` is a BILLING failure only when the job FAILED.** When the Actions
   allowance is exhausted every job fails in 2-4s having executed nothing, which
   renders exactly like a real test failure. Flip the repo public; never debug it.
+* ⚠ **A SKIPPED job declares zero steps too, and reading that as billing points the
+  reader at the most expensive possible wrong action.** ST125, 2026-09-08: main's
+  `Regression tests` declares `needs: lint-typecheck-test`, that dependency failed
+  on a timed-out test, and this banner printed ``Regression tests skipped
+  steps=0/0  <-- steps=0: BILLING, flip the repo public`` — i.e. publish a private
+  repo's entire history to debug a test timeout. **The discriminator is the
+  CONCLUSION, not the step count:** an exhausted allowance FAILS a job in 2-4s, it
+  never skips it, so a genuinely billing-dead matrix still carries a FAILURE row
+  with ``steps=0`` and is still caught. A skip is a failed `needs:` or a job-level
+  `if:`, and neither is settled by flipping anything.
 * **A PASS in seconds needs the same scrutiny as a FAIL in seconds.** Some checks
   legitimately finish in 7s (`markdownlint`, `frontend-check`) because they sit
   behind a `dorny/paths-filter`. Duration narrows suspicion; only `steps` settles it.
@@ -163,13 +173,17 @@ def fmt_steps(row: JobRow) -> str:
 def verdict(rows: Sequence[JobRow]) -> tuple[int, list[str]]:
     """Exit code plus printable lines for a settled set of checks."""
     out: list[str] = ["  (steps are EXECUTED/DECLARED; a filtered job skips its body)"]
-    billing = failed = unknown = 0
+    billing = failed = unknown = skipped = 0
     for row in sorted(rows, key=lambda r: r.name):
+        conclusion = row.conclusion.upper()
         flag = ""
-        if row.steps == 0:
+        if conclusion == "SKIPPED":
+            skipped += 1
+            flag = "  <-- skipped: it never STARTED; see the note below"
+        elif row.steps == 0:
             billing += 1
             flag = "  <-- steps=0: BILLING, flip the repo public; do NOT debug"
-        elif row.conclusion.upper() != "SUCCESS":
+        elif conclusion != "SUCCESS":
             failed += 1
             flag = "  <-- real failure"
         elif row.steps is None:
@@ -177,6 +191,13 @@ def verdict(rows: Sequence[JobRow]) -> tuple[int, list[str]]:
             flag = "  <-- step count unreadable; execution NOT confirmed"
         out.append(f"  {row.name:<26} {row.conclusion:<8} steps={fmt_steps(row)}{flag}")
 
+    if skipped:
+        out.append(
+            f"\n{skipped} check(s) were SKIPPED, which is NOT billing: a failed "
+            "`needs:` dependency, or a job-level `if:` filter. An exhausted "
+            "allowance FAILS a job in 2-4s, it never skips one — so read the "
+            "failing job below, and do not flip the repo."
+        )
     if billing:
         out.append(
             f"\n{billing} check(s) never ran (steps=0). "
