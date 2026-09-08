@@ -1143,7 +1143,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         prog="post_branch_checks",
         description="Every mechanical /post-branch check, in one run.",
     )
-    parser.add_argument("--check", help="run only this named check")
+    parser.add_argument(
+        "--check",
+        action="append",
+        metavar="NAME",
+        help="run only this named check; repeatable. Without `action=append` a "
+        "second --check silently replaced the first and the sweep printed a "
+        "complete-looking clean run of ONE leg.",
+    )
     parser.add_argument(
         "--text",
         action="append",
@@ -1186,10 +1193,20 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     results = gather()
     if args.check:
-        results = [r for r in results if r.name == args.check]
-        if not results:
-            print(f"post_branch_checks: no such check: {args.check}", file=sys.stderr)
+        # dict.fromkeys keeps the operator's order and drops a repeat.
+        wanted = list(dict.fromkeys(args.check))
+        unknown = [c for c in wanted if c not in {r.name for r in results}]
+        if unknown:
+            # ANY unknown name aborts the whole run rather than filtering to
+            # the survivors: a typo among several would otherwise run the rest
+            # and report clean, which is the failure this flag's own
+            # repeatability bug already caused once.
+            print(
+                "post_branch_checks: no such check: " + ", ".join(unknown),
+                file=sys.stderr,
+            )
             return 2
+        results = [r for r in results if r.name in wanted]
     lines, total = render(results)
     for line in lines:
         print(line)

@@ -2,7 +2,10 @@ venv/
 .venv/
 __pycache__/
 *.pyc
-.env
+# `.env` alone matches that exact name, so a `.env.bak` left by an edit was
+# untracked but fully committable — and this repo flips public.
+.env*
+!.env.example
 .coverage
 
 # Personal config (examples are committed)

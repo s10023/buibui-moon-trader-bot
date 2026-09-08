@@ -1209,3 +1209,84 @@ class TestCheckAmendedTargets:
         """MUTATION: a longer target name must not credit a shorter one's docs."""
         docs = {"AGENTS.md": "see `make buibui-portfolio-replay-extra` instead"}
         assert check_amended_targets(_AMEND_DIFF, _MAKEFILE, docs) == []
+
+
+class TestCheckFlagIsRepeatable:
+    """`--check` must accept several names, and reject an unknown one loudly.
+
+    Declared without ``action="append"`` it kept the LAST value only, so
+    ``--check memory-cap --check handoff-size`` ran ONE leg and printed a
+    complete-looking clean sweep. Those are exactly the two legs
+    ``/post-branch`` tells a session to re-read late in the run — the pair
+    where emptiness reading as coverage is least likely to be noticed.
+    """
+
+    @staticmethod
+    def _stub_gather(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Three synthetic legs, so the assertions describe the FLAG only."""
+        import tools.post_branch_checks as pbc
+
+        monkeypatch.setattr(
+            pbc,
+            "gather",
+            lambda: [
+                pbc.CheckResult("alpha"),
+                pbc.CheckResult("beta"),
+                pbc.CheckResult("gamma"),
+            ],
+        )
+
+    def test_two_names_run_both(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        self._stub_gather(monkeypatch)
+        assert main(["--check", "alpha", "--check", "beta", "--exit-zero"]) == 0
+        out = capsys.readouterr().out
+        assert "alpha" in out
+        assert "beta" in out
+        assert "gamma" not in out
+
+    def test_one_name_runs_only_that_one(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Positive control.
+
+        Without this case the two-name assertion above would pass just as well
+        against a tool that ignored ``--check`` entirely and ran everything.
+        """
+        self._stub_gather(monkeypatch)
+        assert main(["--check", "beta", "--exit-zero"]) == 0
+        out = capsys.readouterr().out
+        assert "beta" in out
+        assert "alpha" not in out
+        assert "gamma" not in out
+
+    def test_a_repeated_name_is_not_run_twice(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        self._stub_gather(monkeypatch)
+        assert main(["--check", "alpha", "--check", "alpha", "--exit-zero"]) == 0
+        assert capsys.readouterr().out.count("alpha") == 1
+
+    def test_unknown_name_alone_aborts(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        self._stub_gather(monkeypatch)
+        assert main(["--check", "nosuchleg", "--exit-zero"]) == 2
+        assert "no such check: nosuchleg" in capsys.readouterr().err
+
+    def test_unknown_name_AMONG_several_aborts_the_whole_run(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The case the empty-result guard could never catch.
+
+        Filtering to the survivors would run ``alpha``, report clean, and let a
+        typo pass as coverage — the same shape as the repeatability bug itself.
+        """
+        self._stub_gather(monkeypatch)
+        assert main(["--check", "alpha", "--check", "nosuchleg", "--exit-zero"]) == 2
+        captured = capsys.readouterr()
+        assert "no such check: nosuchleg" in captured.err
+        assert "alpha" not in captured.out
