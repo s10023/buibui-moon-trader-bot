@@ -128,6 +128,8 @@ def run_backtest(args: argparse.Namespace) -> None:
             cfg.day_filter = "tue_thu"
         if args.save:
             cfg.save_results = True
+        if args.min_sl_pct is not None:
+            cfg.min_sl_pct = args.min_sl_pct
         if args.atr_sl_multiplier is not None:
             cfg.atr_sl_multiplier = args.atr_sl_multiplier
         if args.atr_sl_multiplier_values:
@@ -151,9 +153,7 @@ def run_backtest(args: argparse.Namespace) -> None:
         sl_pct=args.sl_pct,
         tp_r=args.tp_r,
         fee_pct=args.fee_pct,
-        min_sl_pct=args.min_sl_pct
-        if hasattr(args, "min_sl_pct") and args.min_sl_pct is not None
-        else 0.0,
+        min_sl_pct=args.min_sl_pct if args.min_sl_pct is not None else 0.0,
         atr_sl_multiplier=args.atr_sl_multiplier,
         atr_sl_floor=getattr(args, "atr_sl_floor", False),
         secondary_symbol=args.secondary_symbol,
@@ -251,6 +251,14 @@ def add_backtest_subparser(
         default=0.0,
         dest="fee_pct",
         help="Taker fee as a decimal fraction applied on entry+exit (default: 0.0; e.g. 0.0005 for 0.05%%)",
+    )
+    backtest_parser.add_argument(
+        "--min-sl-pct",
+        type=float,
+        default=None,
+        dest="min_sl_pct",
+        help="Minimum SL distance as a fraction of price (e.g. 0.005 = 0.5%%). "
+        "Sweep mode overrides the TOML value; single-combo defaults to 0 = disabled.",
     )
     backtest_parser.add_argument(
         "--day-filter",

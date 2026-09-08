@@ -29,7 +29,10 @@ a result.
   being left to CI. **It is a separate gate rather than a slower one: `make test` passes
   `--ignore=tests/test_regression.py`, so a green `make test` says NOTHING about the
   goldens** — skipping this line inside the backtest surface leaves them unchecked, not
-  checked-later.
+  checked-later. ⚠ **`make preflight` carries the SAME `--ignore`**
+  (`tools/clone_preflight.py:64`), and since Step 7 has it REPLACE `make test`, the
+  documented path inherits the identical blind spot — the clean-clone gate is not the
+  goldens gate either. Naming only `make test` here is what made that invisible.
 
 **Background anything measured in MINUTES; foreground anything measured in SECONDS.**
 Background: `make test` (~4m55s — re-measured 2026-08-20; the long-quoted ~145s is stale by ~2x), `make test-regression` (~93s, NOT re-measured), `make wait-ci`,

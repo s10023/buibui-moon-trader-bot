@@ -111,6 +111,7 @@ buibui backtest
   --min-trades N           Hide combos below N trades
   --secondary-symbol SYM   Secondary symbol for smt_divergence
   --fee-pct FLOAT          Taker fee per side, decimal (default 0.0; 0.0005 = 0.05%)
+  --min-sl-pct FLOAT       Minimum SL distance as a fraction of price (0.005 = 0.5%)
 
   # Plural overrides — sweep a set, ignoring the config's own lists
   --symbols SYM...         Symbols to sweep (overrides --config)
@@ -133,9 +134,15 @@ buibui backtest
              | conflict-resolver | cooldown
 ```
 
-⚠ **`--min-sl-pct` is NOT a CLI flag** — `min_sl_pct` is read from the TOML only
-(`cli/backtest.py:154` guards it with `hasattr`, so the parser never defines it).
-Passing it on the command line is an argparse error.
+⚠ **`--min-sl-pct` reaches BOTH modes since 2026-09-08 — the block above used to say it
+was not a flag at all, and that is now false.** It was declared only on `buibui signal`
+while `cli/backtest.py` read it behind a `hasattr` the backtest parser could never
+satisfy, so **single-combo ran pinned at 0.0 however it was invoked**. Sweep mode was
+never affected: it builds its config through `load_backtest_config` and reads the TOML.
+⚠ **Read any single-combo result predating that fix as having had NO stop floor** — the
+condition ST104 measured at 0.215R → 0.427R mean drag — and do not re-derive the impact
+from those runs, since they were measured through the defect. Sweep still takes the TOML
+value unless the flag overrides it; single-combo still defaults to 0 = disabled.
 
 ⚠ **Gate flags change what a run MEANS, not just its speed.** A bare sweep has every
 live gate OFF, so its avg_r is not comparable to a `--live-parity` run or to the live
