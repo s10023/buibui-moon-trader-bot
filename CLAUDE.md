@@ -28,7 +28,7 @@ memory re-reads. Verify subagent and background work directly (`ps`, `journalctl
 
 **Shell hygiene is a HOOK too, because the prose was in context and lost twice in one
 session.** `.claude/hooks/guard-shell-hygiene.py` (advisory, `PreToolUse` on `Bash`, said
-ONCE PER RULE PER SESSION so it cannot train you to skip it) flags three habits that fake a
+ONCE PER RULE PER SESSION so it cannot train you to skip it) flags five habits that cost you a
 verified result: a **hand-rolled waiter** (`until … pgrep`) for work the harness already
 re-invokes you on — its `pgrep` guard names a CLASS, so the next run of the same kind
 re-arms a fired waiter and it prints a STALE file as the fresh result — a **gate piped
@@ -37,7 +37,14 @@ and a **DUPLICATE waiter**, which is rule 1's own blind spot: the SANCTIONED
 `make wait-ci PR=743` matches no hand-rolled shape, so two ran at once. Rule 3 therefore
 probes for a live process on the same TARGET rather than matching the command, and speaks
 once per target rather than once per session. Redirect and read the file instead.
-`test_guard_shell_hygiene.py` (50 cases, 9 mutation) runs in CI's dependency-free
+Rules 4-5 (2026-09-08, ST120 (c)+(d)) are **more than one `/card` in one exec** — matched as
+the CLASS, any two card invocations however joined, since `;` loses the same cards the
+prose's `&&` names — and **`gh auth switch`**, which mutates gh's GLOBAL account that the
+operator's own terminal shares, where scoping it costs one prefix
+(`GH_TOKEN=$(gh auth token --user s10023) gh <cmd>`). Both ANCHOR where a command can start,
+and a mutation case pins that anchor: unanchored, rule 5 fires on prose merely NAMING the
+command — the defect that once had `guard-destructive.py` blocking its own commit message.
+`test_guard_shell_hygiene.py` (62 cases, 12 mutation) runs in CI's dependency-free
 `markdownlint` job; re-run it after any edit to either. ⚠ **Scoping a guard to the SYMPTOM
 you noticed rather than to the CLASS is the recurring defect here** — mutation tests cannot
 reveal it, because they only probe rules that exist.

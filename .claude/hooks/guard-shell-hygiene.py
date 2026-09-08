@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PreToolUse advisory hook — two shell habits that silently fake a verified result.
+"""PreToolUse advisory hook — shell habits that silently cost you a result.
 
 Self-authored (no third-party dependency) so every rule is reviewable here, and
 stdlib-only so CI's dependency-free job can run its suite. Wired via
@@ -53,7 +53,30 @@ RULE 3 — a DUPLICATE waiter on a target something is already waiting on.
     only on a real live clash, so there is no honest use to go quiet about, and
     a second clash on a second target is a second mistake.
 
-Rules 1 and 2 speak ONCE PER SESSION. A hook that fires on every occurrence trains
+RULE 4 — more than one `/card` in a single exec.
+    `AGENTS.md` states the rule as "run one `/card` per background exec — never
+    `&&`-chain them", and the reason is not tidiness: a card CRASHES on the
+    15-minute signal-watch DuckDB write lock, producing no verdict and no ledger
+    row, and its exposure is only the first ~3.4s of the run. Under `&&` that
+    crash stops the chain, so one unlucky 3-second window silently costs every
+    card after it; under `;` they run but the failure scrolls past. Either way
+    the operator reads a short batch as the batch they asked for.
+
+    Matched as a CLASS — any two card invocations in one exec, whatever joins
+    them — rather than as the `&&` the prose happens to name, because `;` and a
+    newline lose the same cards. Anchored where a command can START, the fix
+    guard-destructive.py already carries: unanchored, a note that merely
+    mentions two cards trips it.
+
+RULE 5 — `gh auth switch`.
+    It mutates gh's GLOBAL active account. This machine's gh state is shared
+    with the operator's own terminal and every other session on it, nothing
+    switches it back when a turn ends, and a session cannot see whose account it
+    just changed. The scoped form is one env prefix and is what AGENTS.md's own
+    visibility-flip block uses: `GH_TOKEN=$(gh auth token --user s10023) gh <cmd>`.
+    ⚠ `gh auth token` is the SANCTIONED reader and must not match this rule.
+
+Rules 1, 2, 4 and 5 speak ONCE PER SESSION. A hook that fires on every occurrence trains
 its reader to skip it — the same failure the repo's always-red tier-2 line and
 its always-amber monitor workflow already demonstrate.
 """
@@ -80,6 +103,17 @@ _GATE = (
 )
 _TRUNCATOR = r"(?:tail|head)\b"
 
+# Anchored where a command can actually START -- the fix guard-destructive.py
+# already carries, after an unanchored rule there blocked its own commit message.
+# Allows leading env assignments (`TG=1 make ...`), which are part of the command.
+_CMD_START = r"(?:^|[\n;&|(])\s*(?:[A-Za-z_][A-Za-z0-9_]*=[^\s]*\s+)*"
+# ...and, for the card, an optional interpreter, since `buibui.py card` is
+# normally reached through one.
+_CARD = (
+    _CMD_START + r"(?:(?:poetry\s+run\s+)?python3?\s+)?"
+    r"(?:make\s+buibui-card\b|(?:\./)?buibui(?:\.py)?\s+card\b)"
+)
+
 RULES: list[tuple[str, str, str]] = [
     (
         "waiter",
@@ -103,6 +137,27 @@ RULES: list[tuple[str, str, str]] = [
         "class AGENTS.md documents for wait_ci.py and preflight through `make`. "
         "Redirect instead, then read the file: "
         '`make <gate> > /tmp/<name>.log 2>&1; echo "exit=$?"; tail -8 /tmp/<name>.log`.',
+    ),
+    (
+        "card-chain",
+        # Two card invocations in ONE exec, whatever joins them.
+        rf"{_CARD}[\s\S]*?{_CARD}",
+        "more than one card in a single exec. A card CRASHES on the 15-minute "
+        "signal-watch write lock -- no verdict, no ledger row -- and its exposure "
+        "is the first ~3.4s of the run. Under `&&` that crash stops the chain, so "
+        "one unlucky 3-second window silently costs every card after it; under "
+        "`;` the failure just scrolls past. Either way a short batch reads as the "
+        "batch you asked for. Run ONE card per background exec and let the "
+        "harness re-invoke you on each, retrying the one that crashed.",
+    ),
+    (
+        "gh-auth-switch",
+        rf"{_CMD_START}gh\s+auth\s+switch\b",
+        "`gh auth switch`. It mutates gh's GLOBAL active account, which this "
+        "machine shares with the operator's own terminal and every other session "
+        "on it, and nothing switches it back when the turn ends. Scope it to the "
+        "one command instead -- the form AGENTS.md's visibility-flip block "
+        "already uses: `GH_TOKEN=$(gh auth token --user s10023) gh <cmd>`.",
     ),
 ]
 
