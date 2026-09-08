@@ -402,6 +402,66 @@ check(
     must_be_silent=True,
 )
 
+# --- 5c. rule 4: more than one card in one exec ------------------------------
+check(
+    "&&-chained cards fire",
+    run(
+        "make buibui-card SYMBOL=BTCUSDT && make buibui-card SYMBOL=ETHUSDT",
+        session="c1",
+    ),
+    must_contain="more than one card",
+)
+check(
+    "a `;` chain is the SAME defect -- the rule is the class, not the `&&`",
+    run("buibui card BTCUSDT; buibui card ETHUSDT", session="c2"),
+    must_contain="more than one card",
+)
+check(
+    "env prefixes and an interpreter do not hide the second card",
+    run(
+        "TG=1 poetry run python buibui.py card BTC "
+        "&& DRY=1 poetry run python buibui.py card ETH",
+        session="c3",
+    ),
+    must_contain="more than one card",
+)
+check(
+    "NEGATIVE: ONE card is the sanctioned shape and stays silent",
+    run("make buibui-card SYMBOL=BTCUSDT TG=1", session="c4"),
+    must_be_silent=True,
+)
+check(
+    "NEGATIVE: a heredoc naming two cards is data, not two runs",
+    run(
+        "git commit -F - <<'MSG'\n"
+        "docs: never chain make buibui-card A && make buibui-card B\n"
+        "MSG",
+        session="c5",
+    ),
+    must_be_silent=True,
+)
+
+# --- 5d. rule 5: gh auth switch ----------------------------------------------
+check(
+    "gh auth switch fires",
+    run("gh auth switch", session="g1"),
+    must_contain="gh auth switch",
+)
+check(
+    "...also mid-chain, where a command can start",
+    run("git push && gh auth switch --user someone", session="g2"),
+    must_contain="gh auth switch",
+)
+check(
+    "NEGATIVE: `gh auth token` is the SANCTIONED reader and must stay silent",
+    run(
+        "GH_TOKEN=$(gh auth token --user s10023) gh repo view "
+        "s10023/buibui-moon-trader-bot --json visibility",
+        session="g3",
+    ),
+    must_be_silent=True,
+)
+
 # --- 6. fail-open ------------------------------------------------------------
 _proc = subprocess.run(
     [sys.executable, str(HOOK)], input="not json at all", capture_output=True, text=True
@@ -517,6 +577,53 @@ try:
                 run("make wait-ci-main", session="m9", hook=_m4),
                 must_contain="branch main",
             )
+
+    _m5 = _mut / "no_card.py"
+    _m5.write_text(
+        HOOK.read_text().replace(
+            r"(?:make\s+buibui-card\b|(?:\./)?buibui(?:\.py)?\s+card\b)",
+            r"(?:__never__)",
+        )
+    )
+    check(
+        "MUTATION: card invocation unrecognised -> the chain note is silent",
+        run(
+            "make buibui-card SYMBOL=BTCUSDT && make buibui-card SYMBOL=ETHUSDT",
+            session="m10",
+            hook=_m5,
+        ),
+        must_be_silent=True,
+    )
+    check(
+        "MUTATION: ...and gh auth switch is UNAFFECTED (scoped, not blanket)",
+        run("gh auth switch", session="m11", hook=_m5),
+        must_contain="gh auth switch",
+    )
+
+    # The anchor is the half that keeps rule 5 from reading its own documentation
+    # as a command -- the defect that made guard-destructive.py block its own
+    # commit message. Drop it and prose about the rule trips the rule.
+    _m6 = _mut / "unanchored.py"
+    _m6.write_text(
+        HOOK.read_text().replace(
+            'rf"{_CMD_START}gh\\s+auth\\s+switch\\b"',
+            'r"gh\\s+auth\\s+switch\\b"',
+        )
+    )
+    check(
+        "MUTATION: unanchored rule 5 fires on prose that merely NAMES the command",
+        run(
+            "echo 'never run gh auth switch, export GH_TOKEN instead'",
+            session="m12",
+            hook=_m6,
+        ),
+        must_contain="gh auth switch",
+    )
+    check(
+        "...which the ANCHORED rule correctly stays silent on",
+        run("echo 'never run gh auth switch, export GH_TOKEN instead'", session="m13"),
+        must_be_silent=True,
+    )
 finally:
     shutil.rmtree(_mut, ignore_errors=True)
 
