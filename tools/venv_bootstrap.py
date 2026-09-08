@@ -49,6 +49,8 @@ def reexec_into_venv(root: Path, *, sentinel: str = SENTINEL) -> None:
     executables reports the venv and a bare `python3` as the SAME path and the swap
     never fires. ``sys.prefix`` is the venv root inside a venv and the base install
     outside one, which is the distinction actually being asked about.
+
+    ⚠ The swap carries ``PATH`` as well as the interpreter — see `_venv_first_path`.
     """
     if os.environ.get(sentinel) == "1":
         return
@@ -64,4 +66,29 @@ def reexec_into_venv(root: Path, *, sentinel: str = SENTINEL) -> None:
         f"note: re-exec into {python} (was {sys.executable})",
         file=sys.stderr,
     )
-    os.execve(str(python), [str(python), *sys.argv], {**os.environ, sentinel: "1"})
+    os.execve(
+        str(python),
+        [str(python), *sys.argv],
+        {**os.environ, sentinel: "1", "PATH": _venv_first_path(venv)},
+    )
+
+
+def _venv_first_path(venv: Path) -> str:
+    """``PATH`` with ``venv/bin`` PREPENDED, so the venv's console scripts resolve too.
+
+    Swapping the interpreter is not enough. A subprocess resolved BY NAME is resolved by
+    the SHELL, through ``PATH``, which ``os.execve`` inherits unchanged — so before this
+    a hand-run `daily_check.py` re-exec'd correctly and then reported
+    ``FileNotFoundError: 'yt-dlp'`` for its media canary while `.venv/bin/yt-dlp` sat
+    right there. That is the ST119 bootstrap's own documented scope gap (it covers what
+    PYTHON resolves, never what the SHELL does) arriving one level out, and it is the
+    same shape `AGENTS.md` already records for repo-vs-third-party imports.
+
+    PREPENDED rather than appended, because the pin is the whole point: `yt-dlp` is held
+    at a dated NIGHTLY (stable 403s on every media URL), so a stale system copy earlier
+    on ``PATH`` would shadow it and the canary would probe a version the pipeline never
+    runs — a false verdict, which is worse than the missing one this replaces.
+    """
+    bin_dir = str(venv / "bin")
+    current = os.environ.get("PATH", "")
+    return f"{bin_dir}{os.pathsep}{current}" if current else bin_dir

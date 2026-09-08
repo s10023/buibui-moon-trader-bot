@@ -117,7 +117,13 @@ the steps it does not cover (ST88), the fix belonging on reachability rather tha
   test, never the bootstrap line.** ⚠ **That bootstrap covers REPO imports and does
   nothing for third-party deps** — a bare `python3` still has no `duckdb`, which is a
   separate mechanism (`tools/venv_bootstrap.py`, a `sys.prefix`-guarded re-exec into
-  `.venv`) wired ONLY where that failure is silent rather than a loud traceback. CI runs `sanity_checks.py` exactly that way, with **no**
+  `.venv`) wired ONLY where that failure is silent rather than a loud traceback. ⚠ **And that
+  re-exec has a THIRD level, which it lacked until 2026-09-08 (ST127): swapping the interpreter
+  does not swap `PATH`**, so a subprocess resolved BY NAME is still the SHELL's resolution
+  against the old one — `python3 docs/plans/daily_check.py` re-exec'd correctly and then lost
+  its `yt-dlp` media canary to `FileNotFoundError` beside a venv that had the binary. **The
+  class: each fix covers the resolver it names and nothing below it** — `sys.path` for repo
+  imports, the interpreter for third-party imports, `PATH` for subprocesses. CI runs `sanity_checks.py` exactly that way, with **no**
   `PYTHONPATH`, while the Make targets set it — so a green `make sanity-checks` proves
   nothing about CI's invocation. That gap shipped a red CI on 2026-08-19 with every local
   gate green. ⛔ **Do not enumerate the tools here.** This bullet read "all three" and was
