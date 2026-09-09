@@ -3,13 +3,15 @@
 
 Self-authored (no third-party dependency) so every rule is reviewable here, and
 stdlib-only so CI's dependency-free job can run its suite. Wired via
-.claude/settings.json -> hooks.PreToolUse (matcher "Bash"), beside
-guard-destructive.py. **Advisory, never blocking** — both patterns have honest
-uses, and the failure this guards is a wrong belief rather than a wrong command.
+.claude/settings.json -> hooks.PreToolUse on TWO matchers: "Bash" (rules 1-5,
+beside guard-destructive.py) and "Edit|Write|NotebookEdit|MultiEdit" (rule 6,
+beside context-guard.py). **Advisory, never blocking** — every pattern here has
+honest uses, and the failure this guards is a wrong belief rather than a wrong
+command.
 
-Protocol: Claude Code pipes {"tool_name","tool_input":{"command":...},"session_id":...}
-on stdin. Exit 0 always; the note rides `hookSpecificOutput.additionalContext`,
-the same channel context-guard.py uses.
+Protocol: Claude Code pipes {"tool_name","tool_input":{...},"session_id":...} on
+stdin. Exit 0 always; the note rides `hookSpecificOutput.additionalContext`, the
+same channel context-guard.py uses.
 
 Both rules come from one session (2026-09-03) in which the prose already in
 context did not prevent either, three times over. `docs/plans/daily_check.py`'s
@@ -68,6 +70,18 @@ RULE 4 — more than one `/card` in a single exec.
     guard-destructive.py already carries: unanchored, a note that merely
     mentions two cards trips it.
 
+RULE 6 — editing the Python tree while a SUITE IS LIVE (ST120(b)).
+    Fires on Edit/Write rather than on Bash, which is why it is not one of the
+    regex rules above: there is no command string to match. Both `make test` and
+    `make preflight` run the IDENTICAL argv, so argv cannot separate them — the
+    discriminator is the pytest process's **cwd**, and preflight's is the clone
+    under /tmp. That makes the exemption structural rather than a name match:
+    preflight tests committed state in a clone, so a working-tree edit provably
+    cannot reach that run. Anchored at an interpreter actually running pytest,
+    because `pgrep -f` matches the whole cmdline and a shell's argv CONTAINS the
+    command it was handed — the same trap rule 3 documents, re-confirmed live
+    here (a probe for "pytest" matched the shell that had merely typed it).
+
 RULE 5 — `gh auth switch`.
     It mutates gh's GLOBAL active account. This machine's gh state is shared
     with the operator's own terminal and every other session on it, nothing
@@ -78,7 +92,10 @@ RULE 5 — `gh auth switch`.
 
 Rules 1, 2, 4 and 5 speak ONCE PER SESSION. A hook that fires on every occurrence trains
 its reader to skip it — the same failure the repo's always-red tier-2 line and
-its always-amber monitor workflow already demonstrate.
+its always-amber monitor workflow already demonstrate. Rules 3 and 6 instead
+dedup per TARGET — the waiter's target, the suite's pid — because each fires
+only on a real live clash, so the readability argument does not apply and a
+second genuine clash must still speak.
 """
 
 from __future__ import annotations
@@ -86,6 +103,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -204,7 +222,7 @@ def _waiter_target(command: str) -> tuple[str, str] | None:
     return None
 
 
-def _live_waiter_pids(pattern: str) -> list[str]:
+def _live_pids(pattern: str) -> list[str]:
     """PIDs already waiting on this target. Empty on any doubt -- see below.
 
     A false positive here would flag an honest first waiter, which is the one
@@ -229,7 +247,7 @@ def _duplicate_waiter_note(command: str) -> tuple[str, str] | None:
     if target is None:
         return None
     label, pattern = target
-    pids = _live_waiter_pids(pattern)
+    pids = _live_pids(pattern)
     if not pids:
         return None
     return (
@@ -240,6 +258,97 @@ def _duplicate_waiter_note(command: str) -> tuple[str, str] | None:
         "walks straight through the hand-rolled-waiter rule, which is why this "
         "one probes for a LIVE process instead of matching a shell pattern. "
         "Read the running waiter's result, or kill it before starting another.",
+    )
+
+
+# RULE 6 — an edit to the Python tree while a suite is LIVE.
+#
+# ANCHORED at an interpreter actually running pytest, for the reason rule 3
+# documents and this rule re-confirmed live: `pgrep -f pytest` matched the SHELL
+# that had merely typed the word. Two spellings, because the repo produces both —
+# `poetry run pytest` execs the console script (`<venv>/bin/python
+# <venv>/bin/pytest ...`) while a hand-run uses `python -m pytest`. POSIX classes
+# rather than the GNU shorthands, since pgrep compiles this as an ERE.
+_RUNNING_PYTEST = r"^[^ ]*python[0-9.]*[ ](-m[ ]pytest|[^ ]*/pytest)([ ]|$)"
+
+WATCHED_EDIT_TOOLS = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
+
+
+def _repo_root() -> Path | None:
+    """Repo root, from the harness env var if set, else by walking up to .git."""
+    env = os.environ.get("CLAUDE_PROJECT_DIR")
+    if env:
+        with contextlib.suppress(OSError):
+            return Path(env).resolve()
+        return None
+    for parent in Path(__file__).resolve().parents:
+        if (parent / ".git").exists():
+            return parent
+    return None
+
+
+def _live_suite_pids(root: Path) -> list[str]:
+    """PIDs running a suite against THE WORKING TREE, never against a clone.
+
+    `make preflight` runs byte-identical argv to `make test` — verified by
+    reading `tools/clone_preflight.py`, which calls `subprocess.run(pytest_argv(),
+    cwd=dest)` — so argv cannot separate them and cwd is the ONLY discriminator.
+    That is what makes preflight's exemption structural: its pytest sits in
+    /tmp/clone-preflight-*/clone, testing committed state, so an edit to the
+    working tree cannot reach it.
+
+    Unreadable /proc stays SILENT rather than guessing, the same asymmetry
+    `_live_pids` carries: a false positive here costs the hook its reader.
+    """
+    live: list[str] = []
+    for pid in _live_pids(_RUNNING_PYTEST):
+        try:
+            cwd = Path(os.readlink(f"/proc/{pid}/cwd"))
+        except OSError:
+            continue
+        if cwd == root or root in cwd.parents:
+            live.append(pid)
+    return live
+
+
+def _edit_during_suite_note(
+    tool_input: dict[str, object], root: Path | None
+) -> tuple[str, str] | None:
+    """(dedup key, note) when this edit lands on the Python tree mid-suite."""
+    if root is None:
+        return None
+    targets = [
+        str(tool_input.get(key, ""))
+        for key in ("file_path", "notebook_path")
+        if tool_input.get(key)
+    ]
+    inside = []
+    for raw in targets:
+        if not raw.endswith(".py"):
+            continue  # AGENTS.md names the safe overlaps: docs, memory, a PR body
+        try:
+            Path(raw).resolve().relative_to(root)
+        except (OSError, ValueError):
+            continue  # outside the repo -- pytest cannot import it
+        inside.append(raw)
+    if not inside:
+        return None
+
+    pids = _live_suite_pids(root)
+    if not pids:
+        return None
+    return (
+        f"suite-live:{pids[0]}",
+        f"an edit to the Python tree while a SUITE IS LIVE (pid {', '.join(pids)}). "
+        "pytest imports modules at COLLECTION, so a half-saved module errors the "
+        "whole run rather than just its own file -- and a green result describing "
+        "a tree that no longer exists is worse than no result, because it is a "
+        "false VERIFIED. Let the run finish and re-run it, or edit something "
+        "AGENTS.md names as safe to overlap: MEMORY.md and the memory topic "
+        "files, anything under gitignored docs/plans/, a PR body under /tmp. "
+        "`make preflight` is EXEMPT by construction and never triggers this -- it "
+        "tests a CLONE of committed state, so the working tree is yours "
+        "throughout, which is a second reason to prefer it on a branch.",
     )
 
 
@@ -288,24 +397,37 @@ def main() -> int:
     except (json.JSONDecodeError, ValueError):
         return 0  # fail open -- never break the session on a parse error
 
-    if payload.get("tool_name") != "Bash":
+    tool_name = payload.get("tool_name")
+    tool_input = payload.get("tool_input", {})
+    if not isinstance(tool_input, dict):
         return 0
-
-    command = str(payload.get("tool_input", {}).get("command", ""))
-    if not command:
-        return 0
-    command = _strip_heredocs(command)
-
     session_id = str(payload.get("session_id", "nosession"))
 
     hits: list[str] = []
-    for rule_id, pattern, note in RULES:
-        if re.search(pattern, command) and not _already_spoken(session_id, rule_id):
-            hits.append(note)
+    # The label names the SURFACE, since rule 6 is not a shell habit; the owning
+    # file is named in the trailer either way, so the note stays traceable.
+    label = "shell-hygiene"
 
-    duplicate = _duplicate_waiter_note(command)
-    if duplicate is not None and not _already_spoken(session_id, duplicate[0]):
-        hits.append(duplicate[1])
+    if tool_name in WATCHED_EDIT_TOOLS:
+        label = "edit-hygiene"
+        editing = _edit_during_suite_note(tool_input, _repo_root())
+        if editing is not None and not _already_spoken(session_id, editing[0]):
+            hits.append(editing[1])
+    elif tool_name == "Bash":
+        command = str(tool_input.get("command", ""))
+        if not command:
+            return 0
+        command = _strip_heredocs(command)
+
+        for rule_id, pattern, note in RULES:
+            if re.search(pattern, command) and not _already_spoken(session_id, rule_id):
+                hits.append(note)
+
+        duplicate = _duplicate_waiter_note(command)
+        if duplicate is not None and not _already_spoken(session_id, duplicate[0]):
+            hits.append(duplicate[1])
+    else:
+        return 0
 
     if not hits:
         return 0
@@ -316,7 +438,7 @@ def main() -> int:
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "additionalContext": (
-                        "shell-hygiene: "
+                        f"{label}: "
                         + " || ".join(hits)
                         + " -- Advisory only, never blocking; said once per rule "
                         "per session. Owned by .claude/hooks/guard-shell-hygiene.py."
