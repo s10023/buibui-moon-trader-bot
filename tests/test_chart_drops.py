@@ -1,6 +1,9 @@
 """tools/chart_drops — filename parse, sha256 ledger, scan, write, CLI."""
 
 import json
+import os
+import subprocess
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -401,3 +404,33 @@ def test_cli_move_failure_leaves_ledger_unmarked(tmp_path: Path) -> None:
         )
     assert load_ledger(ledger) == {}  # hash marked only after outcome is final
     assert img.is_file()  # image stays visible to the next scan
+
+
+class TestBareInvocation:
+    """`/ingest-charts` shells out to this scanner by hand, and the Make targets set
+    PYTHONPATH — so a green Make target proves nothing about the bare form. Per ST129
+    the guarantee is THIS test, not the bootstrap line in the module."""
+
+    def test_bare_invocation_works(self, tmp_path: Path) -> None:
+        drop = tmp_path / "drops"
+        drop.mkdir()
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "tools/chart_drops.py",
+                "scan",
+                "--drop-dir",
+                str(drop),
+                "--ledger",
+                str(tmp_path / "ledger.json"),
+            ],
+            cwd=Path(__file__).resolve().parent.parent,
+            capture_output=True,
+            text=True,
+            env={k: v for k, v in os.environ.items() if k != "PYTHONPATH"},
+        )
+
+        assert proc.returncode == 0, proc.stderr
+        assert (
+            "analytics" not in proc.stderr
+        )  # the ModuleNotFoundError it used to die on
