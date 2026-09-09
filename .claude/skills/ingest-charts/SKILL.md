@@ -106,7 +106,7 @@ batch was 15 panels against a protocol of 6, and nothing said so — extra panel
 are not free, since each costs a vision dispatch — cost it at the LATEST entry in
 the series below, never at this sentence — and a 1w heatmap band is structural
 context, not a same-day actionable level.
-**The per-image figure is MEASURED, and it ROSE then PLATEAUED — thirteen full 6-panel
+**The per-image figure is MEASURED, and it ROSE then PLATEAUED — fourteen RECORDED 6-panel
 batches ran mean 32.7K (2026-08-11, ~196K total), 37.1K (2026-08-13, ~223K total,
 range 36.7–37.5K), 36.4K (2026-08-18, ~218K),
 43.6K (2026-08-19, range 41.9–50.0K), 50.8K (2026-08-20, range 48.6–55.7K),
@@ -114,11 +114,18 @@ range 36.7–37.5K), 36.4K (2026-08-18, ~218K),
 total, range 57.6–58.3K), 58.6K (2026-08-28, ~351K
 total, range 57.5–63.8K), 60.6K (2026-08-31, ~363K total, range 58.9–66.1K),
 59.9K (2026-09-01, ~359K total, range 59.0–63.0K), 63.1K (2026-09-02, ~379K
-total, range 61.9–64.5K), 64.7K (2026-09-03, ~388K total, range 63.2–65.4K)
-and 65.4K (2026-09-07, ~392K total, range 64.1–67.0K).
-That is 78% over the fourteen days to 08-25, and then a PLATEAU — eight readings
-across the thirteen days since sit inside 1.13× of each other.** ⚠ **A step down is the
-NORM, not the exception: three of the twelve are down-steps — 08-13 → 08-18 at 0.981×,
+total, range 61.9–64.5K), 64.7K (2026-09-03, ~388K total, range 63.2–65.4K),
+65.4K (2026-09-07, ~392K total, range 64.1–67.0K)
+and 69.7K (2026-09-09, ~418K total, range 67.9–73.3K).
+⚠ **The series is INCOMPLETE and that count is of ENTRIES, not of batches** — 08-12,
+08-14, 08-17 and 08-24 each hold six panels in `docs/plans/external-context/` with no
+entry here, so read every derived figure below as computed on what was RECORDED rather
+than on what ran (SoT ST131). A candidate 38.3K mean for 08-14 sits in the skill-fix
+queue. ⛔ **Do not fabricate the missing means** — an invented entry corrupts the only
+signal separating `chart-extract` from a general-purpose fallback.
+That is 78% over the fourteen days to 08-25, and then a PLATEAU — nine readings
+across the fifteen days since sit inside 1.20× of each other.** ⚠ **A step down is the
+NORM, not the exception: three of the thirteen are down-steps — 08-13 → 08-18 at 0.981×,
 08-25 → 08-27 at 0.994× and 08-31 → 09-01 at 0.988×.** ⚠ **BOTH of the first two were
 measured on time and went missing from this series anyway, by DIFFERENT routes — which is
 why "append on every run" is stated as a rule and not a habit.** 08-18 was filed in the
@@ -168,8 +175,8 @@ byte-identical either way, so an unannounced fallback restores the full cost
 while looking exactly like success. **Catch it by comparing this batch's mean `subagent_tokens` against the LAST RECORDED
 MEAN in the series above — a STEP, not a band.** Drift between batches is smooth
 (32.7K → 37.1K → 36.4K → 43.6K → 50.8K → 58.3K → 57.9K → 58.6K → 60.6K → 59.9K
-→ 63.1K → 64.7K → 65.4K over twenty-seven days, the last three steps 1.054×, 1.025×
-and 1.011× — a
+→ 63.1K → 64.7K → 65.4K → 69.7K over twenty-nine days, the last three steps 1.025×,
+1.011× and 1.066× — a
 step can go DOWN, three times now, so read the band as two-sided rather than a ceiling
 on a rising series);
 a silent fallback is a jump, measured at ~1.5× its same-era
