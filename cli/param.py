@@ -67,6 +67,8 @@ def run_param_sweep(args: argparse.Namespace) -> None:
                 wfo_split=args.wfo_split,
                 min_trades=min_trades,
                 fee_pct=args.fee_pct,
+                min_sl_pct=args.min_sl_pct,
+                slippage_pct=args.slippage_bps / 10000.0,
                 top_n=args.top_n,
                 adr_suppress_threshold=args.adr_suppress_threshold,
                 since_ms=parse_since_to_ms(args.since) if args.since else None,
@@ -126,6 +128,8 @@ def run_param_audit(args: argparse.Namespace) -> None:
                 wfo_split=args.wfo_split,
                 min_trades=min_trades,
                 fee_pct=args.fee_pct,
+                min_sl_pct=args.min_sl_pct,
+                slippage_pct=args.slippage_bps / 10000.0,
                 adr_suppress_threshold=args.adr_suppress_threshold,
                 since_ms=parse_since_to_ms(args.since) if args.since else None,
                 day_filter=args.day_filter,
@@ -206,12 +210,29 @@ def add_param_sweep_subparser(
         metavar="YYYY-MM-DD",
         help="Anchor start date for stable runs (e.g. 2025-09-12). Overrides --days when set.",
     )
+    from analytics.param_sweep import _cost_defaults
+
+    _fee, _slip, _floor = _cost_defaults()
     param_sweep_parser.add_argument(
         "--fee-pct",
         type=float,
-        default=0.0005,
+        default=_fee,
         dest="fee_pct",
-        help="Taker fee fraction (default: 0.0005 = 0.05%%)",
+        help=f"Taker fee fraction per leg (default: {_fee} from strategy_params.toml)",
+    )
+    param_sweep_parser.add_argument(
+        "--slippage-bps",
+        type=float,
+        default=_slip * 10000.0,
+        dest="slippage_bps",
+        help=f"Per-leg slippage in bps (default: {_slip * 10000.0} from strategy_params.toml)",
+    )
+    param_sweep_parser.add_argument(
+        "--min-sl-pct",
+        type=float,
+        default=_floor,
+        dest="min_sl_pct",
+        help=f"Minimum stop distance as a price fraction (default: {_floor} from strategy_params.toml)",
     )
     param_sweep_parser.add_argument(
         "--adr-suppress-threshold",
@@ -297,12 +318,29 @@ def add_param_audit_subparser(
         dest="min_trades",
         help="Min IS trades to score (default: auto by TF)",
     )
+    from analytics.param_sweep import _cost_defaults
+
+    _fee, _slip, _floor = _cost_defaults()
     param_audit_parser.add_argument(
         "--fee-pct",
         type=float,
-        default=0.0005,
+        default=_fee,
         dest="fee_pct",
-        help="Taker fee fraction (default: 0.0005)",
+        help=f"Taker fee fraction per leg (default: {_fee} from strategy_params.toml)",
+    )
+    param_audit_parser.add_argument(
+        "--slippage-bps",
+        type=float,
+        default=_slip * 10000.0,
+        dest="slippage_bps",
+        help=f"Per-leg slippage in bps (default: {_slip * 10000.0} from strategy_params.toml)",
+    )
+    param_audit_parser.add_argument(
+        "--min-sl-pct",
+        type=float,
+        default=_floor,
+        dest="min_sl_pct",
+        help=f"Minimum stop distance as a price fraction (default: {_floor} from strategy_params.toml)",
     )
     param_audit_parser.add_argument(
         "--adr-suppress-threshold",

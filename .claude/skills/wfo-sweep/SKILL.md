@@ -23,6 +23,12 @@ Runs the complete Walk-Forward Optimization chain on a TOML config without any m
 4. **Phase 3 (Apply)**: applies decision rules → updates TOML with new tp_r values
 5. **Phase 4 (Validate)**: runs backtest + recalibrate, shows diff, asks to apply stars
 
+⚠ **Every `tp_r` currently in the TOMLs was fitted BEFORE ST128 (2026-09-09), on a
+book with no stop floor paying no slippage.** The first corrected sweep will move
+cells, and that movement is the fix landing rather than drift — so do not read it as
+instability, and do not run it in the same change as ST122's recalibrate or neither
+movement is attributable.
+
 ## Input
 
 User invokes `/wfo-sweep` with an optional config argument:
@@ -46,6 +52,10 @@ Extract:
 - `timeframes` — list of TFs to sweep (e.g. `["15m", "1h", "4h", "1d"]`)
 - `symbols` — if set; otherwise default to `["BTCUSDT", "ETHUSDT", "SOLUSDT"]`
 - `fee_pct` — from `[backtest].fee_pct` or top-level, default `0.0005`
+- `min_sl_pct` / `slippage_bps` — **NOT extracted**; since ST128 `param-sweep` and
+  `param-audit` read both from `config/strategy_params.toml` themselves, so the
+  invocations below get production's stop floor and slippage without passing them.
+  Override with `--min-sl-pct` / `--slippage-bps` only for a deliberate experiment.
 - `day_filter` — passed as `--day-filter` to every `param-audit` and `param-sweep` call so WFO runs on the correct trade population for this config
 - Current tp_r per strategy — read from `[strategy_params.<name>]` blocks
 
