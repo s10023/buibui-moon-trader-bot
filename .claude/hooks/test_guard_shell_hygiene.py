@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -47,6 +48,39 @@ def run(command: str, *, session: str, hook: Path = HOOK, tool: str = "Bash") ->
         input=json.dumps(payload),
         capture_output=True,
         text=True,
+    )
+    if proc.returncode != 0:
+        return f"NONZERO_EXIT({proc.returncode})"
+    out = proc.stdout.strip()
+    if not out:
+        return ""
+    try:
+        return str(json.loads(out)["hookSpecificOutput"]["additionalContext"])
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return f"UNPARSEABLE({out[:80]})"
+
+
+def run_edit(path: str, *, session: str, hook: Path = HOOK, tool: str = "Edit") -> str:
+    """Rule 6's payload shape: an edit tool carries a file_path, never a command.
+
+    CLAUDE_PROJECT_DIR is set because the harness sets it -- settings.json invokes
+    every hook through `$CLAUDE_PROJECT_DIR`. Without it the hook falls back to
+    walking up from its own `__file__` for a `.git`, which succeeds for the real
+    hook and FAILS for a mutation copy in /tmp: both rule-6 mutations returned
+    silence for that reason and passed as if the mechanism were intact. A fixture
+    that cannot reach the code it mutates proves nothing.
+    """
+    payload = {
+        "tool_name": tool,
+        "tool_input": {"file_path": path},
+        "session_id": f"{RUN}-{session}",
+    }
+    proc = subprocess.run(
+        [sys.executable, str(hook)],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        env={**os.environ, "CLAUDE_PROJECT_DIR": str(REPO)},
     )
     if proc.returncode != 0:
         return f"NONZERO_EXIT({proc.returncode})"
@@ -272,7 +306,7 @@ def live_waiter(args: str) -> Iterator[None]:
 
 
 @contextlib.contextmanager
-def mention_only(text: str) -> Iterator[None]:
+def mention_only(text: str, probe: str = "wait_ci.py") -> Iterator[None]:
     """Hold a process whose argv MENTIONS a waiter without being one.
 
     `sh -c "<one command>"` EXECS that command, replacing its own argv -- a
@@ -289,7 +323,7 @@ def mention_only(text: str) -> Iterator[None]:
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline:
             seen = subprocess.run(
-                ["pgrep", "-f", "wait_ci.py"], capture_output=True, text=True
+                ["pgrep", "-f", probe], capture_output=True, text=True
             )
             if str(proc.pid) in seen.stdout.split():
                 break
@@ -474,6 +508,104 @@ check(
     must_be_silent=True,
 )
 
+# --- 6b. rule 6: editing the Python tree while a SUITE is live ----------------
+
+
+_script_dir = Path(tempfile.mkdtemp(prefix="hygiene-suite-bin-"))
+
+
+@contextlib.contextmanager
+def live_suite(workdir: Path) -> Iterator[str]:
+    """A REAL process whose cmdline and cwd look like a running pytest.
+
+    No injection seam: the hook shells out to pgrep and reads /proc for real. The
+    cmdline is `<python> <dir>/pytest ...`, which is the shape `poetry run pytest`
+    actually produces (verified live: `<venv>/bin/python <venv>/bin/pytest ...`),
+    and `cwd` is what separates a working-tree run from a preflight clone.
+
+    Yields the pid, and ASSERTS its own precondition rather than passing blind.
+    """
+    workdir.mkdir(parents=True, exist_ok=True)
+    _script_dir.mkdir(parents=True, exist_ok=True)
+    # The script lives OUTSIDE the cwd on purpose: the working-tree case runs with
+    # cwd=REPO, and a fixture that wrote its fake `pytest` there would be dropping
+    # a file into the repo under test.
+    fake = _script_dir / "pytest"
+    fake.write_text("import time\ntime.sleep(120)\n")
+    proc = subprocess.Popen(
+        [sys.executable, str(fake), "tests/", "-q"],
+        cwd=str(workdir),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            seen = subprocess.run(
+                ["pgrep", "-f", f"{fake}"], capture_output=True, text=True
+            )
+            if str(proc.pid) in seen.stdout.split():
+                break
+            time.sleep(0.05)
+        else:
+            raise RuntimeError(f"suite fixture never became visible: {workdir}")
+        yield str(proc.pid)
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+_suite_tmp = Path(tempfile.mkdtemp(prefix="hygiene-suite-"))
+try:
+    # The working-tree case: cwd IS the repo, which is what `make test` produces.
+    with live_suite(REPO):
+        check(
+            "editing a .py while a working-tree suite runs FIRES",
+            run_edit(str(REPO / "analytics" / "whatever.py"), session="s1"),
+            must_contain="SUITE IS LIVE",
+        )
+        check(
+            "...and Write is covered too, not just Edit",
+            run_edit(str(REPO / "tools" / "whatever.py"), session="s2", tool="Write"),
+            must_contain="SUITE IS LIVE",
+        )
+        check(
+            "a .md edit during the same run stays SILENT (AGENTS.md's safe overlap)",
+            run_edit(str(REPO / "AGENTS.md"), session="s3"),
+            must_be_silent=True,
+        )
+        check(
+            "a .py OUTSIDE the repo stays silent -- pytest cannot import it",
+            run_edit("/tmp/not-in-the-repo.py", session="s4"),
+            must_be_silent=True,
+        )
+    # THE EXEMPTION. Identical argv, cwd in a preflight clone -> must stay silent.
+    _clone_cwd = _suite_tmp / "clone-preflight-xyz" / "clone"
+    with live_suite(_clone_cwd):
+        check(
+            "a suite running in a PREFLIGHT CLONE does not fire (the exemption)",
+            run_edit(str(REPO / "analytics" / "whatever.py"), session="s5"),
+            must_be_silent=True,
+        )
+
+    # The argv trap rule 3 documents, re-confirmed for this rule.
+    with mention_only("poetry run pytest tests/ -q", probe="poetry run pytest"):
+        check(
+            "a shell merely MENTIONING pytest is not a live suite",
+            run_edit(str(REPO / "analytics" / "whatever.py"), session="s6"),
+            must_be_silent=True,
+        )
+
+    check(
+        "no suite running -> silent",
+        run_edit(str(REPO / "analytics" / "whatever.py"), session="s7"),
+        must_be_silent=True,
+    )
+finally:
+    shutil.rmtree(_suite_tmp, ignore_errors=True)
+    shutil.rmtree(_script_dir, ignore_errors=True)
+
+
 # --- 7. MUTATION: prove the regexes are what fired ---------------------------
 _mut = Path(tempfile.mkdtemp(prefix="shell-hygiene-mut-"))
 try:
@@ -624,6 +756,53 @@ try:
         run("echo 'never run gh auth switch, export GH_TOKEN instead'", session="m13"),
         must_be_silent=True,
     )
+
+    # Rule 6, mutation 1: kill the cwd discriminator -> the PREFLIGHT CLONE, which
+    # the real hook exempts, must now fire. This is the case that proves the
+    # exemption is the cwd read and not something incidental about the fixture.
+    _m7 = _mut / "no-cwd-check.py"
+    _m7.write_text(
+        HOOK.read_text().replace(
+            'cwd = Path(os.readlink(f"/proc/{pid}/cwd"))', "cwd = Path(str(root))"
+        )
+    )
+    _mut_clone = Path(tempfile.mkdtemp(prefix="hygiene-mutclone-"))
+    try:
+        _cwd = _mut_clone / "clone-preflight-abc" / "clone"
+        with live_suite(_cwd):
+            check(
+                "MUTATION: without the cwd read, a CLONE suite fires",
+                run_edit(str(REPO / "analytics" / "x.py"), session="m14", hook=_m7),
+                must_contain="SUITE IS LIVE",
+            )
+            check(
+                "...which the real hook correctly stays silent on",
+                run_edit(str(REPO / "analytics" / "x.py"), session="m15"),
+                must_be_silent=True,
+            )
+    finally:
+        shutil.rmtree(_mut_clone, ignore_errors=True)
+
+    # Rule 6, mutation 2: unanchor the pytest probe -> a shell that merely NAMES
+    # pytest reads as a live suite, which is the trap rule 3 already documents.
+    _m8 = _mut / "unanchored-pytest.py"
+    _m8.write_text(
+        HOOK.read_text().replace(
+            r'_RUNNING_PYTEST = r"^[^ ]*python[0-9.]*[ ](-m[ ]pytest|[^ ]*/pytest)([ ]|$)"',
+            '_RUNNING_PYTEST = r"pytest"',
+        )
+    )
+    with mention_only("poetry run pytest tests/ -q", probe="poetry run pytest"):
+        check(
+            "MUTATION: an unanchored probe reads a MENTION as a running suite",
+            run_edit(str(REPO / "analytics" / "x.py"), session="m16", hook=_m8),
+            must_contain="SUITE IS LIVE",
+        )
+        check(
+            "...which the ANCHORED probe correctly stays silent on",
+            run_edit(str(REPO / "analytics" / "x.py"), session="m17"),
+            must_be_silent=True,
+        )
 finally:
     shutil.rmtree(_mut, ignore_errors=True)
 

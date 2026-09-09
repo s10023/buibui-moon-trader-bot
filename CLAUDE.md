@@ -27,8 +27,9 @@ memory re-reads. Verify subagent and background work directly (`ps`, `journalctl
 `git status`) — self-reports can be stale.
 
 **Shell hygiene is a HOOK too, because the prose was in context and lost twice in one
-session.** `.claude/hooks/guard-shell-hygiene.py` (advisory, `PreToolUse` on `Bash`, said
-ONCE PER RULE PER SESSION so it cannot train you to skip it) flags five habits that cost you a
+session.** `.claude/hooks/guard-shell-hygiene.py` (advisory, `PreToolUse` on `Bash` for rules 1-5 and on
+`Edit|Write|NotebookEdit|MultiEdit` for rule 6, said ONCE PER RULE PER SESSION so it cannot train
+you to skip it) flags six habits that cost you a
 verified result: a **hand-rolled waiter** (`until … pgrep`) for work the harness already
 re-invokes you on — its `pgrep` guard names a CLASS, so the next run of the same kind
 re-arms a fired waiter and it prints a STALE file as the fresh result — a **gate piped
@@ -44,8 +45,17 @@ operator's own terminal shares, where scoping it costs one prefix
 (`GH_TOKEN=$(gh auth token --user s10023) gh <cmd>`). Both ANCHOR where a command can start,
 and a mutation case pins that anchor: unanchored, rule 5 fires on prose merely NAMING the
 command — the defect that once had `guard-destructive.py` blocking its own commit message.
-`test_guard_shell_hygiene.py` (62 cases, 12 mutation) runs in CI's dependency-free
-`markdownlint` job; re-run it after any edit to either. ⚠ **Scoping a guard to the SYMPTOM
+**Rule 6 (2026-09-09, ST120 (b)) is EDITING THE PYTHON TREE WHILE A SUITE IS LIVE** — the one
+rule with no command string to match, which is why it needed a second matcher rather than a sixth
+regex. `make test` and `make preflight` run BYTE-IDENTICAL argv, so the discriminator is the pytest
+process's **cwd**: preflight's sits in its clone, so its exemption is structural rather than a name
+match, and a working-tree edit provably cannot reach that run. It dedups per suite PID, not per
+session. ⚠ **Its probe is ANCHORED at an interpreter actually running pytest** — a bare
+`pgrep -f pytest` matched the SHELL that had merely typed the word, re-confirming rule 3's trap
+live. `test_guard_shell_hygiene.py` (73 cases, 14 mutation) runs in CI's dependency-free
+`markdownlint` job; re-run it after any edit to either. ⚠ **Both rule-6 mutations first passed
+VACUOUSLY**: a mutation copy in `/tmp` has no `.git` above it, so it bailed before reaching the
+mutated line — the fixture now sets `CLAUDE_PROJECT_DIR` the way the harness does. ⚠ **Scoping a guard to the SYMPTOM
 you noticed rather than to the CLASS is the recurring defect here** — mutation tests cannot
 reveal it, because they only probe rules that exist.
 
