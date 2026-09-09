@@ -31,6 +31,7 @@ from typing import Any
 import duckdb
 import pandas as pd
 
+from analytics.backtest_config import load_backtest_config
 from analytics.backtest_lib import BacktestResult, run_backtest
 from analytics.backtest_runner import detect_signals_for_strategy
 from analytics.data_store import DEFAULT_DB_PATH, get_ohlcv
@@ -301,6 +302,8 @@ def _sweep_grid_worker(
     timeframe: str,
     strategy: str,
     fee_pct: float,
+    min_sl_pct: float,
+    slippage_pct: float,
     is_min: int,
     atr_sl_multiplier: float | None = None,
     atr_sl_floor: bool = False,
@@ -317,6 +320,8 @@ def _sweep_grid_worker(
         sl_pct=sl_pct,
         tp_r=tp_r,
         fee_pct=fee_pct,
+        min_sl_pct=min_sl_pct,
+        slippage_pct=slippage_pct,
         atr_sl_multiplier=atr_sl_multiplier,
         atr_sl_floor=atr_sl_floor,
     )
@@ -329,6 +334,8 @@ def _sweep_grid_worker(
         sl_pct=sl_pct,
         tp_r=tp_r,
         fee_pct=fee_pct,
+        min_sl_pct=min_sl_pct,
+        slippage_pct=slippage_pct,
         atr_sl_multiplier=atr_sl_multiplier,
         atr_sl_floor=atr_sl_floor,
     )
@@ -360,6 +367,8 @@ def run_param_sweep(
     wfo_split: float,
     min_trades: int,
     fee_pct: float,
+    min_sl_pct: float,
+    slippage_pct: float,
     top_n: int,
     adr_suppress_threshold: float | None = None,
     since_ms: int | None = None,
@@ -465,6 +474,8 @@ def run_param_sweep(
                     timeframe,
                     strategy,
                     fee_pct,
+                    min_sl_pct,
+                    slippage_pct,
                     is_min,
                     atr_sl_multiplier,
                     atr_sl_floor,
@@ -680,6 +691,8 @@ def _audit_strategy_worker(
     tp_values: list[float | int],
     is_min: int,
     fee_pct: float,
+    min_sl_pct: float,
+    slippage_pct: float,
     atr_sl_multiplier: float | None = None,
     atr_sl_floor: bool = False,
 ) -> AuditRow:
@@ -709,6 +722,8 @@ def _audit_strategy_worker(
             sl_pct=0.02,
             tp_r=tp,
             fee_pct=fee_pct,
+            min_sl_pct=min_sl_pct,
+            slippage_pct=slippage_pct,
             atr_sl_multiplier=atr_sl_multiplier,
             atr_sl_floor=atr_sl_floor,
         )
@@ -721,6 +736,8 @@ def _audit_strategy_worker(
             sl_pct=0.02,
             tp_r=tp,
             fee_pct=fee_pct,
+            min_sl_pct=min_sl_pct,
+            slippage_pct=slippage_pct,
             atr_sl_multiplier=atr_sl_multiplier,
             atr_sl_floor=atr_sl_floor,
         )
@@ -774,6 +791,8 @@ def run_strategy_audit(
     wfo_split: float,
     min_trades: int,
     fee_pct: float,
+    min_sl_pct: float,
+    slippage_pct: float,
     adr_suppress_threshold: float | None = None,
     since_ms: int | None = None,
     day_filter: str = "off",
@@ -878,6 +897,8 @@ def run_strategy_audit(
                 tp_values_list,
                 is_min,
                 fee_pct,
+                min_sl_pct,
+                slippage_pct,
                 atr_sl_multiplier,
                 atr_sl_floor,
             ): strat
@@ -993,6 +1014,28 @@ def format_audit_results(
 # ---------------------------------------------------------------------------
 
 
+_PARAMS_TOML = (
+    Path(__file__).resolve().parent.parent / "config" / "strategy_params.toml"
+)
+
+
+def _cost_defaults() -> tuple[float, float, float]:
+    """``(fee_pct, slippage_pct, min_sl_pct)`` read from the TOML, never restated.
+
+    A programmatically built sweep inherits ZERO cost and ZERO stop floor, and
+    neither default is neutral: dropping the floor admits sub-0.5% structural
+    stops each paying over 1R of drag, and dropping slippage understates
+    round-trip drag by ~29%. Both silently changed which ``tp_r`` won a cell on
+    the path AGENTS.md calls the trusted production source of ``tp_r`` (ST128).
+
+    Resolved from ``__file__`` rather than the cwd so a sweep launched from
+    anywhere reads the same book. A missing or unreadable TOML raises instead of
+    falling back to zeros -- a free book is the defect, not a safe default.
+    """
+    cfg = load_backtest_config(_PARAMS_TOML)
+    return cfg.fee_pct, cfg.slippage_pct, cfg.min_sl_pct
+
+
 def _build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="WFO parameter sweep for a single strategy × symbol × TF.",
@@ -1029,11 +1072,24 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--days", type=int, default=180, help="Days of history to load (default: 180)"
     )
+    _fee, _slip, _floor = _cost_defaults()
     p.add_argument(
         "--fee-pct",
         type=float,
-        default=0.0005,
-        help="Taker fee fraction (default: 0.0005 = 0.05%%)",
+        default=_fee,
+        help=f"Taker fee fraction per leg (default: {_fee} from strategy_params.toml)",
+    )
+    p.add_argument(
+        "--slippage-bps",
+        type=float,
+        default=_slip * 10000.0,
+        help=f"Per-leg slippage in bps (default: {_slip * 10000.0} from strategy_params.toml)",
+    )
+    p.add_argument(
+        "--min-sl-pct",
+        type=float,
+        default=_floor,
+        help=f"Minimum stop distance as a price fraction (default: {_floor} from strategy_params.toml)",
     )
     p.add_argument(
         "--db",
@@ -1098,6 +1154,8 @@ def main(argv: list[str] | None = None) -> None:
             wfo_split=args.wfo_split,
             min_trades=min_trades,
             fee_pct=args.fee_pct,
+            min_sl_pct=args.min_sl_pct,
+            slippage_pct=args.slippage_bps / 10000.0,
             top_n=args.top_n,
         )
     finally:

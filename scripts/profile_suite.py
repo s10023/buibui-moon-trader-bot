@@ -136,6 +136,8 @@ def _bench_param_sweep() -> object:
             wfo_split=0.7,
             min_trades=5,
             fee_pct=0.0,
+            min_sl_pct=0.0,
+            slippage_pct=0.0,
             top_n=10,
         )
     finally:

@@ -389,6 +389,8 @@ class TestAtrFloorForwarding:
                 timeframe="1h",
                 strategy="bos",
                 fee_pct=0.0005,
+                min_sl_pct=0.005,
+                slippage_pct=0.0002,
                 is_min=1,
                 atr_sl_multiplier=2.5,
                 atr_sl_floor=True,
@@ -418,6 +420,8 @@ class TestAtrFloorForwarding:
                 timeframe="1h",
                 strategy="bos",
                 fee_pct=0.0005,
+                min_sl_pct=0.005,
+                slippage_pct=0.0002,
                 is_min=1,
             )
 
@@ -445,6 +449,8 @@ class TestAtrFloorForwarding:
                 tp_values=[1.0, 2.0],
                 is_min=1,
                 fee_pct=0.0005,
+                min_sl_pct=0.005,
+                slippage_pct=0.0002,
                 atr_sl_multiplier=2.0,
                 atr_sl_floor=True,
             )
