@@ -25,7 +25,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from monitor.position_lib import normalize_conditional_orders
+# A bare `python3 tools/journal_fetch.py` puts `tools/` on sys.path rather than the repo
+# root, so the `monitor.*` import below died with ModuleNotFoundError — only the Make
+# target and an explicit `PYTHONPATH=.` worked. Per ST129 the guarantee is
+# `test_bare_invocation_works`, not this line.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from monitor.position_lib import normalize_conditional_orders  # noqa: E402
 
 _DEFAULT_JOURNAL_DIR = Path("docs/plans/journal")
 _SL_ORDER_TYPES = ("STOP_MARKET", "STOP")

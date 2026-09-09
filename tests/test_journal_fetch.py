@@ -7,6 +7,10 @@ strings, so fixtures use strings to exercise the real contract.
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -1091,3 +1095,26 @@ class TestHedgeModeDirectionSurvivesAMidPositionWindow:
         # The unknown entry renders as `?`, never as a plausible 0.00.
         assert "?→100.00" in out
         assert "0.00→100.00" not in out
+
+
+class TestBareInvocation:
+    """`/journal-trade`'s default path shells out to this fetcher by hand, and the Make
+    targets set PYTHONPATH — so a green Make target proves nothing about the bare form.
+    Per ST129 the guarantee is THIS test, not the bootstrap line in the module.
+
+    `--help` is the one network-free invocation, and it still covers the defect: the
+    `monitor.*` import runs at module load, before argparse ever sees the flag.
+    """
+
+    def test_bare_invocation_works(self) -> None:
+        proc = subprocess.run(
+            [sys.executable, "tools/journal_fetch.py", "--help"],
+            cwd=Path(__file__).resolve().parent.parent,
+            capture_output=True,
+            text=True,
+            env={k: v for k, v in os.environ.items() if k != "PYTHONPATH"},
+        )
+
+        assert proc.returncode == 0, proc.stderr
+        assert "monitor" not in proc.stderr  # the ModuleNotFoundError it used to die on
+        assert "--include-journaled" in proc.stdout

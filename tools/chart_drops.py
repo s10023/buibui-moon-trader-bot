@@ -14,13 +14,20 @@ import argparse
 import hashlib
 import json
 import re
+import sys
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from analytics.brief.external import validate_snapshot_dict
+# A bare `python3 tools/chart_drops.py` puts `tools/` on sys.path rather than the repo
+# root, so the `analytics.*` import below died with ModuleNotFoundError — only the Make
+# target and an explicit `PYTHONPATH=.` worked. Per ST129 the guarantee is
+# `test_bare_invocation_works`, not this line.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from analytics.brief.external import validate_snapshot_dict  # noqa: E402
 
 DEFAULT_DROP_DIR = Path("docs/plans/chart-drops")
 DEFAULT_OUT_DIR = Path("docs/plans/external-context")
