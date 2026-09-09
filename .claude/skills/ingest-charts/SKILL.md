@@ -106,7 +106,7 @@ batch was 15 panels against a protocol of 6, and nothing said so — extra panel
 are not free, since each costs a vision dispatch — cost it at the LATEST entry in
 the series below, never at this sentence — and a 1w heatmap band is structural
 context, not a same-day actionable level.
-**The per-image figure is MEASURED, and it ROSE then PLATEAUED — fourteen full 6-panel
+**The per-image figure is MEASURED, and it ROSE then PLATEAUED — fourteen RECORDED 6-panel
 batches ran mean 32.7K (2026-08-11, ~196K total), 37.1K (2026-08-13, ~223K total,
 range 36.7–37.5K), 36.4K (2026-08-18, ~218K),
 43.6K (2026-08-19, range 41.9–50.0K), 50.8K (2026-08-20, range 48.6–55.7K),
@@ -117,6 +117,12 @@ total, range 57.5–63.8K), 60.6K (2026-08-31, ~363K total, range 58.9–66.1K),
 total, range 61.9–64.5K), 64.7K (2026-09-03, ~388K total, range 63.2–65.4K),
 65.4K (2026-09-07, ~392K total, range 64.1–67.0K)
 and 69.7K (2026-09-09, ~418K total, range 67.9–73.3K).
+⚠ **The series is INCOMPLETE and that count is of ENTRIES, not of batches** — 08-12,
+08-14, 08-17 and 08-24 each hold six panels in `docs/plans/external-context/` with no
+entry here, so read every derived figure below as computed on what was RECORDED rather
+than on what ran (SoT ST131). A candidate 38.3K mean for 08-14 sits in the skill-fix
+queue. ⛔ **Do not fabricate the missing means** — an invented entry corrupts the only
+signal separating `chart-extract` from a general-purpose fallback.
 That is 78% over the fourteen days to 08-25, and then a PLATEAU — nine readings
 across the fifteen days since sit inside 1.20× of each other.** ⚠ **A step down is the
 NORM, not the exception: three of the thirteen are down-steps — 08-13 → 08-18 at 0.981×,
