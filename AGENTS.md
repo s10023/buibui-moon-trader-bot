@@ -898,6 +898,13 @@ from `config/strategy_params.toml`** (`fee_pct` and `min_sl_pct` are top-level,
 `slippage_bps` sits under `[backtest]`) rather than restating them, and never
 report a gross figure from such a sweep as a result. ⚠ Costs stay MODELLED, not
 realised, so a costed figure is still an optimistic bound whose error runs one way.
+⚠ **`param_sweep.py` was a LIVE instance of this until 2026-09-09 (ST128)** —
+`/wfo-sweep` and `/param-audit` threaded `fee_pct` and dropped `min_sl_pct` and
+`slippage_pct`, pricing `2(fee+0) = 0.0010` against production's `0.0014` with no
+floor at all. ⛔ **Every `tp_r` in the three `signal_watch*.toml` was fitted on that
+book and no re-sweep is authorised** — treat a live `tp_r` as floorless-fitted until
+one runs. Both args are now REQUIRED through that chain, since the defect was a
+silent zero rather than a wrong value.
 
 **Lot-size rounding** — `portfolio/sizing.py::round_down_to_step` snaps before it floors;
 why that snap is load-bearing rides the `sizing-round-down` card.

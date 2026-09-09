@@ -57,7 +57,9 @@ A tactical crypto trading bot designed for fast, risk-managed, and confident ent
   `param-audit` reports how each strategy × timeframe's current parameters hold up
   out-of-sample; `param-sweep` searches the grid and prints the per-cell winners. Wrapped by
   `make buibui-param-audit` / `make buibui-param-sweep`. `/wfo-sweep` is the trusted
-  production path for committing the resulting `tp_r` values to TOML.
+  production path for committing the resulting `tp_r` values to TOML. Both read the
+  stop floor and per-leg slippage from `config/strategy_params.toml`; values committed
+  before 2026-09-09 were fitted without them (ST128).
 
 - `/ingest-video` *(Claude Code skill)* — turn a pasted YouTube or X video URL, including
   Chinese-language video, into routed research items. Fetches metadata + transcript
