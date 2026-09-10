@@ -144,10 +144,60 @@ as a result** — it is a capability check that happened to print numbers.
 
 ## 7. Cost
 
-~350 cells at **1.8s** measured wall each ⇒ roughly 10 minutes, single-threaded, read-only
-against a snapshot copy of `analytics.db` so the daemon keeps its write lock. Cheap enough
-that a re-run under a revised rule is affordable; that is deliberate, so the rule can be
-revised openly rather than stretched to fit one run.
+**273 cells** (84 `tue_thu` + 99 `weekend` + 90 `mon_fri`), read-only against a snapshot copy
+of `analytics.db` so the daemon keeps its write lock. Roughly 12 minutes per book.
+
+⚠ **The "~350 cells at 1.8s ⇒ 10 minutes" first written here was extrapolated from ONE cell**
+whose grid had been narrowed to 9 combos by the structural-SL drop. A full `tp_r × sl_pct`
+grid is 99 combos, so the estimate was low by roughly a factor of seven. Cheap either way, and
+the cheapness is the point: the rule can be revised openly rather than stretched to fit one
+run.
+
+## 8. Two parity defects found in the driver ITSELF, both silent
+
+Recorded because both shipped a complete, plausible-looking run that answered the wrong
+question — the failure mode this whole file exists to prevent, occurring inside the machinery
+built to prevent it.
+
+1. **The grid had no `tp_r` axis.** The driver built it from `_strategy_param_ranges`, which
+   reads like the right function and documents itself as "strategy-specific params only
+   (**excludes tp_r/sl_pct**)". So the sweep searched `swing_n` and `lookback` while claiming
+   to pick a take-profit, and every winner came back `None`.
+2. **`min_trades` was a flat 20** where the sanctioned CLI is per-timeframe
+   (`15m→20, 1h→12, 4h→5, 1d→2`). `_score` returns `0.0` below the floor, so every 4h and 1d
+   config scored zero and read as worthless, which the gate then reported as "no non-overfit
+   config to evaluate".
+
+Both are one class: **a value restated away from the code that consumes it**, the same class
+as §1(c)'s `day_filter` list, and the third and fourth instances found in a single session.
+(2) is now `MIN_TRADES_BY_TF` / `min_trades_for()` beside `_score`, with all four former
+copies deriving from it.
+
+⛔ **Any figure produced before both fixes is void, not merely imprecise** — a 273/273 SKIP
+tally was reached under (2) and must not be quoted. Results live with the run that produced
+them, and every run records its `--label` and its resolved costs in the JSON for exactly this
+reason.
+
+## 9. Result — RAN 2026-09-10, and the Decision Log's reversal FIRED
+
+Full result: `docs/plans/scratch/st128-resweep-result-2026-09-10.md` (gitignored). Headline:
+**273 cells, 0 UPDATE, 0 KEEP, 273 SKIP.** The rule writes nothing.
+
+An attribution control re-ran the same cells under the **defective** cost model
+(`--min-sl-pct 0.0 --slippage-bps 0.0`) and **0 cells changed action**. ⇒ the binding
+constraint is the COMMIT GATE, not the cost model, so ST128's cost/floor fix — while correct
+— is not what stops a `tp_r` being written. DSR is the deciding leg on all 82 scoreable
+cells; MinTRL binds on none of them.
+
+This is the observable the Decision Log below named as reversing the "reuse `/wfo-sweep`
+Step 4" decision. **It is therefore reversed: the open question is the gate, not `tp_r`**, and
+this pre-registration does not answer it. A revised rule needs its own pre-registration; do
+not stretch this one to fit the run.
+
+⚠ **The larger finding is older than ST128.** The last commit changing a `tp_r` line is
+2026-05-13 / 2026-05-03, and the commit gate landed 2026-06-06 (#422) — so **no live `tp_r`
+has ever faced this gate**, and 168 of 273 cells carry a current value that fails today's OOS
+filter. This run did not create that; it made it visible.
 
 ## Decision Log
 
