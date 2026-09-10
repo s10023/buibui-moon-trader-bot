@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 
+from analytics.param_sweep import min_trades_for
+from analytics.signal_config import DAY_FILTER_MODES
 from analytics.strategies import KNOWN_STRATEGIES
 from cli._common import parse_since_to_ms
 
@@ -31,10 +33,7 @@ def run_param_sweep(args: argparse.Namespace) -> None:
 
         param_ranges = _default_param_ranges(args.strategy)
 
-    _tf_defaults = {"15m": 20, "1h": 12, "4h": 5, "1d": 2}
-    min_trades = (
-        args.min_trades if args.min_trades else _tf_defaults.get(args.timeframe, 8)
-    )
+    min_trades = args.min_trades if args.min_trades else min_trades_for(args.timeframe)
 
     grid_size = 1
     for r in param_ranges:
@@ -104,10 +103,7 @@ def run_param_audit(args: argparse.Namespace) -> None:
         if args.strategies
         else [s for s in KNOWN_STRATEGIES if s != "seasonality"]
     )
-    _tf_defaults = {"15m": 20, "1h": 12, "4h": 5, "1d": 2}
-    min_trades = (
-        args.min_trades if args.min_trades else _tf_defaults.get(args.timeframe, 8)
-    )
+    min_trades = args.min_trades if args.min_trades else min_trades_for(args.timeframe)
 
     _window = f"since {args.since}" if args.since else f"{args.days}d"
     print(f"\nStrategy audit  {args.symbol} / {args.timeframe} / {_window}")
@@ -246,7 +242,7 @@ def add_param_sweep_subparser(
         type=str,
         default="off",
         dest="day_filter",
-        choices=["off", "weekdays", "tue_thu"],
+        choices=DAY_FILTER_MODES,
         help="Restrict signals to allowed weekdays before WFO split (default: off)",
     )
     param_sweep_parser.add_argument(
@@ -354,7 +350,7 @@ def add_param_audit_subparser(
         type=str,
         default="off",
         dest="day_filter",
-        choices=["off", "weekdays", "tue_thu"],
+        choices=DAY_FILTER_MODES,
         help="Restrict signals to allowed weekdays before WFO split (default: off)",
     )
     param_audit_parser.add_argument(

@@ -901,10 +901,34 @@ realised, so a costed figure is still an optimistic bound whose error runs one w
 ⚠ **`param_sweep.py` was a LIVE instance of this until 2026-09-09 (ST128)** —
 `/wfo-sweep` and `/param-audit` threaded `fee_pct` and dropped `min_sl_pct` and
 `slippage_pct`, pricing `2(fee+0) = 0.0010` against production's `0.0014` with no
-floor at all. ⛔ **Every `tp_r` in the three `signal_watch*.toml` was fitted on that
-book and no re-sweep is authorised** — treat a live `tp_r` as floorless-fitted until
-one runs. Both args are now REQUIRED through that chain, since the defect was a
+floor at all. Both args are now REQUIRED through that chain, since the defect was a
 silent zero rather than a wrong value.
+
+⚡ **The re-sweep RAN 2026-09-10, and the cost fix is NOT what binds.** Pre-registered
+first (`docs/superpowers/specs/2026-09-10-st128-wfo-resweep-preregistration.md`), then
+run by `tools/wfo_resweep.py` across all three configs on their own `day_filter`:
+**273 cells → 0 writes.** An attribution control re-ran the same cells under the
+DEFECTIVE book and **0 cells changed action**, so **the COMMIT GATE is the binding
+constraint, not the cost model** — DSR decides all 82 scoreable cells (median 0.2497,
+max 0.9370, none reaching 0.95 at 9 trials) and MinTRL binds on none, which falsifies
+the unreachable-gate reading. ⇒ **The open question is the GATE, not `tp_r`**; a revised
+rule needs its own pre-registration. ⛔ **A SKIP there is a FAILURE TO CLEAR, never a
+null** — do not quote it as "no edge".
+
+⛔ **NO LIVE `tp_r` HAS EVER FACED THAT GATE, and this is older and larger than the cost
+defect.** Last commit changing a `tp_r` line: `signal_watch.toml` #364 **2026-05-13**,
+the other two #342 **2026-05-03**; the gate landed **2026-06-06** (#422). So every live
+value was picked on highest-OOS-`avg_r` alone, and **168 of 273 cells carry a current
+`tp_r` that fails today's OOS filter**. Leaving them is not neutral and removing them is
+not neutral either (fallback to `STRATEGY_REGISTRY` defaults is itself a live change)
+→ SoT ST133. ⛔ **Writing those TOMLs IS the deployment** — the signal-watch timer runs
+the WORKING TREE on a 15-minute cycle, so there is no review window between the edit and
+live alerts.
+
+⚠ **The WFO CLI could not express 2 of the 3 configs' `day_filter` until 2026-09-10**
+(`mon_fri` and `weekend` were argparse errors; `cli/param.py` restated the choices away
+from `_day_filter_to_weekdays`, which always knew all six). No available choice isolates
+either population, so any substitution was a different book → SoT ST132.
 
 **Lot-size rounding** — `portfolio/sizing.py::round_down_to_step` snaps before it floors;
 why that snap is load-bearing rides the `sizing-round-down` card.

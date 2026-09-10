@@ -56,7 +56,7 @@ Extract:
   `param-audit` read both from `config/strategy_params.toml` themselves, so the
   invocations below get production's stop floor and slippage without passing them.
   Override with `--min-sl-pct` / `--slippage-bps` only for a deliberate experiment.
-- `day_filter` — passed as `--day-filter` to every `param-audit` and `param-sweep` call so WFO runs on the correct trade population for this config
+- `day_filter` — passed as `--day-filter` to every `param-audit` and `param-sweep` call so WFO runs on the correct trade population for this config. ⚠ **This line was FALSE for 2 of the 3 configs until 2026-09-10 (SoT ST132)** — `cli/param.py` validated the flag against a restated `["off","weekdays","tue_thu"]`, so `mon_fri` and `weekend` were argparse ERRORS and `/wfo-sweep all` could not sweep those two on their own population at all. **No available choice isolated either**: `weekdays` and `tue_thu` both contain zero weekend days, and `weekdays` carries Mon+Fri plus three days the `mon_fri` config never runs — a substitution is a DIFFERENT BOOK, not an approximation. Fixed; `DAY_FILTER_MODES` now has one home beside `_day_filter_to_weekdays`
 - Current tp_r per strategy — read from `[strategy_params.<name>]` blocks
 
 ### Step 2: Phase 1 — Audit (all TFs, BTC only)
@@ -153,11 +153,24 @@ Every `param-sweep` output ends with a `COMMIT-GATE` line for its recommended co
 - Leave unchanged if marginal (< 0.5 step AND < 0.05R improvement)
 - Never add a strategy to `strategy_timeframes` based on sweep alone — only update existing entries
 
-**Cross-config sync:**
+**Cross-config sync — ⛔ REVOKED 2026-09-10. Sweep each config on its OWN `day_filter`
+and apply its results to THAT config only. No propagation, in any direction.**
 
-- If sweeping `signal_watch.toml` AND `signal_watch_weekdays.toml` exists:
-  - For TFs active in weekdays config, apply the same tp_r changes (they share the same market)
-  - Do NOT apply to `signal_watch_all.toml` — different day_filter distribution
+The rule used to say: *"For TFs active in weekdays config, apply the same tp_r changes (they
+share the same market)"*, while refusing the same propagation into `signal_watch_all.toml`
+for *"different day_filter distribution"*. But the three populations are **disjoint by
+construction** — `tue_thu` = Tue–Thu, `mon_fri` = Mon+Fri, `weekend` = Sat+Sun — so the
+reason it gave for refusing one propagation applies exactly to the one it permitted. "Same
+market" is true of the symbol and false of the population, which is the whole reason these
+are three files.
+
+⚠ **This is a LEAD for how the `mon_fri` config got `tp_r` values the CLI could not
+produce** (ST132: `--day-filter mon_fri` was an argparse error, and that config's own
+comments read `# WFO OOS (weekdays)` — a filter that is neither its own nor a valid
+isolation of it). Filed as a lead, not an established finding: what is established is that
+this rule said to do it and that a direct sweep was impossible.
+
+Revoked by `docs/superpowers/specs/2026-09-10-st128-wfo-resweep-preregistration.md` §2.
 
 ### Step 5: Apply changes to TOML
 

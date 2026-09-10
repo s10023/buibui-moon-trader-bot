@@ -191,6 +191,14 @@ def pick_default_config_for_today(
     return base / "signal_watch.toml"  # Tue–Thu
 
 
+# Every day_filter mode `_day_filter_to_weekdays` understands. It is defined
+# here, once, because the two CLI sites that validate the flag must not drift
+# from the function that interprets it: an unknown mode resolves to None, which
+# means "no filter", so a mode the CLI refuses is unreachable while a typo the
+# CLI accepts silently sweeps every day. Both failure modes are silent.
+DAY_FILTER_MODES = ("off", "weekdays", "mon_fri", "tue_thu", "weekend", "no_monfi")
+
+
 def _day_filter_to_weekdays(day_filter: str) -> list[int] | None:
     """Convert day_filter mode string to allowed weekday list (Mon=0…Sun=6).
 
