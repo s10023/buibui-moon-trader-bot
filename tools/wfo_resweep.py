@@ -63,11 +63,13 @@ except ImportError:  # pragma: no cover - a clone without the helper still runs
     pass
 
 from analytics.param_sweep import (  # noqa: E402
+    MIN_TRADES_BY_TF,
     ParamRange,
     ParamSweepReport,
     SweepRow,
     _cost_defaults,
     _default_param_ranges,
+    min_trades_for,
     run_param_sweep,
 )
 
@@ -77,7 +79,7 @@ CONFIG_GLOB = "config/signal_watch*.toml"
 
 # Pre-registration §2. Restated nowhere else; the test asserts these ARE the
 # numbers the spec prose carries.
-MIN_OOS_TRADES: dict[str, int] = {"15m": 20, "1h": 12, "4h": 5, "1d": 2}
+MIN_OOS_TRADES = MIN_TRADES_BY_TF  # imported, never restated
 MIN_TP_R_STEP = 0.5
 MIN_IMPROVEMENT_R = 0.05
 
@@ -99,6 +101,14 @@ class CellVerdict:
     winner_oos_n: int | None
     gate_decision: str
     defect_carrying: bool
+    # Carried so the reachability question ("is the bar clearable at this n and
+    # trial count?") is answerable from the JSON. Parsing them back out of the
+    # reason string works and is exactly the brittleness worth not shipping.
+    dsr: float | None
+    pbo: float | None
+    min_trl: float | None
+    n_obs: int
+    n_trials: int
 
 
 def _sweep_ranges(strategy: str) -> list[ParamRange]:
@@ -171,6 +181,11 @@ def decide_cell(
             winner_oos_n=winner.oos_trades if winner is not None else None,
             gate_decision=report.gate.decision,
             defect_carrying=defect_carrying,
+            dsr=report.gate.dsr,
+            pbo=report.gate.pbo,
+            min_trl=report.gate.min_trl,
+            n_obs=report.gate.n_obs,
+            n_trials=report.gate.n_trials,
         )
 
     if not report.gate.committable:
@@ -256,6 +271,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--symbols", default=",".join(DEFAULT_SYMBOLS))
     parser.add_argument("--out", help="Write the full per-cell result as JSON here")
+    # Attribution control. The point of ST128 is that the OLD book priced no
+    # slippage and no stop floor, so "did the correction cause this?" is only
+    # answerable by re-running the defective settings against the same cells.
+    # Defaults stay production's -- an override is always a deliberate experiment.
+    parser.add_argument("--fee-pct", type=float, default=None)
+    parser.add_argument("--slippage-bps", type=float, default=None)
+    parser.add_argument("--min-sl-pct", type=float, default=None)
+    parser.add_argument(
+        "--label", default="corrected", help="Tag written into every JSON row"
+    )
     args = parser.parse_args(argv)
 
     import duckdb
@@ -267,6 +292,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     symbols = tuple(s.strip() for s in args.symbols.split(",") if s.strip())
     fee_pct, slippage_pct, min_sl_pct = _cost_defaults()
+    if args.fee_pct is not None:
+        fee_pct = args.fee_pct
+    if args.slippage_bps is not None:
+        slippage_pct = args.slippage_bps / 10000.0
+    if args.min_sl_pct is not None:
+        min_sl_pct = args.min_sl_pct
     since_ms = _since_ms(args.since)
 
     print(
@@ -302,7 +333,7 @@ def main(argv: list[str] | None = None) -> int:
                         days=0,
                         param_ranges=_sweep_ranges(strategy),
                         wfo_split=0.7,
-                        min_trades=20,
+                        min_trades=min_trades_for(timeframe),
                         fee_pct=fee_pct,
                         min_sl_pct=min_sl_pct,
                         slippage_pct=slippage_pct,
@@ -330,6 +361,7 @@ def main(argv: list[str] | None = None) -> int:
                         "strategy": strategy,
                         "timeframe": timeframe,
                         "symbol": symbol,
+                        "label": args.label,
                         **asdict(verdict),
                     }
                 )

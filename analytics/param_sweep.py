@@ -49,6 +49,21 @@ from analytics.sweep_guard import (
 # ---------------------------------------------------------------------------
 
 
+# The per-timeframe minimum closed-trade count for WFO scoring. ONE spelling,
+# because it was restated at four sites (`cli/param.py` twice, this module's CLI,
+# and `tools/wfo_resweep.py`) and a driver consequently passed a flat 20 for every
+# timeframe -- scoring every 4h and 1d config 0.0 via `_score` below, where the
+# sanctioned CLI would have accepted 5 and 2. The pre-registered OOS filter in
+# `tools/wfo_resweep.py` reads the same numbers rather than its own copy.
+MIN_TRADES_BY_TF: dict[str, int] = {"15m": 20, "1h": 12, "4h": 5, "1d": 2}
+MIN_TRADES_FALLBACK = 8
+
+
+def min_trades_for(timeframe: str) -> int:
+    """The WFO trade floor for ``timeframe``; the fallback for anything unlisted."""
+    return MIN_TRADES_BY_TF.get(timeframe, MIN_TRADES_FALLBACK)
+
+
 def _score(result: BacktestResult, min_trades: int) -> float:
     """Composite score: avg_r × win_rate × sqrt(closed_trades).
 
@@ -1129,8 +1144,7 @@ def main(argv: list[str] | None = None) -> None:
     # Auto min_trades based on TF if not specified
     min_trades = args.min_trades
     if min_trades == 0:
-        _tf_defaults = {"15m": 20, "1h": 12, "4h": 5, "1d": 2}
-        min_trades = _tf_defaults.get(args.timeframe, 8)
+        min_trades = min_trades_for(args.timeframe)
 
     print(f"\nParam sweep  {args.strategy} / {args.symbol} / {args.timeframe}")
     print(

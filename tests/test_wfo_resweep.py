@@ -250,6 +250,53 @@ class TestTheGridActuallySweepsTpR:
         )
 
 
+class TestDriverMatchesTheSanctionedCliPath:
+    """Every argument the driver passes must be what `/wfo-sweep` would pass.
+
+    Two parity bugs of this exact class were found in one session: the grid was
+    built from the function that EXCLUDES tp_r, and `min_trades` was a flat 20
+    where the CLI is per-timeframe. Both were silent — the sweep ran, printed
+    tables, and answered the wrong question. So parity is asserted directly
+    rather than left to review.
+    """
+
+    def test_min_trades_is_per_timeframe_not_flat(self) -> None:
+        from analytics.param_sweep import MIN_TRADES_FALLBACK, min_trades_for
+
+        assert min_trades_for("15m") == 20
+        assert min_trades_for("1h") == 12
+        assert min_trades_for("4h") == 5
+        assert min_trades_for("1d") == 2
+        assert min_trades_for("3m") == MIN_TRADES_FALLBACK
+        # A flat floor is the bug: 4h and 1d must NOT inherit 15m's.
+        assert min_trades_for("4h") != min_trades_for("15m")
+
+    def test_the_driver_passes_the_per_tf_floor_to_the_sweep(self) -> None:
+        import ast
+        from pathlib import Path
+
+        src = Path("tools/wfo_resweep.py").read_text(encoding="utf-8")
+        call = next(
+            n
+            for n in ast.walk(ast.parse(src))
+            if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Name)
+            and n.func.id == "run_param_sweep"
+        )
+        passed = {k.arg: k.value for k in call.keywords}
+        assert "min_trades" in passed
+        # It must be a CALL (min_trades_for(tf)), never a bare literal.
+        assert isinstance(passed["min_trades"], ast.Call), (
+            "min_trades is a constant again — the flat-20 bug has returned"
+        )
+
+    def test_the_decision_floor_is_the_same_object_not_a_copy(self) -> None:
+        from analytics.param_sweep import MIN_TRADES_BY_TF
+        from tools.wfo_resweep import MIN_OOS_TRADES
+
+        assert MIN_OOS_TRADES is MIN_TRADES_BY_TF
+
+
 class TestBareInvocation:
     """ST101: the guarantee is the test, never the bootstrap line."""
 
