@@ -32,6 +32,7 @@ from analytics.research_guards import (
     deflated_sharpe_ratio,
     min_track_record_length,
 )
+from analytics.research_guards.cluster import cluster_stats, utc_day_keys
 
 DSR_THRESHOLD = 0.95
 PBO_THRESHOLD = 0.5
@@ -158,6 +159,35 @@ def _effective_trial_count(
     rho = (k / float(n_eff_raw) - 1.0) / (k - 1)
     n_eff = min(max(float(n_eff_raw), 2.0), float(k))
     return rho, n_eff
+
+
+def _effective_obs_count(chosen: TrialPerf) -> tuple[float, float]:
+    """Design effect and effective observation count for the chosen arm's trades.
+
+    ST134 correction (b), and the restrictive twin of :func:`_effective_trial_count`.
+    ``n_obs`` enters DSR as ``sqrt(n - 1)``, and this gate has never clustered it —
+    the blind spot :mod:`analytics.audit_guard` carried until ST80, on a path that
+    never got the fix. Measured there: trade-weighted design effect 4.991, median
+    1.670, concentrating in the 15m cells that are 64.4% of the live ledger.
+
+    ⚠ ``utc_day_keys`` is a documented LOWER BOUND on the dependence unit for a 24/7
+    tape — the design effect keeps rising past the day with no plateau — so read the
+    deflation as a floor and a surviving verdict as conservative.
+
+    ⚠ This is NOT the same estimator as :func:`_effective_trial_count` applied twice.
+    ``AGENTS.md`` forbids running the series route and the design-effect route on ONE
+    axis; these are two. (a) counts SEARCHES along the trial axis, (b) counts
+    OBSERVATIONS within the chosen arm. Applying only one leaves the other
+    denominator wrong.
+
+    Returns ``(design_effect, n_obs_eff)``; an empty arm returns ``(1.0, 0.0)`` and
+    the caller's trade-count floor rejects it.
+    """
+    if not chosen.returns:
+        return 1.0, 0.0
+    values = np.asarray(chosen.returns, dtype=np.float64)
+    stats = cluster_stats(values, utc_day_keys(chosen.times))
+    return stats.design_effect, stats.n_eff
 
 
 def _decide(

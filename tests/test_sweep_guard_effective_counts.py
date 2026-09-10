@@ -11,7 +11,11 @@ import pandas as pd
 import pytest
 
 from analytics.forecast import effective_independent_series
-from analytics.sweep_guard import _effective_trial_count
+from analytics.sweep_guard import (
+    TrialPerf,
+    _effective_obs_count,
+    _effective_trial_count,
+)
 
 
 class TestEffectiveTrialCount:
@@ -67,3 +71,45 @@ class TestEffectiveTrialCount:
         # n_eff was clamped only if it left [2, k]; here it does not.
         assert 2.0 < n_eff < float(k)
         assert rho == pytest.approx((k / n_eff - 1.0) / (k - 1), rel=1e-9)
+
+
+_MS_PER_DAY = 86_400_000
+
+
+class TestEffectiveObsCount:
+    def test_all_trades_one_day_is_one_effective_observation(self) -> None:
+        returns = [1.0, -1.0, 0.5, -0.5, 2.0, -2.0, 1.5, -1.5]
+        times = [i * 3_600_000 for i in range(8)]  # all inside one UTC day
+        deff, n_eff = _effective_obs_count(TrialPerf("a", returns, times))
+        assert n_eff == pytest.approx(1.0)
+        assert deff > 1.0
+
+    def test_one_trade_per_day_is_not_deflated(self) -> None:
+        returns = [1.0, -1.0, 0.5, -0.5, 2.0, -2.0, 1.5, -1.5]
+        times = [i * _MS_PER_DAY for i in range(8)]
+        deff, n_eff = _effective_obs_count(TrialPerf("a", returns, times))
+        assert deff == pytest.approx(1.0)
+        assert n_eff == pytest.approx(8.0)
+
+    def test_clustered_days_sit_between(self) -> None:
+        # Four days, four trades each, correlated within a day.
+        returns: list[float] = []
+        times: list[int] = []
+        for day, level in enumerate([2.0, -2.0, 2.0, -2.0]):
+            for slot in range(4):
+                returns.append(level + 0.01 * slot)
+                times.append(day * _MS_PER_DAY + slot * 3_600_000)
+        deff, n_eff = _effective_obs_count(TrialPerf("a", returns, times))
+        assert 1.0 < n_eff < 16.0
+        assert deff > 1.0
+
+    def test_never_exceeds_the_raw_count(self) -> None:
+        returns = [1.0, -1.0, 0.5, -0.5]
+        times = [i * _MS_PER_DAY for i in range(4)]
+        _, n_eff = _effective_obs_count(TrialPerf("a", returns, times))
+        assert n_eff <= 4.0
+
+    def test_empty_is_zero(self) -> None:
+        deff, n_eff = _effective_obs_count(TrialPerf("a", [], []))
+        assert deff == 1.0
+        assert n_eff == 0.0
