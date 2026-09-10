@@ -24,7 +24,9 @@ from dataclasses import dataclass
 
 import numpy as np
 import numpy.typing as npt
+import pandas as pd
 
+from analytics.forecast import effective_independent_series
 from analytics.research_guards import (
     cscv_pbo,
     deflated_sharpe_ratio,
@@ -108,6 +110,54 @@ def _build_perf_matrix(
                     b = n_bins - 1
             mat[b, j] += r
     return mat
+
+
+def _effective_trial_count(
+    perf: npt.NDArray[np.float64],
+) -> tuple[float, float]:
+    """Mean pairwise arm correlation and the effective trial count it implies.
+
+    ST134 correction (a). The ``tp_r`` arms share their entries and their stops and
+    differ only in where the target sits — they are re-labellings of one trade
+    population, not independent searches — so deflating DSR by the raw grid size
+    overstates the expected-maximum benchmark.
+
+    ⚠ **Delegates to :func:`analytics.forecast.effective_independent_series`.** That
+    is the repo's one spelling of ``n_eff = k / (1 + (k-1) * rho)`` and it is applied
+    to the SYMBOL axis elsewhere; this moves it onto the TRIAL axis. A second copy
+    here would be the restated-constant defect the ST134 pre-registration section 1e
+    documents at three other sites.
+
+    ``rho`` is recovered algebraically from the **unclamped** ``n_eff_raw``, so it
+    always reports the actual measured correlation. ``n_trials_eff`` is the same value
+    after the pre-registered clamp bounds. The two satisfy ``n_eff = k / (1 + (k-1) *
+    rho)`` jointly only when the raw value already lay inside ``[2, k]`` — outside it
+    the clamp overrides the count while ``rho`` keeps reporting the measurement. This
+    is deliberate: ``rho`` is the §4a kill-switch's decision statistic and must not
+    become an artifact of the clamp.
+
+    Two bounds, both pre-registered:
+
+    * **floor 2.0** — below two trials deflation is undefined. The raw
+      ``n_trials < 2`` INSUFFICIENT guard in :func:`evaluate_commit_gate` still runs
+      first, so this cannot route around it.
+    * **ceiling k** — a correction may only ever REDUCE a family. Negative measured
+      correlation would otherwise inflate it.
+
+    Returns ``(rho, n_trials_eff)``. A single arm returns ``(0.0, 1.0)``: nothing to
+    deflate, and the caller's own guard rejects it.
+    """
+    k = int(perf.shape[1])
+    if k < 2:
+        return 0.0, float(max(k, 1))
+    n_eff_raw, _ = effective_independent_series(
+        {f"arm{j}": pd.Series(perf[:, j]) for j in range(k)}
+    )
+    # Recover rho from the raw n_eff before clamping, so the reported correlation
+    # reflects the actual data. The effective trial count is then clamped for use.
+    rho = (k / float(n_eff_raw) - 1.0) / (k - 1)
+    n_eff = min(max(float(n_eff_raw), 2.0), float(k))
+    return rho, n_eff
 
 
 def _decide(
