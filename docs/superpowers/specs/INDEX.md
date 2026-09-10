@@ -4,13 +4,13 @@
 `make docs-index-check` (and `tests/test_docs_index.py`) fails when this file
 drifts from the corpus.
 
-**66 specs on disk.** Reconcile status is **derived** — a spec counts as
+**67 specs on disk.** Reconcile status is **derived** — a spec counts as
 reconciled when an audit that names its filename also discusses reconciling, so
 the count is recomputed from disk rather than carried in prose. That is the
 counter AGENTS.md has had wrong every time it was checked.
 
-- **Reconciled (derived): 4 of 66.**
-- Referenced by no audit at all: 47.
+- **Reconciled (derived): 4 of 67.**
+- Referenced by no audit at all: 48.
 
 **Two caveats before quoting these numbers.** A *partial* reconcile is
 indistinguishable from a whole-spec one here, and this table cannot see one that
@@ -19,6 +19,7 @@ and the reconcile column as a floor.
 
 | Date | Spec | Reconciled by | Also referenced by | File |
 | --- | --- | --- | --- | --- |
+| 2026-09-10 | ST128 — pre-registration for the corrected WFO re-sweep | — | — | [2026-09-10-st128-wfo-resweep-preregistration.md](2026-09-10-st128-wfo-resweep-preregistration.md) |
 | 2026-08-29 | ST113 — task/skill completion push to Telegram (design) | — | — | [2026-08-29-st113-telegram-notify-design.md](2026-08-29-st113-telegram-notify-design.md) |
 | 2026-08-29 | ST106 — retrace/impulse volume ratio, split study (pre-registration) | — | 2026-08-29-st106-volume-ratio-split-result.md | [2026-08-29-st106-volume-ratio-split-prereg.md](2026-08-29-st106-volume-ratio-split-prereg.md) |
 | 2026-08-29 | ST105 — cross-symbol SMT divergence gate (pre-registration) | — | — | [2026-08-29-st105-smt-gate-prereg.md](2026-08-29-st105-smt-gate-prereg.md) |

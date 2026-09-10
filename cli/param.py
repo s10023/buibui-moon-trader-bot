@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 
+from analytics.signal_config import DAY_FILTER_MODES
 from analytics.strategies import KNOWN_STRATEGIES
 from cli._common import parse_since_to_ms
 
@@ -246,7 +247,7 @@ def add_param_sweep_subparser(
         type=str,
         default="off",
         dest="day_filter",
-        choices=["off", "weekdays", "tue_thu"],
+        choices=DAY_FILTER_MODES,
         help="Restrict signals to allowed weekdays before WFO split (default: off)",
     )
     param_sweep_parser.add_argument(
@@ -354,7 +355,7 @@ def add_param_audit_subparser(
         type=str,
         default="off",
         dest="day_filter",
-        choices=["off", "weekdays", "tue_thu"],
+        choices=DAY_FILTER_MODES,
         help="Restrict signals to allowed weekdays before WFO split (default: off)",
     )
     param_audit_parser.add_argument(
