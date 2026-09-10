@@ -244,9 +244,18 @@ class ParamSweepReport:
 
     ``gate`` is computed over the **full** grid (``n_grid`` trials) before the
     top-N truncation, so the deflation reflects the true search size.
+
+    ``rows`` is the truncated top-N that consumers display and pick winners
+    from (``decide_cell`` in ``tools/wfo_resweep.py`` picks its winner from
+    this — never widen that to ``all_rows``, which would change ST128's
+    pre-registered decision rule). ``all_rows`` is the full grid the gate is
+    deflated against; a re-score under a different book (ST134's two counting
+    corrections) must read ``all_rows`` or it measures the top-N truncation
+    instead of the family.
     """
 
     rows: list[SweepRow]
+    all_rows: list[SweepRow]
     gate: CommitGateVerdict
     n_grid: int
 
@@ -254,6 +263,7 @@ class ParamSweepReport:
 def _empty_report(reason: str) -> ParamSweepReport:
     return ParamSweepReport(
         rows=[],
+        all_rows=[],
         gate=CommitGateVerdict(DECISION_INSUFFICIENT, None, None, None, 0, 0, [reason]),
         n_grid=0,
     )
@@ -281,12 +291,22 @@ def _row_to_trialperf(row: SweepRow) -> TrialPerf:
 
 
 def _compute_sweep_gate(
-    trial_rows: list[SweepRow], chosen_row: SweepRow | None, n_grid: int
+    trial_rows: list[SweepRow],
+    chosen_row: SweepRow | None,
+    n_grid: int,
+    *,
+    correct_trials: bool = False,
+    correct_obs: bool = False,
 ) -> CommitGateVerdict:
     """Gate verdict: deflate ``chosen_row`` against the full ``trial_rows`` grid.
 
     ``chosen_row`` is the recommended (committable) config the apply-skill would
-    write; ``trial_rows`` is the whole grid (for cross-trial variance + PBO)."""
+    write; ``trial_rows`` is the whole grid (for cross-trial variance + PBO).
+
+    The two ST134 correction flags default off and are forwarded unchanged. They are
+    keyword-only so a caller re-scoring a finished report under a second book cannot
+    pass them positionally into ``n_grid``.
+    """
     if chosen_row is None:
         return CommitGateVerdict(
             DECISION_INSUFFICIENT,
@@ -299,7 +319,13 @@ def _compute_sweep_gate(
         )
     chosen = _row_to_trialperf(chosen_row)
     all_trials = [_row_to_trialperf(r) for r in trial_rows]
-    return evaluate_commit_gate(chosen, all_trials, n_grid=n_grid)
+    return evaluate_commit_gate(
+        chosen,
+        all_trials,
+        n_grid=n_grid,
+        correct_trials=correct_trials,
+        correct_obs=correct_obs,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -518,7 +544,7 @@ def run_param_sweep(
     # deflated against the full grid (n combos) so a truncated top-N can't
     # inflate DSR.
     gate = _compute_sweep_gate(rows, _recommended_row(top_rows), n_grid=n)
-    return ParamSweepReport(rows=top_rows, gate=gate, n_grid=n)
+    return ParamSweepReport(rows=top_rows, all_rows=rows, gate=gate, n_grid=n)
 
 
 # ---------------------------------------------------------------------------

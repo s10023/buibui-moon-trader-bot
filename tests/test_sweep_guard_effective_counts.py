@@ -15,6 +15,7 @@ from analytics.sweep_guard import (
     TrialPerf,
     _effective_obs_count,
     _effective_trial_count,
+    evaluate_commit_gate,
 )
 
 
@@ -113,3 +114,78 @@ class TestEffectiveObsCount:
         deff, n_eff = _effective_obs_count(TrialPerf("a", [], []))
         assert deff == 1.0
         assert n_eff == 0.0
+
+
+def _correlated_trials(k: int = 6, n: int = 60) -> list[TrialPerf]:
+    """k arms sharing a common trade population — the real grid's shape."""
+    rng = np.random.default_rng(1234)
+    base = rng.normal(loc=0.18, scale=1.0, size=n)
+    times = [i * _MS_PER_DAY for i in range(n)]
+    return [
+        TrialPerf(f"tp{j}", list(base + 0.02 * j + 0.05 * rng.normal(size=n)), times)
+        for j in range(k)
+    ]
+
+
+class TestCorrectionsAreOptIn:
+    def test_default_path_is_unchanged(self) -> None:
+        """Byte-identical to today: the flags default off."""
+        trials = _correlated_trials()
+        v = evaluate_commit_gate(trials[-1], trials, n_grid=6, n_splits=4)
+        assert v.n_trials_eff is None
+        assert v.n_obs_eff is None
+        assert v.rho is None
+        assert v.design_effect is None
+
+    def test_trial_correction_raises_dsr(self) -> None:
+        trials = _correlated_trials()
+        raw = evaluate_commit_gate(trials[-1], trials, n_grid=6, n_splits=4)
+        fixed = evaluate_commit_gate(
+            trials[-1], trials, n_grid=6, n_splits=4, correct_trials=True
+        )
+        assert fixed.n_trials_eff is not None and fixed.n_trials_eff < 6.0
+        assert raw.dsr is not None and fixed.dsr is not None
+        assert fixed.dsr >= raw.dsr
+
+    def test_obs_correction_lowers_dsr(self) -> None:
+        # Two trades per UTC day sharing a common per-day level plus small jitter,
+        # so the day key clusters them. Pairing bare i.i.d. draws by timestamp alone
+        # (the brief's original fixture) does NOT cluster them — cluster_stats'
+        # one-way ANOVA measures correlation in the VALUES, and two independent
+        # draws labelled with the same day carry none; measured across 30 seeds,
+        # that shape landed design_effect == 1.0 (ICC clamped to 0) 12/30 times,
+        # including seed 99, so `fixed.n_obs_eff < n` failed here 40% of the time.
+        rng = np.random.default_rng(99)
+        n_days = 30
+        day_level = rng.normal(loc=0.3, scale=1.0, size=n_days)
+        base = np.repeat(day_level, 2) + 0.05 * rng.normal(size=n_days * 2)
+        n = len(base)
+        times = [(i // 2) * _MS_PER_DAY for i in range(n)]
+        trials = [TrialPerf(f"tp{j}", list(base + 0.02 * j), times) for j in range(6)]
+        raw = evaluate_commit_gate(trials[-1], trials, n_grid=6, n_splits=4)
+        fixed = evaluate_commit_gate(
+            trials[-1], trials, n_grid=6, n_splits=4, correct_obs=True
+        )
+        assert fixed.n_obs_eff is not None and fixed.n_obs_eff < float(n)
+        assert raw.dsr is not None and fixed.dsr is not None
+        assert fixed.dsr <= raw.dsr
+
+    def test_obs_correction_can_push_a_cell_to_insufficient(self) -> None:
+        """The pre-registered consequence: the floor now bites on effective trades."""
+        rng = np.random.default_rng(5)
+        n = 12
+        base = rng.normal(loc=0.3, scale=1.0, size=n)
+        times = [0 for _ in range(n)]  # every trade the same UTC day
+        trials = [TrialPerf(f"tp{j}", list(base + 0.02 * j), times) for j in range(4)]
+        fixed = evaluate_commit_gate(
+            trials[-1], trials, n_grid=4, n_splits=4, correct_obs=True
+        )
+        assert fixed.decision == "INSUFFICIENT"
+        assert any("effective" in r for r in fixed.reasons)
+
+    def test_raw_trial_guard_still_runs_first(self) -> None:
+        """The floor of 2.0 must not route around the n_trials < 2 refusal."""
+        t = _correlated_trials(k=1)[0]
+        v = evaluate_commit_gate(t, [t], n_grid=1, n_splits=4, correct_trials=True)
+        assert v.decision == "INSUFFICIENT"
+        assert v.n_trials_eff is None

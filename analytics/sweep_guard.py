@@ -66,6 +66,12 @@ class CommitGateVerdict:
     n_obs: int
     n_trials: int
     reasons: list[str]
+    # ST134. All four are None on the uncorrected path, which is the default, so a
+    # reader can tell "not corrected" from "corrected and came back equal".
+    rho: float | None = None
+    n_trials_eff: float | None = None
+    design_effect: float | None = None
+    n_obs_eff: float | None = None
 
     @property
     def committable(self) -> bool:
@@ -220,12 +226,20 @@ def evaluate_commit_gate(
     pbo_threshold: float = PBO_THRESHOLD,
     mintrl_confidence: float = MINTRL_CONFIDENCE,
     n_splits: int = DEFAULT_N_SPLITS,
+    correct_trials: bool = False,
+    correct_obs: bool = False,
 ) -> CommitGateVerdict:
     """Verdict for committing ``chosen``'s params, given the full grid.
 
     ``n_grid`` is the true number of trials searched (>= ``len(all_trials)`` when
     the caller truncated to top-N); it is the N-floor fed to the deflation so a
     truncated grid cannot make DSR look better than it is.
+
+    ``correct_trials`` and ``correct_obs`` are ST134's two counting corrections and
+    both default to **off**, so an existing caller's verdict is unchanged. They pull
+    in opposite directions and are meant to be measured as a 2x2 — see the
+    pre-registration at
+    ``docs/superpowers/specs/2026-09-10-st134-sweep-gate-trial-independence-preregistration.md``.
     """
     n_trials = len(all_trials)
     n_obs = len(chosen.returns)
@@ -252,16 +266,48 @@ def evaluate_commit_gate(
             [f"{n_obs} trades < {min_obs} (2x n_splits) — stats unstable"],
         )
 
+    perf = _build_perf_matrix(all_trials, min_obs)
+
+    rho: float | None = None
+    n_trials_eff: float | None = None
+    effective_trials: float = float(max(n_grid, n_trials))
+    if correct_trials:
+        rho, n_trials_eff = _effective_trial_count(perf)
+        effective_trials = n_trials_eff
+
+    design_effect: float | None = None
+    n_obs_eff: float | None = None
+    effective_obs: float = float(n_obs)
+    if correct_obs:
+        design_effect, n_obs_eff = _effective_obs_count(chosen)
+        effective_obs = n_obs_eff
+        if effective_obs < float(min_obs):
+            return CommitGateVerdict(
+                DECISION_INSUFFICIENT,
+                None,
+                None,
+                None,
+                n_obs,
+                n_trials,
+                [
+                    f"{effective_obs:.1f} effective trades < {min_obs} "
+                    f"(2x n_splits) after day-clustering {n_obs} raw — stats unstable"
+                ],
+                rho,
+                n_trials_eff,
+                design_effect,
+                n_obs_eff,
+            )
+
     sr = _trial_sharpe(chosen.returns)
     trial_srs = [_trial_sharpe(t.returns) for t in all_trials]
     dsr = deflated_sharpe_ratio(
         sr,
-        n_obs,
-        n_trials=max(n_grid, n_trials),
+        effective_obs,
+        n_trials=effective_trials,
         sr_variance=statistics.variance(trial_srs),
     )
     min_trl = min_track_record_length(sr, confidence=mintrl_confidence)
-    perf = _build_perf_matrix(all_trials, min_obs)
     pbo = cscv_pbo(perf, n_splits=n_splits).pbo
 
     decision, reasons = _decide(
@@ -272,4 +318,16 @@ def evaluate_commit_gate(
         dsr_threshold=dsr_threshold,
         pbo_threshold=pbo_threshold,
     )
-    return CommitGateVerdict(decision, dsr, pbo, min_trl, n_obs, n_trials, reasons)
+    return CommitGateVerdict(
+        decision,
+        dsr,
+        pbo,
+        min_trl,
+        n_obs,
+        n_trials,
+        reasons,
+        rho,
+        n_trials_eff,
+        design_effect,
+        n_obs_eff,
+    )
