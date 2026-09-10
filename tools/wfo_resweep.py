@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import time
 import tomllib
@@ -62,16 +63,21 @@ try:  # ST127: swapping the interpreter is a SEPARATE resolver from sys.path —
 except ImportError:  # pragma: no cover - a clone without the helper still runs
     pass
 
+import numpy as np  # noqa: E402
+
 from analytics.param_sweep import (  # noqa: E402
     MIN_TRADES_BY_TF,
     ParamRange,
     ParamSweepReport,
     SweepRow,
+    _compute_sweep_gate,
     _cost_defaults,
     _default_param_ranges,
+    _recommended_row,
     min_trades_for,
     run_param_sweep,
 )
+from analytics.sweep_guard import CommitGateVerdict  # noqa: E402
 
 DEFAULT_SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT")
 DEFAULT_SINCE = "2025-09-12"
@@ -109,6 +115,11 @@ class CellVerdict:
     min_trl: float | None
     n_obs: int
     n_trials: int
+    # ST134 §4a. None unless the caller passed `corrected` (the trials-corrected
+    # re-score) into `decide_cell` — the pre-registered decision rule itself never
+    # reads these two; they exist for the kill-switch measurement only.
+    rho: float | None
+    n_trials_eff: float | None
 
 
 def _sweep_ranges(strategy: str) -> list[ParamRange]:
@@ -146,7 +157,11 @@ def _eligible(row: SweepRow, floor: int) -> bool:
 
 
 def decide_cell(
-    report: ParamSweepReport, *, timeframe: str, current_tp_r: float | None
+    report: ParamSweepReport,
+    *,
+    timeframe: str,
+    current_tp_r: float | None,
+    corrected: CommitGateVerdict | None = None,
 ) -> CellVerdict:
     """Apply the pre-registered rule to one sweep report.
 
@@ -154,6 +169,13 @@ def decide_cell(
     the report silently. The COMMIT-GATE is checked FIRST and is a hard refusal —
     an in-sample winner that fails it is an overfit mirage, and this is the
     project's multiple-testing correction.
+
+    ``corrected`` is ST134 §4a's trials-corrected re-score of the SAME report
+    (``_compute_sweep_gate(report.all_rows, ..., correct_trials=True)``), and it
+    is optional so every existing caller is unaffected. It is a caller-supplied
+    value rather than computed here on purpose: computing it inline would make
+    this pure, total, cheap function impure and expensive on every invocation,
+    not just the ``--measure-rho`` kill-switch run that actually needs it.
     """
     floor = MIN_OOS_TRADES.get(timeframe, 0)
 
@@ -186,6 +208,8 @@ def decide_cell(
             min_trl=report.gate.min_trl,
             n_obs=report.gate.n_obs,
             n_trials=report.gate.n_trials,
+            rho=corrected.rho if corrected is not None else None,
+            n_trials_eff=corrected.n_trials_eff if corrected is not None else None,
         )
 
     if not report.gate.committable:
@@ -262,6 +286,52 @@ def _fmt(value: float | None, spec: str = "+.4f") -> str:
     return "—" if value is None else format(value, spec)
 
 
+def median_rho_ci(
+    rhos: list[float],
+    *,
+    n_boot: int = 10_000,
+    seed: int = 20260910,
+) -> tuple[float, float, float]:
+    """Median arm correlation and its percentile bootstrap CI.
+
+    ST134 section 4a. The decision statistic is the DISTRIBUTION across cells, never
+    any one cell's point estimate — rho is measured over ``2 * n_splits`` bins, so a
+    per-cell value is noisy by construction.
+    """
+    clean = [r for r in rhos if not math.isnan(r)]
+    if not clean:
+        nan = float("nan")
+        return nan, nan, nan
+    arr = np.asarray(clean, dtype=np.float64)
+    med = float(np.median(arr))
+    rng = np.random.default_rng(seed)
+    draws = rng.choice(arr, size=(n_boot, arr.size), replace=True)
+    meds = np.median(draws, axis=1)
+    return med, float(np.percentile(meds, 2.5)), float(np.percentile(meds, 97.5))
+
+
+def rho_verdict(ci_lo: float, ci_hi: float, *, bar: float = 0.5) -> str:
+    """CI containment against the pre-registered bar — THREE readings, not two.
+
+    ⛔ A threshold comparison is not a verdict. A sample-size floor, an MDE, a
+    p-value or a failure to clear a bar are none of them power; ``AGENTS.md`` records
+    that family at six sites, each spelling the arithmetic differently.
+
+    * ``PROCEED`` — the CI lower bound clears the bar; the correction is licensed.
+    * ``NOT_LICENSED`` — the upper bound sits below it; established the other way.
+    * ``INSUFFICIENT`` — the CI straddles or touches the bar. **Untested, not
+      cleared**, and it licenses no conclusion about whether the gate's refusals are
+      correct. Those are different claims.
+    """
+    if math.isnan(ci_lo) or math.isnan(ci_hi):
+        return "INSUFFICIENT"
+    if ci_lo > bar:
+        return "PROCEED"
+    if ci_hi < bar:
+        return "NOT_LICENSED"
+    return "INSUFFICIENT"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--db", default="analytics.db", help="DuckDB path (read-only)")
@@ -280,6 +350,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-sl-pct", type=float, default=None)
     parser.add_argument(
         "--label", default="corrected", help="Tag written into every JSON row"
+    )
+    parser.add_argument(
+        "--measure-rho",
+        action="store_true",
+        help=(
+            "ST134 section 4a kill-switch: run every cell with the trial correction on, "
+            "report the arm-correlation distribution and its CI verdict, and STOP. "
+            "Writes no TOML and decides nothing."
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -345,7 +424,25 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"  !! {strategy:22} {timeframe:4} {symbol:8} ERROR {exc}")
                     continue
 
-                verdict = decide_cell(report, timeframe=timeframe, current_tp_r=current)
+                verdict = decide_cell(
+                    report,
+                    timeframe=timeframe,
+                    current_tp_r=current,
+                    # Only computed under the kill-switch flag: this re-scores the
+                    # SAME finished report (no new backtests) under the trials
+                    # correction, but it still re-runs CSCV/DSR — real cost the
+                    # default path must not pay — see decide_cell's docstring.
+                    corrected=(
+                        _compute_sweep_gate(
+                            report.all_rows,
+                            _recommended_row(report.rows),
+                            report.n_grid,
+                            correct_trials=True,
+                        )
+                        if args.measure_rho
+                        else None
+                    ),
+                )
                 mark = "⚠" if verdict.defect_carrying else " "
                 print(
                     f"  {mark} {strategy:22} {timeframe:4} {symbol:8} "
@@ -381,6 +478,20 @@ def main(argv: list[str] | None = None) -> int:
     print(
         "\nNo TOML was written. Applying is a separate act — see the pre-registration §4."
     )
+
+    if args.measure_rho:
+        rhos = [r["rho"] for r in results if r.get("rho") is not None]
+        med, lo, hi = median_rho_ci(rhos)
+        rho_outcome = rho_verdict(lo, hi)
+        print(f"\nST134 §4a — arm correlation across {len(rhos)} scoreable cells")
+        print(f"  median rho {med:.4f}   95% CI [{lo:.4f}, {hi:.4f}]   bar 0.50")
+        print(f"  VERDICT: {rho_outcome}")
+        if rho_outcome != "PROCEED":
+            print(
+                "  ⛔ STOP. This does NOT license 'the gate was right' — failing to\n"
+                "     license a correction is a different claim from the refusals\n"
+                "     being correct. Route to ST133 on the existing evidence."
+            )
 
     if args.out:
         Path(args.out).write_text(json.dumps(results, indent=2), encoding="utf-8")

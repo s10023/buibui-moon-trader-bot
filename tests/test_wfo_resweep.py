@@ -12,6 +12,7 @@ function returns something.
 
 from __future__ import annotations
 
+import math
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -36,6 +37,8 @@ from tools.wfo_resweep import (
     cells_for_config,
     current_tp_r_for,
     decide_cell,
+    median_rho_ci,
+    rho_verdict,
 )
 
 _SPEC = Path("docs/superpowers/specs/2026-09-10-st128-wfo-resweep-preregistration.md")
@@ -312,3 +315,148 @@ class TestBareInvocation:
             "--day-filter" not in result.stdout
         )  # it reads the config's, never a flag
         assert "--db" in result.stdout
+        assert "--measure-rho" in result.stdout
+
+
+class TestMedianRhoCi:
+    def test_ci_brackets_the_median(self) -> None:
+        rhos = [0.60, 0.62, 0.65, 0.68, 0.70, 0.72, 0.75]
+        med, lo, hi = median_rho_ci(rhos)
+        assert lo <= med <= hi
+        assert med == pytest.approx(0.68)
+
+    def test_tight_sample_gives_a_tight_ci(self) -> None:
+        _, lo, hi = median_rho_ci([0.70] * 50)
+        assert hi - lo == pytest.approx(0.0, abs=1e-9)
+
+    def test_single_value_is_degenerate_not_a_crash(self) -> None:
+        med, lo, hi = median_rho_ci([0.42])
+        assert med == lo == hi == pytest.approx(0.42)
+
+    def test_empty_is_nan(self) -> None:
+        med, lo, hi = median_rho_ci([])
+        assert math.isnan(med) and math.isnan(lo) and math.isnan(hi)
+
+
+class TestRhoVerdict:
+    def test_lower_bound_above_the_bar_proceeds(self) -> None:
+        assert rho_verdict(0.55, 0.80) == "PROCEED"
+
+    def test_upper_bound_below_the_bar_is_not_licensed(self) -> None:
+        assert rho_verdict(0.10, 0.40) == "NOT_LICENSED"
+
+    def test_straddling_the_bar_is_insufficient(self) -> None:
+        assert rho_verdict(0.40, 0.60) == "INSUFFICIENT"
+
+    def test_touching_the_bar_is_insufficient_not_a_pass(self) -> None:
+        """A boundary reading is untested, never cleared — the six-site defect."""
+        assert rho_verdict(0.50, 0.90) == "INSUFFICIENT"
+        assert rho_verdict(0.10, 0.50) == "INSUFFICIENT"
+
+    def test_nan_is_insufficient(self) -> None:
+        assert rho_verdict(float("nan"), float("nan")) == "INSUFFICIENT"
+
+
+class TestDecideCellCarriesTheCorrectedGate:
+    """R12: ``corrected`` is optional so the existing 3-arg call sites are untouched."""
+
+    def test_no_corrected_gate_leaves_rho_and_n_trials_eff_none(self) -> None:
+        rows = [_Row(tp_r=2.0, oos=+0.30, n=50)]
+        verdict = decide_cell(_report(rows), timeframe="1h", current_tp_r=2.0)
+        assert verdict.rho is None
+        assert verdict.n_trials_eff is None
+
+    def test_a_corrected_gate_populates_rho_and_n_trials_eff(self) -> None:
+        rows = [_Row(tp_r=2.0, oos=+0.30, n=50)]
+        corrected = CommitGateVerdict(
+            DECISION_COMMIT, 0.97, 0.10, 300.0, 1000, 9, [], rho=0.62, n_trials_eff=4.5
+        )
+        verdict = decide_cell(
+            _report(rows), timeframe="1h", current_tp_r=2.0, corrected=corrected
+        )
+        assert verdict.rho == pytest.approx(0.62)
+        assert verdict.n_trials_eff == pytest.approx(4.5)
+
+    def test_decide_cell_never_computes_the_corrected_gate_itself(self) -> None:
+        """Pure/total/cheap: `decide_cell` must not import or call `_compute_sweep_gate`."""
+        import ast
+
+        src = Path("tools/wfo_resweep.py").read_text(encoding="utf-8")
+        tree = ast.parse(src)
+        fn = next(
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.FunctionDef) and n.name == "decide_cell"
+        )
+        calls = {
+            n.func.id
+            for n in ast.walk(fn)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+        }
+        assert "_compute_sweep_gate" not in calls
+
+
+class TestMeasureRhoRescoresTheFullGrid:
+    """R3: the re-score must read `all_rows`, never the top-N `rows` truncation.
+
+    `run_param_sweep` truncates to `rows[:top_n]`; deflating over that instead of
+    `all_rows` would conflate top-N truncation with correlation and corrupt this
+    task's own headline number.
+    """
+
+    def test_the_corrected_gate_call_reads_all_rows(self) -> None:
+        import ast
+
+        src = Path("tools/wfo_resweep.py").read_text(encoding="utf-8")
+        call = next(
+            n
+            for n in ast.walk(ast.parse(src))
+            if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Name)
+            and n.func.id == "_compute_sweep_gate"
+        )
+        first_arg = call.args[0]
+        assert isinstance(first_arg, ast.Attribute) and first_arg.attr == "all_rows", (
+            "the re-score must deflate over all_rows (the full grid), not the "
+            "top-N `rows` truncation"
+        )
+
+    def test_the_measure_rho_flag_gates_the_corrected_computation(self) -> None:
+        """Default behaviour stays byte-identical: no `--measure-rho`, no re-score."""
+        import ast
+
+        src = Path("tools/wfo_resweep.py").read_text(encoding="utf-8")
+        tree = ast.parse(src)
+        main_fn = next(
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.FunctionDef) and n.name == "main"
+        )
+        decide_call = next(
+            n
+            for n in ast.walk(main_fn)
+            if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Name)
+            and n.func.id == "decide_cell"
+        )
+        corrected_kw = next(kw for kw in decide_call.keywords if kw.arg == "corrected")
+        assert isinstance(corrected_kw.value, ast.IfExp), (
+            "the corrected gate must be computed conditionally on --measure-rho, "
+            "never unconditionally on every run"
+        )
+        assert "measure_rho" in ast.unparse(corrected_kw.value.test)
+        # Presence of `measure_rho` in the test is not enough — pin the DIRECTION
+        # too, or `None if args.measure_rho else _compute_sweep_gate(...)` (the
+        # exact inversion: expensive on every default run, skipped under the
+        # flag) passes both checks above unchanged.
+        body = corrected_kw.value.body
+        assert isinstance(body, ast.Call) and isinstance(body.func, ast.Name)
+        assert body.func.id == "_compute_sweep_gate", (
+            "the TRUE branch (flag set) must be the one that computes the "
+            "corrected gate"
+        )
+        orelse = corrected_kw.value.orelse
+        assert isinstance(orelse, ast.Constant) and orelse.value is None, (
+            "the FALSE branch (flag unset, the default path) must be None — "
+            "no corrected-gate computation"
+        )
