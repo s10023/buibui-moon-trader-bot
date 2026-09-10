@@ -153,6 +153,24 @@ shell blocks. The rule they exist to satisfy: *a self-check outside CI is not a 
   it never locks the working tree — the clone is of committed state, so an edit made
   mid-run cannot reach it. ⚠ Blind to an
   *absolute* `$HOME` default (identical in a clone) and to any CLI branch no test reaches.
+- `tools/wfo_resweep.py` — the ST128 corrected re-sweep. Runs `param-sweep` across all three
+  live configs, **each on its OWN `day_filter`**, and reports what the pre-registered rule
+  (`docs/superpowers/specs/2026-09-10-st128-wfo-resweep-preregistration.md` §2) would do.
+  **Read-only: it writes no TOML and no DB row**, because the signal-watch timer runs the
+  WORKING TREE on a 15-minute cycle, so writing `config/signal_watch*.toml` IS the
+  deployment — there is no review window between the edit and live alerts.
+  `--fee-pct` / `--slippage-bps` / `--min-sl-pct` override production's costs so the
+  DEFECTIVE book can be re-run as an attribution control; `--label` tags every JSON row.
+  ⚠ **The decision rule is a tracked pure function (`decide_cell`) on purpose** — ST28's
+  sixth powered-null site was a gitignored driver whose threshold had silently diverged
+  from its spec, unreachable by every gate and review surface here.
+  ⚠ **Two parity defects were found in it during its first runs, both silent**: the grid was
+  built from `_strategy_param_ranges` (which EXCLUDES `tp_r`, so it swept `swing_n` while
+  claiming to pick a take-profit) and `min_trades` was a flat 20 where the CLI is per-tf.
+  Each shipped a complete, plausible table answering the wrong question. ⛔ **Any figure
+  produced before both fixes is void**, which is why every run stamps its label and resolved
+  costs. Result 2026-09-10: 273 cells → 0 writes, and an attribution control moved 0 cells,
+  so the COMMIT GATE binds rather than the cost model → SoT ST128, ST133.
 - `tools/stale_anchors.py` — dead cross-document `§N` / `Step N` citations. Sweeps the repo
   **and the memory tree**; a section number is not a symbol, so no symbol-keyed check can
   see this class at all. 4 of the 7 hits on first run were in `memory/`.
