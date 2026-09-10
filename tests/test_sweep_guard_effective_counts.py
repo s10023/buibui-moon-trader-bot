@@ -144,6 +144,11 @@ class TestCorrectionsAreOptIn:
             trials[-1], trials, n_grid=6, n_splits=4, correct_trials=True
         )
         assert fixed.n_trials_eff is not None and fixed.n_trials_eff < 6.0
+        # Value pin, not just the bound: a swapped `rho` (~0.998, the mean pairwise
+        # correlation this near-identical-arms fixture induces) would also satisfy
+        # `n_trials_eff < 6.0` above, so the bound alone cannot catch a transposed
+        # keyword — this pins the OTHER field too.
+        assert fixed.rho is not None and fixed.rho == pytest.approx(0.998, rel=0.1)
         assert raw.dsr is not None and fixed.dsr is not None
         assert fixed.dsr >= raw.dsr
 
@@ -167,6 +172,13 @@ class TestCorrectionsAreOptIn:
             trials[-1], trials, n_grid=6, n_splits=4, correct_obs=True
         )
         assert fixed.n_obs_eff is not None and fixed.n_obs_eff < float(n)
+        # Value pin, not just the bound: a swapped `design_effect` (~2.0, the ratio
+        # this 2-per-day fixture induces) would also satisfy `n_obs_eff < 60.0` above
+        # — 60 raw trades / design_effect 2.0 == 30 effective, so the bound alone
+        # cannot catch a transposed keyword — this pins the OTHER field too.
+        assert fixed.design_effect is not None
+        assert fixed.design_effect == pytest.approx(2.0, rel=0.1)
+        assert fixed.n_obs_eff == pytest.approx(30.0, rel=0.1)
         assert raw.dsr is not None and fixed.dsr is not None
         assert fixed.dsr <= raw.dsr
 
@@ -189,3 +201,32 @@ class TestCorrectionsAreOptIn:
         v = evaluate_commit_gate(t, [t], n_grid=1, n_splits=4, correct_trials=True)
         assert v.decision == "INSUFFICIENT"
         assert v.n_trials_eff is None
+
+
+class TestThresholdsAreNotRestated:
+    def test_sweep_guard_derives_from_the_published_gate(self) -> None:
+        from analytics.research_guards import GATE_DSR, GATE_PBO
+        from analytics.sweep_guard import DSR_THRESHOLD, PBO_THRESHOLD
+
+        assert DSR_THRESHOLD is GATE_DSR
+        assert PBO_THRESHOLD is GATE_PBO
+
+    def test_recalibrate_suspect_threshold_derives_from_it_too(self) -> None:
+        from analytics.recalibrate_lib import DSR_SUSPECT_THRESHOLD
+        from analytics.research_guards import GATE_DSR
+
+        assert DSR_SUSPECT_THRESHOLD is GATE_DSR
+
+    def test_no_literal_thresholds_remain(self) -> None:
+        """Mutation guard: a re-added literal fails here, not silently agrees.
+
+        Scoped to the two assignment lines rather than the whole file, so an
+        unrelated 0.95 in a docstring or a test fixture does not trip it.
+        """
+        from pathlib import Path
+
+        src = Path("analytics/sweep_guard.py").read_text(encoding="utf-8")
+        assert "DSR_THRESHOLD = 0.95" not in src
+        assert "PBO_THRESHOLD = 0.5" not in src
+        rec = Path("analytics/recalibrate_lib.py").read_text(encoding="utf-8")
+        assert "DSR_SUSPECT_THRESHOLD = 0.95" not in rec

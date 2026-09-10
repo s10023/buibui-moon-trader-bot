@@ -28,14 +28,27 @@ import pandas as pd
 
 from analytics.forecast import effective_independent_series
 from analytics.research_guards import (
+    GATE_DSR,
+    GATE_PBO,
     cscv_pbo,
     deflated_sharpe_ratio,
     min_track_record_length,
 )
 from analytics.research_guards.cluster import cluster_stats, utc_day_keys
 
-DSR_THRESHOLD = 0.95
-PBO_THRESHOLD = 0.5
+DSR_THRESHOLD = GATE_DSR
+"""Re-exported from :mod:`analytics.research_guards` — NOT a second copy.
+
+``AGENTS.md``: the gate is one function and its thresholds are one pair of
+constants. This module cannot call :func:`passes_gate` (its third leg is MinTRL,
+not ``boot_lo``), but it must not restate the two it shares. Until ST134 it held
+its own ``0.95``, and :mod:`analytics.recalibrate_lib` held a third under a comment
+claiming it matched this one — three links agreeing by coincidence.
+"""
+
+PBO_THRESHOLD = GATE_PBO
+"""Re-exported from :mod:`analytics.research_guards`. See :data:`DSR_THRESHOLD`."""
+
 MINTRL_CONFIDENCE = 0.95
 DEFAULT_N_SPLITS = 14
 
@@ -233,7 +246,13 @@ def evaluate_commit_gate(
 
     ``n_grid`` is the true number of trials searched (>= ``len(all_trials)`` when
     the caller truncated to top-N); it is the N-floor fed to the deflation so a
-    truncated grid cannot make DSR look better than it is.
+    truncated grid cannot make DSR look better than it is. This governs the
+    **uncorrected** path only: when ``correct_trials=True``, ``effective_trials``
+    is overwritten by ``n_trials_eff``, whose ceiling is ``k = len(all_trials)``
+    rather than ``n_grid`` — :class:`~analytics.param_sweep.ParamSweepReport`'s
+    ``all_rows`` is what keeps the corrected callers in the regime where
+    ``k == n_grid``, so the two floors coincide there without this function
+    needing to enforce it.
 
     ``correct_trials`` and ``correct_obs`` are ST134's two counting corrections and
     both default to **off**, so an existing caller's verdict is unchanged. They pull
@@ -283,20 +302,20 @@ def evaluate_commit_gate(
         effective_obs = n_obs_eff
         if effective_obs < float(min_obs):
             return CommitGateVerdict(
-                DECISION_INSUFFICIENT,
-                None,
-                None,
-                None,
-                n_obs,
-                n_trials,
-                [
+                decision=DECISION_INSUFFICIENT,
+                dsr=None,
+                pbo=None,
+                min_trl=None,
+                n_obs=n_obs,
+                n_trials=n_trials,
+                reasons=[
                     f"{effective_obs:.1f} effective trades < {min_obs} "
                     f"(2x n_splits) after day-clustering {n_obs} raw — stats unstable"
                 ],
-                rho,
-                n_trials_eff,
-                design_effect,
-                n_obs_eff,
+                rho=rho,
+                n_trials_eff=n_trials_eff,
+                design_effect=design_effect,
+                n_obs_eff=n_obs_eff,
             )
 
     sr = _trial_sharpe(chosen.returns)
@@ -319,15 +338,15 @@ def evaluate_commit_gate(
         pbo_threshold=pbo_threshold,
     )
     return CommitGateVerdict(
-        decision,
-        dsr,
-        pbo,
-        min_trl,
-        n_obs,
-        n_trials,
-        reasons,
-        rho,
-        n_trials_eff,
-        design_effect,
-        n_obs_eff,
+        decision=decision,
+        dsr=dsr,
+        pbo=pbo,
+        min_trl=min_trl,
+        n_obs=n_obs,
+        n_trials=n_trials,
+        reasons=reasons,
+        rho=rho,
+        n_trials_eff=n_trials_eff,
+        design_effect=design_effect,
+        n_obs_eff=n_obs_eff,
     )
