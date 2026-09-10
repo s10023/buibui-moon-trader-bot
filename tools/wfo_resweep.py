@@ -77,7 +77,7 @@ from analytics.param_sweep import (  # noqa: E402
     min_trades_for,
     run_param_sweep,
 )
-from analytics.sweep_guard import CommitGateVerdict  # noqa: E402
+from analytics.sweep_guard import DECISION_INSUFFICIENT, CommitGateVerdict  # noqa: E402
 
 DEFAULT_SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT")
 DEFAULT_SINCE = "2025-09-12"
@@ -92,6 +92,34 @@ MIN_IMPROVEMENT_R = 0.05
 ACTION_UPDATE = "UPDATE"
 ACTION_KEEP = "KEEP"
 ACTION_SKIP = "SKIP"
+
+BOOKS: tuple[tuple[str, bool, bool], ...] = (
+    ("raw", False, False),
+    ("trials_corrected", True, False),
+    ("obs_corrected", False, True),
+    ("both", True, True),
+)
+"""ST134 section 5: every cell is scored under all four books.
+
+Reporting only ``both`` makes the two corrections unattributable, which is the
+failure ST128 section 5 exists to prevent. ``raw`` is first because it is the
+baseline every other column is read against.
+"""
+
+
+def effect_size(
+    current_oos_avg_r: float | None,
+    winner_oos_avg_r: float | None,
+) -> float | None:
+    """OOS ``avg_r`` the winner adds over the live value, or None if either is absent.
+
+    ⚠ **An optimistic bound, and it must be labelled one where it is reported.** The
+    winner is SELECTED on this number, and that selection is exactly what DSR
+    deflates for. The live realisation is expected to be smaller.
+    """
+    if current_oos_avg_r is None or winner_oos_avg_r is None:
+        return None
+    return winner_oos_avg_r - current_oos_avg_r
 
 
 @dataclass(frozen=True)
@@ -340,7 +368,15 @@ def main(argv: list[str] | None = None) -> int:
         "--config", action="append", help="Repeatable; default = all shipped"
     )
     parser.add_argument("--symbols", default=",".join(DEFAULT_SYMBOLS))
-    parser.add_argument("--out", help="Write the full per-cell result as JSON here")
+    parser.add_argument(
+        "--out",
+        default="docs/plans/scratch/st134-resweep-{label}.json",
+        help=(
+            "Write the full per-cell result as JSON here. Defaults under "
+            "docs/plans/scratch/ so the run's evidence survives a reboot and lands "
+            "in the backup glob — ST128's went to /tmp and is gone."
+        ),
+    )
     # Attribution control. The point of ST128 is that the OLD book priced no
     # slippage and no stop floor, so "did the correction cause this?" is only
     # answerable by re-running the defective settings against the same cells.
@@ -358,6 +394,19 @@ def main(argv: list[str] | None = None) -> int:
             "ST134 section 4a kill-switch: run every cell with the trial correction on, "
             "report the arm-correlation distribution and its CI verdict, and STOP. "
             "Writes no TOML and decides nothing."
+        ),
+    )
+    parser.add_argument(
+        "--books",
+        action="store_true",
+        help=(
+            "ST134 section 5: score every cell under all four books (raw / "
+            "trials_corrected / obs_corrected / both) and report effect size per "
+            "book, never a pass count. Its OWN flag rather than riding "
+            "--measure-rho, which is the section 4a kill-switch that runs FIRST "
+            "and STOPS — gating this behind it would make the 2x2 reachable only "
+            "inside a run that is supposed to stop. Writes no TOML and decides "
+            "nothing."
         ),
     )
     args = parser.parse_args(argv)
@@ -424,22 +473,42 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"  !! {strategy:22} {timeframe:4} {symbol:8} ERROR {exc}")
                     continue
 
+                # ST134 section 5: the 2x2 re-score. Gated on its OWN flag as well
+                # as the section 4a kill-switch (R13/main docstring above) — either
+                # one triggers it, so `--measure-rho` alone still gets its
+                # trials_corrected numbers. Every book reads `all_rows` (R3: the
+                # full grid the gate deflates against), never the top-N `rows`
+                # truncation, and the chosen row still comes from `rows`, mirroring
+                # production's own recommended-row pick at
+                # `analytics/param_sweep.py:547` — only the trial family widens.
+                # This runs no additional backtests, but each of the four re-scores
+                # still re-runs CSCV/DSR — real cost the default path must not pay.
+                book_verdicts = (
+                    {
+                        name: _compute_sweep_gate(
+                            report.all_rows,
+                            _recommended_row(report.rows),
+                            report.n_grid,
+                            correct_trials=ct,
+                            correct_obs=co,
+                        )
+                        for name, ct, co in BOOKS
+                    }
+                    if args.measure_rho or args.books
+                    else None
+                )
+
                 verdict = decide_cell(
                     report,
                     timeframe=timeframe,
                     current_tp_r=current,
-                    # Only computed under the kill-switch flag: this re-scores the
-                    # SAME finished report (no new backtests) under the trials
-                    # correction, but it still re-runs CSCV/DSR — real cost the
-                    # default path must not pay — see decide_cell's docstring.
+                    # The SAME value Task 6 computed — BOOKS's "trials_corrected"
+                    # entry is exactly correct_trials=True, correct_obs=False —
+                    # reused from book_verdicts rather than recomputed, so the rho
+                    # kill-switch never pays the CSCV cost twice.
                     corrected=(
-                        _compute_sweep_gate(
-                            report.all_rows,
-                            _recommended_row(report.rows),
-                            report.n_grid,
-                            correct_trials=True,
-                        )
-                        if args.measure_rho
+                        book_verdicts["trials_corrected"]
+                        if book_verdicts is not None
                         else None
                     ),
                 )
@@ -460,6 +529,35 @@ def main(argv: list[str] | None = None) -> int:
                         "symbol": symbol,
                         "label": args.label,
                         **asdict(verdict),
+                        "books": (
+                            {
+                                name: {
+                                    "decision": v.decision,
+                                    "dsr": v.dsr,
+                                    "pbo": v.pbo,
+                                    "rho": v.rho,
+                                    "n_trials_eff": v.n_trials_eff,
+                                    "design_effect": v.design_effect,
+                                    "n_obs_eff": v.n_obs_eff,
+                                    "reasons": v.reasons,
+                                }
+                                for name, v in book_verdicts.items()
+                            }
+                            if book_verdicts is not None
+                            else None
+                        ),
+                        "effect_size_oos_avg_r": effect_size(
+                            verdict.current_oos_avg_r, verdict.winner_oos_avg_r
+                        ),
+                        "moved_to_insufficient_under_obs_correction": (
+                            None
+                            if book_verdicts is None
+                            else (
+                                book_verdicts["raw"].decision != DECISION_INSUFFICIENT
+                                and book_verdicts["obs_corrected"].decision
+                                == DECISION_INSUFFICIENT
+                            )
+                        ),
                     }
                 )
     finally:
@@ -494,8 +592,10 @@ def main(argv: list[str] | None = None) -> int:
             )
 
     if args.out:
-        Path(args.out).write_text(json.dumps(results, indent=2), encoding="utf-8")
-        print(f"per-cell JSON: {args.out}")
+        out_path = Path(args.out.format(label=args.label))
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
+        print(f"per-cell JSON: {out_path}")
     return 0
 
 

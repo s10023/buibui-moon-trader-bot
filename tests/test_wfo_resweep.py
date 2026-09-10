@@ -31,12 +31,14 @@ from tools.wfo_resweep import (
     ACTION_KEEP,
     ACTION_SKIP,
     ACTION_UPDATE,
+    BOOKS,
     MIN_IMPROVEMENT_R,
     MIN_OOS_TRADES,
     MIN_TP_R_STEP,
     cells_for_config,
     current_tp_r_for,
     decide_cell,
+    effect_size,
     median_rho_ci,
     rho_verdict,
 )
@@ -421,8 +423,21 @@ class TestMeasureRhoRescoresTheFullGrid:
             "top-N `rows` truncation"
         )
 
-    def test_the_measure_rho_flag_gates_the_corrected_computation(self) -> None:
-        """Default behaviour stays byte-identical: no `--measure-rho`, no re-score."""
+    def test_the_measure_rho_or_books_flags_gate_the_corrected_computation(
+        self,
+    ) -> None:
+        """Default behaviour stays byte-identical: neither flag set, no re-score.
+
+        R13: the 2x2 gets its OWN flag (``--books``) rather than inheriting
+        ``--measure-rho``'s, so the book loop is now gated on
+        ``args.measure_rho or args.books`` and ``decide_cell``'s ``corrected``
+        reads the already-computed ``book_verdicts["trials_corrected"]`` instead
+        of calling ``_compute_sweep_gate`` a second time. R19: this guard must
+        pin the NEW shape's polarity with equal strength to the one it replaces —
+        the original only checked that ``measure_rho`` was MENTIONED in the test
+        expression, which is exactly the class of guard an inverted condition
+        passes unnoticed.
+        """
         import ast
 
         src = Path("tools/wfo_resweep.py").read_text(encoding="utf-8")
@@ -432,6 +447,59 @@ class TestMeasureRhoRescoresTheFullGrid:
             for n in ast.walk(tree)
             if isinstance(n, ast.FunctionDef) and n.name == "main"
         )
+
+        # --- book_verdicts = {...} if (a flag is set) else None ---------------
+        book_verdicts_assign = next(
+            n
+            for n in ast.walk(main_fn)
+            if isinstance(n, ast.Assign)
+            and any(
+                isinstance(t, ast.Name) and t.id == "book_verdicts" for t in n.targets
+            )
+        )
+        book_expr = book_verdicts_assign.value
+        assert isinstance(book_expr, ast.IfExp), (
+            "book_verdicts must be computed conditionally — never unconditionally "
+            "on every run, which would pay the CSCV cost on every default run"
+        )
+        # Pin the test's own POLARITY, not just that the two flags are mentioned
+        # somewhere in it — `not (args.measure_rho or args.books)` mentions both
+        # names too, and a substring-only check passes it unchanged even though
+        # it computes on the DEFAULT run and skips under either flag (the exact
+        # inversion this guard exists to catch).
+        assert isinstance(book_expr.test, ast.BoolOp) and isinstance(
+            book_expr.test.op, ast.Or
+        ), (
+            "the gate must be a bare `a or b` BoolOp — a `not (...)` wrapper "
+            "around it inverts which branch fires under a flag"
+        )
+        flag_attrs = {
+            v.attr
+            for v in book_expr.test.values
+            if isinstance(v, ast.Attribute)
+            and isinstance(v.value, ast.Name)
+            and v.value.id == "args"
+        }
+        assert flag_attrs == {"measure_rho", "books"}, (
+            "the 2x2 must be gated on BOTH args.measure_rho and args.books, so "
+            "--measure-rho alone still gets its trials_corrected numbers"
+        )
+        assert isinstance(book_expr.body, ast.DictComp), (
+            "the TRUE branch (a flag set) must be the dict comprehension that "
+            "builds book_verdicts"
+        )
+        comp_call = book_expr.body.value
+        assert (
+            isinstance(comp_call, ast.Call)
+            and isinstance(comp_call.func, ast.Name)
+            and comp_call.func.id == "_compute_sweep_gate"
+        ), "the dict comprehension must call _compute_sweep_gate per book"
+        assert (
+            isinstance(book_expr.orelse, ast.Constant)
+            and book_expr.orelse.value is None
+        ), "the FALSE branch (neither flag set, the default path) must be None"
+
+        # --- corrected=book_verdicts["trials_corrected"] if ... else None -----
         decide_call = next(
             n
             for n in ast.walk(main_fn)
@@ -441,22 +509,65 @@ class TestMeasureRhoRescoresTheFullGrid:
         )
         corrected_kw = next(kw for kw in decide_call.keywords if kw.arg == "corrected")
         assert isinstance(corrected_kw.value, ast.IfExp), (
-            "the corrected gate must be computed conditionally on --measure-rho, "
+            "the corrected gate must be computed conditionally on book_verdicts, "
             "never unconditionally on every run"
         )
-        assert "measure_rho" in ast.unparse(corrected_kw.value.test)
-        # Presence of `measure_rho` in the test is not enough — pin the DIRECTION
-        # too, or `None if args.measure_rho else _compute_sweep_gate(...)` (the
-        # exact inversion: expensive on every default run, skipped under the
-        # flag) passes both checks above unchanged.
+        # Pin the polarity here too: `book_verdicts is None` (same names, inverted
+        # meaning) would pass a substring check on "book_verdicts" and "None"
+        # unchanged while swapping which branch reads the dict.
+        cond = corrected_kw.value.test
+        assert (
+            isinstance(cond, ast.Compare)
+            and isinstance(cond.left, ast.Name)
+            and cond.left.id == "book_verdicts"
+            and len(cond.ops) == 1
+            and isinstance(cond.ops[0], ast.IsNot)
+            and isinstance(cond.comparators[0], ast.Constant)
+            and cond.comparators[0].value is None
+        ), (
+            "the corrected gate's condition must be exactly "
+            "`book_verdicts is not None` — not `is None` or any other spelling "
+            "that a substring check on the two names alone would miss"
+        )
         body = corrected_kw.value.body
-        assert isinstance(body, ast.Call) and isinstance(body.func, ast.Name)
-        assert body.func.id == "_compute_sweep_gate", (
-            "the TRUE branch (flag set) must be the one that computes the "
-            "corrected gate"
+        assert isinstance(body, ast.Subscript) and isinstance(body.value, ast.Name)
+        assert body.value.id == "book_verdicts", (
+            "the TRUE branch must read the already-computed book_verdicts — "
+            "recomputing _compute_sweep_gate here would pay the CSCV cost twice"
+        )
+        assert ast.unparse(body.slice).strip("'\"") == "trials_corrected", (
+            "decide_cell's corrected gate must be the SAME value Task 6 "
+            "computed — book_verdicts['trials_corrected'] — never a different book"
         )
         orelse = corrected_kw.value.orelse
         assert isinstance(orelse, ast.Constant) and orelse.value is None, (
-            "the FALSE branch (flag unset, the default path) must be None — "
-            "no corrected-gate computation"
+            "the FALSE branch (book_verdicts is None) must be None — no "
+            "corrected-gate computation when neither flag is set"
         )
+
+
+class TestBooks:
+    def test_all_four_books_are_declared(self) -> None:
+        assert BOOKS == (
+            ("raw", False, False),
+            ("trials_corrected", True, False),
+            ("obs_corrected", False, True),
+            ("both", True, True),
+        )
+
+    def test_raw_book_is_first_so_it_is_the_baseline(self) -> None:
+        assert BOOKS[0][0] == "raw"
+
+
+class TestEffectSize:
+    def test_delta_is_winner_minus_current(self) -> None:
+        assert effect_size(0.10, 0.32) == pytest.approx(0.22)
+
+    def test_negative_delta_is_reported_not_clamped(self) -> None:
+        assert effect_size(0.40, 0.15) == pytest.approx(-0.25)
+
+    def test_missing_current_is_none(self) -> None:
+        assert effect_size(None, 0.32) is None
+
+    def test_missing_winner_is_none(self) -> None:
+        assert effect_size(0.10, None) is None
