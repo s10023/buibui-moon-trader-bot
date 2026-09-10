@@ -11,7 +11,7 @@ _NORM = NormalDist()
 
 def probabilistic_sharpe_ratio(
     sr: float,
-    n_obs: int,
+    n_obs: float,
     skew: float = 0.0,
     kurtosis: float = 3.0,
     sr_benchmark: float = 0.0,

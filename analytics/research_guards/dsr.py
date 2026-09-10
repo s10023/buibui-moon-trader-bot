@@ -15,7 +15,7 @@ EULER_MASCHERONI = 0.5772156649015329
 _NORM = NormalDist()
 
 
-def expected_max_sharpe(n_trials: int, sr_variance: float) -> float:
+def expected_max_sharpe(n_trials: float, sr_variance: float) -> float:
     """Expected maximum Sharpe across ``n_trials`` independent trials.
 
     Uses the Gumbel-tail approximation from Bailey & LdP (2014). Returns 0.0
@@ -35,10 +35,10 @@ def expected_max_sharpe(n_trials: int, sr_variance: float) -> float:
 
 def deflated_sharpe_ratio(
     sr: float,
-    n_obs: int,
+    n_obs: float,
     *,
     trial_srs: Sequence[float] | None = None,
-    n_trials: int | None = None,
+    n_trials: float | None = None,
     sr_variance: float | None = None,
     skew: float = 0.0,
     kurtosis: float = 3.0,
