@@ -74,6 +74,23 @@ different draws that still looks like one run.
 DEFAULT_REPLICATES = 200
 """§4b's pre-committed replicate count — restated at two sites before ST134's fix wave."""
 
+ARM_CORRECTIONS: dict[str, dict[str, bool]] = {
+    "uncorrected": {"trials": False, "obs": False},
+    "corrected": {"trials": True, "obs": False},
+    "both": {"trials": True, "obs": True},
+}
+"""ST134 I1: which of the two counting corrections each §4b arm applies.
+
+Both original ``null_pass_rate`` calls left ``correct_obs=False``, so the artifact's
+``"corrected"`` key means *trials-corrected*, not the corrected gate §6.4 defines —
+and nothing said so. Since C1 fed ``correct_obs`` into the MinTRL leg too, "the gate
+as actually shipped" is the ``both`` arm, and a reader comparing "corrected" against
+production without this table would be comparing the wrong pair. Written once, here,
+and embedded verbatim into both the run-level artifact and every per-cell record —
+a per-cell record read in isolation (e.g. from ``out_dir``-style extraction) must
+self-describe rather than depend on the reader also having the top-level JSON.
+"""
+
 
 def sign_flip_family(
     trials: Sequence[TrialPerf], rng: np.random.Generator

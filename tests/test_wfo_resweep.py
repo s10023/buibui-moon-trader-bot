@@ -28,10 +28,13 @@ from analytics.sweep_guard import (
     DECISION_BLOCK,
     DECISION_COMMIT,
     DECISION_INSUFFICIENT,
+    MIN_OBS_FACTOR,
     CommitGateVerdict,
     TrialPerf,
+    _build_perf_matrix,
+    _effective_trial_count,
 )
-from tools.st134_null_calibration import NullCalibrationResult
+from tools.st134_null_calibration import ARM_CORRECTIONS, NullCalibrationResult
 from tools.wfo_resweep import (
     ACTION_KEEP,
     ACTION_SKIP,
@@ -44,8 +47,11 @@ from tools.wfo_resweep import (
     _both_null_calibration_arms,
     _calibrate_one_cell,
     _far_below_nominal,
+    _format_out_path,
+    _ledger_has_alert_table,
     _null_calibration_out_path,
     _pool_null_results,
+    _population_rho,
     _result_to_json,
     cells_for_config,
     current_tp_r_for,
@@ -448,6 +454,79 @@ class TestDecideCellCarriesTheCorrectedGate:
         assert "_compute_sweep_gate" not in calls
 
 
+class TestPopulationRho:
+    """I2: rho measured on the PRE-REGISTERED population, unconditionally and
+    without going through the commit gate (no CSCV/DSR)."""
+
+    def _fake_report(self, trials: list[TrialPerf]) -> Any:
+        return SimpleNamespace(all_rows=list(range(len(trials))))
+
+    def test_matches_the_direct_effective_trial_count_computation(self) -> None:
+        """The spec's own formula, cross-checked byte-for-byte rather than
+        merely "returns a number in range"."""
+        trials = _trial_family()
+        with patch(
+            "tools.wfo_resweep._row_to_trialperf", side_effect=lambda i: trials[i]
+        ):
+            rho, n_trials_eff = _population_rho(self._fake_report(trials))
+        expected_rho, expected_n_eff = _effective_trial_count(
+            _build_perf_matrix(trials, MIN_OBS_FACTOR * 14)
+        )
+        assert rho == pytest.approx(expected_rho)
+        assert n_trials_eff == pytest.approx(expected_n_eff)
+
+    def test_fewer_than_two_arms_is_none_not_nan(self) -> None:
+        trials = _trial_family(k=1)
+        with patch(
+            "tools.wfo_resweep._row_to_trialperf", side_effect=lambda i: trials[i]
+        ):
+            rho, n_trials_eff = _population_rho(self._fake_report(trials))
+        assert rho is None
+        assert n_trials_eff is None
+
+    def test_never_conditioned_on_the_min_obs_floor(self) -> None:
+        """The whole point of I2: a family whose trades fall BELOW the gate's
+        own min_obs floor (and would therefore make `evaluate_commit_gate`
+        return INSUFFICIENT with rho=None) still gets a rho reading here."""
+        trials = _trial_family(k=4, n=6)  # 6 trades/arm < 2*14 = 28
+        with patch(
+            "tools.wfo_resweep._row_to_trialperf", side_effect=lambda i: trials[i]
+        ):
+            rho, n_trials_eff = _population_rho(self._fake_report(trials))
+        assert rho is not None
+        assert n_trials_eff is not None
+
+
+class TestFormatOutPath:
+    """Minor fix: a stray unescaped '{' in --out must not crash a multi-minute
+    run at the very last step, after every cell has already been swept."""
+
+    def test_the_label_placeholder_is_substituted(self) -> None:
+        path = _format_out_path("docs/plans/scratch/st134-resweep-{label}.json", "raw")
+        assert path == Path("docs/plans/scratch/st134-resweep-raw.json")
+
+    def test_a_stray_brace_returns_none_not_a_raised_keyerror(self) -> None:
+        assert _format_out_path("docs/plans/scratch/{oops}.json", "raw") is None
+
+    def test_a_literal_escaped_brace_still_resolves(self) -> None:
+        path = _format_out_path("docs/plans/scratch/{{literal}}-{label}.json", "raw")
+        assert path == Path("docs/plans/scratch/{literal}-raw.json")
+
+
+class TestLedgerHasAlertTable:
+    """I5: probe once, degrade rather than crash the 273-cell run."""
+
+    def test_present_table_reads_true(self) -> None:
+        conn = MagicMock()
+        conn.execute.return_value = None
+        assert _ledger_has_alert_table(conn) is True
+
+    def test_missing_table_reads_false_not_raises(self) -> None:
+        conn = MagicMock()
+        conn.execute.side_effect = RuntimeError("Catalog Error: Table does not exist")
+        assert _ledger_has_alert_table(conn) is False
+
+
 class TestMeasureRhoRescoresTheFullGrid:
     """R3: the re-score must read `all_rows`, never the top-N `rows` truncation.
 
@@ -478,15 +557,22 @@ class TestMeasureRhoRescoresTheFullGrid:
     ) -> None:
         """Default behaviour stays byte-identical: neither flag set, no re-score.
 
-        R13: the 2x2 gets its OWN flag (``--books``) rather than inheriting
-        ``--measure-rho``'s, so the book loop is now gated on
-        ``args.measure_rho or args.books`` and ``decide_cell``'s ``corrected``
-        reads the already-computed ``book_verdicts["trials_corrected"]`` instead
-        of calling ``_compute_sweep_gate`` a second time. R19: this guard must
-        pin the NEW shape's polarity with equal strength to the one it replaces —
-        the original only checked that ``measure_rho`` was MENTIONED in the test
-        expression, which is exactly the class of guard an inverted condition
-        passes unnoticed.
+        C2 (2026-09-11): ``--measure-rho`` ALONE must not pay the full 2x2's CSCV
+        cost and must not write the corrected 2x2 into the artifact — that "books"
+        block is the step-3 (§6) result the §4a/§4b kill-switches exist to gate,
+        so it landing on disk regardless of the kill-switch's own verdict is
+        exactly the violation this test now pins shut. So the shape changed from
+        a single ternary (``{...} if measure_rho or books else None``) to:
+
+        * ``if args.books:`` → the full 4-book dict comprehension over ``BOOKS``
+        * ``elif args.measure_rho:`` → a ONE-entry dict, ``{"trials_corrected":
+          _compute_sweep_gate(..., correct_trials=True, correct_obs=False)}``
+        * ``else:`` → ``None``
+
+        R19 (carried forward): this guard must pin the shape's polarity with
+        equal strength to the one it replaces — a substring-only check on names
+        mentioned passes an inverted condition unnoticed, which is the class of
+        guard the ORIGINAL version of this test was.
         """
         import ast
 
@@ -498,56 +584,172 @@ class TestMeasureRhoRescoresTheFullGrid:
             if isinstance(n, ast.FunctionDef) and n.name == "main"
         )
 
-        # --- book_verdicts = {...} if (a flag is set) else None ---------------
-        book_verdicts_assign = next(
+        def _is_args_attr(node: ast.AST, attr: str) -> bool:
+            return (
+                isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "args"
+                and node.attr == attr
+            )
+
+        def _book_verdicts_assign(stmts: list[ast.stmt]) -> ast.Assign:
+            return next(
+                s
+                for s in stmts
+                if isinstance(s, ast.Assign)
+                and any(
+                    isinstance(t, ast.Name) and t.id == "book_verdicts"
+                    for t in s.targets
+                )
+            )
+
+        # --- if args.books: book_verdicts = {full 2x2} -------------------------
+        # `main` also has a SECOND, unrelated `if args.books:` (the --books
+        # summary printed after the loop) — disambiguated by which one actually
+        # assigns book_verdicts in its body, not by which is found first.
+        outer_if = next(
             n
             for n in ast.walk(main_fn)
-            if isinstance(n, ast.Assign)
+            if isinstance(n, ast.If)
+            and _is_args_attr(n.test, "books")
             and any(
-                isinstance(t, ast.Name) and t.id == "book_verdicts" for t in n.targets
+                isinstance(s, ast.Assign)
+                and any(
+                    isinstance(t, ast.Name) and t.id == "book_verdicts"
+                    for t in s.targets
+                )
+                for s in n.body
             )
         )
-        book_expr = book_verdicts_assign.value
-        assert isinstance(book_expr, ast.IfExp), (
-            "book_verdicts must be computed conditionally — never unconditionally "
-            "on every run, which would pay the CSCV cost on every default run"
+        books_assign = _book_verdicts_assign(outer_if.body)
+        assert isinstance(books_assign.value, ast.DictComp), (
+            "under --books, book_verdicts must be the full 4-book dict "
+            "comprehension — the only path allowed to pay all four CSCV calls"
         )
-        # Pin the test's own POLARITY, not just that the two flags are mentioned
-        # somewhere in it — `not (args.measure_rho or args.books)` mentions both
-        # names too, and a substring-only check passes it unchanged even though
-        # it computes on the DEFAULT run and skips under either flag (the exact
-        # inversion this guard exists to catch).
-        assert isinstance(book_expr.test, ast.BoolOp) and isinstance(
-            book_expr.test.op, ast.Or
-        ), (
-            "the gate must be a bare `a or b` BoolOp — a `not (...)` wrapper "
-            "around it inverts which branch fires under a flag"
-        )
-        flag_attrs = {
-            v.attr
-            for v in book_expr.test.values
-            if isinstance(v, ast.Attribute)
-            and isinstance(v.value, ast.Name)
-            and v.value.id == "args"
-        }
-        assert flag_attrs == {"measure_rho", "books"}, (
-            "the 2x2 must be gated on BOTH args.measure_rho and args.books, so "
-            "--measure-rho alone still gets its trials_corrected numbers"
-        )
-        assert isinstance(book_expr.body, ast.DictComp), (
-            "the TRUE branch (a flag set) must be the dict comprehension that "
-            "builds book_verdicts"
-        )
-        comp_call = book_expr.body.value
+        comp_call = books_assign.value.value
         assert (
             isinstance(comp_call, ast.Call)
             and isinstance(comp_call.func, ast.Name)
             and comp_call.func.id == "_compute_sweep_gate"
-        ), "the dict comprehension must call _compute_sweep_gate per book"
+        ), "the --books comprehension must call _compute_sweep_gate per book"
+
+        # --- elif args.measure_rho: book_verdicts = {ONE entry} ----------------
+        assert len(outer_if.orelse) == 1 and isinstance(outer_if.orelse[0], ast.If), (
+            "the FALSE branch of `if args.books` must be a single nested "
+            "if/else (an `elif`) — never a second independent top-level branch"
+        )
+        inner_if = outer_if.orelse[0]
+        assert _is_args_attr(inner_if.test, "measure_rho"), (
+            "the elif must test args.measure_rho, not a restatement of "
+            "args.books — that inversion would make --measure-rho alone pay "
+            "the full 2x2 cost again"
+        )
+        rho_assign = _book_verdicts_assign(inner_if.body)
+        assert isinstance(rho_assign.value, ast.Dict), (
+            "under --measure-rho ALONE, book_verdicts must be a single-entry "
+            "dict LITERAL, never the 4-book comprehension — computing all four "
+            "here is exactly the CSCV-cost violation this guard exists to catch"
+        )
+        keys = [ast.unparse(k).strip("'\"") for k in rho_assign.value.keys if k]
+        assert keys == ["trials_corrected"], (
+            "the --measure-rho-alone book must be exactly one entry, "
+            "'trials_corrected' — not the full BOOKS family"
+        )
+        only_call = rho_assign.value.values[0]
         assert (
-            isinstance(book_expr.orelse, ast.Constant)
-            and book_expr.orelse.value is None
-        ), "the FALSE branch (neither flag set, the default path) must be None"
+            isinstance(only_call, ast.Call)
+            and isinstance(only_call.func, ast.Name)
+            and only_call.func.id == "_compute_sweep_gate"
+        )
+        call_kwargs = {kw.arg: kw.value for kw in only_call.keywords}
+        correct_trials_kwarg = call_kwargs.get("correct_trials")
+        assert (
+            isinstance(correct_trials_kwarg, ast.Constant)
+            and correct_trials_kwarg.value is True
+        ), "the --measure-rho-alone book must set correct_trials=True"
+        correct_obs_kwarg = call_kwargs.get("correct_obs")
+        assert (
+            isinstance(correct_obs_kwarg, ast.Constant)
+            and correct_obs_kwarg.value is False
+        ), "the --measure-rho-alone book must leave correct_obs=False"
+
+        # --- else: book_verdicts = None -----------------------------------------
+        else_assign = _book_verdicts_assign(inner_if.orelse)
+        assert (
+            isinstance(else_assign.value, ast.Constant)
+            and else_assign.value.value is None
+        ), "neither flag set must leave book_verdicts as None"
+
+        # --- the "books" artifact field is gated on args.books, never on
+        #     `book_verdicts is not None` (true under --measure-rho alone too) --
+        books_dictcomp = next(
+            n
+            for n in ast.walk(main_fn)
+            if isinstance(n, ast.DictComp)
+            and isinstance(n.generators[0].iter, ast.Call)
+            and isinstance(n.generators[0].iter.func, ast.Attribute)
+            and n.generators[0].iter.func.attr == "items"
+        )
+        books_field_ifexp = next(
+            n
+            for n in ast.walk(main_fn)
+            if isinstance(n, ast.IfExp) and n.body is books_dictcomp
+        )
+
+        def _names_args_books(node: ast.expr) -> bool:
+            """True for `args.books` alone, or for a mypy-narrowing `and`
+            that still carries `args.books` as one of its operands -- never
+            merely `book_verdicts is not None` on its own, which is true
+            under --measure-rho alone too."""
+            if _is_args_attr(node, "books"):
+                return True
+            return (
+                isinstance(node, ast.BoolOp)
+                and isinstance(node.op, ast.And)
+                and any(_is_args_attr(v, "books") for v in node.values)
+            )
+
+        assert _names_args_books(books_field_ifexp.test), (
+            "the 'books' artifact field must be gated on args.books directly — "
+            "gating it on `book_verdicts is not None` alone would write the 2x2 "
+            "under --measure-rho alone too, since that also leaves book_verdicts "
+            "non-None"
+        )
+        assert (
+            isinstance(books_field_ifexp.orelse, ast.Constant)
+            and books_field_ifexp.orelse.value is None
+        )
+
+        # --- "moved_to_insufficient_under_obs_correction" is gated the same way -
+        results_dict = next(
+            n
+            for n in ast.walk(main_fn)
+            if isinstance(n, ast.Dict)
+            and any(
+                isinstance(k, ast.Constant)
+                and k.value == "moved_to_insufficient_under_obs_correction"
+                for k in n.keys
+                if k is not None
+            )
+        )
+        moved_idx = next(
+            i
+            for i, k in enumerate(results_dict.keys)
+            if isinstance(k, ast.Constant)
+            and k.value == "moved_to_insufficient_under_obs_correction"
+        )
+        moved_expr = results_dict.values[moved_idx]
+        assert isinstance(moved_expr, ast.IfExp)
+        assert (
+            isinstance(moved_expr.test, ast.UnaryOp)
+            and isinstance(moved_expr.test.op, ast.Not)
+            and _names_args_books(moved_expr.test.operand)
+        ), (
+            "moved_to_insufficient_under_obs_correction must be gated on "
+            "`not args.books` (or the mypy-narrowing `not (args.books and "
+            "book_verdicts is not None)`) — it reads book_verdicts['raw'] and "
+            "['obs_corrected'], neither of which exists under --measure-rho alone"
+        )
 
         # --- corrected=book_verdicts["trials_corrected"] if ... else None -----
         decide_call = next(
@@ -753,42 +955,61 @@ class TestNullCalibrationVerdict:
 
 
 class TestBothNullCalibrationArms:
-    """ST134 §4b requirement 3: both arms run on the same nulls."""
+    """ST134 §4b requirement 3: every arm runs on the same nulls.
 
-    def test_both_arms_evaluate_every_replicate_on_this_family(self) -> None:
-        corrected, uncorrected = _both_null_calibration_arms(
+    I1: a third arm (``both`` — ``correct_trials=True, correct_obs=True``) was
+    added because ``corrected`` alone means TRIALS-corrected only, not the
+    gate as actually shipped since C1 fed ``correct_obs`` into the MinTRL leg
+    too.
+    """
+
+    def test_all_three_arms_evaluate_every_replicate_on_this_family(self) -> None:
+        corrected, uncorrected, both = _both_null_calibration_arms(
             _trial_family(), seed=99, n_replicates=40, n_splits=4
         )
-        assert corrected.evaluated == uncorrected.evaluated == 40
-        assert corrected.skipped == uncorrected.skipped == 0
+        assert corrected.evaluated == uncorrected.evaluated == both.evaluated == 40
+        assert corrected.skipped == uncorrected.skipped == both.skipped == 0
 
     def test_the_shared_seed_is_observable_in_rho_after(self) -> None:
         """`rho_after` is computed from the sign-flipped family BEFORE either
         result branches on `correct_trials`, so identical `rho_after` across
-        the two returned results is the observable proof they drew the same
+        all three returned results is the observable proof they drew the same
         nulls — not merely that the same seed value was passed somewhere."""
-        corrected, uncorrected = _both_null_calibration_arms(
+        corrected, uncorrected, both = _both_null_calibration_arms(
             _trial_family(), seed=99, n_replicates=40, n_splits=4
         )
         assert corrected.rho_after == pytest.approx(uncorrected.rho_after)
+        assert corrected.rho_after == pytest.approx(both.rho_after)
 
     def test_the_two_arms_can_genuinely_diverge(self) -> None:
-        """A stub returning the same NullCalibrationResult twice would pass
+        """A stub returning the same NullCalibrationResult thrice would pass
         the identical-rho_after test above too; this fixture (proven in Task
         7's own suite) makes the corrected arm measurably more permissive."""
         fam = _underdeflated_trial_family()
-        corrected, uncorrected = _both_null_calibration_arms(
+        corrected, uncorrected, _both = _both_null_calibration_arms(
             fam, seed=20260910, n_replicates=200, n_splits=14
         )
         assert corrected.rate > 0.10
         assert uncorrected.rate <= 0.10
 
-    def test_empty_trials_is_nan_on_both_arms(self) -> None:
-        corrected, uncorrected = _both_null_calibration_arms(
+    def test_both_is_never_more_permissive_than_trials_only(self) -> None:
+        """I1: correction (b) can only ever LOWER the deflated Sharpe relative
+        to the trials-only book, so `both`'s pass rate is bounded above by
+        `corrected`'s on the SAME nulls — a trials-only PROCEED licenses
+        reading a `both` PROCEED, never the reverse."""
+        fam = _underdeflated_trial_family()
+        corrected, _uncorrected, both = _both_null_calibration_arms(
+            fam, seed=20260910, n_replicates=200, n_splits=14
+        )
+        assert both.rate <= corrected.rate + 1e-9
+
+    def test_empty_trials_is_nan_on_all_three_arms(self) -> None:
+        corrected, uncorrected, both = _both_null_calibration_arms(
             [], seed=1, n_replicates=10, n_splits=4
         )
         assert math.isnan(corrected.rate)
         assert math.isnan(uncorrected.rate)
+        assert math.isnan(both.rate)
 
 
 class TestPoolNullResults:
@@ -931,7 +1152,7 @@ class TestCalibrateOneCell:
         with patch(
             "tools.wfo_resweep._sweep_cell", side_effect=RuntimeError("no data")
         ):
-            record, corrected, uncorrected = _calibrate_one_cell(
+            record, corrected, uncorrected, both = _calibrate_one_cell(
                 MagicMock(),
                 self._cell_arg(),
                 fee_pct=0.0004,
@@ -944,9 +1165,12 @@ class TestCalibrateOneCell:
             )
         assert corrected is None
         assert uncorrected is None
+        assert both is None
         assert record["error"] == "RuntimeError('no data')"
         assert record["corrected"] is None
         assert record["uncorrected"] is None
+        assert record["both"] is None
+        assert record["corrections"] == ARM_CORRECTIONS
         assert record["strategy"] == "bos"
         assert record["timeframe"] == "1h"
         assert record["symbol"] == "BTCUSDT"
@@ -966,7 +1190,7 @@ class TestCalibrateOneCell:
                 side_effect=lambda i: trials[i],
             ),
         ):
-            record, corrected, uncorrected = _calibrate_one_cell(
+            record, corrected, uncorrected, both = _calibrate_one_cell(
                 MagicMock(),
                 self._cell_arg(),
                 fee_pct=0.0004,
@@ -978,8 +1202,10 @@ class TestCalibrateOneCell:
                 n_splits=4,
             )
         assert record["error"] is None
-        assert corrected is not None and uncorrected is not None
+        assert corrected is not None and uncorrected is not None and both is not None
         assert record["corrected"]["evaluated"] == 50
+        assert record["both"]["evaluated"] == 50
+        assert record["corrections"] == ARM_CORRECTIONS
         assert record["n_arms"] == len(trials)
 
 
@@ -1163,6 +1389,111 @@ class TestRunNullCalibrationIntegration:
             assert key in data, f"missing {key!r} from the artifact"
         assert "population_size" not in data, "the renamed key must not linger"
         assert data["candidate_population_size"] == 2
+        # I1: a third arm, and a record of which corrections each arm applies.
+        assert "both" in data
+        assert data["corrections"] == ARM_CORRECTIONS
+        for cell in data["cells"]:
+            assert cell["corrections"] == ARM_CORRECTIONS
+        # I4: the final write is marked complete.
+        assert data["complete"] is True
+
+    def test_a_crash_outside_calibrate_one_cell_still_leaves_a_partial_artifact(
+        self, tmp_path: Path
+    ) -> None:
+        """I4: the artifact is checkpointed after EVERY cell, not written once
+        at the end — so a crash that ``_calibrate_one_cell``'s own (now
+        whole-body) ``try`` cannot catch still leaves every cell scored before
+        it on disk, marked incomplete, rather than losing the whole run."""
+        import json
+
+        from tools.wfo_resweep import _run_null_calibration
+
+        trials = _underdeflated_trial_family()
+
+        out_path = tmp_path / "artifact.json"
+        config = tmp_path / "signal_watch_test.toml"
+        config.write_text(
+            'day_filter = "off"\n'
+            'timeframes = ["1h"]\n'
+            "[strategy_timeframes]\n"
+            'bos = ["1h"]\n'
+        )
+
+        calls = {"n": 0}
+
+        def crashing_calibrate_one_cell(
+            conn: object, cell: object, **kw: object
+        ) -> object:
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("simulated crash outside the per-cell guard")
+            return (
+                {
+                    "config": "x",
+                    "day_filter": "off",
+                    "strategy": "bos",
+                    "timeframe": "1h",
+                    "symbol": "BTCUSDT",
+                    "n_arms": len(trials),
+                    "error": None,
+                    "corrected": {
+                        "rate": 0.05,
+                        "evaluated": 20,
+                        "skipped": 0,
+                        "rho_before": 0.5,
+                        "rho_after": 0.5,
+                    },
+                    "uncorrected": {
+                        "rate": 0.05,
+                        "evaluated": 20,
+                        "skipped": 0,
+                        "rho_before": 0.5,
+                        "rho_after": 0.5,
+                    },
+                    "both": {
+                        "rate": 0.05,
+                        "evaluated": 20,
+                        "skipped": 0,
+                        "rho_before": 0.5,
+                        "rho_after": 0.5,
+                    },
+                    "corrections": ARM_CORRECTIONS,
+                },
+                NullCalibrationResult(0.05, 20, 0, 0.5, 0.5),
+                NullCalibrationResult(0.05, 20, 0, 0.5, 0.5),
+                NullCalibrationResult(0.05, 20, 0, 0.5, 0.5),
+            )
+
+        with (
+            patch(
+                "tools.wfo_resweep._calibrate_one_cell",
+                side_effect=crashing_calibrate_one_cell,
+            ),
+            patch(
+                "tools.wfo_resweep._null_calibration_out_path",
+                return_value=out_path,
+            ),
+            pytest.raises(RuntimeError, match="simulated crash"),
+        ):
+            _run_null_calibration(
+                MagicMock(),
+                configs=[config],
+                symbols=("BTCUSDT", "ETHUSDT"),
+                fee_pct=0.0004,
+                min_sl_pct=0.001,
+                slippage_pct=0.0002,
+                since_ms=0,
+                label="test",
+                n_replicates=20,
+                n_splits=4,
+            )
+
+        data = json.loads(out_path.read_text())
+        assert data["complete"] is False
+        assert len(data["cells"]) == 1, (
+            "the checkpoint must have written the FIRST cell's record before "
+            "the second cell's crash propagated"
+        )
 
 
 class TestNullCalibrationIsOptIn:
