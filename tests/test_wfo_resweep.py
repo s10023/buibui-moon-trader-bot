@@ -1511,6 +1511,51 @@ class TestNullCalibrationIsOptIn:
         assert result.returncode == 0, result.stderr
         assert "--null-calibration" in result.stdout
 
+    def test_smoke_size_overrides_appear_in_help(self) -> None:
+        """Minor fix: --null-calibration-k / --null-calibration-replicates let
+        a smoke run (e.g. k=2, replicates=5) exercise the whole per-cell /
+        pooling / artifact path in seconds, so the first real k=30 /
+        replicates=200 invocation is not also that path's first end-to-end
+        run."""
+        result = subprocess.run(
+            [sys.executable, "tools/wfo_resweep.py", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert result.returncode == 0, result.stderr
+        assert "--null-calibration-k" in result.stdout
+        assert "--null-calibration-replicates" in result.stdout
+
+    def test_the_overrides_are_threaded_into_the_call(self) -> None:
+        """The flags exist AND actually reach `_run_null_calibration` — a
+        parser argument nobody reads would still show up in --help."""
+        import ast
+
+        src = Path("tools/wfo_resweep.py").read_text(encoding="utf-8")
+        main_fn = next(
+            n
+            for n in ast.walk(ast.parse(src))
+            if isinstance(n, ast.FunctionDef) and n.name == "main"
+        )
+        call = next(
+            n
+            for n in ast.walk(main_fn)
+            if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Name)
+            and n.func.id == "_run_null_calibration"
+        )
+        kwargs = {kw.arg: kw.value for kw in call.keywords}
+        k_value = kwargs.get("k")
+        assert (
+            isinstance(k_value, ast.Attribute) and k_value.attr == "null_calibration_k"
+        ), "k= must read args.null_calibration_k, not the module default directly"
+        n_replicates_value = kwargs.get("n_replicates")
+        assert (
+            isinstance(n_replicates_value, ast.Attribute)
+            and n_replicates_value.attr == "null_calibration_replicates"
+        ), "n_replicates= must read args.null_calibration_replicates"
+
     def test_the_help_text_names_the_flags_it_ignores(self) -> None:
         """Cheap fix (Task 10 review): a reader must be able to tell, without
         running it, that --out / --measure-rho / --books have no effect

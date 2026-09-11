@@ -50,6 +50,19 @@ move when `N` is re-counted, so these are exact):
 | 3 | 0.8529 | **−43.9%** |
 | 2 | 0.5199 | **−65.8%** |
 
+⚠ **Amendment (2026-09-11, ST134 I7):** at `k = 9`, `n_trials_eff = 9/(1 + 8ρ)` drops
+below the pre-registered floor `MIN_EFFECTIVE_TRIALS = 2.0` at `ρ ≈ 0.4375` — BELOW
+§4a's own correlation bar `ρ* = 0.5`. So any family that clears §4a's PROCEED bar
+(CI lower bound `> 0.5`) has, by construction, already floor-bound to `N = 2`, the
+**−65.8%** row above — never the graduated `N = 3` row the table otherwise seems to
+offer. The kill-switch's ρ measurement cannot discriminate "correlated enough to
+license the correction" from "correlated enough to license the MAXIMUM correction
+this family's own grid size permits" — a PROCEED licenses the bottom row of this
+table, not a point somewhere inside it. This does not change the decision rule in
+§6 or the table above; it is a correction to what a PROCEED verdict, once reached,
+turns out to mean for a 9-arm grid specifically (§1d's 99-arm flat-SL grids floor at
+a correspondingly lower ρ still).
+
 ### 1b. The observation count
 
 `n_obs` enters DSR as `sqrt(n − 1)`. `sweep_guard` counts raw trades and never clusters them —

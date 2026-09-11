@@ -1150,6 +1150,27 @@ def main(argv: list[str] | None = None) -> int:
             "are ignored. Writes no TOML and decides nothing."
         ),
     )
+    parser.add_argument(
+        "--null-calibration-k",
+        type=int,
+        default=_NULL_CALIBRATION_K,
+        help=(
+            "Override the --null-calibration sample size (default "
+            f"{_NULL_CALIBRATION_K}). Minor fix: a SMOKE run (e.g. --k 2 "
+            "--n-replicates 5) exercises the whole per-cell/pooling/artifact "
+            "path in seconds, so the first real k=30/replicates=200 invocation "
+            "is not also that path's first end-to-end execution."
+        ),
+    )
+    parser.add_argument(
+        "--null-calibration-replicates",
+        type=int,
+        default=_NULL_CALIBRATION_REPLICATES,
+        help=(
+            "Override the --null-calibration replicate count per cell "
+            f"(default {_NULL_CALIBRATION_REPLICATES}). See --null-calibration-k."
+        ),
+    )
     args = parser.parse_args(argv)
 
     import duckdb
@@ -1196,6 +1217,8 @@ def main(argv: list[str] | None = None) -> int:
                 slippage_pct=slippage_pct,
                 since_ms=since_ms,
                 label=args.label,
+                k=args.null_calibration_k,
+                n_replicates=args.null_calibration_replicates,
             )
             return 0
 
