@@ -83,10 +83,13 @@ from analytics.param_sweep import (  # noqa: E402
 )
 from analytics.sweep_guard import (  # noqa: E402
     DECISION_INSUFFICIENT,
+    DEFAULT_N_SPLITS,
     CommitGateVerdict,
     TrialPerf,
 )
 from tools.st134_null_calibration import (  # noqa: E402
+    DEFAULT_REPLICATES,
+    DEFAULT_SEED,
     NullCalibrationResult,
     null_pass_rate,
 )
@@ -389,7 +392,7 @@ def median_rho_ci(
     rhos: list[float],
     *,
     n_boot: int = 10_000,
-    seed: int = 20260910,
+    seed: int = DEFAULT_SEED,
 ) -> tuple[float, float, float]:
     """Median arm correlation and its percentile bootstrap CI.
 
@@ -444,9 +447,20 @@ def rho_verdict(ci_lo: float, ci_hi: float, *, bar: float = 0.5) -> str:
 # ---------------------------------------------------------------------------
 
 _NULL_CALIBRATION_K = 30
-_NULL_CALIBRATION_SEED = 20260910
-_NULL_CALIBRATION_REPLICATES = 200
-_NULL_CALIBRATION_SPLITS = 14
+_NULL_CALIBRATION_SEED = DEFAULT_SEED
+_NULL_CALIBRATION_REPLICATES = DEFAULT_REPLICATES
+_NULL_CALIBRATION_SPLITS = DEFAULT_N_SPLITS
+"""Aliases, NOT second copies — the same relationship ``DSR_THRESHOLD = GATE_DSR``
+already has in :mod:`analytics.sweep_guard`.
+
+All three restated a literal until ST134's fix wave, and ``n_splits`` was the one that
+bit: it sets ``min_obs = MIN_OBS_FACTOR * n_splits``, which sets BOTH the bin count rho
+is measured over and the effective-observation floor. Move ``DEFAULT_N_SPLITS`` and the
+calibration would have gone on measuring a different book from the gate it calibrates,
+each half internally consistent and no test able to fail — the ``|t| >= 1.96`` versus
+``2.802`` shape this file's own module docstring names.
+"""
+
 _NULL_CALIBRATION_BAR = 0.10
 _NOMINAL_NULL_RATE = 0.05
 # "Far below 5%" (spec §4b) is not itself a pre-registered number -- this file
