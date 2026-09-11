@@ -46,9 +46,11 @@ import math
 import sys
 import time
 import tomllib
+from collections import Counter
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 # A bare `python3 tools/wfo_resweep.py` puts `tools/` on sys.path rather than the
 # repo root, so the `analytics.*` imports below die with ModuleNotFoundError. Per
@@ -75,10 +77,26 @@ from analytics.param_sweep import (  # noqa: E402
     _cost_defaults,
     _default_param_ranges,
     _recommended_row,
+    _row_to_trialperf,
     min_trades_for,
     run_param_sweep,
 )
-from analytics.sweep_guard import DECISION_INSUFFICIENT, CommitGateVerdict  # noqa: E402
+from analytics.sweep_guard import (  # noqa: E402
+    DECISION_INSUFFICIENT,
+    CommitGateVerdict,
+    TrialPerf,
+)
+from tools.st134_null_calibration import (  # noqa: E402
+    NullCalibrationResult,
+    null_pass_rate,
+)
+
+if TYPE_CHECKING:
+    # Real `import duckdb` stays inside `main()`, after `reexec_into_venv` —
+    # a bare `python3` has no duckdb, and ST101's guarantee is that a bare
+    # `--help` invocation still works. This branch is never True at runtime
+    # (only mypy sees it), so it cannot reintroduce that failure.
+    import duckdb
 
 DEFAULT_SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT")
 DEFAULT_SINCE = "2025-09-12"
@@ -168,6 +186,47 @@ def _sweep_ranges(strategy: str) -> list[ParamRange]:
     for reasons that have nothing to do with ``tp_r``.
     """
     return _default_param_ranges(strategy)
+
+
+def _sweep_cell(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    strategy: str,
+    symbol: str,
+    timeframe: str,
+    day_filter: str,
+    fee_pct: float,
+    min_sl_pct: float,
+    slippage_pct: float,
+    since_ms: int,
+) -> ParamSweepReport:
+    """The one ``run_param_sweep`` call every per-cell path in this file makes.
+
+    Previously duplicated byte-identically between the resweep loop and the
+    §4b calibration loop (``wfo_split=0.7`` and ``top_n=20`` literals
+    included): change one copy's value and not the other, and the
+    calibration would silently measure a DIFFERENT book from the one the
+    resweep decides on, with no test able to catch it — both call sites
+    were internally consistent, which is exactly how the ``|t| >= 1.96`` vs
+    ``2.802`` divergence this file's own module docstring names went
+    unnoticed at ST28's sixth site.
+    """
+    return run_param_sweep(
+        conn,
+        strategy=strategy,
+        symbol=symbol,
+        timeframe=timeframe,
+        days=0,
+        param_ranges=_sweep_ranges(strategy),
+        wfo_split=0.7,
+        min_trades=min_trades_for(timeframe),
+        fee_pct=fee_pct,
+        min_sl_pct=min_sl_pct,
+        slippage_pct=slippage_pct,
+        top_n=20,
+        since_ms=since_ms,
+        day_filter=day_filter,
+    )
 
 
 def _row_tp_r(row: SweepRow) -> float | None:
@@ -315,6 +374,17 @@ def _fmt(value: float | None, spec: str = "+.4f") -> str:
     return "—" if value is None else format(value, spec)
 
 
+_ROUTE_TO_ST133_STOP_MESSAGE = (
+    "  ⛔ STOP. This does NOT license 'the gate was right' — failing to\n"
+    "     license a correction is a different claim from the refusals\n"
+    "     being correct. Route to ST133 on the existing evidence."
+)
+"""Shared between §4a (`--measure-rho`) and §4b (`--null-calibration`) — both
+kill-switches route the same way on a non-PROCEED verdict, and a second copy
+of the string is exactly how "same voice" silently drifts to "same voice,
+until someone edits one and not the other"."""
+
+
 def median_rho_ci(
     rhos: list[float],
     *,
@@ -359,6 +429,468 @@ def rho_verdict(ci_lo: float, ci_hi: float, *, bar: float = 0.5) -> str:
     if ci_hi < bar:
         return "NOT_LICENSED"
     return "INSUFFICIENT"
+
+
+# ---------------------------------------------------------------------------
+# ST134 section 4b — null calibration runner
+#
+# Task 7 (`tools/st134_null_calibration.py`) built the sign-flip null and its
+# pass-rate calibration but nothing on the branch called it, so its only
+# numbers lived in a gitignored scratch script — the exact pattern AGENTS.md
+# names by name at ST28's sixth site. This section gives it a tracked caller.
+#
+# ⛔ Decides nothing, writes no TOML, and does not run the 273 cells: it draws
+# a stratified SAMPLE and stops there. Reachable only via `--null-calibration`.
+# ---------------------------------------------------------------------------
+
+_NULL_CALIBRATION_K = 30
+_NULL_CALIBRATION_SEED = 20260910
+_NULL_CALIBRATION_REPLICATES = 200
+_NULL_CALIBRATION_SPLITS = 14
+_NULL_CALIBRATION_BAR = 0.10
+_NOMINAL_NULL_RATE = 0.05
+# "Far below 5%" (spec §4b) is not itself a pre-registered number -- this file
+# reads it as under half the nominal rate, stated once here rather than as a
+# silent literal in the print statement that uses it.
+_FAR_BELOW_NOMINAL_FACTOR = 0.5
+_POOLING_DESCRIPTION = (
+    "replicate-weighted: total passes / total evaluated across sampled "
+    "cells, per arm -- never an unweighted per-cell average"
+)
+"""Named once so the artifact can carry the rule rather than only its output —
+a reader of the JSON alone has no other way to tell which of the two
+defensible poolings (this one, or a plain per-cell average) produced the
+number on the page."""
+
+
+@dataclass(frozen=True)
+class ResweepCell:
+    """One `(config, day_filter, strategy, timeframe, symbol)` candidate for
+    the §4b draw.
+
+    `day_filter` is carried alongside the config path because sampling
+    happens *before* any sweep runs, and `run_param_sweep` needs it —
+    recomputing it later would mean re-opening and re-parsing the TOML the
+    sample was drawn from.
+    """
+
+    config_path: str
+    day_filter: str
+    strategy: str
+    timeframe: str
+    symbol: str
+
+
+def stratified_cell_sample(
+    cells: Sequence[ResweepCell],
+    *,
+    k: int = _NULL_CALIBRATION_K,
+    seed: int = _NULL_CALIBRATION_SEED,
+) -> list[ResweepCell]:
+    """Deterministic draw of ``k`` cells, stratified by timeframe.
+
+    ST134 §4b: the live ledger is 64.4% 15m, so an unstratified draw of ``k``
+    would be dominated by one timeframe. Quotas are apportioned by largest
+    remainder (Hamilton's method) so per-timeframe counts sum to exactly
+    ``k`` — independent per-stratum rounding would not.
+
+    A population no larger than ``k`` is returned WHOLE (sorted, so the
+    artifact is stable), which is the caller's own signal — by comparing
+    lengths — to report "used everything" rather than "sampled".
+    """
+    ordered = sorted(
+        cells, key=lambda c: (c.timeframe, c.strategy, c.symbol, c.config_path)
+    )
+    if len(ordered) <= k:
+        return ordered
+
+    by_tf: dict[str, list[ResweepCell]] = {}
+    for cell in ordered:
+        by_tf.setdefault(cell.timeframe, []).append(cell)
+
+    total = len(ordered)
+    quotas = {tf: k * len(group) / total for tf, group in by_tf.items()}
+    base = {tf: int(q) for tf, q in quotas.items()}  # floor; every quota >= 0
+    remaining = k - sum(base.values())
+    # Largest-remainder order. Cycling through it (rather than taking a single
+    # pass) skips a stratum already at its own population cap instead of
+    # stalling — guaranteed to terminate because `total > k` here (the
+    # smaller-population case already returned above), so some stratum always
+    # has spare capacity somewhere in the cycle.
+    order = sorted(by_tf, key=lambda tf: quotas[tf] - base[tf], reverse=True)
+    pos = 0
+    while remaining > 0:
+        tf = order[pos % len(order)]
+        if base[tf] < len(by_tf[tf]):
+            base[tf] += 1
+            remaining -= 1
+        pos += 1
+
+    rng = np.random.default_rng(seed)
+    sample: list[ResweepCell] = []
+    for tf in sorted(by_tf):
+        group = by_tf[tf]
+        n = base[tf]
+        if n <= 0:
+            continue
+        idx = rng.choice(len(group), size=n, replace=False)
+        sample.extend(group[i] for i in sorted(idx.tolist()))
+    return sample
+
+
+def null_calibration_verdict(
+    corrected_rate: float,
+    uncorrected_rate: float,
+    *,
+    bar: float = _NULL_CALIBRATION_BAR,
+) -> str:
+    """ST134 §4b's pre-committed bar: ``"PROCEED"`` at or below it, else ``"ABANDON"``.
+
+    ``uncorrected_rate`` gates nothing here — §4b's decision rule is the
+    corrected arm against the bar alone; the uncorrected arm is disclosed
+    beside it (a rate far below the nominal 5% is evidence the uncorrected
+    gate is over-conservative), never folded into this verdict as a second
+    condition. It stays a required parameter so a caller cannot obtain a
+    verdict without having already computed both numbers.
+
+    NaN (nothing evaluated — every null replicate skipped, or fewer than two
+    trials) reads as ``"ABANDON"``: proceeding on no evidence is exactly the
+    licence this control exists to withhold.
+    """
+    if math.isnan(corrected_rate):
+        return "ABANDON"
+    return "ABANDON" if corrected_rate > bar else "PROCEED"
+
+
+def _both_null_calibration_arms(
+    trials: Sequence[TrialPerf],
+    *,
+    seed: int = _NULL_CALIBRATION_SEED,
+    n_replicates: int = _NULL_CALIBRATION_REPLICATES,
+    n_splits: int = _NULL_CALIBRATION_SPLITS,
+) -> tuple[NullCalibrationResult, NullCalibrationResult]:
+    """Corrected and uncorrected §4b results for one cell's trial family.
+
+    Requirement 3: both arms run on the SAME nulls — same seed, same family.
+    ``null_pass_rate`` computes ``rho_after`` before branching on
+    ``correct_trials``, so with a shared seed the two returned results carry
+    IDENTICAL ``rho_after`` whenever anything was evaluated; that identity is
+    the observable proof the seed was actually shared, not merely passed.
+    """
+    corrected = null_pass_rate(
+        trials,
+        correct_trials=True,
+        n_replicates=n_replicates,
+        n_splits=n_splits,
+        seed=seed,
+    )
+    uncorrected = null_pass_rate(
+        trials,
+        correct_trials=False,
+        n_replicates=n_replicates,
+        n_splits=n_splits,
+        seed=seed,
+    )
+    return corrected, uncorrected
+
+
+def _pool_null_results(
+    results: Sequence[NullCalibrationResult],
+) -> NullCalibrationResult:
+    """Pool per-cell §4b results into one arm-level record.
+
+    ``rate`` pools by REPLICATE — total passes over total evaluated across
+    every cell — because "the corrected gate must pass <= 10% of null
+    replicates" is a statement about the pooled population of null draws, not
+    an average of per-cell rates that would let a handful of thin cells
+    outvote the bulk of evaluated replicates. ``passes`` is recovered as
+    ``round(rate * evaluated)`` since :class:`NullCalibrationResult` does not
+    carry it directly; both operands were exact integers before division, so
+    the round-trip through the float ``rate`` is exact bar the last ULP,
+    which ``round()`` absorbs.
+
+    ``rho_before`` / ``rho_after`` are the plain mean over cells that
+    produced a value (NaN excluded) — a description of the sampled
+    population's typical correlation, not a replicate-weighted quantity.
+
+    Pools to ``rate=NaN`` when every cell had ``evaluated == 0``, matching
+    ``null_pass_rate``'s own "nothing could be evaluated" convention.
+    """
+    evaluated = sum(r.evaluated for r in results)
+    skipped = sum(r.skipped for r in results)
+    passes = sum(
+        round(r.rate * r.evaluated)
+        for r in results
+        if r.evaluated and not math.isnan(r.rate)
+    )
+    rate = passes / evaluated if evaluated else math.nan
+    before = [r.rho_before for r in results if not math.isnan(r.rho_before)]
+    after = [r.rho_after for r in results if not math.isnan(r.rho_after)]
+    rho_before = sum(before) / len(before) if before else math.nan
+    rho_after = sum(after) / len(after) if after else math.nan
+    return NullCalibrationResult(rate, evaluated, skipped, rho_before, rho_after)
+
+
+def _result_to_json(result: NullCalibrationResult) -> dict[str, float | int | None]:
+    """NaN is not valid JSON; every NaN-able field becomes ``null`` on write.
+
+    That is the same meaning ``null`` already carries on this file's other
+    optional numeric fields (e.g. ``CellVerdict.winner_tp_r``), so a reader
+    does not need a second convention for "nothing here" depending on which
+    field they are looking at.
+    """
+
+    def nn(value: float) -> float | None:
+        return None if math.isnan(value) else value
+
+    return {
+        "rate": nn(result.rate),
+        "evaluated": result.evaluated,
+        "skipped": result.skipped,
+        "rho_before": nn(result.rho_before),
+        "rho_after": nn(result.rho_after),
+    }
+
+
+def _far_below_nominal(
+    rate: float,
+    *,
+    nominal: float = _NOMINAL_NULL_RATE,
+    factor: float = _FAR_BELOW_NOMINAL_FACTOR,
+) -> tuple[bool | None, str]:
+    """Whether the (pooled) uncorrected rate sits far below the nominal null rate.
+
+    Returns ``(None, ...)`` on NaN rather than ``False`` — "not clearly
+    below" is a claim about a comparison, and no comparison was made when
+    nothing was evaluated. The returned line carries the actual numbers
+    compared and states plainly that the threshold is this run's reading
+    rather than a pre-registered bar, so the disclaimer travels with the
+    number into both stdout and the JSON artifact instead of living only in
+    a source comment nobody reading the output can see.
+    """
+    threshold = nominal * factor
+    if math.isnan(rate):
+        return None, (
+            f"uncorrected rate is NaN (nothing evaluated) — the far-below "
+            f"comparison against {threshold:.4f} is undetermined"
+        )
+    far_below = rate < threshold
+    cmp_symbol = "<" if far_below else ">="
+    return far_below, (
+        f"uncorrected {rate:.4f} {cmp_symbol} {threshold:.4f} "
+        f"({factor:.0%} of the nominal {nominal:.0%} — this run's reading, "
+        f"not a pre-registered bar)"
+    )
+
+
+def _null_calibration_out_path(label: str) -> Path:
+    """§4b artifact path — under ``docs/plans/scratch/``, formatted from ``--label``.
+
+    ST128's run JSON went to ``/tmp`` and is gone, and its central claim can
+    no longer be verified — the reason requirement 6 exists at all.
+    """
+    return Path(f"docs/plans/scratch/st134-null-calibration-{label}.json")
+
+
+def _calibrate_one_cell(
+    conn: duckdb.DuckDBPyConnection,
+    cell: ResweepCell,
+    *,
+    fee_pct: float,
+    min_sl_pct: float,
+    slippage_pct: float,
+    since_ms: int,
+    seed: int,
+    n_replicates: int,
+    n_splits: int,
+) -> tuple[dict[str, Any], NullCalibrationResult | None, NullCalibrationResult | None]:
+    """One sampled cell's §4b record, plus its two results for pooling.
+
+    Always returns a record — including on failure. The record used to be
+    dropped on a dead cell (``print(...); continue``), which meant
+    ``k_drawn`` in the artifact counted cells the JSON carried no trace of:
+    a reader saw e.g. ``"k_drawn": 30`` against 27 cells, with no record of
+    which three failed or why. Returns ``(record, None, None)`` on failure
+    so the caller can tell a dead cell from a scored one without inspecting
+    the record's shape.
+    """
+    base: dict[str, Any] = {
+        "config": cell.config_path,
+        "day_filter": cell.day_filter,
+        "strategy": cell.strategy,
+        "timeframe": cell.timeframe,
+        "symbol": cell.symbol,
+    }
+    try:
+        report = _sweep_cell(
+            conn,
+            strategy=cell.strategy,
+            symbol=cell.symbol,
+            timeframe=cell.timeframe,
+            day_filter=cell.day_filter,
+            fee_pct=fee_pct,
+            min_sl_pct=min_sl_pct,
+            slippage_pct=slippage_pct,
+            since_ms=since_ms,
+        )
+    except Exception as exc:  # a dead cell must not kill the run
+        print(f"  !! {cell.strategy:22} {cell.timeframe:4} {cell.symbol:8} ERROR {exc}")
+        return (
+            {
+                **base,
+                "n_arms": None,
+                "error": repr(exc),
+                "corrected": None,
+                "uncorrected": None,
+            },
+            None,
+            None,
+        )
+
+    trials = [_row_to_trialperf(r) for r in report.all_rows]
+    corrected, uncorrected = _both_null_calibration_arms(
+        trials, seed=seed, n_replicates=n_replicates, n_splits=n_splits
+    )
+    print(
+        f"  {cell.strategy:22} {cell.timeframe:4} {cell.symbol:8} arms={len(trials):3} "
+        f"corrected rate={_fmt(corrected.rate, '.4f')} "
+        f"(n={corrected.evaluated}/{corrected.evaluated + corrected.skipped})  "
+        f"uncorrected rate={_fmt(uncorrected.rate, '.4f')} "
+        f"(n={uncorrected.evaluated}/{uncorrected.evaluated + uncorrected.skipped})"
+    )
+    record = {
+        **base,
+        "n_arms": len(trials),
+        "error": None,
+        "corrected": _result_to_json(corrected),
+        "uncorrected": _result_to_json(uncorrected),
+    }
+    return record, corrected, uncorrected
+
+
+def _run_null_calibration(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    configs: list[Path],
+    symbols: tuple[str, ...],
+    fee_pct: float,
+    min_sl_pct: float,
+    slippage_pct: float,
+    since_ms: int,
+    label: str,
+    k: int = _NULL_CALIBRATION_K,
+    seed: int = _NULL_CALIBRATION_SEED,
+    n_replicates: int = _NULL_CALIBRATION_REPLICATES,
+    n_splits: int = _NULL_CALIBRATION_SPLITS,
+) -> None:
+    """ST134 §4b: sample, run the null on the sample, report, write the artifact.
+
+    Read-only and additive: writes no TOML, decides nothing, and — unlike the
+    per-config loop in ``main`` — never touches more than ``k`` cells.
+    ``--out`` / ``--measure-rho`` / ``--books`` are ignored in this mode.
+    """
+    print("  (--out / --measure-rho / --books are ignored in --null-calibration mode)")
+
+    candidate_population: list[ResweepCell] = []
+    for config_path in configs:
+        with config_path.open("rb") as fh:
+            config = tomllib.load(fh)
+        day_filter = config.get("day_filter", "off")
+        candidate_population.extend(
+            ResweepCell(str(config_path), day_filter, strategy, timeframe, symbol)
+            for strategy, timeframe, symbol in cells_for_config(config, symbols)
+        )
+
+    print(
+        f"\nST134 §4b — null calibration: {len(candidate_population)} candidate cell(s)"
+    )
+    if len(candidate_population) <= k:
+        print(
+            f"  candidate population <= k={k}; using all "
+            f"{len(candidate_population)} cells, not a sample"
+        )
+    sample = stratified_cell_sample(candidate_population, k=k, seed=seed)
+    composition = dict(sorted(Counter(c.timeframe for c in sample).items()))
+    print(
+        f"  drew {len(sample)} cell(s)  composition (timeframe -> count): {composition}"
+    )
+
+    per_cell: list[dict[str, Any]] = []
+    correcteds: list[NullCalibrationResult] = []
+    uncorrecteds: list[NullCalibrationResult] = []
+    for cell in sample:
+        record, corrected, uncorrected = _calibrate_one_cell(
+            conn,
+            cell,
+            fee_pct=fee_pct,
+            min_sl_pct=min_sl_pct,
+            slippage_pct=slippage_pct,
+            since_ms=since_ms,
+            seed=seed,
+            n_replicates=n_replicates,
+            n_splits=n_splits,
+        )
+        per_cell.append(record)
+        if corrected is not None and uncorrected is not None:
+            correcteds.append(corrected)
+            uncorrecteds.append(uncorrected)
+
+    pooled_corrected = _pool_null_results(correcteds)
+    pooled_uncorrected = _pool_null_results(uncorrecteds)
+    verdict = null_calibration_verdict(pooled_corrected.rate, pooled_uncorrected.rate)
+    uncorrected_far_below, far_below_line = _far_below_nominal(pooled_uncorrected.rate)
+
+    print(f"\n{'=' * 78}")
+    print(
+        f"ST134 §4b — {len(correcteds)} of {len(sample)} sampled cell(s) completed "
+        f"(candidate population {len(candidate_population)}, requested k={k}, "
+        f"seed={seed})"
+    )
+    print(
+        f"  corrected    rate {_fmt(pooled_corrected.rate, '.4f')}  "
+        f"evaluated {pooled_corrected.evaluated}  skipped {pooled_corrected.skipped}  "
+        f"rho_before {_fmt(pooled_corrected.rho_before)}  "
+        f"rho_after {_fmt(pooled_corrected.rho_after)}"
+    )
+    print(
+        f"  uncorrected  rate {_fmt(pooled_uncorrected.rate, '.4f')}  "
+        f"evaluated {pooled_uncorrected.evaluated}  skipped {pooled_uncorrected.skipped}  "
+        f"rho_before {_fmt(pooled_uncorrected.rho_before)}  "
+        f"rho_after {_fmt(pooled_uncorrected.rho_after)}"
+    )
+    print(f"  {far_below_line}")
+    print(f"  VERDICT: {verdict}  (bar: corrected rate <= {_NULL_CALIBRATION_BAR:.0%})")
+    if verdict != "PROCEED":
+        print(_ROUTE_TO_ST133_STOP_MESSAGE)
+
+    out_path = _null_calibration_out_path(label)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
+        json.dumps(
+            {
+                "label": label,
+                "seed": seed,
+                "n_replicates": n_replicates,
+                "n_splits": n_splits,
+                "k_requested": k,
+                "k_drawn": len(sample),
+                "candidate_population_size": len(candidate_population),
+                "composition": composition,
+                "bar": _NULL_CALIBRATION_BAR,
+                "nominal_null_rate": _NOMINAL_NULL_RATE,
+                "far_below_factor": _FAR_BELOW_NOMINAL_FACTOR,
+                "uncorrected_far_below_nominal": uncorrected_far_below,
+                "pooling": _POOLING_DESCRIPTION,
+                "corrected": _result_to_json(pooled_corrected),
+                "uncorrected": _result_to_json(pooled_uncorrected),
+                "verdict": verdict,
+                "cells": per_cell,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    print(f"per-cell JSON: {out_path}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -410,6 +942,19 @@ def main(argv: list[str] | None = None) -> int:
             "nothing."
         ),
     )
+    parser.add_argument(
+        "--null-calibration",
+        action="store_true",
+        help=(
+            "ST134 section 4b kill-switch: draw a stratified sample of cells "
+            "(never the full 273), run the corrected and uncorrected commit gate "
+            "against a shared sign-flip null family for each, pool the pass rate "
+            "across the sample, and report it against the pre-committed 10%% bar. "
+            "STOPS after reporting -- the standard per-config sweep loop below "
+            "does not run at all in this mode, and --out / --measure-rho / --books "
+            "are ignored. Writes no TOML and decides nothing."
+        ),
+    )
     args = parser.parse_args(argv)
 
     import duckdb
@@ -442,9 +987,25 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     conn = duckdb.connect(args.db, read_only=True)
-    results: list[dict[str, Any]] = []
-    started = time.time()
     try:
+        if args.null_calibration:
+            # Requirement 1: opt-in, and the standard per-config loop below
+            # never executes in this mode — the early `return` is what makes
+            # "does not run the 273 cells" true rather than merely intended.
+            _run_null_calibration(
+                conn,
+                configs=configs,
+                symbols=symbols,
+                fee_pct=fee_pct,
+                min_sl_pct=min_sl_pct,
+                slippage_pct=slippage_pct,
+                since_ms=since_ms,
+                label=args.label,
+            )
+            return 0
+
+        results: list[dict[str, Any]] = []
+        started = time.time()
         for config_path in configs:
             with config_path.open("rb") as fh:
                 config = tomllib.load(fh)
@@ -458,21 +1019,16 @@ def main(argv: list[str] | None = None) -> int:
             for strategy, timeframe, symbol in cells:
                 current = current_tp_r_for(params, strategy, timeframe, symbol)
                 try:
-                    report = run_param_sweep(
+                    report = _sweep_cell(
                         conn,
                         strategy=strategy,
                         symbol=symbol,
                         timeframe=timeframe,
-                        days=0,
-                        param_ranges=_sweep_ranges(strategy),
-                        wfo_split=0.7,
-                        min_trades=min_trades_for(timeframe),
+                        day_filter=day_filter,
                         fee_pct=fee_pct,
                         min_sl_pct=min_sl_pct,
                         slippage_pct=slippage_pct,
-                        top_n=20,
                         since_ms=since_ms,
-                        day_filter=day_filter,
                     )
                 except Exception as exc:  # a dead cell must not kill the run
                     print(f"  !! {strategy:22} {timeframe:4} {symbol:8} ERROR {exc}")
@@ -530,6 +1086,18 @@ def main(argv: list[str] | None = None) -> int:
                     f"OOS {_fmt(verdict.winner_oos_avg_r)}  n={verdict.winner_oos_n or 0:<4} "
                     f"{verdict.reason}"
                 )
+                # Rider (Task 10 review): the window is emitted alongside the
+                # rate rather than only the rate, so a reader can tell "thin
+                # exposure" from "the ledger's history starts after --since"
+                # without re-deriving it — see `alerts_per_week`'s docstring.
+                exposure = alerts_per_week(
+                    conn,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    strategy=strategy,
+                    since_ms=since_ms,
+                    now_ms=now_ms,
+                )
                 results.append(
                     {
                         "config": str(config_path),
@@ -567,14 +1135,10 @@ def main(argv: list[str] | None = None) -> int:
                         # (C(14,7)=3,432 splits), while this is one COUNT(*) against
                         # the already-open ledger connection, so that cost reasoning
                         # does not transfer here.
-                        "live_alerts_per_week": alerts_per_week(
-                            conn,
-                            symbol=symbol,
-                            timeframe=timeframe,
-                            strategy=strategy,
-                            since_ms=since_ms,
-                            now_ms=now_ms,
-                        ),
+                        "live_alerts_per_week": exposure.rate,
+                        "live_alerts_window_start_ms": exposure.window_start_ms,
+                        "live_alerts_window_days": exposure.window_days,
+                        "live_alerts_first_fired_ms": exposure.first_fired_ms,
                         "moved_to_insufficient_under_obs_correction": (
                             None
                             if book_verdicts is None
@@ -611,11 +1175,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  median rho {med:.4f}   95% CI [{lo:.4f}, {hi:.4f}]   bar 0.50")
         print(f"  VERDICT: {rho_outcome}")
         if rho_outcome != "PROCEED":
-            print(
-                "  ⛔ STOP. This does NOT license 'the gate was right' — failing to\n"
-                "     license a correction is a different claim from the refusals\n"
-                "     being correct. Route to ST133 on the existing evidence."
-            )
+            print(_ROUTE_TO_ST133_STOP_MESSAGE)
 
     if args.out:
         out_path = Path(args.out.format(label=args.label))
