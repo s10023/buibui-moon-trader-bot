@@ -65,6 +65,7 @@ except ImportError:  # pragma: no cover - a clone without the helper still runs
 
 import numpy as np  # noqa: E402
 
+from analytics.live_exposure import alerts_per_week  # noqa: E402
 from analytics.param_sweep import (  # noqa: E402
     MIN_TRADES_BY_TF,
     ParamRange,
@@ -427,6 +428,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.min_sl_pct is not None:
         min_sl_pct = args.min_sl_pct
     since_ms = _since_ms(args.since)
+    # `now_ms` for `alerts_per_week` below. `since_ms` is already this run's start
+    # (the sweep's own `--since`) — reused rather than restated via a second date
+    # library, which would be the same value computed twice by different means.
+    now_ms = int(time.time() * 1000)
 
     print(
         f"ST128 corrected re-sweep — {len(configs)} config(s), symbols {', '.join(symbols)}"
@@ -480,14 +485,19 @@ def main(argv: list[str] | None = None) -> int:
                 # full grid the gate deflates against), never the top-N `rows`
                 # truncation, and the chosen row still comes from `rows`, mirroring
                 # production's own recommended-row pick at
-                # `analytics/param_sweep.py:547` — only the trial family widens.
+                # `analytics/param_sweep.py:546` — only the trial family widens.
                 # This runs no additional backtests, but each of the four re-scores
                 # still re-runs CSCV/DSR — real cost the default path must not pay.
+                # `_recommended_row` is pure and cheap, so hoisting it here is not a
+                # performance fix — it is computed ONCE and reused across all four
+                # books to keep "one chosen row, four scorings" visible in the code,
+                # rather than recomputed identically inside each comprehension pass.
+                chosen_row = _recommended_row(report.rows)
                 book_verdicts = (
                     {
                         name: _compute_sweep_gate(
                             report.all_rows,
-                            _recommended_row(report.rows),
+                            chosen_row,
                             report.n_grid,
                             correct_trials=ct,
                             correct_obs=co,
@@ -546,8 +556,24 @@ def main(argv: list[str] | None = None) -> int:
                             if book_verdicts is not None
                             else None
                         ),
+                        # Unconditional, unlike "books" above: it reads only the
+                        # current/winner oos_avg_r decide_cell produces every run.
                         "effect_size_oos_avg_r": effect_size(
                             verdict.current_oos_avg_r, verdict.winner_oos_avg_r
+                        ),
+                        # ST134 section 5 item 2 — the other half of effect size:
+                        # how often this cell fires live. Also unconditional: the
+                        # four-book gate exists because each book re-runs CSCV/PBO
+                        # (C(14,7)=3,432 splits), while this is one COUNT(*) against
+                        # the already-open ledger connection, so that cost reasoning
+                        # does not transfer here.
+                        "live_alerts_per_week": alerts_per_week(
+                            conn,
+                            symbol=symbol,
+                            timeframe=timeframe,
+                            strategy=strategy,
+                            since_ms=since_ms,
+                            now_ms=now_ms,
                         ),
                         "moved_to_insufficient_under_obs_correction": (
                             None
