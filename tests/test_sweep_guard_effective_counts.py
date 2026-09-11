@@ -6,15 +6,19 @@ pre-registration commits to, and pin that the formula is DELEGATED rather than
 re-spelled — a drifting second copy is the defect the spec's own section 1e is about.
 """
 
+import math
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from analytics.forecast import effective_independent_series
+from analytics.research_guards import min_track_record_length
 from analytics.sweep_guard import (
     TrialPerf,
     _effective_obs_count,
     _effective_trial_count,
+    _trial_sharpe,
     evaluate_commit_gate,
 )
 
@@ -36,15 +40,49 @@ class TestEffectiveTrialCount:
         assert n_eff <= 5.0  # never above the raw family
 
     def test_negative_rho_clamps_to_the_raw_count(self) -> None:
+        """⚠ k=2, where the floor (2.0) and the ceiling (k) COINCIDE — so this
+        pins neither bound on its own. It is kept for the rho half: a perfectly
+        anti-correlated pair takes ``effective_independent_series``' non-positive
+        denominator branch, which returns ``float(k)`` and inverted to exactly
+        ``rho = 0.0`` until rho was measured directly. The ceiling proper is
+        pinned at k=4 below.
+        """
         col = np.array([1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0])
         perf = np.column_stack([col, -col])
-        _, n_eff = _effective_trial_count(perf)
+        rho, n_eff = _effective_trial_count(perf)
+        assert rho == pytest.approx(-1.0)
         assert n_eff == 2.0
+
+    def test_the_ceiling_binds_above_two_arms(self) -> None:
+        """Mild negative correlation at k=4: ``1 + 3*rho > 0``, so the raw
+        ``n_eff`` is genuinely ABOVE k and the ceiling — not the floor, and not a
+        degenerate fallback — is what returns it to 4.0.
+        """
+        rng = np.random.default_rng(3)
+        common = rng.normal(size=40)
+        perf = np.column_stack(
+            [rng.normal(size=40) + ((-1) ** j) * 0.35 * common for j in range(4)]
+        )
+        rho, n_eff = _effective_trial_count(perf)
+        assert rho < 0.0
+        assert 1.0 + 3.0 * rho > 0.0  # not the degenerate denominator branch
+        assert 4.0 / (1.0 + 3.0 * rho) > 4.0  # unclamped, it would INFLATE
+        assert n_eff == 4.0
+
+    def test_an_unmeasurable_rho_is_nan_not_zero(self) -> None:
+        """Constant columns make every pairwise correlation NaN. "We could not
+        measure it" must not read as "we measured zero correlation" — that value
+        IS §4a's decision statistic, and averaging phantom zeros into the median
+        pulls the CI toward the bar from the licensed side.
+        """
+        rho, n_eff = _effective_trial_count(np.zeros((10, 3)))
+        assert math.isnan(rho)
+        assert n_eff == 3.0  # unmeasurable ⇒ no deflation, the fail-safe direction
 
     def test_single_arm_is_not_deflated(self) -> None:
         perf = np.array([[1.0], [2.0], [3.0]])
         rho, n_eff = _effective_trial_count(perf)
-        assert rho == 0.0
+        assert math.isnan(rho)  # no pair exists, so nothing was measured
         assert n_eff == 1.0
 
     def test_delegates_to_effective_independent_series(self) -> None:
@@ -195,12 +233,94 @@ class TestCorrectionsAreOptIn:
         assert fixed.decision == "INSUFFICIENT"
         assert any("effective" in r for r in fixed.reasons)
 
+    def test_the_corrected_family_must_be_the_whole_family(self) -> None:
+        """A truncated family under ``correct_trials`` loses the ``n_grid`` floor
+        silently — the ceiling is ``k``, so the deflation would be against the
+        truncation. It must raise rather than quietly under-deflate.
+        """
+        trials = _correlated_trials()
+        with pytest.raises(ValueError, match="FULL family"):
+            evaluate_commit_gate(
+                trials[-1], trials, n_grid=99, n_splits=4, correct_trials=True
+            )
+
+    def test_the_uncorrected_path_still_accepts_a_truncated_family(self) -> None:
+        """The floor is exactly what ``n_grid`` is FOR on the default path."""
+        trials = _correlated_trials()
+        v = evaluate_commit_gate(trials[-1], trials, n_grid=99, n_splits=4)
+        assert v.n_trials == 6
+
     def test_raw_trial_guard_still_runs_first(self) -> None:
         """The floor of 2.0 must not route around the n_trials < 2 refusal."""
         t = _correlated_trials(k=1)[0]
         v = evaluate_commit_gate(t, [t], n_grid=1, n_splits=4, correct_trials=True)
         assert v.decision == "INSUFFICIENT"
         assert v.n_trials_eff is None
+
+
+def _mintrl_binding_family() -> tuple[list[TrialPerf], int]:
+    """60 trades over 30 UTC days, two per day sharing a per-day level.
+
+    Tuned so the three counts bracket: ``n_obs_eff`` (~30) < ``MinTRL`` < ``n_obs``
+    (60). That is the only configuration in which the two candidate counts for the
+    third leg disagree, so it is what makes the leg's input observable at all.
+    """
+    rng = np.random.default_rng(2026)
+    days, per_day = 30, 2
+    level = rng.normal(loc=0.0, scale=1.0, size=days)
+    base = np.repeat(level, per_day) + 0.05 * rng.normal(size=days * per_day)
+    base = (base - base.mean()) / base.std(ddof=1) + 0.248
+    times = [
+        (i // per_day) * _MS_PER_DAY + (i % per_day) * 3_600_000
+        for i in range(days * per_day)
+    ]
+    trials = [TrialPerf(f"tp{j}", list(base + 0.01 * j), times) for j in range(6)]
+    return trials, len(base)
+
+
+class TestTheMinTrlLegReadsTheEffectiveCount:
+    """C1 / spec §6.4: the bar is ``DSR >= 0.95 ∧ PBO <= 0.5 ∧ n_obs_eff >= MinTRL``.
+
+    ⚠ Measured while writing these: with ``MINTRL_CONFIDENCE == DSR_THRESHOLD`` and
+    both legs assuming the same moments, ``DSR >= 0.95`` IMPLIES the MinTRL leg under
+    EITHER count — DSR's z carries ``sr - sr0`` with ``sr0 >= 0`` where MinTRL's
+    carries ``sr``, so the MinTRL z is never the smaller. The leg is therefore
+    structurally redundant on a COMMIT, which is why "MinTRL bound on none of the 82"
+    was never luck. It still differs in the REASON list of a refusal, which is what
+    these pin — and feeding it the raw count would leave it looser than the
+    pre-registered bar, the one direction §7's disclosure defends against.
+    """
+
+    def test_the_leg_binds_when_only_the_effective_count_falls_short(self) -> None:
+        trials, n_obs = _mintrl_binding_family()
+        mintrl = min_track_record_length(_trial_sharpe(trials[-1].returns))
+        _, n_obs_eff = _effective_obs_count(trials[-1])
+        assert n_obs_eff < mintrl <= n_obs, "fixture no longer brackets the two counts"
+
+        fixed = evaluate_commit_gate(
+            trials[-1], trials, n_grid=6, n_splits=4, correct_obs=True
+        )
+        assert any("MinTRL" in r for r in fixed.reasons)
+
+    def test_the_default_path_feeds_the_raw_count_unchanged(self) -> None:
+        """Byte-identical default: ``effective_obs`` IS ``float(n_obs)`` with
+        ``correct_obs`` off, so the same family that trips the leg above does not
+        trip it here — confirmed by behaviour, not asserted in prose.
+        """
+        trials, _ = _mintrl_binding_family()
+        raw = evaluate_commit_gate(trials[-1], trials, n_grid=6, n_splits=4)
+        assert not any("MinTRL" in r for r in raw.reasons)
+
+    def test_a_raw_refusal_still_names_the_raw_integer(self) -> None:
+        """The reason string is the other observable of which count reached the
+        leg: on the default path it must keep reading ``n 6`` rather than ``n 6.0``.
+        """
+        times = [i * _MS_PER_DAY for i in range(8)]
+        thin = TrialPerf("x", [1.0, -0.98] * 4, times)
+        other = TrialPerf("y", [1.0, -0.97] * 4, times)
+        v = evaluate_commit_gate(thin, [thin, other], n_grid=2, n_splits=4)
+        assert v.decision == "DO_NOT_COMMIT"
+        assert any(r.startswith("n 8 < MinTRL") for r in v.reasons), v.reasons
 
 
 class TestThresholdsAreNotRestated:

@@ -9,7 +9,14 @@ currently lacks.
 
 Commit rule (all three must hold)::
 
-    DSR >= dsr_threshold   AND   PBO <= pbo_threshold   AND   n_obs >= MinTRL
+    DSR >= dsr_threshold   AND   PBO <= pbo_threshold   AND   n_obs_eff >= MinTRL
+
+``n_obs_eff`` is the ST134 pre-registration's own spelling of the bar (§6.4), and it
+**is** ``n_obs`` on the default path — ``correct_obs`` defaults to off, so the third
+leg sees ``float(n_obs)`` and the verdict is byte-identical to the pre-ST134 one.
+Feeding the raw count into the leg under ``correct_obs=True`` would make the shipped
+leg LOOSER than the pre-registered one (``n_obs_eff <= n_obs`` always), which is the
+single direction §7's disclosure exists to defend against.
 
 Pure: no DB / IO. Inputs are per-trial return series; the caller (param_sweep)
 adapts ``SweepRow`` objects into :class:`TrialPerf`.
@@ -50,7 +57,19 @@ PBO_THRESHOLD = GATE_PBO
 """Re-exported from :mod:`analytics.research_guards`. See :data:`DSR_THRESHOLD`."""
 
 MINTRL_CONFIDENCE = 0.95
+"""⚠ A CONFIDENCE LEVEL, not the DSR bar. It coincides with :data:`DSR_THRESHOLD`'s
+value and means something else entirely, so it must never be folded into that family."""
+
 DEFAULT_N_SPLITS = 14
+
+MIN_EFFECTIVE_TRIALS = 2.0
+"""ST134 §2's pre-registered floor on ``n_trials_eff``.
+
+Below two trials deflation is undefined. Named because two places need it — the clamp
+in :func:`_effective_trial_count` and any reader asking whether a cell's corrected
+count is FLOOR-BOUND (``tools/wfo_resweep.py``'s ``--books`` summary counts those, and
+at k=9 every family clearing §4a's ``rho* = 0.5`` bar is one).
+"""
 
 DECISION_COMMIT = "COMMIT"
 DECISION_BLOCK = "DO_NOT_COMMIT"
@@ -132,6 +151,38 @@ def _build_perf_matrix(
     return mat
 
 
+def _mean_arm_correlation(columns: dict[str, pd.Series]) -> float:
+    """Mean off-diagonal Pearson correlation across the arms — ST134 §4a's statistic.
+
+    Measured DIRECTLY rather than recovered by inverting ``n_eff``, because
+    :func:`analytics.forecast.effective_independent_series` returns ``float(k)`` from
+    four degenerate branches (fewer than two series, no estimable pair, a non-positive
+    denominator, a non-positive ``n_eff``) and **every one of those inverts to exactly
+    ``rho = 0.0``** — indistinguishable from a genuine measured zero, in the one value
+    §4a's kill-switch decides on. A perfectly anti-correlated pair (``rho = -1``) takes
+    the non-positive-denominator branch and reported ``0.0``.
+
+    ``math.nan`` when no pair is estimable (a single arm, or every pairwise correlation
+    NaN because a column is constant). NaN says *unmeasurable*; ``0.0`` says
+    *measured, and uncorrelated*. The two point at different actions, and
+    :func:`tools.wfo_resweep.median_rho_ci` drops the NaNs and reports how many it
+    dropped rather than averaging them in as zeros.
+
+    ⚠ This mirrors the correlation step inside ``effective_independent_series`` rather
+    than delegating to it (that function returns only ``n_eff``). The anti-drift guard
+    is ``test_rho_round_trips_from_n_eff``, which pins ``n_eff == k / (1 + (k-1)*rho)``
+    on a non-degenerate family — if either spelling's estimator changes, that identity
+    breaks.
+    """
+    corr = pd.DataFrame(columns).corr().to_numpy()
+    k = corr.shape[0]
+    off = corr[~np.eye(k, dtype=bool)]
+    off = off[~np.isnan(off)]
+    if off.size == 0:
+        return math.nan
+    return float(np.mean(off))
+
+
 def _effective_trial_count(
     perf: npt.NDArray[np.float64],
 ) -> tuple[float, float]:
@@ -148,35 +199,33 @@ def _effective_trial_count(
     here would be the restated-constant defect the ST134 pre-registration section 1e
     documents at three other sites.
 
-    ``rho`` is recovered algebraically from the **unclamped** ``n_eff_raw``, so it
-    always reports the actual measured correlation. ``n_trials_eff`` is the same value
+    ``rho`` is :func:`_mean_arm_correlation`'s direct measurement, NOT an inversion of
+    ``n_eff`` — see that function for why the inversion silently reported ``0.0`` from
+    four different degenerate branches. ``n_trials_eff`` is the delegated ``n_eff``
     after the pre-registered clamp bounds. The two satisfy ``n_eff = k / (1 + (k-1) *
-    rho)`` jointly only when the raw value already lay inside ``[2, k]`` — outside it
-    the clamp overrides the count while ``rho`` keeps reporting the measurement. This
-    is deliberate: ``rho`` is the §4a kill-switch's decision statistic and must not
-    become an artifact of the clamp.
+    rho)`` jointly only when the raw value already lay inside ``[2, k]`` AND no
+    degenerate branch fired — outside that the clamp overrides the count while ``rho``
+    keeps reporting the measurement. This is deliberate: ``rho`` is the §4a
+    kill-switch's decision statistic and must not become an artifact of the clamp.
 
     Two bounds, both pre-registered:
 
-    * **floor 2.0** — below two trials deflation is undefined. The raw
-      ``n_trials < 2`` INSUFFICIENT guard in :func:`evaluate_commit_gate` still runs
-      first, so this cannot route around it.
+    * **floor** :data:`MIN_EFFECTIVE_TRIALS` — below two trials deflation is undefined.
+      The raw ``n_trials < 2`` INSUFFICIENT guard in :func:`evaluate_commit_gate` still
+      runs first, so this cannot route around it.
     * **ceiling k** — a correction may only ever REDUCE a family. Negative measured
       correlation would otherwise inflate it.
 
-    Returns ``(rho, n_trials_eff)``. A single arm returns ``(0.0, 1.0)``: nothing to
-    deflate, and the caller's own guard rejects it.
+    Returns ``(rho, n_trials_eff)``. A single arm returns ``(nan, 1.0)``: no pair, so
+    nothing is measurable and nothing to deflate, and the caller's own guard rejects it.
     """
     k = int(perf.shape[1])
     if k < 2:
-        return 0.0, float(max(k, 1))
-    n_eff_raw, _ = effective_independent_series(
-        {f"arm{j}": pd.Series(perf[:, j]) for j in range(k)}
-    )
-    # Recover rho from the raw n_eff before clamping, so the reported correlation
-    # reflects the actual data. The effective trial count is then clamped for use.
-    rho = (k / float(n_eff_raw) - 1.0) / (k - 1)
-    n_eff = min(max(float(n_eff_raw), 2.0), float(k))
+        return math.nan, float(max(k, 1))
+    columns = {f"arm{j}": pd.Series(perf[:, j]) for j in range(k)}
+    n_eff_raw, _ = effective_independent_series(columns)
+    rho = _mean_arm_correlation(columns)
+    n_eff = min(max(float(n_eff_raw), MIN_EFFECTIVE_TRIALS), float(k))
     return rho, n_eff
 
 
@@ -214,19 +263,33 @@ def _decide(
     dsr: float,
     pbo: float,
     min_trl: float,
-    n_obs: int,
+    n_obs_eff: float,
     dsr_threshold: float,
     pbo_threshold: float,
 ) -> tuple[str, list[str]]:
-    """Apply the three hard checks. Returns ``(decision, failing_reasons)``."""
+    """Apply the three hard checks. Returns ``(decision, failing_reasons)``.
+
+    ``n_obs_eff`` is the **effective** observation count — ``float(n_obs)`` on the
+    default path and the day-clustered ``n_obs / DEFF`` under ``correct_obs=True``.
+    The pre-registration states the committable bar as ``DSR >= 0.95 ∧ PBO <= 0.5 ∧
+    n_obs_eff >= MinTRL`` (§6.4), and feeding the RAW count here instead would leave
+    the third leg looser than the one that was pre-registered, since ``n_obs_eff <=
+    n_obs`` always. It also makes §1e's "the third leg is not touched" decision
+    observable: its Decision Log names *MinTRL becoming the deciding leg on any cell*
+    as the reversal condition, and under the raw count that observable could not occur
+    by construction. §1e is about WHICH LEG (MinTRL rather than ``boot_lo``), never
+    about which count feeds it.
+    """
     reasons: list[str] = []
     if dsr < dsr_threshold:
         reasons.append(f"DSR {dsr:.2f} < {dsr_threshold:.2f}")
     if pbo > pbo_threshold:
         reasons.append(f"PBO {pbo:.2f} > {pbo_threshold:.2f}")
-    if n_obs < min_trl:
+    if n_obs_eff < min_trl:
         trl = "∞" if math.isinf(min_trl) else f"{math.ceil(min_trl)}"
-        reasons.append(f"n {n_obs} < MinTRL {trl}")
+        # `:g` so an integral effective count (every default-path verdict, where
+        # this is `float(n_obs)`) still renders as `n 40` rather than `n 40.0`.
+        reasons.append(f"n {n_obs_eff:g} < MinTRL {trl}")
     return (DECISION_COMMIT if not reasons else DECISION_BLOCK, reasons)
 
 
@@ -251,13 +314,24 @@ def evaluate_commit_gate(
     is overwritten by ``n_trials_eff``, whose ceiling is ``k = len(all_trials)``
     rather than ``n_grid`` — :class:`~analytics.param_sweep.ParamSweepReport`'s
     ``all_rows`` is what keeps the corrected callers in the regime where
-    ``k == n_grid``, so the two floors coincide there without this function
-    needing to enforce it.
+    ``k == n_grid``, so the two floors coincide there. That coincidence is now
+    ENFORCED rather than documented: a corrected call with ``n_grid > len(all_trials)``
+    raises :class:`ValueError`, because the ceiling would otherwise silently discard
+    the ``n_grid`` floor and a truncated family would deflate against its own
+    truncation. Every production caller passes ``all_rows`` (one row per grid combo),
+    so this cannot fire on the shipped path; it exists so a FUTURE top-N caller fails
+    loudly instead of quietly.
 
     ``correct_trials`` and ``correct_obs`` are ST134's two counting corrections and
     both default to **off**, so an existing caller's verdict is unchanged. They pull
     in opposite directions and are meant to be measured as a 2x2 — see the
     pre-registration at
+    ``docs/superpowers/specs/2026-09-10-st134-sweep-gate-trial-independence-preregistration.md``.
+
+    ``correct_obs`` feeds BOTH consumers of the observation count — the DSR leg and
+    the MinTRL leg — because §6.4 states the bar as ``n_obs_eff >= MinTRL``. The raw
+    ``n_obs`` is still reported on the verdict, so the two counts stay auditable side
+    by side. See
     ``docs/superpowers/specs/2026-09-10-st134-sweep-gate-trial-independence-preregistration.md``.
     """
     n_trials = len(all_trials)
@@ -291,6 +365,13 @@ def evaluate_commit_gate(
     n_trials_eff: float | None = None
     effective_trials: float = float(max(n_grid, n_trials))
     if correct_trials:
+        if n_grid > n_trials:
+            raise ValueError(
+                f"correct_trials needs the FULL family: n_grid {n_grid} > "
+                f"{n_trials} trials. The correction's ceiling is k = len(all_trials), "
+                "so a truncated family would deflate against its own truncation and "
+                "silently lose the n_grid floor — pass all_rows, not the top-N rows."
+            )
         rho, n_trials_eff = _effective_trial_count(perf)
         effective_trials = n_trials_eff
 
@@ -333,7 +414,9 @@ def evaluate_commit_gate(
         dsr=dsr,
         pbo=pbo,
         min_trl=min_trl,
-        n_obs=n_obs,
+        # The EFFECTIVE count, per §6.4's `n_obs_eff >= MinTRL`. Identical to
+        # `float(n_obs)` whenever `correct_obs` is off, which is the default.
+        n_obs_eff=effective_obs,
         dsr_threshold=dsr_threshold,
         pbo_threshold=pbo_threshold,
     )
