@@ -26,6 +26,13 @@ evaluation; running it inside 200 replicates would cost more than the whole re-r
 a leg this file does not change.
 
 ⛔ Decides nothing and writes no TOML.
+
+⚠ **A LIBRARY, not a CLI.** There is no ``__main__``: the only caller is
+``tools/wfo_resweep.py --null-calibration``, which bootstraps ``sys.path`` itself
+before importing this. The bootstrap below is kept so the module stays importable
+from a bare interpreter (and so a future ``__main__`` inherits it), but no
+``test_bare_invocation_works`` guards it, because there is no bare invocation to
+guard.
 """
 
 from __future__ import annotations
@@ -44,12 +51,28 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from analytics.research_guards import GATE_DSR, deflated_sharpe_ratio  # noqa: E402
 from analytics.research_guards.cluster import utc_day_keys  # noqa: E402
 from analytics.sweep_guard import (  # noqa: E402
+    DEFAULT_N_SPLITS,
+    MIN_OBS_FACTOR,
     TrialPerf,
     _build_perf_matrix,
     _effective_obs_count,
     _effective_trial_count,
     _trial_sharpe,
 )
+
+DEFAULT_SEED = 20260910
+"""The ST134 run seed, in ONE place.
+
+It was restated as a bare ``20260910`` at three sites (this module's
+``null_pass_rate``, ``wfo_resweep.median_rho_ci``, ``wfo_resweep``'s own
+``_NULL_CALIBRATION_SEED``). A restated constant fails silently and in both
+directions, and this one decides which nulls and which bootstrap draws two
+kill-switches see — two sites moving and one not is a comparison between
+different draws that still looks like one run.
+"""
+
+DEFAULT_REPLICATES = 200
+"""§4b's pre-committed replicate count — restated at two sites before ST134's fix wave."""
 
 
 def sign_flip_family(
@@ -113,9 +136,9 @@ def null_pass_rate(
     *,
     correct_trials: bool,
     correct_obs: bool = False,
-    n_replicates: int = 200,
-    n_splits: int = 14,
-    seed: int = 20260910,
+    n_replicates: int = DEFAULT_REPLICATES,
+    n_splits: int = DEFAULT_N_SPLITS,
+    seed: int = DEFAULT_SEED,
 ) -> NullCalibrationResult:
     """Calibration verdict: how often a sign-flipped null still clears the DSR bar.
 
@@ -124,9 +147,16 @@ def null_pass_rate(
     ``INSUFFICIENT`` rather than raising) — returned as a result with ``evaluated=0``
     rather than letting ``max()`` or ``statistics.variance`` raise on the degenerate
     input.
+
+    ⚠ ``n_splits`` is not a free knob: it sets the CSCV bin count rho is measured over
+    AND, through :data:`analytics.sweep_guard.MIN_OBS_FACTOR`, the effective-observation
+    floor. A calibration run at a different ``n_splits`` from the gate it calibrates
+    measures a DIFFERENT book, with both halves internally consistent and no test able
+    to fail — which is why every default here is the gate's own constant rather than a
+    copy of its value.
     """
     rng = np.random.default_rng(seed)
-    min_obs = 2 * n_splits
+    min_obs = MIN_OBS_FACTOR * n_splits
     if len(trials) < 2:
         return NullCalibrationResult(
             rate=math.nan,

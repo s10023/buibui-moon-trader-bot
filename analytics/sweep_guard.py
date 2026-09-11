@@ -62,6 +62,12 @@ value and means something else entirely, so it must never be folded into that fa
 
 DEFAULT_N_SPLITS = 14
 
+MIN_OBS_FACTOR = 2
+"""``min_obs = MIN_OBS_FACTOR * n_splits`` — the trade-count floor below which the
+statistics are unstable. Named because the ST134 null calibration has to apply the
+SAME floor as the gate it calibrates: a second copy there would let the two drift
+while each stayed internally consistent."""
+
 MIN_EFFECTIVE_TRIALS = 2.0
 """ST134 §2's pre-registered floor on ``n_trials_eff``.
 
@@ -336,7 +342,7 @@ def evaluate_commit_gate(
     """
     n_trials = len(all_trials)
     n_obs = len(chosen.returns)
-    min_obs = 2 * n_splits
+    min_obs = MIN_OBS_FACTOR * n_splits
 
     if n_trials < 2:
         return CommitGateVerdict(
