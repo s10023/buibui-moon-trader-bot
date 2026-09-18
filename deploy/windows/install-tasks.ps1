@@ -102,13 +102,28 @@ function New-JobTrigger {
         $at = [datetime]::SpecifyKind($utc, [DateTimeKind]::Utc).ToLocalTime()
 
         if ($Job.EveryMinutes -gt 0) {
-            # `OnCalendar=*:01/15` -- fire at :01 and repeat every 15 minutes forever.
-            # The duration is [TimeSpan]::Zero, which Task Scheduler reads as
-            # INDEFINITE; a literal 1-day duration stops the repetition after a day and
-            # leaves a task that looks scheduled and fires once.
-            New-ScheduledTaskTrigger -Once -At $at `
+            # `OnCalendar=*:01/15` -- fire at :01 and repeat every 15 minutes FOREVER.
+            #
+            # Indefinite repetition is an EMPTY <Duration> element, and the only way to
+            # get one from PowerShell is to build the trigger with a real duration and
+            # then blank it. Measured 2026-09-18 by registering each candidate:
+            #   [TimeSpan]::Zero     -> REJECTED, "value incorrectly formatted or out of
+            #                           range (8,26):Duration:PT0S"
+            #   [TimeSpan]::MaxValue -> REJECTED, same error
+            #   Duration = ''        -> registers, Duration='' == indefinite  <- this
+            #   1 day                -> registers, Duration='P1D', and then STOPS
+            #                           repeating after a day: a task that looks
+            #                           scheduled and fires once a day.
+            #
+            # ⚠ The first two were not obviously wrong: the in-memory trigger OBJECT
+            # accepts `PT0S` and prints it back happily. Only `Register-ScheduledTask`
+            # validates the XML, so inspecting the object proves nothing about whether
+            # it will register -- a check is only ever true about the scope it looked at.
+            $t = New-ScheduledTaskTrigger -Once -At $at `
                 -RepetitionInterval (New-TimeSpan -Minutes $Job.EveryMinutes) `
-                -RepetitionDuration ([TimeSpan]::Zero)
+                -RepetitionDuration (New-TimeSpan -Days 1)
+            $t.Repetition.Duration = ''
+            $t
         }
         else {
             New-ScheduledTaskTrigger -Daily -At $at
@@ -154,7 +169,26 @@ foreach ($job in $Jobs) {
         Register-ScheduledTask -TaskPath $TaskPath -TaskName $job.Task `
             -Action $action -Trigger (New-JobTrigger -Job $job) `
             -Settings $settings -Principal $principal -Force | Out-Null
-        Write-Host "registered $TaskPath$($job.Task)  <- $($job.Unit)"
+
+        # VERIFY the repetition survived registration. A rejected duration throws, but a
+        # WRONG one does not -- `P1D` registers cleanly and then quietly stops repeating
+        # after a day, so the task reads as scheduled while signal-watch fires once and
+        # the ledger just thins. Read it back rather than trusting the write.
+        if ($job.EveryMinutes -gt 0) {
+            $xml = [xml](Export-ScheduledTask -TaskPath $TaskPath -TaskName $job.Task)
+            $rep = $xml.Task.Triggers.TimeTrigger.Repetition
+            $want = 'PT{0}M' -f $job.EveryMinutes
+            if ($rep.Interval -ne $want -or -not [string]::IsNullOrEmpty($rep.Duration)) {
+                throw ("$($job.Task): repetition did not register as indefinite " +
+                       "(Interval='$($rep.Interval)' want '$want', " +
+                       "Duration='$($rep.Duration)' want empty). " +
+                       "It would fire once and stop.")
+            }
+            Write-Host "registered $TaskPath$($job.Task)  <- $($job.Unit)  [repeats $want, indefinite]"
+        }
+        else {
+            Write-Host "registered $TaskPath$($job.Task)  <- $($job.Unit)"
+        }
     }
     else {
         Write-Host "would register $TaskPath$($job.Task)  <- $($job.Unit)"
