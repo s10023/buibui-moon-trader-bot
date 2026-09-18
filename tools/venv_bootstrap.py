@@ -31,6 +31,8 @@ import os
 import sys
 from pathlib import Path
 
+from tools import host_platform
+
 SENTINEL = "BUIBUI_VENV_REEXEC"
 
 
@@ -105,11 +107,12 @@ def _venv_bin_dir(venv: Path) -> Path:
     error -- the operator gets the partial `?` report this file exists to prevent,
     on the one platform where nothing says so.
 
-    The platform is read at CALL time through `_is_windows`, so a test can exercise
-    the branch it is not running on -- which is what buys Windows coverage out of an
-    ubuntu-only CI matrix.
+    The platform is read at CALL time through `host_platform.is_windows`, so a test
+    can exercise the branch it is not running on -- which is what buys Windows coverage
+    out of an ubuntu-only CI matrix. That module's docstring says why the check is a
+    function rather than an inline `os.name` read; do not inline it back.
     """
-    return venv / ("Scripts" if _is_windows() else "bin")
+    return venv / ("Scripts" if host_platform.is_windows() else "bin")
 
 
 def _venv_python(venv: Path) -> Path:
@@ -119,22 +122,6 @@ def _venv_python(venv: Path) -> Path:
     ``.venv/Scripts/python`` is False on Windows, so dropping ``.exe`` reproduces the
     absent-venv no-op this helper removes.
     """
-    return _venv_bin_dir(venv) / ("python.exe" if _is_windows() else "python")
-
-
-def _is_windows() -> bool:
-    """Indirection so a test can take the other platform's branch.
-
-    ⚠ **Do NOT replace this with a patched `os.name` at the call sites.** `pathlib`
-    dispatches on `os.name` too, so monkeypatching it to the foreign value makes a
-    plain `Path(...)` raise ``NotImplementedError: cannot instantiate 'PosixPath' on
-    your system``. Measured 2026-09-18 while writing `tests/test_venv_bootstrap.py`:
-    it did not merely fail the case, it took pytest's own failure REPORTING down with
-    it (`INTERNALERROR` out of `_repr_failure_py`), so the run reported nothing at
-    all. `reexec_into_venv` builds `Path(sys.prefix)` under exactly that patch.
-
-    The `monitor/price_lib.py` precedent patches `os.name` directly and is fine only
-    because nothing under its patch constructs a Path -- read it as narrower than it
-    looks, not as the house idiom.
-    """
-    return os.name == "nt"
+    return _venv_bin_dir(venv) / (
+        "python.exe" if host_platform.is_windows() else "python"
+    )

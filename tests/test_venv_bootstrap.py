@@ -18,7 +18,7 @@ as a full pass on ubuntu CI while 6 of its 9 cases failed on a Windows host. A s
 that can only be right on the platform that happens to run it is the same blind spot
 one level up.
 
-⚠ **It forces it by patching `venv_bootstrap._is_windows`, NEVER `os.name`.**
+⚠ **It forces it by patching `host_platform.is_windows`, NEVER `os.name`.**
 `pathlib` dispatches on `os.name`, so patching it to the foreign value makes any
 `Path(...)` — including pytest's own — raise `NotImplementedError: cannot instantiate
 'PosixPath' on your system`. Measured: that took the whole run down as an
@@ -40,7 +40,7 @@ from typing import Any
 
 import pytest
 
-from tools import venv_bootstrap
+from tools import host_platform
 from tools.venv_bootstrap import SENTINEL, reexec_into_venv
 
 # The two layouts, spelled out. Stated as a constant so a change to either is a
@@ -70,7 +70,7 @@ def os_name(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def _force_platform(monkeypatch: pytest.MonkeyPatch, os_name: str) -> None:
-    monkeypatch.setattr(venv_bootstrap, "_is_windows", lambda: os_name == "nt")
+    monkeypatch.setattr(host_platform, "is_windows", lambda: os_name == "nt")
 
 
 def _fake_venv(root: Path, os_name: str) -> Path:
