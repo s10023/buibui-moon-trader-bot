@@ -155,6 +155,38 @@ def test_no_swap_when_already_inside_the_venv(
     assert calls == []
 
 
+def test_path_is_still_fixed_when_already_inside_the_venv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, os_name: str
+) -> None:
+    """No interpreter to swap here -- but PATH still needs the venv's bin dir.
+
+    ⚠ This is the branch that made the HANDOFF's own documented verification
+    command lie. Naming the venv python directly
+    (`./.venv/Scripts/python.exe docs/plans/daily_check.py`) satisfies the
+    already-inside check, so the re-exec never happens and `_venv_first_path`
+    never ran -- and the daily check reported `FileNotFoundError` for its yt-dlp
+    media canary with the binary sitting in the very venv it was running from.
+    A leg that says "check DID NOT RUN" because of how the docs told you to
+    invoke it is worse than no leg.
+
+    The module already documents that a subprocess resolved BY NAME is resolved
+    by the SHELL through PATH. This is that same third level, reached from the
+    one direction that skips the re-exec.
+    """
+    python = _fake_venv(tmp_path, os_name)
+    monkeypatch.setattr(sys, "prefix", str(tmp_path / ".venv"))
+    monkeypatch.setenv("PATH", "/usr/bin")
+    calls = _record_execve(monkeypatch)
+
+    reexec_into_venv(tmp_path)
+
+    assert calls == [], "there is no interpreter to swap when already inside"
+    assert os.environ["PATH"].split(os.pathsep)[0] == str(python.parent), (
+        "the venv's bin dir must be PREPENDED, or a console script resolves to "
+        "whatever the shell had first -- the pin is the whole point"
+    )
+
+
 def test_no_swap_when_the_venv_is_absent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, os_name: str
 ) -> None:

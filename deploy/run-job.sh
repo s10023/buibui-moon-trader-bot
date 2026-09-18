@@ -58,11 +58,56 @@ net_wait_secs="${NET_WAIT_SECS:-60}"
 net_wait_interval="${NET_WAIT_INTERVAL:-2}"
 net_wait_hosts="${NET_WAIT_HOSTS:-api.telegram.org}"
 
+# `getent` is GLIBC and does not exist on a Windows host, where this gate could
+# therefore never pass: every job burned the whole NET_WAIT_SECS and then reported
+# a resolver outage that was not happening. Measured 2026-09-18, one day of logs:
+# 31 false waits, ~96 min/day of pure sleep at signal-watch's 15-minute cadence,
+# every scan starting a minute late -- while `api.telegram.org` resolved in 0.028s
+# and alerts were landing on the phone throughout. A permanently-wrong warning is
+# also the thing that teaches its reader to skip the line.
+#
+# ABSENCE is detected by exit 127 (the shell's own "command not found") rather
+# than by `command -v`, because that keeps the whole probe testable through the
+# existing stub harness: a stub that exits 127 IS an absent getent. getent's own
+# documented codes are 0-3, so 127 is unambiguous.
+#
+# ⚠ `nslookup` is deliberately NOT the fallback. Verified on this host: it exits
+# 0 for a bogus name, so a gate built on it has no teeth at all -- it would pass
+# instantly and never detect the outage this function exists for, which is worse
+# than the failure being fixed. `socket.getaddrinfo` raises, and that is what
+# gives the fallback teeth. The interpreter split mirrors backup-analytics.sh:284.
+_dns_py=""
+
+resolve_host() {
+    local rc
+    getent hosts "$1" >/dev/null 2>&1
+    rc=$?
+    [ "$rc" -eq 0 ] && return 0
+    [ "$rc" -ne 127 ] && return 1   # getent is present and said no: a real failure
+
+    if [ -z "$_dns_py" ]; then
+        # NET_WAIT_PY exists for the same reason NET_WAIT_SECS/INTERVAL/HOSTS do:
+        # without it this branch can only be exercised against a live resolver,
+        # and the suite is not allowed to make real network calls. It is honoured
+        # UNCONDITIONALLY -- falling through to the venv when the override is set
+        # but unusable would let a test pass for the wrong reason.
+        if [ -n "${NET_WAIT_PY:-}" ]; then
+            _dns_py="$NET_WAIT_PY"
+        else
+            _dns_py="./.venv/bin/python"
+            [ -x "$_dns_py" ] || _dns_py="./.venv/Scripts/python.exe"
+            [ -x "$_dns_py" ] || _dns_py="python3"
+        fi
+    fi
+    "$_dns_py" -c 'import socket,sys; socket.getaddrinfo(sys.argv[1], None)' \
+        "$1" >/dev/null 2>&1
+}
+
 wait_for_dns() {
     local deadline=$((SECONDS + net_wait_secs)) host
     while :; do
         for host in $net_wait_hosts; do
-            getent hosts "$host" >/dev/null 2>&1 && return 0
+            resolve_host "$host" && return 0
         done
         # Deadline-based, not iteration-based, so NET_WAIT_INTERVAL=0 still
         # terminates instead of spinning forever.

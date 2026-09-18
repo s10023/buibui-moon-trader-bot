@@ -61,6 +61,20 @@ def reexec_into_venv(root: Path, *, sentinel: str = SENTINEL) -> None:
     if not python.exists():
         return
     if Path(sys.prefix).resolve() == venv.resolve():
+        # Already inside the venv: there is no interpreter to swap -- but PATH still
+        # needs the prepend, and until 2026-09-18 this early return skipped it.
+        #
+        # ⚠ That is how the handoff's OWN documented verification command,
+        # `./.venv/Scripts/python.exe docs/plans/daily_check.py`, produced a
+        # `FileNotFoundError` for the yt-dlp media canary while the binary sat in the
+        # very venv it was running from: naming the venv python directly satisfies
+        # this check, so the re-exec never happens and `_venv_first_path` never runs.
+        # The doc then manufactured the "check DID NOT RUN" it was meant to detect.
+        #
+        # Same third level this module already documents -- a subprocess resolved BY
+        # NAME is resolved by the SHELL through PATH -- reached from the one
+        # direction that skips the re-exec entirely.
+        os.environ["PATH"] = _venv_first_path(venv)
         return
     # stderr, not stdout: `deploy/run-job.sh` captures stdout and pushes it to Telegram
     # under a line budget, so a note about the interpreter must not spend a report line.
