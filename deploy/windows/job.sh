@@ -50,4 +50,41 @@ if [ -d "$PWD/.venv/Scripts" ]; then
     export PATH
 fi
 
-exec deploy/run-job.sh "$@"
+# --- the journal's stand-in ----------------------------------------------------------
+#
+# `deploy/README.md` says of the Linux host: "There is no logfile. Everything goes to
+# the systemd journal, which handles its own rotation -- deliberately, so nothing grows
+# an unmanaged file on a laptop." Windows has no journal, and a Task Scheduler action's
+# stdout goes NOWHERE, so on this host that same sentence would mean no record at all:
+# `run-job.sh` ends by tailing 60 lines of the job's output, and every one of them would
+# be discarded. That tail is the thing the Linux operator actually reads.
+#
+# So the output is tee'd to ONE file per job and trimmed after every run. The cap is the
+# point -- it keeps the README's promise (nothing grows unmanaged) on a host whose
+# scheduler will not keep it for us.
+LOG_DIR="${BUIBUI_LOG_DIR:-logs}"
+LOG_MAX_LINES="${BUIBUI_LOG_MAX_LINES:-2000}"
+mkdir -p "$LOG_DIR"
+logfile="$LOG_DIR/$1.log"
+
+# NOT `exec`: the pipeline's left-hand status has to be read back, and an exec'd process
+# has no shell left to read it.
+#
+# `${PIPESTATUS[0]}` rather than `$?`. ⚠ Measured: with `set -o pipefail` above, a bare
+# `$?` gives the SAME answer for every case tested, so this is not the bug fix it looks
+# like -- it is independence from two things. It does not rely on `pipefail` staying set
+# at the top of this file, and it distinguishes "the JOB failed" from "TEE failed",
+# which `pipefail` deliberately conflates: a full disk would otherwise be reported as a
+# failed signal-watch run.
+#
+# The exit code is load-bearing twice over: `run-job.sh` preserves the wrapped command's
+# code on purpose, and `tools/task_probe.py` reads it back out of Task Scheduler to
+# decide whether the daily check's soft exit 2 was a real failure.
+"${RUN_JOB:-deploy/run-job.sh}" "$@" 2>&1 | tee -a "$logfile"
+rc=${PIPESTATUS[0]}
+
+if [ -f "$logfile" ]; then
+    tail -n "$LOG_MAX_LINES" "$logfile" >"$logfile.trim" && mv "$logfile.trim" "$logfile"
+fi
+
+exit "$rc"

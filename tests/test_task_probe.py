@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from tools import host_platform, task_probe
+from tools import host_platform, systemd_probe, task_probe
 from tools.task_probe import (
     SCHED_S_TASK_HAS_NOT_RUN,
     SCHED_S_TASK_RUNNING,
@@ -200,11 +200,12 @@ def test_the_installer_and_the_probe_agree_on_the_task_path() -> None:
 def test_dispatch_reads_systemd_on_posix(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(host_platform, "is_windows", lambda: False)
     asked: list[str] = []
-    monkeypatch.setattr(
-        task_probe.systemd_probe,
-        "unit_last_completion",
-        lambda unit: (asked.append(unit), (None, False))[1],
-    )
+
+    def fake(unit: str) -> tuple[datetime | None, bool]:
+        asked.append(unit)
+        return None, False
+
+    monkeypatch.setattr(systemd_probe, "unit_last_completion", fake)
 
     scheduler_last_completion("buibui-signal-watch.service")
 
