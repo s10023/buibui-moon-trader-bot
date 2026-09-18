@@ -90,7 +90,9 @@ def _run(
     if home is not None:
         env["HOME"] = str(home)
     return subprocess.run(  # noqa: S603
-        [str(repo / "deploy" / "backup-analytics.sh"), *args],
+        # Through bash, not by shebang -- Windows cannot exec a `.sh`.
+        # See the same note in `test_run_job_wrapper.py`.
+        ["bash", str(repo / "deploy" / "backup-analytics.sh"), *args],
         capture_output=True,
         text=True,
         env=env,
