@@ -114,6 +114,8 @@ def gh(*args: str) -> str:
         ["gh", "auth", "token", "--user", "s10023"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=True,
     ).stdout.strip()
     # INHERIT the environment and override only GH_TOKEN. A bare env= drops HOME,
@@ -123,6 +125,8 @@ def gh(*args: str) -> str:
         ["gh", *args],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         env={**os.environ, "GH_TOKEN": token},
     )
     if out.returncode != 0:

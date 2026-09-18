@@ -216,11 +216,19 @@ class CheckResult:
 def _run(argv: Sequence[str]) -> str:
     try:
         out = subprocess.run(  # noqa: S603 - fixed argv, no shell
-            list(argv), capture_output=True, text=True, check=False
+            list(argv),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
         )
     except OSError:
         return ""
-    return out.stdout
+    # `or ""` because a decode failure inside subprocess's reader thread leaves
+    # `stdout` as None, and this function's signature promises a str. See the same
+    # guard in `tools/post_branch_checks.py::_run` for the measurement.
+    return out.stdout or ""
 
 
 def surface_paths() -> list[Path]:

@@ -94,6 +94,8 @@ def powershell_task_info(path: str, name: str) -> str | None:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=_QUERY_TIMEOUT_S,
             check=False,
         )

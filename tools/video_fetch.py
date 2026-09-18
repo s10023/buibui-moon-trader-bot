@@ -41,7 +41,15 @@ class RunProc(Protocol):
 
 
 def _subprocess_run(cmd: list[str]) -> Completedish:
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=600, check=False)
+    return subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=600,
+        check=False,
+    )
 
 
 # Every yt-dlp invocation starts here — never build a bare ["yt-dlp", ...].
