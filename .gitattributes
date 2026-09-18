@@ -1,0 +1,28 @@
+# Shell scripts MUST check out with LF, on every platform.
+#
+# This repo's automation is bash end to end -- `deploy/run-job.sh` and the five scripts
+# it wraps -- and a Windows clone under the default `core.autocrlf=true` rewrites them
+# to CRLF. Git Bash happens to tolerate CRLF in a script, so that alone is survivable;
+# what is not survivable is the ASYMMETRY. Bash strips CR from script SOURCE and not
+# from data a script READS, so the scripts keep running while the values they parse
+# quietly grow a trailing CR. Measured 2026-09-18: a `TELEGRAM_BOT_TOKEN=123:abc` line
+# in a CRLF file loads as 8 characters, not 7, and Telegram rejects it while every
+# print-out of the token looks correct.
+#
+# Pinning `eol=lf` is a no-op on Linux and on CI; it exists entirely so a Windows
+# checkout of a Linux-shaped repo is not silently different from the repo.
+#
+# ⚠ It cannot cover `.env`, `config/coins.json` or anything else gitignored -- git
+# never sees those files. That is why `deploy/windows/load-env.sh` strips CR itself
+# rather than relying on this, and why the strip is the tested behaviour.
+*.sh text eol=lf
+*.bash text eol=lf
+
+# PowerShell reads either ending; CRLF is the platform-native choice for a file only
+# Windows runs.
+*.ps1 text eol=crlf
+
+# Keep diffs and hashing sane on binaries the analytics stack ships.
+*.parquet binary
+*.duckdb binary
+*.db binary
