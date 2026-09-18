@@ -8,6 +8,20 @@ PORT ?= 8000
 DEV_PORT ?= 5173
 # Makefile — Lint Markdown and Python
 
+# ⚠ Windows defaults `sys.stdout` to the ANSI codepage (cp1252 here), so ANY target
+# whose tool prints a non-ASCII character dies on `UnicodeEncodeError` -- AFTER doing
+# its work. Measured 2026-09-18: `make buibui-xsmom-daily` completed the universe
+# sync, then crashed printing `⛔` at tools/xsmom_execute.py:429, so the run reported
+# failure having already succeeded. **47 tools under `tools/` and `cli/` print
+# non-ASCII**, so this belongs here rather than at 47 call sites.
+#
+# The scheduled jobs were never exposed: `deploy/windows/job.sh` already exports the
+# same variable, for the same reason. This closes the HAND-RUN half, which is the one
+# a session and the operator actually use. A no-op on Linux, where UTF-8 is already
+# the default. `tests/test_utf8_output.py` pins BOTH surfaces -- coverage is the
+# union of the callers.
+export PYTHONUTF8 = 1
+
 PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*" -not -path "./.venv/*")
 DOCKER_IMAGE = buibui-bot
 MEMORY = $(HOME)/.claude-personal/projects/-home-kng-repo-buibui-moon-trader-bot/memory/MEMORY.md
