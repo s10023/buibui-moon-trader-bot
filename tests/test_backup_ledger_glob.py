@@ -77,7 +77,12 @@ def fake_repo(tmp_path: Path) -> Path:
 
 
 def _run(
-    repo: Path, tmp_path: Path, *args: str, home: Path | None = None
+    repo: Path,
+    tmp_path: Path,
+    *args: str,
+    home: Path | None = None,
+    path_prepend: Path | None = None,
+    env_extra: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = {
         **os.environ,
@@ -85,6 +90,11 @@ def _run(
         "BUIBUI_LOCK_RETRIES": "1",
         "BUIBUI_LOCK_SLEEP": "0",
     }
+    # Shadowing a coreutil is how the publish-retry tests inject a transient
+    # failure -- the script calls `mv` exactly once, so the stub is precise.
+    if path_prepend is not None:
+        env["PATH"] = f"{path_prepend}{os.pathsep}{env.get('PATH', '')}"
+    env.update(env_extra or {})
     # Every EXTERNAL_* path is spelled relative to $HOME, so overriding it is what
     # isolates these tests from the operator's real ~/.claude-personal tree.
     if home is not None:
@@ -298,3 +308,80 @@ class TestSpendSessionIndex:
         assert r.returncode == 0, r.stdout + r.stderr
         snapshots = sorted((tmp_path / "backups" / "daily").iterdir())
         assert snapshots, "a missing optional tracker must not prevent the snapshot"
+
+
+class TestPublishSurvivesATransientLock:
+    """Publishing the snapshot must survive a momentary lock on its own files.
+
+    Windows refuses to rename a directory while ANY file inside it is open, and a
+    freshly written ~259 MiB `.db` is exactly what a virus scanner or the search
+    indexer opens the instant it lands. Observed 2026-09-18: the 15:41 run died at
+    the publish `mv` with `Permission denied` having already built AND verified a
+    complete snapshot, while the 20:41 run published the identical tree cleanly.
+    Giving up on the first attempt discarded the entire run's work.
+
+    Linux never takes the retry -- rename(2) there does not care about open
+    handles -- so on the VPS the first attempt succeeds and the loop exits at once.
+    """
+
+    @staticmethod
+    def _flaky_mv(tmp_path: Path, *, fail_times: int) -> Path:
+        """A `mv` that fails `fail_times` times with the real error, then works."""
+        real_mv = shutil.which("mv")
+        assert real_mv, "these tests need a real `mv` to delegate to"
+
+        bin_dir = tmp_path / "flaky-bin"
+        bin_dir.mkdir()
+        counter = tmp_path / "mv.count"
+        stub = bin_dir / "mv"
+        stub.write_text(
+            "#!/bin/sh\n"
+            f'n=$(cat "{counter}" 2>/dev/null || echo 0)\n'
+            "n=$((n + 1))\n"
+            f'printf %s "$n" > "{counter}"\n'
+            f'if [ "$n" -le {fail_times} ]; then\n'
+            '  printf "mv: cannot move: Permission denied\n" >&2\n'
+            "  exit 1\n"
+            "fi\n"
+            f'exec "{real_mv}" "$@"\n'
+        )
+        stub.chmod(0o755)
+        return bin_dir
+
+    def test_a_transient_publish_failure_is_retried_rather_than_fatal(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        r = _run(
+            fake_repo,
+            tmp_path,
+            path_prepend=self._flaky_mv(tmp_path, fail_times=2),
+            env_extra={"BUIBUI_PUBLISH_WAIT": "0"},
+        )
+
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert "retrying" in r.stdout, f"the retry was never reported: {r.stdout}"
+        snapshots = sorted((tmp_path / "backups" / "daily").iterdir())
+        assert snapshots, "a transient lock must not cost the whole snapshot"
+
+    def test_a_persistent_failure_still_fails(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        """Teeth. A retry that can never give up is a hang, not a fix.
+
+        Without this the loop could retry forever, or swallow a genuine permission
+        problem and report a snapshot that was never published -- which is worse
+        than the crash being repaired, because the freshness check would then read
+        a stale directory as current.
+        """
+        r = _run(
+            fake_repo,
+            tmp_path,
+            path_prepend=self._flaky_mv(tmp_path, fail_times=10**6),
+            env_extra={"BUIBUI_PUBLISH_TRIES": "3", "BUIBUI_PUBLISH_WAIT": "0"},
+        )
+
+        assert r.returncode == 1, "a real permission failure must still fail the run"
+        assert "after 3 attempts" in r.stderr, r.stderr
+        daily = tmp_path / "backups" / "daily"
+        published = [d for d in daily.iterdir() if not d.name.startswith(".staging")]
+        assert not published, "nothing may be published when the mv never succeeded"

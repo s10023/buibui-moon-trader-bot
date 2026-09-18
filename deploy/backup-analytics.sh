@@ -600,7 +600,31 @@ done
 # re-running on the same UTC date should refresh, and the incoming copy has
 # already passed every check the outgoing one did.
 rm -rf "$final_dir"
-mv "$daily_dir" "$final_dir" || die "could not publish snapshot to $final_dir"
+# ⚠ Windows refuses to rename a directory while ANY file inside it is still open,
+# and a freshly written ~259 MiB `.db` is exactly what a virus scanner or the
+# search indexer opens the moment it lands. Observed 2026-09-18: the 15:41 run
+# died HERE with `Permission denied` having already built AND verified a complete
+# snapshot, while the 20:41 run published the identical tree without complaint --
+# so the failure is transient contention, not a broken snapshot, and giving up on
+# the first attempt threw away the whole run's work.
+#
+# Retrying is the documented remedy for a sharing violation. A genuine permission
+# problem still fails, just `publish_tries` attempts later, so this only changes
+# TIMING -- the same property the resolver gate in run-job.sh is built on. Linux
+# never takes the retry: rename(2) there does not care about open handles, so the
+# first attempt succeeds and the loop exits immediately.
+publish_tries="${BUIBUI_PUBLISH_TRIES:-5}"
+publish_wait="${BUIBUI_PUBLISH_WAIT:-2}"
+attempt=1
+while :; do
+    mv "$daily_dir" "$final_dir" 2>/dev/null && break
+    if [ "$attempt" -ge "$publish_tries" ]; then
+        die "could not publish snapshot to $final_dir after $publish_tries attempts"
+    fi
+    log "publish attempt $attempt/$publish_tries failed (file still open?) — retrying in ${publish_wait}s"
+    attempt=$((attempt + 1))
+    sleep "$publish_wait"
+done
 trap 'rm -f "${err_file:-}"' EXIT   # staging is gone; stop trying to remove it
 
 log "daily snapshot ok  [$method]  $final_dir"
