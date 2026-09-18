@@ -131,6 +131,35 @@ class TestLedgerGlobCoverage:
         assert "ledger     docs/plans/brand-new-ledger.jsonl" in r.stdout
         assert not (tmp_path / "backups" / "daily").exists()
 
+    def test_the_catch_up_watermark_is_covered(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        """`signal_state.json` sits at the repo ROOT, so the `docs/plans/*` glob that
+        covers every other ledger cannot reach it -- it needs its own entry, and until
+        2026-09-18 it had none.
+
+        The cost is measured rather than hypothetical. A Windows-migration restore
+        brought back a 2026-09-15 snapshot with no watermark, so every
+        (symbol, tf, strategy) key read as cold; `scanner.py`'s cold-start guard then
+        keeps ONLY the latest closed candle for an unwatermarked key, and `--catch-up`
+        replayed nothing. Three days of fires were lost. The OHLCV bars and the outcome
+        resolutions both came back -- only the fires depend on this file.
+
+        ⚠ Its loss is silent in BOTH directions: no error, and no burst of stale
+        alerts either. It just quietly narrows what catch-up will replay, which is why
+        nothing caught it for three days.
+        """
+        (fake_repo / "signal_state.json").write_text('{"BTCUSDT:15m:bos:4": 1}\n')
+
+        r = _run(fake_repo, tmp_path)
+
+        assert r.returncode == 0, r.stdout + r.stderr
+        snapshots = sorted((tmp_path / "backups" / "daily").iterdir())
+        assert snapshots, "no snapshot was written"
+        copied = snapshots[-1] / "signal_state.json"
+        assert copied.exists(), "the catch-up watermark was not backed up"
+        assert copied.read_text() == '{"BTCUSDT:15m:bos:4": 1}\n'
+
     def test_a_directory_under_plans_is_not_copied_as_a_file(
         self, fake_repo: Path, tmp_path: Path
     ) -> None:

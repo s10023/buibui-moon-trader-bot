@@ -110,6 +110,25 @@ LEDGERS=(
     # disposable. A plain recursive delete of .cache/ resets chart dedup with no
     # other trace.
     ".cache/chart-drops/processed.json"
+    # The signal daemon's catch-up watermark, and the ONE watermark that lived
+    # outside every array here until 2026-09-18. `docs/plans/*` does not reach it --
+    # it sits at the repo ROOT -- so it was the only member of the class this file
+    # already names (yt-feed-state, routed-ledger, processed.json, task-marks) with
+    # no coverage at all.
+    #
+    # MEASURED COST, which is why it is listed rather than argued about: the Windows
+    # migration restored a 2026-09-15 snapshot onto a new host, and every
+    # (symbol, tf, strategy) key came up with no watermark. `scanner.py`'s cold-start
+    # guard then keeps ONLY the latest closed candle for an unwatermarked key -- by
+    # design, so a fresh state file cannot burst 200 bars into the ledger -- so
+    # `--catch-up` replayed NOTHING and three days of fires were lost permanently.
+    # The OHLCV bars and the outcome resolutions both recovered; only the fires did
+    # not, because only they depend on this file.
+    #
+    # ⚠ Losing it is silent in BOTH directions, which is the trap: a missing
+    # watermark neither errors nor over-alerts. It just quietly narrows what
+    # catch-up is willing to replay.
+    "signal_state.json"
 )
 
 # Expand one LEDGERS entry, which may be a literal path OR a glob, to the
