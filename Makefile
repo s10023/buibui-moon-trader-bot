@@ -24,7 +24,17 @@ export PYTHONUTF8 = 1
 
 PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*" -not -path "./.venv/*")
 DOCKER_IMAGE = buibui-bot
-MEMORY = $(HOME)/.claude-personal/projects/-home-kng-repo-buibui-moon-trader-bot/memory/MEMORY.md
+# ⚠ Resolved, not hardcoded. BOTH halves of this path vary by host -- the config root
+# (`~/.claude-personal` on the Linux box, `~/.claude` on the Windows laptop) and the
+# project slug, which the harness derives from the repo's ABSOLUTE PATH. Hardcoded, it
+# pointed at a tree that does not exist on this machine and `make status` reported the
+# index as 0 KB rather than saying it could not find it. `tools/memory_dir.py` is the
+# one resolver; `docs/plans/daily_check.py` reads the same one, where the identical
+# hardcoding had silently taken FIVE legs of the daily check offline.
+#
+# Recursively expanded (`=`, not `:=`) so the interpreter only starts when `status`
+# actually asks -- an immediate assignment would pay it on every make invocation.
+MEMORY = $(shell PYTHONPATH=. poetry run python tools/memory_dir.py 2>/dev/null)/MEMORY.md
 
 .PHONY: status wait-ci wait-ci-main post-branch-checks post-branch-text sanity-checks preflight lint lint-md lint-md-fix docs-index docs-index-check lint-py-check lint-py typecheck test test-cov test-regression regression-update poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-analytics-backfill buibui-analytics-sync universe-backfill buibui-backtest buibui-combo-backtest buibui-cross-tf-backtest buibui-signal-watch buibui-param-audit buibui-param-sweep buibui-recalibrate buibui-digest buibui-web buibui-card-place buibui-card-orders web-install web-dev web-build web-preview web-full clean-db clean export-live-db buibui-portfolio-replay buibui-forecast-audit buibui-forecast-weight-study buibui-forecast-regime buibui-xsmom-audit buibui-combine-audit buibui-carry-audit buibui-xsmom-capacity-audit buibui-xsmom-targets buibui-xsmom-execute buibui-universe-sync buibui-xsmom-daily buibui-structural-touch-audit buibui-structural-entry-sim-audit buibui-warning-value-audit buibui-sl-horizon-audit buibui-weekly-path-audit buibui-indicator-condition-audit buibui-xsrev-audit buibui-decay-review buibui-dead-surface-check buibui-giveback-study buibui-occurrence-dump
 
@@ -93,9 +103,15 @@ sanity-checks:
 # branch's `make test`: 300.1s against its 294.9s (+1.8%), and only this is hermetic.
 # ⚠ make collapses the recipe's exit code, so read the printed banner: REFUSED
 # (dirty tree) and INFRA (clone/install died) are NOT suite failures.
+# ⚠ The interpreter is RESOLVED, not assumed. A bare `python3` on the Windows host is
+# the Microsoft Store stub, which exits "Permission denied" without running anything --
+# so this gate, the one /post-branch Step 7 depends on, could not start at all there.
+# Same split as `deploy/backup-analytics.sh`; `python3` stays the last resort so the
+# Linux box and CI are unaffected.
 preflight:
 	@echo "🧪 Running the clean-clone pre-flight..."
-	@python3 tools/clone_preflight.py
+	@PY=./.venv/bin/python; [ -x "$$PY" ] || PY=./.venv/Scripts/python.exe; \
+		[ -x "$$PY" ] || PY=python3; "$$PY" tools/clone_preflight.py
 
 # ⚠ GNU make collapses any recipe failure to exit 2, so wait_ci.py's exit-code
 # taxonomy (3 = Actions-allowance steps=0, 1 = real failure, 4 = unreadable
