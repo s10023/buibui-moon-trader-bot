@@ -62,6 +62,24 @@ fi
 # So the output is tee'd to ONE file per job and trimmed after every run. The cap is the
 # point -- it keeps the README's promise (nothing grows unmanaged) on a host whose
 # scheduler will not keep it for us.
+# --- encoding --------------------------------------------------------------------
+#
+# Force UTF-8 for every Python child. Windows defaults a redirected stdout to the ANSI
+# codepage (cp1252 here), and this repo's own output is full of emoji and em-dashes --
+# the signal daemon opens with a 📅 line.
+#
+# ⚠ NOT cosmetic, which is what the mangled log undersells. Measured 2026-09-18:
+# `python -c "print('📅 — dash')"` with stdout redirected exits **1** with a
+# UnicodeEncodeError traceback under the default codepage, and exits 0 printing clean
+# UTF-8 with PYTHONUTF8=1. The first scheduled signal-watch run survived only because
+# of which path happened to emit the emoji; a different one kills the job outright.
+# Four of the five jobs carry no healthchecks URL, so that death would be silent.
+#
+# Set HERE rather than per-task in `install-tasks.ps1` so it covers every job at once
+# and takes effect without re-registering anything.
+PYTHONUTF8=1
+export PYTHONUTF8
+
 LOG_DIR="${BUIBUI_LOG_DIR:-logs}"
 LOG_MAX_LINES="${BUIBUI_LOG_MAX_LINES:-2000}"
 mkdir -p "$LOG_DIR"
