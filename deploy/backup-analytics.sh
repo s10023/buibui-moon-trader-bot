@@ -263,6 +263,11 @@ _ext_dir_tail() {
 # The venv interpreter is named directly rather than via `poetry run` -- one less
 # moving part on the minimal PATH a systemd user unit gets.
 PY="$REPO/.venv/bin/python"
+# A Windows host names it `Scripts/python.exe` -- the same split
+# `tools/venv_bootstrap.py::_venv_bin_dir` makes, for the same reason. PROBED rather
+# than branched on `uname`: this script already decides by `[ -x ]`, and a probe stays
+# correct under Git Bash, where `uname` says MINGW64 while the venv layout is Windows'.
+[ -x "$PY" ] || PY="$REPO/.venv/Scripts/python.exe"
 [ -x "$PY" ] || PY="python3"
 
 # ST78: the account-level spend tracker. Its derived index is the backed-up stand-in for

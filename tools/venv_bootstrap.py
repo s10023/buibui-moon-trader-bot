@@ -55,7 +55,7 @@ def reexec_into_venv(root: Path, *, sentinel: str = SENTINEL) -> None:
     if os.environ.get(sentinel) == "1":
         return
     venv = root / ".venv"
-    python = venv / "bin" / "python"
+    python = _venv_python(venv)
     if not python.exists():
         return
     if Path(sys.prefix).resolve() == venv.resolve():
@@ -89,6 +89,52 @@ def _venv_first_path(venv: Path) -> str:
     on ``PATH`` would shadow it and the canary would probe a version the pipeline never
     runs — a false verdict, which is worse than the missing one this replaces.
     """
-    bin_dir = str(venv / "bin")
+    bin_dir = str(_venv_bin_dir(venv))
     current = os.environ.get("PATH", "")
     return f"{bin_dir}{os.pathsep}{current}" if current else bin_dir
+
+
+def _venv_bin_dir(venv: Path) -> Path:
+    """``Scripts`` on Windows, ``bin`` everywhere else.
+
+    Not a Windows VARIANT -- a portability fix, correct on both platforms. The
+    hardcoded ``bin`` made every leg of this module a silent no-op on Windows: the
+    interpreter probe below could not find a venv that was right there, so
+    `reexec_into_venv` returned as if the venv were ABSENT. That is the module's
+    documented safe path, which is exactly why it would never have surfaced as an
+    error -- the operator gets the partial `?` report this file exists to prevent,
+    on the one platform where nothing says so.
+
+    The platform is read at CALL time through `_is_windows`, so a test can exercise
+    the branch it is not running on -- which is what buys Windows coverage out of an
+    ubuntu-only CI matrix.
+    """
+    return venv / ("Scripts" if _is_windows() else "bin")
+
+
+def _venv_python(venv: Path) -> Path:
+    """The venv interpreter, named as the platform names it.
+
+    ⚠ The extension is load-bearing and is NOT merely cosmetic: `Path.exists()` on
+    ``.venv/Scripts/python`` is False on Windows, so dropping ``.exe`` reproduces the
+    absent-venv no-op this helper removes.
+    """
+    return _venv_bin_dir(venv) / ("python.exe" if _is_windows() else "python")
+
+
+def _is_windows() -> bool:
+    """Indirection so a test can take the other platform's branch.
+
+    ⚠ **Do NOT replace this with a patched `os.name` at the call sites.** `pathlib`
+    dispatches on `os.name` too, so monkeypatching it to the foreign value makes a
+    plain `Path(...)` raise ``NotImplementedError: cannot instantiate 'PosixPath' on
+    your system``. Measured 2026-09-18 while writing `tests/test_venv_bootstrap.py`:
+    it did not merely fail the case, it took pytest's own failure REPORTING down with
+    it (`INTERNALERROR` out of `_repr_failure_py`), so the run reported nothing at
+    all. `reexec_into_venv` builds `Path(sys.prefix)` under exactly that patch.
+
+    The `monitor/price_lib.py` precedent patches `os.name` directly and is fine only
+    because nothing under its patch constructs a Path -- read it as narrower than it
+    looks, not as the house idiom.
+    """
+    return os.name == "nt"
