@@ -42,7 +42,13 @@ def _write_exec(path: Path, body: str) -> None:
 
 
 def _stub_path(
-    tmp_path: Path, *, dns_ok_after: int, job_rc: int, job_stdout: str = ""
+    tmp_path: Path,
+    *,
+    dns_ok_after: int,
+    job_rc: int,
+    job_stdout: str = "",
+    getent_absent: bool = False,
+    py_rc: int = 0,
 ) -> tuple[Path, Path]:
     """Build a stub bin dir shadowing getent/curl/poetry plus a fake job.
 
@@ -56,17 +62,33 @@ def _stub_path(
     stub_dir.mkdir()
     log = tmp_path / "calls.log"
 
+    if getent_absent:
+        # Exit 127 IS an absent command -- that is the shell's own "not found"
+        # code, and it is how the wrapper tells "no getent here" (a Windows host)
+        # from "getent says no" (a real outage). Stubbing it is the only way to
+        # exercise the fallback without a live resolver.
+        _write_exec(
+            stub_dir / "getent",
+            f'#!/bin/sh\nprintf "getent\\n" >> "{log}"\nexit 127\n',
+        )
+    else:
+        _write_exec(
+            stub_dir / "getent",
+            "#!/bin/sh\n"
+            f'count="{tmp_path}/getent.count"\n'
+            'n=$(cat "$count" 2>/dev/null || echo 0)\n'
+            "n=$((n + 1))\n"
+            'printf %s "$n" > "$count"\n'
+            f'printf "getent\\n" >> "{log}"\n'
+            f'[ "$n" -ge {dns_ok_after} ] || exit 2\n'
+            f'printf "dns-up\\n" >> "{log}"\n'
+            "exit 0\n",
+        )
+    # Stands in for the interpreter the fallback reaches for via NET_WAIT_PY, so
+    # the suite never performs a real lookup.
     _write_exec(
-        stub_dir / "getent",
-        "#!/bin/sh\n"
-        f'count="{tmp_path}/getent.count"\n'
-        'n=$(cat "$count" 2>/dev/null || echo 0)\n'
-        "n=$((n + 1))\n"
-        'printf %s "$n" > "$count"\n'
-        f'printf "getent\\n" >> "{log}"\n'
-        f'[ "$n" -ge {dns_ok_after} ] || exit 2\n'
-        f'printf "dns-up\\n" >> "{log}"\n'
-        "exit 0\n",
+        stub_dir / "fake-py",
+        f'#!/bin/sh\nprintf "py-resolve\\n" >> "{log}"\nexit {py_rc}\n',
     )
     # The wrapper calls curl only for healthchecks pings; record the suffix so
     # the test can tell /start from /fail.
@@ -114,11 +136,18 @@ def _run(
     job_rc: int = 0,
     net_wait_secs: str = "10",
     job_stdout: str = "",
+    getent_absent: bool = False,
+    py_rc: int = 0,
     extra_env: dict[str, str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     """Invoke the real wrapper against the stubs; return (proc, ordered calls)."""
     stub_dir, log = _stub_path(
-        tmp_path, dns_ok_after=dns_ok_after, job_rc=job_rc, job_stdout=job_stdout
+        tmp_path,
+        dns_ok_after=dns_ok_after,
+        job_rc=job_rc,
+        job_stdout=job_stdout,
+        getent_absent=getent_absent,
+        py_rc=py_rc,
     )
     env = dict(os.environ)
     env["PATH"] = f"{stub_dir}{os.pathsep}{env['PATH']}"
@@ -127,6 +156,9 @@ def _run(
     # Busy-poll so the deadline is the only thing bounding the test's runtime.
     env["NET_WAIT_INTERVAL"] = "0"
     env["NET_WAIT_HOSTS"] = PROBE_HOST
+    # Pin the fallback interpreter at the stub so no test can ever reach a real
+    # resolver, whatever the host's `.venv` looks like.
+    env["NET_WAIT_PY"] = str(stub_dir / "fake-py")
     # The wrapper's opt-ins are absent unless a test asks for them, so the
     # default run keeps the pre-ST77 contract.
     env.pop("SOFT_FAIL_RC", None)
@@ -134,7 +166,18 @@ def _run(
     env.update(extra_env or {})
 
     proc = subprocess.run(
-        [str(RUN_JOB), "testjob", "HC_TEST_URL", "--", str(stub_dir / "fake-job")],
+        # Invoked THROUGH bash rather than by shebang: Windows cannot exec a `.sh`
+        # and raises OSError(WinError 193), which took this whole file -- and the
+        # two backup suites -- out on the Windows host. Portable, not a platform
+        # branch, and already the shape `test_backup_offsite_guards.py` uses.
+        [
+            "bash",
+            str(RUN_JOB),
+            "testjob",
+            "HC_TEST_URL",
+            "--",
+            str(stub_dir / "fake-job"),
+        ],
         env=env,
         capture_output=True,
         text=True,
@@ -189,6 +232,45 @@ def test_exhausted_wait_still_runs_the_job_and_preserves_rc(tmp_path: Path) -> N
     assert "job" in calls, f"wrapper swallowed the job on a dead network: {calls}"
     assert proc.returncode == 1, "wrapped exit code must be preserved"
     assert any("/fail" in c for c in calls if c.startswith("curl")), calls
+    assert "waited" in proc.stdout + proc.stderr, "a dead network must be logged"
+
+
+def test_resolver_falls_back_when_getent_is_absent(tmp_path: Path) -> None:
+    """A host with no `getent` must still resolve, not burn the whole deadline.
+
+    `getent` is glibc and does not exist on Windows, so the probe could never
+    succeed there: every job paid NET_WAIT_SECS in full and then reported an
+    outage that was not happening. Measured 2026-09-18 on one day of logs — 31
+    false waits, ~96 min/day of sleep at signal-watch's 15-minute cadence —
+    while the name resolved in 0.028s and alerts were landing throughout.
+    """
+    proc, calls = _run(tmp_path, getent_absent=True, net_wait_secs="6")
+
+    assert "py-resolve" in calls, f"fallback interpreter was never reached: {calls}"
+    assert "job" in calls, calls
+    assert proc.returncode == 0
+    assert "waited" not in proc.stdout + proc.stderr, (
+        "a healthy resolver must not be reported as an outage"
+    )
+
+
+def test_fallback_still_fails_when_the_name_does_not_resolve(tmp_path: Path) -> None:
+    """Teeth. The fallback must be able to say NO, or the gate is decorative.
+
+    This is the control that rules out the cheap fix: `nslookup` exits 0 even for
+    a bogus name (verified on the Windows host), so a probe built on it would
+    pass instantly and never detect the outage the gate exists for — a worse
+    failure than the one being repaired, and invisible without this test.
+    `socket.getaddrinfo` raises, which is what earns the fallback its teeth.
+    """
+    proc, calls = _run(
+        tmp_path, getent_absent=True, py_rc=1, job_rc=1, net_wait_secs="1"
+    )
+
+    assert "py-resolve" in calls, calls
+    assert "dns-up" not in calls
+    assert "job" in calls, "the wrapper must still run the job on a dead network"
+    assert proc.returncode == 1, "wrapped exit code must be preserved"
     assert "waited" in proc.stdout + proc.stderr, "a dead network must be logged"
 
 

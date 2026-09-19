@@ -1199,6 +1199,18 @@ to revisit that, not a reason to restate this.
 - Branch naming: `feat/`, `fix/`, `docs/`, `chore/`
 - Never commit `.env`, `config/coins.json`, or IDE files
 
+**`.gitattributes` pins `*.sh` to `eol=lf`, and it is a data-integrity rule rather than a
+style one.** A Windows clone under the default `core.autocrlf=true` rewrites every deploy
+script to CRLF. That alone is survivable — Git Bash tolerates CRLF in a script — and the
+tolerance is precisely the trap: bash strips CR from script SOURCE and **not** from data a
+script READS. Measured 2026-09-18: `TELEGRAM_BOT_TOKEN=123:abc` in a CRLF file loads as
+**8 characters, not 7**, so the token prints correctly, Telegram rejects it, and the
+symptom is "the bot stopped alerting" over a config that looks perfect. ⚠ **It cannot cover
+`.env`, `config/coins.json` or anything else gitignored** — git never sees those files, and
+any Windows editor that writes CRLF reintroduces it. That is why `deploy/windows/load-env.sh`
+strips CR itself and why the strip is mutation-tested rather than left as a convention. The
+pin is a no-op on Linux and in CI.
+
 ### PR titles
 
 **Squash-merge makes the PR title the permanent commit message**, so it is the line every

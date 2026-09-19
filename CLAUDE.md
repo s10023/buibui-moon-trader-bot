@@ -81,9 +81,14 @@ is scoped rather than blanket.
 ## Session Memory Protocol
 
 At the end of every session where anything changed, update the **Current State** section in
-`~/.claude-personal/projects/-home-kng-repo-buibui-moon-trader-bot/memory/MEMORY.md` without
-waiting to be asked. Keep current: a one-line last-session summary, and open questions or
-pending decisions (or "none").
+the memory tree's `MEMORY.md` without waiting to be asked. Keep current: a one-line
+last-session summary, and open questions or pending decisions (or "none").
+
+⚠ **Resolve that path with `tools/memory_dir.py`, never by hand.** BOTH the config root
+(`.claude-personal` on the old Linux box, `.claude` on the Windows laptop) and the project
+slug (derived from the repo's ABSOLUTE path) vary by host, so a hardcoded path is wrong on
+every machine but one — which is what it was, here and in three skills, until 2026-09-19.
+`$(PYTHONPATH=. poetry run python tools/memory_dir.py)` prints it; `make status` uses it.
 
 ⚠ **The SoT (`memory/project_todo_master.md`) carries the SAME unprompted obligation, and it
 is stated here because omitting it is what made it drift.** The end-of-session rules named

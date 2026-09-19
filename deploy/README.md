@@ -416,9 +416,14 @@ cp ~/backups/buibui/daily/<DATE>/docs/plans/pundit-calls.jsonl docs/plans/     #
 cp ~/backups/buibui/daily/<DATE>/_external/claude-personal/history.jsonl \
    ~/.claude-personal/history.jsonl                                            # OUT of repo
 
-# the cross-session memory trees -- all projects, or one:
+# the cross-session memory trees -- all projects, or one.
+# TWO config roots, and which one holds the LIVE tree depends on the host:
+# `.claude-personal` on the old Linux box, `.claude` on the Windows laptop.
+# Restore both; the one that is empty on this host restores nothing.
 cp -Rp ~/backups/buibui/daily/<DATE>/_external/claude-personal/projects/. \
    ~/.claude-personal/projects/
+cp -Rp ~/backups/buibui/daily/<DATE>/_external/claude/projects/. \
+   ~/.claude/projects/
 
 # account-level tooling, skills and instructions (2026-08-19). Note the doubled
 # path component: these land under `_external/claude-personal/.claude-personal/`
@@ -438,7 +443,8 @@ transcripts no longer cover — restore it before running the tracker again, or 
 are gone for good.
 
 **The memory trees are the highest-value thing in the snapshot and the easiest to restore
-wrongly.** Each lands at `_external/claude-personal/projects/<project-slug>/memory/`, and
+wrongly.** Each lands at `_external/<config-root>/projects/<project-slug>/memory/` — where
+`<config-root>` is `claude-personal` or `claude`, mirroring the two harness roots — and
 the slug matters: restoring one tree into the wrong project silently gives that project
 another repo's rulings. Copy the whole `projects/.` as above, or name one slug explicitly —
 never `cp` a bare `memory/` directory, which is exactly the collapse the backup script's
@@ -485,6 +491,124 @@ code, so it cannot mask a real network failure.
 | `NET_WAIT_SECS` | `60` | Total wait budget. `0` = probe once, never wait. |
 | `NET_WAIT_INTERVAL` | `2` | Seconds between probes. |
 | `NET_WAIT_HOSTS` | `api.telegram.org` | Space-separated; the first host to resolve wins. Telegram is the default because it is the one host every job needs — it is the failure-reporting channel. |
+
+## Windows laptop install (Task Scheduler)
+
+The same five jobs on a Windows host. **The Python is portable and was never the
+problem** — there are no POSIX-only imports anywhere in `analytics/ cli/ signals/ card/
+portfolio/ trade/ monitor/ utils/ web/`, and DuckDB, pandas and python-binance all ship
+Windows builds. What is Linux-bound is the *operations* layer, and only two pieces of it
+needed writing.
+
+**`run-job.sh` and the five scripts it wraps are NOT ported, deliberately.** They are
+`curl`, `date` and POSIX shell, all of which Git Bash provides; a PowerShell rewrite
+would fork the one wrapper both hosts run and guarantee the two drift. Windows gets an
+adapter for what Task Scheduler genuinely cannot do, and nothing else:
+
+| systemd | Windows | Where |
+| --- | --- | --- |
+| `OnCalendar=` + `Persistent=true` | trigger + `StartWhenAvailable` | `install-tasks.ps1` |
+| `loginctl enable-linger` | principal `LogonType S4U` | `install-tasks.ps1` |
+| `EnvironmentFile=-.env` | a parser | `load-env.sh` |
+| the journal | a per-job capped logfile | `job.sh` |
+| `journalctl` liveness read | `Get-ScheduledTaskInfo` | `tools/task_probe.py` |
+| `SuccessExitStatus=2` | `success_codes` on the probe | `tools/task_probe.py` |
+
+### Prerequisites
+
+- **Git for Windows** — supplies `bash`, `curl` and the coreutils every deploy script
+  needs. The installer defaults to `C:\Program Files\Gitinash.exe`; pass
+  `-BashExe` if yours is elsewhere.
+- **Python 3.13** (`pyproject.toml` pins `>=3.13,<3.14` — 3.11 or 3.12 will not resolve),
+  Poetry, `node`, `ffmpeg`, `rclone`.
+- `poetry install --no-root`, which puts the interpreter at `.venv\Scripts\python.exe`.
+
+### Install the tasks
+
+```powershell
+# from an ELEVATED PowerShell -- registering an S4U principal needs it
+powershell -ExecutionPolicy Bypass -File deploy\windows\install-tasks.ps1 -WhatIf   # look first
+powershell -ExecutionPolicy Bypass -File deploy\windows\install-tasks.ps1
+
+Get-ScheduledTask -TaskPath 'uibui' | Format-Table TaskName, State
+Get-ScheduledTaskInfo -TaskPath 'uibui' -TaskName 'buibui-signal-watch'
+```
+
+The off-site backup is registered with the rest but **must not be trusted until
+`BUIBUI_BACKUP_REMOTE` is set in `.env`** — `backup-offsite.sh` exits 1 while it is
+unset, on purpose, so it complains daily rather than looking green while protecting
+nothing.
+
+### The four defaults that kill the bot silently
+
+Task Scheduler's defaults are written for desktop chores, not for a job whose missed
+runs cost permanent evidence. `install-tasks.ps1` overrides each explicitly — **if you
+ever hand-build a task in the GUI, set them yourself**:
+
+| Default | What it does to you |
+| --- | --- |
+| `DisallowStartIfOnBatteries` = true | the bot stops the moment the charger is out, and says nothing |
+| `StopIfGoingOnBatteries` = true | a running scan is **killed mid-flight** |
+| `StopOnIdleEnd` = true | tasks stop when you touch the laptop |
+| `ExecutionTimeLimit` = 72h | one hung run blocks its own successor for three days |
+
+### Two more that are the host, not the scheduler
+
+```powershell
+powercfg /change standby-timeout-ac 0
+powercfg /change hibernate-timeout-ac 0
+```
+
+A sleeping host does not deliver live alerts on any OS. `--catch-up` still recovers the
+LEDGER on resume — bounded by `scan_window`, so 600 bars on 15m and 200 elsewhere — but
+backfilled candles are persisted and watermarked and **never sent to Telegram**, so the
+evidence base survives a sleep and your phone does not.
+
+And set Windows Update **active hours** wide. An unattended auto-restart is the most
+likely way this host dies quietly, which is exactly what the liveness probe below is for.
+
+### ⚠ Line endings — the one that corrupts data rather than breaking it
+
+`.gitattributes` pins `*.sh` to `eol=lf`, because a Windows clone under the default
+`core.autocrlf=true` rewrites every script to CRLF. That alone is survivable — Git Bash
+tolerates CRLF in a script, which is the trap: it strips CR from script SOURCE and
+**not** from data a script READS.
+
+Measured 2026-09-18: `TELEGRAM_BOT_TOKEN=123:abc` in a CRLF file loads as **8
+characters, not 7**. Nothing fails loudly. The token prints correctly, Telegram rejects
+it, and the symptom is "the bot stopped alerting" over a config that looks perfect.
+
+**`.gitattributes` cannot cover `.env`** — git never sees a gitignored file, and any
+Windows editor that writes CRLF (Notepad, by default) reintroduces it. That is why
+`deploy/windows/load-env.sh` strips CR itself, and why the strip is the mutation-tested
+behaviour rather than a convention.
+
+### Where the logs are
+
+Unlike the Linux host there IS a logfile, because there is no journal to delegate to and
+a Task Scheduler action's stdout goes nowhere. `job.sh` tees each job to its own capped
+file:
+
+```bash
+tail -n 50 logs/signal-watch.log      # what the job actually printed
+tail -f logs/daily-check.log
+```
+
+Gitignored, one file per job, trimmed to `BUIBUI_LOG_MAX_LINES` (2000) after every run —
+the cap keeps the Linux side's promise that nothing grows unmanaged on a laptop. The
+trim keeps the END, where the failure is.
+
+### What this host still does not have
+
+**The liveness probe is not wired in yet.** `tools/task_probe.py` provides
+`scheduler_last_completion()`, which dispatches on the host so one call works on both,
+and it is tested — but `docs/plans/daily_check.py` is gitignored and has to call it. Add
+that when the ledger tree is restored.
+
+Until then the Windows host has alerting and backups but **no automated answer to "is
+the timer still firing"** — the single thing `journalctl` gives the Linux host for free.
+Watch `Get-ScheduledTaskInfo` by hand, or lean on the healthchecks.io dead-man's
+switches, which are host-independent and already wired.
 
 ## Schema migrations — a one-time operator step, never automatic
 

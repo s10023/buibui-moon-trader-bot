@@ -170,7 +170,8 @@ Check these in parallel:
 
 ### MEMORY.md
 
-Path: `~/.claude-personal/projects/-home-kng-repo-buibui-moon-trader-bot/memory/MEMORY.md`
+Path: `$(PYTHONPATH=. poetry run python tools/memory_dir.py)/MEMORY.md` — ⚠ **resolve it, never hardcode it.** Both the config root
+and the project slug vary by host; `tools/memory_dir.py` is the one resolver.
 
 - Is **Current State** up to date with recent changes?
 - Are completed items marked ✅ in the To-Do List?

@@ -31,6 +31,8 @@ import os
 import sys
 from pathlib import Path
 
+from tools import host_platform
+
 SENTINEL = "BUIBUI_VENV_REEXEC"
 
 
@@ -55,10 +57,24 @@ def reexec_into_venv(root: Path, *, sentinel: str = SENTINEL) -> None:
     if os.environ.get(sentinel) == "1":
         return
     venv = root / ".venv"
-    python = venv / "bin" / "python"
+    python = _venv_python(venv)
     if not python.exists():
         return
     if Path(sys.prefix).resolve() == venv.resolve():
+        # Already inside the venv: there is no interpreter to swap -- but PATH still
+        # needs the prepend, and until 2026-09-18 this early return skipped it.
+        #
+        # ⚠ That is how the handoff's OWN documented verification command,
+        # `./.venv/Scripts/python.exe docs/plans/daily_check.py`, produced a
+        # `FileNotFoundError` for the yt-dlp media canary while the binary sat in the
+        # very venv it was running from: naming the venv python directly satisfies
+        # this check, so the re-exec never happens and `_venv_first_path` never runs.
+        # The doc then manufactured the "check DID NOT RUN" it was meant to detect.
+        #
+        # Same third level this module already documents -- a subprocess resolved BY
+        # NAME is resolved by the SHELL through PATH -- reached from the one
+        # direction that skips the re-exec entirely.
+        os.environ["PATH"] = _venv_first_path(venv)
         return
     # stderr, not stdout: `deploy/run-job.sh` captures stdout and pushes it to Telegram
     # under a line budget, so a note about the interpreter must not spend a report line.
@@ -89,6 +105,37 @@ def _venv_first_path(venv: Path) -> str:
     on ``PATH`` would shadow it and the canary would probe a version the pipeline never
     runs — a false verdict, which is worse than the missing one this replaces.
     """
-    bin_dir = str(venv / "bin")
+    bin_dir = str(_venv_bin_dir(venv))
     current = os.environ.get("PATH", "")
     return f"{bin_dir}{os.pathsep}{current}" if current else bin_dir
+
+
+def _venv_bin_dir(venv: Path) -> Path:
+    """``Scripts`` on Windows, ``bin`` everywhere else.
+
+    Not a Windows VARIANT -- a portability fix, correct on both platforms. The
+    hardcoded ``bin`` made every leg of this module a silent no-op on Windows: the
+    interpreter probe below could not find a venv that was right there, so
+    `reexec_into_venv` returned as if the venv were ABSENT. That is the module's
+    documented safe path, which is exactly why it would never have surfaced as an
+    error -- the operator gets the partial `?` report this file exists to prevent,
+    on the one platform where nothing says so.
+
+    The platform is read at CALL time through `host_platform.is_windows`, so a test
+    can exercise the branch it is not running on -- which is what buys Windows coverage
+    out of an ubuntu-only CI matrix. That module's docstring says why the check is a
+    function rather than an inline `os.name` read; do not inline it back.
+    """
+    return venv / ("Scripts" if host_platform.is_windows() else "bin")
+
+
+def _venv_python(venv: Path) -> Path:
+    """The venv interpreter, named as the platform names it.
+
+    ⚠ The extension is load-bearing and is NOT merely cosmetic: `Path.exists()` on
+    ``.venv/Scripts/python`` is False on Windows, so dropping ``.exe`` reproduces the
+    absent-venv no-op this helper removes.
+    """
+    return _venv_bin_dir(venv) / (
+        "python.exe" if host_platform.is_windows() else "python"
+    )

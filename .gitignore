@@ -68,3 +68,6 @@ web/ui/.vite/
 
 # Subagent-driven-development scratch workspace (ledger, briefs, review packages)
 .superpowers/
+
+# Windows host: deploy/windows/job.sh writes the journal stand-in here (capped per job)
+logs/

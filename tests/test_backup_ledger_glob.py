@@ -77,7 +77,12 @@ def fake_repo(tmp_path: Path) -> Path:
 
 
 def _run(
-    repo: Path, tmp_path: Path, *args: str, home: Path | None = None
+    repo: Path,
+    tmp_path: Path,
+    *args: str,
+    home: Path | None = None,
+    path_prepend: Path | None = None,
+    env_extra: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = {
         **os.environ,
@@ -85,12 +90,19 @@ def _run(
         "BUIBUI_LOCK_RETRIES": "1",
         "BUIBUI_LOCK_SLEEP": "0",
     }
+    # Shadowing a coreutil is how the publish-retry tests inject a transient
+    # failure -- the script calls `mv` exactly once, so the stub is precise.
+    if path_prepend is not None:
+        env["PATH"] = f"{path_prepend}{os.pathsep}{env.get('PATH', '')}"
+    env.update(env_extra or {})
     # Every EXTERNAL_* path is spelled relative to $HOME, so overriding it is what
     # isolates these tests from the operator's real ~/.claude-personal tree.
     if home is not None:
         env["HOME"] = str(home)
     return subprocess.run(  # noqa: S603
-        [str(repo / "deploy" / "backup-analytics.sh"), *args],
+        # Through bash, not by shebang -- Windows cannot exec a `.sh`.
+        # See the same note in `test_run_job_wrapper.py`.
+        ["bash", str(repo / "deploy" / "backup-analytics.sh"), *args],
         capture_output=True,
         text=True,
         env=env,
@@ -130,6 +142,35 @@ class TestLedgerGlobCoverage:
         assert r.returncode == 0, r.stdout + r.stderr
         assert "ledger     docs/plans/brand-new-ledger.jsonl" in r.stdout
         assert not (tmp_path / "backups" / "daily").exists()
+
+    def test_the_catch_up_watermark_is_covered(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        """`signal_state.json` sits at the repo ROOT, so the `docs/plans/*` glob that
+        covers every other ledger cannot reach it -- it needs its own entry, and until
+        2026-09-18 it had none.
+
+        The cost is measured rather than hypothetical. A Windows-migration restore
+        brought back a 2026-09-15 snapshot with no watermark, so every
+        (symbol, tf, strategy) key read as cold; `scanner.py`'s cold-start guard then
+        keeps ONLY the latest closed candle for an unwatermarked key, and `--catch-up`
+        replayed nothing. Three days of fires were lost. The OHLCV bars and the outcome
+        resolutions both came back -- only the fires depend on this file.
+
+        ⚠ Its loss is silent in BOTH directions: no error, and no burst of stale
+        alerts either. It just quietly narrows what catch-up will replay, which is why
+        nothing caught it for three days.
+        """
+        (fake_repo / "signal_state.json").write_text('{"BTCUSDT:15m:bos:4": 1}\n')
+
+        r = _run(fake_repo, tmp_path)
+
+        assert r.returncode == 0, r.stdout + r.stderr
+        snapshots = sorted((tmp_path / "backups" / "daily").iterdir())
+        assert snapshots, "no snapshot was written"
+        copied = snapshots[-1] / "signal_state.json"
+        assert copied.exists(), "the catch-up watermark was not backed up"
+        assert copied.read_text() == '{"BTCUSDT:15m:bos:4": 1}\n'
 
     def test_a_directory_under_plans_is_not_copied_as_a_file(
         self, fake_repo: Path, tmp_path: Path
@@ -267,3 +308,192 @@ class TestSpendSessionIndex:
         assert r.returncode == 0, r.stdout + r.stderr
         snapshots = sorted((tmp_path / "backups" / "daily").iterdir())
         assert snapshots, "a missing optional tracker must not prevent the snapshot"
+
+
+class TestPublishSurvivesATransientLock:
+    """Publishing the snapshot must survive a momentary lock on its own files.
+
+    Windows refuses to rename a directory while ANY file inside it is open, and a
+    freshly written ~259 MiB `.db` is exactly what a virus scanner or the search
+    indexer opens the instant it lands. Observed 2026-09-18: the 15:41 run died at
+    the publish `mv` with `Permission denied` having already built AND verified a
+    complete snapshot, while the 20:41 run published the identical tree cleanly.
+    Giving up on the first attempt discarded the entire run's work.
+
+    Linux never takes the retry -- rename(2) there does not care about open
+    handles -- so on the VPS the first attempt succeeds and the loop exits at once.
+    """
+
+    @staticmethod
+    def _flaky_mv(tmp_path: Path, *, fail_times: int) -> Path:
+        """A `mv` that fails `fail_times` times with the real error, then works."""
+        real_mv = shutil.which("mv")
+        assert real_mv, "these tests need a real `mv` to delegate to"
+
+        bin_dir = tmp_path / "flaky-bin"
+        bin_dir.mkdir()
+        counter = tmp_path / "mv.count"
+        stub = bin_dir / "mv"
+        stub.write_text(
+            "#!/bin/sh\n"
+            f'n=$(cat "{counter}" 2>/dev/null || echo 0)\n'
+            "n=$((n + 1))\n"
+            f'printf %s "$n" > "{counter}"\n'
+            f'if [ "$n" -le {fail_times} ]; then\n'
+            '  printf "mv: cannot move: Permission denied\n" >&2\n'
+            "  exit 1\n"
+            "fi\n"
+            f'exec "{real_mv}" "$@"\n'
+        )
+        stub.chmod(0o755)
+        return bin_dir
+
+    def test_a_transient_publish_failure_is_retried_rather_than_fatal(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        r = _run(
+            fake_repo,
+            tmp_path,
+            path_prepend=self._flaky_mv(tmp_path, fail_times=2),
+            env_extra={"BUIBUI_PUBLISH_WAIT": "0"},
+        )
+
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert "retrying" in r.stdout, f"the retry was never reported: {r.stdout}"
+        snapshots = sorted((tmp_path / "backups" / "daily").iterdir())
+        assert snapshots, "a transient lock must not cost the whole snapshot"
+
+    def test_a_persistent_failure_still_fails(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        """Teeth. A retry that can never give up is a hang, not a fix.
+
+        Without this the loop could retry forever, or swallow a genuine permission
+        problem and report a snapshot that was never published -- which is worse
+        than the crash being repaired, because the freshness check would then read
+        a stale directory as current.
+        """
+        r = _run(
+            fake_repo,
+            tmp_path,
+            path_prepend=self._flaky_mv(tmp_path, fail_times=10**6),
+            env_extra={"BUIBUI_PUBLISH_TRIES": "3", "BUIBUI_PUBLISH_WAIT": "0"},
+        )
+
+        assert r.returncode == 1, "a real permission failure must still fail the run"
+        assert "after 3 attempts" in r.stderr, r.stderr
+        daily = tmp_path / "backups" / "daily"
+        published = [d for d in daily.iterdir() if not d.name.startswith(".staging")]
+        assert not published, "nothing may be published when the mv never succeeded"
+
+
+@pytest.fixture
+def two_root_home(tmp_path: Path) -> Path:
+    """A $HOME carrying a memory tree under BOTH harness config roots.
+
+    `.claude-personal` holds a legacy Linux-slug tree (what a migration restore
+    leaves behind); `.claude` holds the live Windows-slug one. The bug this
+    guards reproduced only with both present, because the legacy tree is what
+    kept the snapshot looking populated.
+    """
+    home = tmp_path / "home"
+    legacy = home / ".claude-personal" / "projects" / "-home-kng-repo-buibui" / "memory"
+    legacy.mkdir(parents=True)
+    (legacy / "MEMORY.md").write_text("legacy tree\n")
+
+    live = home / ".claude" / "projects" / "C--Users-User-repo-buibui" / "memory"
+    live.mkdir(parents=True)
+    (live / "MEMORY.md").write_text("live tree\n")
+    (live / "project_todo_master.md").write_text("the SoT\n")
+    return home
+
+
+class TestBothConfigRootsAreCovered:
+    """The memory tree moved roots at the 2026-09-18 Windows migration.
+
+    `~/.claude-personal` on the old Linux box, `~/.claude` on the laptop. Covering
+    only the first kept MATCHING -- on the legacy trees a restore had left behind --
+    so the snapshot read populated while the live tree, which is in no git remote,
+    was copied nowhere. Same shape as the LEDGERS allowlist defect one array over:
+    the glob's miss-is-a-skip contract cannot tell an absent tree from a moved one.
+    """
+
+    def test_the_live_tree_under_the_second_root_is_copied(
+        self, fake_repo: Path, tmp_path: Path, two_root_home: Path
+    ) -> None:
+        r = _run(fake_repo, tmp_path, home=two_root_home)
+        assert r.returncode == 0, r.stdout + r.stderr
+
+        snapshots = sorted((tmp_path / "backups" / "daily").iterdir())
+        assert snapshots, "no snapshot was written"
+        live = (
+            snapshots[-1]
+            / "_external"
+            / "claude"
+            / "projects"
+            / "C--Users-User-repo-buibui"
+            / "memory"
+        )
+        assert (live / "MEMORY.md").exists(), "the live memory tree was not copied"
+        assert (live / "project_todo_master.md").exists(), "the SoT was not copied"
+        assert (live / "MEMORY.md").read_text().strip() == "live tree"
+
+    def test_the_legacy_root_is_still_copied_beside_it(
+        self, fake_repo: Path, tmp_path: Path, two_root_home: Path
+    ) -> None:
+        """Covering the new root must not silently drop the old one."""
+        r = _run(fake_repo, tmp_path, home=two_root_home)
+        assert r.returncode == 0, r.stdout + r.stderr
+
+        snapshots = sorted((tmp_path / "backups" / "daily").iterdir())
+        legacy = (
+            snapshots[-1]
+            / "_external"
+            / "claude-personal"
+            / "projects"
+            / "-home-kng-repo-buibui"
+            / "memory"
+            / "MEMORY.md"
+        )
+        assert legacy.exists(), "the legacy tree stopped being copied"
+
+    def test_the_two_roots_do_not_collide_in_the_snapshot(
+        self, fake_repo: Path, tmp_path: Path, two_root_home: Path
+    ) -> None:
+        """Distinct dest prefixes -- one overwriting the other is the data-losing bug."""
+        _run(fake_repo, tmp_path, home=two_root_home)
+        snapshots = sorted((tmp_path / "backups" / "daily").iterdir())
+        ext = snapshots[-1] / "_external"
+        live = ext / "claude" / "projects" / "C--Users-User-repo-buibui" / "memory"
+        legacy = (
+            ext / "claude-personal" / "projects" / "-home-kng-repo-buibui" / "memory"
+        )
+        assert (live / "MEMORY.md").read_text().strip() == "live tree"
+        assert (legacy / "MEMORY.md").read_text().strip() == "legacy tree"
+
+    def test_mutation_removing_the_second_root_entry_fails_this_suite(
+        self, fake_repo: Path, tmp_path: Path, two_root_home: Path
+    ) -> None:
+        """Proves the assertions above bite on the ENTRY, not on something incidental."""
+        script = fake_repo / "deploy" / "backup-analytics.sh"
+        text = script.read_text(encoding="utf-8")
+        entry = '    "$HOME/.claude/projects/*/memory:claude/projects"\n'
+        assert entry in text, "the guarded entry is not present to mutate"
+        script.write_text(text.replace(entry, ""), encoding="utf-8")
+
+        r = _run(fake_repo, tmp_path, home=two_root_home)
+        assert r.returncode == 0, r.stdout + r.stderr
+        snapshots = sorted((tmp_path / "backups" / "daily").iterdir())
+        live = (
+            snapshots[-1]
+            / "_external"
+            / "claude"
+            / "projects"
+            / "C--Users-User-repo-buibui"
+            / "memory"
+            / "MEMORY.md"
+        )
+        assert not live.exists(), (
+            "the live tree was copied WITHOUT the entry -- these tests would pass "
+            "against the defect and guard nothing"
+        )

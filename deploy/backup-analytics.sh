@@ -110,6 +110,25 @@ LEDGERS=(
     # disposable. A plain recursive delete of .cache/ resets chart dedup with no
     # other trace.
     ".cache/chart-drops/processed.json"
+    # The signal daemon's catch-up watermark, and the ONE watermark that lived
+    # outside every array here until 2026-09-18. `docs/plans/*` does not reach it --
+    # it sits at the repo ROOT -- so it was the only member of the class this file
+    # already names (yt-feed-state, routed-ledger, processed.json, task-marks) with
+    # no coverage at all.
+    #
+    # MEASURED COST, which is why it is listed rather than argued about: the Windows
+    # migration restored a 2026-09-15 snapshot onto a new host, and every
+    # (symbol, tf, strategy) key came up with no watermark. `scanner.py`'s cold-start
+    # guard then keeps ONLY the latest closed candle for an unwatermarked key -- by
+    # design, so a fresh state file cannot burst 200 bars into the ledger -- so
+    # `--catch-up` replayed NOTHING and three days of fires were lost permanently.
+    # The OHLCV bars and the outcome resolutions both recovered; only the fires did
+    # not, because only they depend on this file.
+    #
+    # ⚠ Losing it is silent in BOTH directions, which is the trap: a missing
+    # watermark neither errors nor over-alerts. It just quietly narrows what
+    # catch-up is willing to replay.
+    "signal_state.json"
 )
 
 # Expand one LEDGERS entry, which may be a literal path OR a glob, to the
@@ -246,11 +265,28 @@ EXTERNAL_LEDGERS=(
 # units -- 32 KB for 202 sessions), refreshed below before `tools/` is copied. That
 # preserves what the archive was being kept FOR without preserving the conversations
 # themselves.
+# ⚠ TWO config roots, and covering only one FAILED SILENTLY for a full day after the
+# 2026-09-18 Windows migration. The harness writes the memory tree under `~/.claude` on
+# the Windows laptop and `~/.claude-personal` on the old Linux box, so the single
+# `.claude-personal` glob below kept matching -- it copied the three OLD Linux-slug trees
+# restored during the migration -- while THIS repo's live tree, the SoT and ~100 topic
+# files that are in no git remote, was copied nowhere. Found 2026-09-19 by diffing the
+# snapshot against the live tree, the sixth time that diff has found something.
+#
+# ⛔ The glob's own miss-is-a-skip contract is what hid it: a pattern matching nothing is
+# skipped rather than failing, which is correct for an absent tree and indistinguishable
+# from a MOVED one. So the snapshot looked populated and was missing the only copy.
+#
+# ⚠ Scoped to `projects/*/memory` on purpose -- NEVER `$HOME/.claude` wholesale. That root
+# also holds `sessions/`, `shell-snapshots/` and credential-bearing config, and the
+# off-site leg rclone-syncs this snapshot to a cloud drive, which is the same reason
+# `.credentials.json` is excluded above.
 EXTERNAL_LEDGER_DIRS=(
     "$HOME/.claude-personal/projects/*/memory:claude-personal/projects"
     "$HOME/.claude-personal/tools:claude-personal"
     "$HOME/.claude-personal/skills:claude-personal"
     "$HOME/.claude-personal/commands:claude-personal"
+    "$HOME/.claude/projects/*/memory:claude/projects"
 )
 
 # The last two path components identify a matched directory -- `<project-slug>/memory`.
@@ -263,6 +299,11 @@ _ext_dir_tail() {
 # The venv interpreter is named directly rather than via `poetry run` -- one less
 # moving part on the minimal PATH a systemd user unit gets.
 PY="$REPO/.venv/bin/python"
+# A Windows host names it `Scripts/python.exe` -- the same split
+# `tools/venv_bootstrap.py::_venv_bin_dir` makes, for the same reason. PROBED rather
+# than branched on `uname`: this script already decides by `[ -x ]`, and a probe stays
+# correct under Git Bash, where `uname` says MINGW64 while the venv layout is Windows'.
+[ -x "$PY" ] || PY="$REPO/.venv/Scripts/python.exe"
 [ -x "$PY" ] || PY="python3"
 
 # ST78: the account-level spend tracker. Its derived index is the backed-up stand-in for
@@ -576,7 +617,31 @@ done
 # re-running on the same UTC date should refresh, and the incoming copy has
 # already passed every check the outgoing one did.
 rm -rf "$final_dir"
-mv "$daily_dir" "$final_dir" || die "could not publish snapshot to $final_dir"
+# ⚠ Windows refuses to rename a directory while ANY file inside it is still open,
+# and a freshly written ~259 MiB `.db` is exactly what a virus scanner or the
+# search indexer opens the moment it lands. Observed 2026-09-18: the 15:41 run
+# died HERE with `Permission denied` having already built AND verified a complete
+# snapshot, while the 20:41 run published the identical tree without complaint --
+# so the failure is transient contention, not a broken snapshot, and giving up on
+# the first attempt threw away the whole run's work.
+#
+# Retrying is the documented remedy for a sharing violation. A genuine permission
+# problem still fails, just `publish_tries` attempts later, so this only changes
+# TIMING -- the same property the resolver gate in run-job.sh is built on. Linux
+# never takes the retry: rename(2) there does not care about open handles, so the
+# first attempt succeeds and the loop exits immediately.
+publish_tries="${BUIBUI_PUBLISH_TRIES:-5}"
+publish_wait="${BUIBUI_PUBLISH_WAIT:-2}"
+attempt=1
+while :; do
+    mv "$daily_dir" "$final_dir" 2>/dev/null && break
+    if [ "$attempt" -ge "$publish_tries" ]; then
+        die "could not publish snapshot to $final_dir after $publish_tries attempts"
+    fi
+    log "publish attempt $attempt/$publish_tries failed (file still open?) — retrying in ${publish_wait}s"
+    attempt=$((attempt + 1))
+    sleep "$publish_wait"
+done
 trap 'rm -f "${err_file:-}"' EXIT   # staging is gone; stop trying to remove it
 
 log "daily snapshot ok  [$method]  $final_dir"
