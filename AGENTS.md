@@ -912,8 +912,12 @@ DEFECTIVE book and **0 cells changed action**, so **the COMMIT GATE is the bindi
 constraint, not the cost model** — DSR decides all 82 scoreable cells (median 0.2497,
 max 0.9370, none reaching 0.95 at 9 trials) and MinTRL binds on none, which falsifies
 the unreachable-gate reading. ⇒ **The open question is the GATE, not `tp_r`**; a revised
-rule needs its own pre-registration. ⛔ **A SKIP there is a FAILURE TO CLEAR, never a
-null** — do not quote it as "no edge".
+rule needs its own pre-registration. ⚡ **That pre-registration is ST134**
+(`docs/superpowers/specs/2026-09-10-st134-sweep-gate-trial-independence-preregistration.md`):
+machinery BUILT, study **UNRUN**, and its two §4 kill-switches decide whether it may run at
+all. ⛔ **Do not re-derive it** — it was written after a disliked result and says so in its
+own §7. ⛔ **A SKIP there is a FAILURE TO CLEAR, never a null** — do not quote it as "no
+edge".
 
 ⛔ **NO LIVE `tp_r` HAS EVER FACED THAT GATE, and this is older and larger than the cost
 defect.** Last commit changing a `tp_r` line: `signal_watch.toml` #364 **2026-05-13**,
@@ -965,7 +969,11 @@ anywhere; **all four coded verdicts delegate to it** (`xs_`, `combine_`, `cvd_`,
 restatement until 2026-08-19: the two forms agreed on every input, so **agreement by
 coincidence read exactly like agreement by construction** and no test could fail.
 `tests/test_research_guards_gate.py::TestEverySleeveDelegates` now asks all four the same
-questions. `min_trl` is
+questions. ⚡ **ST134 closed a THIRD site, and it was a three-link chain**:
+`recalibrate_lib.DSR_SUSPECT_THRESHOLD` and `sweep_guard` each held their own `0.95`, the
+first under a comment saying it "matches the sweep commit-gate threshold" — three links
+agreeing by coincidence, none calling `passes_gate`. Both now derive from `GATE_DSR`.
+`min_trl` is
 computed and printed as a stamp but gates nothing: MinTRL against a non-zero target asks
 "can I confirm Sharpe ≥ 1", a far harder question than "is there an edge", and the deploy
 core would not clear it (needs ~7035 obs, has ~2475), as its own audit discloses at
