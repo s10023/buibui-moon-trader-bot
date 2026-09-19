@@ -90,7 +90,13 @@ warn_return_any = true
 # the pundit ledger. Walking it means a throwaway script can turn `make typecheck`
 # red on main for everyone, which is exactly what two 2026-08-02 seasonality
 # scratch scripts did. Nothing here ships, so nothing here gates.
-exclude = "^docs/plans/"
+# `.agents/` and the `.claude/skills/humanizer` copy of it are VENDORED upstream code
+# (2026-09-19). `.markdownlint-cli2.jsonc` has excluded both since the skill was first
+# vendored; the Python linters were never told, because the upstream shipped no `.py`
+# until it added `scripts/validate-package.py`. ruff then auto-FIXED a vendored file --
+# a local edit the next refresh silently overwrites, and a diff from the pinned hash.
+# Not ours to lint, not ours to style.
+exclude = '^(docs/plans/|\.agents/|\.claude/skills/humanizer/)'
 
 [[tool.mypy.overrides]]
 module = "binance.*"
@@ -113,6 +119,8 @@ skip_empty = true
 
 [tool.ruff]
 target-version = "py313"
+# See the mypy `exclude` above: vendored upstream, not ours to lint or reformat.
+extend-exclude = [".agents", ".claude/skills/humanizer"]
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "UP", "B", "SIM", "C4", "PIE"]
