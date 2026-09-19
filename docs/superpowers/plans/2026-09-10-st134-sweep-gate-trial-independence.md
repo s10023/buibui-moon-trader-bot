@@ -86,7 +86,9 @@ from analytics.research_guards.psr import probabilistic_sharpe_ratio
 
 class TestExpectedMaxSharpeAcceptsFloat:
     def test_integral_float_matches_int(self) -> None:
-        assert expected_max_sharpe(9.0, 0.04) == pytest.approx(expected_max_sharpe(9, 0.04))
+        assert expected_max_sharpe(9.0, 0.04) == pytest.approx(
+            expected_max_sharpe(9, 0.04)
+        )
 
     def test_monotone_between_integers(self) -> None:
         lo = expected_max_sharpe(3, 0.04)
@@ -105,7 +107,9 @@ class TestPsrAcceptsFloat:
         )
 
     def test_fewer_effective_obs_lowers_confidence(self) -> None:
-        assert probabilistic_sharpe_ratio(0.5, 20.0) < probabilistic_sharpe_ratio(0.5, 40.0)
+        assert probabilistic_sharpe_ratio(0.5, 20.0) < probabilistic_sharpe_ratio(
+            0.5, 40.0
+        )
 
     def test_below_two_still_raises(self) -> None:
         with pytest.raises(ValueError):
@@ -152,7 +156,7 @@ and inside `deflated_sharpe_ratio`, change these two parameter lines:
 ```
 
 ```python
-    n_trials: float | None = None,
+n_trials: float | None = (None,)
 ```
 
 In `analytics/research_guards/psr.py`, change the `probabilistic_sharpe_ratio` parameter line:
@@ -544,9 +548,7 @@ class TestCorrectionsAreOptIn:
         n = 60
         base = rng.normal(loc=0.3, scale=1.0, size=n)
         times = [(i // 2) * _MS_PER_DAY for i in range(n)]
-        trials = [
-            TrialPerf(f"tp{j}", list(base + 0.02 * j), times) for j in range(6)
-        ]
+        trials = [TrialPerf(f"tp{j}", list(base + 0.02 * j), times) for j in range(6)]
         raw = evaluate_commit_gate(trials[-1], trials, n_grid=6, n_splits=4)
         fixed = evaluate_commit_gate(
             trials[-1], trials, n_grid=6, n_splits=4, correct_obs=True
@@ -1086,8 +1088,8 @@ and populate them in the constructor call at `:186`, immediately after the exist
 `min_trl=report.gate.min_trl,` line:
 
 ```python
-            rho=report.gate.rho,
-            n_trials_eff=report.gate.n_trials_eff,
+rho = (report.gate.rho,)
+n_trials_eff = (report.gate.n_trials_eff,)
 ```
 
 Then re-score the finished report under the trials-corrected book. This re-uses
@@ -1162,9 +1164,7 @@ def _family(k: int = 6, n: int = 80, drift: float = 0.30) -> list[TrialPerf]:
     rng = np.random.default_rng(4242)
     base = rng.normal(loc=drift, scale=1.0, size=n)
     times = [i * _MS_PER_DAY for i in range(n)]
-    return [
-        TrialPerf(f"tp{j}", list(base + 0.02 * j), times) for j in range(k)
-    ]
+    return [TrialPerf(f"tp{j}", list(base + 0.02 * j), times) for j in range(k)]
 
 
 class TestSignFlipFamily:
@@ -1205,16 +1205,24 @@ class TestSignFlipFamily:
 
 class TestNullPassRate:
     def test_uncorrected_gate_refuses_most_nulls(self) -> None:
-        rate = null_pass_rate(_family(), correct_trials=False, n_replicates=40, n_splits=4)
+        rate = null_pass_rate(
+            _family(), correct_trials=False, n_replicates=40, n_splits=4
+        )
         assert 0.0 <= rate <= 0.10
 
     def test_corrected_gate_also_refuses_most_nulls(self) -> None:
-        rate = null_pass_rate(_family(), correct_trials=True, n_replicates=40, n_splits=4)
+        rate = null_pass_rate(
+            _family(), correct_trials=True, n_replicates=40, n_splits=4
+        )
         assert 0.0 <= rate <= 0.10
 
     def test_is_deterministic_under_a_seed(self) -> None:
-        a = null_pass_rate(_family(), correct_trials=True, n_replicates=20, n_splits=4, seed=7)
-        b = null_pass_rate(_family(), correct_trials=True, n_replicates=20, n_splits=4, seed=7)
+        a = null_pass_rate(
+            _family(), correct_trials=True, n_replicates=20, n_splits=4, seed=7
+        )
+        b = null_pass_rate(
+            _family(), correct_trials=True, n_replicates=20, n_splits=4, seed=7
+        )
         assert a == b
 ```
 
@@ -1576,8 +1584,12 @@ class TestAlertsPerWeek:
         _fire(conn, "d", 3 * _MS_PER_DAY, tf="1h")
         _fire(conn, "e", 4 * _MS_PER_DAY, symbol="ETHUSDT")
         rate = alerts_per_week(
-            conn, symbol="BTCUSDT", timeframe="15m", strategy="bos",
-            since_ms=0, now_ms=_WEEK,
+            conn,
+            symbol="BTCUSDT",
+            timeframe="15m",
+            strategy="bos",
+            since_ms=0,
+            now_ms=_WEEK,
         )
         assert rate == pytest.approx(2.0)
 
@@ -1586,8 +1598,12 @@ class TestAlertsPerWeek:
         for i in range(8):
             _fire(conn, f"s{i}", i * _MS_PER_DAY)
         rate = alerts_per_week(
-            conn, symbol="BTCUSDT", timeframe="15m", strategy="bos",
-            since_ms=0, now_ms=4 * _WEEK,
+            conn,
+            symbol="BTCUSDT",
+            timeframe="15m",
+            strategy="bos",
+            since_ms=0,
+            now_ms=4 * _WEEK,
         )
         assert rate == pytest.approx(2.0)
 
@@ -1596,15 +1612,23 @@ class TestAlertsPerWeek:
         _fire(conn, "old", -_WEEK)
         _fire(conn, "in", _MS_PER_DAY)
         rate = alerts_per_week(
-            conn, symbol="BTCUSDT", timeframe="15m", strategy="bos",
-            since_ms=0, now_ms=_WEEK,
+            conn,
+            symbol="BTCUSDT",
+            timeframe="15m",
+            strategy="bos",
+            since_ms=0,
+            now_ms=_WEEK,
         )
         assert rate == pytest.approx(1.0)
 
     def test_no_fires_is_zero_not_none(self) -> None:
         rate = alerts_per_week(
-            _conn(), symbol="BTCUSDT", timeframe="15m", strategy="bos",
-            since_ms=0, now_ms=_WEEK,
+            _conn(),
+            symbol="BTCUSDT",
+            timeframe="15m",
+            strategy="bos",
+            since_ms=0,
+            now_ms=_WEEK,
         )
         assert rate == 0.0
 
@@ -1612,8 +1636,12 @@ class TestAlertsPerWeek:
         conn = _conn()
         _fire(conn, "a", 0)
         rate = alerts_per_week(
-            conn, symbol="BTCUSDT", timeframe="15m", strategy="bos",
-            since_ms=100, now_ms=100,
+            conn,
+            symbol="BTCUSDT",
+            timeframe="15m",
+            strategy="bos",
+            since_ms=100,
+            now_ms=100,
         )
         assert rate == 0.0
 
@@ -1626,8 +1654,12 @@ class TestAlertsPerWeek:
         conn = _conn()
         _fire(conn, "a", 0, tf="4h")
         assert alerts_per_week(
-            conn, symbol="BTCUSDT", timeframe="4h", strategy="bos",
-            since_ms=0, now_ms=_WEEK,
+            conn,
+            symbol="BTCUSDT",
+            timeframe="4h",
+            strategy="bos",
+            since_ms=0,
+            now_ms=_WEEK,
         ) == pytest.approx(1.0)
 ```
 
