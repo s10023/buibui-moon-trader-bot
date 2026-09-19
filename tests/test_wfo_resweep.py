@@ -1219,8 +1219,8 @@ class TestNullCalibrationOutPath:
         a = _null_calibration_out_path("raw-book")
         b = _null_calibration_out_path("attribution")
         assert a != b
-        assert "docs/plans/scratch/" in str(a)
-        assert "docs/plans/scratch/" in str(b)
+        assert a.parent == Path("docs/plans/scratch")
+        assert b.parent == Path("docs/plans/scratch")
 
 
 class TestTheStopMessageIsSharedNotDuplicated:
