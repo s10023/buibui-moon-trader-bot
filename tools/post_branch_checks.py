@@ -47,6 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.agents_config import AgentsConfig, Budgets, ConfigError  # noqa: E402
 from tools.agents_config import load as load_agents_config  # noqa: E402
+from tools.memory_dir import memory_dir  # noqa: E402
 from tools.stale_anchors import default_resolver, describe, scan  # noqa: E402
 
 Runner = Callable[[Sequence[str]], str]
@@ -58,10 +59,13 @@ HANDOFF = Path("docs/plans/next-conversation-prompt.md")
 #: leak it exists to prevent.** It therefore dies on a reclone, like the hooks,
 #: which is why an absent list is a FINDING rather than a SKIP.
 SENSITIVE_TERMS = Path(".claude/sensitive-terms.txt")
-MEMORY = Path.home() / (
-    ".claude-personal/projects/-home-kng-repo-buibui-moon-trader-bot/memory/MEMORY.md"
-)
-MEMORY_DIR = MEMORY.parent
+#: ⚠ RESOLVED, never hardcoded. This was a literal `~/.claude-personal/...` path until
+#: 2026-09-19, so after the Windows migration moved the tree to `~/.claude/projects/`
+#: the `memory-cap` leg read a file that does not exist and reported **clean** — the
+#: SKIP-wearing-a-PASS shape `sanity_checks.py` documents, arriving here by the same
+#: route it arrived in `daily_check.py` (#772, which fixed that file and only that file).
+MEMORY_DIR = memory_dir()
+MEMORY = MEMORY_DIR / "MEMORY.md"
 
 
 @lru_cache(maxsize=1)

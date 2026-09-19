@@ -100,7 +100,7 @@ judgment in the fresh-session port).
 ## Workflow
 
 1. **Read the watermark.** State file
-   `~/.claude-personal/projects/-home-kng-repo-buibui-moon-trader-bot/memory/project_child_sync_state.md`
+   `$(PYTHONPATH=. poetry run python tools/memory_dir.py)/project_child_sync_state.md`
    holds the last-reviewed wifey PR number + date. Absent / first run → scan all
    wifey PRs (bootstrap).
 2. **Pull wifey merged PRs since the watermark** (explicit `-R`):

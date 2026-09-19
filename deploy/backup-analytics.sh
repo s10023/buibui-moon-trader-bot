@@ -265,11 +265,28 @@ EXTERNAL_LEDGERS=(
 # units -- 32 KB for 202 sessions), refreshed below before `tools/` is copied. That
 # preserves what the archive was being kept FOR without preserving the conversations
 # themselves.
+# ⚠ TWO config roots, and covering only one FAILED SILENTLY for a full day after the
+# 2026-09-18 Windows migration. The harness writes the memory tree under `~/.claude` on
+# the Windows laptop and `~/.claude-personal` on the old Linux box, so the single
+# `.claude-personal` glob below kept matching -- it copied the three OLD Linux-slug trees
+# restored during the migration -- while THIS repo's live tree, the SoT and ~100 topic
+# files that are in no git remote, was copied nowhere. Found 2026-09-19 by diffing the
+# snapshot against the live tree, the sixth time that diff has found something.
+#
+# ⛔ The glob's own miss-is-a-skip contract is what hid it: a pattern matching nothing is
+# skipped rather than failing, which is correct for an absent tree and indistinguishable
+# from a MOVED one. So the snapshot looked populated and was missing the only copy.
+#
+# ⚠ Scoped to `projects/*/memory` on purpose -- NEVER `$HOME/.claude` wholesale. That root
+# also holds `sessions/`, `shell-snapshots/` and credential-bearing config, and the
+# off-site leg rclone-syncs this snapshot to a cloud drive, which is the same reason
+# `.credentials.json` is excluded above.
 EXTERNAL_LEDGER_DIRS=(
     "$HOME/.claude-personal/projects/*/memory:claude-personal/projects"
     "$HOME/.claude-personal/tools:claude-personal"
     "$HOME/.claude-personal/skills:claude-personal"
     "$HOME/.claude-personal/commands:claude-personal"
+    "$HOME/.claude/projects/*/memory:claude/projects"
 )
 
 # The last two path components identify a matched directory -- `<project-slug>/memory`.

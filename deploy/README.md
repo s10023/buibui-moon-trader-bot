@@ -416,9 +416,14 @@ cp ~/backups/buibui/daily/<DATE>/docs/plans/pundit-calls.jsonl docs/plans/     #
 cp ~/backups/buibui/daily/<DATE>/_external/claude-personal/history.jsonl \
    ~/.claude-personal/history.jsonl                                            # OUT of repo
 
-# the cross-session memory trees -- all projects, or one:
+# the cross-session memory trees -- all projects, or one.
+# TWO config roots, and which one holds the LIVE tree depends on the host:
+# `.claude-personal` on the old Linux box, `.claude` on the Windows laptop.
+# Restore both; the one that is empty on this host restores nothing.
 cp -Rp ~/backups/buibui/daily/<DATE>/_external/claude-personal/projects/. \
    ~/.claude-personal/projects/
+cp -Rp ~/backups/buibui/daily/<DATE>/_external/claude/projects/. \
+   ~/.claude/projects/
 
 # account-level tooling, skills and instructions (2026-08-19). Note the doubled
 # path component: these land under `_external/claude-personal/.claude-personal/`
@@ -438,7 +443,8 @@ transcripts no longer cover — restore it before running the tracker again, or 
 are gone for good.
 
 **The memory trees are the highest-value thing in the snapshot and the easiest to restore
-wrongly.** Each lands at `_external/claude-personal/projects/<project-slug>/memory/`, and
+wrongly.** Each lands at `_external/<config-root>/projects/<project-slug>/memory/` — where
+`<config-root>` is `claude-personal` or `claude`, mirroring the two harness roots — and
 the slug matters: restoring one tree into the wrong project silently gives that project
 another repo's rulings. Copy the whole `projects/.` as above, or name one slug explicitly —
 never `cp` a bare `memory/` directory, which is exactly the collapse the backup script's
