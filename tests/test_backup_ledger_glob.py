@@ -385,3 +385,115 @@ class TestPublishSurvivesATransientLock:
         daily = tmp_path / "backups" / "daily"
         published = [d for d in daily.iterdir() if not d.name.startswith(".staging")]
         assert not published, "nothing may be published when the mv never succeeded"
+
+
+@pytest.fixture
+def two_root_home(tmp_path: Path) -> Path:
+    """A $HOME carrying a memory tree under BOTH harness config roots.
+
+    `.claude-personal` holds a legacy Linux-slug tree (what a migration restore
+    leaves behind); `.claude` holds the live Windows-slug one. The bug this
+    guards reproduced only with both present, because the legacy tree is what
+    kept the snapshot looking populated.
+    """
+    home = tmp_path / "home"
+    legacy = home / ".claude-personal" / "projects" / "-home-kng-repo-buibui" / "memory"
+    legacy.mkdir(parents=True)
+    (legacy / "MEMORY.md").write_text("legacy tree\n")
+
+    live = home / ".claude" / "projects" / "C--Users-User-repo-buibui" / "memory"
+    live.mkdir(parents=True)
+    (live / "MEMORY.md").write_text("live tree\n")
+    (live / "project_todo_master.md").write_text("the SoT\n")
+    return home
+
+
+class TestBothConfigRootsAreCovered:
+    """The memory tree moved roots at the 2026-09-18 Windows migration.
+
+    `~/.claude-personal` on the old Linux box, `~/.claude` on the laptop. Covering
+    only the first kept MATCHING -- on the legacy trees a restore had left behind --
+    so the snapshot read populated while the live tree, which is in no git remote,
+    was copied nowhere. Same shape as the LEDGERS allowlist defect one array over:
+    the glob's miss-is-a-skip contract cannot tell an absent tree from a moved one.
+    """
+
+    def test_the_live_tree_under_the_second_root_is_copied(
+        self, fake_repo: Path, tmp_path: Path, two_root_home: Path
+    ) -> None:
+        r = _run(fake_repo, tmp_path, home=two_root_home)
+        assert r.returncode == 0, r.stdout + r.stderr
+
+        snapshots = sorted((tmp_path / "backups" / "daily").iterdir())
+        assert snapshots, "no snapshot was written"
+        live = (
+            snapshots[-1]
+            / "_external"
+            / "claude"
+            / "projects"
+            / "C--Users-User-repo-buibui"
+            / "memory"
+        )
+        assert (live / "MEMORY.md").exists(), "the live memory tree was not copied"
+        assert (live / "project_todo_master.md").exists(), "the SoT was not copied"
+        assert (live / "MEMORY.md").read_text().strip() == "live tree"
+
+    def test_the_legacy_root_is_still_copied_beside_it(
+        self, fake_repo: Path, tmp_path: Path, two_root_home: Path
+    ) -> None:
+        """Covering the new root must not silently drop the old one."""
+        r = _run(fake_repo, tmp_path, home=two_root_home)
+        assert r.returncode == 0, r.stdout + r.stderr
+
+        snapshots = sorted((tmp_path / "backups" / "daily").iterdir())
+        legacy = (
+            snapshots[-1]
+            / "_external"
+            / "claude-personal"
+            / "projects"
+            / "-home-kng-repo-buibui"
+            / "memory"
+            / "MEMORY.md"
+        )
+        assert legacy.exists(), "the legacy tree stopped being copied"
+
+    def test_the_two_roots_do_not_collide_in_the_snapshot(
+        self, fake_repo: Path, tmp_path: Path, two_root_home: Path
+    ) -> None:
+        """Distinct dest prefixes -- one overwriting the other is the data-losing bug."""
+        _run(fake_repo, tmp_path, home=two_root_home)
+        snapshots = sorted((tmp_path / "backups" / "daily").iterdir())
+        ext = snapshots[-1] / "_external"
+        live = ext / "claude" / "projects" / "C--Users-User-repo-buibui" / "memory"
+        legacy = (
+            ext / "claude-personal" / "projects" / "-home-kng-repo-buibui" / "memory"
+        )
+        assert (live / "MEMORY.md").read_text().strip() == "live tree"
+        assert (legacy / "MEMORY.md").read_text().strip() == "legacy tree"
+
+    def test_mutation_removing_the_second_root_entry_fails_this_suite(
+        self, fake_repo: Path, tmp_path: Path, two_root_home: Path
+    ) -> None:
+        """Proves the assertions above bite on the ENTRY, not on something incidental."""
+        script = fake_repo / "deploy" / "backup-analytics.sh"
+        text = script.read_text(encoding="utf-8")
+        entry = '    "$HOME/.claude/projects/*/memory:claude/projects"\n'
+        assert entry in text, "the guarded entry is not present to mutate"
+        script.write_text(text.replace(entry, ""), encoding="utf-8")
+
+        r = _run(fake_repo, tmp_path, home=two_root_home)
+        assert r.returncode == 0, r.stdout + r.stderr
+        snapshots = sorted((tmp_path / "backups" / "daily").iterdir())
+        live = (
+            snapshots[-1]
+            / "_external"
+            / "claude"
+            / "projects"
+            / "C--Users-User-repo-buibui"
+            / "memory"
+            / "MEMORY.md"
+        )
+        assert not live.exists(), (
+            "the live tree was copied WITHOUT the entry -- these tests would pass "
+            "against the defect and guard nothing"
+        )

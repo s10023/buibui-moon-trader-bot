@@ -775,7 +775,7 @@ behaviour-visible changes.
 ## Step 5b — SoT reconcile (always, and it is NOT covered by Step 5)
 
 **Two questions. First: does this branch close, change, or contradict a row in the
-SoT** (`~/.claude-personal/projects/-home-kng-repo-buibui-moon-trader-bot/memory/project_todo_master.md`)?
+SoT** (`project_todo_master.md` in the memory tree — resolved by the block below)?
 If yes, reconcile it **now, in this same session** — move the row to **Closed**
 with a one-line verdict, per that file's own rule ("Move items there with a
 one-line verdict; never delete"). Like MEMORY.md it lives outside the repo, so
@@ -784,7 +784,9 @@ it is **never committed** and costs no CI.
 Cheap way to find the row — search for the item ID and the PR number:
 
 ```bash
-SOT=~/.claude-personal/projects/-home-kng-repo-buibui-moon-trader-bot/memory/project_todo_master.md
+SOT="$(PYTHONPATH=. poetry run python tools/memory_dir.py)/project_todo_master.md"
+# A missing SoT prints 0 rows, which reads exactly like "nothing to reconcile" — say so.
+[ -f "$SOT" ] || echo "SoT NOT FOUND at $SOT — resolve it before trusting the greps below"
 grep -n 'N8\|ST15\|#580' "$SOT"     # the IDs and PRs this branch touched
 grep -n 'OPEN\|not yet\|unfixed' "$SOT" | grep -i "$TOPIC"
 ```
@@ -1281,7 +1283,7 @@ and start on a task below — do not re-litigate merged work.
 what's live, what's in soft mode, what's still pending. Absolute dates.>
 
 ## Reference
-- Memory: `~/.claude-personal/projects/<project-slug>/memory/MEMORY.md`
+- Memory: the tree `tools/memory_dir.py` resolves — `$(PYTHONPATH=. poetry run python tools/memory_dir.py)/MEMORY.md`. ⚠ Write the RESOLVED path into the handoff, never the template string: the config root and the project slug both vary by host.
 - <Other docs / tools / branches the next session will need>
 
 ## Suggested next tasks (pick one, or work in order)
