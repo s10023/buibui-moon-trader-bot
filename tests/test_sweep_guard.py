@@ -66,7 +66,7 @@ class TestDecide:
             dsr=0.97,
             pbo=0.30,
             min_trl=10.0,
-            n_obs=40,
+            n_obs_eff=40.0,
             dsr_threshold=0.95,
             pbo_threshold=0.5,
         )
@@ -78,7 +78,7 @@ class TestDecide:
             dsr=0.80,
             pbo=0.3,
             min_trl=10.0,
-            n_obs=40,
+            n_obs_eff=40.0,
             dsr_threshold=0.95,
             pbo_threshold=0.5,
         )
@@ -90,7 +90,7 @@ class TestDecide:
             dsr=0.97,
             pbo=0.6,
             min_trl=10.0,
-            n_obs=40,
+            n_obs_eff=40.0,
             dsr_threshold=0.95,
             pbo_threshold=0.5,
         )
@@ -102,7 +102,7 @@ class TestDecide:
             dsr=0.97,
             pbo=0.3,
             min_trl=100.0,
-            n_obs=40,
+            n_obs_eff=40.0,
             dsr_threshold=0.95,
             pbo_threshold=0.5,
         )
@@ -114,11 +114,38 @@ class TestDecide:
             dsr=0.10,
             pbo=0.3,
             min_trl=math.inf,
-            n_obs=40,
+            n_obs_eff=40.0,
             dsr_threshold=0.95,
             pbo_threshold=0.5,
         )
         assert decision == "DO_NOT_COMMIT"
+
+    def test_the_leg_reads_the_effective_count_not_a_raw_one(self) -> None:
+        """§6.4's bar is ``n_obs_eff >= MinTRL``: a fractional effective count that
+        falls short must BLOCK even though its integer part would clear."""
+        decision, reasons = _decide(
+            dsr=0.97,
+            pbo=0.3,
+            min_trl=36.0,
+            n_obs_eff=35.9,
+            dsr_threshold=0.95,
+            pbo_threshold=0.5,
+        )
+        assert decision == "DO_NOT_COMMIT"
+        assert any("MinTRL" in r for r in reasons)
+
+    def test_an_integral_effective_count_renders_without_a_decimal(self) -> None:
+        """The default path passes ``float(n_obs)``; its reason string must not
+        start reading ``n 40.0`` just because the parameter became a float."""
+        _, reasons = _decide(
+            dsr=0.97,
+            pbo=0.3,
+            min_trl=100.0,
+            n_obs_eff=40.0,
+            dsr_threshold=0.95,
+            pbo_threshold=0.5,
+        )
+        assert reasons == ["n 40 < MinTRL 100"]
 
 
 def _drift_trials() -> list[TrialPerf]:

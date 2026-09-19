@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
 from analytics.backtest_lib import BacktestResult, Trade
 from analytics.param_sweep import (
     AuditRow,
+    ParamRange,
     SweepRow,
     _audit_strategy_worker,
     _directional_split_hint,
@@ -18,6 +20,7 @@ from analytics.param_sweep import (
     _sweep_grid_worker,
     format_audit_results,
     format_sweep_results,
+    run_param_sweep,
 )
 from analytics.sweep_guard import CommitGateVerdict
 
@@ -460,3 +463,65 @@ class TestAtrFloorForwarding:
         for kwargs in captured:
             assert kwargs["atr_sl_multiplier"] == 2.0
             assert kwargs["atr_sl_floor"] is True
+
+
+class TestAllRowsHoldsTheFullGrid:
+    """ST134 Ruling R3: run_param_sweep must expose the pre-truncation grid.
+
+    ``report.rows`` is the top-N truncation consumers pick a winner from
+    (``decide_cell`` in ``tools/wfo_resweep.py`` reads it, and widening that
+    would change ST128's pre-registered decision rule). ``report.all_rows``
+    is the full grid a re-score under a different book must read instead, or
+    it measures the truncation rather than the family — exactly the ST134
+    Tasks 6/8 re-score this branch is being built for.
+    """
+
+    def test_all_rows_is_the_full_grid_rows_is_the_truncation(self) -> None:
+        param_ranges = [ParamRange("tp_r", [1.0, 2.0, 3.0, 4.0, 5.0])]
+
+        def fake_worker(*args: Any, **kwargs: Any) -> SweepRow:
+            params = args[0]
+            score = float(params["tp_r"])
+            result = BacktestResult(symbol="BTCUSDT", timeframe="1h", strategy="fvg")
+            return SweepRow(
+                params=params,
+                is_result=result,
+                oos_result=result,
+                is_score=score,
+                oos_score=score,
+                decay=1.0,
+                overfit=False,
+            )
+
+        ohlcv = pd.DataFrame({"open_time": list(range(20))})
+        empty_signals = pd.DataFrame(columns=["open_time"])
+
+        with (
+            patch("analytics.param_sweep.get_ohlcv", return_value=ohlcv),
+            patch(
+                "analytics.param_sweep.detect_signals_for_strategy",
+                return_value=empty_signals,
+            ),
+            patch("analytics.param_sweep.ProcessPoolExecutor", ThreadPoolExecutor),
+            patch("analytics.param_sweep._sweep_grid_worker", side_effect=fake_worker),
+        ):
+            report = run_param_sweep(
+                conn=MagicMock(),
+                strategy="fvg",
+                symbol="BTCUSDT",
+                timeframe="1h",
+                days=30,
+                param_ranges=param_ranges,
+                wfo_split=0.7,
+                min_trades=1,
+                fee_pct=0.0005,
+                min_sl_pct=0.005,
+                slippage_pct=0.0002,
+                top_n=2,
+            )
+
+        assert len(report.all_rows) == 5
+        assert len(report.rows) == 2
+        assert {r.params["tp_r"] for r in report.all_rows} == {1.0, 2.0, 3.0, 4.0, 5.0}
+        # Sorted by is_score descending: top-2 is {5.0, 4.0}.
+        assert {r.params["tp_r"] for r in report.rows} == {5.0, 4.0}

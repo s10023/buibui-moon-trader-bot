@@ -179,6 +179,24 @@ shell blocks. The rule they exist to satisfy: *a self-check outside CI is not a 
   produced before both fixes is void**, which is why every run stamps its label and resolved
   costs. Result 2026-09-10: 273 cells → 0 writes, and an attribution control moved 0 cells,
   so the COMMIT GATE binds rather than the cost model → SoT ST128, ST133.
+  ⚡ **ST134 added the two kill-switches (spec §4), and they run BEFORE any corrected
+  cell.** `--measure-rho` reports the arm-correlation distribution with a bootstrap CI on
+  the median and STOPS; the read is CI containment against `ρ* = 0.5` with **three**
+  outcomes, so a CI straddling the bar is INSUFFICIENT rather than a pass. `--books`
+  scores every cell under all four books and reports **effect size, never a pass count**.
+  ⛔ Neither stopping case licenses "the gate was right" — failing to license a
+  correction says nothing about whether the gate's refusals are correct → SoT ST134.
+- `tools/st134_null_calibration.py` — ST134 §4b: the null calibration for the corrected
+  gate's DSR leg. Draws a shared random sign vector over the time bins and applies it to
+  **every** arm, so the cross-arm dependence survives while the expected return goes to
+  zero — a null carrying this family's own structure, which is what the correction claims
+  to be pricing. Scoped to the DSR leg alone: PBO's CSCV is `C(14,7) = 3,432` splits per
+  evaluation and it is not the leg being changed. The corrected gate must pass **≤ 10%**
+  of replicates or it is abandoned; the **uncorrected** gate runs on the same nulls and is
+  reported beside it, because a today's-gate pass rate far below the nominal 5% is direct
+  evidence of over-conservatism, established without reference to any real cell.
+  ⚠ Artifacts land under `docs/plans/scratch/`, never `/tmp` — ST128's run JSON went to
+  `/tmp` and is gone, so its central claim can no longer be verified.
 - `tools/stale_anchors.py` — dead cross-document `§N` / `Step N` citations. Sweeps the repo
   **and the memory tree**; a section number is not a symbol, so no symbol-keyed check can
   see this class at all. 4 of the 7 hits on first run were in `memory/`.

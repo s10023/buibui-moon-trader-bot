@@ -12,12 +12,14 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-from analytics.research_guards import deflated_sharpe_ratio
+from analytics.research_guards import GATE_DSR, deflated_sharpe_ratio
 from analytics.signal_config import SignalWatchConfig, declared_cells
 
-# A 5★ cell whose Deflated Sharpe falls below this is overfit-suspect (spec §3;
-# matches the sweep commit-gate threshold in analytics/sweep_guard.py).
-DSR_SUSPECT_THRESHOLD = 0.95
+# A 5-star cell whose Deflated Sharpe falls below this is overfit-suspect (spec
+# section 3). Derived from the published gate rather than restated: this line held its
+# own 0.95 under a comment saying it "matches the sweep commit-gate threshold", which
+# is agreement by coincidence — ST134.
+DSR_SUSPECT_THRESHOLD = GATE_DSR
 
 # Minimum scoreable trades for a cell to receive a DSR and to join the trial
 # family. Below this, a per-trade Sharpe is too noisy to be meaningful — a tiny-n
