@@ -96,7 +96,19 @@ class SymbolOverride:
 class StrategyOverride:
     """Per-strategy parameter overrides.
 
-    Lookup order for each param: symbol+TF → symbol → TF-specific → strategy-wide → global.
+    Lookup order for each param:
+    symbol+TF → symbol → TF-specific → **directional** → strategy-wide → global.
+
+    ⚠ The `directional` step (`tp_r_long` / `tp_r_short`) was MISSING from this
+    line until 2026-09-21, and its absence is why ST133's delta table reported
+    the wrong post-removal value on 35 of 175 cells carrying 63.6% of live alert
+    exposure: `pin_bar` and `morning_evening_star` both declare directional keys
+    in the inherited base, so deleting their TF key lands there rather than on
+    strategy-wide. A direction-LESS `_resolve_tp_r` call skips the step entirely
+    and is what `scanner.py` stores into `backtest_runs`, so the gate's book and
+    the live alert can legitimately disagree — read
+    `analytics.signal.resolvers._resolve_tp_r` as the authority, never this
+    summary.
 
     TOML example (signal_watch.toml):
         [strategy_params.engulfing]
