@@ -167,18 +167,33 @@ def strip_supplier(override: StrategyOverride, sup: Supplier) -> StrategyOverrid
     return out
 
 
-def config_symbols(cfg: SignalWatchConfig, coins_path: Path | None = None) -> list[str]:
-    """Symbols this config watches: its own list, else ``config/coins.json``.
+def config_symbols(
+    cfg: SignalWatchConfig,
+    coins_path: Path | None = None,
+    fallback: list[str] | None = None,
+) -> list[str]:
+    """Symbols this config watches: its own list → ``coins.json`` → ``fallback``.
 
-    ``coins.json`` is gitignored, so callers that must run on a clean clone (the
-    tests) pass an explicit ``cfg.symbols`` or ``coins_path`` instead of relying
-    on it being present.
+    ⚠ **``config/coins.json`` is GITIGNORED, so it is absent on every clean
+    checkout — CI, a fresh clone, `make preflight`.** Reading it unconditionally
+    is the #586 / #666 shape: works on the dev box, `FileNotFoundError`
+    everywhere else. It cost this tool a red CI run on its own first PR, caught
+    by CI only because `make preflight` is infra-blocked on the Windows host.
+
+    So a missing file is not an error while a ``fallback`` exists. The caller
+    derives that fallback from the verdicts records, which name every symbol the
+    run actually covers — a better source than the watch list anyway, since it
+    describes the measurement rather than the daemon.
     """
     if cfg.symbols:
         return list(cfg.symbols)
     path = coins_path or (REPO_ROOT / "config" / "coins.json")
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return list(data)
+    try:
+        return list(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, json.JSONDecodeError):
+        if fallback:
+            return list(fallback)
+        raise
 
 
 def supplier_scope(
@@ -362,6 +377,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--verdicts", default=DEFAULT_VERDICTS)
     ap.add_argument("--out-json", default=None)
     ap.add_argument("--out-md", default=None)
+    ap.add_argument(
+        "--symbols",
+        default=None,
+        help=(
+            "comma-separated symbol list. Overrides the config's own list and "
+            "gitignored config/coins.json; defaults to the symbols the verdicts "
+            "file names."
+        ),
+    )
     args = ap.parse_args(argv)
 
     try:
@@ -376,7 +400,13 @@ def main(argv: list[str] | None = None) -> int:
     cfgs = {
         df: load_signal_config(REPO_ROOT / p) for df, p in CONFIG_BY_DAY_FILTER.items()
     }
-    symbols = {df: config_symbols(c) for df, c in cfgs.items()}
+    if args.symbols:
+        seen = [s.strip() for s in args.symbols.split(",") if s.strip()]
+    else:
+        # The verdicts name every symbol the run covers, so this keeps the tool
+        # working on a clean checkout where gitignored coins.json is absent.
+        seen = sorted({str(v["symbol"]) for v in verdicts if "symbol" in v})
+    symbols = {df: config_symbols(c, fallback=seen) for df, c in cfgs.items()}
     rows = build_rows(verdicts, cfgs, symbols)
 
     md = render_markdown(rows)

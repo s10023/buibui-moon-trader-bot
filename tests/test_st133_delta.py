@@ -36,6 +36,7 @@ from tools.st133_delta import (  # noqa: E402
     Supplier,
     _exposure,
     build_rows,
+    config_symbols,
     main,
     render_markdown,
     resolve_with_level,
@@ -263,7 +264,106 @@ class TestBuildRows:
         assert "ST133" in render_markdown(rows)
 
 
+class TestGitignoredCoinsJson:
+    """`config/coins.json` is gitignored, so it is ABSENT on every clean checkout.
+
+    Reading it unconditionally is the #586 / #666 shape, and it shipped here: the
+    first CI run of this tool went red on `FileNotFoundError` for exactly that
+    path, while every local gate was green because the dev box has the file.
+
+    ⚠ These probes pass a path that does not exist rather than deleting the real
+    one, so they fail identically on a box that HAS `coins.json` and one that does
+    not. A probe that can only fail on CI is the vacuous kind that let this
+    through in the first place.
+    """
+
+    def test_missing_coins_json_uses_the_fallback(self, tmp_path: Path) -> None:
+        cfg = load_signal_config(REPO / CONFIG_BY_DAY_FILTER["tue_thu"])
+        assert not cfg.symbols, "this config is expected to defer to coins.json"
+        got = config_symbols(
+            cfg, coins_path=tmp_path / "nope.json", fallback=["BTCUSDT"]
+        )
+        assert got == ["BTCUSDT"]
+
+    def test_missing_coins_json_without_a_fallback_still_raises(
+        self, tmp_path: Path
+    ) -> None:
+        """Silence would be worse: no symbols means no rows, which reads as clean."""
+        cfg = load_signal_config(REPO / CONFIG_BY_DAY_FILTER["tue_thu"])
+        with pytest.raises(OSError):
+            config_symbols(cfg, coins_path=tmp_path / "nope.json", fallback=None)
+
+    def test_config_own_symbol_list_wins_over_both(self, tmp_path: Path) -> None:
+        cfg = load_signal_config(REPO / CONFIG_BY_DAY_FILTER["tue_thu"])
+        cfg.symbols = ["ETHUSDT"]
+        got = config_symbols(cfg, coins_path=tmp_path / "nope.json", fallback=["XRP"])
+        assert got == ["ETHUSDT"]
+
+
 class TestCli:
+    def test_main_works_with_coins_json_absent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """THE regression for the red CI run: a clean checkout has no coins.json.
+
+        Points the module's REPO_ROOT at an empty directory rather than touching
+        the real file — the live signal-watch task reads it every 15 minutes, so
+        renaming it to test this would take the daemon down.
+        """
+        import tools.st133_delta as mod
+
+        monkeypatch.setattr(mod, "REPO_ROOT", tmp_path)
+        src = tmp_path / "v.json"
+        src.write_text(
+            json.dumps(
+                [
+                    {
+                        "day_filter": "tue_thu",
+                        "strategy": "pin_bar",
+                        "tf": "15m",
+                        "symbol": "ETHUSDT",
+                        "gate": "DO_NOT_COMMIT",
+                        "alerts_wk": 16.5,
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        out_md = tmp_path / "o.md"
+        # REPO_ROOT also resolves the configs, so point those back at the real tree.
+        monkeypatch.setattr(
+            mod,
+            "CONFIG_BY_DAY_FILTER",
+            {k: str(REPO / v) for k, v in CONFIG_BY_DAY_FILTER.items()},
+        )
+        assert main(["--verdicts", str(src), "--out-md", str(out_md)]) == 0
+        assert "ST133" in out_md.read_text(encoding="utf-8")
+
+    def test_accepts_an_explicit_symbols_list(self, tmp_path: Path) -> None:
+        """`--symbols` must not need the gitignored file either."""
+        src = tmp_path / "v.json"
+        src.write_text(
+            json.dumps(
+                [
+                    {
+                        "day_filter": "tue_thu",
+                        "strategy": "pin_bar",
+                        "tf": "15m",
+                        "symbol": "ETHUSDT",
+                        "gate": "DO_NOT_COMMIT",
+                        "alerts_wk": 16.5,
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        out_md = tmp_path / "o.md"
+        rc = main(
+            ["--verdicts", str(src), "--out-md", str(out_md), "--symbols", "ETHUSDT"]
+        )
+        assert rc == 0
+        assert "ST133" in out_md.read_text(encoding="utf-8")
+
     def test_rejects_a_non_list_verdicts_file(self, tmp_path: Path) -> None:
         bad = tmp_path / "v.json"
         bad.write_text(json.dumps({"not": "a list"}), encoding="utf-8")
