@@ -922,12 +922,30 @@ edge".
 ⛔ **NO LIVE `tp_r` HAS EVER FACED THAT GATE, and this is older and larger than the cost
 defect.** Last commit changing a `tp_r` line: `signal_watch.toml` #364 **2026-05-13**,
 the other two #342 **2026-05-03**; the gate landed **2026-06-06** (#422). So every live
-value was picked on highest-OOS-`avg_r` alone, and **168 of 273 cells carry a current
-`tp_r` that fails today's OOS filter**. Leaving them is not neutral and removing them is
-not neutral either (fallback to `STRATEGY_REGISTRY` defaults is itself a live change)
+value was picked on highest-OOS-`avg_r` alone, and **175 of 273 cells carry a current
+`tp_r` that fails today's OOS filter** (2026-09-20; the long-quoted 168 was the 09-10
+reading). Leaving them is not neutral and removing them is not neutral either
 → SoT ST133. ⛔ **Writing those TOMLs IS the deployment** — the signal-watch timer runs
 the WORKING TREE on a 15-minute cycle, so there is no review window between the edit and
 live alerts.
+
+⚠ **"Removal falls back to `STRATEGY_REGISTRY` defaults" is FALSIFIED for the two
+strategies that dominate exposure, and this clause asserted it until 2026-09-21.**
+`_resolve_tp_r` resolves `symbol+TF → symbol → TF-specific → **directional** →
+strategy-wide → global`, and `pin_bar` + `morning_evening_star` both declare
+`tp_r_long`/`tp_r_short` in the inherited base — so deleting their TF key lands on
+**directional** (pin_bar long **5.0**, mes long **4.0**), never on the registry's 2.0.
+Measured on the filed delta: wrong on **35 of 175 cells carrying 63.6% of live alert
+exposure**, and on the three largest cells of the recommended subset the long target moves
+**UP** on removal rather than down. ⚠ **Every summary figure in that artifact reproduces
+exactly — the error was the FRAME, not the arithmetic**, which is why it survived review:
+the direction-less value IS what `scanner.py:1233` stores into `backtest_runs`, so the
+table honestly describes what the GATE sees while the decision is about what LIVE ALERTS
+do. ⇒ **Read `analytics.signal.resolvers._resolve_tp_r` as the authority and resolve per
+direction; `tools/st133_delta.py` does both and reports the two frames side by side.** A
+second consequence outlives the count: the supplying key is usually SHARED, so only **3 of
+the 26** recommended cells are removable without moving a sibling — for the rest a per-cell
+change means ADDING a new ungated value, which is the defect ST133 exists to resolve.
 
 ⚠ **The WFO CLI could not express 2 of the 3 configs' `day_filter` until 2026-09-10**
 (`mon_fri` and `weekend` were argparse errors; `cli/param.py` restated the choices away

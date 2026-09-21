@@ -197,6 +197,27 @@ shell blocks. The rule they exist to satisfy: *a self-check outside CI is not a 
   evidence of over-conservatism, established without reference to any real cell.
   ⚠ Artifacts land under `docs/plans/scratch/`, never `/tmp` — ST128's run JSON went to
   `/tmp` and is gone, so its central claim can no longer be verified.
+- `tools/st133_delta.py` — ST133's `tp_r` delta, resolved **per direction**. The 2026-09-20
+  hand-built table used ONE number per cell, resolved with no direction, so it skipped the
+  `directional` branch of `_resolve_tp_r` (`symbol+TF → symbol → TF-specific → directional →
+  strategy-wide → global`). `pin_bar` and `morning_evening_star` both declare
+  `tp_r_long`/`tp_r_short` in the inherited base and are ~2/3 of live alert exposure, so its
+  post-removal column was wrong on **35 of 175 cells carrying 63.6% of exposure** — removal
+  lands on the directional value (pin_bar long 5.0), not the 2.0 reported, and the long side
+  moves UP where the table said targets would roughly halve. ⚠ **Every summary figure in
+  that artifact reproduces exactly: the error was the FRAME, not the arithmetic**, which is
+  why review missed it. The direction-less value is genuinely what `scanner.py:1233` stores
+  into `backtest_runs`, so the old table faithfully describes what the GATE sees, while the
+  decision is about what LIVE ALERTS do (`atr_floor.py:97` passes `event.direction`). It
+  therefore reports both frames side by side rather than replacing one with the other.
+  `resolve_with_level` restates the resolver's branch order to name the SUPPLYING key, which
+  `_resolve_tp_r` does not return; the restatement is pinned by a test asserting the two
+  agree on every declared cell of every live config in both directions. It also counts how
+  many cells share each supplying key — **only 3 of the 26 recommended cells are removable
+  without moving a sibling**, so for the rest a per-cell change means ADDING a new ungated
+  value rather than deleting a line. Config-derived fields are recomputed from the live
+  TOMLs (no DB, reproduces on a clean clone); sweep verdicts are carried through from
+  `--verdicts`. ⛔ Changes no config — writing `signal_watch*.toml` is the deployment.
 - `tools/stale_anchors.py` — dead cross-document `§N` / `Step N` citations. Sweeps the repo
   **and the memory tree**; a section number is not a symbol, so no symbol-keyed check can
   see this class at all. 4 of the 7 hits on first run were in `memory/`.

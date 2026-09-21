@@ -1065,8 +1065,17 @@ Both the live signal daemon and `make buibui-backtest` (sweep mode) consume the 
 parity was wired in PR #403. The base list hard-skips the (symbol, tf, strategy) cell entirely; the
 directional sub-blocks mask signal rows post-detection.
 
-**`[strategy_params]`** overrides `tp_r`, `sl_pct`, and volume/ADR gates per strategy, per TF, and per symbol.
-Resolution order: **symbol+TF → symbol → TF → strategy → global**.
+**`[strategy_params]`** overrides `tp_r`, `sl_pct`, and volume/ADR gates per strategy, per TF, per
+symbol, and — for `tp_r` — per **direction**.
+Resolution order: **symbol+TF → symbol → TF → directional → strategy → global**
+(`analytics/signal/resolvers.py`, the authority).
+
+⚠ **The `directional` step (`tp_r_long` / `tp_r_short`) is easy to miss and expensive to miss.**
+It sits *above* the strategy-wide value, so a strategy declaring it never falls back to the
+strategy-wide number at all. `pin_bar` and `morning_evening_star` both declare it in
+`config/strategy_params.toml`. Resolving without a direction skips the step entirely — which is
+what gets stored into `backtest_runs`, so the gate's book and the live alert can legitimately
+disagree. That omission is what made ST133's delta table wrong on 63.6% of live alert exposure.
 
 ```toml
 [strategy_params.engulfing]
@@ -1074,6 +1083,8 @@ tp_r = 3.0          # all symbols, all TFs
 
 [strategy_params.engulfing.SOLUSDT]
 tp_r_4h = 4.0       # SOL 4h only; other SOL TFs fall back to strategy-wide 3.0
+                    # (engulfing declares no tp_r_long/tp_r_short — one that did
+                    #  would take precedence over that 3.0)
 
 [strategy_params.doji]
 tp_r = 3.0          # all symbols fallback
