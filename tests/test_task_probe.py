@@ -22,11 +22,14 @@ import pytest
 
 from tools import host_platform, systemd_probe, task_probe
 from tools.task_probe import (
+    DEFAULT_TASK_PATH,
     SCHED_S_TASK_HAS_NOT_RUN,
     SCHED_S_TASK_RUNNING,
+    TASK_STATE_DISABLED,
     scheduler_last_completion,
     task_last_completion,
     task_name_for_unit,
+    task_state,
 )
 
 # Verbatim from `powershell_task_info("\\", "Adobe Acrobat Update Task")` on a real box.
@@ -232,3 +235,100 @@ def test_dispatch_reads_task_scheduler_on_windows(
         "the Task Scheduler side must get the STRIPPED name, or it asks about nothing"
     )
     assert (stamp, ok) == (datetime(2026, 9, 18, 1, 26, 44, tzinfo=UTC), True)
+
+
+# ---------------------------------------------------------------- task_state
+#
+# Added 2026-09-22 with the daily check's off-site leg, which could not be ported to
+# Windows without it: `task_last_completion` answers "absent" and "never ran" with the
+# same `(None, False)`, and that leg's amber-vs-red split is exactly that distinction.
+
+
+def _state_reader(text: str | None) -> task_probe.TaskStateReader:
+    def read(path: str, name: str) -> str | None:
+        return text
+
+    return read
+
+
+@pytest.mark.parametrize("state", ["Ready", "Disabled", "Running", "Queued"])
+def test_task_state_returns_the_state_name(state: str) -> None:
+    assert task_state(DEFAULT_TASK_PATH, "x", reader=_state_reader(state)) == state
+
+
+@pytest.mark.parametrize(
+    "text", [None, "", "   "], ids=["absent", "empty", "whitespace"]
+)
+def test_unreadable_state_is_none(text: str | None) -> None:
+    """MUTATION GUARD on the `or None` in `powershell_task_state`.
+
+    An empty stdout is what a `Get-ScheduledTask` that printed nothing leaves behind.
+    Returning `""` instead of None reads as TRUTHY-ABSENT at the caller: the off-site
+    leg's `_o_state is None` test goes False, it skips the amber "not installed" row
+    and reports a RED about a task that may not exist. Amber and red are the two
+    answers that leg exists to keep apart, so this is not a tidiness assertion.
+    """
+    assert task_state(DEFAULT_TASK_PATH, "x", reader=_state_reader(text)) is None
+
+
+def test_task_state_tells_absent_from_never_ran() -> None:
+    """The whole reason this function exists, asserted side by side.
+
+    Same task, same absence: `task_last_completion` cannot distinguish a task that is
+    not installed from one installed and never run, and its docstring says the caller
+    decides. `task_state` is how the caller decides. If these two ever agree, the
+    off-site leg has lost its amber-vs-red split and nothing else would notice.
+    """
+    never_ran = f"2026-09-18T01:26:44.0000000Z {SCHED_S_TASK_HAS_NOT_RUN}"
+
+    assert task_last_completion(DEFAULT_TASK_PATH, "x", reader=_reader(never_ran)) == (
+        None,
+        False,
+    )
+    assert task_last_completion(DEFAULT_TASK_PATH, "x", reader=_reader(None)) == (
+        None,
+        False,
+    )
+
+    assert task_state(DEFAULT_TASK_PATH, "x", reader=_state_reader("Ready")) == "Ready"
+    assert task_state(DEFAULT_TASK_PATH, "x", reader=_state_reader(None)) is None
+
+
+def test_the_state_reader_is_resolved_at_call_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MUTATION GUARD on `reader or powershell_task_state`.
+
+    Written as `reader: TaskStateReader = powershell_task_state` the default binds the
+    function OBJECT at import, so this monkeypatch silently has no effect and the test
+    shells out to real PowerShell — passing on Windows, hanging or failing elsewhere,
+    and testing nothing either way. Its sibling `task_last_completion` carries the same
+    guard in a comment; this is the assertion.
+    """
+    monkeypatch.setattr(task_probe, "powershell_task_state", lambda path, name: "Ready")
+
+    assert task_state(DEFAULT_TASK_PATH, "buibui-backup-offsite") == "Ready"
+
+
+def test_disabled_is_spelled_the_way_task_scheduler_spells_it() -> None:
+    """`Get-ScheduledTask`'s `State` is an enum NAME, so the casing is the contract.
+
+    Pinned as a constant rather than written at the call site because the off-site leg
+    compares against it to decide FROZEN-vs-healthy; a lowercase "disabled" there would
+    never match and a disabled backup task would read as merely silent.
+    """
+    assert TASK_STATE_DISABLED == "Disabled"
+
+
+def test_the_installer_and_the_probe_agree_on_the_task_path_constant() -> None:
+    """Sibling of the signature test above, one level down.
+
+    `DEFAULT_TASK_PATH` now backs both `scheduler_last_completion`'s default AND the
+    off-site leg's direct `task_state` call, so the installer must agree with the
+    CONSTANT and not merely with one function's default — those could drift apart the
+    moment someone re-inlines the literal.
+    """
+    text = _INSTALLER.read_text(encoding="utf-8")
+    declared = re.search(r"\$TaskPath = '([^']+)'", text)
+    assert declared, "no $TaskPath default found in the installer"
+    assert declared.group(1) == DEFAULT_TASK_PATH
