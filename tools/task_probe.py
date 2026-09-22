@@ -39,6 +39,9 @@ from tools import host_platform, systemd_probe
 
 _QUERY_TIMEOUT_S = 15
 
+# `deploy/windows/install-tasks.ps1` registers every job under this one path.
+DEFAULT_TASK_PATH = "\\buibui\\"
+
 # Task Scheduler reports its own status in `LastTaskResult` using the SCHED_S_* facility
 # rather than the action's exit code, so these values are NOT exit codes and must never
 # be compared against `success_codes`.
@@ -146,10 +149,104 @@ def task_last_completion(
     return stamp, result in success_codes
 
 
+# ---------------------------------------------------------------- is it even there?
+#
+# `task_last_completion` deliberately CANNOT answer this: it returns `(None, False)`
+# for an absent task, one that has never run, and one running right now alike, and its
+# docstring says the caller decides which. The daily check's off-site leg needs the
+# distinction, because "the operator never installed an off-machine leg" is AMBER by
+# design -- a choice, not a fault -- while "installed and silent" is RED. The Linux
+# branch already keeps the two apart by reading the unit FILE before asking
+# `is-active`; this is that same read, and without it the Windows leg has to collapse
+# them.
+#
+# WHY A `State` IS SAFE TO READ AS TEXT AND A `LastRunTime` IS NOT
+# ----------------------------------------------------------------
+# A `State` is an ENUM NAME and is not localized. A DateTime is rendered in the host's
+# locale -- see `_PS_SCRIPT` above, where that trap is real and is why the stamp goes
+# through `ToUniversalTime()` and round-trip format. So this probe needs no such care,
+# and saying why here stops someone "fixing" the asymmetry later.
+TASK_STATE_DISABLED = "Disabled"
+
+_PS_STATE_SCRIPT = (
+    "$ErrorActionPreference='Stop';"
+    "$t=Get-ScheduledTask -TaskPath '{path}' -TaskName '{name}';"
+    "[string]$t.State"
+)
+
+
+class TaskStateReader(Protocol):
+    """Returns one task's `State` name, or None when it cannot be read."""
+
+    def __call__(self, path: str, name: str) -> str | None: ...
+
+
+def powershell_task_state(path: str, name: str) -> str | None:
+    """`Get-ScheduledTask`'s `State` for one task, or None.
+
+    `Get-ScheduledTask` throws on a task that does not exist, so a nonzero exit IS the
+    "absent" answer and there is nothing to parse for it.
+
+    WARNING: None CONFLATES "no such task" with "PowerShell would not run", mirroring
+    `powershell_task_info`. That is tolerable here for a reason worth stating rather
+    than assuming: a Windows box whose PowerShell is broken also breaks the
+    signal-watch leg, which is RED-capable and runs every 15 minutes -- so the quieter
+    reading here can never be the only symptom.
+    """
+    script = _PS_STATE_SCRIPT.format(path=path, name=name)
+    try:
+        r = subprocess.run(  # noqa: S603
+            [  # noqa: S607
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                script,
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=_QUERY_TIMEOUT_S,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0:
+        return None
+    return r.stdout.strip()
+
+
+def task_state(
+    path: str,
+    name: str,
+    *,
+    reader: TaskStateReader | None = None,
+) -> str | None:
+    """A task's scheduler state (`Ready`, `Disabled`, `Running`, ...), or None if absent.
+
+    Windows only, and named `task_*` rather than `scheduler_*` to say so: in this module
+    the `scheduler_` prefix means host-aware. There is deliberately no host-aware twin --
+    the Linux answer to "installed, and scheduled?" is two different reads the caller
+    already performs inline, and a lowest-common-denominator string here would flatten
+    that pair into something neither host actually reports.
+    """
+    # Resolved at CALL time for the same reason `task_last_completion` does it: an
+    # early-bound default captures the function object at import, so monkeypatching the
+    # module attribute -- which is how a caller's test fakes the scheduler -- would
+    # silently have no effect and the test would run real PowerShell.
+    out = (reader or powershell_task_state)(path, name)
+    # Empty -> absent is decided HERE, not in the reader, mirroring
+    # `task_last_completion`'s `if not out`. A reader is injectable, so a check
+    # that lives only in the real one is a check every test bypasses -- which is
+    # how this shipped wrong for ten minutes until its own mutation guard failed.
+    return out.strip() if out and out.strip() else None
+
+
 def scheduler_last_completion(
     unit: str,
     *,
-    task_path: str = "\\buibui\\",
+    task_path: str = DEFAULT_TASK_PATH,
     success_codes: frozenset[int] = frozenset({0}),
 ) -> tuple[datetime | None, bool]:
     """The one call a caller should make: ask whichever scheduler this host runs.
