@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import Any, cast
 
 import duckdb
 import pandas as pd
@@ -148,6 +149,31 @@ def sweep(
     return pd.DataFrame(rows)
 
 
+def _row_at_max(frame: pd.DataFrame, column: str) -> pd.Series[Any]:
+    """The row where `column` peaks.
+
+    `Series.idxmax()` is typed `Hashable`, which `_LocIndexerFrame.__getitem__`
+    stopped accepting in pandas-stubs 3.0.5.260914. Both frames reaching here come
+    from `pd.DataFrame(rows)` over a list of dicts and are only ever boolean-filtered,
+    so the label IS an integer.
+
+    It is CHECKED rather than cast blind, and that is the point: a future `set_index`
+    would otherwise make `cast` a silent lie and `.loc` select the wrong row, which
+    reads as a plausible verdict rather than as a failure. `raise`, not `assert`, so
+    `python -O` cannot strip it.
+    """
+    label = frame[column].idxmax()
+    if not pd.api.types.is_integer(label):
+        raise TypeError(f"{column}.idxmax() gave a non-integer label: {label!r}")
+    row = frame.loc[cast("int", label)]
+    if not isinstance(row, pd.Series):
+        # `.loc` widens to a DataFrame on a DUPLICATE label. Same argument as above:
+        # the callers read scalar fields off this, so a frame here would raise far
+        # from the cause, or format as nonsense.
+        raise TypeError(f"index label {label!r} is not unique in this frame")
+    return row
+
+
 def render(df: pd.DataFrame) -> str:
     lines: list[str] = []
     lines.append("Regime classifier slope-threshold sweep")
@@ -174,7 +200,7 @@ def render(df: pd.DataFrame) -> str:
     lines.append("")
     lines.append("Verdict:")
     if qualifying.empty:
-        best = df.loc[df["lift"].idxmax()]
+        best = _row_at_max(df, "lift")
         lines.append(
             "  NO THRESHOLD QUALIFIES — every value leaves suppressed_avg_r > 0."
         )
@@ -189,7 +215,7 @@ def render(df: pd.DataFrame) -> str:
             "  → Next step: option 3.a (INVERT) or 3.c (re-derive from SignalCandidate)."
         )
     else:
-        best = qualifying.loc[qualifying["lift"].idxmax()]
+        best = _row_at_max(qualifying, "lift")
         lines.append(
             f"  WINNER threshold={best['threshold']:.4f} — "
             f"sup_avg_r={best['suppressed_avg_r']:+.4f} ≤ 0, "
