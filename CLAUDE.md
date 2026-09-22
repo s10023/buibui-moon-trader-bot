@@ -32,8 +32,12 @@ session.** `.claude/hooks/guard-shell-hygiene.py` (advisory, `PreToolUse` on `Ba
 you to skip it) flags six habits that cost you a
 verified result: a **hand-rolled waiter** (`until … pgrep`) for work the harness already
 re-invokes you on — its `pgrep` guard names a CLASS, so the next run of the same kind
-re-arms a fired waiter and it prints a STALE file as the fresh result — a **gate piped
-into `tail`/`head`**, which returns the truncator's exit status and turns a red run green —
+re-arms a fired waiter and it prints a STALE file as the fresh result — a **gate whose exit
+status is SWALLOWED** — by a pipe into `tail`/`head`, or equally by a trailing
+`; echo "EXIT=$?"` or `; tail -8 f`, since a `;`-sequence exits with its LAST segment's
+status — turning a red run green. ⚠ **The rule's own remediation string was an
+instance of this until 2026-09-22, and a negative test pinned that exact command as
+correct** —
 and a **DUPLICATE waiter**, which is rule 1's own blind spot: the SANCTIONED
 `make wait-ci PR=743` matches no hand-rolled shape, so two ran at once. Rule 3 therefore
 probes for a live process on the same TARGET rather than matching the command, and speaks
@@ -52,7 +56,7 @@ process's **cwd**: preflight's sits in its clone, so its exemption is structural
 match, and a working-tree edit provably cannot reach that run. It dedups per suite PID, not per
 session. ⚠ **Its probe is ANCHORED at an interpreter actually running pytest** — a bare
 `pgrep -f pytest` matched the SHELL that had merely typed the word, re-confirming rule 3's trap
-live. `test_guard_shell_hygiene.py` (73 cases, 14 mutation) runs in CI's dependency-free
+live. `test_guard_shell_hygiene.py` (82 cases, 16 mutation) runs in CI's dependency-free
 `markdownlint` job; re-run it after any edit to either. ⚠ **Both rule-6 mutations first passed
 VACUOUSLY**: a mutation copy in `/tmp` has no `.git` above it, so it bailed before reaching the
 mutated line — the fixture now sets `CLAUDE_PROJECT_DIR` the way the harness does. ⚠ **Scoping a guard to the SYMPTOM
