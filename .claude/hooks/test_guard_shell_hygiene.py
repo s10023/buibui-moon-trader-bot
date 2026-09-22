@@ -142,27 +142,55 @@ check(
 check(
     "make preflight | tail fires",
     run("make preflight 2>&1 | tail -8", session="p1"),
-    must_contain="exits with TAIL's status",
+    must_contain="exit status is SWALLOWED",
 )
 check(
     "make typecheck | tail fires",
     run("make typecheck 2>&1 | tail -3", session="p2"),
-    must_contain="exits with TAIL's status",
+    must_contain="exit status is SWALLOWED",
 )
 check(
     "daily_check.py | tail fires -- the run that started this",
     run("python3 docs/plans/daily_check.py 2>&1 | tail -100", session="p3"),
-    must_contain="exits with TAIL's status",
+    must_contain="exit status is SWALLOWED",
 )
 check(
     "a bare pytest piped to tail fires",
     run("poetry run pytest tests/ -q | tail -4", session="p4"),
-    must_contain="exits with TAIL's status",
+    must_contain="exit status is SWALLOWED",
+)
+check(
+    '; echo "EXIT=$?" fires -- sighting 4, 2026-09-22',
+    run('make preflight > f 2>&1; echo "EXIT=$?"', session="p6"),
+    must_contain="exit status is SWALLOWED",
+)
+check(
+    "a trailing `; tail` fires too -- sighting 5, the same day",
+    run("make preflight > f 2>&1; rc=$?; tail -20 f", session="p7"),
+    must_contain="exit status is SWALLOWED",
+)
+check(
+    "any always-succeeds trailer counts, not just echo/tail",
+    run("poetry run pytest tests/ -q > f; cat f", session="p8"),
+    must_contain="exit status is SWALLOWED",
+)
+# The distinction the `[^\n;]*$` tail pins: an always-ok command MID-chain is
+# fine when the status is preserved and exited with. Dropping that anchor makes
+# the hook flag the very form it recommends, which is worse than the gap.
+check(
+    "an always-ok command mid-chain is silent when `exit $rc` is last",
+    run('make test > f 2>&1; rc=$?; echo "rc=$rc" >> f; exit $rc', session="n7"),
+    must_be_silent=True,
+)
+check(
+    "a non-gate with a trailing echo is silent",
+    run("git status --short; echo done", session="n8"),
+    must_be_silent=True,
 )
 check(
     "head truncates just as tail does",
     run("make sanity-checks | head -20", session="p5"),
-    must_contain="exits with TAIL's status",
+    must_contain="exit status is SWALLOWED",
 )
 
 # --- 3. NEGATIVE cases -- a false positive costs the whole hook its reader ---
@@ -176,11 +204,23 @@ check(
     run("ls -lt docs/plans/external-context/ | head", session="n2"),
     must_be_silent=True,
 )
+# THE FLIP, 2026-09-22. This was a NEGATIVE case asserting the hook's own
+# remediation string was fine -- and that string ends in `tail`, so the compound
+# exits 0 and the gate's failure is lost. A test pinned the defect as correct,
+# which is why no gate ever caught it (same shape as ST39). It is now a POSITIVE.
 check(
-    "the RECOMMENDED form is silent -- redirect, then read the file",
+    "the OLD recommended form FIRES -- it ended in tail and swallowed the status",
     run(
         'make preflight > /tmp/pf.log 2>&1; echo "exit=$?"; tail -8 /tmp/pf.log',
         session="n3",
+    ),
+    must_contain="exit status is SWALLOWED",
+)
+check(
+    "the CORRECTED recommended form is silent -- rc captured, exit $rc last",
+    run(
+        "make preflight > /tmp/pf.log 2>&1; rc=$?; tail -8 /tmp/pf.log; exit $rc",
+        session="n3b",
     ),
     must_be_silent=True,
 )
@@ -232,7 +272,7 @@ check(
 check(
     "dedup: first utterance speaks",
     run("make preflight | tail -1", session="d1"),
-    must_contain="TAIL",
+    must_contain="SWALLOWED",
 )
 check(
     "dedup: second identical command is silent",
@@ -252,7 +292,7 @@ check(
 check(
     "dedup: a fresh session speaks again",
     run("make preflight | tail -1", session="d2"),
-    must_contain="TAIL",
+    must_contain="SWALLOWED",
 )
 
 # --- 5. both rules in one command -------------------------------------------
@@ -260,7 +300,7 @@ _both = run(
     "until ! pgrep -f x; do sleep 1; done; make preflight | tail -2", session="b1"
 )
 check("both rules fire together", _both, must_contain="hand-rolled waiter")
-check("both rules fire together (second half)", _both, must_contain="TAIL")
+check("both rules fire together (second half)", _both, must_contain="SWALLOWED")
 
 # --- 5b. rule 3: a DUPLICATE waiter on a target already being waited on ------
 # This rule cannot be a regex over the command: the waiter it catches is the
@@ -622,7 +662,7 @@ try:
     check(
         "MUTATION: ...and the piped-gate rule is UNAFFECTED (scoped, not blanket)",
         run("make preflight | tail -1", session="m2", hook=_m1),
-        must_contain="TAIL",
+        must_contain="SWALLOWED",
     )
 
     # Drop the truncator -> rule 2 must go silent, rule 1 must not.
@@ -642,6 +682,27 @@ try:
         run("until ! pgrep -f x; do sleep 1; done", session="m4", hook=_m2),
         must_contain="hand-rolled waiter",
     )
+    # Drop the always-ok set -> the `;` half of rule 2 goes silent, the PIPE half
+    # must not. Without the second assertion this would pass for a rule that had
+    # simply stopped working, which is the failure mode mutation tests exist for.
+    _m2b = _mut / "no-always-ok.py"
+    _m2b.write_text(
+        HOOK.read_text().replace(
+            r'_ALWAYS_OK = r"(?::|true|echo|printf|tail|head|cat|ls|wc)\b"',
+            '_ALWAYS_OK = r"(?:__never__)\\b"',
+        )
+    )
+    check(
+        "MUTATION: no always-ok set -> the `; echo` swallow is silent",
+        run('make preflight > f 2>&1; echo "EXIT=$?"', session="m2b", hook=_m2b),
+        must_be_silent=True,
+    )
+    check(
+        "MUTATION: ...and the PIPE half still fires (scoped, not blanket)",
+        run("make preflight | tail -1", session="m2c", hook=_m2b),
+        must_contain="SWALLOWED",
+    )
+
     # Rule 3's mutations must prove SCOPE, not merely reach: a rule that fires
     # on any live wait_ci.py would pass every positive case above while flagging
     # every honest first waiter -- the one failure this hook cannot afford.
@@ -701,7 +762,7 @@ try:
             check(
                 "MUTATION: ...and rules 1-2 are UNAFFECTED (scoped, not blanket)",
                 run("make preflight | tail -1", session="m8", hook=_m4),
-                must_contain="TAIL",
+                must_contain="SWALLOWED",
             )
         with live_waiter("--branch main --min-jobs 5"):
             check(

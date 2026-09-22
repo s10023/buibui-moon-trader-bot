@@ -29,7 +29,9 @@ RULE 1 — a hand-rolled waiter (`until ... pgrep`).
     have printed the earlier run's result as if it were the new one. Five such
     shells accumulated in a single session; not one was a real job.
 
-RULE 2 — a gate piped into a truncating reader (`make preflight | tail -8`).
+RULE 2 — a gate whose exit status is SWALLOWED, by a pipe or by a trailing
+    always-succeeds command (`make preflight | tail -8`, `... > f; echo "EXIT=$?"`,
+    `... > f; rc=$?; tail -20 f`).
     A pipeline exits with the status of its LAST command, so `tail` returns 0 and
     the gate's failure disappears. `AGENTS.md` documents exactly this for
     `wait_ci.py` and `make preflight` ("read the printed banner"), but states it
@@ -37,6 +39,13 @@ RULE 2 — a gate piped into a truncating reader (`make preflight | tail -8`).
     itself writes. In one session this masked three: a `daily_check` run reported
     as exit 0 while three tier-1 legs had not run, a `make typecheck` failure that
     let `&&` proceed anyway, and a `make preflight` whose result was lost entirely.
+
+    Extended 2026-09-22 after two more sightings in one session, both written
+    with this rule already in context. The decisive one: THIS NOTE'S OWN
+    remediation string ended in `tail`, and a negative test pinned that exact
+    command as correct -- so the guard taught the defect and a test agreed.
+    A `;`-sequence swallows a status exactly as a pipeline does; scoping to
+    `; echo` would have been the symptom again.
 
 RULE 3 — a DUPLICATE waiter on a target something is already waiting on.
     The gap rule 1 leaves open, found by the operator within the hour of it
@@ -120,6 +129,13 @@ _GATE = (
     r"|python3?\s+\S*(?:daily_check|wait_ci|sanity_checks|post_branch_checks)\.py)"
 )
 _TRUNCATOR = r"(?:tail|head)\b"
+# Commands that succeed on essentially any input. Putting one LAST in a
+# `;`-sequence makes the shell's status THEIRS, which is the same swallow the
+# pipe form performs -- `; echo "exit=$?"` prints the code for a human to read
+# and still hands the CALLER a 0. Kept deliberately tight: `grep` and `diff`
+# answer the caller's own question and can legitimately fail, so they are not
+# swallows and adding them would cost this hook its reader.
+_ALWAYS_OK = r"(?::|true|echo|printf|tail|head|cat|ls|wc)\b"
 
 # Anchored where a command can actually START -- the fix guard-destructive.py
 # already carries, after an unanchored rule there blocked its own commit message.
@@ -149,12 +165,16 @@ RULES: list[tuple[str, str, str]] = [
     ),
     (
         "piped-gate",
-        rf"{_GATE}[^\n|]*\|\s*{_TRUNCATOR}",
-        "a gate piped into tail/head. The pipeline exits with TAIL's status, so "
-        "the gate's failure is masked and a red run reads as green -- the same "
-        "class AGENTS.md documents for wait_ci.py and preflight through `make`. "
-        "Redirect instead, then read the file: "
-        '`make <gate> > /tmp/<name>.log 2>&1; echo "exit=$?"; tail -8 /tmp/<name>.log`.',
+        rf"{_GATE}(?:[^\n|]*\|\s*{_TRUNCATOR}"
+        rf"|[\s\S]*[;\n]\s*{_ALWAYS_OK}[^\n;]*$)",
+        "a gate whose exit status is SWALLOWED. A pipeline exits with its LAST "
+        "command's status and a `;`-sequence with its last segment's, so `| tail`, "
+        '`; echo "exit=$?"` and `; tail -8 f` all turn a red gate green -- the '
+        "same class AGENTS.md documents for wait_ci.py and preflight through "
+        "`make`. This note's own advice was an instance of it until 2026-09-22. "
+        "Capture the status first and make it the LAST word: "
+        "`make <gate> > /tmp/<name>.log 2>&1; rc=$?; tail -8 /tmp/<name>.log; "
+        "exit $rc`.",
     ),
     (
         "card-chain",
