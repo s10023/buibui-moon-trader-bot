@@ -71,6 +71,18 @@ rather than working around it silently. `test_guard_destructive.py` (33 cases, 4
 gates it in the same CI job — added 2026-09-03, since the BLOCKING hook was the one of the
 three with no suite at all. Deep ref `.claude/context/tools.md`.
 
+⚠ **Every wrapper in `.claude/settings.json` resolves `.venv` BEFORE `python3`, and that
+ordering is the whole guard on Windows — do not "simplify" it back to a bare interpreter.**
+`python3` here is the Store App Execution Alias: it passes `[ -f ]`, `[ -x ]` and
+`command -v`, then exits **126**. Only exit 2 blocks, so from the 2026-09-18 host move until
+2026-09-23 all five hooks — the BLOCKING guard included — failed **OPEN on every command**,
+and no hook MODULE was broken, so no module test could see it. The stub cannot be detected,
+only out-ordered. Each wrapper also keeps an explicit `[ -f "$h" ] || exit 0`, because
+CPython exits 2 on a missing script and absence must fail OPEN, never CLOSED.
+`test_hook_wiring.py` reads the wrapper strings out of `settings.json` and gates both
+properties; it sits in `.claude/hooks/` rather than `tests/` because the heavy CI leg is
+paths-filtered to `**/*.py` and `settings.json` is not in it → SoT ST143.
+
 **Footgun delivery lives in a hook, not in this file.** `.claude/hooks/context-guard.py` +
 `context-map.json` deliver a card at the moment a guarded file is edited, which is what let
 those rules leave the always-loaded tier (`_upsert`, `round_down_to_step`, the XS
