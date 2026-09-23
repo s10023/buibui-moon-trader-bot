@@ -48,6 +48,18 @@ lost the DELIVERY, and no CI surface could reach them. Wired in `.claude/setting
 - `test_context_guard.py` — the gate, **35 cases**, stdlib-only. Runs in CI's
   dependency-free `markdownlint` job. Every card needs a MUTATION case proving the glob is
   scoped rather than blanket.
+- `test_hook_wiring.py` — the gate on the **WRAPPERS** rather than any module, **21 cases,
+  2 mutation**, stdlib-only, same CI job. Added 2026-09-23 (ST143), after every hook on the
+  Windows host spent five days dead: each wrapper launched bare `python3`, which there is the
+  Store App Execution Alias and exits **126**, and only exit 2 blocks — so the BLOCKING guard
+  failed OPEN on every command. ⚠ **No module was broken, so none of the three suites above
+  could ever have seen it**; this one reads the wrapper strings out of `settings.json`. It
+  asserts a `.venv` interpreter precedes `python3` in every wrapper, and that an absent hook
+  file still fails **OPEN** — CPython exits 2 on a missing script, so without the explicit
+  `[ -f "$h" ] || exit 0` the absent case would fail CLOSED. ⚠ **Its end-to-end cases run
+  against a FIXTURE** — a throwaway project with a working venv shim and a `python3` stub that
+  exits 126 — because the defect is invisible on Linux, and a mutation that merely reverted
+  the ordering would pass on the only platform CI runs.
 
 Vendored skills sit beside the hooks in the same committed-but-not-ours class:
 `.agents/skills/<name>/SKILL.md` is the real upstream copy, `.claude/skills/<name>` is a

@@ -86,6 +86,19 @@ jobs:
       - name: Destructive-guard hook suite
         run: python3 .claude/hooks/test_guard_destructive.py
 
+      # The three suites above test hook MODULES. None of them could see the
+      # 2026-09-23 defect, where every module was fine and every WRAPPER in
+      # .claude/settings.json launched an interpreter that exits 126 on the
+      # Windows host -- so the BLOCKING guard failed OPEN for five days.
+      # This one reads the wrapper strings out of settings.json instead.
+      #
+      # It belongs in THIS job rather than the heavy leg: that leg is
+      # paths-filtered to `**/*.py`, pyproject, poetry.lock and lint.yaml, and
+      # settings.json is in none of them, so a settings-only diff would skip the
+      # one gate written to protect it.
+      - name: Hook wiring suite
+        run: python3 .claude/hooks/test_hook_wiring.py
+
   lint-typecheck-test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
