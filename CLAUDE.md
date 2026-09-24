@@ -56,7 +56,7 @@ process's **cwd**: preflight's sits in its clone, so its exemption is structural
 match, and a working-tree edit provably cannot reach that run. It dedups per suite PID, not per
 session. ⚠ **Its probe is ANCHORED at an interpreter actually running pytest** — a bare
 `pgrep -f pytest` matched the SHELL that had merely typed the word, re-confirming rule 3's trap
-live. `test_guard_shell_hygiene.py` (82 cases, 16 mutation) runs in CI's dependency-free
+live. `test_guard_shell_hygiene.py` (81 cases, 16 mutation) runs in CI's dependency-free
 `markdownlint` job; re-run it after any edit to either. ⚠ **Both rule-6 mutations first passed
 VACUOUSLY**: a mutation copy in `/tmp` has no `.git` above it, so it bailed before reaching the
 mutated line — the fixture now sets `CLAUDE_PROJECT_DIR` the way the harness does. ⚠ **Scoping a guard to the SYMPTOM
