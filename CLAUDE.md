@@ -56,12 +56,27 @@ process's **cwd**: preflight's sits in its clone, so its exemption is structural
 match, and a working-tree edit provably cannot reach that run. It dedups per suite PID, not per
 session. ⚠ **Its probe is ANCHORED at an interpreter actually running pytest** — a bare
 `pgrep -f pytest` matched the SHELL that had merely typed the word, re-confirming rule 3's trap
-live. `test_guard_shell_hygiene.py` (82 cases, 16 mutation) runs in CI's dependency-free
+live. `test_guard_shell_hygiene.py` (81 cases, 16 mutation) runs in CI's dependency-free
 `markdownlint` job; re-run it after any edit to either. ⚠ **Both rule-6 mutations first passed
 VACUOUSLY**: a mutation copy in `/tmp` has no `.git` above it, so it bailed before reaching the
 mutated line — the fixture now sets `CLAUDE_PROJECT_DIR` the way the harness does. ⚠ **Scoping a guard to the SYMPTOM
 you noticed rather than to the CLASS is the recurring defect here** — mutation tests cannot
 reveal it, because they only probe rules that exist.
+
+⚠ **Rules 3 and 6 NEVER FIRE on the Windows host.** Both probe live processes through `pgrep`,
+and rule 6 also reads `/proc/<pid>/cwd`; neither exists there, and the hook stays silent by
+design rather than guess. So `AGENTS.md`'s one hard constraint — never edit the Python tree
+while a suite runs — has **no hook behind it on that host, only the prose**. The suite reports
+both rules' blocks as SKIPPED, never as passed, and a skip under `CI` reds (ST144): until then
+the rule-3 skip counted as a pass and rule 6's unguarded fixture crashed the run at check 45,
+discarding every mutation case after it.
+
+⚠ **The Bash tool on the Windows host HALVES every doubled backslash before bash parses the
+command** — single quotes, double quotes and a quoted `<<'EOF'` heredoc alike (measured
+2026-09-24: `printf '%s\n' 'a\\b'` prints `a\b`). A Windows path or regex in an inline
+script arrives one escape level short, silently: a python heredoc dies on a truncated `\U`
+escape, and a `sed` over a Windows path just matches nothing. Put anything
+backslash-sensitive in a file with the Write tool and run the file.
 
 **Guardrail.** A PreToolUse hook (`.claude/hooks/guard-destructive.py`) blocks catastrophic
 Bash (rm -rf, git reset --hard, force-push, DB wipes) **and `rclone config create|update`

@@ -449,7 +449,9 @@ root rather than syncing an empty tree over the remote.
 mistyped remote and an UNRELATED folder on the same drive: rclone's `root_folder_id`,
 pinned on the remote so it cannot address anything above the backup folder; a rejection of
 any remote with no path component, since a bare `remote:` is the whole drive; and a
-rejection of a destination holding entries the local root does not have. **Only the last
+rejection of a destination holding entries the local root does not have — or that it cannot
+LIST at all, since a failed `lsf` lists nothing and would otherwise pass (ST146; only rc 3,
+directory not found, counts as empty). **Only the last
 two are tracked code** — `root_folder_id` lives in `rclone.conf` and `rclone config delete`
 drops it, so prefer `rclone config reconnect <remote>:` when rotating a credential, and
 re-pin it whenever the remote is rebuilt.
@@ -1307,10 +1309,17 @@ blocked. Never assume the flip happened because you printed the command.
   ⚠ **That call is NECESSARY BUT NOT SUFFICIENT, so the rule is check → flip → RE-VERIFY.** A
   listing cannot see a workflow that does not yet EXIST: the pre-flip listing reads clean on
   every workflow, the operator flips, and `Dependency Graph` is created on the merge SHA *after*
-  the check. **Same vacuous-check shape at THREE NESTED LAYERS** (a count of layers, not of
+  the check. **Same vacuous-check shape at FOUR NESTED LAYERS** (a count of layers, not of
   sightings) — a chained job does not exist until its dependency ends · `wait-ci-main` watches
   ONE workflow and cannot see a sibling · a listing of ALL workflows cannot see one not yet
-  created. **The pattern to carry: a check is only ever true about the scope it looked at, at
+  created · **a listing can read a STALE INDEX right after the visibility change** (ST145: on
+  the #784 flip-back `gh run list --branch main` returned 2026-09-03 as the newest runs and
+  `--commit <sha>` returned nothing — every row green, so it read CLEAN). ⇒ **Re-verify by the
+  merge SHA over REST, and read it as UNVERIFIED unless that SHA's runs APPEAR** — an empty or
+  stale answer is not a clean one:
+  `GH_TOKEN=$(gh auth token --user s10023) gh api "repos/s10023/buibui-moon-trader-bot/actions/runs?head_sha=<merge-sha>" --jq '.workflow_runs[] | [.name, .status, .conclusion] | @tsv'`.
+  How long the index takes to recover is unmeasured — time it on the next flip.
+  **The pattern to carry: a check is only ever true about the scope it looked at, at
   the moment it looked.** ⚠ **The outermost layer is not a one-off curiosity — it recurs on the
   flip-back, and every sighting so far was caught by the post-flip re-verify and by nothing
   else**, because a pre-flip check cannot see a run that does not yet exist. That makes the

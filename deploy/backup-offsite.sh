@@ -179,6 +179,24 @@ fi
 # since rclone cannot navigate above a pinned root. A marker file at the
 # destination was considered and rejected: it would DETECT what a separate
 # confined root PREVENTS.
+#
+# The listing must SUCCEED for any of that to mean anything (ST146). This used to
+# discard lsf's stderr AND exit code, so an rclone that could not reach the remote
+# at all listed nothing and the guard passed VACUOUSLY -- every failed run of
+# 2026-09-22/23 printed "N verified snapshot(s)" before `sync` died on the same
+# broken config. Only rc 3 (directory not found) is an empty destination; it is
+# measured, not assumed: an absent Drive folder returns 3, a missing config 1.
+lsf_err="$(mktemp)"
+listing="$(rclone lsf "$REMOTE" 2>"$lsf_err")"
+lsf_rc=$?
+if [ "$lsf_rc" -ne 0 ] && [ "$lsf_rc" -ne 3 ]; then
+    echo "ERROR: could not list $REMOTE (rclone lsf rc=$lsf_rc), so the destination" >&2
+    echo "  guard cannot vouch for it -- refusing to sync. rclone said:" >&2
+    tail -n 3 "$lsf_err" | sed 's/^/    /' >&2
+    rm -f "$lsf_err"
+    exit 1
+fi
+rm -f "$lsf_err"
 unexpected=""
 while IFS= read -r entry; do
     [ -z "$entry" ] && continue
@@ -186,7 +204,7 @@ while IFS= read -r entry; do
     [ -e "$BACKUP_ROOT/$entry" ] || unexpected="${unexpected}  ${entry}
 "
 done <<EOF
-$(rclone lsf "$REMOTE" 2>/dev/null)
+$listing
 EOF
 if [ -n "$unexpected" ]; then
     echo "ERROR: $REMOTE holds entries this script did not create:" >&2
