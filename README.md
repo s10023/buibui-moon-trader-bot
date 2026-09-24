@@ -541,7 +541,7 @@ retention — and therefore mirrors deletions, which is why it refuses to run wh
 backup root contains no `MANIFEST.json` instead of syncing an empty tree over your only
 remote copy. It mirrors deletions into the **destination** just as readily, so it also
 refuses a remote with no path component (a bare `remote:` is the entire drive) and a
-destination holding entries your local root does not have — and the remote itself is
+destination holding entries your local root does not have, or one it cannot list — and the remote itself is
 pinned to the backup folder via rclone's `root_folder_id`. ⚠ That second check compares
 **top-level entries only**, so it catches an unrelated folder but *not* a sibling repo
 whose tree is the same shape; two repos sharing one drive each need their own remote and

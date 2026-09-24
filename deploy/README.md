@@ -257,7 +257,8 @@ is treated as a fault, never as "nothing to do". Do not remove that check.
 
 Deletions mirror into the **destination** just as readily, so two more checks sit beside
 it: the script rejects a remote with no path component (a bare `remote:` is the whole
-drive), and rejects a destination holding entries the local root does not have. Both are
+drive), and rejects a destination holding entries the local root does not have, or one it
+cannot list at all (a failed `lsf` would otherwise list nothing and pass). Both are
 tracked code and survive a reclone, which `root_folder_id` does not — that is the whole
 reason they duplicate its protection rather than trusting it. All three are pinned by
 `tests/test_backup_offsite_guards.py`; there is no shellcheck here, so those tests are the

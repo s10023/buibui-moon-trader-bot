@@ -35,6 +35,14 @@ RUN = uuid.uuid4().hex[:8]
 
 PASS: list[str] = []
 FAIL: list[str] = []
+SKIP: list[str] = []
+
+# Rules 3 and 6 probe LIVE processes, so their cases need the same host
+# facilities the hook does: rule 3 shells out to `pgrep`, rule 6 also reads
+# `/proc/<pid>/cwd`. A Windows host has neither, and there the hook stays silent
+# by design -- so these cases cannot run, and must not be counted as passing.
+_HAS_PGREP = shutil.which("pgrep") is not None
+_HAS_PROC_CWD = Path("/proc/self/cwd").exists()
 
 
 def run(command: str, *, session: str, hook: Path = HOOK, tool: str = "Bash") -> str:
@@ -107,6 +115,18 @@ def check(
         f"  {'ok  ' if ok else 'FAIL'}  {name}"
         + ("" if ok else f"\n          {detail}")
     )
+
+
+def skip(block: str, reason: str) -> None:
+    """Record a whole block that could not RUN -- never as a pass.
+
+    Until ST144 the rule-3 skip went through check(), so a host without `pgrep`
+    reported `N passed, 0 failed` while rules 3 and 6 were never exercised, and
+    rule 6's unguarded fixture then crashed the suite at check 45 of 82,
+    discarding every mutation case after it. A SKIP is not a PASS.
+    """
+    SKIP.append(f"{block} ({reason})")
+    print(f"  skip  {block} -- {reason}")
 
 
 print("guard-shell-hygiene")
@@ -376,8 +396,8 @@ def mention_only(text: str, probe: str = "wait_ci.py") -> Iterator[None]:
         proc.wait()
 
 
-if shutil.which("pgrep") is None:
-    check("SKIPPED: no pgrep on this platform", "", must_be_silent=True)
+if not _HAS_PGREP:
+    skip("rule 3 live-waiter cases", "no pgrep on this host")
 else:
     with live_waiter("--pr 743"):
         check(
@@ -595,55 +615,68 @@ def live_suite(workdir: Path) -> Iterator[str]:
         proc.wait()
 
 
-_suite_tmp = Path(tempfile.mkdtemp(prefix="hygiene-suite-"))
-try:
-    # The working-tree case: cwd IS the repo, which is what `make test` produces.
-    with live_suite(REPO):
-        check(
-            "editing a .py while a working-tree suite runs FIRES",
-            run_edit(str(REPO / "analytics" / "whatever.py"), session="s1"),
-            must_contain="SUITE IS LIVE",
-        )
-        check(
-            "...and Write is covered too, not just Edit",
-            run_edit(str(REPO / "tools" / "whatever.py"), session="s2", tool="Write"),
-            must_contain="SUITE IS LIVE",
-        )
-        check(
-            "a .md edit during the same run stays SILENT (AGENTS.md's safe overlap)",
-            run_edit(str(REPO / "AGENTS.md"), session="s3"),
-            must_be_silent=True,
-        )
-        check(
-            "a .py OUTSIDE the repo stays silent -- pytest cannot import it",
-            run_edit("/tmp/not-in-the-repo.py", session="s4"),
-            must_be_silent=True,
-        )
-    # THE EXEMPTION. Identical argv, cwd in a preflight clone -> must stay silent.
-    _clone_cwd = _suite_tmp / "clone-preflight-xyz" / "clone"
-    with live_suite(_clone_cwd):
-        check(
-            "a suite running in a PREFLIGHT CLONE does not fire (the exemption)",
-            run_edit(str(REPO / "analytics" / "whatever.py"), session="s5"),
-            must_be_silent=True,
-        )
-
-    # The argv trap rule 3 documents, re-confirmed for this rule.
-    with mention_only("poetry run pytest tests/ -q", probe="poetry run pytest"):
-        check(
-            "a shell merely MENTIONING pytest is not a live suite",
-            run_edit(str(REPO / "analytics" / "whatever.py"), session="s6"),
-            must_be_silent=True,
-        )
-
-    check(
-        "no suite running -> silent",
-        run_edit(str(REPO / "analytics" / "whatever.py"), session="s7"),
-        must_be_silent=True,
-    )
-finally:
-    shutil.rmtree(_suite_tmp, ignore_errors=True)
+_RULE6_MISSING = ", ".join(
+    m
+    for m, have in (("no pgrep", _HAS_PGREP), ("no /proc/<pid>/cwd", _HAS_PROC_CWD))
+    if not have
+)
+if _RULE6_MISSING:
+    # "no suite running -> silent" is skipped too: on such a host the hook is
+    # silent whatever runs, so that case would pass without testing anything.
+    skip("rule 6 live-suite cases", f"{_RULE6_MISSING} on this host")
     shutil.rmtree(_script_dir, ignore_errors=True)
+else:
+    _suite_tmp = Path(tempfile.mkdtemp(prefix="hygiene-suite-"))
+    try:
+        # The working-tree case: cwd IS the repo, which is what `make test` produces.
+        with live_suite(REPO):
+            check(
+                "editing a .py while a working-tree suite runs FIRES",
+                run_edit(str(REPO / "analytics" / "whatever.py"), session="s1"),
+                must_contain="SUITE IS LIVE",
+            )
+            check(
+                "...and Write is covered too, not just Edit",
+                run_edit(
+                    str(REPO / "tools" / "whatever.py"), session="s2", tool="Write"
+                ),
+                must_contain="SUITE IS LIVE",
+            )
+            check(
+                "a .md edit during the same run stays SILENT (AGENTS.md's safe overlap)",
+                run_edit(str(REPO / "AGENTS.md"), session="s3"),
+                must_be_silent=True,
+            )
+            check(
+                "a .py OUTSIDE the repo stays silent -- pytest cannot import it",
+                run_edit("/tmp/not-in-the-repo.py", session="s4"),
+                must_be_silent=True,
+            )
+        # THE EXEMPTION. Identical argv, cwd in a preflight clone -> must stay silent.
+        _clone_cwd = _suite_tmp / "clone-preflight-xyz" / "clone"
+        with live_suite(_clone_cwd):
+            check(
+                "a suite running in a PREFLIGHT CLONE does not fire (the exemption)",
+                run_edit(str(REPO / "analytics" / "whatever.py"), session="s5"),
+                must_be_silent=True,
+            )
+
+        # The argv trap rule 3 documents, re-confirmed for this rule.
+        with mention_only("poetry run pytest tests/ -q", probe="poetry run pytest"):
+            check(
+                "a shell merely MENTIONING pytest is not a live suite",
+                run_edit(str(REPO / "analytics" / "whatever.py"), session="s6"),
+                must_be_silent=True,
+            )
+
+        check(
+            "no suite running -> silent",
+            run_edit(str(REPO / "analytics" / "whatever.py"), session="s7"),
+            must_be_silent=True,
+        )
+    finally:
+        shutil.rmtree(_suite_tmp, ignore_errors=True)
+        shutil.rmtree(_script_dir, ignore_errors=True)
 
 
 # --- 7. MUTATION: prove the regexes are what fired ---------------------------
@@ -706,7 +739,9 @@ try:
     # Rule 3's mutations must prove SCOPE, not merely reach: a rule that fires
     # on any live wait_ci.py would pass every positive case above while flagging
     # every honest first waiter -- the one failure this hook cannot afford.
-    if shutil.which("pgrep") is not None:
+    if not _HAS_PGREP:
+        skip("rule 3 mutation cases", "no pgrep on this host")
+    else:
         # The trailing digit class is what stops `--pr 743` matching a live
         # `--pr 7431`. Unmutated: silent. Mutated: fires. That is the boundary
         # doing the work, not the PR number appearing somewhere in the cmdline.
@@ -818,56 +853,68 @@ try:
         must_be_silent=True,
     )
 
-    # Rule 6, mutation 1: kill the cwd discriminator -> the PREFLIGHT CLONE, which
-    # the real hook exempts, must now fire. This is the case that proves the
-    # exemption is the cwd read and not something incidental about the fixture.
-    _m7 = _mut / "no-cwd-check.py"
-    _m7.write_text(
-        HOOK.read_text().replace(
-            'cwd = Path(os.readlink(f"/proc/{pid}/cwd"))', "cwd = Path(str(root))"
+    if _RULE6_MISSING:
+        skip("rule 6 mutation cases", f"{_RULE6_MISSING} on this host")
+    else:
+        # Rule 6, mutation 1: kill the cwd discriminator -> the PREFLIGHT CLONE,
+        # which the real hook exempts, must now fire. This is the case that proves
+        # the exemption is the cwd read and not something incidental about the
+        # fixture.
+        _m7 = _mut / "no-cwd-check.py"
+        _m7.write_text(
+            HOOK.read_text().replace(
+                'cwd = Path(os.readlink(f"/proc/{pid}/cwd"))', "cwd = Path(str(root))"
+            )
         )
-    )
-    _mut_clone = Path(tempfile.mkdtemp(prefix="hygiene-mutclone-"))
-    try:
-        _cwd = _mut_clone / "clone-preflight-abc" / "clone"
-        with live_suite(_cwd):
+        _mut_clone = Path(tempfile.mkdtemp(prefix="hygiene-mutclone-"))
+        try:
+            _cwd = _mut_clone / "clone-preflight-abc" / "clone"
+            with live_suite(_cwd):
+                check(
+                    "MUTATION: without the cwd read, a CLONE suite fires",
+                    run_edit(str(REPO / "analytics" / "x.py"), session="m14", hook=_m7),
+                    must_contain="SUITE IS LIVE",
+                )
+                check(
+                    "...which the real hook correctly stays silent on",
+                    run_edit(str(REPO / "analytics" / "x.py"), session="m15"),
+                    must_be_silent=True,
+                )
+        finally:
+            shutil.rmtree(_mut_clone, ignore_errors=True)
+            shutil.rmtree(_script_dir, ignore_errors=True)
+
+        # Rule 6, mutation 2: unanchor the pytest probe -> a shell that merely
+        # NAMES pytest reads as a live suite, which is the trap rule 3 documents.
+        _m8 = _mut / "unanchored-pytest.py"
+        _m8.write_text(
+            HOOK.read_text().replace(
+                r'_RUNNING_PYTEST = r"^[^ ]*python[0-9.]*[ ](-m[ ]pytest|[^ ]*/pytest)([ ]|$)"',
+                '_RUNNING_PYTEST = r"pytest"',
+            )
+        )
+        with mention_only("poetry run pytest tests/ -q", probe="poetry run pytest"):
             check(
-                "MUTATION: without the cwd read, a CLONE suite fires",
-                run_edit(str(REPO / "analytics" / "x.py"), session="m14", hook=_m7),
+                "MUTATION: an unanchored probe reads a MENTION as a running suite",
+                run_edit(str(REPO / "analytics" / "x.py"), session="m16", hook=_m8),
                 must_contain="SUITE IS LIVE",
             )
             check(
-                "...which the real hook correctly stays silent on",
-                run_edit(str(REPO / "analytics" / "x.py"), session="m15"),
+                "...which the ANCHORED probe correctly stays silent on",
+                run_edit(str(REPO / "analytics" / "x.py"), session="m17"),
                 must_be_silent=True,
             )
-    finally:
-        shutil.rmtree(_mut_clone, ignore_errors=True)
-
-    # Rule 6, mutation 2: unanchor the pytest probe -> a shell that merely NAMES
-    # pytest reads as a live suite, which is the trap rule 3 already documents.
-    _m8 = _mut / "unanchored-pytest.py"
-    _m8.write_text(
-        HOOK.read_text().replace(
-            r'_RUNNING_PYTEST = r"^[^ ]*python[0-9.]*[ ](-m[ ]pytest|[^ ]*/pytest)([ ]|$)"',
-            '_RUNNING_PYTEST = r"pytest"',
-        )
-    )
-    with mention_only("poetry run pytest tests/ -q", probe="poetry run pytest"):
-        check(
-            "MUTATION: an unanchored probe reads a MENTION as a running suite",
-            run_edit(str(REPO / "analytics" / "x.py"), session="m16", hook=_m8),
-            must_contain="SUITE IS LIVE",
-        )
-        check(
-            "...which the ANCHORED probe correctly stays silent on",
-            run_edit(str(REPO / "analytics" / "x.py"), session="m17"),
-            must_be_silent=True,
-        )
 finally:
     shutil.rmtree(_mut, ignore_errors=True)
 
-print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
+print(f"\n{len(PASS)} passed, {len(FAIL)} failed, {len(SKIP)} block(s) skipped")
 for f in FAIL:
     print(f"  FAIL  {f}")
-sys.exit(1 if FAIL else 0)
+for s in SKIP:
+    print(f"  skip  {s}")
+# CI's runner has both probes, so a skip THERE means the runner changed under us
+# and rules 3/6 went unexercised -- which must read red, never green.
+_CI_SKIP = bool(SKIP) and bool(os.environ.get("CI"))
+if _CI_SKIP:
+    print("  FAIL  a block was SKIPPED under CI, where every probe must exist")
+sys.exit(1 if FAIL or _CI_SKIP else 0)
