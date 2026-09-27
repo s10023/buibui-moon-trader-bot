@@ -140,7 +140,7 @@ cannot carry live here:
 - **Run one `/card` per background exec** — never `&&`-chain them.
 
 **Vendored skills are COMMITTED, hash-pinned, and NOT ours to edit.** `.agents/skills/<name>/`
-holds the real directory, `.claude/skills/<name>` is a *relative* symlink into it, and
+holds the real directory, `.claude/skills/<name>` is a COPY of it (installed with `--copy`), and
 `skills-lock.json` pins each by hash — all three tracked, because a pin nobody can verify is
 not a pin. A local edit to a vendored copy is **silently overwritten** on the next refresh:
 fix upstream and re-vendor. ⚠ `computedHash` is **not** a plain sha256 and the algorithm is

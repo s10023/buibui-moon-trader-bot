@@ -721,14 +721,10 @@ reads as covered and is not. One line — *"⚠ `daily_check.py` gained X but is
 it is not in this diff"* — is the whole fix, and it is also what tells the sibling repo that
 it has to write its own.
 
-⚠ **Hooks are NO LONGER this class, and this paragraph said they were until 2026-09-03.**
-`.claude/` has been tracked since 2026-08-19, and all three hooks now carry a suite in CI's
-dependency-free `markdownlint` job — `test_context_guard.py` (35), `test_guard_shell_hygiene.py`
-(81) and `test_guard_destructive.py` (33), the last added because the BLOCKING guard was the
-one with nothing checking that it still blocks. So a hook change IS in the diff and IS gated;
-what remains in this class is `docs/plans/daily_check.py`, which is genuinely gitignored.
-⚠ **Read that as a reason to check the claim rather than to relax the step** — this bullet
-was itself the falsified claim its own section tells you to grep for.
+**Hooks are not this class.** `.claude/` is tracked, and every hook carries a suite in CI's
+dependency-free `markdownlint` job (`test_context_guard.py`, `test_guard_shell_hygiene.py`,
+`test_guard_destructive.py`), so a hook change IS in the diff and IS gated. What remains in
+this class is `docs/plans/daily_check.py`, which is genuinely gitignored.
 
 ---
 
@@ -907,6 +903,10 @@ nothing**, and it happened on 2026-08-26 to a session reading the old "supersede
 the final `make test`" wording, which reads as an exception to a gate rather than
 as a replacement for it.
 
+**On a host where it exits 3 (`INFRA`)** — the Windows laptop, where the clone cannot
+`poetry install` numpy — run `make test` as the substitute, name it in the PR body, and
+state that CI is the only clean-clone verifier for this branch.
+
 ⚠ **Do not read "replacement" as "stop running `make test` while you work."** A
 clone cannot see uncommitted code — the same property that makes this correct at
 Step 7 makes it useless mid-branch, and it refuses on a dirty tree rather than
@@ -1029,8 +1029,14 @@ re-ask the settled one.
   re-run it after the operator confirms the flip:
 
   ```bash
-  gh run list --branch main --limit 5 --json workflowName,status
+  GH_TOKEN=$(gh auth token --user s10023) gh api \
+    "repos/s10023/buibui-moon-trader-bot/actions/runs?head_sha=<merge-sha>" \
+    --jq '.workflow_runs[] | [.name, .status, .conclusion] | @tsv'
   ```
+
+  Never `gh run list --branch main` for this: it has returned months-old runs at arbitrary
+  moments (ST147), so it can read clean on the wrong commits. Read an empty answer as
+  UNVERIFIED, not clean.
 
 ---
 
