@@ -19,6 +19,7 @@ _CHANGELOG_BLOCK = re.compile(r"^# (card-v\d+) \(", re.MULTILINE)
 # never overwrite one in place -- that is the edit this pin exists to stop.
 _RUBRIC_DIGESTS = {
     "card-v6": "388fc185c40e06fa294f9a3fe27d033302ffb11cb00364c434bb6e1471ed74df",
+    "card-v7": "dea72f262bb74acfd2b60db6a32c2edd5e6e94b0fe15ddc3a4ad1cce3011053d",
 }
 
 
@@ -51,7 +52,7 @@ def _state(hint: str | None = None) -> MarketState:
 
 class TestPrompt:
     def test_version_constant(self) -> None:
-        assert PROMPT_VERSION == "card-v6"
+        assert PROMPT_VERSION == "card-v7"
 
     def test_rubric_names_the_pundit_metric_and_its_units(self) -> None:
         """card-v4: `avg_atr_r` is in ATR units, and there is no pundit R.
@@ -95,11 +96,11 @@ class TestPrompt:
         assert "never place an entry, SL or TP on a cluster edge" in RUBRIC
 
     def test_rubric_style_block(self) -> None:
-        # card-v2: humanizer style directive covers all generated prose
-        # card-v5: the steelman is generated prose too, so it joins the scope
+        # The style directive covers all generated prose, the steelman included,
+        # and states the wanted prose rather than a list of banned words.
         assert "Style (applies to reasoning, steelman, invalidation" in RUBRIC
-        assert "No hedge words (might/could/perhaps)" in RUBRIC
-        assert "no em dashes" in RUBRIC
+        assert "commit to a claim" in RUBRIC
+        assert "Never write a JSON field path" in RUBRIC
 
     def test_rubric_demands_a_four_angle_steelman(self) -> None:
         """card-v5 (ST35): the one artifact from this author judged on merit.

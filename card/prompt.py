@@ -7,6 +7,10 @@ import json
 from card.config import CardConfig
 from card.state import MarketState
 
+# card-v7 (2026-09-27, prompt-audit): the Style paragraph states the wanted
+# prose instead of listing banned words and tics. Instruction-only change; the
+# payload and the emitted schema are unchanged from v6.
+#
 # card-v6 (2026-08-26, ST94): session recap rows are CLOSED windows while
 # `session_clock` names the one in progress, so the rubric must cite the day
 # with the number — `SessionRecapRow` gained `date_myt` and `day_offset`.
@@ -14,9 +18,6 @@ from card.state import MarketState
 # instruction. The EMITTED schema is unchanged from v5, so `card-place`'s scan
 # reads v6 rows unmodified; the break is in the payload, which is exactly why
 # a shape check cannot see it.
-# ⚠ Written 2026-09-01, five days after the bump landed with no entry at all.
-# The convention here is one block per version and nothing enforces it, so the
-# skill doc went on describing v5 while every card said v6.
 #
 # card-v5 (2026-08-20): the rubric gains a four-angle steelman that runs
 # BEFORE the decision (ST35), and the generated prose is barred from citing
@@ -30,7 +31,7 @@ from card.state import MarketState
 # (see `card/state.py::_strip_censored_pundit_stats`) and rubric 3b names
 # `avg_atr_r` and its units. Bumped because the model sees a different payload
 # AND a different instruction — cards are comparable only within one version.
-PROMPT_VERSION = "card-v6"
+PROMPT_VERSION = "card-v7"
 
 _SCHEMA = """{
   "verdict": "TRADE" or "NO_TRADE",
@@ -124,11 +125,9 @@ the plan or be answered in the reasoning log.
 JSON.
 
 Style (applies to reasoning, steelman, invalidation, no_trade_reason): \
-plain, direct English in the active voice. No hedge words \
-(might/could/perhaps), no em dashes, no three-item rhetorical lists, no \
-promotional adjectives, no filler openers such as "Notably" or \
-"Importantly". Short declarative sentences. Write for someone reading a \
-phone at speed: name the thing in words, then give its number. Never write \
+write for someone reading a phone at speed. Use short, plain, declarative \
+sentences in the active voice that commit to a claim, and start each with \
+its point. Name the thing in words, then give its number. Never write \
 a JSON field path: say "price sits mid-range on the daily, 50% of the \
 range" rather than "range_state.pos 0.4955", and "the daily EMA stack is \
 bearish" rather than "indicators.ema.stack is 'bearish'". The number stays; \

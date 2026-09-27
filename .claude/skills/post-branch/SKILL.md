@@ -1,22 +1,13 @@
 ---
 name: post-branch
 description: >
-  Post-branch docs sweep + handoff — diff the branch's behaviour changes against
-  the doc surfaces (AGENTS.md, CLAUDE.md, README.md, MEMORY.md, Makefile, docker-compose.yml,
-  .claude/context/*.md, .claude/skills/*/SKILL.md)
-  and propose targeted edits where they've drifted, then run a pre-merge
-  readiness check and offer a fresh-conversation handoff prompt. RUN THE PHASE
-  TABLE, not the step numbers — the Step N headings are bodies, ordered
-  differently from the run order. Phase 0 is `make post-branch-checks`, the
-  mechanical sweep, and it is not optional. The phases SPLIT around
-  `gh pr create`: phases 0-4 run BEFORE it so doc fixes ship in the initial push
-  and the visibility flip is decided while CI is still free, then phases 5-6
-  after it exists. Invoke it on every branch — if `gh pr create` has already run,
-  start it immediately, before reporting the PR URL back to the user. Skip for
-  pure refactors, bug fixes covered by tests, dependency bumps, and lint-only
-  commits — the phase-1 behaviour gate decides. Confirm every edit before
-  writing; never force-push without explicit OK. Also triggers on the user saying "/post-branch", "wrap up the
-  branch", "docs check", "pre-merge check", or "next conversation prompt".
+  Post-branch docs sweep and handoff: diff the branch's behaviour changes against
+  the doc surfaces, propose edits where they drifted, run the pre-merge readiness
+  check and write the fresh-conversation handoff. Invoke on every branch; its own
+  behaviour gate decides how much work a branch needs. It splits around
+  `gh pr create`, so start it before opening the PR, or immediately after if the
+  PR already exists. Also triggers on "/post-branch", "wrap up the branch",
+  "docs check", "pre-merge check" or "next conversation prompt".
 allowed-tools: Bash, Read, Edit, Write
 ---
 

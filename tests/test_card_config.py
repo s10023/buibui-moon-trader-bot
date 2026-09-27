@@ -18,7 +18,7 @@ class TestCardConfig:
         assert cfg.model == "sonnet"
         assert cfg.timeout_s == 480.0
         assert cfg.max_thinking_tokens is None
-        assert cfg.restrict_tools is False
+        assert cfg.restrict_tools is True
         assert cfg.min_rr == 1.0
         assert cfg.daily_loss_limit_r == -2.0
         assert cfg.entry_band_pct == 5.0
@@ -126,12 +126,13 @@ class TestCardConfig:
         assert CardConfig().timeout_s > 349.0
 
     def test_reasoning_knobs_are_opt_in_at_the_config_layer(self) -> None:
-        """The OPERATOR-facing default must stay "unchanged", not just the client's.
+        """The OPERATOR-facing default must be pinned, not just the client's.
 
-        `max_thinking_tokens=0` + `restrict_tools=True` made one measured card
-        8.0x faster (245.6 s -> 30.7 s, 21,705 -> 2,040 output tokens) with every
-        spot-checked citation still exact — but on n=1, and the verdict moved
-        against baseline. Until that is validated on a real batch these stay off.
+        `max_thinking_tokens=0` made one measured card 8.0x faster (245.6 s ->
+        30.7 s, 21,705 -> 2,040 output tokens) — but on n=1, and the verdict moved
+        against baseline, so thinking stays at the CLI default until a real batch
+        validates it. `restrict_tools` is on: measured alone it changed turns and
+        input tokens, not latency or the thinking the verdict depends on.
 
         This test exists because the equivalent assertion in test_card_client.py
         does NOT cover this: it builds ClaudeCliClient directly, so it reads the
@@ -141,7 +142,7 @@ class TestCardConfig:
         """
         cfg = CardConfig()
         assert cfg.max_thinking_tokens is None
-        assert cfg.restrict_tools is False
+        assert cfg.restrict_tools is True
 
     def test_reasoning_knobs_settable_from_toml(self, tmp_path: Path) -> None:
         """The opt-in path must actually work — it is the whole point of the knob."""

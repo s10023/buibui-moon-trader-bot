@@ -171,7 +171,7 @@ RULES: list[tuple[str, str, str]] = [
         "command's status and a `;`-sequence with its last segment's, so `| tail`, "
         '`; echo "exit=$?"` and `; tail -8 f` all turn a red gate green -- the '
         "same class AGENTS.md documents for wait_ci.py and preflight through "
-        "`make`. This note's own advice was an instance of it until 2026-09-22. "
+        "`make`. "
         "Capture the status first and make it the LAST word: "
         "`make <gate> > /tmp/<name>.log 2>&1; rc=$?; tail -8 /tmp/<name>.log; "
         "exit $rc`.",
