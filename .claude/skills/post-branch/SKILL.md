@@ -1,22 +1,13 @@
 ---
 name: post-branch
 description: >
-  Post-branch docs sweep + handoff — diff the branch's behaviour changes against
-  the doc surfaces (AGENTS.md, CLAUDE.md, README.md, MEMORY.md, Makefile, docker-compose.yml,
-  .claude/context/*.md, .claude/skills/*/SKILL.md)
-  and propose targeted edits where they've drifted, then run a pre-merge
-  readiness check and offer a fresh-conversation handoff prompt. RUN THE PHASE
-  TABLE, not the step numbers — the Step N headings are bodies, ordered
-  differently from the run order. Phase 0 is `make post-branch-checks`, the
-  mechanical sweep, and it is not optional. The phases SPLIT around
-  `gh pr create`: phases 0-4 run BEFORE it so doc fixes ship in the initial push
-  and the visibility flip is decided while CI is still free, then phases 5-6
-  after it exists. Invoke it on every branch — if `gh pr create` has already run,
-  start it immediately, before reporting the PR URL back to the user. Skip for
-  pure refactors, bug fixes covered by tests, dependency bumps, and lint-only
-  commits — the phase-1 behaviour gate decides. Confirm every edit before
-  writing; never force-push without explicit OK. Also triggers on the user saying "/post-branch", "wrap up the
-  branch", "docs check", "pre-merge check", or "next conversation prompt".
+  Post-branch docs sweep and handoff: diff the branch's behaviour changes against
+  the doc surfaces, propose edits where they drifted, run the pre-merge readiness
+  check and write the fresh-conversation handoff. Invoke on every branch; its own
+  behaviour gate decides how much work a branch needs. It splits around
+  `gh pr create`, so start it before opening the PR, or immediately after if the
+  PR already exists. Also triggers on "/post-branch", "wrap up the branch",
+  "docs check", "pre-merge check" or "next conversation prompt".
 allowed-tools: Bash, Read, Edit, Write
 ---
 
@@ -730,14 +721,10 @@ reads as covered and is not. One line — *"⚠ `daily_check.py` gained X but is
 it is not in this diff"* — is the whole fix, and it is also what tells the sibling repo that
 it has to write its own.
 
-⚠ **Hooks are NO LONGER this class, and this paragraph said they were until 2026-09-03.**
-`.claude/` has been tracked since 2026-08-19, and all three hooks now carry a suite in CI's
-dependency-free `markdownlint` job — `test_context_guard.py` (35), `test_guard_shell_hygiene.py`
-(81) and `test_guard_destructive.py` (33), the last added because the BLOCKING guard was the
-one with nothing checking that it still blocks. So a hook change IS in the diff and IS gated;
-what remains in this class is `docs/plans/daily_check.py`, which is genuinely gitignored.
-⚠ **Read that as a reason to check the claim rather than to relax the step** — this bullet
-was itself the falsified claim its own section tells you to grep for.
+**Hooks are not this class.** `.claude/` is tracked, and every hook carries a suite in CI's
+dependency-free `markdownlint` job (`test_context_guard.py`, `test_guard_shell_hygiene.py`,
+`test_guard_destructive.py`), so a hook change IS in the diff and IS gated. What remains in
+this class is `docs/plans/daily_check.py`, which is genuinely gitignored.
 
 ---
 
@@ -916,6 +903,10 @@ nothing**, and it happened on 2026-08-26 to a session reading the old "supersede
 the final `make test`" wording, which reads as an exception to a gate rather than
 as a replacement for it.
 
+**On a host where it exits 3 (`INFRA`)** — the Windows laptop, where the clone cannot
+`poetry install` numpy — run `make test` as the substitute, name it in the PR body, and
+state that CI is the only clean-clone verifier for this branch.
+
 ⚠ **Do not read "replacement" as "stop running `make test` while you work."** A
 clone cannot see uncommitted code — the same property that makes this correct at
 Step 7 makes it useless mid-branch, and it refuses on a dirty tree rather than
@@ -1038,8 +1029,14 @@ re-ask the settled one.
   re-run it after the operator confirms the flip:
 
   ```bash
-  gh run list --branch main --limit 5 --json workflowName,status
+  GH_TOKEN=$(gh auth token --user s10023) gh api \
+    "repos/s10023/buibui-moon-trader-bot/actions/runs?head_sha=<merge-sha>" \
+    --jq '.workflow_runs[] | [.name, .status, .conclusion] | @tsv'
   ```
+
+  Never `gh run list --branch main` for this: it has returned months-old runs at arbitrary
+  moments (ST147), so it can read clean on the wrong commits. Read an empty answer as
+  UNVERIFIED, not clean.
 
 ---
 

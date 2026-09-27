@@ -15,7 +15,7 @@ a result.
 
 - `make lint-py` ✓ (ruff format + lint)
 - `make typecheck` ✓ (mypy strict)
-- **The full suite runs ONCE per branch, and `make preflight` IS that run** — a fresh clone of the branch's committed HEAD, the same pytest invocation, at `/post-branch` Step 7. Measured 2026-08-20 on 4205 tests: **300.1s against `make test`'s 294.9s, +1.8%**, so hermeticity costs five seconds and buys the gitignored-path class (#586, #666) that `make test` structurally cannot see. ⚠ **Do NOT run `make test` and then `make preflight` over the same code** — that is the same suite twice for nothing. **While iterating, run the TARGETED files you touched** (seconds, and they catch your own breakage before a five-minute run does); `make test` earns its place only when you need a whole-suite answer about code that is NOT COMMITTED YET — a clone cannot see that, which is exactly why preflight refuses on a dirty tree.
+- **The full suite runs ONCE per branch, and `make preflight` IS that run** — a fresh clone of the branch's committed HEAD, the same pytest invocation, at `/post-branch` Step 7. It costs about the same wall time as `make test` and catches the gitignored-path class that `make test` structurally cannot see. **On a host where preflight exits 3 (INFRA — the Windows laptop, where the clone cannot `poetry install` numpy), run `make test` instead, say so in the PR body, and name CI as the only clean-clone verifier.** ⚠ **Do NOT run `make test` and then `make preflight` over the same code** — that is the same suite twice for nothing. **While iterating, run the TARGETED files you touched** (seconds, and they catch your own breakage before a five-minute run does); `make test` earns its place only when you need a whole-suite answer about code that is NOT COMMITTED YET — a clone cannot see that, which is exactly why preflight refuses on a dirty tree.
 - `make test-regression` goldens unmoved — **required only when the diff touches the
   backtest surface**, which is **exactly CI's regression paths filter** (`lint.yaml:173-183`),
   mirrored here: `analytics/**/*.py`, `pyproject.toml`, `poetry.lock`, `config/*.toml`,
@@ -35,7 +35,7 @@ a result.
   goldens gate either. Naming only `make test` here is what made that invisible.
 
 **Background anything measured in MINUTES; foreground anything measured in SECONDS.**
-Background: `make test` (~4m55s — re-measured 2026-08-20; the long-quoted ~145s is stale by ~2x), `make test-regression` (~93s, NOT re-measured), `make wait-ci`,
+Background: `make test` (~5 min on Linux, ~9 min on the Windows laptop), `make test-regression` (~93s), `make wait-ci`,
 `make wait-ci-main`, any CI poll. Foreground: `make lint-py`, `make typecheck`,
 `make lint-md` — seconds each, and their failures should stop the next edit. The line is
 minutes-vs-seconds, **not** tests-vs-not-tests. Use `run_in_background: true`; the harness
@@ -270,7 +270,7 @@ at −0.0881).
 ### `buibui card SYMBOL`
 
 AI trade card (F2). Composes brief panel (M1 indicators + M2 sessions) + pundit board + XS
-target + recent fires + live account into a MarketState, sends the card-v6 rubric to
+target + recent fires + live account into a MarketState, sends the versioned card rubric to
 `claude -p` (subscription auth, keys stripped, `CLAUDE_CONFIG_DIR=~/.claude-personal`, bare
 temp cwd), then a deterministic post-pass sizes the trade and enforces hard rules in code
 (VETOED on violation, including a `valid_until_utc` that is unparseable or does not postdate
@@ -326,14 +326,12 @@ the card's own `generated_at_ms`). Wrapped by
   v5 also bars a JSON field path from generated prose (`range_state.pos 0.4955`): the number
   stays, the path goes. `ai-cards.jsonl` carries a v4/v5 break; `card-place`'s scan reads the
   file back now and tolerates both shapes, because it only touches fields present since v4.
-- **card-v6 (2026-08-26, ST94) is CURRENT** — recap rows are closed windows, `session_clock`
-  is the live one, cite the day with the number. ⚠ **Its break is in the PAYLOAD, not the
-  emitted schema**, so `card-place` needed no change and no shape check could have caught
-  the bump: read `PROMPT_VERSION` in `card/prompt.py` rather than any prose here. It landed
-  with **no entry in that file's own per-version changelog**, and the `/card` skill went on
-  describing v5 for five days. ⚠ **That gap is closed in BOTH
-  directions** — a bump with no changelog block fails (#736), and a `RUBRIC` edit under an
-  unchanged version fails against `_RUBRIC_DIGESTS`, which pins the rubric's sha256 BY version.
+- **The current version is `PROMPT_VERSION` in `card/prompt.py`** — read it there, not in any
+  prose here. card-v6 (ST94) made recap rows closed windows with `session_clock` as the live
+  one; card-v7 restated the Style paragraph positively. Both breaks are in the payload or the
+  instruction, not the emitted schema, so `card-place` needs no change and no shape check can
+  see a bump. `tests/test_card_prompt.py` fails a bump with no changelog block and a `RUBRIC`
+  edit under an unchanged version (it pins the rubric's sha256 by version).
   Two rubrics under one label is the same defect the version constant exists to prevent, reached
   from the other side. A bump carrying a
   byte-identical rubric stays legitimate — v6's own break was in the payload.
@@ -341,10 +339,8 @@ the card's own `generated_at_ms`). Wrapped by
   trust guards, capped at ONE confluence input. ⚠ **It is not horizon-filtered**, and every
   fresh capture is 24h or 1d, so **fix the capture set before adding a filter** or the block
   just empties. ⚠ **`window` IS in `load_external_state`'s dedup key** — the tuple is
-  `(source, venue, scope, panel, window)` at `analytics/brief/external.py:236-242`, which is
-  the opposite of the "selects on source/age/rows only" this file claimed until 2026-08-25.
-  The conclusion survived the correction; the mechanism did not, and the difference bites:
-  a dedup DIMENSION means two windows are two SURVIVING snapshots rather than one filtered
+  `(source, venue, scope, panel, window)` at `analytics/brief/external.py:236-242`, and that
+  matters because a dedup DIMENSION means two windows are two SURVIVING snapshots rather than one filtered
   out, so free-text variants (`"1 day"` vs `"1d"`) STACK instead of superseding — which is
   ST74, and why that item and this correction are one change. **Selection proper is symbol,
   schema, allowed source, not-in-the-future and `max_age_hours`; `window` never appears in
@@ -566,13 +562,9 @@ does not transfer** — n_eff is 1.97 for 14 perps and 1.42 for three, giving de
 **2.668×** and **1.452×**, so breadth buys almost nothing when the cross-section is nearly
 one asset. ⚠ **The deflator is `sqrt(k / n_eff)`, never n_eff itself** — check any pair with
 `n_eff × deflator² == k`, and note it RISES with k, so a pair that falls as k rises is
-mis-assigned. **This line read 1.628× / 3.331× until 2026-08-21, which are real published
-figures from the OTHER regime's panels** (`2026-08-12-multi-regime-validation-design.md`:
-3 symbols at n_eff 1.13 → 1.628×, 15 at n_eff 1.35 → 3.331×) — so the defect was bull-panel
-n_eff crossed with bear-panel deflators, and crosswise at that. **Never carry a deflator
-between panels — run `effective_independent_series` rather than quoting one**, which is what
-`docs/audits/2026-08-20-st56-wick-fill-anchor-power.md` concluded when it caught this clause
-failing to reproduce. At k=25 n_eff 2.92 and deflator 2.926 coincide to three
+mis-assigned. **Never carry a deflator between panels — run `effective_independent_series`
+rather than quoting one**: other panels publish other figures (the multi-regime design's
+bear panels read 1.628× at 3 symbols and 3.331× at 15). At k=25 n_eff 2.92 and deflator 2.926 coincide to three
 digits, which is exactly why the conflation is invisible at the worked example above.
 
 **Day-CLUSTERING is this same correction computed a second way, so apply one or the other in
@@ -827,9 +819,8 @@ pre-ST66 result exactly rather than dividing by zero. `tools/decay_review.py` im
 `_sharpe`, so it inherits the floor; `tools/multi_regime_power.py` builds its OWN family and
 excludes the cell explicitly on purpose.
 
-⚠ **"A/B'd against a dispersion floor, production DSR did not move" is FALSIFIED — this file
-carried that line, and it was the reason the floor was left out.** Measured on the live DB at
-the fix (`day_filter=off`): one degenerate cell, `bos/1d` long, n=36, sd **0.00218**, Sharpe
+⚠ **The dispersion floor moves production DSR, even though a small-family A/B shows no
+change.** Measured on the live DB at the fix (`day_filter=off`): one degenerate cell, `bos/1d` long, n=36, sd **0.00218**, Sharpe
 **−461.3**, took the long-scope family variance from **0.0181 to 3937.38 — a factor of
 217,405** and **zeroed all 18 scoreable long-scope DSRs**, `fib_golden_zone/4h/long` among
 them at a true **0.9164**. The `tue_thu` scope and both non-long scopes hold no degenerate cell
@@ -925,34 +916,20 @@ edge".
 defect.** Last commit changing a `tp_r` line: `signal_watch.toml` #364 **2026-05-13**,
 the other two #342 **2026-05-03**; the gate landed **2026-06-06** (#422). So every live
 value was picked on highest-OOS-`avg_r` alone, and **175 of 273 cells carry a current
-`tp_r` that fails today's OOS filter** (2026-09-20; the long-quoted 168 was the 09-10
-reading). Leaving them is not neutral and removing them is not neutral either
-→ SoT ST133. ⛔ **Writing those TOMLs IS the deployment** — the signal-watch timer runs
-the WORKING TREE on a 15-minute cycle, so there is no review window between the edit and
-live alerts.
+`tp_r` that fails today's OOS filter** (reading of 2026-09-20). **The operator ruled on this
+2026-09-22 (ST133): leave the live values as they are.** Do not re-open it without a revised
+gate. ⛔ **Writing those TOMLs IS the deployment** — the signal-watch timer runs the WORKING
+TREE on a 15-minute cycle, so there is no review window between the edit and live alerts.
 
-⚠ **"Removal falls back to `STRATEGY_REGISTRY` defaults" is FALSIFIED for the two
-strategies that dominate exposure, and this clause asserted it until 2026-09-21.**
-`_resolve_tp_r` resolves `symbol+TF → symbol → TF-specific → **directional** →
-strategy-wide → global`, and `pin_bar` + `morning_evening_star` both declare
-`tp_r_long`/`tp_r_short` in the inherited base — so deleting their TF key lands on
-**directional** (pin_bar long **5.0**, mes long **4.0**), never on the registry's 2.0.
-Measured on the filed delta: wrong on **35 of 175 cells carrying 63.6% of live alert
-exposure**, and on the three largest cells of the recommended subset the long target moves
-**UP** on removal rather than down. ⚠ **Every summary figure in that artifact reproduces
-exactly — the error was the FRAME, not the arithmetic**, which is why it survived review:
-the direction-less value IS what `scanner.py:1233` stores into `backtest_runs`, so the
-table honestly describes what the GATE sees while the decision is about what LIVE ALERTS
-do. ⇒ **Read `analytics.signal.resolvers._resolve_tp_r` as the authority and resolve per
-direction; `tools/st133_delta.py` does both and reports the two frames side by side.** A
-second consequence outlives the count: the supplying key is usually SHARED, so only **3 of
-the 26** recommended cells are removable without moving a sibling — for the rest a per-cell
-change means ADDING a new ungated value, which is the defect ST133 exists to resolve.
-
-⚠ **The WFO CLI could not express 2 of the 3 configs' `day_filter` until 2026-09-10**
-(`mon_fri` and `weekend` were argparse errors; `cli/param.py` restated the choices away
-from `_day_filter_to_weekdays`, which always knew all six). No available choice isolates
-either population, so any substitution was a different book → SoT ST132.
+**Resolve `tp_r` per direction, with `analytics.signal.resolvers._resolve_tp_r` as the
+authority.** It resolves `symbol+TF → symbol → TF-specific → directional → strategy-wide →
+global`, and `pin_bar` + `morning_evening_star` declare `tp_r_long`/`tp_r_short` in the
+inherited base, so deleting their TF key lands on the directional value (pin_bar long 5.0,
+mes long 4.0), not on the registry's 2.0. The direction-less value is what
+`scanner.py:1233` stores into `backtest_runs`, so a table built from it describes what the
+gate sees, not what live alerts do. The supplying key is usually shared between cells, so a
+per-cell change usually means adding a new ungated value. `tools/st133_delta.py` reports both
+frames side by side.
 
 **Lot-size rounding** — `portfolio/sizing.py::round_down_to_step` snaps before it floors;
 why that snap is load-bearing rides the `sizing-round-down` card.
@@ -1261,10 +1238,7 @@ repos get unlimited free standard-runner minutes, which is why the flip exists a
 
 ⛔ **The flip is CONDITIONAL, and it is NOT a per-PR ritual.** It buys minutes, so it is for
 when the month's free allowance is **EXHAUSTED**; while the allowance is live a PRIVATE PR
-runs the whole matrix for free and the flip buys nothing. This paragraph read as
-unconditional until 2026-09-08 and cost a session a re-asked question with two green private
-PRs already in hand — #752 and #753, 5/5 each, the heavy leg **16/16 executed** on the one
-carrying Python. ⚠ **Read the allowance as a MEASUREMENT rather than a memory, and note the
+runs the whole matrix for free and the flip buys nothing. ⚠ **Read the allowance as a MEASUREMENT rather than a memory, and note the
 error runs BOTH ways**: a remembered "exhausted" expired silently on the 1st, and a predicted
 billing red came back 5/5 green. **The billing tell is a merge-run failure at ~3s with
 `steps=0` and `visibility=PRIVATE`** — check duration, visibility and EXECUTED step count
@@ -1305,20 +1279,20 @@ blocked. Never assume the flip happened because you printed the command.
   for exactly this reason. ⚠ **But it watches ONE workflow**: the floor is `CI`'s, while
   the flip hits every workflow, so one starting after CI settles is invisible to it — it has
   already gone latent once, with `Dependency Graph` in_progress at the flip and not biting.
-  `gh run list --branch main --limit 5 --json workflowName,status` closes it in one call.
+  List every workflow on `main` over REST in one call — `GH_TOKEN=$(gh auth token --user s10023) gh api "repos/s10023/buibui-moon-trader-bot/actions/runs?branch=main&per_page=10" --jq '.workflow_runs[] | [.name, .status, .head_sha[0:7]] | @tsv'` —
+  never with `gh run list --branch main`, which returns wrong runs at arbitrary moments (ST147).
   ⚠ **That call is NECESSARY BUT NOT SUFFICIENT, so the rule is check → flip → RE-VERIFY.** A
   listing cannot see a workflow that does not yet EXIST: the pre-flip listing reads clean on
   every workflow, the operator flips, and `Dependency Graph` is created on the merge SHA *after*
   the check. **Same vacuous-check shape at FOUR NESTED LAYERS** (a count of layers, not of
   sightings) — a chained job does not exist until its dependency ends · `wait-ci-main` watches
   ONE workflow and cannot see a sibling · a listing of ALL workflows cannot see one not yet
-  created · **a listing can read a STALE INDEX right after the visibility change** (ST145: on
-  the #784 flip-back `gh run list --branch main` returned 2026-09-03 as the newest runs and
-  `--commit <sha>` returned nothing — every row green, so it read CLEAN). ⇒ **Re-verify by the
+  created · **the `gh run list` CLI listing can return the WRONG runs** — months-old ones, at
+  arbitrary moments and regardless of visibility (ST145, ST147) — every row green, so it reads
+  CLEAN. ⇒ **Re-verify by the
   merge SHA over REST, and read it as UNVERIFIED unless that SHA's runs APPEAR** — an empty or
   stale answer is not a clean one:
   `GH_TOKEN=$(gh auth token --user s10023) gh api "repos/s10023/buibui-moon-trader-bot/actions/runs?head_sha=<merge-sha>" --jq '.workflow_runs[] | [.name, .status, .conclusion] | @tsv'`.
-  How long the index takes to recover is unmeasured — time it on the next flip.
   **The pattern to carry: a check is only ever true about the scope it looked at, at
   the moment it looked.** ⚠ **The outermost layer is not a one-off curiosity — it recurs on the
   flip-back, and every sighting so far was caught by the post-flip re-verify and by nothing

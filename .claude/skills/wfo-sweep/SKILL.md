@@ -56,7 +56,7 @@ Extract:
   `param-audit` read both from `config/strategy_params.toml` themselves, so the
   invocations below get production's stop floor and slippage without passing them.
   Override with `--min-sl-pct` / `--slippage-bps` only for a deliberate experiment.
-- `day_filter` — passed as `--day-filter` to every `param-audit` and `param-sweep` call so WFO runs on the correct trade population for this config. ⚠ **This line was FALSE for 2 of the 3 configs until 2026-09-10 (SoT ST132)** — `cli/param.py` validated the flag against a restated `["off","weekdays","tue_thu"]`, so `mon_fri` and `weekend` were argparse ERRORS and `/wfo-sweep all` could not sweep those two on their own population at all. **No available choice isolated either**: `weekdays` and `tue_thu` both contain zero weekend days, and `weekdays` carries Mon+Fri plus three days the `mon_fri` config never runs — a substitution is a DIFFERENT BOOK, not an approximation. Fixed; `DAY_FILTER_MODES` now has one home beside `_day_filter_to_weekdays`
+- `day_filter` — passed as `--day-filter` to every `param-audit` and `param-sweep` call so WFO runs on the correct trade population for this config. Every config's `day_filter` is accepted, so each sweep runs on its own population; never substitute another filter, because a different filter is a different book.
 - Current tp_r per strategy — read from `[strategy_params.<name>]` blocks
 
 ### Step 2: Phase 1 — Audit (all TFs, BTC only)

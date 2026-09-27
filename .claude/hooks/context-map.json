@@ -108,7 +108,7 @@
       "globs": [
         "card/*.py"
       ],
-      "text": "card/: the pundit board's per-author `avg_r` is STRIPPED from the payload on purpose -- it is computed on a winner-dropped subsample and gets the ORDER wrong; use `avg_atr_r`. The rubric string is VERSIONED, so changing its text is a card-v5 bump, not a fix. `--as-of` pins the INPUTS and omits the live account by design. Sizing resolves capital live-account-first, and every card must record capital_used / capital_source -- a bare risk_frac is uninterpretable after the fact."
+      "text": "card/: the pundit board's per-author `avg_r` is STRIPPED from the payload on purpose -- it is computed on a winner-dropped subsample and gets the ORDER wrong; use `avg_atr_r`. The rubric string is VERSIONED, so changing its text requires a PROMPT_VERSION bump plus a new digest in tests/test_card_prompt.py, not a silent fix. `--as-of` pins the INPUTS and omits the live account by design. Sizing resolves capital live-account-first, and every card must record capital_used / capital_source -- a bare risk_frac is uninterpretable after the fact."
     },
     {
       "id": "vendored-skills",
@@ -117,7 +117,7 @@
         "skills-lock.json",
         ".claude/skills/humanizer*"
       ],
-      "text": "VENDORED SKILL -- your local edit is SILENTLY OVERWRITTEN on the next refresh. .agents/skills/ holds the real directories, .claude/skills/ symlinks into it, and skills-lock.json pins each one by hash. All three are COMMITTED on purpose: a pin nobody can verify is not a pin. Fix upstream (humanizer -> blader/humanizer) and re-vendor; never hand-patch the vendored copy. skills-lock.json's computedHash is NOT a plain sha256 of SKILL.md -- do not 'correct' it by hand. Deep ref: .claude/rules/vendored-skills.md"
+      "text": "VENDORED SKILL -- your local edit is SILENTLY OVERWRITTEN on the next refresh. .agents/skills/ holds the real directories, .claude/skills/ holds a COPY of each (installed with --copy), and skills-lock.json pins each one by hash. All three are COMMITTED on purpose: a pin nobody can verify is not a pin. Fix upstream (humanizer -> blader/humanizer) and re-vendor; never hand-patch the vendored copy. skills-lock.json's computedHash is NOT a plain sha256 of SKILL.md -- do not 'correct' it by hand. Deep ref: .claude/rules/vendored-skills.md"
     }
   ],
   "claim": {

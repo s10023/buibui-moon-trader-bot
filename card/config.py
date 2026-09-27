@@ -56,11 +56,11 @@ class CardConfig:
     # design cannot separate from ordinary model variance. So: opt-in, and
     # validate on a real batch before anyone changes this default.
     max_thinking_tokens: int | None = None
-    # Lock the CLI down to zero tools (+ --strict-mcp-config). Pure determinism
-    # and cost win in the same measurement — turns 4 -> 1 and input tokens
-    # ~200K -> ~25.7K — with no latency change either way. Default off only
-    # because it rides with the thinking change above; enable both together.
-    restrict_tools: bool = False
+    # Lock the CLI down to zero tools (+ --strict-mcp-config). The rubric says to
+    # work only from the MARKET STATE JSON, and this enforces that in code rather
+    # than in prose. Measured on its own (thinking unchanged): turns 4 -> 1 and
+    # input tokens ~200K -> ~25.7K, with no latency change.
+    restrict_tools: bool = True
     min_rr: float = 1.0
     daily_loss_limit_r: float = -2.0
     entry_band_pct: float = 5.0

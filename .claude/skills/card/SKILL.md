@@ -12,7 +12,7 @@ allowed-tools: Bash, Read
 # Card — Trade-Card Runner + Digest
 
 `buibui card SYMBOL` composes a MarketState (brief panel + pundit board + XS
-target + recent fires + live account), asks `claude -p` for a card-v6 trade
+target + recent fires + live account), asks `claude -p` for a trade
 card, then a deterministic post-pass sizes the trade and enforces hard rules
 in code. Advisory — the verdict is not a fill; `card-place` is the one
 deliberate exception that routes orders, behind its own picklist and confirm.
@@ -47,7 +47,7 @@ path. This is what unblocked the 2026-08-04 batch:
 make buibui-card SYMBOL=BTCUSDT DIRECTION=short CONFIG=/path/to/card.toml
 ```
 
-### The 8× lever, measured — opt-in, NOT the default
+### The 8× lever, measured — thinking is opt-in, the tool lock is on
 
 Measured 2026-08-05 on one real BTCUSDT short prompt. **The intuitive fix does
 nothing and the real one is elsewhere**, so do not re-derive this:
@@ -62,7 +62,7 @@ Restricting the toolset — the obvious lever — bought **zero** latency; it is
 worth having for determinism (4 turns → 1) and input cost (~200K → ~25.7K
 tokens), not speed. Extended thinking was the whole five minutes.
 
-Both are opt-in via a `[card]` block, and both default OFF:
+`restrict_tools` defaults ON; `max_thinking_tokens` is opt-in via a `[card]` block:
 
 ```toml
 [card]
@@ -70,7 +70,7 @@ max_thinking_tokens = 0
 restrict_tools = true
 ```
 
-**Why they are not the default:** the fast card was good on that sample — 8
+**Why thinking is not cut by default:** the fast card was good on that sample — 8
 substantive reasons, and 8/8 spot-checked citations exact against the input
 state, nothing invented — but it is **n = 1**, and its verdict differed from
 baseline (NO_TRADE vs TRADE) in a way one sample cannot separate from ordinary
@@ -385,7 +385,7 @@ two configs, as evidence about anything. → memory `[[card-reproducibility-verd
   a FOURTH**: recap rows are closed windows, `session_clock` is the live one,
   cite the day with the number. Its emitted schema is UNCHANGED from v5 — the
   break is in the payload and the instruction — so `card-place`'s scan reads v6
-  rows without a change. Ledger split as of 2026-09-01, 65 rows: v1 4 · v2 1 ·
+  rows without a change. card-v7 opens a FIFTH, for a Style-only instruction change. Ledger split as of 2026-09-01, 65 rows: v1 4 · v2 1 ·
   v3 26 · v4 18 · v5 10 · **v6 6**. ⚠ **Every bump restarts the pool, so the
   largest cohort is always a CLOSED one** — a version comparison needs the
   bumping to stop for a while, which nothing plans to do.
