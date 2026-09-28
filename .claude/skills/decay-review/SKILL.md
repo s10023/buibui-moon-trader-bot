@@ -56,7 +56,7 @@ command -v cygpath >/dev/null && D="$(cygpath -m "$D")"   # Windows: forward sla
 ```
 
 ⚠ **On Windows, `DB=` must be a forward-slash path.** `$SCRATCH`/`$TEMP` carry backslashes, and the
-make recipe's shell strips them, so Leg 1 dies `cannot find the path specified` on a path glued
+target's recipe shell strips them, so Leg 1 dies `cannot find the path specified` on a path glued
 into the repo root (measured 2026-09-28). `cygpath -m` converts; on Linux it is absent and the line
 is a no-op.
 
