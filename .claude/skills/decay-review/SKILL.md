@@ -27,11 +27,38 @@ session to interpret. Stamp it only after the report is written:
 date -u +%FT%TZ > docs/plans/task-marks/decay-review
 ```
 
+## Before any leg — read what the legs touch
+
+A "new" finding about a surface the SoT or an earlier report already owns is a re-sighting until
+proved otherwise, and a check placed at close-out runs after the wrong finding is written. So read
+these first, not last:
+
+1. **The previous report's carry-forward list** (its "What this changes" section) — the questions
+   this run owes an answer to.
+2. **The SoT rows owning each leg's surface** — `grep -n -E 'decay|/decay-review' <SoT>` finds them
+   (at 2026-09-28: ST122 owns Leg 1's flat readings, ST137 Leg 3's method).
+3. **Every cell the previous report names, across ALL prior reports** —
+   `grep -l '<cell>' docs/plans/scratch/decay-review-*.md` — before counting its readings or calling
+   it new.
+
+Both misses this prevents have happened: 09-19 filed the ratings freeze as new with ST122 already
+falsifying it, and called `morning_evening_star 4h short` "the first cell to be worst twice" when
+it had been worst since the first review (08-11).
+
 ## Step 0 — TAKE THE DB COPY FIRST, before any leg
 
 ```bash
-cp analytics.db "$SCRATCH/decay.db"        # or use today's daily/<date>/analytics.db
+# Default: the newest VERIFIED backup snapshot (MANIFEST.json beside it) — zero contact with the live lock.
+SNAP="$(ls -d "${BUIBUI_BACKUP_ROOT:-$HOME/backups/buibui}"/daily/*/ | tail -1)analytics.db"
+D="$SCRATCH/decay.db"
+cp "$SNAP" "$D"
+command -v cygpath >/dev/null && D="$(cygpath -m "$D")"   # Windows: forward slashes, see below
 ```
+
+⚠ **On Windows, `DB=` must be a forward-slash path.** `$SCRATCH`/`$TEMP` carry backslashes, and the
+target's recipe shell strips them, so Leg 1 dies `cannot find the path specified` on a path glued
+into the repo root (measured 2026-09-28). `cygpath -m` converts; on Linux it is absent and the line
+is a no-op.
 
 ⛔ **Not optional, and not a fallback for when a leg fails.** The 15-min signal-watch writer
 takes the **exclusive** DuckDB lock at `:01/16/31/46`, so a leg started at the wrong minute dies
@@ -50,7 +77,7 @@ both ends are then verified snapshots taken the same way.
 ## Leg 1 — DSR-suspect list + gate reachability
 
 ```bash
-make buibui-decay-review DB="$SCRATCH/decay.db"            # against the Step 0 copy
+make buibui-decay-review DB="$D"                           # against the Step 0 copy
 make buibui-decay-review                                   # live DB — only outside a write window
 make buibui-decay-review CONFIG=config/signal_watch.toml   # one config
 ```
@@ -112,7 +139,7 @@ week-over-week *delta* is the deliverable.
 ## Leg 2 — per-sleeve attribution (P1 replay)
 
 ```bash
-make buibui-portfolio-replay DB="$SCRATCH/decay.db"   # the Step 0 copy
+make buibui-portfolio-replay DB="$D"                  # the Step 0 copy
 make buibui-portfolio-replay                          # live DB — only outside a write window
 ```
 
@@ -176,15 +203,18 @@ each time; measured 2026-08-23, the 2026-08-b bucket improved **+0.157R** as it 
 236 to 745 rows and its expired share fell 0.767 → 0.409. Confirmed a fourth time 2026-09-06:
 2026-08-b matured 1,258 → 1,562 rows and **improved +0.0062**.
 
-⚠ **Compare POOLED and COHORT across reports; RECOMPUTE buckets from the snapshots.** The
-per-bucket rows of an older report are not safely comparable to a fresh run — measured
-2026-09-06 against the 08-29 table, pooled reproduced exactly (6,349 at −0.1385) and so did
-its new-cohort figure (510 at −0.2154), while individual buckets differed by **19–25 rows**
-(2026-03-b 791 vs 810, 2026-08-a 1,173 vs 1,198). That is a bucket-boundary/clock difference,
-not data: both ends of a single run are bucketed by the same code, so a run is internally
-consistent while cross-report bucket diffs are not. **Reproduce the previous report's headline
-figure off its own snapshots before quoting a week-over-week delta** — it costs one query and
-it is what makes the delta a finding rather than an artifact.
+**Bucket in UTC, explicitly.** Population `outcome IS NOT NULL`; bucket
+`strftime(to_timestamp(outcome_filled_at_ms/1000) AT TIME ZONE 'UTC', '%Y-%m')` plus `-a` when
+the UTC day ≤ 15, else `-b`. ⚠ **Without `AT TIME ZONE 'UTC'` DuckDB buckets in the HOST's local
+zone** — its `TimeZone` setting defaults to the machine's, `Asia/Kuala_Lumpur` on the laptop. That
+is the whole of the 19–25-row cross-report bucket gap (2026-03-b 791 vs 810, 2026-08-a 1,173 vs
+1,198): on one snapshot, MYT bucketing reproduces 09-19's table to the row and UTC reproduces
+09-06's (measured 2026-09-28, SoT ST137). Pooled figures are timezone-independent, which is why
+they always reproduced while buckets did not.
+
+**Reproduce the previous report's headline figure off its own snapshot before quoting a
+week-over-week delta** — it costs one query and it is what makes the delta a finding rather than
+an artifact.
 
 ## Report + close out
 
