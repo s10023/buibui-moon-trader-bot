@@ -32,15 +32,25 @@ appears twice.
 
 ## 1. CI checks (run first — block on failures)
 
+Start the suite FIRST, in the background (~5 min on Linux, ~10 on the Windows laptop), then run
+the rest beside it:
+
 ```bash
-make lint-py       # ruff format + lint
-make typecheck     # mypy strict
-make test          # pytest
-make lint-md       # markdownlint-cli2
-poetry check       # lockfile consistency
+make test                      # background it — pytest
+poetry run ruff format --check .
+poetry run ruff check .
+make typecheck                 # mypy strict
+make lint-md                   # markdownlint-cli2
+poetry check                   # lockfile consistency
 ```
 
-Report pass/fail for each.
+⚠ **Use the ruff `--check` forms here, not `make lint-py`.** `lint-py` runs `ruff format .`, which
+REWRITES files, and AGENTS.md forbids editing the Python tree while a suite runs: the suite imports
+modules at collection time, so a green run can describe a tree that no longer exists. The check forms
+read and never write.
+
+Report pass/fail for each. On the Windows host, compare `make test`'s failures **by name** against the
+known list in memory `windows-host-migration.md`. Read the names, never the count.
 
 ---
 
@@ -62,7 +72,7 @@ Every strategy must appear in ALL of these locations or it silently breaks:
 Run this to get the cross-reference (imports the registries directly — robust to dict vs list shape):
 
 ```bash
-poetry run python -c "
+PYTHONPATH=. poetry run python - <<'EOF'
 from analytics.strategies._registry import STRATEGY_REGISTRY, DETECTOR_REGISTRY
 from signals.registry import SIGNAL_REGISTRY
 strat=set(STRATEGY_REGISTRY); det=set(DETECTOR_REGISTRY); sig=set(SIGNAL_REGISTRY)
@@ -72,8 +82,14 @@ print('DETECTOR-STRATEGY:', sorted(det-strat))   # expect: []
 print('DETECTOR-SIGNAL  :', sorted(det-sig))     # expect: []
 print('SIGNAL-DETECTOR  :', sorted(sig-det))     # expect: smt_divergence (explicit branch)
 print('STRATEGY-SIGNAL  :', sorted(strat-sig))   # expect: seasonality (not actionable)
-"
+print('REGISTRY-CHECK-DONE')
+EOF
 ```
+
+⛔ **No `REGISTRY-CHECK-DONE` line means the check never ran — not that it passed.** The earlier
+`poetry run python -c "…"` form printed NOTHING and exited quietly under Git Bash on Windows (measured
+2026-09-28, SoT ST149), which read exactly like a clean cross-reference. The heredoc feeds the same code
+on stdin, and the sentinel turns silence into a visible failure.
 
 Compare the two lists. Flag any strategy in STRATEGY_REGISTRY but not DETECTOR_REGISTRY (or vice versa), and any in DETECTOR_REGISTRY but not SIGNAL_REGISTRY.
 
@@ -202,19 +218,31 @@ Flag any stale claims and update the skill file.
 
 ---
 
-## 5. Architecture review (use code-reviewer agent)
+## 5. Architecture review
 
-Launch a `feature-dev:code-reviewer` agent with this checklist:
+Run the concrete probes; each one has a tool behind it. (This section used to name a
+`feature-dev:code-reviewer` agent, which is not installed here, so the step could not run as written.)
 
-- **Dead code**: Unused imports, functions, variables, or orphaned files not referenced anywhere?
-- **Duplicate logic**: Any logic duplicated between modules that should be shared?
-- **Type annotations**: All public functions annotated (including `-> None` for tests)?
-- **Hardcoded values**: Magic numbers/strings that should be constants or config?
-- **TODO/FIXME markers**: Any stale markers to clean up?
+- **Unused imports / variables / annotations** — already covered by §1: `ruff check` (F401, F841) and
+  `make typecheck` (mypy strict, `disallow_untyped_defs`).
+- **Dead config surface** — declared cells that never fire, and ratings nobody declares. Point it at a
+  snapshot copy, never the live DB:
 
-```bash
-grep -rn "TODO\|FIXME" --include="*.py" . | grep -v ".venv"
-```
+  ```bash
+  make buibui-dead-surface-check DB=<snapshot copy>
+  ```
+
+  Read every ❌ against memory `project_dead_cells_1d.md` before calling it new: it diagnoses each known
+  dead cell, and `_KNOWN_DEAD_CELLS` is empty, so the same cells re-report on every run.
+- **TODO/FIXME markers**, with a positive control so an empty result is proven rather than assumed:
+
+  ```bash
+  grep -rn -E "\b(TODO|FIXME)\b" --include="*.py" . | grep -v -E "^\./(\.venv|\.cache)/"
+  grep -rln "DETECTOR_REGISTRY" --include="*.py" analytics | head -1   # control: MUST print a path
+  ```
+
+- **Duplicate logic and hardcoded values** have no tool. Judge them by reading the diff since the last
+  run (`git log --since=<last marker> --stat`) rather than the whole tree.
 
 ---
 
@@ -224,7 +252,7 @@ Report results as a table with one row per check:
 
 | # | Dimension | Check | Status | Action needed |
 | --- | ----------- | ------- | -------- | --------------- |
-| 1 | CI | lint-py | ✅ | — |
+| 1 | CI | ruff format + check (`--check` forms) | ✅ | — |
 | 2 | CI | typecheck | ✅ | — |
 | 3 | CI | test | ✅ | — |
 | 4 | CI | lint-md | ✅ | — |
@@ -236,7 +264,7 @@ Report results as a table with one row per check:
 | 10 | Docs | README subcommands | ✅/❌ | ... |
 | 11 | Docs | AGENTS.md structure | ✅/❌ | ... |
 | 12 | Docs | MEMORY.md current state | ✅/❌ | ... |
-| 13 | Skills | Skill files vs CLAUDE.md table | ✅/❌ | ... |
+| 13 | Skills | Every skill dir has `SKILL.md` + frontmatter | ✅/❌ | ... |
 | 14 | Skills | Stale claims audit | ✅/❌ | ... |
 | 15 | Arch | Dead code / duplicates | ✅/❌ | ... |
 

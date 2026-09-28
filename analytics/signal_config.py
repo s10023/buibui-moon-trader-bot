@@ -743,6 +743,7 @@ def load_signal_config(path: str | Path) -> SignalWatchConfig:
         # [backtest].min_sl_pct takes precedence; falls back to top-level min_sl_pct
         min_sl_pct=float(raw_bt.get("min_sl_pct", data.get("min_sl_pct", 0.0))),
         volume_suppress=bool(raw_bt.get("volume_suppress", False)),
+        cache_enabled=bool(raw_bt.get("cache_enabled", True)),
     )
 
     raw_strategy_params = data.get("strategy_params", {})
