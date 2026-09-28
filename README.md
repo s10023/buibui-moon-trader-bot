@@ -129,6 +129,7 @@ buibui-moon-trader-bot/
 ├── utils/               # Shared clients, Telegram, config validation
 ├── deploy/              # 24/7 VPS deploy kit (systemd timers)
 ├── migrations/          # One-off DB schema migrations
+├── scripts/             # Maintenance scripts (regression-fixture extract, backtest prune, suite profiling)
 ├── config/              # coins.json + pundit_roster.toml (gitignored), universe.toml, strategy_params.toml, eras.toml
 └── tests/               # pytest suite
 ```

@@ -25,7 +25,7 @@ These are the calibrated minimums per TF (from TOML comments, derived from DB p2
 | 4h | 10 | 5 |
 | 1d | 5 | 2 |
 
-Rows below threshold are hidden or should be ignored. Higher thresholds for the daemon's directional filter because it filters per-direction (long or short), not total.
+Rows below threshold are hidden or should be ignored. Lower thresholds for the daemon's directional filter because it counts per direction (long or short), not total, so each side holds fewer trades.
 
 ## Reading a TP sweep table
 
