@@ -37,7 +37,8 @@ class TestCardConfig:
     def test_from_toml_overrides(self, tmp_path: Path) -> None:
         toml = tmp_path / "card.toml"
         toml.write_text(
-            '[card]\nmodel = "haiku"\nmin_rr = 1.5\nfires_timeframes = ["4h", "1d"]\n'
+            '[card]\nmodel = "haiku"\nmin_rr = 1.5\nfires_timeframes = ["4h", "1d"]\n',
+            encoding="utf-8",
         )
         cfg = CardConfig.from_toml(toml)
         assert cfg.model == "haiku"
@@ -91,7 +92,7 @@ class TestCardConfig:
 
     def test_from_toml_accepts_horizon(self, tmp_path: Path) -> None:
         toml = tmp_path / "card.toml"
-        toml.write_text('[card]\nhorizon = "swing"\n')
+        toml.write_text('[card]\nhorizon = "swing"\n', encoding="utf-8")
         cfg = CardConfig.from_toml(toml)
         assert cfg.horizon == "swing"
         assert cfg.resolved_fires_timeframes == ("4h", "1d")
@@ -147,7 +148,9 @@ class TestCardConfig:
     def test_reasoning_knobs_settable_from_toml(self, tmp_path: Path) -> None:
         """The opt-in path must actually work — it is the whole point of the knob."""
         toml = tmp_path / "card.toml"
-        toml.write_text("[card]\nmax_thinking_tokens = 0\nrestrict_tools = true\n")
+        toml.write_text(
+            "[card]\nmax_thinking_tokens = 0\nrestrict_tools = true\n", encoding="utf-8"
+        )
         cfg = CardConfig.from_toml(toml)
         assert cfg.max_thinking_tokens == 0
         assert cfg.restrict_tools is True
@@ -159,23 +162,23 @@ class TestCardConfig:
         so it is load-bearing operator knowledge, not an incidental feature.
         """
         toml = tmp_path / "card.toml"
-        toml.write_text("[card]\ntimeout_s = 600.0\n")
+        toml.write_text("[card]\ntimeout_s = 600.0\n", encoding="utf-8")
         assert CardConfig.from_toml(toml).timeout_s == 600.0
 
     def test_live_window_days_zero_still_selectable(self, tmp_path: Path) -> None:
         """0 must remain reachable — it is the all-time escape hatch."""
         toml = tmp_path / "card.toml"
-        toml.write_text("[card]\nlive_window_days = 0\n")
+        toml.write_text("[card]\nlive_window_days = 0\n", encoding="utf-8")
         assert CardConfig.from_toml(toml).live_window_days == 0
 
     def test_from_toml_missing_block_is_defaults(self, tmp_path: Path) -> None:
         toml = tmp_path / "empty.toml"
-        toml.write_text("[other]\nx = 1\n")
+        toml.write_text("[other]\nx = 1\n", encoding="utf-8")
         assert CardConfig.from_toml(toml) == CardConfig()
 
     def test_from_toml_unknown_key_raises(self, tmp_path: Path) -> None:
         toml = tmp_path / "bad.toml"
-        toml.write_text("[card]\nnot_a_field = 1\n")
+        toml.write_text("[card]\nnot_a_field = 1\n", encoding="utf-8")
         with pytest.raises(ValueError, match="unknown"):
             CardConfig.from_toml(toml)
 
@@ -183,7 +186,7 @@ class TestCardConfig:
         # `card` as a scalar (not a table) must fail loudly, never silently
         # fall back to defaults.
         toml = tmp_path / "scalar.toml"
-        toml.write_text('card = "not a table"\n')
+        toml.write_text('card = "not a table"\n', encoding="utf-8")
         with pytest.raises(ValueError, match="must be a TOML table"):
             CardConfig.from_toml(toml)
 

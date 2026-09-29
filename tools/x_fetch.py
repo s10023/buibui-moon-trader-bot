@@ -405,7 +405,7 @@ def _load_cached(
     if not path.exists():
         return None
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
         raw = dict(data["post"])
         # Absent or stale version (ruling R8) ⇒ miss, re-fetch rather than load
         # with newer fields silently defaulted.
@@ -437,7 +437,9 @@ def _write_cache(
         "quoted_photo_paths": quoted_photo_paths,
         "fetched_at_utc": datetime.now(UTC).isoformat(),
     }
-    _cache_path(cache_dir, tweet_id).write_text(json.dumps(payload, indent=2))
+    _cache_path(cache_dir, tweet_id).write_text(
+        json.dumps(payload, indent=2), encoding="utf-8"
+    )
 
 
 def fetch_x_batch(

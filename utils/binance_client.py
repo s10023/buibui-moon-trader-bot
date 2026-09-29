@@ -72,7 +72,7 @@ def resolve_venue() -> str:
 
 def load_coins_config(path: Path | str = _DEFAULT_COINS_PATH) -> dict[str, Any]:
     """Load and validate coins.json, return config dict."""
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         config: dict[str, Any] = json.load(f)
     validate_coins_config(config)
     return config

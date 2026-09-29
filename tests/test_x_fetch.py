@@ -680,7 +680,7 @@ def test_pre_change_cache_entry_is_now_a_miss(tmp_path: Path) -> None:
         },
         "photo_paths": [],
     }
-    (cache_dir / "1.json").write_text(json.dumps(legacy))
+    (cache_dir / "1.json").write_text(json.dumps(legacy), encoding="utf-8")
     assert _load_cached(cache_dir, "1") is None
 
 
@@ -705,7 +705,7 @@ def test_stale_cache_schema_version_is_a_miss(tmp_path: Path) -> None:
         },
         "photo_paths": [],
     }
-    (cache_dir / "1.json").write_text(json.dumps(stale))
+    (cache_dir / "1.json").write_text(json.dumps(stale), encoding="utf-8")
     assert _load_cached(cache_dir, "1") is None
 
 
@@ -761,7 +761,7 @@ def test_batch_refetches_schema_stale_entry_and_recovers_the_quote(
         },
         "photo_paths": [],
     }
-    (cache_dir / "9.json").write_text(json.dumps(stale))
+    (cache_dir / "9.json").write_text(json.dumps(stale), encoding="utf-8")
 
     live_payload = json.dumps(
         dict(
@@ -824,7 +824,7 @@ _PAYLOAD_DIR = Path(__file__).parent / "data" / "x_payloads"
 
 
 def _payload(name: str) -> str:
-    return (_PAYLOAD_DIR / f"{name}.json").read_text()
+    return (_PAYLOAD_DIR / f"{name}.json").read_text(encoding="utf-8")
 
 
 def test_longform_post_flags_text_truncated() -> None:

@@ -265,7 +265,8 @@ class TestBacktestFilterConfig:
 
         p = tmp_path / "cfg.toml"
         p.write_text(
-            "[backtest]\nmode = 'hard'\ndays = 60\nmin_trades = 10\nmin_avg_r = 0.5\n"
+            "[backtest]\nmode = 'hard'\ndays = 60\nmin_trades = 10\nmin_avg_r = 0.5\n",
+            encoding="utf-8",
         )
         cfg = load_signal_config(p)
         assert cfg.backtest.mode == "hard"
@@ -292,7 +293,9 @@ class TestBacktestFilterConfig:
         from analytics.signal_config import load_signal_config
 
         p = tmp_path / "cfg.toml"
-        p.write_text("[backtest]\nmode = 'hard'\nfilter_threshold = 0.5\n")
+        p.write_text(
+            "[backtest]\nmode = 'hard'\nfilter_threshold = 0.5\n", encoding="utf-8"
+        )
         cfg = load_signal_config(p)
         assert cfg.backtest.mode == "hard"
         assert cfg.backtest.min_avg_r == 0.0  # the live gate, untouched by the dead key
@@ -301,7 +304,7 @@ class TestBacktestFilterConfig:
         from analytics.signal_config import load_signal_config
 
         p = tmp_path / "cfg.toml"
-        p.write_text("telegram = true\n")
+        p.write_text("telegram = true\n", encoding="utf-8")
         cfg = load_signal_config(p)
         assert cfg.backtest.mode == "soft"
         assert cfg.backtest.days == 90
@@ -314,7 +317,7 @@ class TestBacktestFilterConfig:
         from analytics.signal_config import load_signal_config
 
         p = tmp_path / "cfg.toml"
-        p.write_text("[backtest]\nmode = 'hard'\nmin_avg_r = 0.25\n")
+        p.write_text("[backtest]\nmode = 'hard'\nmin_avg_r = 0.25\n", encoding="utf-8")
         cfg = load_signal_config(p)
         assert cfg.backtest.min_avg_r == 0.25
 
@@ -322,7 +325,7 @@ class TestBacktestFilterConfig:
         from analytics.signal_config import load_signal_config
 
         toml = tmp_path / "c.toml"
-        toml.write_text("[backtest]\nslippage_bps = 2.0\n")
+        toml.write_text("[backtest]\nslippage_bps = 2.0\n", encoding="utf-8")
         cfg = load_signal_config(str(toml))
         assert cfg.backtest.slippage_pct == pytest.approx(0.0002)
 

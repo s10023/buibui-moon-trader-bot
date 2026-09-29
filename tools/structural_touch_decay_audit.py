@@ -312,7 +312,7 @@ def main() -> int:
     report = _report(verdicts=verdicts, table=table, live=live, args=args)
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(report)
+    args.out.write_text(report, encoding="utf-8")
     verdict, rationale = _headline(verdicts)
     print(f"\nHeadline verdict: {verdict}\n{rationale}\n")
     for v in sorted(verdicts, key=lambda v: v.zone_type):

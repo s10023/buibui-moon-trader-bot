@@ -20,6 +20,11 @@ DEV_PORT ?= 5173
 # a session and the operator actually use. A no-op on Linux, where UTF-8 is already
 # the default. `tests/test_utf8_output.py` pins BOTH surfaces -- coverage is the
 # union of the callers.
+#
+# ⚠ UTF-8 mode also flips the default FILE encoding, so under `make` a bare
+# `read_text()` passes and the same call fails under a bare `pytest` or tool run.
+# `make test` cannot see that class; `tests/test_explicit_encoding.py` gates it
+# statically (SoT ST140).
 export PYTHONUTF8 = 1
 
 PYTHON_FILES = $(shell find . -name "*.py" -not -path "./venv/*" -not -path "./.venv/*")

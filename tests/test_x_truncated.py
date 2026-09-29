@@ -112,18 +112,22 @@ class TestExitCodes:
         p.write_text(
             json.dumps(
                 [_bundle("https://x.com/a/status/1", [_post(text_truncated=True)])]
-            )
+            ),
+            encoding="utf-8",
         )
         assert main([str(p)]) == 1
 
     def test_exit_0_when_clean(self, tmp_path: Path, capsys: Any) -> None:
         p = tmp_path / "b.json"
-        p.write_text(json.dumps([_bundle("https://x.com/a/status/1", [_post()])]))
+        p.write_text(
+            json.dumps([_bundle("https://x.com/a/status/1", [_post()])]),
+            encoding="utf-8",
+        )
         assert main([str(p)]) == 0
 
     def test_exit_2_on_malformed_json(self, tmp_path: Path, capsys: Any) -> None:
         p = tmp_path / "b.json"
-        p.write_text("not json")
+        p.write_text("not json", encoding="utf-8")
         assert main([str(p)]) == 2
 
 
@@ -134,7 +138,10 @@ class TestBareInvocation:
 
     def test_bare_invocation_works(self, tmp_path: Path) -> None:
         p = tmp_path / "b.json"
-        p.write_text(json.dumps([_bundle("https://x.com/a/status/1", [_post()])]))
+        p.write_text(
+            json.dumps([_bundle("https://x.com/a/status/1", [_post()])]),
+            encoding="utf-8",
+        )
         proc = subprocess.run(
             [sys.executable, "tools/x_truncated.py", str(p)],
             cwd=REPO,

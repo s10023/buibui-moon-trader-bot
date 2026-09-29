@@ -145,9 +145,9 @@ def test_cached_probe_refetches_once_the_stamp_is_stale(tmp_path: Path) -> None:
     fake = FakeYtDlp()
     cached_probe(stamp, run=fake)
 
-    aged = json.loads(stamp.read_text())
+    aged = json.loads(stamp.read_text(encoding="utf-8"))
     aged["checked_at_utc"] = (datetime.now(UTC) - timedelta(hours=48)).isoformat()
-    stamp.write_text(json.dumps(aged))
+    stamp.write_text(json.dumps(aged), encoding="utf-8")
     result = cached_probe(stamp, run=fake)
 
     assert len(fake.calls) == 2, "a stale stamp must trigger a fresh fetch"

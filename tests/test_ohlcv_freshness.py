@@ -277,7 +277,7 @@ class TestScheduledGapMatchesTheTimer:
         """Seconds-past-midnight for each `OnCalendar=... HH:MM:SS UTC` line."""
         timer = REPO_ROOT / "deploy" / "systemd" / "user" / "buibui-xsmom-daily.timer"
         times: list[int] = []
-        for raw in timer.read_text().splitlines():
+        for raw in timer.read_text(encoding="utf-8").splitlines():
             line = raw.strip()
             if not line.startswith("OnCalendar="):
                 continue
@@ -390,12 +390,12 @@ class TestUniverseSyncCoverage:
     @staticmethod
     def _sync_invocation(path: str) -> str:
         """The universe-sync command, line continuations folded into one line."""
-        text = (REPO_ROOT / path).read_text().replace("\\\n", " ")
+        text = (REPO_ROOT / path).read_text(encoding="utf-8").replace("\\\n", " ")
         line = next(ln for ln in text.splitlines() if "analytics sync --universe" in ln)
         return line
 
     def test_universe_sync_covers_every_timeframe_the_universe_holds(self) -> None:
-        makefile = (REPO_ROOT / "Makefile").read_text()
+        makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
         recipe = makefile.split("buibui-universe-sync:")[1].split("\n.PHONY")[0]
 
         assert "--universe" in recipe
@@ -431,7 +431,8 @@ class TestUniverseSyncCoverage:
         found = {
             str(path.relative_to(REPO_ROOT))
             for path in surfaces
-            if path.is_file() and "analytics sync --universe" in path.read_text()
+            if path.is_file()
+            and "analytics sync --universe" in path.read_text(encoding="utf-8")
         }
 
         assert found == set(self.CALLERS), (

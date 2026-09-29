@@ -403,7 +403,7 @@ def _write_manifest(
     snapshot = root / "daily" / stamp
     snapshot.mkdir(parents=True, exist_ok=True)
     manifest = snapshot / "MANIFEST.json"
-    manifest.write_text('{"captured_at_utc": "x", "row_counts": {}}')
+    manifest.write_text('{"captured_at_utc": "x", "row_counts": {}}', encoding="utf-8")
     when = time.time() - age_hours * 3600.0
     os.utime(manifest, (when, when))
     return manifest

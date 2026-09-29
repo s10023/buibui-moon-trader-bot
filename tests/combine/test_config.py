@@ -22,7 +22,9 @@ def test_defaults_are_equal_risk_causal() -> None:
 
 def test_from_toml_picks_up_sleeve_costs(tmp_path: Path) -> None:
     toml = tmp_path / "p.toml"
-    toml.write_text("[backtest]\nfee_pct = 0.0007\nslippage_bps = 3.0\n")
+    toml.write_text(
+        "[backtest]\nfee_pct = 0.0007\nslippage_bps = 3.0\n", encoding="utf-8"
+    )
     cfg = CombineConfig.from_toml(toml)
     assert cfg.sleeve_cfg.fee_pct == 0.0007
     assert cfg.sleeve_cfg.slippage_pct == 3.0 / 10_000.0

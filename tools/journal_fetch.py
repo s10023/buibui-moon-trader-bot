@@ -647,7 +647,7 @@ def _parse_entry_instant(text: str) -> datetime | None:
 def _parse_journal_key(path: Path) -> _JournalKey | None:
     """Return (symbol_upper, direction, entry_date, entry_instant|None)."""
     try:
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
     except OSError:
         return None
     sym = re.search(r"^symbol:\s*(\S+)", text, re.MULTILINE)
@@ -870,7 +870,7 @@ def main() -> None:
         "--symbol",
         action="append",
         default=None,
-        help="narrow to specific symbols (repeatable); default = coins.json ∪ open positions",
+        help="narrow to specific symbols (repeatable); default = coins.json plus open positions",
     )
     parser.add_argument(
         "--json",

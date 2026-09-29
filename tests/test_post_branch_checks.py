@@ -1097,7 +1097,9 @@ class TestUncoveredNotice:
         list there is noise at the worst moment for noise.
         """
         p = tmp_path / "body.md"
-        p.write_text("A clean PR body with nothing sensitive in it.\n")
+        p.write_text(
+            "A clean PR body with nothing sensitive in it.\n", encoding="utf-8"
+        )
         buf = io.StringIO()
         stdout, sys.stdout = sys.stdout, buf
         try:

@@ -71,7 +71,7 @@ class TestLedger:
         """
         cfg = _cfg(tmp_path)
         append_ledgers(_final("TRADE"), cfg)
-        row = json.loads(Path(cfg.cards_path).read_text().strip())
+        row = json.loads(Path(cfg.cards_path).read_text(encoding="utf-8").strip())
         assert row["card"]["steelman"] == [
             "htf 1",
             "underweighted 2",
@@ -83,7 +83,7 @@ class TestLedger:
         cfg = _cfg(tmp_path)
         paths = append_ledgers(_final("TRADE"), cfg)
         assert len(paths) == 2
-        cards = Path(cfg.cards_path).read_text().strip().splitlines()
+        cards = Path(cfg.cards_path).read_text(encoding="utf-8").strip().splitlines()
         assert len(cards) == 1
         row = json.loads(cards[0])
         assert row["symbol"] == "BTCUSDT"
@@ -137,7 +137,9 @@ class TestLedger:
     def test_intraday_remains_the_default(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
         append_ledgers(_final("TRADE"), cfg)
-        row = json.loads(Path(cfg.pundit_calls_path).read_text().strip())
+        row = json.loads(
+            Path(cfg.pundit_calls_path).read_text(encoding="utf-8").strip()
+        )
         assert row["horizon"] == "intraday"
 
     def test_url_unique_per_generation(self, tmp_path: Path) -> None:
@@ -171,7 +173,7 @@ class TestHorizonIsRecorded:
         for horizon in ("intraday", "swing"):
             cfg = _cfg(tmp_path / horizon, horizon=horizon)
             append_ledgers(_final("TRADE", horizon=horizon), cfg)
-            row = json.loads(Path(cfg.cards_path).read_text().strip())
+            row = json.loads(Path(cfg.cards_path).read_text(encoding="utf-8").strip())
             assert row["horizon"] == horizon
 
     def test_non_trade_rows_carry_it_too(self, tmp_path: Path) -> None:
@@ -180,7 +182,7 @@ class TestHorizonIsRecorded:
         biased toward the rows that happened to fire."""
         cfg = _cfg(tmp_path, horizon="swing")
         append_ledgers(_final("NO_TRADE", horizon="swing"), cfg)
-        row = json.loads(Path(cfg.cards_path).read_text().strip())
+        row = json.loads(Path(cfg.cards_path).read_text(encoding="utf-8").strip())
         assert row["verdict"] == "NO_TRADE"
         assert row["horizon"] == "swing"
 
@@ -190,6 +192,8 @@ class TestHorizonIsRecorded:
         disagree about which window a card is scored on."""
         cfg = _cfg(tmp_path, horizon="swing")
         append_ledgers(_final("TRADE", horizon="swing"), cfg)
-        card_row = json.loads(Path(cfg.cards_path).read_text().strip())
-        call_row = json.loads(Path(cfg.pundit_calls_path).read_text().strip())
+        card_row = json.loads(Path(cfg.cards_path).read_text(encoding="utf-8").strip())
+        call_row = json.loads(
+            Path(cfg.pundit_calls_path).read_text(encoding="utf-8").strip()
+        )
         assert card_row["horizon"] == call_row["horizon"] == "swing"

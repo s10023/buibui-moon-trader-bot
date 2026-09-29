@@ -53,9 +53,13 @@ def fake_repo(tmp_path: Path) -> Path:
     (repo / "deploy" / "backup-analytics.sh").chmod(0o755)
 
     (repo / "docs" / "plans").mkdir(parents=True)
-    (repo / "docs" / "plans" / "thesis-inbox.md").write_text("listed by name before\n")
+    (repo / "docs" / "plans" / "thesis-inbox.md").write_text(
+        "listed by name before\n", encoding="utf-8"
+    )
     (repo / "docs" / "plans" / "__pycache__").mkdir()
-    (repo / "docs" / "plans" / "__pycache__" / "x.pyc").write_text("build artifact\n")
+    (repo / "docs" / "plans" / "__pycache__" / "x.pyc").write_text(
+        "build artifact\n", encoding="utf-8"
+    )
 
     # The verify step runs `$REPO/.venv/bin/python` when it is executable, and the
     # interpreter running these tests is the one that has duckdb.
@@ -64,7 +68,9 @@ def fake_repo(tmp_path: Path) -> Path:
     # A wrapper, not a symlink: python resolves its venv root from argv[0], so a
     # symlink into a fixture tree finds no site-packages and imports no duckdb.
     shim = venv_bin / "python"
-    shim.write_text(f'#!/usr/bin/env bash\nexec "{sys.executable}" "$@"\n')
+    shim.write_text(
+        f'#!/usr/bin/env bash\nexec "{sys.executable}" "$@"\n', encoding="utf-8"
+    )
     shim.chmod(0o755)
 
     # A snapshot with 0 `signal_alert_outcomes` rows is refused by design, so the
@@ -119,7 +125,7 @@ class TestLedgerGlobCoverage:
     ) -> None:
         """The regression that matters: this file's name appears nowhere in the script."""
         (fake_repo / "docs" / "plans" / "brand-new-ledger.jsonl").write_text(
-            '{"a": 1}\n'
+            '{"a": 1}\n', encoding="utf-8"
         )
 
         r = _run(fake_repo, tmp_path)
@@ -128,14 +134,16 @@ class TestLedgerGlobCoverage:
         snapshots = sorted((tmp_path / "backups" / "daily").iterdir())
         assert snapshots, "no snapshot was written"
         copied = snapshots[-1] / "docs" / "plans" / "brand-new-ledger.jsonl"
-        assert copied.read_text() == '{"a": 1}\n'
-        assert "brand-new-ledger" not in SCRIPT.read_text()
+        assert copied.read_text(encoding="utf-8") == '{"a": 1}\n'
+        assert "brand-new-ledger" not in SCRIPT.read_text(encoding="utf-8")
 
     def test_the_dry_run_report_lists_the_same_unlisted_artifact(
         self, fake_repo: Path, tmp_path: Path
     ) -> None:
         """The report and the copy are separate loops; a glob must expand in both."""
-        (fake_repo / "docs" / "plans" / "brand-new-ledger.jsonl").write_text("{}\n")
+        (fake_repo / "docs" / "plans" / "brand-new-ledger.jsonl").write_text(
+            "{}\n", encoding="utf-8"
+        )
 
         r = _run(fake_repo, tmp_path, "--dry-run")
 
@@ -161,7 +169,9 @@ class TestLedgerGlobCoverage:
         alerts either. It just quietly narrows what catch-up will replay, which is why
         nothing caught it for three days.
         """
-        (fake_repo / "signal_state.json").write_text('{"BTCUSDT:15m:bos:4": 1}\n')
+        (fake_repo / "signal_state.json").write_text(
+            '{"BTCUSDT:15m:bos:4": 1}\n', encoding="utf-8"
+        )
 
         r = _run(fake_repo, tmp_path)
 
@@ -170,7 +180,7 @@ class TestLedgerGlobCoverage:
         assert snapshots, "no snapshot was written"
         copied = snapshots[-1] / "signal_state.json"
         assert copied.exists(), "the catch-up watermark was not backed up"
-        assert copied.read_text() == '{"BTCUSDT:15m:bos:4": 1}\n'
+        assert copied.read_text(encoding="utf-8") == '{"BTCUSDT:15m:bos:4": 1}\n'
 
     def test_a_directory_under_plans_is_not_copied_as_a_file(
         self, fake_repo: Path, tmp_path: Path
@@ -225,8 +235,8 @@ def fake_home(tmp_path: Path) -> Path:
     """A $HOME whose `.claude-personal/tools/` holds a stub tracker."""
     tools = tmp_path / "home" / ".claude-personal" / "tools"
     tools.mkdir(parents=True)
-    (tools / "budget.py").write_text(STUB_BUDGET)
-    (tools / "budget-repos.json").write_text("{}\n")
+    (tools / "budget.py").write_text(STUB_BUDGET, encoding="utf-8")
+    (tools / "budget-repos.json").write_text("{}\n", encoding="utf-8")
     return tmp_path / "home"
 
 
@@ -254,7 +264,7 @@ class TestSpendSessionIndex:
             / "budget-session-index.jsonl"
         )
         assert copied.exists(), "the refreshed index was not copied into the snapshot"
-        assert "2026-08-25" in copied.read_text()
+        assert "2026-08-25" in copied.read_text(encoding="utf-8")
 
     def test_a_stale_index_is_overwritten_before_the_copy(
         self, fake_repo: Path, tmp_path: Path, fake_home: Path
@@ -265,7 +275,9 @@ class TestSpendSessionIndex:
         stale bytes while reading as current, which is the whole failure ST78 describes.
         """
         index = fake_home / ".claude-personal" / "tools" / "budget-session-index.jsonl"
-        index.write_text('{"week": "STALE", "session": "old", "units": 0.0}\n')
+        index.write_text(
+            '{"week": "STALE", "session": "old", "units": 0.0}\n', encoding="utf-8"
+        )
 
         r = _run(fake_repo, tmp_path, home=fake_home)
 
@@ -279,8 +291,8 @@ class TestSpendSessionIndex:
             / "tools"
             / "budget-session-index.jsonl"
         )
-        assert "STALE" not in copied.read_text()
-        assert "2026-08-25" in copied.read_text()
+        assert "STALE" not in copied.read_text(encoding="utf-8")
+        assert "2026-08-25" in copied.read_text(encoding="utf-8")
 
     def test_the_dry_run_reports_the_same_step(
         self, fake_repo: Path, tmp_path: Path, fake_home: Path
@@ -343,7 +355,8 @@ class TestPublishSurvivesATransientLock:
             '  printf "mv: cannot move: Permission denied\n" >&2\n'
             "  exit 1\n"
             "fi\n"
-            f'exec "{real_mv}" "$@"\n'
+            f'exec "{real_mv}" "$@"\n',
+            encoding="utf-8",
         )
         stub.chmod(0o755)
         return bin_dir
@@ -399,12 +412,12 @@ def two_root_home(tmp_path: Path) -> Path:
     home = tmp_path / "home"
     legacy = home / ".claude-personal" / "projects" / "-home-kng-repo-buibui" / "memory"
     legacy.mkdir(parents=True)
-    (legacy / "MEMORY.md").write_text("legacy tree\n")
+    (legacy / "MEMORY.md").write_text("legacy tree\n", encoding="utf-8")
 
     live = home / ".claude" / "projects" / "C--Users-User-repo-buibui" / "memory"
     live.mkdir(parents=True)
-    (live / "MEMORY.md").write_text("live tree\n")
-    (live / "project_todo_master.md").write_text("the SoT\n")
+    (live / "MEMORY.md").write_text("live tree\n", encoding="utf-8")
+    (live / "project_todo_master.md").write_text("the SoT\n", encoding="utf-8")
     return home
 
 
@@ -436,7 +449,7 @@ class TestBothConfigRootsAreCovered:
         )
         assert (live / "MEMORY.md").exists(), "the live memory tree was not copied"
         assert (live / "project_todo_master.md").exists(), "the SoT was not copied"
-        assert (live / "MEMORY.md").read_text().strip() == "live tree"
+        assert (live / "MEMORY.md").read_text(encoding="utf-8").strip() == "live tree"
 
     def test_the_legacy_root_is_still_copied_beside_it(
         self, fake_repo: Path, tmp_path: Path, two_root_home: Path
@@ -468,8 +481,10 @@ class TestBothConfigRootsAreCovered:
         legacy = (
             ext / "claude-personal" / "projects" / "-home-kng-repo-buibui" / "memory"
         )
-        assert (live / "MEMORY.md").read_text().strip() == "live tree"
-        assert (legacy / "MEMORY.md").read_text().strip() == "legacy tree"
+        assert (live / "MEMORY.md").read_text(encoding="utf-8").strip() == "live tree"
+        assert (legacy / "MEMORY.md").read_text(
+            encoding="utf-8"
+        ).strip() == "legacy tree"
 
     def test_mutation_removing_the_second_root_entry_fails_this_suite(
         self, fake_repo: Path, tmp_path: Path, two_root_home: Path

@@ -1638,7 +1638,8 @@ class TestPlaylistCursorIsWrittenOnlyByMark:
                         }
                     ],
                 }
-            )
+            ),
+            encoding="utf-8",
         )
 
         run_mark(
@@ -1665,7 +1666,9 @@ class TestPlaylistCursorIsWrittenOnlyByMark:
         if offered is not None:
             entry["offered"] = offered
         path = tmp_path / "cands.json"
-        path.write_text(json.dumps({"candidates": [], "playlists": [entry]}))
+        path.write_text(
+            json.dumps({"candidates": [], "playlists": [entry]}), encoding="utf-8"
+        )
         return path
 
     def test_a_deferred_candidate_holds_the_whole_tranche(self, tmp_path: Path) -> None:
@@ -1768,7 +1771,10 @@ class TestPlaylistCursorIsWrittenOnlyByMark:
         """A version bump would make every existing file "unrecognized", and that
         refusal exists to stop a reset that re-queues everything ever ingested."""
         path = tmp_path / "state.json"
-        path.write_text(json.dumps({"version": 1, "channels": {}, "videos": {"z": {}}}))
+        path.write_text(
+            json.dumps({"version": 1, "channels": {}, "videos": {"z": {}}}),
+            encoding="utf-8",
+        )
 
         state = load_state(path)
 
@@ -1860,7 +1866,10 @@ class TestMainPlaylistWiring:
     ) -> None:
         monkeypatch.setenv("YOUTUBE_API_KEY", "K")
         cfg = tmp_path / "channels.toml"
-        cfg.write_text('[[channel]]\nid = "UCabcdefghijklmnopqrstu"\nname = "Test"\n')
+        cfg.write_text(
+            '[[channel]]\nid = "UCabcdefghijklmnopqrstu"\nname = "Test"\n',
+            encoding="utf-8",
+        )
 
         with pytest.raises(SystemExit):
             main(

@@ -265,7 +265,10 @@ _mut = Path(tempfile.mkdtemp(prefix="guard-destructive-mut-"))
 try:
     _m1 = _mut / "no-rclone.py"
     _m1.write_text(
-        HOOK.read_text().replace(r"rclone\s+config\s+(?:create|update)", r"__never__")
+        HOOK.read_text(encoding="utf-8").replace(
+            r"rclone\s+config\s+(?:create|update)", r"__never__"
+        ),
+        encoding="utf-8",
     )
     check(
         "MUTATION: rclone pattern removed -> the unsafe call is allowed",
@@ -286,9 +289,10 @@ try:
     # than incidental to it: put the body back and the doc line blocks again.
     _m1b = _mut / "no-strip.py"
     _m1b.write_text(
-        HOOK.read_text().replace(
+        HOOK.read_text(encoding="utf-8").replace(
             'return _HEREDOC.sub("<<STRIPPED", command)', "return command"
-        )
+        ),
+        encoding="utf-8",
     )
     check(
         "MUTATION: stop stripping heredocs -> documenting the recipe blocks again",
@@ -308,10 +312,11 @@ try:
     # is invisible to a `[^\n]*` lookahead and the recipe blocks.
     _m1c = _mut / "no-join.py"
     _m1c.write_text(
-        HOOK.read_text().replace(
+        HOOK.read_text(encoding="utf-8").replace(
             'return _HEREDOC.sub("<<STRIPPED", command).replace("\\\\\\n", " ")',
             'return _HEREDOC.sub("<<STRIPPED", command)',
-        )
+        ),
+        encoding="utf-8",
     )
     check(
         "MUTATION: stop joining continuations -> the documented recipe blocks",
@@ -325,7 +330,10 @@ try:
     )
 
     _m2 = _mut / "no-redirect-escape.py"
-    _m2.write_text(HOOK.read_text().replace(r"(?![^\n]*(?<!2)>\s*/dev/null)", ""))
+    _m2.write_text(
+        HOOK.read_text(encoding="utf-8").replace(r"(?![^\n]*(?<!2)>\s*/dev/null)", ""),
+        encoding="utf-8",
+    )
     check(
         "MUTATION: drop the redirect escape -> the SAFE form is blocked too",
         run("rclone config create gdrive drive >/dev/null", hook=_m2),

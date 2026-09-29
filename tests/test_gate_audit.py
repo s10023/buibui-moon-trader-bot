@@ -613,7 +613,7 @@ class TestResolveConfigRunIds:
         db = tmp_path / "t.db"
         _build_test_db(db)
         cfg = tmp_path / "cfg.toml"
-        cfg.write_text(_MINIMAL_TOML_TUE_THU)
+        cfg.write_text(_MINIMAL_TOML_TUE_THU, encoding="utf-8")
         run_ids = gate_audit._resolve_config_run_ids(db, cfg)
         assert set(run_ids) == {"run-A1", "run-A2"}
 
@@ -621,7 +621,9 @@ class TestResolveConfigRunIds:
         db = tmp_path / "t.db"
         _build_test_db(db)
         cfg = tmp_path / "cfg.toml"
-        cfg.write_text('symbols = ["BTCUSDT"]\nday_filter = "weekend"\n')
+        cfg.write_text(
+            'symbols = ["BTCUSDT"]\nday_filter = "weekend"\n', encoding="utf-8"
+        )
         run_ids = gate_audit._resolve_config_run_ids(db, cfg)
         assert run_ids == []
 
@@ -637,7 +639,7 @@ class TestResolveConfigRunIds:
                 "('run-C1', 'sweep-C', 'tue_thu', 9000)"
             )
         cfg = tmp_path / "cfg.toml"
-        cfg.write_text(_MINIMAL_TOML_TUE_THU)
+        cfg.write_text(_MINIMAL_TOML_TUE_THU, encoding="utf-8")
         run_ids = gate_audit._resolve_config_run_ids(db, cfg)
         assert run_ids == ["run-C1"]
 
@@ -655,7 +657,7 @@ class TestResolveConfigRunIds:
                 "INSERT INTO backtest_runs VALUES ('run-null-1', NULL, 'tue_thu', 9999)"
             )
         cfg = tmp_path / "cfg.toml"
-        cfg.write_text(_MINIMAL_TOML_TUE_THU)
+        cfg.write_text(_MINIMAL_TOML_TUE_THU, encoding="utf-8")
         run_ids = gate_audit._resolve_config_run_ids(db, cfg)
         # Resolver must skip the NULL-sweep row and return sweep-A's runs
         assert set(run_ids) == {"run-A1", "run-A2"}

@@ -69,7 +69,7 @@ def _load_priors(
     if not path.exists():
         return "absent", None, None, {}, []
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
         authors_raw = data["authors"]
         if not isinstance(authors_raw, dict):
             raise TypeError("authors must be a mapping")
@@ -146,7 +146,7 @@ def build_board(cfg: BriefConfig) -> PunditBoard:
     skipped = 0
     calls: list[PunditCallRow] = []
     if ledger_status == "ok":
-        for line in cfg.ledger_path.read_text().splitlines():
+        for line in cfg.ledger_path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if not line:
                 continue

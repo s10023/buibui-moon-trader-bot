@@ -40,7 +40,7 @@ def _direct_connects(source: str) -> list[str]:
 def test_scheduled_job_has_no_direct_duckdb_connect(rel: str) -> None:
     path = ROOT / rel
     assert path.exists(), f"{rel} moved — update SCHEDULED_JOB_MODULES"
-    offenders = _direct_connects(path.read_text())
+    offenders = _direct_connects(path.read_text(encoding="utf-8"))
     assert not offenders, (
         f"{rel} opens analytics.db directly; use "
         f"analytics.db_retry.connect_with_retry so a busy lock waits instead of "
@@ -50,7 +50,7 @@ def test_scheduled_job_has_no_direct_duckdb_connect(rel: str) -> None:
 
 @pytest.mark.parametrize("rel", SCHEDULED_JOB_MODULES)
 def test_scheduled_job_imports_the_retrying_connect(rel: str) -> None:
-    source = (ROOT / rel).read_text()
+    source = (ROOT / rel).read_text(encoding="utf-8")
     assert "connect_with_retry" in source, (
         f"{rel} neither connects directly nor imports connect_with_retry — "
         f"it probably stopped touching the DB, so re-scope this guard."

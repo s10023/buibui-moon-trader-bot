@@ -106,7 +106,7 @@ def parse(path: Path) -> list[tuple[str, str, str]]:
     """Return (section, key, value) for every directive in a unit file."""
     out: list[tuple[str, str, str]] = []
     section = ""
-    for raw in path.read_text().splitlines():
+    for raw in path.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
         if not line or line.startswith(("#", ";")):
             continue

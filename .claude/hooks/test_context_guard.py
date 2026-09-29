@@ -284,13 +284,13 @@ for label, payload in (
 with tempfile.TemporaryDirectory() as td:
     mut_dir = Path(td)
     shutil.copy(HOOK, mut_dir / "context-guard.py")
-    data = json.loads(MAP.read_text())
+    data = json.loads(MAP.read_text(encoding="utf-8"))
 
     # 7a. remove sizing.py's glob -> that card must stop firing
     for card in data["cards"]:
         if card["id"] == "sizing-round-down":
             card["globs"] = ["portfolio/NOTHING_HERE.py"]
-    (mut_dir / "context-map.json").write_text(json.dumps(data))
+    (mut_dir / "context-map.json").write_text(json.dumps(data), encoding="utf-8")
     check(
         "MUTATION: glob removed -> sizing card silent",
         run(
@@ -300,9 +300,9 @@ with tempfile.TemporaryDirectory() as td:
     )
 
     # 7b. remove the claim tokens -> the claim card must stop firing
-    data2 = json.loads(MAP.read_text())
+    data2 = json.loads(MAP.read_text(encoding="utf-8"))
     data2["claim"]["tokens"] = ["zzz never appears zzz"]
-    (mut_dir / "context-map.json").write_text(json.dumps(data2))
+    (mut_dir / "context-map.json").write_text(json.dumps(data2), encoding="utf-8")
     check(
         "MUTATION: tokens removed -> claim card silent",
         run(
@@ -313,7 +313,7 @@ with tempfile.TemporaryDirectory() as td:
     )
 
     # 7c. corrupt the map entirely -> hook must fail open, not crash
-    (mut_dir / "context-map.json").write_text("{ this is not json")
+    (mut_dir / "context-map.json").write_text("{ this is not json", encoding="utf-8")
     check(
         "MUTATION: corrupt map -> fail open, silent",
         run(
