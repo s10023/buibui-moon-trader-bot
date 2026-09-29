@@ -153,7 +153,7 @@ def _load_stamp(stamp: Path, max_age_h: float) -> ProbeResult | None:
     never allowed to be the thing that breaks the daily report.
     """
     try:
-        raw = json.loads(stamp.read_text())
+        raw = json.loads(stamp.read_text(encoding="utf-8"))
         checked = datetime.fromisoformat(str(raw["checked_at_utc"]))
     except (OSError, ValueError, KeyError, TypeError):
         return None
@@ -186,7 +186,8 @@ def cached_probe(
                     "ytdlp_version": result.ytdlp_version,
                     "checked_at_utc": result.checked_at_utc,
                 }
-            )
+            ),
+            encoding="utf-8",
         )
     except OSError:
         pass  # an unwritable stamp costs a re-probe, never the report

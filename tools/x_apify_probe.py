@@ -199,7 +199,7 @@ def _write(
     keys: list[str],
     results: list[RunResult],
 ) -> None:
-    with open(path, "w") as fh:
+    with open(path, "w", encoding="utf-8") as fh:
         json.dump(
             {
                 "arms": dict(arms),

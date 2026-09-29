@@ -33,7 +33,7 @@ def test_min_history_is_longest_slow_plus_vol_span() -> None:
 
 def test_from_toml_reads_backtest_costs(tmp_path) -> None:  # type: ignore[no-untyped-def]
     p = tmp_path / "cfg.toml"
-    p.write_text("[backtest]\nfee_pct = 0.001\nslippage_bps = 4.0\n")
+    p.write_text("[backtest]\nfee_pct = 0.001\nslippage_bps = 4.0\n", encoding="utf-8")
     cfg = ForecastConfig.from_toml(p)
     assert cfg.fee_pct == 0.001
     assert cfg.slippage_pct == 0.0004  # 4 bps
@@ -41,7 +41,7 @@ def test_from_toml_reads_backtest_costs(tmp_path) -> None:  # type: ignore[no-un
 
 def test_from_toml_missing_backtest_uses_defaults(tmp_path) -> None:  # type: ignore[no-untyped-def]
     p = tmp_path / "cfg.toml"
-    p.write_text("[other]\nx = 1\n")
+    p.write_text("[other]\nx = 1\n", encoding="utf-8")
     cfg = ForecastConfig.from_toml(p)
     assert cfg.fee_pct == 0.0005
     assert cfg.slippage_pct == 0.0002

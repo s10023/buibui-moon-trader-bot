@@ -1343,7 +1343,8 @@ class TestRunNullCalibrationIntegration:
             'day_filter = "off"\n'
             'timeframes = ["1h"]\n'
             "[strategy_timeframes]\n"
-            'bos = ["1h"]\n'
+            'bos = ["1h"]\n',
+            encoding="utf-8",
         )
 
         with (
@@ -1370,7 +1371,7 @@ class TestRunNullCalibrationIntegration:
                 n_splits=4,
             )
 
-        data = json.loads(out_path.read_text())
+        data = json.loads(out_path.read_text(encoding="utf-8"))
         # Fix 3: the errored cell is IN the artifact, not dropped.
         assert len(data["cells"]) == data["k_drawn"] == 2
         errored = [c for c in data["cells"] if c["error"] is not None]
@@ -1416,7 +1417,8 @@ class TestRunNullCalibrationIntegration:
             'day_filter = "off"\n'
             'timeframes = ["1h"]\n'
             "[strategy_timeframes]\n"
-            'bos = ["1h"]\n'
+            'bos = ["1h"]\n',
+            encoding="utf-8",
         )
 
         calls = {"n": 0}
@@ -1488,7 +1490,7 @@ class TestRunNullCalibrationIntegration:
                 n_splits=4,
             )
 
-        data = json.loads(out_path.read_text())
+        data = json.loads(out_path.read_text(encoding="utf-8"))
         assert data["complete"] is False
         assert len(data["cells"]) == 1, (
             "the checkpoint must have written the FIRST cell's record before "

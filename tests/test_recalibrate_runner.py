@@ -61,7 +61,8 @@ def _config(tmp_path: Path, strategies: list[str]) -> Path:
     path.write_text(
         "day_filter = 'tue_thu'\n"
         f"strategies = {strategies!r}\n"
-        "timeframes = ['1h', '4h']\n"
+        "timeframes = ['1h', '4h']\n",
+        encoding="utf-8",
     )
     return path
 

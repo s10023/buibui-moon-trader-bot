@@ -421,7 +421,9 @@ def main(argv: list[str] | None = None) -> int:
             "arms": {a: ARMS[a] for a in ARMS},
             "cells": [asdict(c) for c in cells],
         }
-        args.out.write_text(json.dumps(payload, indent=2, default=str))
+        args.out.write_text(
+            json.dumps(payload, indent=2, default=str), encoding="utf-8"
+        )
         print(f"\nwrote {args.out}")
     return 0
 

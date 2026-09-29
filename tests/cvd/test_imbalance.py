@@ -103,7 +103,7 @@ def test_binance_1d_taker_buy_volume_matches_the_sum_of_its_15m_bars() -> None:
     tolerances below are generous float-accumulation slack, not a fit to the
     measured value.
     """
-    payload = json.loads(_COMPLETENESS_FIXTURE.read_text())
+    payload = json.loads(_COMPLETENESS_FIXTURE.read_text(encoding="utf-8"))
     bars_15m: list[list[float]] = payload["bars_15m"]  # [open_time, vol, tbv]
     bars_1d: list[list[float]] = payload["bars_1d"]
     assert len(bars_1d) == 7

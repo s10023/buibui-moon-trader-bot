@@ -249,7 +249,7 @@ def test_tendency_failure_keeps_recap_and_notes(
 def test_external_notes_flow_prefixed_through_bundle(tmp_path: Path) -> None:
     ext = tmp_path / "ext"
     ext.mkdir()
-    (ext / "junk.json").write_text("{not json")
+    (ext / "junk.json").write_text("{not json", encoding="utf-8")
     conn = make_conn()
     seed_symbol(conn, "BTCUSDT", START_MS, 60)
     bundle = compute_brief(conn, brief_cfg(("BTCUSDT",), AS_OF, external_dir=ext))

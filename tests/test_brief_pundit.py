@@ -86,9 +86,10 @@ def test_board_happy_path(tmp_path: Path) -> None:
                 _call("carol", "BTCUSDT", 30),  # outside 14d window
                 "not json at all",
             ]
-        )
+        ),
+        encoding="utf-8",
     )
-    cfg.priors_path.write_text(_priors())
+    cfg.priors_path.write_text(_priors(), encoding="utf-8")
     board = build_board(cfg)
     assert board.priors_status == "ok"
     assert board.priors_age_days == 1
@@ -132,7 +133,8 @@ def test_board_excludes_ai_card_dual_writes(tmp_path: Path) -> None:
                 _call("alice", "BTCUSDT", 1),
                 _call("buibui_card", "BTCUSDT", 1, source="ai-card"),
             ]
-        )
+        ),
+        encoding="utf-8",
     )
     board = build_board(cfg)
     assert [c.author for c in board.recent_calls] == ["alice"]
@@ -155,9 +157,10 @@ def test_board_omits_ai_card_author_from_priors(tmp_path: Path) -> None:
                     "buibui_card": {"n": 9, "hit_rate": 0.4, "avg_r": -0.1},
                 },
             }
-        )
+        ),
+        encoding="utf-8",
     )
-    cfg.ledger_path.write_text(_call("alice", "BTCUSDT", 1))
+    cfg.ledger_path.write_text(_call("alice", "BTCUSDT", 1), encoding="utf-8")
     board = build_board(cfg)
     names = [a.author for a in board.authors]
     assert "alice" in names
@@ -173,8 +176,8 @@ def test_board_absent_files(tmp_path: Path) -> None:
 
 def test_board_unreadable_priors(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
-    cfg.priors_path.write_text("{broken json")
-    cfg.ledger_path.write_text(_call("alice", "BTCUSDT", 1))
+    cfg.priors_path.write_text("{broken json", encoding="utf-8")
+    cfg.ledger_path.write_text(_call("alice", "BTCUSDT", 1), encoding="utf-8")
     board = build_board(cfg)
     assert board.priors_status == "unreadable"
     assert len(board.recent_calls) == 1
@@ -183,7 +186,9 @@ def test_board_unreadable_priors(tmp_path: Path) -> None:
 
 def test_future_dated_call_excluded(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
-    cfg.ledger_path.write_text(_call("alice", "BTCUSDT", -2))  # 2 days in future
+    cfg.ledger_path.write_text(
+        _call("alice", "BTCUSDT", -2), encoding="utf-8"
+    )  # 2 days in future
     board = build_board(cfg)
     assert board.recent_calls == []
 
@@ -195,9 +200,9 @@ def test_board_null_policy_falls_back_to_default_min_n(tmp_path: Path) -> None:
     # so this should degrade to the default min_n rather than "unreadable".
     cfg = _cfg(tmp_path)
     cfg.priors_path.write_text(
-        json.dumps({"authors": {"alice": {"n": 6}}, "policy": None})
+        json.dumps({"authors": {"alice": {"n": 6}}, "policy": None}), encoding="utf-8"
     )
-    cfg.ledger_path.write_text(_call("alice", "BTCUSDT", 1))
+    cfg.ledger_path.write_text(_call("alice", "BTCUSDT", 1), encoding="utf-8")
     board = build_board(cfg)
     assert board.priors_status == "ok"
     assert board.min_n_marker == 5  # default fallback, no crash
@@ -215,9 +220,10 @@ def test_board_null_n_degrades_gracefully(tmp_path: Path) -> None:
                 "authors": {"alice": {"n": None, "hit_rate": 0.5}},
                 "policy": {"min_n_marker": 5},
             }
-        )
+        ),
+        encoding="utf-8",
     )
-    cfg.ledger_path.write_text(_call("alice", "BTCUSDT", 1))
+    cfg.ledger_path.write_text(_call("alice", "BTCUSDT", 1), encoding="utf-8")
     board = build_board(cfg)
     assert board.priors_status == "unreadable"
     assert len(board.recent_calls) == 1
@@ -234,9 +240,10 @@ def test_board_non_numeric_n_degrades_gracefully(tmp_path: Path) -> None:
                 "policy": {"min_n_marker": 5},
                 "families": {"sweep_reclaim": {"long": {"n": "abc"}}},
             }
-        )
+        ),
+        encoding="utf-8",
     )
-    cfg.ledger_path.write_text(_call("alice", "BTCUSDT", 1))
+    cfg.ledger_path.write_text(_call("alice", "BTCUSDT", 1), encoding="utf-8")
     board = build_board(cfg)
     assert board.priors_status == "unreadable"
     assert len(board.recent_calls) == 1
@@ -254,7 +261,7 @@ def test_board_skips_direction_outside_the_enum(tmp_path: Path) -> None:
     good = _call("alice", "BTCUSDT", 1)
     bad = json.dumps(json.loads(_call("bob", "BTCUSDT", 1)) | {"direction": "range"})
     cfg = _cfg(tmp_path)
-    cfg.ledger_path.write_text(good + "\n" + bad + "\n")
+    cfg.ledger_path.write_text(good + "\n" + bad + "\n", encoding="utf-8")
     board = build_board(cfg)
     assert [c.author for c in board.recent_calls] == ["alice"]
     assert board.ledger_total == 2 and board.ledger_skipped == 1
@@ -268,7 +275,7 @@ def test_board_folds_direction_case_rather_than_dropping_it(tmp_path: Path) -> N
     """
     row = json.dumps(json.loads(_call("alice", "BTCUSDT", 1)) | {"direction": "SHORT"})
     cfg = _cfg(tmp_path)
-    cfg.ledger_path.write_text(row + "\n")
+    cfg.ledger_path.write_text(row + "\n", encoding="utf-8")
     board = build_board(cfg)
     assert [c.direction for c in board.recent_calls] == ["short"]
     assert board.ledger_skipped == 0
@@ -285,7 +292,7 @@ def test_board_skips_horizon_outside_the_enum(tmp_path: Path) -> None:
     good = _call("alice", "BTCUSDT", 1)
     bad = json.dumps(json.loads(_call("bob", "BTCUSDT", 1)) | {"horizon": "scalp"})
     cfg = _cfg(tmp_path)
-    cfg.ledger_path.write_text(good + "\n" + bad + "\n")
+    cfg.ledger_path.write_text(good + "\n" + bad + "\n", encoding="utf-8")
     board = build_board(cfg)
     assert [c.author for c in board.recent_calls] == ["alice"]
     assert board.ledger_total == 2 and board.ledger_skipped == 1
@@ -305,7 +312,7 @@ def test_board_keeps_an_absent_horizon_and_still_renders_it_as_empty(
     row = json.loads(_call("alice", "BTCUSDT", 1))
     row.pop("horizon", None)
     cfg = _cfg(tmp_path)
-    cfg.ledger_path.write_text(json.dumps(row) + "\n")
+    cfg.ledger_path.write_text(json.dumps(row) + "\n", encoding="utf-8")
     board = build_board(cfg)
     assert [c.author for c in board.recent_calls] == ["alice"]
     assert [c.horizon for c in board.recent_calls] == [""]

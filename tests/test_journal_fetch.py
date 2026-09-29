@@ -223,7 +223,8 @@ def _entry(
     stated = f'entry_ts_utc: "{when}"\n' if when else ""
     path.write_text(
         f"---\nid: {stem}\nsymbol: {symbol}\ndirection: {direction}\n"
-        f"{stated}---\n## Thesis\n"
+        f"{stated}---\n## Thesis\n",
+        encoding="utf-8",
     )
 
 

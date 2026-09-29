@@ -50,9 +50,9 @@ def test_run_brief_cmd_writes_outputs(tmp_path: Path, capsys: Any) -> None:
     md_path = tmp_path / "brief.md"
     run_brief_cmd(_args(db, tmp_path, json=str(json_path), markdown=str(md_path)))
     capsys.readouterr()
-    data = json.loads(json_path.read_text())
+    data = json.loads(json_path.read_text(encoding="utf-8"))
     assert data["panels"][0]["symbol"] == "BTCUSDT"
-    assert "BUIBUI DAILY BRIEF" in md_path.read_text()
+    assert "BUIBUI DAILY BRIEF" in md_path.read_text(encoding="utf-8")
 
 
 def test_run_brief_cmd_all_panels_failed_exits_1(tmp_path: Path, capsys: Any) -> None:

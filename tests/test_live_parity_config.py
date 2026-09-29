@@ -87,7 +87,7 @@ class TestLiveParityConfigDataclass:
 class TestLiveParityTomlLoader:
     def test_missing_block_defaults_to_no_op(self, tmp_path: Path) -> None:
         p = tmp_path / "cfg.toml"
-        p.write_text('symbols = ["BTCUSDT"]\n')
+        p.write_text('symbols = ["BTCUSDT"]\n', encoding="utf-8")
         cfg = load_backtest_config(p)
         assert isinstance(cfg.live_parity, LiveParityConfig)
         assert cfg.live_parity == LiveParityConfig()
@@ -105,7 +105,8 @@ class TestLiveParityTomlLoader:
             "\n"
             "[backtest.live_parity.cooldown_bars]\n"
             '"15m" = 4\n'
-            '"1h" = 3\n'
+            '"1h" = 3\n',
+            encoding="utf-8",
         )
         cfg = load_backtest_config(p)
         assert cfg.live_parity.enabled is False
@@ -121,7 +122,8 @@ class TestLiveParityTomlLoader:
             "\n"
             "[backtest.live_parity]\n"
             "regime = true\n"
-            "direction_filter = true\n"
+            "direction_filter = true\n",
+            encoding="utf-8",
         )
         child = tmp_path / "child.toml"
         child.write_text(
@@ -129,7 +131,8 @@ class TestLiveParityTomlLoader:
             "\n"
             "[backtest.live_parity]\n"
             "direction_filter = false\n"
-            "cooldown = true\n"
+            "cooldown = true\n",
+            encoding="utf-8",
         )
         cfg = load_backtest_config(child)
         assert cfg.live_parity.regime is True  # inherited
@@ -138,14 +141,18 @@ class TestLiveParityTomlLoader:
 
     def test_invalid_block_type_raises(self, tmp_path: Path) -> None:
         p = tmp_path / "cfg.toml"
-        p.write_text('symbols = ["BTCUSDT"]\n\n[backtest]\nlive_parity = "yes"\n')
+        p.write_text(
+            'symbols = ["BTCUSDT"]\n\n[backtest]\nlive_parity = "yes"\n',
+            encoding="utf-8",
+        )
         with pytest.raises(ValueError, match="backtest.live_parity must be"):
             load_backtest_config(p)
 
     def test_invalid_cooldown_bars_type_raises(self, tmp_path: Path) -> None:
         p = tmp_path / "cfg.toml"
         p.write_text(
-            'symbols = ["BTCUSDT"]\n\n[backtest.live_parity]\ncooldown_bars = "nope"\n'
+            'symbols = ["BTCUSDT"]\n\n[backtest.live_parity]\ncooldown_bars = "nope"\n',
+            encoding="utf-8",
         )
         with pytest.raises(ValueError, match="cooldown_bars must be"):
             load_backtest_config(p)

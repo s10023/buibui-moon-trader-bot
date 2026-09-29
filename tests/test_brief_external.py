@@ -218,7 +218,7 @@ def _load(
 
 
 def _write(tmp_path: Path, name: str, data: dict[str, Any]) -> None:
-    (tmp_path / name).write_text(json.dumps(data))
+    (tmp_path / name).write_text(json.dumps(data), encoding="utf-8")
 
 
 def test_loader_missing_dir_is_silent(tmp_path: Path) -> None:
@@ -263,8 +263,8 @@ def test_same_panel_window_different_venue_coexist(tmp_path: Path) -> None:
     a["venue"] = "binance"
     b = _valid_snapshot()
     b["venue"] = "hyperliquid"
-    (tmp_path / "a.json").write_text(json.dumps(a))
-    (tmp_path / "b.json").write_text(json.dumps(b))
+    (tmp_path / "a.json").write_text(json.dumps(a), encoding="utf-8")
+    (tmp_path / "b.json").write_text(json.dumps(b), encoding="utf-8")
     state, _ = load_external_state(
         tmp_path, "BTCUSDT", 100.0, 2.0, AS_OF, ("coinglass",), 48.0, 3
     )
@@ -278,8 +278,8 @@ def test_same_panel_window_different_scope_coexist(tmp_path: Path) -> None:
     a["scope"] = "pair"
     b = _valid_snapshot()
     b["scope"] = "agg"
-    (tmp_path / "a.json").write_text(json.dumps(a))
-    (tmp_path / "b.json").write_text(json.dumps(b))
+    (tmp_path / "a.json").write_text(json.dumps(a), encoding="utf-8")
+    (tmp_path / "b.json").write_text(json.dumps(b), encoding="utf-8")
     state, _ = load_external_state(
         tmp_path, "BTCUSDT", 100.0, 2.0, AS_OF, ("coinglass",), 48.0, 3
     )
@@ -293,8 +293,8 @@ def test_identical_full_key_still_latest_wins(tmp_path: Path) -> None:
     newer["captured_at_ms"] = older["captured_at_ms"] + 3_600_000
     for d in (older, newer):
         d["venue"] = "binance"
-    (tmp_path / "a.json").write_text(json.dumps(older))
-    (tmp_path / "b.json").write_text(json.dumps(newer))
+    (tmp_path / "a.json").write_text(json.dumps(older), encoding="utf-8")
+    (tmp_path / "b.json").write_text(json.dumps(newer), encoding="utf-8")
     state, _ = load_external_state(
         tmp_path, "BTCUSDT", 100.0, 2.0, AS_OF, ("coinglass",), 48.0, 3
     )
@@ -310,7 +310,7 @@ def test_loader_ignores_other_symbols_silently(tmp_path: Path) -> None:
 
 
 def test_loader_notes_on_bad_files(tmp_path: Path) -> None:
-    (tmp_path / "broken.json").write_text("{not json")
+    (tmp_path / "broken.json").write_text("{not json", encoding="utf-8")
     _write(tmp_path, "invalid.json", _valid_snapshot(panel="oi_chart"))
     _write(tmp_path, "rogue.json", _valid_snapshot(source="hyblock"))
     state, notes = _load(tmp_path)
@@ -374,7 +374,9 @@ def test_below_side_cap_keeps_nearest_first(tmp_path: Path) -> None:
         }
         for lo in (90.0, 80.0, 70.0, 60.0)
     ]
-    (tmp_path / "coinglass_liq_map_1d_BTCUSDT.json").write_text(json.dumps(data))
+    (tmp_path / "coinglass_liq_map_1d_BTCUSDT.json").write_text(
+        json.dumps(data), encoding="utf-8"
+    )
     state, _ = load_external_state(
         tmp_path, "BTCUSDT", 100.0, 2.0, AS_OF, ("coinglass",), 48.0, 3
     )
@@ -388,7 +390,9 @@ def test_below_side_cap_keeps_nearest_first(tmp_path: Path) -> None:
 def test_ref_close_zero_no_deviation_note(tmp_path: Path) -> None:
     data = _valid_snapshot()
     data["spot_price_hint"] = 123.0
-    (tmp_path / "coinglass_liq_map_1d_BTCUSDT.json").write_text(json.dumps(data))
+    (tmp_path / "coinglass_liq_map_1d_BTCUSDT.json").write_text(
+        json.dumps(data), encoding="utf-8"
+    )
     state, notes = load_external_state(
         tmp_path, "BTCUSDT", 0.0, 2.0, AS_OF, ("coinglass",), 48.0, 3
     )
@@ -401,8 +405,8 @@ def test_stale_file_note_suppressed_when_fresh_exists(tmp_path: Path) -> None:
     fresh = _valid_snapshot()
     stale = _valid_snapshot()
     stale["captured_at_ms"] = AS_OF - int(72 * 3_600_000)
-    (tmp_path / "a_fresh.json").write_text(json.dumps(fresh))
-    (tmp_path / "b_stale.json").write_text(json.dumps(stale))
+    (tmp_path / "a_fresh.json").write_text(json.dumps(fresh), encoding="utf-8")
+    (tmp_path / "b_stale.json").write_text(json.dumps(stale), encoding="utf-8")
     state, notes = load_external_state(
         tmp_path, "BTCUSDT", 100.0, 2.0, AS_OF, ("coinglass",), 48.0, 3
     )
@@ -424,7 +428,9 @@ def test_invalid_file_noted_only_in_its_own_symbols_pass(tmp_path: Path) -> None
     # bad intensity -> invalid, but symbol is readable: ETHUSDT owns it.
     bad = _valid_snapshot(symbol="ETHUSDT")  # the file's existing builder (line 60)
     bad["clusters"][0]["intensity"] = "nuclear"
-    (tmp_path / "coinglass_liq_map_1d_ETHUSDT.json").write_text(json.dumps(bad))
+    (tmp_path / "coinglass_liq_map_1d_ETHUSDT.json").write_text(
+        json.dumps(bad), encoding="utf-8"
+    )
 
     _, btc_notes = load_external_state(
         tmp_path, "BTCUSDT", 100.0, 2.0, AS_OF, ("coinglass",), 48.0, 3
@@ -437,7 +443,9 @@ def test_invalid_file_noted_only_in_its_own_symbols_pass(tmp_path: Path) -> None
 
 
 def test_symbolless_invalid_file_still_noted_everywhere(tmp_path: Path) -> None:
-    (tmp_path / "junk.json").write_text('{"schema": "external-levels-v1"}')
+    (tmp_path / "junk.json").write_text(
+        '{"schema": "external-levels-v1"}', encoding="utf-8"
+    )
     _, btc_notes = load_external_state(
         tmp_path, "BTCUSDT", 100.0, 2.0, AS_OF, ("coinglass",), 48.0, 3
     )
@@ -491,7 +499,9 @@ def test_bundle_wires_external_block(tmp_path: Path) -> None:
             },
         ],
     )
-    (ext_dir / "coinglass_liq_heatmap_BTCUSDT.json").write_text(json.dumps(snap))
+    (ext_dir / "coinglass_liq_heatmap_BTCUSDT.json").write_text(
+        json.dumps(snap), encoding="utf-8"
+    )
     wired = compute_brief(conn, _bundle_cfg(tmp_path, ext_dir))
     ext = wired.panels[0].external
     assert ext is not None

@@ -339,7 +339,7 @@ def live_waiter(args: str) -> Iterator[None]:
     """
     workdir = Path(tempfile.mkdtemp(prefix="hygiene-waiter-"))
     script = workdir / "wait_ci.py"
-    script.write_text("import time\ntime.sleep(120)\n")
+    script.write_text("import time\ntime.sleep(120)\n", encoding="utf-8")
     proc = subprocess.Popen(
         [sys.executable, str(script), *args.split()],
         stdout=subprocess.DEVNULL,
@@ -591,7 +591,7 @@ def live_suite(workdir: Path) -> Iterator[str]:
     # cwd=REPO, and a fixture that wrote its fake `pytest` there would be dropping
     # a file into the repo under test.
     fake = _script_dir / "pytest"
-    fake.write_text("import time\ntime.sleep(120)\n")
+    fake.write_text("import time\ntime.sleep(120)\n", encoding="utf-8")
     proc = subprocess.Popen(
         [sys.executable, str(fake), "tests/", "-q"],
         cwd=str(workdir),
@@ -685,7 +685,10 @@ try:
     # Drop `pgrep` from the waiter pattern -> rule 1 must go silent, rule 2 must not.
     _m1 = _mut / "no-pgrep.py"
     _m1.write_text(
-        HOOK.read_text().replace(r"\b(?:pgrep|pidof)\b", r"\b(?:__never__)\b")
+        HOOK.read_text(encoding="utf-8").replace(
+            r"\b(?:pgrep|pidof)\b", r"\b(?:__never__)\b"
+        ),
+        encoding="utf-8",
     )
     check(
         "MUTATION: waiter regex without pgrep -> silent",
@@ -701,9 +704,10 @@ try:
     # Drop the truncator -> rule 2 must go silent, rule 1 must not.
     _m2 = _mut / "no-truncator.py"
     _m2.write_text(
-        HOOK.read_text().replace(
+        HOOK.read_text(encoding="utf-8").replace(
             r'_TRUNCATOR = r"(?:tail|head)\b"', '_TRUNCATOR = r"(?:__never__)\\b"'
-        )
+        ),
+        encoding="utf-8",
     )
     check(
         "MUTATION: piped-gate regex without tail/head -> silent",
@@ -720,10 +724,11 @@ try:
     # simply stopped working, which is the failure mode mutation tests exist for.
     _m2b = _mut / "no-always-ok.py"
     _m2b.write_text(
-        HOOK.read_text().replace(
+        HOOK.read_text(encoding="utf-8").replace(
             r'_ALWAYS_OK = r"(?::|true|echo|printf|tail|head|cat|ls|wc)\b"',
             '_ALWAYS_OK = r"(?:__never__)\\b"',
-        )
+        ),
+        encoding="utf-8",
     )
     check(
         "MUTATION: no always-ok set -> the `; echo` swallow is silent",
@@ -747,7 +752,10 @@ try:
         # doing the work, not the PR number appearing somewhere in the cmdline.
         _m3 = _mut / "no-digit-boundary.py"
         _m3.write_text(
-            HOOK.read_text().replace(r"--pr[ =]{n}([^0-9]|$)", r"--pr[ =]{n}")
+            HOOK.read_text(encoding="utf-8").replace(
+                r"--pr[ =]{n}([^0-9]|$)", r"--pr[ =]{n}"
+            ),
+            encoding="utf-8",
         )
         with live_waiter("--pr 7431"):
             check(
@@ -766,10 +774,11 @@ try:
         # between a probe for a PROCESS and a probe for a STRING.
         _m5 = _mut / "unanchored.py"
         _m5.write_text(
-            HOOK.read_text().replace(
+            HOOK.read_text(encoding="utf-8").replace(
                 r'_RUNNING_SCRIPT = r"^[^ ]*python[0-9.]*[ ][^ ]*wait_ci\.py[ ]"',
                 '_RUNNING_SCRIPT = r"wait_ci\\.py"',
-            )
+            ),
+            encoding="utf-8",
         )
         with mention_only("tools/wait_ci.py --pr 4242"):
             check(
@@ -783,10 +792,11 @@ try:
         # than one blanket "a waiter is running" match.
         _m4 = _mut / "no-pr-target.py"
         _m4.write_text(
-            HOOK.read_text().replace(
+            HOOK.read_text(encoding="utf-8").replace(
                 r'_WAITER_PR = re.compile(r"(?:\bPR\s*=\s*|--pr[ =])(\d+)")',
                 '_WAITER_PR = re.compile(r"(?:__never__)(\\d+)")',
-            )
+            ),
+            encoding="utf-8",
         )
         with live_waiter("--pr 743"):
             check(
@@ -808,10 +818,11 @@ try:
 
     _m5 = _mut / "no_card.py"
     _m5.write_text(
-        HOOK.read_text().replace(
+        HOOK.read_text(encoding="utf-8").replace(
             r"(?:make\s+buibui-card\b|(?:\./)?buibui(?:\.py)?\s+card\b)",
             r"(?:__never__)",
-        )
+        ),
+        encoding="utf-8",
     )
     check(
         "MUTATION: card invocation unrecognised -> the chain note is silent",
@@ -833,10 +844,11 @@ try:
     # commit message. Drop it and prose about the rule trips the rule.
     _m6 = _mut / "unanchored.py"
     _m6.write_text(
-        HOOK.read_text().replace(
+        HOOK.read_text(encoding="utf-8").replace(
             'rf"{_CMD_START}gh\\s+auth\\s+switch\\b"',
             'r"gh\\s+auth\\s+switch\\b"',
-        )
+        ),
+        encoding="utf-8",
     )
     check(
         "MUTATION: unanchored rule 5 fires on prose that merely NAMES the command",
@@ -862,9 +874,10 @@ try:
         # fixture.
         _m7 = _mut / "no-cwd-check.py"
         _m7.write_text(
-            HOOK.read_text().replace(
+            HOOK.read_text(encoding="utf-8").replace(
                 'cwd = Path(os.readlink(f"/proc/{pid}/cwd"))', "cwd = Path(str(root))"
-            )
+            ),
+            encoding="utf-8",
         )
         _mut_clone = Path(tempfile.mkdtemp(prefix="hygiene-mutclone-"))
         try:
@@ -888,10 +901,11 @@ try:
         # NAMES pytest reads as a live suite, which is the trap rule 3 documents.
         _m8 = _mut / "unanchored-pytest.py"
         _m8.write_text(
-            HOOK.read_text().replace(
+            HOOK.read_text(encoding="utf-8").replace(
                 r'_RUNNING_PYTEST = r"^[^ ]*python[0-9.]*[ ](-m[ ]pytest|[^ ]*/pytest)([ ]|$)"',
                 '_RUNNING_PYTEST = r"pytest"',
-            )
+            ),
+            encoding="utf-8",
         )
         with mention_only("poetry run pytest tests/ -q", probe="poetry run pytest"):
             check(

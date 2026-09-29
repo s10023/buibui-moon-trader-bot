@@ -167,6 +167,9 @@ def task_last_completion(
 # through `ToUniversalTime()` and round-trip format. So this probe needs no such care,
 # and saying why here stops someone "fixing" the asymmetry later.
 TASK_STATE_DISABLED = "Disabled"
+# While a run is in flight `LastTaskResult` reads SCHED_S_TASK_RUNNING, so the last
+# completion is unreadable -- a caller must not render that as "never completed".
+TASK_STATE_RUNNING = "Running"
 
 _PS_STATE_SCRIPT = (
     "$ErrorActionPreference='Stop';"

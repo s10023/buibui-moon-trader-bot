@@ -117,7 +117,10 @@ class TestBoundaryRecovery:
         catch-up for no gain. Seeding keeps day-one behaviour identical.
         """
         p = tmp_path / "s.json"  # type: ignore[operator]
-        p.write_text(json.dumps({"watermarks": {f"{_SYM}:{_TF}:{_STRAT}": _THU}}))
+        p.write_text(
+            json.dumps({"watermarks": {f"{_SYM}:{_TF}:{_STRAT}": _THU}}),
+            encoding="utf-8",
+        )
 
         store = CooldownStore(str(p))
         for ts in (_MON, _TUE, _WED, _THU):

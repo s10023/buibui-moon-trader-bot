@@ -8,7 +8,7 @@ from analytics.universe import DEFAULT_UNIVERSE_PATH, load_universe
 
 
 def _write_toml(path: Path, body: str) -> Path:
-    path.write_text(body)
+    path.write_text(body, encoding="utf-8")
     return path
 
 

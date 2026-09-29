@@ -72,7 +72,8 @@ def _seeded_cfg(tmp_path: Path) -> tuple[BriefConfig, duckdb.DuckDBPyConnection]
                 "target": "moon",
                 "horizon": "swing",
             }
-        )
+        ),
+        encoding="utf-8",
     )
     cfg = brief_cfg(
         ("BTCUSDT",),
@@ -122,10 +123,11 @@ def _seeded_cfg_with_priors(
                 "target": "moon",
                 "horizon": "swing",
             }
-        )
+        ),
+        encoding="utf-8",
     )
     priors = tmp_path / "priors.json"
-    priors.write_text(priors_text)
+    priors.write_text(priors_text, encoding="utf-8")
     cfg = brief_cfg(
         ("BTCUSDT",),
         AS_OF,

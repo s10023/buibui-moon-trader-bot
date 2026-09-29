@@ -62,7 +62,7 @@ def write_snapshot(book: TargetBook, snapshot_dir: Path) -> Path:
     """Write the book to `<snapshot_dir>/<next_period_date>.json`."""
     snapshot_dir.mkdir(parents=True, exist_ok=True)
     path = snapshot_dir / f"{book.next_period_date}.json"
-    path.write_text(json.dumps(target_book_to_dict(book), indent=2))
+    path.write_text(json.dumps(target_book_to_dict(book), indent=2), encoding="utf-8")
     return path
 
 
@@ -80,7 +80,7 @@ def load_latest_snapshot(snapshot_dir: Path) -> dict[str, Any] | None:
         return None
     for path in sorted(snapshot_dir.glob(_SNAPSHOT_GLOB), reverse=True):
         try:
-            data = json.loads(path.read_text())
+            data = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             continue
         if isinstance(data, dict) and "positions" in data:

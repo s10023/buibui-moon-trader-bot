@@ -37,7 +37,7 @@ TG_BODY_CAP = 3400
 
 def _write_exec(path: Path, body: str) -> None:
     """Write `body` to `path` and make it executable."""
-    path.write_text(body)
+    path.write_text(body, encoding="utf-8")
     path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
@@ -107,7 +107,7 @@ def _stub_path(
         f'printf "%s" "$HEAD" > "{_head_file(tmp_path)}"\nexit 0\n',
     )
     job_out = tmp_path / "job-stdout.txt"
-    job_out.write_text(job_stdout)
+    job_out.write_text(job_stdout, encoding="utf-8")
     _write_exec(
         stub_dir / "fake-job",
         f'#!/bin/sh\nprintf "job\\n" >> "{log}"\ncat "{job_out}"\nexit {job_rc}\n',
@@ -183,7 +183,7 @@ def _run(
         text=True,
         timeout=20,
     )
-    calls = log.read_text().splitlines() if log.exists() else []
+    calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
     return proc, calls
 
 
@@ -290,7 +290,7 @@ def test_telegram_body_is_folded_to_phone_width(tmp_path: Path) -> None:
     _, calls = _run(tmp_path, job_rc=1, job_stdout=long_line + "\n")
 
     assert "telegram" in calls, f"failure path did not notify: {calls}"
-    body = _body_file(tmp_path).read_text()
+    body = _body_file(tmp_path).read_text(encoding="utf-8")
     # Positive control: the log tail really did reach the body, so the
     # line-width assertion below cannot pass by being handed nothing.
     assert "signal-watch" in body, f"log tail never reached the body: {body!r}"
@@ -315,7 +315,7 @@ def test_fold_precedes_the_byte_cap(tmp_path: Path) -> None:
     _, calls = _run(tmp_path, job_rc=1, job_stdout=noisy)
 
     assert "telegram" in calls, f"failure path did not notify: {calls}"
-    body = _body_file(tmp_path).read_text()
+    body = _body_file(tmp_path).read_text(encoding="utf-8")
     assert body, "positive control: the body must not be empty"
     # Positive control for the cap itself: without this, a body that never
     # reached the budget would satisfy the length assertion by being small.
@@ -364,7 +364,7 @@ def test_soft_fail_rc_keeps_the_heartbeat_and_never_pings_fail(
     assert any("/start" not in c and "/fail" not in c for c in pings), (
         f"no heartbeat ping on the soft-fail path: {calls}"
     )
-    head = _head_file(tmp_path).read_text()
+    head = _head_file(tmp_path).read_text(encoding="utf-8")
     assert "FAILED" not in head, f"soft fail must not be titled FAILED: {head!r}"
     assert "warnings" in head, f"soft fail must be titled as a warning: {head!r}"
 
@@ -383,7 +383,7 @@ def test_soft_fail_is_opt_in_so_a_bare_rc2_still_fails(tmp_path: Path) -> None:
     assert any("/fail" in c for c in _pings(calls)), (
         f"an undeclared rc=2 must still ping /fail: {calls}"
     )
-    assert "FAILED" in _head_file(tmp_path).read_text()
+    assert "FAILED" in _head_file(tmp_path).read_text(encoding="utf-8")
 
 
 def test_soft_fail_rc_does_not_soften_any_other_code(tmp_path: Path) -> None:
@@ -394,7 +394,7 @@ def test_soft_fail_rc_does_not_soften_any_other_code(tmp_path: Path) -> None:
     assert any("/fail" in c for c in _pings(calls)), (
         f"rc=1 must still ping /fail even when 2 is declared soft: {calls}"
     )
-    assert "FAILED" in _head_file(tmp_path).read_text()
+    assert "FAILED" in _head_file(tmp_path).read_text(encoding="utf-8")
 
 
 def test_soft_fail_push_is_not_gated_on_telegram_always(tmp_path: Path) -> None:
@@ -407,7 +407,7 @@ def test_soft_fail_push_is_not_gated_on_telegram_always(tmp_path: Path) -> None:
 
     assert proc.returncode == 2
     assert _head_file(tmp_path).exists(), "soft fail sent no Telegram at all"
-    assert "warnings" in _head_file(tmp_path).read_text()
+    assert "warnings" in _head_file(tmp_path).read_text(encoding="utf-8")
 
 
 def test_non_numeric_soft_fail_rc_disables_the_branch(tmp_path: Path) -> None:
@@ -418,7 +418,7 @@ def test_non_numeric_soft_fail_rc_disables_the_branch(tmp_path: Path) -> None:
     assert any("/fail" in c for c in _pings(calls)), (
         f"a malformed SOFT_FAIL_RC must not silence /fail: {calls}"
     )
-    assert "FAILED" in _head_file(tmp_path).read_text()
+    assert "FAILED" in _head_file(tmp_path).read_text(encoding="utf-8")
 
 
 def test_clean_run_is_unaffected_by_a_declared_soft_code(tmp_path: Path) -> None:
@@ -429,6 +429,6 @@ def test_clean_run_is_unaffected_by_a_declared_soft_code(tmp_path: Path) -> None
 
     assert proc.returncode == 0
     assert not any("/fail" in c for c in _pings(calls)), calls
-    head = _head_file(tmp_path).read_text()
+    head = _head_file(tmp_path).read_text(encoding="utf-8")
     assert "warnings" not in head, f"a clean run must not read as warnings: {head!r}"
     assert "ok" in head

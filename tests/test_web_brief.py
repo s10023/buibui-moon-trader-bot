@@ -183,7 +183,9 @@ def test_get_brief_external_populated_path_parity(
         ],
         "notes": "",
     }
-    (ext_dir / "coinglass_liq_map_1d_BTCUSDT.json").write_text(json.dumps(snapshot))
+    (ext_dir / "coinglass_liq_map_1d_BTCUSDT.json").write_text(
+        json.dumps(snapshot), encoding="utf-8"
+    )
     monkeypatch.chdir(tmp_path)
     client = _client(conn)
     res = client.get(

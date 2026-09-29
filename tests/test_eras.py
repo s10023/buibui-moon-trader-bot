@@ -203,7 +203,7 @@ def test_malformed_registry_entries_raise(
     tmp_path: Path, body: str, match: str
 ) -> None:
     path = tmp_path / "eras.toml"
-    path.write_text(body)
+    path.write_text(body, encoding="utf-8")
     with pytest.raises(ValueError, match=match):
         declared_boundaries(path)
 

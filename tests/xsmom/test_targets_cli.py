@@ -88,9 +88,12 @@ _EXECUTOR_STATE = json.dumps(
 
 
 def test_load_latest_snapshot_ignores_executor_state_file(tmp_path: Any) -> None:
-    (tmp_path / "execution_state_dry_run.json").write_text(_EXECUTOR_STATE)
+    (tmp_path / "execution_state_dry_run.json").write_text(
+        _EXECUTOR_STATE, encoding="utf-8"
+    )
     (tmp_path / "2026-08-01.json").write_text(
-        json.dumps({"next_period_date": "2026-08-01", "positions": []})
+        json.dumps({"next_period_date": "2026-08-01", "positions": []}),
+        encoding="utf-8",
     )
     loaded = load_latest_snapshot(tmp_path)
     assert loaded is not None
@@ -98,7 +101,9 @@ def test_load_latest_snapshot_ignores_executor_state_file(tmp_path: Any) -> None
 
 
 def test_load_latest_snapshot_state_file_only_is_none(tmp_path: Any) -> None:
-    (tmp_path / "execution_state_dry_run.json").write_text(_EXECUTOR_STATE)
+    (tmp_path / "execution_state_dry_run.json").write_text(
+        _EXECUTOR_STATE, encoding="utf-8"
+    )
     assert load_latest_snapshot(tmp_path) is None
 
 
@@ -106,9 +111,10 @@ def test_load_latest_snapshot_skips_unparseable_and_takes_newest(
     tmp_path: Any,
 ) -> None:
     (tmp_path / "2026-07-31.json").write_text(
-        json.dumps({"next_period_date": "2026-07-31", "positions": []})
+        json.dumps({"next_period_date": "2026-07-31", "positions": []}),
+        encoding="utf-8",
     )
-    (tmp_path / "2026-08-02.json").write_text("{ not json")
+    (tmp_path / "2026-08-02.json").write_text("{ not json", encoding="utf-8")
     loaded = load_latest_snapshot(tmp_path)
     assert loaded is not None
     assert loaded["next_period_date"] == "2026-07-31"
@@ -120,7 +126,9 @@ def test_main_runs_with_only_executor_state_present(
     """End-to-end guard: the crash reproduced through main(), not just the loader."""
     db = tmp_path / "a.db"
     _seed_db(str(db))
-    (tmp_path / "execution_state_dry_run.json").write_text(_EXECUTOR_STATE)
+    (tmp_path / "execution_state_dry_run.json").write_text(
+        _EXECUTOR_STATE, encoding="utf-8"
+    )
     monkeypatch.setattr(
         sys,
         "argv",

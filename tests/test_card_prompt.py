@@ -24,7 +24,9 @@ _RUBRIC_DIGESTS = {
 
 
 def _changelog_versions() -> list[str]:
-    return _CHANGELOG_BLOCK.findall(Path(card.prompt.__file__).read_text())
+    return _CHANGELOG_BLOCK.findall(
+        Path(card.prompt.__file__).read_text(encoding="utf-8")
+    )
 
 
 def _digest(text: str) -> str:

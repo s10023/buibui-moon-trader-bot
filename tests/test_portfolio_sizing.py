@@ -36,7 +36,8 @@ def test_sizing_config_from_toml_overrides(tmp_path: Path) -> None:
         "capital = 25000\n"
         "r_base = 0.005\n"
         "vol_target_annual = 0.15\n"
-        'clusters = [["BTCUSDT", "ETHUSDT"]]\n'
+        'clusters = [["BTCUSDT", "ETHUSDT"]]\n',
+        encoding="utf-8",
     )
     cfg = SizingConfig.from_toml(p)
     assert cfg.capital == 25_000.0
@@ -51,7 +52,7 @@ def test_sizing_config_from_toml_missing_block_is_defaults(
     tmp_path: Path,
 ) -> None:
     p = tmp_path / "empty.toml"
-    p.write_text("[other]\nx = 1\n")
+    p.write_text("[other]\nx = 1\n", encoding="utf-8")
     cfg = SizingConfig.from_toml(p)
     assert cfg == SizingConfig()
 
@@ -403,7 +404,7 @@ class TestSizingConfigGuard:
 
     def test_from_toml_is_guarded(self, tmp_path: Path) -> None:
         p = tmp_path / "bad.toml"
-        p.write_text("[portfolio]\ncapital = -5000\n")
+        p.write_text("[portfolio]\ncapital = -5000\n", encoding="utf-8")
         with pytest.raises(ValueError, match="capital"):
             SizingConfig.from_toml(p)
 

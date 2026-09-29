@@ -172,7 +172,7 @@ def test_ledger_roundtrip(tmp_path: Path) -> None:
 
 def test_load_ledger_corrupt_raises_actionable_error(tmp_path: Path) -> None:
     ledger = tmp_path / "processed.json"
-    ledger.write_text("{broken")
+    ledger.write_text("{broken", encoding="utf-8")
     with pytest.raises(ValueError, match="corrupt ledger"):
         load_ledger(ledger)
 
@@ -182,7 +182,7 @@ def test_scan_drops(tmp_path: Path) -> None:
     drop.mkdir()
     (drop / "coinglass_BTCUSDT_20260714-0930.png").write_bytes(b"img-a")
     (drop / "weird name.png").write_bytes(b"img-b")
-    (drop / "notes.txt").write_text("not an image")
+    (drop / "notes.txt").write_text("not an image", encoding="utf-8")
     done = drop / "done"
     done.mkdir()
     (done / "coinglass_ETHUSDT_20260713.png").write_bytes(b"img-old")
@@ -272,7 +272,7 @@ def test_snapshot_filename_includes_venue() -> None:
 def test_write_snapshot_validates(tmp_path: Path) -> None:
     path = write_snapshot(_snapshot(), tmp_path / "out")
     assert path.is_file()
-    assert json.loads(path.read_text())["verified"] is True
+    assert json.loads(path.read_text(encoding="utf-8"))["verified"] is True
     try:
         write_snapshot(_snapshot(panel="oi_chart"), tmp_path / "out")
     except ValueError as exc:
@@ -304,7 +304,7 @@ def test_cli_scan_write_mark(tmp_path: Path, capsys: Any) -> None:
     assert scanned["unparseable"] == []
     assert scanned["pending"][0]["symbol"] == "BTCUSDT"
     json_file = tmp_path / "approved.json"
-    json_file.write_text(json.dumps(_snapshot()))
+    json_file.write_text(json.dumps(_snapshot()), encoding="utf-8")
     assert (
         main(
             [
@@ -358,10 +358,10 @@ def test_write_branch_move_failure_fails_open(tmp_path: Path) -> None:
     drop.mkdir()
     image = drop / "coinglass_BTCUSDT_20260716-1040.png"
     image.write_bytes(b"img")
-    (drop / "done").write_text("not a dir")
+    (drop / "done").write_text("not a dir", encoding="utf-8")
     snap_file = tmp_path / "snap.json"
     snap_file.write_text(
-        json.dumps(_snapshot())
+        json.dumps(_snapshot()), encoding="utf-8"
     )  # the file's existing builder (line 96)
     out_dir = tmp_path / "out"
     ledger = tmp_path / "ledger.json"
@@ -388,7 +388,9 @@ def test_cli_move_failure_leaves_ledger_unmarked(tmp_path: Path) -> None:
     drop.mkdir()
     img = drop / "coinglass_BTCUSDT_20260714-0930.png"
     img.write_bytes(b"img")
-    (drop / "done").write_text("blocker")  # file blocks mkdir -> move raises
+    (drop / "done").write_text(
+        "blocker", encoding="utf-8"
+    )  # file blocks mkdir -> move raises
     ledger = tmp_path / "ledger.json"
     with pytest.raises(OSError):
         main(

@@ -109,7 +109,7 @@ def load_ledger(path: Path) -> dict[str, dict[str, Any]]:
     if not path.is_file():
         return {}
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         # A corrupt dedup ledger must fail loudly: silently treating it as
         # empty would re-ingest every already-processed image on next scan.
@@ -129,7 +129,7 @@ def mark_processed(
         "outcome": outcome,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(ledger, indent=2) + "\n")
+    path.write_text(json.dumps(ledger, indent=2) + "\n", encoding="utf-8")
 
 
 def scan_drops(
@@ -185,7 +185,7 @@ def write_snapshot(snapshot: dict[str, Any], out_dir: Path = DEFAULT_OUT_DIR) ->
         raise ValueError("invalid snapshot: " + "; ".join(problems))
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / snapshot_filename(snapshot)
-    path.write_text(json.dumps(snapshot, indent=2) + "\n")
+    path.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
     return path
 
 
@@ -237,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
     sha = file_sha256(args.image)
     name = args.image.name
     if args.cmd == "write":
-        snapshot = json.loads(args.json_file.read_text())
+        snapshot = json.loads(args.json_file.read_text(encoding="utf-8"))
         path = write_snapshot(snapshot, args.out_dir)
         moved = move_to_done(args.image)
         mark_processed(args.ledger, sha, name, "written", now_ms)

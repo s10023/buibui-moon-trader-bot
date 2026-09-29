@@ -55,7 +55,7 @@ class TestJsonPersistence:
         path = tmp_path / "state.json"
         store = CooldownStore(str(path))
         store.mark_candle("BTCUSDT", "1h", "fvg", 1_000)
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
         assert "watermarks" in data
         # The key carries the candle's UTC weekday since the SoT-N8 fix, so that
         # a missed boundary day is not buried by a later weekday's watermark.
@@ -68,7 +68,7 @@ class TestJsonPersistence:
 
     def test_corrupted_file_starts_empty(self, tmp_path: Any) -> None:
         path = tmp_path / "state.json"
-        path.write_text("not valid json {{{{")
+        path.write_text("not valid json {{{{", encoding="utf-8")
         store = CooldownStore(str(path))
         assert store.is_new_candle("BTCUSDT", "1h", "fvg", 1_000) is True
 
@@ -83,7 +83,8 @@ class TestJsonPersistence:
                     "watermarks": {"BTCUSDT:1h:fvg": 5_000},
                     "cooldowns": {"BTCUSDT:fvg:long": 9_999_999_999.0},
                 }
-            )
+            ),
+            encoding="utf-8",
         )
         store = CooldownStore(str(path))
         assert store.is_new_candle("BTCUSDT", "1h", "fvg", 5_000) is False

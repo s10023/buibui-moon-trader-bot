@@ -468,7 +468,7 @@ def main() -> int:
     report = _report(verdicts_by_tf=verdicts_by_tf, table=table, live=live, args=args)
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(report)
+    args.out.write_text(report, encoding="utf-8")
     verdict, rationale = _combined_headline(verdicts_by_tf)
     print(f"\nHeadline verdict: {verdict}\n{rationale}\n")
     for tf in headline_tfs:

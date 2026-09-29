@@ -274,7 +274,7 @@ def load_external_state(
     stale_latest_ms: int | None = None
     for path in sorted(dir_path.glob("*.json")):
         try:
-            data = json.loads(path.read_text())
+            data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
             # ValueError covers json.JSONDecodeError AND UnicodeDecodeError
             # (bad encoding from read_text) — notes, never exceptions.

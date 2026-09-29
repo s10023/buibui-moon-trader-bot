@@ -57,7 +57,7 @@ class ExecutionResult:
 def load_state(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {"peak_equity": 0.0, "kill_switch": False, "last_run": {}}
-    data: dict[str, Any] = json.loads(path.read_text())
+    data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
     data.setdefault("peak_equity", 0.0)
     data.setdefault("kill_switch", False)
     data.setdefault("last_run", {})
@@ -66,7 +66,7 @@ def load_state(path: Path) -> dict[str, Any]:
 
 def save_state(path: Path, state: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, indent=2))
+    path.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
 
 def _data_age_hours(as_of_date: str, now: pd.Timestamp) -> float:

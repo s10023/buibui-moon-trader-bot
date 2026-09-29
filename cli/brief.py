@@ -33,9 +33,11 @@ def run_brief_cmd(args: argparse.Namespace) -> None:
     markdown = render_markdown(bundle)
     print(markdown)
     if args.json:
-        Path(args.json).write_text(json.dumps(bundle_to_dict(bundle), indent=2))
+        Path(args.json).write_text(
+            json.dumps(bundle_to_dict(bundle), indent=2), encoding="utf-8"
+        )
     if args.markdown:
-        Path(args.markdown).write_text(markdown + "\n")
+        Path(args.markdown).write_text(markdown + "\n", encoding="utf-8")
     if bundle.panels and all(p.error is not None for p in bundle.panels):
         raise SystemExit(1)
 

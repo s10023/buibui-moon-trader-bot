@@ -19,7 +19,7 @@ from analytics.signal_config import (
 
 def _write_toml(tmp_path: Path, content: str) -> Path:
     p = tmp_path / "signal_watch.toml"
-    p.write_text(content)
+    p.write_text(content, encoding="utf-8")
     return p
 
 
@@ -221,7 +221,7 @@ ETHUSDT = "BTCUSDT"
 
     def test_invalid_toml(self, tmp_path: Path) -> None:
         p = tmp_path / "bad.toml"
-        p.write_text("timeframes = [broken")
+        p.write_text("timeframes = [broken", encoding="utf-8")
         with pytest.raises(tomllib.TOMLDecodeError):
             load_signal_config(p)
 
@@ -308,7 +308,7 @@ min_trades_4h = 10
 min_trades_1d = 5
 """
         p = tmp_path / "w.toml"
-        p.write_text(content)
+        p.write_text(content, encoding="utf-8")
         cfg = load_signal_config(p)
         assert cfg.backtest.min_trades_per_tf == {"15m": 30, "4h": 10, "1d": 5}
         assert cfg.backtest.effective_min_trades("15m") == 30
@@ -654,51 +654,60 @@ class TestDeepMerge:
 class TestLoadWithExtends:
     def test_child_inherits_base_scalar(self, tmp_path: Path) -> None:
         base = tmp_path / "base.toml"
-        base.write_text("telegram = true\nfee_pct = 0.0005\n")
+        base.write_text("telegram = true\nfee_pct = 0.0005\n", encoding="utf-8")
         child = tmp_path / "child.toml"
-        child.write_text('extends = "base.toml"\ntimeframes = ["1h"]\n')
+        child.write_text(
+            'extends = "base.toml"\ntimeframes = ["1h"]\n', encoding="utf-8"
+        )
         cfg = load_signal_config(child)
         assert cfg.telegram is True
         assert cfg.timeframes == ["1h"]
 
     def test_child_overrides_base_scalar(self, tmp_path: Path) -> None:
         base = tmp_path / "base.toml"
-        base.write_text('telegram = false\ntimeframes = ["4h"]\n')
+        base.write_text('telegram = false\ntimeframes = ["4h"]\n', encoding="utf-8")
         child = tmp_path / "child.toml"
-        child.write_text('extends = "base.toml"\ntelegram = true\n')
+        child.write_text('extends = "base.toml"\ntelegram = true\n', encoding="utf-8")
         cfg = load_signal_config(child)
         assert cfg.telegram is True
         assert cfg.timeframes == ["4h"]  # inherited from base
 
     def test_child_strategy_params_merged_with_base(self, tmp_path: Path) -> None:
         base = tmp_path / "base.toml"
-        base.write_text("[strategy_params.bos]\nvolume_suppress = true\n")
+        base.write_text(
+            "[strategy_params.bos]\nvolume_suppress = true\n", encoding="utf-8"
+        )
         child = tmp_path / "child.toml"
-        child.write_text('extends = "base.toml"\n[strategy_params.bos]\ntp_r = 3.0\n')
+        child.write_text(
+            'extends = "base.toml"\n[strategy_params.bos]\ntp_r = 3.0\n',
+            encoding="utf-8",
+        )
         cfg = load_signal_config(child)
         assert cfg.effective_volume_suppress("bos") is True  # from base
         assert cfg.effective_tp_r("bos", "BTCUSDT", "1h") == 3.0  # from child
 
     def test_child_list_replaces_base_list(self, tmp_path: Path) -> None:
         base = tmp_path / "base.toml"
-        base.write_text('strategies = ["fvg", "bos"]\n')
+        base.write_text('strategies = ["fvg", "bos"]\n', encoding="utf-8")
         child = tmp_path / "child.toml"
-        child.write_text('extends = "base.toml"\nstrategies = ["engulfing"]\n')
+        child.write_text(
+            'extends = "base.toml"\nstrategies = ["engulfing"]\n', encoding="utf-8"
+        )
         cfg = load_signal_config(child)
         assert cfg.strategies == ["engulfing"]
 
     def test_extends_key_not_in_parsed_result(self, tmp_path: Path) -> None:
         base = tmp_path / "base.toml"
-        base.write_text("telegram = true\n")
+        base.write_text("telegram = true\n", encoding="utf-8")
         child = tmp_path / "child.toml"
-        child.write_text('extends = "base.toml"\n')
+        child.write_text('extends = "base.toml"\n', encoding="utf-8")
         # should not raise — 'extends' key must be consumed before parsing
         cfg = load_signal_config(child)
         assert cfg.telegram is True
 
     def test_no_extends_loads_normally(self, tmp_path: Path) -> None:
         child = tmp_path / "child.toml"
-        child.write_text('telegram = true\ntimeframes = ["15m"]\n')
+        child.write_text('telegram = true\ntimeframes = ["15m"]\n', encoding="utf-8")
         cfg = load_signal_config(child)
         assert cfg.telegram is True
         assert cfg.timeframes == ["15m"]
@@ -1015,12 +1024,14 @@ min_avg_r_short = 0.2
         while the loader dropped the key and `cache_enabled = false` loaded as True.
         """
         p = tmp_path / "w.toml"
-        p.write_text('[backtest]\nmode = "soft"\ncache_enabled = false\n')
+        p.write_text(
+            '[backtest]\nmode = "soft"\ncache_enabled = false\n', encoding="utf-8"
+        )
         assert load_signal_config(p).backtest.cache_enabled is False
 
     def test_toml_without_cache_enabled_keeps_the_default(self, tmp_path: Path) -> None:
         p = tmp_path / "w.toml"
-        p.write_text('[backtest]\nmode = "soft"\n')
+        p.write_text('[backtest]\nmode = "soft"\n', encoding="utf-8")
         assert load_signal_config(p).backtest.cache_enabled is True
 
 
