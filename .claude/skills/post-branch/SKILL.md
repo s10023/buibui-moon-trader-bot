@@ -350,6 +350,18 @@ somebody remembered to write down. The conclusion on #729 survived and its state
 not, which is the cheap outcome; the expensive one is a rule rewritten on a premise the corpus
 had already falsified.
 
+**The same goes for a filed DIAGNOSIS of a recurring failure**, which this wording's focus on
+series does not reach. Before diagnosing anything that has failed before — a stable failure
+count, a known-flaky gate, a host symptom — grep the memory tree for it. A stable-looking count
+invites a fresh diagnosis on every run. Measured twice: 2026-09-21 re-derived `make test`'s four
+Windows failures with `windows-host-migration.md` in the session's own index, and 2026-09-30
+re-opened the paged-pool leak whose suspect driver was already filed in the handoff.
+
+**When a branch fixes a CODE-PATTERN class, grep the skills' code fences for it too.** Readers
+copy a `SKILL.md` snippet verbatim, so a pattern fixed in the tree and left in a fence comes
+back. Measured on #792: `/ingest-video` held five bare `read_text()` snippets after the tree was
+fixed, found only by an ad-hoc grep — the static gate reads `.py` files, never Markdown fences.
+
 **Strong refactor signals** — these almost always trigger user-facing doc
 edits because they change paths users / docs reference:
 

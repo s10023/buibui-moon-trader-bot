@@ -6,7 +6,7 @@ description: >
   Mirror of the fork's `sync-parent`, run in the opposite direction. Scans
   wifey's merged PRs since the last sync point, drops dependabot / docs-config /
   already-ported-from-here noise, classifies the remainder PORT / EVALUATE, and
-  writes a context-rich report to /tmp/child-sync-<date>.md.
+  writes a context-rich report to docs/plans/scratch/child-sync-<date>.md.
   Invoke when the user says "/sync-child", asks to "check the fork", "what's
   net-new in wifey", "back-port from wifey", or for a periodic fork catch-up.
 allowed-tools: Bash, Read, Edit
@@ -130,7 +130,8 @@ judgment in the fresh-session port).
    crypto-vs-equity transferability note · suggested approach
    (`verify-only` / `cherry-pick-with-edits` / `re-implement`) · any
    dependency on an earlier wifey PR (note it as a prerequisite).
-5. **Write the report** to `/tmp/child-sync-<date>.md`: a bucket-count summary
+5. **Write the report** to `docs/plans/scratch/child-sync-<date>.md` (gitignored and
+   backed up; `/tmp` is cleared on reboot, and every round since 2026-08-18 wrote here): a bucket-count summary
    table, then PORT / EVALUATE / SKIP sections (PORT and EVALUATE as full detail
    blocks; SKIP as a compact list with the skip reason).
 6. **Summarise for the user** (bucket counts + the PORT/EVALUATE shortlist) and
