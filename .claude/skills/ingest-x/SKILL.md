@@ -625,9 +625,10 @@ pasted, then run the flow once over the whole set.
 
 ## Inline classification rubric (self-contained — paste into the subagent prompt)
 
-> A distilled snapshot of the SoT's Frozen / Closed / Parked state so the subagent
-> classifies from the prompt alone. **Refresh from `project_todo_master.md`
-> periodically** — treat as a de-biasing prior, not gospel; NOVEL still passes the
+> A distilled snapshot of the Frozen / Closed / Parked planning state so the subagent
+> classifies from the prompt alone. **Refresh periodically from memory
+> `project_do_not_relitigate.md` plus the `parked` and closed GitHub Issues** (planning
+> left `project_todo_master.md` on 2026-09-29) — treat as a de-biasing prior, not gospel; NOVEL still passes the
 > human gate. `content_type`: **setup** = a specific symbol+direction+levels trade
 > call → Stream C; **mechanic** = an exit/risk/data/microstructure execution rule →
 > Stream B; **claim** = a generalizable market-behaviour assertion → verdict below.

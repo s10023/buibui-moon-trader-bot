@@ -29,14 +29,15 @@ date -u +%FT%TZ > docs/plans/task-marks/decay-review
 
 ## Before any leg — read what the legs touch
 
-A "new" finding about a surface the SoT or an earlier report already owns is a re-sighting until
+A "new" finding about a surface an Issue or an earlier report already owns is a re-sighting until
 proved otherwise, and a check placed at close-out runs after the wrong finding is written. So read
 these first, not last:
 
 1. **The previous report's carry-forward list** (its "What this changes" section) — the questions
    this run owes an answer to.
-2. **The SoT rows owning each leg's surface** — `grep -n -E 'decay|/decay-review' <SoT>` finds them
-   (at 2026-09-28: ST122 owns Leg 1's flat readings, ST137 Leg 3's method).
+2. **The Issues owning each leg's surface** — `gh issue list -R s10023/buibui-moon-trader-bot
+   --state all --search "decay in:title,body"` finds them (at 2026-09-30: #837 = ST137 owns Leg 3's
+   method; ST122, Leg 1's flat readings, closed before the move and lives in memory's closed archive).
 3. **Every cell the previous report names, across ALL prior reports** —
    `grep -l '<cell>' docs/plans/scratch/decay-review-*.md` — before counting its readings or calling
    it new.
@@ -228,7 +229,7 @@ not a rebuilt table.
 
 **Then reconcile the numbers this report just superseded.** Nothing else propagates
 a decay-review figure — it is written once and quoted forever — so grep the three
-always-paid surfaces (`MEMORY.md`, the handoff, the SoT) for the population figures
+always-read surfaces (`MEMORY.md`, the handoff, the open Issues) for the population figures
 this run replaced and update them in place. Measured 2026-08-13c: the report recorded
 ★≥4 `66 → 55` stored and `58 → 47` declared while all three surfaces still carried
 `66 → 58` hours later, and a session verifying the prune spent a detour proving its own

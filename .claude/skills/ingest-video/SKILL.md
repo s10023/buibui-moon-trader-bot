@@ -1230,9 +1230,10 @@ the step-9 items table is still yours to check by eye.
 
 ## Inline classification rubric (self-contained — paste into BOTH the pass-1 and pass-2 subagent prompts)
 
-> A distilled snapshot of the SoT's Frozen / Closed / Parked state so each subagent
-> classifies from the prompt alone. **Refresh from `project_todo_master.md`
-> periodically** — treat as a de-biasing prior, not gospel; NOVEL still passes the
+> A distilled snapshot of the Frozen / Closed / Parked planning state so each subagent
+> classifies from the prompt alone. **Refresh periodically from memory
+> `project_do_not_relitigate.md` plus the `parked` and closed GitHub Issues** (planning
+> left `project_todo_master.md` on 2026-09-29) — treat as a de-biasing prior, not gospel; NOVEL still passes the
 > human gate. This block is shared verbatim with `/ingest-x`'s rubric — keep the two in
 > sync when either is refreshed. `content_type`: **setup** = a specific
 > symbol+direction+levels trade call → Stream C; **mechanic** = an exit/risk/data/

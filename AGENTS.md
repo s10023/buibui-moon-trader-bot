@@ -143,17 +143,19 @@ heading is deliberately rejected — each renders as a plausible-but-wrong verdi
 not a style rule: an unparseable verdict is invisible to the check that asks whether anyone
 OWNS it.** 17 pre-2026-08-17 audits are grandfathered in a frozen set that can only shrink.
 
-**An audit whose verdict is ACTIONABLE needs a SoT row naming its filename** — the
-`daily_check.py` tier-2 `audit verdicts` line reds until one exists, and a row recording
-*where it was already satisfied* clears it just as well as building the thing. It exists because the only BUILD in 47 audits
+**An audit whose verdict is ACTIONABLE needs a GitHub Issue naming its filename** (open or
+closed; the memory SoT stub's "Audit owners" block still counts for owners filed before the
+2026-09-29 move) — the `daily_check.py` tier-2 `audit verdicts` line reds until one exists,
+and an Issue recording *where it was already satisfied* clears it just as well as building
+the thing. It exists because the only BUILD in 47 audits
 (`2026-06-26-structural-entry-sim-harness.md`, since **withdrawn** as a look-ahead artifact) sat
 unbuilt for seven weeks in a generated, test-enforced index — and that delay is also why the
 defect went unfound.
 **The class: a research chain made of audits has an owner at every link except the
 last**, because each link's owner is the next audit and the terminal recommendation is
-production code. ⚠ Naming an *audit* file in the SoT is safe; the opposite direction — a
+production code. ⚠ Naming an *audit* file in an Issue is safe; the opposite direction — a
 *spec* filename inside an audit — is what the spec-reconcile counter derives from, and
-`docs_index.py` never reads the SoT, so the two cannot collide.
+`docs_index.py` never reads Issues, so the two cannot collide.
 
 **`make lint-py` also rewrites Markdown.** It runs `ruff format .`, which formats python
 code fences *inside `.md` files*, so any plan or spec doc carrying a python fence is
@@ -1188,8 +1190,8 @@ covered by `make docs-index` (`tools/docs_index.py` indexes `docs/audits/` and
 `docs/superpowers/specs/` only), so adding a file there needs no `make docs-index` run.
 
 ⚠ **That exemption is also why a research doc has no owner, so one rule rides on top: a
-`docs/research/` doc that RECOMMENDS work must file its own SoT row naming its filename, and
-`/post-branch` Step 5b asks for it.** Being outside the index also puts it outside
+`docs/research/` doc that RECOMMENDS work must file its own GitHub Issue naming its filename,
+and `/post-branch` Step 5b asks for it.** Being outside the index also puts it outside
 `TestEveryNewAuditExposesItsVerdict` and outside `daily_check.py`'s tier-2 `audit verdicts`
 join — three surfaces, none of which will ever ask who owns it. Measured: the 2026-08-14
 trading-canon audit recommended three books and a repo and sat unowned for three days with

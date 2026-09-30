@@ -93,11 +93,15 @@ slug (derived from the repo's ABSOLUTE path) vary by host, so a hardcoded path i
 every machine but one.
 `$(PYTHONPATH=. poetry run python tools/memory_dir.py)` prints it; `make status` uses it.
 
-**The SoT (`memory/project_todo_master.md`) carries the same unprompted obligation.**
-Reconcile the row this session touched **at closure time, as one line plus a pointer into
-[[todo-archive-closed]]**, not in a later sweep. A row is not finalised while it says
-"PR pending": replace that with the merged PR once it lands, because `daily_check.py` only
-examines rows marked OPEN and cannot see a stale "pending".
+**Planning lives in GitHub Issues on this repo (since 2026-09-29), and it carries the same
+unprompted obligation.** A SessionStart hook (`.claude/hooks/open-issues.py`) opens every
+session with the p1/p2 queue in context; a digest reading `NOT FETCHED` means you are
+working blind, never that the queue is empty. A new to-do or shower thought becomes an Issue,
+never a memory row. **Close the Issue this session finished at closure time, with a one-line
+verdict comment** — a PR body's `Closes #n` does it on merge. Issues publish with the repo on a
+visibility flip, so redact account figures and screen the body with `make post-branch-text`.
+`memory/project_todo_master.md` is now a pointer stub (rulings, gates, old-id → Issue map);
+do not re-add status to it.
 
 The index is read into context every session, so its cost is paid on every conversation:
 

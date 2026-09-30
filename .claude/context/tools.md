@@ -47,8 +47,14 @@ lost the DELIVERY, and no CI surface could reach them. Wired in `.claude/setting
 - `test_context_guard.py` — the gate, **35 cases**, stdlib-only. Runs in CI's
   dependency-free `markdownlint` job. Every card needs a MUTATION case proving the glob is
   scoped rather than blanket.
-- `test_hook_wiring.py` — the gate on the **WRAPPERS** rather than any module, **21 cases,
-  2 mutation**, stdlib-only, same CI job. Added 2026-09-23 (ST143), after every hook on the
+- `open-issues.py` — the `SessionStart` planning digest (since 2026-09-29 planning lives in
+  GitHub Issues). Prints p1/p2 in full, p3 as a count, untriaged in full; scopes `gh` to the
+  ORIGIN remote's owner. **Always exits 0, and a failed fetch prints `NOT FETCHED` — never
+  an empty queue.** It lives here rather than `tools/` so `test_hook_wiring.py` covers its
+  wrapper: a SessionStart hook silenced by the exit-126 `python3` looks like an empty queue.
+  Gated by `test_open_issues.py` (stdlib, `gh`/`git` faked, same CI job).
+- `test_hook_wiring.py` — the gate on the **WRAPPERS** rather than any module, stdlib-only,
+  same CI job. Added 2026-09-23 (ST143), after every hook on the
   Windows host spent five days dead: each wrapper launched bare `python3`, which there is the
   Store App Execution Alias and exits **126**, and only exit 2 blocks — so the BLOCKING guard
   failed OPEN on every command. ⚠ **No module was broken, so none of the three suites above

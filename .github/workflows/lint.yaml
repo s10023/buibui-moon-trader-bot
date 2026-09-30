@@ -99,6 +99,13 @@ jobs:
       - name: Hook wiring suite
         run: python3 .claude/hooks/test_hook_wiring.py
 
+      # The SessionStart planning digest. Its contract -- always exit 0, never
+      # silent, a failed fetch never rendered as an empty queue -- is what makes
+      # the move of planning into GitHub Issues visible at all, so it rides the
+      # same unconditional job as the guards. No network: gh/git are faked.
+      - name: Open-issues digest suite
+        run: python3 .claude/hooks/test_open_issues.py
+
   lint-typecheck-test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
