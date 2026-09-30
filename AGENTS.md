@@ -17,7 +17,8 @@ a result.
 - `make typecheck` ✓ (mypy strict)
 - **The full suite runs ONCE per branch, and `make preflight` IS that run** — a fresh clone of the branch's committed HEAD, the same pytest invocation, at `/post-branch` Step 7. It costs about the same wall time as `make test` and catches the gitignored-path class that `make test` structurally cannot see. **On a host where preflight exits 3 (INFRA — the Windows laptop, where the clone cannot `poetry install` numpy), run `make test` instead, say so in the PR body, and name CI as the only clean-clone verifier.** ⚠ **Do NOT run `make test` and then `make preflight` over the same code** — that is the same suite twice for nothing. **While iterating, run the TARGETED files you touched** (seconds, and they catch your own breakage before a five-minute run does); `make test` earns its place only when you need a whole-suite answer about code that is NOT COMMITTED YET — a clone cannot see that, which is exactly why preflight refuses on a dirty tree.
 - `make test-regression` goldens unmoved — **required only when the diff touches the
-  backtest surface**, which is **exactly CI's regression paths filter** (`lint.yaml:173-183`),
+  backtest surface**, which is **exactly CI's regression paths filter** (the `regression`
+  job's `paths-filter` step in `lint.yaml`),
   mirrored here: `analytics/**/*.py`, `pyproject.toml`, `poetry.lock`, `config/*.toml`,
   `tests/test_regression.py`, `tests/fixtures/**.parquet`, `tests/fixtures/golden_*.json`,
   `scripts/extract_regression_fixture.py`, `.github/workflows/lint.yaml`. Say which branch
@@ -143,17 +144,19 @@ heading is deliberately rejected — each renders as a plausible-but-wrong verdi
 not a style rule: an unparseable verdict is invisible to the check that asks whether anyone
 OWNS it.** 17 pre-2026-08-17 audits are grandfathered in a frozen set that can only shrink.
 
-**An audit whose verdict is ACTIONABLE needs a SoT row naming its filename** — the
-`daily_check.py` tier-2 `audit verdicts` line reds until one exists, and a row recording
-*where it was already satisfied* clears it just as well as building the thing. It exists because the only BUILD in 47 audits
+**An audit whose verdict is ACTIONABLE needs a GitHub Issue naming its filename** (open or
+closed; the memory SoT stub's "Audit owners" block still counts for owners filed before the
+2026-09-29 move) — the `daily_check.py` tier-2 `audit verdicts` line reds until one exists,
+and an Issue recording *where it was already satisfied* clears it just as well as building
+the thing. It exists because the only BUILD in 47 audits
 (`2026-06-26-structural-entry-sim-harness.md`, since **withdrawn** as a look-ahead artifact) sat
 unbuilt for seven weeks in a generated, test-enforced index — and that delay is also why the
 defect went unfound.
 **The class: a research chain made of audits has an owner at every link except the
 last**, because each link's owner is the next audit and the terminal recommendation is
-production code. ⚠ Naming an *audit* file in the SoT is safe; the opposite direction — a
+production code. ⚠ Naming an *audit* file in an Issue is safe; the opposite direction — a
 *spec* filename inside an audit — is what the spec-reconcile counter derives from, and
-`docs_index.py` never reads the SoT, so the two cannot collide.
+`docs_index.py` never reads Issues, so the two cannot collide.
 
 **`make lint-py` also rewrites Markdown.** It runs `ruff format .`, which formats python
 code fences *inside `.md` files*, so any plan or spec doc carrying a python fence is
@@ -1188,8 +1191,8 @@ covered by `make docs-index` (`tools/docs_index.py` indexes `docs/audits/` and
 `docs/superpowers/specs/` only), so adding a file there needs no `make docs-index` run.
 
 ⚠ **That exemption is also why a research doc has no owner, so one rule rides on top: a
-`docs/research/` doc that RECOMMENDS work must file its own SoT row naming its filename, and
-`/post-branch` Step 5b asks for it.** Being outside the index also puts it outside
+`docs/research/` doc that RECOMMENDS work must file its own GitHub Issue naming its filename,
+and `/post-branch` Step 5b asks for it.** Being outside the index also puts it outside
 `TestEveryNewAuditExposesItsVerdict` and outside `daily_check.py`'s tier-2 `audit verdicts`
 join — three surfaces, none of which will ever ask who owns it. Measured: the 2026-08-14
 trading-canon audit recommended three books and a repo and sat unowned for three days with
@@ -1272,7 +1275,7 @@ blocked. Never assume the flip happened because you printed the command.
   only on a PR. Commit and push freely; the meter starts at `gh pr create`.
 - **Never flip back while ANY run on `main` is `in_progress`** — not "wait until the jobs
   exist". Flipping kills jobs *created after* it, and a chained job is not created until its
-  dependency finishes: `lint.yaml:157`'s `regression` job declares `needs:
+  dependency finishes: `lint.yaml`'s `regression` job declares `needs:
   lint-typecheck-test`, so a main run sits in_progress with three jobs created and
   "Regression tests" not yet existing. Flip there and main reds for billing. **Run
   `make wait-ci-main`** rather than hand-rolling a waiter — it gates on a job-count floor

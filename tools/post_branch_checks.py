@@ -1091,7 +1091,7 @@ def _read_text_arg(path: str) -> str:
 UNCOVERED_STEPS: tuple[tuple[str, str], ...] = (
     ("Step 1", "behaviour gate — is this PR user-facing?"),
     ("Steps 2-4", "walk each doc surface against the diff"),
-    ("Steps 5, 5b", "MEMORY.md + SoT reconcile — run even if Step 1 says no"),
+    ("Steps 5, 5b", "MEMORY.md + Issue reconcile — run even if Step 1 says no"),
     (
         "Step 7",
         "`make preflight` (clean-clone gate; it REPLACES this branch's "

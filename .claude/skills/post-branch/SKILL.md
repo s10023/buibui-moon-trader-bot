@@ -36,7 +36,7 @@ guidance. Read the phase table; treat the step headings as a table of contents.
 | **0** | **`make post-branch-checks`** — the mechanical sweep. Run it FIRST; its hits feed every later phase | — | no |
 | **1** | Behaviour gate: is this PR user-facing? | 1 | no |
 | **2** | Identify changed artifacts, walk each doc surface | 2, 3, 4 | no |
-| **3** | Always-run regardless of the gate: MEMORY.md, SoT reconcile | 5, 5b | no |
+| **3** | Always-run regardless of the gate: MEMORY.md, Issue reconcile | 5, 5b | no |
 | **4** | Commit and push, run **`make preflight`** (clean-clone gate — it REPLACES this branch's `make test`), **decide the visibility flip**, then `gh pr create` | 7 | **one run** |
 | **5** | PR body | 6 | no |
 | **6** | Pre-merge check, handoff, re-verify PR state **last** | 10a, 10b, 10c | no |
@@ -47,8 +47,8 @@ correctly flags "post-branch phase 4" in another doc as a dead anchor, and a rea
 following it finds no such section. That cost a peer session two rounds on #667. Inside
 this file the phase names are the run order and stay; outside it, name `Step 7`.
 
-Phases 0 and 3 run **regardless** of the phase-1 gate: MEMORY.md and the SoT live
-outside the repo and the handoff is gitignored, so none of them ever costs CI.
+Phases 0 and 3 run **regardless** of the phase-1 gate: MEMORY.md lives outside the repo,
+Issues live on GitHub and the handoff is gitignored, so none of them ever costs CI.
 Steps 8 (rebase) and 9 (output format) are situational and belong wherever they
 are needed.
 
@@ -349,6 +349,18 @@ hypothesis, not just its values**, and a series that merely looks monotone is ev
 somebody remembered to write down. The conclusion on #729 survived and its stated reason did
 not, which is the cheap outcome; the expensive one is a rule rewritten on a premise the corpus
 had already falsified.
+
+**The same goes for a filed DIAGNOSIS of a recurring failure**, which this wording's focus on
+series does not reach. Before diagnosing anything that has failed before — a stable failure
+count, a known-flaky gate, a host symptom — grep the memory tree for it. A stable-looking count
+invites a fresh diagnosis on every run. Measured twice: 2026-09-21 re-derived `make test`'s four
+Windows failures with `windows-host-migration.md` in the session's own index, and 2026-09-30
+re-opened the paged-pool leak whose suspect driver was already filed in the handoff.
+
+**When a branch fixes a CODE-PATTERN class, grep the skills' code fences for it too.** Readers
+copy a `SKILL.md` snippet verbatim, so a pattern fixed in the tree and left in a fence comes
+back. Measured on #792: `/ingest-video` held five bare `read_text()` snippets after the tree was
+fixed, found only by an ad-hoc grep — the static gate reads `.py` files, never Markdown fences.
 
 **Strong refactor signals** — these almost always trigger user-facing doc
 edits because they change paths users / docs reference:
@@ -759,28 +771,32 @@ behaviour-visible changes.
 
 ---
 
-## Step 5b — SoT reconcile (always, and it is NOT covered by Step 5)
+## Step 5b — Issue reconcile (always, and it is NOT covered by Step 5)
 
-**Two questions. First: does this branch close, change, or contradict a row in the
-SoT** (`project_todo_master.md` in the memory tree — resolved by the block below)?
-If yes, reconcile it **now, in this same session** — move the row to **Closed**
-with a one-line verdict, per that file's own rule ("Move items there with a
-one-line verdict; never delete"). Like MEMORY.md it lives outside the repo, so
-it is **never committed** and costs no CI.
+Planning lives in **GitHub Issues** on this repo since 2026-09-29; the memory SoT
+(`project_todo_master.md`) is a pointer stub carrying rulings and an old-id → Issue map, and
+takes no status.
 
-Cheap way to find the row — search for the item ID and the PR number:
+**Two questions. First: does this branch close, change, or contradict an open Issue?**
+If it closes one, put `Closes #<n>` in the PR body (Step 6) so the merge closes it, and add a
+one-line verdict comment. If it only changes or contradicts one, comment on the Issue **now,
+in this same session**. A branch that surfaces a NEW to-do files a new Issue — never a memory
+row. Issues publish with the repo on a visibility flip: redact account figures and screen any
+composed body with `make post-branch-text FILE=<path>`.
+
+Cheap way to find the Issue — the old SoT id (e.g. `ST139`) survives in each migrated body:
 
 ```bash
-SOT="$(PYTHONPATH=. poetry run python tools/memory_dir.py)/project_todo_master.md"
-# A missing SoT prints 0 rows, which reads exactly like "nothing to reconcile" — say so.
-[ -f "$SOT" ] || echo "SoT NOT FOUND at $SOT — resolve it before trusting the greps below"
-grep -n 'N8\|ST15\|#580' "$SOT"     # the IDs and PRs this branch touched
-grep -n 'OPEN\|not yet\|unfixed' "$SOT" | grep -i "$TOPIC"
+GH_TOKEN=$(gh auth token --user s10023) gh issue list -R s10023/buibui-moon-trader-bot \
+  --state open --search "$TOPIC in:title,body" --json number,title
 ```
+
+⚠ **An empty search is not "nothing to reconcile"** when `gh` failed — check the exit code
+before trusting a blank answer.
 
 ### The second question: did this branch land a `docs/research/` doc that RECOMMENDS work?
 
-If yes, **file its own SoT row naming the filename, in this same session.** A research doc
+If yes, **file its own GitHub Issue naming the filename, in this same session.** A research doc
 that recommends a book, a repo, an ingest or a build and files no row has no owner, and
 nothing anywhere will ever ask for one.
 
@@ -800,25 +816,17 @@ the honest caveat is that ST34 exists *because* prose enforcement already failed
 if a second research doc lands unowned, that is the trigger to revisit the machine-enforced
 option, not a reason to restate this paragraph.
 
-**Why this step exists, and why it is separate from Step 5.** Nothing auto-updates
-the SoT — the session-memory wiring (CLAUDE.md "Session Memory Protocol", this
-skill's Step 5, `/sanity-check`, `/backtest-findings`) all touches **MEMORY.md**,
-not the SoT. **The SoT predicted this failure in its own "How to use this file"
-section** — *"Consider adding an SoT-reconcile step to `post-branch` if drift
-recurs."* Drift recurred repeatedly and nobody acted on the trigger, so the step
-is now here.
+**Why this step exists, and why it is separate from Step 5.** The session-memory wiring
+(CLAUDE.md "Session Memory Protocol", this skill's Step 5, `/sanity-check`, `/backtest-findings`) touches
+**MEMORY.md**; nothing else closes planning items. Under the memory SoT that gap let rows drift
+for months — the reason planning moved to Issues, where `Closes #n` closes on merge.
 
-**The failure it prevents is misinformation, not clutter.** Found 2026-08-09: N8
-still sat in "Ongoing watches" as an **OPEN defect with ~1,900 characters of live
-diagnosis two days after PR #580 closed it**, and the N6 row beside it still
-pointed at "the OPEN N8 row" and still quoted a `_SCAN_WINDOW=200` that #580 had
-changed to 600 for 15m. A session picking up work from the SoT would have
-re-opened a solved problem and coded against a stale constant. Same shape as
-ST13 (listed open twice after being done) and H14's "3 deferred minors".
-
-**A stale row is worse than a missing one**, because it reads as current
-evidence. If you are unsure whether a row is still true, do not leave it —
-either verify it against the code or mark it unverified with today's date.
+**The failure it prevents is misinformation, not clutter.** Found 2026-08-09: N8 still sat as
+an **OPEN defect with ~1,900 characters of live diagnosis two days after PR #580 closed it**,
+beside a row quoting a `_SCAN_WINDOW=200` that #580 had changed to 600 for 15m. A session
+picking up work from it would have re-opened a solved problem and coded against a stale
+constant. **An open Issue that is already done is worse than a missing one**, because it reads
+as current evidence — verify it against the code or comment that it is unverified, dated.
 
 ---
 
@@ -1071,7 +1079,7 @@ AGENTS.md          — updated: <what> | no change needed: <reason>
 CLAUDE.md          — updated: <what> | no change needed: <reason>
 README.md          — updated: <what> | no change needed: <reason>
 MEMORY.md          — updated: Current State + <other>  (never committed)
-SoT reconcile      — <row> moved to Closed | no SoT row affected  (never committed)
+Issue reconcile    — Closes #<n> in body | commented #<n> | filed #<n> | no Issue affected
 Makefile           — no change needed: no new CLI commands
 docker-compose.yml — no change needed: no new processes
 .claude/context/*  — updated: analytics.md (store/ paths) | no change needed
