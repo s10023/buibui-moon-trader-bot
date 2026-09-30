@@ -817,7 +817,7 @@ if a second research doc lands unowned, that is the trigger to revisit the machi
 option, not a reason to restate this paragraph.
 
 **Why this step exists, and why it is separate from Step 5.** The session-memory wiring
-(CLAUDE.md "Session Memory Protocol", Step 5, `/sanity-check`, `/backtest-findings`) touches
+(CLAUDE.md "Session Memory Protocol", this skill's Step 5, `/sanity-check`, `/backtest-findings`) touches
 **MEMORY.md**; nothing else closes planning items. Under the memory SoT that gap let rows drift
 for months — the reason planning moved to Issues, where `Closes #n` closes on merge.
 

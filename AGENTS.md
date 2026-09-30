@@ -17,7 +17,8 @@ a result.
 - `make typecheck` ✓ (mypy strict)
 - **The full suite runs ONCE per branch, and `make preflight` IS that run** — a fresh clone of the branch's committed HEAD, the same pytest invocation, at `/post-branch` Step 7. It costs about the same wall time as `make test` and catches the gitignored-path class that `make test` structurally cannot see. **On a host where preflight exits 3 (INFRA — the Windows laptop, where the clone cannot `poetry install` numpy), run `make test` instead, say so in the PR body, and name CI as the only clean-clone verifier.** ⚠ **Do NOT run `make test` and then `make preflight` over the same code** — that is the same suite twice for nothing. **While iterating, run the TARGETED files you touched** (seconds, and they catch your own breakage before a five-minute run does); `make test` earns its place only when you need a whole-suite answer about code that is NOT COMMITTED YET — a clone cannot see that, which is exactly why preflight refuses on a dirty tree.
 - `make test-regression` goldens unmoved — **required only when the diff touches the
-  backtest surface**, which is **exactly CI's regression paths filter** (`lint.yaml:173-183`),
+  backtest surface**, which is **exactly CI's regression paths filter** (the `regression`
+  job's `paths-filter` step in `lint.yaml`),
   mirrored here: `analytics/**/*.py`, `pyproject.toml`, `poetry.lock`, `config/*.toml`,
   `tests/test_regression.py`, `tests/fixtures/**.parquet`, `tests/fixtures/golden_*.json`,
   `scripts/extract_regression_fixture.py`, `.github/workflows/lint.yaml`. Say which branch
@@ -1274,7 +1275,7 @@ blocked. Never assume the flip happened because you printed the command.
   only on a PR. Commit and push freely; the meter starts at `gh pr create`.
 - **Never flip back while ANY run on `main` is `in_progress`** — not "wait until the jobs
   exist". Flipping kills jobs *created after* it, and a chained job is not created until its
-  dependency finishes: `lint.yaml:157`'s `regression` job declares `needs:
+  dependency finishes: `lint.yaml`'s `regression` job declares `needs:
   lint-typecheck-test`, so a main run sits in_progress with three jobs created and
   "Regression tests" not yet existing. Flip there and main reds for billing. **Run
   `make wait-ci-main`** rather than hand-rolling a waiter — it gates on a job-count floor
