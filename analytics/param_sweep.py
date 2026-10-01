@@ -19,7 +19,6 @@ from __future__ import annotations
 import argparse
 import itertools
 import math
-import os
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -43,6 +42,7 @@ from analytics.sweep_guard import (
     TrialPerf,
     evaluate_commit_gate,
 )
+from analytics.workers import pool_size
 
 # ---------------------------------------------------------------------------
 # Scoring
@@ -493,7 +493,7 @@ def run_param_sweep(
     sl_note = (
         " (sl_pct dropped — strategy uses structural SLs)" if uses_structural_sl else ""
     )
-    workers = max(1, min((os.cpu_count() or 2) - 1, n))
+    workers = pool_size(n)
     print(f"\n  Sweep: {strategy} / {symbol} / {timeframe}{sl_note}")
     print(
         f"  Grid size: {n} combos | IS candles: {len(ohlcv_is)} | OOS candles: {len(ohlcv_oos)}"
@@ -896,7 +896,7 @@ def run_strategy_audit(
     # processes, each with its own GIL, giving true parallelism.
     # DataFrames (ohlcv_is/oos, signals_is/oos) are pickled once per strategy
     # submission — acceptable overhead given the backtest work saved.
-    workers = max(1, min((os.cpu_count() or 2) - 1, len(active_strategies)))
+    workers = pool_size(len(active_strategies))
     print(
         f"  Phase 2: backtesting {len(active_strategies)} strategies × {len(tp_values)} tp_r values | workers: {workers}"
     )

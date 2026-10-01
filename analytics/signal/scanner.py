@@ -10,7 +10,6 @@ No module-level side effects.
 
 import datetime
 import logging
-import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
@@ -73,6 +72,7 @@ from analytics.signal_config import (
     _day_filter_to_weekdays,
 )
 from analytics.strategies import STRATEGY_REGISTRY, compute_htf_ema_slope
+from analytics.workers import pool_size
 from signals.cooldown_store import CooldownStore
 from signals.registry import SIGNAL_REGISTRY
 
@@ -558,7 +558,7 @@ def run_scan_cycle(
         return _sym, _tf, _events, _gap
 
     _pairs = [(sym, tf) for sym in symbols for tf in timeframes]
-    _n_workers = max(1, min((os.cpu_count() or 2) - 1, len(_pairs)))
+    _n_workers = pool_size(len(_pairs))
     scan_results: list[Any] = []
     if _n_workers > 1 and len(_pairs) > 1:
         with ThreadPoolExecutor(max_workers=_n_workers) as _pool:
