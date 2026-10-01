@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import math
 import os
 import subprocess
 import sys
@@ -29,7 +30,16 @@ def test_units_is_mandatory() -> None:
     """An undeclared unit is how a portable-looking number changes meaning."""
     with pytest.raises(SystemExit):
         distil_power.main(
-            ["--n-obs", "1000", "--n-trials", "16", "--sr-variance", "0.05"]
+            [
+                "--sr-footing",
+                "per_obs",
+                "--n-obs",
+                "1000",
+                "--n-trials",
+                "16",
+                "--sr-variance",
+                "0.05",
+            ]
         )
 
 
@@ -38,6 +48,8 @@ def test_benign_family_is_reachable(capsys: pytest.CaptureFixture[str]) -> None:
         [
             "--units",
             "per_trade",
+            "--sr-footing",
+            "per_obs",
             "--n-obs",
             "20000",
             "--n-trials",
@@ -65,6 +77,8 @@ def test_hostile_family_is_unreachable(capsys: pytest.CaptureFixture[str]) -> No
         [
             "--units",
             "per_trade",
+            "--sr-footing",
+            "per_obs",
             "--n-obs",
             "2",
             "--n-trials",
@@ -87,6 +101,8 @@ def test_correlation_deflator_raises_the_bar(
             [
                 "--units",
                 "per_alert",
+                "--sr-footing",
+                "per_obs",
                 "--n-obs",
                 "4000",
                 "--n-trials",
@@ -101,6 +117,8 @@ def test_correlation_deflator_raises_the_bar(
             [
                 "--units",
                 "per_alert",
+                "--sr-footing",
+                "per_obs",
                 "--n-obs",
                 "4000",
                 "--n-trials",
@@ -135,6 +153,8 @@ def test_effect_size_reported_when_sd_given(capsys: pytest.CaptureFixture[str]) 
         [
             "--units",
             "per_trade",
+            "--sr-footing",
+            "per_obs",
             "--n-obs",
             "4000",
             "--n-trials",
@@ -161,6 +181,8 @@ def test_null_containment_uses_the_owning_predicate(
         [
             "--units",
             "per_alert",
+            "--sr-footing",
+            "per_obs",
             "--n-obs",
             "4000",
             "--n-trials",
@@ -197,6 +219,8 @@ def test_reversed_deflator_args_rejected_via_cli(
         [
             "--units",
             "per_alert",
+            "--sr-footing",
+            "per_obs",
             "--n-obs",
             "4000",
             "--n-trials",
@@ -224,6 +248,8 @@ def test_single_flag_deflator_error_exits_cleanly(
         [
             "--units",
             "per_alert",
+            "--sr-footing",
+            "per_obs",
             "--n-obs",
             "4000",
             "--n-trials",
@@ -257,6 +283,8 @@ def test_runs_as_a_bare_script_with_no_pythonpath() -> None:
             "tools/distil_power.py",
             "--units",
             "per_trade",
+            "--sr-footing",
+            "per_obs",
             "--n-obs",
             "1000",
             "--n-trials",
@@ -298,6 +326,8 @@ def test_corpus_best_without_sd_never_reads_as_a_bare_reachable(
         [
             "--units",
             "per_trade",
+            "--sr-footing",
+            "per_obs",
             "--n-obs",
             "4000",
             "--n-trials",
@@ -329,6 +359,8 @@ def test_corpus_best_with_sd_still_reads_bare_reachable_when_cleared(
         [
             "--units",
             "per_trade",
+            "--sr-footing",
+            "per_obs",
             "--n-obs",
             "40000",
             "--n-trials",
@@ -354,6 +386,8 @@ def test_corpus_best_with_sd_still_flags_a_bar_exceeding_it(
         [
             "--units",
             "per_trade",
+            "--sr-footing",
+            "per_obs",
             "--n-obs",
             "4000",
             "--n-trials",
@@ -371,3 +405,238 @@ def test_corpus_best_with_sd_still_flags_a_bar_exceeding_it(
     assert _verdict_lines(out) == [
         "  VERDICT           REACHABLE, but the bar EXCEEDS the corpus best"
     ]
+
+
+# --- #857: Sharpe footing -----------------------------------------------------
+#
+# PSR runs per OBSERVATION. An annualized `--sr-variance` / `--corpus-best` /
+# `--bar` beside an `--n-obs` counted in days prices the bar in the wrong units
+# and still prints a clean verdict, so the footing is now declared, converted
+# under `annual`, and refused under `per_obs` when it implies an implausible
+# annualized Sharpe.
+
+# The sibling equities fork's filed case (H-023 there): annualized sleeve inputs
+# beside n_obs in NYSE days. Its 252 is THAT fork's year and appears here only as
+# that case's input; this repo annualizes at 365.
+_SIBLING_H023 = [
+    "--units",
+    "per_book_day",
+    "--n-obs",
+    "2174",
+    "--n-trials",
+    "4",
+]
+
+# This repo's own anchors (AGENTS.md "Sleeve verdicts"): the seven filed sleeve
+# Sharpes are annualized at 365, their sample variance is 1.9661576, and the
+# deploy core has ~2475 book days.
+_FILED_FAMILY_VAR_ANNUAL = 1.9661576
+_FILED_FAMILY_VAR_PER_DAY = _FILED_FAMILY_VAR_ANNUAL / 365.0
+_DEPLOY_CORE_ANNUAL = 1.375
+_REPO_BOOK = [
+    "--units",
+    "per_book_day",
+    "--n-obs",
+    "2475",
+    "--n-trials",
+    "4",
+]
+
+
+def _required_sharpe_fields(out: str) -> list[float]:
+    (line,) = [ln for ln in out.splitlines() if "required Sharpe" in ln]
+    return [float(tok.strip("()")) for tok in line.split()[2:] if tok[-1].isdigit()]
+
+
+def test_footing_is_mandatory() -> None:
+    with pytest.raises(SystemExit):
+        distil_power.main([*_REPO_BOOK, "--sr-variance", "0.005"])
+
+
+def test_book_day_year_matches_the_sleeves() -> None:
+    """The plausibility year is the sleeves' annualization, not a second dial."""
+    from analytics.forecast.config import ForecastConfig
+
+    assert ForecastConfig().annualization_days == distil_power.BOOK_DAYS_PER_YEAR
+
+
+def test_mixed_footing_reproduces_the_sibling_forks_filed_bar() -> None:
+    """Positive control: the wrong-footing arithmetic the sibling fork filed."""
+    from analytics.research_guards import required_sharpe
+
+    sr = required_sharpe(2174, n_trials=4, sr_variance=0.0652)
+    assert sr == pytest.approx(0.3047, abs=5e-5)
+    assert sr * math.sqrt(252) == pytest.approx(4.84, abs=5e-3)
+
+
+def test_annual_footing_converts_to_the_repriced_bar(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The sibling case declared honestly: 0.83 annual, ABOVE its 0.41 corpus best."""
+    code = distil_power.main(
+        [
+            *_SIBLING_H023,
+            "--sr-footing",
+            "annual",
+            "--periods-per-year",
+            "252",
+            "--sr-variance",
+            "0.0652",
+            "--corpus-best",
+            "0.41",
+            "--bar",
+            "0.70",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Sharpe footing    annual, converted at 252 periods/year" in out
+    annual, _per_obs = _required_sharpe_fields(out)
+    assert annual == pytest.approx(0.83, abs=5e-3)
+    assert _verdict_lines(out) == [
+        "  VERDICT           REACHABLE, but the bar EXCEEDS the corpus best"
+    ]
+    (half_line,) = [ln for ln in out.splitlines() if "CI half-width" in ln]
+    assert float(half_line.split()[2]) == pytest.approx(0.667, abs=5e-4)
+
+
+def test_both_footings_price_the_same_bar() -> None:
+    """annual with variance V at P == per_obs with V / P, times sqrt(P)."""
+    annual = distil_power.price(
+        distil_power.parse_args(
+            [
+                *_REPO_BOOK,
+                "--sr-footing",
+                "annual",
+                "--periods-per-year",
+                "365",
+                "--sr-variance",
+                str(_FILED_FAMILY_VAR_ANNUAL),
+            ]
+        )
+    )
+    per_obs = distil_power.price(
+        distil_power.parse_args(
+            [
+                *_REPO_BOOK,
+                "--sr-footing",
+                "per_obs",
+                "--periods-per-year",
+                "365",
+                "--sr-variance",
+                str(_FILED_FAMILY_VAR_PER_DAY),
+            ]
+        )
+    )
+    sr_annual, sr_annual_per_obs = _required_sharpe_fields("\n".join(annual))
+    (sr_per_obs,) = _required_sharpe_fields("\n".join(per_obs))
+    assert sr_annual_per_obs == pytest.approx(sr_per_obs, rel=1e-5)
+    assert sr_annual == pytest.approx(sr_per_obs * math.sqrt(365), rel=1e-5)
+    (echo,) = [ln for ln in per_obs if "annualized at 365" in ln]
+    assert float(echo.split()[1]) == pytest.approx(sr_annual, rel=1e-5)
+
+
+@pytest.mark.parametrize(
+    "variance",
+    [
+        pytest.param("0.0652", id="sibling-fork-H023"),
+        pytest.param(str(_FILED_FAMILY_VAR_ANNUAL), id="this-repo-filed-family"),
+    ],
+)
+def test_annualized_variance_declared_per_obs_is_refused(
+    capsys: pytest.CaptureFixture[str], variance: str
+) -> None:
+    code = distil_power.main(
+        [*_REPO_BOOK, "--sr-footing", "per_obs", "--sr-variance", variance]
+    )
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "--sr-footing annual --periods-per-year 365" in captured.err
+    assert "Traceback" not in captured.err
+    assert captured.out == ""
+
+
+def test_annualized_corpus_best_declared_per_obs_is_refused(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The deploy core's annualized +1.375 passed as a per-day Sharpe implies 26.3."""
+    code = distil_power.main(
+        [
+            *_REPO_BOOK,
+            "--sr-footing",
+            "per_obs",
+            "--sr-variance",
+            str(_FILED_FAMILY_VAR_PER_DAY),
+            "--sd",
+            "1.0",
+            "--corpus-best",
+            str(_DEPLOY_CORE_ANNUAL),
+        ]
+    )
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "--corpus-best" in captured.err
+    assert "--sr-footing annual --periods-per-year 365" in captured.err
+    assert "Traceback" not in captured.err
+
+
+@pytest.mark.parametrize(
+    "corpus_best_annual",
+    [
+        pytest.param(_DEPLOY_CORE_ANNUAL, id="deploy-core"),
+        # The largest filed |Sharpe|; the ceiling must leave it headroom.
+        pytest.param(-2.9, id="xsrev"),
+    ],
+)
+def test_per_obs_book_day_inputs_still_price(
+    capsys: pytest.CaptureFixture[str], corpus_best_annual: float
+) -> None:
+    """Positive control for both refusals: honest per-day inputs still price."""
+    code = distil_power.main(
+        [
+            *_REPO_BOOK,
+            "--sr-footing",
+            "per_obs",
+            "--sr-variance",
+            str(_FILED_FAMILY_VAR_PER_DAY),
+            "--sd",
+            "1.0",
+            "--corpus-best",
+            f"{corpus_best_annual / math.sqrt(365):.6f}",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert code == 0, captured.err
+    assert "VERDICT" in captured.out
+
+
+@pytest.mark.parametrize(
+    ("extra", "message"),
+    [
+        pytest.param([], "needs --periods-per-year", id="missing-periods"),
+        pytest.param(
+            ["--periods-per-year", "365", "--sd", "1.0"],
+            "--sd does not apply",
+            id="sd-given",
+        ),
+        pytest.param(["--periods-per-year", "0"], "must be > 0", id="zero-periods"),
+    ],
+)
+def test_annual_footing_declared_errors_exit_cleanly(
+    capsys: pytest.CaptureFixture[str], extra: list[str], message: str
+) -> None:
+    code = distil_power.main(
+        [
+            *_REPO_BOOK,
+            "--sr-footing",
+            "annual",
+            "--sr-variance",
+            str(_FILED_FAMILY_VAR_ANNUAL),
+            *extra,
+        ]
+    )
+    captured = capsys.readouterr()
+    assert code == 2
+    assert message in captured.err
+    assert "Traceback" not in captured.err
+    assert "Traceback" not in captured.out

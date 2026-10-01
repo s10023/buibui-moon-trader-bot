@@ -112,6 +112,7 @@ The thing the skill actually **runs**. A hand walk is not the walk.
 
 ```text
 tools/distil_power.py --units {per_trade|per_alert|per_book_day}
+                      --sr-footing {per_obs|annual} [--periods-per-year P]
                       --n-obs N --n-trials K --sr-variance V
                       [--n-series S --n-eff E] [--sd SD] [--bar R]
                       [--corpus-best R] [--skew S] [--kurtosis K]
@@ -126,6 +127,14 @@ containment verdict — the predicate is called, never restated inline.
 that looked portable and silently changed meaning with the panel — the H15 `bar`-units trap, and
 the 25-symbol 2.92× deflator being reused on panels whose true deflator is 1.628× or 3.331×.
 An undeclared unit is how that recurs.
+
+**`--sr-footing {per_obs|annual}` is mandatory too** (amended 2026-10-01, #857). PSR runs per
+observation, so an annualized Sharpe-valued input beside an `--n-obs` in days misprices the bar
+while the verdict still reads clean; the sibling equities fork shipped exactly that. `annual`
+requires `--periods-per-year`, converts `--sr-variance` / `--corpus-best` / `--bar`, refuses
+`--sd`, and prints both footings. On `per_book_day` a `per_obs` declaration implying an
+annualized dispersion or corpus best above a plausibility ceiling is refused; the ceiling and
+its derivation from this repo's filed sleeves live in the tool.
 
 `--n-series` and `--n-eff` apply the correlation deflator and **must be supplied together** —
 one alone is a declared error, not a default, and so is omitting both on a pooled multi-symbol

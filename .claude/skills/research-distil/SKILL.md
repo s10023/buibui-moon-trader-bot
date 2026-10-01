@@ -144,6 +144,7 @@ recollection, no arithmetic done by the model.
 ```bash
 PYTHONPATH=. poetry run python tools/distil_power.py \
   --units {per_trade|per_alert|per_book_day} \
+  --sr-footing {per_obs|annual} [--periods-per-year P] \
   --n-obs N --n-trials K --sr-variance V \
   [--n-series S --n-eff E] [--sd SD] [--bar R] [--corpus-best 1.196] \
   [--skew S] [--kurtosis K]
@@ -152,7 +153,8 @@ PYTHONPATH=. poetry run python tools/distil_power.py \
 `1.196` is illustrative — that figure comes from `tools/multi_regime_power.py`, which is not
 reproducible run-to-run; re-derive the real corpus best before relying on it.
 
-`PYTHONPATH=.` is required — the bare invocation fails with `ModuleNotFoundError`.
+`PYTHONPATH=.` is harmless but no longer required: the tool bootstraps its own
+`sys.path` (ST59), and a test pins the bare invocation.
 
 `--units` is mandatory with no default. Two filed defects came from numbers that
 looked portable and silently changed meaning with the panel: the H15 `bar` units
@@ -161,11 +163,30 @@ trap, and the 25-symbol 2.92× deflator reused on panels whose true deflator is
 `--n-series`/`--n-eff` for the panel actually in play. They must be supplied
 together; one alone is a declared error.
 
+`--sr-footing` is mandatory with no default, because PSR runs **per observation**.
+An annualized Sharpe fed beside an `--n-obs` counted in days prices the bar in the
+wrong units and still prints a clean verdict. Match the footing to where the anchor
+came from:
+
+- **Per-alert or per-trade R anchors** (the `1.196` above, any `avg_r`) → `per_obs`
+  with `--sd`, as in the example below.
+- **Sleeve-Sharpe anchors** (the deploy core's +1.375, or any figure from the
+  *Sleeve verdicts* table in `AGENTS.md`) → `--sr-footing annual --periods-per-year 365`,
+  with `--sr-variance`, `--corpus-best` and `--bar` all annualized. Every sleeve here
+  annualizes at 365 (`ForecastConfig.annualization_days`): crypto trades every day,
+  so the equities 252 is wrong here. `--sd` is refused under `annual`.
+
+On `per_book_day`, a `per_obs` declaration whose variance or corpus best implies an
+annualized Sharpe above 4.0 is refused as a likely annualized input, and the error names
+the corrective flags. The guard cannot see an annualized input under ~0.21, so declare
+the footing honestly instead of relying on it.
+
 Worked example, live ledger scope:
 
 ```text
 distil_power - G3 power gate
   units             per_alert
+  Sharpe footing    per_obs
   n_obs (declared)  4,918
   effective n       2,688  (deflated by n_eff 1.64 / 3 series)
   trial family      1 trials, sr_variance 0.0
