@@ -190,8 +190,9 @@ Path: `$(PYTHONPATH=. poetry run python tools/memory_dir.py)/MEMORY.md` — ⚠ 
 and the project slug vary by host; `tools/memory_dir.py` is the one resolver.
 
 - Is **Current State** up to date with recent changes?
-- Are completed items marked ✅ in the To-Do List?
-- Are any open questions resolved that should be cleared?
+- Does it carry any open work — a to-do, open question or pending decision? Since
+  2026-10-01 (#865) those are Issues (`question` label for questions and decisions), never
+  MEMORY.md lines: file each one, then delete the line.
 
 ---
 

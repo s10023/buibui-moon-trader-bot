@@ -86,7 +86,9 @@ is scoped rather than blanket.
 
 At the end of every session where anything changed, update the **Current State** section in
 the memory tree's `MEMORY.md` without waiting to be asked. Keep current: a one-line
-last-session summary, and open questions or pending decisions (or "none").
+last-session summary, plus judgement and verdicts with pointers. **Open questions and pending
+decisions are NOT memory content** — each becomes an Issue labelled `question` (planning
+paragraph below).
 
 ⚠ **Resolve that path with `tools/memory_dir.py`, never by hand.** BOTH the config root
 (`.claude-personal` on the old Linux box, `.claude` on the Windows laptop) and the project
@@ -97,8 +99,13 @@ every machine but one.
 **Planning lives in GitHub Issues on this repo (since 2026-09-29), and it carries the same
 unprompted obligation.** A SessionStart hook (`.claude/hooks/open-issues.py`) opens every
 session with the p1/p2 queue in context; a digest reading `NOT FETCHED` means you are
-working blind, never that the queue is empty. A new to-do or shower thought becomes an Issue,
-never a memory row. **Close the Issue this session finished at closure time, with a one-line
+working blind, never that the queue is empty. **Every piece of open work becomes an Issue —
+a to-do, a shower thought, a future plan, a skill fix, an open question or a pending decision
+(the last two labelled `question`) — never a memory row and never a handoff list.** The
+handoff (`docs/plans/next-conversation-prompt.md`) keeps only SEQUENCING: an ordered list of
+Issue numbers, host state and standing hazards. `cloud-ok` marks an Issue a cloud session can
+finish from tracked files alone — no `analytics.db`, `docs/plans/`, memory tree, keys, Binance
+account or Windows-host specifics. **Close the Issue this session finished at closure time, with a one-line
 verdict comment** — a PR body's `Closes #n` does it on merge. Issues publish with the repo on a
 visibility flip, so redact account figures and screen the body with `make post-branch-text`.
 `memory/project_todo_master.md` is now a pointer stub (rulings, gates, old-id → Issue map);

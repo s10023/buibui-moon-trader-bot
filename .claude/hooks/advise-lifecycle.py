@@ -82,10 +82,13 @@ POST_MERGE = (
 
 CLOSE_OUT_ADVICE = (
     "close-out: 'deleting sesh' means ARCHIVE this session, and only once every"
-    " memory surface is written. Before answering: (1) new or changed to-dos become"
-    " GitHub Issues on s10023/buibui-moon-trader-bot (screen the text with"
-    " make post-branch-text FILE=<path> first), never memory-only; (2) prune and"
-    " rewrite the handoff, docs/plans/next-conversation-prompt.md; (3) update"
+    " memory surface is written. Before answering: (1) new or changed to-dos, future"
+    " plans, open questions and pending decisions become GitHub Issues on"
+    " s10023/buibui-moon-trader-bot (label questions and decisions `question`;"
+    " screen the text with make post-branch-text FILE=<path> first), never"
+    " memory-only or handoff-only; (2) prune the handoff,"
+    " docs/plans/next-conversation-prompt.md, to sequencing only - ordered Issue"
+    " numbers, host state, standing hazards; (3) update"
     " MEMORY.md Current State (6-bullet cap; resolve the path with"
     " tools/memory_dir.py). Then ask the two close-out questions from the global"
     " CLAUDE.md - does a skill that ran need improving, and is anything left before"
