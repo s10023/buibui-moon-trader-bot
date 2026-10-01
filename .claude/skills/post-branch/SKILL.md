@@ -1042,8 +1042,8 @@ re-ask the settled one.
     --jq '.workflow_runs[] | [.name, .status, .conclusion] | @tsv'
   ```
 
-  Never `gh run list --branch main` for this: it has returned months-old runs at arbitrary
-  moments (ST147), so it can read clean on the wrong commits. Read an empty answer as
+  Never a branch listing (`gh run list --branch main`, REST `?branch=main`) for this: it has returned months-old runs at arbitrary
+  moments (ST147; REST form 2026-09-30/10-01), so it can read clean on the wrong commits. Read an empty answer as
   UNVERIFIED, not clean.
 
 ---
