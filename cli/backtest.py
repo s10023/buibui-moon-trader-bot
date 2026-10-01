@@ -325,7 +325,8 @@ def add_backtest_subparser(
         default=None,
         dest="workers",
         help=(
-            "Parallel workers for combo backtest (default: min(4, cpu_count-1)). "
+            "Parallel workers for combo backtest (default: min(4, cpu_count-1), "
+            "or BUIBUI_MAX_WORKERS when set; this flag overrides both). "
             "Pass 1 to run serially."
         ),
     )

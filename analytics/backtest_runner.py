@@ -5,7 +5,6 @@ from __future__ import annotations
 import datetime
 import itertools
 import logging
-import os
 import sys
 import uuid
 from collections.abc import Callable, Mapping
@@ -61,6 +60,7 @@ from analytics.strategies import (
     detect_smt_divergence,
     seasonality_stats,
 )
+from analytics.workers import pool_size
 from utils.binance_client import load_coins_config
 
 _SIMPLE_DETECTORS = DETECTOR_REGISTRY
@@ -1260,8 +1260,9 @@ def run_combo_backtest_cmd(
     are skipped automatically.
 
     workers controls parallelism over symbol×TF chunks.  Defaults to
-    min(4, cpu_count - 1).  Pass workers=1 to run serially (no subprocess
-    overhead — useful when other heavy processes are running).
+    ``pool_size(cap=4)``: min(4, cpu_count - 1), or ``BUIBUI_MAX_WORKERS`` when
+    set.  Pass workers=1 to run serially (no subprocess overhead — useful when
+    other heavy processes are running).
     """
     from analytics.signal_config import _day_filter_to_weekdays
 
@@ -1294,9 +1295,7 @@ def run_combo_backtest_cmd(
     start_ms = since_ms if since_ms is not None else end_ms - days * 24 * 3_600 * 1_000
     allowed_days = _day_filter_to_weekdays(day_filter)
 
-    _max_workers = (
-        workers if workers is not None else min(4, max(1, (os.cpu_count() or 1) - 1))
-    )
+    _max_workers = workers if workers is not None else pool_size(cap=4)
 
     chunks = [(sym, tf) for sym in symbols for tf in timeframes]
     combo_results: list[ComboBacktestResult] = []
@@ -1499,7 +1498,8 @@ def run_cross_tf_combo_backtest_cmd(
     HTF signal fired within window_hours before the LTF signal.
 
     workers controls parallelism over symbol × TF-pair chunks. Defaults to
-    min(4, cpu_count - 1). Pass workers=1 to run serially.
+    ``pool_size(cap=4)``: min(4, cpu_count - 1), or ``BUIBUI_MAX_WORKERS`` when
+    set. Pass workers=1 to run serially.
     """
     from analytics.signal_config import _day_filter_to_weekdays
 
@@ -1535,9 +1535,7 @@ def run_cross_tf_combo_backtest_cmd(
     start_ms = since_ms if since_ms is not None else end_ms - days * 24 * 3_600 * 1_000
     allowed_days = _day_filter_to_weekdays(day_filter)
 
-    _max_workers = (
-        workers if workers is not None else min(4, max(1, (os.cpu_count() or 1) - 1))
-    )
+    _max_workers = workers if workers is not None else pool_size(cap=4)
 
     # Chunks: one worker per (symbol, htf, ltf) tuple.
     chunks = [(sym, htf, ltf) for sym in symbols for htf, ltf in htf_ltf_pairs]

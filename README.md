@@ -710,7 +710,7 @@ wearing a fresh one and nothing about the row looks wrong.
 - `--cross-tf` — run cross-TF co-firing backtests (HTF sets context, LTF is entry); sweeps all symbol × HTF/LTF-pair × strategy pairs
 - `--htf-ltf 4h:15m 4h:1h` — HTF:LTF pairs to sweep (default: all 5 canonical pairs)
 - `--window-hours N` — cross-TF lookback in hours: HTF signal must have fired within N hours of the LTF signal (default: `4.0`)
-- `--workers N` — parallel workers for combo backtest, one per symbol×TF chunk (default: `min(4, cpu_count-1)`); pass `1` for serial mode
+- `--workers N` — parallel workers for combo backtest, one per symbol×TF chunk (default: `min(4, cpu_count-1)`); pass `1` for serial mode. The `BUIBUI_MAX_WORKERS` env var sets the ceiling for this and every other worker pool (sweeps, the signal scanner); the flag wins when both are given
 
 **Live-parity options (T6, PR-1 plumbing + PR-2 regime + PR-3 direction_filter + F8 HTF EMA + PR-4 ADR bias + PR-4b conflict resolver + PR-5 cooldown):**
 
