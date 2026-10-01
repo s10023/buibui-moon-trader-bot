@@ -91,6 +91,7 @@ portable at all.
 | **SKIP — dependabot** | author is `app/dependabot` |
 | **SKIP — docs/config** | `docs(...)` / `chore(...)` title, OR files only touch `*.md`, `config/`, `docs/`, `.github/` |
 | **SKIP — ported from here** | title/body says "port #N" / "(port #N)", OR the conventional-commit subject matches a parent PR title, OR it belongs to a known port campaign (`T6 PR-*`, `P0a*`, `P0b*`, `Bucket C`, etc.). Cross-check against `gh pr list` (default = parent here). **No divergence diffing** — excluded entirely. |
+| **SKIP — already applied here** | net-new in wifey, but this repo's target file already carries the same fix (e.g. wifey #376's `install-tasks.ps1` `$RepoRoot`). Cite the parent `file:line` that shows it. |
 | **PORT** | net-new wifey feature/fix whose mechanism is domain-neutral (signal-daemon ops, data-quality, causality/lookahead, research methodology) → likely transferable |
 | **EVALUATE** | net-new but equity-domain-specific (cost models, yfinance, universe-as-of) → methodology may transfer, values/impl won't |
 
@@ -130,6 +131,12 @@ judgment in the fresh-session port).
    crypto-vs-equity transferability note · suggested approach
    (`verify-only` / `cherry-pick-with-edits` / `re-implement`) · any
    dependency on an earlier wifey PR (note it as a prerequisite).
+
+   **Before filing a PORT, confirm the defect is live HERE** — read or grep the parent
+   target file and cite the line. Classify per part, not per PR: a "ported from here" PR
+   can carry a wifey-only delta on top (wifey #312's `piped-gate` scoping), and one leg of
+   an otherwise-SKIP PR can be a latent parent bug (wifey #374's `jq`-free hook, where the
+   parent's `settings.json` reminders depended on a binary the Windows host lacks).
 5. **Write the report** to `docs/plans/scratch/<date>-child-sync.md` (gitignored and
    backed up; `/tmp` is cleared on reboot, and every round since 2026-08-18 wrote here): a bucket-count summary
    table, then PORT / EVALUATE / SKIP sections (PORT and EVALUATE as full detail
