@@ -165,8 +165,15 @@ RULES: list[tuple[str, str, str]] = [
     ),
     (
         "piped-gate",
-        rf"{_GATE}(?:[^\n|]*\|\s*{_TRUNCATOR}"
-        rf"|[\s\S]*[;\n]\s*{_ALWAYS_OK}[^\n;]*$)",
+        # Pipe half: scoped to the GATE'S OWN segment, so it stops at `;` (#856).
+        # Unscoped it crossed into a later segment and flagged
+        # `make test > f 2>&1; rc=$?; grep x f | head; exit $rc`, where the status
+        # is captured and re-raised. `;` half: the LAST segment swallows when it is
+        # an always-ok command OR a pipeline into tail/head -- the second
+        # alternative is the case the scoping would otherwise drop
+        # (`make preflight > f; grep -v x f | tail -3`).
+        rf"{_GATE}(?:[^\n|;]*\|\s*{_TRUNCATOR}"
+        rf"|[\s\S]*[;\n]\s*(?:{_ALWAYS_OK}[^\n;]*|[^\n;|]*\|\s*{_TRUNCATOR}[^\n;]*)$)",
         "a gate whose exit status is SWALLOWED. A pipeline exits with its LAST "
         "command's status and a `;`-sequence with its last segment's, so `| tail`, "
         '`; echo "exit=$?"` and `; tail -8 f` all turn a red gate green -- the '
@@ -383,12 +390,13 @@ def _strip_heredocs(command: str) -> str:
 
     Found the moment this hook shipped: the commit message documenting these very
     rules contained "until ... pgrep", so `git commit -F - <<'MSG' ... MSG` tripped
-    rule 1 on its own changelog. The repo already knew this class -- settings.json's
-    `gh pr create` reminder anchors on `head -1` precisely so "a grep or heredoc
-    merely containing the string no longer self-triggers".
+    rule 1 on its own changelog. The repo already knew this class -- the
+    `gh pr create` reminder (advise-lifecycle.py) reads only the first line
+    precisely so "a grep or heredoc merely containing the string no longer
+    self-triggers".
 
     Stripping the body rather than keeping only the first line is the stronger form
-    of that fix: `head -1` would also blind the hook to a waiter on line 3 of a
+    of that fix: a first-line read would also blind the hook to a waiter on line 3 of a
     genuine multi-line script, which is exactly where one tends to be written.
     """
     return _HEREDOC.sub("<<STRIPPED", command)

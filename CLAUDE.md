@@ -68,7 +68,8 @@ module test to see. The stub cannot be detected,
 only out-ordered. Each wrapper also keeps an explicit `[ -f "$h" ] || exit 0`, because
 CPython exits 2 on a missing script and absence must fail OPEN, never CLOSED.
 `test_hook_wiring.py` reads the wrapper strings out of `settings.json` and gates both
-properties; it sits in `.claude/hooks/` rather than `tests/` because the heavy CI leg is
+properties, plus that EVERY hook command is such a wrapper — the inline `jq | grep`
+`gh pr create` reminders were not, and never fired on the jq-less Windows host (#855); it sits in `.claude/hooks/` rather than `tests/` because the heavy CI leg is
 paths-filtered to `**/*.py` and `settings.json` is not in it → SoT ST143.
 
 **Footgun delivery lives in a hook, not in this file.** `.claude/hooks/context-guard.py` +
