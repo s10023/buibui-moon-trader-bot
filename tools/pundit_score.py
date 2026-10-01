@@ -576,7 +576,37 @@ STATE_UNSCORED = "UNSCORED"
 STATE_UNRESOLVABLE = "UNRESOLVABLE"
 STATE_STALE = "STALE"
 STATE_SKIPPED = "SKIPPED"
+STATE_INVALID_LEVELS = "INVALID_LEVELS"
 RESOLVED_STATES = (STATE_WIN, STATE_LOSS)
+
+
+def level_order_violation(
+    direction: str, entry: float, stop: float | None, target: float | None
+) -> str | None:
+    """Why the resolved levels cannot describe a ``direction`` trade, or None.
+
+    A long needs ``stop < entry < target`` and a short the mirror, checked on
+    whichever of stop / target is present. ``SANITY_LO/HI`` only bounds each
+    level's MAGNITUDE against the call candle; nothing else compares the levels
+    with each other, so a swapped stop and target, or a direction misread at
+    ingest, used to score with the WRONG SIGN: the walk takes whichever level
+    the price touches first, so a long whose "stop" sits above entry banked a
+    rally as a -1R LOSS, and one whose "target" sits below entry banked a drop
+    as a WIN. Which level is wrong cannot be told from the row, so the call is
+    refused whole rather than repaired; an override fixes it.
+
+    Thesis entries are checked against the call-candle close they fill at.
+    """
+    if direction not in ("long", "short"):
+        return None
+    sign = 1.0 if direction == "long" else -1.0
+    if stop is not None and sign * (entry - stop) <= 0:
+        side = "above" if direction == "long" else "below"
+        return f"{direction} stop {stop:g} at/{side} entry {entry:g}"
+    if target is not None and sign * (target - entry) <= 0:
+        side = "below" if direction == "long" else "above"
+        return f"{direction} target {target:g} at/{side} entry {entry:g}"
+    return None
 
 
 @dataclass(frozen=True)
@@ -640,6 +670,11 @@ def score_call(
 
     ref_close = float(df_1h["close"].iloc[call_idx])
     levels = resolve_levels(call, override, ref_close)
+    violation = level_order_violation(
+        call.direction, levels.entry_px, levels.stop_px, levels.target_px
+    )
+    if violation is not None:
+        return ScoredCall(call, levels, family, STATE_INVALID_LEVELS, note=violation)
     win_ms = window_ms(call.horizon)
     data_end_ms = int(df_1h["open_time"].iloc[-1]) + HOUR_MS
     trigger_deadline = call.call_ts_ms + win_ms
@@ -929,6 +964,17 @@ def render_report(
             "below-`high` confidence; revoke the roster entry and the track "
             "record goes with it. Re-run with "
             "`--min-attribution-confidence high` to score without them.",
+            "",
+        ]
+    invalid = [sc for sc in scored if sc.state == STATE_INVALID_LEVELS]
+    if invalid:
+        lines += [
+            f"- NOTE: {len(invalid)} call(s) are {STATE_INVALID_LEVELS} — the "
+            "resolved stop or target sits on the wrong side of entry for the "
+            "stated direction, so scoring them would bank the move with the "
+            "wrong sign. Excluded from hit-rate and R; fix the row or add a "
+            "`pundit-overrides.jsonl` entry. Each is in the audit trail with "
+            "its reason.",
             "",
         ]
     lines += ["## Per author", ""]

@@ -15,6 +15,7 @@ from analytics.store.market_data import upsert_ohlcv
 from analytics.store.schema import init_schema
 from tools.pundit_score import (
     AUDIT_ELIGIBLE_N,
+    STATE_INVALID_LEVELS,
     CellStats,
     LedgerCall,
     Override,
@@ -27,6 +28,7 @@ from tools.pundit_score import (
     build_priors,
     find_call_candle,
     find_fill,
+    level_order_violation,
     load_ledger,
     load_ohlcv_for_calls,
     load_overrides,
@@ -1075,3 +1077,102 @@ class TestRCoverageDisclosure:
         assert isinstance(cell, dict)
         assert cell["r_coverage"] == pytest.approx(0.5)
         assert cell["r_n"] == 1
+
+
+class TestLevelOrderGuard:
+    """#819: levels on the wrong side of entry must refuse, never score with a sign.
+
+    ``SANITY_LO/HI`` bounds each level's magnitude alone. Without a cross-level
+    check the 1h walk banks whichever level the price touches first, so a
+    mis-ordered row reports a real move with the opposite sign.
+    """
+
+    @pytest.mark.parametrize(
+        ("direction", "entry", "stop", "target"),
+        [
+            ("long", 100.0, 90.0, 120.0),
+            ("short", 100.0, 110.0, 80.0),
+            ("long", 100.0, None, 120.0),
+            ("long", 100.0, 90.0, None),
+            ("short", 100.0, None, None),
+            ("neutral", 100.0, 120.0, 80.0),
+        ],
+    )
+    def test_well_ordered_or_absent_levels_pass(
+        self, direction: str, entry: float, stop: float | None, target: float | None
+    ) -> None:
+        assert level_order_violation(direction, entry, stop, target) is None
+
+    @pytest.mark.parametrize(
+        ("direction", "entry", "stop", "target", "names"),
+        [
+            ("long", 100.0, 110.0, 120.0, "stop"),
+            ("long", 100.0, 90.0, 80.0, "target"),
+            ("long", 100.0, 100.0, 120.0, "stop"),  # zero risk
+            ("long", 100.0, 90.0, 100.0, "target"),  # zero reward
+            ("short", 100.0, 90.0, 80.0, "stop"),
+            ("short", 100.0, 110.0, 120.0, "target"),
+            ("long", 100.0, 120.0, 90.0, "stop"),  # swapped stop/target
+        ],
+    )
+    def test_misordered_levels_are_named(
+        self,
+        direction: str,
+        entry: float,
+        stop: float | None,
+        target: float | None,
+        names: str,
+    ) -> None:
+        why = level_order_violation(direction, entry, stop, target)
+        assert why is not None and why.startswith(f"{direction} {names} ")
+
+    def test_long_stop_above_entry_no_longer_banks_a_rally_as_a_loss(self) -> None:
+        # Fill at 100, then a candle rallying to 106 touches the "stop" at 105.
+        # Unguarded this scored LOSS with r == -1.0 on a move that made money.
+        call = _call(entry="100", stop="105", target="120", horizon="intraday")
+        df = _candles([(100, 101, 99, 100), (100, 101, 99, 100), (100, 106, 100, 105)])
+        sc = _score(call, df, FAR)
+        assert sc.state == STATE_INVALID_LEVELS
+        assert sc.r is None and sc.win is None and sc.fill_px is None
+        assert "stop 105" in sc.note
+
+    def test_long_target_below_entry_no_longer_banks_a_drop_as_a_win(self) -> None:
+        call = _call(entry="100", stop="80", target="95", horizon="intraday")
+        df = _candles([(100, 101, 99, 100), (100, 101, 99, 100), (100, 100, 94, 95)])
+        sc = _score(call, df, FAR)
+        assert sc.state == STATE_INVALID_LEVELS
+        assert "target 95" in sc.note
+
+    def test_correctly_ordered_mirror_still_scores(self) -> None:
+        # Specificity: the same candles with sane levels must resolve normally,
+        # or the guard is a blanket refusal rather than an ordering check.
+        call = _call(entry="100", stop="95", target="105", horizon="intraday")
+        df = _candles([(100, 101, 99, 100), (100, 101, 99, 100), (100, 106, 100, 105)])
+        sc = _score(call, df, FAR)
+        assert sc.state == "WIN" and sc.r == 1.0
+
+    def test_thesis_entry_is_checked_against_the_call_close(self) -> None:
+        # No entry text -> thesis fill at the call candle close (100); a long
+        # "stop" at 102 is above it.
+        call = _call(entry="", stop="102", target="120", horizon="intraday")
+        df = _candles([(100, 101, 99, 100), (100, 103, 99, 102)])
+        sc = _score(call, df, FAR)
+        assert sc.levels is not None and sc.levels.entry_is_thesis
+        assert sc.state == STATE_INVALID_LEVELS
+
+    def test_an_override_repairs_the_row(self) -> None:
+        call = _call(entry="100", stop="105", target="120", horizon="intraday")
+        ov = Override(url="https://x.com/A/status/1", stop_px=95.0)
+        df = _candles([(100, 101, 99, 100), (100, 101, 99, 100), (100, 121, 100, 120)])
+        sc = _score(call, df, FAR, override=ov)
+        assert sc.state == "WIN" and sc.r == 4.0  # (120-100)/(100-95)
+
+    def test_invalid_calls_stay_out_of_hit_rate_but_are_reported(self) -> None:
+        call = _call(entry="100", stop="105", target="120", horizon="intraday")
+        df = _candles([(100, 101, 99, 100), (100, 101, 99, 100), (100, 106, 100, 105)])
+        sc = _score(call, df, FAR)
+        cell = aggregate([sc], lambda s: s.call.author)["A"]
+        assert (cell.n, cell.resolved, cell.r_n) == (1, 0, 0)
+        report = render_report([sc], [], "2026-07-31T00:00:00Z", 5)
+        assert f"1 call(s) are {STATE_INVALID_LEVELS}" in report
+        assert f"| {STATE_INVALID_LEVELS} |" in report

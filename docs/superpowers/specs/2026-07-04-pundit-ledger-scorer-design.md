@@ -141,6 +141,7 @@ The trigger window runs from `call_ts_utc`; the resolution window restarts at fi
 | UNSCORED | `direction = neutral` (2 calls) | no (listed) |
 | UNRESOLVABLE / STALE | missing symbol data / OHLCV ends before needed window | no (listed) |
 | SKIPPED | override `skip: true` | no (listed) |
+| INVALID_LEVELS | resolved stop or target on the wrong side of entry for the direction (long needs `stop < entry < target`, short the mirror). Added 2026-10-01 (#819): unguarded, the walk banked the first-touched level, so a mis-ordered row scored a real move with the opposite sign. Fix via override | no (listed, plus a report NOTE) |
 
 Nothing is silently dropped — every ledger line appears in the audit trail with its
 state and reason.
