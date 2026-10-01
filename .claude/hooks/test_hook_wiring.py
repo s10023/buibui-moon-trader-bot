@@ -57,17 +57,25 @@ def check(name: str, ok: bool, detail: str = "") -> None:
         print(f"  FAIL  {name}{(' -- ' + detail) if detail else ''}")
 
 
-def python_wrappers() -> list[tuple[str, str]]:
-    """(hook script name, wrapper command) for every wrapper that runs a .py hook."""
+def all_commands() -> list[tuple[str, str, str]]:
+    """(event, matcher, command) for every configured command hook."""
     data = json.loads(SETTINGS.read_text(encoding="utf-8"))
-    out: list[tuple[str, str]] = []
-    for groups in data.get("hooks", {}).values():
+    out: list[tuple[str, str, str]] = []
+    for event, groups in data.get("hooks", {}).items():
         for g in groups:
             for hk in g.get("hooks", []):
-                cmd = hk.get("command", "")
-                m = re.search(r"\.claude/hooks/([a-z0-9-]+\.py)", cmd)
-                if m and "jq -r" not in cmd:
-                    out.append((m.group(1), cmd))
+                if hk.get("type") == "command":
+                    out.append((event, g.get("matcher", ""), hk.get("command", "")))
+    return out
+
+
+def python_wrappers() -> list[tuple[str, str]]:
+    """(hook script name, wrapper command) for every wrapper that runs a .py hook."""
+    out: list[tuple[str, str]] = []
+    for _event, _matcher, cmd in all_commands():
+        m = re.search(r"\.claude/hooks/([a-z0-9-]+\.py)", cmd)
+        if m:
+            out.append((m.group(1), cmd))
     return out
 
 
@@ -100,6 +108,47 @@ for name, cmd in wrappers:
         f"{name}: guards a missing hook file with an explicit exit 0",
         "[ -f " in cmd and "exit 0" in cmd,
         "missing-file guard absent -> CPython exits 2 and the hook fails CLOSED",
+    )
+    # The flip side of that guard: a MISSPELT path also fails open, silently, so
+    # a wrapper naming a file that is not there is a hook that never runs.
+    check(
+        f"{name}: the wrapped hook file exists",
+        (REPO / ".claude" / "hooks" / name).is_file(),
+        "the [ -f ] guard turns a wrong path into a hook that silently never fires",
+    )
+
+# #855: the host has no `jq`. The inline `jq | head -1 | grep` post-branch
+# reminders failed there, `|| true` swallowed it, and neither ever fired -- the
+# same fail-open shape as the exit-126 interpreter. Generalised past jq: EVERY
+# configured command must be a .py-hook wrapper, so no hook can depend on a
+# binary the box may lack (jq, grep, a stray python3) outside the venv resolver.
+commands = all_commands()
+for event, matcher, cmd in commands:
+    where = f"{event}[{matcher or '*'}]"
+    check(
+        f"{where}: does not call jq",
+        re.search(r"(?:^|[\s;|&(])jq(?:\s|$)", cmd) is None,
+        cmd[:80],
+    )
+    check(
+        f"{where}: is a .py-hook wrapper, not an inline one-liner",
+        re.search(r"\.claude/hooks/[a-z0-9-]+\.py", cmd) is not None,
+        cmd[:80],
+    )
+
+# The lifecycle advisories replace the jq pair, so each leg must stay wired:
+# a dropped leg is exactly as silent as the jq failure it replaced.
+for event, matcher in (
+    ("PreToolUse", "Bash"),
+    ("PostToolUse", "Bash"),
+    ("UserPromptSubmit", ""),
+):
+    check(
+        f"advise-lifecycle.py is wired on {event}[{matcher or '*'}]",
+        any(
+            e == event and m == matcher and "advise-lifecycle.py" in c
+            for e, m, c in commands
+        ),
     )
 
 

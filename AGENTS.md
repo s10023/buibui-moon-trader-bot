@@ -1405,9 +1405,11 @@ judgement #586 and #666 defeated.
 an open PR, and every such push re-runs all CI (`pull_request: synchronize`) — ~3000 tests
 plus a 93s regression job for one paragraph.
 
-`.claude/settings.json` backstops this paragraph with a hook pair on `Bash`, and both now
-**survive a fresh clone** (they were gitignored until 2026-08-19). The `PreToolUse` leg
-fires *before* `gh pr create`, which is the useful one; the `PostToolUse` leg fires after,
-as a catch. Both anchor on `head -1` plus `(^|[;&|()]|&&)[[:space:]]*gh[[:space:]]+pr`
-`[[:space:]]+create`, so a `grep` or heredoc merely *containing* the string no longer
-self-triggers. Both are advisory and neither blocks.
+`.claude/hooks/advise-lifecycle.py` backstops this paragraph with a reminder pair on
+`Bash`. The `PreToolUse` leg fires *before* `gh pr create`, which is the useful one; the
+`PostToolUse` leg fires after, as a catch. Both read the command's FIRST LINE, anchored at a
+shell separator (`GH_TOKEN=$(…)` prefix allowed) with quoted strings blanked, so a `grep`,
+commit message or heredoc merely *containing* the string does not self-trigger. Both are
+advisory and neither blocks. ⚠ **Until #855 they were inline `jq | grep` one-liners and
+never fired on the Windows host**, which has no `jq`: the failure was swallowed by
+`|| true`. `test_hook_wiring.py` now fails any hook command that is not a `.py` wrapper.
