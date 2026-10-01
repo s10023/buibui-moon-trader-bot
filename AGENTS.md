@@ -1282,20 +1282,20 @@ blocked. Never assume the flip happened because you printed the command.
   for exactly this reason. ⚠ **But it watches ONE workflow**: the floor is `CI`'s, while
   the flip hits every workflow, so one starting after CI settles is invisible to it — it has
   already gone latent once, with `Dependency Graph` in_progress at the flip and not biting.
-  List every workflow on `main` over REST in one call — `GH_TOKEN=$(gh auth token --user s10023) gh api "repos/s10023/buibui-moon-trader-bot/actions/runs?branch=main&per_page=10" --jq '.workflow_runs[] | [.name, .status, .head_sha[0:7]] | @tsv'` —
-  never with `gh run list --branch main`, which returns wrong runs at arbitrary moments (ST147).
+  List every workflow on the merge SHA over REST in one call — `GH_TOKEN=$(gh auth token --user s10023) gh api "repos/s10023/buibui-moon-trader-bot/actions/runs?head_sha=<merge-sha>" --jq '.workflow_runs[] | [.name, .status, .conclusion] | @tsv'` —
+  and read it as UNVERIFIED unless that SHA's runs APPEAR. Never list by branch: `?branch=main`
+  over REST returned 2026-09-03 runs as newest on 2026-09-30 and 2026-10-01 while `?head_sha=`
+  was correct, and `gh run list --branch main` is wrong the same way (ST147).
   ⚠ **That call is NECESSARY BUT NOT SUFFICIENT, so the rule is check → flip → RE-VERIFY.** A
   listing cannot see a workflow that does not yet EXIST: the pre-flip listing reads clean on
   every workflow, the operator flips, and `Dependency Graph` is created on the merge SHA *after*
   the check. **Same vacuous-check shape at FOUR NESTED LAYERS** (a count of layers, not of
   sightings) — a chained job does not exist until its dependency ends · `wait-ci-main` watches
   ONE workflow and cannot see a sibling · a listing of ALL workflows cannot see one not yet
-  created · **the `gh run list` CLI listing can return the WRONG runs** — months-old ones, at
+  created · **a branch listing (`gh run list`, REST `?branch=main`) can return the WRONG runs** — months-old ones, at
   arbitrary moments and regardless of visibility (ST145, ST147) — every row green, so it reads
-  CLEAN. ⇒ **Re-verify by the
-  merge SHA over REST, and read it as UNVERIFIED unless that SHA's runs APPEAR** — an empty or
-  stale answer is not a clean one:
-  `GH_TOKEN=$(gh auth token --user s10023) gh api "repos/s10023/buibui-moon-trader-bot/actions/runs?head_sha=<merge-sha>" --jq '.workflow_runs[] | [.name, .status, .conclusion] | @tsv'`.
+  CLEAN. ⇒ **Re-verify after the flip with the same by-SHA call** — an empty or stale answer is
+  not a clean one.
   **The pattern to carry: a check is only ever true about the scope it looked at, at
   the moment it looked.** ⚠ **The outermost layer is not a one-off curiosity — it recurs on the
   flip-back, and every sighting so far was caught by the post-flip re-verify and by nothing
