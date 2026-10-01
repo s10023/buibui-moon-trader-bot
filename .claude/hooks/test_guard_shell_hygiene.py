@@ -212,6 +212,28 @@ check(
     run("make sanity-checks | head -20", session="p5"),
     must_contain="exit status is SWALLOWED",
 )
+# #856: the pipe half is scoped to the gate's OWN segment. Unscoped, it crossed a
+# `;` into a later segment and flagged a status that was captured and re-raised.
+check(
+    "a pipe AFTER the status is captured is silent (#856)",
+    run(
+        "make post-branch-checks > f 2>&1; rc=$?; grep -v x f | head -80; exit $rc",
+        session="n9",
+    ),
+    must_be_silent=True,
+)
+check(
+    "...the Issue's own example is silent too",
+    run("make test > f 2>&1; rc=$?; grep x f | head; exit $rc", session="n10"),
+    must_be_silent=True,
+)
+# Positive control for that scoping: when the LAST segment is a pipeline into a
+# truncator, the shell's status is the truncator's and the gate's is lost.
+check(
+    "a trailing pipeline into tail swallows the status",
+    run("make preflight > f 2>&1; grep -v x f | tail -3", session="p9"),
+    must_contain="exit status is SWALLOWED",
+)
 
 # --- 3. NEGATIVE cases -- a false positive costs the whole hook its reader ---
 check(
@@ -738,6 +760,46 @@ try:
     check(
         "MUTATION: ...and the PIPE half still fires (scoped, not blanket)",
         run("make preflight | tail -1", session="m2c", hook=_m2b),
+        must_contain="SWALLOWED",
+    )
+
+    # #856, mutation 1: let the pipe half cross `;` again -> the captured-status
+    # form fires. Proves the `;` in the class is what silences it.
+    _m2d = _mut / "pipe-half-unscoped.py"
+    _m2d.write_text(
+        HOOK.read_text(encoding="utf-8").replace(
+            r'rf"{_GATE}(?:[^\n|;]*\|\s*{_TRUNCATOR}"',
+            r'rf"{_GATE}(?:[^\n|]*\|\s*{_TRUNCATOR}"',
+        ),
+        encoding="utf-8",
+    )
+    check(
+        "MUTATION: pipe half crosses `;` -> a captured status FIRES (#856)",
+        run(
+            "make post-branch-checks > f 2>&1; rc=$?; grep -v x f | head -80; exit $rc",
+            session="m2d",
+            hook=_m2d,
+        ),
+        must_contain="SWALLOWED",
+    )
+
+    # #856, mutation 2: drop the trailing-pipeline alternative -> the last-segment
+    # pipeline goes silent, while the `; echo` swallow must still fire.
+    _m2e = _mut / "no-trailing-pipeline.py"
+    _m2e.write_text(
+        HOOK.read_text(encoding="utf-8").replace(
+            r"|[^\n;|]*\|\s*{_TRUNCATOR}[^\n;]*)$)", ")$)"
+        ),
+        encoding="utf-8",
+    )
+    check(
+        "MUTATION: no trailing-pipeline alternative -> `; grep | tail` is silent",
+        run("make preflight > f 2>&1; grep -v x f | tail -3", session="m2e", hook=_m2e),
+        must_be_silent=True,
+    )
+    check(
+        "MUTATION: ...and the `; echo` swallow still fires (scoped, not blanket)",
+        run('make preflight > f 2>&1; echo "EXIT=$?"', session="m2f", hook=_m2e),
         must_contain="SWALLOWED",
     )
 
