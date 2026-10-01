@@ -67,6 +67,16 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "h=\"$CLAUDE_PROJECT_DIR/.claude/hooks/telegram-notify.py\"; [ -f \"$h\" ] || exit 0; for p in \"$CLAUDE_PROJECT_DIR/.venv/Scripts/python.exe\" \"$CLAUDE_PROJECT_DIR/.venv/bin/python\"; do [ -x \"$p\" ] && exec \"$p\" \"$h\"; done; command -v python3 >/dev/null 2>&1 && exec python3 \"$h\"; exec python \"$h\""
+          }
+        ]
+      }
     ]
   },
   "enabledPlugins": {

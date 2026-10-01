@@ -113,6 +113,13 @@ jobs:
       - name: Lifecycle-advisory hook suite
         run: python3 .claude/hooks/test_advise_lifecycle.py
 
+      # The skill-completion Telegram push (#828). A Stop hook that stops
+      # detecting skills goes SILENT, which looks exactly like the mode being
+      # off -- so its detection, dedup and 46-column contract ride the same
+      # unconditional job. Telegram itself is never called: the sender is faked.
+      - name: Telegram-notify hook suite
+        run: python3 .claude/hooks/test_telegram_notify.py
+
   lint-typecheck-test:
     runs-on: ubuntu-latest
     timeout-minutes: 20

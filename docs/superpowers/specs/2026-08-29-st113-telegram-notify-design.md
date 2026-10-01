@@ -1,6 +1,6 @@
 # ST113 — task/skill completion push to Telegram (design)
 
-**Date:** 2026-08-29 · **Status:** DESIGN for operator review, unimplemented · **SoT:** ST113
+**Date:** 2026-08-29 · **Status:** RULED 2026-10-01 (all three recommendations accepted, #828) · IMPLEMENTED: v1 skill pushes; long-task pushes are v2 · **SoT:** ST113
 **Owner surface:** `.claude/settings.json` (Stop hook) + a renderer under `tools/` +
 `utils/telegram.py` (unchanged)
 
@@ -66,6 +66,13 @@ so new traffic no longer routes through the fold-destroyed format.
   falls back to skill-side opt-in (each allowlisted SKILL.md's final step calls the push
   tool directly) — same renderer, same allowlist, no hook. Decide at implementation, not by
   re-litigating this doc.
+  **Decided at implementation (2026-10-01): hook-side, from the transcript.** The payload
+  carries `session_id` / `transcript_path` / `cwd` but no skill name, so `last_turn` reads the
+  transcript: `Skill` tool_use `input.skill` plus typed `<command-name>/x</command-name>` rows,
+  scoped to the newest turn. The skill-side fallback was not taken because it relies on the
+  model remembering a final step, which is the prose route this design rejects.
+- **Double-push:** solved with a per-session marker keyed on the turn's opening-row uuid
+  (`docs/plans/.telegram-notify-state.json`).
 
 ## Implementation sketch (for the executing session, not begun here)
 
