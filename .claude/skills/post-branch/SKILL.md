@@ -754,7 +754,10 @@ State"** at the end of every session. This is project policy (CLAUDE.md
   `memory/project_session_log_<month>.md`. Prune by MOVING, never by deleting —
   session logs have no size limit; that is what they are for.
 - Convert any relative dates ("Thursday") to absolute (`2026-05-01`)
-- Update / remove "Open questions / pending decisions" as appropriate
+- **Do NOT record open questions or pending decisions here.** File each as an Issue
+  labelled `question` (Step 5b), and if MEMORY.md still carries such a line, move it to an
+  Issue and delete it. MEMORY.md keeps the last-session line plus judgement and verdicts;
+  open work lives in Issues only (CLAUDE.md, operator ruling 2026-10-01, #865).
 
 **There is no "Previous session" bullet, and there has not been one for
 months.** This step used to say *"Set 'Last session' … move the previous to
@@ -780,8 +783,9 @@ takes no status.
 **Two questions. First: does this branch close, change, or contradict an open Issue?**
 If it closes one, put `Closes #<n>` in the PR body (Step 6) so the merge closes it, and add a
 one-line verdict comment. If it only changes or contradicts one, comment on the Issue **now,
-in this same session**. A branch that surfaces a NEW to-do files a new Issue — never a memory
-row. Issues publish with the repo on a visibility flip: redact account figures and screen any
+in this same session**. A branch that surfaces a NEW to-do, future plan, skill fix, open
+question or pending decision files a new Issue — never a memory row, never a handoff list.
+Questions and decisions waiting on the operator carry the `question` label. Issues publish with the repo on a visibility flip: redact account figures and screen any
 composed body with `make post-branch-text FILE=<path>`.
 
 Cheap way to find the Issue — the old SoT id (e.g. `ST139`) survives in each migrated body:
@@ -1211,9 +1215,16 @@ the point. Keep updating that same file rather than starting a new one; it is
 a standing document whose whole value is being current, and keeping it so is
 a final step of every task, not only of this skill.
 
+**The handoff carries SEQUENCING, never open work** (operator ruling of
+2026-10-01, Issue #865). It holds an ordered list of Issue numbers to work, host state, and
+standing hazards. A to-do, skill fix, open question, pending decision, "operator
+also wants" or "offered, not ruled" item is an Issue (Step 5b) — if you find one
+written here, file it and replace it with its Issue number. Lists that lived only
+in this file were never filed and went unseen by every Issue query.
+
 **Update it with targeted `Edit`s. NEVER `Write` the whole file.** Its back
-half carries standing content — Standing findings, the skill-fix queue, open
-questions — that the template below does not reproduce, so a wholesale
+half carries standing content — Standing findings and hazards — that the
+template below does not reproduce, so a wholesale
 overwrite silently destroys it. This is not theoretical: it is why the
 "Standing blocks" subsection exists two paragraphs down, and it was
 re-confirmed on 2026-08-06j and again on 2026-08-07 when a 449-line prune ran
@@ -1234,8 +1245,10 @@ next session DOES"**:
 - **Condense to one line + pointer:** a closed task whose VERDICT still binds
   ("do not rebuild X", "do not re-run Y"). The verdict survives; the story of
   reaching it does not.
-- **Keep:** the daily operator check, Standing findings, the skill-fix queue,
-  open questions.
+- **Keep:** the daily operator check, Standing findings and hazards, host state,
+  the ordered Issue list.
+- **Move to an Issue, then delete:** any skill-fix queue, open question, pending
+  decision or task list still written here.
 
 **Read a closed section before deleting it — open items hide inside sections
 headed "DONE".** Measured on 2026-08-07: an uncoded `xs_gate_verdict` item sat
@@ -1291,18 +1304,11 @@ what's live, what's in soft mode, what's still pending. Absolute dates.>
 - Memory: the tree `tools/memory_dir.py` resolves — `$(PYTHONPATH=. poetry run python tools/memory_dir.py)/MEMORY.md`. ⚠ Write the RESOLVED path into the handoff, never the template string: the config root and the project slug both vary by host.
 - <Other docs / tools / branches the next session will need>
 
-## Suggested next tasks (pick one, or work in order)
+## Order of work (Issue numbers — the Issue holds the detail)
 
-### Task 1 — <name>
-<2–4 sentences: what, why, where to start (file paths). Include the
-"cheapest move" or "recommended endgame" framing if there's a clear
-ranking.>
-
-### Task 2 — <name>
-<…>
-
-### Task 3 — <name>
-<…>
+1. #<n> — <title>. <one line: why it is first, or what it is blocked on>
+2. #<n> — <title>
+3. #<n> — <title>
 ```
 
 ### Standing blocks — EDIT IN PLACE, never regenerate
@@ -1330,7 +1336,10 @@ Blocks that outlive any one PR — refresh only their dated lines:
   `make buibui-signal-watch` is the *looping* form, which races the timer for
   `signal_state.json` and duplicates Telegram. Force a run with
   `systemctl --user start <name>.service`.
-- **Skill-fix queue** and **open questions** — these outlive any one PR.
+- **Standing hazards and host state** — these outlive any one PR. ⚠ The
+  skill-fix queue and open questions USED to be standing blocks here; since
+  2026-10-01 (#865) they are Issues (`question` label for the latter), so do
+  not re-create either block.
 - **The lessons corpus** — as of 2026-08-07 this no longer lives in the handoff.
   It grew append-only to 347 lines that reduced to two principles restated
   sixteen times. It now lives in memory, read on trigger:
@@ -1352,10 +1361,11 @@ Source the content from:
    2026-08-07.) Convert any relative dates to absolute.
 2. **This PR's findings** — if the PR closed an option or unblocked one,
    say so plainly so the next session doesn't re-ask.
-3. **Open questions / pending decisions** — pull anything that becomes
-   immediately actionable now that this PR shipped.
+3. **Open Issues** — the SessionStart digest's p1/p2 queue, plus any
+   `question` Issue this PR answered or made actionable. Name Issues by number;
+   never restate their bodies here.
 
-Keep it tight: 1–3 task suggestions, not a backlog dump. The goal is a
+Keep it tight: 1–3 Issue numbers in order, not a backlog dump. The goal is a
 prompt that costs zero context to bring a fresh session up to speed.
 
 Print only the path + a one-line description. Do **not** echo the
