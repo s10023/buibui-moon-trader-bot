@@ -539,7 +539,7 @@ class TestManifestIsValidJson:
 
         assert r.returncode == 0, r.stdout + r.stderr
         snapshot = sorted((tmp_path / "backups" / "daily").iterdir())[-1]
-        manifest = json.loads((snapshot / "MANIFEST.json").read_text("utf-8"))
+        manifest = json.loads((snapshot / "MANIFEST.json").read_text(encoding="utf-8"))
         assert manifest["source"] == str(repo / "analytics.db")
         assert manifest["row_counts"] == {"signal_alert_outcomes": 1}
         assert isinstance(manifest["source_bytes"], int)
