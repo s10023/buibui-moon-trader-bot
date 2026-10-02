@@ -28,6 +28,7 @@ copied happily and read as current.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -512,3 +513,44 @@ class TestBothConfigRootsAreCovered:
             "the live tree was copied WITHOUT the entry -- these tests would pass "
             "against the defect and guard nothing"
         )
+
+
+class TestManifestIsValidJson:
+    """MANIFEST.json is built through a JSON encoder, never a printf format string.
+
+    printf interpolated the source path raw, so any field carrying a backslash
+    wrote an illegal escape (a Windows `C:` path spelled with backslashes makes
+    `\\U`) and the manifest was unparseable. `backup_check` degrades on
+    JSONDecodeError, so the symptom was a check stuck reading stale rather than
+    an error (wifey #295). The repo path is the field that reaches the manifest
+    raw, so a repo whose path carries a backslash AND a double quote is the
+    smallest input that broke the old form.
+    """
+
+    def test_a_path_with_a_backslash_and_a_quote_still_parses(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        awkward = tmp_path / 'we\\ird"dir'
+        awkward.mkdir()
+        repo = awkward / "repo"
+        shutil.move(str(fake_repo), str(repo))
+
+        r = _run(repo, tmp_path)
+
+        assert r.returncode == 0, r.stdout + r.stderr
+        snapshot = sorted((tmp_path / "backups" / "daily").iterdir())[-1]
+        manifest = json.loads((snapshot / "MANIFEST.json").read_text("utf-8"))
+        assert manifest["source"] == str(repo / "analytics.db")
+        assert manifest["row_counts"] == {"signal_alert_outcomes": 1}
+        assert isinstance(manifest["source_bytes"], int)
+        assert isinstance(manifest["snapshot_bytes"], int)
+        assert set(manifest) == {
+            "captured_at_utc",
+            "method",
+            "source",
+            "source_bytes",
+            "snapshot_bytes",
+            "git_commit",
+            "duckdb",
+            "row_counts",
+        }
