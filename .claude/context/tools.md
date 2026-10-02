@@ -183,6 +183,10 @@ shell blocks. The rule they exist to satisfy: *a self-check outside CI is not a 
   numpy, so the gate exits 3 and this branch's clean-clone property is unverifiable
   there — CI is the only verifier.** Read a 3 as "the gate did not run", never as a pass:
   the banner says so, and it is the same "a SKIP is not a PASS" rule the sweep encodes.
+  When run from inside a virtualenv (as `make preflight` does via `.venv`), it first creates
+  the clone's `.venv` from that same interpreter, so poetry adopts it rather than building one
+  on its own python. On the cloud host poetry runs under 3.11 against a 3.13 project, and
+  every preflight there died at collection until this (#871).
   ⚠ The Makefile RESOLVES its interpreter rather than calling a bare `python3`, which on
   that host is the Microsoft Store stub and exits `Permission denied` without running
   anything — before that fix the gate could not even start, which looks identical to a
@@ -266,7 +270,11 @@ shell blocks. The rule they exist to satisfy: *a self-check outside CI is not a 
   a flip of a private repo to public in order to debug a test timeout. **Billing keys
   on the CONCLUSION, not the count:** an exhausted allowance FAILS a job in 2-4s and
   never skips one, so a billing-dead matrix still carries a FAILURE row with `steps=0`
-  and is still caught.
+  and is still caught. ⚠ **A CANCELLED job is the same shape** (#878, 2026-10-01): a
+  newer push to main cancels the pinned run through `cancel-in-progress`. The branch gate
+  now re-reads the head on a cancel, prints `SUPERSEDED` naming the new SHA, and gates on
+  that SHA inside the same deadline. A cancel with the head unmoved reports CANCELLED
+  (exit 1), never BILLING.
 
 Two fixes were made to the originals during the port and are owed back to wifey:
 `PATH_REF_RE` now requires a real file extension (a `module.symbol` citation was parsing as
