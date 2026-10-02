@@ -17,6 +17,7 @@ they cover was absent or wrong in a shipped version:
 from __future__ import annotations
 
 import subprocess
+import time
 from typing import Any
 
 import pytest
@@ -308,6 +309,13 @@ class TestJobsForSha:
         assert len(names) == 3
 
 
+@pytest.fixture
+def no_cancelled_runs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unsettled probe lists the SHA's runs; default them to none cancelled."""
+    monkeypatch.setattr("tools.wait_ci.runs_for_sha", lambda s, **k: [])
+
+
+@pytest.mark.usefixtures("no_cancelled_runs")
 class TestWaitBranch:
     def _jobs(self, n: int, completed: int) -> list[dict]:
         return [
@@ -359,12 +367,13 @@ class TestWaitBranch:
         assert wait_branch("main", 5, 0.0, 0) == EXIT_TIMEOUT
 
 
+@pytest.mark.usefixtures("no_cancelled_runs")
 class TestSupersededRun:
     """#878: a run cancelled by a newer push on the gated branch is not a failure.
 
     The 2026-10-01 shape: the gate pinned `6a55fcf`, two Dependabot merges moved
-    main, `cancel-in-progress` cancelled the pinned run, and the run on the new
-    head `afba967` was green.
+    main, GitHub cancelled the pinned run while it was still PENDING (so it
+    created no jobs at all), and the run on the new head `afba967` was green.
     """
 
     OLD, NEW = "6a55fcf" + "0" * 33, "afba967" + "0" * 33
@@ -439,6 +448,55 @@ class TestSupersededRun:
         assert "CANCELLED" in out
         assert "SUPERSEDED" not in out
         assert "BILLING" not in out
+
+    def test_a_run_cancelled_before_creating_jobs_is_followed(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The measured `6a55fcf` listing: CI `cancelled` with ZERO jobs, beside one
+        green Trivy job. No job carries the cancel, so only the RUN shows it; a
+        job-level check sat under the floor until the timeout."""
+        heads = [self.OLD, self.NEW]
+        monkeypatch.setattr("tools.wait_ci.branch_head_sha", lambda b: heads.pop(0))
+        by_sha = {self.OLD: self._green(1), self.NEW: self._green(5)}
+        monkeypatch.setattr("tools.wait_ci.jobs_for_sha", lambda s, **k: by_sha[s])
+        runs = {
+            self.OLD: [{"conclusion": "success"}, {"conclusion": "cancelled"}],
+            self.NEW: [{"conclusion": None}],
+        }
+        monkeypatch.setattr("tools.wait_ci.runs_for_sha", lambda s, **k: runs[s])
+
+        assert wait_branch("main", 5, time.time() + 3, 0) == EXIT_OK
+        out = capsys.readouterr().out
+        assert "SUPERSEDED" in out
+        assert "safe to flip the repo back to private." in out
+
+    def test_a_pending_run_cancelled_by_hand_ends_at_once(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Head unmoved, no jobs coming: report CANCELLED, never wait for a timeout."""
+        monkeypatch.setattr("tools.wait_ci.branch_head_sha", lambda b: self.OLD)
+        monkeypatch.setattr("tools.wait_ci.jobs_for_sha", lambda s, **k: self._green(1))
+        monkeypatch.setattr(
+            "tools.wait_ci.runs_for_sha", lambda s, **k: [{"conclusion": "cancelled"}]
+        )
+
+        assert wait_branch("main", 5, time.time() + 3, 0) == EXIT_FAILED
+        out = capsys.readouterr().out
+        assert "CANCELLED" in out
+        assert "SUPERSEDED" not in out
+        assert "BILLING" not in out
+
+    def test_a_settled_gate_never_lists_runs(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def boom(s: str, **k: Any) -> list[dict]:
+            raise AssertionError("listed runs for a gate whose jobs had settled")
+
+        monkeypatch.setattr("tools.wait_ci.branch_head_sha", lambda b: self.OLD)
+        monkeypatch.setattr("tools.wait_ci.jobs_for_sha", lambda s, **k: self._green(5))
+        monkeypatch.setattr("tools.wait_ci.runs_for_sha", boom)
+
+        assert wait_branch("main", 5, _soon(), 0) == EXIT_OK
 
     def test_verdict_does_not_read_a_cancelled_row_as_billing(self) -> None:
         code, lines = verdict([JobRow("lint", "CANCELLED", 0, 0)])

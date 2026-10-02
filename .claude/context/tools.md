@@ -271,10 +271,13 @@ shell blocks. The rule they exist to satisfy: *a self-check outside CI is not a 
   on the CONCLUSION, not the count:** an exhausted allowance FAILS a job in 2-4s and
   never skips one, so a billing-dead matrix still carries a FAILURE row with `steps=0`
   and is still caught. ⚠ **A CANCELLED job is the same shape** (#878, 2026-10-01): a
-  newer push to main cancels the pinned run through `cancel-in-progress`. The branch gate
-  now re-reads the head on a cancel, prints `SUPERSEDED` naming the new SHA, and gates on
-  that SHA inside the same deadline. A cancel with the head unmoved reports CANCELLED
-  (exit 1), never BILLING.
+  newer push to main cancels the pinned run. Not through `cancel-in-progress`, which is
+  false on push: a concurrency group keeps one running and one PENDING run, and the newer
+  push cancels the pending one **before it creates any jobs**, so the cancel shows on the
+  RUN and on no job (measured on `6a55fcf`). The branch gate checks both levels, re-reads
+  the head on a cancel, prints `SUPERSEDED` naming the new SHA, and gates on that SHA
+  inside the same deadline. A cancel with the head unmoved reports CANCELLED (exit 1),
+  never BILLING, and never waits out the timeout for jobs that will not appear.
 
 Two fixes were made to the originals during the port and are owed back to wifey:
 `PATH_REF_RE` now requires a real file extension (a `module.symbol` citation was parsing as
