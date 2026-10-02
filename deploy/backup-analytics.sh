@@ -598,18 +598,36 @@ for spec in "${EXTERNAL_LEDGER_DIRS[@]}"; do
 done
 
 # --- manifest -----------------------------------------------------------------
-{
-    printf '{\n'
-    printf '  "captured_at_utc": "%s",\n' "$now"
-    printf '  "method": "%s",\n' "$method"
-    printf '  "source": "%s",\n' "$DB"
-    printf '  "source_bytes": %s,\n' "$(stat -c %s "$DB")"
-    printf '  "snapshot_bytes": %s,\n' "$(stat -c %s "$daily_dir/analytics.db")"
-    printf '  "git_commit": "%s",\n' "$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)"
-    printf '  "duckdb": "%s",\n' "$("$PY" -c 'import duckdb; print(duckdb.__version__)' 2>/dev/null || echo unknown)"
-    printf '  "row_counts": %s\n' "$verify_json"
-    printf '}\n'
-} > "$daily_dir/MANIFEST.json"
+# Every field goes through a JSON encoder, never a printf format string. printf
+# interpolated `$DB` raw, so a path carrying a backslash (a Windows `C:\Users`
+# spelling makes `\U`) wrote an illegal escape and every manifest came out
+# unparseable -- and `backup_check` degrades on JSONDecodeError, so the symptom
+# was a permanently-stale check rather than an error (wifey #295). Encoding the
+# whole object means the next field added cannot reintroduce it.
+# MANIFEST.json's presence is what marks a snapshot verified, so a failed write
+# removes the partial file and dies rather than leaving one behind.
+"$PY" - "$daily_dir/MANIFEST.json" \
+    "$now" "$method" "$DB" \
+    "$(stat -c %s "$DB")" "$(stat -c %s "$daily_dir/analytics.db")" \
+    "$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)" \
+    "$("$PY" -c 'import duckdb; print(duckdb.__version__)' 2>/dev/null || echo unknown)" \
+    "$verify_json" <<'PYEOF' || { rm -f "$daily_dir/MANIFEST.json"; die "could not write MANIFEST.json"; }
+import json, sys
+out, now, method, src, src_bytes, snap_bytes, commit, duck, counts = sys.argv[1:]
+manifest = {
+    "captured_at_utc": now,
+    "method": method,
+    "source": src,
+    "source_bytes": int(src_bytes),
+    "snapshot_bytes": int(snap_bytes),
+    "git_commit": commit,
+    "duckdb": duck,
+    "row_counts": json.loads(counts),
+}
+with open(out, "w", encoding="utf-8", newline="\n") as fh:
+    json.dump(manifest, fh, indent=2)
+    fh.write("\n")
+PYEOF
 
 # --- publish atomically -------------------------------------------------------
 # Only now, with the snapshot verified and manifested, does it take the name a

@@ -111,13 +111,21 @@ class TestClaudeCliClient:
         runner = RecordingRunner([_proc(_envelope('{"x": 1}'))])
         assert _client(runner).generate("p").text == '{"x": 1}'
 
-    def test_thinking_and_tools_are_off_by_default(self) -> None:
+    def test_thinking_and_tools_are_off_by_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """The shipped default must not change how a card reasons.
 
         Both knobs are opt-in: the 8x speedup they unlock was validated on ONE
         sample, and the verdict moved against baseline in that sample. This test
         is the guard that nobody flips the default without doing that work.
+
+        The client passes the host env through, so a host that exports
+        MAX_THINKING_TOKENS (the cloud harness does) would fail this on the
+        inherited value rather than on the default. Clear it so the test reads
+        only what the client itself sets.
         """
+        monkeypatch.delenv("MAX_THINKING_TOKENS", raising=False)
         runner = RecordingRunner([_proc(_envelope("ok"))])
         _client(runner).generate("p")
         call = runner.calls[0]

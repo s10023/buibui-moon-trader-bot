@@ -47,6 +47,18 @@ Every guard here is a recorded scar, so none of them is decoration:
   contradicts the paths-filter claim in `AGENTS.md`, which is correct. The BILLING
   discriminator is untouched: an exhausted allowance declares nothing, so
   ``steps=0/0`` still settles it, and populated-vs-empty remains the test.
+* ⚠ **A run CANCELLED by a newer push is SUPERSEDED, not failed** (#878,
+  2026-10-01). The branch gate pins main's head SHA at start; two Dependabot
+  merges landed while it waited and GitHub cancelled the pinned run, while the
+  run on the new head was green. It was NOT `cancel-in-progress` (false on push):
+  a concurrency group keeps one running and one PENDING run, and a newer push
+  cancels the pending one before it creates any jobs — so the cancel shows on
+  the RUN, never on a job, and a job-only check misses it (`was_cancelled`).
+  Telling the two apart took a manual by-SHA listing. A
+  cancel now makes the gate re-read the branch head: if it moved, it prints
+  a SUPERSEDED banner naming the new head and gates on THAT, inside the same
+  deadline. A cancelled job with the head unmoved is reported as cancelled — never
+  as billing, since a cancelled job can execute zero steps exactly as a skip can.
 * ⚠ **A `gh` failure RAISES; it is never turned into data.** This is the fix that
   motivated the rewrite. The previous `gh()` returned `""` on a non-zero exit, so
   an unreadable `actions/runs` response left every step count at `None` and the
@@ -177,13 +189,16 @@ def fmt_steps(row: JobRow) -> str:
 def verdict(rows: Sequence[JobRow]) -> tuple[int, list[str]]:
     """Exit code plus printable lines for a settled set of checks."""
     out: list[str] = ["  (steps are EXECUTED/DECLARED; a filtered job skips its body)"]
-    billing = failed = unknown = skipped = 0
+    billing = failed = unknown = skipped = cancelled = 0
     for row in sorted(rows, key=lambda r: r.name):
         conclusion = row.conclusion.upper()
         flag = ""
         if conclusion == "SKIPPED":
             skipped += 1
             flag = "  <-- skipped: it never STARTED; see the note below"
+        elif conclusion == "CANCELLED":
+            cancelled += 1
+            flag = "  <-- cancelled: NOT billing; see the note below"
         elif row.steps == 0:
             billing += 1
             flag = "  <-- steps=0: BILLING, flip the repo public; do NOT debug"
@@ -202,6 +217,12 @@ def verdict(rows: Sequence[JobRow]) -> tuple[int, list[str]]:
             "allowance FAILS a job in 2-4s, it never skips one — so read the "
             "failing job below, and do not flip the repo."
         )
+    if cancelled:
+        out.append(
+            f"\n{cancelled} check(s) were CANCELLED, which is NOT billing: a newer "
+            "push in the same concurrency group, or a manual cancel. Re-run the "
+            "workflow, or gate on the newer commit."
+        )
     if billing:
         out.append(
             f"\n{billing} check(s) never ran (steps=0). "
@@ -210,6 +231,8 @@ def verdict(rows: Sequence[JobRow]) -> tuple[int, list[str]]:
         return EXIT_BILLING, out
     if failed:
         out.append(f"\n{failed} check(s) genuinely failed.")
+        return EXIT_FAILED, out
+    if cancelled:
         return EXIT_FAILED, out
     if unknown:
         out.append(
@@ -259,13 +282,34 @@ def jobs_for_sha(sha: str, events: tuple[str, ...] | None = None) -> list[dict]:
     mode against a real merged SHA, which reported `jobs=6` where every document
     here says 5; reading the code would not have shown it.
     """
+    jobs: list[dict] = []
+    for run in runs_for_sha(sha, events):
+        jobs += gh_json("api", f"repos/{REPO}/actions/runs/{run['id']}/jobs")["jobs"]
+    return jobs
+
+
+def runs_for_sha(sha: str, events: tuple[str, ...] | None = None) -> list[dict]:
+    """Workflow runs for one SHA, optionally restricted to given trigger events."""
     runs = gh_json("api", f"repos/{REPO}/actions/runs?head_sha={sha}")["workflow_runs"]
     if events is not None:
         runs = [r for r in runs if r.get("event") in events]
-    jobs: list[dict] = []
-    for run in runs:
-        jobs += gh_json("api", f"repos/{REPO}/actions/runs/{run['id']}/jobs")["jobs"]
-    return jobs
+    return list(runs)
+
+
+def was_cancelled(jobs: Sequence[dict], runs: Callable[[], list[dict]]) -> bool:
+    """Whether the gated SHA's push run was cancelled, at job OR run level.
+
+    ⚠ **The job-level test alone misses the common case.** A concurrency group
+    holds one running and one PENDING run; a newer push cancels the pending one
+    before it creates any jobs, so the cancel shows ONLY on the run (measured on
+    `6a55fcf`: CI run `cancelled` with zero jobs, beside a green Trivy job). With
+    no cancelled job to see, the gate sat under its floor until the timeout.
+    ``runs`` is called only when no job shows the cancel.
+    """
+    done = [j for j in jobs if j.get("status") == "completed"]
+    if any((j.get("conclusion") or "").lower() == "cancelled" for j in done):
+        return True
+    return any((r.get("conclusion") or "").lower() == "cancelled" for r in runs())
 
 
 def step_counts(job: dict) -> tuple[int, int]:
@@ -333,19 +377,71 @@ def wait_pr(pr: str, floor: int, deadline: float, poll_sec: int) -> int:
 
 def wait_branch(branch: str, floor: int, deadline: float, poll_sec: int) -> int:
     sha = branch_head_sha(branch)
+    while True:
+        code, newer = _gate_sha(branch, sha, floor, deadline, poll_sec)
+        if newer is None:
+            return code
+        print(
+            f"\nSUPERSEDED — the run on {sha[:8]} was cancelled because {branch} "
+            f"moved to {newer[:8]}. That is not a failure; gating on {newer[:8]} "
+            "instead.",
+            flush=True,
+        )
+        sha = newer
+
+
+def _gate_sha(
+    branch: str, sha: str, floor: int, deadline: float, poll_sec: int
+) -> tuple[int, str | None]:
+    """Gate one SHA's push run. Returns ``(code, None)``, or ``(_, newer_sha)``.
+
+    The second form means a cancel was seen (job or run level, `was_cancelled`)
+    AND the branch head has moved, so the caller should gate on the newer SHA.
+    The head is re-read only once a cancel appears.
+
+    A cancel with the head UNMOVED that left the run short of the floor (a
+    pending run cancelled by hand never creates its jobs) ends the gate as
+    CANCELLED at once rather than waiting out the deadline for jobs that will
+    never exist.
+    """
     print(f"gating {branch} @ {sha[:8]} on >={floor} completed jobs", flush=True)
     jobs: list[dict] = []
+    superseded_by: str | None = None
+    cancelled_short = False
 
     def probe() -> bool:
-        nonlocal jobs
+        nonlocal jobs, superseded_by, cancelled_short
         jobs = jobs_for_sha(sha, events=("push",))
         done = [j for j in jobs if j.get("status") == "completed"]
         print(f"  jobs={len(jobs)} completed={len(done)}", flush=True)
-        return is_settled(len(jobs), len(done), floor)
+        settled = is_settled(len(jobs), len(done), floor)
+
+        def fetch_runs() -> list[dict]:
+            # A settled gate needs no run listing: its jobs already say it all.
+            return [] if settled else runs_for_sha(sha, events=("push",))
+
+        if was_cancelled(jobs, fetch_runs):
+            head = branch_head_sha(branch)
+            if head != sha:
+                superseded_by = head
+                return True
+            if not settled and len(done) == len(jobs):
+                cancelled_short = True
+                return True
+        return settled
 
     if not poll(probe, deadline, poll_sec, branch):
         print(f"TIMEOUT waiting for {branch}'s push run", file=sys.stderr)
-        return EXIT_TIMEOUT
+        return EXIT_TIMEOUT, None
+    if superseded_by is not None:
+        return EXIT_FAILED, superseded_by
+    if cancelled_short:
+        print(
+            f"\nCANCELLED — a push run on {sha[:8]} was cancelled with {branch} "
+            f"still at {sha[:8]}, before reaching {floor} jobs. NOT billing and "
+            "not superseded: a manual cancel. Re-run the workflow.",
+        )
+        return EXIT_FAILED, None
 
     rows = []
     for j in jobs:
@@ -356,7 +452,7 @@ def wait_branch(branch: str, floor: int, deadline: float, poll_sec: int) -> int:
     print("\n".join(lines))
     if code == EXIT_OK:
         print("safe to flip the repo back to private.")
-    return code
+    return code, None
 
 
 def main(argv: Sequence[str] | None = None) -> int:
