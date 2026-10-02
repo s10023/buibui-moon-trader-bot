@@ -359,6 +359,93 @@ class TestWaitBranch:
         assert wait_branch("main", 5, 0.0, 0) == EXIT_TIMEOUT
 
 
+class TestSupersededRun:
+    """#878: a run cancelled by a newer push on the gated branch is not a failure.
+
+    The 2026-10-01 shape: the gate pinned `6a55fcf`, two Dependabot merges moved
+    main, `cancel-in-progress` cancelled the pinned run, and the run on the new
+    head `afba967` was green.
+    """
+
+    OLD, NEW = "6a55fcf" + "0" * 33, "afba967" + "0" * 33
+
+    @staticmethod
+    def _cancelled(n: int, *, steps: int) -> list[dict]:
+        return [
+            {
+                "name": f"job{i}",
+                "status": "completed",
+                "conclusion": "cancelled",
+                "steps": [{}] * steps,
+            }
+            for i in range(n)
+        ]
+
+    @staticmethod
+    def _green(n: int) -> list[dict]:
+        return [
+            {
+                "name": f"job{i}",
+                "status": "completed",
+                "conclusion": "success",
+                "steps": [{}] * 9,
+            }
+            for i in range(n)
+        ]
+
+    def test_follows_the_new_head_and_reports_it_green(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        heads = [self.OLD, self.NEW, self.NEW]
+        monkeypatch.setattr("tools.wait_ci.branch_head_sha", lambda b: heads.pop(0))
+        by_sha = {self.OLD: self._cancelled(3, steps=0), self.NEW: self._green(5)}
+        seen: list[str] = []
+
+        def jobs(sha: str, **_: Any) -> list[dict]:
+            seen.append(sha)
+            return by_sha[sha]
+
+        monkeypatch.setattr("tools.wait_ci.jobs_for_sha", jobs)
+
+        assert wait_branch("main", 5, _soon(), 0) == EXIT_OK
+        out = capsys.readouterr().out
+        assert "SUPERSEDED" in out
+        assert "afba967" in out
+        assert "safe to flip the repo back to private." in out
+        assert seen == [self.OLD, self.NEW]
+
+    def test_a_superseded_zero_step_run_is_never_called_billing(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A cancelled job can execute nothing; read as billing it says "go public"."""
+        heads = [self.OLD, self.NEW, self.NEW]
+        monkeypatch.setattr("tools.wait_ci.branch_head_sha", lambda b: heads.pop(0))
+        by_sha = {self.OLD: self._cancelled(5, steps=0), self.NEW: self._green(5)}
+        monkeypatch.setattr("tools.wait_ci.jobs_for_sha", lambda s, **k: by_sha[s])
+
+        assert wait_branch("main", 5, _soon(), 0) == EXIT_OK
+        assert "BILLING" not in capsys.readouterr().out
+
+    def test_a_cancel_with_the_head_unmoved_is_cancelled_not_billing(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr("tools.wait_ci.branch_head_sha", lambda b: self.OLD)
+        monkeypatch.setattr(
+            "tools.wait_ci.jobs_for_sha", lambda s, **k: self._cancelled(5, steps=0)
+        )
+
+        assert wait_branch("main", 5, _soon(), 0) == EXIT_FAILED
+        out = capsys.readouterr().out
+        assert "CANCELLED" in out
+        assert "SUPERSEDED" not in out
+        assert "BILLING" not in out
+
+    def test_verdict_does_not_read_a_cancelled_row_as_billing(self) -> None:
+        code, lines = verdict([JobRow("lint", "CANCELLED", 0, 0)])
+        assert code == EXIT_FAILED
+        assert "BILLING" not in "\n".join(lines)
+
+
 class TestCli:
     def test_pr_and_branch_are_mutually_exclusive(self) -> None:
         with pytest.raises(SystemExit):
