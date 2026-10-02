@@ -734,8 +734,8 @@ it is not in this diff"* — is the whole fix, and it is also what tells the sib
 it has to write its own.
 
 **Hooks are not this class.** `.claude/` is tracked, and every hook carries a suite in CI's
-dependency-free `markdownlint` job (`test_context_guard.py`, `test_guard_shell_hygiene.py`,
-`test_guard_destructive.py`), so a hook change IS in the diff and IS gated. What remains in
+dependency-free `markdownlint` job (every `.claude/hooks/test_*.py`, each its own step in
+`lint.yaml`), so a hook change IS in the diff and IS gated. What remains in
 this class is `docs/plans/daily_check.py`, which is genuinely gitignored.
 
 ---
@@ -978,8 +978,8 @@ nor a commit, so the sweep reports `clean` on a body naming every term — and a
 only INDEXABLE one of the four surfaces, served and crawled on its own:
 
 ```bash
-make post-branch-text FILE=/tmp/pr-<branch>.md      # the body /pr-summary wrote
-printf '%s' "$TITLE" | make post-branch-text FILE=-  # the title, via stdin
+make post-branch-text FILE=docs/plans/scratch/pr-<branch>.md  # the body /pr-summary wrote
+printf '%s' "$TITLE" | make post-branch-text FILE=-             # the title, via stdin
 ```
 
 It GATES rather than advising. ⚠ Through `make` the exit code is make's own **2**, never the
@@ -1089,7 +1089,7 @@ docker-compose.yml — no change needed: no new processes
 .claude/context/*  — updated: analytics.md (store/ paths) | no change needed
 .claude/skills/*   — updated: <skill> | no change needed: <reason>
 gitignored ops     — daily_check.py line added (NOT in the diff) | no change needed: <reason>
-PR summary         — written to /tmp/pr-<branch>.md   (slashes flattened to -)
+PR summary         — written to docs/plans/scratch/pr-<branch>.md   (slashes flattened to -)
 PR body            — appended "Documentation updates" section
 pre-merge          — clean | <blocker> (see Step 10a)
 handoff prompt     — written to docs/plans/next-conversation-prompt.md | declined
@@ -1097,8 +1097,8 @@ PR state re-check  — #<num>: <OPEN | MERGED>, handoff table rewritten to match
 ```
 
 **The PR-summary path flattens `/` to `-`.** Every branch here is `docs/…`,
-`feat/…`, `fix/…` or `chore/…`, so a literal `/tmp/pr-<branch>.md` names a
-directory that does not exist and the write fails. `pr-summary/SKILL.md` owns
+`feat/…`, `fix/…` or `chore/…`, so a literal `docs/plans/scratch/pr-<branch>.md`
+names a directory that does not exist and the write fails. `pr-summary/SKILL.md` owns
 the rule and the exact derivation; this line is the sibling that referenced the
 same artifact without it, which is the blind spot Step 4 describes.
 

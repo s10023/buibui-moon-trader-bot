@@ -1,8 +1,8 @@
 ---
 name: pr-summary
 description: >
-  Write a PR title, summary, and test plan to `/tmp/pr-<branch>.md` — slashes in the
-  branch name flattened to `-` — after a branch is complete (lint/typecheck/tests
+  Write a PR title, summary, and test plan to `docs/plans/scratch/pr-<branch>.md` —
+  slashes in the branch name flattened to `-` — after a branch is complete (lint/typecheck/tests
   green, commit done). Never returns the content inline.
   Invoke automatically when a branch finishes — do not wait. Also triggers on
   the user saying "/pr-summary", "PR summary", "write a PR", or "finish up
@@ -13,7 +13,7 @@ allowed-tools: Bash, Write, Read
 # PR Summary
 
 Write a PR title + summary + test plan after finishing a branch. Always write to
-`/tmp/pr-<branch>.md` with slashes flattened to `-` (see Output location) — never
+`docs/plans/scratch/pr-<branch>.md` with slashes flattened to `-` (see Output location) — never
 return as inline text.
 
 ## When to use
@@ -22,12 +22,13 @@ After every branch is complete: lint/typecheck/tests pass, commit done. Do not w
 
 ## Output location
 
-Always write to `/tmp/pr-<flattened-branch-name>.md`. Return only the file path, not
-the content inline.
+Always write to `docs/plans/scratch/pr-<flattened-branch-name>.md`. Return only the file
+path, not the content inline. The directory is gitignored and backed up; `/tmp` is cleared
+on reboot, which is the same move `/sync-child` made for its report.
 
 **Flatten every `/` in the branch name to `-` first.** This repo's branch convention is
-`docs/`, `feat/`, `fix/`, `chore/`, so a raw `/tmp/pr-<branch>.md` is
-`/tmp/pr-docs/relay-attribution-spec.md` — a path under a directory that does not
+`docs/`, `feat/`, `fix/`, `chore/`, so a raw `docs/plans/scratch/pr-<branch>.md`
+is `docs/plans/scratch/pr-docs/relay-attribution-spec.md` — a path under a directory that does not
 exist. The write then fails, or a session silently invents its own flattening and the
 next session cannot find the file. Since this skill's whole contract is "return only the
 file path", a path nobody can predict defeats it.
@@ -36,10 +37,11 @@ Derive it exactly this way, so every session picks the same name:
 
 ```bash
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
-OUT="/tmp/pr-$(printf '%s' "$BRANCH" | tr '/' '-').md"
+mkdir -p docs/plans/scratch
+OUT="docs/plans/scratch/pr-$(printf '%s' "$BRANCH" | tr '/' '-').md"
 ```
 
-`fix/small-queue-clearing` ⇒ `/tmp/pr-fix-small-queue-clearing.md`.
+`fix/small-queue-clearing` ⇒ `docs/plans/scratch/pr-fix-small-queue-clearing.md`.
 
 ## Template
 
@@ -104,7 +106,7 @@ false claim as a hopeful tick, arriving by a different route.
 `gh pr create` **works** for this project — it created PRs #522–#525 across
 2026-08-01/02/03. This section used to claim it fails with a collaborator
 permission error; that was stale and cost several PRs a manual paste for no
-reason. Still write the file at the flattened `/tmp/pr-<branch>.md` (it is the deliverable of
+reason. Still write the file at the flattened `docs/plans/scratch/pr-<branch>.md` (it is the deliverable of
 this skill, and useful as a `--body-file`), but do not tell the user the CLI is
 unavailable.
 
@@ -168,5 +170,5 @@ When the user asks to write a PR summary or after finishing a branch:
 7. Write "How it works" — implementation details for reviewers
 8. Fill in Params/Config section if any new TOML keys or CLI flags were added
 9. Fill in test plan — check CI items, list remaining manual verification steps
-10. Write to `/tmp/pr-<branch-name>.md`, slashes flattened to `-`
+10. Write to `docs/plans/scratch/pr-<branch-name>.md`, slashes flattened to `-`
 11. Return only the file path
