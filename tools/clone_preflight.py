@@ -75,6 +75,27 @@ def clone_argv(root: Path, dest: Path) -> list[str]:
     return ["git", "clone", "--no-hardlinks", "--quiet", str(root), str(dest)]
 
 
+def seed_venv_argv() -> list[str] | None:
+    """Argv that pre-creates the clone's ``.venv`` on THIS interpreter, or None.
+
+    ``make preflight`` runs this script on the project's ``.venv`` python, which
+    is by construction an interpreter the suite runs on. Poetry, left to itself,
+    builds the clone's virtualenv on whatever python POETRY runs under. On the
+    cloud host that is 3.11 while the project needs 3.13, and even
+    ``poetry env use python3.13`` produced a ``-py3.13``-named venv holding
+    ``lib/python3.11``, so collection died on PEP 695 syntax before any test ran
+    (#871). Poetry adopts an existing in-project ``.venv``, so creating one first
+    pins the interpreter without depending on poetry's own selection.
+
+    Only from inside a virtualenv: a bare system ``python3`` fallback carries no
+    such guarantee, and seeding from it could pin the wrong version where
+    poetry would have found the right one.
+    """
+    if sys.prefix == sys.base_prefix:
+        return None
+    return [sys.executable, "-m", "venv", ".venv"]
+
+
 def install_argv() -> list[str]:
     """Dependencies come from the clone's own lock, not the dev box's venv.
 
@@ -170,9 +191,19 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         if args.dry_run:
             print("   dry run: skipping the install and the suite. Would run:")
+            seed = seed_venv_argv()
+            if seed is not None:
+                print(f"     {' '.join(seed)}")
             print(f"     {' '.join(install_argv())}")
             print(f"     {' '.join(pytest_argv())}")
             return OK
+
+        seed = seed_venv_argv()
+        if seed is not None and subprocess.run(seed, cwd=dest).returncode != 0:  # noqa: S603
+            print(
+                "⚠ could not create the clone's .venv — infrastructure, not a finding."
+            )
+            return INFRA
 
         if subprocess.run(install_argv(), cwd=dest).returncode != 0:  # noqa: S603
             print("⚠ dependency install failed — infrastructure, not a finding.")

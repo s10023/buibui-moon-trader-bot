@@ -15,13 +15,17 @@ test asserts on the absence of the clone rather than only on the exit code.
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 from tools.clone_preflight import (
     REFUSED,
     clone_argv,
     dirty_paths,
     main,
+    seed_venv_argv,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -48,6 +52,29 @@ def _make_repo(tmp_path: Path) -> Path:
     _git(repo, "add", "committed.txt")
     _git(repo, "commit", "-q", "-m", "initial")
     return repo
+
+
+class TestSeedVenv:
+    """#871: the clone's venv is built on preflight's own interpreter.
+
+    Poetry otherwise builds it on the python POETRY runs under, which on the
+    cloud host is 3.11 against a project pinned to 3.13.
+    """
+
+    def test_inside_a_venv_it_seeds_from_this_interpreter(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(sys, "prefix", "/proj/.venv")
+        monkeypatch.setattr(sys, "base_prefix", "/usr")
+        assert seed_venv_argv() == [sys.executable, "-m", "venv", ".venv"]
+
+    def test_a_bare_system_python_seeds_nothing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No guarantee it is the right version, so leave poetry to choose."""
+        monkeypatch.setattr(sys, "prefix", "/usr")
+        monkeypatch.setattr(sys, "base_prefix", "/usr")
+        assert seed_venv_argv() is None
 
 
 class TestCloneArgv:
