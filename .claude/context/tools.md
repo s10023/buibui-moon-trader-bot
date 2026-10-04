@@ -49,7 +49,10 @@ lost the DELIVERY, and no CI surface could reach them. Wired in `.claude/setting
   scoped rather than blanket.
 - `open-issues.py` — the `SessionStart` planning digest (since 2026-09-29 planning lives in
   GitHub Issues). Prints p1/p2 in full, p3 as a count, untriaged in full; scopes `gh` to the
-  ORIGIN remote's owner. **Always exits 0, and a failed fetch prints `NOT FETCHED` — never
+  ORIGIN remote's owner. ⚠ **It lists over REST (`gh api repos/<slug>/issues`), never `gh
+  issue list`**: that is GraphQL, which cloud sessions refuse with a 403, so every cloud
+  session opened `NOT FETCHED` until 2026-10-04. PRs share that endpoint and count toward
+  `per_page`, so truncation is judged on the RAW page length. **Always exits 0, and a failed fetch prints `NOT FETCHED` — never
   an empty queue.** It lives here rather than `tools/` so `test_hook_wiring.py` covers its
   wrapper: a SessionStart hook silenced by the exit-126 `python3` looks like an empty queue.
   Gated by `test_open_issues.py` (stdlib, `gh`/`git` faked, same CI job).
