@@ -2,6 +2,7 @@
 name: chart-extract
 description: Reads exactly ONE Coinglass/MMT chart screenshot and returns a single bare JSON object describing its liquidation/book clusters. Dispatched one-image-per-agent by /ingest-charts step 2, which supplies the full extraction rubric in the prompt.
 model: sonnet
+effort: low
 tools: Read
 ---
 

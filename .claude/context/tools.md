@@ -55,6 +55,8 @@ lost the DELIVERY, and no CI surface could reach them. Wired in `.claude/setting
   `per_page`, so truncation is judged on the RAW page length. **Always exits 0, and a failed fetch prints `NOT FETCHED` — never
   an empty queue.** It lives here rather than `tools/` so `test_hook_wiring.py` covers its
   wrapper: a SessionStart hook silenced by the exit-126 `python3` looks like an empty queue.
+  Each p1/p2 row leads with its `effort:*` label, or `effort:?` when unset, so an
+  unlabelled Issue reads as undecided rather than effortless (CLAUDE.md "Effort").
   Gated by `test_open_issues.py` (stdlib, `gh`/`git` faked, same CI job).
 - `advise-lifecycle.py` — advisory, never blocking, on three events: `PreToolUse` and
   `PostToolUse` `gh pr create` (run `/post-branch` first; run it now), `PostToolUse`

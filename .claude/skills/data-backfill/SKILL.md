@@ -1,5 +1,6 @@
 ---
 name: data-backfill
+effort: low
 description: >
   OHLCV ingestion via `buibui analytics backfill` (full history) and
   `buibui analytics sync` (incremental). Use for first-time setup, after a

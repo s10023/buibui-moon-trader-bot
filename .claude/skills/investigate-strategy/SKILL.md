@@ -1,5 +1,6 @@
 ---
 name: investigate-strategy
+effort: high
 description: >
   Debug why a strategy did or didn't fire on a specific candle by replaying
   detectors against historical DB data via `buibui signal test`.

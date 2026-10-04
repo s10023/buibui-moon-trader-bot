@@ -1,5 +1,6 @@
 ---
 name: telegram-mode
+effort: low
 description: >
   Toggle Telegram pushes for finished skills: show the mode, turn it on or off,
   add or remove a skill from the opt-in allowlist, or send one test push.

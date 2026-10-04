@@ -1,5 +1,6 @@
 ---
 name: db-update
+effort: low
 description: >
   Routine DB refresh after backtest or strategy changes — runs `make db-update`
   which chains backtest (all 3 signal_watch configs) → recalibrate → regression

@@ -1,5 +1,6 @@
 ---
 name: post-branch
+effort: high
 description: >
   Post-branch docs sweep and handoff: diff the branch's behaviour changes against
   the doc surfaces, propose edits where they drifted, run the pre-merge readiness
