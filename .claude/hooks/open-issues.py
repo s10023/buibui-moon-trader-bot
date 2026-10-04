@@ -19,7 +19,7 @@ Load-bearing properties:
 1. It ALWAYS exits 0. A planning digest must never block a session.
 2. A failure prints LOUDLY. "Could not fetch" and "no open issues" must not
    look alike -- a silent degrade teaches its reader to trust an empty list.
-3. A fetch that hits --limit says so. A check is only true about the scope it
+3. A fetch that fills its page says so. A check is only true about the scope it
    looked at, and a truncated list otherwise reads as the whole queue.
 4. `gh` is scoped to the account that OWNS the origin remote, read from the
    remote rather than restated, and never by `gh auth switch` (which changes
@@ -45,7 +45,14 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TIMEOUT_S = 20
-LIMIT = 200
+LIMIT = 100  # the REST per_page maximum
+
+# One page, PRs dropped. `raw` is the UNFILTERED page length: PRs count toward
+# per_page, so a page can be full while holding fewer than LIMIT issues.
+_JQ = (
+    "{raw: length, issues: [.[] | select(.pull_request | not)"
+    " | {number, title, labels: [.labels[] | {name}]}]}"
+)
 
 # Ordered best-first. p1/p2 print in full; p3 collapses to a count.
 PRIORITIES = ("p1", "p2", "p3")
@@ -111,16 +118,20 @@ def _prio(issue: dict[str, Any]) -> str | None:
     return next((p for p in PRIORITIES if p in names), None)
 
 
-def render(issues: list[dict[str, Any]], slug: str | None) -> list[str]:
+def render(
+    issues: list[dict[str, Any]], slug: str | None, truncated: bool | None = None
+) -> list[str]:
     """The digest lines for a successfully fetched list."""
+    if truncated is None:
+        truncated = len(issues) >= LIMIT
     if not issues:
         return [
             "## Open issues: NONE",
             "   Fetched successfully -- the queue is genuinely empty.",
         ]
     out = [f"## Open issues ({len(issues)}) -- this repo's planning queue, by priority"]
-    if len(issues) >= LIMIT:
-        out.append(f"   !! TRUNCATED at --limit {LIMIT}: this is NOT the whole queue.")
+    if truncated:
+        out.append(f"   !! TRUNCATED at {LIMIT} per page: this is NOT the whole queue.")
     by_num = sorted(issues, key=lambda i: i["number"])
     for prio in ("p1", "p2"):
         for issue in (i for i in by_num if _prio(i) == prio):
@@ -152,26 +163,29 @@ def main() -> int:
     if shutil.which("gh") is None:
         return _fail("the `gh` CLI is not on PATH")
     slug = repo_slug()
-    args = ["gh", "issue", "list", "--state", "open", "--limit", str(LIMIT)]
-    args += ["--json", "number,title,labels"]
-    if slug:
-        args += ["-R", slug]
+    # REST, not `gh issue list`: that is GraphQL, which cloud sessions refuse
+    # with a 403 -- every cloud session opened NOT FETCHED until 2026-10-04.
+    # The issues endpoint also returns PRs, hence the select.
+    args = ["gh", "api", f"repos/{slug or '{owner}/{repo}'}/issues"]
+    args += ["--method", "GET", "-f", "state=open", "-f", f"per_page={LIMIT}"]
+    args += ["--jq", _JQ]
     try:
         proc = _run(args, env=gh_env(slug.split("/")[0] if slug else None))
     except subprocess.TimeoutExpired:
-        return _fail(f"`gh issue list` timed out after {TIMEOUT_S}s")
+        return _fail(f"`gh api` timed out after {TIMEOUT_S}s")
     except OSError as exc:
         return _fail(f"could not run `gh`: {exc}")
     if proc.returncode != 0:
         stderr = proc.stderr.decode("utf-8", "replace").strip().splitlines()
         return _fail(
-            f"`gh issue list` failed: {stderr[-1] if stderr else f'exit {proc.returncode}'}"
+            f"`gh api` failed: {stderr[-1] if stderr else f'exit {proc.returncode}'}"
         )
     try:
-        issues = json.loads(proc.stdout.decode("utf-8", "replace") or "[]")
-    except json.JSONDecodeError as exc:
-        return _fail(f"could not parse `gh` output: {exc}")
-    print("\n".join(render(issues, slug)))
+        page = json.loads(proc.stdout.decode("utf-8", "replace") or "{}")
+        issues, raw = page["issues"], page["raw"]
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        return _fail(f"could not parse `gh` output: {exc!r}")
+    print("\n".join(render(issues, slug, truncated=raw >= LIMIT)))
     return 0
 
 

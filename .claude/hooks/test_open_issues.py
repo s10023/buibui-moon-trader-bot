@@ -8,7 +8,7 @@ module, so every failure path is exercised on any host.
 What it pins, in the order the digest's docstring promises it:
   1. it ALWAYS exits 0, on every failure path;
   2. a failure is LOUD and never renders like an empty queue;
-  3. a list that hits --limit says it is truncated;
+  3. a page that fills up says it is truncated, judged on the RAW page length;
   4. gh is scoped to the origin owner's token, and an explicit GH_TOKEN wins.
 Plus the layout: p1/p2 in full, p3 as a count, untriaged in full.
 """
@@ -70,6 +70,11 @@ def run_main(fake_run: Any, *, gh_present: bool = True) -> tuple[int, str]:
     return rc, buf.getvalue()
 
 
+def page(issues: list[dict[str, Any]], raw: int | None = None) -> str:
+    """What the hook's --jq emits: the filtered issues plus the raw page length."""
+    return json.dumps({"raw": len(issues) if raw is None else raw, "issues": issues})
+
+
 def fake(list_result: Any) -> Any:
     """A `_run` that answers git/auth normally and `gh issue list` with list_result."""
 
@@ -127,7 +132,7 @@ check("no truncation warning under the limit", "TRUNCATED" not in text)
 
 full = [issue(i, f"t{i}", "p3") for i in range(oi.LIMIT)]
 check(
-    "a list AT --limit says it is truncated",
+    "a list AT the page limit says it is truncated",
     "TRUNCATED" in "\n".join(oi.render(full, None)),
 )
 
@@ -157,11 +162,28 @@ for name, (fn, present) in cases.items():
 rc, out = run_main(fake(done(1, err="line one\nHTTP 401: Bad credentials\n")))
 check("failure reason quotes gh's last stderr line", "HTTP 401" in out, out)
 
-rc, out = run_main(fake(done(0, out=json.dumps(QUEUE))))
+rc, out = run_main(fake(done(0, out=page(QUEUE))))
 check(
     "success path: exit 0 and renders the queue",
     rc == 0 and "Open issues (5)" in out,
     out[:80],
+)
+check("an untruncated page carries no warning", "TRUNCATED" not in out)
+
+# PRs share the issues endpoint and count toward per_page, so a full page of
+# mostly PRs must still warn even though few issues survive the filter.
+rc, out = run_main(fake(done(0, out=page(QUEUE, raw=oi.LIMIT))))
+check(
+    "a FULL raw page warns though few issues survive the PR filter",
+    "TRUNCATED" in out,
+    out[:200],
+)
+
+rc, out = run_main(fake(done(0, out=json.dumps(QUEUE))))
+check(
+    "a bare list (the old gh issue list shape) fails LOUD, not empty",
+    rc == 0 and "NOT FETCHED" in out and "NONE" not in out,
+    out[:120],
 )
 
 # ---------------------------------------------------------------- gh scoping
@@ -176,7 +198,7 @@ def _capture(args: list[str], env: dict[str, str] | None = None) -> Any:
         _seen["auth_user"] = args[-1]
         return done(out="tok-owner1\n")
     _seen["list_args"], _seen["list_env"] = args, env
-    return done(out="[]")
+    return done(out=page([]))
 
 
 _saved = os.environ.pop("GH_TOKEN", None)
@@ -184,7 +206,13 @@ try:
     run_main(_capture)
     check(
         "ssh remote parsed to owner/name",
-        "owner1/repo1" in _seen["list_args"],
+        "repos/owner1/repo1/issues" in _seen["list_args"],
+        str(_seen["list_args"]),
+    )
+    # `gh issue list` is GraphQL, which cloud sessions refuse with a 403.
+    check(
+        "lists over REST (`gh api`), never GraphQL `gh issue list`",
+        _seen["list_args"][:2] == ["gh", "api"] and "issue" not in _seen["list_args"],
         str(_seen["list_args"]),
     )
     check("token requested for the REMOTE's owner", _seen.get("auth_user") == "owner1")
