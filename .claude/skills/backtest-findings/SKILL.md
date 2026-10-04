@@ -1,5 +1,6 @@
 ---
 name: backtest-findings
+effort: high
 description: >
   Interpret any backtest sweep table (ATR / TP / volume / duration) and commit
   the winning params to TOML.

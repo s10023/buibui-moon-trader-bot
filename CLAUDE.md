@@ -26,6 +26,28 @@ research. Every subagent brief carries goal + success metric + rubric inline, wi
 memory re-reads. Verify subagent and background work directly (`ps`, `journalctl`,
 `git status`) — self-reports can be stale.
 
+**Effort is the second dial, beside the model.** It sets how much the model verifies, tests
+edge cases and decides on its own, not how smart it is: it fixes missed edge cases and does
+not fix a wrong approach. Rule of thumb: **low** for in-the-loop sketches and mechanical
+edits, **medium** for feature work, **high** where verification or edge cases decide the
+result (brownfield bug fixes, audits, research gates), **max** for fully autonomous hard
+problems. Three places carry it:
+
+- **Skills and subagents pin it with an `effort:` frontmatter key**, which overrides the
+  session level while that skill or agent is active. Verification-heavy skills (`post-branch`,
+  `sanity-check`, `research-distil`, `decay-review`, `investigate-strategy`, `wfo-sweep`,
+  `backtest-findings`) pin `high`. Mechanical ones (`telegram-mode`, `backtest-run`,
+  `pr-summary`, `data-backfill`, `db-update`) and the `chart-extract` agent pin `low`. The rest
+  inherit the session level. ⚠ Do not pin the vendored `humanizer`: a local edit is
+  overwritten on refresh.
+- **Issues carry an `effort:*` label**, and the SessionStart digest prints it on every p1/p2
+  row, showing `effort:?` when it is unset. **When starting an Issue, name its label and
+  suggest `/effort <level>` before the work begins.** Claude cannot change its own session
+  effort, so the operator has to act on the suggestion.
+- **Feature loop:** spec, then implement on low, review, then verify on high.
+
+Source: claude.dev "Spending your effort" (2026-09-25).
+
 **Shell hygiene is a hook.** `.claude/hooks/guard-shell-hygiene.py` is advisory and speaks
 once per rule per session. It flags six habits, each of which can turn an unverified result
 into a claimed one: a hand-rolled waiter for work the harness already re-invokes you on; a

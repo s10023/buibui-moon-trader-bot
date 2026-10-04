@@ -1,5 +1,6 @@
 ---
 name: sanity-check
+effort: high
 description: >
   Full project health check across five dimensions: CI hygiene, wiring audit,
   docs sync, skills freshness, architecture review.

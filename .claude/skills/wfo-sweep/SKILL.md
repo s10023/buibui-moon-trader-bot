@@ -1,5 +1,6 @@
 ---
 name: wfo-sweep
+effort: high
 description: >
   Full automated Walk-Forward Optimization chain for a config TOML —
   `param-audit` → `param-sweep` → apply `tp_r` to TOML → backtest →

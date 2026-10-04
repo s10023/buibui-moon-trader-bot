@@ -92,7 +92,7 @@ def fake(list_result: Any) -> Any:
 
 QUEUE = [
     issue(12, "p3 thing", "p3"),
-    issue(5, "second p1", "p1", "research"),
+    issue(5, "second p1", "p1", "research", "effort:high"),
     issue(3, "first p1", "p1"),
     issue(7, "a p2", "p2", "shower-thought"),
     issue(9, "no label at all"),
@@ -115,7 +115,7 @@ check(
 )
 check(
     "topic labels shown beside the title",
-    "[research]" in text and "[shower-thought]" in text,
+    "| research]" in text and "| shower-thought]" in text,
 )
 check(
     "p3 collapses to a count, title NOT listed",
@@ -128,6 +128,17 @@ check(
     text,
 )
 check("detail hint carries -R <slug>", "-R owner1/repo1" in text)
+row5 = next(ln for ln in lines if "#5 " in ln)
+check(
+    "effort label shown first, kept out of the topic list",
+    row5.endswith("[effort:high | research]"),
+    row5,
+)
+check(
+    "a p1/p2 row with no effort label says effort:? rather than omitting it",
+    next(ln for ln in lines if "#3 " in ln).endswith("[effort:?]"),
+    text,
+)
 check("no truncation warning under the limit", "TRUNCATED" not in text)
 
 full = [issue(i, f"t{i}", "p3") for i in range(oi.LIMIT)]

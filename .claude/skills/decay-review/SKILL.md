@@ -1,5 +1,6 @@
 ---
 name: decay-review
+effort: high
 description: >
   Weekly decay review — run the DSR-suspect list + gate-reachability check
   (`make buibui-decay-review`), join it to per-sleeve P1 replay attribution, write

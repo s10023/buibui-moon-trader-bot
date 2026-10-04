@@ -1,5 +1,6 @@
 ---
 name: backtest-run
+effort: low
 description: >
   Quick reference for every `buibui backtest` CLI flag and `make buibui-backtest`
   invocation — sweep, combo, cross-TF, save, since, day-filter, ATR, fees.

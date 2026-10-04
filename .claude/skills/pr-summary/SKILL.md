@@ -1,5 +1,6 @@
 ---
 name: pr-summary
+effort: low
 description: >
   Write a PR title, summary, and test plan to `docs/plans/scratch/pr-<branch>.md` —
   slashes in the branch name flattened to `-` — after a branch is complete (lint/typecheck/tests

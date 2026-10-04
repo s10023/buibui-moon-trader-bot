@@ -75,6 +75,16 @@ Detail: memory `feedback_background_test_runs.md`.
 line. If a step stops serving that metric, stop and ask. Require avg_r × (regime × session ×
 combo) evidence before killing a strategy — demote, don't delete.
 
+**Keep going; stop only where it counts.** When a step does not need the operator, take it.
+Put status notes in the same message as the next action, not in a message that ends the turn
+with "want me to continue?". Stop and ask only when you cannot continue without the operator,
+before anything destructive or outward-facing (deleting data, force-pushing, publishing such
+as the visibility flip or opening a PR, changing anything outside this repository), or where
+a rule here already asks for confirmation, such as `/post-branch`'s confirm-every-edit rail.
+When a long run ends, lead with what is blocked on the
+operator, then what changed, then what was found, and mark anything you could not confirm,
+saying where you looked.
+
 ## Project Overview
 
 Buibui Moon Trader Bot — a crypto trading bot for Binance Futures. Live price + position

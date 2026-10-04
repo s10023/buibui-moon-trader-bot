@@ -1,5 +1,6 @@
 ---
 name: research-distil
+effort: high
 description: >
   Distil books, GitHub repos and papers into AT MOST THREE power-priced,
   pre-registered hypotheses per run, routed into the existing thesis-inbox /

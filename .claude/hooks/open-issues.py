@@ -25,7 +25,8 @@ Load-bearing properties:
    remote rather than restated, and never by `gh auth switch` (which changes
    the operator's own terminal). Ambient auth is the fallback.
 
-p1 and p2 print in full; p3 prints as a count. This output is paid in context on
+p1 and p2 print in full, each with its effort label (`effort:?` when unset); p3
+prints as a count. This output is paid in context on
 EVERY session, and the p3 tail is most of the list and least of the decisions.
 Untriaged issues print in full, since they need a decision rather than a skim.
 
@@ -57,6 +58,12 @@ _JQ = (
 # Ordered best-first. p1/p2 print in full; p3 collapses to a count.
 PRIORITIES = ("p1", "p2", "p3")
 FULL = {"p1", "p2"}
+
+# The suggested `/effort` for picking an Issue up. Shown on every p1/p2 row, and
+# shown MISSING rather than omitted, so an unlabelled row reads as undecided
+# instead of as "no effort needed". Claude cannot change its own effort, so the
+# label is a suggestion the operator acts on with /effort.
+EFFORTS = ("effort:low", "effort:medium", "effort:high", "effort:max")
 
 _REMOTE_RE = re.compile(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?/?$")
 
@@ -135,9 +142,13 @@ def render(
     by_num = sorted(issues, key=lambda i: i["number"])
     for prio in ("p1", "p2"):
         for issue in (i for i in by_num if _prio(i) == prio):
-            topic = ",".join(sorted(_labels(issue) - set(PRIORITIES)))
-            suffix = f"  [{topic}]" if topic else ""
-            out.append(f"   {prio.upper()} #{issue['number']} {issue['title']}{suffix}")
+            names = _labels(issue)
+            effort = next((e for e in EFFORTS if e in names), "effort:?")
+            topic = ",".join(sorted(names - set(PRIORITIES) - set(EFFORTS)))
+            tags = f"{effort} | {topic}" if topic else effort
+            out.append(
+                f"   {prio.upper()} #{issue['number']} {issue['title']}  [{tags}]"
+            )
     n_p3 = sum(1 for i in issues if _prio(i) == "p3")
     if n_p3:
         out.append(f"   P3 x{n_p3} not listed -- `gh issue list --label p3`")
