@@ -214,9 +214,16 @@ is the whole of the 19–25-row cross-report bucket gap (2026-03-b 791 vs 810, 2
 09-06's (measured 2026-09-28, SoT ST137). Pooled figures are timezone-independent, which is why
 they always reproduced while buckets did not.
 
-**Reproduce the previous report's headline figure off its own snapshot before quoting a
-week-over-week delta** — it costs one query and it is what makes the delta a finding rather than
-an artifact.
+**Reproduce the previous report's headline figure before quoting a week-over-week delta** — it
+costs one query and it is what makes the delta a finding rather than an artifact.
+
+⚠ **The previous report's snapshot is usually GONE: the twice-daily backup reuses
+`daily/<date>/`**, so the later run that day overwrites it (measured 2026-10-06: `daily/2026-09-28`
+held the 12:40Z capture, the report had read 07:40Z). So record the snapshot's `MANIFEST.json`
+`captured_at_utc` in every report's Method line, and reproduce by TIME CUT on whatever
+`daily/<that date>` now holds: `outcome IS NOT NULL AND outcome_filled_at_ms <= <captured_at ms>`.
+Expect a row or two of gap (a fill stamped before the cut but resolved after it), not an exact
+match.
 
 ## Report + close out
 

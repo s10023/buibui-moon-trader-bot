@@ -527,6 +527,10 @@ class TestManifestIsValidJson:
     smallest input that broke the old form.
     """
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Windows cannot create the fixture dir: '\\' is a separator and '\"' is illegal",
+    )
     def test_a_path_with_a_backslash_and_a_quote_still_parses(
         self, fake_repo: Path, tmp_path: Path
     ) -> None:
