@@ -30,10 +30,12 @@ from tools.wait_ci import (
     EXIT_UNOBSERVED,
     GhError,
     JobRow,
+    check_runs,
     fmt_steps,
     gh,
     gh_env,
     gh_json,
+    is_permanent_failure,
     is_settled,
     jobs_for_sha,
     main,
@@ -42,6 +44,7 @@ from tools.wait_ci import (
     step_counts,
     verdict,
     wait_branch,
+    wait_pr,
 )
 
 
@@ -593,3 +596,119 @@ class TestCli:
 
         monkeypatch.setattr("tools.wait_ci.wait_branch", boom)
         assert main(["--branch", "main"]) == EXIT_FAILED
+
+
+class TestPermanentFailure:
+    """#888: a 403 from the cloud proxy was retried as transient forever."""
+
+    GRAPHQL_403 = (
+        "HTTP 403: GitHub GraphQL is not available from Claude Code sessions; "
+        "use the REST API"
+    )
+
+    @pytest.mark.parametrize("code", [400, 401, 403, 404, 422])
+    def test_a_named_4xx_is_permanent(self, code: int) -> None:
+        assert is_permanent_failure(f"HTTP {code}: nope")
+
+    @pytest.mark.parametrize(
+        "stderr", ["HTTP 429: slow down", "HTTP 408: timeout", "HTTP 502: bad", "eof"]
+    )
+    def test_rate_limit_server_and_network_errors_stay_transient(
+        self, stderr: str
+    ) -> None:
+        assert not is_permanent_failure(stderr)
+
+    def test_gh_marks_the_graphql_403_permanent(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("GH_TOKEN", "x")
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            lambda argv, **kw: subprocess.CompletedProcess(
+                argv, 1, "", self.GRAPHQL_403
+            ),
+        )
+        with pytest.raises(GhError) as info:
+            gh("pr", "view", "1")
+        assert info.value.permanent
+
+    def test_poll_propagates_a_permanent_failure_at_once(self) -> None:
+        calls = {"n": 0}
+
+        def probe() -> bool:
+            calls["n"] += 1
+            raise GhError("HTTP 403", permanent=True)
+
+        with pytest.raises(GhError):
+            poll(probe, deadline=_soon(), poll_sec=0, label="t")
+        assert calls["n"] == 1
+
+    def test_main_reaches_its_failure_banner(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        def denied(pr: str) -> str:
+            raise GhError(self.GRAPHQL_403, permanent=True)
+
+        monkeypatch.setattr("tools.wait_ci.pr_head_sha", denied)
+        assert main(["--pr", "887", "--poll-sec", "0"]) == EXIT_FAILED
+        assert "gh failed unrecoverably" in capsys.readouterr().err
+
+
+class TestPrPathIsRest:
+    """#888: the PR path must never shell out to GraphQL (`gh pr view --json`)."""
+
+    SHA = "d" * 40
+
+    @staticmethod
+    def _runs(*rows: tuple[str, str, str | None]) -> dict:
+        return {
+            "check_runs": [
+                {"name": n, "status": st, "conclusion": c} for n, st, c in rows
+            ]
+        }
+
+    def test_check_runs_maps_unfinished_to_pending(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        payload = self._runs(
+            ("a", "completed", "success"),
+            ("b", "in_progress", None),
+            ("c", "queued", None),
+        )
+        monkeypatch.setattr("tools.wait_ci.gh_json", lambda *a: payload)
+        checks = check_runs(self.SHA)
+        assert [c["conclusion"] for c in checks] == ["success", "", ""]
+        assert len(pending(checks)) == 2
+
+    def test_wait_pr_settles_over_rest_only(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        names = ["j1", "j2", "j3", "j4", "j5"]
+        states = [
+            self._runs(*[(n, "in_progress", None) for n in names[:4]]),
+            self._runs(*[(n, "completed", "success") for n in names]),
+        ]
+        argvs: list[tuple[str, ...]] = []
+
+        def fake(*args: str) -> Any:
+            argvs.append(args)
+            path = args[1]
+            if path.endswith("/pulls/887"):
+                return {"head": {"sha": self.SHA}}
+            if "/check-runs" in path:
+                return states.pop(0) if len(states) > 1 else states[0]
+            if "actions/runs?" in path:
+                return {"workflow_runs": [{"id": 1, "event": "pull_request"}]}
+            if path.endswith("/runs/1/jobs"):
+                return {
+                    "jobs": [
+                        {"name": n, "steps": [{"conclusion": "success"}]} for n in names
+                    ]
+                }
+            raise AssertionError(f"unexpected gh call {args}")
+
+        monkeypatch.setattr("tools.wait_ci.gh_json", fake)
+        assert wait_pr("887", 5, _soon(), 0) == EXIT_OK
+        assert all(a[0] == "api" for a in argvs), argvs
+        assert f"checks on {self.SHA[:8]}" in capsys.readouterr().out
