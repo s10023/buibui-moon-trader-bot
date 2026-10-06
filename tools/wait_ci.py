@@ -120,26 +120,43 @@ class JobRow:
     executed: int | None = None
 
 
-def gh(*args: str) -> str:
-    """Run `gh` with the s10023 token. Raises :class:`GhError` on failure."""
-    token = subprocess.run(
-        ["gh", "auth", "token", "--user", "s10023"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=True,
-    ).stdout.strip()
+def gh_env() -> dict[str, str] | None:
+    """An env scoping `gh` to s10023's token; None keeps ambient auth.
+
+    An explicit GH_TOKEN already in the environment wins -- the caller chose it.
+    A failed token lookup falls back to ambient auth rather than raising: in a
+    cloud container s10023 is not in `gh`'s keyring (auth comes through the
+    proxy), and a raw CalledProcessError there skipped the banner and the
+    exit-code contract entirely (#883). Same shape as open-issues.py's gh_env.
+    """
+    if os.environ.get("GH_TOKEN"):
+        return None
+    try:
+        proc = subprocess.run(
+            ["gh", "auth", "token", "--user", "s10023"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except OSError:
+        return None
+    token = proc.stdout.strip()
     # INHERIT the environment and override only GH_TOKEN. A bare env= drops HOME,
     # and `gh` then falls back to writing its state relative to the CWD — which
     # littered an untracked `.local/state/gh/` into the repo root on first run.
+    return {**os.environ, "GH_TOKEN": token} if proc.returncode == 0 and token else None
+
+
+def gh(*args: str) -> str:
+    """Run `gh` with the s10023 token. Raises :class:`GhError` on failure."""
     out = subprocess.run(
         ["gh", *args],
         capture_output=True,
         text=True,
         encoding="utf-8",
         errors="replace",
-        env={**os.environ, "GH_TOKEN": token},
+        env=gh_env(),
     )
     if out.returncode != 0:
         raise GhError(f"gh {' '.join(args)} failed: {out.stderr.strip()[:200]}")

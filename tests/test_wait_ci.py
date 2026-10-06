@@ -32,6 +32,7 @@ from tools.wait_ci import (
     JobRow,
     fmt_steps,
     gh,
+    gh_env,
     gh_json,
     is_settled,
     jobs_for_sha,
@@ -219,6 +220,7 @@ class TestGhRaises:
     def test_non_zero_exit_raises_rather_than_returning_empty(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        monkeypatch.delenv("GH_TOKEN", raising=False)
         calls = {"n": 0}
 
         def fake_run(argv: Any, **kw: Any) -> Any:
@@ -237,6 +239,63 @@ class TestGhRaises:
         monkeypatch.setattr("tools.wait_ci.gh", lambda *a: "   ")
         with pytest.raises(GhError):
             gh_json("api", "whatever")
+
+
+class TestGhAuthFallback:
+    """#883: a failed token lookup must fall back to ambient auth, never raise."""
+
+    def test_failed_token_lookup_runs_with_ambient_auth(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        envs: list[Any] = []
+
+        def fake_run(argv: Any, **kw: Any) -> Any:
+            if argv[:3] == ["gh", "auth", "token"]:
+                return subprocess.CompletedProcess(argv, 1, stdout="", stderr="no")
+            envs.append(kw.get("env"))
+            return subprocess.CompletedProcess(argv, 0, stdout="ok", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        assert gh("api", "whatever") == "ok"
+        assert envs == [None]
+
+    def test_missing_gh_binary_on_lookup_does_not_raise(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+
+        def fake_run(argv: Any, **kw: Any) -> Any:
+            raise FileNotFoundError("gh")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        assert gh_env() is None
+
+    def test_explicit_gh_token_wins_and_skips_the_lookup(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("GH_TOKEN", "mine")
+        argvs: list[Any] = []
+
+        def fake_run(argv: Any, **kw: Any) -> Any:
+            argvs.append(argv)
+            return subprocess.CompletedProcess(argv, 0, stdout="ok", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        gh("api", "x")
+        assert argvs == [["gh", "api", "x"]]
+
+    def test_successful_lookup_sets_the_token(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            lambda argv, **kw: subprocess.CompletedProcess(argv, 0, "tok\n", ""),
+        )
+        env = gh_env()
+        assert env is not None and env["GH_TOKEN"] == "tok"
 
 
 class TestPoll:
