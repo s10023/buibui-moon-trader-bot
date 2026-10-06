@@ -524,7 +524,7 @@ pointer is not a guard rail.
 | `tools/` | One-shot analysis + audit scripts; not part of the daemon or CLI surface | `context/tools.md` |
 | `tests/` | pytest suite; tests import from lib modules and pass mock dependencies directly | — |
 | `config/` | `coins.json` (gitignored), `universe.toml`, `strategy_params.toml` (shared base inherited via `extends`), `eras.toml` (era boundaries git cannot see) | `context/analytics.md` |
-| `docs/agents/` | `surfaces.toml`, the repo-specific doc-surface list + budget thresholds the checkers and skills read | `context/tools.md` |
+| `docs/agents/` | `surfaces.toml`, the repo-specific doc-surface list + budget thresholds the checkers and skills read; `issue-tracker.md` / `triage-labels.md` / `domain.md`, the mattpocock-skills setup | `context/tools.md` · `CLAUDE.md` Agent Skills |
 
 ### Sleeve verdicts — do NOT rebuild a shelved sleeve
 

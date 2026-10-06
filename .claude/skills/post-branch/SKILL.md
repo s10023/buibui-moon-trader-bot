@@ -1209,6 +1209,9 @@ Otherwise: offer (don't auto-write) to draft a self-contained prompt the user ca
 paste into the next conversation. Same shape as `/pr-summary` —
 **file-only output, never inline**.
 
+This is the STANDING handoff, and mattpocock's `/handoff` does not replace it: that skill writes a
+one-off portable doc to `%TEMP%` for forking a side task, and the operator invokes it.
+
 If the user accepts, write to **`docs/plans/next-conversation-prompt.md`** —
 gitignored, but inside the repo and therefore durable. **Not `/tmp`:** the
 user deletes conversations, and a handoff that evaporates on reboot defeats
@@ -1441,8 +1444,7 @@ In these cases, say so and stop.
 
 ## PR Summary template
 
-The PR summary itself follows the template in
-`.claude/skills/pr-summary/SKILL.md` exactly — read that skill before
-writing. Do not compose from scratch or skip sections. The template
-requires: PR Title, Background, Summary, How it works, Params/Config,
-Test plan (CI items pre-ticked), Stats, and the Claude Code footer.
+Write the PR summary through `/pr-summary`; do not compose it from scratch. It takes the body
+shape from mattpocock's `pr` skill (Summary visual, Evidence, Merge Danger) and adds this repo's
+title rules, the honest-tick gate checklist under Evidence, `Closes #n`, and the Claude Code
+footer.
