@@ -59,12 +59,16 @@ Every guard here is a recorded scar, so none of them is decoration:
   a SUPERSEDED banner naming the new head and gates on THAT, inside the same
   deadline. A cancelled job with the head unmoved is reported as cancelled — never
   as billing, since a cancelled job can execute zero steps exactly as a skip can.
+* ⚠ **Every read is REST, never GraphQL** (#888). `gh pr view --json` is
+  GraphQL, and the cloud-session proxy refuses GraphQL with a 403, so the PR
+  path now resolves the head over ``pulls/<n>`` and lists ``check-runs``.
 * ⚠ **A `gh` failure RAISES; it is never turned into data.** This is the fix that
   motivated the rewrite. The previous `gh()` returned `""` on a non-zero exit, so
   an unreadable `actions/runs` response left every step count at `None` and the
   tool printed **"all green, all executed real steps"** — a false green asserting
   the one thing it had just failed to observe. Transient failures are retried
-  inside the poll loop; an unrecoverable one propagates.
+  inside the poll loop; an unrecoverable one — including any 4xx but 408/429 —
+  propagates.
 
 Exit codes: ``0`` green and observed · ``1`` genuine failure · ``2`` timeout ·
 ``3`` billing (``steps=0``) · ``4`` settled green but step counts unreadable.
@@ -77,6 +81,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess  # noqa: S404 - gh plumbing, fixed argv, no shell
 import sys
 import time
@@ -102,7 +107,32 @@ EXIT_UNOBSERVED = 4
 
 
 class GhError(RuntimeError):
-    """A `gh` invocation failed. NEVER convert this into an empty result."""
+    """A `gh` invocation failed. NEVER convert this into an empty result.
+
+    ``permanent`` marks a 4xx that no retry will fix (403, 404, 401, 422 ...).
+    The poll loop re-raises those instead of retrying: #888's cloud proxy
+    answered every GraphQL call with a 403, and the loop printed "transient"
+    dozens of times until killed, never reaching its banner or exit code.
+    """
+
+    def __init__(self, message: str, *, permanent: bool = False) -> None:
+        super().__init__(message)
+        self.permanent = permanent
+
+
+#: 4xx statuses that ARE worth retrying: request timeout and rate limiting.
+_RETRYABLE_4XX = frozenset({408, 429})
+
+
+def is_permanent_failure(stderr: str) -> bool:
+    """Whether `gh`'s stderr names a 4xx that a retry cannot fix.
+
+    `gh` reports API errors as ``HTTP 403: <message>``. A 5xx, a network error
+    or anything unparseable stays transient — the conservative default is to
+    keep waiting, as before, and only a status that names itself stops the run.
+    """
+    match = re.search(r"\bHTTP (4\d\d)\b", stderr)
+    return match is not None and int(match.group(1)) not in _RETRYABLE_4XX
 
 
 @dataclass(frozen=True)
@@ -159,7 +189,10 @@ def gh(*args: str) -> str:
         env=gh_env(),
     )
     if out.returncode != 0:
-        raise GhError(f"gh {' '.join(args)} failed: {out.stderr.strip()[:200]}")
+        raise GhError(
+            f"gh {' '.join(args)} failed: {out.stderr.strip()[:200]}",
+            permanent=is_permanent_failure(out.stderr),
+        )
     return out.stdout
 
 
@@ -271,9 +304,32 @@ def verdict(rows: Sequence[JobRow]) -> tuple[int, list[str]]:
 # --------------------------------------------------------------------------
 
 
-def rollup(pr: str) -> list[dict]:
-    data = gh_json("pr", "view", pr, "--repo", REPO, "--json", "statusCheckRollup")
-    return data.get("statusCheckRollup") or []
+def pr_head_sha(pr: str) -> str:
+    """A PR's head SHA over REST.
+
+    ⚠ **Never `gh pr view --json`** — that is GraphQL, and the cloud-session
+    proxy refuses GraphQL outright with a 403 (#888). REST works on every host.
+    """
+    return str(gh_json("api", f"repos/{REPO}/pulls/{pr}")["head"]["sha"])
+
+
+def check_runs(sha: str) -> list[dict]:
+    """Check runs on one SHA over REST, normalised to ``{name, conclusion}``.
+
+    REST reports a pending run's conclusion as ``null`` and keeps ``status``
+    separately; a run not yet ``completed`` is mapped to ``""`` so
+    :func:`pending` reads it exactly as it read the GraphQL rollup.
+    """
+    data = gh_json("api", f"repos/{REPO}/commits/{sha}/check-runs?per_page=100")
+    return [
+        {
+            "name": c.get("name", "?"),
+            "conclusion": (c.get("conclusion") or "")
+            if c.get("status") == "completed"
+            else "",
+        }
+        for c in data.get("check_runs") or []
+    ]
 
 
 def branch_head_sha(branch: str) -> str:
@@ -351,13 +407,16 @@ def poll(probe: Callable[[], bool], deadline: float, poll_sec: int, label: str) 
 
     A transient `GhError` is reported and retried — a network blip must not kill
     a twenty-minute wait — but it is never silently treated as "nothing found",
-    which is the failure this tool exists to make impossible.
+    which is the failure this tool exists to make impossible. A PERMANENT one
+    (a non-retryable 4xx) propagates at once to `main`'s failure banner (#888).
     """
     while time.time() < deadline:
         try:
             if probe():
                 return True
         except GhError as exc:
+            if exc.permanent:
+                raise
             print(f"  {label}: transient gh failure, retrying — {exc}", flush=True)
         time.sleep(poll_sec)
     return False
@@ -365,10 +424,13 @@ def poll(probe: Callable[[], bool], deadline: float, poll_sec: int, label: str) 
 
 def wait_pr(pr: str, floor: int, deadline: float, poll_sec: int) -> int:
     checks: list[dict] = []
+    sha = ""
 
     def probe() -> bool:
-        nonlocal checks
-        checks = rollup(pr)
+        nonlocal checks, sha
+        # Re-read the head every poll, so a push mid-wait gates the new commit.
+        sha = pr_head_sha(pr)
+        checks = check_runs(sha)
         waiting = pending(checks)
         print(f"  checks={len(checks)} pending={len(waiting)}", flush=True)
         return is_settled(len(checks), len(checks) - len(waiting), floor)
@@ -377,9 +439,6 @@ def wait_pr(pr: str, floor: int, deadline: float, poll_sec: int) -> int:
         print("TIMEOUT waiting for PR checks", file=sys.stderr)
         return EXIT_TIMEOUT
 
-    sha = str(
-        gh_json("pr", "view", pr, "--repo", REPO, "--json", "headRefOid")["headRefOid"]
-    )
     counts = job_step_counts(sha)
     rows = []
     for c in checks:
