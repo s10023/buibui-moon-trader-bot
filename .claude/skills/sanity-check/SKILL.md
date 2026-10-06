@@ -103,11 +103,13 @@ Compare the two lists. Flag any strategy in STRATEGY_REGISTRY but not DETECTOR_R
 ### API router completeness
 
 - Every router in `web/api/routers/` must be imported and registered in `web/api/main.py`
-- Every Pydantic model in `web/api/models/` must be used by at least one router
+- Every Pydantic model in `web/api/models/` must be referenced by a router OR by another model —
+  most are nested response fields, so a routers-only grep reports ~29 false "unused" models
 
 ### Data pipeline
 
-- `data_sync.py` syncs OHLCV — confirm it's wired into `analytics_runner.py` and `signal_runner.py`
+- `data_sync.py` syncs OHLCV — confirm it's wired into `analytics/analytics_runner.py` and
+  `analytics/signal_runner.py` (the runners live under `analytics/`, not the repo root)
 - `upsert_signals` in `analytics/store/signals.py` (re-exported via `data_store.py`) — confirm it's called from `analytics/signal/scanner.py:run_scan_cycle()` (`signal_lib.py` is now a 4-line shim)
 - `upsert_backtest_run` / `upsert_backtest_trades` — confirm called from `backtest_runner.py` when `SAVE=1`
 
