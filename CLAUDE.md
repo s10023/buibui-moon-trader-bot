@@ -182,6 +182,40 @@ recorded nowhere, so the pin cannot be verified from this repo — do not "corre
 Rule, and what is still owed (refresh CI): `.claude/rules/vendored-skills.md`, delivered at
 edit time by the `vendored-skills` context card.
 
+### Issue tracker
+
+GitHub Issues on `s10023/buibui-moon-trader-bot`, every `gh` call prefixed with the personal
+token, every body screened before it publishes. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five default roles (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`,
+`wontfix`), beside the repo's priority, effort and kind labels. See
+`docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` + `docs/adr/`, both created lazily, with filed research verdicts
+treated as ADRs. See `docs/agents/domain.md`. The review standards are in `CODING_STANDARDS.md`.
+
+### mattpocock-skills — this repo's adaptations
+
+The plugin is installed account-wide; the flow and its cross-repo rules are in the account
+`CLAUDE.md`. Here, five bindings:
+
+- **`/implement`'s "full suite once at the end" is `make preflight`** at `/post-branch` Step 7,
+  never `make test` and then `make preflight`.
+- **`/implement-spec` runs implementers in worktrees, which hold tracked files only** — no
+  `docs/plans/`, `analytics.db` or `.claude/sensitive-terms.txt`. Give a ticket that needs one
+  to an implementer working in the main checkout, and push from a worktree with an explicit
+  `HEAD:refs/heads/<branch>` refspec, because a worktree branch can track `origin/main`.
+- **The PR body is Matt's `pr` shape, written through `/pr-summary`**, which adds this repo's
+  title and test-plan rules and the file output.
+- **`/handoff` is for forking a side task; it never replaces the standing handoff**
+  (`docs/plans/next-conversation-prompt.md`, written by `/post-branch` Step 10b).
+- **`diagnosing-bugs` on a signal that did or did not fire builds its Phase 1 loop with
+  `/investigate-strategy`**, which replays the detector at the candle.
+
 ### Subagent definitions — `.claude/agents/<name>.md`
 
 A **skill** is a workflow you invoke; an **agent** is who a skill dispatches work TO.

@@ -213,7 +213,7 @@ For each skill, verify the **key claims** are still true:
 | `recalibrate` | `buibui recalibrate` subcommand wired in **`cli/main.py`** (`buibui.py` is a thin shim delegating to `cli.main:main` and has 0 hits — this row said `buibui.py` until 2026-09-06 and sent the grep to the wrong file); `--config` + `--apply` flags present; `confidence_ratings` DB table exists |
 | `new-strategy` | 4-file checklist still accurate; `DETECTOR_REGISTRY` is still the single source of truth |
 | `signal-watch` | `buibui signal watch` subcommand exists; TOML field names match `signal_config.py`; `min_avg_r` (not `filter_threshold`) in the `[backtest]` section — **of the inherited base `config/strategy_params.toml`, NOT of the three day configs**, which carry no `[backtest]` section at all and reach it via `extends` |
-| `pr-summary` | Template sections match what's in the skill body |
+| `pr-summary` | Still loads `mattpocock-skills:pr` for the body shape; its output-path derivation matches the path `/post-branch` screens |
 | `backtest-run` | All CLI flags listed match what `buibui backtest --help` outputs |
 | `stats-dashboard` | Card count matches actual Stats.svelte; live vs cached split still accurate |
 | `investigate-strategy` | `make buibui-signal-test` Makefile target exists; `--at` UTC interpretation still correct |
@@ -247,6 +247,10 @@ Run the concrete probes; each one has a tool behind it. (This section used to na
 
 - **Duplicate logic and hardcoded values** have no tool. Judge them by reading the diff since the last
   run (`git log --since=<last marker> --stat`) rather than the whole tree.
+- **Shallow modules and missing seams** are a deeper survey than this sweep should run. If the diff
+  since the last marker shows friction (one concept spread over many small modules, logic untestable
+  through its interface), recommend the operator run `/improve-codebase-architecture`; it is
+  user-invoked, so this skill cannot call it.
 
 ---
 

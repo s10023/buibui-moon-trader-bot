@@ -124,6 +124,10 @@ make buibui-signal-test SYMBOL=BTCUSDT TIMEFRAME=1h STRATEGY=smt_divergence AT="
 
 When asked why a strategy did or didn't fire:
 
+For a hard case (intermittent, or a regression between two known-good states), load the
+`mattpocock-skills:diagnosing-bugs` skill and use the `signal test` replay below as its Phase 1
+feedback loop: one command that goes red on this candle.
+
 1. **Identify the candle**: convert event time to UTC for `--at`
 2. **Run signal test**: `make buibui-signal-test SYMBOL=... TIMEFRAME=... STRATEGY=... AT=...`
 3. **If signal found** but at unexpected time: note the `open_time` in the output — that's when it ACTUALLY fired
