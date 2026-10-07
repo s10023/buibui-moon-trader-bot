@@ -217,13 +217,18 @@ docs for invisible changes.**
 Read the PR's diff:
 
 ```bash
-gh pr view <PR#> --json title,body,baseRefName,headRefName,files
+gh api repos/s10023/buibui-moon-trader-bot/pulls/<PR#> --jq '{title, body, base: .base.ref, head: .head.ref}'
+gh api repos/s10023/buibui-moon-trader-bot/pulls/<PR#>/files --paginate --jq '.[].filename'
 git diff main...<branch> -- .
 git log main..<branch> --oneline
 ```
 
 (If `<PR#>` is omitted, infer from the current branch with
-`gh pr view --json number`.)
+`gh api "repos/s10023/buibui-moon-trader-bot/pulls?head=s10023:$(git branch --show-current)" --jq '.[0].number'`.)
+
+Every `gh` call in this skill is REST (`gh api`), never `gh pr view --json` or
+`gh run view --json`: those go through GraphQL, which a cloud session refuses with
+a 403 (#894, same defect as #888).
 
 User-facing signals — **walk the docs** if any are present:
 
@@ -854,7 +859,7 @@ Use the three-step fetch → append → push sequence:
 
 ```bash
 # 1. Fetch the current body
-gh pr view <PR#> --json body --jq .body > /tmp/pr_body.md
+gh api repos/s10023/buibui-moon-trader-bot/pulls/<PR#> --jq .body > /tmp/pr_body.md
 
 # 2. Append the new section (Edit tool, or heredoc)
 cat >> /tmp/pr_body.md <<'EOF'
@@ -935,7 +940,10 @@ flip just to read the failure. This is the last moment that is still free.
 
 ⚠ **Read the banner, not the exit code** — make collapses any recipe failure to
 its own exit 2. `REFUSED` means the tree was dirty and nothing ran; `INFRA`
-means the clone or install died; only `FAILED` is a real finding.
+means the clone or install died; only `FAILED` is a real finding. ⚠ **On the Windows
+host, compare a `FAILED` set against the host baseline tracked in #869 before
+diagnosing** — an exact match is that baseline, any other failure is a real finding.
+Drop this sentence when #869 closes.
 
 ⚠ **Two things it does NOT cover**, so do not read a pass as a clean bill: an
 *absolute* default (`$HOME/...`) survives a clone untouched — `EXTERNAL_LEDGERS`
@@ -1140,9 +1148,12 @@ Then run a short status sweep and report any blockers in one line each:
 git status --short                                      # working tree clean?
 git log @{u}..HEAD --oneline 2>/dev/null || true        # unpushed commits?
 GH_TOKEN=$(gh auth token --user s10023) \
-gh pr view <PR#> --json mergeable,mergeStateStatus,reviewDecision,statusCheckRollup \
-  --jq '{mergeable,mergeStateStatus,reviewDecision,
-         checks: [.statusCheckRollup[] | {name, conclusion, startedAt, completedAt}]}'
+gh api repos/s10023/buibui-moon-trader-bot/pulls/<PR#> --jq '{mergeable, mergeable_state, sha: .head.sha}'
+GH_TOKEN=$(gh auth token --user s10023) \
+gh api repos/s10023/buibui-moon-trader-bot/pulls/<PR#>/reviews --jq '[.[].state] | last'
+GH_TOKEN=$(gh auth token --user s10023) \
+gh api repos/s10023/buibui-moon-trader-bot/commits/<sha>/check-runs --paginate \
+  --jq '.check_runs[] | {name, conclusion, started_at, completed_at}'
 ```
 
 **Prefix every `gh` call inline like that, never `export … ;`** — the allowlist matches
@@ -1155,19 +1166,20 @@ Flag, do not fix:
 
 - Uncommitted changes in the working tree
 - Local commits not pushed to the PR branch
-- `mergeable: CONFLICTING` or `mergeStateStatus: DIRTY`
-- Failing required checks in `statusCheckRollup`
-- `reviewDecision: CHANGES_REQUESTED`
+- `mergeable: false` or `mergeable_state: dirty` (`null` means GitHub is still
+  computing it — re-query)
+- Failing required checks in `check-runs`
+- A latest review state of `CHANGES_REQUESTED`
 
 **⚠ Before reporting ANY failing check, compute its runtime from
-`startedAt`/`completedAt` — that is why they are in the `--jq` above.**
+`started_at`/`completed_at` — that is why they are in the `--jq` above.**
 
 **The discriminator is the STEP LIST, not a duration.** When the GitHub Actions
 allowance is exhausted, every job fails in 2–5 seconds with **zero steps executed**,
 which renders identically to a real test failure. Pull the steps and look:
 
 ```bash
-gh run view <id> --json jobs --jq '.jobs[] | {name, steps: [.steps[] | {name, conclusion}]}'
+gh api repos/s10023/buibui-moon-trader-bot/actions/runs/<id>/jobs --jq '.jobs[] | {name, steps: [.steps[] | {name, conclusion}]}'
 ```
 
 `steps: []` on a **FAILED** job is billing. A populated step list is a real run,
@@ -1236,7 +1248,9 @@ entirely as `Edit`s and every standing block survived.
 
 **PRUNE it on every task, not only when it gets big** (operator instruction,
 2026-08-07). Merged PRs, completed tasks and resolved incidents do NOT belong
-here once they land — the file is read in full at the start of every session,
+here once they land — **move every ✅ item out of the START HERE block into the
+month's session log as you write it; the daily check's `handoff done items` line
+goes amber while one remains (#905)** — the file is read in full at the start of every session,
 so its cost is paid on every conversation. Left alone it reached **1622
 lines**, roughly a quarter of it narration of work already merged and recorded
 elsewhere. The test is not "old vs new", it is **"does this change what the
@@ -1293,7 +1307,7 @@ line. See "Standing blocks" below — it is not optional and not per-PR.>
 | #<num> | `<branch>` | <one line> | OPEN / MERGED |
 
 **This table is a snapshot, not live state.** First move:
-`gh pr view <num> --json state`. If MERGED, sync main, delete the branch,
+`gh api repos/s10023/buibui-moon-trader-bot/pulls/<num> --jq '{state, merged}'`. If merged, sync main, delete the branch,
 and start on a task below — do not re-litigate merged work.
 
 ## Just shipped
@@ -1389,7 +1403,7 @@ any commit and push — re-query every PR named in the handoff, not just the
 one this run created:
 
 ```bash
-gh pr view <PR#> --json state,mergedAt --jq '"\(.state) \(.mergedAt)"'
+gh api repos/s10023/buibui-moon-trader-bot/pulls/<PR#> --jq '"\(.state) \(.merged_at)"'
 ```
 
 Then rewrite the state table in place to match. If a PR merged in the
