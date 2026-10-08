@@ -118,11 +118,22 @@ shell blocks. The rule they exist to satisfy: *a self-check outside CI is not a 
   read moves back to import time. **`ConfigError` is deliberately fatal** — a missing or
   malformed config must render as a FINDING in every caller; degrading it to a SKIP would
   print a false all-clear with no surface list behind it.
-- `tools/post_branch_checks.py` — `make post-branch-checks`. Thirteen legs: `queue-items ·
-  handoff-symbols · new-files · new-modules · new-targets · amended-targets ·
+- `tools/post_branch_checks.py` — `make post-branch-checks`. Fourteen legs: `queue-items ·
+  handoff-symbols · packages · new-files · new-modules · new-targets · amended-targets ·
   negative-claims · doc-indexes · md-atx · memory-cap · handoff-size · stale-anchors ·
   sensitive-terms`. **Advisory**
   (`--exit-zero`): a finding is a candidate to dismiss in seconds, never an automatic edit.
+  **`new-files` / `new-modules` report THREE outcomes through `coverage()`** (ST148 M8,
+  2026-10-08): full path named → credited, no probe hit → `UNDOCUMENTED`, basename-only hit
+  with another tracked file of that basename → `AMBIGUOUS` (the #643 `card/telegram.py`
+  shape, which the two-outcome form credited off `utils/telegram.py`). Both take `tracked=`
+  as a REQUIRED keyword, since an empty default silently restores two outcomes. `packages`
+  is the presence check `/post-branch` Step 4 used to carry as a shell loop. Untracked files
+  are read with `--untracked-files=all`: plain `git status` folds a new directory into
+  `?? dir/`, which `added_paths` skips, so a brand-new package was invisible to all three
+  legs until its first commit. `new-files` exempts only `INDEXED_DOC_TREES`
+  (`docs/audits/`, `docs/superpowers/specs/`, both CI-gated by `test_docs_index.py`). It
+  used to exempt all of `docs/`, which hid every new `docs/research/` doc.
   ⚠ **`handoff-size` SKIPS in a linked worktree** (ST75) — `in_linked_worktree` compares
   `git rev-parse --git-dir` with `--git-common-dir`. The handoff is gitignored, so a
   tracked-files-only checkout never has one and the leg used to red on the SETUP rather
