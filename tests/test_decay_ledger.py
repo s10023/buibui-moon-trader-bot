@@ -51,7 +51,9 @@ def test_time_cut_drops_later_fills() -> None:
 
 def test_manifest_cutoff_reads_captured_at_utc(tmp_path: Path) -> None:
     m = tmp_path / "MANIFEST.json"
-    m.write_text(json.dumps({"captured_at_utc": "2026-03-15T20:00:00Z"}))
+    m.write_text(
+        json.dumps({"captured_at_utc": "2026-03-15T20:00:00Z"}), encoding="utf-8"
+    )
     assert cutoff_ms_from_manifest(m) == EDGE_MS
 
 
