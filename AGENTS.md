@@ -680,7 +680,8 @@ evidence the wick anchor works, or that it does not.**
 DIRECTION per study, never just its presence** (ST57, measured 2026-08-20 by reading the code, not
 by re-running anything). This repo resolves every same-bar SL/TP tie ADVERSE-FIRST at three sites —
 `analytics/backtest/engine.py:1073`, `analytics/exits/replay.py:12`, `analytics/exits/mfe_mae.py:17`
-— so every `avg_r`, `win_rate` and star rating carries a uniform PESSIMISTIC bias: harmless within
+(`replay_exits` alone can instead re-walk a tied bar on finer bars via `fine_bars`, #924; adverse-first
+stays its default) — so every `avg_r`, `win_rate` and star rating carries a uniform PESSIMISTIC bias: harmless within
 one stop width, biased ACROSS widths, which bites because the flat-2% defect pins 78% of the ledger
 at one width while other detectors sit elsewhere. **`analytics/giveback.py` is the exception and the
 model to copy — it COUNTS `intrabar_ambiguous` (28 rows, 1.6%) instead of resolving it.** The tighter
