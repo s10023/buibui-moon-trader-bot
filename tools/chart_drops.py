@@ -42,6 +42,8 @@ _NAME_RE = re.compile(
     r"\.(?i:png|jpg|jpeg)$"
 )
 
+_HHMM_RE = re.compile(r"^(?:[01]\d|2[0-3])[0-5]\d$")
+
 
 @dataclass(frozen=True)
 class PendingDrop:
@@ -64,7 +66,7 @@ def parse_drop_filename(
     is the operator's wall clock — MYT (fixed UTC+8).
 
     A trailing free-text label after the timestamp is ACCEPTED AND DISCARDED
-    (e.g. "coinglass_BTCUSDT_20260824_Map_1y_1705.png"). Its only job is to
+    (e.g. "coinglass_BTCUSDT_20260824-1705_Map_1y.png"). Its only job is to
     make a burst capture nameable: the scheme's sole uniqueness mechanism was
     the timestamp's minute, so five panels grabbed in the same minute could
     not be given distinct names, and the operator's natural workaround —
@@ -85,9 +87,26 @@ def parse_drop_filename(
     label to follow. The leading-letter rule leaks nothing on its own and is a
     deliberate BACKSTOP for the day the first rule is relaxed; the measurement
     behind that split is in ``test_label_requires_a_timestamp_and_a_leading_letter``.
+
+    ⛔ **A DATE-ONLY stamp whose label ends in a valid HHMM is REJECTED** (#827).
+    ``..._20260827_HeatMap_1d_1800.png`` means 18:00, but the underscore makes
+    the stamp date-only, so it parsed as MIDNIGHT and the ``1800`` was
+    discarded as label — an 18h backdate that every freshness gate read as
+    fresh. Rejecting puts the file in the unparseable list for a rename to
+    ``20260827-1800``; reading the time out of the label instead would give the
+    label meaning, which the rule above forbids.
     """
     match = _NAME_RE.match(name)
     if match is None or match.group("source") not in allowed_sources:
+        return None
+    label = match.group("label")
+    ts_raw = match.group("ts")
+    if (
+        ts_raw is not None
+        and "-" not in ts_raw
+        and label is not None
+        and _HHMM_RE.match(label.rsplit("_", 1)[-1])
+    ):
         return None
     ts_ms: int | None = None
     ts = match.group("ts")

@@ -54,11 +54,11 @@ def test_parse_rejects_bad_names() -> None:
 
 def test_parse_accepts_and_discards_a_trailing_label() -> None:
     """The real 2026-08-24 burst capture parses, and the label is dropped."""
-    labelled = parse_drop_filename("coinglass_BTCUSDT_20260824_Map_1y_1705.png")
-    assert labelled == ("coinglass", None, "BTCUSDT", _myt_ms(2026, 8, 24))
+    labelled = parse_drop_filename("coinglass_BTCUSDT_20260824-1705_Map_1y.png")
+    assert labelled == ("coinglass", None, "BTCUSDT", _myt_ms(2026, 8, 24, 17, 5))
     # Byte-identical to the same drop with no label: the label carries no
     # meaning, so it must not reach any field a consumer reads.
-    assert labelled == parse_drop_filename("coinglass_BTCUSDT_20260824.png")
+    assert labelled == parse_drop_filename("coinglass_BTCUSDT_20260824-1705.png")
 
 
 def test_all_five_same_minute_windows_parse_identically() -> None:
@@ -68,12 +68,27 @@ def test_all_five_same_minute_windows_parse_identically() -> None:
     key, so it must NOT be inferred from these labels.
     """
     parsed = [
-        parse_drop_filename(f"coinglass_BTCUSDT_20260824_Map_{w}_1705.png")
+        parse_drop_filename(f"coinglass_BTCUSDT_20260824-1705_Map_{w}.png")
         for w in ("7d", "30d", "90d", "180d", "1y")
     ]
     assert all(
-        p == ("coinglass", None, "BTCUSDT", _myt_ms(2026, 8, 24)) for p in parsed
+        p == ("coinglass", None, "BTCUSDT", _myt_ms(2026, 8, 24, 17, 5)) for p in parsed
     )
+
+
+def test_date_only_stamp_with_a_time_shaped_label_is_rejected() -> None:
+    """#827: the underscore form backdated a real 18:00 capture to midnight."""
+    assert parse_drop_filename("coinglass_BTCUSDT_20260827_HeatMap_1d_1800.png") is None
+    assert parse_drop_filename("coinglass_BTCUSDT_20260827_1800.png") is None
+    # The dash form is the convention and still parses with its time.
+    assert parse_drop_filename("coinglass_BTCUSDT_20260827-1800_HeatMap_1d.png") == (
+        "coinglass",
+        None,
+        "BTCUSDT",
+        _myt_ms(2026, 8, 27, 18, 0),
+    )
+    # A date-only stamp with a non-time label still parses (midnight is declared).
+    assert parse_drop_filename("coinglass_BTCUSDT_20260827_Map_1y.png") is not None
 
 
 def test_label_requires_a_timestamp_and_a_leading_letter() -> None:
@@ -109,7 +124,7 @@ def test_scan_lists_same_minute_burst_as_pending_not_unparseable(
     drop = tmp_path / "chart-drops"
     drop.mkdir()
     for i, w in enumerate(("7d", "30d", "90d", "180d", "1y")):
-        (drop / f"coinglass_BTCUSDT_20260824_Map_{w}_1705.png").write_bytes(
+        (drop / f"coinglass_BTCUSDT_20260824-1705_Map_{w}.png").write_bytes(
             f"img-{i}".encode()
         )
     pending, unparseable = scan_drops(drop, tmp_path / "ledger.json")
