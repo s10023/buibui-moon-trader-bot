@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getOhlcv, getSignals, getZones, type CandleRow, type FundingRow, type OiRow, type SignalRow, type ZonesResponse } from "../api";
+  import { getLocation, getOhlcv, getSignals, getZones, type CandleRow, type FundingRow, type LocationResponse, type OiRow, type SignalRow, type ZonesResponse } from "../api";
   import { symbols } from "../stores/config";
   import { strategyNames } from "../stores/strategies";
   import { selectedSymbol, selectSymbol } from "../stores/watchlist";
@@ -83,11 +83,19 @@
   let showOTE = $state(false);
   let showSwings = $state(false);
 
+  // Location overlay (#822): anchored VWAP + 60d volume-profile levels.
+  // OFF by default, and display only — never gates, sizes or suppresses.
+  let showVWAPDay = $state(false);
+  let showVWAPWeek = $state(false);
+  let showVWAPMonth = $state(false);
+  let showProfile = $state(false);
+
   let candles = $state<CandleRow[]>([]);
   let signals = $state<SignalRow[]>([]);
   let funding = $state<FundingRow[] | null>(null);
   let oi = $state<OiRow[] | null>(null);
   let zones = $state<ZonesResponse | null>(null);
+  let location = $state<LocationResponse | null>(null);
   let loading = $state(false);
   let error = $state<string | null>(null);
   let loaded = $state(false);
@@ -110,13 +118,16 @@
   const anyZoneActive = () =>
     showFVG || showOB || showEQHEQL || showBOS || showFibZone || showOTE || showSwings;
 
+  const anyLocationActive = () =>
+    showVWAPDay || showVWAPWeek || showVWAPMonth || showProfile;
+
   async function load(): Promise<void> {
     loading = true;
     error = null;
     const end_ms = Date.now();
     const start_ms = end_ms - days * 24 * 60 * 60 * 1000;
     try {
-      const [ohlcvResp, sigResp, zonesResp] = await Promise.all([
+      const [ohlcvResp, sigResp, zonesResp, locationResp] = await Promise.all([
         getOhlcv({ symbol, timeframe, start_ms, end_ms, include_funding: showFunding, include_oi: showOI }),
         selectedStrategies.length > 0
           ? getSignals({ symbol, timeframe, start_ms, end_ms, strategies: selectedStrategies })
@@ -124,12 +135,16 @@
         anyZoneActive()
           ? getZones({ symbol, timeframe, start_ms, end_ms }).catch(() => null)
           : Promise.resolve(null),
+        anyLocationActive()
+          ? getLocation({ symbol, timeframe, start_ms, end_ms }).catch(() => null)
+          : Promise.resolve(null),
       ]);
       candles = ohlcvResp.candles;
       signals = sigResp.signals;
       funding = ohlcvResp.funding;
       oi = ohlcvResp.oi;
       zones = zonesResp ?? null;
+      location = locationResp ?? null;
       loaded = true;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -172,7 +187,7 @@
     <div class="controls">
       <div class="form-row">
         <label>Timeframe
-          <select bind:value={timeframe} onchange={() => { if (timeframe !== "15m" && timeframe !== "1h") showCMEGaps = false; void load(); }}>
+          <select bind:value={timeframe} onchange={() => { if (timeframe !== "15m" && timeframe !== "1h") showCMEGaps = false; if (timeframe === "1d") showVWAPDay = false; void load(); }}>
             {#each TIMEFRAMES as tf}<option>{tf}</option>{/each}
           </select>
         </label>
@@ -214,6 +229,18 @@
         <button class="pill zone-pill" class:active={showFibZone} onclick={() => { showFibZone = !showFibZone; void load(); }}>0.5–0.618</button>
         <button class="pill zone-pill" class:active={showOTE} onclick={() => { showOTE = !showOTE; void load(); }}>OTE</button>
         <button class="pill zone-pill" class:active={showSwings} onclick={() => { showSwings = !showSwings; void load(); }}>Swings</button>
+      </div>
+
+      <!-- #822: Location overlay — anchored VWAP + volume-profile levels -->
+      <div class="form-row indicators-row">
+        <span class="section-label">Location</span>
+        {#if timeframe !== "1d"}
+          <button class="pill" class:active={showVWAPDay} onclick={() => { showVWAPDay = !showVWAPDay; void load(); }}>VWAP Day</button>
+        {/if}
+        <button class="pill" class:active={showVWAPWeek} onclick={() => { showVWAPWeek = !showVWAPWeek; void load(); }}>VWAP Week</button>
+        <button class="pill" class:active={showVWAPMonth} onclick={() => { showVWAPMonth = !showVWAPMonth; void load(); }}>VWAP Month</button>
+        <button class="pill" class:active={showProfile} onclick={() => { showProfile = !showProfile; void load(); }}>POC · VA 60d</button>
+        <span class="display-only" title="Anchored VWAP resets at 00:00 UTC (day), Monday 00:00 UTC (week) and the 1st (month). Volume profile covers the last 60 days of closed 1h bars. Context only: no detector, gate or position size reads these.">display only</span>
       </div>
 
       {#if $strategyNames.length > 0}
@@ -277,6 +304,11 @@
           {showFibZone}
           {showOTE}
           {showSwings}
+          {location}
+          {showVWAPDay}
+          {showVWAPWeek}
+          {showVWAPMonth}
+          {showProfile}
         />
       </div>
       <div class="chart-meta">
@@ -376,6 +408,15 @@
     align-items: center;
     flex-wrap: wrap;
     gap: 10px;
+  }
+
+  .display-only {
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    opacity: 0.7;
+    cursor: help;
   }
 
   .checkbox-label {

@@ -1308,6 +1308,7 @@ SSE stream endpoints accept `?token=<API_TOKEN>` query param instead (browser `E
 | `GET` | `/api/live-outcomes` | Cross-symbol roll-up of fired-alert outcomes from `signal_alert_outcomes` (win/loss/avg-R per strategy×tf×direction, both the per-strategy and per-cell groupings also carrying win/loss/expired counts; optional `symbol` query param scopes the roll-up to one symbol) |
 | `GET` | `/api/live-outcomes/open` | Unresolved alerts marked to the live price (`?symbol=`); degrades to `marks_ok=false` with null price columns when the price feed is unavailable |
 | `GET` | `/api/zones` | Structural zones for a symbol+timeframe (FVG, OB, EQH/EQL, BOS, Fib, OTE, swings) |
+| `GET` | `/api/location` | Chart location overlay for a symbol+timeframe: day/week/month anchored-VWAP series and 60-day volume-profile POC/VAH/VAL. Display only, never a gate |
 
 **CORS:** Defaults to `http://localhost:5173` (Vite dev server). Override with `CORS_ORIGINS` env var (comma-separated). If you change `DEV_PORT`, update `CORS_ORIGINS` accordingly (e.g. `CORS_ORIGINS=http://localhost:3000`).
 
@@ -1327,7 +1328,7 @@ SSE stream endpoints accept `?token=<API_TOKEN>` query param instead (browser `E
 A single-page trading terminal UI. Dark theme, no component library, no SSR.
 Pages: Chart (candlesticks + signal markers + structural zone overlays), Backtest (DB-backed sortable/filterable results table + collapsible run form), Signal Feed (poll + filters), Positions (SSE), Prices (SSE).
 
-Chart overlays include EMA 20/50/200, RSI sub-panel, Range Levels (MO/DO/WO + PDH/PDL/PWH/PWL/Mon H·L), CME Gap (15m/1h only), Fibonacci retracement, and **Structural Zones** (7 toggles: FVG boxes, Order Block boxes, EQH·EQL lines, BOS levels, Fib Golden Zone box, OTE box, swing pivot dots — powered by `GET /api/zones`).
+Chart overlays include EMA 20/50/200, RSI sub-panel, Range Levels (MO/DO/WO + PDH/PDL/PWH/PWL/Mon H·L), CME Gap (15m/1h only), Fibonacci retracement, and **Structural Zones** (7 toggles: FVG boxes, Order Block boxes, EQH·EQL lines, BOS levels, Fib Golden Zone box, OTE box, swing pivot dots — powered by `GET /api/zones`), and a **Location** row (VWAP Day / Week / Month anchored at 00:00 UTC, Monday 00:00 UTC and the 1st, with VWAP Day hidden on 1d; plus the 60-day volume-profile POC and value area over closed 1h bars — powered by `GET /api/location`). Every Location toggle starts OFF. The overlay is display only and never gates, sizes or suppresses anything; `tests/test_chart_location.py` fails if a detector, gate, sizing or execution module imports it.
 
 ```bash
 # Install frontend dependencies (first time)
