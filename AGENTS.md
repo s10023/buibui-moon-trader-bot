@@ -697,9 +697,10 @@ discount.**
 **The binding constraint, confirmed five times** (exits, trend-weight, combine, carry,
 reversal): the system needs a second *strong* edge, and the cheap price-only free-data
 levers are exhausted. A new sleeve must carry genuinely new information. **Conditioning axes
-are 6-for-6-plus-one-amended** — regime/session/combo/direction, H14's Coinbase premium and
-H15's USD/JPY carry-unwind found no edge; H8's M1 axes are the amendment. The diagnosis has
-moved off conditioning and onto the signal book.
+are 7-for-7 with no buildable edge** — regime/session/combo/direction, H14's Coinbase premium
+and H15's USD/JPY carry-unwind found no edge, and H8's M1 axes, once amended to a two-sided
+price-location effect, lost it to a look-ahead fix (#952). The diagnosis has moved off
+conditioning and onto the signal book.
 
 - ⚠ **Read "found no edge" as "no effect was FOUND", never as "an effect was RULED OUT"** —
   under CI containment those cells are INSUFFICIENT.
@@ -708,13 +709,19 @@ moved off conditioning and onto the signal book.
   does not** — it rested on a sample-size floor, and the corrected criterion flips the
   primary panel to INSUFFICIENT. H15 is the second genuinely different data source after
   H14, and both found no edge, which sharpens the standing conclusion.
-- **H8 AMENDED** (PR #546, `docs/audits/2026-07-24-h8-m1-indicator-conditioning.md`): its
-  original NO came from a build in which AVOID could essentially never fire, with the
-  pre-committed MinTRL leg missing. The re-run finds 25 backtest AVOID cells, 17 long-side,
-  where the published table had zero — price *location* gates BOTH directions. **This is not
-  a sixth conditioning win:** 7 of the 25 are exact binary-axis mirrors of a BUILD cell, the
-  price-location axes are ~1 effective finding rather than 25, and live is not independent
-  of the backtest. Indicator *character* remains a NO.
+- **H8's "price location gates BOTH directions" was LOOK-AHEAD**
+  (`docs/audits/2026-10-08-h8-a31-causal-tagger-rerun.md`, #952). The tagger kept bars with
+  `open_time <= t`, so the in-progress 1d bar's close, up to 24h after entry, set the
+  reference price. A trade on a day that later closed down was tagged "below" by that close,
+  which manufactured the continuation shape. On a tagger that sees only bars closed by `t`,
+  on the same snapshot, backtest BUILD cells fall from 20 to 2 and no short-side location
+  cell is gate-grade at any tier. C836's 4h `vwap_weekly/below/short` reads +0.160R
+  INSUFFICIENT, where it read +0.467R BUILD. What remains is 19 long-side AVOID cells, and
+  they are the *above* states: longs entered extended up underperform other longs (4h
+  `vwap_weekly/above/long` −0.313R against −0.045R). That is ~1 collinear, in-sample finding
+  that agrees with the counter-trend-book reading, so it is not new information. The two
+  remaining BUILDs vanish without the pre-fix `bos`/`liquidity_sweep` rows (#949).
+  Indicator *character* remains a NO.
 
 ### Code-level rules
 

@@ -52,7 +52,7 @@ from analytics.indicator_condition import (  # noqa: E402
 )
 from analytics.store import DEFAULT_DB_PATH  # noqa: E402
 from analytics.strategies._registry import STRATEGY_REGISTRY  # noqa: E402
-from tools.warning_value_audit import _load_market  # noqa: E402
+from tools.warning_value_audit import _load_market, _tf_ms  # noqa: E402
 
 SourceResult = tuple[list[ConditionVerdict], pd.DataFrame, int]
 
@@ -68,17 +68,21 @@ _DEFAULT_H1_HISTORY_BARS = 1500  # ~62d, covers the 60d volume-profile window
 def normalize_live(df: pd.DataFrame) -> pd.DataFrame:
     """``signal_alert_outcomes`` rows -> the common entry frame.
 
-    No real "entry_time" column exists for live rows; ``candle_ts_ms`` (the
-    alert's own candle) is the best available proxy — consistent with this
-    source being corroboration-only, never gate-deciding.
+    No real "entry_time" column exists for live rows. ``candle_ts_ms`` is the
+    signal candle's OPEN (``scanner.py`` writes ``e.open_time``), and the alert
+    can only fire once that candle has closed, so the entry is
+    ``candle_ts_ms + tf`` — the same instant as the backtest's ``entry_time``,
+    the open of the bar after the signal bar. Using the candle open as the
+    as-of let the tagger read bars that close after the alert (#952).
     """
+    tf_ms = df["tf"].map(lambda tf: _tf_ms(str(tf)))
     out = pd.DataFrame(
         {
             "symbol": df["symbol"],
             "tf": df["tf"],
             "strategy": df["strategy"],
             "direction": df["direction"],
-            "entry_time": df["candle_ts_ms"],
+            "entry_time": df["candle_ts_ms"] + tf_ms,
             "pnl_r": df["outcome_r"],
         }
     )

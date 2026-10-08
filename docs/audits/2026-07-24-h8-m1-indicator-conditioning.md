@@ -1,5 +1,11 @@
 # H8 — M1 Indicator-State Conditioning Audit — Verdict (2026-07-24, amended 2026-08-04)
 
+> **SUPERSEDED 2026-10-08: the price-location verdict below was look-ahead
+> (#952).** The tagger read the in-progress 1d bar's close, so the two-sided
+> "continuation" effect was the leak. On the causal tagger no short-side location
+> cell is gate-grade, and the long-side AVOID cells are the *above* states →
+> `docs/audits/2026-10-08-h8-a31-causal-tagger-rerun.md`. Kept as the record of what was filed.
+
 **RE-RUN 2026-10-08 (#943) on the UTC-day cluster** for the 4h tier and live:
 `vwap_weekly/below/short` still reads BUILD at 4h, but the live corroboration drops to
 INSUFFICIENT → `docs/audits/2026-10-08-a31-h8-vwap-cluster-rerun.md`.

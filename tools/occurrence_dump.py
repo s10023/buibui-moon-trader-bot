@@ -6,7 +6,7 @@ its own entry**, so the operator can eyeball which conditions separate the good
 fires from the bad ("only look at long signal A when above some vwap/MA").
 
 ⚠ **THE DUMP IS THE PRODUCT. THE GATE IS NOT BUILDABLE, AND THAT SPLIT IS WHAT
-SAVES THIS ITEM.** Conditioning axes are 6-for-6-plus-one-amended NO in this
+SAVES THIS ITEM.** Conditioning axes are 7-for-7 with no buildable edge in this
 repo, and trial count dominates n: 1 -> 320 trials moves the DSR bar 21x
 (+0.049R -> +1.035R against a corpus best of +1.196R). A per-strategy x
 per-axis-state scan is therefore *structurally unreachable as a gated search* —
