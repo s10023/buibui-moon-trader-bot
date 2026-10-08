@@ -65,7 +65,11 @@ def run(project: Path, ledger: Path, stdin: str) -> int:
 def rows(ledger: Path) -> list[dict[str, Any]]:
     if not ledger.exists():
         return []
-    return [json.loads(line) for line in ledger.read_text().splitlines() if line]
+    return [
+        json.loads(line)
+        for line in ledger.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
 
 
 def tool_payload(skill: str, args: str | None = None) -> str:
@@ -91,7 +95,9 @@ def prompt_payload(prompt: str) -> str:
 with tempfile.TemporaryDirectory() as tmp:
     project = Path(tmp) / "proj"
     (project / ".claude" / "skills" / "card").mkdir(parents=True)
-    (project / ".claude" / "skills" / "card" / "SKILL.md").write_text("---\n")
+    (project / ".claude" / "skills" / "card" / "SKILL.md").write_text(
+        "---\n", encoding="utf-8"
+    )
     # a directory with no SKILL.md is not a skill (the dead-symlink shape, #vendored)
     (project / ".claude" / "skills" / "hollow").mkdir()
 
@@ -112,8 +118,8 @@ with tempfile.TemporaryDirectory() as tmp:
         check("args_len is the length, not the args", r.get("args_len") == 12, str(r))
         check(
             "the args themselves are never stored",
-            "BTCUSDT" not in led.read_text(),
-            led.read_text(),
+            "BTCUSDT" not in led.read_text(encoding="utf-8"),
+            led.read_text(encoding="utf-8"),
         )
         check(
             "row has exactly the five keys",

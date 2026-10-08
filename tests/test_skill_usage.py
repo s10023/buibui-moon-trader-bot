@@ -25,14 +25,14 @@ def _row(days_ago: float, skill: str, source: str = "tool") -> Row:
 
 
 def _write(path: Path, rows: list[dict[str, object]]) -> None:
-    path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
 
 
 def _skills(tmp_path: Path, *names: str) -> Path:
     root = tmp_path / "skills"
     for n in names:
         (root / n).mkdir(parents=True)
-        (root / n / "SKILL.md").write_text("---\n")
+        (root / n / "SKILL.md").write_text("---\n", encoding="utf-8")
     return root
 
 
@@ -47,7 +47,8 @@ class TestLoad:
             "not json\n"
             '{"ts": "nope", "skill": "card"}\n'
             '{"ts": "2026-10-01T00:00:00Z"}\n'
-            "\n"
+            "\n",
+            encoding="utf-8",
         )
         rows, malformed = load_rows(led)
         assert [r.skill for r in rows] == ["card"]
