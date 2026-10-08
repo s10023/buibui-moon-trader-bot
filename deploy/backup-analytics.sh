@@ -172,6 +172,114 @@ LEDGER_DIRS=(
     ".claude"
 )
 
+# The venv interpreter is named directly rather than via `poetry run` -- one less
+# moving part on the minimal PATH a systemd user unit gets.
+PY="$REPO/.venv/bin/python"
+# A Windows host names it `Scripts/python.exe` -- the same split
+# `tools/venv_bootstrap.py::_venv_bin_dir` makes, for the same reason. PROBED rather
+# than branched on `uname`: this script already decides by `[ -x ]`, and a probe stays
+# correct under Git Bash, where `uname` says MINGW64 while the venv layout is Windows'.
+[ -x "$PY" ] || PY="$REPO/.venv/Scripts/python.exe"
+[ -x "$PY" ] || PY="python3"
+
+# --- which Claude config root(s) ---------------------------------------------------
+# (#838) The harness keeps its account config in `~/.claude-personal` on the old Linux box
+# and `~/.claude` on the Windows laptop, and `CLAUDE_CONFIG_DIR` overrides both. This
+# script used to NAME one of them in every EXTERNAL_* entry, so after the 2026-09-18 move
+# every account-level entry (history.jsonl, CLAUDE.md, settings.json, tools/, skills/,
+# commands/) matched nothing -- and both loops treat a miss as a skip, so the snapshot
+# still looked populated. The roots now come from `tools/claude_home.py`, the ONE
+# resolver, never from a literal here; `test_backup_ledger_glob.py` fails if one returns.
+#
+#   ACTIVE_ROOT   the root that holds THIS checkout's `projects/<slug>` -- selected on
+#                 the project tree, never on the root merely existing, because both
+#                 profiles can exist on one host. Account-level entries come from it.
+#   CLAUDE_ROOTS  every candidate root. The memory-tree glob covers ALL of them, so a
+#                 legacy tree a migration restore left behind is still copied.
+#
+# Printed with `as_posix()`: a native `C:\Users\...` would lose its backslashes in the
+# unquoted glob below. CR is stripped because a Windows python writes CRLF to a pipe and
+# `$(...)` strips only the newline.
+resolved_roots="$("$PY" -c 'import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from tools.claude_home import claude_home, config_roots
+print(claude_home(Path(sys.argv[1])).as_posix())
+for root in config_roots():
+    print(root.as_posix())' "$REPO" 2>/dev/null | tr -d '\r')"
+CLAUDE_ROOTS=()
+if [ -n "$resolved_roots" ]; then
+    ACTIVE_ROOT="$(printf '%s\n' "$resolved_roots" | sed -n '1p')"
+    while IFS= read -r _root; do
+        [ -n "$_root" ] && CLAUDE_ROOTS+=("$_root")
+    done < <(printf '%s\n' "$resolved_roots" | sed -n '2,$p')
+else
+    # Never leave it empty: an unresolvable root reads as ABSENT and every entry below
+    # skips, which is the silent coverage loss this block exists to remove. Fall back to
+    # the variable the harness itself honours, then its default, and SAY so.
+    ACTIVE_ROOT="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+    CLAUDE_ROOTS=("$ACTIVE_ROOT")
+    printf 'warn: could not import tools.claude_home; Claude config root fell back to %s\n' \
+        "$ACTIVE_ROOT" >&2
+fi
+
+# The destination label is the root's directory name without its leading dot, so
+# `~/.claude-personal` keeps landing under `_external/claude-personal/` and `~/.claude`
+# under `_external/claude/` -- the names existing snapshots already use.
+_root_label() {
+    local base
+    base="$(basename "$1")"
+    printf '%s' "${base#.}"
+}
+ACTIVE_LABEL="$(_root_label "$ACTIVE_ROOT")"
+
+# Which roots' ACCOUNT-LEVEL files are copied. Default: the active root only, because a
+# second profile can belong to a DIFFERENT account -- on the shared work machine
+# `.claude-personal` was personal and `.claude` was the work account -- and the off-site
+# leg rclone-syncs this snapshot to a cloud drive, so adopting it by default would ship
+# another account's prompt log and instructions to a third party. A host that wants a
+# legacy root kept names it in BUIBUI_BACKUP_EXTRA_CLAUDE_ROOTS in its gitignored .env,
+# comma-separated (a Windows path carries a colon). The laptop needs this: after the
+# 2026-09-18 move its `~/.claude-personal` still holds the pre-migration history.jsonl,
+# `tools/budget.py` + `budget-history.json`, and the book distillations under `skills/`,
+# none of which exists anywhere else.
+#
+# Every candidate root that exists and is NOT copied is named on every run (UNCOPIED_ROOTS
+# below), so leaving a root out is a visible decision, never a silent skip.
+#
+# Roots are compared in canonical form: the resolver prints `C:/Users/...` while a .env
+# under Git Bash spells `/c/Users/...`, and a string compare would call one root two.
+_canon_root() { (cd "$1" 2>/dev/null && pwd -P) || printf '%s' "$1"; }
+_root_in() {
+    local want have
+    want="$(_canon_root "$1")"; shift
+    for have in "$@"; do
+        [ "$(_canon_root "$have")" = "$want" ] && return 0
+    done
+    return 1
+}
+BACKUP_ROOTS=("$ACTIVE_ROOT")
+if [ -n "${BUIBUI_BACKUP_EXTRA_CLAUDE_ROOTS:-}" ]; then
+    IFS=',' read -r -a _extra_roots <<< "$BUIBUI_BACKUP_EXTRA_CLAUDE_ROOTS"
+    for _root in "${_extra_roots[@]}"; do
+        _root="$(printf '%s' "$_root" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+        [ -n "$_root" ] || continue
+        case "$_root" in "~"/*) _root="$HOME/${_root#"~/"}" ;; esac
+        _root="${_root%/}"
+        if [ ! -d "$_root" ]; then
+            printf 'warn: BUIBUI_BACKUP_EXTRA_CLAUDE_ROOTS names %s, which is not a directory\n' \
+                "$_root" >&2
+            continue
+        fi
+        _root_in "$_root" "${BACKUP_ROOTS[@]}" || BACKUP_ROOTS+=("$_root")
+    done
+fi
+UNCOPIED_ROOTS=()
+for _root in "${CLAUDE_ROOTS[@]}"; do
+    [ -d "$_root" ] || continue
+    _root_in "$_root" "${BACKUP_ROOTS[@]}" || UNCOPIED_ROOTS+=("$_root")
+done
+
 # Files OUTSIDE the repo, as "absolute-source:path-under-the-snapshot". Kept separate
 # from LEDGERS because that loop is "$REPO/$f"-relative and would silently resolve an
 # absolute path to nonsense.
@@ -198,11 +306,15 @@ LEDGER_DIRS=(
 # root to a cloud drive, so anything added here is COPIED TO A THIRD PARTY. That is the
 # same failure shape as the 2026-08-15 rclone token leak: the damage is done at copy
 # time, and noticing afterwards does not undo it.
-EXTERNAL_LEDGERS=(
-    "$HOME/.claude-personal/history.jsonl:claude-personal/history.jsonl"
-    "$HOME/.claude-personal/CLAUDE.md:claude-personal/CLAUDE.md"
-    "$HOME/.claude-personal/settings.json:claude-personal/settings.json"
-)
+EXTERNAL_LEDGERS=()
+for _root in "${BACKUP_ROOTS[@]}"; do
+    _label="$(_root_label "$_root")"
+    EXTERNAL_LEDGERS+=(
+        "$_root/history.jsonl:$_label/history.jsonl"
+        "$_root/CLAUDE.md:$_label/CLAUDE.md"
+        "$_root/settings.json:$_label/settings.json"
+    )
+done
 
 # Out-of-repo DIRECTORIES, as "absolute-source-glob:path-under-the-snapshot".
 #
@@ -281,13 +393,28 @@ EXTERNAL_LEDGERS=(
 # also holds `sessions/`, `shell-snapshots/` and credential-bearing config, and the
 # off-site leg rclone-syncs this snapshot to a cloud drive, which is the same reason
 # `.credentials.json` is excluded above.
-EXTERNAL_LEDGER_DIRS=(
-    "$HOME/.claude-personal/projects/*/memory:claude-personal/projects"
-    "$HOME/.claude-personal/tools:claude-personal"
-    "$HOME/.claude-personal/skills:claude-personal"
-    "$HOME/.claude-personal/commands:claude-personal"
-    "$HOME/.claude/projects/*/memory:claude/projects"
-)
+#
+# (#838) None of these name a config root: the account-level trees come from
+# BACKUP_ROOTS (the active root plus any opted in) and the memory glob is added once per
+# candidate root, all resolved above. Keep it that way -- a literal root here is the
+# defect, and the tests fail on one.
+EXTERNAL_LEDGER_DIRS=()
+for _root in "${BACKUP_ROOTS[@]}"; do
+    _label="$(_root_label "$_root")"
+    EXTERNAL_LEDGER_DIRS+=(
+        "$_root/tools:$_label"
+        "$_root/skills:$_label"
+        "$_root/commands:$_label"
+    )
+done
+for _root in "${CLAUDE_ROOTS[@]}"; do
+    EXTERNAL_LEDGER_DIRS+=("$_root/projects/*/memory:$(_root_label "$_root")/projects")
+done
+
+# A spec is "source:dest". The SOURCE can itself contain a colon (a Windows drive,
+# `C:/Users/...`), the DEST never does, so split on the LAST colon.
+_spec_src() { printf '%s' "${1%:*}"; }
+_spec_rel() { printf '%s' "${1##*:}"; }
 
 # The last two path components identify a matched directory -- `<project-slug>/memory`.
 # The basename alone would collapse all seven trees onto one `memory/` and silently keep
@@ -296,19 +423,18 @@ _ext_dir_tail() {
     printf '%s/%s' "$(basename "$(dirname "$1")")" "$(basename "$1")"
 }
 
-# The venv interpreter is named directly rather than via `poetry run` -- one less
-# moving part on the minimal PATH a systemd user unit gets.
-PY="$REPO/.venv/bin/python"
-# A Windows host names it `Scripts/python.exe` -- the same split
-# `tools/venv_bootstrap.py::_venv_bin_dir` makes, for the same reason. PROBED rather
-# than branched on `uname`: this script already decides by `[ -x ]`, and a probe stays
-# correct under Git Bash, where `uname` says MINGW64 while the venv layout is Windows'.
-[ -x "$PY" ] || PY="$REPO/.venv/Scripts/python.exe"
-[ -x "$PY" ] || PY="python3"
-
 # ST78: the account-level spend tracker. Its derived index is the backed-up stand-in for
 # the excluded `transcript-archive/`; see the block above EXTERNAL_LEDGER_DIRS.
-BUDGET_PY="$HOME/.claude-personal/tools/budget.py"
+# The first COPIED root that holds it, active root first: on the laptop the tracker still
+# lives in the legacy root, and a lookup pinned to the active root reported it ABSENT and
+# stopped refreshing the index while `tools/` kept being copied stale.
+BUDGET_PY="$ACTIVE_ROOT/tools/budget.py"
+for _root in "${BACKUP_ROOTS[@]}"; do
+    if [ -f "$_root/tools/budget.py" ]; then
+        BUDGET_PY="$_root/tools/budget.py"
+        break
+    fi
+done
 # Derived from the tool's own directory, never spelled a second time: the index is written
 # by budget.py and copied because it sits inside the already-covered `tools/` tree, so a
 # hardcoded second path could drift out of that tree and be silently uncopied.
@@ -393,7 +519,7 @@ if [ "$dry_run" -eq 1 ]; then
         fi
     done
     for spec in "${EXTERNAL_LEDGERS[@]}"; do
-        src="${spec%%:*}"; rel="${spec#*:}"
+        src="$(_spec_src "$spec")"; rel="$(_spec_rel "$spec")"
         if [ -f "$src" ]; then
             log "  external   $rel <- $src ($(du -h "$src" | cut -f1))"
         else
@@ -401,7 +527,7 @@ if [ "$dry_run" -eq 1 ]; then
         fi
     done
     for spec in "${EXTERNAL_LEDGER_DIRS[@]}"; do
-        pattern="${spec%%:*}"; rel="${spec#*:}"
+        pattern="$(_spec_src "$spec")"; rel="$(_spec_rel "$spec")"
         matched=0
         # Unquoted on purpose -- this is where the glob expands.
         for src in $pattern; do
@@ -415,6 +541,9 @@ if [ "$dry_run" -eq 1 ]; then
             log "  ext-dir    $rel/$(_ext_dir_tail "$src") ($(du -sh "$src" | cut -f1), $(find "$src" -type f | wc -l) files)"
         done
         [ "$matched" -eq 0 ] && log "  ext-dir    $rel -- NO MATCH for $pattern, will be skipped"
+    done
+    for _root in "${UNCOPIED_ROOTS[@]}"; do
+        log "  uncopied   $_root -- account files NOT copied (not this checkout's root; add it to BUIBUI_BACKUP_EXTRA_CLAUDE_ROOTS in .env to keep them)"
     done
     # Reported here as well as done in the real path, for the same reason the glob is
     # expanded in both loops: a report that omits a step the copy performs promises
@@ -572,11 +701,14 @@ if [ -f "$BUDGET_PY" ]; then
 fi
 
 # --- external ledgers ---------------------------------------------------------
+for _root in "${UNCOPIED_ROOTS[@]}"; do
+    log "  uncopied   $_root -- account files NOT copied (not this checkout's root; add it to BUIBUI_BACKUP_EXTRA_CLAUDE_ROOTS in .env to keep them)"
+done
 # Absent is not fatal: these live outside the repo, so a fresh clone or a different
 # box legitimately has none of them, and a missing one must not fail a backup whose
 # actual crown jewels are already verified above.
 for spec in "${EXTERNAL_LEDGERS[@]}"; do
-    src="${spec%%:*}"; rel="${spec#*:}"
+    src="$(_spec_src "$spec")"; rel="$(_spec_rel "$spec")"
     if [ -f "$src" ]; then
         mkdir -p "$daily_dir/_external/$(dirname "$rel")"
         cp -p "$src" "$daily_dir/_external/$rel"
@@ -584,7 +716,7 @@ for spec in "${EXTERNAL_LEDGERS[@]}"; do
 done
 
 for spec in "${EXTERNAL_LEDGER_DIRS[@]}"; do
-    pattern="${spec%%:*}"; rel="${spec#*:}"
+    pattern="$(_spec_src "$spec")"; rel="$(_spec_rel "$spec")"
     # Unquoted on purpose -- this is where the glob expands. A pattern that matches
     # nothing expands to itself, which the -d test then rejects, so a missing tree is a
     # skip rather than a failure (same contract as the file loop above).

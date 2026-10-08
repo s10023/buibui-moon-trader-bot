@@ -412,7 +412,9 @@ is not a backup — its `signal_alert_outcomes` table has 0 rows.
   same gap twice.
 - **The `EXTERNAL_*` arrays take `src:dest` pairs** and land under `_external/` in the
   snapshot; the `LEDGERS` loop is `"$REPO/$f"`-relative and resolves an absolute path to
-  nonsense. They cover `~/.claude-personal/`: `history.jsonl` (the account-level prompt log,
+  nonsense. They cover the account config root — `~/.claude-personal/` on the old Linux
+  box, `~/.claude/` on the Windows laptop, resolved by `tools/claude_home.py` and **never
+  named in the script** (#838; a test fails on a literal): `history.jsonl` (the account-level prompt log,
   the only record of a session that survives transcript cleanup, and what `budget.py`
   checks its own coverage against), every `projects/*/memory` tree (the cross-session
   knowledge base, in no git remote), the account-level `CLAUDE.md` + `settings.json`, and
