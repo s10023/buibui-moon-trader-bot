@@ -67,7 +67,9 @@ class TestHoldoutList:
 class TestCosts:
     def test_read_from_config_not_restated(self, tmp_path: Path) -> None:
         cfg = tmp_path / "p.toml"
-        cfg.write_text("fee_pct = 0.0009\n[backtest]\nslippage_bps = 3.0\n")
+        cfg.write_text(
+            "fee_pct = 0.0009\n[backtest]\nslippage_bps = 3.0\n", encoding="utf-8"
+        )
         c = e.load_costs(cfg)
         assert c.fee_pct == pytest.approx(0.0009)
         assert c.slippage_pct == pytest.approx(0.0003)
