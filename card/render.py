@@ -40,6 +40,7 @@ def render_card(final: FinalCard) -> str:
             f"({(final.risk_frac or 0.0) * 100:.2f}%{capital_note})"
         )
     lines.append(f"confluence {card.confluence_score}/9")
+    lines.extend(f"  + {i.input}: {i.evidence}" for i in card.confluence_inputs)
     lines.append("reasoning:")
     lines.extend(f"  - {b}" for b in card.reasoning)
     if card.steelman:

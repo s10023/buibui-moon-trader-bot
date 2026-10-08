@@ -43,6 +43,32 @@ _LIVE_NOISE_R = 0.15
 # argued all four.
 _STEELMAN_ANGLES = 4
 
+# card-v8: the agreeing inputs behind `confluence_score`, one entry per input,
+# drawn from the kinds rubric step 3 names. Emitted so the ONE-external-input
+# cap is checkable from the artifact: a scalar score cannot tell a cluster
+# cited in two bullets from one input counted twice (6/6 cards in the
+# 2026-08-25 batch were ambiguous on exactly that). Only external liquidity
+# is capped — two indicators can be two independent agreeing inputs.
+CONFLUENCE_KINDS = (
+    "zone_level",
+    "indicator",
+    "session",
+    "recent_fire",
+    "pundit",
+    "external_liquidity",
+    "xs",
+)
+_EXTERNAL_KIND = "external_liquidity"
+_EXTERNAL_CAP = 1
+
+
+@dataclass(frozen=True)
+class ConfluenceInput:
+    input: str
+    """One of `CONFLUENCE_KINDS`."""
+    evidence: str
+    """The number from the state JSON that makes this input agree."""
+
 
 @dataclass(frozen=True)
 class TradeCard:
@@ -54,6 +80,12 @@ class TradeCard:
     tp2: float | None
     tp3: float | None
     confluence_score: int
+    confluence_inputs: list[ConfluenceInput]
+    """One entry per agreeing input; its length IS `confluence_score`.
+
+    Required and without a default, as `steelman` is: a field the code can
+    forget to populate is the defect this list exists to close.
+    """
     reasoning: list[str]
     steelman: list[str]
     """The four-angle counter-case, empty on a NO_TRADE card.
@@ -96,6 +128,34 @@ def _is_num(v: object) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
 
 
+def _confluence_input_errors(inputs: object, score: object) -> list[str]:
+    """Shape, count-matches-score and the external-liquidity cap."""
+    if not isinstance(inputs, list) or not all(
+        isinstance(i, dict)
+        and i.get("input") in CONFLUENCE_KINDS
+        and isinstance(i.get("evidence"), str)
+        and i["evidence"].strip()
+        for i in inputs
+    ):
+        return [
+            "confluence_inputs must be a list of {input, evidence} objects, "
+            f"input one of {list(CONFLUENCE_KINDS)} and evidence non-empty"
+        ]
+    errors: list[str] = []
+    if isinstance(score, int) and not isinstance(score, bool) and len(inputs) != score:
+        errors.append(
+            f"confluence_inputs lists {len(inputs)} inputs but confluence_score "
+            f"is {score}; they must match"
+        )
+    n_external = sum(1 for i in inputs if i["input"] == _EXTERNAL_KIND)
+    if n_external > _EXTERNAL_CAP:
+        errors.append(
+            f"confluence_inputs counts {_EXTERNAL_KIND} {n_external} times; all "
+            f"external snapshots together are at most {_EXTERNAL_CAP} input"
+        )
+    return errors
+
+
 def validate_card_obj(obj: object) -> list[str]:
     """Schema errors for the raw LLM JSON object; [] when valid."""
     if not isinstance(obj, dict):
@@ -114,6 +174,7 @@ def validate_card_obj(obj: object) -> list[str]:
     score = obj.get("confluence_score")
     if not isinstance(score, int) or isinstance(score, bool) or not 0 <= score <= 9:
         errors.append("confluence_score must be an integer in [0, 9]")
+    errors.extend(_confluence_input_errors(obj.get("confluence_inputs"), score))
     if verdict == "TRADE":
         if obj.get("direction") not in _DIRECTIONS:
             errors.append("TRADE requires direction 'long' or 'short'")
@@ -168,6 +229,10 @@ def parse_trade_card(text: str) -> TradeCard:
         tp2=_f("tp2"),
         tp3=_f("tp3"),
         confluence_score=int(obj["confluence_score"]),
+        confluence_inputs=[
+            ConfluenceInput(input=str(i["input"]), evidence=str(i["evidence"]))
+            for i in obj["confluence_inputs"]
+        ],
         reasoning=[str(b) for b in obj["reasoning"]],
         steelman=_bullets("steelman"),
         invalidation=_s("invalidation"),

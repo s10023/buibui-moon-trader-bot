@@ -21,6 +21,10 @@ def _final(verdict: str = "TRADE", horizon: str = "intraday") -> FinalCard:
         "tp2": 105.0,
         "tp3": 108.0,
         "confluence_score": 6,
+        "confluence_inputs": [
+            {"input": k, "evidence": f"{k} 1"}
+            for k in ("zone_level", "indicator", "indicator", "session", "xs", "pundit")
+        ],
         "reasoning": ["ref_close 100 above POC 99", "b", "c", "d", "e"],
         "steelman": ["htf 1", "underweighted 2", "catalyst 3", "other 4"],
         "invalidation": "close below 97",

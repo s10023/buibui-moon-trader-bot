@@ -39,6 +39,10 @@ _VALID = json.dumps(
         "tp2": None,
         "tp3": None,
         "confluence_score": 2,
+        "confluence_inputs": [
+            {"input": "zone_level", "evidence": "fvg 1.2 ATR below"},
+            {"input": "session", "evidence": "Asia range 0.4%"},
+        ],
         "reasoning": ["a 1", "b 2", "c 3", "d 4", "e 5"],
         "invalidation": None,
         "expected_hold": None,

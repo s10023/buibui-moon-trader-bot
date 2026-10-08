@@ -7,6 +7,12 @@ import json
 from card.config import CardConfig
 from card.state import MarketState
 
+# card-v8 (2026-10-08, #821): the card emits `confluence_inputs`, one
+# {input, evidence} entry per agreeing input, so the one-external-input cap is
+# checkable from the artifact and enforced in validation (`card/card.py`). An
+# EMITTED-schema break: v8 rows carry a field v4-v7 rows lack, and
+# `card-place` reads neither, so its scan is unaffected.
+#
 # card-v7 (2026-09-27, prompt-audit): the Style paragraph states the wanted
 # prose instead of listing banned words and tics. Instruction-only change; the
 # payload and the emitted schema are unchanged from v6.
@@ -31,7 +37,7 @@ from card.state import MarketState
 # (see `card/state.py::_strip_censored_pundit_stats`) and rubric 3b names
 # `avg_atr_r` and its units. Bumped because the model sees a different payload
 # AND a different instruction — cards are comparable only within one version.
-PROMPT_VERSION = "card-v7"
+PROMPT_VERSION = "card-v8"
 
 _SCHEMA = """{
   "verdict": "TRADE" or "NO_TRADE",
@@ -42,6 +48,7 @@ _SCHEMA = """{
   "tp2": number | null,
   "tp3": number | null,
   "confluence_score": integer 0-9,
+  "confluence_inputs": [{"input": "zone_level" | "indicator" | "session" | "recent_fire" | "pundit" | "external_liquidity" | "xs", "evidence": "the number that makes it agree"}],
   "reasoning": ["5 to 8 bullets, each citing a concrete number from the input"],
   "steelman": ["exactly 4 bullets in this order: htf counter, underweighted confluence, catalyst risk, the other trader; omit on NO_TRADE"],
   "invalidation": "what price/structure event kills the idea",
@@ -84,7 +91,10 @@ intensity is reliable; a faint low-intensity cluster far from spot is not.
 geometry, indicator states, session tendency, recent_fires (see 3a), pundit \
 priors (only authors/families with flagged=false), external liquidity (all \
 external snapshots together count as at most ONE agreeing input), and the \
-xs block (side + forecast = the system's own book lean).
+xs block (side + forecast = the system's own book lean). List every input \
+you counted in confluence_inputs, one entry each, so its length equals \
+confluence_score; external_liquidity may appear at most once however many \
+clusters or bullets cite it.
 3a. Reading recent_fires: each fire carries TWO quality channels. stars/avg_r/\
 dsr are BACKTEST simulation (treat missing ratings or dsr < 0.95 as weak \
 evidence). live_n/live_avg_r are the REAL track record of that exact \

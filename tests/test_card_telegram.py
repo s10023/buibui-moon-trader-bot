@@ -20,6 +20,10 @@ def _final(verdict: str, **card_overrides: Any) -> FinalCard:
         "tp2": 105.0 if verdict != "NO_TRADE" else None,
         "tp3": 108.0 if verdict != "NO_TRADE" else None,
         "confluence_score": 6,
+        "confluence_inputs": [
+            {"input": k, "evidence": f"{k} 1"}
+            for k in ("zone_level", "indicator", "indicator", "session", "xs", "pundit")
+        ],
         "reasoning": ["a 1", "b 2", "c 3", "d 4", "e 5"],
         "steelman": ["htf zz1", "underweighted zz2", "catalyst zz3", "other zz4"],
         "invalidation": "close below 97",

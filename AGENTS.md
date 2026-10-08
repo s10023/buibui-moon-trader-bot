@@ -349,7 +349,8 @@ the card's own `generated_at_ms`). Wrapped by
   from the other side. A bump carrying a
   byte-identical rubric stays legitimate — v6's own break was in the payload.
 - **M4 external liquidity** (heatmap / liq-map clusters) enters as mapped liquidity with
-  trust guards, capped at ONE confluence input. ⚠ **It is not horizon-filtered**, and every
+  trust guards, capped at ONE confluence input — enforced in validation since card-v8,
+  which lists the counted inputs as `confluence_inputs`. ⚠ **It is not horizon-filtered**, and every
   fresh capture is 24h or 1d, so **fix the capture set before adding a filter** or the block
   just empties. ⚠ **`window` IS in `load_external_state`'s dedup key** — the tuple is
   `(source, venue, scope, panel, window)` at `analytics/brief/external.py:236-242`, and that
