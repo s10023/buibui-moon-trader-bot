@@ -931,7 +931,7 @@ class TestSLColumnShowsTheTrail:
         assert _sl_cell(c) == "98.00"
 
     def test_no_stop_renders_the_placeholder(self) -> None:
-        assert _sl_cell(self._candidate()) == "—"
+        assert _sl_cell(self._candidate()) == "-"
 
 
 class TestHedgeModeDirectionSurvivesAMidPositionWindow:
@@ -1098,7 +1098,8 @@ class TestHedgeModeDirectionSurvivesAMidPositionWindow:
         assert "0.00->100.00" not in out
 
     def test_the_table_encodes_on_a_cp1252_console(self, capsys: Any) -> None:
-        # #932: the Windows console is cp1252, which has no arrow or tick.
+        # #932: the Windows console is cp1252 and the terminal may decode as UTF-8,
+        # so the table stays pure ASCII (no arrow, tick or em dash).
         candidates = group_fills("BTCUSDT", self._short_book_opening_on_a_cover())
         for i, c in enumerate(candidates, 1):
             c.index = i
@@ -1106,7 +1107,7 @@ class TestHedgeModeDirectionSurvivesAMidPositionWindow:
 
         _print_table(candidates)
 
-        capsys.readouterr().out.encode("cp1252")
+        capsys.readouterr().out.encode("ascii")
 
 
 class TestBareInvocation:

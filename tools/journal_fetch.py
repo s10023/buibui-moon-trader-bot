@@ -793,7 +793,7 @@ def fetch_candidates(
 
 
 def _fmt(x: float | None, prec: int = 2) -> str:
-    return "—" if x is None else f"{x:,.{prec}f}"
+    return "-" if x is None else f"{x:,.{prec}f}"
 
 
 def _sl_cell(candidate: TradeCandidate) -> str:

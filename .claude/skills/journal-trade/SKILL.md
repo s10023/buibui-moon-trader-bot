@@ -155,7 +155,7 @@ finally sat flatters or wrecks the R at random — the two bases differed by **4
 **The rule: score against the stop in force AT ENTRY (`initial_sl`), and note the trailed R
 beside it.** `journal_fetch.py` gives you both plus the full `sl_history`
 (`ts` / `trigger_price` / `qty` / `status` / `source`, oldest first), and the table's `SL`
-column renders `98.00→104.00` when a trail happened and a single number when it did not.
+column renders `98.00->104.00` (ASCII since #932) when a trail happened and a single number when it did not.
 
 `sl_history` answers one thing fills alone cannot: **who** moved the stop (`source`).
 
