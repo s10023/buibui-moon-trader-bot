@@ -1,5 +1,9 @@
 # H8 — M1 Indicator-State Conditioning Audit — Verdict (2026-07-24, amended 2026-08-04)
 
+**RE-RUN 2026-10-08 (#943) on the UTC-day cluster** for the 4h tier and live:
+`vwap_weekly/below/short` still reads BUILD at 4h, but the live corroboration drops to
+INSUFFICIENT → `docs/audits/2026-10-08-a31-h8-vwap-cluster-rerun.md`.
+
 > **AMENDED 2026-08-04.** The verdict published on 2026-07-24 was produced by a
 > build in which the **AVOID verdict was structurally unreachable** and one
 > pre-registered gate leg was never implemented. PR #546 fixed four defects in

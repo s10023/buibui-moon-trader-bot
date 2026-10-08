@@ -109,8 +109,32 @@ def normalize_backtest(df: pd.DataFrame) -> pd.DataFrame:
     return out.drop(columns=["run_id"]).reset_index(drop=True)
 
 
+def scope_entries(
+    entries: pd.DataFrame,
+    *,
+    timeframes: list[str] | None = None,
+    exclude_strategies: list[str] | None = None,
+    until_ms: int | None = None,
+) -> pd.DataFrame:
+    """Narrow the normalised entry frame for a scoped or sensitivity run.
+
+    ``until_ms`` is exclusive on ``entry_time``, so a re-run can be cut at a
+    filed audit's own window. ``exclude_strategies`` drops a detector whose rows
+    the pool still carries from before a causality fix (#943: pre-fix ``bos``
+    and ``liquidity_sweep`` sit beside post-fix runs in ``backtest_trades``).
+    """
+    out = entries
+    if timeframes:
+        out = out[out["tf"].isin(timeframes)]
+    if exclude_strategies:
+        out = out[~out["strategy"].isin(exclude_strategies)]
+    if until_ms is not None:
+        out = out[out["entry_time"] < until_ms]
+    return out.reset_index(drop=True)
+
+
 # --------------------------------------------------------------------------- #
-# DB front door (read-only)                                                    #
+# DB front door (read-only)                                                  #
 # --------------------------------------------------------------------------- #
 
 
@@ -317,6 +341,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--timeframes", nargs="*", default=None, help="filter entries by their own tf"
     )
     p.add_argument("--since-days", type=int, default=None)
+    p.add_argument(
+        "--until",
+        default=None,
+        help="UTC date YYYY-MM-DD; keep entries strictly before its midnight",
+    )
+    p.add_argument(
+        "--exclude-strategies",
+        nargs="*",
+        default=None,
+        help="drop these strategies' entries (sensitivity runs)",
+    )
     p.add_argument("--min-n", type=int, default=30)
     p.add_argument("--bar", type=float, default=0.05)
     p.add_argument("--alpha", type=float, default=0.05)
@@ -338,6 +373,9 @@ def main() -> int:
             ).timestamp()
             * 1000
         )
+    until_ms: int | None = None
+    if args.until is not None:
+        until_ms = int(pd.Timestamp(args.until, tz="UTC").timestamp() * 1000)
     cfg = IndicatorConditionConfig(
         bar=args.bar,
         alpha=args.alpha,
@@ -349,9 +387,12 @@ def main() -> int:
     results: dict[str, SourceResult] = {}
     diagnostics: dict[str, dict[str, list[ConditionVerdict]]] = {}
     for src in sources:
-        entries = _load_entries(args.db, src, since_ms)
-        if args.timeframes:
-            entries = entries[entries["tf"].isin(args.timeframes)]
+        entries = scope_entries(
+            _load_entries(args.db, src, since_ms),
+            timeframes=args.timeframes,
+            exclude_strategies=args.exclude_strategies,
+            until_ms=until_ms,
+        )
         if entries.empty:
             print(f"[warn] no entries for source={src}", file=sys.stderr)
             continue
