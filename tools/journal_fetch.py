@@ -808,16 +808,17 @@ def _sl_cell(candidate: TradeCandidate) -> str:
         return last
     if abs(first - candidate.exchange_sl) < _ZERO_TOL:
         return last
-    return f"{_fmt(first)}→{last}"
+    return f"{_fmt(first)}->{last}"
 
 
 def _print_table(candidates: list[TradeCandidate]) -> None:
+    # ASCII only: a cp1252 Windows console cannot encode an arrow or a tick (#932).
     cols = [
         "#",
         "SYMBOL",
         "DIR",
         "STATUS",
-        "ENTRY→EXIT",
+        "ENTRY->EXIT",
         "$PNL",
         "FEES",
         "FUND",
@@ -832,12 +833,12 @@ def _print_table(candidates: list[TradeCandidate]) -> None:
                 c.symbol,
                 c.direction,
                 c.status,
-                f"{'?' if c.truncated else _fmt(c.avg_entry)}→{_fmt(c.avg_exit)}",
+                f"{'?' if c.truncated else _fmt(c.avg_entry)}->{_fmt(c.avg_exit)}",
                 _fmt(c.realized_pnl_usd),
                 _fmt(c.fees_usd),
                 _fmt(c.funding_usd),
                 _sl_cell(c),
-                "✓" if c.already_journaled else "",
+                "yes" if c.already_journaled else "",
             ]
         )
     if not rows:
