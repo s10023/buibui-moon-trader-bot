@@ -105,7 +105,7 @@ trading book will suggest most of these. Authority: `project_do_not_relitigate.m
 | Weekend / day-of-week removal | FAILS, DSR 0.672; effective n is 21 book-days |
 | HTF agreement as a filter | INVERTED — it is a counter-trend book |
 | Reference-level proximity triggers | NO-EDGE |
-| Conditioning axes (regime, session, combo, direction) | 6-for-6-plus-one-amended |
+| Conditioning axes (regime, session, combo, direction, H8 M1) | 7-for-7, no buildable edge; H8's amendment was look-ahead (#952) |
 | Coinbase premium (H14), USD/JPY carry (H15) | NO-EDGE, both genuinely new sources |
 | XS reversal | −2.9, negative even at zero cost |
 | EWMAC regime attribution | NO |

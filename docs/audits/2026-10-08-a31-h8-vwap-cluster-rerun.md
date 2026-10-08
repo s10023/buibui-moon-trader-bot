@@ -1,5 +1,10 @@
 # A31 re-run — H8 VWAP gating at 4h, priced on the UTC-day cluster
 
+> **SUPERSEDED 2026-10-08 by `docs/audits/2026-10-08-h8-a31-causal-tagger-rerun.md` (#952).** Every number below was
+> tagged by a tagger that read the in-progress 1d bar's close, up to 24h after
+> entry. On the causal tagger the 4h `vwap_weekly/below/short` cell reads +0.160R
+> INSUFFICIENT, not BUILD. Kept as the record of what was filed.
+
 Re-runs H8's 4h backtest tier and its live corroboration
 (`docs/audits/2026-07-24-h8-m1-indicator-conditioning.md`) with the one change its register
 row carried: `audit_guard` now prices every verdict on the UTC-day cluster
