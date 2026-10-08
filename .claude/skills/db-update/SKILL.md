@@ -72,6 +72,12 @@ make regression-update       # golden fixtures only — for tests/test_regressio
 3. **Commit** the golden file changes alongside whatever change motivated the
    update — they belong in the same PR.
 
+4. **Read the era check** each recalibrate leg prints under its report. The
+   backtest leg saves sweep runs, which replace every declared cell's rated run, so
+   after a full chain the pool should sit almost entirely in one era. A boundary still
+   listed points at cells the re-run did not reach, such as one whose new run closed 0
+   trades and so kept its older row.
+
 ## When NOT to use
 
 - For a single-combo or one-off backtest, use `/backtest-run` or

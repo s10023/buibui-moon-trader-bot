@@ -150,6 +150,12 @@ live gate OFF, so its avg_r is not comparable to a `--live-parity` run or to the
 ledger; the 2026-08-18 `bos` causality fix cut trade count ~80% under live parity alone.
 Say which mode a table came from whenever you report one.
 
+**Era rule.** One run is one code version, so a table from a run you just made needs
+no era line. Comparing saved rows from different runs does: each was produced under
+the code and TOMLs of its own `run_at_ms`, never its `entry_time`, which is simulated
+market time. For the rated pool, `buibui recalibrate` prints that era check. For an
+ad hoc set of rows, say the `run_at_ms` span before comparing them.
+
 ## Config files
 
 | File | Description |

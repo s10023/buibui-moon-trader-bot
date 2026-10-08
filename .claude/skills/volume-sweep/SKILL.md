@@ -95,6 +95,11 @@ Key reversals vs A13 (old tp_r=2.0):
 - **liquidity_sweep**: A13 said don't suppress (-0.11R delta); at current tp_r now +0.17R → **suppress**
 - **morning_evening_star**: A13 said suppress (+0.10R delta); at current tp_r now -0.14R → **don't suppress**
 
+⚠ **Era rule.** The table above comes from one run, so it sits in one era. The
+comparison with A13 does not: A13 was measured under older code and TOMLs, so a
+reversal mixes the `tp_r` change with every rule change since. Do not credit it to
+`tp_r` alone.
+
 Configs use config-specific sweeps — the `mon_fri` and `weekend` configs see a narrower trade population than `tue_thu` and may give different decisions. See inline comments in each TOML.
 
 ## Workflow

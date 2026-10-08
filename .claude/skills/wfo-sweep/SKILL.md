@@ -213,6 +213,12 @@ poetry run python buibui.py recalibrate --config config/signal_watch.toml
 
 Show diff. Ask: "Apply star ratings? (y/n)"
 
+**Era rule.** The OOS `avg_r` from Phases 1–3 comes from runs made now, so it is one
+code version and needs no era line. The star diff does: recalibrate prints an era check
+under its report, so quote the diff with that line beside it. The `tp_r` commit this
+chain makes opens a new backtest-scope boundary in its own right (`config/*.toml` is in
+`analytics.eras.BACKTEST_PATHS`).
+
 If yes:
 
 ```bash

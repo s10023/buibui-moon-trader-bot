@@ -27,6 +27,10 @@ allowed-tools: "*"
      `mon_fri`. Legacy 3-part state is seeded into all seven scopes on load.
    - Cooldown timer per `(symbol, strategy, direction)` — default 1h between alerts
 4. **Backtest filter**: runs mini-backtest per signal; suppresses if avg_r below threshold (hard mode)
+   - **Era rule:** that mini-backtest runs now, so its `avg_r` is one code version.
+     The stars it reads come from recalibrate's pooled runs, which print their own
+     era check. Live ledger results are keyed on fire time, and
+     `make buibui-portfolio-replay` prints the ledger-scope era check for them.
 5. **Telegram**: sends formatted alert via `utils/telegram.py`
 6. **Persist**: saves passing signals to `signals` table in `analytics.db`
 
