@@ -98,6 +98,12 @@ make buibui-backtest CONFIG=config/signal_watch_weekdays.toml
 If trade counts changed materially, run `/wfo-sweep` next to refresh `tp_r`
 against the new population.
 
+**Era rule.** The validation run is fresh, so its numbers sit in one era and need no
+era line. The commit in Step 5 edits a `signal_watch*.toml`, which is in
+`analytics.eras.BACKTEST_PATHS`, so it opens a new backtest era. Stars rated before it
+describe the previous config, and the next recalibrate's era check will show the
+boundary.
+
 ## Step 5 — Commit
 
 ```bash

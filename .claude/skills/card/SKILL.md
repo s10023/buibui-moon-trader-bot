@@ -390,6 +390,11 @@ two configs, as evidence about anything. → memory `[[card-reproducibility-verd
   v3 26 · v4 18 · v5 10 · **v6 6**. ⚠ **Every bump restarts the pool, so the
   largest cohort is always a CLOSED one** — a version comparison needs the
   bumping to stop for a while, which nothing plans to do.
+- **Era rule: the card's era is `prompt_version`, not `analytics.eras`.**
+  `card/` is in neither path set, so `straddle_report` cannot see a rubric bump.
+  Quote any `buibui_card` hit rate or R per version, never pooled. The star ratings
+  and DSR the payload carries come from recalibrate's pool, which has its own era
+  check.
 - Both ledgers carry `horizon`, read from one stamp on the card — so a batch
   splits intraday vs swing straight from `tail`. **#619 (`f52ebae`) added the
   field and backfilled every historical row**, so nothing is unstamped. Of the

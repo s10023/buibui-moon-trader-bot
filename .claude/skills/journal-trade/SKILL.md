@@ -201,3 +201,8 @@ Offer to read all `docs/plans/journal/*.md` and report: win-rate by `thesis_tag`
 which setups the bot already detects (`strategies_seen`) vs misses, recurring trade-management heuristics
 worth promoting to T5, and any detector gaps worth a `/investigate-strategy` probe. Feeds **F2 / T2 / T5**
 in the master to-do (tracked as **J-LOG**).
+
+**Era rule.** The journal records the operator's own decisions, which no system rule
+change produces, so `analytics.eras` boundaries do not split it and a mined win rate
+needs no era line. The exception is a trade placed from an AI card: split those by the
+card's `prompt_version`, as `/card` does.

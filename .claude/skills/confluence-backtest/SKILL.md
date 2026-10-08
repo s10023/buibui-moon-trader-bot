@@ -111,6 +111,11 @@ Common interpretations:
 - **same-TF viable count drops sharply between refreshes** → real regime
   shift in confluence edge (e.g. the 2026-04-22 → 2026-05-11 drop from 28
   to 13). Confluence blockquote in Telegram alerts will thin.
+  ⚠ **Era rule:** two refreshes are two code versions, so check `git log` on
+  `analytics/backtest`, `analytics/strategies` and `config/` between their
+  `last_run_utc` dates before calling it a regime shift. A rule change in between
+  moves the count in the same way. One refresh's own tables are one run, so they
+  need no era line.
 - **Viable count = 0** → no surviving combos pass `min_avg_r`. Either the
   gate is too tight or confluence has no edge in the current regime;
   consider relaxing `[combo]` thresholds before assuming a data bug.

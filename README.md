@@ -775,6 +775,11 @@ signal watch loads these at startup so each TOML config uses its own calibrated 
 When the active config's `day_filter` changes between runs, recalibrate's stale-row
 pruner removes ratings written under the previous scope so the daemon never reads zombies.
 
+Under the report, recalibrate prints an **era check** (`analytics.eras`, backtest scope): how
+many rule changes the rated pool straddles, keyed on each run's `run_at_ms`, and the largest
+single-era sub-sample. `NOT RUN` means git or `config/eras.toml` failed to load, which is not
+the same as `CLEAN`, and it never blocks `--apply`.
+
 A second pruner removes rows for cells the config **no longer declares**. Without it
 nothing ever did: the upsert only inserts-or-replaces, so a dropped cell kept its stars
 forever (measured 2026-08-13 — a full `/db-update` left the orphan set at 206 → 206). It

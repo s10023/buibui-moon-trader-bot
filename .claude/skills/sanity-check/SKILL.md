@@ -16,6 +16,9 @@ Run a full periodic health check of the buibui-moon-trader-bot codebase. **Run w
 
 This check covers five dimensions: CI hygiene, wiring audit, documentation sync, skills freshness, and architecture review.
 
+It quotes no performance figure, so the era rule other skills carry (`analytics.eras`)
+does not apply here.
+
 ---
 
 ⚠ **QUOTE EVERY `grep --include` GLOB — the shell here is zsh.** `grep -rn "x" --include=*.py .`

@@ -87,6 +87,9 @@ WFO sweeps are run against a specific config (usually `signal_watch.toml` with `
 7. **Run**: `make buibui-backtest CONFIG=config/signal_watch.toml SAVE=1`
 8. **Run**: `poetry run python buibui.py recalibrate` (dry-run first, show diff)
 9. If any stars changed: ask user whether to `--apply`
+   Quote the star diff with the era check recalibrate prints under its report. The
+   sweep tables themselves come from one fresh run, one code version, so they need no
+   era line.
 10. **Report**: table of changes made (strategy | TF | old tp_r | new tp_r | OOS avg_r | OOS n)
 
 ## Output format

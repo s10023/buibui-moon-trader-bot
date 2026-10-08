@@ -99,12 +99,17 @@ Strategy Recalibration Report
   pin_bar               1h       175   61%  +0.51R   4★  → 4★    4   3  (unchanged)
   ...
 
-  Dry-run mode — no changes applied. Use --apply to write to confidence_ratings table.
-
   ⚠ Suspect (★≥4 but DSR<0.95, likely overfit): engulfing/4h (DSR 0.32)
   ⚠ Unscoreable (★≥4 but DSR undefined — under 30 scoreable trades, so the
     overfit check above never ran on these 3 cell(s); absent from Suspect is
     NOT clean): cvd_divergence/1h, fib_golden_zone/4h, inside_bar/1d
+
+  Era check — the stars above pool runs saved under these rule changes:
+  ⚠ era check: this sample STRADDLES 4 boundaries (2026-08-02 to 2026-10-01, n=212).
+    Largest single-era sub-sample: n=131 (62%) — n=    131  since fix: ...
+    ...
+
+  Dry-run mode — use --apply to write to DB for config 'signal_watch'.
 ```
 
 **Read the last two lines together, and read them before trusting any star.**
@@ -122,6 +127,18 @@ to a warning written for exactly them → `docs/plans/scratch/decay-review-2026-
 Note what that implies about the sample above: `fib_golden_zone/4h` is rated 5★ off
 **34 trades**, which is the shape that lands in Unscoreable, not a validated edge.
 
+**The era check says how many rule changes the rated pool spans.** It prints after
+the report (`analytics.eras`, backtest scope), over the same one-run-per-cell pool
+the stars come from, keyed on each run's `run_at_ms`. Every trade inside one run
+shares one code version, but the pool picks the newest run per
+`(strategy, tf, symbol)`, and those were saved weeks apart, so a ★ table usually
+mixes cells measured under different code. Quote a star change with that line
+beside it. **`NOT RUN` means git or `config/eras.toml` failed to load and is not
+`CLEAN`.** It prints instead of raising so a git hiccup cannot block
+`make db-update`. ⚠ In a **shallow clone** (a cloud session, CI) git sees only
+the recent history, so an older pool can read `CLEAN` when it is not. Trust the
+line on the laptop's full clone.
+
 Re-run that analysis with **`/decay-review`**, which wraps `make buibui-decay-review`
 (`tools/decay_review.py`, read-only) and carries the reading traps plus the report and
 marker steps. It also answers the question the stored `dsr` column cannot — **whether
@@ -133,6 +150,6 @@ DSR ≥ 0.95 is reachable at all** under this trial family, measured at each cel
 | File | Role |
 | ------ | ------ |
 | `analytics/recalibrate_lib.py` | `compute_recalibrated_ratings()`, `compute_directional_ratings()`, `write_confidence_to_db()`, `write_confidence_to_source()` (legacy) |
-| `analytics/recalibrate_runner.py` | Thin wrapper: opens DB, calls lib, prints report; `--config` derives `config_name`, `day_filter`, `adr_suppress_threshold` |
+| `analytics/recalibrate_runner.py` | Thin wrapper: opens DB, calls lib, prints report + era check; `--config` derives `config_name`, `day_filter`, `adr_suppress_threshold` |
 | `analytics/data_store.py` | `confidence_ratings` table: PK `(config_name, strategy, tf, direction)` |
 | `buibui.py` | `buibui recalibrate [--config FILE] [--apply] [--min-trades N]` |
