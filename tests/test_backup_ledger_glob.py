@@ -706,6 +706,27 @@ class TestAccountRootIsResolvedNotHardcoded:
         assert "ABSENT" not in line, line
         assert ".claude-personal" in line, line
 
+    def test_a_tilde_root_is_expanded_by_the_script(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        """The Windows task loader exports .env values literally, so `~/` must be
+        expanded by the script rather than by a shell that may never see it."""
+        home = _windows_style_home(tmp_path, _fixture_slug(tmp_path))
+        other = home / ".claude-personal"
+        other.mkdir()
+        (other / "history.jsonl").write_text('{"old": 1}\n', encoding="utf-8")
+
+        r = _run(
+            fake_repo,
+            tmp_path,
+            home=home,
+            env_extra={"BUIBUI_BACKUP_EXTRA_CLAUDE_ROOTS": "~/.claude-personal"},
+        )
+
+        assert r.returncode == 0, r.stdout + r.stderr
+        snap = sorted((tmp_path / "backups" / "daily").iterdir())[-1] / "_external"
+        assert (snap / "claude-personal" / "history.jsonl").exists()
+
     def test_an_opted_in_root_that_is_missing_warns(
         self, fake_repo: Path, tmp_path: Path
     ) -> None:
