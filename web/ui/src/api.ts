@@ -435,6 +435,50 @@ export const getZones = (params: {
   return apiFetch<ZonesResponse>(`/api/zones?${q}`);
 };
 
+// ── Location overlay (#822) — display only, never a gate ─────────────────────
+
+export type VwapAnchor = "day" | "week" | "month";
+
+export interface VwapPoint {
+  time_ms: number;
+  anchor_ms: number; // window start; a change marks a reset
+  value: number;
+}
+
+export interface VwapSeries {
+  anchor: VwapAnchor;
+  points: VwapPoint[];
+}
+
+export interface ProfileLevels {
+  poc: number;
+  vah: number;
+  val: number;
+  window_start_ms: number;
+  window_end_ms: number;
+}
+
+export interface LocationResponse {
+  vwap: VwapSeries[];
+  profile: ProfileLevels | null;
+  note: string;
+}
+
+export const getLocation = (params: {
+  symbol: string;
+  timeframe: string;
+  start_ms: number;
+  end_ms: number;
+}) => {
+  const q = new URLSearchParams({
+    symbol: params.symbol,
+    timeframe: params.timeframe,
+    start_ms: String(params.start_ms),
+    end_ms: String(params.end_ms),
+  });
+  return apiFetch<LocationResponse>(`/api/location?${q}`);
+};
+
 // ── Stats ─────────────────────────────────────────────────────────────────────
 
 export interface P1P2DOWRow {
