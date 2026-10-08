@@ -28,7 +28,12 @@ import duckdb
 import pandas as pd
 
 from analytics.exits import aggregate_cohorts, compute_excursions
-from analytics.exits.audit import run_exit_ab
+from analytics.exits.audit import (
+    ExitAbRow,
+    ab_row,
+    paired_delta_ci,
+    resolve_ledger_under_policy,
+)
 from analytics.store import DEFAULT_DB_PATH
 from portfolio.sizing import SizingConfig
 
@@ -41,28 +46,65 @@ def _print_df(title: str, df: pd.DataFrame) -> None:
     print(df.to_string(index=False, float_format=lambda x: f"{x:+.3f}"))
 
 
-def _run_replay(con: duckdb.DuckDBPyConnection) -> None:
-    rows = run_exit_ab(con, SizingConfig())
-    df = pd.DataFrame(
-        {
-            "policy": r.name,
-            "n_sized": r.n_sized,
-            "n_skip": r.n_skipped,
-            "sharpe": r.sharpe,
-            "sortino": r.sortino,
-            "max_dd": r.max_dd,
-            "expiry": r.expiry_rate,
-            "win": r.win_rate,
-            "hold_bars": r.avg_hold_bars,
-            "avg_r": r.avg_r,
-        }
-        for r in rows
-    )
-    _print_df("Exit-policy A/B (portfolio via P1 paper book; gross of costs)", df)
+def _row(r: ExitAbRow, ties: str) -> dict[str, object]:
+    return {
+        "ties": ties,
+        "policy": r.name,
+        "n_sized": r.n_sized,
+        "n_skip": r.n_skipped,
+        "sharpe": r.sharpe,
+        "sortino": r.sortino,
+        "max_dd": r.max_dd,
+        "expiry": r.expiry_rate,
+        "win": r.win_rate,
+        "hold_bars": r.avg_hold_bars,
+        "avg_r": r.avg_r,
+        "amb_bars": r.ambiguous_bars,
+        "resolved": r.resolved_bars,
+        "residual": r.residual_ties,
+    }
+
+
+def _run_replay(
+    con: duckdb.DuckDBPyConnection,
+    *,
+    tfs: list[str] | None,
+    fine_tf: str | None,
+    net: bool,
+) -> None:
+    cfg = SizingConfig()
+    basis = "net of modelled costs" if net else "gross of costs"
+    scopes: list[str | None] = list(tfs) if tfs else [None]
+    for tf in scopes:
+        scope = (tf,) if tf is not None else None
+        rows: list[dict[str, object]] = []
+        deltas: list[str] = []
+        for fine in [None, fine_tf] if fine_tf is not None else [None]:
+            label = f"{fine}-resolved" if fine is not None else "adverse-first"
+            prs = {
+                kind: resolve_ledger_under_policy(
+                    con, kind, tfs=scope, fine_tf=fine, net=net
+                )
+                for kind in ("fixed", "composite")
+            }
+            rows += [_row(ab_row(con, cfg, pr), label) for pr in prs.values()]
+            ci = paired_delta_ci(prs["fixed"], prs["composite"])
+            deltas.append(
+                f"  {label}: composite - fixed per-trade R {ci.point:+.4f} "
+                f"[{ci.lo:+.4f}, {ci.hi:+.4f}] (n={prs['fixed'].n}, UTC-day clusters)"
+            )
+        _print_df(
+            f"Exit-policy A/B, tf={tf or 'all'} (P1 paper book; {basis})",
+            pd.DataFrame(rows),
+        )
+        print("\n".join(deltas))
     print(
         "\nHeadline = portfolio Sharpe (fixed basis). expiry/win/avg_r are over the "
         "FULL re-resolved population; the portfolio reflects only the cap-admitted "
-        "subset. Composite 'expired' includes the deliberate time-stop exits."
+        "subset. Composite 'expired' includes the deliberate time-stop exits. "
+        "amb_bars = bars touching the stop in force and an unconsumed target; "
+        "resolved = of those, re-walked on finer bars; residual = finer bars that "
+        "were still ambiguous (adverse-first)."
     )
 
 
@@ -73,6 +115,22 @@ def main() -> None:
         "--replay",
         action="store_true",
         help="run the exit-policy A/B (fixed vs composite) instead of the diagnostic",
+    )
+    parser.add_argument(
+        "--tfs",
+        default=None,
+        help="--replay only: comma-separated timeframes, each run as its own book",
+    )
+    parser.add_argument(
+        "--fine-tf",
+        default=None,
+        help="--replay only: resolve same-bar ties from this finer timeframe "
+        "(reported beside the adverse-first run)",
+    )
+    parser.add_argument(
+        "--net",
+        action="store_true",
+        help="--replay only: subtract the modelled round-trip drag per trade",
     )
     parser.add_argument(
         "--min-n",
@@ -92,7 +150,12 @@ def main() -> None:
     print(f"DB: {args.db}")
 
     if args.replay:
-        _run_replay(con)
+        _run_replay(
+            con,
+            tfs=args.tfs.split(",") if args.tfs else None,
+            fine_tf=args.fine_tf,
+            net=args.net,
+        )
         return
 
     excursions = compute_excursions(con)

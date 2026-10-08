@@ -118,3 +118,79 @@ class TestGuards:
     def test_empty_window_raises(self) -> None:
         with pytest.raises(ValueError):
             _run(_w([], [], []), fixed(tp_r=3.0, max_hold_bars=10))
+
+
+class TestFineBarResolution:
+    # long: entry 100, sl 98 -> 1R=102, TP@3R=106, BE=100
+    _TIE = _w([106.5], [97.5], [101])
+
+    def test_no_callback_is_adverse_first_and_counts_the_tie(self) -> None:
+        r = _run(self._TIE, fixed(tp_r=3.0, max_hold_bars=10))
+        assert r.outcome == "loss"
+        assert (r.ambiguous_bars, r.resolved_bars) == (1, 0)
+
+    def test_callback_returning_none_stays_adverse_first(self) -> None:
+        h, lo, c = self._TIE
+        r = replay_exits(
+            h,
+            lo,
+            c,
+            direction="long",
+            entry=100.0,
+            sl_price=98.0,
+            policy=fixed(tp_r=3.0, max_hold_bars=10),
+            fine_bars=lambda i: None,
+        )
+        assert r.outcome == "loss"
+        assert (r.ambiguous_bars, r.resolved_bars) == (1, 0)
+
+    def test_fine_bars_resolve_stop_first(self) -> None:
+        h, lo, c = self._TIE
+        fine = _w([101, 106.5], [97.5, 99], [98, 106])
+        r = replay_exits(
+            h,
+            lo,
+            c,
+            direction="long",
+            entry=100.0,
+            sl_price=98.0,
+            policy=fixed(tp_r=3.0, max_hold_bars=10),
+            fine_bars=lambda i: fine,
+        )
+        assert r.outcome == "loss"
+        assert r.resolved_bars == 1
+
+    def test_breakeven_arms_inside_the_fine_walk(self) -> None:
+        # +1R first (partial + arm), then the next fine bar falls through BE.
+        h, lo, c = _w([103], [97.5], [99])
+        fine = _w([102.5, 101], [100.5, 97.5], [102, 99])
+        pol = composite(tp_r=3.0, max_hold_bars=10, time_stop_bars=10)
+        r = replay_exits(
+            h,
+            lo,
+            c,
+            direction="long",
+            entry=100.0,
+            sl_price=98.0,
+            policy=pol,
+            fine_bars=lambda i: fine,
+        )
+        assert r.outcome == "breakeven"
+        assert r.realized_r == pytest.approx(0.5)  # 0.5*1R + 0.5*0R
+        assert r.residual_ties == 0
+
+    def test_residual_fine_tie_is_counted_and_adverse_first(self) -> None:
+        h, lo, c = self._TIE
+        fine = _w([106.5], [97.5], [101])
+        r = replay_exits(
+            h,
+            lo,
+            c,
+            direction="long",
+            entry=100.0,
+            sl_price=98.0,
+            policy=fixed(tp_r=3.0, max_hold_bars=10),
+            fine_bars=lambda i: fine,
+        )
+        assert r.outcome == "loss"
+        assert (r.resolved_bars, r.residual_ties) == (1, 1)
