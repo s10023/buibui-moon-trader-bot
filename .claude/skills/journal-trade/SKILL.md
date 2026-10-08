@@ -2,16 +2,13 @@
 name: journal-trade
 description: >
   Capture a trade the user took into the gitignored trade journal at
-  `docs/plans/journal/` — structured YAML frontmatter (machine-parseable) plus a
-  narrative body (Thesis / Plan / Execution / Outcome / Retrospective). By default
-  it now FETCHES recent trades from the user's Binance Futures account via
-  `tools/journal_fetch.py` (fetch → pick → pre-fill the mechanical facts), leaving
-  only judgement to the human; a legacy paste-the-details path remains for
-  non-Binance trades. Entries are ground-truth training data for F2 (AI trade-card),
-  validation for T2 (outcome loop), and a source of T5 trade-management heuristics.
-  Invoke when the user says "/journal-trade", "journal my trade", "log this trade",
-  "add a trade to the journal", or pastes raw trade-execution details. Also use to
-  fill in the outcome after a logged trade closes.
+  `docs/plans/journal/`: YAML frontmatter plus a narrative body. By default it
+  fetches recent trades from the Binance Futures account and pre-fills the
+  mechanical facts, leaving only judgement to the human; a paste path covers
+  non-Binance trades. Invoke when the user says "/journal-trade", "journal my
+  trade", "log this trade", "add a trade to the journal", or pastes raw
+  trade-execution details. Also use to fill in the outcome after a logged
+  trade closes.
 allowed-tools: Bash, Write, Read, Edit
 ---
 
