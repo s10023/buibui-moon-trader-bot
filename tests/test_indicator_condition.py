@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from analytics.brief.types import (
     BbState,
@@ -282,6 +283,88 @@ def test_tag_trades_is_causal_and_mutation_proof() -> None:
 
     tagged2 = tag_trades(entries, {("TST", "1d"): d1_future, ("TST", "1h"): h1})
     assert tagged2.iloc[0]["ema_stack"] == base  # causal: future bar is invisible
+
+
+_HOUR = _DAY // 24
+_MONDAY_2023_01_02 = 1_672_617_600_000  # UTC midnight, so day and week anchors align
+_K_DAY = 212  # a Wednesday, >= 200 closed 1d bars before it
+
+
+def _flat_market() -> tuple[pd.DataFrame, pd.DataFrame]:
+    n_d1 = 220
+    d1 = _synth_ohlcv(n_d1, _MONDAY_2023_01_02, _DAY, [300.0] * n_d1)
+    n_h1 = n_d1 * 24
+    h1 = _synth_ohlcv(n_h1, _MONDAY_2023_01_02, _HOUR, [300.0] * n_h1)
+    return d1, h1
+
+
+def _axes_at(t: int, d1: pd.DataFrame, h1: pd.DataFrame) -> dict[str, object]:
+    entries = pd.DataFrame(
+        [
+            {
+                "symbol": "TST",
+                "strategy": "s",
+                "direction": "short",
+                "entry_time": t,
+                "pnl_r": 0.0,
+            }
+        ]
+    )
+    row = tag_trades(entries, {("TST", "1d"): d1, ("TST", "1h"): h1}).iloc[0]
+    return {axis: row[axis] for axis in _AXES}
+
+
+def _set_bar(df: pd.DataFrame, open_time: int, price: float, volume: float) -> None:
+    idx = df.index[df["open_time"] == open_time]
+    assert len(idx) == 1
+    df.loc[idx, ["open", "high", "low", "close"]] = price
+    df.loc[idx, "volume"] = volume
+
+
+@pytest.mark.parametrize("hours_into_day", [0, 10])
+def test_in_progress_bars_are_invisible_and_closed_bars_count(
+    hours_into_day: int,
+) -> None:
+    """#952: only bars CLOSED by ``t`` may reach any axis.
+
+    ``t`` is the entry instant (the signal bar has closed). The 1d bar
+    containing ``t`` and the 1h bar opening AT ``t`` are both still forming, so
+    their closes lie in the future. Until #952 the tagger kept
+    ``open_time <= t``, which read both: the 1d bar's close became the
+    reference price and the 1h bar entered the VWAP. ``hours_into_day=0`` is
+    the day-boundary entry, where that leak saw the whole coming day.
+
+    Specificity: wild values on the two forming bars move NO axis. Teeth: the
+    same kind of value on the last CLOSED 1h bar moves the reference price
+    (``vwap_weekly`` flips), and on the last closed 1d bar moves the EMAs
+    (``ema_stack`` flips) — so the no-move half cannot pass because the
+    fixture is blind.
+    """
+    d1, h1 = _flat_market()
+    day_open = _MONDAY_2023_01_02 + _K_DAY * _DAY
+    t = day_open + hours_into_day * _HOUR
+
+    base = _axes_at(t, d1, h1)
+    # Non-vacuous baseline: the axes the mutations target are populated.
+    assert base["ema_stack"] == "mixed"
+    assert base["vwap_weekly"] == "above"  # ref == VWAP exactly -> dist 0 -> above
+    assert base["monday_range"] == "inside"
+
+    # Specificity: the forming 1d bar and the 1h bar opening at t.
+    d1_forming, h1_forming = d1.copy(), h1.copy()
+    _set_bar(d1_forming, day_open, 1.0, 1e9)
+    _set_bar(h1_forming, t, 1.0, 1e9)
+    assert _axes_at(t, d1_forming, h1_forming) == base
+
+    # Teeth, 1h: the last CLOSED 1h bar sets the reference price.
+    h1_closed = h1.copy()
+    _set_bar(h1_closed, t - _HOUR, 1.0, 1.0)
+    assert _axes_at(t, d1, h1_closed)["vwap_weekly"] == "below"
+
+    # Teeth, 1d: the last CLOSED 1d bar feeds the EMAs.
+    d1_closed = d1.copy()
+    _set_bar(d1_closed, day_open - _DAY, 1_000_000.0, 1000.0)
+    assert _axes_at(t, d1_closed, h1)["ema_stack"] == "bullish"
 
 
 # --------------------------------------------------------------------------- #

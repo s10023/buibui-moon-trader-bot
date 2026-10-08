@@ -28,6 +28,7 @@ import pandas as pd
 
 from analytics import audit_guard
 from analytics.backtest.engine import _compute_atr14
+from analytics.brief._common import TF_MS, completed_bars
 from analytics.brief.indicators import build_indicator_state
 from analytics.brief.types import IndicatorState
 from analytics.regime import classify_series
@@ -183,30 +184,51 @@ def axis_states(
     return out
 
 
+def _reference_close(c1d: pd.DataFrame, c1h: pd.DataFrame) -> float:
+    """Close of whichever CLOSED bar closed last: the 1h, or the 1d on a 1h gap.
+
+    The last closed 1h bar normally closes at or after the last closed 1d bar,
+    so this is the last closed 1h close. Only where the 1h series has a gap
+    does the 1d close win, because it is then the fresher price.
+    """
+    h_close_ms = int(c1h["open_time"].iloc[-1]) + TF_MS["1h"]
+    d_close_ms = int(c1d["open_time"].iloc[-1]) + TF_MS["1d"]
+    src = c1h if h_close_ms >= d_close_ms else c1d
+    return float(src["close"].iloc[-1])
+
+
 def _axes_as_of(
     sym: str, t: int, market_by_pair: dict[tuple[str, str], pd.DataFrame]
 ) -> dict[str, str | None]:
-    """Compute the M1 axis states for one ``(symbol, entry_time=t)``.
+    """Compute the M1 axis states for one ``(symbol, as-of time t)``.
 
-    **Causal core (load-bearing):** only bars with ``open_time <= t`` are
-    visible — the entry bar itself is the last usable bar. Any bar with
-    ``open_time > t`` MUST be excluded before calling
-    ``build_indicator_state``; this is what
-    ``test_tag_trades_is_causal_and_mutation_proof`` locks. A symbol with no
-    1d/1h OHLCV, or a pre-entry slice too short for M1, yields all-None axes.
-    The full causal history (not a trailing cap) is passed through, so an
-    indicator's warmup is identical to running it over all bars up to ``t``.
+    ``t`` is the moment the position is taken, when the signal bar has closed:
+    the backtest's ``entry_time`` (the open of the bar after the signal bar),
+    and for live rows ``candle_ts_ms + tf`` (``normalize_live`` shifts it).
+
+    **Causal core (load-bearing):** only bars CLOSED by ``t``
+    (``open_time + bar_len <= t``, the brief's ``completed_bars``) are visible,
+    on 1d and 1h alike, and the reference price is the last closed close
+    (``_reference_close``). A bar that is merely OPEN at ``t`` carries a close
+    from the future: until #952 the tagger kept ``open_time <= t``, so the
+    in-progress 1d bar's close, up to 24h ahead, fed the reference price, ATR14
+    and the regime label, and the 1h bar opening at ``t`` entered the VWAP.
+    ``test_in_progress_bars_are_invisible_and_closed_bars_count`` locks this
+    with both a no-move and a must-move mutation. A symbol with no 1d/1h OHLCV,
+    or a slice too short for M1, yields all-None axes. The full causal history
+    (not a trailing cap) is passed through, so an indicator's warmup is
+    identical to running it over all bars closed by ``t``.
     """
     d1 = market_by_pair.get((sym, "1d"))
     h1 = market_by_pair.get((sym, "1h"))
     axes: dict[str, str | None] = dict.fromkeys(_AXES)
     if d1 is None or h1 is None:
         return axes
-    c1d = d1[d1["open_time"] <= t].reset_index(drop=True)
-    c1h = h1[h1["open_time"] <= t].reset_index(drop=True)
+    c1d = completed_bars(d1, "1d", t)
+    c1h = completed_bars(h1, "1h", t)
     if len(c1d) < _MIN_1D_BARS or len(c1h) < _MIN_1H_BARS:
         return axes
-    ref_close = float(c1d["close"].iloc[-1])
+    ref_close = _reference_close(c1d, c1h)
     atr14 = _compute_atr14(
         c1d["high"].to_numpy(dtype=float),
         c1d["low"].to_numpy(dtype=float),
@@ -229,7 +251,9 @@ def tag_trades(
 ) -> pd.DataFrame:
     """Add one column per axis (state as-of entry) to ``entries``.
 
-    ``entries`` must have ``symbol`` and ``entry_time`` columns.
+    ``entries`` must have ``symbol`` and ``entry_time`` columns, where
+    ``entry_time`` is the moment the signal bar has closed (see
+    ``_axes_as_of``).
     ``market_by_pair`` must carry ``(symbol, "1d")`` and ``(symbol, "1h")``
     OHLCV — M1 indicator state is always computed from 1d + 1h regardless of
     the trade's own timeframe (mirrors the brief panel).
