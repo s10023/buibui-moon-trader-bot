@@ -212,9 +212,20 @@ def git_boundaries(
 
     Drift-proof: the commit is the record, so nothing has to be remembered. Raises
     if git fails — an empty list would be a false all-clear.
+
+    Also raises in a SHALLOW clone: git there sees only the commits since the
+    cutoff, so any window older than it loses every boundary and reads CLEAN. The
+    window is not known here, so the refusal is blanket rather than per-window.
     """
     if scope not in SCOPES:
         raise ValueError(f"unknown scope {scope!r}; expected one of {SCOPES}")
+    shallow = runner(["rev-parse", "--is-shallow-repository"], cwd=repo_root)
+    if shallow.strip() == "true":
+        raise RuntimeError(
+            "shallow clone: git history is truncated, so older boundaries are "
+            "invisible and a sample could read CLEAN when it is not. Run "
+            "`git fetch --unshallow` or use a full clone."
+        )
     args = [
         "log",
         "--format=%x1e%at%x09%h%x09%s",

@@ -21,6 +21,7 @@ from analytics.eras import (
     LEDGER_PATHS,
     SCOPES,
     EraBoundary,
+    GitRunner,
     declared_boundaries,
     git_boundaries,
     load_boundaries,
@@ -174,6 +175,29 @@ def test_a_git_failure_propagates_rather_than_reporting_no_boundaries() -> None:
 
     with pytest.raises(RuntimeError, match="not a repository"):
         load_boundaries(runner=broken)
+
+
+def _shallow_runner(*, shallow: bool) -> GitRunner:
+    payload = _fake_log(("2025-08-15", "abc1234", "fix: a behaviour change", ["x.py"]))
+
+    def runner(args: Sequence[str], *, cwd: Path) -> str:
+        if list(args) == ["rev-parse", "--is-shallow-repository"]:
+            return "true\n" if shallow else "false\n"
+        return payload
+
+    return runner
+
+
+def test_a_shallow_clone_raises_rather_than_reading_clean() -> None:
+    """#953: a shallow clone hides every boundary older than its cutoff."""
+    with pytest.raises(RuntimeError, match="shallow clone"):
+        load_boundaries(scopes=("backtest",), runner=_shallow_runner(shallow=True))
+
+
+def test_a_full_clone_still_returns_its_boundaries() -> None:
+    """Specificity for the shallow guard: a full clone must not be refused."""
+    found = git_boundaries(runner=_shallow_runner(shallow=False))
+    assert [b.ref for b in found] == ["abc1234"]
 
 
 # --- declared registry -----------------------------------------------------

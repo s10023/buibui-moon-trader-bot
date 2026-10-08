@@ -135,9 +135,9 @@ shares one code version, but the pool picks the newest run per
 mixes cells measured under different code. Quote a star change with that line
 beside it. **`NOT RUN` means git or `config/eras.toml` failed to load and is not
 `CLEAN`.** It prints instead of raising so a git hiccup cannot block
-`make db-update`. ⚠ In a **shallow clone** (a cloud session, CI) git sees only
-the recent history, so an older pool can read `CLEAN` when it is not. Trust the
-line on the laptop's full clone.
+`make db-update`. A **shallow clone** (a cloud session, CI) prints `NOT RUN`
+rather than a false `CLEAN`, because git there cannot see the older boundaries
+(#953).
 
 Re-run that analysis with **`/decay-review`**, which wraps `make buibui-decay-review`
 (`tools/decay_review.py`, read-only) and carries the reading traps plus the report and
