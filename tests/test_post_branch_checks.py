@@ -35,6 +35,7 @@ from tools.post_branch_checks import (
     check_new_files,
     check_new_modules,
     check_new_targets,
+    check_packages,
     check_queue_items,
     current_state_bullets,
     extract_tokens,
@@ -91,44 +92,206 @@ class TestCheckNewFiles:
         self,
     ) -> None:
         found = check_new_files(
-            [".claude/skills/zzz-fake-skill/SKILL.md"], GENERIC_SKILL_SENTENCE
+            [".claude/skills/zzz-fake-skill/SKILL.md"],
+            GENERIC_SKILL_SENTENCE,
+            tracked=(),
         )
         assert len(found) == 1
         assert "zzz-fake-skill" in found[0].detail
 
     def test_a_skill_the_docs_actually_name_is_covered(self) -> None:
         blob = GENERIC_SKILL_SENTENCE + "\nThe `post-branch` skill sweeps docs."
-        assert check_new_files([".claude/skills/post-branch/SKILL.md"], blob) == []
+        assert (
+            check_new_files([".claude/skills/post-branch/SKILL.md"], blob, tracked=())
+            == []
+        )
 
     def test_ordinary_operator_file_still_reports_when_absent(self) -> None:
-        found = check_new_files(["deploy/notify-failure.sh"], "unrelated prose")
+        found = check_new_files(
+            ["deploy/notify-failure.sh"], "unrelated prose", tracked=()
+        )
         assert len(found) == 1
 
     def test_ordinary_operator_file_is_covered_when_named(self) -> None:
         assert (
-            check_new_files(["deploy/notify-failure.sh"], "runs notify-failure.sh")
+            check_new_files(
+                ["deploy/notify-failure.sh"], "runs notify-failure.sh", tracked=()
+            )
             == []
         )
 
+    def test_an_unindexed_docs_tree_is_still_checked(self) -> None:
+        """`docs/research/` has no CI-gated index, so it is not exempt."""
+        found = check_new_files(
+            ["docs/research/2026-10-08-x.md"], "unrelated", tracked=()
+        )
+        assert [f.detail for f in found] == [
+            "UNDOCUMENTED FILE: docs/research/2026-10-08-x.md"
+        ]
+
+    def test_the_two_indexed_docs_trees_are_exempt(self) -> None:
+        added = [
+            "docs/audits/2026-10-08-x.md",
+            "docs/superpowers/specs/2026-10-08-y.md",
+        ]
+        assert check_new_files(added, "", tracked=()) == []
+
     def test_tests_and_docs_and_python_are_out_of_scope(self) -> None:
-        assert check_new_files(["tests/test_x.py", "docs/a.md", "tools/x.py"], "") == []
+        assert (
+            check_new_files(
+                ["tests/test_x.py", "docs/audits/a.md", "tools/x.py"], "", tracked=()
+            )
+            == []
+        )
 
 
 class TestCheckNewModules:
     def test_undocumented_module_fires(self) -> None:
-        found = check_new_modules(["analytics/newsleeve/book.py"], "nothing here")
+        found = check_new_modules(
+            ["analytics/newsleeve/book.py"], "nothing here", tracked=()
+        )
         assert len(found) == 1
 
     def test_documented_module_is_quiet(self) -> None:
         assert (
-            check_new_modules(["analytics/regime.py"], "`regime.py` labels bars") == []
+            check_new_modules(
+                ["analytics/regime.py"], "`regime.py` labels bars", tracked=()
+            )
+            == []
         )
 
     def test_word_boundary_stops_a_truncated_probe_reporting_covered(self) -> None:
         """`-w` semantics: a substring hit must NOT count as documentation."""
         assert (
-            len(check_new_modules(["tools/docs_index.py"], "ocs_index is great")) == 1
+            len(
+                check_new_modules(
+                    ["tools/docs_index.py"], "ocs_index is great", tracked=()
+                )
+            )
+            == 1
         )
+
+
+class TestThreeOutcomes:
+    """ST148 M8: the AMBIGUOUS outcome Step 4's prose had and the code lacked."""
+
+    TRACKED = ("utils/telegram.py", "signals/report.py", "analytics/xsmom/report.py")
+
+    def test_a_basename_shared_with_a_documented_sibling_is_AMBIGUOUS(self) -> None:
+        """The #643 miss: `card/telegram.py` read COVERED off `utils/telegram.py`."""
+        blob = "`utils/telegram.py` sends parse_mode=HTML."
+        found = check_new_modules(["card/telegram.py"], blob, tracked=self.TRACKED)
+        assert [f.detail for f in found] == [
+            "AMBIGUOUS basename (verify by hand): card/telegram.py"
+        ]
+
+    def test_MUTATION_without_the_sibling_the_same_hit_is_credited(self) -> None:
+        """The sibling, not the fixture prose, is what decides AMBIGUOUS."""
+        blob = "`utils/telegram.py` sends parse_mode=HTML."
+        assert check_new_modules(["card/telegram.py"], blob, tracked=()) == []
+
+    def test_naming_the_full_path_beats_a_colliding_sibling(self) -> None:
+        blob = "`utils/telegram.py` and `card/telegram.py` render differently."
+        assert check_new_modules(["card/telegram.py"], blob, tracked=self.TRACKED) == []
+
+    def test_a_dot_leading_path_is_credited_by_its_full_path(self) -> None:
+        """A `\\b` bound never matches before `.claude`, the commonest citation."""
+        path = ".claude/hooks/log-skill-usage.py"
+        blob = f"see `{path}` for the ledger"
+        tracked = (path, "other/log-skill-usage.py")
+        assert check_new_modules([path], blob, tracked=tracked) == []
+
+    def test_no_hit_at_all_stays_UNDOCUMENTED_whatever_the_siblings(self) -> None:
+        found = check_new_files(["deploy/report.sh"], "nothing", tracked=self.TRACKED)
+        assert [f.detail for f in found] == ["UNDOCUMENTED FILE: deploy/report.sh"]
+
+    def test_an_operator_file_with_a_colliding_basename_is_AMBIGUOUS(self) -> None:
+        tracked = ("deploy/windows/run-job.sh", "deploy/run-job.sh")
+        found = check_new_files(
+            ["deploy/windows/run-job.sh"], "wraps run-job.sh", tracked=tracked
+        )
+        assert [f.detail for f in found] == [
+            "AMBIGUOUS basename (verify by hand): deploy/windows/run-job.sh"
+        ]
+
+    def test_a_shared_constant_basename_is_not_a_collision(self) -> None:
+        """Every skill is SKILL.md; its identity is the directory, probed already."""
+        tracked = (".claude/skills/card/SKILL.md", ".claude/skills/new/SKILL.md")
+        assert (
+            check_new_files(
+                [".claude/skills/new/SKILL.md"], "the `new` skill", tracked=tracked
+            )
+            == []
+        )
+
+    def test_the_file_itself_in_tracked_is_not_its_own_sibling(self) -> None:
+        tracked = ("tools/skill_usage.py",)
+        assert (
+            check_new_modules(
+                ["tools/skill_usage.py"], "`skill_usage.py`", tracked=tracked
+            )
+            == []
+        )
+
+
+class TestGatherSeesUntrackedPackages:
+    def test_status_lists_untracked_files_individually(self) -> None:
+        """A new untracked directory must reach the legs file by file.
+
+        Plain `git status --porcelain` collapses it to `?? dir/`, which
+        `added_paths` skips -- measured: a probe `zzprobe/a.sh` read clean on
+        both `packages` and `new-files`.
+        """
+        from tools import post_branch_checks
+
+        seen: list[list[str]] = []
+
+        def stub(argv: Sequence[str]) -> str:
+            seen.append(list(argv))
+            return ""
+
+        post_branch_checks.gather(stub)
+        status = [a for a in seen if a[:2] == ["git", "status"]]
+        assert status and all("--untracked-files=all" in a for a in status)
+
+
+class TestCheckPackages:
+    def test_an_undocumented_package_fires(self) -> None:
+        found = check_packages(
+            ["newsleeve/book.py", "card/card.py"], "`card/` holds F2"
+        )
+        assert [f.detail for f in found] == ["UNDOCUMENTED: newsleeve/"]
+
+    def test_non_package_and_dot_dirs_are_skipped(self) -> None:
+        paths = [
+            "tests/a.py",
+            "docs/a.md",
+            "config/a.toml",
+            "scripts/a.py",
+            ".claude/x",
+        ]
+        assert check_packages(paths, "") == []
+
+    def test_top_level_files_are_not_packages(self) -> None:
+        assert check_packages(["Makefile", "buibui.py"], "") == []
+
+    def test_word_bound_stops_a_longer_name_reporting_covered(self) -> None:
+        """`state_audit` inside `premium_state_audit` must not count."""
+        found = check_packages(["state_audit/x.py"], "see premium_state_audit")
+        assert len(found) == 1
+
+    def test_live_tree_is_green(self) -> None:
+        """The leg must not land permanently red on the tree it ships in."""
+
+        root = Path(__file__).resolve().parents[1]
+        tracked = subprocess.run(
+            ["git", "ls-files"], capture_output=True, text=True, check=True, cwd=root
+        ).stdout.split()
+        blob = "\n".join(
+            p.read_text(encoding="utf-8")
+            for p in sorted((root / ".claude" / "context").glob("*.md"))
+        )
+        assert check_packages(tracked, blob) == []
 
 
 class TestCheckNewTargets:

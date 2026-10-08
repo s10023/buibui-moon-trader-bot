@@ -103,7 +103,7 @@ make web-build      # production bundle   (make web-dev for the Vite dev server)
 make db-update      # db-update-backtest -> db-update-recalibrate -> regression-update
 
 make status            # repo shape: file counts, always-loaded KB, MEMORY.md KB + bullets
-make post-branch-checks  # the mechanical half of /post-branch (13 legs, ADVISORY)
+make post-branch-checks  # the mechanical half of /post-branch (14 legs, ADVISORY)
 make post-branch-text FILE=<path>  # screen a PR title/body pre-flip (GATES; FILE=- is stdin)
 make sanity-checks       # the mechanical half of /sanity-check (7 legs, GATES, runs in CI)
 make wait-ci PR=<n>      # wait on a PR's checks    (make wait-ci-main for main's push run)

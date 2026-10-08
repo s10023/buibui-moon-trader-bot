@@ -479,16 +479,13 @@ For each surface in the config, do the following:
   markdownlint's `!.claude` glob: the check reported green because it could
   not see the files.
 
-  **So for context docs, run a presence check, not only a mention grep.** For
-  every package directory added or renamed in this PR, confirm the matching
-  context doc gained an entry. Cheap version:
-
-  ```bash
-  # every top-level package vs. what the context docs actually document
-  for d in */; do d=${d%/}
-    case $d in tests|docs|config|scripts|__pycache__|.*) continue;; esac
-    grep -rqsw "$d" .claude/context/ || echo "UNDOCUMENTED: $d"; done
-  ```
+  **So for context docs, run a presence check, not only a mention grep — and it is the
+  `packages` leg of `make post-branch-checks`** (Step 0), which asks whether every
+  top-level package, tracked or newly added, is named in `.claude/context/`. It reads
+  untracked files one by one (`--untracked-files=all`), because plain `git status`
+  folds a new directory into one `?? dir/` line the presence legs had to skip — so a
+  brand-new package was invisible to them until its first commit. Measured 2026-10-08
+  with a probe package, which read clean before that flag and reports now.
 
   **The `-w` is load-bearing — do not drop it back to a bare substring match.**
   Without it this check has the exact blind spot it was written to fix, in the
@@ -520,28 +517,15 @@ For each surface in the config, do the following:
   was not flagged by anything. It was caught only because a separate claim-
   falsification grep happened to hit the same paragraph.
 
-  **So diff the directory, not just the package list.** For every directory a
-  context doc enumerates by filename, check that files this PR added are named:
-
-  ```bash
-  # files added by this branch, in directories the context docs enumerate.
-  # THREE sources, not one: committed adds, staged adds, still-untracked files --
-  # this walk runs PRE-COMMIT by design, so `main...HEAD` alone sees nothing.
-  { git diff --name-only --diff-filter=A main...HEAD
-    git diff --name-only --diff-filter=A --cached
-    git ls-files --others --exclude-standard; } | sort -u \
-    | grep -Ev '^docs/(audits|superpowers/specs)/' | while read -r f; do
-    b=$(basename "$f")
-    grep -rqsw "$f" .claude/context/ && continue          # PATH named: documented
-    if ! grep -rqsw "$b" .claude/context/; then echo "UNDOCUMENTED FILE: $f"; continue; fi
-    # basename hit -- but is the doc talking about THIS file? Another file sharing
-    # the basename makes the hit unreliable, so hand it to a human rather than
-    # silently crediting it.
-    if [ -n "$(git ls-files "*/$b" "$b" | grep -vx "$f")" ]; then
-      echo "AMBIGUOUS basename (verify by hand): $f"
-    fi
-  done
-  ```
+  **So diff the directory, not just the package list — the `new-files` and `new-modules`
+  legs do exactly that.** They check every file this branch adds (committed, staged and
+  untracked) against the enumerating docs and `.claude/context/` respectively. Each added
+  file lands in one of THREE outcomes, defined in `coverage()` in
+  `tools/post_branch_checks.py`: the full path is named (credited), no probe name appears
+  at all (`UNDOCUMENTED`), or only the basename appears while another tracked file shares
+  it (`AMBIGUOUS basename (verify by hand)`). The third outcome lived in this skill's shell
+  block and not in the tool until 2026-10-08, so the sweep credited a basename collision
+  silently — the #643 shape below, on the surface Step 0 says to run FIRST.
 
   **SIXTH INSTANCE, and it is the `-w` trap one level up: a basename that collides
   ACROSS PACKAGES.** The single-`basename` form above this fix greps `telegram.py`,
@@ -552,10 +536,9 @@ For each surface in the config, do the following:
 
   **`-w` cannot fix this and neither can any tightening of the pattern**, because the
   string genuinely appears: the ambiguity is real, so the only honest output is to say
-  so. Hence three outcomes rather than two -- path named (credit it), no hit at all
-  (report it), basename hit with a colliding sibling (**ask a human**). Verified by
-  counterfactual on that branch, not by assertion: the old form printed nothing for
-  `card/telegram.py`, the new form printed `AMBIGUOUS`.
+  so — hence the three outcomes above. Verified by counterfactual on that branch, not by
+  assertion: the two-outcome form printed nothing for `card/telegram.py`, the
+  three-outcome form printed `AMBIGUOUS`; `TestThreeOutcomes` pins the same pair.
 
   Noise ceiling, measured on the same tree: **47 of 906 tracked files share a basename**,
   concentrated in the per-sleeve pattern (`report.py`, `replay.py`, `config.py`, 6-8 each),

@@ -408,30 +408,119 @@ def check_handoff_symbols(handoff: str, diff: str, diff_names: str) -> list[Find
     return findings
 
 
-def check_new_files(added: Sequence[str], doc_blob: str) -> list[Finding]:
-    """Every added non-Python operator file should reach an enumerating doc."""
+def _names_path(path: str, blob: str) -> bool:
+    """True when the doc names the file by its full path.
+
+    Bounded by lookarounds rather than ``\\b``: a path that opens with a dot
+    (``.claude/hooks/x.py``) has no word boundary before it, so ``\\b`` would
+    never match the most common way a hook or skill is cited.
+    """
+    return re.search(rf"(?<![\w/]){re.escape(path)}(?![\w/])", blob) is not None
+
+
+def coverage(path: str, blob: str, tracked: Sequence[str]) -> str | None:
+    """None when ``blob`` documents ``path``; otherwise the outcome to report.
+
+    Three outcomes, not two (ST148 M8, the #643 miss):
+
+    * the full path is named -> covered;
+    * no probe name appears at all -> ``UNDOCUMENTED``;
+    * only the basename (or stem) appears AND another tracked file shares that
+      basename -> ``AMBIGUOUS``, because the hit may be about the sibling.
+      ``card/telegram.py`` read COVERED on the strength of the long-documented
+      ``utils/telegram.py`` while the doc enumerating ``card/`` had never heard
+      of it. No tightening of the pattern can fix that -- the string really is
+      there -- so the honest output is to hand it to a human.
+
+    A shared-constant basename (``SKILL.md``) is probed by its directory, which
+    is its identity, so a sibling of the same basename is not a collision.
+    """
+    if _names_path(path, blob):
+        return None
+    if not any(re.search(rf"\b{re.escape(n)}\b", blob) for n in probe_names(path)):
+        return "UNDOCUMENTED"
+    name = Path(path).name
+    if name in SHARED_CONSTANT_BASENAMES:
+        return None
+    if any(t != path and Path(t).name == name for t in tracked):
+        return "AMBIGUOUS"
+    return None
+
+
+def _outcome_message(outcome: str, path: str, file_word: bool) -> str:
+    if outcome == "AMBIGUOUS":
+        return f"AMBIGUOUS basename (verify by hand): {path}"
+    return f"UNDOCUMENTED FILE: {path}" if file_word else f"UNDOCUMENTED: {path}"
+
+
+#: The only doc trees `new-files` skips: `make docs-index` generates their
+#: INDEX.md and `tests/test_docs_index.py` fails CI until it is current, a
+#: stronger gate than this advisory one. Skipping all of `docs/` instead hid
+#: every new `docs/research/` doc, a tree NO gate indexes -- the omission the
+#: skill's own rule forbids ("is it indexed by a CI-gated generator, never is
+#: it noisy").
+INDEXED_DOC_TREES = ("docs/audits/", "docs/superpowers/specs/")
+
+
+def check_new_files(
+    added: Sequence[str], doc_blob: str, *, tracked: Sequence[str]
+) -> list[Finding]:
+    """Every added non-Python operator file should reach an enumerating doc.
+
+    ``tracked`` is required, not defaulted: an empty default would silently
+    drop the AMBIGUOUS outcome and restore the two-outcome check that missed
+    ``card/telegram.py``.
+    """
     findings = []
     for path in added:
-        if path.startswith(("tests/", "docs/")) or path.endswith(".py"):
+        if path.startswith(("tests/", *INDEXED_DOC_TREES)) or path.endswith(".py"):
             continue
-        if not any(
-            re.search(rf"\b{re.escape(n)}\b", doc_blob) for n in probe_names(path)
-        ):
-            findings.append(Finding("new-files", f"UNDOCUMENTED FILE: {path}"))
+        outcome = coverage(path, doc_blob, tracked)
+        if outcome:
+            findings.append(Finding("new-files", _outcome_message(outcome, path, True)))
     return findings
 
 
-def check_new_modules(added: Sequence[str], context_blob: str) -> list[Finding]:
+def check_new_modules(
+    added: Sequence[str], context_blob: str, *, tracked: Sequence[str]
+) -> list[Finding]:
     """Every added module should reach `.claude/context/`."""
     findings = []
     for path in added:
         if not path.endswith(".py") or path.startswith(("tests/", "docs/")):
             continue
-        if not any(
-            re.search(rf"\b{re.escape(n)}\b", context_blob) for n in probe_names(path)
-        ):
-            findings.append(Finding("new-modules", f"UNDOCUMENTED: {path}"))
+        outcome = coverage(path, context_blob, tracked)
+        if outcome:
+            findings.append(
+                Finding("new-modules", _outcome_message(outcome, path, False))
+            )
     return findings
+
+
+#: Top-level directories that are not packages a context doc should describe.
+NON_PACKAGE_DIRS = frozenset({"tests", "docs", "config", "scripts", "__pycache__"})
+
+
+def check_packages(paths: Sequence[str], context_blob: str) -> list[Finding]:
+    """Every top-level package should be named somewhere in `.claude/context/`.
+
+    A presence check, not a mention grep. Grepping the doc tree for a changed
+    artifact is BLIND TO OMISSION: a package the docs have never heard of has
+    no mention to find, so the sweep reads "no change needed" exactly when the
+    doc is missing it -- how ``analytics.md`` rotted for months. ``paths`` is
+    every tracked file plus this branch's additions, so a brand-new package is
+    seen before it is committed. Word-bounded on purpose: a bare substring
+    reads ``state_audit`` as documented on the strength of
+    ``premium_state_audit``.
+    """
+    dirs = sorted({p.split("/", 1)[0] for p in paths if "/" in p})
+    return [
+        Finding("packages", f"UNDOCUMENTED: {d}/")
+        for d in dirs
+        if d not in NON_PACKAGE_DIRS
+        and not d.startswith(".")
+        and not re.search(rf"(?<![\w-]){re.escape(d)}(?![\w-])", context_blob)
+    ]
 
 
 def check_new_targets(diff: str, doc_blob: str) -> list[Finding]:
@@ -665,8 +754,12 @@ def gather(
     makefile_diff = runner(["git", "diff", "main", "--", "Makefile"])
     added = added_paths(
         runner(["git", "diff", "main", "--diff-filter=A", "--name-only"]),
-        runner(["git", "status", "--porcelain"]),
+        # `-uall`: by default a brand-new untracked DIRECTORY is one `?? dir/`
+        # line, which `added_paths` must skip, so every file in a new package
+        # was invisible to the presence legs until its first commit.
+        runner(["git", "status", "--porcelain", "--untracked-files=all"]),
     )
+    tracked = runner(["git", "ls-files"]).split()
     changed_md = sorted(
         {p for p in diff_names.split() if p.endswith(".md")}
         | {p for p in added if p.endswith(".md")}
@@ -685,8 +778,11 @@ def gather(
         CheckResult("handoff-symbols", check_handoff_symbols(handoff, diff, diff_names))
         if handoff
         else CheckResult("handoff-symbols", skipped="no handoff file"),
-        CheckResult("new-files", check_new_files(added, doc_blob)),
-        CheckResult("new-modules", check_new_modules(added, context_blob)),
+        CheckResult("packages", check_packages([*tracked, *added], context_blob)),
+        CheckResult("new-files", check_new_files(added, doc_blob, tracked=tracked)),
+        CheckResult(
+            "new-modules", check_new_modules(added, context_blob, tracked=tracked)
+        ),
         CheckResult("new-targets", check_new_targets(makefile_diff, doc_blob)),
         CheckResult(
             "amended-targets",
