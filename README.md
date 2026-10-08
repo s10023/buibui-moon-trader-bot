@@ -620,7 +620,8 @@ is a read-only audit that tags every historical trade with the M1 brief-indicato
 state (EMA stack/slope, regime, Bollinger, anchored-VWAP distance, volume-profile
 value-area, price-action character, Monday-range) that held at its entry, then
 emits a BUILD / AVOID / NO-EDGE / INSUFFICIENT verdict per (indicator-state ×
-direction) — verdict `docs/audits/2026-07-24-h8-m1-indicator-conditioning.md`.
+direction) — verdict `docs/audits/2026-10-08-h8-a31-causal-tagger-rerun.md`, which supersedes
+the 2026-07-24 H8 audit: its price-location effect was look-ahead (#952).
 
 `make buibui-occurrence-dump` (`tools/occurrence_dump.py`) is a read-only
 diagnostic that dumps one row per strategy fire together with the M1 indicator

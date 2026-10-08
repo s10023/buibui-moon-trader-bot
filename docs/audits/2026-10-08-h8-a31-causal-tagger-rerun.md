@@ -108,6 +108,19 @@ it is not new information. On the causal tagger these are no longer mirror pairs
 `below/long` twin of each AVOID is INSUFFICIENT, because longs below the reference are
 merely flat (−0.045R at 4h), not reliably positive.
 
+## The pre-registration had it right
+
+H8's design spec, §6, pre-registered exactly this rule. It slices 1d and 1h to completed
+bars, takes `ref_close` from the last completed close, and requires a perturbation test that
+changes the tag when the guard is removed. The code kept `open_time <= t` instead, and its
+test only mutated a bar *opening* after `t`. That is the "spec and code disagree" class
+AGENTS.md names. Both halves were internally consistent, so no gate could see it.
+
+The fix uses `open_time + bar_len <= t`, and the boundary is deliberate. §6 says "close
+strictly before `t`" and also "the bar the signal fired on is the last completed bar as-of
+`t`". The signal bar closes exactly at `t`, so only the inclusive boundary satisfies the
+second clause. It is also the brief's own `completed_bars` rule.
+
 ## How the fix was checked
 
 - `tests/test_indicator_condition.py::test_in_progress_bars_are_invisible_and_closed_bars_count`
