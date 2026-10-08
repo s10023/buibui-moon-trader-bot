@@ -4,13 +4,14 @@
 `make docs-index-check` (and `tests/test_docs_index.py`) fails when this file
 drifts from the corpus.
 
-**58 audits.** A verdict line is shown only where one could be read
-out of a Verdict heading as prose — that is **41 of 58**.
+**59 audits.** A verdict line is shown only where one could be read
+out of a Verdict heading as prose — that is **42 of 59**.
 An em dash means the doc states its verdict in a table, a blockquote or the body,
 **not** that it lacks one; open the file. Nothing here is keyword-guessed.
 
 | Date | Audit | Verdict (as written) | File |
 | --- | --- | --- | --- |
+| 2026-10-08 | A31 re-run — H8 VWAP gating at 4h, priced on the UTC-day cluster | The cell still reads BUILD. On the gate-deciding backtest substrate `vwap_weekly/below/short` at 4h holds +0.467R on n=2,355… | [2026-10-08-a31-h8-vwap-cluster-rerun.md](2026-10-08-a31-h8-vwap-cluster-rerun.md) |
 | 2026-10-08 | A15 re-run — composite exit at 1h/4h, net of cost, ties resolved from 15m | At 1h the filed NO stands: net of cost, the composite's portfolio Sharpe is −3.31 against fixed's −2.94. At 4h it flips on the… | [2026-10-08-a15-composite-exit-tie-resolved-rerun.md](2026-10-08-a15-composite-exit-tie-resolved-rerun.md) |
 | 2026-09-06 | ST110 — `detect_engulfing` recall relaxation: power pricing | REACHABLE, but only as a single pre-registered pooled test — a per-cell scan is not. At one trial the gate demands +0.0354R per… | [2026-09-06-st110-engulfing-recall-power.md](2026-09-06-st110-engulfing-recall-power.md) |
 | 2026-08-29 | ST106 — retrace/impulse volume ratio: UNREACHABLE, and the definition is wrong | The pre-registered split is UNREACHABLE and was not scored. Two of the pre-registration's own decision-log conditions fired… | [2026-08-29-st106-volume-ratio-split-result.md](2026-08-29-st106-volume-ratio-split-result.md) |
