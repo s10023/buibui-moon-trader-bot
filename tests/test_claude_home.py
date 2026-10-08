@@ -278,12 +278,15 @@ class TestMemoryDirAgrees:
     ) -> None:
         from tools.memory_dir import memory_dir as legacy_memory_dir
 
+        repo = (
+            tmp_path / "srv" / "demo"
+        )  # absolute on every host; /srv/demo has no drive on Windows
         elsewhere = tmp_path / "elsewhere"
-        planted = elsewhere / "projects" / slugify_path(str(REPO.resolve())) / "memory"
+        planted = elsewhere / "projects" / slugify_path(str(repo)) / "memory"
         planted.mkdir(parents=True)
         monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(elsewhere))
-        assert legacy_memory_dir(REPO) == planted
-        assert legacy_memory_dir(REPO) == memory_dir(REPO)
+        assert legacy_memory_dir(repo) == planted
+        assert legacy_memory_dir(repo) == memory_dir(repo)
 
     def test_env_set_and_tree_only_at_the_env_root_still_resolves(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -293,12 +296,15 @@ class TestMemoryDirAgrees:
         from tools.memory_dir import memory_dir as legacy_memory_dir
 
         _set_home(tmp_path, monkeypatch)
+        repo = (
+            tmp_path / "srv" / "demo"
+        )  # absolute on every host; /srv/demo has no drive on Windows
         elsewhere = tmp_path / "elsewhere"
-        (elsewhere / "projects" / slugify_path(str(REPO.resolve())) / "memory").mkdir(
+        (elsewhere / "projects" / slugify_path(str(repo)) / "memory").mkdir(
             parents=True
         )
         monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(elsewhere))
-        assert legacy_memory_dir(REPO).is_dir()
+        assert legacy_memory_dir(repo).is_dir()
 
 
 class TestBareInvocation:

@@ -383,6 +383,7 @@ finishes** and exits non-zero if it failed — so it is a real test, not fire-an
 | `BUIBUI_KEEP_DAILY` | `14` | Daily snapshots retained (~258MB each). |
 | `BUIBUI_KEEP_WEEKLY` | `8` | Parquet exports retained (~111MB each). |
 | `BUIBUI_LOCK_RETRIES` / `BUIBUI_LOCK_SLEEP` | `10` / `30` | How long to wait out the signal-watch lock before the byte-copy fallback. |
+| `BUIBUI_BACKUP_EXTRA_CLAUDE_ROOTS` | unset | Comma-separated extra Claude config roots whose account files (`history.jsonl`, `CLAUDE.md`, `settings.json`, `tools/`, `skills/`, `commands/`) are also copied. Only the root holding this checkout's project tree is copied by default, because a second profile can belong to another account and the off-site leg ships the snapshot to a cloud drive. Every existing root that is not copied is named as `uncopied` on each run. The laptop sets `$HOME/.claude-personal`. |
 
 Three properties worth knowing before trusting it:
 

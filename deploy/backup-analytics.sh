@@ -233,6 +233,53 @@ _root_label() {
 }
 ACTIVE_LABEL="$(_root_label "$ACTIVE_ROOT")"
 
+# Which roots' ACCOUNT-LEVEL files are copied. Default: the active root only, because a
+# second profile can belong to a DIFFERENT account -- on the shared work machine
+# `.claude-personal` was personal and `.claude` was the work account -- and the off-site
+# leg rclone-syncs this snapshot to a cloud drive, so adopting it by default would ship
+# another account's prompt log and instructions to a third party. A host that wants a
+# legacy root kept names it in BUIBUI_BACKUP_EXTRA_CLAUDE_ROOTS in its gitignored .env,
+# comma-separated (a Windows path carries a colon). The laptop needs this: after the
+# 2026-09-18 move its `~/.claude-personal` still holds the pre-migration history.jsonl,
+# `tools/budget.py` + `budget-history.json`, and the book distillations under `skills/`,
+# none of which exists anywhere else.
+#
+# Every candidate root that exists and is NOT copied is named on every run (UNCOPIED_ROOTS
+# below), so leaving a root out is a visible decision, never a silent skip.
+#
+# Roots are compared in canonical form: the resolver prints `C:/Users/...` while a .env
+# under Git Bash spells `/c/Users/...`, and a string compare would call one root two.
+_canon_root() { (cd "$1" 2>/dev/null && pwd -P) || printf '%s' "$1"; }
+_root_in() {
+    local want have
+    want="$(_canon_root "$1")"; shift
+    for have in "$@"; do
+        [ "$(_canon_root "$have")" = "$want" ] && return 0
+    done
+    return 1
+}
+BACKUP_ROOTS=("$ACTIVE_ROOT")
+if [ -n "${BUIBUI_BACKUP_EXTRA_CLAUDE_ROOTS:-}" ]; then
+    IFS=',' read -r -a _extra_roots <<< "$BUIBUI_BACKUP_EXTRA_CLAUDE_ROOTS"
+    for _root in "${_extra_roots[@]}"; do
+        _root="$(printf '%s' "$_root" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+        [ -n "$_root" ] || continue
+        case "$_root" in "~"/*) _root="$HOME/${_root#"~/"}" ;; esac
+        _root="${_root%/}"
+        if [ ! -d "$_root" ]; then
+            printf 'warn: BUIBUI_BACKUP_EXTRA_CLAUDE_ROOTS names %s, which is not a directory\n' \
+                "$_root" >&2
+            continue
+        fi
+        _root_in "$_root" "${BACKUP_ROOTS[@]}" || BACKUP_ROOTS+=("$_root")
+    done
+fi
+UNCOPIED_ROOTS=()
+for _root in "${CLAUDE_ROOTS[@]}"; do
+    [ -d "$_root" ] || continue
+    _root_in "$_root" "${BACKUP_ROOTS[@]}" || UNCOPIED_ROOTS+=("$_root")
+done
+
 # Files OUTSIDE the repo, as "absolute-source:path-under-the-snapshot". Kept separate
 # from LEDGERS because that loop is "$REPO/$f"-relative and would silently resolve an
 # absolute path to nonsense.
@@ -259,11 +306,15 @@ ACTIVE_LABEL="$(_root_label "$ACTIVE_ROOT")"
 # root to a cloud drive, so anything added here is COPIED TO A THIRD PARTY. That is the
 # same failure shape as the 2026-08-15 rclone token leak: the damage is done at copy
 # time, and noticing afterwards does not undo it.
-EXTERNAL_LEDGERS=(
-    "$ACTIVE_ROOT/history.jsonl:$ACTIVE_LABEL/history.jsonl"
-    "$ACTIVE_ROOT/CLAUDE.md:$ACTIVE_LABEL/CLAUDE.md"
-    "$ACTIVE_ROOT/settings.json:$ACTIVE_LABEL/settings.json"
-)
+EXTERNAL_LEDGERS=()
+for _root in "${BACKUP_ROOTS[@]}"; do
+    _label="$(_root_label "$_root")"
+    EXTERNAL_LEDGERS+=(
+        "$_root/history.jsonl:$_label/history.jsonl"
+        "$_root/CLAUDE.md:$_label/CLAUDE.md"
+        "$_root/settings.json:$_label/settings.json"
+    )
+done
 
 # Out-of-repo DIRECTORIES, as "absolute-source-glob:path-under-the-snapshot".
 #
@@ -343,14 +394,19 @@ EXTERNAL_LEDGERS=(
 # off-site leg rclone-syncs this snapshot to a cloud drive, which is the same reason
 # `.credentials.json` is excluded above.
 #
-# (#838) None of these name a config root: the account-level trees come from ACTIVE_ROOT
-# and the memory glob is added once per candidate root, all resolved above. Keep it that
-# way -- a literal root here is the defect, and the tests fail on one.
-EXTERNAL_LEDGER_DIRS=(
-    "$ACTIVE_ROOT/tools:$ACTIVE_LABEL"
-    "$ACTIVE_ROOT/skills:$ACTIVE_LABEL"
-    "$ACTIVE_ROOT/commands:$ACTIVE_LABEL"
-)
+# (#838) None of these name a config root: the account-level trees come from
+# BACKUP_ROOTS (the active root plus any opted in) and the memory glob is added once per
+# candidate root, all resolved above. Keep it that way -- a literal root here is the
+# defect, and the tests fail on one.
+EXTERNAL_LEDGER_DIRS=()
+for _root in "${BACKUP_ROOTS[@]}"; do
+    _label="$(_root_label "$_root")"
+    EXTERNAL_LEDGER_DIRS+=(
+        "$_root/tools:$_label"
+        "$_root/skills:$_label"
+        "$_root/commands:$_label"
+    )
+done
 for _root in "${CLAUDE_ROOTS[@]}"; do
     EXTERNAL_LEDGER_DIRS+=("$_root/projects/*/memory:$(_root_label "$_root")/projects")
 done
@@ -369,7 +425,16 @@ _ext_dir_tail() {
 
 # ST78: the account-level spend tracker. Its derived index is the backed-up stand-in for
 # the excluded `transcript-archive/`; see the block above EXTERNAL_LEDGER_DIRS.
+# The first COPIED root that holds it, active root first: on the laptop the tracker still
+# lives in the legacy root, and a lookup pinned to the active root reported it ABSENT and
+# stopped refreshing the index while `tools/` kept being copied stale.
 BUDGET_PY="$ACTIVE_ROOT/tools/budget.py"
+for _root in "${BACKUP_ROOTS[@]}"; do
+    if [ -f "$_root/tools/budget.py" ]; then
+        BUDGET_PY="$_root/tools/budget.py"
+        break
+    fi
+done
 # Derived from the tool's own directory, never spelled a second time: the index is written
 # by budget.py and copied because it sits inside the already-covered `tools/` tree, so a
 # hardcoded second path could drift out of that tree and be silently uncopied.
@@ -476,6 +541,9 @@ if [ "$dry_run" -eq 1 ]; then
             log "  ext-dir    $rel/$(_ext_dir_tail "$src") ($(du -sh "$src" | cut -f1), $(find "$src" -type f | wc -l) files)"
         done
         [ "$matched" -eq 0 ] && log "  ext-dir    $rel -- NO MATCH for $pattern, will be skipped"
+    done
+    for _root in "${UNCOPIED_ROOTS[@]}"; do
+        log "  uncopied   $_root -- account files NOT copied (not this checkout's root; add it to BUIBUI_BACKUP_EXTRA_CLAUDE_ROOTS in .env to keep them)"
     done
     # Reported here as well as done in the real path, for the same reason the glob is
     # expanded in both loops: a report that omits a step the copy performs promises
@@ -633,6 +701,9 @@ if [ -f "$BUDGET_PY" ]; then
 fi
 
 # --- external ledgers ---------------------------------------------------------
+for _root in "${UNCOPIED_ROOTS[@]}"; do
+    log "  uncopied   $_root -- account files NOT copied (not this checkout's root; add it to BUIBUI_BACKUP_EXTRA_CLAUDE_ROOTS in .env to keep them)"
+done
 # Absent is not fatal: these live outside the repo, so a fresh clone or a different
 # box legitimately has none of them, and a missing one must not fail a backup whose
 # actual crown jewels are already verified above.

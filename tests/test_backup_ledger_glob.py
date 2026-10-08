@@ -115,6 +115,9 @@ def _run(
     # isolates these tests from the operator's real ~/.claude-personal tree.
     if home is not None:
         env["HOME"] = str(home)
+        # The resolver runs `Path.home()`, which reads USERPROFILE on Windows and
+        # ignores HOME: without this the fixture escaped to the real ~/.claude.
+        env["USERPROFILE"] = str(home)
     return subprocess.run(  # noqa: S603
         # Through bash, not by shebang -- Windows cannot exec a `.sh`.
         # See the same note in `test_run_job_wrapper.py`.
@@ -644,6 +647,79 @@ class TestAccountRootIsResolvedNotHardcoded:
             encoding="utf-8"
         ) == "account rules\n"
         assert not (snap / "claude-personal" / "CLAUDE.md").exists()
+        # ...and leaving it out is never silent.
+        assert f"uncopied   {other.as_posix()}" in r.stdout
+
+    def test_an_opted_in_root_is_copied_under_its_own_label(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        """BUIBUI_BACKUP_EXTRA_CLAUDE_ROOTS keeps a legacy root's account files -- the
+        laptop's pre-migration history.jsonl and book distillations live only there --
+        without the active root's files being displaced."""
+        home = _windows_style_home(tmp_path, _fixture_slug(tmp_path))
+        other = home / ".claude-personal"
+        (other / "skills" / "book").mkdir(parents=True)
+        (other / "skills" / "book" / "SKILL.md").write_text("ch1\n", encoding="utf-8")
+        (other / "history.jsonl").write_text('{"old": 1}\n', encoding="utf-8")
+
+        r = _run(
+            fake_repo,
+            tmp_path,
+            home=home,
+            env_extra={"BUIBUI_BACKUP_EXTRA_CLAUDE_ROOTS": f" {other} ,"},
+        )
+
+        assert r.returncode == 0, r.stdout + r.stderr
+        snap = sorted((tmp_path / "backups" / "daily").iterdir())[-1] / "_external"
+        assert (snap / "claude-personal" / "history.jsonl").read_text(
+            encoding="utf-8"
+        ) == '{"old": 1}\n'
+        legacy_skill = snap / "claude-personal" / ".claude-personal" / "skills"
+        assert (legacy_skill / "book" / "SKILL.md").exists()
+        assert (snap / "claude" / "CLAUDE.md").read_text(
+            encoding="utf-8"
+        ) == "account rules\n"
+        assert "uncopied" not in r.stdout
+
+    def test_budget_py_is_found_in_an_opted_in_root(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        """The tracker stayed in the legacy root on the laptop; a lookup pinned to the
+        active root reported it ABSENT and stopped refreshing the index."""
+        home = _windows_style_home(tmp_path, _fixture_slug(tmp_path))
+        other_tools = home / ".claude-personal" / "tools"
+        other_tools.mkdir(parents=True)
+        (other_tools / "budget.py").write_text(STUB_BUDGET, encoding="utf-8")
+
+        r = _run(
+            fake_repo,
+            tmp_path,
+            "--dry-run",
+            home=home,
+            env_extra={
+                "BUIBUI_BACKUP_EXTRA_CLAUDE_ROOTS": str(home / ".claude-personal")
+            },
+        )
+
+        assert r.returncode == 0, r.stdout + r.stderr
+        line = next(ln for ln in r.stdout.splitlines() if "spend-idx" in ln)
+        assert "ABSENT" not in line, line
+        assert ".claude-personal" in line, line
+
+    def test_an_opted_in_root_that_is_missing_warns(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        home = _windows_style_home(tmp_path, _fixture_slug(tmp_path))
+
+        r = _run(
+            fake_repo,
+            tmp_path,
+            home=home,
+            env_extra={"BUIBUI_BACKUP_EXTRA_CLAUDE_ROOTS": str(tmp_path / "nope")},
+        )
+
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert "BUIBUI_BACKUP_EXTRA_CLAUDE_ROOTS names" in r.stderr
 
     def test_the_legacy_layout_keeps_its_destination_names(
         self, fake_repo: Path, tmp_path: Path, fake_home: Path
@@ -691,7 +767,10 @@ class TestAccountRootIsResolvedNotHardcoded:
         r = _run(fake_repo, tmp_path, "--dry-run", home=home)
 
         assert r.returncode == 0, r.stdout + r.stderr
-        assert f"external   claude/history.jsonl <- {home / '.claude'}" in r.stdout
+        assert (
+            f"external   claude/history.jsonl <- {(home / '.claude').as_posix()}"
+            in r.stdout
+        )
         assert "ABSENT" not in "".join(
             ln for ln in r.stdout.splitlines() if "history.jsonl" in ln
         )
@@ -729,11 +808,9 @@ class TestAccountRootIsResolvedNotHardcoded:
         silently not copied, which is the defect as it presented."""
         script = fake_repo / "deploy" / "backup-analytics.sh"
         text = script.read_text(encoding="utf-8")
-        resolved = '    "$ACTIVE_ROOT/history.jsonl:$ACTIVE_LABEL/history.jsonl"\n'
+        resolved = '        "$_root/history.jsonl:$_label/history.jsonl"\n'
         assert resolved in text, "the entry to mutate is not present"
-        old = (
-            '    "$HOME/.claude-personal/history.jsonl:claude-personal/history.jsonl"\n'
-        )
+        old = '        "$HOME/.claude-personal/history.jsonl:claude-personal/history.jsonl"\n'
         mutated = text.replace(resolved, old)
         script.write_text(mutated, encoding="utf-8")
 
