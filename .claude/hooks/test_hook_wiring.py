@@ -152,6 +152,18 @@ for event, matcher in (
     )
 
 
+# #885: the skill-usage ledger needs BOTH legs. Drop the typed one and every
+# operator-typed `/skill` vanishes from the counts, so the report names a skill
+# the operator uses daily as unused -- a silent miss that reads as a finding.
+for event, matcher in (("PreToolUse", "Skill"), ("UserPromptSubmit", "")):
+    check(
+        f"log-skill-usage.py is wired on {event}[{matcher or '*'}]",
+        any(
+            e == event and m == matcher and "log-skill-usage.py" in c
+            for e, m, c in commands
+        ),
+    )
+
 # --------------------------------------------------------------------------
 # 2. end-to-end, against a fixture reproducing the Windows failure
 # --------------------------------------------------------------------------
