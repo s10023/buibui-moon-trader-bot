@@ -20,6 +20,10 @@ def _final(verdict: str, **card_overrides: Any) -> FinalCard:
         "tp2": 105.0 if verdict != "NO_TRADE" else None,
         "tp3": 108.0 if verdict != "NO_TRADE" else None,
         "confluence_score": 6,
+        "confluence_inputs": [
+            {"input": k, "evidence": f"{k} 1"}
+            for k in ("zone_level", "indicator", "indicator", "session", "xs", "pundit")
+        ],
         "reasoning": ["a 1", "b 2", "c 3", "d 4", "e 5"],
         "steelman": ["htf 1", "underweighted 2", "catalyst 3", "other 4"],
         "invalidation": "close below 97",
@@ -55,6 +59,12 @@ def _final(verdict: str, **card_overrides: Any) -> FinalCard:
 
 
 class TestRender:
+    def test_confluence_inputs_list_under_the_score(self) -> None:
+        """card-v8: the operator sees what was counted, not just how many."""
+        out = render_card(_final("TRADE"))
+        assert out.index("  + zone_level: zone_level 1") > out.index("confluence 6/9")
+        assert out.count("  + indicator:") == 2
+
     def test_steelman_block_follows_the_reasoning(self) -> None:
         """The counter-case reads after the case, never before it."""
         out = render_card(_final("TRADE"))

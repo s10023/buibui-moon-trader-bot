@@ -20,6 +20,7 @@ _CHANGELOG_BLOCK = re.compile(r"^# (card-v\d+) \(", re.MULTILINE)
 _RUBRIC_DIGESTS = {
     "card-v6": "388fc185c40e06fa294f9a3fe27d033302ffb11cb00364c434bb6e1471ed74df",
     "card-v7": "dea72f262bb74acfd2b60db6a32c2edd5e6e94b0fe15ddc3a4ad1cce3011053d",
+    "card-v8": "f9ec7d6882cc1c310d04bf0fbc6445f7f8aec4eec60dfb6733e878f3754b4855",
 }
 
 
@@ -54,7 +55,13 @@ def _state(hint: str | None = None) -> MarketState:
 
 class TestPrompt:
     def test_version_constant(self) -> None:
-        assert PROMPT_VERSION == "card-v7"
+        assert PROMPT_VERSION == "card-v8"
+
+    def test_rubric_asks_for_the_inputs_behind_the_score(self) -> None:
+        """card-v8 (#821): one listed input per point, external capped at one."""
+        assert '"confluence_inputs"' in RUBRIC
+        assert "length equals" in RUBRIC
+        assert "external_liquidity may appear at most once" in RUBRIC
 
     def test_rubric_names_the_pundit_metric_and_its_units(self) -> None:
         """card-v4: `avg_atr_r` is in ATR units, and there is no pundit R.

@@ -250,16 +250,17 @@ Per card:
 2. **Cluster citations** — every liquidity cluster the card cites must exist
    in a verified snapshot (`docs/plans/external-context/*.json`, same symbol,
    fresh). Flag invented or mispriced clusters. card-v3 caps external
-   liquidity at ONE confluence input — more than one is a rubric violation.
-   ⚠ **You cannot verify that cap from any artifact on disk.** `FinalCard`
-   emits a scalar `confluence_score` and no input list, so "how many inputs was
-   external liquidity" is answerable only by reading the prose, where a cluster
-   cited in two reasoning bullets is indistinguishable from one input used
-   twice. Measured 2026-08-25: all 6 cards in a batch touched external liquidity
-   in 2–3 bullets, which reads as either 6/6 breaching or a cap that means
-   something narrower — and nothing recorded can tell those apart. **Report the
-   ambiguity rather than filing 6 violations or clearing all 6.** The fix is an
-   emitted `confluence_inputs: [...]`; until it lands this leg is advisory.
+   liquidity at ONE confluence input. **Since card-v8 that cap is enforced in
+   code**: the card emits `confluence_inputs` (one `{input, evidence}` entry
+   per point of `confluence_score`), and validation rejects a list whose length
+   differs from the score or that names `external_liquidity` twice. So for a v8+
+   card, read the `external_liquidity` entry's `evidence` and check THAT cluster
+   against the snapshot. Citing one cluster in several reasoning bullets is not
+   a violation; the list is what gets counted. ⚠ **A pre-v8 card carries no list**,
+   so the cap stays unverifiable there: report the ambiguity rather than filing
+   violations or clearing them (measured 2026-08-25: all 6 cards in a batch
+   touched external liquidity in 2–3 bullets, and nothing recorded tells a
+   breach from one input cited twice).
    **card-v4: a cluster is a BAND.** Its edges reproduce to only ~16% on a
    same-input re-extraction (mean drift 20–43% of band width, measured
    2026-08-12), so a card placing an entry/SL/TP exactly on a cluster edge is

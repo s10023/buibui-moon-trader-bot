@@ -24,6 +24,10 @@ def _trade_obj(**overrides: Any) -> dict[str, Any]:
         "tp2": 105.0,
         "tp3": 108.0,
         "confluence_score": 6,
+        "confluence_inputs": [
+            {"input": k, "evidence": f"{k} 1"}
+            for k in ("zone_level", "indicator", "indicator", "session", "xs", "pundit")
+        ],
         "reasoning": ["a 1", "b 2", "c 3", "d 4", "e 5"],
         "steelman": ["htf 1", "underweighted 2", "catalyst 3", "other 4"],
         "invalidation": "close below 97",
@@ -76,6 +80,74 @@ class TestValidation:
         assert validate_card_obj(_trade_obj(confluence_score=10))
         assert validate_card_obj(_trade_obj(confluence_score="6"))
         assert validate_card_obj(_trade_obj(confluence_score=True))
+
+
+def _inputs(*kinds: str) -> list[dict[str, str]]:
+    return [{"input": k, "evidence": f"{k} 1"} for k in kinds]
+
+
+class TestConfluenceInputs:
+    """card-v8 (#821): the score's inputs are listed, so the cap is checkable."""
+
+    def test_inputs_parse_into_the_card(self) -> None:
+        card = parse_trade_card(json.dumps(_trade_obj()))
+        assert len(card.confluence_inputs) == card.confluence_score == 6
+        assert card.confluence_inputs[0].input == "zone_level"
+        assert card.confluence_inputs[0].evidence == "zone_level 1"
+
+    def test_count_must_match_the_score(self) -> None:
+        obj = _trade_obj(confluence_score=3, confluence_inputs=_inputs("xs", "pundit"))
+        assert any("must match" in e for e in validate_card_obj(obj))
+
+    def test_zero_score_with_no_inputs_is_valid(self) -> None:
+        assert not validate_card_obj(
+            _trade_obj(confluence_score=0, confluence_inputs=[])
+        )
+
+    def test_one_external_input_is_allowed(self) -> None:
+        obj = _trade_obj(
+            confluence_score=2, confluence_inputs=_inputs("external_liquidity", "xs")
+        )
+        assert not validate_card_obj(obj)
+
+    def test_external_liquidity_counted_twice_is_rejected(self) -> None:
+        """The cap the scalar score could not see: two clusters, one input."""
+        obj = _trade_obj(
+            confluence_score=3,
+            confluence_inputs=_inputs("external_liquidity", "external_liquidity", "xs"),
+        )
+        errors = validate_card_obj(obj)
+        assert any("external_liquidity 2 times" in e for e in errors)
+        with pytest.raises(CardValidationError):
+            parse_trade_card(json.dumps(obj))
+
+    def test_other_kinds_may_repeat(self) -> None:
+        """Two indicators can be two independent agreeing inputs."""
+        obj = _trade_obj(
+            confluence_score=2, confluence_inputs=_inputs("indicator", "indicator")
+        )
+        assert not validate_card_obj(obj)
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            None,
+            "zone_level",
+            [{"input": "vibes", "evidence": "x 1"}],
+            [{"input": "xs", "evidence": "   "}],
+            [{"input": "xs"}],
+            ["xs"],
+        ],
+    )
+    def test_malformed_inputs_are_rejected(self, bad: object) -> None:
+        obj = _trade_obj(confluence_score=1, confluence_inputs=bad)
+        assert any("confluence_inputs" in e for e in validate_card_obj(obj))
+
+    def test_no_trade_also_lists_its_inputs(self) -> None:
+        """The score is required on both verdicts, so its inputs are too."""
+        obj = _trade_obj(verdict="NO_TRADE", no_trade_reason="chop")
+        del obj["confluence_inputs"]
+        assert any("confluence_inputs" in e for e in validate_card_obj(obj))
 
     def test_trade_requires_prices_and_direction(self) -> None:
         assert validate_card_obj(_trade_obj(entry=None))
