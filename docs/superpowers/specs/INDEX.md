@@ -4,13 +4,13 @@
 `make docs-index-check` (and `tests/test_docs_index.py`) fails when this file
 drifts from the corpus.
 
-**69 specs on disk.** Reconcile status is **derived** — a spec counts as
+**70 specs on disk.** Reconcile status is **derived** — a spec counts as
 reconciled when an audit that names its filename also discusses reconciling, so
 the count is recomputed from disk rather than carried in prose. That is the
 counter AGENTS.md has had wrong every time it was checked.
 
-- **Reconciled (derived): 4 of 69.**
-- Referenced by no audit at all: 50.
+- **Reconciled (derived): 4 of 70.**
+- Referenced by no audit at all: 51.
 
 **Two caveats before quoting these numbers.** A *partial* reconcile is
 indistinguishable from a whole-spec one here, and this table cannot see one that
@@ -20,6 +20,7 @@ and the reconcile column as a floor.
 | Date | Spec | Reconciled by | Also referenced by | File |
 | --- | --- | --- | --- | --- |
 | 2026-10-08 | H13 — pre-registration for the US-open opening-range breakout | — | — | [2026-10-08-h13-us-open-orb-preregistration.md](2026-10-08-h13-us-open-orb-preregistration.md) |
+| 2026-10-08 | E841 — pre-registration for hedged violent-up continuation, out of universe | — | — | [2026-10-08-e841-violent-up-holdout-preregistration.md](2026-10-08-e841-violent-up-holdout-preregistration.md) |
 | 2026-09-10 | ST134 — pre-registration: trial independence and observation clustering in the sweep commit gate | — | — | [2026-09-10-st134-sweep-gate-trial-independence-preregistration.md](2026-09-10-st134-sweep-gate-trial-independence-preregistration.md) |
 | 2026-09-10 | ST128 — pre-registration for the corrected WFO re-sweep | — | — | [2026-09-10-st128-wfo-resweep-preregistration.md](2026-09-10-st128-wfo-resweep-preregistration.md) |
 | 2026-08-29 | ST113 — task/skill completion push to Telegram (design) | — | — | [2026-08-29-st113-telegram-notify-design.md](2026-08-29-st113-telegram-notify-design.md) |
