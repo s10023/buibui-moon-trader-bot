@@ -14,6 +14,9 @@ layout, and it must still fail to find one when there genuinely is none.
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 from tools.memory_dir import CONFIG_ROOTS, LEGACY_SLUG, memory_dir, slug_for
@@ -107,4 +110,30 @@ class TestItCanStillSayNo:
         assert not resolved.exists(), (
             "resolved to another project's memory tree, which would hand this "
             "repo's checks another repo's rulings"
+        )
+
+
+class TestBareInvocation:
+    """`memory_dir.py` now imports `tools.claude_home`, so the bare form needs the
+    bootstrap. `make status` sets PYTHONPATH and cannot catch a missing one; this test
+    is the guarantee, not the bootstrap line (ST129). The printed path is pinned to
+    the in-process answer so the CLI output cannot drift."""
+
+    def test_bare_invocation_works(self, tmp_path: Path) -> None:
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+        env["CLAUDE_CONFIG_DIR"] = str(tmp_path / "cfg")
+        repo_root = Path(__file__).resolve().parent.parent
+        proc = subprocess.run(  # noqa: S603
+            [sys.executable, "tools/memory_dir.py"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+
+        assert proc.returncode == 0, proc.stderr
+        assert (
+            proc.stdout.strip()
+            == (tmp_path / "cfg" / "projects" / LEGACY_SLUG / "memory").as_posix()
         )

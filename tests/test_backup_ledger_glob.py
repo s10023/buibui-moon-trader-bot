@@ -39,6 +39,7 @@ import duckdb
 import pytest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "deploy" / "backup-analytics.sh"
+CLAUDE_HOME_SRC = Path(__file__).resolve().parents[1] / "tools" / "claude_home.py"
 
 
 @pytest.fixture
@@ -52,6 +53,11 @@ def fake_repo(tmp_path: Path) -> Path:
     (repo / "deploy").mkdir(parents=True)
     shutil.copy(SCRIPT, repo / "deploy" / "backup-analytics.sh")
     (repo / "deploy" / "backup-analytics.sh").chmod(0o755)
+
+    # The script resolves the Claude config root through `tools/claude_home.py` (#838)
+    # and imports it from the checkout it runs in, which here is this fixture.
+    (repo / "tools").mkdir()
+    shutil.copy(CLAUDE_HOME_SRC, repo / "tools" / "claude_home.py")
 
     (repo / "docs" / "plans").mkdir(parents=True)
     (repo / "docs" / "plans" / "thesis-inbox.md").write_text(
@@ -101,6 +107,9 @@ def _run(
     # failure -- the script calls `mv` exactly once, so the stub is precise.
     if path_prepend is not None:
         env["PATH"] = f"{path_prepend}{os.pathsep}{env.get('PATH', '')}"
+    # The host's own override must not steer the script under test; a test that wants
+    # one passes it through `env_extra`.
+    env.pop("CLAUDE_CONFIG_DIR", None)
     env.update(env_extra or {})
     # Every EXTERNAL_* path is spelled relative to $HOME, so overriding it is what
     # isolates these tests from the operator's real ~/.claude-personal tree.
@@ -231,11 +240,25 @@ if "--export-index" in sys.argv:
 """
 
 
+def _fixture_slug(tmp_path: Path) -> str:
+    """The project slug the script will derive for the `fake_repo` fixture."""
+    from tools.claude_home import project_slug
+
+    return project_slug(tmp_path / "repo")
+
+
 @pytest.fixture
 def fake_home(tmp_path: Path) -> Path:
-    """A $HOME whose `.claude-personal/tools/` holds a stub tracker."""
+    """A $HOME whose `.claude-personal/tools/` holds a stub tracker.
+
+    The root also holds the fixture repo's `projects/<slug>` dir: the script picks the
+    account root by the project tree it holds, never by the root merely existing.
+    """
     tools = tmp_path / "home" / ".claude-personal" / "tools"
     tools.mkdir(parents=True)
+    (
+        tmp_path / "home" / ".claude-personal" / "projects" / _fixture_slug(tmp_path)
+    ).mkdir(parents=True)
     (tools / "budget.py").write_text(STUB_BUDGET, encoding="utf-8")
     (tools / "budget-repos.json").write_text("{}\n", encoding="utf-8")
     return tmp_path / "home"
@@ -493,9 +516,14 @@ class TestBothConfigRootsAreCovered:
         """Proves the assertions above bite on the ENTRY, not on something incidental."""
         script = fake_repo / "deploy" / "backup-analytics.sh"
         text = script.read_text(encoding="utf-8")
-        entry = '    "$HOME/.claude/projects/*/memory:claude/projects"\n'
-        assert entry in text, "the guarded entry is not present to mutate"
-        script.write_text(text.replace(entry, ""), encoding="utf-8")
+        # The per-root memory glob is added by a loop over every candidate root (#838);
+        # restricting the loop to the first root is the old "covers only one" defect.
+        entry = 'for _root in "${CLAUDE_ROOTS[@]}"; do\n'
+        assert entry in text, "the guarded loop is not present to mutate"
+        script.write_text(
+            text.replace(entry, 'for _root in "${CLAUDE_ROOTS[0]}"; do\n'),
+            encoding="utf-8",
+        )
 
         r = _run(fake_repo, tmp_path, home=two_root_home)
         assert r.returncode == 0, r.stdout + r.stderr
@@ -512,6 +540,213 @@ class TestBothConfigRootsAreCovered:
         assert not live.exists(), (
             "the live tree was copied WITHOUT the entry -- these tests would pass "
             "against the defect and guard nothing"
+        )
+
+
+def _code_lines_naming_a_config_root(script_text: str) -> list[str]:
+    """Non-comment lines of the script that spell a profile directory as a literal."""
+    return [
+        line
+        for line in script_text.splitlines()
+        if not line.lstrip().startswith("#") and "claude-personal" in line
+    ]
+
+
+def _windows_style_home(tmp_path: Path, repo_slug: str) -> Path:
+    """A $HOME as the migrated laptop has it: ONLY `~/.claude`, holding the live tree.
+
+    Also plants the two files that must NEVER be copied (`.credentials.json` inside
+    the root, `.claude.json` beside it) so one fixture serves the exclusion test.
+    """
+    home = tmp_path / "home"
+    root = home / ".claude"
+    (root / "projects" / repo_slug / "memory").mkdir(parents=True)
+    (root / "projects" / repo_slug / "memory" / "MEMORY.md").write_text(
+        "live\n", encoding="utf-8"
+    )
+    (root / "history.jsonl").write_text('{"p": 1}\n', encoding="utf-8")
+    (root / "CLAUDE.md").write_text("account rules\n", encoding="utf-8")
+    (root / "settings.json").write_text("{}\n", encoding="utf-8")
+    (root / "tools").mkdir()
+    (root / "tools" / "budget-history.json").write_text("{}\n", encoding="utf-8")
+    (root / "skills" / "s").mkdir(parents=True)
+    (root / "skills" / "s" / "SKILL.md").write_text("skill\n", encoding="utf-8")
+    (root / "commands").mkdir()
+    (root / "commands" / "c.md").write_text("cmd\n", encoding="utf-8")
+    (root / ".credentials.json").write_text('{"token": "SECRET"}\n', encoding="utf-8")
+    (home / ".claude.json").write_text('{"mcp": "SECRET"}\n', encoding="utf-8")
+    return home
+
+
+class TestAccountRootIsResolvedNotHardcoded:
+    """#838: every account-level entry followed a root the script NAMED.
+
+    After the 2026-09-18 move to `~/.claude` the `[ -f ]` / glob-miss guards turned
+    each of `history.jsonl`, `CLAUDE.md`, `settings.json`, `tools/`, `skills/` and
+    `commands/` into a silent skip, and the legacy trees still matching kept the
+    snapshot looking populated. The roots now come from `tools/claude_home.py`.
+    """
+
+    def test_account_entries_follow_the_root_holding_this_projects_tree(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        home = _windows_style_home(tmp_path, _fixture_slug(tmp_path))
+
+        r = _run(fake_repo, tmp_path, home=home)
+
+        assert r.returncode == 0, r.stdout + r.stderr
+        snap = sorted((tmp_path / "backups" / "daily").iterdir())[-1] / "_external"
+        assert (snap / "claude" / "history.jsonl").exists()
+        assert (snap / "claude" / "CLAUDE.md").exists()
+        assert (snap / "claude" / "settings.json").exists()
+        assert (snap / "claude" / ".claude" / "tools" / "budget-history.json").exists()
+        assert (snap / "claude" / ".claude" / "skills" / "s" / "SKILL.md").exists()
+        assert (snap / "claude" / ".claude" / "commands" / "c.md").exists()
+        slug = _fixture_slug(tmp_path)
+        assert (snap / "claude" / "projects" / slug / "memory" / "MEMORY.md").exists()
+
+    def test_credentials_are_never_copied(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        """The exclusion is deliberate: the off-site leg syncs this root to a third
+        party. Resolving the root dynamically must not widen what is copied."""
+        home = _windows_style_home(tmp_path, _fixture_slug(tmp_path))
+
+        r = _run(fake_repo, tmp_path, home=home)
+
+        assert r.returncode == 0, r.stdout + r.stderr
+        snap = sorted((tmp_path / "backups" / "daily").iterdir())[-1]
+        names = {p.name for p in snap.rglob("*")}
+        assert ".credentials.json" not in names
+        assert ".claude.json" not in names
+        assert "SECRET" not in "".join(
+            p.read_text(encoding="utf-8", errors="ignore")
+            for p in (snap / "_external").rglob("*")
+            if p.is_file()
+        )
+
+    def test_the_other_profile_is_not_adopted_for_account_files(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        """Both profiles exist, only `.claude` holds this project. A work-account
+        `CLAUDE.md` in `.claude-personal` (or the reverse) must not be copied just
+        because that root sorts first or exists."""
+        home = _windows_style_home(tmp_path, _fixture_slug(tmp_path))
+        other = home / ".claude-personal"
+        other.mkdir()
+        (other / "CLAUDE.md").write_text("OTHER PROFILE\n", encoding="utf-8")
+
+        r = _run(fake_repo, tmp_path, home=home)
+
+        assert r.returncode == 0, r.stdout + r.stderr
+        snap = sorted((tmp_path / "backups" / "daily").iterdir())[-1] / "_external"
+        assert (snap / "claude" / "CLAUDE.md").read_text(
+            encoding="utf-8"
+        ) == "account rules\n"
+        assert not (snap / "claude-personal" / "CLAUDE.md").exists()
+
+    def test_the_legacy_layout_keeps_its_destination_names(
+        self, fake_repo: Path, tmp_path: Path, fake_home: Path
+    ) -> None:
+        """Existing snapshots line up: `~/.claude-personal` still lands under
+        `_external/claude-personal/`."""
+        (fake_home / ".claude-personal" / "history.jsonl").write_text(
+            '{"p": 1}\n', encoding="utf-8"
+        )
+
+        r = _run(fake_repo, tmp_path, home=fake_home)
+
+        assert r.returncode == 0, r.stdout + r.stderr
+        snap = sorted((tmp_path / "backups" / "daily").iterdir())[-1] / "_external"
+        assert (snap / "claude-personal" / "history.jsonl").exists()
+
+    def test_claude_config_dir_overrides_the_probe(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        """An explicit setting collapses the candidates, as it does for Claude Code."""
+        custom = tmp_path / "elsewhere" / "cfg"
+        (custom / "projects" / _fixture_slug(tmp_path) / "memory").mkdir(parents=True)
+        (custom / "history.jsonl").write_text('{"p": 1}\n', encoding="utf-8")
+        bare_home = tmp_path / "bare-home"
+        bare_home.mkdir()
+
+        r = _run(
+            fake_repo,
+            tmp_path,
+            home=bare_home,
+            env_extra={"CLAUDE_CONFIG_DIR": str(custom)},
+        )
+
+        assert r.returncode == 0, r.stdout + r.stderr
+        snap = sorted((tmp_path / "backups" / "daily").iterdir())[-1] / "_external"
+        assert (snap / "cfg" / "history.jsonl").exists()
+
+    def test_the_dry_run_reports_the_resolved_root(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        """Both loops must resolve alike: the report may not promise a root the copy
+        does not read."""
+        home = _windows_style_home(tmp_path, _fixture_slug(tmp_path))
+
+        r = _run(fake_repo, tmp_path, "--dry-run", home=home)
+
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert f"external   claude/history.jsonl <- {home / '.claude'}" in r.stdout
+        assert "ABSENT" not in "".join(
+            ln for ln in r.stdout.splitlines() if "history.jsonl" in ln
+        )
+
+    def test_an_unimportable_resolver_warns_and_still_backs_up(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        """Never silent: with `tools/claude_home.py` gone the script says so on stderr
+        and falls back to `$CLAUDE_CONFIG_DIR` / `~/.claude` rather than skipping."""
+        (fake_repo / "tools" / "claude_home.py").unlink()
+        home = tmp_path / "home"
+        (home / ".claude").mkdir(parents=True)
+        (home / ".claude" / "history.jsonl").write_text('{"p": 1}\n', encoding="utf-8")
+
+        r = _run(fake_repo, tmp_path, home=home)
+
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert "could not import tools.claude_home" in r.stderr
+        snap = sorted((tmp_path / "backups" / "daily").iterdir())[-1] / "_external"
+        assert (snap / "claude" / "history.jsonl").exists()
+
+    def test_the_script_names_no_config_root_literal(self) -> None:
+        """The structural guard: a hardcoded profile directory is the defect.
+
+        Comments may discuss `.claude-personal`; no executable line may spell it.
+        """
+        offenders = _code_lines_naming_a_config_root(SCRIPT.read_text(encoding="utf-8"))
+        assert offenders == [], offenders
+
+    def test_mutation_the_old_hardcoded_entry_is_caught_both_ways(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        """Proves the two guards above bite: re-introduce the pre-#838 line and (a) the
+        literal scan flags it, (b) on a `~/.claude`-only host the history file is
+        silently not copied, which is the defect as it presented."""
+        script = fake_repo / "deploy" / "backup-analytics.sh"
+        text = script.read_text(encoding="utf-8")
+        resolved = '    "$ACTIVE_ROOT/history.jsonl:$ACTIVE_LABEL/history.jsonl"\n'
+        assert resolved in text, "the entry to mutate is not present"
+        old = (
+            '    "$HOME/.claude-personal/history.jsonl:claude-personal/history.jsonl"\n'
+        )
+        mutated = text.replace(resolved, old)
+        script.write_text(mutated, encoding="utf-8")
+
+        assert _code_lines_naming_a_config_root(mutated), "the literal scan is blind"
+
+        home = _windows_style_home(tmp_path, _fixture_slug(tmp_path))
+        r = _run(fake_repo, tmp_path, home=home)
+        assert r.returncode == 0, r.stdout + r.stderr
+        snap = sorted((tmp_path / "backups" / "daily").iterdir())[-1] / "_external"
+        assert not (snap / "claude" / "history.jsonl").exists()
+        assert not (snap / "claude-personal" / "history.jsonl").exists(), (
+            "the mutated script copied history.jsonl from a host that has no "
+            "`.claude-personal`; the behavioural assertion above would guard nothing"
         )
 
 

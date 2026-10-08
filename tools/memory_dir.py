@@ -23,8 +23,16 @@ the same resolver the day it migrates.
 
 from __future__ import annotations
 
-import re
+import sys
 from pathlib import Path
+
+# Runnable as a bare script (`python3 tools/memory_dir.py`): that puts `tools/` on
+# sys.path rather than the repo root, so the `tools.*` import below would raise
+# ModuleNotFoundError. The Makefile sets PYTHONPATH=., so a green `make status` cannot
+# catch it -- `test_bare_invocation_works` is the guarantee, not this line.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from tools.claude_home import CONFIG_DIR_NAMES, config_roots, slugify_path  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -35,7 +43,10 @@ LEGACY_SLUG = "-home-kng-repo-buibui-moon-trader-bot"
 
 # Tried in order. `.claude-personal` first so a host that still has the original
 # tree keeps reading it, rather than being quietly repointed at a second one.
-CONFIG_ROOTS = (".claude-personal", ".claude")
+# Re-exported from `tools.claude_home`, the one resolver (#838): it owns the
+# candidates, the `CLAUDE_CONFIG_DIR` override and the slug rule, and this module adds
+# only the restore-tolerant LEGACY_SLUG probe and the `home=` test seam.
+CONFIG_ROOTS = CONFIG_DIR_NAMES
 
 
 def slug_for(path: Path) -> str:
@@ -45,9 +56,10 @@ def slug_for(path: Path) -> str:
     observed spellings: ``/home/kng/repo/buibui-moon-trader-bot`` ->
     ``-home-kng-repo-buibui-moon-trader-bot``, and
     ``C:\\Users\\User\\repo\\buibui-moon-trader-bot`` ->
-    ``C--Users-User-repo-buibui-moon-trader-bot``.
+    ``C--Users-User-repo-buibui-moon-trader-bot``. The rule itself is
+    `tools.claude_home.slugify_path`; this is its `Path`-typed spelling.
     """
-    return re.sub(r"[^A-Za-z0-9]", "-", str(path))
+    return slugify_path(str(path))
 
 
 def memory_dir(repo_root: Path | None = None, *, home: Path | None = None) -> Path:
@@ -57,18 +69,21 @@ def memory_dir(repo_root: Path | None = None, *, home: Path | None = None) -> Pa
     degrade to an info line, so returning the legacy path as the fallback keeps a
     box that genuinely has no memory tree reporting exactly what it did before.
 
-    `home` is injectable so the tests never depend on the developer's own tree.
+    The candidate roots come from `tools.claude_home.config_roots`, so
+    ``CLAUDE_CONFIG_DIR`` is honoured here exactly as it is by the backup script.
+    `home` is injectable so the tests never depend on the developer's own tree (or
+    environment): an explicit `home` wins over ``CLAUDE_CONFIG_DIR``.
     """
-    base = Path.home() if home is None else home
+    roots = config_roots(home)
     root = REPO_ROOT if repo_root is None else repo_root
     derived = slug_for(root)
 
-    for config_root in CONFIG_ROOTS:
+    for config_root in roots:
         for slug in (derived, LEGACY_SLUG):
-            candidate = base / config_root / "projects" / slug / "memory"
+            candidate = config_root / "projects" / slug / "memory"
             if candidate.is_dir():
                 return candidate
-    return base / CONFIG_ROOTS[0] / "projects" / LEGACY_SLUG / "memory"
+    return roots[0] / "projects" / LEGACY_SLUG / "memory"
 
 
 if __name__ == "__main__":  # pragma: no cover - a Makefile entry point

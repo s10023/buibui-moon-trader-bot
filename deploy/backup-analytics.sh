@@ -172,6 +172,67 @@ LEDGER_DIRS=(
     ".claude"
 )
 
+# The venv interpreter is named directly rather than via `poetry run` -- one less
+# moving part on the minimal PATH a systemd user unit gets.
+PY="$REPO/.venv/bin/python"
+# A Windows host names it `Scripts/python.exe` -- the same split
+# `tools/venv_bootstrap.py::_venv_bin_dir` makes, for the same reason. PROBED rather
+# than branched on `uname`: this script already decides by `[ -x ]`, and a probe stays
+# correct under Git Bash, where `uname` says MINGW64 while the venv layout is Windows'.
+[ -x "$PY" ] || PY="$REPO/.venv/Scripts/python.exe"
+[ -x "$PY" ] || PY="python3"
+
+# --- which Claude config root(s) ---------------------------------------------------
+# (#838) The harness keeps its account config in `~/.claude-personal` on the old Linux box
+# and `~/.claude` on the Windows laptop, and `CLAUDE_CONFIG_DIR` overrides both. This
+# script used to NAME one of them in every EXTERNAL_* entry, so after the 2026-09-18 move
+# every account-level entry (history.jsonl, CLAUDE.md, settings.json, tools/, skills/,
+# commands/) matched nothing -- and both loops treat a miss as a skip, so the snapshot
+# still looked populated. The roots now come from `tools/claude_home.py`, the ONE
+# resolver, never from a literal here; `test_backup_ledger_glob.py` fails if one returns.
+#
+#   ACTIVE_ROOT   the root that holds THIS checkout's `projects/<slug>` -- selected on
+#                 the project tree, never on the root merely existing, because both
+#                 profiles can exist on one host. Account-level entries come from it.
+#   CLAUDE_ROOTS  every candidate root. The memory-tree glob covers ALL of them, so a
+#                 legacy tree a migration restore left behind is still copied.
+#
+# Printed with `as_posix()`: a native `C:\Users\...` would lose its backslashes in the
+# unquoted glob below. CR is stripped because a Windows python writes CRLF to a pipe and
+# `$(...)` strips only the newline.
+resolved_roots="$("$PY" -c 'import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from tools.claude_home import claude_home, config_roots
+print(claude_home(Path(sys.argv[1])).as_posix())
+for root in config_roots():
+    print(root.as_posix())' "$REPO" 2>/dev/null | tr -d '\r')"
+CLAUDE_ROOTS=()
+if [ -n "$resolved_roots" ]; then
+    ACTIVE_ROOT="$(printf '%s\n' "$resolved_roots" | sed -n '1p')"
+    while IFS= read -r _root; do
+        [ -n "$_root" ] && CLAUDE_ROOTS+=("$_root")
+    done < <(printf '%s\n' "$resolved_roots" | sed -n '2,$p')
+else
+    # Never leave it empty: an unresolvable root reads as ABSENT and every entry below
+    # skips, which is the silent coverage loss this block exists to remove. Fall back to
+    # the variable the harness itself honours, then its default, and SAY so.
+    ACTIVE_ROOT="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+    CLAUDE_ROOTS=("$ACTIVE_ROOT")
+    printf 'warn: could not import tools.claude_home; Claude config root fell back to %s\n' \
+        "$ACTIVE_ROOT" >&2
+fi
+
+# The destination label is the root's directory name without its leading dot, so
+# `~/.claude-personal` keeps landing under `_external/claude-personal/` and `~/.claude`
+# under `_external/claude/` -- the names existing snapshots already use.
+_root_label() {
+    local base
+    base="$(basename "$1")"
+    printf '%s' "${base#.}"
+}
+ACTIVE_LABEL="$(_root_label "$ACTIVE_ROOT")"
+
 # Files OUTSIDE the repo, as "absolute-source:path-under-the-snapshot". Kept separate
 # from LEDGERS because that loop is "$REPO/$f"-relative and would silently resolve an
 # absolute path to nonsense.
@@ -199,9 +260,9 @@ LEDGER_DIRS=(
 # same failure shape as the 2026-08-15 rclone token leak: the damage is done at copy
 # time, and noticing afterwards does not undo it.
 EXTERNAL_LEDGERS=(
-    "$HOME/.claude-personal/history.jsonl:claude-personal/history.jsonl"
-    "$HOME/.claude-personal/CLAUDE.md:claude-personal/CLAUDE.md"
-    "$HOME/.claude-personal/settings.json:claude-personal/settings.json"
+    "$ACTIVE_ROOT/history.jsonl:$ACTIVE_LABEL/history.jsonl"
+    "$ACTIVE_ROOT/CLAUDE.md:$ACTIVE_LABEL/CLAUDE.md"
+    "$ACTIVE_ROOT/settings.json:$ACTIVE_LABEL/settings.json"
 )
 
 # Out-of-repo DIRECTORIES, as "absolute-source-glob:path-under-the-snapshot".
@@ -281,13 +342,23 @@ EXTERNAL_LEDGERS=(
 # also holds `sessions/`, `shell-snapshots/` and credential-bearing config, and the
 # off-site leg rclone-syncs this snapshot to a cloud drive, which is the same reason
 # `.credentials.json` is excluded above.
+#
+# (#838) None of these name a config root: the account-level trees come from ACTIVE_ROOT
+# and the memory glob is added once per candidate root, all resolved above. Keep it that
+# way -- a literal root here is the defect, and the tests fail on one.
 EXTERNAL_LEDGER_DIRS=(
-    "$HOME/.claude-personal/projects/*/memory:claude-personal/projects"
-    "$HOME/.claude-personal/tools:claude-personal"
-    "$HOME/.claude-personal/skills:claude-personal"
-    "$HOME/.claude-personal/commands:claude-personal"
-    "$HOME/.claude/projects/*/memory:claude/projects"
+    "$ACTIVE_ROOT/tools:$ACTIVE_LABEL"
+    "$ACTIVE_ROOT/skills:$ACTIVE_LABEL"
+    "$ACTIVE_ROOT/commands:$ACTIVE_LABEL"
 )
+for _root in "${CLAUDE_ROOTS[@]}"; do
+    EXTERNAL_LEDGER_DIRS+=("$_root/projects/*/memory:$(_root_label "$_root")/projects")
+done
+
+# A spec is "source:dest". The SOURCE can itself contain a colon (a Windows drive,
+# `C:/Users/...`), the DEST never does, so split on the LAST colon.
+_spec_src() { printf '%s' "${1%:*}"; }
+_spec_rel() { printf '%s' "${1##*:}"; }
 
 # The last two path components identify a matched directory -- `<project-slug>/memory`.
 # The basename alone would collapse all seven trees onto one `memory/` and silently keep
@@ -296,19 +367,9 @@ _ext_dir_tail() {
     printf '%s/%s' "$(basename "$(dirname "$1")")" "$(basename "$1")"
 }
 
-# The venv interpreter is named directly rather than via `poetry run` -- one less
-# moving part on the minimal PATH a systemd user unit gets.
-PY="$REPO/.venv/bin/python"
-# A Windows host names it `Scripts/python.exe` -- the same split
-# `tools/venv_bootstrap.py::_venv_bin_dir` makes, for the same reason. PROBED rather
-# than branched on `uname`: this script already decides by `[ -x ]`, and a probe stays
-# correct under Git Bash, where `uname` says MINGW64 while the venv layout is Windows'.
-[ -x "$PY" ] || PY="$REPO/.venv/Scripts/python.exe"
-[ -x "$PY" ] || PY="python3"
-
 # ST78: the account-level spend tracker. Its derived index is the backed-up stand-in for
 # the excluded `transcript-archive/`; see the block above EXTERNAL_LEDGER_DIRS.
-BUDGET_PY="$HOME/.claude-personal/tools/budget.py"
+BUDGET_PY="$ACTIVE_ROOT/tools/budget.py"
 # Derived from the tool's own directory, never spelled a second time: the index is written
 # by budget.py and copied because it sits inside the already-covered `tools/` tree, so a
 # hardcoded second path could drift out of that tree and be silently uncopied.
@@ -393,7 +454,7 @@ if [ "$dry_run" -eq 1 ]; then
         fi
     done
     for spec in "${EXTERNAL_LEDGERS[@]}"; do
-        src="${spec%%:*}"; rel="${spec#*:}"
+        src="$(_spec_src "$spec")"; rel="$(_spec_rel "$spec")"
         if [ -f "$src" ]; then
             log "  external   $rel <- $src ($(du -h "$src" | cut -f1))"
         else
@@ -401,7 +462,7 @@ if [ "$dry_run" -eq 1 ]; then
         fi
     done
     for spec in "${EXTERNAL_LEDGER_DIRS[@]}"; do
-        pattern="${spec%%:*}"; rel="${spec#*:}"
+        pattern="$(_spec_src "$spec")"; rel="$(_spec_rel "$spec")"
         matched=0
         # Unquoted on purpose -- this is where the glob expands.
         for src in $pattern; do
@@ -576,7 +637,7 @@ fi
 # box legitimately has none of them, and a missing one must not fail a backup whose
 # actual crown jewels are already verified above.
 for spec in "${EXTERNAL_LEDGERS[@]}"; do
-    src="${spec%%:*}"; rel="${spec#*:}"
+    src="$(_spec_src "$spec")"; rel="$(_spec_rel "$spec")"
     if [ -f "$src" ]; then
         mkdir -p "$daily_dir/_external/$(dirname "$rel")"
         cp -p "$src" "$daily_dir/_external/$rel"
@@ -584,7 +645,7 @@ for spec in "${EXTERNAL_LEDGERS[@]}"; do
 done
 
 for spec in "${EXTERNAL_LEDGER_DIRS[@]}"; do
-    pattern="${spec%%:*}"; rel="${spec#*:}"
+    pattern="$(_spec_src "$spec")"; rel="$(_spec_rel "$spec")"
     # Unquoted on purpose -- this is where the glob expands. A pattern that matches
     # nothing expands to itself, which the -d test then rejects, so a missing tree is a
     # skip rather than a failure (same contract as the file loop above).

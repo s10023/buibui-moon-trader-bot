@@ -414,6 +414,12 @@ them.
 
 ```bash
 cp ~/backups/buibui/daily/<DATE>/docs/plans/pundit-calls.jsonl docs/plans/     # in-repo ledger
+#
+# `claude-personal` / `.claude-personal` below is the OLD LINUX BOX's layout. The backup
+# resolves the account config root through `tools/claude_home.py` (#838), so a snapshot
+# taken on the Windows laptop carries the same entries under `_external/claude/` (and
+# `_external/claude/.claude/` for tools/skills/commands) -- substitute `claude` /
+# `.claude` throughout. The label is the root's directory name without its leading dot.
 cp ~/backups/buibui/daily/<DATE>/_external/claude-personal/history.jsonl \
    ~/.claude-personal/history.jsonl                                            # OUT of repo
 
