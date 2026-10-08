@@ -69,6 +69,11 @@ PYTHONPATH=. poetry run python tools/chart_drops.py scan
   daily check asserts RECENCY, and a backdated stamp IS recency, just wrong.
   `tools/coinglass_capture.sh` builds the dash form from a real clock read;
   only hand-naming reaches this.
+  ⚡ **Since #827 the parser REJECTS that shape** — a date-only stamp whose
+  label ends in a valid HHMM lands in the UNPARSEABLE list rather than at
+  midnight. Ask the operator to rename it to the dash form; never re-stamp it
+  from the label. A date-only stamp with any other label still parses as
+  midnight, so the dash rule still matters.
 
   ⚠ **The label is parsed and DISCARDED, so tell the operator it is for their
   eyes only.** Nothing downstream reads it, and it is deliberately NOT a source
