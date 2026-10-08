@@ -120,6 +120,12 @@ jobs:
       - name: Telegram-notify hook suite
         run: python3 .claude/hooks/test_telegram_notify.py
 
+      # The skill-usage ledger (#885). A logger that stops logging is SILENT, and
+      # its report then names a used skill as unused -- so its two entry legs and
+      # its always-exit-0 contract ride the same unconditional job.
+      - name: Skill-usage hook suite
+        run: python3 .claude/hooks/test_log_skill_usage.py
+
   lint-typecheck-test:
     runs-on: ubuntu-latest
     timeout-minutes: 20

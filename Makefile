@@ -41,7 +41,7 @@ DOCKER_IMAGE = buibui-bot
 # actually asks -- an immediate assignment would pay it on every make invocation.
 MEMORY = $(shell PYTHONPATH=. poetry run python tools/memory_dir.py 2>/dev/null)/MEMORY.md
 
-.PHONY: status wait-ci wait-ci-main post-branch-checks post-branch-text sanity-checks preflight lint lint-md lint-md-fix docs-index docs-index-check lint-py-check lint-py typecheck test test-cov test-regression regression-update poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-analytics-backfill buibui-analytics-sync universe-backfill buibui-backtest buibui-combo-backtest buibui-cross-tf-backtest buibui-signal-watch buibui-param-audit buibui-param-sweep buibui-recalibrate buibui-digest buibui-web buibui-card-place buibui-card-orders web-install web-dev web-build web-preview web-full clean-db clean export-live-db buibui-portfolio-replay buibui-forecast-audit buibui-forecast-weight-study buibui-forecast-regime buibui-xsmom-audit buibui-combine-audit buibui-carry-audit buibui-xsmom-capacity-audit buibui-xsmom-targets buibui-xsmom-execute buibui-universe-sync buibui-xsmom-daily buibui-structural-touch-audit buibui-structural-entry-sim-audit buibui-warning-value-audit buibui-sl-horizon-audit buibui-weekly-path-audit buibui-indicator-condition-audit buibui-xsrev-audit buibui-decay-review buibui-dead-surface-check buibui-giveback-study buibui-occurrence-dump
+.PHONY: status skill-usage wait-ci wait-ci-main post-branch-checks post-branch-text sanity-checks preflight lint lint-md lint-md-fix docs-index docs-index-check lint-py-check lint-py typecheck test test-cov test-regression regression-update poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-analytics-backfill buibui-analytics-sync universe-backfill buibui-backtest buibui-combo-backtest buibui-cross-tf-backtest buibui-signal-watch buibui-param-audit buibui-param-sweep buibui-recalibrate buibui-digest buibui-web buibui-card-place buibui-card-orders web-install web-dev web-build web-preview web-full clean-db clean export-live-db buibui-portfolio-replay buibui-forecast-audit buibui-forecast-weight-study buibui-forecast-regime buibui-xsmom-audit buibui-combine-audit buibui-carry-audit buibui-xsmom-capacity-audit buibui-xsmom-targets buibui-xsmom-execute buibui-universe-sync buibui-xsmom-daily buibui-structural-touch-audit buibui-structural-entry-sim-audit buibui-warning-value-audit buibui-sl-horizon-audit buibui-weekly-path-audit buibui-indicator-condition-audit buibui-xsrev-audit buibui-decay-review buibui-dead-surface-check buibui-giveback-study buibui-occurrence-dump
 
 # ⚠ The always-loaded gauge sums BOTH files. Until the 2026-08-19 AGENTS.md split
 # it printed `CLAUDE.md` alone, which was the whole tier; afterwards that same
@@ -65,6 +65,12 @@ MEMORY = $(shell PYTHONPATH=. poetry run python tools/memory_dir.py 2>/dev/null)
 # cap, so it renders as good hygiene. Nothing is positioned to notice
 # over-compliance — which is why the report must call the gate's code, not
 # mirror it. (Diagnosis: wifey session, 2026-08-19.)
+# #885: invocations per skill over WINDOW days (default 30; not DAYS, which line 5 sets to 90), zero-use named. The ledger
+# is written by .claude/hooks/log-skill-usage.py; until it covers the window the
+# zero-use list is PROVISIONAL, and the report says so before anything else.
+skill-usage:
+	@poetry run python tools/skill_usage.py --days $(or $(WINDOW),30)
+
 status:
 	@echo "📊 Repo shape ($$(date -u +%Y-%m-%d))"
 	@printf '  tests collected   %s  (incl. regression that `make test` ignores)\n' "$$(poetry run pytest tests/ --collect-only -q 2>/dev/null | tail -1 | grep -oE '^[0-9]+' || echo '?')"
