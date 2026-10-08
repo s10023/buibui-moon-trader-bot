@@ -205,6 +205,15 @@ each time; measured 2026-08-23, the 2026-08-b bucket improved **+0.157R** as it 
 236 to 745 rows and its expired share fell 0.767 → 0.409. Confirmed a fourth time 2026-09-06:
 2026-08-b matured 1,258 → 1,562 rows and **improved +0.0062**.
 
+**Run the pinned tool, never hand-rolled SQL** (#837):
+
+```bash
+python tools/decay_ledger.py --db "$D"                                   # current buckets
+python tools/decay_ledger.py --db "$D" --manifest "$(dirname "$SNAP")/MANIFEST.json"  # time-cut repro
+```
+
+It is the spelling of the two rules below; read them as its rationale.
+
 **Bucket in UTC, explicitly.** Population `outcome IS NOT NULL`; bucket
 `strftime(to_timestamp(outcome_filled_at_ms/1000) AT TIME ZONE 'UTC', '%Y-%m')` plus `-a` when
 the UTC day ≤ 15, else `-b`. ⚠ **Without `AT TIME ZONE 'UTC'` DuckDB buckets in the HOST's local
