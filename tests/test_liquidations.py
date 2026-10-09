@@ -249,7 +249,7 @@ class TestStatus:
 
     def test_daily_check_line_never_raises(self, tmp_path: Path) -> None:
         bad = tmp_path / "x"
-        bad.write_text("not a directory")
+        bad.write_text("not a directory", encoding="utf-8")
         ok, text = liq.daily_check_line(bad)
         assert ok is False and text.startswith("liq-recorder")
 
@@ -274,7 +274,7 @@ class TestFiles:
 
     def test_non_day_files_are_ignored(self, tmp_path: Path) -> None:
         write_day(tmp_path, DAY0, [hb(T0)])
-        (tmp_path / "README.md").write_text("x")
+        (tmp_path / "README.md").write_text("x", encoding="utf-8")
         (tmp_path / f"{DAY0}.jsonl.gz.tmp").write_bytes(b"partial")
         assert len(liq.day_files(tmp_path)) == 1
 

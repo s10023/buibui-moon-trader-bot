@@ -88,7 +88,7 @@ def gzip_file(path: Path) -> Path:
     """Atomically replace ``path`` (a finished ``.jsonl``) with ``path + .gz``."""
     gz = path.with_name(path.name + ".gz")
     tmp = path.with_name(path.name + ".gz.tmp")
-    with path.open("rb") as src, gzip.open(tmp, "wb") as dst:
+    with path.open("rb") as src, gzip.open(tmp, mode="wb") as dst:
         shutil.copyfileobj(src, dst)
     os.replace(tmp, gz)
     path.unlink()

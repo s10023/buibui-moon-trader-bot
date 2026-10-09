@@ -292,7 +292,7 @@ class TestRecorder:
             task = asyncio.ensure_future(rec.run())
             while "heartbeat" not in kinds(tmp_path):
                 await asyncio.sleep(0.005)
-            (tmp_path / lr.STOP_FILE).write_text("stop")
+            (tmp_path / lr.STOP_FILE).write_text("stop", encoding="utf-8")
             await asyncio.wait_for(task, 5)
 
         asyncio.run(main())
@@ -303,7 +303,7 @@ class TestRecorder:
     def test_a_stale_stop_file_does_not_kill_a_fresh_start(
         self, tmp_path: Path
     ) -> None:
-        (tmp_path / lr.STOP_FILE).write_text("stop")
+        (tmp_path / lr.STOP_FILE).write_text("stop", encoding="utf-8")
         clock = {"t": DAY1}
         net = FakeNet([[]], clock, then="block")
         rec = make(tmp_path, net, clock)

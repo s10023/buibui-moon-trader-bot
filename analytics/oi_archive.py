@@ -155,8 +155,7 @@ def parse_metrics_zip(content: bytes, symbol: str) -> pd.DataFrame:
             raise ValueError(
                 f"expected one CSV in the archive zip, got {zf.namelist()}"
             )
-        with zf.open(names[0]) as fh:
-            raw = pd.read_csv(fh, dtype=str)
+        raw = pd.read_csv(io.BytesIO(zf.read(names[0])), dtype=str)
     if list(raw.columns) != EXPECTED_HEADER:
         raise ValueError(f"unexpected metrics header: {list(raw.columns)}")
     ts = pd.to_datetime(raw["create_time"], format="%Y-%m-%d %H:%M:%S", errors="coerce")

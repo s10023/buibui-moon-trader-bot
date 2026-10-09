@@ -178,7 +178,9 @@ play, land that reformat once up front.
 `buibui.py` is the single CLI entry point.
 
 - `buibui monitor price | position` — live price / position monitor
-- `buibui analytics backfill | sync` — OHLCV ingestion. `--universe` (mutually exclusive
+- `buibui analytics backfill | sync | oi-archive` — OHLCV ingestion, plus `oi-archive` (#936):
+  open-interest history from the `data.binance.vision` metrics archive into additive
+  source-keyed tables (`make oi-archive-backfill`; deep ref `.claude/context/analytics.md`). `--universe` (mutually exclusive
   with `--symbols`) reads the committed 25-perp research set from `config/universe.toml`;
   `make universe-backfill` wraps the deep 1h/4h/1d/1w run since 2019
 - `buibui backtest` — run/save backtests (sweep, combo, cross-TF modes)
