@@ -1,0 +1,3661 @@
+{
+ "source": "analytics/strategies/orb_breakout.py at b63e1fd (shipped, pre-anchor)",
+ "fixture": "tests/fixtures/btc_15m_200d.parquet",
+ "range_candles": 2,
+ "signals": [
+  {
+   "open_time": 1757637000000,
+   "direction": "long",
+   "reason": "orb_long@115850.00",
+   "sl_price": 115357.6,
+   "context": "ORB range 12-Sep 08:00 H:115850.00 L:115357.60 TP:116700.60"
+  },
+  {
+   "open_time": 1757641500000,
+   "direction": "short",
+   "reason": "orb_short@115357.60",
+   "sl_price": 115850.0,
+   "context": "ORB range 12-Sep 08:00 H:115850.00 L:115357.60 TP:114590.90"
+  },
+  {
+   "open_time": 1757723400000,
+   "direction": "long",
+   "reason": "orb_long@116077.60",
+   "sl_price": 115911.0,
+   "context": "ORB range 13-Sep 08:00 H:116077.60 L:115911.00 TP:116399.90"
+  },
+  {
+   "open_time": 1757727000000,
+   "direction": "short",
+   "reason": "orb_short@115911.00",
+   "sl_price": 116077.6,
+   "context": "ORB range 13-Sep 08:00 H:116077.60 L:115911.00 TP:115550.10"
+  },
+  {
+   "open_time": 1757811600000,
+   "direction": "short",
+   "reason": "orb_short@115850.50",
+   "sl_price": 115960.3,
+   "context": "ORB range 14-Sep 08:00 H:115960.30 L:115850.50 TP:115537.30"
+  },
+  {
+   "open_time": 1757815200000,
+   "direction": "long",
+   "reason": "orb_long@115960.30",
+   "sl_price": 115850.5,
+   "context": "ORB range 14-Sep 08:00 H:115960.30 L:115850.50 TP:116233.80"
+  },
+  {
+   "open_time": 1757898000000,
+   "direction": "short",
+   "reason": "orb_short@114888.10",
+   "sl_price": 115214.8,
+   "context": "ORB range 15-Sep 08:00 H:115214.80 L:114888.10 TP:114290.75"
+  },
+  {
+   "open_time": 1757901600000,
+   "direction": "long",
+   "reason": "orb_long@115214.80",
+   "sl_price": 114888.1,
+   "context": "ORB range 15-Sep 08:00 H:115214.80 L:114888.10 TP:115816.45"
+  },
+  {
+   "open_time": 1757985300000,
+   "direction": "long",
+   "reason": "orb_long@115300.60",
+   "sl_price": 114958.9,
+   "context": "ORB range 16-Sep 08:00 H:115300.60 L:114958.90 TP:115877.55"
+  },
+  {
+   "open_time": 1758031200000,
+   "direction": "short",
+   "reason": "orb_short@114958.90",
+   "sl_price": 115300.6,
+   "context": "ORB range 16-Sep 08:00 H:115300.60 L:114958.90 TP:114426.65"
+  },
+  {
+   "open_time": 1758069900000,
+   "direction": "short",
+   "reason": "orb_short@116561.60",
+   "sl_price": 116786.6,
+   "context": "ORB range 17-Sep 08:00 H:116786.60 L:116561.60 TP:116175.40"
+  },
+  {
+   "open_time": 1758076200000,
+   "direction": "long",
+   "reason": "orb_long@116786.60",
+   "sl_price": 116561.6,
+   "context": "ORB range 17-Sep 08:00 H:116786.60 L:116561.60 TP:117172.20"
+  },
+  {
+   "open_time": 1758157200000,
+   "direction": "long",
+   "reason": "orb_long@116431.60",
+   "sl_price": 116033.5,
+   "context": "ORB range 18-Sep 08:00 H:116431.60 L:116033.50 TP:117151.25"
+  },
+  {
+   "open_time": 1758241800000,
+   "direction": "long",
+   "reason": "orb_long@117280.20",
+   "sl_price": 116960.8,
+   "context": "ORB range 19-Sep 08:00 H:117280.20 L:116960.80 TP:117812.10"
+  },
+  {
+   "open_time": 1758252600000,
+   "direction": "short",
+   "reason": "orb_short@116960.80",
+   "sl_price": 117280.2,
+   "context": "ORB range 19-Sep 08:00 H:117280.20 L:116960.80 TP:116433.00"
+  },
+  {
+   "open_time": 1758328200000,
+   "direction": "long",
+   "reason": "orb_long@115603.40",
+   "sl_price": 115484.9,
+   "context": "ORB range 20-Sep 08:00 H:115603.40 L:115484.90 TP:115815.85"
+  },
+  {
+   "open_time": 1758333600000,
+   "direction": "short",
+   "reason": "orb_short@115484.90",
+   "sl_price": 115603.4,
+   "context": "ORB range 20-Sep 08:00 H:115603.40 L:115484.90 TP:115264.35"
+  },
+  {
+   "open_time": 1758416400000,
+   "direction": "short",
+   "reason": "orb_short@115532.60",
+   "sl_price": 115671.2,
+   "context": "ORB range 21-Sep 08:00 H:115671.20 L:115532.60 TP:115312.50"
+  },
+  {
+   "open_time": 1758434400000,
+   "direction": "long",
+   "reason": "orb_long@115671.20",
+   "sl_price": 115532.6,
+   "context": "ORB range 21-Sep 08:00 H:115671.20 L:115532.60 TP:115948.00"
+  },
+  {
+   "open_time": 1758501000000,
+   "direction": "short",
+   "reason": "orb_short@115083.70",
+   "sl_price": 115344.6,
+   "context": "ORB range 22-Sep 08:00 H:115344.60 L:115083.70 TP:114403.55"
+  },
+  {
+   "open_time": 1758588300000,
+   "direction": "short",
+   "reason": "orb_short@112442.10",
+   "sl_price": 112808.4,
+   "context": "ORB range 23-Sep 08:00 H:112808.40 L:112442.10 TP:111797.75"
+  },
+  {
+   "open_time": 1758608100000,
+   "direction": "long",
+   "reason": "orb_long@112808.40",
+   "sl_price": 112442.1,
+   "context": "ORB range 23-Sep 08:00 H:112808.40 L:112442.10 TP:113373.35"
+  },
+  {
+   "open_time": 1758676500000,
+   "direction": "long",
+   "reason": "orb_long@112338.30",
+   "sl_price": 111770.9,
+   "context": "ORB range 24-Sep 08:00 H:112338.30 L:111770.90 TP:113199.40"
+  },
+  {
+   "open_time": 1758683700000,
+   "direction": "short",
+   "reason": "orb_short@111770.90",
+   "sl_price": 112338.3,
+   "context": "ORB range 24-Sep 08:00 H:112338.30 L:111770.90 TP:110876.30"
+  },
+  {
+   "open_time": 1758761100000,
+   "direction": "short",
+   "reason": "orb_short@113075.00",
+   "sl_price": 113462.1,
+   "context": "ORB range 25-Sep 08:00 H:113462.10 L:113075.00 TP:112421.45"
+  },
+  {
+   "open_time": 1758846600000,
+   "direction": "short",
+   "reason": "orb_short@108898.80",
+   "sl_price": 109350.0,
+   "context": "ORB range 26-Sep 08:00 H:109350.00 L:108898.80 TP:108076.40"
+  },
+  {
+   "open_time": 1758847500000,
+   "direction": "long",
+   "reason": "orb_long@109350.00",
+   "sl_price": 108898.8,
+   "context": "ORB range 26-Sep 08:00 H:109350.00 L:108898.80 TP:110095.90"
+  },
+  {
+   "open_time": 1758933000000,
+   "direction": "short",
+   "reason": "orb_short@109448.00",
+   "sl_price": 109606.6,
+   "context": "ORB range 27-Sep 08:00 H:109606.60 L:109448.00 TP:109194.40"
+  },
+  {
+   "open_time": 1758946500000,
+   "direction": "long",
+   "reason": "orb_long@109606.60",
+   "sl_price": 109448.0,
+   "context": "ORB range 27-Sep 08:00 H:109606.60 L:109448.00 TP:109883.30"
+  },
+  {
+   "open_time": 1759021200000,
+   "direction": "short",
+   "reason": "orb_short@109489.60",
+   "sl_price": 109749.9,
+   "context": "ORB range 28-Sep 08:00 H:109749.90 L:109489.60 TP:109045.15"
+  },
+  {
+   "open_time": 1759070700000,
+   "direction": "long",
+   "reason": "orb_long@109749.90",
+   "sl_price": 109489.6,
+   "context": "ORB range 28-Sep 08:00 H:109749.90 L:109489.60 TP:110191.65"
+  },
+  {
+   "open_time": 1759110300000,
+   "direction": "short",
+   "reason": "orb_short@111916.00",
+   "sl_price": 112269.3,
+   "context": "ORB range 29-Sep 08:00 H:112269.30 L:111916.00 TP:111270.75"
+  },
+  {
+   "open_time": 1759148100000,
+   "direction": "long",
+   "reason": "orb_long@112269.30",
+   "sl_price": 111916.0,
+   "context": "ORB range 29-Sep 08:00 H:112269.30 L:111916.00 TP:112848.55"
+  },
+  {
+   "open_time": 1759193100000,
+   "direction": "long",
+   "reason": "orb_long@114395.10",
+   "sl_price": 113985.1,
+   "context": "ORB range 30-Sep 08:00 H:114395.10 L:113985.10 TP:115080.80"
+  },
+  {
+   "open_time": 1759209300000,
+   "direction": "short",
+   "reason": "orb_short@113985.10",
+   "sl_price": 114395.1,
+   "context": "ORB range 30-Sep 08:00 H:114395.10 L:113985.10 TP:113283.20"
+  },
+  {
+   "open_time": 1759280400000,
+   "direction": "long",
+   "reason": "orb_long@114246.00",
+   "sl_price": 113899.4,
+   "context": "ORB range 01-Oct 08:00 H:114246.00 L:113899.40 TP:114803.20"
+  },
+  {
+   "open_time": 1759365000000,
+   "direction": "short",
+   "reason": "orb_short@118552.00",
+   "sl_price": 119457.0,
+   "context": "ORB range 02-Oct 08:00 H:119457.00 L:118552.00 TP:117192.90"
+  },
+  {
+   "open_time": 1759411800000,
+   "direction": "long",
+   "reason": "orb_long@119457.00",
+   "sl_price": 118552.0,
+   "context": "ORB range 02-Oct 08:00 H:119457.00 L:118552.00 TP:120861.20"
+  },
+  {
+   "open_time": 1759455900000,
+   "direction": "short",
+   "reason": "orb_short@120033.00",
+   "sl_price": 120505.5,
+   "context": "ORB range 03-Oct 08:00 H:120505.50 L:120033.00 TP:119123.85"
+  },
+  {
+   "open_time": 1759501800000,
+   "direction": "long",
+   "reason": "orb_long@120505.50",
+   "sl_price": 120033.0,
+   "context": "ORB range 03-Oct 08:00 H:120505.50 L:120033.00 TP:121308.65"
+  },
+  {
+   "open_time": 1759540500000,
+   "direction": "short",
+   "reason": "orb_short@121999.30",
+   "sl_price": 122256.4,
+   "context": "ORB range 04-Oct 08:00 H:122256.40 L:121999.30 TP:121514.45"
+  },
+  {
+   "open_time": 1759551300000,
+   "direction": "long",
+   "reason": "orb_long@122256.40",
+   "sl_price": 121999.3,
+   "context": "ORB range 04-Oct 08:00 H:122256.40 L:121999.30 TP:122685.45"
+  },
+  {
+   "open_time": 1759625100000,
+   "direction": "short",
+   "reason": "orb_short@122197.20",
+   "sl_price": 122369.3,
+   "context": "ORB range 05-Oct 08:00 H:122369.30 L:122197.20 TP:121854.35"
+  },
+  {
+   "open_time": 1759630500000,
+   "direction": "long",
+   "reason": "orb_long@122369.30",
+   "sl_price": 122197.2,
+   "context": "ORB range 05-Oct 08:00 H:122369.30 L:122197.20 TP:123079.85"
+  },
+  {
+   "open_time": 1759752000000,
+   "direction": "long",
+   "reason": "orb_long@124336.30",
+   "sl_price": 123206.1,
+   "context": "ORB range 06-Oct 08:00 H:124336.30 L:123206.10 TP:126056.60"
+  },
+  {
+   "open_time": 1759797000000,
+   "direction": "long",
+   "reason": "orb_long@124803.60",
+   "sl_price": 124569.9,
+   "context": "ORB range 07-Oct 08:00 H:124803.60 L:124569.90 TP:125180.55"
+  },
+  {
+   "open_time": 1759802400000,
+   "direction": "short",
+   "reason": "orb_short@124569.90",
+   "sl_price": 124803.6,
+   "context": "ORB range 07-Oct 08:00 H:124803.60 L:124569.90 TP:124182.65"
+  },
+  {
+   "open_time": 1759883400000,
+   "direction": "long",
+   "reason": "orb_long@121750.00",
+   "sl_price": 121286.6,
+   "context": "ORB range 08-Oct 08:00 H:121750.00 L:121286.60 TP:122539.60"
+  },
+  {
+   "open_time": 1759894200000,
+   "direction": "short",
+   "reason": "orb_short@121286.60",
+   "sl_price": 121750.0,
+   "context": "ORB range 08-Oct 08:00 H:121750.00 L:121286.60 TP:120580.50"
+  },
+  {
+   "open_time": 1759969800000,
+   "direction": "short",
+   "reason": "orb_short@122959.70",
+   "sl_price": 123279.7,
+   "context": "ORB range 09-Oct 08:00 H:123279.70 L:122959.70 TP:122426.30"
+  },
+  {
+   "open_time": 1760013000000,
+   "direction": "long",
+   "reason": "orb_long@123279.70",
+   "sl_price": 122959.7,
+   "context": "ORB range 09-Oct 08:00 H:123279.70 L:122959.70 TP:123961.20"
+  },
+  {
+   "open_time": 1760059800000,
+   "direction": "short",
+   "reason": "orb_short@121523.70",
+   "sl_price": 121808.0,
+   "context": "ORB range 10-Oct 08:00 H:121808.00 L:121523.70 TP:121088.55"
+  },
+  {
+   "open_time": 1760102100000,
+   "direction": "long",
+   "reason": "orb_long@121808.00",
+   "sl_price": 121523.7,
+   "context": "ORB range 10-Oct 08:00 H:121808.00 L:121523.70 TP:122336.35"
+  },
+  {
+   "open_time": 1760145300000,
+   "direction": "short",
+   "reason": "orb_short@111580.00",
+   "sl_price": 112986.8,
+   "context": "ORB range 11-Oct 08:00 H:112986.80 L:111580.00 TP:109123.00"
+  },
+  {
+   "open_time": 1760149800000,
+   "direction": "long",
+   "reason": "orb_long@112986.80",
+   "sl_price": 111580.0,
+   "context": "ORB range 11-Oct 08:00 H:112986.80 L:111580.00 TP:115262.50"
+  },
+  {
+   "open_time": 1760229000000,
+   "direction": "short",
+   "reason": "orb_short@109844.60",
+   "sl_price": 110613.7,
+   "context": "ORB range 12-Oct 08:00 H:110613.70 L:109844.60 TP:108528.35"
+  },
+  {
+   "open_time": 1760238000000,
+   "direction": "long",
+   "reason": "orb_long@110613.70",
+   "sl_price": 109844.6,
+   "context": "ORB range 12-Oct 08:00 H:110613.70 L:109844.60 TP:111823.65"
+  },
+  {
+   "open_time": 1760328000000,
+   "direction": "short",
+   "reason": "orb_short@114703.90",
+   "sl_price": 115844.8,
+   "context": "ORB range 13-Oct 08:00 H:115844.80 L:114703.90 TP:112971.05"
+  },
+  {
+   "open_time": 1760402700000,
+   "direction": "short",
+   "reason": "orb_short@114992.60",
+   "sl_price": 115327.8,
+   "context": "ORB range 14-Oct 08:00 H:115327.80 L:114992.60 TP:114401.30"
+  },
+  {
+   "open_time": 1760490900000,
+   "direction": "short",
+   "reason": "orb_short@112587.20",
+   "sl_price": 112999.7,
+   "context": "ORB range 15-Oct 08:00 H:112999.70 L:112587.20 TP:111807.95"
+  },
+  {
+   "open_time": 1760494500000,
+   "direction": "long",
+   "reason": "orb_long@112999.70",
+   "sl_price": 112587.2,
+   "context": "ORB range 15-Oct 08:00 H:112999.70 L:112587.20 TP:114129.65"
+  },
+  {
+   "open_time": 1760574600000,
+   "direction": "short",
+   "reason": "orb_short@110437.80",
+   "sl_price": 110800.0,
+   "context": "ORB range 16-Oct 08:00 H:110800.00 L:110437.80 TP:109777.90"
+  },
+  {
+   "open_time": 1760576400000,
+   "direction": "long",
+   "reason": "orb_long@110800.00",
+   "sl_price": 110437.8,
+   "context": "ORB range 16-Oct 08:00 H:110800.00 L:110437.80 TP:111498.70"
+  },
+  {
+   "open_time": 1760661000000,
+   "direction": "long",
+   "reason": "orb_long@108458.60",
+   "sl_price": 107885.6,
+   "context": "ORB range 17-Oct 08:00 H:108458.60 L:107885.60 TP:109465.20"
+  },
+  {
+   "open_time": 1760681700000,
+   "direction": "short",
+   "reason": "orb_short@107885.60",
+   "sl_price": 108458.6,
+   "context": "ORB range 17-Oct 08:00 H:108458.60 L:107885.60 TP:106908.80"
+  },
+  {
+   "open_time": 1760749200000,
+   "direction": "long",
+   "reason": "orb_long@106786.70",
+   "sl_price": 106270.0,
+   "context": "ORB range 18-Oct 08:00 H:106786.70 L:106270.00 TP:107701.95"
+  },
+  {
+   "open_time": 1760833800000,
+   "direction": "short",
+   "reason": "orb_short@106936.60",
+   "sl_price": 107217.0,
+   "context": "ORB range 19-Oct 08:00 H:107217.00 L:106936.60 TP:106351.40"
+  },
+  {
+   "open_time": 1760845500000,
+   "direction": "long",
+   "reason": "orb_long@107217.00",
+   "sl_price": 106936.6,
+   "context": "ORB range 19-Oct 08:00 H:107217.00 L:106936.60 TP:107642.50"
+  },
+  {
+   "open_time": 1760927400000,
+   "direction": "long",
+   "reason": "orb_long@108586.20",
+   "sl_price": 107430.5,
+   "context": "ORB range 20-Oct 08:00 H:108586.20 L:107430.50 TP:110436.75"
+  },
+  {
+   "open_time": 1761008400000,
+   "direction": "short",
+   "reason": "orb_short@110097.40",
+   "sl_price": 110470.0,
+   "context": "ORB range 21-Oct 08:00 H:110470.00 L:110097.40 TP:109513.20"
+  },
+  {
+   "open_time": 1761057900000,
+   "direction": "long",
+   "reason": "orb_long@110470.00",
+   "sl_price": 110097.4,
+   "context": "ORB range 21-Oct 08:00 H:110470.00 L:110097.40 TP:112686.40"
+  },
+  {
+   "open_time": 1761098400000,
+   "direction": "long",
+   "reason": "orb_long@108600.00",
+   "sl_price": 107800.0,
+   "context": "ORB range 22-Oct 08:00 H:108600.00 L:107800.00 TP:109815.50"
+  },
+  {
+   "open_time": 1761116400000,
+   "direction": "short",
+   "reason": "orb_short@107800.00",
+   "sl_price": 108600.0,
+   "context": "ORB range 22-Oct 08:00 H:108600.00 L:107800.00 TP:106369.40"
+  },
+  {
+   "open_time": 1761180300000,
+   "direction": "long",
+   "reason": "orb_long@107797.30",
+   "sl_price": 107462.9,
+   "context": "ORB range 23-Oct 08:00 H:107797.30 L:107462.90 TP:108317.30"
+  },
+  {
+   "open_time": 1761266700000,
+   "direction": "long",
+   "reason": "orb_long@110400.00",
+   "sl_price": 109927.8,
+   "context": "ORB range 24-Oct 08:00 H:110400.00 L:109927.80 TP:111151.40"
+  },
+  {
+   "open_time": 1761352200000,
+   "direction": "short",
+   "reason": "orb_short@110751.00",
+   "sl_price": 111000.0,
+   "context": "ORB range 25-Oct 08:00 H:111000.00 L:110751.00 TP:110376.60"
+  },
+  {
+   "open_time": 1761354900000,
+   "direction": "long",
+   "reason": "orb_long@111000.00",
+   "sl_price": 110751.0,
+   "context": "ORB range 25-Oct 08:00 H:111000.00 L:110751.00 TP:111432.80"
+  },
+  {
+   "open_time": 1761438600000,
+   "direction": "long",
+   "reason": "orb_long@111737.10",
+   "sl_price": 111479.3,
+   "context": "ORB range 26-Oct 08:00 H:111737.10 L:111479.30 TP:112181.00"
+  },
+  {
+   "open_time": 1761446700000,
+   "direction": "short",
+   "reason": "orb_short@111479.30",
+   "sl_price": 111737.1,
+   "context": "ORB range 26-Oct 08:00 H:111737.10 L:111479.30 TP:111017.90"
+  },
+  {
+   "open_time": 1761526800000,
+   "direction": "long",
+   "reason": "orb_long@114925.40",
+   "sl_price": 114300.0,
+   "context": "ORB range 27-Oct 08:00 H:114925.40 L:114300.00 TP:115885.10"
+  },
+  {
+   "open_time": 1761599700000,
+   "direction": "short",
+   "reason": "orb_short@114300.00",
+   "sl_price": 114925.4,
+   "context": "ORB range 27-Oct 08:00 H:114925.40 L:114300.00 TP:113182.60"
+  },
+  {
+   "open_time": 1761615000000,
+   "direction": "long",
+   "reason": "orb_long@114331.30",
+   "sl_price": 113857.8,
+   "context": "ORB range 28-Oct 08:00 H:114331.30 L:113857.80 TP:115131.95"
+  },
+  {
+   "open_time": 1761620400000,
+   "direction": "short",
+   "reason": "orb_short@113857.80",
+   "sl_price": 114331.3,
+   "context": "ORB range 28-Oct 08:00 H:114331.30 L:113857.80 TP:112967.95"
+  },
+  {
+   "open_time": 1761697800000,
+   "direction": "short",
+   "reason": "orb_short@112574.00",
+   "sl_price": 112871.3,
+   "context": "ORB range 29-Oct 08:00 H:112871.30 L:112574.00 TP:112106.25"
+  },
+  {
+   "open_time": 1761714900000,
+   "direction": "long",
+   "reason": "orb_long@112871.30",
+   "sl_price": 112574.0,
+   "context": "ORB range 29-Oct 08:00 H:112871.30 L:112574.00 TP:113361.75"
+  },
+  {
+   "open_time": 1761784200000,
+   "direction": "long",
+   "reason": "orb_long@110351.70",
+   "sl_price": 109670.6,
+   "context": "ORB range 30-Oct 08:00 H:110351.70 L:109670.60 TP:111406.75"
+  },
+  {
+   "open_time": 1761797700000,
+   "direction": "short",
+   "reason": "orb_short@109670.60",
+   "sl_price": 110351.7,
+   "context": "ORB range 30-Oct 08:00 H:110351.70 L:109670.60 TP:107307.25"
+  },
+  {
+   "open_time": 1761870600000,
+   "direction": "long",
+   "reason": "orb_long@108632.90",
+   "sl_price": 108226.6,
+   "context": "ORB range 31-Oct 08:00 H:108632.90 L:108226.60 TP:109270.05"
+  },
+  {
+   "open_time": 1761957900000,
+   "direction": "long",
+   "reason": "orb_long@109600.00",
+   "sl_price": 109351.5,
+   "context": "ORB range 01-Nov 08:00 H:109600.00 L:109351.50 TP:110062.45"
+  },
+  {
+   "open_time": 1762056900000,
+   "direction": "long",
+   "reason": "orb_long@110088.00",
+   "sl_price": 109846.7,
+   "context": "ORB range 02-Nov 08:00 H:110088.00 L:109846.70 TP:110469.45"
+  },
+  {
+   "open_time": 1762099200000,
+   "direction": "short",
+   "reason": "orb_short@109846.70",
+   "sl_price": 110088.0,
+   "context": "ORB range 02-Nov 08:00 H:110088.00 L:109846.70 TP:109419.35"
+  },
+  {
+   "open_time": 1762129800000,
+   "direction": "short",
+   "reason": "orb_short@110275.40",
+   "sl_price": 110711.0,
+   "context": "ORB range 03-Nov 08:00 H:110711.00 L:110275.40 TP:109569.00"
+  },
+  {
+   "open_time": 1762216200000,
+   "direction": "long",
+   "reason": "orb_long@106591.10",
+   "sl_price": 105820.0,
+   "context": "ORB range 04-Nov 08:00 H:106591.10 L:105820.00 TP:107846.45"
+  },
+  {
+   "open_time": 1762233300000,
+   "direction": "short",
+   "reason": "orb_short@105820.00",
+   "sl_price": 106591.1,
+   "context": "ORB range 04-Nov 08:00 H:106591.10 L:105820.00 TP:104455.95"
+  },
+  {
+   "open_time": 1762302600000,
+   "direction": "short",
+   "reason": "orb_short@100907.60",
+   "sl_price": 101700.0,
+   "context": "ORB range 05-Nov 08:00 H:101700.00 L:100907.60 TP:99159.60"
+  },
+  {
+   "open_time": 1762312500000,
+   "direction": "long",
+   "reason": "orb_long@101700.00",
+   "sl_price": 100907.6,
+   "context": "ORB range 05-Nov 08:00 H:101700.00 L:100907.60 TP:103250.40"
+  },
+  {
+   "open_time": 1762390800000,
+   "direction": "short",
+   "reason": "orb_short@103264.60",
+   "sl_price": 103840.7,
+   "context": "ORB range 06-Nov 08:00 H:103840.70 L:103264.60 TP:102304.45"
+  },
+  {
+   "open_time": 1762404300000,
+   "direction": "long",
+   "reason": "orb_long@103840.70",
+   "sl_price": 103264.6,
+   "context": "ORB range 06-Nov 08:00 H:103840.70 L:103264.60 TP:104851.65"
+  },
+  {
+   "open_time": 1762478100000,
+   "direction": "long",
+   "reason": "orb_long@101596.30",
+   "sl_price": 100700.1,
+   "context": "ORB range 07-Nov 08:00 H:101596.30 L:100700.10 TP:102984.00"
+  },
+  {
+   "open_time": 1762510500000,
+   "direction": "short",
+   "reason": "orb_short@100700.10",
+   "sl_price": 101596.3,
+   "context": "ORB range 07-Nov 08:00 H:101596.30 L:100700.10 TP:99272.80"
+  },
+  {
+   "open_time": 1762561800000,
+   "direction": "short",
+   "reason": "orb_short@103013.00",
+   "sl_price": 103373.8,
+   "context": "ORB range 08-Nov 08:00 H:103373.80 L:103013.00 TP:102308.40"
+  },
+  {
+   "open_time": 1762658100000,
+   "direction": "short",
+   "reason": "orb_short@101571.00",
+   "sl_price": 102294.9,
+   "context": "ORB range 09-Nov 08:00 H:102294.90 L:101571.00 TP:100380.95"
+  },
+  {
+   "open_time": 1762693200000,
+   "direction": "long",
+   "reason": "orb_long@102294.90",
+   "sl_price": 101571.0,
+   "context": "ORB range 09-Nov 08:00 H:102294.90 L:101571.00 TP:103405.85"
+  },
+  {
+   "open_time": 1762734600000,
+   "direction": "long",
+   "reason": "orb_long@105678.80",
+   "sl_price": 104205.9,
+   "context": "ORB range 10-Nov 08:00 H:105678.80 L:104205.90 TP:108205.25"
+  },
+  {
+   "open_time": 1762821900000,
+   "direction": "long",
+   "reason": "orb_long@106094.00",
+   "sl_price": 105561.0,
+   "context": "ORB range 11-Nov 08:00 H:106094.00 L:105561.00 TP:106899.50"
+  },
+  {
+   "open_time": 1762837200000,
+   "direction": "short",
+   "reason": "orb_short@105561.00",
+   "sl_price": 106094.0,
+   "context": "ORB range 11-Nov 08:00 H:106094.00 L:105561.00 TP:104514.10"
+  },
+  {
+   "open_time": 1762920000000,
+   "direction": "long",
+   "reason": "orb_long@103321.40",
+   "sl_price": 102761.8,
+   "context": "ORB range 12-Nov 08:00 H:103321.40 L:102761.80 TP:104239.40"
+  },
+  {
+   "open_time": 1762961400000,
+   "direction": "short",
+   "reason": "orb_short@102761.80",
+   "sl_price": 103321.4,
+   "context": "ORB range 12-Nov 08:00 H:103321.40 L:102761.80 TP:101902.40"
+  },
+  {
+   "open_time": 1762993800000,
+   "direction": "long",
+   "reason": "orb_long@101793.40",
+   "sl_price": 101412.0,
+   "context": "ORB range 13-Nov 08:00 H:101793.40 L:101412.00 TP:102372.10"
+  },
+  {
+   "open_time": 1763002800000,
+   "direction": "short",
+   "reason": "orb_short@101412.00",
+   "sl_price": 101793.4,
+   "context": "ORB range 13-Nov 08:00 H:101793.40 L:101412.00 TP:100726.70"
+  },
+  {
+   "open_time": 1763087400000,
+   "direction": "long",
+   "reason": "orb_long@99697.40",
+   "sl_price": 98767.0,
+   "context": "ORB range 14-Nov 08:00 H:99697.40 L:98767.00 TP:101183.70"
+  },
+  {
+   "open_time": 1763094600000,
+   "direction": "short",
+   "reason": "orb_short@98767.00",
+   "sl_price": 99697.4,
+   "context": "ORB range 14-Nov 08:00 H:99697.40 L:98767.00 TP:96144.50"
+  },
+  {
+   "open_time": 1763171100000,
+   "direction": "long",
+   "reason": "orb_long@95395.30",
+   "sl_price": 94523.9,
+   "context": "ORB range 15-Nov 08:00 H:95395.30 L:94523.90 TP:96924.10"
+  },
+  {
+   "open_time": 1763256600000,
+   "direction": "short",
+   "reason": "orb_short@95200.50",
+   "sl_price": 95672.7,
+   "context": "ORB range 16-Nov 08:00 H:95672.70 L:95200.50 TP:94261.40"
+  },
+  {
+   "open_time": 1763260200000,
+   "direction": "long",
+   "reason": "orb_long@95672.70",
+   "sl_price": 95200.5,
+   "context": "ORB range 16-Nov 08:00 H:95672.70 L:95200.50 TP:96400.30"
+  },
+  {
+   "open_time": 1763340300000,
+   "direction": "long",
+   "reason": "orb_long@94699.00",
+   "sl_price": 93730.0,
+   "context": "ORB range 17-Nov 08:00 H:94699.00 L:93730.00 TP:96707.90"
+  },
+  {
+   "open_time": 1763395200000,
+   "direction": "short",
+   "reason": "orb_short@93730.00",
+   "sl_price": 94699.0,
+   "context": "ORB range 17-Nov 08:00 H:94699.00 L:93730.00 TP:91683.10"
+  },
+  {
+   "open_time": 1763425800000,
+   "direction": "short",
+   "reason": "orb_short@91951.50",
+   "sl_price": 92335.4,
+   "context": "ORB range 18-Nov 08:00 H:92335.40 L:91951.50 TP:90803.45"
+  },
+  {
+   "open_time": 1763478900000,
+   "direction": "long",
+   "reason": "orb_long@92335.40",
+   "sl_price": 91951.5,
+   "context": "ORB range 18-Nov 08:00 H:92335.40 L:91951.50 TP:93328.15"
+  },
+  {
+   "open_time": 1763524800000,
+   "direction": "short",
+   "reason": "orb_short@91838.60",
+   "sl_price": 92944.8,
+   "context": "ORB range 19-Nov 08:00 H:92944.80 L:91838.60 TP:90044.30"
+  },
+  {
+   "open_time": 1763598600000,
+   "direction": "long",
+   "reason": "orb_long@91870.00",
+   "sl_price": 91140.2,
+   "context": "ORB range 20-Nov 08:00 H:91870.00 L:91140.20 TP:93282.50"
+  },
+  {
+   "open_time": 1763647200000,
+   "direction": "short",
+   "reason": "orb_short@91140.20",
+   "sl_price": 91870.0,
+   "context": "ORB range 20-Nov 08:00 H:91870.00 L:91140.20 TP:89571.90"
+  },
+  {
+   "open_time": 1763690400000,
+   "direction": "short",
+   "reason": "orb_short@86552.00",
+   "sl_price": 87374.0,
+   "context": "ORB range 21-Nov 08:00 H:87374.00 L:86552.00 TP:85172.30"
+  },
+  {
+   "open_time": 1763772300000,
+   "direction": "short",
+   "reason": "orb_short@84810.90",
+   "sl_price": 85599.9,
+   "context": "ORB range 22-Nov 08:00 H:85599.90 L:84810.90 TP:83511.60"
+  },
+  {
+   "open_time": 1763859600000,
+   "direction": "long",
+   "reason": "orb_long@85286.80",
+   "sl_price": 84622.0,
+   "context": "ORB range 23-Nov 08:00 H:85286.80 L:84622.00 TP:86290.10"
+  },
+  {
+   "open_time": 1763944200000,
+   "direction": "long",
+   "reason": "orb_long@86807.60",
+   "sl_price": 85915.0,
+   "context": "ORB range 24-Nov 08:00 H:86807.60 L:85915.00 TP:88178.10"
+  },
+  {
+   "open_time": 1763975700000,
+   "direction": "short",
+   "reason": "orb_short@85915.00",
+   "sl_price": 86807.6,
+   "context": "ORB range 24-Nov 08:00 H:86807.60 L:85915.00 TP:84568.50"
+  },
+  {
+   "open_time": 1764035100000,
+   "direction": "short",
+   "reason": "orb_short@87825.00",
+   "sl_price": 88247.1,
+   "context": "ORB range 25-Nov 08:00 H:88247.10 L:87825.00 TP:87054.35"
+  },
+  {
+   "open_time": 1764045900000,
+   "direction": "long",
+   "reason": "orb_long@88247.10",
+   "sl_price": 87825.0,
+   "context": "ORB range 25-Nov 08:00 H:88247.10 L:87825.00 TP:88932.05"
+  },
+  {
+   "open_time": 1764120600000,
+   "direction": "long",
+   "reason": "orb_long@87734.10",
+   "sl_price": 87315.0,
+   "context": "ORB range 26-Nov 08:00 H:87734.10 L:87315.00 TP:88670.35"
+  },
+  {
+   "open_time": 1764128700000,
+   "direction": "short",
+   "reason": "orb_short@87315.00",
+   "sl_price": 87734.1,
+   "context": "ORB range 26-Nov 08:00 H:87734.10 L:87315.00 TP:86459.85"
+  },
+  {
+   "open_time": 1764205200000,
+   "direction": "long",
+   "reason": "orb_long@90500.10",
+   "sl_price": 90024.4,
+   "context": "ORB range 27-Nov 08:00 H:90500.10 L:90024.40 TP:91344.35"
+  },
+  {
+   "open_time": 1764291600000,
+   "direction": "short",
+   "reason": "orb_short@91023.40",
+   "sl_price": 91313.6,
+   "context": "ORB range 28-Nov 08:00 H:91313.60 L:91023.40 TP:90414.60"
+  },
+  {
+   "open_time": 1764302400000,
+   "direction": "long",
+   "reason": "orb_long@91313.60",
+   "sl_price": 91023.4,
+   "context": "ORB range 28-Nov 08:00 H:91313.60 L:91023.40 TP:91751.10"
+  },
+  {
+   "open_time": 1764378000000,
+   "direction": "long",
+   "reason": "orb_long@90920.00",
+   "sl_price": 90720.6,
+   "context": "ORB range 29-Nov 08:00 H:90920.00 L:90720.60 TP:91299.20"
+  },
+  {
+   "open_time": 1764383400000,
+   "direction": "short",
+   "reason": "orb_short@90720.60",
+   "sl_price": 90920.0,
+   "context": "ORB range 29-Nov 08:00 H:90920.00 L:90720.60 TP:90329.90"
+  },
+  {
+   "open_time": 1764464400000,
+   "direction": "long",
+   "reason": "orb_long@90907.30",
+   "sl_price": 90730.0,
+   "context": "ORB range 30-Nov 08:00 H:90907.30 L:90730.00 TP:91232.15"
+  },
+  {
+   "open_time": 1764471600000,
+   "direction": "short",
+   "reason": "orb_short@90730.00",
+   "sl_price": 90907.3,
+   "context": "ORB range 30-Nov 08:00 H:90907.30 L:90730.00 TP:90304.05"
+  },
+  {
+   "open_time": 1764549000000,
+   "direction": "short",
+   "reason": "orb_short@88312.50",
+   "sl_price": 90396.9,
+   "context": "ORB range 01-Dec 08:00 H:90396.90 L:88312.50 TP:84585.80"
+  },
+  {
+   "open_time": 1764637200000,
+   "direction": "long",
+   "reason": "orb_long@86538.60",
+   "sl_price": 86140.1,
+   "context": "ORB range 02-Dec 08:00 H:86538.60 L:86140.10 TP:87336.05"
+  },
+  {
+   "open_time": 1764722700000,
+   "direction": "long",
+   "reason": "orb_long@91499.90",
+   "sl_price": 91082.4,
+   "context": "ORB range 03-Dec 08:00 H:91499.90 L:91082.40 TP:92246.55"
+  },
+  {
+   "open_time": 1764810000000,
+   "direction": "long",
+   "reason": "orb_long@93431.80",
+   "sl_price": 92686.3,
+   "context": "ORB range 04-Dec 08:00 H:93431.80 L:92686.30 TP:94777.45"
+  },
+  {
+   "open_time": 1764853200000,
+   "direction": "short",
+   "reason": "orb_short@92686.30",
+   "sl_price": 93431.8,
+   "context": "ORB range 04-Dec 08:00 H:93431.80 L:92686.30 TP:91385.55"
+  },
+  {
+   "open_time": 1764897300000,
+   "direction": "long",
+   "reason": "orb_long@92444.00",
+   "sl_price": 92015.0,
+   "context": "ORB range 05-Dec 08:00 H:92444.00 L:92015.00 TP:93104.20"
+  },
+  {
+   "open_time": 1764909000000,
+   "direction": "short",
+   "reason": "orb_short@92015.00",
+   "sl_price": 92444.0,
+   "context": "ORB range 05-Dec 08:00 H:92444.00 L:92015.00 TP:91171.00"
+  },
+  {
+   "open_time": 1764981000000,
+   "direction": "long",
+   "reason": "orb_long@89288.60",
+   "sl_price": 88986.1,
+   "context": "ORB range 06-Dec 08:00 H:89288.60 L:88986.10 TP:89841.75"
+  },
+  {
+   "open_time": 1765062900000,
+   "direction": "short",
+   "reason": "orb_short@88986.10",
+   "sl_price": 89288.6,
+   "context": "ORB range 06-Dec 08:00 H:89288.60 L:88986.10 TP:88529.95"
+  },
+  {
+   "open_time": 1765067400000,
+   "direction": "long",
+   "reason": "orb_long@89342.50",
+   "sl_price": 89131.5,
+   "context": "ORB range 07-Dec 08:00 H:89342.50 L:89131.50 TP:89772.20"
+  },
+  {
+   "open_time": 1765100700000,
+   "direction": "short",
+   "reason": "orb_short@89131.50",
+   "sl_price": 89342.5,
+   "context": "ORB range 07-Dec 08:00 H:89342.50 L:89131.50 TP:88753.50"
+  },
+  {
+   "open_time": 1765155600000,
+   "direction": "long",
+   "reason": "orb_long@90364.50",
+   "sl_price": 89806.4,
+   "context": "ORB range 08-Dec 08:00 H:90364.50 L:89806.40 TP:91467.15"
+  },
+  {
+   "open_time": 1765207800000,
+   "direction": "short",
+   "reason": "orb_short@89806.40",
+   "sl_price": 90364.5,
+   "context": "ORB range 08-Dec 08:00 H:90364.50 L:89806.40 TP:88807.35"
+  },
+  {
+   "open_time": 1765240200000,
+   "direction": "short",
+   "reason": "orb_short@90556.30",
+   "sl_price": 90810.8,
+   "context": "ORB range 09-Dec 08:00 H:90810.80 L:90556.30 TP:90025.75"
+  },
+  {
+   "open_time": 1765293300000,
+   "direction": "long",
+   "reason": "orb_long@90810.80",
+   "sl_price": 90556.3,
+   "context": "ORB range 09-Dec 08:00 H:90810.80 L:90556.30 TP:91505.45"
+  },
+  {
+   "open_time": 1765327500000,
+   "direction": "short",
+   "reason": "orb_short@92235.50",
+   "sl_price": 92748.2,
+   "context": "ORB range 10-Dec 08:00 H:92748.20 L:92235.50 TP:91315.45"
+  },
+  {
+   "open_time": 1765359900000,
+   "direction": "long",
+   "reason": "orb_long@92748.20",
+   "sl_price": 92235.5,
+   "context": "ORB range 10-Dec 08:00 H:92748.20 L:92235.50 TP:93639.15"
+  },
+  {
+   "open_time": 1765413000000,
+   "direction": "short",
+   "reason": "orb_short@91711.00",
+   "sl_price": 92046.3,
+   "context": "ORB range 11-Dec 08:00 H:92046.30 L:91711.00 TP:90740.15"
+  },
+  {
+   "open_time": 1765486800000,
+   "direction": "long",
+   "reason": "orb_long@92046.30",
+   "sl_price": 91711.0,
+   "context": "ORB range 11-Dec 08:00 H:92046.30 L:91711.00 TP:92919.35"
+  },
+  {
+   "open_time": 1765499400000,
+   "direction": "short",
+   "reason": "orb_short@92301.60",
+   "sl_price": 92598.7,
+   "context": "ORB range 12-Dec 08:00 H:92598.70 L:92301.60 TP:91822.85"
+  },
+  {
+   "open_time": 1765519200000,
+   "direction": "long",
+   "reason": "orb_long@92598.70",
+   "sl_price": 92301.6,
+   "context": "ORB range 12-Dec 08:00 H:92598.70 L:92301.60 TP:93101.75"
+  },
+  {
+   "open_time": 1765589400000,
+   "direction": "short",
+   "reason": "orb_short@90162.00",
+   "sl_price": 90398.0,
+   "context": "ORB range 13-Dec 08:00 H:90398.00 L:90162.00 TP:89754.80"
+  },
+  {
+   "open_time": 1765613700000,
+   "direction": "long",
+   "reason": "orb_long@90398.00",
+   "sl_price": 90162.0,
+   "context": "ORB range 13-Dec 08:00 H:90398.00 L:90162.00 TP:90817.20"
+  },
+  {
+   "open_time": 1765672200000,
+   "direction": "long",
+   "reason": "orb_long@90287.10",
+   "sl_price": 90071.6,
+   "context": "ORB range 14-Dec 08:00 H:90287.10 L:90071.60 TP:90747.25"
+  },
+  {
+   "open_time": 1765689300000,
+   "direction": "short",
+   "reason": "orb_short@90071.60",
+   "sl_price": 90287.1,
+   "context": "ORB range 14-Dec 08:00 H:90287.10 L:90071.60 TP:89727.05"
+  },
+  {
+   "open_time": 1765761300000,
+   "direction": "long",
+   "reason": "orb_long@88563.10",
+   "sl_price": 88025.3,
+   "context": "ORB range 15-Dec 08:00 H:88563.10 L:88025.30 TP:89469.30"
+  },
+  {
+   "open_time": 1765809900000,
+   "direction": "short",
+   "reason": "orb_short@88025.30",
+   "sl_price": 88563.1,
+   "context": "ORB range 15-Dec 08:00 H:88563.10 L:88025.30 TP:87197.60"
+  },
+  {
+   "open_time": 1765845000000,
+   "direction": "short",
+   "reason": "orb_short@86102.60",
+   "sl_price": 86478.6,
+   "context": "ORB range 16-Dec 08:00 H:86478.60 L:86102.60 TP:85529.70"
+  },
+  {
+   "open_time": 1765881000000,
+   "direction": "long",
+   "reason": "orb_long@86478.60",
+   "sl_price": 86102.6,
+   "context": "ORB range 16-Dec 08:00 H:86478.60 L:86102.60 TP:87664.40"
+  },
+  {
+   "open_time": 1765931400000,
+   "direction": "short",
+   "reason": "orb_short@87437.40",
+   "sl_price": 87826.3,
+   "context": "ORB range 17-Dec 08:00 H:87826.30 L:87437.40 TP:86819.45"
+  },
+  {
+   "open_time": 1765982700000,
+   "direction": "long",
+   "reason": "orb_long@87826.30",
+   "sl_price": 87437.4,
+   "context": "ORB range 17-Dec 08:00 H:87826.30 L:87437.40 TP:90217.25"
+  },
+  {
+   "open_time": 1766019600000,
+   "direction": "short",
+   "reason": "orb_short@86012.10",
+   "sl_price": 86263.1,
+   "context": "ORB range 18-Dec 08:00 H:86263.10 L:86012.10 TP:85540.70"
+  },
+  {
+   "open_time": 1766023200000,
+   "direction": "long",
+   "reason": "orb_long@86263.10",
+   "sl_price": 86012.1,
+   "context": "ORB range 18-Dec 08:00 H:86263.10 L:86012.10 TP:86825.10"
+  },
+  {
+   "open_time": 1766104200000,
+   "direction": "short",
+   "reason": "orb_short@85369.10",
+   "sl_price": 85570.7,
+   "context": "ORB range 19-Dec 08:00 H:85570.70 L:85369.10 TP:84966.30"
+  },
+  {
+   "open_time": 1766105100000,
+   "direction": "long",
+   "reason": "orb_long@85570.70",
+   "sl_price": 85369.1,
+   "context": "ORB range 19-Dec 08:00 H:85570.70 L:85369.10 TP:85875.30"
+  },
+  {
+   "open_time": 1766191500000,
+   "direction": "short",
+   "reason": "orb_short@87974.00",
+   "sl_price": 88151.2,
+   "context": "ORB range 20-Dec 08:00 H:88151.20 L:87974.00 TP:87701.50"
+  },
+  {
+   "open_time": 1766197800000,
+   "direction": "long",
+   "reason": "orb_long@88151.20",
+   "sl_price": 87974.0,
+   "context": "ORB range 20-Dec 08:00 H:88151.20 L:87974.00 TP:88544.80"
+  },
+  {
+   "open_time": 1766279700000,
+   "direction": "short",
+   "reason": "orb_short@88262.60",
+   "sl_price": 88390.2,
+   "context": "ORB range 21-Dec 08:00 H:88390.20 L:88262.60 TP:88058.60"
+  },
+  {
+   "open_time": 1766305800000,
+   "direction": "long",
+   "reason": "orb_long@88390.20",
+   "sl_price": 88262.6,
+   "context": "ORB range 21-Dec 08:00 H:88390.20 L:88262.60 TP:88770.40"
+  },
+  {
+   "open_time": 1766364300000,
+   "direction": "short",
+   "reason": "orb_short@88621.20",
+   "sl_price": 89600.0,
+   "context": "ORB range 22-Dec 08:00 H:89600.00 L:88621.20 TP:87113.50"
+  },
+  {
+   "open_time": 1766391300000,
+   "direction": "long",
+   "reason": "orb_long@89600.00",
+   "sl_price": 88621.2,
+   "context": "ORB range 22-Dec 08:00 H:89600.00 L:88621.20 TP:91254.80"
+  },
+  {
+   "open_time": 1766449800000,
+   "direction": "long",
+   "reason": "orb_long@88676.60",
+   "sl_price": 88461.2,
+   "context": "ORB range 23-Dec 08:00 H:88676.60 L:88461.20 TP:89026.80"
+  },
+  {
+   "open_time": 1766453400000,
+   "direction": "short",
+   "reason": "orb_short@88461.20",
+   "sl_price": 88676.6,
+   "context": "ORB range 23-Dec 08:00 H:88676.60 L:88461.20 TP:88130.30"
+  },
+  {
+   "open_time": 1766538000000,
+   "direction": "long",
+   "reason": "orb_long@87634.20",
+   "sl_price": 87230.8,
+   "context": "ORB range 24-Dec 08:00 H:87634.20 L:87230.80 TP:88320.00"
+  },
+  {
+   "open_time": 1766543400000,
+   "direction": "short",
+   "reason": "orb_short@87230.80",
+   "sl_price": 87634.2,
+   "context": "ORB range 24-Dec 08:00 H:87634.20 L:87230.80 TP:86460.50"
+  },
+  {
+   "open_time": 1766622600000,
+   "direction": "short",
+   "reason": "orb_short@87520.30",
+   "sl_price": 87710.0,
+   "context": "ORB range 25-Dec 08:00 H:87710.00 L:87520.30 TP:87222.05"
+  },
+  {
+   "open_time": 1766629800000,
+   "direction": "long",
+   "reason": "orb_long@87710.00",
+   "sl_price": 87520.3,
+   "context": "ORB range 25-Dec 08:00 H:87710.00 L:87520.30 TP:88146.65"
+  },
+  {
+   "open_time": 1766711700000,
+   "direction": "long",
+   "reason": "orb_long@87289.80",
+   "sl_price": 86907.7,
+   "context": "ORB range 26-Dec 08:00 H:87289.80 L:86907.70 TP:87876.05"
+  },
+  {
+   "open_time": 1766761200000,
+   "direction": "short",
+   "reason": "orb_short@86907.70",
+   "sl_price": 87289.8,
+   "context": "ORB range 26-Dec 08:00 H:87289.80 L:86907.70 TP:86161.95"
+  },
+  {
+   "open_time": 1766799000000,
+   "direction": "long",
+   "reason": "orb_long@87366.60",
+   "sl_price": 87203.0,
+   "context": "ORB range 27-Dec 08:00 H:87366.60 L:87203.00 TP:87637.60"
+  },
+  {
+   "open_time": 1766898000000,
+   "direction": "short",
+   "reason": "orb_short@87674.40",
+   "sl_price": 87921.7,
+   "context": "ORB range 28-Dec 08:00 H:87921.70 L:87674.40 TP:87288.95"
+  },
+  {
+   "open_time": 1766930400000,
+   "direction": "long",
+   "reason": "orb_long@87921.70",
+   "sl_price": 87674.4,
+   "context": "ORB range 28-Dec 08:00 H:87921.70 L:87674.40 TP:88307.85"
+  },
+  {
+   "open_time": 1766968200000,
+   "direction": "long",
+   "reason": "orb_long@88020.00",
+   "sl_price": 87778.5,
+   "context": "ORB range 29-Dec 08:00 H:88020.00 L:87778.50 TP:88511.15"
+  },
+  {
+   "open_time": 1767005100000,
+   "direction": "short",
+   "reason": "orb_short@87778.50",
+   "sl_price": 88020.0,
+   "context": "ORB range 29-Dec 08:00 H:88020.00 L:87778.50 TP:87384.85"
+  },
+  {
+   "open_time": 1767054600000,
+   "direction": "short",
+   "reason": "orb_short@87168.10",
+   "sl_price": 87329.7,
+   "context": "ORB range 30-Dec 08:00 H:87329.70 L:87168.10 TP:86865.80"
+  },
+  {
+   "open_time": 1767066300000,
+   "direction": "long",
+   "reason": "orb_long@87329.70",
+   "sl_price": 87168.1,
+   "context": "ORB range 30-Dec 08:00 H:87329.70 L:87168.10 TP:87577.10"
+  },
+  {
+   "open_time": 1767141900000,
+   "direction": "short",
+   "reason": "orb_short@88262.50",
+   "sl_price": 88455.3,
+   "context": "ORB range 31-Dec 08:00 H:88455.30 L:88262.50 TP:87937.10"
+  },
+  {
+   "open_time": 1767143700000,
+   "direction": "long",
+   "reason": "orb_long@88455.30",
+   "sl_price": 88262.5,
+   "context": "ORB range 31-Dec 08:00 H:88455.30 L:88262.50 TP:88832.00"
+  },
+  {
+   "open_time": 1767229200000,
+   "direction": "long",
+   "reason": "orb_long@87791.90",
+   "sl_price": 87600.0,
+   "context": "ORB range 01-Jan 08:00 H:87791.90 L:87600.00 TP:88248.65"
+  },
+  {
+   "open_time": 1767241800000,
+   "direction": "short",
+   "reason": "orb_short@87600.00",
+   "sl_price": 87791.9,
+   "context": "ORB range 01-Jan 08:00 H:87791.90 L:87600.00 TP:87240.35"
+  },
+  {
+   "open_time": 1767319200000,
+   "direction": "short",
+   "reason": "orb_short@88545.20",
+   "sl_price": 88841.0,
+   "context": "ORB range 02-Jan 08:00 H:88841.00 L:88545.20 TP:88005.70"
+  },
+  {
+   "open_time": 1767322800000,
+   "direction": "long",
+   "reason": "orb_long@88841.00",
+   "sl_price": 88545.2,
+   "context": "ORB range 02-Jan 08:00 H:88841.00 L:88545.20 TP:89370.40"
+  },
+  {
+   "open_time": 1767401100000,
+   "direction": "long",
+   "reason": "orb_long@90093.90",
+   "sl_price": 89914.5,
+   "context": "ORB range 03-Jan 08:00 H:90093.90 L:89914.50 TP:90383.10"
+  },
+  {
+   "open_time": 1767418200000,
+   "direction": "short",
+   "reason": "orb_short@89914.50",
+   "sl_price": 90093.9,
+   "context": "ORB range 03-Jan 08:00 H:90093.90 L:89914.50 TP:89639.20"
+  },
+  {
+   "open_time": 1767506400000,
+   "direction": "long",
+   "reason": "orb_long@91597.60",
+   "sl_price": 90595.7,
+   "context": "ORB range 04-Jan 08:00 H:91597.60 L:90595.70 TP:93125.15"
+  },
+  {
+   "open_time": 1767573900000,
+   "direction": "long",
+   "reason": "orb_long@92108.50",
+   "sl_price": 91476.5,
+   "context": "ORB range 05-Jan 08:00 H:92108.50 L:91476.50 TP:93316.10"
+  },
+  {
+   "open_time": 1767659400000,
+   "direction": "short",
+   "reason": "orb_short@93621.10",
+   "sl_price": 93950.0,
+   "context": "ORB range 06-Jan 08:00 H:93950.00 L:93621.10 TP:93114.45"
+  },
+  {
+   "open_time": 1767662100000,
+   "direction": "long",
+   "reason": "orb_long@93950.00",
+   "sl_price": 93621.1,
+   "context": "ORB range 06-Jan 08:00 H:93950.00 L:93621.10 TP:94564.15"
+  },
+  {
+   "open_time": 1767745800000,
+   "direction": "short",
+   "reason": "orb_short@93299.90",
+   "sl_price": 93708.1,
+   "context": "ORB range 07-Jan 08:00 H:93708.10 L:93299.90 TP:92545.70"
+  },
+  {
+   "open_time": 1767839400000,
+   "direction": "short",
+   "reason": "orb_short@91037.90",
+   "sl_price": 91524.1,
+   "context": "ORB range 08-Jan 08:00 H:91524.10 L:91037.90 TP:90132.30"
+  },
+  {
+   "open_time": 1767918600000,
+   "direction": "long",
+   "reason": "orb_long@91123.60",
+   "sl_price": 91013.6,
+   "context": "ORB range 09-Jan 08:00 H:91123.60 L:91013.60 TP:91345.10"
+  },
+  {
+   "open_time": 1767922200000,
+   "direction": "short",
+   "reason": "orb_short@91013.60",
+   "sl_price": 91123.6,
+   "context": "ORB range 09-Jan 08:00 H:91123.60 L:91013.60 TP:90746.60"
+  },
+  {
+   "open_time": 1768008600000,
+   "direction": "long",
+   "reason": "orb_long@90649.40",
+   "sl_price": 90474.4,
+   "context": "ORB range 10-Jan 08:00 H:90649.40 L:90474.40 TP:90952.50"
+  },
+  {
+   "open_time": 1768020300000,
+   "direction": "short",
+   "reason": "orb_short@90474.40",
+   "sl_price": 90649.4,
+   "context": "ORB range 10-Jan 08:00 H:90649.40 L:90474.40 TP:90159.40"
+  },
+  {
+   "open_time": 1768092300000,
+   "direction": "long",
+   "reason": "orb_long@90577.80",
+   "sl_price": 90410.6,
+   "context": "ORB range 11-Jan 08:00 H:90577.80 L:90410.60 TP:90850.80"
+  },
+  {
+   "open_time": 1768178700000,
+   "direction": "long",
+   "reason": "orb_long@91188.00",
+   "sl_price": 90753.3,
+   "context": "ORB range 12-Jan 08:00 H:91188.00 L:90753.30 TP:91881.15"
+  },
+  {
+   "open_time": 1768206600000,
+   "direction": "short",
+   "reason": "orb_short@90753.30",
+   "sl_price": 91188.0,
+   "context": "ORB range 12-Jan 08:00 H:91188.00 L:90753.30 TP:89867.55"
+  },
+  {
+   "open_time": 1768267800000,
+   "direction": "short",
+   "reason": "orb_short@91215.40",
+   "sl_price": 91499.5,
+   "context": "ORB range 13-Jan 08:00 H:91499.50 L:91215.40 TP:90634.05"
+  },
+  {
+   "open_time": 1768280400000,
+   "direction": "long",
+   "reason": "orb_long@91499.50",
+   "sl_price": 91215.4,
+   "context": "ORB range 13-Jan 08:00 H:91499.50 L:91215.40 TP:92137.55"
+  },
+  {
+   "open_time": 1768350600000,
+   "direction": "short",
+   "reason": "orb_short@95309.70",
+   "sl_price": 95627.6,
+   "context": "ORB range 14-Jan 08:00 H:95627.60 L:95309.70 TP:94776.05"
+  },
+  {
+   "open_time": 1768362300000,
+   "direction": "long",
+   "reason": "orb_long@95627.60",
+   "sl_price": 95309.7,
+   "context": "ORB range 14-Jan 08:00 H:95627.60 L:95309.70 TP:96142.55"
+  },
+  {
+   "open_time": 1768437000000,
+   "direction": "short",
+   "reason": "orb_short@96614.90",
+   "sl_price": 96960.9,
+   "context": "ORB range 15-Jan 08:00 H:96960.90 L:96614.90 TP:96035.10"
+  },
+  {
+   "open_time": 1768469400000,
+   "direction": "long",
+   "reason": "orb_long@96960.90",
+   "sl_price": 96614.9,
+   "context": "ORB range 15-Jan 08:00 H:96960.90 L:96614.90 TP:97546.70"
+  },
+  {
+   "open_time": 1768523400000,
+   "direction": "long",
+   "reason": "orb_long@95728.10",
+   "sl_price": 95526.6,
+   "context": "ORB range 16-Jan 08:00 H:95728.10 L:95526.60 TP:96068.65"
+  },
+  {
+   "open_time": 1768525200000,
+   "direction": "short",
+   "reason": "orb_short@95526.60",
+   "sl_price": 95728.1,
+   "context": "ORB range 16-Jan 08:00 H:95728.10 L:95526.60 TP:95138.05"
+  },
+  {
+   "open_time": 1768609800000,
+   "direction": "short",
+   "reason": "orb_short@95428.30",
+   "sl_price": 95536.9,
+   "context": "ORB range 17-Jan 08:00 H:95536.90 L:95428.30 TP:95251.40"
+  },
+  {
+   "open_time": 1768663800000,
+   "direction": "long",
+   "reason": "orb_long@95536.90",
+   "sl_price": 95428.3,
+   "context": "ORB range 17-Jan 08:00 H:95536.90 L:95428.30 TP:95703.50"
+  },
+  {
+   "open_time": 1768698000000,
+   "direction": "short",
+   "reason": "orb_short@95051.10",
+   "sl_price": 95200.9,
+   "context": "ORB range 18-Jan 08:00 H:95200.90 L:95051.10 TP:94676.90"
+  },
+  {
+   "open_time": 1768728600000,
+   "direction": "long",
+   "reason": "orb_long@95200.90",
+   "sl_price": 95051.1,
+   "context": "ORB range 18-Jan 08:00 H:95200.90 L:95051.10 TP:95428.30"
+  },
+  {
+   "open_time": 1768881600000,
+   "direction": "short",
+   "reason": "orb_short@92320.20",
+   "sl_price": 92845.0,
+   "context": "ORB range 20-Jan 08:00 H:92845.00 L:92320.20 TP:91485.90"
+  },
+  {
+   "open_time": 1768955400000,
+   "direction": "long",
+   "reason": "orb_long@88598.00",
+   "sl_price": 88218.2,
+   "context": "ORB range 21-Jan 08:00 H:88598.00 L:88218.20 TP:89381.70"
+  },
+  {
+   "open_time": 1769013000000,
+   "direction": "short",
+   "reason": "orb_short@88218.20",
+   "sl_price": 88598.0,
+   "context": "ORB range 21-Jan 08:00 H:88598.00 L:88218.20 TP:87550.00"
+  },
+  {
+   "open_time": 1769041800000,
+   "direction": "long",
+   "reason": "orb_long@89855.00",
+   "sl_price": 89411.3,
+   "context": "ORB range 22-Jan 08:00 H:89855.00 L:89411.30 TP:90559.25"
+  },
+  {
+   "open_time": 1769093100000,
+   "direction": "short",
+   "reason": "orb_short@89411.30",
+   "sl_price": 89855.0,
+   "context": "ORB range 22-Jan 08:00 H:89855.00 L:89411.30 TP:88389.45"
+  },
+  {
+   "open_time": 1769130900000,
+   "direction": "long",
+   "reason": "orb_long@89600.00",
+   "sl_price": 89400.0,
+   "context": "ORB range 23-Jan 08:00 H:89600.00 L:89400.00 TP:89953.60"
+  },
+  {
+   "open_time": 1769156100000,
+   "direction": "short",
+   "reason": "orb_short@89400.00",
+   "sl_price": 89600.0,
+   "context": "ORB range 23-Jan 08:00 H:89600.00 L:89400.00 TP:88990.40"
+  },
+  {
+   "open_time": 1769215500000,
+   "direction": "short",
+   "reason": "orb_short@89420.40",
+   "sl_price": 89591.0,
+   "context": "ORB range 24-Jan 08:00 H:89591.00 L:89420.40 TP:89158.30"
+  },
+  {
+   "open_time": 1769221800000,
+   "direction": "long",
+   "reason": "orb_long@89591.00",
+   "sl_price": 89420.4,
+   "context": "ORB range 24-Jan 08:00 H:89591.00 L:89420.40 TP:89906.30"
+  },
+  {
+   "open_time": 1769301900000,
+   "direction": "long",
+   "reason": "orb_long@89266.50",
+   "sl_price": 89138.9,
+   "context": "ORB range 25-Jan 08:00 H:89266.50 L:89138.90 TP:89467.10"
+  },
+  {
+   "open_time": 1769304600000,
+   "direction": "short",
+   "reason": "orb_short@89138.90",
+   "sl_price": 89266.5,
+   "context": "ORB range 25-Jan 08:00 H:89266.50 L:89138.90 TP:88908.60"
+  },
+  {
+   "open_time": 1769387400000,
+   "direction": "short",
+   "reason": "orb_short@86614.20",
+   "sl_price": 87150.8,
+   "context": "ORB range 26-Jan 08:00 H:87150.80 L:86614.20 TP:85785.00"
+  },
+  {
+   "open_time": 1769389200000,
+   "direction": "long",
+   "reason": "orb_long@87150.80",
+   "sl_price": 86614.2,
+   "context": "ORB range 26-Jan 08:00 H:87150.80 L:86614.20 TP:88044.60"
+  },
+  {
+   "open_time": 1769477400000,
+   "direction": "long",
+   "reason": "orb_long@88431.40",
+   "sl_price": 88157.4,
+   "context": "ORB range 27-Jan 08:00 H:88431.40 L:88157.40 TP:89015.40"
+  },
+  {
+   "open_time": 1769503500000,
+   "direction": "short",
+   "reason": "orb_short@88157.40",
+   "sl_price": 88431.4,
+   "context": "ORB range 27-Jan 08:00 H:88431.40 L:88157.40 TP:87726.50"
+  },
+  {
+   "open_time": 1769561100000,
+   "direction": "long",
+   "reason": "orb_long@89375.70",
+   "sl_price": 89102.2,
+   "context": "ORB range 28-Jan 08:00 H:89375.70 L:89102.20 TP:89839.45"
+  },
+  {
+   "open_time": 1769569200000,
+   "direction": "short",
+   "reason": "orb_short@89102.20",
+   "sl_price": 89375.7,
+   "context": "ORB range 28-Jan 08:00 H:89375.70 L:89102.20 TP:88633.25"
+  },
+  {
+   "open_time": 1769646600000,
+   "direction": "short",
+   "reason": "orb_short@88959.40",
+   "sl_price": 89316.8,
+   "context": "ORB range 29-Jan 08:00 H:89316.80 L:88959.40 TP:88396.30"
+  },
+  {
+   "open_time": 1769733900000,
+   "direction": "short",
+   "reason": "orb_short@84275.00",
+   "sl_price": 84697.2,
+   "context": "ORB range 30-Jan 08:00 H:84697.20 L:84275.00 TP:83524.10"
+  },
+  {
+   "open_time": 1769820300000,
+   "direction": "short",
+   "reason": "orb_short@84066.40",
+   "sl_price": 84224.3,
+   "context": "ORB range 31-Jan 08:00 H:84224.30 L:84066.40 TP:83791.25"
+  },
+  {
+   "open_time": 1769909400000,
+   "direction": "short",
+   "reason": "orb_short@78600.20",
+   "sl_price": 79396.8,
+   "context": "ORB range 01-Feb 08:00 H:79396.80 L:78600.20 TP:77116.00"
+  },
+  {
+   "open_time": 1770000300000,
+   "direction": "short",
+   "reason": "orb_short@76560.80",
+   "sl_price": 78050.0,
+   "context": "ORB range 02-Feb 08:00 H:78050.00 L:76560.80 TP:74213.40"
+  },
+  {
+   "open_time": 1770034500000,
+   "direction": "long",
+   "reason": "orb_long@78050.00",
+   "sl_price": 76560.8,
+   "context": "ORB range 02-Feb 08:00 H:78050.00 L:76560.80 TP:80365.00"
+  },
+  {
+   "open_time": 1770078600000,
+   "direction": "long",
+   "reason": "orb_long@78903.40",
+   "sl_price": 78366.6,
+   "context": "ORB range 03-Feb 08:00 H:78903.40 L:78366.60 TP:79725.40"
+  },
+  {
+   "open_time": 1770085800000,
+   "direction": "short",
+   "reason": "orb_short@78366.60",
+   "sl_price": 78903.4,
+   "context": "ORB range 03-Feb 08:00 H:78903.40 L:78366.60 TP:77551.60"
+  },
+  {
+   "open_time": 1770166800000,
+   "direction": "long",
+   "reason": "orb_long@76032.80",
+   "sl_price": 75420.0,
+   "context": "ORB range 04-Feb 08:00 H:76032.80 L:75420.00 TP:77407.20"
+  },
+  {
+   "open_time": 1770211800000,
+   "direction": "short",
+   "reason": "orb_short@75420.00",
+   "sl_price": 76032.8,
+   "context": "ORB range 04-Feb 08:00 H:76032.80 L:75420.00 TP:74412.30"
+  },
+  {
+   "open_time": 1770255000000,
+   "direction": "short",
+   "reason": "orb_short@72724.00",
+   "sl_price": 73300.0,
+   "context": "ORB range 05-Feb 08:00 H:73300.00 L:72724.00 TP:71736.60"
+  },
+  {
+   "open_time": 1770338700000,
+   "direction": "long",
+   "reason": "orb_long@63028.60",
+   "sl_price": 59800.0,
+   "context": "ORB range 06-Feb 08:00 H:63028.60 L:59800.00 TP:68303.30"
+  },
+  {
+   "open_time": 1770424200000,
+   "direction": "short",
+   "reason": "orb_short@69967.20",
+   "sl_price": 70569.4,
+   "context": "ORB range 07-Feb 08:00 H:70569.40 L:69967.20 TP:68792.90"
+  },
+  {
+   "open_time": 1770433200000,
+   "direction": "long",
+   "reason": "orb_long@70569.40",
+   "sl_price": 69967.2,
+   "context": "ORB range 07-Feb 08:00 H:70569.40 L:69967.20 TP:71600.90"
+  },
+  {
+   "open_time": 1770510600000,
+   "direction": "short",
+   "reason": "orb_short@68962.50",
+   "sl_price": 69399.4,
+   "context": "ORB range 08-Feb 08:00 H:69399.40 L:68962.50 TP:68274.05"
+  },
+  {
+   "open_time": 1770534900000,
+   "direction": "long",
+   "reason": "orb_long@69399.40",
+   "sl_price": 68962.5,
+   "context": "ORB range 08-Feb 08:00 H:69399.40 L:68962.50 TP:70077.75"
+  },
+  {
+   "open_time": 1770600600000,
+   "direction": "short",
+   "reason": "orb_short@70220.20",
+   "sl_price": 70738.5,
+   "context": "ORB range 09-Feb 08:00 H:70738.50 L:70220.20 TP:69421.25"
+  },
+  {
+   "open_time": 1770604200000,
+   "direction": "long",
+   "reason": "orb_long@70738.50",
+   "sl_price": 70220.2,
+   "context": "ORB range 09-Feb 08:00 H:70738.50 L:70220.20 TP:71622.95"
+  },
+  {
+   "open_time": 1770683400000,
+   "direction": "short",
+   "reason": "orb_short@69846.80",
+   "sl_price": 70226.3,
+   "context": "ORB range 10-Feb 08:00 H:70226.30 L:69846.80 TP:69174.05"
+  },
+  {
+   "open_time": 1770686100000,
+   "direction": "long",
+   "reason": "orb_long@70226.30",
+   "sl_price": 69846.8,
+   "context": "ORB range 10-Feb 08:00 H:70226.30 L:69846.80 TP:70897.55"
+  },
+  {
+   "open_time": 1770777900000,
+   "direction": "short",
+   "reason": "orb_short@68750.00",
+   "sl_price": 69218.3,
+   "context": "ORB range 11-Feb 08:00 H:69218.30 L:68750.00 TP:67938.85"
+  },
+  {
+   "open_time": 1770856200000,
+   "direction": "long",
+   "reason": "orb_long@67485.80",
+   "sl_price": 67016.6,
+   "context": "ORB range 12-Feb 08:00 H:67485.80 L:67016.60 TP:68258.20"
+  },
+  {
+   "open_time": 1770871500000,
+   "direction": "short",
+   "reason": "orb_short@67016.60",
+   "sl_price": 67485.8,
+   "context": "ORB range 12-Feb 08:00 H:67485.80 L:67016.60 TP:66286.10"
+  },
+  {
+   "open_time": 1770942600000,
+   "direction": "short",
+   "reason": "orb_short@65976.70",
+   "sl_price": 66498.4,
+   "context": "ORB range 13-Feb 08:00 H:66498.40 L:65976.70 TP:65142.05"
+  },
+  {
+   "open_time": 1770948000000,
+   "direction": "long",
+   "reason": "orb_long@66498.40",
+   "sl_price": 65976.7,
+   "context": "ORB range 13-Feb 08:00 H:66498.40 L:65976.70 TP:67315.05"
+  },
+  {
+   "open_time": 1771029000000,
+   "direction": "long",
+   "reason": "orb_long@68884.40",
+   "sl_price": 68736.2,
+   "context": "ORB range 14-Feb 08:00 H:68884.40 L:68736.20 TP:69218.60"
+  },
+  {
+   "open_time": 1771115400000,
+   "direction": "short",
+   "reason": "orb_short@69598.20",
+   "sl_price": 69827.3,
+   "context": "ORB range 15-Feb 08:00 H:69827.30 L:69598.20 TP:69250.45"
+  },
+  {
+   "open_time": 1771117200000,
+   "direction": "long",
+   "reason": "orb_long@69827.30",
+   "sl_price": 69598.2,
+   "context": "ORB range 15-Feb 08:00 H:69827.30 L:69598.20 TP:70215.75"
+  },
+  {
+   "open_time": 1771205400000,
+   "direction": "short",
+   "reason": "orb_short@68688.90",
+   "sl_price": 69033.6,
+   "context": "ORB range 16-Feb 08:00 H:69033.60 L:68688.90 TP:68039.25"
+  },
+  {
+   "open_time": 1771244100000,
+   "direction": "long",
+   "reason": "orb_long@69033.60",
+   "sl_price": 68688.9,
+   "context": "ORB range 16-Feb 08:00 H:69033.60 L:68688.90 TP:69984.45"
+  },
+  {
+   "open_time": 1771292700000,
+   "direction": "short",
+   "reason": "orb_short@68667.10",
+   "sl_price": 68917.3,
+   "context": "ORB range 17-Feb 08:00 H:68917.30 L:68667.10 TP:68207.30"
+  },
+  {
+   "open_time": 1771293600000,
+   "direction": "long",
+   "reason": "orb_long@68917.30",
+   "sl_price": 68667.1,
+   "context": "ORB range 17-Feb 08:00 H:68917.30 L:68667.10 TP:69469.60"
+  },
+  {
+   "open_time": 1771375500000,
+   "direction": "short",
+   "reason": "orb_short@67411.00",
+   "sl_price": 67595.5,
+   "context": "ORB range 18-Feb 08:00 H:67595.50 L:67411.00 TP:66987.15"
+  },
+  {
+   "open_time": 1771388100000,
+   "direction": "long",
+   "reason": "orb_long@67595.50",
+   "sl_price": 67411.0,
+   "context": "ORB range 18-Feb 08:00 H:67595.50 L:67411.00 TP:67918.25"
+  },
+  {
+   "open_time": 1771462800000,
+   "direction": "long",
+   "reason": "orb_long@66573.60",
+   "sl_price": 66301.8,
+   "context": "ORB range 19-Feb 08:00 H:66573.60 L:66301.80 TP:67075.80"
+  },
+  {
+   "open_time": 1771506900000,
+   "direction": "short",
+   "reason": "orb_short@66301.80",
+   "sl_price": 66573.6,
+   "context": "ORB range 19-Feb 08:00 H:66573.60 L:66301.80 TP:65729.90"
+  },
+  {
+   "open_time": 1771565400000,
+   "direction": "long",
+   "reason": "orb_long@67490.00",
+   "sl_price": 66912.4,
+   "context": "ORB range 20-Feb 08:00 H:67490.00 L:66912.40 TP:68742.50"
+  },
+  {
+   "open_time": 1771594200000,
+   "direction": "short",
+   "reason": "orb_short@66912.40",
+   "sl_price": 67490.0,
+   "context": "ORB range 20-Feb 08:00 H:67490.00 L:66912.40 TP:65733.60"
+  },
+  {
+   "open_time": 1771633800000,
+   "direction": "short",
+   "reason": "orb_short@67857.10",
+   "sl_price": 68023.7,
+   "context": "ORB range 21-Feb 08:00 H:68023.70 L:67857.10 TP:67571.40"
+  },
+  {
+   "open_time": 1771640100000,
+   "direction": "long",
+   "reason": "orb_long@68023.70",
+   "sl_price": 67857.1,
+   "context": "ORB range 21-Feb 08:00 H:68023.70 L:67857.10 TP:68279.90"
+  },
+  {
+   "open_time": 1771722900000,
+   "direction": "long",
+   "reason": "orb_long@68035.70",
+   "sl_price": 67763.7,
+   "context": "ORB range 22-Feb 08:00 H:68035.70 L:67763.70 TP:68491.30"
+  },
+  {
+   "open_time": 1771767000000,
+   "direction": "short",
+   "reason": "orb_short@67763.70",
+   "sl_price": 68035.7,
+   "context": "ORB range 22-Feb 08:00 H:68035.70 L:67763.70 TP:67200.00"
+  },
+  {
+   "open_time": 1771806600000,
+   "direction": "short",
+   "reason": "orb_short@67370.00",
+   "sl_price": 67655.8,
+   "context": "ORB range 23-Feb 08:00 H:67655.80 L:67370.00 TP:66721.70"
+  },
+  {
+   "open_time": 1771894800000,
+   "direction": "short",
+   "reason": "orb_short@64625.70",
+   "sl_price": 64980.0,
+   "context": "ORB range 24-Feb 08:00 H:64980.00 L:64625.70 TP:63771.35"
+  },
+  {
+   "open_time": 1771979400000,
+   "direction": "long",
+   "reason": "orb_long@64052.00",
+   "sl_price": 63876.0,
+   "context": "ORB range 25-Feb 08:00 H:64052.00 L:63876.00 TP:64482.40"
+  },
+  {
+   "open_time": 1772067600000,
+   "direction": "long",
+   "reason": "orb_long@68413.40",
+   "sl_price": 67690.1,
+   "context": "ORB range 26-Feb 08:00 H:68413.40 L:67690.10 TP:69612.45"
+  },
+  {
+   "open_time": 1772117100000,
+   "direction": "short",
+   "reason": "orb_short@67690.10",
+   "sl_price": 68413.4,
+   "context": "ORB range 26-Feb 08:00 H:68413.40 L:67690.10 TP:66574.85"
+  },
+  {
+   "open_time": 1772152200000,
+   "direction": "short",
+   "reason": "orb_short@67133.20",
+   "sl_price": 67502.9,
+   "context": "ORB range 27-Feb 08:00 H:67502.90 L:67133.20 TP:66541.65"
+  },
+  {
+   "open_time": 1772163900000,
+   "direction": "long",
+   "reason": "orb_long@67502.90",
+   "sl_price": 67133.2,
+   "context": "ORB range 27-Feb 08:00 H:67502.90 L:67133.20 TP:68111.95"
+  },
+  {
+   "open_time": 1772252100000,
+   "direction": "short",
+   "reason": "orb_short@65681.90",
+   "sl_price": 65990.0,
+   "context": "ORB range 28-Feb 08:00 H:65990.00 L:65681.90 TP:65174.55"
+  },
+  {
+   "open_time": 1772307000000,
+   "direction": "long",
+   "reason": "orb_long@65990.00",
+   "sl_price": 65681.9,
+   "context": "ORB range 28-Feb 08:00 H:65990.00 L:65681.90 TP:66810.25"
+  },
+  {
+   "open_time": 1772325000000,
+   "direction": "short",
+   "reason": "orb_short@66730.00",
+   "sl_price": 67089.6,
+   "context": "ORB range 01-Mar 08:00 H:67089.60 L:66730.00 TP:66067.20"
+  },
+  {
+   "open_time": 1772329500000,
+   "direction": "long",
+   "reason": "orb_long@67089.60",
+   "sl_price": 66730.0,
+   "context": "ORB range 01-Mar 08:00 H:67089.60 L:66730.00 TP:67851.00"
+  },
+  {
+   "open_time": 1772411400000,
+   "direction": "long",
+   "reason": "orb_long@66197.40",
+   "sl_price": 65726.0,
+   "context": "ORB range 02-Mar 08:00 H:66197.40 L:65726.00 TP:67256.30"
+  },
+  {
+   "open_time": 1772434800000,
+   "direction": "short",
+   "reason": "orb_short@65726.00",
+   "sl_price": 66197.4,
+   "context": "ORB range 02-Mar 08:00 H:66197.40 L:65726.00 TP:64954.70"
+  },
+  {
+   "open_time": 1772497800000,
+   "direction": "long",
+   "reason": "orb_long@68979.10",
+   "sl_price": 68600.0,
+   "context": "ORB range 03-Mar 08:00 H:68979.10 L:68600.00 TP:69637.85"
+  },
+  {
+   "open_time": 1772503200000,
+   "direction": "short",
+   "reason": "orb_short@68600.00",
+   "sl_price": 68979.1,
+   "context": "ORB range 03-Mar 08:00 H:68979.10 L:68600.00 TP:68001.25"
+  },
+  {
+   "open_time": 1772584200000,
+   "direction": "short",
+   "reason": "orb_short@68051.10",
+   "sl_price": 68383.4,
+   "context": "ORB range 04-Mar 08:00 H:68383.40 L:68051.10 TP:67431.95"
+  },
+  {
+   "open_time": 1772587800000,
+   "direction": "long",
+   "reason": "orb_long@68383.40",
+   "sl_price": 68051.1,
+   "context": "ORB range 04-Mar 08:00 H:68383.40 L:68051.10 TP:69171.15"
+  },
+  {
+   "open_time": 1772672400000,
+   "direction": "long",
+   "reason": "orb_long@72949.50",
+   "sl_price": 72511.5,
+   "context": "ORB range 05-Mar 08:00 H:72949.50 L:72511.50 TP:73741.80"
+  },
+  {
+   "open_time": 1772675100000,
+   "direction": "short",
+   "reason": "orb_short@72511.50",
+   "sl_price": 72949.5,
+   "context": "ORB range 05-Mar 08:00 H:72949.50 L:72511.50 TP:71850.80"
+  },
+  {
+   "open_time": 1772758800000,
+   "direction": "short",
+   "reason": "orb_short@70799.40",
+   "sl_price": 71024.9,
+   "context": "ORB range 06-Mar 08:00 H:71024.90 L:70799.40 TP:70423.05"
+  },
+  {
+   "open_time": 1772760600000,
+   "direction": "long",
+   "reason": "orb_long@71024.90",
+   "sl_price": 70799.4,
+   "context": "ORB range 06-Mar 08:00 H:71024.90 L:70799.40 TP:71458.25"
+  },
+  {
+   "open_time": 1772843400000,
+   "direction": "long",
+   "reason": "orb_long@68239.50",
+   "sl_price": 68075.3,
+   "context": "ORB range 07-Mar 08:00 H:68239.50 L:68075.30 TP:68504.70"
+  },
+  {
+   "open_time": 1772855100000,
+   "direction": "short",
+   "reason": "orb_short@68075.30",
+   "sl_price": 68239.5,
+   "context": "ORB range 07-Mar 08:00 H:68239.50 L:68075.30 TP:67816.90"
+  },
+  {
+   "open_time": 1772930700000,
+   "direction": "short",
+   "reason": "orb_short@67226.90",
+   "sl_price": 67459.0,
+   "context": "ORB range 08-Mar 08:00 H:67459.00 L:67226.90 TP:66812.85"
+  },
+  {
+   "open_time": 1772959500000,
+   "direction": "long",
+   "reason": "orb_long@67459.00",
+   "sl_price": 67226.9,
+   "context": "ORB range 08-Mar 08:00 H:67459.00 L:67226.90 TP:67839.05"
+  },
+  {
+   "open_time": 1773016200000,
+   "direction": "long",
+   "reason": "orb_long@66370.00",
+   "sl_price": 65770.5,
+   "context": "ORB range 09-Mar 08:00 H:66370.00 L:65770.50 TP:67312.95"
+  },
+  {
+   "open_time": 1773102600000,
+   "direction": "long",
+   "reason": "orb_long@69000.00",
+   "sl_price": 68345.0,
+   "context": "ORB range 10-Mar 08:00 H:69000.00 L:68345.00 TP:70132.50"
+  },
+  {
+   "open_time": 1773196200000,
+   "direction": "short",
+   "reason": "orb_short@69707.80",
+   "sl_price": 70123.1,
+   "context": "ORB range 11-Mar 08:00 H:70123.10 L:69707.80 TP:69034.05"
+  },
+  {
+   "open_time": 1773234900000,
+   "direction": "long",
+   "reason": "orb_long@70123.10",
+   "sl_price": 69707.8,
+   "context": "ORB range 11-Mar 08:00 H:70123.10 L:69707.80 TP:70798.55"
+  },
+  {
+   "open_time": 1773277200000,
+   "direction": "short",
+   "reason": "orb_short@70087.10",
+   "sl_price": 70314.1,
+   "context": "ORB range 12-Mar 08:00 H:70314.10 L:70087.10 TP:69523.70"
+  },
+  {
+   "open_time": 1773311400000,
+   "direction": "long",
+   "reason": "orb_long@70314.10",
+   "sl_price": 70087.1,
+   "context": "ORB range 12-Mar 08:00 H:70314.10 L:70087.10 TP:70681.30"
+  },
+  {
+   "open_time": 1773390600000,
+   "direction": "long",
+   "reason": "orb_long@71726.00",
+   "sl_price": 70342.7,
+   "context": "ORB range 13-Mar 08:00 H:71726.00 L:70342.70 TP:73964.95"
+  },
+  {
+   "open_time": 1773448200000,
+   "direction": "short",
+   "reason": "orb_short@70708.90",
+   "sl_price": 70920.0,
+   "context": "ORB range 14-Mar 08:00 H:70920.00 L:70708.90 TP:70216.25"
+  },
+  {
+   "open_time": 1773457200000,
+   "direction": "long",
+   "reason": "orb_long@70920.00",
+   "sl_price": 70708.9,
+   "context": "ORB range 14-Mar 08:00 H:70920.00 L:70708.90 TP:71275.35"
+  },
+  {
+   "open_time": 1773535500000,
+   "direction": "short",
+   "reason": "orb_short@70958.80",
+   "sl_price": 71186.8,
+   "context": "ORB range 15-Mar 08:00 H:71186.80 L:70958.80 TP:70608.40"
+  },
+  {
+   "open_time": 1773540000000,
+   "direction": "long",
+   "reason": "orb_long@71186.80",
+   "sl_price": 70958.8,
+   "context": "ORB range 15-Mar 08:00 H:71186.80 L:70958.80 TP:71609.90"
+  },
+  {
+   "open_time": 1773622800000,
+   "direction": "short",
+   "reason": "orb_short@72462.90",
+   "sl_price": 72980.1,
+   "context": "ORB range 16-Mar 08:00 H:72980.10 L:72462.90 TP:71512.50"
+  },
+  {
+   "open_time": 1773631800000,
+   "direction": "long",
+   "reason": "orb_long@72980.10",
+   "sl_price": 72462.9,
+   "context": "ORB range 16-Mar 08:00 H:72980.10 L:72462.90 TP:74522.90"
+  },
+  {
+   "open_time": 1773709200000,
+   "direction": "long",
+   "reason": "orb_long@75488.00",
+   "sl_price": 74567.1,
+   "context": "ORB range 17-Mar 08:00 H:75488.00 L:74567.10 TP:77195.35"
+  },
+  {
+   "open_time": 1773718200000,
+   "direction": "short",
+   "reason": "orb_short@74567.10",
+   "sl_price": 75488.0,
+   "context": "ORB range 17-Mar 08:00 H:75488.00 L:74567.10 TP:73010.75"
+  },
+  {
+   "open_time": 1773797400000,
+   "direction": "long",
+   "reason": "orb_long@74027.80",
+   "sl_price": 73619.4,
+   "context": "ORB range 18-Mar 08:00 H:74027.80 L:73619.40 TP:74716.70"
+  },
+  {
+   "open_time": 1773832500000,
+   "direction": "short",
+   "reason": "orb_short@73619.40",
+   "sl_price": 74027.8,
+   "context": "ORB range 18-Mar 08:00 H:74027.80 L:73619.40 TP:72943.30"
+  },
+  {
+   "open_time": 1773880200000,
+   "direction": "short",
+   "reason": "orb_short@71048.40",
+   "sl_price": 71283.3,
+   "context": "ORB range 19-Mar 08:00 H:71283.30 L:71048.40 TP:70679.25"
+  },
+  {
+   "open_time": 1773890100000,
+   "direction": "long",
+   "reason": "orb_long@71283.30",
+   "sl_price": 71048.4,
+   "context": "ORB range 19-Mar 08:00 H:71283.30 L:71048.40 TP:71814.65"
+  },
+  {
+   "open_time": 1773966600000,
+   "direction": "long",
+   "reason": "orb_long@70148.70",
+   "sl_price": 69801.3,
+   "context": "ORB range 20-Mar 08:00 H:70148.70 L:69801.30 TP:70709.50"
+  },
+  {
+   "open_time": 1774015200000,
+   "direction": "short",
+   "reason": "orb_short@69801.30",
+   "sl_price": 70148.7,
+   "context": "ORB range 20-Mar 08:00 H:70148.70 L:69801.30 TP:69260.10"
+  },
+  {
+   "open_time": 1774077300000,
+   "direction": "long",
+   "reason": "orb_long@70803.10",
+   "sl_price": 70430.2,
+   "context": "ORB range 21-Mar 08:00 H:70803.10 L:70430.20 TP:71399.15"
+  },
+  {
+   "open_time": 1774109700000,
+   "direction": "short",
+   "reason": "orb_short@70430.20",
+   "sl_price": 70803.1,
+   "context": "ORB range 21-Mar 08:00 H:70803.10 L:70430.20 TP:69832.45"
+  },
+  {
+   "open_time": 1774145700000,
+   "direction": "long",
+   "reason": "orb_long@69028.90",
+   "sl_price": 68189.0,
+   "context": "ORB range 22-Mar 08:00 H:69028.90 L:68189.00 TP:70574.55"
+  },
+  {
+   "open_time": 1774179900000,
+   "direction": "short",
+   "reason": "orb_short@68189.00",
+   "sl_price": 69028.9,
+   "context": "ORB range 22-Mar 08:00 H:69028.90 L:68189.00 TP:66917.15"
+  },
+  {
+   "open_time": 1774225800000,
+   "direction": "short",
+   "reason": "orb_short@67736.00",
+   "sl_price": 68130.6,
+   "context": "ORB range 23-Mar 08:00 H:68130.60 L:67736.00 TP:67059.00"
+  },
+  {
+   "open_time": 1774232100000,
+   "direction": "long",
+   "reason": "orb_long@68130.60",
+   "sl_price": 67736.0,
+   "context": "ORB range 23-Mar 08:00 H:68130.60 L:67736.00 TP:68827.80"
+  },
+  {
+   "open_time": 1774312200000,
+   "direction": "short",
+   "reason": "orb_short@70617.90",
+   "sl_price": 71080.0,
+   "context": "ORB range 24-Mar 08:00 H:71080.00 L:70617.90 TP:69866.05"
+  },
+  {
+   "open_time": 1774338300000,
+   "direction": "long",
+   "reason": "orb_long@71080.00",
+   "sl_price": 70617.9,
+   "context": "ORB range 24-Mar 08:00 H:71080.00 L:70617.90 TP:71948.35"
+  },
+  {
+   "open_time": 1774398600000,
+   "direction": "long",
+   "reason": "orb_long@70723.50",
+   "sl_price": 70493.0,
+   "context": "ORB range 25-Mar 08:00 H:70723.50 L:70493.00 TP:71239.45"
+  },
+  {
+   "open_time": 1774407600000,
+   "direction": "short",
+   "reason": "orb_short@70493.00",
+   "sl_price": 70723.5,
+   "context": "ORB range 25-Mar 08:00 H:70723.50 L:70493.00 TP:70126.15"
+  },
+  {
+   "open_time": 1774490400000,
+   "direction": "short",
+   "reason": "orb_short@71139.60",
+   "sl_price": 71346.5,
+   "context": "ORB range 26-Mar 08:00 H:71346.50 L:71139.60 TP:70749.55"
+  },
+  {
+   "open_time": 1774575900000,
+   "direction": "long",
+   "reason": "orb_long@68942.20",
+   "sl_price": 68643.9,
+   "context": "ORB range 27-Mar 08:00 H:68942.20 L:68643.90 TP:69463.85"
+  },
+  {
+   "open_time": 1774584000000,
+   "direction": "short",
+   "reason": "orb_short@68643.90",
+   "sl_price": 68942.2,
+   "context": "ORB range 27-Mar 08:00 H:68942.20 L:68643.90 TP:67920.35"
+  },
+  {
+   "open_time": 1774657800000,
+   "direction": "long",
+   "reason": "orb_long@66432.70",
+   "sl_price": 66239.9,
+   "context": "ORB range 28-Mar 08:00 H:66432.70 L:66239.90 TP:66739.20"
+  },
+  {
+   "open_time": 1774659600000,
+   "direction": "short",
+   "reason": "orb_short@66239.90",
+   "sl_price": 66432.7,
+   "context": "ORB range 28-Mar 08:00 H:66432.70 L:66239.90 TP:65826.50"
+  },
+  {
+   "open_time": 1774746000000,
+   "direction": "long",
+   "reason": "orb_long@66455.50",
+   "sl_price": 66235.6,
+   "context": "ORB range 29-Mar 08:00 H:66455.50 L:66235.60 TP:66844.85"
+  },
+  {
+   "open_time": 1774804500000,
+   "direction": "short",
+   "reason": "orb_short@66235.60",
+   "sl_price": 66455.5,
+   "context": "ORB range 29-Mar 08:00 H:66455.50 L:66235.60 TP:65899.05"
+  },
+  {
+   "open_time": 1774838700000,
+   "direction": "long",
+   "reason": "orb_long@67043.20",
+   "sl_price": 65754.2,
+   "context": "ORB range 30-Mar 08:00 H:67043.20 L:65754.20 TP:69020.50"
+  },
+  {
+   "open_time": 1774917000000,
+   "direction": "long",
+   "reason": "orb_long@66792.40",
+   "sl_price": 66498.9,
+   "context": "ORB range 31-Mar 08:00 H:66792.40 L:66498.90 TP:67352.85"
+  },
+  {
+   "open_time": 1774948500000,
+   "direction": "short",
+   "reason": "orb_short@66498.90",
+   "sl_price": 66792.4,
+   "context": "ORB range 31-Mar 08:00 H:66792.40 L:66498.90 TP:65963.65"
+  },
+  {
+   "open_time": 1775004300000,
+   "direction": "long",
+   "reason": "orb_long@68241.50",
+   "sl_price": 67863.3,
+   "context": "ORB range 01-Apr 08:00 H:68241.50 L:67863.30 TP:68855.30"
+  },
+  {
+   "open_time": 1775007900000,
+   "direction": "short",
+   "reason": "orb_short@67863.30",
+   "sl_price": 68241.5,
+   "context": "ORB range 01-Apr 08:00 H:68241.50 L:67863.30 TP:67179.10"
+  },
+  {
+   "open_time": 1775089800000,
+   "direction": "long",
+   "reason": "orb_long@68244.80",
+   "sl_price": 68013.3,
+   "context": "ORB range 02-Apr 08:00 H:68244.80 L:68013.30 TP:68841.55"
+  },
+  {
+   "open_time": 1775092500000,
+   "direction": "short",
+   "reason": "orb_short@68013.30",
+   "sl_price": 68244.8,
+   "context": "ORB range 02-Apr 08:00 H:68244.80 L:68013.30 TP:67191.65"
+  },
+  {
+   "open_time": 1775179800000,
+   "direction": "short",
+   "reason": "orb_short@66745.00",
+   "sl_price": 66976.2,
+   "context": "ORB range 03-Apr 08:00 H:66976.20 L:66745.00 TP:66193.70"
+  },
+  {
+   "open_time": 1775201400000,
+   "direction": "long",
+   "reason": "orb_long@66976.20",
+   "sl_price": 66745.0,
+   "context": "ORB range 03-Apr 08:00 H:66976.20 L:66745.00 TP:67390.20"
+  },
+  {
+   "open_time": 1775264400000,
+   "direction": "short",
+   "reason": "orb_short@66838.90",
+   "sl_price": 66935.3,
+   "context": "ORB range 04-Apr 08:00 H:66935.30 L:66838.90 TP:66675.30"
+  },
+  {
+   "open_time": 1775285100000,
+   "direction": "long",
+   "reason": "orb_long@66935.30",
+   "sl_price": 66838.9,
+   "context": "ORB range 04-Apr 08:00 H:66935.30 L:66838.90 TP:67126.10"
+  },
+  {
+   "open_time": 1775349900000,
+   "direction": "short",
+   "reason": "orb_short@67196.80",
+   "sl_price": 67279.2,
+   "context": "ORB range 05-Apr 08:00 H:67279.20 L:67196.80 TP:67053.40"
+  },
+  {
+   "open_time": 1775402100000,
+   "direction": "long",
+   "reason": "orb_long@67279.20",
+   "sl_price": 67196.8,
+   "context": "ORB range 05-Apr 08:00 H:67279.20 L:67196.80 TP:67601.80"
+  },
+  {
+   "open_time": 1775437200000,
+   "direction": "short",
+   "reason": "orb_short@68997.90",
+   "sl_price": 69583.0,
+   "context": "ORB range 06-Apr 08:00 H:69583.00 L:68997.90 TP:67938.45"
+  },
+  {
+   "open_time": 1775466000000,
+   "direction": "long",
+   "reason": "orb_long@69583.00",
+   "sl_price": 68997.9,
+   "context": "ORB range 06-Apr 08:00 H:69583.00 L:68997.90 TP:70481.65"
+  },
+  {
+   "open_time": 1775521800000,
+   "direction": "short",
+   "reason": "orb_short@68766.30",
+   "sl_price": 69111.8,
+   "context": "ORB range 07-Apr 08:00 H:69111.80 L:68766.30 TP:68231.25"
+  },
+  {
+   "open_time": 1775554200000,
+   "direction": "long",
+   "reason": "orb_long@69111.80",
+   "sl_price": 68766.3,
+   "context": "ORB range 07-Apr 08:00 H:69111.80 L:68766.30 TP:69664.35"
+  },
+  {
+   "open_time": 1775609100000,
+   "direction": "short",
+   "reason": "orb_short@71756.80",
+   "sl_price": 72086.4,
+   "context": "ORB range 08-Apr 08:00 H:72086.40 L:71756.80 TP:71187.50"
+  },
+  {
+   "open_time": 1775653200000,
+   "direction": "long",
+   "reason": "orb_long@72086.40",
+   "sl_price": 71756.8,
+   "context": "ORB range 08-Apr 08:00 H:72086.40 L:71756.80 TP:73084.80"
+  },
+  {
+   "open_time": 1775694600000,
+   "direction": "short",
+   "reason": "orb_short@70833.10",
+   "sl_price": 71107.0,
+   "context": "ORB range 09-Apr 08:00 H:71107.00 L:70833.10 TP:70371.45"
+  },
+  {
+   "open_time": 1775723400000,
+   "direction": "long",
+   "reason": "orb_long@71107.00",
+   "sl_price": 70833.1,
+   "context": "ORB range 09-Apr 08:00 H:71107.00 L:70833.10 TP:71705.15"
+  },
+  {
+   "open_time": 1775781000000,
+   "direction": "long",
+   "reason": "orb_long@71866.20",
+   "sl_price": 71546.0,
+   "context": "ORB range 10-Apr 08:00 H:71866.20 L:71546.00 TP:72377.20"
+  },
+  {
+   "open_time": 1775807100000,
+   "direction": "short",
+   "reason": "orb_short@71546.00",
+   "sl_price": 71866.2,
+   "context": "ORB range 10-Apr 08:00 H:71866.20 L:71546.00 TP:70980.90"
+  },
+  {
+   "open_time": 1775869200000,
+   "direction": "short",
+   "reason": "orb_short@72769.80",
+   "sl_price": 72917.4,
+   "context": "ORB range 11-Apr 08:00 H:72917.40 L:72769.80 TP:72545.60"
+  },
+  {
+   "open_time": 1775871900000,
+   "direction": "long",
+   "reason": "orb_long@72917.40",
+   "sl_price": 72769.8,
+   "context": "ORB range 11-Apr 08:00 H:72917.40 L:72769.80 TP:73141.50"
+  },
+  {
+   "open_time": 1775957400000,
+   "direction": "short",
+   "reason": "orb_short@72817.40",
+   "sl_price": 73072.4,
+   "context": "ORB range 12-Apr 08:00 H:73072.40 L:72817.40 TP:71306.40"
+  },
+  {
+   "open_time": 1776041100000,
+   "direction": "long",
+   "reason": "orb_long@71062.00",
+   "sl_price": 70574.0,
+   "context": "ORB range 13-Apr 08:00 H:71062.00 L:70574.00 TP:71862.00"
+  },
+  {
+   "open_time": 1776069000000,
+   "direction": "short",
+   "reason": "orb_short@70574.00",
+   "sl_price": 71062.0,
+   "context": "ORB range 13-Apr 08:00 H:71062.00 L:70574.00 TP:69830.60"
+  },
+  {
+   "open_time": 1776127500000,
+   "direction": "short",
+   "reason": "orb_short@74185.80",
+   "sl_price": 74493.4,
+   "context": "ORB range 14-Apr 08:00 H:74493.40 L:74185.80 TP:73666.50"
+  },
+  {
+   "open_time": 1776150000000,
+   "direction": "long",
+   "reason": "orb_long@74493.40",
+   "sl_price": 74185.8,
+   "context": "ORB range 14-Apr 08:00 H:74493.40 L:74185.80 TP:75200.60"
+  },
+  {
+   "open_time": 1776214800000,
+   "direction": "long",
+   "reason": "orb_long@74635.00",
+   "sl_price": 74085.0,
+   "context": "ORB range 15-Apr 08:00 H:74635.00 L:74085.00 TP:75526.20"
+  },
+  {
+   "open_time": 1776230100000,
+   "direction": "short",
+   "reason": "orb_short@74085.00",
+   "sl_price": 74635.0,
+   "context": "ORB range 15-Apr 08:00 H:74635.00 L:74085.00 TP:73150.20"
+  },
+  {
+   "open_time": 1776305700000,
+   "direction": "long",
+   "reason": "orb_long@74796.00",
+   "sl_price": 74400.0,
+   "context": "ORB range 16-Apr 08:00 H:74796.00 L:74400.00 TP:75449.90"
+  },
+  {
+   "open_time": 1776333600000,
+   "direction": "short",
+   "reason": "orb_short@74400.00",
+   "sl_price": 74796.0,
+   "context": "ORB range 16-Apr 08:00 H:74796.00 L:74400.00 TP:73785.20"
+  },
+  {
+   "open_time": 1776388500000,
+   "direction": "short",
+   "reason": "orb_short@74848.40",
+   "sl_price": 75118.4,
+   "context": "ORB range 17-Apr 08:00 H:75118.40 L:74848.40 TP:74314.90"
+  },
+  {
+   "open_time": 1776414600000,
+   "direction": "long",
+   "reason": "orb_long@75118.40",
+   "sl_price": 74848.4,
+   "context": "ORB range 17-Apr 08:00 H:75118.40 L:74848.40 TP:75706.60"
+  },
+  {
+   "open_time": 1776472200000,
+   "direction": "short",
+   "reason": "orb_short@76993.30",
+   "sl_price": 77190.0,
+   "context": "ORB range 18-Apr 08:00 H:77190.00 L:76993.30 TP:76675.35"
+  },
+  {
+   "open_time": 1776474000000,
+   "direction": "long",
+   "reason": "orb_long@77190.00",
+   "sl_price": 76993.3,
+   "context": "ORB range 18-Apr 08:00 H:77190.00 L:76993.30 TP:77562.55"
+  },
+  {
+   "open_time": 1776561300000,
+   "direction": "short",
+   "reason": "orb_short@75519.70",
+   "sl_price": 75804.0,
+   "context": "ORB range 19-Apr 08:00 H:75804.00 L:75519.70 TP:75073.65"
+  },
+  {
+   "open_time": 1776604500000,
+   "direction": "long",
+   "reason": "orb_long@75804.00",
+   "sl_price": 75519.7,
+   "context": "ORB range 19-Apr 08:00 H:75804.00 L:75519.70 TP:76425.45"
+  },
+  {
+   "open_time": 1776646800000,
+   "direction": "long",
+   "reason": "orb_long@74239.90",
+   "sl_price": 73669.0,
+   "context": "ORB range 20-Apr 08:00 H:74239.90 L:73669.00 TP:75178.15"
+  },
+  {
+   "open_time": 1776732300000,
+   "direction": "long",
+   "reason": "orb_long@75886.10",
+   "sl_price": 75650.0,
+   "context": "ORB range 21-Apr 08:00 H:75886.10 L:75650.00 TP:76404.15"
+  },
+  {
+   "open_time": 1776738600000,
+   "direction": "short",
+   "reason": "orb_short@75650.00",
+   "sl_price": 75886.1,
+   "context": "ORB range 21-Apr 08:00 H:75886.10 L:75650.00 TP:75213.55"
+  },
+  {
+   "open_time": 1776820500000,
+   "direction": "short",
+   "reason": "orb_short@76209.80",
+   "sl_price": 76471.2,
+   "context": "ORB range 22-Apr 08:00 H:76471.20 L:76209.80 TP:75731.10"
+  },
+  {
+   "open_time": 1776823200000,
+   "direction": "long",
+   "reason": "orb_long@76471.20",
+   "sl_price": 76209.8,
+   "context": "ORB range 22-Apr 08:00 H:76471.20 L:76209.80 TP:77088.40"
+  },
+  {
+   "open_time": 1776938400000,
+   "direction": "short",
+   "reason": "orb_short@77526.80",
+   "sl_price": 78459.9,
+   "context": "ORB range 23-Apr 08:00 H:78459.90 L:77526.80 TP:75766.55"
+  },
+  {
+   "open_time": 1776992400000,
+   "direction": "short",
+   "reason": "orb_short@78120.00",
+   "sl_price": 78432.0,
+   "context": "ORB range 24-Apr 08:00 H:78432.00 L:78120.00 TP:77647.20"
+  },
+  {
+   "open_time": 1777078800000,
+   "direction": "long",
+   "reason": "orb_long@77459.70",
+   "sl_price": 77254.7,
+   "context": "ORB range 25-Apr 08:00 H:77459.70 L:77254.70 TP:77779.10"
+  },
+  {
+   "open_time": 1777139100000,
+   "direction": "short",
+   "reason": "orb_short@77254.70",
+   "sl_price": 77459.7,
+   "context": "ORB range 25-Apr 08:00 H:77459.70 L:77254.70 TP:76905.90"
+  },
+  {
+   "open_time": 1777167900000,
+   "direction": "short",
+   "reason": "orb_short@77425.90",
+   "sl_price": 77607.7,
+   "context": "ORB range 26-Apr 08:00 H:77607.70 L:77425.90 TP:77144.70"
+  },
+  {
+   "open_time": 1777178700000,
+   "direction": "long",
+   "reason": "orb_long@77607.70",
+   "sl_price": 77425.9,
+   "context": "ORB range 26-Apr 08:00 H:77607.70 L:77425.90 TP:77999.70"
+  },
+  {
+   "open_time": 1777250700000,
+   "direction": "long",
+   "reason": "orb_long@78842.70",
+   "sl_price": 78319.1,
+   "context": "ORB range 27-Apr 08:00 H:78842.70 L:78319.10 TP:80049.10"
+  },
+  {
+   "open_time": 1777266900000,
+   "direction": "short",
+   "reason": "orb_short@78319.10",
+   "sl_price": 78842.7,
+   "context": "ORB range 27-Apr 08:00 H:78842.70 L:78319.10 TP:76994.70"
+  },
+  {
+   "open_time": 1777339800000,
+   "direction": "short",
+   "reason": "orb_short@77180.10",
+   "sl_price": 77412.2,
+   "context": "ORB range 28-Apr 08:00 H:77412.20 L:77180.10 TP:76716.75"
+  },
+  {
+   "open_time": 1777422600000,
+   "direction": "long",
+   "reason": "orb_long@76349.90",
+   "sl_price": 76227.5,
+   "context": "ORB range 29-Apr 08:00 H:76349.90 L:76227.50 TP:76543.60"
+  },
+  {
+   "open_time": 1777425300000,
+   "direction": "short",
+   "reason": "orb_short@76227.50",
+   "sl_price": 76349.9,
+   "context": "ORB range 29-Apr 08:00 H:76349.90 L:76227.50 TP:75998.70"
+  },
+  {
+   "open_time": 1777509000000,
+   "direction": "long",
+   "reason": "orb_long@75830.00",
+   "sl_price": 75612.2,
+   "context": "ORB range 30-Apr 08:00 H:75830.00 L:75612.20 TP:76380.30"
+  },
+  {
+   "open_time": 1777516200000,
+   "direction": "short",
+   "reason": "orb_short@75612.20",
+   "sl_price": 75830.0,
+   "context": "ORB range 30-Apr 08:00 H:75830.00 L:75612.20 TP:75248.80"
+  },
+  {
+   "open_time": 1777599000000,
+   "direction": "long",
+   "reason": "orb_long@76533.30",
+   "sl_price": 76265.4,
+   "context": "ORB range 01-May 08:00 H:76533.30 L:76265.40 TP:76982.15"
+  },
+  {
+   "open_time": 1777683600000,
+   "direction": "long",
+   "reason": "orb_long@78319.90",
+   "sl_price": 78123.0,
+   "context": "ORB range 02-May 08:00 H:78319.90 L:78123.00 TP:78630.35"
+  },
+  {
+   "open_time": 1777698000000,
+   "direction": "short",
+   "reason": "orb_short@78123.00",
+   "sl_price": 78319.9,
+   "context": "ORB range 02-May 08:00 H:78319.90 L:78123.00 TP:77752.95"
+  },
+  {
+   "open_time": 1777770000000,
+   "direction": "short",
+   "reason": "orb_short@78446.90",
+   "sl_price": 78740.5,
+   "context": "ORB range 03-May 08:00 H:78740.50 L:78446.90 TP:77881.60"
+  },
+  {
+   "open_time": 1777809600000,
+   "direction": "long",
+   "reason": "orb_long@78740.50",
+   "sl_price": 78446.9,
+   "context": "ORB range 03-May 08:00 H:78740.50 L:78446.90 TP:79255.30"
+  },
+  {
+   "open_time": 1777857300000,
+   "direction": "long",
+   "reason": "orb_long@78538.30",
+   "sl_price": 78235.4,
+   "context": "ORB range 04-May 08:00 H:78538.30 L:78235.40 TP:79023.95"
+  },
+  {
+   "open_time": 1777941000000,
+   "direction": "long",
+   "reason": "orb_long@79987.40",
+   "sl_price": 79761.2,
+   "context": "ORB range 05-May 08:00 H:79987.40 L:79761.20 TP:80382.10"
+  },
+  {
+   "open_time": 1778031000000,
+   "direction": "long",
+   "reason": "orb_long@81228.40",
+   "sl_price": 80835.8,
+   "context": "ORB range 06-May 08:00 H:81228.40 L:80835.80 TP:81854.50"
+  },
+  {
+   "open_time": 1778113800000,
+   "direction": "short",
+   "reason": "orb_short@81179.00",
+   "sl_price": 81450.5,
+   "context": "ORB range 07-May 08:00 H:81450.50 L:81179.00 TP:80579.05"
+  },
+  {
+   "open_time": 1778137200000,
+   "direction": "long",
+   "reason": "orb_long@81450.50",
+   "sl_price": 81179.0,
+   "context": "ORB range 07-May 08:00 H:81450.50 L:81179.00 TP:82026.95"
+  },
+  {
+   "open_time": 1778200200000,
+   "direction": "short",
+   "reason": "orb_short@79920.00",
+   "sl_price": 80106.3,
+   "context": "ORB range 08-May 08:00 H:80106.30 L:79920.00 TP:79592.05"
+  },
+  {
+   "open_time": 1778236200000,
+   "direction": "long",
+   "reason": "orb_long@80106.30",
+   "sl_price": 79920.0,
+   "context": "ORB range 08-May 08:00 H:80106.30 L:79920.00 TP:80396.45"
+  },
+  {
+   "open_time": 1778287500000,
+   "direction": "long",
+   "reason": "orb_long@80172.90",
+   "sl_price": 80080.0,
+   "context": "ORB range 09-May 08:00 H:80172.90 L:80080.00 TP:80332.65"
+  },
+  {
+   "open_time": 1778375700000,
+   "direction": "short",
+   "reason": "orb_short@80588.10",
+   "sl_price": 80739.9,
+   "context": "ORB range 10-May 08:00 H:80739.90 L:80588.10 TP:80343.40"
+  },
+  {
+   "open_time": 1778381100000,
+   "direction": "long",
+   "reason": "orb_long@80739.90",
+   "sl_price": 80588.1,
+   "context": "ORB range 10-May 08:00 H:80739.90 L:80588.10 TP:80976.30"
+  },
+  {
+   "open_time": 1778465700000,
+   "direction": "short",
+   "reason": "orb_short@81318.00",
+   "sl_price": 82350.0,
+   "context": "ORB range 11-May 08:00 H:82350.00 L:81318.00 TP:79649.60"
+  },
+  {
+   "open_time": 1778545800000,
+   "direction": "short",
+   "reason": "orb_short@81480.00",
+   "sl_price": 81757.3,
+   "context": "ORB range 12-May 08:00 H:81757.30 L:81480.00 TP:81035.35"
+  },
+  {
+   "open_time": 1778634000000,
+   "direction": "long",
+   "reason": "orb_long@80718.00",
+   "sl_price": 80364.5,
+   "context": "ORB range 13-May 08:00 H:80718.00 L:80364.50 TP:81452.95"
+  },
+  {
+   "open_time": 1778674500000,
+   "direction": "short",
+   "reason": "orb_short@80364.50",
+   "sl_price": 80718.0,
+   "context": "ORB range 13-May 08:00 H:80718.00 L:80364.50 TP:79785.65"
+  },
+  {
+   "open_time": 1778718600000,
+   "direction": "long",
+   "reason": "orb_long@79561.10",
+   "sl_price": 79272.9,
+   "context": "ORB range 14-May 08:00 H:79561.10 L:79272.90 TP:80042.30"
+  },
+  {
+   "open_time": 1778727600000,
+   "direction": "short",
+   "reason": "orb_short@79272.90",
+   "sl_price": 79561.1,
+   "context": "ORB range 14-May 08:00 H:79561.10 L:79272.90 TP:78806.10"
+  },
+  {
+   "open_time": 1778805900000,
+   "direction": "long",
+   "reason": "orb_long@81456.10",
+   "sl_price": 81018.8,
+   "context": "ORB range 15-May 08:00 H:81456.10 L:81018.80 TP:82124.65"
+  },
+  {
+   "open_time": 1778810400000,
+   "direction": "short",
+   "reason": "orb_short@81018.80",
+   "sl_price": 81456.1,
+   "context": "ORB range 15-May 08:00 H:81456.10 L:81018.80 TP:80250.95"
+  },
+  {
+   "open_time": 1778894100000,
+   "direction": "short",
+   "reason": "orb_short@79040.00",
+   "sl_price": 79176.0,
+   "context": "ORB range 16-May 08:00 H:79176.00 L:79040.00 TP:78791.50"
+  },
+  {
+   "open_time": 1778978700000,
+   "direction": "short",
+   "reason": "orb_short@78104.20",
+   "sl_price": 78213.9,
+   "context": "ORB range 17-May 08:00 H:78213.90 L:78104.20 TP:77750.85"
+  },
+  {
+   "open_time": 1779011100000,
+   "direction": "long",
+   "reason": "orb_long@78213.90",
+   "sl_price": 78104.2,
+   "context": "ORB range 17-May 08:00 H:78213.90 L:78104.20 TP:78378.85"
+  },
+  {
+   "open_time": 1779066900000,
+   "direction": "short",
+   "reason": "orb_short@76875.00",
+   "sl_price": 77452.7,
+   "context": "ORB range 18-May 08:00 H:77452.70 L:76875.00 TP:75989.65"
+  },
+  {
+   "open_time": 1779107400000,
+   "direction": "long",
+   "reason": "orb_long@77452.70",
+   "sl_price": 76875.0,
+   "context": "ORB range 18-May 08:00 H:77452.70 L:76875.00 TP:78553.05"
+  },
+  {
+   "open_time": 1779153300000,
+   "direction": "short",
+   "reason": "orb_short@76913.80",
+   "sl_price": 77384.6,
+   "context": "ORB range 19-May 08:00 H:77384.60 L:76913.80 TP:76028.90"
+  },
+  {
+   "open_time": 1779253200000,
+   "direction": "long",
+   "reason": "orb_long@76863.40",
+   "sl_price": 76485.0,
+   "context": "ORB range 20-May 08:00 H:76863.40 L:76485.00 TP:77767.40"
+  },
+  {
+   "open_time": 1779323400000,
+   "direction": "long",
+   "reason": "orb_long@77695.00",
+   "sl_price": 77472.5,
+   "context": "ORB range 21-May 08:00 H:77695.00 L:77472.50 TP:78033.75"
+  },
+  {
+   "open_time": 1779358500000,
+   "direction": "short",
+   "reason": "orb_short@77472.50",
+   "sl_price": 77695.0,
+   "context": "ORB range 21-May 08:00 H:77695.00 L:77472.50 TP:77015.25"
+  },
+  {
+   "open_time": 1779410700000,
+   "direction": "short",
+   "reason": "orb_short@77374.40",
+   "sl_price": 77602.5,
+   "context": "ORB range 22-May 08:00 H:77602.50 L:77374.40 TP:77002.55"
+  },
+  {
+   "open_time": 1779415200000,
+   "direction": "long",
+   "reason": "orb_long@77602.50",
+   "sl_price": 77374.4,
+   "context": "ORB range 22-May 08:00 H:77602.50 L:77374.40 TP:77975.85"
+  },
+  {
+   "open_time": 1779496200000,
+   "direction": "short",
+   "reason": "orb_short@75376.50",
+   "sl_price": 75615.7,
+   "context": "ORB range 23-May 08:00 H:75615.70 L:75376.50 TP:74901.20"
+  },
+  {
+   "open_time": 1779507000000,
+   "direction": "long",
+   "reason": "orb_long@75615.70",
+   "sl_price": 75376.5,
+   "context": "ORB range 23-May 08:00 H:75615.70 L:75376.50 TP:75980.10"
+  },
+  {
+   "open_time": 1779583500000,
+   "direction": "long",
+   "reason": "orb_long@76775.40",
+   "sl_price": 76596.9,
+   "context": "ORB range 24-May 08:00 H:76775.40 L:76596.90 TP:77080.25"
+  },
+  {
+   "open_time": 1779631200000,
+   "direction": "short",
+   "reason": "orb_short@76596.90",
+   "sl_price": 76775.4,
+   "context": "ORB range 24-May 08:00 H:76775.40 L:76596.90 TP:76212.45"
+  },
+  {
+   "open_time": 1779673500000,
+   "direction": "short",
+   "reason": "orb_short@77030.30",
+   "sl_price": 77235.5,
+   "context": "ORB range 25-May 08:00 H:77235.50 L:77030.30 TP:76597.80"
+  },
+  {
+   "open_time": 1779674400000,
+   "direction": "long",
+   "reason": "orb_long@77235.50",
+   "sl_price": 77030.3,
+   "context": "ORB range 25-May 08:00 H:77235.50 L:77030.30 TP:77672.30"
+  },
+  {
+   "open_time": 1779755400000,
+   "direction": "short",
+   "reason": "orb_short@77051.00",
+   "sl_price": 77319.6,
+   "context": "ORB range 26-May 08:00 H:77319.60 L:77051.00 TP:76436.60"
+  },
+  {
+   "open_time": 1779791400000,
+   "direction": "long",
+   "reason": "orb_long@77319.60",
+   "sl_price": 77051.0,
+   "context": "ORB range 26-May 08:00 H:77319.60 L:77051.00 TP:77875.80"
+  },
+  {
+   "open_time": 1779842700000,
+   "direction": "long",
+   "reason": "orb_long@75992.00",
+   "sl_price": 75854.9,
+   "context": "ORB range 27-May 08:00 H:75992.00 L:75854.90 TP:76260.95"
+  },
+  {
+   "open_time": 1779844500000,
+   "direction": "short",
+   "reason": "orb_short@75854.90",
+   "sl_price": 75992.0,
+   "context": "ORB range 27-May 08:00 H:75992.00 L:75854.90 TP:75639.25"
+  },
+  {
+   "open_time": 1779930900000,
+   "direction": "short",
+   "reason": "orb_short@74336.70",
+   "sl_price": 74555.5,
+   "context": "ORB range 28-May 08:00 H:74555.50 L:74336.70 TP:73929.80"
+  },
+  {
+   "open_time": 1780017300000,
+   "direction": "short",
+   "reason": "orb_short@73591.40",
+   "sl_price": 73834.6,
+   "context": "ORB range 29-May 08:00 H:73834.60 L:73591.40 TP:73204.30"
+  },
+  {
+   "open_time": 1780046100000,
+   "direction": "long",
+   "reason": "orb_long@73834.60",
+   "sl_price": 73591.4,
+   "context": "ORB range 29-May 08:00 H:73834.60 L:73591.40 TP:74214.20"
+  },
+  {
+   "open_time": 1780102800000,
+   "direction": "long",
+   "reason": "orb_long@73512.70",
+   "sl_price": 73386.0,
+   "context": "ORB range 30-May 08:00 H:73512.70 L:73386.00 TP:73727.95"
+  },
+  {
+   "open_time": 1780114500000,
+   "direction": "short",
+   "reason": "orb_short@73386.00",
+   "sl_price": 73512.7,
+   "context": "ORB range 30-May 08:00 H:73512.70 L:73386.00 TP:73120.45"
+  },
+  {
+   "open_time": 1780189200000,
+   "direction": "long",
+   "reason": "orb_long@74010.80",
+   "sl_price": 73821.4,
+   "context": "ORB range 31-May 08:00 H:74010.80 L:73821.40 TP:74395.90"
+  },
+  {
+   "open_time": 1780220700000,
+   "direction": "short",
+   "reason": "orb_short@73821.40",
+   "sl_price": 74010.8,
+   "context": "ORB range 31-May 08:00 H:74010.80 L:73821.40 TP:73530.40"
+  },
+  {
+   "open_time": 1780275600000,
+   "direction": "short",
+   "reason": "orb_short@73620.00",
+   "sl_price": 73944.2,
+   "context": "ORB range 01-Jun 08:00 H:73944.20 L:73620.00 TP:73047.30"
+  },
+  {
+   "open_time": 1780363800000,
+   "direction": "short",
+   "reason": "orb_short@71124.70",
+   "sl_price": 71397.0,
+   "context": "ORB range 02-Jun 08:00 H:71397.00 L:71124.70 TP:70520.45"
+  },
+  {
+   "open_time": 1780450200000,
+   "direction": "short",
+   "reason": "orb_short@66620.40",
+   "sl_price": 67094.5,
+   "context": "ORB range 03-Jun 08:00 H:67094.50 L:66620.40 TP:65776.85"
+  },
+  {
+   "open_time": 1780462800000,
+   "direction": "long",
+   "reason": "orb_long@67094.50",
+   "sl_price": 66620.4,
+   "context": "ORB range 03-Jun 08:00 H:67094.50 L:66620.40 TP:67816.05"
+  },
+  {
+   "open_time": 1780534800000,
+   "direction": "short",
+   "reason": "orb_short@63310.20",
+   "sl_price": 64412.9,
+   "context": "ORB range 04-Jun 08:00 H:64412.90 L:63310.20 TP:61439.95"
+  },
+  {
+   "open_time": 1780545600000,
+   "direction": "long",
+   "reason": "orb_long@64412.90",
+   "sl_price": 63310.2,
+   "context": "ORB range 04-Jun 08:00 H:64412.90 L:63310.20 TP:66252.15"
+  },
+  {
+   "open_time": 1780620300000,
+   "direction": "short",
+   "reason": "orb_short@63566.60",
+   "sl_price": 63888.0,
+   "context": "ORB range 05-Jun 08:00 H:63888.00 L:63566.60 TP:62916.20"
+  },
+  {
+   "open_time": 1780711200000,
+   "direction": "short",
+   "reason": "orb_short@61012.00",
+   "sl_price": 61500.0,
+   "context": "ORB range 06-Jun 08:00 H:61500.00 L:61012.00 TP:60117.00"
+  },
+  {
+   "open_time": 1780794000000,
+   "direction": "long",
+   "reason": "orb_long@60905.00",
+   "sl_price": 60742.8,
+   "context": "ORB range 07-Jun 08:00 H:60905.00 L:60742.80 TP:61519.60"
+  },
+  {
+   "open_time": 1780878600000,
+   "direction": "long",
+   "reason": "orb_long@63490.50",
+   "sl_price": 63111.3,
+   "context": "ORB range 08-Jun 08:00 H:63490.50 L:63111.30 TP:64256.00"
+  },
+  {
+   "open_time": 1780880400000,
+   "direction": "short",
+   "reason": "orb_short@63111.30",
+   "sl_price": 63490.5,
+   "context": "ORB range 08-Jun 08:00 H:63490.50 L:63111.30 TP:62462.10"
+  },
+  {
+   "open_time": 1780965900000,
+   "direction": "short",
+   "reason": "orb_short@62638.40",
+   "sl_price": 63157.3,
+   "context": "ORB range 09-Jun 08:00 H:63157.30 L:62638.40 TP:61744.25"
+  },
+  {
+   "open_time": 1780979400000,
+   "direction": "long",
+   "reason": "orb_long@63157.30",
+   "sl_price": 62638.4,
+   "context": "ORB range 09-Jun 08:00 H:63157.30 L:62638.40 TP:63991.85"
+  },
+  {
+   "open_time": 1781051400000,
+   "direction": "short",
+   "reason": "orb_short@61664.30",
+   "sl_price": 61864.0,
+   "context": "ORB range 10-Jun 08:00 H:61864.00 L:61664.30 TP:61191.75"
+  },
+  {
+   "open_time": 1781052300000,
+   "direction": "long",
+   "reason": "orb_long@61864.00",
+   "sl_price": 61664.3,
+   "context": "ORB range 10-Jun 08:00 H:61864.00 L:61664.30 TP:62186.05"
+  },
+  {
+   "open_time": 1781139600000,
+   "direction": "long",
+   "reason": "orb_long@61955.80",
+   "sl_price": 61483.6,
+   "context": "ORB range 11-Jun 08:00 H:61955.80 L:61483.60 TP:62720.30"
+  },
+  {
+   "open_time": 1781226000000,
+   "direction": "short",
+   "reason": "orb_short@63489.80",
+   "sl_price": 63777.0,
+   "context": "ORB range 12-Jun 08:00 H:63777.00 L:63489.80 TP:63025.00"
+  },
+  {
+   "open_time": 1781256600000,
+   "direction": "long",
+   "reason": "orb_long@63777.00",
+   "sl_price": 63489.8,
+   "context": "ORB range 12-Jun 08:00 H:63777.00 L:63489.80 TP:64285.00"
+  },
+  {
+   "open_time": 1781312400000,
+   "direction": "long",
+   "reason": "orb_long@63580.60",
+   "sl_price": 63500.0,
+   "context": "ORB range 13-Jun 08:00 H:63580.60 L:63500.00 TP:63746.40"
+  },
+  {
+   "open_time": 1781320500000,
+   "direction": "short",
+   "reason": "orb_short@63500.00",
+   "sl_price": 63580.6,
+   "context": "ORB range 13-Jun 08:00 H:63580.60 L:63500.00 TP:63358.80"
+  },
+  {
+   "open_time": 1781397000000,
+   "direction": "long",
+   "reason": "orb_long@64500.00",
+   "sl_price": 64338.8,
+   "context": "ORB range 14-Jun 08:00 H:64500.00 L:64338.80 TP:64766.90"
+  },
+  {
+   "open_time": 1781412300000,
+   "direction": "short",
+   "reason": "orb_short@64338.80",
+   "sl_price": 64500.0,
+   "context": "ORB range 14-Jun 08:00 H:64500.00 L:64338.80 TP:64058.20"
+  },
+  {
+   "open_time": 1781483400000,
+   "direction": "short",
+   "reason": "orb_short@65583.50",
+   "sl_price": 65880.0,
+   "context": "ORB range 15-Jun 08:00 H:65880.00 L:65583.50 TP:65063.15"
+  },
+  {
+   "open_time": 1781494200000,
+   "direction": "long",
+   "reason": "orb_long@65880.00",
+   "sl_price": 65583.5,
+   "context": "ORB range 15-Jun 08:00 H:65880.00 L:65583.50 TP:66326.45"
+  },
+  {
+   "open_time": 1781575200000,
+   "direction": "short",
+   "reason": "orb_short@66197.20",
+   "sl_price": 66383.4,
+   "context": "ORB range 16-Jun 08:00 H:66383.40 L:66197.20 TP:65748.90"
+  },
+  {
+   "open_time": 1781592300000,
+   "direction": "long",
+   "reason": "orb_long@66383.40",
+   "sl_price": 66197.2,
+   "context": "ORB range 16-Jun 08:00 H:66383.40 L:66197.20 TP:66685.70"
+  },
+  {
+   "open_time": 1781656200000,
+   "direction": "long",
+   "reason": "orb_long@65779.00",
+   "sl_price": 65644.8,
+   "context": "ORB range 17-Jun 08:00 H:65779.00 L:65644.80 TP:65996.00"
+  },
+  {
+   "open_time": 1781658900000,
+   "direction": "short",
+   "reason": "orb_short@65644.80",
+   "sl_price": 65779.0,
+   "context": "ORB range 17-Jun 08:00 H:65779.00 L:65644.80 TP:65355.60"
+  },
+  {
+   "open_time": 1781743500000,
+   "direction": "short",
+   "reason": "orb_short@64455.40",
+   "sl_price": 64676.5,
+   "context": "ORB range 18-Jun 08:00 H:64676.50 L:64455.40 TP:64101.15"
+  },
+  {
+   "open_time": 1781744400000,
+   "direction": "long",
+   "reason": "orb_long@64676.50",
+   "sl_price": 64455.4,
+   "context": "ORB range 18-Jun 08:00 H:64676.50 L:64455.40 TP:65035.35"
+  },
+  {
+   "open_time": 1781829000000,
+   "direction": "long",
+   "reason": "orb_long@62974.60",
+   "sl_price": 62812.7,
+   "context": "ORB range 19-Jun 08:00 H:62974.60 L:62812.70 TP:63278.15"
+  },
+  {
+   "open_time": 1781838000000,
+   "direction": "short",
+   "reason": "orb_short@62812.70",
+   "sl_price": 62974.6,
+   "context": "ORB range 19-Jun 08:00 H:62974.60 L:62812.70 TP:62468.65"
+  },
+  {
+   "open_time": 1781917200000,
+   "direction": "short",
+   "reason": "orb_short@63435.00",
+   "sl_price": 63621.0,
+   "context": "ORB range 20-Jun 08:00 H:63621.00 L:63435.00 TP:63143.20"
+  },
+  {
+   "open_time": 1781931600000,
+   "direction": "long",
+   "reason": "orb_long@63621.00",
+   "sl_price": 63435.0,
+   "context": "ORB range 20-Jun 08:00 H:63621.00 L:63435.00 TP:64060.00"
+  },
+  {
+   "open_time": 1782008100000,
+   "direction": "short",
+   "reason": "orb_short@64217.60",
+   "sl_price": 64286.0,
+   "context": "ORB range 21-Jun 08:00 H:64286.00 L:64217.60 TP:64105.50"
+  },
+  {
+   "open_time": 1782011700000,
+   "direction": "long",
+   "reason": "orb_long@64286.00",
+   "sl_price": 64217.6,
+   "context": "ORB range 21-Jun 08:00 H:64286.00 L:64217.60 TP:64426.10"
+  },
+  {
+   "open_time": 1782088200000,
+   "direction": "long",
+   "reason": "orb_long@63737.80",
+   "sl_price": 63286.2,
+   "context": "ORB range 22-Jun 08:00 H:63737.80 L:63286.20 TP:64561.50"
+  },
+  {
+   "open_time": 1782174600000,
+   "direction": "long",
+   "reason": "orb_long@64005.90",
+   "sl_price": 63803.2,
+   "context": "ORB range 23-Jun 08:00 H:64005.90 L:63803.20 TP:64382.25"
+  },
+  {
+   "open_time": 1782189000000,
+   "direction": "short",
+   "reason": "orb_short@63803.20",
+   "sl_price": 64005.9,
+   "context": "ORB range 23-Jun 08:00 H:64005.90 L:63803.20 TP:63479.35"
+  },
+  {
+   "open_time": 1782261000000,
+   "direction": "long",
+   "reason": "orb_long@62893.10",
+   "sl_price": 62696.7,
+   "context": "ORB range 24-Jun 08:00 H:62893.10 L:62696.70 TP:63219.60"
+  },
+  {
+   "open_time": 1782269100000,
+   "direction": "short",
+   "reason": "orb_short@62696.70",
+   "sl_price": 62893.1,
+   "context": "ORB range 24-Jun 08:00 H:62893.10 L:62696.70 TP:62303.40"
+  },
+  {
+   "open_time": 1782347400000,
+   "direction": "short",
+   "reason": "orb_short@60890.60",
+   "sl_price": 61138.9,
+   "context": "ORB range 25-Jun 08:00 H:61138.90 L:60890.60 TP:60440.85"
+  },
+  {
+   "open_time": 1782362700000,
+   "direction": "long",
+   "reason": "orb_long@61138.90",
+   "sl_price": 60890.6,
+   "context": "ORB range 25-Jun 08:00 H:61138.90 L:60890.60 TP:61695.65"
+  },
+  {
+   "open_time": 1782434700000,
+   "direction": "short",
+   "reason": "orb_short@59671.30",
+   "sl_price": 59882.2,
+   "context": "ORB range 26-Jun 08:00 H:59882.20 L:59671.30 TP:59321.85"
+  },
+  {
+   "open_time": 1782445500000,
+   "direction": "long",
+   "reason": "orb_long@59882.20",
+   "sl_price": 59671.3,
+   "context": "ORB range 26-Jun 08:00 H:59882.20 L:59671.30 TP:60331.35"
+  },
+  {
+   "open_time": 1782520200000,
+   "direction": "short",
+   "reason": "orb_short@59999.40",
+   "sl_price": 60167.3,
+   "context": "ORB range 27-Jun 08:00 H:60167.30 L:59999.40 TP:59697.25"
+  },
+  {
+   "open_time": 1782526500000,
+   "direction": "long",
+   "reason": "orb_long@60167.30",
+   "sl_price": 59999.4,
+   "context": "ORB range 27-Jun 08:00 H:60167.30 L:59999.40 TP:60527.25"
+  },
+  {
+   "open_time": 1782609300000,
+   "direction": "long",
+   "reason": "orb_long@60165.80",
+   "sl_price": 59983.3,
+   "context": "ORB range 28-Jun 08:00 H:60165.80 L:59983.30 TP:60454.85"
+  },
+  {
+   "open_time": 1782623700000,
+   "direction": "short",
+   "reason": "orb_short@59983.30",
+   "sl_price": 60165.8,
+   "context": "ORB range 28-Jun 08:00 H:60165.80 L:59983.30 TP:59528.95"
+  },
+  {
+   "open_time": 1782698400000,
+   "direction": "short",
+   "reason": "orb_short@59165.30",
+   "sl_price": 59673.3,
+   "context": "ORB range 29-Jun 08:00 H:59673.30 L:59165.30 TP:58236.30"
+  },
+  {
+   "open_time": 1782700200000,
+   "direction": "long",
+   "reason": "orb_long@59673.30",
+   "sl_price": 59165.3,
+   "context": "ORB range 29-Jun 08:00 H:59673.30 L:59165.30 TP:60513.40"
+  },
+  {
+   "open_time": 1782779400000,
+   "direction": "short",
+   "reason": "orb_short@59888.00",
+   "sl_price": 60250.0,
+   "context": "ORB range 30-Jun 08:00 H:60250.00 L:59888.00 TP:59204.60"
+  },
+  {
+   "open_time": 1782867600000,
+   "direction": "short",
+   "reason": "orb_short@58270.00",
+   "sl_price": 58720.0,
+   "context": "ORB range 01-Jul 08:00 H:58720.00 L:58270.00 TP:57462.20"
+  },
+  {
+   "open_time": 1782869400000,
+   "direction": "long",
+   "reason": "orb_long@58720.00",
+   "sl_price": 58270.0,
+   "context": "ORB range 01-Jul 08:00 H:58720.00 L:58270.00 TP:59547.00"
+  },
+  {
+   "open_time": 1782952200000,
+   "direction": "short",
+   "reason": "orb_short@59708.20",
+   "sl_price": 60005.7,
+   "context": "ORB range 02-Jul 08:00 H:60005.70 L:59708.20 TP:59147.55"
+  },
+  {
+   "open_time": 1782955800000,
+   "direction": "long",
+   "reason": "orb_long@60005.70",
+   "sl_price": 59708.2,
+   "context": "ORB range 02-Jul 08:00 H:60005.70 L:59708.20 TP:60613.45"
+  },
+  {
+   "open_time": 1783040400000,
+   "direction": "long",
+   "reason": "orb_long@61558.80",
+   "sl_price": 61282.0,
+   "context": "ORB range 03-Jul 08:00 H:61558.80 L:61282.00 TP:62028.70"
+  },
+  {
+   "open_time": 1783126800000,
+   "direction": "short",
+   "reason": "orb_short@62560.50",
+   "sl_price": 62925.7,
+   "context": "ORB range 04-Jul 08:00 H:62925.70 L:62560.50 TP:61945.60"
+  },
+  {
+   "open_time": 1783185300000,
+   "direction": "long",
+   "reason": "orb_long@62925.70",
+   "sl_price": 62560.5,
+   "context": "ORB range 04-Jul 08:00 H:62925.70 L:62560.50 TP:63505.80"
+  },
+  {
+   "open_time": 1783214100000,
+   "direction": "short",
+   "reason": "orb_short@62946.60",
+   "sl_price": 63114.9,
+   "context": "ORB range 05-Jul 08:00 H:63114.90 L:62946.60 TP:62660.35"
+  },
+  {
+   "open_time": 1783288800000,
+   "direction": "long",
+   "reason": "orb_long@63114.90",
+   "sl_price": 62946.6,
+   "context": "ORB range 05-Jul 08:00 H:63114.90 L:62946.60 TP:63453.25"
+  },
+  {
+   "open_time": 1783298700000,
+   "direction": "long",
+   "reason": "orb_long@63699.90",
+   "sl_price": 63377.3,
+   "context": "ORB range 06-Jul 08:00 H:63699.90 L:63377.30 TP:64212.30"
+  },
+  {
+   "open_time": 1783305000000,
+   "direction": "short",
+   "reason": "orb_short@63377.30",
+   "sl_price": 63699.9,
+   "context": "ORB range 06-Jul 08:00 H:63699.90 L:63377.30 TP:62879.80"
+  },
+  {
+   "open_time": 1783386000000,
+   "direction": "short",
+   "reason": "orb_short@63981.60",
+   "sl_price": 64298.1,
+   "context": "ORB range 07-Jul 08:00 H:64298.10 L:63981.60 TP:63475.05"
+  }
+ ]
+}

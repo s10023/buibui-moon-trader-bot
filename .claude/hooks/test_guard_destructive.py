@@ -19,6 +19,7 @@ section 4 pins for the new rule and leaves standing for the old ones.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -32,10 +33,15 @@ PASS: list[str] = []
 FAIL: list[str] = []
 
 
-def run(command: str, *, hook: Path = HOOK, tool: str = "Bash") -> tuple[int, str]:
+def run(
+    command: str, *, hook: Path = HOOK, tool: str = "Bash", cwd: Path | None = None
+) -> tuple[int, str]:
+    payload: dict[str, object] = {"tool_name": tool, "tool_input": {"command": command}}
+    if cwd is not None:
+        payload["cwd"] = str(cwd)
     proc = subprocess.run(
         [sys.executable, str(hook)],
-        input=json.dumps({"tool_name": tool, "tool_input": {"command": command}}),
+        input=json.dumps(payload),
         capture_output=True,
         text=True,
     )
@@ -342,6 +348,168 @@ try:
     )
 finally:
     shutil.rmtree(_mut, ignore_errors=True)
+
+# --- 7. git worktree remove through a directory link (#963) -----------------
+# On Windows git FOLLOWS a junction inside the worktree and deletes the
+# TARGET's contents; on 2026-10-08 that emptied half the main .venv. The rule
+# reads the filesystem, so these cases build real trees. Only the HOOK runs --
+# git never does, so a wrong verdict here cannot delete anything.
+_SKIPPED: list[str] = []
+
+
+def _make_dir_link(link: Path, target: Path) -> bool:
+    """A junction on Windows (no Developer Mode needed), a symlink elsewhere."""
+    if sys.platform == "win32":
+        proc = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+            capture_output=True,
+        )
+        return proc.returncode == 0
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except OSError:
+        return False
+    return True
+
+
+def _unlink_dir_link(link: Path) -> None:
+    # rmdir on a junction/symlink removes the LINK only -- the safe step the
+    # block message names. Never rmtree a tree that still holds one.
+    if link.is_symlink():
+        link.unlink()
+    elif link.exists():
+        os.rmdir(link)
+
+
+_wt = Path(tempfile.mkdtemp(prefix="guard-destructive-wt-"))
+_link = _wt / "linked" / "sub" / ".venv"
+try:
+    _venv = _wt / "real-venv"
+    (_venv / "lib").mkdir(parents=True)
+    (_venv / "lib" / "keep.txt").write_text("x", encoding="utf-8")
+    _linked = _wt / "linked"
+    (_linked / "sub").mkdir(parents=True)
+    (_linked / "src.py").write_text("x", encoding="utf-8")
+    _plain = _wt / "plain"
+    (_plain / "pkg").mkdir(parents=True)
+
+    if not _make_dir_link(_link, _venv):
+        _SKIPPED.append("could not create a directory link on this host")
+    else:
+        check(
+            "worktree remove over a nested directory link is blocked",
+            run(f"git worktree remove --force {_linked}"),
+            blocked=True,
+            reason="directory link",
+        )
+        check(
+            "...and the block names the safe first step",
+            run(f"git worktree remove {_linked}"),
+            blocked=True,
+            reason="rmdir",
+        )
+        check(
+            "a relative target resolves against the payload cwd",
+            run("git worktree remove --force linked", cwd=_wt),
+            blocked=True,
+            reason="directory link",
+        )
+        check(
+            "git -C <dir> resolves the target against that dir",
+            run(f'git -C "{_wt}" worktree remove linked'),
+            blocked=True,
+            reason="directory link",
+        )
+        check(
+            "chained after && is blocked",
+            run(f"cd {_wt} && git worktree remove linked", cwd=_wt),
+            blocked=True,
+            reason="directory link",
+        )
+        check(
+            "the PowerShell tool is guarded too -- it is this host's primary shell",
+            run(f"git worktree remove --force '{_linked}'", tool="PowerShell"),
+            blocked=True,
+            reason="directory link",
+        )
+        check(
+            "PowerShell does NOT inherit the bash-shaped rules",
+            run("rm analytics.db", tool="PowerShell"),
+            blocked=False,
+        )
+        check(
+            "naming the command in a commit message passes",
+            run(f'git commit -m "guard: git worktree remove {_linked}"', cwd=_wt),
+            blocked=False,
+        )
+        check(
+            "a tree with NO link passes",
+            run(f"git worktree remove --force {_plain}"),
+            blocked=False,
+        )
+        check(
+            "a target that does not exist passes (nothing to traverse)",
+            run(f"git worktree remove {_wt / 'gone'}"),
+            blocked=False,
+        )
+        check(
+            "git worktree list passes",
+            run("git worktree list", cwd=_wt),
+            blocked=False,
+        )
+        if sys.platform == "win32":
+            _gb = "/" + str(_linked)[0].lower() + str(_linked)[2:].replace("\\", "/")
+            check(
+                "a Git Bash /c/... path is resolved, not read as \\c\\...",
+                run(f"git worktree remove {_gb}"),
+                blocked=True,
+                reason="directory link",
+            )
+
+        _mw = Path(tempfile.mkdtemp(prefix="guard-destructive-mutwt-"))
+        try:
+            _m3 = _mw / "no-link-check.py"
+            _m3.write_text(
+                HOOK.read_text(encoding="utf-8").replace(
+                    "return linked and os.path.isdir(entry.path)", "return False"
+                ),
+                encoding="utf-8",
+            )
+            check(
+                "MUTATION: link detection off -> the junction tree is allowed",
+                run(f"git worktree remove --force {_linked}", hook=_m3),
+                blocked=False,
+            )
+            _m4 = _mw / "follows-links.py"
+            _m4.write_text(
+                HOOK.read_text(encoding="utf-8").replace(
+                    "elif entry.is_dir(follow_symlinks=False):",
+                    "if entry.is_dir(follow_symlinks=True):",
+                ),
+                encoding="utf-8",
+            )
+            check(
+                "MUTATION: walk follows links -> still blocked (detection, not descent, decides)",
+                run(f"git worktree remove --force {_linked}", hook=_m4),
+                blocked=True,
+                reason="directory link",
+            )
+        finally:
+            shutil.rmtree(_mw, ignore_errors=True)
+
+        check(
+            "the link TARGET survived every case above",
+            (0 if (_venv / "lib" / "keep.txt").exists() else 2, ""),
+            blocked=False,
+        )
+finally:
+    _unlink_dir_link(_link)
+    shutil.rmtree(_wt, ignore_errors=True)
+
+for s in _SKIPPED:
+    print(f"  SKIP  {s}")
+if _SKIPPED and os.environ.get("CI"):
+    FAIL.append("section 7 SKIPPED under CI -- a skip is not a pass")
 
 print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
 for f in FAIL:
