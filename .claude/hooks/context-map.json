@@ -47,7 +47,7 @@
         "analytics/store/confidence.py",
         "tools/decay_review.py"
       ],
-      "text": "backtest run selection: `_backtest_run_id`'s `writer` argument is load-bearing and \"sweep\" is the UNSUFFIXED default ON PURPOSE -- making it symmetric would orphan every historical sweep row and cold-start backtest_cache. Writer identity alone is COSMETIC: both selection sites must keep mirroring the ranking `(sweep_id IS NOT NULL, run_at_ms)`, or DSR and the rated avg_r describe different trades. Call `recalibrate_lib.select_rated_run_ids` WITH BOTH SCOPE ARGS -- day_filter and adr_suppress_threshold travel together, and passing only the first renders as `adr_suppress_threshold IS NULL`, a pool no live config writes, frozen at 2026-04-09."
+      "text": "backtest run selection: `_backtest_run_id`'s `writer` argument is load-bearing and \"sweep\" is the UNSUFFIXED default ON PURPOSE -- making it symmetric would orphan every historical sweep row and cold-start backtest_cache. Writer identity alone is COSMETIC: the ranking `(sweep_id IS NOT NULL, run_at_ms)` lives ONLY in `select_rated_run_ids`, which `get_backtest_win_rates` and `compute_dsr_ratings` both call (#993); re-deriving it lets DSR and the rated avg_r describe different trades. A floored detector ranks only post-floor, clean runs, and a zero-trade winner drops its symbol. Call `recalibrate_lib.select_rated_run_ids` WITH BOTH SCOPE ARGS -- day_filter and adr_suppress_threshold travel together, and passing only the first renders as `adr_suppress_threshold IS NULL`, a pool no live config writes, frozen at 2026-04-09."
     },
     {
       "id": "audit-verdict",

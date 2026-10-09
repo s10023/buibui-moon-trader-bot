@@ -823,7 +823,9 @@ default view, recoverable by re-backfilling — where before it cost DATA.
 
 **Read `backtest_trades` only through `analytics.store.load_backtest_trades`** (#985), and
 `tests/test_backtest_trades_loader.py` fails on any other `FROM`/`JOIN` read. Rated readers
-pass the `run_ids` that `select_rated_run_ids` chose. Pooled studies take every admissible run:
+pass the `run_ids` that `select_rated_run_ids` chose. That selection applies the same floor (#993):
+a floored detector is never rated from a pre-floor run, and a post-floor run that closed nothing
+drops its symbol from the cell instead of handing it to an older run. Pooled studies take every admissible run:
 a detector with a `[[detector_floor]]` in `config/eras.toml` (`bos` and `liquidity_sweep`,
 2026-08-18T13:21Z) is admitted only from runs saved at or after the floor whose stored closed
 rows equal their own `closed_trades`. ⚠ **The floor alone does not clean the pool.** The
@@ -832,7 +834,7 @@ their pre-fix rows (4,233 leaked `bos` rows on the floor alone); the clean-run c
 them. A new causality fix needs a new floor entry, never a purge of the old runs.
 
 **Backtest run selection** — the `writer` argument, the `(sweep_id IS NOT NULL, run_at_ms)`
-ranking both selection sites must keep mirroring, and `recalibrate_lib.select_rated_run_ids`'s
+ranking that only `select_rated_run_ids` implements, and `recalibrate_lib.select_rated_run_ids`'s
 two scope arguments all ride the `backtest-run-id` card (how a card gets delivered:
 `CLAUDE.md`). Two verdicts outlive the mechanism: before 2026-08-12 the live gate silently
 replaced swept rows (**415 overwritten, 331 whose stored aggregate disagreed with their own
