@@ -13,7 +13,11 @@ half (long) or 1.5x (short) of mark so it cannot fire, prints the raw ack and
 the `openAlgoOrders` listing, then cancels it by `algoId` and lists again.
 The operator runs `--go`; it places a real order on the live account.
 
-    python tools/exit_order_probe.py TRXUSDT --position-side LONG [--go]
+`--close-position` sends the stop the exit manager (#981) rests instead: a
+`closePosition` STOP_MARKET with no quantity, which Binance accepts only
+against an open position (#829 measured -4509 without one).
+
+    python tools/exit_order_probe.py TRXUSDT --position-side LONG [--close-position] [--go]
 """
 
 from __future__ import annotations
@@ -46,7 +50,9 @@ def _tick_size(client: Any, symbol: str) -> float:
     raise SystemExit(f"{symbol}: no PRICE_FILTER in exchange info")
 
 
-def plan_probe(client: Any, symbol: str, position_side: str) -> dict[str, Any]:
+def plan_probe(
+    client: Any, symbol: str, position_side: str, *, close_position: bool = False
+) -> dict[str, Any]:
     """The STOP_MARKET params for the live `position_side` leg, or SystemExit."""
     rows = client.futures_position_information(symbol=symbol)
     amt = sum(
@@ -63,15 +69,19 @@ def plan_probe(client: Any, symbol: str, position_side: str) -> dict[str, Any]:
     trigger = round_to_tick(
         mark * _TRIGGER_FRAC[position_side], _tick_size(client, symbol), side
     )
-    return {
+    params: dict[str, Any] = {
         "symbol": symbol,
         "side": side,
         "positionSide": position_side,
         "type": "STOP_MARKET",
-        "quantity": str(Decimal(str(abs(amt)))),
         "stopPrice": trigger,
         "workingType": "MARK_PRICE",
     }
+    if close_position:
+        params["closePosition"] = "true"
+    else:
+        params["quantity"] = str(Decimal(str(abs(amt))))
+    return params
 
 
 def run_probe(client: Any, params: dict[str, Any]) -> list[tuple[str, Any]]:
@@ -110,6 +120,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("symbol")
     ap.add_argument("--position-side", choices=sorted(_TRIGGER_FRAC), required=True)
     ap.add_argument(
+        "--close-position",
+        action="store_true",
+        help="probe the exit manager's closePosition stop (no quantity)",
+    )
+    ap.add_argument(
         "--go", action="store_true", help="place and cancel a REAL order (live account)"
     )
     args = ap.parse_args(argv)
@@ -117,7 +132,12 @@ def main(argv: list[str] | None = None) -> int:
     from utils.binance_client import create_client
 
     client = create_client()
-    params = plan_probe(client, args.symbol.upper(), args.position_side)
+    params = plan_probe(
+        client,
+        args.symbol.upper(),
+        args.position_side,
+        close_position=args.close_position,
+    )
     print("params:", json.dumps(params, default=str))
     if not args.go:
         print("read-only: re-run with --go to place and cancel the probe stop")

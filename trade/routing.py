@@ -33,8 +33,10 @@ class OrderIntent:
     reduce_only: bool
     delta_notional: float
     reason: str  # "open" | "rebalance" | "close" | "skip:<why>" | "card"
-    order_type: str = "MARKET"  # "LIMIT" (post-only) | "MARKET"
+    order_type: str = "MARKET"  # "LIMIT" (post-only) | "MARKET" | "STOP_MARKET"
     position_side: str | None = None  # "LONG" | "SHORT" on a hedge-mode account
+    stop_price: float | None = None  # trigger price; required by a conditional type
+    close_position: bool = False  # conditional only: close the whole side, no qty
 
 
 @dataclass(frozen=True)

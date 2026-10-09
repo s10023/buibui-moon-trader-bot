@@ -53,6 +53,17 @@ A tactical crypto trading bot designed for fast, risk-managed, and confident ent
   execution marker exists. Wrapped by `make buibui-card-place [DRY=1]` /
   `make buibui-card-orders [REFRESH=1]`.
 
+- `buibui exits arm SYMBOL --side LONG|SHORT --stop P --tp1 P [--tp1-frac 0.5] [--existing]`
+  / `exits watch [--live] [--once]` / `exits disarm` / `exits status` / `exits report` —
+  exit manager v1 (#981). Arm one position; once its entry fills, `watch --live` rests a
+  `closePosition` STOP_MARKET (mark-price trigger) and one reduce-only post-only TP1 partial
+  (`--tp1-frac` of the position, floored to the lot step, skipped rather than sized up below
+  a lot). Every fill on that side is journaled to `docs/plans/journal/exit-manager.jsonl`. If
+  you move, resize or cancel either exit, the manager stands down for that position and never
+  re-places it. State changes and errors push to Telegram; a live watch refuses to start
+  without it unless `--no-telegram`. `exits report` prints maker share of exit fills and fee
+  R per trade against the #916 baseline. Without `--live`, `watch` places and records nothing.
+
 - `buibui param-audit | param-sweep` — walk-forward optimization (WFO) parameter tools.
   `param-audit` reports how each strategy × timeframe's current parameters hold up
   out-of-sample; `param-sweep` searches the grid and prints the per-cell winners. Wrapped by

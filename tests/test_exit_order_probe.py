@@ -37,6 +37,12 @@ def test_plan_rests_a_reduce_only_stop_far_from_mark_for_the_live_leg() -> None:
     assert params["stopPrice"] == pytest.approx(0.2)  # half of mark: cannot fire
 
 
+def test_plan_close_position_variant_matches_the_exit_managers_stop() -> None:
+    params = plan_probe(_client(), "TRXUSDT", "LONG", close_position=True)
+    assert params["closePosition"] == "true"
+    assert "quantity" not in params
+
+
 def test_plan_refuses_without_a_live_position() -> None:
     with pytest.raises(SystemExit, match="no open position"):
         plan_probe(_client(long_amt="0"), "TRXUSDT", "LONG")

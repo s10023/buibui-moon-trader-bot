@@ -45,7 +45,7 @@ DOCKER_IMAGE = buibui-bot
 # actually asks -- an immediate assignment would pay it on every make invocation.
 MEMORY = $(shell PYTHONPATH=. poetry run python tools/memory_dir.py 2>/dev/null)/MEMORY.md
 
-.PHONY: status skill-usage wait-ci wait-ci-main post-branch-checks post-branch-text sanity-checks preflight lint lint-md lint-md-fix docs-index docs-index-check lint-py-check lint-py typecheck test test-cov test-regression regression-update poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-analytics-backfill buibui-analytics-sync universe-backfill oi-archive-backfill buibui-backtest buibui-combo-backtest buibui-cross-tf-backtest buibui-signal-watch buibui-param-audit buibui-param-sweep buibui-recalibrate buibui-digest buibui-web buibui-card-place buibui-card-orders web-install web-dev web-build web-preview web-full clean-db clean export-live-db buibui-portfolio-replay buibui-forecast-audit buibui-forecast-weight-study buibui-forecast-regime buibui-xsmom-audit buibui-combine-audit buibui-carry-audit buibui-xsmom-capacity-audit buibui-xsmom-targets buibui-xsmom-execute buibui-universe-sync buibui-xsmom-daily buibui-structural-touch-audit buibui-structural-entry-sim-audit buibui-warning-value-audit buibui-sl-horizon-audit buibui-weekly-path-audit buibui-indicator-condition-audit buibui-xsrev-audit buibui-decay-review buibui-dead-surface-check buibui-giveback-study buibui-occurrence-dump
+.PHONY: status skill-usage wait-ci wait-ci-main post-branch-checks post-branch-text sanity-checks preflight lint lint-md lint-md-fix docs-index docs-index-check lint-py-check lint-py typecheck test test-cov test-regression regression-update poetry-install poetry-update docker-build docker-monitor-price docker-monitor-price-live docker-monitor-position docker-monitor-position-live docker-analytics-backfill docker-analytics-sync docker-backtest docker-signal-watch buibui-monitor-price buibui-monitor-price-live buibui-monitor-price-telegram buibui-monitor-position buibui-monitor-position-live buibui-monitor-position-telegram buibui-analytics-backfill buibui-analytics-sync universe-backfill oi-archive-backfill buibui-backtest buibui-combo-backtest buibui-cross-tf-backtest buibui-signal-watch buibui-param-audit buibui-param-sweep buibui-recalibrate buibui-digest buibui-web buibui-card-place buibui-card-orders buibui-exits-watch buibui-exits-status web-install web-dev web-build web-preview web-full clean-db clean export-live-db buibui-portfolio-replay buibui-forecast-audit buibui-forecast-weight-study buibui-forecast-regime buibui-xsmom-audit buibui-combine-audit buibui-carry-audit buibui-xsmom-capacity-audit buibui-xsmom-targets buibui-xsmom-execute buibui-universe-sync buibui-xsmom-daily buibui-structural-touch-audit buibui-structural-entry-sim-audit buibui-warning-value-audit buibui-sl-horizon-audit buibui-weekly-path-audit buibui-indicator-condition-audit buibui-xsrev-audit buibui-decay-review buibui-dead-surface-check buibui-giveback-study buibui-occurrence-dump
 
 # ⚠ The always-loaded gauge sums BOTH files. Until the 2026-08-19 AGENTS.md split
 # it printed `CLAUDE.md` alone, which was the whole tier; afterwards that same
@@ -430,6 +430,14 @@ buibui-card-place:  ## interactive GTX picklist over unexpired TRADE cards (DRY=
 .PHONY: buibui-card-orders
 buibui-card-orders:  ## list card order placements (REFRESH=1 polls terminal states)
 	@poetry run python buibui.py card-orders $(if $(REFRESH),--refresh,)
+
+.PHONY: buibui-exits-watch
+buibui-exits-watch:  ## exit manager poll loop (LIVE=1 places real orders, ONCE=1 polls once)
+	@poetry run python buibui.py exits watch $(if $(LIVE),--live,) $(if $(ONCE),--once,) $(if $(CONFIG),--config $(CONFIG),)
+
+.PHONY: buibui-exits-status
+buibui-exits-status:  ## armed exit-manager episodes, then the #981 success metric
+	@poetry run python buibui.py exits status && poetry run python buibui.py exits report
 
 .PHONY: buibui-forecast-audit
 buibui-forecast-audit:  ## P2: read-only EWMAC trend-sleeve G2 audit over the N3 universe
