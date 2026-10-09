@@ -321,9 +321,9 @@ def scan(
 def describe(cite: Citation, target: Path, root: Path | None = None) -> str:
     """One printable line naming the citation, its target and the dead anchor."""
     shown = (
-        str(target.relative_to(root))
+        target.relative_to(root).as_posix()
         if root and target.is_relative_to(root)
-        else str(target)
+        else target.as_posix()
     )
     anchor = f"§{cite.label}" if cite.kind == UNTYPED else f"{cite.kind} {cite.label}"
     return f"{cite.source}:{cite.line}: cites `{cite.target}` {anchor} — {shown} declares no such anchor"

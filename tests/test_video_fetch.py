@@ -1326,9 +1326,9 @@ def test_failed_caption_download_is_not_recorded_as_plain_asr(tmp_path: Path) ->
     assert isinstance(result, TranscriptResult)
     assert result.source == SOURCE_ASR_CAPTIONS_MISSED
     assert result.source != SOURCE_ASR
-    # the request itself was always correct — the row that filed this blamed selection
+    # #954: the direct `-orig` ASR track only, never the translated plain `en`
     sub_langs = calls[0][calls[0].index("--sub-langs") + 1]
-    assert sub_langs == "en,en-orig"
+    assert sub_langs == "en-orig"
 
 
 def test_caption_download_is_retried_once_and_the_retry_is_used(
@@ -1564,9 +1564,24 @@ def _meta_regional_lang() -> VideoMeta:
 def test_sub_langs_resolves_a_regional_language_to_its_base_track() -> None:
     """`en-US` matches no caption code; `en` and `en-orig` both exist."""
     requested = _sub_langs(_meta_regional_lang()).split(",")
-    assert requested[0] == "en"
+    assert requested[0] == "en-orig"
     assert "aa" not in requested
     assert "ab" not in requested
+
+
+def test_sub_langs_never_requests_a_translated_twin_of_an_orig_track() -> None:
+    """#954. The plain auto code is a `tlang` translation that YouTube 429s, and
+    yt-dlp aborts the whole call on it before reaching `-orig`."""
+    assert "en" not in _sub_langs(_meta_en_us()).split(",")
+    assert "en" not in _sub_langs(_meta_regional_lang()).split(",")
+
+
+def test_sub_langs_keeps_a_manual_track_whose_orig_twin_exists() -> None:
+    """An author-written track is never swapped for the ASR one."""
+    meta = replace(
+        _meta_en_us(), caption_langs_manual=("en",), caption_langs_auto=("en-orig",)
+    )
+    assert _sub_langs(meta).split(",")[0] == "en"
 
 
 def test_sub_langs_never_requests_the_whole_translate_matrix() -> None:

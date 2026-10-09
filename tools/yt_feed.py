@@ -780,6 +780,15 @@ def backfill_playlist(
     return result
 
 
+def _read_ids_files(paths: list[Path]) -> list[str]:
+    """Video ids from files, one or more per line; `#` starts a comment."""
+    ids: list[str] = []
+    for path in paths:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            ids.extend(line.split("#", 1)[0].split())
+    return ids
+
+
 def run_mark(
     state_path: Path,
     *,
@@ -1044,8 +1053,25 @@ def main(
         "mark", help="record explicit outcomes (the ONLY state writer)"
     )
     p_mark.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
-    p_mark.add_argument("--ingested", nargs="*", default=[])
-    p_mark.add_argument("--skipped", nargs="*", default=[])
+    # `extend`, not the default `store`: a repeated flag must accumulate. A video
+    # id can start with `-` (~1 in 64), which argparse reads as an option, so the
+    # only safe spellings are `--skipped=<id>` (repeatable) or an ids file.
+    p_mark.add_argument("--ingested", nargs="*", action="extend", default=[])
+    p_mark.add_argument("--skipped", nargs="*", action="extend", default=[])
+    p_mark.add_argument(
+        "--ingested-file",
+        type=Path,
+        action="append",
+        default=[],
+        help="file of video ids, whitespace-separated; safe for dash-led ids",
+    )
+    p_mark.add_argument(
+        "--skipped-file",
+        type=Path,
+        action="append",
+        default=[],
+        help="file of video ids, whitespace-separated; safe for dash-led ids",
+    )
     p_mark.add_argument(
         "--channel-seen",
         action="append",
@@ -1096,8 +1122,8 @@ def main(
     if args.cmd == "mark":
         count = run_mark(
             args.state,
-            ingested=args.ingested,
-            skipped=args.skipped,
+            ingested=args.ingested + _read_ids_files(args.ingested_file),
+            skipped=args.skipped + _read_ids_files(args.skipped_file),
             channel_seen=args.channel_seen,
             playlist_seen=args.playlist_seen,
             candidates_json=args.candidates_json,

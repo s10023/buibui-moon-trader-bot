@@ -1141,6 +1141,36 @@ class TestMainPoll:
         assert state["videos"]["aaaaaaaaaaa"]["status"] == "ingested"
         assert "UCabcdefghijklmnopqrstuv" in state["channels"]
 
+    def test_mark_accepts_dash_led_ids(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # #956: a bare `--skipped -8u47LL2wZE` is read as an option and the
+        # whole call exits 2. The `=` form must repeat and ACCUMULATE, and an
+        # ids file must carry dash-led ids with no escaping at all.
+        monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
+        state_path = tmp_path / "s.json"
+        ids_file = tmp_path / "skipped.txt"
+        ids_file.write_text("-JbMVBT9LlU  ccccccccccc\n# comment\n", encoding="utf-8")
+        rc = main(
+            [
+                "mark",
+                "--state",
+                str(state_path),
+                "--ingested=aaaaaaaaaaa",
+                "--skipped=-8u47LL2wZE",
+                "--skipped=bbbbbbbbbbb",
+                "--skipped-file",
+                str(ids_file),
+            ],
+            get=FakeGet({}),
+            now=NOW,
+        )
+        assert rc == 0
+        videos = load_state(state_path)["videos"]
+        assert videos["aaaaaaaaaaa"]["status"] == "ingested"
+        for vid in ("-8u47LL2wZE", "bbbbbbbbbbb", "-JbMVBT9LlU", "ccccccccccc"):
+            assert videos[vid]["status"] == "skipped", vid
+
 
 class TestExampleConfig:
     def test_example_config_parses(self) -> None:

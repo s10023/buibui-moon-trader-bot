@@ -446,11 +446,21 @@ def _sub_langs(meta: VideoMeta) -> str:
     exists (`en-US` -> `en`), and the list is capped, so no video can request a
     translate matrix again. The cap only ever trims the widening tail — the
     resolved language and the author-written tracks are added first.
+
+    A third rule (#954): an AUTO code whose `-orig` twin is listed is requested
+    as the twin. `-orig` is the direct ASR track; the plain code is fetched
+    with `tlang` whenever it differs from the spoken language, and YouTube 429s
+    that translation request. Measured 2026-10-09 on nDp00KRoosU (`en-US`, auto
+    only): `--sub-langs en,en-orig` dies on `en` with HTTP 429 and yt-dlp aborts
+    before `en-orig`, while `--sub-langs en-orig` alone exits 0 with the whole
+    transcript. Five of ten videos in the 2026-10-08 round fell to Whisper so.
     """
     known = (*meta.caption_langs_manual, *meta.caption_langs_auto)
     wanted: list[str] = []
 
     def _add(code: str) -> None:
+        if code not in meta.caption_langs_manual and f"{code}-orig" in known:
+            code = f"{code}-orig"
         if code and code not in wanted:
             wanted.append(code)
 
@@ -1059,4 +1069,12 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    # #954 / ST127's PATH level: every `_YT_DLP` call resolves `yt-dlp` BY NAME, so
+    # `.venv/Scripts/python tools/video_fetch.py` without the venv on PATH failed
+    # every URL with FileNotFoundError (`poetry run` hid it). This also prepends
+    # the venv's scripts dir when already inside it. Only at the CLI entry, so an
+    # importer keeps its own PATH.
+    from tools.venv_bootstrap import reexec_into_venv
+
+    reexec_into_venv(Path(__file__).resolve().parent.parent)
     raise SystemExit(main())

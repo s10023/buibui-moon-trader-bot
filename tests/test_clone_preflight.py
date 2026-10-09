@@ -115,6 +115,19 @@ class TestRefusesOnDirtyTree:
             == REFUSED
         )
 
+    def test_a_cp1252_stdout_still_returns_refused(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """#869: the emoji banner raised UnicodeEncodeError on a Windows console."""
+        import io
+
+        repo = _make_repo(tmp_path)
+        (repo / "committed.txt").write_text("uncommitted edit\n", encoding="utf-8")
+        out = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+        monkeypatch.setattr(sys, "stdout", out)
+        rc = main(["--repo", str(repo), "--dest", str(tmp_path / "c"), "--dry-run"])
+        assert rc == REFUSED
+
     def test_refuses_before_taking_any_clone(self, tmp_path: Path) -> None:
         """A clone of a dirty tree would test stale HEAD and report green."""
         repo = _make_repo(tmp_path)

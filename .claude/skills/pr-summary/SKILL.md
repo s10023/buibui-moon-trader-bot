@@ -25,7 +25,8 @@ know: where the file goes, how the title is written, which gates the body may cl
 3. Write the title (rules below).
 4. Write the body in the `pr` shape, with this repo's additions (below).
 5. Screen it: `make post-branch-text FILE=<path>` and fix every finding. It gates; through
-   `make`, read the banner rather than the exit code.
+   `make`, read the banner rather than the exit code. On Windows pass a forward-slash or
+   repo-relative path, never `$TEMP`, whose backslashes `make` strips.
 6. Write it to the output path and return only the path.
 
 ## Output location

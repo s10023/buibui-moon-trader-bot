@@ -162,6 +162,12 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # #869: the banners carry emoji, and a Windows console or redirect defaults to
+    # cp1252, where the first `print("⛔ ...")` raised UnicodeEncodeError and the
+    # exit code read as a crash rather than REFUSED / INFRA / FAILED.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     args = _parse_args(argv)
     root = Path(args.repo).resolve()
 
