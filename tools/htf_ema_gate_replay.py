@@ -40,7 +40,7 @@ import duckdb
 import pandas as pd
 
 from analytics.signal_config import load_signal_config
-from analytics.store import DEFAULT_DB_PATH
+from analytics.store import DEFAULT_DB_PATH, load_backtest_trades
 from analytics.strategies import STRATEGY_REGISTRY
 from analytics.strategies._shared import compute_ema
 
@@ -58,13 +58,11 @@ _TF_MS: dict[str, int] = {
 
 def _load_trades(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     """All closed trades — F8 applies to every strategy (default 4h anchor)."""
-    return conn.execute(
-        """
-        SELECT strategy, symbol, timeframe, direction, entry_time, pnl_r
-        FROM backtest_trades
-        WHERE outcome != 'open' AND pnl_r IS NOT NULL
-        """
-    ).df()
+    return load_backtest_trades(
+        conn,
+        columns=("strategy", "symbol", "timeframe", "direction", "entry_time", "pnl_r"),
+        closed_only=True,
+    )
 
 
 def _slope_series(

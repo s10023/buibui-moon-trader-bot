@@ -14,6 +14,7 @@ import pandas as pd
 
 from analytics.research_guards import GATE_DSR, deflated_sharpe_ratio
 from analytics.signal_config import SignalWatchConfig, declared_cells
+from analytics.store.backtest_trades import load_backtest_trades
 
 # A 5-star cell whose Deflated Sharpe falls below this is overfit-suspect (spec
 # section 3). Derived from the published gate rather than restated: this line held its
@@ -485,12 +486,14 @@ def compute_dsr_ratings(
     if not run_ids:
         return {}
 
-    placeholders = ",".join("?" * len(run_ids))
-    trade_rows = conn.execute(
-        f"SELECT strategy, timeframe, direction, pnl_r FROM backtest_trades "
-        f"WHERE run_id IN ({placeholders}) AND outcome <> 'open' AND pnl_r IS NOT NULL",
-        run_ids,
-    ).fetchall()
+    trades = load_backtest_trades(
+        conn,
+        columns=("strategy", "timeframe", "direction", "pnl_r"),
+        run_ids=run_ids,
+        closed_only=True,
+        dedup_on=None,
+    )
+    trade_rows = list(trades.itertuples(index=False, name=None))
     if not trade_rows:
         return {}
 

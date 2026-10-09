@@ -641,7 +641,9 @@ is UNTESTED on the panel this study called its best-powered
 (`docs/audits/2026-08-14-st28-multi-regime-powered-null.md`). The decisive number is
 exploratory but plain: the 2021–22 15m book reads median −0.0431R against the 2025–26
 corpus's −0.0474R, so **the book is equally unprofitable in a bull leg, a bear leg and now.
-Its weakness is structural rather than a regime artifact.**
+Its weakness is structural rather than a regime artifact.** Re-run on regenerated legs (#985),
+causal `bos/15m/long` displaces `fib_golden_zone` as the fourth cell and reads INSUFFICIENT;
+the NO stands.
 
 Three things from that study generalise:
 
@@ -654,7 +656,8 @@ Three things from that study generalise:
    size.
 3. **`backtest_trades` carries a ~5.29× duplication factor** from repeated runs (857,740
    rows → 162,263 distinct). Dedup on `(symbol, timeframe, strategy, direction,
-   entry_time)`, or every n inflates ~5× and every t ~2.3×.
+   entry_time)`, or every n inflates ~5× and every t ~2.3×. `load_backtest_trades` does
+   this by default, keeping the newest run's row.
 
 **Give-back is REAL, and exit tuning stays CLOSED anyway**
 (`docs/audits/2026-08-18-st17-giveback-heat-and-run.md`). Of the 1,790 live rows reaching
@@ -728,7 +731,9 @@ conditioning and onto the signal book.
   every cell in every panel. **The NO direction stands; the "no more-data door" corollary
   does not** — it rested on a sample-size floor, and the corrected criterion flips the
   primary panel to INSUFFICIENT. H15 is the second genuinely different data source after
-  H14, and both found no edge, which sharpens the standing conclusion.
+  H14, and both found no edge, which sharpens the standing conclusion. On #985's deduped pool
+  its ledger near-miss (`magnitude/yen_weak/long`, n=35 days) passes six of seven legs and
+  misses on DSR 0.9496; it stays a post-hoc, secondary-panel cell, not an AVOID.
 - **H8's "price location gates BOTH directions" was LOOK-AHEAD**
   (`docs/audits/2026-10-08-h8-a31-causal-tagger-rerun.md`, #952). The tagger kept bars with
   `open_time <= t`, so the in-progress 1d bar's close, up to 24h after entry, set the
@@ -739,8 +744,10 @@ conditioning and onto the signal book.
   INSUFFICIENT, where it read +0.467R BUILD. What remains is 19 long-side AVOID cells, and
   they are the *above* states: longs entered extended up underperform other longs (4h
   `vwap_weekly/above/long` −0.313R against −0.045R). That is ~1 collinear, in-sample finding
-  that agrees with the counter-trend-book reading, so it is not new information. The two
-  remaining BUILDs vanish without the pre-fix `bos`/`liquidity_sweep` rows (#949).
+  that agrees with the counter-trend-book reading, so it is not new information. Re-run
+  through the one loader (#985, `docs/audits/2026-10-09-985-backtest-trades-loader-rerun.md`)
+  the two BUILDs are gone and 10 AVOID cells remain (4h 1, 1h 9, 1d 0), and the 4h example
+  above reads INSUFFICIENT; the AVOID set moves with the run-selection rule.
   Indicator *character* remains a NO.
 
 ### Code-level rules
@@ -814,6 +821,16 @@ consumers READ is fresh.
 mislabelled write now costs VISIBILITY — the rows land beside the real ones, invisible to the
 default view, recoverable by re-backfilling — where before it cost DATA.
 
+**Read `backtest_trades` only through `analytics.store.load_backtest_trades`** (#985), and
+`tests/test_backtest_trades_loader.py` fails on any other `FROM`/`JOIN` read. Rated readers
+pass the `run_ids` that `select_rated_run_ids` chose. Pooled studies take every admissible run:
+a detector with a `[[detector_floor]]` in `config/eras.toml` (`bos` and `liquidity_sweep`,
+2026-08-18T13:21Z) is admitted only from runs saved at or after the floor whose stored closed
+rows equal their own `closed_trades`. ⚠ **The floor alone does not clean the pool.** The
+2026-10-09 `/db-update` wrote new `run_id`s beside the 2026-08-18 runs, which still carry
+their pre-fix rows (4,233 leaked `bos` rows on the floor alone); the clean-run check drops
+them. A new causality fix needs a new floor entry, never a purge of the old runs.
+
 **Backtest run selection** — the `writer` argument, the `(sweep_id IS NOT NULL, run_at_ms)`
 ranking both selection sites must keep mirroring, and `recalibrate_lib.select_rated_run_ids`'s
 two scope arguments all ride the `backtest-run-id` card (how a card gets delivered:
@@ -876,9 +893,10 @@ under `DSR_SUSPECT_THRESHOLD` (0.95), so the suspect list is unchanged. The cons
 see it is `card/state.py` → `card/prompt.py`, where **`dsr < 0.95` reads as "weak"** — so the
 AI card was told every long cell was weak on the strength of one cell. ⚠ **That cell's numbers
 PRE-DATE the 2026-08-18 `bos` causality fix and nothing has re-run them** (no config declares
-`bos` on `1d`), which is why the live pool still reproduces the filed −461 to the digit; the
-ST63 occurrence dump re-derived the signature on post-fix data at −445 to −506, so the
-mechanism is verified in both eras. A stale, un-rerunnable cell poisoning the live family is
+`bos` on `1d`), which is why the live pool still reproduces the filed −461 to the digit. ST63's
+"re-derived on post-fix data" check read pre-fix rows: no post-fix `bos` 1d row exists, so the
+cell is verified in neither era (#985, `docs/audits/2026-10-09-985-backtest-trades-loader-rerun.md`).
+The floor does not need it to be. A stale, un-rerunnable cell poisoning the live family is
 an argument for the floor, not against it.
 
 **Detectors must be CAUSAL, and `tests/test_lookahead.py` is the gate.** It feeds each

@@ -70,7 +70,7 @@ from analytics.research_guards import (
     probabilistic_sharpe_ratio,
 )
 from analytics.signal_config import load_signal_config
-from analytics.store import DEFAULT_DB_PATH
+from analytics.store import DEFAULT_DB_PATH, load_backtest_trades
 from tools.dead_surface_check import (
     DEFAULT_CONFIGS,
     declared_by_direction,
@@ -203,13 +203,14 @@ def pools_by_scope(
     if not run_ids:
         return out
 
-    placeholders = ",".join("?" * len(run_ids))
-    rows = conn.execute(
-        f"SELECT strategy, timeframe, direction, pnl_r FROM backtest_trades "
-        f"WHERE run_id IN ({placeholders}) AND outcome <> 'open' AND pnl_r IS NOT NULL",
-        run_ids,
-    ).fetchall()
-    for strategy, tf, direction, pnl_r in rows:
+    rows = load_backtest_trades(
+        conn,
+        columns=("strategy", "timeframe", "direction", "pnl_r"),
+        run_ids=run_ids,
+        closed_only=True,
+        dedup_on=None,
+    )
+    for strategy, tf, direction, pnl_r in rows.itertuples(index=False, name=None):
         cell = (str(strategy), str(tf))
         out["combined"][cell].append(float(pnl_r))
         if direction in ("long", "short"):

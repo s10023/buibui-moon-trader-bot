@@ -19,7 +19,7 @@ import duckdb
 import pandas as pd
 
 from analytics.regime import classify_series
-from analytics.store import DEFAULT_DB_PATH
+from analytics.store import DEFAULT_DB_PATH, load_backtest_trades
 
 # Decision rule thresholds (kept in sync with phase0 doc)
 _KILL_AVG_R_CEIL = 0.0
@@ -40,18 +40,19 @@ _SESSION_BUCKETS: list[tuple[int, int, str]] = [
 
 def _load_trades(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     """Closed trades joined with their run's symbol/tf/strategy."""
-    return conn.execute("""
-        SELECT
-            t.strategy,
-            t.symbol,
-            t.timeframe,
-            t.signal_time,
-            t.direction,
-            t.outcome,
-            t.pnl_r
-        FROM backtest_trades t
-        WHERE t.outcome != 'open' AND t.pnl_r IS NOT NULL
-    """).df()
+    return load_backtest_trades(
+        conn,
+        columns=(
+            "strategy",
+            "symbol",
+            "timeframe",
+            "signal_time",
+            "direction",
+            "outcome",
+            "pnl_r",
+        ),
+        closed_only=True,
+    )
 
 
 def _load_ohlcv(conn: duckdb.DuckDBPyConnection, symbol: str, tf: str) -> pd.DataFrame:

@@ -44,7 +44,7 @@ from statistics import NormalDist
 import duckdb
 
 from analytics.research_guards import GATE_DSR, expected_max_sharpe, required_sharpe
-from analytics.store import DEFAULT_DB_PATH
+from analytics.store import DEFAULT_DB_PATH, load_backtest_trades
 
 NORM = NormalDist()
 Z_GATE = NORM.inv_cdf(GATE_DSR)
@@ -96,15 +96,12 @@ def main() -> None:
     conn = duckdb.connect(args.db, read_only=True)
 
     # ---- 1. Duplication factor -------------------------------------------
-    dedup_row = conn.execute(
-        """
-        select count(*), count(distinct (symbol, timeframe, strategy, direction, entry_time))
-        from backtest_trades
-        """
-    ).fetchone()
-    if dedup_row is None or not dedup_row[0]:
+    cols = ("symbol", "timeframe", "strategy", "direction", "entry_time", "pnl_r")
+    raw = load_backtest_trades(conn, columns=cols, not_null=(), dedup_on=None)
+    if raw.empty:
         raise RuntimeError("backtest_trades is empty — nothing to price.")
-    tot, uniq = dedup_row
+    pool = load_backtest_trades(conn, columns=cols, not_null=())
+    tot, uniq = len(raw), len(pool)
     print(
         f"=== dedup check ===\n  rows={tot:,}  distinct(sym,tf,strat,dir,entry)={uniq:,}"
         f"  dup_factor={tot / uniq:.2f}x"
@@ -112,16 +109,8 @@ def main() -> None:
 
     # ---- 2. Real per-trade R distribution ---------------------------------
     print("\n=== pooled per-trade R distribution (deduped) ===")
-    rs = [
-        r[0]
-        for r in conn.execute(
-            """
-            select any_value(pnl_r) from backtest_trades
-            where pnl_r is not null
-            group by symbol, timeframe, strategy, direction, entry_time
-            """
-        ).fetchall()
-    ]
+    closed = pool[pool["pnl_r"].notna()]
+    rs = [float(r) for r in closed["pnl_r"]]
     mean_r, sd_r = statistics.fmean(rs), statistics.stdev(rs)
     skew = sum((x - mean_r) ** 3 for x in rs) / len(rs) / sd_r**3
     kurt = sum((x - mean_r) ** 4 for x in rs) / len(rs) / sd_r**4
@@ -132,17 +121,16 @@ def main() -> None:
 
     # ---- 3. Trial-Sharpe dispersion (drives the deflation sr0) -------------
     print("\n=== cell family: per-trade Sharpe dispersion ===")
-    cells = conn.execute(
-        """
-        select strategy, timeframe, direction, count(*) n,
-               avg(pnl_r) mu, stddev_samp(pnl_r) sd
-        from (select distinct on (symbol, timeframe, strategy, direction, entry_time)
-                     symbol, timeframe, strategy, direction, entry_time, pnl_r
-              from backtest_trades where pnl_r is not null)
-        group by 1,2,3 having count(*) >= ? and stddev_samp(pnl_r) > 0
-        """,
-        [MIN_CELL_TRADES],
-    ).fetchall()
+    agg = (
+        closed.groupby(["strategy", "timeframe", "direction"])["pnl_r"]
+        .agg(["count", "mean", "std"])
+        .reset_index()
+    )
+    agg = agg[(agg["count"] >= MIN_CELL_TRADES) & (agg["std"] > 0)]
+    cells = [
+        (s, tf, d, int(n), float(mu), float(sd))
+        for s, tf, d, n, mu, sd in agg.itertuples(index=False, name=None)
+    ]
     degenerate = [r for r in cells if r[5] < DISP_FLOOR]
     cells = [r for r in cells if r[5] >= DISP_FLOOR]
     cell_srs = [r[4] / r[5] for r in cells]
@@ -159,26 +147,24 @@ def main() -> None:
 
     # ---- 4. Trade RATE per grain -> projected n per regime window ----------
     print("\n=== projected trades per cell per regime window ===")
-    rate = conn.execute(
-        """
-        select timeframe, count(*) * 1.0
-                 / (count(distinct symbol) * (max(entry_time) - min(entry_time)) / 86400000.0)
-        from (select distinct on (symbol, timeframe, strategy, direction, entry_time)
-                     symbol, timeframe, strategy, direction, entry_time
-              from backtest_trades)
-        group by 1
-        """
-    ).fetchall()
+    rate = [
+        (
+            str(tf),
+            len(g)
+            / (
+                g["symbol"].nunique()
+                * (g["entry_time"].max() - g["entry_time"].min())
+                / 86400000.0
+            ),
+        )
+        for tf, g in pool.groupby("timeframe")
+    ]
     print("  (trades per symbol-day, pooled over strategies+directions)")
     proj: dict[str, float] = {}
     for tf, per_symbol_day in sorted(rate):
         if tf not in SYMS:
             continue
-        strat_row = conn.execute(
-            "select count(distinct strategy) from backtest_trades where timeframe=?",
-            [tf],
-        ).fetchone()
-        n_strat = strat_row[0] if strat_row else 0
+        n_strat = int(raw.loc[raw["timeframe"] == tf, "strategy"].nunique())
         cell_rate = per_symbol_day / max(n_strat * 2, 1)
         proj[tf] = cell_rate * SYMS[tf] * LEG_DAYS
         print(

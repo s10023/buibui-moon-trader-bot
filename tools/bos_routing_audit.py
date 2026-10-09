@@ -33,7 +33,7 @@ import pandas as pd
 
 from analytics.backtest.gates import _is_low_volume, _is_volume_spike
 from analytics.regime import classify_series
-from analytics.store import DEFAULT_DB_PATH
+from analytics.store import DEFAULT_DB_PATH, load_backtest_trades
 
 _MIN_N = 30  # cells below this n are reported but flagged low-confidence
 _POSITIVE_BAR = 0.03  # avg_r threshold for "positive cell" (Gemini's bar)
@@ -59,19 +59,12 @@ def _session_bucket(ts_ms: int) -> str:
 
 
 def _load_bos_trades(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
-    return conn.execute("""
-        SELECT
-            t.symbol,
-            t.timeframe,
-            t.signal_time,
-            t.direction,
-            t.outcome,
-            t.pnl_r
-        FROM backtest_trades t
-        WHERE t.strategy = 'bos'
-          AND t.outcome != 'open'
-          AND t.pnl_r IS NOT NULL
-    """).df()
+    return load_backtest_trades(
+        conn,
+        columns=("symbol", "timeframe", "signal_time", "direction", "outcome", "pnl_r"),
+        strategies=["bos"],
+        closed_only=True,
+    )
 
 
 def _load_ohlcv(conn: duckdb.DuckDBPyConnection, symbol: str, tf: str) -> pd.DataFrame:

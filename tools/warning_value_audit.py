@@ -12,9 +12,9 @@ haircut, one family per source).
 
 Substrate roles (pre-committed): ``backtest_trades`` = primary (verdicts
 gate); ``signal_alert_outcomes`` = corroboration only. Unlike the ST1 loader
-this one dedups backtest trades across saved runs on
-(symbol, tf, strategy, direction, signal_time), keeping the
-lexicographically-latest run_id. Read-only; no engine/live change.
+this one reads backtest trades through ``analytics.store.load_backtest_trades``,
+one row per (symbol, tf, strategy, direction, signal_time), newest run first.
+Read-only; no engine/live change.
 
 Run: ``PYTHONPATH=. poetry run python tools/warning_value_audit.py``
 (wrapped by ``make buibui-warning-value-audit``).
@@ -33,7 +33,11 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from analytics.store import DEFAULT_DB_PATH  # noqa: E402
+from analytics.store import (  # noqa: E402
+    DEFAULT_DB_PATH,
+    SIGNAL_KEY,
+    load_backtest_trades,
+)
 from analytics.store.market_data import get_ohlcv  # noqa: E402
 from analytics.warning_audit import (  # noqa: E402
     WARNING_KEYS,
@@ -81,15 +85,13 @@ def normalize_live(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def normalize_backtest(df: pd.DataFrame) -> pd.DataFrame:
-    """``backtest_trades`` rows → the common entry frame, deduped across runs.
+    """``backtest_trades`` rows → the common entry frame.
 
-    The same signal can appear under multiple saved runs (config refreshes,
-    sweeps). Dedup on (symbol, tf, strategy, direction, ts_ms) keeping the
-    lexicographically-latest ``run_id`` — deterministic, one row per signal.
+    A reshape only. The same signal appears under several saved runs; the loader
+    (``analytics.store.load_backtest_trades``, keyed on ``SIGNAL_KEY``) keeps one.
     """
     out = pd.DataFrame(
         {
-            "run_id": df["run_id"],
             "symbol": df["symbol"],
             "tf": df["timeframe"],
             "strategy": df["strategy"],
@@ -97,11 +99,8 @@ def normalize_backtest(df: pd.DataFrame) -> pd.DataFrame:
             "ts_ms": df["signal_time"],
             "r": df["pnl_r"],
         }
-    ).dropna(subset=["ts_ms", "r"])
-    out = out.sort_values("run_id", kind="stable").drop_duplicates(
-        subset=["symbol", "tf", "strategy", "direction", "ts_ms"], keep="last"
     )
-    return out.drop(columns=["run_id"]).reset_index(drop=True)
+    return out.dropna(subset=["ts_ms", "r"]).reset_index(drop=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -120,14 +119,21 @@ def _load_entries(db: Path, src: str, since_ms: int | None) -> pd.DataFrame:
             if since_ms is not None:
                 q += f" AND candle_ts_ms >= {since_ms}"
             return normalize_live(conn.execute(q).df())
-        q = (
-            "SELECT run_id, symbol, timeframe, strategy, direction, "
-            "signal_time, pnl_r "
-            "FROM backtest_trades WHERE pnl_r IS NOT NULL"
+        df = load_backtest_trades(
+            conn,
+            columns=(
+                "symbol",
+                "timeframe",
+                "strategy",
+                "direction",
+                "signal_time",
+                "pnl_r",
+            ),
+            dedup_on=SIGNAL_KEY,
         )
         if since_ms is not None:
-            q += f" AND signal_time >= {since_ms}"
-        return normalize_backtest(conn.execute(q).df())
+            df = df[df["signal_time"] >= since_ms]
+        return normalize_backtest(df)
 
 
 def _load_market(

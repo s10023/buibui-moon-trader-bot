@@ -50,7 +50,11 @@ from analytics.audit_guard import (  # noqa: E402
 )
 from analytics.research_guards import min_track_record_length  # noqa: E402
 from analytics.state_audit import family_pbo  # noqa: E402
-from analytics.store import DEFAULT_DB_PATH, init_schema  # noqa: E402
+from analytics.store import (  # noqa: E402
+    DEFAULT_DB_PATH,
+    init_schema,
+    load_backtest_trades,
+)
 from analytics.store.venue_prices import (  # noqa: E402
     get_venue_spot_daily,
     upsert_venue_spot_daily,
@@ -92,9 +96,6 @@ _DAY_MS = 86_400_000
 # endpoint during this task's implementation.
 _REFRESH_START_MS = int(datetime(2017, 1, 1, tzinfo=UTC).timestamp() * 1000)
 
-_BACKTEST_QUERY = (
-    "SELECT entry_time, direction, pnl_r FROM backtest_trades WHERE pnl_r IS NOT NULL"
-)
 _LIVE_QUERY = (
     "SELECT candle_ts_ms AS entry_time, direction, outcome_r AS pnl_r "
     "FROM signal_alert_outcomes WHERE outcome_r IS NOT NULL"
@@ -177,8 +178,9 @@ def _load_close_series(
 
 
 def _load_trades(conn: duckdb.DuckDBPyConnection, source: str) -> pd.DataFrame:
-    query = _BACKTEST_QUERY if source == "backtest" else _LIVE_QUERY
-    return conn.execute(query).df()
+    if source == "backtest":
+        return load_backtest_trades(conn, columns=("entry_time", "direction", "pnl_r"))
+    return conn.execute(_LIVE_QUERY).df()
 
 
 # --------------------------------------------------------------------------- #

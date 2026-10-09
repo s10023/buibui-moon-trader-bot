@@ -29,7 +29,7 @@ import duckdb
 import pandas as pd
 
 from analytics.signal_config import StrategyOverride, load_signal_config
-from analytics.store import DEFAULT_DB_PATH
+from analytics.store import DEFAULT_DB_PATH, load_backtest_trades
 
 _MIN_TRADES_FOR_DECISION = 100
 
@@ -50,16 +50,9 @@ def _load_trades(
 ) -> pd.DataFrame:
     if not strategies:
         return pd.DataFrame()
-    placeholders = ",".join(["?"] * len(strategies))
-    return conn.execute(
-        f"""
-        SELECT strategy, direction, pnl_r AS realized_r
-        FROM backtest_trades
-        WHERE strategy IN ({placeholders})
-          AND pnl_r IS NOT NULL
-        """,
-        strategies,
-    ).fetch_df()
+    return load_backtest_trades(
+        conn, columns=("strategy", "direction", "pnl_r"), strategies=strategies
+    ).rename(columns={"pnl_r": "realized_r"})
 
 
 def _label_suppressed(
