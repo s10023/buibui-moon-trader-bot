@@ -191,9 +191,14 @@ step 5 already says to omit from `--ingested`.
 
 ```bash
 PYTHONPATH=. poetry run python tools/yt_feed.py mark \
-  --ingested <picked ids…> --skipped <explicitly skipped ids…> \
+  --ingested-file <scratchpad ids file> --skipped-file <scratchpad ids file> \
   --candidates-json <scratchpad file from step 1>
 ```
+
+Write the ids to scratchpad files, whitespace-separated, rather than listing them on the
+command line: about 1 in 64 YouTube ids starts with `-`, and argparse reads a bare
+`--skipped -8u47LL2wZE` as an option and exits 2 with nothing marked. For a few ids,
+`--skipped=<id>` also works and may be repeated. Check the exit code either way.
 
 `--ingested` covers only candidates whose step-4 routing actually completed — if
 `/ingest-video` dropped or failed on a picked video, omit its id here; it gets NO mark

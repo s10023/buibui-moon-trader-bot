@@ -429,7 +429,7 @@ class TestUniverseSyncCoverage:
         surfaces += sorted(REPO_ROOT.glob(".github/workflows/*.yml"))
 
         found = {
-            str(path.relative_to(REPO_ROOT))
+            path.relative_to(REPO_ROOT).as_posix()
             for path in surfaces
             if path.is_file()
             and "analytics sync --universe" in path.read_text(encoding="utf-8")

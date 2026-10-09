@@ -1159,7 +1159,10 @@ verdicts came out of wiring them up, and the second is the one that mattered:
   note frontmatter, so the corpus held the ANSWER and none of the EVIDENCE. Now persisted —
   and the answerable count was **5 `asr_whisper` notes of 146**, 3 of them genuinely
   caption-less, so the scope was ~2 notes rather than the corpus-wide re-ingest the
-  coverage-defect rule would otherwise have demanded.
+  coverage-defect rule would otherwise have demanded. ⚠ **"Transient" was half the story
+  (#954, 2026-10-09):** on an auto-only `en-US` video the plain `en` code is a `tlang`
+  translation that YouTube 429s REPRODUCIBLY, and yt-dlp aborts before `en-orig` — so the
+  selection path WAS implicated. `_sub_langs` now requests the `-orig` twin in its place.
 - **`recap_window_s` reads the video's own leading recap chapter** and OVERRIDES the per-channel
   `intro_recap_s`, in both directions. Measured on `4Dkw1jz04lY`: @GiantCutie-K's configured
   120s against a recap chapter running to 186s, so 66s of recap read as fresh content. Only a

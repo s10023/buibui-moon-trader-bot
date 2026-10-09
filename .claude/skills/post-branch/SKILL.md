@@ -204,6 +204,8 @@ Every command for this sub-step is in `references/visibility-flip.md`. In order:
    list in; a hit on the branch's own commits is a STOP.
 2. **Screen the FINAL PR title and body** with `make post-branch-text` (`FILE=<path>` for
    the body `/pr-summary` wrote, `FILE=-` for the title on stdin) — that leg cannot see them.
+   On Windows give `FILE=` a forward-slash or repo-relative path, never `$TEMP`: `make`
+   strips its backslashes and the screen dies on a missing file instead of running.
 3. **Ask the user**, every time; a docs-only diff skips the flip. If flipping, finish the
    PR body FIRST, hand the operator the `gh repo edit … --visibility public` command and
    WAIT.
@@ -283,6 +285,9 @@ Each is a rule a past run broke; the incident is in the reference named beside i
   did — do not edit, do not prune, and do not treat `handoff-size` as a gate.
 - ⚠ **In a WORKTREE `handoff-size` SKIPS; in a normal checkout an absent handoff is a hard
   finding.** `sensitive-terms` still reports NOT CONFIGURED there — copy the list in.
+- ⚠ **On the Windows host a worktree has no `.venv`, so every `poetry run` target fails
+  there.** Run each leg by hand from the worktree root with the main checkout's
+  interpreter: `PYTHONPATH=. <main-checkout>/.venv/Scripts/python.exe tools/<tool>.py`.
 - ⚠ **`stale-anchors` is the leg with no substitute**, and it reaches the memory tree.
   ⚠ **`sensitive-terms` does NOT read the PR title/body** — Step 7 screens those.
 
